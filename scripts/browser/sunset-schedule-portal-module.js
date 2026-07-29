@@ -76,6 +76,28 @@ function schedulePortalNormalizeRentalsIntent(rentals) {
     .sort(function(a, b) { return a.offering_key < b.offering_key ? -1 : (a.offering_key > b.offering_key ? 1 : 0); });
 }
 
+/**
+ * Canonical course-equipment fingerprint: identity only (offering_key/mode/quantity).
+ * Absent/empty selection normalizes to null so [] and omit share intent.
+ * Never fingerprints labels, money, or client totals.
+ */
+function schedulePortalNormalizeCourseEquipmentIntent(raw) {
+  if (raw == null || !Array.isArray(raw) || raw.length === 0) return null;
+  return raw.map(function(row) {
+    if (!row || typeof row !== 'object') return null;
+    var offering_key = String(row.offering_key || '').trim();
+    if (!offering_key) return null;
+    return {
+      offering_key: offering_key,
+      mode: row.mode === 'all_day' ? 'all_day' : 'during_course',
+      quantity: Number(row.quantity) || 0,
+    };
+  }).filter(Boolean)
+    .sort(function(a, b) {
+      return a.offering_key < b.offering_key ? -1 : (a.offering_key > b.offering_key ? 1 : 0);
+    });
+}
+
 function schedulePortalCreateIntentKey(payload) {
   var p = payload || {};
   var comps = p.components || {};
@@ -96,6 +118,7 @@ function schedulePortalCreateIntentKey(payload) {
     payment_status: p.payment_status || 'unpaid',
     components: ordered,
     rentals: schedulePortalNormalizeRentalsIntent(p.rentals),
+    course_equipment: schedulePortalNormalizeCourseEquipmentIntent(p.course_equipment),
     custom_line_items: custom,
     notes: p.notes != null ? String(p.notes) : '',
     location_id: typeof getSunsetLocation === 'function' ? getSunsetLocation() : null,
@@ -105,8 +128,8 @@ function schedulePortalCreateIntentKey(payload) {
 /**
  * Pricing-relevant fingerprint for quote display/state binding.
  * Guest name/phone do not affect Admin totals; dates + rentals + components +
- * surfer_count + custom lines + location do. Stale €40 must not sit beside a
- * 5-day summary that came from a different payload.
+ * course_equipment + surfer_count + custom lines + location do. Stale €35 must
+ * not sit beside a €40/€45 total after equipment mode changes.
  */
 function schedulePortalQuotePricingIntentKey(payload) {
   var p = payload || {};
@@ -132,6 +155,7 @@ function schedulePortalQuotePricingIntentKey(payload) {
     date_to: p.date_to || null,
     components: ordered,
     rentals: schedulePortalNormalizeRentalsIntent(p.rentals),
+    course_equipment: schedulePortalNormalizeCourseEquipmentIntent(p.course_equipment),
     custom_line_items: custom,
     surfer_count: sc,
     location_id: typeof getSunsetLocation === 'function' ? getSunsetLocation() : null,
@@ -923,6 +947,8 @@ function schedulePortalFetchQuote(createPayload, opts) {
     date_to: createPayload.date_to,
     components: createPayload.components,
     rentals: Array.isArray(createPayload.rentals) ? createPayload.rentals : [],
+    // Same canonical CE identity as Create (offering_key/mode/quantity). Never money/labels.
+    course_equipment: Array.isArray(createPayload.course_equipment) ? createPayload.course_equipment : [],
     service_dates: schedulePortalServiceDatesFromPayload(createPayload),
     // No-lesson equipment qty authority (server forces rentals to this when present).
     surfer_count: createPayload.surfer_count != null ? createPayload.surfer_count : null,

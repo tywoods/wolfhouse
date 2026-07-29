@@ -142,13 +142,25 @@ function normalizeEquipmentOptions(value) {
 }
 
 /**
+ * Wire absence for course_equipment: undefined, null, and [] all mean
+ * "no course equipment selected". Empty arrays must not be treated as a
+ * supplied selection (standalone rentals send course_equipment: []).
+ * Non-empty arrays and non-array values remain present for fail-closed checks.
+ */
+function isPresentCourseEquipmentSelection(value) {
+  if (value == null) return false;
+  if (Array.isArray(value) && value.length === 0) return false;
+  return true;
+}
+
+/**
  * Single transport→core boundary for course_equipment selection.
  * Browser sends {offering_key, mode, quantity}; core uses all_day boolean.
  * Accepts either mode or all_day at the edge, never both competing fields.
  * Never accepts money/labels from the client.
  */
 function validateEquipmentSelection(value, surfers) {
-  if (value == null) return [];
+  if (!isPresentCourseEquipmentSelection(value)) return [];
   if (!Array.isArray(value)) throw new TypeError('course_equipment must be an array');
   if (!Number.isInteger(surfers) || surfers < 1) throw new TypeError('surfers must be a positive integer');
   const seen = new Set();
@@ -189,7 +201,7 @@ function validateEquipmentSelection(value, surfers) {
 
 /** Wire-canonical selection for quote/create echo: mode form only. */
 function normalizeSelection(selection, surfers) {
-  if (selection == null) return null;
+  if (!isPresentCourseEquipmentSelection(selection)) return null;
   return validateEquipmentSelection(selection, surfers).map((row) => ({
     offering_key: row.offering_key,
     mode: row.all_day ? 'all_day' : 'during_course',
@@ -226,6 +238,7 @@ module.exports = {
   MODES,
   CANONICAL_FIELDS,
   LEGACY_FIELDS,
+  isPresentCourseEquipmentSelection,
   validateEquipmentOptions,
   normalizeEquipmentOptions,
   resolveEquipmentOptionMoney,

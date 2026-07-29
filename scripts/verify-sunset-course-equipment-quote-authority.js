@@ -183,13 +183,19 @@ function assertLineShape(line, expected) {
   ));
 }
 
-// Zero selections
+// Zero selections (undefined / null / [] are absent — no equipment lines)
 {
-  const result = quote(groupComponentsBody([], 2), 'sunset-somo');
-  assert.equal(result.ok, true, JSON.stringify(result.body));
-  assert.strictEqual(equipmentLines(result.body).length, 0);
-  assert.deepStrictEqual(result.body.course_equipment, []);
-  assert.strictEqual(result.body.total_cents, GROUP_UNIT * 2);
+  for (const equipment of [undefined, null, []]) {
+    const result = quote(groupComponentsBody(equipment, 2), 'sunset-somo');
+    assert.equal(result.ok, true, JSON.stringify({ equipment, body: result.body }));
+    assert.strictEqual(equipmentLines(result.body).length, 0);
+    assert.ok(
+      result.body.course_equipment == null
+        || (Array.isArray(result.body.course_equipment) && result.body.course_equipment.length === 0),
+      JSON.stringify(result.body.course_equipment),
+    );
+    assert.strictEqual(result.body.total_cents, GROUP_UNIT * 2);
+  }
 }
 
 // Quantities 1 / 2 / 4 + 0 all-day price always selectable

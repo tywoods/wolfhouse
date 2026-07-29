@@ -226,7 +226,10 @@ function buildCourseEquipmentQuoteLines({
   catalog,
   serviceDates,
 }) {
-  if (selection == null) return { ok: true, lines: [], total_cents: 0, course_equipment: null };
+  const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
+  if (!isPresentCourseEquipmentSelection(selection)) {
+    return { ok: true, lines: [], total_cents: 0, course_equipment: null };
+  }
   const offerings = (catalog && catalog._adminCfg && catalog._adminCfg.rental_offerings)
     || (catalog && catalog.rental_offerings)
     || null;
@@ -823,8 +826,9 @@ function buildOfferingQuoteResult(command, catalog, offering, lineOut) {
 }
 
 function appendOfferingCourseEquipment(command, offering, result, catalog, serviceDates) {
+  const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
   const selection = command.transportBody.course_equipment;
-  if (selection == null || !result.ok) return result;
+  if (!isPresentCourseEquipmentSelection(selection) || !result.ok) return result;
   if (offering.offering_type !== 'course' && offering.offering_type !== 'private_lesson') {
     return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment' } };
   }
@@ -1149,6 +1153,19 @@ function resolveQuoteComponentsAndRentalsInput(command) {
     }
     input = validated.value;
   } else if (hasRentals) {
+    // Pure rentals path has no Group/Private component — reject non-empty CE.
+    const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
+    if (isPresentCourseEquipmentSelection(body.course_equipment)) {
+      return {
+        ok: false,
+        status: 422,
+        body: {
+          success: false,
+          reason: 'invalid_course_equipment',
+          error: 'course_equipment requires a group or private course',
+        },
+      };
+    }
     // Blank guest name/phone allowed for authoritative rental quote (no placeholders).
     const guestName = String(body.guest_name || '').trim();
     if (guestName.length > 200) {
@@ -1633,8 +1650,10 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
   // options + active scoped rental identity. Never shared location pricing,
   // equipment_included, rental-catalog prices, or client money.
   // Total = independent mode unit × qty × unique course service dates.
-  let courseEquipmentEcho = input.course_equipment || null;
-  if (input.course_equipment != null) {
+  // Absent wire forms (undefined/null/[]) are no selection — not orphan CE.
+  const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
+  let courseEquipmentEcho = null;
+  if (isPresentCourseEquipmentSelection(input.course_equipment)) {
     let courseForEquipment = null;
     let surfers = null;
     let equipmentDates = serviceDates;
@@ -1844,8 +1863,10 @@ function quoteByComponentsSync(command, catalog, requireDb) {
   }
 
   // Course-owned multi-item equipment (sync path — same authority as async).
-  let courseEquipmentEcho = input.course_equipment || null;
-  if (input.course_equipment != null) {
+  // Absent wire forms (undefined/null/[]) are no selection — not orphan CE.
+  const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
+  let courseEquipmentEcho = null;
+  if (isPresentCourseEquipmentSelection(input.course_equipment)) {
     let courseForEquipment = null;
     let surfers = null;
     let equipmentDates = serviceDates;

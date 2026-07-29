@@ -1181,9 +1181,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
       },
     });
 
-    if (input.course_equipment && (
-      !Array.isArray(input.course_equipment) || input.course_equipment.length > 0
-    )) {
+    if (require('./sunset-course-equipment-options').isPresentCourseEquipmentSelection(input.course_equipment)) {
       const { listRentalOfferings } = require('./tenant-rental-offerings');
       const rentalOfferings = await listRentalOfferings(pg, {
         clientSlug, locationId: recordLocationId, includeInactive: false,
