@@ -23455,7 +23455,9 @@ function scheduleRenderCreateRentals(){
     var catalogLabel = String(o.label || '').trim();
     if (catalogLabel === key || catalogLabel.indexOf(key + '__') === 0) catalogLabel = '';
     if (!catalogLabel && key && ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'].indexOf(key) < 0) {
-      catalogLabel = key.replace(/_rental$/, '').replace(/_/g, ' ').replace(/\b\w/g, function(ch){ return ch.toUpperCase(); });
+      catalogLabel = key.replace(/_rental$/, '').replace(/_/g, ' ').split(' ').map(function(part){
+        return part ? part.charAt(0).toUpperCase() + part.slice(1) : part;
+      }).join(' ');
     }
     var legacyLabel = portalT(labelKey);
     if (!legacyLabel || legacyLabel === labelKey) legacyLabel = fallback;
