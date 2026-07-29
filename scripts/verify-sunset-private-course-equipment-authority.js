@@ -42,8 +42,8 @@ function quote(cfg, quantity, equipment) {
 }
 
 const paidOptions = [
-  { offering_key: 'softboard', equipment_price_cents: 500, all_day_surcharge_cents: 0 },
-  { offering_key: 'carbon_fins', equipment_price_cents: 400, all_day_surcharge_cents: 0 },
+  { offering_key: 'softboard', during_course_price_cents: 500, all_day_price_cents: 0 },
+  { offering_key: 'carbon_fins', during_course_price_cents: 400, all_day_price_cents: 0 },
 ];
 const selection = [
   { offering_key: 'softboard', mode: 'during_course', quantity: 2 },
@@ -56,7 +56,7 @@ assert.equal(paid.body.total_cents, 13800, JSON.stringify(paid.body));
 assert.equal(paid.body.line_items.filter((line) => line.course_equipment).length, 2);
 
 const freeOptions = [
-  { offering_key: 'softboard', equipment_price_cents: 0, all_day_surcharge_cents: 0 },
+  { offering_key: 'softboard', during_course_price_cents: 0, all_day_price_cents: 0 },
 ];
 const free = quote(privateConfig(freeOptions), 2, [
   { offering_key: 'softboard', mode: 'during_course', quantity: 2 },

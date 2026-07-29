@@ -2,9 +2,11 @@
 
 const {
   normalizeEquipmentOptions,
+  resolveEquipmentOptionMoney,
   validateEquipmentSelection,
   normalizeSelection,
   activeScopedOfferingMap,
+  uniqueCourseServiceDates,
 } = require('./sunset-course-equipment-options');
 
 function checkedAdd(a, b, name = 'money total') {
@@ -23,9 +25,11 @@ function checkedMultiply(a, b, name = 'money total') {
 
 /**
  * Course-owned multi-item equipment quote authority.
- * Charge once per booked course × selected quantity (never per course day).
- * During = qty × equipment_price_cents
- * All Day = qty × (equipment_price_cents + all_day_surcharge_cents); surcharge 0 remains valid.
+ *
+ * During Course and All Day are independent total unit prices (never base + surcharge).
+ * Total = selected mode price × equipment quantity × UNIQUE course service dates.
+ *
+ * Browser submits only {offering_key, mode, quantity}; server resolves course + option money.
  */
 function quoteCourseEquipment({
   course,
@@ -34,12 +38,36 @@ function quoteCourseEquipment({
   offerings,
   clientSlug,
   locationId,
+  serviceDates,
 }) {
   const selected = validateEquipmentSelection(selection, surfers);
-  const configured = new Map(
-    ((course && Array.isArray(course.equipment_options)) ? course.equipment_options : [])
-      .map((x) => [String(x.offering_key || '').trim(), x]),
-  );
+  if (selected.length === 0) {
+    return { total_cents: 0, lines: [], selections: [], course_equipment: [] };
+  }
+
+  const dates = uniqueCourseServiceDates(serviceDates);
+  if (dates.length < 1) {
+    throw new TypeError('course equipment requires unique course service dates');
+  }
+  const dateCount = dates.length;
+
+  const rawOptions = (course && Array.isArray(course.equipment_options))
+    ? course.equipment_options
+    : [];
+  const configured = new Map();
+  for (const raw of rawOptions) {
+    let money;
+    try {
+      money = resolveEquipmentOptionMoney(raw);
+    } catch (err) {
+      throw new TypeError(`equipment option price invalid: ${err.message || err}`);
+    }
+    configured.set(money.offering_key, {
+      ...money,
+      label: raw && raw.label != null ? raw.label : undefined,
+    });
+  }
+
   const activeScoped = offerings
     ? activeScopedOfferingMap(offerings, { clientSlug, locationId })
     : null;
@@ -55,13 +83,18 @@ function quoteCourseEquipment({
       throw new TypeError('equipment offering is not an active scoped rental');
     }
 
-    const base = option.equipment_price_cents;
-    const surcharge = option.all_day_surcharge_cents;
-    if (!Number.isSafeInteger(base) || base < 0) throw new TypeError('equipment_price_cents invalid');
-    if (!Number.isSafeInteger(surcharge) || surcharge < 0) throw new TypeError('all_day_surcharge_cents invalid');
+    const during = option.during_course_price_cents;
+    const allDay = option.all_day_price_cents;
+    if (!Number.isSafeInteger(during) || during < 0) {
+      throw new TypeError('during_course_price_cents invalid');
+    }
+    if (!Number.isSafeInteger(allDay) || allDay < 0) {
+      throw new TypeError('all_day_price_cents invalid');
+    }
 
-    const unit = checkedAdd(base, item.all_day ? surcharge : 0, 'equipment unit');
-    const total = checkedMultiply(unit, item.quantity, 'equipment line');
+    const unit = item.all_day ? allDay : during;
+    const perDate = checkedMultiply(unit, item.quantity, 'equipment per-date');
+    const total = checkedMultiply(perDate, dateCount, 'equipment line');
     total_cents = checkedAdd(total_cents, total, 'equipment total');
 
     const mode = item.all_day ? 'all_day' : 'during_course';
@@ -71,6 +104,7 @@ function quoteCourseEquipment({
       || option.label
       || item.offering_key,
     );
+    const courseId = (course && (course.course_id || course.pack_id || course.id)) || null;
 
     transport.push({ offering_key: item.offering_key, mode, quantity: item.quantity });
     lines.push({
@@ -79,26 +113,29 @@ function quoteCourseEquipment({
       quantity: item.quantity,
       all_day: item.all_day,
       mode,
-      base_amount_cents: base,
-      base_unit_cents: base,
-      all_day_surcharge_cents: surcharge,
-      all_day_surcharge_unit_cents: surcharge,
+      during_course_price_cents: during,
+      all_day_price_cents: allDay,
       amount_cents: unit,
       unit_amount_cents: unit,
       total_cents: total,
+      date_count: dateCount,
+      service_dates: dates.slice(),
       course_equipment: true,
       course_equipment_mode: mode,
-      billing_unit: 'person_per_course',
+      billing_unit: 'person_per_course_date',
       price_source: 'course_owned_equipment',
       metadata: {
         offering_key: item.offering_key,
-        course_id: (course && (course.course_id || course.pack_id)) || null,
+        course_id: courseId,
         course_equipment: true,
         course_equipment_mode: mode,
-        price_basis: 'per_person_per_course',
+        price_basis: 'per_person_per_course_date',
         pricing_provenance: 'course_owned_equipment',
-        base_unit_cents: base,
-        all_day_surcharge_unit_cents: surcharge,
+        during_course_price_cents: during,
+        all_day_price_cents: allDay,
+        unit_amount_cents: unit,
+        date_count: dateCount,
+        service_dates: dates.slice(),
       },
     });
   }
@@ -118,6 +155,8 @@ function invoiceLines(quote) {
     unit_amount_cents: line.amount_cents,
     total_cents: line.total_cents,
     offering_key: line.offering_key,
+    date_count: line.date_count,
+    service_dates: line.service_dates ? line.service_dates.slice() : undefined,
   }));
 }
 
@@ -164,4 +203,6 @@ module.exports = {
   normalizeSelection,
   validateEquipmentSelection,
   normalizeEquipmentOptions,
+  resolveEquipmentOptionMoney,
+  uniqueCourseServiceDates,
 };

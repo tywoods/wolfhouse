@@ -44,11 +44,11 @@ function playwright() {
 }
 
 const GROUP_OPTIONS = [
-  { offering_key: 'softboard', label: 'Softboard', equipment_price_cents: 500, all_day_surcharge_cents: 1000 },
-  { offering_key: 'carbon_fins', label: 'Carbon fins', equipment_price_cents: 200, all_day_surcharge_cents: 0 },
+  { offering_key: 'softboard', label: 'Softboard', during_course_price_cents: 500, all_day_price_cents: 1000 },
+  { offering_key: 'carbon_fins', label: 'Carbon fins', during_course_price_cents: 200, all_day_price_cents: 0 },
 ];
 const PRIVATE_OPTIONS = [
-  { offering_key: 'softboard', label: 'Softboard', equipment_price_cents: 700, all_day_surcharge_cents: 300 },
+  { offering_key: 'softboard', label: 'Softboard', during_course_price_cents: 700, all_day_price_cents: 300 },
 ];
 
 (async () => {

@@ -659,8 +659,8 @@ async function behavioralHardDelete() {
         active: true,
         config_json: {
           equipment_options: [
-            { offering_key: TARGET, equipment_price_cents: 0, all_day_surcharge_cents: 500 },
-            { offering_key: SIBLING, equipment_price_cents: 100, all_day_surcharge_cents: 0 },
+            { offering_key: TARGET, during_course_price_cents: 0, all_day_price_cents: 500 },
+            { offering_key: SIBLING, during_course_price_cents: 100, all_day_price_cents: 0 },
           ],
         },
       },
@@ -671,7 +671,7 @@ async function behavioralHardDelete() {
         active: false, // inactive pack still cleaned
         config_json: {
           equipment_options: [
-            { offering_key: TARGET, equipment_price_cents: 0, all_day_surcharge_cents: 0 },
+            { offering_key: TARGET, during_course_price_cents: 0, all_day_price_cents: 0 },
           ],
         },
       },
@@ -682,7 +682,7 @@ async function behavioralHardDelete() {
         active: true,
         config_json: {
           equipment_options: [
-            { offering_key: TARGET, equipment_price_cents: 0, all_day_surcharge_cents: 0 },
+            { offering_key: TARGET, during_course_price_cents: 0, all_day_price_cents: 0 },
           ],
         },
       },
@@ -695,8 +695,8 @@ async function behavioralHardDelete() {
         active: true,
         config_json: {
           equipment_options: [
-            { offering_key: TARGET, equipment_price_cents: 200, all_day_surcharge_cents: 100 },
-            { offering_key: SIBLING, equipment_price_cents: 0, all_day_surcharge_cents: 0 },
+            { offering_key: TARGET, during_course_price_cents: 200, all_day_price_cents: 100 },
+            { offering_key: SIBLING, during_course_price_cents: 0, all_day_price_cents: 0 },
           ],
         },
       },
@@ -833,7 +833,7 @@ async function behavioralHardDelete() {
       active: true,
       config_json: {
         equipment_options: [
-          { offering_key: 'kayak_rental', equipment_price_cents: 0, all_day_surcharge_cents: 0 },
+          { offering_key: 'kayak_rental', during_course_price_cents: 0, all_day_price_cents: 0 },
         ],
       },
     }],
@@ -844,7 +844,7 @@ async function behavioralHardDelete() {
       active: true,
       config_json: {
         equipment_options: [
-          { offering_key: 'kayak_rental', equipment_price_cents: 0, all_day_surcharge_cents: 0 },
+          { offering_key: 'kayak_rental', during_course_price_cents: 0, all_day_price_cents: 0 },
         ],
       },
     }],
@@ -1003,7 +1003,7 @@ async function browserFixture() {
     schedules: ['0930_1130'],
     price_tiers: [],
     equipment_options: [
-      { offering_key: 'retired_board', equipment_price_cents: 0, all_day_surcharge_cents: 0 },
+      { offering_key: 'retired_board', during_course_price_cents: 0, all_day_price_cents: 0 },
     ],
   };
   let privateLesson = {

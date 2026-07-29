@@ -20,12 +20,13 @@ function child(location, cents) {
     course: {
       equipment_options: [{
         offering_key: 'softboard',
-        equipment_price_cents: Number.MAX_SAFE_INTEGER,
-        all_day_surcharge_cents: 1,
+        during_course_price_cents: 1,
+        all_day_price_cents: Number.MAX_SAFE_INTEGER,
       }],
     },
-    selection: [{ offering_key: 'softboard', mode: 'all_day', quantity: 1 }],
-    surfers: 1,
+    selection: [{ offering_key: 'softboard', mode: 'all_day', quantity: 2 }],
+    surfers: 2,
+    serviceDates: ['2026-08-01'],
   }), /overflow/);
   assert.strictEqual(require('./lib/sunset-schedule-booking-writes').checkedMoneyAdd(2, 3, 'booking_total'), 5);
   assert.throws(() => require('./lib/sunset-schedule-booking-writes').checkedMoneyAdd(Number.MAX_SAFE_INTEGER, 1, 'booking_total'), /booking_total_overflow/);

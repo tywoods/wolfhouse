@@ -913,6 +913,39 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
     }
     try { appliedLineTotal = checkedMoneyAdd(appliedLineTotal, lineTotal, 'applied_line_total'); }
     catch (_) { return { ok: false, error: 'applied_line_total_overflow' }; }
+
+    // Course equipment: one auditable row per unique course date. Split the
+    // aggregate quote line evenly as unit × quantity per date row (never dump
+    // the full multi-date total onto the first row).
+    if (line && line.course_equipment === true) {
+      const unit = Number(line.unit_amount_cents != null ? line.unit_amount_cents : line.amount_cents);
+      const qty = Number(line.quantity);
+      if (!Number.isSafeInteger(unit) || unit < 0 || !Number.isSafeInteger(qty) || qty < 1) {
+        return { ok: false, error: 'invalid_course_equipment_line' };
+      }
+      const perDate = unit * qty;
+      if (!Number.isSafeInteger(perDate) || perDate < 0) {
+        return { ok: false, error: 'invalid_course_equipment_line' };
+      }
+      if (perDate * matches.length !== lineTotal) {
+        return { ok: false, error: 'course_equipment_date_split_mismatch' };
+      }
+      for (const row of matches) {
+        const id = String(row.service_record_id || row.id || '');
+        const upd = await pg.query(
+          // MULTICLIENT_SCOPE_OK: same-txn service row; client_slug predicate defense-in-depth
+          'UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid AND client_slug = $3',
+          [perDate, id, clientSlug],
+        );
+        if (Number(upd && upd.rowCount) !== 1) {
+          return { ok: false, error: 'service_amount_update_mismatch' };
+        }
+        try { persistedAmountSum = checkedMoneyAdd(persistedAmountSum, perDate, 'persisted_amount_sum'); }
+        catch (_) { return { ok: false, error: 'persisted_amount_sum_overflow' }; }
+      }
+      continue;
+    }
+
     for (let i = 0; i < matches.length; i += 1) {
       const row = matches[i];
       const id = String(row.service_record_id || row.id || '');
@@ -2594,20 +2627,21 @@ async function insertScheduleComponentServiceRows(pg, opts) {
 
 /**
  * Persist course-owned multi-item equipment as independent service rows.
- * One row per selected offering_key, charged once per booked course (never per day).
+ * One auditable row per offering_key × unique course service date.
  * Money/labels come only from quoteCourseEquipment at write time.
+ * Total authority: mode unit price × quantity × unique course dates.
  */
 async function insertCourseEquipmentRows(pg, opts) {
   if (opts.selection == null) return [];
   const selection = Array.isArray(opts.selection) ? opts.selection : opts.selection;
   if (Array.isArray(selection) && selection.length === 0) return [];
 
-  const bookingDates = (opts.bookingDates || [])
-    .map((d) => String(d || '').slice(0, 10))
-    .filter(Boolean)
-    .sort();
-  const serviceDate = bookingDates[0] || null;
-  if (!serviceDate) throw new TypeError('course equipment requires a booking service date');
+  const bookingDates = [...new Set(
+    (opts.bookingDates || [])
+      .map((d) => String(d || '').slice(0, 10))
+      .filter(Boolean),
+  )].sort();
+  if (!bookingDates.length) throw new TypeError('course equipment requires a booking service date');
 
   const courseId = (opts.course && (opts.course.course_id || opts.course.pack_id || opts.course.id)) || null;
   const quote = quoteCourseEquipment({
@@ -2617,6 +2651,7 @@ async function insertCourseEquipmentRows(pg, opts) {
     offerings: opts.offerings,
     clientSlug: opts.clientSlug || opts.clientSlugForOfferings,
     locationId: opts.locationId,
+    serviceDates: bookingDates,
   });
 
   const rows = [];
@@ -2625,51 +2660,76 @@ async function insertCourseEquipmentRows(pg, opts) {
       || (line.all_day ? 'all_day' : 'during_course');
     const offeringKey = String(line.offering_key || '').trim();
     if (!offeringKey) throw new TypeError('course equipment line missing offering_key');
-    const base = Number(line.base_unit_cents != null ? line.base_unit_cents : line.base_amount_cents);
-    const surcharge = Number(
-      line.all_day_surcharge_unit_cents != null
-        ? line.all_day_surcharge_unit_cents
-        : line.all_day_surcharge_cents,
+    const during = Number(
+      line.during_course_price_cents != null
+        ? line.during_course_price_cents
+        : (line.metadata && line.metadata.during_course_price_cents),
+    );
+    const allDayPrice = Number(
+      line.all_day_price_cents != null
+        ? line.all_day_price_cents
+        : (line.metadata && line.metadata.all_day_price_cents),
     );
     const unit = Number(line.unit_amount_cents != null ? line.unit_amount_cents : line.amount_cents);
-    const total = Number(line.total_cents);
-    if (![base, surcharge, unit, total].every((n) => Number.isSafeInteger(n) && n >= 0)) {
+    const lineTotal = Number(line.total_cents);
+    // Per-date amount = unit × quantity (quote total already multiplies by date_count).
+    if (!Number.isSafeInteger(unit) || unit < 0) throw new TypeError('course equipment line money invalid');
+    if (!Number.isSafeInteger(line.quantity) || line.quantity < 1) {
+      throw new TypeError('course equipment line quantity invalid');
+    }
+    const dateTotal = unit * line.quantity;
+    if (!Number.isSafeInteger(dateTotal) || dateTotal < 0) {
       throw new TypeError('course equipment line money invalid');
     }
-    const metadata = {
-      source: opts.attribution.metadataSource,
-      staff_manual_schedule: opts.attribution.staffManualSchedule,
-      course_equipment: true,
-      offering_key: offeringKey,
-      label: String(line.label || offeringKey),
-      course_equipment_mode: mode,
-      component: 'course_equipment',
-      staff_ui_service_type: 'course_equipment',
-      price_basis: 'per_person_per_course',
-      billing_unit: 'person_per_course',
-      pricing_provenance: 'course_owned_equipment',
-      price_source: 'course_owned_equipment',
-      base_unit_cents: base,
-      all_day_surcharge_unit_cents: surcharge,
-      unit_amount_cents: unit,
-      amount_cents: total,
-      course_id: courseId,
-      location_id: opts.locationId || null,
-      bundle_id: opts.bundleId || null,
-    };
-    const row = await insertServiceRecord(pg, [
-      opts.clientSlug, opts.bookingId, opts.bookingCode, opts.guestName,
-      'addon_service', serviceDate, line.quantity,
-      opts.srPayment, opts.attribution.dbSource, JSON.stringify(metadata),
-    ]);
-    const id = row && (row.service_record_id || row.id);
-    if (id) {
-      await pg.query(
-        'UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid AND client_slug = $3',
-        [total, id, opts.clientSlug],
-      );
+    if (!Number.isSafeInteger(during) || during < 0
+      || !Number.isSafeInteger(allDayPrice) || allDayPrice < 0
+      || !Number.isSafeInteger(lineTotal) || lineTotal < 0) {
+      throw new TypeError('course equipment line money invalid');
     }
-    rows.push({ ...row, metadata, amount_due_cents: total, service_type: 'addon_service' });
+    const expectedDates = line.date_count || bookingDates.length;
+    if (dateTotal * expectedDates !== lineTotal) {
+      throw new TypeError('course equipment date expansion mismatch');
+    }
+    const serviceDates = (line.service_dates && line.service_dates.length)
+      ? line.service_dates
+      : bookingDates;
+    for (const serviceDate of serviceDates) {
+      const metadata = {
+        source: opts.attribution.metadataSource,
+        staff_manual_schedule: opts.attribution.staffManualSchedule,
+        course_equipment: true,
+        offering_key: offeringKey,
+        label: String(line.label || offeringKey),
+        course_equipment_mode: mode,
+        component: 'course_equipment',
+        staff_ui_service_type: 'course_equipment',
+        price_basis: 'per_person_per_course_date',
+        billing_unit: 'person_per_course_date',
+        pricing_provenance: 'course_owned_equipment',
+        price_source: 'course_owned_equipment',
+        during_course_price_cents: during,
+        all_day_price_cents: allDayPrice,
+        unit_amount_cents: unit,
+        amount_cents: dateTotal,
+        service_date: serviceDate,
+        course_id: courseId,
+        location_id: opts.locationId || null,
+        bundle_id: opts.bundleId || null,
+      };
+      const row = await insertServiceRecord(pg, [
+        opts.clientSlug, opts.bookingId, opts.bookingCode, opts.guestName,
+        'addon_service', serviceDate, line.quantity,
+        opts.srPayment, opts.attribution.dbSource, JSON.stringify(metadata),
+      ]);
+      const id = row && (row.service_record_id || row.id);
+      if (id) {
+        await pg.query(
+          'UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid AND client_slug = $3',
+          [dateTotal, id, opts.clientSlug],
+        );
+      }
+      rows.push({ ...row, metadata, amount_due_cents: dateTotal, service_type: 'addon_service' });
+    }
   }
   return rows;
 }

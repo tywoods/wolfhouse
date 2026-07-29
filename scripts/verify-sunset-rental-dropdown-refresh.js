@@ -197,7 +197,7 @@ async function browserFixture() {
     price_tiers: [],
     equipment_options: [
       // Historical disabled reference retained as unavailable until edited/removed.
-      { offering_key: 'retired_board', equipment_price_cents: 0, all_day_surcharge_cents: 0 },
+      { offering_key: 'retired_board', during_course_price_cents: 0, all_day_price_cents: 0 },
     ],
   };
   let privateLesson = {

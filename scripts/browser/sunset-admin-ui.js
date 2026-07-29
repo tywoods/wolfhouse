@@ -552,11 +552,19 @@ function adminEquipmentRowsHtml(rows){
     // Historical/unavailable: preserve selected disabled option — never silently rewrite.
     if(key&&!exists)opts+='<option value="'+escHtml(key)+'" selected disabled>'+escHtml(key+' — '+portalT('admin.courseEquipment.unavailable'))+'</option>';
     active.forEach(function(o){var k=String(o.offering_key||'');opts+='<option value="'+escHtml(k)+'"'+(k===key?' selected':'')+((selected[k]&&k!==key)?' disabled':'')+'>'+escHtml(o.label||o.display_name||k)+'</option>';});
+    // Independent total unit prices (never surcharge/addition). Historical legacy pair
+    // equipment_price_cents / all_day_surcharge_cents maps 1:1 to During / All Day.
+    var duringCents = (r.during_course_price_cents != null)
+      ? r.during_course_price_cents
+      : (r.equipment_price_cents || 0);
+    var allDayCents = (r.all_day_price_cents != null)
+      ? r.all_day_price_cents
+      : (r.all_day_surcharge_cents || 0);
     return '<div class="portal-admin-equipment-option-row" data-equipment-option-row="'+idx+'">' +
       '<div class="portal-admin-equipment-option-fields">' +
       '<label>'+escHtml(portalT('admin.courseEquipment.item'))+'<select class="admin-equipment-offering">'+opts+'</select></label>' +
-      '<label>'+escHtml(portalT('admin.courseEquipment.equipmentPrice'))+'<input class="admin-equipment-price" inputmode="decimal" value="'+escHtml(adminEurosFromAmount((r.equipment_price_cents||0)/100))+'"></label>' +
-      '<label>'+escHtml(portalT('admin.courseEquipment.surcharge'))+'<input class="admin-equipment-surcharge" inputmode="decimal" value="'+escHtml(adminEurosFromAmount((r.all_day_surcharge_cents||0)/100))+'"></label>' +
+      '<label>'+escHtml(portalT('admin.courseEquipment.duringPrice'))+'<input class="admin-equipment-during-price" inputmode="decimal" value="'+escHtml(adminEurosFromAmount((duringCents||0)/100))+'"></label>' +
+      '<label>'+escHtml(portalT('admin.courseEquipment.allDayPrice'))+'<input class="admin-equipment-all-day-price" inputmode="decimal" value="'+escHtml(adminEurosFromAmount((allDayCents||0)/100))+'"></label>' +
       '</div>' +
       '<div class="portal-admin-equipment-option-actions">' +
       '<button type="button" class="btn btn-ghost portal-admin-touch portal-admin-danger" data-admin-action="remove-equipment-option" aria-label="'+escHtml(portalT('admin.action.remove'))+'">'+escHtml(portalT('admin.action.remove'))+'</button>' +
@@ -566,7 +574,16 @@ function adminEquipmentRowsHtml(rows){
 function adminRenderEquipmentEditor(rows,prefix){return '<section class="portal-admin-equipment-editor" data-admin-equipment-editor="'+escHtml(prefix)+'"><h4>'+escHtml(portalT('admin.courseEquipment.editorTitle'))+'</h4><div data-equipment-option-rows>'+adminEquipmentRowsHtml(rows||[])+'</div><button type="button" class="btn btn-ghost portal-admin-touch" data-admin-action="add-equipment-option">+ '+escHtml(portalT('admin.courseEquipment.add'))+'</button></section>';}
 function adminReadEquipmentOptions(root){
   var seen={},out=[],error='';
-  Array.prototype.slice.call(root.querySelectorAll('[data-equipment-option-row]')).forEach(function(row){var key=String(row.querySelector('.admin-equipment-offering').value||'').trim(),p=adminParseEurosToCents(row.querySelector('.admin-equipment-price').value),s=adminParseEurosToCents(row.querySelector('.admin-equipment-surcharge').value);if(!key||seen[key])error=portalT('admin.courseEquipment.duplicate');else if(!p.ok||!s.ok)error=portalT('admin.edit.amountInvalid');else{seen[key]=true;out.push({offering_key:key,equipment_price_cents:p.value,all_day_surcharge_cents:s.value});}});
+  Array.prototype.slice.call(root.querySelectorAll('[data-equipment-option-row]')).forEach(function(row){
+    var key=String(row.querySelector('.admin-equipment-offering').value||'').trim();
+    var duringEl=row.querySelector('.admin-equipment-during-price')||row.querySelector('.admin-equipment-price');
+    var allDayEl=row.querySelector('.admin-equipment-all-day-price')||row.querySelector('.admin-equipment-surcharge');
+    var p=adminParseEurosToCents(duringEl&&duringEl.value);
+    var s=adminParseEurosToCents(allDayEl&&allDayEl.value);
+    if(!key||seen[key])error=portalT('admin.courseEquipment.duplicate');
+    else if(!p.ok||!s.ok)error=portalT('admin.edit.amountInvalid');
+    else{seen[key]=true;out.push({offering_key:key,during_course_price_cents:p.value,all_day_price_cents:s.value});}
+  });
   return {ok:!error,value:out,error:error};
 }
 /** Read-only card cents: exact 0 => localized Included; nonzero uses Admin EUR format. */
@@ -582,6 +599,20 @@ function adminEquipmentLabelForKey(key){
   if (found) return String(found.label || found.display_name || k);
   return k;
 }
+/** Independent During/All Day totals for readout (canonical or legacy pair). */
+function adminEquipmentOptionPrices(r){
+  if (!r) return { during: 0, allDay: 0 };
+  if (r.during_course_price_cents != null || r.all_day_price_cents != null) {
+    return {
+      during: Number(r.during_course_price_cents) || 0,
+      allDay: Number(r.all_day_price_cents) || 0,
+    };
+  }
+  return {
+    during: Number(r.equipment_price_cents) || 0,
+    allDay: Number(r.all_day_surcharge_cents) || 0,
+  };
+}
 /** Group/Private read-only Equipment section — course-owned options only, no invented defaults. */
 function adminRenderEquipmentReadout(options){
   var rows = Array.isArray(options) ? options : [];
@@ -595,8 +626,9 @@ function adminRenderEquipmentReadout(options){
     if (!r) return;
     var key = String(r.offering_key || '');
     var label = adminEquipmentLabelForKey(key);
-    var line = adminEquipmentCentsText(r.equipment_price_cents) + ' · ' +
-      portalT('admin.courseEquipment.allDay') + ' ' + adminEquipmentCentsText(r.all_day_surcharge_cents);
+    var prices = adminEquipmentOptionPrices(r);
+    var line = portalT('admin.courseEquipment.during') + ' ' + adminEquipmentCentsText(prices.during) + ' · ' +
+      portalT('admin.courseEquipment.allDay') + ' ' + adminEquipmentCentsText(prices.allDay);
     html += '<div class="portal-admin-pack-tier-row" data-equipment-readout-row="' + escHtml(key) + '">' +
       '<span>' + escHtml(label) + '</span><strong>' + escHtml(line) + '</strong></div>';
   });
@@ -1814,7 +1846,7 @@ function wireAdminTab(){
       var equipmentWrap=equipmentEditor&&equipmentEditor.querySelector('[data-equipment-option-rows]');
       if(!equipmentWrap)return;
       var equipmentRows=adminReadEquipmentOptions(equipmentEditor).value;
-      equipmentRows.push({offering_key:'',equipment_price_cents:0,all_day_surcharge_cents:0});
+      equipmentRows.push({offering_key:'',during_course_price_cents:0,all_day_price_cents:0});
       equipmentWrap.innerHTML=adminEquipmentRowsHtml(equipmentRows);
       return;
     }

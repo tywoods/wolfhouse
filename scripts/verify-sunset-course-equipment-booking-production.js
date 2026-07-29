@@ -46,18 +46,19 @@ const OFFERINGS = [
   { id: 'ro-9', client_slug: 'other', location_id: LOC, offering_key: 'foreign_tenant', label: 'Foreign Tenant', group_key: 'misc', excludes: [], sort_order: 9, active: true },
 ];
 
+// Independent During/All Day unit totals (never base + surcharge).
 const GROUP_OPTIONS = [
-  { offering_key: 'softboard', equipment_price_cents: 500, all_day_surcharge_cents: 1000 },
-  { offering_key: 'carbon_fins', equipment_price_cents: 200, all_day_surcharge_cents: 0 },
-  { offering_key: 'same_label_a', equipment_price_cents: 111, all_day_surcharge_cents: 0 },
-  { offering_key: 'same_label_b', equipment_price_cents: 222, all_day_surcharge_cents: 0 },
-  { offering_key: 'no_price_row', equipment_price_cents: 333, all_day_surcharge_cents: 0 },
-  { offering_key: 'zero_surcharge', equipment_price_cents: 400, all_day_surcharge_cents: 0 },
+  { offering_key: 'softboard', during_course_price_cents: 500, all_day_price_cents: 1000 },
+  { offering_key: 'carbon_fins', during_course_price_cents: 200, all_day_price_cents: 200 },
+  { offering_key: 'same_label_a', during_course_price_cents: 111, all_day_price_cents: 111 },
+  { offering_key: 'same_label_b', during_course_price_cents: 222, all_day_price_cents: 222 },
+  { offering_key: 'no_price_row', during_course_price_cents: 333, all_day_price_cents: 333 },
+  { offering_key: 'zero_surcharge', during_course_price_cents: 400, all_day_price_cents: 400 },
 ];
 
 const PRIVATE_OPTIONS = [
-  { offering_key: 'softboard', equipment_price_cents: 700, all_day_surcharge_cents: 300 },
-  { offering_key: 'carbon_fins', equipment_price_cents: 250, all_day_surcharge_cents: 50 },
+  { offering_key: 'softboard', during_course_price_cents: 700, all_day_price_cents: 300 },
+  { offering_key: 'carbon_fins', during_course_price_cents: 250, all_day_price_cents: 50 },
 ];
 
 function parseMeta(raw) {
@@ -683,15 +684,26 @@ function assertEquipmentRow(row, exp) {
   assert.strictEqual(Number(row.quantity), exp.quantity);
   assert.strictEqual(Number(row.amount_due_cents), exp.total, `${exp.offering_key} total`);
   assert.strictEqual(Number(meta.unit_amount_cents), exp.unit, `${exp.offering_key} unit`);
-  assert.strictEqual(Number(meta.base_unit_cents), exp.base);
-  assert.strictEqual(Number(meta.all_day_surcharge_unit_cents), exp.surcharge);
+  assert.strictEqual(Number(meta.during_course_price_cents), exp.during);
+  assert.strictEqual(Number(meta.all_day_price_cents), exp.allDay);
   assert.strictEqual(meta.label, exp.label);
   assert.strictEqual(meta.pricing_provenance, 'course_owned_equipment');
   assert.strictEqual(meta.price_source, 'course_owned_equipment');
-  assert.strictEqual(meta.price_basis, 'per_person_per_course');
+  assert.strictEqual(meta.price_basis, 'per_person_per_course_date');
   assert.strictEqual(meta.location_id, LOC);
+  if (exp.service_date) {
+    assert.strictEqual(String(row.service_date).slice(0, 10), exp.service_date);
+  }
   assert.notStrictEqual(row.service_type, 'surfboard');
   assert.notStrictEqual(row.service_type, 'wetsuit');
+}
+
+function equipByKey(services, key) {
+  return equipmentRowsOf(services).filter((r) => parseMeta(r.metadata).offering_key === key);
+}
+
+function equipSum(services, key) {
+  return equipByKey(services, key).reduce((s, r) => s + Number(r.amount_due_cents || 0), 0);
 }
 
 function seedEditBooking() {
@@ -912,30 +924,42 @@ function seedEditBooking() {
     assert.strictEqual(pg.state.bookings.length, 1, 'one durable booking');
 
     const equip = equipmentRowsOf(pg.state.services);
-    assert.strictEqual(equip.length, 2, 'two independent equipment rows');
-    // softboard all_day qty2: 2×(500+1000)=3000; carbon during qty1: 200
-    assertEquipmentRow(equip.find((r) => parseMeta(r.metadata).offering_key === 'softboard'), {
+    // One row per offering × unique course date (2 offerings × 2 dates)
+    assert.strictEqual(equip.length, 4, 'per-date equipment rows');
+    // softboard all_day qty2 unit €10: 2×1000 per date × 2 dates = 4000
+    // carbon during qty1 unit €2: 200 per date × 2 dates = 400
+    assert.strictEqual(equipSum(pg.state.services, 'softboard'), 4000);
+    assert.strictEqual(equipSum(pg.state.services, 'carbon_fins'), 400);
+    assert.strictEqual(equipByKey(pg.state.services, 'softboard').length, 2);
+    assert.strictEqual(equipByKey(pg.state.services, 'carbon_fins').length, 2);
+    assertEquipmentRow(equipByKey(pg.state.services, 'softboard')[0], {
       offering_key: 'softboard', mode: 'all_day', quantity: 2,
-      base: 500, surcharge: 1000, unit: 1500, total: 3000, label: 'Softboard',
+      during: 500, allDay: 1000, unit: 1000, total: 2000, label: 'Softboard',
     });
-    assertEquipmentRow(equip.find((r) => parseMeta(r.metadata).offering_key === 'carbon_fins'), {
+    assertEquipmentRow(equipByKey(pg.state.services, 'carbon_fins')[0], {
       offering_key: 'carbon_fins', mode: 'during_course', quantity: 1,
-      base: 200, surcharge: 0, unit: 200, total: 200, label: 'Carbon Fins',
+      during: 200, allDay: 200, unit: 200, total: 200, label: 'Carbon Fins',
     });
-    // Multi-day course billed once for equipment (not 2 days × 2 items)
-    assert.strictEqual(new Set(equip.map((r) => String(r.service_date).slice(0, 10))).size, 1);
-    assert.strictEqual(String(equip[0].service_date).slice(0, 10), '2026-08-03');
+    assert.deepStrictEqual(
+      [...new Set(equip.map((r) => String(r.service_date).slice(0, 10)))].sort(),
+      ['2026-08-03', '2026-08-04'],
+    );
 
     const courseRows = pg.state.services.filter((s) => parseMeta(s.metadata).component === 'course');
     assert(courseRows.length >= 1, 'course component rows present');
-    // Group 3 × 4000 = 12000 + equip 3200 = 15200
-    assert.strictEqual(Number(pg.state.bookings[0].total_amount_cents), 15200, 'booking total includes equipment');
-    assert.strictEqual(Number(result.body.total_cents), 15200);
+    // Group 3 × 4000 = 12000 + equip 4400 = 16400
+    assert.strictEqual(Number(pg.state.bookings[0].total_amount_cents), 16400, 'booking total includes equipment');
+    assert.strictEqual(Number(result.body.total_cents), 16400);
 
-    // Invoice reads persisted money
+    // Invoice reads persisted per-date money (no double-count across aggregate)
     const inv = equip.map((r) => formatServiceRecordInvoiceLineText(r));
-    assert(inv.some((t) => /Softboard/i.test(t) && /All Day/i.test(t) && /€30\.00/.test(t)));
+    assert(inv.some((t) => /Softboard/i.test(t) && /All Day/i.test(t) && /€20\.00/.test(t)));
     assert(inv.some((t) => /Carbon Fins/i.test(t) && /During Course/i.test(t)));
+    assert.strictEqual(
+      equip.reduce((s, r) => s + Number(r.amount_due_cents || 0), 0),
+      4400,
+      'invoice sum matches equipment total',
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -957,19 +981,19 @@ function seedEditBooking() {
     assert.strictEqual(pg.state.commits, 1);
     const equip = equipmentRowsOf(pg.state.services);
     assert.strictEqual(equip.length, 2);
-    // softboard during 2×700=1400; carbon all_day 1×(250+50)=300
+    // softboard during 2×700=1400; carbon all_day independent 1×50=50
     assertEquipmentRow(equip.find((r) => parseMeta(r.metadata).offering_key === 'softboard'), {
       offering_key: 'softboard', mode: 'during_course', quantity: 2,
-      base: 700, surcharge: 300, unit: 700, total: 1400, label: 'Softboard',
+      during: 700, allDay: 300, unit: 700, total: 1400, label: 'Softboard',
     });
     assertEquipmentRow(equip.find((r) => parseMeta(r.metadata).offering_key === 'carbon_fins'), {
       offering_key: 'carbon_fins', mode: 'all_day', quantity: 1,
-      base: 250, surcharge: 50, unit: 300, total: 300, label: 'Carbon Fins',
+      during: 250, allDay: 50, unit: 50, total: 50, label: 'Carbon Fins',
     });
     const privateRows = pg.state.services.filter((s) => parseMeta(s.metadata).component === 'private_lesson');
     assert.strictEqual(privateRows.length, 1, 'private session row present');
-    // private 3 surfers × 6000 = 18000 + 1700 equip = 19700
-    assert.strictEqual(Number(pg.state.bookings[0].total_amount_cents), 19700);
+    // private 3 surfers × 6000 = 18000 + 1450 equip = 19450
+    assert.strictEqual(Number(pg.state.bookings[0].total_amount_cents), 19450);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1019,15 +1043,19 @@ function seedEditBooking() {
     assert.strictEqual(pg.state.rollbacks, 0);
 
     const equip = equipmentRowsOf(pg.state.services);
-    assert.strictEqual(equip.length, 2, 'exactly replaced equipment set');
+    // 2 offerings × 2 dates, old carbon rows removed
+    assert.strictEqual(equip.length, 4, 'exactly replaced equipment set (per date)');
     assert(!equip.some((r) => parseMeta(r.metadata).offering_key === 'carbon_fins'), 'deselection removed carbon_fins');
-    assertEquipmentRow(equip.find((r) => parseMeta(r.metadata).offering_key === 'softboard'), {
+    // softboard during qty1 unit 500 × 2 dates = 1000; same_label_a all_day qty2 unit 111 × 2 = 444
+    assert.strictEqual(equipSum(pg.state.services, 'softboard'), 1000);
+    assert.strictEqual(equipSum(pg.state.services, 'same_label_a'), 444);
+    assertEquipmentRow(equipByKey(pg.state.services, 'softboard')[0], {
       offering_key: 'softboard', mode: 'during_course', quantity: 1,
-      base: 500, surcharge: 1000, unit: 500, total: 500, label: 'Softboard',
+      during: 500, allDay: 1000, unit: 500, total: 500, label: 'Softboard',
     });
-    assertEquipmentRow(equip.find((r) => parseMeta(r.metadata).offering_key === 'same_label_a'), {
+    assertEquipmentRow(equipByKey(pg.state.services, 'same_label_a')[0], {
       offering_key: 'same_label_a', mode: 'all_day', quantity: 2,
-      base: 111, surcharge: 0, unit: 111, total: 222, label: 'Twin Label',
+      during: 111, allDay: 111, unit: 111, total: 222, label: 'Twin Label',
     });
 
     // Unrelated import row preserved (source not in DELETE list)
@@ -1045,6 +1073,7 @@ function seedEditBooking() {
     assert(pg.state.services.some((s) => parseMeta(s.metadata).client_line_id === 'cust-1'), 'custom line preserved via rewrite');
 
     // Canonical detail/readback from production aggregate + drawer context
+    // Per-date rows de-dupe by offering_key on reopen.
     const agg = drawer.aggregateComponentsFromServices(pg.state.services);
     assert(Array.isArray(agg.components.course_equipment));
     const reopen = agg.components.course_equipment
@@ -1064,8 +1093,8 @@ function seedEditBooking() {
       assert.deepStrictEqual(normalized, reopen, 'drawer context course_equipment canonical');
     }
 
-    // 12000 course + 500 + 222 - 500 custom = 12222
-    assert.strictEqual(Number(pg.state.bookings[0].total_amount_cents), 12222);
+    // 12000 course + 1000 + 444 - 500 custom = 12944
+    assert.strictEqual(Number(pg.state.bookings[0].total_amount_cents), 12944);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1223,19 +1252,21 @@ function seedEditBooking() {
       bundleId: 'b',
       srPayment: 'pending',
     });
-    assert.strictEqual(rows.length, 4);
+    // 4 offerings × 2 booking dates
+    assert.strictEqual(rows.length, 8);
+    // Per-date amount = unit × qty (not re-multiplied by dates in the row)
     assert.strictEqual(rows.find((r) => r.metadata.offering_key === 'same_label_a').amount_due_cents, 111);
     assert.strictEqual(rows.find((r) => r.metadata.offering_key === 'same_label_b').amount_due_cents, 444);
     assert.strictEqual(rows.find((r) => r.metadata.offering_key === 'zero_surcharge').amount_due_cents, 1600);
-    assert.strictEqual(rows.find((r) => r.metadata.offering_key === 'zero_surcharge').metadata.all_day_surcharge_unit_cents, 0);
-    assert.strictEqual(rows.filter((r) => r.metadata.label === 'Twin Label').length, 2);
+    assert.strictEqual(rows.find((r) => r.metadata.offering_key === 'zero_surcharge').metadata.all_day_price_cents, 400);
+    assert.strictEqual(rows.filter((r) => r.metadata.label === 'Twin Label').length, 4);
 
     await assert.rejects(
       () => w2.insertCourseEquipmentRows(makeTxnPg(), {
         clientSlug: 'sunset', bookingId: BOOKING_ID, bookingCode: 'X', guestName: 'X',
         selection: [{ offering_key: 'foreign_location', mode: 'during_course', quantity: 1 }],
         surfers: 1, bookingDates: ['2026-08-03'],
-        course: { equipment_options: [{ offering_key: 'foreign_location', equipment_price_cents: 1, all_day_surcharge_cents: 0 }] },
+        course: { equipment_options: [{ offering_key: 'foreign_location', during_course_price_cents: 1, all_day_price_cents: 0 }] },
         offerings: OFFERINGS, attribution: { metadataSource: 's', staffManualSchedule: true, dbSource: 'staff_manual' },
         locationId: LOC, srPayment: 'pending',
       }),
