@@ -16277,7 +16277,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-equipment-editor{grid-column:1/-1;min-width:0}.portal-admin-equipment-editor h4{margin:4px 0 8px}.portal-admin-equipment-option-row{display:grid;grid-template-columns:minmax(140px,2fr) minmax(110px,1fr) minmax(110px,1fr) auto;gap:8px;align-items:end;margin-bottom:8px;min-width:0}.portal-admin-equipment-option-row label{display:flex;flex-direction:column;min-width:0;font-size:11px;font-weight:700;color:var(--text-2)}.portal-admin-equipment-option-row select,.portal-admin-equipment-option-row input{width:100%;min-width:0;min-height:44px;box-sizing:border-box}
 .portal-admin-touch{display:inline-flex;align-items:center;min-height:44px;margin-right:12px}
 .portal-admin-subsection fieldset{min-width:0;max-width:100%;border:1px solid var(--border-soft);border-radius:8px;margin:12px 0;padding:12px}
-.portal-schedule-course-equipment{border:0;margin:10px 0 0;padding:0;min-width:0;max-width:100%}.portal-schedule-course-equipment-row{display:flex;flex-wrap:nowrap;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px}.portal-schedule-course-equipment-left{display:inline-flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0}.portal-schedule-course-equipment-name{flex:0 1 auto;min-width:0;margin:0;padding:0;font-size:14px;font-weight:600;color:var(--text);line-height:1.25}.portal-schedule-course-equipment-check{display:inline-flex;align-items:center;justify-content:center;flex:0 0 22px;width:22px;height:22px;margin:0;cursor:pointer;line-height:0;opacity:1!important}.portal-schedule-course-equipment-check input.portal-schedule-course-equipment-radial,.portal-schedule-course-equipment-check input[type=checkbox]{-webkit-appearance:none;appearance:none;margin:0!important;padding:0!important;width:18px!important;height:18px!important;min-width:18px!important;max-width:18px!important;min-height:18px!important;max-height:18px!important;flex:0 0 18px;aspect-ratio:1/1;border-radius:50%!important;border:2px solid var(--text-2,#6b7280)!important;background:var(--surface,#1a1a1a)!important;box-sizing:border-box!important;cursor:pointer;opacity:1!important;vertical-align:middle;accent-color:var(--sched-primary,#4E5853);box-shadow:0 0 0 1px rgba(0,0,0,.04);transition:border-color .15s,background .15s,box-shadow .15s}.portal-schedule-course-equipment-check input:hover{border-color:var(--text,#e8e8e8)!important}.portal-schedule-course-equipment-check input:checked{border-color:var(--sched-primary,#4E5853)!important;background-color:var(--surface,#1a1a1a)!important;background-image:radial-gradient(circle,var(--sched-primary,#4E5853) 0 5px,transparent 5.5px)!important}.portal-schedule-course-equipment-check input:focus{outline:none}.portal-schedule-course-equipment-check input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}.portal-schedule-course-equipment-surfers{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex:0 0 auto;margin-left:auto}.portal-schedule-course-equipment-surfers .portal-schedule-course-equipment-qty-label{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);white-space:nowrap}.portal-schedule-course-equipment-surfers input[type=number]{width:64px;min-width:64px;min-height:36px;padding:6px 8px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-qty-label,.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-qty-label input{opacity:.45;color:var(--text-3)}.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-qty-label{pointer-events:none}.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-check,.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-check input{opacity:1!important;pointer-events:auto!important}.portal-schedule-course-equipment-modes{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn{flex:1 1 auto;min-width:120px}.portal-schedule-course-equipment-sets{margin-top:10px}.portal-schedule-course-equipment-sets label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:4px}.portal-schedule-course-equipment-sets input[type=number]{min-height:44px;box-sizing:border-box;width:100%;max-width:160px}.portal-schedule-create-main-activity-path{display:none!important}.portal-schedule-create-rental-price{margin-left:auto;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}.portal-schedule-create-rental-row.is-off .portal-schedule-create-rental-price{opacity:.45}
+.portal-schedule-course-equipment{border:0;margin:10px 0 0;padding:0;min-width:0;max-width:100%}.portal-schedule-course-equipment-list{display:grid;gap:10px;min-width:0}.portal-schedule-course-equipment-item{border:1px solid var(--border-soft);border-radius:10px;padding:10px;min-width:0;max-width:100%;box-sizing:border-box}.portal-schedule-course-equipment-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px}.portal-schedule-course-equipment-left{display:inline-flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0}.portal-schedule-course-equipment-name{flex:0 1 auto;min-width:0;margin:0;padding:0;font-size:14px;font-weight:600;color:var(--text);line-height:1.25}.portal-schedule-course-equipment-check{display:inline-flex;align-items:center;justify-content:center;flex:0 0 44px;width:44px;height:44px;margin:0;cursor:pointer;line-height:0;opacity:1!important}.portal-schedule-course-equipment-check input.portal-schedule-course-equipment-radial,.portal-schedule-course-equipment-check input[type=checkbox]{-webkit-appearance:none;appearance:none;margin:0!important;padding:0!important;width:18px!important;height:18px!important;min-width:18px!important;max-width:18px!important;min-height:18px!important;max-height:18px!important;flex:0 0 18px;aspect-ratio:1/1;border-radius:50%!important;border:2px solid var(--text-2,#6b7280)!important;background:var(--surface,#1a1a1a)!important;box-sizing:border-box!important;cursor:pointer;opacity:1!important;vertical-align:middle;accent-color:var(--sched-primary,#4E5853);box-shadow:0 0 0 1px rgba(0,0,0,.04);transition:border-color .15s,background .15s,box-shadow .15s}.portal-schedule-course-equipment-check input:hover{border-color:var(--text,#e8e8e8)!important}.portal-schedule-course-equipment-check input:checked{border-color:var(--sched-primary,#4E5853)!important;background-color:var(--surface,#1a1a1a)!important;background-image:radial-gradient(circle,var(--sched-primary,#4E5853) 0 5px,transparent 5.5px)!important}.portal-schedule-course-equipment-check input:focus{outline:none}.portal-schedule-course-equipment-check input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}.portal-schedule-course-equipment-surfers{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex:0 0 auto;margin-left:auto}.portal-schedule-course-equipment-surfers .portal-schedule-course-equipment-qty-label{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);white-space:nowrap}.portal-schedule-course-equipment-surfers input[type=number]{width:64px;min-width:64px;min-height:36px;padding:6px 8px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-qty-label,.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-qty-label input{opacity:.45;color:var(--text-3)}.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-qty-label{pointer-events:none}.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-check,.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-check input{opacity:1!important;pointer-events:auto!important}.portal-schedule-course-equipment-modes{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn{flex:1 1 auto;min-width:120px}.portal-schedule-course-equipment-sets{margin-top:10px}.portal-schedule-course-equipment-sets label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:4px}.portal-schedule-course-equipment-sets input[type=number]{min-height:44px;box-sizing:border-box;width:100%;max-width:160px}.portal-schedule-create-main-activity-path{display:none!important}.portal-schedule-create-rental-price{margin-left:auto;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}.portal-schedule-create-rental-row.is-off .portal-schedule-create-rental-price{opacity:.45}
 @media(max-width:520px){.portal-admin-course-equipment-grid,.portal-admin-equipment-option-row{grid-template-columns:minmax(0,1fr)}.portal-admin-edit-field input{min-height:44px;max-width:100%;box-sizing:border-box}.portal-admin-equipment-option-row .portal-admin-touch{width:100%;justify-content:center}}
 .portal-admin-edit-actions{display:flex;gap:8px;margin-top:0;flex-wrap:wrap;align-items:center}
 /* Groupless Equipment Pricing tab — cleaner add/edit form + duration control. */
@@ -18650,30 +18650,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
               <div class="portal-schedule-create-field" id="ps-create-private-lesson-qty-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1" tabindex="-1"></div>
             </div>
           </div>
-          <div class="portal-schedule-course-equipment is-off" id="ps-create-course-equipment" style="display:none" hidden>
-          <div class="portal-schedule-course-equipment-row">
-            <div class="portal-schedule-course-equipment-left">
-              <label class="portal-schedule-course-equipment-check" for="ps-create-equipment-enabled" aria-label="Surfboard + wetsuit">
-                <input id="ps-create-equipment-enabled" class="portal-schedule-course-equipment-radial" type="checkbox">
-              </label>
-              <span class="portal-schedule-course-equipment-name" data-i18n="schedule.ops.rentalBoth">Surfboard + wetsuit</span>
-            </div>
-            <div class="portal-schedule-course-equipment-surfers" id="ps-create-equipment-surfers-wrap">
-              <label class="portal-schedule-course-equipment-qty-label" for="ps-create-equipment-quantity">
-                <span data-i18n="schedule.create.rentalQty">Surfers</span>
-                <input id="ps-create-equipment-quantity" type="number" min="1" value="1" inputmode="numeric" disabled aria-disabled="true">
-              </label>
-            </div>
-          </div>
-          <div id="ps-create-equipment-mode-wrap" class="portal-schedule-course-equipment-modes" style="display:none" hidden role="group" aria-label="Course equipment timing">
-            <button type="button" class="portal-schedule-create-activity-btn" id="ps-create-equipment-during" data-course-equipment-mode="during_course" aria-pressed="false" data-i18n="schedule.courseEquipment.during">During Course</button>
-            <button type="button" class="portal-schedule-create-activity-btn" id="ps-create-equipment-all-day" data-course-equipment-mode="all_day" aria-pressed="false" data-i18n="schedule.courseEquipment.allDay">All Day</button>
-          </div>
-          <div id="ps-create-equipment-quantity-wrap" class="portal-schedule-course-equipment-sets" style="display:none" hidden>
-            <label for="ps-create-equipment-sets-qty" data-i18n="schedule.courseEquipment.quantity">Equipment sets</label>
-            <input id="ps-create-equipment-sets-qty" type="number" min="1" value="1" inputmode="numeric">
-          </div>
-          <p id="ps-create-equipment-everyday" class="portal-admin-muted" style="display:none" hidden data-i18n="schedule.courseEquipment.everyDay">Applies on every booking day.</p>
+          <div class="portal-schedule-course-equipment" id="ps-create-course-equipment" style="display:none" hidden>
+            <div id="ps-create-course-equipment-list" class="portal-schedule-course-equipment-list"></div>
           </div>
           <div class="portal-schedule-create-main-activity-header portal-schedule-create-equipment-header">
             <span id="ps-create-equipment-catalog-label" class="portal-schedule-create-label">Equipment</span>
@@ -21342,6 +21320,7 @@ var scheduleConversationsCache = [];
 var scheduleLastDrawerRowId = null;
 var scheduleLessonTimesCache = [];
 var scheduleCoursesCache = [];
+var schedulePrivateEquipmentOptionsCache = [];
 var schedulePrivateLessonDurationCache = 120;
 var scheduleLessonTimesFallback = false;
 var scheduleLessonTimesLoaded = false;
@@ -22262,67 +22241,43 @@ function scheduleRefreshCreateFullDayAddon(){ try {
   }
   // Group: only after a concrete course option is picked. Private: when Private course is selected.
   var courseOn = courseChecked && !!selectedCourseId;
-  var show = courseOn || privateOn;
-  field.style.display = show ? '' : 'none';
-  field.hidden = !show;
-  var enabledEl = el('ps-create-equipment-enabled');
-  var enabled = !!(enabledEl && enabledEl.checked);
-  if (!show) {
-    if (enabledEl) enabledEl.checked = false;
-    enabled = false;
-    document.querySelectorAll('#ps-create-course-equipment [data-course-equipment-mode]').forEach(function(b){ b.setAttribute('aria-pressed','false'); });
-  }
-  field.classList.toggle('is-off', !enabled);
-  var modeWrap = el('ps-create-equipment-mode-wrap');
-  var qty = el('ps-create-equipment-quantity');
-  var setsQty = el('ps-create-equipment-sets-qty');
-  var setsWrap = el('ps-create-equipment-quantity-wrap');
-  var everyday = el('ps-create-equipment-everyday');
-  var selected = document.querySelector('#ps-create-course-equipment [data-course-equipment-mode][aria-pressed="true"]');
-  var mode = selected ? String(selected.getAttribute('data-course-equipment-mode') || '') : '';
-  if (enabled && !selected) {
-    var duringBtn = el('ps-create-equipment-during');
-    if (duringBtn) {
-      document.querySelectorAll('#ps-create-course-equipment [data-course-equipment-mode]').forEach(function(b){
-        b.setAttribute('aria-pressed', b === duringBtn ? 'true' : 'false');
-      });
-      selected = duringBtn;
-      mode = 'during_course';
+  var options = [];
+  if (courseOn) {
+    for (var ci = 0; ci < scheduleCoursesCache.length; ci++) {
+      var course = scheduleCoursesCache[ci] || {};
+      if (String(course.course_id || course.id || '') === selectedCourseId) { options = course.equipment_options || []; break; }
     }
-  }
-  if (modeWrap) { modeWrap.style.display = (show && enabled) ? '' : 'none'; modeWrap.hidden = !(show && enabled); }
-  if (everyday) { everyday.style.display = (show && enabled) ? '' : 'none'; everyday.hidden = !(show && enabled); }
-  var showSets = !!(show && enabled && mode === 'all_day');
-  if (setsWrap) { setsWrap.style.display = showSets ? '' : 'none'; setsWrap.hidden = !showSets; }
-  var surfers = scheduleReadCreateSurferCount() || 1;
-  function clampEquipQty(node){
-    if (!node) return;
-    node.max = String(surfers);
-    if (!node.dataset.userOwned) node.value = String(surfers);
-    else node.value = String(Math.max(1, Math.min(surfers, parseInt(node.value || surfers, 10))));
-    node.disabled = !enabled;
-    node.setAttribute('aria-disabled', enabled ? 'false' : 'true');
-  }
-  clampEquipQty(qty);
-  if (setsQty && qty) {
-    if (showSets) {
-      if (!setsQty.dataset.userOwned && !qty.dataset.userOwned) setsQty.value = qty.value;
-      else if (setsQty.dataset.userOwned) {
-        setsQty.value = String(Math.max(1, Math.min(surfers, parseInt(setsQty.value || qty.value || surfers, 10))));
-        qty.value = setsQty.value; qty.dataset.userOwned = '1';
-      } else setsQty.value = qty.value;
-      setsQty.max = String(surfers); setsQty.disabled = false;
-    } else {
-      delete setsQty.dataset.userOwned;
-      setsQty.value = qty ? qty.value : String(surfers);
-      setsQty.disabled = true;
-    }
-  }
-  if (!enabled) {
-    document.querySelectorAll('#ps-create-course-equipment [data-course-equipment-mode]').forEach(function(b){
-      b.setAttribute('aria-pressed','false');
+  } else if (privateOn) options = schedulePrivateEquipmentOptionsCache || [];
+  var list = el('ps-create-course-equipment-list');
+  var signature = options.map(function(o){ return String(o.offering_key || '') + ':' + String(o.label || ''); }).join('|');
+  if (list && list.dataset.signature !== signature) {
+    list.textContent = '';
+    options.forEach(function(option, index){
+      var key = String(option.offering_key || '').trim(); if (!key) return;
+      var item = document.createElement('div'); item.className = 'portal-schedule-course-equipment-item is-off'; item.dataset.offeringKey = key;
+      var row = document.createElement('div'); row.className = 'portal-schedule-course-equipment-row';
+      var left = document.createElement('div'); left.className = 'portal-schedule-course-equipment-left';
+      var checkLabel = document.createElement('label'); checkLabel.className = 'portal-schedule-course-equipment-check';
+      var check = document.createElement('input'); check.type = 'checkbox'; check.className = 'portal-schedule-course-equipment-radial'; check.dataset.courseEquipmentEnabled = '1'; check.id = 'ps-create-course-equipment-' + index; checkLabel.htmlFor = check.id;
+      var name = document.createElement('span'); name.className = 'portal-schedule-course-equipment-name'; name.textContent = String(option.label || key); checkLabel.setAttribute('aria-label', name.textContent);
+      checkLabel.appendChild(check); left.appendChild(checkLabel); left.appendChild(name); row.appendChild(left); item.appendChild(row);
+      var modes = document.createElement('div'); modes.className = 'portal-schedule-course-equipment-modes'; modes.hidden = true; modes.setAttribute('role','group'); modes.setAttribute('aria-label', portalT('schedule.courseEquipment.title') + ': ' + name.textContent);
+      ['during_course','all_day'].forEach(function(mode){ var b=document.createElement('button'); b.type='button'; b.className='portal-schedule-create-activity-btn'; b.dataset.courseEquipmentMode=mode; b.setAttribute('aria-pressed','false'); b.textContent=portalT(mode === 'all_day' ? 'schedule.courseEquipment.allDay' : 'schedule.courseEquipment.during'); modes.appendChild(b); }); item.appendChild(modes);
+      var sets=document.createElement('div'); sets.className='portal-schedule-course-equipment-sets'; sets.hidden=true; var lab=document.createElement('label'); lab.textContent=portalT('schedule.courseEquipment.quantity'); var inp=document.createElement('input'); inp.type='number'; inp.min='1'; inp.value='1'; inp.inputMode='numeric'; inp.dataset.courseEquipmentQuantity='1'; lab.appendChild(inp); sets.appendChild(lab); item.appendChild(sets); list.appendChild(item);
     });
+    list.dataset.signature = signature;
   }
+  var show = (courseOn || privateOn) && options.length > 0;
+  field.style.display = show ? '' : 'none'; field.hidden = !show;
+  var surfers = scheduleReadCreateSurferCount() || 1;
+  if (list) list.querySelectorAll('.portal-schedule-course-equipment-item').forEach(function(item){
+    var enabled = !!item.querySelector('[data-course-equipment-enabled]').checked; item.classList.toggle('is-off', !enabled);
+    var selected = item.querySelector('[data-course-equipment-mode][aria-pressed="true"]');
+    if (enabled && !selected) { selected=item.querySelector('[data-course-equipment-mode="during_course"]'); selected.setAttribute('aria-pressed','true'); }
+    item.querySelector('.portal-schedule-course-equipment-modes').hidden=!enabled;
+    var allDay=!!(selected && selected.dataset.courseEquipmentMode === 'all_day'); item.querySelector('.portal-schedule-course-equipment-sets').hidden=!(enabled && allDay);
+    var qty=item.querySelector('[data-course-equipment-quantity]'); qty.max=String(surfers); if(!qty.dataset.userOwned) qty.value=String(surfers); else qty.value=String(Math.max(1,Math.min(surfers,parseInt(qty.value||surfers,10))));
+  });
   } finally { scheduleRefreshCreateEmptyGuidance(); }
 }
 
@@ -22541,20 +22496,18 @@ function scheduleReadCreatePayload(){
       sessions: plSessions,
     };
   }
-  var equipmentEnabled = !!(el('ps-create-equipment-enabled') && el('ps-create-equipment-enabled').checked);
-  var selectedEquipment = equipmentEnabled
-    ? document.querySelector('#ps-create-course-equipment [data-course-equipment-mode][aria-pressed="true"]')
-    : null;
-  var course_equipment = null;
-  if (selectedEquipment && (components.course || components.private_lesson)) {
-    var modeKey = selectedEquipment.getAttribute('data-course-equipment-mode');
-    var qtyNode = (modeKey === 'all_day' && el('ps-create-equipment-sets-qty'))
-      ? el('ps-create-equipment-sets-qty')
-      : el('ps-create-equipment-quantity');
-    var equipmentQty = Math.max(1, Math.min(surferCount || 1,
-      parseInt((qtyNode || {}).value || surferCount || 1, 10)));
-    course_equipment = { mode: modeKey, quantity: equipmentQty };
-  }
+  var course_equipment = [];
+  if (components.course || components.private_lesson) document.querySelectorAll('#ps-create-course-equipment .portal-schedule-course-equipment-item').forEach(function(item){
+    if (!item.querySelector('[data-course-equipment-enabled]:checked')) return;
+    var selectedEquipment = item.querySelector('[data-course-equipment-mode][aria-pressed="true"]');
+    if (!selectedEquipment) return;
+    var modeKey = selectedEquipment.dataset.courseEquipmentMode;
+    var qtyNode = item.querySelector('[data-course-equipment-quantity]');
+    var equipmentQty = modeKey === 'all_day'
+      ? Math.max(1, Math.min(surferCount || 1, parseInt(qtyNode.value || surferCount || 1, 10)))
+      : surferCount;
+    course_equipment.push({ offering_key: item.dataset.offeringKey, mode: modeKey, quantity: equipmentQty });
+  });
   return {
     guest_name: guest,
     guest_phone: phone || null,
@@ -23761,6 +23714,11 @@ function scheduleFetchLessonTimesConfig(client, opts){
       if (data && data.private_lesson && data.private_lesson.default_duration_minutes != null) {
         schedulePrivateLessonDurationCache = Number(data.private_lesson.default_duration_minutes) || 120;
       }
+      var privateOffering = catalogData && Array.isArray(catalogData.offerings)
+        ? catalogData.offerings.find(function(o){ return o && o.offering_type === 'private_lesson'; }) : null;
+      schedulePrivateEquipmentOptionsCache = privateOffering && Array.isArray(privateOffering.equipment_options)
+        ? privateOffering.equipment_options.slice()
+        : ((data && data.private_lesson && Array.isArray(data.private_lesson.equipment_options)) ? data.private_lesson.equipment_options.slice() : []);
       scheduleLessonTimesLoaded = true;
       return scheduleLessonTimesCache;
       });
@@ -25155,6 +25113,28 @@ function wireScheduleControls(){
       if (typeof scheduleSyncCreateMainActivityButtons === 'function') scheduleSyncCreateMainActivityButtons();
       if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
       else if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
+    });
+  }
+  var courseEquipmentList = el('ps-create-course-equipment-list');
+  if (courseEquipmentList && !courseEquipmentList.dataset.wired) {
+    courseEquipmentList.dataset.wired = '1';
+    courseEquipmentList.addEventListener('change', function(ev){
+      var target = ev.target;
+      if (target && target.matches('[data-course-equipment-enabled], [data-course-equipment-quantity]')) {
+        if (target.matches('[data-course-equipment-quantity]')) target.dataset.userOwned = '1';
+        scheduleRefreshCreateFullDayAddon();
+        if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
+        scheduleUpdateCreateTotalPreview();
+      }
+    });
+    courseEquipmentList.addEventListener('click', function(ev){
+      var button = ev.target.closest('[data-course-equipment-mode]'); if (!button) return;
+      var item = button.closest('.portal-schedule-course-equipment-item');
+      if (!item || !item.querySelector('[data-course-equipment-enabled]:checked')) return;
+      item.querySelectorAll('[data-course-equipment-mode]').forEach(function(b){ b.setAttribute('aria-pressed', b === button ? 'true' : 'false'); });
+      scheduleRefreshCreateFullDayAddon();
+      if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
+      scheduleUpdateCreateTotalPreview();
     });
   }
   var equipmentEnabledInput = el('ps-create-equipment-enabled');
