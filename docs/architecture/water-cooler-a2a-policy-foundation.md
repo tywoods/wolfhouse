@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented as a pure, fail-closed Python state machine only. **Not** wired into the Discord adapter, Hermes gateway, or any runtime hook.
+Implemented as a pure, fail-closed Python state machine plus a repository-owned **runtime bridge** module. **Not** wired into the Discord adapter, Hermes gateway, Dockerfile, bootstrap, compose, SOUL, or any live hook. Production enablement remains off.
 
 ## Decision
 
@@ -46,15 +46,33 @@ Opaque task ID, expected worker/reviewer bot IDs, stage, timestamps, source chan
 | Role | Path |
 |------|------|
 | Policy | `docker/hermes-staging/wolfhouse/water_cooler_a2a_policy.py` |
-| Unit tests | `docker/hermes-staging/wolfhouse/test_water_cooler_a2a_policy.py` |
+| Runtime bridge | `docker/hermes-staging/wolfhouse/water_cooler_a2a_runtime.py` |
+| Policy unit tests | `docker/hermes-staging/wolfhouse/test_water_cooler_a2a_policy.py` |
+| Runtime unit tests | `docker/hermes-staging/wolfhouse/test_water_cooler_a2a_runtime.py` |
 | Verifier | `docker/hermes-staging/verify_water_cooler_a2a_pilot.py` |
 
-Future adapter hook may call `WaterCoolerA2APolicy.evaluate` only. This slice does not import or mutate Discord session routing.
+### Runtime bridge contract
+
+A later Hermes Discord adapter hook may construct `WaterCoolerA2ARuntime.from_mapping(explicit_map)` and call `handle_event(DiscordMessageEvent)`. The mapping uses neutral keys `WATER_COOLER_A2A_*` only (no ambient `os.environ` reads inside the bridge). The bridge returns a narrow action:
+
+| Action | When |
+|--------|------|
+| `SUPPRESS` | Disabled/invalid config, casual/wrong-channel, reject paths, non-consumer peer echo, reviewer human-task mirror |
+| `DISPATCH_HUMAN_TASK` | Named worker only; valid human `TASK` |
+| `DISPATCH_PEER_HANDOFF` | Reviewer instance only; valid worker handoff |
+| `DISPATCH_PEER_REVIEW` | Worker instance only; valid reviewer review |
+
+The bridge never calls an LLM, Discord SDK, tools, network, filesystem, or logs message bodies. Action metadata never carries raw task/peer text. Caller owns all side effects (including reading the original event content when dispatching).
+
+Policy evaluation still runs on every instance so local mirrors advance; only the expected consumer receives a `DISPATCH_*` action.
+
+Future adapter hook may call `WaterCoolerA2ARuntime.handle_event` (preferred) or `WaterCoolerA2APolicy.evaluate`. This slice does not import or mutate Discord session routing.
 
 ## Explicit non-goals (this slice)
 
-- Runtime Discord adapter wiring, SOUL edits, Docker/compose changes.
-- Model or tool invocation inside the policy.
+- Hermes Discord adapter wiring / patches, SOUL edits, Docker/compose/bootstrap/env changes.
+- Model or tool invocation inside the policy or bridge.
 - Persistence beyond the in-memory policy instance (per process).
 - Shared volume, network service, signed token, or shared secret for A2A.
 - Production enablement (`enabled` remains false until a later, separate change).
+- Deploy, push, merge, restart, Azure, Discord configuration, or secrets.
