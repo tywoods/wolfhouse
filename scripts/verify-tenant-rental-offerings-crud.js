@@ -16,6 +16,8 @@ const {
   createRentalOffering,
   updateRentalOffering,
   deleteRentalOffering,
+  seedRentalOfferings,
+  applyRentalMutualExclusion,
 } = require('./lib/tenant-rental-offerings');
 
 let pass = 0;
@@ -129,6 +131,30 @@ async function run() {
   ok('deleted item gone from active list', !afterDel.some((r) => r.offering_key === 'kayak_rental'));
   const delMissing = await deleteRentalOffering(pg, { clientSlug: 'sunset', locationId: 'sunset-somo', offering_key: 'nope' });
   ok('delete missing item -> not deleted', delMissing.ok === false);
+
+  console.log('\n── D. Idempotent seed/reconcile ──');
+  const seedPg = makePg();
+  const desired = [
+    { offering_key: 'board_rental', label: 'Surfboard', group_key: 'boards', excludes: [], sort_order: 0 },
+    { offering_key: 'wetsuit_rental', label: 'Wetsuit', group_key: 'wetsuits', excludes: [], sort_order: 1 },
+    { offering_key: 'board_and_suit_rental', label: 'Surfboard + Wetsuit', group_key: 'bundles', excludes: ['board_rental', 'wetsuit_rental'], sort_order: 2 },
+  ];
+  const seed1 = await seedRentalOfferings(seedPg, { clientSlug: 'sunset', locationId: 'sunset-somo', rows: desired });
+  ok('first seed creates all', seed1.ok && seed1.created === 3 && seed1.updated === 0, JSON.stringify(seed1));
+  const seed2 = await seedRentalOfferings(seedPg, { clientSlug: 'sunset', locationId: 'sunset-somo', rows: desired });
+  ok('re-seed is a no-op (idempotent)', seed2.ok && seed2.created === 0 && seed2.updated === 0, JSON.stringify(seed2));
+  const seed3 = await seedRentalOfferings(seedPg, { clientSlug: 'sunset', locationId: 'sunset-somo', rows: [{ ...desired[0], label: 'Board (renamed)' }] });
+  ok('seed reconciles drift (label update)', seed3.ok && seed3.updated === 1, JSON.stringify(seed3));
+
+  console.log('\n── E. Mutual-exclusion resolver (data-driven) ──');
+  const catalog = desired;
+  const both = applyRentalMutualExclusion(['board_and_suit_rental', 'board_rental'], catalog);
+  ok('bundle + component -> one blocked', both.blocked.length === 1, JSON.stringify(both));
+  ok('bundle+component block is deterministic', both.blocked[0].key === 'board_rental' && both.blocked[0].excludedBy === 'board_and_suit_rental', JSON.stringify(both.blocked));
+  const compat = applyRentalMutualExclusion(['board_rental', 'wetsuit_rental'], catalog);
+  ok('two non-excluding items both allowed', compat.blocked.length === 0 && compat.allowed.length === 2);
+  const solo = applyRentalMutualExclusion(['board_and_suit_rental'], catalog);
+  ok('single bundle selection allowed', solo.blocked.length === 0 && solo.allowed.length === 1);
 
   console.log(`\nverify-tenant-rental-offerings-crud  pass=${pass}  fail=${fail}`);
   if (fail === 0) console.log('verify-tenant-rental-offerings-crud — ALL CHECKS PASSED');

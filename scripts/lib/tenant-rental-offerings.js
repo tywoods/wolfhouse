@@ -225,6 +225,80 @@ async function deleteRentalOffering(pg, params = {}) {
   return { ok: res.rows.length > 0, deleted: res.rows.length > 0 };
 }
 
+/**
+ * Idempotent seed/reconcile: bring the catalog for a client(+location) in line
+ * with `rows` (from buildRentalOfferingRows). Creates missing items, updates
+ * label/group/excludes/sort_order on existing ones. Never deletes — a school
+ * that removed an item keeps that decision. Reuses the tested CRUD paths so it
+ * needs no separate SQL. Returns a summary.
+ */
+async function seedRentalOfferings(pg, { clientSlug, locationId, rows, actorId = null } = {}) {
+  const slug = String(clientSlug || '').trim();
+  if (!slug) return { ok: false, error: 'clientSlug is required' };
+  if (!Array.isArray(rows)) return { ok: false, error: 'rows must be an array' };
+  const existing = await listRentalOfferings(pg, { clientSlug: slug, locationId, includeInactive: true });
+  const byKey = new Map(existing.map((r) => [r.offering_key, r]));
+  let created = 0;
+  let updated = 0;
+  for (const row of rows) {
+    const key = String(row.offering_key || '').trim();
+    if (!key) continue;
+    const cur = byKey.get(key);
+    if (!cur || cur.active === false) {
+      // Recreate if it never existed. If a soft-deleted row exists, respect the
+      // deletion (do not resurrect) unless it was never created at all.
+      if (cur && cur.active === false) continue;
+      const res = await createRentalOffering(pg, {
+        clientSlug: slug, locationId, offering_key: key,
+        label: row.label, group_key: row.group_key, excludes: row.excludes || [],
+        sort_order: row.sort_order || 0, actorId,
+      });
+      if (res.ok) created += 1;
+      continue;
+    }
+    const drift = cur.label !== row.label || cur.group_key !== row.group_key
+      || JSON.stringify(cur.excludes || []) !== JSON.stringify((row.excludes || []).slice().sort())
+      || cur.sort_order !== (row.sort_order || 0);
+    if (drift) {
+      const res = await updateRentalOffering(pg, {
+        clientSlug: slug, locationId, offering_key: key,
+        label: row.label, group_key: row.group_key, excludes: row.excludes || [],
+        sort_order: row.sort_order || 0, actorId,
+      });
+      if (res.ok) updated += 1;
+    }
+  }
+  return { ok: true, created, updated, total: rows.length };
+}
+
+/**
+ * Pure mutual-exclusion resolver for the booking drawer. Given the offering_keys
+ * a staff member has selected and the catalog rows, return which selections are
+ * blocked by another selection's `excludes[]` (symmetric). Data replacement for
+ * the hardcoded `if (key === 'board_and_suit_rental')` bundle logic.
+ *
+ * @returns {{ allowed:string[], blocked:Array<{key:string, excludedBy:string}> }}
+ */
+function applyRentalMutualExclusion(selectedKeys, offerings) {
+  const selected = Array.isArray(selectedKeys) ? selectedKeys.map((k) => String(k || '').trim()).filter(Boolean) : [];
+  const catalog = new Map((Array.isArray(offerings) ? offerings : []).map((o) => [o.offering_key, o]));
+  const selectedSet = new Set(selected);
+  const blocked = [];
+  const blockedKeys = new Set();
+  for (const key of selected) {
+    const row = catalog.get(key);
+    const excludes = row && Array.isArray(row.excludes) ? row.excludes : [];
+    for (const ex of excludes) {
+      if (selectedSet.has(ex)) {
+        // Deterministic: the later-sorted key is the one reported blocked.
+        const loser = [key, ex].sort()[1];
+        if (!blockedKeys.has(loser)) { blocked.push({ key: loser, excludedBy: [key, ex].sort()[0] }); blockedKeys.add(loser); }
+      }
+    }
+  }
+  return { allowed: selected.filter((k) => !blockedKeys.has(k)), blocked };
+}
+
 module.exports = {
   OFFERING_KEY_RE,
   isValidOfferingKey,
@@ -234,4 +308,6 @@ module.exports = {
   createRentalOffering,
   updateRentalOffering,
   deleteRentalOffering,
+  seedRentalOfferings,
+  applyRentalMutualExclusion,
 };
