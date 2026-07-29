@@ -412,7 +412,32 @@ async function prepareGenericRentalsForCreate(opts) {
   if (exclusion.blocked.length) return { ok: false, reason: 'rental_catalog_conflict' };
   const records = [];
   for (const row of generic) {
-    const priced = await resolveGenericRentalPrice({ clientSlug: o.clientSlug, locationId: o.locationId, offeringKey: row.offering_key, durationKey: row.duration_key, quantity: row.quantity, pgClient: o.pgClient, loadRule: o.loadRule });
+    const commonPriceOpts = { clientSlug: o.clientSlug, locationId: o.locationId, offeringKey: row.offering_key, quantity: row.quantity, pgClient: o.pgClient, loadRule: o.loadRule };
+    const dayCount = Number(o.calendarDayCount);
+    const bookingDurationKey = String(o.bookingDurationKey || '').trim();
+    let priced;
+    if (Number.isInteger(dayCount) && dayCount > 1 && bookingDurationKey) {
+      // Admin may define a package for the exact booking span. It always wins.
+      priced = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: bookingDurationKey });
+      if (priced.ok) {
+        priced = { ...priced, pricing_mode: 'exact_duration_package', package_repeat_count: 1, selected_duration_key: row.duration_key };
+      } else if (priced.reason === 'price_not_found') {
+        // No exact package: repeat the selected base package once per calendar day.
+        priced = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: row.duration_key });
+        if (priced.ok) {
+          priced = {
+            ...priced,
+            amount_cents: priced.amount_cents * dayCount,
+            pricing_mode: 'repeated_base_package',
+            package_repeat_count: dayCount,
+            booking_duration_key: bookingDurationKey,
+          };
+        }
+      }
+    } else {
+      priced = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: row.duration_key });
+      if (priced.ok) priced = { ...priced, pricing_mode: 'base_package', package_repeat_count: 1 };
+    }
     if (!priced.ok) return priced;
     const mapped = buildGenericRentalServiceRecord(priced, { serviceDate: o.serviceDate, source: o.source });
     if (!mapped.ok) return mapped;
@@ -437,6 +462,8 @@ function buildGenericRentalAuthoritativeQuote(records) {
       offering_id: offeringKey, offering_item_code: itemCode,
       duration_key: meta.duration_key, quantity,
       unit_amount_cents: checkedMoneyInteger(meta.unit_cents, 'generic_rental_unit'),
+      package_repeat_count: Number(meta.package_repeat_count || 1),
+      pricing_mode: meta.pricing_mode || 'base_package',
       total_cents: total, price_source: 'tenant_price_rules',
     };
   });
@@ -2620,6 +2647,8 @@ async function createSunsetScheduleBooking(pg, opts) {
   const genericPrep = await prepareGenericRentalsForCreate({
     clientSlug, locationId, pgClient: pg, rentals: requestedRentals,
     serviceDate: String(opts.body && opts.body.date_from || '').slice(0, 10), source: attribution.dbSource,
+    calendarDayCount: inclusiveIsoDatesFromRange(opts.body && opts.body.date_from, opts.body && opts.body.date_to).length,
+    bookingDurationKey: rentalDurationKeyFromDateRange(opts.body && opts.body.date_from, opts.body && opts.body.date_to),
   });
   if (!genericPrep.ok) {
     const badCatalogKey = genericPrep.reason === 'rental_offering_not_active'

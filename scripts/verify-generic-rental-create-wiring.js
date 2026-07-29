@@ -1,5 +1,6 @@
 'use strict';
 const assert = require('assert');
+const fs = require('fs');
 const {
   prepareGenericRentalsForCreate,
   buildGenericRentalAuthoritativeQuote,
@@ -32,6 +33,43 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
     assert.strictEqual(r.service_type, 'addon_service'); assert.strictEqual(r.quantity, 2);
     assert.strictEqual(r.amount_due_cents, 5000); assert.strictEqual(r.metadata.offering_key, 'kayak_rental');
     assert.deepStrictEqual({ duration: r.metadata.duration_key, location: r.metadata.location_id, item: r.metadata.item_code, unit: r.metadata.unit_cents }, { duration: 'half_day', location: 'sunset-somo', item: 'kayak_rental__half_day', unit: 2500 });
+  });
+  await expect('exact Admin multi-day package wins over repeating selected base package', async () => {
+    const calls = [];
+    const got = await prepareGenericRentalsForCreate({
+      ...base, calendarDayCount: 3, bookingDurationKey: '3_days', listOfferings: loadCatalog,
+      loadRule: async (args) => {
+        calls.push(args.duration);
+        if (args.duration === '3_days') return { status: 'found', amount_cents: 6000, currency: 'EUR', item_code: 'kayak_rental__3_days', unit: 'day', location_id: 'sunset-somo' };
+        return goodRule(args);
+      },
+    });
+    assert.strictEqual(got.ok, true);
+    assert.deepStrictEqual(calls, ['3_days']);
+    assert.strictEqual(got.records[0].amount_due_cents, 12000);
+    assert.strictEqual(got.records[0].metadata.pricing_mode, 'exact_duration_package');
+    assert.strictEqual(got.records[0].metadata.package_repeat_count, 1);
+  });
+  await expect('missing multi-day package repeats selected 4-hour package once per calendar day', async () => {
+    const calls = [];
+    const got = await prepareGenericRentalsForCreate({
+      ...base, rentals: [{ offering_key: 'kayak_rental', duration_key: '4_hours', quantity: 2 }],
+      calendarDayCount: 3, bookingDurationKey: '3_days', listOfferings: loadCatalog,
+      loadRule: async (args) => {
+        calls.push(args.duration);
+        if (args.duration === '3_days') return { status: 'not_found' };
+        return { status: 'found', amount_cents: 2500, currency: 'EUR', item_code: 'kayak_rental__4_hours', unit: 'session', location_id: 'sunset-somo' };
+      },
+    });
+    assert.strictEqual(got.ok, true);
+    assert.deepStrictEqual(calls, ['3_days', '4_hours']);
+    assert.strictEqual(got.records[0].amount_due_cents, 15000);
+    assert.strictEqual(got.records[0].metadata.duration_key, '4_hours');
+    assert.strictEqual(got.records[0].metadata.pricing_mode, 'repeated_base_package');
+    assert.strictEqual(got.records[0].metadata.package_repeat_count, 3);
+    const quote = buildGenericRentalAuthoritativeQuote(got.records);
+    assert.strictEqual(quote.total_cents, 15000);
+    assert.strictEqual(quote.line_items[0].package_repeat_count, 3);
   });
   await expect('unknown and deactivated catalog offerings fail closed', async () => {
     for (const rows of [[], [{ ...catalog[0], active: false }]]) {
@@ -92,6 +130,16 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
       rentals: [{ offering_key: 'kayak_rental', duration_key: 'half_day', quantity: 2 }],
     });
     assert.notStrictEqual(one, two);
+  });
+  await expect('staff quote and create are wired for rental-only and mixed generic records', async () => {
+    const apiSrc = fs.readFileSync(require.resolve('./staff-query-api'), 'utf8');
+    const writesSrc = fs.readFileSync(require.resolve('./lib/sunset-schedule-booking-writes'), 'utf8');
+    const browserSrc = fs.readFileSync(require.resolve('./browser/sunset-schedule-portal-module'), 'utf8');
+    assert.match(apiSrc, /handleSunsetScheduleBookingQuote[\s\S]*prepareGenericRentalsForCreate[\s\S]*hasClosedVerticalIntent[\s\S]*buildQuoteProvenance/);
+    assert.match(writesSrc, /for \(const descriptor of genericPrep\.records\)[\s\S]*insertServiceRecord/);
+    assert.match(writesSrc, /genericRentalRecords: genericPrep\.records/);
+    assert.match(writesSrc, /buildScheduleBookingIntentFingerprint\(input, locationId, intentFpOpts\)/);
+    assert.doesNotMatch(browserSrc, /known\.indexOf\(off\) < 0/);
   });
   if (previousGenericRentalCreate === undefined) delete process.env.GENERIC_RENTAL_CREATE_ENABLED;
   else process.env.GENERIC_RENTAL_CREATE_ENABLED = previousGenericRentalCreate;

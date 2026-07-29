@@ -1174,15 +1174,14 @@ function schedulePortalValidateCreatePayload(payload, opts) {
   }
 
   if (rentals.length) {
-    var known = (typeof SCHEDULE_CANONICAL_RENTAL_OFFERINGS !== 'undefined' && SCHEDULE_CANONICAL_RENTAL_OFFERINGS)
-      || ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'];
     for (var i = 0; i < rentals.length; i++) {
       var r = rentals[i] || {};
       var off = String(r.offering_key || '').trim();
       var dur = String(r.duration_key || '').trim();
       var qty = Number(r.quantity);
-      // Nonempty duration (catalog-driven). Canonical offerings.
-      if (known.indexOf(off) < 0 || !dur || !(Number.isFinite(qty) && Math.floor(qty) === qty && qty >= 1)) {
+      // Offering identity is catalog-driven; the server authoritatively checks
+      // active/location-scoped generic keys. Keep only shape validation here.
+      if (!off || !dur || !(Number.isFinite(qty) && Math.floor(qty) === qty && qty >= 1)) {
         return fail('schedule.create.componentsRequired');
       }
     }

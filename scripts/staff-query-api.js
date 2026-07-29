@@ -401,6 +401,9 @@ const {
   SUNSET_CLIENT_SLUG,
   validateScheduleBookingBody,
   createSunsetScheduleBooking,
+  prepareGenericRentalsForCreate,
+  buildGenericRentalAuthoritativeQuote,
+  rentalDurationKeyFromDateRange,
 } = require('./lib/sunset-schedule-booking-writes');
 const {
   VERTICAL_CHANNELS,
@@ -40422,10 +40425,48 @@ async function handleSunsetScheduleBookingQuote(query, req, res, user) {
   }
   const started = Date.now();
   try {
-    const result = await withPgClient(async (pg) => invokeVerticalOperation(resolved, 'quoteOffering', pg, {
-      channel: VERTICAL_CHANNELS.MANUAL_STAFF,
-      transportBody: body,
-    }));
+    const result = await withPgClient(async (pg) => {
+      const requestedRentals = Array.isArray(body.rentals) ? body.rentals : [];
+      const genericPrep = await prepareGenericRentalsForCreate({
+        clientSlug, locationId: trustedLocationId, pgClient: pg, rentals: requestedRentals,
+        serviceDate: String(body.date_from || '').slice(0, 10), source: 'staff_manual',
+        calendarDayCount: (() => {
+          const from = String(body.date_from || '').slice(0, 10);
+          const to = String(body.date_to || body.date_from || '').slice(0, 10);
+          if (!from || !to || to < from) return 0;
+          return Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86400000) + 1;
+        })(),
+        bookingDurationKey: rentalDurationKeyFromDateRange(body.date_from, body.date_to),
+      });
+      if (!genericPrep.ok) {
+        return { ok: false, status: 422, body: { error: genericPrep.reason, reason_code: genericPrep.reason } };
+      }
+      const genericQuote = buildGenericRentalAuthoritativeQuote(genericPrep.records);
+      const canonicalRentals = requestedRentals.filter((r) => ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'].includes(String(r && r.offering_key || '').trim()));
+      const transportBody = genericPrep.genericRentals.length
+        ? { ...body, rentals: canonicalRentals }
+        : body;
+      if (genericPrep.genericRentals.length && !canonicalRentals.length) delete transportBody.rentals;
+      const hasClosedVerticalIntent = canonicalRentals.length > 0
+        || !!(transportBody.components && Object.keys(transportBody.components).length);
+      let quoted = hasClosedVerticalIntent
+        ? await invokeVerticalOperation(resolved, 'quoteOffering', pg, {
+          channel: VERTICAL_CHANNELS.MANUAL_STAFF, transportBody,
+        })
+        : { ok: true, status: 200, body: { ok: true, currency: 'EUR', total_cents: 0, line_items: [] } };
+      if (!quoted.ok || !genericQuote.line_items.length) return quoted;
+      quoted = {
+        ...quoted,
+        body: {
+          ...quoted.body,
+          total_cents: Number(quoted.body.total_cents || 0) + genericQuote.total_cents,
+          line_items: [...(quoted.body.line_items || []), ...genericQuote.line_items],
+        },
+      };
+      const { buildQuoteProvenance } = require('./lib/luna-front-desk-quote-service');
+      quoted.body.quote_provenance = buildQuoteProvenance(quoted.body);
+      return quoted;
+    });
     appendAuditLog({
       ts: new Date().toISOString(),
       intent: 'api:sunset.schedule.booking_quote',
