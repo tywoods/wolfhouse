@@ -176,6 +176,8 @@ function assertSharedNav(label, html, activeHref) {
   ok(`${label} aria-current on active href ${activeHref}`, activeRe.test(html));
   ok(`${label} keeps logout`, /action=["']\/logout["']/i.test(html) && /Sign out/i.test(html));
   ok(`${label} nav is mobile-safe wrap/scroll`, /\bnav\b[\s\S]*overflow-x\s*:\s*auto|\bnav\b[\s\S]*flex-wrap\s*:\s*wrap|top-nav[\s\S]*overflow-x\s*:\s*auto|top-nav[\s\S]*flex-wrap\s*:\s*wrap/i.test(pageSrc + html));
+  ok(`${label} mobile hamburger toggle present`, /id=["']cn-nav-open["']/.test(html) && /class=["'][^"']*cn-nav-toggle/.test(html));
+  ok(`${label} mobile nav panel wraps tabs + tools`, /id=["']cn-nav-panel["']/.test(html) && /cn-nav-panel[\s\S]*top-nav[\s\S]*page-header-controls|cn-nav-panel[\s\S]*page-header-controls/i.test(html));
 }
 
 assertSharedNav('Spyglass', uiHtml, '/');

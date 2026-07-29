@@ -220,12 +220,14 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   justify-content:space-between;
   gap:12px 16px;
   flex-wrap:wrap;
+  position:relative;
 }
 .page-header-brand{
   display:inline-flex;
   align-items:center;
   flex:0 0 auto;
   line-height:0;
+  z-index:1;
 }
 .page-header-brand:hover{opacity:.92}
 .page-header-logo{
@@ -234,6 +236,87 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   width:auto;
   max-width:min(200px,42vw);
   object-fit:contain;
+}
+/* Pure-CSS mobile drawer (CSP script-src 'none' — no JS toggle). */
+.cn-nav-checkbox{
+  position:absolute;
+  width:1px;
+  height:1px;
+  margin:-1px;
+  padding:0;
+  border:0;
+  overflow:hidden;
+  clip:rect(0 0 0 0);
+  white-space:nowrap;
+}
+.cn-nav-toggle{
+  display:none;
+  align-items:center;
+  justify-content:center;
+  width:42px;
+  height:42px;
+  margin-left:auto;
+  flex:0 0 auto;
+  border-radius:var(--radius-pill);
+  border:1px solid var(--border);
+  background:var(--surface-raised);
+  color:var(--navy);
+  box-shadow:var(--shadow-soft);
+  cursor:pointer;
+  position:relative;
+  z-index:60;
+  -webkit-tap-highlight-color:transparent;
+  user-select:none;
+}
+.cn-nav-toggle:hover{color:var(--navy);border-color:var(--sea);background:var(--sea-soft)}
+.cn-nav-toggle-bars{
+  display:block;
+  position:relative;
+  width:18px;
+  height:2px;
+  border-radius:1px;
+  background:currentColor;
+  transition:background-color .18s ease, transform .18s ease, opacity .18s ease;
+}
+.cn-nav-toggle-bars::before,
+.cn-nav-toggle-bars::after{
+  content:'';
+  position:absolute;
+  left:0;
+  display:block;
+  width:18px;
+  height:2px;
+  border-radius:1px;
+  background:currentColor;
+  transition:transform .18s ease, top .18s ease, opacity .18s ease;
+}
+.cn-nav-toggle-bars::before{top:-6px}
+.cn-nav-toggle-bars::after{top:6px}
+.cn-nav-checkbox:checked + .cn-nav-toggle .cn-nav-toggle-bars{background:transparent}
+.cn-nav-checkbox:checked + .cn-nav-toggle .cn-nav-toggle-bars::before{
+  top:0;
+  transform:rotate(45deg);
+}
+.cn-nav-checkbox:checked + .cn-nav-toggle .cn-nav-toggle-bars::after{
+  top:0;
+  transform:rotate(-45deg);
+}
+.cn-nav-backdrop{
+  display:none;
+  position:fixed;
+  inset:0;
+  z-index:50;
+  background:rgba(15,20,26,.48);
+  border:0;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.cn-nav-panel{
+  display:flex;
+  align-items:center;
+  gap:12px 16px;
+  flex:1 1 auto;
+  min-width:0;
 }
 .page-header-controls{
   display:flex;
@@ -300,6 +383,95 @@ html[data-theme="dark"] .theme-toggle .icon-sun{display:block}
   .page-header-top{flex-wrap:nowrap}
   .top-nav{justify-content:center}
   .page-header-controls{margin-left:0}
+}
+/* Mobile: logo left, hamburger top-right; tabs + theme + sign-out in drawer. */
+@media(max-width:768px){
+  .page-header-top{
+    flex-wrap:nowrap;
+    gap:10px;
+  }
+  .page-header-logo{
+    height:36px;
+    max-width:min(168px,58vw);
+  }
+  .cn-nav-toggle{display:inline-flex}
+  /* Keep ☰/X above the fixed drawer (z-index needs position). */
+  .cn-nav-toggle{
+    position:fixed;
+    top:max(12px, env(safe-area-inset-top, 0px));
+    right:max(12px, env(safe-area-inset-right, 0px));
+    margin-left:0;
+    z-index:70;
+  }
+  /* Reserve header space so logo doesn't jump when toggle leaves flow. */
+  .page-header-top::after{
+    content:'';
+    width:42px;
+    height:42px;
+    flex:0 0 auto;
+    margin-left:auto;
+    visibility:hidden;
+    pointer-events:none;
+  }
+  .cn-nav-panel{
+    position:fixed;
+    top:0;
+    right:0;
+    bottom:0;
+    width:min(320px,88vw);
+    margin:0;
+    padding:calc(18px + env(safe-area-inset-top,0px)) 16px calc(18px + env(safe-area-inset-bottom,0px));
+    flex-direction:column;
+    align-items:stretch;
+    justify-content:flex-start;
+    gap:14px;
+    background:linear-gradient(165deg,rgba(255,252,247,.98),rgba(255,255,255,.94));
+    border-left:1px solid var(--border-soft);
+    box-shadow:-18px 0 40px rgba(30,42,54,.16);
+    transform:translateX(110%);
+    transition:transform .2s ease;
+    z-index:55;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+  html[data-theme="dark"] .cn-nav-panel{
+    background:linear-gradient(165deg,rgba(33,41,50,.98),rgba(26,32,39,.96));
+    box-shadow:-18px 0 40px rgba(0,0,0,.45);
+  }
+  .cn-nav-checkbox:checked ~ .cn-nav-backdrop{display:block}
+  .cn-nav-checkbox:checked ~ .cn-nav-panel{transform:translateX(0)}
+  body:has(.cn-nav-checkbox:checked){overflow:hidden}
+  .top-nav{
+    flex-direction:column;
+    flex-wrap:nowrap;
+    align-items:stretch;
+    overflow-x:visible;
+    gap:6px;
+    width:100%;
+  }
+  .top-nav-link{
+    width:100%;
+    min-height:44px;
+    padding:0 14px;
+    justify-content:flex-start;
+    font-size:15px;
+    border:1px solid transparent;
+  }
+  .top-nav-link.is-active{
+    border-color:rgba(74,124,148,.22);
+  }
+  .page-header-controls{
+    margin-left:0;
+    margin-top:auto;
+    width:100%;
+    justify-content:flex-end;
+    flex-wrap:nowrap;
+    gap:10px;
+    padding-top:14px;
+    border-top:1px solid var(--border-soft);
+  }
+  .logout-button{min-height:42px;padding:0 16px}
+  .theme-toggle{width:42px;height:42px}
 }
 .top-nav-link{
   display:inline-flex;
@@ -3130,12 +3302,19 @@ function renderCrowsnestPage(options = {}) {
         <a class="page-header-brand" href="/" aria-label="Crowsnest home">
           <img class="page-header-logo" src="/crowsnest/assets/logo.png" alt="Crowsnest" width="2172" height="724">
         </a>
-        ${renderCrowsnestNav(view)}
-        <div class="page-header-controls">
-          ${renderCrowsnestThemeToggle(view)}
-          <form class="logout-form" method="post" action="/logout">
-            <button class="logout-button" type="submit" aria-label="Sign out of Crowsnest">Sign out</button>
-          </form>
+        <input class="cn-nav-checkbox" id="cn-nav-open" type="checkbox" aria-hidden="true" tabindex="-1">
+        <label class="cn-nav-toggle" for="cn-nav-open" aria-label="Open menu" title="Menu">
+          <span class="cn-nav-toggle-bars" aria-hidden="true"></span>
+        </label>
+        <label class="cn-nav-backdrop" for="cn-nav-open" aria-hidden="true"></label>
+        <div class="cn-nav-panel" id="cn-nav-panel">
+          ${renderCrowsnestNav(view)}
+          <div class="page-header-controls">
+            ${renderCrowsnestThemeToggle(view)}
+            <form class="logout-form" method="post" action="/logout">
+              <button class="logout-button" type="submit" aria-label="Sign out of Crowsnest">Sign out</button>
+            </form>
+          </div>
         </div>
       </div>
       <h1 class="${pageTitleClass}" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : (view === 'sales_analytics' ? 'sales-analytics' : (view === 'sales_governance' ? 'sales-governance' : (view === 'sales_crm_preview' ? 'sales-crm-preview' : (view === 'sales_outreach_draft' ? 'sales-outreach-draft' : (view === 'sales_discovery' ? 'sales-discovery' : view)))))))}-title">${escapeHtml(title)}</h1>
