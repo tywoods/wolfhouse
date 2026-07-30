@@ -230,9 +230,11 @@ function scheduleDrawerServiceTypeLabel(t){
 
 function scheduleDrawerServiceOrder(t){
   var s = String(t || '').toLowerCase();
-  if (s.indexOf('lesson') >= 0 || s.indexOf('course') >= 0 || s.indexOf('private') >= 0) return 0;
-  if (s.indexOf('board') >= 0) return 1;
-  if (s.indexOf('suit') >= 0) return 2;
+  // Display rank: accommodation → course/service → rental/equipment → other.
+  if (s.indexOf('accommodation') >= 0) return 0;
+  if (s.indexOf('lesson') >= 0 || s.indexOf('course') >= 0 || s.indexOf('private') >= 0) return 1;
+  if (s.indexOf('board') >= 0 || s.indexOf('suit') >= 0 || s.indexOf('rental') >= 0
+    || s.indexOf('equipment') >= 0 || s === 'addon_service') return 2;
   return 3;
 }
 
@@ -240,6 +242,53 @@ function scheduleDrawerSortItems(items){
   return (items || []).slice().sort(function(a, b){
     return scheduleDrawerServiceOrder(a.service_type) - scheduleDrawerServiceOrder(b.service_type);
   });
+}
+
+/** Invoice display order only — never changes money. */
+function scheduleDrawerCommercialLineRank(line){
+  if (!line) return 9;
+  if (line.staff_accommodation || String(line.component || '') === 'staff_accommodation'
+    || /^Accommodation\b/i.test(String(line.label || ''))) return 0;
+  if (line.staff_custom_line || String(line.component || '') === 'staff_custom_line') return 4;
+  var s = String(line.service_type || '').toLowerCase();
+  var c = String(line.component || '').toLowerCase();
+  if (c === 'course' || c === 'private_lesson' || c === 'lesson'
+    || s.indexOf('lesson') >= 0 || s.indexOf('course') >= 0 || s === 'private_lesson') return 1;
+  if (line.course_equipment || c === 'course_equipment' || line.is_bundle
+    || s === 'surfboard' || s === 'wetsuit' || s === 'addon_service'
+    || c.indexOf('rental') >= 0 || s.indexOf('rental') >= 0 || s.indexOf('equipment') >= 0) return 2;
+  return 3;
+}
+
+/** Compact multi-day coverage for grouped equipment: "8 Days · 30 Jul–6 Aug". */
+function scheduleDrawerEquipmentCoverageLabel(dayKeys){
+  var keys = (dayKeys || []).map(function(d){ return String(d || '').slice(0, 10); })
+    .filter(function(d){ return /^\d{4}-\d{2}-\d{2}$/.test(d); })
+    .sort();
+  if (!keys.length) return '';
+  var n = keys.length;
+  var daysPart = n === 1
+    ? ('1 ' + portalT('schedule.drawer.dayWordCap'))
+    : (String(n) + ' ' + portalT('schedule.drawer.daysWordCap'));
+  var range = '';
+  if (typeof schedulePortalFormatCompactDateRange === 'function') {
+    range = schedulePortalFormatCompactDateRange(keys[0], keys[keys.length - 1]) || '';
+  }
+  if (!range) {
+    try {
+      var a = scheduleParseIso(keys[0]);
+      var b = scheduleParseIso(keys[keys.length - 1]);
+      var opts = { day: 'numeric', month: 'short', timeZone: 'UTC' };
+      var fromLab = a.toLocaleDateString('en', opts);
+      var toLab = b.toLocaleDateString('en', opts);
+      range = keys[0] === keys[keys.length - 1] ? fromLab : (fromLab + '\u2013' + toLab);
+    } catch (_e) {
+      range = keys[0] === keys[keys.length - 1]
+        ? keys[0]
+        : (keys[0] + '\u2013' + keys[keys.length - 1]);
+    }
+  }
+  return range ? (daysPart + ' \u00b7 ' + range) : daysPart;
 }
 
 /** Presentation-only: collapse truthful bundle/group peers; never invent money. */
@@ -251,11 +300,35 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
   function off(li) { return String((li && li.offering_key) || '').trim(); }
   function isRent(s) { return s === 'surfboard' || s === 'wetsuit'; }
   function isLes(s) { return s.indexOf('lesson') >= 0 || s.indexOf('course') >= 0 || s === 'private_lesson'; }
+  function isAccom(li) {
+    return !!(li && (li.staff_accommodation || String(li.component || '') === 'staff_accommodation'));
+  }
+  function isCustom(li) {
+    return !!(li && (li.staff_custom_line || String(li.component || '') === 'staff_custom_line'));
+  }
+  function isCourseEquip(li) {
+    return !!(li && (li.course_equipment === true || String(li.component || '') === 'course_equipment'));
+  }
+  function ceMode(li) {
+    if (!li) return 'during_course';
+    if (li.course_equipment_mode === 'all_day') return 'all_day';
+    if (li.course_equipment_mode === 'during_course') return 'during_course';
+    var lab = String(li.label || '').toLowerCase();
+    if (lab.indexOf('all day') >= 0) return 'all_day';
+    return 'during_course';
+  }
+  function currencyKey(li) {
+    return String((li && li.currency) || 'EUR').toUpperCase();
+  }
   function readUnit(li) {
     if (!li) return null;
     if (li.unit_amount_cents != null && li.unit_amount_cents !== '') {
       var u = Number(li.unit_amount_cents);
       if (Number.isFinite(u) && u >= 0) return Math.round(u);
+    }
+    if (li.unit_cents != null && li.unit_cents !== '') {
+      var u2 = Number(li.unit_cents);
+      if (Number.isFinite(u2) && u2 >= 0) return Math.round(u2);
     }
     return null;
   }
@@ -283,16 +356,6 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
     if (rp && rp.offering_key === 'board_and_suit_rental' && String(rp.pricing_group_id || '') === g && isRent(st(li))) return 'b:' + g;
     return '';
   }
-  function pKey(li) {
-    if (bKey(li)) return '';
-    var o = off(li), s = st(li), c = String((li && li.component) || '').toLowerCase();
-    if (o === 'board_rental' || o === 'wetsuit_rental') return 'o:' + o + '|' + String(li.duration_key || (rp && rp.duration) || '');
-    if (c === 'course' || (isLes(s) && c !== 'private_lesson' && s !== 'private_lesson'))
-      return 'c:' + s + '|' + String(Number(li.quantity) || 1) + '|' + String((li && (li.course_id || li.offering_id)) || '').trim() + '|' + String((li && li.tier_key) || '');
-    if (c === 'private_lesson' || s === 'private_lesson') return 'p:' + String(Number(li.quantity) || 1);
-    if (isRent(s) && !o) return 'r:' + s + '|' + String(Number(li.quantity) || 1) + '|' + String(li.duration_key || '');
-    return '';
-  }
   function itemBaseName(li, qty) {
     var s = st(li);
     if (isRent(s)) return (s === 'wetsuit' ? portalT('schedule.type.wetsuitRental') : portalT('schedule.type.boardRental'));
@@ -302,6 +365,38 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
       .replace(/\s*·\s*\d+\s*$/, '')
       .replace(/\s*x\s*\d+\s*$/i, '')
       .trim() || String(raw || '—');
+  }
+  function pKey(li) {
+    if (bKey(li)) return '';
+    // Never merge accommodation or staff custom commercial lines.
+    if (isAccom(li) || isCustom(li)) return '';
+    var o = off(li), s = st(li), c = String((li && li.component) || '').toLowerCase();
+    if (o === 'board_rental' || o === 'wetsuit_rental') return 'o:' + o + '|' + String(li.duration_key || (rp && rp.duration) || '');
+    if (c === 'course' || (isLes(s) && c !== 'private_lesson' && s !== 'private_lesson' && !isCourseEquip(li)))
+      return 'c:' + s + '|' + String(Number(li.quantity) || 1) + '|' + String((li && (li.course_id || li.offering_id)) || '').trim() + '|' + String((li && li.tier_key) || '');
+    if (c === 'private_lesson' || s === 'private_lesson') return 'p:' + String(Number(li.quantity) || 1);
+    if (isRent(s) && !o) return 'r:' + s + '|' + String(Number(li.quantity) || 1) + '|' + String(li.duration_key || '');
+    // Per-day course equipment: group only when identity + unit + qty + currency + mode match.
+    if (isCourseEquip(li)) {
+      var unitCe = readUnit(li);
+      if (unitCe == null) {
+        var qCe = Math.max(1, Number(li.quantity) || 1);
+        var lineCe = Number(li.line_cents);
+        if (Number.isFinite(lineCe) && qCe > 0) unitCe = Math.round(lineCe / qCe);
+      }
+      if (unitCe == null || !Number.isFinite(unitCe)) return '';
+      return 'ce:' + o + '|' + ceMode(li) + '|' + String(Number(li.quantity) || 1)
+        + '|' + String(unitCe) + '|' + itemBaseName(li).toLowerCase() + '|' + currencyKey(li);
+    }
+    // Generic multi-day equipment/rental rows with stable offering identity.
+    if (o && (s === 'addon_service' || li.rental_offering === true || li.generic_rental === true
+      || c === 'addon_service' || /^rental/.test(c))) {
+      var unitGe = readUnit(li);
+      if (unitGe == null || !Number.isFinite(unitGe)) return '';
+      return 'ge:' + o + '|' + String(li.duration_key || '') + '|' + String(Number(li.quantity) || 1)
+        + '|' + String(unitGe) + '|' + itemBaseName(li).toLowerCase() + '|' + currencyKey(li);
+    }
+    return '';
   }
   function itemLab(li, qty) {
     var base = itemBaseName(li, qty);
@@ -314,7 +409,9 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
     if (!groups[ik]) {
       groups[ik] = {
         items: [], total: 0, qty: 0, dates: {}, duration_key: null,
-        is_bundle: ik.indexOf('b:') === 0, unit_amount_cents: null,
+        is_bundle: ik.indexOf('b:') === 0,
+        is_equipment_group: ik.indexOf('ce:') === 0 || ik.indexOf('ge:') === 0,
+        unit_amount_cents: null,
       };
       order.push(ik);
     }
@@ -330,6 +427,24 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
   function doCollapse(g) {
     if (g.items.length < 2) return false;
     if (g.is_bundle) { var t = {}; g.items.forEach(function(li) { t[st(li)] = true; }); return !!(t.surfboard && t.wetsuit); }
+    // Equipment groups: only collapse when every peer matches unit×qty line amount
+    // (or zero companions) and multi-day coverage is present.
+    if (g.is_equipment_group) {
+      var dayN = Object.keys(g.dates).length;
+      if (dayN < 2) return false;
+      var expected = null;
+      for (var ei = 0; ei < g.items.length; ei++) {
+        var row = g.items[ei];
+        var rowUnit = readUnit(row);
+        var rowQty = Math.max(1, Number(row.quantity) || 1);
+        var rowLine = Math.round(Number(row.line_cents || 0));
+        if (rowUnit == null) return false;
+        if (rowLine !== 0 && rowLine !== rowUnit * rowQty) return false;
+        if (expected == null) expected = rowUnit * rowQty;
+        else if (rowLine !== 0 && rowLine !== expected) return false;
+      }
+      return true;
+    }
     var z = 0, p = 0; g.items.forEach(function(li) { if (Number(li.line_cents || 0) === 0) z += 1; else p += 1; });
     return (p >= 1 && z >= 1) || Object.keys(g.dates).length > 1;
   }
@@ -339,6 +454,9 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
     var dayKeys = Object.keys(g.dates).sort(), n = dayKeys.length || 0, durKey = g.duration_key || (rp && rp.duration) || null, durLab = '';
     if (durKey && typeof schedulePortalDurationLabel === 'function') durLab = schedulePortalDurationLabel(durKey) || '';
     if (!durLab && n > 0) durLab = n === 1 ? ('1 ' + portalT('schedule.drawer.dayWordCap')) : (String(n) + ' ' + portalT('schedule.drawer.daysWordCap'));
+    if (g.is_equipment_group && n > 0) {
+      durLab = scheduleDrawerEquipmentCoverageLabel(dayKeys) || durLab;
+    }
     var ids = g.items.map(function(li) { return li.service_record_id; });
     g.items.forEach(function(li) { if (li.service_record_id) hiddenIds[li.service_record_id] = true; });
     if (g.is_bundle) {
@@ -362,18 +480,28 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
     var primary = null;
     g.items.forEach(function(li) { if (!primary || Number(li.line_cents || 0) > Number(primary.line_cents || 0)) primary = li; });
     var lab = itemBaseName(primary, g.qty);
-    lines.push(attachMath({
+    var collapsed = attachMath({
       label: lab,
       line_cents: g.total,
       is_bundle: false,
       service_type: primary.service_type,
+      component: primary.component || null,
+      course_equipment: isCourseEquip(primary) || undefined,
+      course_equipment_mode: isCourseEquip(primary) ? ceMode(primary) : undefined,
+      offering_key: primary.offering_key || null,
       quantity: g.qty,
       billable_days: n || 1,
       unit_cents: g.unit_amount_cents != null ? g.unit_amount_cents : readUnit(primary),
       covered_dates: dayKeys,
       member_ids: ids,
       duration_label: durLab || null,
-    }));
+    });
+    // Grouped equipment: prefer day-coverage subtitle over bare "1 Day" unit math.
+    if (g.is_equipment_group && n > 1 && durLab) {
+      collapsed.duration_label = durLab;
+      collapsed.math_mode = 'total_only';
+    }
+    lines.push(collapsed);
   });
   singles.forEach(function(li) {
     if (li.service_record_id && hiddenIds[li.service_record_id]) return;
@@ -385,17 +513,34 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
       var iso = String(x || '').slice(0, 10); if (iso && cov.indexOf(iso) < 0) cov.push(iso);
     });
     if (cov.length) days = cov.length;
-    lines.push(attachMath({
-      label: itemBaseName(li, li.quantity),
+    var singleLine = attachMath({
+      label: isAccom(li) ? String(li.label || itemBaseName(li, li.quantity)) : itemBaseName(li, li.quantity),
       line_cents: Number(li.line_cents || 0),
       is_bundle: false,
       service_type: li.service_type,
+      component: li.component || null,
+      course_equipment: isCourseEquip(li) || undefined,
+      course_equipment_mode: isCourseEquip(li) ? ceMode(li) : undefined,
+      offering_key: li.offering_key || null,
       quantity: li.quantity,
       billable_days: days,
       unit_cents: readUnit(li),
       covered_dates: cov,
       service_record_id: li.service_record_id,
-    }));
+      staff_accommodation: isAccom(li) || undefined,
+      staff_custom_line: isCustom(li) || undefined,
+      check_in: li.check_in || null,
+      check_out: li.check_out || null,
+      nights: li.nights,
+      season_groups: li.season_groups || null,
+    });
+    lines.push(singleLine);
+  });
+  lines.sort(function(a, b){
+    var ra = scheduleDrawerCommercialLineRank(a);
+    var rb = scheduleDrawerCommercialLineRank(b);
+    if (ra !== rb) return ra - rb;
+    return 0;
   });
   return { lines: lines, hidden_ids: hiddenIds };
 }

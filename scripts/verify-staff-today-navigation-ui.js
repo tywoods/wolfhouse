@@ -87,9 +87,25 @@ function scheduleEnumerateDates(fromIso, toIso) {
 }
 
 const STRINGS = {
-  en: { 'schedule.card.dayProgress': 'Day {day} of {total}' },
-  es: { 'schedule.card.dayProgress': 'Día {day} de {total}' },
-  it: { 'schedule.card.dayProgress': 'Giorno {day} di {total}' },
+  en: {
+    'schedule.card.dayProgress': 'Day {day} of {total}',
+    'schedule.courseEquipment.during': 'During Course',
+    'schedule.courseEquipment.allDay': 'All Day',
+    'schedule.equipment.none': 'No equipment',
+    'schedule.legend.staff': 'Staff',
+    'schedule.legend.luna': 'Luna',
+    'schedule.source.demo': 'Demo',
+  },
+  es: {
+    'schedule.card.dayProgress': 'Día {day} de {total}',
+    'schedule.courseEquipment.during': 'Durante el curso',
+    'schedule.courseEquipment.allDay': 'Todo el día',
+  },
+  it: {
+    'schedule.card.dayProgress': 'Giorno {day} di {total}',
+    'schedule.courseEquipment.during': 'Durante il corso',
+    'schedule.courseEquipment.allDay': 'Tutto il giorno',
+  },
 };
 let locale = 'en';
 function t(key, vars) {
@@ -251,6 +267,125 @@ const singleHtml = dayCtx.scheduleRenderOpsBookingRow(Object.assign({}, single, 
   components: { lesson: true },
 }));
 assert('DOM omits pill for single-day', !/data-ps-day-progress/.test(singleHtml));
+
+// Course + per-day course equipment: Day N of N from authoritative service dates.
+const courseCeDates = [
+  '2026-07-30', '2026-07-31', '2026-08-01', '2026-08-02',
+  '2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06',
+];
+const courseCeGroup = {
+  guest_name: 'Course CE Guest',
+  booking_id: 'bk-ce-multi',
+  service_date: '2026-08-03',
+  service_dates: courseCeDates.slice(),
+  quantity: 1,
+  components: { course: true, course_equipment: true },
+  records: [
+    {
+      service_record_id: 'sr-course-d5',
+      booking_id: 'bk-ce-multi',
+      service_date: '2026-08-03',
+      service_type: 'surf_lesson',
+      quantity: 1,
+      metadata: {
+        component: 'course',
+        course_id: 'beginner',
+        course_label: 'Beginner',
+      },
+    },
+    {
+      service_record_id: 'sr-ce-d5',
+      booking_id: 'bk-ce-multi',
+      service_date: '2026-08-03',
+      service_type: 'addon_service',
+      quantity: 1,
+      metadata: {
+        course_equipment: true,
+        course_equipment_mode: 'during_course',
+        offering_key: 'board_and_suit_rental',
+        label: 'Surfboard + Wetsuit',
+        component: 'course_equipment',
+      },
+    },
+  ],
+  _scheduleId: 'bk-ce-multi',
+};
+assert('course+CE day progress 5 of 8', (() => {
+  const p = dayCtx.scheduleBookingDayProgress('2026-08-03', courseCeGroup);
+  return p && p.day === 5 && p.total === 8;
+})());
+dayCtx.scheduleActiveDayIso = () => '2026-08-03';
+const courseCeHtml = dayCtx.scheduleRenderOpsBookingRow(courseCeGroup);
+assert('course+CE DOM day progress Day 5 of 8',
+  /data-ps-day-progress="1"/.test(courseCeHtml) && /Day 5 of 8/.test(courseCeHtml),
+  courseCeHtml.slice(0, 400));
+assert('course+CE equipment subtitle present',
+  /Surfboard \+ Wetsuit/i.test(courseCeHtml) && /During Course/i.test(courseCeHtml),
+  courseCeHtml.slice(0, 400));
+dayCtx.scheduleActiveDayIso = () => '2026-07-16';
+
+// lessons[] on booking_metadata is also authoritative for multi-day course position.
+const lessonsMetaGroup = {
+  guest_name: 'Lessons Meta',
+  booking_id: 'bk-lessons-meta',
+  service_date: '2026-07-16',
+  quantity: 1,
+  components: { course: true },
+  booking_metadata: {
+    lessons: [
+      { kind: 'group', date: '2026-07-15' },
+      { kind: 'group', date: '2026-07-16' },
+      { kind: 'group', date: '2026-07-17' },
+    ],
+  },
+  records: [{
+    service_date: '2026-07-16',
+    metadata: { component: 'course' },
+    booking_metadata: {
+      lessons: [
+        { kind: 'group', date: '2026-07-15' },
+        { kind: 'group', date: '2026-07-16' },
+        { kind: 'group', date: '2026-07-17' },
+      ],
+    },
+  }],
+  _scheduleId: 'bk-lessons-meta',
+};
+assert('lessons metadata day 2 of 3', (() => {
+  const p = dayCtx.scheduleBookingDayProgress('2026-07-16', lessonsMetaGroup);
+  return p && p.day === 2 && p.total === 3;
+})());
+
+// Ordinary rental still shows Day N of N (regression).
+const rentalMulti = {
+  guest_name: 'Rental Multi',
+  service_date: '2026-07-19',
+  quantity: 1,
+  components: { surfboard: true },
+  records: [{
+    service_date: '2026-07-19',
+    metadata: {
+      rental_offering: true,
+      offering_key: 'board_rental',
+      rental_service_dates: [
+        '2026-07-15', '2026-07-16', '2026-07-17', '2026-07-18', '2026-07-19',
+      ],
+    },
+  }],
+  _scheduleId: 'bk-rental-multi',
+};
+assert('ordinary rental Day 5 of 5', (() => {
+  const p = dayCtx.scheduleBookingDayProgress('2026-07-19', rentalMulti);
+  return p && p.day === 5 && p.total === 5;
+})());
+dayCtx.scheduleActiveDayIso = () => '2026-07-19';
+const rentalHtml = dayCtx.scheduleRenderOpsBookingRow(Object.assign({}, rentalMulti, {
+  _genericRentalDescriptor: { offering_key: 'board_rental', label: 'Surfboard', quantity: 1 },
+}));
+assert('ordinary rental DOM Day 5 of 5',
+  /Day 5 of 5/.test(rentalHtml),
+  rentalHtml.slice(0, 280));
+dayCtx.scheduleActiveDayIso = () => '2026-07-16';
 
 // ── Previous navigation + refresh + stale guard ──────────────────────────
 let today = '2026-03-01'; // month boundary + year-ish neighborhood

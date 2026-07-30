@@ -162,6 +162,14 @@ function scheduleCanonicalBookedServiceDates(group){
     if (Array.isArray(obj.covered_dates) && obj.covered_dates.length){
       addExplicitArr(obj.covered_dates);
     }
+    // Multi-lesson / multi-day course bookings: declared lesson dates are authoritative.
+    if (Array.isArray(obj.lessons) && obj.lessons.length){
+      for (var li = 0; li < obj.lessons.length; li += 1){
+        var lesson = obj.lessons[li];
+        if (!lesson) continue;
+        addExplicit(lesson.date || lesson.service_date);
+      }
+    }
     var pl = obj.components && obj.components.private_lesson;
     if (pl && Array.isArray(pl.sessions)){
       for (var s = 0; s < pl.sessions.length; s += 1){
@@ -221,7 +229,41 @@ function scheduleCanonicalBookedServiceDates(group){
     }
     if (out.length) return out;
   }
-  return Object.keys(singles).sort();
+  out = Object.keys(singles).sort();
+
+  // Display-only fallback: when a course+equipment booking is multi-day in the
+  // loaded schedule snapshot, derive position from peer service dates of the
+  // same booking (never invent span from duration alone).
+  if (out.length <= 1 && group && group.booking_id
+    && typeof scheduleGetRowsSnapshot === 'function') {
+    try {
+      var snap = scheduleGetRowsSnapshot() || [];
+      var peerDates = {};
+      var bid = String(group.booking_id);
+      for (var pi = 0; pi < snap.length; pi += 1) {
+        var peer = snap[pi];
+        if (!peer || String(peer.booking_id || '') !== bid) continue;
+        var pIso = scheduleDayOpsIsoDateToken(peer.service_date);
+        if (pIso) peerDates[pIso] = true;
+        var pMeta = scheduleDayOpsParseMetaBlob(peer.metadata || peer._meta);
+        if (Array.isArray(pMeta.rental_service_dates)) {
+          for (var rd = 0; rd < pMeta.rental_service_dates.length; rd += 1) {
+            var rIso = scheduleDayOpsIsoDateToken(pMeta.rental_service_dates[rd]);
+            if (rIso) peerDates[rIso] = true;
+          }
+        }
+        if (Array.isArray(pMeta.service_dates)) {
+          for (var sd = 0; sd < pMeta.service_dates.length; sd += 1) {
+            var sIso = scheduleDayOpsIsoDateToken(pMeta.service_dates[sd]);
+            if (sIso) peerDates[sIso] = true;
+          }
+        }
+      }
+      var peerKeys = Object.keys(peerDates).sort();
+      if (peerKeys.length > out.length) return peerKeys;
+    } catch (_snap) { /* ignore snapshot failures */ }
+  }
+  return out;
 }
 
 /**
