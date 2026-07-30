@@ -282,9 +282,9 @@ function scheduleDrawerStripAccommodationIsoDates(label) {
 }
 
 /**
- * One accommodation commercial label: nights + inline season math, no ISO dates,
- * no separate season amount rows. Example:
- *   Accommodation · 7 nights · High Season · 7 × €100.00
+ * Primary accommodation commercial label (nights only, no ISO dates, no season math).
+ * Example: Accommodation · 7 nights
+ * Season segments render as secondary via scheduleDrawerFormatAccommodationSeasonSubtitle.
  */
 function scheduleDrawerFormatAccommodationInvoiceLabel(line) {
   if (!line) return 'Accommodation';
@@ -293,24 +293,40 @@ function scheduleDrawerFormatAccommodationInvoiceLabel(line) {
     var nm = String(line.label || '').match(/(\d+)\s*nights?/i);
     if (nm) nights = Number(nm[1]);
   }
-  var groups = Array.isArray(line.season_groups) ? line.season_groups : [];
-  if (groups.length) {
-    var parts = ['Accommodation'];
-    if (nights > 0) parts.push(String(nights) + ' night' + (nights === 1 ? '' : 's'));
-    for (var i = 0; i < groups.length; i++) {
-      var g = groups[i] || {};
-      var title = String(g.title || '').trim() || '\u2014';
-      var gn = Number(g.nights) || 0;
-      parts.push(title);
-      parts.push(String(gn) + ' \u00d7 ' + scheduleDrawerEur(g.nightly_cents));
-    }
-    return parts.join(' \u00b7 ');
-  }
-  var cleaned = scheduleDrawerStripAccommodationIsoDates(line.label || 'Accommodation');
-  if (nights > 0 && !/\d+\s*nights?/i.test(cleaned)) {
+  if (nights > 0) {
     return 'Accommodation \u00b7 ' + String(nights) + ' night' + (nights === 1 ? '' : 's');
   }
+  var cleaned = scheduleDrawerStripAccommodationIsoDates(line.label || 'Accommodation');
+  // Drop any season-style "N × €…" fragments if a stale full label slipped through.
+  cleaned = cleaned
+    .replace(/\s*·\s*[^·]+?\s+\u00d7\s*€[\d.,]+/g, '')
+    .replace(/\s*·\s*·\s*/g, ' \u00b7 ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  if (!/^Accommodation\b/i.test(cleaned)) cleaned = 'Accommodation';
   return cleaned || 'Accommodation';
+}
+
+/**
+ * Secondary accommodation subtitle: authoritative season segments only (no amounts
+ * as separate commercial rows, no ISO dates). Single season:
+ *   High Season · 7 × €100.00
+ * Cross-season keeps every segment on this one secondary line:
+ *   Low · 3 × €80.00 · High · 2 × €100.00
+ */
+function scheduleDrawerFormatAccommodationSeasonSubtitle(line) {
+  if (!line) return '';
+  var groups = Array.isArray(line.season_groups) ? line.season_groups : [];
+  if (!groups.length) return '';
+  var parts = [];
+  for (var i = 0; i < groups.length; i++) {
+    var g = groups[i] || {};
+    var title = String(g.title || '').trim() || '\u2014';
+    var gn = Number(g.nights) || 0;
+    parts.push(title);
+    parts.push(String(gn) + ' \u00d7 ' + scheduleDrawerEur(g.nightly_cents));
+  }
+  return parts.join(' \u00b7 ');
 }
 
 function scheduleDrawerIsCourseLikeLine(line) {
@@ -608,8 +624,10 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
 /** Build truthful arithmetic subtitle: linear unit×qty×days, package unit×qty + duration, or empty. */
 function scheduleDrawerFormatCommercialMathLabel(line) {
   if (!line) return '';
-  // Accommodation seasons fold into the parent label — no separate math/amount rows.
-  if (line.staff_accommodation || String(line.component || '') === 'staff_accommodation') return '';
+  // Accommodation: season math is the secondary subtitle (still one right-side amount).
+  if (line.staff_accommodation || String(line.component || '') === 'staff_accommodation') {
+    return scheduleDrawerFormatAccommodationSeasonSubtitle(line);
+  }
   var mode = line.math_mode || 'total_only';
   var unit = line.unit_cents;
   var qty = Math.max(1, Math.round(Number(line.quantity) || 1));
@@ -845,7 +863,7 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
       nights: src.nights != null ? src.nights : line.nights,
       line_cents: src.line_cents != null ? src.line_cents : line.line_cents,
     });
-    // Fold authoritative season breakdown into one commercial label (no child amounts).
+    // Primary label = nights only; season math is secondary subtitle (no child amounts).
     enriched.label = scheduleDrawerFormatAccommodationInvoiceLabel(enriched);
     return enriched;
   });
@@ -863,11 +881,19 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
         + (line.check_out ? ' data-check-out="' + escHtml(String(line.check_out).slice(0, 10)) + '"' : '')
         + '>';
       html += '<span class="ps-svc-name">' + escHtml(displayLabel);
-      if (math && !line.staff_accommodation) html += '<span class="ps-svc-detail"> · ' + escHtml(math) + '</span>';
+      // Accommodation season math uses existing ps-svc-detail as a second text line;
+      // other lines keep the inline " · math" subtitle.
+      if (math) {
+        if (line.staff_accommodation) {
+          html += '<span class="ps-svc-detail">' + escHtml(math) + '</span>';
+        } else {
+          html += '<span class="ps-svc-detail"> · ' + escHtml(math) + '</span>';
+        }
+      }
       html += '</span>';
       html += '<span class="ps-svc-amt ps-invoice-amt">' + escHtml(scheduleDrawerEur(line.line_cents)) + '</span>';
       html += '</div>';
-      // Season segments stay inline in the parent label only — never extra commercial totals.
+      // Season segments stay on the parent item secondary line only — never extra commercial totals.
     });
     html += '</div>';
   } else if (!items.length) {
