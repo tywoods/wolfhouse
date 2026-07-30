@@ -3759,13 +3759,13 @@ function scheduleDrawerAccommodationNights(checkIn, checkOut) {
   var a = String(checkIn || '').slice(0, 10);
   var b = String(checkOut || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b) || b <= a) return 0;
-  var n = 0;
-  var cur = a;
-  while (cur < b && n < 400) {
-    n += 1;
-    cur = scheduleDrawerAddIsoDays(cur, 1);
-  }
-  return n;
+  var ap = a.split('-').map(Number);
+  var bp = b.split('-').map(Number);
+  var aUtc = Date.UTC(ap[0], ap[1] - 1, ap[2]);
+  var bUtc = Date.UTC(bp[0], bp[1] - 1, bp[2]);
+  if (!Number.isFinite(aUtc) || !Number.isFinite(bUtc) || bUtc <= aUtc) return 0;
+  var nights = (bUtc - aUtc) / 86400000;
+  return Number.isInteger(nights) && nights > 0 && nights < 400 ? nights : 0;
 }
 
 /**
