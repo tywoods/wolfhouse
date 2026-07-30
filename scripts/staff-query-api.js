@@ -17076,13 +17076,19 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-hdr-badge{display:inline-block;font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:999px;vertical-align:2px;margin-left:6px;letter-spacing:.05em;text-transform:uppercase}
 .portal-schedule-hdr-badge.is-course{background:#EFE3CE;color:#8A6B3D}
 .portal-schedule-hdr-badge.is-done{background:var(--surface-soft);color:var(--text-3)}
-.portal-schedule-occ{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0}
-.portal-schedule-occ-num{font-size:18px;font-weight:700;color:var(--text);line-height:1;font-variant-numeric:tabular-nums}
-.portal-schedule-occ-num small{font-size:11px;font-weight:700;color:var(--text-3)}
-.portal-schedule-occ-track{display:flex;width:120px;height:6px;border-radius:999px;background:var(--surface-soft);overflow:hidden}
-.portal-schedule-occ-track i{display:block;height:100%}
-.portal-schedule-occ-track i.is-staff{background:#2F6B4F}
-.portal-schedule-occ-track i.is-luna{background:#4A7BA6}
+.portal-schedule-occ{position:relative;width:48px;height:48px;flex-shrink:0;display:grid;place-items:center}
+.portal-schedule-occ-ring{position:absolute;inset:0;border-radius:50%;background:conic-gradient(var(--ps-occ-fill,#2F6B4F) calc(var(--ps-occ-pct,0)*1%),var(--ps-occ-track,var(--surface-soft)) 0);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px))}
+.portal-schedule-occ.is-unknown .portal-schedule-occ-ring{background:conic-gradient(var(--ps-occ-track,var(--surface-soft)) 0 100%)}
+.portal-schedule-occ.is-full .portal-schedule-occ-ring,.portal-schedule-occ.is-over .portal-schedule-occ-ring{--ps-occ-fill:#2F6B4F}
+.portal-schedule-occ-num{position:relative;z-index:1;font-size:11px;font-weight:700;color:var(--text);line-height:1.1;font-variant-numeric:tabular-nums;text-align:center}
+.portal-schedule-occ-num small{font-size:9px;font-weight:700;color:var(--text-3)}
+.portal-schedule-ops-guest-toggle{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);font:inherit;font-size:11px;font-weight:700;cursor:pointer;line-height:1.2}
+.portal-schedule-ops-guest-toggle:hover{border-color:var(--tan);background:var(--surface-soft)}
+.portal-schedule-ops-guest-toggle:focus-visible{outline:2px solid var(--tan);outline-offset:2px}
+.portal-schedule-ops-guest-toggle-icon{width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid currentColor;transition:transform .12s ease;flex-shrink:0}
+.portal-schedule-ops-guest-toggle.is-collapsed .portal-schedule-ops-guest-toggle-icon{transform:rotate(-90deg)}
+.portal-schedule-ops-lesson-rows.is-collapsed,.portal-schedule-ops-lesson-rows[hidden]{display:none!important}
+.portal-schedule-ops-lesson-hdr-actions{margin-top:2px}
 .portal-schedule-src-chip{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap;justify-self:end;letter-spacing:.02em}
 .portal-schedule-src-chip i{width:6px;height:6px;border-radius:50%;display:inline-block}
 .portal-schedule-src-chip.is-staff{background:#E4EFE7;color:#2F6B4F}
@@ -17137,7 +17143,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
   .portal-schedule-tl-item{grid-template-columns:minmax(0,1fr)}
   .portal-schedule-tl-time,.portal-schedule-tl-dot{display:none}
   .portal-schedule-tl-now{grid-template-columns:auto minmax(0,1fr)}
-  .portal-schedule-occ-track{width:80px}
+  .portal-schedule-occ{width:42px;height:42px}
+  .portal-schedule-occ-num{font-size:10px}
   .portal-schedule-legend{display:none}
 }
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-glance-cell{background:var(--sunset-card);border-color:var(--sunset-border);box-shadow:var(--sunset-shadow-soft)}
@@ -17146,8 +17153,9 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-glance-cell-unpaid .portal-schedule-glance-num:not(.is-zero){color:var(--sched-unpaid)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-glance-bar{background:var(--sched-surface-soft)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-glance-bar i{background:var(--sched-primary)}
-:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-occ-track{background:var(--sched-surface-soft)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-occ{--ps-occ-fill:var(--sched-primary,#2F6B4F);--ps-occ-track:var(--sched-surface-soft)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-occ-num{color:var(--sched-text)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-guest-toggle{background:var(--sunset-card);border-color:var(--sunset-border);color:var(--sched-text-2)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-timeline::before{background:var(--sched-border-soft)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-tl-time b{color:var(--sched-text)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-tl-time small{color:var(--sched-text-3)}
@@ -17172,9 +17180,9 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 [data-theme="dark"] #tab-portal-home .portal-schedule-tl-dot{background:var(--surface);border-color:var(--text-3)}
 [data-theme="dark"] #tab-portal-home .portal-schedule-tl-now span{background:#d47a5c}
 [data-theme="dark"] #tab-portal-home .portal-schedule-tl-now::after{background:#d47a5c}
-[data-theme="dark"] #tab-portal-home .portal-schedule-occ-track{background:rgba(255,255,255,.08)}
-[data-theme="dark"] #tab-portal-home .portal-schedule-occ-track i.is-staff{background:#6fa783}
-[data-theme="dark"] #tab-portal-home .portal-schedule-occ-track i.is-luna{background:#6f93b8}
+[data-theme="dark"] #tab-portal-home .portal-schedule-occ{--ps-occ-fill:#6fa783;--ps-occ-track:rgba(255,255,255,.08)}
+[data-theme="dark"] #tab-portal-home .portal-schedule-ops-guest-toggle{background:var(--surface);border-color:var(--border);color:var(--text-2)}
+[data-theme="dark"] #tab-portal-home .portal-schedule-ops-guest-toggle:focus-visible{outline-color:#6fa783}
 [data-theme="dark"] #tab-portal-home .portal-schedule-src-chip.is-staff{background:rgba(111,167,131,.16);color:#9ecfb0}
 [data-theme="dark"] #tab-portal-home .portal-schedule-src-chip.is-staff i{background:#6fa783}
 [data-theme="dark"] #tab-portal-home .portal-schedule-src-chip.is-luna{background:rgba(111,147,184,.16);color:#a9c4e0}
@@ -26182,12 +26190,16 @@ function setText(id, text){ var n = el(id); if (n) n.textContent = text; }
 
 function scheduleBuildViewGridContext(profile, weekData, rangeStart, renderGen, navSnapshot){
   navSnapshot = navSnapshot || scheduleGetNavigationSnapshot();
-  weekData = scheduleFilterFutureWeekData(weekData);
+  // Keep raw packs for Day mode so a selected historical date still resolves
+  // its real dayPack. Week / Next 30 continue on future-only card data.
+  var rawWeekData = weekData || [];
+  var futureWeekData = scheduleFilterFutureWeekData(rawWeekData);
   var mode = navSnapshot.mode;
   if (mode !== 'day' && mode !== 'week' && mode !== 'next30') mode = 'day';
   var today = navSnapshot.todayIso || scheduleTodayIso();
   var activeIso = mode === 'day' ? scheduleIsoDate(rangeStart) : today;
-  var dayPack = (weekData || []).find(function(x){ return x.dateIso === activeIso; }) ||
+  var daySource = mode === 'day' ? rawWeekData : futureWeekData;
+  var dayPack = daySource.find(function(x){ return x.dateIso === activeIso; }) ||
     { lessons: [], gear: [], rows: [] };
   function buildCardContexts(count){
     var cards = [];
@@ -26195,7 +26207,7 @@ function scheduleBuildViewGridContext(profile, weekData, rangeStart, renderGen, 
       var d = scheduleAddDays(rangeStart, i);
       var iso = scheduleIsoDate(d);
       if (iso < today) continue;
-      var pack = (weekData || []).find(function(x){ return x.dateIso === iso; }) ||
+      var pack = futureWeekData.find(function(x){ return x.dateIso === iso; }) ||
         { lessons: [], gear: [], rows: [] };
       cards.push(scheduleBuildForecastCardPresentation(pack, iso, scheduleLessonTimesCache));
     }

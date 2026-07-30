@@ -306,21 +306,80 @@ function scheduleDayOpsRowStatusHtml(group){
   return scheduleRenderStatusBadgeHtml(group, { row: true });
 }
 
+/**
+ * Circular/ring occupancy indicator for a course/session group header.
+ * Text is always truthful (booked[/capacity]); visual fill is clamped 0–100%.
+ * Missing/zero capacity is a neutral unknown state — never invents a denom.
+ */
 function scheduleRenderOccupancyHtml(session){
-  var cap = session.capacity;
-  var split = scheduleSourceSplit(session.groups);
-  var denom = cap || Math.max(session.surfers || 0, 1);
-  var staffPct = Math.min(100, Math.round((split.staff / denom) * 100));
-  var lunaPct = Math.min(Math.max(0, 100 - staffPct), Math.round((split.luna / denom) * 100));
-  if (split.staff > 0 && staffPct < 4) staffPct = 4;
-  if (split.luna > 0 && lunaPct < 4) lunaPct = Math.min(4, 100 - staffPct);
-  return '<div class="portal-schedule-occ">' +
-    '<span class="portal-schedule-occ-num">' + escHtml(String(session.surfers || 0)) +
-    (cap ? '<small>/' + escHtml(String(cap)) + '</small>' : '') + '</span>' +
-    '<span class="portal-schedule-occ-track" aria-hidden="true">' +
-    '<i class="is-staff" style="width:' + staffPct + '%"></i>' +
-    '<i class="is-luna" style="width:' + lunaPct + '%"></i>' +
-    '</span></div>';
+  session = session || {};
+  var booked = Math.max(0, Number(session.surfers) || 0);
+  var capRaw = session.capacity;
+  var capNum = capRaw == null || capRaw === '' ? NaN : Number(capRaw);
+  var hasCap = isFinite(capNum) && capNum > 0;
+  var pct = 0;
+  if (hasCap) {
+    pct = Math.round((booked / capNum) * 100);
+    if (!isFinite(pct) || pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+  }
+  var numHtml = escHtml(String(booked))
+    + (hasCap ? '<small>/' + escHtml(String(capNum)) + '</small>' : '');
+  var aria;
+  if (hasCap) {
+    aria = String(portalT('schedule.ops.occupancy') || '')
+      .split('{booked}').join(String(booked))
+      .split('{capacity}').join(String(capNum));
+    if (!aria || aria === 'schedule.ops.occupancy') {
+      aria = 'Occupancy ' + booked + ' of ' + capNum;
+    }
+  } else {
+    aria = String(portalT('schedule.ops.occupancyBooked') || '')
+      .split('{booked}').join(String(booked));
+    if (!aria || aria === 'schedule.ops.occupancyBooked') {
+      aria = 'Occupancy ' + booked + ' booked';
+    }
+  }
+  var cls = 'portal-schedule-occ'
+    + (hasCap ? '' : ' is-unknown')
+    + (hasCap && pct >= 100 ? ' is-full' : '')
+    + (hasCap && booked > capNum ? ' is-over' : '');
+  // Static ring via conic-gradient; --ps-occ-pct drives fill (0–100). No animation.
+  return '<div class="' + cls + '" role="img" aria-label="' + escHtml(aria) + '" data-ps-occ-pct="' + pct + '">' +
+    '<span class="portal-schedule-occ-ring" style="--ps-occ-pct:' + pct + '" aria-hidden="true"></span>' +
+    '<span class="portal-schedule-occ-num">' + numHtml + '</span>' +
+    '</div>';
+}
+
+/** Deterministic unique guest-panel id for a day-ops lesson/course group. */
+function scheduleOpsGuestPanelId(session){
+  session = session || {};
+  var parts = [
+    session.kind || 'session',
+    session.course_id || session.slot_key || '',
+    session.start != null ? String(session.start) : String(session.timeLabel || ''),
+    session.label || '',
+  ];
+  var raw = parts.join('-').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (!raw) raw = 'group';
+  return 'ps-ops-guests-' + raw;
+}
+
+function scheduleRenderOpsGuestToggle(panelId, expanded){
+  var isOpen = expanded !== false;
+  var label = portalT(isOpen ? 'schedule.ops.hideGuests' : 'schedule.ops.showGuests');
+  if (!label || label.indexOf('schedule.ops.') === 0) {
+    label = isOpen ? 'Hide guests' : 'Show guests';
+  }
+  return '<button type="button" class="portal-schedule-ops-guest-toggle' +
+    (isOpen ? '' : ' is-collapsed') +
+    '" data-ps-ops-guest-toggle="1" aria-expanded="' + (isOpen ? 'true' : 'false') +
+    '" aria-controls="' + escHtml(panelId) + '">' +
+    '<span class="portal-schedule-ops-guest-toggle-label">' + escHtml(label) + '</span>' +
+    '<span class="portal-schedule-ops-guest-toggle-icon" aria-hidden="true"></span>' +
+    '</button>';
 }
 
 function scheduleRenderOpsGroupHeader(groupLabel, slotTime, stats, boardsNeeded, wetsuitsNeeded, opts){
@@ -335,11 +394,15 @@ function scheduleRenderOpsGroupHeader(groupLabel, slotTime, stats, boardsNeeded,
   if (opts.done) badges += ' <span class="portal-schedule-hdr-badge is-done">' + escHtml(portalT('schedule.timeline.done')) + '</span>';
   var timeLine = (time ? time + ' · ' : '') + String(stats.surfers || 0) + ' ' + portalT('schedule.slot.booked');
   var occHtml = opts.session ? scheduleRenderOccupancyHtml(opts.session) : '';
+  var toggleHtml = opts.guestPanelId
+    ? scheduleRenderOpsGuestToggle(opts.guestPanelId, opts.guestExpanded !== false)
+    : '';
   var html = '<header class="portal-schedule-ops-lesson-hdr">' +
     '<div class="portal-schedule-ops-lesson-hdr-row">' +
     '<div class="portal-schedule-ops-lesson-hdr-main">' +
     '<div class="portal-schedule-ops-lesson-hdr-title">' + escHtml(label) + badges + '</div>' +
     '<div class="portal-schedule-ops-lesson-hdr-time">' + escHtml(timeLine) + '</div>' +
+    (toggleHtml ? '<div class="portal-schedule-ops-lesson-hdr-actions">' + toggleHtml + '</div>' : '') +
     '</div>' + occHtml + '</div>';
   if ((boardsNeeded || 0) > 0 || (wetsuitsNeeded || 0) > 0){
     var prepLine = portalT('schedule.ops.prepare') + ': ' + String(boardsNeeded || 0) + ' ' + portalT('schedule.summary.boards') + ' · ' +
@@ -421,10 +484,19 @@ function scheduleRenderTimelineSession(session, done){
   var stats = { surfers: session.surfers, bookings: session.bookings };
   var hdrLabel = session.kind === 'private_lesson' ? (session.sectionLabel || session.label) : session.label;
   var hdrTime = session.kind === 'private_lesson' ? session.timeLabel : session.timeLabel;
+  var panelId = scheduleOpsGuestPanelId(session);
   var html = '<section class="' + groupCls + '">' +
     scheduleRenderOpsGroupHeader(hdrLabel, hdrTime, stats, session.boardsNeeded || 0, session.wetsuitsNeeded || 0,
-      { isCourse: session.kind === 'course', isPrivateLesson: session.kind === 'private_lesson', isRequested: !!session.isRequested, done: done, session: session }) +
-    '<div class="portal-schedule-ops-lesson-rows">' +
+      {
+        isCourse: session.kind === 'course',
+        isPrivateLesson: session.kind === 'private_lesson',
+        isRequested: !!session.isRequested,
+        done: done,
+        session: session,
+        guestPanelId: panelId,
+        guestExpanded: true,
+      }) +
+    '<div id="' + escHtml(panelId) + '" class="portal-schedule-ops-lesson-rows" role="region">' +
     scheduleRenderOpsColumnHeader();
   (session.groups || []).forEach(function(g){ html += scheduleRenderOpsBookingRow(g); });
   return html + '</div></section>';
@@ -535,8 +607,57 @@ function scheduleResolveDayOpsRowFromChip(target){
   return null;
 }
 
+function scheduleWireDayOpsGuestToggles(container){
+  if (!container || typeof container.querySelectorAll !== 'function') return;
+  container.querySelectorAll('[data-ps-ops-guest-toggle]').forEach(function(btn){
+    if (!btn || (btn.dataset && btn.dataset.psGuestToggleWired)) return;
+    if (btn.dataset) btn.dataset.psGuestToggleWired = '1';
+    btn.addEventListener('click', function(ev){
+      if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+      if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+      var panelId = btn.getAttribute('aria-controls');
+      if (!panelId) return;
+      var panel = null;
+      if (typeof container.querySelector === 'function') {
+        panel = container.querySelector('#' + panelId);
+      }
+      if (!panel && typeof document !== 'undefined' && document.getElementById) {
+        panel = document.getElementById(panelId);
+      }
+      if (!panel) return;
+      var expanded = btn.getAttribute('aria-expanded') !== 'false';
+      var next = !expanded;
+      btn.setAttribute('aria-expanded', next ? 'true' : 'false');
+      if (btn.classList && typeof btn.classList.toggle === 'function') {
+        btn.classList.toggle('is-collapsed', !next);
+      } else {
+        btn.className = String(btn.className || '')
+          .replace(/\bis-collapsed\b/g, '')
+          .trim() + (next ? '' : ' is-collapsed');
+      }
+      panel.hidden = !next;
+      if (panel.classList && typeof panel.classList.toggle === 'function') {
+        panel.classList.toggle('is-collapsed', !next);
+      } else {
+        panel.className = String(panel.className || '')
+          .replace(/\bis-collapsed\b/g, '')
+          .trim() + (next ? '' : ' is-collapsed');
+      }
+      var labelEl = typeof btn.querySelector === 'function'
+        ? btn.querySelector('.portal-schedule-ops-guest-toggle-label')
+        : null;
+      var label = portalT(next ? 'schedule.ops.hideGuests' : 'schedule.ops.showGuests');
+      if (!label || label.indexOf('schedule.ops.') === 0) {
+        label = next ? 'Hide guests' : 'Show guests';
+      }
+      if (labelEl) labelEl.textContent = label;
+    });
+  });
+}
+
 function scheduleWireDayOpsBoardRows(container){
   if (!container) return;
+  scheduleWireDayOpsGuestToggles(container);
   container.querySelectorAll('[data-ps-booking-id]').forEach(function(node){
     if (node.dataset.psOpsWired) return;
     node.dataset.psOpsWired = '1';
