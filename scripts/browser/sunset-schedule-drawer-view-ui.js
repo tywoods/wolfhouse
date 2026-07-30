@@ -260,35 +260,93 @@ function scheduleDrawerCommercialLineRank(line){
   return 3;
 }
 
-/** Compact multi-day coverage for grouped equipment: "8 Days · 30 Jul–6 Aug". */
+/** Compact multi-day coverage (legacy helper). Invoice equipment no longer uses date ranges. */
 function scheduleDrawerEquipmentCoverageLabel(dayKeys){
   var keys = (dayKeys || []).map(function(d){ return String(d || '').slice(0, 10); })
     .filter(function(d){ return /^\d{4}-\d{2}-\d{2}$/.test(d); })
     .sort();
   if (!keys.length) return '';
   var n = keys.length;
-  var daysPart = n === 1
+  return n === 1
     ? ('1 ' + portalT('schedule.drawer.dayWordCap'))
     : (String(n) + ' ' + portalT('schedule.drawer.daysWordCap'));
-  var range = '';
-  if (typeof schedulePortalFormatCompactDateRange === 'function') {
-    range = schedulePortalFormatCompactDateRange(keys[0], keys[keys.length - 1]) || '';
+}
+
+/** Strip raw ISO stay dates from accommodation labels (invoice header owns dates). */
+function scheduleDrawerStripAccommodationIsoDates(label) {
+  return String(label || '')
+    .replace(/\s*·\s*\d{4}-\d{2}-\d{2}\s*(?:→|->|–|—|-)\s*\d{4}-\d{2}-\d{2}/g, '')
+    .replace(/\s*·\s*·\s*/g, ' · ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/**
+ * One accommodation commercial label: nights + inline season math, no ISO dates,
+ * no separate season amount rows. Example:
+ *   Accommodation · 7 nights · High Season · 7 × €100.00
+ */
+function scheduleDrawerFormatAccommodationInvoiceLabel(line) {
+  if (!line) return 'Accommodation';
+  var nights = Number(line.nights);
+  if (!Number.isFinite(nights) || nights <= 0) {
+    var nm = String(line.label || '').match(/(\d+)\s*nights?/i);
+    if (nm) nights = Number(nm[1]);
   }
-  if (!range) {
-    try {
-      var a = scheduleParseIso(keys[0]);
-      var b = scheduleParseIso(keys[keys.length - 1]);
-      var opts = { day: 'numeric', month: 'short', timeZone: 'UTC' };
-      var fromLab = a.toLocaleDateString('en', opts);
-      var toLab = b.toLocaleDateString('en', opts);
-      range = keys[0] === keys[keys.length - 1] ? fromLab : (fromLab + '\u2013' + toLab);
-    } catch (_e) {
-      range = keys[0] === keys[keys.length - 1]
-        ? keys[0]
-        : (keys[0] + '\u2013' + keys[keys.length - 1]);
+  var groups = Array.isArray(line.season_groups) ? line.season_groups : [];
+  if (groups.length) {
+    var parts = ['Accommodation'];
+    if (nights > 0) parts.push(String(nights) + ' night' + (nights === 1 ? '' : 's'));
+    for (var i = 0; i < groups.length; i++) {
+      var g = groups[i] || {};
+      var title = String(g.title || '').trim() || '\u2014';
+      var gn = Number(g.nights) || 0;
+      parts.push(title);
+      parts.push(String(gn) + ' \u00d7 ' + scheduleDrawerEur(g.nightly_cents));
     }
+    return parts.join(' \u00b7 ');
   }
-  return range ? (daysPart + ' \u00b7 ' + range) : daysPart;
+  var cleaned = scheduleDrawerStripAccommodationIsoDates(line.label || 'Accommodation');
+  if (nights > 0 && !/\d+\s*nights?/i.test(cleaned)) {
+    return 'Accommodation \u00b7 ' + String(nights) + ' night' + (nights === 1 ? '' : 's');
+  }
+  return cleaned || 'Accommodation';
+}
+
+function scheduleDrawerIsCourseLikeLine(line) {
+  if (!line || line.course_equipment || String(line.component || '') === 'course_equipment') return false;
+  var s = String(line.service_type || '').toLowerCase();
+  var c = String(line.component || '').toLowerCase();
+  return c === 'course' || c === 'private_lesson' || c === 'lesson'
+    || s.indexOf('lesson') >= 0 || s.indexOf('course') >= 0 || s === 'private_lesson';
+}
+
+function scheduleDrawerIsEquipmentLikeLine(line) {
+  return !!(line && (line.course_equipment || String(line.component || '') === 'course_equipment'));
+}
+
+/** "8 days × €5.00/day" — uses existing drawer/addon i18n keys. */
+function scheduleDrawerFormatDaysTimesUnit(days, unitCents) {
+  var n = Math.max(1, Math.round(Number(days) || 1));
+  var dayWord = n === 1
+    ? (portalT('schedule.drawer.daysWord') === 'días' ? 'día' : 'day')
+    : portalT('schedule.drawer.daysWord');
+  var suffix = portalT('schedule.addon.perDaySuffix');
+  if (!suffix || suffix === 'schedule.addon.perDaySuffix') suffix = '/day';
+  return String(n) + ' ' + dayWord + ' \u00d7 ' + scheduleDrawerEur(unitCents) + suffix;
+}
+
+/** "8 days · avg €28.57/day" when unit×days cannot reconcile cents exactly. */
+function scheduleDrawerFormatDaysAvgUnit(days, avgCents) {
+  var n = Math.max(1, Math.round(Number(days) || 1));
+  var dayWord = n === 1
+    ? (portalT('schedule.drawer.daysWord') === 'días' ? 'día' : 'day')
+    : portalT('schedule.drawer.daysWord');
+  var avgWord = portalT('schedule.drawer.avgWord');
+  if (!avgWord || avgWord === 'schedule.drawer.avgWord') avgWord = 'avg';
+  var suffix = portalT('schedule.addon.perDaySuffix');
+  if (!suffix || suffix === 'schedule.addon.perDaySuffix') suffix = '/day';
+  return String(n) + ' ' + dayWord + ' \u00b7 ' + avgWord + ' ' + scheduleDrawerEur(avgCents) + suffix;
 }
 
 /** Presentation-only: collapse truthful bundle/group peers; never invent money. */
@@ -454,9 +512,9 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
     var dayKeys = Object.keys(g.dates).sort(), n = dayKeys.length || 0, durKey = g.duration_key || (rp && rp.duration) || null, durLab = '';
     if (durKey && typeof schedulePortalDurationLabel === 'function') durLab = schedulePortalDurationLabel(durKey) || '';
     if (!durLab && n > 0) durLab = n === 1 ? ('1 ' + portalT('schedule.drawer.dayWordCap')) : (String(n) + ' ' + portalT('schedule.drawer.daysWordCap'));
-    if (g.is_equipment_group && n > 0) {
-      durLab = scheduleDrawerEquipmentCoverageLabel(dayKeys) || durLab;
-    }
+    // Equipment groups: never put date coverage on the invoice (day numbers look like prices).
+    // Explicit unit×days math owns the subtitle via attachMath + formatCommercialMathLabel.
+    if (g.is_equipment_group) durLab = '';
     var ids = g.items.map(function(li) { return li.service_record_id; });
     g.items.forEach(function(li) { if (li.service_record_id) hiddenIds[li.service_record_id] = true; });
     if (g.is_bundle) {
@@ -496,11 +554,6 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
       member_ids: ids,
       duration_label: durLab || null,
     });
-    // Grouped equipment: prefer day-coverage subtitle over bare "1 Day" unit math.
-    if (g.is_equipment_group && n > 1 && durLab) {
-      collapsed.duration_label = durLab;
-      collapsed.math_mode = 'total_only';
-    }
     lines.push(collapsed);
   });
   singles.forEach(function(li) {
@@ -513,8 +566,15 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
       var iso = String(x || '').slice(0, 10); if (iso && cov.indexOf(iso) < 0) cov.push(iso);
     });
     if (cov.length) days = cov.length;
+    var accomLabel = isAccom(li)
+      ? scheduleDrawerFormatAccommodationInvoiceLabel({
+        label: li.label,
+        nights: li.nights,
+        season_groups: li.season_groups || null,
+      })
+      : null;
     var singleLine = attachMath({
-      label: isAccom(li) ? String(li.label || itemBaseName(li, li.quantity)) : itemBaseName(li, li.quantity),
+      label: accomLabel != null ? accomLabel : itemBaseName(li, li.quantity),
       line_cents: Number(li.line_cents || 0),
       is_bundle: false,
       service_type: li.service_type,
@@ -548,18 +608,40 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
 /** Build truthful arithmetic subtitle: linear unit×qty×days, package unit×qty + duration, or empty. */
 function scheduleDrawerFormatCommercialMathLabel(line) {
   if (!line) return '';
+  // Accommodation seasons fold into the parent label — no separate math/amount rows.
+  if (line.staff_accommodation || String(line.component || '') === 'staff_accommodation') return '';
   var mode = line.math_mode || 'total_only';
   var unit = line.unit_cents;
-  var qty = Number(line.quantity) || 1;
-  var days = Number(line.billable_days) || 1;
+  var qty = Math.max(1, Math.round(Number(line.quantity) || 1));
+  var days = Math.max(1, Math.round(Number(line.billable_days) || 1));
+  var total = Math.round(Number(line.line_cents || 0));
+  var isCourse = scheduleDrawerIsCourseLikeLine(line);
+  var isCe = scheduleDrawerIsEquipmentLikeLine(line);
+
+  // Course equipment: explicit reconciled days × unit/day (never date coverage).
+  if (isCe && mode === 'linear' && unit != null && Number.isFinite(unit) && unit >= 0) {
+    if (qty === 1) return scheduleDrawerFormatDaysTimesUnit(days, unit);
+    return scheduleDrawerFormatDaysTimesUnit(days, unit) + ' \u00d7 ' + String(qty);
+  }
+
+  // Multi-day course package / total_only: exact daily when cents divide; else labeled avg.
+  // Never claim rounded average × days equals the right-side amount.
+  if (isCourse && days > 1 && (mode === 'package' || mode === 'total_only')) {
+    var denom = days * qty;
+    if (denom > 0 && Number.isFinite(total) && total % denom === 0) {
+      return scheduleDrawerFormatDaysTimesUnit(days, total / denom);
+    }
+    if (denom > 0 && Number.isFinite(total) && total > 0) {
+      return scheduleDrawerFormatDaysAvgUnit(days, Math.round(total / denom));
+    }
+  }
+
   var parts = [];
   if (mode === 'linear' && unit != null) {
     parts.push(scheduleDrawerEur(unit));
     if (line.is_bundle) {
       parts.push(String(qty) + ' ' + (qty === 1 ? portalT('schedule.drawer.bundleOneSet') : portalT('schedule.drawer.bundleSets')));
-    } else if (String(line.service_type || '').toLowerCase().indexOf('lesson') >= 0
-      || String(line.service_type || '').toLowerCase().indexOf('course') >= 0
-      || /surfers?/i.test(String(line.label || ''))) {
+    } else if (isCourse || /surfers?/i.test(String(line.label || ''))) {
       parts.push(String(qty) + ' ' + (qty === 1 ? portalT('schedule.drawer.surferWord') : portalT('schedule.drawer.surfersWord')));
     } else {
       parts.push('\u00d7 ' + String(qty));
@@ -587,8 +669,17 @@ function scheduleDrawerFormatCommercialMathLabel(line) {
     else if (days > 1) pkg += ' \u00b7 ' + String(days) + ' ' + portalT('schedule.drawer.daysWordCap');
     return pkg;
   }
-  // total_only: optional duration context only — never invent unit math
-  if (line.duration_label) return line.duration_label;
+  // total_only: optional duration context only — never invent unit math, never dates
+  if (line.duration_label) {
+    // Guard: drop accidental date fragments (e.g. "30 Jul") from duration labels.
+    var dur = String(line.duration_label);
+    if (/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i.test(dur)
+      || /\d{4}-\d{2}-\d{2}/.test(dur)) {
+      if (days > 1) return String(days) + ' ' + portalT('schedule.drawer.daysWordCap');
+      return '';
+    }
+    return line.duration_label;
+  }
   if (days > 1) return String(days) + ' ' + portalT('schedule.drawer.daysWordCap');
   return '';
 }
@@ -746,41 +837,37 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
       });
     }
     if (!src) return line;
-    return Object.assign({}, line, {
+    var enriched = Object.assign({}, line, {
       staff_accommodation: true,
       season_groups: src.season_groups || line.season_groups || null,
       check_in: src.check_in || line.check_in || null,
       check_out: src.check_out || line.check_out || null,
       nights: src.nights != null ? src.nights : line.nights,
-      label: src.label || line.label,
       line_cents: src.line_cents != null ? src.line_cents : line.line_cents,
     });
+    // Fold authoritative season breakdown into one commercial label (no child amounts).
+    enriched.label = scheduleDrawerFormatAccommodationInvoiceLabel(enriched);
+    return enriched;
   });
   if (commercialLines.length) {
     html += '<div class="ps-invoice-lines" data-testid="ps-invoice-lines">';
     commercialLines.forEach(function(line) {
       var math = scheduleDrawerFormatCommercialMathLabel(line);
+      var displayLabel = line.staff_accommodation
+        ? scheduleDrawerFormatAccommodationInvoiceLabel(line)
+        : (line.label || '—');
       html += '<div class="ps-svc-summary-row ps-invoice-line' + (line.is_bundle ? ' is-bundle-line' : '') +
         (line.staff_accommodation ? ' is-accommodation-line' : '') + '" data-testid="' +
         (line.staff_accommodation ? 'ps-invoice-accommodation' : 'ps-invoice-line') + '"'
         + (line.check_in ? ' data-check-in="' + escHtml(String(line.check_in).slice(0, 10)) + '"' : '')
         + (line.check_out ? ' data-check-out="' + escHtml(String(line.check_out).slice(0, 10)) + '"' : '')
         + '>';
-      html += '<span class="ps-svc-name">' + escHtml(line.label || '—');
+      html += '<span class="ps-svc-name">' + escHtml(displayLabel);
       if (math && !line.staff_accommodation) html += '<span class="ps-svc-detail"> · ' + escHtml(math) + '</span>';
       html += '</span>';
       html += '<span class="ps-svc-amt ps-invoice-amt">' + escHtml(scheduleDrawerEur(line.line_cents)) + '</span>';
       html += '</div>';
-      if (line.staff_accommodation && Array.isArray(line.season_groups) && line.season_groups.length) {
-        line.season_groups.forEach(function(g) {
-          var gLabel = String((g && g.title) || '—') + ' · ' + String((g && g.nights) || 0) +
-            ' × ' + scheduleDrawerEur(g && g.nightly_cents);
-          html += '<div class="ps-svc-summary-row ps-invoice-line ps-invoice-accom-season" data-testid="ps-invoice-accommodation-season">';
-          html += '<span class="ps-svc-name ps-svc-detail">' + escHtml(gLabel) + '</span>';
-          html += '<span class="ps-svc-amt ps-invoice-amt">' + escHtml(scheduleDrawerEur(g && g.subtotal_cents)) + '</span>';
-          html += '</div>';
-        });
-      }
+      // Season segments stay inline in the parent label only — never extra commercial totals.
     });
     html += '</div>';
   } else if (!items.length) {

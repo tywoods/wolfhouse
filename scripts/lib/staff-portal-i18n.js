@@ -811,6 +811,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.drawer.daysWord': 'days',
     'schedule.drawer.daysWordCap': 'Days',
     'schedule.drawer.dayWordCap': 'Day',
+    'schedule.drawer.avgWord': 'avg',
     'schedule.drawer.surfersWord': 'Surfers',
     'schedule.drawer.surferWord': 'Surfer',
     'schedule.drawer.copyCode': 'Copy code',

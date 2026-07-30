@@ -683,6 +683,8 @@ module.exports = {
     'schedule.drawer.daysWord': 'días',
     'schedule.drawer.daysWordCap': 'Días',
     'schedule.drawer.dayWordCap': 'Día',
+    'schedule.drawer.avgWord': 'media',
+    'schedule.addon.perDaySuffix': '/día',
     'schedule.drawer.surfersWord': 'Surfistas',
     'schedule.drawer.surferWord': 'Surfista',
     'schedule.drawer.copyCode': 'Copiar código',

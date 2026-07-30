@@ -87,6 +87,9 @@ function portalT(key) {
     'schedule.type.wetsuitRental': 'Wetsuit',
     'schedule.drawer.dayWordCap': 'Day',
     'schedule.drawer.daysWordCap': 'Days',
+    'schedule.drawer.daysWord': 'days',
+    'schedule.drawer.avgWord': 'avg',
+    'schedule.addon.perDaySuffix': '/day',
     'schedule.drawer.surferWord': 'surfer',
     'schedule.drawer.surfersWord': 'surfers',
     'schedule.drawer.dateLabel': 'Dates',
@@ -204,6 +207,12 @@ function buildRenderCtx(viewModSrc, portalModSrc, apiSrc) {
     'scheduleDrawerSortItems',
     'scheduleDrawerCommercialLineRank',
     'scheduleDrawerEquipmentCoverageLabel',
+    'scheduleDrawerStripAccommodationIsoDates',
+    'scheduleDrawerFormatAccommodationInvoiceLabel',
+    'scheduleDrawerIsCourseLikeLine',
+    'scheduleDrawerIsEquipmentLikeLine',
+    'scheduleDrawerFormatDaysTimesUnit',
+    'scheduleDrawerFormatDaysAvgUnit',
     'scheduleDrawerBuildCommercialLines',
     'scheduleDrawerFormatCommercialMathLabel',
     'scheduleDrawerDayHeaderLabel',
@@ -671,14 +680,18 @@ assert('group: CE summed cents = 8 × €5.00',
   ceLine && String(ceLine.line_cents));
 assert('group: CE billable_days = 8',
   ceLine && ceLine.billable_days === 8);
-assert('group: CE coverage label uses days + compact dates',
+assert('group: CE math is linear unit×days (no date coverage subtitle)',
   ceLine
-  && /8\s+Days/i.test(String(ceLine.duration_label || ''))
-  && (/30\s*Jul|Jul/.test(String(ceLine.duration_label || ''))
-    || /30/.test(String(ceLine.duration_label || ''))),
-  ceLine && ceLine.duration_label);
-assert('group: CE does not leave bare Day-only subtitle',
-  ceLine && ceLine.duration_label !== 'Day' && ceLine.duration_label !== '1 Day');
+  && ceLine.math_mode === 'linear'
+  && ceLine.unit_cents === 500
+  && !ceLine.duration_label,
+  ceLine && JSON.stringify({ mode: ceLine.math_mode, unit: ceLine.unit_cents, dur: ceLine.duration_label }));
+const ceMath = ctx.scheduleDrawerFormatCommercialMathLabel(ceLine);
+assert('group: CE math label is 8 days × €5.00/day',
+  /8\s+days\s+×\s+€5\.00\/day/i.test(ceMath),
+  ceMath);
+assert('group: CE math has no calendar dates (was mistaken for prices)',
+  !/\bJul\b|\bAug\b|2026-07|30\s*Jul|–|—/.test(ceMath + String(ceLine.duration_label || '')));
 
 const mixedHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
   date_from: '2026-07-30',
@@ -696,8 +709,9 @@ const mixedHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
 assert('render: grouped CE amount €40.00 once',
   (mixedHtml.match(/€40\.00/g) || []).length >= 1
   && (mixedHtml.match(/Surfboard \+ Wetsuit/g) || []).length <= 2);
-assert('render: coverage appears on invoice',
-  /8\s+Days/i.test(mixedHtml));
+assert('render: CE shows 8 days × €5.00/day, not date range',
+  /8\s+days\s+×\s+€5\.00\/day/i.test(mixedHtml)
+  && !/30\s*Jul|Jul\u2013|Jul–/i.test(mixedHtml));
 assert('render: accommodation still present',
   /Accommodation/i.test(mixedHtml));
 assert('render: custom discount line not merged away',
@@ -755,6 +769,176 @@ const commercialSum = mixedCommercial.lines.reduce((a, li) => a + Number(li.line
 assert('arithmetic: commercial sum equals source line sum',
   sourceSum === commercialSum,
   `source=${sourceSum} commercial=${commercialSum}`);
+
+console.log('\n[5c] Screenshot invoice math cleanup (display-only)');
+// Screenshot commercial metadata: Accommodation €700 + Curso €228.57 + CE 8×€5 = €968.57
+const shotCeItems = ceDates.map((d, i) => ({
+  service_record_id: 'shot-ce-' + i,
+  service_date: d,
+  service_type: 'addon_service',
+  label: 'Surfboard + Wetsuit · During Course · 1',
+  line_cents: 500,
+  quantity: 1,
+  unit_amount_cents: 500,
+  unit_cents: 500,
+  component: 'course_equipment',
+  course_equipment: true,
+  course_equipment_mode: 'during_course',
+  offering_key: 'board_and_suit_rental',
+  currency: 'EUR',
+}));
+const shotCourseDays = ceDates.map((d, i) => ({
+  service_record_id: 'shot-course-' + i,
+  service_date: d,
+  service_type: 'surf_lesson',
+  label: 'Curso Mañana · 1',
+  line_cents: i === 0 ? 22857 : 0,
+  quantity: 1,
+  unit_amount_cents: 22857,
+  component: 'course',
+  course_id: 'curso-manana',
+  course_label: 'Curso Mañana',
+}));
+const shotItems = [
+  {
+    service_record_id: 'shot-accom',
+    service_date: '2026-07-30',
+    service_type: 'addon_service',
+    label: 'Accommodation · 2026-07-30 → 2026-08-06 · 7 nights',
+    line_cents: 70000,
+    quantity: 1,
+    unit_amount_cents: 70000,
+    component: 'staff_accommodation',
+    staff_accommodation: true,
+    check_in: '2026-07-30',
+    check_out: '2026-08-06',
+    nights: 7,
+    season_groups: [
+      { title: 'High Season', nights: 7, nightly_cents: 10000, subtotal_cents: 70000 },
+    ],
+  },
+].concat(shotCourseDays).concat(shotCeItems);
+
+const shotCommercial = ctx.scheduleDrawerBuildCommercialLines(shotItems, null);
+const shotAccomLines = shotCommercial.lines.filter((l) => l.staff_accommodation
+  || /^Accommodation\b/i.test(String(l.label || '')));
+assert('shot: one accommodation commercial line only',
+  shotAccomLines.length === 1,
+  String(shotAccomLines.length));
+assert('shot: accommodation amount €700 once (no season child total)',
+  shotAccomLines[0] && shotAccomLines[0].line_cents === 70000);
+assert('shot: accommodation label folds High Season inline, no ISO dates',
+  shotAccomLines[0]
+  && /Accommodation\s*·\s*7\s*nights\s*·\s*High Season\s*·\s*7\s*×\s*€100\.00/i.test(String(shotAccomLines[0].label || ''))
+  && !/2026-07-30|2026-08-06/.test(String(shotAccomLines[0].label || '')),
+  shotAccomLines[0] && shotAccomLines[0].label);
+const shotCourseLine = shotCommercial.lines.find((l) => /Curso Mañana/i.test(String(l.label || ''))
+  || (l.component === 'course' && !l.course_equipment));
+assert('shot: course package amount €228.57 preserved',
+  shotCourseLine && shotCourseLine.line_cents === 22857,
+  shotCourseLine && String(shotCourseLine.line_cents));
+const shotCourseMath = ctx.scheduleDrawerFormatCommercialMathLabel(shotCourseLine);
+assert('shot: course uses avg daily (22857 ¢ does not divide by 8)',
+  /8\s+days\s*·\s*avg\s*€28\.57\/day/i.test(shotCourseMath)
+  && !/8\s+days\s*×\s*€28\.57\/day/i.test(shotCourseMath),
+  shotCourseMath);
+const shotExactCourse = {
+  label: 'Exact Daily Course',
+  line_cents: 24000,
+  quantity: 1,
+  billable_days: 8,
+  unit_cents: 24000,
+  math_mode: 'package',
+  component: 'course',
+  service_type: 'surf_lesson',
+};
+assert('shot: course exact daily when cents divide',
+  /8\s+days\s*×\s*€30\.00\/day/i.test(ctx.scheduleDrawerFormatCommercialMathLabel(shotExactCourse)));
+const shotCe = shotCommercial.lines.find((l) => l.course_equipment
+  || /Surfboard \+ Wetsuit/i.test(String(l.label || '')));
+assert('shot: equipment 8×€5 = €40, linear, no dates',
+  shotCe
+  && shotCe.line_cents === 4000
+  && shotCe.math_mode === 'linear'
+  && shotCe.unit_cents === 500
+  && /8\s+days\s*×\s*€5\.00\/day/i.test(ctx.scheduleDrawerFormatCommercialMathLabel(shotCe)),
+  shotCe && JSON.stringify(shotCe));
+const shotSum = shotCommercial.lines.reduce((a, l) => a + Number(l.line_cents || 0), 0);
+const shotSource = shotItems.reduce((a, l) => a + Number(l.line_cents || 0), 0);
+assert('shot: commercial sum unchanged vs source (€968.57)',
+  shotSum === 96857 && shotSource === 96857,
+  `source=${shotSource} commercial=${shotSum}`);
+const ranksShot = shotCommercial.lines.map((l) => ctx.scheduleDrawerCommercialLineRank(l));
+assert('shot: order Accommodation → course → equipment',
+  ranksShot[0] === 0
+  && ranksShot.some((r, i) => r === 1 && (i === 0 || ranksShot[i - 1] <= 1))
+  && ranksShot.every((r, i) => i === 0 || r >= ranksShot[i - 1]),
+  JSON.stringify(ranksShot));
+
+// Cross-season: each segment inline; still one right-side amount
+const crossItems = [{
+  service_record_id: 'cross-ac',
+  service_date: '2026-06-28',
+  service_type: 'addon_service',
+  label: 'Accommodation · 2026-06-28 → 2026-07-03 · 5 nights',
+  line_cents: 44000,
+  quantity: 1,
+  unit_amount_cents: 44000,
+  component: 'staff_accommodation',
+  staff_accommodation: true,
+  check_in: '2026-06-28',
+  check_out: '2026-07-03',
+  nights: 5,
+  season_groups: [
+    { title: 'Low', nights: 3, nightly_cents: 8000, subtotal_cents: 24000 },
+    { title: 'High', nights: 2, nightly_cents: 10000, subtotal_cents: 20000 },
+  ],
+}];
+const crossCommercial = ctx.scheduleDrawerBuildCommercialLines(crossItems, null);
+assert('cross-season: one line, amount = stay total only',
+  crossCommercial.lines.length === 1
+  && crossCommercial.lines[0].line_cents === 44000);
+assert('cross-season: both segments inline without ISO dates',
+  /Low\s*·\s*3\s*×\s*€80\.00/i.test(crossCommercial.lines[0].label)
+  && /High\s*·\s*2\s*×\s*€100\.00/i.test(crossCommercial.lines[0].label)
+  && !/2026-06-28|2026-07-03/.test(crossCommercial.lines[0].label),
+  crossCommercial.lines[0].label);
+
+const shotHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
+  date_from: '2026-07-30',
+  date_to: '2026-08-06',
+  components: { course: { quantity: 1, course_label: 'Curso Mañana' } },
+  payment: {
+    subtotal_cents: 96857,
+    paid_cents: 0,
+    balance_due_cents: 96857,
+    payment_status: 'unpaid',
+    line_items: shotItems,
+    paid_payments: [],
+  },
+});
+assert('shot render: subtotal €968.57',
+  /id="ps-drawer-subtotal"[^>]*>€968\.57</.test(shotHtml) || shotHtml.includes('€968.57'));
+assert('shot render: €700 appears once (no duplicate season amount)',
+  (shotHtml.match(/€700\.00/g) || []).length === 1,
+  String((shotHtml.match(/€700\.00/g) || []).length));
+assert('shot render: no season child row testids / no ISO stay dates on accom line',
+  !/ps-invoice-accommodation-season/.test(shotHtml)
+  && /ps-invoice-accommodation/.test(shotHtml)
+  && /High Season/.test(shotHtml)
+  && !/Accommodation[^<]*2026-07-30/.test(shotHtml));
+assert('shot render: course avg daily + equipment exact math + no Jul date on CE',
+  /avg\s*€28\.57\/day/i.test(shotHtml)
+  && /8\s+days\s*×\s*€5\.00\/day/i.test(shotHtml)
+  && !/30\s*Jul/i.test(shotHtml));
+assert('shot render: commercial line amounts sum to subtotal authority',
+  (() => {
+    // Subtotal is pay.subtotal_cents (authoritative); line amounts must not invent extra €700
+    return (shotHtml.match(/€700\.00/g) || []).length === 1
+      && (shotHtml.match(/€228\.57/g) || []).length >= 1
+      && (shotHtml.match(/€40\.00/g) || []).length >= 1
+      && shotHtml.includes('€968.57');
+  })());
 
 console.log('\n[6] Payment link display');
 const unpaidCtx = Object.assign({}, baseCtx, {
