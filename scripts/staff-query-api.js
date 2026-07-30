@@ -21928,12 +21928,19 @@ function scheduleBuildDisplayGroups(rows){
       g._scheduleId = r._scheduleId;
     }
     if (scheduleRowType(r) === 'course'){
-      g.quantity = (g.quantity || 0) + (r.quantity != null ? Number(r.quantity) : 1);
+      // Shared surfer count per course row — never sum selected-course cardinality into qty.
+      // Course count is row cardinality (records with type course); quantity is surfers.
+      var courseQty = r.quantity != null ? Number(r.quantity) : 1;
+      if (!Number.isFinite(courseQty) || courseQty < 1) courseQty = 1;
+      g.quantity = Math.max(g.quantity || 0, courseQty);
       g.slot_time = r.slot_time || r.service_time || g.slot_time;
       var courseMeta = scheduleRowCourseMeta(r);
-      g.course_id = r.course_id || courseMeta.course_id || g.course_id;
-      var rawCourseLabel = r.course_label || courseMeta.course_label || g.course_label;
-      g.course_label = scheduleResolveCourseDisplayLabel(g.course_id, rawCourseLabel);
+      // Prefer first course identity in the group; course-session aggregates filter by course_id.
+      if (!g.course_id) {
+        g.course_id = r.course_id || courseMeta.course_id || g.course_id;
+        var rawCourseLabelFirst = r.course_label || courseMeta.course_label || g.course_label;
+        g.course_label = scheduleResolveCourseDisplayLabel(g.course_id, rawCourseLabelFirst);
+      }
     }
     if (r._isDbManual) g._isDbManual = true;
     if (r._isLuna) g._isLuna = true;
@@ -22041,8 +22048,29 @@ function scheduleCourseAggregates(allRows, course, dateIso){
     if (scheduleRowType(r) !== 'course') return false;
     return scheduleCourseKey(r) === cid;
   });
-  var relatedRows = scheduleRowsForSameBookings(allRows, filtered);
+  // Keep same-booking gear/CE rows for prep labels, but exclude peer Group courses
+  // (multi selected_courses) so each course session shows that course's own qty/label.
+  var relatedRows = scheduleRowsForSameBookings(allRows, filtered).filter(function(r){
+    if (scheduleRowType(r) !== 'course') return true;
+    return scheduleCourseKey(r) === cid;
+  });
   var groups = scheduleBuildDisplayGroups(relatedRows).filter(scheduleGroupHasCourse);
+  // Stamp course identity on each group from the matching course row (not peer courses).
+  groups.forEach(function(g){
+    var courseRec = (g.records || []).find(function(r){
+      return scheduleRowType(r) === 'course' && scheduleCourseKey(r) === cid;
+    });
+    if (courseRec) {
+      var cm = scheduleRowCourseMeta(courseRec);
+      g.course_id = courseRec.course_id || cm.course_id || cid;
+      g.course_label = scheduleResolveCourseDisplayLabel(
+        g.course_id,
+        courseRec.course_label || cm.course_label || g.course_label,
+      );
+      var q = courseRec.quantity != null ? Number(courseRec.quantity) : 1;
+      if (Number.isFinite(q) && q >= 1) g.quantity = q;
+    }
+  });
   var surfers = groups.reduce(function(a, g){ return a + (g.quantity || 0); }, 0);
   var boardsNeeded = 0;
   var wetsuitsNeeded = 0;
@@ -24630,11 +24658,21 @@ function scheduleOpsBuildGearIndex(rows, dateIso){
     // Persisted service rows always carry booking_id, while booking_code is not
     // guaranteed on every schedule projection. Keep deduplication per booking.
     var code = row.booking_code || row.booking_id || row._scheduleId || 'unknown';
-    if (!index[code]) index[code] = { boards: 0, wetsuits: 0, lessonQty: 0, hasLesson: false };
+    if (!index[code]) {
+      index[code] = {
+        boards: 0, wetsuits: 0, lessonQty: 0, hasLesson: false,
+        course_equipment_mode: null,
+      };
+    }
     var entry = index[code];
     var qty = scheduleOpsRowQty(row);
     if (scheduleOpsIsLessonRow(row)) { entry.hasLesson = true; entry.lessonQty += qty; }
     var meta = scheduleOpsParseMetadata(row);
+    if (meta.course_equipment === true) {
+      // Shared CE on the booking day — All Day wins if any CE row is all_day.
+      if (meta.course_equipment_mode === 'all_day') entry.course_equipment_mode = 'all_day';
+      else if (entry.course_equipment_mode !== 'all_day') entry.course_equipment_mode = 'during_course';
+    }
     var fullDay = meta.component === 'full_day_equipment_extension' || meta.service_key === 'full_day_equipment_extension';
     if (fullDay) {
       entry.boards = Math.max(entry.boards, qty);
@@ -24650,6 +24688,16 @@ function scheduleOpsBuildGearIndex(rows, dateIso){
 function scheduleOpsEquipmentLabel(row, gearIndex){
   var code = row.booking_code || row.booking_id || row._scheduleId;
   var meta = scheduleOpsParseMetadata(row);
+  // Course equipment (During Course / All Day) wins over board/wetsuit flags.
+  // Prefer gearIndex (booking-level CE rows) so course lines inherit shared CE mode.
+  var ceMode = null;
+  if (meta.course_equipment === true) {
+    ceMode = meta.course_equipment_mode === 'all_day' ? 'all_day' : 'during_course';
+  } else if (gearIndex && code && gearIndex[code] && gearIndex[code].course_equipment_mode) {
+    ceMode = gearIndex[code].course_equipment_mode;
+  }
+  if (ceMode === 'all_day') return portalT('schedule.courseEquipment.allDay');
+  if (ceMode === 'during_course') return portalT('schedule.courseEquipment.during');
   var boards = 0;
   var wetsuits = 0;
   if (gearIndex && code && gearIndex[code]) {

@@ -20,7 +20,29 @@
  * scheduleOnCreateComponentChange, schedulePopulateCreateCourseFields, scheduleResolveRow.
  */
 
+/**
+ * Course-equipment selection mode for a display group (shared CE service rows).
+ * Returns 'during_course' | 'all_day' | null. Prefer All Day when any CE row is all_day.
+ */
+function scheduleDayOpsCourseEquipmentMode(group){
+  var mode = null;
+  var records = group && Array.isArray(group.records) ? group.records : [];
+  for (var i = 0; i < records.length; i++) {
+    var row = records[i];
+    var meta = scheduleDayOpsParseMetaBlob(row && (row.metadata || row._meta));
+    if (meta.course_equipment !== true) continue;
+    if (meta.course_equipment_mode === 'all_day') return 'all_day';
+    mode = 'during_course';
+  }
+  return mode;
+}
+
 function scheduleDayOpsEquipmentPrepLabel(group){
+  // Shared course equipment (During Course / All Day) is authoritative when present —
+  // do not paint "no equipment" when CE service rows exist on the booking day group.
+  var ceMode = scheduleDayOpsCourseEquipmentMode(group);
+  if (ceMode === 'all_day') return portalT('schedule.courseEquipment.allDay');
+  if (ceMode === 'during_course') return portalT('schedule.courseEquipment.during');
   var boards = scheduleGroupBoardsNeeded(group);
   var wets = scheduleGroupWetsuitsNeeded(group);
   if (boards && wets) return portalT('schedule.equipment.boardAndWetsuit');

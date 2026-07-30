@@ -315,6 +315,10 @@ function aggregateComponentsFromServices(services) {
   let slotTime = null;
   const dates = new Set();
   const privateSessions = [];
+  // Multi product-button Group: course count is row cardinality; selected_courses is
+  // reconstructed from physical course service rows (never invent quantity from count).
+  const selectedCourses = [];
+  const selectedCourseSeen = new Set();
   (services || []).forEach((sr) => {
     const dbType = String(sr.service_type || '').toLowerCase();
     const meta = parseMeta(sr.metadata);
@@ -332,7 +336,14 @@ function aggregateComponentsFromServices(services) {
             offering_key: offeringKey,
             mode,
             quantity,
+            // Admin label + money snaps from create/edit service row metadata.
             label: meta.label != null ? String(meta.label) : undefined,
+            unit_amount_cents: meta.unit_amount_cents != null ? Number(meta.unit_amount_cents) : undefined,
+            amount_cents: meta.amount_cents != null ? Number(meta.amount_cents) : undefined,
+            during_course_price_cents: meta.during_course_price_cents != null
+              ? Number(meta.during_course_price_cents) : undefined,
+            all_day_price_cents: meta.all_day_price_cents != null
+              ? Number(meta.all_day_price_cents) : undefined,
           });
         }
       } else {
@@ -385,6 +396,7 @@ function aggregateComponentsFromServices(services) {
     if (key === 'lesson' && (meta.course_id || sr.course_id)) key = 'course';
     if (!components[key]) {
       components[key] = {
+        // Shared surfer count: max across rows (never sum course cardinality).
         quantity: Number(sr.quantity) || 1,
         slot_time: sr.slot_time || meta.slot_time || null,
       };
@@ -392,10 +404,27 @@ function aggregateComponentsFromServices(services) {
       components[key].quantity = Number(sr.quantity) || components[key].quantity;
     }
     if (key === 'course') {
-      components[key].course_id = meta.course_id || sr.course_id || components[key].course_id || null;
-      components[key].course_label = meta.course_label || sr.course_label || components[key].course_label || null;
-      if (meta.tier_key) components[key].tier_key = meta.tier_key;
-      if (meta.offering_id) components[key].offering_id = meta.offering_id;
+      const courseId = String(meta.course_id || sr.course_id || '').trim();
+      const courseLabel = meta.course_label || sr.course_label || null;
+      const tierKey = meta.tier_key ? String(meta.tier_key).trim() : '';
+      const offeringId = meta.offering_id ? String(meta.offering_id).trim() : '';
+      // Primary mirrors first selected course for single-course readers / legacy gates.
+      if (!components[key].course_id && courseId) {
+        components[key].course_id = courseId;
+        if (courseLabel) components[key].course_label = courseLabel;
+        if (tierKey) components[key].tier_key = tierKey;
+        if (offeringId) components[key].offering_id = offeringId;
+      } else if (!components[key].course_label && courseLabel) {
+        components[key].course_label = courseLabel;
+      }
+      if (courseId && !selectedCourseSeen.has(courseId)) {
+        selectedCourseSeen.add(courseId);
+        const sc = { course_id: courseId };
+        if (courseLabel) sc.course_label = String(courseLabel);
+        if (tierKey) sc.tier_key = tierKey;
+        if (offeringId) sc.offering_id = offeringId;
+        selectedCourses.push(sc);
+      }
     }
     if (key === 'lesson') {
       const slot = sr.slot_time || meta.slot_time || null;
@@ -409,6 +438,15 @@ function aggregateComponentsFromServices(services) {
   if (components.private_lesson) {
     components.private_lesson.sessions = privateSessions.sort((a, b) => a.date.localeCompare(b.date));
     components.private_lesson.quantity = components.private_lesson.sessions.length || components.private_lesson.quantity;
+  }
+  if (components.course && selectedCourses.length) {
+    components.course.selected_courses = selectedCourses;
+    // Authoritative primary = first selected course (row order).
+    const primary = selectedCourses[0];
+    components.course.course_id = primary.course_id;
+    if (primary.course_label) components.course.course_label = primary.course_label;
+    if (primary.tier_key) components.course.tier_key = primary.tier_key;
+    if (primary.offering_id) components.course.offering_id = primary.offering_id;
   }
   const sortedDates = [...dates].filter(Boolean).sort();
   return {
@@ -652,6 +690,35 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
   }
   const prices = adminCfg.ok ? (adminCfg.prices || []) : [];
   const agg = aggregateComponentsFromServices(bundle.services);
+  // Prefer physical course rows; fall back to booking.metadata.selected_courses for
+  // multi product-button bookings when service-row reconstruction is incomplete.
+  if (agg.components && agg.components.course) {
+    const fromRows = Array.isArray(agg.components.course.selected_courses)
+      ? agg.components.course.selected_courses : [];
+    const fromMeta = Array.isArray(meta.selected_courses) ? meta.selected_courses : [];
+    if (fromRows.length < 2 && fromMeta.length > fromRows.length) {
+      const seen = new Set();
+      const merged = [];
+      fromMeta.forEach((sc) => {
+        if (!sc || typeof sc !== 'object') return;
+        const id = String(sc.course_id || '').trim();
+        if (!id || seen.has(id)) return;
+        seen.add(id);
+        const row = { course_id: id };
+        if (sc.course_label) row.course_label = String(sc.course_label);
+        if (sc.tier_key) row.tier_key = String(sc.tier_key);
+        if (sc.offering_id) row.offering_id = String(sc.offering_id);
+        merged.push(row);
+      });
+      if (merged.length) {
+        agg.components.course.selected_courses = merged;
+        agg.components.course.course_id = merged[0].course_id;
+        if (merged[0].course_label) agg.components.course.course_label = merged[0].course_label;
+        if (merged[0].tier_key) agg.components.course.tier_key = merged[0].tier_key;
+        if (merged[0].offering_id) agg.components.course.offering_id = merged[0].offering_id;
+      }
+    }
+  }
   const course_equipment = Array.isArray(agg.components.course_equipment)
     ? agg.components.course_equipment
     : (agg.components.course_equipment || null);
@@ -921,6 +988,32 @@ function pricingIntentFromBundle(bundle) {
     : (agg.components.course_equipment || null);
   if (agg.components && Object.prototype.hasOwnProperty.call(agg.components, 'course_equipment')) {
     delete agg.components.course_equipment;
+  }
+  // Multi product-button selected_courses: service rows first, metadata fallback.
+  if (agg.components && agg.components.course) {
+    const fromRows = Array.isArray(agg.components.course.selected_courses)
+      ? agg.components.course.selected_courses : [];
+    const fromMeta = Array.isArray(meta.selected_courses) ? meta.selected_courses : [];
+    if (fromRows.length < 2 && fromMeta.length > fromRows.length) {
+      const seen = new Set();
+      const merged = [];
+      fromMeta.forEach((sc) => {
+        if (!sc || typeof sc !== 'object') return;
+        const id = String(sc.course_id || '').trim();
+        if (!id || seen.has(id)) return;
+        seen.add(id);
+        const row = { course_id: id };
+        if (sc.tier_key) row.tier_key = String(sc.tier_key);
+        if (sc.offering_id) row.offering_id = String(sc.offering_id);
+        merged.push(row);
+      });
+      if (merged.length) {
+        agg.components.course.selected_courses = merged;
+        agg.components.course.course_id = merged[0].course_id;
+        if (merged[0].tier_key) agg.components.course.tier_key = merged[0].tier_key;
+        if (merged[0].offering_id) agg.components.course.offering_id = merged[0].offering_id;
+      }
+    }
   }
 
   // Reconstruct canonical lessons[] so multi-lesson commercial identity compares
