@@ -2,6 +2,8 @@
 
 **Crowsnest** is the internal dev/operator control portal for Luna Front Desk.
 
+> **📍 Migrated 2026-07-30 → `luna-crowsnest-rg`.** Crowsnest now runs in its own resource group **`luna-crowsnest-rg`** (managed env `luna-crowsnest-env`) and serves `crowsnest.lunafrontdesk.com` from `crowsnest-internal.redbeach-6a768db0.northeurope.azurecontainerapps.io` — live revision **`crowsnest-internal--0000002`** at 100% traffic, image `whstagingacr.azurecr.io/crowsnest:b7eaba0944ab9afe8dc05f7b6ddaeb140b7c3171`, custom-domain cert SniEnabled. The shared `whstagingacr` registry, Postgres DB, and `wh-staging-identity` are unchanged. Sections below that still reference `wh-staging-rg`, the `braveplant-5c685569` FQDN, or earlier revisions describe the **pre-migration** baseline and are historical.
+
 | | |
 |---|---|
 | **Audience** | Humans who build and operate the platform — initially **Monshies** and **Earthling** only |
@@ -37,7 +39,7 @@ Later, operators may also:
 | Item | Status |
 |------|--------|
 | Dedicated location | `scripts/crowsnest-api.js` + `scripts/lib/crowsnest/` |
-| Azure app | Standalone `crowsnest-internal` Container App in `wh-staging-rg` |
+| Azure app | Standalone `crowsnest-internal` Container App in `luna-crowsnest-rg` |
 | Public URL | `https://crowsnest.lunafrontdesk.com` |
 | Static placeholder UI | Skeleton + read-only **Clients** overview + **New client onboarding** form mockup |
 | Onboarding mockup | Draft form only — surf house / surf school templates; all fields and buttons disabled; no submit |
