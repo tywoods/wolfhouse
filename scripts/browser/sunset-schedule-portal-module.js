@@ -1440,9 +1440,11 @@ function schedulePortalValidateCreatePayload(payload, opts) {
       var off = String(r.offering_key || '').trim();
       var dur = String(r.duration_key || '').trim();
       var qty = Number(r.quantity);
-      // Offering identity is catalog-driven; the server authoritatively checks
-      // active/location-scoped generic keys. Keep only shape validation here.
-      if (!off || !dur || !(Number.isFinite(qty) && Math.floor(qty) === qty && qty >= 1)) {
+      // Physical equipment units: canonical whole integers 1..99 only.
+      // Invalid explicit qty (blank/fraction/text/0/100) must block quote/create —
+      // never silently omit a selected rental or manufacture 1/99 in the DOM reader.
+      if (!off || !dur
+        || !(Number.isFinite(qty) && Math.floor(qty) === qty && qty >= 1 && qty <= 99)) {
         return fail('schedule.create.componentsRequired');
       }
     }

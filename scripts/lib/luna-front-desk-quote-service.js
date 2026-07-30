@@ -1728,8 +1728,8 @@ function resolveQuoteComponentsAndRentalsInput(command) {
       };
     }
     if (rentalsNorm.present) {
-      // No-lesson: force equipment qty from surfer_count (ignore client override).
-      // Staff fail-closed without surfer_count; trusted Luna may derive from consistent qty.
+      // No-lesson: independent equipment qty; surfer_count still required (guest field).
+      // Staff fail-closed without surfer_count; trusted Luna may derive guest count.
       const forced = applyNoLessonEquipmentQtyFromSurfers(
         {
           ...transportForRentals,
@@ -1750,10 +1750,12 @@ function resolveQuoteComponentsAndRentalsInput(command) {
           },
         };
       }
-      if (forced.forced) {
+      if (forced.rentals) {
         rentalsNorm = { ok: true, present: true, value: forced.rentals };
+      }
+      if (forced.body) {
         input.components = forced.body.components || input.components;
-        input.surfer_count = forced.surfer_count;
+        if (forced.surfer_count != null) input.surfer_count = forced.surfer_count;
       }
       const legacyMatch = assertLegacyRentalQuantitiesMatch(rentalsNorm.value, input.components);
       if (!legacyMatch.ok) {
@@ -1770,8 +1772,8 @@ function resolveQuoteComponentsAndRentalsInput(command) {
       }
     }
   } else if (hasComponents) {
-    // Components path already ran validateScheduleBookingBody (which forces no-lesson
-    // qty). Re-apply when input.components carry equipment so qty authority is shared.
+    // Components path already ran validateScheduleBookingBody. Re-apply for shared
+    // surfer_count derivation / equipment qty validation without rewriting qty to guests.
     const forced = applyNoLessonEquipmentQtyFromSurfers(
       { ...body, components: input.components, surfer_count: input.surfer_count },
       null,
@@ -1789,9 +1791,9 @@ function resolveQuoteComponentsAndRentalsInput(command) {
         },
       };
     }
-    if (forced.forced) {
+    if (forced.body) {
       input.components = forced.body.components || input.components;
-      input.surfer_count = forced.surfer_count;
+      if (forced.surfer_count != null) input.surfer_count = forced.surfer_count;
     }
   }
 

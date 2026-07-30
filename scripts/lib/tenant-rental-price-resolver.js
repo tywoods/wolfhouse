@@ -27,6 +27,7 @@
 
 const { resolveRentalBillingUnit, resolveDurationKey } = require('./sunset-rental-price-lookup');
 const { isValidOfferingKey } = require('./tenant-rental-offerings');
+const { parseRentalDurationKey, rentalDurationKeyFromUnitCount } = require('../browser/sunset-rental-duration-model');
 
 async function defaultLoadRule(params) {
   const { loadTenantPriceRuleFromDb } = require('./tenant-business-config');
@@ -37,6 +38,115 @@ async function defaultLoadRule(params) {
 
 function fail(reason, extra) {
   return { ok: false, reason, ...(extra || {}) };
+}
+
+/**
+ * Day-tier discount continuation (pure).
+ *
+ * For requested N calendar rental days:
+ *   - exact configured N-day tier wins
+ *   - else longest configured day tier M where M <= N; continue that tier's
+ *     effective discounted per-day rate across all N days
+ *
+ * Cent convention (matches course multi-day continuation):
+ *   one_item_cents = Math.round(tier_unit_cents * requestedDays / tierDays)
+ *   amount_cents   = one_item_cents * quantity
+ *
+ * Quantity is physical equipment units only — never guest/surfer count.
+ *
+ * @param {object} opts
+ * @param {number} opts.requestedDays  N >= 1
+ * @param {Array<{days:number, amount_cents:number, duration_key?:string}>} opts.tiers
+ * @param {number} [opts.quantity=1]
+ * @returns {{ok:true, ...} | {ok:false, reason}}
+ */
+function resolveDayRentalContinuation(opts) {
+  const o = opts || {};
+  const requestedDays = Number(o.requestedDays);
+  const rawQty = o.quantity === undefined ? 1 : o.quantity;
+  const quantity = Number(rawQty);
+  if (!Number.isInteger(requestedDays) || requestedDays < 1) {
+    return fail('invalid_requested_days', { requested_days: o.requestedDays });
+  }
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+    return fail('invalid_quantity', { quantity: rawQty });
+  }
+  const rawTiers = Array.isArray(o.tiers) ? o.tiers : [];
+  const tiers = [];
+  for (let i = 0; i < rawTiers.length; i += 1) {
+    const t = rawTiers[i];
+    if (!t) continue;
+    let days = Number(t.days);
+    if (!Number.isInteger(days) || days < 1) {
+      const parsed = parseRentalDurationKey(t.duration_key || t.unit || '');
+      if (parsed && parsed.unit === 'days') days = parsed.count;
+    }
+    const amount = Math.round(Number(t.amount_cents));
+    if (!Number.isInteger(days) || days < 1) continue;
+    if (!Number.isFinite(amount) || amount < 0) continue;
+    const durationKey = String(
+      t.duration_key || rentalDurationKeyFromUnitCount('days', days) || '',
+    ).trim();
+    tiers.push({ days, amount_cents: amount, duration_key: durationKey });
+  }
+  if (!tiers.length) return fail('no_day_tiers');
+
+  // Prefer exact N-day tier.
+  const exact = tiers
+    .filter((t) => t.days === requestedDays)
+    .sort((a, b) => a.amount_cents - b.amount_cents)[0];
+  if (exact) {
+    const unitForDuration = exact.amount_cents;
+    return {
+      ok: true,
+      requested_days: requestedDays,
+      base_days: exact.days,
+      base_duration_key: exact.duration_key || rentalDurationKeyFromUnitCount('days', exact.days),
+      pricing_mode: 'exact_duration_package',
+      package_repeat_count: 1,
+      unit_cents: unitForDuration,
+      quantity,
+      amount_cents: unitForDuration * quantity,
+    };
+  }
+
+  // Longest configured day duration <= N.
+  const eligible = tiers.filter((t) => t.days <= requestedDays);
+  if (!eligible.length) return fail('no_eligible_day_tier', { requested_days: requestedDays });
+  eligible.sort((a, b) => b.days - a.days || a.amount_cents - b.amount_cents);
+  const base = eligible[0];
+  const unitForDuration = Math.round((base.amount_cents * requestedDays) / base.days);
+  return {
+    ok: true,
+    requested_days: requestedDays,
+    base_days: base.days,
+    base_duration_key: base.duration_key || rentalDurationKeyFromUnitCount('days', base.days),
+    pricing_mode: 'continued_day_discount',
+    package_repeat_count: requestedDays,
+    unit_cents: unitForDuration,
+    quantity,
+    amount_cents: unitForDuration * quantity,
+  };
+}
+
+/**
+ * Normalize a duration_key into day count for multi-day packages, or null.
+ */
+function dayCountFromDurationKey(durationKey) {
+  const parsed = parseRentalDurationKey(durationKey);
+  if (!parsed || parsed.unit !== 'days') return null;
+  return parsed.count;
+}
+
+/**
+ * True when duration is an hour / session package (never multi-day).
+ */
+function isHourRentalDurationKey(durationKey) {
+  const k = String(durationKey || '').trim();
+  if (!k) return false;
+  if (/hour|half_day|lesson/i.test(k)) return true;
+  const parsed = parseRentalDurationKey(k);
+  return !!(parsed && parsed.unit === 'hours');
 }
 
 /**
@@ -258,5 +368,8 @@ module.exports = {
   resolveGenericRentalPrice,
   buildGenericRentalServiceRecord,
   partitionRentalsForCreate,
+  resolveDayRentalContinuation,
+  dayCountFromDurationKey,
+  isHourRentalDurationKey,
   GENERIC_RENTAL_SERVICE_TYPE,
 };

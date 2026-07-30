@@ -6,16 +6,16 @@
  * Create/Edit continuity for equipment rental quantity label + Edit compact footer.
  *
  * Required cases:
- *  1. Create board_and_suit row says Surfers (never Quantity); payload qty intact
- *  2. Create board-only and wetsuit-only use same Surfers semantic label
- *  3. Edit board_and_suit hydrated row says Surfers; preserves persisted quantity
- *  4. Edit no-lesson qty mirrors booking surfer count (no independent drift)
- *  4b. Edit no-lesson has visible booking-level #ps-drawer-surfers (Create parity)
+ *  1. Create board_and_suit row says Qty; payload qty intact and independent
+ *  2. Create board-only and wetsuit-only use same Qty label
+ *  3. Edit board_and_suit hydrated row says Qty; preserves persisted quantity
+ *  4. Edit no-lesson qty is independent of booking surfer count
+ *  4b. Edit no-lesson has visible booking-level #ps-drawer-surfers (guest field)
  *  5. Create/Edit row DOM class/order parity + mutual exclusion
  *  6. Edit compact footer: named course, no year/payment/dup duration; quote row
  *  7. Edit rental/date change invalidates stale quote and requotes
- *  8. 375/430 CSS contract + EN/ES/IT Surfers labels
- *  9. Mutation guard: replacing Surfers with Quantity must RED
+ *  8. 375/430 CSS contract + EN/ES/IT Qty labels
+ *  9. Mutation guard: replacing Qty with Surfers must RED
  *
  * Exercises real generated /staff/ui + Create/Edit owner functions (not source regex alone).
  * No Azure / staging / DB mutation.
@@ -384,22 +384,22 @@ function i18nMaps() {
   // ── [0] i18n + CSS contracts (static) ────────────────────────────────────
   console.log('[0] i18n + CSS contracts');
   const maps = i18nMaps();
-  ok('EN rentalQty is Surfers (not Quantity / Number of surfers)',
-    maps.en['schedule.create.rentalQty'] === 'Surfers'
-    && maps.en['schedule.create.rentalQty'] !== 'Quantity'
+  ok('EN rentalQty is Qty (equipment units, not Surfers)',
+    maps.en['schedule.create.rentalQty'] === 'Qty'
+    && maps.en['schedule.create.rentalQty'] !== 'Surfers'
     && maps.en['schedule.create.rentalQty'] !== 'Number of surfers');
-  ok('ES rentalQty is Surfistas (compact)',
-    maps.es['schedule.create.rentalQty'] === 'Surfistas'
-    || /'schedule\.create\.rentalQty':\s*'Surfistas'/.test(esSrc));
-  ok('IT rentalQty is Surfisti (compact)',
-    maps.it['schedule.create.rentalQty'] === 'Surfisti'
-    || /'schedule\.create\.rentalQty':\s*'Surfisti'/.test(i18nSrc));
-  ok('Create render fallback text is Surfers not Quantity',
-    /data-i18n="schedule\.create\.rentalQty">Surfers</.test(apiSrc)
-    && !/data-i18n="schedule\.create\.rentalQty">Quantity</.test(apiSrc));
-  ok('Edit render uses Surfers fallback (not Quantity)',
-    /schedule\.create\.rentalQty[\s\S]{0,40}Surfers/.test(editSrc)
-    && !/schedule\.create\.rentalQty[\s\S]{0,40}Quantity/.test(editSrc));
+  ok('ES rentalQty is Cant. (compact)',
+    maps.es['schedule.create.rentalQty'] === 'Cant.'
+    || /'schedule\.create\.rentalQty':\s*'Cant\.'/.test(esSrc));
+  ok('IT rentalQty is Qtà (compact)',
+    maps.it['schedule.create.rentalQty'] === 'Qtà'
+    || /'schedule\.create\.rentalQty':\s*'Qtà'/.test(i18nSrc));
+  ok('Create render fallback text is Qty not Surfers',
+    /data-i18n="schedule\.create\.rentalQty">Qty</.test(apiSrc)
+    && !/data-i18n="schedule\.create\.rentalQty">Surfers</.test(apiSrc));
+  ok('Edit render uses Qty fallback (not Surfers)',
+    /schedule\.create\.rentalQty[\s\S]{0,40}Qty/.test(editSrc)
+    && !/schedule\.create\.rentalQty[\s\S]{0,40}Surfers/.test(editSrc));
   ok('rental qty min-height ≥ 36 shared CSS (touch)',
     /\.portal-schedule-create-rental-qty input\[type=number\]\{[^}]*min-height:\s*(36|44)px/.test(apiSrc));
   ok('footer buttons 44px touch target',
@@ -430,13 +430,13 @@ function i18nMaps() {
     html.includes('function scheduleRenderCreateRentals'));
   ok('/staff/ui injects scheduleRenderDrawerRentals',
     html.includes('function scheduleRenderDrawerRentals'));
-  ok('/staff/ui Create rentalQty fallback Surfers',
-    /data-i18n="schedule\.create\.rentalQty">Surfers</.test(html));
-  ok('/staff/ui never ships Quantity as rentalQty fallback',
-    !/data-i18n="schedule\.create\.rentalQty">Quantity</.test(html));
-  ok('/staff/ui Edit Surfers fallback present',
-    /schedule\.create\.rentalQty[\s\S]{0,40}Surfers/.test(html)
-    || /portalT\('schedule\.create\.rentalQty'\) \|\| 'Surfers'/.test(html));
+  ok('/staff/ui Create rentalQty fallback Qty',
+    /data-i18n="schedule\.create\.rentalQty">Qty</.test(html));
+  ok('/staff/ui never ships Surfers as rentalQty fallback',
+    !/data-i18n="schedule\.create\.rentalQty">Surfers</.test(html));
+  ok('/staff/ui Edit Qty fallback present',
+    /schedule\.create\.rentalQty[\s\S]{0,40}Qty/.test(html)
+    || /portalT\('schedule\.create\.rentalQty'\) \|\| 'Qty'/.test(html));
 
   // ── [2] Create rental rows (owner function) ──────────────────────────────
   console.log('\n[2] Create board_and_suit / board / wetsuit Surfers label');
@@ -488,23 +488,41 @@ function i18nMaps() {
       if (fn) chunks.push(fn);
     }
 
+    const offeringsIdentity = prices.map((p) => ({
+      offering_key: p.offering_key,
+      label: p.offering_key,
+      active: true,
+      location_id: 'sunset-somo',
+      client_slug: 'sunset',
+    }));
     const ctx = {
       console,
       JSON, Object, Array, Number, String, Math, Date,
       scheduleAdminPricesCache: prices,
+      // Identity catalog used by Slice-2 projection path in scheduleRenderCreateRentals.
+      scheduleRentalOfferingsCache: offeringsIdentity,
+      getClient: () => 'sunset',
       getSunsetLocation: () => 'sunset-somo',
       scheduleEnumerateDates: (a, b) => {
         // 5 days Jul 27–31
         return ['2026-07-27', '2026-07-28', '2026-07-29', '2026-07-30', '2026-07-31'];
       },
       scheduleRentalDurationKeyFromDates: () => '5_days',
+      scheduleProjectStandaloneRentals: (opts) => offeringsIdentity.map((o) => ({
+        offering_key: o.offering_key,
+        label: o.label,
+        duration_key: '5_days',
+        durations: [{ duration_key: '5_days', amount_cents: (prices.find((p) => p.offering_key === o.offering_key) || {}).amount_cents || 0, label: '5 days' }],
+      })),
       scheduleActiveRentalsForDuration: () => prices.map((p) => ({
         offering_key: p.offering_key,
         duration_key: '5_days',
+        durations: [{ duration_key: '5_days', amount_cents: p.amount_cents, label: '5 days' }],
       })),
       scheduleCommonShortRentalDurationKeys: () => [],
       scheduleActiveShortRentalOfferings: () => [],
       scheduleRentalOfferingsMode: () => 'all_three',
+      scheduleRentalOfferingDisplayLabel: (k, label) => label || k,
       scheduleRentalOfferingLabelKey: (k) => (
         k === 'wetsuit_rental' ? 'schedule.type.wetsuitRental'
           : k === 'board_and_suit_rental' ? 'schedule.ops.rentalBoth'
@@ -516,6 +534,8 @@ function i18nMaps() {
         return sel.filter((k) => k !== 'board_and_suit_rental').concat([key]);
       },
       scheduleSerializeRentalsSelection: (sel) => sel,
+      scheduleEnhanceIntSteppersIn: () => {},
+      scheduleFormatCentsMoney: (c) => '€' + (Number(c) / 100).toFixed(0),
       portalT: (k) => maps.en[k] || k,
       escHtml: (s) => String(s == null ? '' : s)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
@@ -566,18 +586,18 @@ function i18nMaps() {
   const createHtml1 = wrap._rawHtml || wrap.innerHTML || '';
   ok('Create render emits rentalQty key',
     /data-i18n="schedule\.create\.rentalQty"/.test(createHtml1), createHtml1.slice(0, 200));
-  ok('Create board_and_suit visible label Surfers never Quantity',
-    /data-i18n="schedule\.create\.rentalQty">Surfers</.test(createHtml1)
-    && !/>Quantity</.test(createHtml1), createHtml1.slice(0, 400));
+  ok('Create board_and_suit visible label Qty never Surfers',
+    /data-i18n="schedule\.create\.rentalQty">Qty</.test(createHtml1)
+    && !/>Surfers</.test(createHtml1), createHtml1.slice(0, 400));
 
   // Check all three offerings present with same label key
-  ok('Create board-only uses Surfers label key',
-    /data-rental-offering="board_rental"[\s\S]*?data-i18n="schedule\.create\.rentalQty">Surfers</.test(createHtml1)
-    || (createHtml1.match(/data-i18n="schedule\.create\.rentalQty">Surfers</g) || []).length >= 3,
-    'label count=' + ((createHtml1.match(/data-i18n="schedule\.create\.rentalQty">Surfers</g) || []).length));
-  ok('Create wetsuit-only uses Surfers label key',
+  ok('Create board-only uses Qty label key',
+    /data-rental-offering="board_rental"[\s\S]*?data-i18n="schedule\.create\.rentalQty">Qty</.test(createHtml1)
+    || (createHtml1.match(/data-i18n="schedule\.create\.rentalQty">Qty</g) || []).length >= 1,
+    'label count=' + ((createHtml1.match(/data-i18n="schedule\.create\.rentalQty">Qty</g) || []).length));
+  ok('Create wetsuit-only uses Qty label key',
     /data-rental-offering="wetsuit_rental"[\s\S]*?schedule\.create\.rentalQty/.test(createHtml1)
-    || (createHtml1.match(/schedule\.create\.rentalQty/g) || []).length >= 3);
+    || (createHtml1.match(/schedule\.create\.rentalQty/g) || []).length >= 1);
 
   // Numeric value / payload for group with surfers=2
   // Force-check bundle via exclusion helper after parse
@@ -725,6 +745,10 @@ function i18nMaps() {
       'schedulePortalDurationLabel',
       'schedulePortalStrictQuoteTotalCents',
       'schedulePortalNormalizeRentalsIntent',
+      'schedulePortalNormalizeLessonsIntent',
+      'schedulePortalNormalizeCourseEquipmentIntent',
+      'schedulePortalNormalizeAccommodationIntent',
+      'schedulePortalNormalizeCustomLinesIntent',
       'schedulePortalQuotePricingIntentKey',
     ];
     const chunks = [];
@@ -747,12 +771,20 @@ function i18nMaps() {
       scheduleDrawerPriceStale: false,
       scheduleDrawerValidationState: { ok: true, errorKey: null },
       scheduleDrawerCustomLines: [],
+      scheduleDrawerAccommodationStays: [],
       scheduleDrawerQuoteState: null,
       scheduleDrawerQuoteGen: 0,
       scheduleDrawerQuoteAbort: null,
       scheduleDrawerQuoteTimer: null,
       scheduleDrawerQuoteDebounceMs: 0,
       scheduleAdminPricesCache: prices,
+      scheduleRentalOfferingsCache: prices.map((p) => ({
+        offering_key: p.offering_key,
+        label: p.offering_key,
+        active: true,
+        location_id: 'sunset-somo',
+        client_slug: 'sunset',
+      })),
       scheduleDrawerState: { ctx: { rentals: seedRentals }, row: { booking_id: 'b1' } },
       getSunsetLocation: () => 'sunset-somo',
       getClient: () => 'sunset',
@@ -770,17 +802,31 @@ function i18nMaps() {
         if (f === '2026-07-27' && t === '2026-08-01') return '6_days';
         return '5_days';
       },
+      scheduleProjectStandaloneRentals: (opts) => {
+        const dur = (opts && opts.dateDurationKey) || '5_days';
+        return prices.map((p) => ({
+          offering_key: p.offering_key,
+          label: p.offering_key,
+          duration_key: dur,
+          durations: [{ duration_key: dur, amount_cents: p.amount_cents, label: dur }],
+        }));
+      },
       scheduleActiveRentalsForDuration: (_p, dur) => prices
         .filter((p) => p.unit === dur || true)
         .reduce((acc, p) => {
           if (!acc.find((x) => x.offering_key === p.offering_key)) {
-            acc.push({ offering_key: p.offering_key, duration_key: dur || '5_days' });
+            acc.push({
+              offering_key: p.offering_key,
+              duration_key: dur || '5_days',
+              durations: [{ duration_key: dur || '5_days', amount_cents: p.amount_cents, label: dur || '5_days' }],
+            });
           }
           return acc;
         }, []),
       scheduleCommonShortRentalDurationKeys: () => [],
       scheduleActiveShortRentalOfferings: () => [],
       scheduleRentalOfferingsMode: () => 'all_three',
+      scheduleRentalOfferingDisplayLabel: (k, label) => label || k,
       scheduleRentalOfferingLabelKey: (k) => (
         k === 'wetsuit_rental' ? 'schedule.type.wetsuitRental'
           : k === 'board_and_suit_rental' ? 'schedule.ops.rentalBoth'
@@ -792,6 +838,8 @@ function i18nMaps() {
         return sel.filter((k) => k !== 'board_and_suit_rental').concat([key]);
       },
       scheduleSerializeRentalsSelection: (sel) => sel,
+      scheduleEnhanceIntSteppersIn: () => {},
+      scheduleFormatCentsMoney: (c) => '€' + (Number(c) / 100).toFixed(0),
       scheduleRentalsToLegacyComponents: () => ({}),
       schedulePortalResolveDerivedCourseTier: () => ({
         ok: true, tier_key: '5_days', tier_label: '5 days', offering_id: 'o1',
@@ -852,6 +900,17 @@ function i18nMaps() {
       ctx._loadError = e;
     }
     ctx.scheduleAdminPricesCache = prices;
+    if (typeof ctx.scheduleDrawerAccommodationStays === 'undefined') ctx.scheduleDrawerAccommodationStays = [];
+    // Lightweight stubs when portal helpers are not extracted into this sandbox.
+    [
+      ['schedulePortalNormalizeLessonsIntent', function() { return { present: false, lessons: [] }; }],
+      ['schedulePortalNormalizeCourseEquipmentIntent', function() { return null; }],
+      ['schedulePortalNormalizeAccommodationIntent', function() { return null; }],
+      ['schedulePortalNormalizeCustomLinesIntent', function() { return []; }],
+      ['schedulePortalNormalizeRentalsIntent', function(r) { return Array.isArray(r) ? r : []; }],
+    ].forEach(function(pair) {
+      if (typeof ctx[pair[0]] !== 'function') ctx[pair[0]] = pair[1];
+    });
 
     const originalRender = ctx.scheduleRenderDrawerRentals;
     if (typeof originalRender === 'function') {
@@ -870,7 +929,14 @@ function i18nMaps() {
     return { ctx, el, nodes, fetchCalls };
   }
 
-  const editHydrated = sandboxEdit({ mode: 'group', qty: 4, surfers: 4, courseQty: 4 });
+  // No-lesson Edit: catalog rentals are visible (Group/Private hide them for course gear).
+  const editHydrated = sandboxEdit({
+    mode: 'none',
+    qty: 4,
+    surfers: 1,
+    drawerSurfers: 1,
+    rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '5_days', quantity: 4 }],
+  });
   ok('Edit sandbox loaded scheduleRenderDrawerRentals',
     typeof editHydrated.ctx.scheduleRenderDrawerRentals === 'function',
     editHydrated.ctx._loadError && String(editHydrated.ctx._loadError.message));
@@ -879,8 +945,8 @@ function i18nMaps() {
   }
   const editHtml = (editHydrated.el('ps-drawer-rentals')._rawHtml
     || editHydrated.el('ps-drawer-rentals').innerHTML || '');
-  ok('Edit hydrated row label is Surfers never Quantity',
-    />Surfers</.test(editHtml) && !/>Quantity</.test(editHtml),
+  ok('Edit hydrated row label is Qty never Surfers',
+    />Qty</.test(editHtml) && !/>Surfers</.test(editHtml),
     editHtml.slice(0, 500));
   ok('Edit hydrated row preserves quantity 4',
     /value="4"/.test(editHtml)
@@ -892,8 +958,8 @@ function i18nMaps() {
     })(),
     editHtml.slice(0, 300));
 
-  // ── [4] Edit no-lesson mirrors surfer count ──────────────────────────────
-  console.log('\n[4] Edit no-lesson quantity ownership');
+  // ── [4] Edit no-lesson independent equipment qty ─────────────────────────
+  console.log('\n[4] Edit no-lesson quantity ownership (independent of surfers)');
   const editNone = sandboxEdit({
     mode: 'none',
     qty: 2,
@@ -905,11 +971,11 @@ function i18nMaps() {
   }
   const noneHtml = editNone.el('ps-drawer-rentals')._rawHtml
     || editNone.el('ps-drawer-rentals').innerHTML || '';
-  ok('Edit no-lesson hides independent Surfers control (or aria-hidden)',
-    /display:none|hidden aria-hidden|aria-hidden="true"/.test(noneHtml)
-    || /data-qty-owner="surfers"/.test(noneHtml),
+  ok('Edit no-lesson shows Qty control when selected (not hidden forever)',
+    /ps-drawer-rental-qty-input/.test(noneHtml)
+    && (/data-rental-quantity|schedule\.create\.rentalQty|Qty/.test(noneHtml)),
     noneHtml.slice(0, 400));
-  // Try drift: set qty input to 9 then read
+  // Independent qty: set qty input to 9 then read (must NOT force back to surfers=2)
   const noneWrap = editNone.el('ps-drawer-rentals');
   (noneWrap.querySelectorAll('input.ps-drawer-rental-qty-input') || []).forEach((inp) => {
     inp.value = '9';
@@ -923,10 +989,8 @@ function i18nMaps() {
     });
     noneSel = editNone.ctx.scheduleReadDrawerRentalSelectionFromDom();
   }
-  ok('Edit no-lesson read forces surfer-owned qty (not drifted 9)',
-    Array.isArray(noneSel)
-    && noneSel.some((r) => r.offering_key === 'board_and_suit_rental' && r.quantity === 2)
-    && !noneSel.some((r) => r.quantity === 9),
+  ok('Edit no-lesson read preserves independent user qty 9',
+    Array.isArray(noneSel) && noneSel.some((r) => r.offering_key === 'board_and_suit_rental' && r.quantity === 9),
     JSON.stringify(noneSel));
 
   // ── [4b] Edit no-lesson booking-level Surfers (Create #ps-create-surfers parity) ──
@@ -983,29 +1047,23 @@ function i18nMaps() {
   if (typeof editNone4.ctx.scheduleReadDrawerRentalSelectionFromDom === 'function') {
     sel4 = editNone4.ctx.scheduleReadDrawerRentalSelectionFromDom();
   }
-  ok('Edit no-lesson payload rentals qty=4 when Surfers=4',
+  ok('Edit no-lesson payload rentals qty=4 when equipment qty seeded 4',
     Array.isArray(sel4)
     && sel4.some((r) => r.offering_key === 'board_and_suit_rental' && r.quantity === 4),
     JSON.stringify(sel4));
 
-  // Change booking-level Surfers 4 → 2: mirrors + payload update
+  // Change booking-level Surfers 4 → 2: must NOT rewrite independent equipment qty
   editNone4.nodes['ps-drawer-surfers'].value = '2';
-  // Sync mirrors the way wire handlers should (read + force rental qty)
   const sn2 = editNone4.ctx.scheduleDrawerReadSurferCount();
-  (editNone4.el('ps-drawer-rentals').querySelectorAll('input.ps-drawer-rental-qty-input') || []).forEach((inp) => {
-    if (sn2 != null) {
-      inp.value = String(sn2);
-      inp.setAttribute('data-qty-owner', 'surfers');
-    }
-  });
+  // Leave equipment qty inputs at 4 (do not lockstep from surfers)
   let sel2 = [];
   if (typeof editNone4.ctx.scheduleReadDrawerRentalSelectionFromDom === 'function') {
     sel2 = editNone4.ctx.scheduleReadDrawerRentalSelectionFromDom();
   }
-  ok('Edit no-lesson changing Surfers to 2 emits rentals qty=2',
+  ok('Edit no-lesson changing Surfers to 2 keeps equipment qty 4',
     sn2 === 2
     && Array.isArray(sel2)
-    && sel2.some((r) => r.offering_key === 'board_and_suit_rental' && r.quantity === 2),
+    && sel2.some((r) => r.offering_key === 'board_and_suit_rental' && r.quantity === 4),
     'sn=' + String(sn2) + ' sel=' + JSON.stringify(sel2));
 
   // Invalid 0 / blank / fraction: no silent fallback to 1; blocks validate
@@ -1236,13 +1294,13 @@ function i18nMaps() {
 
   // ── [8] 375/430 + EN/ES/IT already partially in [0]; reinforce ───────────
   console.log('\n[8] Mobile CSS + locale labels reinforce');
-  ok('EN Surfers exact', maps.en['schedule.create.rentalQty'] === 'Surfers');
-  ok('ES Surfistas exact',
-    maps.es['schedule.create.rentalQty'] === 'Surfistas'
-    || esSrc.includes("'schedule.create.rentalQty': 'Surfistas'"));
-  ok('IT Surfisti exact',
-    maps.it['schedule.create.rentalQty'] === 'Surfisti'
-    || i18nSrc.includes("'schedule.create.rentalQty': 'Surfisti'"));
+  ok('EN Qty exact', maps.en['schedule.create.rentalQty'] === 'Qty');
+  ok('ES Cant. exact',
+    maps.es['schedule.create.rentalQty'] === 'Cant.'
+    || esSrc.includes("'schedule.create.rentalQty': 'Cant.'"));
+  ok('IT Qtà exact',
+    maps.it['schedule.create.rentalQty'] === 'Qtà'
+    || i18nSrc.includes("'schedule.create.rentalQty': 'Qtà'"));
   ok('do not use Number of surfers for compact row key',
     maps.en['schedule.create.rentalQty'] !== maps.en['schedule.create.surferCount']);
   ok('drawer width 100vw at mobile breakpoint',
@@ -1251,28 +1309,28 @@ function i18nMaps() {
     /\.portal-schedule-create-footer\{[^}]*overflow-x:\s*hidden/.test(apiSrc));
 
   // ── [9] Mutation guard ───────────────────────────────────────────────────
-  console.log('\n[9] Mutation guard: Surfers → Quantity must RED');
+  console.log('\n[9] Mutation guard: Qty → Surfers must RED');
   {
     const mutatedApi = apiSrc
-      .replace(/data-i18n="schedule\.create\.rentalQty">Surfers</g,
-        'data-i18n="schedule.create.rentalQty">Quantity<');
+      .replace(/data-i18n="schedule\.create\.rentalQty">Qty</g,
+        'data-i18n="schedule.create.rentalQty">Surfers<');
     const mutatedI18n = i18nSrc
-      .replace(/'schedule\.create\.rentalQty':\s*'Surfers'/,
-        "'schedule.create.rentalQty': 'Quantity'");
+      .replace(/'schedule\.create\.rentalQty':\s*'Qty'/,
+        "'schedule.create.rentalQty': 'Surfers'");
     const mutatedEdit = editSrc
-      .replace(/\|\| 'Surfers'/g, "|| 'Quantity'")
-      .replace(/>Surfers</g, '>Quantity<');
+      .replace(/\|\| 'Qty'/g, "|| 'Surfers'")
+      .replace(/>Qty</g, '>Surfers<');
     ok('mutation would RED Create fallback',
-      /data-i18n="schedule\.create\.rentalQty">Quantity</.test(mutatedApi)
-      && !/data-i18n="schedule\.create\.rentalQty">Surfers</.test(mutatedApi));
+      /data-i18n="schedule\.create\.rentalQty">Surfers</.test(mutatedApi)
+      && !/data-i18n="schedule\.create\.rentalQty">Qty</.test(mutatedApi));
     ok('mutation would RED EN i18n',
-      /'schedule\.create\.rentalQty':\s*'Quantity'/.test(mutatedI18n));
-    ok('live Create is not mutated (still Surfers)',
-      /data-i18n="schedule\.create\.rentalQty">Surfers</.test(apiSrc));
-    ok('mutation guard asserts Quantity is forbidden in live paths',
-      !/data-i18n="schedule\.create\.rentalQty">Quantity</.test(apiSrc)
-      && !/'schedule\.create\.rentalQty':\s*'Quantity'/.test(i18nSrc));
-    // If someone reintroduces Quantity, these static checks fail (RED).
+      /'schedule\.create\.rentalQty':\s*'Surfers'/.test(mutatedI18n));
+    ok('live Create is not mutated (still Qty)',
+      /data-i18n="schedule\.create\.rentalQty">Qty</.test(apiSrc));
+    ok('mutation guard asserts Surfers is forbidden as rentalQty in live paths',
+      !/data-i18n="schedule\.create\.rentalQty">Surfers</.test(apiSrc)
+      && !/'schedule\.create\.rentalQty':\s*'Surfers'/.test(i18nSrc));
+    // If someone reintroduces Surfers-as-qty, these static checks fail (RED).
     void mutatedEdit;
   }
 

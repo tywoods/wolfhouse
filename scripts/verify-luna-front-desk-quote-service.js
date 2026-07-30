@@ -541,8 +541,8 @@ async function run() {
       components: {},
       ...extra,
     };
-    // Staff no-lesson equipment requires authoritative surfer_count (qty force owner).
-    // Default from rental/component quantity when the fixture omits it.
+    // Staff no-lesson equipment requires authoritative surfer_count (guest field).
+    // Default guest count from rental/component quantity when the fixture omits it.
     if (body.surfer_count == null && body.guest_count == null) {
       if (Array.isArray(body.rentals) && body.rentals[0] && body.rentals[0].quantity != null) {
         body.surfer_count = Number(body.rentals[0].quantity) || 1;
@@ -760,8 +760,8 @@ async function run() {
       && !(bundleQuote.body.total_cents === BUNDLE_1D + BOARD_1D + WETSUIT_1D),
   );
 
-  // 9. Staff no-lesson without surfer_count fails closed (cannot spoof via mismatched legacy qty).
-  // With authoritative surfer_count, force rewrites legacy qty so mismatch is healed not accepted.
+  // 9. Staff no-lesson without surfer_count fails closed (guest field still required).
+  // Equipment qty is independent: rentals[] own qty; components re-synced from rentals.
   const legacyNoSn = executeSunsetQuoteSync(
     buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, {
       guest_name: 'Rental Guest',
@@ -782,7 +782,7 @@ async function run() {
         .includes('surfer_count_required_for_no_lesson_equipment'),
     JSON.stringify(legacyNoSn.body),
   );
-  const legacyForced = executeSunsetQuoteSync(
+  const legacyIndep = executeSunsetQuoteSync(
     buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
       surfer_count: 2,
       rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 9 }],
@@ -791,11 +791,11 @@ async function run() {
     { adminCfg: somoRentalCfg },
   );
   assert(
-    '9 staff surfer_count forces spoofed legacy qty to 2',
-    legacyForced.ok === true
-      && legacyForced.body.total_cents === BOARD_1D * 2
-      && (legacyForced.body.line_items || []).every((l) => Number(l.quantity) === 2),
-    JSON.stringify(legacyForced.body),
+    '9 staff surfer_count preserves independent rental qty 9 (components re-synced from rentals)',
+    legacyIndep.ok === true
+      && legacyIndep.body.total_cents === BOARD_1D * 9
+      && (legacyIndep.body.line_items || []).every((l) => Number(l.quantity) === 9),
+    JSON.stringify(legacyIndep.body),
   );
 
   // 10. Course + bundle total combines correctly
@@ -1004,7 +1004,9 @@ async function run() {
     }).command,
     { adminCfg: somoRentalCfg },
   );
-  // Course may fail weekday for Mon — use rental-only for duration fingerprint vs board 1_day
+  // Course may fail weekday for Mon — use rental-only for duration fingerprint vs board 1_day.
+  // Both must go through staffRentalBody so required staff surfer_count is present
+  // (production still fails closed without it — fixture is valid, not relaxed).
   const board1dFp = executeSunsetQuoteSync(
     buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
       rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
@@ -1013,22 +1015,26 @@ async function run() {
     { adminCfg: somoRentalCfg },
   );
   const board3dFp = executeSunsetQuoteSync(
-    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, {
-      guest_name: 'Dur',
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
       date_from: '2026-07-18',
       date_to: '2026-07-20',
       service_dates: ['2026-07-18', '2026-07-19', '2026-07-20'],
-      payment_status: 'unpaid',
-      components: {},
       rentals: [{ offering_key: 'board_rental', duration_key: '3_days', quantity: 1 }],
-    }).command,
+      components: {},
+    })).command,
     { adminCfg: somoRentalCfg },
   );
   assert(
     'K11 fingerprint changes on duration',
     board1dFp.ok && board3dFp.ok
-      && board1dFp.body.quote_provenance.quote_fingerprint !== board3dFp.body.quote_provenance.quote_fingerprint,
-    JSON.stringify({ d1: board1dFp.body, d3: board3dFp.body }),
+      && board1dFp.body.quote_provenance
+      && board3dFp.body.quote_provenance
+      && board1dFp.body.quote_provenance.quote_fingerprint
+        !== board3dFp.body.quote_provenance.quote_fingerprint,
+    JSON.stringify({
+      d1: board1dFp.ok ? board1dFp.body.quote_provenance.quote_fingerprint : board1dFp.body,
+      d3: board3dFp.ok ? board3dFp.body.quote_provenance.quote_fingerprint : board3dFp.body,
+    }),
   );
 
   const priceIdChangedCfg = rentalPrices([

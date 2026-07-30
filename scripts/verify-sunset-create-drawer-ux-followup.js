@@ -3,11 +3,11 @@
 /**
  * verify:sunset-create-drawer-ux-followup
  *
- * Offline gates for three Create Booking UX follow-ups:
- *  A) No lesson + board/wetsuit hides Quantity; qty from Number of surfers
- *  B) Changing surfers updates quote quantity (payload + server force)
+ * Offline gates for Create Booking UX follow-ups:
+ *  A) No-lesson equipment shows independent Qty stepper (not surfer-owned)
+ *  B) Equipment qty is independent of guest/surfer count (server preserves)
  *  C) Group/Private retain independent gear quantity
- *  D) Switching activities cannot leak stale hidden quantity
+ *  D) Switching activities re-renders rentals; no surfer lockstep
  *  E) Blank name/phone allows quote request + authoritative quote result
  *  F) Blank/invalid guest keeps Create disabled; server create fails closed
  *  G) Custom add-on is own outlined card above Payment & notes
@@ -74,8 +74,8 @@ function extractCreateModalHtml(src) {
 
 console.log('\nverify:sunset-create-drawer-ux-followup\n');
 
-// ── A/C/D) No-lesson qty ownership vs Group/Private independent ─────────────
-console.log('[A/C/D] No-lesson equipment qty from surfers; Group/Private independent');
+// ── A/C/D) Independent equipment qty (no-lesson + Group/Private) ───────────
+console.log('[A/C/D] Independent equipment qty; guest count does not own rental qty');
 const renderRentalsFn = extractFn(apiSrc, 'scheduleRenderCreateRentals') || '';
 const readRentalFn = extractFn(apiSrc, 'scheduleReadCreateRentalSelectionFromDom') || '';
 const applyExclFn = extractFn(apiSrc, 'scheduleApplyCreateRentalExclusionUi') || '';
@@ -83,35 +83,34 @@ const readPayloadFn = extractFn(apiSrc, 'scheduleReadCreatePayload') || '';
 const syncSurfersFn = extractFn(apiSrc, 'scheduleReadCreateSurferCount') || '';
 
 assert('scheduleRenderCreateRentals present', !!renderRentalsFn);
-assert('No lesson hides independent Quantity control',
-  renderRentalsFn.includes('noLesson')
-  && /No lesson: do not render an independent Quantity|if \(!noLesson\)/.test(renderRentalsFn)
-  && renderRentalsFn.includes("data-qty-owner=\"surfers\""));
-assert('No lesson always derives qty from surfers in render',
-  /if \(noLesson\)[\s\S]*qty = surfers != null \? surfers : 1/.test(renderRentalsFn)
-  || /noLesson[\s\S]*owner = 'surfers'/.test(renderRentalsFn));
-assert('Group/Private preserve user-owned independent gear qty',
-  /Group\/Private: preserve independent equipment qty|qtyOwner === 'user'/.test(renderRentalsFn)
-  && renderRentalsFn.includes("was.qtyOwner === 'user'"));
-assert('read path forces no-lesson qty from surfers (no independent trust)',
-  readRentalFn.includes('noLesson')
-  && /if \(noLesson\)[\s\S]*scheduleReadCreateSurferCount/.test(readRentalFn));
-assert('exclusion UI hides qty wrap in no-lesson',
-  applyExclFn.includes('noLesson')
-  && applyExclFn.includes('qtyWrap.style.display'));
-assert('payload carries surfer_count authority',
+assert('Create renders independent Qty control for selected rentals',
+  /data-i18n="schedule\.create\.rentalQty">Qty</.test(renderRentalsFn)
+  || renderRentalsFn.includes("schedule.create.rentalQty") && renderRentalsFn.includes('Qty')
+  || renderRentalsFn.includes('data-rental-quantity'));
+assert('Create default selected qty is 1 (not surfers)',
+  /qty = 1|quantity 1|default 1/.test(renderRentalsFn)
+  || /: 1;\s*$/.test(renderRentalsFn)
+  || renderRentalsFn.includes('qty = 1')
+  || /!\s*checked\) qty = 1/.test(renderRentalsFn)
+  || renderRentalsFn.includes('if (!checked) qty = 1'));
+assert('read path uses per-row qty input (not surfer force)',
+  readRentalFn.includes('ps-create-rental-qty-input')
+  && !/if \(noLesson\)[\s\S]*scheduleReadCreateSurferCount[\s\S]*qty = snNo/.test(readRentalFn));
+assert('exclusion UI shows qty wrap when selected (incl no-lesson)',
+  applyExclFn.includes('qtyWrap.style.display')
+  && /isOn \? '' : 'none'|isOn\) \? ''/.test(applyExclFn));
+assert('payload carries surfer_count as guest field',
   readPayloadFn.includes('surfer_count: surferCount'));
-assert('activity switch re-renders rentals (clear stale hidden qty)',
+assert('activity switch re-renders rentals',
   /ps-create-comp-no-lesson[\s\S]*scheduleRenderCreateRentals\(\)/.test(apiSrc)
   || /scheduleRenderCreateRentals\(\)[\s\S]*ps-create-comp-no-lesson/.test(apiSrc)
   || apiSrc.includes("id === 'ps-create-comp-no-lesson'")
     && apiSrc.includes('scheduleRenderCreateRentals()'));
-assert('surfers change force-syncs no-lesson rental qty',
-  apiSrc.includes('forceAll')
-  && /scheduleCreateIsNoLesson[\s\S]*data-qty-owner/.test(apiSrc)
-  || /forceAll \|\| inp\.getAttribute\('data-qty-owner'\) !== 'user'/.test(apiSrc));
+assert('payload does not lockstep rental qty to surfers',
+  !/keep any rental qty mirrors in lockstep with surfers/.test(readPayloadFn)
+  && !/inp\.value = String\(surferCount\)/.test(readPayloadFn));
 
-// Behavioral: applyNoLessonEquipmentQtyFromSurfers
+// Behavioral: applyNoLessonEquipmentQtyFromSurfers — independent qty
 assert('applyNoLessonEquipmentQtyFromSurfers exported',
   typeof writes.applyNoLessonEquipmentQtyFromSurfers === 'function');
 const forced = writes.applyNoLessonEquipmentQtyFromSurfers(
@@ -121,10 +120,11 @@ const forced = writes.applyNoLessonEquipmentQtyFromSurfers(
   },
   [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 9 }],
 );
-assert('A: no-lesson forces rental qty from surfer_count (ignore override 9→3)',
-  forced.forced === true
-  && forced.rentals[0].quantity === 3
-  && forced.body.components.surfboard.quantity === 3);
+assert('A: no-lesson preserves independent rental qty 9 (not forced to 3 surfers)',
+  forced.ok === true
+  && forced.rentals[0].quantity === 9
+  && forced.body.components.surfboard.quantity === 9
+  && forced.surfer_count === 3);
 const groupKeep = writes.applyNoLessonEquipmentQtyFromSurfers(
   {
     surfer_count: 4,
@@ -139,7 +139,7 @@ assert('C: Group keeps independent gear qty (no force)',
   groupKeep.forced === false
   && groupKeep.rentals[0].quantity === 2);
 
-// prepareCanonicalRentalsForCreate forces no-lesson
+// prepareCanonicalRentalsForCreate preserves independent qty
 const prep = writes.prepareCanonicalRentalsForCreate({
   guest_name: 'X',
   guest_phone: '+34600111222',
@@ -149,10 +149,10 @@ const prep = writes.prepareCanonicalRentalsForCreate({
   components: { surfboard: { quantity: 7 }, wetsuit: { quantity: 7 } },
   rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 7 }],
 });
-assert('server prepareCanonical forces no-lesson qty to surfer_count',
+assert('server prepareCanonical preserves independent no-lesson qty 7',
   prep.ok && prep.present
-  && prep.rentals[0].quantity === 2
-  && prep.body.components.surfboard.quantity === 2,
+  && prep.rentals[0].quantity === 7
+  && prep.body.components.surfboard.quantity === 7,
   prep.error || JSON.stringify(prep.rentals));
 
 // ── B/E) Quote with blank name/phone + surfer qty authority ─────────────────
@@ -215,18 +215,18 @@ const blankQuote = quoteWithAdmin({
 assert('E: blank name/phone quote ok',
   blankQuote.ok === true,
   blankQuote.body && (blankQuote.body.reason || blankQuote.body.error || JSON.stringify(blankQuote.body)));
-assert('B: server quotes with surfer_count qty (not stale client 9)',
+assert('B: server quotes independent equipment qty 9 (not forced to surfer_count 2)',
   blankQuote.ok
   && blankQuote.body
-  && blankQuote.body.total_cents === 2000 * 2,
+  && blankQuote.body.total_cents === 2000 * 9,
   String(blankQuote.body && blankQuote.body.total_cents));
 const blankNamedLine = (blankQuote.body && blankQuote.body.line_items || [])
   .find((l) => l.component === 'board_and_suit_rental');
-assert('B: bundle line quantity is 2 (from surfers)',
-  blankNamedLine && Number(blankNamedLine.quantity) === 2,
+assert('B: bundle line quantity is 9 (independent equipment units)',
+  blankNamedLine && Number(blankNamedLine.quantity) === 9,
   blankNamedLine && String(blankNamedLine.quantity));
 
-// Requote with different surfer count
+// Requote with different equipment qty (guest surfer_count unchanged) — money tracks qty.
 const requote = quoteWithAdmin({
   guest_name: '',
   guest_phone: '',
@@ -234,9 +234,9 @@ const requote = quoteWithAdmin({
   date_from: '2026-08-20',
   date_to: '2026-08-20',
   components: {},
-  rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+  rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 4 }],
 });
-assert('B: changing surfers requotes quantity (4×unit)',
+assert('B: changing equipment qty requotes (4×unit); guest count does not own money',
   requote.ok && requote.body && requote.body.total_cents === 2000 * 4,
   String(requote.body && requote.body.total_cents));
 
@@ -418,17 +418,19 @@ assert('I: EN/IT phoneRequired',
   && itBlock.includes("'schedule.create.phoneRequired':"));
 assert('I: ES phoneRequired', esSrc.includes("'schedule.create.phoneRequired':"));
 
-// D: switching to no-lesson clears user qty ownership in render
-assert('D: no-lesson path forces owner=surfers (clears user leak)',
-  /if \(noLesson\)[\s\S]*owner = 'surfers'/.test(renderRentalsFn));
+// D: independent qty path uses default/user owners (never surfer-owned equipment)
+assert('D: render path defaults qty to 1 independent of surfers',
+  renderRentalsFn.includes('if (!checked) qty = 1')
+  || /qty = 1/.test(renderRentalsFn)
+  || renderRentalsFn.includes('data-rental-quantity'));
 
-// ── Hostile: components-only qty spoof + fail-closed without surfer_count ────
-console.log('\n[Hostile] No-lesson qty on every accepted representation');
+// ── Hostile: no-lesson still requires surfer_count guest field; qty independent ─
+console.log('\n[Hostile] No-lesson qty independent; surfer_count still required');
 const hostileNoSn = quoteWithAdmin({
   guest_name: 'Hostile',
   guest_phone: '+34600111222',
   service_date: '2026-08-20',
-  // components-only board+wetsuit — classic spoof shape (qty 9, no surfer_count)
+  // components-only board+wetsuit without surfer_count — guest field still required
   components: { surfboard: { quantity: 9 }, wetsuit: { quantity: 9 } },
 });
 assert(
@@ -443,7 +445,7 @@ assert(
   !(hostileNoSn.ok && hostileNoSn.body && Number(hostileNoSn.body.total_cents) === 13500),
 );
 
-const hostileForce = quoteWithAdmin({
+const hostileIndep = quoteWithAdmin({
   guest_name: 'Hostile',
   guest_phone: '+34600111222',
   service_date: '2026-08-20',
@@ -451,18 +453,16 @@ const hostileForce = quoteWithAdmin({
   components: { surfboard: { quantity: 9 }, wetsuit: { quantity: 9 } },
 });
 assert(
-  'hostile components-only with surfer_count forces qty 3 (not client 9)',
-  hostileForce.ok === true
-    && (hostileForce.body.line_items || []).every((l) => Number(l.quantity) === 3)
-    && hostileForce.body.total_cents !== 22500,
-  String(hostileForce.body && hostileForce.body.total_cents),
+  'hostile components-only with surfer_count preserves independent qty 9',
+  hostileIndep.ok === true
+    && (hostileIndep.body.line_items || []).some((l) => Number(l.quantity) === 9),
+  String(hostileIndep.body && hostileIndep.body.total_cents),
 );
-const boardLineHostile = (hostileForce.body && hostileForce.body.line_items || [])
+const boardLineHostile = (hostileIndep.body && hostileIndep.body.line_items || [])
   .find((l) => l.component === 'surfboard');
 assert(
-  'hostile board line total is not spoofed 13500',
-  boardLineHostile && Number(boardLineHostile.total_cents) !== 13500
-    && Number(boardLineHostile.quantity) === 3,
+  'hostile board line keeps independent qty 9',
+  boardLineHostile && Number(boardLineHostile.quantity) === 9,
   boardLineHostile && String(boardLineHostile.total_cents),
 );
 
@@ -478,7 +478,7 @@ assert(
     && String(vNoSn.error || '').includes('surfer_count_required_for_no_lesson_equipment'),
   vNoSn.error,
 );
-const vForce = writes.validateScheduleBookingBody({
+const vIndep = writes.validateScheduleBookingBody({
   guest_name: 'X',
   guest_phone: '+34600111222',
   service_date: '2026-08-20',
@@ -486,12 +486,12 @@ const vForce = writes.validateScheduleBookingBody({
   components: { surfboard: { quantity: 9 }, wetsuit: { quantity: 9 } },
 });
 assert(
-  'validate forces equipment qty from surfer_count on components path',
-  vForce.ok
-    && vForce.value.components.surfboard.quantity === 3
-    && vForce.value.components.wetsuit.quantity === 3
-    && vForce.value.surfer_count === 3,
-  JSON.stringify(vForce.value && vForce.value.components),
+  'validate preserves independent equipment qty (not forced to surfer_count)',
+  vIndep.ok
+    && vIndep.value.components.surfboard.quantity === 9
+    && vIndep.value.components.wetsuit.quantity === 9
+    && vIndep.value.surfer_count === 3,
+  JSON.stringify(vIndep.value && vIndep.value.components),
 );
 const vGroup = writes.validateScheduleBookingBody({
   guest_name: 'X',
@@ -593,7 +593,7 @@ assert(
   vStaffActor.error,
 );
 
-const vStaffForce = writes.validateScheduleBookingBody({
+const vStaffIndep = writes.validateScheduleBookingBody({
   guest_name: 'Staff',
   guest_phone: '+34600111222',
   service_date: '2026-08-20',
@@ -601,12 +601,12 @@ const vStaffForce = writes.validateScheduleBookingBody({
   components: { surfboard: { quantity: 9 }, wetsuit: { quantity: 9 } },
 });
 assert(
-  '4) staff with surfer_count forces spoofed equipment qty (9→3)',
-  vStaffForce.ok
-    && vStaffForce.value.surfer_count === 3
-    && vStaffForce.value.components.surfboard.quantity === 3
-    && vStaffForce.value.components.wetsuit.quantity === 3,
-  JSON.stringify(vStaffForce.value && vStaffForce.value.components),
+  '4) staff with surfer_count preserves independent equipment qty 9',
+  vStaffIndep.ok
+    && vStaffIndep.value.surfer_count === 3
+    && vStaffIndep.value.components.surfboard.quantity === 9
+    && vStaffIndep.value.components.wetsuit.quantity === 9,
+  JSON.stringify(vStaffIndep.value && vStaffIndep.value.components),
 );
 
 // 5) Plugin is NOT the selected owner: schema has no top-level surfer_count;

@@ -400,7 +400,13 @@ const CLIENT_RENTAL_MONEY_FIELDS = Object.freeze([
 
 async function prepareGenericRentalsForCreate(opts) {
   const { listRentalOfferings, applyRentalMutualExclusion } = require('./tenant-rental-offerings');
-  const { resolveGenericRentalPrice, buildGenericRentalServiceRecord } = require('./tenant-rental-price-resolver');
+  const {
+    resolveGenericRentalPrice,
+    buildGenericRentalServiceRecord,
+    resolveDayRentalContinuation,
+    isHourRentalDurationKey,
+    dayCountFromDurationKey,
+  } = require('./tenant-rental-price-resolver');
   const { isGenericRentalCreateEnabled } = require('./tenant-business-config');
   const o = opts || {};
   const rows = Array.isArray(o.rentals) ? o.rentals : [];
@@ -428,64 +434,178 @@ async function prepareGenericRentalsForCreate(opts) {
   if (exclusion.blocked.length) return { ok: false, reason: 'rental_catalog_conflict' };
   const records = [];
   for (const row of generic) {
-    const commonPriceOpts = { clientSlug: o.clientSlug, locationId: o.locationId, offeringKey: row.offering_key, quantity: row.quantity, pgClient: o.pgClient, loadRule: o.loadRule };
+    const qty = Number(row.quantity);
+    if (!Number.isInteger(qty) || qty < 1 || qty > 99) {
+      return { ok: false, reason: 'invalid_rental_quantity' };
+    }
+    const commonPriceOpts = {
+      clientSlug: o.clientSlug,
+      locationId: o.locationId,
+      offeringKey: row.offering_key,
+      quantity: qty,
+      pgClient: o.pgClient,
+      loadRule: o.loadRule,
+    };
     const dayCount = Number(o.calendarDayCount);
     const bookingDurationKey = String(o.bookingDurationKey || '').trim();
     const selectedDuration = String(row.duration_key || '').trim();
-    const isHourDuration = /hour|half_day/i.test(selectedDuration);
+    const isHourDuration = isHourRentalDurationKey(selectedDuration);
     let priced;
     if (Number.isInteger(dayCount) && dayCount > 1) {
       // Multi-day commercial rule (server-authoritative, fail-closed):
-      //  - if exact active N_days package exists, it is the ONLY accepted duration
-      //  - only when exact N_days is absent may active 1_day be selected and
-      //    repeated once per selected date
-      //  - hour packages are never offered/accepted across multi-day ranges
+      //  - hour packages never on multi-day ranges
+      //  - exact active N_days package wins
+      //  - else longest configured day tier M <= N continues discounted per-day
+      //    rate across all N requested days (generic arbitrary N, not 1_day-only)
+      //  - stale/malicious 1_day is rejected when exact N_days exists
       if (isHourDuration) {
         return { ok: false, reason: 'rental_duration_not_compatible' };
       }
       const exactKey = bookingDurationKey || (dayCount === 1 ? '1_day' : `${dayCount}_days`);
-      if (selectedDuration === exactKey) {
-        priced = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: selectedDuration });
-        if (priced.ok) {
-          priced = {
-            ...priced,
-            pricing_mode: 'exact_duration_package',
-            package_repeat_count: 1,
-            selected_duration_key: selectedDuration,
-          };
-        }
-      } else if (selectedDuration === '1_day' || selectedDuration === 'full_day') {
-        // Reject malicious/stale 1_day when exact active N_days exists for this rental.
-        // 1_day fallback is allowed ONLY when exact probe is a true absence
-        // (reason=price_not_found AND status=not_found). Resolver errors
-        // (lookup throw, tables_missing, invalid_location, invalid_amount,
-        // scope mismatch, null_response, …) must fail closed — never price via 1_day.
-        const exactProbe = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: exactKey });
-        if (exactProbe.ok) {
+
+      // Probe exact first — infrastructure errors fail closed (never invent money).
+      const exactProbe = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: exactKey });
+      if (exactProbe.ok) {
+        // Exact package is the only legal price identity when present.
+        if (selectedDuration !== exactKey) {
           return { ok: false, reason: 'rental_duration_not_compatible' };
         }
+        priced = {
+          ...exactProbe,
+          pricing_mode: 'exact_duration_package',
+          package_repeat_count: 1,
+          selected_duration_key: selectedDuration,
+        };
+      } else {
         const exactAbsent = exactProbe.reason === 'price_not_found'
           && exactProbe.status === 'not_found';
         if (!exactAbsent) {
           return exactProbe;
         }
-        const baseKey = selectedDuration === 'full_day' ? '1_day' : selectedDuration;
-        priced = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: baseKey });
-        if (priced.ok) {
+        // Exact absent: resolve continuation from active day tiers.
+        // Selected duration must parse as a legitimate data-driven day identity
+        // (1_day / full_day / N_days via duration model — no fixed 1..7 whitelist)
+        // and be compatible with the booking span (day count ≤ requested N).
+        // Reject banana / unparseable / hour / contradictory longer-than-span keys.
+        const selectedDayCount = dayCountFromDurationKey(selectedDuration);
+        const selectedOk = selectedDayCount != null
+          && Number.isInteger(selectedDayCount)
+          && selectedDayCount >= 1
+          && selectedDayCount <= dayCount;
+        if (!selectedOk) {
+          return { ok: false, reason: 'rental_duration_not_compatible' };
+        }
+
+        let tiers = [];
+        if (typeof o.listDayTiers === 'function') {
+          try {
+            const listed = await o.listDayTiers({
+              clientSlug: o.clientSlug,
+              locationId: o.locationId,
+              offeringKey: row.offering_key,
+              pgClient: o.pgClient,
+            });
+            if (Array.isArray(listed)) {
+              tiers = listed.map((t) => ({
+                days: Number(t.days),
+                amount_cents: Math.round(Number(t.amount_cents)),
+                duration_key: String(t.duration_key || '').trim() || null,
+              })).filter((t) => Number.isInteger(t.days) && t.days >= 1 && Number.isFinite(t.amount_cents) && t.amount_cents >= 0);
+            }
+          } catch (_listErr) {
+            return { ok: false, reason: 'rental_catalog_unavailable' };
+          }
+        }
+        if (!tiers.length) {
+          // Probe longest → shortest day packages (1..dayCount). Stop early once
+          // we have at least one tier so continuation can resolve; continue
+          // probing only while seeking a longer base is unnecessary after first
+          // hit from the top, but we still need all tiers for exact base pick.
+          // Walk high→low so a single longer tier is found without full scan when
+          // only 1_day exists after exact miss (common path).
+          for (let d = dayCount; d >= 1; d -= 1) {
+            const dk = d === 1 ? '1_day' : `${d}_days`;
+            // eslint-disable-next-line no-await-in-loop
+            const probe = await resolveGenericRentalPrice({
+              ...commonPriceOpts,
+              durationKey: dk,
+              quantity: 1,
+            });
+            if (probe.ok) {
+              tiers.push({ days: d, amount_cents: probe.unit_cents, duration_key: dk });
+              // Longest eligible found — sufficient for continuation.
+              break;
+            }
+            // Fail closed on every non-absence result (scope mismatch, unverified,
+            // infrastructure, malformed found rows, lookup throw, …). Only true
+            // absence may continue probing a shorter day tier.
+            const trueAbsent = probe.reason === 'price_not_found'
+              && probe.status === 'not_found';
+            if (!trueAbsent) {
+              return probe;
+            }
+          }
+        }
+        const cont = resolveDayRentalContinuation({
+          requestedDays: dayCount,
+          tiers,
+          quantity: qty,
+        });
+        if (!cont.ok) {
+          return { ok: false, reason: 'rental_duration_not_compatible' };
+        }
+        const baseKey = cont.base_duration_key;
+        // After authoritative tier resolution, selected duration must truthfully
+        // own either the booking-span identity (exact N_days) or the actual base
+        // tier used for continuation. Never price from M-day while persisting an
+        // unconfigured selected identity (e.g. hostile 2_days when only 1d+3d).
+        if (selectedDuration !== exactKey && selectedDuration !== baseKey) {
+          return { ok: false, reason: 'rental_duration_not_compatible' };
+        }
+        const baseTier = tiers.find((t) => t.days === cont.base_days) || tiers[0];
+        // 1-day base keeps legacy repeated_base_package metadata (unit = 1-day rate).
+        // Longer base tiers use continued_day_discount with unit = one item over N days.
+        if (cont.base_days === 1) {
+          const dayUnit = Math.round(Number(baseTier.amount_cents));
           priced = {
-            ...priced,
-            amount_cents: priced.amount_cents * dayCount,
+            ok: true,
+            client_slug: o.clientSlug,
+            location_id: o.locationId,
+            offering_key: String(row.offering_key || '').trim(),
+            duration_key: baseKey,
+            item_code: `${String(row.offering_key || '').trim()}__${baseKey}`,
+            unit: 'day',
+            unit_cents: dayUnit,
+            quantity: qty,
+            amount_cents: dayUnit * qty * dayCount,
+            currency: 'EUR',
             pricing_mode: 'repeated_base_package',
             package_repeat_count: dayCount,
             booking_duration_key: exactKey,
-            // Preserve the chosen base duration identity for persistence/readback.
+            selected_duration_key: selectedDuration,
+          };
+        } else {
+          priced = {
+            ok: true,
+            client_slug: o.clientSlug,
+            location_id: o.locationId,
+            offering_key: String(row.offering_key || '').trim(),
             duration_key: baseKey,
+            item_code: `${String(row.offering_key || '').trim()}__${baseKey}`,
+            unit: 'day',
+            unit_cents: cont.unit_cents,
+            quantity: qty,
+            amount_cents: cont.amount_cents,
+            currency: 'EUR',
+            pricing_mode: cont.pricing_mode,
+            package_repeat_count: cont.package_repeat_count,
+            booking_duration_key: exactKey,
+            selected_duration_key: selectedDuration,
           };
         }
-      } else {
-        return { ok: false, reason: 'rental_duration_not_compatible' };
       }
     } else {
+      // Single-day / hour packages: exact configured duration only (no stacking).
       priced = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: selectedDuration });
       if (priced.ok) priced = { ...priced, pricing_mode: 'base_package', package_repeat_count: 1 };
     }
@@ -673,7 +793,7 @@ function prepareCanonicalRentalsForCreate(body, opts) {
     date_to: dateTo,
   };
   let rentalsOut = rentals;
-  // No-lesson: equipment qty derives from authoritative surfer_count (ignore client override).
+  // No-lesson: equipment qty is independent; surfer_count still required (guest field).
   // Trusted Luna may derive surfer_count from consistent component quantities (opts.actor).
   const forced = applyNoLessonEquipmentQtyFromSurfers(bodyOut, rentals, opts);
   if (!forced.ok) {
@@ -683,10 +803,11 @@ function prepareCanonicalRentalsForCreate(body, opts) {
       reason: forced.reason || forced.reason_code || NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
     };
   }
-  if (forced.forced) {
-    bodyOut = forced.body;
-    rentalsOut = forced.rentals || rentalsOut;
-    // Re-sync expected legacy quantities after force.
+  // Always apply validated body/rentals (qty clamp + optional Luna-derived surfer_count).
+  bodyOut = forced.body || bodyOut;
+  rentalsOut = forced.rentals || rentalsOut;
+  // Re-sync legacy component quantities from independent rental rows.
+  if (Array.isArray(rentalsOut)) {
     for (const row of rentalsOut) {
       if (row.offering_key === 'board_rental') {
         bodyOut.components.surfboard = { quantity: row.quantity };
@@ -1512,11 +1633,11 @@ function isValidStaffCreateGuestPhone(raw) {
 }
 
 /**
- * No-lesson (rental-only) mode: equipment quantity is owned by Number of surfers.
- * When equipment is present, authoritative surfer_count is required and forces
- * rental + legacy component quantities (ignore client equipment-qty override).
- * Absent/invalid surfer_count with equipment fails closed. Group/Private keep
- * independent equipment qty. Does not invent Admin prices.
+ * No-lesson (rental-only) mode: equipment quantity is independent physical units.
+ * When equipment is present, authoritative surfer_count is still required as the
+ * guest-count field (ops/display) but does NOT overwrite rental quantities.
+ * Absent/invalid surfer_count with equipment fails closed (staff). Group/Private
+ * and no-lesson all keep per-item equipment qty. Does not invent Admin prices.
  */
 function isNoLessonComponents(components) {
   const c = components && typeof components === 'object' ? components : {};
@@ -1629,12 +1750,15 @@ function resolveLunaTrustedNoLessonDerivation(opts) {
 }
 
 /**
- * For no-lesson reservations with equipment, force rental quantities from
- * authoritative surfer count. Group/Private keep independent equipment qty.
- * Staff/manual: fail closed when equipment present and surfer_count absent.
- * Trusted Luna only: when surfer_count absent, derive one canonical count from
- * consistent equipment quantities (Hermes plugin contract sends component qty
- * only — no top-level surfer_count). Inconsistent board/wetsuit fails closed.
+ * No-lesson equipment quantities are independent physical unit counts (1..99).
+ * They are NOT forced from surfer/guest count.
+ *
+ * Still:
+ *  - Staff/manual: when equipment is present, surfer_count remains required as
+ *    the guest-count field (ops/display) — but never overwrites rental qty.
+ *  - Trusted Luna only: when surfer_count is absent, derive guest count from
+ *    consistent equipment signals (legacy plugin contract). Does not rewrite
+ *    per-item rental quantities.
  *
  * @param {object} body
  * @param {array|null} rentals
@@ -1649,10 +1773,86 @@ function applyNoLessonEquipmentQtyFromSurfers(body, rentals, opts) {
   if (!hasNoLessonEquipment(comps, rentals)) {
     return { ok: true, body: b, rentals: rentals || null, forced: false };
   }
+
+  // Validate independent equipment quantities (1..99) — never rewrite them.
+  let nextRentals = rentals;
+  if (Array.isArray(rentals) && rentals.length) {
+    nextRentals = [];
+    for (let i = 0; i < rentals.length; i += 1) {
+      const row = rentals[i] || {};
+      const key = String(row.offering_key || '').trim();
+      const isEquip = key === 'board_rental' || key === 'wetsuit_rental'
+        || key === 'board_and_suit_rental' || key;
+      if (!isEquip) {
+        nextRentals.push(row);
+        continue;
+      }
+      const q = parseEquipmentQuantitySignal(row.quantity);
+      if (q == null) {
+        return {
+          ok: false,
+          forced: false,
+          error: 'invalid_rental_quantity',
+          reason: 'invalid_rental_quantity',
+          reason_code: 'invalid_rental_quantity',
+          body: b,
+          rentals: rentals || null,
+        };
+      }
+      nextRentals.push({ ...row, quantity: q });
+    }
+  }
+  const nextComps = { ...comps };
+  if (nextComps.surfboard) {
+    const q = parseEquipmentQuantitySignal(nextComps.surfboard.quantity);
+    if (q == null) {
+      return {
+        ok: false,
+        forced: false,
+        error: 'invalid_rental_quantity',
+        reason: 'invalid_rental_quantity',
+        reason_code: 'invalid_rental_quantity',
+        body: b,
+        rentals: nextRentals,
+      };
+    }
+    nextComps.surfboard = { ...nextComps.surfboard, quantity: q };
+  }
+  if (nextComps.wetsuit) {
+    const q = parseEquipmentQuantitySignal(nextComps.wetsuit.quantity);
+    if (q == null) {
+      return {
+        ok: false,
+        forced: false,
+        error: 'invalid_rental_quantity',
+        reason: 'invalid_rental_quantity',
+        reason_code: 'invalid_rental_quantity',
+        body: b,
+        rentals: nextRentals,
+      };
+    }
+    nextComps.wetsuit = { ...nextComps.wetsuit, quantity: q };
+  }
+  // Canonical rentals[] own equipment qty when present — re-sync legacy components
+  // to match (never the reverse force from surfer_count).
+  if (Array.isArray(nextRentals)) {
+    for (const row of nextRentals) {
+      const q = parseEquipmentQuantitySignal(row.quantity) || 1;
+      if (row.offering_key === 'board_rental') {
+        nextComps.surfboard = { ...(nextComps.surfboard || {}), quantity: q };
+      } else if (row.offering_key === 'wetsuit_rental') {
+        nextComps.wetsuit = { ...(nextComps.wetsuit || {}), quantity: q };
+      } else if (row.offering_key === 'board_and_suit_rental') {
+        nextComps.surfboard = { ...(nextComps.surfboard || {}), quantity: q };
+        nextComps.wetsuit = { ...(nextComps.wetsuit || {}), quantity: q };
+      }
+    }
+  }
+
   let sn = parseAuthoritativeSurferCount(b);
   let derivedFromEquipment = false;
   if (sn == null && resolveLunaTrustedNoLessonDerivation(opts)) {
-    const derived = deriveCanonicalNoLessonSurferCountFromEquipment(b, rentals);
+    const derived = deriveCanonicalNoLessonSurferCountFromEquipment(b, nextRentals);
     if (!derived.ok) {
       return {
         ok: false,
@@ -1661,7 +1861,7 @@ function applyNoLessonEquipmentQtyFromSurfers(body, rentals, opts) {
         reason: derived.reason || derived.reason_code || derived.error || NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
         reason_code: derived.reason_code || derived.reason || derived.error || NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
         body: b,
-        rentals: rentals || null,
+        rentals: nextRentals || null,
       };
     }
     sn = derived.surfer_count;
@@ -1675,41 +1875,15 @@ function applyNoLessonEquipmentQtyFromSurfers(body, rentals, opts) {
       reason: NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
       reason_code: NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
       body: b,
-      rentals: rentals || null,
+      rentals: nextRentals || null,
     };
   }
-  let nextRentals = rentals;
-  if (Array.isArray(rentals) && rentals.length) {
-    nextRentals = rentals.map((r) => ({
-      ...r,
-      quantity: sn,
-    }));
-  }
-  const nextComps = { ...comps };
-  if (nextComps.surfboard) {
-    nextComps.surfboard = { ...nextComps.surfboard, quantity: sn };
-  }
-  if (nextComps.wetsuit) {
-    nextComps.wetsuit = { ...nextComps.wetsuit, quantity: sn };
-  }
-  // If rentals imply legacy components that are missing, seed them at surfer qty.
-  if (Array.isArray(nextRentals)) {
-    for (const row of nextRentals) {
-      if (row.offering_key === 'board_rental' && !nextComps.surfboard) {
-        nextComps.surfboard = { quantity: sn };
-      } else if (row.offering_key === 'wetsuit_rental' && !nextComps.wetsuit) {
-        nextComps.wetsuit = { quantity: sn };
-      } else if (row.offering_key === 'board_and_suit_rental') {
-        if (!nextComps.surfboard) nextComps.surfboard = { quantity: sn };
-        else nextComps.surfboard = { ...nextComps.surfboard, quantity: sn };
-        if (!nextComps.wetsuit) nextComps.wetsuit = { quantity: sn };
-        else nextComps.wetsuit = { ...nextComps.wetsuit, quantity: sn };
-      }
-    }
-  }
+
   return {
     ok: true,
-    forced: true,
+    // forced=true only when Luna-derived surfer_count was applied (guest field).
+    // Equipment quantities are never rewritten from guest/surfer count.
+    forced: derivedFromEquipment,
     surfer_count: sn,
     derived_from_equipment: derivedFromEquipment,
     rentals: nextRentals,
@@ -1837,9 +2011,9 @@ function validateScheduleBookingBody(body, opts) {
   }
   const customLines = normalizeCustomLineItems(b.custom_line_items);
   if (!customLines.ok) return customLines;
-  // Shared quote/create owner: no-lesson equipment qty from surfer_count only.
+  // Shared quote/create owner: independent equipment qty; surfer_count is guest field.
   // Staff: fail closed when equipment present and surfer_count absent/invalid.
-  // Trusted Luna (opts.actor / opts.lunaTrusted): may derive from consistent component qty.
+  // Trusted Luna (opts.actor / opts.lunaTrusted): may derive surfer_count from component qty.
   const rentalsForForce = Array.isArray(bodyForComponents.rentals) ? bodyForComponents.rentals : null;
   const forceOpts = {
     actor: opts.actor || null,
@@ -1857,12 +2031,10 @@ function validateScheduleBookingBody(body, opts) {
       reason: forced.reason || forced.reason_code || NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
     };
   }
-  const forcedComps = forced.forced
-    ? (forced.body.components || components.value)
-    : components.value;
-  let surfer_count = forced.forced
+  const forcedComps = (forced.body && forced.body.components) || components.value;
+  let surfer_count = forced.surfer_count != null
     ? forced.surfer_count
-    : parseAuthoritativeSurferCount(bodyForComponents);
+    : parseAuthoritativeSurferCount(forced.body || bodyForComponents);
   // When lessons[] owns class identity, surfer_count is shared across all lessons.
   if (surfer_count == null && lessonsNorm.present) {
     if (forcedComps.course && Number(forcedComps.course.quantity) >= 1) {
