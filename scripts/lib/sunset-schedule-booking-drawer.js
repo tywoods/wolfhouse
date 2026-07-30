@@ -1152,13 +1152,29 @@ async function updateSunsetScheduleBooking(pg, opts) {
     }
 
     const lockedMeta = parseMeta(lockedBundle.booking.metadata);
-    // PATCH rentals omitted → preserve existing (not wipe). Explicit present uses prep.
+    // Explicit rentals[] present (even empty) owns rental intent; generic +
+    // canonical keys both fingerprint. Omitted rentals → preserve existing.
+    // IMPORTANT: generic-only Edit strips rentals before prepareCanonical, so
+    // rentalPrep.present is false even when the client sent rentals[]. That is
+    // NOT "omitted" — do not restore lockedMeta.rentals into the canonical lane
+    // (those rows often carry generic offering_keys and would re-enter the
+    // legacy allowlist / closed quote parser as rentals[0].offering_key is not allowed).
+    const rentalsPresentOnPatch = Object.prototype.hasOwnProperty.call(requestBody, 'rentals');
     if (!rentalPrep.present) {
-      if (Array.isArray(lockedMeta.rentals) && lockedMeta.rentals.length) {
-        canonicalRentals = lockedMeta.rentals;
+      if (!rentalsPresentOnPatch
+        && Array.isArray(lockedMeta.rentals)
+        && lockedMeta.rentals.length) {
+        // Omitted rentals only: preserve board/wetsuit/bundle for the closed
+        // quote/insert lane. Generic catalog keys stay on lockedMeta.rentals
+        // for fingerprint/metadata preserve — never as canonicalRentals.
+        const onlyCanonical = lockedMeta.rentals.filter((r) =>
+          CANONICAL_RENTAL_KEYS.has(String(r && r.offering_key || '').trim()));
+        canonicalRentals = onlyCanonical.length ? onlyCanonical : null;
         if (lockedMeta.rental_pricing) rentalPricingDescriptor = lockedMeta.rental_pricing;
         rentalPricingGroupId = (lockedMeta.rental_pricing && lockedMeta.rental_pricing.pricing_group_id) || null;
       }
+      // Explicit rentals[] with only generics: leave canonicalRentals null so
+      // genericOnly quote short-circuit + genericPrep.records own pricing.
     } else if (canonicalRentals) {
       const bundleRental = canonicalRentals.find((r) => r.offering_key === 'board_and_suit_rental');
       if (bundleRental) {
@@ -1175,18 +1191,15 @@ async function updateSunsetScheduleBooking(pg, opts) {
       }
     }
     const existingIntent = pricingIntentFromBundle(lockedBundle);
-    // Explicit rentals[] present (even empty) owns rental intent; generic +
-    // canonical keys both fingerprint. Omitted rentals → preserve existing.
-    const rentalsPresentOnPatch = Object.prototype.hasOwnProperty.call(requestBody, 'rentals');
     const requestedIntent = buildSchedulePricingIntent(input, {
       rentals: rentalsPresentOnPatch
         ? allRequestedRentals.map((r) => ({
           ...r,
           covered_dates: rentalSpanDates || inclusiveIsoDatesFromRange(firstDate, lastDate),
         }))
-        : (canonicalRentals || []),
+        : (lockedMeta.rentals || canonicalRentals || []),
       rentalCoveredDates: rentalSpanDates || undefined,
-      preserveExistingRentals: !rentalsPresentOnPatch ? (canonicalRentals || lockedMeta.rentals || []) : undefined,
+      preserveExistingRentals: !rentalsPresentOnPatch ? (lockedMeta.rentals || []) : undefined,
       custom_line_items: input.custom_line_items || [],
     });
     const pricingChanged = !schedulePricingIntentsEqual(existingIntent, requestedIntent);
@@ -1209,7 +1222,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
       last_edited_by_staff: editAttribution.lastEditedByStaff,
       rentals: rentalsPresentOnPatch
         ? (allRequestedRentals.length ? allRequestedRentals : [])
-        : (canonicalRentals || lockedMeta.rentals || null),
+        : (lockedMeta.rentals || null),
       rental_pricing: rentalPricingDescriptor || lockedMeta.rental_pricing || null,
       custom_line_items: input.custom_line_items || [],
       lessons: Array.isArray(input.lessons) ? input.lessons : null,
