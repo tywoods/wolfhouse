@@ -560,12 +560,15 @@ function mockPg() {
     && /adminApiRequest\(\s*'PUT'\s*,\s*'\/staff\/admin\/config\/accommodation'/.test(adminUi));
 
   const viewUi = read('scripts/browser/sunset-schedule-drawer-view-ui.js');
-  ok('booking card accommodation line uses nights primary + season secondary (no child season amounts)',
+  ok('booking card accommodation line uses DD-MM primary + nights×rate/night · season secondary (no child season amounts)',
     /ps-invoice-accommodation/.test(viewUi)
     && /scheduleDrawerFormatAccommodationInvoiceLabel/.test(viewUi)
+    && /scheduleDrawerFormatAccommodationDdMm/.test(viewUi)
     && /scheduleDrawerFormatAccommodationSeasonSubtitle/.test(viewUi)
+    && /scheduleDrawerFormatAccommodationSeasonSegment/.test(viewUi)
     && /is-accommodation-line/.test(viewUi)
     && /season_groups/.test(viewUi)
+    && /\/night/.test(viewUi)
     && !/ps-invoice-accommodation-season/.test(viewUi));
 
   const portalMod = read('scripts/browser/sunset-schedule-portal-module.js');

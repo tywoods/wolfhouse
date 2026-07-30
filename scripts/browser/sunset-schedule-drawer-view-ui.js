@@ -272,7 +272,7 @@ function scheduleDrawerEquipmentCoverageLabel(dayKeys){
     : (String(n) + ' ' + portalT('schedule.drawer.daysWordCap'));
 }
 
-/** Strip raw ISO stay dates from accommodation labels (invoice header owns dates). */
+/** Strip raw ISO stay dates from accommodation labels (invoice line owns its own DD-MM range). */
 function scheduleDrawerStripAccommodationIsoDates(label) {
   return String(label || '')
     .replace(/\s*·\s*\d{4}-\d{2}-\d{2}\s*(?:→|->|–|—|-)\s*\d{4}-\d{2}-\d{2}/g, '')
@@ -281,25 +281,32 @@ function scheduleDrawerStripAccommodationIsoDates(label) {
     .trim();
 }
 
+/** ISO YYYY-MM-DD → DD-MM (no year). Empty when unavailable — never invent. */
+function scheduleDrawerFormatAccommodationDdMm(iso) {
+  var s = scheduleDateOnlyLabel(iso);
+  if (!s || s === '\u2014' || s.length < 10 || !/^\d{4}-\d{2}-\d{2}/.test(s)) return '';
+  return s.slice(8, 10) + '-' + s.slice(5, 7);
+}
+
 /**
- * Primary accommodation commercial label (nights only, no ISO dates, no season math).
- * Example: Accommodation · 7 nights
- * Season segments render as secondary via scheduleDrawerFormatAccommodationSeasonSubtitle.
+ * Primary accommodation commercial label: stay dates only (no night count, no season math).
+ * Example shape: Accommodation · 25-08 - 30-08
+ * Uses line-specific check_in/check_out only — never invoice header dates.
+ * Season / nights / rate live on scheduleDrawerFormatAccommodationSeasonSubtitle.
  */
 function scheduleDrawerFormatAccommodationInvoiceLabel(line) {
   if (!line) return 'Accommodation';
-  var nights = Number(line.nights);
-  if (!Number.isFinite(nights) || nights <= 0) {
-    var nm = String(line.label || '').match(/(\d+)\s*nights?/i);
-    if (nm) nights = Number(nm[1]);
+  var ci = scheduleDrawerFormatAccommodationDdMm(line.check_in);
+  var co = scheduleDrawerFormatAccommodationDdMm(line.check_out);
+  if (ci && co) {
+    return 'Accommodation \u00b7 ' + ci + ' - ' + co;
   }
-  if (nights > 0) {
-    return 'Accommodation \u00b7 ' + String(nights) + ' night' + (nights === 1 ? '' : 's');
-  }
+  // Fail closed: omit missing dates rather than inventing nights or header fallbacks.
   var cleaned = scheduleDrawerStripAccommodationIsoDates(line.label || 'Accommodation');
-  // Drop any season-style "N × €…" fragments if a stale full label slipped through.
   cleaned = cleaned
-    .replace(/\s*·\s*[^·]+?\s+\u00d7\s*€[\d.,]+/g, '')
+    .replace(/\s*·\s*\d{1,2}-\d{2}\s*-\s*\d{1,2}-\d{2}/g, '')
+    .replace(/\s*·\s*\d+\s*nights?/gi, '')
+    .replace(/\s*·\s*[^·]+?\s+\u00d7\s*€[\d.,]+(?:\/night)?/g, '')
     .replace(/\s*·\s*·\s*/g, ' \u00b7 ')
     .replace(/\s{2,}/g, ' ')
     .trim();
@@ -308,11 +315,37 @@ function scheduleDrawerFormatAccommodationInvoiceLabel(line) {
 }
 
 /**
- * Secondary accommodation subtitle: authoritative season segments only (no amounts
- * as separate commercial rows, no ISO dates). Single season:
- *   High Season · 7 × €100.00
- * Cross-season keeps every segment on this one secondary line:
- *   Low · 3 × €80.00 · High · 2 × €100.00
+ * One season segment for the grey secondary line.
+ * Shape: N nights × €X.XX/night · Season Name
+ * Omits unavailable pieces; never invents an average rate.
+ */
+function scheduleDrawerFormatAccommodationSeasonSegment(group) {
+  var g = group || {};
+  var title = String(g.title || '').trim();
+  var gn = Number(g.nights);
+  if (!Number.isFinite(gn) || gn <= 0) gn = 0;
+  var nightsPart = gn > 0
+    ? (String(gn) + ' night' + (gn === 1 ? '' : 's'))
+    : '';
+  var ratePart = '';
+  if (g.nightly_cents != null && Number.isFinite(Number(g.nightly_cents))) {
+    ratePart = scheduleDrawerEur(g.nightly_cents) + '/night';
+  }
+  var left = '';
+  if (nightsPart && ratePart) left = nightsPart + ' \u00d7 ' + ratePart;
+  else if (nightsPart) left = nightsPart;
+  else if (ratePart) left = ratePart;
+  if (left && title) return left + ' \u00b7 ' + title;
+  if (left) return left;
+  return title;
+}
+
+/**
+ * Secondary accommodation subtitle from authoritative season_groups only.
+ * Single season:
+ *   5 nights × €100.00/night · High Season
+ * Cross-season keeps every segment on this one secondary line (no invented average):
+ *   2 nights × €80.00/night · Low Season; 3 nights × €100.00/night · High Season
  */
 function scheduleDrawerFormatAccommodationSeasonSubtitle(line) {
   if (!line) return '';
@@ -320,13 +353,10 @@ function scheduleDrawerFormatAccommodationSeasonSubtitle(line) {
   if (!groups.length) return '';
   var parts = [];
   for (var i = 0; i < groups.length; i++) {
-    var g = groups[i] || {};
-    var title = String(g.title || '').trim() || '\u2014';
-    var gn = Number(g.nights) || 0;
-    parts.push(title);
-    parts.push(String(gn) + ' \u00d7 ' + scheduleDrawerEur(g.nightly_cents));
+    var seg = scheduleDrawerFormatAccommodationSeasonSegment(groups[i]);
+    if (seg) parts.push(seg);
   }
-  return parts.join(' \u00b7 ');
+  return parts.join('; ');
 }
 
 function scheduleDrawerIsCourseLikeLine(line) {
@@ -642,6 +672,8 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
       ? scheduleDrawerFormatAccommodationInvoiceLabel({
         label: li.label,
         nights: li.nights,
+        check_in: li.check_in,
+        check_out: li.check_out,
         season_groups: li.season_groups || null,
       })
       : null;
@@ -933,7 +965,7 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
       nights: src.nights != null ? src.nights : line.nights,
       line_cents: src.line_cents != null ? src.line_cents : line.line_cents,
     });
-    // Primary label = nights only; season math is secondary subtitle (no child amounts).
+    // Primary label = stay DD-MM range; season/nights/rate math is secondary (no child amounts).
     enriched.label = scheduleDrawerFormatAccommodationInvoiceLabel(enriched);
     return enriched;
   });
