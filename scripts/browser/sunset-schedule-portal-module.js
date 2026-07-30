@@ -132,6 +132,30 @@ function schedulePortalNormalizeLessonsIntent(lessons) {
   });
 }
 
+function schedulePortalNormalizeAccommodationIntent(accommodation) {
+  if (!accommodation || accommodation.enabled === false) return null;
+  var stays = [];
+  if (Array.isArray(accommodation.stays) && accommodation.stays.length) {
+    stays = accommodation.stays.map(function(s) {
+      return {
+        check_in: String((s && s.check_in) || '').slice(0, 10),
+        check_out: String((s && s.check_out) || '').slice(0, 10),
+      };
+    }).filter(function(s) { return s.check_in && s.check_out; });
+  } else if (accommodation.check_in && accommodation.check_out) {
+    stays = [{
+      check_in: String(accommodation.check_in).slice(0, 10),
+      check_out: String(accommodation.check_out).slice(0, 10),
+    }];
+  }
+  if (!stays.length) return null;
+  stays.sort(function(a, b) {
+    return String(a.check_in).localeCompare(String(b.check_in))
+      || String(a.check_out).localeCompare(String(b.check_out));
+  });
+  return { enabled: true, stays: stays };
+}
+
 function schedulePortalCreateIntentKey(payload) {
   var p = payload || {};
   var comps = p.components || {};
@@ -155,6 +179,7 @@ function schedulePortalCreateIntentKey(payload) {
     rentals: schedulePortalNormalizeRentalsIntent(p.rentals),
     course_equipment: schedulePortalNormalizeCourseEquipmentIntent(p.course_equipment),
     custom_line_items: custom,
+    accommodation: schedulePortalNormalizeAccommodationIntent(p.accommodation),
     notes: p.notes != null ? String(p.notes) : '',
     location_id: typeof getSunsetLocation === 'function' ? getSunsetLocation() : null,
   });
@@ -193,6 +218,7 @@ function schedulePortalQuotePricingIntentKey(payload) {
     rentals: schedulePortalNormalizeRentalsIntent(p.rentals),
     course_equipment: schedulePortalNormalizeCourseEquipmentIntent(p.course_equipment),
     custom_line_items: custom,
+    accommodation: schedulePortalNormalizeAccommodationIntent(p.accommodation),
     surfer_count: sc,
     location_id: typeof getSunsetLocation === 'function' ? getSunsetLocation() : null,
   });
@@ -988,10 +1014,12 @@ function schedulePortalClearCreateDraftFields() {
     if (typeof scheduleRenderCreateCustomLines === 'function') scheduleRenderCreateCustomLines();
     if (typeof scheduleSetCustomLineEditorOpen === 'function') scheduleSetCustomLineEditorOpen(false);
   } catch (_cl) { /* ignore */ }
-  // Reset staff Accommodation selection (product enablement comes from Admin config cache).
+  // Reset staff Accommodation multi-stay selection (product enablement from Admin cache).
   try {
+    if (typeof scheduleCreateAccommodationStays !== 'undefined') scheduleCreateAccommodationStays = [];
     if (typeof scheduleCreateAccommodation !== 'undefined') scheduleCreateAccommodation = null;
     if (typeof scheduleCreateAccommodationEditorOpen !== 'undefined') scheduleCreateAccommodationEditorOpen = false;
+    if (typeof scheduleCreateAccommodationEditingId !== 'undefined') scheduleCreateAccommodationEditingId = null;
     if (typeof scheduleRenderCreateAccommodation === 'function') scheduleRenderCreateAccommodation();
   } catch (_ac) { /* ignore */ }
   schedulePortalQuoteState = null;
@@ -1131,6 +1159,8 @@ function schedulePortalFetchQuote(createPayload, opts) {
     surfer_count: createPayload.surfer_count != null ? createPayload.surfer_count : null,
     // Staff commercial adjustments — server revalidates signed cents; never Admin course/rental prices.
     custom_line_items: Array.isArray(createPayload.custom_line_items) ? createPayload.custom_line_items : [],
+    // Staff accommodation stays — identity + dates only; server resolves seasons/cents.
+    accommodation: createPayload.accommodation != null ? createPayload.accommodation : null,
   };
   var intentKey = typeof schedulePortalQuotePricingIntentKey === 'function'
     ? schedulePortalQuotePricingIntentKey(createPayload)
@@ -1497,6 +1527,12 @@ function schedulePortalRenderCreateQuotePreview(result) {
   box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0">'
     + escHtml((portalT('schedule.create.quoteTotal') || 'Quoted total') + ': \u20ac' + (raw / 100).toFixed(2)) + '</p>';
   box.style.display = 'block';
+  // Attach authoritative accommodation season/price onto locked Create stay cards.
+  try {
+    if (typeof scheduleAttachCreateAccommodationQuote === 'function' && result.body) {
+      scheduleAttachCreateAccommodationQuote(result.body);
+    }
+  } catch (_aq) { /* ignore */ }
 }
 
 function schedulePortalRentalLabel(offeringKey, catalogLabel) {

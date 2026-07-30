@@ -933,44 +933,105 @@ function customLineItemsFromBundle(bundle) {
 
 /**
  * Reconstruct staff Accommodation identity from service rows / booking metadata.
- * Returns selection shape (dates only) for Edit seed + omit-preserve, plus card snapshot.
+ * Returns multi-stay selection (dates only) for Edit seed + omit-preserve, plus
+ * per-stay card snapshots. Singular first-stay fields mirrored for legacy readers.
  */
 function accommodationFromBundle(bundle) {
   const {
     isStaffAccommodationMeta,
     formatAccommodationBookingCard,
+    buildAccommodationSelectionValue,
+    sortAccommodationStays,
   } = require('./sunset-accommodation-price-resolver');
   const services = (bundle && bundle.services) || [];
+  const found = [];
   for (const sr of services) {
     const m = parseMeta(sr.metadata);
     if (!isStaffAccommodationMeta(m)) continue;
     const checkIn = String(m.check_in || '').slice(0, 10);
     const checkOut = String(m.check_out || '').slice(0, 10);
     if (!checkIn || !checkOut) continue;
-    return {
-      enabled: true,
+    const card = formatAccommodationBookingCard(m, sr.amount_due_cents);
+    found.push({
+      client_stay_id: m.client_stay_id ? String(m.client_stay_id) : null,
       check_in: checkIn,
       check_out: checkOut,
       nights: Number(m.nights) || null,
-      card: formatAccommodationBookingCard(m, sr.amount_due_cents),
+      card,
       snapshot: {
         total_cents: m.total_cents != null ? Number(m.total_cents) : Number(sr.amount_due_cents) || 0,
         season_groups: Array.isArray(m.season_groups) ? m.season_groups : [],
         nightly_breakdown: Array.isArray(m.nightly_breakdown) ? m.nightly_breakdown : [],
         currency: m.currency || 'EUR',
       },
-    };
+      service_record_id: sr.service_record_id || sr.id || null,
+      amount_due_cents: Number(sr.amount_due_cents) || 0,
+    });
+  }
+  if (found.length) {
+    const ordered = sortAccommodationStays(found);
+    const value = buildAccommodationSelectionValue(ordered.map((s) => ({
+      client_stay_id: s.client_stay_id,
+      check_in: s.check_in,
+      check_out: s.check_out,
+      nights: s.nights,
+    })));
+    if (!value) return null;
+    // Attach cards/snapshots aligned to ordered stays for Edit seed + booking view.
+    value.cards = ordered.map((s) => s.card);
+    value.stay_details = ordered.map((s) => ({
+      client_stay_id: s.client_stay_id,
+      check_in: s.check_in,
+      check_out: s.check_out,
+      nights: s.nights,
+      card: s.card,
+      snapshot: s.snapshot,
+      service_record_id: s.service_record_id,
+      amount_due_cents: s.amount_due_cents,
+    }));
+    // First-stay card/snapshot for singular legacy consumers.
+    value.card = ordered[0].card;
+    value.snapshot = ordered[0].snapshot;
+    return value;
   }
   const meta = parseMeta(bundle && bundle.booking && bundle.booking.metadata);
-  if (meta.accommodation && meta.accommodation.check_in && meta.accommodation.check_out) {
-    return {
-      enabled: true,
-      check_in: String(meta.accommodation.check_in).slice(0, 10),
-      check_out: String(meta.accommodation.check_out).slice(0, 10),
-      nights: Number(meta.accommodation.nights) || null,
-      card: null,
-      snapshot: null,
-    };
+  // Legacy booking metadata: singular or multi stays array.
+  if (meta.accommodation) {
+    const a = meta.accommodation;
+    if (Array.isArray(a.stays) && a.stays.length) {
+      const value = buildAccommodationSelectionValue(a.stays.map((s) => ({
+        client_stay_id: s.client_stay_id || null,
+        check_in: String(s.check_in || '').slice(0, 10),
+        check_out: String(s.check_out || '').slice(0, 10),
+        nights: Number(s.nights) || 0,
+      })).filter((s) => s.check_in && s.check_out));
+      if (value) {
+        value.card = null;
+        value.snapshot = null;
+        value.cards = [];
+        value.stay_details = (value.stays || []).map((s) => ({
+          ...s, card: null, snapshot: null,
+        }));
+        return value;
+      }
+    }
+    if (a.check_in && a.check_out) {
+      const value = buildAccommodationSelectionValue([{
+        client_stay_id: a.client_stay_id || null,
+        check_in: String(a.check_in).slice(0, 10),
+        check_out: String(a.check_out).slice(0, 10),
+        nights: Number(a.nights) || 0,
+      }]);
+      if (value) {
+        value.card = null;
+        value.snapshot = null;
+        value.cards = [];
+        value.stay_details = (value.stays || []).map((s) => ({
+          ...s, card: null, snapshot: null,
+        }));
+        return value;
+      }
+    }
   }
   return null;
 }
@@ -1125,9 +1186,35 @@ function pricingIntentFromBundle(bundle) {
   }
 
   // Reconstruct existing accommodation identity so paid notes-only / omitted-wire
-  // edits compare equal to the live stay. Explicit accommodation:null still drops
-  // it (request path does not call this reconstruction for the requested intent).
+  // edits compare equal to the live stays. Explicit accommodation:null still drops
+  // them (request path does not call this reconstruction for the requested intent).
   const accommodation = accommodationFromBundle(bundle);
+  let accommodationIntent = null;
+  if (accommodation && accommodation.enabled) {
+    const stays = Array.isArray(accommodation.stays) ? accommodation.stays : [];
+    if (stays.length) {
+      accommodationIntent = {
+        enabled: true,
+        stays: stays.map((s) => ({
+          client_stay_id: s.client_stay_id || null,
+          check_in: String(s.check_in || '').slice(0, 10),
+          check_out: String(s.check_out || '').slice(0, 10),
+        })),
+        check_in: String(accommodation.check_in || stays[0].check_in || '').slice(0, 10),
+        check_out: String(accommodation.check_out || stays[0].check_out || '').slice(0, 10),
+      };
+    } else if (accommodation.check_in && accommodation.check_out) {
+      accommodationIntent = {
+        enabled: true,
+        stays: [{
+          check_in: String(accommodation.check_in).slice(0, 10),
+          check_out: String(accommodation.check_out).slice(0, 10),
+        }],
+        check_in: String(accommodation.check_in).slice(0, 10),
+        check_out: String(accommodation.check_out).slice(0, 10),
+      };
+    }
+  }
 
   return buildSchedulePricingIntent({
     service_dates: (() => {
@@ -1168,9 +1255,7 @@ function pricingIntentFromBundle(bundle) {
     course_equipment,
     rentals,
     custom_line_items,
-    accommodation: accommodation
-      ? { enabled: true, check_in: accommodation.check_in, check_out: accommodation.check_out }
-      : null,
+    accommodation: accommodationIntent,
   }, { rentals, custom_line_items });
 }
 
@@ -1242,18 +1327,32 @@ async function updateSunsetScheduleBooking(pg, opts) {
   }
 
   // Unrelated edits must not silently delete accommodation: when the wire omits
-  // the accommodation key, preserve the existing stay identity from service rows.
+  // the accommodation key, preserve all existing stay identities from service rows.
   const editBodyBase = rentalPrep.present ? rentalPrep.body : prepBody;
   const preservedAccom = accommodationFromBundle(bundle);
   let editBody = { ...editBodyBase };
   if (!Object.prototype.hasOwnProperty.call(requestBody, 'accommodation')
     && !Object.prototype.hasOwnProperty.call(editBodyBase, 'accommodation')
     && preservedAccom) {
-    editBody.accommodation = {
-      enabled: true,
-      check_in: preservedAccom.check_in,
-      check_out: preservedAccom.check_out,
-    };
+    const stays = Array.isArray(preservedAccom.stays) ? preservedAccom.stays : [];
+    if (stays.length) {
+      editBody.accommodation = {
+        enabled: true,
+        stays: stays.map((s) => ({
+          client_stay_id: s.client_stay_id || null,
+          check_in: s.check_in,
+          check_out: s.check_out,
+        })),
+        check_in: preservedAccom.check_in,
+        check_out: preservedAccom.check_out,
+      };
+    } else if (preservedAccom.check_in && preservedAccom.check_out) {
+      editBody.accommodation = {
+        enabled: true,
+        check_in: preservedAccom.check_in,
+        check_out: preservedAccom.check_out,
+      };
+    }
   }
   const validated = validateScheduleBookingBody({
     ...editBody,
@@ -1766,55 +1865,94 @@ async function updateSunsetScheduleBooking(pg, opts) {
       customRows.forEach((r) => createdRows.push(r));
     }
 
-    // Staff Accommodation — edit parity: change dates/reprice/remove. New add while disabled
-    // is blocked; existing dedicated staff_accommodation may still reprice (historical edit).
-    // Permission is derived only from locked service-row identity — never from request body.
-    const { isStaffAccommodationMeta } = require('./sunset-accommodation-price-resolver');
-    const hadStaffAccommodation = (lockedBundle.services || []).some((sr) => {
+    // Staff Accommodation — edit parity: multi-stay add/edit/remove/reprice.
+    // New add while product disabled is blocked; existing dedicated stays may
+    // reprice (historical). Permission is derived only from locked service rows.
+    const {
+      isStaffAccommodationMeta,
+      accommodationStaysFromSelection,
+    } = require('./sunset-accommodation-price-resolver');
+    const existingAccomRows = (lockedBundle.services || []).filter((sr) => {
       const m = parseMeta(sr.metadata);
       return isStaffAccommodationMeta(m);
     });
+    const hadStaffAccommodation = existingAccomRows.length > 0;
+    const existingAccommodationStayCount = existingAccomRows.length;
     if (input.accommodation && input.accommodation.enabled) {
-      const { resolveAccommodationPrice } = require('./sunset-accommodation-admin');
-      const accomRes = await resolveAccommodationPrice(pg, {
-        clientSlug,
-        locationId: recordLocationId,
-        checkIn: input.accommodation.check_in,
-        checkOut: input.accommodation.check_out,
-        requireEnabled: !hadStaffAccommodation,
-      });
-      if (!accomRes.ok) {
-        return rollback({
-          ok: false,
-          status: accomRes.status || 422,
-          body: accomRes.body || {
-            success: false,
-            error: accomRes.error,
-            reason_code: accomRes.reason_code,
-            uncovered_nights: accomRes.uncovered_nights || null,
+      const { resolveAccommodationPrice, loadAccommodationConfig } = require('./sunset-accommodation-admin');
+      const accomStays = accommodationStaysFromSelection(input.accommodation);
+      // Growth beyond historical stay count requires product explicitly enabled.
+      // Config load failure or disabled must block net-new before insert —
+      // do not rely on later quote rollback or requireEnabled:false.
+      if (hadStaffAccommodation && accomStays.length > existingAccommodationStayCount) {
+        let cfg;
+        try {
+          cfg = await loadAccommodationConfig(pg, clientSlug, recordLocationId);
+        } catch (_cfg) {
+          return rollback({
+            ok: false,
+            status: 409,
+            body: {
+              success: false,
+              error: 'Accommodation config unavailable; cannot add new stays to this booking.',
+              reason_code: 'accommodation_disabled',
+            },
+          });
+        }
+        if (!cfg || cfg.enabled !== true) {
+          return rollback({
+            ok: false,
+            status: 409,
+            body: {
+              success: false,
+              error: 'Accommodation is disabled; cannot add new stays to this booking.',
+              reason_code: 'accommodation_disabled',
+            },
+          });
+        }
+      }
+      for (const stay of accomStays) {
+        const accomRes = await resolveAccommodationPrice(pg, {
+          clientSlug,
+          locationId: recordLocationId,
+          checkIn: stay.check_in,
+          checkOut: stay.check_out,
+          requireEnabled: !hadStaffAccommodation,
+        });
+        if (!accomRes.ok) {
+          return rollback({
+            ok: false,
+            status: accomRes.status || 422,
+            body: accomRes.body || {
+              success: false,
+              error: accomRes.error,
+              reason_code: accomRes.reason_code,
+              uncovered_nights: accomRes.uncovered_nights || null,
+            },
+          });
+        }
+        const accomRow = await insertStaffAccommodationServiceRow(pg, {
+          clientSlug,
+          bookingId,
+          bookingCode,
+          guestName: input.guest_name,
+          serviceDate: stay.check_in || firstDate,
+          srPayment,
+          attribution: editAttribution,
+          locationId: recordLocationId,
+          componentKeys,
+          bundleId,
+          notes: input.notes || null,
+          needsReply: input.needs_reply,
+          priced: accomRes.priced,
+          clientStayId: stay.client_stay_id || null,
+          metaBase: {
+            updated_by_staff: editAttribution.lastEditedByStaff,
+            last_edited_by_staff: editAttribution.lastEditedByStaff,
           },
         });
+        if (accomRow) createdRows.push(accomRow);
       }
-      const accomRow = await insertStaffAccommodationServiceRow(pg, {
-        clientSlug,
-        bookingId,
-        bookingCode,
-        guestName: input.guest_name,
-        serviceDate: input.accommodation.check_in || firstDate,
-        srPayment,
-        attribution: editAttribution,
-        locationId: recordLocationId,
-        componentKeys,
-        bundleId,
-        notes: input.notes || null,
-        needsReply: input.needs_reply,
-        priced: accomRes.priced,
-        metaBase: {
-          updated_by_staff: editAttribution.lastEditedByStaff,
-          last_edited_by_staff: editAttribution.lastEditedByStaff,
-        },
-      });
-      if (accomRow) createdRows.push(accomRow);
     }
 
     // Authoritative re-quote body must carry custom lines + accommodation + components/dates/rentals/lessons.
@@ -1858,6 +1996,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
       quoteChannel: opts.quoteChannel,
       quoteProvenance: opts.quoteProvenance,
       allowExistingAccommodationWhenDisabled: hadStaffAccommodation,
+      existingAccommodationStayCount,
       now: opts.now,
     });
 
