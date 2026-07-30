@@ -209,6 +209,7 @@ function buildRenderCtx(viewModSrc, portalModSrc, apiSrc) {
     'scheduleDrawerEquipmentCoverageLabel',
     'scheduleDrawerStripAccommodationIsoDates',
     'scheduleDrawerFormatAccommodationInvoiceLabel',
+    'scheduleDrawerFormatAccommodationSeasonSubtitle',
     'scheduleDrawerIsCourseLikeLine',
     'scheduleDrawerIsEquipmentLikeLine',
     'scheduleDrawerFormatDaysTimesUnit',
@@ -827,11 +828,18 @@ assert('shot: one accommodation commercial line only',
   String(shotAccomLines.length));
 assert('shot: accommodation amount €700 once (no season child total)',
   shotAccomLines[0] && shotAccomLines[0].line_cents === 70000);
-assert('shot: accommodation label folds High Season inline, no ISO dates',
+const shotAccomPrimary = ctx.scheduleDrawerFormatAccommodationInvoiceLabel(shotAccomLines[0]);
+const shotAccomSecondary = ctx.scheduleDrawerFormatCommercialMathLabel(shotAccomLines[0]);
+assert('shot: accommodation primary is nights only (no season / ISO / amount math)',
   shotAccomLines[0]
-  && /Accommodation\s*·\s*7\s*nights\s*·\s*High Season\s*·\s*7\s*×\s*€100\.00/i.test(String(shotAccomLines[0].label || ''))
-  && !/2026-07-30|2026-08-06/.test(String(shotAccomLines[0].label || '')),
-  shotAccomLines[0] && shotAccomLines[0].label);
+  && /^Accommodation\s*·\s*7\s*nights$/i.test(shotAccomPrimary)
+  && !/High Season|×|2026-07-30|2026-08-06/i.test(shotAccomPrimary)
+  && !/High Season|×|2026-07-30|2026-08-06/i.test(String(shotAccomLines[0].label || '')),
+  `primary=${shotAccomPrimary} label=${shotAccomLines[0] && shotAccomLines[0].label}`);
+assert('shot: accommodation secondary is High Season math via existing subtitle',
+  /^High Season\s*·\s*7\s*×\s*€100\.00$/i.test(shotAccomSecondary)
+  && shotAccomSecondary === ctx.scheduleDrawerFormatAccommodationSeasonSubtitle(shotAccomLines[0]),
+  shotAccomSecondary);
 const shotCourseLine = shotCommercial.lines.find((l) => /Curso Mañana/i.test(String(l.label || ''))
   || (l.component === 'course' && !l.course_equipment));
 assert('shot: course package amount €228.57 preserved',
@@ -898,11 +906,18 @@ const crossCommercial = ctx.scheduleDrawerBuildCommercialLines(crossItems, null)
 assert('cross-season: one line, amount = stay total only',
   crossCommercial.lines.length === 1
   && crossCommercial.lines[0].line_cents === 44000);
-assert('cross-season: both segments inline without ISO dates',
-  /Low\s*·\s*3\s*×\s*€80\.00/i.test(crossCommercial.lines[0].label)
-  && /High\s*·\s*2\s*×\s*€100\.00/i.test(crossCommercial.lines[0].label)
-  && !/2026-06-28|2026-07-03/.test(crossCommercial.lines[0].label),
-  crossCommercial.lines[0].label);
+const crossPrimary = ctx.scheduleDrawerFormatAccommodationInvoiceLabel(crossCommercial.lines[0]);
+const crossSecondary = ctx.scheduleDrawerFormatCommercialMathLabel(crossCommercial.lines[0]);
+assert('cross-season: primary is nights only',
+  /^Accommodation\s*·\s*5\s*nights$/i.test(crossPrimary)
+  && !/Low|High|×|2026-06-28|2026-07-03/i.test(crossPrimary),
+  crossPrimary);
+assert('cross-season: both authoritative segments on secondary line only, no ISO dates',
+  /Low\s*·\s*3\s*×\s*€80\.00/i.test(crossSecondary)
+  && /High\s*·\s*2\s*×\s*€100\.00/i.test(crossSecondary)
+  && !/2026-06-28|2026-07-03/.test(crossSecondary)
+  && !/Low|High|×/i.test(String(crossCommercial.lines[0].label || '')),
+  `secondary=${crossSecondary} label=${crossCommercial.lines[0].label}`);
 
 const shotHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
   date_from: '2026-07-30',
@@ -922,6 +937,23 @@ assert('shot render: subtotal €968.57',
 assert('shot render: €700 appears once (no duplicate season amount)',
   (shotHtml.match(/€700\.00/g) || []).length === 1,
   String((shotHtml.match(/€700\.00/g) || []).length));
+assert('shot render: one accommodation item, two text lines (primary + ps-svc-detail), one amount',
+  (() => {
+    const m = shotHtml.match(
+      /data-testid="ps-invoice-accommodation"[^>]*>[\s\S]*?<span class="ps-svc-name">([\s\S]*?)<\/span>\s*<span class="ps-svc-amt[^"]*">([^<]*)<\/span>/,
+    );
+    if (!m) return false;
+    const nameBlock = m[1];
+    const amt = m[2];
+    const primaryOk = /Accommodation\s*·\s*7\s*nights/i.test(nameBlock)
+      && !/Accommodation\s*·\s*7\s*nights\s*·\s*High Season/i.test(nameBlock);
+    const secondaryOk = /<span class="ps-svc-detail">High Season\s*·\s*7\s*×\s*€100\.00<\/span>/i.test(nameBlock);
+    const noIso = !/2026-07-30|2026-08-06/.test(nameBlock);
+    const oneAmt = amt === '€700.00';
+    return primaryOk && secondaryOk && noIso && oneAmt
+      && (shotHtml.match(/data-testid="ps-invoice-accommodation"/g) || []).length === 1;
+  })(),
+  'expected primary nights + secondary High Season detail + single €700.00');
 assert('shot render: no season child row testids / no ISO stay dates on accom line',
   !/ps-invoice-accommodation-season/.test(shotHtml)
   && /ps-invoice-accommodation/.test(shotHtml)
