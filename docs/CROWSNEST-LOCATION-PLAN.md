@@ -2,13 +2,15 @@
 
 **Status:** LIVE BASELINE — the standalone Crowsnest app, branded login portal, and custom domain are deployed. This document records the current boundary; it is not authority to change production, Sunset, Staff API, DNS, or tenant systems.
 
+> **📍 Migrated 2026-07-30 → `luna-crowsnest-rg`.** Crowsnest now runs in its own resource group **`luna-crowsnest-rg`** (managed env `luna-crowsnest-env`) and serves `crowsnest.lunafrontdesk.com` from `crowsnest-internal.redbeach-6a768db0.northeurope.azurecontainerapps.io` — live revision **`crowsnest-internal--0000002`** at 100% traffic, image `whstagingacr.azurecr.io/crowsnest:b7eaba0944ab9afe8dc05f7b6ddaeb140b7c3171`, custom-domain cert SniEnabled. The shared `whstagingacr` registry, Postgres DB, and `wh-staging-identity` are unchanged. Sections below that still reference `wh-staging-rg`, the `braveplant-5c685569` FQDN, or earlier revisions describe the **pre-migration** baseline and are historical.
+
 Product overview: [`CROWSNEST.md`](CROWSNEST.md)
 
 ---
 
-## VERIFIED CURRENT LIVE BASELINE
+## Pre-migration baseline (`wh-staging-rg` — historical; current is in the banner above)
 
-| Topic | Today (live) |
+| Topic | Pre-migration (`wh-staging-rg`) |
 |-------|--------|
 | Domain | `crowsnest.lunafrontdesk.com` serves the standalone Crowsnest app |
 | App | Azure Container App `crowsnest-internal` in `wh-staging-rg` (revision `crowsnest-internal--0000009`, 100% healthy traffic) |
@@ -54,7 +56,7 @@ Earlier on 2026-07-21, before this multi-account promotion, live revision `crows
 
 | Resource | Proposed name |
 |----------|---------------|
-| Resource group | `wh-staging-rg` |
+| Resource group | `luna-crowsnest-rg` |
 | Container App | `crowsnest-internal` |
 | Image repo | `whstagingacr.azurecr.io/crowsnest` |
 | Target port | `3040` |

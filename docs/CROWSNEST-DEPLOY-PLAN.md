@@ -2,15 +2,17 @@
 
 **Status: LIVE BASELINE.** The standalone app, branded login portal, and custom domain are currently deployed. This runbook records the verified boundary and safe release sequence; it is not blanket approval to deploy or change infrastructure.
 
+> **📍 Migrated 2026-07-30 → `luna-crowsnest-rg`.** Crowsnest now runs in its own resource group **`luna-crowsnest-rg`** (managed env `luna-crowsnest-env`) and serves `crowsnest.lunafrontdesk.com` from `crowsnest-internal.redbeach-6a768db0.northeurope.azurecontainerapps.io` — live revision **`crowsnest-internal--0000002`** at 100% traffic, image `whstagingacr.azurecr.io/crowsnest:b7eaba0944ab9afe8dc05f7b6ddaeb140b7c3171`, custom-domain cert SniEnabled. Deploys now target `-g luna-crowsnest-rg` (see `/opt/luna/deploy/deploy-crowsnest.sh`, repointed). The shared `whstagingacr` registry, Postgres DB, and `wh-staging-identity` are unchanged. Sections below that still reference `wh-staging-rg`, the `braveplant-5c685569` FQDN, or earlier revisions describe the **pre-migration** baseline and are historical.
+
 Product: [`CROWSNEST.md`](CROWSNEST.md) · Location: [`CROWSNEST-LOCATION-PLAN.md`](CROWSNEST-LOCATION-PLAN.md)
 
 Crowsnest is the private Ship operator portal for **Monshies** and **Earthling**. It must remain separate from tenant staff portals and guest systems.
 
-## VERIFIED CURRENT LIVE BASELINE
+## Pre-migration baseline (`wh-staging-rg`, verified 2026-07-21 — historical; current is in the banner above)
 
-Standalone Crowsnest with the branded login portal is deployed and verified live.
+Standalone Crowsnest with the branded login portal, as it ran in `wh-staging-rg` before the 2026-07-30 migration to `luna-crowsnest-rg`:
 
-| Topic | Current live value |
+| Topic | Pre-migration value |
 |---|---|
 | Code entry | `scripts/crowsnest-api.js` |
 | Modules | `scripts/lib/crowsnest/` |
