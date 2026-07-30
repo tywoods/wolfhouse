@@ -560,10 +560,11 @@ function mockPg() {
     && /adminApiRequest\(\s*'PUT'\s*,\s*'\/staff\/admin\/config\/accommodation'/.test(adminUi));
 
   const viewUi = read('scripts/browser/sunset-schedule-drawer-view-ui.js');
-  ok('booking card accommodation line + seasons',
+  ok('booking card accommodation line folds seasons inline (no child season amounts)',
     /ps-invoice-accommodation/.test(viewUi)
-    && /ps-invoice-accommodation-season/.test(viewUi)
-    && /season_groups/.test(viewUi));
+    && /scheduleDrawerFormatAccommodationInvoiceLabel/.test(viewUi)
+    && /season_groups/.test(viewUi)
+    && !/ps-invoice-accommodation-season/.test(viewUi));
 
   const portalMod = read('scripts/browser/sunset-schedule-portal-module.js');
   ok('create open wires accommodation',
