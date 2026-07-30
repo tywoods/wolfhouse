@@ -16683,16 +16683,28 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-date-range-day:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:1px}
 .portal-schedule-create-date-range-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;justify-content:flex-end}
 .portal-schedule-create-date-range-actions .btn{min-height:44px;min-width:0;flex:1 1 auto}
-.portal-schedule-create-activity-hint{margin:8px 0 0;font-size:12px;color:var(--text-muted);line-height:1.4}.portal-schedule-create-rentals{display:flex;flex-direction:column;gap:8px;margin-top:8px}
-.portal-schedule-create-rental-row{display:flex;flex-wrap:nowrap;align-items:center;gap:10px;width:100%;box-sizing:border-box}
-.portal-schedule-create-rental-row > .portal-schedule-create-check{flex:1 1 auto;min-width:0;margin:0}
-.portal-schedule-create-rental-qty{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex:0 0 auto;margin-left:auto}
+.portal-schedule-create-activity-hint{margin:8px 0 0;font-size:12px;color:var(--text-muted);line-height:1.4}.portal-schedule-create-rentals{display:flex;flex-direction:column;gap:8px;margin-top:8px;min-width:0;max-width:100%}
+/* Standalone rental row: check+name, duration select, amount, Surfers qty.
+   Wrap by default so duration/amount/qty never overflow/clip on narrow Create drawers.
+   (flex-wrap:nowrap was the mobile collapse owner after per-item duration landed.) */
+.portal-schedule-create-rental-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;width:100%;max-width:100%;min-width:0;box-sizing:border-box}
+.portal-schedule-create-rental-row > .portal-schedule-create-check{flex:1 1 140px;min-width:0;margin:0;overflow:hidden}
+.portal-schedule-create-rental-row > .portal-schedule-create-check > span{min-width:0;overflow-wrap:anywhere;word-break:break-word;line-height:1.25}
+.portal-schedule-create-rental-duration-label{display:flex;align-items:center;flex:1 1 128px;min-width:0;max-width:100%;margin:0;box-sizing:border-box}
+.portal-schedule-create-rental-duration-label select.ps-create-rental-duration,.portal-schedule-create-rental-row select.ps-create-rental-duration{width:100%;max-width:100%;min-width:0;min-height:36px;box-sizing:border-box;font-size:13px}
+.portal-schedule-create-rental-price{flex:0 0 auto;margin-left:0;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}
+.portal-schedule-create-rental-row.is-off .portal-schedule-create-rental-price{opacity:.45}
+.portal-schedule-create-rental-qty{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex:0 1 auto;min-width:0;margin-left:auto}
 .portal-schedule-create-rental-qty label{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);white-space:nowrap}
-.portal-schedule-create-rental-qty input[type=number]{width:64px;min-width:64px;min-height:36px;padding:6px 8px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}
+.portal-schedule-create-rental-qty input[type=number]{width:64px;min-width:56px;min-height:36px;padding:6px 8px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}
 @media(max-width:768px){
-  .portal-schedule-create-rental-row{gap:8px;padding:2px 0}
-  .portal-schedule-create-rental-row > .portal-schedule-create-check{padding:10px 12px;gap:8px;font-size:13px}
-  .portal-schedule-create-rental-qty{gap:6px;padding-right:2px}
+  /* Mobile: name on its own line; duration/amount/Surfers stack cleanly underneath. */
+  .portal-schedule-create-rental-row{gap:8px;padding:6px 0;align-items:stretch}
+  .portal-schedule-create-rental-row > .portal-schedule-create-check{flex:1 1 100%;width:100%;max-width:100%;padding:10px 12px;gap:8px;font-size:13px;box-sizing:border-box}
+  .portal-schedule-create-rental-duration-label{flex:1 1 100%;width:100%}
+  .portal-schedule-create-rental-duration-label select.ps-create-rental-duration,.portal-schedule-create-rental-row select.ps-create-rental-duration{min-height:40px;font-size:14px}
+  .portal-schedule-create-rental-price{flex:0 0 auto;align-self:center;margin-left:0}
+  .portal-schedule-create-rental-qty{flex:1 1 auto;gap:6px;padding-right:2px;margin-left:auto;justify-content:flex-end;align-self:center}
   .portal-schedule-create-rental-qty label{gap:6px;font-size:10px;letter-spacing:.03em}
   .portal-schedule-create-rental-qty input[type=number]{width:56px;min-width:56px;min-height:36px;padding:6px 6px;font-size:14px;border-radius:8px}
   .portal-schedule-create-check input[type=checkbox],.portal-schedule-create-components input[type=checkbox],.portal-schedule-create-check input[type=radio],.portal-schedule-create-components input[type=radio]{width:20px;height:20px;accent-color:var(--sched-primary, #4E5853)}
