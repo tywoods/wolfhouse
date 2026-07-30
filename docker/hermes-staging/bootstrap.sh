@@ -107,7 +107,7 @@ EOF
 write_deckhand_config() {
   # Image-baked Deckhand model. VM overlay 99z rewrites the same xAI OAuth config
   # and ensures the sandbox cwd exists; keep both in sync.
-  # Provider must be xai-oauth (shared auth.json), not xai (XAI_API_KEY).
+  # Provider must be xai-oauth (shared auth.json), not bare xai (API-key provider).
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
   default: grok-4.5
@@ -182,7 +182,7 @@ write_orchestrator_env() {
 
 write_deckhand_env() {
   # Discord only. xAI auth is OAuth via shared auth.json (provider xai-oauth),
-  # not XAI_API_KEY. Never write WhatsApp/Meta, Luna guest, or Staff-API guest tokens.
+  # not an API-key env var. Never write WhatsApp/Meta, Luna guest, or Staff-API guest tokens.
   {
     [ -n "${DISCORD_BOT_TOKEN:-}" ]                       && printf 'DISCORD_BOT_TOKEN=%s\n' "$DISCORD_BOT_TOKEN"
     [ -n "${DISCORD_ALLOWED_USERS:-}" ]                   && printf 'DISCORD_ALLOWED_USERS=%s\n' "$DISCORD_ALLOWED_USERS"
@@ -333,7 +333,7 @@ elif [ "$HERMES_ROLE" = "deckhand" ]; then
   # Gated A2A only (not the Luna guest patch bundle). Image already has gateway
   # patches; this may install the A2A plugin + adapter seams when enabled.
   maybe_activate_water_cooler_a2a
-  # xAI via shared OAuth pool (provider xai-oauth) — never XAI_API_KEY.
+  # xAI via shared OAuth pool (provider xai-oauth) — never an API-key env var.
   link_shared_auth
 elif [ "$HERMES_ROLE" = "luna" ] \
   || [ "$HERMES_ROLE" = "sunset-luna" ] \

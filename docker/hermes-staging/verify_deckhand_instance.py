@@ -355,7 +355,7 @@ def main() -> int:
         ),
         "bootstrap_deckhand_links_shared_auth": (
             "link_shared_auth" in bootstrap_deckhand
-            and "XAI_API_KEY" not in bootstrap_deckhand
+            and not re.search(r"(?m)^\s*[^#\n]*XAI_API_KEY", bootstrap_deckhand)
             and "No link_shared_auth" not in bootstrap_deckhand
         ),
         "bootstrap_deckhand_discord_explicitly_enabled": discord_platform_enabled(

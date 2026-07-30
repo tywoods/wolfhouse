@@ -110,7 +110,7 @@ fi
 
 if [ "$HERMES_ROLE" = "deckhand" ]; then
   # Deckhand: isolated Discord engineering worker. xAI grok-4.5 via xai-oauth
-  # (shared auth.json) — no Anthropic/OpenAI fallback, no XAI_API_KEY.
+  # (shared auth.json) — no Anthropic/OpenAI fallback, no API-key env var.
   # Distinct Discord bot via /etc/hermes-deckhand.env (never reuse Skipper's
   # discord-bot-token).
   #
