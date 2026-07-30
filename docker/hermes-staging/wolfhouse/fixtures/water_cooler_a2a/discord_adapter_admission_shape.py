@@ -167,4 +167,3 @@ class DiscordAdapter:
             self._enqueue_text_event(event)
         else:
             await self.handle_message(event)
-
