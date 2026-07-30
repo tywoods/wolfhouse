@@ -16320,14 +16320,16 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-equip-price-grid{gap:8px}
 .portal-admin-subsection fieldset{min-width:0;max-width:100%;border:1px solid var(--border-soft);border-radius:8px;margin:12px 0;padding:12px}
 /* Course equipment card: name + pill switch; connected During|All day segment; qty inside All day */
+/* Course equipment: title left (+ few px), switch slightly inset; thin −/+; never clip All Day */
 .portal-schedule-course-equipment{border:0;margin:10px 0 0;padding:0;min-width:0;max-width:100%}
 .portal-schedule-course-equipment-list{display:grid;gap:10px;min-width:0}
 .portal-schedule-course-equipment-item{border:1px solid var(--border-soft);border-radius:10px;padding:10px;min-width:0;max-width:100%;box-sizing:border-box}
 .portal-schedule-course-equipment-row{display:flex;flex-wrap:nowrap;align-items:center;justify-content:space-between;gap:10px;width:100%;box-sizing:border-box;min-height:44px}
-.portal-schedule-course-equipment-left{display:inline-flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0}
-.portal-schedule-course-equipment-name{flex:1 1 auto;min-width:0;margin:0;padding:0;font-size:14px;font-weight:600;color:var(--text);line-height:1.25;overflow:hidden;text-overflow:ellipsis}
-/* Pill switch replaces left radial — keep .portal-schedule-course-equipment-check for touch/verify targets */
-.portal-schedule-course-equipment-check.portal-schedule-course-equipment-switch{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:0 0 46px;width:46px;min-width:46px;height:44px;min-height:44px;margin:0 0 0 auto;cursor:pointer;line-height:0;opacity:1!important;user-select:none}
+/* Title stays LEFT — only nudge a few pixels right (not over All Day) */
+.portal-schedule-course-equipment-left{display:inline-flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;padding-left:10px;box-sizing:border-box}
+.portal-schedule-course-equipment-name{flex:1 1 auto;min-width:0;margin:0;padding:0;font-size:14px;font-weight:600;color:var(--text);line-height:1.25;overflow:hidden;text-overflow:ellipsis;text-align:left}
+/* Pill switch — keep check class for touch/verify; inset a bit from the far right edge */
+.portal-schedule-course-equipment-check.portal-schedule-course-equipment-switch{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:0 0 44px;width:44px;min-width:44px;height:44px;min-height:44px;margin:0 6px 0 0;cursor:pointer;line-height:0;opacity:1!important;user-select:none}
 .portal-schedule-course-equipment-check.portal-schedule-course-equipment-switch input[type=checkbox],
 .portal-schedule-course-equipment-check.portal-schedule-course-equipment-switch input.portal-schedule-course-equipment-radial{position:absolute!important;opacity:0!important;width:1px!important;height:1px!important;min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;appearance:none!important;-webkit-appearance:none!important;background:transparent!important;box-shadow:none!important;pointer-events:none}
 .portal-schedule-course-equipment-switch-slider{position:relative;display:block;width:42px;height:26px;border-radius:999px;background:var(--border-soft,#C9CFC8);transition:background .2s,box-shadow .2s;flex-shrink:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}
@@ -16343,25 +16345,36 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-course-equipment-modes{display:flex;flex-wrap:nowrap;align-items:stretch;gap:0;margin-top:8px;min-width:0;width:100%;border:1px solid var(--border-soft);border-radius:10px;overflow:hidden;background:var(--surface);box-sizing:border-box}
 .portal-schedule-course-equipment-modes[hidden],
 .portal-schedule-course-equipment-modes[hidden=true]{display:none!important}
-.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn{flex:1 1 0;min-width:0;min-height:44px;margin:0;border:none;border-radius:0;box-shadow:none;justify-content:center;text-align:center;padding:8px 10px;gap:8px}
+.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn{flex:1 1 0;min-width:0;min-height:44px;margin:0;border:none;border-radius:0;box-shadow:none;justify-content:center;text-align:center;padding:8px 8px;gap:6px;font-size:12px;font-weight:600}
 .portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn + .portal-schedule-create-activity-btn{border-left:1px solid var(--border-soft)}
 .portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn.is-selected,
 .portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn[aria-pressed="true"]{border-color:transparent;background:var(--sched-primary,#4E5853);color:#fff}
-.portal-schedule-course-equipment-mode-allday{display:inline-flex!important;align-items:center;justify-content:center;flex-wrap:nowrap;gap:8px}
-.portal-schedule-course-equipment-mode-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* Qty lives inside All day half — no EQUIPMENT SETS caption */
-.portal-schedule-course-equipment-sets{display:inline-flex;align-items:center;margin:0;padding:0;min-width:0;flex:0 0 auto}
+.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn[data-course-equipment-mode="during_course"],
+.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn[data-drawer-course-equipment-mode="during_course"]{flex:0.95 1 0}
+/* All Day half: label left, thin stepper right — never clip the words */
+.portal-schedule-course-equipment-mode-allday,
+.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn[data-course-equipment-mode="all_day"],
+.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn[data-drawer-course-equipment-mode="all_day"]{display:inline-flex!important;align-items:center;justify-content:space-between;flex-wrap:nowrap;gap:6px;flex:1.2 1 0;min-width:0;padding:6px 6px 6px 10px!important}
+.portal-schedule-course-equipment-mode-label{flex:0 0 auto;min-width:max-content;max-width:none;overflow:visible;text-overflow:clip;white-space:nowrap;line-height:1.2}
+/* Qty / stepper — thinner −/+ (narrow width), keep 44px tall touch */
+.portal-schedule-course-equipment-sets{display:inline-flex;align-items:center;margin:0 0 0 auto;padding:0;min-width:0;flex:0 0 auto}
 .portal-schedule-course-equipment-sets[hidden],
 .portal-schedule-course-equipment-sets[hidden=true]{display:none!important}
 .portal-schedule-course-equipment-sets label{display:inline-flex;align-items:center;margin:0;padding:0;font-size:0;line-height:0;gap:0}
 .portal-schedule-course-equipment-sets .portal-schedule-course-equipment-qty-label{display:none!important}
 .portal-schedule-course-equipment-sets input[type=number],
-.portal-schedule-course-equipment-sets input[data-course-equipment-quantity]{width:44px;min-width:44px;max-width:52px;min-height:32px;height:32px;padding:4px 6px;margin:0;border:1px solid rgba(255,255,255,.35);border-radius:8px;background:rgba(255,255,255,.16);color:inherit;font:inherit;font-size:13px;font-weight:700;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums;-moz-appearance:textfield;appearance:textfield}
-.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn:not([aria-pressed="true"]) .portal-schedule-course-equipment-sets input[type=number]{border-color:var(--border-soft);background:var(--surface);color:var(--text)}
+.portal-schedule-course-equipment-sets input[data-course-equipment-quantity],
+.portal-schedule-course-equipment-sets .portal-schedule-int-stepper-input{width:28px!important;min-width:28px!important;max-width:32px!important;min-height:44px!important;height:44px!important;padding:0 2px!important;margin:0;border:1px solid rgba(255,255,255,.35);border-radius:6px;background:rgba(255,255,255,.16);color:inherit;font:inherit;font-size:13px!important;font-weight:700;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums;-moz-appearance:textfield;appearance:textfield}
+.portal-schedule-course-equipment-sets .portal-schedule-int-stepper{display:inline-flex;align-items:center;height:44px;border-radius:8px;border-color:rgba(255,255,255,.28);background:rgba(0,0,0,.12);overflow:hidden;flex:0 0 auto;max-width:100%}
+.portal-schedule-course-equipment-sets .portal-schedule-int-step{width:22px!important;min-width:22px!important;max-width:22px!important;height:44px!important;min-height:44px!important;padding:0!important;font-size:15px!important;line-height:1;flex:0 0 22px;background:transparent;color:inherit}
+.portal-schedule-course-equipment-sets .portal-schedule-int-stepper input[type=number],
+.portal-schedule-course-equipment-sets .portal-schedule-int-stepper input.portal-schedule-int-stepper-input{width:26px!important;min-width:26px!important;height:44px!important;min-height:44px!important;border-left:1px solid rgba(255,255,255,.22);border-right:1px solid rgba(255,255,255,.22);border-radius:0;background:transparent;color:inherit;font-size:13px!important}
+.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn:not([aria-pressed="true"]) .portal-schedule-course-equipment-sets input[type=number],
+.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn:not([aria-pressed="true"]) .portal-schedule-course-equipment-sets .portal-schedule-int-stepper{border-color:var(--border-soft);background:var(--surface);color:var(--text)}
+.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn:not([aria-pressed="true"]) .portal-schedule-course-equipment-sets .portal-schedule-int-stepper input{border-left-color:var(--border-soft);border-right-color:var(--border-soft);color:var(--text)}
 .portal-schedule-course-equipment-sets input[type=number]::-webkit-outer-spin-button,
 .portal-schedule-course-equipment-sets input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .portal-schedule-course-equipment-item.is-off .portal-schedule-course-equipment-name{color:var(--text-2)}
-/* legacy surfers row (unused) kept harmless */
 .portal-schedule-course-equipment-surfers{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex:0 0 auto;margin-left:auto}
 .portal-schedule-course-equipment-surfers .portal-schedule-course-equipment-qty-label{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);white-space:nowrap}
 .portal-schedule-course-equipment-surfers input[type=number]{width:64px;min-width:64px;min-height:36px;padding:6px 8px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}
