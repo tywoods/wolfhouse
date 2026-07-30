@@ -436,7 +436,11 @@ ok('Edit quote merge + attach parity present',
     extractNamedFn(apiSrc, 'scheduleRenderCreateAccommodationCardHtml'),
     // Minimal render stub so attach can call it without DOM.
     'function scheduleRenderCreateAccommodation(){ /* sandbox */ }',
-  ].filter(Boolean).join('\n');
+  ].filter(Boolean).map(function(src){
+    // These Create owners live inside the server HTML template; evaluate the
+    // emitted browser JavaScript after removing exactly one template escape layer.
+    return String(src).replace(/\\\\/g, '\\');
+  }).join('\n');
   ok('extracted Create nights/attach/card owners', createBody.length > 200);
 
   // eslint-disable-next-line no-new-func
