@@ -1141,7 +1141,7 @@ async function main() {
     const ok99 = rentalAvail.scheduleSerializeRentalsSelection([
       { offering_key: 'board_rental', duration_key: '1_day', quantity: 99 },
     ], '1_day');
-    ok('qty 0 dropped (unselected/invalid)', bad0.length === 0, JSON.stringify(bad0));
+    ok('serializer rejects qty 0 as defense in depth', bad0.length === 0, JSON.stringify(bad0));
     ok('qty 100 dropped or rejected', bad100.length === 0 || bad100[0].quantity <= 99, JSON.stringify(bad100));
     ok('fraction dropped', badFrac.length === 0, JSON.stringify(badFrac));
     ok('qty 99 accepted', ok99.length === 1 && ok99[0].quantity === 99, JSON.stringify(ok99));
@@ -1345,6 +1345,34 @@ async function main() {
         Array.isArray(editBad) && editBad.length >= 1 && editGate.ok === false,
         JSON.stringify({ editBad, editGate }));
     }
+
+    // Real change/blur clamp path: entering 0 must not deselect or reset the rental.
+    function runZeroClamp(kind) {
+      const wrap = buildRentalWrap(kind, ['0']);
+      const qtyCls = kind === 'edit' ? '.ps-drawer-rental-qty-input' : '.ps-create-rental-qty-input';
+      const checkCls = kind === 'edit' ? '.ps-drawer-rental-check' : '.ps-create-rental-check';
+      const qty = wrap.querySelector(qtyCls);
+      const check = wrap.querySelector(checkCls);
+      const owner = kind === 'edit' ? editSrc : html;
+      const clampName = kind === 'edit'
+        ? 'scheduleDrawerClampRentalQtyInput'
+        : 'scheduleClampCreateRentalQtyInput';
+      const clampSrc = extractFn(owner, clampName);
+      const parserSrc = extractFn(owner, 'scheduleParseRentalEquipmentQtyValue');
+      const sandbox = {};
+      vm.runInNewContext(
+        parserSrc + '\n' + clampSrc + '\nthis.clamp = ' + clampName + ';',
+        sandbox,
+      );
+      sandbox.clamp(qty, wrap);
+      return { checked: !!check.checked, value: String(qty.value) };
+    }
+    const createZeroClamp = runZeroClamp('create');
+    const editZeroClamp = runZeroClamp('edit');
+    ok('Create change path keeps selected qty 0 visibly invalid (no deselect/reset)',
+      createZeroClamp.checked && createZeroClamp.value === '0', JSON.stringify(createZeroClamp));
+    ok('Edit change path keeps selected qty 0 visibly invalid (no deselect/reset)',
+      editZeroClamp.checked && editZeroClamp.value === '0', JSON.stringify(editZeroClamp));
 
     ok('Edit does not force no-lesson rental qty from surfers',
       !/Force hidden no-lesson rental qty mirrors to live booking Surfers/.test(editSrc)

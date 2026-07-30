@@ -1812,27 +1812,12 @@ function scheduleWireDrawerRentals(wrap) {
  * Change/blur helper for Edit rental qty (Create parity).
  * +/- steppers enforce min/max conventionally; manual invalid input is left as-is
  * so quote/save readers fail closed (never silently rewrite commercial intent to 1/99).
- * Explicit 0 deselects the row (stepper-from-1 convention).
+ * Removing an item requires explicitly unchecking it; quantity 0 remains invalid.
  */
 function scheduleDrawerClampRentalQtyInput(inp, wrap) {
   if (!inp) return;
   var raw = String(inp.value == null ? '' : inp.value).trim();
   if (raw === '' || raw === '-') return;
-  if (raw === '0') {
-    var row0 = inp.closest ? inp.closest('[data-rental-offering]') : null;
-    var check0 = row0 && row0.querySelector('.ps-drawer-rental-check');
-    if (check0 && check0.checked) {
-      check0.checked = false;
-      try { check0.dispatchEvent(new Event('change', { bubbles: true })); } catch (_e0) { /* ignore */ }
-      var selected0 = [];
-      wrap.querySelectorAll('.ps-drawer-rental-check').forEach(function(c) {
-        if (c.checked) selected0.push(String(c.getAttribute('data-offering-key') || ''));
-      });
-      scheduleDrawerApplyRentalExclusionUi(wrap, selected0);
-    }
-    inp.value = '1';
-    return;
-  }
   var canonical = scheduleParseRentalEquipmentQtyValue(raw);
   if (canonical == null) return; // leave invalid manual input; readers/validation fail closed
   inp.value = String(canonical);
