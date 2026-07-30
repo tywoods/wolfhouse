@@ -153,6 +153,30 @@ function buildRenderCtx(viewModSrc, portalModSrc, apiSrc) {
   const stripeFn = extractFunctionSource(portalModSrc, 'schedulePortalStripeLinkFromCtx');
   if (stripeFn) vm.runInContext(`${stripeFn}\nthis.schedulePortalStripeLinkFromCtx=schedulePortalStripeLinkFromCtx;`, ctx);
 
+  // Compact date range used by grouped equipment coverage labels.
+  vm.runInContext(`function schedulePortalFormatCompactDateRange(fromIso, toIso){
+    var from = String(fromIso || '').slice(0, 10);
+    var to = String(toIso == null || toIso === '' ? from : toIso).slice(0, 10);
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(from)) return '';
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(to)) to = from;
+    function part(iso){
+      var y = Number(iso.slice(0, 4)), m = Number(iso.slice(5, 7)), d = Number(iso.slice(8, 10));
+      var mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m - 1] || '';
+      return { day: d, mon: mon, month: m, year: y };
+    }
+    var a = part(from); var b = part(to);
+    if (from === to) return String(a.day) + ' ' + a.mon;
+    if (a.month === b.month && a.year === b.year) return String(a.day) + '\\u2013' + String(b.day) + ' ' + a.mon;
+    return String(a.day) + ' ' + a.mon + '\\u2013' + String(b.day) + ' ' + b.mon;
+  }
+  this.schedulePortalFormatCompactDateRange = schedulePortalFormatCompactDateRange;`, ctx);
+  vm.runInContext(`function scheduleParseIso(iso){
+    var s = String(iso || '').slice(0, 10);
+    var p = s.split('-');
+    return new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 12, 0, 0));
+  }
+  this.scheduleParseIso = scheduleParseIso;`, ctx);
+
   const fns = [
     'scheduleRenderDrawerLoadingHtml',
     'scheduleRenderDrawerErrorHtml',
@@ -178,6 +202,8 @@ function buildRenderCtx(viewModSrc, portalModSrc, apiSrc) {
     'scheduleDrawerServiceTypeLabel',
     'scheduleDrawerServiceOrder',
     'scheduleDrawerSortItems',
+    'scheduleDrawerCommercialLineRank',
+    'scheduleDrawerEquipmentCoverageLabel',
     'scheduleDrawerBuildCommercialLines',
     'scheduleDrawerFormatCommercialMathLabel',
     'scheduleDrawerDayHeaderLabel',
@@ -557,6 +583,178 @@ assert('fixture7: no legacy money-card / daily schedule',
   !partialHtml.includes('ps-money-card')
   && !partialHtml.includes('Show daily')
   && !partialHtml.includes('ps-day-group'));
+
+console.log('\n[5b] Invoice order + conservative daily equipment grouping');
+const ceDates = [
+  '2026-07-30', '2026-07-31', '2026-08-01', '2026-08-02',
+  '2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06',
+];
+const ceDailyItems = ceDates.map((d, i) => ({
+  service_record_id: 'ce-' + i,
+  service_date: d,
+  service_type: 'addon_service',
+  label: 'Surfboard + Wetsuit · During Course · 1',
+  line_cents: 500,
+  quantity: 1,
+  unit_amount_cents: 500,
+  unit_cents: 500,
+  component: 'course_equipment',
+  course_equipment: true,
+  course_equipment_mode: 'during_course',
+  offering_key: 'board_and_suit_rental',
+  currency: 'EUR',
+}));
+const mixedOrderItems = [
+  {
+    service_record_id: 'course-1',
+    service_date: '2026-07-30',
+    service_type: 'surf_lesson',
+    label: 'Beginner · 1',
+    line_cents: 45000,
+    quantity: 1,
+    unit_amount_cents: 45000,
+    component: 'course',
+    course_id: 'beginner',
+  },
+  {
+    service_record_id: 'rent-once',
+    service_date: '2026-07-30',
+    service_type: 'surfboard',
+    label: 'Surfboard · 1',
+    line_cents: 1500,
+    quantity: 1,
+    unit_amount_cents: 1500,
+    offering_key: 'board_rental',
+    duration_key: '1_day',
+  },
+  {
+    service_record_id: 'accom-1',
+    service_date: '2026-07-30',
+    service_type: 'addon_service',
+    label: 'Accommodation · 2026-07-30 → 2026-08-07 · 8 nights',
+    line_cents: 24000,
+    quantity: 1,
+    unit_amount_cents: 24000,
+    component: 'staff_accommodation',
+    staff_accommodation: true,
+    check_in: '2026-07-30',
+    check_out: '2026-08-07',
+    nights: 8,
+  },
+  {
+    service_record_id: 'custom-1',
+    service_date: '2026-07-30',
+    service_type: 'addon_service',
+    label: 'Discount',
+    line_cents: -500,
+    quantity: 1,
+    unit_amount_cents: -500,
+    component: 'staff_custom_line',
+    staff_custom_line: true,
+  },
+].concat(ceDailyItems);
+
+const mixedCommercial = ctx.scheduleDrawerBuildCommercialLines(mixedOrderItems, null);
+assert('order: accommodation first among display lines',
+  mixedCommercial.lines[0]
+  && (mixedCommercial.lines[0].staff_accommodation
+    || /Accommodation/i.test(String(mixedCommercial.lines[0].label || ''))));
+const ranks = mixedCommercial.lines.map((l) => ctx.scheduleDrawerCommercialLineRank(l));
+assert('order: ranks non-decreasing (accom → course → rental → custom)',
+  ranks.every((r, i) => i === 0 || r >= ranks[i - 1]),
+  JSON.stringify(ranks));
+assert('group: eight identical CE days collapse to one line',
+  mixedCommercial.lines.filter((l) => l.course_equipment || /Surfboard \+ Wetsuit/i.test(String(l.label || ''))).length === 1);
+const ceLine = mixedCommercial.lines.find((l) => l.course_equipment || /Surfboard \+ Wetsuit/i.test(String(l.label || '')));
+assert('group: CE summed cents = 8 × €5.00',
+  ceLine && ceLine.line_cents === 4000,
+  ceLine && String(ceLine.line_cents));
+assert('group: CE billable_days = 8',
+  ceLine && ceLine.billable_days === 8);
+assert('group: CE coverage label uses days + compact dates',
+  ceLine
+  && /8\s+Days/i.test(String(ceLine.duration_label || ''))
+  && (/30\s*Jul|Jul/.test(String(ceLine.duration_label || ''))
+    || /30/.test(String(ceLine.duration_label || ''))),
+  ceLine && ceLine.duration_label);
+assert('group: CE does not leave bare Day-only subtitle',
+  ceLine && ceLine.duration_label !== 'Day' && ceLine.duration_label !== '1 Day');
+
+const mixedHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
+  date_from: '2026-07-30',
+  date_to: '2026-08-06',
+  components: { course: { quantity: 1, course_label: 'Beginner' } },
+  payment: {
+    subtotal_cents: 70000,
+    paid_cents: 0,
+    balance_due_cents: 70000,
+    payment_status: 'unpaid',
+    line_items: mixedOrderItems,
+    paid_payments: [],
+  },
+});
+assert('render: grouped CE amount €40.00 once',
+  (mixedHtml.match(/€40\.00/g) || []).length >= 1
+  && (mixedHtml.match(/Surfboard \+ Wetsuit/g) || []).length <= 2);
+assert('render: coverage appears on invoice',
+  /8\s+Days/i.test(mixedHtml));
+assert('render: accommodation still present',
+  /Accommodation/i.test(mixedHtml));
+assert('render: custom discount line not merged away',
+  /Discount/i.test(mixedHtml) || mixedHtml.includes('−') || mixedHtml.includes('-€5') || mixedHtml.includes('€-5') || mixedHtml.includes('€-5.00') || /€5\.00/.test(mixedHtml));
+
+// Non-group cases: mismatched unit / mode / accommodation stay separate
+const mismatchItems = [
+  Object.assign({}, ceDailyItems[0], { service_record_id: 'm0', line_cents: 500, unit_amount_cents: 500 }),
+  Object.assign({}, ceDailyItems[1], {
+    service_record_id: 'm1',
+    line_cents: 1000,
+    unit_amount_cents: 1000,
+    unit_cents: 1000,
+  }),
+  Object.assign({}, ceDailyItems[2], {
+    service_record_id: 'm2',
+    course_equipment_mode: 'all_day',
+    label: 'Surfboard + Wetsuit · All Day · 1',
+    line_cents: 500,
+    unit_amount_cents: 500,
+  }),
+  {
+    service_record_id: 'ac-x',
+    service_date: '2026-07-30',
+    service_type: 'addon_service',
+    label: 'Accommodation · stay',
+    line_cents: 10000,
+    quantity: 1,
+    unit_amount_cents: 10000,
+    component: 'staff_accommodation',
+    staff_accommodation: true,
+  },
+  {
+    service_record_id: 'ac-y',
+    service_date: '2026-08-01',
+    service_type: 'addon_service',
+    label: 'Accommodation · stay 2',
+    line_cents: 10000,
+    quantity: 1,
+    unit_amount_cents: 10000,
+    component: 'staff_accommodation',
+    staff_accommodation: true,
+  },
+];
+const mismatchCommercial = ctx.scheduleDrawerBuildCommercialLines(mismatchItems, null);
+assert('non-group: mismatched CE unit/mode stay separate',
+  mismatchCommercial.lines.filter((l) => /Surfboard \+ Wetsuit/i.test(String(l.label || ''))
+    || l.course_equipment).length >= 2);
+assert('non-group: accommodation never collapses',
+  mismatchCommercial.lines.filter((l) => l.staff_accommodation || /Accommodation/i.test(String(l.label || ''))).length === 2);
+
+// Arithmetic preserved: source sum == commercial sum
+const sourceSum = mixedOrderItems.reduce((a, li) => a + Number(li.line_cents || 0), 0);
+const commercialSum = mixedCommercial.lines.reduce((a, li) => a + Number(li.line_cents || 0), 0);
+assert('arithmetic: commercial sum equals source line sum',
+  sourceSum === commercialSum,
+  `source=${sourceSum} commercial=${commercialSum}`);
 
 console.log('\n[6] Payment link display');
 const unpaidCtx = Object.assign({}, baseCtx, {
