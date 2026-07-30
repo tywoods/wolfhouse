@@ -405,6 +405,7 @@ async function prepareGenericRentalsForCreate(opts) {
     buildGenericRentalServiceRecord,
     resolveDayRentalContinuation,
     isHourRentalDurationKey,
+    dayCountFromDurationKey,
   } = require('./tenant-rental-price-resolver');
   const { isGenericRentalCreateEnabled } = require('./tenant-business-config');
   const o = opts || {};
@@ -482,11 +483,15 @@ async function prepareGenericRentalsForCreate(opts) {
           return exactProbe;
         }
         // Exact absent: resolve continuation from active day tiers.
-        // Accept selected exact-span key, 1_day/full_day, or any base day package.
-        const selectedOk = selectedDuration === exactKey
-          || selectedDuration === '1_day'
-          || selectedDuration === 'full_day'
-          || (!isHourDuration && selectedDuration);
+        // Selected duration must parse as a legitimate data-driven day identity
+        // (1_day / full_day / N_days via duration model — no fixed 1..7 whitelist)
+        // and be compatible with the booking span (day count ≤ requested N).
+        // Reject banana / unparseable / hour / contradictory longer-than-span keys.
+        const selectedDayCount = dayCountFromDurationKey(selectedDuration);
+        const selectedOk = selectedDayCount != null
+          && Number.isInteger(selectedDayCount)
+          && selectedDayCount >= 1
+          && selectedDayCount <= dayCount;
         if (!selectedOk) {
           return { ok: false, reason: 'rental_duration_not_compatible' };
         }
@@ -530,9 +535,13 @@ async function prepareGenericRentalsForCreate(opts) {
               tiers.push({ days: d, amount_cents: probe.unit_cents, duration_key: dk });
               // Longest eligible found — sufficient for continuation.
               break;
-            } else if (probe.reason === 'price_lookup_failed') {
-              return probe;
-            } else if (probe.reason === 'price_not_found' && probe.status && probe.status !== 'not_found') {
+            }
+            // Fail closed on every non-absence result (scope mismatch, unverified,
+            // infrastructure, malformed found rows, lookup throw, …). Only true
+            // absence may continue probing a shorter day tier.
+            const trueAbsent = probe.reason === 'price_not_found'
+              && probe.status === 'not_found';
+            if (!trueAbsent) {
               return probe;
             }
           }

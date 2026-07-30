@@ -629,6 +629,258 @@ async function main() {
     hourMulti.ok === false && hourMulti.reason === 'rental_duration_not_compatible',
     JSON.stringify(hourMulti));
 
+  // ── 1b) Hostile selected-duration + tier-probe fail-closed (independent review) ──
+  console.log('\n[1b] Hostile: selected duration identity + tier-probe integrity');
+
+  // BLOCKER 1: malformed / non-day selectedDuration must not receive continuation money.
+  const bananaHostile = await prepareGenericRentalsForCreate({
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    serviceDate: '2026-08-01',
+    pgClient: {},
+    calendarDayCount: 5,
+    bookingDurationKey: '5_days',
+    rentals: [{ offering_key: 'kayak_rental', duration_key: 'banana', quantity: 1 }],
+    listOfferings: async () => catalog,
+    loadRule: makeLoadRule(dayTable),
+    listDayTiers: async () => ([
+      { days: 1, duration_key: '1_day', amount_cents: 2000 },
+      { days: 3, duration_key: '3_days', amount_cents: 5400 },
+    ]),
+  });
+  ok('banana selectedDuration fails closed (zero priced records)',
+    bananaHostile.ok === false
+      && bananaHostile.reason === 'rental_duration_not_compatible'
+      && !Array.isArray(bananaHostile.records),
+    JSON.stringify(bananaHostile));
+
+  const unknownMalformed = await prepareGenericRentalsForCreate({
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    serviceDate: '2026-08-01',
+    pgClient: {},
+    calendarDayCount: 5,
+    bookingDurationKey: '5_days',
+    rentals: [{ offering_key: 'kayak_rental', duration_key: 'not_a_duration', quantity: 1 }],
+    listOfferings: async () => catalog,
+    loadRule: makeLoadRule(dayTable),
+    listDayTiers: async () => ([
+      { days: 1, duration_key: '1_day', amount_cents: 2000 },
+      { days: 3, duration_key: '3_days', amount_cents: 5400 },
+    ]),
+  });
+  ok('unknown malformed selectedDuration fails closed (zero priced records)',
+    unknownMalformed.ok === false
+      && unknownMalformed.reason === 'rental_duration_not_compatible'
+      && !Array.isArray(unknownMalformed.records),
+    JSON.stringify(unknownMalformed));
+
+  // Contradictory: selected day identity longer than booking span (7d on 5d).
+  const contradictSpan = await prepareGenericRentalsForCreate({
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    serviceDate: '2026-08-01',
+    pgClient: {},
+    calendarDayCount: 5,
+    bookingDurationKey: '5_days',
+    rentals: [{ offering_key: 'kayak_rental', duration_key: '7_days', quantity: 1 }],
+    listOfferings: async () => catalog,
+    loadRule: makeLoadRule(dayTable),
+    listDayTiers: async () => ([
+      { days: 1, duration_key: '1_day', amount_cents: 2000 },
+      { days: 3, duration_key: '3_days', amount_cents: 5400 },
+      { days: 7, duration_key: '7_days', amount_cents: 10500 },
+    ]),
+  });
+  ok('contradictory 7_days on 5-day span fails closed (zero priced records)',
+    contradictSpan.ok === false
+      && contradictSpan.reason === 'rental_duration_not_compatible'
+      && !Array.isArray(contradictSpan.records),
+    JSON.stringify(contradictSpan));
+
+  // Canonical-only payloads still untouched (no generic authority).
+  const canonicalOnly = await prepareGenericRentalsForCreate({
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    serviceDate: '2026-08-01',
+    pgClient: {},
+    calendarDayCount: 5,
+    bookingDurationKey: '5_days',
+    rentals: [{ offering_key: 'board_rental', duration_key: 'banana', quantity: 1 }],
+    listOfferings: async () => catalog,
+    loadRule: makeLoadRule(dayTable),
+  });
+  ok('canonical-only payload preserved (empty generic, no reject on banana key)',
+    canonicalOnly.ok === true
+      && Array.isArray(canonicalOnly.records)
+      && canonicalOnly.records.length === 0
+      && Array.isArray(canonicalOnly.genericRentals)
+      && canonicalOnly.genericRentals.length === 0,
+    JSON.stringify(canonicalOnly));
+
+  // BLOCKER 2: longest→shortest probing must fail closed on integrity errors,
+  // never skip a price_scope_mismatch / unverified / malformed row to a shorter valid tier.
+  const scopeMismatchTierProbe = await prepareGenericRentalsForCreate({
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    serviceDate: '2026-08-01',
+    pgClient: {},
+    calendarDayCount: 5,
+    bookingDurationKey: '5_days',
+    rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+    listOfferings: async () => catalog,
+    // No listDayTiers — force longest→shortest resolveGenericRentalPrice probes.
+    loadRule: async (params) => {
+      const d = params.duration;
+      if (d === '5_days' || d === '4_days' || d === '2_days') {
+        return { status: 'not_found' };
+      }
+      if (d === '3_days') {
+        // Found row with wrong item_code → price_scope_mismatch (authoritative integrity).
+        return {
+          status: 'found',
+          amount_cents: 5400,
+          currency: 'EUR',
+          item_code: 'board_rental__3_days',
+          unit: 'day',
+          location_id: 'sunset-somo',
+        };
+      }
+      if (d === '1_day') {
+        return {
+          status: 'found',
+          amount_cents: 2000,
+          currency: 'EUR',
+          item_code: 'kayak_rental__1_day',
+          unit: 'day',
+          location_id: 'sunset-somo',
+        };
+      }
+      return { status: 'not_found' };
+    },
+  });
+  ok('5d probe: 3d scope mismatch rejects (never price via valid 1_day)',
+    scopeMismatchTierProbe.ok === false
+      && scopeMismatchTierProbe.reason === 'price_scope_mismatch'
+      && !Array.isArray(scopeMismatchTierProbe.records),
+    JSON.stringify(scopeMismatchTierProbe));
+
+  const unitMismatchTierProbe = await prepareGenericRentalsForCreate({
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    serviceDate: '2026-08-01',
+    pgClient: {},
+    calendarDayCount: 5,
+    bookingDurationKey: '5_days',
+    rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+    listOfferings: async () => catalog,
+    loadRule: async (params) => {
+      const d = params.duration;
+      if (d === '5_days' || d === '4_days' || d === '2_days') return { status: 'not_found' };
+      if (d === '3_days') {
+        return {
+          status: 'found',
+          amount_cents: 5400,
+          currency: 'EUR',
+          item_code: 'kayak_rental__3_days',
+          unit: 'session', // billing unit mismatch
+          location_id: 'sunset-somo',
+        };
+      }
+      if (d === '1_day') {
+        return {
+          status: 'found',
+          amount_cents: 2000,
+          currency: 'EUR',
+          item_code: 'kayak_rental__1_day',
+          unit: 'day',
+          location_id: 'sunset-somo',
+        };
+      }
+      return { status: 'not_found' };
+    },
+  });
+  ok('5d probe: 3d unit mismatch rejects (never price via valid 1_day)',
+    unitMismatchTierProbe.ok === false
+      && unitMismatchTierProbe.reason === 'price_scope_mismatch'
+      && !Array.isArray(unitMismatchTierProbe.records),
+    JSON.stringify(unitMismatchTierProbe));
+
+  const invalidLocTierProbe = await prepareGenericRentalsForCreate({
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    serviceDate: '2026-08-01',
+    pgClient: {},
+    calendarDayCount: 5,
+    bookingDurationKey: '5_days',
+    rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+    listOfferings: async () => catalog,
+    loadRule: async (params) => {
+      const d = params.duration;
+      if (d === '5_days' || d === '4_days' || d === '2_days') return { status: 'not_found' };
+      if (d === '3_days') return { status: 'invalid_location' };
+      if (d === '1_day') {
+        return {
+          status: 'found',
+          amount_cents: 2000,
+          currency: 'EUR',
+          item_code: 'kayak_rental__1_day',
+          unit: 'day',
+          location_id: 'sunset-somo',
+        };
+      }
+      return { status: 'not_found' };
+    },
+  });
+  ok('5d probe: 3d invalid_location rejects (never price via valid 1_day)',
+    invalidLocTierProbe.ok === false
+      && invalidLocTierProbe.reason === 'price_not_found'
+      && invalidLocTierProbe.status === 'invalid_location'
+      && !Array.isArray(invalidLocTierProbe.records),
+    JSON.stringify(invalidLocTierProbe));
+
+  const unverifiedTierProbe = await prepareGenericRentalsForCreate({
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    serviceDate: '2026-08-01',
+    pgClient: {},
+    calendarDayCount: 5,
+    bookingDurationKey: '5_days',
+    rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+    listOfferings: async () => catalog,
+    loadRule: async (params) => {
+      const d = params.duration;
+      if (d === '5_days' || d === '4_days' || d === '2_days') return { status: 'not_found' };
+      if (d === '3_days') {
+        return {
+          status: 'found',
+          amount_cents: 5400,
+          currency: 'EUR',
+          item_code: 'kayak_rental__3_days',
+          unit: 'day',
+          location_id: 'sunset-somo',
+          pricing_status: 'draft',
+        };
+      }
+      if (d === '1_day') {
+        return {
+          status: 'found',
+          amount_cents: 2000,
+          currency: 'EUR',
+          item_code: 'kayak_rental__1_day',
+          unit: 'day',
+          location_id: 'sunset-somo',
+        };
+      }
+      return { status: 'not_found' };
+    },
+  });
+  ok('5d probe: 3d price_unverified rejects (never price via valid 1_day)',
+    unverifiedTierProbe.ok === false
+      && unverifiedTierProbe.reason === 'price_unverified'
+      && !Array.isArray(unverifiedTierProbe.records),
+    JSON.stringify(unverifiedTierProbe));
+
   // ── 2) No surfer/guest force on independent rental qty ───────────────────
   console.log('\n[2] Independent qty — no surfer force');
   const forced = applyNoLessonEquipmentQtyFromSurfers(

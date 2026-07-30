@@ -83,8 +83,15 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
       calendarDayCount: 3, bookingDurationKey: '3_days', listOfferings: loadCatalog,
       loadRule: async (args) => {
         calls.push(args.duration);
-        if (args.duration === '3_days') return { status: 'not_found' };
-        return { status: 'found', amount_cents: 2500, currency: 'EUR', item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo' };
+        // Only true absence may continue probing. Intermediate tiers must return
+        // status=not_found (not a mismatched 1_day row for 2_days).
+        if (args.duration === '1_day') {
+          return {
+            status: 'found', amount_cents: 2500, currency: 'EUR',
+            item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
+          };
+        }
+        return { status: 'not_found' };
       },
     });
     assert.strictEqual(got.ok, true);
@@ -115,10 +122,13 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
             item_code: 'kayak_rental__3_days', unit: 'day', location_id: 'sunset-somo',
           };
         }
-        return {
-          status: 'found', amount_cents: 2500, currency: 'EUR',
-          item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
-        };
+        if (args.duration === '1_day') {
+          return {
+            status: 'found', amount_cents: 2500, currency: 'EUR',
+            item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
+          };
+        }
+        return { status: 'not_found' };
       },
     });
     assert.strictEqual(got.ok, false);
@@ -136,11 +146,13 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
       calendarDayCount: 3, bookingDurationKey: '3_days', listOfferings: loadCatalog,
       loadRule: async (args) => {
         calls.push(args.duration);
-        if (args.duration === '3_days') return { status: 'not_found' };
-        return {
-          status: 'found', amount_cents: 2500, currency: 'EUR',
-          item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
-        };
+        if (args.duration === '1_day') {
+          return {
+            status: 'found', amount_cents: 2500, currency: 'EUR',
+            item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
+          };
+        }
+        return { status: 'not_found' };
       },
     });
     assert.strictEqual(got.ok, true);
@@ -149,6 +161,17 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
     assert.strictEqual(got.records[0].metadata.pricing_mode, 'repeated_base_package');
     assert.strictEqual(got.records[0].amount_due_cents, 7500);
   });
+  // Shared: only true 1_day found may price; intermediate tiers must be not_found
+  // (never a mismatched 1_day item_code for 2_days, etc.).
+  const oneDayOnlyKayakRule = async (args) => {
+    if (args.duration === '1_day') {
+      return {
+        status: 'found', amount_cents: 2500, currency: 'EUR',
+        item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
+      };
+    }
+    return { status: 'not_found' };
+  };
   await expect('exact-probe lookup throw fails closed (never 1_day fallback)', async () => {
     const calls = [];
     const got = await prepareGenericRentalsForCreate({
@@ -157,10 +180,7 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
       loadRule: async (args) => {
         calls.push(args.duration);
         if (args.duration === '3_days') throw new Error('db_timeout');
-        return {
-          status: 'found', amount_cents: 2500, currency: 'EUR',
-          item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
-        };
+        return oneDayOnlyKayakRule(args);
       },
     });
     assert.strictEqual(got.ok, false);
@@ -175,10 +195,7 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
       loadRule: async (args) => {
         calls.push(args.duration);
         if (args.duration === '3_days') return { status: 'tables_missing' };
-        return {
-          status: 'found', amount_cents: 2500, currency: 'EUR',
-          item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
-        };
+        return oneDayOnlyKayakRule(args);
       },
     });
     assert.strictEqual(got.ok, false);
@@ -194,10 +211,7 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
       loadRule: async (args) => {
         calls.push(args.duration);
         if (args.duration === '3_days') return { status: 'invalid_location' };
-        return {
-          status: 'found', amount_cents: 2500, currency: 'EUR',
-          item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
-        };
+        return oneDayOnlyKayakRule(args);
       },
     });
     assert.strictEqual(got.ok, false);
@@ -218,10 +232,7 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
             item_code: 'kayak_rental__3_days', unit: 'day', location_id: 'sunset-somo',
           };
         }
-        return {
-          status: 'found', amount_cents: 2500, currency: 'EUR',
-          item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
-        };
+        return oneDayOnlyKayakRule(args);
       },
     });
     assert.strictEqual(got.ok, false);
@@ -242,10 +253,7 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
             item_code: 'board_rental__3_days', unit: 'day', location_id: 'sunset-somo',
           };
         }
-        return {
-          status: 'found', amount_cents: 2500, currency: 'EUR',
-          item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
-        };
+        return oneDayOnlyKayakRule(args);
       },
     });
     assert.strictEqual(got.ok, false);
