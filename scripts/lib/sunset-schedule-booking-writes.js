@@ -2584,6 +2584,10 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
     channel,
     trustedLocationId: locationId,
     transportBody: { ...transportBody, require_db: requireDb },
+    // Trusted server-only: Edit path sets this when locked bundle already has
+    // dedicated staff_accommodation. Never copied from transportBody.
+    allowExistingAccommodationWhenDisabled:
+      opts && opts.allowExistingAccommodationWhenDisabled === true,
     now: opts.now instanceof Date ? opts.now : new Date(),
   });
   if (!quoteBuilt.ok) {

@@ -643,6 +643,373 @@ function mockPg() {
   ok('disabled product semantics documented in i18n help',
     /Disabled blocks new|existing stays keep/i.test(i18nEn));
 
+  // ── 8) Disabled-product history + paid/notes Edit owners (behavioral) ───
+  console.log('\n[8] Disabled history reprice / paid / notes / untrusted field');
+  const disabledRanges = [
+    {
+      id: 'r-low', title: 'Low', check_in: '2026-06-01', check_out: '2026-07-01',
+      amount_cents: 4000, currency: 'EUR', active: true, sort_order: 0,
+    },
+    {
+      id: 'r-high', title: 'High', check_in: '2026-07-01', check_out: '2026-08-01',
+      amount_cents: 6000, currency: 'EUR', active: true, sort_order: 1,
+    },
+  ];
+  function mockDisabledAccomPg() {
+    return {
+      query: async (sql) => {
+        const s = String(sql);
+        if (/to_regclass/i.test(s)) {
+          return { rows: [{ t: 'public.tenant_accommodation_settings' }] };
+        }
+        if (/FROM tenant_accommodation_settings/i.test(s)) {
+          return { rows: [{ id: 'set-1', enabled: false, currency: 'EUR' }] };
+        }
+        if (/FROM tenant_accommodation_season_ranges/i.test(s)) {
+          return { rows: disabledRanges };
+        }
+        return { rows: [] };
+      },
+    };
+  }
+  const disabledPg = mockDisabledAccomPg();
+  const accomSel = {
+    enabled: true, check_in: '2026-06-10', check_out: '2026-06-13',
+  };
+
+  // (1) Trusted server-derived existing accommodation may quote/reprice while disabled.
+  const trustedBuilt = quoteSvc.buildSunsetQuoteCommand({
+    channel: quoteSvc.QUOTE_CHANNELS.MANUAL_STAFF,
+    trustedLocationId: 'sunset-somo',
+    transportBody: { accommodation: accomSel },
+    allowExistingAccommodationWhenDisabled: true,
+  });
+  ok('trusted command builds with historical permission',
+    trustedBuilt.ok === true
+    && trustedBuilt.command.allowExistingAccommodationWhenDisabled === true);
+  const trustedAppend = await quoteSvc.appendAccommodationToQuote(
+    disabledPg, trustedBuilt.command, [], 0, 'EUR',
+  );
+  ok('disabled + trusted existing accom appends quote line (reprice path)',
+    trustedAppend.ok === true
+    && Array.isArray(trustedAppend.lines)
+    && trustedAppend.lines.length === 1
+    && trustedAppend.totalCents === 12000,
+    JSON.stringify(trustedAppend.body || trustedAppend));
+  ok('trusted reprice line uses staff_accommodation identity',
+    trustedAppend.ok
+    && trustedAppend.lines[0]
+    && (trustedAppend.lines[0].component === 'staff_accommodation'
+      || trustedAppend.lines[0].source === 'staff_accommodation'
+      || String(trustedAppend.lines[0].offering_item_code || '').includes('staff_accommodation')
+      || trustedAppend.lines[0].total_cents === 12000));
+
+  // Direct price owner: requireEnabled:false allows disabled product for historical.
+  const histPrice = await admin.resolveAccommodationPrice(disabledPg, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    checkIn: accomSel.check_in,
+    checkOut: accomSel.check_out,
+    requireEnabled: false,
+  });
+  ok('resolveAccommodationPrice requireEnabled:false succeeds while disabled',
+    histPrice.ok === true && histPrice.priced && histPrice.priced.total_cents === 12000,
+    JSON.stringify(histPrice));
+
+  // Unrelated unpaid commercial change can still carry accommodation on intent/reprice.
+  const unpaidExistingBundle = {
+    booking: {
+      guest_name: 'Ada',
+      payment_status: 'unpaid',
+      amount_paid_cents: 0,
+      metadata: {
+        source: 'staff_manual_schedule',
+        staff_manual_schedule: true,
+        location_id: 'sunset-somo',
+      },
+    },
+    services: [{
+      service_record_id: 'sr-accom-u',
+      service_type: 'addon_service',
+      service_date: '2026-06-10',
+      quantity: 1,
+      amount_due_cents: 12000,
+      amount_paid_cents: 0,
+      payment_status: 'pending',
+      record_source: 'staff_manual',
+      metadata: {
+        source: 'staff_accommodation',
+        staff_accommodation: true,
+        component: 'staff_accommodation',
+        check_in: '2026-06-10',
+        check_out: '2026-06-13',
+        nights: 3,
+        total_cents: 12000,
+        currency: 'EUR',
+      },
+    }],
+    payments_paid_cents: 0,
+  };
+  const unpaidExistingIntent = drawer.pricingIntentFromBundle(unpaidExistingBundle);
+  const unpaidCommercialChange = writes.buildSchedulePricingIntent({
+    service_dates: unpaidExistingIntent.service_dates,
+    components: {},
+    accommodation: { enabled: true, check_in: '2026-06-10', check_out: '2026-06-13' },
+    custom_line_items: [{ client_line_id: 'c1', label: 'Towel', amount_cents: 500 }],
+  });
+  ok('unpaid commercial change unequal (reprice) while accom preserved',
+    writes.schedulePricingIntentsEqual(unpaidExistingIntent, unpaidCommercialChange) === false
+    && unpaidCommercialChange.accommodation
+    && unpaidCommercialChange.accommodation.enabled === true);
+  ok('unpaid commercial change is not financially committed (paid gate closed)',
+    writes.isSunsetBookingFinanciallyCommitted(unpaidExistingBundle) === false);
+  // Production quote owner still prices accommodation under trusted historical flag.
+  const unpaidRepriceQuote = await quoteSvc.appendAccommodationToQuote(
+    disabledPg,
+    quoteSvc.buildSunsetQuoteCommand({
+      channel: quoteSvc.QUOTE_CHANNELS.MANUAL_STAFF,
+      trustedLocationId: 'sunset-somo',
+      transportBody: {
+        accommodation: unpaidCommercialChange.accommodation,
+        custom_line_items: unpaidCommercialChange.custom_line_items,
+      },
+      allowExistingAccommodationWhenDisabled: true,
+    }).command,
+    [],
+    0,
+    'EUR',
+  );
+  ok('unpaid commercial reprice quotes historical accom while product disabled',
+    unpaidRepriceQuote.ok === true && unpaidRepriceQuote.totalCents === 12000,
+    JSON.stringify(unpaidRepriceQuote.body || unpaidRepriceQuote));
+
+  // (2) Disabled + no prior accommodation → add rejected with accommodation_disabled.
+  const newAddBuilt = quoteSvc.buildSunsetQuoteCommand({
+    channel: quoteSvc.QUOTE_CHANNELS.MANUAL_STAFF,
+    trustedLocationId: 'sunset-somo',
+    transportBody: { accommodation: accomSel },
+    // default: no historical permission
+  });
+  ok('new-add command has no historical permission',
+    newAddBuilt.ok && newAddBuilt.command.allowExistingAccommodationWhenDisabled === false);
+  const newAddAppend = await quoteSvc.appendAccommodationToQuote(
+    disabledPg, newAddBuilt.command, [], 0, 'EUR',
+  );
+  ok('disabled + no prior accom add rejected accommodation_disabled',
+    newAddAppend.ok === false
+    && newAddAppend.status === 409
+    && (newAddAppend.body && (newAddAppend.body.reason_code === 'accommodation_disabled'
+      || newAddAppend.body.reason === 'accommodation_disabled')),
+    JSON.stringify(newAddAppend.body || newAddAppend));
+  const newAddPrice = await admin.resolveAccommodationPrice(disabledPg, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    checkIn: accomSel.check_in,
+    checkOut: accomSel.check_out,
+    requireEnabled: true,
+  });
+  ok('resolveAccommodationPrice requireEnabled:true rejects while disabled',
+    newAddPrice.ok === false && newAddPrice.reason_code === 'accommodation_disabled',
+    JSON.stringify(newAddPrice));
+
+  // Untrusted request field must NEVER grant historical permission.
+  const spoofBuilt = quoteSvc.buildSunsetQuoteCommand({
+    channel: quoteSvc.QUOTE_CHANNELS.MANUAL_STAFF,
+    trustedLocationId: 'sunset-somo',
+    transportBody: {
+      accommodation: accomSel,
+      allowExistingAccommodationWhenDisabled: true,
+      requireEnabled: false,
+      historical_accommodation: true,
+      existing_accommodation: true,
+    },
+  });
+  ok('untrusted transportBody cannot set command historical permission',
+    spoofBuilt.ok === true
+    && spoofBuilt.command.allowExistingAccommodationWhenDisabled === false);
+  const spoofAppend = await quoteSvc.appendAccommodationToQuote(
+    disabledPg, spoofBuilt.command, [], 0, 'EUR',
+  );
+  ok('spoofed transportBody still rejects accommodation_disabled',
+    spoofAppend.ok === false
+    && spoofAppend.body
+    && (spoofAppend.body.reason_code === 'accommodation_disabled'
+      || spoofAppend.body.reason === 'accommodation_disabled'),
+    JSON.stringify(spoofAppend.body || spoofAppend));
+
+  // Edit owner wires permission only from locked service-row identity (source contract).
+  const drawerSrc = read('scripts/lib/sunset-schedule-booking-drawer.js');
+  const quoteSrc = read('scripts/lib/luna-front-desk-quote-service.js');
+  const writesSrc = read('scripts/lib/sunset-schedule-booking-writes.js');
+  ok('Edit derives hadStaffAccommodation from lockedBundle services only',
+    /hadStaffAccommodation\s*=\s*\(lockedBundle\.services/.test(drawerSrc)
+    && /isStaffAccommodationMeta/.test(drawerSrc)
+    && /allowExistingAccommodationWhenDisabled:\s*hadStaffAccommodation/.test(drawerSrc));
+  ok('quote command never reads historical flag from transportBody',
+    /opts\s*&&\s*opts\.allowExistingAccommodationWhenDisabled\s*===\s*true/.test(quoteSrc)
+    && !/transportBody\.allowExistingAccommodationWhenDisabled/.test(quoteSrc)
+    && !/body\.allowExistingAccommodationWhenDisabled/.test(quoteSrc));
+  ok('authoritative quote threads trusted flag only from opts',
+    /allowExistingAccommodationWhenDisabled:\s*\n?\s*opts\s*&&\s*opts\.allowExistingAccommodationWhenDisabled\s*===\s*true/.test(writesSrc)
+    || /opts && opts\.allowExistingAccommodationWhenDisabled === true/.test(writesSrc));
+
+  // (3) Disabled + existing explicit remove succeeds / no accommodation quote line.
+  const removeNorm = resolver.normalizeAccommodationSelection(null);
+  ok('explicit null selection skips', removeNorm.ok && removeNorm.skip === true);
+  const removeBuilt = quoteSvc.buildSunsetQuoteCommand({
+    channel: quoteSvc.QUOTE_CHANNELS.MANUAL_STAFF,
+    trustedLocationId: 'sunset-somo',
+    transportBody: { accommodation: null },
+    allowExistingAccommodationWhenDisabled: true,
+  });
+  const removeAppend = await quoteSvc.appendAccommodationToQuote(
+    disabledPg, removeBuilt.command, [], 5000, 'EUR',
+  );
+  ok('explicit remove leaves lines empty (no accom quote line)',
+    removeAppend.ok === true
+    && removeAppend.lines.length === 0
+    && removeAppend.totalCents === 5000);
+  const removeFalseBuilt = quoteSvc.buildSunsetQuoteCommand({
+    channel: quoteSvc.QUOTE_CHANNELS.MANUAL_STAFF,
+    trustedLocationId: 'sunset-somo',
+    transportBody: { accommodation: { enabled: false } },
+    allowExistingAccommodationWhenDisabled: true,
+  });
+  const removeFalseAppend = await quoteSvc.appendAccommodationToQuote(
+    disabledPg, removeFalseBuilt.command, [], 5000, 'EUR',
+  );
+  ok('enabled:false remove skips accommodation quote line',
+    removeFalseAppend.ok === true
+    && removeFalseAppend.lines.length === 0
+    && removeFalseAppend.totalCents === 5000);
+  // Edit pricing intent: explicit remove is unequal and fingerprint null.
+  const existingForRemove = drawer.pricingIntentFromBundle(unpaidExistingBundle);
+  const removeIntent = writes.buildSchedulePricingIntent({
+    service_dates: existingForRemove.service_dates,
+    components: {},
+    accommodation: null,
+  });
+  ok('explicit remove intent unequal + null fingerprint (Edit owner)',
+    writes.schedulePricingIntentsEqual(existingForRemove, removeIntent) === false
+    && removeIntent.accommodation == null
+    && writes.accommodationForIntentFingerprint(null) == null);
+
+  // (4) Paid changed-price intent remains blocked by existing paid gate.
+  const paidBundle = {
+    booking: {
+      guest_name: 'Ada',
+      payment_status: 'paid',
+      amount_paid_cents: 12000,
+      metadata: {
+        source: 'staff_manual_schedule',
+        staff_manual_schedule: true,
+        location_id: 'sunset-somo',
+      },
+    },
+    services: [{
+      service_record_id: 'sr-accom-p',
+      service_type: 'addon_service',
+      service_date: '2026-06-10',
+      quantity: 1,
+      amount_due_cents: 12000,
+      amount_paid_cents: 12000,
+      payment_status: 'paid',
+      record_source: 'staff_manual',
+      metadata: {
+        source: 'staff_accommodation',
+        staff_accommodation: true,
+        component: 'staff_accommodation',
+        check_in: '2026-06-10',
+        check_out: '2026-06-13',
+        nights: 3,
+        total_cents: 12000,
+        currency: 'EUR',
+      },
+    }],
+    payments_paid_cents: 12000,
+  };
+  const paidExisting = drawer.pricingIntentFromBundle(paidBundle);
+  const paidChanged = writes.buildSchedulePricingIntent({
+    service_dates: paidExisting.service_dates,
+    components: {},
+    accommodation: { enabled: true, check_in: '2026-06-10', check_out: '2026-06-15' },
+  });
+  ok('paid + changed accom dates unequal (would reprice)',
+    writes.schedulePricingIntentsEqual(paidExisting, paidChanged) === false);
+  ok('paid bundle is financially committed',
+    writes.isSunsetBookingFinanciallyCommitted(paidBundle) === true);
+  const paidGate = writes.paidBookingRepriceRequiredResult();
+  ok('paid reprice gate returns paid_booking_reprice_required',
+    paidGate.ok === false
+    && paidGate.status === 409
+    && paidGate.body
+    && paidGate.body.reason_code === writes.PAID_BOOKING_REPRICE_REQUIRED);
+  // Production Edit owner: pricingChanged && committed → paid gate (behavioral composition).
+  const pricingChangedPaid = !writes.schedulePricingIntentsEqual(paidExisting, paidChanged);
+  const wouldBlockPaid = pricingChangedPaid
+    && writes.isSunsetBookingFinanciallyCommitted(paidBundle);
+  ok('Edit paid composition blocks changed-price intent',
+    wouldBlockPaid === true);
+
+  // (5) Unchanged notes-only remains equal / non-reprice.
+  const notesOnly = writes.buildSchedulePricingIntent({
+    service_dates: paidExisting.service_dates,
+    components: {},
+    notes: 'leave towels please',
+    guest_name: 'Ada Lovelace',
+    accommodation: { enabled: true, check_in: '2026-06-10', check_out: '2026-06-13' },
+  });
+  ok('notes-only keeps pricing intent equal (non-reprice)',
+    writes.schedulePricingIntentsEqual(paidExisting, notesOnly) === true);
+  ok('notes-only does not trip paid reprice composition',
+    writes.schedulePricingIntentsEqual(paidExisting, notesOnly) === true
+    || !writes.isSunsetBookingFinanciallyCommitted(paidBundle) === false);
+  const notesOnlyWouldBlock = !writes.schedulePricingIntentsEqual(paidExisting, notesOnly)
+    && writes.isSunsetBookingFinanciallyCommitted(paidBundle);
+  ok('notes-only composition is non-reprice (no paid gate)',
+    notesOnlyWouldBlock === false);
+
+  // ── 9) Strict Admin euro→cents parser (production browser owner) ────────
+  console.log('\n[9] Admin strict euro→cents parser');
+  const adminParseFnSrc = extractNamedFn(adminUi, 'adminParseEurosToCents');
+  ok('adminParseEurosToCents extractable from production Admin UI', !!adminParseFnSrc);
+  let adminParseEurosToCents = null;
+  if (adminParseFnSrc) {
+    // eslint-disable-next-line no-new-func
+    adminParseEurosToCents = new Function(
+      'portalT',
+      `${adminParseFnSrc}\nreturn adminParseEurosToCents;`,
+    )((k) => String(k || 'err'));
+  }
+  if (adminParseEurosToCents) {
+    ok('parse 12 → 1200',
+      adminParseEurosToCents('12').ok && adminParseEurosToCents('12').value === 1200);
+    ok('parse 12.3 → 1230',
+      adminParseEurosToCents('12.3').ok && adminParseEurosToCents('12.3').value === 1230);
+    ok('parse 12.34 → 1234',
+      adminParseEurosToCents('12.34').ok && adminParseEurosToCents('12.34').value === 1234);
+    ok('parse comma 12,50 → 1250',
+      adminParseEurosToCents('12,50').ok && adminParseEurosToCents('12,50').value === 1250);
+    ok('parse euro-prefixed €12.34 → 1234',
+      adminParseEurosToCents('€12.34').ok && adminParseEurosToCents('€12.34').value === 1234);
+    ok('reject >2 decimals 12.345',
+      adminParseEurosToCents('12.345').ok === false);
+    ok('reject exponent 1e2',
+      adminParseEurosToCents('1e2').ok === false);
+    ok('reject negative -3.50',
+      adminParseEurosToCents('-3.50').ok === false);
+    ok('reject empty/invalid',
+      adminParseEurosToCents('').ok === false
+      && adminParseEurosToCents('abc').ok === false);
+    ok('reject NaN text',
+      adminParseEurosToCents('NaN').ok === false);
+  }
+  ok('Admin accommodation draft uses adminParseEurosToCents (not Math.round float)',
+    /adminParseEurosToCents\(eurRaw\)/.test(adminUi)
+    && !/Math\.round\(euros \* 100\)/.test(
+      (adminUi.match(/function adminReadAccommodationDraftFromDom[\s\S]*?\n\}/) || [''])[0],
+    ));
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);
 })().catch((err) => {

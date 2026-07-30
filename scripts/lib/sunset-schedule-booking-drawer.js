@@ -1767,20 +1767,21 @@ async function updateSunsetScheduleBooking(pg, opts) {
     }
 
     // Staff Accommodation — edit parity: change dates/reprice/remove. New add while disabled
-    // is blocked; existing accommodation may still reprice (historical edit safety).
+    // is blocked; existing dedicated staff_accommodation may still reprice (historical edit).
+    // Permission is derived only from locked service-row identity — never from request body.
+    const { isStaffAccommodationMeta } = require('./sunset-accommodation-price-resolver');
+    const hadStaffAccommodation = (lockedBundle.services || []).some((sr) => {
+      const m = parseMeta(sr.metadata);
+      return isStaffAccommodationMeta(m);
+    });
     if (input.accommodation && input.accommodation.enabled) {
       const { resolveAccommodationPrice } = require('./sunset-accommodation-admin');
-      const { isStaffAccommodationMeta } = require('./sunset-accommodation-price-resolver');
-      const hadAccom = ((bundle && bundle.services) || []).some((sr) => {
-        const m = parseMeta(sr.metadata);
-        return isStaffAccommodationMeta(m);
-      });
       const accomRes = await resolveAccommodationPrice(pg, {
         clientSlug,
         locationId: recordLocationId,
         checkIn: input.accommodation.check_in,
         checkOut: input.accommodation.check_out,
-        requireEnabled: !hadAccom,
+        requireEnabled: !hadStaffAccommodation,
       });
       if (!accomRes.ok) {
         return rollback({
@@ -1844,6 +1845,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
     }
 
     // Shared Create dual path: exact claim then total/balance before COMMIT.
+    // Thread locked-bundle historical accommodation permission into quote only.
     await applyAuthoritativeSchedulePricingInTxn(pg, {
       clientSlug, bookingId, clientId, createdRows,
       locationId: recordLocationId,
@@ -1855,6 +1857,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
       rentalPricingDescriptor,
       quoteChannel: opts.quoteChannel,
       quoteProvenance: opts.quoteProvenance,
+      allowExistingAccommodationWhenDisabled: hadStaffAccommodation,
       now: opts.now,
     });
 

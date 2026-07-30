@@ -252,12 +252,48 @@ function adminFormatEuroDisplay(amount){
   return '€' + s;
 }
 
+/**
+ * Strict euro text → integer cents (max 2 fraction digits, no float round).
+ * Accepts "12", "12.5", "12.50", "12,50". Rejects negatives, >2 decimals, NaN.
+ */
 function adminParseEurosToCents(text){
-  var normalized = String(text || '').trim().replace(',', '.');
-  if (!normalized) return { ok: false, error: portalT('admin.edit.amountRequired') };
-  var n = Number(normalized);
-  if (!Number.isFinite(n) || n < 0) return { ok: false, error: portalT('admin.edit.amountInvalid') };
-  return { ok: true, value: Math.round(n * 100) };
+  var s = String(text == null ? '' : text).trim();
+  if (!s) return { ok: false, error: portalT('admin.edit.amountRequired') };
+  s = s.replace(/[€$£\u00a0\s]/g, '');
+  if (!s) return { ok: false, error: portalT('admin.edit.amountRequired') };
+  if (s.charAt(0) === '+') s = s.slice(1);
+  if (s.charAt(0) === '-') return { ok: false, error: portalT('admin.edit.amountInvalid') };
+  // Locale: single comma with ≤2 trailing digits is decimal separator.
+  var lastDot = s.lastIndexOf('.');
+  var lastComma = s.lastIndexOf(',');
+  var normalized = s;
+  if (lastDot >= 0 && lastComma >= 0) {
+    normalized = lastComma > lastDot
+      ? s.replace(/\./g, '').replace(',', '.')
+      : s.replace(/,/g, '');
+  } else if (lastComma >= 0) {
+    var fracC = s.slice(lastComma + 1);
+    normalized = (/^\d{1,2}$/.test(fracC) && s.indexOf(',') === lastComma)
+      ? s.replace(',', '.')
+      : s.replace(/,/g, '');
+  }
+  if (!/^\d+(\.\d+)?$/.test(normalized)) {
+    return { ok: false, error: portalT('admin.edit.amountInvalid') };
+  }
+  var parts = normalized.split('.');
+  if (parts[1] != null && parts[1].length > 2) {
+    return { ok: false, error: portalT('admin.edit.amountInvalid') };
+  }
+  var whole = parts[0] || '0';
+  var frac = ((parts[1] || '') + '00').slice(0, 2);
+  var cents = parseInt(whole, 10) * 100 + parseInt(frac, 10);
+  if (!Number.isFinite(cents) || !Number.isInteger(cents) || cents < 0) {
+    return { ok: false, error: portalT('admin.edit.amountInvalid') };
+  }
+  if (cents > Number.MAX_SAFE_INTEGER) {
+    return { ok: false, error: portalT('admin.edit.amountInvalid') };
+  }
+  return { ok: true, value: cents };
 }
 function adminApiRequest(method, path, body){
   var opts = { method: method, headers: { Accept: 'application/json' }, credentials: 'same-origin' };
@@ -1592,13 +1628,13 @@ function adminReadAccommodationDraftFromDom(){
     var checkIn = String((card.querySelector('[data-accom-field="check_in"]') || {}).value || '').trim();
     var checkOut = String((card.querySelector('[data-accom-field="check_out"]') || {}).value || '').trim();
     var eurRaw = String((card.querySelector('[data-accom-field="amount_eur"]') || {}).value || '').trim();
-    var euros = Number(String(eurRaw).replace(',', '.'));
-    var cents = Math.round(euros * 100);
+    // Strict 2-decimal helper (same owner as other Admin euro fields) — never float Math.round.
+    var centsParsed = adminParseEurosToCents(eurRaw);
     ranges.push({
       title: title,
       check_in: checkIn,
       check_out: checkOut,
-      amount_cents: cents,
+      amount_cents: centsParsed.ok ? centsParsed.value : 0,
     });
   });
   return { enabled: enabled, ranges: ranges, currency: 'EUR' };

@@ -144,6 +144,11 @@ function buildSunsetQuoteCommand(opts) {
       },
     };
   }
+  // Historical accommodation reprice while product is disabled: only a trusted
+  // server-side option may relax requireEnabled. Never read this from transportBody
+  // (browser/Luna cannot self-grant permission).
+  const allowExistingAccommodationWhenDisabled =
+    opts && opts.allowExistingAccommodationWhenDisabled === true;
   return {
     ok: true,
     command: {
@@ -151,6 +156,7 @@ function buildSunsetQuoteCommand(opts) {
       clientSlug: SUNSET_CLIENT_SLUG,
       locationId,
       transportBody,
+      allowExistingAccommodationWhenDisabled,
       now: (opts && opts.now) instanceof Date ? opts.now : new Date(),
     },
   };
@@ -644,12 +650,16 @@ async function appendAccommodationToQuote(pg, command, lines, totalCents, curren
       },
     };
   }
+  // Existing dedicated staff_accommodation stays may reprice while product is
+  // disabled. Permission is server-derived on the quote command only — never
+  // from transportBody / browser / Luna fields.
+  const requireEnabled = command.allowExistingAccommodationWhenDisabled !== true;
   const pricedRes = await resolveAccommodationPrice(pg, {
     clientSlug: SUNSET_CLIENT_SLUG,
     locationId: command.locationId,
     checkIn: sel.value.check_in,
     checkOut: sel.value.check_out,
-    requireEnabled: true,
+    requireEnabled,
   });
   if (!pricedRes.ok) {
     return {
