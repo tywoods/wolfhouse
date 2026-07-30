@@ -754,7 +754,16 @@ function formatAccommodationBookingCard(meta, amountDueCents) {
   const m = meta && typeof meta === 'object' ? meta : {};
   const checkIn = String(m.check_in || '').slice(0, 10);
   const checkOut = String(m.check_out || '').slice(0, 10);
-  const nights = Number(m.nights) || (Array.isArray(m.occupied_nights) ? m.occupied_nights.length : 0);
+  // Prefer explicit nights / occupied_nights; fall back to ISO half-open arithmetic
+  // so missing snapshot nights never surface as misleading 0 on locked cards.
+  let nights = Number(m.nights) || (Array.isArray(m.occupied_nights) ? m.occupied_nights.length : 0);
+  if (!nights && isIsoDate(checkIn) && isIsoDate(checkOut) && compareIso(checkOut, checkIn) > 0) {
+    const occ = occupiedNights(checkIn, checkOut);
+    if (occ.ok) nights = occ.nights.length;
+  }
+  if (!nights && Array.isArray(m.season_groups)) {
+    nights = m.season_groups.reduce((sum, g) => sum + (Number(g && g.nights) || 0), 0);
+  }
   const total = m.total_cents != null
     ? Number(m.total_cents)
     : (m.amount_cents != null ? Number(m.amount_cents) : Number(amountDueCents) || 0);

@@ -384,8 +384,276 @@ ok('EN Save', /'schedule\.create\.accommodation\.save': 'Save'/.test(i18nEn));
 ok('IT Save', /'schedule\.create\.accommodation\.save': 'Salva'/.test(i18nEn));
 ok('ES Save', /'schedule\.create\.accommodation\.save': 'Guardar'/.test(i18nEs));
 
-// ── 6) Parse smoke ─────────────────────────────────────────────────────────
-console.log('\n[6] Parse smoke');
+// ── 6) Locked-card nights after quote merge (Create + Edit production owners) ─
+console.log('\n[6] Locked-card nights after quote attachment (Create + Edit)');
+
+// Guard: card owners must not overwrite ISO-derived nights with finite q.nights
+// (the bug: quote nights:0 → "0 nights" while dates persist Jul 31 → Aug 4).
+ok('Create card does not prefer q.nights over date-derived nights', (() => {
+  const fn = extractNamedFn(apiSrc, 'scheduleRenderCreateAccommodationCardHtml') || '';
+  return /scheduleCreateAccommodationNights\s*\(/.test(fn)
+    && !/if\s*\(\s*q\s*&&\s*Number\.isFinite\s*\(\s*Number\s*\(\s*q\.nights\s*\)\s*\)\s*\)\s*nights\s*=\s*Number\s*\(\s*q\.nights\s*\)/.test(fn);
+})());
+ok('Edit card does not prefer q.nights over date-derived nights', (() => {
+  const fn = extractNamedFn(editUi, 'scheduleDrawerRenderAccommodationCardHtml') || '';
+  return /scheduleDrawerAccommodationNights\s*\(/.test(fn)
+    && !/if\s*\(\s*q\s*&&\s*Number\.isFinite\s*\(\s*Number\s*\(\s*q\.nights\s*\)\s*\)\s*\)\s*nights\s*=\s*Number\s*\(\s*q\.nights\s*\)/.test(fn);
+})());
+ok('Create quote merge resolves nights (no bare Number(match.nights)||0 path)',
+  /function scheduleResolveAccommodationQuoteNights\s*\(/.test(apiSrc)
+  && /scheduleResolveAccommodationQuoteNights\s*\(\s*match/.test(apiSrc));
+ok('Edit quote merge + attach parity present',
+  /function scheduleDrawerResolveAccommodationQuoteNights\s*\(/.test(editUi)
+  && /function scheduleAttachDrawerAccommodationQuote\s*\(/.test(editUi)
+  && /scheduleAttachDrawerAccommodationQuote\s*\(\s*result\.body\s*\)/.test(editUi));
+
+(function runLockedCardNightsSandbox() {
+  function portalT(k) {
+    if (k === 'schedule.create.accommodation.title') return 'Accommodation';
+    if (k === 'schedule.create.accommodation.total') return 'Total';
+    if (k === 'schedule.create.accommodation.edit') return 'Edit';
+    if (k === 'schedule.create.accommodation.remove') return 'Remove';
+    return k;
+  }
+  function escHtml(s) { return String(s == null ? '' : s); }
+  function scheduleEscapeHtmlLite(s) { return escHtml(s); }
+  function scheduleFormatCentsMoney(c) { return '€' + (Number(c) / 100).toFixed(2); }
+  function scheduleCreateDateRangeDisplayText(from, to) {
+    from = from ? String(from).slice(0, 10) : '';
+    to = to ? String(to).slice(0, 10) : from;
+    if (!from) return 'Select dates';
+    if (!to || from === to) return from;
+    return from + ' – ' + to;
+  }
+
+  // ── Create production path: attach quote (nights:0) → locked card HTML ──
+  const createBody = [
+    extractNamedFn(apiSrc, 'scheduleAddIsoDays'),
+    extractNamedFn(apiSrc, 'scheduleCreateAccommodationNights'),
+    extractNamedFn(apiSrc, 'scheduleResolveAccommodationQuoteNights'),
+    extractNamedFn(apiSrc, 'scheduleCreateAccommodationDisplayText'),
+    extractNamedFn(apiSrc, 'scheduleAttachCreateAccommodationQuote'),
+    extractNamedFn(apiSrc, 'scheduleRenderCreateAccommodationCardHtml'),
+    // Minimal render stub so attach can call it without DOM.
+    'function scheduleRenderCreateAccommodation(){ /* sandbox */ }',
+  ].filter(Boolean).join('\n');
+  ok('extracted Create nights/attach/card owners', createBody.length > 200);
+
+  // eslint-disable-next-line no-new-func
+  const createRun = new Function(
+    'portalT', 'escHtml', 'scheduleEscapeHtmlLite', 'scheduleFormatCentsMoney',
+    'scheduleCreateDateRangeDisplayText',
+    'var scheduleCreateAccommodationStays = [];\n'
+    + createBody
+    + '\nreturn {\n'
+    + '  setStays: function(s){ scheduleCreateAccommodationStays = s; },\n'
+    + '  getStays: function(){ return scheduleCreateAccommodationStays; },\n'
+    + '  attach: scheduleAttachCreateAccommodationQuote,\n'
+    + '  cardHtml: scheduleRenderCreateAccommodationCardHtml,\n'
+    + '  nights: scheduleCreateAccommodationNights,\n'
+    + '  resolve: scheduleResolveAccommodationQuoteNights,\n'
+    + '};\n',
+  );
+  const createApi = createRun(
+    portalT, escHtml, scheduleEscapeHtmlLite, scheduleFormatCentsMoney,
+    scheduleCreateDateRangeDisplayText,
+  );
+
+  // Helper unit cases (timezone-safe ISO arithmetic)
+  ok('Create helper Jul 31→Aug 4 = 4', createApi.nights('2026-07-31', '2026-08-04') === 4);
+  ok('Create helper Dec 31→Jan 2 = 2', createApi.nights('2026-12-31', '2027-01-02') === 2);
+  ok('Create helper same-day fails closed to 0', createApi.nights('2026-07-31', '2026-07-31') === 0);
+  ok('Create helper inverted fails closed to 0', createApi.nights('2026-08-04', '2026-07-31') === 0);
+  ok('Create helper invalid fails closed to 0', createApi.nights('Jul 31', 'Aug 4') === 0);
+
+  // Production locked-card path: stay dates correct, quote enrichment nights:0
+  // with authoritative season/price — card must show 4 nights, keep money.
+  createApi.setStays([{
+    client_stay_id: 'as_jul',
+    check_in: '2026-07-31',
+    check_out: '2026-08-04',
+    quote: null,
+  }]);
+  createApi.attach({
+    line_items: [{
+      staff_accommodation: true,
+      client_stay_id: 'as_jul',
+      check_in: '2026-07-31',
+      check_out: '2026-08-04',
+      nights: 0, // buggy / missing snapshot nights
+      total_cents: 20000,
+      currency: 'EUR',
+      season_groups: [
+        { title: 'High', nights: 4, nightly_cents: 5000, subtotal_cents: 20000 },
+      ],
+      label: 'Accommodation · High · 4 nights',
+    }],
+  });
+  const createStay = createApi.getStays()[0];
+  ok('Create attach stores positive nights (not 0) for Jul31→Aug4',
+    createStay && createStay.quote && createStay.quote.nights === 4,
+    createStay && createStay.quote ? 'nights=' + createStay.quote.nights : 'no quote');
+  ok('Create attach preserves season_groups + total',
+    createStay && createStay.quote
+    && createStay.quote.total_cents === 20000
+    && Array.isArray(createStay.quote.season_groups)
+    && createStay.quote.season_groups[0].title === 'High'
+    && createStay.quote.season_groups[0].nights === 4);
+  const createHtmlJul = createApi.cardHtml(createStay);
+  ok('Create locked card shows 4 nights for Jul31→Aug4 after quote nights:0',
+    /4 nights/.test(createHtmlJul) && !/>0 nights</.test(createHtmlJul)
+    && /ps-create-accommodation-card/.test(createHtmlJul),
+    createHtmlJul.slice(0, 280));
+  ok('Create locked card keeps season price summary',
+    /High/.test(createHtmlJul) && /€200\.00/.test(createHtmlJul));
+
+  // Cross-year
+  createApi.setStays([{
+    client_stay_id: 'as_nye',
+    check_in: '2026-12-31',
+    check_out: '2027-01-02',
+    quote: null,
+  }]);
+  createApi.attach({
+    line_items: [{
+      component: 'staff_accommodation',
+      client_stay_id: 'as_nye',
+      check_in: '2026-12-31',
+      check_out: '2027-01-02',
+      nights: 0,
+      total_cents: 8000,
+      currency: 'EUR',
+      season_groups: [
+        { title: 'Low', nights: 2, nightly_cents: 4000, subtotal_cents: 8000 },
+      ],
+    }],
+  });
+  const createNye = createApi.getStays()[0];
+  ok('Create attach Dec31→Jan2 nights=2',
+    createNye && createNye.quote && createNye.quote.nights === 2);
+  ok('Create locked card shows 2 nights for Dec31→Jan2',
+    /2 nights/.test(createApi.cardHtml(createNye)));
+
+  // Fail closed on invalid stay even with quote.nights>0 — display uses dates.
+  const invalidHtml = createApi.cardHtml({
+    client_stay_id: 'as_bad',
+    check_in: '2026-07-31',
+    check_out: '2026-07-31',
+    quote: {
+      nights: 99,
+      total_cents: 1000,
+      season_groups: [{ title: 'X', nights: 99, nightly_cents: 10, subtotal_cents: 1000 }],
+    },
+  });
+  ok('Create invalid same-day card fails closed to 0 nights (ignores quote.nights=99)',
+    /0 nights/.test(invalidHtml) && !/99 nights/.test(invalidHtml));
+
+  // ── Edit production path parity ──
+  const editBody = [
+    extractNamedFn(editUi, 'scheduleDrawerAddIsoDays'),
+    extractNamedFn(editUi, 'scheduleDrawerAccommodationNights'),
+    extractNamedFn(editUi, 'scheduleDrawerResolveAccommodationQuoteNights'),
+    extractNamedFn(editUi, 'scheduleDrawerAccommodationDisplayText'),
+    extractNamedFn(editUi, 'scheduleAttachDrawerAccommodationQuote'),
+    extractNamedFn(editUi, 'scheduleDrawerRenderAccommodationCardHtml'),
+    'function scheduleDrawerRenderAccommodation(){ /* sandbox */ }',
+  ].filter(Boolean).join('\n');
+  ok('extracted Edit nights/attach/card owners', editBody.length > 200);
+
+  // eslint-disable-next-line no-new-func
+  const editRun = new Function(
+    'portalT', 'escHtml', 'scheduleEscapeHtmlLite', 'scheduleFormatCentsMoney',
+    'scheduleCreateDateRangeDisplayText',
+    'var scheduleDrawerAccommodationStays = [];\n'
+    + editBody
+    + '\nreturn {\n'
+    + '  setStays: function(s){ scheduleDrawerAccommodationStays = s; },\n'
+    + '  getStays: function(){ return scheduleDrawerAccommodationStays; },\n'
+    + '  attach: scheduleAttachDrawerAccommodationQuote,\n'
+    + '  cardHtml: scheduleDrawerRenderAccommodationCardHtml,\n'
+    + '  nights: scheduleDrawerAccommodationNights,\n'
+    + '};\n',
+  );
+  const editApi = editRun(
+    portalT, escHtml, scheduleEscapeHtmlLite, scheduleFormatCentsMoney,
+    scheduleCreateDateRangeDisplayText,
+  );
+
+  ok('Edit helper Jul 31→Aug 4 = 4', editApi.nights('2026-07-31', '2026-08-04') === 4);
+  ok('Edit helper Dec 31→Jan 2 = 2', editApi.nights('2026-12-31', '2027-01-02') === 2);
+  ok('Edit helper same-day fails closed to 0', editApi.nights('2026-07-31', '2026-07-31') === 0);
+
+  editApi.setStays([{
+    client_stay_id: 'as_edit_jul',
+    check_in: '2026-07-31',
+    check_out: '2026-08-04',
+    quote: { nights: 0, total_cents: 1, season_groups: [] }, // stale seed
+  }]);
+  editApi.attach({
+    line_items: [{
+      price_source: 'staff_accommodation',
+      client_stay_id: 'as_edit_jul',
+      check_in: '2026-07-31',
+      check_out: '2026-08-04',
+      nights: 0,
+      total_cents: 20000,
+      currency: 'EUR',
+      season_groups: [
+        { title: 'High', nights: 4, nightly_cents: 5000, subtotal_cents: 20000 },
+      ],
+    }],
+  });
+  const editStay = editApi.getStays()[0];
+  ok('Edit attach stores nights=4 for Jul31→Aug4 despite quote nights:0',
+    editStay && editStay.quote && editStay.quote.nights === 4);
+  const editHtmlJul = editApi.cardHtml(editStay);
+  ok('Edit locked card shows 4 nights for Jul31→Aug4 after quote nights:0',
+    /4 nights/.test(editHtmlJul) && !/>0 nights</.test(editHtmlJul)
+    && /ps-drawer-accommodation-card/.test(editHtmlJul),
+    editHtmlJul.slice(0, 280));
+  ok('Edit locked card keeps season price summary',
+    /High/.test(editHtmlJul) && /€200\.00/.test(editHtmlJul));
+
+  editApi.setStays([{
+    client_stay_id: 'as_edit_nye',
+    check_in: '2026-12-31',
+    check_out: '2027-01-02',
+    quote: null,
+  }]);
+  editApi.attach({
+    line_items: [{
+      staff_accommodation: true,
+      client_stay_id: 'as_edit_nye',
+      check_in: '2026-12-31',
+      check_out: '2027-01-02',
+      nights: 0,
+      total_cents: 8000,
+      currency: 'EUR',
+      season_groups: [{ title: 'Low', nights: 2, nightly_cents: 4000, subtotal_cents: 8000 }],
+    }],
+  });
+  ok('Edit locked card shows 2 nights for Dec31→Jan2',
+    /2 nights/.test(editApi.cardHtml(editApi.getStays()[0])));
+
+  const editInvalid = editApi.cardHtml({
+    client_stay_id: 'as_edit_bad',
+    check_in: 'not-a-date',
+    check_out: '2026-08-04',
+    quote: { nights: 4, total_cents: 1000, season_groups: [] },
+  });
+  ok('Edit invalid dates fail closed to 0 nights (ignores quote.nights)',
+    /0 nights/.test(editInvalid) && !/4 nights/.test(editInvalid));
+
+  // Both owners share corrected helper behavior (cross-month + cross-year).
+  ok('Create/Edit helpers agree on cross-month and cross-year',
+    createApi.nights('2026-07-31', '2026-08-04') === editApi.nights('2026-07-31', '2026-08-04')
+    && createApi.nights('2026-12-31', '2027-01-02') === editApi.nights('2026-12-31', '2027-01-02')
+    && createApi.nights('2026-07-31', '2026-08-04') === 4
+    && createApi.nights('2026-12-31', '2027-01-02') === 2);
+})();
+
+// ── 7) Parse smoke ─────────────────────────────────────────────────────────
+console.log('\n[7] Parse smoke');
 ok('admin ui parses', (() => {
   try { new Function(adminUi); return true; } catch (e) { return false; }
 })());
@@ -401,6 +669,40 @@ ok('Create Save + date-range owners parse together', (() => {
       extractNamedFn(apiSrc, 'scheduleReadCreateAccommodation'),
     ].join('\n');
     new Function(chunk);
+    return true;
+  } catch (e) {
+    return false;
+  }
+})());
+ok('Create nights/attach/card owners parse together', (() => {
+  try {
+    const chunk = [
+      extractNamedFn(apiSrc, 'scheduleAddIsoDays'),
+      extractNamedFn(apiSrc, 'scheduleCreateAccommodationNights'),
+      extractNamedFn(apiSrc, 'scheduleResolveAccommodationQuoteNights'),
+      extractNamedFn(apiSrc, 'scheduleAttachCreateAccommodationQuote'),
+      extractNamedFn(apiSrc, 'scheduleRenderCreateAccommodationCardHtml'),
+      'function scheduleRenderCreateAccommodation(){}',
+      'function scheduleCreateAccommodationDisplayText(a,b){return a+" – "+b;}',
+    ].join('\n');
+    new Function('portalT', 'escHtml', chunk);
+    return true;
+  } catch (e) {
+    return false;
+  }
+})());
+ok('Edit nights/attach/card owners parse together', (() => {
+  try {
+    const chunk = [
+      extractNamedFn(editUi, 'scheduleDrawerAddIsoDays'),
+      extractNamedFn(editUi, 'scheduleDrawerAccommodationNights'),
+      extractNamedFn(editUi, 'scheduleDrawerResolveAccommodationQuoteNights'),
+      extractNamedFn(editUi, 'scheduleAttachDrawerAccommodationQuote'),
+      extractNamedFn(editUi, 'scheduleDrawerRenderAccommodationCardHtml'),
+      'function scheduleDrawerRenderAccommodation(){}',
+      'function scheduleDrawerAccommodationDisplayText(a,b){return a+" – "+b;}',
+    ].join('\n');
+    new Function('portalT', 'escHtml', chunk);
     return true;
   } catch (e) {
     return false;

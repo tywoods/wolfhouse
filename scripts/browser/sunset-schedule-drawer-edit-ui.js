@@ -2791,6 +2791,13 @@ function scheduleDrawerRenderQuotePreview(result) {
   box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0">'
     + escHtml((portalT('schedule.create.quoteTotal') || 'Quoted total') + ': \u20ac' + (raw / 100).toFixed(2)) + '</p>';
   box.style.display = 'block';
+  // Attach authoritative accommodation season/price onto locked Edit stay cards
+  // (Create parity). Nights display still derives from ISO stay dates.
+  try {
+    if (typeof scheduleAttachDrawerAccommodationQuote === 'function' && result.body) {
+      scheduleAttachDrawerAccommodationQuote(result.body);
+    }
+  } catch (_aq) { /* ignore */ }
 }
 
 function scheduleDrawerHumanCourseBit(course) {
@@ -3742,6 +3749,12 @@ function scheduleDrawerAccommodationOverlaps(checkIn, checkOut, excludeId) {
   return null;
 }
 
+/**
+ * Half-open occupied nights [checkIn, checkOut) via timezone-safe ISO-day steps.
+ * Invalid / same-day / inverted stays fail closed to 0 (no misleading count).
+ * Does not parse display-formatted dates. Create/Edit parity with
+ * scheduleCreateAccommodationNights.
+ */
 function scheduleDrawerAccommodationNights(checkIn, checkOut) {
   var a = String(checkIn || '').slice(0, 10);
   var b = String(checkOut || '').slice(0, 10);
@@ -3755,6 +3768,65 @@ function scheduleDrawerAccommodationNights(checkIn, checkOut) {
   return n;
 }
 
+/**
+ * Resolve nights for Edit quote merge (parity with Create
+ * scheduleResolveAccommodationQuoteNights). Never keep bare 0 when dates imply
+ * a positive half-open stay.
+ */
+function scheduleDrawerResolveAccommodationQuoteNights(match, checkIn, checkOut) {
+  var derived = scheduleDrawerAccommodationNights(checkIn, checkOut);
+  var quoted = match && match.nights != null ? Number(match.nights) : NaN;
+  if (Number.isFinite(quoted) && quoted > 0) return quoted;
+  var groups = match && Array.isArray(match.season_groups) ? match.season_groups : [];
+  var sum = 0;
+  for (var i = 0; i < groups.length; i += 1) {
+    var gn = Number(groups[i] && groups[i].nights);
+    if (Number.isFinite(gn) && gn > 0) sum += gn;
+  }
+  if (sum > 0) return sum;
+  return derived;
+}
+
+/** Attach authoritative quote season/price onto locked Edit stay cards. */
+function scheduleAttachDrawerAccommodationQuote(quoteBody) {
+  var lines = (quoteBody && Array.isArray(quoteBody.line_items)) ? quoteBody.line_items : [];
+  var accomLines = lines.filter(function(li) {
+    return li && (li.staff_accommodation === true
+      || li.component === 'staff_accommodation'
+      || li.price_source === 'staff_accommodation');
+  });
+  (scheduleDrawerAccommodationStays || []).forEach(function(stay) {
+    if (!stay) return;
+    var match = null;
+    for (var i = 0; i < accomLines.length; i += 1) {
+      var li = accomLines[i];
+      if (stay.client_stay_id && li.client_stay_id
+        && String(stay.client_stay_id) === String(li.client_stay_id)) {
+        match = li; break;
+      }
+    }
+    if (!match) {
+      for (var j = 0; j < accomLines.length; j += 1) {
+        var lj = accomLines[j];
+        if (String(lj.check_in || '').slice(0, 10) === String(stay.check_in || '').slice(0, 10)
+          && String(lj.check_out || '').slice(0, 10) === String(stay.check_out || '').slice(0, 10)) {
+          match = lj; break;
+        }
+      }
+    }
+    if (match) {
+      stay.quote = {
+        total_cents: Number(match.total_cents != null ? match.total_cents : match.line_cents),
+        nights: scheduleDrawerResolveAccommodationQuoteNights(match, stay.check_in, stay.check_out),
+        season_groups: Array.isArray(match.season_groups) ? match.season_groups : [],
+        currency: String(match.currency || 'EUR').toUpperCase() || 'EUR',
+        label: match.label || null,
+      };
+    }
+  });
+  scheduleDrawerRenderAccommodation();
+}
+
 function scheduleDrawerRenderAccommodationCardHtml(stay) {
   var esc = typeof scheduleEscapeHtmlLite === 'function' ? scheduleEscapeHtmlLite
     : (typeof escHtml === 'function' ? escHtml : function(s) { return String(s == null ? '' : s); });
@@ -3762,6 +3834,8 @@ function scheduleDrawerRenderAccommodationCardHtml(stay) {
     ? scheduleFormatCentsMoney
     : function(c) { return '€' + (Number(c) / 100).toFixed(2); };
   var id = String(stay.client_stay_id || '');
+  // Locked-card nights owner: always ISO half-open arithmetic from stay dates.
+  // Quote supplies season/price only — never let q.nights (incl. 0/stale) overwrite.
   var nights = scheduleDrawerAccommodationNights(stay.check_in, stay.check_out);
   var dateText = scheduleDrawerAccommodationDisplayText(stay.check_in, stay.check_out);
   var q = stay.quote || null;
@@ -3769,7 +3843,6 @@ function scheduleDrawerRenderAccommodationCardHtml(stay) {
   var titles = groups.map(function(g) { return String((g && g.title) || '').trim(); }).filter(Boolean);
   var titleText = titles.length ? titles.join(' · ')
     : (portalT('schedule.create.accommodation.title') || 'Accommodation');
-  if (q && Number.isFinite(Number(q.nights))) nights = Number(q.nights);
   var nightsLabel = nights + ' night' + (nights === 1 ? '' : 's');
   var html = '<div class="portal-schedule-create-accommodation-card is-locked" data-testid="ps-drawer-accommodation-card" data-client-stay-id="'
     + esc(id) + '">';

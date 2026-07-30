@@ -23080,6 +23080,11 @@ function scheduleCreateAccommodationOverlaps(checkIn, checkOut, excludeId){
   return null;
 }
 
+/**
+ * Half-open occupied nights [checkIn, checkOut) via timezone-safe ISO-day steps.
+ * Invalid / same-day / inverted stays fail closed to 0 (no misleading count).
+ * Does not parse display-formatted dates.
+ */
 function scheduleCreateAccommodationNights(checkIn, checkOut){
   var a = String(checkIn || '').slice(0, 10);
   var b = String(checkOut || '').slice(0, 10);
@@ -23091,6 +23096,25 @@ function scheduleCreateAccommodationNights(checkIn, checkOut){
     cur = scheduleAddIsoDays(cur, 1);
   }
   return n;
+}
+
+/**
+ * Resolve nights for quote merge: prefer positive quoted nights, else ISO-day
+ * arithmetic from stay dates, else sum of season_groups. Never keep bare 0 when
+ * dates imply a positive half-open stay (avoids locked-card "0 nights" overwrite).
+ */
+function scheduleResolveAccommodationQuoteNights(match, checkIn, checkOut){
+  var derived = scheduleCreateAccommodationNights(checkIn, checkOut);
+  var quoted = match && match.nights != null ? Number(match.nights) : NaN;
+  if (Number.isFinite(quoted) && quoted > 0) return quoted;
+  var groups = match && Array.isArray(match.season_groups) ? match.season_groups : [];
+  var sum = 0;
+  for (var i = 0; i < groups.length; i += 1) {
+    var gn = Number(groups[i] && groups[i].nights);
+    if (Number.isFinite(gn) && gn > 0) sum += gn;
+  }
+  if (sum > 0) return sum;
+  return derived;
 }
 
 /** Attach authoritative quote season/price onto locked stay cards (never invent money). */
@@ -23123,7 +23147,9 @@ function scheduleAttachCreateAccommodationQuote(quoteBody){
     if (match) {
       stay.quote = {
         total_cents: Number(match.total_cents != null ? match.total_cents : match.line_cents),
-        nights: Number(match.nights) || scheduleCreateAccommodationNights(stay.check_in, stay.check_out),
+        // Merge owner: never write nights:0 over a valid half-open stay (display
+        // still derives from ISO dates; stored nights stay consistent for readers).
+        nights: scheduleResolveAccommodationQuoteNights(match, stay.check_in, stay.check_out),
         season_groups: Array.isArray(match.season_groups) ? match.season_groups : [],
         currency: String(match.currency || 'EUR').toUpperCase() || 'EUR',
         label: match.label || null,
@@ -23139,6 +23165,8 @@ function scheduleRenderCreateAccommodationCardHtml(stay){
     ? scheduleFormatCentsMoney
     : function(c){ return '€' + (Number(c) / 100).toFixed(2); };
   var id = String(stay.client_stay_id || '');
+  // Locked-card nights owner: always ISO half-open arithmetic from stay dates.
+  // Quote supplies season/price only — never let q.nights (incl. 0/stale) overwrite.
   var nights = scheduleCreateAccommodationNights(stay.check_in, stay.check_out);
   var dateText = scheduleCreateAccommodationDisplayText(stay.check_in, stay.check_out);
   var q = stay.quote || null;
@@ -23146,7 +23174,6 @@ function scheduleRenderCreateAccommodationCardHtml(stay){
   var titles = groups.map(function(g){ return String((g && g.title) || '').trim(); }).filter(Boolean);
   if (!titles.length && q && q.label) titles = [String(q.label)];
   var titleText = titles.length ? titles.join(' · ') : (portalT('schedule.create.accommodation.title') || 'Accommodation');
-  if (q && Number.isFinite(Number(q.nights))) nights = Number(q.nights);
   var nightsLabel = nights + ' night' + (nights === 1 ? '' : 's');
   var html = '<div class="portal-schedule-create-accommodation-card is-locked" data-testid="ps-create-accommodation-card" data-client-stay-id="'
     + esc(id) + '">';
