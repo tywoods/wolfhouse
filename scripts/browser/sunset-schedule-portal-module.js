@@ -1350,8 +1350,12 @@ function scheduleFetchDrawerContext(row) {
 
 function schedulePortalHasSellableIntent(payload) {
   var p = payload || {}, c = p.components || {};
+  var accommodation = p.accommodation;
+  var hasAccommodation = !!(accommodation && accommodation.enabled !== false
+    && ((Array.isArray(accommodation.stays) && accommodation.stays.length)
+      || (accommodation.check_in && accommodation.check_out)));
   return !!(c.course || c.private_lesson || c.full_day_equipment_extension || c.surfboard || c.wetsuit
-    || (Array.isArray(p.rentals) && p.rentals.length));
+    || (Array.isArray(p.rentals) && p.rentals.length) || hasAccommodation);
 }
 
 /** Staff Create phone: nonblank + at least 6 digits (matches server isValidStaffCreateGuestPhone). */

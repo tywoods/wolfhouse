@@ -1275,14 +1275,22 @@ function mockPg() {
   ok('View multi-stay invoice lines match by dates/id',
     /data-check-in/.test(viewUi)
     && /line\.check_in && line\.check_out && li\.check_in/.test(viewUi));
+  const portalSource = read('scripts/browser/sunset-schedule-portal-module.js');
   ok('Quote fetch includes accommodation',
-    /accommodation:\s*createPayload\.accommodation/.test(
-      read('scripts/browser/sunset-schedule-portal-module.js'),
-    ));
+    /accommodation:\s*createPayload\.accommodation/.test(portalSource));
   ok('Quote pricing intent includes accommodation stays',
-    /schedulePortalNormalizeAccommodationIntent/.test(
-      read('scripts/browser/sunset-schedule-portal-module.js'),
-    ));
+    /schedulePortalNormalizeAccommodationIntent/.test(portalSource));
+  const hasSellableIntentSrc = extractNamedFn(portalSource, 'schedulePortalHasSellableIntent');
+  const hasSellableIntent = hasSellableIntentSrc
+    // eslint-disable-next-line no-new-func
+    ? new Function(hasSellableIntentSrc + '; return schedulePortalHasSellableIntent;')()
+    : null;
+  ok('Create soft quote gate treats singular accommodation-only as sellable',
+    !!hasSellableIntent && hasSellableIntent({ accommodation: { enabled: true, check_in: '2026-07-30', check_out: '2026-08-05' } }) === true);
+  ok('Create soft quote gate treats multi-stay accommodation-only as sellable',
+    !!hasSellableIntent && hasSellableIntent({ accommodation: { enabled: true, stays: [{ check_in: '2026-07-30', check_out: '2026-08-05' }] } }) === true);
+  ok('Create soft quote gate stays idle for empty accommodation',
+    !!hasSellableIntent && hasSellableIntent({ accommodation: { enabled: true, stays: [] } }) === false);
 
   // Disabled + grow stay count blocked on quote path
   const disabledGrow = await quoteSvc.appendAccommodationToQuote(
