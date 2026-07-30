@@ -16915,6 +16915,45 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-section:last-child{margin-bottom:0}
 .portal-schedule-create-section[data-create-section="when"][hidden],.portal-schedule-create-section.is-when-hidden{display:none !important}
 .portal-schedule-create-section-title{margin:0 0 10px;font-size:13px;font-weight:700;letter-spacing:.02em;color:var(--text);line-height:1.2}
+/* Guest identity card: label left + control right (Create + Edit). Compact rows; card hugs content. */
+.portal-schedule-create-section[data-create-section="guest"],
+.portal-schedule-create-section[data-edit-section="guest"]{display:flex;flex-direction:column;gap:0;padding:12px 14px}
+.portal-schedule-create-section[data-edit-section="guest"] > .portal-schedule-create-section-title{margin:0 0 10px}
+.portal-schedule-create-section[data-create-section="guest"] > .portal-schedule-create-field,
+.portal-schedule-create-section[data-create-section="guest"] > .portal-schedule-create-date-range-field,
+.portal-schedule-create-section[data-edit-section="guest"] > .portal-schedule-create-field,
+.portal-schedule-create-section[data-edit-section="guest"] > .portal-schedule-create-date-range-field{display:flex;align-items:center;gap:12px;margin:0 0 10px;min-width:0}
+.portal-schedule-create-section[data-create-section="guest"] > #ps-create-surfers-field,
+.portal-schedule-create-section[data-edit-section="guest"] > #ps-drawer-surfers-field{margin-bottom:0}
+.portal-schedule-create-section[data-create-section="guest"] > .portal-schedule-create-field > label,
+.portal-schedule-create-section[data-edit-section="guest"] > .portal-schedule-create-field > label,
+.portal-schedule-create-section[data-create-section="guest"] > .portal-schedule-create-date-range-field > .portal-schedule-create-label,
+.portal-schedule-create-section[data-edit-section="guest"] > .portal-schedule-create-date-range-field > .portal-schedule-create-label{flex:0 0 9rem;width:9rem;max-width:48%;margin:0;line-height:1.25;align-self:center}
+.portal-schedule-create-section[data-create-section="guest"] > .portal-schedule-create-field > input,
+.portal-schedule-create-section[data-create-section="guest"] > .portal-schedule-create-field > select,
+.portal-schedule-create-section[data-edit-section="guest"] > .portal-schedule-create-field > input,
+.portal-schedule-create-section[data-edit-section="guest"] > .portal-schedule-create-field > select,
+.portal-schedule-create-section[data-create-section="guest"] > .portal-schedule-create-date-range-field > .portal-schedule-create-date-range-trigger,
+.portal-schedule-create-section[data-edit-section="guest"] > .portal-schedule-create-date-range-field > .portal-schedule-create-date-range-trigger{flex:1 1 auto;min-width:0;width:auto;max-width:100%}
+/* Surfers stepper hugs content (not stretched full row). */
+.portal-schedule-create-section[data-create-section="guest"] > #ps-create-surfers-field > input,
+.portal-schedule-create-section[data-create-section="guest"] > #ps-create-surfers-field > .portal-schedule-int-stepper,
+.portal-schedule-create-section[data-edit-section="guest"] > #ps-drawer-surfers-field > input,
+.portal-schedule-create-section[data-edit-section="guest"] > #ps-drawer-surfers-field > .portal-schedule-int-stepper{flex:0 0 auto;width:auto;max-width:100%}
+@media(max-width:360px){
+  .portal-schedule-create-section[data-create-section="guest"] > .portal-schedule-create-field,
+  .portal-schedule-create-section[data-create-section="guest"] > .portal-schedule-create-date-range-field,
+  .portal-schedule-create-section[data-edit-section="guest"] > .portal-schedule-create-field,
+  .portal-schedule-create-section[data-edit-section="guest"] > .portal-schedule-create-date-range-field{flex-wrap:wrap;gap:6px 10px}
+  .portal-schedule-create-section[data-create-section="guest"] > .portal-schedule-create-field > label,
+  .portal-schedule-create-section[data-edit-section="guest"] > .portal-schedule-create-field > label,
+  .portal-schedule-create-section[data-create-section="guest"] > .portal-schedule-create-date-range-field > .portal-schedule-create-label,
+  .portal-schedule-create-section[data-edit-section="guest"] > .portal-schedule-create-date-range-field > .portal-schedule-create-label{flex:1 1 100%;width:auto;max-width:100%}
+  .portal-schedule-create-section[data-create-section="guest"] > .portal-schedule-create-field > input,
+  .portal-schedule-create-section[data-edit-section="guest"] > .portal-schedule-create-field > input,
+  .portal-schedule-create-section[data-create-section="guest"] > .portal-schedule-create-date-range-field > .portal-schedule-create-date-range-trigger,
+  .portal-schedule-create-section[data-edit-section="guest"] > .portal-schedule-create-date-range-field > .portal-schedule-create-date-range-trigger{flex:1 1 100%;width:100%}
+}
 .portal-schedule-create-footer{flex:0 0 auto;border-top:1px solid var(--border-soft);background:inherit;padding:12px 18px;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:3;position:relative;display:flex;flex-direction:column;gap:10px;overflow-x:hidden;overflow-y:visible;min-width:0}
 .portal-schedule-create-summary{min-height:18px;max-height:4.2em;font-size:12px;color:var(--text-3);line-height:1.35;overflow:hidden;display:flex;flex-direction:column;gap:2px;word-break:break-word;min-width:0}
 .portal-schedule-create-summary-primary{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2);font-weight:600;font-size:12px;line-height:1.35}
