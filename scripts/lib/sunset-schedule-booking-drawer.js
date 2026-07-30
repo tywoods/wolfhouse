@@ -1881,22 +1881,35 @@ async function updateSunsetScheduleBooking(pg, opts) {
     if (input.accommodation && input.accommodation.enabled) {
       const { resolveAccommodationPrice, loadAccommodationConfig } = require('./sunset-accommodation-admin');
       const accomStays = accommodationStaysFromSelection(input.accommodation);
-      // Disabled product: allow edit/remove/reprice of existing stays, block net-new.
+      // Growth beyond historical stay count requires product explicitly enabled.
+      // Config load failure or disabled must block net-new before insert —
+      // do not rely on later quote rollback or requireEnabled:false.
       if (hadStaffAccommodation && accomStays.length > existingAccommodationStayCount) {
+        let cfg;
         try {
-          const cfg = await loadAccommodationConfig(pg, clientSlug, recordLocationId);
-          if (cfg && cfg.enabled === false) {
-            return rollback({
-              ok: false,
-              status: 409,
-              body: {
-                success: false,
-                error: 'Accommodation is disabled; cannot add new stays to this booking.',
-                reason_code: 'accommodation_disabled',
-              },
-            });
-          }
-        } catch (_cfg) { /* resolveAccommodationPrice will enforce requireEnabled */ }
+          cfg = await loadAccommodationConfig(pg, clientSlug, recordLocationId);
+        } catch (_cfg) {
+          return rollback({
+            ok: false,
+            status: 409,
+            body: {
+              success: false,
+              error: 'Accommodation config unavailable; cannot add new stays to this booking.',
+              reason_code: 'accommodation_disabled',
+            },
+          });
+        }
+        if (!cfg || cfg.enabled !== true) {
+          return rollback({
+            ok: false,
+            status: 409,
+            body: {
+              success: false,
+              error: 'Accommodation is disabled; cannot add new stays to this booking.',
+              reason_code: 'accommodation_disabled',
+            },
+          });
+        }
       }
       for (const stay of accomStays) {
         const accomRes = await resolveAccommodationPrice(pg, {

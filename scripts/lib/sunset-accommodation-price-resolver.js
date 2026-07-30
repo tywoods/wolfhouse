@@ -436,6 +436,26 @@ function normalizeAccommodationStay(raw, index) {
 }
 
 /**
+ * Reject duplicate non-empty client_stay_id values early (null/empty allowed).
+ */
+function findDuplicateClientStayId(stays) {
+  const seen = new Set();
+  for (const s of Array.isArray(stays) ? stays : []) {
+    const id = s && s.client_stay_id != null ? String(s.client_stay_id).trim() : '';
+    if (!id) continue;
+    if (seen.has(id)) {
+      return {
+        client_stay_id: id,
+        error: `Duplicate accommodation client_stay_id: ${id}`,
+        reason_code: 'accommodation_client_stay_id_duplicate',
+      };
+    }
+    seen.add(id);
+  }
+  return null;
+}
+
+/**
  * Half-open stay overlap: prev.check_out > cur.check_in.
  * Adjacent (prev.check_out === cur.check_in) allowed.
  */
@@ -558,6 +578,15 @@ function normalizeAccommodationSelection(raw) {
       if (!one.ok) return one;
       stays.push(one.value);
     }
+    const dup = findDuplicateClientStayId(stays);
+    if (dup) {
+      return {
+        ok: false,
+        error: dup.error,
+        reason_code: dup.reason_code,
+        client_stay_id: dup.client_stay_id,
+      };
+    }
     const overlap = findOverlappingAccommodationStays(stays);
     if (overlap) {
       return {
@@ -603,6 +632,15 @@ function normalizeAccommodationSelection(raw) {
       const one = normalizeAccommodationStay(raw.stays[i], i);
       if (!one.ok) return one;
       stays.push(one.value);
+    }
+    const dup = findDuplicateClientStayId(stays);
+    if (dup) {
+      return {
+        ok: false,
+        error: dup.error,
+        reason_code: dup.reason_code,
+        client_stay_id: dup.client_stay_id,
+      };
     }
     const overlap = findOverlappingAccommodationStays(stays);
     if (overlap) {

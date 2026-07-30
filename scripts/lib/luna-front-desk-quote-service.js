@@ -670,9 +670,26 @@ async function appendAccommodationToQuote(pg, command, lines, totalCents, curren
   // disabled. Permission is server-derived on the quote command only — never
   // from transportBody / browser / Luna fields.
   const allowHistorical = command.allowExistingAccommodationWhenDisabled === true;
+  // Historical path must carry an explicit non-negative stay count from the
+  // trusted Edit owner. Never fall back to stays.length (that would let net-new
+  // slip through while product is disabled).
+  if (allowHistorical
+    && (!Number.isInteger(command.existingAccommodationStayCount)
+      || command.existingAccommodationStayCount < 0)) {
+    return {
+      ok: false,
+      status: 500,
+      body: {
+        success: false,
+        reason: 'accommodation_existing_stay_count_invalid',
+        reason_code: 'accommodation_existing_stay_count_invalid',
+        error: 'Internal validation: existingAccommodationStayCount must be a non-negative integer when historical accommodation reprice is allowed.',
+      },
+    };
+  }
   const existingStayCount = Number.isInteger(command.existingAccommodationStayCount)
     ? Math.max(0, command.existingAccommodationStayCount)
-    : (allowHistorical ? stays.length : 0);
+    : 0;
 
   // When product disabled: block net-new stays even on the historical path.
   try {
@@ -1412,10 +1429,22 @@ function quoteHasCanonicalLessons(body) {
   return !!(body && Array.isArray(body.lessons) && body.lessons.length > 0);
 }
 
+/** True when transport body carries a valid non-skip accommodation selection. */
+function quoteHasAccommodationSelection(body) {
+  const {
+    normalizeAccommodationSelection,
+  } = require('./sunset-accommodation-price-resolver');
+  const sel = normalizeAccommodationSelection(body && body.accommodation);
+  return !!(sel && sel.ok && !sel.skip && sel.value);
+}
+
 function quoteShouldUseComponentsPath(body) {
+  // Accommodation-only staff previews must use the components path so
+  // appendAccommodationToQuote can emit authoritative line items.
   return quoteHasNonEmptyComponents(body)
     || quoteHasRentalsArray(body)
-    || quoteHasCanonicalLessons(body);
+    || quoteHasCanonicalLessons(body)
+    || quoteHasAccommodationSelection(body);
 }
 
 function inclusiveIsoDatesFromRange(dateFrom, dateTo) {
@@ -1565,12 +1594,15 @@ function resolveQuoteComponentsAndRentalsInput(command) {
 
   let input;
   const hasLessons = quoteHasCanonicalLessons(body);
-  if (hasComponents || hasLessons) {
+  const hasAccommodation = quoteHasAccommodationSelection(body);
+  if (hasComponents || hasLessons || hasAccommodation) {
     // Quote is not gated on guest name/phone — Create remains fail-closed.
     // Use command.now as date ref (same as outer dateNorm) — never wall-clock drift.
     // lessons[] alone is enough: validate expands to components for legacy paths.
+    // Accommodation may be the sole commercial line (empty components allowed).
     const validated = validateScheduleBookingBody(body, {
       allowBlankGuest: true,
+      allowEmptyComponents: hasAccommodation && !hasComponents && !hasLessons,
       refDate: command.now,
       ...forceOpts,
     });

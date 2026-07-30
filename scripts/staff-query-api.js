@@ -41706,8 +41706,22 @@ async function handleSunsetScheduleBookingQuote(query, req, res, user) {
         ? { ...body, rentals: canonicalRentals }
         : body;
       if (genericPrep.genericRentals.length && !canonicalRentals.length) delete transportBody.rentals;
+      // Accommodation-only staff previews must invoke the vertical quote owner so
+      // locked cards get authoritative season/price line items. Custom lines alone
+      // stay on the empty-stub path (unchanged).
+      const {
+        normalizeAccommodationSelection: normalizeAccomForQuoteIntent,
+      } = require('./lib/sunset-accommodation-price-resolver');
+      const accomQuoteIntent = normalizeAccomForQuoteIntent(transportBody.accommodation);
+      const hasAccommodationQuoteIntent = !!(
+        accomQuoteIntent
+        && accomQuoteIntent.ok
+        && !accomQuoteIntent.skip
+        && accomQuoteIntent.value
+      );
       const hasClosedVerticalIntent = canonicalRentals.length > 0
-        || !!(transportBody.components && Object.keys(transportBody.components).length);
+        || !!(transportBody.components && Object.keys(transportBody.components).length)
+        || hasAccommodationQuoteIntent;
       let quoted = hasClosedVerticalIntent
         ? await invokeVerticalOperation(resolved, 'quoteOffering', pg, {
           channel: VERTICAL_CHANNELS.MANUAL_STAFF, transportBody,
