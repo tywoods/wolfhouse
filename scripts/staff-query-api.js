@@ -22703,16 +22703,38 @@ function scheduleRenderCreateAccommodation(){
   }
 }
 
+/** Timezone-safe YYYY-MM-DD + N days (UTC calendar arithmetic; no local DST). */
+function scheduleAddIsoDays(iso, days){
+  var s = String(iso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  var p = s.split('-');
+  var dt = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])));
+  if (isNaN(dt.getTime())) return s;
+  dt.setUTCDate(dt.getUTCDate() + (Number(days) || 0));
+  var y = dt.getUTCFullYear();
+  var m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  var d = String(dt.getUTCDate()).padStart(2, '0');
+  return y + '-' + m + '-' + d;
+}
+
+/**
+ * Seed Accommodation stay from booking dates. Half-open: multi-day uses
+ * date_to as exclusive checkout; same-day becomes one valid night (check_out=+1).
+ */
+function scheduleDefaultAccommodationStay(dateFrom, dateTo){
+  var checkIn = String(dateFrom || '').slice(0, 10);
+  var checkOut = String(dateTo || dateFrom || '').slice(0, 10);
+  if (!checkIn) return { enabled: true, check_in: '', check_out: '' };
+  if (!checkOut || checkOut <= checkIn) checkOut = scheduleAddIsoDays(checkIn, 1);
+  return { enabled: true, check_in: checkIn, check_out: checkOut };
+}
+
 function scheduleAddCreateAccommodation(){
   if (!scheduleAccommodationEnabledCache) return;
   // Seed from main booking dates once, then keep independently editable.
   var dateFrom = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
   var dateTo = el('ps-create-date-to') ? el('ps-create-date-to').value : dateFrom;
-  scheduleCreateAccommodation = {
-    enabled: true,
-    check_in: String(dateFrom || '').slice(0, 10),
-    check_out: String(dateTo || dateFrom || '').slice(0, 10),
-  };
+  scheduleCreateAccommodation = scheduleDefaultAccommodationStay(dateFrom, dateTo);
   scheduleRenderCreateAccommodation();
   if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
   else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent();

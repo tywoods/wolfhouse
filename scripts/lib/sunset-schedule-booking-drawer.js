@@ -386,6 +386,19 @@ function aggregateComponentsFromServices(services) {
       if (iso) components[FULL_DAY_EQUIPMENT_ADDON_KEY].dates[iso] = Number(sr.quantity) || 1;
       return;
     }
+    // Custom lines + accommodation have dedicated intent fingerprints — never
+    // invent components.staff_custom_line / staff_accommodation. Still record
+    // service_date for drawer date_from/date_to seed (header display only).
+    if (component === STAFF_CUSTOM_LINE_COMPONENT
+      || meta.source === STAFF_CUSTOM_LINE_SOURCE
+      || meta.staff_custom_line === true
+      || component === STAFF_ACCOMMODATION_COMPONENT
+      || meta.source === STAFF_ACCOMMODATION_SOURCE
+      || meta.staff_accommodation === true) {
+      const isoSkip = String(sr.service_date || '').slice(0, 10);
+      if (isoSkip) dates.add(isoSkip);
+      return;
+    }
     dates.add(String(sr.service_date || '').slice(0, 10));
     const ui = sr.staff_ui_service_type || DB_TO_UI_SERVICE_TYPE[dbType] || component;
     if (component === 'private_lesson' || ui === 'private_lesson') {
@@ -1111,6 +1124,11 @@ function pricingIntentFromBundle(bundle) {
     } catch (_) { /* keep aggregate components */ }
   }
 
+  // Reconstruct existing accommodation identity so paid notes-only / omitted-wire
+  // edits compare equal to the live stay. Explicit accommodation:null still drops
+  // it (request path does not call this reconstruction for the requested intent).
+  const accommodation = accommodationFromBundle(bundle);
+
   return buildSchedulePricingIntent({
     service_dates: (() => {
       // Prefer unique calendar days from reconstructed lessons when present —
@@ -1150,6 +1168,9 @@ function pricingIntentFromBundle(bundle) {
     course_equipment,
     rentals,
     custom_line_items,
+    accommodation: accommodation
+      ? { enabled: true, check_in: accommodation.check_in, check_out: accommodation.check_out }
+      : null,
   }, { rentals, custom_line_items });
 }
 

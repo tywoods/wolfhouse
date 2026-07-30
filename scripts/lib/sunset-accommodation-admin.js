@@ -87,6 +87,23 @@ async function ensureAccommodationTables(client) {
     CREATE INDEX IF NOT EXISTS idx_tenant_accommodation_ranges_window
       ON tenant_accommodation_season_ranges (client_slug, check_in, check_out)
       WHERE active = true`);
+
+  // Twin of migration 052 updated_at triggers. DROP IF EXISTS keeps lazy DDL
+  // idempotent (CREATE TRIGGER is not IF NOT EXISTS on older Postgres).
+  await client.query(`
+    DROP TRIGGER IF EXISTS tenant_accommodation_settings_updated_at
+      ON tenant_accommodation_settings`);
+  await client.query(`
+    CREATE TRIGGER tenant_accommodation_settings_updated_at
+      BEFORE UPDATE ON tenant_accommodation_settings
+      FOR EACH ROW EXECUTE FUNCTION set_updated_at()`);
+  await client.query(`
+    DROP TRIGGER IF EXISTS tenant_accommodation_season_ranges_updated_at
+      ON tenant_accommodation_season_ranges`);
+  await client.query(`
+    CREATE TRIGGER tenant_accommodation_season_ranges_updated_at
+      BEFORE UPDATE ON tenant_accommodation_season_ranges
+      FOR EACH ROW EXECUTE FUNCTION set_updated_at()`);
   return { ok: true };
 }
 

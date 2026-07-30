@@ -158,11 +158,20 @@ function normalizeAccommodationRanges(raw) {
         reason_code: 'accommodation_date_order',
       };
     }
+    // Reject fractional numerics and non-integer strings — never parseInt/truncate.
     const centsRaw = row.amount_cents;
-    const cents = typeof centsRaw === 'number' && Number.isInteger(centsRaw)
-      ? centsRaw
-      : Number.parseInt(String(centsRaw != null ? centsRaw : ''), 10);
-    if (!Number.isSafeInteger(cents) || cents <= 0 || cents > MAX_AMOUNT_CENTS) {
+    let cents = null;
+    if (typeof centsRaw === 'number') {
+      if (Number.isInteger(centsRaw) && Number.isSafeInteger(centsRaw)) cents = centsRaw;
+    } else if (typeof centsRaw === 'string') {
+      const s = centsRaw.trim();
+      // Integer digits only (optional leading +). No decimals, no exponent.
+      if (/^\+?\d+$/.test(s)) {
+        const n = Number(s);
+        if (Number.isSafeInteger(n)) cents = n;
+      }
+    }
+    if (cents == null || !Number.isSafeInteger(cents) || cents <= 0 || cents > MAX_AMOUNT_CENTS) {
       return {
         ok: false,
         error: `ranges[${i}].amount_cents must be a positive safe integer`,
@@ -424,6 +433,26 @@ function accommodationForIntentFingerprint(sel) {
   };
 }
 
+/**
+ * Seed Create/Edit accommodation stay from main booking date range.
+ * Half-open: multi-day uses date_to as exclusive checkout; same-day (or
+ * inverted/missing checkout) becomes a valid one-night stay (check_out = +1 day).
+ * Timezone-safe via UTC ISO day arithmetic (addDaysIso).
+ */
+function defaultAccommodationStayFromBookingDates(dateFrom, dateTo) {
+  const checkIn = String(dateFrom != null ? dateFrom : '').trim().slice(0, 10);
+  let checkOut = String(
+    dateTo != null && String(dateTo).trim() !== '' ? dateTo : dateFrom || '',
+  ).trim().slice(0, 10);
+  if (!checkIn || !isIsoDate(checkIn)) {
+    return { enabled: true, check_in: checkIn, check_out: checkOut };
+  }
+  if (!checkOut || !isIsoDate(checkOut) || compareIso(checkOut, checkIn) <= 0) {
+    checkOut = addDaysIso(checkIn, 1);
+  }
+  return { enabled: true, check_in: checkIn, check_out: checkOut };
+}
+
 function isStaffAccommodationMeta(meta) {
   if (!meta || typeof meta !== 'object') return false;
   return meta.source === STAFF_ACCOMMODATION_SOURCE
@@ -507,6 +536,7 @@ module.exports = {
   formatUncoveredSpan,
   uncoveredErrorMessage,
   priceAccommodationStay,
+  defaultAccommodationStayFromBookingDates,
   normalizeAccommodationSelection,
   accommodationForIntentFingerprint,
   isStaffAccommodationMeta,

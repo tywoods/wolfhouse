@@ -99,10 +99,43 @@ const money = resolver.normalizeAccommodationSelection({
 });
 ok('client money rejected', !money.ok && money.reason_code === 'accommodation_client_money_forbidden');
 
+const fracNum = resolver.normalizeAccommodationRanges([
+  { title: 'Frac', check_in: '2026-06-01', check_out: '2026-07-01', amount_cents: 4000.5 },
+]);
+ok('fractional numeric amount_cents rejected (no parseInt truncate)',
+  fracNum.ok === false && fracNum.reason_code === 'accommodation_amount_invalid', fracNum.error);
+const fracStr = resolver.normalizeAccommodationRanges([
+  { title: 'FracS', check_in: '2026-06-01', check_out: '2026-07-01', amount_cents: '4000.50' },
+]);
+ok('fractional string amount_cents rejected',
+  fracStr.ok === false && fracStr.reason_code === 'accommodation_amount_invalid', fracStr.error);
+const intStr = resolver.normalizeAccommodationRanges([
+  { title: 'Ok', check_in: '2026-06-01', check_out: '2026-07-01', amount_cents: '4000' },
+]);
+ok('integer string amount_cents accepted', intStr.ok === true && intStr.value[0].amount_cents === 4000);
+
 const sel = resolver.normalizeAccommodationSelection({
   enabled: true, check_in: '2026-06-01', check_out: '2026-06-03',
 });
 ok('selection dates only', sel.ok && !sel.skip && sel.value.check_in === '2026-06-01');
+
+// Timezone-safe same-day / multi-day seed (production pure owner)
+console.log('\n[1b] Default stay seed + timezone-safe ISO day');
+ok('addDaysIso month boundary', resolver.addDaysIso('2026-01-31', 1) === '2026-02-01');
+ok('addDaysIso year boundary', resolver.addDaysIso('2025-12-31', 1) === '2026-01-01');
+const sameDayStay = resolver.defaultAccommodationStayFromBookingDates('2026-06-10', '2026-06-10');
+ok('same-day seeds one-night half-open stay',
+  sameDayStay.check_in === '2026-06-10' && sameDayStay.check_out === '2026-06-11'
+  && sameDayStay.enabled === true);
+const multiStay = resolver.defaultAccommodationStayFromBookingDates('2026-06-10', '2026-06-14');
+ok('multi-day maps checkout to date_to (half-open)',
+  multiStay.check_in === '2026-06-10' && multiStay.check_out === '2026-06-14');
+const invertedStay = resolver.defaultAccommodationStayFromBookingDates('2026-06-10', '2026-06-09');
+ok('inverted date_to still becomes one-night stay',
+  invertedStay.check_in === '2026-06-10' && invertedStay.check_out === '2026-06-11');
+const missingTo = resolver.defaultAccommodationStayFromBookingDates('2026-06-10', '');
+ok('missing date_to becomes one-night stay',
+  missingTo.check_in === '2026-06-10' && missingTo.check_out === '2026-06-11');
 
 // ── 2) Booking body validation owner ───────────────────────────────────────
 console.log('\n[2] validateScheduleBookingBody + identity');
@@ -255,6 +288,115 @@ function mockPg() {
     && fromBundle.check_in === '2026-06-28'
     && fromBundle.check_out === '2026-07-03');
 
+  // ── 3b) Edit pricing intent: accommodation equality / preserve / remove ──
+  console.log('\n[3b] Edit pricing intent equality (production owners)');
+  const accomMeta = {
+    source: 'staff_accommodation',
+    staff_accommodation: true,
+    component: 'staff_accommodation',
+    check_in: '2026-06-28',
+    check_out: '2026-07-03',
+    nights: 5,
+    total_cents: 24000,
+    season_groups: meta.season_groups,
+    nightly_breakdown: meta.nightly_breakdown,
+    currency: 'EUR',
+  };
+  const accomBundle = {
+    booking: {
+      guest_name: 'Ada',
+      payment_status: 'paid',
+      amount_paid_cents: 24000,
+      metadata: {
+        source: 'staff_manual_schedule',
+        staff_manual_schedule: true,
+        location_id: 'sunset-somo',
+      },
+    },
+    services: [{
+      service_record_id: 'sr-accom',
+      service_type: 'addon_service',
+      service_date: '2026-06-28',
+      quantity: 1,
+      amount_due_cents: 24000,
+      amount_paid_cents: 24000,
+      payment_status: 'paid',
+      record_source: 'staff_manual',
+      metadata: accomMeta,
+    }],
+    payments_paid_cents: 24000,
+  };
+  const existingIntent = drawer.pricingIntentFromBundle(accomBundle);
+  ok('pricingIntentFromBundle carries accommodation',
+    existingIntent && existingIntent.accommodation
+    && existingIntent.accommodation.enabled === true
+    && existingIntent.accommodation.check_in === '2026-06-28'
+    && existingIntent.accommodation.check_out === '2026-07-03',
+    JSON.stringify(existingIntent && existingIntent.accommodation));
+  ok('pricingIntentFromBundle does not invent staff_accommodation component',
+    !existingIntent.components || !existingIntent.components.staff_accommodation);
+
+  // Match production Edit seed: service_date of accommodation row becomes drawer date span.
+  const drawerServiceDates = (existingIntent.service_dates || []).slice();
+
+  const sameRequested = writes.buildSchedulePricingIntent({
+    service_dates: drawerServiceDates,
+    components: {},
+    accommodation: { enabled: true, check_in: '2026-06-28', check_out: '2026-07-03' },
+  });
+  ok('unchanged accommodation intents equal',
+    writes.schedulePricingIntentsEqual(existingIntent, sameRequested) === true);
+
+  const removeRequested = writes.buildSchedulePricingIntent({
+    service_dates: drawerServiceDates,
+    components: {},
+    accommodation: null,
+  });
+  ok('explicit accommodation:null unequal (removes stay)',
+    writes.schedulePricingIntentsEqual(existingIntent, removeRequested) === false
+    && removeRequested.accommodation == null);
+
+  // Omitted wire → production preserve path injects accommodationFromBundle.
+  const preserved = drawer.accommodationFromBundle(accomBundle);
+  const omittedThenPreserved = writes.buildSchedulePricingIntent({
+    service_dates: drawerServiceDates,
+    components: {},
+    accommodation: preserved
+      ? { enabled: true, check_in: preserved.check_in, check_out: preserved.check_out }
+      : null,
+  });
+  ok('omitted wire + preserve keeps existing accommodation equal',
+    writes.schedulePricingIntentsEqual(existingIntent, omittedThenPreserved) === true);
+
+  // Paid notes-only: pricing equal → no paid-reprice block (intent gate only).
+  const notesOnlyRequested = writes.buildSchedulePricingIntent({
+    service_dates: drawerServiceDates,
+    components: {},
+    notes: 'please leave towels',
+    guest_name: 'Ada Lovelace',
+    accommodation: { enabled: true, check_in: '2026-06-28', check_out: '2026-07-03' },
+  });
+  ok('paid notes-only keeps pricing intent equal',
+    writes.schedulePricingIntentsEqual(existingIntent, notesOnlyRequested) === true);
+  ok('bundle is financially committed (paid reprice gate would apply if unequal)',
+    writes.isSunsetBookingFinanciallyCommitted(accomBundle) === true);
+  ok('paid notes-only does not require reprice (equal intent)',
+    writes.schedulePricingIntentsEqual(existingIntent, notesOnlyRequested) === true
+    && writes.isSunsetBookingFinanciallyCommitted(accomBundle) === true);
+
+  const changedDates = writes.buildSchedulePricingIntent({
+    service_dates: drawerServiceDates,
+    components: {},
+    accommodation: { enabled: true, check_in: '2026-06-28', check_out: '2026-07-05' },
+  });
+  ok('changed accommodation dates unequal (triggers reprice)',
+    writes.schedulePricingIntentsEqual(existingIntent, changedDates) === false);
+
+  // Explicit remove fingerprint is null; reprice path will not re-insert accommodation.
+  ok('explicit remove fingerprint null (row removed on reprice rewrite)',
+    writes.accommodationForIntentFingerprint(null) == null
+    && writes.accommodationForIntentFingerprint({ enabled: false }) == null);
+
   // ── 4) Tenant isolation ─────────────────────────────────────────────────
   console.log('\n[4] Tenant isolation (Sunset allow / Wolfhouse deny)');
   const wolfGate = admin.assertSunsetClient('wolfhouse-somo');
@@ -325,10 +467,51 @@ function mockPg() {
   ok('Create seed from booking dates',
     /function scheduleAddCreateAccommodation/.test(apiSrc)
     && /ps-create-date-from/.test(apiSrc)
-    && /scheduleCreateAccommodation = \{/.test(apiSrc));
+    && /scheduleDefaultAccommodationStay|scheduleCreateAccommodation = scheduleDefaultAccommodationStay/.test(apiSrc));
   ok('Create product enable from admin config',
     /scheduleSetAccommodationProductEnabled/.test(apiSrc)
     && /data\.accommodation && data\.accommodation\.enabled/.test(apiSrc));
+
+  // Behavioral: Create generated owners (timezone-safe defaults)
+  function extractNamedFn(src, name) {
+    const start = src.search(new RegExp('function\\s+' + name + '\\s*\\('));
+    if (start < 0) return null;
+    const brace = src.indexOf('{', start);
+    if (brace < 0) return null;
+    let depth = 0;
+    for (let i = brace; i < src.length; i += 1) {
+      if (src[i] === '{') depth += 1;
+      else if (src[i] === '}') {
+        depth -= 1;
+        if (depth === 0) return src.slice(start, i + 1);
+      }
+    }
+    return null;
+  }
+  const createAddIso = extractNamedFn(apiSrc, 'scheduleAddIsoDays');
+  const createDefaultStay = extractNamedFn(apiSrc, 'scheduleDefaultAccommodationStay');
+  ok('Create owners export scheduleAddIsoDays + scheduleDefaultAccommodationStay',
+    !!createAddIso && !!createDefaultStay);
+  if (createAddIso && createDefaultStay) {
+    // eslint-disable-next-line no-new-func
+    const createFns = new Function(
+      createAddIso + '\n' + createDefaultStay
+      + '\nreturn { scheduleAddIsoDays: scheduleAddIsoDays, scheduleDefaultAccommodationStay: scheduleDefaultAccommodationStay };',
+    )();
+    ok('Create addIsoDays month/year boundary',
+      createFns.scheduleAddIsoDays('2026-01-31', 1) === '2026-02-01'
+      && createFns.scheduleAddIsoDays('2025-12-31', 1) === '2026-01-01');
+    ok('Create same-day default one-night stay',
+      (() => {
+        const s = createFns.scheduleDefaultAccommodationStay('2026-07-04', '2026-07-04');
+        return s.check_in === '2026-07-04' && s.check_out === '2026-07-05';
+      })());
+    ok('Create multi-day default maps checkout to date_to',
+      (() => {
+        const s = createFns.scheduleDefaultAccommodationStay('2026-07-04', '2026-07-10');
+        return s.check_in === '2026-07-04' && s.check_out === '2026-07-10';
+      })());
+  }
 
   const editUi = read('scripts/browser/sunset-schedule-drawer-edit-ui.js');
   ok('Edit accommodation under custom addon',
@@ -342,6 +525,37 @@ function mockPg() {
     && /scheduleDrawerRemoveAccommodation/.test(editUi));
   ok('Edit preserves historical when product disabled',
     /hasExisting/.test(editUi) && /scheduleAccommodationEnabledCache/.test(editUi));
+
+  const editAddIso = extractNamedFn(editUi, 'scheduleDrawerAddIsoDays');
+  const editDefaultStay = extractNamedFn(editUi, 'scheduleDrawerDefaultAccommodationStay');
+  ok('Edit owners export scheduleDrawerAddIsoDays + DefaultAccommodationStay',
+    !!editAddIso && !!editDefaultStay);
+  if (editAddIso && editDefaultStay) {
+    // eslint-disable-next-line no-new-func
+    const editFns = new Function(
+      editAddIso + '\n' + editDefaultStay
+      + '\nreturn { scheduleDrawerAddIsoDays: scheduleDrawerAddIsoDays, scheduleDrawerDefaultAccommodationStay: scheduleDrawerDefaultAccommodationStay };',
+    )();
+    ok('Edit addIsoDays month/year boundary',
+      editFns.scheduleDrawerAddIsoDays('2026-01-31', 1) === '2026-02-01'
+      && editFns.scheduleDrawerAddIsoDays('2025-12-31', 1) === '2026-01-01');
+    ok('Edit same-day default one-night stay',
+      (() => {
+        const s = editFns.scheduleDrawerDefaultAccommodationStay('2026-08-15', '2026-08-15');
+        return s.check_in === '2026-08-15' && s.check_out === '2026-08-16';
+      })());
+    ok('Edit multi-day default maps checkout to date_to',
+      (() => {
+        const s = editFns.scheduleDrawerDefaultAccommodationStay('2026-08-15', '2026-08-20');
+        return s.check_in === '2026-08-15' && s.check_out === '2026-08-20';
+      })());
+  }
+
+  ok('dead adminSaveAccommodation removed (unwired duplicate)',
+    !/function adminSaveAccommodation\s*\(/.test(adminUi));
+  ok('live save-accommodation action still wired',
+    /action === 'save-accommodation'/.test(adminUi)
+    && /adminApiRequest\(\s*'PUT'\s*,\s*'\/staff\/admin\/config\/accommodation'/.test(adminUi));
 
   const viewUi = read('scripts/browser/sunset-schedule-drawer-view-ui.js');
   ok('booking card accommodation line + seasons',
@@ -387,6 +601,19 @@ function mockPg() {
     && /check_out > check_in/.test(mig));
   ok('ensureAccommodationTables twin',
     typeof admin.ensureAccommodationTables === 'function');
+  const adminSrc = read('scripts/lib/sunset-accommodation-admin.js');
+  ok('lazy DDL twin has updated_at triggers matching migration 052',
+    /tenant_accommodation_settings_updated_at/.test(adminSrc)
+    && /tenant_accommodation_season_ranges_updated_at/.test(adminSrc)
+    && /DROP TRIGGER IF EXISTS tenant_accommodation_settings_updated_at/.test(adminSrc)
+    && /DROP TRIGGER IF EXISTS tenant_accommodation_season_ranges_updated_at/.test(adminSrc)
+    && /EXECUTE FUNCTION set_updated_at\(\)/.test(adminSrc)
+    && /BEFORE UPDATE ON tenant_accommodation_settings/.test(adminSrc)
+    && /BEFORE UPDATE ON tenant_accommodation_season_ranges/.test(adminSrc));
+  ok('migration 052 has matching updated_at triggers',
+    /CREATE TRIGGER tenant_accommodation_settings_updated_at/.test(mig)
+    && /CREATE TRIGGER tenant_accommodation_season_ranges_updated_at/.test(mig)
+    && /EXECUTE FUNCTION set_updated_at\(\)/.test(mig));
   ok('create path insert accommodation',
     /insertStaffAccommodationServiceRow/.test(read('scripts/lib/sunset-schedule-booking-writes.js'))
     && /input\.accommodation && input\.accommodation\.enabled/.test(read('scripts/lib/sunset-schedule-booking-writes.js')));

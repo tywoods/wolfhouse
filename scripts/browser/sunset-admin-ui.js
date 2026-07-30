@@ -1604,34 +1604,8 @@ function adminReadAccommodationDraftFromDom(){
   return { enabled: enabled, ranges: ranges, currency: 'EUR' };
 }
 
-function adminSaveAccommodation(){
-  var draft = adminReadAccommodationDraftFromDom();
-  var url = '/staff/admin/config/accommodation' + adminClientQuery();
-  adminShowMessage('info', portalT('admin.action.saving') || 'Saving…');
-  return fetch(url, {
-    method: 'PUT',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(draft),
-  }).then(function(r){ return r.json().then(function(body){ return { ok: r.ok, status: r.status, body: body }; }); })
-    .then(function(res){
-      if (!res.ok || !res.body || res.body.success !== true){
-        var err = (res.body && (res.body.error || res.body.message)) || 'Save failed';
-        adminShowMessage('error', err);
-        return;
-      }
-      if (adminConfigCache){
-        adminConfigCache.accommodation = res.body.accommodation || draft;
-      }
-      adminEditTarget = null;
-      adminShowMessage('ok', portalT('admin.accommodation.saved') || 'Accommodation saved.');
-      if (adminConfigCache) renderAdminFromConfig(adminConfigCache);
-      else loadAdminConfig();
-    })
-    .catch(function(){
-      adminShowMessage('error', portalT('admin.action.saveFailed') || 'Save failed');
-    });
-}
+// adminSaveAccommodation removed: unwired dead duplicate. Live save is the
+// data-admin-action="save-accommodation" branch (adminApiRequest + adminReloadConfig).
 
 function renderAdminFromConfig(cfg, opts){
   opts = opts || {};
