@@ -125,8 +125,18 @@ ok('Save does not call whole-booking submit/create', (() => {
   return !/scheduleSubmitCreate|scheduleCreateBooking|ps-create-submit|createSunsetScheduleBooking/.test(saveFn)
     && !/\.submit\s*\(/.test(saveFn)
     && /scheduleCreateAccommodationEditorOpen\s*=\s*false/.test(saveFn)
-    && /scheduleCreateAccommodation\s*=\s*\{/.test(saveFn);
+    && (/scheduleCreateAccommodation\s*=\s*\{/.test(saveFn)
+      || /scheduleCreateAccommodationStays\.push/.test(saveFn)
+      || /nextStay/.test(saveFn));
 })());
+ok('Create + remains visible after saves (permanent when product enabled)',
+  /addBtn\.style\.display\s*=\s*scheduleAccommodationEnabledCache\s*\?\s*''\s*:\s*'none'/.test(apiSrc)
+  || /addBtn\.style\.display = scheduleAccommodationEnabledCache \? '' : 'none'/.test(apiSrc));
+ok('Create multi-stay list + locked cards owners present',
+  /ps-create-accommodation-list/.test(apiSrc)
+  && /scheduleRenderCreateAccommodationCardHtml/.test(apiSrc)
+  && /data-edit-accom-stay/.test(apiSrc)
+  && /data-remove-accom-stay/.test(apiSrc));
 ok('Save validates half-open stay', (() => {
   const saveFn = extractNamedFn(apiSrc, 'scheduleSaveCreateAccommodation') || '';
   return /checkOut\s*<=\s*checkIn/.test(saveFn)
@@ -163,7 +173,8 @@ console.log('\n[2b] Behavioral Save sandbox (Create)');
   makeEl('ps-create-accommodation-editor', { style: { display: '' }, hidden: false });
   makeEl('ps-create-accommodation-summary', { style: { display: 'none' }, hidden: true });
   makeEl('ps-create-accommodation-summary-display', { textContent: '' });
-  makeEl('ps-create-accommodation-add-btn', { style: { display: 'none' } });
+  makeEl('ps-create-accommodation-list', { innerHTML: '', style: { display: '' } });
+  makeEl('ps-create-accommodation-add-btn', { style: { display: '' } });
   makeEl('ps-create-accommodation-date-range-display', { textContent: '' });
   makeEl('ps-create-accommodation-date-range-apply', { disabled: false });
   makeEl('ps-create-accommodation-date-range-popover', {
@@ -175,73 +186,27 @@ console.log('\n[2b] Behavioral Save sandbox (Create)');
   makeEl('ps-create-accommodation-date-range');
 
   let submitCalls = 0;
-  let footerCalls = 0;
-  const fns = [
-    extractNamedFn(apiSrc, 'scheduleAddIsoDays'),
-    extractNamedFn(apiSrc, 'scheduleCreateAccommodationDisplayText'),
-    extractNamedFn(apiSrc, 'scheduleSyncCreateAccomDateRangeUi'),
-    extractNamedFn(apiSrc, 'scheduleCreateAccomDateRangeIsOpen'),
-    extractNamedFn(apiSrc, 'scheduleCreateAccomDateRangeClosePopover'),
-    extractNamedFn(apiSrc, 'scheduleCreateAccomDateRangeSeedDraft'),
-    extractNamedFn(apiSrc, 'scheduleRenderCreateAccommodation'),
-    extractNamedFn(apiSrc, 'scheduleSyncCreateAccommodationFromDom'),
-    extractNamedFn(apiSrc, 'scheduleSaveCreateAccommodation'),
-    extractNamedFn(apiSrc, 'scheduleReadCreateAccommodation'),
-  ].filter(Boolean);
-  ok('extracted Create accommodation Save chain', fns.length >= 6, 'got ' + fns.length);
-
-  let scheduleCreateAccommodation = {
-    enabled: true, check_in: '2026-07-28', check_out: '2026-07-31',
-  };
-  let scheduleCreateAccommodationEditorOpen = true;
-  let scheduleCreateAccomDateRangeDraft = { start: '2026-07-28', end: '2026-07-31' };
-  let scheduleCreateAccomDateRangeViewYm = '2026-07';
-  let scheduleCreateAccomDateRangeFocusIso = null;
-  let scheduleCreateAccomDateRangeRestoreFocus = false;
-  const scheduleAccommodationEnabledCache = true;
-
-  // eslint-disable-next-line no-new-func
-  const sandboxed = new Function(
-    'el', 'portalT', 'escHtml',
-    'get_scheduleCreateAccommodation', 'set_scheduleCreateAccommodation',
-    'get_scheduleCreateAccommodationEditorOpen', 'set_scheduleCreateAccommodationEditorOpen',
-    'get_scheduleCreateAccomDateRangeDraft', 'set_scheduleCreateAccomDateRangeDraft',
-    'get_scheduleCreateAccomDateRangeViewYm', 'set_scheduleCreateAccomDateRangeViewYm',
-    'get_scheduleCreateAccomDateRangeFocusIso', 'set_scheduleCreateAccomDateRangeFocusIso',
-    'get_scheduleCreateAccomDateRangeRestoreFocus', 'set_scheduleCreateAccomDateRangeRestoreFocus',
-    'scheduleAccommodationEnabledCache',
-    'schedulePortalSyncCreateFooter',
-    'scheduleCreateDateRangeIsValidIso',
-    'scheduleCreateDateRangeDisplayText',
-    'scheduleCreateDateRangeSelectDay',
-    fns.join('\n')
-    + '\n'
-    + 'Object.defineProperty(this, "scheduleCreateAccommodation", {'
-    + '  get: get_scheduleCreateAccommodation, set: set_scheduleCreateAccommodation, configurable: true });\n'
-    + 'Object.defineProperty(this, "scheduleCreateAccommodationEditorOpen", {'
-    + '  get: get_scheduleCreateAccommodationEditorOpen, set: set_scheduleCreateAccommodationEditorOpen, configurable: true });\n'
-    // Simpler: re-bind via with-like eval — use direct assignment wrappers instead.
-    + 'return {\n'
-    + '  scheduleSaveCreateAccommodation: scheduleSaveCreateAccommodation,\n'
-    + '  scheduleReadCreateAccommodation: scheduleReadCreateAccommodation,\n'
-    + '  scheduleRenderCreateAccommodation: scheduleRenderCreateAccommodation,\n'
-    + '};\n',
-  );
-
-  // Simpler direct eval sandbox with shared mutable state bag
   const state = {
-    scheduleCreateAccommodation,
-    scheduleCreateAccommodationEditorOpen,
-    scheduleCreateAccomDateRangeDraft,
-    scheduleCreateAccomDateRangeViewYm,
-    scheduleCreateAccomDateRangeFocusIso,
-    scheduleCreateAccomDateRangeRestoreFocus,
+    scheduleCreateAccommodationStays: [],
+    scheduleCreateAccommodation: {
+      enabled: true, check_in: '2026-07-28', check_out: '2026-07-31', client_stay_id: 'as_test_1',
+    },
+    scheduleCreateAccommodationEditorOpen: true,
+    scheduleCreateAccommodationEditingId: null,
+    scheduleCreateAccommodationStaySeq: 1,
+    scheduleCreateAccomDateRangeDraft: { start: '2026-07-28', end: '2026-07-31' },
+    scheduleCreateAccomDateRangeViewYm: '2026-07',
+    scheduleCreateAccomDateRangeFocusIso: null,
+    scheduleCreateAccomDateRangeRestoreFocus: false,
     scheduleAccommodationEnabledCache: true,
   };
 
   function el(id) { return nodes[id] || null; }
   function portalT(k) {
     if (k === 'schedule.create.accommodation.invalidStay') return 'invalid stay';
+    if (k === 'schedule.create.accommodation.overlap') {
+      return 'Accommodation stays overlap: [{aIn}, {aOut}) and [{bIn}, {bOut})';
+    }
     return k;
   }
   function escHtml(s) { return String(s == null ? '' : s); }
@@ -256,8 +221,11 @@ console.log('\n[2b] Behavioral Save sandbox (Create)');
     return from + ' – ' + to;
   }
 
-  // Build a scope-friendly script that uses `state.` for mutables
+  // Longer names first so partial renames do not corrupt identifiers.
   const rewrite = (src) => String(src || '')
+    .replace(/\bscheduleCreateAccommodationStaySeq\b/g, 'state.scheduleCreateAccommodationStaySeq')
+    .replace(/\bscheduleCreateAccommodationStays\b/g, 'state.scheduleCreateAccommodationStays')
+    .replace(/\bscheduleCreateAccommodationEditingId\b/g, 'state.scheduleCreateAccommodationEditingId')
     .replace(/\bscheduleCreateAccommodationEditorOpen\b/g, 'state.scheduleCreateAccommodationEditorOpen')
     .replace(/\bscheduleCreateAccommodation\b/g, 'state.scheduleCreateAccommodation')
     .replace(/\bscheduleCreateAccomDateRangeDraft\b/g, 'state.scheduleCreateAccomDateRangeDraft')
@@ -268,7 +236,11 @@ console.log('\n[2b] Behavioral Save sandbox (Create)');
 
   const body = [
     extractNamedFn(apiSrc, 'scheduleAddIsoDays'),
+    extractNamedFn(apiSrc, 'scheduleNewCreateAccommodationStayId'),
     extractNamedFn(apiSrc, 'scheduleCreateAccommodationDisplayText'),
+    extractNamedFn(apiSrc, 'scheduleCreateAccommodationNights'),
+    extractNamedFn(apiSrc, 'scheduleCreateAccommodationOverlaps'),
+    extractNamedFn(apiSrc, 'scheduleRenderCreateAccommodationCardHtml'),
     extractNamedFn(apiSrc, 'scheduleSyncCreateAccomDateRangeUi'),
     extractNamedFn(apiSrc, 'scheduleCreateAccomDateRangeIsOpen'),
     extractNamedFn(apiSrc, 'scheduleCreateAccomDateRangeSeedDraft'),
@@ -278,12 +250,13 @@ console.log('\n[2b] Behavioral Save sandbox (Create)');
     extractNamedFn(apiSrc, 'scheduleSaveCreateAccommodation'),
     extractNamedFn(apiSrc, 'scheduleReadCreateAccommodation'),
   ].filter(Boolean).map(rewrite).join('\n');
+  ok('extracted Create accommodation Save chain', body.length > 200);
 
   // eslint-disable-next-line no-new-func
   const run = new Function(
     'state', 'el', 'portalT', 'escHtml',
     'scheduleCreateDateRangeIsValidIso', 'scheduleCreateDateRangeDisplayText',
-    'schedulePortalSyncCreateFooter',
+    'schedulePortalSyncCreateFooter', 'scheduleEscapeHtmlLite', 'scheduleFormatCentsMoney',
     body
     + '\nreturn {\n'
     + '  save: scheduleSaveCreateAccommodation,\n'
@@ -296,6 +269,8 @@ console.log('\n[2b] Behavioral Save sandbox (Create)');
     state, el, portalT, escHtml,
     scheduleCreateDateRangeIsValidIso, scheduleCreateDateRangeDisplayText,
     function schedulePortalSyncCreateFooter() { footerSync += 1; },
+    function scheduleEscapeHtmlLite(s) { return String(s == null ? '' : s); },
+    function scheduleFormatCentsMoney(c) { return '€' + (Number(c) / 100).toFixed(2); },
   );
 
   const saved = api.save();
@@ -306,18 +281,28 @@ console.log('\n[2b] Behavioral Save sandbox (Create)');
     && state.scheduleCreateAccommodation.enabled === true
     && state.scheduleCreateAccommodation.check_in === '2026-07-28'
     && state.scheduleCreateAccommodation.check_out === '2026-07-31');
+  ok('Save appends locked stay card',
+    Array.isArray(state.scheduleCreateAccommodationStays)
+    && state.scheduleCreateAccommodationStays.length === 1
+    && state.scheduleCreateAccommodationStays[0].check_in === '2026-07-28'
+    && state.scheduleCreateAccommodationStays[0].check_out === '2026-07-31');
   const payload = api.read();
   ok('Read payload has committed dates (no client money)',
     payload
     && payload.enabled === true
-    && payload.check_in === '2026-07-28'
-    && payload.check_out === '2026-07-31'
+    && Array.isArray(payload.stays)
+    && payload.stays.length === 1
+    && payload.stays[0].check_in === '2026-07-28'
+    && payload.stays[0].check_out === '2026-07-31'
     && payload.amount_cents == null
     && payload.total_cents == null);
   ok('Save synced footer/quote intent only (not submit)', footerSync >= 1 && submitCalls === 0);
-  ok('Editor hidden after save; summary shown',
+  ok('Editor hidden after save; + still visible',
     nodes['ps-create-accommodation-editor'].style.display === 'none'
-    && nodes['ps-create-accommodation-summary'].style.display === '');
+    && nodes['ps-create-accommodation-add-btn'].style.display === '');
+  ok('Locked card list rendered after save',
+    String(nodes['ps-create-accommodation-list'].innerHTML || '').indexOf('ps-create-accommodation-card') >= 0
+    || state.scheduleCreateAccommodationStays.length === 1);
 })();
 
 // ── 3) Edit parity ─────────────────────────────────────────────────────────
@@ -341,11 +326,16 @@ ok('Edit Save owner does not submit booking', (() => {
   return !!saveFn
     && !/scheduleDrawerSubmit|scheduleUpdateBooking|fetch\(/.test(saveFn)
     && /scheduleDrawerAccommodationEditorOpen\s*=\s*false/.test(saveFn)
-    && /scheduleDrawerAccommodation\s*=\s*\{/.test(saveFn);
+    && (/scheduleDrawerAccommodation\s*=\s*\{/.test(saveFn)
+      || /scheduleDrawerAccommodationStays/.test(saveFn));
 })());
 ok('Edit reuses booking date-range pure helpers',
   /scheduleCreateDateRangeSelectDay/.test(editUi)
   && /scheduleCreateDateRangeDisplayText/.test(editUi));
+ok('Edit multi-stay list + permanent + owners',
+  /ps-drawer-accommodation-list/.test(editUi)
+  && /scheduleDrawerAccommodationStays/.test(editUi)
+  && /addBtn\.style\.display = productOn \? '' : 'none'/.test(editUi));
 ok('Edit summary collapsed saved state',
   /ps-drawer-accommodation-summary/.test(editUi)
   && /scheduleDrawerAccommodationEditorOpen/.test(editUi));

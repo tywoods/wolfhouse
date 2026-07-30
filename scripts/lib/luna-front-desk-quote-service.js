@@ -149,6 +149,11 @@ function buildSunsetQuoteCommand(opts) {
   // (browser/Luna cannot self-grant permission).
   const allowExistingAccommodationWhenDisabled =
     opts && opts.allowExistingAccommodationWhenDisabled === true;
+  const existingAccommodationStayCount = Number.isInteger(
+    opts && opts.existingAccommodationStayCount,
+  )
+    ? Math.max(0, opts.existingAccommodationStayCount)
+    : null;
   return {
     ok: true,
     command: {
@@ -157,6 +162,7 @@ function buildSunsetQuoteCommand(opts) {
       locationId,
       transportBody,
       allowExistingAccommodationWhenDisabled,
+      existingAccommodationStayCount,
       now: (opts && opts.now) instanceof Date ? opts.now : new Date(),
     },
   };
@@ -596,9 +602,14 @@ function normalizeQuoteLineItemsForFingerprint(lineItems) {
 }
 
 /**
- * Append staff Accommodation commercial line (server-priced from Admin ranges).
+ * Append staff Accommodation commercial line(s) (server-priced from Admin ranges).
  * Browser supplies identity + dates only; money never trusted from the client.
- * Staff channel only.
+ * One quote line per stay. Staff channel only.
+ *
+ * Disabled product: new adds blocked; existing dedicated stays may reprice when
+ * command.allowExistingAccommodationWhenDisabled is server-set true. Stay-count
+ * growth beyond existingAccommodationStayCount is rejected (cannot add new stays
+ * while product is disabled).
  */
 async function appendAccommodationToQuote(pg, command, lines, totalCents, currency) {
   const body = command && command.transportBody;
@@ -621,6 +632,7 @@ async function appendAccommodationToQuote(pg, command, lines, totalCents, curren
   const {
     normalizeAccommodationSelection,
     buildAccommodationQuoteLine,
+    accommodationStaysFromSelection,
   } = require('./sunset-accommodation-price-resolver');
   const sel = normalizeAccommodationSelection(raw);
   if (!sel.ok) {
@@ -632,12 +644,16 @@ async function appendAccommodationToQuote(pg, command, lines, totalCents, curren
         reason: sel.reason_code || 'accommodation_invalid',
         reason_code: sel.reason_code || 'accommodation_invalid',
         error: sel.error,
+        overlap: sel.overlap || undefined,
       },
     };
   }
   if (sel.skip || !sel.value) return { ok: true, lines, totalCents, currency };
 
-  const { resolveAccommodationPrice } = require('./sunset-accommodation-admin');
+  const stays = accommodationStaysFromSelection(sel.value);
+  if (!stays.length) return { ok: true, lines, totalCents, currency };
+
+  const { resolveAccommodationPrice, loadAccommodationConfig } = require('./sunset-accommodation-admin');
   if (!pg) {
     return {
       ok: false,
@@ -653,42 +669,85 @@ async function appendAccommodationToQuote(pg, command, lines, totalCents, curren
   // Existing dedicated staff_accommodation stays may reprice while product is
   // disabled. Permission is server-derived on the quote command only — never
   // from transportBody / browser / Luna fields.
-  const requireEnabled = command.allowExistingAccommodationWhenDisabled !== true;
-  const pricedRes = await resolveAccommodationPrice(pg, {
-    clientSlug: SUNSET_CLIENT_SLUG,
-    locationId: command.locationId,
-    checkIn: sel.value.check_in,
-    checkOut: sel.value.check_out,
-    requireEnabled,
-  });
-  if (!pricedRes.ok) {
-    return {
-      ok: false,
-      status: pricedRes.status || 422,
-      body: pricedRes.body || {
-        success: false,
-        reason: pricedRes.reason_code,
-        reason_code: pricedRes.reason_code,
-        error: pricedRes.error,
-      },
-    };
+  const allowHistorical = command.allowExistingAccommodationWhenDisabled === true;
+  const existingStayCount = Number.isInteger(command.existingAccommodationStayCount)
+    ? Math.max(0, command.existingAccommodationStayCount)
+    : (allowHistorical ? stays.length : 0);
+
+  // When product disabled: block net-new stays even on the historical path.
+  try {
+    const cfg = await loadAccommodationConfig(pg, SUNSET_CLIENT_SLUG, command.locationId);
+    if (cfg && cfg.enabled === false) {
+      if (!allowHistorical) {
+        return {
+          ok: false,
+          status: 409,
+          body: {
+            success: false,
+            reason: 'accommodation_disabled',
+            reason_code: 'accommodation_disabled',
+            error: 'Accommodation is disabled for this school',
+          },
+        };
+      }
+      if (stays.length > existingStayCount) {
+        return {
+          ok: false,
+          status: 409,
+          body: {
+            success: false,
+            reason: 'accommodation_disabled',
+            reason_code: 'accommodation_disabled',
+            error: 'Accommodation is disabled; cannot add new stays to this booking.',
+          },
+        };
+      }
+    }
+  } catch (_cfgErr) {
+    // Fall through to per-stay resolve which also enforces requireEnabled.
   }
-  const line = buildAccommodationQuoteLine(pricedRes.priced, currency || 'EUR');
-  lines.push(line);
-  const nextTotal = totalCents + line.total_cents;
-  if (!Number.isFinite(nextTotal) || !Number.isInteger(nextTotal) || nextTotal < 0) {
-    return {
-      ok: false,
-      status: 422,
-      body: {
-        success: false,
-        reason: 'accommodation_total_invalid',
-        reason_code: 'accommodation_total_invalid',
-        error: 'Accommodation total is invalid.',
-      },
-    };
+
+  const requireEnabled = !allowHistorical;
+  let nextTotal = totalCents;
+  let lastCurrency = currency || 'EUR';
+  for (const stay of stays) {
+    const pricedRes = await resolveAccommodationPrice(pg, {
+      clientSlug: SUNSET_CLIENT_SLUG,
+      locationId: command.locationId,
+      checkIn: stay.check_in,
+      checkOut: stay.check_out,
+      requireEnabled,
+    });
+    if (!pricedRes.ok) {
+      return {
+        ok: false,
+        status: pricedRes.status || 422,
+        body: pricedRes.body || {
+          success: false,
+          reason: pricedRes.reason_code,
+          reason_code: pricedRes.reason_code,
+          error: pricedRes.error,
+        },
+      };
+    }
+    const line = buildAccommodationQuoteLine(pricedRes.priced, lastCurrency || 'EUR', stay);
+    lines.push(line);
+    nextTotal = nextTotal + line.total_cents;
+    if (!Number.isFinite(nextTotal) || !Number.isInteger(nextTotal) || nextTotal < 0) {
+      return {
+        ok: false,
+        status: 422,
+        body: {
+          success: false,
+          reason: 'accommodation_total_invalid',
+          reason_code: 'accommodation_total_invalid',
+          error: 'Accommodation total is invalid.',
+        },
+      };
+    }
+    lastCurrency = line.currency || lastCurrency;
   }
-  return { ok: true, lines, totalCents: nextTotal, currency: line.currency || currency || 'EUR' };
+  return { ok: true, lines, totalCents: nextTotal, currency: lastCurrency || currency || 'EUR' };
 }
 
 /**

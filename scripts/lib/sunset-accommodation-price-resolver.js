@@ -15,9 +15,16 @@ const MAX_TITLE = 120;
 const MAX_RANGES = 64;
 const MAX_AMOUNT_CENTS = 100000000; // €1,000,000.00 hard ceiling
 const MAX_STAY_NIGHTS = 366;
+const MAX_STAYS = 20;
+const MAX_CLIENT_STAY_ID = 64;
 
 const STAFF_ACCOMMODATION_SOURCE = 'staff_accommodation';
 const STAFF_ACCOMMODATION_COMPONENT = 'staff_accommodation';
+
+const ACCOMMODATION_CLIENT_MONEY_KEYS = Object.freeze([
+  'amount_cents', 'total_cents', 'nightly_cents', 'unit_amount_cents',
+  'amount_eur', 'total_eur', 'price', 'nightly_breakdown', 'season_groups',
+]);
 
 function isIsoDate(raw) {
   const s = String(raw == null ? '' : raw).trim().slice(0, 10);
@@ -370,14 +377,202 @@ function priceAccommodationStay({ ranges, checkIn, checkOut, currency } = {}) {
   };
 }
 
+function rejectClientMoneyFields(obj, pathPrefix) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  for (const k of ACCOMMODATION_CLIENT_MONEY_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(obj, k) && obj[k] != null) {
+      return {
+        ok: false,
+        error: `${pathPrefix}.${k} must not be supplied by the client`,
+        reason_code: 'accommodation_client_money_forbidden',
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Normalize one stay identity (dates only). Money never accepted.
+ * @returns {{ ok:true, value:{ client_stay_id?, check_in, check_out, nights } } | { ok:false, ... }}
+ */
+function normalizeAccommodationStay(raw, index) {
+  const path = Number.isInteger(index) ? `accommodation.stays[${index}]` : 'accommodation';
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {
+      ok: false,
+      error: `${path} must be an object`,
+      reason_code: 'accommodation_stay_invalid',
+    };
+  }
+  const moneyErr = rejectClientMoneyFields(raw, path);
+  if (moneyErr) return moneyErr;
+
+  const checkIn = String(raw.check_in != null ? raw.check_in : '').trim().slice(0, 10);
+  const checkOut = String(raw.check_out != null ? raw.check_out : '').trim().slice(0, 10);
+  const nightsRes = occupiedNights(checkIn, checkOut);
+  if (!nightsRes.ok) return nightsRes;
+
+  let clientStayId = null;
+  if (raw.client_stay_id != null && String(raw.client_stay_id).trim() !== '') {
+    clientStayId = String(raw.client_stay_id).trim().slice(0, MAX_CLIENT_STAY_ID);
+    if (!clientStayId) {
+      return {
+        ok: false,
+        error: `${path}.client_stay_id is invalid`,
+        reason_code: 'accommodation_client_stay_id_invalid',
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    value: {
+      client_stay_id: clientStayId,
+      check_in: checkIn,
+      check_out: checkOut,
+      nights: nightsRes.nights.length,
+    },
+  };
+}
+
+/**
+ * Half-open stay overlap: prev.check_out > cur.check_in.
+ * Adjacent (prev.check_out === cur.check_in) allowed.
+ */
+function findOverlappingAccommodationStays(stays) {
+  const list = (Array.isArray(stays) ? stays : []).map((s, i) => ({
+    index: i,
+    check_in: String(s && s.check_in || '').slice(0, 10),
+    check_out: String(s && s.check_out || '').slice(0, 10),
+  })).filter((s) => s.check_in && s.check_out);
+  const sorted = list.slice().sort((a, b) => {
+    const c = compareIso(a.check_in, b.check_in);
+    if (c) return c;
+    return compareIso(a.check_out, b.check_out);
+  });
+  for (let i = 1; i < sorted.length; i += 1) {
+    const prev = sorted[i - 1];
+    const cur = sorted[i];
+    if (compareIso(prev.check_out, cur.check_in) > 0) {
+      return {
+        a: prev,
+        b: cur,
+        error: `Accommodation stays overlap: [${prev.check_in}, ${prev.check_out}) and [${cur.check_in}, ${cur.check_out})`,
+        reason_code: 'accommodation_stays_overlap',
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Deterministic stay order for fingerprint / persistence / quote.
+ * Sort by check_in, check_out, then client_stay_id.
+ */
+function sortAccommodationStays(stays) {
+  return (Array.isArray(stays) ? stays.slice() : []).sort((a, b) => {
+    const cIn = compareIso(a.check_in, b.check_in);
+    if (cIn) return cIn;
+    const cOut = compareIso(a.check_out, b.check_out);
+    if (cOut) return cOut;
+    return String(a.client_stay_id || '').localeCompare(String(b.client_stay_id || ''));
+  });
+}
+
+/**
+ * Build canonical multi-stay selection from already-normalized stays.
+ * Mirrors first stay at top-level for singular backward-compat readers.
+ */
+function buildAccommodationSelectionValue(stays) {
+  const ordered = sortAccommodationStays(stays);
+  if (!ordered.length) return null;
+  const first = ordered[0];
+  return {
+    enabled: true,
+    stays: ordered.map((s) => ({
+      client_stay_id: s.client_stay_id || null,
+      check_in: s.check_in,
+      check_out: s.check_out,
+      nights: s.nights,
+    })),
+    // Singular mirror (first stay) — legacy Create/Edit readers + tests.
+    check_in: first.check_in,
+    check_out: first.check_out,
+    nights: first.nights,
+  };
+}
+
+/**
+ * Extract stay list from any accepted wire shape without full normalize.
+ * Used by UI helpers / fingerprint when selection already normalized.
+ */
+function accommodationStaysFromSelection(sel) {
+  if (!sel || sel.enabled === false) return [];
+  if (Array.isArray(sel.stays) && sel.stays.length) {
+    return sel.stays.map((s) => ({
+      client_stay_id: s.client_stay_id || null,
+      check_in: String(s.check_in || '').slice(0, 10),
+      check_out: String(s.check_out || '').slice(0, 10),
+      nights: Number(s.nights) || 0,
+    })).filter((s) => s.check_in && s.check_out);
+  }
+  // Singular legacy shape.
+  if (sel.check_in && sel.check_out) {
+    return [{
+      client_stay_id: sel.client_stay_id || null,
+      check_in: String(sel.check_in).slice(0, 10),
+      check_out: String(sel.check_out).slice(0, 10),
+      nights: Number(sel.nights) || 0,
+    }];
+  }
+  return [];
+}
+
 /**
  * Client wire selection: identity + dates only. Money never accepted.
- * { enabled: true, check_in, check_out } | { enabled: false } | null/omit = skip
+ *
+ * Accepted shapes (backward compatible):
+ *  - Singular: { enabled: true, check_in, check_out }
+ *  - Multi:    { enabled: true, stays: [{ client_stay_id?, check_in, check_out }, ...] }
+ *  - Array:    [{ check_in, check_out }, ...]
+ *  - Remove:   null | false | { enabled: false } | { stays: [] }
  */
 function normalizeAccommodationSelection(raw) {
   if (raw == null || raw === '' || raw === false) {
     return { ok: true, skip: true, value: null };
   }
+
+  // Array of stays at the top level.
+  if (Array.isArray(raw)) {
+    if (!raw.length) return { ok: true, skip: true, value: null };
+    if (raw.length > MAX_STAYS) {
+      return {
+        ok: false,
+        error: `accommodation stays max ${MAX_STAYS}`,
+        reason_code: 'accommodation_stays_too_many',
+      };
+    }
+    const stays = [];
+    for (let i = 0; i < raw.length; i += 1) {
+      const one = normalizeAccommodationStay(raw[i], i);
+      if (!one.ok) return one;
+      stays.push(one.value);
+    }
+    const overlap = findOverlappingAccommodationStays(stays);
+    if (overlap) {
+      return {
+        ok: false,
+        error: overlap.error,
+        reason_code: overlap.reason_code,
+        overlap: {
+          a: { check_in: overlap.a.check_in, check_out: overlap.a.check_out },
+          b: { check_in: overlap.b.check_in, check_out: overlap.b.check_out },
+        },
+      };
+    }
+    return { ok: true, skip: false, value: buildAccommodationSelectionValue(stays) };
+  }
+
   if (typeof raw !== 'object') {
     return {
       ok: false,
@@ -388,49 +583,75 @@ function normalizeAccommodationSelection(raw) {
   if (raw.enabled === false || raw.enabled === 'false' || raw.enabled === 0) {
     return { ok: true, skip: true, value: null };
   }
-  // Presence of check_in/check_out without explicit enabled:false means selected.
+
+  // Reject top-level client money.
+  const topMoney = rejectClientMoneyFields(raw, 'accommodation');
+  if (topMoney) return topMoney;
+
+  // Multi-stay collection.
+  if (Array.isArray(raw.stays)) {
+    if (!raw.stays.length) return { ok: true, skip: true, value: null };
+    if (raw.stays.length > MAX_STAYS) {
+      return {
+        ok: false,
+        error: `accommodation stays max ${MAX_STAYS}`,
+        reason_code: 'accommodation_stays_too_many',
+      };
+    }
+    const stays = [];
+    for (let i = 0; i < raw.stays.length; i += 1) {
+      const one = normalizeAccommodationStay(raw.stays[i], i);
+      if (!one.ok) return one;
+      stays.push(one.value);
+    }
+    const overlap = findOverlappingAccommodationStays(stays);
+    if (overlap) {
+      return {
+        ok: false,
+        error: overlap.error,
+        reason_code: overlap.reason_code,
+        overlap: {
+          a: { check_in: overlap.a.check_in, check_out: overlap.a.check_out },
+          b: { check_in: overlap.b.check_in, check_out: overlap.b.check_out },
+        },
+      };
+    }
+    return { ok: true, skip: false, value: buildAccommodationSelectionValue(stays) };
+  }
+
+  // Singular: presence of check_in/check_out without enabled:false means selected.
   const enabled = raw.enabled === true || raw.enabled === 'true' || raw.enabled === 1
     || (raw.check_in != null && raw.check_out != null);
   if (!enabled) return { ok: true, skip: true, value: null };
 
-  // Reject any client-supplied money fields (server owns price).
-  const moneyKeys = [
-    'amount_cents', 'total_cents', 'nightly_cents', 'unit_amount_cents',
-    'amount_eur', 'total_eur', 'price', 'nightly_breakdown', 'season_groups',
-  ];
-  for (const k of moneyKeys) {
-    if (Object.prototype.hasOwnProperty.call(raw, k) && raw[k] != null) {
-      return {
-        ok: false,
-        error: `accommodation.${k} must not be supplied by the client`,
-        reason_code: 'accommodation_client_money_forbidden',
-      };
-    }
-  }
-
-  const checkIn = String(raw.check_in != null ? raw.check_in : '').trim().slice(0, 10);
-  const checkOut = String(raw.check_out != null ? raw.check_out : '').trim().slice(0, 10);
-  const nightsRes = occupiedNights(checkIn, checkOut);
-  if (!nightsRes.ok) return nightsRes;
-  return {
-    ok: true,
-    skip: false,
-    value: {
-      enabled: true,
-      check_in: checkIn,
-      check_out: checkOut,
-      nights: nightsRes.nights.length,
-    },
-  };
+  const one = normalizeAccommodationStay(raw, null);
+  if (!one.ok) return one;
+  return { ok: true, skip: false, value: buildAccommodationSelectionValue([one.value]) };
 }
 
+/**
+ * Deterministic fingerprint for quote/intent equality.
+ * Always multi-stay shape so singular + one-element collection compare equal.
+ */
 function accommodationForIntentFingerprint(sel) {
-  if (!sel || !sel.enabled) return null;
-  return {
-    enabled: true,
-    check_in: String(sel.check_in || '').slice(0, 10),
-    check_out: String(sel.check_out || '').slice(0, 10),
-  };
+  if (sel == null || sel === false || sel === '') return null;
+  // Accept already-normalized or raw wire; never throw on bad input for fingerprint.
+  let stays = [];
+  if (sel && typeof sel === 'object') {
+    if (sel.enabled === false) return null;
+    stays = accommodationStaysFromSelection(sel);
+    if (!stays.length && (sel.check_in || (Array.isArray(sel.stays) && sel.stays.length))) {
+      const norm = normalizeAccommodationSelection(sel);
+      if (!norm.ok || norm.skip || !norm.value) return null;
+      stays = accommodationStaysFromSelection(norm.value);
+    }
+  }
+  if (!stays.length) return null;
+  const ordered = sortAccommodationStays(stays).map((s) => ({
+    check_in: String(s.check_in || '').slice(0, 10),
+    check_out: String(s.check_out || '').slice(0, 10),
+  }));
+  return { enabled: true, stays: ordered };
 }
 
 /**
@@ -460,12 +681,15 @@ function isStaffAccommodationMeta(meta) {
     || meta.component === STAFF_ACCOMMODATION_COMPONENT;
 }
 
-function buildAccommodationQuoteLine(priced, currency) {
+function buildAccommodationQuoteLine(priced, currency, stayIdentity) {
   const cur = currency || priced.currency || 'EUR';
   const groups = Array.isArray(priced.season_groups) ? priced.season_groups : [];
   const label = groups.length === 1
     ? `Accommodation · ${groups[0].title} · ${priced.nights} night${priced.nights === 1 ? '' : 's'}`
     : `Accommodation · ${priced.nights} night${priced.nights === 1 ? '' : 's'}`;
+  const clientStayId = stayIdentity && stayIdentity.client_stay_id
+    ? String(stayIdentity.client_stay_id).trim().slice(0, MAX_CLIENT_STAY_ID)
+    : (priced.client_stay_id ? String(priced.client_stay_id).trim().slice(0, MAX_CLIENT_STAY_ID) : null);
   return {
     component: STAFF_ACCOMMODATION_COMPONENT,
     offering_id: STAFF_ACCOMMODATION_COMPONENT,
@@ -478,6 +702,7 @@ function buildAccommodationQuoteLine(priced, currency) {
     price_source: STAFF_ACCOMMODATION_SOURCE,
     billing_unit: 'stay',
     billing_mode: 'staff_accommodation',
+    client_stay_id: clientStayId || null,
     check_in: priced.check_in,
     check_out: priced.check_out,
     nights: priced.nights,
@@ -507,6 +732,7 @@ function formatAccommodationBookingCard(meta, amountDueCents) {
   return {
     kind: 'staff_accommodation',
     label: 'Accommodation',
+    client_stay_id: m.client_stay_id ? String(m.client_stay_id) : null,
     check_in: checkIn,
     check_out: checkOut,
     nights,
@@ -522,8 +748,11 @@ module.exports = {
   MAX_RANGES,
   MAX_AMOUNT_CENTS,
   MAX_STAY_NIGHTS,
+  MAX_STAYS,
+  MAX_CLIENT_STAY_ID,
   STAFF_ACCOMMODATION_SOURCE,
   STAFF_ACCOMMODATION_COMPONENT,
+  ACCOMMODATION_CLIENT_MONEY_KEYS,
   isIsoDate,
   parseIsoUtc,
   formatIsoUtc,
@@ -537,6 +766,11 @@ module.exports = {
   uncoveredErrorMessage,
   priceAccommodationStay,
   defaultAccommodationStayFromBookingDates,
+  normalizeAccommodationStay,
+  findOverlappingAccommodationStays,
+  sortAccommodationStays,
+  buildAccommodationSelectionValue,
+  accommodationStaysFromSelection,
   normalizeAccommodationSelection,
   accommodationForIntentFingerprint,
   isStaffAccommodationMeta,

@@ -566,26 +566,47 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
 
   var commercial = scheduleDrawerBuildCommercialLines(items, (pay && pay.rental_pricing) || (ctx && ctx.rental_pricing) || null);
   var commercialLines = (commercial && commercial.lines) || [];
-  // Enrich accommodation commercial lines with snapshot season groups (from payment line_items).
-  // scheduleDrawerBuildCommercialLines already includes them as singles — reattach breakdown.
+  // Enrich each accommodation commercial line with its own snapshot season groups.
+  // Match by service_record_id, then check_in/check_out — never first-label-only (multi-stay).
   commercialLines = commercialLines.map(function(line) {
     if (!line) return line;
+    var isAccomLine = !!(line.staff_accommodation || line.component === 'staff_accommodation'
+      || String(line.label || '').indexOf('Accommodation') === 0);
+    if (!isAccomLine && !(line.check_in && line.check_out)) return line;
     var src = null;
     items.forEach(function(li) {
       if (!li) return;
       if (!(li.staff_accommodation || li.component === 'staff_accommodation')) return;
       if (src) return;
       if (line.service_record_id && li.service_record_id
-        && String(line.service_record_id) === String(li.service_record_id)) src = li;
-      else if (String(line.label || '').indexOf('Accommodation') === 0) src = li;
+        && String(line.service_record_id) === String(li.service_record_id)) {
+        src = li;
+        return;
+      }
+      if (line.check_in && line.check_out && li.check_in && li.check_out
+        && String(line.check_in).slice(0, 10) === String(li.check_in).slice(0, 10)
+        && String(line.check_out).slice(0, 10) === String(li.check_out).slice(0, 10)) {
+        src = li;
+      }
     });
+    if (!src && isAccomLine) {
+      // Last resort: match unused accommodation item by date identity on the line.
+      items.forEach(function(li) {
+        if (src || !li) return;
+        if (!(li.staff_accommodation || li.component === 'staff_accommodation')) return;
+        if (line.check_in && li.check_in
+          && String(line.check_in).slice(0, 10) === String(li.check_in).slice(0, 10)) {
+          src = li;
+        }
+      });
+    }
     if (!src) return line;
     return Object.assign({}, line, {
       staff_accommodation: true,
-      season_groups: src.season_groups || null,
-      check_in: src.check_in || null,
-      check_out: src.check_out || null,
-      nights: src.nights || null,
+      season_groups: src.season_groups || line.season_groups || null,
+      check_in: src.check_in || line.check_in || null,
+      check_out: src.check_out || line.check_out || null,
+      nights: src.nights != null ? src.nights : line.nights,
       label: src.label || line.label,
       line_cents: src.line_cents != null ? src.line_cents : line.line_cents,
     });
@@ -596,7 +617,10 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
       var math = scheduleDrawerFormatCommercialMathLabel(line);
       html += '<div class="ps-svc-summary-row ps-invoice-line' + (line.is_bundle ? ' is-bundle-line' : '') +
         (line.staff_accommodation ? ' is-accommodation-line' : '') + '" data-testid="' +
-        (line.staff_accommodation ? 'ps-invoice-accommodation' : 'ps-invoice-line') + '">';
+        (line.staff_accommodation ? 'ps-invoice-accommodation' : 'ps-invoice-line') + '"'
+        + (line.check_in ? ' data-check-in="' + escHtml(String(line.check_in).slice(0, 10)) + '"' : '')
+        + (line.check_out ? ' data-check-out="' + escHtml(String(line.check_out).slice(0, 10)) + '"' : '')
+        + '>';
       html += '<span class="ps-svc-name">' + escHtml(line.label || '—');
       if (math && !line.staff_accommodation) html += '<span class="ps-svc-detail"> · ' + escHtml(math) + '</span>';
       html += '</span>';

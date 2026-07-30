@@ -16264,6 +16264,18 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 }
 .portal-schedule-create-accommodation-summary{margin:6px 0 0}
 .portal-schedule-create-accommodation-summary .portal-schedule-create-date-range-trigger{min-height:40px}
+.portal-schedule-create-accommodation-list{display:flex;flex-direction:column;gap:8px;margin:8px 0 0}
+.portal-schedule-create-accommodation-card{border:1px solid var(--portal-border,rgba(0,0,0,.12));border-radius:10px;padding:10px 12px;background:var(--portal-surface,#fff)}
+.portal-schedule-create-accommodation-card.is-locked{opacity:1}
+.portal-schedule-create-accommodation-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.portal-schedule-create-accommodation-card-title{font-weight:600;font-size:13px;line-height:1.3}
+.portal-schedule-create-accommodation-card-dates{font-size:12px;opacity:.85;margin-top:2px}
+.portal-schedule-create-accommodation-card-meta{font-size:12px;opacity:.8;margin-top:4px}
+.portal-schedule-create-accommodation-card-breakdown{margin-top:6px;font-size:12px}
+.portal-schedule-create-accommodation-card-breakdown-row{display:flex;justify-content:space-between;gap:8px;padding:1px 0}
+.portal-schedule-create-accommodation-card-total{display:flex;justify-content:space-between;gap:8px;margin-top:6px;font-weight:600;font-size:13px}
+.portal-schedule-create-accommodation-card-actions{display:flex;gap:6px;flex-shrink:0}
+.portal-schedule-create-accommodation-card-actions .btn{padding:4px 10px;font-size:12px;min-height:30px}
 
 .portal-admin-card-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .portal-admin-card-actions{display:flex;gap:4px;align-items:center;justify-content:flex-end;flex-shrink:0}
@@ -18773,6 +18785,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <h4 class="portal-schedule-create-section-title" data-i18n="schedule.create.accommodation.title">Accommodation</h4>
             <button type="button" id="ps-create-accommodation-add-btn" class="portal-schedule-create-custom-line-plus" data-i18n-aria="schedule.create.accommodation.add" aria-label="Accommodation +" title="Accommodation +">+</button>
           </div>
+          <div id="ps-create-accommodation-list" class="portal-schedule-create-accommodation-list" data-testid="ps-create-accommodation-list" aria-live="polite"></div>
+          <!-- Legacy single-summary hooks kept for tests; multi-stay uses the list above. -->
           <div id="ps-create-accommodation-summary" class="portal-schedule-create-accommodation-summary" style="display:none" hidden aria-hidden="true" data-testid="ps-create-accommodation-summary">
             <button type="button" id="ps-create-accommodation-summary-btn" class="portal-schedule-create-date-range-trigger" aria-label="Edit accommodation dates">
               <span id="ps-create-accommodation-summary-display" class="portal-schedule-create-date-range-display">—</span>
@@ -22698,16 +22712,25 @@ function scheduleReadCreateCustomLineItems(){
   });
 }
 
-// Staff Accommodation (Create): identity + dates only; server owns money.
+// Staff Accommodation (Create): multi-stay collection; identity + dates only; server owns money.
+// Locked stays live in scheduleCreateAccommodationStays; draft editor uses scheduleCreateAccommodation.
 // Dates use the same booking date-range calendar control/classes; independent after seed.
-var scheduleCreateAccommodation = null; // { enabled, check_in, check_out } | null (committed)
+var scheduleCreateAccommodationStays = []; // locked: { client_stay_id, check_in, check_out, quote? }
+var scheduleCreateAccommodation = null; // draft stay while editor open: { enabled, check_in, check_out, client_stay_id? }
 var scheduleAccommodationEnabledCache = false;
 var scheduleCreateAccommodationEditorOpen = false;
+var scheduleCreateAccommodationEditingId = null; // client_stay_id being edited, or null for new draft
 var scheduleCreateAccomDateRangeDraft = { start: null, end: null };
 var scheduleCreateAccomDateRangeViewYm = null;
 var scheduleCreateAccomDateRangeFocusIso = null;
 var scheduleCreateAccomDateRangeRestoreFocus = false;
 var scheduleCreateAccomDateRangeDocWired = false;
+var scheduleCreateAccommodationStaySeq = 0;
+
+function scheduleNewCreateAccommodationStayId(){
+  scheduleCreateAccommodationStaySeq += 1;
+  return 'as_' + String(Date.now()) + '_' + String(scheduleCreateAccommodationStaySeq);
+}
 
 function scheduleSetAccommodationProductEnabled(enabled){
   scheduleAccommodationEnabledCache = !!enabled;
@@ -22717,11 +22740,13 @@ function scheduleSetAccommodationProductEnabled(enabled){
     wrap.style.display = '';
     wrap.removeAttribute('hidden');
   } else {
-    // Product disabled: hide + clear so we cannot add new stays.
+    // Product disabled on Create: hide + clear so we cannot add new stays.
     wrap.style.display = 'none';
     wrap.setAttribute('hidden', '');
+    scheduleCreateAccommodationStays = [];
     scheduleCreateAccommodation = null;
     scheduleCreateAccommodationEditorOpen = false;
+    scheduleCreateAccommodationEditingId = null;
     scheduleRenderCreateAccommodation();
   }
 }
@@ -23034,15 +23059,160 @@ function scheduleWireCreateAccomDateRange(){
   scheduleSyncCreateAccomDateRangeUi();
 }
 
+/** Half-open overlap against locked stays (exclude editingId when re-saving). */
+function scheduleCreateAccommodationOverlaps(checkIn, checkOut, excludeId){
+  var aIn = String(checkIn || '').slice(0, 10);
+  var aOut = String(checkOut || '').slice(0, 10);
+  if (!aIn || !aOut) return null;
+  var list = scheduleCreateAccommodationStays || [];
+  for (var i = 0; i < list.length; i += 1) {
+    var s = list[i];
+    if (!s) continue;
+    if (excludeId && String(s.client_stay_id || '') === String(excludeId)) continue;
+    var bIn = String(s.check_in || '').slice(0, 10);
+    var bOut = String(s.check_out || '').slice(0, 10);
+    if (!bIn || !bOut) continue;
+    // Half-open: overlap when aIn < bOut && bIn < aOut
+    if (aIn < bOut && bIn < aOut) {
+      return { a: { check_in: aIn, check_out: aOut }, b: { check_in: bIn, check_out: bOut } };
+    }
+  }
+  return null;
+}
+
+function scheduleCreateAccommodationNights(checkIn, checkOut){
+  var a = String(checkIn || '').slice(0, 10);
+  var b = String(checkOut || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b) || b <= a) return 0;
+  var n = 0;
+  var cur = a;
+  while (cur < b && n < 400) {
+    n += 1;
+    cur = scheduleAddIsoDays(cur, 1);
+  }
+  return n;
+}
+
+/** Attach authoritative quote season/price onto locked stay cards (never invent money). */
+function scheduleAttachCreateAccommodationQuote(quoteBody){
+  var lines = (quoteBody && Array.isArray(quoteBody.line_items)) ? quoteBody.line_items : [];
+  var accomLines = lines.filter(function(li){
+    return li && (li.staff_accommodation === true
+      || li.component === 'staff_accommodation'
+      || li.price_source === 'staff_accommodation');
+  });
+  (scheduleCreateAccommodationStays || []).forEach(function(stay){
+    if (!stay) return;
+    var match = null;
+    for (var i = 0; i < accomLines.length; i += 1) {
+      var li = accomLines[i];
+      if (stay.client_stay_id && li.client_stay_id
+        && String(stay.client_stay_id) === String(li.client_stay_id)) {
+        match = li; break;
+      }
+    }
+    if (!match) {
+      for (var j = 0; j < accomLines.length; j += 1) {
+        var lj = accomLines[j];
+        if (String(lj.check_in || '').slice(0, 10) === String(stay.check_in || '').slice(0, 10)
+          && String(lj.check_out || '').slice(0, 10) === String(stay.check_out || '').slice(0, 10)) {
+          match = lj; break;
+        }
+      }
+    }
+    if (match) {
+      stay.quote = {
+        total_cents: Number(match.total_cents != null ? match.total_cents : match.line_cents),
+        nights: Number(match.nights) || scheduleCreateAccommodationNights(stay.check_in, stay.check_out),
+        season_groups: Array.isArray(match.season_groups) ? match.season_groups : [],
+        currency: String(match.currency || 'EUR').toUpperCase() || 'EUR',
+        label: match.label || null,
+      };
+    }
+  });
+  scheduleRenderCreateAccommodation();
+}
+
+function scheduleRenderCreateAccommodationCardHtml(stay){
+  var esc = typeof scheduleEscapeHtmlLite === 'function' ? scheduleEscapeHtmlLite : function(s){ return String(s == null ? '' : s); };
+  var fmt = typeof scheduleFormatCentsMoney === 'function'
+    ? scheduleFormatCentsMoney
+    : function(c){ return '€' + (Number(c) / 100).toFixed(2); };
+  var id = String(stay.client_stay_id || '');
+  var nights = scheduleCreateAccommodationNights(stay.check_in, stay.check_out);
+  var dateText = scheduleCreateAccommodationDisplayText(stay.check_in, stay.check_out);
+  var q = stay.quote || null;
+  var groups = (q && Array.isArray(q.season_groups)) ? q.season_groups : [];
+  var titles = groups.map(function(g){ return String((g && g.title) || '').trim(); }).filter(Boolean);
+  if (!titles.length && q && q.label) titles = [String(q.label)];
+  var titleText = titles.length ? titles.join(' · ') : (portalT('schedule.create.accommodation.title') || 'Accommodation');
+  if (q && Number.isFinite(Number(q.nights))) nights = Number(q.nights);
+  var nightsLabel = nights + ' night' + (nights === 1 ? '' : 's');
+  var html = '<div class="portal-schedule-create-accommodation-card is-locked" data-testid="ps-create-accommodation-card" data-client-stay-id="'
+    + esc(id) + '">';
+  html += '<div class="portal-schedule-create-accommodation-card-head">';
+  html += '<div>';
+  html += '<div class="portal-schedule-create-accommodation-card-title">' + esc(titleText) + '</div>';
+  html += '<div class="portal-schedule-create-accommodation-card-dates">' + esc(dateText) + '</div>';
+  html += '<div class="portal-schedule-create-accommodation-card-meta">' + esc(nightsLabel) + '</div>';
+  html += '</div>';
+  html += '<div class="portal-schedule-create-accommodation-card-actions">';
+  html += '<button type="button" class="btn btn-ghost" data-edit-accom-stay="' + esc(id) + '" data-testid="ps-create-accommodation-edit">'
+    + esc(portalT('schedule.create.accommodation.edit') || 'Edit') + '</button>';
+  html += '<button type="button" class="btn btn-ghost" data-remove-accom-stay="' + esc(id) + '" data-testid="ps-create-accommodation-card-remove">'
+    + esc(portalT('schedule.create.accommodation.remove') || 'Remove') + '</button>';
+  html += '</div></div>';
+  if (groups.length) {
+    html += '<div class="portal-schedule-create-accommodation-card-breakdown">';
+    groups.forEach(function(g){
+      var gNights = Number(g && g.nights) || 0;
+      var nightly = Number(g && g.nightly_cents);
+      var sub = Number(g && g.subtotal_cents);
+      var gLab = String((g && g.title) || '—') + ' · ' + gNights + ' × '
+        + (Number.isFinite(nightly) ? fmt(nightly) : '—');
+      html += '<div class="portal-schedule-create-accommodation-card-breakdown-row">';
+      html += '<span>' + esc(gLab) + '</span>';
+      html += '<span>' + esc(Number.isFinite(sub) ? fmt(sub) : '—') + '</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  if (q && Number.isFinite(Number(q.total_cents))) {
+    html += '<div class="portal-schedule-create-accommodation-card-total">';
+    html += '<span>' + esc(portalT('schedule.create.accommodation.total') || 'Total') + '</span>';
+    html += '<span data-testid="ps-create-accommodation-card-total">' + esc(fmt(q.total_cents)) + '</span>';
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
 function scheduleRenderCreateAccommodation(){
   var editor = el('ps-create-accommodation-editor');
   var summary = el('ps-create-accommodation-summary');
+  var list = el('ps-create-accommodation-list');
   var addBtn = el('ps-create-accommodation-add-btn');
   var err = el('ps-create-accommodation-error');
-  if (err) { err.style.display = 'none'; err.textContent = ''; }
-  var has = !!(scheduleCreateAccommodation && scheduleCreateAccommodation.enabled);
-  var editing = has && scheduleCreateAccommodationEditorOpen;
-  if (addBtn) addBtn.style.display = (!has && scheduleAccommodationEnabledCache) ? '' : 'none';
+  // Keep error visible when set by Save; only clear when not mid-error.
+  var stays = scheduleCreateAccommodationStays || [];
+  var editing = !!(scheduleCreateAccommodationEditorOpen && scheduleCreateAccommodation && scheduleCreateAccommodation.enabled);
+  // + permanently visible when product enabled (even after first/second save).
+  if (addBtn) addBtn.style.display = scheduleAccommodationEnabledCache ? '' : 'none';
+  if (list) {
+    if (stays.length) {
+      list.innerHTML = stays.map(function(s){ return scheduleRenderCreateAccommodationCardHtml(s); }).join('');
+      list.style.display = '';
+    } else {
+      list.innerHTML = '';
+      list.style.display = stays.length ? '' : (editing ? 'none' : '');
+    }
+  }
+  // Legacy single-summary element stays hidden; multi cards own the locked UI.
+  if (summary) {
+    summary.style.display = 'none';
+    summary.setAttribute('hidden', '');
+    summary.setAttribute('aria-hidden', 'true');
+  }
   if (editor) {
     if (editing) {
       editor.style.display = '';
@@ -23060,24 +23230,6 @@ function scheduleRenderCreateAccommodation(){
       if (scheduleCreateAccomDateRangeIsOpen()) {
         scheduleCreateAccomDateRangeClosePopover({ restoreFocus: false, discard: true });
       }
-    }
-  }
-  if (summary) {
-    if (has && !editing) {
-      summary.style.display = '';
-      summary.removeAttribute('hidden');
-      summary.setAttribute('aria-hidden', 'false');
-      var sumDisp = el('ps-create-accommodation-summary-display');
-      if (sumDisp) {
-        sumDisp.textContent = scheduleCreateAccommodationDisplayText(
-          scheduleCreateAccommodation.check_in,
-          scheduleCreateAccommodation.check_out,
-        );
-      }
-    } else {
-      summary.style.display = 'none';
-      summary.setAttribute('hidden', '');
-      summary.setAttribute('aria-hidden', 'true');
     }
   }
 }
@@ -23110,11 +23262,16 @@ function scheduleDefaultAccommodationStay(dateFrom, dateTo){
 
 function scheduleAddCreateAccommodation(){
   if (!scheduleAccommodationEnabledCache) return;
-  // Seed from main booking dates once, then keep independently editable.
+  // Each + opens a new draft defaulted again to the main booking dates.
   var dateFrom = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
   var dateTo = el('ps-create-date-to') ? el('ps-create-date-to').value : dateFrom;
-  scheduleCreateAccommodation = scheduleDefaultAccommodationStay(dateFrom, dateTo);
+  var draft = scheduleDefaultAccommodationStay(dateFrom, dateTo);
+  draft.client_stay_id = scheduleNewCreateAccommodationStayId();
+  scheduleCreateAccommodation = draft;
+  scheduleCreateAccommodationEditingId = null; // new stay (not editing existing)
   scheduleCreateAccommodationEditorOpen = true;
+  var err = el('ps-create-accommodation-error');
+  if (err) { err.style.display = 'none'; err.textContent = ''; }
   scheduleRenderCreateAccommodation();
   if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
   else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent();
@@ -23130,7 +23287,7 @@ function scheduleSyncCreateAccommodationFromDom(){
 }
 
 /**
- * Save accommodation stay into booking payload state and collapse the editor.
+ * Save accommodation draft into locked stays and collapse the editor.
  * Does NOT submit/create the booking and never trusts client money.
  */
 function scheduleSaveCreateAccommodation(){
@@ -23164,9 +23321,43 @@ function scheduleSaveCreateAccommodation(){
   }
   // Half-open: exclusive checkout after check-in (same-day → one night).
   if (checkOut <= checkIn) checkOut = scheduleAddIsoDays(checkIn, 1);
-  scheduleCreateAccommodation = { enabled: true, check_in: checkIn, check_out: checkOut };
+  var stayId = scheduleCreateAccommodationEditingId
+    || scheduleCreateAccommodation.client_stay_id
+    || scheduleNewCreateAccommodationStayId();
+  var overlap = scheduleCreateAccommodationOverlaps(checkIn, checkOut, stayId);
+  if (overlap) {
+    var errOv = el('ps-create-accommodation-error');
+    if (errOv) {
+      errOv.style.display = '';
+      errOv.textContent = (portalT('schedule.create.accommodation.overlap')
+        || 'Accommodation stays overlap: [{aIn}, {aOut}) and [{bIn}, {bOut})')
+        .replace('{aIn}', overlap.a.check_in)
+        .replace('{aOut}', overlap.a.check_out)
+        .replace('{bIn}', overlap.b.check_in)
+        .replace('{bOut}', overlap.b.check_out);
+    }
+    return false;
+  }
+  var nextStay = {
+    client_stay_id: stayId,
+    check_in: checkIn,
+    check_out: checkOut,
+    quote: null,
+  };
+  // Update existing locked stay or append.
+  var updated = false;
+  scheduleCreateAccommodationStays = (scheduleCreateAccommodationStays || []).map(function(s){
+    if (s && String(s.client_stay_id || '') === String(stayId)) {
+      updated = true;
+      return nextStay;
+    }
+    return s;
+  });
+  if (!updated) scheduleCreateAccommodationStays.push(nextStay);
+  // Keep scheduleCreateAccommodation as last committed singular mirror for legacy tests.
+  scheduleCreateAccommodation = { enabled: true, check_in: checkIn, check_out: checkOut, client_stay_id: stayId };
   scheduleCreateAccommodationEditorOpen = false;
-  // Clear any error; collapse to saved summary (not whole-booking submit).
+  scheduleCreateAccommodationEditingId = null;
   var errOk = el('ps-create-accommodation-error');
   if (errOk) { errOk.style.display = 'none'; errOk.textContent = ''; }
   scheduleRenderCreateAccommodation();
@@ -23175,32 +23366,91 @@ function scheduleSaveCreateAccommodation(){
   return true;
 }
 
+/** Remove the draft under edit, or cancel a new unsaved draft. */
 function scheduleRemoveCreateAccommodation(){
+  var editId = scheduleCreateAccommodationEditingId
+    || (scheduleCreateAccommodation && scheduleCreateAccommodation.client_stay_id) || null;
+  if (editId) {
+    scheduleCreateAccommodationStays = (scheduleCreateAccommodationStays || []).filter(function(s){
+      return !s || String(s.client_stay_id || '') !== String(editId);
+    });
+  }
   scheduleCreateAccommodation = null;
   scheduleCreateAccommodationEditorOpen = false;
+  scheduleCreateAccommodationEditingId = null;
   if (scheduleCreateAccomDateRangeIsOpen()) {
     scheduleCreateAccomDateRangeClosePopover({ restoreFocus: false, discard: true });
+  }
+  var err = el('ps-create-accommodation-error');
+  if (err) { err.style.display = 'none'; err.textContent = ''; }
+  scheduleRenderCreateAccommodation();
+  if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
+  else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent();
+}
+
+function scheduleRemoveCreateAccommodationStay(clientStayId){
+  var id = String(clientStayId || '');
+  if (!id) return;
+  scheduleCreateAccommodationStays = (scheduleCreateAccommodationStays || []).filter(function(s){
+    return !s || String(s.client_stay_id || '') !== id;
+  });
+  if (scheduleCreateAccommodationEditingId && String(scheduleCreateAccommodationEditingId) === id) {
+    scheduleCreateAccommodation = null;
+    scheduleCreateAccommodationEditorOpen = false;
+    scheduleCreateAccommodationEditingId = null;
   }
   scheduleRenderCreateAccommodation();
   if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
   else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent();
 }
 
+function scheduleEditCreateAccommodationStay(clientStayId){
+  var id = String(clientStayId || '');
+  var stay = (scheduleCreateAccommodationStays || []).find(function(s){
+    return s && String(s.client_stay_id || '') === id;
+  });
+  if (!stay) return;
+  scheduleCreateAccommodation = {
+    enabled: true,
+    client_stay_id: stay.client_stay_id,
+    check_in: String(stay.check_in || '').slice(0, 10),
+    check_out: String(stay.check_out || '').slice(0, 10),
+  };
+  scheduleCreateAccommodationEditingId = stay.client_stay_id;
+  scheduleCreateAccommodationEditorOpen = true;
+  var err = el('ps-create-accommodation-error');
+  if (err) { err.style.display = 'none'; err.textContent = ''; }
+  scheduleRenderCreateAccommodation();
+}
+
 function scheduleReadCreateAccommodation(){
-  // Prefer committed state; while editor open, fold current hidden dates in.
-  if (scheduleCreateAccommodationEditorOpen) scheduleSyncCreateAccommodationFromDom();
-  if (!scheduleCreateAccommodation || !scheduleCreateAccommodation.enabled) return null;
-  var checkIn = String(scheduleCreateAccommodation.check_in || '').slice(0, 10);
-  var checkOut = String(scheduleCreateAccommodation.check_out || '').slice(0, 10);
-  if (checkIn && checkOut && checkOut <= checkIn) checkOut = scheduleAddIsoDays(checkIn, 1);
+  // Build multi-stay payload from locked stays; include open draft only after Save.
+  var stays = (scheduleCreateAccommodationStays || []).map(function(s){
+    var checkIn = String(s.check_in || '').slice(0, 10);
+    var checkOut = String(s.check_out || '').slice(0, 10);
+    if (checkIn && checkOut && checkOut <= checkIn) checkOut = scheduleAddIsoDays(checkIn, 1);
+    return {
+      client_stay_id: s.client_stay_id || null,
+      check_in: checkIn,
+      check_out: checkOut,
+    };
+  }).filter(function(s){ return s.check_in && s.check_out; });
+  if (!stays.length) return null;
   return {
     enabled: true,
-    check_in: checkIn,
-    check_out: checkOut,
+    stays: stays,
+    // Singular mirror (first stay) for any legacy readers.
+    check_in: stays[0].check_in,
+    check_out: stays[0].check_out,
   };
 }
 
 function scheduleOpenCreateAccommodationEditor(){
+  // Legacy summary click: edit first locked stay if present.
+  if (scheduleCreateAccommodationStays && scheduleCreateAccommodationStays.length) {
+    scheduleEditCreateAccommodationStay(scheduleCreateAccommodationStays[0].client_stay_id);
+    return;
+  }
   if (!scheduleCreateAccommodation || !scheduleCreateAccommodation.enabled) return;
   scheduleCreateAccommodationEditorOpen = true;
   scheduleRenderCreateAccommodation();
@@ -23211,6 +23461,7 @@ function scheduleWireCreateAccommodation(){
   var removeBtn = el('ps-create-accommodation-remove');
   var saveBtn = el('ps-create-accommodation-save');
   var summaryBtn = el('ps-create-accommodation-summary-btn');
+  var list = el('ps-create-accommodation-list');
   if (addBtn && !addBtn._accomBound) {
     addBtn._accomBound = true;
     addBtn.addEventListener('click', function(){ scheduleAddCreateAccommodation(); });
@@ -23233,6 +23484,22 @@ function scheduleWireCreateAccommodation(){
   if (summaryBtn && !summaryBtn._accomBound) {
     summaryBtn._accomBound = true;
     summaryBtn.addEventListener('click', function(){ scheduleOpenCreateAccommodationEditor(); });
+  }
+  if (list && !list._accomBound) {
+    list._accomBound = true;
+    list.addEventListener('click', function(ev){
+      var t = ev && ev.target;
+      if (!t) return;
+      var editBtn = t.closest ? t.closest('[data-edit-accom-stay]') : null;
+      var remBtn = t.closest ? t.closest('[data-remove-accom-stay]') : null;
+      if (editBtn) {
+        scheduleEditCreateAccommodationStay(editBtn.getAttribute('data-edit-accom-stay'));
+        return;
+      }
+      if (remBtn) {
+        scheduleRemoveCreateAccommodationStay(remBtn.getAttribute('data-remove-accom-stay'));
+      }
+    });
   }
   scheduleWireCreateAccomDateRange();
   scheduleRenderCreateAccommodation();

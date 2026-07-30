@@ -874,7 +874,23 @@ function rowMatchesQuoteLine(row, line) {
       && !!lineId && lineId === rowId;
   }
   if (component === STAFF_ACCOMMODATION_COMPONENT) {
-    return isStaffAccommodationMeta(meta);
+    if (!isStaffAccommodationMeta(meta)) return false;
+    // Multi-stay: match by client_stay_id when both sides carry it; else by
+    // half-open check_in/check_out identity so each stay row claims exactly one line.
+    const lineStayId = String((line && line.client_stay_id) || '').trim();
+    const rowStayId = String(meta.client_stay_id || '').trim();
+    if (lineStayId && rowStayId) return lineStayId === rowStayId;
+    const lineIn = String((line && line.check_in) || '').slice(0, 10);
+    const lineOut = String((line && line.check_out) || '').slice(0, 10);
+    const rowIn = String(meta.check_in || '').slice(0, 10);
+    const rowOut = String(meta.check_out || '').slice(0, 10);
+    if (lineIn && lineOut && rowIn && rowOut) {
+      return lineIn === rowIn && lineOut === rowOut;
+    }
+    // Legacy single-stay rows without dates on the quote line: allow only when
+    // both lack date identity (ambiguous multi would fail closed above).
+    if (!lineIn && !lineOut && !rowIn && !rowOut) return true;
+    return false;
   }
   return false;
 }
@@ -1073,6 +1089,7 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
           source: STAFF_ACCOMMODATION_SOURCE,
           staff_accommodation: true,
           component: STAFF_ACCOMMODATION_COMPONENT,
+          client_stay_id: line.client_stay_id || meta.client_stay_id || null,
           check_in: line.check_in || meta.check_in,
           check_out: line.check_out || meta.check_out,
           nights: line.nights != null ? line.nights : meta.nights,
@@ -2588,6 +2605,11 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
     // dedicated staff_accommodation. Never copied from transportBody.
     allowExistingAccommodationWhenDisabled:
       opts && opts.allowExistingAccommodationWhenDisabled === true,
+    existingAccommodationStayCount: Number.isInteger(
+      opts && opts.existingAccommodationStayCount,
+    )
+      ? opts.existingAccommodationStayCount
+      : null,
     now: opts.now instanceof Date ? opts.now : new Date(),
   });
   if (!quoteBuilt.ok) {
@@ -3225,13 +3247,18 @@ async function insertStaffAccommodationServiceRow(pg, opts) {
   const {
     clientSlug, bookingId, bookingCode, guestName, serviceDate, srPayment,
     attribution, locationId, componentKeys, bundleId, notes, needsReply, metaBase,
+    clientStayId,
   } = opts;
+  const stayId = clientStayId != null && String(clientStayId).trim()
+    ? String(clientStayId).trim().slice(0, 64)
+    : (priced.client_stay_id ? String(priced.client_stay_id).trim().slice(0, 64) : null);
   const metadata = {
     source: STAFF_ACCOMMODATION_SOURCE,
     staff_accommodation: true,
     staff_manual_schedule: attribution && attribution.staffManualSchedule,
     staff_ui_service_type: STAFF_ACCOMMODATION_COMPONENT,
     component: STAFF_ACCOMMODATION_COMPONENT,
+    client_stay_id: stayId || null,
     check_in: priced.check_in,
     check_out: priced.check_out,
     nights: priced.nights,
@@ -3410,7 +3437,14 @@ async function createSunsetScheduleBooking(pg, opts) {
   const bodyForValidate = rentalPrep.body || {};
   const hasAccomWire = !!(bodyForValidate.accommodation
     && bodyForValidate.accommodation.enabled !== false
-    && (bodyForValidate.accommodation.check_in || bodyForValidate.accommodation.check_out));
+    && (
+      bodyForValidate.accommodation.check_in
+      || bodyForValidate.accommodation.check_out
+      || (Array.isArray(bodyForValidate.accommodation.stays)
+        && bodyForValidate.accommodation.stays.length > 0)
+      || (Array.isArray(bodyForValidate.accommodation)
+        && bodyForValidate.accommodation.length > 0)
+    ));
   const validated = validateScheduleBookingBody(bodyForValidate, {
     requireGuestPhone: attribution.staffManualSchedule === true,
     actor: opts.actor || null,
@@ -4124,53 +4158,61 @@ async function createSunsetScheduleBooking(pg, opts) {
       customRows.forEach((r) => createdRows.push(r));
     }
 
-    // Staff Accommodation — server-priced from Admin seasonal ranges; snapshot breakdown.
+    // Staff Accommodation — one dedicated service row per stay; server-priced snapshot.
     if (input.accommodation && input.accommodation.enabled) {
       const { resolveAccommodationPrice } = require('./sunset-accommodation-admin');
-      const accomRes = await resolveAccommodationPrice(pg, {
-        clientSlug,
-        locationId,
-        checkIn: input.accommodation.check_in,
-        checkOut: input.accommodation.check_out,
-        requireEnabled: true,
-      });
-      if (!accomRes.ok) {
-        throw Object.assign(new Error(accomRes.error || 'accommodation_price_failed'), {
-          sunsetPriceFail: {
-            ok: false,
-            status: accomRes.status || 422,
-            body: accomRes.body || {
-              success: false,
-              error: accomRes.error,
-              reason_code: accomRes.reason_code,
-              uncovered_nights: accomRes.uncovered_nights || null,
+      const {
+        accommodationStaysFromSelection,
+      } = require('./sunset-accommodation-price-resolver');
+      const accomStays = accommodationStaysFromSelection(input.accommodation);
+      for (const stay of accomStays) {
+        const accomRes = await resolveAccommodationPrice(pg, {
+          clientSlug,
+          locationId,
+          checkIn: stay.check_in,
+          checkOut: stay.check_out,
+          requireEnabled: true,
+        });
+        if (!accomRes.ok) {
+          throw Object.assign(new Error(accomRes.error || 'accommodation_price_failed'), {
+            sunsetPriceFail: {
+              ok: false,
+              status: accomRes.status || 422,
+              body: accomRes.body || {
+                success: false,
+                error: accomRes.error,
+                reason_code: accomRes.reason_code,
+                uncovered_nights: accomRes.uncovered_nights || null,
+                overlap: accomRes.overlap || null,
+              },
             },
+          });
+        }
+        const accomRow = await insertStaffAccommodationServiceRow(pg, {
+          clientSlug,
+          bookingId,
+          bookingCode,
+          guestName: input.guest_name,
+          serviceDate: stay.check_in || firstDate,
+          srPayment,
+          attribution,
+          locationId,
+          componentKeys,
+          bundleId,
+          notes: input.notes || null,
+          needsReply: input.needs_reply,
+          priced: accomRes.priced,
+          clientStayId: stay.client_stay_id || null,
+          metaBase: {
+            actor_source: attribution.actorSource || null,
+            guest_phone: input.guest_phone,
+            created_by_staff: attribution.createdByStaff,
+            idempotency_key: input.idempotency_key,
+            idempotency_intent_fp: idempotencyIntentFp || null,
           },
         });
+        if (accomRow) createdRows.push(accomRow);
       }
-      const accomRow = await insertStaffAccommodationServiceRow(pg, {
-        clientSlug,
-        bookingId,
-        bookingCode,
-        guestName: input.guest_name,
-        serviceDate: input.accommodation.check_in || firstDate,
-        srPayment,
-        attribution,
-        locationId,
-        componentKeys,
-        bundleId,
-        notes: input.notes || null,
-        needsReply: input.needs_reply,
-        priced: accomRes.priced,
-        metaBase: {
-          actor_source: attribution.actorSource || null,
-          guest_phone: input.guest_phone,
-          created_by_staff: attribution.createdByStaff,
-          idempotency_key: input.idempotency_key,
-          idempotency_intent_fp: idempotencyIntentFp || null,
-        },
-      });
-      if (accomRow) createdRows.push(accomRow);
     }
 
     const quoteTransportBody = {
