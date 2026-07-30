@@ -275,23 +275,47 @@ def _looks_like_human_task_attempt(content: str) -> bool:
     return head.startswith("TASK")
 
 
-def _parse_peer_header(content: str) -> Optional[str]:
-    """Return 'handoff' | 'review' if first non-empty line is a known marker."""
+# Leading exact recipient mention is required on outbound envelopes so peer
+# DISCORD_ALLOW_BOTS=mentions can admit the message. Inbound parse skips one
+# leading mention line before the protocol marker.
+_LEADING_MENTION_RE = re.compile(r"^<@!?[1-9][0-9]{0,31}>$")
+
+
+def _peer_protocol_lines(content: str) -> list:
+    """Non-empty lines with at most one leading bot mention stripped."""
+    lines = []
     for line in content.splitlines():
         stripped = line.strip()
-        if not stripped:
-            continue
-        if stripped == HANDOFF_MARKER:
-            return "handoff"
-        if stripped == REVIEW_MARKER:
-            return "review"
+        if stripped:
+            lines.append(stripped)
+    if lines and _LEADING_MENTION_RE.fullmatch(lines[0]):
+        lines = lines[1:]
+    return lines
+
+
+def _parse_peer_header(content: str) -> Optional[str]:
+    """Return 'handoff' | 'review' if first protocol line is a known marker.
+
+    Accepts an optional leading Discord user mention (outbound envelope shape).
+    """
+    lines = _peer_protocol_lines(content)
+    if not lines:
         return None
+    first = lines[0]
+    if first == HANDOFF_MARKER:
+        return "handoff"
+    if first == REVIEW_MARKER:
+        return "review"
     return None
 
 
 def _looks_like_peer_attempt(content: str) -> bool:
-    head = content.lstrip()[:32]
-    return head.startswith("A2A-HANDOFF") or head.startswith("A2A-REVIEW")
+    lines = _peer_protocol_lines(content)
+    if not lines:
+        head = content.lstrip()[:32]
+        return head.startswith("A2A-HANDOFF") or head.startswith("A2A-REVIEW")
+    first = lines[0]
+    return first.startswith("A2A-HANDOFF") or first.startswith("A2A-REVIEW")
 
 
 def _extract_task_id(content: str) -> Optional[str]:
@@ -582,6 +606,132 @@ class WaterCoolerA2APolicy:
             DecisionKind.PEER_REVIEW,
             "peer_review_accepted",
             task_id=state.task_id,
+            task_state=new_state,
+        )
+
+    def record_local_outbound(
+        self,
+        task_id: str,
+        *,
+        kind: str,
+        now: Optional[float] = None,
+        outbound_message_id: Optional[str] = None,
+    ) -> PolicyDecision:
+        """Advance local mirror after a successful controlled peer send.
+
+        Used by the outbound action because the local Discord adapter ignores
+        self-authored messages, so the sender never re-evaluates its own
+        envelope. Fails closed on wrong role/order, expiry, terminal state,
+        unknown task, or unknown kind. Does not store body text.
+        """
+        clock = time.time() if now is None else float(now)
+        cfg = self._config
+
+        if not cfg.is_active:
+            return PolicyDecision(DecisionKind.REJECT, "policy_disabled_or_invalid_config")
+
+        if not isinstance(task_id, str) or not _TASK_ID_RE.fullmatch(task_id):
+            return PolicyDecision(DecisionKind.REJECT, "missing_or_invalid_task_id")
+
+        if kind not in ("handoff", "review"):
+            return PolicyDecision(DecisionKind.REJECT, "invalid_outbound_kind", task_id=task_id)
+
+        self._expire_tasks(clock)
+
+        state = self._tasks.get(task_id)
+        if state is None:
+            return PolicyDecision(
+                DecisionKind.REJECT, "unknown_or_forged_task_id", task_id=task_id
+            )
+
+        if clock > state.expires_at or state.stage == TaskStage.TERMINAL:
+            if clock > state.expires_at and state.stage != TaskStage.TERMINAL:
+                self._tasks[task_id] = _replace_state(
+                    state, stage=TaskStage.TERMINAL, updated_at=clock
+                )
+            return PolicyDecision(
+                DecisionKind.REJECT,
+                "task_expired_or_terminal",
+                task_id=task_id,
+                task_state=self._tasks.get(task_id),
+            )
+
+        if kind == "handoff":
+            if not cfg.is_local_worker:
+                return PolicyDecision(
+                    DecisionKind.REJECT,
+                    "outbound_handoff_requires_worker",
+                    task_id=task_id,
+                    task_state=state,
+                )
+            if state.stage != TaskStage.AWAITING_WORKER_HANDOFF:
+                return PolicyDecision(
+                    DecisionKind.REJECT,
+                    "wrong_order_or_duplicate_handoff",
+                    task_id=task_id,
+                    task_state=state,
+                )
+            if state.round_count >= MAX_ROUNDS:
+                term = _replace_state(state, stage=TaskStage.TERMINAL, updated_at=clock)
+                self._tasks[task_id] = term
+                return PolicyDecision(
+                    DecisionKind.REJECT,
+                    "round_limit_exceeded",
+                    task_id=task_id,
+                    task_state=term,
+                )
+            new_state = _replace_state(
+                state,
+                stage=TaskStage.AWAITING_REVIEWER_REVIEW,
+                updated_at=clock,
+            )
+            self._tasks[task_id] = new_state
+            if isinstance(outbound_message_id, str) and _is_snowflake(outbound_message_id):
+                self._seen_message_ids.add(outbound_message_id)
+            return PolicyDecision(
+                DecisionKind.PEER_HANDOFF,
+                "local_outbound_handoff_recorded",
+                task_id=task_id,
+                task_state=new_state,
+            )
+
+        # kind == "review"
+        if not cfg.is_local_reviewer:
+            return PolicyDecision(
+                DecisionKind.REJECT,
+                "outbound_review_requires_reviewer",
+                task_id=task_id,
+                task_state=state,
+            )
+        if state.stage != TaskStage.AWAITING_REVIEWER_REVIEW:
+            return PolicyDecision(
+                DecisionKind.REJECT,
+                "wrong_order_or_duplicate_review",
+                task_id=task_id,
+                task_state=state,
+            )
+        new_round = state.round_count + 1
+        if new_round >= MAX_ROUNDS:
+            new_state = _replace_state(
+                state,
+                stage=TaskStage.TERMINAL,
+                updated_at=clock,
+                round_count=new_round,
+            )
+        else:
+            new_state = _replace_state(
+                state,
+                stage=TaskStage.AWAITING_WORKER_HANDOFF,
+                updated_at=clock,
+                round_count=new_round,
+            )
+        self._tasks[task_id] = new_state
+        if isinstance(outbound_message_id, str) and _is_snowflake(outbound_message_id):
+            self._seen_message_ids.add(outbound_message_id)
+        return PolicyDecision(
+            DecisionKind.PEER_REVIEW,
+            "local_outbound_review_recorded",
+            task_id=task_id,
             task_state=new_state,
         )
 

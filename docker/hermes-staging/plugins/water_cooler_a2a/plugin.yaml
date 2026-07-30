@@ -1,0 +1,9 @@
+name: water-cooler-a2a
+version: "1.0.0"
+description: >
+  Controlled Water-cooler A2A outbound tool for Seadog (worker) and Deckhand
+  (reviewer) only. Opt-in via plugins.enabled + toolsets; never enable on
+  Luna, Sunset Luna, or orchestrator. Destination/channel/task_id are never
+  model-chosen — they come from authorized runtime context only.
+provides_tools:
+  - water_cooler_a2a_send

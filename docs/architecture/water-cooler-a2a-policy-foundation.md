@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented as a pure, fail-closed Python state machine plus a repository-owned **runtime bridge**, **controlled peer-envelope builder**, and **adapter-patch foundation** (inactive seams only). **Not** wired into the live Discord adapter at runtime, Hermes gateway apply path, Dockerfile, bootstrap, compose, SOUL, or any live hook. Production enablement remains off.
+Implemented as a pure, fail-closed Python state machine plus a repository-owned **runtime bridge**, **controlled peer-envelope builder**, **controlled outbound action/plugin** (opt-in, default off), and **adapter-patch foundation** (inactive seams only). **Not** wired into the live Discord adapter at runtime, Hermes gateway apply path, Dockerfile apply path, bootstrap enablement, compose, SOUL, or any live hook. Production enablement remains off.
 
 ## Decision
 
@@ -48,12 +48,16 @@ Opaque task ID, expected worker/reviewer bot IDs, stage, timestamps, source chan
 | Policy | `docker/hermes-staging/wolfhouse/water_cooler_a2a_policy.py` |
 | Runtime bridge | `docker/hermes-staging/wolfhouse/water_cooler_a2a_runtime.py` |
 | Peer envelope builder | `docker/hermes-staging/wolfhouse/water_cooler_a2a_envelope.py` |
+| Authorized outbound context | `docker/hermes-staging/wolfhouse/water_cooler_a2a_action_context.py` |
+| Controlled outbound action | `docker/hermes-staging/wolfhouse/water_cooler_a2a_action.py` |
+| Opt-in Hermes plugin | `docker/hermes-staging/plugins/water_cooler_a2a/` |
 | Adapter hooks (inert) | `docker/hermes-staging/wolfhouse/water_cooler_a2a_adapter_hooks.py` |
 | Adapter patch foundation | `docker/hermes-staging/apply_water_cooler_a2a_adapter_patch.py` |
 | Admission-shape fixture | `docker/hermes-staging/wolfhouse/fixtures/water_cooler_a2a/discord_adapter_admission_shape.py` |
 | Policy unit tests | `docker/hermes-staging/wolfhouse/test_water_cooler_a2a_policy.py` |
 | Runtime unit tests | `docker/hermes-staging/wolfhouse/test_water_cooler_a2a_runtime.py` |
 | Envelope unit tests | `docker/hermes-staging/wolfhouse/test_water_cooler_a2a_envelope.py` |
+| Action unit tests | `docker/hermes-staging/wolfhouse/test_water_cooler_a2a_action.py` |
 | Adapter patch unit tests | `docker/hermes-staging/wolfhouse/test_water_cooler_a2a_adapter_patch.py` |
 | Verifier | `docker/hermes-staging/verify_water_cooler_a2a_pilot.py` |
 
@@ -107,10 +111,24 @@ Patcher rules: unique anchors required; unknown/ambiguous/partial source fails c
 
 Leading exact recipient mention supports peer `DISCORD_ALLOW_BOTS=mentions` admission. `build_peer_envelope_from_model_reply` always rejects — envelopes are never auto-built from plain model text.
 
+## Controlled outbound action (source only; default off)
+
+Hermes plugins are **opt-in** (`plugins.enabled` allow-list). Luna config enables only `wolfhouse-staff-api`. Deckhand/orchestrator configs enable no plugins. Therefore a dedicated plugin can exist in-repo and load only when Seadog/Deckhand configs later enable `water-cooler-a2a` + toolset `water_cooler_a2a` — without registering on Luna/Sunset/orchestrator.
+
+| Piece | Contract |
+|-------|----------|
+| Tool | `water_cooler_a2a_send` — model supplies **body text only** |
+| Context | `establish_from_dispatch` after bridge `DISPATCH_*`; holds task_id, recipient, channel, action, envelope kind, scoped send callback |
+| Sender | `WaterCoolerScopedSender` — rejects any channel other than the authorized Water-cooler channel |
+| State | `policy.record_local_outbound` advances local mirror **only after successful send** (self-messages are ignored by Discord adapter) |
+| Fail closed | no context, used context, disabled policy, wrong role/stage, expiry/terminal, missing adapter, send failure, oversize body, duplicate tool use |
+
+Plain model replies never become A2A. Destination/channel/peer/round/task_id are never model parameters.
+
 ## Explicit non-goals (this slice)
 
-- Activating adapter hooks, applying the patch in Docker/bootstrap, SOUL edits, compose/env changes.
-- Model or tool invocation inside the policy, bridge, hooks, or envelope builder.
+- Activating adapter hooks, applying the patch in Docker/bootstrap, SOUL edits, compose/env changes, or enabling the plugin in any role config.
+- Model or tool invocation inside the policy, bridge, hooks, or envelope builder (the plugin is registered only when explicitly enabled later).
 - Persistence beyond the in-memory policy instance (per process).
 - Shared volume, network service, signed token, or shared secret for A2A.
 - Production enablement (`enabled` remains false until a later, separate change).

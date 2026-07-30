@@ -18,17 +18,25 @@ POLICY = ROOT / "wolfhouse" / "water_cooler_a2a_policy.py"
 RUNTIME = ROOT / "wolfhouse" / "water_cooler_a2a_runtime.py"
 ENVELOPE = ROOT / "wolfhouse" / "water_cooler_a2a_envelope.py"
 HOOKS = ROOT / "wolfhouse" / "water_cooler_a2a_adapter_hooks.py"
+ACTION = ROOT / "wolfhouse" / "water_cooler_a2a_action.py"
+ACTION_CTX = ROOT / "wolfhouse" / "water_cooler_a2a_action_context.py"
 ADAPTER_PATCH = ROOT / "apply_water_cooler_a2a_adapter_patch.py"
 TESTS = ROOT / "wolfhouse" / "test_water_cooler_a2a_policy.py"
 RUNTIME_TESTS = ROOT / "wolfhouse" / "test_water_cooler_a2a_runtime.py"
 ENVELOPE_TESTS = ROOT / "wolfhouse" / "test_water_cooler_a2a_envelope.py"
 PATCH_TESTS = ROOT / "wolfhouse" / "test_water_cooler_a2a_adapter_patch.py"
+ACTION_TESTS = ROOT / "wolfhouse" / "test_water_cooler_a2a_action.py"
+PLUGIN_INIT = ROOT / "plugins" / "water_cooler_a2a" / "__init__.py"
+PLUGIN_YAML = ROOT / "plugins" / "water_cooler_a2a" / "plugin.yaml"
 ADMISSION_FIXTURE = (
     ROOT / "wolfhouse" / "fixtures" / "water_cooler_a2a" / "discord_adapter_admission_shape.py"
 )
 SESSION_ROUTING = ROOT / "wolfhouse" / "discord_session_routing.py"
 SESSION_VERIFY = ROOT / "verify_discord_session_continuity.py"
 GATEWAY_PATCHES = ROOT / "apply_gateway_patches.py"
+BOOTSTRAP = ROOT / "bootstrap.sh"
+LUNA_SOUL = ROOT / "SOUL.md"
+ORCH_SOUL = ROOT / "orchestrator-SOUL.md"
 
 passed = 0
 failed = 0
@@ -103,11 +111,16 @@ def main() -> int:
     check("runtime bridge module exists", RUNTIME.is_file())
     check("envelope builder module exists", ENVELOPE.is_file())
     check("adapter hooks module exists", HOOKS.is_file())
+    check("controlled action module exists", ACTION.is_file())
+    check("action context module exists", ACTION_CTX.is_file())
     check("adapter patch module exists", ADAPTER_PATCH.is_file())
     check("unit test module exists", TESTS.is_file())
     check("runtime unit test module exists", RUNTIME_TESTS.is_file())
     check("envelope unit test module exists", ENVELOPE_TESTS.is_file())
     check("adapter patch unit test module exists", PATCH_TESTS.is_file())
+    check("action unit test module exists", ACTION_TESTS.is_file())
+    check("a2a plugin init exists", PLUGIN_INIT.is_file())
+    check("a2a plugin.yaml exists", PLUGIN_YAML.is_file())
     check("admission-shape fixture exists", ADMISSION_FIXTURE.is_file())
     check("session routing untouched path exists", SESSION_ROUTING.is_file())
     check("session continuity verifier exists", SESSION_VERIFY.is_file())
@@ -123,10 +136,16 @@ def main() -> int:
     rt_test_src = RUNTIME_TESTS.read_text(encoding="utf-8") if RUNTIME_TESTS.is_file() else ""
     env_src = ENVELOPE.read_text(encoding="utf-8") if ENVELOPE.is_file() else ""
     hooks_src = HOOKS.read_text(encoding="utf-8") if HOOKS.is_file() else ""
+    action_src = ACTION.read_text(encoding="utf-8") if ACTION.is_file() else ""
+    action_ctx_src = ACTION_CTX.read_text(encoding="utf-8") if ACTION_CTX.is_file() else ""
+    action_test_src = ACTION_TESTS.read_text(encoding="utf-8") if ACTION_TESTS.is_file() else ""
+    plugin_src = PLUGIN_INIT.read_text(encoding="utf-8") if PLUGIN_INIT.is_file() else ""
+    plugin_yaml_src = PLUGIN_YAML.read_text(encoding="utf-8") if PLUGIN_YAML.is_file() else ""
     patch_src = ADAPTER_PATCH.read_text(encoding="utf-8") if ADAPTER_PATCH.is_file() else ""
     patch_test_src = PATCH_TESTS.read_text(encoding="utf-8") if PATCH_TESTS.is_file() else ""
     env_test_src = ENVELOPE_TESTS.read_text(encoding="utf-8") if ENVELOPE_TESTS.is_file() else ""
     gateway_src = GATEWAY_PATCHES.read_text(encoding="utf-8") if GATEWAY_PATCHES.is_file() else ""
+    bootstrap_src = BOOTSTRAP.read_text(encoding="utf-8") if BOOTSTRAP.is_file() else ""
 
     # Central fail-closed / channel / round-limit concepts (substring presence).
     check("enabled defaults false concept", "enabled: bool = False" in src or "enabled=False" in src)
@@ -507,6 +526,166 @@ def main() -> int:
             )
         except Exception as exc:  # pragma: no cover
             check("hooks smoke", False, detail=type(exc).__name__ + ": " + str(exc))
+
+    # Controlled outbound action + opt-in plugin (not enabled by default).
+    if ACTION.is_file() and ACTION_CTX.is_file():
+        check("action body-only tool surface", "water_cooler_a2a_send" in action_src)
+        check("action execute_controlled_outbound", "def execute_controlled_outbound" in action_src)
+        check("action scoped sender", "WaterCoolerScopedSender" in action_src)
+        check("action no ambient env", "os.environ" not in action_src and "os.getenv" not in action_src)
+        check("action no urllib/http", "urllib" not in action_src and "requests" not in action_src)
+        check("action no subprocess/shell", "subprocess" not in action_src and "os.system" not in action_src)
+        check("action advances after send", "record_local_outbound" in action_src)
+        check("action rejects plain reply", "plain_model_reply_not_authorized" in action_src)
+        check("context establish_from_dispatch", "def establish_from_dispatch" in action_ctx_src)
+        check("context no model destination", "never accept" in action_ctx_src.lower() or "never accepts" in action_ctx_src.lower())
+        check(
+            "action tests cover rejects and isolation",
+            "no_authorized_task_context" in action_test_src
+            and "duplicate_tool_use" in action_test_src
+            and "channel_not_water_cooler" in action_test_src
+            and "wrong_role" in action_test_src
+            and "invalid_or_oversized_body" in action_test_src,
+        )
+        check("policy record_local_outbound", "def record_local_outbound" in src)
+
+    if PLUGIN_INIT.is_file() and PLUGIN_YAML.is_file():
+        check("plugin name water-cooler-a2a", "water-cooler-a2a" in plugin_yaml_src)
+        check("plugin tool water_cooler_a2a_send", "water_cooler_a2a_send" in plugin_src)
+        check("plugin toolset water_cooler_a2a", 'TOOLSET = "water_cooler_a2a"' in plugin_src)
+        check("plugin register(ctx)", "def register" in plugin_src)
+        check(
+            "plugin schema body-only",
+            '"body"' in plugin_src
+            and "channel_id" not in plugin_src.split("properties")[1].split("required")[0]
+            if "properties" in plugin_src
+            else False,
+        )
+        # Not enabled for Luna / deckhand / orchestrator configs by default.
+        check(
+            "luna config does not enable a2a plugin",
+            "water-cooler-a2a" not in bootstrap_src
+            or (
+                "wolfhouse-staff-api" in bootstrap_src
+                and bootstrap_src.count("water-cooler-a2a") == 0
+            ),
+        )
+        check(
+            "bootstrap does not enable water_cooler_a2a toolset",
+            "water_cooler_a2a" not in bootstrap_src
+            or "toolsets:" in bootstrap_src
+            and "water_cooler_a2a" not in bootstrap_src.split("write_deckhand_config")[0],
+        )
+        # Stronger: deckhand/luna/orchestrator heredocs must not list the plugin.
+        check(
+            "bootstrap enabled plugins list has no a2a",
+            "water-cooler-a2a" not in bootstrap_src,
+        )
+        check(
+            "patcher still not imported by gateway main",
+            "apply_water_cooler_a2a_adapter_patch" not in gateway_src,
+        )
+        check(
+            "a2a action not in luna soul",
+            not LUNA_SOUL.is_file()
+            or "water_cooler_a2a_send" not in LUNA_SOUL.read_text(encoding="utf-8"),
+        )
+        check(
+            "a2a action not in orch soul",
+            not ORCH_SOUL.is_file()
+            or "water_cooler_a2a_send" not in ORCH_SOUL.read_text(encoding="utf-8"),
+        )
+
+    if ACTION.is_file() and RUNTIME.is_file() and POLICY.is_file():
+        try:
+            # Ensure deps under import names used by action modules.
+            if "water_cooler_a2a_policy" not in sys.modules:
+                _load_policy()
+            if "water_cooler_a2a_runtime" not in sys.modules:
+                rtmp = _load_runtime()
+                sys.modules["water_cooler_a2a_runtime"] = rtmp
+            if "water_cooler_a2a_envelope" not in sys.modules:
+                etmp = _load_envelope()
+                sys.modules["water_cooler_a2a_envelope"] = etmp
+            cspec = importlib.util.spec_from_file_location(
+                "water_cooler_a2a_action_context_verify", ACTION_CTX
+            )
+            cmod = importlib.util.module_from_spec(cspec)
+            assert cspec.loader is not None
+            sys.modules[cspec.name] = cmod
+            sys.modules["water_cooler_a2a_action_context"] = cmod
+            cspec.loader.exec_module(cmod)
+            aspec = importlib.util.spec_from_file_location(
+                "water_cooler_a2a_action_verify", ACTION
+            )
+            amod = importlib.util.module_from_spec(aspec)
+            assert aspec.loader is not None
+            sys.modules[aspec.name] = amod
+            aspec.loader.exec_module(amod)
+
+            cmod.clear_authorized_outbound_context()
+            none_r = amod.execute_controlled_outbound(body="x")
+            check(
+                "action smoke fail closed without context",
+                (not none_r.ok) and none_r.reason == "no_authorized_task_context",
+            )
+
+            rmod = sys.modules.get("water_cooler_a2a_runtime") or _load_runtime()
+            pmod = sys.modules.get("water_cooler_a2a_policy") or _load_policy()
+            mapping = {
+                rmod.CFG_ENABLED: True,
+                rmod.CFG_CHANNEL_ID: pmod.WATER_COOLER_CHANNEL_ID,
+                rmod.CFG_LOCAL_BOT_ID: "200000000000000001",
+                rmod.CFG_SEADOG_BOT_ID: "200000000000000001",
+                rmod.CFG_DECKHAND_BOT_ID: "300000000000000001",
+                rmod.CFG_ALLOWED_HUMAN_STARTER_IDS: ["100000000000000001"],
+                rmod.CFG_TASK_TTL_SECONDS: 600.0,
+            }
+            worker = rmod.WaterCoolerA2ARuntime.from_mapping(mapping)
+            hum = worker.handle_event(
+                pmod.DiscordMessageEvent(
+                    channel_id=pmod.WATER_COOLER_CHANNEL_ID,
+                    message_id="88001",
+                    author_id="100000000000000001",
+                    content="TASK [target=seadog] [reviewer=deckhand]\nsmoke",
+                    is_bot=False,
+                    created_at=1_000.0,
+                ),
+                now=1_000.0,
+            )
+            fake = amod.FakeChannelSender()
+            established = cmod.establish_from_dispatch(
+                runtime=worker,
+                action=hum.action,
+                task_id=hum.task_id,
+                channel_send_fn=fake.send_to_channel,
+                now=1_000.0,
+            )
+            check("action smoke context established", established is not None)
+            sent = amod.execute_controlled_outbound(body="smoke notes", now=1_000.0)
+            check(
+                "action smoke controlled send",
+                sent.ok and sent.envelope_kind == "handoff" and len(fake.sent) == 1,
+            )
+            check(
+                "action smoke only water-cooler channel",
+                bool(fake.sent) and fake.sent[0][0] == pmod.WATER_COOLER_CHANNEL_ID,
+            )
+            other = amod.WaterCoolerScopedSender(
+                fake, allowed_channel_id=pmod.WATER_COOLER_CHANNEL_ID
+            ).send("1530209175861199000", "nope")
+            check(
+                "action smoke rejects other channel",
+                (not other.ok) and other.error == "channel_not_water_cooler",
+            )
+            plain = amod.reject_plain_model_reply_as_a2a("hi")
+            check(
+                "action smoke plain reply rejected",
+                (not plain.ok) and plain.reason == "plain_model_reply_not_authorized",
+            )
+            cmod.clear_authorized_outbound_context()
+        except Exception as exc:  # pragma: no cover
+            check("action smoke", False, detail=type(exc).__name__ + ": " + str(exc))
 
     print(f"\nverify_water_cooler_a2a_pilot: {passed} passed, {failed} failed")
     return 1 if failed else 0
