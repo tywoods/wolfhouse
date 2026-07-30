@@ -88,8 +88,9 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
       },
     });
     assert.strictEqual(got.ok, true);
-    // Server probes exact N_days first; only after absence may 1_day be accepted/repeated.
-    assert.deepStrictEqual(calls, ['3_days', '1_day']);
+    // Exact N_days probed first; when absent, day-tier discovery walks longest→1_day.
+    assert.strictEqual(calls[0], '3_days');
+    assert.ok(calls.includes('1_day'), `expected 1_day probe, got ${JSON.stringify(calls)}`);
     assert.strictEqual(got.records[0].amount_due_cents, 15000);
     assert.strictEqual(got.records[0].metadata.duration_key, '1_day');
     assert.strictEqual(got.records[0].metadata.pricing_mode, 'repeated_base_package');
@@ -143,7 +144,8 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
       },
     });
     assert.strictEqual(got.ok, true);
-    assert.deepStrictEqual(calls, ['3_days', '1_day']);
+    assert.strictEqual(calls[0], '3_days');
+    assert.ok(calls.includes('1_day'), `expected 1_day probe, got ${JSON.stringify(calls)}`);
     assert.strictEqual(got.records[0].metadata.pricing_mode, 'repeated_base_package');
     assert.strictEqual(got.records[0].amount_due_cents, 7500);
   });

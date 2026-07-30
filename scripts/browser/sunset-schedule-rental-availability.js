@@ -585,8 +585,11 @@ function scheduleSerializeRentalsSelection(selection, durationKey, opts) {
   for (var i = 0; i < list.length; i++) {
     var row = list[i];
     if (!row || !row.offering_key) continue;
-    var qty = parseInt(row.quantity, 10);
-    if (!Number.isInteger(qty) || qty < 1) continue;
+    // Physical equipment units 1..99 — independent of guest/surfer count.
+    // Reject fractions/NaN/strings that parseInt would silently truncate (e.g. 2.5 → 2).
+    var qtyRaw = row.quantity;
+    var qty = typeof qtyRaw === 'number' ? qtyRaw : Number(qtyRaw);
+    if (!Number.isInteger(qty) || qty < 1 || qty > 99) continue;
     var key = row.offering_key;
     var rowDur = String(row.duration_key || dur).trim();
     // Generic (non-canonical) catalog offerings pass through verbatim — no legacy

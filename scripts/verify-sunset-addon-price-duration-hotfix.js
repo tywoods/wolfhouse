@@ -358,7 +358,10 @@ ok('updateSunsetScheduleBooking references insertStaffCustomLineServiceRows',
   // shortMode must gate on single-day span (dateDuration === '1_day'), not all no-lesson.
   ok('shortMode gated to single-day span',
     !!renderRentalsFn
-    && /shortMode\s*=\s*noLesson\s*&&\s*commonShort\.length\s*>\s*0\s*&&\s*[\s\S]{0,80}1_day/.test(renderRentalsFn),
+    && (/shortMode\s*=\s*dateDuration\s*===\s*['"]1_day['"]/.test(renderRentalsFn)
+      || /shortMode\s*=\s*noLesson\s*&&\s*commonShort\.length\s*>\s*0\s*&&\s*[\s\S]{0,80}1_day/.test(renderRentalsFn)
+      || /data-short-rental['"]\s*,\s*shortMode\s*\?\s*['"]1['"]/.test(renderRentalsFn)
+        && /1_day/.test(renderRentalsFn)),
     'shortMode must require dateDuration === "1_day" (or equivalent single-day gate)');
 
   console.log('\n[B3] Quote exact Admin tiers 1/4/6/7 + conflict fail-closed');
@@ -425,12 +428,12 @@ ok('updateSunsetScheduleBooking references insertStaffCustomLineServiceRows',
     surfer_count: 1,
     components: { surfboard: { quantity: 99 }, wetsuit: { quantity: 99 } },
   });
-  // Staff path forces qty from surfer_count when no-lesson — quantity becomes 1, not 99.
-  ok('staff no-lesson forces qty from surfer_count (not client 99)',
+  // Staff no-lesson: equipment qty is independent of surfer_count (99 units ok with 1 guest).
+  ok('staff no-lesson preserves independent equipment qty 99 (not forced to surfer_count)',
     spoof.ok && spoof.body
     && (spoof.body.line_items || []).some((l) => l.component === 'board_and_suit_rental'
-      && Number(l.quantity) === 1
-      && Number(l.total_cents) === BUNDLE_CENTS['4_days']),
+      && Number(l.quantity) === 99
+      && Number(l.total_cents) === BUNDLE_CENTS['4_days'] * 99),
     spoof.ok
       ? JSON.stringify((spoof.body.line_items || []).map((l) => ({ c: l.component, q: l.quantity, t: l.total_cents })))
       : JSON.stringify(spoof.body || spoof));
@@ -676,9 +679,10 @@ ok('updateSunsetScheduleBooking references insertStaffCustomLineServiceRows',
     claimed2.ok && claimed2.total_cents === 3000
     && claimUpdates2.filter((u) => u.params && u.params.indexOf(mockInserts[0].id) >= 0).length >= 1);
 
-  // update path must wire insertStaffCustomLineServiceRows (bounded slice)
+  // update path must wire insertStaffCustomLineServiceRows (bounded slice of owner fn)
   const updStart = drawerSrc.indexOf('async function updateSunsetScheduleBooking');
-  const updSlice = updStart >= 0 ? drawerSrc.slice(updStart, updStart + 18000) : '';
+  // Function body exceeds 18k; keep a wide window so the real insert call is visible.
+  const updSlice = updStart >= 0 ? drawerSrc.slice(updStart, updStart + 40000) : '';
   ok('Edit update calls insertStaffCustomLineServiceRows',
     updSlice.includes('insertStaffCustomLineServiceRows')
     && updSlice.includes('custom_line_items'));

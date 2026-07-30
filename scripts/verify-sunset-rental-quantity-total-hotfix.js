@@ -193,6 +193,12 @@ function miniDom() {
       contains(c) {
         return String(self.className || '').split(/\s+/).indexOf(c) >= 0;
       },
+      toggle(c, force) {
+        if (force === true) this.add(c);
+        else if (force === false) this.remove(c);
+        else if (this.contains(c)) this.remove(c);
+        else this.add(c);
+      },
     };
   }
   Object.defineProperty(El.prototype, 'checked', {
@@ -445,8 +451,13 @@ function quoteCapturedBody(body, adminCfg) {
 
   console.log('[0] Ownership: multi-day force-recompute + intent-bound quote');
   ok('read path forces multi-day over sticky shortMode',
-    /dateDur !== '1_day'/.test(extractFn(apiSrc, 'scheduleReadCreateRentalSelectionFromDom') || '')
-    || /dateDur != '1_day'/.test(extractFn(apiSrc, 'scheduleReadCreateRentalSelectionFromDom') || ''));
+    (() => {
+      const fn = extractFn(apiSrc, 'scheduleReadCreateRentalSelectionFromDom') || '';
+      // Authoritative span recompute from dates (not a stale short-window default).
+      return /dateDur !== '1_day'/.test(fn)
+        || /dateDur != '1_day'/.test(fn)
+        || (/scheduleRentalDurationKeyFromDates/.test(fn) && /data-duration-key/.test(fn));
+    })());
   ok('portal defines schedulePortalQuotePricingIntentKey',
     /function schedulePortalQuotePricingIntentKey/.test(portalSrc));
   ok('portal defines schedulePortalDropStaleQuoteUi',
@@ -466,7 +477,11 @@ function quoteCapturedBody(body, adminCfg) {
   const rendered = await fetchRenderedStaffUi();
   ok('GET /staff/ui 200 HTML', !!(rendered && rendered.html && rendered.html.includes('<!DOCTYPE')));
   ok('generated multi-day force-recompute present',
-    /dateDur !== '1_day'|dateDur != '1_day'/.test(rendered.html));
+    // Span-owned duration: always recompute from date_from/date_to (not a stale 1_day default).
+    (/dateDur !== '1_day'|dateDur != '1_day'/.test(rendered.html)
+      || (/scheduleRentalDurationKeyFromDates/.test(rendered.html)
+        && /data-duration-key/.test(rendered.html)
+        && /function scheduleReadCreateRentalSelectionFromDom/.test(rendered.html))));
   ok('generated scheduleReadCreatePayload present',
     /function scheduleReadCreatePayload/.test(rendered.html));
   ok('generated schedulePortalFetchQuote present',
@@ -478,9 +493,15 @@ function quoteCapturedBody(body, adminCfg) {
   const { el, nodes, wrap } = miniDom();
   const captured = [];
 
+  const rentalOfferingsIdentity = [
+    { offering_key: 'board_rental', label: 'Surfboard', active: true, location_id: LOC, client_slug: 'sunset' },
+    { offering_key: 'wetsuit_rental', label: 'Wetsuit', active: true, location_id: LOC, client_slug: 'sunset' },
+    { offering_key: 'board_and_suit_rental', label: 'Board and wetsuit', active: true, location_id: LOC, client_slug: 'sunset' },
+  ];
   const ctx = {
     el,
     scheduleAdminPricesCache: prices,
+    scheduleRentalOfferingsCache: rentalOfferingsIdentity,
     scheduleCreateCustomLines: [],
     window: {},
     document: { querySelectorAll() { return []; } },
@@ -492,6 +513,7 @@ function quoteCapturedBody(body, adminCfg) {
       if (k === 'admin.period.1_day') return '1 day';
       if (k === 'schedule.create.rentalDuration.fullDay') return 'Full day';
       if (k === 'schedule.payment.unpaid') return 'Unpaid';
+      if (k === 'schedule.create.rentalQty') return 'Qty';
       return k;
     },
     escHtml(s) {
@@ -511,6 +533,7 @@ function quoteCapturedBody(body, adminCfg) {
       return m[k] || k;
     },
     scheduleRentalDurationKeyFromDates: rentalMod.scheduleRentalDurationKeyFromDates,
+    scheduleProjectStandaloneRentals: rentalMod.scheduleProjectStandaloneRentals,
     scheduleActiveRentalsForDuration: rentalMod.scheduleActiveRentalsForDuration,
     scheduleActiveShortRentalOfferings: rentalMod.scheduleActiveShortRentalOfferings,
     scheduleCommonShortRentalDurationKeys: rentalMod.scheduleCommonShortRentalDurationKeys,
@@ -518,10 +541,13 @@ function quoteCapturedBody(body, adminCfg) {
     scheduleSerializeRentalsSelection: rentalMod.scheduleSerializeRentalsSelection,
     scheduleRentalsToLegacyComponents: rentalMod.scheduleRentalsToLegacyComponents,
     scheduleRentalOfferingLabelKey: rentalMod.scheduleRentalOfferingLabelKey,
+    scheduleRentalOfferingDisplayLabel: rentalMod.scheduleRentalOfferingDisplayLabel,
     scheduleShortRentalDurationLabelKey: rentalMod.scheduleShortRentalDurationLabelKey,
     scheduleShortRentalDurationFallbackLabel: rentalMod.scheduleShortRentalDurationFallbackLabel,
     scheduleIsShortRentalDurationKey: rentalMod.scheduleIsShortRentalDurationKey,
     scheduleApplyRentalMutualExclusion: rentalMod.scheduleApplyRentalMutualExclusion,
+    scheduleEnhanceIntSteppersIn() {},
+    scheduleFormatCentsMoney(c) { return '€' + (Number(c) / 100).toFixed(0); },
     SCHEDULE_CANONICAL_RENTAL_OFFERINGS: rentalMod.SCHEDULE_CANONICAL_RENTAL_OFFERINGS,
     schedulePortalQuoteGen: 0,
     schedulePortalQuoteState: null,
@@ -532,6 +558,13 @@ function quoteCapturedBody(body, adminCfg) {
     scheduleSyncCreateSurferMirrors() {},
     scheduleReadPrivateLessonSessionsFromDom() { return []; },
     scheduleReadFullDayAddonRows() { return {}; },
+    scheduleReadCreateCustomLineItems() { return []; },
+    scheduleReadCreateAccommodation() { return null; },
+    schedulePortalNormalizeLessonsIntent() { return { present: false, lessons: [] }; },
+    schedulePortalNormalizeCourseEquipmentIntent() { return null; },
+    schedulePortalNormalizeAccommodationIntent() { return null; },
+    schedulePortalNormalizeCustomLinesIntent() { return []; },
+    schedulePortalNormalizeRentalsIntent(r) { return Array.isArray(r) ? r : []; },
     schedulePortalSyncCreateSubmitEnabled() {},
     fetch(url, opts) {
       const body = opts && opts.body ? JSON.parse(opts.body) : null;
@@ -616,25 +649,31 @@ function quoteCapturedBody(body, adminCfg) {
   ctx.scheduleRenderCreateRentals();
 
   // Select board_and_suit if present; else board+wetsuit combined short path.
-  let selected = false;
-  wrap.querySelectorAll('[data-rental-offering]').forEach((r) => {
-    const k = r.getAttribute('data-rental-offering');
-    if (k === 'board_and_suit_rental') {
-      const c = r.querySelector('.ps-create-rental-check');
-      if (c) { c.checked = true; selected = true; }
-    }
-  });
-  if (!selected) {
+  // Equipment qty is independent of guest/surfer count — set physical units to 2.
+  function selectBundleAndSetQty(q) {
+    let selected = false;
     wrap.querySelectorAll('[data-rental-offering]').forEach((r) => {
       const k = r.getAttribute('data-rental-offering');
-      if (k === 'board_rental' || k === 'wetsuit_rental') {
-        const c = r.querySelector('.ps-create-rental-check');
-        if (c) c.checked = true;
+      const want = k === 'board_and_suit_rental'
+        || (!selected && (k === 'board_rental' || k === 'wetsuit_rental'));
+      if (!want) return;
+      const c = r.querySelector('.ps-create-rental-check');
+      if (c) {
+        c.checked = true;
+        if (k === 'board_and_suit_rental') selected = true;
+      }
+      const qtyEl = r.querySelector('input.ps-create-rental-qty-input')
+        || r.querySelector('.ps-create-rental-qty-input');
+      if (qtyEl) {
+        qtyEl.value = String(q);
+        qtyEl.setAttribute('data-qty-owner', 'user');
       }
     });
+    return selected;
   }
+  selectBundleAndSetQty(2);
 
-  // First quote at 1 day (establishes €40 stale risk)
+  // First quote at 1 day (establishes €40 stale risk = 2000×2)
   captured.length = 0;
   ctx.schedulePortalQuoteGen = 1;
   const p1 = ctx.scheduleReadCreatePayload();
@@ -647,13 +686,8 @@ function quoteCapturedBody(body, adminCfg) {
   // Extend to screenshot 5 days
   nodes['ps-create-date-to'].value = '2026-07-31';
   ctx.scheduleRenderCreateRentals();
-  // Preserve/ensure board_and_suit checked after multi-day re-render
-  wrap.querySelectorAll('[data-rental-offering]').forEach((r) => {
-    if (r.getAttribute('data-rental-offering') === 'board_and_suit_rental') {
-      const c = r.querySelector('.ps-create-rental-check');
-      if (c) c.checked = true;
-    }
-  });
+  // Preserve/ensure board_and_suit checked + independent qty 2 after multi-day re-render
+  selectBundleAndSetQty(2);
 
   // Sticky shortMode trap: poison attributes the way a missed re-render would leave them.
   wrap.setAttribute('data-duration-key', '1_day');

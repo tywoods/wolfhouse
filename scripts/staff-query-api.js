@@ -22386,6 +22386,22 @@ function scheduleEnhanceIntStepper(input, opts){
     var min = readMin(), max = readMax();
     var n = parseInt(input.value, 10);
     if (!Number.isInteger(n)) n = min;
+    // Rental equipment qty: decrement from 1 deselects the row (no invalid zero).
+    if (delta < 0 && n <= min
+      && (input.classList.contains('ps-create-rental-qty-input')
+        || input.classList.contains('ps-drawer-rental-qty-input')
+        || input.hasAttribute('data-rental-quantity'))) {
+      var rowDeselect = input.closest ? input.closest('[data-rental-offering]') : null;
+      var checkDeselect = rowDeselect && rowDeselect.querySelector(
+        '.ps-create-rental-check, .ps-drawer-rental-check',
+      );
+      if (checkDeselect && checkDeselect.checked) {
+        checkDeselect.checked = false;
+        try { checkDeselect.dispatchEvent(new Event('change', { bubbles: true })); } catch (_cd) { /* ignore */ }
+        syncDisabled();
+        return;
+      }
+    }
     n = Math.max(min, Math.min(max, n + delta));
     input.value = String(n);
     try {
@@ -23651,16 +23667,7 @@ function scheduleReadCreatePayload(){
   var components = {};
   if (typeof scheduleSyncCreateSurferMirrors === 'function') scheduleSyncCreateSurferMirrors();
   var surferCount = scheduleReadCreateSurferCount();
-  // No-lesson: keep any rental qty mirrors in lockstep with surfers before serialize.
-  if (typeof scheduleCreateIsNoLesson === 'function' && scheduleCreateIsNoLesson()) {
-    var rentWrapSync = el('ps-create-rentals');
-    if (rentWrapSync && surferCount != null) {
-      rentWrapSync.querySelectorAll('input.ps-create-rental-qty-input').forEach(function(inp){
-        inp.value = String(surferCount);
-        inp.setAttribute('data-qty-owner', 'surfers');
-      });
-    }
-  }
+  // Equipment rental quantity is independent of guest/surfer count — never lockstep.
   if (el('ps-create-comp-course') && el('ps-create-comp-course').checked){
     // Multi-select product buttons: one or more existing Admin courses for the booking span.
     // Canonical list = exact course IDs + derived tier identities only (no money/date/time invent).
@@ -24329,8 +24336,7 @@ function scheduleReadCreateRentalSelectionFromDom(){
       wrap.setAttribute('data-short-rental', dateDur === '1_day' ? '1' : '0');
     } catch (_d) { /* ignore */ }
   }
-  // No lesson: never trust an independently editable equipment quantity.
-  var noLesson = typeof scheduleCreateIsNoLesson === 'function' ? scheduleCreateIsNoLesson() : false;
+  // Physical equipment units per selected offering (1..99). Independent of guest count.
   var selection = [];
   wrap.querySelectorAll('[data-rental-offering]').forEach(function(row){
     var key = String(row.getAttribute('data-rental-offering') || '').trim();
@@ -24342,20 +24348,9 @@ function scheduleReadCreateRentalSelectionFromDom(){
     var rowDuration = '';
     if (durSel && durSel.value) rowDuration = String(durSel.value).trim();
     if (!rowDuration) rowDuration = String(row.getAttribute('data-rental-duration-key') || duration).trim();
-    var qty;
-    if (noLesson) {
-      var snNo = scheduleReadCreateSurferCount();
-      if (snNo == null) return;
-      qty = snNo;
-    } else {
-      qty = parseInt(qtyEl && qtyEl.value, 10);
-      if (!Number.isInteger(qty) || qty < 1) {
-        // Equipment waits for valid surfer integer — no stale qty.
-        var sn = scheduleReadCreateSurferCount();
-        if (sn == null) return;
-        qty = sn;
-      }
-    }
+    var qty = parseInt(qtyEl && qtyEl.value, 10);
+    if (!Number.isInteger(qty) || qty < 1) qty = 1;
+    if (qty > 99) qty = 99;
     selection.push({
       offering_key: key,
       duration_key: rowDuration,
@@ -24381,8 +24376,7 @@ function scheduleApplyCreateRentalExclusionUi(wrap, selectedKeys){
   var selected = selectedKeys || [];
   var bundleOn = selected.indexOf('board_and_suit_rental') >= 0;
   var separateOn = selected.indexOf('board_rental') >= 0 || selected.indexOf('wetsuit_rental') >= 0;
-  // No lesson: equipment qty is owned by Number of surfers — hide independent Quantity.
-  var noLesson = typeof scheduleCreateIsNoLesson === 'function' ? scheduleCreateIsNoLesson() : false;
+  // Equipment qty stepper is always available when the row is selected (incl. no-lesson).
   wrap.querySelectorAll('[data-rental-offering]').forEach(function(row){
     var key = String(row.getAttribute('data-rental-offering') || '');
     var check = row.querySelector('.ps-create-rental-check');
@@ -24403,7 +24397,7 @@ function scheduleApplyCreateRentalExclusionUi(wrap, selectedKeys){
       if (check.disabled) label.classList.add('is-disabled');
       else label.classList.remove('is-disabled');
     }
-    row.classList.toggle('is-off', !isOn && !noLesson);
+    row.classList.toggle('is-off', !isOn);
     if (durSel) {
       durSel.disabled = !isOn;
       if (isOn && durSel.value) {
@@ -24411,11 +24405,10 @@ function scheduleApplyCreateRentalExclusionUi(wrap, selectedKeys){
       }
     }
     if (qtyWrap) {
-      // Group/Private keep independent gear qty; Equipment only never shows it.
-      qtyWrap.style.display = (!noLesson && isOn) ? '' : 'none';
+      qtyWrap.style.display = isOn ? '' : 'none';
       try {
-        qtyWrap.setAttribute('aria-hidden', (noLesson || !isOn) ? 'true' : 'false');
-        if (noLesson || !isOn) qtyWrap.setAttribute('hidden', '');
+        qtyWrap.setAttribute('aria-hidden', isOn ? 'false' : 'true');
+        if (!isOn) qtyWrap.setAttribute('hidden', '');
         else qtyWrap.removeAttribute('hidden');
       } catch (_q) { /* ignore */ }
     }
@@ -24528,14 +24521,16 @@ function scheduleWireCreateRentals(wrap){
         ? scheduleApplyRentalMutualExclusion(selected.filter(function(k){ return k !== key; }), key, !!t.checked)
         : (t.checked ? selected.concat([key]) : selected.filter(function(k){ return k !== key; }));
       scheduleApplyCreateRentalExclusionUi(wrap, next);
-      // On select: default rental quantity to current Number of surfers (one authority).
+      // On select: enter at quantity 1 (physical units — independent of guest count).
       if (t.checked) {
         var row = t.closest ? t.closest('[data-rental-offering]') : null;
         var qtyEl = row && row.querySelector('input.ps-create-rental-qty-input');
-        var sn = scheduleReadCreateSurferCount();
-        if (qtyEl && qtyEl.getAttribute('data-qty-owner') !== 'user' && sn != null) {
-          qtyEl.value = String(sn);
-          qtyEl.setAttribute('data-qty-owner', 'surfers');
+        if (qtyEl) {
+          var cur = parseInt(qtyEl.value, 10);
+          if (!Number.isInteger(cur) || cur < 1) qtyEl.value = '1';
+          if (cur > 99) qtyEl.value = '99';
+          qtyEl.setAttribute('data-qty-owner', 'user');
+          qtyEl.setAttribute('data-rental-quantity', '');
         }
       }
       scheduleRefreshCreateFullDayAddon();
@@ -24547,6 +24542,7 @@ function scheduleWireCreateRentals(wrap){
     }
     if (t.classList && t.classList.contains('ps-create-rental-qty-input')) {
       t.setAttribute('data-qty-owner', 'user');
+      scheduleClampCreateRentalQtyInput(t, wrap);
       scheduleRefreshCreateFullDayAddon();
       scheduleUpdateCreateTotalPreview();
     }
@@ -24559,6 +24555,45 @@ function scheduleWireCreateRentals(wrap){
       scheduleUpdateCreateTotalPreview();
     }
   });
+  wrap.addEventListener('change', function(ev){
+    var t = ev && ev.target;
+    if (t && t.classList && t.classList.contains('ps-create-rental-qty-input')) {
+      scheduleClampCreateRentalQtyInput(t, wrap);
+    }
+  });
+}
+
+/** Clamp rental qty to 1..99; reject fraction/NaN; decrement-from-1 deselects. */
+function scheduleClampCreateRentalQtyInput(inp, wrap){
+  if (!inp) return;
+  var raw = String(inp.value == null ? '' : inp.value).trim();
+  if (raw === '' || raw === '-') return; // allow transient empty while typing
+  var n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) {
+    // Invalid zero/negative/fraction → treat as deselect if was attempting 0, else snap to 1.
+    if (n === 0 || raw === '0') {
+      var row0 = inp.closest ? inp.closest('[data-rental-offering]') : null;
+      var check0 = row0 && row0.querySelector('.ps-create-rental-check');
+      if (check0 && check0.checked) {
+        check0.checked = false;
+        try { check0.dispatchEvent(new Event('change', { bubbles: true })); } catch (_e0) { /* ignore */ }
+        var selected0 = [];
+        wrap.querySelectorAll('.ps-create-rental-check').forEach(function(c){
+          if (c.checked) selected0.push(String(c.getAttribute('data-offering-key') || ''));
+        });
+        scheduleApplyCreateRentalExclusionUi(wrap, selected0);
+      }
+      inp.value = '1';
+      return;
+    }
+    inp.value = '1';
+    return;
+  }
+  if (n > 99) {
+    inp.value = '99';
+    return;
+  }
+  inp.value = String(n);
 }
 
 function scheduleLookupRentalUnitCents(offeringKey, durationKey, locationId){
@@ -24663,31 +24698,18 @@ function scheduleRenderCreateRentals(){
       ? scheduleRentalOfferingDisplayLabel(key, o.label, portalT)
       : (String(o.label || '').trim() || key);
     var checked = !!was.checked;
-    var surfers = scheduleReadCreateSurferCount();
-    var qty;
-    var owner;
-    if (noLesson) {
-      qty = surfers != null ? surfers : 1;
-      owner = 'surfers';
-    } else {
-      qty = (was.quantity != null && was.quantity >= 1)
-        ? was.quantity
-        : (surfers != null ? surfers : 1);
-      if (!checked) qty = surfers != null ? surfers : 1;
-      owner = (checked && was.quantity != null && was.qtyOwner === 'user') ? 'user' : 'surfers';
-    }
-    var qtyHtml = '';
-    if (!noLesson) {
-      qtyHtml = '<div class="portal-schedule-create-rental-qty"' + (checked ? '' : ' style="display:none"') + '>'
-        + '<label><span data-i18n="schedule.create.rentalQty">Surfers</span>'
-        + '<input type="number" min="1" max="99" class="ps-create-rental-qty-input" data-qty-owner="'
-        + escHtml(owner) + '" value="' + escHtml(String(qty)) + '"></label>'
-        + '</div>';
-    } else {
-      qtyHtml = '<div class="portal-schedule-create-rental-qty" style="display:none" hidden aria-hidden="true">'
-        + '<input type="number" min="1" max="99" class="ps-create-rental-qty-input" data-qty-owner="surfers" tabindex="-1" value="'
-        + escHtml(String(qty)) + '"></div>';
-    }
+    // Physical equipment units — independent of guest/surfer count. Select enters at 1.
+    var qty = (was.quantity != null && was.quantity >= 1 && was.quantity <= 99)
+      ? was.quantity
+      : 1;
+    if (!checked) qty = 1;
+    var owner = (checked && was.quantity != null && was.qtyOwner === 'user') ? 'user' : 'default';
+    var qtyHtml = '<div class="portal-schedule-create-rental-qty"' + (checked ? '' : ' style="display:none"') + (checked ? '' : ' hidden aria-hidden="true"') + '>'
+      + '<label><span data-i18n="schedule.create.rentalQty">Qty</span>'
+      + '<input type="number" min="1" max="99" class="ps-create-rental-qty-input" data-rental-quantity data-qty-owner="'
+      + escHtml(owner) + '" value="' + escHtml(String(qty))
+      + '" inputmode="numeric" aria-label="' + escHtml(portalT('schedule.create.rentalQty') || 'Qty') + '"></label>'
+      + '</div>';
     var selectedDur = durs.find(function(d){ return d.duration_key === rowDuration; }) || durs[0] || null;
     var unitCents = selectedDur && selectedDur.amount_cents != null ? selectedDur.amount_cents : null;
     var priceHtml = (unitCents != null && typeof scheduleFormatCentsMoney === 'function')
@@ -24729,6 +24751,9 @@ function scheduleRenderCreateRentals(){
   }
   scheduleApplyCreateRentalExclusionUi(wrap, selected);
   scheduleWireCreateRentals(wrap);
+  if (typeof scheduleEnhanceIntSteppersIn === 'function') {
+    scheduleEnhanceIntSteppersIn(wrap);
+  }
   var modal = el('ps-create-modal');
   if (modal && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(modal);
 }
@@ -26497,31 +26522,17 @@ function wireScheduleControls(){
   }
 
   // Hidden #ps-create-course-tier is not wired — duration is date-derived.
-  // #ps-create-surfers is the one authority for course/private qty + rental/addon defaults.
-  // Surfers: allow transient empty on input (do not reinsert 1); normalize on blur; equip waits for valid int.
+  // #ps-create-surfers is guest/surfer authority for course/private qty only.
+  // Catalog rental equipment qty is independent (own steppers) — never lockstep to surfers.
+  // Surfers: allow transient empty on input (do not reinsert 1); normalize on blur.
   ['ps-create-comp-course','ps-create-comp-private-lesson','ps-create-comp-no-lesson','ps-create-date-from','ps-create-date-to','ps-create-surfers','ps-create-course-qty','ps-create-private-lesson-surfers'].forEach(function(id){
     var node = el(id);
     if (node && !node.dataset.addonWired){
       node.dataset.addonWired = '1';
       var qtyLike = (id === 'ps-create-surfers' || id === 'ps-create-course-qty' || id === 'ps-create-private-lesson-surfers');
-      function syncRentalQtyFromSurfers(){
-        var rentWrap = el('ps-create-rentals');
-        var sn = scheduleReadCreateSurferCount();
-        if (!rentWrap || sn == null) return;
-        var forceAll = typeof scheduleCreateIsNoLesson === 'function' && scheduleCreateIsNoLesson();
-        rentWrap.querySelectorAll('input.ps-create-rental-qty-input').forEach(function(inp){
-          // No lesson: always force surfer-derived qty (no independent equipment qty).
-          // Group/Private: preserve user-owned independent gear qty.
-          if (forceAll || inp.getAttribute('data-qty-owner') !== 'user') {
-            inp.value = String(sn);
-            inp.setAttribute('data-qty-owner', 'surfers');
-          }
-        });
-      }
       node.addEventListener('change', function(){
         if (id === 'ps-create-surfers') {
           scheduleNormalizeCreateSurferCountOnBlur();
-          syncRentalQtyFromSurfers();
         }
         if (id === 'ps-create-comp-no-lesson' || id === 'ps-create-comp-course' || id === 'ps-create-comp-private-lesson') {
           var courseEquipmentQty = el('ps-create-equipment-quantity');
@@ -26568,7 +26579,7 @@ function wireScheduleControls(){
           }
           if (n > 99) { node.value = '99'; n = 99; }
           scheduleSyncCreateSurferMirrors();
-          syncRentalQtyFromSurfers();
+          // Equipment rental qty is independent — do not rewrite from surfers.
         }
         scheduleRefreshCreateFullDayAddon();
         if (qtyLike && typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
@@ -26576,7 +26587,6 @@ function wireScheduleControls(){
       if (id === 'ps-create-surfers') {
         node.addEventListener('blur', function(){
           scheduleNormalizeCreateSurferCountOnBlur();
-          syncRentalQtyFromSurfers();
           scheduleRefreshCreateFullDayAddon();
           if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
         });

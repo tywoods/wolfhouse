@@ -1239,7 +1239,7 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
     ctx && ctx.payment_method
   );
   var mainMode = privateOn ? 'private' : (courseOn ? 'group' : 'none');
-  // Booking surfer authority for no-lesson equipment qty (mirrors Create #ps-create-surfers).
+  // Booking guest/surfer seed for course/private qty + #ps-drawer-surfers (not equipment units).
   var seedSurfers = 1;
   if (courseOn) seedSurfers = parseInt(courseQty, 10) || 1;
   else if (privateOn) seedSurfers = parseInt((comps.private_lesson && comps.private_lesson.surfer_count) || 1, 10) || 1;
@@ -1620,19 +1620,14 @@ function scheduleDrawerReadSurferCount() {
   return parseRaw(s ? s.value : '');
 }
 
-/** Force hidden no-lesson rental qty mirrors to live booking Surfers (when valid). */
+/**
+ * Guest/surfer count no longer rewrites independent rental equipment quantities.
+ * Kept as a no-op name for call sites that still fire on surfer field change.
+ */
 function scheduleDrawerSyncRentalQtyFromSurfers() {
   var sn = scheduleDrawerReadSurferCount();
-  if (sn == null) return;
   var wrap = el('ps-drawer-rentals');
-  if (!wrap) return;
-  var forceAll = scheduleDrawerMainActivityValue() === 'none';
-  wrap.querySelectorAll('input.ps-drawer-rental-qty-input').forEach(function(inp) {
-    if (forceAll || inp.getAttribute('data-qty-owner') !== 'user') {
-      inp.value = String(sn);
-      inp.setAttribute('data-qty-owner', 'surfers');
-    }
-  });
+  if (!wrap || sn == null) return;
   try { wrap.setAttribute('data-seed-surfers', String(sn)); } catch (_s) { /* ignore */ }
 }
 
@@ -1640,7 +1635,6 @@ function scheduleReadDrawerRentalSelectionFromDom() {
   var wrap = el('ps-drawer-rentals');
   if (!wrap) return [];
   var duration = String(wrap.getAttribute('data-duration-key') || '').trim();
-  var noLesson = scheduleDrawerMainActivityValue() === 'none';
   var selection = [];
   wrap.querySelectorAll('[data-rental-offering]').forEach(function(row) {
     var key = String(row.getAttribute('data-rental-offering') || '').trim();
@@ -1652,20 +1646,9 @@ function scheduleReadDrawerRentalSelectionFromDom() {
     var rowDuration = '';
     if (durSel && durSel.value) rowDuration = String(durSel.value).trim();
     if (!rowDuration) rowDuration = String(row.getAttribute('data-rental-duration-key') || duration).trim();
-    var qty;
-    if (noLesson) {
-      // Equipment only: never trust independently edited equipment qty — surfer-owned only.
-      var snNo = scheduleDrawerReadSurferCount();
-      if (snNo == null) return;
-      qty = snNo;
-    } else {
-      qty = parseInt(qtyEl && qtyEl.value, 10);
-      if (!Number.isInteger(qty) || qty < 1) {
-        var sn = scheduleDrawerReadSurferCount();
-        if (sn == null) return;
-        qty = sn;
-      }
-    }
+    var qty = parseInt(qtyEl && qtyEl.value, 10);
+    if (!Number.isInteger(qty) || qty < 1) qty = 1;
+    if (qty > 99) qty = 99;
     selection.push({ offering_key: key, duration_key: rowDuration, quantity: qty });
   });
   if (typeof scheduleSerializeRentalsSelection === 'function') {
@@ -1683,8 +1666,7 @@ function scheduleDrawerApplyRentalExclusionUi(wrap, selectedKeys) {
   var selected = selectedKeys || [];
   var bundleOn = selected.indexOf('board_and_suit_rental') >= 0;
   var separateOn = selected.indexOf('board_rental') >= 0 || selected.indexOf('wetsuit_rental') >= 0;
-  // Equipment only: equipment qty owned by booking surfer count — hide independent Surfers control.
-  var noLesson = scheduleDrawerMainActivityValue() === 'none';
+  // Equipment qty stepper is always available when the row is selected (incl. no-lesson).
   wrap.querySelectorAll('[data-rental-offering]').forEach(function(row) {
     var key = String(row.getAttribute('data-rental-offering') || '');
     var check = row.querySelector('.ps-drawer-rental-check');
@@ -1708,11 +1690,10 @@ function scheduleDrawerApplyRentalExclusionUi(wrap, selectedKeys) {
       }
     }
     if (qtyWrap) {
-      // Group/Private keep independent gear Surfers control; Equipment only never shows it.
-      qtyWrap.style.display = (!noLesson && isOn) ? '' : 'none';
+      qtyWrap.style.display = isOn ? '' : 'none';
       try {
-        qtyWrap.setAttribute('aria-hidden', (noLesson || !isOn) ? 'true' : 'false');
-        if (noLesson || !isOn) qtyWrap.setAttribute('hidden', '');
+        qtyWrap.setAttribute('aria-hidden', isOn ? 'false' : 'true');
+        if (!isOn) qtyWrap.setAttribute('hidden', '');
         else qtyWrap.removeAttribute('hidden');
       } catch (_q) { /* ignore */ }
     }
@@ -1758,13 +1739,16 @@ function scheduleWireDrawerRentals(wrap) {
         ? scheduleApplyRentalMutualExclusion(selected.filter(function(k) { return k !== key; }), key, !!t.checked)
         : (t.checked ? selected.concat([key]) : selected.filter(function(k) { return k !== key; }));
       scheduleDrawerApplyRentalExclusionUi(wrap, next);
+      // On select: enter at quantity 1 (physical units — independent of guest count).
       if (t.checked) {
         var row = t.closest ? t.closest('[data-rental-offering]') : null;
         var qtyEl = row && row.querySelector('input.ps-drawer-rental-qty-input');
-        var sn = scheduleDrawerReadSurferCount();
-        if (qtyEl && qtyEl.getAttribute('data-qty-owner') !== 'user' && sn != null) {
-          qtyEl.value = String(sn);
-          qtyEl.setAttribute('data-qty-owner', 'surfers');
+        if (qtyEl) {
+          var cur = parseInt(qtyEl.value, 10);
+          if (!Number.isInteger(cur) || cur < 1) qtyEl.value = '1';
+          if (cur > 99) qtyEl.value = '99';
+          qtyEl.setAttribute('data-qty-owner', 'user');
+          qtyEl.setAttribute('data-rental-quantity', '');
         }
       }
       scheduleDrawerMarkPriceStale();
@@ -1774,6 +1758,7 @@ function scheduleWireDrawerRentals(wrap) {
     }
     if (t.classList && t.classList.contains('ps-drawer-rental-qty-input')) {
       t.setAttribute('data-qty-owner', 'user');
+      scheduleDrawerClampRentalQtyInput(t, wrap);
       scheduleDrawerMarkPriceStale();
       scheduleRefreshDrawerFullDayAddon();
       scheduleDrawerSyncFooter();
@@ -1788,6 +1773,44 @@ function scheduleWireDrawerRentals(wrap) {
       scheduleDrawerSyncFooter();
     }
   });
+  wrap.addEventListener('change', function(ev) {
+    var t = ev && ev.target;
+    if (t && t.classList && t.classList.contains('ps-drawer-rental-qty-input')) {
+      scheduleDrawerClampRentalQtyInput(t, wrap);
+    }
+  });
+}
+
+/** Clamp Edit rental qty to 1..99; zero/invalid deselects rather than persist 0. */
+function scheduleDrawerClampRentalQtyInput(inp, wrap) {
+  if (!inp) return;
+  var raw = String(inp.value == null ? '' : inp.value).trim();
+  if (raw === '' || raw === '-') return;
+  var n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) {
+    if (n === 0 || raw === '0') {
+      var row0 = inp.closest ? inp.closest('[data-rental-offering]') : null;
+      var check0 = row0 && row0.querySelector('.ps-drawer-rental-check');
+      if (check0 && check0.checked) {
+        check0.checked = false;
+        try { check0.dispatchEvent(new Event('change', { bubbles: true })); } catch (_e0) { /* ignore */ }
+        var selected0 = [];
+        wrap.querySelectorAll('.ps-drawer-rental-check').forEach(function(c) {
+          if (c.checked) selected0.push(String(c.getAttribute('data-offering-key') || ''));
+        });
+        scheduleDrawerApplyRentalExclusionUi(wrap, selected0);
+      }
+      inp.value = '1';
+      return;
+    }
+    inp.value = '1';
+    return;
+  }
+  if (n > 99) {
+    inp.value = '99';
+    return;
+  }
+  inp.value = String(n);
 }
 
 function scheduleRenderDrawerRentals() {
@@ -1831,8 +1854,11 @@ function scheduleRenderDrawerRentals() {
       if (!r || !r.offering_key) return;
       prev[r.offering_key] = {
         checked: true,
-        quantity: parseInt(r.quantity, 10) || 1,
-        qtyOwner: 'surfers',
+        quantity: (function() {
+          var q = Number(r.quantity);
+          return (Number.isInteger(q) && q >= 1 && q <= 99) ? q : 1;
+        })(),
+        qtyOwner: 'user',
         duration_key: r.duration_key || r.duration || null,
         compatibility: false,
       };
@@ -1906,7 +1932,6 @@ function scheduleRenderDrawerRentals() {
       + escHtml(portalT('schedule.create.noRentalsAvailable')) + '</p>';
     return;
   }
-  var surfers = scheduleDrawerReadSurferCount();
   var html = '';
   var unavailHint = portalT('schedule.create.noRentalsAvailable');
   offerings.forEach(function(o) {
@@ -1933,31 +1958,21 @@ function scheduleRenderDrawerRentals() {
       ? scheduleRentalOfferingDisplayLabel(key, o.label, portalT)
       : (String(o.label || '').trim() || key);
     if (isCompat) offeringLabel = offeringLabel + ' (' + unavailHint + ')';
-    var qty;
-    var owner;
-    if (noLesson) {
-      qty = surfers != null ? surfers : 1;
-      owner = 'surfers';
-    } else {
-      qty = (was.quantity != null && was.quantity >= 1)
-        ? was.quantity
-        : (surfers != null ? surfers : 1);
-      if (!checked) qty = surfers != null ? surfers : 1;
-      owner = (checked && was.quantity != null && was.qtyOwner === 'user') ? 'user' : 'surfers';
-    }
-    var qtyHtml = '';
-    if (!noLesson) {
-      qtyHtml = '<div class="portal-schedule-create-rental-qty"' + (checked ? '' : ' style="display:none"') + '>'
-        + '<label><span data-i18n="schedule.create.rentalQty">'
-        + escHtml(portalT('schedule.create.rentalQty') || 'Surfers') + '</span>'
-        + '<input type="number" min="1" max="99" class="ps-drawer-rental-qty-input" data-qty-owner="'
-        + escHtml(owner) + '" value="' + escHtml(String(qty)) + '"></label>'
-        + '</div>';
-    } else {
-      qtyHtml = '<div class="portal-schedule-create-rental-qty" style="display:none" hidden aria-hidden="true">'
-        + '<input type="number" min="1" max="99" class="ps-drawer-rental-qty-input" data-qty-owner="surfers" tabindex="-1" value="'
-        + escHtml(String(qty)) + '"></div>';
-    }
+    // Hydrate persisted per-item quantity; default 1. Independent of guest/surfer count.
+    var qty = (was.quantity != null && was.quantity >= 1 && was.quantity <= 99)
+      ? was.quantity
+      : 1;
+    if (!checked) qty = 1;
+    var owner = (checked && was.quantity != null) ? 'user' : 'default';
+    var qtyHtml = '<div class="portal-schedule-create-rental-qty"'
+      + (checked ? '' : ' style="display:none" hidden aria-hidden="true"') + '>'
+      + '<label><span data-i18n="schedule.create.rentalQty">'
+      + escHtml(portalT('schedule.create.rentalQty') || 'Qty') + '</span>'
+      + '<input type="number" min="1" max="99" class="ps-drawer-rental-qty-input" data-rental-quantity data-qty-owner="'
+      + escHtml(owner) + '" value="' + escHtml(String(qty))
+      + '" inputmode="numeric" aria-label="'
+      + escHtml(portalT('schedule.create.rentalQty') || 'Qty') + '"></label>'
+      + '</div>';
     var selectedDur = null;
     for (var di = 0; di < durs.length; di++) {
       if (durs[di].duration_key === rowDuration) { selectedDur = durs[di]; break; }
@@ -4550,7 +4565,7 @@ function scheduleWireEditableDrawer(row, ctx) {
       if (!editMountStillActive()) return;
       scheduleDrawerMarkPriceStale();
       if (id === 'ps-drawer-surfers' || id === 'ps-drawer-course-qty' || id === 'ps-drawer-private-lesson-surfers') {
-        // Keep hidden rental mirrors + serialized qty in lockstep with booking Surfers.
+        // Guest/surfer field only — does not rewrite independent equipment qty.
         scheduleDrawerSyncRentalQtyFromSurfers();
       }
       if (id === 'ps-drawer-date-from' || id === 'ps-drawer-date-to') {

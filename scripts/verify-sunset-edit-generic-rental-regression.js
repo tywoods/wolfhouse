@@ -146,6 +146,12 @@ function buildEditRentalDom(opts) {
   function matchSel(node, sel) {
     const s = String(sel || '');
     if (s.startsWith('#')) return node.id === s.slice(1);
+    // tag.class / tag[attr] compound selectors used by live Create/Edit owners
+    if (/^[a-z]+[.\[]/i.test(s)) {
+      const tag = s.match(/^([a-z]+)/i)[1].toUpperCase();
+      if (node.tagName !== tag) return false;
+      return matchSel(node, s.slice(tag.length));
+    }
     if (s.startsWith('.')) {
       return String(node.className || '').split(/\s+/).includes(s.slice(1));
     }
@@ -267,6 +273,8 @@ function loadEditTransport(dom) {
     schedulePortalInclusiveIsoDates() { return [DATE]; },
     schedulePortalResolveDerivedCourseTier() { return null; },
     scheduleDrawerCustomLines: [],
+    // Edit payload serializes accommodation stays when present (empty for rental-only).
+    scheduleDrawerAccommodationStays: [],
     console,
   };
   if (parsePayFn) {
