@@ -21501,7 +21501,9 @@ function scheduleBuildPrivateLessonSessions(dayRows, dateIso){
     return am - bm;
   });
   return plRows.map(function(r){
-    var group = scheduleBuildDisplayGroups([r])[0];
+    // Include same-booking CE/gear rows so Private cards can label course equipment.
+    var relatedRows = scheduleRowsForSameBookings(dayRows, [r]);
+    var group = scheduleBuildDisplayGroups(relatedRows.length ? relatedRows : [r])[0];
     var gear = scheduleSessionGearTotals(group ? [group] : []);
     var start = schedulePrivateLessonStartMinutes(r);
     var end = schedulePrivateLessonEndMinutes(r);
