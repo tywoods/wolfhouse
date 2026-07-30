@@ -2,8 +2,9 @@
 """Static + light runtime checks for Water-cooler A2A policy + runtime bridge.
 
 Proves the policy/runtime/test files exist and encode fail-closed, channel,
-round-limit, local_bot_id, dual-instance mirror, and bridge action-contract
-concepts. Avoids brittle whole-file hashes. Does not claim Hermes wiring.
+round-limit, local_bot_id, dual-instance mirror, bridge action-contract,
+adapter-patch foundation, and controlled envelope-builder concepts. Avoids
+brittle whole-file hashes. Does not claim Hermes wiring or deploy activation.
 """
 
 from __future__ import annotations
@@ -15,10 +16,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 POLICY = ROOT / "wolfhouse" / "water_cooler_a2a_policy.py"
 RUNTIME = ROOT / "wolfhouse" / "water_cooler_a2a_runtime.py"
+ENVELOPE = ROOT / "wolfhouse" / "water_cooler_a2a_envelope.py"
+HOOKS = ROOT / "wolfhouse" / "water_cooler_a2a_adapter_hooks.py"
+ADAPTER_PATCH = ROOT / "apply_water_cooler_a2a_adapter_patch.py"
 TESTS = ROOT / "wolfhouse" / "test_water_cooler_a2a_policy.py"
 RUNTIME_TESTS = ROOT / "wolfhouse" / "test_water_cooler_a2a_runtime.py"
+ENVELOPE_TESTS = ROOT / "wolfhouse" / "test_water_cooler_a2a_envelope.py"
+PATCH_TESTS = ROOT / "wolfhouse" / "test_water_cooler_a2a_adapter_patch.py"
+ADMISSION_FIXTURE = (
+    ROOT / "wolfhouse" / "fixtures" / "water_cooler_a2a" / "discord_adapter_admission_shape.py"
+)
 SESSION_ROUTING = ROOT / "wolfhouse" / "discord_session_routing.py"
 SESSION_VERIFY = ROOT / "verify_discord_session_continuity.py"
+GATEWAY_PATCHES = ROOT / "apply_gateway_patches.py"
 
 passed = 0
 failed = 0
@@ -59,13 +69,49 @@ def _load_runtime():
     return mod
 
 
+def _load_envelope():
+    if "water_cooler_a2a_policy" not in sys.modules:
+        _load_policy()
+    if "water_cooler_a2a_runtime_verify" not in sys.modules and RUNTIME.is_file():
+        _load_runtime()
+    # Ensure runtime module name used by envelope import fallback.
+    if "water_cooler_a2a_runtime" not in sys.modules and RUNTIME.is_file():
+        sys.modules["water_cooler_a2a_runtime"] = sys.modules.get(
+            "water_cooler_a2a_runtime_verify"
+        ) or _load_runtime()
+    spec = importlib.util.spec_from_file_location("water_cooler_a2a_envelope_verify", ENVELOPE)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _load_patcher():
+    spec = importlib.util.spec_from_file_location(
+        "apply_water_cooler_a2a_adapter_patch_verify", ADAPTER_PATCH
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def main() -> int:
     check("policy module exists", POLICY.is_file())
     check("runtime bridge module exists", RUNTIME.is_file())
+    check("envelope builder module exists", ENVELOPE.is_file())
+    check("adapter hooks module exists", HOOKS.is_file())
+    check("adapter patch module exists", ADAPTER_PATCH.is_file())
     check("unit test module exists", TESTS.is_file())
     check("runtime unit test module exists", RUNTIME_TESTS.is_file())
+    check("envelope unit test module exists", ENVELOPE_TESTS.is_file())
+    check("adapter patch unit test module exists", PATCH_TESTS.is_file())
+    check("admission-shape fixture exists", ADMISSION_FIXTURE.is_file())
     check("session routing untouched path exists", SESSION_ROUTING.is_file())
     check("session continuity verifier exists", SESSION_VERIFY.is_file())
+    check("gateway patches path preserved", GATEWAY_PATCHES.is_file())
 
     if not POLICY.is_file():
         print(f"\nverify_water_cooler_a2a_pilot: {passed} passed, {failed} failed")
@@ -75,6 +121,12 @@ def main() -> int:
     test_src = TESTS.read_text(encoding="utf-8") if TESTS.is_file() else ""
     rt_src = RUNTIME.read_text(encoding="utf-8") if RUNTIME.is_file() else ""
     rt_test_src = RUNTIME_TESTS.read_text(encoding="utf-8") if RUNTIME_TESTS.is_file() else ""
+    env_src = ENVELOPE.read_text(encoding="utf-8") if ENVELOPE.is_file() else ""
+    hooks_src = HOOKS.read_text(encoding="utf-8") if HOOKS.is_file() else ""
+    patch_src = ADAPTER_PATCH.read_text(encoding="utf-8") if ADAPTER_PATCH.is_file() else ""
+    patch_test_src = PATCH_TESTS.read_text(encoding="utf-8") if PATCH_TESTS.is_file() else ""
+    env_test_src = ENVELOPE_TESTS.read_text(encoding="utf-8") if ENVELOPE_TESTS.is_file() else ""
+    gateway_src = GATEWAY_PATCHES.read_text(encoding="utf-8") if GATEWAY_PATCHES.is_file() else ""
 
     # Central fail-closed / channel / round-limit concepts (substring presence).
     check("enabled defaults false concept", "enabled: bool = False" in src or "enabled=False" in src)
@@ -324,6 +376,137 @@ def main() -> int:
                 False,
                 detail=type(exc).__name__ + ": " + str(exc),
             )
+
+    # Adapter patch foundation + controlled envelope contracts.
+    if HOOKS.is_file():
+        check("hooks inert language", "inactive" in hooks_src.lower() or "always false" in hooks_src.lower() or "return False" in hooks_src)
+        check("hooks mention bypass export", "a2a_allow_mention_bypass" in hooks_src)
+        check("hooks pre-dispatch export", "a2a_pre_dispatch_intercept" in hooks_src)
+        check("hooks not ambient env", "os.environ" not in hooks_src and "os.getenv" not in hooks_src)
+        check("hooks activation probe false", "is_a2a_adapter_hooks_active" in hooks_src)
+
+    if ADAPTER_PATCH.is_file():
+        check("patcher not default apply", "refusing automatic apply" in patch_src or "--apply" in patch_src)
+        check("patcher unique anchors", "count" in patch_src and "ambiguous" in patch_src)
+        check("patcher fail-closed missing", "anchor missing" in patch_src or "AdapterPatchError" in patch_src)
+        check("patcher idempotent markers", "wolfhouse_water_cooler_a2a_mention_bypass_v1" in patch_src)
+        check("patcher pre-dispatch marker", "wolfhouse_water_cooler_a2a_pre_dispatch_v1" in patch_src)
+        check("patcher encodes DISCORD_ALLOW_BOTS", "DISCORD_ALLOW_BOTS" in patch_src)
+        check("patcher encodes mentions admit", '"mentions"' in patch_src)
+        check("patcher encodes handle_message role_authorized", "role_authorized=_role_authorized" in patch_src)
+        check("patcher encodes require_mention gate", "require_mention and not is_free_channel" in patch_src)
+        check("patcher not imported by gateway main by default", "apply_water_cooler_a2a_adapter_patch" not in gateway_src)
+        check(
+            "patcher tests cover missing/duplicate/reapply",
+            "anchor_missing" in patch_test_src
+            and "duplicate" in patch_test_src
+            and "idempotent" in patch_test_src.lower(),
+        )
+        check(
+            "patcher tests cover injection before model dispatch",
+            "before_model_dispatch" in patch_test_src or "before model dispatch" in patch_test_src.lower(),
+        )
+
+    if ENVELOPE.is_file():
+        check("envelope handoff marker", "A2A-HANDOFF v1" in env_src)
+        check("envelope review marker", "A2A-REVIEW v1" in env_src)
+        check("envelope rejects plain model reply", "plain_model_reply_not_authorized" in env_src)
+        check("envelope build_peer_envelope export", "def build_peer_envelope" in env_src)
+        check("envelope no ambient env", "os.environ" not in env_src and "os.getenv" not in env_src)
+        check(
+            "envelope tests cover rejection cases",
+            "suppress" in env_test_src.lower()
+            and "recipient_mismatch" in env_test_src
+            and "oversized" in env_test_src.lower()
+            and "plain_model_reply" in env_test_src,
+        )
+
+    # Light smoke: patcher + envelope (in-memory only; no live write).
+    if ADAPTER_PATCH.is_file() and ADMISSION_FIXTURE.is_file():
+        try:
+            pmod = _load_patcher()
+            fixture_src = ADMISSION_FIXTURE.read_text(encoding="utf-8")
+            pmod.validate_admission_shape(fixture_src)
+            check("patcher fixture admission shape validates", True)
+            patched, meta = pmod.patch_adapter_source(fixture_src)
+            check("patcher fixture first apply changes", bool(meta.get("changed")))
+            pmod.validate_patched_source(patched)
+            again, meta2 = pmod.patch_adapter_source(patched)
+            check("patcher fixture reapply idempotent", meta2.get("changed") is False and again == patched)
+            check(
+                "patcher pre-dispatch before model dispatch",
+                patched.index(pmod.MARKER_PRE_DISPATCH) < patched.index(pmod.ANCHOR_PRE_DISPATCH),
+            )
+            # Fail-closed: missing anchor must raise and not produce a write path.
+            broken = fixture_src.replace(pmod.ANCHOR_SELF_IGNORE, "# gone\n", 1)
+            raised = False
+            try:
+                pmod.patch_adapter_source(broken)
+            except pmod.AdapterPatchError:
+                raised = True
+            check("patcher missing anchor fail-closed", raised)
+            # CLI default refuses apply.
+            check("patcher CLI default refuses apply", pmod.main([]) == 2)
+        except Exception as exc:  # pragma: no cover
+            check("patcher smoke", False, detail=type(exc).__name__ + ": " + str(exc))
+
+    if ENVELOPE.is_file() and RUNTIME.is_file():
+        try:
+            emod = _load_envelope()
+            rmod = sys.modules.get("water_cooler_a2a_runtime_verify") or _load_runtime()
+            m = sys.modules.get("water_cooler_a2a_policy") or _load_policy()
+            tid = "abcdef0123456789abcdef0123456789"
+            mention = "<@300000000000000001>"
+            ok = emod.build_peer_envelope(
+                authorized_action=rmod.BridgeAction.DISPATCH_HUMAN_TASK,
+                channel_id=m.WATER_COOLER_CHANNEL_ID,
+                recipient_bot_mention=mention,
+                task_id=tid,
+                body="notes",
+                expected_channel_id=m.WATER_COOLER_CHANNEL_ID,
+                expected_recipient_mention=mention,
+            )
+            check(
+                "envelope smoke valid handoff",
+                ok.ok and ok.content is not None and "A2A-HANDOFF v1" in ok.content,
+            )
+            bad = emod.build_peer_envelope(
+                authorized_action=rmod.BridgeAction.SUPPRESS,
+                channel_id=m.WATER_COOLER_CHANNEL_ID,
+                recipient_bot_mention=mention,
+                task_id=tid,
+                body="notes",
+                expected_channel_id=m.WATER_COOLER_CHANNEL_ID,
+                expected_recipient_mention=mention,
+            )
+            check("envelope smoke suppress rejected", (not bad.ok) and bad.content is None)
+            plain = emod.build_peer_envelope_from_model_reply("hello")
+            check(
+                "envelope smoke plain model reply rejected",
+                (not plain.ok) and plain.reason == "plain_model_reply_not_authorized",
+            )
+        except Exception as exc:  # pragma: no cover
+            check("envelope smoke", False, detail=type(exc).__name__ + ": " + str(exc))
+
+    if HOOKS.is_file():
+        try:
+            hspec = importlib.util.spec_from_file_location("water_cooler_a2a_hooks_verify", HOOKS)
+            hmod = importlib.util.module_from_spec(hspec)
+            assert hspec.loader is not None
+            hspec.loader.exec_module(hmod)
+            check(
+                "hooks smoke inert",
+                hmod.is_a2a_adapter_hooks_active() is False
+                and hmod.a2a_allow_mention_bypass(
+                    channel_id="1530209175861199019",
+                    content="TASK [target=seadog] [reviewer=deckhand]",
+                    author_is_bot=False,
+                )
+                is False
+                and hmod.a2a_pre_dispatch_intercept(None) is False,
+            )
+        except Exception as exc:  # pragma: no cover
+            check("hooks smoke", False, detail=type(exc).__name__ + ": " + str(exc))
 
     print(f"\nverify_water_cooler_a2a_pilot: {passed} passed, {failed} failed")
     return 1 if failed else 0

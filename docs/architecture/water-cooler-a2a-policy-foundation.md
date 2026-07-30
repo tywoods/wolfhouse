@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented as a pure, fail-closed Python state machine plus a repository-owned **runtime bridge** module. **Not** wired into the Discord adapter, Hermes gateway, Dockerfile, bootstrap, compose, SOUL, or any live hook. Production enablement remains off.
+Implemented as a pure, fail-closed Python state machine plus a repository-owned **runtime bridge**, **controlled peer-envelope builder**, and **adapter-patch foundation** (inactive seams only). **Not** wired into the live Discord adapter at runtime, Hermes gateway apply path, Dockerfile, bootstrap, compose, SOUL, or any live hook. Production enablement remains off.
 
 ## Decision
 
@@ -47,8 +47,14 @@ Opaque task ID, expected worker/reviewer bot IDs, stage, timestamps, source chan
 |------|------|
 | Policy | `docker/hermes-staging/wolfhouse/water_cooler_a2a_policy.py` |
 | Runtime bridge | `docker/hermes-staging/wolfhouse/water_cooler_a2a_runtime.py` |
+| Peer envelope builder | `docker/hermes-staging/wolfhouse/water_cooler_a2a_envelope.py` |
+| Adapter hooks (inert) | `docker/hermes-staging/wolfhouse/water_cooler_a2a_adapter_hooks.py` |
+| Adapter patch foundation | `docker/hermes-staging/apply_water_cooler_a2a_adapter_patch.py` |
+| Admission-shape fixture | `docker/hermes-staging/wolfhouse/fixtures/water_cooler_a2a/discord_adapter_admission_shape.py` |
 | Policy unit tests | `docker/hermes-staging/wolfhouse/test_water_cooler_a2a_policy.py` |
 | Runtime unit tests | `docker/hermes-staging/wolfhouse/test_water_cooler_a2a_runtime.py` |
+| Envelope unit tests | `docker/hermes-staging/wolfhouse/test_water_cooler_a2a_envelope.py` |
+| Adapter patch unit tests | `docker/hermes-staging/wolfhouse/test_water_cooler_a2a_adapter_patch.py` |
 | Verifier | `docker/hermes-staging/verify_water_cooler_a2a_pilot.py` |
 
 ### Runtime bridge contract
@@ -68,10 +74,43 @@ Policy evaluation still runs on every instance so local mirrors advance; only th
 
 Future adapter hook may call `WaterCoolerA2ARuntime.handle_event` (preferred) or `WaterCoolerA2APolicy.evaluate`. This slice does not import or mutate Discord session routing.
 
+## Adapter patch foundation (inactive)
+
+Repository-owned `apply_water_cooler_a2a_adapter_patch.py` can unit-test / opt-in patch the Hermes Discord adapter. It is **not** invoked by `apply_gateway_patches.py`, Dockerfile, or bootstrap.
+
+Guarded anchors encode the live admission shape (not assumptions):
+
+1. inbound handler ignores self messages, then applies `DISCORD_ALLOW_BOTS` (`mentions` only admits a bot message that mentions the receiving bot);
+2. multi-agent filter ends in `await self._handle_message(message, role_authorized=_role_authorized)`;
+3. `_handle_message` separately enforces allowed/ignored/free/mention routing.
+
+Two seams are injected when the patcher is explicitly applied (tests only today):
+
+| Seam | Placement | Default |
+|------|-----------|---------|
+| Narrow mention bypass | inside `require_mention` gate when no mention | calls `a2a_allow_mention_bypass` → always False |
+| Pre-model dispatch | after `MessageEvent` build, before `handle_message` / text batch | calls `a2a_pre_dispatch_intercept` → always False |
+
+The mention bypass is the **only** path intended for a later activation that lets a valid human `TASK [target=seadog] [reviewer=deckhand]` reach A2A policy without a Discord mention. It must **not** be solved by globally changing `require_mention`, adding Water-cooler to free-response channels, or broadening bot admission.
+
+Patcher rules: unique anchors required; unknown/ambiguous/partial source fails closed with no write; re-apply is idempotent.
+
+## Controlled peer-envelope builder
+
+`build_peer_envelope` accepts only an already-authorized runtime `BridgeAction`, exact channel ID, configured exact recipient bot mention, opaque task ID, and bounded body.
+
+| Authorized action | Emitted envelope |
+|-------------------|------------------|
+| `DISPATCH_HUMAN_TASK` or `DISPATCH_PEER_REVIEW` | `A2A-HANDOFF v1` (worker outbound) |
+| `DISPATCH_PEER_HANDOFF` | `A2A-REVIEW v1` (reviewer outbound) |
+| `SUPPRESS` / other | rejected |
+
+Leading exact recipient mention supports peer `DISCORD_ALLOW_BOTS=mentions` admission. `build_peer_envelope_from_model_reply` always rejects — envelopes are never auto-built from plain model text.
+
 ## Explicit non-goals (this slice)
 
-- Hermes Discord adapter wiring / patches, SOUL edits, Docker/compose/bootstrap/env changes.
-- Model or tool invocation inside the policy or bridge.
+- Activating adapter hooks, applying the patch in Docker/bootstrap, SOUL edits, compose/env changes.
+- Model or tool invocation inside the policy, bridge, hooks, or envelope builder.
 - Persistence beyond the in-memory policy instance (per process).
 - Shared volume, network service, signed token, or shared secret for A2A.
 - Production enablement (`enabled` remains false until a later, separate change).
