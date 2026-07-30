@@ -991,6 +991,7 @@ function schedulePortalClearCreateDraftFields() {
   // Reset staff Accommodation selection (product enablement comes from Admin config cache).
   try {
     if (typeof scheduleCreateAccommodation !== 'undefined') scheduleCreateAccommodation = null;
+    if (typeof scheduleCreateAccommodationEditorOpen !== 'undefined') scheduleCreateAccommodationEditorOpen = false;
     if (typeof scheduleRenderCreateAccommodation === 'function') scheduleRenderCreateAccommodation();
   } catch (_ac) { /* ignore */ }
   schedulePortalQuoteState = null;

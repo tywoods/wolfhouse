@@ -582,6 +582,8 @@ function mockPg() {
     'schedule.create.accommodation.add',
     'schedule.create.accommodation.checkIn',
     'schedule.create.accommodation.checkOut',
+    'schedule.create.accommodation.checkInOut',
+    'schedule.create.accommodation.save',
   ];
   keys.forEach((k) => {
     ok(`EN key ${k}`, i18nEn.includes(`'${k}'`) || i18nEn.includes(`"${k}"`));

@@ -16245,6 +16245,25 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-price-title,.portal-admin-lesson-title{font-weight:700;color:var(--text);line-height:1.25;font-size:13px}
 .portal-admin-price-meta,.portal-admin-lesson-meta{font-size:11px;color:var(--text-3);margin-top:2px}
 .portal-admin-price-amount,.portal-admin-lesson-time{font-size:14px;font-weight:700;color:var(--text);white-space:nowrap}.portal-admin-price-card-readout{display:flex;align-items:baseline;justify-content:space-between;gap:6px;width:100%}.portal-admin-price-period{font-size:14px;font-weight:700;color:var(--text);line-height:1.2}.portal-admin-subsection-title-row .portal-admin-icon-btn{font-size:10px;padding:1px 6px;min-width:0;line-height:1.4}.portal-admin-subsection-title-row .portal-admin-card-actions{gap:2px}
+/* Accommodation seasonal ranges: stable title / date / price columns */
+.portal-admin-accommodation-range-list{display:flex;flex-direction:column;gap:8px;width:100%;min-width:0}
+.portal-admin-accommodation-range-row{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1.5fr) minmax(0,.9fr);gap:8px 12px;align-items:baseline;width:100%;min-width:0;box-sizing:border-box}
+.portal-admin-accommodation-range-row.is-editing{grid-template-columns:minmax(0,1.1fr) minmax(0,1.5fr) minmax(0,.9fr) auto;align-items:end}
+.portal-admin-accommodation-range-title{font-size:14px;font-weight:700;color:var(--text);line-height:1.2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.portal-admin-accommodation-range-dates{font-size:12px;color:var(--text-2);line-height:1.3;min-width:0;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.portal-admin-accommodation-range-price{font-size:14px;font-weight:700;color:var(--text);white-space:nowrap;text-align:right;justify-self:end}
+.portal-admin-accommodation-range-row.is-editing > div{min-width:0}
+.portal-admin-accommodation-range-row.is-editing label{font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:2px}
+.portal-admin-accommodation-range-row.is-editing input{width:100%;max-width:100%;min-width:0;padding:3px 6px;font-size:12px;height:26px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface);color:var(--text);box-sizing:border-box}
+@media (max-width:520px){
+  .portal-admin-accommodation-range-row{grid-template-columns:1fr 1fr;gap:6px 8px}
+  .portal-admin-accommodation-range-title{grid-column:1 / -1}
+  .portal-admin-accommodation-range-price{justify-self:start;text-align:left}
+  .portal-admin-accommodation-range-row.is-editing{grid-template-columns:1fr 1fr;align-items:end}
+  .portal-admin-accommodation-range-row.is-editing > div:first-child{grid-column:1 / -1}
+}
+.portal-schedule-create-accommodation-summary{margin:6px 0 0}
+.portal-schedule-create-accommodation-summary .portal-schedule-create-date-range-trigger{min-height:40px}
 
 .portal-admin-card-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .portal-admin-card-actions{display:flex;gap:4px;align-items:center;justify-content:flex-end;flex-shrink:0}
@@ -18754,17 +18773,36 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <h4 class="portal-schedule-create-section-title" data-i18n="schedule.create.accommodation.title">Accommodation</h4>
             <button type="button" id="ps-create-accommodation-add-btn" class="portal-schedule-create-custom-line-plus" data-i18n-aria="schedule.create.accommodation.add" aria-label="Accommodation +" title="Accommodation +">+</button>
           </div>
+          <div id="ps-create-accommodation-summary" class="portal-schedule-create-accommodation-summary" style="display:none" hidden aria-hidden="true" data-testid="ps-create-accommodation-summary">
+            <button type="button" id="ps-create-accommodation-summary-btn" class="portal-schedule-create-date-range-trigger" aria-label="Edit accommodation dates">
+              <span id="ps-create-accommodation-summary-display" class="portal-schedule-create-date-range-display">—</span>
+            </button>
+          </div>
           <div id="ps-create-accommodation-editor" class="portal-schedule-create-accommodation-editor" style="display:none" hidden aria-hidden="true" data-testid="ps-create-accommodation-editor">
-            <div class="portal-schedule-create-field">
-              <label for="ps-create-accommodation-check-in" data-i18n="schedule.create.accommodation.checkIn">Check in</label>
-              <input id="ps-create-accommodation-check-in" type="date" autocomplete="off">
-            </div>
-            <div class="portal-schedule-create-field">
-              <label for="ps-create-accommodation-check-out" data-i18n="schedule.create.accommodation.checkOut">Check out</label>
-              <input id="ps-create-accommodation-check-out" type="date" autocomplete="off">
+            <div id="ps-create-accommodation-date-range" class="portal-schedule-create-date-range-field" data-testid="ps-create-accommodation-date-range">
+              <span id="ps-create-accommodation-date-range-label" class="portal-schedule-create-label" data-i18n="schedule.create.accommodation.checkInOut">Check in / Check out</span>
+              <button type="button" id="ps-create-accommodation-date-range-trigger" class="portal-schedule-create-date-range-trigger" aria-haspopup="dialog" aria-expanded="false" aria-controls="ps-create-accommodation-date-range-popover">
+                <span id="ps-create-accommodation-date-range-display" class="portal-schedule-create-date-range-display">Select dates</span>
+              </button>
+              <div id="ps-create-accommodation-date-range-popover" class="portal-schedule-create-date-range-popover" role="dialog" aria-modal="false" aria-labelledby="ps-create-accommodation-date-range-label" hidden style="display:none">
+                <div class="portal-schedule-create-date-range-cal-nav">
+                  <button type="button" id="ps-create-accommodation-date-range-prev" data-i18n-aria="schedule.create.dateRange.prevMonth" aria-label="Previous month">&#8249;</button>
+                  <span id="ps-create-accommodation-date-range-month-label" class="portal-schedule-create-date-range-month" aria-live="polite"></span>
+                  <button type="button" id="ps-create-accommodation-date-range-next" data-i18n-aria="schedule.create.dateRange.nextMonth" aria-label="Next month">&#8250;</button>
+                </div>
+                <div id="ps-create-accommodation-date-range-grid" class="portal-schedule-create-date-range-grid" role="group" aria-labelledby="ps-create-accommodation-date-range-month-label"></div>
+                <div class="portal-schedule-create-date-range-actions">
+                  <button type="button" class="btn btn-ghost" id="ps-create-accommodation-date-range-cancel" data-i18n="schedule.create.dateRange.cancel">Cancel</button>
+                  <button type="button" class="btn btn-primary" id="ps-create-accommodation-date-range-apply" data-i18n="schedule.create.dateRange.apply">Apply</button>
+                </div>
+              </div>
+              <!-- Canonical half-open stay (hidden); same date-range control as booking Dates. -->
+              <input id="ps-create-accommodation-check-in" type="date" class="portal-schedule-create-date-hidden" tabindex="-1" aria-hidden="true" hidden>
+              <input id="ps-create-accommodation-check-out" type="date" class="portal-schedule-create-date-hidden" tabindex="-1" aria-hidden="true" hidden>
             </div>
             <div class="portal-schedule-create-custom-line-actions">
-              <button type="button" class="btn btn-ghost" id="ps-create-accommodation-remove" data-i18n="schedule.create.accommodation.remove">Remove</button>
+              <button type="button" class="btn btn-primary" id="ps-create-accommodation-save" data-testid="ps-create-accommodation-save" data-i18n="schedule.create.accommodation.save">Save</button>
+              <button type="button" class="btn btn-ghost" id="ps-create-accommodation-remove" data-testid="ps-create-accommodation-remove" data-i18n="schedule.create.accommodation.remove">Remove</button>
             </div>
             <p id="ps-create-accommodation-error" class="portal-schedule-create-custom-line-error" style="display:none" role="alert"></p>
             <p class="portal-admin-muted" data-i18n="schedule.create.accommodation.serverPriced">Price is calculated from Admin seasonal rates.</p>
@@ -18892,7 +18930,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <div class="portal-admin-section-body" id="admin-prices-body"></div>
       </section>
       <section class="portal-admin-section" id="admin-sec-accommodation" data-testid="admin-sec-accommodation">
-        <div class="portal-admin-section-hdr" data-i18n="admin.section.accommodation">Accommodation</div>
+        <!-- Single title lives on the card (admin.accommodation.title); no section-hdr duplicate. -->
         <div class="portal-admin-section-body" id="admin-accommodation-body"></div>
       </section>
     </div>
@@ -22661,8 +22699,15 @@ function scheduleReadCreateCustomLineItems(){
 }
 
 // Staff Accommodation (Create): identity + dates only; server owns money.
-var scheduleCreateAccommodation = null; // { enabled, check_in, check_out } | null
+// Dates use the same booking date-range calendar control/classes; independent after seed.
+var scheduleCreateAccommodation = null; // { enabled, check_in, check_out } | null (committed)
 var scheduleAccommodationEnabledCache = false;
+var scheduleCreateAccommodationEditorOpen = false;
+var scheduleCreateAccomDateRangeDraft = { start: null, end: null };
+var scheduleCreateAccomDateRangeViewYm = null;
+var scheduleCreateAccomDateRangeFocusIso = null;
+var scheduleCreateAccomDateRangeRestoreFocus = false;
+var scheduleCreateAccomDateRangeDocWired = false;
 
 function scheduleSetAccommodationProductEnabled(enabled){
   scheduleAccommodationEnabledCache = !!enabled;
@@ -22676,30 +22721,364 @@ function scheduleSetAccommodationProductEnabled(enabled){
     wrap.style.display = 'none';
     wrap.setAttribute('hidden', '');
     scheduleCreateAccommodation = null;
+    scheduleCreateAccommodationEditorOpen = false;
     scheduleRenderCreateAccommodation();
   }
 }
 
+function scheduleCreateAccommodationDisplayText(from, to){
+  if (typeof scheduleCreateDateRangeDisplayText === 'function') {
+    return scheduleCreateDateRangeDisplayText(from, to);
+  }
+  from = from ? String(from).slice(0, 10) : '';
+  to = to ? String(to).slice(0, 10) : from;
+  if (!from) return '—';
+  if (!to || from === to) return from;
+  return from + ' – ' + to;
+}
+
+function scheduleSyncCreateAccomDateRangeUi(){
+  var cin = el('ps-create-accommodation-check-in');
+  var cout = el('ps-create-accommodation-check-out');
+  var from = cin ? String(cin.value || '').slice(0, 10) : '';
+  var to = cout ? String(cout.value || '').slice(0, 10) : from;
+  var display = el('ps-create-accommodation-date-range-display');
+  if (display) display.textContent = scheduleCreateAccommodationDisplayText(from, to || from);
+  var apply = el('ps-create-accommodation-date-range-apply');
+  if (apply) {
+    var draft = scheduleCreateAccomDateRangeDraft || {};
+    var valid = typeof scheduleCreateDateRangeIsValidIso === 'function'
+      ? scheduleCreateDateRangeIsValidIso
+      : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
+    var ready = !!(valid(draft.start) && (!draft.end || valid(draft.end)));
+    apply.disabled = !ready;
+  }
+}
+
+function scheduleCreateAccomDateRangeIsOpen(){
+  var pop = el('ps-create-accommodation-date-range-popover');
+  return !!(pop && !pop.hidden && pop.style && pop.style.display !== 'none');
+}
+
+function scheduleCreateAccomDateRangeSeedDraft(){
+  var cin = el('ps-create-accommodation-check-in');
+  var cout = el('ps-create-accommodation-check-out');
+  var from = cin ? String(cin.value || '').slice(0, 10) : '';
+  var to = cout ? String(cout.value || '').slice(0, 10) : from;
+  var valid = typeof scheduleCreateDateRangeIsValidIso === 'function'
+    ? scheduleCreateDateRangeIsValidIso
+    : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
+  if (valid(from)) {
+    if (!valid(to)) to = from;
+    return { start: from, end: to };
+  }
+  if (scheduleCreateAccommodation && scheduleCreateAccommodation.check_in) {
+    return {
+      start: String(scheduleCreateAccommodation.check_in).slice(0, 10),
+      end: String(scheduleCreateAccommodation.check_out || scheduleCreateAccommodation.check_in).slice(0, 10),
+    };
+  }
+  var today = typeof scheduleTodayIso === 'function' ? scheduleTodayIso() : '';
+  return { start: today, end: today };
+}
+
+function scheduleCreateAccomDateRangeClosePopover(opts){
+  opts = opts || {};
+  var pop = el('ps-create-accommodation-date-range-popover');
+  var trigger = el('ps-create-accommodation-date-range-trigger');
+  if (pop) {
+    pop.hidden = true;
+    if (pop.style) pop.style.display = 'none';
+  }
+  if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  if (opts.discard !== false && opts.applied !== true) {
+    scheduleCreateAccomDateRangeDraft = scheduleCreateAccomDateRangeSeedDraft();
+  }
+  var shouldRestore = opts.restoreFocus !== false && scheduleCreateAccomDateRangeRestoreFocus;
+  scheduleCreateAccomDateRangeRestoreFocus = false;
+  if (shouldRestore && trigger && typeof trigger.focus === 'function') {
+    try { trigger.focus(); } catch (_f) { /* ignore */ }
+  }
+}
+
+function scheduleCreateAccomDateRangeOpenPopover(){
+  scheduleCreateAccomDateRangeDraft = scheduleCreateAccomDateRangeSeedDraft();
+  scheduleCreateAccomDateRangeFocusIso = scheduleCreateAccomDateRangeDraft.start
+    || (typeof scheduleTodayIso === 'function' ? scheduleTodayIso() : null);
+  var seed = (scheduleCreateAccomDateRangeFocusIso || '').slice(0, 7);
+  scheduleCreateAccomDateRangeViewYm = seed
+    || (typeof scheduleTodayIso === 'function' ? scheduleTodayIso().slice(0, 7) : '2026-01');
+  var pop = el('ps-create-accommodation-date-range-popover');
+  var trigger = el('ps-create-accommodation-date-range-trigger');
+  if (pop) {
+    pop.hidden = false;
+    if (pop.style) pop.style.display = '';
+  }
+  if (trigger) trigger.setAttribute('aria-expanded', 'true');
+  scheduleCreateAccomDateRangeRestoreFocus = true;
+  scheduleRenderCreateAccomDateRangeCalendar();
+  scheduleSyncCreateAccomDateRangeUi();
+}
+
+function scheduleCreateAccomDateRangeTogglePopover(){
+  if (scheduleCreateAccomDateRangeIsOpen()) {
+    scheduleCreateAccomDateRangeClosePopover({ restoreFocus: true, discard: true });
+  } else {
+    scheduleCreateAccomDateRangeOpenPopover();
+  }
+}
+
+function scheduleRenderCreateAccomDateRangeCalendar(){
+  var grid = el('ps-create-accommodation-date-range-grid');
+  var monthLabel = el('ps-create-accommodation-date-range-month-label');
+  if (!grid) return;
+  var today = typeof scheduleTodayIso === 'function' ? scheduleTodayIso() : '2026-01-01';
+  var ym = scheduleCreateAccomDateRangeViewYm || today.slice(0, 7);
+  var parts = ym.split('-');
+  var year = Number(parts[0]) || new Date().getFullYear();
+  var month = Number(parts[1]) || (new Date().getMonth() + 1);
+  if (month < 1) { month = 12; year -= 1; }
+  if (month > 12) { month = 1; year += 1; }
+  scheduleCreateAccomDateRangeViewYm = year + '-' + String(month).padStart(2, '0');
+  var first = new Date(year, month - 1, 1);
+  if (monthLabel) {
+    try {
+      monthLabel.textContent = first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    } catch (_e) {
+      monthLabel.textContent = scheduleCreateAccomDateRangeViewYm;
+    }
+  }
+  var startDow = first.getDay();
+  var daysInMonth = new Date(year, month, 0).getDate();
+  var prevDays = new Date(year, month - 1, 0).getDate();
+  var draft = scheduleCreateAccomDateRangeDraft || {};
+  var dStart = draft.start || null;
+  var dEnd = draft.end || null;
+  var rangeLo = dStart && dEnd ? (dStart < dEnd ? dStart : dEnd) : dStart;
+  var rangeHi = dStart && dEnd ? (dStart < dEnd ? dEnd : dStart) : dEnd;
+  var html = '';
+  var dows = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  for (var d = 0; d < 7; d += 1) {
+    html += '<span class="portal-schedule-create-date-range-dow" aria-hidden="true">'
+      + escHtml(dows[d]) + '</span>';
+  }
+  var cells = [];
+  for (var i = 0; i < startDow; i += 1) {
+    var pd = prevDays - startDow + i + 1;
+    var pMonth = month - 1;
+    var pYear = year;
+    if (pMonth < 1) { pMonth = 12; pYear -= 1; }
+    cells.push({
+      iso: pYear + '-' + String(pMonth).padStart(2, '0') + '-' + String(pd).padStart(2, '0'),
+      day: pd,
+      outside: true,
+    });
+  }
+  for (var day = 1; day <= daysInMonth; day += 1) {
+    cells.push({
+      iso: year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0'),
+      day: day,
+      outside: false,
+    });
+  }
+  while (cells.length % 7 !== 0) {
+    var nd = cells.length - (startDow + daysInMonth) + 1;
+    var nMonth = month + 1;
+    var nYear = year;
+    if (nMonth > 12) { nMonth = 1; nYear += 1; }
+    cells.push({
+      iso: nYear + '-' + String(nMonth).padStart(2, '0') + '-' + String(nd).padStart(2, '0'),
+      day: nd,
+      outside: true,
+    });
+  }
+  var focusIso = scheduleCreateAccomDateRangeFocusIso;
+  var hasFocusCell = focusIso && cells.some(function(c){ return c.iso === focusIso; });
+  if (!hasFocusCell) {
+    focusIso = null;
+    if (dStart && cells.some(function(c){ return c.iso === dStart; })) focusIso = dStart;
+    else {
+      for (var fi = 0; fi < cells.length; fi += 1) {
+        if (!cells[fi].outside) { focusIso = cells[fi].iso; break; }
+      }
+    }
+    scheduleCreateAccomDateRangeFocusIso = focusIso;
+  }
+  var valid = typeof scheduleCreateDateRangeIsValidIso === 'function'
+    ? scheduleCreateDateRangeIsValidIso
+    : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
+  cells.forEach(function(c){
+    var cls = 'portal-schedule-create-date-range-day';
+    var selected = false;
+    if (c.outside) cls += ' is-outside';
+    if (dStart && c.iso === dStart) { cls += ' is-selected-start is-selected'; selected = true; }
+    if (dEnd && c.iso === dEnd) { cls += ' is-selected-end is-selected'; selected = true; }
+    if (rangeLo && rangeHi && c.iso > rangeLo && c.iso < rangeHi) cls += ' is-in-range';
+    var tab = (focusIso && c.iso === focusIso) ? '0' : '-1';
+    html += '<button type="button" class="' + cls + '" tabindex="' + tab
+      + '" data-date="' + escHtml(c.iso) + '" aria-label="' + escHtml(c.iso)
+      + '" aria-pressed="' + (selected ? 'true' : 'false') + '">'
+      + escHtml(String(c.day)) + '</button>';
+  });
+  grid.innerHTML = html;
+  grid._dateRangeCells = cells;
+  var apply = el('ps-create-accommodation-date-range-apply');
+  if (apply) apply.disabled = !(valid(dStart) && (!dEnd || valid(dEnd)));
+}
+
+/** Write calendar draft into hidden half-open check-in/out (same-day → +1 night). */
+function scheduleApplyCreateAccomDateRangeDraft(){
+  var draft = scheduleCreateAccomDateRangeDraft || {};
+  var valid = typeof scheduleCreateDateRangeIsValidIso === 'function'
+    ? scheduleCreateDateRangeIsValidIso
+    : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
+  var start = draft.start ? String(draft.start).slice(0, 10) : '';
+  if (!valid(start)) return false;
+  var end = draft.end ? String(draft.end).slice(0, 10) : start;
+  if (!valid(end)) return false;
+  // Half-open stay: exclusive checkout must be after check-in.
+  if (end <= start) end = scheduleAddIsoDays(start, 1);
+  var cin = el('ps-create-accommodation-check-in');
+  var cout = el('ps-create-accommodation-check-out');
+  if (cin) cin.value = start;
+  if (cout) cout.value = end;
+  scheduleSyncCreateAccomDateRangeUi();
+  scheduleCreateAccomDateRangeClosePopover({ restoreFocus: true, applied: true, discard: false });
+  return true;
+}
+
+function scheduleWireCreateAccomDateRange(){
+  var trigger = el('ps-create-accommodation-date-range-trigger');
+  if (!trigger || trigger.dataset.wired === '1') {
+    scheduleSyncCreateAccomDateRangeUi();
+    return;
+  }
+  trigger.dataset.wired = '1';
+  trigger.addEventListener('click', function(ev){
+    if (ev && ev.preventDefault) ev.preventDefault();
+    scheduleCreateAccomDateRangeTogglePopover();
+  });
+  var prev = el('ps-create-accommodation-date-range-prev');
+  var next = el('ps-create-accommodation-date-range-next');
+  if (prev && !prev.dataset.wired) {
+    prev.dataset.wired = '1';
+    prev.addEventListener('click', function(){
+      var today = typeof scheduleTodayIso === 'function' ? scheduleTodayIso() : '2026-01-01';
+      var ym = (scheduleCreateAccomDateRangeViewYm || today.slice(0, 7)).split('-');
+      var y = Number(ym[0]); var m = Number(ym[1]) - 1;
+      if (m < 1) { m = 12; y -= 1; }
+      scheduleCreateAccomDateRangeViewYm = y + '-' + String(m).padStart(2, '0');
+      scheduleRenderCreateAccomDateRangeCalendar();
+    });
+  }
+  if (next && !next.dataset.wired) {
+    next.dataset.wired = '1';
+    next.addEventListener('click', function(){
+      var today = typeof scheduleTodayIso === 'function' ? scheduleTodayIso() : '2026-01-01';
+      var ym = (scheduleCreateAccomDateRangeViewYm || today.slice(0, 7)).split('-');
+      var y = Number(ym[0]); var m = Number(ym[1]) + 1;
+      if (m > 12) { m = 1; y += 1; }
+      scheduleCreateAccomDateRangeViewYm = y + '-' + String(m).padStart(2, '0');
+      scheduleRenderCreateAccomDateRangeCalendar();
+    });
+  }
+  var grid = el('ps-create-accommodation-date-range-grid');
+  if (grid && !grid.dataset.wired) {
+    grid.dataset.wired = '1';
+    grid.addEventListener('click', function(ev){
+      var t = ev && ev.target;
+      var btn = t && t.closest ? t.closest('[data-date]') : null;
+      if (!btn || !(grid.contains ? grid.contains(btn) : true)) return;
+      var iso = btn.getAttribute('data-date');
+      var select = typeof scheduleCreateDateRangeSelectDay === 'function'
+        ? scheduleCreateDateRangeSelectDay
+        : null;
+      if (select) scheduleCreateAccomDateRangeDraft = select(scheduleCreateAccomDateRangeDraft, iso);
+      else scheduleCreateAccomDateRangeDraft = { start: iso, end: null };
+      scheduleCreateAccomDateRangeFocusIso = iso;
+      scheduleRenderCreateAccomDateRangeCalendar();
+      scheduleSyncCreateAccomDateRangeUi();
+    });
+  }
+  var cancelBtn = el('ps-create-accommodation-date-range-cancel');
+  if (cancelBtn && !cancelBtn.dataset.wired) {
+    cancelBtn.dataset.wired = '1';
+    cancelBtn.addEventListener('click', function(){
+      scheduleCreateAccomDateRangeClosePopover({ restoreFocus: true, discard: true });
+    });
+  }
+  var applyBtn = el('ps-create-accommodation-date-range-apply');
+  if (applyBtn && !applyBtn.dataset.wired) {
+    applyBtn.dataset.wired = '1';
+    applyBtn.addEventListener('click', function(){ scheduleApplyCreateAccomDateRangeDraft(); });
+  }
+  if (!scheduleCreateAccomDateRangeDocWired) {
+    scheduleCreateAccomDateRangeDocWired = true;
+    try {
+      document.addEventListener('keydown', function(ev){
+        if (!ev) return;
+        if (ev.key !== 'Escape' && ev.key !== 'Esc') return;
+        if (!scheduleCreateAccomDateRangeIsOpen()) return;
+        if (ev.preventDefault) ev.preventDefault();
+        scheduleCreateAccomDateRangeClosePopover({ restoreFocus: true, discard: true });
+      });
+      document.addEventListener('mousedown', function(ev){
+        if (!scheduleCreateAccomDateRangeIsOpen()) return;
+        var t = ev && ev.target;
+        var field = el('ps-create-accommodation-date-range');
+        if (field && t && field.contains && field.contains(t)) return;
+        scheduleCreateAccomDateRangeClosePopover({ restoreFocus: true, discard: true });
+      });
+    } catch (_doc) { /* non-DOM sandbox */ }
+  }
+  scheduleSyncCreateAccomDateRangeUi();
+}
+
 function scheduleRenderCreateAccommodation(){
   var editor = el('ps-create-accommodation-editor');
+  var summary = el('ps-create-accommodation-summary');
   var addBtn = el('ps-create-accommodation-add-btn');
   var err = el('ps-create-accommodation-error');
   if (err) { err.style.display = 'none'; err.textContent = ''; }
-  if (!editor) return;
-  if (scheduleCreateAccommodation && scheduleCreateAccommodation.enabled) {
-    editor.style.display = '';
-    editor.removeAttribute('hidden');
-    editor.setAttribute('aria-hidden', 'false');
-    var cin = el('ps-create-accommodation-check-in');
-    var cout = el('ps-create-accommodation-check-out');
-    if (cin) cin.value = scheduleCreateAccommodation.check_in || '';
-    if (cout) cout.value = scheduleCreateAccommodation.check_out || '';
-    if (addBtn) addBtn.style.display = 'none';
-  } else {
-    editor.style.display = 'none';
-    editor.setAttribute('hidden', '');
-    editor.setAttribute('aria-hidden', 'true');
-    if (addBtn) addBtn.style.display = scheduleAccommodationEnabledCache ? '' : 'none';
+  var has = !!(scheduleCreateAccommodation && scheduleCreateAccommodation.enabled);
+  var editing = has && scheduleCreateAccommodationEditorOpen;
+  if (addBtn) addBtn.style.display = (!has && scheduleAccommodationEnabledCache) ? '' : 'none';
+  if (editor) {
+    if (editing) {
+      editor.style.display = '';
+      editor.removeAttribute('hidden');
+      editor.setAttribute('aria-hidden', 'false');
+      var cin = el('ps-create-accommodation-check-in');
+      var cout = el('ps-create-accommodation-check-out');
+      if (cin) cin.value = scheduleCreateAccommodation.check_in || '';
+      if (cout) cout.value = scheduleCreateAccommodation.check_out || '';
+      scheduleSyncCreateAccomDateRangeUi();
+    } else {
+      editor.style.display = 'none';
+      editor.setAttribute('hidden', '');
+      editor.setAttribute('aria-hidden', 'true');
+      if (scheduleCreateAccomDateRangeIsOpen()) {
+        scheduleCreateAccomDateRangeClosePopover({ restoreFocus: false, discard: true });
+      }
+    }
+  }
+  if (summary) {
+    if (has && !editing) {
+      summary.style.display = '';
+      summary.removeAttribute('hidden');
+      summary.setAttribute('aria-hidden', 'false');
+      var sumDisp = el('ps-create-accommodation-summary-display');
+      if (sumDisp) {
+        sumDisp.textContent = scheduleCreateAccommodationDisplayText(
+          scheduleCreateAccommodation.check_in,
+          scheduleCreateAccommodation.check_out,
+        );
+      }
+    } else {
+      summary.style.display = 'none';
+      summary.setAttribute('hidden', '');
+      summary.setAttribute('aria-hidden', 'true');
+    }
   }
 }
 
@@ -22735,6 +23114,7 @@ function scheduleAddCreateAccommodation(){
   var dateFrom = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
   var dateTo = el('ps-create-date-to') ? el('ps-create-date-to').value : dateFrom;
   scheduleCreateAccommodation = scheduleDefaultAccommodationStay(dateFrom, dateTo);
+  scheduleCreateAccommodationEditorOpen = true;
   scheduleRenderCreateAccommodation();
   if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
   else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent();
@@ -22742,49 +23122,119 @@ function scheduleAddCreateAccommodation(){
 
 function scheduleSyncCreateAccommodationFromDom(){
   if (!scheduleCreateAccommodation || !scheduleCreateAccommodation.enabled) return;
+  if (!scheduleCreateAccommodationEditorOpen) return;
   var cin = el('ps-create-accommodation-check-in');
   var cout = el('ps-create-accommodation-check-out');
   scheduleCreateAccommodation.check_in = cin ? String(cin.value || '').slice(0, 10) : scheduleCreateAccommodation.check_in;
   scheduleCreateAccommodation.check_out = cout ? String(cout.value || '').slice(0, 10) : scheduleCreateAccommodation.check_out;
 }
 
+/**
+ * Save accommodation stay into booking payload state and collapse the editor.
+ * Does NOT submit/create the booking and never trusts client money.
+ */
+function scheduleSaveCreateAccommodation(){
+  if (!scheduleCreateAccommodation || !scheduleCreateAccommodation.enabled) return false;
+  // Commit open calendar draft first when popover is open.
+  if (scheduleCreateAccomDateRangeIsOpen()) {
+    if (!scheduleApplyCreateAccomDateRangeDraft()) {
+      var errOpen = el('ps-create-accommodation-error');
+      if (errOpen) {
+        errOpen.style.display = '';
+        errOpen.textContent = portalT('schedule.create.accommodation.invalidStay')
+          || 'Select a valid check-in / check-out stay.';
+      }
+      return false;
+    }
+  }
+  scheduleSyncCreateAccommodationFromDom();
+  var checkIn = String(scheduleCreateAccommodation.check_in || '').slice(0, 10);
+  var checkOut = String(scheduleCreateAccommodation.check_out || '').slice(0, 10);
+  var valid = typeof scheduleCreateDateRangeIsValidIso === 'function'
+    ? scheduleCreateDateRangeIsValidIso
+    : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
+  if (!valid(checkIn) || !valid(checkOut)) {
+    var err1 = el('ps-create-accommodation-error');
+    if (err1) {
+      err1.style.display = '';
+      err1.textContent = portalT('schedule.create.accommodation.invalidStay')
+        || 'Select a valid check-in / check-out stay.';
+    }
+    return false;
+  }
+  // Half-open: exclusive checkout after check-in (same-day → one night).
+  if (checkOut <= checkIn) checkOut = scheduleAddIsoDays(checkIn, 1);
+  scheduleCreateAccommodation = { enabled: true, check_in: checkIn, check_out: checkOut };
+  scheduleCreateAccommodationEditorOpen = false;
+  // Clear any error; collapse to saved summary (not whole-booking submit).
+  var errOk = el('ps-create-accommodation-error');
+  if (errOk) { errOk.style.display = 'none'; errOk.textContent = ''; }
+  scheduleRenderCreateAccommodation();
+  if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
+  else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent();
+  return true;
+}
+
 function scheduleRemoveCreateAccommodation(){
   scheduleCreateAccommodation = null;
+  scheduleCreateAccommodationEditorOpen = false;
+  if (scheduleCreateAccomDateRangeIsOpen()) {
+    scheduleCreateAccomDateRangeClosePopover({ restoreFocus: false, discard: true });
+  }
   scheduleRenderCreateAccommodation();
   if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
   else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent();
 }
 
 function scheduleReadCreateAccommodation(){
-  scheduleSyncCreateAccommodationFromDom();
+  // Prefer committed state; while editor open, fold current hidden dates in.
+  if (scheduleCreateAccommodationEditorOpen) scheduleSyncCreateAccommodationFromDom();
   if (!scheduleCreateAccommodation || !scheduleCreateAccommodation.enabled) return null;
+  var checkIn = String(scheduleCreateAccommodation.check_in || '').slice(0, 10);
+  var checkOut = String(scheduleCreateAccommodation.check_out || '').slice(0, 10);
+  if (checkIn && checkOut && checkOut <= checkIn) checkOut = scheduleAddIsoDays(checkIn, 1);
   return {
     enabled: true,
-    check_in: String(scheduleCreateAccommodation.check_in || '').slice(0, 10),
-    check_out: String(scheduleCreateAccommodation.check_out || '').slice(0, 10),
+    check_in: checkIn,
+    check_out: checkOut,
   };
+}
+
+function scheduleOpenCreateAccommodationEditor(){
+  if (!scheduleCreateAccommodation || !scheduleCreateAccommodation.enabled) return;
+  scheduleCreateAccommodationEditorOpen = true;
+  scheduleRenderCreateAccommodation();
 }
 
 function scheduleWireCreateAccommodation(){
   var addBtn = el('ps-create-accommodation-add-btn');
   var removeBtn = el('ps-create-accommodation-remove');
-  var cin = el('ps-create-accommodation-check-in');
-  var cout = el('ps-create-accommodation-check-out');
+  var saveBtn = el('ps-create-accommodation-save');
+  var summaryBtn = el('ps-create-accommodation-summary-btn');
   if (addBtn && !addBtn._accomBound) {
     addBtn._accomBound = true;
     addBtn.addEventListener('click', function(){ scheduleAddCreateAccommodation(); });
   }
+  if (saveBtn && !saveBtn._accomBound) {
+    saveBtn._accomBound = true;
+    saveBtn.addEventListener('click', function(ev){
+      if (ev && ev.preventDefault) ev.preventDefault();
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      scheduleSaveCreateAccommodation();
+    });
+  }
   if (removeBtn && !removeBtn._accomBound) {
     removeBtn._accomBound = true;
-    removeBtn.addEventListener('click', function(){ scheduleRemoveCreateAccommodation(); });
+    removeBtn.addEventListener('click', function(ev){
+      if (ev && ev.preventDefault) ev.preventDefault();
+      scheduleRemoveCreateAccommodation();
+    });
   }
-  function onDateChange(){
-    scheduleSyncCreateAccommodationFromDom();
-    if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
-    else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent();
+  if (summaryBtn && !summaryBtn._accomBound) {
+    summaryBtn._accomBound = true;
+    summaryBtn.addEventListener('click', function(){ scheduleOpenCreateAccommodationEditor(); });
   }
-  if (cin && !cin._accomBound) { cin._accomBound = true; cin.addEventListener('change', onDateChange); }
-  if (cout && !cout._accomBound) { cout._accomBound = true; cout.addEventListener('change', onDateChange); }
+  scheduleWireCreateAccomDateRange();
   scheduleRenderCreateAccommodation();
 }
 
