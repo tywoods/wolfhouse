@@ -1082,13 +1082,19 @@ function privateQuoteBody(lessons, extra) {
   const editUi = fs.readFileSync(
     path.join(__dirname, 'browser/sunset-schedule-drawer-edit-ui.js'), 'utf8',
   );
-  ok('Edit UI has multi group lesson rows',
-    /ps-drawer-group-lessons/.test(editUi) && /scheduleDrawerAppendGroupLessonRow/.test(editUi));
+  ok('Edit UI removes Group lesson-builder (multi product buttons only)',
+    !/ps-drawer-group-lessons/.test(editUi)
+    && !/scheduleDrawerAppendGroupLessonRow/.test(editUi)
+    && !/scheduleDrawerReadGroupLessonRows/.test(editUi)
+    && /function scheduleDrawerGetSelectedCourseIds/.test(editUi)
+    && /function scheduleDrawerToggleCourse/.test(editUi)
+    && /selected_courses:\s*selectedCourses/.test(editUi));
   ok('Edit UI has free multi private session add/remove',
     /ps-drawer-add-private-session|scheduleDrawerAppendPrivateSessionRow/.test(editUi)
     && /data-private-session-remove|data-session-remove/.test(editUi));
-  ok('Edit quote body forwards lessons',
-    /lessons:\s*Array\.isArray\(payload\.lessons\)/.test(editUi));
+  ok('Edit quote body forwards lessons array (Private-only group invent gone)',
+    /lessons:\s*lessons/.test(editUi)
+    && /Private sessions keep canonical lessons/.test(editUi));
 
   console.log(`\nverify-sunset-multi-lessons-production — ${pass} passed`);
 })().catch((e) => {

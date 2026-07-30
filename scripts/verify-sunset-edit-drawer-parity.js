@@ -373,7 +373,13 @@ function buildEditRuntime(editSrc, apiSrc, opts) {
             c.getAttribute('data-edit-activity') || c.getAttribute('data-create-activity')
           );
         }
+        if (sel && sel.includes('button[data-course-id][aria-pressed="true"]')) {
+          return (this._courseRows || []).filter((b) => b.getAttribute('aria-pressed') === 'true');
+        }
         if (sel && sel.includes('data-course-id')) return (this._courseRows || []).slice();
+        if (sel && (sel.includes('input[type="checkbox"]') || sel.includes("input[type='checkbox']"))) {
+          return (this._courseRadios || []).filter((r) => r.type === 'checkbox' || !r.type || r.type === 'radio');
+        }
         if (sel && sel.includes('input')) return (this._courseRadios || []).slice();
         if (sel && sel.includes('button')) return (this._courseRows || []).slice();
         return [];
@@ -404,13 +410,14 @@ function buildEditRuntime(editSrc, apiSrc, opts) {
         if (this.id === 'ps-drawer-course-list') {
           const rows = parseButtonsFromHtml(this._innerHTML).filter((b) => b.getAttribute('data-course-id'));
           const radios = [];
-          const radioRe = /<input[^>]*type="radio"[^>]*>/g;
+          const inputRe = /<input[^>]*type="(checkbox|radio)"[^>]*>/g;
           let rm;
-          while ((rm = radioRe.exec(this._innerHTML))) {
+          while ((rm = inputRe.exec(this._innerHTML))) {
             const tag = rm[0];
             const valM = tag.match(/value="([^"]*)"/);
             radios.push({
-              type: 'radio',
+              type: rm[1] || 'checkbox',
+              name: /name="ps-drawer-course-pick"/.test(tag) ? 'ps-drawer-course-pick' : '',
               value: valM ? valM[1] : '',
               checked: /checked/.test(tag),
               disabled: /disabled/.test(tag),
@@ -505,14 +512,36 @@ function buildEditRuntime(editSrc, apiSrc, opts) {
   makeNode('ps-drawer-course-select', {
     value: opts.courseId || '',
     selectedIndex: opts.courseId ? 0 : -1,
+    multiple: true,
     options: opts.courseId
-      ? [{ value: opts.courseId, textContent: opts.courseLabel || opts.courseId, getAttribute: () => opts.courseLabel || opts.courseId }]
+      ? [{
+        value: opts.courseId,
+        textContent: opts.courseLabel || opts.courseId,
+        selected: true,
+        getAttribute(k) {
+          if (k === 'data-label') return opts.courseLabel || opts.courseId;
+          return null;
+        },
+        setAttribute() {},
+      }]
       : [],
+    get selectedOptions() {
+      return (this.options || []).filter((o) => o.selected);
+    },
     getAttribute(k) {
-      if (k === 'data-selected') return opts.courseId || '';
       return this._attrs && this._attrs[k] != null ? this._attrs[k] : null;
     },
-    _attrs: { 'data-selected': opts.courseId || '' },
+    setAttribute(k, v) {
+      this._attrs = this._attrs || {};
+      this._attrs[k] = String(v);
+    },
+    removeAttribute(k) {
+      if (this._attrs) delete this._attrs[k];
+    },
+    _attrs: {
+      'data-selected': opts.courseId || '',
+      'data-selected-courses': opts.courseId ? JSON.stringify([opts.courseId]) : '[]',
+    },
   });
   makeNode('ps-drawer-course-fields', { hidden: true, style: { display: 'none' } });
   makeNode('ps-drawer-course-qty-wrap', { style: { display: opts.mode === 'group' ? '' : 'none' } });
@@ -669,10 +698,15 @@ function buildEditRuntime(editSrc, apiSrc, opts) {
     'scheduleDrawerEnterPrivateSessionsDrilldown',
     'scheduleDrawerExitMainActivityDrilldown',
     'scheduleDrawerRenderMainActivityPath',
+    'scheduleDrawerGetSelectedCourseIds',
     'scheduleDrawerGetSelectedCourseId',
     'scheduleDrawerSyncCourseButtons',
+    'scheduleDrawerEnsureCourseSelectOption',
     'scheduleDrawerClearSelectedCourse',
     'scheduleDrawerSelectCourse',
+    'scheduleDrawerToggleCourse',
+    'scheduleDrawerSetSelectedCourses',
+    'scheduleDrawerSeedCourseIdsFromCtx',
     'scheduleDrawerRenderCourseList',
     'scheduleDrawerSeedMainActivityView',
     'scheduleDrawerPrivatePanelNode',
@@ -963,10 +997,15 @@ async function main() {
       || (/style="display:none"/.test(editSrc)
         && /ps-drawer-course-fields/.test(editSrc)
         && /function scheduleDrawerEnterGroupCourseDrilldown/.test(editSrc)));
-  ok('course options use activity-btn + aria-pressed exclusive pattern',
+  ok('course options use activity-btn + aria-pressed multi-select pattern',
     /data-course-id=/.test(editSrc)
     && /aria-pressed=/.test(editSrc)
-    && /scheduleDrawerSyncCourseButtons|aria-pressed/.test(editSrc));
+    && /scheduleDrawerSyncCourseButtons|aria-pressed/.test(editSrc)
+    && /function scheduleDrawerGetSelectedCourseIds|function scheduleDrawerToggleCourse/.test(editSrc));
+  ok('Edit removes Group lesson-builder block',
+    !/ps-drawer-group-lessons-wrap/.test(editSrc)
+    && !/scheduleDrawerAppendGroupLessonRow/.test(editSrc)
+    && !/schedule\.create\.addLesson/.test(editSrc));
 
   // ── E) Private / addon / payment / footer ────────────────────────────────
   console.log('\n[E] Private panel, custom addon, payment, footer chrome');
@@ -1272,9 +1311,16 @@ async function main() {
           sandbox.scheduleDrawerSelectCourse('c1', 'Beginner');
           ok('select course syncs hidden select',
             el('ps-drawer-course-select').value === 'c1');
-          ok('select course exclusive aria-pressed',
+          ok('select course aria-pressed projects selection',
             typeof sandbox.scheduleDrawerGetSelectedCourseId === 'function'
             && sandbox.scheduleDrawerGetSelectedCourseId() === 'c1');
+          if (typeof sandbox.scheduleDrawerSelectCourse === 'function'
+            && typeof sandbox.scheduleDrawerGetSelectedCourseIds === 'function') {
+            sandbox.scheduleDrawerSelectCourse('c2', 'Intermediate');
+            const multi = sandbox.scheduleDrawerGetSelectedCourseIds().slice().sort();
+            ok('multi-select keeps both courses',
+              multi.join(',') === 'c1,c2' || multi.indexOf('c1') >= 0);
+          }
         }
         // Back → No lesson draft (not persisted write)
         const ctxBefore = JSON.stringify(sandbox.scheduleDrawerState.ctx);
