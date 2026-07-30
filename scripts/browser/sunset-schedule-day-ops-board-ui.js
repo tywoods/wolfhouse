@@ -21,28 +21,69 @@
  */
 
 /**
- * Course-equipment selection mode for a display group (shared CE service rows).
- * Returns 'during_course' | 'all_day' | null. Prefer All Day when any CE row is all_day.
+ * Course-owned equipment rows on a display group (persisted CE service metadata).
+ * Only rows with course_equipment=true. Never invents labels from
+ * canonical/standalone rentals (rental_offering / generic_rental).
+ *
+ * Association scope: scheduleCourseAggregates already scopes records to the
+ * same booking day and the active course session (peer Group courses excluded).
+ * Create/Edit persists CE as booking-shared selection authorized for all
+ * selected courses; metadata.course_id is the primary pack stamp only.
  */
-function scheduleDayOpsCourseEquipmentMode(group){
-  var mode = null;
+function scheduleDayOpsCourseEquipmentRows(group){
   var records = group && Array.isArray(group.records) ? group.records : [];
+  var out = [];
   for (var i = 0; i < records.length; i++) {
     var row = records[i];
     var meta = scheduleDayOpsParseMetaBlob(row && (row.metadata || row._meta));
     if (meta.course_equipment !== true) continue;
-    if (meta.course_equipment_mode === 'all_day') return 'all_day';
+    // Never treat standalone generic rentals as course equipment.
+    if (meta.rental_offering === true || meta.generic_rental === true) continue;
+    out.push({ row: row, meta: meta });
+  }
+  return out;
+}
+
+/**
+ * Course-equipment selection mode for a display group.
+ * Returns 'during_course' | 'all_day' | null. Prefer All Day when any CE row is all_day.
+ */
+function scheduleDayOpsCourseEquipmentMode(group){
+  var mode = null;
+  var items = scheduleDayOpsCourseEquipmentRows(group);
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].meta.course_equipment_mode === 'all_day') return 'all_day';
     mode = 'during_course';
   }
   return mode;
 }
 
+/**
+ * Compact card label: Admin-owned equipment label + mode.
+ * Example: "Surfboard + Wetsuit · During Course". Multi-item CE joins with " · ".
+ * "No equipment" only when this course's group truly has no CE rows.
+ */
 function scheduleDayOpsEquipmentPrepLabel(group){
-  // Shared course equipment (During Course / All Day) is authoritative when present —
-  // do not paint "no equipment" when CE service rows exist on the booking day group.
-  var ceMode = scheduleDayOpsCourseEquipmentMode(group);
-  if (ceMode === 'all_day') return portalT('schedule.courseEquipment.allDay');
-  if (ceMode === 'during_course') return portalT('schedule.courseEquipment.during');
+  var items = scheduleDayOpsCourseEquipmentRows(group);
+  if (items.length) {
+    var parts = [];
+    var seen = {};
+    for (var i = 0; i < items.length; i++) {
+      var meta = items[i].meta;
+      var name = String(meta.label || meta.offering_key || '').trim() || 'Equipment';
+      var modeKey = meta.course_equipment_mode === 'all_day' ? 'all_day' : 'during_course';
+      var modeLabel = portalT(
+        modeKey === 'all_day'
+          ? 'schedule.courseEquipment.allDay'
+          : 'schedule.courseEquipment.during',
+      );
+      var part = name + ' · ' + modeLabel;
+      if (seen[part]) continue;
+      seen[part] = true;
+      parts.push(part);
+    }
+    if (parts.length) return parts.join(' · ');
+  }
   var boards = scheduleGroupBoardsNeeded(group);
   var wets = scheduleGroupWetsuitsNeeded(group);
   if (boards && wets) return portalT('schedule.equipment.boardAndWetsuit');

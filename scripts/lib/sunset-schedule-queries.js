@@ -92,6 +92,13 @@ WHERE c.slug = $1
       AND sr.metadata->>'rental_offering' = 'true'
       AND NULLIF(BTRIM(sr.metadata->>'offering_key'), '') IS NOT NULL
     )
+    OR (
+      -- Course-owned equipment (During Course / All Day). Not a standalone rental:
+      -- rental_offering is unset; course_equipment=true is the admission key.
+      sr.service_type = 'addon_service'
+      AND sr.metadata->>'course_equipment' = 'true'
+      AND NULLIF(BTRIM(sr.metadata->>'offering_key'), '') IS NOT NULL
+    )
   )
   AND sr.booking_id IS NOT NULL
   AND sr.status <> 'cancelled'

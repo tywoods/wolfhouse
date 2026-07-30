@@ -433,9 +433,9 @@ console.log('\n[5] schedule display group quantity + equipment card label');
     scheduleGroupWetsuitsNeeded() { return 0; },
   };
   vm.createContext(sandbox);
-  // Extract only the CE helpers + prep label from day-ops module.
+  // Extract CE row collector + mode + prep label from day-ops module.
   const extract = dayOpsSrc.match(
-    /function scheduleDayOpsCourseEquipmentMode[\s\S]*?function scheduleDayOpsEquipmentPrepLabel[\s\S]*?return portalT\('schedule\.equipment\.none'\);\n\}/,
+    /function scheduleDayOpsCourseEquipmentRows[\s\S]*?function scheduleDayOpsCourseEquipmentMode[\s\S]*?function scheduleDayOpsEquipmentPrepLabel[\s\S]*?return portalT\('schedule\.equipment\.none'\);\n\}/,
   );
   ok('extracted day-ops CE label functions', !!extract);
   if (extract) {
@@ -451,8 +451,8 @@ console.log('\n[5] schedule display group quantity + equipment card label');
     };
     const labelDuring = sandbox.scheduleDayOpsEquipmentPrepLabel(groupDuring);
     ok(
-      'card equipment summary During Course',
-      labelDuring === 'During Course',
+      'card equipment summary Admin label + During Course',
+      labelDuring === 'Softboard · During Course',
       `label=${labelDuring}`,
     );
     const groupAllDay = {
@@ -461,8 +461,8 @@ console.log('\n[5] schedule display group quantity + equipment card label');
     };
     const labelAllDay = sandbox.scheduleDayOpsEquipmentPrepLabel(groupAllDay);
     ok(
-      'card equipment summary All Day',
-      labelAllDay === 'All Day',
+      'card equipment summary Admin label + All Day',
+      labelAllDay === 'Softboard · All Day',
       `label=${labelAllDay}`,
     );
     const groupNone = {
