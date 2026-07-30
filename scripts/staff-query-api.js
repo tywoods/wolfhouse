@@ -16942,11 +16942,24 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-lesson-slot-time{color:var(--sched-text-2)}
 .portal-schedule-lesson-times-empty{font-size:13px;color:var(--text-3);line-height:1.4;padding-top:4px}
 .portal-schedule-ops-rental-pickups{margin-top:20px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);overflow:hidden}
-.portal-schedule-ops-rental-pickups-hdr{padding:12px 16px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text);border-bottom:1px solid var(--border-soft);background:rgba(255,255,255,.04)}
+.portal-schedule-ops-rental-pickups-hdr{padding:12px 16px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text);border-bottom:1px solid var(--border-soft);background:rgba(255,255,255,.04);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.portal-schedule-ops-rental-pickups-title{flex:1 1 auto;min-width:0}
+.portal-schedule-ops-rental-pickups-tools{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex:0 1 auto;flex-wrap:wrap;margin-left:auto}
+.portal-schedule-ops-rental-sort{display:inline-flex;align-items:center;border:1px solid var(--border-soft);border-radius:999px;overflow:hidden;background:var(--surface-soft)}
+.portal-schedule-ops-rental-sort-btn{appearance:none;border:0;background:transparent;color:var(--text-2);font:inherit;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:6px 10px;cursor:pointer;line-height:1.2}
+.portal-schedule-ops-rental-sort-btn.is-active{background:var(--sched-primary, var(--primary, #4E5853));color:#fff}
+.portal-schedule-ops-rental-filter{display:inline-flex;align-items:center;margin:0}
+.portal-schedule-ops-rental-filter-input{width:min(180px,42vw);min-height:32px;border:1px solid var(--border-soft);border-radius:999px;padding:6px 12px;font:inherit;font-size:12px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--text);background:var(--surface)}
+.portal-schedule-ops-rental-filter-input::placeholder{color:var(--text-3);font-weight:500}
+.portal-schedule-ops-rental-guest-hdr{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.portal-schedule-ops-rental-guest-open{appearance:none;border:0;background:transparent;padding:0;margin:0;font:inherit;font-size:13px;font-weight:700;color:var(--text);cursor:pointer;text-align:left}
+.portal-schedule-ops-rental-guest-open:hover{text-decoration:underline}
+.portal-schedule-ops-rental-item-lines .portal-schedule-ops-row-guest{font-weight:600}
 .portal-schedule-ops-rental-pickups-block{padding:0 0 8px;border-bottom:1px solid var(--border-soft)}
 .portal-schedule-ops-rental-pickups-block:last-child{border-bottom:none}
 .portal-schedule-ops-rental-pickups-subhdr{padding:10px 16px 6px;font-size:13px;font-weight:700;color:var(--text-2)}
 .portal-schedule-ops-rental-pickups-empty{padding:4px 16px 10px;font-size:12px;color:var(--text-3);font-style:italic}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .portal-schedule-ops-empty{font-size:12px;color:var(--text-3);padding:12px 14px}
 .portal-schedule-ops-fallback{font-size:11px;color:var(--text-3);margin-bottom:8px}
 .portal-schedule-week-forecast{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;margin-bottom:22px}
@@ -17109,7 +17122,6 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-empty-add{font-size:11px;font-weight:700;padding:6px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface);color:var(--text-2);cursor:pointer;white-space:nowrap;font-family:inherit}
 .portal-schedule-empty-add:hover{border-color:var(--tan);background:var(--surface-soft)}
 .portal-schedule-ops-rental-pickups-hdr{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.portal-schedule-ops-rental-pickups-count{font-size:11px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--text-3)}
 .portal-schedule-week-forecast-stat small{font-size:11px;font-weight:600;color:var(--text-3)}
 .portal-schedule-wk-slot{margin-top:7px}
 .portal-schedule-wk-slot-row{display:flex;justify-content:space-between;gap:8px;font-size:10.5px;color:var(--text-2);line-height:1.3}

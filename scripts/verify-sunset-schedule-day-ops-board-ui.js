@@ -59,6 +59,11 @@ function portalT(key) {
     'schedule.ops.rentalBoardsOnly': 'Boards',
     'schedule.ops.rentalWetsuitsOnly': 'Wetsuits',
     'schedule.ops.rentalNothingScheduled': 'Nothing',
+    'schedule.ops.rentalSortGuest': 'Guest',
+    'schedule.ops.rentalSortItem': 'Item',
+    'schedule.ops.rentalSortAria': 'Sort rental pickups',
+    'schedule.ops.rentalFilterGuest': 'Filter by name',
+    'schedule.ops.rentalFilterEmpty': 'No matching guests',
     'schedule.summary.boards': 'boards',
     'schedule.summary.wetsuits': 'wetsuits',
     'schedule.courses.noneConfigured': 'No courses',
@@ -134,9 +139,18 @@ console.log('\n[2] Module owns day-board symbols');
   'scheduleRenderOpsGroupHeader',
   'scheduleRenderOpsColumnHeader',
   'scheduleResolveDayOpsRowFromChip',
+  'scheduleBuildRentalPickupLines',
+  'scheduleRenderRentalPickupsSection',
+  'scheduleRenderRentalPickupsByGuest',
+  'scheduleRenderRentalPickupsByItem',
+  'scheduleWireRentalPickupsControls',
 ].forEach((name) => {
   assert(`module defines ${name}`, modSrc.includes(name));
 });
+assert('no hard-coded bothRentals bucket', !modSrc.includes('bothRentals'));
+assert('no hard-coded boardOnlyRentals bucket', !modSrc.includes('boardOnlyRentals'));
+assert('no hard-coded wetsuitOnlyRentals bucket', !modSrc.includes('wetsuitOnlyRentals'));
+assert('header booking tally removed from module', !modSrc.includes('portal-schedule-ops-rental-pickups-count'));
 assert('pack row ref removed', !modSrc.includes('scheduleDayOpsBoardRowsRef'));
 assert('resolves via scheduleResolveRow', modSrc.includes('scheduleResolveRow'));
 
@@ -174,8 +188,68 @@ if (modExists) {
       const chips = [];
       const re = /data-ps-booking-id="([^"]+)"/g;
       let m;
-      while ((m = re.exec(html)) !== null) chips.push(makeChipNode(m[1]));
+      const seen = new Set();
+      while ((m = re.exec(html)) !== null) {
+        if (seen.has(m[1])) continue;
+        seen.add(m[1]);
+        chips.push(makeChipNode(m[1]));
+      }
       return chips;
+    }
+    function mockSortButtons(html) {
+      const out = [];
+      const re = /<button\b[^>]*\bdata-rp-sort="([^"]+)"[^>]*>/g;
+      let m;
+      while ((m = re.exec(html)) !== null) {
+        const val = m[1];
+        const node = {
+          dataset: {},
+          tagName: 'BUTTON',
+          getAttribute(k) { return k === 'data-rp-sort' ? val : null; },
+          _listeners: {},
+          addEventListener(type, fn) {
+            if (!node._listeners[type]) node._listeners[type] = [];
+            node._listeners[type].push(fn);
+          },
+          click() {
+            (node._listeners.click || []).forEach((fn) => fn({
+              preventDefault() {},
+              stopPropagation() {},
+              target: node,
+            }));
+          },
+        };
+        out.push(node);
+      }
+      return out;
+    }
+    function mockFilter(html) {
+      if (!/data-rp-filter="guest"/.test(html)) return null;
+      const vm = html.match(/value="([^"]*)"/);
+      const node = {
+        dataset: {},
+        value: vm ? vm[1] : '',
+        selectionStart: 0,
+        selectionEnd: 0,
+        _listeners: {},
+        addEventListener(type, fn) {
+          if (!node._listeners[type]) node._listeners[type] = [];
+          node._listeners[type].push(fn);
+        },
+        focus() { if (documentRef) documentRef.activeElement = node; },
+        setSelectionRange(a, b) { node.selectionStart = a; node.selectionEnd = b; },
+        dispatchInput(val) {
+          node.value = String(val == null ? '' : val);
+          node.selectionStart = node.value.length;
+          node.selectionEnd = node.value.length;
+          (node._listeners.input || []).forEach((fn) => fn({
+            target: node,
+            preventDefault() {},
+            stopPropagation() {},
+          }));
+        },
+      };
+      return node;
     }
     function togglesFromHtml(html) {
       const toggles = [];
@@ -293,15 +367,22 @@ if (modExists) {
       _chips: [],
       _toggles: [],
       _panels: {},
+      _sortBtns: [],
+      _filter: null,
       get innerHTML() { return html; },
       set innerHTML(v) {
         html = String(v == null ? '' : v);
         el._chips = chipsFromHtml(html);
         el._toggles = togglesFromHtml(html);
         el._panels = panelsFromHtml(html);
+        el._sortBtns = mockSortButtons(html);
+        el._filter = mockFilter(html);
       },
       querySelector(sel) {
         if (sel === '[data-ps-booking-id]') return el._chips[0] || null;
+        if (sel === '[data-rp-filter="guest"]') return el._filter;
+        if (sel === 'button[data-rp-sort="item"]') return el._sortBtns.find((b) => b.getAttribute('data-rp-sort') === 'item') || null;
+        if (sel === 'button[data-rp-sort="guest"]') return el._sortBtns.find((b) => b.getAttribute('data-rp-sort') === 'guest') || null;
         if (sel && sel.charAt(0) === '#') return el._panels[sel.slice(1)] || null;
         if (sel === '[data-ps-ops-guest-toggle]') return el._toggles[0] || null;
         if (sel && sel.indexOf('[aria-controls=') === 0) {
@@ -313,6 +394,7 @@ if (modExists) {
       querySelectorAll(sel) {
         if (sel === '[data-ps-booking-id]') return el._chips.slice();
         if (sel === '[data-ps-add-slot]') return [];
+        if (sel === 'button[data-rp-sort]' || sel === '[data-rp-sort]') return el._sortBtns.slice();
         if (sel === '[data-ps-ops-guest-toggle]' || sel === 'button[data-ps-ops-guest-toggle]') {
           return el._toggles.slice();
         }
@@ -321,6 +403,12 @@ if (modExists) {
     };
     return el;
   }
+  let documentRef = {
+    activeElement: null,
+    querySelector(sel) {
+      return dom && dom['ps-ops-board'] ? dom['ps-ops-board'].querySelector(sel) : null;
+    },
+  };
   const dom = { 'ps-ops-board': makeBoardEl() };
   const drawerOpens = [];
   let fetchCount = 0;
@@ -409,6 +497,7 @@ if (modExists) {
     el: (id) => dom[id] || null,
     portalT,
     escHtml,
+    document: documentRef,
     fetch: () => { fetchCount += 1; return { then() { return this; }, catch() { return this; } }; },
   };
 
@@ -556,6 +645,13 @@ if (modExists) {
   rows.length = 0;
   cache.length = 0;
   drawerOpens.length = 0;
+  const prevBuildSessions = ctx.scheduleBuildDaySessions;
+  const prevBuildGroups = ctx.scheduleBuildDisplayGroups;
+  const prevStandalone = ctx.scheduleGroupIsStandaloneRental;
+  const prevPickupKind = ctx.scheduleRentalPickupKind;
+  const prevBoards = ctx.scheduleGroupBoardsNeeded;
+  const prevWets = ctx.scheduleGroupWetsuitsNeeded;
+
   const boardRow = {
     _scheduleId: 'sr-rental-board',
     service_record_id: 'sr-rental-board',
@@ -563,7 +659,7 @@ if (modExists) {
     booking_code: 'SUNSET-RENT-ONLY',
     guest_name: 'Rental Only Bundle',
     service_date: '2026-07-20',
-    service_type: 'board_rental',
+    service_type: 'surfboard_rental',
     _scheduleType: 'rental',
     record_source: 'staff_manual',
     _isDbManual: true,
@@ -588,14 +684,8 @@ if (modExists) {
     metadata: { component: 'wetsuit' },
     _meta: { component: 'wetsuit' },
   };
-  const prevBuildSessions = ctx.scheduleBuildDaySessions;
-  const prevBuildGroups = ctx.scheduleBuildDisplayGroups;
-  const prevStandalone = ctx.scheduleGroupIsStandaloneRental;
-  const prevPickupKind = ctx.scheduleRentalPickupKind;
-  const prevBoards = ctx.scheduleGroupBoardsNeeded;
-  const prevWets = ctx.scheduleGroupWetsuitsNeeded;
   ctx.scheduleBuildDaySessions = () => [];
-  ctx.scheduleBuildDisplayGroups = (rs) => [{
+  const comboGroup = {
     _scheduleId: 'sr-rental-board',
     booking_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     guest_name: 'Rental Only Bundle',
@@ -605,25 +695,33 @@ if (modExists) {
     payment_status: 'unpaid',
     quantity: 1,
     components: { surfboard: true, wetsuit: true },
-    records: rs || [boardRow, wetsuitRow],
-  }];
+    records: [boardRow, wetsuitRow],
+  };
+  ctx.scheduleBuildDisplayGroups = (rs) => [comboGroup];
   ctx.scheduleGroupIsStandaloneRental = (g) => !!(g && g.components && (g.components.surfboard || g.components.wetsuit)
     && !g.components.lesson && !g.components.course && !g.components.private_lesson);
   ctx.scheduleRentalPickupKind = () => 'both';
   ctx.scheduleGroupBoardsNeeded = () => 1;
   ctx.scheduleGroupWetsuitsNeeded = () => 1;
   installCache([boardRow, wetsuitRow]);
+  ctx.scheduleRentalPickupsSortMode = 'guest';
+  ctx.scheduleRentalPickupsGuestFilter = '';
   ctx.renderScheduleDayOpsBoard({ rows: [boardRow, wetsuitRow], gear: [boardRow, wetsuitRow], lessons: [] }, '2026-07-20');
   const rentalHtml = dom['ps-ops-board'].innerHTML;
   assert('rental-only section rendered', rentalHtml.includes('portal-schedule-ops-rental-pickups'));
-  assert('rental-only guest chip visible', rentalHtml.includes('Rental Only Bundle'));
+  assert('rental-only guest visible in guest mode', rentalHtml.includes('Rental Only Bundle'));
+  assert('guest mode shows sort controls', rentalHtml.includes('data-rp-sort="guest"') && rentalHtml.includes('data-rp-filter="guest"'));
+  assert('header booking tally removed', !rentalHtml.includes('portal-schedule-ops-rental-pickups-count'));
+  assert('combo pair label present', rentalHtml.includes('Both'));
+  const linesCombo = ctx.scheduleBuildRentalPickupLines([comboGroup]);
+  assert('combo emits one pair line', linesCombo.length === 1 && linesCombo[0].itemKey === 'pair:both' && linesCombo[0].quantity === 1);
   const rentalChip = dom['ps-ops-board'].querySelector('[data-ps-booking-id]');
   assert('rental-only chip carries booking identity', !!rentalChip
     && rentalChip.getAttribute('data-ps-booking-id') === 'sr-rental-board');
   drawerOpens.length = 0;
   if (rentalChip) clickChip(rentalChip, rentalChip._guestSpan || rentalChip);
   assert('rental-only chip opens drawer via existing wiring', drawerOpens.length === 1 && drawerOpens[0] === 'sr-rental-board');
-  // generic Admin-catalog rental → own pickup block with trusted label + quantity
+
   const genericRow = {
     _scheduleId: 'sr-rental-towel',
     service_record_id: 'sr-rental-towel',
@@ -652,8 +750,8 @@ if (modExists) {
   const genericRow2 = {
     ...genericRow,
     _scheduleId: 'sr-rental-poncho', service_record_id: 'sr-rental-poncho',
-    metadata: { ...genericRow.metadata, offering_key: 'poncho_rental' },
-    _meta: { ...genericRow._meta, offering_key: 'poncho_rental' },
+    metadata: { ...genericRow.metadata, offering_key: 'poncho_rental', offering_label: 'Poncho' },
+    _meta: { ...genericRow._meta, offering_key: 'poncho_rental', offering_label: 'Poncho' },
   };
   const genericGroup = {
     _scheduleId: 'sr-rental-towel', booking_id: genericRow.booking_id,
@@ -665,27 +763,135 @@ if (modExists) {
   const descriptors = ctx.scheduleGenericRentalDescriptors(genericGroup);
   assert('generic rental descriptors preserve stable offering identities even when labels collide',
     descriptors.length === 2 && descriptors.map((d) => d.offering_key).sort().join(',') === 'poncho_rental,towel_rental');
+  const genericLines = ctx.scheduleBuildRentalPickupLines([genericGroup]);
+  assert('generic multi-item guest produces two lines',
+    genericLines.length === 2
+      && genericLines.every((l) => l.guestName === 'Generic Towel Guest')
+      && genericLines.map((l) => l.itemKey).sort().join(',') === 'offering:poncho_rental,offering:towel_rental');
   ctx.scheduleBuildDisplayGroups = () => [genericGroup];
   ctx.scheduleGroupIsStandaloneRental = () => true;
   ctx.scheduleRentalPickupKind = () => null;
   ctx.scheduleGroupBoardsNeeded = () => 0;
   ctx.scheduleGroupWetsuitsNeeded = () => 0;
   installCache([genericRow]);
+  ctx.scheduleRentalPickupsSortMode = 'guest';
+  ctx.scheduleRentalPickupsGuestFilter = '';
   ctx.renderScheduleDayOpsBoard({ rows: [genericRow], gear: [genericRow], lessons: [] }, '2026-07-20');
   const genericHtml = dom['ps-ops-board'].innerHTML;
-  assert('generic rental descriptor uses Admin label and exact quantity',
-    typeof ctx.scheduleGenericRentalDescriptor === 'function'
-      && ctx.scheduleGenericRentalDescriptor(genericGroup).label === 'Towel'
-      && ctx.scheduleGenericRentalDescriptor(genericGroup).quantity === 2);
+  assert('generic rental descriptors use Admin labels and exact quantities',
+    typeof ctx.scheduleGenericRentalDescriptors === 'function'
+      && descriptors.some((d) => d.offering_key === 'towel_rental' && d.label === 'Towel' && d.quantity === 2)
+      && descriptors.some((d) => d.offering_key === 'poncho_rental' && d.label === 'Poncho' && d.quantity === 2));
   assert('generic Admin rental renders under Rental pickups today',
     genericHtml.includes('portal-schedule-ops-rental-pickups')
       && genericHtml.includes('Towel')
       && genericHtml.includes('Generic Towel Guest')
       && genericHtml.includes('2×'));
-  assert('same-label offerings render as separate stable pickup sections',
-    (genericHtml.match(/data-rental-offering=/g) || []).length === 2
+  assert('guest mode keeps multi offering attrs on lines',
+    (genericHtml.match(/data-rental-offering=/g) || []).length >= 2
       && genericHtml.includes('data-rental-offering="towel_rental"')
       && genericHtml.includes('data-rental-offering="poncho_rental"'));
+
+  ctx.scheduleRentalPickupsSortMode = 'item';
+  ctx.scheduleRentalPickupsGuestFilter = '';
+  ctx.renderScheduleDayOpsBoard({ rows: [genericRow], gear: [genericRow], lessons: [] }, '2026-07-20');
+  const itemHtml = dom['ps-ops-board'].innerHTML;
+  assert('item mode hides guest filter', !itemHtml.includes('data-rp-filter="guest"') && itemHtml.includes('data-rp-sort="item"'));
+  assert('item mode sections from stable offering keys',
+    itemHtml.includes('data-rental-offering="towel_rental"')
+      && itemHtml.includes('data-rental-offering="poncho_rental"')
+      && itemHtml.includes('Generic Towel Guest'));
+
+  const twinA = {
+    _scheduleId: 'sr-frankie', booking_id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+    guest_name: 'Frankie', service_date: '2026-07-20', record_source: 'staff_manual', _isDbManual: true,
+    payment_status: 'unpaid', quantity: 1, components: { surfboard: true, wetsuit: true },
+    records: [boardRow],
+  };
+  const twinB = {
+    _scheduleId: 'sr-frankie-2', booking_id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+    guest_name: 'Frankie', service_date: '2026-07-20', record_source: 'staff_manual', _isDbManual: true,
+    payment_status: 'paid', quantity: 1, components: {},
+    records: [{
+      _scheduleId: 'sr-frankie-2', quantity: 1, metadata: {
+        rental_offering: true, offering_key: 'bottle_rental', offering_label: 'Bottle',
+      }, _meta: {
+        rental_offering: true, offering_key: 'bottle_rental', offering_label: 'Bottle',
+      },
+    }],
+  };
+  const jimmy = {
+    _scheduleId: 'sr-jimmy', booking_id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+    guest_name: 'Jimmy', service_date: '2026-07-20', record_source: 'staff_manual', _isDbManual: true,
+    payment_status: 'unpaid', quantity: 1, components: { surfboard: true },
+    records: [boardRow],
+  };
+  ctx.scheduleBuildDisplayGroups = () => [twinA, twinB, jimmy];
+  ctx.scheduleGroupIsStandaloneRental = () => true;
+  ctx.scheduleRentalPickupKind = (g) => {
+    if (g && g._scheduleId === 'sr-frankie') return 'both';
+    if (g && g._scheduleId === 'sr-jimmy') return 'board';
+    return null;
+  };
+  ctx.scheduleGroupBoardsNeeded = (g) => (g && (g._scheduleId === 'sr-frankie' || g._scheduleId === 'sr-jimmy') ? 1 : 0);
+  ctx.scheduleGroupWetsuitsNeeded = (g) => (g && g._scheduleId === 'sr-frankie' ? 1 : 0);
+  installCache([twinA, twinB, jimmy]);
+  const multiLines = ctx.scheduleBuildRentalPickupLines([twinA, twinB, jimmy]);
+  assert('same guest name keeps separate booking identities',
+    multiLines.filter((l) => l.guestName === 'Frankie').map((l) => l.scheduleId).sort().join(',') === 'sr-frankie,sr-frankie-2');
+  ctx.scheduleRentalPickupsSortMode = 'guest';
+  ctx.scheduleRentalPickupsGuestFilter = 'fran';
+  ctx.renderScheduleDayOpsBoard({ rows: [twinA, twinB, jimmy], gear: [], lessons: [] }, '2026-07-20');
+  const filterHtml = dom['ps-ops-board'].innerHTML;
+  assert('guest filter keeps Frankie', filterHtml.includes('Frankie'));
+  assert('guest filter hides Jimmy', !filterHtml.includes('Jimmy'));
+  ctx.scheduleRentalPickupsGuestFilter = 'zzz-nope';
+  ctx.renderScheduleDayOpsBoard({ rows: [twinA, twinB, jimmy], gear: [], lessons: [] }, '2026-07-20');
+  assert('empty filter state', dom['ps-ops-board'].innerHTML.includes('No matching guests'));
+
+  ctx.scheduleRentalPickupsSortMode = 'item';
+  ctx.scheduleRentalPickupsGuestFilter = '';
+  ctx.renderScheduleDayOpsBoard({ rows: [twinA, twinB, jimmy], gear: [], lessons: [] }, '2026-07-20');
+  const itemMulti = dom['ps-ops-board'].innerHTML;
+  assert('item mode lists Bottle from data only', itemMulti.includes('Bottle') && itemMulti.includes('data-rental-offering="bottle_rental"'));
+  assert('item mode lists classic pair/board without empty hardcode shells',
+    itemMulti.includes('Both') && itemMulti.includes('Boards'));
+
+  // Interaction tests: real sort-button clicks + filter input events
+  ctx.scheduleRentalPickupsSortMode = 'guest';
+  ctx.scheduleRentalPickupsGuestFilter = '';
+  ctx.renderScheduleDayOpsBoard({ rows: [twinA, twinB, jimmy], gear: [], lessons: [] }, '2026-07-20');
+  assert('interaction start guest mode has filter', dom['ps-ops-board'].innerHTML.includes('data-rp-filter="guest"'));
+  const itemBtn = dom['ps-ops-board'].querySelector('button[data-rp-sort="item"]');
+  assert('item sort button wired', !!(itemBtn && itemBtn._listeners && itemBtn._listeners.click && itemBtn._listeners.click.length));
+  itemBtn.click();
+  assert('click Item sets sort mode global', ctx.scheduleRentalPickupsSortMode === 'item');
+  assert('click Item rerenders item view without guest filter',
+    dom['ps-ops-board'].innerHTML.includes('data-rp-sort="item"')
+      && !dom['ps-ops-board'].innerHTML.includes('data-rp-filter="guest"')
+      && dom['ps-ops-board'].innerHTML.includes('Bottle'));
+  const guestBtn = dom['ps-ops-board'].querySelector('button[data-rp-sort="guest"]');
+  assert('guest sort button wired', !!(guestBtn && guestBtn._listeners && guestBtn._listeners.click && guestBtn._listeners.click.length));
+  guestBtn.click();
+  assert('click Guest restores guest mode + filter field',
+    ctx.scheduleRentalPickupsSortMode === 'guest'
+      && dom['ps-ops-board'].innerHTML.includes('data-rp-filter="guest"'));
+  const filterInput = dom['ps-ops-board'].querySelector('[data-rp-filter="guest"]');
+  assert('filter input wired', !!(filterInput && filterInput._listeners && filterInput._listeners.input && filterInput._listeners.input.length));
+  filterInput.focus();
+  documentRef.activeElement = filterInput;
+  filterInput.dispatchInput('fran');
+  assert('input filter updates global state', ctx.scheduleRentalPickupsGuestFilter === 'fran');
+  assert('input filter keeps Frankie hides Jimmy',
+    dom['ps-ops-board'].innerHTML.includes('Frankie')
+      && !dom['ps-ops-board'].innerHTML.includes('Jimmy'));
+  const filterAfter = dom['ps-ops-board'].querySelector('[data-rp-filter="guest"]');
+  assert('filter value retained after rerender', !!(filterAfter && filterAfter.value === 'fran'));
+  drawerOpens.length = 0;
+  const filteredChip = dom['ps-ops-board'].querySelector('[data-ps-booking-id]');
+  assert('filtered rental line present', !!filteredChip);
+  if (filteredChip) clickChip(filteredChip, filteredChip);
+  assert('drawer opens once after sort/filter rerender', drawerOpens.length === 1 && String(drawerOpens[0]).indexOf('sr-frankie') === 0);
 
   ctx.scheduleBuildDaySessions = prevBuildSessions;
   ctx.scheduleBuildDisplayGroups = prevBuildGroups;
@@ -693,6 +899,8 @@ if (modExists) {
   ctx.scheduleRentalPickupKind = prevPickupKind;
   ctx.scheduleGroupBoardsNeeded = prevBoards;
   ctx.scheduleGroupWetsuitsNeeded = prevWets;
+  ctx.scheduleRentalPickupsSortMode = 'guest';
+  ctx.scheduleRentalPickupsGuestFilter = '';
 
   assert('board module never fetched', fetchCount === 0);
 
