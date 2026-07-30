@@ -133,6 +133,21 @@ ok('Save does not call whole-booking submit/create', (() => {
 ok('Create + remains visible after saves (permanent when product enabled)',
   /addBtn\.style\.display\s*=\s*scheduleAccommodationEnabledCache\s*\?\s*''\s*:\s*'none'/.test(apiSrc)
   || /addBtn\.style\.display = scheduleAccommodationEnabledCache \? '' : 'none'/.test(apiSrc));
+const setAccommodationEnabledFn = extractNamedFn(apiSrc, 'scheduleSetAccommodationProductEnabled');
+let firstOpenRace = null;
+try {
+  // Simulate first render with cache=false followed by async Admin config enablement.
+  firstOpenRace = new Function(
+    'var scheduleAccommodationEnabledCache=false; var renders=0;'
+    + 'var wrap={style:{display:"none"},removeAttribute:function(){this.hidden=false;},setAttribute:function(){this.hidden=true;}};'
+    + 'function el(){return wrap;} function scheduleRenderCreateAccommodation(){renders+=1;}'
+    + setAccommodationEnabledFn
+    + '; scheduleSetAccommodationProductEnabled(true); return {renders:renders,display:wrap.style.display,hidden:wrap.hidden,enabled:scheduleAccommodationEnabledCache};',
+  )();
+} catch (_raceErr) { firstOpenRace = null; }
+ok('Async config enable rerenders Accommodation + on first drawer open',
+  !!firstOpenRace && firstOpenRace.enabled === true && firstOpenRace.renders === 1
+  && firstOpenRace.display === '' && firstOpenRace.hidden === false);
 ok('Create multi-stay list + locked cards owners present',
   /ps-create-accommodation-list/.test(apiSrc)
   && /scheduleRenderCreateAccommodationCardHtml/.test(apiSrc)

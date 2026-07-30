@@ -22738,6 +22738,9 @@ function scheduleSetAccommodationProductEnabled(enabled){
   if (scheduleAccommodationEnabledCache) {
     wrap.style.display = '';
     wrap.removeAttribute('hidden');
+    // Config loads asynchronously after the first drawer render. Repaint now so
+    // the permanent + appears on first open instead of only after reopen.
+    scheduleRenderCreateAccommodation();
   } else {
     // Product disabled on Create: hide + clear so we cannot add new stays.
     wrap.style.display = 'none';
