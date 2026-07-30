@@ -2217,27 +2217,29 @@ function scheduleRefreshDrawerFullDayAddon() {
       var name = String((option && option.label) || (selected && selected.label) || key || unavailLabelG);
       var disabled = unavailable && !checked;
       return '<div class="portal-schedule-course-equipment-item' + (unavailable ? ' is-unavailable' : '') +
+        (checked ? '' : ' is-off') +
         '" data-offering-key="' + escHtml(key) + '">' +
         '<div class="portal-schedule-course-equipment-row"><div class="portal-schedule-course-equipment-left">' +
-        '<label class="portal-schedule-course-equipment-check" aria-label="' + escHtml(name) + '">' +
-        '<input type="checkbox" data-course-equipment-enabled' + (checked ? ' checked' : '') +
-        (disabled ? ' disabled' : '') + '></label>' +
         '<span class="portal-schedule-course-equipment-name">' + escHtml(name) + '</span></div>' +
+        '<label class="portal-schedule-course-equipment-check portal-schedule-course-equipment-switch" aria-label="' + escHtml(name) + '">' +
+        '<input type="checkbox" data-course-equipment-enabled' + (checked ? ' checked' : '') +
+        (disabled ? ' disabled' : '') + '>' +
+        '<span class="portal-schedule-course-equipment-switch-slider" aria-hidden="true"></span></label></div>' +
         '<div class="portal-schedule-course-equipment-modes" role="group" aria-label="' +
         escHtml(portalT('schedule.courseEquipment.title') + ': ' + name) + '"' +
         (checked ? '' : ' hidden style="display:none"') + '>' +
         '<button type="button" class="portal-schedule-create-activity-btn" data-drawer-course-equipment-mode="during_course" aria-pressed="' +
         (checked && eqMode === 'during_course' ? 'true' : 'false') + '">' +
-        escHtml(portalT('schedule.courseEquipment.during')) + '</button>' +
-        '<button type="button" class="portal-schedule-create-activity-btn" data-drawer-course-equipment-mode="all_day" aria-pressed="' +
+        '<span class="portal-schedule-course-equipment-mode-label">' + escHtml(portalT('schedule.courseEquipment.during')) + '</span></button>' +
+        '<button type="button" class="portal-schedule-create-activity-btn portal-schedule-course-equipment-mode-allday" data-drawer-course-equipment-mode="all_day" aria-pressed="' +
         (checked && eqMode === 'all_day' ? 'true' : 'false') + '">' +
-        escHtml(portalT('schedule.courseEquipment.allDay')) + '</button></div>' +
+        '<span class="portal-schedule-course-equipment-mode-label">' + escHtml(portalT('schedule.courseEquipment.allDay')) + '</span>' +
         '<div class="portal-schedule-course-equipment-sets"' +
         (checked && eqMode === 'all_day' ? '' : ' hidden style="display:none"') + '>' +
-        '<label><span class="portal-schedule-course-equipment-qty-label">' +
-        escHtml(portalT('schedule.courseEquipment.quantity')) + '</span>' +
-        '<input type="number" min="1" max="' + escHtml(String(maxQty)) + '" value="' +
-        escHtml(String(qty)) + '" data-course-equipment-quantity inputmode="numeric"></label></div></div></div>';
+        '<label><input type="number" min="1" max="' + escHtml(String(maxQty)) + '" value="' +
+        escHtml(String(qty)) + '" data-course-equipment-quantity inputmode="numeric" title="' +
+        escHtml(portalT('schedule.courseEquipment.quantity')) + '" aria-label="' +
+        escHtml(portalT('schedule.courseEquipment.quantity')) + '"></label></div></button></div></div>';
     }
     var htmlG = options.map(function(option) {
       var key = String(option.offering_key || '');
@@ -2332,28 +2334,30 @@ function scheduleRefreshDrawerFullDayAddon() {
       // Never invent money labels for historical/empty rows — display-only name.
       var disabled = unavailable && !checked;
       return '<div class="portal-schedule-course-equipment-item' + (unavailable ? ' is-unavailable' : '') +
+        (checked ? '' : ' is-off') +
         '" data-offering-key="' + escHtml(key) + '"' +
         (legacyEmpty ? ' data-legacy-empty="1"' : '') +
         '><div class="portal-schedule-course-equipment-row"><div class="portal-schedule-course-equipment-left">' +
-        '<label class="portal-schedule-course-equipment-check" aria-label="' + escHtml(name) + '">' +
-        '<input type="checkbox" data-course-equipment-enabled' + (checked ? ' checked' : '') +
-        (disabled ? ' disabled' : '') + '></label>' +
         '<span class="portal-schedule-course-equipment-name">' + escHtml(name) + '</span></div>' +
+        '<label class="portal-schedule-course-equipment-check portal-schedule-course-equipment-switch" aria-label="' + escHtml(name) + '">' +
+        '<input type="checkbox" data-course-equipment-enabled' + (checked ? ' checked' : '') +
+        (disabled ? ' disabled' : '') + '>' +
+        '<span class="portal-schedule-course-equipment-switch-slider" aria-hidden="true"></span></label></div>' +
         '<div class="portal-schedule-course-equipment-modes" role="group" aria-label="' +
         escHtml(portalT('schedule.courseEquipment.title') + ': ' + name) + '"' +
         (checked ? '' : ' hidden style="display:none"') + '>' +
         '<button type="button" class="portal-schedule-create-activity-btn" data-drawer-course-equipment-mode="during_course" aria-pressed="' +
         (checked && eqMode === 'during_course' ? 'true' : 'false') + '">' +
-        escHtml(portalT('schedule.courseEquipment.during')) + '</button>' +
-        '<button type="button" class="portal-schedule-create-activity-btn" data-drawer-course-equipment-mode="all_day" aria-pressed="' +
+        '<span class="portal-schedule-course-equipment-mode-label">' + escHtml(portalT('schedule.courseEquipment.during')) + '</span></button>' +
+        '<button type="button" class="portal-schedule-create-activity-btn portal-schedule-course-equipment-mode-allday" data-drawer-course-equipment-mode="all_day" aria-pressed="' +
         (checked && eqMode === 'all_day' ? 'true' : 'false') + '">' +
-        escHtml(portalT('schedule.courseEquipment.allDay')) + '</button></div>' +
+        '<span class="portal-schedule-course-equipment-mode-label">' + escHtml(portalT('schedule.courseEquipment.allDay')) + '</span>' +
         '<div class="portal-schedule-course-equipment-sets"' +
         (checked && eqMode === 'all_day' ? '' : ' hidden style="display:none"') + '>' +
-        '<label><span class="portal-schedule-course-equipment-qty-label">' +
-        escHtml(portalT('schedule.courseEquipment.quantity')) + '</span>' +
-        '<input type="number" min="1" max="' + escHtml(String(maxQtyP)) + '" value="' +
-        escHtml(String(qty)) + '" data-course-equipment-quantity inputmode="numeric"></label></div></div></div>';
+        '<label><input type="number" min="1" max="' + escHtml(String(maxQtyP)) + '" value="' +
+        escHtml(String(qty)) + '" data-course-equipment-quantity inputmode="numeric" title="' +
+        escHtml(portalT('schedule.courseEquipment.quantity')) + '" aria-label="' +
+        escHtml(portalT('schedule.courseEquipment.quantity')) + '"></label></div></button></div></div>';
     }
     var htmlP = privateOptions.map(function(option) {
       var key = String(option.offering_key || '');
@@ -4518,6 +4522,10 @@ function scheduleWireEditableDrawer(row, ctx) {
       scheduleDrawerMarkPriceStale(); scheduleDrawerSyncFooter();
     });
     equipmentField.addEventListener('click', function(event) {
+      if (event.target && event.target.closest && event.target.closest('[data-course-equipment-quantity]')) {
+        event.stopPropagation();
+        return;
+      }
       var button = event.target && event.target.closest && event.target.closest('[data-drawer-course-equipment-mode]');
       if (!button) return;
       var item = button.closest('.portal-schedule-course-equipment-item');

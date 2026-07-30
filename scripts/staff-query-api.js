@@ -16319,7 +16319,53 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-subsection.is-equip-disabled .portal-admin-subsection-title{color:var(--text-2)}
 .portal-admin-equip-price-grid{gap:8px}
 .portal-admin-subsection fieldset{min-width:0;max-width:100%;border:1px solid var(--border-soft);border-radius:8px;margin:12px 0;padding:12px}
-.portal-schedule-course-equipment{border:0;margin:10px 0 0;padding:0;min-width:0;max-width:100%}.portal-schedule-course-equipment-list{display:grid;gap:10px;min-width:0}.portal-schedule-course-equipment-item{border:1px solid var(--border-soft);border-radius:10px;padding:10px;min-width:0;max-width:100%;box-sizing:border-box}.portal-schedule-course-equipment-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px}.portal-schedule-course-equipment-left{display:inline-flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0}.portal-schedule-course-equipment-name{flex:0 1 auto;min-width:0;margin:0;padding:0;font-size:14px;font-weight:600;color:var(--text);line-height:1.25}.portal-schedule-course-equipment-check{display:inline-flex;align-items:center;justify-content:center;flex:0 0 44px;width:44px;height:44px;margin:0;cursor:pointer;line-height:0;opacity:1!important}.portal-schedule-course-equipment-check input.portal-schedule-course-equipment-radial,.portal-schedule-course-equipment-check input[type=checkbox]{-webkit-appearance:none;appearance:none;margin:0!important;padding:0!important;width:18px!important;height:18px!important;min-width:18px!important;max-width:18px!important;min-height:18px!important;max-height:18px!important;flex:0 0 18px;aspect-ratio:1/1;border-radius:50%!important;border:2px solid var(--text-2,#6b7280)!important;background:var(--surface,#1a1a1a)!important;box-sizing:border-box!important;cursor:pointer;opacity:1!important;vertical-align:middle;accent-color:var(--sched-primary,#4E5853);box-shadow:0 0 0 1px rgba(0,0,0,.04);transition:border-color .15s,background .15s,box-shadow .15s}.portal-schedule-course-equipment-check input:hover{border-color:var(--text,#e8e8e8)!important}.portal-schedule-course-equipment-check input:checked{border-color:var(--sched-primary,#4E5853)!important;background-color:var(--surface,#1a1a1a)!important;background-image:radial-gradient(circle,var(--sched-primary,#4E5853) 0 5px,transparent 5.5px)!important}.portal-schedule-course-equipment-check input:focus{outline:none}.portal-schedule-course-equipment-check input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}.portal-schedule-course-equipment-surfers{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex:0 0 auto;margin-left:auto}.portal-schedule-course-equipment-surfers .portal-schedule-course-equipment-qty-label{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);white-space:nowrap}.portal-schedule-course-equipment-surfers input[type=number]{width:64px;min-width:64px;min-height:36px;padding:6px 8px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-qty-label,.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-qty-label input{opacity:.45;color:var(--text-3)}.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-qty-label{pointer-events:none}.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-check,.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-check input{opacity:1!important;pointer-events:auto!important}.portal-schedule-course-equipment-modes{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn{flex:1 1 auto;min-width:120px}.portal-schedule-course-equipment-sets{margin-top:10px}.portal-schedule-course-equipment-sets label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:4px}.portal-schedule-course-equipment-sets input[type=number]{min-height:44px;box-sizing:border-box;width:100%;max-width:160px}.portal-schedule-create-main-activity-path{display:none!important}.portal-schedule-create-rental-price{margin-left:auto;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}.portal-schedule-create-rental-row.is-off .portal-schedule-create-rental-price{opacity:.45}
+/* Course equipment card: name + pill switch; connected During|All day segment; qty inside All day */
+.portal-schedule-course-equipment{border:0;margin:10px 0 0;padding:0;min-width:0;max-width:100%}
+.portal-schedule-course-equipment-list{display:grid;gap:10px;min-width:0}
+.portal-schedule-course-equipment-item{border:1px solid var(--border-soft);border-radius:10px;padding:10px;min-width:0;max-width:100%;box-sizing:border-box}
+.portal-schedule-course-equipment-row{display:flex;flex-wrap:nowrap;align-items:center;justify-content:space-between;gap:10px;width:100%;box-sizing:border-box;min-height:44px}
+.portal-schedule-course-equipment-left{display:inline-flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0}
+.portal-schedule-course-equipment-name{flex:1 1 auto;min-width:0;margin:0;padding:0;font-size:14px;font-weight:600;color:var(--text);line-height:1.25;overflow:hidden;text-overflow:ellipsis}
+/* Pill switch replaces left radial — keep .portal-schedule-course-equipment-check for touch/verify targets */
+.portal-schedule-course-equipment-check.portal-schedule-course-equipment-switch{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:0 0 46px;width:46px;min-width:46px;height:44px;min-height:44px;margin:0 0 0 auto;cursor:pointer;line-height:0;opacity:1!important;user-select:none}
+.portal-schedule-course-equipment-check.portal-schedule-course-equipment-switch input[type=checkbox],
+.portal-schedule-course-equipment-check.portal-schedule-course-equipment-switch input.portal-schedule-course-equipment-radial{position:absolute!important;opacity:0!important;width:1px!important;height:1px!important;min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;appearance:none!important;-webkit-appearance:none!important;background:transparent!important;box-shadow:none!important;pointer-events:none}
+.portal-schedule-course-equipment-switch-slider{position:relative;display:block;width:42px;height:26px;border-radius:999px;background:var(--border-soft,#C9CFC8);transition:background .2s,box-shadow .2s;flex-shrink:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}
+.portal-schedule-course-equipment-switch-slider:before{position:absolute;content:"";height:20px;width:20px;left:3px;top:3px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(68,80,74,.18)}
+.portal-schedule-course-equipment-switch input:checked + .portal-schedule-course-equipment-switch-slider{background:var(--sched-primary,#4E5853)}
+.portal-schedule-course-equipment-switch input:checked + .portal-schedule-course-equipment-switch-slider:before{transform:translateX(16px)}
+.portal-schedule-course-equipment-switch input:focus-visible + .portal-schedule-course-equipment-switch-slider{outline:2px solid var(--focus,#4E5853);outline-offset:2px;box-shadow:0 0 0 3px rgba(78,88,83,.22)}
+.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-check,
+.portal-schedule-course-equipment-item.is-off .portal-schedule-course-equipment-check,
+.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-check input,
+.portal-schedule-course-equipment-item.is-off .portal-schedule-course-equipment-check input{opacity:1!important;pointer-events:auto!important}
+/* Connected mode segment */
+.portal-schedule-course-equipment-modes{display:flex;flex-wrap:nowrap;align-items:stretch;gap:0;margin-top:8px;min-width:0;width:100%;border:1px solid var(--border-soft);border-radius:10px;overflow:hidden;background:var(--surface);box-sizing:border-box}
+.portal-schedule-course-equipment-modes[hidden],
+.portal-schedule-course-equipment-modes[hidden=true]{display:none!important}
+.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn{flex:1 1 0;min-width:0;min-height:44px;margin:0;border:none;border-radius:0;box-shadow:none;justify-content:center;text-align:center;padding:8px 10px;gap:8px}
+.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn + .portal-schedule-create-activity-btn{border-left:1px solid var(--border-soft)}
+.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn.is-selected,
+.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn[aria-pressed="true"]{border-color:transparent;background:var(--sched-primary,#4E5853);color:#fff}
+.portal-schedule-course-equipment-mode-allday{display:inline-flex!important;align-items:center;justify-content:center;flex-wrap:nowrap;gap:8px}
+.portal-schedule-course-equipment-mode-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Qty lives inside All day half — no EQUIPMENT SETS caption */
+.portal-schedule-course-equipment-sets{display:inline-flex;align-items:center;margin:0;padding:0;min-width:0;flex:0 0 auto}
+.portal-schedule-course-equipment-sets[hidden],
+.portal-schedule-course-equipment-sets[hidden=true]{display:none!important}
+.portal-schedule-course-equipment-sets label{display:inline-flex;align-items:center;margin:0;padding:0;font-size:0;line-height:0;gap:0}
+.portal-schedule-course-equipment-sets .portal-schedule-course-equipment-qty-label{display:none!important}
+.portal-schedule-course-equipment-sets input[type=number],
+.portal-schedule-course-equipment-sets input[data-course-equipment-quantity]{width:44px;min-width:44px;max-width:52px;min-height:32px;height:32px;padding:4px 6px;margin:0;border:1px solid rgba(255,255,255,.35);border-radius:8px;background:rgba(255,255,255,.16);color:inherit;font:inherit;font-size:13px;font-weight:700;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums;-moz-appearance:textfield;appearance:textfield}
+.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn:not([aria-pressed="true"]) .portal-schedule-course-equipment-sets input[type=number]{border-color:var(--border-soft);background:var(--surface);color:var(--text)}
+.portal-schedule-course-equipment-sets input[type=number]::-webkit-outer-spin-button,
+.portal-schedule-course-equipment-sets input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.portal-schedule-course-equipment-item.is-off .portal-schedule-course-equipment-name{color:var(--text-2)}
+/* legacy surfers row (unused) kept harmless */
+.portal-schedule-course-equipment-surfers{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex:0 0 auto;margin-left:auto}
+.portal-schedule-course-equipment-surfers .portal-schedule-course-equipment-qty-label{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);white-space:nowrap}
+.portal-schedule-course-equipment-surfers input[type=number]{width:64px;min-width:64px;min-height:36px;padding:6px 8px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}
+.portal-schedule-create-main-activity-path{display:none!important}.portal-schedule-create-rental-price{margin-left:auto;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}.portal-schedule-create-rental-row.is-off .portal-schedule-create-rental-price{opacity:.45}
 @media(max-width:520px){.portal-admin-course-equipment-grid,.portal-admin-equipment-option-fields{grid-template-columns:minmax(0,1fr)}.portal-admin-edit-field input{min-height:44px;max-width:100%;box-sizing:border-box}.portal-admin-equipment-option-row .portal-admin-touch{width:100%;justify-content:center}}
 .portal-admin-edit-actions{display:flex;gap:8px;margin-top:0;flex-wrap:wrap;align-items:center}
 /* Groupless Equipment Pricing tab — cleaner add/edit form + duration control. */
@@ -22574,13 +22620,23 @@ function scheduleRefreshCreateFullDayAddon(){ try {
       var item = document.createElement('div'); item.className = 'portal-schedule-course-equipment-item is-off'; item.dataset.offeringKey = key;
       var row = document.createElement('div'); row.className = 'portal-schedule-course-equipment-row';
       var left = document.createElement('div'); left.className = 'portal-schedule-course-equipment-left';
-      var checkLabel = document.createElement('label'); checkLabel.className = 'portal-schedule-course-equipment-check';
+      var name = document.createElement('span'); name.className = 'portal-schedule-course-equipment-name'; name.textContent = String(option.label || key);
+      left.appendChild(name); row.appendChild(left);
+      var checkLabel = document.createElement('label'); checkLabel.className = 'portal-schedule-course-equipment-check portal-schedule-course-equipment-switch';
       var check = document.createElement('input'); check.type = 'checkbox'; check.className = 'portal-schedule-course-equipment-radial'; check.dataset.courseEquipmentEnabled = '1'; check.id = 'ps-create-course-equipment-' + index; checkLabel.htmlFor = check.id;
-      var name = document.createElement('span'); name.className = 'portal-schedule-course-equipment-name'; name.textContent = String(option.label || key); checkLabel.setAttribute('aria-label', name.textContent);
-      checkLabel.appendChild(check); left.appendChild(checkLabel); left.appendChild(name); row.appendChild(left); item.appendChild(row);
+      checkLabel.setAttribute('aria-label', name.textContent);
+      var slider = document.createElement('span'); slider.className = 'portal-schedule-course-equipment-switch-slider'; slider.setAttribute('aria-hidden','true');
+      checkLabel.appendChild(check); checkLabel.appendChild(slider); row.appendChild(checkLabel); item.appendChild(row);
       var modes = document.createElement('div'); modes.className = 'portal-schedule-course-equipment-modes'; modes.hidden = true; modes.setAttribute('role','group'); modes.setAttribute('aria-label', portalT('schedule.courseEquipment.title') + ': ' + name.textContent);
-      ['during_course','all_day'].forEach(function(mode){ var b=document.createElement('button'); b.type='button'; b.className='portal-schedule-create-activity-btn'; b.dataset.courseEquipmentMode=mode; b.setAttribute('aria-pressed','false'); b.textContent=portalT(mode === 'all_day' ? 'schedule.courseEquipment.allDay' : 'schedule.courseEquipment.during'); modes.appendChild(b); }); item.appendChild(modes);
-      var sets=document.createElement('div'); sets.className='portal-schedule-course-equipment-sets'; sets.hidden=true; var lab=document.createElement('label'); lab.textContent=portalT('schedule.courseEquipment.quantity'); var inp=document.createElement('input'); inp.type='number'; inp.min='1'; inp.value='1'; inp.inputMode='numeric'; inp.dataset.courseEquipmentQuantity='1'; lab.appendChild(inp); sets.appendChild(lab); item.appendChild(sets); list.appendChild(item);
+      var duringBtn = document.createElement('button'); duringBtn.type = 'button'; duringBtn.className = 'portal-schedule-create-activity-btn'; duringBtn.dataset.courseEquipmentMode = 'during_course'; duringBtn.setAttribute('aria-pressed','false');
+      var duringLbl = document.createElement('span'); duringLbl.className = 'portal-schedule-course-equipment-mode-label'; duringLbl.textContent = portalT('schedule.courseEquipment.during'); duringBtn.appendChild(duringLbl); modes.appendChild(duringBtn);
+      var allDayBtn = document.createElement('button'); allDayBtn.type = 'button'; allDayBtn.className = 'portal-schedule-create-activity-btn portal-schedule-course-equipment-mode-allday'; allDayBtn.dataset.courseEquipmentMode = 'all_day'; allDayBtn.setAttribute('aria-pressed','false');
+      var allDayLbl = document.createElement('span'); allDayLbl.className = 'portal-schedule-course-equipment-mode-label'; allDayLbl.textContent = portalT('schedule.courseEquipment.allDay'); allDayBtn.appendChild(allDayLbl);
+      var sets = document.createElement('div'); sets.className = 'portal-schedule-course-equipment-sets'; sets.hidden = true;
+      var lab = document.createElement('label');
+      var qtyTitle = portalT('schedule.courseEquipment.quantity') || 'Equipment sets';
+      var inp = document.createElement('input'); inp.type = 'number'; inp.min = '1'; inp.value = '1'; inp.inputMode = 'numeric'; inp.dataset.courseEquipmentQuantity = '1'; inp.title = qtyTitle; inp.setAttribute('aria-label', qtyTitle);
+      lab.appendChild(inp); sets.appendChild(lab); allDayBtn.appendChild(sets); modes.appendChild(allDayBtn); item.appendChild(modes); list.appendChild(item);
     });
     list.dataset.signature = signature;
   }
@@ -26351,6 +26407,11 @@ function wireScheduleControls(){
       }
     });
     courseEquipmentList.addEventListener('click', function(ev){
+      if (ev.target && ev.target.closest && ev.target.closest('[data-course-equipment-quantity]')) {
+        // Qty lives inside All day — don't steal focus / toggle mode from the number field.
+        ev.stopPropagation();
+        return;
+      }
       var button = ev.target.closest('[data-course-equipment-mode]'); if (!button) return;
       var item = button.closest('.portal-schedule-course-equipment-item');
       if (!item || !item.querySelector('[data-course-equipment-enabled]:checked')) return;
@@ -26358,6 +26419,9 @@ function wireScheduleControls(){
       scheduleRefreshCreateFullDayAddon();
       if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
       scheduleUpdateCreateTotalPreview();
+    });
+    courseEquipmentList.addEventListener('mousedown', function(ev){
+      if (ev.target && ev.target.closest && ev.target.closest('[data-course-equipment-quantity]')) ev.stopPropagation();
     });
   }
   var equipmentEnabledInput = el('ps-create-equipment-enabled');
