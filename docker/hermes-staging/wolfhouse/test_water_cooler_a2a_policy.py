@@ -25,19 +25,23 @@ assert spec.loader is not None
 sys.modules[spec.name] = mod
 spec.loader.exec_module(mod)
 
-CHANNEL = mod.WATER_COOLER_CHANNEL_ID
+THREAD = mod.WATER_COOLER_THREAD_ID
+PARENT = mod.WATER_COOLER_PARENT_CHANNEL_ID
+CHANNEL = mod.WATER_COOLER_CHANNEL_ID  # exact message channel = Navigation thread
 HUMAN = "100000000000000001"
 SEADOG = "200000000000000001"
 DECKHAND = "300000000000000001"
 UNKNOWN_HUMAN = "100000000000000099"
 UNKNOWN_BOT = "400000000000000001"
 OTHER_CHANNEL = "1530209175861199000"
+OTHER_THREAD = "1532167084618944000"
 
 
 def _cfg(**overrides):
     base = dict(
         enabled=True,
         channel_id=CHANNEL,
+        parent_channel_id=PARENT,
         allowed_human_starter_ids={HUMAN},
         seadog_bot_id=SEADOG,
         deckhand_bot_id=DECKHAND,
@@ -62,6 +66,7 @@ def _event(
     is_bot: bool,
     message_id: str,
     channel_id: str = CHANNEL,
+    parent_channel_id: str = PARENT,
     created_at: float = 1_000.0,
 ) -> "mod.DiscordMessageEvent":
     return mod.DiscordMessageEvent(
@@ -71,6 +76,7 @@ def _event(
         content=content,
         is_bot=is_bot,
         created_at=created_at,
+        parent_channel_id=parent_channel_id,
     )
 
 
@@ -321,6 +327,96 @@ class TestWaterCoolerA2APolicy(unittest.TestCase):
         self.assertEqual(decision.kind, mod.DecisionKind.IGNORE)
         self.assertEqual(decision.reason, "wrong_channel")
         self.assertEqual(self.policy.active_task_ids(), frozenset())
+
+    def test_valid_navigation_thread_accepted(self) -> None:
+        """Exact Navigation thread under Water-cooler parent passes."""
+        self.assertEqual(CHANNEL, THREAD)
+        decision = self.policy.evaluate(
+            _event(
+                author_id=HUMAN,
+                content=_task_msg(),
+                is_bot=False,
+                message_id="1401",
+                channel_id=THREAD,
+                parent_channel_id=PARENT,
+                created_at=self.t0,
+            ),
+            now=self.t0,
+        )
+        self.assertEqual(decision.kind, mod.DecisionKind.HUMAN_TASK)
+        self.assertEqual(decision.task_id, _expected_task_id("1401", THREAD))
+        assert decision.task_state is not None
+        self.assertEqual(decision.task_state.source_channel_id, THREAD)
+
+    def test_direct_parent_channel_rejected(self) -> None:
+        """Protocol posted directly in parent Water-cooler is not accepted."""
+        decision = self.policy.evaluate(
+            _event(
+                author_id=HUMAN,
+                content=_task_msg(),
+                is_bot=False,
+                message_id="1402",
+                channel_id=PARENT,
+                parent_channel_id="",
+                created_at=self.t0,
+            ),
+            now=self.t0,
+        )
+        self.assertEqual(decision.kind, mod.DecisionKind.IGNORE)
+        self.assertEqual(decision.reason, "wrong_channel")
+        self.assertEqual(self.policy.active_task_ids(), frozenset())
+
+    def test_other_thread_under_water_cooler_rejected(self) -> None:
+        """A different thread under the same parent is not the Navigation thread."""
+        decision = self.policy.evaluate(
+            _event(
+                author_id=HUMAN,
+                content=_task_msg(),
+                is_bot=False,
+                message_id="1403",
+                channel_id=OTHER_THREAD,
+                parent_channel_id=PARENT,
+                created_at=self.t0,
+            ),
+            now=self.t0,
+        )
+        self.assertEqual(decision.kind, mod.DecisionKind.IGNORE)
+        self.assertEqual(decision.reason, "wrong_channel")
+        self.assertEqual(self.policy.active_task_ids(), frozenset())
+
+    def test_navigation_wrong_parent_rejected(self) -> None:
+        """Navigation thread id with a non-Water-cooler parent fails closed."""
+        decision = self.policy.evaluate(
+            _event(
+                author_id=HUMAN,
+                content=_task_msg(),
+                is_bot=False,
+                message_id="1404",
+                channel_id=THREAD,
+                parent_channel_id=OTHER_CHANNEL,
+                created_at=self.t0,
+            ),
+            now=self.t0,
+        )
+        self.assertEqual(decision.kind, mod.DecisionKind.REJECT)
+        self.assertEqual(decision.reason, "wrong_thread_parent")
+        self.assertEqual(self.policy.active_task_ids(), frozenset())
+
+    def test_navigation_missing_parent_rejected(self) -> None:
+        decision = self.policy.evaluate(
+            _event(
+                author_id=HUMAN,
+                content=_task_msg(),
+                is_bot=False,
+                message_id="1405",
+                channel_id=THREAD,
+                parent_channel_id="",
+                created_at=self.t0,
+            ),
+            now=self.t0,
+        )
+        self.assertEqual(decision.kind, mod.DecisionKind.REJECT)
+        self.assertEqual(decision.reason, "not_navigation_thread")
 
     def test_unknown_human_rejected(self) -> None:
         decision = self.policy.evaluate(

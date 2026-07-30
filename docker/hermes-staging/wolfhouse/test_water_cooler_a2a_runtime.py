@@ -36,7 +36,10 @@ policy_mod = _load("water_cooler_a2a_policy_rt_test", POLICY_PATH)
 sys.modules["water_cooler_a2a_policy"] = policy_mod
 rt = _load("water_cooler_a2a_runtime_under_test", RUNTIME_PATH)
 
-CHANNEL = policy_mod.WATER_COOLER_CHANNEL_ID
+CHANNEL = policy_mod.WATER_COOLER_CHANNEL_ID  # Navigation thread
+PARENT = policy_mod.WATER_COOLER_PARENT_CHANNEL_ID
+THREAD = policy_mod.WATER_COOLER_THREAD_ID
+OTHER_THREAD = "1532167084618944000"
 HUMAN = "100000000000000001"
 SEADOG = "200000000000000001"
 DECKHAND = "300000000000000001"
@@ -52,6 +55,8 @@ REVIEW_SECRET = "MODEL_REVIEW_raw_must_not_leak_yyy"
 def _valid_mapping(**overrides: Any) -> Dict[str, Any]:
     base: Dict[str, Any] = {
         rt.CFG_ENABLED: True,
+        rt.CFG_PARENT_CHANNEL_ID: PARENT,
+        rt.CFG_THREAD_ID: THREAD,
         rt.CFG_CHANNEL_ID: CHANNEL,
         rt.CFG_LOCAL_BOT_ID: SEADOG,
         rt.CFG_SEADOG_BOT_ID: SEADOG,
@@ -80,6 +85,7 @@ def _event(
     is_bot: bool,
     message_id: str,
     channel_id: str = CHANNEL,
+    parent_channel_id: str = PARENT,
     created_at: float = 1_000.0,
 ):
     return policy_mod.DiscordMessageEvent(
@@ -89,6 +95,7 @@ def _event(
         content=content,
         is_bot=is_bot,
         created_at=created_at,
+        parent_channel_id=parent_channel_id,
     )
 
 
@@ -169,7 +176,8 @@ class TestParseRuntimeConfig(unittest.TestCase):
 
     def test_missing_required_ids_inactive(self) -> None:
         for drop in (
-            rt.CFG_CHANNEL_ID,
+            rt.CFG_PARENT_CHANNEL_ID,
+            rt.CFG_THREAD_ID,
             rt.CFG_LOCAL_BOT_ID,
             rt.CFG_SEADOG_BOT_ID,
             rt.CFG_DECKHAND_BOT_ID,
@@ -177,14 +185,29 @@ class TestParseRuntimeConfig(unittest.TestCase):
         ):
             m = _valid_mapping()
             del m[drop]
+            # Without THREAD, also drop legacy CHANNEL so channel cannot backfill.
+            if drop == rt.CFG_THREAD_ID:
+                del m[rt.CFG_CHANNEL_ID]
             cfg = rt.parse_runtime_config(m)
             self.assertFalse(cfg.is_active, msg=drop)
+
+    def test_thread_channel_mismatch_inactive(self) -> None:
+        cfg = rt.parse_runtime_config(
+            _valid_mapping(
+                **{
+                    rt.CFG_THREAD_ID: THREAD,
+                    rt.CFG_CHANNEL_ID: PARENT,  # legacy must not disagree
+                }
+            )
+        )
+        self.assertFalse(cfg.is_active)
 
     def test_exact_valid_config_active(self) -> None:
         cfg = rt.parse_runtime_config(_valid_mapping())
         self.assertTrue(cfg.is_active)
         self.assertTrue(cfg.is_local_worker)
-        self.assertEqual(cfg.channel_id, CHANNEL)
+        self.assertEqual(cfg.channel_id, THREAD)
+        self.assertEqual(cfg.parent_channel_id, PARENT)
         self.assertEqual(cfg.seadog_bot_id, SEADOG)
         self.assertEqual(cfg.deckhand_bot_id, DECKHAND)
         self.assertEqual(cfg.local_bot_id, SEADOG)

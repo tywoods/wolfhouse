@@ -55,6 +55,10 @@ except ImportError:  # pragma: no cover - script / importlib load path
 # ---------------------------------------------------------------------------
 
 CFG_ENABLED = "WATER_COOLER_A2A_ENABLED"
+# Preferred: parent Water-cooler + Navigation thread (exact message channel).
+CFG_PARENT_CHANNEL_ID = "WATER_COOLER_A2A_PARENT_CHANNEL_ID"
+CFG_THREAD_ID = "WATER_COOLER_A2A_THREAD_ID"
+# Legacy alias for the exact message channel (must equal THREAD_ID when both set).
 CFG_CHANNEL_ID = "WATER_COOLER_A2A_CHANNEL_ID"
 CFG_LOCAL_BOT_ID = "WATER_COOLER_A2A_LOCAL_BOT_ID"
 CFG_SEADOG_BOT_ID = "WATER_COOLER_A2A_SEADOG_BOT_ID"
@@ -212,8 +216,21 @@ def parse_runtime_config(mapping: Optional[Mapping[str, Any]] = None) -> WaterCo
     if enabled is None:
         return _disabled_config()
 
-    channel = _parse_snowflake_str(data.get(CFG_CHANNEL_ID, ""))
-    if channel is None:
+    # Exact message channel is the Navigation thread. Both PARENT and THREAD
+    # are required. Legacy CHANNEL_ID, when present, must equal THREAD_ID.
+    thread = _parse_snowflake_str(data.get(CFG_THREAD_ID, ""))
+    if thread is None or not thread:
+        return _disabled_config()
+    legacy_channel = _parse_snowflake_str(data.get(CFG_CHANNEL_ID, ""))
+    if legacy_channel is None:
+        return _disabled_config()
+    if legacy_channel and legacy_channel != thread:
+        # Ambiguous: old channel key disagrees with Navigation thread.
+        return _disabled_config()
+    channel = thread
+
+    parent = _parse_snowflake_str(data.get(CFG_PARENT_CHANNEL_ID, ""))
+    if parent is None or not parent:
         return _disabled_config()
 
     local_bot = _parse_snowflake_str(data.get(CFG_LOCAL_BOT_ID, ""))
@@ -243,6 +260,7 @@ def parse_runtime_config(mapping: Optional[Mapping[str, Any]] = None) -> WaterCo
     return build_config(
         enabled=enabled,
         channel_id=channel,
+        parent_channel_id=parent,
         allowed_human_starter_ids=humans,
         seadog_bot_id=seadog,
         deckhand_bot_id=deckhand,
@@ -338,6 +356,8 @@ class WaterCoolerA2ARuntime:
 # Explicit public API for a later adapter hook.
 __all__ = [
     "CFG_ENABLED",
+    "CFG_PARENT_CHANNEL_ID",
+    "CFG_THREAD_ID",
     "CFG_CHANNEL_ID",
     "CFG_LOCAL_BOT_ID",
     "CFG_SEADOG_BOT_ID",

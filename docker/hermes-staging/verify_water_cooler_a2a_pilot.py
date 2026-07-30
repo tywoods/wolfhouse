@@ -10,6 +10,7 @@ brittle whole-file hashes. Does not claim Hermes wiring or deploy activation.
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -150,7 +151,8 @@ def main() -> int:
     # Central fail-closed / channel / round-limit concepts (substring presence).
     check("enabled defaults false concept", "enabled: bool = False" in src or "enabled=False" in src)
     check("fail-closed language present", "fail-closed" in src.lower() or "fail closed" in src.lower() or "is_active" in src)
-    check("water-cooler channel id constant", "1530209175861199019" in src)
+    check("water-cooler parent channel id constant", "1530209175861199019" in src)
+    check("navigation thread id constant", "1532167084618944734" in src)
     check("MAX_ROUNDS is three", "MAX_ROUNDS = 3" in src)
     check("human TASK marker", "TASK" in src and "[target=seadog]" in src and "[reviewer=deckhand]" in src)
     check("peer handoff marker", "A2A-HANDOFF v1" in src)
@@ -174,7 +176,12 @@ def main() -> int:
 
     # Runtime bridge static contract.
     if RUNTIME.is_file():
-        check("runtime neutral WATER_COOLER_A2A_* keys", "WATER_COOLER_A2A_ENABLED" in rt_src and "WATER_COOLER_A2A_CHANNEL_ID" in rt_src)
+        check(
+            "runtime neutral WATER_COOLER_A2A_* keys",
+            "WATER_COOLER_A2A_ENABLED" in rt_src
+            and "WATER_COOLER_A2A_PARENT_CHANNEL_ID" in rt_src
+            and "WATER_COOLER_A2A_THREAD_ID" in rt_src,
+        )
         check("runtime action SUPPRESS", "SUPPRESS" in rt_src)
         check("runtime action DISPATCH_HUMAN_TASK", "DISPATCH_HUMAN_TASK" in rt_src)
         check("runtime action DISPATCH_PEER_HANDOFF", "DISPATCH_PEER_HANDOFF" in rt_src)
@@ -197,13 +204,16 @@ def main() -> int:
         m = _load_policy()
         inactive = m.WaterCoolerA2APolicy(m.build_config(enabled=False))
         secret_body = "UNIQUE_TASK_BODY_not_in_state_zz9"
+        thread_id = m.WATER_COOLER_THREAD_ID
+        parent_id = m.WATER_COOLER_PARENT_CHANNEL_ID
         ev = m.DiscordMessageEvent(
-            channel_id=m.WATER_COOLER_CHANNEL_ID,
+            channel_id=thread_id,
             message_id="1",
             author_id="100000000000000001",
             content=f"TASK [target=seadog] [reviewer=deckhand]\n{secret_body}",
             is_bot=False,
             created_at=1.0,
+            parent_channel_id=parent_id,
         )
         d = inactive.evaluate(ev, now=1.0)
         check("runtime disabled fails closed (ignore)", d.kind == m.DecisionKind.IGNORE)
@@ -214,7 +224,8 @@ def main() -> int:
         worker = m.WaterCoolerA2APolicy(
             m.build_config(
                 enabled=True,
-                channel_id=m.WATER_COOLER_CHANNEL_ID,
+                channel_id=thread_id,
+                parent_channel_id=parent_id,
                 allowed_human_starter_ids={human},
                 seadog_bot_id=seadog,
                 deckhand_bot_id=deckhand,
@@ -225,7 +236,8 @@ def main() -> int:
         reviewer = m.WaterCoolerA2APolicy(
             m.build_config(
                 enabled=True,
-                channel_id=m.WATER_COOLER_CHANNEL_ID,
+                channel_id=thread_id,
+                parent_channel_id=parent_id,
                 allowed_human_starter_ids={human},
                 seadog_bot_id=seadog,
                 deckhand_bot_id=deckhand,
@@ -256,7 +268,8 @@ def main() -> int:
 
         wrong = m.build_config(
             enabled=True,
-            channel_id=m.WATER_COOLER_CHANNEL_ID,
+            channel_id=thread_id,
+            parent_channel_id=parent_id,
             allowed_human_starter_ids={human},
             seadog_bot_id=seadog,
             deckhand_bot_id=deckhand,
@@ -267,7 +280,8 @@ def main() -> int:
         empty = m.WaterCoolerA2APolicy(
             m.build_config(
                 enabled=True,
-                channel_id=m.WATER_COOLER_CHANNEL_ID,
+                channel_id=thread_id,
+                parent_channel_id=parent_id,
                 allowed_human_starter_ids={human},
                 seadog_bot_id=seadog,
                 deckhand_bot_id=deckhand,
@@ -275,12 +289,13 @@ def main() -> int:
             )
         )
         peer = m.DiscordMessageEvent(
-            channel_id=m.WATER_COOLER_CHANNEL_ID,
+            channel_id=thread_id,
             message_id="2",
             author_id=seadog,
             content=f"A2A-HANDOFF v1\ntask_id: {dw.task_id}\nnotes",
             is_bot=True,
             created_at=2.0,
+            parent_channel_id=parent_id,
         )
         dp = empty.evaluate(peer, now=2.0)
         check(
@@ -301,7 +316,9 @@ def main() -> int:
             secret = "BRIDGE_SMOKE_SECRET_body_zz9"
             mapping_worker = {
                 rmod.CFG_ENABLED: True,
-                rmod.CFG_CHANNEL_ID: m.WATER_COOLER_CHANNEL_ID,
+                rmod.CFG_PARENT_CHANNEL_ID: m.WATER_COOLER_PARENT_CHANNEL_ID,
+                rmod.CFG_THREAD_ID: m.WATER_COOLER_THREAD_ID,
+                rmod.CFG_CHANNEL_ID: m.WATER_COOLER_THREAD_ID,
                 rmod.CFG_LOCAL_BOT_ID: seadog,
                 rmod.CFG_SEADOG_BOT_ID: seadog,
                 rmod.CFG_DECKHAND_BOT_ID: deckhand,
@@ -323,12 +340,13 @@ def main() -> int:
             bw = rmod.WaterCoolerA2ARuntime.from_mapping(mapping_worker)
             br = rmod.WaterCoolerA2ARuntime.from_mapping(mapping_reviewer)
             ev = m.DiscordMessageEvent(
-                channel_id=m.WATER_COOLER_CHANNEL_ID,
+                channel_id=m.WATER_COOLER_THREAD_ID,
                 message_id="101",
                 author_id=human,
                 content=f"TASK [target=seadog] [reviewer=deckhand]\n{secret}",
                 is_bot=False,
                 created_at=1.0,
+                parent_channel_id=m.WATER_COOLER_PARENT_CHANNEL_ID,
             )
             aw = bw.handle_event(ev, now=1.0)
             ar = br.handle_event(ev, now=1.0)
@@ -347,12 +365,13 @@ def main() -> int:
             )
             tid = aw.task_id
             handoff = m.DiscordMessageEvent(
-                channel_id=m.WATER_COOLER_CHANNEL_ID,
+                channel_id=m.WATER_COOLER_THREAD_ID,
                 message_id="102",
                 author_id=seadog,
                 content=f"A2A-HANDOFF v1\ntask_id: {tid}\nnotes",
                 is_bot=True,
                 created_at=2.0,
+                parent_channel_id=m.WATER_COOLER_PARENT_CHANNEL_ID,
             )
             hw = bw.handle_event(handoff, now=2.0)
             hr = br.handle_event(handoff, now=2.0)
@@ -365,12 +384,13 @@ def main() -> int:
                 hw.action == rmod.BridgeAction.SUPPRESS,
             )
             review = m.DiscordMessageEvent(
-                channel_id=m.WATER_COOLER_CHANNEL_ID,
+                channel_id=m.WATER_COOLER_THREAD_ID,
                 message_id="103",
                 author_id=deckhand,
                 content=f"A2A-REVIEW v1\ntask_id: {tid}\nacks",
                 is_bot=True,
                 created_at=3.0,
+                parent_channel_id=m.WATER_COOLER_PARENT_CHANNEL_ID,
             )
             rw = bw.handle_event(review, now=3.0)
             rr = br.handle_event(review, now=3.0)
@@ -401,14 +421,22 @@ def main() -> int:
         check("hooks inert language", "inactive" in hooks_src.lower() or "always false" in hooks_src.lower() or "return False" in hooks_src)
         check("hooks mention bypass export", "a2a_allow_mention_bypass" in hooks_src)
         check("hooks pre-dispatch export", "a2a_pre_dispatch_intercept" in hooks_src)
-        check("hooks not ambient env", "os.environ" not in hooks_src and "os.getenv" not in hooks_src)
-        check("hooks activation probe false", "is_a2a_adapter_hooks_active" in hooks_src)
+        # Activated hooks may read only their role gate plus WATER_COOLER_A2A_*;
+        # they must not consult unrelated platform credentials/config.
+        allowed_env_refs = ("HERMES_ROLE", "WATER_COOLER_A2A_")
+        env_literals = re.findall(r'os\.environ(?:\.get)?\(["\']([^"\']+)', hooks_src)
+        check(
+            "hooks only scoped activation env",
+            all(name == "HERMES_ROLE" or name.startswith("WATER_COOLER_A2A_") for name in env_literals),
+        )
+        check("hooks activation probe present", "is_a2a_adapter_hooks_active" in hooks_src)
 
     if ADAPTER_PATCH.is_file():
         check("patcher not default apply", "refusing automatic apply" in patch_src or "--apply" in patch_src)
         check("patcher unique anchors", "count" in patch_src and "ambiguous" in patch_src)
         check("patcher fail-closed missing", "anchor missing" in patch_src or "AdapterPatchError" in patch_src)
-        check("patcher idempotent markers", "wolfhouse_water_cooler_a2a_mention_bypass_v1" in patch_src)
+        check("patcher idempotent markers", "wolfhouse_water_cooler_a2a_mention_bypass_v2" in patch_src)
+        check("patcher passes parent_channel_id", "parent_channel_id" in patch_src and "parent_id" in patch_src)
         check("patcher pre-dispatch marker", "wolfhouse_water_cooler_a2a_pre_dispatch_v1" in patch_src)
         check("patcher encodes DISCORD_ALLOW_BOTS", "DISCORD_ALLOW_BOTS" in patch_src)
         check("patcher encodes mentions admit", '"mentions"' in patch_src)
@@ -517,7 +545,8 @@ def main() -> int:
                 "hooks smoke inert",
                 hmod.is_a2a_adapter_hooks_active() is False
                 and hmod.a2a_allow_mention_bypass(
-                    channel_id="1530209175861199019",
+                    channel_id="1532167084618944734",
+                    parent_channel_id="1530209175861199019",
                     content="TASK [target=seadog] [reviewer=deckhand]",
                     author_is_bot=False,
                 )
@@ -634,7 +663,9 @@ def main() -> int:
             pmod = sys.modules.get("water_cooler_a2a_policy") or _load_policy()
             mapping = {
                 rmod.CFG_ENABLED: True,
-                rmod.CFG_CHANNEL_ID: pmod.WATER_COOLER_CHANNEL_ID,
+                rmod.CFG_PARENT_CHANNEL_ID: pmod.WATER_COOLER_PARENT_CHANNEL_ID,
+                rmod.CFG_THREAD_ID: pmod.WATER_COOLER_THREAD_ID,
+                rmod.CFG_CHANNEL_ID: pmod.WATER_COOLER_THREAD_ID,
                 rmod.CFG_LOCAL_BOT_ID: "200000000000000001",
                 rmod.CFG_SEADOG_BOT_ID: "200000000000000001",
                 rmod.CFG_DECKHAND_BOT_ID: "300000000000000001",
@@ -644,12 +675,13 @@ def main() -> int:
             worker = rmod.WaterCoolerA2ARuntime.from_mapping(mapping)
             hum = worker.handle_event(
                 pmod.DiscordMessageEvent(
-                    channel_id=pmod.WATER_COOLER_CHANNEL_ID,
+                    channel_id=pmod.WATER_COOLER_THREAD_ID,
                     message_id="88001",
                     author_id="100000000000000001",
                     content="TASK [target=seadog] [reviewer=deckhand]\nsmoke",
                     is_bot=False,
                     created_at=1_000.0,
+                    parent_channel_id=pmod.WATER_COOLER_PARENT_CHANNEL_ID,
                 ),
                 now=1_000.0,
             )
@@ -668,11 +700,11 @@ def main() -> int:
                 sent.ok and sent.envelope_kind == "handoff" and len(fake.sent) == 1,
             )
             check(
-                "action smoke only water-cooler channel",
-                bool(fake.sent) and fake.sent[0][0] == pmod.WATER_COOLER_CHANNEL_ID,
+                "action smoke only navigation thread",
+                bool(fake.sent) and fake.sent[0][0] == pmod.WATER_COOLER_THREAD_ID,
             )
             other = amod.WaterCoolerScopedSender(
-                fake, allowed_channel_id=pmod.WATER_COOLER_CHANNEL_ID
+                fake, allowed_channel_id=pmod.WATER_COOLER_THREAD_ID
             ).send("1530209175861199000", "nope")
             check(
                 "action smoke rejects other channel",

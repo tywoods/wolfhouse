@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
-"""Fail-closed, idempotent patch foundation for Water-cooler A2A Discord seams.
+"""Fail-closed, idempotent patcher for Water-cooler A2A Discord seams.
 
 Patches the Hermes Discord adapter
 (``plugins/platforms/discord/adapter.py`` / live path
-``/opt/hermes/plugins/platforms/discord/adapter.py``) with two *inactive*
-seams:
+``/opt/hermes/plugins/platforms/discord/adapter.py``) with two gated seams:
 
 1. Narrow mention-bypass seam inside ``_handle_message`` require_mention
-   gating — so a future activation can admit a valid human TASK / protocol
-   message without globally changing ``require_mention``, free-response
-   channels, or ``DISCORD_ALLOW_BOTS``.
+   gating — admits a valid human TASK / protocol message without globally
+   changing ``require_mention``, free-response channels, or
+   ``DISCORD_ALLOW_BOTS``.
 2. Pre-model-dispatch intercept after ``MessageEvent`` construction and
-   before ``handle_message`` / text-batch enqueue.
+   before ``handle_message`` / text-batch enqueue. Passes the raw Discord
+   ``message`` object explicitly so policy can read author/bot/channel/id/
+   content/timestamp without guessing MessageEvent attributes.
 
-This module does **not** execute by default. It is not called from
-``apply_gateway_patches.py``, Dockerfile, or bootstrap. Call
-:func:`patch_adapter_source` / :func:`patch_adapter_file` from tests or an
-explicit ``--apply`` CLI for a later activation slice.
+Default is off: not invoked by ``apply_gateway_patches.py`` or Dockerfile.
+Bootstrap calls this only when ``HERMES_ROLE`` is ``seadog`` or ``deckhand``
+**and** ``WATER_COOLER_A2A_ENABLED=true``. Otherwise adapter.py is never
+touched. Explicit ``--apply`` remains available for tests.
 
 Fail-closed rules:
 - Require unique admission-shape anchors from the live adapter.
@@ -35,7 +36,7 @@ from typing import Dict, List, Sequence, Tuple
 # Markers (post-patch identity)
 # ---------------------------------------------------------------------------
 
-MARKER_MENTION_BYPASS = "wolfhouse_water_cooler_a2a_mention_bypass_v1"
+MARKER_MENTION_BYPASS = "wolfhouse_water_cooler_a2a_mention_bypass_v2"
 MARKER_PRE_DISPATCH = "wolfhouse_water_cooler_a2a_pre_dispatch_v1"
 
 # ---------------------------------------------------------------------------
@@ -104,9 +105,10 @@ ADMISSION_SHAPE_ANCHORS: Tuple[Tuple[str, str], ...] = (
 REQUIRE_MENTION_REPLACEMENT = (
     "            if require_mention and not is_free_channel and not in_bot_thread:\n"
     "                if self._client.user not in message.mentions and not mention_prefix:\n"
-    "                    # wolfhouse_water_cooler_a2a_mention_bypass_v1\n"
-    "                    # Narrow A2A-only seam. Does NOT change require_mention defaults,\n"
-    "                    # free_response_channels, or DISCORD_ALLOW_BOTS. Inactive until\n"
+    "                    # wolfhouse_water_cooler_a2a_mention_bypass_v2\n"
+    "                    # Narrow A2A-only seam (Navigation thread under Water-cooler).\n"
+    "                    # Does NOT change require_mention defaults, free_response_channels,\n"
+    "                    # or DISCORD_ALLOW_BOTS. Inactive until\n"
     "                    # water_cooler_a2a_adapter_hooks.a2a_allow_mention_bypass returns True.\n"
     "                    try:\n"
     "                        from wolfhouse.water_cooler_a2a_adapter_hooks import (\n"
@@ -114,6 +116,7 @@ REQUIRE_MENTION_REPLACEMENT = (
     "                        )\n"
     "                        if _wh_a2a_mb(\n"
     '                            channel_id=str(getattr(message.channel, "id", "") or ""),\n'
+    '                            parent_channel_id=str(getattr(message.channel, "parent_id", "") or ""),\n'
     '                            content=(raw_content if isinstance(raw_content, str) else "") or "",\n'
     '                            author_is_bot=bool(getattr(message.author, "bot", False)),\n'
     "                        ):\n"
@@ -127,12 +130,14 @@ REQUIRE_MENTION_REPLACEMENT = (
 PRE_DISPATCH_REPLACEMENT = (
     "        # wolfhouse_water_cooler_a2a_pre_dispatch_v1\n"
     "        # Placement: after MessageEvent construction, before model dispatch.\n"
-    "        # Inactive until a2a_pre_dispatch_intercept returns True (fully handled).\n"
+    "        # Pass raw Discord message explicitly (author/bot/channel/id/content/\n"
+    "        # timestamp) — do not guess MessageEvent attributes. Gated hooks\n"
+    "        # return True when fully handled/suppressed.\n"
     "        try:\n"
     "            from wolfhouse.water_cooler_a2a_adapter_hooks import (\n"
     "                a2a_pre_dispatch_intercept as _wh_a2a_pd,\n"
     "            )\n"
-    "            if _wh_a2a_pd(event, adapter=self):\n"
+    "            if _wh_a2a_pd(event, adapter=self, message=message):\n"
     "                return\n"
     "        except Exception:\n"
     "            pass\n"
@@ -184,6 +189,10 @@ def validate_patched_source(source: str) -> None:
         raise AdapterPatchError("patch corruption: mention bypass import")
     if _count(source, "a2a_pre_dispatch_intercept as _wh_a2a_pd") != 1:
         raise AdapterPatchError("patch corruption: pre-dispatch import")
+    if _count(source, "message=message") < 1:
+        raise AdapterPatchError("patch corruption: raw message not passed to pre-dispatch")
+    if 'parent_channel_id=str(getattr(message.channel, "parent_id", "") or "")' not in source:
+        raise AdapterPatchError("patch corruption: parent_channel_id not passed to mention bypass")
 
     # Unpatched require_mention bare return must be gone; patched form present.
     if ANCHOR_REQUIRE_MENTION in source:
@@ -296,7 +305,12 @@ def default_live_adapter_path() -> Path:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """CLI is opt-in only. Default exit refuses automatic apply."""
+    """CLI is opt-in. Default exit refuses automatic apply without --apply.
+
+    Bootstrap activation invokes ``patch_adapter_file`` directly after the
+    role+enable gate — this CLI remains explicit-only so image builds never
+    patch by accident.
+    """
     parser = argparse.ArgumentParser(
         description="Water-cooler A2A Discord adapter patch (opt-in; not default)",
     )
@@ -339,8 +353,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.apply:
         print(
             "apply_water_cooler_a2a_adapter_patch: refusing automatic apply "
-            "(not wired into Dockerfile/bootstrap/apply_gateway_patches; "
-            "pass --apply to run explicitly)",
+            "(gated bootstrap uses patch_adapter_file after role+enable check; "
+            "pass --apply to run this CLI explicitly)",
             file=sys.stderr,
         )
         return 2

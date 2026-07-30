@@ -156,7 +156,8 @@ class AdmissionShapeAndPatchTests(unittest.TestCase):
         self.assertFalse(hooks.is_a2a_adapter_hooks_active())
         self.assertFalse(
             hooks.a2a_allow_mention_bypass(
-                channel_id="1530209175861199019",
+                channel_id="1532167084618944734",
+                parent_channel_id="1530209175861199019",
                 content="TASK [target=seadog] [reviewer=deckhand]\nbody",
                 author_is_bot=False,
             )

@@ -43,7 +43,9 @@ ctx_mod = _load("water_cooler_a2a_action_context_under_test", CTX_PATH)
 sys.modules["water_cooler_a2a_action_context"] = ctx_mod
 action = _load("water_cooler_a2a_action_under_test", ACTION_PATH)
 
-CHANNEL = policy_mod.WATER_COOLER_CHANNEL_ID
+CHANNEL = policy_mod.WATER_COOLER_CHANNEL_ID  # Navigation thread
+PARENT = policy_mod.WATER_COOLER_PARENT_CHANNEL_ID
+THREAD = policy_mod.WATER_COOLER_THREAD_ID
 OTHER_CHANNEL = "1530209175861199000"
 HUMAN = "100000000000000001"
 SEADOG = "200000000000000001"
@@ -54,6 +56,8 @@ BODY = "bounded handoff notes for peer review"
 def _mapping(local: str = SEADOG, **overrides: Any) -> Dict[str, Any]:
     base: Dict[str, Any] = {
         rt.CFG_ENABLED: True,
+        rt.CFG_PARENT_CHANNEL_ID: PARENT,
+        rt.CFG_THREAD_ID: THREAD,
         rt.CFG_CHANNEL_ID: CHANNEL,
         rt.CFG_LOCAL_BOT_ID: local,
         rt.CFG_SEADOG_BOT_ID: SEADOG,
@@ -72,6 +76,7 @@ def _event(
     is_bot: bool,
     message_id: str,
     channel_id: str = CHANNEL,
+    parent_channel_id: str = PARENT,
     created_at: float = 1_000.0,
 ):
     return policy_mod.DiscordMessageEvent(
@@ -81,6 +86,7 @@ def _event(
         content=content,
         is_bot=is_bot,
         created_at=created_at,
+        parent_channel_id=parent_channel_id,
     )
 
 

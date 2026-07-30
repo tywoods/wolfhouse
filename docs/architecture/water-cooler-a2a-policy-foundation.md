@@ -6,7 +6,7 @@ Implemented as a pure, fail-closed Python state machine plus a repository-owned 
 
 ## Decision
 
-Agent-to-agent (A2A) messages in the Discord Water-cooler channel are admitted only by an injected, deterministic policy. The policy classifies each message as ignore, reject, human-started task, peer handoff, or peer review. Configuration supplies human starter IDs, Seadog bot ID, Deckhand bot ID, **local bot ID** (exactly Seadog or Deckhand for this process), TTL, and enablement. Missing or invalid configuration fails closed (`enabled` default false).
+Agent-to-agent (A2A) messages in the Discord Water-cooler **Navigation thread** (not the parent Water-cooler channel) are admitted only by an injected, deterministic policy. The policy classifies each message as ignore, reject, human-started task, peer handoff, or peer review. Configuration supplies parent channel ID, Navigation thread ID, human starter IDs, Seadog bot ID, Deckhand bot ID, **local bot ID** (exactly Seadog or Deckhand for this process), TTL, and enablement. Missing or invalid configuration fails closed (`enabled` default false).
 
 ## Cross-process mirror (required)
 
@@ -24,7 +24,9 @@ Seadog and Deckhand run in **separate processes**. There is no shared writable v
 - Peer worker: first line `A2A-HANDOFF v1`, with a `task_id:` line.
 - Peer reviewer: first line `A2A-REVIEW v1`, with a `task_id:` line.
 
-Target channel: `1530209175861199019`.
+Target exact message channel (Navigation thread): `1532167084618944734`.
+Parent Water-cooler channel (thread parent must match): `1530209175861199019`.
+Activation requires both `WATER_COOLER_A2A_PARENT_CHANNEL_ID` and `WATER_COOLER_A2A_THREAD_ID`.
 
 ## Lifecycle
 

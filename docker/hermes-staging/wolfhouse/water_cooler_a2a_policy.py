@@ -36,7 +36,11 @@ from typing import Dict, FrozenSet, Iterable, Optional, Set
 # Protocol constants (markers only; identities come from config)
 # ---------------------------------------------------------------------------
 
-WATER_COOLER_CHANNEL_ID = "1530209175861199019"
+# Parent Water-cooler text channel and dedicated Navigation thread for A2A.
+WATER_COOLER_PARENT_CHANNEL_ID = "1530209175861199019"
+WATER_COOLER_THREAD_ID = "1532167084618944734"
+# Exact message channel / task source / outbound target = Navigation thread.
+WATER_COOLER_CHANNEL_ID = WATER_COOLER_THREAD_ID
 
 HUMAN_TASK_PREFIX = "TASK"
 TARGET_MARKER = "[target=seadog]"
@@ -84,7 +88,13 @@ class TaskStage(str, Enum):
 
 @dataclass(frozen=True)
 class DiscordMessageEvent:
-    """Minimal inbound event for the policy (no Discord SDK objects)."""
+    """Minimal inbound event for the policy (no Discord SDK objects).
+
+    ``channel_id`` is the exact Discord channel the message was posted in
+    (for A2A, the Navigation thread id). ``parent_channel_id`` is the
+    thread's parent channel id when the message is in a thread; empty when
+    the message is not in a thread (e.g. posted directly in a parent channel).
+    """
 
     channel_id: str
     message_id: str
@@ -92,6 +102,7 @@ class DiscordMessageEvent:
     content: str
     is_bot: bool
     created_at: float  # unix epoch seconds
+    parent_channel_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -139,7 +150,10 @@ class WaterCoolerA2AConfig:
     """
 
     enabled: bool = False
-    channel_id: str = WATER_COOLER_CHANNEL_ID
+    # Exact message channel (Navigation thread) for state/task ids/outbound.
+    channel_id: str = WATER_COOLER_THREAD_ID
+    # Parent Water-cooler channel that must own the Navigation thread.
+    parent_channel_id: str = WATER_COOLER_PARENT_CHANNEL_ID
     allowed_human_starter_ids: FrozenSet[str] = field(default_factory=frozenset)
     seadog_bot_id: str = ""
     deckhand_bot_id: str = ""
@@ -185,6 +199,11 @@ def _is_snowflake(value: str) -> bool:
 def _config_valid(cfg: WaterCoolerA2AConfig) -> bool:
     if not _is_snowflake(cfg.channel_id):
         return False
+    if not _is_snowflake(cfg.parent_channel_id):
+        return False
+    # Thread and parent must be distinct snowflakes (Navigation ≠ parent).
+    if cfg.channel_id == cfg.parent_channel_id:
+        return False
     if not _is_snowflake(cfg.seadog_bot_id):
         return False
     if not _is_snowflake(cfg.deckhand_bot_id):
@@ -216,7 +235,8 @@ def _config_valid(cfg: WaterCoolerA2AConfig) -> bool:
 def build_config(
     *,
     enabled: bool = False,
-    channel_id: str = WATER_COOLER_CHANNEL_ID,
+    channel_id: str = WATER_COOLER_THREAD_ID,
+    parent_channel_id: str = WATER_COOLER_PARENT_CHANNEL_ID,
     allowed_human_starter_ids: Optional[Iterable[str]] = None,
     seadog_bot_id: str = "",
     deckhand_bot_id: str = "",
@@ -229,6 +249,7 @@ def build_config(
     return WaterCoolerA2AConfig(
         enabled=bool(enabled),
         channel_id=str(channel_id or "").strip(),
+        parent_channel_id=str(parent_channel_id or "").strip(),
         allowed_human_starter_ids=humans,
         seadog_bot_id=str(seadog_bot_id or "").strip(),
         deckhand_bot_id=str(deckhand_bot_id or "").strip(),
@@ -382,8 +403,17 @@ class WaterCoolerA2APolicy:
         if not _safe_ids(event.channel_id, event.message_id, event.author_id):
             return PolicyDecision(DecisionKind.REJECT, "invalid_event_ids")
 
+        # Exact message channel must be the Navigation thread (not parent).
         if event.channel_id != cfg.channel_id:
             return PolicyDecision(DecisionKind.IGNORE, "wrong_channel")
+
+        # Must be a thread under Water-cooler: parent_id must match parent channel.
+        # Reject Navigation-id posts with missing/wrong parent (moved thread, etc.).
+        parent = str(getattr(event, "parent_channel_id", "") or "").strip()
+        if not parent or not _is_snowflake(parent):
+            return PolicyDecision(DecisionKind.REJECT, "not_navigation_thread")
+        if parent != cfg.parent_channel_id:
+            return PolicyDecision(DecisionKind.REJECT, "wrong_thread_parent")
 
         content = _bounded_content(event.content, cfg.max_content_length)
         if content is None:
@@ -767,6 +797,8 @@ def _replace_state(
 # Explicit public API surface for a later adapter hook.
 __all__ = [
     "WATER_COOLER_CHANNEL_ID",
+    "WATER_COOLER_PARENT_CHANNEL_ID",
+    "WATER_COOLER_THREAD_ID",
     "MAX_ROUNDS",
     "MIN_TTL_SECONDS",
     "MAX_TTL_SECONDS",

@@ -29,7 +29,8 @@ rt = _load("water_cooler_a2a_runtime_env_test", RUNTIME_PATH)
 sys.modules["water_cooler_a2a_runtime"] = rt
 env = _load("water_cooler_a2a_envelope_under_test", ENVELOPE_PATH)
 
-CHANNEL = policy_mod.WATER_COOLER_CHANNEL_ID
+CHANNEL = policy_mod.WATER_COOLER_CHANNEL_ID  # Navigation thread
+PARENT = policy_mod.WATER_COOLER_PARENT_CHANNEL_ID
 OTHER_CHANNEL = "1530209175861199000"
 TASK_ID = "abcdef0123456789abcdef0123456789"
 DECKHAND_MENTION = "<@300000000000000001>"
