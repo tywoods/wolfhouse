@@ -18749,6 +18749,27 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <p id="ps-create-custom-line-error" class="portal-schedule-create-custom-line-error" style="display:none" role="alert"></p>
           </div>
         </div>
+        <div id="ps-create-accommodation-wrap" class="portal-schedule-create-accommodation" data-testid="ps-create-accommodation" style="display:none" hidden>
+          <div class="portal-schedule-create-custom-addon-header" style="margin-top:10px">
+            <h4 class="portal-schedule-create-section-title" data-i18n="schedule.create.accommodation.title">Accommodation</h4>
+            <button type="button" id="ps-create-accommodation-add-btn" class="portal-schedule-create-custom-line-plus" data-i18n-aria="schedule.create.accommodation.add" aria-label="Accommodation +" title="Accommodation +">+</button>
+          </div>
+          <div id="ps-create-accommodation-editor" class="portal-schedule-create-accommodation-editor" style="display:none" hidden aria-hidden="true" data-testid="ps-create-accommodation-editor">
+            <div class="portal-schedule-create-field">
+              <label for="ps-create-accommodation-check-in" data-i18n="schedule.create.accommodation.checkIn">Check in</label>
+              <input id="ps-create-accommodation-check-in" type="date" autocomplete="off">
+            </div>
+            <div class="portal-schedule-create-field">
+              <label for="ps-create-accommodation-check-out" data-i18n="schedule.create.accommodation.checkOut">Check out</label>
+              <input id="ps-create-accommodation-check-out" type="date" autocomplete="off">
+            </div>
+            <div class="portal-schedule-create-custom-line-actions">
+              <button type="button" class="btn btn-ghost" id="ps-create-accommodation-remove" data-i18n="schedule.create.accommodation.remove">Remove</button>
+            </div>
+            <p id="ps-create-accommodation-error" class="portal-schedule-create-custom-line-error" style="display:none" role="alert"></p>
+            <p class="portal-admin-muted" data-i18n="schedule.create.accommodation.serverPriced">Price is calculated from Admin seasonal rates.</p>
+          </div>
+        </div>
       </section>
       <section class="portal-schedule-create-section" data-create-section="payment" aria-labelledby="ps-create-section-payment-title">
         <h3 id="ps-create-section-payment-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.paymentNotes">Payment &amp; notes</h3>
@@ -18869,6 +18890,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <section class="portal-admin-section" id="admin-sec-prices">
         <div class="portal-admin-section-hdr" data-i18n="admin.section.prices">Rental prices</div>
         <div class="portal-admin-section-body" id="admin-prices-body"></div>
+      </section>
+      <section class="portal-admin-section" id="admin-sec-accommodation" data-testid="admin-sec-accommodation">
+        <div class="portal-admin-section-hdr" data-i18n="admin.section.accommodation">Accommodation</div>
+        <div class="portal-admin-section-body" id="admin-accommodation-body"></div>
       </section>
     </div>
   </div>
@@ -22635,6 +22660,134 @@ function scheduleReadCreateCustomLineItems(){
   });
 }
 
+// Staff Accommodation (Create): identity + dates only; server owns money.
+var scheduleCreateAccommodation = null; // { enabled, check_in, check_out } | null
+var scheduleAccommodationEnabledCache = false;
+
+function scheduleSetAccommodationProductEnabled(enabled){
+  scheduleAccommodationEnabledCache = !!enabled;
+  var wrap = el('ps-create-accommodation-wrap');
+  if (!wrap) return;
+  if (scheduleAccommodationEnabledCache) {
+    wrap.style.display = '';
+    wrap.removeAttribute('hidden');
+  } else {
+    // Product disabled: hide + clear so we cannot add new stays.
+    wrap.style.display = 'none';
+    wrap.setAttribute('hidden', '');
+    scheduleCreateAccommodation = null;
+    scheduleRenderCreateAccommodation();
+  }
+}
+
+function scheduleRenderCreateAccommodation(){
+  var editor = el('ps-create-accommodation-editor');
+  var addBtn = el('ps-create-accommodation-add-btn');
+  var err = el('ps-create-accommodation-error');
+  if (err) { err.style.display = 'none'; err.textContent = ''; }
+  if (!editor) return;
+  if (scheduleCreateAccommodation && scheduleCreateAccommodation.enabled) {
+    editor.style.display = '';
+    editor.removeAttribute('hidden');
+    editor.setAttribute('aria-hidden', 'false');
+    var cin = el('ps-create-accommodation-check-in');
+    var cout = el('ps-create-accommodation-check-out');
+    if (cin) cin.value = scheduleCreateAccommodation.check_in || '';
+    if (cout) cout.value = scheduleCreateAccommodation.check_out || '';
+    if (addBtn) addBtn.style.display = 'none';
+  } else {
+    editor.style.display = 'none';
+    editor.setAttribute('hidden', '');
+    editor.setAttribute('aria-hidden', 'true');
+    if (addBtn) addBtn.style.display = scheduleAccommodationEnabledCache ? '' : 'none';
+  }
+}
+
+/** Timezone-safe YYYY-MM-DD + N days (UTC calendar arithmetic; no local DST). */
+function scheduleAddIsoDays(iso, days){
+  var s = String(iso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  var p = s.split('-');
+  var dt = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])));
+  if (isNaN(dt.getTime())) return s;
+  dt.setUTCDate(dt.getUTCDate() + (Number(days) || 0));
+  var y = dt.getUTCFullYear();
+  var m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  var d = String(dt.getUTCDate()).padStart(2, '0');
+  return y + '-' + m + '-' + d;
+}
+
+/**
+ * Seed Accommodation stay from booking dates. Half-open: multi-day uses
+ * date_to as exclusive checkout; same-day becomes one valid night (check_out=+1).
+ */
+function scheduleDefaultAccommodationStay(dateFrom, dateTo){
+  var checkIn = String(dateFrom || '').slice(0, 10);
+  var checkOut = String(dateTo || dateFrom || '').slice(0, 10);
+  if (!checkIn) return { enabled: true, check_in: '', check_out: '' };
+  if (!checkOut || checkOut <= checkIn) checkOut = scheduleAddIsoDays(checkIn, 1);
+  return { enabled: true, check_in: checkIn, check_out: checkOut };
+}
+
+function scheduleAddCreateAccommodation(){
+  if (!scheduleAccommodationEnabledCache) return;
+  // Seed from main booking dates once, then keep independently editable.
+  var dateFrom = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
+  var dateTo = el('ps-create-date-to') ? el('ps-create-date-to').value : dateFrom;
+  scheduleCreateAccommodation = scheduleDefaultAccommodationStay(dateFrom, dateTo);
+  scheduleRenderCreateAccommodation();
+  if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
+  else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent();
+}
+
+function scheduleSyncCreateAccommodationFromDom(){
+  if (!scheduleCreateAccommodation || !scheduleCreateAccommodation.enabled) return;
+  var cin = el('ps-create-accommodation-check-in');
+  var cout = el('ps-create-accommodation-check-out');
+  scheduleCreateAccommodation.check_in = cin ? String(cin.value || '').slice(0, 10) : scheduleCreateAccommodation.check_in;
+  scheduleCreateAccommodation.check_out = cout ? String(cout.value || '').slice(0, 10) : scheduleCreateAccommodation.check_out;
+}
+
+function scheduleRemoveCreateAccommodation(){
+  scheduleCreateAccommodation = null;
+  scheduleRenderCreateAccommodation();
+  if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
+  else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent();
+}
+
+function scheduleReadCreateAccommodation(){
+  scheduleSyncCreateAccommodationFromDom();
+  if (!scheduleCreateAccommodation || !scheduleCreateAccommodation.enabled) return null;
+  return {
+    enabled: true,
+    check_in: String(scheduleCreateAccommodation.check_in || '').slice(0, 10),
+    check_out: String(scheduleCreateAccommodation.check_out || '').slice(0, 10),
+  };
+}
+
+function scheduleWireCreateAccommodation(){
+  var addBtn = el('ps-create-accommodation-add-btn');
+  var removeBtn = el('ps-create-accommodation-remove');
+  var cin = el('ps-create-accommodation-check-in');
+  var cout = el('ps-create-accommodation-check-out');
+  if (addBtn && !addBtn._accomBound) {
+    addBtn._accomBound = true;
+    addBtn.addEventListener('click', function(){ scheduleAddCreateAccommodation(); });
+  }
+  if (removeBtn && !removeBtn._accomBound) {
+    removeBtn._accomBound = true;
+    removeBtn.addEventListener('click', function(){ scheduleRemoveCreateAccommodation(); });
+  }
+  function onDateChange(){
+    scheduleSyncCreateAccommodationFromDom();
+    if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
+    else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent();
+  }
+  if (cin && !cin._accomBound) { cin._accomBound = true; cin.addEventListener('change', onDateChange); }
+  if (cout && !cout._accomBound) { cout._accomBound = true; cout.addEventListener('change', onDateChange); }
+  scheduleRenderCreateAccommodation();
+}
+
 function scheduleReadCreatePayload(){
   var guest = (el('ps-create-guest') && el('ps-create-guest').value || '').trim();
   var phone = (el('ps-create-phone') && el('ps-create-phone').value || '').trim();
@@ -22767,6 +22920,7 @@ function scheduleReadCreatePayload(){
     course_equipment: course_equipment,
     rentals: rentals,
     custom_line_items: scheduleReadCreateCustomLineItems(),
+    accommodation: scheduleReadCreateAccommodation(),
     // Authoritative party size for no-lesson equipment qty (server may force rentals to this).
     surfer_count: surferCount,
     lessons: lessons,
@@ -23954,6 +24108,10 @@ function scheduleFetchLessonTimesConfig(client, opts){
       }
       scheduleSetFullDayAddonFromConfig((data && data.prices) || []);
       scheduleAdminPricesCache = Array.isArray(data && data.prices) ? data.prices.slice() : [];
+      // Accommodation product enablement (Sunset Admin Pricing). Disabled hides Create + control.
+      if (typeof scheduleSetAccommodationProductEnabled === 'function') {
+        scheduleSetAccommodationProductEnabled(!!(data && data.accommodation && data.accommodation.enabled));
+      }
       // Enabled rental identities for Create/Edit projection (exact tenant/location).
       if (offeringsData && offeringsData.success && Array.isArray(offeringsData.offerings)) {
         scheduleRentalOfferingsCache = offeringsData.offerings.slice();
@@ -38950,9 +39108,27 @@ async function handleAdminConfig(query, res, user) {
   if (Object.prototype.hasOwnProperty.call(payload, 'course_equipment_pricing')) {
     delete payload.course_equipment_pricing;
   }
+  // Sunset-only employee Accommodation config (not merged into tenant-business-config
+  // to avoid CRLF churn on that owner). Fail-open to disabled defaults.
+  let accommodation = {
+    enabled: false, currency: 'EUR', ranges: [], source: 'default',
+  };
+  if (clientSlug === 'sunset') {
+    try {
+      const {
+        loadAccommodationConfig,
+      } = require('./lib/sunset-accommodation-admin');
+      accommodation = await withPgClient(async (pg) => loadAccommodationConfig(pg, clientSlug, locationId));
+    } catch (_) {
+      accommodation = {
+        enabled: false, currency: 'EUR', ranges: [], source: 'default',
+      };
+    }
+  }
   return sendJSON(res, 200, {
     success: true,
     ...payload,
+    accommodation,
     read_only: !writesOn,
     writes_enabled: isSunsetAdminWritesEnabled() && adminWritesGate(clientSlug),
     elapsed_ms: elapsed,
@@ -39985,6 +40161,68 @@ async function handleAdminConfigPrivateLessonPut(query, req, res, user) {
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
   } catch (err) {
     console.error('[admin write] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
+  }
+}
+
+// PUT Sunset employee Accommodation settings + seasonal ranges (atomic, Sunset only).
+async function handleAdminConfigAccommodationPut(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (clientSlug !== 'sunset') {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'unsupported_client',
+      reason_code: 'unsupported_client',
+      client_slug: clientSlug,
+    });
+  }
+  const gate = evaluateAdminWriteGate({
+    user,
+    clientSlug,
+    staffAuthRequired: STAFF_AUTH_REQUIRED,
+    resolveStaffRole,
+  });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  if (!isSunsetLocationId(query.location)) {
+    return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  try {
+    const locationId = normalizeSunsetLocationId(query.location);
+    const { saveAccommodationConfig } = require('./lib/sunset-accommodation-admin');
+    const result = await withPgClient(async (pg) => saveAccommodationConfig(pg, {
+      clientSlug,
+      locationId,
+      enabled: body.enabled,
+      ranges: body.ranges,
+      currency: body.currency || 'EUR',
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:admin.config.accommodation_put',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: !!(result && result.ok),
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, result.status || (result.ok ? 200 : 400), {
+      ...(result.body || { success: false, error: 'write failed' }),
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    console.error('[admin.config.accommodation_put] write failed:', err && err.code, '|', err && err.message);
     return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
   }
 }
@@ -47435,6 +47673,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAdminConfigFullDayAddonPut(parsed.query, req, res, auth.user);
+  }
+
+  if (pathname === '/staff/admin/config/accommodation' && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigAccommodationPut(parsed.query, req, res, auth.user);
   }
 
 

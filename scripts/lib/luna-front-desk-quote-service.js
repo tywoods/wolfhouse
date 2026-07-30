@@ -144,6 +144,11 @@ function buildSunsetQuoteCommand(opts) {
       },
     };
   }
+  // Historical accommodation reprice while product is disabled: only a trusted
+  // server-side option may relax requireEnabled. Never read this from transportBody
+  // (browser/Luna cannot self-grant permission).
+  const allowExistingAccommodationWhenDisabled =
+    opts && opts.allowExistingAccommodationWhenDisabled === true;
   return {
     ok: true,
     command: {
@@ -151,6 +156,7 @@ function buildSunsetQuoteCommand(opts) {
       clientSlug: SUNSET_CLIENT_SLUG,
       locationId,
       transportBody,
+      allowExistingAccommodationWhenDisabled,
       now: (opts && opts.now) instanceof Date ? opts.now : new Date(),
     },
   };
@@ -587,6 +593,102 @@ function normalizeQuoteLineItemsForFingerprint(lineItems) {
   });
   rows.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   return rows;
+}
+
+/**
+ * Append staff Accommodation commercial line (server-priced from Admin ranges).
+ * Browser supplies identity + dates only; money never trusted from the client.
+ * Staff channel only.
+ */
+async function appendAccommodationToQuote(pg, command, lines, totalCents, currency) {
+  const body = command && command.transportBody;
+  const raw = body && body.accommodation;
+  if (raw == null || raw === false || raw === '') {
+    return { ok: true, lines, totalCents, currency };
+  }
+  if (command.channel !== QUOTE_CHANNELS.MANUAL_STAFF) {
+    return {
+      ok: false,
+      status: 403,
+      body: {
+        success: false,
+        reason: 'accommodation_staff_only',
+        reason_code: 'accommodation_staff_only',
+        error: 'Accommodation is a staff-only commercial line.',
+      },
+    };
+  }
+  const {
+    normalizeAccommodationSelection,
+    buildAccommodationQuoteLine,
+  } = require('./sunset-accommodation-price-resolver');
+  const sel = normalizeAccommodationSelection(raw);
+  if (!sel.ok) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        success: false,
+        reason: sel.reason_code || 'accommodation_invalid',
+        reason_code: sel.reason_code || 'accommodation_invalid',
+        error: sel.error,
+      },
+    };
+  }
+  if (sel.skip || !sel.value) return { ok: true, lines, totalCents, currency };
+
+  const { resolveAccommodationPrice } = require('./sunset-accommodation-admin');
+  if (!pg) {
+    return {
+      ok: false,
+      status: 422,
+      body: {
+        success: false,
+        reason: 'accommodation_price_unavailable',
+        reason_code: 'accommodation_price_unavailable',
+        error: 'Accommodation pricing requires Admin seasonal ranges.',
+      },
+    };
+  }
+  // Existing dedicated staff_accommodation stays may reprice while product is
+  // disabled. Permission is server-derived on the quote command only — never
+  // from transportBody / browser / Luna fields.
+  const requireEnabled = command.allowExistingAccommodationWhenDisabled !== true;
+  const pricedRes = await resolveAccommodationPrice(pg, {
+    clientSlug: SUNSET_CLIENT_SLUG,
+    locationId: command.locationId,
+    checkIn: sel.value.check_in,
+    checkOut: sel.value.check_out,
+    requireEnabled,
+  });
+  if (!pricedRes.ok) {
+    return {
+      ok: false,
+      status: pricedRes.status || 422,
+      body: pricedRes.body || {
+        success: false,
+        reason: pricedRes.reason_code,
+        reason_code: pricedRes.reason_code,
+        error: pricedRes.error,
+      },
+    };
+  }
+  const line = buildAccommodationQuoteLine(pricedRes.priced, currency || 'EUR');
+  lines.push(line);
+  const nextTotal = totalCents + line.total_cents;
+  if (!Number.isFinite(nextTotal) || !Number.isInteger(nextTotal) || nextTotal < 0) {
+    return {
+      ok: false,
+      status: 422,
+      body: {
+        success: false,
+        reason: 'accommodation_total_invalid',
+        reason_code: 'accommodation_total_invalid',
+        error: 'Accommodation total is invalid.',
+      },
+    };
+  }
+  return { ok: true, lines, totalCents: nextTotal, currency: line.currency || currency || 'EUR' };
 }
 
 /**
@@ -2140,6 +2242,15 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
     currency = fdOut.line.currency || currency;
   }
 
+  // Staff Accommodation (Admin seasonal ranges; identity+dates only from client).
+  // May be the sole commercial line — append before the empty-lines check.
+  {
+    const withAccom = await appendAccommodationToQuote(pg, command, lines, totalCents, currency);
+    if (!withAccom.ok) return withAccom;
+    totalCents = withAccom.totalCents;
+    currency = withAccom.currency;
+  }
+
   if (!lines.length) {
     return { ok: false, status: 400, body: { success: false, reason: 'quote_input_required' } };
   }
@@ -2150,7 +2261,12 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
   totalCents = withCustom.totalCents;
   currency = withCustom.currency;
 
-  const primary = lines.find((l) => l && l.component !== STAFF_CUSTOM_LINE_COMPONENT) || lines[0];
+  const {
+    STAFF_ACCOMMODATION_COMPONENT: ACCOM_COMP,
+  } = require('./sunset-accommodation-price-resolver');
+  const primary = lines.find((l) => l
+    && l.component !== STAFF_CUSTOM_LINE_COMPONENT
+    && l.component !== ACCOM_COMP) || lines[0];
   const quotedAt = command.now.toISOString();
   const quoteBody = {
     success: true,
@@ -2440,6 +2556,36 @@ function quoteByComponentsSync(command, catalog, requireDb) {
     currency = fdOut.line.currency || currency;
   }
 
+  // Sync path cannot load Admin ranges (no pg) — fail closed if accommodation present.
+  if (command.transportBody && command.transportBody.accommodation) {
+    const sel = require('./sunset-accommodation-price-resolver')
+      .normalizeAccommodationSelection(command.transportBody.accommodation);
+    if (!sel.ok) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          success: false,
+          reason: sel.reason_code || 'accommodation_invalid',
+          reason_code: sel.reason_code || 'accommodation_invalid',
+          error: sel.error,
+        },
+      };
+    }
+    if (!sel.skip && sel.value) {
+      return {
+        ok: false,
+        status: 422,
+        body: {
+          success: false,
+          reason: 'accommodation_price_unavailable',
+          reason_code: 'accommodation_price_unavailable',
+          error: 'Accommodation pricing requires Admin seasonal ranges.',
+        },
+      };
+    }
+  }
+
   if (!lines.length) {
     return { ok: false, status: 400, body: { success: false, reason: 'quote_input_required' } };
   }
@@ -2647,5 +2793,6 @@ module.exports = {
   rejectClientSuppliedMoney,
   computeBillableUnits,
   appendCustomLineItemsToQuote,
+  appendAccommodationToQuote,
   resolveCourseOfferingIdentity,
 };

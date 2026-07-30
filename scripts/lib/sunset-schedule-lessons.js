@@ -300,7 +300,35 @@ function normalizeCanonicalLessons(body, opts) {
   }
 
   // Compatibility reader — legacy components only.
-  const expanded = expandLegacyComponentsToLessons(b.components, b.service_dates || opts.serviceDates);
+  // Accept the same date owners Create/Edit may send: service_dates[], singular
+  // service_date, or date_from(/date_to). Do not invent multi-day spans from
+  // check-in/out of unrelated commercial lines (e.g. accommodation).
+  let legacyDates = null;
+  if (Array.isArray(opts.serviceDates) && opts.serviceDates.length) {
+    legacyDates = opts.serviceDates;
+  } else if (Array.isArray(b.service_dates) && b.service_dates.length) {
+    legacyDates = b.service_dates;
+  } else if (b.service_date && isIsoDate(b.service_date)) {
+    legacyDates = [String(b.service_date).slice(0, 10)];
+  } else if (b.date_from && isIsoDate(b.date_from)) {
+    const from = String(b.date_from).slice(0, 10);
+    const to = (b.date_to && isIsoDate(b.date_to))
+      ? String(b.date_to).slice(0, 10)
+      : from;
+    if (to < from) {
+      return { ok: false, error: 'date_to must be on or after date_from' };
+    }
+    const span = [];
+    // Inclusive calendar walk (UTC noon avoids DST edge noise).
+    const start = new Date(`${from}T12:00:00Z`);
+    const end = new Date(`${to}T12:00:00Z`);
+    for (let cur = new Date(start); cur <= end; cur.setUTCDate(cur.getUTCDate() + 1)) {
+      span.push(cur.toISOString().slice(0, 10));
+      if (span.length > 31) break;
+    }
+    legacyDates = span;
+  }
+  const expanded = expandLegacyComponentsToLessons(b.components, legacyDates);
   if (!expanded.ok) return expanded;
   if (!expanded.present) {
     return { ok: true, present: false, lessons: [], mode: null, unique_dates: [] };

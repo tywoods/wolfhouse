@@ -566,16 +566,52 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
 
   var commercial = scheduleDrawerBuildCommercialLines(items, (pay && pay.rental_pricing) || (ctx && ctx.rental_pricing) || null);
   var commercialLines = (commercial && commercial.lines) || [];
+  // Enrich accommodation commercial lines with snapshot season groups (from payment line_items).
+  // scheduleDrawerBuildCommercialLines already includes them as singles — reattach breakdown.
+  commercialLines = commercialLines.map(function(line) {
+    if (!line) return line;
+    var src = null;
+    items.forEach(function(li) {
+      if (!li) return;
+      if (!(li.staff_accommodation || li.component === 'staff_accommodation')) return;
+      if (src) return;
+      if (line.service_record_id && li.service_record_id
+        && String(line.service_record_id) === String(li.service_record_id)) src = li;
+      else if (String(line.label || '').indexOf('Accommodation') === 0) src = li;
+    });
+    if (!src) return line;
+    return Object.assign({}, line, {
+      staff_accommodation: true,
+      season_groups: src.season_groups || null,
+      check_in: src.check_in || null,
+      check_out: src.check_out || null,
+      nights: src.nights || null,
+      label: src.label || line.label,
+      line_cents: src.line_cents != null ? src.line_cents : line.line_cents,
+    });
+  });
   if (commercialLines.length) {
-    html += '<div class="ps-invoice-lines">';
+    html += '<div class="ps-invoice-lines" data-testid="ps-invoice-lines">';
     commercialLines.forEach(function(line) {
       var math = scheduleDrawerFormatCommercialMathLabel(line);
-      html += '<div class="ps-svc-summary-row ps-invoice-line' + (line.is_bundle ? ' is-bundle-line' : '') + '">';
+      html += '<div class="ps-svc-summary-row ps-invoice-line' + (line.is_bundle ? ' is-bundle-line' : '') +
+        (line.staff_accommodation ? ' is-accommodation-line' : '') + '" data-testid="' +
+        (line.staff_accommodation ? 'ps-invoice-accommodation' : 'ps-invoice-line') + '">';
       html += '<span class="ps-svc-name">' + escHtml(line.label || '—');
-      if (math) html += '<span class="ps-svc-detail"> · ' + escHtml(math) + '</span>';
+      if (math && !line.staff_accommodation) html += '<span class="ps-svc-detail"> · ' + escHtml(math) + '</span>';
       html += '</span>';
       html += '<span class="ps-svc-amt ps-invoice-amt">' + escHtml(scheduleDrawerEur(line.line_cents)) + '</span>';
       html += '</div>';
+      if (line.staff_accommodation && Array.isArray(line.season_groups) && line.season_groups.length) {
+        line.season_groups.forEach(function(g) {
+          var gLabel = String((g && g.title) || '—') + ' · ' + String((g && g.nights) || 0) +
+            ' × ' + scheduleDrawerEur(g && g.nightly_cents);
+          html += '<div class="ps-svc-summary-row ps-invoice-line ps-invoice-accom-season" data-testid="ps-invoice-accommodation-season">';
+          html += '<span class="ps-svc-name ps-svc-detail">' + escHtml(gLabel) + '</span>';
+          html += '<span class="ps-svc-amt ps-invoice-amt">' + escHtml(scheduleDrawerEur(g && g.subtotal_cents)) + '</span>';
+          html += '</div>';
+        });
+      }
     });
     html += '</div>';
   } else if (!items.length) {
