@@ -16628,8 +16628,10 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .ps-svc-summary-row+.ps-svc-summary-row{border-top:1px solid var(--border-soft)}
 .ps-svc-name{color:var(--text);font-weight:600;min-width:0;overflow-wrap:anywhere}
 .ps-svc-detail{color:var(--text-3);font-weight:400;font-size:12px}
-/* Accommodation: season math as second text line under nights (same detail token, no new row). */
-.ps-invoice-line.is-accommodation-line .ps-svc-detail{display:block;margin-top:1px;line-height:1.35}
+/* Stacked commercial secondary (accommodation / course / equipment): existing ps-svc-detail as second text line. */
+.ps-invoice-line.is-accommodation-line .ps-svc-detail,
+.ps-invoice-line.is-course-line .ps-svc-detail,
+.ps-invoice-line.is-equipment-line .ps-svc-detail{display:block;margin-top:1px;line-height:1.35}
 .ps-svc-amt{color:var(--text);font-weight:700;white-space:nowrap;flex:0 0 auto}
 .ps-day-group{margin-top:8px}
 .ps-day-group:first-child{margin-top:2px}

@@ -90,6 +90,8 @@ function portalT(key) {
     'schedule.drawer.daysWord': 'days',
     'schedule.drawer.avgWord': 'avg',
     'schedule.addon.perDaySuffix': '/day',
+    'schedule.courseEquipment.during': 'During Course',
+    'schedule.courseEquipment.allDay': 'All Day',
     'schedule.drawer.surferWord': 'surfer',
     'schedule.drawer.surfersWord': 'surfers',
     'schedule.drawer.dateLabel': 'Dates',
@@ -212,6 +214,10 @@ function buildRenderCtx(viewModSrc, portalModSrc, apiSrc) {
     'scheduleDrawerFormatAccommodationSeasonSubtitle',
     'scheduleDrawerIsCourseLikeLine',
     'scheduleDrawerIsEquipmentLikeLine',
+    'scheduleDrawerUsesStackedSvcDetail',
+    'scheduleDrawerFormatCourseInvoiceLabel',
+    'scheduleDrawerCourseEquipmentModeLabel',
+    'scheduleDrawerFormatEquipmentInvoiceLabel',
     'scheduleDrawerFormatDaysTimesUnit',
     'scheduleDrawerFormatDaysAvgUnit',
     'scheduleDrawerBuildCommercialLines',
@@ -845,11 +851,18 @@ const shotCourseLine = shotCommercial.lines.find((l) => /Curso Mañana/i.test(St
 assert('shot: course package amount €228.57 preserved',
   shotCourseLine && shotCourseLine.line_cents === 22857,
   shotCourseLine && String(shotCourseLine.line_cents));
+const shotCoursePrimary = ctx.scheduleDrawerFormatCourseInvoiceLabel(shotCourseLine);
 const shotCourseMath = ctx.scheduleDrawerFormatCommercialMathLabel(shotCourseLine);
+assert('shot: course primary is service label only',
+  /^Curso Mañana$/i.test(shotCoursePrimary)
+  && !/days|avg|×|€/i.test(shotCoursePrimary),
+  shotCoursePrimary);
 assert('shot: course uses avg daily (22857 ¢ does not divide by 8)',
   /8\s+days\s*·\s*avg\s*€28\.57\/day/i.test(shotCourseMath)
   && !/8\s+days\s*×\s*€28\.57\/day/i.test(shotCourseMath),
   shotCourseMath);
+assert('shot: course uses stacked secondary (not inline)',
+  ctx.scheduleDrawerUsesStackedSvcDetail(shotCourseLine) === true);
 const shotExactCourse = {
   label: 'Exact Daily Course',
   line_cents: 24000,
@@ -862,15 +875,26 @@ const shotExactCourse = {
 };
 assert('shot: course exact daily when cents divide',
   /8\s+days\s*×\s*€30\.00\/day/i.test(ctx.scheduleDrawerFormatCommercialMathLabel(shotExactCourse)));
+assert('shot: exact-daily primary is service label only',
+  /^Exact Daily Course$/i.test(ctx.scheduleDrawerFormatCourseInvoiceLabel(shotExactCourse)));
 const shotCe = shotCommercial.lines.find((l) => l.course_equipment
   || /Surfboard \+ Wetsuit/i.test(String(l.label || '')));
+const shotCePrimary = ctx.scheduleDrawerFormatEquipmentInvoiceLabel(shotCe);
+const shotCeMath = ctx.scheduleDrawerFormatCommercialMathLabel(shotCe);
 assert('shot: equipment 8×€5 = €40, linear, no dates',
   shotCe
   && shotCe.line_cents === 4000
   && shotCe.math_mode === 'linear'
   && shotCe.unit_cents === 500
-  && /8\s+days\s*×\s*€5\.00\/day/i.test(ctx.scheduleDrawerFormatCommercialMathLabel(shotCe)),
+  && /8\s+days\s*×\s*€5\.00\/day/i.test(shotCeMath),
   shotCe && JSON.stringify(shotCe));
+assert('shot: equipment primary keeps mode; secondary is arithmetic only',
+  /^Surfboard \+ Wetsuit\s*·\s*During Course$/i.test(shotCePrimary)
+  && /8\s+days\s*×\s*€5\.00\/day/i.test(shotCeMath)
+  && !/During Course|All Day/i.test(shotCeMath),
+  `primary=${shotCePrimary} secondary=${shotCeMath}`);
+assert('shot: equipment uses stacked secondary (not inline)',
+  ctx.scheduleDrawerUsesStackedSvcDetail(shotCe) === true);
 const shotSum = shotCommercial.lines.reduce((a, l) => a + Number(l.line_cents || 0), 0);
 const shotSource = shotItems.reduce((a, l) => a + Number(l.line_cents || 0), 0);
 assert('shot: commercial sum unchanged vs source (€968.57)',
@@ -959,6 +983,112 @@ assert('shot render: no season child row testids / no ISO stay dates on accom li
   && /ps-invoice-accommodation/.test(shotHtml)
   && /High Season/.test(shotHtml)
   && !/Accommodation[^<]*2026-07-30/.test(shotHtml));
+
+function findInvoiceNameAmt(html, primaryRe) {
+  const re = /class="ps-svc-summary-row ps-invoice-line([^"]*)"[^>]*>[\s\S]*?<span class="ps-svc-name">([\s\S]*?)<\/span>\s*<span class="ps-svc-amt[^"]*">([^<]*)<\/span>/g;
+  let m;
+  while ((m = re.exec(html))) {
+    if (primaryRe.test(m[2])) {
+      return { rowClass: m[1], nameBlock: m[2], amt: m[3] };
+    }
+  }
+  return null;
+}
+function primaryTextFromNameBlock(nameBlock) {
+  return String(nameBlock || '').replace(/<span class="ps-svc-detail">[\s\S]*$/, '').trim();
+}
+
+assert('shot render: course primary/secondary lines separated, one amount €228.57',
+  (() => {
+    const hit = findInvoiceNameAmt(shotHtml, /Curso Mañana/i);
+    if (!hit) return false;
+    const primary = primaryTextFromNameBlock(hit.nameBlock);
+    const secondaryOk = /<span class="ps-svc-detail">8\s+days\s*·\s*avg\s*€28\.57\/day<\/span>/i.test(hit.nameBlock);
+    const noInlineDot = !/<span class="ps-svc-detail">\s*·/.test(hit.nameBlock);
+    const classOk = /\bis-course-line\b/.test(hit.rowClass);
+    return /^Curso Mañana$/i.test(primary)
+      && secondaryOk
+      && noInlineDot
+      && classOk
+      && hit.amt === '€228.57'
+      && (shotHtml.match(/€228\.57/g) || []).length === 1;
+  })(),
+  'expected Curso Mañana + grey avg secondary + single €228.57');
+assert('shot render: exact-daily course primary label only + secondary days×rate',
+  (() => {
+    const exactHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
+      date_from: '2026-07-30',
+      date_to: '2026-08-06',
+      components: { course: { quantity: 1, course_label: 'Exact Daily Course' } },
+      payment: {
+        subtotal_cents: 24000,
+        paid_cents: 0,
+        balance_due_cents: 24000,
+        payment_status: 'unpaid',
+        line_items: [{
+          service_record_id: 'exact-course',
+          service_date: '2026-07-30',
+          service_type: 'surf_lesson',
+          label: 'Exact Daily Course',
+          line_cents: 24000,
+          quantity: 1,
+          unit_amount_cents: 24000,
+          component: 'course',
+          course_id: 'exact',
+          course_label: 'Exact Daily Course',
+          // Force multi-day package math path via covered dates on collapsed peers.
+        }].concat(ceDates.slice(1).map((d, i) => ({
+          service_record_id: 'exact-course-' + (i + 1),
+          service_date: d,
+          service_type: 'surf_lesson',
+          label: 'Exact Daily Course',
+          line_cents: 0,
+          quantity: 1,
+          unit_amount_cents: 24000,
+          component: 'course',
+          course_id: 'exact',
+          course_label: 'Exact Daily Course',
+        }))),
+        paid_payments: [],
+      },
+    });
+    const hit = findInvoiceNameAmt(exactHtml, /Exact Daily Course/i);
+    if (!hit) return false;
+    const primary = primaryTextFromNameBlock(hit.nameBlock);
+    // Line amount once in commercial rows (subtotal/balance also show €240.00 — ignore totals).
+    const lineAmtCount = (exactHtml.match(/ps-svc-amt ps-invoice-amt">€240\.00</g) || []).length;
+    return /^Exact Daily Course$/i.test(primary)
+      && /<span class="ps-svc-detail">8\s+days\s*×\s*€30\.00\/day<\/span>/i.test(hit.nameBlock)
+      && !/<span class="ps-svc-detail">\s*·/.test(hit.nameBlock)
+      && /\bis-course-line\b/.test(hit.rowClass)
+      && hit.amt === '€240.00'
+      && lineAmtCount === 1;
+  })(),
+  'expected Exact Daily Course + 8 days × €30.00/day secondary + one line amount');
+assert('shot render: equipment primary keeps mode; secondary arithmetic; one amount €40.00',
+  (() => {
+    const hit = findInvoiceNameAmt(shotHtml, /Surfboard \+ Wetsuit/i);
+    if (!hit) return false;
+    const primary = primaryTextFromNameBlock(hit.nameBlock);
+    const secondaryOk = /<span class="ps-svc-detail">8\s+days\s*×\s*€5\.00\/day<\/span>/i.test(hit.nameBlock);
+    const modeNotInSecondary = !/<span class="ps-svc-detail">[^<]*(During Course|All Day)/i.test(hit.nameBlock);
+    const noInlineDot = !/<span class="ps-svc-detail">\s*·/.test(hit.nameBlock);
+    const classOk = /\bis-equipment-line\b/.test(hit.rowClass);
+    return /^Surfboard \+ Wetsuit\s*·\s*During Course$/i.test(primary)
+      && secondaryOk
+      && modeNotInSecondary
+      && noInlineDot
+      && classOk
+      && hit.amt === '€40.00'
+      && (shotHtml.match(/€40\.00/g) || []).length === 1;
+  })(),
+  'expected Surfboard + Wetsuit · During Course + 8 days × €5.00/day + single €40.00');
+assert('shot render: stacked secondary CSS classes present for course/equipment',
+  /is-course-line/.test(shotHtml)
+  && /is-equipment-line/.test(shotHtml)
+  && /is-accommodation-line/.test(shotHtml)
+  && /is-course-line \.ps-svc-detail/.test(apiSrc)
+  && /is-equipment-line \.ps-svc-detail/.test(apiSrc));
 assert('shot render: course avg daily + equipment exact math + no Jul date on CE',
   /avg\s*€28\.57\/day/i.test(shotHtml)
   && /8\s+days\s*×\s*€5\.00\/day/i.test(shotHtml)
@@ -967,8 +1097,8 @@ assert('shot render: commercial line amounts sum to subtotal authority',
   (() => {
     // Subtotal is pay.subtotal_cents (authoritative); line amounts must not invent extra €700
     return (shotHtml.match(/€700\.00/g) || []).length === 1
-      && (shotHtml.match(/€228\.57/g) || []).length >= 1
-      && (shotHtml.match(/€40\.00/g) || []).length >= 1
+      && (shotHtml.match(/€228\.57/g) || []).length === 1
+      && (shotHtml.match(/€40\.00/g) || []).length === 1
       && shotHtml.includes('€968.57');
   })());
 
