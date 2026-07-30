@@ -210,7 +210,9 @@ function buildRenderCtx(viewModSrc, portalModSrc, apiSrc) {
     'scheduleDrawerCommercialLineRank',
     'scheduleDrawerEquipmentCoverageLabel',
     'scheduleDrawerStripAccommodationIsoDates',
+    'scheduleDrawerFormatAccommodationDdMm',
     'scheduleDrawerFormatAccommodationInvoiceLabel',
+    'scheduleDrawerFormatAccommodationSeasonSegment',
     'scheduleDrawerFormatAccommodationSeasonSubtitle',
     'scheduleDrawerIsCourseLikeLine',
     'scheduleDrawerIsEquipmentLikeLine',
@@ -770,6 +772,101 @@ assert('non-group: mismatched CE unit/mode stay separate',
 assert('non-group: accommodation never collapses',
   mismatchCommercial.lines.filter((l) => l.staff_accommodation || /Accommodation/i.test(String(l.label || ''))).length === 2);
 
+// Multiple stays: each commercial line keeps its own DD-MM range + secondary math
+const multiStayItems = [
+  {
+    service_record_id: 'stay-a',
+    service_date: '2026-08-25',
+    service_type: 'addon_service',
+    label: 'Accommodation · 2026-08-25 → 2026-08-30 · 5 nights',
+    line_cents: 50000,
+    quantity: 1,
+    unit_amount_cents: 50000,
+    component: 'staff_accommodation',
+    staff_accommodation: true,
+    check_in: '2026-08-25',
+    check_out: '2026-08-30',
+    nights: 5,
+    season_groups: [
+      { title: 'High Season', nights: 5, nightly_cents: 10000, subtotal_cents: 50000 },
+    ],
+  },
+  {
+    service_record_id: 'stay-b',
+    service_date: '2026-09-10',
+    service_type: 'addon_service',
+    label: 'Accommodation · 2026-09-10 → 2026-09-12 · 2 nights',
+    line_cents: 16000,
+    quantity: 1,
+    unit_amount_cents: 16000,
+    component: 'staff_accommodation',
+    staff_accommodation: true,
+    check_in: '2026-09-10',
+    check_out: '2026-09-12',
+    nights: 2,
+    season_groups: [
+      { title: 'Shoulder', nights: 2, nightly_cents: 8000, subtotal_cents: 16000 },
+    ],
+  },
+];
+const multiStayCommercial = ctx.scheduleDrawerBuildCommercialLines(multiStayItems, null);
+const multiStayLines = multiStayCommercial.lines.filter((l) => l.staff_accommodation);
+assert('multi-stay: two commercial accommodation lines (never merged)',
+  multiStayLines.length === 2
+  && multiStayLines[0].line_cents === 50000
+  && multiStayLines[1].line_cents === 16000,
+  String(multiStayLines.length));
+const multiPrimaries = multiStayLines.map((l) => ctx.scheduleDrawerFormatAccommodationInvoiceLabel(l));
+const multiSecondaries = multiStayLines.map((l) => ctx.scheduleDrawerFormatCommercialMathLabel(l));
+assert('multi-stay: each line primary uses its own check_in/check_out DD-MM range',
+  multiPrimaries[0] === 'Accommodation \u00b7 25-08 - 30-08'
+  && multiPrimaries[1] === 'Accommodation \u00b7 10-09 - 12-09',
+  JSON.stringify(multiPrimaries));
+assert('multi-stay: each secondary uses its own nights × rate/night · season',
+  multiSecondaries[0] === '5 nights \u00d7 \u20ac100.00/night \u00b7 High Season'
+  && multiSecondaries[1] === '2 nights \u00d7 \u20ac80.00/night \u00b7 Shoulder',
+  JSON.stringify(multiSecondaries));
+assert('multi-stay: half-open night count is authoritative metadata (not calendar day count)',
+  multiStayLines[0].nights === 5
+  && multiStayLines[1].nights === 2
+  // 25→30 inclusive calendar days would be 6; authoritative nights stay 5
+  && !/6\s+nights/.test(multiSecondaries.join(' '))
+  && /5\s+nights/.test(multiSecondaries[0]));
+const multiStayHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
+  date_from: '2026-08-01',
+  date_to: '2026-09-30',
+  components: {},
+  payment: {
+    subtotal_cents: 66000,
+    paid_cents: 0,
+    balance_due_cents: 66000,
+    payment_status: 'unpaid',
+    line_items: multiStayItems,
+    paid_payments: [],
+  },
+});
+assert('multi-stay render: both date ranges + both secondaries; two amounts; no season child rows',
+  /Accommodation\s*·\s*25-08\s*-\s*30-08/.test(multiStayHtml)
+  && /Accommodation\s*·\s*10-09\s*-\s*12-09/.test(multiStayHtml)
+  && /5\s+nights\s*×\s*€100\.00\/night\s*·\s*High Season/.test(multiStayHtml)
+  && /2\s+nights\s*×\s*€80\.00\/night\s*·\s*Shoulder/.test(multiStayHtml)
+  && (multiStayHtml.match(/data-testid="ps-invoice-accommodation"/g) || []).length === 2
+  && (multiStayHtml.match(/€500\.00/g) || []).length === 1
+  && (multiStayHtml.match(/€160\.00/g) || []).length === 1
+  && !/ps-invoice-accommodation-season/.test(multiStayHtml));
+// Invoice header dates must not replace line-specific stay dates
+assert('multi-stay: primary never falls back to invoice header date_from/date_to',
+  (() => {
+    const blocks = multiStayHtml.match(/data-testid="ps-invoice-accommodation"[\s\S]*?<\/div>/g) || [];
+    if (blocks.length !== 2) return false;
+    const joined = blocks.join('\n');
+    return !/Accommodation\s*·\s*01-08\s*-\s*30-09/.test(joined)
+      && !/\b01-08\b/.test(joined)
+      && !/\b30-09\b/.test(joined)
+      && /25-08\s*-\s*30-08/.test(joined)
+      && /10-09\s*-\s*12-09/.test(joined);
+  })());
+
 // Arithmetic preserved: source sum == commercial sum
 const sourceSum = mixedOrderItems.reduce((a, li) => a + Number(li.line_cents || 0), 0);
 const commercialSum = mixedCommercial.lines.reduce((a, li) => a + Number(li.line_cents || 0), 0);
@@ -836,16 +933,35 @@ assert('shot: accommodation amount €700 once (no season child total)',
   shotAccomLines[0] && shotAccomLines[0].line_cents === 70000);
 const shotAccomPrimary = ctx.scheduleDrawerFormatAccommodationInvoiceLabel(shotAccomLines[0]);
 const shotAccomSecondary = ctx.scheduleDrawerFormatCommercialMathLabel(shotAccomLines[0]);
-assert('shot: accommodation primary is nights only (no season / ISO / amount math)',
+assert('shot: accommodation primary is DD-MM stay range (no nights / season / ISO / amount math)',
   shotAccomLines[0]
-  && /^Accommodation\s*·\s*7\s*nights$/i.test(shotAccomPrimary)
-  && !/High Season|×|2026-07-30|2026-08-06/i.test(shotAccomPrimary)
+  && /^Accommodation\s*·\s*30-07\s*-\s*06-08$/i.test(shotAccomPrimary)
+  && !/nights?|High Season|×|2026-07-30|2026-08-06/i.test(shotAccomPrimary)
   && !/High Season|×|2026-07-30|2026-08-06/i.test(String(shotAccomLines[0].label || '')),
   `primary=${shotAccomPrimary} label=${shotAccomLines[0] && shotAccomLines[0].label}`);
-assert('shot: accommodation secondary is High Season math via existing subtitle',
-  /^High Season\s*·\s*7\s*×\s*€100\.00$/i.test(shotAccomSecondary)
+assert('shot: accommodation secondary is nights × rate/night · season via existing subtitle',
+  /^7\s+nights\s*×\s*€100\.00\/night\s*·\s*High Season$/i.test(shotAccomSecondary)
   && shotAccomSecondary === ctx.scheduleDrawerFormatAccommodationSeasonSubtitle(shotAccomLines[0]),
   shotAccomSecondary);
+assert('shot: DD-MM derived from line check_in/check_out (not header, not hardcoded shape alone)',
+  ctx.scheduleDrawerFormatAccommodationDdMm(shotAccomLines[0].check_in) === '30-07'
+  && ctx.scheduleDrawerFormatAccommodationDdMm(shotAccomLines[0].check_out) === '06-08'
+  && ctx.scheduleDrawerFormatAccommodationInvoiceLabel({
+    check_in: '2026-08-25',
+    check_out: '2026-08-30',
+    nights: 5,
+  }) === 'Accommodation \u00b7 25-08 - 30-08'
+  && ctx.scheduleDrawerFormatAccommodationInvoiceLabel({
+    check_in: '2026-01-09',
+    check_out: '2026-01-12',
+    nights: 3,
+  }) === 'Accommodation \u00b7 09-01 - 12-01');
+assert('shot: primary omits dates when check_in/check_out unavailable (fail closed)',
+  ctx.scheduleDrawerFormatAccommodationInvoiceLabel({
+    label: 'Accommodation · 7 nights',
+    nights: 7,
+    season_groups: [{ title: 'High Season', nights: 7, nightly_cents: 10000 }],
+  }) === 'Accommodation');
 const shotCourseLine = shotCommercial.lines.find((l) => /Curso Mañana/i.test(String(l.label || ''))
   || (l.component === 'course' && !l.course_equipment));
 assert('shot: course package amount €228.57 preserved',
@@ -932,16 +1048,21 @@ assert('cross-season: one line, amount = stay total only',
   && crossCommercial.lines[0].line_cents === 44000);
 const crossPrimary = ctx.scheduleDrawerFormatAccommodationInvoiceLabel(crossCommercial.lines[0]);
 const crossSecondary = ctx.scheduleDrawerFormatCommercialMathLabel(crossCommercial.lines[0]);
-assert('cross-season: primary is nights only',
-  /^Accommodation\s*·\s*5\s*nights$/i.test(crossPrimary)
-  && !/Low|High|×|2026-06-28|2026-07-03/i.test(crossPrimary),
+assert('cross-season: primary is line stay DD-MM range only',
+  /^Accommodation\s*·\s*28-06\s*-\s*03-07$/i.test(crossPrimary)
+  && !/nights?|Low|High|×|2026-06-28|2026-07-03/i.test(crossPrimary),
   crossPrimary);
-assert('cross-season: both authoritative segments on secondary line only, no ISO dates',
-  /Low\s*·\s*3\s*×\s*€80\.00/i.test(crossSecondary)
-  && /High\s*·\s*2\s*×\s*€100\.00/i.test(crossSecondary)
+assert('cross-season: both authoritative segments on secondary (nights×rate/night · season), no average, no ISO',
+  /^3\s+nights\s*×\s*€80\.00\/night\s*·\s*Low;\s*2\s+nights\s*×\s*€100\.00\/night\s*·\s*High$/i.test(crossSecondary)
+  && !/€88|€90|average|avg/i.test(crossSecondary)
   && !/2026-06-28|2026-07-03/.test(crossSecondary)
   && !/Low|High|×/i.test(String(crossCommercial.lines[0].label || '')),
   `secondary=${crossSecondary} label=${crossCommercial.lines[0].label}`);
+assert('cross-season: segment nights sum to authoritative stay nights (half-open), amount still stay total',
+  crossCommercial.lines[0].nights === 5
+  && crossCommercial.lines[0].season_groups[0].nights
+    + crossCommercial.lines[0].season_groups[1].nights === 5
+  && crossCommercial.lines[0].line_cents === 44000);
 
 const shotHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
   date_from: '2026-07-30',
@@ -969,15 +1090,16 @@ assert('shot render: one accommodation item, two text lines (primary + ps-svc-de
     if (!m) return false;
     const nameBlock = m[1];
     const amt = m[2];
-    const primaryOk = /Accommodation\s*·\s*7\s*nights/i.test(nameBlock)
-      && !/Accommodation\s*·\s*7\s*nights\s*·\s*High Season/i.test(nameBlock);
-    const secondaryOk = /<span class="ps-svc-detail">High Season\s*·\s*7\s*×\s*€100\.00<\/span>/i.test(nameBlock);
+    const primaryOk = /Accommodation\s*·\s*30-07\s*-\s*06-08/i.test(nameBlock)
+      && !/Accommodation\s*·\s*30-07\s*-\s*06-08\s*·\s*High Season/i.test(nameBlock)
+      && !/7\s*nights/i.test(nameBlock.replace(/<span class="ps-svc-detail">[\s\S]*$/, ''));
+    const secondaryOk = /<span class="ps-svc-detail">7\s+nights\s*×\s*€100\.00\/night\s*·\s*High Season<\/span>/i.test(nameBlock);
     const noIso = !/2026-07-30|2026-08-06/.test(nameBlock);
     const oneAmt = amt === '€700.00';
     return primaryOk && secondaryOk && noIso && oneAmt
       && (shotHtml.match(/data-testid="ps-invoice-accommodation"/g) || []).length === 1;
   })(),
-  'expected primary nights + secondary High Season detail + single €700.00');
+  'expected primary DD-MM range + secondary nights×rate/night · season + single €700.00');
 assert('shot render: no season child row testids / no ISO stay dates on accom line',
   !/ps-invoice-accommodation-season/.test(shotHtml)
   && /ps-invoice-accommodation/.test(shotHtml)
