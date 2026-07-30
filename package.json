@@ -497,6 +497,7 @@
     "verify:sunset-schedule-drawer-edit-ui": "node scripts/verify-sunset-schedule-drawer-edit-ui.js",
     "verify:sunset-schedule-edit-multi-equipment-playwright": "node scripts/verify-sunset-schedule-edit-multi-equipment-playwright.js",
     "verify:sunset-schedule-edit-private-multi-equipment-playwright": "node scripts/verify-sunset-schedule-edit-private-multi-equipment-playwright.js",
+    "verify:sunset-course-readback-cleanup": "node scripts/verify-sunset-course-readback-cleanup.js",
     "verify:sunset-multi-lessons-contract": "node scripts/verify-sunset-multi-lessons-contract.js",
     "verify:sunset-edit-generic-rental-regression": "node scripts/verify-sunset-edit-generic-rental-regression.js",
     "verify:sunset-booking-stepper-playwright": "node scripts/verify-sunset-booking-stepper-playwright.js",

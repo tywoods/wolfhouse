@@ -50,6 +50,8 @@ function portalT(key) {
     'schedule.equipment.board': 'board',
     'schedule.equipment.wetsuit': 'wetsuit',
     'schedule.equipment.none': 'none',
+    'schedule.courseEquipment.during': 'During Course',
+    'schedule.courseEquipment.allDay': 'All Day',
     'schedule.status.paid': 'Paid',
     'schedule.status.unpaid': 'Unpaid',
     'schedule.ops.rentalPickupsToday': 'Rental pickups',
