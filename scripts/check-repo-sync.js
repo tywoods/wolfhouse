@@ -51,10 +51,12 @@ function azVmIp() {
       `az vm show -g ${HERMES_VM.RG} -n ${HERMES_VM.VM_NAME} -d --query publicIps -o tsv`,
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
     ).trim();
-    return out || null;
+    if (out) return out;
   } catch {
-    return null;
+    // fall through — VM may have moved RGs; DNS still works
   }
+  // Prefer DNS when az lookup fails (Lunabox is not always under HERMES_VM.RG).
+  return HERMES_VM.HOSTNAME || null;
 }
 
 /** POSIX-safe single-arg quoting for ssh -i paths. */
@@ -206,7 +208,8 @@ function collect() {
     warnings.push('Could not read Lunabox repo (SSH/az unavailable or no clone at /opt/wolfhouse/WH).');
   }
   if (vm) {
-    if (vm.dirty) {
+    // --ignore-dirty: pre-push / deploy care about SHA sync, not working-tree dirt.
+    if (vm.dirty && !ignoreDirty) {
       warnings.push('Lunabox repo has uncommitted changes — Captain should commit + push before laptop overwrites.');
     }
     if (localHead && vm.head && vm.head !== localHead) {
