@@ -191,9 +191,40 @@ write_deckhand_env() {
 }
 
 install_luna_plugins() {
+  # Copy guest plugins only — never water_cooler_a2a (Seadog/Deckhand gated).
   if [ -d "$STAGING_PLUGINS" ]; then
     mkdir -p "$HERMES_HOME/plugins"
-    cp -R "$STAGING_PLUGINS"/* "$HERMES_HOME/plugins/"
+    for _plug in "$STAGING_PLUGINS"/*; do
+      [ -e "$_plug" ] || continue
+      _base="$(basename "$_plug")"
+      if [ "$_base" = "water_cooler_a2a" ]; then
+        continue
+      fi
+      cp -R "$_plug" "$HERMES_HOME/plugins/"
+    done
+  fi
+}
+
+# Water-cooler A2A: role-scoped (seadog|deckhand) AND WATER_COOLER_A2A_ENABLED=true.
+# Every other role / missing / malformed enablement → no-op (never touch adapter).
+# When enabled: validate IDs, install plugin, merge toolset, apply adapter patch
+# after the standard gateway patch process, emit DISCORD_ALLOW_BOTS=mentions.
+# Fail closed (exit 1) if enablement requested but IDs/patch fail.
+maybe_activate_water_cooler_a2a() {
+  if [ "$HERMES_ROLE" != "seadog" ] && [ "$HERMES_ROLE" != "deckhand" ]; then
+    return 0
+  fi
+  if [ "${WATER_COOLER_A2A_ENABLED:-}" != "true" ]; then
+    return 0
+  fi
+  if [ -f /etc/hermes-staging/wolfhouse/water_cooler_a2a_activation.py ]; then
+    PYTHONPATH=/etc/hermes-staging python -m wolfhouse.water_cooler_a2a_activation || {
+      echo "water_cooler_a2a activation failed — refusing start (explicit enable without valid IDs/patch)" >&2
+      exit 1
+    }
+  else
+    echo "water_cooler_a2a activation module missing — refusing start" >&2
+    exit 1
   fi
 }
 
@@ -234,6 +265,8 @@ apply_patches() {
       exit 1
     }
   fi
+  # A2A adapter patch only after standard gateway patches; gated no-op otherwise.
+  maybe_activate_water_cooler_a2a
 }
 
 link_shared_auth() {
@@ -296,6 +329,9 @@ elif [ "$HERMES_ROLE" = "deckhand" ]; then
   chown -R hermes:hermes "$HERMES_HOME/workspace" 2>/dev/null || true
   ensure_sessions_dir
   write_deckhand_env
+  # Gated A2A only (not the Luna guest patch bundle). Image already has gateway
+  # patches; this may install the A2A plugin + adapter seams when enabled.
+  maybe_activate_water_cooler_a2a
   # No link_shared_auth: Deckhand uses XAI_API_KEY, not the OAuth shared pool.
 elif [ "$HERMES_ROLE" = "luna" ] \
   || [ "$HERMES_ROLE" = "sunset-luna" ] \
@@ -334,6 +370,12 @@ elif [ "$HERMES_ROLE" = "luna" ] \
   ensure_sessions_dir
   write_luna_env
   apply_patches
+  # Seadog + A2A: use seadog SOUL (A2A tool guidance). Luna/Sunset SOUL untouched.
+  if [ "$HERMES_ROLE" = "seadog" ] && [ "${WATER_COOLER_A2A_ENABLED:-}" = "true" ]; then
+    if [ -f /etc/hermes-staging/seadog-SOUL.md ]; then
+      cp /etc/hermes-staging/seadog-SOUL.md "$HERMES_HOME/SOUL.md"
+    fi
+  fi
   link_shared_auth
 else
   echo "unsupported HERMES_ROLE: ${HERMES_ROLE} (expected orchestrator|deckhand|luna|sunset-luna|seadog)" >&2

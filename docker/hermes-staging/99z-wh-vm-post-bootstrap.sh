@@ -63,7 +63,32 @@ if [ "$HERMES_ROLE" = "seadog" ]; then
   # anthropic source. The token still works for raw API calls, but not via Hermes.
   # To move seadog back onto Claude: top up extra usage at claude.ai/settings/usage,
   # then set provider: anthropic + a claude model here.
-  cat > "$HERMES_HOME/config.yaml" <<'EOF'
+  #
+  # Water-cooler A2A toolset/plugin is included only when explicitly enabled for
+  # this container (WATER_COOLER_A2A_ENABLED=true). Default remains no plugins.
+  if [ "${WATER_COOLER_A2A_ENABLED:-}" = "true" ]; then
+    cat > "$HERMES_HOME/config.yaml" <<'EOF'
+model:
+  default: gpt-5.6-terra
+  provider: openai-codex
+agent:
+  reasoning_effort: low
+curator:
+  enabled: false
+terminal:
+  cwd: /opt/wolfhouse/WH
+toolsets:
+  - water_cooler_a2a
+plugins:
+  enabled:
+    - water-cooler-a2a
+gateway:
+  platforms:
+    discord:
+      require_mention: false
+EOF
+  else
+    cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
   default: gpt-5.6-terra
   provider: openai-codex
@@ -78,6 +103,7 @@ gateway:
     discord:
       require_mention: false
 EOF
+  fi
   chown hermes:hermes "$HERMES_HOME/config.yaml" 2>/dev/null || true
   chmod 640 "$HERMES_HOME/config.yaml" 2>/dev/null || true
 fi
@@ -86,7 +112,32 @@ if [ "$HERMES_ROLE" = "deckhand" ]; then
   # Deckhand: isolated Discord engineering worker. xAI grok-4.5 only — no
   # Anthropic/OpenAI fallback. Distinct Discord bot + XAI_API_KEY via
   # /etc/hermes-deckhand.env (never reuse Skipper's discord-bot-token).
-  cat > "$HERMES_HOME/config.yaml" <<'EOF'
+  #
+  # Water-cooler A2A toolset/plugin only when WATER_COOLER_A2A_ENABLED=true.
+  if [ "${WATER_COOLER_A2A_ENABLED:-}" = "true" ]; then
+    cat > "$HERMES_HOME/config.yaml" <<'EOF'
+model:
+  default: grok-4.5
+  provider: xai
+agent:
+  reasoning_effort: medium
+curator:
+  enabled: false
+terminal:
+  cwd: /opt/data/workspace/sandbox-repos/WH-deckhand
+toolsets:
+  - water_cooler_a2a
+plugins:
+  enabled:
+    - water-cooler-a2a
+gateway:
+  platforms:
+    discord:
+      enabled: true
+      require_mention: false
+EOF
+  else
+    cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
   default: grok-4.5
   provider: xai
@@ -102,6 +153,7 @@ gateway:
       enabled: true
       require_mention: false
 EOF
+  fi
   if [ -f "$HERMES_HOME/deckhand-SOUL.md" ]; then
     cp "$HERMES_HOME/deckhand-SOUL.md" "$HERMES_HOME/SOUL.md"
     chown hermes:hermes "$HERMES_HOME/SOUL.md" 2>/dev/null || true
