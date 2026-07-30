@@ -16,6 +16,7 @@ RUN rm -rf /root/.cache/uv /root/.cache/pip \
 COPY SOUL.md /etc/hermes-staging/SOUL.md
 COPY orchestrator-SOUL.md /etc/hermes-staging/orchestrator-SOUL.md
 COPY deckhand-SOUL.md /etc/hermes-staging/deckhand-SOUL.md
+COPY seadog-SOUL.md /etc/hermes-staging/seadog-SOUL.md
 COPY plugins /etc/hermes-staging/plugins
 COPY wolfhouse_whatsapp_mirror.py /etc/hermes-staging/wolfhouse_whatsapp_mirror.py
 COPY wolfhouse_guest_fresh_start.py /etc/hermes-staging/wolfhouse_guest_fresh_start.py
@@ -28,6 +29,7 @@ COPY apply_whatsapp_simulate_route.py /etc/hermes-staging/apply_whatsapp_simulat
 COPY apply_stt_patches.py /etc/hermes-staging/apply_stt_patches.py
 COPY apply_guest_send_guard_patches.py /etc/hermes-staging/apply_guest_send_guard_patches.py
 COPY apply_crowsnest_ai_usage_patch.py /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py
+COPY apply_water_cooler_a2a_adapter_patch.py /etc/hermes-staging/apply_water_cooler_a2a_adapter_patch.py
 COPY test_crowsnest_ai_usage_patch.py /etc/hermes-staging/test_crowsnest_ai_usage_patch.py
 COPY verify_stt_patches.py /etc/hermes-staging/verify_stt_patches.py
 COPY verify_guest_send_guard_patches.py /etc/hermes-staging/verify_guest_send_guard_patches.py
@@ -35,6 +37,7 @@ COPY verify_gateway_patch_idempotency.py /etc/hermes-staging/verify_gateway_patc
 COPY verify_discord_session_continuity.py /etc/hermes-staging/verify_discord_session_continuity.py
 COPY verify_wolfhouse_luna_instance.py /etc/hermes-staging/verify_wolfhouse_luna_instance.py
 COPY verify_deckhand_instance.py /etc/hermes-staging/verify_deckhand_instance.py
+COPY verify_water_cooler_a2a_pilot.py /etc/hermes-staging/verify_water_cooler_a2a_pilot.py
 COPY docker-compose.vm.yml /etc/hermes-staging/docker-compose.vm.yml
 COPY lunabox-caddyfile.reference /etc/hermes-staging/lunabox-caddyfile.reference
 COPY bootstrap.sh /etc/hermes-staging/bootstrap.sh
@@ -54,3 +57,6 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && python -m unittest wolfhouse.test_crowsnest_ai_usage_reporter test_crowsnest_ai_usage_patch -v \
  && python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py \
  && python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py
+# NOTE: Water-cooler A2A adapter patch is intentionally NOT applied at image
+# build. Bootstrap applies it only when HERMES_ROLE is seadog|deckhand and
+# WATER_COOLER_A2A_ENABLED=true (fail-closed default off for all roles).
