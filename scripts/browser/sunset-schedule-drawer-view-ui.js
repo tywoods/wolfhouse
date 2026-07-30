@@ -341,6 +341,52 @@ function scheduleDrawerIsEquipmentLikeLine(line) {
   return !!(line && (line.course_equipment || String(line.component || '') === 'course_equipment'));
 }
 
+/** True when commercial math uses the stacked ps-svc-detail secondary line (not inline " · math"). */
+function scheduleDrawerUsesStackedSvcDetail(line) {
+  if (!line) return false;
+  if (line.staff_accommodation || String(line.component || '') === 'staff_accommodation') return true;
+  if (scheduleDrawerIsEquipmentLikeLine(line)) return true;
+  if (scheduleDrawerIsCourseLikeLine(line)) return true;
+  return false;
+}
+
+/** Course primary label only (service name). Arithmetic lives on the secondary line. */
+function scheduleDrawerFormatCourseInvoiceLabel(line) {
+  if (!line) return '\u2014';
+  var raw = String(line.label || '').trim();
+  if (!raw) return '\u2014';
+  return raw
+    .replace(/\s*·\s*\d+\s*$/, '')
+    .replace(/\s*x\s*\d+\s*$/i, '')
+    .trim() || raw;
+}
+
+function scheduleDrawerCourseEquipmentModeLabel(mode) {
+  var key = mode === 'all_day' ? 'schedule.courseEquipment.allDay' : 'schedule.courseEquipment.during';
+  var lab = portalT(key);
+  if (!lab || lab === key) return mode === 'all_day' ? 'All Day' : 'During Course';
+  return lab;
+}
+
+/**
+ * Equipment primary: service name + mode (e.g. Surfboard + Wetsuit · During Course).
+ * Mode stays on the primary label; days × unit/day is secondary only.
+ */
+function scheduleDrawerFormatEquipmentInvoiceLabel(line) {
+  if (!line) return '\u2014';
+  var base = String(line.label || '').trim() || 'Equipment';
+  base = base
+    .replace(/\s*·\s*\d+\s*$/, '')
+    .replace(/\s*x\s*\d+\s*$/i, '')
+    .trim() || 'Equipment';
+  var mode = line.course_equipment_mode === 'all_day' ? 'all_day' : 'during_course';
+  var modeLab = scheduleDrawerCourseEquipmentModeLabel(mode);
+  if (/\bDuring Course\b/i.test(base) || /\bAll Day\b/i.test(base) || base.indexOf(modeLab) >= 0) {
+    return base;
+  }
+  return base + ' \u00b7 ' + modeLab;
+}
+
 /** "8 days × €5.00/day" — uses existing drawer/addon i18n keys. */
 function scheduleDrawerFormatDaysTimesUnit(days, unitCents) {
   var n = Math.max(1, Math.round(Number(days) || 1));
@@ -554,6 +600,16 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
     var primary = null;
     g.items.forEach(function(li) { if (!primary || Number(li.line_cents || 0) > Number(primary.line_cents || 0)) primary = li; });
     var lab = itemBaseName(primary, g.qty);
+    // Presentation primary labels: course = service name; equipment = name · mode.
+    if (isCourseEquip(primary)) {
+      lab = scheduleDrawerFormatEquipmentInvoiceLabel({
+        label: lab,
+        course_equipment: true,
+        course_equipment_mode: ceMode(primary),
+      });
+    } else if (scheduleDrawerIsCourseLikeLine(primary)) {
+      lab = scheduleDrawerFormatCourseInvoiceLabel({ label: lab, component: primary.component, service_type: primary.service_type });
+    }
     var collapsed = attachMath({
       label: lab,
       line_cents: g.total,
@@ -589,8 +645,22 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
         season_groups: li.season_groups || null,
       })
       : null;
+    var baseLab = accomLabel != null ? accomLabel : itemBaseName(li, li.quantity);
+    if (isCourseEquip(li)) {
+      baseLab = scheduleDrawerFormatEquipmentInvoiceLabel({
+        label: baseLab,
+        course_equipment: true,
+        course_equipment_mode: ceMode(li),
+      });
+    } else if (!isAccom(li) && scheduleDrawerIsCourseLikeLine(li)) {
+      baseLab = scheduleDrawerFormatCourseInvoiceLabel({
+        label: baseLab,
+        component: li.component,
+        service_type: li.service_type,
+      });
+    }
     var singleLine = attachMath({
-      label: accomLabel != null ? accomLabel : itemBaseName(li, li.quantity),
+      label: baseLab,
       line_cents: Number(li.line_cents || 0),
       is_bundle: false,
       service_type: li.service_type,
@@ -871,20 +941,28 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
     html += '<div class="ps-invoice-lines" data-testid="ps-invoice-lines">';
     commercialLines.forEach(function(line) {
       var math = scheduleDrawerFormatCommercialMathLabel(line);
-      var displayLabel = line.staff_accommodation
-        ? scheduleDrawerFormatAccommodationInvoiceLabel(line)
-        : (line.label || '—');
+      var isAccomLine = !!(line.staff_accommodation || line.component === 'staff_accommodation');
+      var isCeLine = !isAccomLine && scheduleDrawerIsEquipmentLikeLine(line);
+      var isCourseLine = !isAccomLine && !isCeLine && scheduleDrawerIsCourseLikeLine(line);
+      var stackedDetail = scheduleDrawerUsesStackedSvcDetail(line);
+      var displayLabel;
+      if (isAccomLine) displayLabel = scheduleDrawerFormatAccommodationInvoiceLabel(line);
+      else if (isCeLine) displayLabel = scheduleDrawerFormatEquipmentInvoiceLabel(line);
+      else if (isCourseLine) displayLabel = scheduleDrawerFormatCourseInvoiceLabel(line);
+      else displayLabel = line.label || '—';
       html += '<div class="ps-svc-summary-row ps-invoice-line' + (line.is_bundle ? ' is-bundle-line' : '') +
-        (line.staff_accommodation ? ' is-accommodation-line' : '') + '" data-testid="' +
-        (line.staff_accommodation ? 'ps-invoice-accommodation' : 'ps-invoice-line') + '"'
+        (isAccomLine ? ' is-accommodation-line' : '') +
+        (isCourseLine ? ' is-course-line' : '') +
+        (isCeLine ? ' is-equipment-line' : '') + '" data-testid="' +
+        (isAccomLine ? 'ps-invoice-accommodation' : 'ps-invoice-line') + '"'
         + (line.check_in ? ' data-check-in="' + escHtml(String(line.check_in).slice(0, 10)) + '"' : '')
         + (line.check_out ? ' data-check-out="' + escHtml(String(line.check_out).slice(0, 10)) + '"' : '')
         + '>';
       html += '<span class="ps-svc-name">' + escHtml(displayLabel);
-      // Accommodation season math uses existing ps-svc-detail as a second text line;
+      // Accommodation / course / equipment: existing ps-svc-detail as a second text line;
       // other lines keep the inline " · math" subtitle.
       if (math) {
-        if (line.staff_accommodation) {
+        if (stackedDetail) {
           html += '<span class="ps-svc-detail">' + escHtml(math) + '</span>';
         } else {
           html += '<span class="ps-svc-detail"> · ' + escHtml(math) + '</span>';
@@ -893,7 +971,7 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
       html += '</span>';
       html += '<span class="ps-svc-amt ps-invoice-amt">' + escHtml(scheduleDrawerEur(line.line_cents)) + '</span>';
       html += '</div>';
-      // Season segments stay on the parent item secondary line only — never extra commercial totals.
+      // Season / service arithmetic stay on the parent item secondary line only — never extra commercial totals.
     });
     html += '</div>';
   } else if (!items.length) {
