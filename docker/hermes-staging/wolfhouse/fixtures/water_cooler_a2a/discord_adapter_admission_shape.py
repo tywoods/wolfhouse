@@ -85,7 +85,7 @@ class DiscordAdapter:
                     ):
                         return
                     _role_authorized = bool(getattr(self, "_allowed_role_ids", set()))
-                
+
                 # Multi-agent filtering: if the message mentions specific bots
                 # but NOT this bot, the sender is talking to another agent —
                 # stay silent.  Messages with no bot mentions (general chat)
