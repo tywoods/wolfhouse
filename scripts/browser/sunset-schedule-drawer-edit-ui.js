@@ -3872,12 +3872,7 @@ function scheduleDrawerRenderAccommodationCardHtml(stay) {
     });
     html += '</div>';
   }
-  if (q && Number.isFinite(Number(q.total_cents))) {
-    html += '<div class="portal-schedule-create-accommodation-card-total">';
-    html += '<span>' + esc(portalT('schedule.create.accommodation.total') || 'Total') + '</span>';
-    html += '<span data-testid="ps-drawer-accommodation-card-total">' + esc(fmt(q.total_cents)) + '</span>';
-    html += '</div>';
-  }
+  // No separate card-total row: itemized season subtotals are sufficient.
   html += '</div>';
   return html;
 }

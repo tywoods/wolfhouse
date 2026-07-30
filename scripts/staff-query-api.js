@@ -16265,7 +16265,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-accommodation-summary{margin:6px 0 0}
 .portal-schedule-create-accommodation-summary .portal-schedule-create-date-range-trigger{min-height:40px}
 .portal-schedule-create-accommodation-list{display:flex;flex-direction:column;gap:8px;margin:8px 0 0}
-.portal-schedule-create-accommodation-card{border:1px solid var(--portal-border,rgba(0,0,0,.12));border-radius:10px;padding:10px 12px;background:var(--portal-surface,#fff)}
+.portal-schedule-create-accommodation-card{border:1px solid var(--border-soft);border-radius:10px;padding:10px 12px;background:var(--surface);color:var(--text)}
 .portal-schedule-create-accommodation-card.is-locked{opacity:1}
 .portal-schedule-create-accommodation-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .portal-schedule-create-accommodation-card-title{font-weight:600;font-size:13px;line-height:1.3}
@@ -16273,7 +16273,6 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-accommodation-card-meta{font-size:12px;opacity:.8;margin-top:4px}
 .portal-schedule-create-accommodation-card-breakdown{margin-top:6px;font-size:12px}
 .portal-schedule-create-accommodation-card-breakdown-row{display:flex;justify-content:space-between;gap:8px;padding:1px 0}
-.portal-schedule-create-accommodation-card-total{display:flex;justify-content:space-between;gap:8px;margin-top:6px;font-weight:600;font-size:13px}
 .portal-schedule-create-accommodation-card-actions{display:flex;gap:6px;flex-shrink:0}
 .portal-schedule-create-accommodation-card-actions .btn{padding:4px 10px;font-size:12px;min-height:30px}
 
@@ -23204,12 +23203,7 @@ function scheduleRenderCreateAccommodationCardHtml(stay){
     });
     html += '</div>';
   }
-  if (q && Number.isFinite(Number(q.total_cents))) {
-    html += '<div class="portal-schedule-create-accommodation-card-total">';
-    html += '<span>' + esc(portalT('schedule.create.accommodation.total') || 'Total') + '</span>';
-    html += '<span data-testid="ps-create-accommodation-card-total">' + esc(fmt(q.total_cents)) + '</span>';
-    html += '</div>';
-  }
+  // No separate card-total row: itemized season subtotals are sufficient.
   html += '</div>';
   return html;
 }

@@ -10,6 +10,7 @@
  *     collapses editor; does NOT trigger whole-booking submit/create
  *  4) Admin Pricing: single Accommodation title + Enabled beside it; no help sentence;
  *     stable title/date/price columns
+ *  5) Locked cards: no separate bottom Total row; theme-aware surface/border/text CSS
  *
  * Static source + lightweight behavioral sandbox (no Azure/DB/network).
  *
@@ -618,6 +619,35 @@ ok('Edit quote merge + attach parity present',
   ok('Edit locked card keeps season price summary',
     /High/.test(editHtmlJul) && /€200\.00/.test(editHtmlJul));
 
+  // No separate bottom Total row — itemized season subtotals only (Create + Edit).
+  ok('Create locked card has no card-total row',
+    !/portal-schedule-create-accommodation-card-total/.test(createHtmlJul)
+    && !/ps-create-accommodation-card-total/.test(createHtmlJul)
+    && !/>Total</.test(createHtmlJul)
+    && /portal-schedule-create-accommodation-card-breakdown-row/.test(createHtmlJul)
+    && /High · 4 × €50\.00/.test(createHtmlJul));
+  ok('Edit locked card has no card-total row',
+    !/portal-schedule-create-accommodation-card-total/.test(editHtmlJul)
+    && !/ps-drawer-accommodation-card-total/.test(editHtmlJul)
+    && !/>Total</.test(editHtmlJul)
+    && /portal-schedule-create-accommodation-card-breakdown-row/.test(editHtmlJul)
+    && /High · 4 × €50\.00/.test(editHtmlJul));
+  // Source owners: total-row markup permanently removed (not just empty when total missing).
+  ok('Create card owner source has no card-total markup', (() => {
+    const fn = extractNamedFn(apiSrc, 'scheduleRenderCreateAccommodationCardHtml') || '';
+    return !!fn
+      && !/portal-schedule-create-accommodation-card-total/.test(fn)
+      && !/ps-create-accommodation-card-total/.test(fn)
+      && !/schedule\.create\.accommodation\.total/.test(fn);
+  })());
+  ok('Edit card owner source has no card-total markup', (() => {
+    const fn = extractNamedFn(editUi, 'scheduleDrawerRenderAccommodationCardHtml') || '';
+    return !!fn
+      && !/portal-schedule-create-accommodation-card-total/.test(fn)
+      && !/ps-drawer-accommodation-card-total/.test(fn)
+      && !/schedule\.create\.accommodation\.total/.test(fn);
+  })());
+
   editApi.setStays([{
     client_stay_id: 'as_edit_nye',
     check_in: '2026-12-31',
@@ -655,6 +685,31 @@ ok('Edit quote merge + attach parity present',
     && createApi.nights('2026-07-31', '2026-08-04') === 4
     && createApi.nights('2026-12-31', '2027-01-02') === 2);
 })();
+
+// ── 6b) Locked-card dark-mode surface (theme-aware CSS) ────────────────────
+console.log('\n[6b] Locked-card theme-aware surface CSS');
+ok('Accommodation card CSS uses portal theme surface/border/text vars', (() => {
+  const m = apiSrc.match(/\.portal-schedule-create-accommodation-card\{[^}]+\}/);
+  if (!m) return false;
+  const rule = m[0];
+  return /background:\s*var\(--surface\)/.test(rule)
+    && /border:\s*1px solid var\(--border-soft\)/.test(rule)
+    && /color:\s*var\(--text\)/.test(rule)
+    && !/--portal-surface/.test(rule)
+    && !/--portal-border/.test(rule)
+    && !/#fff\b/.test(rule)
+    && !/#ffffff\b/i.test(rule);
+})());
+ok('Accommodation card CSS no longer defines unused card-total rule',
+  !/\.portal-schedule-create-accommodation-card-total\{/.test(apiSrc));
+ok('Create/Edit keep season breakdown + Edit/Remove + permanent + controls',
+  /portal-schedule-create-accommodation-card-breakdown-row/.test(apiSrc)
+  && /data-edit-accom-stay/.test(apiSrc)
+  && /data-remove-accom-stay/.test(apiSrc)
+  && /data-edit-drawer-accom-stay/.test(editUi)
+  && /data-remove-drawer-accom-stay/.test(editUi)
+  && /addBtn\.style\.display\s*=\s*scheduleAccommodationEnabledCache\s*\?\s*''\s*:\s*'none'/.test(apiSrc)
+  && /addBtn\.style\.display = productOn \? '' : 'none'/.test(editUi));
 
 // ── 7) Parse smoke ─────────────────────────────────────────────────────────
 console.log('\n[7] Parse smoke');
