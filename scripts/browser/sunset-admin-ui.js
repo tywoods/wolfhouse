@@ -1537,23 +1537,31 @@ function renderAdminAccommodationRangeRows(ranges, editing){
   ranges.forEach(function(r, idx){
     html += '<article class="portal-admin-price-card portal-admin-accommodation-range" data-accom-range-idx="' + idx + '">';
     if (editing){
-      html += '<div class="portal-admin-price-card-edit">';
-      html += '<div><label data-i18n="admin.accommodation.rangeTitle">' + escHtml(portalT('admin.accommodation.rangeTitle') || 'Title') + '</label>';
+      // Title | date range | price columns (+ remove). Dates share one cell so columns line up.
+      html += '<div class="portal-admin-accommodation-range-row is-editing">';
+      html += '<div class="portal-admin-accommodation-col-title"><label data-i18n="admin.accommodation.rangeTitle">' +
+        escHtml(portalT('admin.accommodation.rangeTitle') || 'Title') + '</label>';
       html += '<input type="text" maxlength="120" data-accom-field="title" value="' + escHtml(r.title || '') + '"></div>';
-      html += '<div><label data-i18n="admin.accommodation.checkIn">' + escHtml(portalT('admin.accommodation.checkIn') || 'Check in') + '</label>';
-      html += '<input type="date" data-accom-field="check_in" value="' + escHtml(r.check_in || '') + '"></div>';
-      html += '<div><label data-i18n="admin.accommodation.checkOut">' + escHtml(portalT('admin.accommodation.checkOut') || 'Check out') + '</label>';
-      html += '<input type="date" data-accom-field="check_out" value="' + escHtml(r.check_out || '') + '"></div>';
-      html += '<div><label data-i18n="admin.accommodation.nightlyEur">' + escHtml(portalT('admin.accommodation.nightlyEur') || 'Per night (€)') + '</label>';
-      html += '<input type="text" inputmode="decimal" data-accom-field="amount_eur" value="' + escHtml(adminFormatAccomEuro(r.amount_cents)) + '"></div>';
+      html += '<div class="portal-admin-accommodation-col-dates">';
+      html += '<label data-i18n="admin.accommodation.checkIn">' + escHtml(portalT('admin.accommodation.checkIn') || 'Check in') +
+        ' → ' + escHtml(portalT('admin.accommodation.checkOut') || 'Check out') + '</label>';
+      html += '<div style="display:flex;gap:6px;min-width:0;flex-wrap:wrap">';
+      html += '<input type="date" data-accom-field="check_in" value="' + escHtml(r.check_in || '') + '" style="flex:1 1 7rem;min-width:0">';
+      html += '<input type="date" data-accom-field="check_out" value="' + escHtml(r.check_out || '') + '" style="flex:1 1 7rem;min-width:0">';
+      html += '</div></div>';
+      html += '<div class="portal-admin-accommodation-col-price"><label data-i18n="admin.accommodation.nightlyEur">' +
+        escHtml(portalT('admin.accommodation.nightlyEur') || 'Per night (€)') + '</label>';
+      html += '<input type="text" inputmode="decimal" data-accom-field="amount_eur" value="' +
+        escHtml(adminFormatAccomEuro(r.amount_cents)) + '"></div>';
       html += '<button type="button" class="btn btn-ghost portal-admin-danger portal-admin-icon-btn" data-admin-action="accom-remove-range" data-accom-range-idx="' +
         idx + '" aria-label="' + escHtml(portalT('admin.accommodation.removeRange') || 'Remove range') + '">×</button>';
       html += '</div>';
     } else {
-      html += '<div class="portal-admin-price-card-readout">';
-      html += '<span class="portal-admin-price-period">' + escHtml(r.title || '—') + '</span>';
-      html += '<span class="portal-admin-muted">' + escHtml((r.check_in || '') + ' → ' + (r.check_out || '')) + '</span>';
-      html += '<span class="portal-admin-price-amount">€' + escHtml(adminFormatAccomEuro(r.amount_cents)) +
+      html += '<div class="portal-admin-accommodation-range-row" data-testid="admin-accommodation-range-row">';
+      html += '<span class="portal-admin-accommodation-range-title">' + escHtml(r.title || '—') + '</span>';
+      html += '<span class="portal-admin-accommodation-range-dates">' +
+        escHtml((r.check_in || '') + ' → ' + (r.check_out || '')) + '</span>';
+      html += '<span class="portal-admin-accommodation-range-price">€' + escHtml(adminFormatAccomEuro(r.amount_cents)) +
         ' <span class="portal-admin-muted">' + escHtml(portalT('admin.accommodation.perNight') || '/ night') + '</span></span>';
       html += '</div>';
     }
@@ -1577,11 +1585,12 @@ function renderAdminSectionAccommodationFromConfig(cfg){
   var writes = adminCfgWritesEnabled(cfg);
   var ac = adminAccommodationFromCfg(cfg);
   var editing = writes && adminEditTarget === 'accommodation';
+  // Single top card title only (no section-hdr duplicate). Enabled sits beside title.
   var html = '<div class="portal-admin-subsection" data-testid="admin-accommodation-card">';
   html += '<div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
   html += '<h3 class="portal-admin-subsection-title" data-i18n="admin.accommodation.title">' +
     escHtml(portalT('admin.accommodation.title') || 'Accommodation') + '</h3>';
-  html += '<span class="portal-admin-muted">' + escHtml(ac.enabled
+  html += '<span class="portal-admin-muted" data-testid="admin-accommodation-enabled-status">' + escHtml(ac.enabled
     ? (portalT('admin.accommodation.enabledYes') || 'Enabled')
     : (portalT('admin.accommodation.enabledNo') || 'Disabled')) + '</span>';
   html += '</div>';
@@ -1590,10 +1599,7 @@ function renderAdminSectionAccommodationFromConfig(cfg){
       escHtml(portalT('admin.action.edit') || 'Edit') + '">✎</button></div>';
   }
   html += '</div>';
-  html += '<p class="portal-admin-muted" data-i18n="admin.accommodation.help">' +
-    escHtml(portalT('admin.accommodation.help') ||
-      'Seasonal per-night prices. Checkout night is free. Disabled blocks new booking additions; existing stays keep their saved price.') +
-    '</p>';
+  // Help sentence intentionally not rendered (UI cleanup); i18n key retained for docs/verifiers.
   if (editing){
     html += '<div class="portal-admin-edit-form" data-testid="admin-accommodation-edit">';
     html += '<label class="portal-admin-equip-enabled"><input type="checkbox" id="admin-accom-enabled"' +
