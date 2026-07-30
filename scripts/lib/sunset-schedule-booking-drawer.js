@@ -30,12 +30,15 @@ const {
   DEFAULT_LESSON_CATEGORY,
   STAFF_CUSTOM_LINE_SOURCE,
   STAFF_CUSTOM_LINE_COMPONENT,
+  STAFF_ACCOMMODATION_SOURCE,
+  STAFF_ACCOMMODATION_COMPONENT,
   validateScheduleBookingBody,
   bookingStatusFromPayment,
   componentList,
   resolveFullDayEquipmentAddonUnitCents,
   insertFullDayEquipmentAddonRows,
   insertStaffCustomLineServiceRows,
+  insertStaffAccommodationServiceRow,
   prepareCanonicalRentalsForCreate,
   prepareGenericRentalsForCreate,
   rentalDurationKeyFromDateRange,
@@ -116,6 +119,18 @@ function formatSunsetDrawerDailyItemLabel(dbType, qty, sr) {
     || metaEarly.component === 'staff_custom_line')) {
     const lab = String(metaEarly.label || '').trim();
     return lab || 'Custom line';
+  }
+  if (metaEarly && (metaEarly.source === STAFF_ACCOMMODATION_SOURCE || metaEarly.staff_accommodation === true
+    || metaEarly.component === STAFF_ACCOMMODATION_COMPONENT)) {
+    const nights = Number(metaEarly.nights) || 0;
+    const checkIn = String(metaEarly.check_in || '').slice(0, 10);
+    const checkOut = String(metaEarly.check_out || '').slice(0, 10);
+    if (checkIn && checkOut) {
+      return nights
+        ? `Accommodation · ${checkIn} → ${checkOut} · ${nights} night${nights === 1 ? '' : 's'}`
+        : `Accommodation · ${checkIn} → ${checkOut}`;
+    }
+    return 'Accommodation';
   }
   const meta = parseMeta(sr && sr.metadata);
   const component = String(meta.component || sr?.metadata_component || '').toLowerCase();
@@ -550,6 +565,11 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
     const qty = Number(sr.quantity) || 1;
     const srMeta = parseMeta(sr.metadata);
     const unitAmountCents = resolveUnitAmountCentsFromMeta(srMeta, bookingMeta);
+    const isAccom = !!(srMeta && (srMeta.source === STAFF_ACCOMMODATION_SOURCE
+      || srMeta.staff_accommodation === true
+      || srMeta.component === STAFF_ACCOMMODATION_COMPONENT));
+    const seasonGroups = isAccom && Array.isArray(srMeta.season_groups)
+      ? srMeta.season_groups : null;
     lineItems.push({
       service_record_id: sr.service_record_id,
       service_type: sr.service_type,
@@ -568,6 +588,11 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
       duration_key: srMeta.duration_key || (rentalPricing && rentalPricing.duration) || null,
       rental_service_dates: Array.isArray(srMeta.rental_service_dates) ? srMeta.rental_service_dates : null,
       component: srMeta.component || null, course_id: srMeta.course_id || null, offering_id: srMeta.offering_id || null, tier_key: srMeta.tier_key || null,
+      staff_accommodation: isAccom || undefined,
+      check_in: isAccom ? (srMeta.check_in || null) : undefined,
+      check_out: isAccom ? (srMeta.check_out || null) : undefined,
+      nights: isAccom ? (srMeta.nights != null ? Number(srMeta.nights) : null) : undefined,
+      season_groups: seasonGroups || undefined,
     });
   });
   const bookingTotal = readAuthoritativeBookingTotalCents(booking);
@@ -811,6 +836,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
       lessons: canonicalLessonsFromBundle(bundle, agg, meta),
       rentals: Array.isArray(meta.rentals) ? meta.rentals : [],
       custom_line_items: customLineItemsFromBundle(bundle),
+      accommodation: accommodationFromBundle(bundle),
       rental_pricing: parseRentalPricingMeta(meta) || meta.rental_pricing || null, slot_time: agg.slot_time,
       payment,
       stripe_link: link ? {
@@ -890,6 +916,50 @@ function customLineItemsFromBundle(bundle) {
     })).filter((l) => l.client_line_id && l.label);
   }
   return [];
+}
+
+/**
+ * Reconstruct staff Accommodation identity from service rows / booking metadata.
+ * Returns selection shape (dates only) for Edit seed + omit-preserve, plus card snapshot.
+ */
+function accommodationFromBundle(bundle) {
+  const {
+    isStaffAccommodationMeta,
+    formatAccommodationBookingCard,
+  } = require('./sunset-accommodation-price-resolver');
+  const services = (bundle && bundle.services) || [];
+  for (const sr of services) {
+    const m = parseMeta(sr.metadata);
+    if (!isStaffAccommodationMeta(m)) continue;
+    const checkIn = String(m.check_in || '').slice(0, 10);
+    const checkOut = String(m.check_out || '').slice(0, 10);
+    if (!checkIn || !checkOut) continue;
+    return {
+      enabled: true,
+      check_in: checkIn,
+      check_out: checkOut,
+      nights: Number(m.nights) || null,
+      card: formatAccommodationBookingCard(m, sr.amount_due_cents),
+      snapshot: {
+        total_cents: m.total_cents != null ? Number(m.total_cents) : Number(sr.amount_due_cents) || 0,
+        season_groups: Array.isArray(m.season_groups) ? m.season_groups : [],
+        nightly_breakdown: Array.isArray(m.nightly_breakdown) ? m.nightly_breakdown : [],
+        currency: m.currency || 'EUR',
+      },
+    };
+  }
+  const meta = parseMeta(bundle && bundle.booking && bundle.booking.metadata);
+  if (meta.accommodation && meta.accommodation.check_in && meta.accommodation.check_out) {
+    return {
+      enabled: true,
+      check_in: String(meta.accommodation.check_in).slice(0, 10),
+      check_out: String(meta.accommodation.check_out).slice(0, 10),
+      nights: Number(meta.accommodation.nights) || null,
+      card: null,
+      snapshot: null,
+    };
+  }
+  return null;
 }
 
 /**
@@ -1062,6 +1132,9 @@ function pricingIntentFromBundle(bundle) {
         if (component === STAFF_CUSTOM_LINE_COMPONENT
           || m.source === STAFF_CUSTOM_LINE_SOURCE
           || m.staff_custom_line === true) return;
+        if (component === STAFF_ACCOMMODATION_COMPONENT
+          || m.source === STAFF_ACCOMMODATION_SOURCE
+          || m.staff_accommodation === true) return;
         if (String(sr.service_type || '').toLowerCase() === 'addon_service') return;
         const iso = String(sr.service_date || '').slice(0, 10);
         if (iso) dates.add(iso);
@@ -1147,13 +1220,28 @@ async function updateSunsetScheduleBooking(pg, opts) {
     return { ok: false, status: 400, body: { success: false, error: rentalPrep.error, reason: rentalPrep.reason, reason_code: rentalPrep.reason } };
   }
 
+  // Unrelated edits must not silently delete accommodation: when the wire omits
+  // the accommodation key, preserve the existing stay identity from service rows.
+  const editBodyBase = rentalPrep.present ? rentalPrep.body : prepBody;
+  const preservedAccom = accommodationFromBundle(bundle);
+  let editBody = { ...editBodyBase };
+  if (!Object.prototype.hasOwnProperty.call(requestBody, 'accommodation')
+    && !Object.prototype.hasOwnProperty.call(editBodyBase, 'accommodation')
+    && preservedAccom) {
+    editBody.accommodation = {
+      enabled: true,
+      check_in: preservedAccom.check_in,
+      check_out: preservedAccom.check_out,
+    };
+  }
   const validated = validateScheduleBookingBody({
-    ...(rentalPrep.present ? rentalPrep.body : prepBody),
+    ...editBody,
     guest_name: requestBody.guest_name != null
       ? requestBody.guest_name
       : bundle.booking.guest_name,
   }, {
-    allowEmptyComponents: genericPrep.genericRentals.length > 0,
+    allowEmptyComponents: genericPrep.genericRentals.length > 0
+      || !!(editBody.accommodation && editBody.accommodation.enabled !== false),
   });
   if (!validated.ok) {
     return { ok: false, status: 400, body: { success: false, error: validated.error } };
@@ -1657,7 +1745,57 @@ async function updateSunsetScheduleBooking(pg, opts) {
       customRows.forEach((r) => createdRows.push(r));
     }
 
-    // Authoritative re-quote body must carry custom lines + components/dates/rentals/lessons.
+    // Staff Accommodation — edit parity: change dates/reprice/remove. New add while disabled
+    // is blocked; existing accommodation may still reprice (historical edit safety).
+    if (input.accommodation && input.accommodation.enabled) {
+      const { resolveAccommodationPrice } = require('./sunset-accommodation-admin');
+      const { isStaffAccommodationMeta } = require('./sunset-accommodation-price-resolver');
+      const hadAccom = ((bundle && bundle.services) || []).some((sr) => {
+        const m = parseMeta(sr.metadata);
+        return isStaffAccommodationMeta(m);
+      });
+      const accomRes = await resolveAccommodationPrice(pg, {
+        clientSlug,
+        locationId: recordLocationId,
+        checkIn: input.accommodation.check_in,
+        checkOut: input.accommodation.check_out,
+        requireEnabled: !hadAccom,
+      });
+      if (!accomRes.ok) {
+        return rollback({
+          ok: false,
+          status: accomRes.status || 422,
+          body: accomRes.body || {
+            success: false,
+            error: accomRes.error,
+            reason_code: accomRes.reason_code,
+            uncovered_nights: accomRes.uncovered_nights || null,
+          },
+        });
+      }
+      const accomRow = await insertStaffAccommodationServiceRow(pg, {
+        clientSlug,
+        bookingId,
+        bookingCode,
+        guestName: input.guest_name,
+        serviceDate: input.accommodation.check_in || firstDate,
+        srPayment,
+        attribution: editAttribution,
+        locationId: recordLocationId,
+        componentKeys,
+        bundleId,
+        notes: input.notes || null,
+        needsReply: input.needs_reply,
+        priced: accomRes.priced,
+        metaBase: {
+          updated_by_staff: editAttribution.lastEditedByStaff,
+          last_edited_by_staff: editAttribution.lastEditedByStaff,
+        },
+      });
+      if (accomRow) createdRows.push(accomRow);
+    }
+
+    // Authoritative re-quote body must carry custom lines + accommodation + components/dates/rentals/lessons.
     const quotePrepBody = {
       ...(rentalPrep.body && typeof rentalPrep.body === 'object' ? rentalPrep.body : {}),
       guest_name: input.guest_name,
@@ -1667,6 +1805,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
       components: input.components,
       lessons: Array.isArray(input.lessons) ? input.lessons : null,
       custom_line_items: input.custom_line_items || [],
+      accommodation: input.accommodation || null,
       surfer_count: input.surfer_count != null ? input.surfer_count : null,
       date_from: firstDate,
       date_to: lastDate,
@@ -1799,5 +1938,7 @@ module.exports = {
   normalizePaymentMethod,
   formatSunsetDrawerDailyItemLabel,
   pricingIntentFromBundle,
+  customLineItemsFromBundle,
+  accommodationFromBundle,
   PAID_BOOKING_REPRICE_REQUIRED,
 };

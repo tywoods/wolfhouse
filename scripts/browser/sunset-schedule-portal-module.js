@@ -988,6 +988,11 @@ function schedulePortalClearCreateDraftFields() {
     if (typeof scheduleRenderCreateCustomLines === 'function') scheduleRenderCreateCustomLines();
     if (typeof scheduleSetCustomLineEditorOpen === 'function') scheduleSetCustomLineEditorOpen(false);
   } catch (_cl) { /* ignore */ }
+  // Reset staff Accommodation selection (product enablement comes from Admin config cache).
+  try {
+    if (typeof scheduleCreateAccommodation !== 'undefined') scheduleCreateAccommodation = null;
+    if (typeof scheduleRenderCreateAccommodation === 'function') scheduleRenderCreateAccommodation();
+  } catch (_ac) { /* ignore */ }
   schedulePortalQuoteState = null;
   schedulePortalPendingCourseId = null;
   schedulePortalPendingCourseGen = 0;
@@ -1054,6 +1059,7 @@ function schedulePortalPrepareCreateOpen(context) {
   schedulePortalApplyCreateLaunchContext(ctx);
   schedulePortalWireCreateFooter();
   try { if (typeof scheduleWireCreateCustomLines === 'function') scheduleWireCreateCustomLines(); } catch (_w) { /* ignore */ }
+  try { if (typeof scheduleWireCreateAccommodation === 'function') scheduleWireCreateAccommodation(); } catch (_wa) { /* ignore */ }
   schedulePortalRenderCreateIntentSummary();
   // Start disabled until guest name + valid phone (quote may still run blank).
   schedulePortalSyncCreateSubmitEnabled();

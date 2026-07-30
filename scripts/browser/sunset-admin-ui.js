@@ -1474,6 +1474,165 @@ function renderAdminWriteState(cfg){
  *   Call sites must pass this explicitly (never guessed). Successful save / canonical
  *   refresh / Admin reopen omit it so server truth wins and stale drafts are cleared.
  */
+function adminAccommodationFromCfg(cfg){
+  var a = (cfg && cfg.accommodation) || {};
+  return {
+    enabled: a.enabled === true,
+    currency: String(a.currency || 'EUR').toUpperCase() || 'EUR',
+    ranges: Array.isArray(a.ranges) ? a.ranges.slice() : [],
+    source: a.source || 'default',
+  };
+}
+
+function adminFormatAccomEuro(cents){
+  var n = Number(cents);
+  if (!Number.isFinite(n)) n = 0;
+  return (n / 100).toFixed(2);
+}
+
+function renderAdminAccommodationRangeRows(ranges, editing){
+  var html = '';
+  if (!ranges.length){
+    html += '<p class="portal-admin-muted" data-i18n="admin.accommodation.noRanges">' +
+      escHtml(portalT('admin.accommodation.noRanges') || 'No seasonal ranges yet.') + '</p>';
+    return html;
+  }
+  html += '<div class="portal-admin-accommodation-range-list" data-testid="admin-accommodation-ranges">';
+  ranges.forEach(function(r, idx){
+    html += '<article class="portal-admin-price-card portal-admin-accommodation-range" data-accom-range-idx="' + idx + '">';
+    if (editing){
+      html += '<div class="portal-admin-price-card-edit">';
+      html += '<div><label data-i18n="admin.accommodation.rangeTitle">' + escHtml(portalT('admin.accommodation.rangeTitle') || 'Title') + '</label>';
+      html += '<input type="text" maxlength="120" data-accom-field="title" value="' + escHtml(r.title || '') + '"></div>';
+      html += '<div><label data-i18n="admin.accommodation.checkIn">' + escHtml(portalT('admin.accommodation.checkIn') || 'Check in') + '</label>';
+      html += '<input type="date" data-accom-field="check_in" value="' + escHtml(r.check_in || '') + '"></div>';
+      html += '<div><label data-i18n="admin.accommodation.checkOut">' + escHtml(portalT('admin.accommodation.checkOut') || 'Check out') + '</label>';
+      html += '<input type="date" data-accom-field="check_out" value="' + escHtml(r.check_out || '') + '"></div>';
+      html += '<div><label data-i18n="admin.accommodation.nightlyEur">' + escHtml(portalT('admin.accommodation.nightlyEur') || 'Per night (€)') + '</label>';
+      html += '<input type="text" inputmode="decimal" data-accom-field="amount_eur" value="' + escHtml(adminFormatAccomEuro(r.amount_cents)) + '"></div>';
+      html += '<button type="button" class="btn btn-ghost portal-admin-danger portal-admin-icon-btn" data-admin-action="accom-remove-range" data-accom-range-idx="' +
+        idx + '" aria-label="' + escHtml(portalT('admin.accommodation.removeRange') || 'Remove range') + '">×</button>';
+      html += '</div>';
+    } else {
+      html += '<div class="portal-admin-price-card-readout">';
+      html += '<span class="portal-admin-price-period">' + escHtml(r.title || '—') + '</span>';
+      html += '<span class="portal-admin-muted">' + escHtml((r.check_in || '') + ' → ' + (r.check_out || '')) + '</span>';
+      html += '<span class="portal-admin-price-amount">€' + escHtml(adminFormatAccomEuro(r.amount_cents)) +
+        ' <span class="portal-admin-muted">' + escHtml(portalT('admin.accommodation.perNight') || '/ night') + '</span></span>';
+      html += '</div>';
+    }
+    html += '</article>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderAdminSectionAccommodationFromConfig(cfg){
+  var box = el('admin-accommodation-body');
+  if (!box) return;
+  // Sunset Pricing only — section is in Admin HTML; hide for non-sunset clients.
+  var sec = el('admin-sec-accommodation');
+  if (typeof getClient === 'function' && getClient() !== 'sunset'){
+    if (sec) sec.style.display = 'none';
+    box.innerHTML = '';
+    return;
+  }
+  if (sec) sec.style.display = '';
+  var writes = adminCfgWritesEnabled(cfg);
+  var ac = adminAccommodationFromCfg(cfg);
+  var editing = writes && adminEditTarget === 'accommodation';
+  var html = '<div class="portal-admin-subsection" data-testid="admin-accommodation-card">';
+  html += '<div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
+  html += '<h3 class="portal-admin-subsection-title" data-i18n="admin.accommodation.title">' +
+    escHtml(portalT('admin.accommodation.title') || 'Accommodation') + '</h3>';
+  html += '<span class="portal-admin-muted">' + escHtml(ac.enabled
+    ? (portalT('admin.accommodation.enabledYes') || 'Enabled')
+    : (portalT('admin.accommodation.enabledNo') || 'Disabled')) + '</span>';
+  html += '</div>';
+  if (writes && !editing){
+    html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-accommodation" aria-label="' +
+      escHtml(portalT('admin.action.edit') || 'Edit') + '">✎</button></div>';
+  }
+  html += '</div>';
+  html += '<p class="portal-admin-muted" data-i18n="admin.accommodation.help">' +
+    escHtml(portalT('admin.accommodation.help') ||
+      'Seasonal per-night prices. Checkout night is free. Disabled blocks new booking additions; existing stays keep their saved price.') +
+    '</p>';
+  if (editing){
+    html += '<div class="portal-admin-edit-form" data-testid="admin-accommodation-edit">';
+    html += '<label class="portal-admin-equip-enabled"><input type="checkbox" id="admin-accom-enabled"' +
+      (ac.enabled ? ' checked' : '') + '> ' +
+      escHtml(portalT('admin.accommodation.enabled') || 'Enabled') + '</label>';
+    html += renderAdminAccommodationRangeRows(ac.ranges, true);
+    html += '<div class="portal-admin-edit-actions" style="margin-top:10px">';
+    html += '<button type="button" class="btn btn-ghost" data-admin-action="accom-add-range">+ ' +
+      escHtml(portalT('admin.accommodation.addRange') || 'Add season range') + '</button>';
+    html += '<button type="button" class="btn btn-primary" data-admin-action="save-accommodation">' +
+      escHtml(portalT('admin.action.save') || 'Save') + '</button>';
+    html += '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' +
+      escHtml(portalT('admin.action.cancel') || 'Cancel') + '</button>';
+    html += '</div></div>';
+  } else {
+    html += renderAdminAccommodationRangeRows(ac.ranges, false);
+  }
+  html += '</div>';
+  box.innerHTML = html;
+}
+
+function adminReadAccommodationDraftFromDom(){
+  var enabledEl = el('admin-accom-enabled');
+  var enabled = !!(enabledEl && enabledEl.checked);
+  var ranges = [];
+  var cards = document.querySelectorAll('article.portal-admin-accommodation-range[data-accom-range-idx]');
+  cards.forEach(function(card){
+    if (!card.querySelector) return;
+    var titleEl = card.querySelector('[data-accom-field="title"]');
+    if (!titleEl) return; // readout card
+    var title = String(titleEl.value || '').trim();
+    var checkIn = String((card.querySelector('[data-accom-field="check_in"]') || {}).value || '').trim();
+    var checkOut = String((card.querySelector('[data-accom-field="check_out"]') || {}).value || '').trim();
+    var eurRaw = String((card.querySelector('[data-accom-field="amount_eur"]') || {}).value || '').trim();
+    var euros = Number(String(eurRaw).replace(',', '.'));
+    var cents = Math.round(euros * 100);
+    ranges.push({
+      title: title,
+      check_in: checkIn,
+      check_out: checkOut,
+      amount_cents: cents,
+    });
+  });
+  return { enabled: enabled, ranges: ranges, currency: 'EUR' };
+}
+
+function adminSaveAccommodation(){
+  var draft = adminReadAccommodationDraftFromDom();
+  var url = '/staff/admin/config/accommodation' + adminClientQuery();
+  adminShowMessage('info', portalT('admin.action.saving') || 'Saving…');
+  return fetch(url, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(draft),
+  }).then(function(r){ return r.json().then(function(body){ return { ok: r.ok, status: r.status, body: body }; }); })
+    .then(function(res){
+      if (!res.ok || !res.body || res.body.success !== true){
+        var err = (res.body && (res.body.error || res.body.message)) || 'Save failed';
+        adminShowMessage('error', err);
+        return;
+      }
+      if (adminConfigCache){
+        adminConfigCache.accommodation = res.body.accommodation || draft;
+      }
+      adminEditTarget = null;
+      adminShowMessage('ok', portalT('admin.accommodation.saved') || 'Accommodation saved.');
+      if (adminConfigCache) renderAdminFromConfig(adminConfigCache);
+      else loadAdminConfig();
+    })
+    .catch(function(){
+      adminShowMessage('error', portalT('admin.action.saveFailed') || 'Save failed');
+    });
+}
+
 function renderAdminFromConfig(cfg, opts){
   opts = opts || {};
   var preserve = !!(opts && opts.preserveDraft);
@@ -1483,6 +1642,7 @@ function renderAdminFromConfig(cfg, opts){
   if (typeof renderAdminSchoolContext === 'function') renderAdminSchoolContext(cfg);
   try { renderAdminSectionLessonTimesFromConfig(cfg); } catch (err) { console.error('admin lessons render failed', err); }
   try { renderAdminSectionPricesFromConfig(cfg); } catch (err) { console.error('admin prices render failed', err); }
+  try { renderAdminSectionAccommodationFromConfig(cfg); } catch (err) { console.error('admin accommodation render failed', err); }
   if (preserve) adminRestorePricingDraftState();
 }
 
@@ -1893,7 +2053,7 @@ function wireAdminTab(){
       if (tierRow && tierRow.parentNode) tierRow.parentNode.removeChild(tierRow);
       return;
     }
-    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'delete-rental-offering' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'toggle-group-availability' || action === 'toggle-equip-enabled' || action === 'add-equipment' || action === 'edit-equipment' || action === 'add-equip-price' || action === 'save-new-equipment' || action === 'save-price-amount'){
+    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'delete-rental-offering' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'toggle-group-availability' || action === 'toggle-equip-enabled' || action === 'add-equipment' || action === 'edit-equipment' || action === 'add-equip-price' || action === 'save-new-equipment' || action === 'save-price-amount' || action === 'edit-accommodation' || action === 'save-accommodation' || action === 'accom-add-range' || action === 'accom-remove-range'){
       if (!adminCfgWritesEnabled(cfg)) return;
     }
     if (action === 'delete-rental-offering'){
@@ -2507,6 +2667,80 @@ function wireAdminTab(){
       } catch (syncErr) {
         if (!adminOpStillOwns(savePrivateOpSeq)) return;
         adminReleaseBusy(savePrivateOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
+      return;
+    }
+    if (action === 'edit-accommodation'){
+      adminEditTarget = 'accommodation';
+      adminShowMessage('', '');
+      renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'accom-add-range'){
+      if (!adminConfigCache) return;
+      if (!adminConfigCache.accommodation) {
+        adminConfigCache.accommodation = { enabled: false, currency: 'EUR', ranges: [], source: 'default' };
+      }
+      var curRanges = Array.isArray(adminConfigCache.accommodation.ranges)
+        ? adminConfigCache.accommodation.ranges.slice() : [];
+      // Preserve in-progress DOM edits before re-render.
+      var draft = adminReadAccommodationDraftFromDom();
+      curRanges = draft.ranges && draft.ranges.length ? draft.ranges : curRanges;
+      curRanges.push({ title: '', check_in: '', check_out: '', amount_cents: 0 });
+      adminConfigCache.accommodation = {
+        enabled: draft.enabled,
+        currency: 'EUR',
+        ranges: curRanges,
+        source: adminConfigCache.accommodation.source || 'default',
+      };
+      adminEditTarget = 'accommodation';
+      renderAdminFromConfig(adminConfigCache, { preserveDraft: false });
+      return;
+    }
+    if (action === 'accom-remove-range'){
+      var rmIdx = parseInt(String(btn.getAttribute('data-accom-range-idx') || ''), 10);
+      if (!Number.isInteger(rmIdx) || rmIdx < 0 || !adminConfigCache) return;
+      var draftRm = adminReadAccommodationDraftFromDom();
+      var nextRanges = (draftRm.ranges || []).filter(function(_r, i){ return i !== rmIdx; });
+      adminConfigCache.accommodation = {
+        enabled: draftRm.enabled,
+        currency: 'EUR',
+        ranges: nextRanges,
+        source: (adminConfigCache.accommodation && adminConfigCache.accommodation.source) || 'default',
+      };
+      adminEditTarget = 'accommodation';
+      renderAdminFromConfig(adminConfigCache, { preserveDraft: false });
+      return;
+    }
+    if (action === 'save-accommodation'){
+      var accomDraft = adminReadAccommodationDraftFromDom();
+      var saveAccomOpSeq = adminBeginOp();
+      adminShowMessage('', '');
+      try {
+        adminApiRequest('PUT', '/staff/admin/config/accommodation' + adminClientQuery(), accomDraft)
+        .then(function(res){
+          if (!adminOpStillOwns(saveAccomOpSeq)) return;
+          if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminReleaseBusy(saveAccomOpSeq);
+            adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+            return;
+          }
+          adminEditTarget = null;
+          if (adminConfigCache && res.data.accommodation) {
+            adminConfigCache.accommodation = res.data.accommodation;
+          }
+          adminShowMessage('success', portalT('admin.accommodation.saved') || 'Accommodation saved.');
+          adminReleaseBusy(saveAccomOpSeq);
+          adminReloadConfig();
+        }).catch(function(err){
+          if (!adminOpStillOwns(saveAccomOpSeq)) return;
+          adminReleaseBusy(saveAccomOpSeq);
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(saveAccomOpSeq)) return;
+        adminReleaseBusy(saveAccomOpSeq);
         adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
       }
       return;

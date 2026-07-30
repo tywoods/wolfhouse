@@ -1658,6 +1658,11 @@ async function main() {
           const sel = courseNodes['ps-drawer-course-select'];
           return sel ? String(sel.getAttribute('data-selected') || sel.value || '').trim() : '';
         },
+        scheduleDrawerGetSelectedCourseIds() {
+          const sel = courseNodes['ps-drawer-course-select'];
+          const one = sel ? String(sel.getAttribute('data-selected') || sel.value || '').trim() : '';
+          return one ? [one] : [];
+        },
         scheduleDrawerSyncCourseButtons() {},
         scheduleDrawerClearSelectedCourse() {
           const sel = courseNodes['ps-drawer-course-select'];
@@ -1697,7 +1702,8 @@ async function main() {
       cSb._cleared = false;
       try {
         vm.runInNewContext(
-          'result = scheduleDrawerRenderCourseList('
+          courseFn
+          + '\nresult = scheduleDrawerRenderCourseList('
           + '[{course_id:"c-inelig",label:"Inelig",eligible_on_requested_dates:false},'
           + '{course_id:"ok",label:"OK",eligible_on_requested_dates:true}],'
           + '{selectedId:"c-inelig"});',
@@ -1813,6 +1819,10 @@ async function main() {
         scheduleDrawerRenderCustomLines() {},
         scheduleWireDrawerCustomLines() {},
         scheduleDrawerSetCustomLineEditorOpen() {},
+        // Accommodation Edit parity siblings (same stub pattern as custom lines).
+        scheduleDrawerSeedAccommodationFromCtx() {},
+        scheduleWireDrawerAccommodation() {},
+        scheduleDrawerRenderAccommodation() {},
         scheduleFetchLessonTimesConfig() {
           return {
             then(cb) {

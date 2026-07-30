@@ -569,6 +569,15 @@
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Surf-school template Phase 2: tenant_rental_offerings catalog so rentable items are client+location scoped data (add/rename/delete) instead of the RENTAL_GROUP_* code enum; additive/unwired, pricing stays in tenant_price_rules."
+    },
+    {
+      "id": "052_tenant_accommodation",
+      "filename": "052_tenant_accommodation.sql",
+      "sha256": "d857a33eed09713b3b130054c29ea271f3c80053203e1d959cabab919763d85d",
+      "order": 50,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Sunset employee-managed Accommodation: settings enable/disable + seasonal half-open per-night ranges; booking snapshot via booking_service_records metadata staff_accommodation."
     }
   ]
 }

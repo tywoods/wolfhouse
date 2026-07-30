@@ -41,6 +41,17 @@ const STAFF_CUSTOM_LINE_MAX = 20;
 const STAFF_CUSTOM_LINE_LABEL_MAX = 120;
 const STAFF_CUSTOM_LINE_ID_MAX = 64;
 const STAFF_CUSTOM_LINE_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+/** Staff-managed Accommodation commercial line (Sunset only; dedicated identity). */
+const {
+  STAFF_ACCOMMODATION_SOURCE,
+  STAFF_ACCOMMODATION_COMPONENT,
+  normalizeAccommodationSelection,
+  accommodationForIntentFingerprint,
+  isStaffAccommodationMeta,
+  buildAccommodationQuoteLine,
+  formatAccommodationBookingCard,
+} = require('./sunset-accommodation-price-resolver');
 /** No-lesson equipment present without valid booking surfer_count — fail closed. */
 const NO_LESSON_EQUIPMENT_SURFER_REQUIRED = 'surfer_count_required_for_no_lesson_equipment';
 /**
@@ -840,12 +851,13 @@ function rowMatchesQuoteLine(row, line) {
     });
   }
   if (component === FULL_DAY_EQUIPMENT_ADDON_KEY || component === 'addon_service') {
-    // Do not claim staff_custom_line rows as Admin full-day/addon lines.
+    // Do not claim staff_custom_line or accommodation rows as Admin full-day/addon lines.
     if (meta.component === STAFF_CUSTOM_LINE_COMPONENT
       || meta.source === STAFF_CUSTOM_LINE_SOURCE
       || meta.staff_custom_line === true) {
       return false;
     }
+    if (isStaffAccommodationMeta(meta)) return false;
     // Course-owned multi-item equipment also persists as addon_service rows.
     // Full-day/addon quote lines must never claim them (duplicate_row_claim / misprice).
     if (meta.course_equipment === true) return false;
@@ -860,6 +872,9 @@ function rowMatchesQuoteLine(row, line) {
       || meta.source === STAFF_CUSTOM_LINE_SOURCE
       || meta.staff_custom_line === true)
       && !!lineId && lineId === rowId;
+  }
+  if (component === STAFF_ACCOMMODATION_COMPONENT) {
+    return isStaffAccommodationMeta(meta);
   }
   return false;
 }
@@ -938,6 +953,9 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
     const lineTotal = Number(line.total_cents);
     const isCustom = String((line && line.component) || '') === STAFF_CUSTOM_LINE_COMPONENT
       || String((line && line.price_source) || '') === STAFF_CUSTOM_LINE_SOURCE;
+    const isAccommodation = String((line && line.component) || '') === STAFF_ACCOMMODATION_COMPONENT
+      || String((line && line.price_source) || '') === STAFF_ACCOMMODATION_SOURCE
+      || !!(line && line.staff_accommodation === true);
     // Custom lines may be negative (discount) or zero; Admin lines stay non-negative.
     if (!Number.isFinite(lineTotal) || !Number.isInteger(lineTotal)) {
       return { ok: false, error: 'invalid_quote_line_total' };
@@ -1032,6 +1050,37 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
           client_line_id: line.client_line_id || meta.client_line_id,
           label: line.label || meta.label,
           amount_cents: signedDue,
+        };
+        const metaUpd = await pg.query(
+          // MULTICLIENT_SCOPE_OK: same-txn service row
+          `UPDATE booking_service_records
+              SET amount_due_cents = $1,
+                  metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+            WHERE id = $3::uuid AND client_slug = $4`,
+          [due, JSON.stringify(nextMeta), id, clientSlug],
+        );
+        if (Number(metaUpd && metaUpd.rowCount) !== 1) {
+          return { ok: false, error: 'service_amount_update_mismatch' };
+        }
+        try { persistedAmountSum = checkedMoneyAdd(persistedAmountSum, signedDue, 'persisted_amount_sum'); }
+        catch (_) { return { ok: false, error: 'persisted_amount_sum_overflow' }; }
+        continue;
+      }
+      if (isAccommodation && i === 0) {
+        const meta = rowMetadata(row);
+        const nextMeta = {
+          ...meta,
+          source: STAFF_ACCOMMODATION_SOURCE,
+          staff_accommodation: true,
+          component: STAFF_ACCOMMODATION_COMPONENT,
+          check_in: line.check_in || meta.check_in,
+          check_out: line.check_out || meta.check_out,
+          nights: line.nights != null ? line.nights : meta.nights,
+          season_groups: line.season_groups || meta.season_groups || [],
+          nightly_breakdown: line.nightly_breakdown || meta.nightly_breakdown || [],
+          total_cents: signedDue,
+          amount_cents: signedDue,
+          currency: line.currency || meta.currency || 'EUR',
         };
         const metaUpd = await pg.query(
           // MULTICLIENT_SCOPE_OK: same-txn service row
@@ -1364,8 +1413,11 @@ function normalizeComponents(body, allowEmpty) {
     return { ok: true, value: out };
   }
 
+  // No components object: either legacy booking_type, or allowEmpty (e.g. accommodation-
+  // only / generic-rental-only commercial content that does not use UI components).
   const booking_type = String(b.booking_type || '').trim();
   if (!LEGACY_UI_SERVICE_TYPES.has(booking_type)) {
+    if (allowEmpty) return { ok: true, value: {} };
     return { ok: false, error: 'booking_type or components is required' };
   }
   const qty = parseQuantity(b.quantity != null ? b.quantity : b.count, 1);
@@ -1725,7 +1777,18 @@ function validateScheduleBookingBody(body, opts) {
     };
   }
 
-  const components = normalizeComponents(bodyForComponents, opts.allowEmptyComponents === true);
+  const accommodationSel = normalizeAccommodationSelection(b.accommodation);
+  if (!accommodationSel.ok) {
+    return {
+      ok: false,
+      error: accommodationSel.error,
+      reason: accommodationSel.reason_code || 'accommodation_invalid',
+    };
+  }
+  // Accommodation (or generic rentals) may be the sole commercial content — allow empty components.
+  const allowEmpty = opts.allowEmptyComponents === true
+    || (!!accommodationSel.value && !accommodationSel.skip);
+  const components = normalizeComponents(bodyForComponents, !!allowEmpty);
   if (!components.ok) return components;
   const serviceDates = normalizeServiceDates(bodyForComponents, components.value);
   if (!serviceDates.ok) return serviceDates;
@@ -1854,6 +1917,7 @@ function validateScheduleBookingBody(body, opts) {
       idempotency_key: idempotency_key || null,
       rental_pricing: rentalPricing.skip ? null : rentalPricing.value,
       custom_line_items: customLines.value,
+      accommodation: accommodationSel.skip ? null : accommodationSel.value,
       surfer_count: surfer_count != null ? surfer_count : null,
       course_equipment,
       lessons: lessonsOut,
@@ -2185,6 +2249,9 @@ function buildScheduleBookingIntentFingerprint(input, locationId, opts) {
   const customSrc = opts.custom_line_items != null
     ? opts.custom_line_items
     : (input && input.custom_line_items);
+  const accomSrc = opts.accommodation != null
+    ? opts.accommodation
+    : (input && input.accommodation);
   const {
     canonicalLessonsForIntentFingerprint,
   } = require('./sunset-schedule-lessons');
@@ -2201,6 +2268,7 @@ function buildScheduleBookingIntentFingerprint(input, locationId, opts) {
     lessons: canonicalLessonsForIntentFingerprint(lessonsSrc),
     rentals: canonicalRentalsForIntentFingerprint(rentalsSrc),
     custom_line_items: customLinesForIntentFingerprint(customSrc),
+    accommodation: accommodationForIntentFingerprint(accomSrc),
     notes: String((input && input.notes) || ''),
     needs_reply: !!(input && input.needs_reply),
   })).digest('hex');
@@ -2282,6 +2350,9 @@ function buildSchedulePricingIntent(input, opts) {
   const customSrc = opts.custom_line_items != null
     ? opts.custom_line_items
     : (input && input.custom_line_items);
+  const accomSrc = opts.accommodation != null
+    ? opts.accommodation
+    : (input && input.accommodation);
   const {
     canonicalLessonsForIntentFingerprint,
   } = require('./sunset-schedule-lessons');
@@ -2296,6 +2367,7 @@ function buildSchedulePricingIntent(input, opts) {
     rentals: canonicalRentalsForIntentFingerprint(rentalsSrc),
     // Custom adjustments are pricing intent — changes invalidate stale quote / paid reprice.
     custom_line_items: customLinesForIntentFingerprint(customSrc),
+    accommodation: accommodationForIntentFingerprint(accomSrc),
     course_equipment: (() => {
       const raw = input && input.course_equipment;
       if (!isPresentCourseEquipmentSelection(raw)) return null;
@@ -2610,6 +2682,7 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
       || meta.staff_custom_line === true) {
       return false;
     }
+    if (isStaffAccommodationMeta(meta)) return false;
     // Multi-item course equipment uses addon_service but is quote-owned, not full-day.
     if (meta.course_equipment === true) return false;
     const st = String(row.service_type || '').toLowerCase();
@@ -3138,6 +3211,57 @@ async function insertCourseEquipmentRows(pg, opts) {
 }
 
 /**
+ * Persist staff Accommodation as one dedicated auditable service row.
+ * Column source stays staff_manual (CHECK); metadata.source = staff_accommodation.
+ * Snapshots nightly/seasonal breakdown so later Admin price edits do not rewrite history.
+ */
+async function insertStaffAccommodationServiceRow(pg, opts) {
+  const priced = opts && opts.priced;
+  if (!priced || !priced.ok) return null;
+  const {
+    clientSlug, bookingId, bookingCode, guestName, serviceDate, srPayment,
+    attribution, locationId, componentKeys, bundleId, notes, needsReply, metaBase,
+  } = opts;
+  const metadata = {
+    source: STAFF_ACCOMMODATION_SOURCE,
+    staff_accommodation: true,
+    staff_manual_schedule: attribution && attribution.staffManualSchedule,
+    staff_ui_service_type: STAFF_ACCOMMODATION_COMPONENT,
+    component: STAFF_ACCOMMODATION_COMPONENT,
+    check_in: priced.check_in,
+    check_out: priced.check_out,
+    nights: priced.nights,
+    occupied_nights: priced.occupied_nights || [],
+    nightly_breakdown: priced.nightly_breakdown || [],
+    season_groups: priced.season_groups || [],
+    total_cents: priced.total_cents,
+    amount_cents: priced.total_cents,
+    currency: priced.currency || 'EUR',
+    unit_quantity: 1,
+    components: componentKeys || [],
+    bundle_id: bundleId || null,
+    notes: notes || null,
+    needs_reply: !!needsReply,
+    location_id: locationId || null,
+    ...(metaBase || {}),
+  };
+  const dueStore = priced.total_cents;
+  const row = await insertServiceRecord(pg, [
+    clientSlug, bookingId, bookingCode, guestName,
+    'addon_service', serviceDate || priced.check_in, 1,
+    srPayment, attribution.dbSource, JSON.stringify(metadata),
+  ]);
+  if (row && (row.service_record_id || row.id)) {
+    await pg.query(
+      // MULTICLIENT_SCOPE_OK: same-txn seed
+      'UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid AND client_slug = $3',
+      [dueStore, row.service_record_id || row.id, clientSlug],
+    );
+  }
+  return { ...row, metadata, amount_due_cents: dueStore };
+}
+
+/**
  * Persist staff custom commercial lines as dedicated auditable service rows.
  * Column source stays staff_manual (CHECK); metadata.source = staff_custom_line.
  * amount_due_cents stays non-negative (CHECK); signed amount lives in metadata.amount_cents.
@@ -3279,10 +3403,14 @@ async function createSunsetScheduleBooking(pg, opts) {
 
   // Staff Create: guest name + valid phone required. Luna create keeps phone optional.
   // Quote path never uses this function.
-  const validated = validateScheduleBookingBody(rentalPrep.body, {
+  const bodyForValidate = rentalPrep.body || {};
+  const hasAccomWire = !!(bodyForValidate.accommodation
+    && bodyForValidate.accommodation.enabled !== false
+    && (bodyForValidate.accommodation.check_in || bodyForValidate.accommodation.check_out));
+  const validated = validateScheduleBookingBody(bodyForValidate, {
     requireGuestPhone: attribution.staffManualSchedule === true,
     actor: opts.actor || null,
-    allowEmptyComponents: genericPrep.genericRentals.length > 0,
+    allowEmptyComponents: genericPrep.genericRentals.length > 0 || hasAccomWire,
   });
   if (!validated.ok) {
     return { ok: false, status: 400, body: { success: false, error: validated.error } };
@@ -3298,6 +3426,7 @@ async function createSunsetScheduleBooking(pg, opts) {
   const intentFpOpts = {
     rentals: allRequestedRentals,
     custom_line_items: input.custom_line_items || [],
+    accommodation: input.accommodation || null,
   };
   const idempotencyIntentFp = input.idempotency_key
     ? buildScheduleBookingIntentFingerprint(input, locationId, intentFpOpts)
@@ -3991,6 +4120,61 @@ async function createSunsetScheduleBooking(pg, opts) {
       customRows.forEach((r) => createdRows.push(r));
     }
 
+    // Staff Accommodation — server-priced from Admin seasonal ranges; snapshot breakdown.
+    if (input.accommodation && input.accommodation.enabled) {
+      const { resolveAccommodationPrice } = require('./sunset-accommodation-admin');
+      const accomRes = await resolveAccommodationPrice(pg, {
+        clientSlug,
+        locationId,
+        checkIn: input.accommodation.check_in,
+        checkOut: input.accommodation.check_out,
+        requireEnabled: true,
+      });
+      if (!accomRes.ok) {
+        throw Object.assign(new Error(accomRes.error || 'accommodation_price_failed'), {
+          sunsetPriceFail: {
+            ok: false,
+            status: accomRes.status || 422,
+            body: accomRes.body || {
+              success: false,
+              error: accomRes.error,
+              reason_code: accomRes.reason_code,
+              uncovered_nights: accomRes.uncovered_nights || null,
+            },
+          },
+        });
+      }
+      const accomRow = await insertStaffAccommodationServiceRow(pg, {
+        clientSlug,
+        bookingId,
+        bookingCode,
+        guestName: input.guest_name,
+        serviceDate: input.accommodation.check_in || firstDate,
+        srPayment,
+        attribution,
+        locationId,
+        componentKeys,
+        bundleId,
+        notes: input.notes || null,
+        needsReply: input.needs_reply,
+        priced: accomRes.priced,
+        metaBase: {
+          actor_source: attribution.actorSource || null,
+          guest_phone: input.guest_phone,
+          created_by_staff: attribution.createdByStaff,
+          idempotency_key: input.idempotency_key,
+          idempotency_intent_fp: idempotencyIntentFp || null,
+        },
+      });
+      if (accomRow) createdRows.push(accomRow);
+    }
+
+    const quoteTransportBody = {
+      ...(rentalPrep.body && typeof rentalPrep.body === 'object' ? rentalPrep.body : {}),
+      custom_line_items: input.custom_line_items || [],
+      accommodation: input.accommodation || null,
+    };
+
     const priced = await applyAuthoritativeSchedulePricingInTxn(pg, {
       clientSlug,
       bookingId,
@@ -3999,8 +4183,8 @@ async function createSunsetScheduleBooking(pg, opts) {
       locationId,
       canonicalRentals,
       genericRentalRecords: genericPrep.records,
-      rentalPrepBody: rentalPrep.body,
-      quotePrepBody: rentalPrep.body,
+      rentalPrepBody: quoteTransportBody,
+      quotePrepBody: quoteTransportBody,
       rentalPricingDescriptor,
       authoritativeQuote,
       quoteChannel: opts.quoteChannel,
@@ -4099,6 +4283,7 @@ module.exports = {
   insertScheduleComponentServiceRows,
   insertCourseEquipmentRows,
   insertStaffCustomLineServiceRows,
+  insertStaffAccommodationServiceRow,
   lockSchedulePaymentsForUpdate,
   applyEditPaidAmountInTxn,
   paidBookingRepriceRequiredResult,
@@ -4114,10 +4299,17 @@ module.exports = {
   STAFF_CUSTOM_LINE_COMPONENT,
   STAFF_CUSTOM_LINE_MAX,
   STAFF_CUSTOM_LINE_LABEL_MAX,
+  STAFF_ACCOMMODATION_SOURCE,
+  STAFF_ACCOMMODATION_COMPONENT,
   parseLocaleMoneyToCents,
   normalizeCustomLineItems,
   buildCustomLineQuoteLines,
   customLinesForIntentFingerprint,
+  normalizeAccommodationSelection,
+  accommodationForIntentFingerprint,
+  isStaffAccommodationMeta,
+  buildAccommodationQuoteLine,
+  formatAccommodationBookingCard,
   isValidStaffCreateGuestPhone,
   isNoLessonComponents,
   hasNoLessonEquipment,

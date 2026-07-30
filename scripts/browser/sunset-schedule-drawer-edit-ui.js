@@ -6,6 +6,7 @@ var scheduleDrawerValidationState = { ok: true, errorKey: null };
 var scheduleDrawerCustomLines = [];
 var scheduleDrawerCustomLineSeq = 0;
 var scheduleDrawerCustomLineEditorOpen = false;
+var scheduleDrawerAccommodation = null; // { enabled, check_in, check_out } | null
 // Edit-local quote preview state (do not share Create's schedulePortalQuote* globals).
 var scheduleDrawerQuoteState = null;
 var scheduleDrawerQuoteGen = 0;
@@ -1439,7 +1440,35 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
     escHtml(portalT('schedule.create.customLine.cancel') || 'Cancel') + '</button>';
   html += '</div>';
   html += '<p id="ps-drawer-custom-line-error" class="portal-schedule-create-custom-line-error" style="display:none" role="alert"></p>';
-  html += '</div></div></section>';
+  html += '</div>';
+  // Accommodation under Custom add-on (Edit parity with Create).
+  html += '<div id="ps-drawer-accommodation-wrap" class="portal-schedule-create-accommodation" data-testid="ps-drawer-accommodation" data-seed-accommodation="' +
+    escHtml(JSON.stringify(ctx && ctx.accommodation ? {
+      enabled: true,
+      check_in: ctx.accommodation.check_in,
+      check_out: ctx.accommodation.check_out,
+    } : null)) + '">';
+  html += '<div class="portal-schedule-create-custom-addon-header" style="margin-top:10px">';
+  html += '<h4 class="portal-schedule-create-section-title" data-i18n="schedule.create.accommodation.title">' +
+    escHtml(portalT('schedule.create.accommodation.title') || 'Accommodation') + '</h4>';
+  html += '<button type="button" id="ps-drawer-accommodation-add-btn" class="portal-schedule-create-custom-line-plus" data-i18n-aria="schedule.create.accommodation.add" aria-label="' +
+    escHtml(portalT('schedule.create.accommodation.add') || 'Accommodation +') + '">+</button>';
+  html += '</div>';
+  html += '<div id="ps-drawer-accommodation-editor" class="portal-schedule-create-accommodation-editor" style="display:none" hidden aria-hidden="true" data-testid="ps-drawer-accommodation-editor">';
+  html += '<div class="portal-schedule-create-field"><label for="ps-drawer-accommodation-check-in" data-i18n="schedule.create.accommodation.checkIn">' +
+    escHtml(portalT('schedule.create.accommodation.checkIn') || 'Check in') + '</label>';
+  html += '<input id="ps-drawer-accommodation-check-in" type="date" autocomplete="off"></div>';
+  html += '<div class="portal-schedule-create-field"><label for="ps-drawer-accommodation-check-out" data-i18n="schedule.create.accommodation.checkOut">' +
+    escHtml(portalT('schedule.create.accommodation.checkOut') || 'Check out') + '</label>';
+  html += '<input id="ps-drawer-accommodation-check-out" type="date" autocomplete="off"></div>';
+  html += '<div class="portal-schedule-create-custom-line-actions">';
+  html += '<button type="button" class="btn btn-ghost" id="ps-drawer-accommodation-remove" data-i18n="schedule.create.accommodation.remove">' +
+    escHtml(portalT('schedule.create.accommodation.remove') || 'Remove') + '</button>';
+  html += '</div>';
+  html += '<p class="portal-admin-muted" data-i18n="schedule.create.accommodation.serverPriced">' +
+    escHtml(portalT('schedule.create.accommodation.serverPriced') || 'Price is calculated from Admin seasonal rates.') + '</p>';
+  html += '</div></div>';
+  html += '</section>';
   html += '<section class="portal-schedule-create-section" data-edit-section="payment" aria-labelledby="ps-drawer-section-payment-title">';
   html += '<h3 id="ps-drawer-section-payment-title" class="portal-schedule-create-section-title">' +
     escHtml(portalT('schedule.create.section.paymentNotes')) + '</h3>';
@@ -3213,6 +3242,18 @@ function scheduleReadDrawerEditPayload() {
       amount_cents: Number(l.amount_cents),
     };
   });
+  // Always send accommodation key so omit-preserve server path is not needed when
+  // the editor explicitly removes it (null). Unrelated fields keep it when seeded.
+  var accommodation = null;
+  if (scheduleDrawerAccommodation && scheduleDrawerAccommodation.enabled) {
+    var acIn = el('ps-drawer-accommodation-check-in');
+    var acOut = el('ps-drawer-accommodation-check-out');
+    accommodation = {
+      enabled: true,
+      check_in: acIn ? String(acIn.value || '').slice(0, 10) : String(scheduleDrawerAccommodation.check_in || '').slice(0, 10),
+      check_out: acOut ? String(acOut.value || '').slice(0, 10) : String(scheduleDrawerAccommodation.check_out || '').slice(0, 10),
+    };
+  }
   var surferCount = scheduleDrawerReadSurferCount();
   // Private sessions keep canonical lessons[]. Group Edit uses selected course product
   // buttons only — never invent Group lessons[] / custom dates / times / schedules.
@@ -3234,11 +3275,119 @@ function scheduleReadDrawerEditPayload() {
     components: components,
     rentals: rentals,
     custom_line_items: custom_line_items,
+    accommodation: accommodation,
     // No-lesson equipment qty authority (server forces rentals to this when present).
     surfer_count: surferCount,
     course_equipment: course_equipment,
     lessons: lessons,
   };
+}
+
+function scheduleDrawerSeedAccommodationFromCtx(ctx) {
+  scheduleDrawerAccommodation = null;
+  var seed = null;
+  if (ctx && ctx.accommodation && ctx.accommodation.check_in && ctx.accommodation.check_out) {
+    seed = {
+      enabled: true,
+      check_in: String(ctx.accommodation.check_in).slice(0, 10),
+      check_out: String(ctx.accommodation.check_out).slice(0, 10),
+    };
+  } else {
+    var wrap = el('ps-drawer-accommodation-wrap');
+    if (wrap) {
+      try { seed = JSON.parse(wrap.getAttribute('data-seed-accommodation') || 'null'); } catch (_e) { seed = null; }
+    }
+  }
+  if (seed && seed.check_in && seed.check_out) {
+    scheduleDrawerAccommodation = {
+      enabled: true,
+      check_in: String(seed.check_in).slice(0, 10),
+      check_out: String(seed.check_out).slice(0, 10),
+    };
+  }
+}
+
+function scheduleDrawerRenderAccommodation() {
+  var editor = el('ps-drawer-accommodation-editor');
+  var addBtn = el('ps-drawer-accommodation-add-btn');
+  var productOn = typeof scheduleAccommodationEnabledCache !== 'undefined'
+    ? !!scheduleAccommodationEnabledCache
+    : true;
+  // Historical stay: always show editor when seeded even if product is now disabled.
+  var hasExisting = !!(scheduleDrawerAccommodation && scheduleDrawerAccommodation.enabled);
+  var wrap = el('ps-drawer-accommodation-wrap');
+  if (wrap) {
+    if (productOn || hasExisting) {
+      wrap.style.display = '';
+      wrap.removeAttribute('hidden');
+    } else {
+      wrap.style.display = 'none';
+      wrap.setAttribute('hidden', '');
+    }
+  }
+  if (!editor) return;
+  if (hasExisting) {
+    editor.style.display = '';
+    editor.removeAttribute('hidden');
+    editor.setAttribute('aria-hidden', 'false');
+    var cin = el('ps-drawer-accommodation-check-in');
+    var cout = el('ps-drawer-accommodation-check-out');
+    if (cin) cin.value = scheduleDrawerAccommodation.check_in || '';
+    if (cout) cout.value = scheduleDrawerAccommodation.check_out || '';
+    if (addBtn) addBtn.style.display = 'none';
+  } else {
+    editor.style.display = 'none';
+    editor.setAttribute('hidden', '');
+    editor.setAttribute('aria-hidden', 'true');
+    if (addBtn) addBtn.style.display = productOn ? '' : 'none';
+  }
+}
+
+function scheduleDrawerAddAccommodation() {
+  var productOn = typeof scheduleAccommodationEnabledCache !== 'undefined'
+    ? !!scheduleAccommodationEnabledCache
+    : true;
+  if (!productOn && !(scheduleDrawerAccommodation && scheduleDrawerAccommodation.enabled)) return;
+  var dateFrom = el('ps-drawer-date-from') ? el('ps-drawer-date-from').value
+    : (el('ps-drawer-date') ? el('ps-drawer-date').value : '');
+  var dateTo = el('ps-drawer-date-to') ? el('ps-drawer-date-to').value : dateFrom;
+  scheduleDrawerAccommodation = {
+    enabled: true,
+    check_in: String(dateFrom || '').slice(0, 10),
+    check_out: String(dateTo || dateFrom || '').slice(0, 10),
+  };
+  scheduleDrawerRenderAccommodation();
+  if (typeof scheduleDrawerSyncFooter === 'function') scheduleDrawerSyncFooter();
+}
+
+function scheduleDrawerRemoveAccommodation() {
+  scheduleDrawerAccommodation = null;
+  scheduleDrawerRenderAccommodation();
+  if (typeof scheduleDrawerSyncFooter === 'function') scheduleDrawerSyncFooter();
+}
+
+function scheduleWireDrawerAccommodation() {
+  var addBtn = el('ps-drawer-accommodation-add-btn');
+  var removeBtn = el('ps-drawer-accommodation-remove');
+  var cin = el('ps-drawer-accommodation-check-in');
+  var cout = el('ps-drawer-accommodation-check-out');
+  if (addBtn && !addBtn._accomBound) {
+    addBtn._accomBound = true;
+    addBtn.addEventListener('click', function(){ scheduleDrawerAddAccommodation(); });
+  }
+  if (removeBtn && !removeBtn._accomBound) {
+    removeBtn._accomBound = true;
+    removeBtn.addEventListener('click', function(){ scheduleDrawerRemoveAccommodation(); });
+  }
+  function onCh() {
+    if (!scheduleDrawerAccommodation) return;
+    scheduleDrawerAccommodation.check_in = cin ? String(cin.value || '').slice(0, 10) : scheduleDrawerAccommodation.check_in;
+    scheduleDrawerAccommodation.check_out = cout ? String(cout.value || '').slice(0, 10) : scheduleDrawerAccommodation.check_out;
+    if (typeof scheduleDrawerSyncFooter === 'function') scheduleDrawerSyncFooter();
+  }
+  if (cin && !cin._accomBound) { cin._accomBound = true; cin.addEventListener('change', onCh); }
+  if (cout && !cout._accomBound) { cout._accomBound = true; cout.addEventListener('change', onCh); }
+  scheduleDrawerRenderAccommodation();
 }
 
 function scheduleDrawerSeedCustomLinesFromCtx(ctx) {
@@ -3528,6 +3677,8 @@ function scheduleWireEditableDrawer(row, ctx) {
   scheduleDrawerRenderCustomLines();
   scheduleWireDrawerCustomLines();
   scheduleDrawerSetCustomLineEditorOpen(false);
+  scheduleDrawerSeedAccommodationFromCtx(ctx || {});
+  scheduleWireDrawerAccommodation();
   scheduleFetchLessonTimesConfig(getClient()).then(function() {
     if (!editMountStillActive()) return;
     // After catalog load: seed drill-down view + course list from booking.
