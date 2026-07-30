@@ -541,9 +541,14 @@ async function main() {
     cont5.ok === true
       && cont5.records
       && cont5.records[0]
-      && cont5.records[0].amount_due_cents === 9000,
+      && cont5.records[0].amount_due_cents === 9000
+      && cont5.records[0].metadata
+      && cont5.records[0].metadata.duration_key === '3_days'
+      && cont5.records[0].metadata.selected_duration_key === '5_days'
+      && cont5.records[0].metadata.booking_duration_key === '5_days',
     JSON.stringify(cont5));
 
+  // qty×continuation with truthful span identity (not unconfigured 1_day when 3d owns base).
   const cont5q2 = await prepareGenericRentalsForCreate({
     clientSlug: 'sunset',
     locationId: 'sunset-somo',
@@ -551,7 +556,7 @@ async function main() {
     pgClient: {},
     calendarDayCount: 5,
     bookingDurationKey: '5_days',
-    rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 2 }],
+    rentals: [{ offering_key: 'kayak_rental', duration_key: '5_days', quantity: 2 }],
     listOfferings: async () => catalog,
     loadRule: makeLoadRule(dayTable),
     listDayTiers: async () => ([
@@ -565,7 +570,9 @@ async function main() {
       && cont5q2.records
       && cont5q2.records[0]
       && cont5q2.records[0].amount_due_cents === 18000
-      && cont5q2.records[0].quantity === 2,
+      && cont5q2.records[0].quantity === 2
+      && cont5q2.records[0].metadata.duration_key === '3_days'
+      && cont5q2.records[0].metadata.selected_duration_key === '5_days',
     JSON.stringify(cont5q2));
 
   const exact3 = await prepareGenericRentalsForCreate({
@@ -697,6 +704,118 @@ async function main() {
       && contradictSpan.reason === 'rental_duration_not_compatible'
       && !Array.isArray(contradictSpan.records),
     JSON.stringify(contradictSpan));
+
+  // BLOCKER A: parseable selected day ≤ span is insufficient when that identity
+  // did not own the requested span or the authoritative base tier used for price.
+  // Example: 5-day span, Admin tiers 1d+3d only, hostile selected 2_days → reject
+  // (must never price from 3d while persisting selected_duration_key=2_days).
+  const hostile2Days = await prepareGenericRentalsForCreate({
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    serviceDate: '2026-08-01',
+    pgClient: {},
+    calendarDayCount: 5,
+    bookingDurationKey: '5_days',
+    rentals: [{ offering_key: 'kayak_rental', duration_key: '2_days', quantity: 1 }],
+    listOfferings: async () => catalog,
+    loadRule: makeLoadRule({
+      'kayak_rental__1_day|day|sunset-somo': { amount_cents: 2000 },
+      'kayak_rental__3_days|day|sunset-somo': { amount_cents: 5400 },
+    }),
+    listDayTiers: async () => ([
+      { days: 1, duration_key: '1_day', amount_cents: 2000 },
+      { days: 3, duration_key: '3_days', amount_cents: 5400 },
+    ]),
+  });
+  ok('hostile selected 2_days with configured 1d+3d rejects (zero priced records)',
+    hostile2Days.ok === false
+      && hostile2Days.reason === 'rental_duration_not_compatible'
+      && !Array.isArray(hostile2Days.records),
+    JSON.stringify(hostile2Days));
+
+  // Positive: selected span identity 5_days → truthful 3d continuation + metadata.
+  const sel5Truth = await prepareGenericRentalsForCreate({
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    serviceDate: '2026-08-01',
+    pgClient: {},
+    calendarDayCount: 5,
+    bookingDurationKey: '5_days',
+    rentals: [{ offering_key: 'kayak_rental', duration_key: '5_days', quantity: 1 }],
+    listOfferings: async () => catalog,
+    loadRule: makeLoadRule({
+      'kayak_rental__1_day|day|sunset-somo': { amount_cents: 2000 },
+      'kayak_rental__3_days|day|sunset-somo': { amount_cents: 5400 },
+    }),
+    listDayTiers: async () => ([
+      { days: 1, duration_key: '1_day', amount_cents: 2000 },
+      { days: 3, duration_key: '3_days', amount_cents: 5400 },
+    ]),
+  });
+  ok('selected 5_days → same truthful 3d continuation; selected/base metadata no conflict',
+    sel5Truth.ok === true
+      && sel5Truth.records
+      && sel5Truth.records[0]
+      && sel5Truth.records[0].amount_due_cents === 9000
+      && sel5Truth.records[0].metadata.duration_key === '3_days'
+      && sel5Truth.records[0].metadata.selected_duration_key === '5_days'
+      && sel5Truth.records[0].metadata.booking_duration_key === '5_days'
+      && sel5Truth.records[0].metadata.selected_duration_key !== '2_days',
+    JSON.stringify(sel5Truth));
+
+  // Positive: selected actual base tier 3_days → same money; selected owns base identity.
+  const sel3Truth = await prepareGenericRentalsForCreate({
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    serviceDate: '2026-08-01',
+    pgClient: {},
+    calendarDayCount: 5,
+    bookingDurationKey: '5_days',
+    rentals: [{ offering_key: 'kayak_rental', duration_key: '3_days', quantity: 1 }],
+    listOfferings: async () => catalog,
+    loadRule: makeLoadRule({
+      'kayak_rental__1_day|day|sunset-somo': { amount_cents: 2000 },
+      'kayak_rental__3_days|day|sunset-somo': { amount_cents: 5400 },
+    }),
+    listDayTiers: async () => ([
+      { days: 1, duration_key: '1_day', amount_cents: 2000 },
+      { days: 3, duration_key: '3_days', amount_cents: 5400 },
+    ]),
+  });
+  ok('selected 3_days → same truthful 3d continuation; selected matches base',
+    sel3Truth.ok === true
+      && sel3Truth.records
+      && sel3Truth.records[0]
+      && sel3Truth.records[0].amount_due_cents === 9000
+      && sel3Truth.records[0].metadata.duration_key === '3_days'
+      && sel3Truth.records[0].metadata.selected_duration_key === '3_days'
+      && sel3Truth.records[0].metadata.booking_duration_key === '5_days',
+    JSON.stringify(sel3Truth));
+
+  // 1_day is only legal when it is the actual continuation base (not when 3d owns base).
+  const sel1When3Base = await prepareGenericRentalsForCreate({
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    serviceDate: '2026-08-01',
+    pgClient: {},
+    calendarDayCount: 5,
+    bookingDurationKey: '5_days',
+    rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+    listOfferings: async () => catalog,
+    loadRule: makeLoadRule({
+      'kayak_rental__1_day|day|sunset-somo': { amount_cents: 2000 },
+      'kayak_rental__3_days|day|sunset-somo': { amount_cents: 5400 },
+    }),
+    listDayTiers: async () => ([
+      { days: 1, duration_key: '1_day', amount_cents: 2000 },
+      { days: 3, duration_key: '3_days', amount_cents: 5400 },
+    ]),
+  });
+  ok('selected 1_day rejected when authoritative base is 3_days (not span/base owner)',
+    sel1When3Base.ok === false
+      && sel1When3Base.reason === 'rental_duration_not_compatible'
+      && !Array.isArray(sel1When3Base.records),
+    JSON.stringify(sel1When3Base));
 
   // Canonical-only payloads still untouched (no generic authority).
   const canonicalOnly = await prepareGenericRentalsForCreate({
@@ -992,13 +1111,6 @@ async function main() {
       + '<input type="number" min="1" max="99" class="ps-create-rental-qty-input" data-rental-quantity data-qty-owner="user" value="4">'
       + '</div></div>';
 
-    // Extract + run scheduleReadCreateRentalsSelection from served page if present
-    const readFnSrc = extractFn(html, 'scheduleReadCreateRentalsSelection')
-      || extractFn(html, 'scheduleReadCreateRentals');
-    const serializeSrc = fs.readFileSync(
-      path.join(ROOT, 'scripts/browser/sunset-schedule-rental-availability.js'),
-      'utf8',
-    );
     // Pure serialize owner always works:
     const sel = rentalAvail.scheduleSerializeRentalsSelection([
       { offering_key: 'board_rental', duration_key: '1_day', quantity: 8 },
@@ -1016,7 +1128,7 @@ async function main() {
       && !/keep any rental qty mirrors in lockstep with surfers/.test(html),
       'obsolete lockstep still in scheduleReadCreatePayload');
 
-    // Clamp contract: qty 1..99
+    // Serializer still rejects non-canonical numbers (defense in depth).
     const bad0 = rentalAvail.scheduleSerializeRentalsSelection([
       { offering_key: 'board_rental', duration_key: '1_day', quantity: 0 },
     ], '1_day');
@@ -1034,11 +1146,206 @@ async function main() {
     ok('fraction dropped', badFrac.length === 0, JSON.stringify(badFrac));
     ok('qty 99 accepted', ok99.length === 1 && ok99[0].quantity === 99, JSON.stringify(ok99));
 
-    // Edit source parity (inline browser module)
+    // ── BLOCKER B: actual Create/Edit DOM readers must fail closed on invalid qty ──
+    // parseInt coerces 1.5→1, blank→default1, >99→99 — commercial intent must not be manufactured.
+    console.log('\n[5b] Create/Edit DOM readers — canonical qty only (fail closed)');
+    const apiSrc = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
     const editSrc = fs.readFileSync(
       path.join(ROOT, 'scripts/browser/sunset-schedule-drawer-edit-ui.js'),
       'utf8',
     );
+    const portalSrc = fs.readFileSync(
+      path.join(ROOT, 'scripts/browser/sunset-schedule-portal-module.js'),
+      'utf8',
+    );
+    const createReadSrc = extractFn(apiSrc, 'scheduleReadCreateRentalSelectionFromDom')
+      || extractFn(html, 'scheduleReadCreateRentalSelectionFromDom');
+    const editReadSrc = extractFn(editSrc, 'scheduleReadDrawerRentalSelectionFromDom');
+    const createValidateSrc = extractFn(portalSrc, 'schedulePortalValidateCreatePayload');
+    const editValidateSrc = extractFn(editSrc, 'scheduleDrawerValidateEditPayload');
+    ok('Create DOM reader extractable', !!createReadSrc);
+    ok('Edit DOM reader extractable', !!editReadSrc);
+    ok('Create/Edit validators extractable', !!createValidateSrc && !!editValidateSrc);
+
+    function buildRentalWrap(kind, qtyValues) {
+      const id = kind === 'edit' ? 'ps-drawer-rentals' : 'ps-create-rentals';
+      const checkCls = kind === 'edit' ? 'ps-drawer-rental-check' : 'ps-create-rental-check';
+      const qtyCls = kind === 'edit' ? 'ps-drawer-rental-qty-input' : 'ps-create-rental-qty-input';
+      const w = new El({ tag: 'div', id });
+      w.setAttribute('data-duration-key', '1_day');
+      const offerings = ['board_rental', 'wetsuit_rental', 'kayak_rental'];
+      let htmlRows = '';
+      for (let i = 0; i < qtyValues.length; i += 1) {
+        const key = offerings[i] || ('rental_' + (i + 1));
+        const q = qtyValues[i];
+        htmlRows += ''
+          + '<div class="portal-schedule-create-rental-row" data-rental-offering="' + key + '"'
+          + ' data-rental-duration-key="1_day">'
+          + '<input type="checkbox" class="' + checkCls + '" data-offering-key="' + key + '" checked>'
+          + '<div class="portal-schedule-create-rental-qty">'
+          + '<input type="number" min="1" max="99" class="' + qtyCls + '"'
+          + ' data-rental-quantity data-qty-owner="user" value="' + String(q) + '">'
+          + '</div></div>';
+      }
+      w.innerHTML = htmlRows;
+      return w;
+    }
+
+    function loadCreateReader(rentWrap) {
+      const sandbox = {
+        el(id) {
+          if (id === 'ps-create-rentals') return rentWrap;
+          return null;
+        },
+        scheduleSerializeRentalsSelection: rentalAvail.scheduleSerializeRentalsSelection,
+        scheduleCreateDateSpanForRentals() { return { from: '2026-08-01', to: '2026-08-01' }; },
+        scheduleRentalDurationKeyFromDates() { return '1_day'; },
+        scheduleEnumerateDates() { return ['2026-08-01']; },
+      };
+      vm.runInNewContext(
+        createReadSrc + '\nthis.scheduleReadCreateRentalSelectionFromDom = scheduleReadCreateRentalSelectionFromDom;',
+        sandbox,
+      );
+      return sandbox.scheduleReadCreateRentalSelectionFromDom();
+    }
+
+    function loadEditReader(rentWrap) {
+      const sandbox = {
+        el(id) {
+          if (id === 'ps-drawer-rentals') return rentWrap;
+          return null;
+        },
+        scheduleSerializeRentalsSelection: rentalAvail.scheduleSerializeRentalsSelection,
+      };
+      vm.runInNewContext(
+        editReadSrc + '\nthis.scheduleReadDrawerRentalSelectionFromDom = scheduleReadDrawerRentalSelectionFromDom;',
+        sandbox,
+      );
+      return sandbox.scheduleReadDrawerRentalSelectionFromDom();
+    }
+
+    function validateCreate(rentals) {
+      const sandbox = {
+        schedulePortalIsValidCreatePhone() { return true; },
+        schedulePortalHasSellableIntent(p) {
+          return !!(p && Array.isArray(p.rentals) && p.rentals.length);
+        },
+        schedulePortalInclusiveDateCount() { return 1; },
+        schedulePortalCanonicalDateIso(d) { return d; },
+        schedulePortalMadridTodayIso() { return '2026-01-01'; },
+        schedulePortalValidatePrivateLessonCreate() { return { ok: true }; },
+        scheduleReadCreateSurferCount() { return 1; },
+      };
+      vm.runInNewContext(
+        createValidateSrc + '\nthis.schedulePortalValidateCreatePayload = schedulePortalValidateCreatePayload;',
+        sandbox,
+      );
+      return sandbox.schedulePortalValidateCreatePayload({
+        guest_name: 'Ada',
+        guest_phone: '+34600000000',
+        date_from: '2026-08-01',
+        date_to: '2026-08-01',
+        components: {},
+        rentals,
+        surfer_count: 1,
+      }, { soft: false });
+    }
+
+    function validateEdit(rentals) {
+      const sandbox = {
+        el() { return null; },
+        scheduleDrawerMainActivityValue() { return 'none'; },
+        scheduleDrawerReadSurferCount() { return 1; },
+        schedulePortalInclusiveDateCount() { return 1; },
+        schedulePortalValidatePrivateLessonCreate() { return { ok: true }; },
+      };
+      vm.runInNewContext(
+        editValidateSrc + '\nthis.scheduleDrawerValidateEditPayload = scheduleDrawerValidateEditPayload;',
+        sandbox,
+      );
+      return sandbox.scheduleDrawerValidateEditPayload({
+        guest_name: 'Ada',
+        guest_phone: '+34600000000',
+        date_from: '2026-08-01',
+        date_to: '2026-08-01',
+        components: {},
+        rentals,
+        surfer_count: 1,
+      });
+    }
+
+    // Non-default valid quantities 2/3/4 through actual Create + Edit readers.
+    const createValid = loadCreateReader(buildRentalWrap('create', ['2', '3', '4']));
+    const editValid = loadEditReader(buildRentalWrap('edit', ['2', '3', '4']));
+    ok('Create DOM reader preserves nondefault qty 2/3/4 into selection',
+      Array.isArray(createValid)
+        && createValid.length === 3
+        && createValid.find((r) => r.offering_key === 'board_rental' && r.quantity === 2)
+        && createValid.find((r) => r.offering_key === 'wetsuit_rental' && r.quantity === 3)
+        && createValid.find((r) => r.offering_key === 'kayak_rental' && r.quantity === 4),
+      JSON.stringify(createValid));
+    ok('Edit DOM reader preserves nondefault qty 2/3/4 into selection',
+      Array.isArray(editValid)
+        && editValid.length === 3
+        && editValid.find((r) => r.offering_key === 'board_rental' && r.quantity === 2)
+        && editValid.find((r) => r.offering_key === 'wetsuit_rental' && r.quantity === 3)
+        && editValid.find((r) => r.offering_key === 'kayak_rental' && r.quantity === 4),
+      JSON.stringify(editValid));
+    ok('Create validation accepts canonical qty 2/3/4',
+      validateCreate(createValid).ok === true,
+      JSON.stringify(validateCreate(createValid)));
+    ok('Edit validation accepts canonical qty 2/3/4',
+      validateEdit(editValid).ok === true,
+      JSON.stringify(validateEdit(editValid)));
+
+    // Invalid explicit values must not manufacture 1/99 or silently omit without fail.
+    const invalidCases = [
+      { label: 'blank', value: '' },
+      { label: 'fraction', value: '1.5' },
+      { label: 'text', value: 'abc' },
+      { label: 'zero', value: '0' },
+      { label: 'negative', value: '-3' },
+      { label: 'over99', value: '100' },
+    ];
+    for (const c of invalidCases) {
+      const createBad = loadCreateReader(buildRentalWrap('create', [c.value]));
+      const editBad = loadEditReader(buildRentalWrap('edit', [c.value]));
+      const createHasManufactured = Array.isArray(createBad)
+        && createBad.some((r) => r.quantity === 1 || r.quantity === 99);
+      const editHasManufactured = Array.isArray(editBad)
+        && editBad.some((r) => r.quantity === 1 || r.quantity === 99);
+      // Must not silently omit selected rental as "no intent" without validation failure.
+      const createGate = validateCreate(createBad);
+      const editGate = validateEdit(editBad);
+      const createSilentOmit = Array.isArray(createBad) && createBad.length === 0;
+      const editSilentOmit = Array.isArray(editBad) && editBad.length === 0;
+      ok('Create reader/validation fail-closed on ' + c.label
+        + ' (no manufacture 1/99; block; no silent omit without fail)',
+        createGate.ok === false
+          && !createHasManufactured
+          && !(createSilentOmit && createGate.ok !== false),
+        'sel=' + JSON.stringify(createBad) + ' gate=' + JSON.stringify(createGate));
+      ok('Edit reader/validation fail-closed on ' + c.label
+        + ' (no manufacture 1/99; block; no silent omit without fail)',
+        editGate.ok === false
+          && !editHasManufactured
+          && !(editSilentOmit && editGate.ok !== false),
+        'sel=' + JSON.stringify(editBad) + ' gate=' + JSON.stringify(editGate));
+      // Explicit: silent omit of selected row is forbidden even if gate somehow ok.
+      ok('Create does not silently omit selected rental for ' + c.label,
+        !(createSilentOmit && createGate.ok === true)
+          && (createSilentOmit ? createGate.ok === false : true)
+          && (createSilentOmit === false || createGate.ok === false),
+        'silent-omit-with-ok forbidden; sel=' + JSON.stringify(createBad));
+      // Stronger: never omit selected checked rental on invalid qty.
+      ok('Create keeps selected rental present for invalid ' + c.label + ' (validation blocks)',
+        Array.isArray(createBad) && createBad.length >= 1 && createGate.ok === false,
+        JSON.stringify({ createBad, createGate }));
+      ok('Edit keeps selected rental present for invalid ' + c.label + ' (validation blocks)',
+        Array.isArray(editBad) && editBad.length >= 1 && editGate.ok === false,
+        JSON.stringify({ editBad, editGate }));
+    }
+
     ok('Edit does not force no-lesson rental qty from surfers',
       !/Force hidden no-lesson rental qty mirrors to live booking Surfers/.test(editSrc)
       && !/data-qty-owner', 'surfers'/.test(editSrc.replace(/course-equipment[\s\S]{0,40}surfers/g, '')),

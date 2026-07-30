@@ -1646,11 +1646,26 @@ function scheduleReadDrawerRentalSelectionFromDom() {
     var rowDuration = '';
     if (durSel && durSel.value) rowDuration = String(durSel.value).trim();
     if (!rowDuration) rowDuration = String(row.getAttribute('data-rental-duration-key') || duration).trim();
-    var qty = parseInt(qtyEl && qtyEl.value, 10);
-    if (!Number.isInteger(qty) || qty < 1) qty = 1;
-    if (qty > 99) qty = 99;
+    // Canonical whole-number text/number 1..99 only. Never manufacture 1/99 from
+    // blank/fraction/text/>99 — keep selected identity so quote/save validation fails closed.
+    var qtyRaw = qtyEl && qtyEl.value;
+    var qty = null;
+    if (qtyRaw !== '' && qtyRaw != null) {
+      var qtyStr = String(qtyRaw).trim();
+      // Reject fractions (1.5), scientific (2e1), text, blanks, leading junk.
+      if (/^\d{1,2}$/.test(qtyStr)) {
+        var qtyN = parseInt(qtyStr, 10);
+        if (Number.isInteger(qtyN) && qtyN >= 1 && qtyN <= 99) qty = qtyN;
+      }
+    }
     selection.push({ offering_key: key, duration_key: rowDuration, quantity: qty });
   });
+  // Any selected row with non-canonical qty must reach client validation (do not
+  // let serializer silently drop the checked rental).
+  var hasInvalidQty = selection.some(function(s) {
+    return !Number.isInteger(s.quantity) || s.quantity < 1 || s.quantity > 99;
+  });
+  if (hasInvalidQty) return selection;
   if (typeof scheduleSerializeRentalsSelection === 'function') {
     var genericOfferingKeys = selection.map(function(s) { return s.offering_key; });
     return scheduleSerializeRentalsSelection(selection, duration, {
@@ -1659,6 +1674,18 @@ function scheduleReadDrawerRentalSelectionFromDom() {
     });
   }
   return selection;
+}
+
+/** Canonical equipment qty from DOM: whole-number text/number 1..99 only (null otherwise). */
+function scheduleParseRentalEquipmentQtyValue(raw) {
+  if (raw === '' || raw == null) return null;
+  var s = String(raw).trim();
+  if (!s) return null;
+  // Reject fractions (1.5), scientific (2e1), text, blanks, leading junk.
+  if (!/^\d{1,2}$/.test(s)) return null;
+  var n = parseInt(s, 10);
+  if (!Number.isInteger(n) || n < 1 || n > 99) return null;
+  return n;
 }
 
 function scheduleDrawerApplyRentalExclusionUi(wrap, selectedKeys) {
@@ -1781,36 +1808,34 @@ function scheduleWireDrawerRentals(wrap) {
   });
 }
 
-/** Clamp Edit rental qty to 1..99; zero/invalid deselects rather than persist 0. */
+/**
+ * Change/blur helper for Edit rental qty (Create parity).
+ * +/- steppers enforce min/max conventionally; manual invalid input is left as-is
+ * so quote/save readers fail closed (never silently rewrite commercial intent to 1/99).
+ * Explicit 0 deselects the row (stepper-from-1 convention).
+ */
 function scheduleDrawerClampRentalQtyInput(inp, wrap) {
   if (!inp) return;
   var raw = String(inp.value == null ? '' : inp.value).trim();
   if (raw === '' || raw === '-') return;
-  var n = Number(raw);
-  if (!Number.isInteger(n) || n < 1) {
-    if (n === 0 || raw === '0') {
-      var row0 = inp.closest ? inp.closest('[data-rental-offering]') : null;
-      var check0 = row0 && row0.querySelector('.ps-drawer-rental-check');
-      if (check0 && check0.checked) {
-        check0.checked = false;
-        try { check0.dispatchEvent(new Event('change', { bubbles: true })); } catch (_e0) { /* ignore */ }
-        var selected0 = [];
-        wrap.querySelectorAll('.ps-drawer-rental-check').forEach(function(c) {
-          if (c.checked) selected0.push(String(c.getAttribute('data-offering-key') || ''));
-        });
-        scheduleDrawerApplyRentalExclusionUi(wrap, selected0);
-      }
-      inp.value = '1';
-      return;
+  if (raw === '0') {
+    var row0 = inp.closest ? inp.closest('[data-rental-offering]') : null;
+    var check0 = row0 && row0.querySelector('.ps-drawer-rental-check');
+    if (check0 && check0.checked) {
+      check0.checked = false;
+      try { check0.dispatchEvent(new Event('change', { bubbles: true })); } catch (_e0) { /* ignore */ }
+      var selected0 = [];
+      wrap.querySelectorAll('.ps-drawer-rental-check').forEach(function(c) {
+        if (c.checked) selected0.push(String(c.getAttribute('data-offering-key') || ''));
+      });
+      scheduleDrawerApplyRentalExclusionUi(wrap, selected0);
     }
     inp.value = '1';
     return;
   }
-  if (n > 99) {
-    inp.value = '99';
-    return;
-  }
-  inp.value = String(n);
+  var canonical = scheduleParseRentalEquipmentQtyValue(raw);
+  if (canonical == null) return; // leave invalid manual input; readers/validation fail closed
+  inp.value = String(canonical);
 }
 
 function scheduleRenderDrawerRentals() {
@@ -3151,6 +3176,20 @@ function scheduleDrawerValidateEditPayload(payload) {
   }
   // Blank/invalid Surfers cannot Save or quote (no silent fallback to 1).
   var rentals = Array.isArray(p.rentals) ? p.rentals : [];
+  // Physical equipment units: canonical whole integers 1..99 only (Create parity).
+  // Invalid explicit qty must block Save/quote — never accept manufactured 1/99.
+  if (rentals.length) {
+    for (var ri = 0; ri < rentals.length; ri++) {
+      var rr = rentals[ri] || {};
+      var rOff = String(rr.offering_key || '').trim();
+      var rDur = String(rr.duration_key || '').trim();
+      var rQty = Number(rr.quantity);
+      if (!rOff || !rDur
+        || !(Number.isFinite(rQty) && Math.floor(rQty) === rQty && rQty >= 1 && rQty <= 99)) {
+        return { ok: false, errorKey: 'schedule.create.componentsRequired' };
+      }
+    }
+  }
   var needsSurfers = !!(comps.course || comps.private_lesson || rentals.length
     || comps.full_day_equipment_extension);
   if (!needsSurfers) {

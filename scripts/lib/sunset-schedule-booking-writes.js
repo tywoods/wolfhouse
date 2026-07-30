@@ -555,6 +555,13 @@ async function prepareGenericRentalsForCreate(opts) {
           return { ok: false, reason: 'rental_duration_not_compatible' };
         }
         const baseKey = cont.base_duration_key;
+        // After authoritative tier resolution, selected duration must truthfully
+        // own either the booking-span identity (exact N_days) or the actual base
+        // tier used for continuation. Never price from M-day while persisting an
+        // unconfigured selected identity (e.g. hostile 2_days when only 1d+3d).
+        if (selectedDuration !== exactKey && selectedDuration !== baseKey) {
+          return { ok: false, reason: 'rental_duration_not_compatible' };
+        }
         const baseTier = tiers.find((t) => t.days === cont.base_days) || tiers[0];
         // 1-day base keeps legacy repeated_base_package metadata (unit = 1-day rate).
         // Longer base tiers use continued_day_discount with unit = one item over N days.
