@@ -837,6 +837,8 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
       success: true,
       booking_id: bundle.booking.booking_id,
       booking_code: bundle.booking.booking_code,
+      booking_status: bundle.booking.status || null,
+      payments_paid_cents: Number(bundle.payments_paid_cents || 0),
       guest_name: bundle.booking.guest_name,
       phone: bundle.booking.phone || meta.guest_phone || null,
       notes: bundle.services[0] && bundle.services[0].notes ? bundle.services[0].notes : null,

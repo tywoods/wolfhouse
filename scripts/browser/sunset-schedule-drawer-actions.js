@@ -597,10 +597,14 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
   // ── Cancel / remove-from-schedule ─────────────────────────────────────
 
   function bookingIsCancelled(ctx, row) {
-    var st = String((ctx && (ctx.booking_status || ctx.status)) || (row && (row.booking_status || row.status)) || '').toLowerCase();
+    var st = String(
+      (ctx && (ctx.booking_status || ctx.bookingStatus))
+      || (row && (row.booking_status || row.bookingStatus))
+      || ''
+    ).toLowerCase();
     if (st === 'cancelled' || st === 'canceled') return true;
-    if (ctx && (ctx.schedule_ghost || ctx.cancelled)) return true;
-    if (row && (row.schedule_ghost || row._isCancelled)) return true;
+    if (ctx && (ctx.schedule_ghost === true || ctx.schedule_ghost === 'true')) return true;
+    if (row && (row.schedule_ghost === true || row.schedule_ghost === 'true' || row._isCancelled === true)) return true;
     return false;
   }
 
@@ -726,6 +730,10 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
   function deleteBookingFromDrawer() {
     var st = scheduleDrawerState;
     if (!st || !st.ctx || !st.row) return;
+    // If still active, cancel (ghost) instead of archive — avoids cancel_before_archive dead-end.
+    if (!bookingIsCancelled(st.ctx, st.row) && canCancelBooking(st.row, st.ctx)) {
+      return cancelBookingFromDrawer();
+    }
     if (!canDeleteBooking(st.row, st.ctx)) return;
     var bookingId = st.ctx.booking_id;
     if (!bookingId) return;

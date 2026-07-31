@@ -41576,15 +41576,30 @@ async function handleSunsetScheduleBookingDelete(query, req, res, user) {
   }
   const bookingId = String(body.booking_id || query.booking_id || '').trim();
   try {
-    const result = await withPgClient(async (pg) => archiveSunsetScheduleBooking(pg, {
-      clientSlug,
-      bookingId,
-      locationId: trustedLocationId,
-      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
-    }));
+    const result = await withPgClient(async (pg) => {
+      // Active → soft cancel (ghost). Cancelled → archive/remove-from-schedule.
+      const archived = await archiveSunsetScheduleBooking(pg, {
+        clientSlug,
+        bookingId,
+        locationId: trustedLocationId,
+        actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+      });
+      if (archived && archived.ok) return archived;
+      if (archived && archived.body && archived.body.error === 'cancel_before_archive') {
+        return cancelSunsetScheduleBooking(pg, {
+          clientSlug,
+          bookingId,
+          locationId: trustedLocationId,
+          actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+        });
+      }
+      return archived;
+    });
     appendAuditLog({
       ts: new Date().toISOString(),
-      intent: 'api:sunset.schedule.booking_archive',
+      intent: (result && result.body && result.body.archived)
+        ? 'api:sunset.schedule.booking_archive'
+        : 'api:sunset.schedule.booking_cancel',
       category: 'schedule_api',
       client_slug: clientSlug,
       success: !!(result && result.ok),
