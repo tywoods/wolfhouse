@@ -539,6 +539,155 @@ global.setInterval = origSet;
 global.clearInterval = origClear;
 delete global.scheduleRequestPageLoad;
 
+console.log('\n[5b] Cancelled/ghost leakage — prep rail excludes cancelled gear + unpaid');
+// Predicate parity with scheduleBuildDaySessions filter.
+assert('active row ok', cockpit.scheduleCockpitRowIsActive({ booking_status: 'confirmed', service_date: TODAY_ISO }) === true);
+assert('drop _isCancelled', cockpit.scheduleCockpitRowIsActive({ _isCancelled: true }) === false);
+assert('drop schedule_ghost', cockpit.scheduleCockpitRowIsActive({ schedule_ghost: true }) === false);
+assert('drop booking_status cancelled', cockpit.scheduleCockpitRowIsActive({ booking_status: 'cancelled' }) === false);
+assert('drop booking_status canceled', cockpit.scheduleCockpitRowIsActive({ booking_status: 'canceled' }) === false);
+assert('drop status cancelled', cockpit.scheduleCockpitRowIsActive({ status: 'cancelled' }) === false);
+assert('drop service_status cancelled', cockpit.scheduleCockpitRowIsActive({ service_status: 'cancelled' }) === false);
+
+const ghostIso = TODAY_ISO;
+const activeRow = {
+  service_date: ghostIso,
+  booking_status: 'confirmed',
+  payment_status: 'paid',
+  service_type: 'course',
+  boards: 2,
+  wetsuits: 2,
+  guest_count: 2,
+  _groupKey: 'active-1',
+};
+const cancelledGearRow = {
+  service_date: ghostIso,
+  booking_status: 'cancelled',
+  payment_status: 'unpaid',
+  service_type: 'course',
+  boards: 5,
+  wetsuits: 5,
+  guest_count: 5,
+  _groupKey: 'cancel-1',
+  _isCancelled: true,
+};
+const ghostUnpaidRow = {
+  service_date: ghostIso,
+  schedule_ghost: true,
+  payment_status: 'pending',
+  service_type: 'course',
+  boards: 3,
+  wetsuits: 3,
+  guest_count: 3,
+  _groupKey: 'ghost-1',
+};
+const mixedRows = [activeRow, cancelledGearRow, ghostUnpaidRow];
+const activeOnly = cockpit.scheduleCockpitFilterActiveRows(mixedRows);
+assert('filter keeps only active', activeOnly.length === 1 && activeOnly[0]._groupKey === 'active-1');
+
+// Stubs mirror staff helpers: DATE FILTER ONLY (the bug surface).
+function stubEquipTotals(rows, dateIso) {
+  const day = (rows || []).filter((r) => String(r.service_date || '').slice(0, 10) === dateIso);
+  let boards = 0;
+  let wetsuits = 0;
+  day.forEach((r) => {
+    boards += Number(r.boards) || 0;
+    wetsuits += Number(r.wetsuits) || 0;
+  });
+  return {
+    boards: { total: boards, lesson: boards, rental: 0 },
+    wetsuits: { total: wetsuits, lesson: wetsuits, rental: 0 },
+  };
+}
+function stubUnpaidCount(rows, dateIso) {
+  const seen = {};
+  let count = 0;
+  (rows || []).filter((r) => String(r.service_date || '').slice(0, 10) === dateIso).forEach((r) => {
+    const key = r._groupKey || r.id;
+    if (seen[key]) return;
+    seen[key] = true;
+    const ps = String(r.payment_status || '').toLowerCase();
+    if (ps === 'unpaid' || ps === 'pending') count += 1;
+  });
+  return count;
+}
+
+// Bug proof: unfiltered helpers WOULD count cancelled gear/unpaid.
+const leakEquip = stubEquipTotals(mixedRows, ghostIso);
+const leakUnpaid = stubUnpaidCount(mixedRows, ghostIso);
+assert('unfiltered would leak gear boards', leakEquip.boards.total === 2 + 5 + 3);
+assert('unfiltered would leak unpaid', leakUnpaid === 2); // cancel unpaid + ghost pending
+
+// Fixed path: filter first, then same helpers.
+const fixedEquip = stubEquipTotals(activeOnly, ghostIso);
+const fixedUnpaid = stubUnpaidCount(activeOnly, ghostIso);
+assert('filtered prep boards exclude cancelled', fixedEquip.boards.total === 2);
+assert('filtered prep wetsuits exclude cancelled', fixedEquip.wetsuits.total === 2);
+assert('filtered unpaid excludes cancelled/ghost', fixedUnpaid === 0);
+
+// Collect path uses the filter before helpers.
+global.scheduleActiveDayIso = () => ghostIso;
+global.scheduleCurrentViewMode = () => 'day';
+global.getSunsetLocationLabel = () => 'Sunset';
+global.scheduleGetRowsSnapshot = () => mixedRows;
+global.scheduleBuildDaySessions = (dayRows) => {
+  // sessions only from active (already filtered by collect, plus helper re-filter)
+  return (dayRows || []).filter((r) => !r._isCancelled && !r.schedule_ghost).map((r) => ({
+    kind: 'course',
+    course_id: r._groupKey,
+    label: 'Session',
+    start: 600,
+    end: 720,
+    capacity: 24,
+    surfers: Number(r.guest_count) || 0,
+    boardsNeeded: Number(r.boards) || 0,
+    wetsuitsNeeded: Number(r.wetsuits) || 0,
+  }));
+};
+global.scheduleDayEquipmentTotals = stubEquipTotals;
+global.scheduleUnpaidPendingCount = stubUnpaidCount;
+global.scheduleConversationsCache = [];
+global.scheduleNeedReplyEmailCount = () => 0;
+global.scheduleNeedReplyWhatsAppCount = () => 0;
+
+const collected = cockpit.scheduleCollectDayCockpitSource();
+assert('collect prep boards = active only', collected.equip.boards.total === 2);
+assert('collect prep wetsuits = active only', collected.equip.wetsuits.total === 2);
+assert('collect unpaid = 0 (ghost/cancel dropped)', collected.unpaidCount === 0);
+assert('collect sessions exclude cancelled', (collected.sessions || []).length === 1);
+// Consistency: prep gear matches session gear totals for the active booking.
+const sessionBoards = (collected.sessions || []).reduce((n, s) => n + (Number(s.boardsNeeded) || 0), 0);
+assert('prep boards consistent with session boards', collected.equip.boards.total === sessionBoards);
+
+// Build path: equip → prep (no paint() default prep override).
+const built = cockpit.scheduleBuildDayCockpitData({
+  venue: 'Sunset',
+  date: TODAY_ISO,
+  range: 'today',
+  now: 650,
+  sessions: collected.sessions,
+  equip: collected.equip,
+  unpaidCount: collected.unpaidCount,
+  needReplyCount: 0,
+});
+assert('build prep boards = 2 (not leaked 10)', built.prep.boards.total === 2);
+assert('build prep wetsuits = 2 (not leaked 10)', built.prep.wetsuits.total === 2);
+assert('build unpaid = 0', built.prep.unpaid === 0);
+// Render without default prep merge
+host.innerHTML = '';
+host.className = '';
+cockpit.scheduleRenderDayCockpit(host, built);
+const ghostText = host.textContent || '';
+assert('render shows prep 2 boards', /\b2\b/.test(ghostText));
+assert('render unpaid zero', built.prep.unpaid === 0);
+
+[
+  'scheduleActiveDayIso', 'scheduleCurrentViewMode', 'getSunsetLocationLabel',
+  'scheduleGetRowsSnapshot', 'scheduleBuildDaySessions', 'scheduleDayEquipmentTotals',
+  'scheduleUnpaidPendingCount', 'scheduleConversationsCache',
+  'scheduleNeedReplyEmailCount', 'scheduleNeedReplyWhatsAppCount',
+].forEach((k) => { try { delete global[k]; } catch (_e) { /* ignore */ } });
+
 console.log('\n[6] State snapshot table');
 const snapshots = [
   ['mid-session', mid],

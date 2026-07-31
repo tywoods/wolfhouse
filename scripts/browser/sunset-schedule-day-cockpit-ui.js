@@ -828,9 +828,29 @@ function scheduleCockpitFocusSession(sessionId) {
 }
 
 /**
+ * Same active-row predicate as scheduleBuildDaySessions / scheduleRowIsActive.
+ * Prefer the shared helper when present (staff-query-api); keep an identical
+ * offline fallback so cockpit prep never double-counts cancelled ghosts.
+ */
+function scheduleCockpitRowIsActive(r) {
+  if (typeof scheduleRowIsActive === 'function') return scheduleRowIsActive(r);
+  if (!r) return false;
+  if (r._isCancelled || r.schedule_ghost) return false;
+  var bs = String(r.booking_status || r.status || '').toLowerCase();
+  if (bs === 'cancelled' || bs === 'canceled') return false;
+  var ss = String(r.service_status || '').toLowerCase();
+  if (ss === 'cancelled') return false;
+  return true;
+}
+
+function scheduleCockpitFilterActiveRows(rows) {
+  return (rows || []).filter(scheduleCockpitRowIsActive);
+}
+
+/**
  * Assemble cockpit src from the live schedule VM (no new queries).
  * sessions ← scheduleBuildDaySessions (includes capacity from course.capacity)
- * prep ← scheduleDayEquipmentTotals + unpaid/need-reply counters
+ * prep ← scheduleDayEquipmentTotals + unpaid/need-reply counters on ACTIVE rows only
  * venue/date/range ← getSunsetLocationLabel + nav
  */
 function scheduleCollectDayCockpitSource() {
@@ -846,25 +866,30 @@ function scheduleCollectDayCockpitSource() {
     if (typeof scheduleGetRowsSnapshot === 'function') rows = scheduleGetRowsSnapshot() || [];
   } catch (_e2) { rows = []; }
 
-  var dayRows = (rows || []).filter(function (r) {
+  // Active-only for prep/unpaid — same filter as scheduleBuildDaySessions.
+  // Helpers themselves only date-filter; they do not drop cancelled/ghosts.
+  var activeRows = scheduleCockpitFilterActiveRows(rows);
+
+  var dayRows = activeRows.filter(function (r) {
     return String(r.service_date || r.date || '').slice(0, 10) === activeIso;
   });
 
   var sessions = [];
   if (typeof scheduleBuildDaySessions === 'function') {
     try {
+      // buildDaySessions re-filters; passing active day rows is fine (behavior-identical).
       sessions = scheduleBuildDaySessions(dayRows, activeIso, typeof scheduleLessonTimesCache !== 'undefined' ? scheduleLessonTimesCache : null) || [];
     } catch (_e3) { sessions = []; }
   }
 
   var equip = { boards: { total: 0, lesson: 0, rental: 0 }, wetsuits: { total: 0, lesson: 0, rental: 0 } };
   if (typeof scheduleDayEquipmentTotals === 'function') {
-    try { equip = scheduleDayEquipmentTotals(rows, activeIso) || equip; } catch (_e4) { /* keep empty */ }
+    try { equip = scheduleDayEquipmentTotals(activeRows, activeIso) || equip; } catch (_e4) { /* keep empty */ }
   }
 
   var unpaidCount = 0;
   if (typeof scheduleUnpaidPendingCount === 'function') {
-    try { unpaidCount = scheduleUnpaidPendingCount(rows, activeIso) || 0; } catch (_e5) { unpaidCount = 0; }
+    try { unpaidCount = scheduleUnpaidPendingCount(activeRows, activeIso) || 0; } catch (_e5) { unpaidCount = 0; }
   }
 
   var needReplyCount = 0;
@@ -953,6 +978,8 @@ if (typeof module !== 'undefined' && module.exports) {
     scheduleEnsureDayCockpitCss: scheduleEnsureDayCockpitCss,
     scheduleDayCockpitDefaultHandlers: scheduleDayCockpitDefaultHandlers,
     scheduleCockpitFocusSession: scheduleCockpitFocusSession,
+    scheduleCockpitRowIsActive: scheduleCockpitRowIsActive,
+    scheduleCockpitFilterActiveRows: scheduleCockpitFilterActiveRows,
     scheduleCollectDayCockpitSource: scheduleCollectDayCockpitSource,
     schedulePaintDayCockpit: schedulePaintDayCockpit,
   };

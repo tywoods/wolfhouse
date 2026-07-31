@@ -25234,18 +25234,21 @@ function scheduleSessionGearTotals(groups){
   return { boards: boards, wetsuits: wetsuits };
 }
 
+/** Active schedule row for capacity/session/prep math (excludes cancelled ghosts). */
+function scheduleRowIsActive(r){
+  if (!r) return false;
+  if (r._isCancelled || r.schedule_ghost) return false;
+  var bs = String(r.booking_status || r.status || '').toLowerCase();
+  if (bs === 'cancelled' || bs === 'canceled') return false;
+  var ss = String(r.service_status || '').toLowerCase();
+  if (ss === 'cancelled') return false;
+  return true;
+}
+
 function scheduleBuildDaySessions(dayRows, dateIso, lessonTimes){
   lessonTimes = lessonTimes || scheduleLessonTimesCache;
   // Capacity/session math uses active rows only — cancelled ghosts paint separately.
-  dayRows = (dayRows || []).filter(function(r){
-    if (!r) return false;
-    if (r._isCancelled || r.schedule_ghost) return false;
-    var bs = String(r.booking_status || r.status || '').toLowerCase();
-    if (bs === 'cancelled' || bs === 'canceled') return false;
-    var ss = String(r.service_status || '').toLowerCase();
-    if (ss === 'cancelled') return false;
-    return true;
-  });
+  dayRows = (dayRows || []).filter(scheduleRowIsActive);
   var sessions = [];
   var courses = (scheduleCoursesCache || []).slice();
   if (!courses.length){
