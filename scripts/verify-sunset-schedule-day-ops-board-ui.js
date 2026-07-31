@@ -360,13 +360,18 @@ if (modExists) {
         };
         panels[id].classList._owner = panels[id];
       }
-      // Detect initial collapsed state from class on matching panel open tag.
+      // Detect initial collapsed state from class/hidden on matching panel open tag.
       Object.keys(panels).forEach((id) => {
         const openRe = new RegExp('id="' + id + '"[^>]*class="([^"]*)"');
         const openRe2 = new RegExp('class="([^"]*)"[^>]*id="' + id + '"');
         const mm = html.match(openRe) || html.match(openRe2);
         if (mm) panels[id].className = mm[1];
-        if (/\bis-collapsed\b/.test(panels[id].className) || /\bhidden\b/.test(panels[id].className)) {
+        const tag = html.match(new RegExp('<div\\b[^>]*id="' + id + '"[^>]*>'));
+        const tagStr = tag ? tag[0] : '';
+        if (/\bis-collapsed\b/.test(panels[id].className)
+          || /\bhidden\b/.test(panels[id].className)
+          || /\shidden(\s|>|$)/.test(tagStr)
+          || /\shidden=["']?true["']?/.test(tagStr)) {
           panels[id].hidden = true;
         }
       });
@@ -1129,6 +1134,352 @@ if (modExists) {
   assert('equipment prep counts still rendered for groups',
     collapseHtml.includes('Prepare') || collapseHtml.includes('portal-schedule-ops-lesson-hdr-prep'));
   ctx.scheduleBuildDaySessions = prevSessionsCollapse;
+
+  // ── Default-collapse past booking panels on TODAY only ──
+  // Contract: never hide the course card; reuse existing guest toggle + `done`
+  // (isToday && session.end != null && session.end <= nowMin).
+  console.log('\n[4b] Default-collapse past booking panels (TODAY only)');
+  const RealDate = ctx.Date || Date;
+  function installFixedClock(nowMin) {
+    const h = Math.floor(nowMin / 60);
+    const m = nowMin % 60;
+    function FixedDate(...args) {
+      if (!(this instanceof FixedDate)) return new FixedDate(...args);
+      if (args.length === 0) {
+        return Reflect.construct(RealDate, [2026, 6, 15, h, m, 0, 0], FixedDate);
+      }
+      return Reflect.construct(RealDate, args, FixedDate);
+    }
+    FixedDate.prototype = Object.create(RealDate.prototype);
+    FixedDate.prototype.constructor = FixedDate;
+    Object.setPrototypeOf(FixedDate, RealDate);
+    FixedDate.now = () => RealDate.UTC(2026, 6, 15, h, m, 0, 0);
+    FixedDate.parse = RealDate.parse.bind(RealDate);
+    FixedDate.UTC = RealDate.UTC.bind(RealDate);
+    ctx.Date = FixedDate;
+  }
+  function restoreClock() {
+    ctx.Date = RealDate;
+  }
+  function makeSession(overrides) {
+    return Object.assign({
+      kind: 'course',
+      label: 'Session',
+      timeLabel: '09:00',
+      slot_key: 's',
+      course_id: 'c-s',
+      surfers: 1,
+      bookings: 1,
+      boardsNeeded: 0,
+      wetsuitsNeeded: 0,
+      groups: [],
+      start: 540,
+      end: 600,
+      capacity: 8,
+    }, overrides || {});
+  }
+  function panelState(board, btn) {
+    const id = btn && btn.getAttribute('aria-controls');
+    const panel = id ? board.querySelector('#' + id) : null;
+    return {
+      id,
+      panel,
+      hidden: !!(panel && panel.hidden),
+      collapsedCls: !!(panel && /\bis-collapsed\b/.test(panel.className || '')),
+    };
+  }
+
+  // TODAY @ 12:00 — past (ended 10:00), current (11:00–13:00, now at mid), upcoming (15:00)
+  rows.length = 0;
+  cache.length = 0;
+  drawerOpens.length = 0;
+  const gPast = makeGroup({
+    guest_name: 'Past Guest',
+    _scheduleId: 'sid-past',
+    booking_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  });
+  const gCurrent = makeGroup({
+    guest_name: 'Current Guest',
+    _scheduleId: 'sid-current',
+    booking_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+  });
+  const gUpcoming = makeGroup({
+    guest_name: 'Upcoming Guest',
+    _scheduleId: 'sid-upcoming',
+    booking_id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  });
+  const prevSessionsDefault = ctx.scheduleBuildDaySessions;
+  const prevTodayIso = ctx.scheduleTodayIso;
+  ctx.scheduleTodayIso = () => '2026-07-15';
+  installFixedClock(12 * 60); // 12:00
+  ctx.scheduleBuildDaySessions = () => ([
+    makeSession({
+      label: 'Morning Past',
+      timeLabel: '09:00',
+      slot_key: 'am-past',
+      course_id: 'c-past',
+      groups: [Object.assign({ records: [gPast] }, gPast)],
+      start: 540,
+      end: 600, // 10:00 — done at 12:00
+    }),
+    makeSession({
+      label: 'Midday Current',
+      timeLabel: '11:00',
+      slot_key: 'mid-current',
+      course_id: 'c-current',
+      groups: [Object.assign({ records: [gCurrent] }, gCurrent)],
+      start: 660,
+      end: 780, // 11:00–13:00 — in progress
+    }),
+    makeSession({
+      label: 'Afternoon Upcoming',
+      timeLabel: '15:00',
+      slot_key: 'pm-up',
+      course_id: 'c-up',
+      groups: [Object.assign({ records: [gUpcoming] }, gUpcoming)],
+      start: 900,
+      end: 960, // 15:00–16:00
+    }),
+  ]);
+  installCache([gPast, gCurrent, gUpcoming]);
+  ctx.renderScheduleDayOpsBoard({ rows: [gPast, gCurrent, gUpcoming] }, '2026-07-15');
+  const todayBoard = dom['ps-ops-board'];
+  const todayHtml = todayBoard.innerHTML;
+  const todayToggles = todayBoard.querySelectorAll('[data-ps-ops-guest-toggle]');
+  assert('today mixed: three guest toggles', todayToggles.length === 3, `count=${todayToggles.length}`);
+
+  // Identify toggles by controlled panel content / order matches session order
+  const pastToggle = todayToggles[0];
+  const currentToggle = todayToggles[1];
+  const upcomingToggle = todayToggles[2];
+  const pastP = panelState(todayBoard, pastToggle);
+  const curP = panelState(todayBoard, currentToggle);
+  const upP = panelState(todayBoard, upcomingToggle);
+
+  assert('today past session: guest panel starts hidden', pastP.panel && pastP.hidden === true);
+  assert('today past session: panel has is-collapsed class', pastP.collapsedCls === true);
+  assert('today past session: aria-expanded false',
+    pastToggle && pastToggle.getAttribute('aria-expanded') === 'false');
+  assert('today past session: button has is-collapsed',
+    pastToggle && /\bis-collapsed\b/.test(pastToggle.className || ''));
+  assert('today past session: Show guests label',
+    pastToggle && (pastToggle._labelText || '').indexOf('Show guests') >= 0);
+  assert('today past session: course card/header still present',
+    todayHtml.includes('Morning Past')
+      && todayHtml.includes('portal-schedule-ops-lesson-hdr')
+      && todayHtml.includes('portal-schedule-ops-course-group'));
+  assert('today past session: course card not removed when bookings hidden',
+    todayHtml.includes('Past Guest') // still in DOM, just in hidden panel
+      && !/portal-schedule-tl-item is-done is-empty[\s\S]*Morning Past/.test(todayHtml));
+
+  assert('today current session: guest panel starts visible', curP.panel && curP.hidden === false);
+  assert('today current session: Hide guests + aria-expanded true',
+    currentToggle
+      && currentToggle.getAttribute('aria-expanded') === 'true'
+      && (currentToggle._labelText || '').indexOf('Hide guests') >= 0
+      && !/\bis-collapsed\b/.test(currentToggle.className || ''));
+
+  assert('today upcoming session: guest panel starts visible', upP.panel && upP.hidden === false);
+  assert('today upcoming session: Hide guests + aria-expanded true',
+    upcomingToggle
+      && upcomingToggle.getAttribute('aria-expanded') === 'true'
+      && (upcomingToggle._labelText || '').indexOf('Hide guests') >= 0);
+
+  // Exactly at session start → still current (not done); end must be <= nowMin for done
+  installFixedClock(11 * 60); // 11:00 = start of current session
+  ctx.scheduleBuildDaySessions = () => ([
+    makeSession({
+      label: 'At Start',
+      timeLabel: '11:00',
+      slot_key: 'at-start',
+      course_id: 'c-at-start',
+      groups: [Object.assign({ records: [gCurrent] }, gCurrent)],
+      start: 660,
+      end: 780,
+    }),
+  ]);
+  installCache([gCurrent]);
+  ctx.renderScheduleDayOpsBoard({ rows: [gCurrent] }, '2026-07-15');
+  const atStartToggle = dom['ps-ops-board'].querySelector('[data-ps-ops-guest-toggle]');
+  const atStartPanel = panelState(dom['ps-ops-board'], atStartToggle);
+  assert('today exactly at start: guest panel visible (not done)',
+    atStartToggle
+      && atStartToggle.getAttribute('aria-expanded') === 'true'
+      && atStartPanel.panel && atStartPanel.hidden === false
+      && (atStartToggle._labelText || '').indexOf('Hide guests') >= 0);
+
+  // Exactly at session end → done (end <= nowMin)
+  installFixedClock(10 * 60); // 10:00 = end
+  ctx.scheduleBuildDaySessions = () => ([
+    makeSession({
+      label: 'At End',
+      timeLabel: '09:00',
+      slot_key: 'at-end',
+      course_id: 'c-at-end',
+      groups: [Object.assign({ records: [gPast] }, gPast)],
+      start: 540,
+      end: 600,
+    }),
+  ]);
+  installCache([gPast]);
+  ctx.renderScheduleDayOpsBoard({ rows: [gPast] }, '2026-07-15');
+  const atEndToggle = dom['ps-ops-board'].querySelector('[data-ps-ops-guest-toggle]');
+  const atEndPanel = panelState(dom['ps-ops-board'], atEndToggle);
+  assert('today exactly at end: guest panel starts hidden (done)',
+    atEndToggle
+      && atEndToggle.getAttribute('aria-expanded') === 'false'
+      && atEndPanel.panel && atEndPanel.hidden === true
+      && (atEndToggle._labelText || '').indexOf('Show guests') >= 0);
+
+  // Missing end → not done
+  installFixedClock(18 * 60);
+  ctx.scheduleBuildDaySessions = () => ([
+    makeSession({
+      label: 'No End',
+      timeLabel: '09:00',
+      slot_key: 'no-end',
+      course_id: 'c-no-end',
+      groups: [Object.assign({ records: [gPast] }, gPast)],
+      start: 540,
+      end: null,
+    }),
+  ]);
+  installCache([gPast]);
+  ctx.renderScheduleDayOpsBoard({ rows: [gPast] }, '2026-07-15');
+  const noEndToggle = dom['ps-ops-board'].querySelector('[data-ps-ops-guest-toggle]');
+  const noEndPanel = panelState(dom['ps-ops-board'], noEndToggle);
+  assert('today missing end: guest panel starts visible',
+    noEndToggle
+      && noEndToggle.getAttribute('aria-expanded') === 'true'
+      && noEndPanel.panel && noEndPanel.hidden === false
+      && (noEndToggle._labelText || '').indexOf('Hide guests') >= 0);
+
+  // Empty course card remains visible (no guest toggle; empty-slot UI)
+  ctx.scheduleBuildDaySessions = () => ([
+    makeSession({
+      label: 'Empty Morning',
+      timeLabel: '09:00',
+      slot_key: 'empty-am',
+      course_id: 'c-empty',
+      groups: [],
+      start: 540,
+      end: 600,
+      surfers: 0,
+      bookings: 0,
+    }),
+  ]);
+  ctx.renderScheduleDayOpsBoard({ rows: [] }, '2026-07-15');
+  const emptyHtml = dom['ps-ops-board'].innerHTML;
+  assert('empty course card remains visible on today past slot',
+    emptyHtml.includes('Empty Morning')
+      && emptyHtml.includes('portal-schedule-empty-slot')
+      && emptyHtml.includes('is-empty'));
+  assert('empty course card has no guest toggle',
+    dom['ps-ops-board'].querySelectorAll('[data-ps-ops-guest-toggle]').length === 0);
+
+  // Future selected day: even if wall-clock is after session end, panels start expanded
+  installFixedClock(18 * 60);
+  ctx.scheduleBuildDaySessions = () => ([
+    makeSession({
+      label: 'Future Day Past-looking',
+      timeLabel: '09:00',
+      slot_key: 'fut-am',
+      course_id: 'c-fut',
+      groups: [Object.assign({ records: [gPast] }, gPast)],
+      start: 540,
+      end: 600,
+    }),
+  ]);
+  installCache([gPast]);
+  ctx.renderScheduleDayOpsBoard({ rows: [gPast] }, '2026-07-20'); // today is 2026-07-15
+  const futToggle = dom['ps-ops-board'].querySelector('[data-ps-ops-guest-toggle]');
+  const futPanel = panelState(dom['ps-ops-board'], futToggle);
+  assert('future selected day: guest panel starts visible',
+    futToggle
+      && futToggle.getAttribute('aria-expanded') === 'true'
+      && futPanel.panel && futPanel.hidden === false
+      && (futToggle._labelText || '').indexOf('Hide guests') >= 0);
+
+  // Historical selected day: always expanded on initial render
+  ctx.renderScheduleDayOpsBoard({ rows: [gPast] }, '2026-07-10');
+  const histToggle = dom['ps-ops-board'].querySelector('[data-ps-ops-guest-toggle]');
+  const histPanel = panelState(dom['ps-ops-board'], histToggle);
+  assert('historical selected day: guest panel starts visible',
+    histToggle
+      && histToggle.getAttribute('aria-expanded') === 'true'
+      && histPanel.panel && histPanel.hidden === false
+      && (histToggle._labelText || '').indexOf('Hide guests') >= 0);
+
+  // Manual reveal/hide of default-hidden past panel + sibling isolation
+  installFixedClock(12 * 60);
+  ctx.scheduleBuildDaySessions = () => ([
+    makeSession({
+      label: 'Past A',
+      timeLabel: '09:00',
+      slot_key: 'past-a',
+      course_id: 'c-past-a',
+      groups: [Object.assign({ records: [gPast] }, gPast)],
+      start: 540,
+      end: 600,
+    }),
+    makeSession({
+      label: 'Upcoming B',
+      timeLabel: '15:00',
+      slot_key: 'up-b',
+      course_id: 'c-up-b',
+      groups: [Object.assign({ records: [gUpcoming] }, gUpcoming)],
+      start: 900,
+      end: 960,
+    }),
+  ]);
+  installCache([gPast, gUpcoming]);
+  ctx.renderScheduleDayOpsBoard({ rows: [gPast, gUpcoming] }, '2026-07-15');
+  const mixToggles = dom['ps-ops-board'].querySelectorAll('[data-ps-ops-guest-toggle]');
+  const mixPast = mixToggles[0];
+  const mixUp = mixToggles[1];
+  const mixPastP = panelState(dom['ps-ops-board'], mixPast);
+  const mixUpP = panelState(dom['ps-ops-board'], mixUp);
+  assert('sibling isolation initial: past hidden, upcoming visible',
+    mixPastP.hidden === true && mixUpP.hidden === false
+      && mixPast.getAttribute('aria-expanded') === 'false'
+      && mixUp.getAttribute('aria-expanded') === 'true');
+
+  // Reveal past via real click wiring
+  if (mixPast) mixPast.click();
+  assert('manual reveal default-hidden past → expanded',
+    mixPast.getAttribute('aria-expanded') === 'true'
+      && mixPastP.panel && mixPastP.panel.hidden === false
+      && (mixPast._labelText || '').indexOf('Hide guests') >= 0);
+  assert('manual reveal past does not collapse sibling',
+    mixUp.getAttribute('aria-expanded') === 'true'
+      && mixUpP.panel && mixUpP.panel.hidden === false);
+
+  // Hide again
+  if (mixPast) mixPast.click();
+  assert('manual re-hide past → collapsed again',
+    mixPast.getAttribute('aria-expanded') === 'false'
+      && mixPastP.panel && mixPastP.panel.hidden === true
+      && (mixPast._labelText || '').indexOf('Show guests') >= 0);
+  assert('manual re-hide past keeps sibling expanded',
+    mixUp.getAttribute('aria-expanded') === 'true'
+      && mixUpP.panel && mixUpP.panel.hidden === false);
+
+  // Course header still present after toggle cycle
+  assert('course card remains after toggle cycle',
+    dom['ps-ops-board'].innerHTML.includes('Past A')
+      && dom['ps-ops-board'].innerHTML.includes('portal-schedule-ops-lesson-hdr'));
+
+  // Drawer still opens for booking in a revealed past panel
+  drawerOpens.length = 0;
+  if (mixPast) mixPast.click(); // expand again so interaction path is realistic
+  const pastChip = dom['ps-ops-board']._chips.find((c) => c.getAttribute('data-ps-booking-id') === 'sid-past');
+  if (pastChip) clickChip(pastChip, pastChip._guestSpan || pastChip);
+  assert('drawer still opens from past session booking row',
+    drawerOpens.length === 1 && drawerOpens[0] === 'sid-past');
+
+  restoreClock();
+  ctx.scheduleTodayIso = prevTodayIso;
+  ctx.scheduleBuildDaySessions = prevSessionsDefault;
 
   // ── Circular occupancy indicator ──
   console.log('\n[5] Circular course occupancy indicator');

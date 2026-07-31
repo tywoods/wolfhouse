@@ -837,6 +837,9 @@ function scheduleRenderTimelineSession(session, done){
   var hdrLabel = session.kind === 'private_lesson' ? (session.sectionLabel || session.label) : session.label;
   var hdrTime = session.kind === 'private_lesson' ? session.timeLabel : session.timeLabel;
   var panelId = scheduleOpsGuestPanelId(session);
+  // Reuse timeline `done` (today + end <= nowMin): past populated sessions start with
+  // the guest/booking panel collapsed. Course card/header always stays visible.
+  var guestExpanded = !done;
   var html = '<section class="' + groupCls + '">' +
     scheduleRenderOpsGroupHeader(hdrLabel, hdrTime, stats, session.boardsNeeded || 0, session.wetsuitsNeeded || 0,
       {
@@ -846,9 +849,11 @@ function scheduleRenderTimelineSession(session, done){
         done: done,
         session: session,
         guestPanelId: panelId,
-        guestExpanded: true,
+        guestExpanded: guestExpanded,
       }) +
-    '<div id="' + escHtml(panelId) + '" class="portal-schedule-ops-lesson-rows" role="region">' +
+    '<div id="' + escHtml(panelId) + '" class="portal-schedule-ops-lesson-rows' +
+      (guestExpanded ? '' : ' is-collapsed') +
+      '" role="region"' + (guestExpanded ? '' : ' hidden') + '>' +
     scheduleRenderOpsColumnHeader();
   (session.groups || []).forEach(function(g){ html += scheduleRenderOpsBookingRow(g); });
   return html + '</div></section>';
