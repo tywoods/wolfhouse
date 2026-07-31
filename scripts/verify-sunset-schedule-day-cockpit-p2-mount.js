@@ -1,5 +1,15 @@
 'use strict';
 
+function localIsoDate(d) {
+  d = d || new Date();
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+const TODAY_ISO = localIsoDate(new Date());
+
 /**
  * verify:sunset-schedule-day-cockpit-p2-mount
  *
@@ -288,7 +298,7 @@ function paintAt(now) {
   host.className = '';
   const data = cockpit.schedulePaintDayCockpit({
     venue: 'Sunset',
-    date: '2026-07-31',
+    date: TODAY_ISO,
     navMode: 'day',
     now,
     sessions: producerSessions,

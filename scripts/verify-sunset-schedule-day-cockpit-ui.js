@@ -1,5 +1,15 @@
 'use strict';
 
+function localIsoDate(d) {
+  d = d || new Date();
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+const TODAY_ISO = localIsoDate(new Date());
+
 /**
  * verify:sunset-schedule-day-cockpit-ui
  *
@@ -297,7 +307,7 @@ function samplePrep() {
 function baseData(now) {
   return {
     venue: 'Sunset',
-    date: '2026-07-31',
+    date: TODAY_ISO,
     range: 'today',
     now: now,
     sessions: sampleSessions(),
@@ -405,7 +415,7 @@ const producerSessions = [
 
 const mapped = cockpit.scheduleBuildDayCockpitData({
   venue: 'Sunset',
-  date: '2026-07-31',
+  date: TODAY_ISO,
   navMode: 'day',
   now: 757,
   sessions: producerSessions,
@@ -459,7 +469,7 @@ function renderFromProducer(name, nowMin) {
   mount.ownerDocument = doc;
   const data = cockpit.scheduleBuildDayCockpitData({
     venue: 'Sunset',
-    date: '2026-07-31',
+    date: TODAY_ISO,
     navMode: 'day',
     now: nowMin,
     sessions: producerSessions,
@@ -518,7 +528,7 @@ console.log('\n[5] Capacity edges — producer capacity:0 → booked-only ring')
 // Literal capacity: 0 on a producer-shaped live session (README edge case).
 const zeroVm = cockpit.scheduleBuildDayCockpitData({
   venue: 'Sunset',
-  date: '2026-07-31',
+  date: TODAY_ISO,
   range: 'today',
   now: 12 * 60 + 30,
   sessions: [{
@@ -550,7 +560,7 @@ const mountNull = doc.createElement('div');
 mountNull.ownerDocument = doc;
 cockpit.scheduleRenderDayCockpit(mountNull, cockpit.scheduleBuildDayCockpitData({
   venue: 'Sunset',
-  date: '2026-07-31',
+  date: TODAY_ISO,
   range: 'today',
   now: 12 * 60 + 30,
   sessions: [{
@@ -571,7 +581,7 @@ const mountEmpty = doc.createElement('div');
 mountEmpty.ownerDocument = doc;
 cockpit.scheduleRenderDayCockpit(mountEmpty, {
   venue: 'Sunset',
-  date: '2026-07-31',
+  date: TODAY_ISO,
   range: 'today',
   now: 12 * 60,
   sessions: [],

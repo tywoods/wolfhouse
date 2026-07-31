@@ -185,30 +185,26 @@ function scheduleCockpitClassify(data, now) {
 function scheduleCockpitNowMinutes(data) {
   data = data || {};
   var range = data.range || scheduleCockpitRangeFromNavMode(data.navMode || data.mode);
-  // README: Non-today dates and Week / Next 30 days → no needle, no countdown.
-  // Hero shows the first session (classify with now=null → next=list[0]).
-  if (range === 'week' || range === 'next30') {
-    // forceNow only for rare replay tests that opt in; normal week/next30 freezes the clock.
-    if (data.forceNow === true && typeof data.now === 'number') return data.now;
-    return null;
-  }
-  if (typeof data.now === 'number') return data.now; // explicit override (tests, demos, replay)
-  // Only treat the clock as "live" when the shown day is actually today.
+  // README freeze rules take precedence over any now override:
+  // Non-today dates and Week / Next 30 days → no needle, no countdown, no live hero.
+  // 1) Week / Next 30 — always frozen (no forceNow bypass).
+  if (range === 'week' || range === 'next30') return null;
+  // 2) Day range: freeze when the shown date is not today (override cannot unfreeze).
   var d = new Date();
   var shown = data.date ? new Date(data.date + 'T00:00:00') : d;
   var sameDay = d.toDateString() === shown.toDateString();
-  return sameDay ? d.getHours() * 60 + d.getMinutes() : null;
+  if (!sameDay) return null;
+  // 3) Today + day range only: honor explicit now, else wall clock.
+  if (typeof data.now === 'number') return data.now;
+  return d.getHours() * 60 + d.getMinutes();
 }
 
-/** True when 60s needle/countdown tick should run (today + day range, not fixture-frozen). */
+/** True when 60s needle/countdown tick should run (today + day range only). */
 function scheduleDayCockpitShouldTick(data) {
   data = data || {};
-  if (typeof data.now === 'number' && data.forceNow !== true) {
-    // Fixture/demo freeze: paint once, no wall-clock interval.
-    return false;
-  }
-  var range = data.range || scheduleCockpitRangeFromNavMode(data.navMode || data.mode) || 'today';
-  if (range !== 'today') return false;
+  // Fixture paint-once: explicit now freezes the interval (re-render still uses override).
+  if (typeof data.now === 'number') return false;
+  // Align with nowMinutes freeze gates (week/next30/non-today → no tick).
   var probe = Object.assign({}, data);
   delete probe.now;
   return scheduleCockpitNowMinutes(probe) != null;

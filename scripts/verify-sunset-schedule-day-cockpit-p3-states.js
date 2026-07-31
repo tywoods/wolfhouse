@@ -249,27 +249,41 @@ function heroOf(text) {
   return '?';
 }
 
+
+function localIso(d) {
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+const TODAY_ISO = localIso(new Date());
+const _nt = new Date();
+_nt.setFullYear(_nt.getFullYear() + 1);
+_nt.setMonth(0, 15); // Jan 15 next year — never "today" in normal runs
+const NON_TODAY_ISO = localIso(_nt);
+
 // mid / before / after (keep P1/P2)
-const mid = paint({ date: '2026-07-31', range: 'today', now: 757, sessions: producerSessions });
+const mid = paint({ date: TODAY_ISO, range: 'today', now: 757, sessions: producerSessions });
 assert('mid ON NOW', heroOf(mid.text) === 'ON_NOW');
 assert('mid needle', mid.needle === 1);
 assert('mid countdown', /ends in/.test(mid.text));
 
-const before = paint({ date: '2026-07-31', range: 'today', now: 560, sessions: producerSessions });
+const before = paint({ date: TODAY_ISO, range: 'today', now: 560, sessions: producerSessions });
 assert('before NOTHING', heroOf(before.text) === 'BEFORE' || /NOTHING IN THE WATER/.test(before.text));
 assert('before starts in', /starts in/.test(before.text));
 
-const after = paint({ date: '2026-07-31', range: 'today', now: 1140, sessions: producerSessions });
+const after = paint({ date: TODAY_ISO, range: 'today', now: 1140, sessions: producerSessions });
 assert('after DAY COMPLETE', /DAY COMPLETE/.test(after.text));
 
 // no-sessions
-const empty = paint({ date: '2026-07-31', range: 'today', now: 720, sessions: [] });
+const empty = paint({ date: TODAY_ISO, range: 'today', now: 720, sessions: [] });
 assert('empty No sessions', /No sessions scheduled/.test(empty.text));
 assert('empty idle', empty.idle >= 1);
 
 // capacity 0
 const cap0 = paint({
-  date: '2026-07-31', range: 'today', now: 750,
+  date: TODAY_ISO, range: 'today', now: 750,
   sessions: [{ id: 'x', name: 'Open', start: '12:00', end: '14:00', booked: 2, capacity: 0, boards: 0, wetsuits: 0 }],
 });
 assert('cap0 booked-only', /is-booked-only/.test(cap0.mount.querySelector('.ck-ring') && cap0.mount.querySelector('.ck-ring').className || '') || cap0.rings >= 1);
@@ -278,7 +292,7 @@ assert('cap0 booked-only class', String(cap0.mount.querySelector('.ck-ring') && 
 
 // non-today: needle hidden, no countdown, hero first session
 const nonToday = paint({
-  date: '2026-08-05',
+  date: NON_TODAY_ISO,
   range: 'today',
   sessions: producerSessions,
 });
@@ -289,12 +303,12 @@ assert('non-today hero first session', /First up:/.test(nonToday.text) || /Curso
 
 // Week / Next-30 — README: no needle, no countdown, hero shows first session
 const week = paint({
-  date: '2026-07-31',
+  date: TODAY_ISO,
   range: 'week',
   now: 757, // must be ignored for week
   sessions: producerSessions,
 });
-assert('week range freezes clock', cockpit.scheduleCockpitNowMinutes({ range: 'week', date: '2026-07-31', now: 757 }) == null);
+assert('week range freezes clock', cockpit.scheduleCockpitNowMinutes({ range: 'week', date: TODAY_ISO, now: 757 }) == null);
 assert('week no needle', week.needle === 0);
 assert('week no countdown', !/ends in/.test(week.text) && !/starts in/.test(week.text));
 assert('week not ON NOW live hero', !/ON NOW/.test(week.text));
@@ -302,7 +316,7 @@ assert('week hero first session', /First up:/.test(week.text));
 assert('week pill pressed', week.mount.querySelectorAll('[aria-pressed="true"]').length >= 1);
 
 const next30 = paint({
-  date: '2026-07-31',
+  date: TODAY_ISO,
   range: 'next30',
   now: 757,
   sessions: producerSessions,
@@ -310,6 +324,37 @@ const next30 = paint({
 assert('next30 no needle', next30.needle === 0);
 assert('next30 no countdown', !/ends in/.test(next30.text) && !/starts in/.test(next30.text));
 assert('next30 hero first session', /First up:/.test(next30.text));
+
+// Seadog BLOCK cases — freeze gates beat now / forceNow overrides
+assert('week+forceNow still null', cockpit.scheduleCockpitNowMinutes({
+  range: 'week', forceNow: true, now: 757, date: TODAY_ISO,
+}) == null);
+const weekForce = paint({
+  range: 'week', forceNow: true, now: 757, date: TODAY_ISO, sessions: producerSessions,
+});
+assert('week+forceNow no needle', weekForce.needle === 0);
+assert('week+forceNow no countdown', !/ends in/.test(weekForce.text) && !/starts in/.test(weekForce.text));
+assert('week+forceNow hero first', /First up:/.test(weekForce.text));
+assert('week+forceNow not ON NOW', !/ON NOW/.test(weekForce.text));
+
+assert('next30+now still null', cockpit.scheduleCockpitNowMinutes({
+  range: 'next30', now: 757, date: TODAY_ISO,
+}) == null);
+
+assert('non-today+now still null', cockpit.scheduleCockpitNowMinutes({
+  range: 'today', date: NON_TODAY_ISO, now: 757,
+}) == null);
+const nonTodayNow = paint({
+  range: 'today', date: NON_TODAY_ISO, now: 757, sessions: producerSessions,
+});
+assert('non-today+now no needle', nonTodayNow.needle === 0);
+assert('non-today+now no ON NOW', !/ON NOW/.test(nonTodayNow.text));
+assert('non-today+now no countdown', !/ends in/.test(nonTodayNow.text) && !/starts in/.test(nonTodayNow.text));
+
+assert('today+now still live 757', cockpit.scheduleCockpitNowMinutes({
+  range: 'today', date: TODAY_ISO, now: 757,
+}) === 757);
+
 
 // back-to-back: at 12:00 later session is live; blocks touch (no gap/overlap)
 const b2bClass = cockpit.scheduleCockpitClassify({
@@ -319,7 +364,7 @@ assert('b2b at 12:00 live = B', b2bClass.live && b2bClass.live.id === 'b');
 assert('b2b at 11:59 live = A', cockpit.scheduleCockpitClassify({ sessions: backToBackSessions }, 12 * 60 - 1).live.id === 'a');
 
 const b2b = paint({
-  date: '2026-07-31', range: 'today', now: 12 * 60 + 15,
+  date: TODAY_ISO, range: 'today', now: 12 * 60 + 15,
   sessions: backToBackSessions,
 });
 assert('b2b two blocks', b2b.blocks === 2);
@@ -335,7 +380,7 @@ if (b2b.blocks === 2) {
 assert('b2b live is B', /Curso B|ON NOW/.test(b2b.text) && /ON NOW/.test(b2b.text));
 
 console.log('\n[4] a11y assertions');
-const a11y = paint({ date: '2026-07-31', range: 'today', now: 757, sessions: producerSessions });
+const a11y = paint({ date: TODAY_ISO, range: 'today', now: 757, sessions: producerSessions });
 const allBtns = a11y.mount.querySelectorAll('button');
 assert('has buttons', allBtns.length >= 6);
 let pressedTrue = 0;
@@ -447,7 +492,7 @@ h2.ownerDocument = doc;
 doc.getElementById = (id) => (id === 'ps-day-cockpit' ? h2 : null);
 // Paint with frozen now — should NOT start timer
 cockpit.schedulePaintDayCockpit({
-  venue: 'Sunset', date: '2026-07-31', range: 'today', now: 757, sessions: producerSessions, on: {},
+  venue: 'Sunset', date: TODAY_ISO, range: 'today', now: 757, sessions: producerSessions, on: {},
 });
 assert('frozen now paint starts no timer', timers.size === 0);
 
