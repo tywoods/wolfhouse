@@ -340,10 +340,6 @@ assert('layout seg class', modSrc.includes('ck-seg--layout'));
 assert('layout handler wires scheduleSetDayOpsLayoutMode', modSrc.includes('scheduleSetDayOpsLayoutMode'));
 assert('cockpit host margin-bottom 16px (matches stack gap)', modSrc.includes('margin:0 0 16px'));
 assert('render keeps ps-day-cockpit-host class', modSrc.includes("className = 'cockpit ps-day-cockpit-host'") || modSrc.includes('cockpit ps-day-cockpit-host'));
-assert('hero art CSS present', modSrc.includes('.ck-now__art'));
-assert('hero art kind helper', modSrc.includes('function scheduleCockpitHeroArtKind'));
-assert('three ON NOW wave variants', modSrc.includes('wave-0') && modSrc.includes('wave-1') && modSrc.includes('wave-2'));
-assert('sunrise + high-sun + moon stamps', modSrc.includes("'sunrise'") && modSrc.includes("'high-sun'") && modSrc.includes("'moon'"));
 assert('CSS uses exact --ck-surface #f7f5ef', modSrc.includes('--ck-surface:#f7f5ef') || modSrc.includes('--ck-surface: #f7f5ef'));
 assert('CSS uses exact --ck-olive #6b7a5e', modSrc.includes('--ck-olive:#6b7a5e') || modSrc.includes('--ck-olive: #6b7a5e'));
 assert('CSS uses exact --ck-now-bg #22301f', modSrc.includes('--ck-now-bg:#22301f') || modSrc.includes('--ck-now-bg: #22301f'));
@@ -532,37 +528,6 @@ assert('after: sessions run', /session/.test(afterR.text) && /run/.test(afterR.t
 assert('after: gear used', /used/.test(afterR.text));
 assert('after: idle hero', afterR.mount.querySelectorAll('.ck-now--idle').length >= 1);
 assert('after: closed copy', /closed out/.test(afterR.text));
-
-
-console.log('\n[4b] Hero watermark art by session state');
-{
-  const kind = cockpit.scheduleCockpitHeroArtKind;
-  const svg = cockpit.scheduleCockpitHeroArtSvg;
-  const wave = cockpit.scheduleCockpitWaveVariant;
-  const sessions = [
-    { id: 'a', name: 'A', start: '10:00', end: '12:00', s: 600, e: 720, booked: 2, capacity: 24 },
-    { id: 'b', name: 'B', start: '12:00', end: '14:00', s: 720, e: 840, booked: 2, capacity: 24 },
-    { id: 'c', name: 'C', start: '16:00', end: '18:00', s: 960, e: 1080, booked: 1, capacity: 24 },
-  ];
-  assert('art kind fn exported', typeof kind === 'function');
-  assert('art svg fn exported', typeof svg === 'function');
-  assert('before first → sunrise', kind(560, sessions, null, sessions[0]) === 'sunrise');
-  assert('mid-day gap → high-sun', kind(900, sessions, null, sessions[2]) === 'high-sun');
-  assert('after last → moon', kind(1140, sessions, null, null) === 'moon');
-  const liveKind = kind(757, sessions, sessions[1], sessions[2]);
-  assert('live → wave-*', /^wave-[012]$/.test(liveKind), liveKind);
-  assert('wave variants 0..2', [0, 1, 2].includes(wave(757, sessions[1])));
-  assert('wave-0/1/2 SVGs differ', svg('wave-0') !== svg('wave-1') && svg('wave-1') !== svg('wave-2'));
-  assert('sunrise svg markup', /<svg[\s\S]*<\/svg>/.test(svg('sunrise')));
-  assert('high-sun has disc', svg('high-sun').includes('circle'));
-  assert('moon svg markup', /<svg[\s\S]*<\/svg>/.test(svg('moon')));
-  // painted mid hero should include art node (from earlier mid render if mount kept)
-  if (typeof midR !== 'undefined' && midR && midR.mount) {
-    const artN = midR.mount.querySelectorAll ? midR.mount.querySelectorAll('.ck-now__art') : [];
-    const html = midR.text || midR.mount.innerHTML || '';
-    assert('mid paint includes ck-now__art', (artN && artN.length > 0) || /ck-now__art|data-ck-art/.test(String(html)));
-  }
-}
 
 console.log('\n[5] Capacity edges — producer capacity:0 → booked-only ring');
 // Literal capacity: 0 on a producer-shaped live session (README edge case).

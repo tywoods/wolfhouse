@@ -139,13 +139,7 @@ var SCHEDULE_DAY_COCKPIT_CSS = [
   '.ck-body{display:grid;grid-template-columns:1fr 270px;}',
   '@media (max-width:1080px){.ck-body{grid-template-columns:1fr;}}',
   '.ck-main{padding:16px 18px;display:flex;flex-direction:column;gap:12px;border-right:1px solid var(--ck-line-soft);}',
-  '.ck-now{position:relative;overflow:hidden;background:var(--ck-now-bg);color:var(--ck-now-ink);border-radius:12px;padding:17px 20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;}',
-  '.ck-now > *:not(.ck-now__art){position:relative;z-index:1;}',
-  '.ck-now__art{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:132px;height:132px;pointer-events:none;z-index:0;opacity:.25;color:var(--ck-now-accent);}',
-  '.ck-now__art svg{display:block;width:100%;height:100%;}',
-  '.ck-now--idle .ck-now__art{opacity:.22;color:var(--ck-ink-3);}',
-  '[data-theme="dark"] .ck-now--idle .ck-now__art{opacity:.26;color:var(--ck-ink-4);}',
-  '@media (max-width:560px){.ck-now__art{width:96px;height:96px;right:2px;opacity:.18;}}',
+  '.ck-now{background:var(--ck-now-bg);color:var(--ck-now-ink);border-radius:12px;padding:17px 20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;}',
   '.ck-eyebrow{display:flex;align-items:center;gap:8px;font-size:10px;font-weight:700;letter-spacing:.16em;color:var(--ck-now-accent);}',
   '.ck-pulse{width:7px;height:7px;border-radius:99px;background:var(--ck-now-accent);box-shadow:0 0 9px rgba(168,196,143,.9);}',
   '.ck-now h2{margin:5px 0 0;font-size:25px;font-weight:600;letter-spacing:-.01em;line-height:1.15;}',
@@ -274,107 +268,6 @@ function scheduleCockpitCapacityLabel(booked, capacity) {
  * Capacity missing/0 → seats ring degrades to booked-only (no divide-by-zero).
  * note chip skipped for v1 when absent.
  */
-
-/** Hero watermark kinds: sunrise | high-sun | moon | wave-0 | wave-1 | wave-2 */
-function scheduleCockpitWaveVariant(now, live) {
-  // Stable-ish rotation during the day so staff can compare 3 waves.
-  // Prefer live session id hash; fall back to 2h time buckets.
-  var seed = '';
-  if (live && live.id != null) seed = String(live.id);
-  else if (live && live.name) seed = String(live.name);
-  if (seed) {
-    var h = 0;
-    for (var i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
-    return Math.abs(h) % 3;
-  }
-  var n = typeof now === 'number' ? now : 0;
-  return Math.floor(n / 120) % 3;
-}
-
-/**
- * Pick decorative hero art from session state (not theme).
- * - live → one of 3 simple waves (trial)
- * - before first → sunrise / half-sun
- * - mid-day gap (idle between sessions) → high sun
- * - day complete → moon
- */
-function scheduleCockpitHeroArtKind(now, list, live, next) {
-  list = list || [];
-  if (live) return 'wave-' + scheduleCockpitWaveVariant(now, live);
-  var done = now != null && list.length && now >= Math.max.apply(null, list.map(function (x) { return x.e; }));
-  if (done) return 'moon';
-  var anyEnded = now != null && list.some(function (s) { return now >= s.e; });
-  if (next && !anyEnded) return 'sunrise';
-  if (next && anyEnded) return 'high-sun';
-  if (!list.length) return 'sunrise';
-  if (anyEnded) return 'moon';
-  return 'high-sun';
-}
-
-function scheduleCockpitHeroArtSvg(kind) {
-  var k = String(kind || '');
-  // Shared attrs: currentColor, decorative
-  if (k === 'sunrise') {
-    return '<svg viewBox="0 0 120 120" fill="none" aria-hidden="true">' +
-      '<path d="M10 78h100" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".55"/>' +
-      '<path d="M20 78c8-22 28-36 40-36s32 14 40 36" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>' +
-      '<path d="M60 28v10M28 48l8 6M92 48l-8 6M22 68h10M88 68h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".7"/>' +
-      '</svg>';
-  }
-  if (k === 'high-sun') {
-    return '<svg viewBox="0 0 120 120" fill="none" aria-hidden="true">' +
-      '<circle cx="60" cy="52" r="18" stroke="currentColor" stroke-width="2.4"/>' +
-      '<path d="M60 18v10M60 76v10M22 52h10M88 52h10M34 26l7 7M79 71l7 7M34 78l7-7M79 33l7-7" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>' +
-      '<path d="M16 98c18-10 28-10 44 0s28 10 44 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".45"/>' +
-      '</svg>';
-  }
-  if (k === 'moon') {
-    return '<svg viewBox="0 0 120 120" fill="none" aria-hidden="true">' +
-      '<path d="M72 28a28 28 0 1 0 8 54 34 34 0 1 1-8-54z" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>' +
-      '<circle cx="28" cy="36" r="1.6" fill="currentColor" opacity=".75"/>' +
-      '<circle cx="40" cy="22" r="1.2" fill="currentColor" opacity=".65"/>' +
-      '<circle cx="96" cy="40" r="1.4" fill="currentColor" opacity=".7"/>' +
-      '<circle cx="88" cy="70" r="1.1" fill="currentColor" opacity=".55"/>' +
-      '<circle cx="30" cy="78" r="1.3" fill="currentColor" opacity=".6"/>' +
-      '</svg>';
-  }
-  // wave-0: single long swell
-  if (k === 'wave-0') {
-    return '<svg viewBox="0 0 120 120" fill="none" aria-hidden="true">' +
-      '<path d="M8 78c16-22 28-22 44-8s28 10 44-10" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>' +
-      '<path d="M8 92c18-14 30-14 46-2s30 8 50-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".55"/>' +
-      '<path d="M78 52c6 2 12 10 10 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".8"/>' +
-      '</svg>';
-  }
-  // wave-1: stacked double swell
-  if (k === 'wave-1') {
-    return '<svg viewBox="0 0 120 120" fill="none" aria-hidden="true">' +
-      '<path d="M6 70c20-18 34-18 52-4s30 8 50-12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>' +
-      '<path d="M6 86c22-16 36-16 54-2s32 6 52-10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".7"/>' +
-      '<path d="M6 100c20-12 38-12 56 0s34 6 50-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".4"/>' +
-      '</svg>';
-  }
-  // wave-2: curl + foam dots
-  return '<svg viewBox="0 0 120 120" fill="none" aria-hidden="true">' +
-    '<path d="M10 84c14-28 36-36 52-22 10 8 14 22 8 32-8 12-26 8-28-4 0-8 8-12 16-8 14 6 28-4 36-18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<path d="M14 100c20-10 40-10 60 0s36 6 42-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".45"/>' +
-    '<circle cx="86" cy="48" r="1.5" fill="currentColor" opacity=".55"/>' +
-    '<circle cx="96" cy="56" r="1.2" fill="currentColor" opacity=".45"/>' +
-    '<circle cx="74" cy="44" r="1.1" fill="currentColor" opacity=".4"/>' +
-    '</svg>';
-}
-
-function scheduleCockpitAppendHeroArt(doc, hero, kind) {
-  if (!doc || !hero || !kind) return null;
-  var art = doc.createElement('div');
-  art.className = 'ck-now__art';
-  art.setAttribute('aria-hidden', 'true');
-  art.setAttribute('data-ck-art', String(kind));
-  art.innerHTML = scheduleCockpitHeroArtSvg(kind);
-  hero.appendChild(art);
-  return art;
-}
-
 function scheduleRenderDayCockpit(mount, data) {
   if (!mount) return;
   var doc = mount.ownerDocument || (typeof document !== 'undefined' ? document : null);
@@ -541,9 +434,6 @@ function scheduleRenderDayCockpit(mount, data) {
     heroL.appendChild(chipsIdle);
     hero.appendChild(heroL);
   }
-  var artKind = scheduleCockpitHeroArtKind(now, list, live, next);
-  if (data && data.artKind) artKind = data.artKind; // fixture override
-  scheduleCockpitAppendHeroArt(doc, hero, artKind);
   main.appendChild(hero);
 
   /* ribbon — no status/next headline (redundant with blocks + hero) */
@@ -1125,10 +1015,6 @@ if (typeof module !== 'undefined' && module.exports) {
     scheduleDayCockpitShouldTick: scheduleDayCockpitShouldTick,
     scheduleCockpitHasCapacity: scheduleCockpitHasCapacity,
     scheduleRenderDayCockpit: scheduleRenderDayCockpit,
-    scheduleCockpitHeroArtKind: scheduleCockpitHeroArtKind,
-    scheduleCockpitHeroArtSvg: scheduleCockpitHeroArtSvg,
-    scheduleCockpitWaveVariant: scheduleCockpitWaveVariant,
-    scheduleCockpitAppendHeroArt: scheduleCockpitAppendHeroArt,
     scheduleMountDayCockpit: scheduleMountDayCockpit,
     scheduleStopDayCockpitClock: scheduleStopDayCockpitClock,
     scheduleDayCockpitClockTick: scheduleDayCockpitClockTick,
