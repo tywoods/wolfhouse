@@ -120,6 +120,7 @@ var SCHEDULE_DAY_COCKPIT_CSS = [
   '.ck-seg button:hover{color:var(--ck-ink);}',
   '.ck-seg button[aria-pressed="true"]{background:var(--ck-olive);color:#fff;font-weight:600;}',
   '.ck-seg--range button[aria-pressed="true"]{background:var(--ck-dark);color:var(--ck-on-dark);}',
+  '@media (max-width:768px){.ck-seg--layout{display:none!important;}}',
   '.ck-date{display:flex;flex-direction:column;gap:1px;}',
   '.ck-date b{font-size:16px;font-weight:700;letter-spacing:-.01em;line-height:1.1;}',
   '.ck-date span{font-size:11px;color:var(--ck-ink-3);}',
@@ -972,6 +973,9 @@ function schedulePaintDayCockpit(srcOverride) {
   if (!mount) return null;
 
   scheduleEnsureDayCockpitCss();
+  if (typeof scheduleEnsureDayOpsLayoutMediaWatch === 'function') {
+    try { scheduleEnsureDayOpsLayoutMediaWatch(); } catch (_eWatch) { /* ignore */ }
+  }
   // Teardown any previous interval before re-nav / data re-paint (no leaks).
   scheduleStopDayCockpitClock(mount);
 

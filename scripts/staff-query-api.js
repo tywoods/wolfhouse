@@ -17210,6 +17210,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 @media(max-width:720px){
   .portal-schedule-timeline::before{display:none}
   .portal-schedule-cards-grid{grid-template-columns:1fr!important}
+  .ck-seg--layout{display:none!important}
   .portal-schedule-tl-item{grid-template-columns:minmax(0,1fr)}
   .portal-schedule-tl-time,.portal-schedule-tl-dot{display:none}
   .portal-schedule-tl-now{grid-template-columns:auto minmax(0,1fr)}

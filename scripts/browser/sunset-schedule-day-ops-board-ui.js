@@ -931,7 +931,18 @@ function scheduleAttachCancelledCourseGroups(sessions, ghostRows){
 var scheduleDayOpsLayoutMode = 'timeline';
 var SCHEDULE_DAY_OPS_LAYOUT_KEY = 'ps-day-ops-layout';
 
+function scheduleDayOpsIsMobileViewport() {
+  try {
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      return !!window.matchMedia('(max-width: 768px)').matches;
+    }
+  } catch (_e) { /* ignore */ }
+  return false;
+}
+
 function scheduleGetDayOpsLayoutMode() {
+  // Mobile: always cards — no vertical timeline rail.
+  if (scheduleDayOpsIsMobileViewport()) return 'cards';
   try {
     if (typeof sessionStorage !== 'undefined' && sessionStorage) {
       var s = sessionStorage.getItem(SCHEDULE_DAY_OPS_LAYOUT_KEY);
@@ -939,6 +950,27 @@ function scheduleGetDayOpsLayoutMode() {
     }
   } catch (_e) { /* ignore */ }
   return scheduleDayOpsLayoutMode === 'cards' ? 'cards' : 'timeline';
+}
+
+/** Re-render board + cockpit when crossing the mobile breakpoint. */
+function scheduleEnsureDayOpsLayoutMediaWatch() {
+  if (typeof window === 'undefined' || !window.matchMedia) return;
+  if (window.__psOpsLayoutMediaWatch) return;
+  window.__psOpsLayoutMediaWatch = true;
+  var mq = window.matchMedia('(max-width: 768px)');
+  var onChange = function () {
+    try {
+      var ctx = typeof scheduleRentalPickupsRenderCtx !== 'undefined' ? scheduleRentalPickupsRenderCtx : null;
+      if (ctx && typeof renderScheduleDayOpsBoard === 'function') {
+        renderScheduleDayOpsBoard(ctx.pack, ctx.dateIso);
+      }
+    } catch (_e1) { /* ignore */ }
+    try {
+      if (typeof schedulePaintDayCockpit === 'function') schedulePaintDayCockpit();
+    } catch (_e2) { /* ignore */ }
+  };
+  if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onChange);
+  else if (typeof mq.addListener === 'function') mq.addListener(onChange);
 }
 
 function scheduleSetDayOpsLayoutMode(mode) {
@@ -1128,6 +1160,7 @@ function scheduleWireDayOpsBoardRows(container){
 function renderScheduleDayOpsBoard(pack, dateIso){
   var box = el('ps-ops-board');
   if (!box) return;
+  scheduleEnsureDayOpsLayoutMediaWatch();
   scheduleRentalPickupsRenderCtx = { pack: pack || { lessons: [], gear: [], rows: [] }, dateIso: dateIso || '' };
   var layoutMode = scheduleGetDayOpsLayoutMode();
   box.className = 'portal-schedule-ops-board';

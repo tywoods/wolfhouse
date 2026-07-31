@@ -1724,6 +1724,10 @@ assert('ops-board uses shared stack gap', /--ps-stack-gap:\s*16px/.test(apiSrc))
 assert('staff CSS pins #ps-day-cockpit bottom margin', /#ps-day-cockpit[^}]*margin:\s*0 0 16px/.test(apiSrc) || apiSrc.includes('#ps-day-cockpit,.ps-day-cockpit-host{margin:0 0 16px'));
 assert('ops-board no extra top margin (cockpit owns spacing)', /\.portal-schedule-ops-board\{[^}]*margin-top:\s*0/.test(apiSrc));
 assert('rental pickups no extra top margin', /\.portal-schedule-ops-rental-pickups\{margin-top:\s*0/.test(apiSrc));
+assert('mobile forces cards layout', /function scheduleDayOpsIsMobileViewport/.test(modSrc) && /max-width:\s*768px/.test(modSrc));
+assert('get layout returns cards on mobile path', /scheduleDayOpsIsMobileViewport\(\)\)\s*return 'cards'/.test(modSrc) || modSrc.includes("if (scheduleDayOpsIsMobileViewport()) return 'cards'"));
+assert('media watch re-renders on breakpoint', modSrc.includes('scheduleEnsureDayOpsLayoutMediaWatch'));
+assert('staff CSS hides layout pills on mobile', /@media\s*\(max-width:\s*768px\)[^{]*\{[^}]*ck-seg--layout[^}]*display:\s*none/.test(apiSrc) || apiSrc.includes('.ck-seg--layout{display:none!important}'));
 assert('cards grid CSS present', apiSrc.includes('.portal-schedule-cards-grid{'));
 assert('cards grid uses --ps-card-cols', apiSrc.includes('--ps-card-cols'));
 assert('cards collapse to 1 col on mobile', apiSrc.includes('.portal-schedule-cards-grid{grid-template-columns:1fr!important}'));
