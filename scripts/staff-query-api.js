@@ -24485,9 +24485,7 @@ function scheduleParseRentalEquipmentQtyValue(raw) {
 function scheduleApplyCreateRentalExclusionUi(wrap, selectedKeys){
   if (!wrap) return;
   var selected = selectedKeys || [];
-  var bundleOn = selected.indexOf('board_and_suit_rental') >= 0;
-  var separateOn = selected.indexOf('board_rental') >= 0 || selected.indexOf('wetsuit_rental') >= 0;
-  // Equipment qty stepper is always available when the row is selected (incl. no-lesson).
+  // Every exact offering is independent — never disable combo vs board/wetsuit.
   wrap.querySelectorAll('[data-rental-offering]').forEach(function(row){
     var key = String(row.getAttribute('data-rental-offering') || '');
     var check = row.querySelector('.ps-create-rental-check');
@@ -24497,17 +24495,8 @@ function scheduleApplyCreateRentalExclusionUi(wrap, selectedKeys){
     if (!check) return;
     var isOn = selected.indexOf(key) >= 0;
     check.checked = isOn;
-    if (key === 'board_and_suit_rental') {
-      check.disabled = separateOn && !isOn;
-    } else if (key === 'board_rental' || key === 'wetsuit_rental') {
-      check.disabled = bundleOn && !isOn;
-    } else {
-      check.disabled = false;
-    }
-    if (label) {
-      if (check.disabled) label.classList.add('is-disabled');
-      else label.classList.remove('is-disabled');
-    }
+    check.disabled = false;
+    if (label) label.classList.remove('is-disabled');
     row.classList.toggle('is-off', !isOn);
     if (durSel) {
       durSel.disabled = !isOn;
@@ -41278,7 +41267,8 @@ async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req,
     group_key: body.group_key,
     // New catalog items are independent — never invent excludes. Empty array
     // when omitted on create; explicit body.excludes still honored for rare
-    // historical-admin adapters.
+    // Future: nonempty excludes rejected as rental_excludes_not_supported.
+    // Omit/empty normalizes to []. Existing DB excludes never drive selection.
     excludes: op === 'create'
       ? (Array.isArray(body.excludes) ? body.excludes : [])
       : body.excludes,

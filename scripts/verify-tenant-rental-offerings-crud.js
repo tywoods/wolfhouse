@@ -200,10 +200,34 @@ async function run() {
   console.log('\n── B. body validation ──');
   ok('create requires label', !validateRentalOfferingBody({ offering_key: 'kayak_rental', group_key: 'sup' }).ok);
   ok('create requires group_key', !validateRentalOfferingBody({ offering_key: 'kayak_rental', label: 'Kayak' }).ok);
-  ok('self-exclusion rejected', !validateRentalOfferingBody({ offering_key: 'kayak_rental', label: 'Kayak', group_key: 'sup', excludes: ['kayak_rental'] }).ok);
-  ok('bad exclude entry rejected', !validateRentalOfferingBody({ offering_key: 'kayak_rental', label: 'Kayak', group_key: 'sup', excludes: ['not valid'] }).ok);
-  const good = validateRentalOfferingBody({ offering_key: 'kayak_rental', label: 'Kayak', group_key: 'sup', excludes: ['board_rental'] });
-  ok('valid create body accepted', good.ok && good.value.offering_key === 'kayak_rental');
+  const nonemptyExcludes = validateRentalOfferingBody({
+    offering_key: 'kayak_rental', label: 'Kayak', group_key: 'sup', excludes: ['board_rental'],
+  });
+  ok(
+    'nonempty excludes fail-closed rental_excludes_not_supported',
+    !nonemptyExcludes.ok
+      && (nonemptyExcludes.error === 'rental_excludes_not_supported'
+        || nonemptyExcludes.reason === 'rental_excludes_not_supported'),
+    JSON.stringify(nonemptyExcludes),
+  );
+  ok(
+    'self-exclusion also fail-closed',
+    !validateRentalOfferingBody({
+      offering_key: 'kayak_rental', label: 'Kayak', group_key: 'sup', excludes: ['kayak_rental'],
+    }).ok,
+  );
+  const good = validateRentalOfferingBody({
+    offering_key: 'kayak_rental', label: 'Kayak', group_key: 'sup', excludes: [],
+  });
+  ok('valid create body accepted with empty excludes', good.ok && good.value.offering_key === 'kayak_rental');
+  ok('omit excludes normalizes to []',
+    validateRentalOfferingBody({ offering_key: 'kayak_rental', label: 'Kayak', group_key: 'sup' }).ok
+      && Array.isArray(validateRentalOfferingBody({
+        offering_key: 'kayak_rental', label: 'Kayak', group_key: 'sup',
+      }).value.excludes)
+      && validateRentalOfferingBody({
+        offering_key: 'kayak_rental', label: 'Kayak', group_key: 'sup',
+      }).value.excludes.length === 0);
 
   console.log('\n── B2. stock_quantity validation (location-scoped catalog stock) ──');
   const stockMissing = validateRentalOfferingBody({
@@ -286,8 +310,22 @@ async function run() {
   ok('patch stock to null re-unconfigures',
     stockClear.ok && stockClear.offering.stock_quantity == null, JSON.stringify(stockClear));
 
-  const excl = await updateRentalOffering(pg, { clientSlug: 'sunset', locationId: 'sunset-somo', offering_key: 'kayak_rental', excludes: ['board_rental'] });
-  ok('update excludes persists', excl.ok && excl.offering.excludes.includes('board_rental'));
+  const excl = await updateRentalOffering(pg, {
+    clientSlug: 'sunset', locationId: 'sunset-somo', offering_key: 'kayak_rental',
+    excludes: ['board_rental'],
+  });
+  ok(
+    'update nonempty excludes rejected rental_excludes_not_supported',
+    !excl.ok
+      && (excl.error === 'rental_excludes_not_supported' || excl.reason === 'rental_excludes_not_supported'),
+    JSON.stringify(excl),
+  );
+  const exclClear = await updateRentalOffering(pg, {
+    clientSlug: 'sunset', locationId: 'sunset-somo', offering_key: 'kayak_rental',
+    excludes: [],
+  });
+  ok('update empty excludes ok', exclClear.ok && Array.isArray(exclClear.offering.excludes)
+    && exclClear.offering.excludes.length === 0);
 
   const del = await deleteRentalOffering(pg, { clientSlug: 'sunset', locationId: 'sunset-somo', offering_key: 'kayak_rental' });
   ok('hard-delete ok', del.ok === true && del.deleted === true && del.offerings_deleted >= 1, JSON.stringify(del));
@@ -303,7 +341,7 @@ async function run() {
   const desired = [
     { offering_key: 'board_rental', label: 'Surfboard', group_key: 'boards', excludes: [], sort_order: 0 },
     { offering_key: 'wetsuit_rental', label: 'Wetsuit', group_key: 'wetsuits', excludes: [], sort_order: 1 },
-    { offering_key: 'board_and_suit_rental', label: 'Surfboard + Wetsuit', group_key: 'bundles', excludes: ['board_rental', 'wetsuit_rental'], sort_order: 2 },
+    { offering_key: 'board_and_suit_rental', label: 'Surfboard + Wetsuit', group_key: 'bundles', excludes: [], sort_order: 2 },
   ];
   const seed1 = await seedRentalOfferings(seedPg, { clientSlug: 'sunset', locationId: 'sunset-somo', rows: desired });
   ok('first seed creates all', seed1.ok && seed1.created === 3 && seed1.updated === 0, JSON.stringify(seed1));
@@ -311,12 +349,30 @@ async function run() {
   ok('re-seed is a no-op (idempotent)', seed2.ok && seed2.created === 0 && seed2.updated === 0, JSON.stringify(seed2));
   const seed3 = await seedRentalOfferings(seedPg, { clientSlug: 'sunset', locationId: 'sunset-somo', rows: [{ ...desired[0], label: 'Board (renamed)' }] });
   ok('seed reconciles drift (label update)', seed3.ok && seed3.updated === 1, JSON.stringify(seed3));
+  // Seed always persists empty excludes (prospective clear contract).
+  const afterSeed = await listRentalOfferings(seedPg, {
+    clientSlug: 'sunset', locationId: 'sunset-somo', includeInactive: true,
+  });
+  ok(
+    'seed/reconcile rows all have empty excludes',
+    afterSeed.every((r) => Array.isArray(r.excludes) && r.excludes.length === 0),
+    JSON.stringify(afterSeed.map((r) => r.excludes)),
+  );
 
-  console.log('\n── E. Mutual-exclusion resolver (data-driven) ──');
+  console.log('\n── E. Selection ignores excludes (independent offerings) ──');
   const catalog = desired;
   const both = applyRentalMutualExclusion(['board_and_suit_rental', 'board_rental'], catalog);
-  ok('bundle + component -> one blocked', both.blocked.length === 1, JSON.stringify(both));
-  ok('bundle+component block is deterministic', both.blocked[0].key === 'board_rental' && both.blocked[0].excludedBy === 'board_and_suit_rental', JSON.stringify(both.blocked));
+  ok('bundle + board independent (no blocks)', both.blocked.length === 0 && both.allowed.length === 2, JSON.stringify(both));
+  const legacyCatalog = [
+    { offering_key: 'board_and_suit_rental', excludes: ['board_rental', 'wetsuit_rental'] },
+    { offering_key: 'board_rental', excludes: ['board_and_suit_rental'] },
+    { offering_key: 'wetsuit_rental', excludes: ['board_and_suit_rental'] },
+  ];
+  const ignoreLegacy = applyRentalMutualExclusion(
+    ['board_and_suit_rental', 'board_rental', 'wetsuit_rental'], legacyCatalog,
+  );
+  ok('legacy DB excludes ignored for selection', ignoreLegacy.blocked.length === 0
+    && ignoreLegacy.allowed.length === 3, JSON.stringify(ignoreLegacy));
   const compat = applyRentalMutualExclusion(['board_rental', 'wetsuit_rental'], catalog);
   ok('two non-excluding items both allowed', compat.blocked.length === 0 && compat.allowed.length === 2);
   const solo = applyRentalMutualExclusion(['board_and_suit_rental'], catalog);
@@ -345,24 +401,20 @@ async function run() {
   ok('sup co-exists with everything', applyRentalMutualExclusion(['sup_rental', 'board_and_suit_rental'], parity).blocked.length === 0);
 
   console.log('\n── G. New-item add + delete parity (Step 5 template promise, offline half) ──');
-  // Add a brand-new rentable item to the live Sunset catalog with its own
-  // exclusion, then prove the resolver honors it symmetrically and that deleting
-  // it drops it from resolution without disturbing the remaining catalog.
+  // Add a brand-new independent rentable item; prove co-selection with board is
+  // allowed and deleting it restores the canonical catalog.
   const addKayak = await createRentalOffering(parityPg, {
     clientSlug: 'sunset', locationId: 'sunset-somo', offering_key: 'kayak_rental',
-    label: 'Sea Kayak', group_key: 'sup', excludes: ['board_rental'], sort_order: 4, actorId: null,
+    label: 'Sea Kayak', group_key: 'sup', excludes: [], sort_order: 4, actorId: null,
   });
   ok('new kayak item created into live catalog', addKayak.ok && addKayak.offering.offering_key === 'kayak_rental', JSON.stringify(addKayak));
   const withKayak = await listRentalOfferings(parityPg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
   ok('catalog now renders 5 items', withKayak.length === 5, JSON.stringify(withKayak.map((r) => r.offering_key)));
-  // New item's exclusion is honored even though only kayak declares it (the
-  // seeded board_rental row does NOT list kayak back). One-directional excludes
-  // are sufficient to block co-selection — the "add item" UI needn't write a
-  // symmetric back-reference. Winner/loser is deterministic by key sort order.
   const kayakVsBoard = applyRentalMutualExclusion(['kayak_rental', 'board_rental'], withKayak);
-  ok('one-directional exclude still blocks co-selection (exactly one)', kayakVsBoard.blocked.length === 1, JSON.stringify(kayakVsBoard.blocked));
-  ok('block is deterministic by key sort (kayak_rental loses to board_rental)',
-    kayakVsBoard.blocked[0].key === 'kayak_rental' && kayakVsBoard.blocked[0].excludedBy === 'board_rental', JSON.stringify(kayakVsBoard.blocked));
+  ok('new kayak + board co-selection allowed (independent items)',
+    kayakVsBoard.blocked.length === 0 && kayakVsBoard.allowed.length === 2, JSON.stringify(kayakVsBoard));
+  ok('new kayak has empty excludes',
+    addKayak.offering && Array.isArray(addKayak.offering.excludes) && addKayak.offering.excludes.length === 0);
   ok('new item coexists with unrelated item',
     applyRentalMutualExclusion(['kayak_rental', 'sup_rental'], withKayak).blocked.length === 0);
   // Delete it: back to the canonical 4, and resolution over the rest is unchanged.
@@ -371,7 +423,6 @@ async function run() {
   const afterKayak = await listRentalOfferings(parityPg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
   ok('delete restores the canonical 4', afterKayak.length === 4 && !afterKayak.some((r) => r.offering_key === 'kayak_rental'), JSON.stringify(afterKayak.map((r) => r.offering_key)));
   const postDelExcl = applyRentalMutualExclusion(['board_and_suit_rental', 'board_rental'], afterKayak);
-  // Slice A seed has empty excludes — co-selection remains allowed after kayak delete.
   ok('remaining catalog resolves unchanged after delete (no auto excludes)',
     postDelExcl.blocked.length === 0 && afterKayak.length === 4, JSON.stringify(postDelExcl.blocked));
 

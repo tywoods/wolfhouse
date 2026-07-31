@@ -409,7 +409,7 @@ function isComponentLaneRentalKey(key) {
 }
 
 async function prepareGenericRentalsForCreate(opts) {
-  const { listRentalOfferings, applyRentalMutualExclusion } = require('./tenant-rental-offerings');
+  const { listRentalOfferings } = require('./tenant-rental-offerings');
   const {
     resolveGenericRentalPrice,
     buildGenericRentalServiceRecord,
@@ -445,8 +445,7 @@ async function prepareGenericRentalsForCreate(opts) {
   } catch (_) { return { ok: false, reason: 'rental_catalog_unavailable' }; }
   const active = new Map((catalog || []).filter((x) => x && x.active !== false).map((x) => [x.offering_key, x]));
   for (const row of generic) if (!active.has(String(row.offering_key || '').trim())) return { ok: false, reason: 'rental_offering_not_active' };
-  const exclusion = applyRentalMutualExclusion(rows.map((r) => r.offering_key), catalog || []);
-  if (exclusion.blocked.length) return { ok: false, reason: 'rental_catalog_conflict' };
+  // No catalog excludes / mutual exclusion — every exact offering_key is independent.
   const records = [];
   for (const row of generic) {
     const qty = Number(row.quantity);
@@ -4178,20 +4177,57 @@ async function createSunsetScheduleBooking(pg, opts) {
     // Physical stock: lock exact offering rows + recheck remaining inside THIS
     // transaction before any booking/service insert. Fail closed when stock is
     // null (not configured), missing, or insufficient.
+    // Includes standalone rentals[] AND course_equipment rows (exact offering_key).
     {
       const {
         assertRentalStockClaimsInTxn,
+        collectRentalStockClaims,
+        collectCourseEquipmentStockClaims,
+        mergeExactOfferingStockClaims,
         stockFailureHttp,
       } = require('./tenant-rental-stock-service');
       const { DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
+      const stockDateFrom = input.date_from || firstDate;
+      const stockDateTo = input.date_to
+        || (input.service_dates && input.service_dates[input.service_dates.length - 1])
+        || firstDate;
+      const rentalClaims = collectRentalStockClaims(
+        allRequestedRentals, stockDateFrom, stockDateTo,
+      );
+      if (!rentalClaims.ok) {
+        await pg.query('ROLLBACK');
+        return {
+          ok: false,
+          status: 400,
+          body: {
+            success: false,
+            error: rentalClaims.error || 'invalid_stock_request',
+            reason_code: rentalClaims.error || 'invalid_stock_request',
+            message: rentalClaims.message,
+          },
+        };
+      }
+      const ceClaims = collectCourseEquipmentStockClaims(
+        input.course_equipment, stockDateFrom, stockDateTo,
+      );
+      if (!ceClaims.ok) {
+        await pg.query('ROLLBACK');
+        return {
+          ok: false,
+          status: 400,
+          body: {
+            success: false,
+            error: ceClaims.error || 'invalid_stock_request',
+            reason_code: ceClaims.error || 'invalid_stock_request',
+            message: ceClaims.message,
+          },
+        };
+      }
+      const merged = mergeExactOfferingStockClaims(rentalClaims.claims, ceClaims.claims);
       const stockAssert = await assertRentalStockClaimsInTxn(pg, {
         clientSlug,
         locationId,
-        rentals: allRequestedRentals,
-        dateFrom: input.date_from || firstDate,
-        dateTo: input.date_to
-          || (input.service_dates && input.service_dates[input.service_dates.length - 1])
-          || firstDate,
+        claims: merged.claims,
         defaultLocationId: clientSlug === SUNSET_CLIENT_SLUG ? DEFAULT_SUNSET_LOCATION_ID : null,
       });
       if (!stockAssert.ok) {

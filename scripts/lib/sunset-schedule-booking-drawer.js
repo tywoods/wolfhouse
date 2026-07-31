@@ -1512,23 +1512,67 @@ async function updateSunsetScheduleBooking(pg, opts) {
 
     // Physical stock inside Edit transaction: exclude this booking, then check
     // replacement allocation (new selection or preserved rentals with new dates).
-    // Fail closed before service row mutation.
+    // Includes replacement course_equipment claims. Fail closed before service
+    // row mutation (no partial delete/recreate on stock failure).
     {
       const effectiveRentalsForStock = rentalsPresentOnPatch
         ? allRequestedRentals
         : (Array.isArray(lockedMeta.rentals) ? lockedMeta.rentals : []);
-      if (effectiveRentalsForStock.length) {
+      const {
+        isPresentCourseEquipmentSelection,
+      } = require('./sunset-course-equipment-options');
+      const cePresentOnPatch = Object.prototype.hasOwnProperty.call(requestBody, 'course_equipment');
+      const effectiveCeForStock = cePresentOnPatch
+        ? (isPresentCourseEquipmentSelection(input.course_equipment) ? input.course_equipment : [])
+        : (isPresentCourseEquipmentSelection(lockedMeta.course_equipment)
+          ? lockedMeta.course_equipment
+          : []);
+      if (effectiveRentalsForStock.length || (Array.isArray(effectiveCeForStock) && effectiveCeForStock.length)) {
         const {
           assertRentalStockClaimsInTxn,
+          collectRentalStockClaims,
+          collectCourseEquipmentStockClaims,
+          mergeExactOfferingStockClaims,
           stockFailureHttp,
         } = require('./tenant-rental-stock-service');
         const { DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
+        const stockDateFrom = input.date_from || firstDate;
+        const stockDateTo = input.date_to || lastDate || firstDate;
+        const rentalClaims = collectRentalStockClaims(
+          effectiveRentalsForStock, stockDateFrom, stockDateTo,
+        );
+        if (!rentalClaims.ok) {
+          return rollback({
+            ok: false,
+            status: 400,
+            body: {
+              success: false,
+              error: rentalClaims.error || 'invalid_stock_request',
+              reason_code: rentalClaims.error || 'invalid_stock_request',
+              message: rentalClaims.message,
+            },
+          });
+        }
+        const ceClaims = collectCourseEquipmentStockClaims(
+          effectiveCeForStock, stockDateFrom, stockDateTo,
+        );
+        if (!ceClaims.ok) {
+          return rollback({
+            ok: false,
+            status: 400,
+            body: {
+              success: false,
+              error: ceClaims.error || 'invalid_stock_request',
+              reason_code: ceClaims.error || 'invalid_stock_request',
+              message: ceClaims.message,
+            },
+          });
+        }
+        const merged = mergeExactOfferingStockClaims(rentalClaims.claims, ceClaims.claims);
         const stockAssert = await assertRentalStockClaimsInTxn(pg, {
           clientSlug,
           locationId: activeLocationId,
-          rentals: effectiveRentalsForStock,
-          dateFrom: input.date_from || firstDate,
-          dateTo: input.date_to || lastDate || firstDate,
+          claims: merged.claims,
           excludeBookingId: bookingId,
           defaultLocationId: clientSlug === SUNSET_CLIENT_SLUG ? DEFAULT_SUNSET_LOCATION_ID : null,
         });

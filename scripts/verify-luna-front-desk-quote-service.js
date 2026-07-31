@@ -659,28 +659,48 @@ async function run() {
     JSON.stringify(separateQuote.body),
   );
 
-  // 5. Bundle plus constituent rejected
+  // 5. Bundle + board + wetsuit are independent exact offerings (simultaneous OK)
   const bundlePlusBoard = executeSunsetQuoteSync(
     buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
       rentals: [
         { offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 },
         { offering_key: 'board_rental', duration_key: '1_day', quantity: 1 },
+        { offering_key: 'wetsuit_rental', duration_key: '1_day', quantity: 1 },
       ],
       components: { surfboard: { quantity: 1 }, wetsuit: { quantity: 1 } },
     })).command,
     { adminCfg: somoRentalCfg },
   );
-  assert('5 bundle+constituent rejected', bundlePlusBoard.ok === false, JSON.stringify(bundlePlusBoard.body));
+  assert(
+    '5 combo+board+wetsuit simultaneous quote succeeds',
+    bundlePlusBoard.ok === true
+      && Number(bundlePlusBoard.body.total_cents) === BUNDLE_1D + BOARD_1D + WETSUIT_1D
+      && (bundlePlusBoard.body.line_items || []).length === 3,
+    JSON.stringify(bundlePlusBoard.body),
+  );
 
-  // 6. Invalid, duplicate, wrong-duration rejected
+  // 6. Unknown/malformed keys, duplicate, wrong-duration rejected
   const badKey = executeSunsetQuoteSync(
     buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
-      rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+      rentals: [{ offering_key: 'Not Valid Key!!', duration_key: '1_day', quantity: 1 }],
       components: { surfboard: { quantity: 1 } },
     })).command,
     { adminCfg: somoRentalCfg },
   );
-  assert('6a invalid offering_key rejected', badKey.ok === false);
+  assert('6a invalid offering_key shape rejected', badKey.ok === false);
+
+  // Unknown catalog key (valid shape, not in catalog/prices) fail-closed unpriced
+  const unknownCatalog = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert(
+    '6a2 unknown catalog key fails closed (price_missing / not active)',
+    unknownCatalog.ok === false,
+    JSON.stringify(unknownCatalog.body),
+  );
 
   const dup = executeSunsetQuoteSync(
     buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({

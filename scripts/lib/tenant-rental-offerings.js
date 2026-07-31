@@ -3,16 +3,17 @@
 /**
  * Phase 2: data-access + CRUD for tenant_rental_offerings (migration 051) — the
  * single owner of rentable-item IDENTITY (offering_key), display (label), UI
- * grouping (group_key) and mutual-exclusion (excludes[]). This replaces the
- * closed RENTAL_GROUP_* code enums in tenant-admin-writes.js.
+ * grouping (group_key). Every Admin-created offering is independent by exact
+ * offering_key — no future mutual-exclusion / bundle inference.
  *
  * Money is NOT here: price-per-period lives in tenant_price_rules keyed by the
  * `offering_key__period_window` item_code (see tenant-admin-writes price CRUD).
  * A "rental item" the staff panel creates = one row here + one price row per
  * rentable period.
  *
- * Every query is client+location scoped. `excludes` is symmetric data that
- * replaces the hardcoded `if (key === 'board_and_suit_rental')` bundle logic.
+ * `excludes` column remains for historical read compatibility only. Future
+ * create/update reject nonempty excludes (`rental_excludes_not_supported`).
+ * Existing DB excludes must not affect selection/quote/write.
  *
  * Refs: docs/SURF-SCHOOL-TEMPLATE-PLAN.md Phase 2; database/migrations/051.
  */
@@ -142,17 +143,19 @@ function validateRentalOfferingBody(body, mode = 'create') {
 
   let excludes;
   if (mode === 'create' || b.excludes !== undefined) {
+    // Future contract: excludes are not supported. Omit/empty → []. Nonempty fail-closed.
     const raw = b.excludes === undefined ? [] : b.excludes;
-    if (!Array.isArray(raw)) return { ok: false, error: 'excludes must be an array' };
-    const selfKey = String(b.offering_key || '').trim();
-    const seen = new Set();
-    for (const item of raw) {
-      const k = String(item || '').trim();
-      if (!isValidOfferingKey(k)) return { ok: false, error: `invalid excludes entry: ${item}` };
-      if (k === selfKey) return { ok: false, error: 'offering cannot exclude itself' };
-      seen.add(k);
+    if (!Array.isArray(raw)) {
+      return { ok: false, error: 'rental_excludes_not_supported', reason: 'rental_excludes_not_supported' };
     }
-    excludes = [...seen].sort();
+    if (raw.length > 0) {
+      return {
+        ok: false,
+        error: 'rental_excludes_not_supported',
+        reason: 'rental_excludes_not_supported',
+      };
+    }
+    excludes = [];
   }
 
   let sortOrder;
@@ -676,9 +679,10 @@ async function setRentalOfferingActive(pg, params = {}) {
 /**
  * Idempotent seed/reconcile: bring the catalog for a client(+location) in line
  * with `rows` (from buildRentalOfferingRows). Creates missing items, updates
- * label/group/excludes/sort_order on existing ones. Never deletes — a school
- * that removed an item keeps that decision. Reuses the tested CRUD paths so it
- * needs no separate SQL. Returns a summary.
+ * label/group/sort_order, and clears legacy excludes to [] prospectively.
+ * Never rewrites booking history. Never deletes — a school that removed an
+ * item keeps that decision. Reuses the tested CRUD paths so it needs no
+ * separate SQL. Returns a summary.
  */
 async function seedRentalOfferings(pg, { clientSlug, locationId, rows, actorId = null } = {}) {
   const slug = String(clientSlug || '').trim();
@@ -691,6 +695,8 @@ async function seedRentalOfferings(pg, { clientSlug, locationId, rows, actorId =
   for (const row of rows) {
     const key = String(row.offering_key || '').trim();
     if (!key) continue;
+    // Prospective seed always writes empty excludes (independent offerings).
+    const seedExcludes = [];
     const cur = byKey.get(key);
     if (!cur || cur.active === false) {
       // Recreate if it never existed. If a soft-deleted row exists, respect the
@@ -698,19 +704,20 @@ async function seedRentalOfferings(pg, { clientSlug, locationId, rows, actorId =
       if (cur && cur.active === false) continue;
       const res = await createRentalOffering(pg, {
         clientSlug: slug, locationId, offering_key: key,
-        label: row.label, group_key: row.group_key, excludes: row.excludes || [],
+        label: row.label, group_key: row.group_key, excludes: seedExcludes,
         sort_order: row.sort_order || 0, actorId,
       });
       if (res.ok) created += 1;
       continue;
     }
+    const legacyExcludes = Array.isArray(cur.excludes) ? cur.excludes : [];
     const drift = cur.label !== row.label || cur.group_key !== row.group_key
-      || JSON.stringify(cur.excludes || []) !== JSON.stringify((row.excludes || []).slice().sort())
+      || legacyExcludes.length > 0
       || cur.sort_order !== (row.sort_order || 0);
     if (drift) {
       const res = await updateRentalOffering(pg, {
         clientSlug: slug, locationId, offering_key: key,
-        label: row.label, group_key: row.group_key, excludes: row.excludes || [],
+        label: row.label, group_key: row.group_key, excludes: seedExcludes,
         sort_order: row.sort_order || 0, actorId,
       });
       if (res.ok) updated += 1;
@@ -720,31 +727,17 @@ async function seedRentalOfferings(pg, { clientSlug, locationId, rows, actorId =
 }
 
 /**
- * Pure mutual-exclusion resolver for the booking drawer. Given the offering_keys
- * a staff member has selected and the catalog rows, return which selections are
- * blocked by another selection's `excludes[]` (symmetric). Data replacement for
- * the hardcoded `if (key === 'board_and_suit_rental')` bundle logic.
+ * Historical compatibility shim. Future selection never applies excludes —
+ * every offering is independent. Existing DB excludes are ignored so they
+ * cannot affect quote/create/write.
  *
- * @returns {{ allowed:string[], blocked:Array<{key:string, excludedBy:string}> }}
+ * @returns {{ allowed:string[], blocked:Array }}
  */
-function applyRentalMutualExclusion(selectedKeys, offerings) {
-  const selected = Array.isArray(selectedKeys) ? selectedKeys.map((k) => String(k || '').trim()).filter(Boolean) : [];
-  const catalog = new Map((Array.isArray(offerings) ? offerings : []).map((o) => [o.offering_key, o]));
-  const selectedSet = new Set(selected);
-  const blocked = [];
-  const blockedKeys = new Set();
-  for (const key of selected) {
-    const row = catalog.get(key);
-    const excludes = row && Array.isArray(row.excludes) ? row.excludes : [];
-    for (const ex of excludes) {
-      if (selectedSet.has(ex)) {
-        // Deterministic: the later-sorted key is the one reported blocked.
-        const loser = [key, ex].sort()[1];
-        if (!blockedKeys.has(loser)) { blocked.push({ key: loser, excludedBy: [key, ex].sort()[0] }); blockedKeys.add(loser); }
-      }
-    }
-  }
-  return { allowed: selected.filter((k) => !blockedKeys.has(k)), blocked };
+function applyRentalMutualExclusion(selectedKeys, _offerings) {
+  const selected = Array.isArray(selectedKeys)
+    ? selectedKeys.map((k) => String(k || '').trim()).filter(Boolean)
+    : [];
+  return { allowed: selected, blocked: [] };
 }
 
 module.exports = {

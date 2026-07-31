@@ -1691,9 +1691,7 @@ function scheduleParseRentalEquipmentQtyValue(raw) {
 function scheduleDrawerApplyRentalExclusionUi(wrap, selectedKeys) {
   if (!wrap) return;
   var selected = selectedKeys || [];
-  var bundleOn = selected.indexOf('board_and_suit_rental') >= 0;
-  var separateOn = selected.indexOf('board_rental') >= 0 || selected.indexOf('wetsuit_rental') >= 0;
-  // Equipment qty stepper is always available when the row is selected (incl. no-lesson).
+  // Every exact offering is independent — never disable combo vs board/wetsuit.
   wrap.querySelectorAll('[data-rental-offering]').forEach(function(row) {
     var key = String(row.getAttribute('data-rental-offering') || '');
     var check = row.querySelector('.ps-drawer-rental-check');
@@ -1703,13 +1701,8 @@ function scheduleDrawerApplyRentalExclusionUi(wrap, selectedKeys) {
     if (!check) return;
     var isOn = selected.indexOf(key) >= 0;
     check.checked = isOn;
-    if (key === 'board_and_suit_rental') check.disabled = separateOn && !isOn;
-    else if (key === 'board_rental' || key === 'wetsuit_rental') check.disabled = bundleOn && !isOn;
-    else check.disabled = false;
-    if (label) {
-      if (check.disabled) label.classList.add('is-disabled');
-      else label.classList.remove('is-disabled');
-    }
+    check.disabled = false;
+    if (label) label.classList.remove('is-disabled');
     if (durSel) {
       durSel.disabled = !isOn || row.getAttribute('data-compatibility') === '1';
       if (isOn && durSel.value) {

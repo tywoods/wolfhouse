@@ -1402,11 +1402,18 @@ function quoteUnknownOfferingFallback(catalog, body, offeringId) {
   return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
 }
 
+/** Historical labels only — never used as a closed whitelist for quote/create. */
 const CANONICAL_RENTAL_OFFERING_KEYS = Object.freeze([
   'board_rental',
   'wetsuit_rental',
   'board_and_suit_rental',
 ]);
+
+function isValidRentalOfferingKeyShape(key) {
+  const k = String(key || '').trim();
+  // Align with tenant-rental-offerings: lowercase, no "__", <=64.
+  return /^[a-z][a-z0-9_]*$/.test(k) && k.length <= 64 && !k.includes('__');
+}
 
 /** No-lesson short rental windows — independent of inclusive date-span duration. */
 const SHORT_RENTAL_DURATION_KEYS = Object.freeze(['1_hour', '2_hours', 'half_day', 'full_day']);
@@ -1519,7 +1526,9 @@ function normalizeCanonicalRentalsForQuote(transportBody, expectedDurationKey) {
       return { ok: false, reason: 'invalid_rentals', error: `rentals[${i}] must be an object` };
     }
     const offeringKey = String(row.offering_key || '').trim();
-    if (!CANONICAL_RENTAL_OFFERING_KEYS.includes(offeringKey)) {
+    // Catalog-driven: any valid offering_key shape is accepted here.
+    // Unknown/inactive/unpriced offerings fail later via catalog/price lookup.
+    if (!isValidRentalOfferingKeyShape(offeringKey)) {
       return { ok: false, reason: 'invalid_rental_offering', error: `rentals[${i}].offering_key is not allowed` };
     }
     if (seen.has(offeringKey)) {
@@ -1554,13 +1563,8 @@ function normalizeCanonicalRentalsForQuote(transportBody, expectedDurationKey) {
       quantity: qty,
     });
   }
-  if (seen.has('board_and_suit_rental') && (seen.has('board_rental') || seen.has('wetsuit_rental'))) {
-    return {
-      ok: false,
-      reason: 'rental_bundle_conflict',
-      error: 'board_and_suit_rental cannot be combined with board_rental or wetsuit_rental',
-    };
-  }
+  // No mutual exclusion: board_and_suit_rental, board_rental, wetsuit_rental
+  // (and any Admin-created item) are independent exact offering keys.
   return { ok: true, present: true, value: out };
 }
 
@@ -2065,6 +2069,138 @@ function resolveCourseOfferingIdentity(comp) {
   return { ok: true, offering_id: expectedOfferingId };
 }
 
+/**
+ * Price one exact rental offering_key via catalog first, then generic price
+ * resolver. Same data-driven path for canonical and Admin-created keys —
+ * no key-name special cases. Fail closed unknown/inactive/unpriced.
+ */
+async function quoteExactRentalOfferingLine(pg, command, catalog, rental, serviceDates, requireDb) {
+  const offeringKey = String(rental && rental.offering_key || '').trim();
+  const durationKey = String(rental && rental.duration_key || '').trim();
+  const quantity = Number(rental && rental.quantity);
+  if (!offeringKey || !durationKey || !Number.isInteger(quantity) || quantity < 1) {
+    return {
+      ok: false,
+      status: 400,
+      body: { success: false, reason: 'invalid_rental_offering', reason_code: 'invalid_rental_offering' },
+    };
+  }
+
+  // Prefer projected catalog/admin price rows (same path for board/wetsuit/bundle
+  // and Admin custom items when they appear as rental offerings).
+  const matches = findExactRentalCatalogOffering(
+    catalog, offeringKey, durationKey, command.locationId,
+  );
+  if (matches.length) {
+    const offering = nestOfferingForQuote(matches[0]);
+    const lineOut = pg
+      ? await quoteOfferingLine(pg, command, offering, serviceDates, quantity, requireDb)
+      : quoteOfferingLineSync(command, offering, serviceDates, quantity, requireDb);
+    if (!lineOut.ok) return lineOut;
+    return {
+      ok: true,
+      line: {
+        ...lineOut.line,
+        component: offeringKey,
+        duration_key: durationKey,
+        offering_key: offeringKey,
+        label: lineOut.line.label || offering.label || offeringKey,
+        quantity,
+      },
+    };
+  }
+
+  // Catalog miss: resolve via tenant price rules + active tenant_rental_offerings.
+  // Requires pg (production Luna always supplies DB via bot quote route).
+  if (!pg) {
+    return { ok: false, status: 422, body: { success: false, reason: 'price_missing', reason_code: 'price_missing' } };
+  }
+
+  const { listRentalOfferings } = require('./tenant-rental-offerings');
+  let catalogRows;
+  try {
+    catalogRows = await listRentalOfferings(pg, {
+      clientSlug: command.clientSlug || SUNSET_CLIENT_SLUG,
+      locationId: command.locationId,
+      includeInactive: false,
+    });
+  } catch (_) {
+    return {
+      ok: false,
+      status: 422,
+      body: {
+        success: false,
+        reason: 'rental_catalog_unavailable',
+        reason_code: 'rental_catalog_unavailable',
+      },
+    };
+  }
+  const active = (catalogRows || []).find(
+    (r) => r && r.active !== false && String(r.offering_key) === offeringKey,
+  );
+  if (!active) {
+    return {
+      ok: false,
+      status: 422,
+      body: {
+        success: false,
+        reason: 'rental_offering_not_active',
+        reason_code: 'rental_offering_not_active',
+        offering_key: offeringKey,
+      },
+    };
+  }
+
+  const { resolveGenericRentalPrice } = require('./tenant-rental-price-resolver');
+  const priced = await resolveGenericRentalPrice({
+    clientSlug: command.clientSlug || SUNSET_CLIENT_SLUG,
+    locationId: command.locationId,
+    offeringKey,
+    durationKey,
+    quantity,
+    pgClient: pg,
+  });
+  if (!priced.ok) {
+    const reason = priced.reason === 'price_not_found' || priced.reason === 'price_unverified'
+      ? 'price_missing'
+      : (priced.reason || 'price_missing');
+    return {
+      ok: false,
+      status: 422,
+      body: {
+        success: false,
+        reason,
+        reason_code: reason,
+        offering_key: offeringKey,
+        duration_key: durationKey,
+      },
+    };
+  }
+
+  const label = String(active.label || offeringKey);
+  return {
+    ok: true,
+    line: {
+      component: offeringKey,
+      offering_key: offeringKey,
+      offering_id: priced.item_code,
+      offering_item_code: priced.item_code,
+      course_id: null,
+      tier_key: durationKey,
+      duration_key: durationKey,
+      label,
+      quantity,
+      unit_amount_cents: priced.unit_cents,
+      total_cents: priced.amount_cents,
+      currency: priced.currency || 'EUR',
+      price_source: 'tenant_price_rules',
+      billing_unit: priced.unit || 'day',
+      billing_mode: 'duration_package',
+      capacity_by_date: null,
+    },
+  };
+}
+
 async function quoteByComponents(pg, command, catalog, requireDb) {
   const resolved = resolveQuoteComponentsAndRentalsInput(command);
   if (!resolved.ok) return resolved;
@@ -2335,25 +2471,11 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
       }
     }
     for (const rental of rentalsNorm.value) {
-      const matches = findExactRentalCatalogOffering(
-        catalog,
-        rental.offering_key,
-        rental.duration_key,
-        command.locationId,
+      const lineOut = await quoteExactRentalOfferingLine(
+        pg, command, catalog, rental, serviceDates, requireDb,
       );
-      if (!matches.length) {
-        return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
-      }
-      const offering = nestOfferingForQuote(matches[0]);
-      const lineOut = pg
-        ? await quoteOfferingLine(pg, command, offering, serviceDates, rental.quantity, requireDb)
-        : quoteOfferingLineSync(command, offering, serviceDates, rental.quantity, requireDb);
       if (!lineOut.ok) return lineOut;
-      lines.push({
-        ...lineOut.line,
-        component: rental.offering_key,
-        duration_key: rental.duration_key,
-      });
+      lines.push(lineOut.line);
       totalCents += lineOut.line.total_cents;
       currency = lineOut.line.currency;
     }
@@ -2368,17 +2490,12 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
       if (!input.components[rentalKey]) continue;
       const comp = input.components[rentalKey];
       const offeringKey = rentalKey === 'surfboard' ? 'board_rental' : 'wetsuit_rental';
-      const matches = findExactRentalCatalogOffering(
-        catalog, offeringKey, legacyDur, command.locationId,
-      );
-      if (!matches.length) {
-        return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
-      }
-      const offering = nestOfferingForQuote(matches[0]);
       const qty = Math.max(1, Number(comp.quantity) || 1);
-      const lineOut = pg
-        ? await quoteOfferingLine(pg, command, offering, serviceDates, qty, requireDb)
-        : quoteOfferingLineSync(command, offering, serviceDates, qty, requireDb);
+      const lineOut = await quoteExactRentalOfferingLine(
+        pg, command, catalog,
+        { offering_key: offeringKey, duration_key: legacyDur, quantity: qty },
+        serviceDates, requireDb,
+      );
       if (!lineOut.ok) return lineOut;
       lines.push({ ...lineOut.line, component: rentalKey, duration_key: legacyDur });
       totalCents += lineOut.line.total_cents;
@@ -2661,6 +2778,7 @@ function quoteByComponentsSync(command, catalog, requireDb) {
     // Offline/sync money math has no DB stock ledger. Do not invent availability —
     // production Luna uses executeSunsetQuote(pg) which enforces stock above.
     // Create still rechecks stock inside the write transaction.
+    // Sync path prices only offerings present in the injected catalog.
     for (const rental of rentalsNorm.value) {
       const matches = findExactRentalCatalogOffering(
         catalog,
@@ -2672,12 +2790,15 @@ function quoteByComponentsSync(command, catalog, requireDb) {
         return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
       }
       const offering = nestOfferingForQuote(matches[0]);
-      const lineOut = quoteOfferingLineSync(command, offering, serviceDates, rental.quantity, requireDb);
+      const lineOut = quoteOfferingLineSync(
+        command, offering, serviceDates, rental.quantity, requireDb,
+      );
       if (!lineOut.ok) return lineOut;
       lines.push({
         ...lineOut.line,
         component: rental.offering_key,
         duration_key: rental.duration_key,
+        offering_key: rental.offering_key,
       });
       totalCents += lineOut.line.total_cents;
       currency = lineOut.line.currency;
@@ -2947,6 +3068,8 @@ module.exports = {
   QUOTE_CHANNELS,
   QUOTE_PROVENANCE_VERSION,
   CLIENT_MONEY_FIELDS,
+  CANONICAL_RENTAL_OFFERING_KEYS,
+  normalizeCanonicalRentalsForQuote,
   buildSunsetQuoteCommand,
   executeSunsetQuote,
   executeSunsetQuoteSync,

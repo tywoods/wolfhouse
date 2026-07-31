@@ -514,13 +514,86 @@ function stockFailureHttp(result) {
 }
 
 /**
+ * Course-equipment selection rows (wire: offering_key + quantity) as stock claims.
+ * Exact offering_key only — no component expansion.
+ */
+function collectCourseEquipmentStockClaims(courseEquipment, dateFrom, dateTo) {
+  if (!Array.isArray(courseEquipment) || !courseEquipment.length) {
+    return { ok: true, claims: [], skipped: true };
+  }
+  return collectRentalStockClaims(
+    courseEquipment.map((row) => ({
+      offering_key: row && row.offering_key,
+      quantity: row && row.quantity,
+    })),
+    dateFrom,
+    dateTo,
+  );
+}
+
+/**
+ * Merge independent claim lists by exact offering_key.
+ * Quantities SUM when the same key appears in multiple lists without an explicit
+ * shared logical claim identity (create/edit payloads have none). Date span
+ * is the union of each claim's range.
+ */
+function mergeExactOfferingStockClaims(...claimLists) {
+  const byKey = new Map();
+  for (const list of claimLists) {
+    for (const claim of (Array.isArray(list) ? list : [])) {
+      if (!claim || !claim.offering_key) continue;
+      const key = String(claim.offering_key).trim();
+      if (!key) continue;
+      const qty = Number(claim.quantity);
+      if (!Number.isInteger(qty) || qty < 1) continue;
+      const from = String(claim.date_from || claim.dateFrom || '').slice(0, 10);
+      const to = String(claim.date_to || claim.dateTo || from).slice(0, 10);
+      const dates = Array.isArray(claim.dates)
+        ? claim.dates.map((d) => String(d || '').slice(0, 10)).filter(isIsoDate)
+        : inclusiveIsoDates(from, to);
+      const prev = byKey.get(key);
+      if (!prev) {
+        byKey.set(key, {
+          offering_key: key,
+          quantity: qty,
+          date_from: from,
+          date_to: to,
+          dates: [...new Set(dates)].sort(),
+        });
+      } else {
+        prev.quantity += qty;
+        const allDates = [...new Set([...(prev.dates || []), ...dates])].sort();
+        prev.dates = allDates;
+        if (allDates.length) {
+          prev.date_from = allDates[0];
+          prev.date_to = allDates[allDates.length - 1];
+        }
+      }
+    }
+  }
+  const claims = [...byKey.values()].sort((a, b) => a.offering_key.localeCompare(b.offering_key));
+  return { ok: true, claims };
+}
+
+/**
  * Extract rental stock claims from a locked booking bundle (restore path).
- * Groups by exact offering_key + span of occupied dates.
+ *
+ * Aligns with normalizeReservationDemand:
+ *   - independent same-key rows SUM per exact offering + occupied date
+ *   - explicit historical component pairs (shared group + ≥2 distinct parts) dedupe once
+ *   - never MAX across independent rows
+ *   - never sum multi-day demand into a single inflated per-day request
+ *
+ * Emits one claim per (offering_key, date) so each day's actual demand is checked
+ * and the limiting date is correct. assertRentalStockClaimsInTxn locks distinct
+ * offering keys once in deterministic order.
  */
 function collectRentalStockClaimsFromServices(services, opts = {}) {
   const list = Array.isArray(services) ? services : [];
-  // offering_key → { quantity max per date, dates Set }
-  const byKey = new Map();
+  const reservationRows = [];
+  const {
+    normalizeReservationDemand,
+  } = require('./tenant-rental-stock');
 
   for (const sr of list) {
     if (!sr) continue;
@@ -537,7 +610,9 @@ function collectRentalStockClaimsFromServices(services, opts = {}) {
     const isRental = meta.rental_offering === true
       || meta.course_equipment === true
       || meta.staff_ui_service_type === 'rental'
+      || meta.staff_ui_service_type === 'course_equipment'
       || meta.component === 'rental'
+      || meta.component === 'course_equipment'
       || meta.component === 'surfboard'
       || meta.component === 'wetsuit'
       || stype === 'surfboard'
@@ -561,34 +636,47 @@ function collectRentalStockClaimsFromServices(services, opts = {}) {
     }
     if (!dates.length) continue;
 
-    if (!byKey.has(key)) {
-      byKey.set(key, { offering_key: key, quantity: 0, dates: new Set() });
-    }
-    const bucket = byKey.get(key);
-    // Restore claims the max concurrent unit demand for this offering.
-    if (quantity > bucket.quantity) bucket.quantity = quantity;
-    for (const d of dates) bucket.dates.add(d);
-  }
-
-  const claims = [];
-  for (const bucket of byKey.values()) {
-    const dates = [...bucket.dates].sort();
-    if (!dates.length || bucket.quantity < 1) continue;
-    claims.push({
-      offering_key: bucket.offering_key,
-      quantity: bucket.quantity,
-      date_from: dates[0],
-      date_to: dates[dates.length - 1],
-      dates,
+    reservationRows.push({
+      booking_id: sr.booking_id != null ? sr.booking_id : (meta.booking_id || ''),
+      offering_key: key,
+      service_date: dates[0],
+      quantity,
+      status: 'confirmed',
+      booking_status: 'confirmed',
+      rental_service_dates: dates,
+      covered_dates: dates,
+      pricing_group_id: meta.pricing_group_id || null,
+      rental_bundle_id: meta.rental_bundle_id || null,
+      bundle_part: meta.bundle_part || null,
+      rental_pricing_role: meta.rental_pricing_role || null,
     });
   }
-  claims.sort((a, b) => a.offering_key.localeCompare(b.offering_key));
+
+  const normalized = normalizeReservationDemand(reservationRows);
+  // One claim per (offering_key, date) — correct per-day demand, no cross-date SUM.
+  const claims = normalized
+    .filter((unit) => unit && unit.offering_key && unit.quantity >= 1 && isIsoDate(unit.date))
+    .map((unit) => ({
+      offering_key: unit.offering_key,
+      quantity: unit.quantity,
+      date_from: unit.date,
+      date_to: unit.date,
+      dates: [unit.date],
+    }))
+    .sort((a, b) => {
+      const o = a.offering_key.localeCompare(b.offering_key);
+      if (o !== 0) return o;
+      return a.date_from.localeCompare(b.date_from);
+    });
+
   return { ok: true, claims };
 }
 
 module.exports = {
   STOCK_ERRORS,
   collectRentalStockClaims,
+  collectCourseEquipmentStockClaims,
+  mergeExactOfferingStockClaims,
   collectRentalStockClaimsFromServices,
   loadConfiguredStockRow,
   loadActiveReservations,

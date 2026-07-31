@@ -180,22 +180,22 @@ assert(
 );
 assert('none mode', mod.scheduleRentalOfferingsMode([]) === 'none');
 
-console.log('\n[C] Mutual exclusion + serialize');
+console.log('\n[C] Independent selection (no mutual exclusion) + serialize');
 assert(
-  'selecting bundle clears board/wetsuit',
+  'selecting bundle keeps board/wetsuit (independent exact keys)',
   JSON.stringify(mod.scheduleApplyRentalMutualExclusion(
     ['board_rental', 'wetsuit_rental'],
     'board_and_suit_rental',
     true,
-  ).sort()) === JSON.stringify(['board_and_suit_rental']),
+  ).sort()) === JSON.stringify(['board_and_suit_rental', 'board_rental', 'wetsuit_rental']),
 );
 assert(
-  'selecting board clears bundle',
+  'selecting board keeps bundle (independent exact keys)',
   JSON.stringify(mod.scheduleApplyRentalMutualExclusion(
     ['board_and_suit_rental'],
     'board_rental',
     true,
-  ).sort()) === JSON.stringify(['board_rental']),
+  ).sort()) === JSON.stringify(['board_and_suit_rental', 'board_rental']),
 );
 assert(
   'separate board+wetsuit both allowed',

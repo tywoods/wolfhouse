@@ -545,18 +545,16 @@ function scheduleRentalOfferingsMode(activeOfferings) {
   return 'all_three';
 }
 
+/**
+ * Toggle one rental selection. Every exact offering_key is independent —
+ * no hidden board_and_suit vs board/wetsuit exclusion for future selection.
+ */
 function scheduleApplyRentalMutualExclusion(selectedKeys, toggledKey, checked) {
   var next = {};
   (selectedKeys || []).forEach(function(k) { next[k] = true; });
   var key = String(toggledKey || '');
   if (checked) {
     next[key] = true;
-    if (key === 'board_and_suit_rental') {
-      delete next.board_rental;
-      delete next.wetsuit_rental;
-    } else if (key === 'board_rental' || key === 'wetsuit_rental') {
-      delete next.board_and_suit_rental;
-    }
   } else {
     delete next[key];
   }
