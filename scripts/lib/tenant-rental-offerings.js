@@ -24,6 +24,13 @@ const GROUP_KEY_RE = /^[a-z][a-z0-9_]*$/;
 const MAX_OFFERING_KEY = 64;
 const MAX_LABEL = 120;
 const MAX_GROUP_KEY = 40;
+// Physical stock (migration 055): integer units 0..999; null = unconfigured.
+const STOCK_MIN = 0;
+const STOCK_MAX = 999;
+
+function isValidStockQuantity(value) {
+  return Number.isInteger(value) && value >= STOCK_MIN && value <= STOCK_MAX;
+}
 
 function isValidOfferingKey(key) {
   const k = String(key || '').trim();
@@ -156,6 +163,24 @@ function validateRentalOfferingBody(body, mode = 'create') {
     }
   }
 
+  // stock_quantity: optional on create; patchable on rename/update.
+  // null/omitted on create → unconfigured. Explicit null on patch clears config.
+  let stockQuantity;
+  let hasStock = false;
+  if (Object.prototype.hasOwnProperty.call(b, 'stock_quantity')) {
+    hasStock = true;
+    if (b.stock_quantity === null) {
+      stockQuantity = null;
+    } else if (!isValidStockQuantity(b.stock_quantity)) {
+      return {
+        ok: false,
+        error: `stock_quantity must be an integer ${STOCK_MIN}..${STOCK_MAX} or null`,
+      };
+    } else {
+      stockQuantity = b.stock_quantity;
+    }
+  }
+
   return {
     ok: true,
     value: {
@@ -164,6 +189,7 @@ function validateRentalOfferingBody(body, mode = 'create') {
       group_key: groupKey,
       excludes,
       sort_order: sortOrder,
+      ...(hasStock ? { stock_quantity: stockQuantity } : {}),
     },
   };
 }
@@ -174,6 +200,11 @@ function rowToOffering(row) {
   if (typeof excludes === 'string') {
     try { excludes = JSON.parse(excludes); } catch (_) { excludes = []; }
   }
+  let stockQuantity = null;
+  if (row.stock_quantity !== undefined && row.stock_quantity !== null) {
+    const n = Number(row.stock_quantity);
+    stockQuantity = Number.isInteger(n) ? n : null;
+  }
   return {
     id: row.id,
     client_slug: row.client_slug,
@@ -183,6 +214,7 @@ function rowToOffering(row) {
     group_key: row.group_key,
     excludes: Array.isArray(excludes) ? excludes : [],
     sort_order: row.sort_order,
+    stock_quantity: stockQuantity,
     active: row.active,
   };
 }
@@ -205,7 +237,7 @@ async function listRentalOfferings(pg, { clientSlug, locationId, includeInactive
   if (!includeInactive) where.push('active = true');
   const res = await pg.query(
     // MULTICLIENT_SCOPE_OK: client_slug predicate first, location-scoped
-    `SELECT id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, active
+    `SELECT id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, active
        FROM tenant_rental_offerings
       WHERE ${where.join(' AND ')}
       ORDER BY sort_order ASC, offering_key ASC`,
@@ -239,14 +271,17 @@ async function createRentalOffering(pg, params = {}) {
       return nameOk;
     }
 
+    const stockQty = Object.prototype.hasOwnProperty.call(v.value, 'stock_quantity')
+      ? v.value.stock_quantity
+      : null;
     const res = await pg.query(
       // MULTICLIENT_SCOPE_OK: explicit client_slug column on insert
       `INSERT INTO tenant_rental_offerings
-         (client_slug, location_id, offering_key, label, group_key, excludes, sort_order, updated_by)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
-       RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, active`,
+         (client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+       RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, active`,
       [slug, loc, v.value.offering_key, v.value.label, v.value.group_key,
-        JSON.stringify(v.value.excludes || []), v.value.sort_order || 0, params.actorId || null],
+        JSON.stringify(v.value.excludes || []), v.value.sort_order || 0, stockQty, params.actorId || null],
     );
     await pg.query('COMMIT');
     return { ok: true, offering: rowToOffering(res.rows[0]) };
@@ -279,6 +314,9 @@ async function updateRentalOffering(pg, params = {}) {
   if (v.value.group_key !== undefined) push('group_key = $$', v.value.group_key);
   if (v.value.excludes !== undefined) push('excludes = $$::jsonb', JSON.stringify(v.value.excludes));
   if (v.value.sort_order !== undefined) push('sort_order = $$', v.value.sort_order);
+  if (Object.prototype.hasOwnProperty.call(v.value, 'stock_quantity')) {
+    push('stock_quantity = $$', v.value.stock_quantity);
+  }
   if (params.actorId !== undefined) push('updated_by = $$', params.actorId || null);
   if (!sets.length) return { ok: false, error: 'nothing to update' };
 
@@ -310,7 +348,7 @@ async function updateRentalOffering(pg, params = {}) {
       `UPDATE tenant_rental_offerings
           SET ${sets.join(', ')}
         WHERE client_slug = $${slugIdx} AND offering_key = $${keyIdx} AND ${locClause} AND active = true
-        RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, active`,
+        RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, active`,
       vals,
     );
     if (!res.rows.length) {
@@ -610,7 +648,7 @@ async function setRentalOfferingActive(pg, params = {}) {
 
   const found = await pg.query(
     // MULTICLIENT_SCOPE_OK: client_slug + offering_key + location (any active state)
-    `SELECT id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, active
+    `SELECT id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, active
        FROM tenant_rental_offerings
       WHERE client_slug = $1 AND offering_key = $2 AND ${locClause}
       ORDER BY active DESC, updated_at DESC NULLS LAST, created_at DESC NULLS LAST
@@ -628,7 +666,7 @@ async function setRentalOfferingActive(pg, params = {}) {
     `UPDATE tenant_rental_offerings
         SET active = $1, updated_by = $2
       WHERE id = $3
-      RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, active`,
+      RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, active`,
     [wantActive, params.actorId || null, current.id],
   );
   if (!res.rows.length) return { ok: false, error: 'rental item not found' };
@@ -711,7 +749,10 @@ function applyRentalMutualExclusion(selectedKeys, offerings) {
 
 module.exports = {
   OFFERING_KEY_RE,
+  STOCK_MIN,
+  STOCK_MAX,
   isValidOfferingKey,
+  isValidStockQuantity,
   normalizeRentalDisplayName,
   collapseRentalLabelWhitespace,
   validateRentalOfferingBody,

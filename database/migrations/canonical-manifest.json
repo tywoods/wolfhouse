@@ -605,6 +605,15 @@
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Tenant-wide external waiver link config (enable + Google Forms URL per client_slug). Business-scoped, not location-scoped. V1 link-only."
+    },
+    {
+      "id": "055_tenant_rental_offering_stock",
+      "filename": "055_tenant_rental_offering_stock.sql",
+      "sha256": "dc8746d254f5ff23b85762d4d38d3a6337f6cf83c817f409a6838b050213011a",
+      "order": 53,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Additive nullable stock_quantity (0..999) on tenant_rental_offerings for location-scoped physical rental stock. Unconfigured (NULL) fails closed; zero means sold out. Stock is independent per offering_key with no bundle coupling."
     }
   ]
 }
