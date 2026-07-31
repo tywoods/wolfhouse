@@ -2291,15 +2291,328 @@ async function archiveSunsetScheduleBooking(pg, opts) {
         WHERE client_slug = $2 AND booking_id = $3::uuid`,
       [JSON.stringify({ schedule_archived: true }), clientSlug, bookingId],
     );
+
+    // Classify payments for Finance exclusion. Never DELETE payments/payment_events.
+    // Never call Stripe refund APIs. Refund is assumed manual/external.
+    const paidCents = Number(bundle.payments_paid_cents || 0);
+    const dueCents = Number(
+      bundle.booking.total_amount_cents != null
+        ? bundle.booking.total_amount_cents
+        : (bundle.services || []).reduce((sum, sr) => sum + (Number(sr.amount_due_cents) || 0), 0),
+    );
+    let captureClass = 'none';
+    if (paidCents > 0 && dueCents > 0 && paidCents < dueCents) captureClass = 'partial';
+    else if (paidCents > 0 && (dueCents <= 0 || paidCents >= dueCents)) captureClass = 'full';
+    else if (paidCents > 0) captureClass = 'full';
+
+    const classifyMeta = {
+      schedule_booking_deleted: true,
+      schedule_booking_deleted_at: new Date().toISOString(),
+      payment_capture_class: captureClass,
+      refund_handling: 'assumed_manual_external',
+      finance_exclusion_reason: 'schedule_booking_deleted',
+    };
+    await pg.query(
+      `UPDATE payments p
+          SET finance_exclusion = 'deleted_cancelled_booking',
+              metadata = COALESCE(p.metadata, '{}'::jsonb) || $2::jsonb
+         FROM bookings b
+         JOIN clients c ON c.id = b.client_id
+        WHERE p.booking_id = $1::uuid
+          AND p.client_id = b.client_id
+          AND b.id = $1::uuid
+          AND c.slug = $3
+          AND p.finance_exclusion IS NULL`,
+      [bookingId, JSON.stringify(classifyMeta), clientSlug],
+    );
+
     await pg.query('COMMIT');
     return {
       ok: true,
       status: 200,
-      body: { success: true, archived: true, deleted: false, booking_id: bookingId, booking_code: bundle.booking.booking_code },
+      body: {
+        success: true,
+        archived: true,
+        deleted: false,
+        booking_id: bookingId,
+        booking_code: bundle.booking.booking_code,
+        payment_capture_class: captureClass,
+        payments_paid_cents: paidCents,
+      },
     };
   } catch (err) {
     await pg.query('ROLLBACK');
     throw err;
+  }
+}
+
+async function restoreSunsetScheduleBooking(pg, opts) {
+  const clientSlug = String(opts.clientSlug || '').trim();
+  if (clientSlug !== SUNSET_CLIENT_SLUG) {
+    return { ok: false, status: 403, body: { success: false, error: 'unsupported_client' } };
+  }
+  const bookingId = String(opts.bookingId || opts.body?.booking_id || '').trim();
+  if (!bookingId || !isUuid(bookingId)) {
+    return { ok: false, status: 400, body: { success: false, error: 'booking_id is required' } };
+  }
+
+  let began = false;
+  try {
+    await pg.query('BEGIN');
+    began = true;
+
+    let bundle;
+    try {
+      bundle = await loadSunsetBookingBundle(pg, clientSlug, bookingId, null, true, {
+        bookingLock: 'nowait',
+        lockServices: false,
+      });
+    } catch (lockErr) {
+      const msg = String(lockErr && lockErr.message || lockErr || '');
+      await pg.query('ROLLBACK'); began = false;
+      if (/could not obtain lock|lock_not_available|55P03/i.test(msg)) {
+        return {
+          ok: false,
+          status: 409,
+          body: {
+            success: false,
+            error: 'booking_busy',
+            message: 'This booking is being updated. Try restore again in a moment.',
+            detail: msg.slice(0, 200),
+          },
+        };
+      }
+      return {
+        ok: false,
+        status: 500,
+        body: { success: false, error: 'restore_failed', detail: msg.slice(0, 240) },
+      };
+    }
+
+    if (!bundle) {
+      await pg.query('ROLLBACK'); began = false;
+      return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
+    }
+
+    const activeLocationId = normalizeSunsetLocationId(opts.locationId);
+    if (resolveBundleLocationId(bundle) !== activeLocationId) {
+      await pg.query('ROLLBACK'); began = false;
+      return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
+    }
+    if (!bundleHasTrustedScheduleDrawerAttribution(bundle)) {
+      await pg.query('ROLLBACK'); began = false;
+      return {
+        ok: false,
+        status: 403,
+        body: {
+          success: false,
+          error: 'delete_untrusted_booking_source',
+          reason_code: 'delete_untrusted_booking_source',
+        },
+      };
+    }
+
+    const meta = parseMeta(bundle.booking.metadata);
+    if (meta.schedule_archived === true || meta.schedule_archived === 'true') {
+      await pg.query('ROLLBACK'); began = false;
+      return {
+        ok: false,
+        status: 409,
+        body: {
+          success: false,
+          error: 'booking_archived',
+          message: 'Deleted bookings cannot be restored onto the operational schedule.',
+        },
+      };
+    }
+
+    const st = String(bundle.booking.status || '').toLowerCase();
+    if (st !== 'cancelled' && st !== 'canceled') {
+      await pg.query('ROLLBACK'); began = false;
+      return {
+        ok: false,
+        status: 409,
+        body: { success: false, error: 'booking_not_cancelled', message: 'Only cancelled bookings can be restored.' },
+      };
+    }
+
+    // Recheck authoritative course capacity while locked. Cancelled seats are
+    // already excluded from occupancy counts, so excludeBookingId is belt-and-braces.
+    const agg = aggregateComponentsFromServices(bundle.services || []);
+    const courseIds = new Set();
+    const dateByCourse = new Map();
+    for (const sr of (bundle.services || [])) {
+      const md = parseMeta(sr.metadata);
+      const courseId = String(md.course_id || '').trim();
+      const component = String(md.component || sr.metadata_component || '').toLowerCase();
+      const dateIso = String(sr.service_date || '').slice(0, 10);
+      if (!courseId || !dateIso) continue;
+      if (component && !['course', 'lesson', 'group_lesson', 'surf_lesson', ''].includes(component)
+        && String(sr.service_type || '').toLowerCase() !== 'surf_lesson') {
+        continue;
+      }
+      if (String(sr.service_type || '').toLowerCase() === 'surf_lesson' || component === 'course' || component === 'lesson' || component === 'group_lesson') {
+        courseIds.add(courseId);
+        if (!dateByCourse.has(courseId)) dateByCourse.set(courseId, new Set());
+        dateByCourse.get(courseId).add(dateIso);
+      }
+    }
+    if (agg.components && agg.components.course && agg.components.course.course_id) {
+      courseIds.add(String(agg.components.course.course_id).trim());
+    }
+    if (agg.components && Array.isArray(agg.components.course && agg.components.course.selected_courses)) {
+      for (const sc of agg.components.course.selected_courses) {
+        if (sc && sc.course_id) courseIds.add(String(sc.course_id).trim());
+      }
+    }
+
+    const surfers = Math.max(
+      1,
+      Number((agg.components && agg.components.course && agg.components.course.quantity) || 0)
+        || Number(bundle.booking.guest_count) || 1,
+    );
+
+    if (courseIds.size) {
+      const { assertCourseAssignable } = require('./sunset-admin-course-join');
+      for (const courseId of courseIds) {
+        const dates = [...(dateByCourse.get(courseId) || new Set())].sort();
+        const serviceDates = dates.length
+          ? dates
+          : [...new Set((bundle.services || []).map((sr) => String(sr.service_date || '').slice(0, 10)).filter(Boolean))].sort();
+        if (!serviceDates.length) {
+          await pg.query('ROLLBACK'); began = false;
+          return {
+            ok: false,
+            status: 409,
+            body: { success: false, error: 'restore_dates_missing', course_id: courseId },
+          };
+        }
+        const gate = await assertCourseAssignable(pg, {
+          clientSlug,
+          locationId: activeLocationId,
+          courseId,
+          serviceDates,
+          quantity: surfers,
+          excludeBookingId: bookingId,
+        });
+        if (!gate.ok) {
+          await pg.query('ROLLBACK'); began = false;
+          return gate;
+        }
+      }
+    }
+
+    // Catalog availability for rental / course-equipment offerings (fail closed if gone).
+    // There is no authoritative physical unit stock ledger on create/edit; do not invent one.
+    const offeringKeys = new Set();
+    for (const sr of (bundle.services || [])) {
+      const md = parseMeta(sr.metadata);
+      const key = String(md.offering_key || '').trim();
+      if (!key) continue;
+      const stype = String(sr.service_type || '').toLowerCase();
+      if (md.course_equipment === true || stype === 'surfboard' || stype === 'wetsuit' || md.component === 'rental' || md.staff_ui_service_type === 'rental') {
+        offeringKeys.add(key);
+      }
+    }
+    if (offeringKeys.size) {
+      const { listRentalOfferings } = require('./tenant-rental-offerings');
+      let offerings;
+      try {
+        offerings = await listRentalOfferings(pg, {
+          clientSlug,
+          locationId: activeLocationId,
+          includeInactive: false,
+        });
+      } catch (err) {
+        await pg.query('ROLLBACK'); began = false;
+        return {
+          ok: false,
+          status: 409,
+          body: {
+            success: false,
+            error: 'rental_catalog_unavailable',
+            detail: err && err.message ? String(err.message).slice(0, 200) : undefined,
+          },
+        };
+      }
+      const activeKeys = new Set((offerings || []).map((o) => String(o.offering_key || o.key || '').trim()).filter(Boolean));
+      for (const key of offeringKeys) {
+        if (!activeKeys.has(key)) {
+          await pg.query('ROLLBACK'); began = false;
+          return {
+            ok: false,
+            status: 409,
+            body: {
+              success: false,
+              error: 'rental_offering_unavailable',
+              offering_key: key,
+              message: 'Equipment/rental offering is no longer available; restore left cancelled.',
+            },
+          };
+        }
+      }
+    }
+
+    // Restore BSR + booking. Do NOT reactivate voided Stripe links or clear invalidate flags.
+    await pg.query(
+      `UPDATE booking_service_records
+          SET status = 'confirmed',
+              metadata = COALESCE(metadata, '{}'::jsonb) - 'schedule_archived'
+        WHERE client_slug = $1 AND booking_id = $2::uuid AND status = 'cancelled'`,
+      [clientSlug, bookingId],
+    );
+
+    const paidCents = Number(bundle.payments_paid_cents || 0);
+    const restoreStatus = paidCents > 0 ? 'confirmed' : 'payment_pending';
+    const restoreMeta = {
+      schedule_restored: true,
+      schedule_restored_at: new Date().toISOString(),
+      schedule_restored_by_staff: true,
+    };
+    const restoreUpd = await pg.query(
+      // MULTICLIENT_SCOPE_OK: restore via client join trust boundary
+      `UPDATE bookings b
+          SET status = $1::booking_status,
+              metadata = (COALESCE(b.metadata, '{}'::jsonb) || $2::jsonb)
+        FROM clients c
+        WHERE b.id = $3::uuid AND c.id = b.client_id AND c.slug = $4
+          AND LOWER(b.status::text) IN ('cancelled', 'canceled')`,
+      [restoreStatus, JSON.stringify(restoreMeta), bookingId, clientSlug],
+    );
+    if (Number(restoreUpd && restoreUpd.rowCount) !== 1) {
+      await pg.query('ROLLBACK'); began = false;
+      return { ok: false, status: 409, body: { success: false, error: 'booking_restore_conflict' } };
+    }
+
+    await pg.query('COMMIT');
+    began = false;
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        restored: true,
+        booking_id: bookingId,
+        booking_code: bundle.booking.booking_code,
+        booking_status: restoreStatus,
+        payments_paid_cents: paidCents,
+        payment_links_reactivated: false,
+      },
+    };
+  } catch (err) {
+    if (began) {
+      try { await pg.query('ROLLBACK'); } catch (_) { /* ignore */ }
+    }
+    return {
+      ok: false,
+      status: 500,
+      body: {
+        success: false,
+        error: 'restore_failed',
+        message: 'Could not restore booking.',
+        detail: err && err.message ? String(err.message).slice(0, 240) : undefined,
+      },
+    };
   }
 }
 
@@ -2309,6 +2622,7 @@ module.exports = {
   updateSunsetScheduleBooking,
   cancelSunsetScheduleBooking,
   archiveSunsetScheduleBooking,
+  restoreSunsetScheduleBooking,
   buildPaymentSummary,
   buildPaidPaymentLedger,
   deriveDrawerPaymentUiStatus,
