@@ -1354,6 +1354,48 @@ if (modExists) {
       && noEndPanel.panel && noEndPanel.hidden === false
       && (noEndToggle._labelText || '').indexOf('Hide guests') >= 0);
 
+  // The feature is course-only: passed private/other sessions stay expanded.
+  ctx.scheduleBuildDaySessions = () => ([
+    makeSession({
+      kind: 'private_lesson',
+      label: 'Past Private',
+      sectionLabel: 'Past Private',
+      timeLabel: '09:00',
+      slot_key: 'private-past',
+      course_id: '',
+      groups: [Object.assign({ records: [gPast] }, gPast)],
+      start: 540,
+      end: 600,
+    }),
+    makeSession({
+      kind: 'other',
+      label: 'Past Other',
+      timeLabel: '09:00',
+      slot_key: 'other-past',
+      course_id: '',
+      groups: [Object.assign({ records: [gUpcoming] }, gUpcoming)],
+      start: 540,
+      end: 600,
+    }),
+  ]);
+  installCache([gPast, gUpcoming]);
+  ctx.renderScheduleDayOpsBoard({ rows: [gPast, gUpcoming] }, '2026-07-15');
+  const nonCourseToggles = dom['ps-ops-board'].querySelectorAll('[data-ps-ops-guest-toggle]');
+  const privateToggle = nonCourseToggles[0];
+  const otherToggle = nonCourseToggles[1];
+  const privatePanel = panelState(dom['ps-ops-board'], privateToggle);
+  const otherPanel = panelState(dom['ps-ops-board'], otherToggle);
+  assert('today passed private lesson remains expanded',
+    privateToggle
+      && privateToggle.getAttribute('aria-expanded') === 'true'
+      && privatePanel.panel && privatePanel.hidden === false
+      && (privateToggle._labelText || '').indexOf('Hide guests') >= 0);
+  assert('today passed other session remains expanded',
+    otherToggle
+      && otherToggle.getAttribute('aria-expanded') === 'true'
+      && otherPanel.panel && otherPanel.hidden === false
+      && (otherToggle._labelText || '').indexOf('Hide guests') >= 0);
+
   // Empty course card remains visible (no guest toggle; empty-slot UI)
   ctx.scheduleBuildDaySessions = () => ([
     makeSession({
