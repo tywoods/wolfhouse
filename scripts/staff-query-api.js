@@ -16959,7 +16959,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .portal-schedule-ops-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}
 @media(max-width:1100px){.portal-schedule-ops-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.portal-schedule-ops-metrics{grid-template-columns:1fr 1fr}}
-.portal-schedule-ops-board{margin-bottom:22px;display:flex;flex-direction:column;gap:16px}
+.portal-schedule-ops-board{margin-top:10px;margin-bottom:22px;display:flex;flex-direction:column;gap:16px}.portal-schedule-cards-grid{display:grid;gap:16px;grid-template-columns:repeat(var(--ps-card-cols,1),minmax(0,1fr));align-items:stretch}.portal-schedule-card-item{min-width:0}.portal-schedule-card-item .portal-schedule-ops-lesson-group{height:100%}.portal-schedule-card-item.is-done .portal-schedule-ops-lesson-group{opacity:.72}.portal-schedule-ops-board[data-ops-layout="cards"] .portal-schedule-cards-grid{width:100%}@media (max-width:1080px){.portal-schedule-cards-grid[data-ps-card-cols="3"]{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .portal-schedule-ops-lesson-group{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);overflow:hidden;box-shadow:none}
 .portal-schedule-ops-lesson-hdr{padding:14px 16px;border-bottom:1px solid var(--border-soft);background:rgba(255,255,255,.04)}
 .portal-schedule-ops-lesson-hdr-title{font-size:15px;font-weight:700;color:var(--text);line-height:1.25;white-space:normal}
@@ -17209,6 +17209,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .portal-schedule-heat-word{margin-right:6px}
 @media(max-width:720px){
   .portal-schedule-timeline::before{display:none}
+  .portal-schedule-cards-grid{grid-template-columns:1fr!important}
   .portal-schedule-tl-item{grid-template-columns:minmax(0,1fr)}
   .portal-schedule-tl-time,.portal-schedule-tl-dot{display:none}
   .portal-schedule-tl-now{grid-template-columns:auto minmax(0,1fr)}

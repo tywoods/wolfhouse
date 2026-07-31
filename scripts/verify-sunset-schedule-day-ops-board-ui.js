@@ -157,9 +157,15 @@ console.log('\n[2] Module owns day-board symbols');
   'scheduleRenderRentalPickupsByGuest',
   'scheduleRenderRentalPickupsByItem',
   'scheduleWireRentalPickupsControls',
+  'scheduleGetDayOpsLayoutMode',
+  'scheduleSetDayOpsLayoutMode',
+  'scheduleDayOpsCardsColumnCount',
+  'scheduleRenderCardsItem',
 ].forEach((name) => {
   assert(`module defines ${name}`, modSrc.includes(name));
 });
+assert('cards grid class in module', modSrc.includes('portal-schedule-cards-grid'));
+assert('layout toggle stamps data-ops-layout', modSrc.includes("data-ops-layout"));
 assert('no hard-coded bothRentals bucket', !modSrc.includes('bothRentals'));
 assert('no hard-coded boardOnlyRentals bucket', !modSrc.includes('boardOnlyRentals'));
 assert('no hard-coded wetsuitOnlyRentals bucket', !modSrc.includes('wetsuitOnlyRentals'));
@@ -382,11 +388,14 @@ if (modExists) {
       id: 'ps-ops-board',
       className: '',
       style: {},
+      _attrs: {},
       _chips: [],
       _toggles: [],
       _panels: {},
       _sortBtns: [],
       _filter: null,
+      getAttribute(k) { return this._attrs[k] != null ? this._attrs[k] : null; },
+      setAttribute(k, v) { this._attrs[k] = String(v); },
       get innerHTML() { return html; },
       set innerHTML(v) {
         html = String(v == null ? '' : v);
@@ -1600,6 +1609,82 @@ if (modExists) {
   assert('day board has no horizontal occ-track', !boardOccHtml.includes('portal-schedule-occ-track'));
   assert('day board occ text 4/8', /4\s*\/\s*8|4<small>\/8<\/small>/.test(boardOccHtml));
   ctx.scheduleBuildDaySessions = prevSessionsCollapse;
+
+  // ── Layout: Timeline | Cards ─────────────────────────────────────────
+  console.log('\n[5c] Day courses layout — Timeline | Cards');
+  assert('cards column helper 1→1', ctx.scheduleDayOpsCardsColumnCount(1) === 1);
+  assert('cards column helper 2→2', ctx.scheduleDayOpsCardsColumnCount(2) === 2);
+  assert('cards column helper 3→3', ctx.scheduleDayOpsCardsColumnCount(3) === 3);
+  assert('cards column helper 4→2', ctx.scheduleDayOpsCardsColumnCount(4) === 2);
+  assert('cards column helper 6→3', ctx.scheduleDayOpsCardsColumnCount(6) === 3);
+  assert('cards column helper 5→3', ctx.scheduleDayOpsCardsColumnCount(5) === 3);
+  assert('cards column helper 8→2', ctx.scheduleDayOpsCardsColumnCount(8) === 2);
+
+  const mkSess = (i) => ({
+    kind: 'course',
+    label: 'Curso ' + i,
+    timeLabel: String(10 + i) + ':00',
+    slot_key: 's' + i,
+    course_id: 'c' + i,
+    surfers: 1,
+    bookings: 1,
+    boardsNeeded: 1,
+    wetsuitsNeeded: 1,
+    groups: [makeGroup({ guest_name: 'G' + i, _scheduleId: 'sid-' + i, booking_id: 'bid-' + i })],
+    start: (10 + i) * 60,
+    end: (11 + i) * 60,
+    capacity: 24,
+  });
+  const three = [mkSess(0), mkSess(1), mkSess(2)];
+  const prevLayoutSessions = ctx.scheduleBuildDaySessions;
+  const prevLayoutToday = ctx.scheduleTodayIso;
+  ctx.scheduleTodayIso = () => '2026-07-20';
+  ctx.scheduleBuildDaySessions = () => three;
+
+  // default / timeline
+  if (typeof ctx.scheduleSetDayOpsLayoutMode === 'function') ctx.scheduleSetDayOpsLayoutMode('timeline');
+  installCache(three.map((s) => s.groups[0]));
+  ctx.renderScheduleDayOpsBoard({ rows: three.map((s) => s.groups[0]) }, '2026-07-20');
+  let board = dom['ps-ops-board'];
+  assert('timeline layout attr', board.getAttribute('data-ops-layout') === 'timeline');
+  assert('timeline has portal-schedule-timeline', board.innerHTML.includes('portal-schedule-timeline'));
+  assert('timeline has no cards grid', !board.innerHTML.includes('portal-schedule-cards-grid'));
+  assert('timeline keeps time rail class', board.innerHTML.includes('portal-schedule-tl-item'));
+
+  // switch to cards via API (same path as cockpit toggle)
+  ctx.scheduleSetDayOpsLayoutMode('cards');
+  board = dom['ps-ops-board'];
+  assert('cards layout attr after set', board.getAttribute('data-ops-layout') === 'cards');
+  assert('cards grid present', board.innerHTML.includes('portal-schedule-cards-grid'));
+  assert('cards no timeline rail', !board.innerHTML.includes('portal-schedule-timeline'));
+  assert('cards 3 sessions → data-ps-card-cols=3', /data-ps-card-cols="3"/.test(board.innerHTML));
+  assert('cards 3 sessions → --ps-card-cols:3', /--ps-card-cols:\s*3/.test(board.innerHTML));
+  assert('cards still render course labels', board.innerHTML.includes('Curso 0') && board.innerHTML.includes('Curso 2'));
+  assert('get mode returns cards', ctx.scheduleGetDayOpsLayoutMode() === 'cards');
+
+  // 4 sessions → 2 cols
+  const four = three.concat([mkSess(3)]);
+  ctx.scheduleBuildDaySessions = () => four;
+  installCache(four.map((s) => s.groups[0]));
+  ctx.renderScheduleDayOpsBoard({ rows: four.map((s) => s.groups[0]) }, '2026-07-20');
+  board = dom['ps-ops-board'];
+  assert('cards 4 → cols 2', /data-ps-card-cols="2"/.test(board.innerHTML));
+
+  // 1 session → full width 1 col
+  ctx.scheduleBuildDaySessions = () => [mkSess(0)];
+  installCache([mkSess(0).groups[0]]);
+  ctx.renderScheduleDayOpsBoard({ rows: [mkSess(0).groups[0]] }, '2026-07-20');
+  board = dom['ps-ops-board'];
+  assert('cards 1 → cols 1', /data-ps-card-cols="1"/.test(board.innerHTML));
+
+  // back to timeline
+  ctx.scheduleSetDayOpsLayoutMode('timeline');
+  board = dom['ps-ops-board'];
+  assert('back to timeline', board.getAttribute('data-ops-layout') === 'timeline');
+  assert('timeline restored', board.innerHTML.includes('portal-schedule-timeline'));
+
+  ctx.scheduleBuildDaySessions = prevLayoutSessions;
+  ctx.scheduleTodayIso = prevLayoutToday;
 }
 
 // Generated /staff/ui artifact: no old horizontal occupancy bar from course-group owner
@@ -1632,6 +1717,13 @@ console.log('\n[6] Generated /staff/ui occupancy CSS/markup');
     assert('generated /staff/ui occupancy check', false, String(err && err.message || err));
   }
 })();
+
+
+console.log('\n[6b] Layout toggle CSS (staff-query-api)');
+assert('ops-board has top margin for cockpit gap', /\.portal-schedule-ops-board\{[^}]*margin-top:\s*10px/.test(apiSrc));
+assert('cards grid CSS present', apiSrc.includes('.portal-schedule-cards-grid{'));
+assert('cards grid uses --ps-card-cols', apiSrc.includes('--ps-card-cols'));
+assert('cards collapse to 1 col on mobile', apiSrc.includes('.portal-schedule-cards-grid{grid-template-columns:1fr!important}'));
 
 console.log(`\n── verify:sunset-schedule-day-ops-board-ui ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 if (fail) process.exit(1);

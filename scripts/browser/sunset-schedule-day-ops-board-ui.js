@@ -926,6 +926,63 @@ function scheduleAttachCancelledCourseGroups(sessions, ghostRows){
   return sessions;
 }
 
+
+/** Day courses layout: 'timeline' (default) | 'cards'. Persisted in sessionStorage. */
+var scheduleDayOpsLayoutMode = 'timeline';
+var SCHEDULE_DAY_OPS_LAYOUT_KEY = 'ps-day-ops-layout';
+
+function scheduleGetDayOpsLayoutMode() {
+  try {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage) {
+      var s = sessionStorage.getItem(SCHEDULE_DAY_OPS_LAYOUT_KEY);
+      if (s === 'cards' || s === 'timeline') return s;
+    }
+  } catch (_e) { /* ignore */ }
+  return scheduleDayOpsLayoutMode === 'cards' ? 'cards' : 'timeline';
+}
+
+function scheduleSetDayOpsLayoutMode(mode) {
+  var next = mode === 'cards' ? 'cards' : 'timeline';
+  scheduleDayOpsLayoutMode = next;
+  try {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage) {
+      sessionStorage.setItem(SCHEDULE_DAY_OPS_LAYOUT_KEY, next);
+    }
+  } catch (_e2) { /* ignore */ }
+  var ctx = typeof scheduleRentalPickupsRenderCtx !== 'undefined' ? scheduleRentalPickupsRenderCtx : null;
+  if (ctx && typeof renderScheduleDayOpsBoard === 'function') {
+    renderScheduleDayOpsBoard(ctx.pack, ctx.dateIso);
+  }
+  // Keep cockpit pills in sync without a full page reload.
+  if (typeof schedulePaintDayCockpit === 'function') {
+    try { schedulePaintDayCockpit(); } catch (_e3) { /* ignore */ }
+  }
+  return next;
+}
+
+/**
+ * Card grid columns from session count (Monshies):
+ * 1→1, 2→2, 3→3, 4→2, 6→3; multiples of 3 → 3; even → 2; else → 3.
+ */
+function scheduleDayOpsCardsColumnCount(n) {
+  var c = Number(n) || 0;
+  if (c <= 1) return 1;
+  if (c === 2) return 2;
+  if (c === 3) return 3;
+  if (c === 4) return 2;
+  if (c % 3 === 0) return 3;
+  if (c % 2 === 0) return 2;
+  return 3;
+}
+
+function scheduleRenderCardsItem(session, ctx) {
+  var done = !!(ctx.isToday && session.end != null && session.end <= ctx.nowMin);
+  var isEmpty = !(session.groups && session.groups.length);
+  var cls = 'portal-schedule-card-item' + (done ? ' is-done' : '') + (isEmpty ? ' is-empty' : '');
+  var body = isEmpty ? scheduleRenderTimelineEmptySlot(session) : scheduleRenderTimelineSession(session, done);
+  return '<div class="' + cls + '">' + body + '</div>';
+}
+
 function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
   pack = pack || { lessons: [], gear: [], rows: [] };
   var dayRows = pack.rows || [];
@@ -945,20 +1002,32 @@ function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
   var now = new Date();
   var nowMin = now.getHours() * 60 + now.getMinutes();
   var ctx = { isToday: isToday, nowMin: nowMin };
+  var layoutMode = scheduleGetDayOpsLayoutMode();
   var itemsHtml = '';
-  var nowInserted = !isToday;
-  sessions.forEach(function(s){
-    if (!nowInserted && s.start != null && s.start > nowMin){
-      itemsHtml += scheduleRenderTimelineNowLine(scheduleMinutesLabel(nowMin));
-      nowInserted = true;
+  if (layoutMode === 'cards') {
+    sessions.forEach(function(s){
+      itemsHtml += scheduleRenderCardsItem(s, ctx);
+    });
+    if (sessions.length){
+      var cols = scheduleDayOpsCardsColumnCount(sessions.length);
+      html += '<div class="portal-schedule-cards-grid" data-ps-card-cols="' + String(cols) +
+        '" style="--ps-card-cols:' + String(cols) + '">' + itemsHtml + '</div>';
     }
-    itemsHtml += scheduleRenderTimelineItem(s, ctx);
-  });
-  if (!nowInserted && sessions.length){
-    itemsHtml += scheduleRenderTimelineNowLine(scheduleMinutesLabel(nowMin));
-  }
-  if (sessions.length){
-    html += '<div class="portal-schedule-timeline">' + itemsHtml + '</div>';
+  } else {
+    var nowInserted = !isToday;
+    sessions.forEach(function(s){
+      if (!nowInserted && s.start != null && s.start > nowMin){
+        itemsHtml += scheduleRenderTimelineNowLine(scheduleMinutesLabel(nowMin));
+        nowInserted = true;
+      }
+      itemsHtml += scheduleRenderTimelineItem(s, ctx);
+    });
+    if (!nowInserted && sessions.length){
+      itemsHtml += scheduleRenderTimelineNowLine(scheduleMinutesLabel(nowMin));
+    }
+    if (sessions.length){
+      html += '<div class="portal-schedule-timeline">' + itemsHtml + '</div>';
+    }
   }
   var gearGroups = scheduleBuildDisplayGroups(activeRows).filter(scheduleGroupIsStandaloneRental);
   if (gearGroups.length){
@@ -1060,7 +1129,9 @@ function renderScheduleDayOpsBoard(pack, dateIso){
   var box = el('ps-ops-board');
   if (!box) return;
   scheduleRentalPickupsRenderCtx = { pack: pack || { lessons: [], gear: [], rows: [] }, dateIso: dateIso || '' };
+  var layoutMode = scheduleGetDayOpsLayoutMode();
   box.className = 'portal-schedule-ops-board';
+  box.setAttribute('data-ops-layout', layoutMode);
   box.innerHTML = scheduleRenderDayOpsBoardHtml(pack, dateIso, scheduleLessonTimesCache);
   scheduleWireDayOpsBoardRows(box);
   scheduleWireRentalPickupsControls(box);

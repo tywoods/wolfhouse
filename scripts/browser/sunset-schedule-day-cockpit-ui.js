@@ -347,6 +347,18 @@ function scheduleRenderDayCockpit(mount, data) {
     ranges.appendChild(b);
   });
   right.appendChild(ranges);
+  // Timeline | Cards — same chrome as Daily/Monthly; place may move later.
+  var layouts = el('div', 'ck-seg ck-seg--layout');
+  var layoutKey = data.layout === 'cards' ? 'cards' : 'timeline';
+  [['timeline', 'Timeline'], ['cards', 'Cards']].forEach(function (row) {
+    var key = row[0], label = row[1];
+    var b = el('button', null, label);
+    b.type = 'button';
+    b.setAttribute('aria-pressed', layoutKey === key ? 'true' : 'false');
+    if (on.layout) b.addEventListener('click', function () { on.layout(key); });
+    layouts.appendChild(b);
+  });
+  right.appendChild(layouts);
   var refresh = el('button', 'ck-icon-btn', '\u21bb');
   refresh.type = 'button';
   refresh.setAttribute('aria-label', 'Refresh');
@@ -707,10 +719,14 @@ function scheduleBuildDayCockpitData(src) {
 
   var range = src.range || scheduleCockpitRangeFromNavMode(src.navMode || src.mode);
 
+  var layout = src.layout === 'cards' || src.layout === 'timeline'
+    ? src.layout
+    : (typeof scheduleGetDayOpsLayoutMode === 'function' ? scheduleGetDayOpsLayoutMode() : 'timeline');
   var out = {
     venue: src.venue != null ? src.venue : 'Sunset',
     date: src.date || src.activeDayIso || '',
     range: range,
+    layout: layout === 'cards' ? 'cards' : 'timeline',
     sessions: sessions,
     prep: {
       boards: {
@@ -745,7 +761,7 @@ function scheduleEnsureDayCockpitCss() {
   style.id = 'ps-day-cockpit-css';
   style.type = 'text/css';
   style.appendChild(document.createTextNode(
-    '.ps-day-cockpit-host{margin:0 0 14px;min-width:0;}' +
+    '.ps-day-cockpit-host{margin:0 0 26px;min-width:0;}' +
     SCHEDULE_DAY_COCKPIT_CSS
   ));
   document.head.appendChild(style);
@@ -788,6 +804,10 @@ function scheduleDayCockpitDefaultHandlers() {
       if (typeof SunsetScheduleRuntime !== 'undefined' && SunsetScheduleRuntime.nav) {
         return SunsetScheduleRuntime.nav.setView(mode);
       }
+    },
+    layout: function (kind) {
+      var mode = kind === 'cards' ? 'cards' : 'timeline';
+      if (typeof scheduleSetDayOpsLayoutMode === 'function') return scheduleSetDayOpsLayoutMode(mode);
     },
     refresh: function () {
       if (typeof scheduleRequestPageLoad === 'function') return scheduleRequestPageLoad();
@@ -930,6 +950,7 @@ function scheduleCollectDayCockpitSource() {
     venue: venue,
     date: activeIso,
     navMode: navMode,
+    layout: typeof scheduleGetDayOpsLayoutMode === 'function' ? scheduleGetDayOpsLayoutMode() : 'timeline',
     sessions: sessions,
     equip: equip,
     unpaidCount: unpaidCount,
