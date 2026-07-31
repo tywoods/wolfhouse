@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "canonical-migration-manifest",
   "checksumMode": "canonical_lf_v1",
-  "checksumModeNote": "Slice 13A.1: SHA-256 over UTF-8 bytes after CRLF/lone-CR→LF normalization. Rejects NUL/binary. legacySha256 retains exact pre-transition hashes for narrow ledger acceptance only.",
+  "checksumModeNote": "Slice 13A.1: SHA-256 over UTF-8 bytes after CRLF/lone-CR\u2192LF normalization. Rejects NUL/binary. legacySha256 retains exact pre-transition hashes for narrow ledger acceptance only.",
   "generatedForMaster": "235aca35d0c784e4a4c2388f075b5aa0ada85766",
   "slice13a1Transition": {
     "fromMaster": "235aca35d0c784e4a4c2388f075b5aa0ada85766",
@@ -12,7 +12,7 @@
   "intentionalGaps": [
     {
       "number": "015",
-      "note": "Intentionally unused — see 015_INTENTIONALLY_UNUSED.md and README. Phase 25 shipped as 016."
+      "note": "Intentionally unused \u2014 see 015_INTENTIONALLY_UNUSED.md and README. Phase 25 shipped as 016."
     }
   ],
   "duplicateNumberDecisions": [
@@ -60,7 +60,7 @@
       "order": 2,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Must precede 002: renames hostels→clients (README).",
+      "rationale": "Must precede 002: renames hostels\u2192clients (README).",
       "legacySha256": "3aaba830bad279e5107947fc6602ed5d3c16de38c79c49f14a574b73bc1ebc94"
     },
     {
@@ -578,6 +578,24 @@
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Sunset employee-managed Accommodation: settings enable/disable + seasonal half-open per-night ranges; booking snapshot via booking_service_records metadata staff_accommodation."
+    },
+    {
+      "id": "053_payment_finance_exclusion",
+      "filename": "053_payment_finance_exclusion.sql",
+      "sha256": "8877632ed821226163dc52e591532e1c5276d23e2ed9d384427dace61c909569",
+      "order": 51,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Tenant-scoped payments.finance_exclusion for deleted cancelled schedule bookings so Finance collected excludes classified money while preserving payment/payment_events audit history (refund assumed manual/external)."
+    },
+    {
+      "id": "053_payment_finance_exclusion_down",
+      "filename": "053_payment_finance_exclusion_down.sql",
+      "sha256": "e53150b6ed5ac01a606ddc3ff02261947ee5cedc9a5b76d568729cd01dce460c",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit down/rollback for 053_payment_finance_exclusion."
     }
   ]
 }

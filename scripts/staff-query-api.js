@@ -423,6 +423,7 @@ const {
   updateSunsetScheduleBooking,
   cancelSunsetScheduleBooking,
   archiveSunsetScheduleBooking,
+  restoreSunsetScheduleBooking,
 } = require('./lib/sunset-schedule-booking-drawer');
 const {
   getSunsetSchedulePortalBrowserSource,
@@ -16544,12 +16545,49 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-refresh-btn{padding:6px 11px;font-size:16px;line-height:1;font-weight:700}
 .portal-schedule-drawer-topbar{display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px}
 
+/* Cancelled booking ghosts — muted but still clickable */
+.portal-schedule-ops-row.is-cancelled,
+.portal-schedule-session-guest.is-cancelled,
+button.portal-schedule-ops-rental-guest-open.is-cancelled {
+  opacity: 0.55;
+  filter: grayscale(0.35);
+}
+.portal-schedule-ops-row.is-cancelled { border-style: dashed; }
+.portal-schedule-status.is-cancelled {
+  background: rgba(120,120,120,.16);
+  color: var(--text-muted, #8a928c);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+[data-theme="dark"] .portal-schedule-status.is-cancelled {
+  background: rgba(160,160,160,.18);
+  color: #b8beb8;
+}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-cancelled {
+  background: #E8E6E1;
+  color: #6B716C;
+}
+[data-theme="dark"] #tab-portal-home .portal-schedule-status.is-cancelled {
+  background: rgba(160,160,160,.18);
+  color: #b8beb8;
+}
+.portal-schedule-restore-booking-btn{
+  background:rgba(78,88,83,.08);
+  border:1px solid rgba(78,88,83,.28);
+  color:var(--text-2, #4E5853);
+}
+.portal-schedule-restore-booking-btn:hover{
+  background:rgba(78,88,83,.14);
+  border-color:rgba(78,88,83,.42);
+}
 .portal-schedule-delete-booking-btn{background:rgba(180,83,74,.10);border:1px solid rgba(180,83,74,.30);color:#9C4A42}
 .portal-schedule-delete-booking-btn:hover{background:rgba(180,83,74,.18);border-color:rgba(180,83,74,.45)}
 .portal-schedule-cancel-booking-btn{background:rgba(111,117,111,.08);border:1px solid rgba(111,117,111,.28);color:#6F756F}
 .portal-schedule-cancel-booking-btn:hover{background:rgba(111,117,111,.15);border-color:rgba(111,117,111,.42)}
 .portal-schedule-ops-row.is-cancelled{background:rgba(111,117,111,.08);color:#777D77;opacity:.64;filter:grayscale(.65)}
-.portal-schedule-drawer-danger-row{display:flex;justify-content:flex-end;margin-top:18px;padding-top:14px;border-top:1px solid var(--border-soft)}
+.portal-schedule-drawer-danger-row{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:18px;padding-top:14px;border-top:1px solid var(--border-soft)}
 .portal-schedule-stripe-delete-btn{color:#9C4A42}
 .portal-schedule-private-session-row{padding:2px 0}
 .portal-schedule-create-check{padding:7px 12px}
@@ -22038,12 +22076,19 @@ function scheduleServiceSummaryText(group){
 function scheduleRenderStatusBadgeHtml(group, opts){
   opts = opts || {};
   if (!group) return '';
-  var ps = String(group.payment_status || '').toLowerCase();
   var html = '';
-  if (ps === 'paid'){
-    html = '<span class="portal-schedule-status is-paid">' + escHtml(portalT('schedule.status.paid')) + '</span>';
-  } else if (ps === 'pending' || ps === 'waiting_payment' || ps === 'not_requested' || ps){
-    html = '<span class="portal-schedule-status is-unpaid">' + escHtml(portalT('schedule.status.unpaid')) + '</span>';
+  var bs = String(group.booking_status || group.status || '').toLowerCase();
+  var isCancelled = !!(group._isCancelled || group.schedule_ghost === true || group.schedule_ghost === 'true'
+    || bs === 'cancelled' || bs === 'canceled');
+  if (isCancelled) {
+    html = '<span class="portal-schedule-status is-cancelled">' + escHtml(portalT('schedule.status.cancelled')) + '</span>';
+  } else {
+    var ps = String(group.payment_status || '').toLowerCase();
+    if (ps === 'paid'){
+      html = '<span class="portal-schedule-status is-paid">' + escHtml(portalT('schedule.status.paid')) + '</span>';
+    } else if (ps === 'pending' || ps === 'waiting_payment' || ps === 'not_requested' || ps){
+      html = '<span class="portal-schedule-status is-unpaid">' + escHtml(portalT('schedule.status.unpaid')) + '</span>';
+    }
   }
   if (group.waiver_signed){
     html += (html ? ' ' : '') + '<span class="portal-schedule-status is-waiver">' + escHtml(portalT('schedule.status.waiverSigned')) + '</span>';
@@ -41550,6 +41595,56 @@ async function handleSunsetScheduleBookingCancel(query, req, res, user) {
   }
 }
 
+async function handleSunsetScheduleBookingRestore(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (clientSlug !== SUNSET_CLIENT_SLUG) {
+    return sendJSON(res, 403, { success: false, error: 'unsupported_client', client_slug: clientSlug });
+  }
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  if (!isSunsetLocationId(query.location)) return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  const trustedLocationId = normalizeSunsetLocationId(query.location);
+  for (const supplied of [body.location_id, body.location]) {
+    if (supplied != null && String(supplied).trim() !== ''
+      && (!isSunsetLocationId(supplied) || normalizeSunsetLocationId(supplied) !== trustedLocationId)) {
+      return sendJSON(res, 409, { success: false, error: 'location_conflict' });
+    }
+  }
+  const bookingId = String(body.booking_id || query.booking_id || '').trim();
+  try {
+    const result = await withPgClient(async (pg) => restoreSunsetScheduleBooking(pg, {
+      clientSlug,
+      bookingId,
+      locationId: trustedLocationId,
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    const safe = result && typeof result === 'object'
+      ? result
+      : { ok: false, status: 500, body: { success: false, error: 'restore_failed' } };
+    try {
+      appendAuditLog({
+        ts: new Date().toISOString(),
+        intent: 'api:sunset.schedule.booking_restore',
+        category: 'schedule_api',
+        client_slug: clientSlug,
+        success: !!safe.ok,
+        staff_user_id: user ? user.staff_user_id : null,
+        elapsed_ms: Date.now() - started,
+      });
+    } catch (_audit) { /* never fail restore response on audit */ }
+    return sendJSON(res, safe.status || 500, { ...(safe.body || { success: false, error: 'restore_failed' }), elapsed_ms: Date.now() - started });
+  } catch (err) {
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'restore_failed',
+      detail: err && err.message ? String(err.message) : 'unknown',
+    });
+  }
+}
+
 async function handleSunsetScheduleBookingDelete(query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -41570,30 +41665,16 @@ async function handleSunsetScheduleBookingDelete(query, req, res, user) {
   }
   const bookingId = String(body.booking_id || query.booking_id || '').trim();
   try {
-    const result = await withPgClient(async (pg) => {
-      // Active → soft cancel (ghost). Cancelled → archive/remove-from-schedule.
-      const archived = await archiveSunsetScheduleBooking(pg, {
-        clientSlug,
-        bookingId,
-        locationId: trustedLocationId,
-        actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
-      });
-      if (archived && archived.ok) return archived;
-      if (archived && archived.body && archived.body.error === 'cancel_before_archive') {
-        return cancelSunsetScheduleBooking(pg, {
-          clientSlug,
-          bookingId,
-          locationId: trustedLocationId,
-          actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
-        });
-      }
-      return archived;
-    });
+    // Never permit direct Active → Deleted. Archive/delete only after cancel.
+    const result = await withPgClient(async (pg) => archiveSunsetScheduleBooking(pg, {
+      clientSlug,
+      bookingId,
+      locationId: trustedLocationId,
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
     appendAuditLog({
       ts: new Date().toISOString(),
-      intent: (result && result.body && result.body.archived)
-        ? 'api:sunset.schedule.booking_archive'
-        : 'api:sunset.schedule.booking_cancel',
+      intent: 'api:sunset.schedule.booking_archive',
       category: 'schedule_api',
       client_slug: clientSlug,
       success: !!(result && result.ok),
@@ -48799,6 +48880,11 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleSunsetScheduleBookingCancel(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/schedule/bookings/restore' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleSunsetScheduleBookingRestore(parsed.query, req, res, auth.user);
   }
   if (pathname === '/staff/schedule/bookings' && method === 'DELETE') {
     const auth = await requireAuth(req, res, 'operator');

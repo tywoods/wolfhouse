@@ -4,6 +4,7 @@ const { effectiveServiceDueCents, reconcileBookingBalances, FinanceDataQualityEr
 
 // Finance excludes transient/terminal non-operational bookings. Gross paid cash is
 // intentionally independent of booking status until an authoritative refund ledger exists.
+// Deleted cancelled schedule bookings set payments.finance_exclusion and are excluded from Collected.
 const BOOKING_EXCLUSIONS = "('cancelled', 'canceled', 'expired', 'hold')";
 
 const BSR_SQL = `
@@ -45,6 +46,8 @@ const PAYMENTS_SQL = `
      AND p.status = 'paid'
      AND p.paid_at IS NOT NULL
      AND COALESCE((p.metadata->>'test_booking_cancelled')::boolean, false) = false
+     AND p.finance_exclusion IS NULL
+     AND COALESCE((p.metadata->>'schedule_booking_deleted')::boolean, false) = false
 `;
 
 function rows(result) { return result && Array.isArray(result.rows) ? result.rows : []; }
