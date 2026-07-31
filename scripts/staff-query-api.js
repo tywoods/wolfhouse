@@ -16544,54 +16544,6 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-refresh-btn{padding:6px 11px;font-size:16px;line-height:1;font-weight:700}
 .portal-schedule-drawer-topbar{display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px}
 
-/* Cancelled booking ghosts — muted but still clickable */
-.portal-schedule-ops-row.is-cancelled,
-.portal-schedule-session-guest.is-cancelled,
-button.portal-schedule-ops-rental-guest-open.is-cancelled {
-  opacity: 0.55;
-  filter: grayscale(0.35);
-}
-.portal-schedule-ops-row.is-cancelled {
-  border-style: dashed;
-}
-.portal-schedule-status.is-cancelled {
-  background: rgba(120,120,120,.16);
-  color: var(--text-muted, #8a928c);
-}
-.portal-schedule-drawer-danger-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border, rgba(255,255,255,.08));
-}
-.portal-schedule-cancel-booking-btn,
-.portal-schedule-delete-booking-btn {
-  appearance: none;
-  background: transparent;
-  border: 1px solid rgba(196, 92, 92, 0.45);
-  color: #d98989;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  padding: 8px 14px;
-  border-radius: 10px;
-  cursor: pointer;
-  min-height: 36px;
-  line-height: 1.2;
-}
-.portal-schedule-cancel-booking-btn:hover,
-.portal-schedule-delete-booking-btn:hover {
-  background: rgba(196, 92, 92, 0.12);
-  border-color: rgba(196, 92, 92, 0.65);
-  color: #e6a4a4;
-}
-.portal-schedule-cancel-booking-btn:disabled,
-.portal-schedule-delete-booking-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
 .portal-schedule-delete-booking-btn{background:rgba(180,83,74,.10);border:1px solid rgba(180,83,74,.30);color:#9C4A42}
 .portal-schedule-delete-booking-btn:hover{background:rgba(180,83,74,.18);border-color:rgba(180,83,74,.45)}
 .portal-schedule-drawer-danger-row{display:flex;justify-content:flex-end;margin-top:18px;padding-top:14px;border-top:1px solid var(--border-soft)}
