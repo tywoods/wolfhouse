@@ -1721,6 +1721,7 @@ console.log('\n[6] Generated /staff/ui occupancy CSS/markup');
 
 console.log('\n[6b] Layout toggle CSS (staff-query-api)');
 assert('ops-board uses shared stack gap', /--ps-stack-gap:\s*16px/.test(apiSrc));
+assert('staff CSS pins #ps-day-cockpit bottom margin', /#ps-day-cockpit[^}]*margin:\s*0 0 16px/.test(apiSrc) || apiSrc.includes('#ps-day-cockpit,.ps-day-cockpit-host{margin:0 0 16px'));
 assert('ops-board no extra top margin (cockpit owns spacing)', /\.portal-schedule-ops-board\{[^}]*margin-top:\s*0/.test(apiSrc));
 assert('rental pickups no extra top margin', /\.portal-schedule-ops-rental-pickups\{margin-top:\s*0/.test(apiSrc));
 assert('cards grid CSS present', apiSrc.includes('.portal-schedule-cards-grid{'));

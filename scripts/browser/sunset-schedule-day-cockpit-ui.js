@@ -292,7 +292,8 @@ function scheduleRenderDayCockpit(mount, data) {
   var spanMin = (win[1] - win[0]) * 60;
   var pct = function (min) { return scheduleCockpitPct(min, win[0], spanMin); };
 
-  mount.className = 'cockpit';
+  // Keep host class — margin/spacing selectors live on .ps-day-cockpit-host.
+  mount.className = 'cockpit ps-day-cockpit-host';
   mount.innerHTML = '';
 
   /* ----- control bar ----- */
@@ -761,7 +762,7 @@ function scheduleEnsureDayCockpitCss() {
   style.id = 'ps-day-cockpit-css';
   style.type = 'text/css';
   style.appendChild(document.createTextNode(
-    '.ps-day-cockpit-host{margin:0 0 16px;min-width:0;}' +
+    '.ps-day-cockpit-host,#ps-day-cockpit{margin:0 0 16px;min-width:0;display:block;}' +
     SCHEDULE_DAY_COCKPIT_CSS
   ));
   document.head.appendChild(style);

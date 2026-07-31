@@ -339,6 +339,7 @@ assert('layout toggle Timeline/Cards present', modSrc.includes("'Timeline'") && 
 assert('layout seg class', modSrc.includes('ck-seg--layout'));
 assert('layout handler wires scheduleSetDayOpsLayoutMode', modSrc.includes('scheduleSetDayOpsLayoutMode'));
 assert('cockpit host margin-bottom 16px (matches stack gap)', modSrc.includes('margin:0 0 16px'));
+assert('render keeps ps-day-cockpit-host class', modSrc.includes("className = 'cockpit ps-day-cockpit-host'") || modSrc.includes('cockpit ps-day-cockpit-host'));
 assert('CSS uses exact --ck-surface #f7f5ef', modSrc.includes('--ck-surface:#f7f5ef') || modSrc.includes('--ck-surface: #f7f5ef'));
 assert('CSS uses exact --ck-olive #6b7a5e', modSrc.includes('--ck-olive:#6b7a5e') || modSrc.includes('--ck-olive: #6b7a5e'));
 assert('CSS uses exact --ck-now-bg #22301f', modSrc.includes('--ck-now-bg:#22301f') || modSrc.includes('--ck-now-bg: #22301f'));
@@ -495,7 +496,7 @@ function renderFromProducer(name, nowMin) {
 }
 
 const midR = renderFromProducer('mid-session', 12 * 60 + 37);
-assert('mid: mount class cockpit', midR.className === 'cockpit');
+assert('mid: mount class cockpit', /\bcockpit\b/.test(midR.className) && /\bps-day-cockpit-host\b/.test(midR.className), midR.className);
 assert('mid: ON NOW', /ON NOW/.test(midR.text), midR.text.slice(0, 200));
 assert('mid: live session name', /Curso Medio D[ií]a|Medio/.test(midR.text), midR.text.slice(0, 240));
 assert('mid: ends in countdown', /ends in/.test(midR.text));
