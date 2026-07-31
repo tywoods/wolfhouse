@@ -147,10 +147,18 @@ const deactivateHalf = assertBoardWetsuitShortParityAfterMutation(matched, 'suns
 });
 assert('deactivating board half_day rolls back (parity fail)',
   deactivateHalf.ok === false && /half_day/.test(deactivateHalf.error));
-assert('createRentalPriceRule wires short_duration_mismatch',
-  /short_duration_mismatch/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/tenant-admin-writes.js'), 'utf8')));
-assert('patchPriceRule wires short_duration_mismatch',
-  (fs.readFileSync(path.join(ROOT, 'scripts/lib/tenant-admin-writes.js'), 'utf8').match(/short_duration_mismatch/g) || []).length >= 2);
+// Slice A: short_duration_mismatch is historical-read-only (pure helpers only).
+// Create/patch price writes no longer enforce board/wetsuit duration coupling.
+const writesSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/tenant-admin-writes.js'), 'utf8');
+assert('historical short_duration_mismatch helpers remain for read-only analysis',
+  /short_duration_mismatch/.test(writesSrc)
+  || /assertBoardWetsuitShortDurationParity/.test(writesSrc));
+const createPriceFn = (writesSrc.match(/async function createRentalPriceRule[\s\S]*?\nasync function /) || [''])[0];
+const patchPriceFn = (writesSrc.match(/async function patchPriceRule[\s\S]*?\nasync function putLessonCapacityDefault/) || [''])[0];
+assert('createRentalPriceRule does not enforce short_duration_mismatch',
+  createPriceFn.length > 0 && !/short_duration_mismatch|assertBoardWetsuitShortParityAfterMutation/.test(createPriceFn));
+assert('patchPriceRule does not enforce short_duration_mismatch on writes',
+  patchPriceFn.length > 0 && !/assertBoardWetsuitShortParityAfterMutation/.test(patchPriceFn));
 
 // ── 4) Common short pebbles hour/half/1_day as Full day ─────────────────────
 console.log('\n[4] Common short pebbles hour / half_day / 1_day (Full day)');

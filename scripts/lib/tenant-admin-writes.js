@@ -16,7 +16,12 @@ const {
 } = require('./tenant-business-config');
 const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
 const locationStore = require('./sunset-admin-location-store');
-const { isValidOfferingKey } = require('./tenant-rental-offerings');
+const {
+  isValidOfferingKey,
+  validateRentalOfferingBody,
+  assertRentalDisplayNameAvailable,
+  rowToOffering,
+} = require('./tenant-rental-offerings');
 const { parseRentalDurationKey } = require('../browser/sunset-rental-duration-model');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -65,14 +70,17 @@ const RENTAL_PERIOD_WINDOWS_READABLE = new Set([
   '1_hour', '2_hours', 'half_day',
 ]);
 
-/** Historical short No-lesson keys for board/wetsuit parity (read/legacy only). */
+/**
+ * HISTORICAL-READ-ONLY short No-lesson keys formerly used for board/wetsuit
+ * parity. Admin create/edit no longer enforces cross-item duration coupling —
+ * every offering is independent. Keep pure helpers for legacy analysis only.
+ */
 const RENTAL_SHORT_DURATION_KEYS = Object.freeze(['1_hour', '2_hours', 'half_day', 'full_day']);
 const RENTAL_SHORT_DURATION_SET = new Set(RENTAL_SHORT_DURATION_KEYS);
 
 /**
- * Fail-closed: Surfboard and Wetsuit must expose the exact same active short-
- * duration key set among 1_hour / half_day / 1_day (amounts may differ).
- * Bundles / multi-day rows are ignored. Pure — no I/O.
+ * HISTORICAL-READ-ONLY pure helper: former Surfboard/Wetsuit short-duration
+ * parity check. Not called by create/patch price writes (Slice A independence).
  *
  * @param {Array<{offering_key?:string,item_code?:string,unit?:string,active?:boolean,amount_cents?:number,amount?:number,location_id?:string}>} prices
  * @param {string} [locationId]
@@ -126,8 +134,9 @@ function assertBoardWetsuitShortDurationParity(prices, locationId) {
 }
 
 /**
- * Apply a hypothetical board/wetsuit short-row mutation to a price list (pure),
- * then assert parity. Used before Admin create/patch commit (no partial save).
+ * HISTORICAL-READ-ONLY pure helper. Formerly applied before Admin create/patch.
+ * Slice A: board and wetsuit are independent catalog items — write paths no
+ * longer call this. Kept for offline analysis of legacy catalogs only.
  */
 function assertBoardWetsuitShortParityAfterMutation(prices, locationId, mutation) {
   const list = Array.isArray(prices) ? prices.map((p) => ({ ...p })) : [];
@@ -1334,55 +1343,8 @@ async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, a
     if (parsedCfg.locationId !== reqLoc) {
       return { ok: false, status: 403, body: { success: false, error: 'location_mismatch' } };
     }
-    // Config-id path: validate short-duration parity before mutation when board/wetsuit.
-    let offeringBase = String(parsedCfg.offering_key || '').trim();
-    let period = String(parsedCfg.unit || '').trim();
-    if (offeringBase.includes('__')) {
-      const parts = offeringBase.split('__');
-      offeringBase = parts[0];
-      period = parts.slice(1).join('__') || period;
-    }
-    if ((offeringBase === 'board_rental' || offeringBase === 'wetsuit_rental')
-      && RENTAL_SHORT_DURATION_SET.has(String(patch.period_window || period))) {
-      // Location-store / config snapshot for pure parity when tables absent.
-      let snapshot = [];
-      if (tablesExist) {
-        const hasLocCol = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
-        snapshot = await loadRentalPricesForShortParity(client, {
-          clientSlug, locationId: reqLoc, hasLoc: hasLocCol,
-        });
-      } else {
-        // No DB tables: project current baseline + location-store overrides.
-        try {
-          const base = resolveFromConfigFile(clientSlug, reqLoc);
-          const prices = (base && base.prices) || [];
-          const applied = locationStore.applyStoreToResolvedConfig(
-            { prices: prices.slice() },
-            reqLoc,
-          );
-          snapshot = (applied && applied.prices) || prices;
-        } catch (_e) { snapshot = []; }
-      }
-      const parity = assertBoardWetsuitShortParityAfterMutation(snapshot, reqLoc, {
-        offering_key: offeringBase,
-        period_window: patch.period_window || period,
-        amount_cents: patch.amount_cents,
-        active: patch.active,
-      });
-      if (!parity.ok) {
-        return {
-          ok: false,
-          status: 409,
-          body: {
-            success: false,
-            error: parity.error,
-            code: 'short_duration_mismatch',
-            missing_board: parity.missing_board,
-            missing_wetsuit: parity.missing_wetsuit,
-          },
-        };
-      }
-    }
+    // Slice A: no board/wetsuit short-duration parity enforcement — each
+    // offering is an independent catalog item (historical-read-only helpers remain).
     if (tablesExist) {
       return upsertConfigPriceRule(client, {
         clientSlug,
@@ -1426,38 +1388,43 @@ async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, a
       return { ok: false, status: 404, body: { success: false, error: 'not_found' } };
     }
     const before = existing.rows[0];
-    // Fail closed before mutation when board/wetsuit short rows would diverge.
+    // Duration identity change: reject duplicate period on the same offering
+    // before mutating (atomic fail-closed; no partial item_code rewrite).
     {
-      let off = String(before.item_code || '').trim();
-      let per = String(before.unit || '').trim();
-      if (off.includes('__')) {
-        const parts = off.split('__');
-        off = parts[0];
-        per = parts.slice(1).join('__') || per;
-      }
-      const nextPeriod = patch.period_window != null ? String(patch.period_window).trim() : per;
-      if ((off === 'board_rental' || off === 'wetsuit_rental')
-        && (RENTAL_SHORT_DURATION_SET.has(per) || RENTAL_SHORT_DURATION_SET.has(nextPeriod))) {
-        const snapshot = await loadRentalPricesForShortParity(client, {
-          clientSlug, locationId: reqLoc, hasLoc,
+      const parsedBefore = parseItemCodeParts(before.item_code);
+      const currentPeriod = parsedBefore.period_window
+        || String(before.unit || '').trim();
+      const nextPeriod = patch.period_window != null
+        ? String(patch.period_window).trim()
+        : currentPeriod;
+      if (patch.period_window != null && nextPeriod && nextPeriod !== currentPeriod) {
+        if (!isValidRentalPeriod(nextPeriod)) {
+          await client.query('ROLLBACK');
+          return {
+            ok: false,
+            status: 400,
+            body: { success: false, error: 'invalid period_window' },
+          };
+        }
+        const offeringKey = parsedBefore.offering_key
+          || String(before.item_code || '').split('__')[0];
+        const nextCode = buildDbItemCode(offeringKey, nextPeriod);
+        const clash = await findPriceRuleRow(client, {
+          clientSlug,
+          locationId: reqLoc,
+          itemType: 'rental',
+          itemCode: nextCode,
+          hasLoc,
         });
-        const parity = assertBoardWetsuitShortParityAfterMutation(snapshot, reqLoc, {
-          offering_key: off,
-          period_window: nextPeriod,
-          amount_cents: patch.amount_cents != null ? patch.amount_cents : before.amount_cents,
-          active: patch.active != null ? patch.active : before.active,
-        });
-        if (!parity.ok) {
+        if (clash.rows[0] && String(clash.rows[0].id) !== String(ruleId)) {
           await client.query('ROLLBACK');
           return {
             ok: false,
             status: 409,
             body: {
               success: false,
-              error: parity.error,
-              code: 'short_duration_mismatch',
-              missing_board: parity.missing_board,
-              missing_wetsuit: parity.missing_wetsuit,
+              error: 'duplicate duration identity',
+              code: 'duplicate_duration',
             },
           };
         }
@@ -2003,6 +1970,129 @@ async function setRentalGroupAvailability(client, {
   }
 }
 
+/**
+ * Atomic Admin create: one rental catalog identity + zero-or-more duration
+ * prices in a single transaction. Validates fully before any write; on any
+ * failure rolls back so there is no orphan offering or half-written price set.
+ *
+ * Every offering is independent (empty excludes by default). "Board + Suit" is
+ * just another label — no bundle/component side effects.
+ *
+ * @returns {{ ok:true, offering:object, prices:object[] } | { ok:false, error:string }}
+ */
+async function createRentalCatalogItem(client, {
+  clientSlug, locationId, offering = {}, prices = [], actor = {},
+} = {}) {
+  const slug = String(clientSlug || '').trim();
+  if (!slug) return { ok: false, error: 'clientSlug is required' };
+
+  const v = validateRentalOfferingBody({
+    ...offering,
+    excludes: Array.isArray(offering.excludes) ? offering.excludes : [],
+  }, 'create');
+  if (!v.ok) return v;
+
+  const loc = locationId == null || locationId === ''
+    ? null
+    : normalizeSunsetLocationId(locationId);
+
+  const priceList = Array.isArray(prices) ? prices : [];
+  const validatedPrices = [];
+  const seenPeriods = new Set();
+  for (const raw of priceList) {
+    const pv = validatePriceCreateBody({
+      offering_key: v.value.offering_key,
+      period_window: raw && raw.period_window,
+      amount_cents: raw && raw.amount_cents,
+      currency: raw && raw.currency,
+    });
+    if (!pv.ok) return { ok: false, error: pv.error };
+    if (seenPeriods.has(pv.patch.period_window)) {
+      return { ok: false, error: 'duplicate duration identity' };
+    }
+    seenPeriods.add(pv.patch.period_window);
+    validatedPrices.push(pv.patch);
+  }
+
+  await client.query('BEGIN');
+  try {
+    const nameOk = await assertRentalDisplayNameAvailable(client, {
+      clientSlug: slug,
+      locationId: loc,
+      label: v.value.label,
+    });
+    if (!nameOk.ok) {
+      await client.query('ROLLBACK');
+      return nameOk;
+    }
+
+    const stockQty = Object.prototype.hasOwnProperty.call(v.value, 'stock_quantity')
+      ? v.value.stock_quantity
+      : null;
+    const offRes = await client.query(
+      // MULTICLIENT_SCOPE_OK: explicit client_slug on insert
+      `INSERT INTO tenant_rental_offerings
+         (client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+       RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, active`,
+      [
+        slug,
+        loc,
+        v.value.offering_key,
+        v.value.label,
+        v.value.group_key,
+        JSON.stringify(v.value.excludes || []),
+        v.value.sort_order || 0,
+        stockQty,
+        actor.staff_user_id || null,
+      ],
+    );
+    const offeringRow = offRes.rows[0];
+    const createdPrices = [];
+    for (const p of validatedPrices) {
+      const itemCode = buildDbItemCode(p.offering_key, p.period_window);
+      const dbUnit = mapBaselineUnitToDb(p.period_window);
+      const displayName = offeringRow.label || p.offering_key;
+      const inserted = await client.query(
+        // MULTICLIENT_SCOPE_OK: client_slug + location on insert
+        `INSERT INTO tenant_price_rules
+           (tenant_id, client_slug, location_id, item_type, item_code, display_name, currency, amount_cents, unit, active, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10::uuid)
+         RETURNING *`,
+        [
+          offeringRow.tenant_id || 'sunset',
+          slug,
+          loc,
+          'rental',
+          itemCode,
+          displayName,
+          p.currency || 'EUR',
+          p.amount_cents,
+          dbUnit,
+          actor.staff_user_id || null,
+        ],
+      );
+      createdPrices.push(inserted.rows[0]);
+    }
+
+    await client.query('COMMIT');
+    return {
+      ok: true,
+      offering: rowToOffering(offeringRow),
+      prices: createdPrices,
+    };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) { /* ignore */ }
+    if (/duplicate key|uq_tenant_rental_offerings_active/i.test(String(err && err.message))) {
+      return { ok: false, error: 'a rental item with this offering_key already exists' };
+    }
+    if (/duplicate key|unique constraint/i.test(String(err && err.message))) {
+      return { ok: false, error: 'duplicate duration identity' };
+    }
+    throw err;
+  }
+}
+
 module.exports = {
   SUNSET_ADMIN_CLIENT,
   ADMIN_WRITE_MIN_ROLE,
@@ -2023,6 +2113,7 @@ module.exports = {
   validateLessonTimePatchBody,
   validatePriceCreateBody,
   createRentalPriceRule,
+  createRentalCatalogItem,
   putFullDayEquipmentAddonRule,
   FULL_DAY_EQUIPMENT_ADDON_ITEM_CODE,
   FULL_DAY_EQUIPMENT_ADDON_OFFERING_KEY,

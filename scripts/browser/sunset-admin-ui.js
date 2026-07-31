@@ -1075,6 +1075,8 @@ function renderAdminAddEquipmentForm(){
   return '<div class="portal-admin-edit-form portal-admin-equip-form" id="admin-add-equip-form">' +
     '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.prices.equipmentName') || 'Equipment name') + '</label>' +
     '<input type="text" id="admin-new-equip-name" placeholder="Kayak"></div>' +
+    '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.prices.stock') || 'Total stock') + '</label>' +
+    '<input type="number" id="admin-new-equip-stock" min="0" max="999" step="1" placeholder="" inputmode="numeric"></div>' +
     renderAdminDurationControl('admin-new-equip', 'days', 1) +
     '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
     '<input type="text" class="portal-admin-equip-amount" id="admin-new-equip-amount" inputmode="decimal" placeholder="0.00"></div>' +
@@ -1108,6 +1110,7 @@ function adminMergeEquipmentPricingItems(cfg){
       label: item.label,
       rows: item.rows || [],
       active: true,
+      stock_quantity: null,
     };
     order.push(item.offering_key);
   });
@@ -1115,9 +1118,13 @@ function adminMergeEquipmentPricingItems(cfg){
     var key = String(off.offering_key || '').trim();
     if (!key) return;
     var isActive = off.active !== false;
+    var stockQty = (off.stock_quantity === null || off.stock_quantity === undefined)
+      ? null
+      : (Number.isInteger(Number(off.stock_quantity)) ? Number(off.stock_quantity) : null);
     if (byKey[key]) {
       byKey[key].active = isActive;
       if (off.label) byKey[key].label = off.label;
+      byKey[key].stock_quantity = stockQty;
       return;
     }
     // Disabled (or unpriced) offering: still list for re-enable / audit visibility.
@@ -1126,10 +1133,21 @@ function adminMergeEquipmentPricingItems(cfg){
       label: off.label || off.display_name || key,
       rows: [],
       active: isActive,
+      stock_quantity: stockQty,
     };
     order.push(key);
   });
   return order.map(function(k){ return byKey[k]; }).filter(Boolean);
+}
+
+/** Stock readout for equipment cards (configured total units). */
+function adminEquipStockLabel(stockQuantity){
+  if (stockQuantity === null || stockQuantity === undefined || stockQuantity === '') {
+    return portalT('admin.prices.stockUnconfigured') || 'Stock not set';
+  }
+  var n = Number(stockQuantity);
+  if (!Number.isInteger(n)) return portalT('admin.prices.stockUnconfigured') || 'Stock not set';
+  return (portalT('admin.prices.stock') || 'Total stock') + ': ' + n;
 }
 
 function renderAdminSectionPricesFromConfig(cfg){
@@ -1163,6 +1181,9 @@ function renderAdminSectionPricesFromConfig(cfg){
     html += '<div class="portal-admin-subsection-title-row portal-admin-equip-header">';
     html += '<div class="portal-admin-subsection-title-group">';
     html += '<h3 class="portal-admin-subsection-title">' + escHtml(item.label) + '</h3>';
+    html += '<div class="portal-admin-equip-stock-readout portal-admin-muted" data-equip-stock="' +
+      escHtml(item.stock_quantity == null ? '' : String(item.stock_quantity)) + '">' +
+      escHtml(adminEquipStockLabel(item.stock_quantity)) + '</div>';
     if (writes){
       html += '<label class="portal-admin-equip-enabled">' +
         '<input type="checkbox" data-admin-action="toggle-equip-enabled" data-equip-key="' + escHtml(key) + '"' +
@@ -1203,16 +1224,37 @@ function renderAdminSectionPricesFromConfig(cfg){
     if (!item.rows.length && !adding){
       html += '<p class="portal-admin-muted">' + escHtml(portalT('admin.prices.emptyCategory')) + '</p>';
     }
+    // Full catalog control in edit: name (label only; offering_key stable) + stock.
+    if (editing){
+      var stockVal = item.stock_quantity == null ? '' : String(item.stock_quantity);
+      html += '<div class="portal-admin-edit-form portal-admin-equip-meta-form">' +
+        '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.prices.equipmentName') || 'Equipment name') + '</label>' +
+        '<input type="text" id="admin-equip-name-' + escHtml(key) + '" data-admin-equip-field="name" data-equip-key="' + escHtml(key) + '" value="' + escHtml(item.label || '') + '" maxlength="120"></div>' +
+        '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.prices.stock') || 'Total stock') + '</label>' +
+        '<input type="number" id="admin-equip-stock-' + escHtml(key) + '" data-admin-equip-field="stock" data-equip-key="' + escHtml(key) + '" min="0" max="999" step="1" value="' + escHtml(stockVal) + '" inputmode="numeric" placeholder=""></div>' +
+        '<div class="portal-admin-edit-actions">' +
+        '<button type="button" class="btn btn-primary" data-admin-action="save-equip-meta" data-equip-key="' + escHtml(key) + '">' +
+        escHtml(portalT('admin.action.save') || 'Save') + '</button>' +
+        '</div></div>';
+    }
     if (item.rows.length){
       html += '<div class="portal-admin-card-grid portal-admin-equip-price-grid" id="admin-prices-card-grid-' + escHtml(key) + '">';
       item.rows.forEach(function(r){
         var euros = adminEurosFromAmount((r.amount_cents == null ? 0 : r.amount_cents) / 100);
-        html += '<article class="portal-admin-price-card' + (editing && r.pid ? ' is-editing' : '') + (r.active ? '' : ' is-inactive') + '" data-admin-price-card="' + escHtml(r.pid || '') + '">';
+        var durParsed = (typeof parseRentalDurationKey === 'function')
+          ? parseRentalDurationKey(r.duration_key || r.unit || '')
+          : null;
+        var durUnit = (durParsed && durParsed.unit) || 'days';
+        var durCount = (durParsed && durParsed.count) || 1;
+        var pricePrefix = 'admin-price-' + adminPriceInputKey(r.pid || '');
+        html += '<article class="portal-admin-price-card' + (editing && r.pid ? ' is-editing' : '') + (r.active ? '' : ' is-inactive') + '" data-admin-price-card="' + escHtml(r.pid || '') + '" data-admin-price-duration="' + escHtml(r.duration_key || '') + '">';
         if (editing && r.pid){
           html += '<div class="portal-admin-card-title-row"><span class="portal-admin-price-period">' + escHtml(r.duration_label) + '</span>' +
             '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger" data-admin-action="delete-price" data-price-id="' +
             escHtml(r.pid) + '" title="' + escHtml(portalT('admin.prices.removeDuration')) + '" aria-label="' +
             escHtml(portalT('admin.prices.removeDuration')) + '">×</button></div>';
+          // Editable duration identity (e.g. 2 hours → 3 hours) + amount.
+          html += renderAdminDurationControl(pricePrefix, durUnit, durCount);
           html += '<div class="portal-admin-price-card-edit"><div><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
             '<input type="text" data-admin-price-field="amount" id="admin-price-amount-' + escHtml(adminPriceInputKey(r.pid)) + '" value="' + escHtml(euros) + '" inputmode="decimal"></div></div>';
           html += '<button type="button" class="btn btn-primary portal-admin-row-edit" data-admin-action="save-price-amount" data-price-id="' +
@@ -2069,7 +2111,7 @@ function wireAdminTab(){
       if (tierRow && tierRow.parentNode) tierRow.parentNode.removeChild(tierRow);
       return;
     }
-    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'delete-rental-offering' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'toggle-group-availability' || action === 'toggle-equip-enabled' || action === 'add-equipment' || action === 'edit-equipment' || action === 'add-equip-price' || action === 'save-new-equipment' || action === 'save-price-amount' || action === 'edit-accommodation' || action === 'save-accommodation' || action === 'accom-add-range' || action === 'accom-remove-range'){
+    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'delete-rental-offering' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'toggle-group-availability' || action === 'toggle-equip-enabled' || action === 'add-equipment' || action === 'edit-equipment' || action === 'add-equip-price' || action === 'save-new-equipment' || action === 'save-price-amount' || action === 'save-equip-meta' || action === 'edit-accommodation' || action === 'save-accommodation' || action === 'accom-add-range' || action === 'accom-remove-range'){
       if (!adminCfgWritesEnabled(cfg)) return;
     }
     if (action === 'delete-rental-offering'){
@@ -2462,6 +2504,56 @@ function wireAdminTab(){
       }
       return;
     }
+    if (action === 'save-equip-meta'){
+      var metaKey = String(btn.getAttribute('data-equip-key') || '').trim();
+      if (!metaKey){ adminShowMessage('error', portalT('admin.edit.saveFailed')); return; }
+      var metaNameEl = el('admin-equip-name-' + metaKey);
+      var metaStockEl = el('admin-equip-stock-' + metaKey);
+      var metaName = metaNameEl ? String(metaNameEl.value || '').trim() : '';
+      if (!metaName){ adminShowMessage('error', portalT('admin.prices.equipmentNameRequired') || 'Enter an equipment name'); return; }
+      var metaBody = { label: metaName };
+      var stockRaw = metaStockEl ? String(metaStockEl.value || '').trim() : '';
+      if (stockRaw === '') {
+        metaBody.stock_quantity = null;
+      } else {
+        var stockNum = parseInt(stockRaw, 10);
+        if (!Number.isInteger(stockNum) || stockNum < 0 || stockNum > 999 || String(stockNum) !== stockRaw) {
+          adminShowMessage('error', portalT('admin.prices.stockInvalid') || 'Stock must be a whole number 0–999 or blank');
+          return;
+        }
+        metaBody.stock_quantity = stockNum;
+      }
+      var metaOpSeq = adminBeginOp();
+      adminShowMessage('', '');
+      try {
+        adminApiRequest('PATCH', '/staff/admin/config/rental-offerings/' + encodeURIComponent(metaKey) + adminClientQuery(), metaBody)
+        .then(function(res){
+          if (!adminOpStillOwns(metaOpSeq)) return;
+          if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminReleaseBusy(metaOpSeq);
+            var metaErr = (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status);
+            if (/rental_name_already_exists/i.test(String(metaErr))) {
+              adminShowMessage('error', portalT('admin.prices.rentalNameExists') || metaErr);
+            } else {
+              adminShowMessage('error', metaErr);
+            }
+            return;
+          }
+          adminShowMessage('success', portalT('admin.edit.savedPrice') || 'Saved.');
+          adminReleaseBusy(metaOpSeq);
+          adminReloadConfigKeepingEdit('equip:' + metaKey);
+        }).catch(function(err){
+          if (!adminOpStillOwns(metaOpSeq)) return;
+          adminReleaseBusy(metaOpSeq);
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(metaOpSeq)) return;
+        adminReleaseBusy(metaOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
+      return;
+    }
     if (action === 'save-price-amount'){
       var spPriceId = String(btn.getAttribute('data-price-id') || '');
       if (!spPriceId){ adminShowMessage('error', portalT('admin.edit.saveFailed')); return; }
@@ -2469,12 +2561,20 @@ function wireAdminTab(){
       var spCents = adminParseEurosToCents(spAmountInput && spAmountInput.value);
       if (!spCents.ok){ adminShowMessage('error', spCents.error); return; }
       if (!(spCents.value > 0)){ adminShowMessage('error', portalT('admin.edit.amountRequiredToEnable')); return; }
+      // Duration identity may change (e.g. 2 hours → 3 hours) atomically with amount.
+      var spDurPrefix = 'admin-price-' + adminPriceInputKey(spPriceId);
+      var spDur = adminReadDurationControl(spDurPrefix);
+      var spPatch = { amount_cents: spCents.value };
+      if (spDur && spDur.duration_key) {
+        spPatch.period_window = spDur.duration_key;
+      } else if (spDur && (spDur.count != null || spDur.unit)) {
+        adminShowMessage('error', portalT('admin.prices.invalidDuration') || 'Enter a valid duration');
+        return;
+      }
       var spOpSeq = adminBeginOp();
       adminShowMessage('', '');
       try {
-        adminApiRequest('PATCH', '/staff/admin/config/prices/' + encodeURIComponent(spPriceId) + adminClientQuery(), {
-            amount_cents: spCents.value,
-          })
+        adminApiRequest('PATCH', '/staff/admin/config/prices/' + encodeURIComponent(spPriceId) + adminClientQuery(), spPatch)
         .then(function(res){
           if (!adminOpStillOwns(spOpSeq)) return;
           if (res.status !== 200 || !res.data || res.data.success !== true){
@@ -2509,38 +2609,43 @@ function wireAdminTab(){
       var eqCents = adminParseEurosToCents(eqAmountInput && eqAmountInput.value);
       if (!eqCents.ok){ adminShowMessage('error', eqCents.error); return; }
       if (!(eqCents.value > 0)){ adminShowMessage('error', portalT('admin.edit.amountRequiredToEnable')); return; }
+      var eqStockInput = el('admin-new-equip-stock');
+      var eqStockRaw = eqStockInput ? String(eqStockInput.value || '').trim() : '';
+      var eqStockQty = null;
+      if (eqStockRaw !== '') {
+        var eqStockNum = parseInt(eqStockRaw, 10);
+        if (!Number.isInteger(eqStockNum) || eqStockNum < 0 || eqStockNum > 999 || String(eqStockNum) !== eqStockRaw) {
+          adminShowMessage('error', portalT('admin.prices.stockInvalid') || 'Stock must be a whole number 0–999 or blank');
+          return;
+        }
+        eqStockQty = eqStockNum;
+      }
       var eqOpSeq = adminBeginOp();
       adminShowMessage('', '');
-      // 1) create the catalog offering (so it can also be booked), then 2) its first price.
+      // Atomic create: offering + first duration price in one request (no partial catalog).
       // Do NOT append random suffixes to bypass name uniqueness. Preserve input on error.
-      var createOffering = adminApiRequest('POST', '/staff/admin/config/rental-offerings' + adminClientQuery(), {
-        offering_key: eqKey, label: eqName, group_key: 'equipment', excludes: [],
-      });
-      createOffering.then(function(offRes){
-        if (!adminOpStillOwns(eqOpSeq)) return null;
+      var createBody = {
+        offering_key: eqKey,
+        label: eqName,
+        group_key: 'equipment',
+        excludes: [],
+        stock_quantity: eqStockQty,
+        prices: [{ period_window: eqDur.duration_key, amount_cents: eqCents.value }],
+      };
+      adminApiRequest('POST', '/staff/admin/config/rental-offerings' + adminClientQuery(), createBody)
+      .then(function(offRes){
+        if (!adminOpStillOwns(eqOpSeq)) return;
         var offErr = offRes && offRes.data
           ? String(offRes.data.error || offRes.data.message || '')
           : '';
-        // Display-name conflict: stop before any price side effect; keep form values.
         if (offRes.status === 409 && /rental_name_already_exists/i.test(offErr)){
           adminReleaseBusy(eqOpSeq);
           adminShowMessage('error', portalT('admin.prices.rentalNameExists') || offErr);
-          return null;
+          return;
         }
-        // 409 on offering_key only = same key already exists — proceed to add the price.
-        if (offRes.status !== 201 && offRes.status !== 200 && offRes.status !== 409){
+        if ((offRes.status !== 201 && offRes.status !== 200) || !offRes.data || offRes.data.success !== true){
           adminReleaseBusy(eqOpSeq);
           adminShowMessage('error', (offRes.data && (offRes.data.error || offRes.data.message)) || ('HTTP ' + offRes.status));
-          return null;
-        }
-        return adminApiRequest('POST', '/staff/admin/config/prices' + adminClientQuery(), {
-          offering_key: eqKey, period_window: eqDur.duration_key, amount_cents: eqCents.value,
-        });
-      }).then(function(priceRes){
-        if (priceRes === null || !adminOpStillOwns(eqOpSeq)) return;
-        if ((priceRes.status !== 201 && priceRes.status !== 200) || !priceRes.data || priceRes.data.success !== true){
-          adminReleaseBusy(eqOpSeq);
-          adminShowMessage('error', (priceRes.data && (priceRes.data.message || priceRes.data.error)) || ('HTTP ' + priceRes.status));
           return;
         }
         adminEditTarget = null;

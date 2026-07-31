@@ -334,14 +334,14 @@ async function run() {
     JSON.stringify(keys) === JSON.stringify(['board_and_suit_rental', 'board_rental', 'sup_rental', 'wetsuit_rental']),
     JSON.stringify(keys));
   const bundle = parity.find((r) => r.offering_key === 'board_and_suit_rental');
-  ok('bundle excludes its two components',
-    bundle && JSON.stringify(bundle.excludes.slice().sort()) === JSON.stringify(['board_rental', 'wetsuit_rental']),
+  ok('canonical Surfboard + Wetsuit seeds with empty excludes (independent item)',
+    bundle && Array.isArray(bundle.excludes) && bundle.excludes.length === 0,
     JSON.stringify(bundle && bundle.excludes));
-  // Symmetry: selecting the bundle with either component blocks the component.
+  // Slice A: no auto component mapping — co-selection allowed on seeded catalog.
   const exclBoard = applyRentalMutualExclusion(['board_and_suit_rental', 'board_rental'], parity);
   const exclSuit = applyRentalMutualExclusion(['board_and_suit_rental', 'wetsuit_rental'], parity);
-  ok('bundle blocks board (symmetric from real config)', exclBoard.blocked.length === 1 && exclBoard.blocked[0].key === 'board_rental');
-  ok('bundle blocks wetsuit (symmetric from real config)', exclSuit.blocked.length === 1 && exclSuit.blocked[0].key === 'wetsuit_rental');
+  ok('seeded catalog allows board + bundle co-selection (no auto excludes)', exclBoard.blocked.length === 0);
+  ok('seeded catalog allows wetsuit + bundle co-selection (no auto excludes)', exclSuit.blocked.length === 0);
   ok('sup co-exists with everything', applyRentalMutualExclusion(['sup_rental', 'board_and_suit_rental'], parity).blocked.length === 0);
 
   console.log('\n── G. New-item add + delete parity (Step 5 template promise, offline half) ──');
@@ -371,8 +371,9 @@ async function run() {
   const afterKayak = await listRentalOfferings(parityPg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
   ok('delete restores the canonical 4', afterKayak.length === 4 && !afterKayak.some((r) => r.offering_key === 'kayak_rental'), JSON.stringify(afterKayak.map((r) => r.offering_key)));
   const postDelExcl = applyRentalMutualExclusion(['board_and_suit_rental', 'board_rental'], afterKayak);
-  ok('remaining catalog resolves unchanged after delete',
-    postDelExcl.blocked.length === 1 && postDelExcl.blocked[0].key === 'board_rental', JSON.stringify(postDelExcl.blocked));
+  // Slice A seed has empty excludes — co-selection remains allowed after kayak delete.
+  ok('remaining catalog resolves unchanged after delete (no auto excludes)',
+    postDelExcl.blocked.length === 0 && afterKayak.length === 4, JSON.stringify(postDelExcl.blocked));
 
   console.log(`\nverify-tenant-rental-offerings-crud  pass=${pass}  fail=${fail}`);
   if (fail === 0) console.log('verify-tenant-rental-offerings-crud — ALL CHECKS PASSED');

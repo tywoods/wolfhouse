@@ -372,6 +372,7 @@ const {
   validateLessonTimeCreateBody,
   validateLessonTimePatchBody,
   createRentalPriceRule,
+  createRentalCatalogItem,
   putFullDayEquipmentAddonRule,
   deactivatePriceRule,
   patchPriceRule,
@@ -41034,10 +41035,18 @@ async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req,
     offering_key: op === 'create' ? body.offering_key : offeringKey,
     label: body.label,
     group_key: body.group_key,
-    excludes: body.excludes,
+    // New catalog items are independent — never invent excludes. Empty array
+    // when omitted on create; explicit body.excludes still honored for rare
+    // historical-admin adapters.
+    excludes: op === 'create'
+      ? (Array.isArray(body.excludes) ? body.excludes : [])
+      : body.excludes,
     sort_order: body.sort_order,
     actorId,
   };
+  if (Object.prototype.hasOwnProperty.call(body, 'stock_quantity')) {
+    params.stock_quantity = body.stock_quantity;
+  }
 
   // Smallest active-state path: PATCH with boolean `active` (optionally alone).
   const wantsActiveToggle = op === 'update' && Object.prototype.hasOwnProperty.call(body, 'active');
@@ -41051,7 +41060,30 @@ async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req,
 
   try {
     const result = await withPgClient(async (pg) => {
-      if (op === 'create') return createRentalOffering(pg, params);
+      if (op === 'create') {
+        // Atomic catalog + initial duration prices when prices[] is provided.
+        // Fail-closed: no orphan offering if a price row is invalid.
+        if (Array.isArray(body.prices)) {
+          return createRentalCatalogItem(pg, {
+            clientSlug,
+            locationId: loc.locationId,
+            offering: {
+              offering_key: params.offering_key,
+              label: params.label,
+              group_key: params.group_key || 'equipment',
+              excludes: params.excludes,
+              sort_order: params.sort_order,
+              stock_quantity: params.stock_quantity,
+            },
+            prices: body.prices,
+            actor: {
+              staff_user_id: actorId,
+              email: user && user.email ? user.email : 'unknown',
+            },
+          });
+        }
+        return createRentalOffering(pg, params);
+      }
       if (op === 'delete') {
         // TRUE hard delete — transactional identity + prices + course links.
         // Catalog active state is independent of price existence; this path
