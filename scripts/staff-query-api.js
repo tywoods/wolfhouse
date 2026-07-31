@@ -174,10 +174,6 @@ const {
   setHouseNotes: setTenantHouseNotes,
 } = require('./lib/tenant-house-notes');
 const {
-  getExternalWaiverSettings,
-  setExternalWaiverSettings,
-} = require('./lib/tenant-external-waiver-settings');
-const {
   getNotificationSettings,
   putNotificationSettings,
   maybeNotifyHumanNeeded,
@@ -19929,25 +19925,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </div>
 
-  <div class="card cc-section" id="cc-external-waiver-settings" style="display:none">
-    <div class="cc-section-hdr">Guest Waiver Form</div>
-    <div class="cc-section-sub">One external Google Form for the whole business. When enabled with a valid link, Staff and Luna share that link only (no native form creation). Completion is never auto-detected.</div>
-    <div id="ew-error"></div>
-    <div id="ew-status" class="al-hint" style="margin:8px 0"></div>
-    <label class="sns-toggle-row" style="margin:10px 0;display:flex;align-items:center;gap:8px;cursor:pointer">
-      <input type="checkbox" id="ew-enabled">
-      <span class="sns-toggle-label">Enable external waiver form</span>
-    </label>
-    <label for="ew-url" class="al-hint" style="display:block;margin:8px 0 4px;font-weight:600">Google Form URL</label>
-    <input type="url" id="ew-url" class="bk-input-sm" style="width:100%;box-sizing:border-box;max-width:100%" placeholder="https://docs.google.com/forms/... or https://forms.gle/..." autocomplete="off" spellcheck="false">
-    <div class="al-form-row" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">
-      <button class="btn btn-primary" id="ew-save-btn" type="button" onclick="externalWaiverSettingsSave()">Save</button>
-      <button class="btn btn-ghost" id="ew-open-btn" type="button" onclick="externalWaiverSettingsOpen()">Open / Preview</button>
-    </div>
-    <p class="al-hint" style="margin-top:8px">Accepts only HTTPS Google Forms links (docs.google.com/forms/… or forms.gle/…). Status: <span id="ew-mode-label">—</span></p>
-  </div>
-
-  <div class="card cc-section cc-luna-staff-retired" id="cc-operations" style="display:none" aria-hidden="true">
+    <div class="card cc-section cc-luna-staff-retired" id="cc-operations" style="display:none" aria-hidden="true">
     <div class="cc-section-hdr" data-i18n="lunaStaff.ops.section">Operations</div>
     <div class="cc-section-sub" data-i18n="lunaStaff.ops.sub">Arrivals, checkouts, cleaning, occupancy, lessons, gear, meals, and payment follow-up.</div>
     <div class="al-form-row">
@@ -28594,15 +28572,12 @@ function applyOwnerInsightsGate(){
   staffNotificationSettingsApplyVisibility();
   var hnCard = el('cc-house-notes');
   if (hnCard) hnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
-  var ewCard = el('cc-external-waiver-settings');
-  if (ewCard) ewCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
   // Populate the cards now that the session + client selector are ready (this runs post
   // session-init). Fixes a refresh on Sunset where an earlier load raced the session and
   // fetched the wrong client (getClient() fallback) before clients=[sunset] was set.
   if (canUseOwnerInsightsPortal()) {
     staffWhatsappNumbersLoad();
     houseNotesLoad();
-    externalWaiverSettingsLoad();
     maybeLoadStaffNotificationSettings();
     automatedStaffNotificationsLoad();
   }
@@ -28660,174 +28635,6 @@ function houseNotesSave(){
       houseNotesShowMsg('ok', 'Notes saved.');
     })
     .catch(function(){ if (btn) btn.disabled = false; houseNotesShowMsg('error', 'Failed to save notes.'); });
-}
-
-/* ── External waiver (business-wide Google Form; Admin → Luna Staff) ─────────── */
-var _ewLoadSeq = 0;
-function externalWaiverSettingsShowMsg(kind, text){
-  var box = el('ew-status');
-  var err = el('ew-error');
-  if (box){ box.textContent = ''; box.style.display = kind === 'ok' || kind === 'info' ? '' : 'none'; }
-  if (err){ err.textContent = ''; err.style.display = 'none'; }
-  if (!text) return;
-  var target = kind === 'error' ? err : box;
-  if (!target) return;
-  target.textContent = text;
-  target.style.display = 'block';
-}
-function externalWaiverModeLabel(mode){
-  if (mode === 'disabled') return 'Disabled';
-  if (mode === 'enabled_configured') return 'Enabled · configured';
-  if (mode === 'enabled_missing_link') return 'Enabled · missing or invalid link';
-  if (mode === 'native_default') return 'Native form (no external config)';
-  return mode || '—';
-}
-function externalWaiverSettingsApply(data){
-  var enabledEl = el('ew-enabled');
-  var urlEl = el('ew-url');
-  var modeEl = el('ew-mode-label');
-  if (enabledEl) enabledEl.checked = !!(data && data.enabled);
-  if (urlEl) urlEl.value = (data && data.external_form_url) ? String(data.external_form_url) : '';
-  if (modeEl) modeEl.textContent = externalWaiverModeLabel(data && data.mode);
-  var openBtn = el('ew-open-btn');
-  if (openBtn) openBtn.disabled = !(data && data.link_available && data.public_url);
-}
-function externalWaiverSettingsLoad(){
-  var card = el('cc-external-waiver-settings');
-  if (!card) return;
-  if (!canUseOwnerInsightsPortal()){ card.style.display = 'none'; return; }
-  card.style.display = '';
-  externalWaiverSettingsShowMsg(null, null);
-  var seq = ++_ewLoadSeq;
-  fetch('/staff/admin/external-waiver' + staffWhatsappNumberQuery(), { credentials: 'same-origin' })
-    .then(function(r){ return r.json(); })
-    .then(function(data){
-      if (seq !== _ewLoadSeq) return;
-      if (!data || data.success !== true){
-        externalWaiverSettingsShowMsg('error', (data && data.error) ? data.error : 'Failed to load waiver settings.');
-        return;
-      }
-      externalWaiverSettingsApply(data);
-    })
-    .catch(function(){
-      if (seq !== _ewLoadSeq) return;
-      externalWaiverSettingsShowMsg('error', 'Failed to load waiver settings.');
-    });
-}
-function externalWaiverSettingsSave(){
-  externalWaiverSettingsShowMsg(null, null);
-  var btn = el('ew-save-btn');
-  if (btn) btn.disabled = true;
-  var enabled = !!(el('ew-enabled') && el('ew-enabled').checked);
-  var url = (el('ew-url') && el('ew-url').value) || '';
-  // Browser convenience only — server validates authoritatively.
-  // Avoid /https:\/\// regex here: this file is embedded in a browser script bundle
-  // where // would open a line comment after escape collapse.
-  var urlTrim = String(url).trim();
-  if (enabled && urlTrim && urlTrim.slice(0, 8).toLowerCase() !== 'https://') {
-    if (btn) btn.disabled = false;
-    externalWaiverSettingsShowMsg('error', 'URL must start with https://');
-    return;
-  }
-  fetch('/staff/admin/external-waiver' + staffWhatsappNumberQuery(), {
-    method: 'PUT',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled: enabled, external_form_url: url }),
-  })
-    .then(function(r){ return r.json().then(function(data){ return { status: r.status, data: data }; }); })
-    .then(function(res){
-      if (btn) btn.disabled = false;
-      var data = res.data;
-      if (!data || data.success !== true){
-        externalWaiverSettingsShowMsg('error', (data && data.error) ? data.error : 'Failed to save waiver settings.');
-        return;
-      }
-      externalWaiverSettingsApply(data);
-      externalWaiverSettingsShowMsg('ok', 'Waiver settings saved. Status: ' + externalWaiverModeLabel(data.mode));
-    })
-    .catch(function(){
-      if (btn) btn.disabled = false;
-      externalWaiverSettingsShowMsg('error', 'Failed to save waiver settings.');
-    });
-}
-/**
- * Browser convenience allowlist for Preview — mirrors server
- * validateExternalWaiverFormUrl (docs.google.com/forms + forms.gle token only).
- * Preview can run before Save, so do not rely on server validation here.
- * Avoid /https:\/\// style regexes: this file is embedded where // can open a line comment after escape collapse.
- */
-function isAllowedExternalWaiverPreviewUrl(raw){
-  var input = String(raw == null ? '' : raw).trim();
-  if (!input) return false;
-  if (input.length > 2000) return false;
-  // Reject whitespace / control chars.
-  for (var i = 0; i < input.length; i++) {
-    var c = input.charCodeAt(i);
-    if (c <= 0x1f || c === 0x7f || c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d) return false;
-  }
-  // Credentials embedded as user:pass@host
-  var lower = input.toLowerCase();
-  if (lower.slice(0, 8) === 'https://') {
-    var afterScheme = input.slice(8);
-    var slash = afterScheme.indexOf('/');
-    var hostPart = slash >= 0 ? afterScheme.slice(0, slash) : afterScheme;
-    if (hostPart.indexOf('@') >= 0) return false;
-  } else {
-    return false;
-  }
-  // In this template-literal UI bundle, backslash must be quadrupled so the
-  // emitted browser JS still contains a real "\\" string.
-  if (input.indexOf('\\\\') >= 0) return false;
-  if (input.indexOf('..') >= 0) return false;
-  var low = input.toLowerCase();
-  if (low.indexOf('%5c') >= 0 || low.indexOf('%2e%2e') >= 0) return false;
-  try {
-    var u = new URL(input);
-    if (u.protocol !== 'https:') return false;
-    if (u.username || u.password) return false;
-    if (u.hash) return false;
-    var host = String(u.hostname || '').toLowerCase();
-    var path = u.pathname || '';
-    if (host === 'docs.google.com') {
-      // Must be /forms/... (not documents/sheets/etc.)
-      if (path.slice(0, 7).toLowerCase() !== '/forms/') return false;
-      return true;
-    }
-    if (host === 'forms.gle') {
-      // Short link: /<token> only
-      var token = path.charAt(0) === '/' ? path.slice(1) : path;
-      if (token.charAt(token.length - 1) === '/') token = token.slice(0, -1);
-      if (!token || token.length < 4 || token.length > 128) return false;
-      for (var t = 0; t < token.length; t++) {
-        var ch = token.charAt(t);
-        var okCh = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
-          || (ch >= '0' && ch <= '9') || ch === '_' || ch === '-';
-        if (!okCh) return false;
-      }
-      return true;
-    }
-    return false;
-  } catch (_) {
-    return false;
-  }
-}
-function externalWaiverSettingsOpen(){
-  var url = (el('ew-url') && el('ew-url').value) || '';
-  url = String(url).trim();
-  if (!isAllowedExternalWaiverPreviewUrl(url)) {
-    externalWaiverSettingsShowMsg('error', 'Enter a valid https Google Form URL to preview.');
-    return;
-  }
-  // Open only allowlisted Google Forms hosts/paths (same contract as server).
-  try {
-    var u = new URL(url);
-    if (u.protocol !== 'https:') throw new Error('not https');
-    var safeHref = u.origin + u.pathname + u.search;
-    window.open(safeHref, '_blank', 'noopener,noreferrer');
-  } catch (_) {
-    externalWaiverSettingsShowMsg('error', 'URL is not a valid https Google Form link.');
-  }
 }
 
 /* ── Staff & Owner WhatsApp numbers (admin/owner-only, DB-backed allowlist) ── */
@@ -29282,7 +29089,6 @@ function wireLunaStaffTabCards(){
   lunaGlobalPauseLoad();
   staffWhatsappNumbersLoad();
   houseNotesLoad();
-  externalWaiverSettingsLoad();
   maybeLoadStaffNotificationSettings();
   automatedStaffNotificationsLoad();
 }
@@ -31759,8 +31565,6 @@ window.oiAsk = oiAsk;
 // Expose inline-onclick handlers added for the Luna Staff cards (this script is an
 // IIFE, so functions aren't global unless attached to window).
 window.houseNotesSave = houseNotesSave;
-window.externalWaiverSettingsSave = externalWaiverSettingsSave;
-window.externalWaiverSettingsOpen = externalWaiverSettingsOpen;
 window.staffWhatsappNumberAdd = staffWhatsappNumberAdd;
 window.automatedStaffNotificationsSave = automatedStaffNotificationsSave;
 window.automatedStaffNotificationsResetForm = automatedStaffNotificationsResetForm;
@@ -40606,90 +40410,6 @@ async function handleHouseNotesPost(query, req, res, user) {
   }
 }
 
-// ── Tenant external waiver settings — business-wide Google Form link (Admin) ─
-async function handleExternalWaiverSettingsGet(query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || query.client_slug || DEFAULT_CLIENT)).trim();
-  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-  try {
-    const r = await withPgClient((pg) => getExternalWaiverSettings(pg, { clientSlug }));
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:staff.external_waiver.get',
-      category: 'admin_api',
-      client_slug: clientSlug,
-      success: r.ok,
-      staff_user_id: user ? user.staff_user_id : null,
-      elapsed_ms: Date.now() - started,
-    });
-    if (!r.ok) return sendJSON(res, r.status || 400, { success: false, error: r.error });
-    return sendJSON(res, 200, {
-      success: true,
-      client_slug: clientSlug,
-      enabled: r.settings.enabled === true,
-      external_form_url: r.settings.external_form_url || null,
-      mode: r.mode,
-      link_available: r.link_available,
-      public_url: r.public_url,
-      status_label: r.status_label,
-      verification: r.verification || null,
-      updated_at: r.settings.updated_at || null,
-      elapsed_ms: Date.now() - started,
-    });
-  } catch (err) {
-    console.error('[external-waiver.get] failed:', err && err.code, '|', err && err.message);
-    return sendJSON(res, 500, { success: false, error: 'read failed' });
-  }
-}
-
-async function handleExternalWaiverSettingsPut(query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || query.client_slug || DEFAULT_CLIENT)).trim();
-  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-  let body;
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
-  try {
-    const r = await withPgClient((pg) => setExternalWaiverSettings(pg, {
-      clientSlug,
-      enabled: body.enabled,
-      external_form_url: body.external_form_url != null ? body.external_form_url : body.url,
-      actor: user,
-    }));
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:staff.external_waiver.put',
-      category: 'admin_api',
-      client_slug: clientSlug,
-      success: r.ok,
-      staff_user_id: user ? user.staff_user_id : null,
-      elapsed_ms: Date.now() - started,
-      meta: {
-        enabled: body && body.enabled === true,
-        has_url: !!(body && (body.external_form_url || body.url)),
-      },
-    });
-    if (!r.ok) return sendJSON(res, r.status || 400, { success: false, error: r.error });
-    return sendJSON(res, 200, {
-      success: true,
-      client_slug: clientSlug,
-      enabled: r.settings.enabled === true,
-      external_form_url: r.settings.external_form_url || null,
-      mode: r.mode,
-      link_available: r.link_available,
-      public_url: r.public_url,
-      status_label: r.status_label,
-      verification: r.verification || null,
-      updated_at: r.settings.updated_at || null,
-      elapsed_ms: Date.now() - started,
-    });
-  } catch (err) {
-    console.error('[external-waiver.put] failed:', err && err.code, '|', err && err.message);
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
-  }
-}
-
 function resolveNotificationSettingsLocationId(query, body) {
   const fromBody = body && (body.location_id || body.location);
   const raw = fromBody != null && String(fromBody).trim() !== '' ? fromBody : query.location;
@@ -49320,18 +49040,6 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleHouseNotesPost(parsed.query, req, res, auth.user);
-  }
-
-  // ── Tenant external waiver (business-wide Google Form link; Admin Luna Staff) ─
-  if (pathname === '/staff/admin/external-waiver' && method === 'GET') {
-    const auth = await requireAuth(req, res, 'admin');
-    if (!auth.ok) return;
-    return handleExternalWaiverSettingsGet(parsed.query, req, res, auth.user);
-  }
-  if (pathname === '/staff/admin/external-waiver' && method === 'PUT') {
-    const auth = await requireAuth(req, res, 'admin');
-    if (!auth.ok) return;
-    return handleExternalWaiverSettingsPut(parsed.query, req, res, auth.user);
   }
 
   // ── Staff WhatsApp notification settings (admin+owner) ─────────────────────

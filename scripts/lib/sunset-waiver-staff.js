@@ -19,10 +19,6 @@ const {
   normalizeRequestMode,
 } = require('./sunset-waiver-model');
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
-const {
-  resolveWaiverOfferForTenant,
-  buildExternalWaiverStaffView,
-} = require('./tenant-external-waiver-settings');
 
 function trimStr(v) {
   if (v == null) return '';
@@ -340,82 +336,6 @@ async function getAllSubmissionsForRequest(pg, requestId) {
   return (res.rows || []).map(staffSafeSubmissionRow).filter(Boolean);
 }
 
-/**
- * Resolve tenant external-waiver offer. Missing settings table → native (compat).
- */
-async function resolveOfferSafe(pg, clientSlug) {
-  try {
-    return await resolveWaiverOfferForTenant(pg, { clientSlug });
-  } catch (err) {
-    if (err && (err.code === '42P01' || /tenant_external_waiver_settings/i.test(err.message || ''))) {
-      return { ok: true, offer: 'native', mode: 'native_default', public_url: null, link_available: false };
-    }
-    throw err;
-  }
-}
-
-/**
- * When external mode is active, surface external link as primary Staff/Luna truth.
- * Historical completed native submissions are preserved as historical_native_waiver
- * (never deleted/rewritten). Pending native is never presented as completed.
- */
-async function applyExternalOfferToStatusBody(pg, body, offer, guestCount) {
-  const out = enrichWaiverStatusBody(body, guestCount);
-  if (!offer || !offer.ok) return out;
-  out.waiver_offer = offer.offer;
-  out.waiver_mode = offer.mode;
-
-  if (offer.offer === 'native') {
-    return out;
-  }
-
-  if (offer.offer === 'none') {
-    // Disabled or enabled-but-invalid: no new link may be offered.
-    if (out.waiver && out.waiver.status === 'completed' && out.waiver.submission) {
-      // Keep historical completed native readable; do not invent a new link.
-      out.historical_native_waiver = out.waiver;
-      out.native_waiver_status = 'completed';
-    } else if (out.waiver && out.waiver.status === 'pending') {
-      // Conservative: pending native is not completed and must not be offered as the active link
-      // when external mode is misconfigured/disabled.
-      out.historical_native_waiver = {
-        id: out.waiver.id,
-        status: out.waiver.status,
-        public_id: out.waiver.public_id,
-        public_url: out.waiver.public_url,
-        form_version: out.waiver.form_version,
-      };
-      out.native_waiver_status = out.waiver.status;
-    }
-    out.waiver = null;
-    out.link_available = false;
-    out.multi_student_note = null;
-    return out;
-  }
-
-  // offer === 'external'
-  const externalView = buildExternalWaiverStaffView(offer, out.booking_id);
-  if (out.waiver && out.waiver.status === 'completed') {
-    out.historical_native_waiver = out.waiver;
-    out.native_waiver_status = 'completed';
-    if (externalView) externalView.historical_native_completed = true;
-  } else if (out.waiver && (out.waiver.status === 'pending' || out.waiver.status === 'needs_review')) {
-    // Pending native must not be presented as completed under external mode.
-    out.historical_native_waiver = {
-      id: out.waiver.id,
-      status: out.waiver.status,
-      public_id: out.waiver.public_id,
-      public_url: out.waiver.public_url,
-      form_version: out.waiver.form_version,
-    };
-    out.native_waiver_status = out.waiver.status;
-  }
-  out.waiver = externalView;
-  out.link_available = true;
-  out.multi_student_note = null;
-  return out;
-}
-
 async function getBookingWaiverStatus(pg, opts) {
   const clientSlug = trimStr(opts.clientSlug || opts.client_slug);
   if (clientSlug !== 'sunset') {
@@ -450,8 +370,6 @@ async function getBookingWaiverStatus(pg, opts) {
   }
 
   const guestCount = resolveGuestCount(loaded.booking, loaded.services);
-  const offer = await resolveOfferSafe(pg, clientSlug);
-
   let request = null;
   try {
     request = await getLatestWaiverRequest(pg, bookingId);
@@ -460,13 +378,13 @@ async function getBookingWaiverStatus(pg, opts) {
       return {
         ok: true,
         status: 200,
-        body: await applyExternalOfferToStatusBody(pg, {
+        body: enrichWaiverStatusBody({
           success: true,
           booking_id: bookingId,
           guest_count: guestCount,
           waiver: null,
           migration_pending: true,
-        }, offer, guestCount),
+        }, guestCount),
       };
     }
     throw err;
@@ -477,18 +395,16 @@ async function getBookingWaiverStatus(pg, opts) {
     ? await buildStaffWaiverView(pg, request, baseUrl, guestCount)
     : null;
 
-  const body = await applyExternalOfferToStatusBody(pg, {
-    success: true,
-    booking_id: bookingId,
-    booking_code: loaded.booking.booking_code || null,
-    guest_count: guestCount,
-    waiver,
-  }, offer, guestCount);
-
   return {
     ok: true,
     status: 200,
-    body,
+    body: enrichWaiverStatusBody({
+      success: true,
+      booking_id: bookingId,
+      booking_code: loaded.booking.booking_code || null,
+      guest_count: guestCount,
+      waiver,
+    }, guestCount),
   };
 }
 
@@ -519,75 +435,6 @@ async function createOrGetBookingWaiver(pg, opts) {
     return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
   }
 
-  const guestCount = resolveGuestCount(loaded.booking, loaded.services);
-  const offer = await resolveOfferSafe(pg, clientSlug);
-
-  // External configured: never create native requests; return authoritative external link.
-  if (offer.offer === 'external') {
-    const externalView = buildExternalWaiverStaffView(offer, bookingId);
-    let historical = null;
-    try {
-      const existing = await getLatestWaiverRequest(pg, bookingId);
-      if (existing && existing.status === 'completed') {
-        const baseUrl = resolveWaiverPublicBaseUrl({ baseUrl: opts.baseUrl, env: opts.env });
-        historical = await buildStaffWaiverView(pg, existing, baseUrl, guestCount);
-      } else if (existing && (existing.status === 'pending' || existing.status === 'needs_review')) {
-        historical = {
-          id: existing.id,
-          status: existing.status,
-          public_id: existing.public_id,
-        };
-      }
-    } catch (err) {
-      if (!(err && err.code === '42P01')) throw err;
-    }
-    const body = {
-      success: true,
-      created: false,
-      booking_id: bookingId,
-      guest_count: guestCount,
-      waiver: externalView,
-      waiver_mode: 'external',
-      waiver_offer: 'external',
-      link_available: true,
-    };
-    if (historical && historical.status === 'completed') {
-      body.historical_native_waiver = historical;
-      body.native_waiver_status = 'completed';
-      if (body.waiver) body.waiver.historical_native_completed = true;
-    } else if (historical) {
-      body.historical_native_waiver = historical;
-      body.native_waiver_status = historical.status;
-    }
-    return {
-      ok: true,
-      status: 200,
-      body: enrichWaiverStatusBody(body, guestCount),
-    };
-  }
-
-  // Disabled or misconfigured external: no new link may be generated.
-  if (offer.offer === 'none') {
-    return {
-      ok: true,
-      status: 200,
-      body: enrichWaiverStatusBody({
-        success: true,
-        created: false,
-        booking_id: bookingId,
-        guest_count: guestCount,
-        waiver: null,
-        waiver_mode: offer.mode,
-        waiver_offer: 'none',
-        link_available: false,
-        message: offer.mode === 'disabled'
-          ? 'Waiver links are disabled for this business'
-          : 'External waiver is enabled but the form link is missing or invalid',
-      }, guestCount),
-    };
-  }
-
-  // Native default path (config absent) — preserve existing behavior.
   let existing;
   try {
     existing = await getLatestWaiverRequest(pg, bookingId);
@@ -602,6 +449,7 @@ async function createOrGetBookingWaiver(pg, opts) {
     throw err;
   }
   const baseUrl = resolveWaiverPublicBaseUrl({ baseUrl: opts.baseUrl, env: opts.env });
+  const guestCount = resolveGuestCount(loaded.booking, loaded.services);
   const { requestMode, targetCount } = resolveWaiverRequestParams(guestCount);
 
   if (existing && (existing.status === 'pending' || existing.status === 'needs_review' || existing.status === 'completed')) {
@@ -615,8 +463,6 @@ async function createOrGetBookingWaiver(pg, opts) {
         booking_id: bookingId,
         guest_count: guestCount,
         waiver,
-        waiver_mode: 'native',
-        waiver_offer: 'native',
       }, guestCount),
     };
   }
@@ -668,8 +514,6 @@ async function createOrGetBookingWaiver(pg, opts) {
       booking_id: bookingId,
       guest_count: guestCount,
       waiver,
-      waiver_mode: 'native',
-      waiver_offer: 'native',
     }, guestCount),
   };
 }

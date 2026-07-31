@@ -359,21 +359,7 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
     if (status === 'needs_review') return portalT('schedule.drawer.waiverNeedsReview');
     if (status === 'expired') return portalT('schedule.drawer.waiverExpired');
     if (status === 'revoked') return portalT('schedule.drawer.waiverRevoked');
-    if (status === 'external_unverified') {
-      return portalT('schedule.drawer.waiverExternalUnverified') || 'External form (unverified)';
-    }
     return status || '—';
-  }
-
-  function waiverIsExternal(data) {
-    var w = data && data.waiver;
-    if (!w) return false;
-    if (w.external === true) return true;
-    if (w.request_mode === 'external') return true;
-    if (w.status === 'external_unverified') return true;
-    if (w.verification === 'external_unverified') return true;
-    if (data && (data.waiver_mode === 'external' || data.waiver_offer === 'external')) return true;
-    return false;
   }
 
   function waiverIsGroup(data) {
@@ -414,38 +400,8 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
       return html;
     }
     var w = data && data.waiver;
-    var isExternal = waiverIsExternal(data);
     var targetCount = waiverTargetCount(data);
     var completedCount = waiverCompletedCount(data);
-
-    // Disabled / misconfigured external: no create, no invented link.
-    // Historical completed native answers must still be viewable (same answers
-    // container + viewWaiverAnswers path as other completed modes).
-    if ((!w || !w.public_url) && data && (data.waiver_offer === 'none' || data.link_available === false) && data.waiver_mode && data.waiver_mode !== 'native' && data.waiver_mode !== 'native_default') {
-      html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 10px">' + escHtml(portalT('schedule.drawer.waiverDisabledOrMisconfigured') || 'Waiver links are not available (disabled or missing form link).') + '</p>';
-      if (data.historical_native_waiver && data.historical_native_waiver.status === 'completed') {
-        html += '<p class="portal-schedule-drawer-hint" style="margin:0 0 8px">' + escHtml(portalT('schedule.drawer.waiverHistoricalNative') || 'A completed native form exists for this booking.') + '</p>';
-        html += '<div class="portal-schedule-drawer-actions" style="margin-top:8px"><button type="button" class="btn btn-ghost" id="ps-drawer-waiver-view">' + escHtml(portalT('schedule.drawer.waiverViewAnswers')) + '</button></div>';
-      }
-      html += '<div id="ps-drawer-waiver-answers" style="display:none;margin-top:10px"></div>';
-      html += '<p id="ps-drawer-waiver-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
-      return html;
-    }
-
-    if (isExternal && w) {
-      html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.waiverStatus')) + ':</strong> ' + escHtml(waiverStatusLabel('external_unverified')) + '</p>';
-      html += '<p class="portal-schedule-drawer-hint" style="margin:0 0 8px">' + escHtml(portalT('schedule.drawer.waiverExternalHint') || 'External Google Form — completion is not verified automatically.') + '</p>';
-      if (w.public_url) {
-        html += '<div class="ps-money-link-row"><a id="ps-drawer-waiver-url" href="' + escHtml(w.public_url) + '" target="_blank" rel="noopener" class="ps-money-link-a">' + escHtml(w.public_url) + '</a>' + scheduleDrawerCopyIconBtnHtml('ps-drawer-waiver-copy', 'schedule.drawer.waiverCopy') + '</div>';
-      }
-      if (data.historical_native_waiver && data.historical_native_waiver.status === 'completed') {
-        html += '<div class="portal-schedule-drawer-actions" style="margin-top:8px"><button type="button" class="btn btn-ghost" id="ps-drawer-waiver-view">' + escHtml(portalT('schedule.drawer.waiverViewAnswers')) + '</button></div>';
-      }
-      html += '<div id="ps-drawer-waiver-answers" style="display:none;margin-top:10px"></div>';
-      html += '<p id="ps-drawer-waiver-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
-      return html;
-    }
-
     if (isGroup) {
       // Localized share hint — never render server multi_student_note (locale leak).
       html += '<p class="portal-schedule-drawer-hint" style="margin:0 0 8px">' + escHtml(portalT('schedule.drawer.waiverGroupShareHint')) + '</p>';
@@ -508,10 +464,9 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
     var box = el('ps-drawer-waiver-answers');
     if (!box) return;
     var w = data && data.waiver;
-    var historical = data && data.historical_native_waiver;
     var isGroup = waiverIsGroup(data);
     var completedCount = waiverCompletedCount(data);
-    var sub = (w && w.submission) || (historical && historical.submission);
+    var sub = w && w.submission;
     if (!isGroup && sub) {
       renderWaiverAnswers(sub);
       return;

@@ -243,35 +243,11 @@ async function runSunsetGuestSchoolTurnDryRun(input, context, gate) {
         ? 'reminder'
         : 'invite'
     );
-    const publicUrl = trimStr(
-      (waiverBody.waiver && waiverBody.waiver.public_url)
-      || waiverBody.public_url
-      || '',
-    );
-    // Fail closed when disabled/misconfigured/no authoritative link: never propose
-    // send_waiver_link or a waiver invite reply without a real URL. Keep the
-    // existing conservative default next-action (await_guest_reply). Never claim completion.
-    const waiverUnavailable = waiverBody.waiver_offer === 'none'
-      || waiverBody.waiver_lane === 'unavailable'
-      || waiverBody.link_available === false
-      || waiverBody.lesson_ready_blocked_reason === 'waiver_unavailable';
-
-    if (waiverBody.lesson_ready === true) {
-      proposedReply = composeLunaWaiverReply(waiverBody, mode);
-      proposedNextAction = 'waiver_completed';
-      lessonReady = true;
-    } else if (!waiverUnavailable && publicUrl) {
-      proposedReply = composeLunaWaiverReply(waiverBody, mode);
-      proposedNextAction = 'send_waiver_link';
-      lessonReady = false;
-    } else {
-      // No link / unavailable: leave proposedReply as school default; no send action.
-      lessonReady = false;
-      if (waiverBody.luna_waiver_message == null && (waiverUnavailable || !publicUrl)) {
-        // Keep luna_waiver_message nullish on the body for callers that read it.
-        waiverBody.luna_waiver_message = null;
-      }
-    }
+    proposedReply = composeLunaWaiverReply(waiverBody, mode);
+    proposedNextAction = waiverBody.lesson_ready === true
+      ? 'waiver_completed'
+      : 'send_waiver_link';
+    lessonReady = waiverBody.lesson_ready === true;
   }
 
   const result = {
@@ -292,7 +268,7 @@ async function runSunsetGuestSchoolTurnDryRun(input, context, gate) {
     luna_waiver_message: waiverBody ? waiverBody.luna_waiver_message : null,
     lesson_ready: lessonReady,
     lesson_ready_blocked_reason: (lessonReady === false)
-      ? ((waiverBody && waiverBody.lesson_ready_blocked_reason) || 'waiver_not_completed')
+      ? 'waiver_not_completed'
       : null,
   };
 
