@@ -596,6 +596,15 @@
       "classification": "rollback_down",
       "inForwardChain": false,
       "rationale": "Explicit down/rollback for 053_payment_finance_exclusion."
+    },
+    {
+      "id": "054_tenant_external_waiver_settings",
+      "filename": "054_tenant_external_waiver_settings.sql",
+      "sha256": "6354ad3bba1f308f4f371a1dc7f194eea7302a74608abe013e7a11f4a23122f4",
+      "order": 52,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Tenant-wide external waiver link config (enable + Google Forms URL per client_slug). Business-scoped, not location-scoped. V1 link-only."
     }
   ]
 }

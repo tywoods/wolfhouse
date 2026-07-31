@@ -12,6 +12,9 @@ const {
   resolveGuestCount,
 } = require('./sunset-waiver-staff');
 const { DEFAULT_STAGING_BASE_URL } = require('./sunset-waiver-model');
+const {
+  buildLunaExternalWaiverInviteMessage,
+} = require('./tenant-external-waiver-settings');
 
 function trimStr(v) {
   if (v == null) return '';
@@ -45,6 +48,13 @@ async function ensureWaiverForBooking(pg, bookingId, options) {
 function isLessonReadyForGuest(waiverOrStatus) {
   if (waiverOrStatus && typeof waiverOrStatus === 'object') {
     const w = waiverOrStatus;
+    // External Google Form links are never treated as completed in V1.
+    if (w.external === true
+      || w.request_mode === 'external'
+      || String(w.status || '').toLowerCase() === 'external_unverified'
+      || w.verification === 'external_unverified') {
+      return false;
+    }
     const mode = w.request_mode || 'single';
     if (mode === 'group') {
       const target = Number(w.target_count);
@@ -54,7 +64,9 @@ function isLessonReadyForGuest(waiverOrStatus) {
     }
     return String(w.status || '').toLowerCase() === 'completed';
   }
-  return String(waiverOrStatus || '').toLowerCase() === 'completed';
+  const s = String(waiverOrStatus || '').toLowerCase();
+  if (s === 'external_unverified') return false;
+  return s === 'completed';
 }
 
 function resolveWaiverLane(waiverStatus) {
@@ -93,12 +105,29 @@ function isGroupWaiver(input) {
   return guestCount > 1;
 }
 
+function isExternalWaiverPayload(src) {
+  const s = src || {};
+  const w = s.waiver || {};
+  if (s.waiver_mode === 'external' || s.waiver_offer === 'external') return true;
+  if (w.external === true || w.request_mode === 'external') return true;
+  if (String(w.status || '').toLowerCase() === 'external_unverified') return true;
+  if (w.verification === 'external_unverified') return true;
+  if (String(s.waiver_status || '').toLowerCase() === 'external_unverified') return true;
+  return false;
+}
+
 /**
  * Spanish guest copy — invite to complete hosted form.
+ * External mode: truthful link-only wording that never claims completion.
  */
 function buildLunaWaiverInviteMessage(input) {
   const src = input || {};
   const link = trimStr(src.public_url || src.publicUrl || (src.waiver && src.waiver.public_url));
+
+  if (isExternalWaiverPayload(src)) {
+    return buildLunaExternalWaiverInviteMessage(link);
+  }
+
   const isGroup = isGroupWaiver(src);
   const { target, completed } = resolveWaiverCounts(src);
 
@@ -183,7 +212,22 @@ function composeLunaWaiverReply(body, mode) {
     target_count: b.target_count,
     completed_count: b.completed_count,
     waiver,
+    waiver_mode: b.waiver_mode,
+    waiver_offer: b.waiver_offer,
+    waiver_status: b.waiver_status,
   };
+
+  // External: never claim completed; always invite/reminder with truthful wording.
+  if (isExternalWaiverPayload(urlPayload)) {
+    if (m === 'reminder') {
+      const link = trimStr(urlPayload.public_url);
+      let msg = 'Te dejo otra vez el formulario de inscripción de Sunset:';
+      if (link) msg += `\n${link}`;
+      msg += '\n\nCuando lo hayas enviado, el equipo de Sunset lo revisará. Este enlace no confirma por sí solo el envío del formulario.';
+      return msg;
+    }
+    return buildLunaWaiverInviteMessage(urlPayload);
+  }
 
   if (isLessonReadyForGuest(waiver || (b.waiver_status || 'missing'))) {
     return buildLunaWaiverCompletedMessage(urlPayload);
@@ -205,11 +249,25 @@ function attachLunaWaiverFields(body) {
   const b = body && typeof body === 'object' ? { ...body } : {};
   const waiver = b.waiver || null;
   const status = waiver ? waiver.status : (b.waiver_status || 'missing');
+  // When external configured with no link (disabled path returned null waiver), do not invent copy.
+  if (b.waiver_offer === 'none' || (b.link_available === false && !waiver)) {
+    b.luna_waiver_message = null;
+    b.lesson_ready = false;
+    b.waiver_lane = 'unavailable';
+    b.lesson_ready_blocked_reason = 'waiver_unavailable';
+    return b;
+  }
   b.luna_waiver_message = composeLunaWaiverReply(b, 'invite');
   b.lesson_ready = waiver ? isLessonReadyForGuest(waiver) : isLessonReadyForGuest(status);
-  b.waiver_lane = resolveWaiverLane(status);
+  if (isExternalWaiverPayload(b)) {
+    b.waiver_lane = 'external_unverified';
+  } else {
+    b.waiver_lane = resolveWaiverLane(status);
+  }
   if (!b.lesson_ready) {
-    b.lesson_ready_blocked_reason = 'waiver_not_completed';
+    b.lesson_ready_blocked_reason = isExternalWaiverPayload(b)
+      ? 'external_waiver_unverified'
+      : 'waiver_not_completed';
   } else {
     delete b.lesson_ready_blocked_reason;
   }
@@ -260,6 +318,7 @@ module.exports = {
   composeLunaWaiverReply,
   attachLunaWaiverFields,
   isGroupWaiver,
+  isExternalWaiverPayload,
   resolveWaiverCounts,
   multiStudentNote,
   resolveGuestCount,
