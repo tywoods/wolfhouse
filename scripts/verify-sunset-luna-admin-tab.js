@@ -24,7 +24,7 @@ async function main(){
   const page=await context.newPage(); const lunaRequests=[]; const errors=[];
   page.on('pageerror',e=>errors.push(String(e.message||e)));
   await page.route('**/staff/admin/finance-summary**',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({success:true,summary:{periods:{today:{},week:{},month:{}},daily_trend:[]}})}));
-  await page.route(/.*\/staff\/(global-pause|whatsapp-numbers|house-notes|notification-settings|automated-staff-notifications|admin\/external-waiver).*/,r=>{ lunaRequests.push(new URL(r.request().url()).pathname); r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({success:true,rows:[],numbers:[],prompts:[],enabled:false,mode:'native_default',link_available:false,external_form_url:null})}); });
+  await page.route(/.*\/staff\/(global-pause|whatsapp-numbers|house-notes|notification-settings|automated-staff-notifications).*/,r=>{ lunaRequests.push(new URL(r.request().url()).pathname); r.fulfill({status:200,contentType:'application/json',body:'{"success":true,"rows":[],"numbers":[],"prompts":[]}'}); });
   await page.goto(base+'/staff/ui'); await ready(page);
   eq('Sunset has no visible top-level Luna Staff button', await page.locator('.tab-btn[data-tab="ask-luna"]:visible').count(), 0);
   await page.locator('.tab-btn[data-tab="admin"]').click();
