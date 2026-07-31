@@ -1,5 +1,4 @@
 'use strict';
-const assert = require('assert');
 const m = require('./lib/sunset-schedule-booking-drawer');
 
 function makePg(handlers) {
@@ -12,7 +11,7 @@ function makePg(handlers) {
       for (const h of handlers) {
         if (h.match(s, params)) return h.run(sql, params, s);
       }
-      throw new Error('unexpected sql: ' + s.slice(0, 220));
+      throw new Error('unexpected sql: ' + s.slice(0, 240));
     },
   };
 }
@@ -28,8 +27,8 @@ const booking = {
 
 function baseHandlers(overrides = []) {
   const h = [
-    { match: (s) => s === 'BEGIN' || s.startsWith('BEGIN'), run: async () => ({ rows: [] }) },
-    { match: (s) => s === 'COMMIT' || s.startsWith('COMMIT'), run: async () => ({ rows: [] }) },
+    { match: (s) => s.startsWith('BEGIN'), run: async () => ({ rows: [] }) },
+    { match: (s) => s.startsWith('COMMIT'), run: async () => ({ rows: [] }) },
     { match: (s) => s.startsWith('ROLLBACK'), run: async () => ({ rows: [] }) },
     {
       match: (s) => s.includes('FROM bookings b') && s.includes('SELECT b.id::text'),
@@ -49,22 +48,18 @@ function baseHandlers(overrides = []) {
       }),
     },
     {
-      match: (s) => s.includes('FROM payments p') && s.includes('checkout_url IS NOT NULL') && s.includes('SELECT p.id'),
+      match: (s) => s.includes('FROM payments p') && s.includes('SELECT p.id') && s.includes('checkout_url IS NOT NULL') && !s.includes('UPDATE'),
       run: async () => ({
         rows: [{ payment_id: 'p1', checkout_url: 'https://checkout.stripe.com/x', payment_status: 'checkout_created', amount_due_cents: 1000 }],
       }),
     },
     {
-      match: (s) => s.includes("status = 'paid'") && s.includes('SUM'),
+      match: (s) => s.includes('SUM') && s.includes('amount_paid_cents'),
       run: async () => ({ rows: [{ paid_total: 5000 }] }),
     },
     {
       match: (s) => s.includes("status = 'paid'") && s.includes('SELECT p.id::text AS payment_id'),
       run: async () => ({ rows: [{ payment_id: 'paid1', payment_status: 'paid', amount_paid_cents: 5000 }] }),
-    },
-    {
-      match: (s) => s.includes('FOR UPDATE OF b NOWAIT'),
-      run: async () => ({ rows: [{ id: booking.booking_id }] }),
     },
     {
       match: (s) => s.includes('UPDATE booking_service_records SET status'),
@@ -82,12 +77,19 @@ function baseHandlers(overrides = []) {
       match: (s) => s.includes('UPDATE bookings') && s.includes('WHERE id = $2::uuid'),
       run: async () => ({ rowCount: 1, rows: [] }),
     },
-    {
-      match: (s) => s.includes('UPDATE bookings') && s.includes('payment_link_invalidated'),
-      run: async () => ({ rowCount: 1, rows: [] }),
-    },
   ];
   return [].concat(overrides || [], h);
+}
+
+function firstBookingSelect(log) {
+  return log.find((s) => s.includes('FROM bookings b') && s.includes('SELECT b.id::text')) || '';
+}
+
+function hasBlockingForUpdate(log) {
+  return log.some((s) => {
+    if (!/FOR UPDATE/i.test(s)) return false;
+    return !/NOWAIT/i.test(s);
+  });
 }
 
 async function run() {
@@ -108,9 +110,36 @@ async function run() {
     });
     ok('paid cancel succeeds', r.ok === true && r.body.cancelled === true);
     ok('voids payment links', r.body.payment_links_voided === 1);
-    ok('no service FOR UPDATE lock', !pg.log.some((s) => s.includes('booking_service_records') && s.includes('FOR UPDATE')));
-    ok('uses booking NOWAIT lock', pg.log.some((s) => s.includes('NOWAIT')));
+    const first = firstBookingSelect(pg.log);
+    ok('first booking SELECT includes NOWAIT', /FOR UPDATE OF b NOWAIT/i.test(first));
+    ok('no FOR UPDATE without NOWAIT', !hasBlockingForUpdate(pg.log));
+    ok('no service FOR UPDATE', !pg.log.some((s) => s.includes('booking_service_records') && /FOR UPDATE/i.test(s)));
+    ok('no second redundant booking lock query', pg.log.filter((s) => /FOR UPDATE OF b/i.test(s)).length === 1);
     ok('void before commit', pg.log.findIndex((s) => s.includes('checkout_url = NULL')) < pg.log.findIndex((s) => s.startsWith('COMMIT')));
+  }
+
+  {
+    // 55P03 on FIRST booking select → busy, no mutations/commit
+    const pg = makePg(baseHandlers([
+      {
+        match: (s) => s.includes('FROM bookings b') && s.includes('SELECT b.id::text'),
+        run: async () => {
+          const e = new Error('could not obtain lock on row in relation "bookings"');
+          e.code = '55P03';
+          throw e;
+        },
+      },
+    ]));
+    const r = await m.cancelSunsetScheduleBooking(pg, {
+      clientSlug: 'sunset',
+      bookingId: booking.booking_id,
+      locationId: 'sunset-somo',
+    });
+    ok('first-query 55P03 → 409 booking_busy', r.ok === false && r.status === 409 && r.body.error === 'booking_busy');
+    ok('busy path no service mutation', !pg.log.some((s) => s.includes('UPDATE booking_service_records')));
+    ok('busy path no payment void', !pg.log.some((s) => s.includes('checkout_url = NULL')));
+    ok('busy path no commit', !pg.log.some((s) => s.startsWith('COMMIT')));
+    ok('busy path rolls back', pg.log.some((s) => s.startsWith('ROLLBACK')));
   }
 
   {
@@ -128,21 +157,6 @@ async function run() {
     ok('void failure rolls back cancel', r.ok === false && r.body.error === 'payment_link_invalidate_failed');
     ok('void failure has detail', String(r.body.detail || '').includes('simulated_void_failure'));
     ok('void failure no commit', !pg.log.some((s) => s.startsWith('COMMIT')));
-  }
-
-  {
-    const pg = makePg(baseHandlers([
-      {
-        match: (s) => s.includes('FOR UPDATE OF b NOWAIT'),
-        run: async () => { const e = new Error('could not obtain lock on row'); e.code = '55P03'; throw e; },
-      },
-    ]));
-    const r = await m.cancelSunsetScheduleBooking(pg, {
-      clientSlug: 'sunset',
-      bookingId: booking.booking_id,
-      locationId: 'sunset-somo',
-    });
-    ok('busy lock returns 409 booking_busy', r.ok === false && r.status === 409 && r.body.error === 'booking_busy');
   }
 
   {

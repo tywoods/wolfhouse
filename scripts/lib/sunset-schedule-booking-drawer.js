@@ -193,7 +193,25 @@ function lineItemLabel(dbType, qty, dateIso, slotTime, sr) {
   return formatSunsetDrawerDailyItemLabel(dbType, qty, sr);
 }
 
-async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode, forUpdate = false, lockServices = true) {
+async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode, forUpdate = false, lockOpts = true) {
+  // Lock modes:
+  // - forUpdate false → no row locks
+  // - forUpdate true + lockOpts true/false → booking FOR UPDATE (wait); services locked if lockOpts !== false
+  // - lockOpts object: { bookingLock: 'none'|'wait'|'nowait', lockServices: boolean }
+  let bookingLock = 'none';
+  let lockServices = false;
+  if (lockOpts && typeof lockOpts === 'object') {
+    const mode = String(lockOpts.bookingLock || (forUpdate ? 'wait' : 'none')).toLowerCase();
+    bookingLock = (mode === 'nowait' || mode === 'wait') ? mode : 'none';
+    lockServices = !!lockOpts.lockServices && bookingLock !== 'none';
+  } else if (forUpdate) {
+    bookingLock = 'wait';
+    lockServices = lockOpts !== false;
+  }
+  const bookingLockSql = bookingLock === 'nowait'
+    ? '\n      FOR UPDATE OF b NOWAIT'
+    : (bookingLock === 'wait' ? '\n      FOR UPDATE OF b' : '');
+
   const bookingRes = await pg.query(
     `SELECT b.id::text AS booking_id, b.booking_code, b.guest_name, b.phone,
             b.status::text AS status, b.payment_status::text AS payment_status,
@@ -204,7 +222,7 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode, f
        INNER JOIN clients c ON c.id = b.client_id
       WHERE c.slug = $1
         AND ${bookingId ? 'b.id = $2::uuid' : 'b.booking_code = $2'}
-      LIMIT 1${forUpdate ? '\n      FOR UPDATE OF b' : ''}`,
+      LIMIT 1${bookingLockSql}`,
     [clientSlug, bookingId || bookingCode],
   );
   const booking = bookingRes.rows[0];
@@ -2054,11 +2072,14 @@ async function cancelSunsetScheduleBooking(pg, opts) {
     await pg.query('BEGIN');
     began = true;
 
-    // Lock booking row only (NOWAIT). Do not FOR UPDATE every service row — that
-    // widened lock set was a deadlock/timeout risk under concurrent drawer/reconcile.
+    // Single authoritative booking lock: FOR UPDATE OF b NOWAIT on the first booking SELECT.
+    // No earlier blocking lock. No service-row FOR UPDATE (deadlock/timeout risk).
     let bundle;
     try {
-      bundle = await loadSunsetBookingBundle(pg, clientSlug, bookingId, null, true, false);
+      bundle = await loadSunsetBookingBundle(pg, clientSlug, bookingId, null, true, {
+        bookingLock: 'nowait',
+        lockServices: false,
+      });
     } catch (lockErr) {
       const msg = String(lockErr && lockErr.message || lockErr || '');
       await pg.query('ROLLBACK'); began = false;
@@ -2084,37 +2105,6 @@ async function cancelSunsetScheduleBooking(pg, opts) {
     if (!bundle) {
       await pg.query('ROLLBACK'); began = false;
       return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
-    }
-
-    // Explicit booking lock with NOWAIT (load may not surface 55P03 clearly on all paths).
-    try {
-      await pg.query(
-        `SELECT b.id FROM bookings b
-          INNER JOIN clients c ON c.id = b.client_id
-         WHERE c.slug = $1 AND b.id = $2::uuid
-         FOR UPDATE OF b NOWAIT`,
-        [clientSlug, bookingId],
-      );
-    } catch (nwErr) {
-      const msg = String(nwErr && nwErr.message || nwErr || '');
-      await pg.query('ROLLBACK'); began = false;
-      if (/could not obtain lock|lock_not_available|55P03/i.test(msg)) {
-        return {
-          ok: false,
-          status: 409,
-          body: {
-            success: false,
-            error: 'booking_busy',
-            message: 'This booking is being updated. Try cancel again in a moment.',
-            detail: msg.slice(0, 200),
-          },
-        };
-      }
-      return {
-        ok: false,
-        status: 500,
-        body: { success: false, error: 'cancel_failed', detail: msg.slice(0, 240) },
-      };
     }
 
     const activeLocationId = normalizeSunsetLocationId(opts.locationId);
@@ -2249,7 +2239,6 @@ async function cancelSunsetScheduleBooking(pg, opts) {
     };
   }
 }
-
 async function archiveSunsetScheduleBooking(pg, opts) {
   const clientSlug = String(opts.clientSlug || '').trim();
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
