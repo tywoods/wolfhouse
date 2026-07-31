@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="./cockpit/cockpit.css">
+<script src="./cockpit/cockpit.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#eae7dd;font-family:'Instrument Sans',system-ui,sans-serif}a{color:#5c6a50}a:hover{color:#3a3226}</style></helmet>
+<div style="padding:36px 40px 60px;max-width:1240px;margin:0 auto;color:#3a3226;display:flex;flex-direction:column;gap:14px">
+  <div style="display:flex;align-items:baseline;gap:12px">
+    <h1 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em">Day cockpit — drop-in build</h1>
+    <span style="font-size:12.5px;color:#8d856f">cockpit/cockpit.css · cockpit/cockpit.js · one mount div</span>
+  </div>
+  <p style="margin:0;font-size:13.5px;line-height:1.6;color:#6f6757;max-width:760px">Live instance below, driven by the same data shape your schedule endpoint already returns. It computes <strong>now</strong> and <strong>next</strong> from session times, so nothing extra needs to be stored. Ribbon blocks are clickable, and the clock re-renders every minute.</p>
+
+  <div style="font-size:10px;font-weight:700;letter-spacing:.12em;color:#6b7a5e;margin-top:10px">1 — MID-DAY (A SESSION IS LIVE)</div>
+  <div id="ck-live"></div>
+
+  <div style="font-size:10px;font-weight:700;letter-spacing:.12em;color:#8d856f;margin-top:16px">2 — BEFORE THE FIRST SESSION</div>
+  <div id="ck-pre"></div>
+
+  <div style="font-size:10px;font-weight:700;letter-spacing:.12em;color:#8d856f;margin-top:16px">3 — AFTER THE LAST SESSION</div>
+  <div id="ck-post"></div>
+
+  <div style="margin-top:26px;background:#f7f5ef;border:1px solid rgba(60,45,20,.11);border-radius:14px;padding:22px 24px;display:flex;flex-direction:column;gap:16px">
+    <h2 style="margin:0;font-size:15px;font-weight:700">Wiring it in — four steps</h2>
+    <ol style="margin:0;padding-left:20px;font-size:13.5px;line-height:1.7;color:#4a4335;display:flex;flex-direction:column;gap:9px">
+      <li>Copy <code style="background:#efece2;border-radius:4px;padding:1px 5px;font-size:12.5px">cockpit/cockpit.css</code> and <code style="background:#efece2;border-radius:4px;padding:1px 5px;font-size:12.5px">cockpit/cockpit.js</code> into your assets and load both on the Schedule page.</li>
+      <li>Delete the orange region — the <em>Schedule for: Sunset</em> line, the four stat cards, and the Previous/Today/Next + range + refresh + Create booking row. Leave one <code style="background:#efece2;border-radius:4px;padding:1px 5px;font-size:12.5px">&lt;div id="day-cockpit"&gt;&lt;/div&gt;</code> where they were.</li>
+      <li>Call <code style="background:#efece2;border-radius:4px;padding:1px 5px;font-size:12.5px">renderCockpit(el, data)</code> with the day payload, passing your existing click handlers in <code style="background:#efece2;border-radius:4px;padding:1px 5px;font-size:12.5px">on</code>. It returns <code style="background:#efece2;border-radius:4px;padding:1px 5px;font-size:12.5px">{ update, destroy }</code> — call <code style="background:#efece2;border-radius:4px;padding:1px 5px;font-size:12.5px">update(next)</code> after a booking is created or the date changes.</li>
+      <li>Map colors to your tokens if you have them: every value is a CSS variable on <code style="background:#efece2;border-radius:4px;padding:1px 5px;font-size:12.5px">.cockpit</code> (<code style="background:#efece2;border-radius:4px;padding:1px 5px;font-size:12.5px">--ck-olive</code>, <code style="background:#efece2;border-radius:4px;padding:1px 5px;font-size:12.5px">--ck-alert</code>, <code style="background:#efece2;border-radius:4px;padding:1px 5px;font-size:12.5px">--ck-now-bg</code>…), so a theme override is a few lines.</li>
+    </ol>
+    <div style="height:1px;background:rgba(60,45,20,.1)"></div>
+    <h2 style="margin:0;font-size:15px;font-weight:700">The data it needs</h2>
+    <pre id="ck-snippet" style="margin:0;background:#302c22;color:#e9e5d8;border-radius:10px;padding:16px 18px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.6;overflow-x:auto"></pre>
+    <p style="margin:0;font-size:13px;line-height:1.6;color:#6f6757">Everything except <code style="background:#efece2;border-radius:4px;padding:1px 5px;font-size:12.5px">note</code> is already on screen today, so this should be a re-shape of your existing view model rather than new queries. <code style="background:#efece2;border-radius:4px;padding:1px 5px;font-size:12.5px">note</code> is optional — the one-line context chip on the live card (top guest, instructor, whatever's most useful).</p>
+    <div style="height:1px;background:rgba(60,45,20,.1)"></div>
+    <h2 style="margin:0;font-size:15px;font-weight:700">Two things worth deciding</h2>
+    <ul style="margin:0;padding-left:20px;font-size:13.5px;line-height:1.7;color:#4a4335;display:flex;flex-direction:column;gap:7px">
+      <li><strong>Past days and Week / Next 30 days.</strong> On a non-today date there's no "now", so the hero shows the first session and no needle. If Week/Next 30 days replaces the list with a different view, decide whether the cockpit stays pinned (recommended — the controls live in it) or collapses to just the control bar.</li>
+      <li><strong>Unpaid, 9.</strong> Right now it's a number. If you want the follow-up flow from the earlier explorations (send payment link / mark paid, per guest), that's a panel behind a click on that row — say the word and I'll design it.</li>
+    </ul>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  componentDidMount() { this.paint(); }
+  componentDidUpdate() { this.paint(); }
+  paint() {
+    if (typeof renderCockpit !== 'function') { setTimeout(() => this.paint(), 120); return; }
+    const sessions = [
+      { id: 1, name: 'Curso Mañana', start: '10:00', end: '12:00', booked: 3, capacity: 24, boards: 2, wetsuits: 2 },
+      { id: 2, name: 'Curso Medio Día', start: '12:00', end: '14:00', booked: 2, capacity: 24, boards: 2, wetsuits: 2, note: 'Edu · day 4 of 4' },
+      { id: 3, name: 'Curso Tarde', start: '16:00', end: '18:00', booked: 0, capacity: 24, boards: 0, wetsuits: 0 }
+    ];
+    const prep = { boards: { total: 8, lesson: 4, rental: 4 }, wetsuits: { total: 8, lesson: 4, rental: 4 }, unpaid: 9, needReply: 0 };
+    const base = { venue: 'Sunset', date: '2026-07-31', range: 'today', sessions, prep };
+    const mount = (id, at) => { const el = document.getElementById(id); if (el) renderCockpit(el, { ...base, now: at }); };
+    mount('ck-live', 12 * 60 + 37);  // mid-session
+    mount('ck-pre', 9 * 60 + 20);    // before the first one
+    mount('ck-post', 19 * 60 + 10);  // everything wrapped
+    const pre = document.getElementById('ck-snippet');
+    if (pre) pre.textContent = this.snippet();
+  }
+  snippet() {
+    const q = String.fromCharCode(39), arrow = '=' + '>';
+    return [
+      "renderCockpit(document.getElementById(" + q + "day-cockpit" + q + "), {",
+      "  venue: " + q + "Sunset" + q + ",",
+      "  date: " + q + "2026-07-31" + q + ",",
+      "  range: " + q + "today" + q + ",                       // which range pill is active",
+      "  sessions: [",
+      "    { id: 1, name: " + q + "Curso Mañana" + q + ",    start: " + q + "10:00" + q + ", end: " + q + "12:00" + q + ",",
+      "      booked: 3, capacity: 24, boards: 2, wetsuits: 2 },",
+      "    { id: 2, name: " + q + "Curso Medio Día" + q + ", start: " + q + "12:00" + q + ", end: " + q + "14:00" + q + ",",
+      "      booked: 2, capacity: 24, boards: 2, wetsuits: 2, note: " + q + "Edu · day 4 of 4" + q + " },",
+      "    { id: 3, name: " + q + "Curso Tarde" + q + ",     start: " + q + "16:00" + q + ", end: " + q + "18:00" + q + ",",
+      "      booked: 0, capacity: 24, boards: 0, wetsuits: 0 }",
+      "  ],",
+      "  prep: {",
+      "    boards:   { total: 8, lesson: 4, rental: 4 },",
+      "    wetsuits: { total: 8, lesson: 4, rental: 4 },",
+      "    unpaid: 9, needReply: 0",
+      "  },",
+      "  // now: 12 * 60 + 37,               // optional override; omit to use the real clock",
+      "  on: {",
+      "    prev, today, next, refresh,",
+      "    range:   kind " + arrow + " setRange(kind),",
+      "    create:  id   " + arrow + " openBookingModal(id),   // id = null for the generic button",
+      "    session: id   " + arrow + " scrollToSession(id),",
+      "    unpaid:  ()   " + arrow + " goToUnpaid(),",
+      "    inbox:   ()   " + arrow + " goToInbox()",
+      "  }",
+      "});"
+    ].join("\n");
+  }
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
