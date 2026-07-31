@@ -1280,6 +1280,12 @@ async function updateSunsetScheduleBooking(pg, opts) {
   if (!bundleHasTrustedScheduleDrawerAttribution(bundle)) {
     return { ok: false, status: 403, body: { success: false, error: 'updates_untrusted_booking_source', reason_code: 'updates_untrusted_booking_source' } };
   }
+  {
+    const bookingSt = String(bundle.booking && bundle.booking.status || '').toLowerCase();
+    if (bookingSt === 'cancelled' || bookingSt === 'canceled') {
+      return { ok: false, status: 409, body: { success: false, error: 'booking_cancelled', message: 'Cancelled bookings are read-only.' } };
+    }
+  }
 
   // Mirror Create: generic catalog rentals are prepared first (Admin-priced,
   // tenant/location fail-closed). Canonical allowlist only sees board/wetsuit/
@@ -2055,11 +2061,11 @@ async function cancelSunsetScheduleBooking(pg, opts) {
       return reject({ ok: false, status: 403, body: { success: false, error: 'delete_untrusted_booking_source', reason_code: 'delete_untrusted_booking_source' } });
     }
     if (String(bundle.booking.status || '').toLowerCase() === 'cancelled') {
-      return reject({ ok: true, status: 200, body: { success: true, deleted: false, idempotent: true, booking_id: bookingId } });
+      return reject({ ok: true, status: 200, body: { success: true, cancelled: true, deleted: false, idempotent: true, booking_id: bookingId } });
     }
-    if (Number(bundle.payments_paid_cents || 0) > 0) {
-      return reject({ ok: false, status: 409, body: { success: false, error: 'paid_booking_cancel_conflict' } });
-    }
+    // Paid/partial allowed: cancel frees capacity; payment ledger stays intact.
+    // (Historical 409 paid_booking_cancel_conflict removed by cancel/ghost product.)
+    const paidCents = Number(bundle.payments_paid_cents || 0);
     await pg.query(
       `UPDATE booking_service_records SET status = 'cancelled'
         WHERE client_slug = $1 AND booking_id = $2::uuid AND status <> 'cancelled'`,
@@ -2077,11 +2083,132 @@ async function cancelSunsetScheduleBooking(pg, opts) {
       await pg.query('ROLLBACK');
       return { ok: false, status: 409, body: { success: false, error: 'booking_cancel_conflict' } };
     }
+
+    // Void open unpaid checkout links in the SAME transaction before COMMIT.
+    // Matches deleteSunsetScheduleStripeLink lifecycle (clear URL + invalidate flags).
+    // Failure rolls back the cancel so we never leave a cancelled booking with an
+    // actionable stale payment link.
+    const voidMeta = JSON.stringify({
+      voided_by_staff: true,
+      voided_at: new Date().toISOString(),
+      voided_reason: 'booking_cancelled',
+    });
+    let voidedCount = 0;
+    try {
+      const voidPay = await pg.query(
+        `UPDATE payments
+            SET checkout_url = NULL,
+                metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+          WHERE booking_id = $1::uuid
+            AND checkout_url IS NOT NULL
+            AND status IN ('draft'::payment_record_status, 'checkout_created'::payment_record_status)`,
+        [bookingId, voidMeta],
+      );
+      voidedCount = Number(voidPay && voidPay.rowCount) || 0;
+      await pg.query(
+        `UPDATE bookings
+            SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+          WHERE id = $2::uuid`,
+        [JSON.stringify({
+          sunset_stripe_link_stale: true,
+          last_payment_link_url: null,
+          payment_link_invalidated: true,
+          payment_link_generation: crypto.randomUUID(),
+        }), bookingId],
+      );
+    } catch (linkErr) {
+      await pg.query('ROLLBACK');
+      return {
+        ok: false,
+        status: 500,
+        body: {
+          success: false,
+          error: 'payment_link_invalidate_failed',
+          message: 'Could not invalidate open payment links; cancel was not applied.',
+          detail: linkErr && linkErr.message ? String(linkErr.message) : undefined,
+        },
+      };
+    }
+
+    await pg.query('COMMIT');
+
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        cancelled: true,
+        deleted: false,
+        booking_id: bookingId,
+        booking_code: bundle.booking.booking_code,
+        payments_paid_cents: paidCents,
+        payment_links_voided: voidedCount,
+      },
+    };
+  } catch (err) {
+    await pg.query('ROLLBACK');
+    throw err;
+  }
+}
+
+
+async function archiveSunsetScheduleBooking(pg, opts) {
+  const clientSlug = String(opts.clientSlug || '').trim();
+  if (clientSlug !== SUNSET_CLIENT_SLUG) {
+    return { ok: false, status: 403, body: { success: false, error: 'unsupported_client' } };
+  }
+  const bookingId = String(opts.bookingId || opts.body?.booking_id || '').trim();
+  if (!bookingId || !isUuid(bookingId)) {
+    return { ok: false, status: 400, body: { success: false, error: 'booking_id is required' } };
+  }
+  await pg.query('BEGIN');
+  try {
+    const bundle = await loadSunsetBookingBundle(pg, clientSlug, bookingId, null, true);
+    const reject = async (result) => { await pg.query('ROLLBACK'); return result; };
+    if (!bundle) return reject({ ok: false, status: 404, body: { success: false, error: 'booking not found' } });
+    const activeLocationId = normalizeSunsetLocationId(opts.locationId);
+    if (resolveBundleLocationId(bundle) !== activeLocationId) {
+      return reject({ ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } });
+    }
+    if (!bundleHasTrustedScheduleDrawerAttribution(bundle)) {
+      return reject({ ok: false, status: 403, body: { success: false, error: 'delete_untrusted_booking_source', reason_code: 'delete_untrusted_booking_source' } });
+    }
+    const st = String(bundle.booking.status || '').toLowerCase();
+    if (st !== 'cancelled' && st !== 'canceled') {
+      return reject({ ok: false, status: 409, body: { success: false, error: 'cancel_before_archive', message: 'Cancel the booking before removing it from the schedule.' } });
+    }
+    const meta = bundle.booking.metadata && typeof bundle.booking.metadata === 'object' ? bundle.booking.metadata : {};
+    if (meta.schedule_archived === true || meta.schedule_archived === 'true') {
+      await pg.query('ROLLBACK');
+      return { ok: true, status: 200, body: { success: true, archived: true, idempotent: true, booking_id: bookingId } };
+    }
+    // Never DELETE bookings row — payments.booking_id ON DELETE CASCADE would destroy money truth.
+    const patch = {
+      schedule_archived: true,
+      schedule_archived_at: new Date().toISOString(),
+      schedule_archived_by_staff: true,
+    };
+    const upd = await pg.query(
+      `UPDATE bookings b SET metadata = COALESCE(b.metadata, '{}'::jsonb) || $1::jsonb
+        FROM clients c
+        WHERE b.id = $2::uuid AND c.id = b.client_id AND c.slug = $3`,
+      [JSON.stringify(patch), bookingId, clientSlug],
+    );
+    if (Number(upd && upd.rowCount) !== 1) {
+      await pg.query('ROLLBACK');
+      return { ok: false, status: 409, body: { success: false, error: 'booking_archive_conflict' } };
+    }
+    await pg.query(
+      `UPDATE booking_service_records
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+        WHERE client_slug = $2 AND booking_id = $3::uuid`,
+      [JSON.stringify({ schedule_archived: true }), clientSlug, bookingId],
+    );
     await pg.query('COMMIT');
     return {
       ok: true,
       status: 200,
-      body: { success: true, deleted: true, booking_id: bookingId, booking_code: bundle.booking.booking_code },
+      body: { success: true, archived: true, deleted: false, booking_id: bookingId, booking_code: bundle.booking.booking_code },
     };
   } catch (err) {
     await pg.query('ROLLBACK');
@@ -2094,6 +2221,7 @@ module.exports = {
   getSunsetScheduleBookingDrawerContext,
   updateSunsetScheduleBooking,
   cancelSunsetScheduleBooking,
+  archiveSunsetScheduleBooking,
   buildPaymentSummary,
   buildPaidPaymentLedger,
   deriveDrawerPaymentUiStatus,

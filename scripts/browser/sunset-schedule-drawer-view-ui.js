@@ -42,16 +42,46 @@ function scheduleDrawerSectionHtml(titleKey, innerHtml){
     innerHtml + '</section>';
 }
 
+function scheduleDrawerBookingIsCancelled(ctx, row){
+  var st = String((ctx && (ctx.booking_status || ctx.status)) || (row && (row.booking_status || row.status)) || '').toLowerCase();
+  if (st === 'cancelled' || st === 'canceled') return true;
+  if (ctx && (ctx.schedule_ghost || ctx.cancelled)) return true;
+  if (row && (row.schedule_ghost || row._isCancelled)) return true;
+  return false;
+}
+
+function scheduleDrawerHasCapturedMoney(ctx){
+  if (typeof scheduleDrawerPaymentFullyPaid === 'function' && scheduleDrawerPaymentFullyPaid(ctx)) return true;
+  if (!ctx) return false;
+  var pay = ctx.payment || {};
+  var paid = Number(pay.paid_cents != null ? pay.paid_cents : (ctx.amount_paid_cents != null ? ctx.amount_paid_cents : 0));
+  if (paid > 0) return true;
+  if (Number(ctx.payments_paid_cents || 0) > 0) return true;
+  return false;
+}
+
 function scheduleRenderDeleteBookingRowHtml(ctx, row){
   var r = row || (typeof scheduleDrawerState !== 'undefined' && scheduleDrawerState && scheduleDrawerState.row);
+  if (!(ctx && ctx.booking_id)) return '';
   if (typeof scheduleDrawerCanDeleteBooking === 'function') {
-    if (!scheduleDrawerCanDeleteBooking(r, ctx)) return '';
-  } else if (!(ctx && ctx.booking_id)) {
-    return '';
+    if (!scheduleDrawerCanDeleteBooking(r, ctx) && !scheduleDrawerBookingIsCancelled(ctx, r)) return '';
   }
-  return '<div class="portal-schedule-drawer-danger-row">' +
-    '<button type="button" class="btn portal-schedule-delete-booking-btn" id="ps-drawer-delete-booking">' +
-    escHtml(portalT('schedule.drawer.deleteBooking')) + '</button></div>';
+  var cancelled = scheduleDrawerBookingIsCancelled(ctx, r);
+  var hasMoney = scheduleDrawerHasCapturedMoney(ctx);
+  var html = '<div class="portal-schedule-drawer-danger-row">';
+  if (cancelled) {
+    html += '<button type="button" class="btn portal-schedule-delete-booking-btn" id="ps-drawer-delete-booking">' +
+      escHtml(portalT('schedule.drawer.removeFromSchedule')) + '</button>';
+  } else if (hasMoney) {
+    html += '<button type="button" class="btn portal-schedule-cancel-booking-btn" id="ps-drawer-cancel-booking">' +
+      escHtml(portalT('schedule.drawer.cancelBooking')) + '</button>';
+  } else {
+    // Unpaid active: cancel (soft) with delete-worded label for familiarity
+    html += '<button type="button" class="btn portal-schedule-cancel-booking-btn" id="ps-drawer-cancel-booking">' +
+      escHtml(portalT('schedule.drawer.deleteBooking')) + '</button>';
+  }
+  html += '</div>';
+  return html;
 }
 
 function scheduleFormatComponentsView(comps){

@@ -422,6 +422,7 @@ const {
   getSunsetScheduleBookingDrawerContext,
   updateSunsetScheduleBooking,
   cancelSunsetScheduleBooking,
+  archiveSunsetScheduleBooking,
 } = require('./lib/sunset-schedule-booking-drawer');
 const {
   getSunsetSchedulePortalBrowserSource,
@@ -442,6 +443,8 @@ const {
 const {
   getSunsetScheduleLessonsOnDateQuery,
   getSunsetScheduleGearOnDateQuery,
+  getSunsetScheduleCancelledLessonsOnDateQuery,
+  getSunsetScheduleCancelledGearOnDateQuery,
 } = require('./lib/sunset-schedule-queries');
 const {
   executeSunsetCatalogTool,
@@ -16540,6 +16543,25 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-add-session-btn{margin-top:8px;font-size:12px;padding:5px 12px}
 .portal-schedule-refresh-btn{padding:6px 11px;font-size:16px;line-height:1;font-weight:700}
 .portal-schedule-drawer-topbar{display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px}
+
+/* Cancelled booking ghosts — muted but still clickable */
+.portal-schedule-ops-row.is-cancelled,
+.portal-schedule-session-guest.is-cancelled,
+button.portal-schedule-ops-rental-guest-open.is-cancelled {
+  opacity: 0.55;
+  filter: grayscale(0.35);
+}
+.portal-schedule-ops-row.is-cancelled {
+  border-style: dashed;
+}
+.portal-schedule-status.is-cancelled {
+  background: rgba(120,120,120,.16);
+  color: var(--text-muted, #8a928c);
+}
+.portal-schedule-cancel-booking-btn {
+  color: var(--danger, #b33);
+  border-color: rgba(180,60,60,.35);
+}
 .portal-schedule-delete-booking-btn{background:rgba(180,83,74,.10);border:1px solid rgba(180,83,74,.30);color:#9C4A42}
 .portal-schedule-delete-booking-btn:hover{background:rgba(180,83,74,.18);border-color:rgba(180,83,74,.45)}
 .portal-schedule-drawer-danger-row{display:flex;justify-content:flex-end;margin-top:18px;padding-top:14px;border-top:1px solid var(--border-soft)}
@@ -25181,7 +25203,16 @@ function scheduleSessionGearTotals(groups){
 
 function scheduleBuildDaySessions(dayRows, dateIso, lessonTimes){
   lessonTimes = lessonTimes || scheduleLessonTimesCache;
-  dayRows = dayRows || [];
+  // Capacity/session math uses active rows only — cancelled ghosts paint separately.
+  dayRows = (dayRows || []).filter(function(r){
+    if (!r) return false;
+    if (r._isCancelled || r.schedule_ghost) return false;
+    var bs = String(r.booking_status || r.status || '').toLowerCase();
+    if (bs === 'cancelled' || bs === 'canceled') return false;
+    var ss = String(r.service_status || '').toLowerCase();
+    if (ss === 'cancelled') return false;
+    return true;
+  });
   var sessions = [];
   var courses = (scheduleCoursesCache || []).slice();
   if (!courses.length){
@@ -41483,7 +41514,8 @@ async function handleSunsetScheduleBookingUpdate(query, req, res, user) {
   }
 }
 
-async function handleSunsetScheduleBookingDelete(query, req, res, user) {
+
+async function handleSunsetScheduleBookingCancel(query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
@@ -41511,7 +41543,48 @@ async function handleSunsetScheduleBookingDelete(query, req, res, user) {
     }));
     appendAuditLog({
       ts: new Date().toISOString(),
-      intent: 'api:sunset.schedule.booking_delete',
+      intent: 'api:sunset.schedule.booking_cancel',
+      category: 'schedule_api',
+      client_slug: clientSlug,
+      success: !!(result && result.ok),
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'cancel failed', detail: err.message });
+  }
+}
+
+async function handleSunsetScheduleBookingDelete(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (clientSlug !== SUNSET_CLIENT_SLUG) {
+    return sendJSON(res, 403, { success: false, error: 'unsupported_client', client_slug: clientSlug });
+  }
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  if (!isSunsetLocationId(query.location)) return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  const trustedLocationId = normalizeSunsetLocationId(query.location);
+  for (const supplied of [body.location_id, body.location]) {
+    if (supplied != null && String(supplied).trim() !== ''
+      && (!isSunsetLocationId(supplied) || normalizeSunsetLocationId(supplied) !== trustedLocationId)) {
+      return sendJSON(res, 409, { success: false, error: 'location_conflict' });
+    }
+  }
+  const bookingId = String(body.booking_id || query.booking_id || '').trim();
+  try {
+    const result = await withPgClient(async (pg) => archiveSunsetScheduleBooking(pg, {
+      clientSlug,
+      bookingId,
+      locationId: trustedLocationId,
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:sunset.schedule.booking_archive',
       category: 'schedule_api',
       client_slug: clientSlug,
       success: !!(result && result.ok),
@@ -41667,17 +41740,27 @@ async function handleSunsetScheduleDayGet(query, res, user) {
   }
 
   try {
-    const rows = await withPgClient(async (pg) => {
+    const pack = await withPgClient(async (pg) => {
       const lessons = await pg.query(getSunsetScheduleLessonsOnDateQuery(), [clientSlug, dateIso, locationId]);
       const gear = await pg.query(getSunsetScheduleGearOnDateQuery(), [clientSlug, dateIso, locationId]);
-      return [...lessons.rows, ...gear.rows];
+      const cLessons = await pg.query(getSunsetScheduleCancelledLessonsOnDateQuery(), [clientSlug, dateIso, locationId]);
+      const cGear = await pg.query(getSunsetScheduleCancelledGearOnDateQuery(), [clientSlug, dateIso, locationId]);
+      const active = [...lessons.rows, ...gear.rows];
+      const cancelled = [...cLessons.rows, ...cGear.rows].map((r) => ({
+        ...r,
+        schedule_ghost: true,
+        booking_status: r.booking_status || 'cancelled',
+      }));
+      return { active, cancelled, rows: [...active, ...cancelled] };
     });
     return sendJSON(res, 200, {
       success: true,
       date: dateIso,
       location_id: locationId,
-      rows,
-      count: rows.length,
+      rows: pack.rows,
+      active_count: pack.active.length,
+      cancelled_count: pack.cancelled.length,
+      count: pack.rows.length,
       elapsed_ms: Date.now() - started,
     });
   } catch (err) {
@@ -48702,6 +48785,9 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleSunsetScheduleBookingCreate(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/schedule/bookings/cancel' && method === 'POST') {
+    return handleSunsetScheduleBookingCancel(parsed.query, req, res, auth.user);
   }
   if (pathname === '/staff/schedule/bookings' && method === 'DELETE') {
     const auth = await requireAuth(req, res, 'operator');

@@ -181,6 +181,7 @@ function scheduleGroupHasClassicRentalComponents(group){
 function scheduleBuildRentalPickupLines(gearGroups){
   var lines = [];
   (gearGroups || []).forEach(function(g){
+    if (g && (g._isCancelled || g.schedule_ghost)) return;
     if (!g) return;
     scheduleEnsureRowId(g);
     var guestName = String(g.guest_name || 'Guest').trim() || 'Guest';
@@ -794,7 +795,7 @@ function scheduleRenderOpsBookingRow(group){
     : portalT('schedule.legend.luna');
   var dayProgHtml = scheduleRenderDayProgressMetaHtml(g,
     (typeof scheduleActiveDayIso === 'function' ? scheduleActiveDayIso() : '') || g.service_date);
-  return '<div class="portal-schedule-ops-row' + rowSrcCls + (g._needsReply ? ' needs-reply' : '') + '" data-ps-booking-id="' + escHtml(g._scheduleId) + '" title="' + escHtml(ariaLabel) + '" aria-label="' + escHtml(ariaLabel) + '">' +
+  return '<div class="portal-schedule-ops-row' + rowSrcCls + (g._needsReply ? ' needs-reply' : '') + (g._isCancelled || g.schedule_ghost ? ' is-cancelled' : '') + '" data-ps-booking-id="' + escHtml(g._scheduleId) + '" title="' + escHtml(ariaLabel) + '" aria-label="' + escHtml(ariaLabel) + '">' +
     '<span class="portal-schedule-ops-row-rail' + railCls + '" aria-hidden="true"></span>' +
     '<span class="portal-schedule-ops-row-qty">' + escHtml(String(qty) + '×') + '</span>' +
     '<div class="portal-schedule-ops-row-guest-col">' +
@@ -886,11 +887,41 @@ function scheduleRenderTimelineItem(session, ctx){
 function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
   pack = pack || { lessons: [], gear: [], rows: [] };
   var dayRows = pack.rows || [];
+  var activeRows = dayRows.filter(function(r){
+    return !(r && (r._isCancelled || r.schedule_ghost));
+  });
+  var ghostRows = dayRows.filter(function(r){
+    return !!(r && (r._isCancelled || r.schedule_ghost));
+  });
   var html = '';
   if (!scheduleCoursesCache.length && scheduleLessonTimesFallback && (lessonTimes || []).length){
     html += '<div class="portal-schedule-ops-fallback">' + escHtml(portalT('schedule.courses.noneConfigured')) + '</div>';
   }
-  var sessions = scheduleBuildDaySessions(dayRows, dateIso, lessonTimes);
+  var sessions = scheduleBuildDaySessions(activeRows, dateIso, lessonTimes);
+  if (ghostRows.length){
+    var ghostGroups = scheduleBuildDisplayGroups(ghostRows).map(function(g){
+      g._isCancelled = true;
+      g.schedule_ghost = true;
+      return g;
+    });
+    if (ghostGroups.length){
+      sessions.push({
+        kind: 'cancelled',
+        label: portalT('schedule.status.cancelled'),
+        slot_key: 'cancelled-ghosts',
+        timeLabel: '',
+        start: null,
+        end: null,
+        capacity: null,
+        surfers: 0,
+        bookings: ghostGroups.length,
+        groups: ghostGroups,
+        boardsNeeded: 0,
+        wetsuitsNeeded: 0,
+        _isCancelled: true,
+      });
+    }
+  }
   var isToday = dateIso === scheduleTodayIso();
   var now = new Date();
   var nowMin = now.getHours() * 60 + now.getMinutes();
@@ -910,7 +941,7 @@ function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
   if (sessions.length){
     html += '<div class="portal-schedule-timeline">' + itemsHtml + '</div>';
   }
-  var gearGroups = scheduleBuildDisplayGroups(dayRows).filter(scheduleGroupIsStandaloneRental);
+  var gearGroups = scheduleBuildDisplayGroups(activeRows).filter(scheduleGroupIsStandaloneRental);
   if (gearGroups.length){
     html += scheduleRenderRentalPickupsSection(gearGroups);
   }

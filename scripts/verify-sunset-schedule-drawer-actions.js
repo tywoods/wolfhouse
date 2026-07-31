@@ -98,6 +98,13 @@ function portalT(key) {
     'schedule.drawer.deleteBooking': 'Delete booking',
     'schedule.drawer.deleteBookingConfirm': 'Delete this booking?',
     'schedule.drawer.deleteBookingFailed': 'Could not delete booking:',
+    'schedule.drawer.cancelBooking': 'Cancel booking',
+    'schedule.drawer.cancelBookingConfirm': 'Cancel this booking?',
+    'schedule.drawer.cancelBookingConfirmPaid': 'Cancel this paid booking?',
+    'schedule.drawer.cancelBookingFailed': 'Could not cancel booking:',
+    'schedule.drawer.removeFromSchedule': 'Remove from schedule',
+    'schedule.drawer.removeFromScheduleConfirm': 'Remove this cancelled booking?',
+    'schedule.drawer.removeFromScheduleFailed': 'Could not remove booking:',
   };
   return map[key] || key;
 }
@@ -333,6 +340,9 @@ const ctx = {
     if (method === 'POST' && String(url).includes('/waiver')) {
       return new Promise((resolve) => { pendingWaiverResolve = resolve; });
     }
+    if (method === 'POST' && String(url).includes('/staff/schedule/bookings/cancel')) {
+      return new Promise((resolve) => { pendingDeleteResolve = resolve; });
+    }
     if (method === 'DELETE' && String(url).includes('/staff/schedule/bookings')) {
       return new Promise((resolve) => { pendingDeleteResolve = resolve; });
     }
@@ -445,9 +455,11 @@ assert('answer labels escaped', answersHtml.includes('&lt;b&gt;'));
 assert('answer values escaped', answersHtml.includes('&lt;script&gt;'));
 assert('missing optional answer safe', answersHtml.includes('—'));
 
-assert('untrusted demo cannot delete', ctx.scheduleDrawerCanDeleteBooking({ _isDemo: true, record_source: 'staff_manual' }, { booking_id: 'x' }) === false);
-assert('trusted staff can delete', ctx.scheduleDrawerCanDeleteBooking({ record_source: 'staff_manual' }, { booking_id: '11111111-1111-1111-1111-111111111111' }) === true);
-assert('trusted luna follows same gate', ctx.scheduleDrawerCanDeleteBooking({ record_source: 'luna_guest' }, { booking_id: '11111111-1111-1111-1111-111111111111' }) === true);
+assert('untrusted demo cannot delete', ctx.scheduleDrawerCanDeleteBooking({ _isDemo: true, record_source: 'staff_manual' }, { booking_id: 'x', booking_status: 'cancelled' }) === false);
+assert('active booking cannot archive yet', ctx.scheduleDrawerCanDeleteBooking({ record_source: 'staff_manual' }, { booking_id: '11111111-1111-1111-1111-111111111111' }) === false);
+assert('cancelled trusted staff can archive', ctx.scheduleDrawerCanDeleteBooking({ record_source: 'staff_manual' }, { booking_id: '11111111-1111-1111-1111-111111111111', booking_status: 'cancelled' }) === true);
+assert('cancelled trusted luna can archive', ctx.scheduleDrawerCanDeleteBooking({ record_source: 'luna_guest' }, { booking_id: '11111111-1111-1111-1111-111111111111', booking_status: 'cancelled' }) === true);
+assert('active trusted can cancel', ctx.scheduleDrawerCanCancelBooking({ record_source: 'staff_manual' }, { booking_id: '11111111-1111-1111-1111-111111111111' }) === true);
 assert('no global scheduleDeleteBookingFromDrawer on this global', typeof global.scheduleDeleteBookingFromDrawer === 'undefined');
 
 function tick() {
@@ -492,32 +504,55 @@ function tick() {
     openGen: 2,
     activeBookingKey: 'id:11111111-1111-1111-1111-111111111111',
   };
-  ctx.SunsetScheduleDrawerActions.flight.deleteBooking = false;
-  ctx.scheduleDeleteBookingFromDrawer();
-  assert('cancel confirmation sends no DELETE', fetchLog.filter((f) => f.opts && f.opts.method === 'DELETE').length === 0);
+  ctx.SunsetScheduleDrawerActions.flight.cancelBooking = false;
+  ctx.scheduleCancelBookingFromDrawer();
+  assert('cancel confirmation sends no POST cancel', fetchLog.filter((f) => f.opts && f.opts.method === 'POST' && String(f.url).includes('/cancel')).length === 0);
 
   confirmResult = true;
   fetchLog.length = 0;
   drawerClosed = 0;
   scheduleRefreshed = 0;
   pendingDeleteResolve = null;
-  ctx.SunsetScheduleDrawerActions.flight.deleteBooking = false;
-  ctx.scheduleDeleteBookingFromDrawer();
-  assert('successful delete sends one DELETE', fetchLog.filter((f) => f.opts && f.opts.method === 'DELETE').length === 1);
-  assert('DELETE body uses trusted booking_id only', fetchLog[0] && JSON.parse(fetchLog[0].opts.body).booking_id === '11111111-1111-1111-1111-111111111111');
+  ctx.SunsetScheduleDrawerActions.flight.cancelBooking = false;
+  ctx.scheduleCancelBookingFromDrawer();
+  assert('successful cancel sends one POST cancel', fetchLog.filter((f) => f.opts && f.opts.method === 'POST' && String(f.url).includes('/cancel')).length === 1);
+  assert('cancel body uses trusted booking_id only', fetchLog[0] && JSON.parse(fetchLog[0].opts.body).booking_id === '11111111-1111-1111-1111-111111111111');
   assert('confirm includes booking code', confirmMsg.includes('SUNSET-TEST-001'));
   if (pendingDeleteResolve) {
-    pendingDeleteResolve(jsonResponse({ success: true, deleted: true, booking_id: '11111111-1111-1111-1111-111111111111' }));
+    pendingDeleteResolve(jsonResponse({ success: true, cancelled: true, booking_id: '11111111-1111-1111-1111-111111111111' }));
   }
   await tick();
   await tick();
-  assert('successful delete closes drawer', drawerClosed === 1);
-  assert('successful delete refreshes schedule', scheduleRefreshed === 1);
-  assert('delete bumps gen so removed row cannot reopen via stale action', ctx.scheduleDrawerState.openGen === 3 && ctx.scheduleDrawerState.row == null);
+  assert('successful cancel closes drawer', drawerClosed === 1);
+  assert('successful cancel refreshes schedule', scheduleRefreshed === 1);
+  assert('cancel bumps gen so removed row cannot reopen via stale action', ctx.scheduleDrawerState.openGen === 3 && ctx.scheduleDrawerState.row == null);
+
+  // Archive (remove from schedule) only when cancelled
+  confirmResult = true;
+  fetchLog.length = 0;
+  drawerClosed = 0;
+  scheduleRefreshed = 0;
+  pendingDeleteResolve = null;
+  ctx.scheduleDrawerState = {
+    row: { booking_id: '11111111-1111-1111-1111-111111111111', record_source: 'staff_manual', booking_status: 'cancelled' },
+    ctx: { booking_id: '11111111-1111-1111-1111-111111111111', booking_code: 'SUNSET-TEST-001', booking_status: 'cancelled' },
+    openGen: 3,
+    activeBookingKey: 'id:11111111-1111-1111-1111-111111111111',
+  };
+  dom['ps-detail-drawer'].style.display = 'block';
+  ctx.SunsetScheduleDrawerActions.flight.deleteBooking = false;
+  ctx.scheduleDeleteBookingFromDrawer();
+  assert('successful archive sends one DELETE', fetchLog.filter((f) => f.opts && f.opts.method === 'DELETE').length === 1);
+  if (pendingDeleteResolve) {
+    pendingDeleteResolve(jsonResponse({ success: true, archived: true, booking_id: '11111111-1111-1111-1111-111111111111' }));
+  }
+  await tick();
+  await tick();
+  assert('successful archive closes drawer', drawerClosed === 1);
 
   ctx.scheduleDrawerState = {
-    row: { booking_id: 'fail-id', record_source: 'staff_manual' },
-    ctx: { booking_id: 'fail-id', booking_code: 'FAIL-001' },
+    row: { booking_id: 'fail-id', record_source: 'staff_manual', booking_status: 'cancelled' },
+    ctx: { booking_id: 'fail-id', booking_code: 'FAIL-001', booking_status: 'cancelled' },
     openGen: 4,
     activeBookingKey: 'id:fail-id',
   };
@@ -535,7 +570,7 @@ function tick() {
   assert('failed delete keeps drawer open', dom['ps-detail-drawer'].style.display === 'block');
   assert('failed delete releases in-flight', ctx.SunsetScheduleDrawerActions.flight.deleteBooking === false);
   assert('failed delete re-enables button', dom['ps-drawer-delete-booking'].disabled === false);
-  assert('failed delete shows safe error text', dom['ps-drawer-save-msg'].textContent.includes('Could not delete booking'));
+  assert('failed delete shows safe error text', dom['ps-drawer-save-msg'].textContent.includes('Could not remove booking') || dom['ps-drawer-save-msg'].textContent.includes('Could not delete booking'));
   assert('failed delete error uses textContent not HTML injection', !dom['ps-drawer-save-msg'].innerHTML.includes('<script'));
 
   ctx.SunsetScheduleDrawerActions.flight.deleteBooking = true;
@@ -561,13 +596,14 @@ function tick() {
     };
     return true;
   };
-  ctx.scheduleDeleteBookingFromDrawer();
-  assert('stale confirm sends no DELETE', fetchLog.filter((f) => f.opts && f.opts.method === 'DELETE').length === 0);
+  ctx.SunsetScheduleDrawerActions.flight.cancelBooking = false;
+  ctx.scheduleCancelBookingFromDrawer();
+  assert('stale confirm sends no cancel POST', fetchLog.filter((f) => f.opts && f.opts.method === 'POST' && String(f.url).includes('/cancel')).length === 0);
 
   fetchLog.length = 0;
   ctx.scheduleDrawerState = { row: {}, ctx: {}, openGen: 20, activeBookingKey: null };
-  ctx.SunsetScheduleDrawerActions.flight.deleteBooking = false;
-  ctx.scheduleDeleteBookingFromDrawer();
+  ctx.SunsetScheduleDrawerActions.flight.cancelBooking = false;
+  ctx.scheduleCancelBookingFromDrawer();
   assert('missing booking_id fails closed', fetchLog.length === 0);
 
   ctx.scheduleDrawerState = {

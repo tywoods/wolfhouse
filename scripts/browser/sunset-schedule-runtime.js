@@ -174,6 +174,13 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     if (!r) return null;
     ensureRowId(r);
     if (r.service_record_id) r._scheduleId = String(r.service_record_id);
+    if (r.schedule_ghost === true || r.schedule_ghost === 'true'
+      || String(r.booking_status || '').toLowerCase() === 'cancelled'
+      || String(r.booking_status || '').toLowerCase() === 'canceled'
+      || String(r.service_status || '').toLowerCase() === 'cancelled') {
+      r._isCancelled = true;
+      r.schedule_ghost = true;
+    }
     normalizerApplyDisplayFields(r);
     normalizerApplyTrustFlags(r, ctx);
     ensureRowMeta(r);

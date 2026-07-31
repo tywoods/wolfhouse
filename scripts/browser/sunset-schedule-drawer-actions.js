@@ -19,6 +19,7 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
     manualPay: false,
     waiverCreate: false,
     deleteBooking: false,
+    cancelBooking: false,
   };
 
   function requestJson(url, options) {
@@ -593,40 +594,103 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
     }).finally(function() { flight.waiverCreate = false; });
   }
 
-  // ── Delete ─────────────────────────────────────────────────────────────
+  // ── Cancel / remove-from-schedule ─────────────────────────────────────
+
+  function bookingIsCancelled(ctx, row) {
+    var st = String((ctx && (ctx.booking_status || ctx.status)) || (row && (row.booking_status || row.status)) || '').toLowerCase();
+    if (st === 'cancelled' || st === 'canceled') return true;
+    if (ctx && (ctx.schedule_ghost || ctx.cancelled)) return true;
+    if (row && (row.schedule_ghost || row._isCancelled)) return true;
+    return false;
+  }
+
+  function hasCapturedMoney(ctx) {
+    if (paymentFullyPaid(ctx)) return true;
+    if (!ctx) return false;
+    var pay = ctx.payment || {};
+    var paid = Number(pay.paid_cents != null ? pay.paid_cents : (ctx.amount_paid_cents != null ? ctx.amount_paid_cents : 0));
+    if (paid > 0) return true;
+    return Number(ctx.payments_paid_cents || 0) > 0;
+  }
 
   function canDeleteBooking(row, ctx) {
+    // Archive/remove only when already cancelled (ghost).
     if (!ctx || !ctx.booking_id) return false;
+    if (!bookingIsCancelled(ctx, row)) return false;
     if (typeof scheduleDrawerCanLoadCanonical === 'function') {
       return scheduleDrawerCanLoadCanonical(row || scheduleDrawerState.row);
     }
     return false;
   }
 
-  function deleteConfirmMessage(ctx) {
-    var msg = portalT('schedule.drawer.deleteBookingConfirm');
-    if (ctx && ctx.booking_code) {
-      msg += ' (' + String(ctx.booking_code) + ')';
+  function canCancelBooking(row, ctx) {
+    if (!ctx || !ctx.booking_id) return false;
+    if (bookingIsCancelled(ctx, row)) return false;
+    if (typeof scheduleDrawerCanLoadCanonical === 'function') {
+      return scheduleDrawerCanLoadCanonical(row || scheduleDrawerState.row);
     }
+    return false;
+  }
+
+  function cancelConfirmMessage(ctx) {
+    var msg = hasCapturedMoney(ctx)
+      ? portalT('schedule.drawer.cancelBookingConfirmPaid')
+      : portalT('schedule.drawer.cancelBookingConfirm');
+    if (ctx && ctx.booking_code) msg += ' (' + String(ctx.booking_code) + ')';
     return msg;
   }
 
-  function executeBookingDelete(identity, bookingId) {
+  function archiveConfirmMessage(ctx) {
+    var msg = portalT('schedule.drawer.removeFromScheduleConfirm');
+    if (ctx && ctx.booking_code) msg += ' (' + String(ctx.booking_code) + ')';
+    return msg;
+  }
+
+  function executeBookingCancel(identity, bookingId) {
+    if (!bookingId) return;
+    if (!actionIsActive(identity)) return;
+    if (flight.cancelBooking) return;
+    flight.cancelBooking = true;
+    var btn = el('ps-drawer-cancel-booking');
+    if (btn) btn.disabled = true;
+    requestJson('/staff/schedule/bookings/cancel?' + clientQuery(), {
+      method: 'POST',
+      body: { booking_id: bookingId },
+    }).then(function(res) {
+      if (!actionIsActive(identity)) return;
+      if (!res.ok || !res.data || res.data.success !== true) {
+        throw new Error((res.data && (res.data.error || res.data.message)) || 'Cancel failed');
+      }
+      flight.cancelBooking = false;
+      closeScheduleDetailDrawer();
+      loadSchedulePage();
+    }).catch(function(err) {
+      if (!actionIsActive(identity)) return;
+      var m = el('ps-drawer-save-msg');
+      if (m) {
+        m.className = 'state-msg error';
+        m.textContent = portalT('schedule.drawer.cancelBookingFailed') + ' ' + errorText(err);
+        m.style.display = 'block';
+      }
+      if (btn) btn.disabled = false;
+      flight.cancelBooking = false;
+    });
+  }
+
+  function executeBookingArchive(identity, bookingId) {
     if (!bookingId) return;
     if (!actionIsActive(identity)) return;
     if (flight.deleteBooking) return;
-
     flight.deleteBooking = true;
     var btn = el('ps-drawer-delete-booking');
     if (btn) btn.disabled = true;
-
     requestJson('/staff/schedule/bookings?' + clientQuery(), {
       method: 'DELETE',
       body: { booking_id: bookingId },
     }).then(function(res) {
       if (!actionIsActive(identity)) return;
       if (!res.ok || !res.data || res.data.success !== true) {
-        throw new Error((res.data && (res.data.error || res.data.message)) || 'Delete failed');
+        throw new Error((res.data && (res.data.error || res.data.message)) || 'Remove failed');
       }
       flight.deleteBooking = false;
       closeScheduleDetailDrawer();
@@ -636,7 +700,7 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
       var m = el('ps-drawer-save-msg');
       if (m) {
         m.className = 'state-msg error';
-        m.textContent = portalT('schedule.drawer.deleteBookingFailed') + ' ' + errorText(err);
+        m.textContent = portalT('schedule.drawer.removeFromScheduleFailed') + ' ' + errorText(err);
         m.style.display = 'block';
       }
       if (btn) btn.disabled = false;
@@ -644,36 +708,58 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
     });
   }
 
+  function cancelBookingFromDrawer() {
+    var st = scheduleDrawerState;
+    if (!st || !st.ctx || !st.row) return;
+    if (!canCancelBooking(st.row, st.ctx)) return;
+    var bookingId = st.ctx.booking_id;
+    if (!bookingId) return;
+    var identity = captureIdentity(st.row);
+    if (!actionIsActive(identity)) return;
+    if (flight.cancelBooking) return;
+    var confirmFn = (typeof window !== 'undefined' && window.confirm) ? window.confirm : null;
+    if (confirmFn && !confirmFn(cancelConfirmMessage(st.ctx))) return;
+    if (!actionIsActive(identity)) return;
+    executeBookingCancel(identity, bookingId);
+  }
+
   function deleteBookingFromDrawer() {
     var st = scheduleDrawerState;
     if (!st || !st.ctx || !st.row) return;
     if (!canDeleteBooking(st.row, st.ctx)) return;
-
     var bookingId = st.ctx.booking_id;
     if (!bookingId) return;
-
     var identity = captureIdentity(st.row);
     if (!actionIsActive(identity)) return;
     if (flight.deleteBooking) return;
-
     var confirmFn = (typeof window !== 'undefined' && window.confirm) ? window.confirm : null;
-    if (confirmFn && !confirmFn(deleteConfirmMessage(st.ctx))) return;
+    if (confirmFn && !confirmFn(archiveConfirmMessage(st.ctx))) return;
     if (!actionIsActive(identity)) return;
-
-    executeBookingDelete(identity, bookingId);
+    executeBookingArchive(identity, bookingId);
   }
 
   function wireDeleteBooking() {
-    var btn = el('ps-drawer-delete-booking');
-    if (!btn) return;
     var st = scheduleDrawerState;
-    if (!canDeleteBooking(st && st.row, st && st.ctx)) {
-      btn.style.display = 'none';
-      return;
+    var delBtn = el('ps-drawer-delete-booking');
+    var cancelBtn = el('ps-drawer-cancel-booking');
+    if (cancelBtn) {
+      if (!canCancelBooking(st && st.row, st && st.ctx)) {
+        cancelBtn.style.display = 'none';
+      } else {
+        cancelBtn.style.display = '';
+        cancelBtn.disabled = flight.cancelBooking;
+        cancelBtn.onclick = cancelBookingFromDrawer;
+      }
     }
-    btn.style.display = '';
-    btn.disabled = flight.deleteBooking;
-    btn.onclick = deleteBookingFromDrawer;
+    if (delBtn) {
+      if (!canDeleteBooking(st && st.row, st && st.ctx)) {
+        delBtn.style.display = 'none';
+      } else {
+        delBtn.style.display = '';
+        delBtn.disabled = flight.deleteBooking;
+        delBtn.onclick = deleteBookingFromDrawer;
+      }
+    }
   }
 
   var api = {
@@ -705,7 +791,11 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
     loadWaiver: loadWaiver,
     createWaiver: createWaiver,
     canDeleteBooking: canDeleteBooking,
+    canCancelBooking: canCancelBooking,
+    cancelBookingFromDrawer: cancelBookingFromDrawer,
     deleteBookingFromDrawer: deleteBookingFromDrawer,
+    bookingIsCancelled: bookingIsCancelled,
+    hasCapturedMoney: hasCapturedMoney,
     wireDeleteBooking: wireDeleteBooking,
     actionIsActive: actionIsActive,
   };
@@ -745,4 +835,7 @@ function scheduleDrawerDeleteActionIsActive(openGen, bookingKey) {
   return SunsetScheduleDrawerActions.actionIsActive({ openGen: openGen, bookingKey: bookingKey });
 }
 function scheduleDeleteBookingFromDrawer() { return SunsetScheduleDrawerActions.deleteBookingFromDrawer(); }
+function scheduleCancelBookingFromDrawer() { return SunsetScheduleDrawerActions.cancelBookingFromDrawer(); }
+function scheduleDrawerCanCancelBooking(row, ctx) { return SunsetScheduleDrawerActions.canCancelBooking(row, ctx); }
+function scheduleDrawerBookingIsCancelled(ctx, row) { return SunsetScheduleDrawerActions.bookingIsCancelled(ctx, row); }
 function scheduleWireDrawerDeleteBooking() { return SunsetScheduleDrawerActions.wireDeleteBooking(); }
