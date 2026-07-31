@@ -31,6 +31,19 @@ function assert(label, cond, detail) {
   else { console.error(`  FAIL  ${label}${detail ? ' — ' + detail : ''}`); fail += 1; }
 }
 
+function extractFunctionSource(src, name) {
+  const start = src.indexOf(`function ${name}(`);
+  if (start < 0) throw new Error(`Missing function ${name}`);
+  const braceStart = src.indexOf('{', start);
+  let depth = 0;
+  for (let i = braceStart; i < src.length; i += 1) {
+    if (src[i] === '{') depth += 1;
+    if (src[i] === '}') depth -= 1;
+    if (depth === 0) return src.slice(start, i + 1);
+  }
+  throw new Error(`Unclosed function ${name}`);
+}
+
 function portalT(key) {
   const map = {
     'schedule.emptyDay': 'Nothing scheduled',
@@ -458,6 +471,15 @@ if (modExists) {
       }];
     },
     scheduleBuildDisplayGroups: (rs) => rs.map((r) => Object.assign({ records: [r] }, r)),
+    scheduleRowType: (r) => (r && r.course_id ? 'course' : String((r && r._scheduleType) || 'course')),
+    scheduleCourseKey: (r) => String((r && r.course_id) || ''),
+    scheduleRowsForSameBookings: (all, seeds) => {
+      const keys = new Set((seeds || []).map((r) => `${r.booking_id}:${r.service_date}`));
+      return (all || []).filter((r) => keys.has(`${r.booking_id}:${r.service_date}`));
+    },
+    scheduleGroupHasCourse: (g) => !!(g && (g.course_id || (g.components && g.components.course))),
+    scheduleRowCourseMeta: (r) => ({ course_id: r && r.course_id, course_label: r && r.course_label }),
+    scheduleResolveCourseDisplayLabel: (id, label) => label || id,
     scheduleGroupIsStandaloneRental: () => false,
     scheduleResolveRow: (id) => {
       const key = String(id || '');
@@ -630,6 +652,58 @@ if (modExists) {
   rows.length = 0;
   ctx.renderScheduleDayOpsBoard({ rows: rows.slice() }, '2026-07-20');
   assert('delete refresh empty board', dom['ps-ops-board'].innerHTML.includes('portal-schedule-ops-empty'));
+
+  // cancelled booking remains on its original course, paints grey, stays clickable,
+  // and does not count toward occupancy/equipment or create a Cancelled section.
+  rows.length = 0;
+  cache.length = 0;
+  drawerOpens.length = 0;
+  const activeCourseRow = makeGroup({
+    guest_name: 'Active Course Guest',
+    _scheduleId: 'sid-active-course',
+    booking_id: '44444444-4444-4444-4444-444444444444',
+    course_id: 'c1',
+  });
+  const cancelledCourseRow = makeGroup({
+    guest_name: 'Cancelled Course Guest',
+    _scheduleId: 'sid-cancelled-course',
+    booking_id: '55555555-5555-5555-5555-555555555555',
+    course_id: 'c1',
+    schedule_ghost: true,
+    _isCancelled: true,
+    booking_status: 'cancelled',
+    service_status: 'cancelled',
+  });
+  installCache([activeCourseRow, cancelledCourseRow]);
+  ctx.renderScheduleDayOpsBoard({ rows: [activeCourseRow, cancelledCourseRow] }, '2026-07-20');
+  const mixedCourseHtml = dom['ps-ops-board'].innerHTML;
+  assert('cancelled row remains inside original course card',
+    mixedCourseHtml.includes('Active Course Guest') && mixedCourseHtml.includes('Cancelled Course Guest'));
+  assert('cancelled row paints grey state class',
+    /portal-schedule-ops-row[^\"]*is-cancelled[^>]*>[\s\S]*Cancelled Course Guest/.test(mixedCourseHtml));
+  assert('cancelled row excluded from active occupancy',
+    mixedCourseHtml.includes('portal-schedule-occ-num">1<small>/8</small>'));
+  assert('no separate Cancelled session or section',
+    !mixedCourseHtml.includes('cancelled-ghosts') && !mixedCourseHtml.includes('>Cancelled<'));
+  const cancelledChip = dom['ps-ops-board']._chips.find((c) => c.getAttribute('data-ps-booking-id') === 'sid-cancelled-course');
+  if (cancelledChip) clickChip(cancelledChip, cancelledChip._guestSpan);
+  assert('cancelled row remains clickable for permanent delete',
+    drawerOpens.length === 1 && drawerOpens[0] === 'sid-cancelled-course');
+
+  const buildSessionsWithConfiguredEmptyCourse = ctx.scheduleBuildDaySessions;
+  ctx.scheduleBuildDaySessions = (dayRows) => [{
+    kind: 'course', label: 'Morning', timeLabel: '09:00', slot_key: 'am', course_id: 'c1',
+    surfers: dayRows.length, bookings: dayRows.length, boardsNeeded: 0, wetsuitsNeeded: 0,
+    groups: dayRows.map((r) => Object.assign({ records: [r] }, r)),
+    start: 540, end: 600, capacity: 8,
+  }];
+  ctx.renderScheduleDayOpsBoard({ rows: [cancelledCourseRow] }, '2026-07-20');
+  ctx.scheduleBuildDaySessions = buildSessionsWithConfiguredEmptyCourse;
+  const ghostOnlyCourseHtml = dom['ps-ops-board'].innerHTML;
+  assert('course with only cancelled rows remains visible',
+    ghostOnlyCourseHtml.includes('Morning') && ghostOnlyCourseHtml.includes('Cancelled Course Guest'));
+  assert('ghost-only course occupancy remains zero',
+    ghostOnlyCourseHtml.includes('portal-schedule-occ-num">0<small>/8</small>'));
 
   // mobile 390 — guest column hit target stays on chip (no horizontal intercept)
   installCache([luna]);
@@ -903,6 +977,51 @@ if (modExists) {
   ctx.scheduleRentalPickupsGuestFilter = '';
 
   assert('board module never fetched', fetchCount === 0);
+
+  // Production grouping integration: one cancelled display group per exact course,
+  // even when a single booking owns multiple course rows plus shared equipment.
+  const prodGroupCtx = {
+    console,
+    scheduleEnsureRowId: (r) => r,
+    scheduleRowIsPrivateLesson: () => false,
+    scheduleRowEffectivePaid: () => false,
+    scheduleRowType: (r) => String((r && r._scheduleType) || ''),
+    scheduleRowComponentKey: (r) => String((r && r._scheduleType) || 'unknown'),
+    schedulePrivateLessonTimeRange: () => '',
+    scheduleRowCourseMeta: (r) => ({ course_id: r && r.course_id, course_label: r && r.course_label }),
+    scheduleResolveCourseDisplayLabel: (id, label) => label || id,
+  };
+  vm.createContext(prodGroupCtx);
+  vm.runInContext([
+    extractFunctionSource(apiSrc, 'scheduleBuildDisplayGroups'),
+    extractFunctionSource(apiSrc, 'scheduleGroupHasCourse'),
+    extractFunctionSource(apiSrc, 'scheduleCourseKey'),
+    extractFunctionSource(apiSrc, 'scheduleBookingDayKey'),
+    extractFunctionSource(apiSrc, 'scheduleRowsForSameBookings'),
+    extractFunctionSource(modSrc, 'scheduleAttachCancelledCourseGroups'),
+  ].join('\n'), prodGroupCtx);
+  const multiGhostRows = [
+    { _scheduleId: 'mc-c1', booking_id: 'multi-booking', booking_code: 'MULTI', guest_name: 'Multi Guest', service_date: '2026-07-20', _scheduleType: 'course', course_id: 'c1', course_label: 'Morning', quantity: 2, payment_status: 'unpaid' },
+    { _scheduleId: 'mc-c2', booking_id: 'multi-booking', booking_code: 'MULTI', guest_name: 'Multi Guest', service_date: '2026-07-20', _scheduleType: 'course', course_id: 'c2', course_label: 'Afternoon', quantity: 2, payment_status: 'unpaid' },
+    { _scheduleId: 'mc-board', booking_id: 'multi-booking', booking_code: 'MULTI', guest_name: 'Multi Guest', service_date: '2026-07-20', _scheduleType: 'surfboard', quantity: 2, payment_status: 'unpaid' },
+    { _scheduleId: 'legacy-unmatched', booking_id: 'legacy', booking_code: 'LEGACY', guest_name: 'Legacy', service_date: '2026-07-20', _scheduleType: 'lesson', quantity: 1, payment_status: 'unpaid' },
+  ];
+  const prodSessions = [
+    { kind: 'course', course_id: 'c1', surfers: 3, bookings: 1, boardsNeeded: 3, groups: [] },
+    { kind: 'course', course_id: 'c2', surfers: 4, bookings: 1, boardsNeeded: 4, groups: [] },
+  ];
+  prodGroupCtx.scheduleAttachCancelledCourseGroups(prodSessions, multiGhostRows);
+  assert('production grouping attaches multi-course ghost once to each exact course',
+    prodSessions[0].groups.length === 1 && prodSessions[1].groups.length === 1
+      && prodSessions[0].groups[0].course_id === 'c1' && prodSessions[1].groups[0].course_id === 'c2');
+  assert('production grouping excludes peer course rows but retains shared equipment for drawer context',
+    prodSessions.every((s) => s.groups[0].records.filter((r) => r._scheduleType === 'course').length === 1
+      && s.groups[0].records.some((r) => r._scheduleType === 'surfboard')));
+  assert('cancelled attachment leaves active occupancy and equipment totals unchanged',
+    prodSessions[0].surfers === 3 && prodSessions[0].boardsNeeded === 3
+      && prodSessions[1].surfers === 4 && prodSessions[1].boardsNeeded === 4);
+  assert('unmatched legacy ghost is not guessed into a course',
+    prodSessions.every((s) => s.groups.every((g) => g.booking_id !== 'legacy')));
 
   // ── Collapsible guest list (two course groups; real click wiring) ──
   console.log('\n[4] Collapsible guest list per course/session group');
