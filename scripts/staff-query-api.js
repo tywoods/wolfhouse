@@ -16959,7 +16959,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .portal-schedule-ops-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}
 @media(max-width:1100px){.portal-schedule-ops-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.portal-schedule-ops-metrics{grid-template-columns:1fr 1fr}}
-.portal-schedule-ops-board{margin-top:10px;margin-bottom:22px;display:flex;flex-direction:column;gap:16px}.portal-schedule-cards-grid{display:grid;gap:16px;grid-template-columns:repeat(var(--ps-card-cols,1),minmax(0,1fr));align-items:stretch}.portal-schedule-card-item{min-width:0}.portal-schedule-card-item .portal-schedule-ops-lesson-group{height:100%}.portal-schedule-card-item.is-done .portal-schedule-ops-lesson-group{opacity:.72}.portal-schedule-ops-board[data-ops-layout="cards"] .portal-schedule-cards-grid{width:100%}@media (max-width:1080px){.portal-schedule-cards-grid[data-ps-card-cols="3"]{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.portal-schedule-ops-board{--ps-stack-gap:16px;margin-top:0;margin-bottom:22px;display:flex;flex-direction:column;gap:var(--ps-stack-gap)}.portal-schedule-cards-grid{display:grid;gap:var(--ps-stack-gap);grid-template-columns:repeat(var(--ps-card-cols,1),minmax(0,1fr));align-items:stretch}.portal-schedule-card-item{min-width:0}.portal-schedule-card-item .portal-schedule-ops-lesson-group{height:100%}.portal-schedule-card-item.is-done .portal-schedule-ops-lesson-group{opacity:.72}.portal-schedule-ops-board[data-ops-layout="cards"] .portal-schedule-cards-grid{width:100%}@media (max-width:1080px){.portal-schedule-cards-grid[data-ps-card-cols="3"]{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .portal-schedule-ops-lesson-group{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);overflow:hidden;box-shadow:none}
 .portal-schedule-ops-lesson-hdr{padding:14px 16px;border-bottom:1px solid var(--border-soft);background:rgba(255,255,255,.04)}
 .portal-schedule-ops-lesson-hdr-title{font-size:15px;font-weight:700;color:var(--text);line-height:1.25;white-space:normal}
@@ -16998,7 +16998,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-lesson-slot-label{color:var(--sched-text)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-lesson-slot-time{color:var(--sched-text-2)}
 .portal-schedule-lesson-times-empty{font-size:13px;color:var(--text-3);line-height:1.4;padding-top:4px}
-.portal-schedule-ops-rental-pickups{margin-top:20px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.portal-schedule-ops-rental-pickups{margin-top:0;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);overflow:hidden}
 .portal-schedule-ops-rental-pickups-hdr{padding:12px 16px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text);border-bottom:1px solid var(--border-soft);background:rgba(255,255,255,.04);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .portal-schedule-ops-rental-pickups-title{flex:1 1 auto;min-width:0}
 .portal-schedule-ops-rental-pickups-tools{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex:0 1 auto;flex-wrap:wrap;margin-left:auto}
@@ -17127,7 +17127,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .portal-schedule-legend i{width:8px;height:8px;border-radius:50%;display:inline-block}
 .portal-schedule-legend i.is-staff{background:#2F6B4F}
 .portal-schedule-legend i.is-luna{background:#4A7BA6}
-.portal-schedule-timeline{position:relative;display:flex;flex-direction:column;gap:14px}
+.portal-schedule-timeline{position:relative;display:flex;flex-direction:column;gap:var(--ps-stack-gap,16px)}
 .portal-schedule-timeline::before{content:'';position:absolute;left:81px;top:10px;bottom:10px;width:2px;background:var(--border-soft);border-radius:2px}
 .portal-schedule-tl-item{display:grid;grid-template-columns:64px 14px minmax(0,1fr);gap:0 10px;align-items:start;position:relative}
 .portal-schedule-tl-time{padding-top:13px;text-align:right;display:flex;flex-direction:column;line-height:1.3}

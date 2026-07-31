@@ -338,7 +338,7 @@ assert('ops has no attachSessionCapacity', !opsSrc.includes('attachSessionCapaci
 assert('layout toggle Timeline/Cards present', modSrc.includes("'Timeline'") && modSrc.includes("'Cards'"));
 assert('layout seg class', modSrc.includes('ck-seg--layout'));
 assert('layout handler wires scheduleSetDayOpsLayoutMode', modSrc.includes('scheduleSetDayOpsLayoutMode'));
-assert('cockpit host margin-bottom 26px', modSrc.includes('margin:0 0 26px'));
+assert('cockpit host margin-bottom 16px (matches stack gap)', modSrc.includes('margin:0 0 16px'));
 assert('CSS uses exact --ck-surface #f7f5ef', modSrc.includes('--ck-surface:#f7f5ef') || modSrc.includes('--ck-surface: #f7f5ef'));
 assert('CSS uses exact --ck-olive #6b7a5e', modSrc.includes('--ck-olive:#6b7a5e') || modSrc.includes('--ck-olive: #6b7a5e'));
 assert('CSS uses exact --ck-now-bg #22301f', modSrc.includes('--ck-now-bg:#22301f') || modSrc.includes('--ck-now-bg: #22301f'));

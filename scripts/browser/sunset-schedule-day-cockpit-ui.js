@@ -761,7 +761,7 @@ function scheduleEnsureDayCockpitCss() {
   style.id = 'ps-day-cockpit-css';
   style.type = 'text/css';
   style.appendChild(document.createTextNode(
-    '.ps-day-cockpit-host{margin:0 0 26px;min-width:0;}' +
+    '.ps-day-cockpit-host{margin:0 0 16px;min-width:0;}' +
     SCHEDULE_DAY_COCKPIT_CSS
   ));
   document.head.appendChild(style);
