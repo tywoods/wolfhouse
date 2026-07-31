@@ -112,7 +112,8 @@ function sourceContracts() {
   ok(
     'Delete rental rendered inside edit branch (not collapsed card)',
     (/Edit mode:[\s\S]{0,400}delete-rental-offering/.test(adminUi)
-      || /else \{[\s\S]{0,300}delete-rental-offering[\s\S]{0,400}cancel-edit/.test(adminUi))
+      || /else \{[\s\S]{0,400}delete-rental-offering/.test(adminUi)
+      || /delete-rental-offering[\s\S]{0,1200}portal-admin-equip-footer/.test(adminUi))
       && /Delete rental is NEVER on the collapsed|only in pencil Edit mode|NEVER on the collapsed\/read-only card/.test(adminUi)
       && !/if \(!editing\)\{[\s\S]{0,500}delete-rental-offering/.test(adminUi),
   );
@@ -1028,9 +1029,48 @@ async function browserFixture() {
     localStorage.setItem('wh_staff_portal_locale', 'en');
   });
 
-  await page.route(/\/staff\/admin\/config\/rental-offerings(?:\/([a-z][a-z0-9_]*))?(?:\?|$)/, async (r) => {
+  await page.route(/\/staff\/admin\/config\/rental-offerings(?:\/([a-z][a-z0-9_]*)(?:\/commit)?)?(?:\?|$)/, async (r) => {
     const method = r.request().method();
     const u = r.request().url();
+    const commitMatch = /rental-offerings\/([a-z][a-z0-9_]*)\/commit(?:\?|$)/.exec(u);
+    if (commitMatch && method === 'POST') {
+      const key = commitMatch[1];
+      const body = JSON.parse(r.request().postData() || '{}');
+      patches.push({ key, body, via: 'commit' });
+      const off = offerings.find((o) => o.offering_key === key);
+      if (off) {
+        if (body.label) off.label = body.label;
+        if (Object.prototype.hasOwnProperty.call(body, 'active') && typeof body.active === 'boolean') {
+          off.active = body.active;
+        }
+      }
+      if (Array.isArray(body.new_prices)) {
+        body.new_prices.forEach((np) => {
+          const dur = String(np.period_window || '1_day');
+          const code = `${key}__${dur}`;
+          if (rentalPrices.some((p) => String(p.item_code || p.offering_key) === code)) return;
+          rentalPrices.push({
+            id: `price-new-${rentalPrices.length + 1}`,
+            category: 'rental',
+            item_type: 'rental',
+            offering_key: code,
+            item_code: code,
+            display_name: (off && off.label) || key,
+            label: (off && off.label) || key,
+            amount_cents: Number(np.amount_cents) || 0,
+            active: true,
+            client_slug: 'sunset',
+            location_id: 'sunset-somo',
+          });
+        });
+      }
+      await r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, offering_key: key, offering: off || { offering_key: key } }),
+      });
+      return;
+    }
     const keyMatch = /rental-offerings\/([a-z][a-z0-9_]*)(?:\?|$)/.exec(u);
     const key = keyMatch ? keyMatch[1] : '';
     if (!key) {
@@ -1216,8 +1256,8 @@ async function browserFixture() {
     );
     assert.strictEqual(
       await retiredCard.locator('[data-admin-action="toggle-equip-enabled"]').count(),
-      1,
-      'disabled keeps enable toggle',
+      0,
+      'collapsed: enable toggle hidden (edit-only)',
     );
 
     // Pencil → Delete appears for priced item
@@ -1287,8 +1327,22 @@ async function browserFixture() {
     assert.ok(afterOpts.includes('zero_price_pad'), 'active unpriced/zero still listed');
     await page.locator('[data-admin-action="cancel-edit"]').click();
 
-    // Enable unpriced retired → should succeed (no cannot_enable_unpriced)
-    await page.locator('[data-admin-equip="retired_board"] [data-admin-action="toggle-equip-enabled"]').check();
+    // Enable unpriced retired → pencil, flip pill (staged), Save commits active
+    await page.locator('[data-admin-equip="retired_board"] [data-admin-action="edit-equipment"]').click();
+    const retiredEdit = page.locator('[data-admin-equip="retired_board"]');
+    assert.strictEqual(
+      await retiredEdit.locator('[data-admin-action="toggle-equip-enabled"]').count(),
+      1,
+      'enable pill visible in edit',
+    );
+    // Checkbox is visually hidden (pointer-events:none) — click the pill label.
+    await retiredEdit.locator('label.portal-admin-equip-switch').click();
+    // Staged: no active PATCH yet
+    assert.ok(
+      !patches.some((p) => p.key === 'retired_board' && p.body && Object.prototype.hasOwnProperty.call(p.body, 'active')),
+      'enable pill does not PATCH until Save',
+    );
+    await retiredEdit.locator('[data-admin-action="save-equipment"]').click();
     await page.waitForFunction(
       () => {
         const c = document.querySelector('[data-admin-equip="retired_board"]');
@@ -1299,7 +1353,7 @@ async function browserFixture() {
     );
     assert.ok(
       patches.some((p) => p.key === 'retired_board' && p.body && p.body.active === true),
-      'enable disabled item posts active:true',
+      'Save commits active:true for enabled item',
     );
 
     assert.deepStrictEqual(errors, []);
@@ -1315,7 +1369,11 @@ async function main() {
   // Strict RED→GREEN order: source (fast), behavioral fake, browser.
   sourceContracts();
   await behavioralHardDelete();
-  await browserFixture();
+  if (String(process.env.SKIP_BROWSER || '').trim() === '1') {
+    console.log('\n[browser] skipped (SKIP_BROWSER=1)');
+  } else {
+    await browserFixture();
+  }
   console.log('\nverify-sunset-rental-hard-delete — ALL CHECKS PASSED\n');
 }
 

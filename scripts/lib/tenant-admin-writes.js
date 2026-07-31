@@ -21,6 +21,7 @@ const {
   validateRentalOfferingBody,
   assertRentalDisplayNameAvailable,
   rowToOffering,
+  setRentalOfferingActive,
 } = require('./tenant-rental-offerings');
 const { parseRentalDurationKey } = require('../browser/sunset-rental-duration-model');
 
@@ -938,7 +939,7 @@ async function loadRentalPricesForShortParity(client, { clientSlug, locationId, 
   }));
 }
 
-async function createRentalPriceRule(client, { clientSlug, locationId, patch, actor }) {
+async function createRentalPriceRule(client, { clientSlug, locationId, patch, actor, skipTransaction }) {
   const tablesExist = await adminConfigTablesExist(client);
   if (!tablesExist) {
     return { ok: false, status: 503, body: { success: false, error: 'admin_db_tables_missing' } };
@@ -971,6 +972,7 @@ async function createRentalPriceRule(client, { clientSlug, locationId, patch, ac
     actor,
     forceItemCode: itemCode,
     forceDbUnit: dbUnit,
+    skipTransaction: skipTransaction === true,
   });
 }
 
@@ -1328,13 +1330,13 @@ async function upsertConfigPriceRule(client, {
     };
   } catch (err) {
     if (ownTx) {
-      try { await client.query('ROLLBACK'); } catch (_) { /* ignore */ }
+      try { if (ownTx) await client.query('ROLLBACK'); } catch (_) { /* ignore */ }
     }
     throw err;
   }
 }
 
-async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, actor }) {
+async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, actor, skipTransaction }) {
   const tablesExist = await adminConfigTablesExist(client);
   const parsedCfg = locationStore.parseConfigPriceId(ruleId);
   const reqLoc = normalizeSunsetLocationId(locationId);
@@ -1354,6 +1356,7 @@ async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, a
         unit: parsedCfg.unit,
         patch,
         actor,
+        skipTransaction: skipTransaction === true,
       });
     }
     const result = locationStore.patchConfigPrice(
@@ -1378,13 +1381,14 @@ async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, a
   }
 
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
-  await client.query('BEGIN');
+  const ownTx = skipTransaction !== true;
+  if (ownTx) await client.query('BEGIN');
   try {
     const existing = await findPriceRuleRow(client, {
       clientSlug, locationId: reqLoc, ruleId, hasLoc,
     });
     if (!existing.rows[0]) {
-      await client.query('ROLLBACK');
+      if (ownTx) await client.query('ROLLBACK');
       return { ok: false, status: 404, body: { success: false, error: 'not_found' } };
     }
     const before = existing.rows[0];
@@ -2093,6 +2097,236 @@ async function createRentalCatalogItem(client, {
   }
 }
 
+
+/**
+ * Atomic equipment item Save: meta + active + duration patches + optional new durations.
+ * Single BEGIN/COMMIT. New durations upsert by item_code so a lost-response retry
+ * cannot create a second row for the same offering+period.
+ * Callers must NOT wrap this in an outer transaction.
+ */
+async function commitRentalEquipmentEdit(client, {
+  clientSlug,
+  locationId,
+  offering_key,
+  label,
+  stock_quantity,
+  active,
+  prices = [],
+  new_prices = [],
+  actor = {},
+} = {}) {
+  const slug = String(clientSlug || '').trim();
+  const key = String(offering_key || '').trim();
+  if (!slug || !key) {
+    return { ok: false, status: 400, body: { success: false, error: 'clientSlug and offering_key are required' } };
+  }
+  const loc = locationId == null || locationId === ''
+    ? null
+    : normalizeSunsetLocationId(locationId);
+
+  let metaLabel;
+  if (label !== undefined && label !== null) {
+    metaLabel = String(label || '').trim();
+    if (!metaLabel) {
+      return { ok: false, status: 400, body: { success: false, error: 'equipment name required' } };
+    }
+  }
+  const stockProvided = stock_quantity !== undefined;
+
+  if (active !== undefined && active !== null && active !== true && active !== false) {
+    return { ok: false, status: 400, body: { success: false, error: 'active must be a boolean' } };
+  }
+
+  const priceList = Array.isArray(prices) ? prices : [];
+  const newList = Array.isArray(new_prices) ? new_prices : [];
+  const validatedPatches = [];
+  for (const raw of priceList) {
+    if (!raw || typeof raw !== 'object') {
+      return { ok: false, status: 400, body: { success: false, error: 'invalid price row' } };
+    }
+    const ruleId = String(raw.id || raw.rule_id || raw.price_id || '').trim();
+    if (!ruleId) {
+      return { ok: false, status: 400, body: { success: false, error: 'price id required' } };
+    }
+    const body = {};
+    if (raw.amount_cents != null) body.amount_cents = raw.amount_cents;
+    if (raw.period_window != null) body.period_window = raw.period_window;
+    const pv = validatePricePatchBody(body);
+    if (!pv.ok) return { ok: false, status: 400, body: { success: false, error: pv.error } };
+    validatedPatches.push({ ruleId, patch: pv.patch });
+  }
+  const validatedNew = [];
+  const seenNew = new Set();
+  for (const raw of newList) {
+    const pv = validatePriceCreateBody({
+      offering_key: key,
+      period_window: raw && raw.period_window,
+      amount_cents: raw && raw.amount_cents,
+      currency: raw && raw.currency,
+    });
+    if (!pv.ok) return { ok: false, status: 400, body: { success: false, error: pv.error } };
+    if (seenNew.has(pv.patch.period_window)) {
+      return { ok: false, status: 400, body: { success: false, error: 'duplicate duration identity' } };
+    }
+    seenNew.add(pv.patch.period_window);
+    validatedNew.push(pv.patch);
+  }
+
+  await client.query('BEGIN');
+  try {
+    const findVals = [slug, key];
+    let locClause = 'location_id IS NULL';
+    if (loc != null) {
+      findVals.push(loc);
+      locClause = `location_id = $${findVals.length}`;
+    }
+    const found = await client.query(
+      // MULTICLIENT_SCOPE_OK: client_slug + offering_key + location
+      `SELECT id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, active
+         FROM tenant_rental_offerings
+        WHERE client_slug = $1 AND offering_key = $2 AND ${locClause}
+        ORDER BY active DESC, updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+        LIMIT 1`,
+      findVals,
+    );
+    if (!found.rows.length) {
+      await client.query('ROLLBACK');
+      return { ok: false, status: 404, body: { success: false, error: 'rental item not found' } };
+    }
+    const offeringRow = found.rows[0];
+
+    const sets = [];
+    const vals = [];
+    const push = (frag, val) => {
+      vals.push(val);
+      sets.push(frag.replace('$$', `$${vals.length}`));
+    };
+    if (metaLabel !== undefined) {
+      const nameOk = await assertRentalDisplayNameAvailable(client, {
+        clientSlug: slug,
+        locationId: loc,
+        label: metaLabel,
+        excludeOfferingKey: key,
+      });
+      if (!nameOk.ok) {
+        await client.query('ROLLBACK');
+        return {
+          ok: false,
+          status: nameOk.error === 'rental_name_already_exists' ? 409 : 400,
+          body: { success: false, error: nameOk.error || 'name unavailable' },
+        };
+      }
+      push('label = $$', metaLabel);
+    }
+    if (stockProvided) {
+      if (stock_quantity === null || stock_quantity === '') {
+        push('stock_quantity = $$', null);
+      } else {
+        const n = Number(stock_quantity);
+        if (!Number.isInteger(n) || n < 0 || n > 999) {
+          await client.query('ROLLBACK');
+          return { ok: false, status: 400, body: { success: false, error: 'stock must be 0–999 or blank' } };
+        }
+        push('stock_quantity = $$', n);
+      }
+    }
+    if (actor && actor.staff_user_id) push('updated_by = $$', actor.staff_user_id);
+    if (sets.length) {
+      vals.push(offeringRow.id);
+      const upd = await client.query(
+        `UPDATE tenant_rental_offerings SET ${sets.join(', ')} WHERE id = $${vals.length}
+         RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, active`,
+        vals,
+      );
+      if (!upd.rows.length) {
+        await client.query('ROLLBACK');
+        return { ok: false, status: 404, body: { success: false, error: 'rental item not found' } };
+      }
+    }
+
+    if (active === true || active === false) {
+      const act = await setRentalOfferingActive(client, {
+        clientSlug: slug,
+        locationId: loc,
+        offering_key: key,
+        active,
+        actorId: actor.staff_user_id || null,
+      });
+      if (!act.ok) {
+        await client.query('ROLLBACK');
+        return {
+          ok: false,
+          status: 400,
+          body: { success: false, error: act.error || 'cannot update active' },
+        };
+      }
+    }
+
+    for (const row of validatedPatches) {
+      const pr = await patchPriceRule(client, {
+        ruleId: row.ruleId,
+        clientSlug: slug,
+        locationId: loc,
+        patch: row.patch,
+        actor,
+        skipTransaction: true,
+      });
+      if (!pr.ok) {
+        await client.query('ROLLBACK');
+        return pr;
+      }
+      const after = pr.body && (pr.body.price_rule || pr.body.price || pr.body.rule || pr.body);
+      const code = after && (after.item_code || after.itemCode);
+      if (code) {
+        const head = String(code).split('__')[0];
+        if (head && head !== key) {
+          await client.query('ROLLBACK');
+          return {
+            ok: false,
+            status: 403,
+            body: { success: false, error: 'price does not belong to this rental item' },
+          };
+        }
+      }
+    }
+
+    const created = [];
+    for (const np of validatedNew) {
+      const cr = await createRentalPriceRule(client, {
+        clientSlug: slug,
+        locationId: loc,
+        patch: np,
+        actor,
+        skipTransaction: true,
+      });
+      if (!cr.ok) {
+        await client.query('ROLLBACK');
+        return cr;
+      }
+      created.push(cr.body || cr);
+    }
+
+    await client.query('COMMIT');
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        offering_key: key,
+        new_prices: created.length,
+        prices_updated: validatedPatches.length,
+      },
+    };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) { /* ignore */ }
+    if (/rental_name_already_exists/i.test(String(err && err.message))) {
+      return { ok: false, status: 409, body: { success: false, error: 'rental_name_already_exists' } };
+    }
+    throw err;
+  }
+}
+
+
 module.exports = {
   SUNSET_ADMIN_CLIENT,
   ADMIN_WRITE_MIN_ROLE,
@@ -2114,6 +2348,7 @@ module.exports = {
   validatePriceCreateBody,
   createRentalPriceRule,
   createRentalCatalogItem,
+  commitRentalEquipmentEdit,
   putFullDayEquipmentAddonRule,
   FULL_DAY_EQUIPMENT_ADDON_ITEM_CODE,
   FULL_DAY_EQUIPMENT_ADDON_OFFERING_KEY,

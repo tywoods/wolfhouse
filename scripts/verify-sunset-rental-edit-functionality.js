@@ -47,6 +47,7 @@ const listen = (s) =>
 function sourceContracts() {
   const adminUi = read('scripts/browser/sunset-admin-ui.js');
   const offeringsSrc = read('scripts/lib/tenant-rental-offerings.js');
+  const writesSrc = read('scripts/lib/tenant-admin-writes.js');
   const apiSrc = read('scripts/staff-query-api.js');
   const en = read('scripts/lib/staff-portal-i18n.js');
   const es = read('scripts/lib/staff-portal-i18n-es-sunset.js');
@@ -70,10 +71,24 @@ function sourceContracts() {
       && /var editing = writes && \(adminEditTarget === \('equip:' \+ key\) \|\| adding\);/.test(equipRender),
   );
   ok(
-    'Delete rental + Done rendered when editing OR nested adding',
+    'Delete rental + Cancel (footer) when editing OR nested adding',
     /delete-rental-offering/.test(equipRender)
       && /cancel-edit/.test(equipRender)
-      && /if \(!editing\)\{[\s\S]*?\} else \{[\s\S]*?delete-rental-offering[\s\S]*?cancel-edit/.test(equipRender),
+      && /save-equipment/.test(equipRender)
+      && /if \(!editing\)\{[\s\S]*?\} else \{[\s\S]*?delete-rental-offering/.test(equipRender)
+      && /portal-admin-equip-footer[\s\S]*?cancel-edit/.test(equipRender),
+  );
+  ok(
+    'single item Save (save-equipment) — no per-card save-price-amount in equip render',
+    /save-equipment/.test(equipRender)
+      && !/save-price-amount/.test(equipRender)
+      && !/save-equip-meta/.test(equipRender),
+  );
+  ok(
+    'enabled pill only while editing',
+    /portal-admin-equip-switch/.test(equipRender)
+      && /if \(editing\)\{[\s\S]*?toggle-equip-enabled/.test(equipRender)
+      && !/if \(writes\)\{\s*html \+= '<label class=\\"portal-admin-equip-enabled/.test(equipRender),
   );
   ok(
     'New time + price action only in item edit (not collapsed)',
@@ -91,10 +106,30 @@ function sourceContracts() {
     /if \(adding\) html \+= renderAdminAddEquipPriceForm\(key\);/.test(equipRender),
   );
   ok(
-    'save-new-price reloads without page.reload and keeps edit context',
-    /save-new-price[\s\S]{0,2500}adminReloadConfigKeepingEdit\(/.test(adminUi)
-      && !/save-new-price[\s\S]{0,2500}location\.reload\s*\(/.test(adminUi)
-      && !/save-new-price[\s\S]{0,2500}(?<![\w.])page\.reload\s*\(/.test(adminUi),
+    'save-equipment posts atomic /commit (no multi-request client chain)',
+    /if \(action === 'save-equipment'\)\{[\s\S]{0,5000}\/commit/.test(adminUi)
+      && /if \(action === 'save-equipment'\)\{[\s\S]{0,5000}adminReloadConfig\(/.test(adminUi)
+      && !/if \(action === 'save-equipment'\)\{[\s\S]{0,5000}Promise\.all/.test(adminUi)
+      && !/if \(action === 'save-equipment'\)\{[\s\S]{0,5000}location\.reload\s*\(/.test(adminUi),
+  );
+  ok(
+    'server commitRentalEquipmentEdit is transactional',
+    /async function commitRentalEquipmentEdit/.test(writesSrc)
+      && /async function commitRentalEquipmentEdit[\s\S]{0,6000}BEGIN/.test(writesSrc)
+      && /async function commitRentalEquipmentEdit[\s\S]{0,12000}COMMIT/.test(writesSrc)
+      && /async function commitRentalEquipmentEdit[\s\S]{0,12000}ROLLBACK/.test(writesSrc),
+  );
+  ok(
+    'API exposes POST rental-offerings/:key/commit',
+    /handleAdminConfigRentalOfferingCommit/.test(apiSrc)
+      && apiSrc.includes('/commit')
+      && /rental-offerings/.test(apiSrc),
+  );
+  ok(
+    'enable toggle is staged until save (no immediate PATCH active)',
+    /Staged UI only/.test(adminUi)
+      && /data-equip-active-draft/.test(adminUi)
+      && !/if \(action === 'toggle-equip-enabled'\)\{[\s\S]{0,900}adminApiRequest/.test(adminUi),
   );
   ok(
     'duplicate name error mapped for save-new-equipment (no price side effect path)',
@@ -824,9 +859,57 @@ async function browserFixture() {
     localStorage.setItem('wh_staff_portal_locale', 'en');
   });
 
-  await page.route(/\/staff\/admin\/config\/rental-offerings(?:\/([a-z][a-z0-9_]*))?(?:\?|$)/, async (r) => {
+  await page.route(/\/staff\/admin\/config\/rental-offerings(?:\/([a-z][a-z0-9_]*)(?:\/commit)?)?(?:\?|$)/, async (r) => {
     const method = r.request().method();
     const u = r.request().url();
+    const commitMatch = /rental-offerings\/([a-z][a-z0-9_]*)\/commit(?:\?|$)/.exec(u);
+    if (commitMatch && method === 'POST') {
+      const key = commitMatch[1];
+      const body = JSON.parse(r.request().postData() || '{}');
+      const off = offerings.find((o) => o.offering_key === key);
+      if (off) {
+        if (body.label) off.label = body.label;
+        if (Object.prototype.hasOwnProperty.call(body, 'active') && typeof body.active === 'boolean') {
+          off.active = body.active;
+        }
+      }
+      if (Array.isArray(body.prices)) {
+        body.prices.forEach((row) => {
+          const id = String(row.id || '');
+          const hit = rentalPrices.find((p) => String(p.id) === id);
+          if (hit && row.amount_cents != null) hit.amount_cents = Number(row.amount_cents) || hit.amount_cents;
+        });
+      }
+      if (Array.isArray(body.new_prices)) {
+        body.new_prices.forEach((np) => {
+          const dur = String(np.period_window || '1_day');
+          const code = `${key}__${dur}`;
+          const exists = rentalPrices.some((p) => String(p.item_code || p.offering_key) === code);
+          if (exists) return; // idempotent retry
+          const label = (off && off.label) || key;
+          rentalPrices.push({
+            id: `price-new-${rentalPrices.length + 1}`,
+            category: 'rental',
+            item_type: 'rental',
+            offering_key: code,
+            item_code: code,
+            display_name: label,
+            label,
+            amount_cents: Number(np.amount_cents) || 0,
+            active: true,
+            client_slug: 'sunset',
+            location_id: 'sunset-somo',
+          });
+          pricePosts.push({ offering_key: key, period_window: dur, amount_cents: np.amount_cents, via: 'commit' });
+        });
+      }
+      await r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, offering_key: key }),
+      });
+      return;
+    }
     const keyMatch = /rental-offerings\/([a-z][a-z0-9_]*)(?:\?|$)/.exec(u);
     const key = keyMatch ? keyMatch[1] : '';
     if (!key) {
@@ -994,7 +1077,7 @@ async function browserFixture() {
     assert.strictEqual(
       await softEdit.locator('[data-admin-action="cancel-edit"]').count(),
       1,
-      'pencil: Done',
+      'pencil: Cancel/Save footer',
     );
     const newTimeBtn = softEdit.locator('[data-admin-action="add-equip-price"]');
     assert.strictEqual(await newTimeBtn.count(), 1, 'pencil: New time + price action');
@@ -1016,14 +1099,20 @@ async function browserFixture() {
       1,
       'nested add still shows Delete',
     );
-    // Header Done + form Cancel both use cancel-edit — at least one must remain available.
+    // Footer Cancel uses cancel-edit; form no longer has its own Cancel.
     assert.ok(
       (await softNested.locator('[data-admin-action="cancel-edit"]').count()) >= 1,
-      'nested add still shows Done/cancel',
+      'nested add still shows Cancel/Save',
     );
     assert.ok(
-      /done/i.test(await softNested.locator('.portal-admin-card-actions').innerText()),
-      'header Done remains while nested form open',
+      (await softNested.locator('[data-admin-action="save-equipment"]').count()) >= 1
+        && /cancel/i.test(await softNested.locator('.portal-admin-equip-footer').innerText()),
+      'footer Save + Cancel while nested form open',
+    );
+    assert.strictEqual(
+      await softNested.locator('[data-admin-action="toggle-equip-enabled"]').count(),
+      1,
+      'enabled pill visible in edit',
     );
     // New time + price hidden while already adding
     assert.strictEqual(
@@ -1032,12 +1121,12 @@ async function browserFixture() {
       'while adding: no second New time + price',
     );
 
-    // Save new duration → refresh without full reload
+    // Save new duration via single item Save (save-equipment) → refresh without full reload
     const configsBefore = configGets.length;
     await softNested.locator('#admin-new-price-count').fill('3');
     await softNested.locator('#admin-new-price-unit').selectOption('days');
     await softNested.locator('#admin-new-price-amount').fill('25');
-    await softNested.locator('[data-admin-action="save-new-price"]').click();
+    await softNested.locator('[data-admin-action="save-equipment"]').click();
     await page.waitForFunction(
       () => document.querySelectorAll('[data-admin-equip="softboard"] [data-admin-price-card]').length >= 2,
       null,
@@ -1045,10 +1134,12 @@ async function browserFixture() {
     );
     assert.ok(pricePosts.length >= 1, 'POST price created');
     assert.ok(configGets.length > configsBefore, 'config reloaded after add price');
-    assert.ok(
-      (await softNested.locator('[data-admin-action="delete-rental-offering"]').count()) === 1
-        || (await page.locator('[data-admin-equip="softboard"] [data-admin-action="delete-rental-offering"]').count()) === 1,
-      'still in item edit after save (or re-render keeps manageability)',
+    // Unified Save closes edit — re-open for further checks.
+    await page.locator('[data-admin-equip="softboard"] [data-admin-action="edit-equipment"]').click();
+    assert.strictEqual(
+      await page.locator('[data-admin-equip="softboard"] [data-admin-action="delete-rental-offering"]').count(),
+      1,
+      'item still editable after save',
     );
 
     // Amount overflow at narrow viewport: edit duration card; input right edge <= card right edge
@@ -1078,7 +1169,7 @@ async function browserFixture() {
     await page.setViewportSize({ width: 1280, height: 900 });
 
     // Disabled item supports nested New time + price
-    await page.locator('.portal-admin-card-actions [data-admin-action="cancel-edit"]').first().click().catch(() => {});
+    await page.locator('.portal-admin-equip-footer [data-admin-action="cancel-edit"]').first().click().catch(() => {});
     await retired.locator('[data-admin-action="edit-equipment"]').click();
     const retiredEdit = page.locator('[data-admin-equip="retired_board"]');
     assert.strictEqual(
@@ -1094,7 +1185,7 @@ async function browserFixture() {
       1,
       'disabled supports nested add form',
     );
-    await page.locator('[data-admin-equip="retired_board"] .portal-admin-card-actions [data-admin-action="cancel-edit"]').click();
+    await page.locator('[data-admin-equip="retired_board"] .portal-admin-equip-footer [data-admin-action="cancel-edit"]').click();
 
     // Duplicate name: create equipment with existing label; error visible; input preserved; no price post
     const pricePostsBefore = pricePosts.length;
@@ -1123,7 +1214,7 @@ async function browserFixture() {
 
     // Unpriced item supports pencil New time + price
     await page.locator('#admin-add-equip-form [data-admin-action="cancel-edit"]').click().catch(() => {});
-    await page.locator('.portal-admin-card-actions [data-admin-action="cancel-edit"]').first().click().catch(() => {});
+    await page.locator('.portal-admin-equip-footer [data-admin-action="cancel-edit"]').first().click().catch(() => {});
     await ghost.locator('[data-admin-action="edit-equipment"]').click();
     assert.strictEqual(
       await page.locator('[data-admin-equip="ghost_fins"] [data-admin-action="add-equip-price"]').count(),
@@ -1139,11 +1230,187 @@ async function browserFixture() {
   }
 }
 
+
+
+async function atomicCommitRetryRegression() {
+  console.log('\n[atomic-commit] lost-response retry must not duplicate duration\n');
+  const { commitRentalEquipmentEdit } = require('./lib/tenant-admin-writes');
+  let fail = 0;
+  function ok(label, cond, detail) {
+    if (cond) { console.log(`  PASS  ${label}`); return; }
+    console.error(`  FAIL  ${label}${detail ? ` — ${detail}` : ''}`);
+    fail += 1;
+  }
+
+  // Minimal SQL stub covering commitRentalEquipmentEdit paths.
+  const state = {
+    offering: {
+      id: 'off-1',
+      client_slug: 'sunset',
+      location_id: 'sunset-somo',
+      offering_key: 'softboard',
+      label: 'Softboard',
+      group_key: 'equipment',
+      excludes: [],
+      sort_order: 0,
+      stock_quantity: 5,
+      active: true,
+      tenant_id: 'sunset',
+    },
+    prices: [
+      {
+        id: 'price-1',
+        client_slug: 'sunset',
+        location_id: 'sunset-somo',
+        item_type: 'rental',
+        item_code: 'softboard__1_day',
+        display_name: 'Softboard',
+        currency: 'EUR',
+        amount_cents: 2000,
+        unit: 'day',
+        active: true,
+        tenant_id: 'sunset',
+      },
+    ],
+    begun: 0,
+    commits: 0,
+    rollbacks: 0,
+  };
+
+  const client = {
+    async query(sql, params = []) {
+      const q = String(sql || '').replace(/\s+/g, ' ').trim();
+      if (/^BEGIN$/i.test(q)) { state.begun += 1; return { rows: [] }; }
+      if (/^COMMIT$/i.test(q)) { state.commits += 1; return { rows: [] }; }
+      if (/^ROLLBACK$/i.test(q)) { state.rollbacks += 1; return { rows: [] }; }
+      if (/pg_advisory_xact_lock/i.test(q)) return { rows: [] };
+      if (/to_regclass/i.test(q)) return { rows: [{ reg: 'public.tenant_price_rules' }] };
+      if (/information_schema\.tables/i.test(q)) {
+        const names = Array.isArray(params[0]) ? params[0] : [
+          'tenant_price_rules', 'tenant_lesson_capacity_rules', 'tenant_lesson_time_rules', 'tenant_config_audit_log',
+        ];
+        return { rows: names.map((table_name) => ({ table_name })) };
+      }
+      if (/information_schema\.columns/i.test(q) || /column_name/i.test(q)) {
+        return { rows: [{ column_name: 'location_id' }] };
+      }
+      if (/FROM tenant_rental_offerings/i.test(q) && /SELECT/i.test(q)) {
+        // Name-uniqueness probe (not the primary key lookup)
+        if (/label/i.test(q) && !/ORDER BY active DESC/i.test(q)) {
+          return { rows: [] };
+        }
+        return { rows: [{ ...state.offering }] };
+      }
+      if (/UPDATE tenant_rental_offerings/i.test(q)) {
+        if (/SET active/i.test(q)) {
+          state.offering.active = params[0];
+          return { rows: [{ ...state.offering }] };
+        }
+        // label/stock
+        // params vary; apply label if string in params
+        for (const p of params) {
+          if (typeof p === 'string' && p && p !== 'softboard' && p !== 'off-1' && p.length < 80 && !/^[0-9a-f-]{36}$/i.test(p)) {
+            if (p !== 'sunset' && p !== 'sunset-somo') state.offering.label = p;
+          }
+          if (Number.isInteger(p)) state.offering.stock_quantity = p;
+        }
+        return { rows: [{ ...state.offering }] };
+      }
+      if (/FROM tenant_price_rules/i.test(q) && /SELECT/i.test(q)) {
+        if (/id = \$1/i.test(q) || /WHERE id/i.test(q)) {
+          const id = params[0];
+          const row = state.prices.find((r) => r.id === id);
+          return { rows: row ? [{ ...row }] : [] };
+        }
+        // find by item_code
+        const code = params.find((p) => typeof p === 'string' && p.includes('__'));
+        const row = state.prices.find((r) => r.item_code === code);
+        return { rows: row ? [{ ...row }] : [] };
+      }
+      if (/UPDATE tenant_price_rules/i.test(q)) {
+        const id = params[0];
+        const row = state.prices.find((r) => r.id === id);
+        if (!row) return { rows: [] };
+        // amount often in params
+        for (const p of params) {
+          if (Number.isInteger(p) && p > 100) row.amount_cents = p;
+        }
+        return { rows: [{ ...row }] };
+      }
+      if (/INSERT INTO tenant_price_rules/i.test(q)) {
+        const code = params.find((p) => typeof p === 'string' && String(p).includes('__'));
+        const existing = state.prices.find((r) => r.item_code === code);
+        if (existing) {
+          // upsert semantics: update amount
+          const cents = params.find((p) => Number.isInteger(p) && p >= 0 && p < 1000000);
+          if (cents != null) existing.amount_cents = cents;
+          return { rows: [{ ...existing }] };
+        }
+        const cents = params.find((p) => Number.isInteger(p) && p >= 0 && p < 1000000) || 0;
+        const row = {
+          id: 'price-' + (state.prices.length + 1),
+          client_slug: 'sunset',
+          location_id: 'sunset-somo',
+          item_type: 'rental',
+          item_code: code || 'softboard__3_days',
+          display_name: 'Softboard',
+          currency: 'EUR',
+          amount_cents: cents,
+          unit: 'day',
+          active: true,
+          tenant_id: 'sunset',
+        };
+        state.prices.push(row);
+        return { rows: [{ ...row }] };
+      }
+      if (/INSERT INTO tenant_config_audit/i.test(q) || /tenant_config_audit_log/i.test(q)) {
+        return { rows: [] };
+      }
+      // default empty
+      return { rows: [] };
+    },
+  };
+
+  const body = {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    offering_key: 'softboard',
+    label: 'Softboard',
+    stock_quantity: 5,
+    active: true,
+    prices: [{ id: 'price-1', amount_cents: 2200, period_window: '1_day' }],
+    new_prices: [{ period_window: '3_days', amount_cents: 4500 }],
+    actor: { staff_user_id: null, email: 'test@example.com' },
+  };
+
+  const first = await commitRentalEquipmentEdit(client, body);
+  ok('first commit ok', !!(first && first.ok), JSON.stringify(first && first.body));
+  const afterFirst = state.prices.filter((p) => p.item_code === 'softboard__3_days').length;
+  ok('first commit created one 3_days row', afterFirst === 1, String(afterFirst));
+  ok('first commit used txn', state.commits >= 1);
+
+  // Simulate lost response: staff retries identical Save.
+  const second = await commitRentalEquipmentEdit(client, body);
+  ok('retry commit ok (idempotent)', !!(second && second.ok), JSON.stringify(second && second.body));
+  const afterSecond = state.prices.filter((p) => p.item_code === 'softboard__3_days').length;
+  ok('retry did not duplicate 3_days duration', afterSecond === 1, String(afterSecond));
+  ok('price-1 amount updated', state.prices.find((p) => p.id === 'price-1').amount_cents === 2200);
+
+  if (fail) throw new Error(`atomic commit regression failed: ${fail}`);
+  console.log('  atomic commit regression OK');
+}
+
+
 async function main() {
   console.log('verify-sunset-rental-edit-functionality');
   sourceContracts();
   await behavioralDb();
-  await browserFixture();
+  await atomicCommitRetryRegression();
+  if (String(process.env.SKIP_BROWSER || '').trim() === '1') {
+    console.log('\n[browser] skipped (SKIP_BROWSER=1)');
+  } else {
+    await browserFixture();
+  }
   console.log('\nALL PASS');
 }
 

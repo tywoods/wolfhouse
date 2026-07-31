@@ -373,6 +373,7 @@ const {
   validateLessonTimePatchBody,
   createRentalPriceRule,
   createRentalCatalogItem,
+  commitRentalEquipmentEdit,
   putFullDayEquipmentAddonRule,
   deactivatePriceRule,
   patchPriceRule,
@@ -16326,8 +16327,20 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-equipment-option-actions .btn{width:100%;justify-content:center;min-height:44px;margin:0}
 .portal-admin-touch{display:inline-flex;align-items:center;min-height:44px;margin-right:12px}
 .portal-admin-equip-header{align-items:flex-start}
-.portal-admin-equip-enabled{display:inline-flex;align-items:center;gap:6px;margin-top:4px;font-size:12px;font-weight:600;color:var(--text-2);cursor:pointer;user-select:none}
-.portal-admin-equip-enabled input{width:16px;height:16px;margin:0;accent-color:var(--sched-primary,#4E5853)}
+/* Rental equipment: enabled only in edit as pill switch */
+.portal-admin-equip-enabled-row{display:inline-flex;align-items:center;gap:10px;margin:0;min-height:28px}
+.portal-admin-equip-switch-caption{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--text-3)}
+.portal-admin-equip-switch{position:relative;display:inline-flex;align-items:center;justify-content:center;width:44px;min-width:44px;height:28px;min-height:28px;margin:0;cursor:pointer;user-select:none;line-height:0}
+.portal-admin-equip-switch input[type=checkbox]{position:absolute!important;opacity:0!important;width:1px!important;height:1px!important;margin:0!important;padding:0!important;border:0!important;appearance:none!important;-webkit-appearance:none!important;pointer-events:none}
+.portal-admin-equip-switch-slider{position:relative;display:block;width:42px;height:26px;border-radius:999px;background:var(--border-soft,#C9CFC8);transition:background .2s,box-shadow .2s;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}
+.portal-admin-equip-switch-slider:before{position:absolute;content:"";height:20px;width:20px;left:3px;top:3px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(68,80,74,.18)}
+.portal-admin-equip-switch input:checked + .portal-admin-equip-switch-slider{background:var(--sched-primary,#4E5853);box-shadow:none}
+.portal-admin-equip-switch input:checked + .portal-admin-equip-switch-slider:before{transform:translateX(16px)}
+.portal-admin-equip-switch input:focus-visible + .portal-admin-equip-switch-slider{outline:2px solid var(--sched-primary,#4E5853);outline-offset:2px}
+html[data-theme="dark"] .portal-admin-equip-switch-slider{background:rgba(255,255,255,.14);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+html[data-theme="dark"] .portal-admin-equip-switch-slider:before{background:#F4F1EA;box-shadow:0 1px 3px rgba(0,0,0,.35)}
+html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin-equip-switch-slider{background:var(--sched-primary,#4E5853)}
+.portal-admin-equip-meta-form{align-items:flex-end}
 .portal-admin-subsection.is-equip-disabled{opacity:.72}
 .portal-admin-subsection.is-equip-disabled .portal-admin-subsection-title{color:var(--text-2)}
 .portal-admin-equip-price-grid{gap:8px}
@@ -41242,6 +41255,65 @@ async function handleRentalStockAvailability(query, req, res, user, opts) {
   }
 }
 
+async function handleAdminConfigRentalOfferingCommit(offeringKey, query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({
+    user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole,
+  });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const loc = resolveRentalOfferingLocation(clientSlug, query);
+  if (!loc.ok) return sendJSON(res, 400, { success: false, error: loc.error });
+
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+  if (!body || typeof body !== 'object') return send400(res, 'invalid body');
+
+  try {
+    const result = await withPgClient(async (pg) => commitRentalEquipmentEdit(pg, {
+      clientSlug,
+      locationId: loc.locationId,
+      offering_key: offeringKey,
+      label: body.label,
+      stock_quantity: Object.prototype.hasOwnProperty.call(body, 'stock_quantity')
+        ? body.stock_quantity
+        : undefined,
+      active: Object.prototype.hasOwnProperty.call(body, 'active') ? body.active : undefined,
+      prices: Array.isArray(body.prices) ? body.prices : [],
+      new_prices: Array.isArray(body.new_prices) ? body.new_prices : [],
+      actor: {
+        staff_user_id: user && user.staff_user_id ? user.staff_user_id : null,
+        email: user && user.email ? user.email : 'unknown',
+      },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:admin.config.rental_offering_commit',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: !!(result && result.ok),
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    if (!result || !result.ok) {
+      const status = (result && result.status) || 400;
+      const bodyOut = (result && result.body) || { success: false, error: 'commit failed' };
+      return sendJSON(res, status, { ...bodyOut, elapsed_ms: Date.now() - started });
+    }
+    return sendJSON(res, result.status || 200, {
+      ...(result.body || { success: true }),
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    console.error('[admin.config.rental_offering_commit] failed:', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
+  }
+}
+
 async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -49201,6 +49273,13 @@ async function router(req, res) {
     if (!auth.ok) return;
     return handleAdminConfigRentalOfferingWrite('create', null, parsed.query, req, res, auth.user);
   }
+  const rentalCommitMatch = /^\/staff\/admin\/config\/rental-offerings\/([a-z][a-z0-9_]*)\/commit$/.exec(pathname);
+  if (rentalCommitMatch && method === 'POST') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigRentalOfferingCommit(rentalCommitMatch[1], parsed.query, req, res, auth.user);
+  }
+
   const rentalOfferingMatch = /^\/staff\/admin\/config\/rental-offerings\/([a-z][a-z0-9_]*)$/.exec(pathname);
   if (rentalOfferingMatch && (method === 'PATCH' || method === 'PUT')) {
     const auth = await requireAuth(req, res, 'admin');
