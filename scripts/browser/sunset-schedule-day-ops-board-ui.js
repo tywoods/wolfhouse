@@ -872,7 +872,7 @@ function scheduleRenderTimelineEmptySlot(session){
 
 function scheduleRenderTimelineItem(session, ctx){
   var done = !!(ctx.isToday && session.end != null && session.end <= ctx.nowMin);
-  var isEmpty = !session.surfers;
+  var isEmpty = !(session.groups && session.groups.length);
   var cls = 'portal-schedule-tl-item' + (done ? ' is-done' : '') + (isEmpty ? ' is-empty' : '');
   var startLabel = session.start != null ? scheduleMinutesLabel(session.start) : '';
   var endLabel = session.end != null ? scheduleMinutesLabel(session.end) : '';
@@ -882,6 +882,43 @@ function scheduleRenderTimelineItem(session, ctx){
   var body = isEmpty ? scheduleRenderTimelineEmptySlot(session) : scheduleRenderTimelineSession(session, done);
   return '<div class="' + cls + '">' + timeCol + '<span class="portal-schedule-tl-dot" aria-hidden="true"></span>' +
     '<div class="portal-schedule-tl-body">' + body + '</div></div>';
+}
+
+function scheduleAttachCancelledCourseGroups(sessions, ghostRows){
+  (sessions || []).forEach(function(session){
+    if (!session || session.kind !== 'course') return;
+    var courseId = String(session.course_id || '');
+    if (!courseId) return;
+    var courseRows = (ghostRows || []).filter(function(row){
+      return scheduleRowType(row) === 'course' && scheduleCourseKey(row) === courseId;
+    });
+    if (!courseRows.length) return;
+    // Mirror scheduleCourseAggregates: one exact booking/course group per course,
+    // retaining same-booking equipment rows but excluding peer course rows.
+    var relatedRows = scheduleRowsForSameBookings(ghostRows || [], courseRows).filter(function(row){
+      if (scheduleRowType(row) !== 'course') return true;
+      return scheduleCourseKey(row) === courseId;
+    });
+    var groups = scheduleBuildDisplayGroups(relatedRows).filter(scheduleGroupHasCourse);
+    groups.forEach(function(group){
+      var courseRec = (group.records || []).find(function(row){
+        return scheduleRowType(row) === 'course' && scheduleCourseKey(row) === courseId;
+      });
+      if (!courseRec) return;
+      var courseMeta = scheduleRowCourseMeta(courseRec);
+      group.course_id = courseRec.course_id || courseMeta.course_id || courseId;
+      group.course_label = scheduleResolveCourseDisplayLabel(
+        group.course_id,
+        courseRec.course_label || courseMeta.course_label || group.course_label,
+      );
+      var qty = courseRec.quantity != null ? Number(courseRec.quantity) : 1;
+      if (Number.isFinite(qty) && qty >= 1) group.quantity = qty;
+      group._isCancelled = true;
+      group.schedule_ghost = true;
+      session.groups = (session.groups || []).concat([group]);
+    });
+  });
+  return sessions;
 }
 
 function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
@@ -898,30 +935,7 @@ function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
     html += '<div class="portal-schedule-ops-fallback">' + escHtml(portalT('schedule.courses.noneConfigured')) + '</div>';
   }
   var sessions = scheduleBuildDaySessions(activeRows, dateIso, lessonTimes);
-  if (ghostRows.length){
-    var ghostGroups = scheduleBuildDisplayGroups(ghostRows).map(function(g){
-      g._isCancelled = true;
-      g.schedule_ghost = true;
-      return g;
-    });
-    if (ghostGroups.length){
-      sessions.push({
-        kind: 'cancelled',
-        label: portalT('schedule.status.cancelled'),
-        slot_key: 'cancelled-ghosts',
-        timeLabel: '',
-        start: null,
-        end: null,
-        capacity: null,
-        surfers: 0,
-        bookings: ghostGroups.length,
-        groups: ghostGroups,
-        boardsNeeded: 0,
-        wetsuitsNeeded: 0,
-        _isCancelled: true,
-      });
-    }
-  }
+  scheduleAttachCancelledCourseGroups(sessions, ghostRows);
   var isToday = dateIso === scheduleTodayIso();
   var now = new Date();
   var nowMin = now.getHours() * 60 + now.getMinutes();
