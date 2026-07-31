@@ -837,9 +837,9 @@ function scheduleRenderTimelineSession(session, done){
   var hdrLabel = session.kind === 'private_lesson' ? (session.sectionLabel || session.label) : session.label;
   var hdrTime = session.kind === 'private_lesson' ? session.timeLabel : session.timeLabel;
   var panelId = scheduleOpsGuestPanelId(session);
-  // Reuse timeline `done` (today + end <= nowMin): past populated sessions start with
-  // the guest/booking panel collapsed. Course card/header always stays visible.
-  var guestExpanded = !done;
+  // Reuse timeline `done` (today + end <= nowMin): past populated courses start with
+  // the guest/booking panel collapsed. Private/other sessions stay expanded.
+  var guestExpanded = session.kind !== 'course' || !done;
   var html = '<section class="' + groupCls + '">' +
     scheduleRenderOpsGroupHeader(hdrLabel, hdrTime, stats, session.boardsNeeded || 0, session.wetsuitsNeeded || 0,
       {
