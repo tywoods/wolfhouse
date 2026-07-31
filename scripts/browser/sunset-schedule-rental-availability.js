@@ -18,8 +18,8 @@ var SCHEDULE_FULL_DAY_EQUIPMENT_OFFERING = 'full_day_equipment_extension';
 
 // A price-cache row is a generic (non-canonical) rentable offering when it is
 // item_type/category 'rental' and not the full-day add-on. Data-driven so admin
-// catalog offerings (e.g. kayak_rental) appear without a code change. The server
-// GENERIC_RENTAL_CREATE_ENABLED flag remains the authority on submit.
+// catalog offerings (e.g. kayak_rental) appear without a code change. Submit
+// authority is active catalog membership + price + stock (no env toggle).
 function scheduleIsGenericRentalOffering(price, offeringKey) {
   var key = String(offeringKey || '').trim();
   if (!key || SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(key) >= 0) return false;
@@ -545,18 +545,16 @@ function scheduleRentalOfferingsMode(activeOfferings) {
   return 'all_three';
 }
 
+/**
+ * Toggle one rental selection. Every exact offering_key is independent —
+ * no hidden board_and_suit vs board/wetsuit exclusion for future selection.
+ */
 function scheduleApplyRentalMutualExclusion(selectedKeys, toggledKey, checked) {
   var next = {};
   (selectedKeys || []).forEach(function(k) { next[k] = true; });
   var key = String(toggledKey || '');
   if (checked) {
     next[key] = true;
-    if (key === 'board_and_suit_rental') {
-      delete next.board_rental;
-      delete next.wetsuit_rental;
-    } else if (key === 'board_rental' || key === 'wetsuit_rental') {
-      delete next.board_and_suit_rental;
-    }
   } else {
     delete next[key];
   }
@@ -566,10 +564,11 @@ function scheduleApplyRentalMutualExclusion(selectedKeys, toggledKey, checked) {
 function scheduleSerializeRentalsSelection(selection, durationKey, opts) {
   var dur = String(durationKey || '').trim();
   var options = opts || {};
-  var expandCombinedShort = options.expandCombinedShort === true
-    && scheduleIsShortRentalDurationKey(dur);
+  // Slice B: board_and_suit_rental is an ordinary exact offering — never expand
+  // into board_rental + wetsuit_rental components on future writes.
   // Allowlist of known generic catalog offering_keys the drawer rendered. Only
   // these pass through; unknown non-canonical keys are dropped (fail-closed).
+  // board_and_suit is always allowlisted as exact offering (not genericAllow gated).
   var genericAllow = {};
   var allowList = Array.isArray(options.genericOfferingKeys) ? options.genericOfferingKeys : [];
   for (var gi = 0; gi < allowList.length; gi++) {
@@ -578,10 +577,6 @@ function scheduleSerializeRentalsSelection(selection, durationKey, opts) {
   }
   var rentals = [];
   var list = Array.isArray(selection) ? selection : [];
-  var hasBoard = false;
-  var hasSuit = false;
-  var hasBundle = false;
-  var bundleQty = null;
   for (var i = 0; i < list.length; i++) {
     var row = list[i];
     if (!row || !row.offering_key) continue;
@@ -592,34 +587,23 @@ function scheduleSerializeRentalsSelection(selection, durationKey, opts) {
     if (!Number.isInteger(qty) || qty < 1 || qty > 99) continue;
     var key = row.offering_key;
     var rowDur = String(row.duration_key || dur).trim();
-    // Generic (non-canonical) catalog offerings pass through verbatim — no legacy
-    // board/wetsuit component expansion — but only when allowlisted by the drawer.
-    // Unknown keys are dropped; the server prices + persists the accepted ones.
+    // Exact offering-native: board_and_suit + custom catalog items pass through
+    // as their own offering_key. board/wetsuit remain independent keys.
+    if (key === 'board_and_suit_rental') {
+      rentals.push({ offering_key: key, duration_key: rowDur, quantity: qty });
+      continue;
+    }
     if (SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(key) < 0) {
       if (key !== SCHEDULE_FULL_DAY_EQUIPMENT_OFFERING && genericAllow[key]) {
         rentals.push({ offering_key: key, duration_key: rowDur, quantity: qty });
       }
       continue;
     }
-    if (expandCombinedShort && key === 'board_and_suit_rental' && scheduleIsShortRentalDurationKey(rowDur)) {
-      hasBundle = true;
-      bundleQty = qty;
-      continue;
-    }
-    if (key === 'board_rental') hasBoard = true;
-    if (key === 'wetsuit_rental') hasSuit = true;
     rentals.push({
       offering_key: key,
       duration_key: rowDur,
       quantity: qty,
     });
-  }
-  // No-lesson combined: one pebble controls both components — quote Surfboard + Wetsuit sum.
-  if (expandCombinedShort && hasBundle && !hasBoard && !hasSuit && bundleQty != null) {
-    rentals.push(
-      { offering_key: 'board_rental', duration_key: dur, quantity: bundleQty },
-      { offering_key: 'wetsuit_rental', duration_key: dur, quantity: bundleQty },
-    );
   }
   return rentals;
 }
@@ -629,16 +613,76 @@ function scheduleRentalsToLegacyComponents(rentals) {
   (rentals || []).forEach(function(r) {
     if (!r || !r.offering_key) return;
     var qty = parseInt(r.quantity, 10) || 1;
+    // board_and_suit is exact-offering future-write — no component halves.
+    // Historical read adapters still project dual components from service rows.
     if (r.offering_key === 'board_rental') {
       components.surfboard = { quantity: qty };
     } else if (r.offering_key === 'wetsuit_rental') {
       components.wetsuit = { quantity: qty };
-    } else if (r.offering_key === 'board_and_suit_rental') {
-      components.surfboard = { quantity: qty };
-      components.wetsuit = { quantity: qty };
     }
   });
   return components;
+}
+
+/**
+ * Stock availability helpers for Schedule Create/Edit (Slice B).
+ * Server is authority; browser values are advisory only.
+ */
+function scheduleFormatRentalStockLabel(item, translateFn) {
+  var t = typeof translateFn === 'function' ? translateFn : function(k, f) { return f || k; };
+  if (!item || item.not_configured || item.status === 'not_configured') {
+    return t('schedule.create.stockNotConfigured', 'Stock not configured');
+  }
+  var rem = item.remaining;
+  if (rem == null || !Number.isFinite(Number(rem))) {
+    return t('schedule.create.stockNotConfigured', 'Stock not configured');
+  }
+  rem = Math.floor(Number(rem));
+  if (rem <= 0 || item.sold_out || item.status === 'sold_out') {
+    return t('schedule.create.stockSoldOut', 'Sold out');
+  }
+  return t('schedule.create.stockAvailable', '{n} available').replace('{n}', String(rem));
+}
+
+function scheduleRentalQtyMaxFromStock(item) {
+  if (!item || item.not_configured || item.status === 'not_configured') return 0;
+  var rem = Number(item.remaining);
+  if (!Number.isFinite(rem) || rem <= 0) return 0;
+  return Math.min(99, Math.floor(rem));
+}
+
+function scheduleCanSubmitRentalStock(items) {
+  var list = Array.isArray(items) ? items : [];
+  for (var i = 0; i < list.length; i++) {
+    var it = list[i];
+    if (!it) continue;
+    if (it.not_configured || it.status === 'not_configured') return false;
+    if (it.sold_out || it.status === 'sold_out') return false;
+    if (it.ok === false) return false;
+    var rem = Number(it.remaining);
+    var req = Number(it.requested_quantity);
+    if (Number.isFinite(req) && Number.isFinite(rem) && req > rem) return false;
+  }
+  return true;
+}
+
+/** Build query for GET/POST stock availability endpoint. */
+function scheduleRentalStockRequestBody(opts) {
+  var o = opts || {};
+  var offerings = Array.isArray(o.offerings) ? o.offerings : [];
+  return {
+    date_from: String(o.dateFrom || o.date_from || '').slice(0, 10),
+    date_to: String(o.dateTo || o.date_to || o.dateFrom || o.date_from || '').slice(0, 10),
+    location_id: o.locationId || o.location_id || null,
+    exclude_booking_id: o.excludeBookingId || o.exclude_booking_id || null,
+    offerings: offerings.map(function(x) {
+      if (typeof x === 'string') return { offering_key: x, quantity: 1 };
+      return {
+        offering_key: String((x && x.offering_key) || '').trim(),
+        quantity: Math.max(1, parseInt((x && x.quantity), 10) || 1),
+      };
+    }).filter(function(x) { return x.offering_key; }),
+  };
 }
 
 if (typeof module !== 'undefined' && module.exports) {
@@ -673,5 +717,9 @@ if (typeof module !== 'undefined' && module.exports) {
     scheduleApplyRentalMutualExclusion: scheduleApplyRentalMutualExclusion,
     scheduleSerializeRentalsSelection: scheduleSerializeRentalsSelection,
     scheduleRentalsToLegacyComponents: scheduleRentalsToLegacyComponents,
+    scheduleFormatRentalStockLabel: scheduleFormatRentalStockLabel,
+    scheduleRentalQtyMaxFromStock: scheduleRentalQtyMaxFromStock,
+    scheduleCanSubmitRentalStock: scheduleCanSubmitRentalStock,
+    scheduleRentalStockRequestBody: scheduleRentalStockRequestBody,
   };
 }

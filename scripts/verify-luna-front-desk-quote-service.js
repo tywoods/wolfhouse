@@ -172,6 +172,40 @@ function makePg(opts = {}) {
     },
     query: async (sql, params) => {
       const s = String(sql);
+      // Slice B stock support: unlimited configured stock for offline create/quote gates.
+      if (/tenant_rental_offerings/i.test(s) && /stock_quantity/i.test(s)) {
+        const keys = Array.isArray(params) ? params.filter((p) => Array.isArray(p)).flat() : [];
+        const keyList = keys.length ? keys : (
+          Array.isArray(params) ? params.filter((p) => typeof p === 'string' && /_rental$/.test(p)) : []
+        );
+        const loc = Array.isArray(params) && params.length >= 2 && typeof params[1] === 'string' && !params[1].includes('_rental')
+          ? params[1] : 'sunset-somo';
+        const slug = Array.isArray(params) && params[0] ? params[0] : 'sunset';
+        const offeringKeys = keyList.length ? keyList : ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'];
+        const rows = offeringKeys.map((k, i) => ({
+          id: 'stock-' + k,
+          client_slug: slug,
+          location_id: loc === null || loc === undefined ? null : loc,
+          offering_key: k,
+          stock_quantity: 99,
+          active: true,
+        }));
+        // Single-key configured query (LIMIT 1)
+        if (/LIMIT 1/i.test(s) && !/FOR UPDATE/i.test(s)) {
+          const key = Array.isArray(params) ? params[params.length - 1] : null;
+          const hit = rows.find((r) => r.offering_key === key) || {
+            id: 'stock-' + key, client_slug: slug, location_id: loc,
+            offering_key: key, stock_quantity: 99, active: true,
+          };
+          return { rows: key ? [hit] : [], rowCount: key ? 1 : 0 };
+        }
+        return { rows, rowCount: rows.length };
+      }
+      if (/booking_service_records/i.test(s) && /offering_key/i.test(s) && /NOT IN \('cancelled'/i.test(s)) {
+        // Active reservations for stock — empty by default (no prior demand).
+        return { rows: [], rowCount: 0 };
+      }
+
       const isTxn = /^\s*(BEGIN|COMMIT|ROLLBACK)\b/i.test(s);
       const isDml = /\b(INSERT|UPDATE|DELETE)\b/i.test(s);
       if (isTxn || isDml) {
@@ -534,6 +568,7 @@ async function run() {
   function staffRentalBody(extra) {
     const body = {
       guest_name: 'Rental Guest',
+      guest_phone: '+34600111222',
       date_from: SATURDAY,
       date_to: SATURDAY,
       service_dates: [SATURDAY],
@@ -624,28 +659,48 @@ async function run() {
     JSON.stringify(separateQuote.body),
   );
 
-  // 5. Bundle plus constituent rejected
+  // 5. Bundle + board + wetsuit are independent exact offerings (simultaneous OK)
   const bundlePlusBoard = executeSunsetQuoteSync(
     buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
       rentals: [
         { offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 },
         { offering_key: 'board_rental', duration_key: '1_day', quantity: 1 },
+        { offering_key: 'wetsuit_rental', duration_key: '1_day', quantity: 1 },
       ],
       components: { surfboard: { quantity: 1 }, wetsuit: { quantity: 1 } },
     })).command,
     { adminCfg: somoRentalCfg },
   );
-  assert('5 bundle+constituent rejected', bundlePlusBoard.ok === false, JSON.stringify(bundlePlusBoard.body));
+  assert(
+    '5 combo+board+wetsuit simultaneous quote succeeds',
+    bundlePlusBoard.ok === true
+      && Number(bundlePlusBoard.body.total_cents) === BUNDLE_1D + BOARD_1D + WETSUIT_1D
+      && (bundlePlusBoard.body.line_items || []).length === 3,
+    JSON.stringify(bundlePlusBoard.body),
+  );
 
-  // 6. Invalid, duplicate, wrong-duration rejected
+  // 6. Unknown/malformed keys, duplicate, wrong-duration rejected
   const badKey = executeSunsetQuoteSync(
     buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
-      rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+      rentals: [{ offering_key: 'Not Valid Key!!', duration_key: '1_day', quantity: 1 }],
       components: { surfboard: { quantity: 1 } },
     })).command,
     { adminCfg: somoRentalCfg },
   );
-  assert('6a invalid offering_key rejected', badKey.ok === false);
+  assert('6a invalid offering_key shape rejected', badKey.ok === false);
+
+  // Unknown catalog key (valid shape, not in catalog/prices) fail-closed unpriced
+  const unknownCatalog = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert(
+    '6a2 unknown catalog key fails closed (price_missing / not active)',
+    unknownCatalog.ok === false,
+    JSON.stringify(unknownCatalog.body),
+  );
 
   const dup = executeSunsetQuoteSync(
     buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
@@ -1150,17 +1205,28 @@ async function run() {
       }).command);
     });
     const rows = serviceInserts(pg);
+    const metas = rows.map(metaOf);
+    const exact = rows.filter((r) => {
+      const m = metaOf(r);
+      return m && m.offering_key === 'board_and_suit_rental';
+    });
     const board = rows.filter((r) => r.params[4] === 'surfboard');
     const suit = rows.filter((r) => r.params[4] === 'wetsuit');
-    const metas = rows.map(metaOf);
     assert('L1 create ok', created.ok === true, JSON.stringify(created.body));
-    assert('L1 linked board+wetsuit rows', board.length >= 1 && suit.length >= 1, JSON.stringify(rows.map((r) => r.params[4])));
+    // Slice B: board_and_suit future write is one exact offering record (not dual components).
     assert(
-      'L1 shared bundle identity + bundle parts',
-      metas.every((m) => m.offering_key === 'board_and_suit_rental' && m.duration_key === '1_day' && m.quantity === 1)
-        && metas.some((m) => m.bundle_part === 'surfboard' || m.rental_pricing_role === 'surfboard')
-        && metas.some((m) => m.bundle_part === 'wetsuit' || m.rental_pricing_role === 'wetsuit')
-        && new Set(metas.map((m) => m.pricing_group_id || m.rental_bundle_id)).size === 1,
+      'L1 exact board_and_suit offering row (no component halves)',
+      exact.length >= 1 && board.length === 0 && suit.length === 0,
+      JSON.stringify({ types: rows.map((r) => r.params[4]), metas }),
+    );
+    assert(
+      'L1 exact offering metadata',
+      exact.length >= 1
+        && metas.some((m) => m.offering_key === 'board_and_suit_rental'
+          && m.duration_key === '1_day'
+          && m.quantity === 1
+          && !m.bundle_part
+          && !m.rental_pricing_role),
       JSON.stringify(metas),
     );
     assert('L1 billable aggregate equals quote', created.body.total_cents === BUNDLE_1D && sumAmounts(pg) === BUNDLE_1D, `${created.body.total_cents}/${sumAmounts(pg)}`);
@@ -1291,7 +1357,8 @@ async function run() {
     );
   }
 
-  // L6: second operational-row failure rolls back booking + all service rows
+  // L6: service insert failure rolls back booking + all service rows (no partial write).
+  // Exact board_and_suit is one insert; fail on the first operational insert.
   {
     const quoteBody = staffRentalBody({
       rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
@@ -1303,7 +1370,7 @@ async function run() {
       buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, quoteBody).command,
       { adminCfg: somoRentalCfg },
     ));
-    const pg = makePg({ ...rentalPgOpts, failServiceInsertAt: 2 });
+    const pg = makePg({ ...rentalPgOpts, failServiceInsertAt: 1 });
     let threw = false;
     let created = null;
     try {
@@ -1318,7 +1385,7 @@ async function run() {
       threw = true;
     }
     assert(
-      'L6 second insert fails closed',
+      'L6 insert failure fails closed (no partial write)',
       threw || (created && created.ok === false),
       JSON.stringify(created && created.body),
     );
@@ -1361,6 +1428,8 @@ async function run() {
   {
     const legacyBody = {
       guest_name: 'Legacy Board',
+      guest_phone: '+34600111222',
+      surfer_count: 1,
       date_from: SATURDAY,
       date_to: SATURDAY,
       service_dates: [SATURDAY],

@@ -11,21 +11,15 @@ order. No behavior change ships from this file.
 - ✅ Step 2 — same lib, `buildGenericRentalServiceRecord()` maps a priced generic
   rental to a first-class `booking_service_records` descriptor under the existing
   `addon_service` bucket (migration 029 + runtime twin — no new migration).
-- ◐ Step 3 — **foundation landed, live wiring remains**:
-  - `GENERIC_RENTAL_CREATE_ENABLED` flag (default OFF) in `tenant-business-config.js`.
-  - `partitionRentalsForCreate()` in the resolver lib — splits rentals into the
-    canonical (component) lane vs the generic lane; **flag-OFF is a strict no-op**
-    (non-canonical keys rejected exactly as today), flag-ON routes known catalog
-    keys to the generic lane, unknown keys still fail closed.
-  - Remaining (live, needs Sunset DB — Skipper): wire the partition at
-    `sunset-schedule-booking-writes.js:468`, feed generic rows through
-    `resolveGenericRentalPrice` + `buildGenericRentalServiceRecord` +
-    `insertServiceRecord`, preserving idempotency + 409-on-conflict. Generic rows
-    must NOT go through the canonical component mapping (lines 500–524).
-- ✅ Step 3 — generic-rental create wiring is live-verified and merged (commit
-  `bc9c166`): partition at `:468`, generic lane priced by `resolveGenericRentalPrice`,
-  persisted as `addon_service`, own authoritative quote lines (claimed, counted
-  once), idempotency + 409. Flag stays default OFF.
+- ✅ Step 3 — foundation + live wiring: `partitionRentalsForCreate()` splits
+  rentals into canonical vs generic lanes by catalog membership (unknown keys
+  fail closed). Create/Edit use `prepareGenericRentalsForCreate` with safety
+  gates of active catalog + location + authoritative price + stock. The former
+  `GENERIC_RENTAL_CREATE_ENABLED` env toggle is deprecated and unused at runtime
+  (`isGenericRentalCreateEnabled` export always returns true for compatibility).
+- ✅ Step 3 — generic-rental create wiring is live-verified: generic lane priced
+  by `resolveGenericRentalPrice`, persisted as `addon_service`, own authoritative
+  quote lines (claimed, counted once), idempotency + 409. No env toggle.
 - ✅ Step 4 (#5) — frozen browser keys retired in
   `scripts/browser/sunset-schedule-rental-availability.js`:
   `scheduleActiveRentalsForDuration` now includes generic rental-category

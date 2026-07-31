@@ -20,14 +20,9 @@ const goodRule = async ({ itemCode, duration, pgClient }) => {
 const fakePg = {};
 const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '2026-08-01', pgClient: fakePg, rentals: [{ offering_key: 'kayak_rental', duration_key: 'half_day', quantity: 2 }] };
 (async () => {
-  const previousGenericRentalCreate = process.env.GENERIC_RENTAL_CREATE_ENABLED;
+  // Catalog membership is the gate — no GENERIC_RENTAL_CREATE_ENABLED required.
   delete process.env.GENERIC_RENTAL_CREATE_ENABLED;
-  await expect('feature flag defaults OFF and preserves canonical-only rejection', async () => {
-    const got = await prepareGenericRentalsForCreate({ ...base, listOfferings: loadCatalog, loadRule: goodRule });
-    assert.deepStrictEqual(got, { ok: false, reason: 'invalid_rental_offering' });
-  });
-  process.env.GENERIC_RENTAL_CREATE_ENABLED = 'true';
-  await expect('active scoped kayak is resolver-priced and mapped exactly', async () => {
+  await expect('active scoped kayak is resolver-priced and mapped exactly without env flag', async () => {
     const got = await prepareGenericRentalsForCreate({ ...base, listOfferings: loadCatalog, loadRule: goodRule });
     assert.strictEqual(got.ok, true); assert.strictEqual(got.records.length, 1);
     const r = got.records[0];
@@ -35,6 +30,12 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
     assert.strictEqual(r.amount_due_cents, 5000); assert.strictEqual(r.metadata.offering_key, 'kayak_rental');
     assert.strictEqual(r.metadata.offering_label, 'Sea Kayak');
     assert.deepStrictEqual({ duration: r.metadata.duration_key, location: r.metadata.location_id, item: r.metadata.item_code, unit: r.metadata.unit_cents }, { duration: 'half_day', location: 'sunset-somo', item: 'kayak_rental__half_day', unit: 2500 });
+  });
+  await expect('env flag unset does not block active catalog generic create', async () => {
+    assert.strictEqual(process.env.GENERIC_RENTAL_CREATE_ENABLED, undefined);
+    const got = await prepareGenericRentalsForCreate({ ...base, listOfferings: loadCatalog, loadRule: goodRule });
+    assert.strictEqual(got.ok, true);
+    assert.strictEqual(got.records[0].metadata.offering_key, 'kayak_rental');
   });
   await expect('schedule create/readback row preserves generic rental metadata for pickups', async () => {
     const metadata = { rental_offering: true, offering_key: 'kayak_rental', offering_label: 'Sea Kayak', staff_ui_service_type: 'rental' };
@@ -329,8 +330,9 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
     assert.match(writesSrc, /genericRentalRecords: genericPrep\.records/);
     assert.match(writesSrc, /buildScheduleBookingIntentFingerprint\(input, locationId, intentFpOpts\)/);
     assert.doesNotMatch(browserSrc, /known\.indexOf\(off\) < 0/);
+    // No runtime env-flag gate remains on generic prepare.
+    assert.doesNotMatch(writesSrc, /isGenericRentalCreateEnabled\s*\(/);
+    assert.doesNotMatch(writesSrc, /GENERIC_RENTAL_CREATE_ENABLED/);
   });
-  if (previousGenericRentalCreate === undefined) delete process.env.GENERIC_RENTAL_CREATE_ENABLED;
-  else process.env.GENERIC_RENTAL_CREATE_ENABLED = previousGenericRentalCreate;
   console.log(`verify:generic-rental-create-wiring — ${passed} passed`);
 })().catch((e) => { console.error(e); process.exit(1); });

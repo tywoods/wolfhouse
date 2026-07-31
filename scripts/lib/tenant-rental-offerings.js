@@ -3,16 +3,17 @@
 /**
  * Phase 2: data-access + CRUD for tenant_rental_offerings (migration 051) — the
  * single owner of rentable-item IDENTITY (offering_key), display (label), UI
- * grouping (group_key) and mutual-exclusion (excludes[]). This replaces the
- * closed RENTAL_GROUP_* code enums in tenant-admin-writes.js.
+ * grouping (group_key). Every Admin-created offering is independent by exact
+ * offering_key — no future mutual-exclusion / bundle inference.
  *
  * Money is NOT here: price-per-period lives in tenant_price_rules keyed by the
  * `offering_key__period_window` item_code (see tenant-admin-writes price CRUD).
  * A "rental item" the staff panel creates = one row here + one price row per
  * rentable period.
  *
- * Every query is client+location scoped. `excludes` is symmetric data that
- * replaces the hardcoded `if (key === 'board_and_suit_rental')` bundle logic.
+ * `excludes` column remains for historical read compatibility only. Future
+ * create/update reject nonempty excludes (`rental_excludes_not_supported`).
+ * Existing DB excludes must not affect selection/quote/write.
  *
  * Refs: docs/SURF-SCHOOL-TEMPLATE-PLAN.md Phase 2; database/migrations/051.
  */
@@ -24,6 +25,13 @@ const GROUP_KEY_RE = /^[a-z][a-z0-9_]*$/;
 const MAX_OFFERING_KEY = 64;
 const MAX_LABEL = 120;
 const MAX_GROUP_KEY = 40;
+// Physical stock (migration 055): integer units 0..999; null = unconfigured.
+const STOCK_MIN = 0;
+const STOCK_MAX = 999;
+
+function isValidStockQuantity(value) {
+  return Number.isInteger(value) && value >= STOCK_MIN && value <= STOCK_MAX;
+}
 
 function isValidOfferingKey(key) {
   const k = String(key || '').trim();
@@ -135,17 +143,19 @@ function validateRentalOfferingBody(body, mode = 'create') {
 
   let excludes;
   if (mode === 'create' || b.excludes !== undefined) {
+    // Future contract: excludes are not supported. Omit/empty → []. Nonempty fail-closed.
     const raw = b.excludes === undefined ? [] : b.excludes;
-    if (!Array.isArray(raw)) return { ok: false, error: 'excludes must be an array' };
-    const selfKey = String(b.offering_key || '').trim();
-    const seen = new Set();
-    for (const item of raw) {
-      const k = String(item || '').trim();
-      if (!isValidOfferingKey(k)) return { ok: false, error: `invalid excludes entry: ${item}` };
-      if (k === selfKey) return { ok: false, error: 'offering cannot exclude itself' };
-      seen.add(k);
+    if (!Array.isArray(raw)) {
+      return { ok: false, error: 'rental_excludes_not_supported', reason: 'rental_excludes_not_supported' };
     }
-    excludes = [...seen].sort();
+    if (raw.length > 0) {
+      return {
+        ok: false,
+        error: 'rental_excludes_not_supported',
+        reason: 'rental_excludes_not_supported',
+      };
+    }
+    excludes = [];
   }
 
   let sortOrder;
@@ -153,6 +163,24 @@ function validateRentalOfferingBody(body, mode = 'create') {
     sortOrder = Number(b.sort_order);
     if (!Number.isInteger(sortOrder) || sortOrder < 0) {
       return { ok: false, error: 'sort_order must be a non-negative integer' };
+    }
+  }
+
+  // stock_quantity: optional on create; patchable on rename/update.
+  // null/omitted on create → unconfigured. Explicit null on patch clears config.
+  let stockQuantity;
+  let hasStock = false;
+  if (Object.prototype.hasOwnProperty.call(b, 'stock_quantity')) {
+    hasStock = true;
+    if (b.stock_quantity === null) {
+      stockQuantity = null;
+    } else if (!isValidStockQuantity(b.stock_quantity)) {
+      return {
+        ok: false,
+        error: `stock_quantity must be an integer ${STOCK_MIN}..${STOCK_MAX} or null`,
+      };
+    } else {
+      stockQuantity = b.stock_quantity;
     }
   }
 
@@ -164,6 +192,7 @@ function validateRentalOfferingBody(body, mode = 'create') {
       group_key: groupKey,
       excludes,
       sort_order: sortOrder,
+      ...(hasStock ? { stock_quantity: stockQuantity } : {}),
     },
   };
 }
@@ -174,6 +203,11 @@ function rowToOffering(row) {
   if (typeof excludes === 'string') {
     try { excludes = JSON.parse(excludes); } catch (_) { excludes = []; }
   }
+  let stockQuantity = null;
+  if (row.stock_quantity !== undefined && row.stock_quantity !== null) {
+    const n = Number(row.stock_quantity);
+    stockQuantity = Number.isInteger(n) ? n : null;
+  }
   return {
     id: row.id,
     client_slug: row.client_slug,
@@ -183,6 +217,7 @@ function rowToOffering(row) {
     group_key: row.group_key,
     excludes: Array.isArray(excludes) ? excludes : [],
     sort_order: row.sort_order,
+    stock_quantity: stockQuantity,
     active: row.active,
   };
 }
@@ -205,7 +240,7 @@ async function listRentalOfferings(pg, { clientSlug, locationId, includeInactive
   if (!includeInactive) where.push('active = true');
   const res = await pg.query(
     // MULTICLIENT_SCOPE_OK: client_slug predicate first, location-scoped
-    `SELECT id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, active
+    `SELECT id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, active
        FROM tenant_rental_offerings
       WHERE ${where.join(' AND ')}
       ORDER BY sort_order ASC, offering_key ASC`,
@@ -239,14 +274,17 @@ async function createRentalOffering(pg, params = {}) {
       return nameOk;
     }
 
+    const stockQty = Object.prototype.hasOwnProperty.call(v.value, 'stock_quantity')
+      ? v.value.stock_quantity
+      : null;
     const res = await pg.query(
       // MULTICLIENT_SCOPE_OK: explicit client_slug column on insert
       `INSERT INTO tenant_rental_offerings
-         (client_slug, location_id, offering_key, label, group_key, excludes, sort_order, updated_by)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
-       RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, active`,
+         (client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+       RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, active`,
       [slug, loc, v.value.offering_key, v.value.label, v.value.group_key,
-        JSON.stringify(v.value.excludes || []), v.value.sort_order || 0, params.actorId || null],
+        JSON.stringify(v.value.excludes || []), v.value.sort_order || 0, stockQty, params.actorId || null],
     );
     await pg.query('COMMIT');
     return { ok: true, offering: rowToOffering(res.rows[0]) };
@@ -279,6 +317,9 @@ async function updateRentalOffering(pg, params = {}) {
   if (v.value.group_key !== undefined) push('group_key = $$', v.value.group_key);
   if (v.value.excludes !== undefined) push('excludes = $$::jsonb', JSON.stringify(v.value.excludes));
   if (v.value.sort_order !== undefined) push('sort_order = $$', v.value.sort_order);
+  if (Object.prototype.hasOwnProperty.call(v.value, 'stock_quantity')) {
+    push('stock_quantity = $$', v.value.stock_quantity);
+  }
   if (params.actorId !== undefined) push('updated_by = $$', params.actorId || null);
   if (!sets.length) return { ok: false, error: 'nothing to update' };
 
@@ -310,7 +351,7 @@ async function updateRentalOffering(pg, params = {}) {
       `UPDATE tenant_rental_offerings
           SET ${sets.join(', ')}
         WHERE client_slug = $${slugIdx} AND offering_key = $${keyIdx} AND ${locClause} AND active = true
-        RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, active`,
+        RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, active`,
       vals,
     );
     if (!res.rows.length) {
@@ -610,7 +651,7 @@ async function setRentalOfferingActive(pg, params = {}) {
 
   const found = await pg.query(
     // MULTICLIENT_SCOPE_OK: client_slug + offering_key + location (any active state)
-    `SELECT id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, active
+    `SELECT id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, active
        FROM tenant_rental_offerings
       WHERE client_slug = $1 AND offering_key = $2 AND ${locClause}
       ORDER BY active DESC, updated_at DESC NULLS LAST, created_at DESC NULLS LAST
@@ -628,7 +669,7 @@ async function setRentalOfferingActive(pg, params = {}) {
     `UPDATE tenant_rental_offerings
         SET active = $1, updated_by = $2
       WHERE id = $3
-      RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, active`,
+      RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, stock_quantity, active`,
     [wantActive, params.actorId || null, current.id],
   );
   if (!res.rows.length) return { ok: false, error: 'rental item not found' };
@@ -638,9 +679,10 @@ async function setRentalOfferingActive(pg, params = {}) {
 /**
  * Idempotent seed/reconcile: bring the catalog for a client(+location) in line
  * with `rows` (from buildRentalOfferingRows). Creates missing items, updates
- * label/group/excludes/sort_order on existing ones. Never deletes — a school
- * that removed an item keeps that decision. Reuses the tested CRUD paths so it
- * needs no separate SQL. Returns a summary.
+ * label/group/sort_order, and clears legacy excludes to [] prospectively.
+ * Never rewrites booking history. Never deletes — a school that removed an
+ * item keeps that decision. Reuses the tested CRUD paths so it needs no
+ * separate SQL. Returns a summary.
  */
 async function seedRentalOfferings(pg, { clientSlug, locationId, rows, actorId = null } = {}) {
   const slug = String(clientSlug || '').trim();
@@ -653,6 +695,8 @@ async function seedRentalOfferings(pg, { clientSlug, locationId, rows, actorId =
   for (const row of rows) {
     const key = String(row.offering_key || '').trim();
     if (!key) continue;
+    // Prospective seed always writes empty excludes (independent offerings).
+    const seedExcludes = [];
     const cur = byKey.get(key);
     if (!cur || cur.active === false) {
       // Recreate if it never existed. If a soft-deleted row exists, respect the
@@ -660,19 +704,20 @@ async function seedRentalOfferings(pg, { clientSlug, locationId, rows, actorId =
       if (cur && cur.active === false) continue;
       const res = await createRentalOffering(pg, {
         clientSlug: slug, locationId, offering_key: key,
-        label: row.label, group_key: row.group_key, excludes: row.excludes || [],
+        label: row.label, group_key: row.group_key, excludes: seedExcludes,
         sort_order: row.sort_order || 0, actorId,
       });
       if (res.ok) created += 1;
       continue;
     }
+    const legacyExcludes = Array.isArray(cur.excludes) ? cur.excludes : [];
     const drift = cur.label !== row.label || cur.group_key !== row.group_key
-      || JSON.stringify(cur.excludes || []) !== JSON.stringify((row.excludes || []).slice().sort())
+      || legacyExcludes.length > 0
       || cur.sort_order !== (row.sort_order || 0);
     if (drift) {
       const res = await updateRentalOffering(pg, {
         clientSlug: slug, locationId, offering_key: key,
-        label: row.label, group_key: row.group_key, excludes: row.excludes || [],
+        label: row.label, group_key: row.group_key, excludes: seedExcludes,
         sort_order: row.sort_order || 0, actorId,
       });
       if (res.ok) updated += 1;
@@ -682,36 +727,25 @@ async function seedRentalOfferings(pg, { clientSlug, locationId, rows, actorId =
 }
 
 /**
- * Pure mutual-exclusion resolver for the booking drawer. Given the offering_keys
- * a staff member has selected and the catalog rows, return which selections are
- * blocked by another selection's `excludes[]` (symmetric). Data replacement for
- * the hardcoded `if (key === 'board_and_suit_rental')` bundle logic.
+ * Historical compatibility shim. Future selection never applies excludes —
+ * every offering is independent. Existing DB excludes are ignored so they
+ * cannot affect quote/create/write.
  *
- * @returns {{ allowed:string[], blocked:Array<{key:string, excludedBy:string}> }}
+ * @returns {{ allowed:string[], blocked:Array }}
  */
-function applyRentalMutualExclusion(selectedKeys, offerings) {
-  const selected = Array.isArray(selectedKeys) ? selectedKeys.map((k) => String(k || '').trim()).filter(Boolean) : [];
-  const catalog = new Map((Array.isArray(offerings) ? offerings : []).map((o) => [o.offering_key, o]));
-  const selectedSet = new Set(selected);
-  const blocked = [];
-  const blockedKeys = new Set();
-  for (const key of selected) {
-    const row = catalog.get(key);
-    const excludes = row && Array.isArray(row.excludes) ? row.excludes : [];
-    for (const ex of excludes) {
-      if (selectedSet.has(ex)) {
-        // Deterministic: the later-sorted key is the one reported blocked.
-        const loser = [key, ex].sort()[1];
-        if (!blockedKeys.has(loser)) { blocked.push({ key: loser, excludedBy: [key, ex].sort()[0] }); blockedKeys.add(loser); }
-      }
-    }
-  }
-  return { allowed: selected.filter((k) => !blockedKeys.has(k)), blocked };
+function applyRentalMutualExclusion(selectedKeys, _offerings) {
+  const selected = Array.isArray(selectedKeys)
+    ? selectedKeys.map((k) => String(k || '').trim()).filter(Boolean)
+    : [];
+  return { allowed: selected, blocked: [] };
 }
 
 module.exports = {
   OFFERING_KEY_RE,
+  STOCK_MIN,
+  STOCK_MAX,
   isValidOfferingKey,
+  isValidStockQuantity,
   normalizeRentalDisplayName,
   collapseRentalLabelWhitespace,
   validateRentalOfferingBody,

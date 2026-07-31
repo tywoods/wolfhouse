@@ -288,6 +288,19 @@ function buildGenericRentalServiceRecord(priced, ctx) {
   if (!serviceDate) return { ok: false, reason: 'missing_service_date' };
   if (!p.offering_key || !p.duration_key) return { ok: false, reason: 'unpriced' };
 
+  // Multi-day occupancy: prefer explicit serviceDates/coveredDates for stock.
+  // Historical single-day callers omit these and stock falls back to service_date.
+  let occupancyDates = null;
+  if (Array.isArray(c.serviceDates) && c.serviceDates.length) {
+    occupancyDates = [...new Set(
+      c.serviceDates.map((d) => String(d || '').slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)),
+    )].sort();
+  } else if (Array.isArray(c.coveredDates) && c.coveredDates.length) {
+    occupancyDates = [...new Set(
+      c.coveredDates.map((d) => String(d || '').slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)),
+    )].sort();
+  }
+
   const record = {
     client_slug: p.client_slug,
     booking_id: c.bookingId != null ? c.bookingId : null,
@@ -318,6 +331,13 @@ function buildGenericRentalServiceRecord(priced, ctx) {
       currency: p.currency || 'EUR',
       location_id: p.location_id != null ? p.location_id : null,
       staff_ui_service_type: 'rental',
+      // Exact offering-native persistence — never invents bundle component parts.
+      ...(occupancyDates && occupancyDates.length
+        ? {
+          rental_service_dates: occupancyDates,
+          covered_dates: occupancyDates,
+        }
+        : {}),
     },
   };
   return { ok: true, record };
@@ -329,22 +349,18 @@ function buildGenericRentalServiceRecord(priced, ctx) {
  * generic lane (priced via resolveGenericRentalPrice, persisted via
  * buildGenericRentalServiceRecord). Pure — no DB.
  *
- * Behavior-preserving by construction: when `genericEnabled` is false, ANY
- * non-canonical key returns the SAME `invalid_rental_offering` rejection the
- * create handler produces today, so wiring this in with the flag OFF is a no-op.
- * When enabled, a non-canonical key is accepted into the generic lane ONLY if it
- * is a known active catalog offering (`catalogKeys`); an unknown key still
- * fails closed.
+ * Catalog membership is the only generic-lane gate: a non-canonical key is
+ * accepted into the generic lane ONLY if it is in `catalogKeys`. Unknown keys
+ * fail closed. `genericEnabled` is ignored (deprecated; was an env-flag stand-in).
  *
  * @param {Array} rentals  shape-validated [{offering_key, duration_key, quantity}]
- * @param {object} opts { canonicalKeys:string[], catalogKeys:string[], genericEnabled:boolean }
+ * @param {object} opts { canonicalKeys:string[], catalogKeys:string[], genericEnabled?:boolean }
  * @returns {{ok:true, canonical:Array, generic:Array} | {ok:false, reason, error, index, offering_key}}
  */
 function partitionRentalsForCreate(rentals, opts) {
   const o = opts || {};
   const canonicalSet = new Set((o.canonicalKeys || []).map((k) => String(k)));
   const catalogSet = new Set((o.catalogKeys || []).map((k) => String(k)));
-  const genericEnabled = o.genericEnabled === true;
   const list = Array.isArray(rentals) ? rentals : [];
   const canonical = [];
   const generic = [];
@@ -352,7 +368,7 @@ function partitionRentalsForCreate(rentals, opts) {
     const row = list[i];
     const key = String((row && row.offering_key) || '').trim();
     if (canonicalSet.has(key)) { canonical.push(row); continue; }
-    if (genericEnabled && catalogSet.has(key)) { generic.push(row); continue; }
+    if (catalogSet.has(key)) { generic.push(row); continue; }
     return {
       ok: false,
       reason: 'invalid_rental_offering',

@@ -33,7 +33,8 @@ const WRITES_REQ = path.join(__dirname, 'lib', 'sunset-schedule-booking-writes.j
 const EDIT_UI = path.join(__dirname, 'browser', 'sunset-schedule-drawer-edit-ui.js');
 const RENTAL_UI = path.join(__dirname, 'browser', 'sunset-schedule-rental-availability.js');
 
-process.env.GENERIC_RENTAL_CREATE_ENABLED = 'true';
+// Catalog membership is the gate; no env flag required.
+delete process.env.GENERIC_RENTAL_CREATE_ENABLED;
 process.env.SUNSET_ADMIN_DB_READ_ENABLED = '1';
 
 const CLIENT_ID = '11111111-1111-4111-8111-111111111111';
@@ -367,6 +368,26 @@ function makePg(seed) {
       if (/SELECT id FROM clients/i.test(q)) return { rows: [{ id: state.clientId }] };
 
       if (/FROM tenant_rental_offerings/i.test(q)) {
+        // Stock lock/load queries select stock_quantity without label columns.
+        // Catalog list queries also return stock_quantity but include label — leave those to
+        // the offerings path so offering_label survives on insert metadata.
+        const isStockOnlyQuery = /stock_quantity/i.test(q)
+          && !/\blabel\b/i.test(q)
+          && (/FOR UPDATE/i.test(q) || /LIMIT 1/i.test(q));
+        if (isStockOnlyQuery) {
+          const slug = params[0];
+          const loc = params[1];
+          const key = params[params.length - 1];
+          const hit = {
+            id: `stock-${key}`,
+            client_slug: slug,
+            location_id: loc || LOC,
+            offering_key: key,
+            stock_quantity: 99,
+            active: true,
+          };
+          return { rows: key ? [hit] : [], rowCount: key ? 1 : 0 };
+        }
         const slug = params[0];
         const loc = params[1];
         const rows = state.offerings.filter((o) => {
@@ -375,9 +396,18 @@ function makePg(seed) {
           if (loc != null && o.location_id != null && String(o.location_id) !== String(loc)) {
             return false;
           }
+          // Enrich catalog rows with configured stock so stock-aware readers stay happy.
           return true;
-        });
+        }).map((o) => ({
+          ...o,
+          stock_quantity: o.stock_quantity != null ? o.stock_quantity : 99,
+        }));
         return { rows };
+      }
+      // Active rental reservations for stock remaining — none by default.
+      if (/booking_service_records/i.test(q) && /offering_key/i.test(q)
+        && /NOT IN\s*\(\s*'cancelled'/i.test(q)) {
+        return { rows: [], rowCount: 0 };
       }
 
       if (/FROM tenant_price_rules/i.test(q)) {
@@ -760,9 +790,9 @@ function seedEquipmentOnlyBooking(qty) {
   ok('fix source: rentalsPresentOnPatch gates lockedMeta restore',
     /const rentalsPresentOnPatch[\s\S]*if \(!rentalPrep\.present\)[\s\S]*if \(!rentalsPresentOnPatch/.test(drawerSrc)
     || /rentalsPresentOnPatch[\s\S]{0,200}!rentalsPresentOnPatch[\s\S]{0,200}lockedMeta\.rentals/.test(drawerSrc));
-  ok('fix source: onlyCanonical filter keeps generic keys out of canonicalRentals',
-    /onlyCanonical/.test(drawerSrc)
-    && /CANONICAL_RENTAL_KEYS\.has/.test(drawerSrc));
+  ok('fix source: onlyComponentLane/canonical filter keeps generic keys out of canonicalRentals',
+    (/onlyCanonical/.test(drawerSrc) || /onlyComponentLane/.test(drawerSrc))
+    && (/CANONICAL_RENTAL_KEYS\.has/.test(drawerSrc) || /COMPONENT_LANE_KEYS\.has/.test(drawerSrc)));
   ok('updateSunsetScheduleBooking still wires prepareGenericRentalsForCreate + inserts records',
     /async function updateSunsetScheduleBooking[\s\S]*prepareGenericRentalsForCreate/.test(drawerSrc)
     && /for \(const descriptor of genericPrep\.records/.test(drawerSrc));

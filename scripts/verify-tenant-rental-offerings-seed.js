@@ -35,11 +35,21 @@ check('labels + group_keys match the current hardcoded catalog', () => {
   assert.strictEqual(m.sup_rental.group_key, 'sup');
 });
 
-check('bundle mutually excludes its board + wetsuit components', () => {
+check('canonical items seed as independent offerings (no auto bundle excludes)', () => {
   const m = byKey(sunset);
-  assert.deepStrictEqual(m.board_and_suit_rental.excludes, ['board_rental', 'wetsuit_rental']);
-  assert.deepStrictEqual(m.board_rental.excludes, ['board_and_suit_rental']);
-  assert.deepStrictEqual(m.wetsuit_rental.excludes, ['board_and_suit_rental']);
+  // Slice A: Surfboard + Wetsuit is ordinary equipment — empty excludes for all seed rows.
+  assert.deepStrictEqual(m.board_and_suit_rental.excludes, []);
+  assert.deepStrictEqual(m.board_rental.excludes, []);
+  assert.deepStrictEqual(m.wetsuit_rental.excludes, []);
+  assert.deepStrictEqual(m.sup_rental.excludes, []);
+});
+
+check('historical BUNDLE_COMPONENTS + deriveExclusions remain for read-only adapters', () => {
+  const { BUNDLE_COMPONENTS, deriveExclusions } = require('./lib/tenant-rental-offerings-seed');
+  assert.ok(BUNDLE_COMPONENTS.board_and_suit_rental);
+  const hist = deriveExclusions(['board_and_suit_rental', 'board_rental', 'wetsuit_rental']);
+  assert.ok(hist.board_and_suit_rental.has('board_rental'));
+  assert.ok(hist.board_rental.has('board_and_suit_rental'));
 });
 
 check('SUP has no exclusions (independent item)', () => {

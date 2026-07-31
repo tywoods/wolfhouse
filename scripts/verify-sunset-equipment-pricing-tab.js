@@ -41,7 +41,9 @@ console.log('\n[handlers] generic authoring wired');
 for (const a of ['add-equipment', 'edit-equipment', 'add-equip-price', 'save-new-equipment', 'save-price-amount']) {
   assert(`handler action "${a}" present`, new RegExp(`action === '${a}'`).test(adminUi), a);
 }
-assert('save-new-equipment creates offering then price', /save-new-equipment[\s\S]*?\/staff\/admin\/config\/rental-offerings[\s\S]*?\/staff\/admin\/config\/prices/.test(adminUi));
+assert('save-new-equipment posts rental-offerings (atomic catalog create)',
+  /save-new-equipment[\s\S]*?\/staff\/admin\/config\/rental-offerings/.test(adminUi)
+  && /save-new-equipment[\s\S]*?stock_quantity/.test(adminUi));
 assert('save-new-price posts offering_key + period_window', /save-new-price[\s\S]*?offering_key: addPriceKey[\s\S]*?period_window: addDur\.duration_key/.test(adminUi));
 assert('slug helper suffixes _rental', /adminSlugOfferingKey[\s\S]{0,300}_rental/.test(adminUi));
 assert('new actions are write-gated', /action === 'save-new-equipment'[\s\S]{0,10}\|\|[\s\S]{0,40}'save-price-amount'/.test(adminUi) || adminUi.includes("action === 'save-new-equipment'"));

@@ -180,22 +180,22 @@ assert(
 );
 assert('none mode', mod.scheduleRentalOfferingsMode([]) === 'none');
 
-console.log('\n[C] Mutual exclusion + serialize');
+console.log('\n[C] Independent selection (no mutual exclusion) + serialize');
 assert(
-  'selecting bundle clears board/wetsuit',
+  'selecting bundle keeps board/wetsuit (independent exact keys)',
   JSON.stringify(mod.scheduleApplyRentalMutualExclusion(
     ['board_rental', 'wetsuit_rental'],
     'board_and_suit_rental',
     true,
-  ).sort()) === JSON.stringify(['board_and_suit_rental']),
+  ).sort()) === JSON.stringify(['board_and_suit_rental', 'board_rental', 'wetsuit_rental']),
 );
 assert(
-  'selecting board clears bundle',
+  'selecting board keeps bundle (independent exact keys)',
   JSON.stringify(mod.scheduleApplyRentalMutualExclusion(
     ['board_and_suit_rental'],
     'board_rental',
     true,
-  ).sort()) === JSON.stringify(['board_rental']),
+  ).sort()) === JSON.stringify(['board_and_suit_rental', 'board_rental']),
 );
 assert(
   'separate board+wetsuit both allowed',
@@ -377,6 +377,8 @@ const guestPayloadContractOk = (function runPayloadVm() {
     scheduleTodayIso: function() { return '2026-07-20'; },
     scheduleReadPrivateLessonSessionsFromDom: function() { return []; },
     scheduleReadFullDayAddonRows: function() { return {}; },
+    // Production payload builder calls accommodation reader; fixture must provide it.
+    scheduleReadCreateAccommodation: function() { return null; },
     scheduleEnumerateDates: enumerateDates,
     scheduleRentalDurationKeyFromDates: mod.scheduleRentalDurationKeyFromDates,
     scheduleSerializeRentalsSelection: mod.scheduleSerializeRentalsSelection,
@@ -426,8 +428,9 @@ const guestPayloadContractOk = (function runPayloadVm() {
     JSON.stringify(ctx.__bundleRentals),
   );
 
-  // Invalid equipment qty: never silent parseInt||1.
-  // New contract: blank surfers → omit row; valid surfers → use surfer authority.
+  // Invalid equipment qty: never silent parseInt||1 / surfer invent.
+  // Product contract: keep selected identity with quantity:null so validation fails closed.
+  // Equipment quantity is independent of guest/surfer count.
   const invalidCases = [
     { label: 'zero', value: '0' },
     { label: 'blank', value: '' },
@@ -435,7 +438,6 @@ const guestPayloadContractOk = (function runPayloadVm() {
     { label: 'non-numeric', value: 'abc' },
   ];
   let invalidOk = true;
-  // Blank surfers: invalid qty must be omitted (not silently 1).
   dom['ps-create-surfers'].value = '';
   invalidCases.forEach(function(tc) {
     boardRow.querySelector('.ps-create-rental-check').checked = true;
@@ -451,14 +453,17 @@ const guestPayloadContractOk = (function runPayloadVm() {
     }
     const got = ctx.__invalidRentals || [];
     const silentlyOne = got.some((r) => r.offering_key === 'board_rental' && r.quantity === 1);
-    const included = got.some((r) => r.offering_key === 'board_rental');
+    const silentlySurfer = got.some((r) => r.offering_key === 'board_rental' && r.quantity === 2);
+    const board = got.find((r) => r.offering_key === 'board_rental');
     assert(
-      `invalid qty (${tc.label}) omitted when surfers blank (not silent 1)`,
-      !silentlyOne && !included,
+      `invalid qty (${tc.label}) keeps selected row with null qty (not silent 1/surfer)`,
+      !silentlyOne && !silentlySurfer
+        && board
+        && board.quantity == null,
       JSON.stringify(got),
     );
   });
-  // Surfer authority: invalid equipment qty falls back to Number of surfers (2), not silent 1.
+  // Surfers do not rewrite equipment qty — blank equipment stays null even with surfers=2.
   dom['ps-create-surfers'].value = '2';
   boardRow.querySelector('.ps-create-rental-check').checked = true;
   boardRow.querySelector('.ps-create-rental-qty-input').value = '';
@@ -469,11 +474,11 @@ const guestPayloadContractOk = (function runPayloadVm() {
     invalidOk = false;
   }
   assert(
-    'blank equipment qty uses surfer authority (2), not silent 1',
+    'blank equipment qty independent of surfers (null, not surfer authority)',
     Array.isArray(ctx.__fallbackRentals)
       && ctx.__fallbackRentals.length === 1
       && ctx.__fallbackRentals[0].offering_key === 'board_rental'
-      && ctx.__fallbackRentals[0].quantity === 2,
+      && ctx.__fallbackRentals[0].quantity == null,
     JSON.stringify(ctx.__fallbackRentals),
   );
 

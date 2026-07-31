@@ -134,7 +134,10 @@ function expandLegacyComponentsToLessons(components, serviceDates) {
 function normalizeCanonicalLessons(body, opts) {
   opts = opts || {};
   const b = body && typeof body === 'object' ? body : {};
-  const hasLessonsField = Object.prototype.hasOwnProperty.call(b, 'lessons');
+  const hasLessonsField = Object.prototype.hasOwnProperty.call(b, 'lessons')
+    // Validated create/quote bodies echo lessons:null when absent — treat null as omitted
+    // so re-validation / re-quote does not fail closed on an explicit null.
+    && b.lessons != null;
 
   if (hasLessonsField) {
     if (!Array.isArray(b.lessons)) {

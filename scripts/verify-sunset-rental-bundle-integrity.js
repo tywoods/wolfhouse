@@ -3,8 +3,12 @@
 /**
  * verify:sunset-rental-bundle-integrity
  *
- * TDD gate for board_and_suit_rental bundle quote → booking → payment integrity.
+ * Exact-offering + historical dual-component integrity gate.
+ * Future writes: board_and_suit is one ordinary exact offering row.
+ * Historical dual-component (pricing_group + halves) remains readable/priceable.
+ *
  * Uses owner config prices (no hard-coded €15/€30). Mocks PG + Stripe for checkout path.
+ * Dates use an injected future ref (not wall-clock) so the gate does not stale.
  *
  * Run:
  *   node scripts/verify-sunset-rental-bundle-integrity.js
@@ -45,6 +49,10 @@ const PRICES = resolveTenantBusinessConfig('sunset', 'sunset-somo').prices;
 const BOOKING_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const CLIENT_ID = 'cccccccc-dddd-eeee-ffff-000000000001';
 const GROUP_ID = 'pg1234567890abcdef';
+// Injected future clock — rebaseline without weakening past-date production validation.
+const FIXED_NOW = new Date('2026-07-14T12:00:00Z');
+const SERVICE_DATE = '2026-08-20';
+const SERVICE_DATE_2 = '2026-08-21';
 
 function bundleDescriptor(overrides) {
   return {
@@ -52,8 +60,21 @@ function bundleDescriptor(overrides) {
     offering_key: 'board_and_suit_rental',
     duration: 'half_day',
     quantity: 2,
-    service_date: '2026-07-20',
+    service_date: SERVICE_DATE,
     components: ['surfboard', 'wetsuit'],
+    quoted_total_cents: 3000,
+    ...(overrides || {}),
+  };
+}
+
+/** Future exact offering descriptor (no component halves). */
+function exactOfferingDescriptor(overrides) {
+  return {
+    offering_key: 'board_and_suit_rental',
+    duration: 'half_day',
+    quantity: 2,
+    service_date: SERVICE_DATE,
+    components: [],
     quoted_total_cents: 3000,
     ...(overrides || {}),
   };
@@ -67,10 +88,49 @@ function rowMeta(pricingGroupId, component) {
   });
 }
 
+function exactOfferingRows(opts) {
+  const qty = opts && opts.quantity != null ? opts.quantity : 2;
+  const date = opts && opts.service_date != null ? opts.service_date : SERVICE_DATE;
+  const rows = [
+    {
+      id: 'sr-exact-bundle',
+      service_type: 'addon_service',
+      service_date: date,
+      quantity: qty,
+      amount_due_cents: 0,
+      metadata: JSON.stringify({
+        location_id: 'sunset-somo',
+        rental_offering: true,
+        staff_ui_service_type: 'rental',
+        component: 'board_and_suit_rental',
+        offering_key: 'board_and_suit_rental',
+        duration_key: 'half_day',
+        quantity: qty,
+        label: 'Board and wetsuit',
+      }),
+    },
+  ];
+  if (opts && opts.extraBoard) {
+    rows.push({
+      id: 'sr-board-extra',
+      service_type: 'surfboard',
+      service_date: date,
+      quantity: 1,
+      amount_due_cents: 0,
+      metadata: JSON.stringify({
+        location_id: 'sunset-somo',
+        offering_key: 'board_rental',
+        duration_key: 'half_day',
+      }),
+    });
+  }
+  return rows;
+}
+
 function bundleRows(opts) {
   const gid = opts && opts.pricing_group_id != null ? opts.pricing_group_id : GROUP_ID;
   const qty = opts && opts.quantity != null ? opts.quantity : 2;
-  const date = opts && opts.service_date != null ? opts.service_date : '2026-07-20';
+  const date = opts && opts.service_date != null ? opts.service_date : SERVICE_DATE;
   const rows = [
     {
       id: 'sr-board',
@@ -96,7 +156,11 @@ function bundleRows(opts) {
       service_date: date,
       quantity: 1,
       amount_due_cents: 0,
-      metadata: JSON.stringify({ location_id: 'sunset-somo' }),
+      metadata: JSON.stringify({
+        location_id: 'sunset-somo',
+        offering_key: 'board_rental',
+        duration_key: '1_day',
+      }),
     });
   }
   if (opts && opts.extraGroupedBoard) {
@@ -166,8 +230,8 @@ function mockPgForBundle(opts) {
             guest_name: 'Alex',
             status: 'payment_pending',
             payment_status: 'waiting_payment',
-            check_in: '2026-07-20',
-            check_out: '2026-07-21',
+            check_in: SERVICE_DATE,
+            check_out: SERVICE_DATE_2,
             metadata: bookingMeta,
           }],
         };
@@ -220,8 +284,9 @@ function mockPgForBundle(opts) {
 const bundleBody = {
   guest_name: 'Alex',
   payment_status: 'unpaid',
-  service_date: '2026-07-20',
-  components: { surfboard: { quantity: 2 }, wetsuit: { quantity: 2 } },
+  service_date: SERVICE_DATE,
+  // Future exact offering: empty components (no dual halves invented).
+  components: {},
   rental_pricing: {
     offering_key: 'board_and_suit_rental',
     duration: 'half_day',
@@ -230,15 +295,18 @@ const bundleBody = {
   },
 };
 
-console.log('\nverify:sunset-rental-bundle-integrity — bundle quote/payment integrity\n');
+console.log('\nverify:sunset-rental-bundle-integrity — exact offering + historical dual-component\n');
 
 console.log('[1] Duration normalization');
 assert('half day → half_day', normalizeRentalDuration('half day') === 'half_day');
 assert('half-day → half_day', normalizeRentalDuration('half-day') === 'half_day');
 assert('half_day preserved', normalizeRentalDuration('half_day') === 'half_day');
 
-console.log('\n[2] Validation + descriptor survival');
-const validated = validateScheduleBookingBody(bundleBody);
+console.log('\n[2] Validation + exact-offering descriptor survival');
+const validated = validateScheduleBookingBody(bundleBody, {
+  allowEmptyComponents: true,
+  refDate: FIXED_NOW,
+});
 assert('bundle body validates', validated.ok === true, validated.error);
 assert('rental_pricing preserved in validated value',
   validated.ok && validated.value.rental_pricing
@@ -249,33 +317,45 @@ assert('rental_pricing preserved in validated value',
 
 const multiDateBody = {
   ...bundleBody,
-  service_dates: ['2026-07-20', '2026-07-21'],
+  service_dates: [SERVICE_DATE, SERVICE_DATE_2],
   service_date: undefined,
 };
-const multiDateValidated = validateScheduleBookingBody(multiDateBody);
+const multiDateValidated = validateScheduleBookingBody(multiDateBody, {
+  allowEmptyComponents: true,
+  refDate: FIXED_NOW,
+});
 assert('multi-date rental_pricing request rejected',
   multiDateValidated.ok === false, multiDateValidated.error);
 
-const badQty = normalizeRentalPricing(
+// Future exact offering: normalizeRentalPricing does not invent/require component halves.
+const exactNorm = normalizeRentalPricing(
   { offering_key: 'board_and_suit_rental', duration: 'half_day', quantity: 2, quoted_total_cents: 3000 },
-  { surfboard: { quantity: 2 }, wetsuit: { quantity: 1 } },
+  {},
 );
-assert('mismatched component qty rejected', badQty.ok === false);
+assert('exact offering normalizes without components',
+  exactNorm.ok === true
+  && exactNorm.value
+  && exactNorm.value.offering_key === 'board_and_suit_rental'
+  && exactNorm.value.quantity === 2,
+  JSON.stringify(exactNorm));
 
-const noComponents = normalizeRentalPricing(
+const withIgnoredHalves = normalizeRentalPricing(
   { offering_key: 'board_and_suit_rental', duration: 'half_day', quantity: 2, quoted_total_cents: 3000 },
   { surfboard: { quantity: 2 } },
 );
-assert('missing wetsuit component rejected', noComponents.ok === false);
+assert('exact offering ignores legacy halves (no required components)',
+  withIgnoredHalves.ok === true && withIgnoredHalves.value
+  && withIgnoredHalves.value.offering_key === 'board_and_suit_rental');
 
 const legacyBody = {
   guest_name: 'Legacy',
   payment_status: 'unpaid',
-  service_date: '2026-07-20',
+  service_date: SERVICE_DATE,
+  surfer_count: 1,
   components: { surfboard: { quantity: 1 } },
 };
-const legacyValidated = validateScheduleBookingBody(legacyBody);
-assert('requests without rental_pricing remain valid', legacyValidated.ok === true);
+const legacyValidated = validateScheduleBookingBody(legacyBody, { refDate: FIXED_NOW });
+assert('requests without rental_pricing remain valid', legacyValidated.ok === true, legacyValidated.error);
 assert('legacy has no rental_pricing', legacyValidated.ok && !legacyValidated.value.rental_pricing);
 
 console.log('\n[3] Owner-config bundle totals (not independent board+wetsuit sum)');
@@ -358,7 +438,7 @@ assert('mismatch meta parsed', mismatchMeta && mismatchMeta.quoted_total_cents =
     { label: 'missing wetsuit row', rows: bundleRows({ missingWetsuit: true }) },
     { label: 'extra grouped surfboard row', rows: bundleRows({ extraGroupedBoard: true }) },
     { label: 'quantity mismatch', rows: bundleRows({ boardQty: 1 }) },
-    { label: 'different service dates', rows: bundleRows({ boardDate: '2026-07-20', suitDate: '2026-07-21' }) },
+    { label: 'different service dates', rows: bundleRows({ boardDate: SERVICE_DATE, suitDate: SERVICE_DATE_2 }) },
     { label: 'different pricing_group_id on rows', rows: bundleRows({ boardGroupId: 'other-group-a', suitGroupId: 'other-group-b' }) },
     { label: 'tampered booking metadata missing pricing_group_id', meta: { offering_key: 'board_and_suit_rental', duration: 'half_day', quantity: 2, quoted_total_cents: 3000 }, rows: validRows },
   ];
@@ -373,7 +453,7 @@ assert('mismatch meta parsed', mismatchMeta && mismatchMeta.quoted_total_cents =
       bad.ok === false && bad.error === 'rental_pricing_group_invalid', bad.error);
   }
 
-  console.log('\n[7] Bundle plus standalone board — standalone not zeroed');
+  console.log('\n[7] Historical dual-component + standalone board — standalone not zeroed');
   const pgMixed = mockPgForBundle({
     bookingMeta: {
       rental_pricing: bundleDescriptor(),
@@ -392,6 +472,43 @@ assert('mismatch meta parsed', mismatchMeta && mismatchMeta.quoted_total_cents =
   const mixedSum = pgMixed.updates.reduce((acc, row) => acc + row.amount_due_cents, 0);
   assert('bundle + standalone total exceeds bundle-only 3000', mixedSum > 3000, String(mixedSum));
 
+  console.log('\n[7b] Future exact offering prices independently (no dual halves)');
+  const pgExact = mockPgForBundle({
+    bookingMeta: {
+      rental_pricing: exactOfferingDescriptor(),
+      location_id: 'sunset-somo',
+      staff_manual_schedule: true,
+      source: 'staff_manual_schedule',
+    },
+    rows: exactOfferingRows(),
+  });
+  const exactPriced = await priceSunsetBookingServices(pgExact, 'sunset', BOOKING_ID);
+  assert('exact board_and_suit offering pricing succeeds', exactPriced.ok === true, exactPriced.error);
+  assert('exact offering total is 3000', exactPriced.total_cents === 3000, String(exactPriced.total_cents));
+  const exactRowUpd = pgExact.updates.find((u) => u.id === 'sr-exact-bundle');
+  assert('exact offering single row carries full amount',
+    exactRowUpd && exactRowUpd.amount_due_cents === 3000,
+    exactRowUpd ? String(exactRowUpd.amount_due_cents) : 'missing');
+
+  console.log('\n[7c] Exact offering + separate board remain independent rows');
+  const pgExactMixed = mockPgForBundle({
+    bookingMeta: {
+      rental_pricing: exactOfferingDescriptor(),
+      location_id: 'sunset-somo',
+      staff_manual_schedule: true,
+      source: 'staff_manual_schedule',
+    },
+    rows: exactOfferingRows({ extraBoard: true }),
+  });
+  const exactMixed = await priceSunsetBookingServices(pgExactMixed, 'sunset', BOOKING_ID);
+  assert('exact + standalone board pricing succeeds', exactMixed.ok === true, exactMixed.error);
+  const exactStandalone = pgExactMixed.updates.find((u) => u.id === 'sr-board-extra');
+  assert('separate board keeps independent non-zero amount',
+    exactStandalone && exactStandalone.amount_due_cents > 0,
+    exactStandalone ? String(exactStandalone.amount_due_cents) : 'missing');
+  const exactMixedSum = pgExactMixed.updates.reduce((acc, row) => acc + row.amount_due_cents, 0);
+  assert('exact + standalone total exceeds exact-only 3000', exactMixedSum > 3000, String(exactMixedSum));
+
   console.log('\n[8] Extra/mismatched rows must not be zeroed by service_type-only matching');
   const pgExtra = mockPgForBundle({
     bookingMeta: { rental_pricing: bundleDescriptor(), location_id: 'sunset-somo' },
@@ -400,18 +517,26 @@ assert('mismatch meta parsed', mismatchMeta && mismatchMeta.quoted_total_cents =
       {
         id: 'sr-board-day2',
         service_type: 'surfboard',
-        service_date: '2026-07-21',
+        service_date: SERVICE_DATE_2,
         quantity: 2,
         amount_due_cents: 0,
-        metadata: JSON.stringify({ location_id: 'sunset-somo' }),
+        metadata: JSON.stringify({
+          location_id: 'sunset-somo',
+          offering_key: 'board_rental',
+          duration_key: '1_day',
+        }),
       },
       {
         id: 'sr-suit-day2',
         service_type: 'wetsuit',
-        service_date: '2026-07-21',
+        service_date: SERVICE_DATE_2,
         quantity: 2,
         amount_due_cents: 0,
-        metadata: JSON.stringify({ location_id: 'sunset-somo' }),
+        metadata: JSON.stringify({
+          location_id: 'sunset-somo',
+          offering_key: 'wetsuit_rental',
+          duration_key: '1_day',
+        }),
       },
     ],
   });

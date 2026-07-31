@@ -99,7 +99,7 @@ function sourceContracts() {
   ok(
     'duplicate name error mapped for save-new-equipment (no price side effect path)',
     /rental_name_already_exists/.test(adminUi)
-      && /if \(action === 'save-new-equipment'\)\{[\s\S]{0,2000}rental_name_already_exists/.test(adminUi),
+      && /if \(action === 'save-new-equipment'\)\{[\s\S]{0,4000}rental_name_already_exists/.test(adminUi),
   );
 
   // ── Server name uniqueness ──
