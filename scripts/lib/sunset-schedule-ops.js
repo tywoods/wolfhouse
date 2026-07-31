@@ -207,6 +207,36 @@ function aggregateDayOps(rows, dateIso, profile) {
   };
 }
 
+/**
+ * Read-only session capacity from a bookable offering / surf pack.
+ * Source: sunset-bookable-offerings `capacity: pack.group_size` (no new DB query).
+ * Returns a positive number or null (missing/0 → seats ring degrades to booked-only).
+ */
+function capacityFromOfferingPack(pack) {
+  if (!pack || typeof pack !== 'object') return null;
+  const raw = pack.group_size != null ? pack.group_size : pack.capacity;
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Attach read-only capacity onto session-like objects (day session VM).
+ * Prefer existing positive capacity; else resolve from offering/pack group_size.
+ * Does not mutate bookings or run queries.
+ */
+function attachSessionCapacity(session, offeringOrPack) {
+  if (!session || typeof session !== 'object') return session;
+  const existing = session.capacity != null ? Number(session.capacity) : NaN;
+  if (Number.isFinite(existing) && existing > 0) {
+    session.capacity = existing;
+    return session;
+  }
+  const fromPack = capacityFromOfferingPack(offeringOrPack || session);
+  session.capacity = fromPack;
+  return session;
+}
+
 module.exports = {
   DEFAULT_LESSON_SLOT_TIMES,
   normalizeSlotTime,
@@ -215,4 +245,6 @@ module.exports = {
   rowSourceLabel,
   aggregateDayOps,
   buildBookingGearIndex,
+  capacityFromOfferingPack,
+  attachSessionCapacity,
 };
