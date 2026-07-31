@@ -1780,6 +1780,7 @@ function scheduleWireDrawerRentals(wrap) {
       }
       scheduleDrawerMarkPriceStale();
       scheduleRefreshDrawerFullDayAddon();
+      if (typeof scheduleRefreshDrawerRentalStock === 'function') scheduleRefreshDrawerRentalStock();
       scheduleDrawerSyncFooter();
       return;
     }
@@ -1788,6 +1789,7 @@ function scheduleWireDrawerRentals(wrap) {
       scheduleDrawerClampRentalQtyInput(t, wrap);
       scheduleDrawerMarkPriceStale();
       scheduleRefreshDrawerFullDayAddon();
+      if (typeof scheduleRefreshDrawerRentalStock === 'function') scheduleRefreshDrawerRentalStock();
       scheduleDrawerSyncFooter();
     }
   });
@@ -1797,6 +1799,7 @@ function scheduleWireDrawerRentals(wrap) {
       t.setAttribute('data-qty-owner', 'user');
       scheduleDrawerMarkPriceStale();
       scheduleRefreshDrawerFullDayAddon();
+      if (typeof scheduleRefreshDrawerRentalStock === 'function') scheduleRefreshDrawerRentalStock();
       scheduleDrawerSyncFooter();
     }
   });
@@ -1982,6 +1985,8 @@ function scheduleRenderDrawerRentals() {
       + escHtml(owner) + '" value="' + escHtml(String(qty))
       + '" inputmode="numeric" aria-label="'
       + escHtml(portalT('schedule.create.rentalQty') || 'Qty') + '"></label>'
+      + '<span class="ps-drawer-rental-stock ps-create-rental-stock" data-rental-stock-label data-offering-key="'
+      + escHtml(key) + '" aria-live="polite"></span>'
       + '</div>';
     var selectedDur = null;
     for (var di = 0; di < durs.length; di++) {
@@ -2040,6 +2045,150 @@ function scheduleRenderDrawerRentals() {
   }
   scheduleDrawerApplyRentalExclusionUi(wrap, selected);
   scheduleWireDrawerRentals(wrap);
+  // Advisory stock readout — server remains authority on save.
+  if (typeof scheduleRefreshDrawerRentalStock === 'function') {
+    scheduleRefreshDrawerRentalStock();
+  }
+}
+
+/**
+ * Fetch authoritative date-range stock for Edit rental rows (Create parity).
+ * Server edit remains authority; this only advises + blocks impossible save.
+ */
+var _scheduleDrawerStockTimer = null;
+var _scheduleDrawerStockSeq = 0;
+function scheduleRefreshDrawerRentalStock() {
+  if (_scheduleDrawerStockTimer) clearTimeout(_scheduleDrawerStockTimer);
+  _scheduleDrawerStockTimer = setTimeout(function() {
+    scheduleRefreshDrawerRentalStockNow();
+  }, 180);
+}
+async function scheduleRefreshDrawerRentalStockNow() {
+  var wrap = el('ps-drawer-rentals');
+  if (!wrap) return;
+  var span = typeof scheduleDrawerDateSpan === 'function'
+    ? scheduleDrawerDateSpan()
+    : { from: '', to: '' };
+  var dateFrom = String(span.from || '').slice(0, 10);
+  var dateTo = String(span.to || dateFrom).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) return;
+  var checks = wrap.querySelectorAll('.ps-drawer-rental-check');
+  var offerings = [];
+  for (var i = 0; i < checks.length; i++) {
+    var ck = checks[i];
+    if (!ck.checked) continue;
+    var key = String(ck.getAttribute('data-offering-key') || '').trim();
+    if (!key) continue;
+    var row = ck.closest ? ck.closest('[data-rental-offering]') : null;
+    var qtyEl = row && row.querySelector('input.ps-drawer-rental-qty-input');
+    var qty = qtyEl ? parseInt(qtyEl.value, 10) : 1;
+    if (!Number.isInteger(qty) || qty < 1) qty = 1;
+    offerings.push({ offering_key: key, quantity: qty });
+  }
+  for (var j = 0; j < checks.length; j++) {
+    var ck2 = checks[j];
+    var key2 = String(ck2.getAttribute('data-offering-key') || '').trim();
+    if (!key2) continue;
+    if (offerings.some(function(o) { return o.offering_key === key2; })) continue;
+    offerings.push({ offering_key: key2, quantity: 1 });
+  }
+  if (!offerings.length) return;
+  var loc = (typeof scheduleActiveLocationId === 'function' ? scheduleActiveLocationId() : null)
+    || (typeof getSunsetLocation === 'function' ? getSunsetLocation() : null)
+    || (window.scheduleState && window.scheduleState.locationId)
+    || 'sunset-somo';
+  var seq = ++_scheduleDrawerStockSeq;
+  var url = '/staff/schedule/rental-stock?client=' + encodeURIComponent('sunset')
+    + '&location=' + encodeURIComponent(loc);
+  // Exclude current booking so Edit does not count its own demand.
+  var excludeId = (scheduleDrawerState && scheduleDrawerState.ctx
+    && (scheduleDrawerState.ctx.booking_id || scheduleDrawerState.ctx.id))
+    || (scheduleDrawerState && scheduleDrawerState.row && scheduleDrawerState.row.booking_id)
+    || null;
+  try {
+    var body = {
+      date_from: dateFrom,
+      date_to: dateTo,
+      location_id: loc,
+      offerings: offerings,
+    };
+    if (excludeId) body.exclude_booking_id = String(excludeId);
+    var res = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (seq !== _scheduleDrawerStockSeq) return; // stale response guard
+    var data = await res.json().catch(function() { return null; });
+    if (!data || !data.success || !Array.isArray(data.items)) return;
+    scheduleApplyDrawerRentalStockItems(wrap, data.items);
+  } catch (_err) {
+    // Fail open on network for advisory UI only — save still server-enforced.
+  }
+}
+function scheduleApplyDrawerRentalStockItems(wrap, items) {
+  if (!wrap || !Array.isArray(items)) return;
+  var byKey = {};
+  items.forEach(function(it) {
+    if (it && it.offering_key) byKey[it.offering_key] = it;
+  });
+  var rows = wrap.querySelectorAll('[data-rental-offering]');
+  var blockSubmit = false;
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var key = String(row.getAttribute('data-rental-offering') || '').trim();
+    var item = byKey[key];
+    var labelEl = row.querySelector('[data-rental-stock-label]');
+    var qtyEl = row.querySelector('input.ps-drawer-rental-qty-input');
+    var check = row.querySelector('.ps-drawer-rental-check');
+    var checked = check && check.checked;
+    if (labelEl) {
+      var text = '';
+      if (typeof scheduleFormatRentalStockLabel === 'function') {
+        text = scheduleFormatRentalStockLabel(item, portalT);
+      } else if (!item || item.not_configured) {
+        text = portalT('schedule.create.stockNotConfigured') || 'Stock not configured';
+      } else if (item.sold_out || Number(item.remaining) <= 0) {
+        text = portalT('schedule.create.stockSoldOut') || 'Sold out';
+      } else {
+        text = String(Math.floor(Number(item.remaining))) + ' available';
+      }
+      labelEl.textContent = text;
+      labelEl.classList.toggle('is-sold-out', !!(item && (item.sold_out || Number(item.remaining) <= 0)));
+      labelEl.classList.toggle('is-not-configured', !!(item && item.not_configured));
+    }
+    if (qtyEl && item) {
+      var max = typeof scheduleRentalQtyMaxFromStock === 'function'
+        ? scheduleRentalQtyMaxFromStock(item)
+        : (item.not_configured ? 0 : Math.max(0, Math.floor(Number(item.remaining) || 0)));
+      if (max < 1) {
+        qtyEl.max = '0';
+        if (checked) blockSubmit = true;
+      } else {
+        qtyEl.max = String(Math.min(99, max));
+        var cur = parseInt(qtyEl.value, 10) || 1;
+        if (cur > max) {
+          qtyEl.value = String(max);
+          if (checked) blockSubmit = true;
+        }
+      }
+    }
+    if (checked && item && (item.not_configured || item.ok === false || item.sold_out || Number(item.remaining) < 1)) {
+      blockSubmit = true;
+    }
+  }
+  var saveBtn = el('ps-drawer-save')
+    || document.querySelector('#ps-detail-drawer [data-drawer-save], #ps-detail-drawer .ps-drawer-save, #ps-drawer-footer-save');
+  if (saveBtn) {
+    if (blockSubmit) {
+      saveBtn.setAttribute('data-stock-blocked', '1');
+      saveBtn.disabled = true;
+    } else if (saveBtn.getAttribute('data-stock-blocked') === '1') {
+      saveBtn.removeAttribute('data-stock-blocked');
+      if (!saveBtn.getAttribute('data-other-blocked')) saveBtn.disabled = false;
+    }
+  }
 }
 
 

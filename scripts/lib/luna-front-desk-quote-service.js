@@ -1803,19 +1803,29 @@ function resolveQuoteComponentsAndRentalsInput(command) {
 function assertLegacyRentalQuantitiesMatch(rentals, components) {
   const comps = components && typeof components === 'object' ? components : {};
   const expected = { surfboard: null, wetsuit: null };
+  let hasExactBoardAndSuit = false;
   for (const row of rentals || []) {
+    // Component-lane only. board_and_suit is an exact offering — never invent
+    // half-quantity expectations against legacy surfboard/wetsuit components.
     if (row.offering_key === 'board_rental') expected.surfboard = row.quantity;
     else if (row.offering_key === 'wetsuit_rental') expected.wetsuit = row.quantity;
-    else if (row.offering_key === 'board_and_suit_rental') {
-      expected.surfboard = row.quantity;
-      expected.wetsuit = row.quantity;
-    }
+    else if (row.offering_key === 'board_and_suit_rental') hasExactBoardAndSuit = true;
   }
   for (const key of ['surfboard', 'wetsuit']) {
     const leg = comps[key];
     if (!leg) continue;
     const legQty = Number(leg.quantity);
-    if (expected[key] == null || !Number.isInteger(legQty) || legQty !== expected[key]) {
+    if (expected[key] == null) {
+      // Halves present with exact board_and_suit only: ignore (not required).
+      // Halves without any matching rental key: fail closed.
+      if (hasExactBoardAndSuit) continue;
+      return {
+        ok: false,
+        reason: 'legacy_rental_mismatch',
+        error: `components.${key}.quantity does not match canonical rentals`,
+      };
+    }
+    if (!Number.isInteger(legQty) || legQty !== expected[key]) {
       return {
         ok: false,
         reason: 'legacy_rental_mismatch',

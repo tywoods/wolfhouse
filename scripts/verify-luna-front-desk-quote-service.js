@@ -1337,7 +1337,8 @@ async function run() {
     );
   }
 
-  // L6: second operational-row failure rolls back booking + all service rows
+  // L6: service insert failure rolls back booking + all service rows (no partial write).
+  // Exact board_and_suit is one insert; fail on the first operational insert.
   {
     const quoteBody = staffRentalBody({
       rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
@@ -1349,7 +1350,7 @@ async function run() {
       buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, quoteBody).command,
       { adminCfg: somoRentalCfg },
     ));
-    const pg = makePg({ ...rentalPgOpts, failServiceInsertAt: 2 });
+    const pg = makePg({ ...rentalPgOpts, failServiceInsertAt: 1 });
     let threw = false;
     let created = null;
     try {
@@ -1364,7 +1365,7 @@ async function run() {
       threw = true;
     }
     assert(
-      'L6 second insert fails closed',
+      'L6 insert failure fails closed (no partial write)',
       threw || (created && created.ok === false),
       JSON.stringify(created && created.body),
     );
@@ -1407,6 +1408,8 @@ async function run() {
   {
     const legacyBody = {
       guest_name: 'Legacy Board',
+      guest_phone: '+34600111222',
+      surfer_count: 1,
       date_from: SATURDAY,
       date_to: SATURDAY,
       service_dates: [SATURDAY],

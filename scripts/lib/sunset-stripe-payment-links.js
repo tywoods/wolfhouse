@@ -72,24 +72,38 @@ function parseMeta(raw) {
   try { return JSON.parse(raw); } catch (_) { return {}; }
 }
 
+function rentalUnitAliases(unit) {
+  const u = String(unit || '').trim();
+  if (!u) return [''];
+  // Config async path normalizes 1_day → full_day; treat as equivalent for lookup.
+  if (u === '1_day' || u === 'full_day') return [u, u === '1_day' ? 'full_day' : '1_day'];
+  return [u];
+}
+
 function findPriceCents(prices, category, offeringKey, unit) {
   const list = prices || [];
   const cat = String(category || '').toLowerCase();
   const ok = String(offeringKey || '');
-  const u = String(unit || '');
-  let row = list.find((p) => p.active !== false
-    && String(p.category || '').toLowerCase() === cat
-    && String(p.offering_key || '') === ok
-    && (!u || String(p.unit || '') === u));
-  // DB tenant_price_rules backfill uses item_code = offering__unit (unit often person/day).
-  if (!row && u) {
-    const combined = `${ok}__${u}`;
-    row = list.find((p) => p.active !== false
+  const units = rentalUnitAliases(unit);
+  for (const u of units) {
+    let row = list.find((p) => p.active !== false
       && String(p.category || '').toLowerCase() === cat
-      && String(p.offering_key || '') === combined);
+      && String(p.offering_key || '') === ok
+      && (!u || String(p.unit || '') === u));
+    // DB tenant_price_rules backfill uses item_code = offering__unit (unit often person/day).
+    if (!row && u) {
+      const combined = `${ok}__${u}`;
+      row = list.find((p) => p.active !== false
+        && String(p.category || '').toLowerCase() === cat
+        && (String(p.offering_key || '') === combined
+          || String(p.item_code || '') === combined));
+    }
+    if (row && row.amount != null) return Math.round(Number(row.amount) * 100);
+    if (row && Number.isInteger(row.amount_cents) && row.amount_cents > 0) {
+      return Math.round(Number(row.amount_cents));
+    }
   }
-  if (!row || row.amount == null) return null;
-  return Math.round(Number(row.amount) * 100);
+  return null;
 }
 
 function priceRowAmountCents(price) {
@@ -408,12 +422,22 @@ function serviceRecordUnitPriceCents(prices, sr, adminCfg) {
     // Ordinary group lesson: admin-authoritative only — never baseline unverified_seed.
     unitCents = resolveSunsetGroupLessonUnitCents(prices);
   } else if (dbType === 'surfboard') {
-    unitCents = findPriceCents(prices, 'rental', BOARD_OFFERING_KEY, RENTAL_UNIT_KEY);
+    const dur = String(meta.duration_key || meta.unit || RENTAL_UNIT_KEY).trim() || RENTAL_UNIT_KEY;
+    unitCents = findPriceCents(prices, 'rental', BOARD_OFFERING_KEY, dur);
   } else if (dbType === 'wetsuit') {
-    unitCents = findPriceCents(prices, 'rental', WETSUIT_OFFERING_KEY, RENTAL_UNIT_KEY);
+    const dur = String(meta.duration_key || meta.unit || RENTAL_UNIT_KEY).trim() || RENTAL_UNIT_KEY;
+    unitCents = findPriceCents(prices, 'rental', WETSUIT_OFFERING_KEY, dur);
   } else if (dbType === 'addon_service' && isFullDayEquipmentAddon(sr)) {
     // Per person, per day: authoritative price × quantity(people). Never metadata.unit_amount_cents.
     unitCents = findPriceCents(prices, 'rental', FULL_DAY_EQUIPMENT_ADDON_KEY, FULL_DAY_EQUIPMENT_ADDON_UNIT);
+  } else if (
+    (dbType === 'addon_service' || meta.rental_offering === true || meta.generic_rental === true)
+    && String(meta.offering_key || '').trim()
+  ) {
+    // Exact offering future-write (board_and_suit + custom catalog): one ordinary row.
+    const offeringKey = String(meta.offering_key || '').trim();
+    const dur = String(meta.duration_key || meta.unit || RENTAL_UNIT_KEY).trim() || RENTAL_UNIT_KEY;
+    unitCents = findPriceCents(prices, 'rental', offeringKey, dur);
   }
   if (unitCents == null || unitCents <= 0) return null;
   return unitCents * qty;
@@ -570,11 +594,38 @@ async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
   );
   let totalCents = 0;
   const bundleRowIds = new Set();
+  // Historical dual-component board_and_suit (pricing_group + halves) vs future
+  // exact offering (one addon_service row, empty components, no group).
+  // Historical path stays fail-closed on tampered groups; exact path prices
+  // independently below.
   if (rentalPricing && rentalPricing.offering_key === BOARD_AND_SUIT_OFFERING_KEY) {
-    const bundlePriced = await applyBundleRentalPricing(pg, prices, svcRes.rows, rentalPricing, locationId);
-    if (!bundlePriced.ok) return bundlePriced;
-    totalCents += bundlePriced.total_cents;
-    (bundlePriced.bundleRowIds || []).forEach((id) => bundleRowIds.add(id));
+    const hasExactOfferingRow = svcRes.rows.some((sr) => {
+      const m = parseMeta(sr.metadata);
+      return m.rental_offering === true
+        && String(m.offering_key || '') === BOARD_AND_SUIT_OFFERING_KEY
+        && (String(sr.service_type || '').toLowerCase() === 'addon_service'
+          || m.component === BOARD_AND_SUIT_OFFERING_KEY);
+    });
+    const claimsHistoricalDescriptor = !!(rentalPricing.pricing_group_id)
+      || (Array.isArray(rentalPricing.components) && rentalPricing.components.length > 0);
+    const hasHistoricalHalfRows = svcRes.rows.some((sr) => {
+      const m = parseMeta(sr.metadata);
+      const st = String(sr.service_type || '').toLowerCase();
+      return (st === 'surfboard' || st === 'wetsuit'
+        || m.bundle_part === 'surfboard' || m.bundle_part === 'wetsuit')
+        && !!serviceRowPricingGroupId(sr);
+    });
+    // Prefer exact offering when present and descriptor is not historical.
+    const useHistoricalBundle = !hasExactOfferingRow
+      && (claimsHistoricalDescriptor || hasHistoricalHalfRows);
+    if (useHistoricalBundle) {
+      const bundlePriced = await applyBundleRentalPricing(
+        pg, prices, svcRes.rows, rentalPricing, locationId,
+      );
+      if (!bundlePriced.ok) return bundlePriced;
+      totalCents += bundlePriced.total_cents;
+      (bundlePriced.bundleRowIds || []).forEach((id) => bundleRowIds.add(id));
+    }
   }
   // Whole-course Admin tiers (week/package): charge once per offering × quantity,
   // never re-multiply by every expanded service date row.

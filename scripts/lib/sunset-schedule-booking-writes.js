@@ -1003,9 +1003,26 @@ function rowMatchesQuoteLine(row, line) {
     // Course-owned multi-item equipment also persists as addon_service rows.
     // Full-day/addon quote lines must never claim them (duplicate_row_claim / misprice).
     if (meta.course_equipment === true) return false;
+    // Exact rental offerings share addon_service storage — never claim them as full-day.
+    if (meta.rental_offering === true
+      || meta.generic_rental === true
+      || meta.component === 'board_and_suit_rental'
+      || isExactOfferingFutureWriteKey(meta.offering_key)
+      || (String(meta.offering_key || '').trim()
+        && String(meta.staff_ui_service_type || '').toLowerCase() === 'rental')) {
+      return false;
+    }
+    // Generic quote lines use component 'addon_service' + generic_rental; claim by offering_id.
+    if (line && line.generic_rental === true) {
+      const lineOff = String(line.offering_id || line.offering_key || '').trim();
+      const rowOff = String(meta.offering_key || '').trim();
+      return !!lineOff && lineOff === rowOff && meta.generic_rental === true;
+    }
     return meta.component === FULL_DAY_EQUIPMENT_ADDON_KEY
-      || serviceType === 'addon_service'
-      || meta.service_key === FULL_DAY_EQUIPMENT_ADDON_KEY;
+      || meta.service_key === FULL_DAY_EQUIPMENT_ADDON_KEY
+      || (serviceType === 'addon_service'
+        && !meta.offering_key
+        && meta.component !== 'board_and_suit_rental');
   }
   if (component === STAFF_CUSTOM_LINE_COMPONENT) {
     const lineId = String((line && line.client_line_id) || '').trim();
@@ -2902,6 +2919,16 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
     if (isStaffAccommodationMeta(meta)) return false;
     // Multi-item course equipment uses addon_service but is quote-owned, not full-day.
     if (meta.course_equipment === true) return false;
+    // Exact rental offerings (board_and_suit + generic catalog) also persist as
+    // addon_service. They are quote-owned exact items — never full-day snapshots.
+    if (meta.rental_offering === true
+      || meta.generic_rental === true
+      || meta.component === 'board_and_suit_rental'
+      || isExactOfferingFutureWriteKey(meta.offering_key)
+      || (String(meta.offering_key || '').trim()
+        && String(meta.staff_ui_service_type || '').toLowerCase() === 'rental')) {
+      return false;
+    }
     const st = String(row.service_type || '').toLowerCase();
     return st === 'addon_service'
       || meta.component === FULL_DAY_EQUIPMENT_ADDON_KEY
@@ -3005,8 +3032,10 @@ function decorateRentalServiceMetadata(metadata, opts) {
   const componentKey = opts.componentKey;
   if (componentKey !== 'surfboard' && componentKey !== 'wetsuit') return metadata;
   if (opts.canonicalRentals) {
+    // Component-lane only (board_rental / wetsuit_rental). board_and_suit is an
+    // exact offering with its own insert path — never decorate halves or invent
+    // bundle_part / pricing_group on future writes.
     const rental = opts.canonicalRentals.find((r) => {
-      if (r.offering_key === 'board_and_suit_rental') return true;
       if (componentKey === 'surfboard') return r.offering_key === 'board_rental';
       return r.offering_key === 'wetsuit_rental';
     });
@@ -3019,12 +3048,6 @@ function decorateRentalServiceMetadata(metadata, opts) {
       metadata.quantity = rental.quantity;
       metadata.rental_service_dates = opts.rentalSpanDates;
       metadata.offering_id = `${rental.offering_key}__${rental.duration_key}`;
-      if (rental.offering_key === 'board_and_suit_rental') {
-        metadata.pricing_group_id = opts.rentalPricingGroupId;
-        metadata.bundle_part = componentKey;
-        metadata.rental_pricing_role = componentKey;
-        metadata.rental_bundle_id = opts.rentalPricingGroupId;
-      }
       if (quoteLine) {
         metadata.price_id = quoteLine.price_id || null;
         metadata.unit_amount_cents = quoteLine.unit_amount_cents;
@@ -3037,8 +3060,12 @@ function decorateRentalServiceMetadata(metadata, opts) {
     }
     return metadata;
   }
+  // Historical dual-component descriptor only (read-compat reprice). Never invent
+  // halves for empty-components future descriptors.
   const d = opts.rentalPricingDescriptor;
-  if (d && opts.serviceDate === d.service_date) {
+  if (d && opts.serviceDate === d.service_date
+    && Array.isArray(d.components) && d.components.length
+    && d.pricing_group_id) {
     metadata.pricing_group_id = d.pricing_group_id;
     metadata.rental_pricing_role = componentKey;
   }
@@ -3326,6 +3353,9 @@ async function insertScheduleComponentServiceRows(pg, opts) {
       const quoteLine = authoritativeQuote
         ? findQuoteLineForRentalOffering(authoritativeQuote.line_items, 'board_and_suit_rental')
         : null;
+      const snapshotLabel = quoteLine && quoteLine.label
+        ? String(quoteLine.label)
+        : 'Board and wetsuit';
       const metadata = wrapMeta({
         ...common(),
         rental_offering: true,
@@ -3337,6 +3367,8 @@ async function insertScheduleComponentServiceRows(pg, opts) {
         rental_service_dates: span,
         covered_dates: span,
         offering_id: `board_and_suit_rental__${rental.duration_key}`,
+        label: snapshotLabel,
+        offering_label: snapshotLabel,
         // No bundle_part / pricing_group component halves on future writes.
         ...(quoteLine ? {
           price_id: quoteLine.price_id || null,
@@ -4190,7 +4222,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           || (input.service_dates && input.service_dates[input.service_dates.length - 1]),
         service_dates: input.service_dates,
         components: input.components,
-        lessons: input.lessons || null,
+        // Only pass lessons[] when present — never lessons:null (re-validate fails).
         surfer_count: input.surfer_count,
         course_equipment: input.course_equipment,
         custom_line_items: input.custom_line_items || [],
@@ -4199,6 +4231,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           : (input.rentals || undefined),
         payment_status: input.payment_status,
       };
+      if (Array.isArray(input.lessons)) quoteTransport.lessons = input.lessons;
       const resolved = await resolveAuthoritativeScheduleQuoteInTxn(pg, {
         clientSlug,
         locationId,

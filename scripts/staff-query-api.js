@@ -22578,8 +22578,9 @@ function schedulePopulateCreateComponentFields(){
   var rentals = typeof scheduleReadCreateRentalSelectionFromDom === 'function'
     ? scheduleReadCreateRentalSelectionFromDom()
     : [];
-  var boardOn = rentals.some(function(r){ return r.offering_key === 'board_rental' || r.offering_key === 'board_and_suit_rental'; });
-  var wetsuitOn = rentals.some(function(r){ return r.offering_key === 'wetsuit_rental' || r.offering_key === 'board_and_suit_rental'; });
+  // Exact board_and_suit is its own offering (snapshot label) — not board/wetsuit gear.
+  var boardOn = rentals.some(function(r){ return r.offering_key === 'board_rental'; });
+  var wetsuitOn = rentals.some(function(r){ return r.offering_key === 'wetsuit_rental'; });
   var cf = el('ps-create-course-fields');
   var ct = el('ps-create-course-tier-wrap');
   var cq = el('ps-create-course-qty-wrap');
