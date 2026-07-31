@@ -1,4 +1,6 @@
 'use strict';
+const fs = require('fs');
+const path = require('path');
 const m = require('./lib/sunset-schedule-booking-drawer');
 
 function makePg(handlers) {
@@ -99,6 +101,32 @@ async function run() {
     if (!cond) throw new Error('FAIL ' + name);
     console.log('  PASS ', name);
     pass += 1;
+  }
+
+  {
+    const apiSource = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+    const viewSource = fs.readFileSync(path.join(__dirname, 'browser', 'sunset-schedule-drawer-view-ui.js'), 'utf8');
+    const dayOpsSource = fs.readFileSync(path.join(__dirname, 'browser', 'sunset-schedule-day-ops-board-ui.js'), 'utf8');
+    const cancelRoute = apiSource.match(/if \(pathname === '\/staff\/schedule\/bookings\/cancel'[\s\S]*?\n  \}/);
+    const cancelCss = (apiSource.match(/\.portal-schedule-cancel-booking-btn\{([^}]*)\}/) || [])[1] || '';
+    const cancelledRowCss = (apiSource.match(/\.portal-schedule-ops-row\.is-cancelled\{([^}]*)\}/) || [])[1] || '';
+    ok('cancel route exists', !!cancelRoute);
+    ok('cancel route requires operator auth', !!cancelRoute && /requireAuth\(req, res, 'operator'\)/.test(cancelRoute[0]));
+    ok('cancel route checks auth before handler', !!cancelRoute && /if \(!auth\.ok\) return;[\s\S]*handleSunsetScheduleBookingCancel/.test(cancelRoute[0]));
+    ok('cancel and delete use distinct button classes',
+      /portal-schedule-cancel-booking-btn[^\n]*ps-drawer-cancel-booking/.test(viewSource)
+      && /portal-schedule-delete-booking-btn[^\n]*ps-drawer-delete-booking/.test(viewSource));
+    ok('cancel button uses grey, never delete red',
+      /color:#6F756F/.test(cancelCss) && !/9C4A42/i.test(cancelCss));
+    ok('delete button retains red danger styling',
+      /\.portal-schedule-delete-booking-btn\{[^}]*color:#9C4A42/.test(apiSource));
+    ok('cancelled schedule rows have complete grey styling',
+      /background:rgba\(111,117,111,\.08\)/.test(cancelledRowCss)
+      && /color:#777D77/.test(cancelledRowCss)
+      && /opacity:\.64/.test(cancelledRowCss)
+      && /filter:grayscale\(\.65\)/.test(cancelledRowCss));
+    ok('day-ops renderer emits is-cancelled for ghost rows',
+      /g\._isCancelled \|\| g\.schedule_ghost \? ' is-cancelled' : ''/.test(dayOpsSource));
   }
 
   {

@@ -16546,6 +16546,9 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 
 .portal-schedule-delete-booking-btn{background:rgba(180,83,74,.10);border:1px solid rgba(180,83,74,.30);color:#9C4A42}
 .portal-schedule-delete-booking-btn:hover{background:rgba(180,83,74,.18);border-color:rgba(180,83,74,.45)}
+.portal-schedule-cancel-booking-btn{background:rgba(111,117,111,.08);border:1px solid rgba(111,117,111,.28);color:#6F756F}
+.portal-schedule-cancel-booking-btn:hover{background:rgba(111,117,111,.15);border-color:rgba(111,117,111,.42)}
+.portal-schedule-ops-row.is-cancelled{background:rgba(111,117,111,.08);color:#777D77;opacity:.64;filter:grayscale(.65)}
 .portal-schedule-drawer-danger-row{display:flex;justify-content:flex-end;margin-top:18px;padding-top:14px;border-top:1px solid var(--border-soft)}
 .portal-schedule-stripe-delete-btn{color:#9C4A42}
 .portal-schedule-private-session-row{padding:2px 0}
@@ -48793,6 +48796,8 @@ async function router(req, res) {
     return handleSunsetScheduleBookingCreate(parsed.query, req, res, auth.user);
   }
   if (pathname === '/staff/schedule/bookings/cancel' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
     return handleSunsetScheduleBookingCancel(parsed.query, req, res, auth.user);
   }
   if (pathname === '/staff/schedule/bookings' && method === 'DELETE') {
