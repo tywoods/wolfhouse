@@ -14,6 +14,7 @@ const DRAWER_EDIT_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedul
 const DRAWER_ACTIONS_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-drawer-actions.js');
 const DRAWER_CONTROLLER_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-drawer-controller.js');
 const DAY_OPS_BOARD_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-day-ops-board-ui.js');
+const DAY_COCKPIT_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-day-cockpit-ui.js');
 const FORECAST_CARDS_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-forecast-cards-ui.js');
 const VIEW_GRID_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-view-grid-ui.js');
 const NAVIGATION_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-navigation-ui.js');
@@ -55,6 +56,10 @@ function getSunsetScheduleDayOpsBoardBrowserSource() {
   return fs.readFileSync(DAY_OPS_BOARD_MODULE, 'utf8');
 }
 
+function getSunsetScheduleDayCockpitBrowserSource() {
+  return fs.readFileSync(DAY_COCKPIT_MODULE, 'utf8');
+}
+
 function getSunsetScheduleForecastCardsBrowserSource() {
   return fs.readFileSync(FORECAST_CARDS_MODULE, 'utf8');
 }
@@ -79,6 +84,7 @@ function getSunsetScheduleDataLoaderBrowserSource() {
   return fs.readFileSync(DATA_LOADER_MODULE, 'utf8');
 }
 
+/** Permissive: missing marker → return html unchanged (do not throw). */
 function injectAtMarker(html, marker, moduleJs) {
   const idx = html.indexOf(marker);
   if (idx < 0) return html;
@@ -97,6 +103,7 @@ function injectSunsetSchedulePortalModule(html) {
   html = injectAtMarker(html, SCHEDULE_ACTIONS_INJECT_MARKER, getSunsetScheduleDrawerActionsBrowserSource());
   html = injectAtMarker(html, SCHEDULE_CONTROLLER_INJECT_MARKER, getSunsetScheduleDrawerControllerBrowserSource());
   html = injectAtMarker(html, SCHEDULE_DAY_OPS_BOARD_INJECT_MARKER, getSunsetScheduleDayOpsBoardBrowserSource());
+  html = injectAtMarker(html, SCHEDULE_DAY_COCKPIT_INJECT_MARKER, getSunsetScheduleDayCockpitBrowserSource());
   html = injectAtMarker(html, SCHEDULE_FORECAST_CARDS_INJECT_MARKER, getSunsetScheduleForecastCardsBrowserSource());
   html = injectAtMarker(html, SCHEDULE_VIEW_GRID_INJECT_MARKER, getSunsetScheduleViewGridBrowserSource());
   html = injectAtMarker(html, SCHEDULE_RUNTIME_INJECT_MARKER, getSunsetScheduleRuntimeBrowserSource());
@@ -113,6 +120,7 @@ const SCHEDULE_DRAWER_EDIT_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-edi
 const SCHEDULE_ACTIONS_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-actions */';
 const SCHEDULE_CONTROLLER_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-controller */';
 const SCHEDULE_DAY_OPS_BOARD_INJECT_MARKER = '/* INJECT:sunset-schedule-day-ops-board-ui */';
+const SCHEDULE_DAY_COCKPIT_INJECT_MARKER = '/* INJECT:sunset-schedule-day-cockpit */';
 const SCHEDULE_FORECAST_CARDS_INJECT_MARKER = '/* INJECT:sunset-schedule-forecast-cards-ui */';
 const SCHEDULE_VIEW_GRID_INJECT_MARKER = '/* INJECT:sunset-schedule-view-grid-ui */';
 const SCHEDULE_RUNTIME_INJECT_MARKER = '/* INJECT:sunset-schedule-runtime */';
@@ -129,6 +137,7 @@ module.exports = {
   getSunsetScheduleDrawerActionsBrowserSource,
   getSunsetScheduleDrawerControllerBrowserSource,
   getSunsetScheduleDayOpsBoardBrowserSource,
+  getSunsetScheduleDayCockpitBrowserSource,
   getSunsetScheduleForecastCardsBrowserSource,
   getSunsetScheduleViewGridBrowserSource,
   getSunsetScheduleRuntimeBrowserSource,
@@ -145,6 +154,7 @@ module.exports = {
   DRAWER_ACTIONS_MODULE,
   DRAWER_CONTROLLER_MODULE,
   DAY_OPS_BOARD_MODULE,
+  DAY_COCKPIT_MODULE,
   FORECAST_CARDS_MODULE,
   VIEW_GRID_MODULE,
   RUNTIME_MODULE,
@@ -159,6 +169,7 @@ module.exports = {
   SCHEDULE_ACTIONS_INJECT_MARKER,
   SCHEDULE_CONTROLLER_INJECT_MARKER,
   SCHEDULE_DAY_OPS_BOARD_INJECT_MARKER,
+  SCHEDULE_DAY_COCKPIT_INJECT_MARKER,
   SCHEDULE_FORECAST_CARDS_INJECT_MARKER,
   SCHEDULE_VIEW_GRID_INJECT_MARKER,
   SCHEDULE_RUNTIME_INJECT_MARKER,

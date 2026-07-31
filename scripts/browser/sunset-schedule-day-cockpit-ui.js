@@ -642,6 +642,200 @@ function scheduleGetDayCockpitCss() {
   return SCHEDULE_DAY_COCKPIT_CSS;
 }
 
+/** Inject exact cockpit CSS once (values live with the module; P2 mount). */
+function scheduleEnsureDayCockpitCss() {
+  if (typeof document === 'undefined' || !document.head) return;
+  if (document.getElementById('ps-day-cockpit-css')) return;
+  var style = document.createElement('style');
+  style.id = 'ps-day-cockpit-css';
+  style.type = 'text/css';
+  style.appendChild(document.createTextNode(
+    '.ps-day-cockpit-host{margin:0 0 14px;min-width:0;}' +
+    SCHEDULE_DAY_COCKPIT_CSS
+  ));
+  document.head.appendChild(style);
+}
+
+/**
+ * Wire cockpit actions to EXISTING schedule handlers (no new nav/create logic).
+ * prev/today/next → runtime.nav / scheduleNavigate*
+ * range → setScheduleView (day|week|next30)
+ * refresh → scheduleRequestPageLoad (#ps-refresh-schedule handler)
+ * create → openScheduleCreateModal (same as empty-slot / Create booking)
+ * session → scroll to ops group or open create for empty course slot
+ */
+function scheduleDayCockpitDefaultHandlers() {
+  return {
+    prev: function () {
+      if (typeof scheduleNavigatePrev === 'function') return scheduleNavigatePrev();
+      if (typeof SunsetScheduleRuntime !== 'undefined' && SunsetScheduleRuntime.nav) {
+        return SunsetScheduleRuntime.nav.navigatePrev();
+      }
+    },
+    today: function () {
+      if (typeof scheduleNavigateToday === 'function') return scheduleNavigateToday();
+      if (typeof SunsetScheduleRuntime !== 'undefined' && SunsetScheduleRuntime.nav) {
+        return SunsetScheduleRuntime.nav.navigateToday();
+      }
+    },
+    next: function () {
+      if (typeof scheduleNavigateNext === 'function') return scheduleNavigateNext();
+      if (typeof SunsetScheduleRuntime !== 'undefined' && SunsetScheduleRuntime.nav) {
+        return SunsetScheduleRuntime.nav.navigateNext();
+      }
+    },
+    range: function (kind) {
+      var mode = 'day';
+      if (kind === 'week') mode = 'week';
+      else if (kind === 'next30') mode = 'next30';
+      if (typeof setScheduleView === 'function') return setScheduleView(mode);
+      if (typeof SunsetScheduleRuntime !== 'undefined' && SunsetScheduleRuntime.nav) {
+        return SunsetScheduleRuntime.nav.setView(mode);
+      }
+    },
+    refresh: function () {
+      if (typeof scheduleRequestPageLoad === 'function') return scheduleRequestPageLoad();
+      if (typeof SunsetScheduleRuntime !== 'undefined' && SunsetScheduleRuntime.nav) {
+        return SunsetScheduleRuntime.nav.requestPageLoad();
+      }
+    },
+    create: function (sessionId) {
+      if (typeof openScheduleCreateModal !== 'function') return;
+      if (sessionId == null || sessionId === '') {
+        return openScheduleCreateModal(null);
+      }
+      var dateIso = typeof scheduleActiveDayIso === 'function' ? scheduleActiveDayIso() : '';
+      return openScheduleCreateModal({
+        activity: 'group',
+        course_id: String(sessionId),
+        date_from: dateIso,
+        date_to: dateIso,
+      });
+    },
+    session: function (sessionId) {
+      scheduleCockpitFocusSession(sessionId);
+    },
+    unpaid: function () {
+      /* destination may not exist yet — non-interactive when absent (README) */
+    },
+    inbox: function () {
+      if (typeof switchToTabOnly === 'function') switchToTabOnly('conversations');
+      else if (typeof switchToTab === 'function') switchToTab('conversations');
+    },
+  };
+}
+
+/** Scroll to a day-ops session group, or open create when the slot is empty. */
+function scheduleCockpitFocusSession(sessionId) {
+  var id = sessionId == null ? '' : String(sessionId);
+  if (!id) return;
+  var board = typeof el === 'function' ? el('ps-ops-board') : (typeof document !== 'undefined' ? document.getElementById('ps-ops-board') : null);
+  if (board) {
+    var addBtn = null;
+    try {
+      addBtn = board.querySelector('[data-ps-add-course="' + id.replace(/"/g, '') + '"]') ||
+        board.querySelector('[data-ps-add-slot="' + id.replace(/"/g, '') + '"]');
+    } catch (_e) { addBtn = null; }
+    if (addBtn && typeof addBtn.click === 'function') {
+      addBtn.click();
+      return;
+    }
+    var nodes = board.querySelectorAll('[id*="ps-ops-guests-"]');
+    for (var i = 0; i < nodes.length; i++) {
+      var nid = String(nodes[i].id || '');
+      if (nid.indexOf(id) !== -1) {
+        var section = nodes[i].closest ? nodes[i].closest('section') : nodes[i];
+        if (section && section.scrollIntoView) {
+          try { section.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_e2) { section.scrollIntoView(true); }
+          return;
+        }
+      }
+    }
+    if (board.scrollIntoView) {
+      try { board.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (_e3) { /* ignore */ }
+    }
+  }
+}
+
+/**
+ * Assemble cockpit src from the live schedule VM (no new queries).
+ * sessions ← scheduleBuildDaySessions (includes capacity from course.capacity)
+ * prep ← scheduleDayEquipmentTotals + unpaid/need-reply counters
+ * venue/date/range ← getSunsetLocationLabel + nav
+ */
+function scheduleCollectDayCockpitSource() {
+  var activeIso = typeof scheduleActiveDayIso === 'function' ? scheduleActiveDayIso() : '';
+  var navMode = typeof scheduleCurrentViewMode === 'function' ? scheduleCurrentViewMode() : 'day';
+  var venue = 'Sunset';
+  try {
+    if (typeof getSunsetLocationLabel === 'function') venue = getSunsetLocationLabel() || venue;
+  } catch (_e) { /* keep default */ }
+
+  var rows = [];
+  try {
+    if (typeof scheduleGetRowsSnapshot === 'function') rows = scheduleGetRowsSnapshot() || [];
+  } catch (_e2) { rows = []; }
+
+  var dayRows = (rows || []).filter(function (r) {
+    return String(r.service_date || r.date || '').slice(0, 10) === activeIso;
+  });
+
+  var sessions = [];
+  if (typeof scheduleBuildDaySessions === 'function') {
+    try {
+      sessions = scheduleBuildDaySessions(dayRows, activeIso, typeof scheduleLessonTimesCache !== 'undefined' ? scheduleLessonTimesCache : null) || [];
+    } catch (_e3) { sessions = []; }
+  }
+
+  var equip = { boards: { total: 0, lesson: 0, rental: 0 }, wetsuits: { total: 0, lesson: 0, rental: 0 } };
+  if (typeof scheduleDayEquipmentTotals === 'function') {
+    try { equip = scheduleDayEquipmentTotals(rows, activeIso) || equip; } catch (_e4) { /* keep empty */ }
+  }
+
+  var unpaidCount = 0;
+  if (typeof scheduleUnpaidPendingCount === 'function') {
+    try { unpaidCount = scheduleUnpaidPendingCount(rows, activeIso) || 0; } catch (_e5) { unpaidCount = 0; }
+  }
+
+  var needReplyCount = 0;
+  try {
+    var convs = typeof scheduleConversationsCache !== 'undefined' ? scheduleConversationsCache : [];
+    var emailCount = typeof scheduleNeedReplyEmailCount === 'function' ? scheduleNeedReplyEmailCount(convs) : 0;
+    var waCount = typeof scheduleNeedReplyWhatsAppCount === 'function' ? scheduleNeedReplyWhatsAppCount(convs) : 0;
+    needReplyCount = (Number(emailCount) || 0) + (Number(waCount) || 0);
+  } catch (_e6) { needReplyCount = 0; }
+
+  return {
+    venue: venue,
+    date: activeIso,
+    navMode: navMode,
+    sessions: sessions,
+    equip: equip,
+    unpaidCount: unpaidCount,
+    needReplyCount: needReplyCount,
+    on: scheduleDayCockpitDefaultHandlers(),
+  };
+}
+
+/**
+ * P2 mount paint — fills #ps-day-cockpit from the live VM.
+ * No 60s timer here (P3). Safe no-op when mount missing or helpers unavailable.
+ */
+function schedulePaintDayCockpit(srcOverride) {
+  var mount = null;
+  if (typeof el === 'function') mount = el('ps-day-cockpit');
+  if (!mount && typeof document !== 'undefined') mount = document.getElementById('ps-day-cockpit');
+  if (!mount) return null;
+
+  scheduleEnsureDayCockpitCss();
+
+  var src = srcOverride || scheduleCollectDayCockpitSource();
+  if (!src.on) src.on = scheduleDayCockpitDefaultHandlers();
+  var data = scheduleBuildDayCockpitData(src);
+  scheduleRenderDayCockpit(mount, data);
+  return data;
+}
+
 // Node offline fixture / require path (browser inject ignores module.exports)
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -658,5 +852,10 @@ if (typeof module !== 'undefined' && module.exports) {
     scheduleBuildDayCockpitData: scheduleBuildDayCockpitData,
     scheduleCockpitRangeFromNavMode: scheduleCockpitRangeFromNavMode,
     scheduleCockpitMinToHhmm: scheduleCockpitMinToHhmm,
+    scheduleEnsureDayCockpitCss: scheduleEnsureDayCockpitCss,
+    scheduleDayCockpitDefaultHandlers: scheduleDayCockpitDefaultHandlers,
+    scheduleCockpitFocusSession: scheduleCockpitFocusSession,
+    scheduleCollectDayCockpitSource: scheduleCollectDayCockpitSource,
+    schedulePaintDayCockpit: schedulePaintDayCockpit,
   };
 }

@@ -41,6 +41,7 @@ const MARKERS = [
   '/* INJECT:sunset-schedule-drawer-actions */',
   '/* INJECT:sunset-schedule-drawer-controller */',
   '/* INJECT:sunset-schedule-day-ops-board-ui */',
+  '/* INJECT:sunset-schedule-day-cockpit */',
   '/* INJECT:sunset-schedule-forecast-cards-ui */',
   '/* INJECT:sunset-schedule-view-grid-ui */',
   '/* INJECT:sunset-schedule-runtime */',

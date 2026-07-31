@@ -18779,41 +18779,21 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <!-- ── Portal home (Sunset / surf demo landing) ─────────────────────────── -->
 <div id="tab-portal-home" class="tab-panel">
 <div id="wrap-portal-home" class="portal-schedule-wrap">
-  <div class="portal-school-context portal-schedule-school-context" id="schedule-school-context" style="display:none" aria-live="polite">
-    <span data-i18n="schedule.school.context">Schedule for:</span>
-    <strong id="schedule-school-label">—</strong>
-  </div>
-  <div class="portal-schedule-glance portal-schedule-ops-metrics">
-    <div class="portal-schedule-glance-cell">
-      <div class="portal-schedule-card-label" data-i18n="schedule.card.surfboardsToday">Surfboards</div>
-      <div class="portal-schedule-glance-num" id="ps-surfboards-today">…</div>
-      <div class="portal-schedule-card-sub" id="ps-surfboards-sub">…</div>
+  <!-- Day Cockpit band (P2): replaces venue line + 4 glance cards + toolbar.
+       Below this cut (#ps-state / ops board / grids) stays byte-identical. -->
+  <div id="ps-day-cockpit" class="ps-day-cockpit-host" aria-live="polite"></div>
+  <!-- Off-DOM-visible legacy anchors so existing wireControls / create wiring keep
+       null-safe IDs without editing navigation-ui / runtime / day-ops modules.
+       Cockpit buttons call the same handlers; these stay for applyPresentation no-ops. -->
+  <div id="ps-schedule-legacy-controls" class="ps-schedule-legacy-controls" hidden aria-hidden="true" style="display:none!important;position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">
+    <div class="portal-school-context portal-schedule-school-context" id="schedule-school-context" style="display:none" aria-live="polite">
+      <span data-i18n="schedule.school.context">Schedule for:</span>
+      <strong id="schedule-school-label">—</strong>
     </div>
-    <div class="portal-schedule-glance-cell">
-      <div class="portal-schedule-card-label" data-i18n="schedule.card.wetsuitsToday">Wetsuits</div>
-      <div class="portal-schedule-glance-num" id="ps-wetsuits-today">…</div>
-      <div class="portal-schedule-card-sub" id="ps-wetsuits-sub">…</div>
-    </div>
-    <div class="portal-schedule-glance-cell portal-schedule-glance-cell-unpaid">
-      <div class="portal-schedule-card-label" data-i18n="schedule.card.unpaidPending">Unpaid / Pending</div>
-      <div class="portal-schedule-glance-num" id="ps-unpaid-glance">…</div>
-      <div class="portal-schedule-card-sub" id="ps-unpaid-glance-sub">…</div>
-    </div>
-    <div class="portal-schedule-glance-cell portal-schedule-glance-cell-reply">
-      <div class="portal-schedule-card-label" data-i18n="schedule.card.needReply">Need reply</div>
-      <div class="portal-schedule-glance-num" id="ps-need-reply-today">…</div>
-      <div class="portal-schedule-card-sub" id="ps-need-reply-sub">…</div>
-    </div>
-  </div>
-  <div class="portal-schedule-toolbar">
     <button type="button" class="btn btn-ghost" id="ps-prev-week" data-i18n="schedule.nav.prev">Previous</button>
     <button type="button" class="btn btn-ghost" id="ps-today" data-i18n="schedule.nav.today">Today</button>
     <button type="button" class="btn btn-ghost" id="ps-next-week" data-i18n="schedule.nav.next">Next</button>
     <span class="portal-schedule-range" id="ps-range-label">—</span>
-    <span class="portal-schedule-legend" aria-hidden="true">
-      <span class="portal-schedule-legend-item"><i class="is-luna"></i><span data-i18n="schedule.legend.luna">Luna</span></span>
-      <span class="portal-schedule-legend-item"><i class="is-staff"></i><span data-i18n="schedule.legend.staff">Staff</span></span>
-    </span>
     <div class="portal-schedule-view-toggle">
       <button type="button" class="portal-schedule-view-btn active" data-ps-view="day" data-i18n="schedule.view.today">Today</button>
       <button type="button" class="portal-schedule-view-btn" data-ps-view="week" data-i18n="schedule.view.week">Week</button>
@@ -20018,6 +19998,7 @@ function el(id){ return document.getElementById(id); }
 /* INJECT:sunset-schedule-drawer-actions */
 /* INJECT:sunset-schedule-drawer-controller */
 /* INJECT:sunset-schedule-day-ops-board-ui */
+/* INJECT:sunset-schedule-day-cockpit */
 /* INJECT:sunset-schedule-forecast-cards-ui */
 /* INJECT:sunset-schedule-view-grid-ui */
 /* INJECT:sunset-schedule-runtime */
@@ -26279,6 +26260,9 @@ function renderScheduleSummary(profile, weekData, convs){
   if (replySub){
     replySub.textContent = String(emailCount) + ' email · ' + String(waCount) + ' WhatsApp';
   }
+  if (typeof schedulePaintDayCockpit === 'function') {
+    try { schedulePaintDayCockpit(); } catch (_ckErr) { /* non-fatal */ }
+  }
 }
 
 function setText(id, text){ var n = el(id); if (n) n.textContent = text; }
@@ -26507,6 +26491,9 @@ function wireScheduleControls(){
     if (node && !node.dataset.wired){ node.dataset.wired = '1'; node.addEventListener('click', pair[1]); }
   });
   scheduleWireScheduleNavigationControls();
+  if (typeof schedulePaintDayCockpit === 'function') {
+    try { schedulePaintDayCockpit(); } catch (_ckWireErr) { /* non-fatal */ }
+  }
   var backdrop = el('ps-drawer-backdrop');
   if (backdrop && !backdrop.dataset.wired){ backdrop.dataset.wired = '1'; backdrop.addEventListener('click', closeScheduleDetailDrawer); }
   var createBackdrop = el('ps-create-backdrop');

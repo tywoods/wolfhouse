@@ -315,8 +315,9 @@ assert('ops lib exists', fs.existsSync(OPS_PATH));
 const opsSrc = fs.readFileSync(OPS_PATH, 'utf8');
 const staffSrc = fs.readFileSync(STAFF_API, 'utf8');
 const browserSrc = fs.readFileSync(BROWSER_SRC, 'utf8');
-assert('P1 does not inject cockpit marker into staff-query-api', !staffSrc.includes('INJECT:sunset-schedule-day-cockpit'));
-assert('P1 does not register cockpit in browser-source', !browserSrc.includes('DayCockpit') && !browserSrc.includes('day-cockpit-ui'));
+// P2 may mount inject; still assert module + paint helpers exist.
+assert('cockpit paint helper present', modSrc.includes('function schedulePaintDayCockpit') || staffSrc.includes('schedulePaintDayCockpit'));
+assert('browser-source knows day-cockpit module', browserSrc.includes('day-cockpit') || browserSrc.includes('DayCockpit') || browserSrc.includes('DAY_COCKPIT'));
 assert('module keeps classify/fmtDur/pct helpers', /scheduleCockpitClassify/.test(modSrc) && /scheduleCockpitFmtDur/.test(modSrc) && /scheduleCockpitPct/.test(modSrc));
 assert('module ports render', /function scheduleRenderDayCockpit/.test(modSrc));
 assert('module has data mapper', /function scheduleBuildDayCockpitData/.test(modSrc));
