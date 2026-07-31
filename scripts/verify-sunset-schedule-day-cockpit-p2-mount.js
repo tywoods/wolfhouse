@@ -28,7 +28,23 @@ const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const BROWSER_SRC = path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-browser-source.js');
 const COCKPIT_MOD = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-day-cockpit-ui.js');
-const BASE_SHA = process.env.COCKPIT_P2_BASE_SHA || '378320c0';
+// Baseline = CURRENT master tip (or override). After rebase this must NOT be a stale P1 SHA.
+function resolveCockpitBelowBandBaseSha() {
+  if (process.env.COCKPIT_P2_BASE_SHA) return String(process.env.COCKPIT_P2_BASE_SHA).trim();
+  try {
+    return execSync('git merge-base HEAD origin/master', {
+      cwd: ROOT,
+      encoding: 'utf8',
+    }).trim();
+  } catch (_e) {
+    try {
+      return execSync('git rev-parse origin/master', { cwd: ROOT, encoding: 'utf8' }).trim();
+    } catch (_e2) {
+      return 'bfe878dd';
+    }
+  }
+}
+const BASE_SHA = resolveCockpitBelowBandBaseSha();
 
 let pass = 0;
 let fail = 0;
