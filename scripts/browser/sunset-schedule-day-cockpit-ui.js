@@ -46,12 +46,18 @@
  */
 
 var SCHEDULE_DAY_COCKPIT_CSS = [
-  '/* Luna front desk — day cockpit (P1 isolated; values exact from design handoff) */',
+  '/* Luna front desk — day cockpit (light tokens exact from design; dark via [data-theme=dark]) */',
   '.cockpit{',
   '  --ck-surface:#f7f5ef;',
   '  --ck-surface-2:#f2efe5;',
   '  --ck-chip:#efece2;',
   '  --ck-line:rgba(60,45,20,.11);',
+  '  --ck-line-soft:rgba(60,45,20,.09);',
+  '  --ck-line-mid:rgba(60,45,20,.1);',
+  '  --ck-line-strong:rgba(60,45,20,.12);',
+  '  --ck-line-ghost:rgba(60,45,20,.14);',
+  '  --ck-track:rgba(60,45,20,.06);',
+  '  --ck-dash:rgba(60,45,20,.28);',
   '  --ck-ink:#3a3226;',
   '  --ck-ink-2:#6f6757;',
   '  --ck-ink-3:#8d856f;',
@@ -59,6 +65,7 @@ var SCHEDULE_DAY_COCKPIT_CSS = [
   '  --ck-olive:#6b7a5e;',
   '  --ck-olive-dark:#5c6a50;',
   '  --ck-dark:#302c22;',
+  '  --ck-on-dark:#f4f1e8;',
   '  --ck-now-bg:#22301f;',
   '  --ck-now-ink:#eef2e9;',
   '  --ck-now-ink-2:#9fb392;',
@@ -67,6 +74,8 @@ var SCHEDULE_DAY_COCKPIT_CSS = [
   '  --ck-alert-bg:#f6e6df;',
   '  --ck-done-bg:#cfd6c4;',
   '  --ck-done-border:#b3bfa5;',
+  '  --ck-done-ink:#4a5340;',
+  '  --ck-ghost-ink:#5c5548;',
   '  background:var(--ck-surface);',
   '  border:1px solid var(--ck-line);',
   '  border-radius:14px;',
@@ -74,12 +83,43 @@ var SCHEDULE_DAY_COCKPIT_CSS = [
   '  color:var(--ck-ink);',
   '  font-family:inherit;',
   '}',
-  '.ck-bar{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid rgba(60,45,20,.09);flex-wrap:wrap;}',
-  '.ck-seg{display:flex;background:var(--ck-chip);border:1px solid rgba(60,45,20,.1);border-radius:99px;padding:3px;}',
+  /* Dark mode — match portal schedule cards, no light island */
+  '[data-theme="dark"] .cockpit{',
+  '  --ck-surface:#252526;',
+  '  --ck-surface-2:#2d2d2d;',
+  '  --ck-chip:#3a3a3a;',
+  '  --ck-line:rgba(255,255,255,.10);',
+  '  --ck-line-soft:rgba(255,255,255,.08);',
+  '  --ck-line-mid:rgba(255,255,255,.10);',
+  '  --ck-line-strong:rgba(255,255,255,.12);',
+  '  --ck-line-ghost:rgba(255,255,255,.14);',
+  '  --ck-track:rgba(255,255,255,.06);',
+  '  --ck-dash:rgba(255,255,255,.22);',
+  '  --ck-ink:#e4dfd4;',
+  '  --ck-ink-2:#b0a898;',
+  '  --ck-ink-3:#8a8478;',
+  '  --ck-ink-4:#6e6a60;',
+  '  --ck-olive:#6a9a72;',
+  '  --ck-olive-dark:#5a8a62;',
+  '  --ck-dark:#1a1a1a;',
+  '  --ck-on-dark:#f0ebe3;',
+  '  --ck-now-bg:#1a281c;',
+  '  --ck-now-ink:#eef2e9;',
+  '  --ck-now-ink-2:#9fb392;',
+  '  --ck-now-accent:#a8c48f;',
+  '  --ck-alert:#d4785a;',
+  '  --ck-alert-bg:rgba(168,86,58,.22);',
+  '  --ck-done-bg:#3a4238;',
+  '  --ck-done-border:#4a5348;',
+  '  --ck-done-ink:#c5d0b8;',
+  '  --ck-ghost-ink:#b0a898;',
+  '}',
+  '.ck-bar{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--ck-line-soft);flex-wrap:wrap;}',
+  '.ck-seg{display:flex;background:var(--ck-chip);border:1px solid var(--ck-line-mid);border-radius:99px;padding:3px;}',
   '.ck-seg button{appearance:none;border:0;background:none;cursor:pointer;font:inherit;padding:6px 15px;border-radius:99px;font-size:12.5px;color:var(--ck-ink-2);}',
   '.ck-seg button:hover{color:var(--ck-ink);}',
   '.ck-seg button[aria-pressed="true"]{background:var(--ck-olive);color:#fff;font-weight:600;}',
-  '.ck-seg--range button[aria-pressed="true"]{background:var(--ck-dark);color:#f4f1e8;}',
+  '.ck-seg--range button[aria-pressed="true"]{background:var(--ck-dark);color:var(--ck-on-dark);}',
   '.ck-date{display:flex;flex-direction:column;gap:1px;}',
   '.ck-date b{font-size:16px;font-weight:700;letter-spacing:-.01em;line-height:1.1;}',
   '.ck-date span{font-size:11px;color:var(--ck-ink-3);}',
@@ -89,16 +129,16 @@ var SCHEDULE_DAY_COCKPIT_CSS = [
   '.ck-dot--luna{background:#7b8fb5;}',
   '.ck-dot--staff{background:#6b8f5e;}',
   '.ck-bar__right{margin-left:auto;display:flex;align-items:center;gap:7px;}',
-  '.ck-icon-btn{appearance:none;font:inherit;cursor:pointer;background:var(--ck-chip);border:1px solid rgba(60,45,20,.12);border-radius:99px;width:32px;height:32px;display:grid;place-items:center;font-size:13px;color:var(--ck-ink-2);}',
+  '.ck-icon-btn{appearance:none;font:inherit;cursor:pointer;background:var(--ck-chip);border:1px solid var(--ck-line-strong);border-radius:99px;width:32px;height:32px;display:grid;place-items:center;font-size:13px;color:var(--ck-ink-2);}',
   '.ck-icon-btn:hover{border-color:var(--ck-ink);color:var(--ck-ink);}',
   '.ck-cta{appearance:none;font:inherit;cursor:pointer;border:0;background:var(--ck-olive);color:#fff;border-radius:99px;padding:9px 20px;font-size:13px;font-weight:600;}',
   '.ck-cta:hover{background:var(--ck-olive-dark);}',
-  '.ck-cta--ghost{background:var(--ck-chip);color:#5c5548;border:1px solid rgba(60,45,20,.14);font-weight:500;padding:7px 15px;font-size:12px;}',
+  '.ck-cta--ghost{background:var(--ck-chip);color:var(--ck-ghost-ink);border:1px solid var(--ck-line-ghost);font-weight:500;padding:7px 15px;font-size:12px;}',
   '.ck-cta--ghost:hover{border-color:var(--ck-ink);background:var(--ck-chip);}',
   '.ck-cta--sm{padding:7px 15px;font-size:12px;}',
   '.ck-body{display:grid;grid-template-columns:1fr 270px;}',
   '@media (max-width:1080px){.ck-body{grid-template-columns:1fr;}}',
-  '.ck-main{padding:16px 18px;display:flex;flex-direction:column;gap:12px;border-right:1px solid rgba(60,45,20,.09);}',
+  '.ck-main{padding:16px 18px;display:flex;flex-direction:column;gap:12px;border-right:1px solid var(--ck-line-soft);}',
   '.ck-now{background:var(--ck-now-bg);color:var(--ck-now-ink);border-radius:12px;padding:17px 20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;}',
   '.ck-eyebrow{display:flex;align-items:center;gap:8px;font-size:10px;font-weight:700;letter-spacing:.16em;color:var(--ck-now-accent);}',
   '.ck-pulse{width:7px;height:7px;border-radius:99px;background:var(--ck-now-accent);box-shadow:0 0 9px rgba(168,196,143,.9);}',
@@ -118,16 +158,12 @@ var SCHEDULE_DAY_COCKPIT_CSS = [
   '.ck-now--idle .ck-pulse{background:none;border:1.5px solid var(--ck-ink-3);box-shadow:none;}',
   '.ck-now--idle .ck-now__sub{color:var(--ck-ink-3);}',
   '.ck-now--idle .ck-chip{background:var(--ck-chip);color:var(--ck-ink-2);}',
-  '.ck-ribbon-head{display:flex;align-items:baseline;gap:9px;margin-bottom:10px;flex-wrap:wrap;}',
-  '.ck-ribbon-head b{font-size:12.5px;}',
-  '.ck-ribbon-head span{font-size:11.5px;color:var(--ck-ink-3);}',
-  '.ck-ribbon-head .ck-next{margin-left:auto;}',
   '.ck-ribbon{position:relative;height:58px;margin:0 4px;}',
-  '.ck-ribbon__track{position:absolute;inset:20px 0 14px;background:rgba(60,45,20,.06);border-radius:8px;}',
+  '.ck-ribbon__track{position:absolute;inset:20px 0 14px;background:var(--ck-track);border-radius:8px;}',
   '.ck-block{position:absolute;top:20px;bottom:14px;border-radius:8px;border:0;display:flex;align-items:center;justify-content:center;gap:6px;font:inherit;font-size:11px;font-weight:600;cursor:pointer;padding:0 6px;white-space:nowrap;overflow:hidden;}',
   '.ck-block--live{background:var(--ck-now-bg);color:var(--ck-now-ink);font-weight:700;}',
-  '.ck-block--done{background:var(--ck-done-bg);border:1px solid var(--ck-done-border);color:#4a5340;font-weight:700;}',
-  '.ck-block--empty{background:var(--ck-surface);border:1.5px dashed rgba(60,45,20,.28);color:var(--ck-ink-3);}',
+  '.ck-block--done{background:var(--ck-done-bg);border:1px solid var(--ck-done-border);color:var(--ck-done-ink);font-weight:700;}',
+  '.ck-block--empty{background:var(--ck-surface);border:1.5px dashed var(--ck-dash);color:var(--ck-ink-3);}',
   '.ck-block--empty:hover{border-color:var(--ck-olive);color:var(--ck-olive);}',
   '.ck-needle{position:absolute;top:0;bottom:8px;width:2px;background:var(--ck-alert);border-radius:99px;}',
   '.ck-needle b{position:absolute;top:-2px;left:1px;transform:translateX(-50%);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9.5px;font-weight:700;color:#fff;background:var(--ck-alert);border-radius:4px;padding:1px 6px;}',
@@ -138,7 +174,7 @@ var SCHEDULE_DAY_COCKPIT_CSS = [
   '.ck-prep__row strong{font-size:16px;color:var(--ck-ink);}',
   '.ck-prep__row em{font-style:normal;font-size:11px;color:var(--ck-ink-4);white-space:nowrap;}',
   '.ck-prep__row > span:last-child{white-space:nowrap;}',
-  '.ck-prep__rule{height:1px;background:rgba(60,45,20,.1);margin:2px 0;}',
+  '.ck-prep__rule{height:1px;background:var(--ck-line-mid);margin:2px 0;}',
   '.ck-prep__row--alert{align-items:center;}',
   '.ck-prep__row--alert span:first-child{color:var(--ck-alert);font-weight:600;}',
   '.ck-badge{background:var(--ck-alert-bg);color:var(--ck-alert);border-radius:99px;padding:2px 10px;font-size:12px;font-weight:700;}',
@@ -279,9 +315,13 @@ function scheduleRenderDayCockpit(mount, data) {
   bar.appendChild(nav);
 
   var dateWrap = el('div', 'ck-date');
-  dateWrap.appendChild(el('b', null,
-    (isToday ? 'Today' : dt.toLocaleDateString(undefined, { weekday: 'short' })) + ' · ' +
-    dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })));
+  // Date only — no "Today ·" prefix (redundant with Previous/Today/Next seg).
+  // Non-today keeps a short weekday so staff know which day they're on.
+  var dateLabel = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  if (!isToday) {
+    dateLabel = dt.toLocaleDateString(undefined, { weekday: 'short' }) + ' · ' + dateLabel;
+  }
+  dateWrap.appendChild(el('b', null, dateLabel));
   var guests = list.reduce(function (n, s) { return n + (s.booked || 0); }, 0);
   dateWrap.appendChild(el('span', null,
     'Schedule for ' + (data.venue || '—') + ' · ' + list.length + ' session' + (list.length === 1 ? '' : 's') +
@@ -294,11 +334,14 @@ function scheduleRenderDayCockpit(mount, data) {
 
   var right = el('div', 'ck-bar__right');
   var ranges = el('div', 'ck-seg ck-seg--range');
-  [['today', 'Today'], ['week', 'Week'], ['next30', 'Next 30 days']].forEach(function (row) {
+  // Daily / Monthly only — weekly view retired. Keys stay today|next30 for nav.setView.
+  var rangeKey = data.range || 'today';
+  if (rangeKey === 'week') rangeKey = 'today'; // legacy week → Daily
+  [['today', 'Daily'], ['next30', 'Monthly']].forEach(function (row) {
     var key = row[0], label = row[1];
     var b = el('button', null, label);
     b.type = 'button';
-    var pressed = (data.range || 'today') === key;
+    var pressed = rangeKey === key;
     b.setAttribute('aria-pressed', pressed ? 'true' : 'false');
     if (on.range) b.addEventListener('click', function () { on.range(key); });
     ranges.appendChild(b);
@@ -380,26 +423,7 @@ function scheduleRenderDayCockpit(mount, data) {
   }
   main.appendChild(hero);
 
-  /* ribbon */
-  var rWrap = el('div');
-  var head = el('div', 'ck-ribbon-head');
-  head.appendChild(el('b', null, 'The day'));
-  head.appendChild(el('span', null, list.map(function (s) {
-    var shortName = String(s.name || '').replace(/^Curso /, '');
-    if (now != null && now >= s.e) return shortName + ' done';
-    if (live && s.id === live.id) return shortName + ' in the water';
-    return s.booked
-      ? shortName + ' ' + scheduleCockpitCapacityLabel(s.booked, s.capacity)
-      : shortName + ' empty';
-  }).join(' \u00b7 ')));
-  if (next) {
-    var nx = el('span', 'ck-next');
-    nx.innerHTML = 'next: <strong>' + String(next.name) + ' ' + String(next.start) + '</strong>' +
-      (now != null ? ' \u00b7 in ' + scheduleCockpitFmtDur(next.s - now) : '');
-    head.appendChild(nx);
-  }
-  rWrap.appendChild(head);
-
+  /* ribbon — no status/next headline (redundant with blocks + hero) */
   var ribbon = el('div', 'ck-ribbon');
   ribbon.appendChild(el('div', 'ck-ribbon__track'));
   list.forEach(function (s) {
@@ -409,10 +433,10 @@ function scheduleRenderDayCockpit(mount, data) {
     b.type = 'button';
     b.style.left = pct(s.s) + '%';
     b.style.width = (((s.e - s.s) / spanMin) * 100) + '%';
-    b.textContent = String(s.name || '').replace(/^Curso /, '') + ' \u00b7 ' +
+    b.textContent = String(s.name || '').replace(/^Curso /, '') + ' · ' +
       scheduleCockpitCapacityLabel(s.booked || 0, s.capacity) +
-      (now != null && now >= s.e ? ' \u2713' : '');
-    b.title = s.name + ' ' + s.start + '\u2013' + s.end;
+      (now != null && now >= s.e ? ' ✓' : '');
+    b.title = s.name + ' ' + s.start + '–' + s.end;
     b.addEventListener('click', function () {
       if (s.booked) { if (on.session) on.session(s.id); }
       else if (on.create) on.create(s.id);
@@ -428,8 +452,7 @@ function scheduleRenderDayCockpit(mount, data) {
   var hours = el('div', 'ck-hours');
   for (var h = win[0]; h <= win[1]; h += 2) hours.appendChild(el('span', null, scheduleCockpitPad(h)));
   ribbon.appendChild(hours);
-  rWrap.appendChild(ribbon);
-  main.appendChild(rWrap);
+  main.appendChild(ribbon);
   body.appendChild(main);
 
   /* prep rail */
@@ -555,11 +578,13 @@ function scheduleCockpitMinToHhmm(min) {
 /**
  * Map nav mode → cockpit range pill key.
  * SunsetScheduleRuntime.nav modes: 'day' | 'week' | 'next30'
+ * UI only exposes Daily (today) + Monthly (next30). Legacy week collapses to Daily.
  */
 function scheduleCockpitRangeFromNavMode(mode) {
   var m = String(mode || 'day').toLowerCase();
-  if (m === 'week') return 'week';
-  if (m === 'next30' || m === 'month') return 'next30';
+  if (m === 'next30' || m === 'month' || m === 'monthly') return 'next30';
+  // week retired from UI — treat as day/Daily for pills (clock freeze still honors explicit range:'week')
+  if (m === 'week') return 'today';
   return 'today';
 }
 
@@ -755,9 +780,10 @@ function scheduleDayCockpitDefaultHandlers() {
       }
     },
     range: function (kind) {
+      // Daily → day, Monthly → next30. Week retired.
       var mode = 'day';
-      if (kind === 'week') mode = 'week';
-      else if (kind === 'next30') mode = 'next30';
+      if (kind === 'next30' || kind === 'month' || kind === 'monthly') mode = 'next30';
+      else if (kind === 'week') mode = 'day'; // no week UI
       if (typeof setScheduleView === 'function') return setScheduleView(mode);
       if (typeof SunsetScheduleRuntime !== 'undefined' && SunsetScheduleRuntime.nav) {
         return SunsetScheduleRuntime.nav.setView(mode);
