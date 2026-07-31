@@ -7,8 +7,9 @@
  * Renders all 3 time-of-day states via the reference `now` override:
  *   mid-session / before-first / after-last
  *
- * Also checks pure helpers (classify/fmtDur/pct), data mapping, capacity
- * degradation, and ops capacityFromOfferingPack.
+ * Capacity is proven on the REAL session-VM path (producer-shaped objects with
+ * session.capacity from course.capacity / courses cache) — not via ops helpers.
+ * capacity: 0 degrades the seats ring to booked-only.
  *
  * Run:
  *   node scripts/verify-sunset-schedule-day-cockpit-ui.js
@@ -311,6 +312,7 @@ console.log('[1] Module files present (P1 isolated — not mounted)');
 assert('cockpit module exists', fs.existsSync(MODULE_PATH));
 const modSrc = fs.readFileSync(MODULE_PATH, 'utf8');
 assert('ops lib exists', fs.existsSync(OPS_PATH));
+const opsSrc = fs.readFileSync(OPS_PATH, 'utf8');
 const staffSrc = fs.readFileSync(STAFF_API, 'utf8');
 const browserSrc = fs.readFileSync(BROWSER_SRC, 'utf8');
 assert('P1 does not inject cockpit marker into staff-query-api', !staffSrc.includes('INJECT:sunset-schedule-day-cockpit'));
@@ -319,25 +321,18 @@ assert('module keeps classify/fmtDur/pct helpers', /scheduleCockpitClassify/.tes
 assert('module ports render', /function scheduleRenderDayCockpit/.test(modSrc));
 assert('module has data mapper', /function scheduleBuildDayCockpitData/.test(modSrc));
 assert('module does not fetch', !modSrc.includes('fetch('));
+assert('module does not call deleted ops capacity helpers', !modSrc.includes('capacityFromOfferingPack') && !modSrc.includes('attachSessionCapacity'));
+assert('ops has no capacityFromOfferingPack', !opsSrc.includes('capacityFromOfferingPack'));
+assert('ops has no attachSessionCapacity', !opsSrc.includes('attachSessionCapacity'));
 assert('CSS uses exact --ck-surface #f7f5ef', modSrc.includes('--ck-surface:#f7f5ef') || modSrc.includes('--ck-surface: #f7f5ef'));
 assert('CSS uses exact --ck-olive #6b7a5e', modSrc.includes('--ck-olive:#6b7a5e') || modSrc.includes('--ck-olive: #6b7a5e'));
 assert('CSS uses exact --ck-now-bg #22301f', modSrc.includes('--ck-now-bg:#22301f') || modSrc.includes('--ck-now-bg: #22301f'));
 assert('CSS uses exact --ck-alert #a8563a', modSrc.includes('--ck-alert:#a8563a') || modSrc.includes('--ck-alert: #a8563a'));
 assert('token mapping report present', modSrc.includes('TOKEN MAPPING REPORT'));
+// Producer already surfaces capacity on day sessions (read-only proof, no edits).
+assert('producer scheduleBuildDaySessions sets session.capacity', staffSrc.includes('function scheduleBuildDaySessions') && /capacity:\s*course\.capacity/.test(staffSrc));
 
-console.log('\n[2] Ops capacity helper (read-only group_size)');
-const ops = require(OPS_PATH);
-assert('capacityFromOfferingPack exported', typeof ops.capacityFromOfferingPack === 'function');
-assert('attachSessionCapacity exported', typeof ops.attachSessionCapacity === 'function');
-assert('group_size 24 → 24', ops.capacityFromOfferingPack({ group_size: 24 }) === 24);
-assert('capacity field accepted', ops.capacityFromOfferingPack({ capacity: 12 }) === 12);
-assert('zero → null', ops.capacityFromOfferingPack({ group_size: 0 }) === null);
-assert('missing → null', ops.capacityFromOfferingPack({}) === null);
-const sess = { label: 'Mañana', surfers: 2 };
-ops.attachSessionCapacity(sess, { group_size: 24 });
-assert('attachSessionCapacity sets capacity', sess.capacity === 24);
-
-console.log('\n[3] Pure helpers (verbatim formulas)');
+console.log('\n[2] Pure helpers (verbatim formulas)');
 const cockpit = require(MODULE_PATH);
 assert('fmtDur 40 → 40 min', cockpit.scheduleCockpitFmtDur(40) === '40 min');
 assert('fmtDur 83 → 1 h 23 m', cockpit.scheduleCockpitFmtDur(83) === '1 h 23 m');
@@ -356,26 +351,63 @@ const after = cockpit.scheduleCockpitClassify(baseData(19 * 60), 19 * 60);
 assert('classify after live null', after.live == null);
 assert('classify after next null', after.next == null);
 
-console.log('\n[4] Data mapping from existing VM shapes');
+console.log('\n[3] Data mapping from producer-shaped day-session VM');
+// Shape matches scheduleBuildDaySessions output (staff-query-api): minutes start/end,
+// surfers, capacity from course.capacity (← pack.group_size via courses cache).
+const producerSessions = [
+  {
+    kind: 'course',
+    course_id: 'manana',
+    label: 'Curso Mañana',
+    slot_key: 'manana',
+    timeLabel: '10:00 – 12:00',
+    start: 10 * 60,
+    end: 12 * 60,
+    capacity: 24, // course.capacity already on VM
+    surfers: 3,
+    bookings: 2,
+    groups: [],
+    boardsNeeded: 3,
+    wetsuitsNeeded: 3,
+  },
+  {
+    kind: 'course',
+    course_id: 'medio',
+    label: 'Curso Medio Día',
+    slot_key: 'medio',
+    timeLabel: '12:00 – 14:00',
+    start: 12 * 60,
+    end: 14 * 60,
+    capacity: 24,
+    surfers: 2,
+    bookings: 1,
+    groups: [],
+    boardsNeeded: 2,
+    wetsuitsNeeded: 2,
+  },
+  {
+    kind: 'course',
+    course_id: 'tarde',
+    label: 'Curso Tarde',
+    slot_key: 'tarde',
+    timeLabel: '16:00 – 18:00',
+    start: 16 * 60,
+    end: 18 * 60,
+    capacity: 24,
+    surfers: 0,
+    bookings: 0,
+    groups: [],
+    boardsNeeded: 0,
+    wetsuitsNeeded: 0,
+  },
+];
+
 const mapped = cockpit.scheduleBuildDayCockpitData({
   venue: 'Sunset',
   date: '2026-07-31',
   navMode: 'day',
   now: 757,
-  sessions: [
-    {
-      kind: 'course',
-      course_id: 'manana',
-      label: 'Curso Mañana',
-      slot_key: 'manana',
-      start: 10 * 60,
-      end: 12 * 60,
-      surfers: 3,
-      capacity: 24,
-      boardsNeeded: 3,
-      wetsuitsNeeded: 3,
-    },
-  ],
+  sessions: producerSessions,
   boardsTotal: 8,
   boardsLesson: 4,
   boardsRental: 4,
@@ -386,41 +418,68 @@ const mapped = cockpit.scheduleBuildDayCockpitData({
   needReplyCount: 0,
 });
 assert('nav day → range today', mapped.range === 'today');
-assert('session start HH:MM', mapped.sessions[0].start === '10:00');
+assert('session start HH:MM from minutes', mapped.sessions[0].start === '10:00');
+assert('session end HH:MM from minutes', mapped.sessions[0].end === '12:00');
 assert('session booked from surfers', mapped.sessions[0].booked === 3);
 assert('session boards from boardsNeeded', mapped.sessions[0].boards === 3);
+assert('session capacity from producer VM', mapped.sessions[0].capacity === 24);
 assert('prep boards total from ops flat keys', mapped.prep.boards.total === 8);
 assert('prep unpaid from unpaidCount', mapped.prep.unpaid === 9);
-assert('capacity kept', mapped.sessions[0].capacity === 24);
 
-const noCap = cockpit.scheduleMapDaySessionToCockpit({
+const zeroCapMapped = cockpit.scheduleMapDaySessionToCockpit({
+  kind: 'course',
+  course_id: 'open',
+  label: 'Open session',
+  slot_key: 'open',
+  start: 12 * 60,
+  end: 14 * 60,
+  surfers: 2,
+  capacity: 0, // literal capacity 0 from producer
+  boardsNeeded: 0,
+  wetsuitsNeeded: 0,
+});
+assert('capacity 0 → null (degrade)', zeroCapMapped.capacity === null);
+
+const nullCapMapped = cockpit.scheduleMapDaySessionToCockpit({
   label: 'Private',
   start: 600,
   end: 660,
   surfers: 1,
   capacity: null,
 });
-assert('missing capacity → null', noCap.capacity === null);
+assert('missing capacity → null', nullCapMapped.capacity === null);
 
-console.log('\n[5] RED render — 3 states via now override');
+console.log('\n[4] RED render — 3 states via now override (producer VM → mapper → paint)');
 const { doc, textOf } = createMinimalDocument();
 const states = [];
 
-function renderState(name, nowMin) {
+function renderFromProducer(name, nowMin) {
   const mount = doc.createElement('div');
   mount.ownerDocument = doc;
-  cockpit.scheduleRenderDayCockpit(mount, baseData(nowMin));
+  const data = cockpit.scheduleBuildDayCockpitData({
+    venue: 'Sunset',
+    date: '2026-07-31',
+    navMode: 'day',
+    now: nowMin,
+    sessions: producerSessions,
+    boardsTotal: 8,
+    boardsLesson: 4,
+    boardsRental: 4,
+    wetsuitsTotal: 8,
+    wetsuitsLesson: 4,
+    wetsuitsRental: 4,
+    unpaidCount: 9,
+    needReplyCount: 0,
+  });
+  cockpit.scheduleRenderDayCockpit(mount, data);
   const text = textOf(mount);
   const html = mount.innerHTML;
   const className = mount.className;
   states.push({ name, nowMin, text, html, className, mount });
-  return { text, html, className, mount };
+  return { text, html, className, mount, data };
 }
 
-// Freeze "today" relative checks inside render for date line: data.date is 2026-07-31;
-// isToday depends on real clock — we only assert state-specific hero copy.
-
-const midR = renderState('mid-session', 12 * 60 + 37);
+const midR = renderFromProducer('mid-session', 12 * 60 + 37);
 assert('mid: mount class cockpit', midR.className === 'cockpit');
 assert('mid: ON NOW', /ON NOW/.test(midR.text), midR.text.slice(0, 200));
 assert('mid: live session name', /Curso Medio D[ií]a|Medio/.test(midR.text), midR.text.slice(0, 240));
@@ -431,8 +490,15 @@ assert('mid: needle present', midR.mount.querySelectorAll('.ck-needle').length >
 assert('mid: prep unpaid badge', /9/.test(midR.text) && /Unpaid/.test(midR.text));
 assert('mid: ribbon blocks', midR.mount.querySelectorAll('.ck-block').length === 3);
 assert('mid: not idle hero', midR.mount.querySelectorAll('.ck-now--idle').length === 0);
+// REAL capacity path: producer capacity:24 → ring shows booked/capacity (2/24 for medio)
+const midRing = midR.mount.querySelector('.ck-ring');
+const midRingText = midRing ? midRing.textContent : '';
+assert('mid: ring shows booked/capacity 2/24', /2\s*\/\s*24/.test(midRingText) || /2\/24/.test(midRingText), midRingText);
+assert('mid: ring not booked-only', midRing && !String(midRing.className).includes('is-booked-only'));
+assert('mid: ring deg set from capacity', midRing && midRing.style && midRing.style._props && midRing.style._props['--ck-ring-deg'] === Math.round((2 / 24) * 360) + 'deg',
+  midRing && midRing.style && midRing.style._props ? midRing.style._props['--ck-ring-deg'] : 'missing');
 
-const beforeR = renderState('before-first', 9 * 60 + 20);
+const beforeR = renderFromProducer('before-first', 9 * 60 + 20);
 assert('before: NOTHING IN THE WATER', /NOTHING IN THE WATER/.test(beforeR.text), beforeR.text.slice(0, 200));
 assert('before: First up', /First up:/.test(beforeR.text));
 assert('before: starts in', /starts in/.test(beforeR.text));
@@ -440,30 +506,65 @@ assert('before: idle hero', beforeR.mount.querySelectorAll('.ck-now--idle').leng
 assert('before: to prep chip', /to prep/.test(beforeR.text));
 assert('before: needle still (now in window)', beforeR.mount.querySelectorAll('.ck-needle').length >= 1);
 
-const afterR = renderState('after-last', 19 * 60);
+const afterR = renderFromProducer('after-last', 19 * 60);
 assert('after: DAY COMPLETE', /DAY COMPLETE/.test(afterR.text), afterR.text.slice(0, 200));
 assert('after: sessions run', /session/.test(afterR.text) && /run/.test(afterR.text));
 assert('after: gear used', /used/.test(afterR.text));
 assert('after: idle hero', afterR.mount.querySelectorAll('.ck-now--idle').length >= 1);
 assert('after: closed copy', /closed out/.test(afterR.text));
 
-console.log('\n[6] Capacity degradation + edge empties');
-const mountCap = doc.createElement('div');
-mountCap.ownerDocument = doc;
-cockpit.scheduleRenderDayCockpit(mountCap, {
+console.log('\n[5] Capacity edges — producer capacity:0 → booked-only ring');
+// Literal capacity: 0 on a producer-shaped live session (README edge case).
+const zeroVm = cockpit.scheduleBuildDayCockpitData({
   venue: 'Sunset',
   date: '2026-07-31',
   range: 'today',
   now: 12 * 60 + 30,
   sessions: [{
-    id: 'x', name: 'Open session', start: '12:00', end: '14:00',
-    booked: 2, capacity: null, boards: 0, wetsuits: 0,
+    kind: 'course',
+    course_id: 'open',
+    label: 'Open session',
+    slot_key: 'open',
+    start: 12 * 60,
+    end: 14 * 60,
+    capacity: 0,
+    surfers: 2,
+    boardsNeeded: 0,
+    wetsuitsNeeded: 0,
   }],
-  prep: samplePrep(),
+  unpaidCount: 0,
+  needReplyCount: 0,
 });
-assert('no-cap: still ON NOW', /ON NOW/.test(textOf(mountCap)));
-assert('no-cap: booked-only ring class', mountCap.querySelectorAll('.is-booked-only').length >= 1);
-assert('no-cap: no /denom in ring text path', !/\/null/.test(textOf(mountCap)));
+assert('mapper: capacity 0 not kept as 0', zeroVm.sessions[0].capacity === null);
+const mountZero = doc.createElement('div');
+mountZero.ownerDocument = doc;
+cockpit.scheduleRenderDayCockpit(mountZero, zeroVm);
+assert('cap0: still ON NOW', /ON NOW/.test(textOf(mountZero)));
+assert('cap0: booked-only ring class', mountZero.querySelectorAll('.is-booked-only').length >= 1);
+const zeroRing = mountZero.querySelector('.ck-ring');
+const zeroRingText = zeroRing ? zeroRing.textContent : '';
+assert('cap0: ring shows booked without /denom', /2/.test(zeroRingText) && !/\//.test(zeroRingText), zeroRingText);
+
+const mountNull = doc.createElement('div');
+mountNull.ownerDocument = doc;
+cockpit.scheduleRenderDayCockpit(mountNull, cockpit.scheduleBuildDayCockpitData({
+  venue: 'Sunset',
+  date: '2026-07-31',
+  range: 'today',
+  now: 12 * 60 + 30,
+  sessions: [{
+    kind: 'course',
+    course_id: 'x',
+    label: 'Open session',
+    start: 12 * 60,
+    end: 14 * 60,
+    capacity: null,
+    surfers: 2,
+    boardsNeeded: 0,
+    wetsuitsNeeded: 0,
+  }],
+}));
+assert('null-cap: booked-only ring', mountNull.querySelectorAll('.is-booked-only').length >= 1);
 
 const mountEmpty = doc.createElement('div');
 mountEmpty.ownerDocument = doc;
@@ -478,7 +579,7 @@ cockpit.scheduleRenderDayCockpit(mountEmpty, {
 assert('empty: No sessions scheduled', /No sessions scheduled/.test(textOf(mountEmpty)));
 assert('empty: idle', mountEmpty.querySelectorAll('.ck-now--idle').length >= 1);
 
-console.log('\n[7] State snapshot (fixture output)');
+console.log('\n[6] State snapshot (fixture output)');
 states.forEach((s) => {
   const heroBits = [];
   if (/ON NOW/.test(s.text)) heroBits.push('ON_NOW');
@@ -486,7 +587,11 @@ states.forEach((s) => {
   if (/DAY COMPLETE/.test(s.text)) heroBits.push('AFTER');
   const needle = s.mount.querySelectorAll('.ck-needle').length;
   const blocks = s.mount.querySelectorAll('.ck-block').length;
-  console.log(`  STATE  ${s.name} now=${s.nowMin} hero=${heroBits.join('|') || '?'} blocks=${blocks} needle=${needle}`);
+  const ring = s.mount.querySelector('.ck-ring');
+  const ringInfo = ring
+    ? `ring="${ring.textContent}" cls=${ring.className} deg=${ring.style && ring.style._props ? ring.style._props['--ck-ring-deg'] : '-'}`
+    : 'ring=none';
+  console.log(`  STATE  ${s.name} now=${s.nowMin} hero=${heroBits.join('|') || '?'} blocks=${blocks} needle=${needle} ${ringInfo}`);
   console.log(`         excerpt: ${s.text.replace(/\s+/g, ' ').trim().slice(0, 160)}`);
 });
 

@@ -503,8 +503,9 @@ function scheduleCockpitRangeFromNavMode(mode) {
  *   booked    ← surfers (ops bucket.booked / group qty aggregate)
  *   boards    ← boardsNeeded (ops group gear / scheduleGroupBoardsNeeded)
  *   wetsuits  ← wetsuitsNeeded
- *   capacity  ← course.capacity ← pack.group_size (via offerings → courses cache → session VM)
- *               helper: sunset-schedule-ops.capacityFromOfferingPack
+ *   capacity  ← session.capacity already on day-session VM
+ *               (scheduleBuildDaySessions sets course.capacity from pack.group_size /
+ *               courses cache — read directly; no ops helper)
  *   cancelled ← _isCancelled / schedule_ghost
  *
  * note skipped for v1.
