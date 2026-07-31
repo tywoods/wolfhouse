@@ -18,8 +18,8 @@ var SCHEDULE_FULL_DAY_EQUIPMENT_OFFERING = 'full_day_equipment_extension';
 
 // A price-cache row is a generic (non-canonical) rentable offering when it is
 // item_type/category 'rental' and not the full-day add-on. Data-driven so admin
-// catalog offerings (e.g. kayak_rental) appear without a code change. The server
-// GENERIC_RENTAL_CREATE_ENABLED flag remains the authority on submit.
+// catalog offerings (e.g. kayak_rental) appear without a code change. Submit
+// authority is active catalog membership + price + stock (no env toggle).
 function scheduleIsGenericRentalOffering(price, offeringKey) {
   var key = String(offeringKey || '').trim();
   if (!key || SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(key) >= 0) return false;

@@ -199,24 +199,32 @@ async function main() {
   const CATALOG = ['kayak_rental', 'sup_rental'];
   const mk = (k) => ({ offering_key: k, duration_key: 'half_day', quantity: 1 });
 
-  // Flag OFF is a strict no-op: generic key rejected exactly like today (#tripwire).
-  const offGeneric = partitionRentalsForCreate([mk('kayak_rental')], { canonicalKeys: CANON, catalogKeys: CATALOG, genericEnabled: false });
-  assert('flag OFF: generic catalog key still rejected (behavior-preserving)',
-    offGeneric.ok === false && offGeneric.reason === 'invalid_rental_offering', JSON.stringify(offGeneric));
-  const offCanon = partitionRentalsForCreate([mk('board_rental'), mk('wetsuit_rental')], { canonicalKeys: CANON, catalogKeys: CATALOG, genericEnabled: false });
-  assert('flag OFF: canonical keys still pass into canonical lane',
-    offCanon.ok === true && offCanon.canonical.length === 2 && offCanon.generic.length === 0, JSON.stringify(offCanon));
+  // Catalog membership is the gate (genericEnabled deprecated / ignored).
+  const catGeneric = partitionRentalsForCreate([mk('kayak_rental')], { canonicalKeys: CANON, catalogKeys: CATALOG });
+  assert('catalog key routes to generic lane without env flag',
+    catGeneric.ok === true && catGeneric.generic.length === 1 && catGeneric.generic[0].offering_key === 'kayak_rental',
+    JSON.stringify(catGeneric));
+  const catCanon = partitionRentalsForCreate([mk('board_rental'), mk('wetsuit_rental')], { canonicalKeys: CANON, catalogKeys: CATALOG });
+  assert('canonical keys still pass into canonical lane',
+    catCanon.ok === true && catCanon.canonical.length === 2 && catCanon.generic.length === 0, JSON.stringify(catCanon));
 
-  // Flag ON: catalog generic keys route to the generic lane; canonical stays canonical.
-  const onMix = partitionRentalsForCreate([mk('board_and_suit_rental'), mk('kayak_rental')], { canonicalKeys: CANON, catalogKeys: CATALOG, genericEnabled: true });
-  assert('flag ON: mixed split — 1 canonical, 1 generic',
+  // Catalog generic keys route to the generic lane; canonical stays canonical.
+  const onMix = partitionRentalsForCreate([mk('board_and_suit_rental'), mk('kayak_rental')], { canonicalKeys: CANON, catalogKeys: CATALOG });
+  assert('mixed split — 1 canonical, 1 generic',
     onMix.ok === true && onMix.canonical.length === 1 && onMix.generic.length === 1
     && onMix.canonical[0].offering_key === 'board_and_suit_rental' && onMix.generic[0].offering_key === 'kayak_rental', JSON.stringify(onMix));
 
-  // Flag ON but key not in catalog → still fail closed (must be a real active offering).
-  const onUnknown = partitionRentalsForCreate([mk('jetski_rental')], { canonicalKeys: CANON, catalogKeys: CATALOG, genericEnabled: true });
-  assert('flag ON: unknown (non-catalog) key still rejected',
+  // Key not in catalog → fail closed (must be a real active offering).
+  const onUnknown = partitionRentalsForCreate([mk('jetski_rental')], { canonicalKeys: CANON, catalogKeys: CATALOG });
+  assert('unknown (non-catalog) key still rejected',
     onUnknown.ok === false && onUnknown.reason === 'invalid_rental_offering' && onUnknown.index === 0, JSON.stringify(onUnknown));
+
+  // Deprecated genericEnabled:false must not re-impose env-style block on catalog keys.
+  const deprecatedFlag = partitionRentalsForCreate([mk('kayak_rental')], {
+    canonicalKeys: CANON, catalogKeys: CATALOG, genericEnabled: false,
+  });
+  assert('deprecated genericEnabled:false still accepts catalog key',
+    deprecatedFlag.ok === true && deprecatedFlag.generic.length === 1, JSON.stringify(deprecatedFlag));
 
   console.log(`\n── verify:tenant-rental-price-resolver ${fail === 0 ? 'PASSED' : 'FAILED'} (${pass}/${pass + fail}) ──\n`);
   process.exit(fail > 0 ? 1 : 0);

@@ -6,7 +6,8 @@
  * Executes actual callers (normalize/collect/assert/quote/create paths), not
  * source-regex only. Covers:
  *   1) No future exclusion/conflict semantics; combo+board+wetsuit independent
- *   2) Luna catalog-driven arbitrary Admin offerings (quote pricing path)
+ *   2) Luna catalog-driven arbitrary Admin offerings via production
+ *      executeSunsetQuote + createSunsetScheduleBooking (not helpers alone)
  *   3) Course-equipment included in Create/Edit stock claims merge
  *   4) Restore sums independent rows; historical component pairs dedupe once;
  *      multi-day demand is per-day (not inflated across dates)
@@ -15,6 +16,8 @@
  */
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const stock = require('./lib/tenant-rental-stock');
 const stockService = require('./lib/tenant-rental-stock-service');
 const {
@@ -29,6 +32,7 @@ const {
 } = require('./lib/luna-front-desk-quote-service');
 const {
   prepareGenericRentalsForCreate,
+  createSunsetScheduleBooking,
 } = require('./lib/sunset-schedule-booking-writes');
 
 let pass = 0;
@@ -161,10 +165,10 @@ async function main() {
     JSON.stringify(threeClaims),
   );
 
-  // prepareGenericRentals no longer applies catalog excludes
-  process.env.GENERIC_RENTAL_CREATE_ENABLED = 'true';
+  // prepareGenericRentals no longer applies catalog excludes; no env flag needed
+  delete process.env.GENERIC_RENTAL_CREATE_ENABLED;
   const mockCatalog = [
-    { offering_key: 'kayak_rental', active: true, excludes: ['board_rental'] },
+    { offering_key: 'kayak_rental', active: true, excludes: ['board_rental'], label: 'Kayak' },
     { offering_key: 'board_rental', active: true, excludes: ['kayak_rental'] },
   ];
   const genPrep = await prepareGenericRentalsForCreate({
@@ -191,13 +195,14 @@ async function main() {
   // board_rental is canonical → only kayak is generic; no catalog conflict
   ok(
     'generic prep does not apply excludes (no rental_catalog_conflict)',
-    genPrep.ok !== false || genPrep.reason !== 'rental_catalog_conflict',
+    genPrep.ok === true && genPrep.records.length === 1
+      && genPrep.records[0].metadata.offering_key === 'kayak_rental',
     JSON.stringify(genPrep),
   );
 
-  section('2) Luna catalog-driven arbitrary offerings');
+  section('2) Luna production quote/create for arbitrary Admin catalog items');
 
-  // Valid shape accepted; unknown fails at price/catalog stage (not whitelist)
+  // Shape-level accept still matters for transport validation
   const kayakNorm = normalizeCanonicalRentalsForQuote({
     rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
   }, '1_day');
@@ -216,191 +221,381 @@ async function main() {
   }, '1_day');
   ok('malformed offering_key rejected', !badShape.ok);
 
-  // Async quote path with pg: custom item prices via resolveGenericRentalPrice
   const KAYAK_CENTS = 3500;
   const CUSTOM_CENTS = 4500;
-  const quotePg = {
-    async query(sql, params = []) {
-      const s = String(sql || '');
-      if (/tenant_rental_offerings/i.test(s)) {
-        return {
-          rows: [
-            {
-              id: '1', client_slug: 'sunset', location_id: 'sunset-somo',
-              offering_key: 'kayak_rental', label: 'Kayak', group_key: 'sup',
-              excludes: [], sort_order: 5, stock_quantity: 4, active: true,
-            },
-            {
-              id: '2', client_slug: 'sunset', location_id: 'sunset-somo',
-              offering_key: 'surfboard_plus_wetsuit_custom', label: 'Custom Combo',
-              group_key: 'custom', excludes: [], sort_order: 6, stock_quantity: 3, active: true,
-            },
-            {
-              id: '3', client_slug: 'sunset', location_id: 'sunset-somo',
-              offering_key: 'board_rental', label: 'Surfboard', group_key: 'boards',
-              excludes: [], sort_order: 0, stock_quantity: 10, active: true,
-            },
-          ],
-          rowCount: 3,
-        };
-      }
-      if (/tenant_price_rules/i.test(s) || /item_code/i.test(s) || /amount_cents/i.test(s)) {
-        // Generic price resolver / stock reservation queries
-        const joined = JSON.stringify(params);
-        if (joined.includes('kayak_rental') || s.includes('kayak')) {
-          return {
-            rows: [{
-              amount_cents: KAYAK_CENTS,
-              currency: 'EUR',
-              item_code: 'kayak_rental__1_day',
-              unit: 'day',
-              location_id: 'sunset-somo',
-              pricing_status: 'confirmed',
-              status: 'found',
-              active: true,
-            }],
-            rowCount: 1,
-          };
-        }
-        if (joined.includes('surfboard_plus_wetsuit_custom') || s.includes('surfboard_plus')) {
-          return {
-            rows: [{
-              amount_cents: CUSTOM_CENTS,
-              currency: 'EUR',
-              item_code: 'surfboard_plus_wetsuit_custom__1_day',
-              unit: 'day',
-              location_id: 'sunset-somo',
-              pricing_status: 'confirmed',
-              status: 'found',
-              active: true,
-            }],
-            rowCount: 1,
-          };
-        }
-        return { rows: [], rowCount: 0 };
-      }
-      if (/FOR UPDATE/i.test(s)) {
-        return {
-          rows: [
-            {
-              id: '1', client_slug: 'sunset', location_id: 'sunset-somo',
-              offering_key: 'kayak_rental', stock_quantity: 4, active: true,
-            },
-            {
-              id: '2', client_slug: 'sunset', location_id: 'sunset-somo',
-              offering_key: 'surfboard_plus_wetsuit_custom', stock_quantity: 3, active: true,
-            },
-          ],
-          rowCount: 2,
-        };
-      }
-      if (/booking_service_records|service_date|rental_service/i.test(s)) {
-        return { rows: [], rowCount: 0 };
-      }
-      return { rows: [], rowCount: 0 };
+  const LOC = 'sunset-somo';
+  const DATE = '2026-09-10';
+  const FIXED_NOW = new Date('2026-09-01T12:00:00Z');
+  const CATALOG_OFFERINGS = [
+    {
+      id: '1', client_slug: 'sunset', location_id: LOC,
+      offering_key: 'kayak_rental', label: 'Sea Kayak', group_key: 'sup',
+      excludes: [], sort_order: 5, stock_quantity: 4, active: true,
     },
+    {
+      id: '2', client_slug: 'sunset', location_id: LOC,
+      offering_key: 'surfboard_plus_wetsuit_custom', label: 'Surf+Suit Custom',
+      group_key: 'custom', excludes: [], sort_order: 6, stock_quantity: 3, active: true,
+    },
+  ];
+  const PRICE_MAP = {
+    kayak_rental__1_day: { amount_cents: KAYAK_CENTS, unit: 'day' },
+    surfboard_plus_wetsuit_custom__1_day: { amount_cents: CUSTOM_CENTS, unit: 'day' },
   };
 
-  // Direct unit of quoteExact path via executeSunsetQuote needs full catalog.
-  // Test the pricing helper path by collecting claims + assert for kayak stock,
-  // and normalize + generic price resolution for money.
-  const { resolveGenericRentalPrice } = require('./lib/tenant-rental-price-resolver');
-  // Wire a thin loadRule that the mock quote path would use
-  const pricedKayak = await resolveGenericRentalPrice({
-    clientSlug: 'sunset',
-    locationId: 'sunset-somo',
-    offeringKey: 'kayak_rental',
-    durationKey: '1_day',
-    quantity: 1,
-    pgClient: quotePg,
-    loadRule: async () => ({
-      status: 'found',
-      amount_cents: KAYAK_CENTS,
-      currency: 'EUR',
-      item_code: 'kayak_rental__1_day',
-      unit: 'day',
-      pricing_status: 'confirmed',
-    }),
-  });
-  ok(
-    'kayak_rental prices via generic resolver',
-    pricedKayak.ok && pricedKayak.amount_cents === KAYAK_CENTS
-      && pricedKayak.item_code === 'kayak_rental__1_day',
-    JSON.stringify(pricedKayak),
-  );
+  function parseMeta(m) {
+    try { return typeof m === 'string' ? JSON.parse(m) : (m || {}); } catch (_) { return {}; }
+  }
 
-  const pricedCustom = await resolveGenericRentalPrice({
-    clientSlug: 'sunset',
-    locationId: 'sunset-somo',
-    offeringKey: 'surfboard_plus_wetsuit_custom',
-    durationKey: '1_day',
-    quantity: 1,
-    pgClient: quotePg,
-    loadRule: async () => ({
-      status: 'found',
-      amount_cents: CUSTOM_CENTS,
-      currency: 'EUR',
-      item_code: 'surfboard_plus_wetsuit_custom__1_day',
-      unit: 'day',
-      pricing_status: 'confirmed',
-    }),
-  });
-  ok(
-    'surfboard_plus_wetsuit_custom prices as ordinary item',
-    pricedCustom.ok && pricedCustom.amount_cents === CUSTOM_CENTS,
-    JSON.stringify(pricedCustom),
-  );
+  /**
+   * Transaction-aware mock that exercises REAL production create + quote SQL paths:
+   * catalog list, price rules, stock FOR UPDATE, booking/service inserts.
+   */
+  function createCatalogTxnPg(opts = {}) {
+    const offerings = (opts.offerings || CATALOG_OFFERINGS).map((o) => ({ ...o }));
+    // opts.prices replaces defaults when provided (use {} for fully unpriced).
+    const prices = opts.prices != null ? { ...opts.prices } : { ...PRICE_MAP };
+    const reservations = Array.isArray(opts.reservations) ? opts.reservations.slice() : [];
+    const state = {
+      clientId: '11111111-1111-1111-1111-111111111111',
+      bookings: [],
+      serviceRecords: [],
+      bookingInserts: 0,
+      serviceInserts: 0,
+    };
+    return {
+      state,
+      offerings,
+      async query(sql, params = []) {
+        const s = String(sql || '');
+        if (/SELECT id FROM clients WHERE slug/i.test(s)) {
+          return { rows: [{ id: state.clientId }], rowCount: 1 };
+        }
+        if (/BEGIN|COMMIT|ROLLBACK/i.test(s)) return { rows: [], rowCount: 0 };
+        if (/pg_advisory/i.test(s)) return { rows: [{}], rowCount: 1 };
+        if (/to_regclass/i.test(s)) return { rows: [{ reg: 'public.tenant_price_rules' }], rowCount: 1 };
+        if (/information_schema/i.test(s)) return { rows: [{ '?column?': 1 }], rowCount: 1 };
+        if (/CREATE|ALTER/i.test(s)) return { rows: [], rowCount: 0 };
+        if (/tenant_surf_pack|tenant_private_lesson/i.test(s)) return { rows: [], rowCount: 0 };
 
-  // Stock assert for kayak (runtime-shaped claims)
-  const kayakStock = await stockService.assertRentalStockClaimsInTxn(
-    createMockStockPg({
-      offerings: [{
-        id: '1', client_slug: 'sunset', location_id: 'sunset-somo',
-        offering_key: 'kayak_rental', stock_quantity: 4, active: true,
-      }],
-      reservations: [],
-    }),
-    {
+        if (/FOR UPDATE/i.test(s) && /tenant_rental_offerings/i.test(s)) {
+          const keys = Array.isArray(params[2]) ? params[2] : [];
+          const slug = params[0];
+          const loc = params[1];
+          const rows = offerings.filter((o) => o.client_slug === slug
+            && keys.includes(o.offering_key)
+            && (o.location_id === loc || o.location_id == null)
+            && o.active !== false);
+          return { rows, rowCount: rows.length };
+        }
+        if (/FROM tenant_rental_offerings/i.test(s)) {
+          const rows = offerings.filter((o) => o.active !== false);
+          return { rows, rowCount: rows.length };
+        }
+        if (/FROM tenant_price_rules/i.test(s)) {
+          const itemCode = params[2];
+          const hit = prices[itemCode];
+          if (!hit) return { rows: [], rowCount: 0 };
+          return {
+            rows: [{
+              amount_cents: hit.amount_cents,
+              currency: 'EUR',
+              item_type: 'rental',
+              item_code: itemCode,
+              unit: hit.unit || 'day',
+              location_id: hit.location_id || LOC,
+            }],
+            rowCount: 1,
+          };
+        }
+        if (/booking_service_records/i.test(s) && /NOT IN \('cancelled'/i.test(s)) {
+          return { rows: reservations, rowCount: reservations.length };
+        }
+        if (/metadata->>'idempotency_key'/i.test(s)) return { rows: [], rowCount: 0 };
+        if (/INSERT INTO bookings/i.test(s)) {
+          state.bookingInserts += 1;
+          const row = {
+            id: `bk-${state.bookingInserts}`,
+            booking_code: params[1],
+            metadata: parseMeta(params[8]),
+          };
+          state.bookings.push(row);
+          return { rows: [{ id: row.id, booking_code: row.booking_code }], rowCount: 1 };
+        }
+        if (/INSERT INTO booking_service_records/i.test(s)) {
+          state.serviceInserts += 1;
+          const metaParam = [params[10], params[9]].find(
+            (p) => typeof p === 'string' && String(p).trim().startsWith('{'),
+          );
+          const meta = parseMeta(metaParam);
+          const row = {
+            service_record_id: `sr-${state.serviceInserts}`,
+            booking_id: params[1],
+            booking_code: params[2],
+            guest_name: params[3],
+            service_type: params[4],
+            service_date: params[5],
+            quantity: params[6],
+            amount_due_cents: params[7],
+            client_slug: params[0],
+            metadata: meta,
+          };
+          state.serviceRecords.push(row);
+          return { rows: [row], rowCount: 1 };
+        }
+        if (/COALESCE\(SUM/i.test(s)) return { rows: [{ seats: 0 }], rowCount: 1 };
+        if (/UPDATE\s+(booking_service_records|bookings)/i.test(s)) {
+          return { rows: [], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+    };
+  }
+
+  const adminCfg = {
+    ok: true,
+    source: 'db',
+    currency: 'EUR',
+    surf_packs: [],
+    prices: [],
+    rental_offerings: CATALOG_OFFERINGS,
+  };
+
+  function lunaRentalBody(offeringKey, quantity = 1) {
+    return {
+      guest_name: 'Luna Guest',
+      date_from: DATE,
+      date_to: DATE,
+      service_dates: [DATE],
+      surfer_count: quantity,
+      rentals: [{ offering_key: offeringKey, duration_key: '1_day', quantity }],
+      components: {},
+      payment_status: 'unpaid',
+    };
+  }
+
+  async function lunaQuote(pg, offeringKey, quantity = 1) {
+    const built = buildSunsetQuoteCommand({
+      channel: QUOTE_CHANNELS.LUNA_WHATSAPP,
       clientSlug: 'sunset',
-      locationId: 'sunset-somo',
-      rentals: [{ offering_key: 'kayak_rental', quantity: 1 }],
-      dateFrom: '2026-09-10',
-      dateTo: '2026-09-10',
-      defaultLocationId: 'sunset-somo',
-    },
-  );
-  ok('kayak stock claim passes when units remain', kayakStock.ok === true, JSON.stringify(kayakStock));
+      trustedLocationId: LOC,
+      transportBody: lunaRentalBody(offeringKey, quantity),
+      now: FIXED_NOW,
+    });
+    assert.strictEqual(built.ok, true, JSON.stringify(built));
+    return executeSunsetQuote(pg, built.command, { adminCfg });
+  }
 
-  // Inactive/unknown fail closed
-  const inactiveStock = await stockService.assertRentalStockClaimsInTxn(
-    createMockStockPg({ offerings: [], reservations: [] }),
-    {
+  async function staffCreate(pg, offeringKey, quantity = 1, extraBody = {}) {
+    return createSunsetScheduleBooking(pg, {
       clientSlug: 'sunset',
-      locationId: 'sunset-somo',
-      rentals: [{ offering_key: 'ghost_rental', quantity: 1 }],
-      dateFrom: '2026-09-10',
-      dateTo: '2026-09-10',
-    },
-  );
-  ok(
-    'unknown offering stock fail-closed',
-    inactiveStock.ok === false,
-    JSON.stringify(inactiveStock),
-  );
+      locationId: LOC,
+      actor: { email: 'staff@sunset.test' },
+      body: {
+        guest_name: 'Staff Guest',
+        guest_phone: '+34600111222',
+        surfer_count: quantity,
+        date_from: DATE,
+        date_to: DATE,
+        payment_status: 'unpaid',
+        rentals: [{ offering_key: offeringKey, duration_key: '1_day', quantity }],
+        ...extraBody,
+      },
+      now: FIXED_NOW,
+    });
+  }
 
-  // Bot quote route supplies pg (source check of runtime wiring)
-  const fs = require('fs');
-  const path = require('path');
-  const apiSrc = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
-  ok(
-    'Luna offering-quote route uses withPgClient + vertical quoteOffering',
-    /handleBotSunsetOfferingQuote[\s\S]{0,800}handleSunsetOfferingQuoteRoute/.test(apiSrc)
-      && /handleSunsetOfferingQuoteRoute[\s\S]{0,600}withPgClient[\s\S]{0,200}quoteOffering/.test(apiSrc),
-  );
-  ok(
-    'Luna booking-create route uses withPgClient + createBooking',
-    /async function handleBotSunsetBookingCreate[\s\S]{0,2000}withPgClient[\s\S]{0,300}createBooking/.test(apiSrc),
-  );
+  // ── Production executeSunsetQuote for kayak + custom ───────────────────
+  {
+    const qPg = createCatalogTxnPg();
+    const kayakQ = await lunaQuote(qPg, 'kayak_rental', 1);
+    const kLine = (kayakQ.body && kayakQ.body.line_items || [])[0] || {};
+    ok(
+      'executeSunsetQuote kayak_rental succeeds with label/duration/qty/unit/total',
+      kayakQ.ok === true
+        && kayakQ.status === 200
+        && kayakQ.body.total_cents === KAYAK_CENTS
+        && (kayakQ.body.line_items || []).length === 1
+        && kLine.offering_key === 'kayak_rental'
+        && kLine.label === 'Sea Kayak'
+        && kLine.duration_key === '1_day'
+        && Number(kLine.quantity) === 1
+        && Number(kLine.unit_amount_cents) === KAYAK_CENTS
+        && Number(kLine.total_cents) === KAYAK_CENTS,
+      JSON.stringify(kayakQ.body),
+    );
+
+    const customQ = await lunaQuote(qPg, 'surfboard_plus_wetsuit_custom', 1);
+    const cLine = (customQ.body && customQ.body.line_items || [])[0] || {};
+    ok(
+      'executeSunsetQuote surfboard_plus_wetsuit_custom succeeds as ordinary item',
+      customQ.ok === true
+        && customQ.body.total_cents === CUSTOM_CENTS
+        && (customQ.body.line_items || []).length === 1
+        && cLine.offering_key === 'surfboard_plus_wetsuit_custom'
+        && cLine.label === 'Surf+Suit Custom'
+        && cLine.duration_key === '1_day'
+        && Number(cLine.unit_amount_cents) === CUSTOM_CENTS
+        && Number(cLine.total_cents) === CUSTOM_CENTS,
+      JSON.stringify(customQ.body),
+    );
+  }
+
+  // ── Production createSunsetScheduleBooking: one exact row each ─────────
+  {
+    const createKayak = createCatalogTxnPg();
+    const kayakCreate = await staffCreate(createKayak, 'kayak_rental', 1);
+    const kRows = createKayak.state.serviceRecords;
+    const kMeta = (kRows[0] && kRows[0].metadata) || {};
+    ok(
+      'create kayak_rental succeeds with one exact service row',
+      kayakCreate.ok === true
+        && kayakCreate.status === 201
+        && kayakCreate.body.total_cents === KAYAK_CENTS
+        && kRows.length === 1
+        && kRows[0].service_type === 'addon_service'
+        && kMeta.offering_key === 'kayak_rental'
+        && kMeta.offering_label === 'Sea Kayak'
+        && kMeta.duration_key === '1_day'
+        && Number(kRows[0].quantity) === 1
+        && Number(kMeta.unit_cents) === KAYAK_CENTS
+        && Number(kRows[0].amount_due_cents) === KAYAK_CENTS
+        && Number(createKayak.state.bookings.length) === 1,
+      JSON.stringify({ body: kayakCreate.body, rows: kRows }),
+    );
+    ok(
+      'create kayak booking header total matches service row',
+      kayakCreate.body.total_cents === KAYAK_CENTS
+        && Number(kRows[0].amount_due_cents) === KAYAK_CENTS,
+      JSON.stringify(kayakCreate.body),
+    );
+
+    const createCustom = createCatalogTxnPg();
+    const customCreate = await staffCreate(createCustom, 'surfboard_plus_wetsuit_custom', 1);
+    const cRows = createCustom.state.serviceRecords;
+    const cMeta = (cRows[0] && cRows[0].metadata) || {};
+    ok(
+      'create surfboard_plus_wetsuit_custom one exact row (no hidden components)',
+      customCreate.ok === true
+        && customCreate.status === 201
+        && customCreate.body.total_cents === CUSTOM_CENTS
+        && cRows.length === 1
+        && cRows[0].service_type === 'addon_service'
+        && cMeta.offering_key === 'surfboard_plus_wetsuit_custom'
+        && cMeta.offering_label === 'Surf+Suit Custom'
+        && !cMeta.bundle_part
+        && !cMeta.rental_pricing_role
+        && Number(cRows[0].amount_due_cents) === CUSTOM_CENTS,
+      JSON.stringify({ body: customCreate.body, rows: cRows }),
+    );
+  }
+
+  // ── Fail closed: unknown / inactive / unpriced / out-of-stock ──────────
+  {
+    const unknownPg = createCatalogTxnPg();
+    const unknownQ = await lunaQuote(unknownPg, 'ghost_rental', 1);
+    ok(
+      'unknown offering quote fails closed',
+      unknownQ.ok === false,
+      JSON.stringify(unknownQ.body),
+    );
+    const unknownCreate = await staffCreate(unknownPg, 'ghost_rental', 1);
+    ok(
+      'unknown offering create fails closed with zero writes',
+      unknownCreate.ok === false
+        && unknownPg.state.bookingInserts === 0
+        && unknownPg.state.serviceInserts === 0,
+      JSON.stringify({ body: unknownCreate.body, state: unknownPg.state }),
+    );
+
+    const inactivePg = createCatalogTxnPg({
+      offerings: CATALOG_OFFERINGS.map((o) => (
+        o.offering_key === 'kayak_rental' ? { ...o, active: false } : o
+      )),
+    });
+    const inactiveQ = await lunaQuote(inactivePg, 'kayak_rental', 1);
+    ok(
+      'inactive offering quote fails closed',
+      inactiveQ.ok === false,
+      JSON.stringify(inactiveQ.body),
+    );
+    const inactiveCreate = await staffCreate(inactivePg, 'kayak_rental', 1);
+    ok(
+      'inactive offering create fails closed with zero writes',
+      inactiveCreate.ok === false
+        && inactivePg.state.bookingInserts === 0
+        && inactivePg.state.serviceInserts === 0,
+      JSON.stringify(inactiveCreate.body),
+    );
+
+    // Unpriced: kayak present in catalog but no price rule
+    const unpricedPg = createCatalogTxnPg({
+      prices: {
+        surfboard_plus_wetsuit_custom__1_day: { amount_cents: CUSTOM_CENTS, unit: 'day' },
+      },
+    });
+    const unpricedQ = await lunaQuote(unpricedPg, 'kayak_rental', 1);
+    ok(
+      'unpriced offering quote fails closed',
+      unpricedQ.ok === false,
+      JSON.stringify(unpricedQ.body),
+    );
+    const unpricedCreate = await staffCreate(unpricedPg, 'kayak_rental', 1);
+    ok(
+      'unpriced offering create fails closed with zero writes',
+      unpricedCreate.ok === false
+        && unpricedPg.state.bookingInserts === 0
+        && unpricedPg.state.serviceInserts === 0,
+      JSON.stringify(unpricedCreate.body),
+    );
+
+    const oosPg = createCatalogTxnPg({
+      offerings: CATALOG_OFFERINGS.map((o) => (
+        o.offering_key === 'kayak_rental' ? { ...o, stock_quantity: 0 } : o
+      )),
+    });
+    // Quote may still succeed (read path); create must fail closed on stock
+    const oosCreate = await staffCreate(oosPg, 'kayak_rental', 1);
+    ok(
+      'out-of-stock create fails closed with zero partial writes',
+      oosCreate.ok === false
+        && (oosCreate.body.error === stock.ERROR_STOCK_UNAVAILABLE
+          || oosCreate.body.reason_code === stock.ERROR_STOCK_UNAVAILABLE
+          || /stock/i.test(String(oosCreate.body.error || oosCreate.body.reason_code || '')))
+        && oosPg.state.bookingInserts === 0
+        && oosPg.state.serviceInserts === 0,
+      JSON.stringify(oosCreate.body),
+    );
+  }
+
+  // No env flag residual in write path
+  {
+    const writesSrc = fs.readFileSync(
+      path.join(__dirname, 'lib/sunset-schedule-booking-writes.js'), 'utf8',
+    );
+    ok(
+      'prepareGenericRentalsForCreate has no GENERIC_RENTAL_CREATE_ENABLED gate',
+      !/isGenericRentalCreateEnabled\s*\(/.test(writesSrc)
+        && !/GENERIC_RENTAL_CREATE_ENABLED/.test(writesSrc),
+    );
+    const browserSrc = fs.readFileSync(
+      path.join(__dirname, 'browser/sunset-schedule-rental-availability.js'), 'utf8',
+    );
+    ok(
+      'Schedule UI does not cite env flag as submit authority',
+      !/GENERIC_RENTAL_CREATE_ENABLED/.test(browserSrc),
+    );
+    const apiSrc = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+    ok(
+      'Luna offering-quote route uses withPgClient + vertical quoteOffering',
+      /handleBotSunsetOfferingQuote[\s\S]{0,800}handleSunsetOfferingQuoteRoute/.test(apiSrc)
+        && /handleSunsetOfferingQuoteRoute[\s\S]{0,600}withPgClient[\s\S]{0,200}quoteOffering/.test(apiSrc),
+    );
+    ok(
+      'Luna booking-create route uses withPgClient + createBooking',
+      /async function handleBotSunsetBookingCreate[\s\S]{0,2000}withPgClient[\s\S]{0,300}createBooking/.test(apiSrc),
+    );
+  }
 
   section('3) Course-equipment in same transactional stock gate');
 

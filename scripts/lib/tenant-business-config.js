@@ -44,14 +44,14 @@ function isSunsetAdminDbReadEnabled() {
   return /^(1|true|yes|on)$/i.test(String(raw).trim());
 }
 
-// Phase 2 step 3: gate generic (non-canonical) rentable offerings in the booking
-// CREATE path. Default OFF — when off, the create handler keeps its canonical
-// board/wetsuit/bundle-only behavior unchanged. Flip on only after the generic
-// lane is live-validated on staging.
+/**
+ * @deprecated No runtime path may depend on this. Active Admin catalog membership,
+ * location scope, authoritative price, and stock are the only safety gates for
+ * exact offering create/edit/quote. Kept only for backward-compatible export.
+ * Always returns true; GENERIC_RENTAL_CREATE_ENABLED is ignored.
+ */
 function isGenericRentalCreateEnabled() {
-  const raw = process.env.GENERIC_RENTAL_CREATE_ENABLED;
-  if (raw == null || String(raw).trim() === '') return false;
-  return /^(1|true|yes|on)$/i.test(String(raw).trim());
+  return true;
 }
 
 function flattenOfferingPrices(offerings, category, currency) {

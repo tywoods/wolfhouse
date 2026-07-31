@@ -369,7 +369,8 @@ ok(
 
 // ── [B] Server quote authority ───────────────────────────────────────────────
 console.log('\n[B] Server quote/save — exact prices, no client money, multi-day rules');
-process.env.GENERIC_RENTAL_CREATE_ENABLED = 'true';
+// Catalog membership is the gate; no env flag required.
+delete process.env.GENERIC_RENTAL_CREATE_ENABLED;
 const {
   prepareGenericRentalsForCreate,
   buildGenericRentalAuthoritativeQuote,

@@ -417,19 +417,17 @@ async function prepareGenericRentalsForCreate(opts) {
     isHourRentalDurationKey,
     dayCountFromDurationKey,
   } = require('./tenant-rental-price-resolver');
-  const { isGenericRentalCreateEnabled } = require('./tenant-business-config');
   const o = opts || {};
   const rows = Array.isArray(o.rentals) ? o.rentals : [];
   // Custom catalog generics only. board_and_suit stays on the canonical allowlist
   // for quote identity but is persisted as one exact offering record (not components).
+  // Safety gates: active catalog membership + tenant/location + authoritative price
+  // (+ stock at Create/Edit). No operator env toggle.
   const generic = rows.filter((r) => {
     const k = String(r && r.offering_key || '').trim();
     return k && !CANONICAL_RENTAL_OFFERING_KEYS.includes(k);
   });
   if (!generic.length) return { ok: true, records: [], genericRentals: [] };
-  if (!isGenericRentalCreateEnabled()) {
-    return { ok: false, reason: 'invalid_rental_offering' };
-  }
   const seenGenericIdentities = new Set();
   for (const row of generic) {
     const identity = `${String(row && row.offering_key || '').trim()}::${String(row && row.duration_key || '').trim()}`;

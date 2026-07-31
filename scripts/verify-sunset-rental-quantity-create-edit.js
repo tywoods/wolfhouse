@@ -505,7 +505,8 @@ async function main() {
 
   // ── 1) Server create: multi-day continuation + qty ────────────────────────
   console.log('\n[1] prepareGenericRentalsForCreate — continuation + qty');
-  process.env.GENERIC_RENTAL_CREATE_ENABLED = 'true';
+  // Catalog membership is the gate; no env flag required.
+  delete process.env.GENERIC_RENTAL_CREATE_ENABLED;
   const catalog = [
     { offering_key: 'board_rental', label: 'Surfboard', active: true, location_id: 'sunset-somo', excludes: [] },
     { offering_key: 'wetsuit_rental', label: 'Wetsuit', active: true, location_id: 'sunset-somo', excludes: [] },

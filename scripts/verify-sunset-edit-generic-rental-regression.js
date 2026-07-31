@@ -33,7 +33,8 @@ const WRITES_REQ = path.join(__dirname, 'lib', 'sunset-schedule-booking-writes.j
 const EDIT_UI = path.join(__dirname, 'browser', 'sunset-schedule-drawer-edit-ui.js');
 const RENTAL_UI = path.join(__dirname, 'browser', 'sunset-schedule-rental-availability.js');
 
-process.env.GENERIC_RENTAL_CREATE_ENABLED = 'true';
+// Catalog membership is the gate; no env flag required.
+delete process.env.GENERIC_RENTAL_CREATE_ENABLED;
 process.env.SUNSET_ADMIN_DB_READ_ENABLED = '1';
 
 const CLIENT_ID = '11111111-1111-4111-8111-111111111111';

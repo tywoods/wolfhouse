@@ -2,8 +2,9 @@
 /**
  * DEMO (not a gate): drive the REAL createSunsetScheduleBooking end-to-end with a
  * simulated Postgres that has a disposable kayak_rental offering + €25 half-day
- * price. Shows the generic-rental create working: 201 + total, idempotent replay,
- * and 409 on same-key quantity change. In-process only — no DB, no network.
+ * price + stock. Shows the generic-rental create working without an env toggle:
+ * 201 + total, idempotent replay, and 409 on same-key quantity change.
+ * In-process only — no DB, no network.
  */
 const { createSunsetScheduleBooking } = require('./lib/sunset-schedule-booking-writes');
 
@@ -11,6 +12,11 @@ function parseMeta(m) { try { return typeof m === 'string' ? JSON.parse(m) : (m 
 
 function buildDemoPg() {
   const state = { clientId: '11111111-1111-1111-1111-111111111111', bookings: [], serviceRecords: [], idempotency: new Map() };
+  const offering = {
+    id: 'ro-1', client_slug: 'sunset', location_id: 'sunset-somo',
+    offering_key: 'kayak_rental', label: 'Kayak (DEMO)', group_key: 'sup',
+    excludes: '[]', sort_order: 5, active: true, stock_quantity: 10,
+  };
   return {
     state,
     query: async (sql, params) => {
@@ -18,9 +24,9 @@ function buildDemoPg() {
       if (/SELECT id FROM clients WHERE slug/i.test(q)) return { rows: [{ id: state.clientId }] };
       if (/BEGIN|COMMIT|ROLLBACK/i.test(q)) return { rows: [] };
       if (/pg_advisory_xact_lock/i.test(q)) return { rows: [{}] };
-      // Generic rental catalog: one active kayak offering at Somo.
+      // Generic rental catalog + stock lock rows.
       if (/FROM tenant_rental_offerings/i.test(q)) {
-        return { rows: [{ id: 'ro-1', client_slug: 'sunset', location_id: 'sunset-somo', offering_key: 'kayak_rental', label: 'Kayak (DEMO)', group_key: 'sup', excludes: '[]', sort_order: 5, active: true }] };
+        return { rows: [offering] };
       }
       // tenant_price_rules exists, and has all optional columns.
       if (/to_regclass/i.test(q) && /tenant_price_rules/i.test(q)) return { rows: [{ reg: 'public.tenant_price_rules' }] };
@@ -28,6 +34,10 @@ function buildDemoPg() {
       // The kayak half-day price row (€25/session).
       if (/FROM tenant_price_rules/i.test(q) && /amount_cents/i.test(q)) {
         return { rows: [{ amount_cents: 2500, currency: 'EUR', item_type: 'rental', item_code: 'kayak_rental__half_day', unit: 'session', location_id: 'sunset-somo' }] };
+      }
+      // Active stock reservations (none).
+      if (/booking_service_records/i.test(q) && /NOT IN \('cancelled'/i.test(q)) {
+        return { rows: [], rowCount: 0 };
       }
       // Idempotency lookup.
       if (/metadata->>'idempotency_key'/i.test(q)) {
@@ -75,11 +85,12 @@ function kayakBody(extra) {
 }
 
 (async () => {
-  process.env.GENERIC_RENTAL_CREATE_ENABLED = 'true';
+  // No env flag — catalog membership + price + stock are the gates.
+  delete process.env.GENERIC_RENTAL_CREATE_ENABLED;
   const actor = { email: 'ops@sunset.test' };
   const pg = buildDemoPg();
 
-  console.log('\n=== DEMO: generic kayak rental create (flag ON) ===\n');
+  console.log('\n=== DEMO: generic kayak rental create (catalog-gated, no env flag) ===\n');
 
   const create = await createSunsetScheduleBooking(pg, { clientSlug: 'sunset', locationId: 'sunset-somo', actor, body: kayakBody({ idempotency_key: 'demo-k1' }) });
   console.log('CREATE  status', create.status);
@@ -97,18 +108,10 @@ function kayakBody(extra) {
   const conflict = await createSunsetScheduleBooking(pg, { clientSlug: 'sunset', locationId: 'sunset-somo', actor, body: kayakBody({ idempotency_key: 'demo-k1', rentals: [{ offering_key: 'kayak_rental', duration_key: 'half_day', quantity: 5 }], surfer_count: 5 }) });
   console.log('\nCONFLICT status', conflict.status, '(same key, quantity 2→5) → error', conflict.body && (conflict.body.error || conflict.body.reason_code));
 
-  // Safety default: with the flag OFF, the same kayak create is rejected unchanged.
-  process.env.GENERIC_RENTAL_CREATE_ENABLED = '';
-  const offPg = buildDemoPg();
-  const flagOff = await createSunsetScheduleBooking(offPg, { clientSlug: 'sunset', locationId: 'sunset-somo', actor, body: kayakBody({ idempotency_key: 'demo-off' }) });
-  console.log('\nFLAG-OFF status', flagOff.status, '→ error', flagOff.body && (flagOff.body.error || flagOff.body.reason_code), '(default-safe: generic rejected, canonical unchanged)');
-  process.env.GENERIC_RENTAL_CREATE_ENABLED = 'true';
-
   const ok = create.status === 201 && create.body.total_cents === 5000
-    && flagOff.status === 400 && (flagOff.body.error === 'invalid_rental_offering' || flagOff.body.reason_code === 'invalid_rental_offering')
     && dbRow && dbRow.service_type === 'addon_service' && dbRow.amount_due_cents === 5000
     && dbRow.metadata.offering_key === 'kayak_rental' && dbRow.metadata.item_code === 'kayak_rental__half_day'
     && replay.status === 200 && (replay.body.booking_code === create.body.booking_code) && conflict.status === 409;
-  console.log('\n=== DEMO RESULT:', ok ? 'WORKS ✓ (201 €50 addon_service · replay 200 same booking · qty-change 409)' : 'unexpected — inspect above', '===\n');
+  console.log('\n=== DEMO RESULT:', ok ? 'WORKS ✓ (201 €50 addon_service · replay 200 same booking · qty-change 409 · no env flag)' : 'unexpected — inspect above', '===\n');
   process.exit(ok ? 0 : 1);
 })().catch((e) => { console.error('DEMO ERROR:', e && e.stack || e); process.exit(2); });

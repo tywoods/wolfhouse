@@ -221,7 +221,8 @@ const COURSE_2 = 'course-beta';
 
 // ── Edit rental generic offering_key regression ─────────────────────────
 {
-  process.env.GENERIC_RENTAL_CREATE_ENABLED = 'true';
+  // Catalog membership is the gate; no env flag required.
+  delete process.env.GENERIC_RENTAL_CREATE_ENABLED;
   const body = {
     guest_name: 'Ada',
     date_from: DATE_A,
