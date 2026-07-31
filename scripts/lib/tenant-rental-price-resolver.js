@@ -288,6 +288,19 @@ function buildGenericRentalServiceRecord(priced, ctx) {
   if (!serviceDate) return { ok: false, reason: 'missing_service_date' };
   if (!p.offering_key || !p.duration_key) return { ok: false, reason: 'unpriced' };
 
+  // Multi-day occupancy: prefer explicit serviceDates/coveredDates for stock.
+  // Historical single-day callers omit these and stock falls back to service_date.
+  let occupancyDates = null;
+  if (Array.isArray(c.serviceDates) && c.serviceDates.length) {
+    occupancyDates = [...new Set(
+      c.serviceDates.map((d) => String(d || '').slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)),
+    )].sort();
+  } else if (Array.isArray(c.coveredDates) && c.coveredDates.length) {
+    occupancyDates = [...new Set(
+      c.coveredDates.map((d) => String(d || '').slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)),
+    )].sort();
+  }
+
   const record = {
     client_slug: p.client_slug,
     booking_id: c.bookingId != null ? c.bookingId : null,
@@ -318,6 +331,13 @@ function buildGenericRentalServiceRecord(priced, ctx) {
       currency: p.currency || 'EUR',
       location_id: p.location_id != null ? p.location_id : null,
       staff_ui_service_type: 'rental',
+      // Exact offering-native persistence — never invents bundle component parts.
+      ...(occupancyDates && occupancyDates.length
+        ? {
+          rental_service_dates: occupancyDates,
+          covered_dates: occupancyDates,
+        }
+        : {}),
     },
   };
   return { ok: true, record };

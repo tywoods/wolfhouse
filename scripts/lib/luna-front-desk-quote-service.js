@@ -2267,6 +2267,63 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
   }
 
   if (rentalsNorm.present) {
+    // Luna guest channel: fail closed on stock before claiming availability.
+    // Staff manual Schedule quotes remain money-authoritative; Create/Edit/Restore
+    // always recheck stock inside the write transaction. Luna must also call
+    // /staff/bot/sunset/rental-stock for explicit availability facts.
+    const isLunaChannel = command.channel === QUOTE_CHANNELS.LUNA_WHATSAPP
+      || command.channel === 'luna_whatsapp';
+    if (isLunaChannel) {
+      if (!pg) {
+        return {
+          ok: false,
+          status: 409,
+          body: {
+            success: false,
+            reason: 'rental_stock_not_configured',
+            reason_code: 'rental_stock_not_configured',
+            error: 'rental_stock_not_configured',
+            message: 'rental stock cannot be verified without Staff API',
+          },
+        };
+      }
+      const {
+        queryRentalStockAvailability,
+      } = require('./tenant-rental-stock-service');
+      const { DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
+      const stock = await queryRentalStockAvailability(pg, {
+        clientSlug: command.clientSlug || SUNSET_CLIENT_SLUG,
+        locationId: command.locationId,
+        dateFrom: serviceDates[0],
+        dateTo: serviceDates[serviceDates.length - 1] || serviceDates[0],
+        offerings: rentalsNorm.value.map((r) => ({
+          offering_key: r.offering_key,
+          quantity: r.quantity,
+        })),
+        defaultLocationId: DEFAULT_SUNSET_LOCATION_ID,
+      });
+      for (const item of (stock.items || [])) {
+        if (item && item.ok === false) {
+          return {
+            ok: false,
+            status: 409,
+            body: {
+              success: false,
+              reason: item.error || 'rental_stock_unavailable',
+              reason_code: item.error || 'rental_stock_unavailable',
+              error: item.error || 'rental_stock_unavailable',
+              offering_key: item.offering_key,
+              remaining: item.remaining,
+              requested_quantity: item.requested_quantity,
+              stock_quantity: item.stock_quantity,
+              limiting_date: item.limiting_date,
+              message: item.message
+                || 'requested rental is not available for those dates',
+            },
+          };
+        }
+      }
+    }
     for (const rental of rentalsNorm.value) {
       const matches = findExactRentalCatalogOffering(
         catalog,
@@ -2591,6 +2648,9 @@ function quoteByComponentsSync(command, catalog, requireDb) {
   }
 
   if (rentalsNorm.present) {
+    // Offline/sync money math has no DB stock ledger. Do not invent availability —
+    // production Luna uses executeSunsetQuote(pg) which enforces stock above.
+    // Create still rechecks stock inside the write transaction.
     for (const rental of rentalsNorm.value) {
       const matches = findExactRentalCatalogOffering(
         catalog,

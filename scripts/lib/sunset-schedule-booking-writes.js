@@ -346,17 +346,8 @@ function normalizeRentalPricing(raw, components) {
   if (quoted_total_cents != null && (!Number.isInteger(quoted_total_cents) || quoted_total_cents < 0)) {
     return { ok: false, error: 'rental_pricing.quoted_total_cents must be a non-negative integer' };
   }
-  if (offering_key === 'board_and_suit_rental') {
-    const comps = components && typeof components === 'object' ? components : {};
-    if (!comps.surfboard || !comps.wetsuit) {
-      return { ok: false, error: 'board_and_suit_rental requires surfboard and wetsuit components' };
-    }
-    const boardQty = parseQuantity(comps.surfboard.quantity, 1);
-    const suitQty = parseQuantity(comps.wetsuit.quantity, 1);
-    if (boardQty !== quantity || suitQty !== quantity) {
-      return { ok: false, error: 'board_and_suit_rental component quantities must match rental_pricing.quantity' };
-    }
-  }
+  // board_and_suit_rental is an ordinary exact offering for future writes —
+  // do not require or invent surfboard/wetsuit component halves.
   return {
     ok: true,
     value: {
@@ -372,16 +363,15 @@ function buildRentalPricingDescriptor(rentalPricing, serviceDates) {
   if (!rentalPricing) return null;
   const service_date = Array.isArray(serviceDates) && serviceDates.length ? serviceDates[0] : null;
   const pricing_group_id = crypto.randomBytes(8).toString('hex');
-  const components = rentalPricing.offering_key === 'board_and_suit_rental'
-    ? ['surfboard', 'wetsuit']
-    : [];
+  // Future writes: exact offering only. Historical read adapters still understand
+  // component-expanded rows; new descriptors never invent halves.
   return {
     pricing_group_id,
     offering_key: rentalPricing.offering_key,
     duration: rentalPricing.duration,
     quantity: rentalPricing.quantity,
     service_date,
-    components,
+    components: [],
     quoted_total_cents: rentalPricing.quoted_total_cents,
   };
 }
@@ -392,11 +382,31 @@ const CANONICAL_RENTAL_OFFERING_KEYS = Object.freeze([
   'board_and_suit_rental',
 ]);
 
+// Component-lane keys still expand into legacy surfboard|wetsuit service rows.
+// board_and_suit_rental is an ordinary exact offering for future writes: one
+// service record with metadata.offering_key (no component halves).
+const COMPONENT_LANE_RENTAL_KEYS = Object.freeze([
+  'board_rental',
+  'wetsuit_rental',
+]);
+
+const EXACT_OFFERING_FUTURE_WRITE_KEYS = Object.freeze([
+  'board_and_suit_rental',
+]);
+
 const CLIENT_RENTAL_MONEY_FIELDS = Object.freeze([
   'unit_amount_cents', 'amount_cents', 'total_cents', 'line_total_cents',
   'unit_price', 'unit_amount', 'line_total', 'currency_amount', 'price_source',
   'amount', 'price', 'label',
 ]);
+
+function isExactOfferingFutureWriteKey(key) {
+  return EXACT_OFFERING_FUTURE_WRITE_KEYS.includes(String(key || '').trim());
+}
+
+function isComponentLaneRentalKey(key) {
+  return COMPONENT_LANE_RENTAL_KEYS.includes(String(key || '').trim());
+}
 
 async function prepareGenericRentalsForCreate(opts) {
   const { listRentalOfferings, applyRentalMutualExclusion } = require('./tenant-rental-offerings');
@@ -410,7 +420,12 @@ async function prepareGenericRentalsForCreate(opts) {
   const { isGenericRentalCreateEnabled } = require('./tenant-business-config');
   const o = opts || {};
   const rows = Array.isArray(o.rentals) ? o.rentals : [];
-  const generic = rows.filter((r) => !CANONICAL_RENTAL_OFFERING_KEYS.includes(String(r && r.offering_key || '').trim()));
+  // Custom catalog generics only. board_and_suit stays on the canonical allowlist
+  // for quote identity but is persisted as one exact offering record (not components).
+  const generic = rows.filter((r) => {
+    const k = String(r && r.offering_key || '').trim();
+    return k && !CANONICAL_RENTAL_OFFERING_KEYS.includes(k);
+  });
   if (!generic.length) return { ok: true, records: [], genericRentals: [] };
   if (!isGenericRentalCreateEnabled()) {
     return { ok: false, reason: 'invalid_rental_offering' };
@@ -612,7 +627,18 @@ async function prepareGenericRentalsForCreate(opts) {
     if (!priced.ok) return priced;
     const catalogOffering = active.get(String(row.offering_key || '').trim());
     priced = { ...priced, offering_label: catalogOffering && catalogOffering.label ? String(catalogOffering.label) : null };
-    const mapped = buildGenericRentalServiceRecord(priced, { serviceDate: o.serviceDate, source: o.source });
+    // Multi-day occupancy dates for stock (inclusive span). Single day → serviceDate only.
+    let occupancy = null;
+    if (Array.isArray(o.serviceDates) && o.serviceDates.length) {
+      occupancy = o.serviceDates;
+    } else if (o.dateFrom && o.dateTo) {
+      occupancy = inclusiveIsoDatesFromRange(o.dateFrom, o.dateTo);
+    }
+    const mapped = buildGenericRentalServiceRecord(priced, {
+      serviceDate: o.serviceDate,
+      source: o.source,
+      serviceDates: occupancy && occupancy.length ? occupancy : undefined,
+    });
     if (!mapped.ok) return mapped;
     records.push(mapped.record);
   }
@@ -751,23 +777,15 @@ function prepareCanonicalRentalsForCreate(body, opts) {
     }
     rentals.push({ offering_key: offeringKey, duration_key: durationKey, quantity: qty });
   }
-  if (seen.has('board_and_suit_rental') && (seen.has('board_rental') || seen.has('wetsuit_rental'))) {
-    return {
-      ok: false,
-      error: 'board_and_suit_rental cannot be combined with board_rental or wetsuit_rental',
-      reason: 'rental_bundle_conflict',
-    };
-  }
+  // No automatic mutual exclude of board_and_suit vs board/wetsuit — independent items.
 
   const components = { ...(b.components && typeof b.components === 'object' ? b.components : {}) };
+  // Component-lane only (board / wetsuit). board_and_suit is exact offering —
+  // never invents surfboard/wetsuit halves for future writes.
   const expectedLegacy = { surfboard: null, wetsuit: null };
   for (const row of rentals) {
     if (row.offering_key === 'board_rental') expectedLegacy.surfboard = row.quantity;
     else if (row.offering_key === 'wetsuit_rental') expectedLegacy.wetsuit = row.quantity;
-    else if (row.offering_key === 'board_and_suit_rental') {
-      expectedLegacy.surfboard = row.quantity;
-      expectedLegacy.wetsuit = row.quantity;
-    }
   }
   for (const key of ['surfboard', 'wetsuit']) {
     if (expectedLegacy[key] == null) continue;
@@ -806,15 +824,12 @@ function prepareCanonicalRentalsForCreate(body, opts) {
   // Always apply validated body/rentals (qty clamp + optional Luna-derived surfer_count).
   bodyOut = forced.body || bodyOut;
   rentalsOut = forced.rentals || rentalsOut;
-  // Re-sync legacy component quantities from independent rental rows.
+  // Re-sync legacy component quantities from board/wetsuit only (never board_and_suit).
   if (Array.isArray(rentalsOut)) {
     for (const row of rentalsOut) {
       if (row.offering_key === 'board_rental') {
         bodyOut.components.surfboard = { quantity: row.quantity };
       } else if (row.offering_key === 'wetsuit_rental') {
-        bodyOut.components.wetsuit = { quantity: row.quantity };
-      } else if (row.offering_key === 'board_and_suit_rental') {
-        bodyOut.components.surfboard = { quantity: row.quantity };
         bodyOut.components.wetsuit = { quantity: row.quantity };
       }
     }
@@ -944,10 +959,16 @@ function rowMatchesQuoteLine(row, line) {
     return meta.component === 'lesson' || serviceType === 'lesson';
   }
   if (component === 'board_and_suit_rental') {
-    return meta.offering_key === 'board_and_suit_rental'
-      && (serviceType === 'surfboard' || serviceType === 'wetsuit'
-        || meta.component === 'surfboard' || meta.component === 'wetsuit'
-        || meta.bundle_part === 'surfboard' || meta.bundle_part === 'wetsuit');
+    // Future write: one exact offering row (addon_service + offering_key).
+    // Historical: dual surfboard/wetsuit component rows with bundle markers.
+    if (meta.offering_key !== 'board_and_suit_rental') return false;
+    if (meta.component === 'board_and_suit_rental' || serviceType === 'addon_service'
+      || meta.rental_offering === true) {
+      return true;
+    }
+    return serviceType === 'surfboard' || serviceType === 'wetsuit'
+      || meta.component === 'surfboard' || meta.component === 'wetsuit'
+      || meta.bundle_part === 'surfboard' || meta.bundle_part === 'wetsuit';
   }
   // Canonical rentals[] emit board_rental / wetsuit_rental; legacy components
   // quote path still labels lines as surfboard / wetsuit. Compound identity only
@@ -1834,16 +1855,14 @@ function applyNoLessonEquipmentQtyFromSurfers(body, rentals, opts) {
     nextComps.wetsuit = { ...nextComps.wetsuit, quantity: q };
   }
   // Canonical rentals[] own equipment qty when present — re-sync legacy components
-  // to match (never the reverse force from surfer_count).
+  // for board/wetsuit component-lane only. board_and_suit is exact-offering future
+  // write and must not invent surfboard/wetsuit halves.
   if (Array.isArray(nextRentals)) {
     for (const row of nextRentals) {
       const q = parseEquipmentQuantitySignal(row.quantity) || 1;
       if (row.offering_key === 'board_rental') {
         nextComps.surfboard = { ...(nextComps.surfboard || {}), quantity: q };
       } else if (row.offering_key === 'wetsuit_rental') {
-        nextComps.wetsuit = { ...(nextComps.wetsuit || {}), quantity: q };
-      } else if (row.offering_key === 'board_and_suit_rental') {
-        nextComps.surfboard = { ...(nextComps.surfboard || {}), quantity: q };
         nextComps.wetsuit = { ...(nextComps.wetsuit || {}), quantity: q };
       }
     }
@@ -3293,6 +3312,52 @@ async function insertScheduleComponentServiceRows(pg, opts) {
       }
     }
   }
+
+  // Exact offering future-write: board_and_suit_rental persists ONE service record
+  // with metadata.offering_key (never dual surfboard/wetsuit component halves).
+  if (Array.isArray(canonicalRentals) && canonicalRentals.length) {
+    const span = Array.isArray(rentalSpanDates) && rentalSpanDates.length
+      ? rentalSpanDates
+      : (Array.isArray(input.service_dates) ? input.service_dates : []);
+    const anchor = span[0] || (input.service_dates && input.service_dates[0]) || null;
+    for (const rental of canonicalRentals) {
+      if (!rental || rental.offering_key !== 'board_and_suit_rental') continue;
+      if (!anchor) continue;
+      const quoteLine = authoritativeQuote
+        ? findQuoteLineForRentalOffering(authoritativeQuote.line_items, 'board_and_suit_rental')
+        : null;
+      const metadata = wrapMeta({
+        ...common(),
+        rental_offering: true,
+        staff_ui_service_type: 'rental',
+        component: 'board_and_suit_rental',
+        offering_key: 'board_and_suit_rental',
+        duration_key: rental.duration_key,
+        quantity: rental.quantity,
+        rental_service_dates: span,
+        covered_dates: span,
+        offering_id: `board_and_suit_rental__${rental.duration_key}`,
+        // No bundle_part / pricing_group component halves on future writes.
+        ...(quoteLine ? {
+          price_id: quoteLine.price_id || null,
+          unit_amount_cents: quoteLine.unit_amount_cents,
+          price_identity: {
+            price_id: quoteLine.price_id || null,
+            item_code: quoteLine.offering_item_code || quoteLine.offering_id
+              || `board_and_suit_rental__${rental.duration_key}`,
+            unit: rental.duration_key,
+          },
+        } : {}),
+      }, locationId);
+      const row = await insertServiceRecord(pg, [
+        clientSlug, bookingId, bookingCode, input.guest_name,
+        'addon_service', anchor, rental.quantity,
+        srPayment, attribution.dbSource, JSON.stringify(metadata),
+      ]);
+      createdRows.push({ ...row, metadata, service_type: 'addon_service' });
+    }
+  }
+
   return createdRows;
 }
 
@@ -3570,11 +3635,17 @@ async function createSunsetScheduleBooking(pg, opts) {
   // component-qty payloads (no top-level surfer_count) stay compatible.
   const lunaForceOpts = { actor: opts.actor || null };
   const requestedRentals = Array.isArray(opts.body && opts.body.rentals) ? opts.body.rentals : [];
+  const createDateFrom = String(opts.body && opts.body.date_from || '').slice(0, 10);
+  const createDateTo = String(opts.body && opts.body.date_to || opts.body && opts.body.date_from || '').slice(0, 10);
+  const createSpanDates = inclusiveIsoDatesFromRange(createDateFrom, createDateTo);
   const genericPrep = await prepareGenericRentalsForCreate({
     clientSlug, locationId, pgClient: pg, rentals: requestedRentals,
-    serviceDate: String(opts.body && opts.body.date_from || '').slice(0, 10), source: attribution.dbSource,
-    calendarDayCount: inclusiveIsoDatesFromRange(opts.body && opts.body.date_from, opts.body && opts.body.date_to).length,
-    bookingDurationKey: rentalDurationKeyFromDateRange(opts.body && opts.body.date_from, opts.body && opts.body.date_to),
+    serviceDate: createDateFrom, source: attribution.dbSource,
+    calendarDayCount: createSpanDates.length,
+    bookingDurationKey: rentalDurationKeyFromDateRange(createDateFrom, createDateTo),
+    dateFrom: createDateFrom,
+    dateTo: createDateTo,
+    serviceDates: createSpanDates,
   });
   if (!genericPrep.ok) {
     const badCatalogKey = genericPrep.reason === 'rental_offering_not_active'
@@ -3617,10 +3688,17 @@ async function createSunsetScheduleBooking(pg, opts) {
       || (Array.isArray(bodyForValidate.accommodation)
         && bodyForValidate.accommodation.length > 0)
     ));
+  const hasExactOfferingRentals = Array.isArray(canonicalRequested) && canonicalRequested.some(
+    (r) => isExactOfferingFutureWriteKey(String(r && r.offering_key || '').trim()),
+  );
   const validated = validateScheduleBookingBody(bodyForValidate, {
     requireGuestPhone: attribution.staffManualSchedule === true,
     actor: opts.actor || null,
-    allowEmptyComponents: genericPrep.genericRentals.length > 0 || hasAccomWire,
+    // board_and_suit is exact-offering (no component halves) — allow empty components.
+    allowEmptyComponents: genericPrep.genericRentals.length > 0 || hasAccomWire
+      || hasExactOfferingRentals,
+    // Honor caller clock freeze (Luna/Staff create tests) for past-date boundary.
+    refDate: opts.now instanceof Date ? opts.now : undefined,
   });
   if (!validated.ok) {
     return { ok: false, status: 400, body: { success: false, error: validated.error } };
@@ -4039,22 +4117,9 @@ async function createSunsetScheduleBooking(pg, opts) {
   const bookingStatus = bookingStatusFromPayment(input.payment_status);
   const bookingCode = generateSunsetManualBookingCode(locationId);
   const bundleId = crypto.randomBytes(8).toString('hex');
+  // board_and_suit is exact-offering future-write (generic descriptor) — never
+  // invent component halves in rental_pricing for new writes.
   let rentalPricingDescriptor = buildRentalPricingDescriptor(input.rental_pricing, input.service_dates);
-  if (canonicalRentals) {
-    const bundleRental = canonicalRentals.find((r) => r.offering_key === 'board_and_suit_rental');
-    if (bundleRental) {
-      rentalPricingDescriptor = {
-        pricing_group_id: rentalPricingGroupId,
-        offering_key: bundleRental.offering_key,
-        duration: bundleRental.duration_key,
-        quantity: bundleRental.quantity,
-        service_date: (rentalSpanDates && rentalSpanDates[0]) || input.service_dates[0],
-        components: ['surfboard', 'wetsuit'],
-        quoted_total_cents: null,
-        rental_service_dates: rentalSpanDates,
-      };
-    }
-  }
   const componentKeys = componentList(input.components);
   const guestCount = resolveGuestCount(input.components);
   const { firstDate } = bookingHeaderDates(input);
@@ -4075,6 +4140,40 @@ async function createSunsetScheduleBooking(pg, opts) {
           await pg.query('ROLLBACK');
           return evaluated;
         }
+      }
+    }
+
+    // Physical stock: lock exact offering rows + recheck remaining inside THIS
+    // transaction before any booking/service insert. Fail closed when stock is
+    // null (not configured), missing, or insufficient.
+    {
+      const {
+        assertRentalStockClaimsInTxn,
+        stockFailureHttp,
+      } = require('./tenant-rental-stock-service');
+      const { DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
+      const stockAssert = await assertRentalStockClaimsInTxn(pg, {
+        clientSlug,
+        locationId,
+        rentals: allRequestedRentals,
+        dateFrom: input.date_from || firstDate,
+        dateTo: input.date_to
+          || (input.service_dates && input.service_dates[input.service_dates.length - 1])
+          || firstDate,
+        defaultLocationId: clientSlug === SUNSET_CLIENT_SLUG ? DEFAULT_SUNSET_LOCATION_ID : null,
+      });
+      if (!stockAssert.ok) {
+        await pg.query('ROLLBACK');
+        const http = stockFailureHttp(stockAssert);
+        return {
+          ok: false,
+          status: (http && http.status) || 409,
+          body: (http && http.body) || {
+            success: false,
+            error: stockAssert.error,
+            reason_code: stockAssert.error,
+          },
+        };
       }
     }
 
@@ -4493,6 +4592,11 @@ module.exports = {
   prepareGenericRentalsForCreate,
   buildGenericRentalAuthoritativeQuote,
   prepareCanonicalRentalsForCreate,
+  CANONICAL_RENTAL_OFFERING_KEYS,
+  COMPONENT_LANE_RENTAL_KEYS,
+  EXACT_OFFERING_FUTURE_WRITE_KEYS,
+  isExactOfferingFutureWriteKey,
+  isComponentLaneRentalKey,
   rentalDurationKeyFromDateRange,
   inclusiveIsoDatesFromRange,
   applyAuthoritativeQuoteAmounts,

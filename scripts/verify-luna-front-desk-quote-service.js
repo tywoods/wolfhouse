@@ -172,6 +172,40 @@ function makePg(opts = {}) {
     },
     query: async (sql, params) => {
       const s = String(sql);
+      // Slice B stock support: unlimited configured stock for offline create/quote gates.
+      if (/tenant_rental_offerings/i.test(s) && /stock_quantity/i.test(s)) {
+        const keys = Array.isArray(params) ? params.filter((p) => Array.isArray(p)).flat() : [];
+        const keyList = keys.length ? keys : (
+          Array.isArray(params) ? params.filter((p) => typeof p === 'string' && /_rental$/.test(p)) : []
+        );
+        const loc = Array.isArray(params) && params.length >= 2 && typeof params[1] === 'string' && !params[1].includes('_rental')
+          ? params[1] : 'sunset-somo';
+        const slug = Array.isArray(params) && params[0] ? params[0] : 'sunset';
+        const offeringKeys = keyList.length ? keyList : ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'];
+        const rows = offeringKeys.map((k, i) => ({
+          id: 'stock-' + k,
+          client_slug: slug,
+          location_id: loc === null || loc === undefined ? null : loc,
+          offering_key: k,
+          stock_quantity: 99,
+          active: true,
+        }));
+        // Single-key configured query (LIMIT 1)
+        if (/LIMIT 1/i.test(s) && !/FOR UPDATE/i.test(s)) {
+          const key = Array.isArray(params) ? params[params.length - 1] : null;
+          const hit = rows.find((r) => r.offering_key === key) || {
+            id: 'stock-' + key, client_slug: slug, location_id: loc,
+            offering_key: key, stock_quantity: 99, active: true,
+          };
+          return { rows: key ? [hit] : [], rowCount: key ? 1 : 0 };
+        }
+        return { rows, rowCount: rows.length };
+      }
+      if (/booking_service_records/i.test(s) && /offering_key/i.test(s) && /NOT IN \('cancelled'/i.test(s)) {
+        // Active reservations for stock — empty by default (no prior demand).
+        return { rows: [], rowCount: 0 };
+      }
+
       const isTxn = /^\s*(BEGIN|COMMIT|ROLLBACK)\b/i.test(s);
       const isDml = /\b(INSERT|UPDATE|DELETE)\b/i.test(s);
       if (isTxn || isDml) {
@@ -534,6 +568,7 @@ async function run() {
   function staffRentalBody(extra) {
     const body = {
       guest_name: 'Rental Guest',
+      guest_phone: '+34600111222',
       date_from: SATURDAY,
       date_to: SATURDAY,
       service_dates: [SATURDAY],
@@ -1150,17 +1185,28 @@ async function run() {
       }).command);
     });
     const rows = serviceInserts(pg);
+    const metas = rows.map(metaOf);
+    const exact = rows.filter((r) => {
+      const m = metaOf(r);
+      return m && m.offering_key === 'board_and_suit_rental';
+    });
     const board = rows.filter((r) => r.params[4] === 'surfboard');
     const suit = rows.filter((r) => r.params[4] === 'wetsuit');
-    const metas = rows.map(metaOf);
     assert('L1 create ok', created.ok === true, JSON.stringify(created.body));
-    assert('L1 linked board+wetsuit rows', board.length >= 1 && suit.length >= 1, JSON.stringify(rows.map((r) => r.params[4])));
+    // Slice B: board_and_suit future write is one exact offering record (not dual components).
     assert(
-      'L1 shared bundle identity + bundle parts',
-      metas.every((m) => m.offering_key === 'board_and_suit_rental' && m.duration_key === '1_day' && m.quantity === 1)
-        && metas.some((m) => m.bundle_part === 'surfboard' || m.rental_pricing_role === 'surfboard')
-        && metas.some((m) => m.bundle_part === 'wetsuit' || m.rental_pricing_role === 'wetsuit')
-        && new Set(metas.map((m) => m.pricing_group_id || m.rental_bundle_id)).size === 1,
+      'L1 exact board_and_suit offering row (no component halves)',
+      exact.length >= 1 && board.length === 0 && suit.length === 0,
+      JSON.stringify({ types: rows.map((r) => r.params[4]), metas }),
+    );
+    assert(
+      'L1 exact offering metadata',
+      exact.length >= 1
+        && metas.some((m) => m.offering_key === 'board_and_suit_rental'
+          && m.duration_key === '1_day'
+          && m.quantity === 1
+          && !m.bundle_part
+          && !m.rental_pricing_role),
       JSON.stringify(metas),
     );
     assert('L1 billable aggregate equals quote', created.body.total_cents === BUNDLE_1D && sumAmounts(pg) === BUNDLE_1D, `${created.body.total_cents}/${sumAmounts(pg)}`);

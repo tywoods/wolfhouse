@@ -1184,6 +1184,10 @@ function renderAdminSectionPricesFromConfig(cfg){
     html += '<div class="portal-admin-equip-stock-readout portal-admin-muted" data-equip-stock="' +
       escHtml(item.stock_quantity == null ? '' : String(item.stock_quantity)) + '">' +
       escHtml(adminEquipStockLabel(item.stock_quantity)) + '</div>';
+    // Available today — same Staff API stock calculator (no duplicated math).
+    html += '<div class="portal-admin-equip-available-today portal-admin-muted" data-equip-available-today="' +
+      escHtml(key) + '">' +
+      escHtml(portalT('admin.equipment.availableToday') || 'Available today') + ': …</div>';
     if (writes){
       html += '<label class="portal-admin-equip-enabled">' +
         '<input type="checkbox" data-admin-action="toggle-equip-enabled" data-equip-key="' + escHtml(key) + '"' +
@@ -1271,6 +1275,60 @@ function renderAdminSectionPricesFromConfig(cfg){
     html += '</div>';
   });
   box.innerHTML = html;
+  if (typeof adminRefreshEquipAvailableToday === 'function') {
+    adminRefreshEquipAvailableToday(items);
+  }
+}
+
+/**
+ * Populate "Available today" via the same Staff rental-stock API (no local math).
+ */
+async function adminRefreshEquipAvailableToday(items){
+  var list = Array.isArray(items) ? items : [];
+  var keys = list.map(function(it){ return String(it && it.offering_key || '').trim(); }).filter(Boolean);
+  if (!keys.length) return;
+  var today = new Date();
+  var iso = today.getFullYear() + '-'
+    + String(today.getMonth() + 1).padStart(2, '0') + '-'
+    + String(today.getDate()).padStart(2, '0');
+  var loc = (typeof adminActiveLocationId === 'function' && adminActiveLocationId())
+    || (window.adminState && window.adminState.locationId)
+    || 'sunset-somo';
+  var client = (typeof adminClientSlug === 'function' && adminClientSlug())
+    || 'sunset';
+  try {
+    var res = await fetch('/staff/schedule/rental-stock?client=' + encodeURIComponent(client)
+      + '&location=' + encodeURIComponent(loc), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        date_from: iso,
+        date_to: iso,
+        location_id: loc,
+        offerings: keys.map(function(k){ return { offering_key: k, quantity: 1 }; }),
+      }),
+    });
+    var data = await res.json().catch(function(){ return null; });
+    if (!data || !data.success || !Array.isArray(data.items)) return;
+    data.items.forEach(function(it){
+      if (!it || !it.offering_key) return;
+      var elNode = document.querySelector('[data-equip-available-today="' + it.offering_key + '"]');
+      if (!elNode) return;
+      var label = portalT('admin.equipment.availableToday') || 'Available today';
+      var val;
+      if (it.not_configured || it.stock_quantity == null) {
+        val = portalT('schedule.create.stockNotConfigured') || 'Stock not configured';
+      } else if (it.sold_out || Number(it.remaining) <= 0) {
+        val = '0';
+      } else {
+        val = String(Math.floor(Number(it.remaining)));
+      }
+      elNode.textContent = label + ': ' + val;
+    });
+  } catch (_err) {
+    // Advisory only — leave ellipsis on network failure.
+  }
 }
 
 function renderAdminSectionCapacityFromConfig(cfg){

@@ -1307,13 +1307,13 @@ async function updateSunsetScheduleBooking(pg, opts) {
     }
   }
 
-  // Mirror Create: generic catalog rentals are prepared first (Admin-priced,
-  // tenant/location fail-closed). Canonical allowlist only sees board/wetsuit/
-  // bundle keys — never rejects an active generic offering_key that quote accepted.
+  // Mirror Create: exact-offering lane (board_and_suit + custom) via generic prep;
+  // component lane is board/wetsuit only. Never invent bundle component halves.
   const requestBody = opts.body && typeof opts.body === 'object' ? opts.body : {};
   const requestedRentals = Array.isArray(requestBody.rentals) ? requestBody.rentals : [];
   const dateFromForRental = String(requestBody.date_from || '').slice(0, 10);
   const dateToForRental = String(requestBody.date_to || requestBody.date_from || '').slice(0, 10);
+  const editSpanDates = inclusiveIsoDatesFromRange(dateFromForRental, dateToForRental);
   const genericPrep = await prepareGenericRentalsForCreate({
     clientSlug,
     locationId: activeLocationId,
@@ -1321,8 +1321,11 @@ async function updateSunsetScheduleBooking(pg, opts) {
     rentals: requestedRentals,
     serviceDate: dateFromForRental,
     source: DB_SOURCE,
-    calendarDayCount: inclusiveIsoDatesFromRange(dateFromForRental, dateToForRental).length,
+    calendarDayCount: editSpanDates.length,
     bookingDurationKey: rentalDurationKeyFromDateRange(dateFromForRental, dateToForRental),
+    dateFrom: dateFromForRental,
+    dateTo: dateToForRental,
+    serviceDates: editSpanDates,
   });
   if (!genericPrep.ok) {
     const badCatalogKey = genericPrep.reason === 'rental_offering_not_active'
@@ -1339,6 +1342,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
     };
   }
   const CANONICAL_RENTAL_KEYS = new Set(['board_rental', 'wetsuit_rental', 'board_and_suit_rental']);
+  const COMPONENT_LANE_KEYS = new Set(['board_rental', 'wetsuit_rental']);
   const canonicalRequested = requestedRentals.filter((r) => CANONICAL_RENTAL_KEYS.has(String(r && r.offering_key || '').trim()));
   let prepBody = genericPrep.genericRentals.length
     ? { ...requestBody, rentals: canonicalRequested, components: requestBody.components || {} }
@@ -1380,6 +1384,8 @@ async function updateSunsetScheduleBooking(pg, opts) {
       };
     }
   }
+  const hasExactOfferingRentals = Array.isArray(canonicalRequested)
+    && canonicalRequested.some((r) => String(r && r.offering_key || '').trim() === 'board_and_suit_rental');
   const validated = validateScheduleBookingBody({
     ...editBody,
     guest_name: requestBody.guest_name != null
@@ -1387,6 +1393,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
       : bundle.booking.guest_name,
   }, {
     allowEmptyComponents: genericPrep.genericRentals.length > 0
+      || hasExactOfferingRentals
       || !!(editBody.accommodation && editBody.accommodation.enabled !== false),
   });
   if (!validated.ok) {
@@ -1480,43 +1487,66 @@ async function updateSunsetScheduleBooking(pg, opts) {
 
     const lockedMeta = parseMeta(lockedBundle.booking.metadata);
     // Explicit rentals[] present (even empty) owns rental intent; generic +
-    // canonical keys both fingerprint. Omitted rentals → preserve existing.
-    // IMPORTANT: generic-only Edit strips rentals before prepareCanonical, so
-    // rentalPrep.present is false even when the client sent rentals[]. That is
-    // NOT "omitted" — do not restore lockedMeta.rentals into the canonical lane
-    // (those rows often carry generic offering_keys and would re-enter the
-    // legacy allowlist / closed quote parser as rentals[0].offering_key is not allowed).
+    // component-lane keys both fingerprint. Omitted rentals → preserve existing.
+    // IMPORTANT: exact-offering Edit (board_and_suit + custom) strips those keys
+    // before prepareCanonical, so rentalPrep.present is false even when the client
+    // sent rentals[]. That is NOT "omitted" — do not restore lockedMeta.rentals
+    // into the component lane.
     const rentalsPresentOnPatch = Object.prototype.hasOwnProperty.call(requestBody, 'rentals');
     if (!rentalPrep.present) {
       if (!rentalsPresentOnPatch
         && Array.isArray(lockedMeta.rentals)
         && lockedMeta.rentals.length) {
-        // Omitted rentals only: preserve board/wetsuit/bundle for the closed
-        // quote/insert lane. Generic catalog keys stay on lockedMeta.rentals
-        // for fingerprint/metadata preserve — never as canonicalRentals.
-        const onlyCanonical = lockedMeta.rentals.filter((r) =>
-          CANONICAL_RENTAL_KEYS.has(String(r && r.offering_key || '').trim()));
-        canonicalRentals = onlyCanonical.length ? onlyCanonical : null;
+        // Omitted rentals only: preserve board/wetsuit for the component lane.
+        // board_and_suit + custom catalog keys stay on lockedMeta.rentals for
+        // fingerprint/metadata preserve — never as canonicalRentals.
+        const onlyComponentLane = lockedMeta.rentals.filter((r) =>
+          COMPONENT_LANE_KEYS.has(String(r && r.offering_key || '').trim()));
+        canonicalRentals = onlyComponentLane.length ? onlyComponentLane : null;
         if (lockedMeta.rental_pricing) rentalPricingDescriptor = lockedMeta.rental_pricing;
         rentalPricingGroupId = (lockedMeta.rental_pricing && lockedMeta.rental_pricing.pricing_group_id) || null;
       }
-      // Explicit rentals[] with only generics: leave canonicalRentals null so
-      // genericOnly quote short-circuit + genericPrep.records own pricing.
-    } else if (canonicalRentals) {
-      const bundleRental = canonicalRentals.find((r) => r.offering_key === 'board_and_suit_rental');
-      if (bundleRental) {
-        rentalPricingDescriptor = {
-          pricing_group_id: rentalPricingGroupId,
-          offering_key: bundleRental.offering_key,
-          duration: bundleRental.duration_key,
-          quantity: bundleRental.quantity,
-          service_date: (rentalSpanDates && rentalSpanDates[0]) || input.service_dates[0],
-          components: ['surfboard', 'wetsuit'],
-          quoted_total_cents: null,
-          rental_service_dates: rentalSpanDates,
-        };
+      // Explicit rentals[] with only exact offerings: leave canonicalRentals null
+      // so genericOnly quote short-circuit + genericPrep.records own pricing.
+    }
+
+    // Physical stock inside Edit transaction: exclude this booking, then check
+    // replacement allocation (new selection or preserved rentals with new dates).
+    // Fail closed before service row mutation.
+    {
+      const effectiveRentalsForStock = rentalsPresentOnPatch
+        ? allRequestedRentals
+        : (Array.isArray(lockedMeta.rentals) ? lockedMeta.rentals : []);
+      if (effectiveRentalsForStock.length) {
+        const {
+          assertRentalStockClaimsInTxn,
+          stockFailureHttp,
+        } = require('./tenant-rental-stock-service');
+        const { DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
+        const stockAssert = await assertRentalStockClaimsInTxn(pg, {
+          clientSlug,
+          locationId: activeLocationId,
+          rentals: effectiveRentalsForStock,
+          dateFrom: input.date_from || firstDate,
+          dateTo: input.date_to || lastDate || firstDate,
+          excludeBookingId: bookingId,
+          defaultLocationId: clientSlug === SUNSET_CLIENT_SLUG ? DEFAULT_SUNSET_LOCATION_ID : null,
+        });
+        if (!stockAssert.ok) {
+          const http = stockFailureHttp(stockAssert);
+          return rollback({
+            ok: false,
+            status: (http && http.status) || 409,
+            body: (http && http.body) || {
+              success: false,
+              error: stockAssert.error,
+              reason_code: stockAssert.error,
+            },
+          });
+        }
       }
     }
+
     const existingIntent = pricingIntentFromBundle(lockedBundle);
     const requestedIntent = buildSchedulePricingIntent(input, {
       rentals: rentalsPresentOnPatch
@@ -2502,15 +2532,15 @@ async function restoreSunsetScheduleBooking(pg, opts) {
       }
     }
 
-    // Catalog availability for rental / course-equipment offerings (fail closed if gone).
-    // There is no authoritative physical unit stock ledger on create/edit; do not invent one.
+    // Catalog + physical stock for rental / course-equipment offerings.
+    // Restore must recheck remaining stock (cancel released demand) inside this txn.
     const offeringKeys = new Set();
     for (const sr of (bundle.services || [])) {
       const md = parseMeta(sr.metadata);
       const key = String(md.offering_key || '').trim();
       if (!key) continue;
       const stype = String(sr.service_type || '').toLowerCase();
-      if (md.course_equipment === true || stype === 'surfboard' || stype === 'wetsuit' || md.component === 'rental' || md.staff_ui_service_type === 'rental') {
+      if (md.course_equipment === true || stype === 'surfboard' || stype === 'wetsuit' || stype === 'addon_service' || md.component === 'rental' || md.staff_ui_service_type === 'rental' || md.rental_offering === true) {
         offeringKeys.add(key);
       }
     }
@@ -2547,6 +2577,39 @@ async function restoreSunsetScheduleBooking(pg, opts) {
               error: 'rental_offering_unavailable',
               offering_key: key,
               message: 'Equipment/rental offering is no longer available; restore left cancelled.',
+            },
+          };
+        }
+      }
+
+      // Physical stock recheck (cancelled demand is already excluded from counts).
+      // Exclude this booking id so any residual rows cannot double-count.
+      const {
+        collectRentalStockClaimsFromServices,
+        assertRentalStockClaimsInTxn,
+        stockFailureHttp,
+      } = require('./tenant-rental-stock-service');
+      const { DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
+      const claimsPack = collectRentalStockClaimsFromServices(bundle.services || []);
+      if (claimsPack.ok && claimsPack.claims.length) {
+        const stockAssert = await assertRentalStockClaimsInTxn(pg, {
+          clientSlug,
+          locationId: activeLocationId,
+          claims: claimsPack.claims,
+          excludeBookingId: bookingId,
+          defaultLocationId: clientSlug === SUNSET_CLIENT_SLUG ? DEFAULT_SUNSET_LOCATION_ID : null,
+        });
+        if (!stockAssert.ok) {
+          await pg.query('ROLLBACK'); began = false;
+          const http = stockFailureHttp(stockAssert);
+          return {
+            ok: false,
+            status: (http && http.status) || 409,
+            body: (http && http.body) || {
+              success: false,
+              error: stockAssert.error,
+              reason_code: stockAssert.error,
+              message: 'Not enough rental stock to restore this booking.',
             },
           };
         }

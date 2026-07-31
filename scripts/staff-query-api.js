@@ -390,6 +390,10 @@ const {
   setRentalOfferingActive,
 } = require('./lib/tenant-rental-offerings');
 const {
+  queryRentalStockAvailability,
+  STOCK_ERRORS: RENTAL_STOCK_ERRORS,
+} = require('./lib/tenant-rental-stock-service');
+const {
   defaultPackConfig,
   DEFAULT_PRICE_TIERS,
   validatePackBody,
@@ -16840,6 +16844,9 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .portal-schedule-create-rental-qty{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex:0 1 auto;min-width:0;margin-left:auto}
 .portal-schedule-create-rental-qty label{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);white-space:nowrap}
 .portal-schedule-create-rental-qty input[type=number]{width:64px;min-width:56px;min-height:36px;padding:6px 8px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}
+.ps-create-rental-stock,.ps-drawer-rental-stock{display:inline-block;font-size:11px;font-weight:600;color:var(--text-2);white-space:nowrap;margin-left:4px}
+.ps-create-rental-stock.is-sold-out,.ps-drawer-rental-stock.is-sold-out{color:#c0392b}
+.ps-create-rental-stock.is-not-configured,.ps-drawer-rental-stock.is-not-configured{color:#a67c00}
 @media(max-width:768px){
   /* Mobile: name on its own line; duration/amount/Surfers stack cleanly underneath. */
   .portal-schedule-create-rental-row{gap:8px;padding:6px 0;align-items:stretch}
@@ -24637,6 +24644,7 @@ function scheduleWireCreateRentals(wrap){
         }
       }
       scheduleRefreshCreateFullDayAddon();
+      if (typeof scheduleRefreshCreateRentalStock === 'function') scheduleRefreshCreateRentalStock();
       if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
         schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
       }
@@ -24647,6 +24655,7 @@ function scheduleWireCreateRentals(wrap){
       t.setAttribute('data-qty-owner', 'user');
       scheduleClampCreateRentalQtyInput(t, wrap);
       scheduleRefreshCreateFullDayAddon();
+      if (typeof scheduleRefreshCreateRentalStock === 'function') scheduleRefreshCreateRentalStock();
       scheduleUpdateCreateTotalPreview();
     }
   });
@@ -24655,6 +24664,7 @@ function scheduleWireCreateRentals(wrap){
     if (t && t.classList && t.classList.contains('ps-create-rental-qty-input')) {
       t.setAttribute('data-qty-owner', 'user');
       scheduleRefreshCreateFullDayAddon();
+      if (typeof scheduleRefreshCreateRentalStock === 'function') scheduleRefreshCreateRentalStock();
       scheduleUpdateCreateTotalPreview();
     }
   });
@@ -24662,6 +24672,7 @@ function scheduleWireCreateRentals(wrap){
     var t = ev && ev.target;
     if (t && t.classList && t.classList.contains('ps-create-rental-qty-input')) {
       scheduleClampCreateRentalQtyInput(t, wrap);
+      if (typeof scheduleRefreshCreateRentalStock === 'function') scheduleRefreshCreateRentalStock();
     }
   });
 }
@@ -24794,6 +24805,8 @@ function scheduleRenderCreateRentals(){
       + '<input type="number" min="1" max="99" class="ps-create-rental-qty-input" data-rental-quantity data-qty-owner="'
       + escHtml(owner) + '" value="' + escHtml(String(qty))
       + '" inputmode="numeric" aria-label="' + escHtml(portalT('schedule.create.rentalQty') || 'Qty') + '"></label>'
+      + '<span class="ps-create-rental-stock" data-rental-stock-label data-offering-key="'
+      + escHtml(key) + '" aria-live="polite"></span>'
       + '</div>';
     var selectedDur = durs.find(function(d){ return d.duration_key === rowDuration; }) || durs[0] || null;
     var unitCents = selectedDur && selectedDur.amount_cents != null ? selectedDur.amount_cents : null;
@@ -24841,6 +24854,141 @@ function scheduleRenderCreateRentals(){
   }
   var modal = el('ps-create-modal');
   if (modal && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(modal);
+  // Advisory stock readout — server remains authority on submit.
+  if (typeof scheduleRefreshCreateRentalStock === 'function') {
+    scheduleRefreshCreateRentalStock();
+  }
+}
+
+/**
+ * Fetch authoritative date-range stock for Create rental rows and apply caps.
+ * Server remains authority; this only advises + disables impossible submit.
+ */
+var _scheduleCreateStockTimer = null;
+var _scheduleCreateStockSeq = 0;
+function scheduleRefreshCreateRentalStock(){
+  if (_scheduleCreateStockTimer) clearTimeout(_scheduleCreateStockTimer);
+  _scheduleCreateStockTimer = setTimeout(function(){ scheduleRefreshCreateRentalStockNow(); }, 180);
+}
+async function scheduleRefreshCreateRentalStockNow(){
+  var wrap = el('ps-create-rentals');
+  if (!wrap) return;
+  var dateFrom = (el('ps-create-date-from') && el('ps-create-date-from').value)
+    || (el('ps-create-date') && el('ps-create-date').value) || '';
+  var dateTo = (el('ps-create-date-to') && el('ps-create-date-to').value) || dateFrom;
+  dateFrom = String(dateFrom || '').slice(0, 10);
+  dateTo = String(dateTo || dateFrom).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) return;
+  var checks = wrap.querySelectorAll('.ps-create-rental-check');
+  var offerings = [];
+  for (var i = 0; i < checks.length; i++) {
+    var ck = checks[i];
+    if (!ck.checked) continue;
+    var key = String(ck.getAttribute('data-offering-key') || '').trim();
+    if (!key) continue;
+    var row = ck.closest('[data-rental-offering]');
+    var qtyEl = row && row.querySelector('input.ps-create-rental-qty-input');
+    var qty = qtyEl ? parseInt(qtyEl.value, 10) : 1;
+    if (!Number.isInteger(qty) || qty < 1) qty = 1;
+    offerings.push({ offering_key: key, quantity: qty });
+  }
+  // Also request stock for visible unchecked rows (qty=1) so labels show remaining.
+  for (var j = 0; j < checks.length; j++) {
+    var ck2 = checks[j];
+    var key2 = String(ck2.getAttribute('data-offering-key') || '').trim();
+    if (!key2) continue;
+    if (offerings.some(function(o){ return o.offering_key === key2; })) continue;
+    offerings.push({ offering_key: key2, quantity: 1 });
+  }
+  if (!offerings.length) return;
+  var loc = (typeof scheduleActiveLocationId === 'function' ? scheduleActiveLocationId() : null)
+    || (window.scheduleState && window.scheduleState.locationId)
+    || 'sunset-somo';
+  var seq = ++_scheduleCreateStockSeq;
+  var url = '/staff/schedule/rental-stock?client=' + encodeURIComponent('sunset')
+    + '&location=' + encodeURIComponent(loc);
+  try {
+    var res = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({
+        date_from: dateFrom,
+        date_to: dateTo,
+        location_id: loc,
+        offerings: offerings,
+      }),
+    });
+    if (seq !== _scheduleCreateStockSeq) return;
+    var data = await res.json().catch(function(){ return null; });
+    if (!data || !data.success || !Array.isArray(data.items)) return;
+    scheduleApplyCreateRentalStockItems(wrap, data.items);
+  } catch (_err) {
+    // Fail open on network for advisory UI only — submit still server-enforced.
+  }
+}
+function scheduleApplyCreateRentalStockItems(wrap, items){
+  if (!wrap || !Array.isArray(items)) return;
+  var byKey = {};
+  items.forEach(function(it){
+    if (it && it.offering_key) byKey[it.offering_key] = it;
+  });
+  var rows = wrap.querySelectorAll('[data-rental-offering]');
+  var blockSubmit = false;
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var key = String(row.getAttribute('data-rental-offering') || '').trim();
+    var item = byKey[key];
+    var labelEl = row.querySelector('[data-rental-stock-label]');
+    var qtyEl = row.querySelector('input.ps-create-rental-qty-input');
+    var check = row.querySelector('.ps-create-rental-check');
+    var checked = check && check.checked;
+    if (labelEl) {
+      var text = '';
+      if (typeof scheduleFormatRentalStockLabel === 'function') {
+        text = scheduleFormatRentalStockLabel(item, portalT);
+      } else if (!item || item.not_configured) {
+        text = portalT('schedule.create.stockNotConfigured') || 'Stock not configured';
+      } else if (item.sold_out || Number(item.remaining) <= 0) {
+        text = portalT('schedule.create.stockSoldOut') || 'Sold out';
+      } else {
+        text = String(Math.floor(Number(item.remaining))) + ' available';
+      }
+      labelEl.textContent = text;
+      labelEl.classList.toggle('is-sold-out', !!(item && (item.sold_out || Number(item.remaining) <= 0)));
+      labelEl.classList.toggle('is-not-configured', !!(item && item.not_configured));
+    }
+    if (qtyEl && item) {
+      var max = typeof scheduleRentalQtyMaxFromStock === 'function'
+        ? scheduleRentalQtyMaxFromStock(item)
+        : (item.not_configured ? 0 : Math.max(0, Math.floor(Number(item.remaining) || 0)));
+      if (max < 1) {
+        qtyEl.max = '0';
+        if (checked) blockSubmit = true;
+      } else {
+        qtyEl.max = String(Math.min(99, max));
+        var cur = parseInt(qtyEl.value, 10) || 1;
+        if (cur > max) {
+          qtyEl.value = String(max);
+          if (checked) blockSubmit = true;
+        }
+      }
+    }
+    if (checked && item && (item.not_configured || item.ok === false || item.sold_out || Number(item.remaining) < 1)) {
+      blockSubmit = true;
+    }
+  }
+  var submitBtn = el('ps-create-submit') || document.querySelector('#ps-create-modal [type=submit], #ps-create-modal .ps-create-submit');
+  if (submitBtn) {
+    if (blockSubmit) {
+      submitBtn.setAttribute('data-stock-blocked', '1');
+      submitBtn.disabled = true;
+    } else if (submitBtn.getAttribute('data-stock-blocked') === '1') {
+      submitBtn.removeAttribute('data-stock-blocked');
+      // Do not force-enable — other gates may still disable.
+      if (!submitBtn.getAttribute('data-other-blocked')) submitBtn.disabled = false;
+    }
+  }
 }
 
 // Read the add-on unit price + enabled state from the /staff/admin/config prices array.
@@ -41010,6 +41158,98 @@ async function handleAdminConfigRentalOfferingsGet(query, req, res, user) {
   }
 }
 
+/**
+ * Authenticated tenant/location-scoped date-range rental stock availability.
+ * Staff API is authority — UI/Luna never decide stock from cache alone.
+ *
+ * GET  /staff/schedule/rental-stock?client=&location=&date_from=&date_to=&offering_keys=a,b
+ * POST /staff/schedule/rental-stock  JSON body with offerings[] + dates
+ * Also: GET /staff/bot/sunset/rental-stock (Luna tool contract, same authority)
+ */
+async function handleRentalStockAvailability(query, req, res, user, opts) {
+  const options = opts || {};
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body = {};
+  if (req.method === 'POST') {
+    try {
+      body = JSON.parse(await readBody(req) || '{}');
+    } catch (_) {
+      return send400(res, 'invalid JSON body');
+    }
+    if (!body || typeof body !== 'object') return send400(res, 'invalid body');
+  }
+
+  const rawLoc = (body.location_id != null ? body.location_id : null)
+    || (query.location != null ? query.location : null)
+    || (query.location_id != null ? query.location_id : null);
+  const loc = resolveRentalOfferingLocation(clientSlug, { location: rawLoc });
+  if (!loc.ok) return sendJSON(res, 400, { success: false, error: loc.error });
+
+  const dateFrom = String(body.date_from || query.date_from || '').slice(0, 10);
+  const dateTo = String(body.date_to || query.date_to || dateFrom).slice(0, 10);
+  const excludeBookingId = body.exclude_booking_id || query.exclude_booking_id || null;
+
+  let offerings = Array.isArray(body.offerings) ? body.offerings : null;
+  if (!offerings) {
+    const rawKeys = body.offering_keys || query.offering_keys || query.offerings || '';
+    const keys = Array.isArray(rawKeys)
+      ? rawKeys
+      : String(rawKeys).split(',').map((s) => s.trim()).filter(Boolean);
+    offerings = keys.map((k) => ({ offering_key: k, quantity: 1 }));
+  }
+  if (!offerings.length) {
+    return sendJSON(res, 400, {
+      success: false,
+      error: RENTAL_STOCK_ERRORS.INVALID_REQUEST,
+      reason_code: RENTAL_STOCK_ERRORS.INVALID_REQUEST,
+      message: 'offerings required',
+    });
+  }
+
+  // Sunset legacy neither-location demand counts toward sunset-somo explicitly.
+  const defaultLocationId = clientSlug === 'sunset'
+    ? (typeof DEFAULT_SUNSET_LOCATION_ID !== 'undefined' ? DEFAULT_SUNSET_LOCATION_ID : 'sunset-somo')
+    : null;
+
+  try {
+    const result = await withPgClient((pg) => queryRentalStockAvailability(pg, {
+      clientSlug,
+      locationId: loc.locationId,
+      dateFrom,
+      dateTo,
+      offerings,
+      excludeBookingId,
+      defaultLocationId,
+    }));
+    if (result.error === RENTAL_STOCK_ERRORS.INVALID_REQUEST) {
+      return sendJSON(res, 400, {
+        success: false,
+        error: result.error,
+        reason_code: result.error,
+        message: result.message,
+      });
+    }
+    return sendJSON(res, 200, {
+      success: true,
+      client_slug: result.client_slug,
+      location_id: result.location_id,
+      date_from: result.date_from,
+      date_to: result.date_to,
+      exclude_booking_id: result.exclude_booking_id,
+      items: result.items,
+      // all_ok false when any item is not_configured/unavailable — fail-closed signal.
+      all_ok: result.ok === true,
+      channel: options.channel || 'staff',
+    });
+  } catch (err) {
+    console.error('[rental.stock.availability] failed:', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'stock availability failed' });
+  }
+}
+
 async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -48169,6 +48409,23 @@ async function router(req, res) {
     return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
       handleBotSunsetRentalPrice(req, res));
   }
+  // Luna rental stock availability — same calculator as Staff Schedule; fail closed.
+  if (pathname === '/staff/bot/sunset/rental-stock' && (method === 'GET' || method === 'POST')) {
+    if (method !== 'POST' && method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET, POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET or POST for bot/sunset/rental-stock' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
+      handleRentalStockAvailability(
+        { ...parsed.query, client: SUNSET_CLIENT_SLUG },
+        req,
+        res,
+        auth.user || { role: 'bot', staff_user_id: 'bot' },
+        { channel: 'luna_whatsapp' },
+      ));
+  }
   if (pathname === '/staff/bot/sunset/full-day-addon') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
@@ -49184,6 +49441,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleSunsetScheduleBookingsCatalog(parsed.query, req, res, auth.user);
+  }
+  // Rental stock availability (Schedule Create/Edit advisory + Admin readout).
+  if (pathname === '/staff/schedule/rental-stock' && (method === 'GET' || method === 'POST')) {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleRentalStockAvailability(parsed.query, req, res, auth.user, { channel: 'staff' });
   }
   if (pathname === '/staff/schedule/bookings' && method === 'POST') {
     const auth = await requireAuth(req, res, 'operator');
