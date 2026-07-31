@@ -14,8 +14,8 @@
 
 - Exact base: `77f06aeb2fa662cb59e4d79df631dbd329140c13`.
 - `scripts/staff-query-api.js`: **49,207 lines**.
-- Browser `scripts/browser/sunset-*.js`: **17**.
-- Server `scripts/lib/sunset-*.js`: **58**.
+- Browser files directly matching `scripts/browser/sunset-*.js`: **17**.
+- Server files directly matching `scripts/lib/sunset-*.js`: **58**. A broader recursive filename predicate `*sunset*.js` returns **63** and is not the inventory used here.
 - Schedule functions: **234** column-zero / **235** indentation-tolerant.
 - `pathname ===` checks: **158**.
 - `require('./lib/…')` lines: **167**.
@@ -202,7 +202,7 @@ The ADR must state:
 ### Slice 3 — Optional hygiene after the ADR
 
 Choose only one after explicit review:
-- Centralize seven duplicated `SUNSET_CLIENT_SLUG` constants if no circular dependency is introduced; or
+- Centralize the **seven literal** `const SUNSET_CLIENT_SLUG = 'sunset'` assignments if no circular dependency is introduced. Two additional files assign `SUNSET_CLIENT_SLUG` from the existing `SUNSET_ADMIN_CLIENT` authority and are not counted as duplicate literals; or
 - Remove Sunset’s location dual mirror only if the ADR chose a server-owned catalog projection, while preserving server validation.
 
 This slice does not itself make Client Maker runtime-ready.
