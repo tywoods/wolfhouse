@@ -183,12 +183,35 @@ function scheduleCockpitClassify(data, now) {
 }
 
 function scheduleCockpitNowMinutes(data) {
+  data = data || {};
+  var range = data.range || scheduleCockpitRangeFromNavMode(data.navMode || data.mode);
+  // README: Non-today dates and Week / Next 30 days → no needle, no countdown.
+  // Hero shows the first session (classify with now=null → next=list[0]).
+  if (range === 'week' || range === 'next30') {
+    // forceNow only for rare replay tests that opt in; normal week/next30 freezes the clock.
+    if (data.forceNow === true && typeof data.now === 'number') return data.now;
+    return null;
+  }
   if (typeof data.now === 'number') return data.now; // explicit override (tests, demos, replay)
   // Only treat the clock as "live" when the shown day is actually today.
   var d = new Date();
   var shown = data.date ? new Date(data.date + 'T00:00:00') : d;
   var sameDay = d.toDateString() === shown.toDateString();
   return sameDay ? d.getHours() * 60 + d.getMinutes() : null;
+}
+
+/** True when 60s needle/countdown tick should run (today + day range, not fixture-frozen). */
+function scheduleDayCockpitShouldTick(data) {
+  data = data || {};
+  if (typeof data.now === 'number' && data.forceNow !== true) {
+    // Fixture/demo freeze: paint once, no wall-clock interval.
+    return false;
+  }
+  var range = data.range || scheduleCockpitRangeFromNavMode(data.navMode || data.mode) || 'today';
+  if (range !== 'today') return false;
+  var probe = Object.assign({}, data);
+  delete probe.now;
+  return scheduleCockpitNowMinutes(probe) != null;
 }
 
 function scheduleCockpitEl(doc, tag, cls, text) {
@@ -253,7 +276,7 @@ function scheduleRenderDayCockpit(mount, data) {
     var label = row[0], fn = row[1], active = row[2];
     var b = el('button', null, label);
     b.type = 'button';
-    if (active) b.setAttribute('aria-pressed', 'true');
+    b.setAttribute('aria-pressed', active ? 'true' : 'false');
     if (fn) b.addEventListener('click', fn);
     nav.appendChild(b);
   });
@@ -275,15 +298,12 @@ function scheduleRenderDayCockpit(mount, data) {
 
   var right = el('div', 'ck-bar__right');
   var ranges = el('div', 'ck-seg ck-seg--range');
-  [
-    ['today', 'Today'],
-    ['week', 'Week'],
-    ['next30', 'Next 30 days'],
-  ].forEach(function (row) {
+  [['today', 'Today'], ['week', 'Week'], ['next30', 'Next 30 days']].forEach(function (row) {
     var key = row[0], label = row[1];
     var b = el('button', null, label);
     b.type = 'button';
-    if ((data.range || 'today') === key) b.setAttribute('aria-pressed', 'true');
+    var pressed = (data.range || 'today') === key;
+    b.setAttribute('aria-pressed', pressed ? 'true' : 'false');
     if (on.range) b.addEventListener('click', function () { on.range(key); });
     ranges.appendChild(b);
   });
@@ -461,18 +481,72 @@ function scheduleRenderDayCockpit(mount, data) {
 }
 
 /**
- * Live mount helper (60s tick). P2 will wire mount + handlers; P1 exposes it for fixtures.
- * Returns { update(next), destroy() } like the design reference renderCockpit.
+ * Clear the 60s needle/countdown timer on a cockpit mount (no data-loader side effects).
+ */
+function scheduleStopDayCockpitClock(mount) {
+  if (!mount) return;
+  if (mount.__ckTimer != null) {
+    try {
+      if (typeof clearInterval === 'function') clearInterval(mount.__ckTimer);
+    } catch (_e) { /* ignore */ }
+    mount.__ckTimer = null;
+  }
+}
+
+/**
+ * 60s tick: re-paint needle + countdowns only.
+ * MUST NOT call requestPageLoad / data-loader / network refresh.
+ */
+function scheduleDayCockpitClockTick(mount) {
+  if (!mount) return;
+  var src;
+  if (mount.__ckSrc && typeof mount.__ckSrc === 'object') {
+    src = Object.assign({}, mount.__ckSrc);
+    // Refresh nav identity lightly; keep last sessions/prep snapshot for the tick.
+    if (typeof scheduleActiveDayIso === 'function') {
+      try { src.date = scheduleActiveDayIso() || src.date; } catch (_e) { /* keep */ }
+    }
+    if (typeof scheduleCurrentViewMode === 'function') {
+      try { src.navMode = scheduleCurrentViewMode() || src.navMode; } catch (_e2) { /* keep */ }
+    }
+    src.on = typeof scheduleDayCockpitDefaultHandlers === 'function'
+      ? scheduleDayCockpitDefaultHandlers()
+      : (src.on || {});
+  } else if (typeof scheduleCollectDayCockpitSource === 'function') {
+    src = scheduleCollectDayCockpitSource();
+  } else {
+    return;
+  }
+  delete src.now;
+  var data = scheduleBuildDayCockpitData(src);
+  // If range/nav left the live day, stop ticking (no leaked interval after re-nav).
+  if (!scheduleDayCockpitShouldTick(data)) {
+    scheduleStopDayCockpitClock(mount);
+    scheduleRenderDayCockpit(mount, data);
+    return;
+  }
+  scheduleRenderDayCockpit(mount, data);
+}
+
+/**
+ * Live mount helper (60s tick). Returns { update(next), destroy() } like renderCockpit.
+ * destroy()/re-mount clearInterval — no leaked timers.
  */
 function scheduleMountDayCockpit(mount, data) {
+  if (!mount) return { update: function () {}, destroy: function () {} };
+  scheduleStopDayCockpitClock(mount);
+  data = data || {};
+  mount.__ckSrc = Object.assign({}, data);
+  delete mount.__ckSrc.now;
   scheduleRenderDayCockpit(mount, data);
-  if (mount.__ckTimer) clearInterval(mount.__ckTimer);
-  mount.__ckTimer = setInterval(function () {
-    scheduleRenderDayCockpit(mount, data);
-  }, 60000);
+  if (scheduleDayCockpitShouldTick(data) && typeof setInterval === 'function') {
+    mount.__ckTimer = setInterval(function () {
+      scheduleDayCockpitClockTick(mount);
+    }, 60000);
+  }
   return {
     update: function (next) { return scheduleMountDayCockpit(mount, next || data); },
-    destroy: function () { clearInterval(mount.__ckTimer); mount.__ckTimer = null; },
+    destroy: function () { scheduleStopDayCockpitClock(mount); },
   };
 }
 
@@ -818,8 +892,9 @@ function scheduleCollectDayCockpitSource() {
 }
 
 /**
- * P2 mount paint — fills #ps-day-cockpit from the live VM.
- * No 60s timer here (P3). Safe no-op when mount missing or helpers unavailable.
+ * Mount paint — fills #ps-day-cockpit from the live VM.
+ * Starts a 60s local re-render for needle/countdowns when the shown day is live
+ * (today + day range). Never triggers data-loader/refresh. Re-paint clears prior timer.
  */
 function schedulePaintDayCockpit(srcOverride) {
   var mount = null;
@@ -828,12 +903,35 @@ function schedulePaintDayCockpit(srcOverride) {
   if (!mount) return null;
 
   scheduleEnsureDayCockpitCss();
+  // Teardown any previous interval before re-nav / data re-paint (no leaks).
+  scheduleStopDayCockpitClock(mount);
 
   var src = srcOverride || scheduleCollectDayCockpitSource();
   if (!src.on) src.on = scheduleDayCockpitDefaultHandlers();
+
+  // Snapshot for ticks (without frozen now so the wall clock can advance).
+  mount.__ckSrc = Object.assign({}, src);
+  delete mount.__ckSrc.now;
+
   var data = scheduleBuildDayCockpitData(src);
   scheduleRenderDayCockpit(mount, data);
+
+  if (scheduleDayCockpitShouldTick(data) && typeof setInterval === 'function') {
+    mount.__ckTimer = setInterval(function () {
+      scheduleDayCockpitClockTick(mount);
+    }, 60000);
+  }
+
   return data;
+}
+
+function scheduleDestroyDayCockpit(mount) {
+  if (!mount) {
+    if (typeof el === 'function') mount = el('ps-day-cockpit');
+    if (!mount && typeof document !== 'undefined') mount = document.getElementById('ps-day-cockpit');
+  }
+  scheduleStopDayCockpitClock(mount);
+  if (mount) mount.__ckSrc = null;
 }
 
 // Node offline fixture / require path (browser inject ignores module.exports)
@@ -845,9 +943,13 @@ if (typeof module !== 'undefined' && module.exports) {
     scheduleCockpitPct: scheduleCockpitPct,
     scheduleCockpitClassify: scheduleCockpitClassify,
     scheduleCockpitNowMinutes: scheduleCockpitNowMinutes,
+    scheduleDayCockpitShouldTick: scheduleDayCockpitShouldTick,
     scheduleCockpitHasCapacity: scheduleCockpitHasCapacity,
     scheduleRenderDayCockpit: scheduleRenderDayCockpit,
     scheduleMountDayCockpit: scheduleMountDayCockpit,
+    scheduleStopDayCockpitClock: scheduleStopDayCockpitClock,
+    scheduleDayCockpitClockTick: scheduleDayCockpitClockTick,
+    scheduleDestroyDayCockpit: scheduleDestroyDayCockpit,
     scheduleMapDaySessionToCockpit: scheduleMapDaySessionToCockpit,
     scheduleBuildDayCockpitData: scheduleBuildDayCockpitData,
     scheduleCockpitRangeFromNavMode: scheduleCockpitRangeFromNavMode,

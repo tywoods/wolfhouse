@@ -513,6 +513,7 @@
     "verify:sunset-schedule-forecast-cards-ui": "node scripts/verify-sunset-schedule-forecast-cards-ui.js",
     "verify:sunset-schedule-day-cockpit-ui": "node scripts/verify-sunset-schedule-day-cockpit-ui.js",
     "verify:sunset-schedule-day-cockpit-p2-mount": "node scripts/verify-sunset-schedule-day-cockpit-p2-mount.js",
+    "verify:sunset-schedule-day-cockpit-p3-states": "node scripts/verify-sunset-schedule-day-cockpit-p3-states.js",
     "verify:sunset-schedule-view-grid-ui": "node scripts/verify-sunset-schedule-view-grid-ui.js",
     "verify:sunset-schedule-architecture": "node scripts/verify-sunset-schedule-architecture.js",
     "verify:sunset-schedule-navigation-ui": "node scripts/verify-sunset-schedule-navigation-ui.js",

@@ -18785,22 +18785,22 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <!-- Off-DOM-visible legacy anchors so existing wireControls / create wiring keep
        null-safe IDs without editing navigation-ui / runtime / day-ops modules.
        Cockpit buttons call the same handlers; these stay for applyPresentation no-ops. -->
-  <div id="ps-schedule-legacy-controls" class="ps-schedule-legacy-controls" hidden aria-hidden="true" style="display:none!important;position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">
+  <div id="ps-schedule-legacy-controls" class="ps-schedule-legacy-controls" hidden aria-hidden="true" inert tabindex="-1" style="display:none!important;position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);pointer-events:none">
     <div class="portal-school-context portal-schedule-school-context" id="schedule-school-context" style="display:none" aria-live="polite">
       <span data-i18n="schedule.school.context">Schedule for:</span>
       <strong id="schedule-school-label">—</strong>
     </div>
-    <button type="button" class="btn btn-ghost" id="ps-prev-week" data-i18n="schedule.nav.prev">Previous</button>
-    <button type="button" class="btn btn-ghost" id="ps-today" data-i18n="schedule.nav.today">Today</button>
-    <button type="button" class="btn btn-ghost" id="ps-next-week" data-i18n="schedule.nav.next">Next</button>
-    <span class="portal-schedule-range" id="ps-range-label">—</span>
-    <div class="portal-schedule-view-toggle">
-      <button type="button" class="portal-schedule-view-btn active" data-ps-view="day" data-i18n="schedule.view.today">Today</button>
-      <button type="button" class="portal-schedule-view-btn" data-ps-view="week" data-i18n="schedule.view.week">Week</button>
-      <button type="button" class="portal-schedule-view-btn" data-ps-view="next30" data-i18n="schedule.view.next30">Next 30 days</button>
+    <button type="button" class="btn btn-ghost" id="ps-prev-week" tabindex="-1" data-i18n="schedule.nav.prev">Previous</button>
+    <button type="button" class="btn btn-ghost" id="ps-today" tabindex="-1" data-i18n="schedule.nav.today">Today</button>
+    <button type="button" class="btn btn-ghost" id="ps-next-week" tabindex="-1" data-i18n="schedule.nav.next">Next</button>
+    <span class="portal-schedule-range" id="ps-range-label" aria-hidden="true">—</span>
+    <div class="portal-schedule-view-toggle" aria-hidden="true">
+      <button type="button" class="portal-schedule-view-btn active" data-ps-view="day" tabindex="-1" data-i18n="schedule.view.today">Today</button>
+      <button type="button" class="portal-schedule-view-btn" data-ps-view="week" tabindex="-1" data-i18n="schedule.view.week">Week</button>
+      <button type="button" class="portal-schedule-view-btn" data-ps-view="next30" tabindex="-1" data-i18n="schedule.view.next30">Next 30 days</button>
     </div>
-    <button type="button" class="btn btn-ghost portal-schedule-refresh-btn" id="ps-refresh-schedule" data-i18n-title="schedule.refresh" title="Refresh schedule" aria-label="Refresh schedule">&#8635;</button>
-    <button type="button" class="btn btn-primary" id="ps-create-booking" data-i18n="schedule.createBooking">Create booking</button>
+    <button type="button" class="btn btn-ghost portal-schedule-refresh-btn" id="ps-refresh-schedule" tabindex="-1" data-i18n-title="schedule.refresh" title="Refresh schedule" aria-label="Refresh schedule">&#8635;</button>
+    <button type="button" class="btn btn-primary" id="ps-create-booking" tabindex="-1" data-i18n="schedule.createBooking">Create booking</button>
   </div>
   <div id="ps-state" class="state-msg" style="display:none"></div>
   <div id="ps-ops-board" class="portal-schedule-ops-board" data-ops-board="today"></div>
