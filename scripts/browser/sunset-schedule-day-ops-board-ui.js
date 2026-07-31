@@ -244,13 +244,8 @@ function scheduleRenderRentalPickupsHeader(sortMode, filterText){
   var itemOn = sortMode === 'item';
   var html = '<header class="portal-schedule-ops-rental-pickups-hdr">' +
     '<span class="portal-schedule-ops-rental-pickups-title">' + escHtml(portalT('schedule.ops.rentalPickupsToday')) + '</span>' +
-    '<div class="portal-schedule-ops-rental-pickups-tools">' +
-    '<div class="portal-schedule-ops-rental-sort" role="group" aria-label="' + escHtml(portalT('schedule.ops.rentalSortAria')) + '">' +
-    '<button type="button" class="portal-schedule-ops-rental-sort-btn' + (guestOn ? ' is-active' : '') + '" data-rp-sort="guest">' +
-    escHtml(portalT('schedule.ops.rentalSortGuest')) + '</button>' +
-    '<button type="button" class="portal-schedule-ops-rental-sort-btn' + (itemOn ? ' is-active' : '') + '" data-rp-sort="item">' +
-    escHtml(portalT('schedule.ops.rentalSortItem')) + '</button>' +
-    '</div>';
+    '<div class="portal-schedule-ops-rental-pickups-tools">';
+  // Filter first (left of Guest/Item) — only in guest sort mode.
   if (guestOn) {
     html += '<label class="portal-schedule-ops-rental-filter">' +
       '<span class="sr-only">' + escHtml(portalT('schedule.ops.rentalFilterGuest')) + '</span>' +
@@ -259,6 +254,12 @@ function scheduleRenderRentalPickupsHeader(sortMode, filterText){
       'value="' + escHtml(filterText || '') + '" autocomplete="off" />' +
       '</label>';
   }
+  html += '<div class="portal-schedule-ops-rental-sort" role="group" aria-label="' + escHtml(portalT('schedule.ops.rentalSortAria')) + '">' +
+    '<button type="button" class="portal-schedule-ops-rental-sort-btn' + (guestOn ? ' is-active' : '') + '" data-rp-sort="guest">' +
+    escHtml(portalT('schedule.ops.rentalSortGuest')) + '</button>' +
+    '<button type="button" class="portal-schedule-ops-rental-sort-btn' + (itemOn ? ' is-active' : '') + '" data-rp-sort="item">' +
+    escHtml(portalT('schedule.ops.rentalSortItem')) + '</button>' +
+    '</div>';
   html += '</div></header>';
   return html;
 }

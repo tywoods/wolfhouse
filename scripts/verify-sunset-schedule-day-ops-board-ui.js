@@ -164,6 +164,16 @@ console.log('\n[2] Module owns day-board symbols');
 ].forEach((name) => {
   assert(`module defines ${name}`, modSrc.includes(name));
 });
+assert('filter left of guest/item sort', (() => {
+  const iFilter = modSrc.indexOf('portal-schedule-ops-rental-filter');
+  const iSort = modSrc.indexOf('portal-schedule-ops-rental-sort');
+  // In header builder, filter markup is emitted before sort group when guestOn.
+  const hdr = modSrc.indexOf('function scheduleRenderRentalPickupsHeader');
+  const chunk = modSrc.slice(hdr, hdr + 1200);
+  const f = chunk.indexOf('portal-schedule-ops-rental-filter');
+  const g = chunk.indexOf('portal-schedule-ops-rental-sort');
+  return f >= 0 && g >= 0 && f < g;
+})());
 assert('cards grid class in module', modSrc.includes('portal-schedule-cards-grid'));
 assert('layout toggle stamps data-ops-layout', modSrc.includes("data-ops-layout"));
 assert('no hard-coded bothRentals bucket', !modSrc.includes('bothRentals'));
