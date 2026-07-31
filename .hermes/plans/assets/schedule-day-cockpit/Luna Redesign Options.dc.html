@@ -1,0 +1,1280 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&amp;family=Instrument+Serif:ital@0;1&amp;family=Space+Grotesk:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#eceae4;font-family:'Instrument Sans',system-ui,sans-serif}a{color:#1a1a1a}a:hover{color:#000}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a}.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)}.dv-card{max-width:100%;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden}.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}.dv-next{margin:22px 0 0;font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.5)}</style></helmet>
+<section class="dv-turn" id="t6">
+<div class="dv-thd"><a class="dv-tid" href="#t6">6</a><span class="dv-tname">Hero + day ribbon, with Today's prep on the right instead of Needs you</span></div>
+<div class="dv-opts">
+<div class="dv-opt" id="6a">
+<div class="dv-olabel"><a class="dv-oid" href="#6a">6a</a><a class="dv-oid" href="#4a">4a</a>'s cockpit band — live hero and day ribbon — with <a class="dv-oid" href="#5a">5a</a>'s prep rail on the right. Real data, Jul 31 at 12:37.</div>
+<div class="dv-card" style="width:1300px;background:#eae7dd;font-family:'Instrument Sans',sans-serif;color:#3a3226">
+  <div style="display:flex;align-items:center;gap:16px;padding:0 20px;height:48px;background:linear-gradient(100deg,#2b281f 0%,#4a4a3c 45%,#8d9a86 100%)" data-screen-label="6a header (unchanged)">
+    <div style="border:1.5px solid #b9a06a;border-radius:5px;padding:4px 12px;text-align:center;line-height:1.05;background:rgba(0,0,0,.25)">
+      <div style="font-size:13px;font-weight:700;letter-spacing:.06em;color:#e8d9ae">LUNA</div>
+      <div style="font-size:6.5px;font-weight:600;letter-spacing:.22em;color:#b9a06a">FRONT DESK</div>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:16px;font-size:12px;color:#e7e6dd">
+      <span><span style="font-weight:700;text-decoration:underline">Sunset</span> <span style="opacity:.5">|</span> <span style="opacity:.8">elSardi</span></span>
+      <span><span style="opacity:.7">ES</span> <span style="opacity:.45">|</span> <span style="font-weight:600;text-decoration:underline">EN</span></span>
+      <div style="width:26px;height:26px;border-radius:99px;background:rgba(255,255,255,.16);display:grid;place-items:center;font-size:12px">☾</div>
+      <span style="border:1px solid rgba(255,255,255,.55);border-radius:99px;padding:5px 14px;font-size:12px" style-hover="background:rgba(255,255,255,.14)">Sign out</span>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:34px;padding:0 30px;height:52px;background:#f4f1e8;border-bottom:1px solid rgba(60,45,20,.1)" data-screen-label="6a nav (unchanged)">
+    <span style="font-size:14px;font-weight:600;box-shadow:inset 0 -2px 0 #6b7a5e;padding:16px 2px">Schedule</span>
+    <span style="font-size:14px;color:#7a7263" style-hover="color:#3a3226">Inbox</span>
+    <span style="font-size:14px;color:#7a7263" style-hover="color:#3a3226">Customers</span>
+    <span style="font-size:14px;color:#7a7263" style-hover="color:#3a3226">Admin</span>
+    <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+      <span style="font-size:11.5px;color:#6f6757">Pause Luna Globally:</span>
+      <div style="width:34px;height:17px;border-radius:99px;background:#cfc9ba;display:flex;align-items:center;padding:2px"><div style="width:13px;height:13px;border-radius:99px;background:#fff"></div></div>
+    </div>
+  </div>
+
+  <div style="padding:16px 30px 26px;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;align-items:center;gap:8px;font-size:10px;font-weight:700;letter-spacing:.12em;color:#6b7a5e">
+      <span style="background:rgba(107,122,94,.12);border-radius:4px;padding:3px 8px">COCKPIT — REPLACES THE ORANGE BOX</span>
+      <div style="flex:1;height:1px;background:rgba(107,122,94,.25)"></div>
+    </div>
+    <div style="background:#f7f5ef;border:1px solid rgba(60,45,20,.11);border-radius:14px;overflow:hidden" data-screen-label="6a cockpit">
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid rgba(60,45,20,.09)">
+        <div style="display:flex;background:#efece2;border:1px solid rgba(60,45,20,.1);border-radius:99px;padding:3px">
+          <span style="padding:6px 14px;border-radius:99px;font-size:12.5px;color:#6f6757" style-hover="color:#3a3226">Previous</span>
+          <span style="padding:6px 16px;border-radius:99px;font-size:12.5px;font-weight:600;background:#6b7a5e;color:#fff">Today</span>
+          <span style="padding:6px 14px;border-radius:99px;font-size:12.5px;color:#6f6757" style-hover="color:#3a3226">Next</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:1px">
+          <span style="font-size:16px;font-weight:700;letter-spacing:-.01em;line-height:1.1">Thu · Jul 31, 2026</span>
+          <span style="font-size:11px;color:#8d856f">Schedule for Sunset · 3 sessions · 5 guests</span>
+        </div>
+        <div style="display:flex;gap:11px;margin-left:6px;font-size:11.5px;color:#6f6757">
+          <span style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;border-radius:99px;background:#7b8fb5"></span>Luna</span>
+          <span style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;border-radius:99px;background:#6b8f5e"></span>Staff</span>
+        </div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:7px">
+          <div style="display:flex;background:#efece2;border:1px solid rgba(60,45,20,.1);border-radius:99px;padding:3px">
+            <span style="padding:6px 15px;border-radius:99px;font-size:12.5px;font-weight:600;background:#302c22;color:#f4f1e8">Today</span>
+            <span style="padding:6px 15px;border-radius:99px;font-size:12.5px;color:#6f6757" style-hover="color:#3a3226">Week</span>
+            <span style="padding:6px 15px;border-radius:99px;font-size:12.5px;color:#6f6757" style-hover="color:#3a3226">Next 30 days</span>
+          </div>
+          <span style="background:#efece2;border:1px solid rgba(60,45,20,.12);border-radius:99px;width:32px;height:32px;display:grid;place-items:center;font-size:13px;color:#6f6757" style-hover="border-color:#3a3226;color:#3a3226">↻</span>
+          <span style="background:#6b7a5e;color:#fff;border-radius:99px;padding:9px 20px;font-size:13px;font-weight:600" style-hover="background:#5c6a50">Create booking</span>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 270px">
+        <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;border-right:1px solid rgba(60,45,20,.09)">
+          <div style="background:#22301f;color:#eef2e9;border-radius:12px;padding:17px 20px;display:flex;align-items:center;gap:20px">
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;font-size:10px;font-weight:700;letter-spacing:.16em;color:#a8c48f"><span style="width:7px;height:7px;border-radius:99px;background:#a8c48f;box-shadow:0 0 9px rgba(168,196,143,.9)"></span>ON NOW · ENDS 14:00</div>
+              <div style="font-size:25px;font-weight:600;letter-spacing:-.01em;line-height:1.15;margin-top:5px">Curso Medio Día</div>
+              <div style="display:flex;gap:6px;margin-top:11px;flex-wrap:wrap">
+                <span style="font-size:11.5px;font-weight:600;background:rgba(255,255,255,.12);border-radius:99px;padding:4px 11px">✓ 2 boards out</span>
+                <span style="font-size:11.5px;font-weight:600;background:rgba(255,255,255,.12);border-radius:99px;padding:4px 11px">✓ 2 wetsuits out</span>
+                <span style="font-size:11.5px;font-weight:600;background:rgba(255,255,255,.07);color:#9fb392;border-radius:99px;padding:4px 11px">Edu · day 4 of 4</span>
+              </div>
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:11px">
+              <div style="width:56px;height:56px;border-radius:99px;background:conic-gradient(#a8c48f 0 30deg,rgba(255,255,255,.14) 30deg 360deg);display:grid;place-items:center">
+                <div style="width:43px;height:43px;border-radius:99px;background:#22301f;display:grid;place-items:center;font-size:13.5px;font-weight:700">2<span style="font-size:9px;color:#9fb392">/24</span></div>
+              </div>
+              <div style="font-size:11px;color:#9fb392;line-height:1.35">seats<br>booked</div>
+            </div>
+          </div>
+          <div style="padding:2px 4px 0">
+            <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:10px">
+              <span style="font-size:12.5px;font-weight:700">The day</span>
+              <span style="font-size:11.5px;color:#8d856f">Mañana done · Medio Día in the water · Tarde still empty</span>
+              <span style="margin-left:auto;font-size:11.5px;color:#8d856f">next: <strong style="color:#3a3226">Curso Tarde 16:00</strong> · in 3 h 23 m</span>
+            </div>
+            <div style="position:relative;height:58px">
+              <div style="position:absolute;inset:20px 0 14px;background:rgba(60,45,20,.06);border-radius:8px"></div>
+              <div style="position:absolute;top:20px;bottom:14px;left:16.6%;width:16.6%;background:#cfd6c4;border:1px solid #b3bfa5;border-radius:8px;color:#4a5340;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">Mañana · 3/24 ✓</div>
+              <div style="position:absolute;top:20px;bottom:14px;left:33.3%;width:16.6%;background:#22301f;border-radius:8px;color:#eef2e9;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">Medio Día · 2/24</div>
+              <div style="position:absolute;top:20px;bottom:14px;left:66.6%;width:16.6%;border:1.5px dashed rgba(60,45,20,.28);border-radius:8px;color:#8d856f;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;background:#f7f5ef" style-hover="border-color:#6b7a5e;color:#6b7a5e">Tarde · 0/24</div>
+              <div style="position:absolute;top:0;bottom:8px;left:38.5%;width:2px;background:#a8563a;border-radius:99px"></div>
+              <div style="position:absolute;top:0;left:38.5%;transform:translate(-50%,-2px);font-family:ui-monospace,monospace;font-size:9.5px;font-weight:700;color:#fff;background:#a8563a;border-radius:4px;padding:1px 6px">12:37</div>
+              <div style="position:absolute;left:0;right:0;bottom:-2px;display:flex;justify-content:space-between;font-family:ui-monospace,monospace;font-size:9.5px;color:#a1997f"><span>08</span><span>10</span><span>12</span><span>14</span><span>16</span><span>18</span><span>20</span></div>
+            </div>
+          </div>
+        </div>
+        <div style="padding:16px 20px;display:flex;flex-direction:column;justify-content:center;gap:10px;background:#f2efe5">
+          <span style="font-size:10px;font-weight:700;letter-spacing:.12em;color:#8d856f">TODAY'S PREP</span>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12.5px;color:#6f6757">
+            <span>Surfboards</span><span><strong style="font-size:16px;color:#3a3226">8</strong> <span style="font-size:11px;color:#a1997f">4 lesson · 4 rental</span></span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12.5px;color:#6f6757">
+            <span>Wetsuits</span><span><strong style="font-size:16px;color:#3a3226">8</strong> <span style="font-size:11px;color:#a1997f">4 lesson · 4 rental</span></span>
+          </div>
+          <div style="height:1px;background:rgba(60,45,20,.1);margin:2px 0"></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px">
+            <span style="color:#a8563a;font-weight:600">Unpaid / pending</span>
+            <span style="background:#f6e6df;color:#a8563a;border-radius:99px;padding:2px 10px;font-size:12px;font-weight:700">9</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:#8d856f">
+            <span>Need reply</span><span style="font-size:12px">0 · inbox clear</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:8px;font-size:10px;font-weight:700;letter-spacing:.12em;color:#a1997f">
+      <span style="background:rgba(60,45,20,.06);border-radius:4px;padding:3px 8px">UNCHANGED — GREEN BOX</span>
+      <div style="flex:1;height:1px;background:rgba(60,45,20,.12)"></div>
+    </div>
+    <div style="display:flex;flex-direction:column" data-screen-label="6a session list (unchanged)">
+      <div style="display:flex">
+        <div style="width:86px;flex:none;padding-top:12px;text-align:right;padding-right:14px">
+          <div style="font-size:13px;font-weight:700;color:#8d856f">10:00</div><div style="font-size:11px;color:#a1997f">–12:00</div>
+        </div>
+        <div style="width:1px;background:rgba(60,45,20,.18);position:relative;margin-right:16px">
+          <div style="position:absolute;top:14px;left:-4px;width:9px;height:9px;border-radius:99px;border:1.5px solid #a1997f;background:#eae7dd"></div>
+        </div>
+        <div style="flex:1;background:#f7f5ef;border:1px solid rgba(60,45,20,.1);border-radius:10px;padding:14px 18px 16px;margin-bottom:12px;opacity:.75">
+          <div style="display:flex;align-items:flex-start">
+            <div>
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-size:17px;font-weight:600;color:#6f6757">Curso Mañana</span>
+                <span style="font-size:10px;font-weight:700;letter-spacing:.1em;color:#8d856f;background:rgba(60,45,20,.07);border-radius:4px;padding:2px 7px">DONE</span>
+              </div>
+              <div style="font-size:12px;color:#6f6757;margin-top:4px"><strong style="color:#3a3226">10:00</strong> · 3 booked</div>
+              <span style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;background:#efece2;border:1px solid rgba(60,45,20,.12);border-radius:99px;padding:5px 12px;font-size:12px;color:#5c5548">Hide guests ▾</span>
+              <div style="font-size:12px;color:#8d856f;margin-top:8px">Prepare: 2 boards · 2 wetsuits</div>
+            </div>
+            <div style="margin-left:auto;font-size:20px;font-weight:600;line-height:1;color:#6f6757">3<span style="font-size:11px;color:#a1997f">/24</span></div>
+          </div>
+          <div style="display:flex;padding:12px 12px 6px;font-size:10px;font-weight:600;letter-spacing:.1em;color:#8d856f"><span>GUEST</span><span style="margin-left:auto">STATUS</span></div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:12px;background:#fdfbf5;border:1px solid rgba(60,45,20,.08);border-radius:8px;padding:9px 14px">
+              <div style="width:3px;height:30px;background:#c9c2ae;border-radius:99px"></div><span style="font-size:11.5px;color:#8d856f">1×</span>
+              <div style="margin-left:12px"><div style="font-size:13.5px;font-weight:600">Fartface</div><div style="font-size:11.5px;color:#8d856f">surfboard + wetsuit · during course</div><span style="display:inline-block;margin-top:4px;background:#efece2;border-radius:99px;padding:2px 8px;font-size:10.5px;color:#6f6757">Day 2 of 8</span></div>
+              <div style="margin-left:auto;display:flex;gap:7px">
+                <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#4d6b47;background:#e7eee2;border-radius:99px;padding:3px 10px"><span style="width:6px;height:6px;border-radius:99px;background:#6b8f5e"></span>Staff</span>
+                <span style="font-size:11px;color:#a8563a;background:#f6e6df;border-radius:99px;padding:3px 10px">Unpaid</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;background:#fdfbf5;border:1px solid rgba(60,45,20,.08);border-radius:8px;padding:9px 14px">
+              <div style="width:3px;height:30px;background:#c9c2ae;border-radius:99px"></div><span style="font-size:11.5px;color:#8d856f">2×</span>
+              <div style="margin-left:12px"><div style="font-size:13.5px;font-weight:600">Gina</div><div style="font-size:11.5px;color:#8d856f">board + wetsuit</div><span style="display:inline-block;margin-top:4px;background:#efece2;border-radius:99px;padding:2px 8px;font-size:10.5px;color:#6f6757">Day 5 of 5</span></div>
+              <div style="margin-left:auto;display:flex;gap:7px">
+                <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#4d6b47;background:#e7eee2;border-radius:99px;padding:3px 10px"><span style="width:6px;height:6px;border-radius:99px;background:#6b8f5e"></span>Staff</span>
+                <span style="font-size:11px;color:#4d6b47;background:#e7eee2;border-radius:99px;padding:3px 10px">Paid</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;background:#f4f1e8;border:1px solid rgba(60,45,20,.06);border-radius:8px;padding:9px 14px;opacity:.6">
+              <div style="width:3px;height:22px;background:#d6d0bf;border-radius:99px"></div><span style="font-size:11.5px;color:#a1997f">1×</span>
+              <div style="margin-left:12px"><div style="font-size:13.5px;color:#6f6757">Bel</div><div style="font-size:11.5px;color:#a1997f">no equipment</div></div>
+              <div style="margin-left:auto;display:flex;gap:7px">
+                <span style="font-size:11px;color:#8d856f;background:#e9e6db;border-radius:99px;padding:3px 10px">Staff</span>
+                <span style="font-size:11px;color:#8d856f;background:#e9e6db;border-radius:99px;padding:3px 10px">Cancelled</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;background:#f4f1e8;border:1px solid rgba(60,45,20,.06);border-radius:8px;padding:9px 14px;opacity:.6">
+              <div style="width:3px;height:22px;background:#d6d0bf;border-radius:99px"></div><span style="font-size:11.5px;color:#a1997f">1×</span>
+              <div style="margin-left:12px"><div style="font-size:13px;color:#6f6757">QA-SKIPPER-20260726121319-DATE-GROUP-2D</div><div style="font-size:11.5px;color:#a1997f">no equipment</div></div>
+              <div style="margin-left:auto;display:flex;gap:7px">
+                <span style="font-size:11px;color:#8d856f;background:#e9e6db;border-radius:99px;padding:3px 10px">Staff</span>
+                <span style="font-size:11px;color:#8d856f;background:#e9e6db;border-radius:99px;padding:3px 10px">Cancelled</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex">
+        <div style="width:86px;flex:none;padding-top:12px;text-align:right;padding-right:14px">
+          <div style="font-size:13px;font-weight:700">12:00</div><div style="font-size:11px;color:#8d856f">–14:00</div>
+        </div>
+        <div style="width:1px;background:rgba(60,45,20,.18);position:relative;margin-right:16px">
+          <div style="position:absolute;top:14px;left:-4px;width:9px;height:9px;border-radius:99px;border:1.5px solid #6b7a5e;background:#eae7dd"></div>
+        </div>
+        <div style="flex:1;background:#f7f5ef;border:1px solid rgba(60,45,20,.1);border-radius:10px;padding:14px 18px 16px;margin-bottom:12px">
+          <div style="display:flex;align-items:flex-start">
+            <div>
+              <div style="font-size:17px;font-weight:600">Curso Medio Dia</div>
+              <div style="font-size:12px;color:#6f6757;margin-top:4px"><strong style="color:#3a3226">12:00</strong> · 2 booked</div>
+              <span style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;background:#efece2;border:1px solid rgba(60,45,20,.12);border-radius:99px;padding:5px 12px;font-size:12px;color:#5c5548">Hide guests ▾</span>
+              <div style="font-size:12px;color:#8d856f;margin-top:8px">Prepare: 2 boards · 2 wetsuits</div>
+            </div>
+            <div style="margin-left:auto;font-size:20px;font-weight:600;line-height:1">2<span style="font-size:11px;color:#a1997f">/24</span></div>
+          </div>
+          <div style="display:flex;padding:12px 12px 6px;font-size:10px;font-weight:600;letter-spacing:.1em;color:#8d856f"><span>GUEST</span><span style="margin-left:auto">STATUS</span></div>
+          <div style="display:flex;align-items:center;gap:12px;background:#fdfbf5;border:1px solid rgba(60,45,20,.08);border-radius:8px;padding:9px 14px">
+            <div style="width:3px;height:30px;background:#6b8f5e;border-radius:99px"></div><span style="font-size:11.5px;color:#8d856f">2×</span>
+            <div style="margin-left:12px"><div style="font-size:13.5px;font-weight:600">Edu</div><div style="font-size:11.5px;color:#8d856f">board + wetsuit</div><span style="display:inline-block;margin-top:4px;background:#efece2;border-radius:99px;padding:2px 8px;font-size:10.5px;color:#6f6757">Day 4 of 4</span></div>
+            <div style="margin-left:auto;display:flex;gap:7px">
+              <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#4d6b47;background:#e7eee2;border-radius:99px;padding:3px 10px"><span style="width:6px;height:6px;border-radius:99px;background:#6b8f5e"></span>Staff</span>
+              <span style="font-size:11px;color:#4d6b47;background:#e7eee2;border-radius:99px;padding:3px 10px">Paid</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin:0 0 12px">
+        <span style="width:86px;flex:none;text-align:right;padding-right:8px"><span style="font-family:ui-monospace,monospace;font-size:10.5px;font-weight:700;color:#fff;background:#a8563a;border-radius:99px;padding:2px 8px">12:37</span></span>
+        <div style="flex:1;height:1px;background:#a8563a;opacity:.7"></div>
+      </div>
+      <div style="display:flex">
+        <div style="width:86px;flex:none;padding-top:12px;text-align:right;padding-right:14px">
+          <div style="font-size:13px;font-weight:700;color:#8d856f">16:00</div><div style="font-size:11px;color:#a1997f">–18:00</div>
+        </div>
+        <div style="width:1px;background:rgba(60,45,20,.18);position:relative;margin-right:16px">
+          <div style="position:absolute;top:14px;left:-4px;width:9px;height:9px;border-radius:99px;border:1.5px dashed #a1997f;background:#eae7dd"></div>
+        </div>
+        <div style="flex:1;border:1.5px dashed rgba(60,45,20,.18);border-radius:10px;padding:14px 18px;display:flex;align-items:center;gap:12px" style-hover="border-color:#8d856f">
+          <div>
+            <div style="font-size:16px;color:#8d856f">Curso Tarde</div>
+            <div style="font-size:12px;color:#a1997f;margin-top:3px">No bookings in this slot · 16:00 – 18:00 · 24 seats</div>
+          </div>
+          <span style="margin-left:auto;background:#f7f5ef;border:1px solid rgba(60,45,20,.14);border-radius:99px;padding:7px 15px;font-size:12.5px;color:#6f6757" style-hover="border-color:#3a3226;color:#3a3226">+ Create booking</span>
+        </div>
+      </div>
+      <div style="margin:14px 0 0 102px;background:#f7f5ef;border:1px solid rgba(60,45,20,.1);border-radius:10px;padding:14px 18px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:11.5px;font-weight:700;letter-spacing:.1em;color:#6f6757">RENTAL PICKUPS TODAY</span>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+          <div style="display:flex;background:#efece2;border:1px solid rgba(60,45,20,.1);border-radius:6px;overflow:hidden;font-size:11.5px">
+            <span style="padding:6px 14px;background:#302c22;color:#f4f1e8;font-weight:600">GUEST</span>
+            <span style="padding:6px 14px;color:#6f6757">ITEM</span>
+          </div>
+          <span style="background:#fdfbf5;border:1px solid rgba(60,45,20,.14);border-radius:6px;padding:6px 14px;font-size:11.5px;color:#a1997f">Filter by name</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+<p class="dv-next">Try next: "make the ribbon clickable to jump to a session" · "show the pre-open and end-of-day states" · "give me the real HTML/CSS for this band"</p>
+</section>
+<section class="dv-turn" id="t5">
+<div class="dv-thd"><a class="dv-tid" href="#t5">5</a><span class="dv-tname">Orange box → cockpit (now / next / view controls). Green box untouched.</span></div>
+<div class="dv-opts">
+<div class="dv-opt" id="5a">
+<div class="dv-olabel"><a class="dv-oid" href="#5a">5a</a>Cockpit takes over the whole orange region: view controls on top, then NOW + NEXT + the day's prep totals. Real data at 12:37, Jul 31.</div>
+<div class="dv-card" style="width:1300px;background:#eae7dd;font-family:'Instrument Sans',sans-serif;color:#3a3226">
+  <div style="display:flex;align-items:center;gap:16px;padding:0 20px;height:48px;background:linear-gradient(100deg,#2b281f 0%,#4a4a3c 45%,#8d9a86 100%)" data-screen-label="5a header (unchanged)">
+    <div style="border:1.5px solid #b9a06a;border-radius:5px;padding:4px 12px;text-align:center;line-height:1.05;background:rgba(0,0,0,.25)">
+      <div style="font-size:13px;font-weight:700;letter-spacing:.06em;color:#e8d9ae">LUNA</div>
+      <div style="font-size:6.5px;font-weight:600;letter-spacing:.22em;color:#b9a06a">FRONT DESK</div>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:16px;font-size:12px;color:#e7e6dd">
+      <span><span style="font-weight:700;text-decoration:underline">Sunset</span> <span style="opacity:.5">|</span> <span style="opacity:.8">elSardi</span></span>
+      <span><span style="opacity:.7">ES</span> <span style="opacity:.45">|</span> <span style="font-weight:600;text-decoration:underline">EN</span></span>
+      <div style="width:26px;height:26px;border-radius:99px;background:rgba(255,255,255,.16);display:grid;place-items:center;font-size:12px">☾</div>
+      <span style="border:1px solid rgba(255,255,255,.55);border-radius:99px;padding:5px 14px;font-size:12px" style-hover="background:rgba(255,255,255,.14)">Sign out</span>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:34px;padding:0 30px;height:52px;background:#f4f1e8;border-bottom:1px solid rgba(60,45,20,.1)" data-screen-label="5a nav (unchanged)">
+    <span style="font-size:14px;font-weight:600;box-shadow:inset 0 -2px 0 #6b7a5e;padding:16px 2px">Schedule</span>
+    <span style="font-size:14px;color:#7a7263" style-hover="color:#3a3226">Inbox</span>
+    <span style="font-size:14px;color:#7a7263" style-hover="color:#3a3226">Customers</span>
+    <span style="font-size:14px;color:#7a7263" style-hover="color:#3a3226">Admin</span>
+    <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+      <span style="font-size:11.5px;color:#6f6757">Pause Luna Globally:</span>
+      <div style="width:34px;height:17px;border-radius:99px;background:#cfc9ba;display:flex;align-items:center;padding:2px"><div style="width:13px;height:13px;border-radius:99px;background:#fff"></div></div>
+    </div>
+  </div>
+
+  <div style="padding:16px 30px 26px;display:flex;flex-direction:column;gap:14px">
+    <!-- ===== COCKPIT: replaces everything that was in the orange box ===== -->
+    <div style="display:flex;align-items:center;gap:8px;font-size:10px;font-weight:700;letter-spacing:.12em;color:#6b7a5e">
+      <span style="background:rgba(107,122,94,.12);border-radius:4px;padding:3px 8px">COCKPIT — REPLACES THE 4 CARDS + CONTROLS ROW</span>
+      <div style="flex:1;height:1px;background:rgba(107,122,94,.25)"></div>
+    </div>
+    <div style="background:#f7f5ef;border:1px solid rgba(60,45,20,.11);border-radius:14px;overflow:hidden" data-screen-label="5a cockpit">
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid rgba(60,45,20,.09)">
+        <div style="display:flex;background:#efece2;border:1px solid rgba(60,45,20,.1);border-radius:99px;padding:3px">
+          <span style="padding:6px 14px;border-radius:99px;font-size:12.5px;color:#6f6757" style-hover="color:#3a3226">Previous</span>
+          <span style="padding:6px 16px;border-radius:99px;font-size:12.5px;font-weight:600;background:#6b7a5e;color:#fff">Today</span>
+          <span style="padding:6px 14px;border-radius:99px;font-size:12.5px;color:#6f6757" style-hover="color:#3a3226">Next</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:1px">
+          <span style="font-size:16px;font-weight:700;letter-spacing:-.01em;line-height:1.1">Thu · Jul 31, 2026</span>
+          <span style="font-size:11px;color:#8d856f">Sunset · 3 sessions · 5 guests</span>
+        </div>
+        <div style="display:flex;gap:11px;margin-left:6px;font-size:11.5px;color:#6f6757">
+          <span style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;border-radius:99px;background:#7b8fb5"></span>Luna</span>
+          <span style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;border-radius:99px;background:#6b8f5e"></span>Staff</span>
+        </div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:7px">
+          <div style="display:flex;background:#efece2;border:1px solid rgba(60,45,20,.1);border-radius:99px;padding:3px">
+            <span style="padding:6px 15px;border-radius:99px;font-size:12.5px;font-weight:600;background:#302c22;color:#f4f1e8">Today</span>
+            <span style="padding:6px 15px;border-radius:99px;font-size:12.5px;color:#6f6757" style-hover="color:#3a3226">Week</span>
+            <span style="padding:6px 15px;border-radius:99px;font-size:12.5px;color:#6f6757" style-hover="color:#3a3226">Next 30 days</span>
+          </div>
+          <span style="background:#efece2;border:1px solid rgba(60,45,20,.12);border-radius:99px;width:32px;height:32px;display:grid;place-items:center;font-size:13px;color:#6f6757" style-hover="border-color:#3a3226;color:#3a3226">↻</span>
+          <span style="background:#6b7a5e;color:#fff;border-radius:99px;padding:9px 20px;font-size:13px;font-weight:600" style-hover="background:#5c6a50">Create booking</span>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1.15fr 1fr 250px">
+        <!-- NOW -->
+        <div style="background:#22301f;color:#eef2e9;padding:18px 22px;display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;align-items:center;gap:8px;font-size:10px;font-weight:700;letter-spacing:.16em;color:#a8c48f">
+            <span style="width:7px;height:7px;border-radius:99px;background:#a8c48f;box-shadow:0 0 9px rgba(168,196,143,.9)"></span>ON NOW · 12:37
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:16px">
+            <div>
+              <div style="font-size:24px;font-weight:600;letter-spacing:-.01em;line-height:1.1">Curso Medio Día</div>
+              <div style="font-size:12.5px;color:#9fb392;margin-top:4px">12:00 – 14:00 · ends in 1 h 23 m</div>
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:11px">
+              <div style="width:52px;height:52px;border-radius:99px;background:conic-gradient(#a8c48f 0 30deg,rgba(255,255,255,.14) 30deg 360deg);display:grid;place-items:center">
+                <div style="width:40px;height:40px;border-radius:99px;background:#22301f;display:grid;place-items:center;font-size:13px;font-weight:700">2<span style="font-size:9px;color:#9fb392">/24</span></div>
+              </div>
+              <div style="font-size:11px;color:#9fb392;line-height:1.35">seats<br>booked</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <span style="font-size:11.5px;font-weight:600;background:rgba(255,255,255,.12);border-radius:99px;padding:4px 11px">✓ 2 boards out</span>
+            <span style="font-size:11.5px;font-weight:600;background:rgba(255,255,255,.12);border-radius:99px;padding:4px 11px">✓ 2 wetsuits out</span>
+            <span style="font-size:11.5px;font-weight:600;background:rgba(255,255,255,.07);color:#9fb392;border-radius:99px;padding:4px 11px">Edu · day 4 of 4</span>
+          </div>
+        </div>
+        <!-- NEXT -->
+        <div style="padding:18px 22px;display:flex;flex-direction:column;gap:12px;border-right:1px solid rgba(60,45,20,.09)">
+          <div style="display:flex;align-items:center;gap:8px;font-size:10px;font-weight:700;letter-spacing:.16em;color:#8d856f">
+            <span style="width:7px;height:7px;border-radius:99px;border:1.5px solid #8d856f"></span>UP NEXT
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:16px">
+            <div>
+              <div style="font-size:24px;font-weight:600;letter-spacing:-.01em;line-height:1.1;color:#5c5548">Curso Tarde</div>
+              <div style="font-size:12.5px;color:#8d856f;margin-top:4px">16:00 – 18:00 · starts in 3 h 23 m</div>
+            </div>
+            <div style="margin-left:auto;text-align:right">
+              <div style="font-size:22px;font-weight:600;line-height:1;color:#8d856f">0<span style="font-size:12px">/24</span></div>
+              <div style="font-size:11px;color:#a1997f;margin-top:3px">nothing to prep</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:7px">
+            <span style="background:#6b7a5e;color:#fff;border-radius:99px;padding:7px 15px;font-size:12px;font-weight:600" style-hover="background:#5c6a50">+ Create booking</span>
+            <span style="background:#efece2;border:1px solid rgba(60,45,20,.14);border-radius:99px;padding:7px 15px;font-size:12px;font-weight:500;color:#5c5548" style-hover="border-color:#3a3226">Close this slot</span>
+          </div>
+        </div>
+        <!-- DAY TOTALS (the old 4 cards, condensed) -->
+        <div style="padding:14px 20px;display:flex;flex-direction:column;justify-content:center;gap:9px;background:#f2efe5">
+          <div style="display:flex;align-items:baseline;gap:8px">
+            <span style="font-size:10px;font-weight:700;letter-spacing:.12em;color:#8d856f">TODAY'S PREP</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12.5px;color:#6f6757">
+            <span>Surfboards</span><span><strong style="font-size:15px;color:#3a3226">8</strong> <span style="font-size:11px;color:#a1997f">4 lesson · 4 rental</span></span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12.5px;color:#6f6757">
+            <span>Wetsuits</span><span><strong style="font-size:15px;color:#3a3226">8</strong> <span style="font-size:11px;color:#a1997f">4 lesson · 4 rental</span></span>
+          </div>
+          <div style="height:1px;background:rgba(60,45,20,.1);margin:2px 0"></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px">
+            <span style="color:#a8563a;font-weight:600">Unpaid / pending</span>
+            <span style="background:#f6e6df;color:#a8563a;border-radius:99px;padding:2px 10px;font-size:12px;font-weight:700">9</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:#8d856f">
+            <span>Need reply</span><span style="font-size:12px">0 · inbox clear</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- ===== /COCKPIT ===== -->
+
+    <div style="display:flex;align-items:center;gap:8px;font-size:10px;font-weight:700;letter-spacing:.12em;color:#a1997f">
+      <span style="background:rgba(60,45,20,.06);border-radius:4px;padding:3px 8px">UNCHANGED — GREEN BOX</span>
+      <div style="flex:1;height:1px;background:rgba(60,45,20,.12)"></div>
+    </div>
+    <div style="display:flex;flex-direction:column" data-screen-label="5a session list (unchanged)">
+      <div style="display:flex">
+        <div style="width:86px;flex:none;padding-top:12px;text-align:right;padding-right:14px">
+          <div style="font-size:13px;font-weight:700;color:#8d856f">10:00</div><div style="font-size:11px;color:#a1997f">–12:00</div>
+        </div>
+        <div style="width:1px;background:rgba(60,45,20,.18);position:relative;margin-right:16px">
+          <div style="position:absolute;top:14px;left:-4px;width:9px;height:9px;border-radius:99px;border:1.5px solid #a1997f;background:#eae7dd"></div>
+        </div>
+        <div style="flex:1;background:#f7f5ef;border:1px solid rgba(60,45,20,.1);border-radius:10px;padding:14px 18px 16px;margin-bottom:12px;opacity:.75">
+          <div style="display:flex;align-items:flex-start">
+            <div>
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-size:17px;font-weight:600;color:#6f6757">Curso Mañana</span>
+                <span style="font-size:10px;font-weight:700;letter-spacing:.1em;color:#8d856f;background:rgba(60,45,20,.07);border-radius:4px;padding:2px 7px">DONE</span>
+              </div>
+              <div style="font-size:12px;color:#6f6757;margin-top:4px"><strong style="color:#3a3226">10:00</strong> · 3 booked</div>
+              <span style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;background:#efece2;border:1px solid rgba(60,45,20,.12);border-radius:99px;padding:5px 12px;font-size:12px;color:#5c5548">Hide guests ▾</span>
+              <div style="font-size:12px;color:#8d856f;margin-top:8px">Prepare: 2 boards · 2 wetsuits</div>
+            </div>
+            <div style="margin-left:auto;font-size:20px;font-weight:600;line-height:1;color:#6f6757">3<span style="font-size:11px;color:#a1997f">/24</span></div>
+          </div>
+          <div style="display:flex;padding:12px 12px 6px;font-size:10px;font-weight:600;letter-spacing:.1em;color:#8d856f"><span>GUEST</span><span style="margin-left:auto">STATUS</span></div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:12px;background:#fdfbf5;border:1px solid rgba(60,45,20,.08);border-radius:8px;padding:9px 14px">
+              <div style="width:3px;height:30px;background:#c9c2ae;border-radius:99px"></div><span style="font-size:11.5px;color:#8d856f">1×</span>
+              <div style="margin-left:12px"><div style="font-size:13.5px;font-weight:600">Fartface</div><div style="font-size:11.5px;color:#8d856f">surfboard + wetsuit · during course</div><span style="display:inline-block;margin-top:4px;background:#efece2;border-radius:99px;padding:2px 8px;font-size:10.5px;color:#6f6757">Day 2 of 8</span></div>
+              <div style="margin-left:auto;display:flex;gap:7px">
+                <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#4d6b47;background:#e7eee2;border-radius:99px;padding:3px 10px"><span style="width:6px;height:6px;border-radius:99px;background:#6b8f5e"></span>Staff</span>
+                <span style="font-size:11px;color:#a8563a;background:#f6e6df;border-radius:99px;padding:3px 10px">Unpaid</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;background:#fdfbf5;border:1px solid rgba(60,45,20,.08);border-radius:8px;padding:9px 14px">
+              <div style="width:3px;height:30px;background:#c9c2ae;border-radius:99px"></div><span style="font-size:11.5px;color:#8d856f">2×</span>
+              <div style="margin-left:12px"><div style="font-size:13.5px;font-weight:600">Gina</div><div style="font-size:11.5px;color:#8d856f">board + wetsuit</div><span style="display:inline-block;margin-top:4px;background:#efece2;border-radius:99px;padding:2px 8px;font-size:10.5px;color:#6f6757">Day 5 of 5</span></div>
+              <div style="margin-left:auto;display:flex;gap:7px">
+                <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#4d6b47;background:#e7eee2;border-radius:99px;padding:3px 10px"><span style="width:6px;height:6px;border-radius:99px;background:#6b8f5e"></span>Staff</span>
+                <span style="font-size:11px;color:#4d6b47;background:#e7eee2;border-radius:99px;padding:3px 10px">Paid</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;background:#f4f1e8;border:1px solid rgba(60,45,20,.06);border-radius:8px;padding:9px 14px;opacity:.6">
+              <div style="width:3px;height:22px;background:#d6d0bf;border-radius:99px"></div><span style="font-size:11.5px;color:#a1997f">1×</span>
+              <div style="margin-left:12px"><div style="font-size:13.5px;color:#6f6757">Bel</div><div style="font-size:11.5px;color:#a1997f">no equipment</div></div>
+              <div style="margin-left:auto;display:flex;gap:7px">
+                <span style="font-size:11px;color:#8d856f;background:#e9e6db;border-radius:99px;padding:3px 10px">Staff</span>
+                <span style="font-size:11px;color:#8d856f;background:#e9e6db;border-radius:99px;padding:3px 10px">Cancelled</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;background:#f4f1e8;border:1px solid rgba(60,45,20,.06);border-radius:8px;padding:9px 14px;opacity:.6">
+              <div style="width:3px;height:22px;background:#d6d0bf;border-radius:99px"></div><span style="font-size:11.5px;color:#a1997f">1×</span>
+              <div style="margin-left:12px"><div style="font-size:13px;color:#6f6757">QA-SKIPPER-20260726121319-DATE-GROUP-2D</div><div style="font-size:11.5px;color:#a1997f">no equipment</div></div>
+              <div style="margin-left:auto;display:flex;gap:7px">
+                <span style="font-size:11px;color:#8d856f;background:#e9e6db;border-radius:99px;padding:3px 10px">Staff</span>
+                <span style="font-size:11px;color:#8d856f;background:#e9e6db;border-radius:99px;padding:3px 10px">Cancelled</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex">
+        <div style="width:86px;flex:none;padding-top:12px;text-align:right;padding-right:14px">
+          <div style="font-size:13px;font-weight:700">12:00</div><div style="font-size:11px;color:#8d856f">–14:00</div>
+        </div>
+        <div style="width:1px;background:rgba(60,45,20,.18);position:relative;margin-right:16px">
+          <div style="position:absolute;top:14px;left:-4px;width:9px;height:9px;border-radius:99px;border:1.5px solid #6b7a5e;background:#eae7dd"></div>
+        </div>
+        <div style="flex:1;background:#f7f5ef;border:1px solid rgba(60,45,20,.1);border-radius:10px;padding:14px 18px 16px;margin-bottom:12px">
+          <div style="display:flex;align-items:flex-start">
+            <div>
+              <div style="font-size:17px;font-weight:600">Curso Medio Dia</div>
+              <div style="font-size:12px;color:#6f6757;margin-top:4px"><strong style="color:#3a3226">12:00</strong> · 2 booked</div>
+              <span style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;background:#efece2;border:1px solid rgba(60,45,20,.12);border-radius:99px;padding:5px 12px;font-size:12px;color:#5c5548">Hide guests ▾</span>
+              <div style="font-size:12px;color:#8d856f;margin-top:8px">Prepare: 2 boards · 2 wetsuits</div>
+            </div>
+            <div style="margin-left:auto;font-size:20px;font-weight:600;line-height:1">2<span style="font-size:11px;color:#a1997f">/24</span></div>
+          </div>
+          <div style="display:flex;padding:12px 12px 6px;font-size:10px;font-weight:600;letter-spacing:.1em;color:#8d856f"><span>GUEST</span><span style="margin-left:auto">STATUS</span></div>
+          <div style="display:flex;align-items:center;gap:12px;background:#fdfbf5;border:1px solid rgba(60,45,20,.08);border-radius:8px;padding:9px 14px">
+            <div style="width:3px;height:30px;background:#6b8f5e;border-radius:99px"></div><span style="font-size:11.5px;color:#8d856f">2×</span>
+            <div style="margin-left:12px"><div style="font-size:13.5px;font-weight:600">Edu</div><div style="font-size:11.5px;color:#8d856f">board + wetsuit</div><span style="display:inline-block;margin-top:4px;background:#efece2;border-radius:99px;padding:2px 8px;font-size:10.5px;color:#6f6757">Day 4 of 4</span></div>
+            <div style="margin-left:auto;display:flex;gap:7px">
+              <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#4d6b47;background:#e7eee2;border-radius:99px;padding:3px 10px"><span style="width:6px;height:6px;border-radius:99px;background:#6b8f5e"></span>Staff</span>
+              <span style="font-size:11px;color:#4d6b47;background:#e7eee2;border-radius:99px;padding:3px 10px">Paid</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin:0 0 12px">
+        <span style="width:86px;flex:none;text-align:right;padding-right:8px"><span style="font-family:ui-monospace,monospace;font-size:10.5px;font-weight:700;color:#fff;background:#a8563a;border-radius:99px;padding:2px 8px">12:37</span></span>
+        <div style="flex:1;height:1px;background:#a8563a;opacity:.7"></div>
+      </div>
+      <div style="display:flex">
+        <div style="width:86px;flex:none;padding-top:12px;text-align:right;padding-right:14px">
+          <div style="font-size:13px;font-weight:700;color:#8d856f">16:00</div><div style="font-size:11px;color:#a1997f">–18:00</div>
+        </div>
+        <div style="width:1px;background:rgba(60,45,20,.18);position:relative;margin-right:16px">
+          <div style="position:absolute;top:14px;left:-4px;width:9px;height:9px;border-radius:99px;border:1.5px dashed #a1997f;background:#eae7dd"></div>
+        </div>
+        <div style="flex:1;border:1.5px dashed rgba(60,45,20,.18);border-radius:10px;padding:14px 18px;display:flex;align-items:center;gap:12px" style-hover="border-color:#8d856f">
+          <div>
+            <div style="font-size:16px;color:#8d856f">Curso Tarde</div>
+            <div style="font-size:12px;color:#a1997f;margin-top:3px">No bookings in this slot · 16:00 – 18:00 · 24 seats</div>
+          </div>
+          <span style="margin-left:auto;background:#f7f5ef;border:1px solid rgba(60,45,20,.14);border-radius:99px;padding:7px 15px;font-size:12.5px;color:#6f6757" style-hover="border-color:#3a3226;color:#3a3226">+ Create booking</span>
+        </div>
+      </div>
+      <div style="margin:14px 0 0 102px;background:#f7f5ef;border:1px solid rgba(60,45,20,.1);border-radius:10px;padding:14px 18px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:11.5px;font-weight:700;letter-spacing:.1em;color:#6f6757">RENTAL PICKUPS TODAY</span>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+          <div style="display:flex;background:#efece2;border:1px solid rgba(60,45,20,.1);border-radius:6px;overflow:hidden;font-size:11.5px">
+            <span style="padding:6px 14px;background:#302c22;color:#f4f1e8;font-weight:600">GUEST</span>
+            <span style="padding:6px 14px;color:#6f6757">ITEM</span>
+          </div>
+          <span style="background:#fdfbf5;border:1px solid rgba(60,45,20,.14);border-radius:6px;padding:6px 14px;font-size:11.5px;color:#a1997f">Filter by name</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+<p class="dv-next">Try next: "add the day ribbon back under NOW/NEXT" · "show it before the first session and after the last" · "give me the real HTML/CSS for the cockpit"</p>
+</section>
+<section class="dv-turn" id="t4">
+<div class="dv-thd"><a class="dv-tid" href="#t4">4</a><span class="dv-tname">Cockpit dropped into the real screen — 4 stat cards out, everything else untouched</span></div>
+<div class="dv-opts">
+<div class="dv-opt" id="4a">
+<div class="dv-olabel"><a class="dv-oid" href="#4a">4a</a>Your screen, rebuilt: header, nav, controls and session list identical — only the card row becomes the cockpit. Clock set to 11:20 so the live state shows.</div>
+<div class="dv-card" style="width:1240px;background:#eae6dc;font-family:'Instrument Sans',sans-serif;color:#3a3226">
+  <div style="display:flex;align-items:center;gap:16px;padding:0 20px;height:48px;background:linear-gradient(100deg,#2b281f 0%,#4a4a3c 45%,#8d9a86 100%)" data-screen-label="4a header (unchanged)">
+    <div style="border:1.5px solid #b9a06a;border-radius:5px;padding:4px 12px;text-align:center;line-height:1.05;background:rgba(0,0,0,.25)">
+      <div style="font-size:13px;font-weight:700;letter-spacing:.06em;color:#e8d9ae">LUNA</div>
+      <div style="font-size:6.5px;font-weight:600;letter-spacing:.22em;color:#b9a06a">FRONT DESK</div>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:16px;font-size:12px;color:#e7e6dd">
+      <span><span style="font-weight:700;text-decoration:underline">Sunset</span> <span style="opacity:.5">|</span> <span style="opacity:.8">elSardi</span></span>
+      <span><span style="opacity:.7">ES</span> <span style="opacity:.45">|</span> <span style="font-weight:600;text-decoration:underline">EN</span></span>
+      <div style="width:26px;height:26px;border-radius:99px;background:rgba(255,255,255,.16);display:grid;place-items:center;font-size:12px">☾</div>
+      <span style="border:1px solid rgba(255,255,255,.55);border-radius:99px;padding:5px 14px;font-size:12px;font-weight:500" style-hover="background:rgba(255,255,255,.14)">Sign out</span>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:34px;padding:0 30px;height:52px;background:#f4f1e8;border-bottom:1px solid rgba(60,45,20,.1)" data-screen-label="4a nav (unchanged)">
+    <span style="font-size:14px;font-weight:600;color:#3a3226;box-shadow:inset 0 -2px 0 #6b7a5e;padding:16px 2px">Schedule</span>
+    <span style="font-size:14px;color:#7a7263" style-hover="color:#3a3226">Inbox</span>
+    <span style="font-size:14px;color:#7a7263" style-hover="color:#3a3226">Customers</span>
+    <span style="font-size:14px;color:#7a7263" style-hover="color:#3a3226">Luna Staff</span>
+    <span style="font-size:14px;color:#7a7263" style-hover="color:#3a3226">Admin</span>
+    <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+      <span style="font-size:11.5px;color:#6f6757">Pause Luna Globally:</span>
+      <div style="width:34px;height:17px;border-radius:99px;background:#cfc9ba;display:flex;align-items:center;padding:2px"><div style="width:13px;height:13px;border-radius:99px;background:#fff"></div></div>
+    </div>
+  </div>
+  <div style="padding:16px 30px 28px;display:flex;flex-direction:column;gap:14px">
+    <div style="font-size:12.5px;color:#6f6757">Schedule for: <strong style="color:#3a3226">Sunset</strong></div>
+
+    <!-- ===== NEW: cockpit band (replaces the 4 stat cards) ===== -->
+    <div style="display:flex;align-items:center;gap:8px;font-size:10.5px;font-weight:700;letter-spacing:.12em;color:#2f6b58">
+      <span style="background:rgba(47,107,88,.1);border-radius:4px;padding:3px 8px">NEW — REPLACES THE 4 STAT CARDS</span>
+      <div style="flex:1;height:1px;background:rgba(47,107,88,.2)"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 340px;gap:14px" data-screen-label="4a cockpit band">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="background:#123a31;color:#eef3ef;border-radius:16px;padding:18px 22px;display:flex;align-items:center;gap:22px">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:10.5px;font-weight:700;letter-spacing:.14em;color:#7fd6bd"><span style="width:7px;height:7px;border-radius:99px;background:#7fd6bd;box-shadow:0 0 9px rgba(127,214,189,.9)"></span>IN THE WATER · ENDS 12:00</div>
+            <div style="font-family:'Instrument Serif',serif;font-size:30px;line-height:1.15;margin-top:5px">Curso Mañana</div>
+            <div style="display:flex;gap:7px;margin-top:11px">
+              <span style="font-size:11.5px;font-weight:600;background:rgba(255,255,255,.11);border-radius:99px;padding:4px 11px">✓ 1 board packed</span>
+              <span style="font-size:11.5px;font-weight:600;background:rgba(255,255,255,.06);color:#8fa79e;border-radius:99px;padding:4px 11px">0 wetsuits</span>
+              <span style="font-size:11.5px;font-weight:600;background:rgba(255,255,255,.06);color:#8fa79e;border-radius:99px;padding:4px 11px">Frannn · unpaid €45</span>
+            </div>
+          </div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+            <div style="width:58px;height:58px;border-radius:99px;background:conic-gradient(#7fd6bd 0 15deg,rgba(255,255,255,.14) 15deg 360deg);display:grid;place-items:center">
+              <div style="width:45px;height:45px;border-radius:99px;background:#123a31;display:grid;place-items:center;font-size:14px;font-weight:700">1<span style="font-size:9.5px;color:#8fa79e">/24</span></div>
+            </div>
+            <div style="font-size:11.5px;color:#a9c0b6;line-height:1.4">seats<br>booked</div>
+          </div>
+        </div>
+        <div style="background:#fffdf7;border:1px solid rgba(60,45,20,.12);border-radius:14px;padding:14px 20px 18px">
+          <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:10px">
+            <span style="font-size:12.5px;font-weight:700">The day</span>
+            <span style="font-size:11.5px;color:#8a7f6b">3 sessions · 1 booking · quiet afternoon</span>
+          </div>
+          <div style="position:relative;height:60px">
+            <div style="position:absolute;inset:20px 0 14px;background:rgba(60,45,20,.05);border-radius:8px"></div>
+            <div style="position:absolute;top:20px;bottom:14px;left:16.6%;width:16.6%;background:#123a31;border-radius:8px;color:#eef3ef;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">Mañana · 1/24</div>
+            <div style="position:absolute;top:20px;bottom:14px;left:33.3%;width:16.6%;border:1.5px dashed rgba(60,45,20,.28);border-radius:8px;color:#8a7f6b;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;background:#fffdf7" style-hover="border-color:#2f6b58;color:#2f6b58">Medio Día · 0/24</div>
+            <div style="position:absolute;top:20px;bottom:14px;left:66.6%;width:16.6%;border:1.5px dashed rgba(60,45,20,.28);border-radius:8px;color:#8a7f6b;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;background:#fffdf7" style-hover="border-color:#2f6b58;color:#2f6b58">Tarde · 0/24</div>
+            <div style="position:absolute;top:0;bottom:8px;left:27.8%;width:2px;background:#c4562f;border-radius:99px"></div>
+            <div style="position:absolute;top:0;left:27.8%;transform:translate(-50%,-2px);font-family:ui-monospace,monospace;font-size:9.5px;font-weight:700;color:#fff;background:#c4562f;border-radius:4px;padding:1px 6px">11:20</div>
+            <div style="position:absolute;left:0;right:0;bottom:-2px;display:flex;justify-content:space-between;font-family:ui-monospace,monospace;font-size:9.5px;color:#a89d86"><span>08</span><span>10</span><span>12</span><span>14</span><span>16</span><span>18</span><span>20</span></div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:8px;padding:0 2px">
+          <span style="font-size:12.5px;font-weight:700">Needs you</span>
+          <span style="font-size:10.5px;font-weight:700;color:#fff;background:#c4562f;border-radius:99px;padding:1px 7px">2</span>
+          <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:#8a7f6b"><span style="width:6px;height:6px;border-radius:99px;background:#2f6b58"></span>Luna is answering</span>
+        </div>
+        <div style="background:#fffdf7;border:1px solid rgba(196,86,47,.35);border-radius:12px;padding:13px 14px;display:flex;flex-direction:column;gap:9px">
+          <div style="display:flex;align-items:center"><span style="font-size:10px;font-weight:700;letter-spacing:.1em;color:#c4562f">PAYMENT</span><span style="margin-left:auto;font-size:10.5px;color:#a89d86">booked 2 d ago</span></div>
+          <div style="font-size:12.5px;line-height:1.45"><strong>Frannn</strong> hasn't paid for today's Curso Mañana — <strong>€45</strong>.</div>
+          <div style="display:flex;gap:7px">
+            <button style="flex:1;background:#241f16;color:#fff;border:none;border-radius:99px;padding:6px 0;font-size:11.5px;font-weight:600;font-family:inherit;cursor:pointer" style-hover="background:#3d3527">Send payment link</button>
+            <button style="background:none;border:1px solid rgba(60,45,20,.22);border-radius:99px;padding:6px 12px;font-size:11.5px;font-weight:600;font-family:inherit;color:#241f16;cursor:pointer" style-hover="border-color:#241f16">Mark paid</button>
+          </div>
+        </div>
+        <div style="background:#fffdf7;border:1px solid rgba(60,45,20,.14);border-radius:12px;padding:13px 14px;display:flex;flex-direction:column;gap:9px">
+          <div style="display:flex;align-items:center"><span style="font-size:10px;font-weight:700;letter-spacing:.1em;color:#2f6b58">WHATSAPP</span><span style="margin-left:auto;font-size:10.5px;color:#a89d86">waiting 1 h 12 m</span></div>
+          <div style="font-size:12.5px;line-height:1.45"><strong>+34 ··· 882</strong> — "¿Tenéis hueco para dos mañana por la tarde?"</div>
+          <div style="display:flex;gap:7px">
+            <button style="flex:1;background:none;border:1px solid rgba(60,45,20,.22);border-radius:99px;padding:6px 0;font-size:11.5px;font-weight:600;font-family:inherit;color:#241f16;cursor:pointer" style-hover="border-color:#241f16">Reply myself</button>
+            <button style="flex:1;background:rgba(47,107,88,.1);color:#2f6b58;border:none;border-radius:99px;padding:6px 0;font-size:11.5px;font-weight:700;font-family:inherit;cursor:pointer" style-hover="background:rgba(47,107,88,.18)">Let Luna answer</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- ===== /cockpit band ===== -->
+
+    <div style="display:flex;align-items:center;gap:8px;font-size:10.5px;font-weight:700;letter-spacing:.12em;color:#a1997f">
+      <span style="background:rgba(60,45,20,.06);border-radius:4px;padding:3px 8px">UNCHANGED BELOW THIS LINE</span>
+      <div style="flex:1;height:1px;background:rgba(60,45,20,.12)"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px" data-screen-label="4a controls (unchanged)">
+      <span style="background:#f7f5ef;border:1px solid rgba(60,45,20,.14);border-radius:99px;padding:8px 18px;font-size:13px;font-weight:500" style-hover="border-color:#3a3226">Previous</span>
+      <span style="background:#6b7a5e;color:#fff;border-radius:99px;padding:8px 20px;font-size:13px;font-weight:500" style-hover="background:#5c6a50">Today</span>
+      <span style="background:#f7f5ef;border:1px solid rgba(60,45,20,.14);border-radius:99px;padding:8px 22px;font-size:13px;font-weight:500" style-hover="border-color:#3a3226">Next</span>
+      <span style="margin-left:8px;font-size:16px;font-weight:700;letter-spacing:-.01em">Today · Jul 24, 2026</span>
+      <div style="display:flex;gap:12px;margin-left:6px;font-size:12px;color:#6f6757">
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;border-radius:99px;background:#7b8fb5"></span>Luna</span>
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;border-radius:99px;background:#6b8f5e"></span>Staff</span>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+        <span style="background:#302c22;color:#f2efe6;border-radius:99px;padding:7px 17px;font-size:12.5px;font-weight:500">Today</span>
+        <span style="background:#f7f5ef;border:1px solid rgba(60,45,20,.14);border-radius:99px;padding:7px 16px;font-size:12.5px" style-hover="border-color:#3a3226">Week</span>
+        <span style="background:#f7f5ef;border:1px solid rgba(60,45,20,.14);border-radius:99px;padding:7px 16px;font-size:12.5px" style-hover="border-color:#3a3226">Next 30 days</span>
+        <span style="background:#f7f5ef;border:1px solid rgba(60,45,20,.14);border-radius:99px;padding:7px 13px;font-size:13px;color:#6f6757" style-hover="border-color:#3a3226">↻</span>
+        <span style="background:#6b7a5e;color:#fff;border-radius:99px;padding:8px 20px;font-size:13px;font-weight:500" style-hover="background:#5c6a50">Create booking</span>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column" data-screen-label="4a session list (unchanged)">
+      <div style="display:flex;gap:0">
+        <div style="width:86px;flex:none;padding-top:14px;text-align:right;padding-right:14px">
+          <div style="font-size:13px;font-weight:700">10:00</div>
+          <div style="font-size:11px;color:#8d856f">–12:00</div>
+        </div>
+        <div style="width:1px;background:rgba(60,45,20,.18);position:relative;margin-right:16px">
+          <div style="position:absolute;top:14px;left:-4px;width:9px;height:9px;border-radius:99px;border:1.5px solid #8d856f;background:#eae6dc"></div>
+        </div>
+        <div style="flex:1;background:#f7f5ef;border:1px solid rgba(60,45,20,.1);border-radius:10px;padding:14px 18px 16px;margin-bottom:14px">
+          <div style="display:flex;align-items:flex-start;gap:10px">
+            <div>
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-size:16px;font-weight:600">Curso Mañana</span>
+                <span style="font-size:10px;font-weight:700;letter-spacing:.1em;color:#6b7a5e;background:rgba(107,122,94,.13);border-radius:4px;padding:2px 7px">LIVE</span>
+              </div>
+              <div style="font-size:12px;color:#6f6757;margin-top:4px"><strong style="color:#3a3226">10:00</strong> · 1 booked</div>
+              <div style="font-size:12px;color:#6f6757;margin-top:2px">Prepare: 1 boards · 0 wetsuits</div>
+            </div>
+            <div style="margin-left:auto;font-size:22px;font-weight:600;line-height:1">1<span style="font-size:12px;color:#8d856f">/24</span></div>
+          </div>
+          <div style="display:flex;align-items:center;padding:10px 12px 6px;font-size:10.5px;font-weight:600;letter-spacing:.1em;color:#8d856f">
+            <span>GUEST</span><span style="margin-left:auto">STATUS</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;background:#fdfbf5;border:1px solid rgba(60,45,20,.08);border-radius:8px;padding:10px 14px" style-hover="background:#f9f6ed">
+            <div style="width:3px;height:26px;background:#c9c2ae;border-radius:99px"></div>
+            <span style="font-size:11.5px;color:#8d856f">1×</span>
+            <div style="margin-left:14px">
+              <div style="font-size:14px;font-weight:500">Frannn</div>
+              <div style="font-size:11.5px;color:#8d856f">board</div>
+            </div>
+            <div style="margin-left:auto;display:flex;gap:8px">
+              <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#5c6b8a;background:#e9edf4;border-radius:99px;padding:3px 10px"><span style="width:6px;height:6px;border-radius:99px;background:#7b8fb5"></span>Luna</span>
+              <span style="font-size:11px;color:#a8563a;background:#f6e6df;border-radius:99px;padding:3px 10px">Unpaid</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin:0 0 14px">
+        <span style="width:86px;flex:none;text-align:right;padding-right:8px"><span style="font-family:ui-monospace,monospace;font-size:10.5px;font-weight:700;color:#fff;background:#a8563a;border-radius:99px;padding:2px 8px">11:20</span></span>
+        <div style="flex:1;height:1px;background:#a8563a;opacity:.7"></div>
+      </div>
+      <div style="display:flex;gap:0">
+        <div style="width:86px;flex:none;padding-top:14px;text-align:right;padding-right:14px">
+          <div style="font-size:13px;font-weight:700;color:#8d856f">12:00</div>
+          <div style="font-size:11px;color:#a1997f">–14:00</div>
+        </div>
+        <div style="width:1px;background:rgba(60,45,20,.18);position:relative;margin-right:16px">
+          <div style="position:absolute;top:14px;left:-4px;width:9px;height:9px;border-radius:99px;border:1.5px dashed #a1997f;background:#eae6dc"></div>
+        </div>
+        <div style="flex:1;border:1.5px dashed rgba(60,45,20,.18);border-radius:10px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:12px" style-hover="border-color:#8d856f">
+          <div>
+            <div style="font-size:16px;color:#8d856f">Curso Medio Día</div>
+            <div style="font-size:12px;color:#a1997f;margin-top:3px">No bookings in this slot · 12:00 – 14:00 · 24 seats</div>
+          </div>
+          <span style="margin-left:auto;background:#f7f5ef;border:1px solid rgba(60,45,20,.14);border-radius:99px;padding:7px 15px;font-size:12.5px;color:#6f6757" style-hover="border-color:#3a3226;color:#3a3226">+ Create booking</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:0">
+        <div style="width:86px;flex:none;padding-top:14px;text-align:right;padding-right:14px">
+          <div style="font-size:13px;font-weight:700;color:#8d856f">16:00</div>
+          <div style="font-size:11px;color:#a1997f">–18:00</div>
+        </div>
+        <div style="width:1px;background:rgba(60,45,20,.18);position:relative;margin-right:16px">
+          <div style="position:absolute;top:14px;left:-4px;width:9px;height:9px;border-radius:99px;border:1.5px dashed #a1997f;background:#eae6dc"></div>
+        </div>
+        <div style="flex:1;border:1.5px dashed rgba(60,45,20,.18);border-radius:10px;padding:14px 18px;display:flex;align-items:center;gap:12px" style-hover="border-color:#8d856f">
+          <div>
+            <div style="font-size:16px;color:#8d856f">Curso Tarde</div>
+            <div style="font-size:12px;color:#a1997f;margin-top:3px">No bookings in this slot · 16:00 – 18:00 · 24 seats</div>
+          </div>
+          <span style="margin-left:auto;background:#f7f5ef;border:1px solid rgba(60,45,20,.14);border-radius:99px;padding:7px 15px;font-size:12.5px;color:#6f6757" style-hover="border-color:#3a3226;color:#3a3226">+ Create booking</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+<p class="dv-next">Try next: "make the band collapse to one row when no session is live" · "drop the ribbon, keep hero + needs-you" · "match my real colors — here's my CSS/repo"</p>
+</section>
+<section class="dv-turn" id="t3">
+<div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">Two more paradigms beyond <a class="dv-oid" href="#2a">2a</a></span></div>
+<div class="dv-opts">
+
+<!-- ============ 3a BOARDING PASSES ============ -->
+<div class="dv-opt" id="3a">
+<div class="dv-olabel"><a class="dv-oid" href="#3a">3a</a>Boarding passes · each session is a ticket with a tear-off seats stub — the day reads like a departures counter</div>
+<div class="dv-card" style="width:1100px;background:#ece7dc;font-family:'Instrument Sans',sans-serif;color:#231f18">
+  <div style="display:flex;align-items:center;gap:20px;padding:0 28px;height:56px;border-bottom:1px solid rgba(50,40,20,.14)" data-screen-label="3a top bar">
+    <span style="font-family:'Instrument Serif',serif;font-size:20px">Luna</span>
+    <span style="font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.14em;color:#8a7f6b">SUNSET · THU JUL 24</span>
+    <nav style="display:flex;gap:18px;font-size:13px;font-weight:500;color:#8a7f6b;margin-left:8px">
+      <span style="color:#231f18;font-weight:700">Departures</span>
+      <span style-hover="color:#231f18">Inbox · 1</span>
+      <span style-hover="color:#231f18">Customers</span>
+      <span style-hover="color:#231f18">Admin</span>
+    </nav>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+      <span style="font-family:ui-monospace,monospace;font-size:12px;color:#b3502f;font-weight:700">11:20</span>
+      <button style="background:#231f18;color:#efe9dc;border:none;border-radius:6px;padding:8px 15px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer" style-hover="background:#3a352b">+ Booking</button>
+    </div>
+  </div>
+  <div style="padding:24px 28px 32px;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;gap:10px;font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.08em;color:#8a7f6b">
+      <span style="border:1px solid rgba(50,40,20,.25);border-radius:4px;padding:3px 9px">GEAR: 1 BOARD · 0 WETSUITS</span>
+      <span style="border:1px solid rgba(179,80,47,.5);color:#b3502f;border-radius:4px;padding:3px 9px">1 UNPAID</span>
+      <span style="border:1px solid rgba(50,40,20,.25);border-radius:4px;padding:3px 9px">1 MSG WAITING</span>
+    </div>
+    <!-- ticket: live -->
+    <div style="display:flex;background:#faf6ec;border-radius:14px;box-shadow:0 3px 10px rgba(50,40,20,.1);overflow:hidden;position:relative" data-screen-label="3a ticket mañana">
+      <div style="width:6px;background:#2f6b58"></div>
+      <div style="flex:1;padding:20px 24px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:baseline;gap:16px">
+          <span style="font-family:ui-monospace,monospace;font-size:26px;font-weight:700;letter-spacing:-.02em">10:00<span style="font-size:14px;color:#8a7f6b;font-weight:400">–12:00</span></span>
+          <span style="font-family:'Instrument Serif',serif;font-size:26px">Curso Mañana</span>
+          <span style="font-size:10.5px;font-weight:700;letter-spacing:.12em;color:#2f6b58;background:rgba(47,107,88,.12);border-radius:4px;padding:3px 9px">IN THE WATER</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;border-top:1px dashed rgba(50,40,20,.2);padding-top:12px">
+          <span style="font-family:ui-monospace,monospace;font-size:10.5px;letter-spacing:.1em;color:#8a7f6b">MANIFEST</span>
+          <div style="display:flex;align-items:center;gap:9px;background:rgba(50,40,20,.05);border-radius:99px;padding:4px 12px 4px 5px">
+            <div style="width:24px;height:24px;border-radius:99px;background:#ddd0b6;display:grid;place-items:center;font-size:10px;font-weight:700;color:#6d5d40">F</div>
+            <span style="font-size:13px;font-weight:600">Frannn</span>
+            <span style="font-size:11.5px;color:#8a7f6b">1 board</span>
+            <span style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#b3502f">UNPAID €45</span>
+          </div>
+          <span style="font-size:12.5px;color:#8a7f6b">gear: 1 board packed ✓</span>
+        </div>
+      </div>
+      <div style="width:0;border-left:2px dashed rgba(50,40,20,.25);margin:10px 0;position:relative">
+        <div style="position:absolute;top:-18px;left:-9px;width:16px;height:16px;border-radius:99px;background:#ece7dc"></div>
+        <div style="position:absolute;bottom:-18px;left:-9px;width:16px;height:16px;border-radius:99px;background:#ece7dc"></div>
+      </div>
+      <div style="width:170px;flex:none;padding:20px 22px;display:flex;flex-direction:column;justify-content:center;gap:4px;text-align:center">
+        <div style="font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.14em;color:#8a7f6b">SEATS</div>
+        <div style="font-family:ui-monospace,monospace;font-size:30px;font-weight:700;line-height:1">1<span style="font-size:15px;color:#b5aa93">/24</span></div>
+        <div style="font-size:11.5px;color:#8a7f6b">ends in 40 min</div>
+      </div>
+      <div style="position:absolute;right:150px;top:14px;transform:rotate(-8deg);font-family:ui-monospace,monospace;font-size:11px;font-weight:700;letter-spacing:.2em;color:rgba(179,80,47,.55);border:2px solid rgba(179,80,47,.45);border-radius:6px;padding:3px 10px">NOW</div>
+    </div>
+    <!-- ticket: medio dia -->
+    <div style="display:flex;background:#f5f0e3;border-radius:14px;box-shadow:0 2px 6px rgba(50,40,20,.06);overflow:hidden;opacity:.92" style-hover="opacity:1">
+      <div style="width:6px;background:rgba(50,40,20,.18)"></div>
+      <div style="flex:1;padding:18px 24px;display:flex;align-items:baseline;gap:16px">
+        <span style="font-family:ui-monospace,monospace;font-size:22px;font-weight:700;color:#5c5445">12:00<span style="font-size:13px;color:#a89d86;font-weight:400">–14:00</span></span>
+        <span style="font-family:'Instrument Serif',serif;font-size:22px;color:#5c5445">Curso Medio Día</span>
+        <span style="font-size:12.5px;color:#8a7f6b">no guests yet · nothing to prep</span>
+        <span style="margin-left:auto;font-size:12.5px;font-weight:700;color:#2f6b58;align-self:center" style-hover="text-decoration:underline">+ Add guest</span>
+      </div>
+      <div style="width:0;border-left:2px dashed rgba(50,40,20,.2);margin:10px 0;position:relative">
+        <div style="position:absolute;top:-16px;left:-8px;width:14px;height:14px;border-radius:99px;background:#ece7dc"></div>
+        <div style="position:absolute;bottom:-16px;left:-8px;width:14px;height:14px;border-radius:99px;background:#ece7dc"></div>
+      </div>
+      <div style="width:170px;flex:none;padding:16px 22px;display:flex;flex-direction:column;justify-content:center;gap:2px;text-align:center">
+        <div style="font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.14em;color:#a89d86">SEATS</div>
+        <div style="font-family:ui-monospace,monospace;font-size:26px;font-weight:700;line-height:1;color:#a89d86">0<span style="font-size:14px">/24</span></div>
+      </div>
+    </div>
+    <!-- ticket: tarde -->
+    <div style="display:flex;background:#f5f0e3;border-radius:14px;box-shadow:0 2px 6px rgba(50,40,20,.06);overflow:hidden;opacity:.92" style-hover="opacity:1">
+      <div style="width:6px;background:rgba(50,40,20,.18)"></div>
+      <div style="flex:1;padding:18px 24px;display:flex;align-items:baseline;gap:16px">
+        <span style="font-family:ui-monospace,monospace;font-size:22px;font-weight:700;color:#5c5445">16:00<span style="font-size:13px;color:#a89d86;font-weight:400">–18:00</span></span>
+        <span style="font-family:'Instrument Serif',serif;font-size:22px;color:#5c5445">Curso Tarde</span>
+        <span style="font-size:12.5px;color:#8a7f6b">no guests yet · golden-hour slot</span>
+        <span style="margin-left:auto;font-size:12.5px;font-weight:700;color:#2f6b58;align-self:center" style-hover="text-decoration:underline">+ Add guest</span>
+      </div>
+      <div style="width:0;border-left:2px dashed rgba(50,40,20,.2);margin:10px 0;position:relative">
+        <div style="position:absolute;top:-16px;left:-8px;width:14px;height:14px;border-radius:99px;background:#ece7dc"></div>
+        <div style="position:absolute;bottom:-16px;left:-8px;width:14px;height:14px;border-radius:99px;background:#ece7dc"></div>
+      </div>
+      <div style="width:170px;flex:none;padding:16px 22px;display:flex;flex-direction:column;justify-content:center;gap:2px;text-align:center">
+        <div style="font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.14em;color:#a89d86">SEATS</div>
+        <div style="font-family:ui-monospace,monospace;font-size:26px;font-weight:700;line-height:1;color:#a89d86">0<span style="font-size:14px">/24</span></div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;font-size:12.5px;color:#8a7f6b;padding:2px 4px">
+      <span style="font-family:ui-monospace,monospace;font-size:10.5px;letter-spacing:.12em">END OF BOARD</span>
+      <div style="flex:1;height:1px;background:rgba(50,40,20,.15)"></div>
+      <span>Frannn's payment + 1 WhatsApp are waiting in <strong style="color:#231f18">Inbox</strong></span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 3b COPILOT FEED ============ -->
+<div class="dv-opt" id="3b">
+<div class="dv-olabel"><a class="dv-oid" href="#3b">3b</a>Copilot feed · Luna narrates the day and asks for approvals; the schedule becomes a sidebar</div>
+<div class="dv-card" style="width:1100px;background:#f6f5f2;font-family:'Instrument Sans',sans-serif;color:#211f1c">
+  <div style="display:flex;align-items:center;gap:20px;padding:0 24px;height:52px;border-bottom:1px solid rgba(30,25,15,.09);background:#fff" data-screen-label="3b top bar">
+    <div style="display:flex;align-items:center;gap:9px">
+      <div style="width:24px;height:24px;border-radius:99px;background:radial-gradient(circle at 35% 30%,#c9b8f2,#6d4fc4)"></div>
+      <span style="font-weight:700;font-size:14px">Luna</span>
+    </div>
+    <nav style="display:flex;gap:2px;font-size:13px;font-weight:500;color:#77726a">
+      <span style="padding:5px 12px;border-radius:99px;background:rgba(30,25,15,.07);color:#211f1c;font-weight:600">Today</span>
+      <span style="padding:5px 12px;border-radius:99px" style-hover="background:rgba(30,25,15,.05)">Customers</span>
+      <span style="padding:5px 12px;border-radius:99px" style-hover="background:rgba(30,25,15,.05)">Admin</span>
+    </nav>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:12px;font-size:12.5px;color:#77726a">
+      <span>Sunset · Thu Jul 24</span>
+      <div style="width:28px;height:28px;border-radius:99px;background:#e3ddd2;display:grid;place-items:center;font-size:11px;font-weight:700;color:#6b6152">eS</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 300px;gap:0">
+    <!-- feed -->
+    <div style="padding:24px 26px 22px;display:flex;flex-direction:column;gap:16px;border-right:1px solid rgba(30,25,15,.08)" data-screen-label="3b feed">
+      <div style="text-align:center;font-size:11px;font-weight:600;letter-spacing:.1em;color:#a39c8f">THIS MORNING</div>
+      <div style="display:flex;gap:12px">
+        <div style="width:28px;height:28px;flex:none;border-radius:99px;background:radial-gradient(circle at 35% 30%,#c9b8f2,#6d4fc4)"></div>
+        <div style="background:#fff;border:1px solid rgba(30,25,15,.08);border-radius:4px 16px 16px 16px;padding:13px 16px;font-size:13.5px;line-height:1.55;max-width:520px">
+          I booked <strong>Frannn</strong> into Curso Mañana over WhatsApp last night — 1 board, no wetsuit. Gear list is ready. <span style="color:#77726a">08:14</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px">
+        <div style="width:28px;height:28px;flex:none;border-radius:99px;background:radial-gradient(circle at 35% 30%,#c9b8f2,#6d4fc4)"></div>
+        <div style="background:#fff;border:1px solid rgba(179,86,44,.35);border-radius:4px 16px 16px 16px;padding:13px 16px;font-size:13.5px;line-height:1.55;max-width:520px;display:flex;flex-direction:column;gap:10px">
+          <div><strong>Frannn still hasn't paid</strong> (€45) and the lesson already started. Want me to send a friendly payment link?</div>
+          <div style="display:flex;gap:8px">
+            <button style="background:#211f1c;color:#fff;border:none;border-radius:99px;padding:6px 14px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer" style-hover="background:#3b3831">Yes, send it</button>
+            <button style="background:none;border:1px solid rgba(30,25,15,.2);border-radius:99px;padding:6px 14px;font-size:12px;font-weight:600;font-family:inherit;color:#211f1c;cursor:pointer" style-hover="border-color:#211f1c">I'll collect cash</button>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px">
+        <div style="width:28px;height:28px;flex:none;border-radius:99px;background:#dfe8dc;display:grid;place-items:center;font-size:12px">💬</div>
+        <div style="background:#fff;border:1px solid rgba(30,25,15,.08);border-radius:4px 16px 16px 16px;padding:13px 16px;font-size:13.5px;line-height:1.55;max-width:520px;display:flex;flex-direction:column;gap:10px">
+          <div><strong>New WhatsApp</strong> from +34 ··· 882: "¿Tenéis hueco para dos mañana por la tarde?" — I'd offer Friday's Curso Tarde, 24 seats free.</div>
+          <div style="display:flex;gap:8px">
+            <button style="background:rgba(109,79,196,.1);color:#5a3fae;border:none;border-radius:99px;padding:6px 14px;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer" style-hover="background:rgba(109,79,196,.18)">Send my draft</button>
+            <button style="background:none;border:1px solid rgba(30,25,15,.2);border-radius:99px;padding:6px 14px;font-size:12px;font-weight:600;font-family:inherit;color:#211f1c;cursor:pointer" style-hover="border-color:#211f1c">Edit reply</button>
+          </div>
+        </div>
+      </div>
+      <div style="text-align:center;font-size:12px;color:#a39c8f">Quiet since 10:08 · Curso Mañana is in the water 🌊 ends 12:00</div>
+      <div style="margin-top:auto;display:flex;align-items:center;gap:10px;background:#fff;border:1px solid rgba(30,25,15,.14);border-radius:99px;padding:9px 10px 9px 18px">
+        <span style="font-size:13px;color:#a39c8f;flex:1">Ask Luna… "move Frannn to Saturday", "close Tarde today"</span>
+        <button style="background:#6d4fc4;color:#fff;border:none;border-radius:99px;padding:7px 16px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer" style-hover="background:#5a3fae">Send</button>
+      </div>
+    </div>
+    <!-- schedule sidebar -->
+    <div style="padding:24px 22px;display:flex;flex-direction:column;gap:10px;background:#fbfaf7" data-screen-label="3b schedule rail">
+      <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:13px;font-weight:700">Today</span><span style="font-size:11.5px;color:#a39c8f">3 sessions</span><span style="margin-left:auto;font-size:12px;font-weight:600;color:#6d4fc4">+ Booking</span></div>
+      <div style="background:#fff;border:1px solid rgba(30,25,15,.1);border-left:3px solid #6d4fc4;border-radius:10px;padding:11px 13px">
+        <div style="display:flex;gap:8px;font-size:12.5px"><strong>10:00</strong><span style="font-weight:600">Curso Mañana</span><span style="margin-left:auto;font-family:ui-monospace,monospace;font-size:11.5px">1/24</span></div>
+        <div style="font-size:11.5px;color:#77726a;margin-top:3px">live now · Frannn <span style="color:#b3562c;font-weight:700">unpaid</span></div>
+      </div>
+      <div style="background:#fff;border:1px dashed rgba(30,25,15,.2);border-radius:10px;padding:11px 13px;color:#77726a">
+        <div style="display:flex;gap:8px;font-size:12.5px"><strong style="color:#211f1c">12:00</strong><span>Curso Medio Día</span><span style="margin-left:auto;font-family:ui-monospace,monospace;font-size:11.5px">0/24</span></div>
+      </div>
+      <div style="background:#fff;border:1px dashed rgba(30,25,15,.2);border-radius:10px;padding:11px 13px;color:#77726a">
+        <div style="display:flex;gap:8px;font-size:12.5px"><strong style="color:#211f1c">16:00</strong><span>Curso Tarde</span><span style="margin-left:auto;font-family:ui-monospace,monospace;font-size:11.5px">0/24</span></div>
+      </div>
+      <div style="margin-top:6px;border-top:1px solid rgba(30,25,15,.08);padding-top:12px;display:flex;flex-direction:column;gap:6px;font-size:12px;color:#77726a">
+        <div style="display:flex;justify-content:space-between"><span>Boards to prep</span><strong style="color:#211f1c">1</strong></div>
+        <div style="display:flex;justify-content:space-between"><span>Wetsuits</span><strong style="color:#a39c8f">0</strong></div>
+        <div style="display:flex;justify-content:space-between"><span>Unpaid</span><strong style="color:#b3562c">€45</strong></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "combine <a class="dv-oid" href="#2a">2a</a>'s ribbon with <a class="dv-oid" href="#3b">3b</a>'s feed" · "show <a class="dv-oid" href="#3a">3a</a> with a full class of 18 guests" · "pick one and build the whole app around it"</p>
+</section>
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Full rethink — the day as a cockpit, not a list</span></div>
+<div class="dv-opts">
+<div class="dv-opt" id="2a">
+<div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Day cockpit · what's live now, the whole day as a ribbon, and an action queue instead of stat cards</div>
+<div class="dv-card" style="width:1320px;background:#f2f3f0;font-family:'Instrument Sans',sans-serif;color:#1c211f;border-color:rgba(20,40,35,.1)">
+  <div style="display:flex;align-items:center;gap:22px;padding:0 26px;height:54px;border-bottom:1px solid rgba(20,40,35,.09);background:#fbfcfa" data-screen-label="2a top bar">
+    <span style="font-family:'Instrument Serif',serif;font-size:19px">Luna</span>
+    <nav style="display:flex;gap:4px;font-size:13px;font-weight:500;color:#6d7a74">
+      <span style="padding:5px 12px;border-radius:99px;background:#1c211f;color:#fff;font-weight:600">Today</span>
+      <span style="padding:5px 12px;border-radius:99px;display:flex;align-items:center;gap:6px" style-hover="background:rgba(20,40,35,.06)">Inbox<span style="width:6px;height:6px;border-radius:99px;background:#d98a3d"></span></span>
+      <span style="padding:5px 12px;border-radius:99px" style-hover="background:rgba(20,40,35,.06)">Customers</span>
+      <span style="padding:5px 12px;border-radius:99px" style-hover="background:rgba(20,40,35,.06)">Staff</span>
+      <span style="padding:5px 12px;border-radius:99px" style-hover="background:rgba(20,40,35,.06)">Admin</span>
+    </nav>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:12px;font-size:13px">
+      <span style="color:#6d7a74">Sunset ▾</span>
+      <span style="font-family:ui-monospace,monospace;font-size:12.5px;color:#2e6e5e;background:rgba(46,110,94,.09);border-radius:99px;padding:4px 11px">Thu Jul 24 · 11:20</span>
+      <div style="width:28px;height:28px;border-radius:99px;background:#d7dcd6;display:grid;place-items:center;font-size:11px;font-weight:700;color:#4a5650">eS</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 330px;gap:20px;padding:24px 26px 30px">
+    <div style="display:flex;flex-direction:column;gap:18px">
+      <!-- live session hero -->
+      <div style="background:#123a31;color:#eef3ef;border-radius:20px;padding:24px 26px;position:relative;overflow:hidden" data-screen-label="2a live session">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;font-weight:700;letter-spacing:.14em;color:#7fd6bd">
+          <span style="width:8px;height:8px;border-radius:99px;background:#7fd6bd;box-shadow:0 0 10px rgba(127,214,189,.9)"></span>IN THE WATER · ENDS 12:00
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:24px;margin-top:10px">
+          <h2 style="margin:0;font-family:'Instrument Serif',serif;font-size:40px;font-weight:400;line-height:1;letter-spacing:-.01em">Curso Mañana</h2>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:14px">
+            <div style="width:64px;height:64px;border-radius:99px;background:conic-gradient(#7fd6bd 0 15deg,rgba(255,255,255,.14) 15deg 360deg);display:grid;place-items:center">
+              <div style="width:50px;height:50px;border-radius:99px;background:#123a31;display:grid;place-items:center;flex-direction:column;text-align:center">
+                <div style="font-size:15px;font-weight:700;line-height:1.1">1<span style="font-size:10px;color:#8fa79e">/24</span></div>
+              </div>
+            </div>
+            <div style="font-size:12px;color:#a9c0b6;line-height:1.5">seats<br>booked</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:18px">
+          <span style="font-size:12.5px;font-weight:600;background:rgba(255,255,255,.1);border-radius:99px;padding:5px 12px">✓ 1 board packed</span>
+          <span style="font-size:12.5px;font-weight:600;background:rgba(255,255,255,.06);color:#8fa79e;border-radius:99px;padding:5px 12px">0 wetsuits needed</span>
+          <span style="font-size:12.5px;font-weight:600;background:rgba(255,255,255,.06);color:#8fa79e;border-radius:99px;padding:5px 12px">Instructor: unassigned</span>
+        </div>
+        <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,.12);padding-top:14px;display:flex;align-items:center;gap:12px">
+          <div style="width:30px;height:30px;border-radius:99px;background:#2c5a4d;display:grid;place-items:center;font-size:11px;font-weight:700;color:#bfe0d4">F</div>
+          <div><div style="font-size:14px;font-weight:600">Frannn</div><div style="font-size:11.5px;color:#8fa79e">1 × board · booked by Luna</div></div>
+          <span style="margin-left:auto;font-size:11.5px;font-weight:700;color:#ffd9b0;background:rgba(217,138,61,.22);border:1px solid rgba(217,138,61,.4);border-radius:99px;padding:4px 11px">UNPAID · €45</span>
+        </div>
+      </div>
+      <!-- day ribbon -->
+      <div style="background:#fbfcfa;border:1px solid rgba(20,40,35,.09);border-radius:16px;padding:18px 22px 20px" data-screen-label="2a day ribbon">
+        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px">
+          <span style="font-size:13px;font-weight:700">The day</span>
+          <span style="font-size:12px;color:#6d7a74">3 sessions · 1 booking · quiet afternoon</span>
+          <span style="margin-left:auto;font-size:12.5px;font-weight:600;color:#2e6e5e">+ New booking</span>
+        </div>
+        <div style="position:relative;height:72px">
+          <div style="position:absolute;inset:22px 0 14px;background:rgba(20,40,35,.04);border-radius:10px"></div>
+          <!-- blocks: 08:00–20:00 span, 1h = 8.333% -->
+          <div style="position:absolute;top:22px;bottom:14px;left:16.6%;width:16.6%;background:#123a31;border-radius:10px;color:#eef3ef;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700">Mañana · 1/24</div>
+          <div style="position:absolute;top:22px;bottom:14px;left:33.3%;width:16.6%;border:1.5px dashed rgba(20,40,35,.3);border-radius:10px;color:#6d7a74;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:600;background:#fbfcfa" style-hover="border-color:#2e6e5e;color:#2e6e5e">Medio Día · 0/24</div>
+          <div style="position:absolute;top:22px;bottom:14px;left:66.6%;width:16.6%;border:1.5px dashed rgba(20,40,35,.3);border-radius:10px;color:#6d7a74;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:600;background:#fbfcfa" style-hover="border-color:#2e6e5e;color:#2e6e5e">Tarde · 0/24</div>
+          <!-- now needle 11:20 = 27.8% -->
+          <div style="position:absolute;top:0;bottom:8px;left:27.8%;width:2px;background:#d95f3d;border-radius:99px"></div>
+          <div style="position:absolute;top:0;left:27.8%;transform:translate(-50%,-2px);font-family:ui-monospace,monospace;font-size:10px;font-weight:700;color:#fff;background:#d95f3d;border-radius:5px;padding:1px 6px">11:20</div>
+          <div style="position:absolute;left:0;right:0;bottom:-4px;display:flex;justify-content:space-between;font-family:ui-monospace,monospace;font-size:10px;color:#9aa5a0"><span>08</span><span>10</span><span>12</span><span>14</span><span>16</span><span>18</span><span>20</span></div>
+        </div>
+      </div>
+      <!-- next up -->
+      <div style="display:flex;align-items:center;gap:14px;background:#fbfcfa;border:1px solid rgba(20,40,35,.09);border-radius:16px;padding:16px 22px">
+        <span style="font-size:11px;font-weight:700;letter-spacing:.12em;color:#6d7a74">NEXT</span>
+        <span style="font-family:'Instrument Serif',serif;font-size:18px">Curso Medio Día</span>
+        <span style="font-size:12.5px;color:#6d7a74">starts in 40 min · no bookings yet, nothing to prep</span>
+        <button style="margin-left:auto;background:none;border:1px solid rgba(20,40,35,.2);border-radius:99px;padding:7px 15px;font-size:12.5px;font-weight:600;font-family:inherit;color:#1c211f;cursor:pointer" style-hover="border-color:#1c211f">+ Add booking</button>
+      </div>
+    </div>
+    <!-- action queue -->
+    <div style="display:flex;flex-direction:column;gap:12px" data-screen-label="2a needs you">
+      <div style="display:flex;align-items:center;gap:8px;padding:2px 4px">
+        <span style="font-size:13px;font-weight:700">Needs you</span>
+        <span style="font-size:11px;font-weight:700;color:#fff;background:#d95f3d;border-radius:99px;padding:1px 7px">2</span>
+        <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6d7a74"><span style="width:7px;height:7px;border-radius:99px;background:#2e6e5e"></span>Luna is answering</span>
+      </div>
+      <div style="background:#fbfcfa;border:1px solid rgba(217,95,61,.35);border-radius:14px;padding:15px 16px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:700;letter-spacing:.1em;color:#d95f3d">PAYMENT</span><span style="margin-left:auto;font-size:11px;color:#9aa5a0">booked 2 d ago</span></div>
+        <div style="font-size:13.5px;line-height:1.45"><strong>Frannn</strong> hasn't paid for today's Curso Mañana — <strong>€45</strong>.</div>
+        <div style="display:flex;gap:8px">
+          <button style="flex:1;background:#1c211f;color:#fff;border:none;border-radius:99px;padding:7px 0;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer" style-hover="background:#333">Send payment link</button>
+          <button style="background:none;border:1px solid rgba(20,40,35,.2);border-radius:99px;padding:7px 13px;font-size:12px;font-weight:600;font-family:inherit;color:#1c211f;cursor:pointer" style-hover="border-color:#1c211f">Mark paid</button>
+        </div>
+      </div>
+      <div style="background:#fbfcfa;border:1px solid rgba(20,40,35,.12);border-radius:14px;padding:15px 16px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:700;letter-spacing:.1em;color:#2e6e5e">WHATSAPP</span><span style="margin-left:auto;font-size:11px;color:#9aa5a0">waiting 1 h 12 m</span></div>
+        <div style="font-size:13.5px;line-height:1.45"><strong>+34 ··· 882</strong> — "¿Tenéis hueco para dos personas mañana por la tarde?"</div>
+        <div style="display:flex;gap:8px">
+          <button style="flex:1;background:none;border:1px solid rgba(20,40,35,.2);border-radius:99px;padding:7px 0;font-size:12px;font-weight:600;font-family:inherit;color:#1c211f;cursor:pointer" style-hover="border-color:#1c211f">Reply myself</button>
+          <button style="flex:1;background:rgba(46,110,94,.1);color:#2e6e5e;border:none;border-radius:99px;padding:7px 0;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer" style-hover="background:rgba(46,110,94,.18)">Let Luna answer</button>
+        </div>
+      </div>
+      <div style="border:1.5px dashed rgba(20,40,35,.15);border-radius:14px;padding:18px 16px;text-align:center;font-size:12.5px;color:#9aa5a0;line-height:1.5">That's everything.<br>Clear these two and the day runs itself.</div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+<p class="dv-next">Try next: "make the ribbon the hero and shrink the live card" · "show <a class="dv-oid" href="#2a">2a</a> at end of day (20:07, all done)" · "a second rethink, different paradigm"</p>
+</section>
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Luna Front Desk — three 2026 directions</span></div>
+<div class="dv-opts">
+
+<!-- ============ 1a CRISP PRODUCT ============ -->
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Crisp product · dense, neutral, keyboard-first</div>
+<div class="dv-card" style="width:1180px;background:#fafafa;font-family:'Instrument Sans',sans-serif;color:#18181b">
+  <div style="display:flex;align-items:center;gap:20px;padding:0 20px;height:52px;background:#ffffff;border-bottom:1px solid #e8e8e6" data-screen-label="1a top bar">
+    <div style="display:flex;align-items:center;gap:9px">
+      <div style="width:24px;height:24px;border-radius:7px;background:#18181b;color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700">L</div>
+      <span style="font-weight:600;font-size:13.5px;letter-spacing:-.01em">Luna</span>
+    </div>
+    <nav style="display:flex;gap:2px;font-size:13px;font-weight:500;color:#71717a">
+      <span style="padding:5px 11px;border-radius:7px;background:#f0f0ee;color:#18181b;font-weight:600">Schedule</span>
+      <span style="padding:5px 11px;border-radius:7px;display:flex;align-items:center;gap:6px" style-hover="background:#f4f4f2">Inbox <span style="background:#e5732f;color:#fff;font-size:10px;font-weight:700;border-radius:99px;padding:1px 6px">1</span></span>
+      <span style="padding:5px 11px;border-radius:7px" style-hover="background:#f4f4f2">Customers</span>
+      <span style="padding:5px 11px;border-radius:7px" style-hover="background:#f4f4f2">Staff</span>
+      <span style="padding:5px 11px;border-radius:7px" style-hover="background:#f4f4f2">Admin</span>
+    </nav>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:8px;border:1px solid #e8e8e6;border-radius:8px;padding:5px 10px;font-size:12.5px;color:#a1a1aa;width:180px;background:#fff">Search<span style="margin-left:auto;font-family:ui-monospace,monospace;font-size:10.5px;border:1px solid #e8e8e6;border-radius:4px;padding:1px 4px;color:#71717a">⌘K</span></div>
+      <div style="display:flex;align-items:center;gap:6px;border:1px solid #e8e8e6;border-radius:8px;padding:5px 10px;font-size:12.5px;font-weight:600">Sunset<span style="color:#a1a1aa;font-size:10px">▾</span></div>
+      <div style="width:28px;height:28px;border-radius:99px;background:#d9e2dd;display:grid;place-items:center;font-size:11px;font-weight:700;color:#3f5449">eS</div>
+    </div>
+  </div>
+  <div style="padding:22px 24px 28px;display:flex;flex-direction:column;gap:18px">
+    <div style="display:flex;align-items:center;gap:14px">
+      <h2 style="margin:0;font-size:19px;font-weight:600;letter-spacing:-.02em">Thursday, Jul 24</h2>
+      <div style="display:flex;border:1px solid #e8e8e6;border-radius:8px;overflow:hidden;background:#fff">
+        <span style="padding:5px 10px;font-size:13px;color:#71717a;border-right:1px solid #e8e8e6">‹</span>
+        <span style="padding:5px 12px;font-size:12.5px;font-weight:600">Today</span>
+        <span style="padding:5px 10px;font-size:13px;color:#71717a;border-left:1px solid #e8e8e6">›</span>
+      </div>
+      <div style="display:flex;background:#f0f0ee;border-radius:8px;padding:2px;font-size:12.5px;font-weight:500;color:#71717a">
+        <span style="padding:4px 12px;border-radius:6px;background:#fff;color:#18181b;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.06)">Day</span>
+        <span style="padding:4px 12px">Week</span>
+        <span style="padding:4px 12px">30 days</span>
+      </div>
+      <button style="margin-left:auto;background:#18181b;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer" style-hover="background:#333">+ New booking</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+      <div style="background:#fff;border:1px solid #e8e8e6;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:6px">
+        <span style="font-size:11.5px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.05em">Boards to prep</span>
+        <span style="font-size:26px;font-weight:700;letter-spacing:-.03em;line-height:1">1</span>
+        <span style="font-size:12px;color:#a1a1aa">1 lesson · 0 rentals</span>
+      </div>
+      <div style="background:#fff;border:1px solid #e8e8e6;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:6px">
+        <span style="font-size:11.5px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.05em">Wetsuits</span>
+        <span style="font-size:26px;font-weight:700;letter-spacing:-.03em;line-height:1;color:#a1a1aa">0</span>
+        <span style="font-size:12px;color:#a1a1aa">Nothing to prep</span>
+      </div>
+      <div style="background:#fff;border:1px solid #f0d9c8;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:6px">
+        <span style="font-size:11.5px;font-weight:600;color:#b45a1e;text-transform:uppercase;letter-spacing:.05em">Unpaid</span>
+        <span style="font-size:26px;font-weight:700;letter-spacing:-.03em;line-height:1;color:#b45a1e">1</span>
+        <span style="font-size:12px;color:#a1a1aa">Booking awaiting payment</span>
+      </div>
+      <div style="background:#fff;border:1px solid #cfe0ef;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:6px">
+        <span style="font-size:11.5px;font-weight:600;color:#2f6ea5;text-transform:uppercase;letter-spacing:.05em">Needs reply</span>
+        <span style="font-size:26px;font-weight:700;letter-spacing:-.03em;line-height:1;color:#2f6ea5">1</span>
+        <span style="font-size:12px;color:#a1a1aa">1 WhatsApp message</span>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;gap:16px">
+        <div style="width:64px;flex:none;text-align:right;padding-top:14px"><div style="font-size:13px;font-weight:700">10:00</div><div style="font-size:11.5px;color:#a1a1aa">12:00</div></div>
+        <div style="flex:1;background:#fff;border:1px solid #e8e8e6;border-radius:12px;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:10px;padding:14px 16px 12px">
+            <span style="font-size:15px;font-weight:600;letter-spacing:-.01em">Curso Mañana</span>
+            <span style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#3d7a4e;background:#e7f2ea;border-radius:5px;padding:2px 7px">Done</span>
+            <span style="font-size:12.5px;color:#71717a">Prep: 1 board · 0 wetsuits</span>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+              <span style="font-size:12px;font-weight:600;color:#71717a">1<span style="color:#c8c8c4">/24</span></span>
+              <div style="width:80px;height:5px;background:#f0f0ee;border-radius:99px;overflow:hidden"><div style="width:5%;height:100%;background:#18181b;border-radius:99px"></div></div>
+            </div>
+          </div>
+          <div style="border-top:1px solid #f0f0ee;display:flex;align-items:center;gap:12px;padding:10px 16px" style-hover="background:#fafafa">
+            <div style="width:26px;height:26px;border-radius:99px;background:#e8ded2;display:grid;place-items:center;font-size:10.5px;font-weight:700;color:#7a6248">F</div>
+            <span style="font-size:13.5px;font-weight:600">Frannn</span>
+            <span style="font-size:12px;color:#a1a1aa">1 × board</span>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <span style="font-size:11px;font-weight:600;color:#5b5bd6;background:#eeeefc;border-radius:99px;padding:3px 9px">via Luna</span>
+              <span style="font-size:11px;font-weight:600;color:#b45a1e;background:#fbeee2;border-radius:99px;padding:3px 9px">Unpaid</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:16px">
+        <div style="width:64px;flex:none;text-align:right;padding-top:12px"><div style="font-size:13px;font-weight:700;color:#a1a1aa">12:00</div><div style="font-size:11.5px;color:#c8c8c4">14:00</div></div>
+        <div style="flex:1;border:1.5px dashed #d9d9d4;border-radius:12px;display:flex;align-items:center;gap:10px;padding:14px 16px;color:#a1a1aa" style-hover="border-color:#b8b8b2;background:#fff">
+          <span style="font-size:13.5px;font-weight:500">Curso Medio Día</span><span style="font-size:12.5px">24 seats open</span>
+          <span style="margin-left:auto;font-size:12.5px;font-weight:600;color:#71717a">+ Add booking</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:16px;position:relative">
+        <div style="width:64px;flex:none;text-align:right;padding-top:12px"><div style="font-size:13px;font-weight:700;color:#a1a1aa">16:00</div><div style="font-size:11.5px;color:#c8c8c4">18:00</div></div>
+        <div style="flex:1;border:1.5px dashed #d9d9d4;border-radius:12px;display:flex;align-items:center;gap:10px;padding:14px 16px;color:#a1a1aa" style-hover="border-color:#b8b8b2;background:#fff">
+          <span style="font-size:13.5px;font-weight:500">Curso Tarde</span><span style="font-size:12.5px">24 seats open</span>
+          <span style="margin-left:auto;font-size:12.5px;font-weight:600;color:#71717a">+ Add booking</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding-left:16px">
+        <span style="font-family:ui-monospace,monospace;font-size:10.5px;font-weight:700;color:#fff;background:#d64545;border-radius:5px;padding:2px 7px">20:07</span>
+        <div style="flex:1;height:2px;background:#d64545;border-radius:99px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 1b DARK OPS ============ -->
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Dark ops console · night-shift friendly, live feel</div>
+<div class="dv-card" style="width:1180px;background:#0d1117;font-family:'Space Grotesk',sans-serif;color:#e7ecf2;border-color:rgba(255,255,255,.1)">
+  <div style="display:flex;align-items:center;gap:20px;padding:0 20px;height:54px;border-bottom:1px solid rgba(255,255,255,.07)" data-screen-label="1b top bar">
+    <div style="display:flex;align-items:center;gap:9px">
+      <div style="width:26px;height:26px;border-radius:99px;background:radial-gradient(circle at 35% 30%,#4dd6c1,#1e7a6d);box-shadow:0 0 12px rgba(77,214,193,.35)"></div>
+      <span style="font-weight:700;font-size:14px;letter-spacing:.02em">LUNA</span>
+      <span style="font-size:10.5px;font-weight:600;color:#4dd6c1;border:1px solid rgba(77,214,193,.35);border-radius:99px;padding:2px 8px;letter-spacing:.08em">SUNSET</span>
+    </div>
+    <nav style="display:flex;gap:2px;font-size:13px;font-weight:500;color:#8b95a3">
+      <span style="padding:5px 12px;border-radius:99px;background:rgba(255,255,255,.08);color:#fff;font-weight:600">Schedule</span>
+      <span style="padding:5px 12px;border-radius:99px;display:flex;align-items:center;gap:6px" style-hover="color:#e7ecf2">Inbox<span style="width:6px;height:6px;border-radius:99px;background:#f2a35c"></span></span>
+      <span style="padding:5px 12px;border-radius:99px" style-hover="color:#e7ecf2">Customers</span>
+      <span style="padding:5px 12px;border-radius:99px" style-hover="color:#e7ecf2">Staff</span>
+      <span style="padding:5px 12px;border-radius:99px" style-hover="color:#e7ecf2">Admin</span>
+    </nav>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+      <div style="display:flex;align-items:center;gap:7px;font-size:12px;color:#8b95a3"><span style="width:7px;height:7px;border-radius:99px;background:#4dd6c1;box-shadow:0 0 8px rgba(77,214,193,.8)"></span>Luna answering · paused off</div>
+      <div style="width:28px;height:28px;border-radius:99px;background:#233043;display:grid;place-items:center;font-size:11px;font-weight:700;color:#9db4d0">eS</div>
+    </div>
+  </div>
+  <div style="padding:22px 24px 28px;display:flex;flex-direction:column;gap:18px">
+    <div style="display:flex;align-items:baseline;gap:14px">
+      <h2 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em">Today <span style="color:#8b95a3;font-weight:400">· Jul 24</span></h2>
+      <span style="font-family:ui-monospace,monospace;font-size:13px;color:#4dd6c1">20:07 live</span>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <div style="display:flex;background:rgba(255,255,255,.06);border-radius:99px;padding:3px;font-size:12.5px;color:#8b95a3">
+          <span style="padding:4px 14px;border-radius:99px;background:#e7ecf2;color:#0d1117;font-weight:600">Day</span>
+          <span style="padding:4px 14px">Week</span>
+          <span style="padding:4px 14px">30d</span>
+        </div>
+        <button style="background:#4dd6c1;color:#06251f;border:none;border-radius:99px;padding:8px 16px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer" style-hover="background:#6ee3d0">+ Booking</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+      <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:13px 15px"><div style="font-size:11px;font-weight:600;color:#8b95a3;letter-spacing:.1em;text-transform:uppercase">Boards</div><div style="font-size:24px;font-weight:700;margin-top:4px">1 <span style="font-size:12px;font-weight:400;color:#8b95a3">to prep</span></div></div>
+      <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:13px 15px"><div style="font-size:11px;font-weight:600;color:#8b95a3;letter-spacing:.1em;text-transform:uppercase">Wetsuits</div><div style="font-size:24px;font-weight:700;margin-top:4px;color:#5b6572">0</div></div>
+      <div style="background:rgba(242,163,92,.08);border:1px solid rgba(242,163,92,.3);border-radius:12px;padding:13px 15px"><div style="font-size:11px;font-weight:600;color:#f2a35c;letter-spacing:.1em;text-transform:uppercase">Unpaid</div><div style="font-size:24px;font-weight:700;margin-top:4px;color:#f2a35c">1 <span style="font-size:12px;font-weight:400;color:#8b95a3">booking</span></div></div>
+      <div style="background:rgba(77,214,193,.07);border:1px solid rgba(77,214,193,.25);border-radius:12px;padding:13px 15px"><div style="font-size:11px;font-weight:600;color:#4dd6c1;letter-spacing:.1em;text-transform:uppercase">Needs reply</div><div style="font-size:24px;font-weight:700;margin-top:4px;color:#4dd6c1">1 <span style="font-size:12px;font-weight:400;color:#8b95a3">WhatsApp</span></div></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:14px">
+        <div style="width:58px;flex:none;text-align:right;padding-top:13px;font-family:ui-monospace,monospace"><div style="font-size:12.5px;font-weight:600">10:00</div><div style="font-size:11px;color:#5b6572">12:00</div></div>
+        <div style="flex:1;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-left:3px solid #4dd6c1;border-radius:10px;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:10px;padding:13px 16px 11px">
+            <span style="font-size:15px;font-weight:600">Curso Mañana</span>
+            <span style="font-size:10px;font-weight:700;letter-spacing:.1em;color:#4dd6c1;background:rgba(77,214,193,.12);border-radius:99px;padding:2px 8px">DONE</span>
+            <span style="font-size:12.5px;color:#8b95a3">1 board · 0 wetsuits</span>
+            <span style="margin-left:auto;font-family:ui-monospace,monospace;font-size:12px;color:#8b95a3">1/24 seats</span>
+          </div>
+          <div style="border-top:1px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:12px;padding:10px 16px" style-hover="background:rgba(255,255,255,.03)">
+            <div style="width:26px;height:26px;border-radius:99px;background:#2a3a52;display:grid;place-items:center;font-size:10.5px;font-weight:700;color:#9db4d0">F</div>
+            <span style="font-size:13.5px;font-weight:600">Frannn</span>
+            <span style="font-size:12px;color:#8b95a3">1 × board</span>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <span style="font-size:11px;font-weight:600;color:#9db4d0;background:rgba(157,180,208,.12);border-radius:99px;padding:3px 9px">via Luna</span>
+              <span style="font-size:11px;font-weight:700;color:#f2a35c;background:rgba(242,163,92,.12);border:1px solid rgba(242,163,92,.3);border-radius:99px;padding:3px 9px">Unpaid</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:14px">
+        <div style="width:58px;flex:none;text-align:right;padding-top:12px;font-family:ui-monospace,monospace"><div style="font-size:12.5px;color:#5b6572">12:00</div><div style="font-size:11px;color:#3d4552">14:00</div></div>
+        <div style="flex:1;border:1px dashed rgba(255,255,255,.14);border-radius:10px;display:flex;align-items:center;gap:10px;padding:13px 16px;color:#5b6572" style-hover="border-color:rgba(255,255,255,.3)">
+          <span style="font-size:13.5px">Curso Medio Día</span><span style="font-size:12px">24 open</span>
+          <span style="margin-left:auto;font-size:12.5px;font-weight:600;color:#8b95a3">+ Add booking</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:14px">
+        <div style="width:58px;flex:none;text-align:right;padding-top:12px;font-family:ui-monospace,monospace"><div style="font-size:12.5px;color:#5b6572">16:00</div><div style="font-size:11px;color:#3d4552">18:00</div></div>
+        <div style="flex:1;border:1px dashed rgba(255,255,255,.14);border-radius:10px;display:flex;align-items:center;gap:10px;padding:13px 16px;color:#5b6572" style-hover="border-color:rgba(255,255,255,.3)">
+          <span style="font-size:13.5px">Curso Tarde</span><span style="font-size:12px">24 open</span>
+          <span style="margin-left:auto;font-size:12.5px;font-weight:600;color:#8b95a3">+ Add booking</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding-left:14px">
+        <span style="font-family:ui-monospace,monospace;font-size:10.5px;font-weight:700;color:#0d1117;background:#4dd6c1;border-radius:99px;padding:2px 8px;box-shadow:0 0 10px rgba(77,214,193,.5)">20:07</span>
+        <div style="flex:1;height:1.5px;background:linear-gradient(90deg,#4dd6c1,rgba(77,214,193,.15))"></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 1c COASTAL EDITORIAL ============ -->
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Coastal editorial · keeps the warm brand, modern type</div>
+<div class="dv-card" style="width:1180px;background:#f7f2e9;font-family:'Instrument Sans',sans-serif;color:#2b2318;border-color:rgba(80,60,30,.12)">
+  <div style="display:flex;align-items:center;gap:24px;padding:0 28px;height:58px;border-bottom:1px solid rgba(80,60,30,.12)" data-screen-label="1c top bar">
+    <span style="font-family:'Instrument Serif',serif;font-size:21px;letter-spacing:.01em">Luna <span style="font-style:italic;color:#a5713a">front desk</span></span>
+    <nav style="display:flex;gap:22px;font-size:13.5px;font-weight:500;color:#8a7a62">
+      <span style="color:#2b2318;font-weight:600;border-bottom:2px solid #c96f3a;padding:18px 0 16px">Schedule</span>
+      <span style="padding:18px 0" style-hover="color:#2b2318">Inbox · 1</span>
+      <span style="padding:18px 0" style-hover="color:#2b2318">Customers</span>
+      <span style="padding:18px 0" style-hover="color:#2b2318">Staff</span>
+      <span style="padding:18px 0" style-hover="color:#2b2318">Admin</span>
+    </nav>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:14px;font-size:13px">
+      <span style="color:#8a7a62">Sunset ▾</span>
+      <div style="width:30px;height:30px;border-radius:99px;background:#e3d5bd;display:grid;place-items:center;font-size:11px;font-weight:700;color:#7a6547">eS</div>
+    </div>
+  </div>
+  <div style="padding:30px 32px 34px;display:flex;flex-direction:column;gap:22px">
+    <div style="display:flex;align-items:flex-end;gap:18px">
+      <div>
+        <div style="font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#a5713a">Thursday · July 24</div>
+        <h2 style="margin:4px 0 0;font-family:'Instrument Serif',serif;font-size:36px;font-weight:400;letter-spacing:-.01em;line-height:1">Today at Sunset</h2>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+        <div style="display:flex;border:1px solid rgba(80,60,30,.2);border-radius:99px;overflow:hidden;font-size:13px;background:#fffdf8">
+          <span style="padding:7px 14px;border-right:1px solid rgba(80,60,30,.12);color:#8a7a62">‹</span>
+          <span style="padding:7px 16px;font-weight:600">Today</span>
+          <span style="padding:7px 14px;border-left:1px solid rgba(80,60,30,.12);color:#8a7a62">›</span>
+        </div>
+        <button style="background:#c96f3a;color:#fff;border:none;border-radius:99px;padding:9px 18px;font-size:13.5px;font-weight:600;font-family:inherit;cursor:pointer" style-hover="background:#b55f2d">＋ New booking</button>
+      </div>
+    </div>
+    <div style="display:flex;background:#fffdf8;border:1px solid rgba(80,60,30,.12);border-radius:14px;overflow:hidden">
+      <div style="flex:1;padding:16px 20px;border-right:1px solid rgba(80,60,30,.1)"><div style="font-family:'Instrument Serif',serif;font-size:28px;line-height:1">1</div><div style="font-size:12.5px;color:#8a7a62;margin-top:4px">board to prep · 1 lesson</div></div>
+      <div style="flex:1;padding:16px 20px;border-right:1px solid rgba(80,60,30,.1)"><div style="font-family:'Instrument Serif',serif;font-size:28px;line-height:1;color:#b9ab93">0</div><div style="font-size:12.5px;color:#8a7a62;margin-top:4px">wetsuits needed</div></div>
+      <div style="flex:1;padding:16px 20px;border-right:1px solid rgba(80,60,30,.1)"><div style="font-family:'Instrument Serif',serif;font-size:28px;line-height:1;color:#c96f3a">1</div><div style="font-size:12.5px;color:#8a7a62;margin-top:4px">unpaid booking</div></div>
+      <div style="flex:1;padding:16px 20px"><div style="font-family:'Instrument Serif',serif;font-size:28px;line-height:1;color:#3f6e5c">1</div><div style="font-size:12.5px;color:#8a7a62;margin-top:4px">WhatsApp needs a reply</div></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="background:#fffdf8;border:1px solid rgba(80,60,30,.14);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(80,60,30,.05)">
+        <div style="display:flex;align-items:center;gap:12px;padding:16px 20px 13px">
+          <span style="font-family:ui-monospace,monospace;font-size:12px;color:#a5713a;background:#f4e8d4;border-radius:99px;padding:3px 10px">10:00–12:00</span>
+          <span style="font-family:'Instrument Serif',serif;font-size:19px">Curso Mañana</span>
+          <span style="font-size:10.5px;font-weight:700;letter-spacing:.1em;color:#3f6e5c;background:#e4eee8;border-radius:99px;padding:3px 9px">DONE</span>
+          <span style="margin-left:auto;font-size:12.5px;color:#8a7a62">1 of 24 seats · prep 1 board</span>
+        </div>
+        <div style="border-top:1px solid rgba(80,60,30,.08);display:flex;align-items:center;gap:12px;padding:12px 20px;background:#fdf9f1" style-hover="background:#f9f2e4">
+          <div style="width:28px;height:28px;border-radius:99px;background:#e3d5bd;display:grid;place-items:center;font-size:11px;font-weight:700;color:#7a6547">F</div>
+          <span style="font-size:14px;font-weight:600">Frannn</span>
+          <span style="font-size:12.5px;color:#8a7a62">1 × board</span>
+          <div style="margin-left:auto;display:flex;gap:7px">
+            <span style="font-size:11.5px;font-weight:600;color:#3f6e5c;background:#e4eee8;border-radius:99px;padding:3px 10px">booked by Luna</span>
+            <span style="font-size:11.5px;font-weight:600;color:#fff;background:#c96f3a;border-radius:99px;padding:3px 10px">unpaid</span>
+          </div>
+        </div>
+      </div>
+      <div style="border:1.5px dashed rgba(80,60,30,.22);border-radius:16px;display:flex;align-items:center;gap:12px;padding:16px 20px;color:#a99a80" style-hover="background:#fffdf8">
+        <span style="font-family:ui-monospace,monospace;font-size:12px">12:00–14:00</span>
+        <span style="font-family:'Instrument Serif',serif;font-size:17px;color:#8a7a62">Curso Medio Día</span>
+        <span style="font-size:12.5px">all 24 seats open</span>
+        <span style="margin-left:auto;font-size:13px;font-weight:600;color:#a5713a">＋ Add booking</span>
+      </div>
+      <div style="border:1.5px dashed rgba(80,60,30,.22);border-radius:16px;display:flex;align-items:center;gap:12px;padding:16px 20px;color:#a99a80" style-hover="background:#fffdf8">
+        <span style="font-family:ui-monospace,monospace;font-size:12px">16:00–18:00</span>
+        <span style="font-family:'Instrument Serif',serif;font-size:17px;color:#8a7a62">Curso Tarde</span>
+        <span style="font-size:12.5px">all 24 seats open</span>
+        <span style="margin-left:auto;font-size:13px;font-weight:600;color:#a5713a">＋ Add booking</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-family:ui-monospace,monospace;font-size:11px;font-weight:700;color:#fff;background:#c96f3a;border-radius:99px;padding:2px 9px">now · 20:07</span>
+        <div style="flex:1;height:1.5px;background:#c96f3a;opacity:.6"></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "make <a class="dv-oid" href="#1a">1a</a> with the warm palette from <a class="dv-oid" href="#1c">1c</a>" · "show <a class="dv-oid" href="#1b">1b</a> as a week view" · "new directions"</p>
+</section>
+</x-dc>
+</body>
+</html>
