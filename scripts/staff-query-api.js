@@ -16558,9 +16558,39 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
   background: rgba(120,120,120,.16);
   color: var(--text-muted, #8a928c);
 }
-.portal-schedule-cancel-booking-btn {
-  color: var(--danger, #b33);
-  border-color: rgba(180,60,60,.35);
+.portal-schedule-drawer-danger-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, rgba(255,255,255,.08));
+}
+.portal-schedule-cancel-booking-btn,
+.portal-schedule-delete-booking-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid rgba(196, 92, 92, 0.45);
+  color: #d98989;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  padding: 8px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  min-height: 36px;
+  line-height: 1.2;
+}
+.portal-schedule-cancel-booking-btn:hover,
+.portal-schedule-delete-booking-btn:hover {
+  background: rgba(196, 92, 92, 0.12);
+  border-color: rgba(196, 92, 92, 0.65);
+  color: #e6a4a4;
+}
+.portal-schedule-cancel-booking-btn:disabled,
+.portal-schedule-delete-booking-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .portal-schedule-delete-booking-btn{background:rgba(180,83,74,.10);border:1px solid rgba(180,83,74,.30);color:#9C4A42}
 .portal-schedule-delete-booking-btn:hover{background:rgba(180,83,74,.18);border-color:rgba(180,83,74,.45)}
@@ -41541,18 +41571,27 @@ async function handleSunsetScheduleBookingCancel(query, req, res, user) {
       locationId: trustedLocationId,
       actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
     }));
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:sunset.schedule.booking_cancel',
-      category: 'schedule_api',
-      client_slug: clientSlug,
-      success: !!(result && result.ok),
-      staff_user_id: user ? user.staff_user_id : null,
-      elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+    const safe = result && typeof result === 'object'
+      ? result
+      : { ok: false, status: 500, body: { success: false, error: 'cancel_failed' } };
+    try {
+      appendAuditLog({
+        ts: new Date().toISOString(),
+        intent: 'api:sunset.schedule.booking_cancel',
+        category: 'schedule_api',
+        client_slug: clientSlug,
+        success: !!safe.ok,
+        staff_user_id: user ? user.staff_user_id : null,
+        elapsed_ms: Date.now() - started,
+      });
+    } catch (_audit) { /* never fail cancel response on audit */ }
+    return sendJSON(res, safe.status || 500, { ...(safe.body || { success: false, error: 'cancel_failed' }), elapsed_ms: Date.now() - started });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'cancel failed', detail: err.message });
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'cancel_failed',
+      detail: err && err.message ? String(err.message) : 'unknown',
+    });
   }
 }
 

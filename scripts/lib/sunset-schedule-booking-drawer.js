@@ -2048,48 +2048,91 @@ async function cancelSunsetScheduleBooking(pg, opts) {
   if (!bookingId || !isUuid(bookingId)) {
     return { ok: false, status: 400, body: { success: false, error: 'booking_id is required' } };
   }
-  await pg.query('BEGIN');
+
+  let began = false;
   try {
+    await pg.query('BEGIN');
+    began = true;
+
     // Lock then re-read every validation input. Concurrent edit/payment/cancel
     // commits first or waits; cancellation never acts on a stale preflight.
     const bundle = await loadSunsetBookingBundle(pg, clientSlug, bookingId, null, true);
-    const reject = async (result) => { await pg.query('ROLLBACK'); return result; };
-    if (!bundle) return reject({ ok: false, status: 404, body: { success: false, error: 'booking not found' } });
+    if (!bundle) {
+      await pg.query('ROLLBACK'); began = false;
+      return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
+    }
     const activeLocationId = normalizeSunsetLocationId(opts.locationId);
     if (resolveBundleLocationId(bundle) !== activeLocationId) {
-      return reject({ ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } });
+      await pg.query('ROLLBACK'); began = false;
+      return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
     }
     if (!bundleHasTrustedScheduleDrawerAttribution(bundle)) {
-      return reject({ ok: false, status: 403, body: { success: false, error: 'delete_untrusted_booking_source', reason_code: 'delete_untrusted_booking_source' } });
+      await pg.query('ROLLBACK'); began = false;
+      return {
+        ok: false,
+        status: 403,
+        body: {
+          success: false,
+          error: 'delete_untrusted_booking_source',
+          reason_code: 'delete_untrusted_booking_source',
+        },
+      };
     }
-    if (String(bundle.booking.status || '').toLowerCase() === 'cancelled') {
-      return reject({ ok: true, status: 200, body: { success: true, cancelled: true, deleted: false, idempotent: true, booking_id: bookingId } });
+    if (String(bundle.booking.status || '').toLowerCase() === 'cancelled'
+      || String(bundle.booking.status || '').toLowerCase() === 'canceled') {
+      await pg.query('ROLLBACK'); began = false;
+      return {
+        ok: true,
+        status: 200,
+        body: {
+          success: true,
+          cancelled: true,
+          deleted: false,
+          idempotent: true,
+          booking_id: bookingId,
+        },
+      };
     }
+
     // Paid/partial allowed: cancel frees capacity; payment ledger stays intact.
-    // (Historical 409 paid_booking_cancel_conflict removed by cancel/ghost product.)
     const paidCents = Number(bundle.payments_paid_cents || 0);
+
     await pg.query(
-      `UPDATE booking_service_records SET status = 'cancelled'
-        WHERE client_slug = $1 AND booking_id = $2::uuid AND status <> 'cancelled'`,
+      `UPDATE booking_service_records
+          SET status = 'cancelled'
+        WHERE client_slug = $1
+          AND booking_id = $2::uuid
+          AND status IS DISTINCT FROM 'cancelled'`,
       [clientSlug, bookingId],
     );
+
     const cancelUpd = await pg.query(
       // MULTICLIENT_SCOPE_OK: cancel via client join trust boundary
-      `UPDATE bookings b SET status = 'cancelled'::booking_status,
+      `UPDATE bookings b
+          SET status = 'cancelled'::booking_status,
               metadata = COALESCE(b.metadata, '{}'::jsonb) || $1::jsonb
         FROM clients c
-        WHERE b.id = $2::uuid AND c.id = b.client_id AND c.slug = $3`,
-      [JSON.stringify({ cancelled_by_staff: true, cancelled_at: new Date().toISOString() }), bookingId, clientSlug],
+        WHERE b.id = $2::uuid
+          AND c.id = b.client_id
+          AND c.slug = $3
+          AND LOWER(b.status::text) NOT IN ('cancelled', 'canceled')`,
+      [JSON.stringify({
+        cancelled_by_staff: true,
+        cancelled_at: new Date().toISOString(),
+        sunset_stripe_link_stale: true,
+        last_payment_link_url: null,
+        payment_link_invalidated: true,
+        payment_link_generation: crypto.randomUUID(),
+      }), bookingId, clientSlug],
     );
     if (Number(cancelUpd && cancelUpd.rowCount) !== 1) {
-      await pg.query('ROLLBACK');
+      await pg.query('ROLLBACK'); began = false;
       return { ok: false, status: 409, body: { success: false, error: 'booking_cancel_conflict' } };
     }
 
     // Void open unpaid checkout links in the SAME transaction before COMMIT.
-    // Matches deleteSunsetScheduleStripeLink lifecycle (clear URL + invalidate flags).
-    // Failure rolls back the cancel so we never leave a cancelled booking with an
-    // actionable stale payment link.
+    // Same lifecycle as deleteSunsetScheduleStripeLink (clear URL + void metadata).
+    // Failure rolls back the whole cancel.
     const voidMeta = JSON.stringify({
       voided_by_staff: true,
       voided_at: new Date().toISOString(),
@@ -2103,23 +2146,15 @@ async function cancelSunsetScheduleBooking(pg, opts) {
                 metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
           WHERE booking_id = $1::uuid
             AND checkout_url IS NOT NULL
-            AND status IN ('draft'::payment_record_status, 'checkout_created'::payment_record_status)`,
+            AND status IN (
+              'draft'::payment_record_status,
+              'checkout_created'::payment_record_status
+            )`,
         [bookingId, voidMeta],
       );
       voidedCount = Number(voidPay && voidPay.rowCount) || 0;
-      await pg.query(
-        `UPDATE bookings
-            SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
-          WHERE id = $2::uuid`,
-        [JSON.stringify({
-          sunset_stripe_link_stale: true,
-          last_payment_link_url: null,
-          payment_link_invalidated: true,
-          payment_link_generation: crypto.randomUUID(),
-        }), bookingId],
-      );
     } catch (linkErr) {
-      await pg.query('ROLLBACK');
+      await pg.query('ROLLBACK'); began = false;
       return {
         ok: false,
         status: 500,
@@ -2133,6 +2168,7 @@ async function cancelSunsetScheduleBooking(pg, opts) {
     }
 
     await pg.query('COMMIT');
+    began = false;
 
     return {
       ok: true,
@@ -2148,11 +2184,21 @@ async function cancelSunsetScheduleBooking(pg, opts) {
       },
     };
   } catch (err) {
-    await pg.query('ROLLBACK');
-    throw err;
+    if (began) {
+      try { await pg.query('ROLLBACK'); } catch (_) { /* ignore secondary rollback errors */ }
+    }
+    return {
+      ok: false,
+      status: 500,
+      body: {
+        success: false,
+        error: 'cancel_failed',
+        message: 'Could not cancel booking.',
+        detail: err && err.message ? String(err.message) : undefined,
+      },
+    };
   }
 }
-
 
 async function archiveSunsetScheduleBooking(pg, opts) {
   const clientSlug = String(opts.clientSlug || '').trim();

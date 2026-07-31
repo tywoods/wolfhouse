@@ -663,7 +663,10 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
     }).then(function(res) {
       if (!actionIsActive(identity)) return;
       if (!res.ok || !res.data || res.data.success !== true) {
-        throw new Error((res.data && (res.data.error || res.data.message)) || 'Cancel failed');
+        var d = res.data || {};
+        var msg = d.message || d.error || 'Cancel failed';
+        if (d.detail) msg += ' (' + String(d.detail).slice(0, 180) + ')';
+        throw new Error(msg);
       }
       flight.cancelBooking = false;
       closeScheduleDetailDrawer();
