@@ -3,12 +3,13 @@
 /**
  * Focused contract corrections for rental stock Slice B release blockers.
  *
- * Executes actual callers (normalize/collect/assert/quote/create paths), not
+ * Executes actual callers (normalize/collect/assert/quote/create/edit paths), not
  * source-regex only. Covers:
  *   1) No future exclusion/conflict semantics; combo+board+wetsuit independent
  *   2) Luna catalog-driven arbitrary Admin offerings via production
  *      executeSunsetQuote + createSunsetScheduleBooking (not helpers alone)
- *   3) Course-equipment included in Create/Edit stock claims merge
+ *   3) Course-equipment included in Create/Edit stock claims merge —
+ *      including actual updateSunsetScheduleBooking CE-omission date moves
  *   4) Restore sums independent rows; historical component pairs dedupe once;
  *      multi-day demand is per-day (not inflated across dates)
  *
@@ -34,6 +35,7 @@ const {
   prepareGenericRentalsForCreate,
   createSunsetScheduleBooking,
 } = require('./lib/sunset-schedule-booking-writes');
+const { packPriceItemCode } = require('./lib/sunset-admin-price-identity');
 
 let pass = 0;
 let fail = 0;
@@ -695,24 +697,844 @@ async function main() {
   });
   ok('edit excludeBookingId allows reclaim', editOk.ok === true, JSON.stringify(editOk));
 
-  // Create path wires CE into stock assert (source + behavioral merge above)
-  const createSrc = fs.readFileSync(
-    path.join(__dirname, 'lib/sunset-schedule-booking-writes.js'), 'utf8',
-  );
-  ok(
-    'Create merges course_equipment claims before assertRentalStockClaimsInTxn',
-    createSrc.includes('collectCourseEquipmentStockClaims')
-      && createSrc.includes('mergeExactOfferingStockClaims')
-      && /mergeExactOfferingStockClaims[\s\S]{0,200}assertRentalStockClaimsInTxn\s*\(/.test(createSrc),
-  );
-  const drawerSrc = fs.readFileSync(
-    path.join(__dirname, 'lib/sunset-schedule-booking-drawer.js'), 'utf8',
-  );
-  ok(
-    'Edit merges course_equipment claims with excludeBookingId',
-    drawerSrc.includes('collectCourseEquipmentStockClaims')
-      && drawerSrc.includes('excludeBookingId: bookingId'),
-  );
+  // ── Actual updateSunsetScheduleBooking CE-omission stock ownership ────────
+  // Create never persists course_equipment on booking metadata. Edit must derive
+  // preserved CE from locked service rows (not lockedMeta / not unlocked pre-read).
+  section('3b) Edit omitted course_equipment — locked service CE owns stock');
+
+  process.env.SUNSET_ADMIN_DB_READ_ENABLED = '1';
+  const CE_BOOKING_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const CE_CLIENT_ID = '11111111-1111-4111-8111-111111111111';
+  const CE_PACK_ID = '22222222-2222-4222-8222-222222222222';
+  const CE_LOC = 'sunset-somo';
+  const CE_KEY = 'softboard';
+  // Must stay ≤ course surfer quantity so re-insert validation accepts preserved CE.
+  const CE_QTY = 1;
+  const COURSE_SURFERS = 1;
+  const DATE_OLD = '2026-09-10';
+  const DATE_NEW = '2026-09-20';
+  const COURSE_CENTS = 4500;
+  const CE_DURING = 500;
+  const CE_ALLDAY = 1000;
+  const CE_TIER = '1_day';
+  const CE_GROUP_ITEM = packPriceItemCode(CE_PACK_ID, CE_TIER);
+  const DRAWER_REQ = path.join(__dirname, 'lib/sunset-schedule-booking-drawer.js');
+  const WRITES_REQ = path.join(__dirname, 'lib/sunset-schedule-booking-writes.js');
+  const TBC_REQ = path.join(__dirname, 'lib/tenant-business-config.js');
+
+  function ceParseMeta(raw) {
+    if (!raw) return {};
+    if (typeof raw === 'object') return raw;
+    try { return JSON.parse(raw); } catch (_) { return {}; }
+  }
+  function ceDeepClone(v) {
+    return JSON.parse(JSON.stringify(v));
+  }
+
+  function ceEquipmentOptions() {
+    return [{
+      offering_key: CE_KEY,
+      during_course_price_cents: CE_DURING,
+      all_day_price_cents: CE_ALLDAY,
+    }];
+  }
+
+  function ceAdminCfg() {
+    return {
+      ok: true,
+      source: 'db',
+      currency: 'EUR',
+      rental_offerings: [{
+        id: 'ro-soft', client_slug: 'sunset', location_id: CE_LOC,
+        offering_key: CE_KEY, label: 'Softboard', group_key: 'boards',
+        excludes: [], sort_order: 1, stock_quantity: 10, active: true,
+      }],
+      surf_packs: [{
+        pack_id: CE_PACK_ID,
+        label: 'Stock Course',
+        active: true,
+        group_size: 8,
+        weekly: 'daily',
+        schedules: ['0930_1130'],
+        equipment_options: ceEquipmentOptions(),
+        price_tiers: [{
+          key: CE_TIER, label: '1 day', hours: 2, amount_cents: COURSE_CENTS, duration_days: 1,
+        }],
+      }],
+      prices: [{
+        id: 'price-course',
+        item_type: 'package',
+        item_code: CE_GROUP_ITEM,
+        amount_cents: COURSE_CENTS,
+        unit: 'day',
+        active: true,
+        currency: 'EUR',
+        location_id: CE_LOC,
+      }],
+      private_lesson: {
+        enabled: true, label: 'Private', amount_cents: 8000,
+        price_basis: 'per_session', default_duration_minutes: 120,
+        equipment_options: [],
+      },
+    };
+  }
+
+  function seedCeBooking(opts = {}) {
+    const date = opts.date || DATE_OLD;
+    return {
+      bookings: [{
+        booking_id: CE_BOOKING_ID,
+        booking_code: 'SUNSET-CE-OMIT-1',
+        guest_name: 'CE Omit Guest',
+        phone: '+34600999888',
+        status: 'payment_pending',
+        payment_status: 'waiting_payment',
+        check_in: date,
+        check_out: date,
+        guest_count: COURSE_SURFERS,
+        total_amount_cents: COURSE_CENTS + (CE_DURING * CE_QTY),
+        amount_paid_cents: 0,
+        balance_due_cents: COURSE_CENTS + (CE_DURING * CE_QTY),
+        // Create never persists course_equipment on booking metadata.
+        metadata: {
+          source: 'staff_manual_schedule',
+          staff_manual_schedule: true,
+          location_id: CE_LOC,
+          bundle_id: 'bundle-ce-omit',
+          components: ['course'],
+        },
+      }],
+      services: [
+        {
+          id: 'sr-course-1',
+          service_record_id: 'sr-course-1',
+          booking_id: CE_BOOKING_ID,
+          service_type: 'surf_lesson',
+          service_date: date,
+          quantity: COURSE_SURFERS,
+          amount_due_cents: COURSE_CENTS * COURSE_SURFERS,
+          amount_paid_cents: 0,
+          payment_status: 'pending',
+          record_source: 'staff_manual',
+          metadata: {
+            source: 'staff_manual_schedule',
+            staff_manual_schedule: true,
+            component: 'course',
+            staff_ui_service_type: 'course',
+            course_id: CE_PACK_ID,
+            course_label: 'Stock Course',
+            tier_key: CE_TIER,
+            offering_id: CE_GROUP_ITEM,
+            location_id: CE_LOC,
+          },
+        },
+        {
+          id: 'sr-ce-soft',
+          service_record_id: 'sr-ce-soft',
+          booking_id: CE_BOOKING_ID,
+          service_type: 'addon_service',
+          service_date: date,
+          quantity: CE_QTY,
+          amount_due_cents: CE_DURING * CE_QTY,
+          amount_paid_cents: 0,
+          payment_status: 'pending',
+          record_source: 'staff_manual',
+          metadata: {
+            source: 'staff_manual_schedule',
+            staff_manual_schedule: true,
+            course_equipment: true,
+            offering_key: CE_KEY,
+            label: 'Softboard',
+            course_equipment_mode: 'during_course',
+            component: 'course_equipment',
+            staff_ui_service_type: 'course_equipment',
+            during_course_price_cents: CE_DURING,
+            all_day_price_cents: CE_ALLDAY,
+            unit_amount_cents: CE_DURING,
+            amount_cents: CE_DURING * CE_QTY,
+            pricing_provenance: 'course_owned_equipment',
+            price_source: 'course_owned_equipment',
+            location_id: CE_LOC,
+            course_id: CE_PACK_ID,
+          },
+        },
+      ],
+      payments: [],
+      offerings: [{
+        id: 'ro-soft',
+        client_slug: 'sunset',
+        location_id: CE_LOC,
+        offering_key: CE_KEY,
+        label: 'Softboard',
+        group_key: 'boards',
+        excludes: [],
+        sort_order: 1,
+        stock_quantity: opts.stockQuantity != null ? opts.stockQuantity : 10,
+        active: true,
+      }],
+      reservations: Array.isArray(opts.reservations) ? opts.reservations.slice() : [],
+    };
+  }
+
+  function dateOnlyBody(targetDate, extra = {}) {
+    return {
+      guest_name: 'CE Omit Guest',
+      guest_phone: '+34600999888',
+      date_from: targetDate,
+      date_to: targetDate,
+      service_dates: [targetDate],
+      payment_status: 'unpaid',
+      components: {
+        course: {
+          quantity: COURSE_SURFERS,
+          course_id: CE_PACK_ID,
+          course_label: 'Stock Course',
+          tier_key: CE_TIER,
+          offering_id: CE_GROUP_ITEM,
+        },
+      },
+      surfer_count: COURSE_SURFERS,
+      // course_equipment intentionally omitted unless extra supplies it
+      ...extra,
+    };
+  }
+
+  /**
+   * Transaction-aware pg for real updateSunsetScheduleBooking + stock gate.
+   * Tracks query order so FOR UPDATE / stock / mutation ordering is assertable.
+   */
+  function makeEditCePg(seed) {
+    const state = {
+      bookings: ceDeepClone(seed.bookings || []),
+      services: ceDeepClone(seed.services || []),
+      payments: ceDeepClone(seed.payments || []),
+      offerings: ceDeepClone(seed.offerings || []),
+      reservations: ceDeepClone(seed.reservations || []),
+      clientId: CE_CLIENT_ID,
+      begins: 0,
+      commits: 0,
+      rollbacks: 0,
+      txSnap: null,
+      queryLog: [],
+      mutationsBeforeStockFail: 0,
+      stockLockSeen: false,
+      stockReservationSeen: false,
+      headerUpdates: 0,
+      serviceDeletes: 0,
+      serviceInserts: 0,
+    };
+    function snap() {
+      return {
+        bookings: ceDeepClone(state.bookings),
+        services: ceDeepClone(state.services),
+        payments: ceDeepClone(state.payments),
+      };
+    }
+    function restore(s) {
+      state.bookings = s.bookings;
+      state.services = s.services;
+      state.payments = s.payments;
+    }
+    function logQuery(kind, sql) {
+      state.queryLog.push({ kind, sql: String(sql).replace(/\s+/g, ' ').trim().slice(0, 160) });
+    }
+    function noteMutation() {
+      if (!state.stockLockSeen || !state.stockReservationSeen) {
+        // Mutations before both stock lock + reservation check completed.
+        state.mutationsBeforeStockFail += 1;
+      }
+    }
+
+    return {
+      state,
+      async query(sql, params = []) {
+        const q = String(sql);
+
+        if (/^\s*BEGIN\b/i.test(q)) {
+          state.begins += 1;
+          state.txSnap = snap();
+          logQuery('BEGIN', q);
+          return { rows: [], rowCount: 0 };
+        }
+        if (/^\s*COMMIT\b/i.test(q)) {
+          state.commits += 1;
+          state.txSnap = null;
+          logQuery('COMMIT', q);
+          return { rows: [], rowCount: 0 };
+        }
+        if (/^\s*ROLLBACK\b/i.test(q)) {
+          state.rollbacks += 1;
+          if (state.txSnap) restore(state.txSnap);
+          state.txSnap = null;
+          logQuery('ROLLBACK', q);
+          return { rows: [], rowCount: 0 };
+        }
+
+        if (/pg_advisory/i.test(q)) return { rows: [], rowCount: 0 };
+        if (/to_regclass/i.test(q)) {
+          return { rows: [{ reg: 'tenant_price_rules', t: 'booking_service_records' }] };
+        }
+        if (/information_schema/i.test(q)) {
+          return { rows: [{ column_name: 'location_id', '?column?': 1, table_name: 'tenant_price_rules' }] };
+        }
+        if (/pg_constraint/i.test(q)) {
+          return {
+            rows: [{
+              definition: "CHECK ((service_type)::text = ANY ((ARRAY['addon_service'::character varying])::text[]))",
+            }],
+          };
+        }
+        if (/SELECT id FROM clients/i.test(q)) {
+          return { rows: [{ id: state.clientId }] };
+        }
+
+        // Stock row lock — FOR UPDATE on tenant_rental_offerings
+        if (/FOR UPDATE/i.test(q) && /tenant_rental_offerings/i.test(q)) {
+          state.stockLockSeen = true;
+          logQuery('STOCK_FOR_UPDATE', q);
+          const keys = Array.isArray(params[2]) ? params[2]
+            : (Array.isArray(params[1]) ? params[1] : []);
+          const slug = params[0];
+          const loc = Array.isArray(params[2]) ? params[1] : null;
+          const rows = state.offerings.filter((o) => o.client_slug === slug
+            && keys.includes(o.offering_key)
+            && (loc == null || o.location_id === loc || o.location_id == null)
+            && o.active !== false);
+          return { rows, rowCount: rows.length };
+        }
+
+        // Active reservation demand for stock recheck
+        if (/FROM booking_service_records sr/i.test(q)
+          && /metadata->>'offering_key'/i.test(q)
+          && /INNER JOIN bookings b/i.test(q)) {
+          state.stockReservationSeen = true;
+          logQuery('STOCK_RESERVATIONS', q);
+          const offeringKey = params[1];
+          const from = String(params[2] || '').slice(0, 10);
+          const to = String(params[3] || '').slice(0, 10);
+          let excludeId = null;
+          // excludeBookingId is last param when present
+          if (params.length >= 5) {
+            const last = params[params.length - 1];
+            if (typeof last === 'string' && /[0-9a-f-]{36}/i.test(last)) excludeId = last;
+          }
+          const rows = state.reservations.filter((r) => {
+            if (String(r.offering_key) !== String(offeringKey)) return false;
+            const d = String(r.service_date || '').slice(0, 10);
+            if (d < from || d > to) return false;
+            if (excludeId && String(r.booking_id) === String(excludeId)) return false;
+            return true;
+          });
+          return { rows, rowCount: rows.length };
+        }
+
+        if (/FROM tenant_rental_offerings/i.test(q)) {
+          const slug = params[0];
+          const loc = params[1];
+          const rows = state.offerings.filter((o) => {
+            if (String(o.client_slug) !== String(slug)) return false;
+            if (o.active === false && /active\s*=\s*true/i.test(q)) return false;
+            if (loc != null && o.location_id != null && String(o.location_id) !== String(loc)) {
+              return false;
+            }
+            return true;
+          });
+          return { rows, rowCount: rows.length };
+        }
+
+        if (/FROM tenant_surf_pack_rules/i.test(q)) {
+          return {
+            rows: [{
+              id: CE_PACK_ID,
+              label: 'Stock Course',
+              active: true,
+              config_json: {
+                age_band: '12_and_up',
+                group_size: 8,
+                beaches: ['somo'],
+                weekly: 'daily',
+                schedules: ['0930_1130'],
+                equipment_options: ceEquipmentOptions(),
+                price_tiers: [{
+                  key: CE_TIER, label: '1 day', hours: 2,
+                  amount_cents: COURSE_CENTS, duration_days: 1,
+                }],
+              },
+            }],
+          };
+        }
+
+        if (/FROM tenant_private_lesson_rules/i.test(q)
+          || (/private_lesson/i.test(q) && /config_json/i.test(q) && /SELECT/i.test(q))) {
+          return { rows: [{ config_json: ceAdminCfg().private_lesson, active: true }] };
+        }
+
+        if (/FROM tenant_price_rules/i.test(q)) {
+          const itemCode = params.find((p) => typeof p === 'string' && String(p).includes('__'))
+            || params[2];
+          if (String(itemCode) === CE_GROUP_ITEM) {
+            return {
+              rows: [{
+                id: 'price-course',
+                amount_cents: COURSE_CENTS,
+                currency: 'EUR',
+                item_type: 'package',
+                item_code: CE_GROUP_ITEM,
+                unit: 'day',
+                location_id: CE_LOC,
+                active: true,
+              }],
+            };
+          }
+          return { rows: [], rowCount: 0 };
+        }
+
+        if (/COALESCE\(SUM/i.test(q) && /booking_service_records/i.test(q)) {
+          return { rows: [{ seats: 0, count: 0 }] };
+        }
+
+        if (/FROM bookings b/i.test(q) && /INNER JOIN clients/i.test(q)) {
+          const b = state.bookings[0];
+          if (!b) return { rows: [] };
+          if (/FOR UPDATE/i.test(q)) logQuery('BOOKING_FOR_UPDATE', q);
+          return {
+            rows: [{
+              booking_id: b.booking_id,
+              client_id: state.clientId,
+              booking_code: b.booking_code,
+              guest_name: b.guest_name,
+              phone: b.phone,
+              status: b.status,
+              payment_status: b.payment_status,
+              check_in: b.check_in,
+              check_out: b.check_out,
+              guest_count: b.guest_count,
+              amount_paid_cents: b.amount_paid_cents || 0,
+              total_amount_cents: b.total_amount_cents || 0,
+              balance_due_cents: b.balance_due_cents || 0,
+              metadata: b.metadata,
+            }],
+          };
+        }
+
+        if (/FROM payments/i.test(q)) {
+          if (/FOR UPDATE/i.test(q)) logQuery('PAYMENT_FOR_UPDATE', q);
+          if (/SUM\(amount_paid_cents\)/i.test(q)) {
+            return { rows: [{ paid_total: 0 }] };
+          }
+          return {
+            rows: state.payments.map((p) => ({
+              payment_id: p.payment_id || p.id,
+              payment_status: p.status || p.payment_status,
+              amount_due_cents: p.amount_due_cents || 0,
+              amount_paid_cents: p.amount_paid_cents || 0,
+            })),
+          };
+        }
+
+        if (/SELECT COALESCE\(total_amount_cents/i.test(q) && /FROM bookings/i.test(q)) {
+          const b = state.bookings[0];
+          return { rows: b ? [{ total: Number(b.total_amount_cents) || 0 }] : [] };
+        }
+
+        // SELECT service rows (incl. FOR UPDATE) — must not treat "FOR UPDATE" as DML UPDATE.
+        if (/FROM booking_service_records/i.test(q)
+          && !/INSERT\s+INTO/i.test(q)
+          && !/DELETE\s+FROM/i.test(q)
+          && !/^\s*UPDATE\b/im.test(q)
+          && !/COALESCE\(SUM/i.test(q)
+          && !/INNER JOIN bookings b/i.test(q)
+          && !/metadata->>'offering_key'/i.test(q)) {
+          if (/FOR UPDATE/i.test(q)) logQuery('SERVICE_FOR_UPDATE', q);
+          return {
+            rows: state.services.map((s) => ({
+              ...s,
+              id: s.id || s.service_record_id,
+              service_record_id: s.service_record_id || s.id,
+              record_source: s.record_source || s.source || 'staff_manual',
+            })),
+          };
+        }
+
+        if (/DELETE FROM booking_service_records/i.test(q)) {
+          noteMutation();
+          state.serviceDeletes += 1;
+          logQuery('DELETE_SERVICES', q);
+          const sources = Array.isArray(params[2]) ? params[2] : [params[2]];
+          state.services = state.services.filter((s) => {
+            const src = s.record_source || s.source;
+            return !sources.includes(src);
+          });
+          return { rowCount: 1 };
+        }
+
+        if (/INSERT INTO booking_service_records/i.test(q)) {
+          noteMutation();
+          state.serviceInserts += 1;
+          logQuery('INSERT_SERVICE', q);
+          let serviceType = params[4];
+          let serviceDate = params[5];
+          let quantity = params[6];
+          let paymentStatus = params[7];
+          let source = params[8];
+          let metaRaw = params[9];
+          let amountDue = 0;
+          if (/'confirmed',\s*\$8,\s*0,\s*\$9/i.test(q)) {
+            amountDue = Number(params[7]) || 0;
+            paymentStatus = params[8];
+            source = params[9];
+            metaRaw = params[10];
+          }
+          const meta = ceParseMeta(metaRaw);
+          const id = `00000000-0000-4000-8000-${String(state.serviceInserts).padStart(12, '0')}`;
+          const row = {
+            id,
+            service_record_id: id,
+            booking_id: params[1],
+            booking_code: params[2],
+            guest_name: params[3],
+            service_type: serviceType,
+            service_date: String(serviceDate || '').slice(0, 10),
+            quantity,
+            amount_due_cents: amountDue,
+            amount_paid_cents: 0,
+            payment_status: paymentStatus || 'pending',
+            record_source: source,
+            source,
+            metadata: meta,
+          };
+          state.services.push(row);
+          return {
+            rows: [{
+              ...row,
+              staff_ui_service_type: meta.staff_ui_service_type || null,
+              location_id: meta.location_id || CE_LOC,
+            }],
+            rowCount: 1,
+          };
+        }
+
+        if (/UPDATE booking_service_records/i.test(q) && /amount_due_cents/i.test(q)) {
+          noteMutation();
+          const due = Number(params[0]);
+          const id = String(params[params.length >= 3 && typeof params[1] === 'string'
+            && String(params[1]).startsWith('{') ? 2 : 1]);
+          const row = state.services.find((s) => String(s.service_record_id || s.id) === id);
+          if (!row) return { rowCount: 0, rows: [] };
+          row.amount_due_cents = due;
+          if (params.length >= 3 && typeof params[1] === 'string' && String(params[1]).startsWith('{')) {
+            row.metadata = { ...ceParseMeta(row.metadata), ...ceParseMeta(params[1]) };
+          }
+          return { rowCount: 1, rows: [] };
+        }
+
+        if (/UPDATE bookings/i.test(q) && /total_amount_cents/i.test(q)) {
+          noteMutation();
+          state.headerUpdates += 1;
+          logQuery('UPDATE_TOTAL', q);
+          const b = state.bookings[0];
+          if (!b) return { rowCount: 0 };
+          b.total_amount_cents = Number(params[0]);
+          if (params.length >= 4 && Number.isFinite(Number(params[1]))) {
+            b.amount_paid_cents = Number(params[1]) || 0;
+            b.balance_due_cents = Number(params[2]) || 0;
+            if (params[3] && typeof params[3] === 'string' && String(params[3]).startsWith('{')) {
+              b.metadata = { ...ceParseMeta(b.metadata), ...ceParseMeta(params[3]) };
+            }
+          } else {
+            b.balance_due_cents = Math.max(
+              Number(params[0]) - Number(b.amount_paid_cents || 0), 0,
+            );
+            if (params[1] && typeof params[1] === 'string' && String(params[1]).startsWith('{')) {
+              b.metadata = { ...ceParseMeta(b.metadata), ...ceParseMeta(params[1]) };
+            }
+          }
+          return { rowCount: 1, rows: [] };
+        }
+
+        // Edit locked-paid balance: SET amount_paid_cents=$1, balance_due_cents=$2
+        if (/UPDATE bookings/i.test(q) && /amount_paid_cents/i.test(q)
+          && !/total_amount_cents/i.test(q) && !/guest_name/i.test(q)) {
+          noteMutation();
+          state.headerUpdates += 1;
+          logQuery('UPDATE_BALANCE', q);
+          const b = state.bookings[0];
+          if (!b) return { rowCount: 0, rows: [] };
+          b.amount_paid_cents = Number(params[0]) || 0;
+          if (params.length >= 2 && Number.isFinite(Number(params[1]))) {
+            b.balance_due_cents = Number(params[1]) || 0;
+          } else {
+            b.balance_due_cents = Math.max(
+              Number(b.total_amount_cents || 0) - Number(b.amount_paid_cents || 0), 0,
+            );
+          }
+          return { rowCount: 1, rows: [] };
+        }
+
+        if (/UPDATE bookings/i.test(q) && /guest_name/i.test(q)) {
+          noteMutation();
+          state.headerUpdates += 1;
+          logQuery('UPDATE_HEADER', q);
+          const b = state.bookings[0];
+          if (!b) return { rowCount: 0 };
+          b.guest_name = params[0];
+          b.phone = params[1] || b.phone;
+          b.status = params[2];
+          b.payment_status = params[3];
+          if (params.length >= 9) {
+            b.check_in = params[4];
+            b.guest_count = params[6];
+            b.metadata = { ...ceParseMeta(b.metadata), ...ceParseMeta(params[7]) };
+          } else {
+            b.guest_count = params[4];
+            b.metadata = { ...ceParseMeta(b.metadata), ...ceParseMeta(params[5]) };
+          }
+          return { rowCount: 1, rows: [] };
+        }
+
+        if (/SELECT metadata FROM bookings/i.test(q)) {
+          return { rows: [{ metadata: state.bookings[0] && state.bookings[0].metadata }] };
+        }
+
+        if (/^\s*SELECT\b/i.test(q)) return { rows: [], rowCount: 0 };
+        return { rows: [], rowCount: 0 };
+      },
+    };
+  }
+
+  function loadEditDrawer() {
+    for (const req of [WRITES_REQ, DRAWER_REQ, TBC_REQ]) {
+      try { delete require.cache[require.resolve(req)]; } catch (_) { /* ignore */ }
+    }
+    for (const key of Object.keys(require.cache)) {
+      if (/luna-front-desk-quote-service|tenant-rental-offerings|sunset-admin-pack-rules|sunset-admin-course-join|tenant-services-writes|service-record-invoice|tenant-rental-stock/.test(key)) {
+        delete require.cache[key];
+      }
+    }
+    const tbc = require(TBC_REQ);
+    tbc.resolveTenantBusinessConfigAsync = async () => ceAdminCfg();
+    tbc.resolveTenantBusinessConfig = () => ceAdminCfg();
+    try {
+      require('./lib/tenant-services-writes').ensureBookingServiceGenericType = async () => {};
+    } catch (_) { /* ignore */ }
+    return require(DRAWER_REQ);
+  }
+
+  function ceRows(services) {
+    return (services || []).filter((s) => ceParseMeta(s.metadata).course_equipment === true);
+  }
+
+  // (1) Omitted-CE date move to unavailable date → stock error, zero mutation
+  {
+    const drawer = loadEditDrawer();
+    const seed = seedCeBooking({
+      stockQuantity: 1,
+      reservations: [{
+        booking_id: 'other-booking-holds-last-unit',
+        offering_key: CE_KEY,
+        service_date: DATE_NEW,
+        quantity: 1,
+        status: 'confirmed',
+        booking_status: 'confirmed',
+      }],
+    });
+    const pg = makeEditCePg(seed);
+    const pre = ceDeepClone({
+      bookings: pg.state.bookings,
+      services: pg.state.services,
+      payments: pg.state.payments,
+    });
+    // Prove seed has CE service row and no booking metadata.course_equipment
+    ok(
+      'seed: CE service row present without booking metadata.course_equipment',
+      ceRows(pre.services).length === 1
+        && Number(ceRows(pre.services)[0].quantity) === CE_QTY
+        && !Object.prototype.hasOwnProperty.call(pre.bookings[0].metadata, 'course_equipment'),
+      JSON.stringify(pre.bookings[0].metadata),
+    );
+
+    const result = await drawer.updateSunsetScheduleBooking(pg, {
+      clientSlug: 'sunset',
+      bookingId: CE_BOOKING_ID,
+      locationId: CE_LOC,
+      actor: { email: 'staff@sunset.test' },
+      body: dateOnlyBody(DATE_NEW), // omits course_equipment
+    });
+    const err = String((result.body && (result.body.error || result.body.reason_code)) || '');
+    ok(
+      'omitted-CE date move to unavailable date returns stock error',
+      result.ok === false
+        && (err === stock.ERROR_STOCK_UNAVAILABLE
+          || err === stock.ERROR_STOCK_NOT_CONFIGURED
+          || /stock/i.test(err)),
+      JSON.stringify(result.body || result),
+    );
+    ok(
+      'omitted-CE stock failure rolls back with zero header/service/payment mutation',
+      pg.state.commits === 0
+        && pg.state.rollbacks >= 1
+        && JSON.stringify({
+          bookings: pg.state.bookings,
+          services: pg.state.services,
+          payments: pg.state.payments,
+        }) === JSON.stringify(pre)
+        && pg.state.headerUpdates === 0
+        && pg.state.serviceDeletes === 0
+        && pg.state.serviceInserts === 0,
+      JSON.stringify({
+        commits: pg.state.commits,
+        rollbacks: pg.state.rollbacks,
+        headerUpdates: pg.state.headerUpdates,
+        deletes: pg.state.serviceDeletes,
+        inserts: pg.state.serviceInserts,
+        log: pg.state.queryLog,
+      }),
+    );
+  }
+
+  // (2) Same move with stock succeeds and preserves/recreates exact CE quantity
+  {
+    const drawer = loadEditDrawer();
+    const seed = seedCeBooking({ stockQuantity: 10, reservations: [] });
+    const pg = makeEditCePg(seed);
+    const result = await drawer.updateSunsetScheduleBooking(pg, {
+      clientSlug: 'sunset',
+      bookingId: CE_BOOKING_ID,
+      locationId: CE_LOC,
+      actor: { email: 'staff@sunset.test' },
+      body: dateOnlyBody(DATE_NEW), // omits course_equipment
+    });
+    ok(
+      'omitted-CE date move with stock succeeds',
+      result.ok === true && result.status === 200 && pg.state.commits >= 1,
+      JSON.stringify(result.body || result),
+    );
+    const equip = ceRows(pg.state.services);
+    ok(
+      'omitted-CE success preserves/recreates exact CE quantity on new date',
+      equip.length >= 1
+        && equip.every((r) => ceParseMeta(r.metadata).offering_key === CE_KEY)
+        && equip.reduce((s, r) => s + (Number(r.quantity) || 0), 0) === CE_QTY
+        && equip.every((r) => String(r.service_date).slice(0, 10) === DATE_NEW)
+        && equip.every((r) => ceParseMeta(r.metadata).course_equipment_mode === 'during_course'),
+      JSON.stringify(equip.map((r) => ({
+        qty: r.quantity, date: r.service_date, meta: ceParseMeta(r.metadata),
+      }))),
+    );
+    ok(
+      'omitted-CE success does not invent booking metadata.course_equipment snapshot requirement',
+      // header may or may not gain the key; service rows are the durable source of truth
+      equip.length >= 1 && Number(equip[0].quantity) === CE_QTY,
+    );
+  }
+
+  // (3) Explicit course_equipment:[] removes CE and makes no CE claim
+  {
+    const drawer = loadEditDrawer();
+    // Force last-unit conflict on new date — if [] incorrectly still claimed CE, would fail stock.
+    const seed = seedCeBooking({
+      stockQuantity: 1,
+      reservations: [{
+        booking_id: 'other-holds-unit',
+        offering_key: CE_KEY,
+        service_date: DATE_NEW,
+        quantity: 1,
+        status: 'confirmed',
+        booking_status: 'confirmed',
+      }],
+    });
+    const pg = makeEditCePg(seed);
+    const result = await drawer.updateSunsetScheduleBooking(pg, {
+      clientSlug: 'sunset',
+      bookingId: CE_BOOKING_ID,
+      locationId: CE_LOC,
+      actor: { email: 'staff@sunset.test' },
+      body: dateOnlyBody(DATE_NEW, { course_equipment: [] }),
+    });
+    ok(
+      'explicit course_equipment:[] succeeds despite foreign CE demand (no CE claim)',
+      result.ok === true && pg.state.commits >= 1,
+      JSON.stringify(result.body || result),
+    );
+    ok(
+      'explicit course_equipment:[] removes CE rows (no CE claim after edit)',
+      ceRows(pg.state.services).length === 0,
+      JSON.stringify(ceRows(pg.state.services)),
+    );
+  }
+
+  // (4) Transaction mock: FOR UPDATE/check ordering; no mutation before failed stock
+  {
+    const drawer = loadEditDrawer();
+    const seed = seedCeBooking({
+      stockQuantity: 0, // configured sold-out → fail closed after lock
+      reservations: [],
+    });
+    const pg = makeEditCePg(seed);
+    const pre = ceDeepClone({
+      bookings: pg.state.bookings,
+      services: pg.state.services,
+      payments: pg.state.payments,
+    });
+    const result = await drawer.updateSunsetScheduleBooking(pg, {
+      clientSlug: 'sunset',
+      bookingId: CE_BOOKING_ID,
+      locationId: CE_LOC,
+      actor: { email: 'staff@sunset.test' },
+      body: dateOnlyBody(DATE_NEW),
+    });
+    const kinds = pg.state.queryLog.map((e) => e.kind);
+    const beginIdx = kinds.indexOf('BEGIN');
+    const svcLockIdx = kinds.indexOf('SERVICE_FOR_UPDATE');
+    const stockLockIdx = kinds.indexOf('STOCK_FOR_UPDATE');
+    const stockResIdx = kinds.indexOf('STOCK_RESERVATIONS');
+    const rollbackIdx = kinds.indexOf('ROLLBACK');
+    const firstMutationIdx = kinds.findIndex((k) =>
+      k === 'UPDATE_HEADER' || k === 'DELETE_SERVICES' || k === 'INSERT_SERVICE' || k === 'UPDATE_TOTAL');
+    ok(
+      'omitted-CE concurrent-path ordering: BEGIN → SERVICE FOR UPDATE → STOCK FOR UPDATE before ROLLBACK',
+      beginIdx >= 0
+        && svcLockIdx > beginIdx
+        && stockLockIdx > svcLockIdx
+        && rollbackIdx > stockLockIdx
+        && pg.state.commits === 0,
+      JSON.stringify(kinds),
+    );
+    ok(
+      'omitted-CE stock fail: no header/service mutation before stock lock/check',
+      (firstMutationIdx < 0 || firstMutationIdx > stockLockIdx)
+        && pg.state.mutationsBeforeStockFail === 0
+        && JSON.stringify({
+          bookings: pg.state.bookings,
+          services: pg.state.services,
+          payments: pg.state.payments,
+        }) === JSON.stringify(pre),
+      JSON.stringify({
+        kinds, firstMutationIdx, stockLockIdx, stockResIdx,
+        mutationsBeforeStockFail: pg.state.mutationsBeforeStockFail,
+        body: result.body,
+      }),
+    );
+    ok(
+      'omitted-CE stock=0 fails closed (not silent skip)',
+      result.ok === false
+        && /stock/i.test(String((result.body && (result.body.error || result.body.reason_code)) || '')),
+      JSON.stringify(result.body || result),
+    );
+  }
+
+  // Create still merges CE claims (source owner remains collectCourseEquipmentStockClaims)
+  {
+    const createSrc = fs.readFileSync(
+      path.join(__dirname, 'lib/sunset-schedule-booking-writes.js'), 'utf8',
+    );
+    ok(
+      'Create merges course_equipment claims before assertRentalStockClaimsInTxn',
+      createSrc.includes('collectCourseEquipmentStockClaims')
+        && createSrc.includes('mergeExactOfferingStockClaims')
+        && /mergeExactOfferingStockClaims[\s\S]{0,200}assertRentalStockClaimsInTxn\s*\(/.test(createSrc),
+    );
+  }
 
   section('4) Restore SUM independent rows; historical dedupe; per-day claims');
 

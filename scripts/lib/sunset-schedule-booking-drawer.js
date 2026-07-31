@@ -1514,6 +1514,11 @@ async function updateSunsetScheduleBooking(pg, opts) {
     // replacement allocation (new selection or preserved rentals with new dates).
     // Includes replacement course_equipment claims. Fail closed before service
     // row mutation (no partial delete/recreate on stock failure).
+    //
+    // Course equipment ownership (inside locked txn, after service FOR UPDATE):
+    //   - explicit course_equipment on patch owns (including [] = remove)
+    //   - omitted → reconstruct from locked service rows via pricingIntentFromBundle
+    //     (Create does not persist course_equipment on booking metadata)
     {
       const effectiveRentalsForStock = rentalsPresentOnPatch
         ? allRequestedRentals
@@ -1522,11 +1527,19 @@ async function updateSunsetScheduleBooking(pg, opts) {
         isPresentCourseEquipmentSelection,
       } = require('./sunset-course-equipment-options');
       const cePresentOnPatch = Object.prototype.hasOwnProperty.call(requestBody, 'course_equipment');
+      // Reconstruct after service-row lock — never unlocked pre-read / never metadata.
+      const preservedCeFromLockedServices = (() => {
+        const fromRows = pricingIntentFromBundle(lockedBundle).course_equipment;
+        return isPresentCourseEquipmentSelection(fromRows) ? fromRows : [];
+      })();
       const effectiveCeForStock = cePresentOnPatch
         ? (isPresentCourseEquipmentSelection(input.course_equipment) ? input.course_equipment : [])
-        : (isPresentCourseEquipmentSelection(lockedMeta.course_equipment)
-          ? lockedMeta.course_equipment
-          : []);
+        : preservedCeFromLockedServices;
+      // Omitted CE: service-derived selection owns reprice/insert so date-only
+      // moves preserve claims (do not alter display snapshots; same shape as rows).
+      if (!cePresentOnPatch && preservedCeFromLockedServices.length) {
+        input.course_equipment = preservedCeFromLockedServices;
+      }
       if (effectiveRentalsForStock.length || (Array.isArray(effectiveCeForStock) && effectiveCeForStock.length)) {
         const {
           assertRentalStockClaimsInTxn,
