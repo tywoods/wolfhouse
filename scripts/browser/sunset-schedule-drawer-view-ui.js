@@ -84,7 +84,7 @@ function scheduleRenderDeleteBookingRowHtml(ctx, row){
     html += '<button type="button" class="btn portal-schedule-delete-booking-btn" id="ps-drawer-delete-booking">' +
       escHtml(portalT('schedule.drawer.removeFromSchedule')) + '</button>';
   } else {
-    html += '<button type="button" class="btn portal-schedule-delete-booking-btn" id="ps-drawer-cancel-booking">' +
+    html += '<button type="button" class="btn portal-schedule-cancel-booking-btn" id="ps-drawer-cancel-booking">' +
       escHtml(portalT('schedule.drawer.cancelBooking')) + '</button>';
   }
   html += '</div>';
