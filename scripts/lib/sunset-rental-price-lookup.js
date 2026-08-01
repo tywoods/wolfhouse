@@ -75,6 +75,228 @@ function resolveDurationKey(raw) {
   return DURATION_ALIASES[key] || key;
 }
 
+function normalizeMatchText(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[_+/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Live rental menu from admin config prices (+ optional rental_offerings).
+ * Never invents items/durations that are not configured.
+ */
+function listConfiguredRentalOfferings(adminCfg) {
+  const byKey = new Map();
+  const prices = adminCfg && Array.isArray(adminCfg.prices) ? adminCfg.prices : [];
+  for (const p of prices) {
+    if (!p) continue;
+    const cat = String(p.category || p.item_type || '').toLowerCase();
+    const offeringKey = String(p.offering_key || '').trim();
+    if (!offeringKey) continue;
+    // Rental price rows only; skip full-day addon and non-rentals.
+    if (cat && cat !== 'rental' && cat !== 'rentals') continue;
+    if (/full_day_equipment/i.test(offeringKey)) continue;
+    if (p.active === false) continue;
+    if (p.addon === true && /full_day/i.test(offeringKey)) continue;
+    const unit = resolveDurationKey(p.unit || p.duration || p.window || '');
+    if (!unit) continue;
+    let entry = byKey.get(offeringKey);
+    if (!entry) {
+      entry = {
+        offering_key: offeringKey,
+        label: String(p.label || p.display_name || offeringKey).trim(),
+        durations: [],
+        duration_set: new Set(),
+      };
+      byKey.set(offeringKey, entry);
+    }
+    if (!entry.duration_set.has(unit)) {
+      entry.duration_set.add(unit);
+      entry.durations.push(unit);
+    }
+    if ((!entry.label || entry.label === offeringKey) && (p.label || p.display_name)) {
+      entry.label = String(p.label || p.display_name).trim();
+    }
+  }
+  const offeringsList = adminCfg && Array.isArray(adminCfg.rental_offerings)
+    ? adminCfg.rental_offerings
+    : [];
+  for (const o of offeringsList) {
+    if (!o || o.active === false) continue;
+    const key = String(o.offering_key || o.key || '').trim();
+    if (!key || /full_day_equipment/i.test(key)) continue;
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        offering_key: key,
+        label: String(o.label || o.display_name || key).trim(),
+        durations: [],
+        duration_set: new Set(),
+      });
+    } else if (o.label || o.display_name) {
+      byKey.get(key).label = String(o.label || o.display_name).trim();
+    }
+  }
+  return Array.from(byKey.values()).map((e) => ({
+    offering_key: e.offering_key,
+    label: e.label,
+    durations: e.durations.slice(),
+  }));
+}
+
+function isConfiguredRentalItem(adminCfg, itemCode) {
+  const code = String(itemCode || '').trim();
+  if (!code) return false;
+  const knownAlias = Object.values(ITEM_ALIASES).includes(code);
+  const offerings = listConfiguredRentalOfferings(adminCfg);
+  if (offerings.some((o) => o.offering_key === code)) return true;
+  // Alias-only fallback only when config has no rental rows at all (bootstrap).
+  if (!offerings.length && knownAlias) return true;
+  return false;
+}
+
+/**
+ * Match guest free text to a configured rental offering + duration.
+ * Prefer longest label/key hits; never invent unconfigured items.
+ */
+function matchRentalFromMessage(messageText, adminCfg, opts) {
+  const options = opts || {};
+  const t = normalizeMatchText(messageText);
+  const offerings = listConfiguredRentalOfferings(adminCfg);
+  if (!offerings.length) {
+    // Bootstrap offline: allow classic alias match only when no catalog rows.
+    const aliased = resolveItemCode(t);
+    // try alias keywords
+    let item = null;
+    const aliasPairs = [
+      [/board\s*(and|&|\+)\s*(suit|wetsuit)|bundle/, 'board_and_suit_rental'],
+      [/\bwetsuit\b|\bneopren\b|\bmuta\b/, 'wetsuit_rental'],
+      [/\bsup\b|\bpaddle\s*board\b/, 'sup_rental'],
+      [/\bboard\b|\bsurfboard\b|\btabla\b/, 'board_rental'],
+    ];
+    for (const [re, code] of aliasPairs) {
+      if (re.test(t)) { item = code; break; }
+    }
+    let duration = null;
+    for (const [label, key] of Object.entries(DURATION_ALIASES)) {
+      const needle = normalizeMatchText(label);
+      if (needle && t.includes(needle)) { duration = key; break; }
+    }
+    if (!duration && /\b1\s*h(?:our)?\b|\buna\s+hora\b/.test(t)) duration = '1_hour';
+    if (!duration && /\bhalf\s*day\b|\bmedio\s+d[ií]a\b/.test(t)) duration = 'half_day';
+    if (!duration && /\b7\s*days?\b|\bweek\b|\bsemana\b/.test(t)) duration = '7_days';
+    if (!duration && /\b5\s*days?\b/.test(t)) duration = '5_days';
+    if (!duration && /\b2\s*days?\b|\bdos\s+d[ií]as\b/.test(t)) duration = '2_days';
+    if (!duration) duration = options.default_duration || null;
+    return {
+      ok: Boolean(item),
+      item: item || null,
+      duration: duration || null,
+      source: 'alias_bootstrap',
+      offerings,
+    };
+  }
+
+  // Score offerings by label / key presence in message.
+  let best = null;
+  let bestScore = 0;
+  for (const o of offerings) {
+    const keyNorm = normalizeMatchText(o.offering_key.replace(/_rental$/i, '').replace(/_/g, ' '));
+    const labelNorm = normalizeMatchText(o.label);
+    let score = 0;
+    if (labelNorm && t.includes(labelNorm)) score = Math.max(score, labelNorm.length + 40);
+    if (keyNorm && t.includes(keyNorm)) score = Math.max(score, keyNorm.length + 20);
+    // token overlap for multi-word labels
+    const tokens = labelNorm.split(' ').filter((w) => w.length > 2 && !['the', 'and', 'for', 'with'].includes(w));
+    let tokHits = 0;
+    for (const tok of tokens) {
+      if (t.includes(tok)) tokHits += 1;
+    }
+    if (tokens.length && tokHits === tokens.length) score = Math.max(score, labelNorm.length + 8);
+    // synonym boosts mapped only if that offering exists
+    if (o.offering_key === 'board_and_suit_rental' && /board\s*(and|&|\+)\s*(suit|wetsuit)|bundle/.test(t)) {
+      score = Math.max(score, 50);
+    }
+    if (o.offering_key === 'wetsuit_rental' && /\bwetsuit\b|\bneopren\b|\bmuta\b/.test(t)) {
+      score = Math.max(score, 40);
+    }
+    if (o.offering_key === 'board_rental' && /\b(?:surfboard|tabla)\b/.test(t)
+      && !/board\s*(and|&|\+)\s*(suit|wetsuit)/.test(t)
+      && !/\bfoil\b/.test(t)) {
+      score = Math.max(score, 30);
+    } else if (o.offering_key === 'board_rental' && /\bboard\b/.test(t)
+      && !/board\s*(and|&|\+)\s*(suit|wetsuit)/.test(t)
+      && !/\bfoil\s+board\b|\bsoft\s+top\b|\bhard\s+board\b/.test(t)) {
+      score = Math.max(score, 18);
+    }
+    if (o.offering_key === 'sup_rental' && /\bsup\b|\bpaddle\s*board\b/.test(t)) {
+      score = Math.max(score, 45);
+    }
+    // any offering_key as whole word
+    const keyToken = o.offering_key.replace(/_rental$/i, '');
+    if (keyToken && new RegExp(`\\b${keyToken.replace(/_/g, '[_\\s]*')}\\b`, 'i').test(t)) {
+      score = Math.max(score, 25);
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = o;
+    }
+  }
+
+  let duration = null;
+  // Prefer durations that exist on the matched offering (or any offering).
+  const durationPool = best && best.durations.length
+    ? best.durations
+    : Array.from(new Set(offerings.flatMap((o) => o.durations)));
+  const durationNeedles = [
+    [/\b1\s*h(?:our)?\b|\buna\s+hora\b|\b1_hour\b/, '1_hour'],
+    [/\bhalf\s*day\b|\bmedio\s+d[ií]a\b|\bhalf_day\b/, 'half_day'],
+    [/\b7\s*days?\b|\bweek\b|\bsemana\b|\b7_days\b/, '7_days'],
+    [/\b5\s*days?\b|\b5_days\b/, '5_days'],
+    [/\b3\s*days?\b|\b3_days\b/, '3_days'],
+    [/\b2\s*days?\b|\bdos\s+d[ií]as\b|\b2_days\b/, '2_days'],
+    [/\b1\s*days?\b|\bfull\s*day\b|\b1_day\b|\bun\s+d[ií]a\b/, '1_day'],
+  ];
+  for (const [re, key] of durationNeedles) {
+    if (re.test(t) && durationPool.includes(key)) {
+      duration = key;
+      break;
+    }
+  }
+  if (!duration && options.default_duration && durationPool.includes(options.default_duration)) {
+    duration = options.default_duration;
+  }
+
+  return {
+    ok: Boolean(best && bestScore > 0),
+    item: best && bestScore > 0 ? best.offering_key : null,
+    duration,
+    label: best && bestScore > 0 ? best.label : null,
+    source: 'catalog',
+    offerings,
+    match_score: bestScore,
+  };
+}
+
+function buildRentalAvailabilitySummary(lang, schoolName, adminCfg) {
+  const offerings = listConfiguredRentalOfferings(adminCfg);
+  if (!offerings.length) {
+    if (lang === 'es') {
+      return `En ${schoolName} no tengo el catálogo de alquiler cargado todavía. ¿Qué necesitas y para cuándo?`;
+    }
+    return `At ${schoolName} I don't have the rental catalogue loaded yet. What do you need and for how long?`;
+  }
+  const lines = offerings.map((o) => {
+    const durs = (o.durations || []).map((d) => d.replace(/_/g, ' ')).join(', ');
+    return durs ? `${o.label} (${durs})` : o.label;
+  });
+  if (lang === 'es') {
+    return `En ${schoolName} ahora mismo alquilamos: ${lines.join('; ')}. ¿Cuál te interesa y para cuánto tiempo?`;
+  }
+  return `At ${schoolName} we currently rent: ${lines.join('; ')}. Which one do you need and for how long?`;
+}
+
 function findAdminPriceRule(adminCfg, itemCode, durationKey) {
   const prices = adminCfg && Array.isArray(adminCfg.prices) ? adminCfg.prices : [];
   return prices.find((p) => {
@@ -115,7 +337,8 @@ function lookupSunsetRentalPrice(opts) {
   }
 
   const itemCode = resolveItemCode(rawItem);
-  if (!Object.values(ITEM_ALIASES).includes(itemCode)) {
+  // Accept any item that is live in admin config — not only the static alias table.
+  if (!isConfiguredRentalItem(adminCfg, itemCode)) {
     return { ok: false, reason: 'unknown_item', client_slug: clientSlug, tenant_id: clientSlug, location_id: locationId, item: itemCode, duration };
   }
   if (!duration) {
@@ -250,7 +473,10 @@ async function lookupSunsetRentalPriceAsync(opts) {
     : DEFAULT_SUNSET_LOCATION_ID;
 
   const itemCode = resolveItemCode(rawItem);
-  if (!Object.values(ITEM_ALIASES).includes(itemCode)) {
+  // Allow catalog offering keys beyond the static alias table; DB/config fail-closed if unknown.
+  const aliasKnown = Object.values(ITEM_ALIASES).includes(itemCode);
+  const looksLikeOfferingKey = /^[a-z][a-z0-9_]*$/.test(itemCode) && !itemCode.includes('__');
+  if (!aliasKnown && !looksLikeOfferingKey) {
     return { ok: false, reason: 'unknown_item', client_slug: clientSlug, tenant_id: clientSlug, location_id: locationId, item: itemCode, duration };
   }
   if (!duration) {
@@ -610,4 +836,9 @@ module.exports = {
   DURATION_ALIASES,
   resolveRentalBillingUnit,
   resolveDurationKey,
+  resolveItemCode,
+  listConfiguredRentalOfferings,
+  isConfiguredRentalItem,
+  matchRentalFromMessage,
+  buildRentalAvailabilitySummary,
 };

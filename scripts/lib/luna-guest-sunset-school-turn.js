@@ -14,6 +14,11 @@ const {
 } = require('./luna-guest-service-transfer-explainer');
 const { executeSunsetCatalogTool } = require('./sunset-catalog-tool-executor');
 const {
+  matchRentalFromMessage,
+  buildRentalAvailabilitySummary,
+  listConfiguredRentalOfferings,
+} = require('./sunset-rental-price-lookup');
+const {
   isSunsetClientSlug,
   attachSunsetSchoolToGuestContext,
   loadSunsetSchoolContextFromConversation,
@@ -39,6 +44,7 @@ const LESSON_TIMES_RE = /\b(?:lesson\s+times?|what\s+time\s+(?:are|is)\s+(?:the\
 const PRIVATE_LESSON_RE = /\b(?:private\s+lessons?|clases?\s+privadas?|lezioni\s+private|privat(?:kurs|stunde|unterricht)|cours\s+priv[eé])\b/i;
 const PRICE_RE = /\b(?:how\s+much|price|cost|precio|prezzo|cuanto|cuesta|quanto\s+costa)\b/i;
 const RENTAL_RE = /\b(?:rent|rental|hire|alquil|nolegg|miet)\b/i;
+const AVAILABLE_RENTAL_RE = /\b(?:what(?:\'s| is)? available|what do you rent|what can i rent|rental (?:menu|options|list)|qu[eé] alquil|qu[eé] ten[eé]is|qu[eé] hay|material disponible|what gear)\b/i;
 
 function detectLang(input, guestContext) {
   const hint = trimStr(input && input.language_hint).toLowerCase();
@@ -64,18 +70,15 @@ function formatLessonTimesReply(lang, schoolName, lessonTimes) {
   return `At ${schoolName}, lesson times are: ${list}. Which day works for you?`;
 }
 
-function inferRentalLookup(messageText) {
-  const t = trimStr(messageText).toLowerCase();
-  let item = 'board_rental';
-  let duration = '1_day';
-  if (/\bwetsuit\b|\bneopren\b|\bmuta\b/.test(t)) item = 'wetsuit_rental';
-  if (/\bboard\s+and\s+suit\b|\bboard\s*&\s*suit\b|\bbundle\b/.test(t)) item = 'board_and_suit_rental';
-  if (/\b1\s*h(?:our)?\b|\buna\s+hora\b/.test(t)) duration = '1_hour';
-  if (/\bhalf\s*day\b|\bmedio\s+d[ií]a\b/.test(t)) duration = 'half_day';
-  if (/\b2\s*days?\b|\bdos\s+d[ií]as\b/.test(t)) duration = '2_days';
-  if (/\b5\s*days?\b/.test(t)) duration = '5_days';
-  if (/\b7\s*days?\b|\bweek\b|\bsemana\b/.test(t)) duration = '7_days';
-  return { item, duration };
+function inferRentalLookup(messageText, adminCfg) {
+  const matched = matchRentalFromMessage(messageText, adminCfg, { default_duration: null });
+  return {
+    item: matched.item || null,
+    duration: matched.duration || null,
+    ok: matched.ok === true,
+    source: matched.source || null,
+    offerings: matched.offerings || listConfiguredRentalOfferings(adminCfg),
+  };
 }
 
 function formatPriceReply(lang, schoolName, lookup) {
@@ -174,21 +177,50 @@ async function runSunsetGuestSchoolTurnDryRun(input, context, gate) {
     } else {
       proposedReply = buildPrivateLessonReply(lang);
     }
-  } else if (PRICE_RE.test(messageText) && RENTAL_RE.test(messageText)) {
-    const { item, duration } = inferRentalLookup(messageText);
-    catalogResult = executeSunsetCatalogTool('get_sunset_rental_price', {
-      client_slug: 'sunset',
-      location_id: locationId,
-      dry_run: true,
-      args: { item, duration, require_confirmed: false },
-    });
+  } else if (AVAILABLE_RENTAL_RE.test(messageText) || (RENTAL_RE.test(messageText) && /\b(?:available|options|menu|what)\b/i.test(messageText) && !PRICE_RE.test(messageText))) {
+    proposedReply = buildRentalAvailabilitySummary(lang, schoolName, adminCfg);
     toolPayloads.push({
-      kind: 'get_sunset_rental_price',
+      kind: 'rental_catalog_menu',
       location_id: locationId,
-      item,
-      duration,
+      offerings: listConfiguredRentalOfferings(adminCfg).map((o) => o.offering_key),
     });
-    proposedReply = formatPriceReply(lang, schoolName, catalogResult.result || catalogResult);
+  } else if ((PRICE_RE.test(messageText) && RENTAL_RE.test(messageText)) || RENTAL_RE.test(messageText)) {
+    const lookup = inferRentalLookup(messageText, adminCfg);
+    if (!lookup.item) {
+      proposedReply = buildRentalAvailabilitySummary(lang, schoolName, adminCfg);
+      toolPayloads.push({
+        kind: 'rental_catalog_menu',
+        location_id: locationId,
+        offerings: listConfiguredRentalOfferings(adminCfg).map((o) => o.offering_key),
+      });
+    } else if (!lookup.duration) {
+      const off = (lookup.offerings || []).find((o) => o.offering_key === lookup.item);
+      const durs = ((off && off.durations) || []).map((d) => d.replace(/_/g, ' ')).join(', ');
+      if (lang === 'es') {
+        proposedReply = durs
+          ? `Para ${off && off.label ? off.label : lookup.item} tengo: ${durs}. ¿Qué duración quieres?`
+          : `¿Para cuánto tiempo necesitas el alquiler?`;
+      } else {
+        proposedReply = durs
+          ? `For ${off && off.label ? off.label : lookup.item} I have: ${durs}. Which duration do you need?`
+          : `How long do you need the rental for?`;
+      }
+      toolPayloads.push({ kind: 'rental_duration_prompt', location_id: locationId, item: lookup.item });
+    } else {
+      catalogResult = executeSunsetCatalogTool('get_sunset_rental_price', {
+        client_slug: 'sunset',
+        location_id: locationId,
+        dry_run: true,
+        args: { item: lookup.item, duration: lookup.duration, require_confirmed: false },
+      });
+      toolPayloads.push({
+        kind: 'get_sunset_rental_price',
+        location_id: locationId,
+        item: lookup.item,
+        duration: lookup.duration,
+      });
+      proposedReply = formatPriceReply(lang, schoolName, catalogResult.result || catalogResult);
+    }
   }
 
   // Waiver status / ensure (Sunset lesson booking). No outbound guest messaging.
@@ -293,6 +325,8 @@ async function runSunsetGuestSchoolTurnDryRun(input, context, gate) {
 
 module.exports = {
   runSunsetGuestSchoolTurnDryRun,
+  inferRentalLookup,
+  buildRentalAvailabilitySummary,
   isSunsetClientSlug,
   buildLunaWaiverInviteMessage,
   buildLunaWaiverCompletedMessage,

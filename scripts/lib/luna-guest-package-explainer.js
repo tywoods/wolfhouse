@@ -1,5 +1,7 @@
 'use strict';
 
+const { isSunsetClientSlug } = require('./sunset-luna-school-context');
+
 /**
  * Stage 27test-c — Guest-friendly Wolf-House package explainer (dry-run copy only).
  * Exact package facts; no availability, payment, or confirmation claims.
@@ -430,6 +432,10 @@ function buildWhatToBringReply(lang) {
 }
 
 function buildPackageExplainerReply(lang, intent, opts) {
+  const o = opts || {};
+  if (isSunsetClientSlug(o.client_slug || o.clientSlug)) {
+    return null;
+  }
   const options = opts || {};
   switch (intent) {
     case 'overview':

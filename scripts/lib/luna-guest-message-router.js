@@ -1,5 +1,7 @@
 'use strict';
 
+const { isSunsetClientSlug } = require('./sunset-luna-school-context');
+
 /**
  * Stage 27b/27e — Guest message router + booking intake readiness gate (dry-run only).
  *
@@ -1482,7 +1484,9 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     threadLanguage,
     guestContext,
   );
-  let packageExplainerIntent = detectPackageExplainerIntent(messageText);
+  const routerClientSlug = String((ctx && ctx.client_slug) || (guestContext && guestContext.client_slug) || DEFAULT_CLIENT).trim() || DEFAULT_CLIENT;
+  const sunsetTenant = isSunsetClientSlug(routerClientSlug);
+  let packageExplainerIntent = sunsetTenant ? null : detectPackageExplainerIntent(messageText);
   const packageMutation = detectPackageMutationIntent(messageText);
   const classification = classifyMessageLane(messageText, guestContext);
   let { lane, handoff, reasons, confidence, paymentKind } = classification;
@@ -1931,6 +1935,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   } else if (packageExplainerIntent) {
     proposedReply = buildPackageExplainerReply(detectedLanguage, packageExplainerIntent, {
       bookingInProgress: isBookingExplainerContext(guestContext),
+      client_slug: routerClientSlug,
     });
   } else if (lane === 'payment_question') {
     proposedReply = buildPaymentQuestionReply(
@@ -1953,10 +1958,13 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       reasons,
     );
   } else if (lane === 'transfer_request') {
-    proposedReply = `${tpl(detectedLanguage, 'intro')} 🌊 — ${buildTransferSideQuestionReply(detectedLanguage, messageText, {
-      packageInterest: priorExtracted.package_interest,
-      guestCount: priorExtracted.guest_count,
-    })}`;
+    proposedReply = sunsetTenant
+      ? `${tpl(detectedLanguage, 'intro')} 🌊 — ${tpl(detectedLanguage, 'general')}`
+      : `${tpl(detectedLanguage, 'intro')} 🌊 — ${buildTransferSideQuestionReply(detectedLanguage, messageText, {
+        packageInterest: priorExtracted.package_interest,
+        guestCount: priorExtracted.guest_count,
+        client_slug: routerClientSlug,
+      })}`;
   } else if (lane === 'new_booking_inquiry') {
     const hasGuestsForNightRule = extractedFields.guest_count != null && extractedFields.guest_count >= 1;
     const resetWithoutDetails = resetNewBooking

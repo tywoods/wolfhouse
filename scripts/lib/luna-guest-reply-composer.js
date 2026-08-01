@@ -1,5 +1,7 @@
 'use strict';
 
+const { isSunsetClientSlug } = require('./sunset-luna-school-context');
+
 /**
  * Stage 28j.6 / 30a — Luna Reply Composer (booking conversations).
  *
@@ -648,6 +650,9 @@ function resolveComposerState(input) {
   const clientSlugForKnowledge = trimStr(inp.client_slug)
     || trimStr(inp.prior_guest_context && inp.prior_guest_context.client_slug)
     || 'wolfhouse-somo';
+  const sunsetTenant = isSunsetClientSlug(clientSlugForKnowledge)
+    || isSunsetClientSlug(inp.client_slug)
+    || isSunsetClientSlug(inp.prior_guest_context && inp.prior_guest_context.client_slug);
   if (detectGuestSurfReportIntent(messageText)
     && shouldPrioritizeSurfReportOverService(messageText, inp.prior_guest_context)) {
     return 'explain_surf_report';
@@ -678,7 +683,7 @@ function resolveComposerState(input) {
       || (result.message_lane === 'add_service_request' ? 'services_general' : null);
   }
 
-  const serviceIntentEarly = resolveServiceSideQuestionIntent();
+  const serviceIntentEarly = sunsetTenant ? null : resolveServiceSideQuestionIntent();
   if (serviceIntentEarly && fields.check_in && fields.check_out) {
     return 'explain_service_addon';
   }
@@ -687,8 +692,10 @@ function resolveComposerState(input) {
   const paymentResolvedThisTurn = pc.payment_choice_ready === true
     || paySignalThisTurn === 'deposit'
     || paySignalThisTurn === 'full_payment';
-  const transferIntentEarly = detectTransferSideQuestionIntent(messageText)
-    || (result.message_lane === 'transfer_request' ? 'transfer_general' : null);
+  const transferIntentEarly = sunsetTenant
+    ? null
+    : (detectTransferSideQuestionIntent(messageText)
+      || (result.message_lane === 'transfer_request' ? 'transfer_general' : null));
   if (transferIntentEarly && fields.check_in && fields.check_out && !paymentResolvedThisTurn) {
     return 'explain_transfer';
   }
@@ -734,19 +741,25 @@ function resolveComposerState(input) {
     },
   );
 
-  const serviceIntent = serviceIntentEarly || resolveServiceSideQuestionIntent();
+  const serviceIntent = sunsetTenant
+    ? null
+    : (serviceIntentEarly || resolveServiceSideQuestionIntent());
   if (serviceIntent && fields.check_in && fields.check_out) {
     return 'explain_service_addon';
   }
 
-  const transferIntent = transferIntentEarly
-    || detectTransferSideQuestionIntent(messageText)
-    || (result.message_lane === 'transfer_request' ? 'transfer_general' : null);
+  const transferIntent = sunsetTenant
+    ? null
+    : (transferIntentEarly
+      || detectTransferSideQuestionIntent(messageText)
+      || (result.message_lane === 'transfer_request' ? 'transfer_general' : null));
   if (transferIntent && fields.check_in && fields.check_out && !paymentResolvedThisTurn) {
     return 'explain_transfer';
   }
 
-  const pkgIntentEarly = resolvePackageExplainerIntent(messageText, inp.brain_decision);
+  const pkgIntentEarly = sunsetTenant
+    ? null
+    : resolvePackageExplainerIntent(messageText, inp.brain_decision);
   if (pkgIntentEarly) {
     const directPackageInfo = [
       'overview', 'malibu', 'uluwatu', 'waimea', 'compare', 'recommend',
@@ -922,7 +935,7 @@ function resolveComposerState(input) {
     return 'ask_guests';
   }
 
-  if (needsPackageStayTypeChoice(fields, result)) {
+  if (!sunsetTenant && needsPackageStayTypeChoice(fields, result)) {
     return 'ask_package';
   }
 
@@ -935,7 +948,7 @@ function resolveComposerState(input) {
     return 'ask_guest_name';
   }
 
-  if (needsPackageChoice(fields, result, quote)) {
+  if (!sunsetTenant && needsPackageChoice(fields, result, quote)) {
     return 'ask_package_choice';
   }
 
@@ -1630,10 +1643,12 @@ function composeLunaGuestReply(input) {
     || null;
   const replyEnv = (input && input.env) || process.env;
   const facts = buildComposerFacts(quote, plan, pc, stripe, live, clientSlug, replyEnv);
-  const pkgIntent = resolvePackageExplainerIntent(
-    trimStr(input && input.message_text),
-    input && input.brain_decision,
-  );
+  const pkgIntent = isSunsetClientSlug(clientSlug)
+    ? null
+    : resolvePackageExplainerIntent(
+      trimStr(input && input.message_text),
+      input && input.brain_decision,
+    );
 
   const groundingErrors = validateComposerFacts(state, facts);
   if (groundingErrors.length && !['greeting', 'ask_dates', 'confirm_dates', 'ask_guests', 'ask_guest_name', 'ask_package',

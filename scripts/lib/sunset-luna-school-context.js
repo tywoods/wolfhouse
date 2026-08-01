@@ -161,15 +161,14 @@ function buildSunsetSchoolPromptHint(schoolContext) {
   return [
     `School: ${name} (location_id=${loc}).`,
     'Use this school name when referring to the location.',
-    'Prices, lesson times, and capacity must come from admin config/tools for this location_id only.',
+    'Prices, lesson times, rental items/durations, inclusions, and capacity must come from admin config/tools for this location_id only — never from memory.',
     'Do not mix Sunset (Somo) and elSardi context.',
-    // Full-day equipment add-on ("Material el resto del día") upsell policy:
     'After the guest selects an eligible lesson/course/rental for a date, you MAY offer the full-day',
-    'equipment add-on exactly once with: "También puedes quedarte con el material el resto del día por',
-    '<precio> € más por persona. ¿Te gustaría añadirlo?" — the price MUST come from',
-    'get_sunset_full_day_equipment_addon (never invented). If the guest declines, do not re-offer it.',
-    'Only claim it was added once the attach tool confirms; if the add-on is disabled or the tool fails,',
+    'equipment add-on exactly once if get_sunset_full_day_equipment_addon says it is available — use the tool price as €X (never invent an amount).',
+    'If the guest declines, do not re-offer it.',
+    'Only claim it was added once the attach/create tool confirms; if the add-on is disabled or the tool fails,',
     'do not offer or claim it.',
+    'Confirmed equipment must be sent as structured create fields (components / course_equipment + quote_provenance), never notes-only.',
   ].join(' ');
 }
 

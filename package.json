@@ -836,7 +836,8 @@
     "verify:messi-saas-stage2d1-plan-status": "node scripts/verify-messi-saas-stage2d1-plan-status.js",
     "verify:messi-saas-stage2d2-apply-rollback": "node scripts/verify-messi-saas-stage2d2-apply-rollback.js",
     "verify:messi-saas-stage2d21-prepared-rg": "node scripts/verify-messi-saas-stage2d21-prepared-rg.js",
-    "verify:sunset-create-equipment-mobile-layout-playwright": "node scripts/verify-sunset-create-equipment-mobile-layout-playwright.js"
+    "verify:sunset-create-equipment-mobile-layout-playwright": "node scripts/verify-sunset-create-equipment-mobile-layout-playwright.js",
+    "verify:luna-tenant-catalog-s1": "node scripts/verify-luna-tenant-catalog-s1.js"
   },
   "dependencies": {
     "acorn": "8.14.1",
