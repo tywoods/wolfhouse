@@ -657,7 +657,18 @@ function adminEquipmentRowsHtml(rows){
       '</div></div>';
   }).join('');
 }
-function adminRenderEquipmentEditor(rows,prefix){return '<section class="portal-admin-equipment-editor" data-admin-equipment-editor="'+escHtml(prefix)+'"><h4>'+escHtml(portalT('admin.courseEquipment.editorTitle'))+'</h4><div data-equipment-option-rows>'+adminEquipmentRowsHtml(rows||[])+'</div><button type="button" class="btn btn-ghost portal-admin-touch" data-admin-action="add-equipment-option">+ '+escHtml(portalT('admin.courseEquipment.add'))+'</button></section>';}
+function adminRenderEquipmentEditor(rows,prefix){
+  // Heading row: section title + compact icon-only + (same add-equipment-option path).
+  // No trailing full-width "+ Add equipment" text button under the rows.
+  var addEqLabel = portalT('admin.courseEquipment.add') || 'Add equipment';
+  return '<section class="portal-admin-equipment-editor" data-admin-equipment-editor="'+escHtml(prefix)+'">' +
+    '<div class="portal-admin-equipment-heading-row" data-admin-equipment-heading>' +
+    '<h4>'+escHtml(portalT('admin.courseEquipment.editorTitle'))+'</h4>' +
+    '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-equipment-add" data-admin-action="add-equipment-option" aria-label="'+escHtml(addEqLabel)+'" title="'+escHtml(addEqLabel)+'">+</button>' +
+    '</div>' +
+    '<div data-equipment-option-rows>'+adminEquipmentRowsHtml(rows||[])+'</div>' +
+    '</section>';
+}
 function adminReadEquipmentOptions(root){
   var seen={},out=[],error='';
   Array.prototype.slice.call(root.querySelectorAll('[data-equipment-option-row]')).forEach(function(row){
@@ -744,6 +755,15 @@ function adminScheduleKeyFromTimes(start, end){
   if (!s || !e) return '';
   return s + '_' + e;
 }
+function adminPackSecondaryScheduleRowHtml(prefix, t1){
+  t1 = t1 || { start: '', end: '' };
+  return '<div class="portal-admin-pack-schedule-row" data-admin-pack-schedule-second>' +
+    '<div class="portal-admin-edit-field"><label for="' + prefix + '-schedule-start2">' + escHtml(portalT('admin.packs.startTime2')) + '</label>' +
+    '<input type="text" id="' + prefix + '-schedule-start2" value="' + escHtml(t1.start || '') + '" placeholder="HH:MM" maxlength="5"></div>' +
+    '<div class="portal-admin-edit-field"><label for="' + prefix + '-schedule-end2">' + escHtml(portalT('admin.packs.endTime2')) + '</label>' +
+    '<input type="text" id="' + prefix + '-schedule-end2" value="' + escHtml(t1.end || '') + '" placeholder="HH:MM" maxlength="5"></div>' +
+    '</div>';
+}
 function adminRenderPackScheduleFields(p, prefix){
   var s0 = (p && p.schedules && p.schedules[0]) ? p.schedules[0] : '0930_1130';
   var s1 = (p && p.schedules && p.schedules[1]) ? p.schedules[1] : '';
@@ -753,8 +773,9 @@ function adminRenderPackScheduleFields(p, prefix){
   var t0 = adminTimesFromScheduleKey(s0);
   var t1 = adminTimesFromScheduleKey(s1);
   // Compact two-column Start | End. Labels omit (HH:MM); placeholder still carries format.
-  // Empty optional second window is omitted by default (target compact layout). When the pack
-  // already has a second non-empty schedule, render it so staff can edit and save preserves it.
+  // Empty optional second window is omitted by default. Staff can reveal it via
+  // "Add secondary time" (add-secondary-schedule). Configured second schedules
+  // auto-render so edit/save preserves them without an extra click.
   var html = '<div class="portal-admin-pack-schedule-row">' +
     '<div class="portal-admin-edit-field"><label for="' + prefix + '-schedule-start">' + escHtml(portalT('admin.edit.startTime')) + '</label>' +
     '<input type="text" id="' + prefix + '-schedule-start" value="' + escHtml(t0.start) + '" placeholder="HH:MM" maxlength="5"></div>' +
@@ -762,12 +783,10 @@ function adminRenderPackScheduleFields(p, prefix){
     '<input type="text" id="' + prefix + '-schedule-end" value="' + escHtml(t0.end) + '" placeholder="HH:MM" maxlength="5"></div>' +
     '</div>';
   if (t1.start || t1.end) {
-    html += '<div class="portal-admin-pack-schedule-row" data-admin-pack-schedule-second>' +
-      '<div class="portal-admin-edit-field"><label for="' + prefix + '-schedule-start2">' + escHtml(portalT('admin.packs.startTime2')) + '</label>' +
-      '<input type="text" id="' + prefix + '-schedule-start2" value="' + escHtml(t1.start) + '" placeholder="HH:MM" maxlength="5"></div>' +
-      '<div class="portal-admin-edit-field"><label for="' + prefix + '-schedule-end2">' + escHtml(portalT('admin.packs.endTime2')) + '</label>' +
-      '<input type="text" id="' + prefix + '-schedule-end2" value="' + escHtml(t1.end) + '" placeholder="HH:MM" maxlength="5"></div>' +
-      '</div>';
+    html += adminPackSecondaryScheduleRowHtml(prefix, t1);
+  } else {
+    html += '<button type="button" class="btn btn-ghost portal-admin-pack-add-secondary" data-admin-action="add-secondary-schedule" data-schedule-prefix="' + escHtml(prefix) + '">+ ' +
+      escHtml(portalT('admin.packs.addSecondaryTime')) + '</button>';
   }
   return html;
 }
@@ -1541,7 +1560,7 @@ function renderAdminPackCards(packs, writes, defaultCap){
   list.forEach(function(p){
     var pid = (p.pack_id || p.id) ? String(p.pack_id || p.id) : '';
     var editing = writes && adminEditTarget === ('pack:' + pid);
-    html += '<article class="portal-admin-pack-card" data-admin-pack-card="' + escHtml(pid) + '">';
+    html += '<article class="portal-admin-pack-card' + (editing ? ' is-editing' : '') + '" data-admin-pack-card="' + escHtml(pid) + '">';
     html += '<div class="portal-admin-card-title-row"><div><div class="portal-admin-pack-title">' + escHtml(p.label || 'Pack') + '</div>' +
       '<div class="portal-admin-pack-sub">' + escHtml(adminLessonAgeLabel(p.age_band)) + '</div></div>';
     if (writes && !editing && !adminPackSectionEditing()){
@@ -2222,6 +2241,15 @@ function wireAdminTab(){
       var equipmentRows=adminReadEquipmentOptions(equipmentEditor).value;
       equipmentRows.push({offering_key:'',during_course_price_cents:0,all_day_price_cents:0});
       equipmentWrap.innerHTML=adminEquipmentRowsHtml(equipmentRows);
+      return;
+    }
+    if (action === 'add-secondary-schedule'){
+      // Reveal Second Start/End without submit; primary values stay untouched.
+      var schedulePrefix = String(btn.getAttribute('data-schedule-prefix') || '').trim();
+      if (!schedulePrefix) return;
+      if (document.getElementById(schedulePrefix + '-schedule-start2')) return;
+      btn.insertAdjacentHTML('beforebegin', adminPackSecondaryScheduleRowHtml(schedulePrefix, { start: '', end: '' }));
+      if (btn.parentNode) btn.parentNode.removeChild(btn);
       return;
     }
     if (action === 'remove-equipment-option'){

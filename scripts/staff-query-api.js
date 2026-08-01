@@ -16314,14 +16314,19 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-edit-field label{display:block;font-size:11px;font-weight:700;color:var(--text-2);margin-bottom:4px}
 .portal-admin-edit-field input{width:100%;max-width:240px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text)}
 .portal-admin-course-equipment-grid{display:grid;grid-template-columns:repeat(2,minmax(0,240px));gap:12px;max-width:100%}
-.portal-admin-equipment-editor{grid-column:1/-1;min-width:0}.portal-admin-equipment-editor h4{margin:4px 0 8px;font-size:13px;font-weight:700;color:var(--text)}
-/* Group/Private course equipment: one compact row — offering select priority width, prices, icon × */
+.portal-admin-equipment-editor{grid-column:1/-1;min-width:0}
+/* Equipment heading: title + icon-only + immediately beside (no full "+ Add equipment" below) */
+.portal-admin-equipment-heading-row{display:flex;align-items:center;gap:6px;margin:4px 0 8px;min-width:0}
+.portal-admin-equipment-heading-row h4,.portal-admin-equipment-editor h4{margin:0;font-size:13px;font-weight:700;color:var(--text);line-height:1.2}
+.portal-admin-equipment-add{flex:0 0 auto;width:32px;min-width:32px;height:32px;min-height:32px;margin:0;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:18px;line-height:1;font-weight:700;box-sizing:border-box}
+/* Group/Private course equipment: compact row — identity select priority, prices, icon × */
 .portal-admin-equipment-option-row{display:block;margin:0 0 8px;min-width:0;max-width:100%}
-.portal-admin-equipment-option-fields{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(68px,.72fr) minmax(68px,.72fr) auto;gap:6px 8px;align-items:end;min-width:0;max-width:100%}
+.portal-admin-equipment-option-fields{display:grid;grid-template-columns:minmax(180px,2.6fr) minmax(72px,.62fr) minmax(72px,.62fr) auto;gap:6px 8px;align-items:end;min-width:0;max-width:100%}
 .portal-admin-equipment-option-row label{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:10px;font-weight:700;color:var(--text-2);line-height:1.25}
 .portal-admin-equipment-offering-field{min-width:0}
 .portal-admin-equipment-price-field{min-width:0}
 .portal-admin-equipment-option-row select,.portal-admin-equipment-option-row input{width:100%;min-width:0;min-height:34px;height:34px;padding:5px 8px;box-sizing:border-box;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px}
+/* Prefer showing full selected identity; ellipsis only as last-resort overflow guard */
 .portal-admin-equipment-option-row select.admin-equipment-offering{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .portal-admin-equipment-remove{flex:0 0 auto;width:28px;min-width:28px;height:28px;min-height:28px;margin:0 0 3px;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:15px;line-height:1;align-self:end;box-sizing:border-box}
 /* Group course equipment/price × only — compact circular danger (override btn-ghost wash) */
@@ -16344,7 +16349,6 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
   color:#f08a7a;border-color:rgba(240,138,122,.75);background:rgba(224,112,96,.16)
 }
 .portal-admin-visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
-.portal-admin-equipment-editor>[data-admin-action="add-equipment-option"]{margin:2px 0 4px;min-height:32px;padding:4px 10px;font-size:12px}
 .portal-admin-touch{display:inline-flex;align-items:center;min-height:44px;margin-right:12px}
 .portal-admin-equip-header{align-items:flex-start}
 /* Rental equipment: enabled only in edit as pill switch */
@@ -16425,8 +16429,14 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-schedule-course-equipment-surfers .portal-schedule-course-equipment-qty-label{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);white-space:nowrap}
 .portal-schedule-course-equipment-surfers input[type=number]{width:64px;min-width:64px;min-height:36px;padding:6px 8px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}
 .portal-schedule-create-main-activity-path{display:none!important}.portal-schedule-create-rental-price{margin-left:auto;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}.portal-schedule-create-rental-row.is-off .portal-schedule-create-rental-price{opacity:.45}
-/* Keep equipment as one deliberate row even on narrow; select still owns priority width */
-@media(max-width:520px){.portal-admin-course-equipment-grid{grid-template-columns:minmax(0,1fr)}.portal-admin-equipment-option-fields{grid-template-columns:minmax(0,1.55fr) minmax(60px,.7fr) minmax(60px,.7fr) auto;gap:5px 6px}.portal-admin-edit-field input{min-height:34px;max-width:100%;box-sizing:border-box}.portal-admin-pack-schedule-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+/* Narrow: wrap equipment into two rows (identity full-width, then prices+×) rather than truncate */
+@media(max-width:520px){
+  .portal-admin-course-equipment-grid{grid-template-columns:minmax(0,1fr)}
+  .portal-admin-equipment-option-fields{grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:5px 6px}
+  .portal-admin-equipment-offering-field{grid-column:1/-1}
+  .portal-admin-edit-field input{min-height:34px;max-width:100%;box-sizing:border-box}
+  .portal-admin-pack-schedule-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+}
 .portal-admin-edit-actions{display:flex;gap:8px;margin-top:0;flex-wrap:wrap;align-items:center}
 /* Groupless Equipment Pricing tab — cleaner add/edit form + duration control. */
 .portal-admin-equip-form{grid-template-columns:none;display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
@@ -16452,7 +16462,10 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-pack-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:8px}
 .portal-admin-room-checklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px 12px;max-height:180px;overflow:auto;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft)}
 .portal-admin-room-checklist label{display:flex;align-items:center;gap:6px;font-size:13px;margin:0}
-.portal-admin-pack-card{border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.portal-admin-pack-card{border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0;max-width:100%;box-sizing:border-box}
+/* Group Course edit only: span available pack-grid/admin width so equipment identity fits */
+.portal-admin-pack-card.is-editing,
+.portal-admin-pack-card:has([data-admin-pack-form]){grid-column:1/-1;width:100%;max-width:100%}
 .portal-admin-pack-title{font-size:14px;font-weight:700;color:var(--text)}
 .portal-admin-pack-sub{font-size:11px;color:var(--text-3)}
 .portal-admin-pill-group{display:flex;flex-direction:column;gap:6px;margin:0 0 8px;min-width:0}
@@ -16477,7 +16490,8 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-pack-schedule-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 10px;margin:0 0 8px;min-width:0;max-width:100%}
 .portal-admin-pack-schedule-row .portal-admin-edit-field{min-width:0;margin:0}
 .portal-admin-pack-schedule-row .portal-admin-edit-field input{max-width:100%;min-width:0;width:100%;box-sizing:border-box}
-.portal-admin-pack-form{min-width:0;max-width:100%;box-sizing:border-box}
+.portal-admin-pack-add-secondary{margin:0 0 10px;min-height:32px;padding:4px 10px;font-size:12px;align-self:start}
+.portal-admin-pack-form{min-width:0;max-width:100%;width:100%;box-sizing:border-box}
 
 #tab-admin.active{display:block}
 #tab-admin{font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
