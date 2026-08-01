@@ -47,6 +47,9 @@ const url    = require('url');
 const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
+const {
+  endWithOptionalGzip,
+} = require('./lib/staff-api-response-compress');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 // Also load infra/.env as fallback (same pattern as pg-connect.js; root .env takes precedence)
@@ -838,6 +841,7 @@ const {
 } = require('./lib/stripe-hold-promote-policy');
 const {
   reconcilePendingStripePaymentsForDate,
+  kickAdvisoryReconcilePendingStripePaymentsForDate,
 } = require('./lib/stripe-payment-reconcile');
 const {
   getPauseState,
@@ -1718,12 +1722,11 @@ function appendAuditLog(entry) {
 
 function sendJSON(res, statusCode, body) {
   const data = JSON.stringify(body, null, 2);
-  res.writeHead(statusCode, {
+  endWithOptionalGzip(res, statusCode, {
     'Content-Type':  'application/json',
     'Cache-Control': 'no-store',
     'X-Powered-By':  'wolfhouse-staff-api/6.6',
-  });
-  res.end(data);
+  }, data);
 }
 
 function send400(res, message) {
@@ -1740,12 +1743,11 @@ function send405(res) {
 }
 
 function sendHTML(res, statusCode, html) {
-  res.writeHead(statusCode, {
+  endWithOptionalGzip(res, statusCode, {
     'Content-Type':  'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
     'X-Powered-By':  'wolfhouse-staff-api/stripe-landing',
-  });
-  res.end(html);
+  }, html);
 }
 
 function sendPlainText(res, statusCode, text) {
@@ -40215,12 +40217,11 @@ function lgsCreateStripeLink(){
 function handleUI(res, port, req) {
   const host = req && req.headers ? req.headers.host : '';
   const html = buildUiHtml(port, resolvePortalDeployClient({ host }));
-  res.writeHead(200, {
+  endWithOptionalGzip(res, 200, {
     'Content-Type':  'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
     'X-Powered-By':  'wolfhouse-staff-api/7.7c',
-  });
-  res.end(html);
+  }, html, { req });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -40277,12 +40278,11 @@ function handleStaffPortalLoginBg(res) {
 
 function handleLoginPage(res, req) {
   const html = buildLoginHtml(req);
-  res.writeHead(200, {
+  endWithOptionalGzip(res, 200, {
     'Content-Type':  'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
     'X-Powered-By':  'wolfhouse-staff-api/7.3e',
-  });
-  res.end(html);
+  }, html, { req });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -42329,16 +42329,17 @@ async function handleSunsetScheduleDayGet(query, res, user) {
   if (clientSlug !== SUNSET_CLIENT_SLUG) return sendJSON(res, 403, { success: false, error: 'sunset only' });
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
-  // Best-effort: pull Stripe truth for this date's pending payments BEFORE reading
-  // the schedule, so a paid link shows paid even when the Stripe webhook never
-  // reached this deployment. Advisory only — never blocks or breaks the read.
+  // Best-effort: pull Stripe truth for this date's pending payments in the
+  // background so a paid link can catch up when the webhook never reached this
+  // deployment. Advisory only — must NOT block the schedule read on Stripe RTT.
+  // Throttled to once per (clientSlug+date) per ~2 min (rapid reload storms).
   if (STRIPE_SECRET_KEY) {
-    try {
+    kickAdvisoryReconcilePendingStripePaymentsForDate(async () => {
       const stripe = require('stripe')(STRIPE_SECRET_KEY);
       await withPgClient((pg) => reconcilePendingStripePaymentsForDate(pg, stripe, {
         clientSlug, dateIso, limit: 25,
       }));
-    } catch (_) { /* reconcile is advisory; schedule read proceeds regardless */ }
+    }, { clientSlug, dateIso });
   }
 
   try {
@@ -49771,6 +49772,8 @@ function createStaffQueryApiHttpServer(options) {
     })
     : null;
   const server = http.createServer((req, res) => {
+    // Response-compression seam: sendJSON/sendHTML read Accept-Encoding here.
+    res.__staffIncomingReq = req;
     void runWithRequestCorrelation(req, res, async () => {
       attachStaffApiRequestCompletion(req, res, {
         startedAtMs: Date.now(),

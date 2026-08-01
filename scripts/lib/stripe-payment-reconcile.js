@@ -392,12 +392,85 @@ async function reconcilePendingStripePaymentsForBooking(pg, stripe, opts) {
   };
 }
 
+// ── Advisory schedule-day reconcile (non-blocking + light throttle) ──────────
+// handleSunsetScheduleDayGet must not await Stripe RTT. Kick background work and
+// throttle rapid reload storms to once per (clientSlug+date) per ~2 minutes.
+const RECONCILE_DATE_THROTTLE_MS = 2 * 60 * 1000;
+const _reconcileDateLastKickMs = new Map();
+
+function reconcileDateThrottleKey(clientSlug, dateIso) {
+  return `${String(clientSlug || '').trim()}::${String(dateIso || '').trim()}`;
+}
+
+/** Test seam — clears in-memory throttle map. */
+function resetReconcileDateThrottleForTests() {
+  _reconcileDateLastKickMs.clear();
+}
+
+/**
+ * @returns {boolean} true when a new kick is allowed (and records the kick time).
+ */
+function shouldKickReconcileForDate(clientSlug, dateIso, nowMs) {
+  const key = reconcileDateThrottleKey(clientSlug, dateIso);
+  if (!clientSlug || !dateIso || key === '::' || key.startsWith('::') || key.endsWith('::')) {
+    return false;
+  }
+  const now = nowMs != null ? Number(nowMs) : Date.now();
+  const last = _reconcileDateLastKickMs.get(key);
+  if (last != null && (now - last) < RECONCILE_DATE_THROTTLE_MS) {
+    return false;
+  }
+  _reconcileDateLastKickMs.set(key, now);
+  // Bound map growth under many distinct dates.
+  if (_reconcileDateLastKickMs.size > 512) {
+    const cutoff = now - (RECONCILE_DATE_THROTTLE_MS * 2);
+    for (const [k, t] of _reconcileDateLastKickMs) {
+      if (t < cutoff) _reconcileDateLastKickMs.delete(k);
+    }
+  }
+  return true;
+}
+
+/**
+ * Fire-and-forget advisory reconcile. Never awaits `runner`. Swallows rejections.
+ * @param {() => (any|Promise<any>)} runner
+ * @param {{ clientSlug?: string, dateIso?: string, nowMs?: number }} [opts]
+ * @returns {{ kicked: boolean, reason?: string }}
+ */
+function kickAdvisoryReconcilePendingStripePaymentsForDate(runner, opts) {
+  opts = opts || {};
+  const clientSlug = opts.clientSlug;
+  const dateIso = opts.dateIso;
+  if (!clientSlug || !dateIso) {
+    return { kicked: false, reason: 'missing_inputs' };
+  }
+  if (typeof runner !== 'function') {
+    return { kicked: false, reason: 'no_runner' };
+  }
+  if (!shouldKickReconcileForDate(clientSlug, dateIso, opts.nowMs)) {
+    return { kicked: false, reason: 'throttled' };
+  }
+  try {
+    Promise.resolve()
+      .then(() => runner())
+      .catch(() => { /* advisory — never surface */ });
+  } catch (_) {
+    return { kicked: false, reason: 'sync_throw' };
+  }
+  return { kicked: true };
+}
+
 module.exports = {
   RECONCILE_PENDING_STATUSES,
   BOOKING_RECONCILE_MAX,
+  RECONCILE_DATE_THROTTLE_MS,
   isValidStripeSessionId,
   listDuplicatePaidFullPaymentSessions,
   reconcilePaidStripeSession,
   reconcilePendingStripePaymentsForDate,
   reconcilePendingStripePaymentsForBooking,
+  reconcileDateThrottleKey,
+  resetReconcileDateThrottleForTests,
+  shouldKickReconcileForDate,
+  kickAdvisoryReconcilePendingStripePaymentsForDate,
 };
