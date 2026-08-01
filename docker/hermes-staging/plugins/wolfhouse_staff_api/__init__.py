@@ -1682,6 +1682,88 @@ def get_sunset_group_lesson_quote(params, **kwargs):
     })
 
 
+
+def _cents_to_eur_amount(cents):
+    try:
+        n = int(cents)
+    except (TypeError, ValueError):
+        return None
+    return round(n / 100.0, 2)
+
+
+def _project_guest_equipment_truth(offering):
+    """Guest-safe equipment truth from catalog equipment_options only.
+
+    Free during-course gear = options with during_course_price_cents == 0.
+    Never invent wax/board/wetsuit when options are empty or missing.
+    """
+    if not isinstance(offering, dict):
+        return {
+            "free_during_course": [],
+            "paid_or_upgrade_options": [],
+            "may_claim_free_during_course_gear": False,
+            "source": "equipment_options",
+        }
+    free = []
+    paid = []
+    seen_free = set()
+    seen_paid = set()
+    for raw in offering.get("equipment_options") or []:
+        if not isinstance(raw, dict):
+            continue
+        key = _clean(raw.get("offering_key") or raw.get("item_code"))
+        label = _clean(raw.get("label") or raw.get("display_name") or key)
+        if not key and not label:
+            continue
+        try:
+            during = int(raw["during_course_price_cents"]) if raw.get("during_course_price_cents") is not None else None
+        except (TypeError, ValueError):
+            during = None
+        try:
+            all_day = int(raw["all_day_price_cents"]) if raw.get("all_day_price_cents") is not None else None
+        except (TypeError, ValueError):
+            all_day = None
+        row = {
+            "offering_key": key or None,
+            "label": label or key,
+            "during_course_price_cents": during,
+            "all_day_price_cents": all_day,
+            "during_course_amount_eur": _cents_to_eur_amount(during) if during is not None else None,
+            "all_day_amount_eur": _cents_to_eur_amount(all_day) if all_day is not None else None,
+        }
+        if during == 0:
+            sk = key or label
+            if sk not in seen_free:
+                seen_free.add(sk)
+                free.append(row)
+        # Paid path: any positive during or all-day price is a selectable paid/upgrade option.
+        if (during is not None and during > 0) or (all_day is not None and all_day > 0):
+            sk = f"{key or label}|{during}|{all_day}"
+            if sk not in seen_paid:
+                seen_paid.add(sk)
+                paid.append(row)
+    return {
+        "free_during_course": free,
+        "paid_or_upgrade_options": paid,
+        "may_claim_free_during_course_gear": len(free) > 0,
+        "source": "equipment_options",
+    }
+
+
+def _attach_guest_equipment_truth(offering):
+    if not isinstance(offering, dict):
+        return offering
+    out = dict(offering)
+    truth = _project_guest_equipment_truth(out)
+    out["guest_equipment"] = truth
+    # Convenience mirrors for the model (still catalog-sourced).
+    out["free_included_equipment_labels"] = [
+        r.get("label") for r in truth["free_during_course"] if r.get("label")
+    ]
+    out["may_claim_free_equipment"] = truth["may_claim_free_during_course_gear"]
+    return out
+
+
 def get_sunset_lesson_catalog(params, **kwargs):
     """Read the configured Sunset course/private offerings before describing them."""
     del kwargs
@@ -1723,7 +1805,8 @@ def get_sunset_lesson_catalog(params, **kwargs):
             o = dict(o)
             o["offering_id"] = str(item_code)
             o["canonical_offering_id"] = str(item_code)
-        offerings.append(o)
+        # Surface catalog equipment truth (free vs paid options) — never invent wax/board lists.
+        offerings.append(_attach_guest_equipment_truth(o))
     return _json_result({
         "success": ok,
         "tool": "get_sunset_lesson_catalog",
@@ -1767,6 +1850,17 @@ def get_sunset_offering_quote(params, **kwargs):
             )
         else:
             guest_next = "Let me double-check that option with the team and get right back to you 😊"
+    # Equipment truth: prefer quote payload options; fall back to empty (no invention).
+    eq_source = {
+        "equipment_options": data.get("equipment_options")
+        if isinstance(data.get("equipment_options"), list)
+        else (
+            (data.get("offering") or {}).get("equipment_options")
+            if isinstance(data.get("offering"), dict)
+            else []
+        ),
+    }
+    guest_equipment = _project_guest_equipment_truth(eq_source)
     return _json_result({
         "success": ok,
         "tool": "get_sunset_offering_quote",
@@ -1783,6 +1877,12 @@ def get_sunset_offering_quote(params, **kwargs):
         "price_source": data.get("price_source"),
         "schedule_summary": data.get("schedule_summary"),
         "course_equipment": data.get("course_equipment"),
+        "equipment_options": eq_source.get("equipment_options") or [],
+        "guest_equipment": guest_equipment,
+        "free_included_equipment_labels": [
+            r.get("label") for r in guest_equipment.get("free_during_course") or [] if r.get("label")
+        ],
+        "may_claim_free_equipment": guest_equipment.get("may_claim_free_during_course_gear") is True,
         "line_items": data.get("line_items"),
         "quote_provenance": data.get("quote_provenance"),
         "error": data.get("error") if not ok else None,
@@ -2123,10 +2223,14 @@ def _apply_sunset_lesson_time_preference_notes(payload, components):
 _SUNSET_SERVICE_COMPONENT_KEYS = frozenset({"lesson", "course", "private_lesson"})
 _SUNSET_RENTAL_INTENT_RE = re.compile(
     r"(?:"
-    r"\b(?:rent|rental|hire|alquil\w*|nolegg\w*|miet\w*|equipment|gear|material|"
+    r"\b(?:"
+    r"rent|rental|hire|alquil\w*|nolegg\w*|miet\w*|equipment|gear|material|"
     r"neopren\w*|wetsuit|muta|tabla|surfboard|foil|sup|paddle(?:board)?|"
     r"board|suit|include\s+board|include\s+wetsuit|with\s+board|with\s+wetsuit|"
-    r"con\s+tabla|con\s+neopreno|resto\s+del\s+d[ií]a)\b"
+    r"con\s+tabla|con\s+neopreno|resto\s+del\s+d[ií]a|"
+    r"rest\s+of\s+(?:the\s+)?day|keep\s+(?:the\s+)?gear|full[-\s]?day\s+equipment|"
+    r"material\s+el\s+resto"
+    r")\b"
     r"|[a-z][a-z0-9_]*_rental\b"
     r")",
     re.I,
@@ -2701,7 +2805,7 @@ def _sunset_tools():
         ),
         (
             "get_sunset_full_day_equipment_addon",
-            "Get the live price for the optional 'keep the gear for the rest of the day' add-on (per person per day when configured). "
+            "Get the live price/availability for the optional rest-of-day equipment add-on. Offer it at most once when available after a part-day lesson or rental. Use amount_eur only. If the guest accepts, create with components.full_day_equipment_addon (structured) — never notes-only. If inactive/unavailable or the guest declines, do not offer or re-offer."
             "Optionally pass dates (YYYY-MM-DD list) and quantity (people) for a quote total. "
             "Use amount_eur before offering or confirming it. If inactive/unavailable, do not offer it.",
             get_sunset_full_day_equipment_addon,
@@ -2715,7 +2819,7 @@ def _sunset_tools():
         ("get_sunset_private_lesson", "Get the Sunset private/coaching lesson product (custom sessions, no fixed slots): price and duration. Use before quoting a private lesson.", get_sunset_private_lesson, {**loc}, []),
         ("get_sunset_lesson_availability", "Check group lesson capacity for a date before confirming ANY lesson seat (lessons are capacity-limited). If take_request is true (capacity unknown or full), take the guest's request and tell them the team will confirm the exact time — never invent a seat or slot.", get_sunset_lesson_availability, {"date": {"type": "string", "description": "Lesson date YYYY-MM-DD."}, **loc}, ["date"]),
         ("get_sunset_joinable_courses", "List Admin-configured courses a guest can currently join BEFORE offering or booking a course. Prefer course_id values returned here — never invent a course. Optional date filters remaining capacity.", get_sunset_joinable_courses, {"date": {"type": "string", "description": "Optional YYYY-MM-DD to compute remaining capacity and filter joinable offerings."}, "include_full": {"type": "boolean", "description": "When true, also return full courses (joinable=false)."}, **loc}, []),
-        ("get_sunset_lesson_catalog", "Get the current Admin-configured Sunset lesson and course options BEFORE describing options or prices. Offer only returned offerings; preserve offering_id and course_id exactly. Optional date filters effectiveness; quantity is informational. For rentals use get_sunset_rental_catalog instead.", get_sunset_lesson_catalog, {"date": {"type": "string", "description": "Optional as-of date YYYY-MM-DD when asking what is offered on a day."}, "quantity": {"type": "integer", "description": "Optional surfer count (does not invent totals — use get_sunset_offering_quote)."}, "require_db": {"type": "boolean", "description": "Require DB-backed Admin data when true."}, **loc}, []),
+        ("get_sunset_lesson_catalog", "Get the current Admin-configured Sunset lesson and course options BEFORE describing options, prices, or inclusions. Offer only returned offerings; preserve offering_id and course_id exactly. Read free_included_equipment_labels / guest_equipment from each offering — only claim free gear when may_claim_free_equipment is true (never invent wax/board lists). For rentals use get_sunset_rental_catalog instead.", get_sunset_lesson_catalog, {"date": {"type": "string", "description": "Optional as-of date YYYY-MM-DD when asking what is offered on a day."}, "quantity": {"type": "integer", "description": "Optional surfer count (does not invent totals — use get_sunset_offering_quote)."}, "require_db": {"type": "boolean", "description": "Require DB-backed Admin data when true."}, **loc}, []),
         ("get_sunset_offering_quote", "Get the authoritative quote for one exact catalog offering. For course gear pass canonical top-level course_equipment and preserve returned course_equipment, line_items, and quote_provenance exactly for create.", get_sunset_offering_quote, {"offering_id": {"type": "string", "description": "Exact offering_id returned by get_sunset_lesson_catalog."}, "course_id": {"type": "string", "description": "Exact course_id returned with a course offering."}, "quantity": {"type": "integer", "description": "Number of surfers/items (default 1)."}, "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected session dates."}, "course_equipment": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["during_course", "all_day"]}, "quantity": {"type": "integer", "minimum": 1}}, "required": ["mode", "quantity"], "additionalProperties": False}, "require_db": {"type": "boolean"}, **loc}, ["offering_id"]),
     ]
 

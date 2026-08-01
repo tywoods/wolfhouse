@@ -838,7 +838,8 @@
     "verify:messi-saas-stage2d21-prepared-rg": "node scripts/verify-messi-saas-stage2d21-prepared-rg.js",
     "verify:sunset-create-equipment-mobile-layout-playwright": "node scripts/verify-sunset-create-equipment-mobile-layout-playwright.js",
     "verify:luna-tenant-catalog-s1": "node scripts/verify-luna-tenant-catalog-s1.js",
-    "verify:luna-rental-catalog-tool": "python3 docker/hermes-staging/plugins/wolfhouse_staff_api/test_sunset_rental_catalog_tool.py"
+    "verify:luna-rental-catalog-tool": "python3 docker/hermes-staging/plugins/wolfhouse_staff_api/test_sunset_rental_catalog_tool.py",
+    "verify:luna-sunset-course-equipment-s2": "python3 docker/hermes-staging/plugins/wolfhouse_staff_api/test_sunset_course_equipment_s2.py"
   },
   "dependencies": {
     "acorn": "8.14.1",
