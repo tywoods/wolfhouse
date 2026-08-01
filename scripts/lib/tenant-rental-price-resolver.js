@@ -25,7 +25,7 @@
  * `{ ok:false, reason }` and NEVER a guessed amount.
  */
 
-const { resolveRentalBillingUnit, resolveDurationKey } = require('./sunset-rental-price-lookup');
+const { resolveRentalBillingUnit, resolveDurationKey, rentalOfferingKeyCandidates } = require('./sunset-rental-price-lookup');
 const { isValidOfferingKey } = require('./tenant-rental-offerings');
 const { parseRentalDurationKey, rentalDurationKeyFromUnitCount } = require('../browser/sunset-rental-duration-model');
 
@@ -185,16 +185,29 @@ async function resolveGenericRentalPrice(opts) {
 
   const loadRule = o.loadRule || defaultLoadRule;
   let dbRes;
+  let resolvedOfferingKey = offeringKey;
   try {
-    dbRes = await loadRule({
-      clientSlug,
-      locationId,
-      itemType: 'rental',
-      itemCode: offeringKey,
-      duration: durationKey,
-      billingUnit,
-      pgClient: o.pgClient,
-    });
+    const candidates = typeof rentalOfferingKeyCandidates === 'function'
+      ? rentalOfferingKeyCandidates(offeringKey)
+      : [offeringKey];
+    for (const cand of candidates) {
+      // eslint-disable-next-line no-await-in-loop
+      const attempt = await loadRule({
+        clientSlug,
+        locationId,
+        itemType: 'rental',
+        itemCode: cand,
+        duration: durationKey,
+        billingUnit,
+        pgClient: o.pgClient,
+      });
+      if (attempt && attempt.status === 'found') {
+        dbRes = attempt;
+        resolvedOfferingKey = cand;
+        break;
+      }
+      dbRes = attempt;
+    }
   } catch (err) {
     return fail('price_lookup_failed', {
       offering_key: offeringKey,
@@ -221,7 +234,7 @@ async function resolveGenericRentalPrice(opts) {
   // Duration/item integrity (blocker #3): the resolved rule MUST be exactly the
   // requested offering+duration. A rule for a different item_code or a bundle
   // window must never be borrowed to price this generic item.
-  const expectedItemCode = `${offeringKey}__${durationKey}`;
+  const expectedItemCode = `${resolvedOfferingKey}__${durationKey}`;
   if (dbRes.item_code != null && String(dbRes.item_code).trim() !== expectedItemCode) {
     return fail('price_scope_mismatch', {
       offering_key: offeringKey,
@@ -247,6 +260,7 @@ async function resolveGenericRentalPrice(opts) {
   return {
     ok: true,
     client_slug: clientSlug,
+    offering_key: resolvedOfferingKey,
     location_id: dbRes.location_id != null ? dbRes.location_id : locationId,
     offering_key: offeringKey,
     duration_key: durationKey,

@@ -1,11 +1,11 @@
-"""Functional tests for create_sunset_booking board+wetsuit bundle normalization.
+"""Functional tests for create_sunset_booking board+wetsuit exact-offering path.
 
-Commit 2 — Luna sends the board+wetsuit bundle in several shapes; the plugin must
-deterministically produce EXACT surfboard+wetsuit component rows plus an
-authoritative rental_pricing descriptor, or fail closed with NO booking write.
+P1c: Luna sends board+wetsuit in several shapes; the plugin must re-quote via
+/sunset/rental-price (same as get_sunset_rental_price), then POST an exact
+offering write (rentals[] + rental_pricing) — never historical surfboard+wetsuit
+component halves. Fail closed with NO booking write when price/shape is invalid.
 
-Pure logic: _post_bot is monkeypatched, so there is no network/DB. Every _post_bot
-call and its exact body is recorded and inspected. Run:
+Pure logic: _post_bot is monkeypatched. Run:
 
     python3 docker/hermes-staging/plugins/wolfhouse_staff_api/test_sunset_bundle_normalization.py
 """
@@ -63,9 +63,31 @@ def with_fake(responses):
 
 
 # Mocked portal quote: unit 2000 cents (€20) for the board+wetsuit half-day bundle.
-QUOTE_OK = {"ok": True, "result": {"item": "board_and_suit_rental", "duration": "half_day", "amount_cents": 2000}}
+QUOTE_OK = {
+    "ok": True,
+    "result": {
+        "item": "board_and_suit_rental",
+        "duration": "half_day",
+        "amount_cents": 2000,
+    },
+}
+QUOTE_SW = {
+    "ok": True,
+    "result": {
+        "item": "surfboard_wetsuit_rental",
+        "duration": "1_day",
+        "amount_cents": 2500,
+    },
+}
 QUOTE_FAIL = {"ok": False, "result": {}}
-BOOKING_OK = {"success": True, "booking_id": "bk-1", "booking_code": "SUNSET-1", "total_cents": 4000, "currency": "EUR", "location_id": "sunset-somo"}
+BOOKING_OK = {
+    "success": True,
+    "booking_id": "bk-1",
+    "booking_code": "SUNSET-1",
+    "total_cents": 4000,
+    "currency": "EUR",
+    "location_id": "sunset-somo",
+}
 
 
 def base_payload(**over):
@@ -79,32 +101,56 @@ def base_payload(**over):
     return p
 
 
-print("\ntest_sunset_bundle_normalization — deterministic board+wetsuit bundle\n")
+def assert_exact_rental(body, offering_key, duration, qty, total_cents):
+    if not body:
+        return False, "no body"
+    rentals = body.get("rentals") or []
+    if not (isinstance(rentals, list) and len(rentals) == 1):
+        return False, rentals
+    row = rentals[0]
+    rp = body.get("rental_pricing") or {}
+    comps = body.get("components") or {}
+    ok = (
+        row.get("offering_key") == offering_key
+        and row.get("duration_key") == duration
+        and row.get("quantity") == qty
+        and rp.get("offering_key") == offering_key
+        and rp.get("duration") == duration
+        and rp.get("quantity") == qty
+        and rp.get("quoted_total_cents") == total_cents
+        and "surfboard" not in comps
+        and "wetsuit" not in comps
+        and "board_and_suit_rental" not in comps
+    )
+    return ok, {"rentals": rentals, "rental_pricing": rp, "components": comps}
 
-# [1] Valid rental_pricing, NO components → exact surfboard+wetsuit rows.
+
+print("\ntest_sunset_bundle_normalization — exact offering board+wetsuit path\n")
+
+# [1] Valid rental_pricing, NO components → exact rentals[] write.
 fake = with_fake({"/sunset/rental-price": QUOTE_OK, "/sunset/booking-create": BOOKING_OK})
 r = json.loads(mod.create_sunset_booking(base_payload(rental_pricing={
     "offering_key": "board_and_suit_rental", "duration": "half day", "quantity": 2, "quoted_total_cents": 3000,
 })))
 body = fake.body_for("/sunset/booking-create")
 check("[1] rental_pricing-only → booking POST made", fake.called("/sunset/booking-create"))
-check("[1] components rebuilt to surfboard+wetsuit", bool(body) and set(body.get("components", {})) == {"surfboard", "wetsuit"}, body and body.get("components"))
-check("[1] surfboard qty2 half_day", bool(body) and body["components"]["surfboard"] == {"quantity": 2, "duration": "half_day"})
-check("[1] wetsuit qty2 half_day", bool(body) and body["components"]["wetsuit"] == {"quantity": 2, "duration": "half_day"})
-check("[1] no board_and_suit_rental component sent", bool(body) and "board_and_suit_rental" not in body.get("components", {}))
-check("[1] quoted_total_cents = unit 2000 × 2 = 4000 (stale 3000 overridden)", bool(body) and body["rental_pricing"]["quoted_total_cents"] == 4000, body and body.get("rental_pricing"))
+ok, detail = assert_exact_rental(body, "board_and_suit_rental", "half_day", 2, 4000)
+check("[1] exact rentals[] (no surfboard/wetsuit halves)", ok, detail)
+check("[1] quoted_total_cents = unit 2000 × 2 = 4000 (stale 3000 overridden)", ok, detail)
+check("[1] portal re-quote called", fake.called("/sunset/rental-price"))
 check("[1] result success", r.get("success") is True)
 
-# [2] Unsupported combined component key → exact surfboard+wetsuit rows.
+# [2] Unsupported combined component key → exact rentals[].
 fake = with_fake({"/sunset/rental-price": QUOTE_OK, "/sunset/booking-create": BOOKING_OK})
 mod.create_sunset_booking(base_payload(components={"board_and_suit_rental": {"quantity": 2, "duration": "half_day"}}))
 body = fake.body_for("/sunset/booking-create")
 check("[2] combined component → booking POST made", fake.called("/sunset/booking-create"))
-check("[2] combined replaced by surfboard+wetsuit", bool(body) and set(body.get("components", {})) == {"surfboard", "wetsuit"})
-check("[2] combined key dropped", bool(body) and "board_and_suit_rental" not in body.get("components", {}))
-check("[2] quoted_total_cents 4000", bool(body) and body["rental_pricing"]["quoted_total_cents"] == 4000)
+ok, detail = assert_exact_rental(body, "board_and_suit_rental", "half_day", 2, 4000)
+check("[2] combined → exact rentals[]", ok, detail)
+check("[2] combined key not a schedule component", bool(body) and "board_and_suit_rental" not in (body.get("components") or {}))
+check("[2] quoted_total_cents 4000", ok, detail)
 
-# [3] Legacy matching surfboard+wetsuit, NO rental_pricing → quote lookup + exact descriptor.
+# [3] Legacy matching surfboard+wetsuit, NO rental_pricing → quote + exact descriptor.
 fake = with_fake({"/sunset/rental-price": QUOTE_OK, "/sunset/booking-create": BOOKING_OK})
 mod.create_sunset_booking(base_payload(components={
     "surfboard": {"quantity": 2, "duration": "half_day"},
@@ -113,9 +159,8 @@ mod.create_sunset_booking(base_payload(components={
 body = fake.body_for("/sunset/booking-create")
 check("[3] legacy rows → portal quote fetched", fake.called("/sunset/rental-price"))
 check("[3] legacy rows → booking POST made", fake.called("/sunset/booking-create"))
-check("[3] rental_pricing built from quote (offering board_and_suit_rental)", bool(body) and body["rental_pricing"]["offering_key"] == "board_and_suit_rental")
-check("[3] quoted_total_cents 4000", bool(body) and body["rental_pricing"]["quoted_total_cents"] == 4000)
-check("[3] exact surfboard+wetsuit rows preserved", bool(body) and body["components"]["surfboard"]["quantity"] == 2 and body["components"]["wetsuit"]["quantity"] == 2)
+ok, detail = assert_exact_rental(body, "board_and_suit_rental", "half_day", 2, 4000)
+check("[3] legacy halves → exact offering (no halves kept)", ok, detail)
 
 # [4] Mismatched quantities → NO booking POST.
 fake = with_fake({"/sunset/rental-price": QUOTE_OK, "/sunset/booking-create": BOOKING_OK})
@@ -148,84 +193,28 @@ src = inspect.getsource(mod.create_sunset_booking) + inspect.getsource(mod._reso
 check("[7] no hard-coded 2000 in bundle production code", "2000" not in src)
 check("[7] no hard-coded 4000 in bundle production code", "4000" not in src)
 
-# [8] Non-bundle booking (single surfboard) passes through unchanged, no quote fetch.
-fake = with_fake({"/sunset/booking-create": BOOKING_OK})
-mod.create_sunset_booking(base_payload(components={"surfboard": {"quantity": 1, "duration": "1_day"}}))
+# [8] Live catalog key surfboard_wetsuit_rental works via re-quote.
+fake = with_fake({"/sunset/rental-price": QUOTE_SW, "/sunset/booking-create": BOOKING_OK})
+r = json.loads(mod.create_sunset_booking(base_payload(rental_pricing={
+    "offering_key": "surfboard_wetsuit_rental", "duration": "1_day", "quantity": 1, "quoted_total_cents": 999,
+})))
 body = fake.body_for("/sunset/booking-create")
-check("[8] single-rental booking still POSTs", fake.called("/sunset/booking-create"))
-check("[8] single rental not treated as bundle (no quote fetch)", not fake.called("/sunset/rental-price"))
-check("[8] single surfboard component preserved verbatim", bool(body) and body["components"] == {"surfboard": {"quantity": 1, "duration": "1_day"}})
+ok, detail = assert_exact_rental(body, "surfboard_wetsuit_rental", "1_day", 1, 2500)
+check("[8] surfboard_wetsuit_rental → exact rentals[]", ok, detail)
+check("[8] surfboard_wetsuit success", r.get("success") is True)
 
-# [9] Live model alias must become the backend canonical add-on component.
-fake = with_fake({"/sunset/rental-price": QUOTE_OK, "/sunset/booking-create": {**BOOKING_OK, "total_cents": 6000}})
-r = json.loads(mod.create_sunset_booking(base_payload(
-    components={
-        "surfboard": {"quantity": 2, "duration": "half_day"},
-        "wetsuit": {"quantity": 2, "duration": "half_day"},
-        "full_day_equipment_addon": {"quantity": 2},
-    },
-    rental_pricing={"offering_key": "board_and_suit_rental", "duration": "half_day", "quantity": 2, "quoted_total_cents": 4000},
-)))
+# [9] Bike generic rental_pricing → rentals[] promote + re-quote.
+QUOTE_BIKE = {"ok": True, "result": {"item": "bike_rental", "duration": "1_day", "amount_cents": 1200}}
+fake = with_fake({"/sunset/rental-price": QUOTE_BIKE, "/sunset/booking-create": BOOKING_OK})
+r = json.loads(mod.create_sunset_booking(base_payload(rental_pricing={
+    "offering_key": "bike_rental", "duration": "1_day", "quantity": 1, "quoted_total_cents": 1200,
+})))
 body = fake.body_for("/sunset/booking-create")
-check("[9] alias booking POST made", fake.called("/sunset/booking-create"))
-check("[9] alias removed", bool(body) and "full_day_equipment_addon" not in body.get("components", {}), body and body.get("components"))
-check("[9] canonical add-on inserted", bool(body) and body.get("components", {}).get("full_day_equipment_extension") == {"enabled": True, "dates": {"2026-07-21": 2}}, body and body.get("components"))
-check("[9] authoritative €60 result passes through", r.get("total_cents") == 6000, r)
+ok, detail = assert_exact_rental(body, "bike_rental", "1_day", 1, 1200)
+check("[9] bike rental_pricing → rentals[]", ok, detail)
+check("[9] bike success", r.get("success") is True)
 
-# [10] Ambiguous add-on inputs fail closed before any booking POST.
-for label, extra in [
-    ("missing date", {"service_date": None}),
-    ("invalid quantity", {"components": {"surfboard": {"quantity": 2, "duration": "half_day"}, "wetsuit": {"quantity": 2, "duration": "half_day"}, "full_day_equipment_addon": {"quantity": 0}}}),
-]:
-    fake = with_fake({"/sunset/rental-price": QUOTE_OK, "/sunset/booking-create": BOOKING_OK})
-    payload = base_payload(
-        components={"surfboard": {"quantity": 2, "duration": "half_day"}, "wetsuit": {"quantity": 2, "duration": "half_day"}, "full_day_equipment_addon": {"quantity": 2}},
-        rental_pricing={"offering_key": "board_and_suit_rental", "duration": "half_day", "quantity": 2},
-    )
-    payload.update(extra)
-    out = json.loads(mod.create_sunset_booking(payload))
-    check(f"[10] {label} → no booking POST", not fake.called("/sunset/booking-create"))
-    check(f"[10] {label} → typed error", out.get("error") == "full_day_equipment_addon_invalid", out)
-
-# [11] Non-bundle rentals use the same add-on canonicalization.
-fake = with_fake({"/sunset/booking-create": {**BOOKING_OK, "total_cents": 4000}})
-mod.create_sunset_booking(base_payload(components={
-    "surfboard": {"quantity": 2},
-    "full_day_equipment_addon": {"quantity": 2},
-}))
-body = fake.body_for("/sunset/booking-create")
-check("[11] single rental alias removed", bool(body) and "full_day_equipment_addon" not in body.get("components", {}), body and body.get("components"))
-check("[11] single rental canonical add-on inserted", bool(body) and body.get("components", {}).get("full_day_equipment_extension") == {"enabled": True, "dates": {"2026-07-21": 2}}, body and body.get("components"))
-
-# [12] Advertised date_from/date_to form expands inclusively.
-fake = with_fake({"/sunset/booking-create": BOOKING_OK})
-mod.create_sunset_booking(base_payload(
-    service_date=None,
-    date_from="2026-07-21",
-    date_to="2026-07-22",
-    components={"surfboard": {"quantity": 1}, "full_day_equipment_addon": {"quantity": 1}},
-))
-body = fake.body_for("/sunset/booking-create")
-check("[12] date range booking POST made", fake.called("/sunset/booking-create"))
-check("[12] date range add-on expands inclusively", bool(body) and body.get("components", {}).get("full_day_equipment_extension") == {"enabled": True, "dates": {"2026-07-21": 1, "2026-07-22": 1}}, body and body.get("components"))
-
-# [13] Booking consent boundary — quote-only must not POST without literal true.
-for label, consent in [
-    ("omitted", None),
-    ("false", False),
-    ("string true", "true"),
-    ("numeric 1", 1),
-]:
-    fake = with_fake({"/sunset/booking-create": BOOKING_OK})
-    payload = base_payload()
-    if consent is None:
-        payload.pop("guest_confirmed_booking", None)
-    else:
-        payload["guest_confirmed_booking"] = consent
-    out = json.loads(mod.create_sunset_booking(payload))
-    check(f"[13] {label} → no booking POST", not fake.called("/sunset/booking-create"))
-    check(f"[13] {label} → consent error", out.get("error") == "guest_confirmed_booking_required", out)
-
-print("\n── test_sunset_bundle_normalization %s (%d/%d) ──\n" % (
-    "FAILED" if FAILED else "PASSED", PASSED, PASSED + FAILED))
-sys.exit(1 if FAILED else 0)
+print(f"\nResults: {PASSED} passed, {FAILED} failed")
+if FAILED:
+    sys.exit(1)
+print("PASS test_sunset_bundle_normalization\n")

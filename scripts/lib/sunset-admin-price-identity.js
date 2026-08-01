@@ -137,7 +137,11 @@ function rentalIdentity(offeringKey, durationKey, locationId) {
     billing_unit: billingUnit,
     location_id: normalizeSunsetLocationId(locationId || DEFAULT_SUNSET_LOCATION_ID),
     duration_key: duration,
-    billing_mode: offeringBase === 'board_and_suit_rental' ? 'whole_offering_x_qty' : 'unit_x_qty',
+    billing_mode: (
+      offeringBase === 'board_and_suit_rental'
+      || offeringBase === 'surfboard_wetsuit_rental'
+      || offeringBase === 'board_and_wetsuit_rental'
+    ) ? 'whole_offering_x_qty' : 'unit_x_qty',
   };
 }
 
@@ -217,19 +221,29 @@ function resolveSunsetPriceIdentity(input) {
     const duration = rentalDurationFromMeta(meta, offeringRaw || 'wetsuit_rental');
     return rentalIdentity(offeringRaw || 'wetsuit_rental', duration, locationId);
   }
-  if (component === 'board_and_suit_rental' || offeringRaw.startsWith('board_and_suit_rental')) {
-    const duration = rentalDurationFromMeta(meta, offeringRaw || 'board_and_suit_rental');
-    return rentalIdentity(offeringRaw || 'board_and_suit_rental', duration, locationId);
+  if (component === 'board_and_suit_rental' || offeringRaw.startsWith('board_and_suit_rental')
+    || component === 'surfboard_wetsuit_rental' || offeringRaw.startsWith('surfboard_wetsuit_rental')
+    || component === 'board_and_wetsuit_rental' || offeringRaw.startsWith('board_and_wetsuit_rental')) {
+    const base = offeringRaw
+      || (component.endsWith('_rental') ? component : 'board_and_suit_rental');
+    const duration = rentalDurationFromMeta(meta, base);
+    return rentalIdentity(base, duration, locationId);
   }
-  // Staff Create async path sets component/offering_type to generic "rental".
+  // Catalog-driven rentals (bike, towel, SUP, any *_rental offering_key):
+  // component may be the exact offering_key OR generic "rental" with item_code.
   // Preserve compound offering_id / item_code duration — never silent 1_day.
-  if (component === 'rental' || component === 'surf_rental') {
+  if (component === 'rental' || component === 'surf_rental'
+    || component.endsWith('_rental')
+    || offeringRaw.includes('rental')
+    || String(meta.item_type || opts.item_type || '').trim() === 'rental'
+    || String(meta.staff_ui_service_type || '').trim() === 'rental') {
     const raw = offeringRaw
-      || String(meta.offering_item_code || meta.item_code || '').trim();
-    if (raw.startsWith('board_rental') || raw.startsWith('wetsuit_rental')
-      || raw.startsWith('board_and_suit_rental')) {
+      || String(meta.offering_item_code || meta.item_code || component || '').trim();
+    if (raw && (raw.includes('rental') || raw.includes('__') || component.endsWith('_rental'))) {
       const duration = rentalDurationFromMeta(meta, raw);
-      return rentalIdentity(raw, duration, locationId);
+      if (duration) {
+        return rentalIdentity(raw, duration, locationId);
+      }
     }
   }
 
