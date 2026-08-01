@@ -188,6 +188,12 @@ const {
   resolveNotificationSettingsLocationId,
 } = require('./lib/staff-notification-settings-routes');
 const {
+  createAutomatedNotificationsRoutes,
+  AUTOMATED_NOTIFICATIONS_PATH,
+  resolveAutomatedNotificationsLocationId,
+} = require('./lib/staff-automated-notifications-routes');
+
+const {
   listStaffAutomatedNotifications,
   createStaffAutomatedNotification,
   updateStaffAutomatedNotification,
@@ -2408,6 +2414,27 @@ const {
   handleNotificationSettingsGet,
   handleNotificationSettingsPut,
 } = notificationSettingsRoutes;
+
+// Staff automated-notifications collection routes (GET/POST). Auth stays in router (admin).
+// PUT/DELETE /:id remain inline below. Helpers from staff-automated-notifications.js injected.
+const automatedNotificationsRoutes = createAutomatedNotificationsRoutes({
+  sendJSON,
+  send400,
+  readBody,
+  assertStaffClientAccess,
+  appendAuditLog,
+  withPgClient,
+  DEFAULT_CLIENT,
+  SQL_INJECT_RE,
+  ensureStaffAutomatedNotificationsTables,
+  listStaffAutomatedNotifications,
+  createStaffAutomatedNotification,
+});
+const {
+  handleAutomatedNotificationsGet,
+  handleAutomatedNotificationsPost,
+} = automatedNotificationsRoutes;
+
 
 // Staff & Owner WhatsApp numbers routes (extracted module). Auth stays in the router.
 // DELETE /staff/whatsapp-numbers/:id remains inline in this file for Slice 2.
@@ -40519,76 +40546,9 @@ async function handleHouseNotesPost(query, req, res, user) {
 // resolveNotificationSettingsLocationId + GET/PUT handlers live in
 // scripts/lib/staff-notification-settings-routes.js (notificationSettingsRoutes).
 
-function resolveAutomatedNotificationsLocationId(query, body) {
-  return resolveNotificationSettingsLocationId(query, body);
-}
-
-async function handleAutomatedNotificationsGet(query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || query.client_slug || DEFAULT_CLIENT)).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-  const locationId = resolveAutomatedNotificationsLocationId(query, null);
-  try {
-    const notifications = await withPgClient(async (pg) => {
-      await ensureStaffAutomatedNotificationsTables(pg);
-      return listStaffAutomatedNotifications(pg, { clientSlug, locationId });
-    });
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:staff.automated_notifications.list',
-      category: 'admin_api',
-      client_slug: clientSlug,
-      location_id: locationId,
-      success: true,
-      staff_user_id: user ? user.staff_user_id : null,
-      elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 200, {
-      success: true,
-      client_slug: clientSlug,
-      location_id: locationId,
-      notifications,
-      elapsed_ms: Date.now() - started,
-    });
-  } catch (err) {
-    console.error('[automated-notifications.get] failed:', err && err.code, '|', err && err.message);
-    return sendJSON(res, 500, { success: false, error: 'read failed' });
-  }
-}
-
-async function handleAutomatedNotificationsPost(query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || query.client_slug || DEFAULT_CLIENT)).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-  let body;
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
-  const locationId = resolveAutomatedNotificationsLocationId(query, body);
-  try {
-    const r = await withPgClient((pg) => createStaffAutomatedNotification(pg, {
-      clientSlug,
-      locationId,
-      input: body,
-      actor: user,
-    }));
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:staff.automated_notifications.create',
-      category: 'admin_api',
-      client_slug: clientSlug,
-      location_id: locationId,
-      success: r.ok,
-      staff_user_id: user ? user.staff_user_id : null,
-      elapsed_ms: Date.now() - started,
-    });
-    if (!r.ok) return sendJSON(res, r.status || 400, { success: false, error: r.error });
-    return sendJSON(res, 200, { success: true, notification: r.notification, elapsed_ms: Date.now() - started });
-  } catch (err) {
-    console.error('[automated-notifications.post] failed:', err && err.code, '|', err && err.message);
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
-  }
-}
+// resolveAutomatedNotificationsLocationId + GET/POST handlers live in
+// scripts/lib/staff-automated-notifications-routes.js (automatedNotificationsRoutes).
+// PUT/DELETE /:id remain inline (path-param sub-routes).
 
 async function handleAutomatedNotificationsPut(idRaw, query, req, res, user) {
   const started = Date.now();
@@ -48205,12 +48165,13 @@ async function router(req, res) {
   }
 
   // ── Automated staff notifications — scheduled prompt CRUD (admin+owner) ───────
-  if (pathname === '/staff/automated-notifications' && method === 'GET') {
+  // Collection GET/POST from staff-automated-notifications-routes.js; :id PUT/DELETE inline.
+  if (pathname === AUTOMATED_NOTIFICATIONS_PATH && method === 'GET') {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAutomatedNotificationsGet(parsed.query, req, res, auth.user);
   }
-  if (pathname === '/staff/automated-notifications' && method === 'POST') {
+  if (pathname === AUTOMATED_NOTIFICATIONS_PATH && method === 'POST') {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAutomatedNotificationsPost(parsed.query, req, res, auth.user);

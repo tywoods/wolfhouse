@@ -13,6 +13,7 @@ const ROOT = path.join(__dirname, '..');
 const migrationPath = path.join(ROOT, 'database', 'migrations', '033_staff_automated_notifications.sql');
 const libPath = path.join(ROOT, 'scripts', 'lib', 'staff-automated-notifications.js');
 const apiPath = path.join(ROOT, 'scripts', 'staff-query-api.js');
+const routesPath = path.join(ROOT, 'scripts', 'lib', 'staff-automated-notifications-routes.js');
 
 let pass = 0;
 let fail = 0;
@@ -36,6 +37,8 @@ console.log('verify:staff-automated-notifications-crud\n');
 const migration = fs.existsSync(migrationPath) ? read(migrationPath) : '';
 const lib = fs.existsSync(libPath) ? read(libPath) : '';
 const api = fs.existsSync(apiPath) ? read(apiPath) : '';
+const routesMod = fs.existsSync(routesPath) ? read(routesPath) : '';
+const handlerSrc = api + '\n' + routesMod;
 
 console.log('── migration 033 ──');
 ok('migration file exists', !!migration);
@@ -69,17 +72,23 @@ ok('days_of_week 0-6 validation', /days_of_week must be unique integers 0-6/.tes
 ok('persisted recipient shape', /staff_number_id/.test(lib) && /permission_group/.test(lib));
 
 console.log('\n── API routes ──');
-ok('GET /staff/automated-notifications route', /pathname === '\/staff\/automated-notifications' && method === 'GET'/.test(api));
-ok('POST /staff/automated-notifications route', /pathname === '\/staff\/automated-notifications' && method === 'POST'/.test(api));
+ok('GET /staff/automated-notifications route',
+  /pathname === (?:'\/staff\/automated-notifications'|AUTOMATED_NOTIFICATIONS_PATH) && method === 'GET'/.test(handlerSrc));
+ok('POST /staff/automated-notifications route',
+  /pathname === (?:'\/staff\/automated-notifications'|AUTOMATED_NOTIFICATIONS_PATH) && method === 'POST'/.test(handlerSrc));
 ok('PUT /staff/automated-notifications/:id route', /automatedNotificationMatch && method === 'PUT'/.test(api));
 ok('DELETE /staff/automated-notifications/:id route', /automatedNotificationMatch && method === 'DELETE'/.test(api));
-ok('admin auth on automated routes', /handleAutomatedNotificationsGet/.test(api) && /requireAuth\(req, res, 'admin'\)/.test(api));
-ok('client access assert on list handler', /handleAutomatedNotificationsGet[\s\S]*assertStaffClientAccess/.test(api));
+ok('admin auth on automated routes', /handleAutomatedNotificationsGet/.test(handlerSrc) && /requireAuth\(req, res, 'admin'\)/.test(api));
+ok('client access assert on list handler', /handleAutomatedNotificationsGet[\s\S]*assertStaffClientAccess/.test(handlerSrc));
 ok('lib wired into staff-query-api', /require\('\.\/lib\/staff-automated-notifications'\)/.test(api));
+ok('routes module wired', /require\('\.\/lib\/staff-automated-notifications-routes'\)/.test(api));
 
 console.log('\n── forbidden side effects ──');
-const automatedHandlerBlock = api.match(/async function handleAutomatedNotificationsGet[\s\S]*?async function handleBotHouseInfo/);
-const automatedHandlers = automatedHandlerBlock ? automatedHandlerBlock[0] : '';
+// Collection handlers live in routes module; :id PUT/DELETE remain in staff-query-api.
+const collectionHandlers = (routesMod.match(/async function handleAutomatedNotificationsGet[\s\S]*?const handlers = Object\.freeze/) || [''])[0];
+const putDelHandlers = (api.match(/async function handleAutomatedNotificationsPut[\s\S]*?async function handleBotHouseInfo/) || [''])[0];
+const automatedHandlers = collectionHandlers + '\n' + putDelHandlers;
+ok('handler bodies located for side-effect scan', collectionHandlers.length > 100 && putDelHandlers.length > 100);
 ok('handlers do not call sendLunaWhatsAppMessage', !/sendLunaWhatsAppMessage/.test(automatedHandlers));
 ok('handlers do not call executeStaffAskLunaQuestion', !/executeStaffAskLunaQuestion/.test(automatedHandlers));
 ok('automated route block does not call sendLunaWhatsAppMessage', !/automated-notifications[\s\S]{0,1200}sendLunaWhatsAppMessage/.test(api));

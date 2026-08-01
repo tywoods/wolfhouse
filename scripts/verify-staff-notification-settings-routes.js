@@ -444,10 +444,13 @@ console.log('\n── handler response contracts ──');
   ok('module does not call requireAuth', !/\brequireAuth\s*\(/.test(modSrcNoComments));
   ok('module documents admin gate', /requireAuth|admin/.test(modSrc));
 
-  // Automated notifications still share location helper (coupling finding is OK — imported)
+  // Automated notifications still share location helper (Slice 5 moved wrapper into its routes module).
+  const autoRoutesPath = path.join(ROOT, 'scripts', 'lib', 'staff-automated-notifications-routes.js');
+  const autoRoutesSrc = fs.existsSync(autoRoutesPath) ? fs.readFileSync(autoRoutesPath, 'utf8') : '';
   ok(
     'automated location helper still delegates',
-    /function resolveAutomatedNotificationsLocationId[\s\S]{0,120}?resolveNotificationSettingsLocationId/.test(apiSrc),
+    /function resolveAutomatedNotificationsLocationId[\s\S]{0,160}?resolveNotificationSettingsLocationId/.test(autoRoutesSrc)
+      || /function resolveAutomatedNotificationsLocationId[\s\S]{0,120}?resolveNotificationSettingsLocationId/.test(apiSrc),
   );
 
   // UI surface still in buildUiHtml source
@@ -471,7 +474,7 @@ console.log('\n── handler response contracts ──');
   const findings = [];
   findings.push('Handlers depend on monolith deps via createNotificationSettingsRoutes({ sendJSON, send400, readBody, assertStaffClientAccess, appendAuditLog, withPgClient, DEFAULT_CLIENT, SQL_INJECT_RE }).');
   findings.push('withPgClient must be the staff-query-api wrapper (Fortress offline seam), not raw pg-connect — injected via deps.');
-  findings.push('resolveNotificationSettingsLocationId is shared with resolveAutomatedNotificationsLocationId in staff-query-api.js (import from module).');
+  findings.push('resolveNotificationSettingsLocationId is shared with resolveAutomatedNotificationsLocationId (staff-automated-notifications-routes.js).');
   findings.push('DB helpers stay in staff-whatsapp-notifications.js; this module is route-only.');
   for (const f of findings) console.log(`  NOTE  ${f}`);
   ok('findings recorded', findings.length >= 3);
