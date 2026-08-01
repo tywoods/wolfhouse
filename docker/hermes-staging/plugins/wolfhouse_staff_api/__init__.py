@@ -1390,7 +1390,10 @@ def get_sunset_rental_price(params, **kwargs):
             "tool": "get_sunset_rental_price",
             "error": "item_and_duration_required",
             "staff_review_needed": False,
-            "guest_safe_next_action": "Which gear (board, wetsuit, board + wetsuit, or SUP) and for how long (1 hour, half day, 1 day, 2 days, 5 days, 7 days)?",
+            "guest_safe_next_action": (
+                "Which rental item and duration from the live catalog do you want? "
+                "Call get_sunset_rental_catalog if you still need the menu."
+            ),
         })
     data = _post_bot("/sunset/rental-price", {
         "item": item,
@@ -1413,6 +1416,126 @@ def get_sunset_rental_price(params, **kwargs):
         # No confirmed price → don't invent one; let staff confirm.
         "staff_review_needed": not ok and bool(data.get("staff_review_needed")),
         "guest_safe_next_action": None if ok else "Let me double-check that price with the team and get right back to you 😊",
+    })
+
+
+def _sunset_rental_base_item(offering):
+    """Canonical rental item key from a catalog offering row (no hardcoded menu)."""
+    if not isinstance(offering, dict):
+        return ""
+    for key in ("offering_item_code", "item_code", "offering_id"):
+        raw = _clean(offering.get(key))
+        if raw:
+            return raw.split("__", 1)[0]
+    pi = offering.get("price_identity") if isinstance(offering.get("price_identity"), dict) else {}
+    raw = _clean(pi.get("item_code") or pi.get("offering_key"))
+    if raw:
+        return raw.split("__", 1)[0]
+    return ""
+
+
+def _sunset_rental_duration_key(offering):
+    if not isinstance(offering, dict):
+        return ""
+    for key in ("tier_key", "duration_key", "duration", "unit"):
+        raw = _clean(offering.get(key))
+        if raw:
+            return raw
+    pi = offering.get("price_identity") if isinstance(offering.get("price_identity"), dict) else {}
+    for key in ("duration_key", "unit", "period_window"):
+        raw = _clean(pi.get(key))
+        if raw and raw not in ("day", "session", "unit"):
+            return raw
+    # Fall back to item_code tail after __
+    for key in ("offering_item_code", "item_code", "offering_id"):
+        raw = _clean(offering.get(key))
+        if raw and "__" in raw:
+            return raw.split("__", 1)[1]
+    pi_code = _clean(pi.get("item_code"))
+    if pi_code and "__" in pi_code:
+        return pi_code.split("__", 1)[1]
+    return _clean(pi.get("unit"))
+
+
+def _project_sunset_rental_catalog_items(raw_offerings):
+    """Filter catalog offerings to rentals and group by live configured item + durations."""
+    by_item = {}
+    flat = []
+    for o in raw_offerings or []:
+        if not isinstance(o, dict):
+            continue
+        otype = str(o.get("offering_type") or "").lower()
+        oid = str(o.get("offering_id") or o.get("item_code") or o.get("offering_item_code") or "")
+        if otype == "addon" or "full_day_equipment" in oid.lower():
+            continue
+        if otype and otype != "rental":
+            continue
+        # When type missing, only accept clear rental identities.
+        if not otype and "rental" not in oid.lower() and str(o.get("item_type") or "").lower() != "rental":
+            continue
+        item = _sunset_rental_base_item(o)
+        if not item:
+            continue
+        duration = _sunset_rental_duration_key(o)
+        label = _clean(o.get("label") or o.get("guest_description") or o.get("display_name")) or item
+        entry = by_item.get(item)
+        if not entry:
+            entry = {
+                "item": item,
+                "label": label,
+                "durations": [],
+                "duration_set": set(),
+                "offering_ids": [],
+            }
+            by_item[item] = entry
+        if label and (not entry["label"] or entry["label"] == item):
+            entry["label"] = label
+        if duration and duration not in entry["duration_set"]:
+            entry["duration_set"].add(duration)
+            entry["durations"].append(duration)
+        oid_clean = _clean(o.get("offering_id") or o.get("offering_item_code") or o.get("item_code"))
+        if oid_clean and oid_clean not in entry["offering_ids"]:
+            entry["offering_ids"].append(oid_clean)
+        flat.append(dict(o))
+    items = []
+    for item_key in sorted(by_item.keys()):
+        e = by_item[item_key]
+        items.append({
+            "item": e["item"],
+            "label": e["label"],
+            "durations": list(e["durations"]),
+            "offering_ids": list(e["offering_ids"]),
+        })
+    return items, flat
+
+
+def get_sunset_rental_catalog(params, **kwargs):
+    """Live rentable menu from Staff API /sunset/catalog (offering_type=rental only)."""
+    del kwargs
+    payload = dict(params or {})
+    body = {}
+    if payload.get("location_id"):
+        body["location_id"] = payload["location_id"]
+    if payload.get("require_db") is True:
+        body["require_db"] = True
+    data = _post_bot("/sunset/catalog", body)
+    ok = bool(data.get("ok"))
+    raw = data.get("offerings") if ok and isinstance(data.get("offerings"), list) else []
+    items, offerings = _project_sunset_rental_catalog_items(raw)
+    return _json_result({
+        "success": ok,
+        "tool": "get_sunset_rental_catalog",
+        "location_id": data.get("location_id"),
+        "items": items,
+        "offerings": offerings,
+        "currency": data.get("currency") or "EUR",
+        "source": data.get("source"),
+        "reason": data.get("reason") if not ok else None,
+        "staff_review_needed": not ok,
+        "guest_safe_next_action": (
+            None if (ok and items)
+            else "Let me confirm what we have available to rent with the team 😊"
+        ),
     })
 
 
@@ -2512,14 +2635,14 @@ def get_sunset_waiver_link(params, **kwargs):
 def _sunset_write_tools():
     loc = {"location_id": {"type": "string", "description": "sunset-somo or sunset-sardinero. Usually inferred from the school; only pass if the guest specifies."}}
     return [
-        ("create_sunset_booking", "Create the Sunset surf-school booking AFTER the guest has explicitly confirmed they want to book. Requires guest_confirmed_booking:true (literal boolean — quote-only interest is not consent). Accepted canonical component keys are: lesson, course, private_lesson, surfboard, wetsuit, full_day_equipment_addon. Never use group_lesson. For one or multiple ordinary group-lesson dates use components.lesson:{quantity:N,time_preference:'morning'|'afternoon'|'any'} with the dates in service_dates; lesson.quantity is the number of surfers (NOT the number of dates). course is ONLY for an actual configured course product and MUST carry an exact authoritative course_id; never invent or omit course_id, and guest wording like 'curso cuatro días' does not itself prove a configured product was selected. Course board+wetsuit selection is the separate top-level course_equipment:{mode:'during_course'|'all_day',quantity:N}, never nested under components. For board+wetsuit bundle bookings, pass rental_pricing with the exact offering_key, duration, quantity, and quoted_total_cents returned by get_sunset_rental_price (e.g. board_and_suit_rental / half_day / qty 2 / 3000). NO rooms/beds/nights — Sunset is a surf school, not accommodation. Returns booking_id + booking_code + the authoritative total_cents. After success call create_sunset_payment_link.", create_sunset_booking, {
+        ("create_sunset_booking", "Create the Sunset surf-school booking AFTER the guest has explicitly confirmed they want to book. Requires guest_confirmed_booking:true (literal boolean — quote-only interest is not consent). Accepted canonical component keys are: lesson, course, private_lesson, surfboard, wetsuit, full_day_equipment_addon. Never use group_lesson. For one or multiple ordinary group-lesson dates use components.lesson:{quantity:N,time_preference:'morning'|'afternoon'|'any'} with the dates in service_dates; lesson.quantity is the number of surfers (NOT the number of dates). course is ONLY for an actual configured course product and MUST carry an exact authoritative course_id; never invent or omit course_id, and guest wording like 'curso cuatro días' does not itself prove a configured product was selected. Course board+wetsuit selection is the separate top-level course_equipment:{mode:'during_course'|'all_day',quantity:N}, never nested under components. For rental bookings, pass rental_pricing with the exact offering_key, duration, quantity, and quoted_total_cents returned by get_sunset_rental_price for the catalog item the guest selected. NO rooms/beds/nights — Sunset is a surf school, not accommodation. Returns booking_id + booking_code + the authoritative total_cents. After success call create_sunset_payment_link.", create_sunset_booking, {
             "guest_confirmed_booking": {"type": "boolean", "description": "Must be literal true — the guest has explicitly confirmed they want to book. Quote-only interest, a name alone, or ambiguous assent must not pass."},
             "guest_name": {"type": "string", "description": "Name the booking is under (required)."},
             "guest_phone": {"type": "string", "description": "Guest phone; inferred from the WhatsApp sender if omitted."},
             "components": {"type": "object", "description": "Service components object. Accepted canonical keys are exactly: lesson, course, private_lesson, surfboard, wetsuit, full_day_equipment_addon. Never use group_lesson. Ordinary group classes on selected dates are lesson:{quantity:N,time_preference:'morning'|'afternoon'|'any'} with the dates in service_dates (multiple dates still use lesson + service_dates). lesson.quantity is surfers, not dates. course is only for joining an existing Admin-configured course from get_sunset_joinable_courses / get_sunset_lesson_catalog and MUST include that exact course_id plus tier_key (or offering_item_code) — inventing a course_id is rejected. service_dates must match the course schedule; full courses fail closed. For the rest-of-day equipment add-on use full_day_equipment_addon:{quantity:N}; the plugin converts it to the backend canonical full_day_equipment_extension:{enabled:true,dates:{YYYY-MM-DD:N}} using service_date/service_dates. Example: {\"lesson\":{\"quantity\":1,\"time_preference\":\"morning\"}} with service_dates:[\"2026-07-20\",...]. Another: {\"surfboard\":{\"quantity\":2},\"wetsuit\":{\"quantity\":2},\"full_day_equipment_addon\":{\"quantity\":2}}. Never omit an accepted add-on from create."},
             "course_equipment": {"type": "object", "description": "Canonical top-level board+wetsuit selection for a course: {mode:'during_course'|'all_day',quantity:N}. Copy the accepted quote selection exactly with quote_provenance. Never nest this under components or notes and never add client-supplied prices.", "properties": {"mode": {"type": "string", "enum": ["during_course", "all_day"]}, "quantity": {"type": "integer", "minimum": 1}}, "required": ["mode", "quantity"], "additionalProperties": False},
             "quote_provenance": {"type": "object", "description": "Opaque authoritative quote_provenance returned by get_sunset_offering_quote. Copy unchanged; required with course_equipment."},
-            "rental_pricing": {"type": "object", "description": "Required for board+wetsuit bundle rentals: {offering_key, duration, quantity, quoted_total_cents} copied exactly from get_sunset_rental_price."},
+            "rental_pricing": {"type": "object", "description": "For catalog rentals: {offering_key, duration, quantity, quoted_total_cents} copied exactly from get_sunset_rental_price / catalog quote (item+duration the guest selected)."},
             "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Service dates YYYY-MM-DD."},
             "service_date": {"type": "string", "description": "Single service date YYYY-MM-DD (alternative to service_dates)."},
             "date_from": {"type": "string", "description": "Range start YYYY-MM-DD (with date_to)."},
@@ -2542,12 +2665,57 @@ def _is_sunset_tenant():
 def _sunset_tools():
     loc = {"location_id": {"type": "string", "description": "sunset-somo or sunset-sardinero. Usually inferred from the school; only pass if the guest specifies."}}
     return [
-        ("get_sunset_rental_price", "Get a Sunset rental price before quoting ANY rental. Pass item (board, wetsuit, board+suit bundle, or SUP) and duration (1 hour, half day, 1 day, 2 days, 5 days, 7 days). Returns amount_eur. If success is false there is no confirmed price — do not invent one; tell the guest you'll confirm with the team.", get_sunset_rental_price, {"item": {"type": "string", "description": "board / wetsuit / board+suit bundle / SUP"}, "duration": {"type": "string", "description": "1 hour, half day, 1 day, 2 days, 5 days, 7 days"}, **loc}, ["item", "duration"]),
-        ("get_sunset_full_day_equipment_addon", "Get the live price for the 'keep the gear for the rest of the day' add-on ('Material el resto del día', per person per day). Optionally pass dates (YYYY-MM-DD list) and quantity (people) for a quote total. Use amount_eur before offering or confirming it.", get_sunset_full_day_equipment_addon, {"dates": {"type": "array", "items": {"type": "string"}, "description": "Eligible dates YYYY-MM-DD for a quote total."}, "quantity": {"type": "integer", "description": "Number of people."}, **loc}, []),
+        (
+            "get_sunset_rental_catalog",
+            "Get the live configured rental menu for this school BEFORE naming items, durations, or prices. "
+            "Returns items[] (item key, label, durations) and offerings[] from Admin/catalog. "
+            "Offer only what is returned — never invent a rental item or duration. "
+            "After the guest picks an item+duration from this menu, call get_sunset_rental_price.",
+            get_sunset_rental_catalog,
+            {
+                "require_db": {"type": "boolean", "description": "Require DB-backed Admin data when true."},
+                **loc,
+            },
+            [],
+        ),
+        (
+            "get_sunset_rental_price",
+            "Get a Sunset rental price before quoting ANY rental. "
+            "Pass item and duration exactly as returned by get_sunset_rental_catalog "
+            "(the item and duration the guest selected from the catalog). "
+            "Returns amount_eur. If success is false there is no confirmed price — do not invent one; "
+            "tell the guest you'll confirm with the team.",
+            get_sunset_rental_price,
+            {
+                "item": {
+                    "type": "string",
+                    "description": "Exact rental item key from get_sunset_rental_catalog (the item the guest selected).",
+                },
+                "duration": {
+                    "type": "string",
+                    "description": "Exact duration key from get_sunset_rental_catalog for that item (the duration the guest selected).",
+                },
+                **loc,
+            },
+            ["item", "duration"],
+        ),
+        (
+            "get_sunset_full_day_equipment_addon",
+            "Get the live price for the optional 'keep the gear for the rest of the day' add-on (per person per day when configured). "
+            "Optionally pass dates (YYYY-MM-DD list) and quantity (people) for a quote total. "
+            "Use amount_eur before offering or confirming it. If inactive/unavailable, do not offer it.",
+            get_sunset_full_day_equipment_addon,
+            {
+                "dates": {"type": "array", "items": {"type": "string"}, "description": "Eligible dates YYYY-MM-DD for a quote total."},
+                "quantity": {"type": "integer", "description": "Number of people."},
+                **loc,
+            },
+            [],
+        ),
         ("get_sunset_private_lesson", "Get the Sunset private/coaching lesson product (custom sessions, no fixed slots): price and duration. Use before quoting a private lesson.", get_sunset_private_lesson, {**loc}, []),
         ("get_sunset_lesson_availability", "Check group lesson capacity for a date before confirming ANY lesson seat (lessons are capacity-limited). If take_request is true (capacity unknown or full), take the guest's request and tell them the team will confirm the exact time — never invent a seat or slot.", get_sunset_lesson_availability, {"date": {"type": "string", "description": "Lesson date YYYY-MM-DD."}, **loc}, ["date"]),
-        ("get_sunset_joinable_courses", "List Admin-configured courses (and group-lesson slots) a guest can currently join BEFORE offering or booking a course. Reads tenant_surf_pack_rules (and lesson time/capacity rules). Prefer course_id values returned here — never invent a course. Optional date filters remaining capacity (configured group_size − confirmed bookings).", get_sunset_joinable_courses, {"date": {"type": "string", "description": "Optional YYYY-MM-DD to compute remaining capacity and filter joinable offerings."}, "include_full": {"type": "boolean", "description": "When true, also return full courses (joinable=false)."}, **loc}, []),
-        ("get_sunset_lesson_catalog", "Get the current Admin-configured Sunset lesson and course options BEFORE describing options or prices. Offer only returned offerings; preserve offering_id and course_id exactly. Optional date filters effectiveness; quantity is informational.", get_sunset_lesson_catalog, {"date": {"type": "string", "description": "Optional as-of date YYYY-MM-DD when asking what is offered on a day."}, "quantity": {"type": "integer", "description": "Optional surfer count (does not invent totals — use get_sunset_offering_quote)."}, "require_db": {"type": "boolean", "description": "Require DB-backed Admin data when true."}, **loc}, []),
+        ("get_sunset_joinable_courses", "List Admin-configured courses a guest can currently join BEFORE offering or booking a course. Prefer course_id values returned here — never invent a course. Optional date filters remaining capacity.", get_sunset_joinable_courses, {"date": {"type": "string", "description": "Optional YYYY-MM-DD to compute remaining capacity and filter joinable offerings."}, "include_full": {"type": "boolean", "description": "When true, also return full courses (joinable=false)."}, **loc}, []),
+        ("get_sunset_lesson_catalog", "Get the current Admin-configured Sunset lesson and course options BEFORE describing options or prices. Offer only returned offerings; preserve offering_id and course_id exactly. Optional date filters effectiveness; quantity is informational. For rentals use get_sunset_rental_catalog instead.", get_sunset_lesson_catalog, {"date": {"type": "string", "description": "Optional as-of date YYYY-MM-DD when asking what is offered on a day."}, "quantity": {"type": "integer", "description": "Optional surfer count (does not invent totals — use get_sunset_offering_quote)."}, "require_db": {"type": "boolean", "description": "Require DB-backed Admin data when true."}, **loc}, []),
         ("get_sunset_offering_quote", "Get the authoritative quote for one exact catalog offering. For course gear pass canonical top-level course_equipment and preserve returned course_equipment, line_items, and quote_provenance exactly for create.", get_sunset_offering_quote, {"offering_id": {"type": "string", "description": "Exact offering_id returned by get_sunset_lesson_catalog."}, "course_id": {"type": "string", "description": "Exact course_id returned with a course offering."}, "quantity": {"type": "integer", "description": "Number of surfers/items (default 1)."}, "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected session dates."}, "course_equipment": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["during_course", "all_day"]}, "quantity": {"type": "integer", "minimum": 1}}, "required": ["mode", "quantity"], "additionalProperties": False}, "require_db": {"type": "boolean"}, **loc}, ["offering_id"]),
     ]
 

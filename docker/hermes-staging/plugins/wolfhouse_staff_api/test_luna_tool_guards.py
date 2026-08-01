@@ -221,10 +221,16 @@ try:
     check("NH4 strips model conversation_id", "conversation_id" not in fake.calls[-1][1])
     check("NH5 is never a guest-facing error", nh.get("staff_review_needed") is False and nh.get("do_not_escalate") is True)
 
-    os.environ.pop("WOLFHOUSE_WHATSAPP_GUEST_PHONE", None)
+    for _k in (
+        "WOLFHOUSE_WHATSAPP_GUEST_PHONE",
+        "WHATSAPP_GUEST_PHONE",
+        "HERMES_SESSION_USER_ID",
+        "HERMES_SESSION_CHAT_ID",
+    ):
+        os.environ.pop(_k, None)
     fake = with_fake({"/conversation/needs-human": {"success": True, "needs_human": True}})
     nh_miss = json.loads(mod.flag_needs_human({"reason": "x"}))
-    check("NH6 fails closed without phone", nh_miss.get("success") is False)
+    check("NH6 fails closed without phone", nh_miss.get("success") is False, nh_miss)
 finally:
     if _prev_phone is None:
         os.environ.pop("WOLFHOUSE_WHATSAPP_GUEST_PHONE", None)
@@ -497,26 +503,18 @@ check("S11 availability requires a date",
       json.loads(mod.get_sunset_lesson_availability({})).get("success") is False)
 
 # Group lesson quote — authoritative passthrough, read-only.
-sun_gl_quote_fake = with_fake({
-    "/sunset/lesson-quote": {
-        "ok": True, "success": True, "tool": "get_sunset_group_lesson_quote",
-        "location_id": "sunset-somo",
-        "service_dates": ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23"],
-        "quantity": 1, "date_count": 4,
-        "unit_amount_cents": 3000, "line_total_cents": 12000, "total_cents": 12000,
-        "amount_eur": 120, "currency": "EUR", "price_source": "config_or_db",
-    },
-})
+# Group-lesson quote tool remains defined but is disabled for Luna (courses-only).
 glq = json.loads(mod.get_sunset_group_lesson_quote({
     "service_dates": ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23"],
     "quantity": 1,
 }))
-check("S11a group lesson quote hits /sunset/lesson-quote route",
-      any("/sunset/lesson-quote" in c[0] for c in sun_gl_quote_fake.calls))
-check("S11b group lesson quote passthrough total_cents", glq.get("total_cents") == 12000)
-check("S11c group lesson quote passthrough price_source", glq.get("price_source") == "config_or_db")
-check("S11d group lesson quote requires service_dates",
-      json.loads(mod.get_sunset_group_lesson_quote({})).get("success") is False)
+check("S11a group lesson quote disabled for Luna",
+      glq.get("success") is False and glq.get("error") == "group_lessons_not_offered",
+      glq)
+check("S11b group lesson quote does not invent totals", glq.get("total_cents") in (None, 0))
+check("S11c group lesson quote do_not_escalate", glq.get("do_not_escalate") is True)
+check("S11d group lesson quote empty args still disabled",
+      json.loads(mod.get_sunset_group_lesson_quote({})).get("error") == "group_lessons_not_offered")
 
 # Sunset tenant gate registers ONLY the read tools.
 prev_slug = os.environ.get("LUNA_CLIENT_SLUG")
@@ -524,25 +522,19 @@ os.environ["LUNA_CLIENT_SLUG"] = "sunset"
 try:
     check("S12 _is_sunset_tenant true when LUNA_CLIENT_SLUG=sunset", mod._is_sunset_tenant() is True)
     sunset_tool_names = [t[0] for t in mod._sunset_tools()]
-    check("S13 sunset read toolset includes Admin catalog + offering quote",
-          sunset_tool_names[:7] == [
+    required = {
+              "get_sunset_rental_catalog",
               "get_sunset_rental_price",
               "get_sunset_full_day_equipment_addon",
               "get_sunset_private_lesson",
               "get_sunset_lesson_availability",
               "get_sunset_lesson_catalog",
               "get_sunset_offering_quote",
-              "get_sunset_group_lesson_quote",
-          ]
-          or set([
-              "get_sunset_rental_price",
-              "get_sunset_full_day_equipment_addon",
-              "get_sunset_private_lesson",
-              "get_sunset_lesson_availability",
-              "get_sunset_lesson_catalog",
-              "get_sunset_offering_quote",
-              "get_sunset_group_lesson_quote",
-          ]).issubset(set(sunset_tool_names)))
+              "get_sunset_joinable_courses",
+          }
+    check("S13 sunset read toolset includes rental catalog + lesson catalog + offering quote",
+          required.issubset(set(sunset_tool_names)),
+          sorted(set(sunset_tool_names)))
     check("S14 sunset toolset excludes wolfhouse write tools",
           "create_booking_from_plan" not in sunset_tool_names and "create_payment_link" not in sunset_tool_names)
     sunset_write_names = [t[0] for t in mod._sunset_write_tools()]

@@ -105,9 +105,9 @@ console.log('\n── F. Hermes plugin: Sunset read tools registered under sunse
 ok(/def _is_sunset_tenant\(/.test(pluginSrc), 'plugin has _is_sunset_tenant gate');
 ok(/if _is_sunset_tenant\(\):\s*\n\s*tools = _sunset_tools\(\)/.test(pluginSrc),
   'register() swaps to _sunset_tools() when tenant is sunset');
-for (const t of ['get_sunset_rental_price', 'get_sunset_full_day_equipment_addon',
+for (const t of ['get_sunset_rental_catalog', 'get_sunset_rental_price', 'get_sunset_full_day_equipment_addon',
   'get_sunset_private_lesson', 'get_sunset_lesson_availability', 'get_sunset_lesson_catalog',
-  'get_sunset_offering_quote', 'get_sunset_group_lesson_quote']) {
+  'get_sunset_offering_quote', 'get_sunset_joinable_courses']) {
   ok(pluginSrc.includes(`def ${t}(`), `plugin defines handler ${t}`);
   ok(pluginSrc.includes(`"${t}"`), `plugin registers tool name ${t}`);
 }
