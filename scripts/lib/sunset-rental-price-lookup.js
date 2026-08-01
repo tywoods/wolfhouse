@@ -297,15 +297,79 @@ function buildRentalAvailabilitySummary(lang, schoolName, adminCfg) {
   return `At ${schoolName} we currently rent: ${lines.join('; ')}. Which one do you need and for how long?`;
 }
 
+/**
+ * Shared unit-price row resolver for Sunset rentals (quote + create).
+ *
+ * Primary match (config / live quote shape): bare offering_key + unit/duration
+ * as separate fields — e.g. offering_key=bike_rental, unit=1_day.
+ *
+ * Secondary: compound offering_key/item_code = offering__duration when prices
+ * were projected from tenant_price_rules via mapPriceRows (offering_key is the
+ * full item_code; unit is only the billing grain).
+ *
+ * Never invents a row. Callers own amount extraction and fail-closed rules.
+ */
 function findAdminPriceRule(adminCfg, itemCode, durationKey) {
   const prices = adminCfg && Array.isArray(adminCfg.prices) ? adminCfg.prices : [];
-  return prices.find((p) => {
-    if (!p) return false;
-    const offering = String(p.offering_key || p.item_code || '').trim();
+  const item = String(itemCode || '').trim();
+  const duration = String(durationKey || '').trim();
+  if (!item || !duration) return null;
+
+  // 1) Bare offering_key + duration-as-unit (quote-proven config shape).
+  const primary = prices.find((p) => {
+    if (!p || p.active === false) return false;
+    const offering = String(p.offering_key || '').trim();
     const unit = String(p.unit || p.duration || p.window || '').trim();
-    return offering === itemCode && unit === durationKey;
-  }) || prices.find((p) => String(p.offering_key || '').trim() === itemCode
-    && String(p.display_name || '').toLowerCase().includes(durationKey.replace(/_/g, ' ')));
+    return offering === item && unit === duration;
+  });
+  if (primary) return primary;
+
+  // 2) Compound item_code on offering_key or item_code (DB mapPriceRows shape).
+  const compound = `${item}__${duration}`;
+  const secondary = prices.find((p) => {
+    if (!p || p.active === false) return false;
+    const offering = String(p.offering_key || '').trim();
+    const code = String(p.item_code || '').trim();
+    return offering === compound || code === compound;
+  });
+  if (secondary) return secondary;
+
+  // 3) If caller already passed a compound key, match it directly.
+  if (item.includes('__')) {
+    const direct = prices.find((p) => {
+      if (!p || p.active === false) return false;
+      const offering = String(p.offering_key || '').trim();
+      const code = String(p.item_code || '').trim();
+      const unit = String(p.unit || p.duration || p.window || '').trim();
+      if (offering === item || code === item) return true;
+      // bare left-side + duration field
+      const bare = item.slice(0, item.lastIndexOf('__'));
+      const dur = item.slice(item.lastIndexOf('__') + 2);
+      return offering === bare && (unit === dur || unit === duration);
+    });
+    if (direct) return direct;
+  }
+
+  // 4) Soft display_name fallback (legacy seed rows).
+  return prices.find((p) => {
+    if (!p || p.active === false) return false;
+    return String(p.offering_key || '').trim() === item
+      && String(p.display_name || p.label || '').toLowerCase().includes(duration.replace(/_/g, ' '));
+  }) || null;
+}
+
+/** Amount cents from a findAdminPriceRule row (EUR amount or amount_cents). */
+function adminPriceRuleAmountCents(rule) {
+  if (!rule) return null;
+  if (Number.isFinite(Number(rule.amount_cents))) {
+    const n = Math.round(Number(rule.amount_cents));
+    return n >= 0 ? n : null;
+  }
+  if (rule.amount != null && Number.isFinite(Number(rule.amount))) {
+    const n = Math.round(Number(rule.amount) * 100);
+    return n >= 0 ? n : null;
+  }
+  return null;
 }
 
 function lookupSunsetRentalPrice(opts) {
@@ -358,10 +422,8 @@ function lookupSunsetRentalPrice(opts) {
 
   // Config-backed rules expose amount in EUR; DB-backed rules expose
   // amount_cents. Normalize both into one authoritative cents value.
-  const amountCents = Number.isFinite(Number(rule.amount_cents))
-    ? Math.round(Number(rule.amount_cents))
-    : (Number.isFinite(Number(rule.amount)) ? Math.round(Number(rule.amount) * 100) : NaN);
-  if (!Number.isFinite(amountCents)) {
+  const amountCents = adminPriceRuleAmountCents(rule);
+  if (amountCents == null || !Number.isFinite(amountCents)) {
     return {
       ok: false,
       reason: 'price_not_configured',
@@ -841,4 +903,6 @@ module.exports = {
   isConfiguredRentalItem,
   matchRentalFromMessage,
   buildRentalAvailabilitySummary,
+  findAdminPriceRule,
+  adminPriceRuleAmountCents,
 };
