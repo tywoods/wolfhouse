@@ -389,9 +389,8 @@ function scheduleRenderDayCockpit(mount, data) {
     heroL.appendChild(el('div', 'ck-now__sub',
       live.start + ' \u2013 ' + live.end + ' \u00b7 ends in ' + scheduleCockpitFmtDur(live.e - now)));
     var chips = el('div', 'ck-chips');
-    if (live.boards) chips.appendChild(el('span', 'ck-chip', '\u2713 ' + live.boards + ' board' + (live.boards === 1 ? '' : 's') + ' out'));
-    if (live.wetsuits) chips.appendChild(el('span', 'ck-chip', '\u2713 ' + live.wetsuits + ' wetsuit' + (live.wetsuits === 1 ? '' : 's') + ' out'));
-    if (!live.boards && !live.wetsuits) chips.appendChild(el('span', 'ck-chip ck-chip--muted', 'no gear needed'));
+    // Session-scoped exact add-ons only (never day-wide prep or decomposed boards/wetsuits).
+    scheduleCockpitAppendExactPrepChips(chips, live.prepItems, 'out');
     // note chip: optional/new — SKIP for v1
     heroL.appendChild(chips);
     hero.appendChild(heroL);
@@ -427,12 +426,17 @@ function scheduleRenderDayCockpit(mount, data) {
       : next
         ? next.start + ' \u2013 ' + next.end + (now != null ? ' \u00b7 starts in ' + scheduleCockpitFmtDur(next.s - now) : '')
         : 'Add a session to get going.'));
-    var chipsIdle = el('div', 'ck-chips');
-    var boardsTotal = (data.prep && data.prep.boards && data.prep.boards.total != null) ? data.prep.boards.total : 0;
-    var wetsTotal = (data.prep && data.prep.wetsuits && data.prep.wetsuits.total != null) ? data.prep.wetsuits.total : 0;
-    chipsIdle.appendChild(el('span', 'ck-chip',
-      boardsTotal + ' boards \u00b7 ' + wetsTotal + ' wetsuits ' + (done ? 'used' : 'to prep')));
-    heroL.appendChild(chipsIdle);
+    // Idle hero: session-scoped exact prep for classified `next` only.
+    // Day complete keeps non-prep summary (eyebrow/h2/sub) — never next-course prep.
+    if (!done) {
+      var chipsIdle = el('div', 'ck-chips');
+      if (next) {
+        scheduleCockpitAppendExactPrepChips(chipsIdle, next.prepItems, 'prep');
+      } else {
+        chipsIdle.appendChild(el('span', 'ck-chip ck-chip--muted', 'no gear needed'));
+      }
+      heroL.appendChild(chipsIdle);
+    }
     hero.appendChild(heroL);
   }
   main.appendChild(hero);
@@ -613,6 +617,8 @@ function scheduleCockpitRangeFromNavMode(mode) {
  *   booked    ← surfers (ops bucket.booked / group qty aggregate)
  *   boards    ← boardsNeeded (ops group gear / scheduleGroupBoardsNeeded)
  *   wetsuits  ← wetsuitsNeeded
+ *   prepItems ← session.prepItems from scheduleBuildDaySessions, else derived
+ *               from session.groups' trusted active CE records
  *   capacity  ← session.capacity already on day-session VM
  *               (scheduleBuildDaySessions sets course.capacity from pack.group_size /
  *               courses cache — read directly; no ops helper)
@@ -635,6 +641,10 @@ function scheduleMapDaySessionToCockpit(session) {
   var booked = session.booked != null ? Number(session.booked)
     : (session.surfers != null ? Number(session.surfers) : 0);
   if (!isFinite(booked) || booked < 0) booked = 0;
+  // Exact prep items: prefer explicit session field, else build from session groups.
+  var prepItems = Array.isArray(session.prepItems)
+    ? scheduleCockpitNormalizePrepItems(session.prepItems)
+    : scheduleCockpitNormalizePrepItems(scheduleBuildSessionPrepItems(session.groups));
   return {
     id: session.id != null ? session.id
       : (session.slot_key != null && session.slot_key !== '' ? session.slot_key
@@ -646,6 +656,7 @@ function scheduleMapDaySessionToCockpit(session) {
     capacity: capacity,
     boards: Number(session.boards != null ? session.boards : (session.boardsNeeded || 0)) || 0,
     wetsuits: Number(session.wetsuits != null ? session.wetsuits : (session.wetsuitsNeeded || 0)) || 0,
+    prepItems: prepItems,
     cancelled: !!(session.cancelled || session._isCancelled || session.schedule_ghost),
   };
 }
@@ -727,6 +738,10 @@ function scheduleBuildDayCockpitData(src) {
     }
     return scheduleMapDaySessionToCockpit(s);
   }).filter(function (s) { return !s.cancelled; });
+  // Ensure every mapped session has an array prepItems (hero is session-scoped).
+  sessions.forEach(function (s) {
+    if (!Array.isArray(s.prepItems)) s.prepItems = [];
+  });
 
   var range = src.range || scheduleCockpitRangeFromNavMode(src.navMode || src.mode);
 
@@ -931,6 +946,100 @@ function scheduleCockpitHumanizeOfferingKey(key) {
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, function (c) { return c.toUpperCase(); })
     .trim();
+}
+
+/**
+ * Append hero chips for session-scoped exact prep items.
+ * mode 'prep' → "4 Surfboard + Wetsuit to prep"
+ * mode 'out'  → "✓ 4 Surfboard + Wetsuit out"
+ * Empty → muted "no gear needed" (never legacy "0 boards · 0 wetsuits").
+ * Multiple items: one chip each, caller supplies deterministic order.
+ *
+ * Uses chipsEl.ownerDocument — never the portal el(id) helper.
+ */
+function scheduleCockpitAppendExactPrepChips(chipsEl, prepItems, mode) {
+  if (!chipsEl) return;
+  var doc = chipsEl.ownerDocument || (typeof document !== 'undefined' ? document : null);
+  if (!doc) return;
+  var items = Array.isArray(prepItems) ? prepItems : [];
+  var rendered = 0;
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i];
+    if (!it) continue;
+    var qty = Number(it.quantity);
+    if (!Number.isFinite(qty) || qty <= 0) continue;
+    var label = String(it.label || it.offering_key || 'Item').trim() || 'Item';
+    var text = mode === 'out'
+      ? ('\u2713 ' + qty + ' ' + label + ' out')
+      : (qty + ' ' + label + ' to prep');
+    chipsEl.appendChild(scheduleCockpitEl(doc, 'span', 'ck-chip', text));
+    rendered += 1;
+  }
+  if (!rendered) {
+    chipsEl.appendChild(scheduleCockpitEl(doc, 'span', 'ck-chip ck-chip--muted', 'no gear needed'));
+  }
+}
+
+/**
+ * Session-scoped exact course add-on prep items from a course session's own
+ * display groups / booking records. Preserves Admin offering key + label.
+ * Excludes cancelled/inactive rows, standalone rentals, and other sessions.
+ *
+ * @param {Array} groups  session.groups from scheduleBuildDaySessions
+ * @returns {Array<{offering_key:string,label:string,quantity:number,kind:'course_addon'}>}
+ */
+function scheduleBuildSessionPrepItems(groups) {
+  var byKey = Object.create(null);
+  (groups || []).forEach(function (g) {
+    if (!g || g._isCancelled || g.schedule_ghost) return;
+    var records = Array.isArray(g.records) ? g.records : [];
+    records.forEach(function (row) {
+      if (!scheduleCockpitRowIsActive(row)) return;
+      var meta = scheduleCockpitParseMeta(row.metadata || row._meta);
+      // Course-owned equipment only — never standalone/generic rentals.
+      if (meta.course_equipment !== true) return;
+      if (meta.rental_offering === true || meta.generic_rental === true) return;
+      var key = String(meta.offering_key || meta.offering_id || '').trim();
+      var label = String(
+        meta.label || meta.offering_label || meta.catalog_label || meta.display_name || '',
+      ).trim();
+      if (!key) key = 'course_equipment';
+      if (!label) label = scheduleCockpitHumanizeOfferingKey(key) || 'Equipment';
+      var qty = scheduleCockpitRowQty(row);
+      if (!byKey[key]) {
+        byKey[key] = {
+          offering_key: key,
+          label: label,
+          quantity: 0,
+          kind: 'course_addon',
+        };
+      }
+      byKey[key].quantity += qty;
+      if (label && (!byKey[key].label || byKey[key].label === key)) {
+        byKey[key].label = label;
+      }
+    });
+  });
+  var out = Object.keys(byKey).map(function (k) { return byKey[k]; });
+  out.sort(function (a, b) {
+    var byLabel = String(a.label).localeCompare(String(b.label));
+    return byLabel || String(a.offering_key).localeCompare(String(b.offering_key));
+  });
+  return out;
+}
+
+/**
+ * Normalize prep item rows for session / rail contracts.
+ */
+function scheduleCockpitNormalizePrepItems(list) {
+  return (Array.isArray(list) ? list : []).map(function (it) {
+    return {
+      offering_key: String((it && it.offering_key) || ''),
+      label: String((it && it.label) || (it && it.offering_key) || 'Item'),
+      quantity: Number(it && it.quantity) || 0,
+      kind: (it && it.kind) === 'rental' ? 'rental' : 'course_addon',
+    };
+  }).filter(function (it) { return it.quantity > 0; });
 }
 
 /**
@@ -1189,6 +1298,9 @@ if (typeof module !== 'undefined' && module.exports) {
     scheduleCockpitRowIsActive: scheduleCockpitRowIsActive,
     scheduleCockpitFilterActiveRows: scheduleCockpitFilterActiveRows,
     scheduleBuildDayPrepItems: scheduleBuildDayPrepItems,
+    scheduleBuildSessionPrepItems: scheduleBuildSessionPrepItems,
+    scheduleCockpitAppendExactPrepChips: scheduleCockpitAppendExactPrepChips,
+    scheduleCockpitNormalizePrepItems: scheduleCockpitNormalizePrepItems,
     scheduleCollectDayCockpitSource: scheduleCollectDayCockpitSource,
     schedulePaintDayCockpit: schedulePaintDayCockpit,
   };

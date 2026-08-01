@@ -501,7 +501,10 @@ assert('mid: mount class cockpit', /\bcockpit\b/.test(midR.className) && /\bps-d
 assert('mid: ON NOW', /ON NOW/.test(midR.text), midR.text.slice(0, 200));
 assert('mid: live session name', /Curso Medio D[ií]a|Medio/.test(midR.text), midR.text.slice(0, 240));
 assert('mid: ends in countdown', /ends in/.test(midR.text));
-assert('mid: boards out chip', /board/.test(midR.text) && /out/.test(midR.text));
+// Exact prep chips (session-scoped). Producer fixture has boardsNeeded only —
+// no course_equipment records → "no gear needed" (never decomposed boards out).
+assert('mid: exact prep chip or no gear needed',
+  /no gear needed/i.test(midR.text) || /to prep| out/.test(midR.text));
 assert('mid: seats ring present', midR.mount.querySelectorAll('.ck-ring').length >= 1);
 assert('mid: needle present', midR.mount.querySelectorAll('.ck-needle').length >= 1);
 assert('mid: prep unpaid badge', /9/.test(midR.text) && /Unpaid/.test(midR.text));
@@ -520,15 +523,20 @@ assert('before: NOTHING IN THE WATER', /NOTHING IN THE WATER/.test(beforeR.text)
 assert('before: First up', /First up:/.test(beforeR.text));
 assert('before: starts in', /starts in/.test(beforeR.text));
 assert('before: idle hero', beforeR.mount.querySelectorAll('.ck-now--idle').length >= 1);
-assert('before: to prep chip', /to prep/.test(beforeR.text));
+// Session-scoped exact prep; empty CE → "no gear needed" (not legacy 0 boards · 0 wetsuits).
+assert('before: prep chip is exact or no gear needed',
+  /no gear needed/i.test(beforeR.text) || /to prep/.test(beforeR.text));
+assert('before: no legacy 0 boards · 0 wetsuits',
+  !/0 boards\s*[·.]\s*0 wetsuits/i.test(beforeR.text));
 assert('before: needle still (now in window)', beforeR.mount.querySelectorAll('.ck-needle').length >= 1);
 
 const afterR = renderFromProducer('after-last', 19 * 60);
 assert('after: DAY COMPLETE', /DAY COMPLETE/.test(afterR.text), afterR.text.slice(0, 200));
 assert('after: sessions run', /session/.test(afterR.text) && /run/.test(afterR.text));
-assert('after: gear used', /used/.test(afterR.text));
-assert('after: idle hero', afterR.mount.querySelectorAll('.ck-now--idle').length >= 1);
+// Day complete: non-prep summary only — must not claim next-course prep.
 assert('after: closed copy', /closed out/.test(afterR.text));
+assert('after: does not claim to prep', !/to prep/i.test(afterR.text));
+assert('after: idle hero', afterR.mount.querySelectorAll('.ck-now--idle').length >= 1);
 
 console.log('\n[5] Capacity edges — producer capacity:0 → booked-only ring');
 // Literal capacity: 0 on a producer-shaped live session (README edge case).

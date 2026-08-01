@@ -514,6 +514,7 @@
     "verify:sunset-schedule-drawer-controller": "node scripts/verify-sunset-schedule-drawer-controller.js",
     "verify:sunset-schedule-day-ops-board-ui": "node scripts/verify-sunset-schedule-day-ops-board-ui.js",
     "verify:sunset-schedule-forecast-cards-ui": "node scripts/verify-sunset-schedule-forecast-cards-ui.js",
+    "verify:sunset-cockpit-hero-exact-prep": "node scripts/verify-sunset-cockpit-hero-exact-prep.js && node scripts/verify-sunset-cockpit-hero-generated-ui.js",
     "verify:sunset-schedule-day-cockpit-ui": "node scripts/verify-sunset-schedule-day-cockpit-ui.js",
     "verify:sunset-schedule-day-cockpit-p2-mount": "node scripts/verify-sunset-schedule-day-cockpit-p2-mount.js",
     "verify:sunset-schedule-day-cockpit-p3-states": "node scripts/verify-sunset-schedule-day-cockpit-p3-states.js",
