@@ -581,6 +581,7 @@
     "verify:radar-slice16z-g02-live-sigterm-evidence": "node scripts/verify-radar-slice16z-g02-live-sigterm-evidence.js",
     "verify:staff-tenant-scope": "node scripts/verify-staff-tenant-scope.js",
     "verify:staff-whatsapp-notifications": "node scripts/verify-staff-whatsapp-notifications.js",
+    "verify:staff-notification-settings-routes": "node scripts/verify-staff-notification-settings-routes.js",
     "verify:staff-automated-notification-ui": "node scripts/verify-staff-automated-notification-ui.js",
     "verify:staff-automated-notifications-crud": "node scripts/verify-staff-automated-notifications-crud.js",
     "verify:staff-automated-notifications-runner": "node scripts/verify-staff-automated-notifications-runner.js",

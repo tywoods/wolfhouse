@@ -177,13 +177,14 @@ const {
   setHouseNotes: setTenantHouseNotes,
 } = require('./lib/tenant-house-notes');
 const {
-  getNotificationSettings,
-  putNotificationSettings,
   maybeNotifyHumanNeeded,
   extractLocationFromMetadata,
-  isStaffNotificationsEnabled,
-  isStaffNotificationsDryRun,
 } = require('./lib/staff-whatsapp-notifications');
+const {
+  createNotificationSettingsRoutes,
+  NOTIFICATION_SETTINGS_PATH,
+  resolveNotificationSettingsLocationId,
+} = require('./lib/staff-notification-settings-routes');
 const {
   listStaffAutomatedNotifications,
   createStaffAutomatedNotification,
@@ -2428,6 +2429,23 @@ function readBody(req) {
     req.on('error', reject);
   });
 }
+
+// Staff notification-settings routes (extracted module). Auth stays in the router.
+const notificationSettingsRoutes = createNotificationSettingsRoutes({
+  sendJSON,
+  send400,
+  readBody,
+  assertStaffClientAccess,
+  appendAuditLog,
+  withPgClient,
+  DEFAULT_CLIENT,
+  SQL_INJECT_RE,
+});
+const {
+  handleNotificationSettingsGet,
+  handleNotificationSettingsPut,
+} = notificationSettingsRoutes;
+
 // Stage 8.4.11 — Raw Buffer variant required for Stripe webhook signature verification.
 // Stripe's constructEvent() needs the exact raw bytes, not a parsed/re-serialised string.
 function readBodyRaw(req, maxBytes) {
@@ -40586,79 +40604,8 @@ async function handleHouseNotesPost(query, req, res, user) {
   }
 }
 
-function resolveNotificationSettingsLocationId(query, body) {
-  const fromBody = body && (body.location_id || body.location);
-  const raw = fromBody != null && String(fromBody).trim() !== '' ? fromBody : query.location;
-  if (raw == null || String(raw).trim() === '') return null;
-  return normalizeSunsetLocationId(raw);
-}
-
-async function handleNotificationSettingsGet(query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || query.client_slug || DEFAULT_CLIENT)).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-  const locationId = resolveNotificationSettingsLocationId(query, null);
-  try {
-    const settings = await withPgClient((pg) => getNotificationSettings(pg, { clientSlug, locationId }));
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:staff.notification_settings.get',
-      category: 'admin_api',
-      client_slug: clientSlug,
-      location_id: locationId,
-      success: true,
-      staff_user_id: user ? user.staff_user_id : null,
-      elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 200, {
-      success: true,
-      ...settings,
-      server_notifications_enabled: isStaffNotificationsEnabled(process.env),
-      server_notifications_dry_run: isStaffNotificationsDryRun(process.env),
-      elapsed_ms: Date.now() - started,
-    });
-  } catch (err) {
-    console.error('[notification-settings.get] failed:', err && err.code, '|', err && err.message);
-    return sendJSON(res, 500, { success: false, error: 'read failed' });
-  }
-}
-
-async function handleNotificationSettingsPut(query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || query.client_slug || DEFAULT_CLIENT)).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-  let body;
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
-  const locationId = resolveNotificationSettingsLocationId(query, body);
-  try {
-    const r = await withPgClient((pg) => putNotificationSettings(pg, {
-      clientSlug,
-      locationId,
-      settings: {
-        new_conversation: body.new_conversation,
-        human_needed: body.human_needed,
-      },
-      actor: user,
-    }));
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:staff.notification_settings.put',
-      category: 'admin_api',
-      client_slug: clientSlug,
-      location_id: locationId,
-      success: r.ok,
-      staff_user_id: user ? user.staff_user_id : null,
-      elapsed_ms: Date.now() - started,
-    });
-    if (!r.ok) return sendJSON(res, r.status || 400, { success: false, error: r.error });
-    return sendJSON(res, 200, { success: true, ...r.settings, elapsed_ms: Date.now() - started });
-  } catch (err) {
-    console.error('[notification-settings.put] failed:', err && err.code, '|', err && err.message);
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
-  }
-}
+// resolveNotificationSettingsLocationId + GET/PUT handlers live in
+// scripts/lib/staff-notification-settings-routes.js (notificationSettingsRoutes).
 
 function resolveAutomatedNotificationsLocationId(query, body) {
   return resolveNotificationSettingsLocationId(query, body);
@@ -49229,12 +49176,13 @@ async function router(req, res) {
   }
 
   // ── Staff WhatsApp notification settings (admin+owner) ─────────────────────
-  if (pathname === '/staff/notification-settings' && method === 'GET') {
+  // Auth stays here; handlers live in staff-notification-settings-routes.js
+  if (pathname === NOTIFICATION_SETTINGS_PATH && method === 'GET') {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleNotificationSettingsGet(parsed.query, req, res, auth.user);
   }
-  if (pathname === '/staff/notification-settings' && method === 'PUT') {
+  if (pathname === NOTIFICATION_SETTINGS_PATH && method === 'PUT') {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleNotificationSettingsPut(parsed.query, req, res, auth.user);
