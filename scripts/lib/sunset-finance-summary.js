@@ -148,8 +148,13 @@ function yearRange(dateStr) {
 
 function shiftRangeYears(range, years) {
   const shift = (iso) => {
-    const [y, m, d] = iso.split('-').map(Number);
-    return `${y + years}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const [y, m, d] = String(iso || '').split('-').map(Number);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return iso;
+    const ny = y + years;
+    // Clamp invalid calendar days (e.g. 2024-02-29 → 2023-02-28).
+    const lastDay = new Date(Date.UTC(ny, m, 0)).getUTCDate();
+    const day = Math.min(d, lastDay);
+    return `${ny}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   };
   return { start: shift(range.start), end: shift(range.end) };
 }
@@ -175,12 +180,32 @@ function priorPeriodRange(range, granularity) {
   return { start, end };
 }
 
-function productBucket(serviceType) {
+/**
+ * Product bar bucket for a BSR row (or service_type + optional metadata).
+ * Canonical DB types map directly; addon_service/unknown use metadata.component
+ * and/or metadata.offering_key tokens (board→boards, suit→wetsuits).
+ */
+function productBucket(serviceTypeOrRow, metadataMaybe) {
+  let serviceType;
+  let metadata;
+  if (serviceTypeOrRow && typeof serviceTypeOrRow === 'object' && !Array.isArray(serviceTypeOrRow)) {
+    serviceType = serviceTypeOrRow.service_type;
+    metadata = serviceTypeOrRow.metadata || {};
+  } else {
+    serviceType = serviceTypeOrRow;
+    metadata = metadataMaybe || {};
+  }
   const t = String(serviceType || '').toLowerCase();
   if (t === 'surf_lesson') return 'lessons';
   if (t === 'surfboard') return 'boards';
   if (t === 'wetsuit') return 'wetsuits';
-  return 'retail'; // yoga, meal, addon_service, unknown
+  // addon_service / yoga / meal / unknown — discriminator tokens
+  const token = `${metadata.component || ''} ${metadata.offering_key || ''}`.toLowerCase();
+  const hasBoard = /surfboard|\bboard\b/.test(token);
+  const hasSuit = /wetsuit|\bsuit\b/.test(token);
+  if (hasBoard && !hasSuit) return 'boards';
+  if (hasSuit && !hasBoard) return 'wetsuits';
+  return 'retail';
 }
 
 function metaFlagTrue(md, key) {
@@ -248,14 +273,18 @@ function stockTotals(rentalStock) {
     const key = `${item.offering_key || ''} ${item.group_key || ''} ${item.label || ''}`.toLowerCase();
     const n = item.stock_quantity;
     if (n == null || !Number.isInteger(n)) continue;
-    const isBoard = /board|surfboard|sup/.test(key) && !/wetsuit|suit/.test(key);
-    const isSuit = /wetsuit|wet suit|suit/.test(key) && !/board_and_suit|board\+suit|bundle/.test(key);
-    const isBundle = /board_and_suit|bundle|board\+wetsuit|board and/.test(key);
-    if (isBoard || isBundle) {
+    const hasBoardToken = /board|surfboard|sup/.test(key);
+    // suit token: wetsuit, or bare "suit" (board+suit / Board+suit)
+    const hasSuitToken = /wetsuit|wet\s*suit|(?:^|[^a-z])suit(?:[^a-z]|$)/.test(key);
+    // Bundle = explicit legacy forms OR (board token AND suit token) e.g. board+suit
+    const isBundle = /board_and_suit|bundle/.test(key) || (hasBoardToken && hasSuitToken);
+    const isBoardOnly = hasBoardToken && !hasSuitToken;
+    const isSuitOnly = hasSuitToken && !hasBoardToken;
+    if (isBoardOnly || isBundle) {
       boards = boardsSet ? boards + n : n;
       boardsSet = true;
     }
-    if (isSuit || isBundle) {
+    if (isSuitOnly || isBundle) {
       wetsuits = wetsuitsSet ? wetsuits + n : n;
       wetsuitsSet = true;
     }
@@ -488,7 +517,7 @@ function computeSunsetFinanceSummary(args) {
   };
   for (const r of datedBsr) {
     if (!inRange(r.service_date, primaryRange)) continue;
-    const bucket = productBucket(r.service_type);
+    const bucket = productBucket(r);
     product[bucket].cents = checkedAdd(product[bucket].cents, r.due);
   }
   const productTotal = Object.values(product).reduce((a, p) => checkedAdd(a, p.cents), 0);
@@ -617,6 +646,10 @@ function computeSunsetFinanceSummary(args) {
       wetsuits_pct: stock.wetsuits_stock != null ? pctInt(gear.wetsuits_out, stock.wetsuits_stock) : null,
     },
     daily_gross_trend,
+    limitations: {
+      pending_refund_estimated_from_cancellations: true,
+      note: 'Net equals gross in Slice 1. Pending refund = paid cents on cancelled bookings (estimated). Completed refunds/chargebacks still need a ledger.',
+    },
   };
 
   return {
@@ -630,10 +663,10 @@ function computeSunsetFinanceSummary(args) {
     },
     daily_trend,
     redesign,
+    // Legacy top-level limitations — byte-identical contract with pre-redesign master.
     limitations: {
       net_collected_available: false,
-      pending_refund_estimated_from_cancellations: true,
-      note: 'Net equals gross in Slice 1. Pending refund = paid cents on cancelled bookings (estimated). Completed refunds/chargebacks still need a ledger.',
+      note: 'Collected is gross: refunds/reversals are not available until an authoritative refund ledger exists.',
     },
   };
 }
@@ -687,6 +720,8 @@ module.exports = {
   periodRanges,
   resolvePrimaryRange,
   productBucket,
+  shiftRangeYears,
+  stockTotals,
   isStaffCustomLine,
   reconcileBookingBalances,
   FinanceDataQualityError,

@@ -12,6 +12,8 @@ const ROOT = path.join(__dirname, '..');
 const {
   computeSunsetFinanceSummary,
   productBucket,
+  shiftRangeYears,
+  stockTotals,
 } = require(path.join(ROOT, 'scripts', 'lib', 'sunset-finance-summary.js'));
 const { BSR_SQL, PENDING_REFUND_SQL, RENTAL_STOCK_SQL } = require(path.join(ROOT, 'scripts', 'lib', 'sunset-finance-data.js'));
 
@@ -26,12 +28,62 @@ function eq(label, got, want) { ok(label, got === want, `got ${JSON.stringify(go
 const TZ = 'Europe/Madrid';
 const NOW = new Date('2026-07-15T10:00:00Z');
 
-// product mapping
+// product mapping (canonical)
 eq('surf_lesson→lessons', productBucket('surf_lesson'), 'lessons');
 eq('surfboard→boards', productBucket('surfboard'), 'boards');
 eq('wetsuit→wetsuits', productBucket('wetsuit'), 'wetsuits');
 eq('addon→retail', productBucket('addon_service'), 'retail');
 eq('yoga→retail', productBucket('yoga'), 'retail');
+
+// Seadog #1 — addon_service + component surfboard must NOT stay retail
+const addonBoardRow = { service_type: 'addon_service', metadata: { component: 'surfboard' }, amount_due_cents: 1000 };
+eq('Seadog#1 productBucket(addon_service, component:surfboard)→boards', productBucket(addonBoardRow), 'boards');
+const addonBoardSummary = computeSunsetFinanceSummary({
+  now: NOW,
+  timeZone: TZ,
+  view: { granularity: 'month', anchor: '2026-07-15' },
+  bsr: [{ booking_id: 'A1', service_date: '2026-07-10', service_type: 'addon_service', quantity: 1, amount_due_cents: 1000, metadata: { component: 'surfboard' } }],
+  payments: [],
+  bookings: [{ booking_id: 'A1', total_amount_cents: 1000 }],
+});
+const addonByKey = Object.fromEntries(addonBoardSummary.redesign.revenue_by_product.map((p) => [p.key, p.cents]));
+eq('Seadog#1 revenue boards €10', addonByKey.boards, 1000);
+eq('Seadog#1 revenue retail €0', addonByKey.retail, 0);
+
+// Seadog #2 — board+suit stock counts both sides
+const stockBoardPlusSuit = stockTotals([
+  { offering_key: 'board+suit', label: 'Board+suit', stock_quantity: 10, active: true },
+]);
+eq('Seadog#2 board+suit boards_stock', stockBoardPlusSuit.boards_stock, 10);
+eq('Seadog#2 board+suit wetsuits_stock', stockBoardPlusSuit.wetsuits_stock, 10);
+const stockLegacyBundle = stockTotals([
+  { offering_key: 'board_and_suit_rental', label: 'Board and suit', stock_quantity: 4, active: true },
+]);
+eq('Seadog#2 board_and_suit boards', stockLegacyBundle.boards_stock, 4);
+eq('Seadog#2 board_and_suit wetsuits', stockLegacyBundle.wetsuits_stock, 4);
+const stockPlain = stockTotals([
+  { offering_key: 'board_rental', label: 'Surfboard', stock_quantity: 7, active: true },
+  { offering_key: 'wetsuit_rental', label: 'Wetsuit', stock_quantity: 3, active: true },
+]);
+eq('Seadog#2 plain board one-sided', stockPlain.boards_stock, 7);
+eq('Seadog#2 plain wetsuit one-sided', stockPlain.wetsuits_stock, 3);
+
+// Seadog #3 — leap day clamp
+const leap = shiftRangeYears({ start: '2024-02-29', end: '2024-02-29' }, -1);
+eq('Seadog#3 leap day → 2023-02-28 start', leap.start, '2023-02-28');
+eq('Seadog#3 leap day → 2023-02-28 end', leap.end, '2023-02-28');
+
+// Seadog #4 — legacy limitations byte-identical to master
+const emptyLim = computeSunsetFinanceSummary({ now: NOW, timeZone: TZ, bsr: [], payments: [], bookings: [] });
+eq('Seadog#4 legacy net_collected_available false', emptyLim.limitations.net_collected_available, false);
+eq(
+  'Seadog#4 legacy note exact',
+  emptyLim.limitations.note,
+  'Collected is gross: refunds/reversals are not available until an authoritative refund ledger exists.',
+);
+ok('Seadog#4 legacy limitations has only 2 keys', Object.keys(emptyLim.limitations).sort().join(',') === 'net_collected_available,note');
+ok('Seadog#4 redesign carries pending_refund flag', emptyLim.redesign.limitations.pending_refund_estimated_from_cancellations === true);
+ok('Seadog#4 redesign note mentions Slice 1', /Slice 1/.test(emptyLim.redesign.limitations.note));
 
 ok('BSR SQL includes service_type', /service_type/.test(BSR_SQL));
 ok('pending refund SQL targets cancelled bookings', /cancelled/.test(PENDING_REFUND_SQL) && /amount_paid_cents/.test(PENDING_REFUND_SQL));
@@ -52,8 +104,6 @@ const payments = [
   { booking_id: 'B1', amount_paid_cents: 4000, paid_at: '2026-07-15T09:00:00Z' },
   { booking_id: 'B2', amount_paid_cents: 0, paid_at: '2026-07-10T09:00:00Z' },
 ];
-// B2 unpaid 5000, last service 07-10 → 5 days past on 07-15 → due soon
-// B_PAST unpaid 8000, last 06-01 → overdue
 
 const pending = [
   { booking_id: 'CXL', amount_paid_cents: 2500, paid_at: '2026-07-01T10:00:00Z' },
@@ -81,18 +131,13 @@ eq('net equals gross', s.redesign.net.net_collected_cents, s.redesign.net.gross_
 eq('pending refund from cancellations', s.redesign.net.pending_refund_cents, 2500);
 eq('completed refunds still 0', s.redesign.net.completed_refunds_cents, 0);
 
-// July product: B1 lesson 4000 + board 3000 + B2 wetsuit 2000 = 9000
 const byKey = Object.fromEntries(s.redesign.revenue_by_product.map((p) => [p.key, p.cents]));
 eq('product lessons', byKey.lessons, 4000);
 eq('product boards', byKey.boards, 3000);
 eq('product wetsuits', byKey.wetsuits, 2000);
 
 ok('next 30 includes B1 July rows', s.redesign.pipeline.next_30_days_cents >= 7000);
-// Delivered unpaid = any booking with balance and last service_date < today (B2 07-10 + B_PAST 06-01).
 eq('delivered unpaid = B2+B_PAST', s.redesign.pipeline.delivered_unpaid_cents, 13000);
-
-// Outstanding aging for July-qualifying unpaid balances:
-// B1 balance 6000, last service 07-16 (future) → due soon; B2 5000, last 07-10 (5d past) → due soon.
 eq('due soon ≤7d includes near/future unpaid', s.redesign.outstanding.due_soon_cents, 11000);
 eq('overdue in primary July may be 0 (B_PAST outside period)', s.redesign.outstanding.overdue_cents, 0);
 
@@ -105,7 +150,6 @@ ok('daily trend has LY ghost fields', Array.isArray(s.redesign.daily_gross_trend
 ok('left on table uses avg lesson price when capacity known', s.redesign.capacity.left_on_table_cents == null
   || Number.isInteger(s.redesign.capacity.left_on_table_cents));
 
-// Renderer
 const uiSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-admin-finance-redesign-ui.js'), 'utf8');
 const sandbox = { portalT: (k) => k, escHtml: (x) => String(x), portalLang: 'en', Intl, module: { exports: {} }, exports: {} };
 vm.createContext(sandbox);
@@ -117,9 +161,9 @@ ok('renders pending refund', /pendingRefund|Pending refund|2500|25/.test(html));
 ok('renders product bars', /pfb-bar-row/.test(html));
 ok('renders capacity', /pfb-ring|Capacity used|admin\.finance\.capacityUsed/.test(html));
 ok('renders daily trend', /pfb-trend/.test(html));
+ok('UI note from redesign.limitations', /Slice 1|Pending refund = paid cents/.test(html));
 ok('no money arithmetic in renderer source', !/net_collected_cents\s*[+\-*/]/.test(uiSrc));
 
-// Admin UI prefers redesign when function present
 const adminSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-admin-ui.js'), 'utf8');
 ok('admin ui wires redesign render path', /renderFinanceRedesignHtml/.test(adminSrc));
 ok('admin ui sends granularity query', /financeViewQuery|granularity=/.test(adminSrc));

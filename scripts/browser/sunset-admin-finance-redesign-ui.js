@@ -213,8 +213,11 @@ function renderFinanceRedesignHtml(summary) {
     '</span><b class="pfb-muted">' + financeRedesignEsc(financeRedesignFmtEur(net.completed_refunds_cents || 0)) + '</b></div>';
   html += '<div class="pfb-row"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.pendingRefund', 'Pending refund')) +
     '</span><b class="pfb-amber">' + financeRedesignEsc(financeRedesignFmtEur(net.pending_refund_cents || 0)) + '</b></div>';
-  html += '<div class="pfb-note">' + financeRedesignEsc(financeRedesignT('admin.finance.pendingRefundNote',
-    'Pending refund estimated from paid cancelled bookings. Net = gross until completed refunds are tracked.')) + '</div>';
+  html += '<div class="pfb-note">' + financeRedesignEsc(
+    (R.limitations && R.limitations.note)
+      || financeRedesignT('admin.finance.pendingRefundNote',
+        'Pending refund estimated from paid cancelled bookings. Net = gross until completed refunds are tracked.')
+  ) + '</div>';
   html += '</div>';
   html += '<div class="pfb-deltas">' +
     '<span class="pfb-delta-wrap"><span class="pfb-delta-lab">' + financeRedesignEsc(financeRedesignT('admin.finance.vsPrior', 'vs last period')) +
