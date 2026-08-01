@@ -131,6 +131,62 @@ const pngPrep = compress.prepareCompressedBody(Buffer.alloc(4096, 1), {
 });
 ok('binary image never compresses', pngPrep.compressed === false);
 
+// ── Double-encoding guard (Sea Dog blocker) ──────────────────────────────────
+ok('hasExistingContentEncoding detects br',
+  compress.hasExistingContentEncoding({ 'Content-Type': 'application/json', 'Content-Encoding': 'br' }));
+ok('hasExistingContentEncoding detects lowercase key',
+  compress.hasExistingContentEncoding({ 'content-encoding': 'gzip' }));
+ok('hasExistingContentEncoding ignores empty',
+  !compress.hasExistingContentEncoding({ 'Content-Encoding': '' }));
+ok('hasExistingContentEncoding ignores missing',
+  !compress.hasExistingContentEncoding({ 'Content-Type': 'application/json' }));
+
+const brBody = 'x'.repeat(2048);
+const brPrep = compress.prepareCompressedBody(brBody, {
+  req: bigReq,
+  headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'br' },
+});
+ok('existing Content-Encoding: br → not re-gzipped', brPrep.compressed === false);
+ok('existing br preserved (not overwritten with gzip)',
+  brPrep.headers['Content-Encoding'] === 'br');
+ok('existing br body left as original bytes', brPrep.body.toString('utf8') === brBody);
+
+const alreadyGzipPrep = compress.prepareCompressedBody(brBody, {
+  req: bigReq,
+  headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' },
+});
+ok('existing Content-Encoding: gzip → not double-gzipped', alreadyGzipPrep.compressed === false);
+ok('existing gzip encoding preserved',
+  alreadyGzipPrep.headers['Content-Encoding'] === 'gzip');
+
+const deflatePrep = compress.prepareCompressedBody(brBody, {
+  req: bigReq,
+  headers: { 'Content-Type': 'text/html; charset=utf-8', 'content-encoding': 'deflate' },
+});
+ok('existing content-encoding: deflate → not re-gzipped', deflatePrep.compressed === false);
+ok('existing deflate preserved',
+  String(deflatePrep.headers['content-encoding'] || deflatePrep.headers['Content-Encoding']) === 'deflate');
+
+// ── UTF-8 multibyte Content-Length / round-trip ──────────────────────────────
+const utf8Seed = '😀漢字é';
+const utf8Body = utf8Seed.repeat(400);
+const utf8JsLen = utf8Body.length;
+const utf8ByteLen = Buffer.byteLength(utf8Body, 'utf8');
+ok('utf8 fixture: JS length < byte length', utf8JsLen < utf8ByteLen,
+  `js=${utf8JsLen} bytes=${utf8ByteLen}`);
+const utf8Prep = compress.prepareCompressedBody(utf8Body, {
+  req: bigReq,
+  contentType: 'application/json',
+  headers: { 'Content-Type': 'application/json' },
+});
+ok('utf8 large body compresses', utf8Prep.compressed === true);
+ok('utf8 Content-Length is compressed buffer length',
+  utf8Prep.headers['Content-Length'] === utf8Prep.body.length);
+const utf8Rt = zlib.gunzipSync(utf8Prep.body).toString('utf8');
+ok('utf8 gzip round-trip byte-identical', utf8Rt === utf8Body);
+ok('utf8 rawLength is UTF-8 byte length not JS length',
+  utf8Prep.rawLength === utf8ByteLen, `raw=${utf8Prep.rawLength} expected=${utf8ByteLen}`);
+
 // ── endWithOptionalGzip mock res ─────────────────────────────────────────────
 {
   let status = null;

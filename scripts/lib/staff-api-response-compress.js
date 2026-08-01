@@ -96,6 +96,19 @@ function toBuffer(body) {
 }
 
 /**
+ * True when headers already declare a Content-Encoding (any non-empty value).
+ * Prevents double-encoding (e.g. overwriting br/deflate/gzip with another gzip).
+ */
+function hasExistingContentEncoding(headers) {
+  if (!headers || typeof headers !== 'object') return false;
+  const key = Object.keys(headers).find((k) => k.toLowerCase() === 'content-encoding');
+  if (!key) return false;
+  const val = headers[key];
+  if (val == null) return false;
+  return String(val).trim() !== '';
+}
+
+/**
  * Decide whether/how to gzip a response body.
  * @returns {{ body: Buffer, headers: object, compressed: boolean, rawLength: number }}
  */
@@ -116,13 +129,16 @@ function prepareCompressedBody(body, opts) {
   const accepts = requestAcceptsGzip(req);
   const typeOk = isCompressibleContentType(contentType);
   const aboveMin = rawLength >= minBytes;
+  // Never re-encode a body that already carries Content-Encoding (br/gzip/deflate/…).
+  const alreadyEncoded = hasExistingContentEncoding(headers);
 
   // Vary when this path/type *could* choose encoding (not webhooks/healthz).
-  if (!pathSkip && typeOk) {
+  // If caller already set Content-Encoding, leave Vary alone (they own encoding).
+  if (!pathSkip && typeOk && !alreadyEncoded) {
     headers = mergeVaryAcceptEncoding(headers);
   }
 
-  const canCompress = !forceOff && req && !pathSkip && accepts && typeOk && aboveMin;
+  const canCompress = !forceOff && !alreadyEncoded && req && !pathSkip && accepts && typeOk && aboveMin;
   if (!canCompress) {
     if (headers['Content-Length'] == null && headers['content-length'] == null) {
       headers['Content-Length'] = rawLength;
@@ -169,6 +185,7 @@ module.exports = {
   requestAcceptsGzip,
   isCompressibleContentType,
   mergeVaryAcceptEncoding,
+  hasExistingContentEncoding,
   prepareCompressedBody,
   endWithOptionalGzip,
 };
