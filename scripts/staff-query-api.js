@@ -885,6 +885,7 @@ const MAX_ROWS           = 500;
 const LOG_DIR            = path.join(__dirname, '..', 'logs');
 const LOG_FILE           = path.join(LOG_DIR, 'staff-query-log.jsonl');
 const STAFF_PORTAL_LOGO_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-front-desk-logo.png');
+const STAFF_PORTAL_FAVICON_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-favicon.png');
 const STAFF_PORTAL_LOGIN_BTN_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-login-signin-btn.png');
 const STAFF_PORTAL_LOGIN_BG_PATH = path.join(__dirname, '..', 'public', 'images', 'luna-login-bg.jpg');
 
@@ -15798,6 +15799,8 @@ function buildUiHtml(port, portalDeployClient) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Luna Front Desk</title>
+<link rel="icon" href="/staff/assets/luna-favicon.png?v=1" type="image/png" sizes="128x128">
+<link rel="apple-touch-icon" href="/staff/assets/luna-favicon.png?v=1">
 <script>window.PORTAL_DEFAULT_CLIENT=${JSON.stringify(portalDefaultClient)};</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -40326,6 +40329,20 @@ function handleStaffPortalLogo(res) {
   });
 }
 
+function handleStaffPortalFavicon(res) {
+  fs.readFile(STAFF_PORTAL_FAVICON_PATH, (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      return res.end('Not found');
+    }
+    res.writeHead(200, {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=86400',
+    });
+    res.end(data);
+  });
+}
+
 function handleStaffPortalLoginBtn(res) {
   fs.readFile(STAFF_PORTAL_LOGIN_BTN_PATH, (err, data) => {
     if (err) {
@@ -48517,6 +48534,15 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleBookingContext(bookingCtxMatch[1], parsed.query, res, auth.user);
+  }
+
+  // ── GET /staff/assets/luna-favicon.png + /favicon.ico — Luna tab icon (public) ─
+  if (pathname === '/staff/assets/luna-favicon.png' || pathname === '/favicon.ico') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
+    }
+    return handleStaffPortalFavicon(res);
   }
 
   // ── GET /staff/assets/luna-front-desk-logo.png — portal banner logo (public) ─

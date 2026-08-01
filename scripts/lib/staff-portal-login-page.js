@@ -105,6 +105,8 @@ function buildStaffLoginHtml(loginDefaultClient, enabledLocales, langSwitchHtml)
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Luna Front Desk — Sign in</title>
+<link rel="icon" href="/staff/assets/luna-favicon.png?v=1" type="image/png" sizes="128x128">
+<link rel="apple-touch-icon" href="/staff/assets/luna-favicon.png?v=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
