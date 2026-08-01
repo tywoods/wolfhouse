@@ -840,7 +840,8 @@
     "verify:luna-tenant-catalog-s1": "node scripts/verify-luna-tenant-catalog-s1.js",
     "verify:luna-rental-catalog-tool": "python3 docker/hermes-staging/plugins/wolfhouse_staff_api/test_sunset_rental_catalog_tool.py",
     "verify:luna-sunset-course-equipment-s2": "python3 docker/hermes-staging/plugins/wolfhouse_staff_api/test_sunset_course_equipment_s2.py",
-    "verify:sunset-rental-create-price-lookup-p1": "node scripts/verify-sunset-rental-create-price-lookup-p1.js"
+    "verify:sunset-rental-create-price-lookup-p1": "node scripts/verify-sunset-rental-create-price-lookup-p1.js",
+    "verify:sunset-rental-create-price-lookup-p1c": "node scripts/verify-sunset-rental-create-price-lookup-p1c.js"
   },
   "dependencies": {
     "acorn": "8.14.1",

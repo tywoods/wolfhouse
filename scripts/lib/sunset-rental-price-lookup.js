@@ -35,6 +35,9 @@ const ITEM_ALIASES = {
   'board + wetsuit': 'board_and_suit_rental',
   board_and_suit: 'board_and_suit_rental',
   board_and_suit_rental: 'board_and_suit_rental',
+  surfboard_wetsuit_rental: 'surfboard_wetsuit_rental',
+  surfboard_wetsuit: 'surfboard_wetsuit_rental',
+  board_and_wetsuit_rental: 'board_and_wetsuit_rental',
   bundle: 'board_and_suit_rental',
   sup: 'sup_rental',
   paddleboard: 'sup_rental',
@@ -68,6 +71,29 @@ const DURATION_ALIASES = {
 function resolveItemCode(raw) {
   const key = String(raw || '').trim().toLowerCase();
   return ITEM_ALIASES[key] || key;
+}
+
+/** Board+suit catalog keys used live (DB item_code prefix) and legacy aliases. */
+function rentalOfferingKeyCandidates(itemCode) {
+  const base = resolveItemCode(itemCode);
+  const out = [];
+  const push = (k) => {
+    const v = String(k || '').trim();
+    if (v && !out.includes(v)) out.push(v);
+  };
+  push(base);
+  push(itemCode);
+  const bundleFamily = new Set([
+    'board_and_suit_rental',
+    'surfboard_wetsuit_rental',
+    'board_and_wetsuit_rental',
+  ]);
+  if (bundleFamily.has(base) || bundleFamily.has(String(itemCode || '').trim())) {
+    push('board_and_suit_rental');
+    push('surfboard_wetsuit_rental');
+    push('board_and_wetsuit_rental');
+  }
+  return out;
 }
 
 function resolveDurationKey(raw) {
@@ -571,17 +597,32 @@ async function lookupSunsetRentalPriceAsync(opts) {
   }
 
   const loadRule = options.loadRule || defaultLoadRentalRule;
+  const keyCandidates = rentalOfferingKeyCandidates(itemCode);
   let dbRes;
+  let resolvedItemCode = itemCode;
   try {
-    dbRes = await loadRule({
-      clientSlug,
-      locationId,
-      itemType: 'rental',
-      itemCode,
-      duration,
-      billingUnit,
-      pgClient: options.pgClient,
-    });
+    for (const cand of keyCandidates) {
+      // eslint-disable-next-line no-await-in-loop
+      const attempt = await loadRule({
+        clientSlug,
+        locationId,
+        itemType: 'rental',
+        itemCode: cand,
+        duration,
+        billingUnit,
+        pgClient: options.pgClient,
+      });
+      if (attempt && attempt.status === 'tables_missing') {
+        dbRes = attempt;
+        break;
+      }
+      if (attempt && attempt.status === 'found') {
+        dbRes = attempt;
+        resolvedItemCode = cand;
+        break;
+      }
+      dbRes = attempt;
+    }
   } catch (err) {
     return {
       ok: false,
@@ -659,7 +700,7 @@ async function lookupSunsetRentalPriceAsync(opts) {
     tenant_id: clientSlug,
     location_id: effectiveLoc,
     location_label: locationStore.resolveLocationLabel(effectiveLoc),
-    item: itemCode,
+    item: resolvedItemCode,
     duration,
     amount_cents: amountCents,
     amount_eur: amountCents / 100,
@@ -899,6 +940,7 @@ module.exports = {
   resolveRentalBillingUnit,
   resolveDurationKey,
   resolveItemCode,
+  rentalOfferingKeyCandidates,
   listConfiguredRentalOfferings,
   isConfiguredRentalItem,
   matchRentalFromMessage,

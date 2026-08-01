@@ -2469,9 +2469,101 @@ def create_sunset_booking(params, **kwargs):
     board = raw_components.get("surfboard") if isinstance(raw_components.get("surfboard"), dict) else None
     suit = raw_components.get("wetsuit") if isinstance(raw_components.get("wetsuit"), dict) else None
     rp_offering = _clean(rp_in.get("offering_key")) if rp_in else ""
-    is_bundle = rp_offering == "board_and_suit_rental" or bool(combined) or bool(board and suit)
+    # Live catalog may use surfboard_wetsuit_rental or board_and_suit_rental.
+    bundle_keys = {
+        "board_and_suit_rental",
+        "surfboard_wetsuit_rental",
+        "board_and_wetsuit_rental",
+    }
+    is_bundle = rp_offering in bundle_keys or bool(combined) or bool(board and suit)
 
-    if is_bundle:
+    def _rental_price_lookup(item_key, duration_key):
+        """Re-quote via the same bot path as get_sunset_rental_price (DB-authoritative)."""
+        qbody = {"item": item_key, "duration": duration_key}
+        if payload.get("location_id"):
+            qbody["location_id"] = payload.get("location_id")
+        qdata = _post_bot("/sunset/rental-price", qbody)
+        qresult = qdata.get("result") if isinstance(qdata.get("result"), dict) else {}
+        cents = qresult.get("amount_cents")
+        ok = bool(qdata.get("ok")) and isinstance(cents, int) and cents > 0
+        return ok, qdata, qresult, cents
+
+    def _bundle_item_candidates(preferred):
+        pref = _clean(preferred) or "board_and_suit_rental"
+        ordered = [pref]
+        for k in ("board_and_suit_rental", "surfboard_wetsuit_rental", "board_and_wetsuit_rental"):
+            if k not in ordered:
+                ordered.append(k)
+        return ordered
+
+    # Any rental_pricing (bike, towel, SUP, board+suit, …) must become rentals[]
+    # for Staff create — the write path prices catalog items from rentals[], not
+    # from a parallel money invent. Exact offering_key from quote/catalog is kept.
+    if isinstance(rp_in, dict) and _clean(rp_in.get("offering_key")):
+        offering_key = _clean(rp_in.get("offering_key"))
+        duration = _canon_rental_duration(rp_in.get("duration") or rp_in.get("duration_key"))
+        qty_raw = rp_in.get("quantity")
+        try:
+            qty = int(qty_raw)
+        except (TypeError, ValueError):
+            qty = 0
+        if not duration or not isinstance(qty, int) or isinstance(qty_raw, bool) or qty < 1:
+            return _json_result({
+                "success": False,
+                "tool": "create_sunset_booking",
+                "error": "rental_pricing_invalid",
+                "staff_review_needed": False,
+                "guest_safe_next_action": "Which rental item and duration from the catalog should I book, and for how many?",
+            })
+        # Server re-quote (same source as get_sunset_rental_price). Try preferred
+        # key first, then board-bundle aliases when this is a bundle shape.
+        candidates = _bundle_item_candidates(offering_key) if (is_bundle or offering_key in bundle_keys) else [offering_key]
+        unit_cents = None
+        resolved_item = offering_key
+        quote_result = {}
+        for cand in candidates:
+            ok, _qdata, qresult, cents = _rental_price_lookup(cand, duration)
+            if ok:
+                unit_cents = cents
+                resolved_item = _clean(qresult.get("item")) or cand
+                duration = _canon_rental_duration(qresult.get("duration")) or duration
+                quote_result = qresult
+                break
+        if unit_cents is None:
+            return _json_result({
+                "success": False,
+                "tool": "create_sunset_booking",
+                "error": "rental_bundle_price_unavailable",
+                "staff_review_needed": True,
+                "detail": {
+                    "offering_key": offering_key,
+                    "duration": duration,
+                    "tried": candidates,
+                },
+                "guest_safe_next_action": "Let me double-check that rental price with the team and come right back.",
+            })
+        # Exact offering write — never expand board+suit into historical
+        # surfboard+wetsuit component halves (those use a different create path
+        # and disagree with live catalog keys / exact offering pricing).
+        norm_components = {
+            k: v for k, v in raw_components.items()
+            if k not in ("board_and_suit_rental", "surfboard", "wetsuit", "surfboard_wetsuit_rental")
+        }
+        body["components"] = norm_components
+        body["rentals"] = [{
+            "offering_key": resolved_item,
+            "duration_key": duration,
+            "quantity": qty,
+        }]
+        body["rental_pricing"] = {
+            "offering_key": resolved_item,
+            "duration": duration,
+            "quantity": qty,
+            "quoted_total_cents": unit_cents * qty,
+        }
+    elif is_bundle:
+        # Model sent surfboard+wetsuit components without rental_pricing — still
+        # exact-offering create after portal re-quote.
         shape = _resolve_sunset_bundle_shape(rp_in, combined, board, suit)
         if not shape:
             return _json_result({
@@ -2481,13 +2573,18 @@ def create_sunset_booking(params, **kwargs):
                 "staff_review_needed": False,
                 "guest_safe_next_action": "How many board-and-wetsuit sets, and for how long — a half day or a full day?",
             })
-        quote_body = {"item": "board_and_suit_rental", "duration": shape["duration"]}
-        if payload.get("location_id"):
-            quote_body["location_id"] = payload.get("location_id")
-        quote_data = _post_bot("/sunset/rental-price", quote_body)
-        quote_result = quote_data.get("result") if isinstance(quote_data.get("result"), dict) else {}
-        unit_cents = quote_result.get("amount_cents")
-        if not quote_data.get("ok") or not isinstance(unit_cents, int) or unit_cents <= 0:
+        duration = shape["duration"]
+        qty = shape["quantity"]
+        unit_cents = None
+        resolved_item = "board_and_suit_rental"
+        for cand in _bundle_item_candidates("board_and_suit_rental"):
+            ok, _qdata, qresult, cents = _rental_price_lookup(cand, duration)
+            if ok:
+                unit_cents = cents
+                resolved_item = _clean(qresult.get("item")) or cand
+                duration = _canon_rental_duration(qresult.get("duration")) or duration
+                break
+        if unit_cents is None:
             return _json_result({
                 "success": False,
                 "tool": "create_sunset_booking",
@@ -2495,22 +2592,20 @@ def create_sunset_booking(params, **kwargs):
                 "staff_review_needed": True,
                 "guest_safe_next_action": "Let me double-check that rental price with the team and come right back.",
             })
-        qty = shape["quantity"]
-        duration = _canon_rental_duration(quote_result.get("duration")) or shape["duration"]
-        # Preserve any non-gear components; drop the unsupported combined key and
-        # rebuild the exact surfboard+wetsuit rows the Staff API accepts.
         norm_components = {
             k: v for k, v in raw_components.items()
-            if k not in ("board_and_suit_rental", "surfboard", "wetsuit")
+            if k not in ("board_and_suit_rental", "surfboard", "wetsuit", "surfboard_wetsuit_rental")
         }
-        norm_components["surfboard"] = {"quantity": qty, "duration": duration}
-        norm_components["wetsuit"] = {"quantity": qty, "duration": duration}
         body["components"] = norm_components
+        body["rentals"] = [{
+            "offering_key": resolved_item,
+            "duration_key": duration,
+            "quantity": qty,
+        }]
         body["rental_pricing"] = {
-            "offering_key": "board_and_suit_rental",
+            "offering_key": resolved_item,
             "duration": duration,
             "quantity": qty,
-            # Authoritative portal unit × quantity — the model never sets money.
             "quoted_total_cents": unit_cents * qty,
         }
     elif isinstance(payload.get("components"), dict):

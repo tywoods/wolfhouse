@@ -425,9 +425,11 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId, op
            OR (
              item_type = 'rental'
              AND (
-               item_code LIKE 'board_rental__%'
+               item_code LIKE '%_rental__%'
+               OR item_code LIKE 'board_rental__%'
                OR item_code LIKE 'wetsuit_rental__%'
                OR item_code LIKE 'board_and_suit_rental__%'
+               OR item_code LIKE 'surfboard_wetsuit_rental__%'
              )
            )
          )`
@@ -436,9 +438,11 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId, op
            OR (
              item_type = 'rental'
              AND (
-               item_code LIKE 'board_rental__%'
+               item_code LIKE '%_rental__%'
+               OR item_code LIKE 'board_rental__%'
                OR item_code LIKE 'wetsuit_rental__%'
                OR item_code LIKE 'board_and_suit_rental__%'
+               OR item_code LIKE 'surfboard_wetsuit_rental__%'
              )
            )
          )`;

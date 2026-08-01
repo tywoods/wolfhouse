@@ -380,6 +380,8 @@ const CANONICAL_RENTAL_OFFERING_KEYS = Object.freeze([
   'board_rental',
   'wetsuit_rental',
   'board_and_suit_rental',
+  'surfboard_wetsuit_rental',
+  'board_and_wetsuit_rental',
 ]);
 
 // Component-lane keys still expand into legacy surfboard|wetsuit service rows.
@@ -392,6 +394,8 @@ const COMPONENT_LANE_RENTAL_KEYS = Object.freeze([
 
 const EXACT_OFFERING_FUTURE_WRITE_KEYS = Object.freeze([
   'board_and_suit_rental',
+  'surfboard_wetsuit_rental',
+  'board_and_wetsuit_rental',
 ]);
 
 const CLIENT_RENTAL_MONEY_FIELDS = Object.freeze([
@@ -878,7 +882,7 @@ function rentalRowMatchesBareRentalLine(row, line, spec) {
   const bundlePart = String(meta.bundle_part || '').trim();
 
   // Bundle halves are owned exclusively by board_and_suit_rental lines.
-  if (offeringKey === 'board_and_suit_rental' || bundlePart) return false;
+  if (isExactOfferingFutureWriteKey(offeringKey) || bundlePart) return false;
 
   // Explicit opposite-side / contradictory identity rejects (no soft OR rescue).
   if (offeringKey && offeringKey !== spec.bareOfferingKey) return false;
@@ -955,17 +959,26 @@ function rowMatchesQuoteLine(row, line) {
   if (component === 'lesson') {
     return meta.component === 'lesson' || serviceType === 'lesson';
   }
-  if (component === 'board_and_suit_rental') {
-    // Future write: one exact offering row (addon_service + offering_key).
-    // Historical: dual surfboard/wetsuit component rows with bundle markers.
-    if (meta.offering_key !== 'board_and_suit_rental') return false;
-    if (meta.component === 'board_and_suit_rental' || serviceType === 'addon_service'
-      || meta.rental_offering === true) {
+  if (component === 'board_and_suit_rental'
+    || isExactOfferingFutureWriteKey(component)
+    || (component.endsWith('_rental')
+      && component !== 'board_rental'
+      && component !== 'wetsuit_rental')) {
+    // Exact catalog rental offering: one addon_service row with matching offering_key.
+    // board_and_suit also has historical dual surfboard/wetsuit component rows.
+    if (String(meta.offering_key || '').trim() !== component) {
+      // Historical board_and_suit halves may lack offering_key on component rows.
+      if (component !== 'board_and_suit_rental') return false;
+    } else if (meta.component === component || serviceType === 'addon_service'
+      || meta.rental_offering === true || meta.generic_rental === true) {
       return true;
     }
-    return serviceType === 'surfboard' || serviceType === 'wetsuit'
-      || meta.component === 'surfboard' || meta.component === 'wetsuit'
-      || meta.bundle_part === 'surfboard' || meta.bundle_part === 'wetsuit';
+    if (component === 'board_and_suit_rental') {
+      return serviceType === 'surfboard' || serviceType === 'wetsuit'
+        || meta.component === 'surfboard' || meta.component === 'wetsuit'
+        || meta.bundle_part === 'surfboard' || meta.bundle_part === 'wetsuit';
+    }
+    return false;
   }
   // Canonical rentals[] emit board_rental / wetsuit_rental; legacy components
   // quote path still labels lines as surfboard / wetsuit. Compound identity only
@@ -2851,9 +2864,13 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
       total_cents: checkedMoneyAdd(authoritativeQuote.total_cents, genericQuote.total_cents, 'mixed_quote_total'),
     };
   }
-  if (rentalPricingDescriptor && rentalPricingDescriptor.offering_key === 'board_and_suit_rental') {
+  if (rentalPricingDescriptor && isExactOfferingFutureWriteKey(rentalPricingDescriptor.offering_key)) {
     const bundleLine = findQuoteLineForRentalOffering(
+      authoritativeQuote.line_items, rentalPricingDescriptor.offering_key,
+    ) || findQuoteLineForRentalOffering(
       authoritativeQuote.line_items, 'board_and_suit_rental',
+    ) || findQuoteLineForRentalOffering(
+      authoritativeQuote.line_items, 'surfboard_wetsuit_rental',
     );
     if (bundleLine && bundleLine.total_cents != null) {
       rentalPricingDescriptor = {
@@ -3345,25 +3362,31 @@ async function insertScheduleComponentServiceRows(pg, opts) {
       : (Array.isArray(input.service_dates) ? input.service_dates : []);
     const anchor = span[0] || (input.service_dates && input.service_dates[0]) || null;
     for (const rental of canonicalRentals) {
-      if (!rental || rental.offering_key !== 'board_and_suit_rental') continue;
+      if (!rental || !isExactOfferingFutureWriteKey(rental.offering_key)) continue;
       if (!anchor) continue;
       const quoteLine = authoritativeQuote
-        ? findQuoteLineForRentalOffering(authoritativeQuote.line_items, 'board_and_suit_rental')
+        ? (
+          findQuoteLineForRentalOffering(authoritativeQuote.line_items, rental.offering_key)
+          || findQuoteLineForRentalOffering(authoritativeQuote.line_items, 'board_and_suit_rental')
+          || findQuoteLineForRentalOffering(authoritativeQuote.line_items, 'surfboard_wetsuit_rental')
+        )
         : null;
       const snapshotLabel = quoteLine && quoteLine.label
         ? String(quoteLine.label)
-        : 'Board and wetsuit';
+        : (rental.offering_key === 'board_and_suit_rental' || rental.offering_key === 'surfboard_wetsuit_rental'
+          ? 'Board and wetsuit'
+          : String(rental.offering_key));
       const metadata = wrapMeta({
         ...common(),
         rental_offering: true,
         staff_ui_service_type: 'rental',
-        component: 'board_and_suit_rental',
-        offering_key: 'board_and_suit_rental',
+        component: rental.offering_key,
+        offering_key: rental.offering_key,
         duration_key: rental.duration_key,
         quantity: rental.quantity,
         rental_service_dates: span,
         covered_dates: span,
-        offering_id: `board_and_suit_rental__${rental.duration_key}`,
+        offering_id: `${rental.offering_key}__${rental.duration_key}`,
         label: snapshotLabel,
         offering_label: snapshotLabel,
         // No bundle_part / pricing_group component halves on future writes.
@@ -3373,7 +3396,7 @@ async function insertScheduleComponentServiceRows(pg, opts) {
           price_identity: {
             price_id: quoteLine.price_id || null,
             item_code: quoteLine.offering_item_code || quoteLine.offering_id
-              || `board_and_suit_rental__${rental.duration_key}`,
+              || `${rental.offering_key}__${rental.duration_key}`,
             unit: rental.duration_key,
           },
         } : {}),
@@ -3663,7 +3686,27 @@ async function createSunsetScheduleBooking(pg, opts) {
   // Actor-gated Luna derivation must run before force/validation so Hermes
   // component-qty payloads (no top-level surfer_count) stay compatible.
   const lunaForceOpts = { actor: opts.actor || null };
-  const requestedRentals = Array.isArray(opts.body && opts.body.rentals) ? opts.body.rentals : [];
+  // Promote rental_pricing → rentals[] when the model/plugin only sent the
+  // quote descriptor (bike, board+suit exact offering, towel, …).
+  let bodyIn = opts.body && typeof opts.body === 'object' ? { ...opts.body } : {};
+  {
+    const rp = bodyIn.rental_pricing && typeof bodyIn.rental_pricing === 'object'
+      ? bodyIn.rental_pricing : null;
+    const hasRentals = Array.isArray(bodyIn.rentals) && bodyIn.rentals.length > 0;
+    if (rp && !hasRentals) {
+      const offering_key = String(rp.offering_key || '').trim();
+      const duration_key = String(rp.duration || rp.duration_key || '').trim();
+      const quantity = parseInt(String(rp.quantity), 10);
+      if (offering_key && duration_key && Number.isInteger(quantity) && quantity >= 1) {
+        bodyIn = {
+          ...bodyIn,
+          rentals: [{ offering_key, duration_key, quantity }],
+        };
+      }
+    }
+  }
+  const requestedRentals = Array.isArray(bodyIn.rentals) ? bodyIn.rentals : [];
+  opts = { ...opts, body: bodyIn };
   const createDateFrom = String(opts.body && opts.body.date_from || '').slice(0, 10);
   const createDateTo = String(opts.body && opts.body.date_to || opts.body && opts.body.date_from || '').slice(0, 10);
   const createSpanDates = inclusiveIsoDatesFromRange(createDateFrom, createDateTo);
@@ -3787,6 +3830,7 @@ async function createSunsetScheduleBooking(pg, opts) {
   let assignedCourse = null;
   let assignedCoursesById = null;
   let coursePricePreflight = null;
+
   const {
     shouldPriceGroupLessonsIndividually,
     normalizeSelectedCourses,
