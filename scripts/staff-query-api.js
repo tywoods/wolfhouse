@@ -166,12 +166,14 @@ const {
 } = require('./lib/payment-ledger-stale-links');
 const { getEntry, REGISTRY, CATEGORIES } = require('./lib/staff-query-registry');
 const {
-  listStaffWhatsappNumbers,
-  upsertStaffWhatsappNumber,
   deleteStaffWhatsappNumber,
   resolveStaffWhatsappEntry,
   ensureStaffWhatsappNumbersTable,
 } = require('./lib/luna-staff-whatsapp-numbers');
+const {
+  createWhatsappNumbersRoutes,
+  WHATSAPP_NUMBERS_PATH,
+} = require('./lib/staff-whatsapp-numbers-routes');
 const {
   getHouseNotes: getTenantHouseNotes,
   setHouseNotes: setTenantHouseNotes,
@@ -2445,6 +2447,24 @@ const {
   handleNotificationSettingsGet,
   handleNotificationSettingsPut,
 } = notificationSettingsRoutes;
+
+// Staff & Owner WhatsApp numbers routes (extracted module). Auth stays in the router.
+// DELETE /staff/whatsapp-numbers/:id remains inline in this file for Slice 2.
+const whatsappNumbersRoutes = createWhatsappNumbersRoutes({
+  sendJSON,
+  send400,
+  readBody,
+  assertStaffClientAccess,
+  appendAuditLog,
+  withPgClient,
+  DEFAULT_CLIENT,
+  SQL_INJECT_RE,
+});
+const {
+  handleStaffWhatsappNumbersGet,
+  handleStaffWhatsappNumbersPost,
+} = whatsappNumbersRoutes;
+
 
 // Stage 8.4.11 — Raw Buffer variant required for Stripe webhook signature verification.
 // Stripe's constructEvent() needs the exact raw bytes, not a parsed/re-serialised string.
@@ -40442,94 +40462,8 @@ async function sendAdminWriteGateFailure(res, gate) {
   return sendJSON(res, gate.status, gate.body);
 }
 
-// ── Staff & Owner WhatsApp numbers — DB-backed allowlist CRUD ───────────────
-// Tenant-scoped by client_slug; admin+owner only. ensureStaffWhatsappNumbersTable
-// creates the table lazily (lunabox can't run migration 027).
-async function handleStaffWhatsappNumbersGet(query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-
-  try {
-    const numbers = await withPgClient(async (pg) => {
-      await ensureStaffWhatsappNumbersTable(pg);
-      return listStaffWhatsappNumbers(pg, clientSlug);
-    });
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:staff.whatsapp_numbers.list',
-      category: 'admin_api',
-      client_slug: clientSlug,
-      success: true,
-      staff_user_id: user ? user.staff_user_id : null,
-      elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 200, { success: true, client_slug: clientSlug, numbers, elapsed_ms: Date.now() - started });
-  } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'read failed' });
-  }
-}
-
-async function handleStaffWhatsappNumbersPost(query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-
-  let body;
-  try {
-    body = JSON.parse(await readBody(req) || '{}');
-  } catch (_) {
-    return send400(res, 'invalid JSON body');
-  }
-
-  try {
-    const result = await withPgClient(async (pg) => {
-      await ensureStaffWhatsappNumbersTable(pg);
-      const up = await upsertStaffWhatsappNumber(pg, {
-        clientSlug,
-        phone: body.phone,
-        permissionGroup: body.permission_group,
-        displayName: body.display_name,
-        active: body.active,
-      });
-      // Sync into staff_phone_access (the table WhatsApp recognition reads) so the number
-      // is recognized over WhatsApp: owner -> owner Command Center (owner insights + ops),
-      // staff -> operator ops. Best-effort; never fails the portal save.
-      if (up.ok) {
-        try {
-          await upsertStaffPhoneAccess(pg, {
-            client_slug: clientSlug,
-            phone: body.phone,
-            display_name: body.display_name,
-            role: body.permission_group === 'owner' ? 'owner' : 'operator',
-            channel: 'whatsapp',
-            is_active: body.active !== false,
-          });
-          up._whatsapp_synced = true;
-        } catch (syncErr) {
-          console.error('[staff.whatsapp_numbers.sync] failed:', syncErr && syncErr.message);
-          up._whatsapp_synced = false;
-        }
-      }
-      return up;
-    });
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:staff.whatsapp_numbers.upsert',
-      category: 'admin_api',
-      client_slug: clientSlug,
-      success: result.ok,
-      staff_user_id: user ? user.staff_user_id : null,
-      elapsed_ms: Date.now() - started,
-    });
-    if (!result.ok) return sendJSON(res, 400, { success: false, error: result.error, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 200, { success: true, number: result.row, whatsapp_recognition: result._whatsapp_synced === true, elapsed_ms: Date.now() - started });
-  } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
-  }
-}
+// Staff WhatsApp numbers GET/POST live in scripts/lib/staff-whatsapp-numbers-routes.js
+// (whatsappNumbersRoutes). DELETE stays here for Slice 2.
 
 async function handleStaffWhatsappNumbersDelete(idRaw, query, req, res, user) {
   const started = Date.now();
@@ -49146,12 +49080,13 @@ async function router(req, res) {
   }
 
   // ── Staff & Owner WhatsApp numbers — DB-backed allowlist CRUD (admin+owner) ─
-  if (pathname === '/staff/whatsapp-numbers' && method === 'GET') {
+  // Auth stays here; GET/POST handlers live in staff-whatsapp-numbers-routes.js
+  if (pathname === WHATSAPP_NUMBERS_PATH && method === 'GET') {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleStaffWhatsappNumbersGet(parsed.query, req, res, auth.user);
   }
-  if (pathname === '/staff/whatsapp-numbers' && method === 'POST') {
+  if (pathname === WHATSAPP_NUMBERS_PATH && method === 'POST') {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleStaffWhatsappNumbersPost(parsed.query, req, res, auth.user);
