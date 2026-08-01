@@ -1,14 +1,16 @@
 'use strict';
 /**
  * Generated /staff/ui Playwright gate: Group Course edit-drawer compact redesign
- * + follow-up (full equipment label, heading +, secondary-time reveal).
+ * + follow-up (full equipment label, heading +, secondary-time reveal)
+ * + three-course grid: slim edit cards stay in auto-fill columns (no full-row span).
  *
  * Opens real Admin → Group courses → Edit with fixture interception.
- * Asserts compact equipment/price/time geometry, full selected equipment label
- * at desktop, heading icon-add, secondary schedule reveal, value preservation,
- * and no overflow at 390px + desktop drawer width.
+ * Asserts three-pack desktop row geometry while editing, two-row equipment
+ * layout inside ~320px cards so Surfboard + Wetsuit fits, heading icon-add,
+ * secondary schedule reveal, value preservation, and no overflow at 390 + desktop.
  *
- * Artifact screenshots (outside git): /opt/data/cache/sunset-course-drawer-followup/
+ * Artifact screenshots (outside git): /opt/data/cache/sunset-three-course-grid/
+ * Legacy follow-up path kept for prior consumers.
  */
 const fs = require('fs');
 const path = require('path');
@@ -38,8 +40,9 @@ function pw() {
   catch (e) { return require('/opt/data/workspaces/wolfhouse-grok/node_modules/playwright'); }
 }
 
-const ARTIFACT_DIR = '/opt/data/cache/sunset-course-drawer-followup';
-// Keep legacy path for any external consumers of COMPACT_SHOT_NAME
+const ARTIFACT_DIR = '/opt/data/cache/sunset-three-course-grid';
+// Keep legacy paths for any external consumers of COMPACT_SHOT_NAME
+const LEGACY_FOLLOWUP_DIR = '/opt/data/cache/sunset-course-drawer-followup';
 const LEGACY_ARTIFACT_DIR = '/opt/data/cache/sunset-course-drawer';
 const listen = (s) => new Promise((r, j) => {
   s.once('error', j);
@@ -121,13 +124,73 @@ async function measureSelectLabelFit(page, selectLocator, expectedLabel) {
   }, expectedLabel);
 }
 
+/** Three pack cards share one desktop auto-fill row (side-by-side columns). */
+async function measurePackGridRow(page) {
+  return page.evaluate(() => {
+    const grid = document.querySelector('#admin-pack-card-grid, .portal-admin-pack-grid');
+    if (!grid) return { ok: false, reason: 'missing pack grid' };
+    const cards = Array.from(grid.querySelectorAll('[data-admin-pack-card], .portal-admin-pack-card'));
+    if (cards.length < 3) return { ok: false, reason: 'need >=3 cards', count: cards.length };
+    const gr = grid.getBoundingClientRect();
+    const rects = cards.slice(0, 3).map((c) => {
+      const r = c.getBoundingClientRect();
+      return {
+        id: c.getAttribute('data-admin-pack-card') || '',
+        left: r.left,
+        right: r.right,
+        top: r.top,
+        bottom: r.bottom,
+        width: r.width,
+        height: r.height,
+        editing: c.classList.contains('is-editing') || !!c.querySelector('[data-admin-pack-form]'),
+      };
+    });
+    const tops = rects.map((r) => r.top);
+    const maxTopDelta = Math.max(...tops) - Math.min(...tops);
+    const widths = rects.map((r) => r.width);
+    const minW = Math.min(...widths);
+    const maxW = Math.max(...widths);
+    // Side-by-side: similar tops + strictly increasing lefts (L→R order)
+    const ordered = [...rects].sort((a, b) => a.left - b.left);
+    const sideBySide =
+      maxTopDelta < 48
+      && ordered[0].left < ordered[1].left - 20
+      && ordered[1].left < ordered[2].left - 20
+      && ordered[0].right <= ordered[1].left + 4
+      && ordered[1].right <= ordered[2].left + 4;
+    const similarCols = maxW - minW <= Math.max(48, gr.width * 0.12);
+    const editing = rects.find((r) => r.editing) || rects[0];
+    const editingShare = gr.width > 0 ? editing.width / gr.width : 1;
+    return {
+      ok: true,
+      gridW: gr.width,
+      count: cards.length,
+      rects,
+      orderedIds: ordered.map((r) => r.id),
+      maxTopDelta,
+      minW,
+      maxW,
+      sideBySide,
+      similarCols,
+      editingW: editing.width,
+      editingShare,
+      // Slim column: edited card must stay ~1/3, never dominate the row
+      slimEdit: editingShare <= 0.40 && editing.width <= gr.width * 0.40 + 8,
+    };
+  });
+}
+
 (async () => {
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
+  fs.mkdirSync(LEGACY_FOLLOWUP_DIR, { recursive: true });
   fs.mkdirSync(LEGACY_ARTIFACT_DIR, { recursive: true });
   const { createSunsetAdminVerifyServer } = require('./fixtures/sunset-admin-verify-server');
   const server = createSunsetAdminVerifyServer();
   const base = await listen(server);
-  const browser = await pw().chromium.launch({ headless: true });
+  const browser = await pw().chromium.launch({
+    headless: true,
+    args: ['--disable-dev-shm-usage', '--no-sandbox', '--disable-gpu'],
+  });
   // Start desktop-wide so top-level Admin tab is visible (mobile uses nav menu).
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = [];
@@ -137,6 +200,8 @@ async function measureSelectLabelFit(page, selectLocator, expectedLabel) {
     if (msg.type() === 'error') errors.push(msg.text());
   });
 
+  // Fixture: three Group Course packs coexist in one desktop row (production-shaped labels).
+  // Production CSS must stay responsive auto-fill — only this test hardcodes three packs.
   let pack = {
     pack_id: 'verify-compact-pack',
     label: 'Curso Mañana',
@@ -156,6 +221,49 @@ async function measureSelectLabelFit(page, selectLocator, expectedLabel) {
       },
     ],
   };
+  const siblingPacks = [
+    {
+      pack_id: 'verify-compact-pack-mid',
+      label: 'Curso Medio Dia',
+      age_band: 'all_ages',
+      group_size: 24,
+      beaches: ['somo'],
+      weekly: 'daily',
+      schedules: ['1200_1400'],
+      price_tiers: [
+        { key: '1_day', label: '1 day', hours: 2, amount_cents: 3500 },
+      ],
+      equipment_options: [
+        {
+          offering_key: 'surfboard_wetsuit',
+          during_course_price_cents: 0,
+          all_day_price_cents: 1000,
+        },
+      ],
+    },
+    {
+      pack_id: 'verify-compact-pack-night',
+      label: 'Curso Noche',
+      age_band: '12_up',
+      group_size: 16,
+      beaches: ['somo'],
+      weekly: 'weekend',
+      schedules: ['1900_2100'],
+      price_tiers: [
+        { key: '1_day', label: '1 day', hours: 2, amount_cents: 4000 },
+      ],
+      equipment_options: [
+        {
+          offering_key: 'surfboard_wetsuit',
+          during_course_price_cents: 0,
+          all_day_price_cents: 0,
+        },
+      ],
+    },
+  ];
+  function allPacks() {
+    return [pack, ...siblingPacks];
+  }
   const offerings = [
     { offering_key: 'surfboard_wetsuit', label: 'Surfboard + Wetsuit', active: true },
     { offering_key: 'softboard', label: 'Softboard', active: true },
@@ -176,7 +284,7 @@ async function measureSelectLabelFit(page, selectLocator, expectedLabel) {
   await page.route('**/staff/admin/config?**', async (r) => {
     const x = await r.fetch();
     const b = await x.json();
-    b.surf_packs = [pack];
+    b.surf_packs = allPacks();
     b.prices = [];
     await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(b) });
   });
@@ -200,25 +308,83 @@ async function measureSelectLabelFit(page, selectLocator, expectedLabel) {
 
     const card = page.locator('[data-admin-pack-card="verify-compact-pack"]');
     await card.waitFor({ timeout: 10000 });
+    const midCard = page.locator('[data-admin-pack-card="verify-compact-pack-mid"]');
+    const nightCard = page.locator('[data-admin-pack-card="verify-compact-pack-night"]');
+    await midCard.waitFor({ timeout: 10000 });
+    await nightCard.waitFor({ timeout: 10000 });
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // THREE-COURSE GRID: desktop row stays 3 columns while editing Curso Mañana
+    // (primary contract — RED on #339 full-row span of .is-editing pack card)
+    // ═══════════════════════════════════════════════════════════════════════
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.waitForTimeout(100);
+
+    const gridBefore = await measurePackGridRow(page);
+    ok(gridBefore.ok, 'three pack cards present before edit: ' + JSON.stringify(gridBefore));
+    ok(gridBefore.count === 3, 'fixture yields exactly three Group Course cards, got ' + gridBefore.count);
+    ok(gridBefore.sideBySide,
+      'before edit: three cards side-by-side in one desktop row: ' + JSON.stringify(gridBefore));
+    ok(gridBefore.similarCols,
+      'before edit: similar column widths: ' + JSON.stringify(gridBefore));
+
     await card.locator('[data-admin-action="edit-pack"]').click();
 
     const form = page.locator('[data-admin-pack-form="verify-compact-pack"]');
     await form.waitFor();
     const editor = form.locator('[data-admin-equipment-editor]');
     await editor.waitFor();
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // FOLLOW-UP A/B: Desktop full equipment label + heading + + secondary time
-    // (primary contract — fail RED on pre-follow-up baseline)
-    // ═══════════════════════════════════════════════════════════════════════
-    await page.setViewportSize({ width: 1280, height: 900 });
     await page.waitForTimeout(80);
 
-    // Capture desktop baseline artifact
+    // Capture desktop RED/GREEN artifact while first card is editing + siblings visible
     await page.screenshot({
-      path: path.join(ARTIFACT_DIR, process.env.COMPACT_SHOT_NAME || 'desktop-before-or-red.png'),
+      path: path.join(ARTIFACT_DIR, process.env.COMPACT_SHOT_NAME || 'desktop-three-red.png'),
       fullPage: true,
     });
+    await page.screenshot({
+      path: path.join(LEGACY_FOLLOWUP_DIR, process.env.COMPACT_SHOT_NAME || 'desktop-before-or-red.png'),
+      fullPage: true,
+    });
+
+    const gridWhile = await measurePackGridRow(page);
+    ok(gridWhile.ok, 'three pack cards present while editing: ' + JSON.stringify(gridWhile));
+    ok(gridWhile.count === 3, 'while editing: still three cards in grid, got ' + gridWhile.count);
+    ok(gridWhile.sideBySide,
+      'while editing Curso Mañana: three cards remain side-by-side (must NOT span full grid / push siblings off first row): '
+      + JSON.stringify(gridWhile));
+    ok(gridWhile.similarCols,
+      'while editing: sibling columns retain similar widths: ' + JSON.stringify(gridWhile));
+    ok(gridWhile.slimEdit,
+      'edited card stays slim (~<=40% pack grid, not full-row span): ' + JSON.stringify(gridWhile));
+    // Sibling cards still in first row and retain their columns (not collapsed under full span)
+    const siblingWhile = await page.evaluate(() => {
+      const mid = document.querySelector('[data-admin-pack-card="verify-compact-pack-mid"]');
+      const night = document.querySelector('[data-admin-pack-card="verify-compact-pack-night"]');
+      const edit = document.querySelector('[data-admin-pack-card="verify-compact-pack"]');
+      if (!mid || !night || !edit) return { ok: false };
+      const rm = mid.getBoundingClientRect();
+      const rn = night.getBoundingClientRect();
+      const re = edit.getBoundingClientRect();
+      return {
+        ok: true,
+        midW: rm.width,
+        nightW: rn.width,
+        editW: re.width,
+        midVisible: rm.width > 80 && rm.height > 40,
+        nightVisible: rn.width > 80 && rn.height > 40,
+        midRightOfEdit: rm.left > re.left + 40,
+        nightRightOfMid: rn.left > rm.left + 40,
+      };
+    });
+    ok(siblingWhile.ok && siblingWhile.midVisible && siblingWhile.nightVisible,
+      'siblings remain visible columns while editing: ' + JSON.stringify(siblingWhile));
+    ok(siblingWhile.midRightOfEdit && siblingWhile.nightRightOfMid,
+      'siblings retain left-to-right columns (Medio Dia, Noche) beside edited card: '
+      + JSON.stringify(siblingWhile));
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // FOLLOW-UP: Desktop full equipment label + heading + + secondary time
+    // ═══════════════════════════════════════════════════════════════════════
 
     // Equipment heading row: title + adjacent icon-only + (Add equipment)
     const headingAudit = await editor.evaluate((ed) => {
@@ -308,8 +474,8 @@ async function measureSelectLabelFit(page, selectLocator, expectedLabel) {
         'scrollWidth<=clientWidth or measured text fits: ' + JSON.stringify(deskFit));
     }
 
-    // While editing, Group Course form/editor should use appropriate available width
-    // (not stuck at ~half-width card minmax 300px that truncates identity).
+    // While editing inside a three-column desktop row the form stays slim (~320px card),
+    // not full-grid expansion. Identity select uses a deliberate two-row layout instead.
     const widthAudit = await page.evaluate(() => {
       const formEl = document.querySelector('[data-admin-pack-form="verify-compact-pack"]');
       const cardEl = document.querySelector('[data-admin-pack-card="verify-compact-pack"]');
@@ -318,20 +484,27 @@ async function measureSelectLabelFit(page, selectLocator, expectedLabel) {
       const fr = formEl.getBoundingClientRect();
       const cr = cardEl.getBoundingClientRect();
       const gr = grid ? grid.getBoundingClientRect() : null;
+      const share = gr && gr.width > 0 ? fr.width / gr.width : 1;
       return {
         ok: true,
         formW: fr.width,
         cardW: cr.width,
         gridW: gr ? gr.width : null,
-        // Editing card should span a useful share of the pack grid / admin content
-        spans: fr.width >= 420 || (gr && fr.width >= gr.width * 0.55),
+        share,
+        // Slim coexisting column — must NOT full-span
+        slim: share <= 0.40 && fr.width <= (gr ? gr.width * 0.40 + 8 : 420),
+        // Card is narrow desktop column (~300–400), not admin-wide drawer
+        cardNarrow: cr.width <= 420,
       };
     });
-    ok(widthAudit.ok && widthAudit.spans,
-      'edit form spans appropriate available admin/card width while editing: '
+    ok(widthAudit.ok && widthAudit.slim,
+      'edit form stays slim in pack grid while editing (not full-row span): '
       + JSON.stringify(widthAudit));
+    ok(widthAudit.cardNarrow,
+      'edited pack card remains ~one desktop column width: ' + JSON.stringify(widthAudit));
 
-    // Desktop one-line usable row (full label priority preserved)
+    // Slim ~320px card: deliberate two-row equipment (identity full width, then prices+×).
+    // Do not rely on viewport media alone — desktop viewport with narrow grid card.
     const geomDesk = await eqRow.evaluate((row) => {
       const sel = row.querySelector('select.admin-equipment-offering');
       const d = row.querySelector('input.admin-equipment-during-price');
@@ -341,24 +514,42 @@ async function measureSelectLabelFit(page, selectLocator, expectedLabel) {
       const rd = d.getBoundingClientRect();
       const ra = a.getBoundingClientRect();
       const rx = x.getBoundingClientRect();
+      const rowR = row.getBoundingClientRect();
       const midY = (el) => el.top + el.height / 2;
       const sameRow =
         Math.abs(midY(rs) - midY(rd)) < 18
         && Math.abs(midY(rs) - midY(ra)) < 18
         && Math.abs(midY(rs) - midY(rx)) < 22;
+      const pricesWithX =
+        Math.abs(midY(rd) - midY(ra)) < 18
+        && Math.abs(midY(rd) - midY(rx)) < 22
+        && rd.left < ra.left && ra.left < rx.left;
+      const twoRow =
+        !sameRow
+        && pricesWithX
+        && rs.bottom <= rd.top + 10
+        && rs.width >= rowR.width * 0.70;
       return {
         sameRow,
+        twoRow,
+        pricesWithX,
         selectW: rs.width,
         duringW: rd.width,
         allDayW: ra.width,
-        orderOk: rs.left < rd.left && rd.left < ra.left && ra.left < rx.left,
+        removeW: rx.width,
+        rowW: rowR.width,
+        orderPrices: rd.left < ra.left && ra.left < rx.left,
+        selectAbove: rs.bottom <= rd.top + 10,
       };
     });
-    ok(geomDesk.sameRow, 'desktop equipment controls share one compact row when width allows');
-    ok(geomDesk.selectW > geomDesk.duringW && geomDesk.selectW > geomDesk.allDayW,
-      'desktop equipment select wider than price inputs');
+    ok(geomDesk.twoRow,
+      'slim desktop card uses deliberate two-row equipment (select full-width above prices+×): '
+      + JSON.stringify(geomDesk));
+    ok(geomDesk.selectW >= geomDesk.rowW * 0.70,
+      'equipment select owns full card-width first row: ' + JSON.stringify(geomDesk));
     ok(geomDesk.duringW >= 52 && geomDesk.allDayW >= 52, 'desktop price inputs usable width');
-    ok(geomDesk.orderOk, 'desktop equipment order: select, during, all-day, ×');
+    ok(geomDesk.orderPrices && geomDesk.pricesWithX,
+      'desktop equipment second row order: During Course, All Day, ×');
 
     // Click heading + adds exactly one assignment (existing event path)
     const rowsBefore = await editor.locator('[data-equipment-option-row]').count();
@@ -728,7 +919,7 @@ async function measureSelectLabelFit(page, selectLocator, expectedLabel) {
       ok(c.breath, c.group + ' has breathing room to next section, gap=' + c.gapAfter);
     }
 
-    // ── Mobile 390: wrap preferred over truncate; no overflow ──
+    // ── Mobile 390: one full-width card; identity full-width + price row below; no overflow ──
     await page.setViewportSize({ width: 390, height: 900 });
     await page.waitForTimeout(80);
 
@@ -768,12 +959,11 @@ async function measureSelectLabelFit(page, selectLocator, expectedLabel) {
       };
     });
     ok(!geom390.fullWidthRemove, '390 equipment × must not be full-width action strip');
-    ok(geom390.sameRow || geom390.wrapped,
-      'at 390 equipment is one compact row OR deliberate two-row wrap (select then prices+×): '
+    ok(geom390.wrapped,
+      'at 390 equipment uses deliberate two-row wrap (select full-width then prices+×): '
       + JSON.stringify(geom390));
-    // Prefer wrap when one-line would crush identity — select gets priority width either way
-    ok(geom390.selectW >= 120 || geom390.wrapped,
-      '390 equipment identity priority width or wrap: ' + JSON.stringify(geom390));
+    ok(geom390.selectW >= 120,
+      '390 equipment identity full-width priority: ' + JSON.stringify(geom390));
     ok(geom390.duringW >= 48 && geom390.allDayW >= 48, '390 price inputs usable width');
 
     // Heading + still present and usable at 390
@@ -790,21 +980,31 @@ async function measureSelectLabelFit(page, selectLocator, expectedLabel) {
       path: path.join(ARTIFACT_DIR, process.env.COMPACT_SHOT_NAME_MOBILE || 'mobile-390-green.png'),
       fullPage: true,
     });
+    await page.screenshot({
+      path: path.join(LEGACY_FOLLOWUP_DIR, process.env.COMPACT_SHOT_NAME_MOBILE || 'mobile-390-green.png'),
+      fullPage: true,
+    });
     // Also write legacy-friendly alias
     await page.screenshot({
       path: path.join(LEGACY_ARTIFACT_DIR, process.env.COMPACT_SHOT_NAME_AFTER || 'after-green.png'),
       fullPage: true,
     });
 
-    // Desktop again — overflow + full label still holds
+    // Desktop again — three-column row + overflow + full label still holds
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.waitForTimeout(60);
     if (!(await form.isVisible().catch(() => false))) {
       await card.locator('[data-admin-action="edit-pack"]').click();
       await form.waitFor();
     }
+    const gridFinal = await measurePackGridRow(page);
+    ok(gridFinal.ok && gridFinal.sideBySide && gridFinal.slimEdit,
+      'desktop three-column slim edit still holds after mobile pass: ' + JSON.stringify(gridFinal));
     const ovDesk = await noOverflow(page, '[data-admin-pack-form="verify-compact-pack"]');
     ok(ovDesk.ok, 'no horizontal overflow at desktop: ' + JSON.stringify(ovDesk));
+    // Also no grid-level horizontal overflow
+    const ovGrid = await noOverflow(page, '#admin-pack-card-grid');
+    ok(ovGrid.ok, 'pack grid has no horizontal overflow at desktop: ' + JSON.stringify(ovGrid));
     const deskFit2 = await measureSelectLabelFit(
       page,
       form.locator('select.admin-equipment-offering').first(),
@@ -813,7 +1013,11 @@ async function measureSelectLabelFit(page, selectLocator, expectedLabel) {
     ok(deskFit2.fits, 'desktop full label still fits after mobile pass: ' + JSON.stringify(deskFit2));
 
     await page.screenshot({
-      path: path.join(ARTIFACT_DIR, process.env.COMPACT_SHOT_NAME_DESKTOP || 'desktop-green.png'),
+      path: path.join(ARTIFACT_DIR, process.env.COMPACT_SHOT_NAME_DESKTOP || 'desktop-three-green.png'),
+      fullPage: true,
+    });
+    await page.screenshot({
+      path: path.join(LEGACY_FOLLOWUP_DIR, 'desktop-green.png'),
       fullPage: true,
     });
 
@@ -913,7 +1117,7 @@ async function measureSelectLabelFit(page, selectLocator, expectedLabel) {
     const realErrors = errors.filter((e) => !/favicon|Download the React/i.test(e));
     ok(realErrors.length === 0, 'no console error: ' + realErrors.join(' | '));
 
-    console.log('PASS generated /staff/ui Group Course edit-drawer compact + follow-up contract');
+    console.log('PASS generated /staff/ui Group Course three-column slim edit + follow-up contract');
     console.log('artifacts:', ARTIFACT_DIR);
   } finally {
     await browser.close();
