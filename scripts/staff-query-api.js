@@ -683,23 +683,13 @@ const {
   processMetaWhatsAppWebhookPostEntry,
 } = require('./lib/luna-meta-whatsapp-inbound-process');
 const {
-  parseMessageEventsQuery,
-  listGuestMessageEvents,
-  parseHandoffQueueQuery,
-  listGuestMessageHandoffQueue,
-} = require('./lib/luna-guest-message-events-read');
-const {
-  parseHandoffReviewInput,
-  markGuestMessageEventHandoffReviewed,
-} = require('./lib/luna-guest-message-event-review');
-const {
-  parseInboxSendReplyInput,
-  buildStaffInboxGuestReplyBody,
-  resolveConversationGuestPhone,
-} = require('./lib/luna-staff-inbox-send-reply');
-const {
-  persistStaffInboxSentThreadMessage,
-} = require('./lib/luna-staff-inbox-thread-message');
+  createInboxRoutes,
+  INBOX_PATH,
+  INBOX_MESSAGE_EVENTS_PATH,
+  INBOX_HANDOFFS_PATH,
+  INBOX_SEND_REPLY_PATH,
+  INBOX_HANDOFF_REVIEW_RE,
+} = require('./lib/staff-inbox-routes');
 const {
   parseHermesWhatsAppThreadMirrorBody,
   assertHermesMirrorTenantScope,
@@ -1069,8 +1059,6 @@ const CONV_NEEDS_HUMAN_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/needs
 const CONV_CLEAR_RE       = new RegExp(`^/staff/conversations/(${UUID_RE})/clear-messages$`, 'i');
 const CONV_RESET_LUNA_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})/reset-luna-context$`, 'i');
 const CONV_RESET_AGENT_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/reset-agent-session$`, 'i');
-// Phase 23c.1 — POST /staff/inbox/handoffs/:id/review
-const INBOX_HANDOFF_REVIEW_RE = new RegExp(`^/staff/inbox/handoffs/(${UUID_RE})/review$`, 'i');
 
 // Stage 7.7k3 — UUID validator for booking_bed_id query param
 const UUID_VALIDATE_RE = new RegExp('^' + UUID_RE + '$', 'i');
@@ -2467,6 +2455,27 @@ const {
   handleCustomerUpdate,
   handleCustomerCreateConversation,
 } = customersRoutes;
+
+// Staff Inbox routes (extracted module). Auth stays in the router with
+// per-route minRole (viewer reads / operator writes) — do not homogenize.
+// evaluateGuestReplySendRouteWithPause injected so send-reply outbound path stays identical.
+const inboxRoutes = createInboxRoutes({
+  sendJSON,
+  send400,
+  readBody,
+  appendAuditLog,
+  withPgClient,
+  SQL_INJECT_RE,
+  evaluateGuestReplySendRouteWithPause,
+});
+const {
+  handleInboxDeepLink,
+  handleInboxMessageEvents,
+  handleInboxHandoffs,
+  handleInboxHandoffReview,
+  handleInboxSendReply,
+} = inboxRoutes;
+
 
 
 
@@ -43439,308 +43448,8 @@ async function handleHandoffQueue(query, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 19g.9 — Meta inbound message events inbox (read-only)
 //
-// GET /staff/inbox/message-events?client_slug=...&from_phone=...&handoff_required=...
-//   Returns persisted guest_message_events rows for staff review/debug.
-//
-// Safety: SELECT-only on guest_message_events. Staff session auth (viewer+).
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function handleInboxMessageEvents(query, res, user) {
-  const started = Date.now();
-  const parsed = parseMessageEventsQuery(query);
-  if (!parsed.ok) return send400(res, parsed.error);
-
-  const filters = parsed.filters;
-  if (SQL_INJECT_RE.test(filters.client_slug)) return send400(res, 'invalid client_slug');
-  if (filters.next_action && SQL_INJECT_RE.test(filters.next_action)) {
-    return send400(res, 'invalid next_action');
-  }
-
-  const auditBase = {
-    ts:            new Date().toISOString(),
-    intent:        'api:inbox.message-events',
-    category:      'inbox_message_events_api',
-    client_slug:   filters.client_slug,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  try {
-    const result = await withPgClient((pg) => listGuestMessageEvents(pg, filters));
-    const elapsed = Date.now() - started;
-
-    appendAuditLog({
-      ...auditBase,
-      success: true,
-      total_returned: result.events.length,
-      table_missing: result.table_missing === true,
-      elapsed_ms: elapsed,
-    });
-
-    const payload = {
-      success: true,
-      client_slug: filters.client_slug,
-      events: result.events,
-      total_returned: result.events.length,
-      elapsed_ms: elapsed,
-    };
-    if (result.table_missing) {
-      payload.table_missing = true;
-    }
-    return sendJSON(res, 200, payload);
-  } catch (err) {
-    appendAuditLog({
-      ...auditBase,
-      success: false,
-      error: err.message,
-      elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 500, { success: false, error: 'query failed', detail: err.message });
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Phase 23b — Meta-native handoff queue (read-only)
-//
-// GET /staff/inbox/handoffs?client_slug=...&from_phone=...&since=...
-//   Returns guest_message_events rows matching operational handoff queue criteria.
-//
-// Safety: SELECT-only on guest_message_events. Staff session auth (viewer+).
-// Does NOT read staff_handoffs or conversations for v1.
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function handleInboxHandoffs(query, res, user) {
-  const started = Date.now();
-  const parsed = parseHandoffQueueQuery(query);
-  if (!parsed.ok) return send400(res, parsed.error);
-
-  const filters = parsed.filters;
-  if (SQL_INJECT_RE.test(filters.client_slug)) return send400(res, 'invalid client_slug');
-
-  const auditBase = {
-    ts:            new Date().toISOString(),
-    intent:        'api:inbox.handoffs',
-    category:      'inbox_handoffs_api',
-    client_slug:   filters.client_slug,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  try {
-    const result = await withPgClient((pg) => listGuestMessageHandoffQueue(pg, filters));
-    const elapsed = Date.now() - started;
-
-    appendAuditLog({
-      ...auditBase,
-      success: true,
-      total_returned: result.items.length,
-      table_missing: result.table_missing === true,
-      elapsed_ms: elapsed,
-    });
-
-    const payload = {
-      success: true,
-      client_slug: filters.client_slug,
-      items: result.items,
-      total_returned: result.items.length,
-      elapsed_ms: elapsed,
-    };
-    if (result.table_missing) {
-      payload.table_missing = true;
-    }
-    return sendJSON(res, 200, payload);
-  } catch (err) {
-    appendAuditLog({
-      ...auditBase,
-      success: false,
-      error: err.message,
-      elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 500, { success: false, error: 'query failed', detail: err.message });
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Phase 23c.1 — Mark Meta handoff queue item reviewed
-//
-// POST /staff/inbox/handoffs/:id/review
-//   Updates guest_message_events.normalized.handoff_review only.
-//
-// Safety: no staff_handoffs, no WhatsApp, no raw_payload mutation. Operator+ auth.
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function handleInboxHandoffReview(eventId, req, res, user) {
-  const started = Date.now();
-  let body;
-  try {
-    body = JSON.parse(await readBody(req));
-  } catch (_) {
-    return send400(res, 'invalid JSON body');
-  }
-
-  const parsed = parseHandoffReviewInput(body);
-  if (!parsed.ok) return send400(res, parsed.error);
-
-  const clientSlug = parsed.input.client_slug;
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
-
-  const reviewedBy = user && (user.email || user.staff_user_id)
-    ? String(user.email || user.staff_user_id)
-    : 'unknown';
-
-  const auditBase = {
-    ts:            new Date().toISOString(),
-    intent:        'action:api:inbox.handoff.review',
-    category:      'inbox_handoff_review',
-    client_slug:   clientSlug,
-    event_id:      eventId,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  try {
-    const result = await withPgClient((pg) => markGuestMessageEventHandoffReviewed(pg, {
-      client_slug: clientSlug,
-      event_id: eventId,
-      reviewed_by: reviewedBy,
-      review_note: parsed.input.review_note,
-    }));
-
-    const elapsed = Date.now() - started;
-
-    if (!result.ok) {
-      appendAuditLog({
-        ...auditBase,
-        success: false,
-        error: result.error,
-        elapsed_ms: elapsed,
-      });
-      return sendJSON(res, result.status || 500, {
-        success: false,
-        error: result.error || 'review failed',
-      });
-    }
-
-    appendAuditLog({
-      ...auditBase,
-      success: true,
-      already_reviewed: result.already_reviewed === true,
-      elapsed_ms: elapsed,
-    });
-
-    return sendJSON(res, 200, {
-      success: true,
-      event_id: eventId,
-      already_reviewed: result.already_reviewed === true,
-      handoff_review: result.handoff_review,
-      no_whatsapp: true,
-      no_staff_handoffs_write: true,
-      elapsed_ms: elapsed,
-    });
-  } catch (err) {
-    appendAuditLog({
-      ...auditBase,
-      success: false,
-      error: err.message,
-      elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 500, { success: false, error: 'review failed', detail: err.message });
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Phase 23d — Staff Inbox explicit reply send
-//
-// POST /staff/inbox/send-reply
-//   Delegates to evaluateGuestReplySendRouteWithPause (guest_message_sends audit path).
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function handleInboxSendReply(req, res, user) {
-  const started = Date.now();
-  let body;
-  try {
-    body = JSON.parse(await readBody(req));
-  } catch (_) {
-    return send400(res, 'invalid JSON body');
-  }
-
-  const parsed = parseInboxSendReplyInput(body);
-  if (!parsed.ok) return send400(res, parsed.error);
-
-  const input = parsed.input;
-  if (SQL_INJECT_RE.test(input.client_slug)) return send400(res, 'invalid client_slug');
-
-  const actorId = user ? user.staff_user_id : null;
-  const auditBase = {
-    ts:              new Date().toISOString(),
-    intent:          'action:api:inbox.send_reply',
-    category:        'inbox_send_reply',
-    client_slug:     input.client_slug,
-    conversation_id: input.conversation_id,
-    staff_user_id:   actorId,
-  };
-
-  try {
-    const evaluated = await withPgClient(async (pg) => {
-      let sendInput = { ...input };
-      if (!sendInput.to) {
-        const phone = await resolveConversationGuestPhone(pg, input.client_slug, input.conversation_id);
-        if (!phone.ok) {
-          return { error: phone.error, status: phone.status || 404 };
-        }
-        sendInput.to = phone.to;
-      }
-      const sendBody = buildStaffInboxGuestReplyBody(sendInput);
-      const out = await evaluateGuestReplySendRouteWithPause(sendBody, { pg, env: process.env });
-      const thread = await persistStaffInboxSentThreadMessage(pg, sendInput, out.result);
-      return { sendBody, out, thread };
-    });
-
-    if (evaluated.error) {
-      appendAuditLog({ ...auditBase, success: false, error: evaluated.error, elapsed_ms: Date.now() - started });
-      return sendJSON(res, evaluated.status || 404, { success: false, error: evaluated.error });
-    }
-
-    const elapsed = Date.now() - started;
-    const result = evaluated.out.result;
-    const thread = evaluated.thread || {};
-
-    appendAuditLog({
-      ...auditBase,
-      success:                      result.success === true,
-      send_performed:               result.send_performed === true,
-      sends_whatsapp:               result.sends_whatsapp === true,
-      would_send_whatsapp:          result.would_send_whatsapp === true,
-      send_kind:                    result.send_kind || 'staff_reply',
-      idempotency_key:              result.idempotency_key || input.idempotency_key,
-      blocked_reasons:              result.blocked_reasons || [],
-      duplicate:                    result.duplicate === true,
-      idempotent_replay:            result.idempotent_replay === true,
-      guest_message_send_id:        result.guest_message_send_id || null,
-      guest_message_send_status:    result.guest_message_send_status || null,
-      thread_message_persisted:   thread.persisted === true,
-      thread_message_id:            thread.message_id || null,
-      elapsed_ms:                   elapsed,
-    });
-
-    return sendJSON(res, evaluated.out.status, {
-      ...result,
-      conversation_id: input.conversation_id,
-      thread_message: thread.persisted || thread.duplicate ? {
-        message_id: thread.message_id || null,
-        persisted: thread.persisted === true,
-        duplicate: thread.duplicate === true,
-        whatsapp_message_id: thread.whatsapp_message_id || result.whatsapp_message_id || null,
-      } : null,
-      elapsed_ms: elapsed,
-    });
-  } catch (err) {
-    appendAuditLog({
-      ...auditBase,
-      success: false,
-      error: err.message,
-      elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 500, { success: false, error: 'send failed', detail: err.message });
-  }
-}
+// Inbox handlers live in scripts/lib/staff-inbox-routes.js (inboxRoutes).
+// conversation needs_human stays inline (not inbox slice).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Staff Portal — conversation needs_human toggle (canonical handoff persistence)
@@ -47211,7 +46920,7 @@ async function router(req, res) {
     return handleInboxHandoffReview(inboxHandoffReviewMatch[1], req, res, auth.user);
   }
 
-  if (pathname === '/staff/inbox/send-reply') {
+  if (pathname === INBOX_SEND_REPLY_PATH) {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for inbox/send-reply' }));
@@ -48794,14 +48503,14 @@ async function router(req, res) {
   }
 
   // ── Phase 19g.9 — Meta inbound message events inbox (read-only) ───────────
-  if (pathname === '/staff/inbox/message-events') {
+  if (pathname === INBOX_MESSAGE_EVENTS_PATH) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleInboxMessageEvents(parsed.query, res, auth.user);
   }
 
   // ── Phase 23b — Meta-native handoff queue (read-only) ────────────────────
-  if (pathname === '/staff/inbox/handoffs') {
+  if (pathname === INBOX_HANDOFFS_PATH) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleInboxHandoffs(parsed.query, res, auth.user);
@@ -48886,10 +48595,9 @@ async function router(req, res) {
   }
 
   // Deep-link entry for staff inbox notifications → portal UI with query params preserved.
-  if (pathname === '/staff/inbox' && method === 'GET') {
-    const qs = parsed.search || '';
-    res.writeHead(302, { Location: `/staff/ui${qs}` });
-    return res.end();
+  // No auth (intentional); handler lives in staff-inbox-routes.js.
+  if (pathname === INBOX_PATH && method === 'GET') {
+    return handleInboxDeepLink(parsed, res);
   }
 
   if (pathname === '/staff/ui') {
