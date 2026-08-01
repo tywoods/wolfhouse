@@ -16314,13 +16314,37 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-edit-field label{display:block;font-size:11px;font-weight:700;color:var(--text-2);margin-bottom:4px}
 .portal-admin-edit-field input{width:100%;max-width:240px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text)}
 .portal-admin-course-equipment-grid{display:grid;grid-template-columns:repeat(2,minmax(0,240px));gap:12px;max-width:100%}
-.portal-admin-equipment-editor{grid-column:1/-1;min-width:0}.portal-admin-equipment-editor h4{margin:4px 0 8px}
-.portal-admin-equipment-option-row{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;min-width:0;max-width:100%}
-.portal-admin-equipment-option-fields{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr);gap:8px;align-items:end;min-width:0}
-.portal-admin-equipment-option-row label{display:flex;flex-direction:column;min-width:0;font-size:11px;font-weight:700;color:var(--text-2)}
-.portal-admin-equipment-option-row select,.portal-admin-equipment-option-row input{width:100%;min-width:0;min-height:44px;box-sizing:border-box}
-.portal-admin-equipment-option-actions{display:flex;width:100%;min-width:0}
-.portal-admin-equipment-option-actions .btn{width:100%;justify-content:center;min-height:44px;margin:0}
+.portal-admin-equipment-editor{grid-column:1/-1;min-width:0}.portal-admin-equipment-editor h4{margin:4px 0 8px;font-size:13px;font-weight:700;color:var(--text)}
+/* Group/Private course equipment: one compact row — offering select priority width, prices, icon × */
+.portal-admin-equipment-option-row{display:block;margin:0 0 8px;min-width:0;max-width:100%}
+.portal-admin-equipment-option-fields{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(68px,.72fr) minmax(68px,.72fr) auto;gap:6px 8px;align-items:end;min-width:0;max-width:100%}
+.portal-admin-equipment-option-row label{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:10px;font-weight:700;color:var(--text-2);line-height:1.25}
+.portal-admin-equipment-offering-field{min-width:0}
+.portal-admin-equipment-price-field{min-width:0}
+.portal-admin-equipment-option-row select,.portal-admin-equipment-option-row input{width:100%;min-width:0;min-height:34px;height:34px;padding:5px 8px;box-sizing:border-box;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px}
+.portal-admin-equipment-option-row select.admin-equipment-offering{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.portal-admin-equipment-remove{flex:0 0 auto;width:28px;min-width:28px;height:28px;min-height:28px;margin:0 0 3px;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:15px;line-height:1;align-self:end;box-sizing:border-box}
+/* Group course equipment/price × only — compact circular danger (override btn-ghost wash) */
+.portal-admin-pack-form .portal-admin-equipment-remove.portal-admin-danger,
+.portal-admin-pack-form .portal-admin-pack-tier-remove.portal-admin-danger{
+  color:#c0392b;border:1px solid rgba(192,57,43,.55);background:rgba(192,57,43,.06);
+  border-radius:999px;width:28px;min-width:28px;height:28px;min-height:28px;padding:0;
+  box-shadow:none;font-size:15px;line-height:1;font-weight:700
+}
+.portal-admin-pack-form .portal-admin-equipment-remove.portal-admin-danger:hover,
+.portal-admin-pack-form .portal-admin-pack-tier-remove.portal-admin-danger:hover{
+  color:#a93226;border-color:rgba(169,50,38,.7);background:rgba(192,57,43,.12)
+}
+[data-theme="dark"] .portal-admin-pack-form .portal-admin-equipment-remove.portal-admin-danger,
+[data-theme="dark"] .portal-admin-pack-form .portal-admin-pack-tier-remove.portal-admin-danger{
+  color:#e07060;border:1px solid rgba(224,112,96,.6);background:rgba(224,112,96,.1)
+}
+[data-theme="dark"] .portal-admin-pack-form .portal-admin-equipment-remove.portal-admin-danger:hover,
+[data-theme="dark"] .portal-admin-pack-form .portal-admin-pack-tier-remove.portal-admin-danger:hover{
+  color:#f08a7a;border-color:rgba(240,138,122,.75);background:rgba(224,112,96,.16)
+}
+.portal-admin-visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+.portal-admin-equipment-editor>[data-admin-action="add-equipment-option"]{margin:2px 0 4px;min-height:32px;padding:4px 10px;font-size:12px}
 .portal-admin-touch{display:inline-flex;align-items:center;min-height:44px;margin-right:12px}
 .portal-admin-equip-header{align-items:flex-start}
 /* Rental equipment: enabled only in edit as pill switch */
@@ -16401,7 +16425,8 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-schedule-course-equipment-surfers .portal-schedule-course-equipment-qty-label{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);white-space:nowrap}
 .portal-schedule-course-equipment-surfers input[type=number]{width:64px;min-width:64px;min-height:36px;padding:6px 8px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}
 .portal-schedule-create-main-activity-path{display:none!important}.portal-schedule-create-rental-price{margin-left:auto;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}.portal-schedule-create-rental-row.is-off .portal-schedule-create-rental-price{opacity:.45}
-@media(max-width:520px){.portal-admin-course-equipment-grid,.portal-admin-equipment-option-fields{grid-template-columns:minmax(0,1fr)}.portal-admin-edit-field input{min-height:44px;max-width:100%;box-sizing:border-box}.portal-admin-equipment-option-row .portal-admin-touch{width:100%;justify-content:center}}
+/* Keep equipment as one deliberate row even on narrow; select still owns priority width */
+@media(max-width:520px){.portal-admin-course-equipment-grid{grid-template-columns:minmax(0,1fr)}.portal-admin-equipment-option-fields{grid-template-columns:minmax(0,1.55fr) minmax(60px,.7fr) minmax(60px,.7fr) auto;gap:5px 6px}.portal-admin-edit-field input{min-height:34px;max-width:100%;box-sizing:border-box}.portal-admin-pack-schedule-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
 .portal-admin-edit-actions{display:flex;gap:8px;margin-top:0;flex-wrap:wrap;align-items:center}
 /* Groupless Equipment Pricing tab — cleaner add/edit form + duration control. */
 .portal-admin-equip-form{grid-template-columns:none;display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
@@ -16430,16 +16455,29 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-pack-card{border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
 .portal-admin-pack-title{font-size:14px;font-weight:700;color:var(--text)}
 .portal-admin-pack-sub{font-size:11px;color:var(--text-3)}
-.portal-admin-pill-group{display:flex;flex-direction:column;gap:4px}
+.portal-admin-pill-group{display:flex;flex-direction:column;gap:6px;margin:0 0 8px;min-width:0}
 .portal-admin-pill-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2)}
-.portal-admin-pill-row{display:flex;flex-wrap:wrap;gap:4px}
-.portal-admin-pill{border:1px solid var(--border-soft);background:var(--surface);color:var(--text-2);border-radius:999px;padding:3px 9px;font-size:11px;font-weight:600;line-height:1.3;cursor:pointer}
+.portal-admin-pill-row{display:flex;flex-wrap:wrap;gap:6px;padding:1px 0 2px;min-width:0}
+.portal-admin-pill{border:1px solid var(--border-soft);background:var(--surface);color:var(--text-2);border-radius:999px;padding:5px 11px;font-size:11px;font-weight:600;line-height:1.35;cursor:pointer;box-sizing:border-box}
 .portal-admin-pill.is-selected{background:var(--text);color:var(--surface);border-color:var(--text)}
-.portal-admin-pack-tier{border:1px solid var(--border-soft);border-radius:8px;padding:6px 8px;background:var(--surface);font-size:11px;display:flex;flex-direction:column;gap:4px}
-.portal-admin-pack-tier label{font-size:10px;font-weight:700;color:var(--text-2)}
-.portal-admin-pack-tier input{width:100%;padding:3px 6px;font-size:12px;height:26px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface-soft);color:var(--text);box-sizing:border-box}
+/* Group course Price for: one compact row per tier */
+.portal-admin-pack-tier{border:1px solid var(--border-soft);border-radius:8px;padding:6px 8px;background:var(--surface);font-size:11px;display:grid;grid-template-columns:minmax(0,1.4fr) minmax(84px,.75fr) auto auto;gap:6px 8px;align-items:center;min-width:0;max-width:100%;box-sizing:border-box;margin:0 0 6px}
+.portal-admin-pack-tier select.pack-tier-key{width:100%;min-width:0;min-height:32px;height:32px;padding:4px 8px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft);color:var(--text);font-size:12px;box-sizing:border-box}
+/* € lives inside the amount control (prefix), not a floating label */
+.portal-admin-pack-tier-amount{display:inline-flex;flex-direction:row;align-items:center;gap:0;min-width:0;margin:0;height:32px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft);padding:0 6px 0 7px;box-sizing:border-box;overflow:hidden}
+.portal-admin-pack-tier-amount .portal-admin-currency{flex:0 0 auto;font-size:12px;font-weight:700;color:var(--text-2);line-height:1;padding:0 3px 0 0;user-select:none}
+.portal-admin-pack-tier-amount input.pack-tier-amount,.portal-admin-pack-tier input.pack-tier-amount{width:100%;min-width:0;padding:0 2px;font-size:12px;height:30px;min-height:30px;border:0;border-radius:0;background:transparent;color:var(--text);box-sizing:border-box}
+.portal-admin-pack-tier-amount input.pack-tier-amount:focus{outline:none}
+.portal-admin-pack-tier-amount:focus-within{border-color:var(--text-2);box-shadow:0 0 0 1px rgba(0,0,0,.04)}
+.portal-admin-pack-tier-unit{white-space:nowrap;font-size:11px}
+.portal-admin-pack-tier-remove{flex:0 0 auto;width:28px;min-width:28px;height:28px;min-height:28px;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:15px;line-height:1;margin:0;box-sizing:border-box}
 .portal-admin-pack-tier-row{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--text)}
 .portal-admin-pack-tier-row strong{color:var(--text);font-weight:700}
+/* Group course Start|End two-column compact row */
+.portal-admin-pack-schedule-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 10px;margin:0 0 8px;min-width:0;max-width:100%}
+.portal-admin-pack-schedule-row .portal-admin-edit-field{min-width:0;margin:0}
+.portal-admin-pack-schedule-row .portal-admin-edit-field input{max-width:100%;min-width:0;width:100%;box-sizing:border-box}
+.portal-admin-pack-form{min-width:0;max-width:100%;box-sizing:border-box}
 
 #tab-admin.active{display:block}
 #tab-admin{font-family:var(--font-sans);-webkit-font-smoothing:antialiased}

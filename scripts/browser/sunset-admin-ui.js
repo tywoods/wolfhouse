@@ -641,14 +641,19 @@ function adminEquipmentRowsHtml(rows){
     var allDayCents = (r.all_day_price_cents != null)
       ? r.all_day_price_cents
       : (r.all_day_surcharge_cents || 0);
+    // Compact single-row geometry: wider offering select | During € | All Day € | icon ×.
+    // No redundant "Equipment" column label (section h4 owns that). Remove uses existing
+    // data-admin-action="remove-equipment-option" path with explicit accessible name.
+    var removeEqLabel = portalT('admin.courseEquipment.remove') || 'Remove equipment';
     return '<div class="portal-admin-equipment-option-row" data-equipment-option-row="'+idx+'">' +
       '<div class="portal-admin-equipment-option-fields">' +
-      '<label>'+escHtml(portalT('admin.courseEquipment.item'))+'<select class="admin-equipment-offering">'+opts+'</select></label>' +
-      '<label>'+escHtml(portalT('admin.courseEquipment.duringPrice'))+'<input class="admin-equipment-during-price" inputmode="decimal" value="'+escHtml(adminEurosFromAmount((duringCents||0)/100))+'"></label>' +
-      '<label>'+escHtml(portalT('admin.courseEquipment.allDayPrice'))+'<input class="admin-equipment-all-day-price" inputmode="decimal" value="'+escHtml(adminEurosFromAmount((allDayCents||0)/100))+'"></label>' +
-      '</div>' +
-      '<div class="portal-admin-equipment-option-actions">' +
-      '<button type="button" class="btn btn-ghost portal-admin-touch portal-admin-danger" data-admin-action="remove-equipment-option" aria-label="'+escHtml(portalT('admin.action.remove'))+'">'+escHtml(portalT('admin.action.remove'))+'</button>' +
+      '<label class="portal-admin-equipment-offering-field">' +
+      '<select class="admin-equipment-offering" aria-label="'+escHtml(portalT('admin.courseEquipment.choose'))+'">'+opts+'</select></label>' +
+      '<label class="portal-admin-equipment-price-field">'+escHtml(portalT('admin.courseEquipment.duringPrice')) +
+      '<input class="admin-equipment-during-price" inputmode="decimal" value="'+escHtml(adminEurosFromAmount((duringCents||0)/100))+'"></label>' +
+      '<label class="portal-admin-equipment-price-field">'+escHtml(portalT('admin.courseEquipment.allDayPrice')) +
+      '<input class="admin-equipment-all-day-price" inputmode="decimal" value="'+escHtml(adminEurosFromAmount((allDayCents||0)/100))+'"></label>' +
+      '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-danger portal-admin-equipment-remove" data-admin-action="remove-equipment-option" aria-label="'+escHtml(removeEqLabel)+'" title="'+escHtml(removeEqLabel)+'">×</button>' +
       '</div></div>';
   }).join('');
 }
@@ -742,16 +747,29 @@ function adminScheduleKeyFromTimes(start, end){
 function adminRenderPackScheduleFields(p, prefix){
   var s0 = (p && p.schedules && p.schedules[0]) ? p.schedules[0] : '0930_1130';
   var s1 = (p && p.schedules && p.schedules[1]) ? p.schedules[1] : '';
+  // schedules may be raw keys ("1000_1200") or legacy {key,label} objects from verify fixtures
+  if (s0 && typeof s0 === 'object') s0 = s0.key || '';
+  if (s1 && typeof s1 === 'object') s1 = s1.key || '';
   var t0 = adminTimesFromScheduleKey(s0);
   var t1 = adminTimesFromScheduleKey(s1);
-  return '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.startTime')) + '</label>' +
+  // Compact two-column Start | End. Labels omit (HH:MM); placeholder still carries format.
+  // Empty optional second window is omitted by default (target compact layout). When the pack
+  // already has a second non-empty schedule, render it so staff can edit and save preserves it.
+  var html = '<div class="portal-admin-pack-schedule-row">' +
+    '<div class="portal-admin-edit-field"><label for="' + prefix + '-schedule-start">' + escHtml(portalT('admin.edit.startTime')) + '</label>' +
     '<input type="text" id="' + prefix + '-schedule-start" value="' + escHtml(t0.start) + '" placeholder="HH:MM" maxlength="5"></div>' +
-    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.endTime')) + '</label>' +
+    '<div class="portal-admin-edit-field"><label for="' + prefix + '-schedule-end">' + escHtml(portalT('admin.edit.endTime')) + '</label>' +
     '<input type="text" id="' + prefix + '-schedule-end" value="' + escHtml(t0.end) + '" placeholder="HH:MM" maxlength="5"></div>' +
-    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.packs.startTime2')) + '</label>' +
-    '<input type="text" id="' + prefix + '-schedule-start2" value="' + escHtml(t1.start) + '" placeholder="HH:MM" maxlength="5"></div>' +
-    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.packs.endTime2')) + '</label>' +
-    '<input type="text" id="' + prefix + '-schedule-end2" value="' + escHtml(t1.end) + '" placeholder="HH:MM" maxlength="5"></div>';
+    '</div>';
+  if (t1.start || t1.end) {
+    html += '<div class="portal-admin-pack-schedule-row" data-admin-pack-schedule-second>' +
+      '<div class="portal-admin-edit-field"><label for="' + prefix + '-schedule-start2">' + escHtml(portalT('admin.packs.startTime2')) + '</label>' +
+      '<input type="text" id="' + prefix + '-schedule-start2" value="' + escHtml(t1.start) + '" placeholder="HH:MM" maxlength="5"></div>' +
+      '<div class="portal-admin-edit-field"><label for="' + prefix + '-schedule-end2">' + escHtml(portalT('admin.packs.endTime2')) + '</label>' +
+      '<input type="text" id="' + prefix + '-schedule-end2" value="' + escHtml(t1.end) + '" placeholder="HH:MM" maxlength="5"></div>' +
+      '</div>';
+  }
+  return html;
 }
 function adminRenderPackScheduleReadout(schedules){
   var list = (schedules || []).filter(Boolean).map(function(k){
@@ -793,15 +811,21 @@ function adminPackTierDurations(){
 }
 function adminRenderPackTierRowsHtml(rows){
   var durs = adminPackTierDurations();
+  var removeTierLabel = portalT('admin.packs.removePriceTier') || 'Remove price tier';
   return (rows || []).map(function(r){
     var opts = durs.map(function(d){
       return '<option value="' + escHtml(d.key) + '"' + (d.key === r.key ? ' selected' : '') + '>' + escHtml(d.label) + '</option>';
     }).join('');
-    return '<div class="portal-admin-pack-tier" data-pack-tier-row style="position:relative;padding-right:22px">' +
-      '<button type="button" class="portal-admin-icon-btn portal-admin-danger" data-admin-action="remove-pack-tier" aria-label="' + escHtml(portalT('admin.action.remove')) + '" title="' + escHtml(portalT('admin.action.remove')) + '" style="position:absolute;top:0;right:0;background:none;border:none;padding:0 2px;font-size:15px;line-height:1;cursor:pointer">×</button>' +
-      '<select class="pack-tier-key">' + opts + '</select>' +
-      '<input type="text" class="pack-tier-amount" value="' + escHtml(r.amount || '') + '" inputmode="decimal" placeholder="0.00">' +
-      '<span class="portal-admin-muted">' + escHtml(portalT('admin.packs.perStudent')) + '</span>' +
+    // Compact row: wider duration | € amount | / Student | circular danger ×.
+    // Still uses data-admin-action="remove-pack-tier" (distinct from equipment remove).
+    return '<div class="portal-admin-pack-tier" data-pack-tier-row>' +
+      '<select class="pack-tier-key" aria-label="' + escHtml(portalT('admin.packs.priceTiers')) + '">' + opts + '</select>' +
+      '<label class="portal-admin-pack-tier-amount">' +
+      '<span class="portal-admin-currency" aria-hidden="true">€</span>' +
+      '<input type="text" class="pack-tier-amount" value="' + escHtml(r.amount || '') + '" inputmode="decimal" placeholder="0.00" aria-label="' + escHtml(portalT('admin.edit.amountEur')) + '">' +
+      '</label>' +
+      '<span class="portal-admin-muted portal-admin-pack-tier-unit">' + escHtml(portalT('admin.packs.perStudent')) + '</span>' +
+      '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-danger portal-admin-pack-tier-remove" data-admin-action="remove-pack-tier" aria-label="' + escHtml(removeTierLabel) + '" title="' + escHtml(removeTierLabel) + '">×</button>' +
       '</div>';
   }).join('');
 }

@@ -181,7 +181,7 @@ async function main() {
   const es = read('scripts/lib/staff-portal-i18n-es-sunset.js');
   const modelSrc = read('scripts/browser/sunset-equipment-pricing-model.js');
 
-  console.log('[A] Course equipment Remove affordance + layout');
+  console.log('[A] Course equipment compact row Remove affordance + layout');
   const rowsFn = adminUi.match(/function adminEquipmentRowsHtml\([\s\S]*?\n\}/);
   assert('adminEquipmentRowsHtml defined', !!rowsFn);
   assert(
@@ -189,21 +189,28 @@ async function main() {
     !!(rowsFn && /data-admin-action="remove-equipment-option"/.test(rowsFn[0])),
   );
   assert(
-    'remove control uses visible localized Remove text (not bare × only)',
-    !!(rowsFn && /remove-equipment-option[\s\S]{0,220}portalT\('admin\.action\.remove'\)/.test(rowsFn[0])
-      && !/>\s*×\s*<\/button>/.test(rowsFn[0].replace(/aria-label="[^"]*"/g, '').replace(/title="[^"]*"/g, ''))),
+    'remove control is compact icon × with Remove equipment accessible name',
+    !!(rowsFn
+      && /admin\.courseEquipment\.remove/.test(rowsFn[0])
+      && />\s*×\s*<\/button>/.test(rowsFn[0])
+      && /portal-admin-equipment-remove/.test(rowsFn[0])),
   );
   assert(
-    'equipment row allocates full-width action strip class',
-    /portal-admin-equipment-option-actions/.test(adminUi) && /portal-admin-equipment-option-fields/.test(adminUi),
+    'equipment row uses compact fields grid (no full-width Remove strip)',
+    /portal-admin-equipment-option-fields/.test(adminUi)
+      && !/portal-admin-equipment-option-actions/.test(rowsFn[0]),
   );
   assert(
-    'CSS stacks equipment fields + full-width action (not 4-col clip)',
-    /portal-admin-equipment-option-row\{[^}]*flex-direction:\s*column/.test(apiSrc)
-      || /portal-admin-equipment-option-actions\{[^}]*width:\s*100%/.test(apiSrc),
+    'CSS keeps equipment on one compact row with icon remove (not full-width action)',
+    /portal-admin-equipment-option-fields\{[^}]*grid-template-columns:[^}]*auto/.test(apiSrc)
+      && /portal-admin-equipment-remove\{/.test(apiSrc)
+      && !/portal-admin-equipment-option-actions\{[^}]*width:\s*100%/.test(apiSrc),
   );
-  assert('EN Remove copy', en.includes("'admin.action.remove': 'Remove'"));
-  assert('ES Remove copy', es.includes("'admin.action.remove': 'Quitar'"));
+  assert('EN Remove equipment copy', en.includes("'admin.courseEquipment.remove': 'Remove equipment'")
+    || /admin\.courseEquipment\.remove['"]:\s*['"]Remove equipment/.test(en));
+  assert('ES Remove equipment copy', es.includes('admin.courseEquipment.remove'));
+  assert('EN generic Remove copy retained', en.includes("'admin.action.remove': 'Remove'"));
+  assert('ES generic Remove copy retained', es.includes("'admin.action.remove': 'Quitar'"));
 
   console.log('\n[B] Course equipment selector authority (active only + historical fallback)');
   const equipFn = (adminUi.match(/function adminEquipmentOfferings\(\)\{[\s\S]*?\n\}/) || [])[0] || '';
