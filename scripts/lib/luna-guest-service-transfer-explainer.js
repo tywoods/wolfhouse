@@ -1,5 +1,7 @@
 'use strict';
 
+const { isSunsetClientSlug } = require('./sunset-luna-school-context');
+
 /**
  * Stage 27test-g — Guest-friendly service/transfer side-question replies (dry-run copy only).
  * Used during active booking/quote flows; no service or transfer records created.
@@ -262,6 +264,10 @@ function buildServiceSideQuestionReply(lang, intent, messageText, options) {
 }
 
 function buildTransferSideQuestionReply(lang, messageText, options) {
+  const o = options || {};
+  if (isSunsetClientSlug(o.client_slug || o.clientSlug)) {
+    return '';
+  }
   const L = normalizeLang(lang);
   const opts = options || {};
   const pkg = opts.packageInterest;

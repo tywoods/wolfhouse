@@ -14,6 +14,7 @@ const {
   loadLunaMessagingPlaybook,
   getLunaMessagingPlaybookValue,
 } = require('./luna-client-messaging-playbook');
+const { isSunsetClientSlug } = require('./sunset-luna-school-context');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 const DEFAULT_TIMEZONE = 'Europe/Madrid';
@@ -230,6 +231,10 @@ function buildCheckinDayMessageBody(input, context) {
   const src = input || {};
   const ctx = context || {};
   const clientSlug = trimStr(src.client_slug || ctx.client_slug) || DEFAULT_CLIENT;
+  // Accommodation-only product. Never emit Wolfhouse check-in copy for Sunset.
+  if (isSunsetClientSlug(clientSlug)) {
+    throw new Error('tenant_not_accommodation');
+  }
   const templateBundle = (ctx.resolveCheckinDayTemplates || resolveCheckinDayTemplates)(clientSlug);
   const templatesByLang = templateBundle.templates;
   const lang = resolveLang(src.language || ctx.language, templatesByLang);

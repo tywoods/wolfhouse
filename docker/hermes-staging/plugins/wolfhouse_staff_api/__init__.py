@@ -1995,6 +1995,87 @@ def _apply_sunset_lesson_time_preference_notes(payload, components):
     return out, components_out, None
 
 
+# Service-only components are not equipment. Any other component key is treated as
+# structured gear (including newly catalogued offering keys such as foil_board_rental).
+_SUNSET_SERVICE_COMPONENT_KEYS = frozenset({"lesson", "course", "private_lesson"})
+_SUNSET_RENTAL_INTENT_RE = re.compile(
+    r"(?:"
+    r"\b(?:rent|rental|hire|alquil\w*|nolegg\w*|miet\w*|equipment|gear|material|"
+    r"neopren\w*|wetsuit|muta|tabla|surfboard|foil|sup|paddle(?:board)?|"
+    r"board|suit|include\s+board|include\s+wetsuit|with\s+board|with\s+wetsuit|"
+    r"con\s+tabla|con\s+neopreno|resto\s+del\s+d[ií]a)\b"
+    r"|[a-z][a-z0-9_]*_rental\b"
+    r")",
+    re.I,
+)
+
+
+def _sunset_has_structured_rental_or_equipment(body, course_equipment):
+    """True when gear is carried in canonical create fields (not free-text notes)."""
+    if course_equipment is not None:
+        return True
+    rp = body.get("rental_pricing") if isinstance(body, dict) else None
+    if isinstance(rp, dict) and _clean(rp.get("offering_key")):
+        return True
+    comps = body.get("components") if isinstance(body, dict) and isinstance(body.get("components"), dict) else {}
+    for key, value in comps.items():
+        if key in _SUNSET_SERVICE_COMPONENT_KEYS:
+            continue
+        if value is not None:
+            return True
+    return False
+
+
+def _sunset_quote_or_payload_equipment_intent(payload, body, notes_txt, quote_provenance):
+    """
+    Catalog/quote-driven equipment intent — not a fixed item-name whitelist.
+    Any selected rental/equipment that is not on structured fields must fail closed.
+    """
+    if isinstance(quote_provenance, dict):
+        if quote_provenance.get("course_equipment") is not None:
+            return True
+        rentals = quote_provenance.get("rentals")
+        if isinstance(rentals, list) and len(rentals) > 0:
+            return True
+        if isinstance(rentals, dict) and rentals:
+            return True
+        for line in quote_provenance.get("line_items") or []:
+            if not isinstance(line, dict):
+                continue
+            if line.get("course_equipment") is True:
+                return True
+            cat = str(line.get("category") or line.get("item_type") or "").strip().lower()
+            offering = str(line.get("offering_key") or line.get("item_code") or line.get("offering_id") or "").lower()
+            if cat in ("rental", "equipment", "addon", "rentals") or "rental" in offering or "equipment" in offering:
+                return True
+            if line.get("full_day_equipment_extension") is True:
+                return True
+
+    src = payload if isinstance(payload, dict) else {}
+    for key in (
+        "rentals",
+        "equipment",
+        "rental_item",
+        "item",
+        "offering_key",
+        "selected_equipment",
+        "course_equipment",
+        "rental_pricing",
+    ):
+        val = src.get(key)
+        if val in (None, "", [], {}):
+            continue
+        # Empty-ish rental_pricing without offering_key is not intent by itself.
+        if key == "rental_pricing" and isinstance(val, dict) and not _clean(val.get("offering_key")):
+            continue
+        return True
+
+    # Notes-only path: any rental/equipment language or catalog-shaped offering key.
+    if notes_txt and _SUNSET_RENTAL_INTENT_RE.search(notes_txt):
+        return True
+    return False
+
+
 def create_sunset_booking(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -2232,6 +2313,11 @@ def create_sunset_booking(params, **kwargs):
         body["course_equipment"] = {"mode": course_equipment["mode"], "quantity": course_equipment["quantity"]}
         body["quote_provenance"] = quote_provenance
 
+    # Preserve authoritative rental_pricing even when the model used catalog
+    # offering_key without legacy surfboard/wetsuit component rows.
+    if rp_in and not isinstance(body.get("rental_pricing"), dict):
+        body["rental_pricing"] = rp_in
+
     # Dates.
     if isinstance(payload.get("service_dates"), list) and payload.get("service_dates"):
         body["service_dates"] = payload["service_dates"]
@@ -2243,6 +2329,25 @@ def create_sunset_booking(params, **kwargs):
     for opt in ("payment_status", "notes", "idempotency_key", "location_id"):
         if payload.get(opt) not in (None, ""):
             body[opt] = payload.get(opt)
+
+    # Fail closed: confirmed gear must be structured fields, never notes-only.
+    # Intent is catalog/quote-driven (provenance, selection fields, rental language /
+    # offering_key shapes) — not a hard-coded list of item labels. Structured gear
+    # includes any non-service component key (so newly catalogued items work).
+    notes_txt = _clean(body.get("notes") or payload.get("notes") or "")
+    has_structured_equipment = _sunset_has_structured_rental_or_equipment(body, course_equipment)
+    if (
+        not has_structured_equipment
+        and _sunset_quote_or_payload_equipment_intent(payload, body, notes_txt, quote_provenance)
+    ):
+        return _json_result({
+            "success": False,
+            "tool": "create_sunset_booking",
+            "error": "equipment_must_use_structured_fields",
+            "staff_review_needed": False,
+            "guest_safe_next_action": "I need to lock the gear on the booking properly — one moment while I re-confirm the equipment selection.",
+        })
+
     data = _post_bot("/sunset/booking-create", body)
     if data.get("disabled"):
         return _json_result({
