@@ -21780,6 +21780,7 @@ function scheduleBuildPrivateLessonSessions(dayRows, dateIso){
     var gear = scheduleSessionGearTotals(group ? [group] : []);
     var start = schedulePrivateLessonStartMinutes(r);
     var end = schedulePrivateLessonEndMinutes(r);
+    var plGroups = group ? [group] : [];
     return {
       kind: 'private_lesson',
       label: portalT('schedule.type.privateLesson'),
@@ -21791,9 +21792,13 @@ function scheduleBuildPrivateLessonSessions(dayRows, dateIso){
       capacity: null,
       surfers: group ? (group.quantity || 1) : (r.quantity != null ? Number(r.quantity) : 1),
       bookings: 1,
-      groups: group ? [group] : [],
+      groups: plGroups,
       boardsNeeded: gear.boards,
       wetsuitsNeeded: gear.wetsuits,
+      // Session-scoped exact course add-ons for cockpit hero (injected helper when present).
+      prepItems: typeof scheduleBuildSessionPrepItems === 'function'
+        ? scheduleBuildSessionPrepItems(plGroups)
+        : [],
       isRequested: scheduleRowIsRequestedTime(r),
     };
   });
@@ -25419,6 +25424,7 @@ function scheduleBuildDaySessions(dayRows, dateIso, lessonTimes){
     });
     var timeRaw = stats.time || course.slot_time || '';
     var mins = scheduleParseSlotMinutes(timeRaw);
+    var courseGroups = stats.groups || [];
     sessions.push({
       kind: 'course',
       course_id: course.course_id,
@@ -25430,9 +25436,13 @@ function scheduleBuildDaySessions(dayRows, dateIso, lessonTimes){
       capacity: course.capacity != null && course.capacity > 0 ? course.capacity : null,
       surfers: stats.surfers || 0,
       bookings: stats.bookings || 0,
-      groups: stats.groups || [],
+      groups: courseGroups,
       boardsNeeded: stats.boardsNeeded || 0,
       wetsuitsNeeded: stats.wetsuitsNeeded || 0,
+      // Session-scoped exact course add-ons for cockpit hero (injected helper when present).
+      prepItems: typeof scheduleBuildSessionPrepItems === 'function'
+        ? scheduleBuildSessionPrepItems(courseGroups)
+        : [],
     });
   });
   scheduleBuildPrivateLessonSessions(dayRows, dateIso).forEach(function(plSession){
@@ -25461,6 +25471,9 @@ function scheduleBuildDaySessions(dayRows, dateIso, lessonTimes){
         groups: otherGroups,
         boardsNeeded: otherGear.boards,
         wetsuitsNeeded: otherGear.wetsuits,
+        prepItems: typeof scheduleBuildSessionPrepItems === 'function'
+          ? scheduleBuildSessionPrepItems(otherGroups)
+          : [],
       });
     }
   }
