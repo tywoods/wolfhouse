@@ -71,6 +71,7 @@
     "verify:sunset-course-equipment-ui-playwright": "node scripts/verify-sunset-course-equipment-ui-playwright.js",
     "verify:sunset-course-equipment-admin-ui-playwright": "node scripts/verify-sunset-course-equipment-admin-ui-playwright.js",
     "verify:sunset-admin-equipment-rental-fixes": "node scripts/verify-sunset-admin-equipment-rental-fixes.js",
+    "verify:sunset-course-drawer-compact": "node scripts/verify-sunset-course-drawer-compact-playwright.js",
     "verify:sunset-rental-dropdown-refresh": "node scripts/verify-sunset-rental-dropdown-refresh.js",
     "verify:sunset-rental-hard-delete": "node scripts/verify-sunset-rental-hard-delete.js",
     "verify:sunset-rental-edit-functionality": "node scripts/verify-sunset-rental-edit-functionality.js",

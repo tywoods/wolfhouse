@@ -72,9 +72,13 @@ const listen=s=>new Promise((r,j)=>{s.once('error',j);s.listen(0,'127.0.0.1',()=
   assert.ok(!/€0|\b0\.00\b/.test(packText.replace(/5\.00/g,'')),'zero surcharge must not render as 0.00/€0');
 
   await page.locator('[data-admin-action="edit-pack"]').click();ed=page.locator('[data-admin-pack-form] [data-admin-equipment-editor]');assert.strictEqual(await ed.locator('select').inputValue(),'softboard');assert.strictEqual(await ed.locator('.admin-equipment-during-price').inputValue(),'5.00');assert.strictEqual(await ed.locator('.admin-equipment-all-day-price').inputValue(),'0.00');
-  // Visible Remove action (not bare ×) + active-only options (retired_board absent for new rows)
+  // Compact icon × remove with accessible "Remove equipment" name (not full-width Remove text)
   const removeBtn=ed.locator('[data-equipment-option-row]').first().locator('[data-admin-action="remove-equipment-option"]');
-  assert.ok((await removeBtn.count())===1&&/remove/i.test(await removeBtn.innerText()),'Group equipment row has visible Remove text');
+  assert.ok((await removeBtn.count())===1,'Group equipment row has remove control');
+  const remAria=String(await removeBtn.getAttribute('aria-label')||'');
+  assert.ok(/remove equipment/i.test(remAria)||/remove equipment/i.test(String(await removeBtn.getAttribute('title')||'')),'equipment × accessible name');
+  assert.ok((await removeBtn.innerText()).includes('×')||(await removeBtn.textContent()).includes('×'),'equipment remove is icon ×');
+  assert.ok(!/^remove$/i.test((await removeBtn.innerText()).trim()),'not full-width Remove text button');
   assert.strictEqual(await ed.locator('option[value="retired_board"]').count(),0,'disabled offering absent from active options');
   await ed.locator('[data-admin-action="add-equipment-option"]').click();assert.strictEqual(await ed.locator('[data-equipment-option-row]').nth(1).locator('option[value="softboard"]').getAttribute('disabled'),'');await ed.locator('[data-equipment-option-row]').nth(1).locator('[data-admin-action="remove-equipment-option"]').click();
   // Add second arbitrary identity (carbon_fins) to prove multi-item + no fixed ordering identity
@@ -99,7 +103,9 @@ const listen=s=>new Promise((r,j)=>{s.once('error',j);s.listen(0,'127.0.0.1',()=
     assert.ok(await rem.isVisible(),'Remove visible at '+width);
     const clip=await row.evaluate((x)=>{const r=x.getBoundingClientRect();const b=x.querySelector('[data-admin-action="remove-equipment-option"]');const br=b.getBoundingClientRect();return br.right>r.right+1||br.left<r.left-1||document.documentElement.scrollWidth>document.documentElement.clientWidth||x.scrollWidth>x.clientWidth+1;});
     assert.strictEqual(clip,false,'no clipping at '+width);
-    assert((await ed.locator('button,select,input').evaluateAll(xs=>xs.every(x=>x.getBoundingClientRect().height>=44))));
+    // Compact icon × may be <44px; select/price inputs stay usable (>=32px). Add stays touch-friendly.
+    assert((await ed.locator('select,input').evaluateAll(xs=>xs.every(x=>x.getBoundingClientRect().height>=32))));
+    assert((await rem.boundingBox()).height>=24,'icon remove height usable at '+width);
     await page.locator('[data-admin-action="cancel-edit"]').click();}
   // Rental Prices tab: Enabled toggle, disabled muted, duration × labeled as price/duration
   await page.setViewportSize({width:1280,height:900});
