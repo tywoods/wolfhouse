@@ -149,7 +149,9 @@ async function resolveActiveSunsetAdminPrice(pg, opts) {
   }
 
   const unitAmount = Math.round(Number(dbRes.amount_cents));
-  if (!Number.isFinite(unitAmount) || unitAmount <= 0) {
+  // Explicit configured zero is a valid free product price. Missing rows already
+  // returned price_not_configured above; reject only non-finite / negative.
+  if (!Number.isFinite(unitAmount) || unitAmount < 0) {
     return {
       ok: false,
       reason: 'price_not_configured',
@@ -183,6 +185,7 @@ async function resolveActiveSunsetAdminPrice(pg, opts) {
     price_source: 'admin_db',
     identity_key: priceIdentityKey(identity),
     identity,
+    free_price: unitAmount === 0,
   };
 }
 

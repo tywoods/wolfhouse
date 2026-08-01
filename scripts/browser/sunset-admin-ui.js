@@ -240,6 +240,45 @@ function adminShowMessage(kind, text){
   box.style.display = 'block';
 }
 
+/**
+ * Clear equipment-local write errors only (`[data-admin-equip-error]`).
+ * Never touches shared `#admin-save-msg` — global Admin notices keep their own lifecycle.
+ * Used at cancel / Admin subtab / top-level leave / client-change / fresh render boundaries
+ * and before painting a new equipment error on the active card.
+ */
+function adminClearEquipErrors(){
+  if (typeof document === 'undefined' || !document.querySelectorAll) return;
+  var nodes = document.querySelectorAll('[data-admin-equip-error]');
+  for (var i = 0; i < nodes.length; i++) {
+    nodes[i].style.display = 'none';
+    nodes[i].textContent = '';
+    nodes[i].className = 'state-msg portal-admin-equip-error';
+  }
+}
+
+/**
+ * Show an error on the active equipment edit card (not a sticky global banner).
+ * Does not erase unrelated `#admin-save-msg` content. Sibling equip hosts are cleared first.
+ * Falls back to the global admin-save-msg only when the card host is missing.
+ */
+function adminShowEquipError(equipKey, text){
+  var key = String(equipKey || '').trim();
+  adminClearEquipErrors();
+  var host = key
+    ? (el('admin-equip-error-' + key)
+      || (typeof document !== 'undefined' && document.querySelector
+        ? document.querySelector('[data-admin-equip-error="' + key + '"]')
+        : null))
+    : null;
+  if (host) {
+    host.className = 'state-msg portal-admin-equip-error error';
+    host.textContent = text || '';
+    host.style.display = text ? 'block' : 'none';
+    return;
+  }
+  adminShowMessage('error', text || '');
+}
+
 function adminEurosFromAmount(amount){
   var n = Number(amount);
   if (!Number.isFinite(n)) return '';
@@ -1266,6 +1305,8 @@ function renderAdminSectionPricesFromConfig(cfg){
     // One primary Save + Cancel for the whole equipment item (closes edit).
     if (editing){
       html += '<div class="portal-admin-edit-actions portal-admin-equip-footer" data-equip-key="' + escHtml(key) + '">' +
+        '<div id="admin-equip-error-' + escHtml(key) + '" data-admin-equip-error="' + escHtml(key) +
+        '" class="state-msg portal-admin-equip-error" style="display:none" aria-live="polite"></div>' +
         '<button type="button" class="btn btn-primary" data-admin-action="save-equipment" data-equip-key="' + escHtml(key) + '">' +
         escHtml(portalT('admin.action.save') || 'Save') + '</button>' +
         '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' +
@@ -1754,6 +1795,10 @@ function renderAdminFromConfig(cfg, opts){
   var preserve = !!(opts && opts.preserveDraft);
   if (preserve) adminSnapshotPricingDraftState();
   else adminClearPricingDraftState();
+  // Fresh render / reload: drop stale equipment-local write errors only.
+  // preserveDraft keeps form values but not equip error ownership from a prior save.
+  // Unrelated shared #admin-save-msg notices keep their own lifecycle.
+  if (typeof adminClearEquipErrors === 'function') adminClearEquipErrors();
   renderAdminWriteState(cfg);
   if (typeof renderAdminSchoolContext === 'function') renderAdminSchoolContext(cfg);
   try { renderAdminSectionLessonTimesFromConfig(cfg); } catch (err) { console.error('admin lessons render failed', err); }
@@ -1939,6 +1984,9 @@ function renderFinanceSummaryHtml(summary){
 function adminSelectSubTab(key, opts){
   var next = (key === 'pricing' || key === 'luna-staff') ? key : 'finance';
   adminActiveSubTab = next;
+  // Rental write errors are operation-scoped — never stick across Admin subtabs.
+  // Equipment-local only: do not hide unrelated shared Admin notices.
+  if (typeof adminClearEquipErrors === 'function') adminClearEquipErrors();
   var tabs = document.querySelectorAll('#admin-subtab-list [data-admin-tab]');
   var i;
   for (i = 0; i < tabs.length; i++){
@@ -2023,6 +2071,8 @@ function loadAdminTab(opts){
   opts = opts || {};
   wireAdminTab();
   wireAdminSubTabs();
+  // Equipment-local only on Admin load/re-entry (shared banner retains own lifecycle).
+  if (typeof adminClearEquipErrors === 'function') adminClearEquipErrors();
   if (opts.resetSubTab) {
     adminActiveSubTab = 'finance';
     // Deliberate Admin reopen/reload — drop any in-memory Pricing drafts.
@@ -2264,7 +2314,8 @@ function wireAdminTab(){
     }
     if (action === 'cancel-edit'){
       adminEditTarget = null;
-      adminShowMessage('', '');
+      // Cancel drops rental-edit ownership only — not unrelated Admin notices.
+      if (typeof adminClearEquipErrors === 'function') adminClearEquipErrors();
       renderAdminFromConfig(cfg);
       return;
     }
@@ -2549,7 +2600,7 @@ function wireAdminTab(){
       var seNameEl = el('admin-equip-name-' + seKey);
       var seStockEl = el('admin-equip-stock-' + seKey);
       var seName = seNameEl ? String(seNameEl.value || '').trim() : '';
-      if (!seName){ adminShowMessage('error', portalT('admin.prices.equipmentNameRequired') || 'Enter an equipment name'); return; }
+      if (!seName){ adminShowEquipError(seKey, portalT('admin.prices.equipmentNameRequired') || 'Enter an equipment name'); return; }
       var seBody = { label: seName, prices: [], new_prices: [] };
       var seStockRaw = seStockEl ? String(seStockEl.value || '').trim() : '';
       if (seStockRaw === '') {
@@ -2557,7 +2608,7 @@ function wireAdminTab(){
       } else {
         var seStockNum = parseInt(seStockRaw, 10);
         if (!Number.isInteger(seStockNum) || seStockNum < 0 || seStockNum > 999 || String(seStockNum) !== seStockRaw) {
-          adminShowMessage('error', portalT('admin.prices.stockInvalid') || 'Stock must be a whole number 0–999 or blank');
+          adminShowEquipError(seKey, portalT('admin.prices.stockInvalid') || 'Stock must be a whole number 0–999 or blank');
           return;
         }
         seBody.stock_quantity = seStockNum;
@@ -2588,17 +2639,17 @@ function wireAdminTab(){
           }
           seBody.prices.push(row);
         });
-        if (sePriceErr){ adminShowMessage('error', sePriceErr); return; }
+        if (sePriceErr){ adminShowEquipError(seKey, sePriceErr); return; }
       }
 
       var draftAmountEl = el('admin-new-price-amount');
       var draftForm = document.getElementById('admin-add-price-form');
       if (draftForm && draftAmountEl && String(draftAmountEl.value || '').trim() !== '') {
         var draftDur = adminReadDurationControl('admin-new-price');
-        if (!draftDur.duration_key){ adminShowMessage('error', portalT('admin.prices.invalidDuration') || 'Enter a valid duration'); return; }
+        if (!draftDur.duration_key){ adminShowEquipError(seKey, portalT('admin.prices.invalidDuration') || 'Enter a valid duration'); return; }
         var draftCents = adminParseEurosToCents(draftAmountEl.value);
-        if (!draftCents.ok){ adminShowMessage('error', draftCents.error); return; }
-        if (!(draftCents.value > 0)){ adminShowMessage('error', portalT('admin.edit.amountRequiredToEnable')); return; }
+        if (!draftCents.ok){ adminShowEquipError(seKey, draftCents.error); return; }
+        if (!(draftCents.value > 0)){ adminShowEquipError(seKey, portalT('admin.edit.amountRequiredToEnable')); return; }
         seBody.new_prices.push({
           period_window: draftDur.duration_key,
           amount_cents: draftCents.value,
@@ -2606,7 +2657,8 @@ function wireAdminTab(){
       }
 
       var seOpSeq = adminBeginOp();
-      adminShowMessage('', '');
+      // Clear this operation's prior local equip error only (not shared Admin notices).
+      if (typeof adminClearEquipErrors === 'function') adminClearEquipErrors();
       adminApiRequest(
         'POST',
         '/staff/admin/config/rental-offerings/' + encodeURIComponent(seKey) + '/commit' + adminClientQuery(),
@@ -2617,12 +2669,14 @@ function wireAdminTab(){
           adminReleaseBusy(seOpSeq);
           var em = (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status);
           if (/rental_name_already_exists/i.test(String(em))) {
-            adminShowMessage('error', portalT('admin.prices.rentalNameExists') || em);
+            adminShowEquipError(seKey, portalT('admin.prices.rentalNameExists') || em);
           } else {
-            adminShowMessage('error', em);
+            adminShowEquipError(seKey, em);
           }
           return;
         }
+        // Success: clear own equip error, then own the global banner with success.
+        if (typeof adminClearEquipErrors === 'function') adminClearEquipErrors();
         adminShowMessage('success', portalT('admin.edit.savedPrice') || 'Saved.');
         adminReleaseBusy(seOpSeq);
         adminEditTarget = null;
@@ -2630,7 +2684,7 @@ function wireAdminTab(){
       }).catch(function(err){
         if (!adminOpStillOwns(seOpSeq)) return;
         adminReleaseBusy(seOpSeq);
-        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (err && err.message ? err.message : String(err)));
+        adminShowEquipError(seKey, portalT('admin.edit.saveFailed') + ' ' + (err && err.message ? err.message : String(err)));
       });
       return;
     }

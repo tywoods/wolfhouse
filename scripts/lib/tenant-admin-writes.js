@@ -1403,7 +1403,7 @@ async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, a
         : currentPeriod;
       if (patch.period_window != null && nextPeriod && nextPeriod !== currentPeriod) {
         if (!isValidRentalPeriod(nextPeriod)) {
-          await client.query('ROLLBACK');
+          if (ownTx) await client.query('ROLLBACK');
           return {
             ok: false,
             status: 400,
@@ -1421,7 +1421,7 @@ async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, a
           hasLoc,
         });
         if (clash.rows[0] && String(clash.rows[0].id) !== String(ruleId)) {
-          await client.query('ROLLBACK');
+          if (ownTx) await client.query('ROLLBACK');
           return {
             ok: false,
             status: 409,
@@ -1466,10 +1466,15 @@ async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, a
       afterJson: rowToAuditJson(after),
     });
 
-    await client.query('COMMIT');
+    // When nested under commitRentalEquipmentEdit (skipTransaction), do NOT
+    // COMMIT/ROLLBACK — the outer txn owns atomicity. Premature COMMIT here
+    // left subsequent SAVEPOINT inserts outside a transaction → write failed.
+    if (ownTx) await client.query('COMMIT');
     return { ok: true, status: 200, body: { success: true, price_rule: after, storage: 'db' } };
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (ownTx) {
+      try { await client.query('ROLLBACK'); } catch (_) { /* ignore */ }
+    }
     throw err;
   }
 }

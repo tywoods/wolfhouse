@@ -98,9 +98,13 @@ function findPriceCents(prices, category, offeringKey, unit) {
         && (String(p.offering_key || '') === combined
           || String(p.item_code || '') === combined));
     }
-    if (row && row.amount != null) return Math.round(Number(row.amount) * 100);
-    if (row && Number.isInteger(row.amount_cents) && row.amount_cents > 0) {
+    // Explicit configured zero is a valid free price (not missing).
+    if (row && Number.isInteger(row.amount_cents) && row.amount_cents >= 0) {
       return Math.round(Number(row.amount_cents));
+    }
+    if (row && row.amount != null) {
+      const n = Math.round(Number(row.amount) * 100);
+      if (Number.isFinite(n) && n >= 0) return n;
     }
   }
   return null;
@@ -108,12 +112,12 @@ function findPriceCents(prices, category, offeringKey, unit) {
 
 function priceRowAmountCents(price) {
   if (!price) return null;
-  if (Number.isInteger(price.amount_cents) && price.amount_cents > 0) {
+  if (Number.isInteger(price.amount_cents) && price.amount_cents >= 0) {
     return Math.round(Number(price.amount_cents));
   }
   if (price.amount == null) return null;
   const n = Math.round(Number(price.amount) * 100);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 /**
@@ -403,7 +407,7 @@ function serviceRecordUnitPriceCents(prices, sr, adminCfg) {
       course_id: meta.course_id,
       location_id: meta.location_id,
     });
-    if (!resolved.ok || resolved.unit_amount_cents == null || resolved.unit_amount_cents <= 0) {
+    if (!resolved.ok || resolved.unit_amount_cents == null || resolved.unit_amount_cents < 0) {
       return null;
     }
     const billing = String(resolved.billing_unit || '').toLowerCase();
@@ -439,7 +443,8 @@ function serviceRecordUnitPriceCents(prices, sr, adminCfg) {
     const dur = String(meta.duration_key || meta.unit || RENTAL_UNIT_KEY).trim() || RENTAL_UNIT_KEY;
     unitCents = findPriceCents(prices, 'rental', offeringKey, dur);
   }
-  if (unitCents == null || unitCents <= 0) return null;
+  // null = missing/unconfigured; 0 = explicit free (valid).
+  if (unitCents == null || unitCents < 0) return null;
   return unitCents * qty;
 }
 
@@ -520,8 +525,9 @@ async function resolveSunsetServiceDueCents(pg, clientSlug, prices, sr, adminCfg
     pgClient: pg,
   });
 
-  if (live.ok === true && live.amount_cents > 0) {
-    return live.amount_cents;
+  // Explicit configured zero is valid (free product). Only missing/unpriced is null.
+  if (live.ok === true && live.amount_cents != null && Number(live.amount_cents) >= 0) {
+    return Number(live.amount_cents);
   }
 
   // Course/lesson fail closed when identity was claimed but price missing.
@@ -535,6 +541,14 @@ async function resolveSunsetServiceDueCents(pg, clientSlug, prices, sr, adminCfg
     return null;
   }
 
+  // Course-owned equipment free snapshot: during_course / all_day unit is 0.
+  if (meta.course_equipment === true) {
+    const mode = meta.course_equipment_mode === 'all_day' ? 'all_day' : 'during_course';
+    const modeField = mode === 'all_day' ? 'all_day_price_cents' : 'during_course_price_cents';
+    if (meta[modeField] === 0 || meta[modeField] === '0') return 0;
+    if (meta.unit_amount_cents === 0 || meta.unit_amount_cents === '0') return 0;
+  }
+
   // Rentals / addons: keep legacy merged-prices helper only when identity could
   // not be formed (older rows). Never use baseline when Admin DB is authoritative
   // and identity resolved to not_found.
@@ -542,6 +556,28 @@ async function resolveSunsetServiceDueCents(pg, clientSlug, prices, sr, adminCfg
     return null;
   }
   return serviceRecordUnitPriceCents(prices, sr, adminCfg);
+}
+
+/**
+ * True when service metadata proves an explicit configured free unit price
+ * (course equipment during_course / all_day, or snapshotted unit_amount 0).
+ * Missing/unknown prices are NOT free.
+ */
+function isExplicitFreeServiceMeta(meta) {
+  const m = meta || {};
+  if (m.course_equipment === true) {
+    const mode = m.course_equipment_mode === 'all_day' ? 'all_day' : 'during_course';
+    const modeField = mode === 'all_day' ? 'all_day_price_cents' : 'during_course_price_cents';
+    if (m[modeField] === 0 || m[modeField] === '0') return true;
+    if (m.unit_amount_cents === 0 || m.unit_amount_cents === '0') return true;
+    if (m.during_course_price_cents === 0 && mode === 'during_course') return true;
+    if (m.all_day_price_cents === 0 && mode === 'all_day') return true;
+  }
+  if ((m.rental_offering === true || m.generic_rental === true)
+    && (m.unit_amount_cents === 0 || m.unit_amount_cents === '0')) {
+    return true;
+  }
+  return false;
 }
 
 function courseOfferingGroupKey(meta) {
@@ -657,24 +693,46 @@ async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
         continue;
       }
     }
-    let due = Number(sr.amount_due_cents) || 0;
-    if (due <= 0) {
-      due = await resolveSunsetServiceDueCents(pg, clientSlug, prices, sr, adminCfg, locationId) || 0;
-      if (due <= 0) {
-        return { ok: false, error: `no_price_for_${sr.service_type}` };
-      }
+    const storedRaw = sr.amount_due_cents;
+    const hasStored = storedRaw != null && storedRaw !== '' && Number.isFinite(Number(storedRaw));
+    let due = hasStored ? Number(storedRaw) : null;
+
+    // Positive stored amount is authoritative for this reprice pass.
+    if (due != null && due > 0) {
+      totalCents += due;
+      continue;
+    }
+
+    // Zero or missing: re-resolve. Explicit free (configured 0) is valid;
+    // missing/unpriced remains fail-closed.
+    const resolved = await resolveSunsetServiceDueCents(
+      pg, clientSlug, prices, sr, adminCfg, locationId,
+    );
+    if (resolved != null && Number.isFinite(Number(resolved)) && Number(resolved) >= 0) {
+      due = Number(resolved);
       if (String(clientSlug).trim() === SUNSET_CLIENT_SLUG
         && (meta.course_id || meta.component === 'course' || meta.component === 'private_lesson'
           || meta.component === 'lesson' || meta.staff_ui_service_type === 'course'
           || meta.staff_ui_service_type === 'private_lesson')) {
         priceSource = 'db';
       }
-      await pg.query(
-        `UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid`,
-        [due, sr.id],
-      );
+      if (!hasStored || Number(storedRaw) !== due) {
+        await pg.query(
+          `UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid`,
+          [due, sr.id],
+        );
+      }
+      totalCents += due;
+      continue;
     }
-    totalCents += due;
+
+    // Resolve miss: accept only when stored 0 is an explicit free snapshot.
+    if (hasStored && Number(storedRaw) === 0 && isExplicitFreeServiceMeta(meta)) {
+      totalCents += 0;
+      continue;
+    }
+
+    return { ok: false, error: `no_price_for_${sr.service_type}` };
   }
   if (totalCents <= 0) return { ok: false, error: 'booking_total_zero' };
   await pg.query(

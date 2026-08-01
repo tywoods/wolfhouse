@@ -469,26 +469,27 @@ function scheduleRenderDayCockpit(mount, data) {
   main.appendChild(ribbon);
   body.appendChild(main);
 
-  /* prep rail */
+  /* prep rail — exact offering labels/qty (course add-ons first, then top others) */
   var p = data.prep || {};
   var prep = el('div', 'ck-prep');
   prep.appendChild(el('h3', null, "TODAY'S PREP"));
-  [
-    ['Surfboards', p.boards],
-    ['Wetsuits', p.wetsuits],
-  ].forEach(function (row) {
-    var label = row[0], v = row[1];
-    var prow = el('div', 'ck-prep__row');
-    prow.appendChild(el('span', null, label));
-    var val = el('span');
-    val.appendChild(el('strong', null, String(v && v.total != null ? v.total : 0)));
-    val.appendChild(doc.createTextNode(' '));
-    val.appendChild(el('em', null,
-      String(v && v.lesson != null ? v.lesson : 0) + ' lesson \u00b7 ' +
-      String(v && v.rental != null ? v.rental : 0) + ' rental'));
-    prow.appendChild(val);
-    prep.appendChild(prow);
-  });
+  var prepItems = Array.isArray(p.items) ? p.items : [];
+  if (prepItems.length) {
+    prepItems.forEach(function (item) {
+      var prow = el('div', 'ck-prep__row');
+      prow.appendChild(el('span', null, String(item.label || item.offering_key || 'Item')));
+      var val = el('span');
+      val.appendChild(el('strong', null, String(item.quantity != null ? item.quantity : 0)));
+      prow.appendChild(val);
+      prep.appendChild(prow);
+    });
+  } else {
+    // Empty day — keep rail height honest without inventing component stock.
+    var empty = el('div', 'ck-prep__row ck-prep__row--quiet');
+    empty.appendChild(el('span', null, 'No equipment booked'));
+    empty.appendChild(el('span', null, '0'));
+    prep.appendChild(empty);
+  }
   prep.appendChild(el('div', 'ck-prep__rule'));
   var unpaid = el('div', 'ck-prep__row ck-prep__row--alert');
   unpaid.appendChild(el('span', null, 'Unpaid / pending'));
@@ -711,6 +712,14 @@ function scheduleBuildDayCockpitData(src) {
   var needReply = prepIn.needReply != null ? prepIn.needReply
     : (src.needReplyCount != null ? src.needReplyCount : 0);
 
+  // Exact prep items: prefer src.prep.items; else derive from day rows when present.
+  var prepItems = Array.isArray(prepIn.items) ? prepIn.items.slice() : null;
+  if (!prepItems && Array.isArray(src.prepItems)) prepItems = src.prepItems.slice();
+  if (!prepItems && Array.isArray(src.rows)) {
+    prepItems = scheduleBuildDayPrepItems(src.rows, src.date || src.activeDayIso || '');
+  }
+  if (!prepItems) prepItems = [];
+
   var sessions = (src.sessions || []).map(function (s) {
     // Already cockpit-shaped (has HH:MM start string + name)?
     if (s && typeof s.start === 'string' && s.start.indexOf(':') !== -1 && (s.name || s.booked != null) && s.surfers == null && s.boardsNeeded == null) {
@@ -731,6 +740,15 @@ function scheduleBuildDayCockpitData(src) {
     layout: layout === 'cards' ? 'cards' : 'timeline',
     sessions: sessions,
     prep: {
+      items: prepItems.map(function (it) {
+        return {
+          offering_key: String((it && it.offering_key) || ''),
+          label: String((it && it.label) || (it && it.offering_key) || 'Item'),
+          quantity: Number(it && it.quantity) || 0,
+          kind: (it && it.kind) === 'course_addon' ? 'course_addon' : 'rental',
+        };
+      }),
+      // Legacy keys retained for older consumers / tests (not primary rail truth).
       boards: {
         total: Number(boards.total) || 0,
         lesson: Number(boards.lesson) || 0,
@@ -895,10 +913,139 @@ function scheduleCockpitFilterActiveRows(rows) {
   return (rows || []).filter(scheduleCockpitRowIsActive);
 }
 
+function scheduleCockpitParseMeta(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try { return JSON.parse(raw); } catch (_e) { return {}; }
+}
+
+function scheduleCockpitRowQty(row) {
+  var n = row && row.quantity != null ? Number(row.quantity) : 1;
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.floor(n);
+}
+
+function scheduleCockpitHumanizeOfferingKey(key) {
+  return String(key || '')
+    .replace(/_rental$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, function (c) { return c.toUpperCase(); })
+    .trim();
+}
+
+/**
+ * Data-driven Today's Prep projection for a selected day.
+ *
+ * 1) Exact course add-on offerings first (metadata.course_equipment=true) —
+ *    identity/label/quantity as booked; never decompose combo names into
+ *    hardcoded Surfboards/Wetsuits components.
+ * 2) When the same offering_key also has standalone rental demand, aggregate
+ *    that quantity into the add-on-first row (physical prep must not understate).
+ *    Prefer the trusted course-add-on booked label; do not list that key again
+ *    among "other rentals".
+ * 3) Then up to two OTHER exact rented offering types for that day, ranked by
+ *    quantity desc then stable label/key. Active bookings only; respects date.
+ *
+ * @returns {Array<{offering_key:string,label:string,quantity:number,kind:'course_addon'|'rental'}>}
+ */
+function scheduleBuildDayPrepItems(rows, dateIso) {
+  var iso = String(dateIso || '').slice(0, 10);
+  var dayRows = scheduleCockpitFilterActiveRows(rows || []).filter(function (r) {
+    return String(r.service_date || r.date || '').slice(0, 10) === iso;
+  });
+
+  var ceByKey = Object.create(null);
+  var rentalByKey = Object.create(null);
+
+  dayRows.forEach(function (row) {
+    var meta = scheduleCockpitParseMeta(row.metadata || row._meta);
+    var qty = scheduleCockpitRowQty(row);
+    var key = String(meta.offering_key || meta.offering_id || '').trim();
+    var label = String(
+      meta.label || meta.offering_label || meta.catalog_label || meta.display_name || '',
+    ).trim();
+
+    // Course-owned equipment — exact catalog offering (not component inference).
+    if (meta.course_equipment === true
+      && meta.rental_offering !== true
+      && meta.generic_rental !== true) {
+      if (!key) key = 'course_equipment';
+      if (!label) label = scheduleCockpitHumanizeOfferingKey(key) || 'Equipment';
+      if (!ceByKey[key]) {
+        ceByKey[key] = {
+          offering_key: key,
+          label: label,
+          quantity: 0,
+          kind: 'course_addon',
+        };
+      }
+      ceByKey[key].quantity += qty;
+      // Prefer a real label if a later row carries one (CE booked labels win).
+      if (label && (!ceByKey[key].label || ceByKey[key].label === key)) {
+        ceByKey[key].label = label;
+      }
+      return;
+    }
+
+    // Standalone / generic rentals — exact offering identity.
+    var isRental = meta.rental_offering === true
+      || meta.generic_rental === true
+      || String(meta.component || '').toLowerCase() === 'addon_service'
+      || String(row.service_type || '').toLowerCase() === 'surfboard'
+      || String(row.service_type || '').toLowerCase() === 'wetsuit'
+      || (String(row.service_type || '').toLowerCase() === 'addon_service' && !!key);
+    if (!isRental || !key) return;
+    if (!label) label = scheduleCockpitHumanizeOfferingKey(key) || key;
+    if (!rentalByKey[key]) {
+      rentalByKey[key] = {
+        offering_key: key,
+        label: label,
+        quantity: 0,
+        kind: 'rental',
+      };
+    }
+    rentalByKey[key].quantity += qty;
+    if (label && (!rentalByKey[key].label || rentalByKey[key].label === key)) {
+      rentalByKey[key].label = label;
+    }
+  });
+
+  // Same exact offering key as course add-on + standalone rental: fold standalone
+  // demand into the add-on-first row so physical prep is not understated.
+  Object.keys(rentalByKey).forEach(function (k) {
+    if (!ceByKey[k]) return;
+    ceByKey[k].quantity += Number(rentalByKey[k].quantity) || 0;
+    // Keep trusted course-add-on booked label; only fill if CE label was empty/key.
+    if ((!ceByKey[k].label || ceByKey[k].label === k) && rentalByKey[k].label) {
+      ceByKey[k].label = rentalByKey[k].label;
+    }
+  });
+
+  var ceItems = Object.keys(ceByKey).map(function (k) { return ceByKey[k]; });
+  ceItems.sort(function (a, b) {
+    var byLabel = String(a.label).localeCompare(String(b.label));
+    return byLabel || String(a.offering_key).localeCompare(String(b.offering_key));
+  });
+
+  var otherItems = Object.keys(rentalByKey)
+    .filter(function (k) { return !ceByKey[k]; })
+    .map(function (k) { return rentalByKey[k]; });
+  otherItems.sort(function (a, b) {
+    var dq = (Number(b.quantity) || 0) - (Number(a.quantity) || 0);
+    if (dq) return dq;
+    var byLabel = String(a.label).localeCompare(String(b.label));
+    return byLabel || String(a.offering_key).localeCompare(String(b.offering_key));
+  });
+  // Rail constraint: up to two other rental types after all CE exact rows.
+  otherItems = otherItems.slice(0, 2);
+
+  return ceItems.concat(otherItems);
+}
+
 /**
  * Assemble cockpit src from the live schedule VM (no new queries).
  * sessions ← scheduleBuildDaySessions (includes capacity from course.capacity)
- * prep ← scheduleDayEquipmentTotals + unpaid/need-reply counters on ACTIVE rows only
+ * prep ← exact offering items + unpaid/need-reply on ACTIVE rows only
  * venue/date/range ← getSunsetLocationLabel + nav
  */
 function scheduleCollectDayCockpitSource() {
@@ -930,10 +1077,14 @@ function scheduleCollectDayCockpitSource() {
     } catch (_e3) { sessions = []; }
   }
 
+  // Legacy equip totals retained for any remaining summary consumers; prep rail
+  // uses exact offering items (course add-ons + top other rentals).
   var equip = { boards: { total: 0, lesson: 0, rental: 0 }, wetsuits: { total: 0, lesson: 0, rental: 0 } };
   if (typeof scheduleDayEquipmentTotals === 'function') {
     try { equip = scheduleDayEquipmentTotals(activeRows, activeIso) || equip; } catch (_e4) { /* keep empty */ }
   }
+
+  var prepItems = scheduleBuildDayPrepItems(activeRows, activeIso);
 
   var unpaidCount = 0;
   if (typeof scheduleUnpaidPendingCount === 'function') {
@@ -955,6 +1106,11 @@ function scheduleCollectDayCockpitSource() {
     layout: typeof scheduleGetDayOpsLayoutMode === 'function' ? scheduleGetDayOpsLayoutMode() : 'timeline',
     sessions: sessions,
     equip: equip,
+    prep: {
+      items: prepItems,
+      unpaid: unpaidCount,
+      needReply: needReplyCount,
+    },
     unpaidCount: unpaidCount,
     needReplyCount: needReplyCount,
     on: scheduleDayCockpitDefaultHandlers(),
@@ -1032,6 +1188,7 @@ if (typeof module !== 'undefined' && module.exports) {
     scheduleCockpitFocusSession: scheduleCockpitFocusSession,
     scheduleCockpitRowIsActive: scheduleCockpitRowIsActive,
     scheduleCockpitFilterActiveRows: scheduleCockpitFilterActiveRows,
+    scheduleBuildDayPrepItems: scheduleBuildDayPrepItems,
     scheduleCollectDayCockpitSource: scheduleCollectDayCockpitSource,
     schedulePaintDayCockpit: schedulePaintDayCockpit,
   };
