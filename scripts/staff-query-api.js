@@ -20267,6 +20267,9 @@ function switchToTab(tab, subtab){
     var p = getPortalProfile(getClient());
     tab = p.default_tab || 'bed-calendar';
   }
+  // Capture prior top-level tab before class swaps (equipment error lifecycle).
+  var prevPanel = document.querySelector('.tab-panel.active');
+  var prevTab = prevPanel && prevPanel.id ? String(prevPanel.id).replace(/^tab-/, '') : '';
   document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
   document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
   var btn = document.querySelector('.tab-btn[data-tab="' + tab + '"]');
@@ -20290,6 +20293,10 @@ function switchToTab(tab, subtab){
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
   if (tab === 'customers') loadCustomersTab();
   if (tab === 'admin') { loadAdminTab({ resetSubTab: true }); loadAdminFinanceForCurrentScope(); }
+  // Leaving Admin: clear equipment-local rental write errors only (not shared Admin notices).
+  else if (prevTab === 'admin' && typeof adminClearEquipErrors === 'function') {
+    adminClearEquipErrors();
+  }
   if (tab === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
   if (tab === 'day-schedule') loadDaySchedule();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
@@ -20443,10 +20450,17 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     const target = this.dataset.tab;
     if (isTabHiddenForClient(target, getClient())) return;
     try { if (window.__closeStaffNavMenu) window.__closeStaffNavMenu(); } catch (_navClose) {}
+    var prevPanel = document.querySelector('.tab-panel.active');
+    var prevTab = prevPanel && prevPanel.id ? String(prevPanel.id).replace(/^tab-/, '') : '';
     document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
     document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
     this.classList.add('active');
     el('tab-' + target).classList.add('active');
+    // The primary top-nav listener owns normal tab clicks (it does not call switchToTab).
+    // Clear only rental-card errors when leaving Admin; shared Admin notices keep their lifecycle.
+    if (prevTab === 'admin' && target !== 'admin' && typeof adminClearEquipErrors === 'function') {
+      adminClearEquipErrors();
+    }
     if (target === 'today') loadTodaySummary();
     if (target === 'conversations') {
       loadMessageEvents();
@@ -31153,6 +31167,9 @@ if (clientSelectEl){
     syncSunsetSchoolSwitcher();
     syncBcClientFromInbox();
     applyClientPortalProfile(getClient());
+    // Client change boundary: drop equipment-local rental write errors only.
+    // Admin may remain the active top-level tab; do not hide unrelated Admin notices.
+    if (typeof adminClearEquipErrors === 'function') adminClearEquipErrors();
     var profile = getPortalProfile(getClient());
     var activePanel = document.querySelector('.tab-panel.active');
     var activeTab = activePanel && activePanel.id ? activePanel.id.replace('tab-', '') : null;
