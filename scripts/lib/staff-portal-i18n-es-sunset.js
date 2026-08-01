@@ -99,6 +99,7 @@ module.exports = {
   'admin.packs.removePriceTier': 'Quitar tramo de precio',
   'admin.packs.startTime2': 'Segunda hora de inicio (opcional)',
   'admin.packs.endTime2': 'Segunda hora de fin (opcional)',
+  'admin.packs.addSecondaryTime': 'Añadir hora secundaria',
   'admin.packs.schedules': 'Horarios',
   'admin.packs.title': 'Cursos en grupo',
   'admin.privateLessons.title': 'Cursos privados',
