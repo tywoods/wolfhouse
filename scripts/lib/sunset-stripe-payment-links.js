@@ -18,6 +18,7 @@ const {
   METADATA_SOURCE_TAG,
   isLunaTrustedActor,
 } = require('./sunset-schedule-booking-writes');
+const { findAdminPriceRule, adminPriceRuleAmountCents } = require('./sunset-rental-price-lookup');
 
 const SUNSET_CLIENT_SLUG = SUNSET_ADMIN_CLIENT;
 const SUNSET_STAGING_PUBLIC_PAYMENT_BASE = 'https://sunset-staging.lunafrontdesk.com';
@@ -91,16 +92,11 @@ function priceRowAmountCentsLocal(row) {
 }
 
 /**
- * Resolve a rental (or other) unit price from merged Admin prices.
+ * Resolve a unit price from merged Admin prices.
  *
- * Quote path (loadTenantPriceRuleFromDb / tenant-rental-price-resolver) looks up
- * tenant_price_rules by item_code = `${offering_key}__${duration}` with unit =
- * billing grain (day|session|item|person). Create-side merged prices from
- * mapPriceRows expose that compound as offering_key (= item_code) and unit as
- * the billing grain — NOT the guest duration. Legacy JSON baseline still stores
- * bare offering_key + duration-as-unit.
- *
- * Match both shapes. Never invent an amount when no row matches.
+ * Rentals: single source of truth is findAdminPriceRule (same as get_sunset_rental_price
+ * / quote path) — bare offering_key + duration as separate unit field.
+ * Non-rentals keep a simple category + offering_key + unit match.
  */
 function findPriceCents(prices, category, offeringKey, unit) {
   const list = prices || [];
@@ -108,59 +104,37 @@ function findPriceCents(prices, category, offeringKey, unit) {
   const rawKey = String(offeringKey || '').trim();
   if (!rawKey) return null;
   const durationRaw = String(unit || '').trim();
-  const durationAliases = durationRaw ? rentalUnitAliases(durationRaw) : [''];
 
-  // Guest duration → compound item_code candidates ONLY (never bare offering_key alone,
-  // or every duration row for that offering would match the first price in the list).
-  const compoundIdx = rawKey.lastIndexOf('__');
-  const bareKey = compoundIdx > 0 ? rawKey.slice(0, compoundIdx) : rawKey;
-  const keyDuration = compoundIdx > 0 ? rawKey.slice(compoundIdx + 2) : '';
-  const itemCodeCandidates = new Set();
-  if (compoundIdx > 0) {
-    // Caller already passed offering__duration.
-    itemCodeCandidates.add(rawKey);
-  }
-  for (const d of durationAliases) {
-    if (!d) continue;
-    itemCodeCandidates.add(`${bareKey}__${d}`);
-  }
-  // When the key is already compound, also accept alias-normalized compound forms.
-  if (keyDuration) {
-    for (const d of rentalUnitAliases(keyDuration)) {
-      if (d) itemCodeCandidates.add(`${bareKey}__${d}`);
+  // Rental: delegate to the quote resolver (create == quote by construction).
+  if (cat === 'rental') {
+    const durationCandidates = durationRaw ? rentalUnitAliases(durationRaw) : [];
+    // Prefer explicit duration keys; also try bare key when unit omitted.
+    for (const d of (durationCandidates.length ? durationCandidates : [durationRaw || ''])) {
+      if (!d && durationRaw) continue;
+      if (!d) continue;
+      const rule = findAdminPriceRule({ prices: list }, rawKey, d);
+      const cents = adminPriceRuleAmountCents(rule);
+      if (cents != null && cents > 0) return cents;
+      if (cents === 0) return 0;
     }
+    // Caller may pass compound offering__duration as offeringKey.
+    if (rawKey.includes('__') && durationRaw) {
+      const rule = findAdminPriceRule({ prices: list }, rawKey, durationRaw);
+      const cents = adminPriceRuleAmountCents(rule);
+      if (cents != null) return cents;
+    }
+    return null;
   }
 
-  // Billing grains must never be required to equal guest duration windows.
-  const BILLING_GRAINS = new Set(['person', 'day', 'session', 'item']);
-
-  for (const p of list) {
-    if (!p || p.active === false) continue;
-    if (String(p.category || p.item_type || '').toLowerCase() !== cat) continue;
-    const pOffering = String(p.offering_key || '').trim();
-    const pItem = String(p.item_code || '').trim();
-    const pUnit = String(p.unit || p.duration || p.window || '').trim();
-    const amt = priceRowAmountCentsLocal(p);
-    if (amt == null) continue;
-
-    // 1) Exact item_code / compound offering_key match (DB mapPriceRows shape).
-    if (itemCodeCandidates.has(pOffering) || (pItem && itemCodeCandidates.has(pItem))) {
-      return amt;
-    }
-
-    // 2) Legacy baseline: bare offering_key + duration stored in unit.
-    const pBare = pOffering.includes('__') ? pOffering.slice(0, pOffering.lastIndexOf('__')) : pOffering;
-    if (pOffering === bareKey || pOffering === rawKey || pBare === bareKey) {
-      if (!durationRaw) return amt;
-      if (durationAliases.includes(pUnit)) return amt;
-      // Compound offering_key already carries duration; unit is only billing grain.
-      if (pOffering.includes('__') && BILLING_GRAINS.has(pUnit)) {
-        const pDur = pOffering.slice(pOffering.lastIndexOf('__') + 2);
-        if (durationAliases.includes(pDur) || pDur === durationRaw || pDur === keyDuration) {
-          return amt;
-        }
-      }
-    }
+  // Non-rental (lessons, packages, add-ons): legacy exact category match.
+  const units = durationRaw ? rentalUnitAliases(durationRaw) : [''];
+  for (const u of units) {
+    const row = list.find((p) => p && p.active !== false
+      && String(p.category || p.item_type || '').toLowerCase() === cat
+      && String(p.offering_key || p.item_code || '') === rawKey
+      && (!u || String(p.unit || p.duration || '') === u));
+    const amt = priceRowAmountCentsLocal(row);
+    if (amt != null) return amt;
   }
   return null;
 }
@@ -369,19 +343,16 @@ function configuredRentalBundleTotalCents(prices, rentalPricing) {
   const quantity = Number(rentalPricing.quantity);
   if (!offeringKey || !duration || !Number.isInteger(quantity) || quantity < 1) return null;
 
-  // Prefer explicit item_code when create already stamped quote identity.
-  const explicitItemCode = String(rentalPricing.item_code || '').trim();
-  let unitCents = null;
-  if (explicitItemCode) {
-    unitCents = findPriceCents(prices, 'rental', explicitItemCode, duration);
-  }
+  // Single source of truth with quote: findAdminPriceRule(offering_key, duration).
+  // Do not trust client quoted_total_cents here — caller still compares it.
+  let unitCents = findPriceCents(prices, 'rental', offeringKey, duration);
   if (unitCents == null) {
-    // Same convention as get_sunset_rental_price / loadTenantPriceRuleFromDb:
-    // item_code = offering_key__duration (unit on the row is billing grain only).
-    unitCents = findPriceCents(prices, 'rental', offeringKey, duration);
+    const explicitItemCode = String(rentalPricing.item_code || '').trim();
+    if (explicitItemCode) {
+      unitCents = findPriceCents(prices, 'rental', explicitItemCode, duration);
+    }
   }
   // Positive paid total required for create pricing of commercial rentals.
-  // Explicit free (0) is not a createable paid bundle total here.
   if (unitCents == null || unitCents <= 0) return null;
   return unitCents * quantity;
 }

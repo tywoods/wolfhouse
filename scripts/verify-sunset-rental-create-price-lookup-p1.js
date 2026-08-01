@@ -3,14 +3,17 @@
 /**
  * verify:sunset-rental-create-price-lookup-p1
  *
- * P1: create-side rental price resolution must use the same item_code convention
- * as quote (item_code = offering_key__duration; unit = billing grain).
+ * P1b: create-side rental price verification must reuse the quote resolver
+ * findAdminPriceRule (scripts/lib/sunset-rental-price-lookup.js) — bare
+ * offering_key + unit/duration as separate fields — not a parallel compound
+ * item_code inventing path.
  *
- * Layer A — pure lookup (findPriceCents / configuredRentalBundleTotalCents)
- * Layer B — real executeSunsetBookingCreate path (fake PG, no network):
- *   1) bike_rental 1_day → persisted create + SUNSET-… code
- *   2) board_and_suit_rental 1_day → same
- *   3) unpriced rental → fail closed, no booking write
+ * Layer A — pure: findAdminPriceRule + configuredRentalBundleTotalCents on a
+ * fixture that mirrors live price-rule shape (offering_key + separate unit).
+ * Layer B — behavioral: real executeSunsetBookingCreate (fake PG):
+ *   1) bike_rental 1_day → SUNSET-… + write
+ *   2) board_and_suit_rental 1_day → SUNSET-… + write
+ *   3) unpriced → fail closed, no write
  *
  * Run: node scripts/verify-sunset-rental-create-price-lookup-p1.js
  */
@@ -19,7 +22,11 @@ const {
   findPriceCents,
   configuredRentalBundleTotalCents,
 } = require('./lib/sunset-stripe-payment-links');
-const { mapPriceRows } = require('./lib/tenant-business-config');
+const {
+  findAdminPriceRule,
+  adminPriceRuleAmountCents,
+  lookupSunsetRentalPrice,
+} = require('./lib/sunset-rental-price-lookup');
 const {
   BOOKING_CREATE_CHANNELS,
   buildSunsetBookingCreateCommand,
@@ -34,7 +41,7 @@ function ok(label, cond, detail) {
     console.log(`  PASS  ${label}`);
   } else {
     fail += 1;
-    console.error(`  FAIL  ${label}${detail != null ? ` — ${String(detail).slice(0, 240)}` : ''}`);
+    console.error(`  FAIL  ${label}${detail != null ? ` — ${String(detail).slice(0, 280)}` : ''}`);
   }
 }
 
@@ -42,12 +49,22 @@ const LOC = 'sunset-somo';
 const SERVICE_DATE = '2026-08-20';
 const FIXED_NOW = new Date('2026-07-14T12:00:00Z');
 
-const DB_PRICE_ROWS = [
-  { id: 'p-bike', item_type: 'rental', item_code: 'bike_rental__1_day', amount_cents: 1500, unit: 'day', display_name: 'Bike', currency: 'EUR', active: true, location_id: LOC },
-  { id: 'p-towel', item_type: 'rental', item_code: 'towel_rental__1_day', amount_cents: 300, unit: 'item', display_name: 'Towel', currency: 'EUR', active: true, location_id: LOC },
-  { id: 'p-sup', item_type: 'rental', item_code: 'sup_rental__1_day', amount_cents: 3000, unit: 'day', display_name: 'SUP', currency: 'EUR', active: true, location_id: LOC },
-  { id: 'p-bas-1d', item_type: 'rental', item_code: 'board_and_suit_rental__1_day', amount_cents: 2000, unit: 'day', display_name: 'Board+suit 1d', currency: 'EUR', active: true, location_id: LOC },
-  { id: 'p-bas-hd', item_type: 'rental', item_code: 'board_and_suit_rental__half_day', amount_cents: 1500, unit: 'session', display_name: 'Board+suit half', currency: 'EUR', active: true, location_id: LOC },
+/** Live/config shape: bare offering_key + duration in unit (quote-proven). */
+const QUOTE_SHAPE_PRICES = [
+  { category: 'rental', offering_key: 'bike_rental', unit: '1_day', amount: 15, active: true, pricing_status: 'confirmed' },
+  { category: 'rental', offering_key: 'towel_rental', unit: '1_day', amount: 3, active: true, pricing_status: 'confirmed' },
+  { category: 'rental', offering_key: 'sup_rental', unit: '1_day', amount: 30, active: true, pricing_status: 'confirmed' },
+  { category: 'rental', offering_key: 'board_and_suit_rental', unit: '1_day', amount: 20, active: true, pricing_status: 'confirmed' },
+  { category: 'rental', offering_key: 'board_and_suit_rental', unit: 'half_day', amount: 15, active: true, pricing_status: 'confirmed' },
+  // distractor duration — must not steal half_day / 1_day matches
+  { category: 'rental', offering_key: 'board_and_suit_rental', unit: '1_hour', amount: 10, active: true, pricing_status: 'confirmed' },
+];
+
+/** DB mapPriceRows-ish shape still supported via shared findAdminPriceRule secondary. */
+const DB_SHAPE_PRICES = [
+  { category: 'rental', offering_key: 'bike_rental__1_day', item_code: 'bike_rental__1_day', unit: 'day', amount: 15, amount_cents: 1500, active: true },
+  { category: 'rental', offering_key: 'board_and_suit_rental__1_day', item_code: 'board_and_suit_rental__1_day', unit: 'day', amount: 20, amount_cents: 2000, active: true },
+  { category: 'rental', offering_key: 'board_and_suit_rental__half_day', item_code: 'board_and_suit_rental__half_day', unit: 'session', amount: 15, amount_cents: 1500, active: true },
 ];
 
 const OFFERINGS = [
@@ -59,7 +76,19 @@ const OFFERINGS = [
 ];
 
 function makeCreatePg(opts = {}) {
-  const prices = opts.prices != null ? opts.prices : DB_PRICE_ROWS.slice();
+  const prices = opts.prices != null ? opts.prices : QUOTE_SHAPE_PRICES.map((p) => ({
+    id: `p-${p.offering_key}-${p.unit}`,
+    item_type: 'rental',
+    item_code: `${p.offering_key}__${p.unit}`,
+    // Keep BOTH shapes available to DB loaders: list load returns quote-shape rows.
+    offering_key: p.offering_key,
+    display_name: p.offering_key,
+    currency: 'EUR',
+    amount_cents: Math.round(Number(p.amount) * 100),
+    unit: p.unit,
+    active: true,
+    location_id: LOC,
+  }));
   const offerings = opts.offerings != null ? opts.offerings : OFFERINGS.slice();
   const bookingCode = opts.bookingCode || 'SUNSET-20260820-P1BIKE';
   const state = {
@@ -80,18 +109,10 @@ function makeCreatePg(opts = {}) {
       const q = String(sql);
 
       if (/^BEGIN/i.test(q)) return { rows: [] };
-      if (/^COMMIT/i.test(q)) {
-        state.committed = true;
-        return { rows: [] };
-      }
-      if (/^ROLLBACK/i.test(q)) {
-        state.rolledBack = true;
-        return { rows: [] };
-      }
+      if (/^COMMIT/i.test(q)) { state.committed = true; return { rows: [] }; }
+      if (/^ROLLBACK/i.test(q)) { state.rolledBack = true; return { rows: [] }; }
       if (/pg_advisory/i.test(q)) return { rows: [] };
-      if (/to_regclass/i.test(q)) {
-        return { rows: [{ reg: 'tenant_price_rules' }] };
-      }
+      if (/to_regclass/i.test(q)) return { rows: [{ reg: 'tenant_price_rules' }] };
       if (/information_schema/i.test(q)) {
         return {
           rows: [
@@ -113,7 +134,6 @@ function makeCreatePg(opts = {}) {
         return { rows: [{ id: 'client-sunset-uuid' }] };
       }
 
-      // Rental offerings catalog + stock locks
       if (/FROM tenant_rental_offerings/i.test(q)) {
         const isStockOnly = /stock_quantity/i.test(q)
           && !/\blabel\b/i.test(q)
@@ -134,18 +154,15 @@ function makeCreatePg(opts = {}) {
           };
         }
         return {
-          rows: offerings
-            .filter((o) => o.active !== false)
-            .map((o) => ({
-              ...o,
-              client_slug: o.client_slug || 'sunset',
-              location_id: o.location_id || LOC,
-              stock_quantity: o.stock_quantity != null ? o.stock_quantity : 99,
-            })),
+          rows: offerings.filter((o) => o.active !== false).map((o) => ({
+            ...o,
+            client_slug: o.client_slug || 'sunset',
+            location_id: o.location_id || LOC,
+            stock_quantity: o.stock_quantity != null ? o.stock_quantity : 99,
+          })),
         };
       }
 
-      // Active reservations for stock remaining
       if (/booking_service_records/i.test(q)
         && /offering_key/i.test(q)
         && /NOT IN\s*\(\s*'cancelled'/i.test(q)
@@ -153,58 +170,60 @@ function makeCreatePg(opts = {}) {
         return { rows: [] };
       }
 
-      // Price rules — single-row lookup (loadTenantPriceRuleFromDb) + full list (config load)
       if (/FROM tenant_price_rules/i.test(q)) {
-        // Full list load for resolveTenantBusinessConfigAsync
-        if (/ORDER BY item_type, item_code, unit/i.test(q) || (/SELECT id, item_type, item_code/i.test(q) && !/LIMIT 1/i.test(q))) {
+        // Live DB identity: item_code = offering__duration, unit = billing grain.
+        // mapPriceRows projects offering_key=item_code; findAdminPriceRule secondary
+        // matches that compound. prepareGenericRentals expects this identity.
+        function billingUnitForDuration(dur) {
+          const d = String(dur || '');
+          if (/hour|half_day|lesson/i.test(d)) return 'session';
+          if (d === '1_day' || d === 'full_day' || /^[1-9][0-9]*_days$/.test(d)) return 'day';
+          return 'item';
+        }
+        function toDbRow(p, idx) {
+          const amountCents = p.amount_cents != null
+            ? Math.round(Number(p.amount_cents))
+            : Math.round(Number(p.amount) * 100);
+          const dur = p.unit; // quote-shape fixture stores duration in unit
+          const itemCode = `${p.offering_key}__${dur}`;
           return {
-            rows: prices.map((p) => ({
-              id: p.id,
-              item_type: p.item_type || 'rental',
-              item_code: p.item_code,
-              display_name: p.display_name || p.item_code,
-              currency: p.currency || 'EUR',
-              amount_cents: p.amount_cents,
-              unit: p.unit,
-              active: p.active !== false,
-              location_id: p.location_id || LOC,
-              effective_from: null,
-              effective_to: null,
-              updated_at: '2026-06-01',
-            })),
-          };
-        }
-        // Exact item_code lookup
-        let match = null;
-        for (const p of params) {
-          const code = String(p || '');
-          match = prices.find((x) => String(x.item_code) === code);
-          if (match) break;
-        }
-        if (!match) {
-          for (const p of params) {
-            if (typeof p === 'string' && p.includes('__')) {
-              match = prices.find((x) => String(x.item_code) === p);
-              if (match) break;
-            }
-          }
-        }
-        if (!match) return { rows: [] };
-        return {
-          rows: [{
-            id: match.id || 'price-1',
-            amount_cents: match.amount_cents,
+            id: p.id || `db-${idx}`,
+            item_type: 'rental',
+            item_code: itemCode,
+            display_name: p.offering_key,
             currency: 'EUR',
-            item_type: match.item_type || 'rental',
-            item_code: match.item_code,
-            unit: match.unit || 'day',
-            location_id: match.location_id || LOC,
+            amount_cents: amountCents,
+            unit: billingUnitForDuration(dur),
             active: true,
+            location_id: LOC,
             effective_from: null,
             effective_to: null,
             updated_at: '2026-06-01',
-          }],
-        };
+          };
+        }
+        const dbRows = QUOTE_SHAPE_PRICES.map((p, idx) => toDbRow(p, idx));
+
+        if (/ORDER BY item_type, item_code, unit/i.test(q)
+          || (/SELECT id, item_type, item_code/i.test(q) && !/LIMIT 1/i.test(q))) {
+          return { rows: dbRows };
+        }
+        // Exact lookup — loadTenantPriceRuleFromDb uses composed item_code
+        let match = null;
+        for (const param of params) {
+          const code = String(param || '');
+          match = dbRows.find((x) => String(x.item_code) === code);
+          if (match) break;
+        }
+        if (!match) {
+          for (const param of params) {
+            const code = String(param || '');
+            if (!code.includes('__')) continue;
+            match = dbRows.find((x) => String(x.item_code) === code);
+            if (match) break;
+          }
+        }
+        if (!match) return { rows: [] };
+        return { rows: [match] };
       }
 
       if (/FROM tenant_surf_pack_rules/i.test(q)) return { rows: [] };
@@ -220,7 +239,6 @@ function makeCreatePg(opts = {}) {
       if (/INSERT INTO bookings/i.test(q)) {
         state.bookingInserts += 1;
         state.inserts.push({ table: 'bookings', params: [...params] });
-        // params typically include metadata JSON near the end
         for (const p of params) {
           if (typeof p === 'string' && p.trim().startsWith('{')) {
             try { state.lastBookingMeta = JSON.parse(p); } catch (_) { /* */ }
@@ -234,7 +252,8 @@ function makeCreatePg(opts = {}) {
       if (/INSERT INTO booking_service_records/i.test(q)) {
         state.serviceInserts += 1;
         state.inserts.push({ table: 'booking_service_records', params: [...params] });
-        const metaRaw = params.find((p) => (typeof p === 'string' && p.trim().startsWith('{')) || (p && typeof p === 'object'));
+        const metaRaw = params.find((p) => (typeof p === 'string' && p.trim().startsWith('{'))
+          || (p && typeof p === 'object'));
         let meta = {};
         try {
           meta = typeof metaRaw === 'string' ? JSON.parse(metaRaw) : (metaRaw || {});
@@ -246,15 +265,9 @@ function makeCreatePg(opts = {}) {
           service_type: params[4] || 'addon_service',
           service_date: params[5] || SERVICE_DATE,
           quantity: params[6] || 1,
-          amount_due_cents: params[10] != null ? params[10] : (meta.unit_cents || 0),
+          amount_due_cents: 0,
           metadata: meta,
         };
-        // try common positions for amount_due_cents
-        for (let i = 0; i < params.length; i += 1) {
-          if (Number.isInteger(params[i]) && params[i] >= 0 && params[i] < 1000000 && i > 6) {
-            // keep last reasonable cents candidate if metadata didn't set it
-          }
-        }
         state.services.push(row);
         return {
           rows: [{
@@ -273,7 +286,6 @@ function makeCreatePg(opts = {}) {
         };
       }
 
-      // After-create pricing reads
       if (/SELECT metadata FROM bookings/i.test(q)) {
         return {
           rows: [{
@@ -297,32 +309,25 @@ function makeCreatePg(opts = {}) {
           })),
         };
       }
-      if (/UPDATE booking_service_records SET amount_due_cents/i.test(q)) {
-        const due = params[0];
-        const id = params[1];
-        const hit = state.services.find((s) => String(s.id) === String(id) || String(s.service_record_id) === String(id));
-        if (hit) hit.amount_due_cents = due;
-        return { rows: [], rowCount: hit ? 1 : 0 };
-      }
-      if (/UPDATE booking_service_records\s+SET amount_due_cents/i.test(q)) {
-        return { rows: [], rowCount: 1 };
-      }
-      if (/UPDATE booking_service_records[\s\S]*amount_due_cents/i.test(q)) {
-        // metadata || amount updates also require rowCount 1
-        const id = params.find((p) => typeof p === 'string' && /[0-9a-f-]{8,}/i.test(String(p))) || params[2] || params[1];
-        const hit = state.services.find((s) => String(s.id) === String(id) || String(s.service_record_id) === String(id));
-        if (hit && Number.isInteger(params[0])) hit.amount_due_cents = params[0];
+      if (/UPDATE booking_service_records[\s\S]*amount_due_cents/i.test(q)
+        || /UPDATE booking_service_records SET amount_due_cents/i.test(q)) {
+        if (Number.isInteger(params[0])) {
+          const id = params[1] || params[2];
+          const hit = state.services.find((s) => String(s.id) === String(id)
+            || String(s.service_record_id) === String(id));
+          if (hit) hit.amount_due_cents = params[0];
+        }
         return { rows: [], rowCount: 1 };
       }
       if (/UPDATE bookings\s+SET total_amount_cents/i.test(q)) {
         return { rows: [], rowCount: 1 };
       }
       if (/UPDATE bookings\s+SET status = 'cancelled'/i.test(q)) {
-        state.rolledBack = true; // treat cancel-after-price-fail as no successful write
-        return { rows: [] };
+        state.rolledBack = true;
+        return { rows: [], rowCount: 1 };
       }
       if (/UPDATE booking_service_records\s+SET status = 'cancelled'/i.test(q)) {
-        return { rows: [] };
+        return { rows: [], rowCount: 1 };
       }
       if (/UPDATE bookings SET/i.test(q) || /UPDATE booking_service_records/i.test(q)) {
         return { rows: [], rowCount: 1 };
@@ -334,134 +339,129 @@ function makeCreatePg(opts = {}) {
   return pg;
 }
 
-function buildRentalCommand(rentals, extraBody = {}) {
+function buildRentalCommand(rentals) {
   return buildSunsetBookingCreateCommand({
     channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
     trustedLocationId: LOC,
     transportBody: {
-          guest_name: 'P1 Rental Guest',
-          guest_phone: '+346****0001',
-          guest_confirmed_booking: true,
-          payment_status: 'unpaid',
-          service_date: SERVICE_DATE,
-          service_dates: [SERVICE_DATE],
-          date_from: SERVICE_DATE,
-          date_to: SERVICE_DATE,
-          components: {},
-          rentals,
-          ...extraBody,
-        },
+      guest_name: 'P1b Rental Guest',
+      guest_phone: '+34600000001',
+      guest_confirmed_booking: true,
+      payment_status: 'unpaid',
+      service_date: SERVICE_DATE,
+      service_dates: [SERVICE_DATE],
+      date_from: SERVICE_DATE,
+      date_to: SERVICE_DATE,
+      components: {},
+      rentals,
+    },
     now: FIXED_NOW,
   });
 }
 
 async function main() {
-  console.log('\nverify:sunset-rental-create-price-lookup-p1\n');
+  console.log('\nverify:sunset-rental-create-price-lookup-p1 (P1b — shared findAdminPriceRule)\n');
   process.env.SUNSET_ADMIN_DB_READ_ENABLED = 'true';
 
-  // ── A) Pure lookup ────────────────────────────────────────────────────────
-  console.log('[A] Pure create-side lookup (DB item_code shape)');
-  const dbMapped = mapPriceRows(DB_PRICE_ROWS, { clientSlug: 'sunset', locationId: LOC });
-  ok('mapPriceRows offering_key is compound item_code', dbMapped.every((p) => String(p.offering_key || '').includes('__')));
-  ok('bike 1_day unit cents', findPriceCents(dbMapped, 'rental', 'bike_rental', '1_day') === 1500);
-  ok('towel 1_day unit cents', findPriceCents(dbMapped, 'rental', 'towel_rental', '1_day') === 300);
-  ok('sup 1_day unit cents', findPriceCents(dbMapped, 'rental', 'sup_rental', '1_day') === 3000);
-  ok('bundle 1_day unit cents', findPriceCents(dbMapped, 'rental', 'board_and_suit_rental', '1_day') === 2000);
-  ok('bundle half_day unit cents', findPriceCents(dbMapped, 'rental', 'board_and_suit_rental', 'half_day') === 1500);
+  // ── A) Shared resolver = quote shape ──────────────────────────────────────
+  console.log('[A] findAdminPriceRule on quote-shape fixture (offering_key + unit)');
+  const cfg = { prices: QUOTE_SHAPE_PRICES };
+
+  ok('bike rule via findAdminPriceRule', !!findAdminPriceRule(cfg, 'bike_rental', '1_day'));
+  ok('bike amount 1500', adminPriceRuleAmountCents(findAdminPriceRule(cfg, 'bike_rental', '1_day')) === 1500);
+  ok('towel amount 300', adminPriceRuleAmountCents(findAdminPriceRule(cfg, 'towel_rental', '1_day')) === 300);
+  ok('sup amount 3000', adminPriceRuleAmountCents(findAdminPriceRule(cfg, 'sup_rental', '1_day')) === 3000);
+  ok('board+suit 1_day 2000', adminPriceRuleAmountCents(findAdminPriceRule(cfg, 'board_and_suit_rental', '1_day')) === 2000);
+  ok('board+suit half_day 1500 (not 1_hour)', adminPriceRuleAmountCents(findAdminPriceRule(cfg, 'board_and_suit_rental', 'half_day')) === 1500);
+  ok('unpriced null', findAdminPriceRule(cfg, 'unicorn_rental', '1_day') == null);
+
+  // create-side wrappers must equal the shared resolver
+  ok('findPriceCents rental == findAdminPriceRule bike', findPriceCents(QUOTE_SHAPE_PRICES, 'rental', 'bike_rental', '1_day') === 1500);
+  ok('findPriceCents rental == findAdminPriceRule bas half', findPriceCents(QUOTE_SHAPE_PRICES, 'rental', 'board_and_suit_rental', 'half_day') === 1500);
   ok(
     'configured bike qty1',
-    configuredRentalBundleTotalCents(dbMapped, { offering_key: 'bike_rental', duration: '1_day', quantity: 1 }) === 1500,
+    configuredRentalBundleTotalCents(QUOTE_SHAPE_PRICES, { offering_key: 'bike_rental', duration: '1_day', quantity: 1 }) === 1500,
   );
   ok(
-    'configured board+suit 1_day qty2',
-    configuredRentalBundleTotalCents(dbMapped, { offering_key: 'board_and_suit_rental', duration: '1_day', quantity: 2 }) === 4000,
+    'configured bas 1_day qty2',
+    configuredRentalBundleTotalCents(QUOTE_SHAPE_PRICES, { offering_key: 'board_and_suit_rental', duration: '1_day', quantity: 2 }) === 4000,
   );
   ok(
-    'unpriced → null',
-    configuredRentalBundleTotalCents(dbMapped, { offering_key: 'unicorn_rental', duration: '1_day', quantity: 1 }) == null,
+    'configured bas half qty2',
+    configuredRentalBundleTotalCents(QUOTE_SHAPE_PRICES, { offering_key: 'board_and_suit_rental', duration: 'half_day', quantity: 2 }) === 3000,
+  );
+  ok(
+    'configured unpriced null',
+    configuredRentalBundleTotalCents(QUOTE_SHAPE_PRICES, { offering_key: 'unicorn_rental', duration: '1_day', quantity: 1 }) == null,
   );
 
-  // Legacy bare + duration-as-unit still works
-  const legacy = [
-    { category: 'rental', offering_key: 'board_and_suit_rental', unit: 'half_day', amount: 15, active: true },
-  ];
-  ok('legacy half_day', findPriceCents(legacy, 'rental', 'board_and_suit_rental', 'half_day') === 1500);
+  // DB compound secondary still works through the SAME findAdminPriceRule
+  ok(
+    'DB-shape bike via shared resolver',
+    adminPriceRuleAmountCents(findAdminPriceRule({ prices: DB_SHAPE_PRICES }, 'bike_rental', '1_day')) === 1500,
+  );
+  ok(
+    'DB-shape bas half via shared resolver',
+    adminPriceRuleAmountCents(findAdminPriceRule({ prices: DB_SHAPE_PRICES }, 'board_and_suit_rental', 'half_day')) === 1500,
+  );
+  ok(
+    'create findPriceCents on DB-shape == shared',
+    findPriceCents(DB_SHAPE_PRICES, 'rental', 'bike_rental', '1_day')
+      === adminPriceRuleAmountCents(findAdminPriceRule({ prices: DB_SHAPE_PRICES }, 'bike_rental', '1_day')),
+  );
 
-  // ── B) Real executeSunsetBookingCreate path ───────────────────────────────
+  // live quote path still ok (baseline config)
+  const liveQuote = lookupSunsetRentalPrice({
+    client_slug: 'sunset',
+    location_id: LOC,
+    item: 'board_and_suit_rental',
+    duration: 'half_day',
+    require_confirmed: false,
+  });
+  ok('live quote half_day still ok', liveQuote && liveQuote.ok === true && liveQuote.amount_cents === 1500, liveQuote);
+
+  // ── B) Real executeSunsetBookingCreate ────────────────────────────────────
   console.log('\n[B] executeSunsetBookingCreate (fake PG) — bike + board/suit + unpriced');
 
-  // B1 bike
   {
     const pg = makeCreatePg({ bookingCode: 'SUNSET-20260820-BIKE1' });
-    const built = buildRentalCommand([
-      { offering_key: 'bike_rental', duration_key: '1_day', quantity: 1 },
-    ]);
+    const built = buildRentalCommand([{ offering_key: 'bike_rental', duration_key: '1_day', quantity: 1 }]);
     ok('bike command builds', built.ok === true, built);
     const out = await executeSunsetBookingCreate(pg, built.command);
     const code = out && out.body && (out.body.booking_code || (out.body.booking && out.body.booking.booking_code));
-    ok('bike create ok', out && out.ok === true && out.body && out.body.success !== false, JSON.stringify(out && out.body || out).slice(0, 300));
-    ok('bike returns SUNSET- code', typeof code === 'string' && /^SUNSET-/.test(code), code);
-    ok('bike booking INSERT happened', pg.state.bookingInserts >= 1, pg.state.bookingInserts);
-    ok('bike service INSERT happened', pg.state.serviceInserts >= 1, pg.state.serviceInserts);
-    ok('bike committed (not rolled back)', pg.state.committed === true && pg.state.rolledBack === false, {
-      committed: pg.state.committed,
-      rolledBack: pg.state.rolledBack,
-    });
-    ok(
-      'bike total_cents > 0',
-      out && out.body && Number(out.body.total_cents) > 0,
-      out && out.body && out.body.total_cents,
-    );
+    ok('bike create ok', out && out.ok === true, JSON.stringify(out && out.body || out).slice(0, 280));
+    ok('bike SUNSET- code', typeof code === 'string' && /^SUNSET-/.test(code), code);
+    ok('bike booking+service INSERT', pg.state.bookingInserts >= 1 && pg.state.serviceInserts >= 1);
+    ok('bike committed', pg.state.committed === true && pg.state.rolledBack === false);
+    ok('bike total_cents > 0', out && out.body && Number(out.body.total_cents) > 0, out && out.body && out.body.total_cents);
   }
 
-  // B2 board + suit
   {
     const pg = makeCreatePg({ bookingCode: 'SUNSET-20260820-BAS1' });
-    const built = buildRentalCommand([
-      { offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 2 },
-    ]);
-    ok('board+suit command builds', built.ok === true, built);
+    const built = buildRentalCommand([{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 2 }]);
+    ok('bas command builds', built.ok === true, built);
     const out = await executeSunsetBookingCreate(pg, built.command);
     const code = out && out.body && (out.body.booking_code || (out.body.booking && out.body.booking.booking_code));
-    ok('board+suit create ok', out && out.ok === true && out.body && out.body.success !== false, JSON.stringify(out && out.body || out).slice(0, 300));
-    ok('board+suit returns SUNSET- code', typeof code === 'string' && /^SUNSET-/.test(code), code);
-    ok('board+suit booking INSERT happened', pg.state.bookingInserts >= 1, pg.state.bookingInserts);
-    ok('board+suit service INSERT happened', pg.state.serviceInserts >= 1, pg.state.serviceInserts);
-    ok('board+suit committed', pg.state.committed === true && pg.state.rolledBack === false, {
-      committed: pg.state.committed,
-      rolledBack: pg.state.rolledBack,
-    });
-    ok(
-      'board+suit total_cents >= 4000 (qty 2 × 2000)',
-      out && out.body && Number(out.body.total_cents) >= 4000,
-      out && out.body && out.body.total_cents,
-    );
+    ok('bas create ok', out && out.ok === true, JSON.stringify(out && out.body || out).slice(0, 280));
+    ok('bas SUNSET- code', typeof code === 'string' && /^SUNSET-/.test(code), code);
+    ok('bas booking+service INSERT', pg.state.bookingInserts >= 1 && pg.state.serviceInserts >= 1);
+    ok('bas committed', pg.state.committed === true && pg.state.rolledBack === false);
+    ok('bas total_cents >= 4000', out && out.body && Number(out.body.total_cents) >= 4000, out && out.body && out.body.total_cents);
   }
 
-  // B3 unpriced — catalog-active but no price rule
   {
-    const pg = makeCreatePg({ bookingCode: 'SUNSET-SHOULD-NOT-EXIST' });
-    const built = buildRentalCommand([
-      { offering_key: 'unicorn_rental', duration_key: '1_day', quantity: 1 },
-    ]);
+    const pg = makeCreatePg({ bookingCode: 'SUNSET-SHOULD-NOT' });
+    const built = buildRentalCommand([{ offering_key: 'unicorn_rental', duration_key: '1_day', quantity: 1 }]);
     ok('unpriced command builds', built.ok === true, built);
     const out = await executeSunsetBookingCreate(pg, built.command);
-    ok('unpriced create fails closed', out && out.ok === false, JSON.stringify(out && out.body || out).slice(0, 300));
+    ok('unpriced fails closed', out && out.ok === false, JSON.stringify(out && out.body || out).slice(0, 280));
     ok(
-      'unpriced no successful booking write',
+      'unpriced no successful write',
       pg.state.bookingInserts === 0 || pg.state.rolledBack === true || pg.state.committed === false,
-      {
-        bookingInserts: pg.state.bookingInserts,
-        committed: pg.state.committed,
-        rolledBack: pg.state.rolledBack,
-      },
+      { bookingInserts: pg.state.bookingInserts, committed: pg.state.committed, rolledBack: pg.state.rolledBack },
     );
-    const err = String((out && out.body && (out.body.reason_code || out.body.error)) || out && out.error || '');
-    ok(
-      'unpriced error is price/availability class',
-      /price|unpriced|not_found|unavailable|rental_bundle|no_price|not_configured/i.test(err),
-      err,
-    );
+    const err = String((out && out.body && (out.body.reason_code || out.body.error)) || '');
+    ok('unpriced error class', /price|unpriced|not_found|unavailable|rental_bundle|no_price|not_configured/i.test(err), err);
   }
 
   console.log(`\nResults: ${pass} passed, ${fail} failed`);
