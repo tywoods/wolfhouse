@@ -1889,6 +1889,87 @@ function renderAdminFinanceShell(){
 // Generation guard: a superseded load (e.g. after a school/location change) must
 // never paint stale numbers over a newer request.
 var financeLoadSeq = 0;
+// Option B navigator state (client-only; server recomputes redesign for this view).
+var financeViewState = { granularity: 'month', anchor: null, start: null, end: null };
+
+function financeViewQuery(){
+  var q = '';
+  var g = financeViewState && financeViewState.granularity ? financeViewState.granularity : 'month';
+  q += '&granularity=' + encodeURIComponent(g);
+  if (g === 'custom'){
+    if (financeViewState.start) q += '&start=' + encodeURIComponent(financeViewState.start);
+    if (financeViewState.end) q += '&end=' + encodeURIComponent(financeViewState.end);
+  } else if (financeViewState.anchor){
+    q += '&anchor=' + encodeURIComponent(financeViewState.anchor);
+  }
+  return q;
+}
+
+function financeShiftAnchor(iso, gran, dir){
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  var parts = iso.split('-').map(Number);
+  var y = parts[0], m = parts[1], d = parts[2];
+  var dt = new Date(Date.UTC(y, m - 1, d));
+  if (gran === 'day') dt.setUTCDate(dt.getUTCDate() + dir);
+  else if (gran === 'year') dt.setUTCFullYear(dt.getUTCFullYear() + dir);
+  else {
+    // month
+    dt.setUTCMonth(dt.getUTCMonth() + dir);
+  }
+  var yy = dt.getUTCFullYear();
+  var mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  var dd = String(dt.getUTCDate()).padStart(2, '0');
+  return yy + '-' + mm + '-' + dd;
+}
+
+function wireFinanceRedesignNav(body){
+  if (!body || body.dataset.financeNavWired === '1') return;
+  body.dataset.financeNavWired = '1';
+  body.addEventListener('click', function(ev){
+    var t = ev.target;
+    if (!t || !t.closest) return;
+    var btn = t.closest('[data-finance-nav], [data-finance-gran]');
+    if (!btn || !body.contains(btn)) return;
+    var gran = btn.getAttribute('data-finance-gran');
+    if (gran){
+      financeViewState.granularity = gran;
+      if (gran !== 'custom'){
+        financeViewState.start = null;
+        financeViewState.end = null;
+      }
+      loadAdminFinanceSummary();
+      return;
+    }
+    var nav = btn.getAttribute('data-finance-nav');
+    if (nav === 'prev' || nav === 'next'){
+      var dir = nav === 'prev' ? -1 : 1;
+      var g = financeViewState.granularity || 'month';
+      if (g === 'custom') return;
+      var anchor = financeViewState.anchor;
+      if (!anchor){
+        // Prefer current label range start from DOM data if present
+        var lab = body.querySelector('[data-finance-range-label]');
+        anchor = new Date().toISOString().slice(0, 10);
+      }
+      financeViewState.anchor = financeShiftAnchor(anchor, g, dir);
+      loadAdminFinanceSummary();
+      return;
+    }
+    if (nav === 'apply-custom'){
+      var sEl = el('pfb-custom-start');
+      var eEl = el('pfb-custom-end');
+      var s = sEl && sEl.value;
+      var e = eEl && eEl.value;
+      if (s && e && s <= e){
+        financeViewState.granularity = 'custom';
+        financeViewState.start = s;
+        financeViewState.end = e;
+        financeViewState.anchor = s;
+        loadAdminFinanceSummary();
+      }
+    }
+  });
+}
 
 function loadAdminFinanceSummary(){
   var body = el('admin-finance-body');
@@ -1898,7 +1979,7 @@ function loadAdminFinanceSummary(){
   var originLocation = originClient === 'sunset' ? getSunsetLocation() : '';
   body.innerHTML = '<div class="portal-admin-finance-loading" role="status">' +
     escHtml(portalT('admin.finance.loading')) + '</div>';
-  var url = '/staff/admin/finance/summary' + adminClientQuery();
+  var url = '/staff/admin/finance/summary' + adminClientQuery() + financeViewQuery();
   var timeoutId = null;
   var timeout = new Promise(function(_, reject){
     timeoutId = setTimeout(function(){ reject(new Error('timeout')); }, 8000);
@@ -1914,7 +1995,13 @@ function loadAdminFinanceSummary(){
         if (!data || data.success !== true || !data.summary){
           return Promise.reject(new Error((data && data.error) ? data.error : 'load failed'));
         }
+        // Sync anchor from server redesign view when present.
+        if (data.summary.redesign && data.summary.redesign.view && data.summary.redesign.view.range){
+          financeViewState.anchor = data.summary.redesign.view.range.start;
+          if (!financeViewState.granularity) financeViewState.granularity = data.summary.redesign.view.granularity || 'month';
+        }
         body.innerHTML = renderFinanceSummaryHtml(data.summary);
+        wireFinanceRedesignNav(body);
       })
       .catch(function(e){
         clearFinanceTimeout();
@@ -1997,6 +2084,10 @@ function renderFinanceErrorHtml(){
 
 /** Pure renderer for a server-computed summary. No money arithmetic here. */
 function renderFinanceSummaryHtml(summary){
+  // Option B redesign when server provides redesign block + renderer is injected.
+  if (summary && summary.redesign && typeof renderFinanceRedesignHtml === 'function'){
+    return renderFinanceRedesignHtml(summary);
+  }
   if (!summary || !summary.periods){
     return '<div class="portal-admin-finance-unavailable"><p>' +
       escHtml(portalT('admin.finance.summaryUnavailable')) + '</p></div>';

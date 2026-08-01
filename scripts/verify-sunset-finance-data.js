@@ -37,6 +37,8 @@ ok('BSR requires dated rows (service_date not null)', /service_date is not null/
 ok('BSR excludes cancelled/canceled/expired/hold bookings', /b\.status(?:::\w+)?\s+not in\s*\([^)]*'cancelled'[^)]*'canceled'[^)]*'expired'[^)]*'hold'/.test(bsr) && !/'blocked'/.test(bsr));
 ok("BSR scopes location via bookings.metadata->>'location_id' = $2", /metadata\s*->>\s*'location_id'\s*=\s*\$2/.test(bsr));
 ok('BSR selects amount_due_cents + metadata (for effective due)', /amount_due_cents/.test(bsr) && /metadata/.test(bsr));
+ok('BSR selects service_type for product buckets', /service_type/.test(bsr));
+ok('BSR selects quantity for capacity', /quantity/.test(bsr));
 
 // ── Bookings totals query (distinct qualifying bookings) ────────────────────
 const bk = norm(BOOKINGS_SQL);
@@ -78,12 +80,14 @@ ok('payments do NOT filter booking status (cancelled cash stays gross)', !/b\.st
   const data = await fetchSunsetFinanceData(fakePg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
   ok('fetch wraps all reads in one repeatable-read read-only transaction', /begin.*repeatable read.*read only/.test(norm(calls[0].sql)) && /commit/.test(norm(calls[calls.length - 1].sql)));
   const scopedCalls = calls.filter((c) => Array.isArray(c.params));
-  ok('fetch issues 3 scoped queries', scopedCalls.length === 3, scopedCalls.length);
+  ok('fetch issues 6 scoped queries (bsr/bookings/payments/pending/stock/packs)', scopedCalls.length === 6, scopedCalls.length);
   ok('every scoped query is parameterized with [sunset, sunset-somo]', scopedCalls.every((c) => c.params[0] === 'sunset' && c.params[1] === 'sunset-somo'));
   ok('fetch returns bsr/payments/bookings arrays', Array.isArray(data.bsr) && Array.isArray(data.payments) && Array.isArray(data.bookings));
+  ok('fetch returns pending_refund_payments + rental_stock + surf_packs', Array.isArray(data.pending_refund_payments) && Array.isArray(data.rental_stock) && Array.isArray(data.surf_packs));
 
   // End-to-end into the pure lib.
   const summary = computeSunsetFinanceSummary({ now: new Date('2026-07-15T10:00:00Z'), timeZone: 'Europe/Madrid', ...data });
+  ok('end-to-end redesign block present', !!(summary.redesign && summary.redesign.net && summary.redesign.revenue_by_product));
   ok('end-to-end: Booked today = 4000', summary.periods.today.booked_cents === 4000, summary.periods.today.booked_cents);
   ok('end-to-end: Collected today = 1500', summary.periods.today.collected_gross_cents === 1500, summary.periods.today.collected_gross_cents);
   ok('end-to-end: Outstanding today = 8500 (10000-1500)', summary.periods.today.outstanding_cents === 8500, summary.periods.today.outstanding_cents);
