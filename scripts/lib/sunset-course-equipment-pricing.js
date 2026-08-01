@@ -7,6 +7,7 @@ const {
   normalizeSelection,
   activeScopedOfferingMap,
   uniqueCourseServiceDates,
+  defaultFreeDuringCourseEquipmentSelection,
 } = require('./sunset-course-equipment-options');
 
 function checkedAdd(a, b, name = 'money total') {
@@ -400,6 +401,7 @@ module.exports = {
   normalizeSelection,
   validateEquipmentSelection,
   normalizeEquipmentOptions,
+  defaultFreeDuringCourseEquipmentSelection,
   resolveEquipmentOptionMoney,
   uniqueCourseServiceDates,
 };

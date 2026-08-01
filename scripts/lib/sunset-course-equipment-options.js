@@ -233,6 +233,46 @@ function uniqueCourseServiceDates(value) {
   return [...new Set(dates)].sort();
 }
 
+
+/**
+ * Free during-course inclusions from course pack equipment_options.
+ * Config-driven: mode during_course with during_course_price_cents === 0 only.
+ * Multi-pack: intersection of free keys (must be authorized on every course).
+ * Returns wire selection [{offering_key, mode, quantity}] or null when none.
+ */
+function defaultFreeDuringCourseEquipmentSelection({ packs, courses, surfers } = {}) {
+  const list = [];
+  for (const p of (Array.isArray(packs) ? packs : [])) {
+    if (p) list.push(p);
+  }
+  for (const c of (Array.isArray(courses) ? courses : [])) {
+    if (!c) continue;
+    if (c.equipment_options) list.push(c);
+    else if (c.pack) list.push(c.pack);
+  }
+  if (!list.length) return null;
+
+  const qtyRaw = parseInt(String(surfers == null ? 1 : surfers), 10);
+  const quantity = Number.isInteger(qtyRaw) && qtyRaw >= 1 ? qtyRaw : 1;
+
+  let freeKeys = null;
+  for (const pack of list) {
+    const opts = normalizeEquipmentOptions(pack && pack.equipment_options);
+    const keys = new Set(
+      opts
+        .filter((o) => o && o.during_course_price_cents === 0)
+        .map((o) => o.offering_key),
+    );
+    freeKeys = freeKeys == null ? keys : new Set([...freeKeys].filter((k) => keys.has(k)));
+  }
+  if (!freeKeys || freeKeys.size === 0) return null;
+  return [...freeKeys].sort().map((offering_key) => ({
+    offering_key,
+    mode: 'during_course',
+    quantity,
+  }));
+}
+
 module.exports = {
   MAX_EQUIPMENT_OPTIONS,
   MODES,
@@ -247,4 +287,5 @@ module.exports = {
   projectEquipmentOptions,
   activeScopedOfferingMap,
   uniqueCourseServiceDates,
+  defaultFreeDuringCourseEquipmentSelection,
 };
