@@ -16319,9 +16319,22 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-equipment-heading-row{display:flex;align-items:center;gap:6px;margin:4px 0 8px;min-width:0}
 .portal-admin-equipment-heading-row h4,.portal-admin-equipment-editor h4{margin:0;font-size:13px;font-weight:700;color:var(--text);line-height:1.2}
 .portal-admin-equipment-add{flex:0 0 auto;width:32px;min-width:32px;height:32px;min-height:32px;margin:0;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:18px;line-height:1;font-weight:700;box-sizing:border-box}
-/* Group/Private course equipment: compact row — identity select priority, prices, icon × */
+/* Group/Private course equipment: identity select + prices + icon × */
 .portal-admin-equipment-option-row{display:block;margin:0 0 8px;min-width:0;max-width:100%}
+/* Default: one compact row when the editor is wide enough (private lesson etc.) */
 .portal-admin-equipment-option-fields{display:grid;grid-template-columns:minmax(180px,2.6fr) minmax(72px,.62fr) minmax(72px,.62fr) auto;gap:6px 8px;align-items:end;min-width:0;max-width:100%}
+/*
+ * Group Course pack cards stay in auto-fill columns while editing (~300–360px each when
+ * three courses coexist). Always use a deliberate two-row equipment layout inside pack
+ * forms so "Surfboard + Wetsuit" fits without spanning the full grid or relying on
+ * viewport media alone (desktop viewport still has a narrow grid card).
+ */
+.portal-admin-pack-form .portal-admin-equipment-option-fields,
+.portal-admin-pack-card .portal-admin-equipment-option-fields{
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:5px 6px
+}
+.portal-admin-pack-form .portal-admin-equipment-offering-field,
+.portal-admin-pack-card .portal-admin-equipment-offering-field{grid-column:1/-1}
 .portal-admin-equipment-option-row label{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:10px;font-weight:700;color:var(--text-2);line-height:1.25}
 .portal-admin-equipment-offering-field{min-width:0}
 .portal-admin-equipment-price-field{min-width:0}
@@ -16459,13 +16472,14 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-price-card-edit select,.portal-admin-price-card-edit input{width:100%;max-width:100%;min-width:0;padding:3px 6px;font-size:12px;height:26px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface);color:var(--text);box-sizing:border-box}
 .portal-admin-price-card-edit-actions{display:flex;gap:4px;flex-wrap:wrap;margin-top:2px}
 .portal-admin-price-card-edit-actions .btn{font-size:10px;padding:3px 8px}
+/* Responsive pack grid: auto-fill columns so 1–2 courses can widen; 3 coexist ~1/3 each. */
 .portal-admin-pack-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:8px}
 .portal-admin-room-checklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px 12px;max-height:180px;overflow:auto;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft)}
 .portal-admin-room-checklist label{display:flex;align-items:center;gap:6px;font-size:13px;margin:0}
 .portal-admin-pack-card{border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0;max-width:100%;box-sizing:border-box}
-/* Group Course edit only: span available pack-grid/admin width so equipment identity fits */
+/* Editing must NOT span full grid — three courses stay side-by-side (fix #339 assumption). */
 .portal-admin-pack-card.is-editing,
-.portal-admin-pack-card:has([data-admin-pack-form]){grid-column:1/-1;width:100%;max-width:100%}
+.portal-admin-pack-card:has([data-admin-pack-form]){min-width:0;max-width:100%;width:auto}
 .portal-admin-pack-title{font-size:14px;font-weight:700;color:var(--text)}
 .portal-admin-pack-sub{font-size:11px;color:var(--text-3)}
 .portal-admin-pill-group{display:flex;flex-direction:column;gap:6px;margin:0 0 8px;min-width:0}
