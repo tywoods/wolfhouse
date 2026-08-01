@@ -56,7 +56,8 @@ check('no wrong weekday example Tuesday 2 August 2026', () => {
 });
 check('instructs catalog tools for rental menu', () => {
   assert.ok(/get_sunset_rental_price/.test(soul));
-  assert.ok(/live catalog|admin config|get_sunset_admin_config_snapshot/i.test(soul));
+  assert.ok(/get_sunset_rental_catalog/.test(soul));
+  assert.ok(!/get_sunset_admin_config_snapshot/.test(soul));
 });
 check('school binding not deployment-assumed Somo-only', () => {
   assert.ok(/verified inbound/i.test(soul));
