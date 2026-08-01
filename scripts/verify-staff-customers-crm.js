@@ -33,12 +33,21 @@ function assert(label, condition, detail) {
 
 console.log('\nverify:staff-customers-crm — shared Customers CRM offline checks\n');
 
+const CUSTOMERS_ROUTES_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-customers-routes.js');
+
 let apiSrc = '';
 if (fs.existsSync(STAFF_API_PATH)) {
   apiSrc = fs.readFileSync(STAFF_API_PATH, 'utf8');
 } else {
   assert('staff-query-api.js exists', false);
 }
+
+// Slice 3: handlers may live in staff-customers-routes.js; combine for body/contract scans.
+let customersRoutesSrc = '';
+if (fs.existsSync(CUSTOMERS_ROUTES_PATH)) {
+  customersRoutesSrc = fs.readFileSync(CUSTOMERS_ROUTES_PATH, 'utf8');
+}
+const handlerSrc = apiSrc + '\n' + customersRoutesSrc;
 
 console.log('[1] Portal profiles — CRM access defaults');
 
@@ -159,11 +168,12 @@ if (fs.existsSync(CUST_Q_PATH)) {
 }
 
 if (apiSrc) {
-  assert('POST /staff/customers route', apiSrc.includes("pathname === '/staff/customers' && method === 'POST'"));
-  assert('handleCustomerCreate handler', apiSrc.includes('async function handleCustomerCreate('));
-  assert('customers.create audit intent', apiSrc.includes("intent: 'api:customers.create'"));
-  assert('create uses assertStaffClientAccess', apiSrc.includes('createOrMergeManualCustomer')
-    && /handleCustomerCreate[\s\S]{0,800}assertStaffClientAccess/.test(apiSrc));
+  assert('POST /staff/customers route',
+    /pathname === (?:'\/staff\/customers'|CUSTOMERS_COLLECTION_PATH) && method === 'POST'/.test(handlerSrc));
+  assert('handleCustomerCreate handler', handlerSrc.includes('async function handleCustomerCreate('));
+  assert('customers.create audit intent', handlerSrc.includes("intent: 'api:customers.create'"));
+  assert('create uses assertStaffClientAccess', handlerSrc.includes('createOrMergeManualCustomer')
+    && /handleCustomerCreate[\s\S]{0,800}assertStaffClientAccess/.test(handlerSrc));
   assert('Add customer button in UI', apiSrc.includes('id="cust-add-btn"'));
   assert('Add customer form fields', apiSrc.includes('id="cust-add-name"') && apiSrc.includes('id="cust-add-phone"'));
   assert('submitCustomerAdd POST fetch', apiSrc.includes("method: 'POST'")
@@ -233,8 +243,8 @@ if (apiSrc) {
   assert('do_not_contact status filter in dropdown defs', apiSrc.includes("id: 'do_not_contact'"));
   assert('filters dropdown trigger', apiSrc.includes('id="cust-filters-btn"') && apiSrc.includes('data-cust-status-filter'));
   assert('PATCH /staff/customers/:phone/tags route', apiSrc.includes('CUSTOMER_TAGS_RE')
-    && apiSrc.includes('handleCustomerTagsUpdate'));
-  assert('customers.tags audit intent', apiSrc.includes("intent: 'api:customers.tags'"));
+    && handlerSrc.includes('handleCustomerTagsUpdate'));
+  assert('customers.tags audit intent', handlerSrc.includes("intent: 'api:customers.tags'"));
   assert('tag checkboxes in detail', apiSrc.includes('data-crm-tag') && apiSrc.includes('cust-tags-save'));
   assert('applyCustomersFilterVisibility for surf', apiSrc.includes('function applyCustomersFilterVisibility('));
   assert('no bulk send in customers tab', !/tab-customers[\s\S]{0,8000}bulk[\s_-]?send/i.test(apiSrc));
@@ -255,11 +265,11 @@ if (apiSrc) {
   assert('open/start conversation action', apiSrc.includes('id="cust-conversation-btn"')
     && apiSrc.includes('customerOpenOrStartConversation'));
   assert('customer create-conversation route', apiSrc.includes('CUSTOMER_CREATE_CONVERSATION_RE')
-    && apiSrc.includes('handleCustomerCreateConversation'));
+    && handlerSrc.includes('handleCustomerCreateConversation'));
   assert('outreach confirm hides composer first', /openCustomersOutreachConfirmModal[\s\S]{0,400}closeCustomersOutreachDrawer/.test(apiSrc));
   assert('outreach confirm modal above drawer z-index', apiSrc.includes('#cust-outreach-confirm-modal{z-index:9300}'));
-  assert('wolfhouse customer profile PATCH uses updateCustomerProfile', apiSrc.includes('updateCustomerProfile(pg, clientSlug, phone, body)'));
-  assert('handleCustomerUpdate not sunset-only gate', !/async function handleCustomerUpdate[\s\S]{0,400}return sendJSON\(res, 403[\s\S]{0,40}sunset only/.test(apiSrc));
+  assert('wolfhouse customer profile PATCH uses updateCustomerProfile', handlerSrc.includes('updateCustomerProfile(pg, clientSlug, phone, body)'));
+  assert('handleCustomerUpdate not sunset-only gate', !/async function handleCustomerUpdate[\s\S]{0,400}return sendJSON\(res, 403[\s\S]{0,40}sunset only/.test(handlerSrc));
   assert('CRM tag keys injected into portal bundle', apiSrc.includes('var CUSTOMER_CRM_TAG_KEYS = ${JSON.stringify(CRM_TAG_KEYS)}'));
   assert('portal bundle does not reference bare CRM_TAG_KEYS', !/var CUSTOMER_CRM_TAG_KEYS = CRM_TAG_KEYS;/.test(apiSrc));
 }
@@ -281,7 +291,7 @@ if (apiSrc) {
   assert('customerSaveProfile does not render PATCH body', !/function customerSaveProfile[\s\S]*renderCustomerDetail\(res\.body/.test(apiSrc));
   assert('loadCustomerDetail returns fetch promise', /function loadCustomerDetail\(phone\)[\s\S]*return fetch\(url\)/.test(apiSrc));
   assert('profile save refreshes customer list', /function customerSaveProfile[\s\S]*loadCustomersList\(\)/.test(apiSrc));
-  assert('context handler normalizes phone', /handleCustomerContext[\s\S]{0,400}normalizeCustomerPhone\(decodeURIComponent/.test(apiSrc));
+  assert('context handler normalizes phone', /handleCustomerContext[\s\S]{0,400}normalizeCustomerPhone\(decodeURIComponent/.test(handlerSrc));
 }
 assert('phone digit match helper', customerPhoneDigits('+15105888224') === customerPhoneDigits('15105888224'));
 assert('normalizeCustomerPhone adds plus', normalizeCustomerPhone('15105888224') === '+15105888224');
@@ -292,7 +302,7 @@ assert('profile update persists notes field', customerQueriesSrc.includes('notes
 assert('profile update keeper uses contiguous SQL params', /UPDATE customers SET[\s\S]*full_name = \$1[\s\S]*WHERE id = \$6::uuid/.test(customerQueriesSrc));
 assert('profile update conv match uses bare phone column', customerQueriesSrc.includes("const convPhoneMatch = sqlCustomerPhoneMatch('phone', '$2')"));
 assert('parseCustomerProfileUpdateBody keeps notes', parseCustomerProfileUpdateBody({ display_name: 'Ty', phone: '+1', notes: 'Awesome dude!' }).value.notes === 'Awesome dude!');
-assert('normalized list phone', apiSrc.includes('normalizeCustomerPhone(row.phone)'));
+assert('normalized list phone', handlerSrc.includes('normalizeCustomerPhone(row.phone)'));
 assert('context notes from customers.notes coalesce', getCustomerContextQuery().includes('COALESCE(cust.notes, conv.internal_staff_notes)'));
 
 console.log('\n[7] Outreach drawer shell — selection UI, no sends');
@@ -338,12 +348,14 @@ if (fs.existsSync(TEMPLATES_LIB)) {
 }
 
 if (apiSrc) {
-  assert('GET message-templates route', apiSrc.includes("pathname === '/staff/customers/message-templates' && method === 'GET'"));
-  assert('POST message-templates route', apiSrc.includes("pathname === '/staff/customers/message-templates' && method === 'POST'"));
-  assert('PATCH message-templates route', apiSrc.includes('CUSTOMER_MESSAGE_TEMPLATE_RE') && apiSrc.includes('handleCustomerMessageTemplateUpdate'));
-  assert('DELETE message-templates route', apiSrc.includes('handleCustomerMessageTemplateDelete'));
-  assert('templates list audit intent', apiSrc.includes("intent: 'api:customers.message_templates.list'"));
-  assert('templates use assertStaffClientAccess', /handleCustomerMessageTemplatesList[\s\S]{0,400}assertStaffClientAccess/.test(apiSrc));
+  assert('GET message-templates route',
+    /pathname === (?:'\/staff\/customers\/message-templates'|CUSTOMERS_MESSAGE_TEMPLATES_PATH) && method === 'GET'/.test(handlerSrc));
+  assert('POST message-templates route',
+    /pathname === (?:'\/staff\/customers\/message-templates'|CUSTOMERS_MESSAGE_TEMPLATES_PATH) && method === 'POST'/.test(handlerSrc));
+  assert('PATCH message-templates route', handlerSrc.includes('CUSTOMER_MESSAGE_TEMPLATE_RE') && handlerSrc.includes('handleCustomerMessageTemplateUpdate'));
+  assert('DELETE message-templates route', handlerSrc.includes('handleCustomerMessageTemplateDelete'));
+  assert('templates list audit intent', handlerSrc.includes("intent: 'api:customers.message_templates.list'"));
+  assert('templates use assertStaffClientAccess', /handleCustomerMessageTemplatesList[\s\S]{0,400}assertStaffClientAccess/.test(handlerSrc));
   assert('drawer delete template UI', apiSrc.includes('cust-template-delete'));
   assert('no template send endpoint', !apiSrc.includes('message-templates/send') && !apiSrc.includes('handleCustomerMessageTemplateSend'));
 }
@@ -368,12 +380,15 @@ if (fs.existsSync(GENERATE_LIB)) {
 }
 
 if (apiSrc) {
-  assert('generate route POST', apiSrc.includes("pathname === '/staff/customers/message-templates/generate' && method === 'POST'"));
-  assert('generate handler', apiSrc.includes('handleCustomerMessageTemplateGenerate'));
-  assert('generate operator auth', /message-templates\/generate[\s\S]{0,200}requireAuth\(req, res, 'operator'\)/.test(apiSrc));
-  assert('generate uses assertStaffClientAccess', /handleCustomerMessageTemplateGenerate[\s\S]{0,400}assertStaffClientAccess/.test(apiSrc));
-  assert('generate audit intent', apiSrc.includes("intent: 'api:customers.message_templates.generate'"));
-  assert('generate response sends_whatsapp false', /handleCustomerMessageTemplateGenerate[\s\S]{0,1200}sends_whatsapp:\s*false/.test(apiSrc));
+  assert('generate route POST',
+    /pathname === (?:'\/staff\/customers\/message-templates\/generate'|CUSTOMERS_MESSAGE_TEMPLATES_GENERATE_PATH) && method === 'POST'/.test(handlerSrc));
+  assert('generate handler', handlerSrc.includes('handleCustomerMessageTemplateGenerate'));
+  assert('generate operator auth',
+    /CUSTOMERS_MESSAGE_TEMPLATES_GENERATE_PATH[\s\S]{0,200}requireAuth\(\s*req\s*,\s*res\s*,\s*'operator'\s*\)/.test(apiSrc)
+    || /message-templates\/generate[\s\S]{0,200}requireAuth\(\s*req\s*,\s*res\s*,\s*'operator'\s*\)/.test(apiSrc));
+  assert('generate uses assertStaffClientAccess', /handleCustomerMessageTemplateGenerate[\s\S]{0,400}assertStaffClientAccess/.test(handlerSrc));
+  assert('generate audit intent', handlerSrc.includes("intent: 'api:customers.message_templates.generate'"));
+  assert('generate response sends_whatsapp false', /handleCustomerMessageTemplateGenerate[\s\S]{0,1200}sends_whatsapp:\s*false/.test(handlerSrc));
   assert('mode toggle UI', apiSrc.includes('cust-outreach-mode-message') && apiSrc.includes('cust-outreach-mode-notes'));
   assert('notes textarea + generate button', apiSrc.includes('cust-outreach-notes') && apiSrc.includes('cust-outreach-generate'));
   assert('generate fetch client', apiSrc.includes('customersOutreachGenerateUrl') && apiSrc.includes('message-templates/generate'));
@@ -381,7 +396,7 @@ if (apiSrc) {
   assert('generated body fills message textarea', apiSrc.includes('applyCustomerMessageTemplateBody(res.data.body)'));
   assert('generate does not call outreach send', !/generateCustomerOutreachDraftFromNotes[\s\S]{0,800}customers\/outreach\/send/.test(apiSrc));
   assert('no template send endpoint', !apiSrc.includes('message-templates/send') && !apiSrc.includes('handleCustomerMessageTemplateSend'));
-  assert('generate still no whatsapp send', /handleCustomerMessageTemplateGenerate[\s\S]{0,1200}sends_whatsapp:\s*false/.test(apiSrc));
+  assert('generate still no whatsapp send', /handleCustomerMessageTemplateGenerate[\s\S]{0,1200}sends_whatsapp:\s*false/.test(handlerSrc));
 }
 
 if (fs.existsSync(I18N_PATH)) {
@@ -418,10 +433,13 @@ if (fs.existsSync(SEND_LIB)) {
 }
 
 if (apiSrc) {
-  assert('outreach send route POST', apiSrc.includes("pathname === '/staff/customers/outreach/send' && method === 'POST'"));
-  assert('outreach send handler', apiSrc.includes('handleCustomerOutreachSend'));
-  assert('send operator auth', /customers\/outreach\/send[\s\S]{0,200}requireAuth\(req, res, 'operator'\)/.test(apiSrc));
-  assert('send uses assertStaffClientAccess', /handleCustomerOutreachSend[\s\S]{0,900}assertStaffClientAccess/.test(apiSrc));
+  assert('outreach send route POST',
+    /pathname === (?:'\/staff\/customers\/outreach\/send'|CUSTOMERS_OUTREACH_SEND_PATH) && method === 'POST'/.test(handlerSrc));
+  assert('outreach send handler', handlerSrc.includes('handleCustomerOutreachSend'));
+  assert('send operator auth',
+    /CUSTOMERS_OUTREACH_SEND_PATH[\s\S]{0,200}requireAuth\(\s*req\s*,\s*res\s*,\s*'operator'\s*\)/.test(apiSrc)
+    || /customers\/outreach\/send[\s\S]{0,200}requireAuth\(\s*req\s*,\s*res\s*,\s*'operator'\s*\)/.test(apiSrc));
+  assert('send uses assertStaffClientAccess', /handleCustomerOutreachSend[\s\S]{0,900}assertStaffClientAccess/.test(handlerSrc));
   assert('send requires confirmed in body fetch', apiSrc.includes('confirmed: true'));
   assert('confirmation modal UI', apiSrc.includes('cust-outreach-confirm-modal') && apiSrc.includes('cust-outreach-confirm-send'));
   assert('confirm skipped join escaped for embedded script', apiSrc.includes("lines.join('\\\\n')"));
@@ -429,11 +447,11 @@ if (apiSrc) {
   assert('results panel UI', apiSrc.includes('renderCustomersOutreachResults'));
   assert('send button gated by message length', apiSrc.includes('updateCustomersOutreachSendButton'));
   assert('send only selected phones', apiSrc.includes('plan.recipients.map(function(r) { return r.phone; })'));
-  assert('staff actions gate on send', /handleCustomerOutreachSend[\s\S]{0,300}STAFF_ACTIONS_ENABLED/.test(apiSrc));
+  assert('staff actions gate on send', /handleCustomerOutreachSend[\s\S]{0,300}STAFF_ACTIONS_ENABLED/.test(handlerSrc));
   assert('customer outreach env gate', apiSrc.includes('CUSTOMER_OUTREACH_WHATSAPP_ENABLED'));
-  assert('customer outreach disabled error', apiSrc.includes("error: 'customer_outreach_disabled'"));
-  assert('outreach gate not whatsapp dry run', !/handleCustomerOutreachSend[\s\S]{0,500}WHATSAPP_DRY_RUN/.test(apiSrc));
-  assert('per-recipient audit', apiSrc.includes("intent: 'api:customers.outreach.send.recipient'"));
+  assert('customer outreach disabled error', handlerSrc.includes("error: 'customer_outreach_disabled'"));
+  assert('outreach gate not whatsapp dry run', !/handleCustomerOutreachSend[\s\S]{0,500}WHATSAPP_DRY_RUN/.test(handlerSrc));
+  assert('per-recipient audit', handlerSrc.includes("intent: 'api:customers.outreach.send.recipient'"));
   assert('no email outreach route', !apiSrc.includes('/staff/customers/outreach/email'));
 }
 
@@ -569,15 +587,15 @@ const attnRow = buildCustomerDisplayTags({
 assert('handoff row auto needs_attention', attnRow.auto_tags.needs_attention === true);
 
 if (apiSrc) {
-  const mapRowMatch = apiSrc.match(/function mapCustomerListRow[\s\S]*?\n\}/);
-  const mapRowSrc = mapRowMatch ? mapRowMatch[0] : '';
+  const mapIdx = handlerSrc.indexOf('function mapCustomerListRow');
+  const mapRowSrc = mapIdx >= 0 ? handlerSrc.slice(mapIdx, mapIdx + 1800) : '';
   assert('mapCustomerListRow returns display_tags', mapRowSrc.includes('display_tags:'));
   assert('mapCustomerListRow does not build badges array', !mapRowSrc.includes('badges.push') && !mapRowSrc.includes('badges,'));
   assert('list cards render display_tags', apiSrc.includes('customerDisplayTags(c)'));
   assert('detail tags section uses display_tags', apiSrc.includes('customerTagChipHtml(tagKey'));
   assert('tag filters use display_tags', apiSrc.includes('customerHasDisplayTag(c'));
   assert('no legacy customerBadgeHtml', !apiSrc.includes('function customerBadgeHtml('));
-  assert('context identity includes auto_tags', /handleCustomerContext[\s\S]{0,3200}auto_tags:/.test(apiSrc));
+  assert('context identity includes auto_tags', /handleCustomerContext[\s\S]{0,3200}auto_tags:/.test(handlerSrc));
   assert('client refreshCustomerDisplayTags after save', apiSrc.includes('function refreshCustomerDisplayTags('));
   // Unified tag editor: auto/system tags render as non-editable chips alongside CRM toggles.
   assert('edit form shows unified system+crm tags',
@@ -619,8 +637,8 @@ assert('updateCustomerCrmTags updates all digit-matching rows',
   /async function updateCustomerCrmTags[\s\S]*rows_updated/.test(custQueriesSrc));
 
 if (apiSrc) {
-  assert('tags PATCH normalizes phone', /function handleCustomerTagsUpdate[\s\S]{0,400}normalizeCustomerPhone\(decodeURIComponent/.test(apiSrc));
-  assert('context loads merged crm tags', apiSrc.includes('loadCustomerCrmTagsMerged(pg, clientSlug, phone)'));
+  assert('tags PATCH normalizes phone', /function handleCustomerTagsUpdate[\s\S]{0,400}normalizeCustomerPhone\(decodeURIComponent/.test(handlerSrc));
+  assert('context loads merged crm tags', handlerSrc.includes('loadCustomerCrmTagsMerged(pg, clientSlug, phone)'));
   assert('tag save reloads customer detail context', /function customerSaveTags[\s\S]{0,1800}loadCustomerDetail\(reloadPhone\)/.test(apiSrc));
   assert('list cards hide auto suffix', apiSrc.includes('compact: true'));
   assert('detail chips may show auto styling', apiSrc.includes('customerTagIsAuto(tagKey, identity)'));

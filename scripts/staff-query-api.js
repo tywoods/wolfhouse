@@ -288,45 +288,26 @@ const {
   getConversationStaffStateQuery,
 } = require('./lib/staff-conversation-queries');
 const {
-  buildCustomerListParams,
-  getCustomerContextQuery,
-  getCustomerBookingsQuery,
-  getCustomerServiceRecordsQuery,
-  getCustomerHandoffsQuery,
-  getCustomerMessagesQuery,
-  buildLastSetupSummary,
-  normalizeCustomerFilter,
-  parseManualCustomerCreateBody,
-  createOrMergeManualCustomer,
   CRM_TAG_KEYS,
   CUSTOMER_AUTO_TAG_KEYS,
   CUSTOMER_DISPLAY_TAG_ORDER,
-  parseCrmTagsFromDb,
-  buildCustomerDisplayTags,
-  loadCustomerCrmTagsMerged,
-  mergeCrmTagsFromDbRows,
-  parseCustomerTagsUpdateBody,
-  updateCustomerCrmTags,
-  parseCustomerProfileUpdateBody,
-  updateCustomerProfile,
-  createCustomerConversation,
-  normalizeCustomerPhone,
 } = require('./lib/staff-customer-queries');
-const { parseCustomerDeleteBody, deleteCustomerProfiles } = require('./lib/staff-customer-profile-delete');
 const {
-  listCustomerMessageTemplates,
-  createCustomerMessageTemplate,
-  updateCustomerMessageTemplate,
-  deactivateCustomerMessageTemplate,
-  isMissingTemplatesTable,
-} = require('./lib/staff-customer-message-templates');
-const {
-  generateCustomerOutreachDraft,
-} = require('./lib/staff-customer-outreach-draft-generate');
-const {
-  executeCustomerOutreachSend,
   MESSAGE_MIN: OUTREACH_MESSAGE_MIN,
 } = require('./lib/staff-customer-outreach-send');
+const {
+  createCustomersRoutes,
+  CUSTOMERS_COLLECTION_PATH,
+  CUSTOMERS_BULK_DELETE_PATH,
+  CUSTOMERS_MESSAGE_TEMPLATES_PATH,
+  CUSTOMERS_MESSAGE_TEMPLATES_GENERATE_PATH,
+  CUSTOMERS_OUTREACH_SEND_PATH,
+  CUSTOMER_CONTEXT_RE,
+  CUSTOMER_TAGS_RE,
+  CUSTOMER_CREATE_CONVERSATION_RE,
+  CUSTOMER_MESSAGE_TEMPLATE_RE,
+  CUSTOMER_PHONE_RE,
+} = require('./lib/staff-customers-routes');
 const {
   clearConversationMessages,
   resetLunaConversationContext,
@@ -483,9 +464,6 @@ const {
   resolveTenantInboxChannelConfig,
   attachConversationChannelMetadata,
 } = require('./lib/sunset-inbox-channel-config');
-const {
-  updateSunsetCustomerProfile,
-} = require('./lib/sunset-customer-profile-writes');
 const {
   getOpenHandoffsQuery,
   getNeedsHumanWithoutOpenHandoffQuery,
@@ -1086,11 +1064,6 @@ const BOOKING_SERVICE_RECORDS_PAYMENT_LINK_RE = new RegExp(
   `^/staff/bookings/(${UUID_RE})/service-records/create-payment-link$`, 'i',
 );
 const CONV_ID_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})$`, 'i');
-const CUSTOMER_CONTEXT_RE = /^\/staff\/customers\/([^/]+)\/context$/i;
-const CUSTOMER_TAGS_RE = /^\/staff\/customers\/([^/]+)\/tags$/i;
-const CUSTOMER_CREATE_CONVERSATION_RE = /^\/staff\/customers\/([^/]+)\/create-conversation$/i;
-const CUSTOMER_MESSAGE_TEMPLATE_RE = /^\/staff\/customers\/message-templates\/([0-9a-f-]{36})$/i;
-const CUSTOMER_PHONE_RE = /^\/staff\/customers\/([^/]+)$/i;
 const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|context|draft|staff-state)$`, 'i');
 const CONV_NEEDS_HUMAN_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/needs-human$`, 'i');
 const CONV_CLEAR_RE       = new RegExp(`^/staff/conversations/(${UUID_RE})/clear-messages$`, 'i');
@@ -2464,6 +2437,37 @@ const {
   handleStaffWhatsappNumbersGet,
   handleStaffWhatsappNumbersPost,
 } = whatsappNumbersRoutes;
+
+// Staff Customers CRM routes (extracted module). Auth stays in the router with
+// per-route minRole (viewer vs operator) — do not homogenize.
+const customersRoutes = createCustomersRoutes({
+  sendJSON,
+  send400,
+  readBody,
+  assertStaffClientAccess,
+  appendAuditLog,
+  withPgClient,
+  DEFAULT_CLIENT,
+  SQL_INJECT_RE,
+  STAFF_ACTIONS_ENABLED,
+  CUSTOMER_OUTREACH_WHATSAPP_ENABLED,
+});
+const {
+  handleCustomerList,
+  handleCustomerContext,
+  handleCustomerCreate,
+  handleCustomerBulkDelete,
+  handleCustomerTagsUpdate,
+  handleCustomerMessageTemplatesList,
+  handleCustomerMessageTemplateCreate,
+  handleCustomerMessageTemplateUpdate,
+  handleCustomerMessageTemplateDelete,
+  handleCustomerMessageTemplateGenerate,
+  handleCustomerOutreachSend,
+  handleCustomerUpdate,
+  handleCustomerCreateConversation,
+} = customersRoutes;
+
 
 
 // Stage 8.4.11 — Raw Buffer variant required for Stripe webhook signature verification.
@@ -40335,41 +40339,6 @@ function handleLoginPage(res, req) {
 //   • last_seen_at slide on auth_sessions is the only DB write (via loadAuthSession)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function mapCustomerListRow(row) {
-  const serviceType = row.last_service_type || '';
-  const tagBundle = buildCustomerDisplayTags(row);
-  let lastServiceSummary = null;
-  if (serviceType) {
-    const qty = row.last_service_quantity != null ? row.last_service_quantity : 1;
-    const label = serviceType.replace(/_/g, ' ');
-    lastServiceSummary = qty + ' ' + label;
-  }
-  return {
-    phone: normalizeCustomerPhone(row.phone) || row.phone,
-    conversation_id: row.conversation_id || null,
-    display_name: row.display_name || null,
-    email: row.email || null,
-    language: row.language || null,
-    last_contact_at: row.last_contact_at || null,
-    needs_human: !!row.needs_human,
-    conversation_stage: row.conversation_stage || null,
-    booking_count: row.booking_count || 0,
-    service_count: row.service_count || 0,
-    last_service_summary: lastServiceSummary,
-    last_check_in: row.last_check_in || null,
-    last_service_date: row.last_service_date || row.last_service_date_detail || null,
-    has_open_handoff: !!row.has_open_handoff,
-    is_booked: !!row.is_booked,
-    checked_in_now: !!row.checked_in_now,
-    crm_tags: tagBundle.crm_tags,
-    auto_tags: tagBundle.auto_tags,
-    display_tags: tagBundle.display_tags,
-    last_message_preview: row.last_message_preview || null,
-  };
-}
-
-
-
 function decodeAdminPathId(segment) {
   try { return decodeURIComponent(String(segment || '')); } catch (_) { return String(segment || ''); }
 }
@@ -43088,604 +43057,7 @@ async function handleBotSunsetWaiverLink(req, res) {
   }
 }
 
-async function handleCustomerList(query, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-
-  const built = buildCustomerListParams(clientSlug, query);
-  const auditBase = {
-    ts: new Date().toISOString(),
-    intent: 'api:customers.list',
-    category: 'customer_api',
-    client_slug: clientSlug,
-    filter: built.filter,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  let rows;
-  try {
-    rows = await withPgClient(async (pg) => {
-      const r = await pg.query(built.sql, built.params);
-      return r.rows;
-    });
-  } catch (err) {
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'query failed' });
-  }
-
-  const customers = rows.map(mapCustomerListRow);
-  const elapsed = Date.now() - started;
-  appendAuditLog({ ...auditBase, success: true, row_count: customers.length, elapsed_ms: elapsed });
-  return sendJSON(res, 200, {
-    success: true,
-    customers,
-    count: customers.length,
-    filter: built.filter,
-    limit: built.limit,
-    offset: built.offset,
-    elapsed_ms: elapsed,
-  });
-}
-
-async function handleCustomerContext(phoneRaw, query, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-  let phone;
-  try {
-    phone = normalizeCustomerPhone(decodeURIComponent(String(phoneRaw || '').trim()));
-  } catch (_) {
-    return send400(res, 'invalid phone encoding');
-  }
-  if (!phone || SQL_INJECT_RE.test(clientSlug)) {
-    return send400(res, 'invalid client or phone');
-  }
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-
-  const auditBase = {
-    ts: new Date().toISOString(),
-    intent: 'api:customers.context',
-    category: 'customer_api',
-    client_slug: clientSlug,
-    phone,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  try {
-    const data = await withPgClient(async (pg) => {
-      const identity = (await pg.query(getCustomerContextQuery(), [clientSlug, phone])).rows[0] || null;
-      const mergedCrmTags = await loadCustomerCrmTagsMerged(pg, clientSlug, phone);
-      const bookings = (await pg.query(getCustomerBookingsQuery(), [clientSlug, phone])).rows;
-      const service_records = (await pg.query(getCustomerServiceRecordsQuery(), [clientSlug, phone])).rows;
-      const handoffs = (await pg.query(getCustomerHandoffsQuery(), [clientSlug, phone])).rows;
-      const messages = (await pg.query(getCustomerMessagesQuery(), [clientSlug, phone])).rows;
-      return { identity, mergedCrmTags, bookings, service_records, handoffs, messages };
-    });
-
-    const lastSetup = buildLastSetupSummary(data.service_records);
-    const openHandoffs = (data.handoffs || []).filter((h) => {
-      const st = String(h.handoff_status || '').toLowerCase();
-      return st === 'open' || st === 'assigned' || st === 'waiting_guest';
-    });
-    const identityBase = data.identity ? {
-      ...data.identity,
-      crm_tags: data.mergedCrmTags,
-    } : {
-      phone,
-      display_name: null,
-      email: null,
-      crm_tags: data.mergedCrmTags,
-    };
-    const tagBundle = buildCustomerDisplayTags({
-      identity: identityBase,
-      bookings: data.bookings,
-      service_records: data.service_records,
-      open_handoffs: openHandoffs,
-    });
-    const identity = {
-      ...identityBase,
-      crm_tags: tagBundle.crm_tags,
-      auto_tags: tagBundle.auto_tags,
-      display_tags: tagBundle.display_tags,
-    };
-
-    // Waiver form links for the booking creator's bookings (Sunset only).
-    // Best-effort: a missing waiver table or query error never breaks the card.
-    let waivers = [];
-    if (clientSlug === SUNSET_CLIENT_SLUG && data.bookings && data.bookings.length) {
-      try {
-        const bkIds = data.bookings.map((b) => b.booking_id).filter(Boolean);
-        if (bkIds.length) {
-          const wrows = (await withPgClient((pg) => pg.query(
-            `SELECT wr.booking_id::text AS booking_id, wr.public_id,
-                    wr.status::text AS status, wr.participant_key, wr.created_at
-               FROM waiver_form_requests wr
-              WHERE wr.booking_id = ANY($1::uuid[])
-              ORDER BY wr.created_at ASC`,
-            [bkIds],
-          ))).rows;
-          const codeById = {};
-          data.bookings.forEach((b) => { if (b.booking_id) codeById[b.booking_id] = b.booking_code; });
-          waivers = wrows.map((w) => ({ ...w, booking_code: codeById[w.booking_id] || null }));
-        }
-      } catch (_) { waivers = []; }
-    }
-
-    const elapsed = Date.now() - started;
-    appendAuditLog({ ...auditBase, success: true, elapsed_ms: elapsed });
-    return sendJSON(res, 200, {
-      success: true,
-      phone,
-      identity,
-      waivers,
-      conversation_summary: data.identity ? {
-        conversation_id: data.identity.conversation_id,
-        last_message_preview: data.identity.last_message_preview,
-        needs_human: data.identity.needs_human,
-        conversation_stage: data.identity.conversation_stage,
-        last_contact_at: data.identity.last_contact_at,
-      } : null,
-      bookings: data.bookings || [],
-      service_records: data.service_records || [],
-      handoffs: data.handoffs || [],
-      open_handoffs: openHandoffs,
-      messages: data.messages || [],
-      notes: {
-        human_notes: data.identity && data.identity.human_notes ? data.identity.human_notes : null,
-        internal_staff_notes: data.identity && data.identity.internal_staff_notes ? data.identity.internal_staff_notes : null,
-      },
-      last_setup_summary: lastSetup,
-      elapsed_ms: elapsed,
-    });
-  } catch (err) {
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'query failed' });
-  }
-}
-
-
-async function handleCustomerCreate(query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-
-  let body = {};
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
-
-  const locationId = (clientSlug === SUNSET_CLIENT_SLUG && query.location)
-    ? normalizeSunsetLocationId(query.location)
-    : null;
-
-  const auditBase = {
-    ts: new Date().toISOString(),
-    intent: 'api:customers.create',
-    category: 'customer_api',
-    client_slug: clientSlug,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  try {
-    const result = await withPgClient((pg) => createOrMergeManualCustomer(pg, clientSlug, body, {
-      location_id: locationId,
-    }));
-    const elapsed = Date.now() - started;
-    appendAuditLog({
-      ...auditBase,
-      success: result.ok,
-      created: result.body && result.body.created,
-      duplicate: result.body && result.body.duplicate,
-      phone: result.body && result.body.phone,
-      elapsed_ms: elapsed,
-    });
-    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
-    return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
-  } catch (err) {
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'create failed' });
-  }
-}
-
-async function handleCustomerBulkDelete(query, req, res, user) {
-  const clientSlug = String(query.client || DEFAULT_CLIENT).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-  let body;
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
-  const parsed = parseCustomerDeleteBody(body);
-  if (!parsed.ok) return send400(res, parsed.error);
-  try {
-    const result = await withPgClient((pg) => deleteCustomerProfiles(pg, clientSlug, parsed.phones));
-    appendAuditLog({ ts: new Date().toISOString(), intent: 'api:customers.delete', category: 'customer_api', client_slug: clientSlug,
-      staff_user_id: user && user.staff_user_id, deleted_count: result.deleted_count, success: true });
-    return sendJSON(res, 200, { success: true, ...result });
-  } catch (err) {
-    appendAuditLog({ ts: new Date().toISOString(), intent: 'api:customers.delete', category: 'customer_api', client_slug: clientSlug,
-      staff_user_id: user && user.staff_user_id, success: false, error: err.message });
-    return sendJSON(res, 500, { success: false, error: 'customer profile deletion failed' });
-  }
-}
-
-async function handleCustomerTagsUpdate(phoneRaw, query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-  let phone;
-  try { phone = normalizeCustomerPhone(decodeURIComponent(String(phoneRaw || '').trim())); } catch (_) { return send400(res, 'invalid phone encoding'); }
-  if (!phone || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client or phone');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-
-  let body = {};
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
-  const parsed = parseCustomerTagsUpdateBody(body);
-  if (!parsed.ok) return send400(res, parsed.error || 'invalid tags body');
-
-  const auditBase = {
-    ts: new Date().toISOString(),
-    intent: 'api:customers.tags',
-    category: 'customer_api',
-    client_slug: clientSlug,
-    phone,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  try {
-    const result = await withPgClient((pg) => updateCustomerCrmTags(pg, clientSlug, phone, parsed.tags));
-    const elapsed = Date.now() - started;
-    appendAuditLog({ ...auditBase, success: result.ok, elapsed_ms: elapsed });
-    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
-    return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
-  } catch (err) {
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'tags update failed' });
-  }
-}
-
-async function handleCustomerMessageTemplatesList(query, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-
-  const auditBase = {
-    ts: new Date().toISOString(),
-    intent: 'api:customers.message_templates.list',
-    category: 'customer_api',
-    client_slug: clientSlug,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  try {
-    const templates = await withPgClient((pg) => listCustomerMessageTemplates(pg, clientSlug));
-    const elapsed = Date.now() - started;
-    appendAuditLog({ ...auditBase, success: true, count: templates.length, elapsed_ms: elapsed });
-    return sendJSON(res, 200, { success: true, templates, count: templates.length, elapsed_ms: elapsed });
-  } catch (err) {
-    if (isMissingTemplatesTable(err)) {
-      return sendJSON(res, 503, { success: false, error: 'templates_schema_missing' });
-    }
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'query failed' });
-  }
-}
-
-async function handleCustomerMessageTemplateCreate(query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-
-  let body = {};
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
-
-  const auditBase = {
-    ts: new Date().toISOString(),
-    intent: 'api:customers.message_templates.create',
-    category: 'customer_api',
-    client_slug: clientSlug,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  try {
-    const result = await withPgClient((pg) => createCustomerMessageTemplate(pg, clientSlug, body));
-    const elapsed = Date.now() - started;
-    appendAuditLog({ ...auditBase, success: result.ok, elapsed_ms: elapsed });
-    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
-    return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
-  } catch (err) {
-    if (isMissingTemplatesTable(err)) {
-      return sendJSON(res, 503, { success: false, error: 'templates_schema_missing' });
-    }
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'create failed' });
-  }
-}
-
-async function handleCustomerMessageTemplateUpdate(templateId, query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-
-  let body = {};
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
-
-  const auditBase = {
-    ts: new Date().toISOString(),
-    intent: 'api:customers.message_templates.update',
-    category: 'customer_api',
-    client_slug: clientSlug,
-    template_id: templateId,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  try {
-    const result = await withPgClient((pg) => updateCustomerMessageTemplate(pg, clientSlug, templateId, body));
-    const elapsed = Date.now() - started;
-    appendAuditLog({ ...auditBase, success: result.ok, elapsed_ms: elapsed });
-    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
-    return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
-  } catch (err) {
-    if (isMissingTemplatesTable(err)) {
-      return sendJSON(res, 503, { success: false, error: 'templates_schema_missing' });
-    }
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'update failed' });
-  }
-}
-
-async function handleCustomerMessageTemplateDelete(templateId, query, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-
-  const auditBase = {
-    ts: new Date().toISOString(),
-    intent: 'api:customers.message_templates.delete',
-    category: 'customer_api',
-    client_slug: clientSlug,
-    template_id: templateId,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  try {
-    const result = await withPgClient((pg) => deactivateCustomerMessageTemplate(pg, clientSlug, templateId));
-    const elapsed = Date.now() - started;
-    appendAuditLog({ ...auditBase, success: result.ok, elapsed_ms: elapsed });
-    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
-    return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
-  } catch (err) {
-    if (isMissingTemplatesTable(err)) {
-      return sendJSON(res, 503, { success: false, error: 'templates_schema_missing' });
-    }
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'delete failed' });
-  }
-}
-
-async function handleCustomerMessageTemplateGenerate(query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-
-  let body = {};
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
-
-  const auditBase = {
-    ts: new Date().toISOString(),
-    intent: 'api:customers.message_templates.generate',
-    category: 'customer_api',
-    client_slug: clientSlug,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  try {
-    const result = await generateCustomerOutreachDraft(clientSlug, body);
-    const elapsed = Date.now() - started;
-    if (!result.ok) {
-      appendAuditLog({ ...auditBase, success: false, error: result.error, elapsed_ms: elapsed });
-      return sendJSON(res, result.status, {
-        success: false,
-        error: result.error,
-        detail: result.detail,
-        sends_whatsapp: false,
-        elapsed_ms: elapsed,
-      });
-    }
-    appendAuditLog({ ...auditBase, success: true, body_chars: result.body.length, elapsed_ms: elapsed });
-    return sendJSON(res, 200, {
-      success: true,
-      body: result.body,
-      voice: result.voice,
-      sends_whatsapp: false,
-      elapsed_ms: elapsed,
-    });
-  } catch (err) {
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'generation failed', sends_whatsapp: false });
-  }
-}
-
-async function handleCustomerOutreachSend(query, req, res, user) {
-  if (!STAFF_ACTIONS_ENABLED) {
-    return sendJSON(res, 403, {
-      success: false,
-      error: 'staff_actions_disabled',
-      detail: 'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true to enable.',
-      sends_whatsapp: false,
-    });
-  }
-  if (!CUSTOMER_OUTREACH_WHATSAPP_ENABLED) {
-    return sendJSON(res, 403, {
-      success: false,
-      error: 'customer_outreach_disabled',
-      detail: 'Customer CRM WhatsApp outreach is disabled. Set CUSTOMER_OUTREACH_WHATSAPP_ENABLED=true to enable.',
-      sends_whatsapp: false,
-    });
-  }
-
-  const started = Date.now();
-  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-
-  let body = {};
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
-
-  const auditBase = {
-    ts: new Date().toISOString(),
-    intent: 'api:customers.outreach.send',
-    category: 'customer_api',
-    client_slug: clientSlug,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  try {
-    const result = await withPgClient((pg) => executeCustomerOutreachSend(pg, clientSlug, body, {
-      env: process.env,
-      onRecipientAudit: (row) => {
-        appendAuditLog({
-          ...auditBase,
-          intent: 'api:customers.outreach.send.recipient',
-          recipient_phone: row.phone,
-          recipient_status: row.status,
-          recipient_reason: row.reason || null,
-          success: row.status === 'sent',
-        });
-      },
-    }));
-
-    const elapsed = Date.now() - started;
-    if (!result.ok) {
-      appendAuditLog({ ...auditBase, success: false, error: result.error, elapsed_ms: elapsed });
-      return sendJSON(res, result.status || 400, {
-        success: false,
-        error: result.error,
-        sends_whatsapp: false,
-        elapsed_ms: elapsed,
-      });
-    }
-
-    appendAuditLog({
-      ...auditBase,
-      success: true,
-      summary: result.summary,
-      sends_whatsapp: result.sends_whatsapp === true,
-      elapsed_ms: elapsed,
-    });
-
-    return sendJSON(res, 200, {
-      success: true,
-      results: result.results,
-      summary: result.summary,
-      message_preview: result.message_preview,
-      sends_whatsapp: result.sends_whatsapp === true,
-      elapsed_ms: elapsed,
-    });
-  } catch (err) {
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'send failed', sends_whatsapp: false });
-  }
-}
-
-async function handleCustomerUpdate(phoneRaw, query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-  let phone;
-  try { phone = normalizeCustomerPhone(decodeURIComponent(String(phoneRaw || '').trim())); } catch (_) { return send400(res, 'invalid phone encoding'); }
-  if (!phone || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client or phone');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-
-  let body = {};
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
-
-  const auditBase = {
-    ts: new Date().toISOString(),
-    intent: 'api:customers.update',
-    category: 'customer_api',
-    client_slug: clientSlug,
-    phone,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  try {
-    const result = await withPgClient((pg) => (
-      clientSlug === SUNSET_CLIENT_SLUG
-        ? updateSunsetCustomerProfile(pg, clientSlug, phone, body, { actor: user })
-        : updateCustomerProfile(pg, clientSlug, phone, body)
-    ));
-    const elapsed = Date.now() - started;
-    appendAuditLog({ ...auditBase, success: result.ok, elapsed_ms: elapsed });
-    if (!result.ok) return sendJSON(res, result.status, result.body);
-    return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
-  } catch (err) {
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'update failed', detail: err.message });
-  }
-}
-
-async function handleCustomerCreateConversation(phoneRaw, query, req, res, user) {
-  const started = Date.now();
-  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-  let phone;
-  try { phone = decodeURIComponent(String(phoneRaw || '').trim()); } catch (_) { return send400(res, 'invalid phone encoding'); }
-  if (!phone || SQL_INJECT_RE.test(clientSlug) || SQL_INJECT_RE.test(phone)) return send400(res, 'invalid client or phone');
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-
-  let body = {};
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
-
-  const idempotencyKey = String(body.idempotency_key || '').trim()
-    || `customer-profile-${phone}`;
-  const reason = body.reason != null ? String(body.reason).trim().slice(0, 500) : 'Created from customer profile';
-
-  let metadata = {
-    source: 'staff_manual',
-    channel: 'manual',
-    idempotency_key: idempotencyKey,
-    reason,
-    created_from: 'customer_profile',
-  };
-  const sessionState = { source: 'staff_manual', channel: 'manual' };
-  if (clientSlug === SUNSET_CLIENT_SLUG) {
-    const locationId = normalizeSunsetLocationId(query.location || body.location_id || body.location);
-    metadata = attachConversationChannelMetadata(metadata, locationId);
-    sessionState.location_id = metadata.location_id;
-  }
-
-  const auditBase = {
-    ts: new Date().toISOString(),
-    intent: 'api:customers.create_conversation',
-    category: 'customer_api',
-    client_slug: clientSlug,
-    phone,
-    staff_user_id: user ? user.staff_user_id : null,
-  };
-
-  try {
-    const result = await withPgClient((pg) => createCustomerConversation(pg, clientSlug, phone, {
-      idempotency_key: idempotencyKey,
-      reason,
-      metadata,
-      session_state: sessionState,
-    }));
-    const elapsed = Date.now() - started;
-    appendAuditLog({
-      ...auditBase,
-      success: result.ok,
-      conversation_id: result.body && result.body.conversation_id,
-      created: result.body && result.body.created,
-      elapsed_ms: elapsed,
-    });
-    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
-    return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
-  } catch (err) {
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'conversation create failed' });
-  }
-}
+// Customer CRM handlers live in scripts/lib/staff-customers-routes.js (customersRoutes).
 
 function resolveSunsetConversationScope(clientSlug, query) {
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
@@ -49369,22 +48741,22 @@ async function router(req, res) {
     return handleCustomerMessageTemplateDelete(customerTemplateMatch[1], parsed.query, res, auth.user);
   }
 
-  if (pathname === '/staff/customers/message-templates' && method === 'GET') {
+  if (pathname === CUSTOMERS_MESSAGE_TEMPLATES_PATH && method === 'GET') {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleCustomerMessageTemplatesList(parsed.query, res, auth.user);
   }
-  if (pathname === '/staff/customers/message-templates/generate' && method === 'POST') {
+  if (pathname === CUSTOMERS_MESSAGE_TEMPLATES_GENERATE_PATH && method === 'POST') {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleCustomerMessageTemplateGenerate(parsed.query, req, res, auth.user);
   }
-  if (pathname === '/staff/customers/outreach/send' && method === 'POST') {
+  if (pathname === CUSTOMERS_OUTREACH_SEND_PATH && method === 'POST') {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleCustomerOutreachSend(parsed.query, req, res, auth.user);
   }
-  if (pathname === '/staff/customers/message-templates' && method === 'POST') {
+  if (pathname === CUSTOMERS_MESSAGE_TEMPLATES_PATH && method === 'POST') {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleCustomerMessageTemplateCreate(parsed.query, req, res, auth.user);
@@ -49397,13 +48769,13 @@ async function router(req, res) {
     return handleCustomerUpdate(customerPhoneMatch[1], parsed.query, req, res, auth.user);
   }
 
-  if (pathname === '/staff/customers' && method === 'POST') {
+  if (pathname === CUSTOMERS_COLLECTION_PATH && method === 'POST') {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleCustomerCreate(parsed.query, req, res, auth.user);
   }
 
-  if (pathname === '/staff/customers/bulk-delete' && method === 'POST') {
+  if (pathname === CUSTOMERS_BULK_DELETE_PATH && method === 'POST') {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleCustomerBulkDelete(parsed.query, req, res, auth.user);
@@ -49545,7 +48917,7 @@ async function router(req, res) {
     return handleAdminConfig(parsed.query, res, auth.user);
   }
 
-  if (pathname === '/staff/customers') {
+  if (pathname === CUSTOMERS_COLLECTION_PATH) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleCustomerList(parsed.query, res, auth.user);
