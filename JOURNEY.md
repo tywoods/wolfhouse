@@ -34,7 +34,7 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 - Sunset rental/equipment thread **closed** (owner-verified: pricing, pickups scope, "+" labels)
 
 ## 🍳 On the stove (in progress)
-- **Admin rental-equipment card redesign** (Captain, concepting) — rework the Admin ▸ RENTAL PRICES card layout (keep theme). Concepts first, then build on owner's pick.
+- **Admin rental-equipment card redesign** (Captain + Skipper) — concept **approved: hybrid** (compact row per item to browse + expand-in-place editor). Skipper building; Captain gates/deploys. Keep theme; UI-only, no pricing/backend change.
 - **Earthling** — _add what you're on here._
 
 ## 📋 To do
