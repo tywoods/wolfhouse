@@ -249,9 +249,38 @@ function buildCourseEquipmentQuoteLines({
   catalog,
   serviceDates,
 }) {
-  const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
+  const {
+    isPresentCourseEquipmentSelection,
+    normalizeEquipmentOptions,
+  } = require('./sunset-course-equipment-options');
   if (!isPresentCourseEquipmentSelection(selection)) {
     return { ok: true, lines: [], total_cents: 0, course_equipment: null };
+  }
+  // Luna sends only guest intent ({mode, quantity}). The Staff API owns the
+  // Admin-backed offering identities and expands that intent exactly once.
+  // Browser/staff callers may still send the already-canonical wire array.
+  if (selection && typeof selection === 'object' && !Array.isArray(selection)) {
+    const keys = Object.keys(selection);
+    const mode = selection.mode;
+    const quantity = selection.quantity;
+    if (keys.some((key) => !['mode', 'quantity'].includes(key))
+      || !['during_course', 'all_day'].includes(mode)
+      || !Number.isInteger(quantity) || quantity < 1 || quantity > surfers) {
+      return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment' } };
+    }
+    const courseList = Array.isArray(courses) && courses.length ? courses : (course ? [course] : []);
+    let commonKeys = null;
+    for (const item of courseList) {
+      const options = normalizeEquipmentOptions(item && item.equipment_options);
+      const itemKeys = new Set(options.map((row) => row.offering_key));
+      commonKeys = commonKeys == null
+        ? itemKeys
+        : new Set([...commonKeys].filter((key) => itemKeys.has(key)));
+    }
+    if (!commonKeys || commonKeys.size === 0) {
+      return { ok: false, status: 422, body: { success: false, reason: 'course_equipment_not_configured' } };
+    }
+    selection = [...commonKeys].sort().map((offering_key) => ({ offering_key, mode, quantity }));
   }
   const offerings = (catalog && catalog._adminCfg && catalog._adminCfg.rental_offerings)
     || (catalog && catalog.rental_offerings)

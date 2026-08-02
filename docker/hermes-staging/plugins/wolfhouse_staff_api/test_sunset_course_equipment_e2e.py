@@ -1,9 +1,9 @@
 """Plugin course equipment canonical chain — during_course + all_day wire provenance.
 
-Design (staging-verified):
-- Free during-course and paid all_day intent both expand to the site wire array.
-- Quote and create must carry the identical canonical selection and provenance.
-  from /sunset/catalog equipment_options, and create posts that wire + provenance.
+Design:
+- Plugin forwards simple {mode, quantity} intent without a second catalog lookup.
+- Staff API expands it from Admin equipment_options into the canonical wire array.
+- Quote and create carry the identical canonical selection and provenance.
 """
 import copy
 import json
@@ -129,8 +129,9 @@ quote_during = json.loads(mod.get_sunset_offering_quote({
     "service_dates": ["2026-09-01"],
     "course_equipment": DURING,
 }))
-quote_during_call = next(b for p, b in transport.calls if "offering-quote" in p)
-assert quote_during_call["course_equipment"] == WIRE_DURING, quote_during_call
+assert [p for p, _ in transport.calls] == ["/sunset/offering-quote"], transport.calls
+quote_during_call = transport.calls[0][1]
+assert quote_during_call["course_equipment"] == DURING, quote_during_call
 assert quote_during["success"] is True
 assert quote_during["course_equipment"] == WIRE_DURING, quote_during.get("course_equipment")
 assert quote_during["total_cents"] == 8000  # course only; free gear not on quote lines
@@ -173,10 +174,10 @@ quote_all = json.loads(mod.get_sunset_offering_quote({
     "service_dates": ["2026-09-01"],
     "course_equipment": ALL_DAY,
 }))
-# Catalog lookup for offering keys + offering-quote with wire
-assert any("catalog" in p for p, _ in transport.calls), transport.calls
-quote_call = next(b for p, b in transport.calls if "offering-quote" in p)
-assert quote_call["course_equipment"] == WIRE_ALL_DAY, quote_call.get("course_equipment")
+# One authoritative Staff API call: it owns intent expansion and catalog truth.
+assert [p for p, _ in transport.calls] == ["/sunset/offering-quote"], transport.calls
+quote_call = transport.calls[0][1]
+assert quote_call["course_equipment"] == ALL_DAY, quote_call.get("course_equipment")
 assert quote_all["success"] is True, quote_all
 assert quote_all["quote_provenance"]["course_equipment"] == WIRE_ALL_DAY
 assert quote_all.get("course_equipment") in (WIRE_ALL_DAY, quote_all["quote_provenance"].get("course_equipment"))

@@ -397,6 +397,8 @@ function assertLineShape(line, expected) {
   );
   assert.ok(!/course_equipment\.get\("mode"\) == "during_course"[\s\S]{0,300}course_equipment = None/.test(plugin),
     'plugin must not drop during-course equipment before create');
+  assert.ok(!/_sunset_course_equipment_offering_keys|_course_equipment_intent_to_wire/.test(plugin),
+    'plugin must not perform a second catalog lookup to expand equipment intent');
 }
 
 console.log('verify:sunset-course-equipment-quote-authority — ALL CHECKS PASSED');

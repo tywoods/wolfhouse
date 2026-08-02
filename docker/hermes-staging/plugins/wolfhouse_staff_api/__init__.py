@@ -1822,55 +1822,6 @@ def get_sunset_lesson_catalog(params, **kwargs):
 
 
 
-def _sunset_course_equipment_offering_keys(offering_id, course_id, location_id, service_dates):
-    """Read the course's configured equipment offering_keys from the SITE catalog.
-
-    The guest never names an offering_key — they just ask for "the included
-    equipment". The site (admin pricing panel → equipment_options) is the single
-    source of truth for WHICH gear a course carries, so we read it here instead of
-    hardcoding board/wetsuit. Returns [] when the course has no configured gear.
-    """
-    body = {"require_db": True}
-    if location_id:
-        body["location_id"] = location_id
-    if service_dates:
-        body["service_dates"] = service_dates
-    data = _post_bot("/sunset/catalog", body)
-    for o in (data.get("offerings") or []):
-        if not isinstance(o, dict):
-            continue
-        ids = {str(o.get("offering_id") or ""), str(o.get("offering_item_code") or ""), str(o.get("item_code") or "")}
-        cid = str(o.get("course_id") or "")
-        if not ((offering_id and offering_id in ids) or (course_id and course_id == cid)):
-            continue
-        opts = o.get("equipment_options")
-        if isinstance(opts, list):
-            return [str(x.get("offering_key")) for x in opts
-                    if isinstance(x, dict) and x.get("offering_key")]
-    return []
-
-
-def _course_equipment_intent_to_wire(intent, offering_id, course_id, location_id, service_dates):
-    """Expand a {mode, quantity} equipment INTENT into the site's wire array
-    [{offering_key, mode, quantity}] using the course's configured equipment_options.
-
-    A guest says "with the included equipment"; the model emits the simple intent
-    {mode, quantity} (it cannot know offering_key). The SITE resolves the offering(s).
-    Already-wire arrays pass through untouched. Returns (wire_list_or_None, error).
-    """
-    if intent is None:
-        return None, None
-    if isinstance(intent, list):
-        return intent, None  # already the site's wire shape (or empty)
-    if not (isinstance(intent, dict) and intent.get("mode") in ("during_course", "all_day")):
-        return None, "course_equipment_invalid"
-    keys = _sunset_course_equipment_offering_keys(offering_id, course_id, location_id, service_dates)
-    if not keys:
-        return [], "course_equipment_not_configured"
-    return ([{"offering_key": k, "mode": intent["mode"], "quantity": intent.get("quantity")}
-             for k in keys], None)
-
-
 def get_sunset_offering_quote(params, **kwargs):
     """Quote one exact Admin-backed Sunset offering; never infer a course price."""
     del kwargs
@@ -1883,15 +1834,19 @@ def get_sunset_offering_quote(params, **kwargs):
         })
     if payload.get("course_equipment") is not None:
         _ce = payload.get("course_equipment")
-        ce_wire, ce_err = _course_equipment_intent_to_wire(
-            _ce, offering_id, _clean(payload.get("course_id")),
-            _clean(payload.get("location_id")), payload.get("service_dates"))
-        if ce_err == "course_equipment_invalid":
+        _ce_quantity = _ce.get("quantity") if isinstance(_ce, dict) else None
+        if not ((isinstance(_ce, list)) or (
+                isinstance(_ce, dict)
+                and set(_ce.keys()) == {"mode", "quantity"}
+                and _ce.get("mode") in ("during_course", "all_day")
+                and isinstance(_ce_quantity, int)
+                and not isinstance(_ce_quantity, bool)
+                and _ce_quantity >= 1
+                and _ce_quantity <= 99)):
             return _json_result({
                 "success": False, "tool": "get_sunset_offering_quote",
                 "error": "course_equipment_invalid", "staff_review_needed": False,
             })
-        payload["course_equipment"] = ce_wire
     body = {"offering_id": offering_id}
     for key in ("course_id", "quantity", "service_dates", "location_id", "require_db", "tier_key", "course_equipment"):
         if payload.get(key) is not None:

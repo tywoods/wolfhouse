@@ -653,10 +653,11 @@ async function run() {
   }
 
   console.log('\n[F3] Free during-course quote rows equal persisted rows exactly');
+  const duringIntent = { mode: 'during_course', quantity: 1 };
   const duringSelection = [{ offering_key: equipmentKey, mode: 'during_course', quantity: 1 }];
   const duringQuoteCmd = buildQuoteCmd(QUOTE_CHANNELS.LUNA_WHATSAPP, {
     ...transport,
-    course_equipment: duringSelection,
+    course_equipment: duringIntent,
   });
   const duringQuote = await executeSunsetQuote(equipmentPg(), duringQuoteCmd.command, { adminCfg: equipmentCfg });
   assert('during-course quote succeeds', duringQuote.ok === true, JSON.stringify(duringQuote.body));
@@ -664,6 +665,9 @@ async function run() {
   assert('during-course €0 line is authoritative quote truth',
     duringQuoteRows.length === 1 && duringQuoteRows[0].total_cents === 0,
     JSON.stringify(duringQuoteRows));
+  assert('Staff API expands intent to canonical Admin-backed wire selection',
+    JSON.stringify(duringQuote.body.course_equipment) === JSON.stringify(duringSelection),
+    JSON.stringify(duringQuote.body.course_equipment));
   const duringCreateCmd = buildSunsetBookingCreateCommand({
     channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
     transportBody: {
