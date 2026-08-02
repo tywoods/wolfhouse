@@ -248,6 +248,35 @@ function buildSunsetCatalogCommand(opts) {
   };
 }
 
+/**
+ * Load tenant/location rental identity rows for catalog label projection.
+ * Never throws — empty list on failure so price-only fallback remains.
+ */
+async function loadRentalOfferingsForCatalog(pg, locationId) {
+  if (!pg) return [];
+  try {
+    const { listRentalOfferings } = require('./tenant-rental-offerings');
+    const rows = await listRentalOfferings(pg, {
+      clientSlug: SUNSET_CLIENT_SLUG,
+      locationId,
+      includeInactive: false,
+    });
+    return Array.isArray(rows) ? rows : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function adminCfgWithRentalOfferings(adminCfg, rentalOfferings) {
+  const existing = adminCfg && Array.isArray(adminCfg.rental_offerings)
+    ? adminCfg.rental_offerings
+    : [];
+  const next = (rentalOfferings && rentalOfferings.length) ? rentalOfferings : existing;
+  if (!adminCfg) return { ok: true, rental_offerings: next };
+  if (next === existing) return adminCfg;
+  return { ...adminCfg, rental_offerings: next };
+}
+
 async function loadCatalogProjection(pg, command, adminCfg) {
   const projectionOpts = {
     locationId: command.locationId,
@@ -257,6 +286,16 @@ async function loadCatalogProjection(pg, command, adminCfg) {
     bookableOnly: false,
     coursesOnly: command.coursesOnly,
   };
+
+  // P0e: ensure rental identity labels are available to the bookable projection
+  // (tenant-business-config prices alone do not carry Admin catalog names).
+  let rentalOfferings = Array.isArray(adminCfg && adminCfg.rental_offerings)
+    ? adminCfg.rental_offerings
+    : [];
+  if (pg && !rentalOfferings.length) {
+    rentalOfferings = await loadRentalOfferingsForCatalog(pg, command.locationId);
+  }
+  const cfgForProject = adminCfgWithRentalOfferings(adminCfg, rentalOfferings);
 
   if (pg && command.requireDb) {
     const dbLoaded = await loadSunsetBookableOfferings(pg, {
@@ -268,9 +307,12 @@ async function loadCatalogProjection(pg, command, adminCfg) {
     });
     if (!dbLoaded.ok) return dbLoaded;
 
-    const projected = projectSunsetBookableOfferingsFromConfig(adminCfg, {
+    const projected = projectSunsetBookableOfferingsFromConfig(cfgForProject, {
       ...projectionOpts,
       requireDb: true,
+      rentalOfferings: rentalOfferings.length
+        ? rentalOfferings
+        : (cfgForProject.rental_offerings || []),
     });
     if (!projected.ok && projected.reason === CATALOG_EXCLUSION_REASONS.ADMIN_DB_UNAVAILABLE) {
       return dbLoaded;
@@ -292,6 +334,7 @@ async function loadCatalogProjection(pg, command, adminCfg) {
       courses: dbLoaded.courses || (projected.ok ? projected.courses : []),
       currency: (adminCfg && adminCfg.currency) || 'EUR',
       requested_dates: command.requestedDates,
+      rental_offerings: rentalOfferings,
     };
   }
 
@@ -302,7 +345,12 @@ async function loadCatalogProjection(pg, command, adminCfg) {
       requestedDates: command.requestedDates,
       asOfDate: command.asOfDate,
     });
-    const projected = projectSunsetBookableOfferingsFromConfig(adminCfg, projectionOpts);
+    const projected = projectSunsetBookableOfferingsFromConfig(cfgForProject, {
+      ...projectionOpts,
+      rentalOfferings: rentalOfferings.length
+        ? rentalOfferings
+        : (cfgForProject.rental_offerings || []),
+    });
     if (!projected.ok) return projected;
     const byId = new Map((projected.offerings || []).map((o) => [o.offering_id, o]));
     for (const o of (dbCourses.offerings || [])) {
@@ -316,10 +364,14 @@ async function loadCatalogProjection(pg, command, adminCfg) {
       courses: projected.courses,
       currency: projected.currency || adminCfg.currency || 'EUR',
       requested_dates: command.requestedDates,
+      rental_offerings: rentalOfferings,
     };
   }
 
-  return projectSunsetBookableOfferingsFromConfig(adminCfg, projectionOpts);
+  return projectSunsetBookableOfferingsFromConfig(cfgForProject, {
+    ...projectionOpts,
+    rentalOfferings: cfgForProject.rental_offerings || [],
+  });
 }
 
 async function enrichJoinableCourses(pg, command, courses) {
@@ -519,6 +571,7 @@ function executeSunsetCatalogSync(command, opts = {}) {
     asOfDate: command.asOfDate,
     bookableOnly: false,
     coursesOnly: command.coursesOnly,
+    rentalOfferings: Array.isArray(adminCfg.rental_offerings) ? adminCfg.rental_offerings : [],
   };
   const projection = projectSunsetBookableOfferingsFromConfig(adminCfg, projectionOpts);
   if (!projection.ok) return mapCatalogFailure(projection, command);

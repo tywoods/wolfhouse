@@ -15,6 +15,8 @@ const {
 } = require('./sunset-school-locations');
 const {
   resolveRentalOfferingFriendlyLabel,
+  buildRentalCatalogLabelMap,
+  enrichServiceRecordsWithCatalogLabels,
 } = require('./rental-offering-label');
 
 const { resolveTenantBusinessConfigAsync, resolveTenantBusinessConfig } = require('./tenant-business-config');
@@ -736,6 +738,35 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
   const meta = parseMeta(bundle.booking.metadata);
   if (!bundleHasTrustedScheduleDrawerAttribution(bundle)) {
     return { ok: false, status: 403, body: { success: false, error: 'drawer_untrusted_booking_source', reason_code: 'drawer_untrusted_booking_source' } };
+  }
+
+  // P0e: load tenant/location rental catalog once and overlay catalog_label on
+  // service rows so invoice/payment/drawer render current Admin names even when
+  // persisted offering_label is raw key, stale humanize, or an old Admin name.
+  // Historical drawer/invoice: include inactive identity rows (snapshot fallback
+  // when catalog load fails). Exact tenant/location only; never crash.
+  let rentalLabelMap = Object.create(null);
+  try {
+    const { listRentalOfferings } = require('./tenant-rental-offerings');
+    const offerings = await listRentalOfferings(pg, {
+      clientSlug,
+      locationId: activeLocationId,
+      includeInactive: true,
+    });
+    rentalLabelMap = buildRentalCatalogLabelMap(offerings, {
+      clientSlug,
+      locationId: activeLocationId,
+      includeInactive: true,
+    });
+  } catch (err) {
+    console.error('[schedule drawer] rental catalog label map failed:', err && err.message);
+    rentalLabelMap = Object.create(null);
+  }
+  if (bundle.services && Object.keys(rentalLabelMap).length) {
+    bundle = {
+      ...bundle,
+      services: enrichServiceRecordsWithCatalogLabels(bundle.services, rentalLabelMap),
+    };
   }
 
   let adminCfg;

@@ -520,6 +520,13 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
         .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
         .then(function(data){
           var dayRows = (data && data.rows) || [];
+          // P0e: day payload rental_label_map (exact offering_key → Admin label).
+          if (data && data.rental_label_map && typeof data.rental_label_map === 'object') {
+            try { scheduleRentalLabelMap = data.rental_label_map; } catch (_e) { /* global optional */ }
+            try {
+              if (typeof window !== 'undefined') window.scheduleRentalLabelMap = data.rental_label_map;
+            } catch (_e2) { /* ignore */ }
+          }
           dayRows.forEach(function(r){
             if (!r._scheduleType) {
               if (/course/.test(String((r.metadata && r.metadata.component) || r.service_type || ''))) r._scheduleType = 'course';
@@ -532,7 +539,13 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
           });
           var lessons = dayRows.filter(function(r){ return r._scheduleType === 'lesson'; });
           var gear = dayRows.filter(function(r){ return r._scheduleType === 'rental'; });
-          return { dateIso: dateIso, lessons: lessons, gear: gear, rows: dayRows };
+          return {
+            dateIso: dateIso,
+            lessons: lessons,
+            gear: gear,
+            rows: dayRows,
+            rental_label_map: (data && data.rental_label_map) || {},
+          };
         });
     }
     var base = '/staff/query?client=' + encodeURIComponent(client) + '&date=' + encodeURIComponent(dateIso);

@@ -24118,6 +24118,8 @@ var scheduleFullDayAddonEnabled = false;
 var scheduleAdminPricesCache = [];
 /** Enabled rental_offerings identity rows for Schedule Create/Edit projection. */
 var scheduleRentalOfferingsCache = [];
+/** P0e: offering_key → current Admin label from day payload (exact key only). */
+var scheduleRentalLabelMap = {};
 
 /** Pure range day selection: first=start, second=end; earlier second restarts; same-day supported. */
 function scheduleCreateDateRangeIsValidIso(iso){
@@ -42184,19 +42186,62 @@ async function handleSunsetScheduleDayGet(query, res, user) {
       const gear = await pg.query(getSunsetScheduleGearOnDateQuery(), [clientSlug, dateIso, locationId]);
       const cLessons = await pg.query(getSunsetScheduleCancelledLessonsOnDateQuery(), [clientSlug, dateIso, locationId]);
       const cGear = await pg.query(getSunsetScheduleCancelledGearOnDateQuery(), [clientSlug, dateIso, locationId]);
-      const active = [...lessons.rows, ...gear.rows];
-      const cancelled = [...cLessons.rows, ...cGear.rows].map((r) => ({
-        ...r,
-        schedule_ghost: true,
-        booking_status: r.booking_status || 'cancelled',
-      }));
-      return { active, cancelled, rows: [...active, ...cancelled] };
+      // P0e: one catalog load per day payload → offering_key→Admin label map.
+      // Overlay catalog_label on rows so pickups/course card/browser resolve
+      // current Admin names even when persisted offering_label is stale/raw.
+      let rental_label_map = {};
+      try {
+        const {
+          buildRentalCatalogLabelMap,
+          enrichServiceRecordsWithCatalogLabels,
+        } = require('./lib/rental-offering-label');
+        // Historical day readers: include inactive catalog rows so Admin labels
+        // still surface for bookings after an offering is deactivated. Exact
+        // tenant/location only (map builder rejects foreign). Never crash.
+        const offerings = await listRentalOfferings(pg, {
+          clientSlug,
+          locationId,
+          includeInactive: true,
+        });
+        rental_label_map = buildRentalCatalogLabelMap(offerings, {
+          clientSlug,
+          locationId,
+          includeInactive: true,
+        });
+        const active = enrichServiceRecordsWithCatalogLabels(
+          [...lessons.rows, ...gear.rows],
+          rental_label_map,
+        );
+        const cancelled = enrichServiceRecordsWithCatalogLabels(
+          [...cLessons.rows, ...cGear.rows].map((r) => ({
+            ...r,
+            schedule_ghost: true,
+            booking_status: r.booking_status || 'cancelled',
+          })),
+          rental_label_map,
+        );
+        return {
+          active,
+          cancelled,
+          rows: [...active, ...cancelled],
+          rental_label_map,
+        };
+      } catch (_catalogErr) {
+        const active = [...lessons.rows, ...gear.rows];
+        const cancelled = [...cLessons.rows, ...cGear.rows].map((r) => ({
+          ...r,
+          schedule_ghost: true,
+          booking_status: r.booking_status || 'cancelled',
+        }));
+        return { active, cancelled, rows: [...active, ...cancelled], rental_label_map: {} };
+      }
     });
     return sendJSON(res, 200, {
       success: true,
       date: dateIso,
       location_id: locationId,
       rows: pack.rows,
+      rental_label_map: pack.rental_label_map || {},
       active_count: pack.active.length,
       cancelled_count: pack.cancelled.length,
       count: pack.rows.length,

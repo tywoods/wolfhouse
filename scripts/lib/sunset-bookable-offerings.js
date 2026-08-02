@@ -38,6 +38,12 @@ const {
 const { projectEquipmentOptions } = require('./sunset-course-equipment-options');
 const { listRentalOfferings } = require('./tenant-rental-offerings');
 const { loadPrivateLessonFromDb } = require('./sunset-admin-private-lesson-rules');
+const {
+  buildRentalCatalogLabelMap,
+  lookupCatalogLabel,
+  isIdentityLikeRentalLabel,
+  resolveRentalOfferingFriendlyLabel,
+} = require('./rental-offering-label');
 
 const SUNSET_CLIENT_SLUG = 'sunset';
 
@@ -220,6 +226,13 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
 
   const prices = adminCfg.prices || [];
   const rentalOfferings = opts.rentalOfferings || adminCfg.rental_offerings || [];
+  // P0e: exact offering_key → Admin tenant_rental_offerings.label (active catalog).
+  // Prefer exact location over client-wide; reject foreign tenant/location.
+  const rentalCatalogLabelByKey = buildRentalCatalogLabelMap(rentalOfferings, {
+    clientSlug: SUNSET_CLIENT_SLUG,
+    locationId,
+    includeInactive: false,
+  });
   const asOf = opts.asOf || opts.asOfDate || null;
   const requestedDates = opts.requestedDates || (
     opts.date ? [String(opts.date).slice(0, 10)] : null
@@ -298,24 +311,47 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
 
     if (category === 'rental' || /rental|full_day_equipment/i.test(key)) {
       let identity = null;
+      let baseKey = null;
       if (/full_day_equipment/i.test(key)) {
         identity = fullDayEquipmentIdentity(locationId);
+        baseKey = 'full_day_equipment';
       } else {
         // Data-driven: any rental price row with a resolvable period joins via
         // rentalIdentity — no hardcoded board/wetsuit/both allowlist.
         const duration = rentalPeriodFromAdminPriceRow(key, price);
         if (!duration) continue;
-        const baseKey = key.includes('__') ? key.split('__')[0] : key;
+        baseKey = key.includes('__') ? key.split('__')[0] : key;
         identity = rentalIdentity(baseKey, duration, locationId);
       }
       if (!identity) continue;
+      // P0e: tenant_rental_offerings.label wins over price.label/display_name/key
+      // for both catalog `label` and `guest_description`. Exact baseKey only.
+      const catalogLabel = baseKey
+        ? lookupCatalogLabel(rentalCatalogLabelByKey, baseKey)
+        : '';
+      const priceLabelRaw = String(price.label || price.display_name || '').trim();
+      const priceLabel = priceLabelRaw
+        && !isIdentityLikeRentalLabel(priceLabelRaw, baseKey, identity.item_code || key)
+        ? priceLabelRaw
+        : '';
+      const displayLabel = catalogLabel
+        || priceLabel
+        || resolveRentalOfferingFriendlyLabel({
+          offering_key: baseKey || key,
+          catalog_label: catalogLabel || null,
+          label: priceLabelRaw || null,
+          item_code: identity.item_code || key,
+        })
+        || baseKey
+        || key;
       offerings.push({
         offering_id: identity.offering_id || key,
         offering_type: /full_day_equipment/i.test(key) ? 'addon' : 'rental',
         course_id: null,
         service_id: null,
         tier_key: identity.duration_key || null,
-        label: price.label || price.display_name || key,
+        offering_key: baseKey || null,
+        label: displayLabel,
         location_id: locationId,
         active: true,
         bookable: true,
@@ -346,7 +382,7 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
         capacity: null,
         offering_item_code: identity.item_code || key,
         item_code: identity.item_code || key,
-        guest_description: price.label || price.display_name || key,
+        guest_description: displayLabel,
       });
     }
   }
@@ -426,13 +462,21 @@ async function loadSunsetBookableOfferings(pg, opts = {}) {
   }
 
   const packs = await loadSurfPacksFromDb(pg, clientSlug, locationId);
+  // Active scoped rentals: exact location + client-wide (null location). Reject
+  // foreign tenant/location. Prefer exact location inside catalog label map.
   const rentalOfferings = (await listRentalOfferings(pg, {
     clientSlug,
     locationId,
     includeInactive: false,
-  })).filter((row) => row && row.active !== false
-    && String(row.client_slug) === clientSlug
-    && String(row.location_id) === locationId);
+  })).filter((row) => {
+    if (!row || row.active === false) return false;
+    if (String(row.client_slug || '').trim() !== clientSlug) return false;
+    const loc = row.location_id != null && String(row.location_id).trim()
+      ? String(row.location_id).trim()
+      : '';
+    if (loc && loc !== locationId) return false;
+    return true;
+  });
   const privateLessonResult = await loadPrivateLessonFromDb(pg, clientSlug, locationId);
   const privateLesson = privateLessonResult && privateLessonResult.api
     ? privateLessonResult.api

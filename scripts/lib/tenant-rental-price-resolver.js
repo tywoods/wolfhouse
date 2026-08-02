@@ -43,7 +43,10 @@
 const { resolveRentalBillingUnit, resolveDurationKey } = require('./sunset-rental-price-lookup');
 const { isValidOfferingKey } = require('./tenant-rental-offerings');
 const { parseRentalDurationKey, rentalDurationKeyFromUnitCount } = require('../browser/sunset-rental-duration-model');
-const { resolveRentalOfferingFriendlyLabel } = require('./rental-offering-label');
+const {
+  resolveRentalOfferingFriendlyLabel,
+  isIdentityLikeRentalLabel,
+} = require('./rental-offering-label');
 
 async function defaultLoadRule(params) {
   const { loadTenantPriceRuleFromDb } = require('./tenant-business-config');
@@ -338,15 +341,25 @@ function buildGenericRentalServiceRecord(priced, ctx) {
     )].sort();
   }
 
-  // Persist a friendly offering_label so readers never need catalog joins.
-  // Catalog/admin label wins; otherwise humanize the offering key.
+  // Persist current authoritative catalog label (snapshot). On read, live catalog
+  // still wins via catalog_label overlay / map — this is compatibility fallback.
+  const catalogSnapRaw = p.catalog_label != null ? String(p.catalog_label).trim() : '';
+  const catalogSnap = catalogSnapRaw
+    && !isIdentityLikeRentalLabel(catalogSnapRaw, p.offering_key, p.item_code)
+    ? catalogSnapRaw
+    : '';
   const persistedLabel = resolveRentalOfferingFriendlyLabel({
     offering_label: p.offering_label,
-    catalog_label: p.catalog_label,
+    catalog_label: catalogSnap || null,
     display_name: p.display_name,
     label: p.label,
     offering_key: p.offering_key,
   });
+  const snapForMeta = catalogSnap || (
+    persistedLabel && !isIdentityLikeRentalLabel(persistedLabel, p.offering_key, p.item_code)
+      ? persistedLabel
+      : null
+  );
 
   const record = {
     client_slug: p.client_slug,
@@ -366,6 +379,8 @@ function buildGenericRentalServiceRecord(priced, ctx) {
       rental_offering: true,
       offering_key: p.offering_key,
       offering_label: persistedLabel || null,
+      // Snapshot of Admin catalog label at write time (read path may overlay newer).
+      ...(snapForMeta ? { catalog_label: snapForMeta } : {}),
       duration_key: p.duration_key,
       item_code: p.item_code,
       unit: p.unit,

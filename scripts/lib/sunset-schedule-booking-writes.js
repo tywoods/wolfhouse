@@ -682,6 +682,16 @@ function buildGenericRentalAuthoritativeQuote(records) {
     if (expectedCode && itemCode !== expectedCode) {
       throw new Error('invalid_generic_rental_quote_record');
     }
+    // P0e: carry catalog/persisted label on authoritative generic quote lines so
+    // create/invoice nesting does not fall back to raw offering_key.
+    const lineLabel = resolveRentalOfferingFriendlyLabel({
+      offering_key: offeringKey,
+      catalog_label: meta.catalog_label || null,
+      offering_label: meta.offering_label || null,
+      label: meta.label || null,
+      display_name: meta.display_name || null,
+      item_code: itemCode,
+    }) || null;
     return {
       component: 'addon_service', generic_rental: true,
       offering_id: offeringKey, offering_item_code: itemCode,
@@ -692,6 +702,11 @@ function buildGenericRentalAuthoritativeQuote(records) {
       pricing_mode: meta.pricing_mode || 'base_package',
       total_cents: total, price_source: 'tenant_price_rules',
       item_code: itemCode,
+      ...(lineLabel ? {
+        label: lineLabel,
+        offering_label: lineLabel,
+        catalog_label: meta.catalog_label || lineLabel,
+      } : {}),
     };
   });
   const totalCents = lineItems.reduce((sum, line) => checkedMoneyAdd(sum, line.total_cents, 'generic_rental_quote_total'), 0);
@@ -3225,6 +3240,8 @@ function decorateRentalServiceMetadata(metadata, opts) {
         item_code: quoteLine && (quoteLine.offering_item_code || quoteLine.offering_id),
       });
       metadata.label = metadata.offering_label;
+      if (catalogLabel) metadata.catalog_label = catalogLabel;
+      else if (metadata.offering_label) metadata.catalog_label = metadata.offering_label;
       if (quoteLine) {
         metadata.price_id = quoteLine.price_id || null;
         metadata.unit_amount_cents = quoteLine.unit_amount_cents;
@@ -3584,6 +3601,9 @@ async function insertScheduleComponentServiceRows(pg, opts) {
         offering_id: `${rental.offering_key}__${rental.duration_key}`,
         label: snapshotLabel,
         offering_label: snapshotLabel,
+        ...(catalogLabel || snapshotLabel
+          ? { catalog_label: catalogLabel || snapshotLabel }
+          : {}),
         // No bundle_part / pricing_group component halves on future writes.
         ...(quoteLine ? {
           price_id: quoteLine.price_id || null,
@@ -3706,7 +3726,15 @@ async function insertCourseEquipmentRows(pg, opts) {
           'course equipment line requires during_course_policy included|optional|unavailable',
         );
       }
+      const catalogByKey = opts.rentalCatalogByKey || null;
+      const catalogOff = catalogByKey && typeof catalogByKey.get === 'function'
+        ? catalogByKey.get(String(offeringKey))
+        : null;
+      const ceCatalogLabel = catalogOff
+        ? String(catalogOff.label || catalogOff.display_name || '').trim()
+        : (line.catalog_label ? String(line.catalog_label).trim() : '');
       const ceLabel = resolveRentalOfferingFriendlyLabel({
+        catalog_label: ceCatalogLabel || null,
         offering_label: line.offering_label || null,
         label: line.label || null,
         offering_key: offeringKey,
@@ -3718,6 +3746,7 @@ async function insertCourseEquipmentRows(pg, opts) {
         offering_key: offeringKey,
         label: ceLabel,
         offering_label: ceLabel,
+        ...(ceCatalogLabel || ceLabel ? { catalog_label: ceCatalogLabel || ceLabel } : {}),
         course_equipment_mode: mode,
         during_course_policy: duringPolicy,
         component: 'course_equipment',

@@ -1000,9 +1000,11 @@ function scheduleBuildSessionPrepItems(groups) {
       if (meta.course_equipment !== true) return;
       if (meta.rental_offering === true || meta.generic_rental === true) return;
       var key = String(meta.offering_key || meta.offering_id || '').trim();
+      // P0e: current Admin catalog_label first, then persisted, then humanize.
       var label = String(
-        meta.label || meta.offering_label || meta.catalog_label || meta.display_name || '',
+        meta.catalog_label || meta.offering_label || meta.label || meta.display_name || '',
       ).trim();
+      if (key && label && label.toLowerCase() === key.toLowerCase()) label = '';
       if (!key) key = 'course_equipment';
       if (!label) label = scheduleCockpitHumanizeOfferingKey(key) || 'Equipment';
       var qty = scheduleCockpitRowQty(row);
@@ -1070,9 +1072,11 @@ function scheduleBuildDayPrepItems(rows, dateIso) {
     var meta = scheduleCockpitParseMeta(row.metadata || row._meta);
     var qty = scheduleCockpitRowQty(row);
     var key = String(meta.offering_key || meta.offering_id || '').trim();
+    // P0e: current Admin catalog_label first, then persisted snapshot.
     var label = String(
-      meta.label || meta.offering_label || meta.catalog_label || meta.display_name || '',
+      meta.catalog_label || meta.offering_label || meta.label || meta.display_name || '',
     ).trim();
+    if (key && label && label.toLowerCase() === key.toLowerCase()) label = '';
 
     // Course-owned equipment — exact catalog offering (not component inference).
     if (meta.course_equipment === true

@@ -60,27 +60,67 @@ function scheduleDayOpsCourseEquipmentMode(group){
 
 /**
  * Friendly rental/CE label (browser projection of scripts/lib/rental-offering-label.js).
- * Precedence: offering_label → catalog_label → display_name → label → service_name
- * → humanized offering_key. Never emit bare key when a friendly form exists.
+ * P0e precedence: catalog_label (current Admin) → meaningful persisted
+ * (offering_label, display_name, label, service_name) → humanized offering_key.
+ * Also consults scheduleRentalLabelMap / scheduleRentalOfferingsCache by exact key.
+ * Never emit bare key when a friendly form exists.
  */
 function scheduleDayOpsFriendlyOfferingLabel(meta, offeringKey){
   var m = meta || {};
   var key = String(offeringKey != null ? offeringKey : (m.offering_key || '')).trim();
   var itemCode = String(m.item_code || m.offering_item_code || '').trim();
-  var candidates = [
-    m.offering_label, m.catalog_label, m.display_name, m.label, m.service_name,
-  ];
-  for (var i = 0; i < candidates.length; i++) {
-    if (candidates[i] == null) continue;
-    var text = String(candidates[i]).trim();
-    if (!text) continue;
-    var lower = text.toLowerCase();
-    if (lower === 'addon_service' || lower === 'rental') continue;
-    // Reject identity-like labels (raw key / item_code).
-    if (key && lower === key.toLowerCase()) continue;
-    if (itemCode && lower === itemCode.toLowerCase()) continue;
-    if (key && lower.indexOf(key.toLowerCase() + '__') === 0) continue;
+  function isIdentityLike(text){
+    if (text == null) return true;
+    var t = String(text).trim();
+    if (!t) return true;
+    var lower = t.toLowerCase();
+    if (lower === 'addon_service' || lower === 'rental') return true;
+    if (key && lower === key.toLowerCase()) return true;
+    if (itemCode && lower === itemCode.toLowerCase()) return true;
+    if (key && lower.indexOf(key.toLowerCase() + '__') === 0) return true;
+    return false;
+  }
+  function accept(raw){
+    if (raw == null) return '';
+    var text = String(raw).trim();
+    if (!text || isIdentityLike(text)) return '';
     return text;
+  }
+  // 1) Authoritative current catalog (meta overlay, day payload map, offerings cache).
+  var catalogFromMeta = accept(m.catalog_label);
+  if (catalogFromMeta) return catalogFromMeta;
+  if (key) {
+    var fromMap = '';
+    try {
+      if (typeof scheduleRentalLabelMap !== 'undefined'
+        && scheduleRentalLabelMap
+        && typeof scheduleRentalLabelMap === 'object') {
+        fromMap = accept(scheduleRentalLabelMap[key]);
+      }
+    } catch (_mapErr) { fromMap = ''; }
+    if (!fromMap) {
+      try {
+        if (typeof scheduleRentalOfferingsCache !== 'undefined'
+          && Array.isArray(scheduleRentalOfferingsCache)) {
+          for (var ci = 0; ci < scheduleRentalOfferingsCache.length; ci++) {
+            var off = scheduleRentalOfferingsCache[ci];
+            if (!off || off.active === false) continue;
+            if (String(off.offering_key || '').trim() !== key) continue;
+            fromMap = accept(off.label || off.display_name);
+            if (fromMap) break;
+          }
+        }
+      } catch (_cacheErr) { fromMap = ''; }
+    }
+    if (fromMap) return fromMap;
+  }
+  // 2) Meaningful persisted snapshot (compatibility fallback only).
+  var persisted = [
+    m.offering_label, m.display_name, m.label, m.service_name,
+  ];
+  for (var i = 0; i < persisted.length; i++) {
+    var hit = accept(persisted[i]);
+    if (hit) return hit;
   }
   if (!key) return '';
   if (key === 'board_rental') return 'Surfboard';
