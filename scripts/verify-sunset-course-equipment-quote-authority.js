@@ -183,7 +183,8 @@ function assertLineShape(line, expected) {
   ));
 }
 
-// Zero selections (undefined / null / [] are absent — no equipment lines)
+// Zero selections (undefined / null / [] are absent — no paid equipment lines
+// when options are optional/paid only; included policy is quote-owned auto-expand)
 {
   for (const equipment of [undefined, null, []]) {
     const result = quote(groupComponentsBody(equipment, 2), 'sunset-somo');
@@ -196,6 +197,71 @@ function assertLineShape(line, expected) {
     );
     assert.strictEqual(result.body.total_cents, GROUP_UNIT * 2);
   }
+}
+
+// Included policy auto-expands when course_equipment omitted (quote-owned)
+{
+  const cfg = adminCfg('sunset-somo', {
+    groupOptions: [{
+      offering_key: 'softboard',
+      during_course_policy: 'included',
+      during_course_price_cents: 0,
+      all_day_price_cents: 1000,
+    }, {
+      offering_key: 'carbon_fins',
+      during_course_policy: 'optional',
+      during_course_price_cents: 0,
+      all_day_price_cents: 0,
+    }],
+  });
+  const result = quote(groupComponentsBody(undefined, 2), 'sunset-somo', QUOTE_CHANNELS.MANUAL_STAFF, cfg);
+  assert.equal(result.ok, true, JSON.stringify(result.body));
+  const lines = equipmentLines(result.body);
+  assert.strictEqual(lines.length, 1, 'optional €0 is not auto-included');
+  assert.strictEqual(lines[0].offering_key, 'softboard');
+  assert.strictEqual(lines[0].total_cents, 0);
+  assert.strictEqual(lines[0].during_course_policy, 'included');
+  assert.deepStrictEqual(result.body.course_equipment, [
+    { offering_key: 'softboard', mode: 'during_course', quantity: 2 },
+  ]);
+  assert.deepStrictEqual(result.body.quote_provenance.course_equipment, result.body.course_equipment);
+  assert.equal(result.body.quote_provenance.quote_lane, 'components');
+  assert.equal(result.body.quote_lane, 'components');
+}
+
+// Unavailable rejects during_course intent and direct wire
+{
+  const cfg = adminCfg('sunset-somo', {
+    groupOptions: [{
+      offering_key: 'softboard',
+      during_course_policy: 'unavailable',
+      during_course_price_cents: 0,
+      all_day_price_cents: 1000,
+    }],
+  });
+  const wire = quote(
+    groupComponentsBody([{ offering_key: 'softboard', mode: 'during_course', quantity: 1 }], 2),
+    'sunset-somo', QUOTE_CHANNELS.MANUAL_STAFF, cfg,
+  );
+  assert.equal(wire.ok, false, JSON.stringify(wire.body));
+  assert.equal(wire.body.reason, 'invalid_course_equipment');
+  const intent = quote(
+    groupComponentsBody({ mode: 'during_course', quantity: 1 }, 2),
+    'sunset-somo', QUOTE_CHANNELS.MANUAL_STAFF, cfg,
+  );
+  assert.equal(intent.ok, false, JSON.stringify(intent.body));
+}
+
+// full_day_equipment_extension rejected with course component
+{
+  const body = groupComponentsBody(undefined, 1);
+  body.components.full_day_equipment_extension = {
+    enabled: true,
+    dates: { '2026-09-01': 1 },
+  };
+  const result = quote(body, 'sunset-somo');
+  assert.equal(result.ok, false, JSON.stringify(result.body));
+  assert.equal(result.body.reason, 'full_day_equipment_extension_not_with_course');
 }
 
 // Quantities 1 / 2 / 4 + 0 all-day price always selectable

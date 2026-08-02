@@ -157,13 +157,18 @@ assert "booking-create" in posted_during[0]
 assert posted_during[1]["course_equipment"] == WIRE_DURING, posted_during[1]
 assert posted_during[1]["quote_provenance"] == quote_during["quote_provenance"]
 
-# Bare course create cannot silently recreate a quoted equipment row.
+# Quote-owned included gear: Luna-style create may omit top-level course_equipment
+# when quote_provenance carries the exact canonical wire — plugin posts that wire.
 before = len(transport.calls)
 out_plain = json.loads(mod.create_sunset_booking(base(
     quote_provenance=quote_during["quote_provenance"],
 )))
-assert out_plain["success"] is False, out_plain
-assert len(transport.calls) == before
+assert out_plain["success"] is True, out_plain
+assert len(transport.calls) == before + 1
+posted_plain = transport.calls[-1]
+assert "booking-create" in posted_plain[0]
+assert posted_plain[1]["course_equipment"] == WIRE_DURING, posted_plain[1]
+assert posted_plain[1]["quote_provenance"] == quote_during["quote_provenance"]
 
 # ── 2) All-day paid: expand intent → wire + provenance passthrough ──────────
 transport.calls.clear()
@@ -193,7 +198,8 @@ assert "booking-create" in posted_all[0]
 assert posted_all[1]["course_equipment"] == WIRE_ALL_DAY, posted_all[1].get("course_equipment")
 assert posted_all[1]["quote_provenance"] == quote_all["quote_provenance"]
 
-# Already-wire list on quote path passes through
+# List/wire array is not accepted as plugin quote input — intent form only.
+# Staff API expands {mode,quantity} into the canonical wire array.
 transport.calls.clear()
 quote_wire = json.loads(mod.get_sunset_offering_quote({
     "offering_id": ITEM,
@@ -202,9 +208,9 @@ quote_wire = json.loads(mod.get_sunset_offering_quote({
     "service_dates": ["2026-09-01"],
     "course_equipment": WIRE_ALL_DAY,
 }))
-qcall = next(b for p, b in transport.calls if "offering-quote" in p)
-assert qcall["course_equipment"] == WIRE_ALL_DAY
-assert quote_wire["success"] is True
+assert quote_wire["success"] is False, quote_wire
+assert quote_wire.get("error") == "course_equipment_invalid"
+assert not any("offering-quote" in p for p, _ in transport.calls), transport.calls
 
 # ── 3) Fail-closed negatives (paid path + invalid during leftovers) ─────────
 before = len(transport.calls)

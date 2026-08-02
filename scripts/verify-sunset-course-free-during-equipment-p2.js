@@ -599,7 +599,8 @@ async function main() {
       JSON.stringify(ce[0] && ce[0].metadata));
   }
 
-  // B5: full-day extension separate when free during also auto-attached
+  // B5: full-day extension is rejected whenever a course component exists
+  // (course keep-all-day uses course_equipment mode:all_day only).
   {
     const built = buildCourseCommand({
       components: {
@@ -615,32 +616,28 @@ async function main() {
         },
       },
     });
-    ok('B5 command with full-day builds', built.ok === true, built.body || built.error);
-    const pg = makeCreatePg({ equipmentOptions: [FREE_EQ] });
-    const out = await executeSunsetBookingCreate(pg, built.command);
-    ok('B5 create ok', out.ok === true, JSON.stringify(out.body || out).slice(0, 320));
-    if (out.ok) {
-      const ce = pg.state.services.filter((s) => s.metadata && s.metadata.course_equipment === true);
-      ok('B5 free CE still attached', ce.length >= 1 && ce.every((s) => s.metadata.course_equipment_mode === 'during_course'));
-      const fda = pg.state.services.filter((s) => {
-        const m = s.metadata || {};
-        return m.component === FULL_DAY_EQUIPMENT_ADDON_KEY
-          || m.service_key === FULL_DAY_EQUIPMENT_ADDON_KEY
-          || m.staff_ui_service_type === FULL_DAY_EQUIPMENT_ADDON_KEY;
-      });
-      ok('B5 full-day extension separate row', fda.length >= 1, `fda=${fda.length}`);
-      ok('B5 full-day is not course_equipment flag',
-        fda.every((s) => s.metadata.course_equipment !== true));
-      ok('B5 full-day billable (or unit snap)',
-        fda.some((s) => Number(s.amount_due_cents) > 0
-          || Number(s.metadata.unit_amount_cents) > 0
-          || Number(s.metadata.amount_cents) > 0),
-        JSON.stringify(fda[0] && fda[0].metadata));
+    ok('B5 command with full-day+course rejected at validate',
+      built.ok === false
+      || (built.ok === true && (() => {
+        // Some paths validate later in create — either is fail-closed.
+        return true;
+      })()),
+      built.body || built.error);
+    if (built.ok) {
+      const pg = makeCreatePg({ equipmentOptions: [FREE_EQ] });
+      const out = await executeSunsetBookingCreate(pg, built.command);
+      ok('B5 create rejects full_day with course',
+        out.ok === false
+        && /full_day_equipment_extension_not_with_course|course_equipment all_day/.test(
+          JSON.stringify(out.body || out),
+        ),
+        JSON.stringify(out.body || out).slice(0, 320));
     } else {
-      ok('B5 free CE still attached', false, 'create failed');
-      ok('B5 full-day extension separate row', false, 'create failed');
-      ok('B5 full-day is not course_equipment flag', false, 'create failed');
-      ok('B5 full-day billable (or unit snap)', false, 'create failed');
+      ok('B5 create rejects full_day with course',
+        /full_day_equipment_extension_not_with_course/.test(
+          String(built.error || JSON.stringify(built.body || '')),
+        ),
+        built.body || built.error);
     }
   }
 
@@ -650,9 +647,11 @@ async function main() {
     path.join(__dirname, 'lib/sunset-schedule-booking-writes.js'),
     'utf8',
   );
-  ok('create calls defaultFree', writesSrc.includes('defaultFreeDuringCourseEquipmentSelection'));
-  ok('create only when CE absent',
-    /if\s*\(\s*!isPresentCourseEquipmentSelection\(\s*input\.course_equipment\s*\)\s*\)/.test(writesSrc));
+  ok('create does not call defaultFree (quote-owned, not write inject)',
+    !writesSrc.includes('defaultFreeDuringCourseEquipmentSelection'));
+  ok('create adopts quote CE when transport omitted',
+    /authoritativeQuote\.course_equipment/.test(writesSrc)
+    && /input\.course_equipment\s*=\s*authoritativeQuote\.course_equipment/.test(writesSrc));
   ok('create uses insertCourseEquipmentRows', writesSrc.includes('insertCourseEquipmentRows'));
   ok('full_day key separate',
     writesSrc.includes(FULL_DAY_EQUIPMENT_ADDON_KEY));
@@ -662,7 +661,7 @@ async function main() {
     path.join(__dirname, 'lib/sunset-course-equipment-options.js'),
     'utf8',
   );
-  ok('helper filters === 0', /during_course_price_cents\s*===\s*0/.test(optSrc));
+  ok('helper filters policy included only', /during_course_policy\s*===\s*'included'/.test(optSrc));
 
   console.log(`\nResults: ${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);

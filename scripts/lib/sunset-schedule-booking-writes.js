@@ -2091,9 +2091,19 @@ function validateScheduleBookingBody(body, opts) {
       surfer_count = Number(forcedComps.private_lesson.surfer_count);
     }
   }
-  // Absent wire forms (undefined / null / []) mean no course equipment selected.
+  // Absent wire forms (undefined / null / []) mean no course equipment selected
+  // on the transport; quote may still expand policy==='included' at re-quote.
   // Browser Create always serializes course_equipment: [] for rental-only; do not
   // treat that empty array as a supplied selection requiring Group/Private.
+  // full_day_equipment_extension is only for non-course part-day lesson/rental.
+  if (forcedComps[FULL_DAY_EQUIPMENT_ADDON_KEY]
+    && (forcedComps.course || forcedComps.private_lesson)) {
+    return {
+      ok: false,
+      error: 'full_day_equipment_extension_not_with_course',
+      reason: 'full_day_equipment_extension_not_with_course',
+    };
+  }
   let course_equipment = null;
   if (isPresentCourseEquipmentSelection(bodyForComponents.course_equipment)) {
     const coursePart = forcedComps.course || forcedComps.private_lesson || lessonsNorm.present;
@@ -2476,6 +2486,36 @@ function canonicalRentalsForIntentFingerprint(rentals) {
     .sort((a, b) => (a.offering_key < b.offering_key ? -1 : (a.offering_key > b.offering_key ? 1 : 0)));
 }
 
+function normalizeCourseEquipmentForIntentFingerprint(raw) {
+  if (!isPresentCourseEquipmentSelection(raw)) return null;
+  if (Array.isArray(raw)) {
+    const rows = raw
+      .map((row) => {
+        if (!row || typeof row !== 'object') return null;
+        const offering_key = String(row.offering_key || '').trim();
+        if (!offering_key) return null;
+        return {
+          offering_key,
+          mode: row.mode === 'all_day' ? 'all_day' : 'during_course',
+          quantity: Number(row.quantity) || 0,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.offering_key.localeCompare(b.offering_key)
+        || a.mode.localeCompare(b.mode)
+        || (a.quantity - b.quantity));
+    return rows.length ? rows : null;
+  }
+  // Narrow historical singleton shape for intent equality only.
+  if (raw && typeof raw === 'object') {
+    return {
+      mode: raw.mode === 'all_day' ? 'all_day' : 'during_course',
+      quantity: Number(raw.quantity) || 0,
+    };
+  }
+  return null;
+}
+
 function buildScheduleBookingIntentFingerprint(input, locationId, opts) {
   opts = opts || {};
   const components = input && input.components ? input.components : {};
@@ -2495,7 +2535,11 @@ function buildScheduleBookingIntentFingerprint(input, locationId, opts) {
   const lessonsSrc = opts.lessons != null
     ? opts.lessons
     : (input && input.lessons != null ? input.lessons : []);
-  return crypto.createHash('sha256').update(JSON.stringify({
+  const courseEquipmentSrc = opts.course_equipment !== undefined
+    ? opts.course_equipment
+    : (input && input.course_equipment);
+  const courseEquipmentFp = normalizeCourseEquipmentForIntentFingerprint(courseEquipmentSrc);
+  const payload = {
     location_id: String(locationId || ''),
     guest_name: String((input && input.guest_name) || ''),
     guest_phone: input && input.guest_phone != null ? String(input.guest_phone) : '',
@@ -2508,7 +2552,13 @@ function buildScheduleBookingIntentFingerprint(input, locationId, opts) {
     accommodation: accommodationForIntentFingerprint(accomSrc),
     notes: String((input && input.notes) || ''),
     needs_reply: !!(input && input.needs_reply),
-  })).digest('hex');
+  };
+  // Normalized canonical course_equipment wire — selected-vs-omitted, offering,
+  // mode, and qty changes must conflict on idempotent replay. Only emit the key
+  // when a selection is present so historical fingerprints without CE still match
+  // the no-equipment path.
+  if (courseEquipmentFp != null) payload.course_equipment = courseEquipmentFp;
+  return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
 
 /** Pricing intent only (dates + components + rentals); guest/payment excluded. */
@@ -2605,29 +2655,9 @@ function buildSchedulePricingIntent(input, opts) {
     // Custom adjustments are pricing intent — changes invalidate stale quote / paid reprice.
     custom_line_items: customLinesForIntentFingerprint(customSrc),
     accommodation: accommodationForIntentFingerprint(accomSrc),
-    course_equipment: (() => {
-      const raw = input && input.course_equipment;
-      if (!isPresentCourseEquipmentSelection(raw)) return null;
-      if (Array.isArray(raw)) {
-        const rows = raw
-          .map((row) => {
-            if (!row || typeof row !== 'object') return null;
-            const offering_key = String(row.offering_key || '').trim();
-            if (!offering_key) return null;
-            return {
-              offering_key,
-              mode: row.mode === 'all_day' ? 'all_day' : 'during_course',
-              quantity: Number(row.quantity) || 0,
-            };
-          })
-          .filter(Boolean)
-          .sort((a, b) => a.offering_key.localeCompare(b.offering_key));
-        return rows.length ? rows : null;
-      }
-      // Narrow historical singleton shape for intent equality only.
-      if (raw && typeof raw === 'object') return { ...raw };
-      return null;
-    })(),
+    course_equipment: normalizeCourseEquipmentForIntentFingerprint(
+      input && input.course_equipment,
+    ),
   };
 }
 
@@ -2797,7 +2827,11 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
     });
   }
   const {
-    buildSunsetQuoteCommand, executeSunsetQuote, buildQuoteProvenance, QUOTE_CHANNELS,
+    buildSunsetQuoteCommand,
+    executeSunsetQuote,
+    buildQuoteProvenance,
+    buildCreateRequoteTransportFromProvenance,
+    QUOTE_CHANNELS,
   } = require('./luna-front-desk-quote-service');
   const {
     resolveTenantBusinessConfigAsync,
@@ -2817,10 +2851,19 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
   const requireDb = isSunsetAdminDbReadEnabled() === true;
   const channel = opts.quoteChannel === 'luna_whatsapp'
     ? QUOTE_CHANNELS.LUNA_WHATSAPP : QUOTE_CHANNELS.MANUAL_STAFF;
+  // Lane-aware re-quote when create carries quote_provenance: recorded quote_lane
+  // selects exact_offering vs components. Single owner for create-time revalidation
+  // (do not also re-check outside the write txn).
+  const provenance = opts.quoteProvenance;
+  let effectiveTransport = { ...transportBody, require_db: requireDb };
+  if (provenance && typeof provenance === 'object') {
+    const laneBuilt = buildCreateRequoteTransportFromProvenance(transportBody, provenance);
+    effectiveTransport = { ...laneBuilt.quoteTransport, require_db: requireDb };
+  }
   const quoteBuilt = buildSunsetQuoteCommand({
     channel,
     trustedLocationId: locationId,
-    transportBody: { ...transportBody, require_db: requireDb },
+    transportBody: effectiveTransport,
     // Trusted server-only: Edit path sets this when locked bundle already has
     // dedicated staff_accommodation. Never copied from transportBody.
     allowExistingAccommodationWhenDisabled:
@@ -2846,7 +2889,6 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
       quote_error: freshQuote.body,
     });
   }
-  const provenance = opts.quoteProvenance;
   if (provenance && typeof provenance === 'object') {
     const freshProv = buildQuoteProvenance(freshQuote.body);
     if (String(provenance.quote_fingerprint || '') !== String(freshProv.quote_fingerprint || '')) {
@@ -3487,6 +3529,14 @@ async function insertCourseEquipmentRows(pg, opts) {
       ? line.service_dates
       : bookingDates;
     for (const serviceDate of serviceDates) {
+      const duringPolicy = line.during_course_policy
+        || (line.metadata && line.metadata.during_course_policy);
+      // New creates must persist explicit policy from quote authority — never null.
+      if (!['included', 'optional', 'unavailable'].includes(duringPolicy)) {
+        throw new TypeError(
+          'course equipment line requires during_course_policy included|optional|unavailable',
+        );
+      }
       const metadata = {
         source: opts.attribution.metadataSource,
         staff_manual_schedule: opts.attribution.staffManualSchedule,
@@ -3494,6 +3544,7 @@ async function insertCourseEquipmentRows(pg, opts) {
         offering_key: offeringKey,
         label: String(line.label || offeringKey),
         course_equipment_mode: mode,
+        during_course_policy: duringPolicy,
         component: 'course_equipment',
         staff_ui_service_type: 'course_equipment',
         price_basis: 'per_person_per_course_date',
@@ -3785,12 +3836,19 @@ async function createSunsetScheduleBooking(pg, opts) {
     ...(canonicalRentals || []),
     ...genericPrep.genericRentals,
   ];
+  // Intent fingerprint CE identity: use transport selection when present, else
+  // provenance wire (quote-owned included) so omit+provenance matches explicit
+  // equivalent selection before the write txn re-quote canonicalizes further.
+  const ceForIntentFp = isPresentCourseEquipmentSelection(input.course_equipment)
+    ? input.course_equipment
+    : (opts.quoteProvenance && opts.quoteProvenance.course_equipment);
   const intentFpOpts = {
     rentals: allRequestedRentals,
     custom_line_items: input.custom_line_items || [],
     accommodation: input.accommodation || null,
+    course_equipment: ceForIntentFp,
   };
-  const idempotencyIntentFp = input.idempotency_key
+  let idempotencyIntentFp = input.idempotency_key
     ? buildScheduleBookingIntentFingerprint(input, locationId, intentFpOpts)
     : null;
 
@@ -4204,9 +4262,87 @@ async function createSunsetScheduleBooking(pg, opts) {
     if (input.idempotency_key) {
       const [k1, k2] = scheduleBookingIdempotencyAdvisoryKeys(clientSlug, input.idempotency_key);
       await pg.query('SELECT pg_advisory_xact_lock($1, $2)', [k1, k2]);
+    }
+
+    // Authoritative Admin quote FIRST (lane-aware when provenance present).
+    // Adopts quote-owned included CE before stock claims and idempotency identity.
+    let authoritativeQuote = null;
+    {
+      const quoteTransport = {
+        ...(rentalPrep.body && typeof rentalPrep.body === 'object' ? rentalPrep.body : {}),
+        guest_name: input.guest_name,
+        guest_phone: input.guest_phone,
+        date_from: input.date_from || (input.service_dates && input.service_dates[0]),
+        date_to: input.date_to
+          || (input.service_dates && input.service_dates[input.service_dates.length - 1]),
+        service_dates: input.service_dates,
+        components: input.components,
+        // Only pass lessons[] when present — never lessons:null (re-validate fails).
+        surfer_count: input.surfer_count,
+        course_equipment: input.course_equipment,
+        custom_line_items: input.custom_line_items || [],
+        rentals: Array.isArray(rentalPrep.body && rentalPrep.body.rentals)
+          ? rentalPrep.body.rentals
+          : (input.rentals || undefined),
+        payment_status: input.payment_status,
+        accommodation: input.accommodation || undefined,
+      };
+      if (Array.isArray(input.lessons)) quoteTransport.lessons = input.lessons;
+      const resolved = await resolveAuthoritativeScheduleQuoteInTxn(pg, {
+        clientSlug,
+        locationId,
+        canonicalRentals,
+        genericRentalRecords: genericPrep.records,
+        rentalPrepBody: quoteTransport,
+        quotePrepBody: quoteTransport,
+        rentalPricingDescriptor,
+        quoteChannel: opts.quoteChannel,
+        quoteProvenance: opts.quoteProvenance,
+        now: opts.now,
+      });
+      authoritativeQuote = resolved.authoritativeQuote;
+      if (resolved.rentalPricingDescriptor) {
+        rentalPricingDescriptor = resolved.rentalPricingDescriptor;
+      }
+      // Quote-owned included expansion: adopt exact re-quoted wire only (not write invent).
+      if (!isPresentCourseEquipmentSelection(input.course_equipment)
+        && isPresentCourseEquipmentSelection(
+          authoritativeQuote && authoritativeQuote.course_equipment,
+        )) {
+        input.course_equipment = authoritativeQuote.course_equipment;
+      }
+      // Prefer quote echo even when transport already had CE (canonical identity).
+      if (isPresentCourseEquipmentSelection(
+        authoritativeQuote && authoritativeQuote.course_equipment,
+      )) {
+        input.course_equipment = authoritativeQuote.course_equipment;
+      }
+      const provCe = opts.quoteProvenance && opts.quoteProvenance.course_equipment;
+      if (isPresentCourseEquipmentSelection(provCe)
+        && !isPresentCourseEquipmentSelection(input.course_equipment)) {
+        throwSunsetPriceFail(422, 'course_equipment_required_by_quote', {
+          reason_code: 'course_equipment_required_by_quote',
+          error: 'quote provenance requires course equipment that create would omit',
+        });
+      }
+    }
+
+    // Canonical intent fingerprint after quote-owned CE is known.
+    const canonicalIntentFpOpts = {
+      rentals: allRequestedRentals,
+      custom_line_items: input.custom_line_items || [],
+      accommodation: input.accommodation || null,
+      course_equipment: input.course_equipment,
+    };
+    if (input.idempotency_key) {
+      idempotencyIntentFp = buildScheduleBookingIntentFingerprint(
+        input, locationId, canonicalIntentFpOpts,
+      );
       const lockedRows = await findIdempotentBooking(pg, clientSlug, input.idempotency_key);
       if (lockedRows && lockedRows.length) {
-        const evaluated = evaluateIdempotentReplay(lockedRows, input, locationId, intentFpOpts);
+        const evaluated = evaluateIdempotentReplay(
+          lockedRows, input, locationId, canonicalIntentFpOpts,
+        );
         if (evaluated.replay) {
           await pg.query('ROLLBACK');
           return { ok: true, status: evaluated.status, body: evaluated.body };
@@ -4218,10 +4354,8 @@ async function createSunsetScheduleBooking(pg, opts) {
       }
     }
 
-    // Physical stock: lock exact offering rows + recheck remaining inside THIS
-    // transaction before any booking/service insert. Fail closed when stock is
-    // null (not configured), missing, or insufficient.
-    // Includes standalone rentals[] AND course_equipment rows (exact offering_key).
+    // Physical stock AFTER canonical CE is known. Fail closed with no inserts
+    // when included gear (or any CE) is unavailable.
     {
       const {
         assertRentalStockClaimsInTxn,
@@ -4235,6 +4369,12 @@ async function createSunsetScheduleBooking(pg, opts) {
       const stockDateTo = input.date_to
         || (input.service_dates && input.service_dates[input.service_dates.length - 1])
         || firstDate;
+      // Authoritative course service days for CE stock (not first..last range).
+      const ceServiceDates = Array.isArray(input.service_dates) && input.service_dates.length
+        ? input.service_dates
+        : (Array.isArray(input.lessons)
+          ? input.lessons.map((l) => l && l.date).filter(Boolean)
+          : null);
       const rentalClaims = collectRentalStockClaims(
         allRequestedRentals, stockDateFrom, stockDateTo,
       );
@@ -4252,7 +4392,10 @@ async function createSunsetScheduleBooking(pg, opts) {
         };
       }
       const ceClaims = collectCourseEquipmentStockClaims(
-        input.course_equipment, stockDateFrom, stockDateTo,
+        input.course_equipment,
+        stockDateFrom,
+        stockDateTo,
+        ceServiceDates,
       );
       if (!ceClaims.ok) {
         await pg.query('ROLLBACK');
@@ -4286,47 +4429,6 @@ async function createSunsetScheduleBooking(pg, opts) {
             reason_code: stockAssert.error,
           },
         };
-      }
-    }
-
-    // Authoritative Admin quote for Create (course / private / rental).
-    // Prefer validated input (canonical lessons[]) over raw rental prep body.
-    let authoritativeQuote = null;
-    {
-      const quoteTransport = {
-        ...(rentalPrep.body && typeof rentalPrep.body === 'object' ? rentalPrep.body : {}),
-        guest_name: input.guest_name,
-        guest_phone: input.guest_phone,
-        date_from: input.date_from || (input.service_dates && input.service_dates[0]),
-        date_to: input.date_to
-          || (input.service_dates && input.service_dates[input.service_dates.length - 1]),
-        service_dates: input.service_dates,
-        components: input.components,
-        // Only pass lessons[] when present — never lessons:null (re-validate fails).
-        surfer_count: input.surfer_count,
-        course_equipment: input.course_equipment,
-        custom_line_items: input.custom_line_items || [],
-        rentals: Array.isArray(rentalPrep.body && rentalPrep.body.rentals)
-          ? rentalPrep.body.rentals
-          : (input.rentals || undefined),
-        payment_status: input.payment_status,
-      };
-      if (Array.isArray(input.lessons)) quoteTransport.lessons = input.lessons;
-      const resolved = await resolveAuthoritativeScheduleQuoteInTxn(pg, {
-        clientSlug,
-        locationId,
-        canonicalRentals,
-        genericRentalRecords: genericPrep.records,
-        rentalPrepBody: quoteTransport,
-        quotePrepBody: quoteTransport,
-        rentalPricingDescriptor,
-        quoteChannel: opts.quoteChannel,
-        quoteProvenance: opts.quoteProvenance,
-        now: opts.now,
-      });
-      authoritativeQuote = resolved.authoritativeQuote;
-      if (resolved.rentalPricingDescriptor) {
-        rentalPricingDescriptor = resolved.rentalPricingDescriptor;
       }
     }
 

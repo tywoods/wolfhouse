@@ -36,6 +36,22 @@ class FakeBot:
 
     def __call__(self, path, payload):
         self.calls.append((path, dict(payload or {})))
+        if "rental-price" in path:
+            return {
+                "ok": True,
+                "success": True,
+                "result": {
+                    "amount_cents": 4000,
+                    "amount_eur": 40,
+                    "unit_amount_cents": 4000,
+                    "currency": "EUR",
+                    "item": (payload or {}).get("item"),
+                    "duration": (payload or {}).get("duration"),
+                },
+                "amount_cents": 4000,
+                "amount_eur": 40,
+                "currency": "EUR",
+            }
         return {
             "success": True,
             "booking_id": "bk-eq-1",
@@ -128,14 +144,17 @@ check(
     any("booking-create" in p for p, _ in fake.calls),
     fake.calls,
 )
-if fake.calls:
-    body = fake.calls[0][1]
+create_bodies = [body for p, body in fake.calls if "booking-create" in p]
+if create_bodies:
+    body = create_bodies[0]
     check(
         "[4] rental_pricing offering_key preserved",
         isinstance(body.get("rental_pricing"), dict)
         and body["rental_pricing"].get("offering_key") == "foil_board_rental",
         body,
     )
+else:
+    check("[4] rental_pricing offering_key preserved", False, fake.calls)
 
 # [5] Ordinary lesson + morning preference notes still allowed (no equipment intent).
 fake.calls.clear()
@@ -155,6 +174,84 @@ check(
     out.get("success") is False and out.get("error") == "equipment_must_use_structured_fields",
     out,
 )
+
+# [7] Alias full_day_equipment_addon + course_equipment all_day → overlap reject.
+fake.calls.clear()
+out = json.loads(
+    mod.create_sunset_booking(
+        base(
+            components={
+                "course": {"course_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "tier_key": "1_day", "quantity": 1},
+                "full_day_equipment_addon": {"quantity": 1},
+            },
+            course_equipment={"mode": "all_day", "quantity": 1},
+            quote_provenance={
+                "quote_fingerprint": "fp-allday",
+                "total_cents": 5000,
+                "course_equipment": [{"offering_key": "board_rental", "mode": "all_day", "quantity": 1}],
+                "line_items": [
+                    {"total_cents": 4000},
+                    {"course_equipment": True, "course_equipment_mode": "all_day", "quantity": 1, "total_cents": 1000},
+                ],
+            },
+            service_dates=["2026-08-12"],
+        )
+    )
+)
+check(
+    "[7] alias full_day + course all_day rejected",
+    out.get("success") is False
+    and out.get("error") in (
+        "course_equipment_full_day_overlap",
+        "full_day_equipment_extension_not_with_course",
+    ),
+    out,
+)
+check("[7] no booking-create", not any("booking-create" in p for p, _ in fake.calls), fake.calls)
+
+# [8] Canonical full_day_equipment_extension + course component rejected (server owners).
+fake.calls.clear()
+out = json.loads(
+    mod.create_sunset_booking(
+        base(
+            components={
+                "course": {"course_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "tier_key": "1_day", "quantity": 1},
+                "full_day_equipment_extension": {"enabled": True, "dates": {"2026-08-12": 1}},
+            },
+            service_dates=["2026-08-12"],
+        )
+    )
+)
+check(
+    "[8] canonical full_day + course rejected",
+    out.get("success") is False
+    and out.get("error") == "full_day_equipment_extension_not_with_course",
+    out,
+)
+check("[8] no booking-create", not any("booking-create" in p for p, _ in fake.calls), fake.calls)
+
+# [9] Alias full_day alone (no course) still maps and reaches booking-create.
+fake.calls.clear()
+out = json.loads(
+    mod.create_sunset_booking(
+        base(
+            components={
+                "lesson": {"quantity": 1, "time_preference": "morning"},
+                "full_day_equipment_addon": {"quantity": 1},
+            },
+            service_dates=["2026-08-12"],
+        )
+    )
+)
+check("[9] alias full_day without course accepted by plugin guard", out.get("success") is True, out)
+if fake.calls:
+    body = fake.calls[0][1]
+    comps = body.get("components") or {}
+    check(
+        "[9] alias mapped to canonical extension",
+        "full_day_equipment_extension" in comps and "full_day_equipment_addon" not in comps,
+        comps,
+    )
 
 print(f"\nResults: {PASSED} passed, {FAILED} failed")
 sys.exit(1 if FAILED else 0)

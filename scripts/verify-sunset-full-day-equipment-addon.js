@@ -68,13 +68,31 @@ assert('isFullDayEquipmentAddon false for surfboard',
 console.log('\n[2] Normalize + validate');
 // Frozen refDate keeps fixture ISOs future-stable (same pattern as date-boundary verifier).
 const REF = new Date('2026-07-13T12:00:00Z');
+// full_day_equipment_extension is for non-course part-day lesson/rental only.
+// Course keep-all-day uses course_equipment mode:all_day.
 const okBody = {
   guest_name: 'Ana', payment_status: 'unpaid', service_dates: ['2026-07-20', '2026-07-21'],
-  components: { course: { quantity: 3, course_id: 'c1', tier_key: '1_week' }, full_day_equipment_extension: { enabled: true, dates: { '2026-07-20': 3, '2026-07-21': 2 } } },
+  components: {
+    lesson: { quantity: 3, category: 'group' },
+    full_day_equipment_extension: { enabled: true, dates: { '2026-07-20': 3, '2026-07-21': 2 } },
+  },
 };
 const okV = validateScheduleBookingBody(okBody, { refDate: REF });
-assert('valid combo passes', okV.ok === true, okV.error);
+assert('valid lesson+extension combo passes', okV.ok === true, okV.error);
 assert('addon dates preserved', okV.ok && JSON.stringify(okV.value.components.full_day_equipment_extension.dates) === JSON.stringify({ '2026-07-20': 3, '2026-07-21': 2 }));
+
+const coursePlusExt = {
+  guest_name: 'Ana', payment_status: 'unpaid', service_dates: ['2026-07-20', '2026-07-21'],
+  components: {
+    course: { quantity: 3, course_id: 'c1', tier_key: '1_week' },
+    full_day_equipment_extension: { enabled: true, dates: { '2026-07-20': 3, '2026-07-21': 2 } },
+  },
+};
+const courseExtV = validateScheduleBookingBody(coursePlusExt, { refDate: REF });
+assert('course+extension rejected',
+  courseExtV.ok === false
+  && /full_day_equipment_extension_not_with_course/.test(String(courseExtV.error || '')),
+  courseExtV.error);
 
 const badDate = JSON.parse(JSON.stringify(okBody));
 badDate.components.full_day_equipment_extension.dates = { '2026-08-01': 1 };
@@ -86,7 +104,10 @@ assert('add-on alone rejected', validateScheduleBookingBody(addonAlone, { refDat
 // Wall-clock past date (no freeze): real explicit_past_date rejection must still fire.
 const realPast = validateScheduleBookingBody({
   guest_name: 'Ana', payment_status: 'unpaid', service_dates: ['2020-01-01'],
-  components: { course: { quantity: 1, course_id: 'c1', tier_key: '1_week' }, full_day_equipment_extension: { enabled: true, dates: { '2020-01-01': 1 } } },
+  components: {
+    lesson: { quantity: 1, category: 'group' },
+    full_day_equipment_extension: { enabled: true, dates: { '2020-01-01': 1 } },
+  },
 });
 assert('explicit past date rejected', realPast.ok === false && realPast.error === 'explicit_past_date', JSON.stringify(realPast));
 
@@ -141,7 +162,7 @@ function mockInsertPg() {
   assert('subtotal from snapshots = 5000', sumUnpaid.subtotal_cents === 5000);
   assert('total mirrors subtotal (authoritative)', sumUnpaid.total_cents === 5000);
   assert('no double counting (2 line items)', sumUnpaid.line_items.length === 2);
-  assert('compact label "Material · qty"', /Material el resto del día · 3/.test(sumUnpaid.line_items[0].label));
+  assert('compact label English "Full-day gear · qty"', /Full-day gear · 3/.test(sumUnpaid.line_items[0].label));
 
   // Stale client total (e.g. browser claims 999) is irrelevant: server recomputes from rows.
   const stale = buildPaymentSummary(PRICES, { amount_paid_cents: 0, metadata: { client_claimed_total_cents: 999 } }, services, 'config', 0);

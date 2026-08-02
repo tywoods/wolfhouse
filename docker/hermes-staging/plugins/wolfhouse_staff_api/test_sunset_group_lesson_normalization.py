@@ -109,7 +109,9 @@ check("[0] canonical top-level course_equipment contract",
       and tool_course_equipment.get("type") == "object"
       and tool_course_equipment.get("required") == ["mode", "quantity"]
       and tool_course_equipment.get("properties", {}).get("mode", {}).get("enum") == ["during_course", "all_day"]
-      and "top-level" in tool_course_equipment.get("description", ""),
+      and ("Guest gear intent" in tool_course_equipment.get("description", "")
+           or "intent" in tool_course_equipment.get("description", "").lower())
+      and "wire array" in tool_course_equipment.get("description", "").lower(),
       tool_course_equipment)
 
 # [0b] Free during_course and paid all_day both post the exact site wire array

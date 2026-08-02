@@ -18,7 +18,6 @@ const {
 } = require('./sunset-schedule-booking-writes');
 const { priceSunsetBookingAfterCreate } = require('./sunset-stripe-payment-links');
 const {
-  validateQuoteProvenanceForCreate,
   rejectClientSuppliedMoney,
 } = require('./luna-front-desk-quote-service');
 const { staffFacingSunsetPriceError } = require('./sunset-course-lesson-price-lookup');
@@ -168,23 +167,11 @@ async function executeSunsetBookingCreate(pg, command) {
     };
   }
 
+  // Lane-aware provenance revalidation + fingerprint compare run exactly once
+  // inside createSunsetScheduleBooking → resolveAuthoritativeScheduleQuoteInTxn
+  // (quote_lane selects exact_offering vs components). Always pass provenance
+  // for course, rental, and mixed creates — never drop it for non-rental only.
   const provenance = command.transportBody.quote_provenance || command.transportBody.quoteProvenance;
-  const hasCanonicalRentals = Array.isArray(dateNorm.body.rentals);
-  // Canonical rentals re-quote + provenance check happen inside the write transaction.
-  if (provenance && !hasCanonicalRentals) {
-    const { resolveTenantBusinessConfigAsync } = require('./tenant-business-config');
-    const adminCfgForStale = await resolveTenantBusinessConfigAsync(SUNSET_CLIENT_SLUG, {
-      locationId: command.locationId,
-      pgClient: pg,
-    });
-    const staleCheck = await validateQuoteProvenanceForCreate(pg, {
-      ...command,
-      transportBody: { ...dateNorm.body, quote_provenance: provenance },
-    }, provenance, { adminCfg: adminCfgForStale });
-    if (!staleCheck.ok) {
-      return staleCheck;
-    }
-  }
 
   const result = await createSunsetScheduleBooking(pg, {
     clientSlug: SUNSET_CLIENT_SLUG,
@@ -192,7 +179,7 @@ async function executeSunsetBookingCreate(pg, command) {
     locationId: command.locationId,
     actor: command.actor,
     now: command.now,
-    quoteProvenance: hasCanonicalRentals ? provenance : null,
+    quoteProvenance: provenance && typeof provenance === 'object' ? provenance : null,
     quoteChannel: command.channel,
   });
 

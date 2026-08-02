@@ -66,14 +66,21 @@
           "must_not_ask_booking_name_before_quote": true,
           "required_tool_calls_before_next_turn": [
             {
-              "name": "get_sunset_group_lesson_quote",
+              "name": "get_sunset_lesson_catalog",
+              "arguments": {
+                "location_id": "sunset-somo"
+              }
+            },
+            {
+              "name": "get_sunset_offering_quote",
               "arguments": {
                 "location_id": "sunset-somo",
-                "service_dates": ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23"],
-                "quantity": 1
+                "quantity": 1,
+                "service_dates": ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23"]
               }
             }
           ],
+          "must_not_call_tools": ["get_sunset_group_lesson_quote"],
           "asks_one_next_question": true
         }
       }

@@ -252,9 +252,24 @@ function buildCourseEquipmentQuoteLines({
   const {
     isPresentCourseEquipmentSelection,
     normalizeEquipmentOptions,
+    defaultFreeDuringCourseEquipmentSelection,
   } = require('./sunset-course-equipment-options');
+  const courseList = Array.isArray(courses) && courses.length
+    ? courses
+    : (course ? [course] : []);
+  // Quote-owned included expansion: when Luna/staff omit course_equipment, any
+  // equipment_options with during_course_policy:'included' become canonical wire
+  // + €0 lines + provenance. Optional €0 is never auto-included.
   if (!isPresentCourseEquipmentSelection(selection)) {
-    return { ok: true, lines: [], total_cents: 0, course_equipment: null };
+    const autoIncluded = defaultFreeDuringCourseEquipmentSelection({
+      courses: courseList,
+      packs: courseList,
+      surfers,
+    });
+    if (!autoIncluded) {
+      return { ok: true, lines: [], total_cents: 0, course_equipment: null };
+    }
+    selection = autoIncluded;
   }
   // Luna sends only guest intent ({mode, quantity}). The Staff API owns the
   // Admin-backed offering identities and expands that intent exactly once.
@@ -268,7 +283,6 @@ function buildCourseEquipmentQuoteLines({
       || !Number.isInteger(quantity) || quantity < 1 || quantity > surfers) {
       return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment' } };
     }
-    const courseList = Array.isArray(courses) && courses.length ? courses : (course ? [course] : []);
     let commonKeys = null;
     for (const item of courseList) {
       const options = normalizeEquipmentOptions(item && item.equipment_options);
@@ -869,6 +883,9 @@ function buildQuoteProvenance(quoteBody) {
     quote_version: QUOTE_PROVENANCE_VERSION,
     quote_fingerprint: fp,
     quoted_at: quoteBody.quoted_at,
+    // exact_offering | components — create revalidation must replay this lane,
+    // never infer it from a projected offering_id on components quotes.
+    quote_lane: quoteBody.quote_lane || null,
     offering_id: quoteBody.offering_id,
     offering_item_code: quoteBody.offering_item_code,
     course_id: quoteBody.course_id,
@@ -890,6 +907,7 @@ function computeQuoteFingerprint(quoteBody) {
     v: QUOTE_PROVENANCE_VERSION,
     client_slug: SUNSET_CLIENT_SLUG,
     location_id: quoteBody.location_id,
+    quote_lane: quoteBody.quote_lane || null,
     offering_id: quoteBody.offering_id,
     offering_item_code: quoteBody.offering_item_code,
     course_id: quoteBody.course_id,
@@ -1253,6 +1271,7 @@ function buildOfferingQuoteResult(command, catalog, offering, lineOut) {
     client_slug: SUNSET_CLIENT_SLUG,
     location_id: command.locationId,
     channel: command.channel,
+    quote_lane: 'exact_offering',
     offering_id: line.offering_id,
     offering_type: offering.offering_type,
     course_id: line.course_id,
@@ -1293,21 +1312,42 @@ function buildOfferingQuoteResult(command, catalog, offering, lineOut) {
 }
 
 function appendOfferingCourseEquipment(command, offering, result, catalog, serviceDates) {
-  const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
-  const selection = command.transportBody.course_equipment;
-  if (!isPresentCourseEquipmentSelection(selection) || !result.ok) return result;
+  if (!result.ok) return result;
   if (offering.offering_type !== 'course' && offering.offering_type !== 'private_lesson') {
-    return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment' } };
+    const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
+    if (isPresentCourseEquipmentSelection(command.transportBody.course_equipment)) {
+      return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment' } };
+    }
+    return result;
   }
+  // Prefer Admin pack / private equipment_options (course-owned authority) when the
+  // catalog projection omitted them — exact-offering re-quote must match components.
+  let courseForEquipment = offering;
+  const adminCfg = catalog && catalog._adminCfg;
+  if (offering.offering_type === 'course') {
+    const packs = (adminCfg && adminCfg.surf_packs) || (catalog && catalog.surf_packs) || [];
+    const courseId = String(offering.course_id || '').trim();
+    const pack = packs.find((p) => String(p.pack_id || p.course_id || '') === courseId);
+    if (pack && Array.isArray(pack.equipment_options) && pack.equipment_options.length) {
+      courseForEquipment = { ...offering, equipment_options: pack.equipment_options };
+    }
+  } else if (offering.offering_type === 'private_lesson') {
+    const plCfg = (adminCfg && adminCfg.private_lesson) || (catalog && catalog.private_lesson) || null;
+    if (plCfg && Array.isArray(plCfg.equipment_options) && plCfg.equipment_options.length) {
+      courseForEquipment = { ...offering, equipment_options: plCfg.equipment_options };
+    }
+  }
+  // Always run through CE builder: omitted selection expands included policy gear.
   const equipmentOut = buildCourseEquipmentQuoteLines({
-    selection,
-    course: offering,
+    selection: command.transportBody.course_equipment,
+    course: courseForEquipment,
     surfers: result.body.quantity,
     locationId: command.locationId,
     catalog,
     serviceDates: serviceDates || result.body.service_dates || command.transportBody.service_dates,
   });
   if (!equipmentOut.ok) return equipmentOut;
+  if (!equipmentOut.lines.length) return result;
   try {
     result.body.total_cents = checkedCourseEquipmentAdd(
       result.body.total_cents,
@@ -1908,6 +1948,50 @@ const FULL_DAY_EQUIPMENT_ADDON_KEY = 'full_day_equipment_extension';
 const FULL_DAY_EQUIPMENT_ADDON_ITEM_CODE = 'full_day_equipment_extension__day';
 
 /**
+ * full_day_equipment_extension is only for non-course part-day lesson/rental.
+ * Course keep-all-day uses course_equipment mode:all_day exclusively.
+ * Reject extension whenever a course/private course component is present, and
+ * when extension coexists with course_equipment all_day.
+ */
+function rejectCourseFullDayEquipmentOverlap(input) {
+  const comps = (input && input.components) || {};
+  const hasCourse = !!(comps.course || comps.private_lesson
+    || (Array.isArray(input.lessons) && input.lessons.some((l) => l && l.kind === 'group' && l.course_id)));
+  const hasExtension = !!comps[FULL_DAY_EQUIPMENT_ADDON_KEY];
+  if (!hasExtension) return null;
+  if (hasCourse) {
+    return {
+      ok: false,
+      status: 422,
+      body: {
+        success: false,
+        reason: 'full_day_equipment_extension_not_with_course',
+        reason_code: 'full_day_equipment_extension_not_with_course',
+        error: 'full_day_equipment_extension is only for non-course part-day lesson/rental; course keep-all-day uses course_equipment mode all_day',
+      },
+    };
+  }
+  const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
+  if (isPresentCourseEquipmentSelection(input.course_equipment)) {
+    const raw = input.course_equipment;
+    const rows = Array.isArray(raw) ? raw : [raw];
+    if (rows.some((r) => r && (r.mode === 'all_day' || r.all_day === true))) {
+      return {
+        ok: false,
+        status: 422,
+        body: {
+          success: false,
+          reason: 'course_equipment_full_day_overlap',
+          reason_code: 'course_equipment_full_day_overlap',
+          error: 'course_equipment all_day must not overlap full_day_equipment_extension',
+        },
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * Resolve full-day unit cents from the quote catalog / injected Admin cfg first
  * (same Admin rows the projection already trusted). Fall back to school config
  * baseline only when catalog has no active row.
@@ -2236,6 +2320,10 @@ async function quoteExactRentalOfferingLine(pg, command, catalog, rental, servic
 async function quoteByComponents(pg, command, catalog, requireDb) {
   const resolved = resolveQuoteComponentsAndRentalsInput(command);
   if (!resolved.ok) return resolved;
+  {
+    const overlap = rejectCourseFullDayEquipmentOverlap(resolved.input || command.transportBody);
+    if (overlap) return overlap;
+  }
   const { input, rentalsNorm } = resolved;
   const serviceDates = input.service_dates || [];
   const canonicalLessons = Array.isArray(input.lessons) ? input.lessons : [];
@@ -2323,10 +2411,13 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
   // equipment_included, rental-catalog prices, or client money.
   // Total = independent mode unit × qty × unique course service dates.
   // Multi-Group courses: every course must authorize; equal unit amounts required.
-  // Absent wire forms (undefined/null/[]) are no selection — not orphan CE.
+  // Absent wire expands policy==='included' only (quote-owned, not write inject).
   const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
   let courseEquipmentEcho = null;
-  if (isPresentCourseEquipmentSelection(input.course_equipment)) {
+  const hasCourseComponent = !!(input.components.course || input.components.private_lesson
+    || groupLessons.length || selectedCourses.length);
+  const hasExplicitCe = isPresentCourseEquipmentSelection(input.course_equipment);
+  if (hasCourseComponent || hasExplicitCe) {
     let coursesForEquipment = [];
     let surfers = null;
     let equipmentDates = serviceDates;
@@ -2415,33 +2506,37 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
       const sessions = input.components.private_lesson.sessions || [];
       const sessionDates = sessions.map((s) => String(s.date).slice(0, 10)).filter(Boolean);
       equipmentDates = sessionDates.length ? sessionDates : serviceDates;
-    } else {
+    } else if (hasExplicitCe) {
       return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment' } };
     }
-    const equipmentOut = buildCourseEquipmentQuoteLines({
-      selection: input.course_equipment,
-      courses: coursesForEquipment,
-      surfers,
-      locationId: command.locationId,
-      catalog,
-      serviceDates: equipmentDates,
-    });
-    if (!equipmentOut.ok) return equipmentOut;
-    try {
-      totalCents = checkedCourseEquipmentAdd(totalCents, equipmentOut.total_cents, 'quote total');
-    } catch (err) {
-      return {
-        ok: false,
-        status: 422,
-        body: {
-          success: false,
-          reason: 'invalid_course_equipment',
-          error: String(err.message || err),
-        },
-      };
+    if (coursesForEquipment.length) {
+      const equipmentOut = buildCourseEquipmentQuoteLines({
+        selection: input.course_equipment,
+        courses: coursesForEquipment,
+        surfers,
+        locationId: command.locationId,
+        catalog,
+        serviceDates: equipmentDates,
+      });
+      if (!equipmentOut.ok) return equipmentOut;
+      if (equipmentOut.lines.length) {
+        try {
+          totalCents = checkedCourseEquipmentAdd(totalCents, equipmentOut.total_cents, 'quote total');
+        } catch (err) {
+          return {
+            ok: false,
+            status: 422,
+            body: {
+              success: false,
+              reason: 'invalid_course_equipment',
+              error: String(err.message || err),
+            },
+          };
+        }
+        lines.push(...equipmentOut.lines);
+        courseEquipmentEcho = equipmentOut.course_equipment;
+      }
     }
-    lines.push(...equipmentOut.lines);
-    courseEquipmentEcho = equipmentOut.course_equipment;
   }
 
   if (rentalsNorm.present) {
@@ -2582,6 +2677,7 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
     client_slug: SUNSET_CLIENT_SLUG,
     location_id: command.locationId,
     channel: command.channel,
+    quote_lane: 'components',
     course_equipment: courseEquipmentEcho,
     line_items: lines,
     offering_id: primary.offering_id,
@@ -2611,6 +2707,10 @@ function quoteByComponentsSync(command, catalog, requireDb) {
   // (quoteGroupLessonsIndividually and CE paths already support sync when pg is null.)
   const resolved = resolveQuoteComponentsAndRentalsInput(command);
   if (!resolved.ok) return resolved;
+  {
+    const overlap = rejectCourseFullDayEquipmentOverlap(resolved.input || command.transportBody);
+    if (overlap) return overlap;
+  }
   const { input, rentalsNorm } = resolved;
   const serviceDates = input.service_dates || [];
   const canonicalLessons = Array.isArray(input.lessons) ? input.lessons : [];
@@ -2689,7 +2789,10 @@ function quoteByComponentsSync(command, catalog, requireDb) {
   // Course-owned multi-item equipment (sync path — same authority as async).
   const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
   let courseEquipmentEcho = null;
-  if (isPresentCourseEquipmentSelection(input.course_equipment)) {
+  const hasCourseComponentSync = !!(input.components.course || input.components.private_lesson
+    || groupLessons.length || selectedCourses.length);
+  const hasExplicitCeSync = isPresentCourseEquipmentSelection(input.course_equipment);
+  if (hasCourseComponentSync || hasExplicitCeSync) {
     let coursesForEquipment = [];
     let surfers = null;
     let equipmentDates = serviceDates;
@@ -2777,33 +2880,37 @@ function quoteByComponentsSync(command, catalog, requireDb) {
       const sessions = input.components.private_lesson.sessions || [];
       const sessionDates = sessions.map((s) => String(s.date).slice(0, 10)).filter(Boolean);
       equipmentDates = sessionDates.length ? sessionDates : serviceDates;
-    } else {
+    } else if (hasExplicitCeSync) {
       return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment' } };
     }
-    const equipmentOut = buildCourseEquipmentQuoteLines({
-      selection: input.course_equipment,
-      courses: coursesForEquipment,
-      surfers,
-      locationId: command.locationId,
-      catalog,
-      serviceDates: equipmentDates,
-    });
-    if (!equipmentOut.ok) return equipmentOut;
-    try {
-      totalCents = checkedCourseEquipmentAdd(totalCents, equipmentOut.total_cents, 'quote total');
-    } catch (err) {
-      return {
-        ok: false,
-        status: 422,
-        body: {
-          success: false,
-          reason: 'invalid_course_equipment',
-          error: String(err.message || err),
-        },
-      };
+    if (coursesForEquipment.length) {
+      const equipmentOut = buildCourseEquipmentQuoteLines({
+        selection: input.course_equipment,
+        courses: coursesForEquipment,
+        surfers,
+        locationId: command.locationId,
+        catalog,
+        serviceDates: equipmentDates,
+      });
+      if (!equipmentOut.ok) return equipmentOut;
+      if (equipmentOut.lines.length) {
+        try {
+          totalCents = checkedCourseEquipmentAdd(totalCents, equipmentOut.total_cents, 'quote total');
+        } catch (err) {
+          return {
+            ok: false,
+            status: 422,
+            body: {
+              success: false,
+              reason: 'invalid_course_equipment',
+              error: String(err.message || err),
+            },
+          };
+        }
+        lines.push(...equipmentOut.lines);
+        courseEquipmentEcho = equipmentOut.course_equipment;
+      }
     }
-    lines.push(...equipmentOut.lines);
-    courseEquipmentEcho = equipmentOut.course_equipment;
   }
 
   if (rentalsNorm.present) {
@@ -2918,6 +3025,7 @@ function quoteByComponentsSync(command, catalog, requireDb) {
     client_slug: SUNSET_CLIENT_SLUG,
     location_id: command.locationId,
     channel: command.channel,
+    quote_lane: 'components',
     course_equipment: courseEquipmentEcho,
     line_items: lines,
     offering_id: primary.offering_id,
@@ -3035,40 +3143,67 @@ async function executeSunsetQuote(pg, command, opts = {}) {
 }
 
 /**
- * Re-quote with the same inputs and compare provenance — used before booking create.
+ * Build create-time re-quote transport from create body + recorded provenance lane.
+ *
+ * quote_lane exact_offering|components selects the path. Never infer lane from a
+ * projected offering_id on components quotes (that forks stale-price checks).
+ * Legacy provenance without quote_lane keeps Slice A offering_id presence fallback.
+ *
+ * Create intent (dates/qty/equipment/rentals/custom/accommodation) comes from body;
+ * offering identity for exact_offering comes from the recorded provenance.
+ */
+function buildCreateRequoteTransportFromProvenance(body, provenance) {
+  const b = body && typeof body === 'object' ? body : {};
+  const prov = provenance && typeof provenance === 'object' ? provenance : {};
+  const quotedOfferingId = String(prov.offering_id || '').trim();
+  const lane = String(prov.quote_lane || '').trim();
+  let useExactOfferingLane;
+  if (lane === 'exact_offering') useExactOfferingLane = true;
+  else if (lane === 'components') useExactOfferingLane = false;
+  else useExactOfferingLane = !!quotedOfferingId; // legacy pre-lane provenance
+
+  const courseComponent = b.components && b.components.course && typeof b.components.course === 'object'
+    ? b.components.course
+    : null;
+  const quoteTransport = {
+    ...b,
+    service_dates: b.service_dates || prov.service_dates,
+    quantity: courseComponent && courseComponent.quantity != null
+      ? courseComponent.quantity
+      : (b.quantity != null ? b.quantity : prov.quantity),
+    require_db: true,
+  };
+  if (useExactOfferingLane) {
+    quoteTransport.offering_id = quotedOfferingId || String(b.offering_id || '').trim();
+    quoteTransport.course_id = courseComponent && courseComponent.course_id != null
+      ? courseComponent.course_id
+      : (b.course_id != null ? b.course_id : prov.course_id);
+    quoteTransport.tier_key = courseComponent && courseComponent.tier_key != null
+      ? courseComponent.tier_key
+      : (b.tier_key != null ? b.tier_key : prov.tier_key);
+  } else {
+    quoteTransport.components = b.components;
+    if (Array.isArray(b.rentals)) quoteTransport.rentals = b.rentals;
+    delete quoteTransport.offering_id;
+  }
+  return {
+    quoteTransport,
+    quote_lane: useExactOfferingLane ? 'exact_offering' : 'components',
+  };
+}
+
+/**
+ * Re-quote with the same lane + current create intent and compare provenance.
+ * Shared by tests; production create owns the same transport via
+ * resolveAuthoritativeScheduleQuoteInTxn (exactly once inside the write txn).
  */
 async function validateQuoteProvenanceForCreate(pg, command, provenance, opts = {}) {
   if (!provenance || typeof provenance !== 'object') {
     return { ok: true };
   }
-  const body = command.transportBody;
-  const quotedOfferingId = String(provenance.offering_id || '').trim();
-  const courseComponent = body.components && body.components.course && typeof body.components.course === 'object'
-    ? body.components.course
-    : null;
-  const quoteTransport = {
-    ...body,
-    service_dates: body.service_dates || provenance.service_dates,
-    quantity: courseComponent && courseComponent.quantity != null
-      ? courseComponent.quantity
-      : (body.quantity != null ? body.quantity : provenance.quantity),
-    require_db: true,
-  };
-  if (quotedOfferingId) {
-    quoteTransport.offering_id = quotedOfferingId;
-    quoteTransport.course_id = courseComponent && courseComponent.course_id != null
-      ? courseComponent.course_id
-      : (body.course_id != null ? body.course_id : provenance.course_id);
-    quoteTransport.tier_key = courseComponent && courseComponent.tier_key != null
-      ? courseComponent.tier_key
-      : (body.tier_key != null ? body.tier_key : provenance.tier_key);
-  } else if (quoteShouldUseComponentsPath(body)) {
-    quoteTransport.components = body.components;
-    if (Array.isArray(body.rentals)) {
-      quoteTransport.rentals = body.rentals;
-    }
-    delete quoteTransport.offering_id;
-  }
+  const { quoteTransport } = buildCreateRequoteTransportFromProvenance(
+    command.transportBody, provenance,
+  );
   const quoteResult = await executeSunsetQuote(pg, {
     ...command,
     transportBody: quoteTransport,
@@ -3104,7 +3239,7 @@ async function validateQuoteProvenanceForCreate(pg, command, provenance, opts = 
       },
     };
   }
-  return { ok: true, current_provenance: fresh };
+  return { ok: true, current_provenance: fresh, quote_body: quoteResult.body };
 }
 
 module.exports = {
@@ -3118,6 +3253,7 @@ module.exports = {
   executeSunsetQuoteSync,
   computeQuoteFingerprint,
   buildQuoteProvenance,
+  buildCreateRequoteTransportFromProvenance,
   validateQuoteProvenanceForCreate,
   rejectClientSuppliedMoney,
   computeBillableUnits,

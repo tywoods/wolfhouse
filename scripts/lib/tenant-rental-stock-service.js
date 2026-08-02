@@ -418,14 +418,19 @@ async function assertRentalStockClaimsInTxn(pg, opts = {}) {
       || (row.resolved_location_id == null && row.location_id == null ? 'client' : 'location');
     const dateFrom = String(claim.date_from || claim.dateFrom || '').slice(0, 10);
     const dateTo = String(claim.date_to || claim.dateTo || dateFrom).slice(0, 10);
+    // Prefer explicit claim.dates (course service days) over inclusive span so
+    // non-contiguous schedules do not check/charge off-days.
+    const claimDates = Array.isArray(claim.dates)
+      ? [...new Set(claim.dates.map((d) => String(d || '').slice(0, 10)).filter(isIsoDate))].sort()
+      : null;
 
     // eslint-disable-next-line no-await-in-loop
     const reservations = await loadActiveReservations(pg, {
       clientSlug,
       locationId,
       offeringKey: key,
-      dateFrom,
-      dateTo,
+      dateFrom: claimDates && claimDates.length ? claimDates[0] : dateFrom,
+      dateTo: claimDates && claimDates.length ? claimDates[claimDates.length - 1] : dateTo,
       excludeBookingId,
       stockScope,
       defaultLocationId,
@@ -437,6 +442,7 @@ async function assertRentalStockClaimsInTxn(pg, opts = {}) {
       quantity: claim.quantity,
       date_from: dateFrom,
       date_to: dateTo,
+      ...(claimDates && claimDates.length ? { dates: claimDates } : {}),
       exclude_booking_id: excludeBookingId,
       reservations,
     });
@@ -516,18 +522,100 @@ function stockFailureHttp(result) {
 /**
  * Course-equipment selection rows (wire: offering_key + quantity) as stock claims.
  * Exact offering_key only — no component expansion.
+ *
+ * Prefer serviceDates (actual course service days). Only fall back to inclusive
+ * dateFrom..dateTo when serviceDates is absent — never invent off-days for
+ * non-contiguous schedules (e.g. Mon+Thu must not claim Tue/Wed).
+ *
+ * Signature: (courseEquipment, dateFrom, dateTo)
+ *        or: (courseEquipment, dateFrom, dateTo, serviceDates)
+ *        or: (courseEquipment, { serviceDates | dateFrom, dateTo })
  */
-function collectCourseEquipmentStockClaims(courseEquipment, dateFrom, dateTo) {
+function collectCourseEquipmentStockClaims(courseEquipment, dateFrom, dateTo, serviceDates) {
   if (!Array.isArray(courseEquipment) || !courseEquipment.length) {
     return { ok: true, claims: [], skipped: true };
+  }
+  let dates = null;
+  let from = dateFrom;
+  let to = dateTo;
+  if (dateFrom && typeof dateFrom === 'object' && !Array.isArray(dateFrom)) {
+    const opts = dateFrom;
+    dates = Array.isArray(opts.serviceDates) ? opts.serviceDates
+      : (Array.isArray(opts.service_dates) ? opts.service_dates
+        : (Array.isArray(opts.dates) ? opts.dates : null));
+    from = opts.dateFrom != null ? opts.dateFrom : opts.date_from;
+    to = opts.dateTo != null ? opts.dateTo : opts.date_to;
+  } else if (Array.isArray(serviceDates)) {
+    dates = serviceDates;
+  }
+  if (Array.isArray(dates) && dates.length) {
+    const unique = [...new Set(
+      dates.map((d) => String(d || '').slice(0, 10)).filter(isIsoDate),
+    )].sort();
+    if (!unique.length) {
+      return {
+        ok: false,
+        error: ERROR_INVALID_REQUEST,
+        message: 'course equipment stock requires valid service_dates',
+      };
+    }
+    const list = courseEquipment;
+    const byKey = new Map();
+    for (let i = 0; i < list.length; i += 1) {
+      const row = list[i];
+      if (!row || typeof row !== 'object') {
+        return {
+          ok: false,
+          error: ERROR_INVALID_REQUEST,
+          message: `course_equipment[${i}] must be an object`,
+        };
+      }
+      const key = String(row.offering_key || '').trim();
+      if (!key) continue;
+      const qty = Number(row.quantity);
+      if (!Number.isInteger(qty) || qty < 1) {
+        return {
+          ok: false,
+          error: ERROR_INVALID_REQUEST,
+          message: `course_equipment[${i}].quantity must be a positive integer`,
+          offering_key: key,
+        };
+      }
+      const prev = byKey.get(key);
+      if (prev) {
+        byKey.set(key, {
+          offering_key: key,
+          quantity: prev.quantity + qty,
+          date_from: unique[0],
+          date_to: unique[unique.length - 1],
+          dates: unique.slice(),
+        });
+      } else {
+        byKey.set(key, {
+          offering_key: key,
+          quantity: qty,
+          date_from: unique[0],
+          date_to: unique[unique.length - 1],
+          dates: unique.slice(),
+        });
+      }
+    }
+    const claims = [...byKey.values()].sort((a, b) => a.offering_key.localeCompare(b.offering_key));
+    return {
+      ok: true,
+      claims,
+      date_from: unique[0],
+      date_to: unique[unique.length - 1],
+      dates: unique,
+    };
   }
   return collectRentalStockClaims(
     courseEquipment.map((row) => ({
       offering_key: row && row.offering_key,
       quantity: row && row.quantity,
     })),
-    dateFrom,
-    dateTo,
+    from,
+    to,
   );
 }
 

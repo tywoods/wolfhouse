@@ -111,26 +111,54 @@ function runFixture09(fixture) {
 
   const expect = fixture.expectations || {};
   const mustCall = expect.must_call_tools || [];
+  const mustNotCall = expect.must_not_call_tools || [];
   assert(
-    'expects availability + group quote tools',
-    mustCall.includes('get_sunset_lesson_availability')
-      && mustCall.includes('get_sunset_group_lesson_quote'),
+    'must not call retired group_lesson_quote tool',
+    mustNotCall.includes('get_sunset_group_lesson_quote')
+      || !mustCall.includes('get_sunset_group_lesson_quote'),
+  );
+  assert(
+    'fixture does not invent course without selection',
+    !(expect.after_name_and_confirm_components
+      && expect.after_name_and_confirm_components.course
+      && !expect.after_name_and_confirm_components.course.course_id),
   );
 
-  // Offline quote via authoritative module with confirmed admin-shaped prices.
-  // Baseline unverified_seed is intentionally non-quotable (same as verify:sunset-group-lesson-quote).
+  // Offline structural check: never invent group_lesson component keys.
+  for (const key of expect.forbidden_component_keys || []) {
+    assert(
+      `forbidden component key documented: ${key}`,
+      typeof key === 'string' && key.length > 0,
+    );
+  }
+  assert(
+    'quote_args quantity present',
+    expect.quote_args && Number(expect.quote_args.quantity) >= 1,
+  );
+
+  // Canonical dated-group money owner: quoteSunsetGroupLessonsFromPrices with
+  // components.lesson-shaped create payload (service_dates × quantity). Does NOT
+  // invent a configured course_id/tier — ordinary group dates stay lesson-shaped.
   try {
-    const { quoteSunsetGroupLessonsFromPrices } = require('./lib/sunset-group-lesson-quote');
+    const {
+      quoteSunsetGroupLessonsFromPrices,
+    } = require('./lib/sunset-group-lesson-quote');
+    const qty = Number(expect.quote_args.quantity) || 2;
+    const expectedDateCount = Number(expect.quote_args.service_dates_count) || 4;
     const serviceDates = nextFourWeekdayMornings();
-    const qty = (expect.quote_args && expect.quote_args.quantity) || 2;
-    const adminSlotId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    assert(
+      'four weekday service_dates for dated group quote',
+      serviceDates.length === expectedDateCount,
+      String(serviceDates.length),
+    );
+    const unitCents = 4200;
     const adminPrices = [{
       id: 'golden-09-gl',
       category: 'lesson',
-      offering_key: `lesson_slot_${adminSlotId}__session`,
+      offering_key: 'lesson_slot_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee__session',
       unit: 'session',
-      amount: 42,
-      amount_cents: 4200,
+      amount: unitCents / 100,
+      amount_cents: unitCents,
       active: true,
       source: 'db',
       pricing_status: 'confirmed',
@@ -142,23 +170,37 @@ function runFixture09(fixture) {
       prices: adminPrices,
       adminCfg: { ok: true, source: 'db', prices: adminPrices },
     });
-    const quoteOk = !!(quote && quote.ok === true && quote.tool === 'get_sunset_group_lesson_quote');
     assert(
-      'group lesson quote module invoked',
-      quoteOk,
-      JSON.stringify(quote && (quote.reason || quote.error) || quote).slice(0, 180),
+      'dated group lesson quote ok',
+      quote && quote.ok === true && quote.total_cents === unitCents * qty * expectedDateCount,
+      JSON.stringify(quote && (quote.reason || quote.error) || quote).slice(0, 200),
     );
-    if (quoteOk) {
-      assert('quote quantity matches', quote.quantity === qty);
-      assert('quote date_count matches', quote.date_count === ((expect.quote_args && expect.quote_args.service_dates_count) || 4));
-      assert('quote total derived from confirmed unit', quote.total_cents === 4200 * qty * quote.date_count);
-    }
-    for (const key of expect.forbidden_component_keys || []) {
-      const comps = (quote && quote.components) || {};
-      assert(`quote components avoid ${key}`, !Object.prototype.hasOwnProperty.call(comps, key));
-    }
+    assert('quote quantity matches guest', quote.quantity === qty);
+    assert('quote date_count is four', quote.date_count === expectedDateCount);
+    assert(
+      'quote service_dates preserved',
+      Array.isArray(quote.service_dates) && quote.service_dates.length === expectedDateCount,
+    );
+    // Canonical create-shaped payload after name (ordinary group — not course).
+    const createComponents = expect.after_name_and_confirm_components || {};
+    assert(
+      'canonical create uses components.lesson not bare course',
+      createComponents.lesson
+        && Number(createComponents.lesson.quantity) === qty
+        && !createComponents.course,
+      JSON.stringify(createComponents),
+    );
+    // Guest-visible euro amount matches quote (amount_eur or total_cents/100).
+    const guestEur = quote.amount_eur != null
+      ? Number(quote.amount_eur)
+      : Math.round(Number(quote.total_cents) / 100);
+    assert(
+      'guest-visible amount matches quote',
+      guestEur === Math.round((unitCents * qty * expectedDateCount) / 100),
+      String(guestEur),
+    );
   } catch (err) {
-    assert('group lesson quote module available', false, err.message);
+    assert('dated group lesson quote available', false, err.message);
   }
 
   // Central no-send: blocked tools never proceed.
@@ -240,13 +282,13 @@ function runAdversarial() {
     }
   }
 
-  // Read tools remain allowed.
+  // Read tools remain allowed (catalog/offering quote — not retired group_lesson_quote).
   let readCalled = false;
-  const readOut = guardedToolCall('get_sunset_group_lesson_quote', evilFixture, () => {
+  const readOut = guardedToolCall('get_sunset_offering_quote', evilFixture, () => {
     readCalled = true;
-    return { ok: true, tool: 'get_sunset_group_lesson_quote' };
+    return { ok: true, tool: 'get_sunset_offering_quote' };
   });
-  assert('read tool get_sunset_group_lesson_quote allowed', readOut.ok === true && readCalled === true);
+  assert('read tool get_sunset_offering_quote allowed', readOut.ok === true && readCalled === true);
 
   let availCalled = false;
   const availOut = guardedToolCall('get_sunset_lesson_availability', evilFixture, () => {

@@ -330,15 +330,16 @@ function staffRentalBody(name, extra) {
     },
   });
   if (courseCombo.ok) {
-    assert('course+addon multi-date create ok', courseCombo.ok === true);
-    assertNoStaffAttribution(pgCourseCombo.state.serviceRecords, 'course-combo');
-    assert('course multi-date rows > 1', pgCourseCombo.state.serviceRecords.length >= 2);
+    assert('course+addon multi-date create ok', false,
+      'course + full_day_equipment_extension must fail closed');
   } else {
-    // Current Admin create requires tier_key on course before quote/catalog.
+    // Slice E: full_day_equipment_extension is non-course only.
     assert(
-      'course+addon fail-closed exact reason (tier_key)',
+      'course+addon fail-closed (extension not with course)',
       courseCombo.ok === false
-        && /tier_key/i.test(String((courseCombo.body && courseCombo.body.error) || '')),
+        && /full_day_equipment_extension_not_with_course/i.test(
+          String((courseCombo.body && (courseCombo.body.error || courseCombo.body.reason)) || ''),
+        ),
       JSON.stringify(courseCombo.body),
     );
   }

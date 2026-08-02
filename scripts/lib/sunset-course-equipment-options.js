@@ -254,10 +254,15 @@ function uniqueCourseServiceDates(value) {
 
 
 /**
- * Free during-course inclusions from course pack equipment_options.
- * Config-driven: mode during_course with during_course_price_cents === 0 only.
- * Multi-pack: intersection of free keys (must be authorized on every course).
- * Returns wire selection [{offering_key, mode, quantity}] or null when none.
+ * Quote-owned included during-course gear from course pack equipment_options.
+ *
+ * Auto-include only when during_course_policy === 'included' (never optional €0
+ * or unavailable). Multi-pack: intersection of included keys (must be authorized
+ * on every course). Returns wire selection [{offering_key, mode, quantity}] or
+ * null when none.
+ *
+ * Read helper for quote expansion / inventory intersection only — not a write
+ * owner. Create persists rows from authoritative re-quote, never invents gear.
  */
 function defaultFreeDuringCourseEquipmentSelection({ packs, courses, surfers } = {}) {
   const list = [];
@@ -279,7 +284,7 @@ function defaultFreeDuringCourseEquipmentSelection({ packs, courses, surfers } =
     const opts = normalizeEquipmentOptions(pack && pack.equipment_options);
     const keys = new Set(
       opts
-        .filter((o) => o && o.during_course_price_cents === 0)
+        .filter((o) => o && o.during_course_policy === 'included')
         .map((o) => o.offering_key),
     );
     freeKeys = freeKeys == null ? keys : new Set([...freeKeys].filter((k) => keys.has(k)));

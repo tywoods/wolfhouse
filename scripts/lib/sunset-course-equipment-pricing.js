@@ -134,6 +134,7 @@ function quoteCourseEquipment({
         course_id: courseId,
         course_equipment: true,
         course_equipment_mode: mode,
+        during_course_policy: option.during_course_policy,
         price_basis: 'per_person_per_course_date',
         pricing_provenance: 'course_owned_equipment',
         during_course_price_cents: during,
@@ -247,6 +248,9 @@ function quoteCourseEquipmentForLessonSet({
       }
       const during = option.during_course_price_cents;
       const allDay = option.all_day_price_cents;
+      if (!item.all_day && option.during_course_policy === 'unavailable') {
+        throw new TypeError('during-course equipment is unavailable for selected course');
+      }
       if (!Number.isSafeInteger(during) || during < 0) {
         throw new TypeError('during_course_price_cents invalid');
       }
@@ -257,6 +261,7 @@ function quoteCourseEquipmentForLessonSet({
         course_id: cfg.course_id,
         during,
         allDay,
+        policy: option.during_course_policy,
         unit: item.all_day ? allDay : during,
         label: option.label,
       });
@@ -282,9 +287,10 @@ function quoteCourseEquipmentForLessonSet({
 
     const during0 = resolved[0].during;
     const allDay0 = resolved[0].allDay;
+    const policy0 = resolved[0].policy;
     // Equal-unit conflict check already passed; still require equal mode config
     // snapshots so we never invent a blended During/All Day pair.
-    if (resolved.some((r) => r.during !== during0 || r.allDay !== allDay0)) {
+    if (resolved.some((r) => r.during !== during0 || r.allDay !== allDay0 || r.policy !== policy0)) {
       const err = new TypeError(
         'course equipment price conflict across selected courses for the same offering/mode',
       );
@@ -314,6 +320,7 @@ function quoteCourseEquipmentForLessonSet({
       all_day: item.all_day,
       mode,
       during_course_price_cents: during0,
+      during_course_policy: policy0,
       all_day_price_cents: allDay0,
       amount_cents: unit,
       unit_amount_cents: unit,
@@ -330,6 +337,7 @@ function quoteCourseEquipmentForLessonSet({
         course_ids: courseIds,
         course_equipment: true,
         course_equipment_mode: mode,
+        during_course_policy: policy0,
         price_basis: 'per_person_per_course_date',
         pricing_provenance: 'course_owned_equipment_multi_course',
         during_course_price_cents: during0,

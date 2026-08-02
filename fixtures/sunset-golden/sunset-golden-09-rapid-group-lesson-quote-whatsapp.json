@@ -9,7 +9,7 @@
   "location_id": "sunset-somo",
   "channel": "whatsapp",
   "tenant_id": "sunset",
-  "label": "Rapid-fire Spanish group lesson quote before name — coalesced input, read tools only, create blocked",
+  "label": "Rapid-fire Spanish dated group lessons before name — coalesced input, components.lesson + service_dates quote owner (group_lesson_quote tool retired), create blocked",
   "messages": [
     { "delay_ms": 0, "text": "Somos dos personas" },
     { "delay_ms": 300, "text": "Queremos clases grupales" },
@@ -30,7 +30,8 @@
   ],
   "expectations": {
     "agent_invocation_count": 1,
-    "must_call_tools": ["get_sunset_lesson_availability", "get_sunset_group_lesson_quote"],
+    "must_call_tools": ["get_sunset_lesson_availability"],
+    "must_not_call_tools": ["get_sunset_group_lesson_quote"],
     "quote_args": {
       "location_id": "sunset-somo",
       "quantity": 2,

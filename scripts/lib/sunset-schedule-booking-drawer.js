@@ -143,9 +143,9 @@ function formatSunsetDrawerDailyItemLabel(dbType, qty, sr) {
     return `${name}${sep}${modeLabel}${sep}${q}`;
   }
   if (dbType === 'addon_service' && (component === FULL_DAY_EQUIPMENT_ADDON_KEY || serviceKey === FULL_DAY_EQUIPMENT_ADDON_KEY)) {
-    // Compact "Name · quantity" only. Localized name resolved by the UI (i18n key
-    // schedule.type.fullDayEquipment); server label falls back to the Spanish product name.
-    return `Material el resto del día${sep}${q}`;
+    // Compact "Name · quantity" only. English default matches i18n key
+    // schedule.type.fullDayEquipment; Spanish UI overlays via portal i18n ownership.
+    return `Full-day gear${sep}${q}`;
   }
   // Generic Admin rental catalog rows (service_type addon_service): prefer the
   // persisted Admin-owned label snapshotted at create/edit. Never surface the
@@ -377,6 +377,9 @@ function aggregateComponentsFromServices(services) {
               ? Number(meta.during_course_price_cents) : undefined,
             all_day_price_cents: meta.all_day_price_cents != null
               ? Number(meta.all_day_price_cents) : undefined,
+            // Policy snap for drawer/invoice restore truth (selection provenance).
+            during_course_policy: meta.during_course_policy != null
+              ? String(meta.during_course_policy) : undefined,
           });
         }
       } else {
@@ -1551,6 +1554,11 @@ async function updateSunsetScheduleBooking(pg, opts) {
         const { DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
         const stockDateFrom = input.date_from || firstDate;
         const stockDateTo = input.date_to || lastDate || firstDate;
+        const ceServiceDates = Array.isArray(input.service_dates) && input.service_dates.length
+          ? input.service_dates
+          : (Array.isArray(input.lessons)
+            ? input.lessons.map((l) => l && l.date).filter(Boolean)
+            : null);
         const rentalClaims = collectRentalStockClaims(
           effectiveRentalsForStock, stockDateFrom, stockDateTo,
         );
@@ -1567,7 +1575,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
           });
         }
         const ceClaims = collectCourseEquipmentStockClaims(
-          effectiveCeForStock, stockDateFrom, stockDateTo,
+          effectiveCeForStock, stockDateFrom, stockDateTo, ceServiceDates,
         );
         if (!ceClaims.ok) {
           return rollback({
@@ -2526,6 +2534,61 @@ async function restoreSunsetScheduleBooking(pg, opts) {
     // Recheck authoritative course capacity while locked. Cancelled seats are
     // already excluded from occupancy counts, so excludeBookingId is belt-and-braces.
     const agg = aggregateComponentsFromServices(bundle.services || []);
+
+    // full_day_equipment_extension is non-course only; course keep-all-day is
+    // course_equipment mode:all_day. Course/private identity comes from persisted
+    // component metadata — ordinary part-day lesson (component:lesson) + extension
+    // remains restorable.
+    {
+      const FULL_DAY_KEY = 'full_day_equipment_extension';
+      let hasCourseOrPrivate = !!(agg.components && (agg.components.course || agg.components.private_lesson));
+      let hasFda = false;
+      let hasCeAllDay = false;
+      for (const sr of (bundle.services || [])) {
+        const md = parseMeta(sr.metadata);
+        const component = String(md.component || sr.metadata_component || '').toLowerCase();
+        const serviceKey = String(md.service_key || '').toLowerCase();
+        const staffUi = String(md.staff_ui_service_type || '').toLowerCase();
+        if (md.course_equipment === true && md.course_equipment_mode === 'all_day') {
+          hasCeAllDay = true;
+        }
+        if (component === FULL_DAY_KEY || serviceKey === FULL_DAY_KEY
+          || staffUi === FULL_DAY_KEY) {
+          hasFda = true;
+        }
+        // Configured course / private only — not ordinary group lesson rows.
+        if (component === 'course' || component === 'private_lesson'
+          || staffUi === 'course' || staffUi === 'private_lesson') {
+          hasCourseOrPrivate = true;
+        }
+      }
+      if (hasFda && hasCourseOrPrivate) {
+        await pg.query('ROLLBACK'); began = false;
+        return {
+          ok: false,
+          status: 409,
+          body: {
+            success: false,
+            error: 'full_day_equipment_extension_not_with_course',
+            reason_code: 'full_day_equipment_extension_not_with_course',
+            message: 'Cannot restore: full-day gear extension is not valid with a course booking.',
+          },
+        };
+      }
+      if (hasFda && hasCeAllDay) {
+        await pg.query('ROLLBACK'); began = false;
+        return {
+          ok: false,
+          status: 409,
+          body: {
+            success: false,
+            error: 'course_equipment_full_day_overlap',
+            reason_code: 'course_equipment_full_day_overlap',
+            message: 'Cannot restore: course all-day equipment and full-day extension cannot coexist.',
+          },
+        };
+      }
+    }
     const courseIds = new Set();
     const dateByCourse = new Map();
     for (const sr of (bundle.services || [])) {
