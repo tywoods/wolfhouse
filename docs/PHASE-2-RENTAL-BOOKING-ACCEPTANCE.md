@@ -8,6 +8,14 @@ order. No behavior change ships from this file.
 - ✅ Step 1 — `scripts/lib/tenant-rental-price-resolver.js` `resolveGenericRentalPrice()`
   (offering_key-native, reuses the proven `loadRule` contract, fail-closed,
   duration/item-integrity guard for #3). Verifier: `verify-tenant-rental-price-resolver.js`.
+- ✅ P0b — standalone SSoT is exact `tenant_price_rules` identity only
+  (`item_type=rental`, `item_code=<offering_key>__<duration_key>`, unit/location/active).
+  After concrete catalog selection there is **no** `rentalOfferingKeyCandidates`
+  alias borrow (fixes `surfboard_wetsuit_rental` vs `board_and_suit_rental` €0 collision).
+  amount_cents <= 0 fails closed for standalone; CE during_course included €0 stays on
+  equipment_options. Read-only operator audit (not production authority):
+  `scripts/lib/sunset-rental-standalone-price-audit.js`.
+  Focused verifier: `verify-sunset-combo-pricing-p0b.js` (never substitutes SUP).
 - ✅ Step 2 — same lib, `buildGenericRentalServiceRecord()` maps a priced generic
   rental to a first-class `booking_service_records` descriptor under the existing
   `addon_service` bucket (migration 029 + runtime twin — no new migration).

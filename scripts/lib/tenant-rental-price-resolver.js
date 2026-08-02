@@ -4,28 +4,43 @@
  * tenant-rental-price-resolver.js — Phase 2, step 1 of the generic-rental
  * booking-acceptance path (docs/PHASE-2-RENTAL-BOOKING-ACCEPTANCE.md).
  *
+ * ## SSoT for standalone rental (P0b)
+ *
+ * Authoritative money for a concrete Admin rental selection is exactly one
+ * `tenant_price_rules` row:
+ *   item_type = 'rental'
+ *   item_code = <exact offering_key>__<duration_key>
+ *   unit      = billing grain for that duration (day | session)
+ *   location_id + client_slug + active = true
+ *
+ * Three commercial authorities stay independent and are NEVER collapsed:
+ *   1) standalone duration row (this resolver / Admin price save)
+ *   2) course equipment during_course (equipment_options)
+ *   3) course equipment all_day (equipment_options)
+ *
+ * After a concrete catalog offering_key is selected, resolution is exact-key
+ * only — no rentalOfferingKeyCandidates / board+suit family alias borrow.
+ * Historical alias-family normalization stays only in pre-selection text/intent
+ * helpers (matchRentalFromMessage / resolveItemCode), not here.
+ *
  * Pure, offering_key-NATIVE price resolver. Given a generic rentable offering
- * (e.g. `kayak_rental`) + duration + quantity, it resolves the authoritative
- * per-period price from `tenant_price_rules` via the SAME injected `loadRule`
- * contract the live async lookup already uses (loadTenantPriceRuleFromDb):
+ * (e.g. `kayak_rental` or `surfboard_wetsuit_rental`) + duration + quantity,
+ * it resolves the authoritative per-period price via the injected `loadRule`
+ * contract (loadTenantPriceRuleFromDb):
  *
  *   loadRule({ clientSlug, locationId, itemType:'rental', itemCode, duration,
  *              billingUnit, pgClient })
  *     -> { status:'found', amount_cents, currency, item_code, unit, location_id }
  *      | { status:'not_found' | 'invalid_location' | 'tables_missing' | ... }
  *
- * WHAT THIS IS NOT: it does not carry the frozen `ITEM_ALIASES` whitelist that
- * gates lookupSunsetRentalPrice[Async] (the wall that rejects generic offerings).
- * The DB rule lookup is already generic (exact `item_code = offering__duration`);
- * this resolver simply declines to re-impose the closed set. It writes nothing
- * and touches no live path — it is additive and fully offline-testable.
- *
- * Fail-closed: any missing/invalid input, unknown price, or a rule whose
- * item_code does not match the requested `offering_key__duration_key` returns
- * `{ ok:false, reason }` and NEVER a guessed amount.
+ * Fail-closed: missing/invalid input, unknown price, amount_cents <= 0, or a
+ * rule whose item_code does not match the requested `offering_key__duration_key`
+ * returns `{ ok:false, reason }` and NEVER a guessed or borrowed amount.
+ * Legitimate CE during_course included €0 is owned by equipment_options, not
+ * this standalone path.
  */
 
-const { resolveRentalBillingUnit, resolveDurationKey, rentalOfferingKeyCandidates } = require('./sunset-rental-price-lookup');
+const { resolveRentalBillingUnit, resolveDurationKey } = require('./sunset-rental-price-lookup');
 const { isValidOfferingKey } = require('./tenant-rental-offerings');
 const { parseRentalDurationKey, rentalDurationKeyFromUnitCount } = require('../browser/sunset-rental-duration-model');
 
@@ -184,30 +199,20 @@ async function resolveGenericRentalPrice(opts) {
   if (!billingUnit) return fail('unsupported_duration', { offering_key: offeringKey, duration_key: durationKey });
 
   const loadRule = o.loadRule || defaultLoadRule;
+  // Exact concrete catalog selection: one offering_key only. Never expand the
+  // board+suit alias family here — that concealed €0 / wrong-key collisions
+  // (P0b: surfboard_wetsuit_rental vs board_and_suit_rental).
   let dbRes;
-  let resolvedOfferingKey = offeringKey;
   try {
-    const candidates = typeof rentalOfferingKeyCandidates === 'function'
-      ? rentalOfferingKeyCandidates(offeringKey)
-      : [offeringKey];
-    for (const cand of candidates) {
-      // eslint-disable-next-line no-await-in-loop
-      const attempt = await loadRule({
-        clientSlug,
-        locationId,
-        itemType: 'rental',
-        itemCode: cand,
-        duration: durationKey,
-        billingUnit,
-        pgClient: o.pgClient,
-      });
-      if (attempt && attempt.status === 'found') {
-        dbRes = attempt;
-        resolvedOfferingKey = cand;
-        break;
-      }
-      dbRes = attempt;
-    }
+    dbRes = await loadRule({
+      clientSlug,
+      locationId,
+      itemType: 'rental',
+      itemCode: offeringKey,
+      duration: durationKey,
+      billingUnit,
+      pgClient: o.pgClient,
+    });
   } catch (err) {
     return fail('price_lookup_failed', {
       offering_key: offeringKey,
@@ -227,14 +232,19 @@ async function resolveGenericRentalPrice(opts) {
   }
 
   const unitCents = Number(dbRes.amount_cents);
-  if (!Number.isFinite(unitCents) || unitCents < 0) {
-    return fail('price_not_found', { offering_key: offeringKey, duration_key: durationKey, status: 'invalid_amount' });
+  // Standalone rental must be a positive owner price. amount <= 0 is unpriced
+  // (no €0 quote/create). CE included €0 is a separate equipment_options owner.
+  if (!Number.isFinite(unitCents) || unitCents <= 0) {
+    return fail('price_not_found', {
+      offering_key: offeringKey,
+      duration_key: durationKey,
+      status: 'invalid_amount',
+    });
   }
 
-  // Duration/item integrity (blocker #3): the resolved rule MUST be exactly the
-  // requested offering+duration. A rule for a different item_code or a bundle
-  // window must never be borrowed to price this generic item.
-  const expectedItemCode = `${resolvedOfferingKey}__${durationKey}`;
+  // Duration/item integrity: resolved rule MUST be exactly the requested
+  // offering+duration. Never accept a borrowed alias family item_code.
+  const expectedItemCode = `${offeringKey}__${durationKey}`;
   if (dbRes.item_code != null && String(dbRes.item_code).trim() !== expectedItemCode) {
     return fail('price_scope_mismatch', {
       offering_key: offeringKey,
@@ -257,10 +267,11 @@ async function resolveGenericRentalPrice(opts) {
     return fail('price_unverified', { offering_key: offeringKey, duration_key: durationKey, pricing_status: pricingStatus });
   }
 
+  // Single offering_key (requested identity). Provenance item_code is the exact
+  // price authority — never a second/concealing offering_key from an alias.
   return {
     ok: true,
     client_slug: clientSlug,
-    offering_key: resolvedOfferingKey,
     location_id: dbRes.location_id != null ? dbRes.location_id : locationId,
     offering_key: offeringKey,
     duration_key: durationKey,
@@ -270,6 +281,7 @@ async function resolveGenericRentalPrice(opts) {
     quantity,
     amount_cents: Math.round(unitCents) * quantity,
     currency: dbRes.currency || 'EUR',
+    price_authority: 'tenant_price_rules',
   };
 }
 
@@ -296,11 +308,21 @@ const GENERIC_RENTAL_SERVICE_TYPE = 'addon_service';
 function buildGenericRentalServiceRecord(priced, ctx) {
   const p = priced || {};
   if (p.ok !== true) return { ok: false, reason: 'unpriced' };
-  if (!Number.isFinite(Number(p.amount_cents))) return { ok: false, reason: 'unpriced' };
+  if (!Number.isFinite(Number(p.amount_cents)) || Number(p.amount_cents) <= 0) {
+    return { ok: false, reason: 'unpriced' };
+  }
+  if (!Number.isFinite(Number(p.unit_cents)) || Number(p.unit_cents) <= 0) {
+    return { ok: false, reason: 'unpriced' };
+  }
   const c = ctx || {};
   const serviceDate = c.serviceDate == null ? '' : String(c.serviceDate).trim();
   if (!serviceDate) return { ok: false, reason: 'missing_service_date' };
-  if (!p.offering_key || !p.duration_key) return { ok: false, reason: 'unpriced' };
+  if (!p.offering_key || !p.duration_key || !p.item_code) return { ok: false, reason: 'unpriced' };
+  // Provenance integrity: item_code must name the exact selected offering.
+  const expectedCode = `${String(p.offering_key).trim()}__${String(p.duration_key).trim()}`;
+  if (String(p.item_code).trim() !== expectedCode) {
+    return { ok: false, reason: 'unpriced' };
+  }
 
   // Multi-day occupancy: prefer explicit serviceDates/coveredDates for stock.
   // Historical single-day callers omit these and stock falls back to service_date.

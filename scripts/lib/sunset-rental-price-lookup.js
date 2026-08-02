@@ -73,7 +73,11 @@ function resolveItemCode(raw) {
   return ITEM_ALIASES[key] || key;
 }
 
-/** Board+suit catalog keys used live (DB item_code prefix) and legacy aliases. */
+/**
+ * Board+suit catalog key family for pre-selection text/intent normalization only.
+ * Do NOT use after a concrete Admin offering_key is selected (P0b exact SSoT) —
+ * resolveGenericRentalPrice / lookupSunsetRentalPriceAsync are exact-key only.
+ */
 function rentalOfferingKeyCandidates(itemCode) {
   const base = resolveItemCode(itemCode);
   const out = [];
@@ -384,16 +388,21 @@ function findAdminPriceRule(adminCfg, itemCode, durationKey) {
   }) || null;
 }
 
-/** Amount cents from a findAdminPriceRule row (EUR amount or amount_cents). */
+/**
+ * Amount cents from a findAdminPriceRule row (EUR amount or amount_cents).
+ * Standalone rental authority requires a positive owner price — 0/negative
+ * return null so callers fail closed as price_not_configured. CE included €0
+ * is owned by equipment_options, not this helper.
+ */
 function adminPriceRuleAmountCents(rule) {
   if (!rule) return null;
   if (Number.isFinite(Number(rule.amount_cents))) {
     const n = Math.round(Number(rule.amount_cents));
-    return n >= 0 ? n : null;
+    return n > 0 ? n : null;
   }
   if (rule.amount != null && Number.isFinite(Number(rule.amount))) {
     const n = Math.round(Number(rule.amount) * 100);
-    return n >= 0 ? n : null;
+    return n > 0 ? n : null;
   }
   return null;
 }
@@ -405,7 +414,6 @@ function lookupSunsetRentalPrice(opts) {
   const rawItem = String(options.item || '').trim();
   const duration = resolveDurationKey(options.duration);
   const requireConfirmed = options.require_confirmed !== false;
-  const locationId = normalizeSunsetLocationId(options.location_id || DEFAULT_SUNSET_LOCATION_ID);
 
   if (clientSlug !== EXPECTED_TENANT) {
     return {
@@ -415,6 +423,24 @@ function lookupSunsetRentalPrice(opts) {
       expected_tenant: EXPECTED_TENANT,
     };
   }
+
+  // Mirror async: omitted location may default Somo; explicitly supplied
+  // null/empty/unknown must fail unknown_location (never silent Somo default).
+  const locationExplicit = Object.prototype.hasOwnProperty.call(options, 'location_id');
+  const rawLoc = options.location_id;
+  if (locationExplicit) {
+    if (rawLoc == null || String(rawLoc).trim() === '' || !isSunsetLocationId(rawLoc)) {
+      return {
+        ok: false,
+        reason: 'unknown_location',
+        client_slug: clientSlug,
+        location_id: rawLoc == null ? rawLoc : String(rawLoc).trim(),
+      };
+    }
+  }
+  const locationId = locationExplicit
+    ? normalizeSunsetLocationId(rawLoc)
+    : DEFAULT_SUNSET_LOCATION_ID;
 
   const adminCfg = resolveSunsetAdminConfigForLuna(clientSlug, locationId);
   if (!adminCfg || adminCfg.ok === false) {
@@ -426,6 +452,9 @@ function lookupSunsetRentalPrice(opts) {
     };
   }
 
+  // Public/free-text boundary: resolveItemCode normalizes historical phrases
+  // (e.g. "board+suit bundle") to a catalog key. Exact configured keys map to
+  // themselves and never rewrite one configured key to another.
   const itemCode = resolveItemCode(rawItem);
   // Accept any item that is live in admin config — not only the static alias table.
   if (!isConfiguredRentalItem(adminCfg, itemCode)) {
@@ -447,9 +476,9 @@ function lookupSunsetRentalPrice(opts) {
   }
 
   // Config-backed rules expose amount in EUR; DB-backed rules expose
-  // amount_cents. Normalize both into one authoritative cents value.
+  // amount_cents. Positive owner cents only — <=0 is unpriced standalone.
   const amountCents = adminPriceRuleAmountCents(rule);
-  if (amountCents == null || !Number.isFinite(amountCents)) {
+  if (amountCents == null || !Number.isFinite(amountCents) || amountCents <= 0) {
     return {
       ok: false,
       reason: 'price_not_configured',
@@ -597,32 +626,21 @@ async function lookupSunsetRentalPriceAsync(opts) {
   }
 
   const loadRule = options.loadRule || defaultLoadRentalRule;
-  const keyCandidates = rentalOfferingKeyCandidates(itemCode);
+  // Concrete selection: exact offering_key only. Alias-family expansion used to
+  // conceal borrowed board_and_suit / surfboard_wetsuit identities (P0b).
+  // Pre-selection text still uses resolveItemCode / matchRentalFromMessage.
   let dbRes;
-  let resolvedItemCode = itemCode;
+  const resolvedItemCode = itemCode;
   try {
-    for (const cand of keyCandidates) {
-      // eslint-disable-next-line no-await-in-loop
-      const attempt = await loadRule({
-        clientSlug,
-        locationId,
-        itemType: 'rental',
-        itemCode: cand,
-        duration,
-        billingUnit,
-        pgClient: options.pgClient,
-      });
-      if (attempt && attempt.status === 'tables_missing') {
-        dbRes = attempt;
-        break;
-      }
-      if (attempt && attempt.status === 'found') {
-        dbRes = attempt;
-        resolvedItemCode = cand;
-        break;
-      }
-      dbRes = attempt;
-    }
+    dbRes = await loadRule({
+      clientSlug,
+      locationId,
+      itemType: 'rental',
+      itemCode,
+      duration,
+      billingUnit,
+      pgClient: options.pgClient,
+    });
   } catch (err) {
     return {
       ok: false,

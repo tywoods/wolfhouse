@@ -11,7 +11,35 @@
  *   npm run verify:sunset-rental-lookup
  */
 
-const { lookupSunsetRentalPrice } = require('./lib/sunset-rental-price-lookup');
+const {
+  lookupSunsetRentalPrice,
+  adminPriceRuleAmountCents,
+  resolveItemCode,
+  findAdminPriceRule,
+} = require('./lib/sunset-rental-price-lookup');
+const lunaCtx = require('./lib/sunset-luna-school-context');
+const path = require('path');
+
+const CTX_PATH = require.resolve('./lib/sunset-luna-school-context');
+const LOOKUP_PATH = require.resolve('./lib/sunset-rental-price-lookup');
+
+/** Patch admin config then reload lookup so it picks up the patched export. */
+function withPatchedAdminCfg(cfgFactory, fn) {
+  const orig = lunaCtx.resolveSunsetAdminConfigForLuna;
+  lunaCtx.resolveSunsetAdminConfigForLuna = cfgFactory;
+  delete require.cache[LOOKUP_PATH];
+  // eslint-disable-next-line global-require, import/no-dynamic-require
+  const reloaded = require(LOOKUP_PATH);
+  try {
+    return fn(reloaded);
+  } finally {
+    lunaCtx.resolveSunsetAdminConfigForLuna = orig;
+    delete require.cache[LOOKUP_PATH];
+    // restore main module binding for any later uses
+    // eslint-disable-next-line global-require, import/no-dynamic-require
+    require(LOOKUP_PATH);
+  }
+}
 
 let pass = 0;
 let fail = 0;
@@ -243,6 +271,178 @@ assertOk(
   lookupSunsetRentalPrice({ client_slug: 'sunset', item: 'board', duration: '1_day', require_confirmed: false }),
   { amount_eur: 15 },
 );
+
+// ─── Section 8: P0b sync — zero/negative amounts + explicit location ─────────
+console.log('\n[8] P0b standalone fail-closed: amount <=0 + explicit location');
+
+assert('adminPriceRuleAmountCents rejects 0', adminPriceRuleAmountCents({ amount_cents: 0 }) == null);
+assert('adminPriceRuleAmountCents rejects negative', adminPriceRuleAmountCents({ amount_cents: -5 }) == null);
+assert('adminPriceRuleAmountCents rejects amount EUR 0', adminPriceRuleAmountCents({ amount: 0 }) == null);
+assert('adminPriceRuleAmountCents accepts positive', adminPriceRuleAmountCents({ amount_cents: 1500 }) === 1500);
+
+assertBlocked(
+  'explicit location_id="" → unknown_location',
+  lookupSunsetRentalPrice({ item: 'board', duration: '1_day', location_id: '' }),
+  'unknown_location',
+);
+assertBlocked(
+  'explicit location_id=null → unknown_location',
+  lookupSunsetRentalPrice({ item: 'board', duration: '1_day', location_id: null }),
+  'unknown_location',
+);
+assertBlocked(
+  'explicit unknown location → unknown_location',
+  lookupSunsetRentalPrice({ item: 'board', duration: '1_day', location_id: 'not-a-school' }),
+  'unknown_location',
+);
+{
+  const omitted = lookupSunsetRentalPrice({ item: 'board', duration: '1_day', require_confirmed: false });
+  assert('omitted location still defaults Somo and prices',
+    omitted.ok === true && omitted.location_id === 'sunset-somo' && omitted.amount_cents > 0);
+}
+
+// Zero-amount configured row → price_not_configured (not ok with €0)
+withPatchedAdminCfg(() => ({
+  ok: true,
+  prices: [{
+    category: 'rental', offering_key: 'board_rental', unit: '1_day',
+    amount_cents: 0, active: true, pricing_status: 'confirmed', currency: 'EUR',
+  }],
+  rental_offerings: [{ offering_key: 'board_rental', label: 'Board', active: true }],
+  location_id: 'sunset-somo',
+  location_label: 'Sunset',
+}), (mod) => {
+  assertBlocked(
+    'configured exact key with amount_cents=0 → price_not_configured',
+    mod.lookupSunsetRentalPrice({
+      client_slug: 'sunset', item: 'board_rental', duration: '1_day', require_confirmed: false,
+    }),
+    'price_not_configured',
+  );
+});
+withPatchedAdminCfg(() => ({
+  ok: true,
+  prices: [{
+    category: 'rental', offering_key: 'board_rental', unit: '1_day',
+    amount: 0, active: true, pricing_status: 'confirmed', currency: 'EUR',
+  }],
+  rental_offerings: [{ offering_key: 'board_rental', label: 'Board', active: true }],
+  location_id: 'sunset-somo',
+  location_label: 'Sunset',
+}), (mod) => {
+  assertBlocked(
+    'configured exact key with amount EUR 0 → price_not_configured',
+    mod.lookupSunsetRentalPrice({
+      client_slug: 'sunset', item: 'board_rental', duration: '1_day', require_confirmed: false,
+    }),
+    'price_not_configured',
+  );
+});
+
+// ─── Section 9: public free-text + independent exact keys (no cross-borrow) ──
+console.log('\n[9] Public boundary phrases + independent exact offering keys');
+
+assert(
+  'legacy phrase board+suit bundle normalizes at public boundary',
+  resolveItemCode('board+suit bundle') === 'board_and_suit_rental',
+);
+assertOk(
+  'legacy phrase board+suit bundle still quotes when configured',
+  lookupSunsetRentalPrice({ item: 'board+suit bundle', duration: 'half day', require_confirmed: false }),
+  { item: 'board_and_suit_rental' },
+);
+assert(
+  'exact surfboard_wetsuit_rental self-maps (never rewritten)',
+  resolveItemCode('surfboard_wetsuit_rental') === 'surfboard_wetsuit_rental',
+);
+assert(
+  'exact board_and_wetsuit_rental self-maps',
+  resolveItemCode('board_and_wetsuit_rental') === 'board_and_wetsuit_rental',
+);
+assert(
+  'exact board_and_suit_rental self-maps',
+  resolveItemCode('board_and_suit_rental') === 'board_and_suit_rental',
+);
+assert(
+  'exact bike_rental self-maps (generic stays independent)',
+  resolveItemCode('bike_rental') === 'bike_rental',
+);
+
+{
+  const independentPrices = [
+    {
+      category: 'rental', offering_key: 'surfboard_wetsuit_rental', unit: '1_day',
+      amount_cents: 3000, active: true, pricing_status: 'confirmed', currency: 'EUR',
+    },
+    {
+      category: 'rental', offering_key: 'board_and_suit_rental', unit: '1_day',
+      amount_cents: 2000, active: true, pricing_status: 'confirmed', currency: 'EUR',
+    },
+    {
+      category: 'rental', offering_key: 'board_and_wetsuit_rental', unit: '1_day',
+      amount_cents: 2200, active: true, pricing_status: 'confirmed', currency: 'EUR',
+    },
+    {
+      category: 'rental', offering_key: 'bike_rental', unit: '1_day',
+      amount_cents: 1200, active: true, pricing_status: 'confirmed', currency: 'EUR',
+    },
+  ];
+  withPatchedAdminCfg(() => ({
+    ok: true,
+    prices: independentPrices,
+    rental_offerings: independentPrices.map((p) => ({
+      offering_key: p.offering_key, label: p.offering_key, active: true,
+    })),
+    location_id: 'sunset-somo',
+    location_label: 'Sunset',
+  }), (mod) => {
+    const sw = mod.lookupSunsetRentalPrice({
+      client_slug: 'sunset', item: 'surfboard_wetsuit_rental', duration: '1_day', require_confirmed: false,
+    });
+    const bas = mod.lookupSunsetRentalPrice({
+      client_slug: 'sunset', item: 'board_and_suit_rental', duration: '1_day', require_confirmed: false,
+    });
+    const baw = mod.lookupSunsetRentalPrice({
+      client_slug: 'sunset', item: 'board_and_wetsuit_rental', duration: '1_day', require_confirmed: false,
+    });
+    const bike = mod.lookupSunsetRentalPrice({
+      client_slug: 'sunset', item: 'bike_rental', duration: '1_day', require_confirmed: false,
+    });
+    assert('independent surfboard_wetsuit_rental = 3000 (not family borrow)',
+      sw.ok && sw.amount_cents === 3000 && sw.item === 'surfboard_wetsuit_rental', JSON.stringify(sw));
+    assert('independent board_and_suit_rental = 2000',
+      bas.ok && bas.amount_cents === 2000 && bas.item === 'board_and_suit_rental', JSON.stringify(bas));
+    assert('independent board_and_wetsuit_rental = 2200',
+      baw.ok && baw.amount_cents === 2200 && baw.item === 'board_and_wetsuit_rental', JSON.stringify(baw));
+    assert('independent bike_rental = 1200',
+      bike.ok && bike.amount_cents === 1200 && bike.item === 'bike_rental', JSON.stringify(bike));
+  });
+  // Only SW priced — BAS must not borrow
+  withPatchedAdminCfg(() => ({
+    ok: true,
+    prices: [independentPrices[0]],
+    rental_offerings: [
+      { offering_key: 'surfboard_wetsuit_rental', label: 'SW', active: true },
+      { offering_key: 'board_and_suit_rental', label: 'BAS', active: true },
+    ],
+    location_id: 'sunset-somo',
+    location_label: 'Sunset',
+  }), (mod) => {
+    const noBorrow = mod.lookupSunsetRentalPrice({
+      client_slug: 'sunset', item: 'board_and_suit_rental', duration: '1_day', require_confirmed: false,
+    });
+    assertBlocked(
+      'board_and_suit does not cross-borrow surfboard_wetsuit price (sync)',
+      noBorrow,
+      'price_not_configured',
+    );
+  });
+  assert(
+    'findAdminPriceRule exact SW only',
+    adminPriceRuleAmountCents(findAdminPriceRule({ prices: [independentPrices[0]] }, 'surfboard_wetsuit_rental', '1_day')) === 3000
+    && findAdminPriceRule({ prices: [independentPrices[0]] }, 'board_and_suit_rental', '1_day') == null,
+  );
+}
 
 // ─── Summary ─────────────────────────────────────────────────────────────────
 console.log(`\nverify:sunset-rental-lookup — ${pass + fail} tests: ${pass} PASS, ${fail} FAIL`);

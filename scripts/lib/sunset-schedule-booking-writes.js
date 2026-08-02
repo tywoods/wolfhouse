@@ -658,15 +658,27 @@ function buildGenericRentalAuthoritativeQuote(records) {
     const quantity = checkedMoneyInteger(record.quantity, 'generic_rental_quantity');
     const offeringKey = String(meta.offering_key || '').trim();
     const itemCode = String(meta.item_code || '').trim();
-    if (!offeringKey || !itemCode || quantity < 1 || total < 0) throw new Error('invalid_generic_rental_quote_record');
+    // Standalone generic rentals must carry exact positive price authority.
+    // CE included €0 is never built through this path.
+    if (!offeringKey || !itemCode || quantity < 1 || total <= 0) {
+      throw new Error('invalid_generic_rental_quote_record');
+    }
+    const expectedCode = meta.duration_key
+      ? `${offeringKey}__${String(meta.duration_key).trim()}`
+      : '';
+    if (expectedCode && itemCode !== expectedCode) {
+      throw new Error('invalid_generic_rental_quote_record');
+    }
     return {
       component: 'addon_service', generic_rental: true,
       offering_id: offeringKey, offering_item_code: itemCode,
+      offering_key: offeringKey,
       duration_key: meta.duration_key, quantity,
       unit_amount_cents: checkedMoneyInteger(meta.unit_cents, 'generic_rental_unit'),
       package_repeat_count: Number(meta.package_repeat_count || 1),
       pricing_mode: meta.pricing_mode || 'base_package',
       total_cents: total, price_source: 'tenant_price_rules',
+      item_code: itemCode,
     };
   });
   const totalCents = lineItems.reduce((sum, line) => checkedMoneyAdd(sum, line.total_cents, 'generic_rental_quote_total'), 0);
@@ -968,6 +980,9 @@ function rowMatchesQuoteLine(row, line) {
       && component !== 'wetsuit_rental')) {
     // Exact catalog rental offering: one addon_service row with matching offering_key.
     // board_and_suit also has historical dual surfboard/wetsuit component rows.
+    // Never claim course_equipment rows for the same offering_key (P0b: standalone
+    // S+W + CE during_course are two commercial lines / two service rows).
+    if (meta.course_equipment === true) return false;
     if (String(meta.offering_key || '').trim() !== component) {
       // Historical board_and_suit halves may lack offering_key on component rows.
       if (component !== 'board_and_suit_rental') return false;

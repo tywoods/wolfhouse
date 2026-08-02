@@ -95,6 +95,37 @@ async function main() {
   assert('no rule → price_not_found', miss.ok === false && miss.reason === 'price_not_found', JSON.stringify(miss));
   assert('no rule → no amount leaked', miss.amount_cents === undefined, JSON.stringify(miss));
 
+  // P0b: exact-only + fail closed on <=0 (no alias-family borrow).
+  const zeroAmt = async (p) => ({
+    status: 'found', item_code: `${p.itemCode}__${p.duration}`, unit: p.billingUnit,
+    amount_cents: 0, currency: 'EUR', location_id: p.locationId,
+  });
+  const zeroed = await resolveGenericRentalPrice({
+    clientSlug: 'sunset', locationId: SOMO, offeringKey: 'kayak_rental',
+    durationKey: 'half_day', quantity: 1, loadRule: zeroAmt,
+  });
+  assert('amount_cents=0 → price_not_found (standalone unpriced)',
+    zeroed.ok === false && zeroed.reason === 'price_not_found', JSON.stringify(zeroed));
+
+  let aliasCalls = 0;
+  const aliasFamily = async (p) => {
+    aliasCalls += 1;
+    if (p.itemCode === 'board_and_suit_rental') {
+      return {
+        status: 'found', item_code: 'board_and_suit_rental__1_day', unit: p.billingUnit,
+        amount_cents: 999, currency: 'EUR', location_id: p.locationId,
+      };
+    }
+    return { status: 'not_found' };
+  };
+  const noBorrow = await resolveGenericRentalPrice({
+    clientSlug: 'sunset', locationId: SOMO, offeringKey: 'surfboard_wetsuit_rental',
+    durationKey: '1_day', quantity: 1, loadRule: aliasFamily,
+  });
+  assert('surfboard_wetsuit does not borrow board_and_suit alias (P0b)',
+    noBorrow.ok === false && noBorrow.reason === 'price_not_found', JSON.stringify(noBorrow));
+  assert('exact-only loadRule: single candidate call', aliasCalls === 1, String(aliasCalls));
+
   const thrower = async () => { throw new Error('db_down'); };
   const boom = await resolveGenericRentalPrice({
     clientSlug: 'sunset', locationId: SOMO, offeringKey: 'kayak_rental', durationKey: 'half_day', loadRule: thrower,

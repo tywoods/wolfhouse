@@ -1,0 +1,224 @@
+{
+  "_meta": {
+    "purpose": "P0b offline Admin fixture: colliding key surfboard_wetsuit_rental (never SUP-substitute). Standalone SSoT = exact tenant_price_rules item_code offering__duration. Three authorities stay separate: standalone duration rows, CE during_course, CE all_day. Alias-family board_and_suit_rental may exist with different/zero amounts and must never be borrowed after concrete S+W selection.",
+    "client_slug": "sunset",
+    "location_id": "sunset-somo",
+    "ssot": {
+      "standalone": "tenant_price_rules item_type=rental item_code=<offering_key>__<duration_key> unit=billing_grain active location-scoped",
+      "during_course": "surf_packs.equipment_options.during_course_price_cents",
+      "all_day": "surf_packs.equipment_options.all_day_price_cents",
+      "no_sync_ce_into_standalone": true,
+      "no_alias_after_concrete_selection": true
+    },
+    "bot_auth_direct_endpoints": {
+      "note": "Direct bot endpoints are reproducible without a staff session cookie. Bearer BOT auth (FORTRESS bot principal / shared bot secret) is required. Body shapes below are exact offline-reproducible owners shared with staff.",
+      "auth": {
+        "required": "Bearer BOT principal (FORTRESS bot tenant bind / bot shared secret)",
+        "staff_cookie": false,
+        "staff_session": "not required and not used"
+      },
+      "quote": {
+        "method": "POST",
+        "path": "/staff/bot/sunset/quote",
+        "auth": "Bearer BOT required; no staff cookie",
+        "body_exact": {
+          "location_id": "sunset-somo",
+          "date_from": "2026-09-05",
+          "date_to": "2026-09-05",
+          "service_dates": ["2026-09-05"],
+          "components": {
+            "course": {
+              "course_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+              "tier_key": "1_day",
+              "quantity": 1
+            }
+          },
+          "rentals": [
+            { "offering_key": "sup_rental", "duration_key": "1_day", "quantity": 1 },
+            { "offering_key": "surfboard_wetsuit_rental", "duration_key": "1_day", "quantity": 1 }
+          ],
+          "course_equipment": [
+            {
+              "offering_key": "surfboard_wetsuit_rental",
+              "mode": "during_course",
+              "quantity": 1
+            }
+          ],
+          "surfer_count": 1
+        }
+      },
+      "create": {
+        "method": "POST",
+        "path": "/staff/bot/sunset/bookings",
+        "auth": "Bearer BOT required; no staff cookie",
+        "body_exact": {
+          "guest_name": "Bot Guest",
+          "location_id": "sunset-somo",
+          "date_from": "2026-09-05",
+          "date_to": "2026-09-05",
+          "service_dates": ["2026-09-05"],
+          "components": {
+            "course": {
+              "course_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+              "tier_key": "1_day",
+              "quantity": 1
+            }
+          },
+          "rentals": [
+            { "offering_key": "sup_rental", "duration_key": "1_day", "quantity": 1 },
+            { "offering_key": "surfboard_wetsuit_rental", "duration_key": "1_day", "quantity": 1 }
+          ],
+          "course_equipment": [
+            {
+              "offering_key": "surfboard_wetsuit_rental",
+              "mode": "during_course",
+              "quantity": 1
+            }
+          ],
+          "surfer_count": 1,
+          "quote_provenance": "<from quote response — server re-quotes; client money rejected>"
+        }
+      },
+      "offline_owner_entrypoints": {
+        "quote": "buildSunsetQuoteCommand({ channel: QUOTE_CHANNELS.LUNA_WHATSAPP, transportBody, trustedLocationId }) + executeSunsetQuote",
+        "create": "buildSunsetBookingCreateCommand({ channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP, transportBody, trustedLocationId }) + executeSunsetBookingCreate"
+      }
+    }
+  },
+  "rental_offerings": [
+    {
+      "offering_key": "surfboard_wetsuit_rental",
+      "label": "Surfboard + Wetsuit",
+      "active": true,
+      "stock_quantity": 20,
+      "location_id": "sunset-somo"
+    },
+    {
+      "offering_key": "sup_rental",
+      "label": "SUP",
+      "active": true,
+      "stock_quantity": 10,
+      "location_id": "sunset-somo"
+    },
+    {
+      "offering_key": "board_and_suit_rental",
+      "label": "Board and Suit (alias-family neighbour)",
+      "active": true,
+      "stock_quantity": 5,
+      "location_id": "sunset-somo"
+    }
+  ],
+  "rental_prices": [
+    {
+      "item_code": "surfboard_wetsuit_rental__1_day",
+      "offering_key": "surfboard_wetsuit_rental",
+      "unit": "day",
+      "amount_cents": 3000,
+      "pricing_status": "confirmed",
+      "price_source": "standalone_rental_duration"
+    },
+    {
+      "item_code": "surfboard_wetsuit_rental__2_hours",
+      "offering_key": "surfboard_wetsuit_rental",
+      "unit": "session",
+      "amount_cents": 1500,
+      "pricing_status": "confirmed",
+      "price_source": "standalone_rental_duration"
+    },
+    {
+      "item_code": "sup_rental__1_day",
+      "offering_key": "sup_rental",
+      "unit": "day",
+      "amount_cents": 5000,
+      "pricing_status": "confirmed",
+      "price_source": "standalone_rental_duration"
+    },
+    {
+      "item_code": "board_and_suit_rental__1_day",
+      "offering_key": "board_and_suit_rental",
+      "unit": "day",
+      "amount_cents": 0,
+      "pricing_status": "confirmed",
+      "price_source": "alias_family_trap_must_not_borrow",
+      "note": "Historical alias-family neighbour at €0 — exact S+W selection must not borrow this"
+    }
+  ],
+  "surf_pack": {
+    "pack_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    "label": "Curso Tarde",
+    "active": true,
+    "group_size": 24,
+    "weekly": "sat_sun",
+    "schedules": ["1600_1800"],
+    "price_tiers": [
+      { "key": "1_day", "label": "1 day", "hours": 2, "amount_cents": 4000 }
+    ],
+    "equipment_options": [
+      {
+        "offering_key": "surfboard_wetsuit_rental",
+        "label": "Surfboard + Wetsuit",
+        "during_course_policy": "included",
+        "during_course_price_cents": 0,
+        "all_day_price_cents": 2500
+      }
+    ]
+  },
+  "staff_drawer_selection": {
+    "course": {
+      "course_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      "tier_key": "1_day",
+      "quantity": 1
+    },
+    "rentals": [
+      { "offering_key": "sup_rental", "duration_key": "1_day", "quantity": 1 },
+      { "offering_key": "surfboard_wetsuit_rental", "duration_key": "1_day", "quantity": 1 }
+    ],
+    "course_equipment": [
+      {
+        "offering_key": "surfboard_wetsuit_rental",
+        "mode": "during_course",
+        "quantity": 1
+      }
+    ],
+    "service_date": "2026-09-05",
+    "surfer_count": 1
+  },
+  "expected": {
+    "sw_1_day_cents": 3000,
+    "sw_2_hours_cents": 1500,
+    "sup_1_day_cents": 5000,
+    "course_cents": 4000,
+    "ce_during_included_cents": 0,
+    "combo_total_cents": 12000,
+    "sw_commercial_lines": 2,
+    "sw_merged_stock_qty": 2
+  },
+  "line_identity_contract": {
+    "standalone_sw": {
+      "offering_key": "surfboard_wetsuit_rental",
+      "duration_key": "1_day",
+      "item_code": "surfboard_wetsuit_rental__1_day",
+      "amount_cents": 3000,
+      "price_source": "tenant_price_rules"
+    },
+    "standalone_sup": {
+      "offering_key": "sup_rental",
+      "duration_key": "1_day",
+      "item_code": "sup_rental__1_day",
+      "amount_cents": 5000,
+      "price_source": "tenant_price_rules"
+    },
+    "ce_sw_during_included": {
+      "offering_key": "surfboard_wetsuit_rental",
+      "mode": "during_course",
+      "amount_cents": 0,
+      "price_source": "course_option_during_course"
+    },
+    "alias_trap": {
+      "offering_key": "board_and_suit_rental",
+      "item_code": "board_and_suit_rental__1_day",
+      "amount_cents": 0,
+      "must_not_price_sw_selection": true
+    }
+  }
+}

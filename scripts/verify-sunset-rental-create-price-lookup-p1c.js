@@ -9,7 +9,9 @@
  *  1) Hermes create forced board+suit into historical surfboard+wetsuit halves and
  *     re-quoted only board_and_suit_rental (live may use surfboard_wetsuit_rental).
  *  2) rental_pricing was not promoted to rentals[] for generics (bike, towel, …).
- *  3) Quote/create loaders must try live catalog key family for board+suit.
+ *  3) P0b: after concrete catalog selection, price resolution is exact offering_key
+ *     only (no board+suit / surfboard_wetsuit alias borrow). Alias family remains
+ *     available for pre-selection text/intent normalization only.
  *
  * Fixture mirrors LIVE loader shape (Monshies):
  *  - tenant_price_rules: no offering_key col; item_code compound; unit day|session
@@ -387,8 +389,8 @@ async function main() {
   });
   ok('async quote bike found', bikeQuote.ok === true && bikeQuote.amount_cents === 1200, bikeQuote);
 
-  // Prefer live key when board_and_suit missing? We have both; try preferred
-  const basAsAlias = await lookupSunsetRentalPriceAsync({
+  // Exact board_and_suit when both family rows exist — no cross-key borrow.
+  const basExact = await lookupSunsetRentalPriceAsync({
     client_slug: 'sunset',
     location_id: LOC,
     item: 'board_and_suit_rental',
@@ -396,9 +398,12 @@ async function main() {
     require_confirmed: false,
     loadRule,
   });
-  ok('async quote board_and_suit found (family)', basAsAlias.ok === true && basAsAlias.amount_cents > 0, basAsAlias);
+  ok('async quote board_and_suit exact row (no family borrow)',
+    basExact.ok === true && basExact.amount_cents === 2000
+    && basExact.item === 'board_and_suit_rental',
+    basExact);
 
-  // Only surfboard_wetsuit in rules — board_and_suit alias should still resolve via candidates
+  // Only surfboard_wetsuit in rules — board_and_suit must fail closed (P0b exact-only).
   const onlySw = LIVE_DB_RULES.filter((r) => r.item_code.startsWith('surfboard_wetsuit') || r.item_code.startsWith('bike'));
   const loadOnlySw = makeLoadRule(onlySw);
   const viaAlias = await lookupSunsetRentalPriceAsync({
@@ -409,9 +414,8 @@ async function main() {
     require_confirmed: false,
     loadRule: loadOnlySw,
   });
-  ok('board_and_suit aliases to surfboard_wetsuit when only that exists',
-    viaAlias.ok === true && viaAlias.amount_cents === 2500
-    && viaAlias.item === 'surfboard_wetsuit_rental',
+  ok('board_and_suit does not alias to surfboard_wetsuit when exact missing (P0b)',
+    viaAlias.ok === false,
     viaAlias);
 
   const genBike = await resolveGenericRentalPrice({
@@ -432,8 +436,22 @@ async function main() {
     quantity: 1,
     loadRule: loadOnlySw,
   });
-  ok('generic create price aliases board_and_suit → surfboard_wetsuit',
-    genSw.ok === true && genSw.unit_cents === 2500, genSw);
+  ok('generic create refuses board_and_suit → surfboard_wetsuit alias borrow (P0b)',
+    genSw.ok === false && genSw.reason === 'price_not_found', genSw);
+
+  const genSwExact = await resolveGenericRentalPrice({
+    clientSlug: 'sunset',
+    locationId: LOC,
+    offeringKey: 'surfboard_wetsuit_rental',
+    durationKey: '1_day',
+    quantity: 1,
+    loadRule: loadOnlySw,
+  });
+  ok('generic create exact surfboard_wetsuit_rental',
+    genSwExact.ok === true && genSwExact.unit_cents === 2500
+    && genSwExact.item_code === 'surfboard_wetsuit_rental__1_day'
+    && genSwExact.offering_key === 'surfboard_wetsuit_rental',
+    genSwExact);
 
   ok('unpriced still null',
     configuredRentalBundleTotalCents(LIVE_MAPPED_PRICES, {
@@ -500,7 +518,7 @@ async function main() {
     ok('surfboard_wetsuit total >= 5000', out && out.body && Number(out.body.total_cents) >= 5000, out && out.body && out.body.total_cents);
   }
 
-  // B4 board_and_suit when only surfboard_wetsuit priced
+  // B4 board_and_suit when only surfboard_wetsuit priced → fail closed (P0b exact-only)
   {
     const pg = makeCreatePg({
       bookingCode: 'SUNSET-20260822-ALIAS',
@@ -513,7 +531,10 @@ async function main() {
       },
     });
     const out = await executeSunsetBookingCreate(pg, built.command);
-    ok('board_and_suit create via surfboard_wetsuit price rule', out && out.ok === true, JSON.stringify(out && out.body || out).slice(0, 280));
+    ok('board_and_suit create does not borrow surfboard_wetsuit price (P0b fail-closed)',
+      out && out.ok === false, JSON.stringify(out && out.body || out).slice(0, 280));
+    ok('alias-miss create zero durable booking write',
+      !pg.state.committed || pg.state.rolledBack === true || pg.state.bookingInserts === 0);
   }
 
   // B5 unpriced
