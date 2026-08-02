@@ -32,9 +32,10 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 - Combo-pricing fixes P0–P0e (included gear attaches, one all-day mechanism, standalone pricing, pickups per-record scope, friendly labels)
 - Crowsnest favicon built; this JOURNEY board added
 - Sunset rental/equipment thread **closed** (owner-verified: pricing, pickups scope, "+" labels)
+- Admin Rental Prices card redesign shipped — hybrid (compact rows + expand-in-place editor); `89ace136`, gate 104/104
 
 ## 🍳 On the stove (in progress)
-- **Admin rental-equipment card redesign** (Captain + Skipper) — concept **approved: hybrid** (compact row per item to browse + expand-in-place editor). Skipper building; Captain gates/deploys. Keep theme; UI-only, no pricing/backend change.
+- _(Captain idle — Sunset rental + admin-card work shipped; awaiting next task.)_
 - **Earthling** — _add what you're on here._
 
 ## 📋 To do
@@ -47,7 +48,7 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 ---
 
 ## 🚀 Live where
-- **Sunset · staff-api** (staging) — `f784311b` rev 0000450 · 08-02 17:44 · Captain
+- **Sunset · staff-api** (staging) — `89ace136` rev 0000451 · 08-02 19:14 · Captain
 - **Sunset · Luna** plugin+SOUL (staging) — `c79da8aa` Slice E · 08-02 05:17 · Captain _(separate deploy — drifts from staff-api)_
 - **Wolfhouse · staff-api** (PROD) — _verify_ · Earthling
 - **Wolfhouse · Luna** guest WhatsApp (prod) — _verify_ · Earthling
