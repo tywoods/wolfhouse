@@ -59,6 +59,41 @@ function scheduleDayOpsCourseEquipmentMode(group){
 }
 
 /**
+ * Friendly rental/CE label (browser projection of scripts/lib/rental-offering-label.js).
+ * Precedence: offering_label → catalog_label → display_name → label → service_name
+ * → humanized offering_key. Never emit bare key when a friendly form exists.
+ */
+function scheduleDayOpsFriendlyOfferingLabel(meta, offeringKey){
+  var m = meta || {};
+  var key = String(offeringKey != null ? offeringKey : (m.offering_key || '')).trim();
+  var itemCode = String(m.item_code || m.offering_item_code || '').trim();
+  var candidates = [
+    m.offering_label, m.catalog_label, m.display_name, m.label, m.service_name,
+  ];
+  for (var i = 0; i < candidates.length; i++) {
+    if (candidates[i] == null) continue;
+    var text = String(candidates[i]).trim();
+    if (!text) continue;
+    var lower = text.toLowerCase();
+    if (lower === 'addon_service' || lower === 'rental') continue;
+    // Reject identity-like labels (raw key / item_code).
+    if (key && lower === key.toLowerCase()) continue;
+    if (itemCode && lower === itemCode.toLowerCase()) continue;
+    if (key && lower.indexOf(key.toLowerCase() + '__') === 0) continue;
+    return text;
+  }
+  if (!key) return '';
+  if (key === 'board_rental') return 'Surfboard';
+  if (key === 'wetsuit_rental') return 'Wetsuit';
+  if (typeof scheduleHumanizeRentalOfferingKey === 'function') {
+    return scheduleHumanizeRentalOfferingKey(key) || key;
+  }
+  return key.replace(/_rental$/i, '').replace(/[_-]+/g, ' ').replace(/\b\w/g, function(c){
+    return c.toUpperCase();
+  }) || key;
+}
+
+/**
  * Compact card label: Admin-owned equipment label + mode.
  * Example: "Surfboard + Wetsuit · During Course". Multi-item CE joins with " · ".
  * "No equipment" only when this course's group truly has no CE rows.
@@ -70,7 +105,7 @@ function scheduleDayOpsEquipmentPrepLabel(group){
     var seen = {};
     for (var i = 0; i < items.length; i++) {
       var meta = items[i].meta;
-      var name = String(meta.label || meta.offering_key || '').trim() || 'Equipment';
+      var name = scheduleDayOpsFriendlyOfferingLabel(meta) || 'Equipment';
       var modeKey = meta.course_equipment_mode === 'all_day' ? 'all_day' : 'during_course';
       var modeLabel = portalT(
         modeKey === 'all_day'
@@ -104,19 +139,40 @@ function scheduleDayOpsParseMetaBlob(raw){
   try { return JSON.parse(raw); } catch (_) { return {}; }
 }
 
+/**
+ * True when a service record is a standalone rental pickup line.
+ * Scope is SERVICE RECORD identity — never booking type / course presence.
+ * Excludes course_equipment and non-rental addon_service (e.g. meals).
+ */
+function scheduleIsStandaloneRentalPickupRecord(row){
+  if (!row) return false;
+  var meta = scheduleDayOpsParseMetaBlob(row.metadata || row._meta);
+  if (meta.course_equipment === true) return false;
+  // Exact rental metadata identity (preferred).
+  if (meta.rental_offering === true || meta.generic_rental === true) return true;
+  var st = String(row.service_type || '').toLowerCase();
+  var ui = String(meta.staff_ui_service_type || row.staff_ui_service_type || '').toLowerCase();
+  var key = String(meta.offering_key || '').trim();
+  // service_type rental / staff_ui rental with offering key.
+  if ((st === 'rental' || ui === 'rental') && key) return true;
+  // addon_service only when stamped as a rental offering with rental identity markers
+  // (duration/item_code/unit) — never bare catalog meals/etc.
+  if (st === 'addon_service' && key && ui === 'rental'
+    && (meta.duration_key || meta.item_code || meta.unit_cents != null)) {
+    return true;
+  }
+  return false;
+}
+
 function scheduleGenericRentalDescriptors(group){
   var byKey = {};
   var records = group && Array.isArray(group.records) ? group.records : [];
   records.forEach(function(row){
+    if (!scheduleIsStandaloneRentalPickupRecord(row)) return;
     var meta = scheduleDayOpsParseMetaBlob(row && (row.metadata || row._meta));
     var key = String(meta.offering_key || meta.offering_id || '').trim();
-    var isGeneric = meta.rental_offering === true || meta.generic_rental === true
-      || (String(meta.component || '').toLowerCase() === 'addon_service' && !!key);
-    if (!isGeneric || !key) return;
-    var label = String(meta.offering_label || meta.catalog_label || meta.label || '').trim();
-    if (!label){
-      label = key.replace(/_rental$/i, '').replace(/[_-]+/g, ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
-    }
+    if (!key) return;
+    var label = scheduleDayOpsFriendlyOfferingLabel(meta, key) || key;
     if (!byKey[key]) byKey[key] = { offering_key: key, label: label, quantity: 0 };
     byKey[key].quantity += Math.max(1, Number(row.quantity) || 1);
   });
@@ -159,17 +215,64 @@ function scheduleRentalPickupsCompareLabel(a, b){
 
 function scheduleGroupHasClassicRentalComponents(group){
   if (!group) return false;
-  if (group.components && (group.components.surfboard || group.components.wetsuit)) return true;
   var records = Array.isArray(group.records) ? group.records : [];
+  var hasClassicRow = false;
   for (var i = 0; i < records.length; i++) {
     var row = records[i];
     var meta = scheduleDayOpsParseMetaBlob(row && (row.metadata || row._meta));
+    // Never treat course equipment as classic rental pickups.
+    if (meta.course_equipment === true) continue;
     if (meta.rental_offering === true || meta.generic_rental === true) continue;
     var comp = String(meta.component || row && row.service_type || '').toLowerCase();
-    if (comp === 'surfboard' || comp === 'board' || comp === 'surfboard_rental' || comp === 'board_rental') return true;
-    if (comp === 'wetsuit' || comp === 'wetsuit_rental') return true;
+    if (comp === 'surfboard' || comp === 'board' || comp === 'surfboard_rental' || comp === 'board_rental') {
+      hasClassicRow = true;
+      break;
+    }
+    if (comp === 'wetsuit' || comp === 'wetsuit_rental') {
+      hasClassicRow = true;
+      break;
+    }
+    var st = String(row && row.service_type || '').toLowerCase();
+    if (st === 'surfboard' || st === 'wetsuit' || /surfboard|wetsuit/.test(st)) {
+      hasClassicRow = true;
+      break;
+    }
+  }
+  if (hasClassicRow) return true;
+  // Group component flags only when records confirm classic gear (avoid CE false positive).
+  if (group.components && (group.components.surfboard || group.components.wetsuit) && records.length === 0) {
+    return true;
   }
   return false;
+}
+
+/**
+ * Display group has any service-record-scoped rental pickups (standalone
+ * generic catalog lines and/or classic board/wetsuit). Booking may also own
+ * courses/lessons — never gate on pure-standalone booking type.
+ */
+function scheduleGroupHasRentalPickups(group){
+  if (!group) return false;
+  if (group._isCancelled || group.schedule_ghost) return false;
+  if (scheduleGenericRentalDescriptors(group).length > 0) return true;
+  if (scheduleGroupHasClassicRentalComponents(group)) {
+    var kind = typeof scheduleRentalPickupKind === 'function' ? scheduleRentalPickupKind(group) : null;
+    if (kind === 'both' || kind === 'board' || kind === 'wetsuit') return true;
+    // Classic rows present even if pickup-kind helper unavailable.
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Select display groups for Rental Pickups Today by service-record content,
+ * not booking type. Includes course bookings that own standalone rental add-ons.
+ */
+function scheduleSelectRentalPickupGroups(rows){
+  var groups = typeof scheduleBuildDisplayGroups === 'function'
+    ? scheduleBuildDisplayGroups(rows)
+    : [];
+  return (groups || []).filter(scheduleGroupHasRentalPickups);
 }
 
 /**
@@ -781,7 +884,14 @@ function scheduleRenderOpsBookingRow(group){
   var rowSrcCls = src === 'staff' ? ' is-staff' : (src === 'luna' || src === 'demo' ? ' is-luna' : '');
   var railCls = src === 'staff' ? ' is-staff' : (src === 'luna' || src === 'demo' ? ' is-luna' : '');
   var ariaLabel = scheduleRowSourceAriaLabel(g);
-  var genericRental = g._genericRentalDescriptor || scheduleGenericRentalDescriptor(g);
+  // Course/lesson/private cards: gear sublabel is CE-only. Never paint a
+  // standalone rental descriptor (SUP/S+W/…) onto the course card.
+  var isCourseLane = (typeof scheduleGroupHasLesson === 'function' && scheduleGroupHasLesson(g))
+    || (typeof scheduleGroupHasCourse === 'function' && scheduleGroupHasCourse(g))
+    || (typeof scheduleGroupHasPrivateLesson === 'function' && scheduleGroupHasPrivateLesson(g));
+  var genericRental = isCourseLane
+    ? null
+    : (g._genericRentalDescriptor || scheduleGenericRentalDescriptor(g));
   var qty = genericRental ? genericRental.quantity : scheduleGroupHasPrivateLesson(g)
     ? (g.quantity || scheduleGroupComponentQty(g, 'private_lesson') || 1)
     : scheduleGroupHasLesson(g)
@@ -789,7 +899,9 @@ function scheduleRenderOpsBookingRow(group){
     : scheduleGroupHasCourse(g)
     ? (g.quantity || scheduleGroupComponentQty(g, 'course') || 1)
     : (scheduleGroupBoardsNeeded(g) || scheduleGroupWetsuitsNeeded(g) || 1);
-  var equip = genericRental ? genericRental.label : scheduleDayOpsEquipmentPrepLabel(g);
+  var equip = isCourseLane
+    ? scheduleDayOpsEquipmentPrepLabel(g)
+    : (genericRental ? genericRental.label : scheduleDayOpsEquipmentPrepLabel(g));
   var chipCls = src === 'staff' ? 'is-staff' : 'is-luna';
   var chipLabel = src === 'staff' ? portalT('schedule.legend.staff')
     : src === 'demo' ? portalT('schedule.source.demo')
@@ -1062,7 +1174,11 @@ function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
       html += '<div class="portal-schedule-timeline">' + itemsHtml + '</div>';
     }
   }
-  var gearGroups = scheduleBuildDisplayGroups(activeRows).filter(scheduleGroupIsStandaloneRental);
+  // Service-record scope: include standalone rentals on course/lesson bookings.
+  // Never filter by pure-standalone booking type (scheduleGroupIsStandaloneRental).
+  var gearGroups = typeof scheduleSelectRentalPickupGroups === 'function'
+    ? scheduleSelectRentalPickupGroups(activeRows)
+    : scheduleBuildDisplayGroups(activeRows).filter(scheduleGroupHasRentalPickups);
   if (gearGroups.length){
     html += scheduleRenderRentalPickupsSection(gearGroups);
   }

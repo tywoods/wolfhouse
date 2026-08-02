@@ -8,6 +8,7 @@
 const crypto = require('crypto');
 const { loadPrivateLessonFromDb, defaultPrivateLessonApi } = require('./sunset-admin-private-lesson-rules');
 const { normalizeSunsetBookingDatesInBody } = require('./sunset-guest-date-intake');
+const { resolveRentalOfferingFriendlyLabel } = require('./rental-offering-label');
 
 // Resolve the per-person-per-day add-on unit price for Create/Edit snapshot.
 // Live Admin DB-read mode: tenant+location tenant_price_rules row is sole owner
@@ -629,7 +630,19 @@ async function prepareGenericRentalsForCreate(opts) {
     }
     if (!priced.ok) return priced;
     const catalogOffering = active.get(String(row.offering_key || '').trim());
-    priced = { ...priced, offering_label: catalogOffering && catalogOffering.label ? String(catalogOffering.label) : null };
+    const catalogLabel = catalogOffering && (catalogOffering.label || catalogOffering.display_name)
+      ? String(catalogOffering.label || catalogOffering.display_name)
+      : null;
+    // Persist friendly label at write time (catalog wins; humanize key fallback
+    // lives inside buildGenericRentalServiceRecord via rental-offering-label).
+    priced = {
+      ...priced,
+      offering_label: catalogLabel,
+      catalog_label: catalogLabel,
+      display_name: catalogOffering && catalogOffering.display_name
+        ? String(catalogOffering.display_name)
+        : null,
+    };
     // Multi-day occupancy dates for stock (inclusive span). Single day → serviceDate only.
     let occupancy = null;
     if (Array.isArray(o.serviceDates) && o.serviceDates.length) {
@@ -3193,6 +3206,25 @@ function decorateRentalServiceMetadata(metadata, opts) {
       metadata.quantity = rental.quantity;
       metadata.rental_service_dates = opts.rentalSpanDates;
       metadata.offering_id = `${rental.offering_key}__${rental.duration_key}`;
+      // Persist friendly offering_label so readers never emit bare keys.
+      // Catalog/admin label (when passed) wins; else Surfboard/Wetsuit fallback.
+      const catalogOff = opts.rentalCatalogByKey
+        && opts.rentalCatalogByKey.get
+        && opts.rentalCatalogByKey.get(String(rental.offering_key));
+      const catalogLabel = catalogOff
+        ? String(catalogOff.label || catalogOff.display_name || '').trim()
+        : '';
+      const quoteLabel = quoteLine && (quoteLine.label || quoteLine.offering_label)
+        ? String(quoteLine.label || quoteLine.offering_label).trim()
+        : '';
+      metadata.offering_label = resolveRentalOfferingFriendlyLabel({
+        offering_label: catalogLabel || null,
+        catalog_label: catalogLabel || null,
+        label: quoteLabel || null,
+        offering_key: rental.offering_key,
+        item_code: quoteLine && (quoteLine.offering_item_code || quoteLine.offering_id),
+      });
+      metadata.label = metadata.offering_label;
       if (quoteLine) {
         metadata.price_id = quoteLine.price_id || null;
         metadata.unit_amount_cents = quoteLine.unit_amount_cents;
@@ -3485,28 +3517,60 @@ async function insertScheduleComponentServiceRows(pg, opts) {
     }
   }
 
-  // Exact offering future-write: board_and_suit_rental persists ONE service record
-  // with metadata.offering_key (never dual surfboard/wetsuit component halves).
+  // Exact offering future-write: board_and_suit_rental / surfboard_wetsuit_rental
+  // persists ONE service record with metadata.offering_key (never dual halves).
   if (Array.isArray(canonicalRentals) && canonicalRentals.length) {
     const span = Array.isArray(rentalSpanDates) && rentalSpanDates.length
       ? rentalSpanDates
       : (Array.isArray(input.service_dates) ? input.service_dates : []);
     const anchor = span[0] || (input.service_dates && input.service_dates[0]) || null;
+    // Load Admin catalog once so exact rows persist authoritative labels even
+    // when the quote line stamped a raw offering_key as label.
+    let catalogByKey = opts.rentalCatalogByKey || null;
+    if (!catalogByKey) {
+      catalogByKey = new Map();
+      try {
+        const { listRentalOfferings } = require('./tenant-rental-offerings');
+        const offs = await listRentalOfferings(pg, {
+          clientSlug,
+          locationId: locationId || null,
+        });
+        for (const off of offs || []) {
+          if (off && off.offering_key) catalogByKey.set(String(off.offering_key), off);
+        }
+      } catch (_) {
+        catalogByKey = new Map();
+      }
+    }
+    // Also use catalog map for component-lane decorate on this insert batch.
+    opts.rentalCatalogByKey = catalogByKey;
+
     for (const rental of canonicalRentals) {
       if (!rental || !isExactOfferingFutureWriteKey(rental.offering_key)) continue;
       if (!anchor) continue;
+      // Exact identity only — never borrow a different offering's quote line.
       const quoteLine = authoritativeQuote
-        ? (
-          findQuoteLineForRentalOffering(authoritativeQuote.line_items, rental.offering_key)
-          || findQuoteLineForRentalOffering(authoritativeQuote.line_items, 'board_and_suit_rental')
-          || findQuoteLineForRentalOffering(authoritativeQuote.line_items, 'surfboard_wetsuit_rental')
-        )
+        ? findQuoteLineForRentalOffering(authoritativeQuote.line_items, rental.offering_key)
         : null;
-      const snapshotLabel = quoteLine && quoteLine.label
-        ? String(quoteLine.label)
-        : (rental.offering_key === 'board_and_suit_rental' || rental.offering_key === 'surfboard_wetsuit_rental'
-          ? 'Board and wetsuit'
-          : String(rental.offering_key));
+      const catalogOff = catalogByKey.get(String(rental.offering_key));
+      const catalogLabel = catalogOff
+        ? String(catalogOff.label || catalogOff.display_name || '').trim()
+        : '';
+      const quoteLabel = quoteLine && (quoteLine.label || quoteLine.offering_label)
+        ? String(quoteLine.label || quoteLine.offering_label).trim()
+        : '';
+      // Catalog Admin label wins; identity-like quote labels are rejected by resolver.
+      const snapshotLabel = resolveRentalOfferingFriendlyLabel({
+        offering_label: catalogLabel || null,
+        catalog_label: catalogLabel || null,
+        display_name: catalogOff && catalogOff.display_name
+          ? String(catalogOff.display_name)
+          : null,
+        label: quoteLabel || null,
+        offering_key: rental.offering_key,
+        item_code: quoteLine && (quoteLine.offering_item_code || quoteLine.offering_id)
+          || `${rental.offering_key}__${rental.duration_key}`,
+      });
       const metadata = wrapMeta({
         ...common(),
         rental_offering: true,
@@ -3538,6 +3602,24 @@ async function insertScheduleComponentServiceRows(pg, opts) {
         srPayment, attribution.dbSource, JSON.stringify(metadata),
       ]);
       createdRows.push({ ...row, metadata, service_type: 'addon_service' });
+    }
+
+    // Re-run component-lane decorate is already done at insert; board/wetsuit
+    // rows inserted above in the date loop used opts without catalog. Patch any
+    // board/wetsuit rows that still lack offering_label from this batch when
+    // they were decorated earlier without catalog.
+    for (const row of createdRows) {
+      const md = row && row.metadata;
+      if (!md || md.offering_label) continue;
+      if (md.offering_key !== 'board_rental' && md.offering_key !== 'wetsuit_rental') continue;
+      const cat = catalogByKey.get(String(md.offering_key));
+      const catLabel = cat ? String(cat.label || cat.display_name || '').trim() : '';
+      md.offering_label = resolveRentalOfferingFriendlyLabel({
+        offering_label: catLabel || null,
+        catalog_label: catLabel || null,
+        offering_key: md.offering_key,
+      });
+      md.label = md.offering_label;
     }
   }
 
@@ -3624,12 +3706,18 @@ async function insertCourseEquipmentRows(pg, opts) {
           'course equipment line requires during_course_policy included|optional|unavailable',
         );
       }
+      const ceLabel = resolveRentalOfferingFriendlyLabel({
+        offering_label: line.offering_label || null,
+        label: line.label || null,
+        offering_key: offeringKey,
+      });
       const metadata = {
         source: opts.attribution.metadataSource,
         staff_manual_schedule: opts.attribution.staffManualSchedule,
         course_equipment: true,
         offering_key: offeringKey,
-        label: String(line.label || offeringKey),
+        label: ceLabel,
+        offering_label: ceLabel,
         course_equipment_mode: mode,
         during_course_policy: duringPolicy,
         component: 'course_equipment',

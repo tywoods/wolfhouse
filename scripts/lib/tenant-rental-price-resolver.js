@@ -43,6 +43,7 @@
 const { resolveRentalBillingUnit, resolveDurationKey } = require('./sunset-rental-price-lookup');
 const { isValidOfferingKey } = require('./tenant-rental-offerings');
 const { parseRentalDurationKey, rentalDurationKeyFromUnitCount } = require('../browser/sunset-rental-duration-model');
+const { resolveRentalOfferingFriendlyLabel } = require('./rental-offering-label');
 
 async function defaultLoadRule(params) {
   const { loadTenantPriceRuleFromDb } = require('./tenant-business-config');
@@ -337,6 +338,16 @@ function buildGenericRentalServiceRecord(priced, ctx) {
     )].sort();
   }
 
+  // Persist a friendly offering_label so readers never need catalog joins.
+  // Catalog/admin label wins; otherwise humanize the offering key.
+  const persistedLabel = resolveRentalOfferingFriendlyLabel({
+    offering_label: p.offering_label,
+    catalog_label: p.catalog_label,
+    display_name: p.display_name,
+    label: p.label,
+    offering_key: p.offering_key,
+  });
+
   const record = {
     client_slug: p.client_slug,
     booking_id: c.bookingId != null ? c.bookingId : null,
@@ -354,7 +365,7 @@ function buildGenericRentalServiceRecord(priced, ctx) {
     metadata: {
       rental_offering: true,
       offering_key: p.offering_key,
-      offering_label: p.offering_label != null ? String(p.offering_label) : null,
+      offering_label: persistedLabel || null,
       duration_key: p.duration_key,
       item_code: p.item_code,
       unit: p.unit,

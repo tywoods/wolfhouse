@@ -7,6 +7,9 @@ const {
   formatRentalPeopleDaysLine,
   resolveRentalPeopleFromMeta,
 } = require('./rental-breakdown-text');
+const {
+  resolveRentalOfferingFriendlyLabel,
+} = require('./rental-offering-label');
 
 const DEFAULT_PRICING_PATH = path.join(
   __dirname,
@@ -150,9 +153,8 @@ function resolveGenericRentalInvoiceLabel(meta, fallback) {
     || m.generic_rental === true
     || (m.offering_key && (m.duration_key || m.item_code || m.unit_cents != null))
   ) {
-    const name = String(m.offering_label || m.label || m.service_name || m.offering_key || '').trim();
+    const name = resolveRentalOfferingFriendlyLabel(m);
     if (name && name.toLowerCase() !== 'addon_service') return name;
-    if (m.offering_key) return String(m.offering_key).trim();
   }
   return fallback;
 }
@@ -195,7 +197,7 @@ function formatServiceRecordInvoiceLineText(sr, opts = {}) {
     const safeUnit = Number.isSafeInteger(unit) && unit >= 0 ? unit : null;
     const offeringKey = String(meta.offering_key || '').trim();
     if (offeringKey || meta.label) {
-      const name = String(meta.label || offeringKey || 'Equipment').trim();
+      const name = resolveRentalOfferingFriendlyLabel(meta) || 'Equipment';
       return `${name} — ${modeLabel} — ${qty} × ${formatEurCents(safeUnit)} = ${formatEurCents(totalCents)}`;
     }
     if (meta.component === 'surfboard' || meta.component === 'wetsuit') {

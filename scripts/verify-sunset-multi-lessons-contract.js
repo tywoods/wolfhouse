@@ -283,9 +283,12 @@ const COURSE_2 = 'course-beta';
       duration_key: '1_day',
     },
   });
-  ok('invoice historical fallback uses offering_key not addon_service',
-    historical.indexOf('retired_thing') >= 0
-    || /rental/i.test(historical),
+  // P0d: never emit bare offering_key when a friendly label can be derived
+  // (humanize retired_thing → "Retired Thing"). Still must not paint addon_service.
+  ok('invoice historical fallback uses friendly key-derived label not addon_service',
+    /Retired Thing/i.test(historical)
+    && historical.indexOf('retired_thing') < 0
+    && historical.toLowerCase().indexOf('addon_service') < 0,
     historical);
   ok('invoice never bare addon_service for generic rental',
     historical.toLowerCase().indexOf('addon_service') < 0, historical);
@@ -365,9 +368,12 @@ const COURSE_2 = 'course-beta';
       && String(towelLine.label).indexOf('Towel') >= 0
       && String(towelLine.label).toLowerCase().indexOf('addon_service') < 0,
       JSON.stringify(towelLine));
-    ok('production invoice historical inactive offering uses persisted key',
+    // P0d: friendly humanized key when offering_label absent (Deleted Offering Key).
+    // Require friendly; never accept raw key as sole pass.
+    ok('production invoice historical inactive offering uses friendly key-derived label',
       histLine
-      && String(histLine.label).indexOf('deleted_offering_key') >= 0
+      && /Deleted Offering Key/i.test(String(histLine.label))
+      && String(histLine.label).indexOf('deleted_offering_key') < 0
       && String(histLine.label).toLowerCase().indexOf('addon_service') < 0,
       JSON.stringify(histLine));
 
@@ -378,8 +384,9 @@ const COURSE_2 = 'course-beta';
       payLineTowel.indexOf('Towel') >= 0
       && payLineTowel.toLowerCase().indexOf('addon_service') < 0,
       payLineTowel);
-    ok('payments line text historical key never addon_service',
-      payLineHist.indexOf('deleted_offering_key') >= 0
+    ok('payments line text historical friendly label never addon_service',
+      /Deleted Offering Key/i.test(payLineHist)
+      && payLineHist.indexOf('deleted_offering_key') < 0
       && payLineHist.toLowerCase().indexOf('addon_service') < 0,
       payLineHist);
   }

@@ -10,7 +10,15 @@
  */
 'use strict';
 
-var SCHEDULE_CANONICAL_RENTAL_OFFERINGS = ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'];
+// Keep in lockstep with scripts/lib/sunset-schedule-booking-writes.js
+// CANONICAL_RENTAL_OFFERING_KEYS — browser cannot require() the Node module.
+var SCHEDULE_CANONICAL_RENTAL_OFFERINGS = [
+  'board_rental',
+  'wetsuit_rental',
+  'board_and_suit_rental',
+  'surfboard_wetsuit_rental',
+  'board_and_wetsuit_rental',
+];
 
 // The full-day equipment extension is a rental-category price row but a dedicated
 // add-on flow, never a picker offering — always excluded from the generic lane.

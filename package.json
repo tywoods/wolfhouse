@@ -847,6 +847,7 @@
     "verify:sunset-combo-pricing-p0": "node scripts/verify-sunset-combo-pricing-p0.js",
     "verify:sunset-combo-pricing-p0b": "node scripts/verify-sunset-combo-pricing-p0b.js",
     "verify:sunset-combo-pricing-p0c": "node scripts/verify-sunset-combo-pricing-p0c.js",
+    "verify:sunset-rental-pickups-p0d": "node scripts/verify-sunset-rental-pickups-p0d.js",
     "job:sunset-staff-sw-quote-readonly": "node scripts/job-sunset-staff-sw-quote-readonly.js"
   },
   "dependencies": {

@@ -86,15 +86,28 @@ WHERE c.slug = $1
   AND sr.client_slug = $1
   AND sr.service_date = $2::date
   AND (
+    -- Canonical component-lane gear (legacy board/wetsuit service types).
     sr.service_type IN ('wetsuit', 'surfboard')
     OR (
-      sr.service_type = 'addon_service'
-      AND sr.metadata->>'rental_offering' = 'true'
+      -- Historical/service_type rental rows with an offering identity.
+      sr.service_type = 'rental'
       AND NULLIF(BTRIM(sr.metadata->>'offering_key'), '') IS NOT NULL
+      AND COALESCE(sr.metadata->>'course_equipment', '') <> 'true'
     )
     OR (
-      -- Course-owned equipment (During Course / All Day). Not a standalone rental:
-      -- rental_offering is unset; course_equipment=true is the admission key.
+      -- Standalone rental offerings: require explicit rental marker so meals
+      -- and unrelated addon_service rows never enter the gear/pickups feed.
+      sr.service_type = 'addon_service'
+      AND (
+        sr.metadata->>'rental_offering' = 'true'
+        OR sr.metadata->>'generic_rental' = 'true'
+      )
+      AND NULLIF(BTRIM(sr.metadata->>'offering_key'), '') IS NOT NULL
+      AND COALESCE(sr.metadata->>'course_equipment', '') <> 'true'
+    )
+    OR (
+      -- Course-owned equipment (During Course / All Day). Separate admission;
+      -- never treated as standalone rental pickups by the frontend.
       sr.service_type = 'addon_service'
       AND sr.metadata->>'course_equipment' = 'true'
       AND NULLIF(BTRIM(sr.metadata->>'offering_key'), '') IS NOT NULL
@@ -202,13 +215,20 @@ WHERE c.slug = $1
   AND (
     sr.service_type IN ('wetsuit', 'surfboard')
     OR (
-      sr.service_type = 'addon_service'
-      AND sr.metadata->>'rental_offering' = 'true'
+      sr.service_type = 'rental'
       AND NULLIF(BTRIM(sr.metadata->>'offering_key'), '') IS NOT NULL
+      AND COALESCE(sr.metadata->>'course_equipment', '') <> 'true'
     )
     OR (
-      -- Course-owned equipment (During Course / All Day). Not a standalone rental:
-      -- rental_offering is unset; course_equipment=true is the admission key.
+      sr.service_type = 'addon_service'
+      AND (
+        sr.metadata->>'rental_offering' = 'true'
+        OR sr.metadata->>'generic_rental' = 'true'
+      )
+      AND NULLIF(BTRIM(sr.metadata->>'offering_key'), '') IS NOT NULL
+      AND COALESCE(sr.metadata->>'course_equipment', '') <> 'true'
+    )
+    OR (
       sr.service_type = 'addon_service'
       AND sr.metadata->>'course_equipment' = 'true'
       AND NULLIF(BTRIM(sr.metadata->>'offering_key'), '') IS NOT NULL

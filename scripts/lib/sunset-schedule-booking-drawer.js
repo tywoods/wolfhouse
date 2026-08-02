@@ -13,6 +13,9 @@ const {
   resolveRecordLocationId,
   attachLocationToMetadata,
 } = require('./sunset-school-locations');
+const {
+  resolveRentalOfferingFriendlyLabel,
+} = require('./rental-offering-label');
 
 const { resolveTenantBusinessConfigAsync, resolveTenantBusinessConfig } = require('./tenant-business-config');
 const {
@@ -54,6 +57,8 @@ const {
   paidBookingRepriceRequiredResult,
   PAID_BOOKING_REPRICE_REQUIRED,
   buildRentalPricingDescriptor,
+  CANONICAL_RENTAL_OFFERING_KEYS,
+  isExactOfferingFutureWriteKey,
 } = require('./sunset-schedule-booking-writes');
 
 const {
@@ -138,7 +143,7 @@ function formatSunsetDrawerDailyItemLabel(dbType, qty, sr) {
   const q = Number(qty) || 1;
   const sep = ' · ';
   if (meta.course_equipment === true) {
-    const name = String(meta.label || meta.offering_key || '').trim() || 'Equipment';
+    const name = resolveRentalOfferingFriendlyLabel(meta) || 'Equipment';
     const modeLabel = meta.course_equipment_mode === 'all_day' ? 'All Day' : 'During Course';
     return `${name}${sep}${modeLabel}${sep}${q}`;
   }
@@ -156,17 +161,10 @@ function formatSunsetDrawerDailyItemLabel(dbType, qty, sr) {
     || meta.generic_rental === true
     || (meta.offering_key && (meta.duration_key || meta.item_code))
   ) {
-    const adminName = String(
-      meta.offering_label
-      || meta.label
-      || meta.service_name
-      || meta.offering_key
-      || '',
-    ).trim();
+    const adminName = resolveRentalOfferingFriendlyLabel(meta);
     if (adminName && adminName.toLowerCase() !== 'addon_service') {
       return `${adminName}${sep}${q}`;
     }
-    if (meta.offering_key) return `${String(meta.offering_key).trim()}${sep}${q}`;
   }
   if (component === 'course') {
     const name = meta.course_label || sr?.course_label;
@@ -1344,7 +1342,9 @@ async function updateSunsetScheduleBooking(pg, opts) {
       },
     };
   }
-  const CANONICAL_RENTAL_KEYS = new Set(['board_rental', 'wetsuit_rental', 'board_and_suit_rental']);
+  // Shared SSoT — never a local subset that drops surfboard_wetsuit_rental /
+  // board_and_wetsuit_rental on Edit.
+  const CANONICAL_RENTAL_KEYS = new Set(CANONICAL_RENTAL_OFFERING_KEYS);
   const COMPONENT_LANE_KEYS = new Set(['board_rental', 'wetsuit_rental']);
   const canonicalRequested = requestedRentals.filter((r) => CANONICAL_RENTAL_KEYS.has(String(r && r.offering_key || '').trim()));
   let prepBody = genericPrep.genericRentals.length
@@ -1388,7 +1388,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
     }
   }
   const hasExactOfferingRentals = Array.isArray(canonicalRequested)
-    && canonicalRequested.some((r) => String(r && r.offering_key || '').trim() === 'board_and_suit_rental');
+    && canonicalRequested.some((r) => isExactOfferingFutureWriteKey(String(r && r.offering_key || '').trim()));
   const validated = validateScheduleBookingBody({
     ...editBody,
     guest_name: requestBody.guest_name != null
