@@ -471,6 +471,8 @@ module.exports = {
   'schedule.create.idempotencyConflict': 'Esta solicitud de creación entra en conflicto con una reserva anterior. Cierra e inicia una nueva creación.',
   'schedule.create.quoteTotal': 'Total presupuestado',
   'schedule.create.quoteFailed': 'Presupuesto no disponible',
+  'schedule.create.priceNotConfigured': 'Precio no configurado',
+  'schedule.create.unpriced': 'Sin precio',
   'schedule.create.quoteStale': 'El precio ha cambiado — actualiza el presupuesto antes de crear.',
   'schedule.create.quoteBusy': 'La comprobación de precio está ocupada — espera un momento e inténtalo de nuevo.',
   'schedule.create.componentsRequired': 'Selecciona al menos un componente.',

@@ -845,7 +845,9 @@
     "verify:sunset-rental-create-price-lookup-p1c": "node scripts/verify-sunset-rental-create-price-lookup-p1c.js",
     "verify:sunset-course-free-during-equipment-p2": "node scripts/verify-sunset-course-free-during-equipment-p2.js",
     "verify:sunset-combo-pricing-p0": "node scripts/verify-sunset-combo-pricing-p0.js",
-    "verify:sunset-combo-pricing-p0b": "node scripts/verify-sunset-combo-pricing-p0b.js"
+    "verify:sunset-combo-pricing-p0b": "node scripts/verify-sunset-combo-pricing-p0b.js",
+    "verify:sunset-combo-pricing-p0c": "node scripts/verify-sunset-combo-pricing-p0c.js",
+    "job:sunset-staff-sw-quote-readonly": "node scripts/job-sunset-staff-sw-quote-readonly.js"
   },
   "dependencies": {
     "acorn": "8.14.1",

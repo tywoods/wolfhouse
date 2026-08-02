@@ -18,6 +18,8 @@ var scheduleDrawerAccomDateRangeRestoreFocus = false;
 var scheduleDrawerAccomDateRangeDocWired = false;
 // Edit-local quote preview state (do not share Create's schedulePortalQuote* globals).
 var scheduleDrawerQuoteState = null;
+/** True after quote failure — clears total and keeps Save disabled until recovery. */
+var scheduleDrawerQuotePriceBlocked = false;
 var scheduleDrawerQuoteGen = 0;
 var scheduleDrawerQuoteAbort = null;
 var scheduleDrawerQuoteTimer = null;
@@ -2882,8 +2884,10 @@ function scheduleDrawerQuotePricingIntentKey(payload) {
 
 function scheduleDrawerClearQuotePreviewUi() {
   scheduleDrawerQuoteState = null;
+  scheduleDrawerQuotePriceBlocked = false;
   var box = el('ps-drawer-quote-preview');
   if (box) { box.innerHTML = ''; box.style.display = 'none'; }
+  if (typeof scheduleDrawerSyncSaveEnabled === 'function') scheduleDrawerSyncSaveEnabled();
 }
 
 function scheduleDrawerShowQuoteChecking() {
@@ -2914,6 +2918,18 @@ function scheduleDrawerDropStaleQuoteUi(payload) {
   return true;
 }
 
+function scheduleDrawerSyncSaveEnabled() {
+  var saveBtn = el('ps-drawer-save');
+  if (!saveBtn) return;
+  if (scheduleDrawerSaveInFlight) {
+    saveBtn.disabled = true;
+    return;
+  }
+  var gateOk = !(scheduleDrawerValidationState && scheduleDrawerValidationState.ok === false);
+  // Unpriced / quote failure clears total and blocks Save.
+  saveBtn.disabled = !gateOk || !!scheduleDrawerQuotePriceBlocked;
+}
+
 function scheduleDrawerRenderQuotePreview(result) {
   var box = el('ps-drawer-quote-preview');
   if (!box) return;
@@ -2921,17 +2937,33 @@ function scheduleDrawerRenderQuotePreview(result) {
   try { box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite'); } catch (_e) { /* ignore */ }
   if (result && (result.idle || result.softInvalid)) {
     scheduleDrawerQuoteState = null;
+    scheduleDrawerQuotePriceBlocked = false;
     box.innerHTML = '';
     box.style.display = 'none';
+    scheduleDrawerSyncSaveEnabled();
     return;
   }
   if (result && result.checking) { scheduleDrawerShowQuoteChecking(); return; }
   if (!result || !result.ok) {
-    var err = portalT('schedule.create.quoteFailed') || 'Quote unavailable';
-    if (result && result.stale) err = portalT('schedule.create.quoteStale') || 'Price changed — refresh quote before saving.';
-    else if (result && result.status === 503) err = portalT('schedule.create.quoteBusy') || 'Price check is busy — wait a moment and try again.';
-    box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0;color:var(--danger,#b33)">' + escHtml(String(err)) + '</p>';
+    scheduleDrawerQuoteState = null;
+    scheduleDrawerQuotePriceBlocked = true;
+    var err = (typeof schedulePortalQuoteFailureMessage === 'function')
+      ? schedulePortalQuoteFailureMessage(result)
+      : (portalT('schedule.create.quoteFailed') || 'Quote unavailable');
+    if (!(typeof schedulePortalQuoteFailureMessage === 'function')) {
+      if (result && result.stale) err = portalT('schedule.create.quoteStale') || 'Price changed — refresh quote before saving.';
+      else if (result && result.status === 503) err = portalT('schedule.create.quoteBusy') || 'Price check is busy — wait a moment and try again.';
+      else if (result && result.body && (result.body.reason_code === 'price_not_found'
+        || result.body.reason_code === 'price_missing'
+        || result.body.reason_code === 'price_not_configured'
+        || result.body.price_status === 'unpriced')) {
+        err = portalT('schedule.create.priceNotConfigured') || 'Price not configured';
+      }
+    }
+    box.innerHTML = '<p class="portal-schedule-drawer-hint portal-schedule-quote-unpriced" style="margin:0;color:var(--danger,#b33)" data-quote-status="unpriced">'
+      + escHtml(String(err)) + '</p>';
     box.style.display = 'block';
+    scheduleDrawerSyncSaveEnabled();
     return;
   }
   // Never paint a total whose pricing intent no longer matches the live Edit form.
@@ -2954,14 +2986,20 @@ function scheduleDrawerRenderQuotePreview(result) {
     : (result.body && result.body.total_cents);
   if (raw == null || (typeof schedulePortalStrictQuoteTotalCents !== 'function'
     && (typeof raw !== 'number' || !Number.isFinite(raw) || Math.floor(raw) !== raw || raw < 0 || raw > Number.MAX_SAFE_INTEGER))) {
-    box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0;color:var(--danger,#b33)">'
-      + escHtml(portalT('schedule.create.quoteFailed') || 'Quote unavailable') + '</p>';
+    scheduleDrawerQuoteState = null;
+    scheduleDrawerQuotePriceBlocked = true;
+    box.innerHTML = '<p class="portal-schedule-drawer-hint portal-schedule-quote-unpriced" style="margin:0;color:var(--danger,#b33)" data-quote-status="unpriced">'
+      + escHtml(portalT('schedule.create.priceNotConfigured')
+        || portalT('schedule.create.quoteFailed') || 'Price not configured') + '</p>';
     box.style.display = 'block';
+    scheduleDrawerSyncSaveEnabled();
     return;
   }
+  scheduleDrawerQuotePriceBlocked = false;
   box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0">'
     + escHtml((portalT('schedule.create.quoteTotal') || 'Quoted total') + ': \u20ac' + (raw / 100).toFixed(2)) + '</p>';
   box.style.display = 'block';
+  scheduleDrawerSyncSaveEnabled();
   // Attach authoritative accommodation season/price onto locked Edit stay cards
   // (Create parity). Nights display still derives from ISO stay dates.
   try {
@@ -4537,7 +4575,7 @@ function scheduleDrawerSyncFooter(opts) {
   scheduleDrawerDropStaleQuoteUi(payload);
   var saveBtn = el('ps-drawer-save');
   if (saveBtn) {
-    saveBtn.disabled = !gate.ok || scheduleDrawerSaveInFlight;
+    saveBtn.disabled = !gate.ok || scheduleDrawerSaveInFlight || !!scheduleDrawerQuotePriceBlocked;
   }
   if (opts.quote === false) return;
   if (gate.ok) scheduleDrawerRefreshQuote();
@@ -4779,6 +4817,7 @@ function scheduleWireEditableDrawer(row, ctx) {
 
 function scheduleDrawerResetQuoteRuntime(){
   try { scheduleDrawerQuoteState = null; } catch (_s) { /* ignore */ }
+  try { scheduleDrawerQuotePriceBlocked = false; } catch (_b) { /* ignore */ }
   try { scheduleDrawerQuoteGen = (Number(scheduleDrawerQuoteGen) || 0) + 1; } catch (_g) { /* ignore */ }
   try {
     if (typeof scheduleDrawerQuoteTimer !== 'undefined' && scheduleDrawerQuoteTimer != null) {

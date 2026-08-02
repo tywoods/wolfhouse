@@ -24,6 +24,37 @@ var schedulePortalQuoteDebounceMs = 400;
 var schedulePortalSubmitInFlight = false;
 var schedulePortalSubmitIdemKey = null;
 var schedulePortalSubmitIdemIntent = null;
+/** True after a quote failure that must clear total + keep Create disabled (e.g. unpriced). */
+var schedulePortalQuotePriceBlocked = false;
+
+/**
+ * Resolve human quote-failure copy. Prefer server ui_message_key / price reasons
+ * so unpriced standalone shows "Price not configured" (never a silent €0 total).
+ */
+function schedulePortalQuoteFailureMessage(result) {
+  var body = result && result.body && typeof result.body === 'object' ? result.body : {};
+  var uiKey = body.ui_message_key || (result && result.ui_message_key) || '';
+  var rc = String(
+    body.reason_code || body.reason || body.error || (result && result.error) || '',
+  ).trim();
+  if (uiKey) {
+    var fromKey = portalT(uiKey);
+    if (fromKey && fromKey !== uiKey) return fromKey;
+  }
+  if (rc === 'price_not_found' || rc === 'price_missing' || rc === 'unpriced'
+    || rc === 'unpriced_offering' || body.price_status === 'unpriced') {
+    return portalT('schedule.create.priceNotConfigured')
+      || portalT('schedule.create.unpriced')
+      || 'Price not configured';
+  }
+  if (result && result.stale) {
+    return portalT('schedule.create.quoteStale') || 'Price changed — refresh quote before creating.';
+  }
+  if (result && result.status === 503) {
+    return portalT('schedule.create.quoteBusy') || 'Price check is busy — wait a moment and try again.';
+  }
+  return portalT('schedule.create.quoteFailed') || 'Quote unavailable';
+}
 
 function schedulePortalClientQuery() {
   return 'client=' + encodeURIComponent(getClient()) + sunsetLocationQuerySuffix();
@@ -54,6 +85,35 @@ function schedulePortalInvalidatePreviewWork() {
   }
   schedulePortalQuoteGen += 1;
   return schedulePortalQuoteGen;
+}
+
+/**
+ * Clear quote state + provenance + price block together (open/close/reset lifecycle).
+ * Pass keepBlocked=true only when a failure must leave Create disabled.
+ */
+function schedulePortalResetQuoteRuntimeState(opts) {
+  opts = opts || {};
+  schedulePortalQuoteState = null;
+  if (opts.keepBlocked === true) schedulePortalQuotePriceBlocked = true;
+  else schedulePortalQuotePriceBlocked = false;
+}
+
+/**
+ * Atomic quote failure: clear provenance/state, block Create, render safe failure UI.
+ */
+function schedulePortalApplyQuoteFailure(result) {
+  schedulePortalResetQuoteRuntimeState({ keepBlocked: true });
+  if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
+    schedulePortalRenderCreateQuotePreview(result && typeof result === 'object'
+      ? result
+      : { ok: false, error: 'quote_failed', body: { reason_code: 'quote_failed' } });
+  } else {
+    // Render path owns blocked flag; ensure it stays set if render is unavailable.
+    schedulePortalQuotePriceBlocked = true;
+  }
+  if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') {
+    schedulePortalSyncCreateSubmitEnabled();
+  }
 }
 
 function schedulePortalNewIdempotencyKey() {
@@ -1075,7 +1135,7 @@ function schedulePortalPrepareCreateOpen(context) {
   }
   schedulePortalOpenGen += 1;
   schedulePortalInvalidatePreviewWork();
-  schedulePortalQuoteState = null;
+  schedulePortalResetQuoteRuntimeState();
   schedulePortalClearCreateDraftFields();
   var ctx = schedulePortalSanitizeCreateLaunchContext(context);
   var dateIso = schedulePortalResolveCreateDefaultDate(ctx);
@@ -1103,7 +1163,7 @@ function schedulePortalResetCreateFormRuntime() {
     return;
   }
   schedulePortalInvalidatePreviewWork();
-  schedulePortalQuoteState = null;
+  schedulePortalResetQuoteRuntimeState();
   schedulePortalSyncCreateSubmitEnabled();
   var msg = el('ps-create-msg');
   if (msg) { msg.textContent = ''; msg.style.display = 'none'; }
@@ -1185,6 +1245,7 @@ function schedulePortalFetchQuote(createPayload, opts) {
     if (!res.ok || !data.success) {
       if (applyState && myGen === schedulePortalQuoteGen) {
         schedulePortalQuoteState = null;
+        schedulePortalQuotePriceBlocked = true;
       }
       return {
         ok: false,
@@ -1192,11 +1253,16 @@ function schedulePortalFetchQuote(createPayload, opts) {
         stale: data.reason_code === 'quote_stale' || data.reason === 'quote_stale',
         status: res.status,
         body: data,
+        ui_message_key: data.ui_message_key || null,
+        price_status: data.price_status || null,
       };
     }
     var totalCents = schedulePortalStrictQuoteTotalCents(data);
     if (totalCents == null) {
-      if (applyState && myGen === schedulePortalQuoteGen) schedulePortalQuoteState = null;
+      if (applyState && myGen === schedulePortalQuoteGen) {
+        schedulePortalQuoteState = null;
+        schedulePortalQuotePriceBlocked = true;
+      }
       return { ok: false, error: 'invalid_quote_total', body: data };
     }
     // Reject apply when pricing intent already drifted (date/surfer/rental changed mid-flight).
@@ -1212,6 +1278,7 @@ function schedulePortalFetchQuote(createPayload, opts) {
       return { ok: false, superseded: true, error: 'intent_stale', body: data };
     }
     if (applyState && myGen === schedulePortalQuoteGen) {
+      schedulePortalQuotePriceBlocked = false;
       schedulePortalQuoteState = {
         quote_provenance: data.quote_provenance || null,
         total_cents: totalCents,
@@ -1225,7 +1292,23 @@ function schedulePortalFetchQuote(createPayload, opts) {
     if (myGen !== schedulePortalQuoteGen) {
       return { ok: false, superseded: true, error: 'superseded' };
     }
-    throw err;
+    // Network / JSON parse rejection: never leave a stale success total/provenance.
+    var netResult = {
+      ok: false,
+      error: 'network_error',
+      status: 0,
+      body: {
+        success: false,
+        reason: 'network_error',
+        reason_code: 'network_error',
+        error: 'network_error',
+      },
+    };
+    if (applyState && myGen === schedulePortalQuoteGen) {
+      schedulePortalQuoteState = null;
+      schedulePortalQuotePriceBlocked = true;
+    }
+    return netResult;
   });
 }
 
@@ -1498,15 +1581,25 @@ function schedulePortalRenderCreateQuotePreview(result) {
   if (result && (result.superseded || result.aborted)) return;
   try { box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite'); } catch (_e) { /* ignore */ }
   if (result && (result.idle || result.softInvalid)) {
-    schedulePortalQuoteState = null; box.innerHTML = ''; box.style.display = 'none'; return;
+    schedulePortalQuoteState = null;
+    schedulePortalQuotePriceBlocked = false;
+    box.innerHTML = ''; box.style.display = 'none';
+    if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
+    return;
   }
   if (result && result.checking) { schedulePortalShowQuoteChecking(); return; }
   if (!result || !result.ok) {
-    var err = portalT('schedule.create.quoteFailed') || 'Quote unavailable';
-    if (result && result.stale) err = portalT('schedule.create.quoteStale') || 'Price changed — refresh quote before creating.';
-    else if (result && result.status === 503) err = portalT('schedule.create.quoteBusy') || 'Price check is busy — wait a moment and try again.';
-    box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0;color:var(--danger,#b33)">' + escHtml(String(err)) + '</p>';
-    box.style.display = 'block'; return;
+    // Clear total + block Create on price failure (never leave a stale € amount).
+    schedulePortalQuoteState = null;
+    schedulePortalQuotePriceBlocked = true;
+    var err = typeof schedulePortalQuoteFailureMessage === 'function'
+      ? schedulePortalQuoteFailureMessage(result)
+      : (portalT('schedule.create.quoteFailed') || 'Quote unavailable');
+    box.innerHTML = '<p class="portal-schedule-drawer-hint portal-schedule-quote-unpriced" style="margin:0;color:var(--danger,#b33)" data-quote-status="unpriced">'
+      + escHtml(String(err)) + '</p>';
+    box.style.display = 'block';
+    if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
+    return;
   }
   // Never paint a total whose pricing intent no longer matches the live Create form.
   if (result.intent_key != null || (schedulePortalQuoteState && schedulePortalQuoteState.intent_key != null)) {
@@ -1526,13 +1619,21 @@ function schedulePortalRenderCreateQuotePreview(result) {
   }
   var raw = typeof schedulePortalStrictQuoteTotalCents === 'function' ? schedulePortalStrictQuoteTotalCents(result.body) : (result.body && result.body.total_cents);
   if (raw == null || (typeof schedulePortalStrictQuoteTotalCents !== 'function' && (typeof raw !== 'number' || !Number.isFinite(raw) || Math.floor(raw) !== raw || raw < 0 || raw > Number.MAX_SAFE_INTEGER))) {
-    box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0;color:var(--danger,#b33)">'
-      + escHtml(portalT('schedule.create.quoteFailed') || 'Quote unavailable') + '</p>';
-    box.style.display = 'block'; return;
+    schedulePortalQuoteState = null;
+    schedulePortalQuotePriceBlocked = true;
+    box.innerHTML = '<p class="portal-schedule-drawer-hint portal-schedule-quote-unpriced" style="margin:0;color:var(--danger,#b33)" data-quote-status="unpriced">'
+      + escHtml(typeof schedulePortalQuoteFailureMessage === 'function'
+        ? schedulePortalQuoteFailureMessage({ ok: false, body: result && result.body, error: 'invalid_quote_total' })
+        : (portalT('schedule.create.quoteFailed') || 'Quote unavailable')) + '</p>';
+    box.style.display = 'block';
+    if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
+    return;
   }
+  schedulePortalQuotePriceBlocked = false;
   box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0">'
     + escHtml((portalT('schedule.create.quoteTotal') || 'Quoted total') + ': \u20ac' + (raw / 100).toFixed(2)) + '</p>';
   box.style.display = 'block';
+  if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
   // Attach authoritative accommodation season/price onto locked Create stay cards.
   try {
     if (typeof scheduleAttachCreateAccommodationQuote === 'function' && result.body) {
@@ -1751,7 +1852,7 @@ function schedulePortalRenderCreateIntentSummary(payload) {
   box.innerHTML = html;
 }
 
-/** Disable Create until guest name nonblank, phone valid, and (if Group) a course is selected. Quote may still run while guest blank. */
+/** Disable Create until guest name nonblank, phone valid, and (if Group) a course is selected. Quote may still run while guest blank. Unpriced/failed quotes keep Create disabled. */
 function schedulePortalSyncCreateSubmitEnabled() {
   var btn = el('ps-create-submit');
   if (!btn) return;
@@ -1766,7 +1867,8 @@ function schedulePortalSyncCreateSubmitEnabled() {
   if (el('ps-create-comp-course') && el('ps-create-comp-course').checked) {
     courseOk = !!schedulePortalGetSelectedCreateCourseId();
   }
-  btn.disabled = !guestOk || !courseOk;
+  // Price-not-configured / quote failure clears total and blocks Create.
+  btn.disabled = !guestOk || !courseOk || !!schedulePortalQuotePriceBlocked;
 }
 
 function schedulePortalSyncCreateFooter(opts) {
@@ -1805,8 +1907,9 @@ function schedulePortalSetCreateStatus(text, isError) {
 }
 
 function schedulePortalClearQuotePreviewUi() {
-  schedulePortalQuoteState = null;
+  schedulePortalResetQuoteRuntimeState();
   var box = el('ps-create-quote-preview'); if (box) { box.innerHTML = ''; box.style.display = 'none'; }
+  if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
 }
 
 function schedulePortalRunPreviewQuote() {
@@ -2323,13 +2426,11 @@ function submitScheduleManualBooking() {
       if (quoteResult && (quoteResult.superseded || quoteResult.aborted)) {
         return quoteResult;
       }
-      var qErr = (quoteResult && quoteResult.error) || (portalT('schedule.create.quoteFailed') || 'Could not quote booking');
-      if (quoteResult && quoteResult.stale) {
-        qErr = portalT('schedule.create.quoteStale') || 'Price changed — refresh and try again.';
-      }
-      if (quoteResult && quoteResult.status === 503) {
-        qErr = portalT('schedule.create.quoteBusy') || 'Price check is busy — wait a moment and try again.';
-      }
+      // Atomic: clear total/provenance, block Create, render failure (incl. network).
+      schedulePortalApplyQuoteFailure(quoteResult);
+      var qErr = typeof schedulePortalQuoteFailureMessage === 'function'
+        ? schedulePortalQuoteFailureMessage(quoteResult)
+        : ((quoteResult && quoteResult.error) || (portalT('schedule.create.quoteFailed') || 'Could not quote booking'));
       throw new Error(qErr);
     }
     schedulePortalRenderCreateQuotePreview(quoteResult);
@@ -2362,7 +2463,7 @@ function submitScheduleManualBooking() {
     succeeded = true;
     var createdCode = res.data.booking_code || (res.data.bookings && res.data.bookings[0] && res.data.bookings[0].booking_code);
     schedulePortalClearSubmitIdempotency();
-    schedulePortalQuoteState = null;
+    schedulePortalResetQuoteRuntimeState();
     closeScheduleCreateModal();
     scheduleResetNavigationAfterBookingCreate();
     scheduleRequestPageLoad();
@@ -2373,6 +2474,21 @@ function submitScheduleManualBooking() {
       }, 800);
     }
   }).catch(function(err) {
+    // Ensure blocked state even if failure arrived via throw (network/JSON).
+    if (!succeeded) {
+      schedulePortalQuoteState = null;
+      schedulePortalQuotePriceBlocked = true;
+      if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
+        schedulePortalRenderCreateQuotePreview({
+          ok: false,
+          error: (err && err.message) || 'quote_failed',
+          body: {
+            reason_code: 'quote_failed',
+            error: (err && err.message) || 'quote_failed',
+          },
+        });
+      }
+    }
     if (msg) {
       var base = portalT('schedule.create.failed') || 'Create failed';
       var detail = err && err.message ? err.message : String(err);
