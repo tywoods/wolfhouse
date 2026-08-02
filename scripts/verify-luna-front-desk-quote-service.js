@@ -652,6 +652,56 @@ async function run() {
     assert(`${hostile.label} remains stale`, check.ok === false && check.body && check.body.reason_code === 'stale_quote', JSON.stringify(check.body));
   }
 
+  console.log('\n[F3] Free during-course quote rows equal persisted rows exactly');
+  const duringSelection = [{ offering_key: equipmentKey, mode: 'during_course', quantity: 1 }];
+  const duringQuoteCmd = buildQuoteCmd(QUOTE_CHANNELS.LUNA_WHATSAPP, {
+    ...transport,
+    course_equipment: duringSelection,
+  });
+  const duringQuote = await executeSunsetQuote(equipmentPg(), duringQuoteCmd.command, { adminCfg: equipmentCfg });
+  assert('during-course quote succeeds', duringQuote.ok === true, JSON.stringify(duringQuote.body));
+  const duringQuoteRows = duringQuote.body.line_items.filter((line) => line.course_equipment === true);
+  assert('during-course €0 line is authoritative quote truth',
+    duringQuoteRows.length === 1 && duringQuoteRows[0].total_cents === 0,
+    JSON.stringify(duringQuoteRows));
+  const duringCreateCmd = buildSunsetBookingCreateCommand({
+    channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+    transportBody: {
+      guest_name: 'Included Equipment Guest',
+      guest_phone: '+346****1444',
+      payment_status: 'unpaid',
+      service_dates: [SATURDAY],
+      components: { course: { quantity: 1, course_id: PACK_ID, tier_key: TIER } },
+      course_equipment: duringSelection,
+      quote_provenance: duringQuote.body.quote_provenance,
+    },
+    trustedLocationId: LOC,
+    now: FIXED_NOW,
+  });
+  const pgDuringCreate = equipmentPg();
+  require('./lib/tenant-business-config').resolveTenantBusinessConfigAsync = async () => equipmentCfg;
+  const duringCreated = await executeSunsetBookingCreate(pgDuringCreate, duringCreateCmd.command);
+  require('./lib/tenant-business-config').resolveTenantBusinessConfigAsync = origResolve;
+  assert('during-course create succeeds', duringCreated.ok === true, JSON.stringify(duringCreated.body));
+  const persistedDuringRows = pgDuringCreate.persistedServices
+    .map((row) => ({ row, meta: typeof row.params[9] === 'string' ? JSON.parse(row.params[9]) : row.params[9] }))
+    .filter(({ meta }) => meta && meta.course_equipment === true)
+    .map(({ row, meta }) => ({
+      offering_key: meta.offering_key,
+      mode: meta.course_equipment_mode,
+      quantity: Number(row.params[6]),
+      total_cents: Number(pgDuringCreate.persistedAmounts[row.id]),
+    }));
+  const normalizedDuringQuoteRows = duringQuoteRows.map((line) => ({
+    offering_key: line.offering_key,
+    mode: line.course_equipment_mode,
+    quantity: Number(line.quantity),
+    total_cents: Number(line.total_cents),
+  }));
+  assert('quote equipment rows equal persisted equipment rows exactly',
+    JSON.stringify(persistedDuringRows) === JSON.stringify(normalizedDuringQuoteRows),
+    JSON.stringify({ quote: normalizedDuringQuoteRows, persisted: persistedDuringRows }));
+
   console.log('\n[G] Stale quote on price change');
   const pgStale = makePg({ priceAmount: AMOUNT + 500 });
   require('./lib/tenant-business-config').resolveTenantBusinessConfigAsync = async () => ({ ...cfg, source: 'db' });

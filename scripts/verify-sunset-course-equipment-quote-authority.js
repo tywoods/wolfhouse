@@ -388,6 +388,15 @@ function assertLineShape(line, expected) {
   const api = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
   assert.ok(/handleSunsetScheduleBookingQuote/.test(api));
   assert.ok(/quoteOffering|executeSunsetQuote|luna-front-desk-quote-service/.test(api));
+  const writes = fs.readFileSync(path.join(__dirname, 'lib/sunset-schedule-booking-writes.js'), 'utf8');
+  assert.ok(!/defaultFreeDuringCourseEquipmentSelection/.test(writes),
+    'write layer must not silently inject unquoted free equipment');
+  const plugin = fs.readFileSync(
+    path.join(__dirname, '..', 'docker', 'hermes-staging', 'plugins', 'wolfhouse_staff_api', '__init__.py'),
+    'utf8',
+  );
+  assert.ok(!/course_equipment\.get\("mode"\) == "during_course"[\s\S]{0,300}course_equipment = None/.test(plugin),
+    'plugin must not drop during-course equipment before create');
 }
 
 console.log('verify:sunset-course-equipment-quote-authority — ALL CHECKS PASSED');

@@ -1883,22 +1883,15 @@ def get_sunset_offering_quote(params, **kwargs):
         })
     if payload.get("course_equipment") is not None:
         _ce = payload.get("course_equipment")
-        # Included during-course gear is auto-attached server-side at booking time.
-        # Quoting it explicitly forks the fingerprint vs the create re-quote (409), so
-        # drop it — the course quotes plainly and Luna still describes the gear as
-        # included. Non-during_course (paid) intents expand to the site wire array.
-        if isinstance(_ce, dict) and _ce.get("mode") == "during_course":
-            payload["course_equipment"] = None
-        else:
-            ce_wire, ce_err = _course_equipment_intent_to_wire(
-                _ce, offering_id, _clean(payload.get("course_id")),
-                _clean(payload.get("location_id")), payload.get("service_dates"))
-            if ce_err == "course_equipment_invalid":
-                return _json_result({
-                    "success": False, "tool": "get_sunset_offering_quote",
-                    "error": "course_equipment_invalid", "staff_review_needed": False,
-                })
-            payload["course_equipment"] = ce_wire
+        ce_wire, ce_err = _course_equipment_intent_to_wire(
+            _ce, offering_id, _clean(payload.get("course_id")),
+            _clean(payload.get("location_id")), payload.get("service_dates"))
+        if ce_err == "course_equipment_invalid":
+            return _json_result({
+                "success": False, "tool": "get_sunset_offering_quote",
+                "error": "course_equipment_invalid", "staff_review_needed": False,
+            })
+        payload["course_equipment"] = ce_wire
     body = {"offering_id": offering_id}
     for key in ("course_id", "quantity", "service_dates", "location_id", "require_db", "tier_key", "course_equipment"):
         if payload.get(key) is not None:
@@ -2416,17 +2409,6 @@ def create_sunset_booking(params, **kwargs):
             "guest_safe_next_action": "Which date should I add the rest-of-day equipment for, and for how many people?",
         })
     course_equipment = payload.get("course_equipment")
-    # Included during-course gear (€0) is auto-attached server-side from the course's
-    # equipment_options at write time — sending it explicitly forks the quote
-    # fingerprint (offering-quote vs create re-quote) and 409s. Drop the redundant
-    # intent for during_course and let the site attach it; the drawer pill still shows.
-    if isinstance(course_equipment, dict) and course_equipment.get("mode") == "during_course":
-        course_equipment = None
-        # Drop from payload too so structured-equipment intent guard does not see
-        # free-during as unpaid notes-only gear (server auto-attaches later).
-        if isinstance(payload, dict):
-            payload = dict(payload)
-            payload.pop("course_equipment", None)
     quote_provenance = payload.get("quote_provenance")
     course_raw = raw_components.get("course") if isinstance(raw_components, dict) else None
     if course_equipment is not None:
@@ -2464,15 +2446,7 @@ def create_sunset_booking(params, **kwargs):
                 or isinstance(provenance_total, bool) or not isinstance(provenance_total, int)
                 or sum(value for value in line_totals if isinstance(value, int) and not isinstance(value, bool)) != provenance_total):
             return _json_result({"success": False, "tool": "create_sunset_booking", "error": "course_equipment_quote_mismatch", "staff_review_needed": False})
-    # Free during-course equipment lines on a plain course quote are server-owned
-    # (P2 auto-attach). After we drop mode=during_course above, do not require the
-    # model to re-send CE for those lines. Paid/non-during CE lines still require
-    # an explicit selection that matches provenance.
-    paid_equipment_lines = [
-        line for line in equipment_lines
-        if str(line.get("course_equipment_mode") or "") != "during_course"
-    ]
-    if paid_equipment_lines and course_equipment is None:
+    if equipment_lines and course_equipment is None:
         return _json_result({"success": False, "tool": "create_sunset_booking", "error": "course_equipment_required_by_quote", "staff_review_needed": False})
     if equipment_lines and course_equipment is not None and (
             {line.get("course_equipment_mode") for line in equipment_lines} != {course_equipment["mode"]}

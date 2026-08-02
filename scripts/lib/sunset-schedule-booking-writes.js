@@ -245,7 +245,6 @@ const {
 } = require('./sunset-course-equipment-pricing');
 const {
   isPresentCourseEquipmentSelection,
-  defaultFreeDuringCourseEquipmentSelection,
 } = require('./sunset-course-equipment-options');
 
 function checkedMoneyInteger(value, label) {
@@ -4185,40 +4184,6 @@ async function createSunsetScheduleBooking(pg, opts) {
           detail: (coursePricePreflight && coursePricePreflight.reason) || 'price_not_configured',
         },
       };
-    }
-  }
-
-  // Free during-course gear from site course config (equipment_options, €0).
-  // When transport omits course_equipment, attach configured free inclusions so
-  // service rows + drawer equipment pill reflect catalog truth — not a hardcoded list.
-  // Explicit course_equipment (staff/Luna selection) is never overwritten.
-  // Courses with no free during-course options stay without equipment rows.
-  if (!isPresentCourseEquipmentSelection(input.course_equipment)) {
-    const packCandidates = [];
-    if (assignedCourse && assignedCourse.pack) packCandidates.push(assignedCourse.pack);
-    if (assignedCoursesById && typeof assignedCoursesById === 'object') {
-      Object.keys(assignedCoursesById).forEach((cid) => {
-        const a = assignedCoursesById[cid];
-        if (a && a.pack) packCandidates.push(a.pack);
-      });
-    }
-    if (input.components && input.components.private_lesson && privateLessonConfig) {
-      packCandidates.push(privateLessonConfig);
-    }
-    const surfersForFree = input.surfer_count != null
-      ? input.surfer_count
-      : (input.components && input.components.course && input.components.course.quantity != null
-        ? input.components.course.quantity
-        : (input.components && input.components.private_lesson
-          && input.components.private_lesson.surfer_count != null
-          ? input.components.private_lesson.surfer_count
-          : 1));
-    const freeSel = defaultFreeDuringCourseEquipmentSelection({
-      packs: packCandidates,
-      surfers: surfersForFree,
-    });
-    if (freeSel && freeSel.length) {
-      input.course_equipment = freeSel;
     }
   }
 

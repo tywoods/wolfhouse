@@ -112,20 +112,22 @@ check("[0] canonical top-level course_equipment contract",
       and "top-level" in tool_course_equipment.get("description", ""),
       tool_course_equipment)
 
-# [0b] Free during_course is dropped (server auto-attach). Paid all_day posts the
-# site wire array from quote provenance — never nested rental components.
+# [0b] Free during_course and paid all_day both post the exact site wire array
+# from quote provenance — never nested rental components.
 fake = with_fake({"/sunset/booking-create": BOOKING_OK})
 during = {"mode": "during_course", "quantity": 1}
+during_wire = [{"offering_key": "board_and_suit_rental", "mode": "during_course", "quantity": 1}]
 mod.create_sunset_booking(base_payload(
     components={"course": {"course_id": "course-123", "tier_key": "4_day", "quantity": 1}},
     course_equipment=during,
-    quote_provenance={"quote_fingerprint": "fp-course", "total_cents": 0, "line_items": [
-        {"component": "course", "total_cents": 0}
+    quote_provenance={"quote_fingerprint": "fp-course", "course_equipment": during_wire, "total_cents": 0, "line_items": [
+        {"component": "course", "total_cents": 0},
+        {"course_equipment": True, "course_equipment_mode": "during_course", "quantity": 1, "total_cents": 0},
     ]},
 ))
 body = fake.body_for("/sunset/booking-create")
-check("[0b] during_course course_equipment dropped (server auto-attach)",
-      bool(body) and "course_equipment" not in body,
+check("[0b] during_course course_equipment posts wire array from provenance",
+      bool(body) and body.get("course_equipment") == during_wire,
       body)
 
 wire = [{"offering_key": "board_and_suit_rental", "mode": "all_day", "quantity": 1}]

@@ -1,9 +1,8 @@
-"""Plugin course equipment finalize — during_course drop + all_day wire provenance.
+"""Plugin course equipment canonical chain — during_course + all_day wire provenance.
 
 Design (staging-verified):
-- Free during-course gear is server auto-attached from equipment_options.
-  Plugin must NOT send course_equipment for mode=during_course (forks quote → 409).
-- Paid all_day intent expands to site wire array [{offering_key, mode, quantity}]
+- Free during-course and paid all_day intent both expand to the site wire array.
+- Quote and create must carry the identical canonical selection and provenance.
   from /sunset/catalog equipment_options, and create posts that wire + provenance.
 """
 import copy
@@ -22,6 +21,7 @@ GEAR_KEY = "board_and_suit_rental"
 DURING = {"mode": "during_course", "quantity": 2}
 ALL_DAY = {"mode": "all_day", "quantity": 2}
 WIRE_ALL_DAY = [{"offering_key": GEAR_KEY, "mode": "all_day", "quantity": 2}]
+WIRE_DURING = [{"offering_key": GEAR_KEY, "mode": "during_course", "quantity": 2}]
 
 NODE_QUOTE = r"""
 const input=JSON.parse(require('fs').readFileSync(0,'utf8'));
@@ -121,7 +121,7 @@ def base(**kw):
 transport = RuntimeTransport()
 mod._post_bot = transport
 
-# ── 1) During-course: drop from quote bot call (server auto-attach) ─────────
+# ── 1) During-course: quote and create preserve the canonical free line ─────
 quote_during = json.loads(mod.get_sunset_offering_quote({
     "offering_id": ITEM,
     "course_id": COURSE,
@@ -129,21 +129,23 @@ quote_during = json.loads(mod.get_sunset_offering_quote({
     "service_dates": ["2026-09-01"],
     "course_equipment": DURING,
 }))
-assert transport.calls[0][0].endswith("/sunset/offering-quote") or "offering-quote" in transport.calls[0][0]
-assert "course_equipment" not in transport.calls[0][1], transport.calls[0][1]
+quote_during_call = next(b for p, b in transport.calls if "offering-quote" in p)
+assert quote_during_call["course_equipment"] == WIRE_DURING, quote_during_call
 assert quote_during["success"] is True
-assert quote_during.get("course_equipment") in (None, [], {}), quote_during.get("course_equipment")
+assert quote_during["course_equipment"] == WIRE_DURING, quote_during.get("course_equipment")
 assert quote_during["total_cents"] == 8000  # course only; free gear not on quote lines
 assert quote_during["quote_provenance"]
 assert len(quote_during["quote_provenance"]["quote_fingerprint"]) == 64
-# No paid CE lines when during was dropped
 gear_lines = [
     line for line in (quote_during.get("line_items") or [])
     if isinstance(line, dict) and line.get("course_equipment") is True
 ]
-assert gear_lines == [], gear_lines
+assert len(gear_lines) == 1, gear_lines
+assert gear_lines[0]["offering_key"] == GEAR_KEY
+assert gear_lines[0]["course_equipment_mode"] == "during_course"
+assert gear_lines[0]["total_cents"] == 0
 
-# Create with during_course intent → plugin drops CE; booking-create has no CE field
+# Create with during_course intent → plugin posts the identical wire selection.
 out_during = json.loads(mod.create_sunset_booking(base(
     course_equipment=DURING,
     quote_provenance=quote_during["quote_provenance"],
@@ -151,17 +153,16 @@ out_during = json.loads(mod.create_sunset_booking(base(
 assert out_during["success"] is True, out_during
 posted_during = transport.calls[-1]
 assert "booking-create" in posted_during[0]
-assert "course_equipment" not in posted_during[1], posted_during[1]
-# Free during-course create may still carry course quote provenance (no CE field).
-assert isinstance(posted_during[1].get("quote_provenance"), dict) or posted_during[1].get("quote_provenance") is None
+assert posted_during[1]["course_equipment"] == WIRE_DURING, posted_during[1]
+assert posted_during[1]["quote_provenance"] == quote_during["quote_provenance"]
 
-# Bare course create (no CE) still works — server auto-attach on staff-api
+# Bare course create cannot silently recreate a quoted equipment row.
 before = len(transport.calls)
 out_plain = json.loads(mod.create_sunset_booking(base(
     quote_provenance=quote_during["quote_provenance"],
 )))
-assert out_plain["success"] is True, out_plain
-assert "course_equipment" not in transport.calls[-1][1]
+assert out_plain["success"] is False, out_plain
+assert len(transport.calls) == before
 
 # ── 2) All-day paid: expand intent → wire + provenance passthrough ──────────
 transport.calls.clear()
@@ -238,17 +239,13 @@ for index, case in enumerate(bad_cases):
 
 assert len(transport.calls) == before, transport.calls[before:]
 
-# During-course with junk money fields is dropped (not invalid) — still no write if
-# we only send during without a valid course provenance when required.
-# Explicit: during alone must not hit booking-create with CE field.
+# During-course with client money is invalid and must never reach booking-create.
 transport.calls.clear()
-_ = json.loads(mod.create_sunset_booking(base(
+junk_during = json.loads(mod.create_sunset_booking(base(
     course_equipment={"mode": "during_course", "quantity": 2, "total_cents": 0},
     quote_provenance=quote_during["quote_provenance"],
 )))
-# Either success (CE dropped) or fail provenance — never posts CE
-create_posts = [b for p, b in transport.calls if "booking-create" in p]
-if create_posts:
-    assert "course_equipment" not in create_posts[-1], create_posts[-1]
+assert junk_during["success"] is False, junk_during
+assert not any("booking-create" in p for p, _ in transport.calls), transport.calls
 
-print("test_sunset_course_equipment_e2e: PASS (during drop + all_day wire)")
+print("test_sunset_course_equipment_e2e: PASS (during + all_day canonical wire)")
