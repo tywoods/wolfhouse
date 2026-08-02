@@ -490,6 +490,168 @@ async function run() {
   assert('create total matches quote', created.body.total_cents === asyncManualQuote.body.total_cents);
   assert('create has total_cents', created.body.total_cents === AMOUNT);
 
+  console.log('\n[F2] Exact-offering all-day quote survives canonical create-time re-quote');
+  const equipmentKey = 'board_rental';
+  const equipmentSelection = [{ offering_key: equipmentKey, mode: 'all_day', quantity: 1 }];
+  const equipmentCfg = {
+    ...cfg,
+    rental_offerings: [{
+      offering_key: equipmentKey,
+      label: 'Slice A Softboard',
+      active: true,
+      client_slug: 'sunset',
+      location_id: LOC,
+    }],
+    surf_packs: cfg.surf_packs.map((pack) => ({
+      ...pack,
+      equipment_options: [{
+        offering_key: equipmentKey,
+        during_course_price_cents: 0,
+        all_day_price_cents: 1200,
+      }],
+    })),
+  };
+  const exactEquipmentTransport = {
+    ...transport,
+    course_equipment: equipmentSelection,
+  };
+  const exactEquipmentCmd = buildQuoteCmd(QUOTE_CHANNELS.LUNA_WHATSAPP, exactEquipmentTransport);
+  const equipmentPg = () => makePg({
+    packs: equipmentCfg.surf_packs.map((pack) => ({
+      id: pack.pack_id,
+      label: pack.label,
+      config_json: {
+        age_band: pack.age_band,
+        group_size: pack.group_size,
+        beaches: pack.beaches,
+        weekly: pack.weekly,
+        schedules: pack.schedules,
+        equipment_options: pack.equipment_options,
+        price_tiers: pack.price_tiers,
+      },
+    })),
+  });
+  const exactEquipmentQuote = await executeSunsetQuote(equipmentPg(), exactEquipmentCmd.command, { adminCfg: equipmentCfg });
+  assert('fresh exact-offering all-day quote ok', exactEquipmentQuote.ok === true, JSON.stringify(exactEquipmentQuote.body));
+  const exactEquipmentProvenance = exactEquipmentQuote.body.quote_provenance;
+  const equipmentCreateCmd = buildSunsetBookingCreateCommand({
+    channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+    transportBody: {
+      guest_name: 'Exact Equipment Guest',
+      guest_phone: '+346****1333',
+      payment_status: 'unpaid',
+      service_dates: [SATURDAY],
+      components: { course: { quantity: 1, course_id: PACK_ID, tier_key: TIER } },
+      course_equipment: equipmentSelection,
+      quote_provenance: exactEquipmentProvenance,
+    },
+    trustedLocationId: LOC,
+    now: FIXED_NOW,
+  });
+  assert('equipment create command ok', equipmentCreateCmd.ok === true, JSON.stringify(equipmentCreateCmd));
+  const freshEquipmentCheck = await validateQuoteProvenanceForCreate(
+    equipmentPg(),
+    equipmentCreateCmd.command,
+    exactEquipmentProvenance,
+    { adminCfg: equipmentCfg },
+  );
+  assert('fresh all-day provenance survives create re-quote', freshEquipmentCheck.ok === true, JSON.stringify(freshEquipmentCheck.body));
+
+  const changedEquipmentCfg = {
+    ...equipmentCfg,
+    surf_packs: equipmentCfg.surf_packs.map((pack) => ({
+      ...pack,
+      equipment_options: pack.equipment_options.map((option) => ({
+        ...option,
+        all_day_price_cents: 1300,
+      })),
+    })),
+  };
+  const pgForCfg = (activeCfg) => makePg({
+    packs: activeCfg.surf_packs.map((pack) => ({
+      id: pack.pack_id,
+      label: pack.label,
+      config_json: {
+        age_band: pack.age_band,
+        group_size: pack.group_size,
+        beaches: pack.beaches,
+        weekly: pack.weekly,
+        schedules: pack.schedules,
+        equipment_options: pack.equipment_options,
+        price_tiers: pack.price_tiers,
+      },
+    })),
+  });
+  const hostileCases = [
+    {
+      label: 'changed equipment price',
+      command: equipmentCreateCmd.command,
+      cfg: changedEquipmentCfg,
+    },
+    {
+      label: 'changed dates',
+      command: {
+        ...equipmentCreateCmd.command,
+        transportBody: { ...equipmentCreateCmd.command.transportBody, service_dates: [FRIDAY] },
+      },
+      cfg: equipmentCfg,
+    },
+    {
+      label: 'changed course',
+      command: {
+        ...equipmentCreateCmd.command,
+        transportBody: {
+          ...equipmentCreateCmd.command.transportBody,
+          components: {
+            course: {
+              ...equipmentCreateCmd.command.transportBody.components.course,
+              course_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+            },
+          },
+        },
+      },
+      cfg: equipmentCfg,
+    },
+    {
+      label: 'changed location',
+      command: { ...equipmentCreateCmd.command, locationId: 'sunset-sardinero' },
+      cfg: equipmentCfg,
+    },
+    {
+      label: 'changed quantity',
+      command: {
+        ...equipmentCreateCmd.command,
+        transportBody: {
+          ...equipmentCreateCmd.command.transportBody,
+          components: {
+            course: { ...equipmentCreateCmd.command.transportBody.components.course, quantity: 2 },
+          },
+        },
+      },
+      cfg: equipmentCfg,
+    },
+    {
+      label: 'changed equipment offering_key',
+      command: {
+        ...equipmentCreateCmd.command,
+        transportBody: {
+          ...equipmentCreateCmd.command.transportBody,
+          course_equipment: [{ offering_key: 'wetsuit_rental', mode: 'all_day', quantity: 1 }],
+        },
+      },
+      cfg: equipmentCfg,
+    },
+  ];
+  for (const hostile of hostileCases) {
+    const check = await validateQuoteProvenanceForCreate(
+      pgForCfg(hostile.cfg),
+      hostile.command,
+      exactEquipmentProvenance,
+      { adminCfg: hostile.cfg },
+    );
+    assert(`${hostile.label} remains stale`, check.ok === false && check.body && check.body.reason_code === 'stale_quote', JSON.stringify(check.body));
+  }
+
   console.log('\n[G] Stale quote on price change');
   const pgStale = makePg({ priceAmount: AMOUNT + 500 });
   require('./lib/tenant-business-config').resolveTenantBusinessConfigAsync = async () => ({ ...cfg, source: 'db' });

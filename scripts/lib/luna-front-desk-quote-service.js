@@ -3009,22 +3009,33 @@ async function validateQuoteProvenanceForCreate(pg, command, provenance, opts = 
   if (!provenance || typeof provenance !== 'object') {
     return { ok: true };
   }
+  const body = command.transportBody;
+  const quotedOfferingId = String(provenance.offering_id || '').trim();
+  const courseComponent = body.components && body.components.course && typeof body.components.course === 'object'
+    ? body.components.course
+    : null;
   const quoteTransport = {
-    ...command.transportBody,
-    service_dates: provenance.service_dates || command.transportBody.service_dates,
-    quantity: provenance.quantity != null ? provenance.quantity : command.transportBody.quantity,
+    ...body,
+    service_dates: body.service_dates || provenance.service_dates,
+    quantity: courseComponent && courseComponent.quantity != null
+      ? courseComponent.quantity
+      : (body.quantity != null ? body.quantity : provenance.quantity),
     require_db: true,
   };
-  if (quoteShouldUseComponentsPath(command.transportBody)) {
-    quoteTransport.components = command.transportBody.components;
-    if (Array.isArray(command.transportBody.rentals)) {
-      quoteTransport.rentals = command.transportBody.rentals;
+  if (quotedOfferingId) {
+    quoteTransport.offering_id = quotedOfferingId;
+    quoteTransport.course_id = courseComponent && courseComponent.course_id != null
+      ? courseComponent.course_id
+      : (body.course_id != null ? body.course_id : provenance.course_id);
+    quoteTransport.tier_key = courseComponent && courseComponent.tier_key != null
+      ? courseComponent.tier_key
+      : (body.tier_key != null ? body.tier_key : provenance.tier_key);
+  } else if (quoteShouldUseComponentsPath(body)) {
+    quoteTransport.components = body.components;
+    if (Array.isArray(body.rentals)) {
+      quoteTransport.rentals = body.rentals;
     }
     delete quoteTransport.offering_id;
-  } else {
-    quoteTransport.offering_id = provenance.offering_id || command.transportBody.offering_id;
-    quoteTransport.course_id = provenance.course_id || command.transportBody.course_id;
-    quoteTransport.tier_key = provenance.tier_key || command.transportBody.tier_key;
   }
   const quoteResult = await executeSunsetQuote(pg, {
     ...command,
