@@ -173,13 +173,66 @@ function gearTotal(body) {
 
 // ── Schema: legacy → independent totals; canonical writes; reject mixed ──
 {
-  assert.deepStrictEqual(resolveEquipmentOptionMoney(LEGACY_SOFTBOARD), CANONICAL_SOFTBOARD);
-  assert.deepStrictEqual(resolveEquipmentOptionMoney(CANONICAL_SOFTBOARD), CANONICAL_SOFTBOARD);
-  assert.deepStrictEqual(normalizeEquipmentOptions([LEGACY_SOFTBOARD]), [CANONICAL_SOFTBOARD]);
+  const canonicalSoftboardWithPolicy = { ...CANONICAL_SOFTBOARD, during_course_policy: 'optional' };
+  assert.deepStrictEqual(resolveEquipmentOptionMoney(LEGACY_SOFTBOARD), canonicalSoftboardWithPolicy);
+  assert.deepStrictEqual(resolveEquipmentOptionMoney(CANONICAL_SOFTBOARD), canonicalSoftboardWithPolicy);
+  assert.deepStrictEqual(normalizeEquipmentOptions([LEGACY_SOFTBOARD]), [canonicalSoftboardWithPolicy]);
   assert.deepStrictEqual(
-    validateEquipmentOptions([CANONICAL_SOFTBOARD]),
-    [CANONICAL_SOFTBOARD],
+    validateEquipmentOptions([{
+      ...CANONICAL_SOFTBOARD,
+      during_course_policy: 'optional',
+    }]),
+    [{ ...CANONICAL_SOFTBOARD, during_course_policy: 'optional' }],
   );
+  assert.strictEqual(
+    normalizeEquipmentOptions([CANONICAL_SOFTBOARD])[0].during_course_policy,
+    'optional',
+    'legacy canonical rows infer optional from a positive during-course price',
+  );
+  assert.strictEqual(
+    normalizeEquipmentOptions([{
+      offering_key: 'included_board',
+      during_course_price_cents: 0,
+      all_day_price_cents: 1000,
+    }])[0].during_course_policy,
+    'included',
+    'legacy canonical €0 rows infer included',
+  );
+  assert.throws(() => validateEquipmentOptions([{
+    ...CANONICAL_SOFTBOARD,
+    during_course_policy: 'bogus',
+  }]));
+  assert.throws(() => validateEquipmentOptions([{
+    ...CANONICAL_SOFTBOARD,
+    during_course_policy: 'included',
+  }]), /included.*zero|included.*0/i);
+  const unavailableCourse = {
+    course_id: GROUP_ID,
+    equipment_options: [{
+      offering_key: 'softboard',
+      during_course_policy: 'unavailable',
+      during_course_price_cents: 0,
+      all_day_price_cents: 1000,
+    }],
+  };
+  assert.throws(() => quoteCourseEquipment({
+    course: unavailableCourse,
+    selection: [{ offering_key: 'softboard', mode: 'during_course', quantity: 1 }],
+    surfers: 1,
+    offerings: RENTALS,
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    serviceDates: DATES_3,
+  }), /during.course.*unavailable/i);
+  assert.strictEqual(quoteCourseEquipment({
+    course: unavailableCourse,
+    selection: [{ offering_key: 'softboard', mode: 'all_day', quantity: 1 }],
+    surfers: 1,
+    offerings: RENTALS,
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    serviceDates: DATES_3,
+  }).total_cents, 3000);
   // Admin/API writes reject legacy field names.
   assert.throws(() => validateEquipmentOptions([LEGACY_SOFTBOARD]));
   // Competing / mixed schema rejected.

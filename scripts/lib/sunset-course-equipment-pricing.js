@@ -86,6 +86,9 @@ function quoteCourseEquipment({
 
     const during = option.during_course_price_cents;
     const allDay = option.all_day_price_cents;
+    if (!item.all_day && option.during_course_policy === 'unavailable') {
+      throw new TypeError('during-course equipment is unavailable for selected course');
+    }
     if (!Number.isSafeInteger(during) || during < 0) {
       throw new TypeError('during_course_price_cents invalid');
     }
@@ -115,6 +118,7 @@ function quoteCourseEquipment({
       all_day: item.all_day,
       mode,
       during_course_price_cents: during,
+      during_course_policy: option.during_course_policy,
       all_day_price_cents: allDay,
       amount_cents: unit,
       unit_amount_cents: unit,

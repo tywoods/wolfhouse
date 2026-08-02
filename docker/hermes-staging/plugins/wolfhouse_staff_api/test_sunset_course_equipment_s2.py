@@ -86,6 +86,18 @@ check(
     truth_free,
 )
 
+truth_policy = mod._project_guest_equipment_truth({
+    "equipment_options": [
+        {"offering_key": "included", "label": "Included", "during_course_policy": "included", "during_course_price_cents": 0, "all_day_price_cents": 1000},
+        {"offering_key": "optional_zero", "label": "Optional", "during_course_policy": "optional", "during_course_price_cents": 0, "all_day_price_cents": 0},
+        {"offering_key": "unavailable", "label": "Unavailable", "during_course_policy": "unavailable", "during_course_price_cents": 0, "all_day_price_cents": 1000},
+    ]
+})
+check("[a1p] only included policy is claimed free", [r["offering_key"] for r in truth_policy["free_during_course"]] == ["included"], str(truth_policy))
+check("[a1p] optional policy remains selectable", any(r["offering_key"] == "optional_zero" for r in truth_policy["paid_or_upgrade_options"]), str(truth_policy))
+check("[a1p] unavailable policy is not a during-course inclusion", not any(r["offering_key"] == "unavailable" for r in truth_policy["free_during_course"]), str(truth_policy))
+check("[a1p] policy is exposed in plugin truth rows", all(r.get("during_course_policy") in ("included", "optional", "unavailable") for r in truth_policy["free_during_course"] + truth_policy["paid_or_upgrade_options"]), str(truth_policy))
+
 truth_empty = mod._project_guest_equipment_truth({"equipment_options": []})
 check("[a2] empty options → no free claim", truth_empty["may_claim_free_during_course_gear"] is False, truth_empty)
 check("[a2] empty free list", truth_empty["free_during_course"] == [], truth_empty)

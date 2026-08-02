@@ -663,7 +663,9 @@ async function run() {
   assert('during-course quote succeeds', duringQuote.ok === true, JSON.stringify(duringQuote.body));
   const duringQuoteRows = duringQuote.body.line_items.filter((line) => line.course_equipment === true);
   assert('during-course €0 line is authoritative quote truth',
-    duringQuoteRows.length === 1 && duringQuoteRows[0].total_cents === 0,
+    duringQuoteRows.length === 1
+      && duringQuoteRows[0].total_cents === 0
+      && duringQuoteRows[0].during_course_policy === 'included',
     JSON.stringify(duringQuoteRows));
   assert('Staff API expands intent to canonical Admin-backed wire selection',
     JSON.stringify(duringQuote.body.course_equipment) === JSON.stringify(duringSelection),

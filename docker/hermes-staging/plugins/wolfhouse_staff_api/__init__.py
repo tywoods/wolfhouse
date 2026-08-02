@@ -1694,7 +1694,8 @@ def _cents_to_eur_amount(cents):
 def _project_guest_equipment_truth(offering):
     """Guest-safe equipment truth from catalog equipment_options only.
 
-    Free during-course gear = options with during_course_price_cents == 0.
+    Explicit during_course_policy drives inclusion: included|optional|unavailable.
+    Pre-policy rows remain compatible (0 => included, positive => optional).
     Never invent wax/board/wetsuit when options are empty or missing.
     """
     if not isinstance(offering, dict):
@@ -1723,22 +1724,28 @@ def _project_guest_equipment_truth(offering):
             all_day = int(raw["all_day_price_cents"]) if raw.get("all_day_price_cents") is not None else None
         except (TypeError, ValueError):
             all_day = None
+        policy = _clean(raw.get("during_course_policy"))
+        if policy not in ("included", "optional", "unavailable"):
+            # Backward compatibility for pre-policy catalog rows.
+            policy = "included" if during == 0 else "optional"
         row = {
             "offering_key": key or None,
             "label": label or key,
+            "during_course_policy": policy,
             "during_course_price_cents": during,
             "all_day_price_cents": all_day,
             "during_course_amount_eur": _cents_to_eur_amount(during) if during is not None else None,
             "all_day_amount_eur": _cents_to_eur_amount(all_day) if all_day is not None else None,
         }
-        if during == 0:
+        if policy == "included":
             sk = key or label
             if sk not in seen_free:
                 seen_free.add(sk)
                 free.append(row)
-        # Paid path: any positive during or all-day price is a selectable paid/upgrade option.
-        if (during is not None and during > 0) or (all_day is not None and all_day > 0):
-            sk = f"{key or label}|{during}|{all_day}"
+        # Optional during-course gear and all-day upgrades remain selectable.
+        if ((policy == "optional" and during is not None and during >= 0)
+                or (all_day is not None and all_day > 0)):
+            sk = f"{key or label}|{policy}|{during}|{all_day}"
             if sk not in seen_paid:
                 seen_paid.add(sk)
                 paid.append(row)

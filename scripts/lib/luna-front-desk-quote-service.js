@@ -272,7 +272,9 @@ function buildCourseEquipmentQuoteLines({
     let commonKeys = null;
     for (const item of courseList) {
       const options = normalizeEquipmentOptions(item && item.equipment_options);
-      const itemKeys = new Set(options.map((row) => row.offering_key));
+      const itemKeys = new Set(options
+        .filter((row) => mode !== 'during_course' || row.during_course_policy !== 'unavailable')
+        .map((row) => row.offering_key));
       commonKeys = commonKeys == null
         ? itemKeys
         : new Set([...commonKeys].filter((key) => itemKeys.has(key)));
@@ -321,6 +323,7 @@ function buildCourseEquipmentQuoteLines({
     quantity: line.quantity,
     unit_amount_cents: line.unit_amount_cents,
     during_course_price_cents: line.during_course_price_cents,
+    during_course_policy: line.during_course_policy,
     all_day_price_cents: line.all_day_price_cents,
     date_count: line.date_count,
     service_dates: line.service_dates ? line.service_dates.slice() : undefined,

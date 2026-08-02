@@ -29,6 +29,7 @@ const LEGACY_SOFTBOARD = {
 };
 const CANONICAL_SOFTBOARD = {
   offering_key: 'softboard',
+  during_course_policy: 'optional',
   during_course_price_cents: 500,
   all_day_price_cents: 1000,
 };

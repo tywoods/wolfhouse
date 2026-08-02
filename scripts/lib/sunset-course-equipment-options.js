@@ -3,9 +3,11 @@
 const MAX_EQUIPMENT_OPTIONS = 100;
 const KEY_RE = /^[a-z0-9][a-z0-9_-]{0,119}$/;
 const MODES = Object.freeze(['during_course', 'all_day']);
+const DURING_COURSE_POLICIES = Object.freeze(['included', 'optional', 'unavailable']);
 
 const CANONICAL_FIELDS = Object.freeze([
   'offering_key',
+  'during_course_policy',
   'during_course_price_cents',
   'all_day_price_cents',
 ]);
@@ -31,6 +33,17 @@ function activeScopedOfferingMap(offerings, scope = {}) {
 
 function hasOwn(row, key) {
   return Object.prototype.hasOwnProperty.call(row, key);
+}
+
+function resolveDuringCoursePolicy(row, duringPrice) {
+  const policy = hasOwn(row, 'during_course_policy')
+    ? String(row.during_course_policy || '').trim()
+    : (duringPrice === 0 ? 'included' : 'optional');
+  if (!DURING_COURSE_POLICIES.includes(policy)) throw new TypeError('invalid during_course_policy');
+  if (policy === 'included' && duringPrice !== 0) {
+    throw new TypeError('included during_course_policy requires zero during_course_price_cents');
+  }
+  return policy;
 }
 
 /**
@@ -62,9 +75,11 @@ function resolveEquipmentOptionMoney(row) {
     if (!hasDuring || !hasAllDay) {
       throw new TypeError('during_course_price_cents and all_day_price_cents are both required');
     }
+    const during = validateMoney(row.during_course_price_cents, 'during_course_price_cents');
     return {
       offering_key,
-      during_course_price_cents: validateMoney(row.during_course_price_cents, 'during_course_price_cents'),
+      during_course_policy: resolveDuringCoursePolicy(row, during),
+      during_course_price_cents: during,
       all_day_price_cents: validateMoney(row.all_day_price_cents, 'all_day_price_cents'),
     };
   }
@@ -73,9 +88,11 @@ function resolveEquipmentOptionMoney(row) {
       throw new TypeError('legacy equipment_price_cents and all_day_surcharge_cents are both required');
     }
     // Independent totals — never base + surcharge.
+    const during = validateMoney(row.equipment_price_cents, 'equipment_price_cents');
     return {
       offering_key,
-      during_course_price_cents: validateMoney(row.equipment_price_cents, 'equipment_price_cents'),
+      during_course_policy: resolveDuringCoursePolicy(row, during),
+      during_course_price_cents: during,
       all_day_price_cents: validateMoney(row.all_day_surcharge_cents, 'all_day_surcharge_cents'),
     };
   }
@@ -106,9 +123,11 @@ function validateEquipmentOptions(value, scope = {}) {
     if (seen.has(offering_key)) throw new TypeError('duplicate offering_key');
     if (available && !available.has(offering_key)) throw new TypeError('offering_key is not an active scoped rental offering');
     seen.add(offering_key);
+    const during = validateMoney(row.during_course_price_cents, 'during_course_price_cents');
     return {
       offering_key,
-      during_course_price_cents: validateMoney(row.during_course_price_cents, 'during_course_price_cents'),
+      during_course_policy: resolveDuringCoursePolicy(row, during),
+      during_course_price_cents: during,
       all_day_price_cents: validateMoney(row.all_day_price_cents, 'all_day_price_cents'),
     };
   });
@@ -276,6 +295,7 @@ function defaultFreeDuringCourseEquipmentSelection({ packs, courses, surfers } =
 module.exports = {
   MAX_EQUIPMENT_OPTIONS,
   MODES,
+  DURING_COURSE_POLICIES,
   CANONICAL_FIELDS,
   LEGACY_FIELDS,
   isPresentCourseEquipmentSelection,
