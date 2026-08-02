@@ -77,10 +77,9 @@ function sourceContracts() {
       && /delete-price[\s\S]{0,200}removeDuration/.test(adminUi),
   );
   ok(
-    'Delete rental only in edit mode (not collapsed card)',
-    /editing[\s\S]{0,800}delete-rental-offering|Edit mode:[\s\S]{0,300}delete-rental-offering|NEVER on the collapsed/.test(
-      adminUi,
-    ),
+    'Delete rental via overflow (compact) and edit footer (hybrid redesign)',
+    /equip-overflow|portal-admin-equip-overflow/.test(adminUi)
+      && /portal-admin-equip-footer[\s\S]{0,400}delete-rental-offering|delete-rental-offering[\s\S]{0,400}portal-admin-equip-footer/.test(adminUi),
   );
   ok(
     'Delete rental posts DELETE to rental-offerings/:key',
@@ -242,6 +241,29 @@ async function browserFixture() {
       if (method === 'POST') {
         const body = JSON.parse(r.request().postData() || '{}');
         creates.push({ kind: 'offering', body });
+        // Atomic create may include prices[] (offering + first duration in one request).
+        if (Array.isArray(body.prices)) {
+          body.prices.forEach((pr) => {
+            creates.push({ kind: 'price', body: { ...pr, offering_key: body.offering_key, via: 'atomic_create' } });
+            const dur = String(pr.period_window || '1_day');
+            const code = `${body.offering_key}__${dur}`;
+            if (!rentalPrices.some((p) => String(p.item_code || p.offering_key) === code)) {
+              rentalPrices.push({
+                id: `price-new-${rentalPrices.length + 1}`,
+                category: 'rental',
+                item_type: 'rental',
+                offering_key: code,
+                item_code: code,
+                display_name: body.label || body.offering_key,
+                label: body.label || body.offering_key,
+                amount_cents: Number(pr.amount_cents) || 0,
+                active: true,
+                client_slug: 'sunset',
+                location_id: 'sunset-somo',
+              });
+            }
+          });
+        }
         const exists = offerings.some((o) => o.offering_key === body.offering_key);
         if (!exists) {
           offerings.push({
@@ -385,9 +407,9 @@ async function browserFixture() {
 
     // Historical selected disabled key retained as Unavailable on its row only
     const histRow = ed.locator('[data-equipment-option-row]').first();
-    const histSelected = await histRow.locator('select').inputValue();
+    const histSelected = await histRow.locator('select.admin-equipment-offering').inputValue();
     assert.strictEqual(histSelected, 'retired_board', 'historical selected disabled key retained');
-    const histHtml = await histRow.locator('select').innerHTML();
+    const histHtml = await histRow.locator('select.admin-equipment-offering').innerHTML();
     assert.ok(
       /retired_board[\s\S]*Unavailable|value="retired_board"[^>]*selected[^>]*disabled|value="retired_board"[^>]*disabled[^>]*selected/i.test(
         histHtml,
@@ -401,27 +423,27 @@ async function browserFixture() {
 
     await page.locator('[data-admin-action="cancel-edit"]').click();
 
-    // ── B) Delete rental only after pencil Edit (hard delete) ──
+    // ── B) Delete rental via overflow or edit footer (hard delete) ──
     const softCard = page.locator('[data-admin-equip="softboard"]');
     const ghostCard = page.locator('[data-admin-equip="ghost_fins"]');
     assert.strictEqual(await ghostCard.count(), 1, 'unpriced rental remains visible in Rental Admin');
     assert.strictEqual(
-      await softCard.locator('[data-admin-action="delete-rental-offering"]').count(),
-      0,
-      'collapsed priced card has no Delete rental',
+      await softCard.locator('[data-admin-action="equip-overflow-toggle"]').count(),
+      1,
+      'compact priced row has overflow',
     );
     assert.strictEqual(
-      await ghostCard.locator('[data-admin-action="delete-rental-offering"]').count(),
-      0,
-      'collapsed unpriced card has no Delete rental',
+      await ghostCard.locator('[data-admin-action="equip-overflow-toggle"]').count(),
+      1,
+      'compact unpriced row has overflow',
     );
 
     await ghostCard.locator('[data-admin-action="edit-equipment"]').click();
-    const delBtn = page.locator('[data-admin-equip="ghost_fins"] [data-admin-action="delete-rental-offering"]');
-    assert.strictEqual(await delBtn.count(), 1, 'edit mode shows Delete rental');
+    const delBtn = page.locator('[data-admin-equip="ghost_fins"] .portal-admin-equip-footer [data-admin-action="delete-rental-offering"]');
+    assert.strictEqual(await delBtn.count(), 1, 'edit footer shows Delete');
     assert.ok(
-      /delete rental/i.test(await delBtn.innerText()),
-      'Delete rental uses visible localized label, not bare ×',
+      /delete/i.test(await delBtn.innerText()),
+      'Delete uses visible localized label, not bare ×',
     );
 
     page.once('dialog', async (d) => {
@@ -481,8 +503,11 @@ async function browserFixture() {
       'POST rental-offerings on create',
     );
     assert.ok(
-      creates.some((c) => c.kind === 'price' && Number(c.body.amount_cents) > 0),
-      'POST prices with positive amount on create',
+      creates.some((c) => c.kind === 'price' && Number(c.body.amount_cents) > 0)
+        || creates.some((c) => c.kind === 'offering'
+          && Array.isArray(c.body.prices)
+          && c.body.prices.some((p) => Number(p.amount_cents) > 0)),
+      'create includes positive price (atomic prices[] or separate POST)',
     );
     assert.ok(configGets.length > configBeforeCreate, 'config refreshed after create without page.reload');
 

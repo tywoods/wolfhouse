@@ -110,12 +110,10 @@ function sourceContracts() {
       && /admin\.prices\.deleteRental/.test(adminUi),
   );
   ok(
-    'Delete rental rendered inside edit branch (not collapsed card)',
-    (/Edit mode:[\s\S]{0,400}delete-rental-offering/.test(adminUi)
-      || /else \{[\s\S]{0,400}delete-rental-offering/.test(adminUi)
-      || /delete-rental-offering[\s\S]{0,1200}portal-admin-equip-footer/.test(adminUi))
-      && /Delete rental is NEVER on the collapsed|only in pencil Edit mode|NEVER on the collapsed\/read-only card/.test(adminUi)
-      && !/if \(!editing\)\{[\s\S]{0,500}delete-rental-offering/.test(adminUi),
+    'Delete rental via overflow (compact) + footer (edit); not a bare top-right header button',
+    /delete-rental-offering/.test(adminUi)
+      && /equip-overflow|portal-admin-equip-overflow/.test(adminUi)
+      && /portal-admin-equip-footer[\s\S]{0,400}delete-rental-offering/.test(adminUi),
   );
   ok(
     'duration × remains removeDuration (separate from item delete)',
@@ -1211,7 +1209,7 @@ async function browserFixture() {
 
     // Historical disabled selected remains unavailable on its row
     const histRow = ed.locator('[data-equipment-option-row]').first();
-    assert.strictEqual(await histRow.locator('select').inputValue(), 'retired_board');
+    assert.strictEqual(await histRow.locator('select.admin-equipment-offering').inputValue(), 'retired_board');
     assert.ok(
       /Unavailable/i.test(await histRow.innerText())
         || (await histRow.locator('option[value="retired_board"][disabled]').count()) >= 1,
@@ -1227,32 +1225,33 @@ async function browserFixture() {
     assert.strictEqual(await ghostCard.count(), 1);
     assert.strictEqual(await retiredCard.count(), 1);
 
+    // Hybrid: Delete lives in overflow on compact rows (not a bare always-visible header button).
     assert.strictEqual(
-      await softCard.locator('[data-admin-action="delete-rental-offering"]').count(),
-      0,
-      'priced card collapsed: no Delete rental',
+      await softCard.locator('[data-admin-action="equip-overflow-toggle"]').count(),
+      1,
+      'priced compact row has overflow',
     );
     assert.strictEqual(
-      await ghostCard.locator('[data-admin-action="delete-rental-offering"]').count(),
-      0,
-      'unpriced card collapsed: no Delete rental',
+      await ghostCard.locator('[data-admin-action="equip-overflow-toggle"]').count(),
+      1,
+      'unpriced compact row has overflow',
     );
     assert.strictEqual(
-      await retiredCard.locator('[data-admin-action="delete-rental-offering"]').count(),
-      0,
-      'disabled card collapsed: no Delete rental',
+      await retiredCard.locator('[data-admin-action="equip-overflow-toggle"]').count(),
+      1,
+      'disabled compact row has overflow',
+    );
+    // Overflow menu item exists in DOM but is not a top-level bare Delete on compact surface.
+    assert.ok(
+      (await softCard.locator('[data-admin-equip-overflow] [data-admin-action="delete-rental-offering"]').count()) >= 1,
+      'overflow contains Delete action',
     );
 
-    // Disabled retains edit / add-price / enable
+    // Disabled retains edit; add-price is edit-mode only in hybrid
     assert.strictEqual(
       await retiredCard.locator('[data-admin-action="edit-equipment"]').count(),
       1,
       'disabled keeps pencil',
-    );
-    assert.strictEqual(
-      await retiredCard.locator('[data-admin-action="add-equip-price"]').count(),
-      1,
-      'disabled keeps add-price',
     );
     assert.strictEqual(
       await retiredCard.locator('[data-admin-action="toggle-equip-enabled"]').count(),
@@ -1260,17 +1259,17 @@ async function browserFixture() {
       'collapsed: enable toggle hidden (edit-only)',
     );
 
-    // Pencil → Delete appears for priced item
+    // Pencil → Delete appears in edit footer for priced item
     await softCard.locator('[data-admin-action="edit-equipment"]').click();
     const softEditing = page.locator('[data-admin-equip="softboard"]');
     assert.strictEqual(
-      await softEditing.locator('[data-admin-action="delete-rental-offering"]').count(),
+      await softEditing.locator('.portal-admin-equip-footer [data-admin-action="delete-rental-offering"]').count(),
       1,
-      'priced item shows Delete rental in edit mode',
+      'priced item shows Delete in edit footer',
     );
     assert.ok(
-      /delete rental/i.test(await softEditing.locator('[data-admin-action="delete-rental-offering"]').innerText()),
-      'Delete rental visible localized label',
+      /delete/i.test(await softEditing.locator('.portal-admin-equip-footer [data-admin-action="delete-rental-offering"]').innerText()),
+      'Delete visible localized label',
     );
     // Duration × still separate when price cards edit
     assert.ok(
@@ -1278,14 +1277,19 @@ async function browserFixture() {
         || (await softEditing.locator('[data-admin-action="delete-rental-offering"]').count()) === 1,
       'edit mode has item delete; duration remove is separate action when prices present',
     );
+    // Add duration available in edit
+    assert.ok(
+      (await softEditing.locator('[data-admin-action="add-equip-price"]').count()) >= 1,
+      'edit mode keeps add-duration',
+    );
     await softEditing.locator('[data-admin-action="cancel-edit"]').click();
 
-    // Unpriced item: pencil → Delete
+    // Unpriced item: pencil → Delete in footer
     await page.locator('[data-admin-equip="ghost_fins"] [data-admin-action="edit-equipment"]').click();
     assert.strictEqual(
-      await page.locator('[data-admin-equip="ghost_fins"] [data-admin-action="delete-rental-offering"]').count(),
+      await page.locator('[data-admin-equip="ghost_fins"] .portal-admin-equip-footer [data-admin-action="delete-rental-offering"]').count(),
       1,
-      'unpriced item shows Delete rental in edit mode',
+      'unpriced item shows Delete in edit footer',
     );
 
     page.once('dialog', async (d) => {
@@ -1297,7 +1301,7 @@ async function browserFixture() {
     });
     const configBefore = configGets.length;
     const catalogBefore = catalogGets.length;
-    await page.locator('[data-admin-equip="ghost_fins"] [data-admin-action="delete-rental-offering"]').click();
+    await page.locator('[data-admin-equip="ghost_fins"] .portal-admin-equip-footer [data-admin-action="delete-rental-offering"]').click();
 
     await page.waitForFunction(
       () => !document.querySelector('[data-admin-equip="ghost_fins"]'),

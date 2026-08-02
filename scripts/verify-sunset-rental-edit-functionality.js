@@ -71,11 +71,11 @@ function sourceContracts() {
       && /var editing = writes && \(adminEditTarget === \('equip:' \+ key\) \|\| adding\);/.test(equipRender),
   );
   ok(
-    'Delete rental + Cancel (footer) when editing OR nested adding',
+    'Delete + Cancel (footer) when editing OR nested adding (hybrid: Delete in footer, not top header)',
     /delete-rental-offering/.test(equipRender)
       && /cancel-edit/.test(equipRender)
       && /save-equipment/.test(equipRender)
-      && /if \(!editing\)\{[\s\S]*?\} else \{[\s\S]*?delete-rental-offering/.test(equipRender)
+      && /portal-admin-equip-footer[\s\S]*?delete-rental-offering/.test(equipRender)
       && /portal-admin-equip-footer[\s\S]*?cancel-edit/.test(equipRender),
   );
   ok(
@@ -85,32 +85,34 @@ function sourceContracts() {
       && !/save-equip-meta/.test(equipRender),
   );
   ok(
-    'enabled pill only while editing',
+    'enabled pill only while editing (hybrid edit shell)',
     /portal-admin-equip-switch/.test(equipRender)
-      && /if \(editing\)\{[\s\S]*?toggle-equip-enabled/.test(equipRender)
+      && /toggle-equip-enabled/.test(equipRender)
+      && /is-editing|data-admin-equip-edit|equip-edit-shell/.test(equipRender)
+      && !/if \(!editing\)\{[\s\S]{0,800}toggle-equip-enabled/.test(equipRender)
       && !/if \(writes\)\{\s*html \+= '<label class=\\"portal-admin-equip-enabled/.test(equipRender),
   );
   ok(
-    'New time + price action only in item edit (not collapsed)',
-    /admin\.prices\.newTimePrice|newTimePrice/.test(equipRender)
+    'Add duration + price only in item edit (not compact overflow)',
+    (/admin\.prices\.addDurationPrice|addDurationPrice|admin\.prices\.newTimePrice|newTimePrice/.test(equipRender))
       && /add-equip-price/.test(equipRender)
-      && !/if \(!editing\)\{[\s\S]{0,500}newTimePrice/.test(equipRender),
+      && /portal-admin-equip-add-duration|renderAdminAddEquipPriceForm/.test(equipRender),
   );
   ok(
-    'New time + price hidden while form already open',
-    /if \(!adding\)[\s\S]{0,200}newTimePrice|newTimePrice[\s\S]{0,200}!adding/.test(equipRender)
-      || (/if \(editing\)[\s\S]{0,400}if \(!adding\)[\s\S]{0,200}add-equip-price/.test(equipRender)),
+    'Add duration hidden while draft form already open',
+    /if \(adding\)[\s\S]{0,200}renderAdminAddEquipPriceForm/.test(equipRender)
+      && /else \{[\s\S]{0,120}add-equip-price|if \(adding\)[\s\S]{0,300}add-equip-price/.test(equipRender),
   );
   ok(
     'add price form still rendered when adding',
-    /if \(adding\) html \+= renderAdminAddEquipPriceForm\(key\);/.test(equipRender),
+    /if \(adding\)[\s\S]{0,80}renderAdminAddEquipPriceForm\(key\)/.test(equipRender),
   );
   ok(
     'save-equipment posts atomic /commit (no multi-request client chain)',
-    /if \(action === 'save-equipment'\)\{[\s\S]{0,5000}\/commit/.test(adminUi)
-      && /if \(action === 'save-equipment'\)\{[\s\S]{0,5000}adminReloadConfig\(/.test(adminUi)
-      && !/if \(action === 'save-equipment'\)\{[\s\S]{0,5000}Promise\.all/.test(adminUi)
-      && !/if \(action === 'save-equipment'\)\{[\s\S]{0,5000}location\.reload\s*\(/.test(adminUi),
+    /if \(action === 'save-equipment'\)\{[\s\S]{0,9000}\/commit/.test(adminUi)
+      && /if \(action === 'save-equipment'\)\{[\s\S]{0,9000}adminReloadConfig\(/.test(adminUi)
+      && !/if \(action === 'save-equipment'\)\{[\s\S]{0,9000}Promise\.all/.test(adminUi)
+      && !/if \(action === 'save-equipment'\)\{[\s\S]{0,9000}location\.reload\s*\(/.test(adminUi),
   );
   ok(
     'server commitRentalEquipmentEdit is transactional',
@@ -1055,24 +1057,30 @@ async function browserFixture() {
     const retired = page.locator('[data-admin-equip="retired_board"]');
     const ghost = page.locator('[data-admin-equip="ghost_fins"]');
 
-    // Collapsed: no Delete, no New time + price label button
-    assert.strictEqual(await soft.locator('[data-admin-action="delete-rental-offering"]').count(), 0, 'collapsed: no Delete');
+    // Compact: Delete only in overflow (not a bare labeled header action); no add-duration on compact
     assert.strictEqual(
-      await soft.locator('[data-admin-action="add-equip-price"]').filter({ hasText: /new time/i }).count(),
+      await soft.locator('.portal-admin-equip-footer [data-admin-action="delete-rental-offering"]').count(),
       0,
-      'collapsed: no New time + price text action',
+      'compact: no footer Delete',
     );
-    // Collapsed may still have icon +, but not the localized New time label in header as text button in edit sense
-    const collapsedNewTimeText = await soft.locator('.portal-admin-card-actions').innerText().catch(() => '');
-    assert.ok(!/new time \+ price/i.test(collapsedNewTimeText), 'collapsed header has no New time + price');
+    assert.strictEqual(
+      await soft.locator('[data-admin-action="add-equip-price"]').count(),
+      0,
+      'compact: no add-duration action',
+    );
+    assert.strictEqual(
+      await soft.locator('[data-admin-action="equip-overflow-toggle"]').count(),
+      1,
+      'compact: overflow present',
+    );
 
-    // Pencil mode: Delete + Done + New time + price
+    // Pencil mode: Delete in footer + Add duration + price
     await soft.locator('[data-admin-action="edit-equipment"]').click();
     const softEdit = page.locator('[data-admin-equip="softboard"]');
     assert.strictEqual(
-      await softEdit.locator('[data-admin-action="delete-rental-offering"]').count(),
+      await softEdit.locator('.portal-admin-equip-footer [data-admin-action="delete-rental-offering"]').count(),
       1,
-      'pencil: Delete rental',
+      'pencil: Delete in footer',
     );
     assert.strictEqual(
       await softEdit.locator('[data-admin-action="cancel-edit"]').count(),
@@ -1080,13 +1088,13 @@ async function browserFixture() {
       'pencil: Cancel/Save footer',
     );
     const newTimeBtn = softEdit.locator('[data-admin-action="add-equip-price"]');
-    assert.strictEqual(await newTimeBtn.count(), 1, 'pencil: New time + price action');
+    assert.strictEqual(await newTimeBtn.count(), 1, 'pencil: Add duration + price action');
     assert.ok(
-      /new time \+ price/i.test(await newTimeBtn.innerText()),
-      'New time + price localized label visible',
+      /add duration|new time|duration \+ price/i.test(await newTimeBtn.innerText()),
+      'Add duration + price localized label visible',
     );
 
-    // Nested form: open New time + price; Delete+Done remain; form appears
+    // Nested form: open add-duration; Delete+Cancel remain; form appears
     await newTimeBtn.click();
     const softNested = page.locator('[data-admin-equip="softboard"]');
     assert.strictEqual(
@@ -1095,7 +1103,7 @@ async function browserFixture() {
       'nested add form visible',
     );
     assert.strictEqual(
-      await softNested.locator('[data-admin-action="delete-rental-offering"]').count(),
+      await softNested.locator('.portal-admin-equip-footer [data-admin-action="delete-rental-offering"]').count(),
       1,
       'nested add still shows Delete',
     );
@@ -1114,11 +1122,11 @@ async function browserFixture() {
       1,
       'enabled pill visible in edit',
     );
-    // New time + price hidden while already adding
+    // Add duration hidden while draft already open
     assert.strictEqual(
-      await softNested.locator('[data-admin-action="add-equip-price"]').filter({ hasText: /new time/i }).count(),
+      await softNested.locator('.portal-admin-equip-add-duration').count(),
       0,
-      'while adding: no second New time + price',
+      'while adding: no second Add duration row',
     );
 
     // Save new duration via single item Save (save-equipment) → refresh without full reload
@@ -1128,16 +1136,22 @@ async function browserFixture() {
     await softNested.locator('#admin-new-price-amount').fill('25');
     await softNested.locator('[data-admin-action="save-equipment"]').click();
     await page.waitForFunction(
-      () => document.querySelectorAll('[data-admin-equip="softboard"] [data-admin-price-card]').length >= 2,
+      () => {
+        const row = document.querySelector('[data-admin-equip="softboard"]');
+        if (!row) return false;
+        const chips = row.querySelectorAll('.portal-admin-equip-chip').length;
+        const cards = row.querySelectorAll('[data-admin-price-card]').length;
+        return chips >= 2 || cards >= 2;
+      },
       null,
       { timeout: 8000 },
     );
-    assert.ok(pricePosts.length >= 1, 'POST price created');
+    assert.ok(pricePosts.length >= 1, 'POST/commit price created');
     assert.ok(configGets.length > configsBefore, 'config reloaded after add price');
     // Unified Save closes edit — re-open for further checks.
     await page.locator('[data-admin-equip="softboard"] [data-admin-action="edit-equipment"]').click();
     assert.strictEqual(
-      await page.locator('[data-admin-equip="softboard"] [data-admin-action="delete-rental-offering"]').count(),
+      await page.locator('[data-admin-equip="softboard"] .portal-admin-equip-footer [data-admin-action="delete-rental-offering"]').count(),
       1,
       'item still editable after save',
     );
@@ -1168,17 +1182,17 @@ async function browserFixture() {
     assert.ok(boxCheck.ok, `amount input overflows card: ${JSON.stringify(boxCheck)}`);
     await page.setViewportSize({ width: 1280, height: 900 });
 
-    // Disabled item supports nested New time + price
+    // Disabled item supports nested Add duration + price
     await page.locator('.portal-admin-equip-footer [data-admin-action="cancel-edit"]').first().click().catch(() => {});
     await retired.locator('[data-admin-action="edit-equipment"]').click();
     const retiredEdit = page.locator('[data-admin-equip="retired_board"]');
     assert.strictEqual(
-      await retiredEdit.locator('[data-admin-action="delete-rental-offering"]').count(),
+      await retiredEdit.locator('.portal-admin-equip-footer [data-admin-action="delete-rental-offering"]').count(),
       1,
       'disabled pencil: Delete',
     );
     const retiredNew = retiredEdit.locator('[data-admin-action="add-equip-price"]');
-    assert.ok(await retiredNew.count() >= 1, 'disabled pencil: New time + price');
+    assert.ok(await retiredNew.count() >= 1, 'disabled pencil: Add duration + price');
     await retiredNew.first().click();
     assert.strictEqual(
       await page.locator('[data-admin-equip="retired_board"] #admin-add-price-form').count(),
@@ -1212,14 +1226,14 @@ async function browserFixture() {
     assert.ok(/Soft/i.test(nameVal), 'user input preserved after duplicate error: ' + nameVal);
     assert.strictEqual(pricePosts.length, pricePostsBefore, 'duplicate name must not create price');
 
-    // Unpriced item supports pencil New time + price
+    // Unpriced item supports pencil Add duration + price
     await page.locator('#admin-add-equip-form [data-admin-action="cancel-edit"]').click().catch(() => {});
     await page.locator('.portal-admin-equip-footer [data-admin-action="cancel-edit"]').first().click().catch(() => {});
     await ghost.locator('[data-admin-action="edit-equipment"]').click();
     assert.strictEqual(
       await page.locator('[data-admin-equip="ghost_fins"] [data-admin-action="add-equip-price"]').count(),
       1,
-      'unpriced supports New time + price in edit',
+      'unpriced supports Add duration + price in edit',
     );
 
     assert.deepStrictEqual(errors, [], 'no page errors: ' + errors.join('; '));

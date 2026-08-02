@@ -1225,8 +1225,8 @@ function renderAdminAddEquipmentForm(){
 
 function renderAdminAddEquipPriceForm(offeringKey){
   // Draft only — committed by the single item-level Save (save-equipment).
-  return '<div class="portal-admin-edit-form portal-admin-equip-form" id="admin-add-price-form" data-equip-key="' + escHtml(offeringKey) + '">' +
-    '<div class="portal-admin-equip-draft-label">' + escHtml(portalT('admin.prices.newTimePrice') || 'New time + price') + '</div>' +
+  return '<div class="portal-admin-edit-form portal-admin-equip-form portal-admin-equip-draft-form" id="admin-add-price-form" data-equip-key="' + escHtml(offeringKey) + '">' +
+    '<div class="portal-admin-equip-draft-label">' + escHtml(portalT('admin.prices.addDurationPrice') || portalT('admin.prices.newTimePrice') || 'Add duration + price') + '</div>' +
     renderAdminDurationControl('admin-new-price', 'days', 1) +
     '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
     '<input type="text" class="portal-admin-equip-amount" id="admin-new-price-amount" inputmode="decimal" placeholder="0.00"></div>' +
@@ -1286,6 +1286,65 @@ function adminEquipStockLabel(stockQuantity){
   return (portalT('admin.prices.stock') || 'Total stock') + ': ' + n;
 }
 
+/** Compact browse status: "<n> stock" (today appended async; never invents availability). */
+function adminEquipCompactStockPart(stockQuantity){
+  if (stockQuantity === null || stockQuantity === undefined || stockQuantity === '') {
+    return portalT('admin.prices.stockUnconfigured') || 'Stock not set';
+  }
+  var n = Number(stockQuantity);
+  if (!Number.isInteger(n)) return portalT('admin.prices.stockUnconfigured') || 'Stock not set';
+  return String(portalT('admin.prices.stockCount') || '{n} stock').replace('{n}', String(n));
+}
+
+/** Full localized chip label: "6 hours €10" / "1 day €20". */
+function adminEquipPriceChipLabel(durationLabel, euros){
+  var dur = String(durationLabel || '').trim() || '???';
+  var amt = (euros === '' || euros == null) ? '' : String(euros);
+  if (!amt) return dur;
+  return dur + ' €' + amt;
+}
+
+/** Monotonic generation for available-today fetches (stale responses must not write DOM). */
+var adminEquipTodayRefreshSeq = 0;
+
+/** Identity for stock-today race gate: client|location + render generation. */
+function adminEquipTodaySchoolKey(){
+  return adminPricingDraftSchoolKey();
+}
+
+function adminCloseAllEquipOverflowMenus(exceptRoot, opts){
+  opts = opts || {};
+  document.querySelectorAll('[data-admin-equip-overflow].is-open').forEach(function(root){
+    if (exceptRoot && root === exceptRoot) return;
+    root.classList.remove('is-open');
+    var btn = root.querySelector('[data-admin-action="equip-overflow-toggle"]');
+    var panel = root.querySelector('[data-admin-equip-overflow-panel]');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    if (panel) panel.hidden = true;
+    if (opts.returnFocus && btn && typeof btn.focus === 'function') {
+      try { btn.focus(); } catch (_f) { /* ignore */ }
+    }
+  });
+}
+
+function adminOpenEquipOverflowDisclosure(root){
+  if (!root) return;
+  adminCloseAllEquipOverflowMenus(root);
+  var btn = root.querySelector('[data-admin-action="equip-overflow-toggle"]');
+  var panel = root.querySelector('[data-admin-equip-overflow-panel]');
+  root.classList.add('is-open');
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+  if (panel) {
+    panel.hidden = false;
+    // Focus first action (Delete) for keyboard users.
+    var firstAction = panel.querySelector('[data-admin-action="delete-rental-offering"]')
+      || panel.querySelector('button');
+    if (firstAction && typeof firstAction.focus === 'function') {
+      try { firstAction.focus(); } catch (_f) { /* ignore */ }
+    }
+  }
+}
+
 function renderAdminSectionPricesFromConfig(cfg){
   var box = el('admin-prices-body');
   if (!box) return;
@@ -1294,68 +1353,113 @@ function renderAdminSectionPricesFromConfig(cfg){
   var addingItem = writes && adminEditTarget === 'equip-add-item';
   var html = '';
   if (writes){
-    html += '<div class="portal-admin-equip-toolbar" style="margin-bottom:12px">';
-    if (!adminEditTarget){
-      html += '<button type="button" class="btn btn-primary" data-admin-action="add-equipment">+ ' +
-        escHtml(portalT('admin.prices.addEquipment') || 'Add equipment') + '</button>';
-    }
+    html += '<div class="portal-admin-equip-toolbar">';
+    // + Add equipment stays available at panel top (even while one row is expanded).
+    html += '<button type="button" class="btn btn-primary" data-admin-action="add-equipment">+ ' +
+      escHtml(portalT('admin.prices.addEquipment') || 'Add equipment') + '</button>';
     html += '</div>';
     if (addingItem) html += renderAdminAddEquipmentForm();
   }
   if (!items.length && !addingItem){
     html += '<p class="portal-admin-muted">' + escHtml(portalT('admin.prices.noEquipment') || 'No equipment yet — add your first item.') + '</p>';
   }
+  // Stamp list with refresh identity so stale stock-today responses cannot write after re-render.
+  var equipTodayGen = ++adminEquipTodayRefreshSeq;
+  var equipTodaySchool = adminEquipTodaySchoolKey();
+  html += '<div class="portal-admin-equip-list" data-admin-equip-list="1" data-equip-today-gen="' +
+    escHtml(String(equipTodayGen)) + '" data-equip-today-school="' + escHtml(equipTodaySchool) + '">';
   items.forEach(function(item){
     var key = item.offering_key;
     var itemActive = item.active !== false;
     // Nested edit: equip-add-price:KEY is item edit with the duration form open.
-    // Delete/Done remain available; New time + price is hidden while already adding.
     var adding = writes && adminEditTarget === ('equip-add-price:' + key);
     var editing = writes && (adminEditTarget === ('equip:' + key) || adding);
-    // Disabled items remain fully manageable: edit, add price, enable, hard-delete.
-    html += '<div class="portal-admin-subsection' + (itemActive ? '' : ' is-equip-disabled') + '" data-admin-equip="' + escHtml(key) + '" data-equip-active="' + (itemActive ? '1' : '0') + '">';
-    html += '<div class="portal-admin-subsection-title-row portal-admin-equip-header">';
-    html += '<div class="portal-admin-subsection-title-group">';
-    html += '<h3 class="portal-admin-subsection-title">' + escHtml(item.label) + '</h3>';
-    html += '<div class="portal-admin-equip-stock-readout portal-admin-muted" data-equip-stock="' +
-      escHtml(item.stock_quantity == null ? '' : String(item.stock_quantity)) + '">' +
-      escHtml(adminEquipStockLabel(item.stock_quantity)) + '</div>';
-    // Available today — same Staff API stock calculator (no duplicated math).
-    html += '<div class="portal-admin-equip-available-today portal-admin-muted" data-equip-available-today="' +
-      escHtml(key) + '">' +
-      escHtml(portalT('admin.equipment.availableToday') || 'Available today') + ': …</div>';
-    // Enabled control only while editing (pill switch). Collapsed cards stay clean.
-    if (!writes) {
-      html += '<span class="portal-admin-muted">' + escHtml(itemActive ? portalT('admin.prices.enabled') : portalT('admin.prices.disabled')) + '</span>';
-    }
-    html += '</div>';
-    if (writes && !adminPriceGroupBusy(key)){
-      html += '<div class="portal-admin-card-actions">';
-      if (!editing){
-        html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-equipment" data-equip-key="' +
-          escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.edit')) + '">✎</button>';
-        // Compact + for collapsed cards (not the labeled New time + price — that is edit-only).
-        html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-equip-price" data-equip-key="' +
-          escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button>';
-        // Delete rental is NEVER on the collapsed/read-only card — only in pencil Edit mode.
+    var deleteLabel = portalT('admin.prices.deleteEquipment') || portalT('admin.prices.deleteRental') || 'Delete equipment';
+    var moreLabel = portalT('admin.prices.moreActions') || 'More actions';
+    var editLabel = portalT('admin.action.edit') || 'Edit';
+    var saveLabel = portalT('admin.prices.saveChanges') || portalT('admin.action.save') || 'Save changes';
+    var addDurLabel = portalT('admin.prices.addDurationPrice') || 'Add duration + price';
+    var editingHeading = String(portalT('admin.prices.editingTitle') || 'Editing — {name}').replace('{name}', item.label || key);
+    var statusOnLabel = portalT('admin.prices.on') || portalT('admin.prices.enabled') || 'on';
+    var statusOffLabel = portalT('admin.prices.off') || portalT('admin.prices.disabled') || 'off';
+    var removeDurLabel = portalT('admin.prices.removeDuration') || 'Remove duration price now';
+    var overflowPanelId = 'admin-equip-overflow-panel-' + adminPriceInputKey(key);
+
+    // Hybrid row: compact browse strip OR expand-in-place editor (one owner via adminEditTarget).
+    html += '<div class="portal-admin-equip-row' +
+      (editing ? ' is-editing' : ' is-compact') +
+      (itemActive ? '' : ' is-equip-disabled') +
+      '" data-admin-equip="' + escHtml(key) +
+      '" data-equip-active="' + (itemActive ? '1' : '0') +
+      '" data-equip-mode="' + (editing ? 'edit' : 'browse') + '">';
+
+    if (!editing){
+      // ── Compact browse row ──
+      html += '<div class="portal-admin-equip-compact">';
+      html += '<div class="portal-admin-equip-identity">';
+      // Full name always available via title; wrap up to 2 lines (no silent single-line ellipsis).
+      html += '<div class="portal-admin-equip-name" title="' + escHtml(item.label || key) + '">' +
+        escHtml(item.label) + '</div>';
+      html += '<div class="portal-admin-equip-status" data-equip-status="' + escHtml(key) + '">';
+      html += '<span class="portal-admin-equip-status-dot' + (itemActive ? ' is-on' : ' is-off') +
+        '" aria-hidden="true"></span>';
+      html += '<span class="portal-admin-equip-status-text portal-admin-muted">';
+      html += '<span class="portal-admin-equip-stock-readout" data-equip-stock="' +
+        escHtml(item.stock_quantity == null ? '' : String(item.stock_quantity)) + '">' +
+        escHtml(adminEquipCompactStockPart(item.stock_quantity)) + '</span>';
+      // Available today filled async — empty until known; aria-live for updates.
+      html += '<span class="portal-admin-equip-available-today" data-equip-available-today="' +
+        escHtml(key) + '" data-equip-today-gen="' + escHtml(String(equipTodayGen)) +
+        '" data-equip-today-school="' + escHtml(equipTodaySchool) +
+        '" aria-live="polite"></span>';
+      // Semantic enabled state (not color-only).
+      html += '<span class="portal-admin-equip-active-label" data-equip-active-label="' +
+        (itemActive ? '1' : '0') + '"> · ' +
+        escHtml(itemActive ? statusOnLabel : statusOffLabel) + '</span>';
+      html += '</span></div></div>';
+
+      // Price chips — full localized labels, wrap; never hide prices.
+      html += '<div class="portal-admin-equip-chips" data-equip-chips="' + escHtml(key) + '">';
+      if (item.rows.length){
+        item.rows.forEach(function(r){
+          var euros = adminEurosFromAmount((r.amount_cents == null ? 0 : r.amount_cents) / 100);
+          var chip = adminEquipPriceChipLabel(r.duration_label, euros === '' ? '0' : euros);
+          html += '<span class="portal-admin-equip-chip' + (r.active ? '' : ' is-inactive') +
+            '" data-admin-price-duration="' + escHtml(r.duration_key || '') +
+            '" data-admin-price-amount="' + escHtml(String(r.amount_cents == null ? 0 : r.amount_cents)) + '">' +
+            escHtml(chip) + '</span>';
+        });
       } else {
-        // Edit mode header: destructive + add-duration only. Save/Cancel live in the footer.
-        html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-danger portal-admin-touch" data-admin-action="delete-rental-offering" data-equip-key="' +
-          escHtml(key) + '" aria-label="' + escHtml(portalT('admin.prices.deleteRental')) + '">' +
-          escHtml(portalT('admin.prices.deleteRental')) + '</button>';
-        if (!adding){
-          html += '<button type="button" class="btn btn-ghost portal-admin-row-edit" data-admin-action="add-equip-price" data-equip-key="' +
-            escHtml(key) + '">' + escHtml(portalT('admin.prices.newTimePrice') || 'New time + price') + '</button>';
-        }
+        html += '<span class="portal-admin-muted portal-admin-equip-chips-empty">' +
+          escHtml(portalT('admin.prices.emptyCategory')) + '</span>';
       }
       html += '</div>';
-    }
-    html += '</div>';
-    if (!item.rows.length && !adding){
-      html += '<p class="portal-admin-muted">' + escHtml(portalT('admin.prices.emptyCategory')) + '</p>';
-    }
-    // Full catalog control in edit: name, stock, enabled pill — one Save at the bottom.
-    if (editing){
+
+      if (writes && !adminPriceGroupBusy(key)){
+        html += '<div class="portal-admin-equip-actions portal-admin-card-actions">';
+        html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-equip-edit-btn" data-admin-action="edit-equipment" data-equip-key="' +
+          escHtml(key) + '" aria-label="' + escHtml(editLabel) + '" title="' + escHtml(editLabel) + '">✎</button>';
+        // Simple disclosure (not ARIA menu): Delete lives here on compact rows.
+        html += '<div class="portal-admin-equip-overflow" data-admin-equip-overflow="' + escHtml(key) + '">';
+        html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-equip-overflow-btn" data-admin-action="equip-overflow-toggle" data-equip-key="' +
+          escHtml(key) + '" aria-expanded="false" aria-controls="' + escHtml(overflowPanelId) +
+          '" id="admin-equip-overflow-btn-' + escHtml(adminPriceInputKey(key)) +
+          '" aria-label="' + escHtml(moreLabel) + '" title="' + escHtml(moreLabel) + '">⋯</button>';
+        html += '<div class="portal-admin-equip-overflow-panel" id="' + escHtml(overflowPanelId) +
+          '" data-admin-equip-overflow-panel hidden>';
+        html += '<button type="button" class="portal-admin-equip-overflow-item portal-admin-danger" data-admin-action="delete-rental-offering" data-equip-key="' +
+          escHtml(key) + '" aria-label="' + escHtml(deleteLabel) + '">' + escHtml(deleteLabel) + '</button>';
+        html += '</div></div>';
+        html += '</div>';
+      }
+      html += '</div>'; // compact
+    } else {
+      // ── Expand-in-place editor (green-accent shell) ──
+      html += '<div class="portal-admin-equip-edit-shell" data-admin-equip-edit="' + escHtml(key) + '">';
+      html += '<div class="portal-admin-equip-edit-header">';
+      html += '<h3 class="portal-admin-equip-edit-heading">' + escHtml(editingHeading) + '</h3>';
+      html += '</div>';
+
       var stockVal = item.stock_quantity == null ? '' : String(item.stock_quantity);
       html += '<div class="portal-admin-edit-form portal-admin-equip-meta-form" data-equip-key="' + escHtml(key) + '">' +
         '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.prices.equipmentName') || 'Equipment name') + '</label>' +
@@ -1370,70 +1474,118 @@ function renderAdminSectionPricesFromConfig(cfg){
         ' aria-label="' + escHtml(portalT('admin.prices.enabled')) + '">' +
         '<span class="portal-admin-equip-switch-slider" aria-hidden="true"></span>' +
         '</label></div></div>';
-    }
-    if (item.rows.length){
-      html += '<div class="portal-admin-card-grid portal-admin-equip-price-grid" id="admin-prices-card-grid-' + escHtml(key) + '">';
-      item.rows.forEach(function(r){
-        var euros = adminEurosFromAmount((r.amount_cents == null ? 0 : r.amount_cents) / 100);
-        var durParsed = (typeof parseRentalDurationKey === 'function')
-          ? parseRentalDurationKey(r.duration_key || r.unit || '')
-          : null;
-        var durUnit = (durParsed && durParsed.unit) || 'days';
-        var durCount = (durParsed && durParsed.count) || 1;
-        var pricePrefix = 'admin-price-' + adminPriceInputKey(r.pid || '');
-        html += '<article class="portal-admin-price-card' + (editing && r.pid ? ' is-editing' : '') + (r.active ? '' : ' is-inactive') + '" data-admin-price-card="' + escHtml(r.pid || '') + '" data-admin-price-duration="' + escHtml(r.duration_key || '') + '">';
-        if (editing && r.pid){
-          html += '<div class="portal-admin-card-title-row"><span class="portal-admin-price-period">' + escHtml(r.duration_label) + '</span>' +
-            '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger" data-admin-action="delete-price" data-price-id="' +
-            escHtml(r.pid) + '" title="' + escHtml(portalT('admin.prices.removeDuration')) + '" aria-label="' +
-            escHtml(portalT('admin.prices.removeDuration')) + '">×</button></div>';
-          // Editable duration + amount — no per-card Save (item footer Save commits all).
-          html += renderAdminDurationControl(pricePrefix, durUnit, durCount);
-          html += '<div class="portal-admin-price-card-edit"><div><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
-            '<input type="text" data-admin-price-field="amount" id="admin-price-amount-' + escHtml(adminPriceInputKey(r.pid)) + '" value="' + escHtml(euros) + '" inputmode="decimal"></div></div>';
-        } else {
-          html += '<div class="portal-admin-price-card-readout"><span class="portal-admin-price-period">' + escHtml(r.duration_label) + '</span>' +
-            '<span class="portal-admin-price-amount">' + escHtml((euros ? ('€' + euros) : '')) + '</span></div>';
-        }
-        html += '</article>';
-      });
+
+      // Duration prices: responsive 2-col grid (1-col narrow). Semantic duration + € + ×.
+      html += '<div class="portal-admin-equip-price-grid" id="admin-prices-card-grid-' + escHtml(key) + '">';
+      if (item.rows.length){
+        item.rows.forEach(function(r){
+          var euros = adminEurosFromAmount((r.amount_cents == null ? 0 : r.amount_cents) / 100);
+          var durParsed = (typeof parseRentalDurationKey === 'function')
+            ? parseRentalDurationKey(r.duration_key || r.unit || '')
+            : null;
+          var isInvalid = !!(r.invalid || !durParsed);
+          var durUnit = (durParsed && durParsed.unit) || 'days';
+          var durCount = (durParsed && durParsed.count) || 1;
+          var pricePrefix = 'admin-price-' + adminPriceInputKey(r.pid || '');
+          html += '<article class="portal-admin-price-card is-editing' + (r.active ? '' : ' is-inactive') +
+            (isInvalid ? ' is-duration-invalid' : '') +
+            '" data-admin-price-card="' + escHtml(r.pid || '') +
+            '" data-admin-price-duration="' + escHtml(r.duration_key || '') + '">';
+          if (isInvalid){
+            // Fail-closed sentinel — do not invent a writable duration identity.
+            html += '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' +
+              escHtml(portalT('admin.prices.duration') || 'Duration') + '</label>' +
+              '<select class="portal-admin-duration-unit" disabled data-admin-duration-invalid="1" aria-invalid="true">' +
+              '<option selected value="">' + escHtml(r.duration_label || r.duration_key || '???') + '</option>' +
+              '</select></div>';
+          } else {
+            html += renderAdminDurationControl(pricePrefix, durUnit, durCount);
+          }
+          html += '<div class="portal-admin-price-card-edit portal-admin-equip-amount-field"><div><label>' +
+            escHtml(portalT('admin.edit.amountEur')) + '</label>' +
+            '<input type="text" data-admin-price-field="amount" id="admin-price-amount-' +
+            escHtml(adminPriceInputKey(r.pid)) + '" value="' + escHtml(euros) +
+            '" inputmode="decimal"></div></div>';
+          if (r.pid){
+            // PRE-EXISTING contract: × immediately DELETEs with confirmation; Cancel cannot undo.
+            html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger portal-admin-equip-remove-duration" data-admin-action="delete-price" data-price-id="' +
+              escHtml(r.pid) + '" title="' + escHtml(removeDurLabel) + '" aria-label="' +
+              escHtml(removeDurLabel) + '">×</button>';
+          }
+          html += '</article>';
+        });
+      }
       html += '</div>';
-    }
-    if (adding) html += renderAdminAddEquipPriceForm(key);
-    // One primary Save + Cancel for the whole equipment item (closes edit).
-    if (editing){
+
+      if (adding) {
+        html += renderAdminAddEquipPriceForm(key);
+      } else {
+        html += '<button type="button" class="portal-admin-equip-add-duration" data-admin-action="add-equip-price" data-equip-key="' +
+          escHtml(key) + '">+ ' + escHtml(addDurLabel) + '</button>';
+      }
+
+      // Single bottom action bar: Delete left; Cancel + Save changes right.
+      // No top-right Delete rental / New time + price; no duplicate footer Delete elsewhere.
       html += '<div class="portal-admin-edit-actions portal-admin-equip-footer" data-equip-key="' + escHtml(key) + '">' +
+        '<button type="button" class="btn btn-ghost portal-admin-danger portal-admin-equip-delete" data-admin-action="delete-rental-offering" data-equip-key="' +
+        escHtml(key) + '" aria-label="' + escHtml(deleteLabel) + '">' + escHtml(deleteLabel) + '</button>' +
+        '<div class="portal-admin-equip-footer-right">' +
         '<div id="admin-equip-error-' + escHtml(key) + '" data-admin-equip-error="' + escHtml(key) +
         '" class="state-msg portal-admin-equip-error" style="display:none" aria-live="polite"></div>' +
-        '<button type="button" class="btn btn-primary" data-admin-action="save-equipment" data-equip-key="' + escHtml(key) + '">' +
-        escHtml(portalT('admin.action.save') || 'Save') + '</button>' +
         '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' +
         escHtml(portalT('admin.action.cancel') || 'Cancel') + '</button>' +
-        '</div>';
+        '<button type="button" class="btn btn-primary" data-admin-action="save-equipment" data-equip-key="' +
+        escHtml(key) + '">' + escHtml(saveLabel) + '</button>' +
+        '</div></div>';
+      html += '</div>'; // edit-shell
     }
-    html += '</div>';
+    html += '</div>'; // equip-row
   });
+  html += '</div>'; // equip-list
   box.innerHTML = html;
   if (typeof adminRefreshEquipAvailableToday === 'function') {
-    adminRefreshEquipAvailableToday(items);
+    // Pass generation + school captured at render so a held response cannot overwrite a newer paint.
+    adminRefreshEquipAvailableToday(items, {
+      gen: equipTodayGen,
+      schoolKey: equipTodaySchool,
+    });
   }
 }
 
 /**
- * Populate "Available today" via the same Staff rental-stock API (no local math).
+ * Populate compact " · N today" via the same Staff rental-stock API (no local math).
+ * Never invents availability: unconfigured / failed leave the slot empty.
+ *
+ * Race gate (operation-local): monotonic gen + captured client|location + list render identity.
+ * Exact offering key alone is insufficient — a stale response after re-render/client/location
+ * switch must not update the current DOM.
+ *
+ * @param {Array} items
+ * @param {{gen?: number, schoolKey?: string}} [opts]
  */
-async function adminRefreshEquipAvailableToday(items){
+async function adminRefreshEquipAvailableToday(items, opts){
   var list = Array.isArray(items) ? items : [];
   var keys = list.map(function(it){ return String(it && it.offering_key || '').trim(); }).filter(Boolean);
   if (!keys.length) return;
+  opts = opts || {};
+  // Prefer caller-captured gen (from render); otherwise allocate a new operation-local gen.
+  var gen = (opts.gen != null) ? Number(opts.gen) : (++adminEquipTodayRefreshSeq);
+  var schoolKey = (opts.schoolKey != null) ? String(opts.schoolKey) : adminEquipTodaySchoolKey();
+  if (opts.gen == null) {
+    // Keep global seq in sync when callers omit gen.
+    if (gen > adminEquipTodayRefreshSeq) adminEquipTodayRefreshSeq = gen;
+  }
   var today = new Date();
   var iso = today.getFullYear() + '-'
     + String(today.getMonth() + 1).padStart(2, '0') + '-'
     + String(today.getDate()).padStart(2, '0');
-  var loc = (typeof adminActiveLocationId === 'function' && adminActiveLocationId())
-    || (window.adminState && window.adminState.locationId)
-    || 'sunset-somo';
-  var client = (typeof adminClientSlug === 'function' && adminClientSlug())
+  var loc = (typeof getSunsetLocation === 'function' && getClient && getClient() === 'sunset')
+    ? String(getSunsetLocation() || '')
+    : ((typeof adminActiveLocationId === 'function' && adminActiveLocationId())
+      || (window.adminState && window.adminState.locationId)
+      || 'sunset-somo');
+  var client = (typeof getClient === 'function' && getClient())
+    || (typeof adminClientSlug === 'function' && adminClientSlug())
     || 'sunset';
   try {
     var res = await fetch('/staff/schedule/rental-stock?client=' + encodeURIComponent(client)
@@ -1448,25 +1600,50 @@ async function adminRefreshEquipAvailableToday(items){
         offerings: keys.map(function(k){ return { offering_key: k, quantity: 1 }; }),
       }),
     });
+    // Stale if a newer render/refresh started, or client/location changed.
+    if (gen !== adminEquipTodayRefreshSeq) return;
+    if (adminEquipTodaySchoolKey() !== schoolKey) return;
+    var listNow = document.querySelector('[data-admin-equip-list]');
+    if (!listNow) return;
+    if (String(listNow.getAttribute('data-equip-today-gen') || '') !== String(gen)) return;
+    if (String(listNow.getAttribute('data-equip-today-school') || '') !== schoolKey) return;
     var data = await res.json().catch(function(){ return null; });
+    if (gen !== adminEquipTodayRefreshSeq) return;
+    if (adminEquipTodaySchoolKey() !== schoolKey) return;
+    listNow = document.querySelector('[data-admin-equip-list]');
+    if (!listNow
+      || String(listNow.getAttribute('data-equip-today-gen') || '') !== String(gen)
+      || String(listNow.getAttribute('data-equip-today-school') || '') !== schoolKey) {
+      return;
+    }
     if (!data || !data.success || !Array.isArray(data.items)) return;
     data.items.forEach(function(it){
       if (!it || !it.offering_key) return;
-      var elNode = document.querySelector('[data-equip-available-today="' + it.offering_key + '"]');
+      // Scope query to the current list paint (not a global key match).
+      var elNode = listNow.querySelector(
+        '[data-equip-available-today="' + it.offering_key + '"][data-equip-today-gen="' + gen + '"]',
+      );
       if (!elNode) return;
-      var label = portalT('admin.equipment.availableToday') || 'Available today';
-      var val;
+      if (String(elNode.getAttribute('data-equip-today-school') || '') !== schoolKey) return;
+      // Truthful only: omit when not configured rather than inventing a derived number.
       if (it.not_configured || it.stock_quantity == null) {
-        val = portalT('schedule.create.stockNotConfigured') || 'Stock not configured';
-      } else if (it.sold_out || Number(it.remaining) <= 0) {
-        val = '0';
-      } else {
-        val = String(Math.floor(Number(it.remaining)));
+        elNode.textContent = '';
+        elNode.removeAttribute('data-today-count');
+        return;
       }
-      elNode.textContent = label + ': ' + val;
+      var n = (it.sold_out || Number(it.remaining) <= 0)
+        ? 0
+        : Math.floor(Number(it.remaining));
+      if (!Number.isFinite(n)) {
+        elNode.textContent = '';
+        elNode.removeAttribute('data-today-count');
+        return;
+      }
+      elNode.setAttribute('data-today-count', String(n));
+      elNode.textContent = ' · ' + String(portalT('admin.prices.todayCount') || '{n} today').replace('{n}', String(n));
     });
   } catch (_err) {
-    // Advisory only — leave ellipsis on network failure.
+    // Advisory only — leave empty on network failure (no invented availability).
   }
 }
 
@@ -2352,6 +2529,23 @@ function wireAdminTab(){
   var root = el('tab-admin');
   if (!root || root.dataset.adminWired === '1') return;
   root.dataset.adminWired = '1';
+  // Close equipment overflow disclosures on outside click / Escape (return focus to trigger).
+  if (!document.documentElement.dataset.equipOverflowDocWired) {
+    document.documentElement.dataset.equipOverflowDocWired = '1';
+    document.addEventListener('click', function(ev){
+      var t = ev.target;
+      if (t && t.closest && t.closest('[data-admin-equip-overflow]')) return;
+      adminCloseAllEquipOverflowMenus(null);
+    }, true);
+    document.addEventListener('keydown', function(ev){
+      if (ev.key === 'Escape' || ev.key === 'Esc') {
+        var open = document.querySelector('[data-admin-equip-overflow].is-open');
+        if (!open) return;
+        adminCloseAllEquipOverflowMenus(null, { returnFocus: true });
+        try { ev.preventDefault(); } catch (_e) { /* ignore */ }
+      }
+    });
+  }
   root.addEventListener('click', function(ev){
     var btn = ev.target && ev.target.closest ? ev.target.closest('[data-admin-action]') : null;
     if (!btn || adminSaveBusy) return;
@@ -2417,10 +2611,22 @@ function wireAdminTab(){
       if (tierRow && tierRow.parentNode) tierRow.parentNode.removeChild(tierRow);
       return;
     }
-    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'delete-rental-offering' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'toggle-group-availability' || action === 'toggle-equip-enabled' || action === 'add-equipment' || action === 'edit-equipment' || action === 'add-equip-price' || action === 'save-new-equipment' || action === 'save-price-amount' || action === 'save-equip-meta' || action === 'save-equipment' || action === 'edit-accommodation' || action === 'save-accommodation' || action === 'accom-add-range' || action === 'accom-remove-range'){
+    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'delete-rental-offering' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'toggle-group-availability' || action === 'toggle-equip-enabled' || action === 'add-equipment' || action === 'edit-equipment' || action === 'add-equip-price' || action === 'save-new-equipment' || action === 'save-price-amount' || action === 'save-equip-meta' || action === 'save-equipment' || action === 'edit-accommodation' || action === 'save-accommodation' || action === 'accom-add-range' || action === 'accom-remove-range' || action === 'equip-overflow-toggle'){
       if (!adminCfgWritesEnabled(cfg)) return;
     }
+    if (action === 'equip-overflow-toggle'){
+      var overflowRoot = btn.closest ? btn.closest('[data-admin-equip-overflow]') : null;
+      if (!overflowRoot) return;
+      var wasOpen = overflowRoot.classList.contains('is-open');
+      if (wasOpen) {
+        adminCloseAllEquipOverflowMenus(null, { returnFocus: true });
+      } else {
+        adminOpenEquipOverflowDisclosure(overflowRoot);
+      }
+      return;
+    }
     if (action === 'delete-rental-offering'){
+      adminCloseAllEquipOverflowMenus(null);
       var delEquipKey = String(btn.getAttribute('data-equip-key') || '').trim();
       if (!delEquipKey){ adminShowMessage('error', portalT('admin.edit.saveFailed')); return; }
       // Hard delete: rental identity + all duration prices + course links permanently.
@@ -2511,6 +2717,7 @@ function wireAdminTab(){
       return;
     }
     if (action === 'cancel-edit'){
+      adminCloseAllEquipOverflowMenus(null);
       adminEditTarget = null;
       // Cancel drops rental-edit ownership only — not unrelated Admin notices.
       if (typeof adminClearEquipErrors === 'function') adminClearEquipErrors();
@@ -2524,18 +2731,21 @@ function wireAdminTab(){
       return;
     }
     if (action === 'add-equipment'){
+      adminCloseAllEquipOverflowMenus(null);
       adminEditTarget = 'equip-add-item';
       adminShowMessage('', '');
       renderAdminFromConfig(cfg);
       return;
     }
     if (action === 'edit-equipment'){
+      adminCloseAllEquipOverflowMenus(null);
       adminEditTarget = 'equip:' + String(btn.getAttribute('data-equip-key') || '');
       adminShowMessage('', '');
       renderAdminFromConfig(cfg);
       return;
     }
     if (action === 'add-equip-price'){
+      adminCloseAllEquipOverflowMenus(null);
       adminEditTarget = 'equip-add-price:' + String(btn.getAttribute('data-equip-key') || '');
       adminShowMessage('', '');
       renderAdminFromConfig(cfg);
@@ -2823,6 +3033,10 @@ function wireAdminTab(){
         seCards.forEach(function(card){
           var pid = String(card.getAttribute('data-admin-price-card') || '').trim();
           if (!pid) return;
+          if (card.querySelector && card.querySelector('[data-admin-duration-invalid]')) {
+            sePriceErr = portalT('admin.prices.invalidDuration') || 'Enter a valid duration';
+            return;
+          }
           var amountInput = card.querySelector('[data-admin-price-field="amount"]') || el('admin-price-amount-' + adminPriceInputKey(pid));
           var cents = adminParseEurosToCents(amountInput && amountInput.value);
           if (!cents.ok){ sePriceErr = cents.error; return; }

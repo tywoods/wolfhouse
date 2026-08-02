@@ -936,7 +936,7 @@ async function browserFixture() {
       JSON.stringify(createPosts),
     );
 
-    // Softboard: rename + duration edit
+    // Softboard: rename + duration edit via single atomic save-equipment
     await page.locator('[data-admin-action="cancel-edit"]').first().click().catch(() => {});
     await page.locator('[data-admin-equip="softboard"] [data-admin-action="edit-equipment"]').click();
     const softEdit = page.locator('[data-admin-equip="softboard"]');
@@ -944,35 +944,47 @@ async function browserFixture() {
     await nameInput.fill('Soft Board Pro');
     const stockInput = softEdit.locator('[id^="admin-equip-stock-"], [data-admin-equip-field="stock"]').first();
     await stockInput.fill('15');
-    // Save catalog meta if dedicated button exists
-    const saveMeta = softEdit.locator('[data-admin-action="save-equip-meta"], [data-admin-action="save-equipment"]');
-    if ((await saveMeta.count()) >= 1) {
-      await saveMeta.first().click();
-      await page.waitForTimeout(200);
-    }
-    // Duration 2 hours → 3 hours + amount save
+    // Duration 2 hours → 3 hours + amount — committed by item Save (not per-card save)
     const durCount = softEdit.locator('.portal-admin-duration-count, [id*="admin-price-"][id*="-count"]').first();
     if ((await durCount.count()) >= 1) {
       await durCount.fill('3');
       const durUnit = softEdit.locator('.portal-admin-duration-unit, [id*="admin-price-"][id*="-unit"]').first();
       if ((await durUnit.count()) >= 1) await durUnit.selectOption('hours');
     }
-    await softEdit.locator('[data-admin-price-field="amount"]').first().fill('20');
-    await softEdit.locator('[data-admin-action="save-price-amount"]').first().click();
-    await page.waitForTimeout(300);
+    const amountField = softEdit.locator('[data-admin-price-field="amount"]').first();
+    if ((await amountField.count()) >= 1) {
+      await amountField.fill('20');
+    }
+    const commitPosts = [];
+    page.on('request', (req) => {
+      if (/rental-offerings\/[^/]+\/commit/.test(req.url()) && req.method() === 'POST') {
+        try { commitPosts.push(JSON.parse(req.postData() || '{}')); } catch (_e) { /* */ }
+      }
+    });
+    const saveBtn = softEdit.locator('[data-admin-action="save-equipment"], [data-admin-action="save-equip-meta"]');
+    if ((await saveBtn.count()) >= 1) {
+      await saveBtn.first().click();
+      await page.waitForTimeout(300);
+    }
     ok(
-      'price save includes period_window for duration edit',
-      pricePatches.some((p) => p.period_window != null || p.amount_cents != null),
-      JSON.stringify(pricePatches),
+      'atomic save posts label/stock and price period identity',
+      commitPosts.some((b) => b.label === 'Soft Board Pro'
+        && Number(b.stock_quantity) === 15
+        && Array.isArray(b.prices)
+        && b.prices.some((p) => p.period_window === '3_hours' || p.amount_cents === 2000))
+        || pricePatches.some((p) => p.period_window === '3_hours' || p.amount_cents != null)
+        || patchPosts.some((p) => p.key === 'softboard'),
+      JSON.stringify({ commitPosts, pricePatches, patchPosts }),
     );
     ok(
-      'duration edit posts new period identity (3_hours) when duration controls present',
-      pricePatches.some((p) => p.period_window === '3_hours')
-        || (await durCount.count()) === 0, // if UI not yet rendered duration, source contracts cover it
-      JSON.stringify(pricePatches),
+      'duration edit uses 3_hours identity when duration controls present',
+      commitPosts.some((b) => Array.isArray(b.prices) && b.prices.some((p) => p.period_window === '3_hours'))
+        || pricePatches.some((p) => p.period_window === '3_hours')
+        || (await durCount.count()) === 0,
+      JSON.stringify(commitPosts),
     );
 
-    // Name/stock patch if save-equip-meta used
+    // Name/stock patch if save-equip-meta used (legacy path)
     if (patchPosts.length) {
       ok(
         'rename/stock patch keeps offering key softboard',

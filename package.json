@@ -489,6 +489,7 @@
     "verify:vertical-tenant-isolation-second-school": "node scripts/verify-vertical-tenant-isolation-second-school.js",
     "verify:tenant-rental-offerings-crud": "node scripts/verify-tenant-rental-offerings-crud.js",
     "verify:rental-admin-catalog-control": "node scripts/verify-rental-admin-catalog-control.js",
+    "verify:rental-admin-hybrid-redesign": "node scripts/verify-rental-admin-hybrid-redesign.js",
     "verify:rental-stock-slice-b": "node scripts/verify-rental-stock-slice-b.js",
     "verify:luna-front-desk-accommodation-adapter": "node scripts/verify-luna-front-desk-accommodation-adapter.js",
     "verify:luna-front-desk-accommodation-booking-create-service": "node scripts/verify-luna-front-desk-accommodation-booking-create-service.js",

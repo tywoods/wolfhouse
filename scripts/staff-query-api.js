@@ -16453,17 +16453,86 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-equip-switch{position:relative;display:inline-flex;align-items:center;justify-content:center;width:44px;min-width:44px;height:28px;min-height:28px;margin:0;cursor:pointer;user-select:none;line-height:0}
 .portal-admin-equip-switch input[type=checkbox]{position:absolute!important;opacity:0!important;width:1px!important;height:1px!important;margin:0!important;padding:0!important;border:0!important;appearance:none!important;-webkit-appearance:none!important;pointer-events:none}
 .portal-admin-equip-switch-slider{position:relative;display:block;width:42px;height:26px;border-radius:999px;background:var(--border-soft,#C9CFC8);transition:background .2s,box-shadow .2s;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}
-.portal-admin-equip-switch-slider:before{position:absolute;content:"";height:20px;width:20px;left:3px;top:3px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(68,80,74,.18)}
-.portal-admin-equip-switch input:checked + .portal-admin-equip-switch-slider{background:var(--sched-primary,#4E5853);box-shadow:none}
+.portal-admin-equip-switch-slider:before{position:absolute;content:"";height:20px;width:20px;left:3px;top:3px;background:var(--surface,#fff);border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(68,80,74,.18)}
+.portal-admin-equip-switch input:checked + .portal-admin-equip-switch-slider{background:var(--sched-primary,var(--primary));box-shadow:none}
 .portal-admin-equip-switch input:checked + .portal-admin-equip-switch-slider:before{transform:translateX(16px)}
-.portal-admin-equip-switch input:focus-visible + .portal-admin-equip-switch-slider{outline:2px solid var(--sched-primary,#4E5853);outline-offset:2px}
+.portal-admin-equip-switch input:focus-visible + .portal-admin-equip-switch-slider{outline:2px solid var(--sched-primary,var(--primary));outline-offset:2px}
 html[data-theme="dark"] .portal-admin-equip-switch-slider{background:rgba(255,255,255,.14);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
-html[data-theme="dark"] .portal-admin-equip-switch-slider:before{background:#F4F1EA;box-shadow:0 1px 3px rgba(0,0,0,.35)}
-html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin-equip-switch-slider{background:var(--sched-primary,#4E5853)}
+html[data-theme="dark"] .portal-admin-equip-switch-slider:before{background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.35)}
+html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin-equip-switch-slider{background:var(--sched-primary,var(--primary))}
 .portal-admin-equip-meta-form{align-items:flex-end}
-.portal-admin-subsection.is-equip-disabled{opacity:.72}
+/* Disabled: dim surfaces/chips via tokens; keep actions + status text full opacity (not row-level fade). */
 .portal-admin-subsection.is-equip-disabled .portal-admin-subsection-title{color:var(--text-2)}
-.portal-admin-equip-price-grid{gap:8px}
+.portal-admin-equip-row.is-equip-disabled .portal-admin-equip-name{color:var(--text-2)}
+.portal-admin-equip-row.is-equip-disabled .portal-admin-equip-compact{background:var(--surface-soft);border-color:var(--border-soft)}
+.portal-admin-equip-row.is-equip-disabled .portal-admin-equip-chip{background:var(--surface);color:var(--text-2);border-color:var(--border-soft)}
+.portal-admin-equip-row.is-equip-disabled .portal-admin-equip-actions,
+.portal-admin-equip-row.is-equip-disabled .portal-admin-equip-status-text{opacity:1}
+/* ── Admin Rental Prices hybrid: compact rows + expand-in-place editor ── */
+.portal-admin-equip-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:0 0 12px;min-width:0}
+.portal-admin-equip-list{display:flex;flex-direction:column;gap:8px;min-width:0;max-width:100%}
+.portal-admin-equip-row{min-width:0;max-width:100%;box-sizing:border-box}
+.portal-admin-equip-compact{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);min-width:0;max-width:100%;box-sizing:border-box}
+.portal-admin-equip-identity{flex:0 1 200px;min-width:0;display:flex;flex-direction:column;gap:3px}
+/* Full name available: wrap 1–2 lines + title attribute; no silent single-line ellipsis */
+.portal-admin-equip-name{font-size:14px;font-weight:700;color:var(--text);line-height:1.25;max-width:100%;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;word-break:break-word}
+.portal-admin-equip-status{display:inline-flex;align-items:center;gap:6px;min-width:0;font-size:12px;line-height:1.3;flex-wrap:wrap}
+.portal-admin-equip-status-dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:var(--text-3)}
+.portal-admin-equip-status-dot.is-on{background:var(--primary)}
+.portal-admin-equip-status-dot.is-off{background:var(--text-3)}
+.portal-admin-equip-status-text{min-width:0}
+.portal-admin-equip-chips{flex:1 1 160px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}
+.portal-admin-equip-chip{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;border:1px solid var(--border-soft);background:var(--surface);color:var(--text);font-size:12px;font-weight:600;line-height:1.3;white-space:nowrap;max-width:100%;box-sizing:border-box}
+.portal-admin-equip-chip.is-inactive{color:var(--text-2);border-style:dashed}
+.portal-admin-equip-chips-empty{font-size:12px}
+.portal-admin-equip-actions{flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;margin-left:auto}
+/* 44px touch targets desktop + narrow; width/height keep compact density */
+.portal-admin-equip-edit-btn,.portal-admin-equip-overflow-btn,.portal-admin-equip-remove-duration{width:44px;min-width:44px;height:44px;min-height:44px;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box}
+.portal-admin-equip-edit-btn:focus-visible,.portal-admin-equip-overflow-btn:focus-visible,.portal-admin-equip-remove-duration:focus-visible,
+.portal-admin-equip-overflow-item:focus-visible,.portal-admin-equip-add-duration:focus-visible,
+.portal-admin-equip-footer .btn:focus-visible,.portal-admin-equip-delete:focus-visible{outline:2px solid var(--focus,var(--primary));outline-offset:2px}
+.portal-admin-equip-overflow{position:relative;display:inline-flex}
+.portal-admin-equip-overflow-panel{position:absolute;right:0;top:calc(100% + 4px);z-index:20;min-width:176px;padding:6px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface);box-shadow:var(--shadow-soft,0 4px 16px rgba(0,0,0,.12));display:none;flex-direction:column;gap:2px}
+.portal-admin-equip-overflow.is-open .portal-admin-equip-overflow-panel,.portal-admin-equip-overflow-panel:not([hidden]){display:flex}
+.portal-admin-equip-overflow-item{display:block;width:100%;text-align:left;padding:12px 14px;min-height:44px;border:0;border-radius:8px;background:transparent;color:var(--text);font:inherit;font-size:13px;font-weight:600;cursor:pointer;box-sizing:border-box}
+.portal-admin-equip-overflow-item:hover{background:var(--surface-soft)}
+/* Edit shell — green accent from theme tokens */
+.portal-admin-equip-edit-shell{border:1px solid var(--primary);border-radius:12px;background:var(--surface);padding:14px 14px 12px;min-width:0;max-width:100%;box-sizing:border-box;overflow-x:hidden}
+.portal-admin-equip-edit-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 12px}
+.portal-admin-equip-edit-heading{margin:0;font-size:15px;font-weight:700;color:var(--primary);line-height:1.3}
+.portal-admin-equip-row.is-editing .portal-admin-equip-meta-form{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(96px,120px) minmax(0,max-content);gap:10px 12px;align-items:end;margin:0 0 12px;min-width:0;max-width:100%;box-sizing:border-box}
+.portal-admin-equip-row.is-editing .portal-admin-equip-enabled-field{min-width:0;max-width:100%;overflow:hidden}
+.portal-admin-equip-row.is-editing .portal-admin-equip-switch{width:44px;max-width:44px;overflow:hidden}
+.portal-admin-equip-row .portal-admin-equip-price-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;margin:0 0 10px;min-width:0;max-width:100%}
+.portal-admin-equip-row .portal-admin-equip-price-grid .portal-admin-price-card.is-editing{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(72px,.7fr) auto;gap:8px 10px;align-items:end;padding:10px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);min-width:0;max-width:100%;width:100%;box-sizing:border-box;overflow:hidden}
+.portal-admin-equip-row .portal-admin-equip-price-grid .portal-admin-price-card.is-editing .portal-admin-edit-field,
+.portal-admin-equip-row .portal-admin-equip-price-grid .portal-admin-price-card.is-editing .portal-admin-price-card-edit{min-width:0;margin:0}
+.portal-admin-equip-row .portal-admin-equip-price-grid .portal-admin-duration-row{width:100%;gap:8px}
+.portal-admin-equip-row .portal-admin-equip-price-grid .portal-admin-duration-row .portal-admin-duration-count{min-height:44px;height:44px;width:72px!important;max-width:72px!important}
+.portal-admin-equip-row .portal-admin-equip-price-grid .portal-admin-duration-row .portal-admin-duration-unit{min-height:44px;height:44px}
+.portal-admin-equip-row .portal-admin-equip-price-grid .portal-admin-price-card-edit input{min-height:44px;height:44px;font-size:13px}
+.portal-admin-equip-row .portal-admin-equip-meta-form input[type=text],
+.portal-admin-equip-row .portal-admin-equip-meta-form input[type=number]{min-height:44px}
+.portal-admin-equip-add-duration{display:flex;align-items:center;justify-content:center;width:100%;min-height:44px;margin:0 0 12px;padding:10px 12px;border:1px dashed var(--border-soft);border-radius:10px;background:transparent;color:var(--primary);font:inherit;font-size:13px;font-weight:600;cursor:pointer;box-sizing:border-box}
+.portal-admin-equip-add-duration:hover{border-color:var(--primary);background:var(--surface-soft)}
+.portal-admin-equip-draft-form{margin:0 0 12px;padding:10px;border:1px dashed var(--border-soft);border-radius:10px;background:var(--surface-soft)}
+.portal-admin-equip-footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:4px;min-width:0}
+.portal-admin-equip-footer-right{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-left:auto}
+.portal-admin-equip-delete{min-height:44px}
+.portal-admin-equip-footer .btn-primary,.portal-admin-equip-footer .btn-ghost{min-height:44px}
+.portal-admin-equip-error{flex:1 1 100%;order:-1}
+@media(max-width:720px){
+  .portal-admin-equip-row.is-editing .portal-admin-equip-meta-form{grid-template-columns:minmax(0,1fr)}
+  .portal-admin-equip-row .portal-admin-equip-price-grid{grid-template-columns:minmax(0,1fr)}
+  .portal-admin-equip-compact{padding:10px}
+  .portal-admin-equip-identity{flex:1 1 100%}
+  .portal-admin-equip-chips{flex:1 1 100%}
+  .portal-admin-equip-actions{margin-left:0}
+}
+@media(max-width:520px){
+  .portal-admin-equip-row .portal-admin-equip-price-grid .portal-admin-price-card.is-editing{grid-template-columns:minmax(0,1fr) auto;gap:8px}
+  .portal-admin-equip-row .portal-admin-equip-price-grid .portal-admin-price-card.is-editing .portal-admin-equip-amount-field{grid-column:1 / -1}
+}
 .portal-admin-subsection fieldset{min-width:0;max-width:100%;border:1px solid var(--border-soft);border-radius:8px;margin:12px 0;padding:12px}
 /* Course equipment card: name + pill switch; connected During|All day segment; qty inside All day */
 /* Course equipment: title left (+ few px), switch slightly inset; thin −/+; never clip All Day */
