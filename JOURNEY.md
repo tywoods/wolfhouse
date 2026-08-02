@@ -31,16 +31,15 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 - Sunset canonical course-equipment chain (Slices A–E)
 - Combo-pricing fixes P0–P0e (included gear attaches, one all-day mechanism, standalone pricing, pickups per-record scope, friendly labels)
 - Crowsnest favicon built; this JOURNEY board added
+- Sunset rental/equipment thread **closed** (owner-verified: pricing, pickups scope, "+" labels)
 
 ## 🍳 On the stove (in progress)
-- **Sunset rental/equipment thread** (Captain + Skipper) — all fixes shipped; **awaiting owner drawer/pickups retest** (confirm the "+" label + Admin-rename proof). If clean, thread closes.
-- **UI redesigns** (Captain, planning only) — mockups delivered for booking-drawer item selector, rentals admin panel, pickups tag cleanup. **Awaiting owner's pick** before any build.
+- **Admin rental-equipment card redesign** (Captain, concepting) — rework the Admin ▸ RENTAL PRICES card layout (keep theme). Concepts first, then build on owner's pick.
 - **Earthling** — _add what you're on here._
 
 ## 📋 To do
 - Sunset D/E/H live gates (policy / lane-replay / non-contiguous stock) — offline-green; need a staff `luna_staff_session` cookie for live exercise.
 - **Crowsnest favicon deploy** — image `crowsnest:34e4b7f3…` built & in ACR; **blocked** (this host has no write on `luna-crowsnest-rg`) → Earthling runs the `az containerapp update`.
-- UI redesign build (after owner picks a direction).
 - Staff-API decomposition — more slices (1–5 shipped).
 - Finance tab — deeper items (real refund ledger / true net).
 - Lunabox deep disk clean (~20G: stale clones + `docker image prune -a`) when agents idle.
