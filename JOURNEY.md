@@ -2,21 +2,24 @@
 
 **Keyword: "Journey".** *"pull up the Journey"* → Captain/Skipper reads this back + brings you current. *"update the Journey"* → we save the current state here. Keep it terse — a living board, not docs. Whoever picks up / ships / deploys updates the matching section. Say *"I'm deploying X"* before deploying to avoid parallel-deploy collisions (deploy only from clean `HEAD == origin/master`).
 
-_Last updated: 2026-08-02 17:45 UTC by Captain_
+_Last updated: 2026-08-02 17:52 UTC by Captain_
 
 ---
 
-## ✅ Recently done
-- `f784311b` P0e — standalone rental label from `tenant_rental_offerings.label` → "Surfboard + Wetsuit" shows the "+" everywhere (Sunset staging live)
-- `17326f3d` P0d — rental pickups per-record scope + friendly labels everywhere
-- `d30acc4e` P0c — staff schedule-quote €0 stub fixed (unified canonical classification)
-- `34e4b7f3` P0b — standalone rental exact-key price authority (no alias €0 borrow)
-- `927f9043` P0 — combo pricing: merge generic lines before create fingerprint
-- Slices A–E (`0afd4829`→`c79da8aa`) — canonical course-equipment chain (quote lane, included gear, policy, one all-day mechanism)
-- `1ea342ba` — this JOURNEY board added
+## ✅ Recently done (last ~5 days)
+
+**Aug 02** — Sunset rental/equipment overhaul: canonical course-equipment chain (Slices A–E) + combo-pricing fixes (P0–P0e) → included gear attaches, one all-day mechanism, standalone pricing correct, pickups per-record scope, friendly labels everywhere. Crowsnest favicon (built). This JOURNEY board added.
+
+**Aug 01** — Luna Sunset de-hardcoding (catalog-driven Slices 1–2, catalog tool v2, rental-create P1/P1b/P1c, course-equipment P2). Staff-API decomposition Slices 1–5 (notification-settings, whatsapp-numbers, customers CRM, inbox, automated-notifications). Staff-API perf (gzip + non-blocking reconcile). Finance tab Option B Slice 1. Group Course edit-drawer polish. Owl favicon.
+
+**Jul 31** — Schedule Day Cockpit (P1–P3 + clock-freeze + Timeline/Cards toggle + dark-mode polish). Rentals: independent catalog stock + transactional availability. Cancelled-booking lifecycle (restore / delete wording / finance exclusion). Templatable external Google-Form waiver.
+
+**Jul 30** — Seasonal + multi-stay accommodation bookings. Rental qty steppers + day-tier continuation pricing + qty/duration integrity guards. Invoice display cleanup. Course-owned equipment shown on course cards. Staff-API decomposition plan + templating audit. Deckhand↔Seadog A2A-lite on the navigation thread. Lunabox DNS-fallback fix.
+
+**Jul 29** — (rolled into the Jul 30 accommodation/rentals batch.)
 
 ## 🍳 On the stove (in progress)
-- **Sunset rental/equipment thread** (Captain + Skipper) — all fixes shipped; **awaiting owner drawer/pickups retest** to confirm the "+" label + Admin-rename proof. If clean, thread closes.
+- **Sunset rental/equipment thread** (Captain + Skipper) — all fixes shipped; **awaiting owner drawer/pickups retest** (confirm the "+" label + Admin-rename proof). If clean, thread closes.
 - **UI redesigns** (Captain, planning only) — mockups delivered for booking-drawer item selector, rentals admin panel, pickups tag cleanup. **Awaiting owner's pick** before any build.
 - **Earthling** — _add what you're on here._
 
