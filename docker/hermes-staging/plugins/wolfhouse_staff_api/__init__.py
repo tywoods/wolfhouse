@@ -1821,6 +1821,56 @@ def get_sunset_lesson_catalog(params, **kwargs):
     })
 
 
+
+def _sunset_course_equipment_offering_keys(offering_id, course_id, location_id, service_dates):
+    """Read the course's configured equipment offering_keys from the SITE catalog.
+
+    The guest never names an offering_key — they just ask for "the included
+    equipment". The site (admin pricing panel → equipment_options) is the single
+    source of truth for WHICH gear a course carries, so we read it here instead of
+    hardcoding board/wetsuit. Returns [] when the course has no configured gear.
+    """
+    body = {"require_db": True}
+    if location_id:
+        body["location_id"] = location_id
+    if service_dates:
+        body["service_dates"] = service_dates
+    data = _post_bot("/sunset/catalog", body)
+    for o in (data.get("offerings") or []):
+        if not isinstance(o, dict):
+            continue
+        ids = {str(o.get("offering_id") or ""), str(o.get("offering_item_code") or ""), str(o.get("item_code") or "")}
+        cid = str(o.get("course_id") or "")
+        if not ((offering_id and offering_id in ids) or (course_id and course_id == cid)):
+            continue
+        opts = o.get("equipment_options")
+        if isinstance(opts, list):
+            return [str(x.get("offering_key")) for x in opts
+                    if isinstance(x, dict) and x.get("offering_key")]
+    return []
+
+
+def _course_equipment_intent_to_wire(intent, offering_id, course_id, location_id, service_dates):
+    """Expand a {mode, quantity} equipment INTENT into the site's wire array
+    [{offering_key, mode, quantity}] using the course's configured equipment_options.
+
+    A guest says "with the included equipment"; the model emits the simple intent
+    {mode, quantity} (it cannot know offering_key). The SITE resolves the offering(s).
+    Already-wire arrays pass through untouched. Returns (wire_list_or_None, error).
+    """
+    if intent is None:
+        return None, None
+    if isinstance(intent, list):
+        return intent, None  # already the site's wire shape (or empty)
+    if not (isinstance(intent, dict) and intent.get("mode") in ("during_course", "all_day")):
+        return None, "course_equipment_invalid"
+    keys = _sunset_course_equipment_offering_keys(offering_id, course_id, location_id, service_dates)
+    if not keys:
+        return [], "course_equipment_not_configured"
+    return ([{"offering_key": k, "mode": intent["mode"], "quantity": intent.get("quantity")}
+             for k in keys], None)
+
+
 def get_sunset_offering_quote(params, **kwargs):
     """Quote one exact Admin-backed Sunset offering; never infer a course price."""
     del kwargs
@@ -1831,6 +1881,24 @@ def get_sunset_offering_quote(params, **kwargs):
             "success": False, "tool": "get_sunset_offering_quote",
             "error": "offering_id_required", "staff_review_needed": False,
         })
+    if payload.get("course_equipment") is not None:
+        _ce = payload.get("course_equipment")
+        # Included during-course gear is auto-attached server-side at booking time.
+        # Quoting it explicitly forks the fingerprint vs the create re-quote (409), so
+        # drop it — the course quotes plainly and Luna still describes the gear as
+        # included. Non-during_course (paid) intents expand to the site wire array.
+        if isinstance(_ce, dict) and _ce.get("mode") == "during_course":
+            payload["course_equipment"] = None
+        else:
+            ce_wire, ce_err = _course_equipment_intent_to_wire(
+                _ce, offering_id, _clean(payload.get("course_id")),
+                _clean(payload.get("location_id")), payload.get("service_dates"))
+            if ce_err == "course_equipment_invalid":
+                return _json_result({
+                    "success": False, "tool": "get_sunset_offering_quote",
+                    "error": "course_equipment_invalid", "staff_review_needed": False,
+                })
+            payload["course_equipment"] = ce_wire
     body = {"offering_id": offering_id}
     for key in ("course_id", "quantity", "service_dates", "location_id", "require_db", "tier_key", "course_equipment"):
         if payload.get(key) is not None:
@@ -2348,6 +2416,17 @@ def create_sunset_booking(params, **kwargs):
             "guest_safe_next_action": "Which date should I add the rest-of-day equipment for, and for how many people?",
         })
     course_equipment = payload.get("course_equipment")
+    # Included during-course gear (€0) is auto-attached server-side from the course's
+    # equipment_options at write time — sending it explicitly forks the quote
+    # fingerprint (offering-quote vs create re-quote) and 409s. Drop the redundant
+    # intent for during_course and let the site attach it; the drawer pill still shows.
+    if isinstance(course_equipment, dict) and course_equipment.get("mode") == "during_course":
+        course_equipment = None
+        # Drop from payload too so structured-equipment intent guard does not see
+        # free-during as unpaid notes-only gear (server auto-attaches later).
+        if isinstance(payload, dict):
+            payload = dict(payload)
+            payload.pop("course_equipment", None)
     quote_provenance = payload.get("quote_provenance")
     course_raw = raw_components.get("course") if isinstance(raw_components, dict) else None
     if course_equipment is not None:
@@ -2365,20 +2444,39 @@ def create_sunset_booking(params, **kwargs):
             return _json_result({"success": False, "tool": "create_sunset_booking", "error": "quote_provenance_required", "staff_review_needed": False})
     provenance_lines = quote_provenance.get("line_items") if isinstance(quote_provenance, dict) else None
     equipment_lines = [line for line in (provenance_lines or []) if isinstance(line, dict) and line.get("course_equipment") is True]
+    provenance_selection = quote_provenance.get("course_equipment") if isinstance(quote_provenance, dict) else None
     if course_equipment is not None:
-        provenance_selection = quote_provenance.get("course_equipment") if isinstance(quote_provenance, dict) else None
         line_totals = [line.get("total_cents") for line in (provenance_lines or []) if isinstance(line, dict)]
         provenance_total = quote_provenance.get("total_cents") if isinstance(quote_provenance, dict) else None
-        if (provenance_selection != course_equipment
+        # provenance_selection is the site's wire array [{offering_key, mode, quantity}]
+        # (offering_key resolved from the course's equipment_options at quote time).
+        # Require every row to agree with the model's {mode, quantity} intent; money is
+        # guarded by the line-total == provenance-total sum below.
+        selection_agrees = (
+            isinstance(provenance_selection, list) and len(provenance_selection) > 0
+            and all(isinstance(r, dict)
+                    and r.get("mode") == course_equipment["mode"]
+                    and r.get("quantity") == course_equipment["quantity"]
+                    for r in provenance_selection))
+        if (not selection_agrees
                 or not line_totals
                 or any(isinstance(value, bool) or not isinstance(value, int) for value in line_totals)
                 or isinstance(provenance_total, bool) or not isinstance(provenance_total, int)
                 or sum(value for value in line_totals if isinstance(value, int) and not isinstance(value, bool)) != provenance_total):
             return _json_result({"success": False, "tool": "create_sunset_booking", "error": "course_equipment_quote_mismatch", "staff_review_needed": False})
-    if equipment_lines and course_equipment is None:
+    # Free during-course equipment lines on a plain course quote are server-owned
+    # (P2 auto-attach). After we drop mode=during_course above, do not require the
+    # model to re-send CE for those lines. Paid/non-during CE lines still require
+    # an explicit selection that matches provenance.
+    paid_equipment_lines = [
+        line for line in equipment_lines
+        if str(line.get("course_equipment_mode") or "") != "during_course"
+    ]
+    if paid_equipment_lines and course_equipment is None:
         return _json_result({"success": False, "tool": "create_sunset_booking", "error": "course_equipment_required_by_quote", "staff_review_needed": False})
-    if equipment_lines and ({line.get("course_equipment_mode") for line in equipment_lines} != {course_equipment["mode"]}
-                            or {line.get("quantity") for line in equipment_lines} != {course_equipment["quantity"]}):
+    if equipment_lines and course_equipment is not None and (
+            {line.get("course_equipment_mode") for line in equipment_lines} != {course_equipment["mode"]}
+            or {line.get("quantity") for line in equipment_lines} != {course_equipment["quantity"]}):
         return _json_result({"success": False, "tool": "create_sunset_booking", "error": "course_equipment_quote_mismatch", "staff_review_needed": False})
     raw_components, gl_error = _canonicalize_sunset_group_lesson_alias(payload, raw_components)
     if gl_error:
@@ -2632,7 +2730,10 @@ def create_sunset_booking(params, **kwargs):
     # its exact shape for Staff API validation/pricing; in particular, do not
     # turn it into ordinary surfboard/wetsuit rental rows in the plugin.
     if course_equipment is not None:
-        body["course_equipment"] = {"mode": course_equipment["mode"], "quantity": course_equipment["quantity"]}
+        # Send the site's wire array (offering_key resolved at quote time), not the
+        # bare {mode, quantity} intent — the server validates course_equipment as an
+        # array. provenance_selection is guaranteed present + agreeing by the check above.
+        body["course_equipment"] = provenance_selection
         body["quote_provenance"] = quote_provenance
 
     # Preserve authoritative rental_pricing even when the model used catalog
@@ -2839,7 +2940,7 @@ def _sunset_write_tools():
             "guest_name": {"type": "string", "description": "Name the booking is under (required)."},
             "guest_phone": {"type": "string", "description": "Guest phone; inferred from the WhatsApp sender if omitted."},
             "components": {"type": "object", "description": "Service components object. Accepted canonical keys are exactly: lesson, course, private_lesson, surfboard, wetsuit, full_day_equipment_addon. Never use group_lesson. Ordinary group classes on selected dates are lesson:{quantity:N,time_preference:'morning'|'afternoon'|'any'} with the dates in service_dates (multiple dates still use lesson + service_dates). lesson.quantity is surfers, not dates. course is only for joining an existing Admin-configured course from get_sunset_joinable_courses / get_sunset_lesson_catalog and MUST include that exact course_id plus tier_key (or offering_item_code) — inventing a course_id is rejected. service_dates must match the course schedule; full courses fail closed. For the rest-of-day equipment add-on use full_day_equipment_addon:{quantity:N}; the plugin converts it to the backend canonical full_day_equipment_extension:{enabled:true,dates:{YYYY-MM-DD:N}} using service_date/service_dates. Example: {\"lesson\":{\"quantity\":1,\"time_preference\":\"morning\"}} with service_dates:[\"2026-07-20\",...]. Another: {\"surfboard\":{\"quantity\":2},\"wetsuit\":{\"quantity\":2},\"full_day_equipment_addon\":{\"quantity\":2}}. Never omit an accepted add-on from create."},
-            "course_equipment": {"type": "object", "description": "Canonical top-level board+wetsuit selection for a course: {mode:'during_course'|'all_day',quantity:N}. Copy the accepted quote selection exactly with quote_provenance. Never nest this under components or notes and never add client-supplied prices.", "properties": {"mode": {"type": "string", "enum": ["during_course", "all_day"]}, "quantity": {"type": "integer", "minimum": 1}}, "required": ["mode", "quantity"], "additionalProperties": False},
+            "course_equipment": {"type": "object", "description": "Canonical top-level paid course gear only: {mode:'all_day',quantity:N} with quote_provenance. Free during-course gear is auto-attached by the server from the course equipment_options — do NOT send mode during_course (it forks the quote and 409s). Never nest under components/notes or add client prices.", "properties": {"mode": {"type": "string", "enum": ["during_course", "all_day"]}, "quantity": {"type": "integer", "minimum": 1}}, "required": ["mode", "quantity"], "additionalProperties": False},
             "quote_provenance": {"type": "object", "description": "Opaque authoritative quote_provenance returned by get_sunset_offering_quote. Copy unchanged; required with course_equipment."},
             "rental_pricing": {"type": "object", "description": "For catalog rentals: {offering_key, duration, quantity, quoted_total_cents} copied exactly from get_sunset_rental_price / catalog quote (item+duration the guest selected)."},
             "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Service dates YYYY-MM-DD."},
@@ -2915,7 +3016,7 @@ def _sunset_tools():
         ("get_sunset_lesson_availability", "Check group lesson capacity for a date before confirming ANY lesson seat (lessons are capacity-limited). If take_request is true (capacity unknown or full), take the guest's request and tell them the team will confirm the exact time — never invent a seat or slot.", get_sunset_lesson_availability, {"date": {"type": "string", "description": "Lesson date YYYY-MM-DD."}, **loc}, ["date"]),
         ("get_sunset_joinable_courses", "List Admin-configured courses a guest can currently join BEFORE offering or booking a course. Prefer course_id values returned here — never invent a course. Optional date filters remaining capacity.", get_sunset_joinable_courses, {"date": {"type": "string", "description": "Optional YYYY-MM-DD to compute remaining capacity and filter joinable offerings."}, "include_full": {"type": "boolean", "description": "When true, also return full courses (joinable=false)."}, **loc}, []),
         ("get_sunset_lesson_catalog", "Get the current Admin-configured Sunset lesson and course options BEFORE describing options, prices, or inclusions. Offer only returned offerings; preserve offering_id and course_id exactly. Read free_included_equipment_labels / guest_equipment from each offering — only claim free gear when may_claim_free_equipment is true (never invent wax/board lists). For rentals use get_sunset_rental_catalog instead.", get_sunset_lesson_catalog, {"date": {"type": "string", "description": "Optional as-of date YYYY-MM-DD when asking what is offered on a day."}, "quantity": {"type": "integer", "description": "Optional surfer count (does not invent totals — use get_sunset_offering_quote)."}, "require_db": {"type": "boolean", "description": "Require DB-backed Admin data when true."}, **loc}, []),
-        ("get_sunset_offering_quote", "Get the authoritative quote for one exact catalog offering. For course gear pass canonical top-level course_equipment and preserve returned course_equipment, line_items, and quote_provenance exactly for create.", get_sunset_offering_quote, {"offering_id": {"type": "string", "description": "Exact offering_id returned by get_sunset_lesson_catalog."}, "course_id": {"type": "string", "description": "Exact course_id returned with a course offering."}, "quantity": {"type": "integer", "description": "Number of surfers/items (default 1)."}, "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected session dates."}, "course_equipment": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["during_course", "all_day"]}, "quantity": {"type": "integer", "minimum": 1}}, "required": ["mode", "quantity"], "additionalProperties": False}, "require_db": {"type": "boolean"}, **loc}, ["offering_id"]),
+        ("get_sunset_offering_quote", "Get the authoritative quote for one exact catalog offering. Free during-course gear is server-auto-attached at create — omit course_equipment for included gear. For paid all-day gear pass course_equipment:{mode:'all_day',quantity:N} and preserve returned course_equipment, line_items, and quote_provenance for create.", get_sunset_offering_quote, {"offering_id": {"type": "string", "description": "Exact offering_id returned by get_sunset_lesson_catalog."}, "course_id": {"type": "string", "description": "Exact course_id returned with a course offering."}, "quantity": {"type": "integer", "description": "Number of surfers/items (default 1)."}, "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected session dates."}, "course_equipment": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["during_course", "all_day"]}, "quantity": {"type": "integer", "minimum": 1}}, "required": ["mode", "quantity"], "additionalProperties": False}, "require_db": {"type": "boolean"}, **loc}, ["offering_id"]),
     ]
 
 
