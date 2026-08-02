@@ -1,0 +1,98 @@
+{
+  "_meta": {
+    "purpose": "Offline Admin fixture for Slice D readiness — one course with three equipment_options policies. Not a production data migration.",
+    "client_slug": "sunset",
+    "location_id": "sunset-somo",
+    "three_price_model": {
+      "note": "One physical offering may own three independent commercial price rows: standalone rental duration, course option during_course, course option all_day. Never dedupe by offering key.",
+      "standalone_rental": "tenant_price_rules row item_code = offering_key__duration_key",
+      "during_course": "equipment_options[].during_course_price_cents on the course/private card",
+      "all_day": "equipment_options[].all_day_price_cents on the course/private card"
+    }
+  },
+  "rental_offerings": [
+    {
+      "offering_key": "board_and_suit_rental",
+      "label": "Board and wetsuit",
+      "active": true,
+      "stock_quantity": 20,
+      "location_id": "sunset-somo"
+    },
+    {
+      "offering_key": "carbon_fins",
+      "label": "Carbon Fins",
+      "active": true,
+      "stock_quantity": 20,
+      "location_id": "sunset-somo"
+    },
+    {
+      "offering_key": "wax",
+      "label": "Wax",
+      "active": true,
+      "stock_quantity": 20,
+      "location_id": "sunset-somo"
+    }
+  ],
+  "rental_prices": [
+    {
+      "item_code": "board_and_suit_rental__1_day",
+      "offering_key": "board_and_suit_rental",
+      "unit": "day",
+      "amount_cents": 2000,
+      "pricing_status": "confirmed"
+    },
+    {
+      "item_code": "carbon_fins__1_day",
+      "offering_key": "carbon_fins",
+      "unit": "day",
+      "amount_cents": 500,
+      "pricing_status": "confirmed"
+    },
+    {
+      "item_code": "wax__1_day",
+      "offering_key": "wax",
+      "unit": "day",
+      "amount_cents": 100,
+      "pricing_status": "confirmed"
+    }
+  ],
+  "surf_pack": {
+    "pack_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    "label": "Slice D Policy Course",
+    "active": true,
+    "group_size": 8,
+    "weekly": "sat_sun",
+    "schedules": ["1000_1300"],
+    "price_tiers": [
+      { "key": "1_day", "label": "1 day", "hours": 3, "amount_cents": 4000 }
+    ],
+    "equipment_options": [
+      {
+        "offering_key": "board_and_suit_rental",
+        "label": "Board and wetsuit",
+        "during_course_policy": "included",
+        "during_course_price_cents": 0,
+        "all_day_price_cents": 1000
+      },
+      {
+        "offering_key": "carbon_fins",
+        "label": "Carbon Fins",
+        "during_course_policy": "optional",
+        "during_course_price_cents": 0,
+        "all_day_price_cents": 500
+      },
+      {
+        "offering_key": "wax",
+        "label": "Wax",
+        "during_course_policy": "unavailable",
+        "during_course_price_cents": 0,
+        "all_day_price_cents": 100
+      }
+    ]
+  },
+  "expected_behavior": {
+    "included_auto_on_omit": true,
+    "optional_zero_omitted_unless_explicit": true,
+    "unavailable_rejects_intent_and_wire": true
+  }
+}

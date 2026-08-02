@@ -7,8 +7,10 @@
  *
  * Used by:
  *   - Admin pack create/patch (same transaction)
- *   - Booking preflight heal when JSON price exists but row is missing
- *   - scripts/reconcile-sunset-admin-price-identities.js
+ *   - scripts/reconcile-sunset-admin-price-identities.js (explicit operator reconcile)
+ *
+ * NOT used by schedule booking create preflight — create must not heal price
+ * rules outside the booking transaction (stale create would leave durable writes).
  */
 
 const {

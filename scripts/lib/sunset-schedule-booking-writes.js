@@ -2809,18 +2809,102 @@ function throwSunsetPriceFail(status, error, extra) {
   throw err;
 }
 
+/**
+ * True when create/edit transport carries non-generic commercial intent that
+ * must go through the Admin vertical quote owner (course/CE/lessons/components/
+ * accommodation/custom). Generic catalog rentals alone are not enough.
+ *
+ * genericOnly early-return is unsafe whenever this is true: it would drop
+ * course/CE/provenance replay and skip fingerprint comparison against the
+ * staff preview (which merges generic lines into the vertical quote).
+ */
+function transportHasNonGenericCommercialIntent(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  if (b.components && typeof b.components === 'object') {
+    for (const key of Object.keys(b.components)) {
+      const v = b.components[key];
+      if (v == null || v === false) continue;
+      if (typeof v === 'object' && v.enabled === false) continue;
+      return true;
+    }
+  }
+  if (isPresentCourseEquipmentSelection(b.course_equipment)) return true;
+  if (Array.isArray(b.lessons) && b.lessons.length > 0) return true;
+  if (Array.isArray(b.custom_line_items) && b.custom_line_items.length > 0) return true;
+  const accom = normalizeAccommodationSelection(b.accommodation);
+  if (accom && accom.ok && !accom.skip && accom.value) return true;
+  return false;
+}
+
+/** Merge generic rental lines into a vertical/staff quote body (staff quote owner shape). */
+function mergeGenericQuoteLinesIntoBody(baseBody, genericQuote) {
+  const base = baseBody && typeof baseBody === 'object' ? baseBody : {};
+  const gq = genericQuote && typeof genericQuote === 'object' ? genericQuote : {};
+  const genericLines = Array.isArray(gq.line_items) ? gq.line_items : [];
+  if (!genericLines.length) return base;
+  const baseTotal = Number(base.total_cents || 0);
+  const genericTotal = Number(gq.total_cents || 0);
+  return {
+    ...base,
+    line_items: [...(Array.isArray(base.line_items) ? base.line_items : []), ...genericLines],
+    total_cents: checkedMoneyAdd(baseTotal, genericTotal, 'mixed_quote_total'),
+  };
+}
+
+function assertQuoteProvenanceFingerprintMatch(provenance, quoteBody, buildQuoteProvenance) {
+  if (!provenance || typeof provenance !== 'object') return;
+  const freshProv = buildQuoteProvenance(quoteBody);
+  if (String(provenance.quote_fingerprint || '') !== String(freshProv.quote_fingerprint || '')) {
+    throwSunsetPriceFail(409, 'The quoted price is no longer available. Please request a fresh quote.', {
+      reason_code: 'stale_quote',
+      detail: 'quote_fingerprint_mismatch',
+      expected_fingerprint: provenance.quote_fingerprint,
+      current_fingerprint: freshProv.quote_fingerprint,
+    });
+  }
+}
+
 async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
   const clientSlug = String((opts && opts.clientSlug) || '').trim();
   const locationId = (opts && opts.locationId) != null ? String(opts.locationId) : '';
   let rentalPricingDescriptor = opts && opts.rentalPricingDescriptor;
   const genericQuote = buildGenericRentalAuthoritativeQuote(opts && opts.genericRentalRecords);
-  const genericOnly = genericQuote.line_items.length > 0
-    && !(opts && Array.isArray(opts.canonicalRentals) && opts.canonicalRentals.length);
-  if (genericOnly) return { authoritativeQuote: genericQuote, rentalPricingDescriptor };
+  const hasCanonicalRentals = !!(opts && Array.isArray(opts.canonicalRentals)
+    && opts.canonicalRentals.length);
   // Sunset Create/Edit commercial pricing: every mutation requires an Admin-backed
   // quote transport body (quotePrepBody). Missing body is fail-closed — never
   // silently fall back to priceSunsetBookingServices or fabricated cents.
   const transportBody = (opts && (opts.quotePrepBody || opts.rentalPrepBody)) || null;
+  const provenance = opts && opts.quoteProvenance;
+  const nonGenericIntent = hasCanonicalRentals
+    || transportHasNonGenericCommercialIntent(transportBody);
+
+  // Pure generic-rental bookings only (SUP/kayak/custom catalog, no course/CE/
+  // components/canonical). Early-return is safe here because staff preview also
+  // uses the generic records as the sole commercial authority. When provenance
+  // is present, still fingerprint against the same merged shape staff builds.
+  // NEVER early-return when course/CE/components/canonical/provenance-with-mixed
+  // intent exists — that dropped lane replay and caused unclaimed course rows /
+  // wrong totals on staff drawer combo creates.
+  if (genericQuote.line_items.length > 0 && !nonGenericIntent) {
+    const {
+      buildQuoteProvenance,
+    } = require('./luna-front-desk-quote-service');
+    // Staff pure-generic quote path: empty vertical stub + merge generic lines,
+    // then provenance. Match that shape so fingerprints compare equal.
+    let authoritativeQuote = mergeGenericQuoteLinesIntoBody({
+      success: true,
+      currency: genericQuote.currency || 'EUR',
+      total_cents: 0,
+      line_items: [],
+    }, genericQuote);
+    authoritativeQuote.quote_provenance = buildQuoteProvenance(authoritativeQuote);
+    assertQuoteProvenanceFingerprintMatch(
+      provenance, authoritativeQuote, buildQuoteProvenance,
+    );
+    return { authoritativeQuote, rentalPricingDescriptor };
+  }
+
   if (!transportBody || typeof transportBody !== 'object') {
     throwSunsetPriceFail(422, 'authoritative_quote_body_required', {
       reason_code: 'authoritative_quote_body_required',
@@ -2854,7 +2938,6 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
   // Lane-aware re-quote when create carries quote_provenance: recorded quote_lane
   // selects exact_offering vs components. Single owner for create-time revalidation
   // (do not also re-check outside the write txn).
-  const provenance = opts.quoteProvenance;
   let effectiveTransport = { ...transportBody, require_db: requireDb };
   if (provenance && typeof provenance === 'object') {
     const laneBuilt = buildCreateRequoteTransportFromProvenance(transportBody, provenance);
@@ -2889,25 +2972,14 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
       quote_error: freshQuote.body,
     });
   }
-  if (provenance && typeof provenance === 'object') {
-    const freshProv = buildQuoteProvenance(freshQuote.body);
-    if (String(provenance.quote_fingerprint || '') !== String(freshProv.quote_fingerprint || '')) {
-      throwSunsetPriceFail(409, 'The quoted price is no longer available. Please request a fresh quote.', {
-        reason_code: 'stale_quote',
-        detail: 'quote_fingerprint_mismatch',
-        expected_fingerprint: provenance.quote_fingerprint,
-        current_fingerprint: freshProv.quote_fingerprint,
-      });
-    }
-  }
-  let authoritativeQuote = freshQuote.body;
-  if (genericQuote.line_items.length) {
-    authoritativeQuote = {
-      ...authoritativeQuote,
-      line_items: [...(authoritativeQuote.line_items || []), ...genericQuote.line_items],
-      total_cents: checkedMoneyAdd(authoritativeQuote.total_cents, genericQuote.total_cents, 'mixed_quote_total'),
-    };
-  }
+  // Merge generic catalog lines BEFORE fingerprint compare — staff preview
+  // (handleSunsetScheduleBookingQuote) merges then rebuilds provenance. Comparing
+  // the vertical-only body would false-stale every course+SUP (or CE+generic) create.
+  let authoritativeQuote = mergeGenericQuoteLinesIntoBody(freshQuote.body, genericQuote);
+  authoritativeQuote.quote_provenance = buildQuoteProvenance(authoritativeQuote);
+  assertQuoteProvenanceFingerprintMatch(
+    provenance, authoritativeQuote, buildQuoteProvenance,
+  );
   if (rentalPricingDescriptor && isExactOfferingFutureWriteKey(rentalPricingDescriptor.offering_key)) {
     const bundleLine = findQuoteLineForRentalOffering(
       authoritativeQuote.line_items, rentalPricingDescriptor.offering_key,
@@ -3686,10 +3758,172 @@ async function insertStaffCustomLineServiceRows(pg, opts) {
 }
 
 function scheduleBookingIdempotencyAdvisoryKeys(clientSlug, idempotencyKey) {
+  // Transaction-scoped write lock (released on COMMIT/ROLLBACK).
   const h = crypto.createHash('sha256')
     .update(`sunset-schedule-create\0${String(clientSlug || '')}\0${String(idempotencyKey || '')}`)
     .digest();
   return [h.readInt32BE(0), h.readInt32BE(4)];
+}
+
+/**
+ * Session-scoped serialization keys (distinct namespace from xact keys so a
+ * held session lock cannot deadlock with the later pg_advisory_xact_lock).
+ * Released explicitly via pg_advisory_unlock in finally.
+ */
+function scheduleBookingIdempotencySessionKeys(clientSlug, idempotencyKey) {
+  const h = crypto.createHash('sha256')
+    .update(`sunset-schedule-create-session\0${String(clientSlug || '')}\0${String(idempotencyKey || '')}`)
+    .digest();
+  return [h.readInt32BE(0), h.readInt32BE(4)];
+}
+
+/**
+ * Pure price-independent create request identity from promoted transport body
+ * (before any catalog/price/config resolution). Matches stored
+ * idempotency_intent_fp so completed exact retries replay without current pricing.
+ *
+ * CE wire: transport selection when present, else quote_provenance.course_equipment
+ * (omit+provenance ≡ explicit equivalent wire).
+ */
+function buildCreateRequestIdempotencyIdentity(body, locationId, quoteProvenance) {
+  const b = body && typeof body === 'object' ? body : {};
+  const dateFrom = String(b.date_from || '').slice(0, 10);
+  const dateTo = String(b.date_to || b.date_from || '').slice(0, 10);
+  let service_dates;
+  if (Array.isArray(b.service_dates) && b.service_dates.length) {
+    service_dates = b.service_dates.map((d) => String(d || '').slice(0, 10)).filter(Boolean);
+  } else {
+    service_dates = inclusiveIsoDatesFromRange(dateFrom, dateTo);
+  }
+  service_dates = [...new Set(service_dates)].sort();
+  const rentals = Array.isArray(b.rentals) ? b.rentals : [];
+  const ceTransport = b.course_equipment;
+  const ceProv = quoteProvenance && typeof quoteProvenance === 'object'
+    ? quoteProvenance.course_equipment
+    : null;
+  const course_equipment = isPresentCourseEquipmentSelection(ceTransport)
+    ? ceTransport
+    : ceProv;
+  const payment_status = String(b.payment_status || 'unpaid').trim().toLowerCase() || 'unpaid';
+  const inputLike = {
+    guest_name: String(b.guest_name || ''),
+    guest_phone: b.guest_phone != null ? String(b.guest_phone) : '',
+    payment_status,
+    service_dates,
+    components: (b.components && typeof b.components === 'object') ? b.components : {},
+    lessons: Array.isArray(b.lessons) ? b.lessons : [],
+    notes: b.notes != null ? String(b.notes) : '',
+    needs_reply: b.needs_reply === true || b.needs_reply === 'true' || b.needs_reply === 1,
+  };
+  const opts = {
+    rentals,
+    custom_line_items: Array.isArray(b.custom_line_items) ? b.custom_line_items : [],
+    accommodation: b.accommodation != null ? b.accommodation : null,
+    course_equipment,
+  };
+  const fingerprint = buildScheduleBookingIntentFingerprint(inputLike, locationId, opts);
+  if (!fingerprint) return { ok: false };
+  return {
+    ok: true,
+    fingerprint,
+    input: inputLike,
+    opts: { ...opts, intent_fingerprint: fingerprint },
+  };
+}
+
+/**
+ * Acquire session advisory lock on a pinned PoolClient only.
+ * Returns { keys, client } so unlock can verify the same object.
+ */
+async function acquireIdempotencySessionLock(pg, clientSlug, idempotencyKey) {
+  const {
+    assertPinnedPgClientForSessionAdvisoryLock,
+  } = require('./pg-connect');
+  assertPinnedPgClientForSessionAdvisoryLock(pg);
+  const keys = scheduleBookingIdempotencySessionKeys(clientSlug, idempotencyKey);
+  await pg.query('SELECT pg_advisory_lock($1, $2)', keys);
+  return { keys, client: pg };
+}
+
+function readAdvisoryUnlockBoolean(queryResult) {
+  const row = queryResult && Array.isArray(queryResult.rows) ? queryResult.rows[0] : null;
+  if (!row || typeof row !== 'object') return null;
+  if (Object.prototype.hasOwnProperty.call(row, 'unlocked')) return row.unlocked === true;
+  if (Object.prototype.hasOwnProperty.call(row, 'pg_advisory_unlock')) {
+    return row.pg_advisory_unlock === true;
+  }
+  // First column value (node-pg column name is often the function name).
+  const vals = Object.values(row);
+  if (vals.length === 1) return vals[0] === true;
+  return null;
+}
+
+/**
+ * Confirm session unlock on the same pinned client that acquired the lock.
+ * Requires pg_advisory_unlock → true. On false/exception/unknown: attempt
+ * unlock_all, mark client discard-required (poison), and throw — never swallow.
+ * Does not call client.release (withPgClient finally owns release/poison).
+ */
+async function releaseIdempotencySessionLock(pg, lockHandle) {
+  if (!lockHandle) return;
+  const {
+    markPgClientDiscardRequired,
+    assertPinnedPgClientForSessionAdvisoryLock,
+  } = require('./pg-connect');
+  const keys = Array.isArray(lockHandle) ? lockHandle : lockHandle.keys;
+  const pinned = Array.isArray(lockHandle) ? pg : lockHandle.client;
+  if (!keys || keys.length !== 2) {
+    markPgClientDiscardRequired(pg);
+    const err = new Error('session_advisory_unlock_invalid_handle');
+    err.reason_code = 'session_advisory_unlock_invalid_handle';
+    throw err;
+  }
+  if (pinned !== pg) {
+    markPgClientDiscardRequired(pg);
+    if (pinned && pinned !== pg) markPgClientDiscardRequired(pinned);
+    const err = new Error('session_advisory_unlock_client_mismatch');
+    err.reason_code = 'session_advisory_unlock_client_mismatch';
+    throw err;
+  }
+  try {
+    assertPinnedPgClientForSessionAdvisoryLock(pg);
+  } catch (pinErr) {
+    markPgClientDiscardRequired(pg);
+    throw pinErr;
+  }
+
+  let unlockBool = null;
+  let unlockErr = null;
+  try {
+    const res = await pg.query(
+      'SELECT pg_advisory_unlock($1, $2) AS unlocked',
+      keys,
+    );
+    unlockBool = readAdvisoryUnlockBoolean(res);
+  } catch (e) {
+    unlockErr = e;
+  }
+
+  if (unlockBool === true) return;
+
+  // Uncertain or false: try full session unlock, still poison unless original was true.
+  try {
+    await pg.query('SELECT pg_advisory_unlock_all()');
+  } catch (_) {
+    // Still fail loudly below.
+  }
+  markPgClientDiscardRequired(pg);
+  const err = new Error(
+    unlockErr
+      ? 'session_advisory_unlock_failed'
+      : (unlockBool === false
+        ? 'session_advisory_unlock_not_held'
+        : 'session_advisory_unlock_unknown'),
+  );
+  err.reason_code = err.message;
+  if (unlockErr) err.cause = unlockErr;
+  err.unlock_result = unlockBool;
+  throw err;
 }
 
 function evaluateIdempotentReplay(existingRows, input, locationId, opts) {
@@ -3711,7 +3945,12 @@ function evaluateIdempotentReplay(existingRows, input, locationId, opts) {
       body: { success: false, error: 'idempotency_key_intent_unverifiable', reason_code: 'idempotency_key_intent_unverifiable' },
     };
   }
-  const nextFp = buildScheduleBookingIntentFingerprint(input, locationId, opts);
+  // Prefer a frozen price-independent request fingerprint when provided (create
+  // freezes before course stamps / re-quote). Rebuilding from a mutated input
+  // would false-conflict exact retries after pack assignment stamps.
+  const nextFp = opts && opts.intent_fingerprint
+    ? String(opts.intent_fingerprint).trim()
+    : buildScheduleBookingIntentFingerprint(input, locationId, opts);
   if (storedFp !== nextFp) {
     return {
       ok: false, status: 409,
@@ -3758,8 +3997,40 @@ async function createSunsetScheduleBooking(pg, opts) {
       }
     }
   }
-  const requestedRentals = Array.isArray(bodyIn.rentals) ? bodyIn.rentals : [];
   opts = { ...opts, body: bodyIn };
+  const idempotencyKey = bodyIn.idempotency_key != null
+    ? String(bodyIn.idempotency_key).trim().slice(0, 120)
+    : '';
+
+  // Pure request identity BEFORE any catalog/price/config resolution. Stored
+  // idempotency_intent_fp uses this same pure identity so exact retries match.
+  const earlyIdem = buildCreateRequestIdempotencyIdentity(
+    bodyIn, locationId, opts.quoteProvenance,
+  );
+
+  let sessionLockHandle = null;
+  try {
+    // Serialize same client+key before current pricing so a concurrent winner
+    // cannot commit while a loser walks inactive-catalog / missing-price preflight.
+    // Session lock namespace ≠ xact lock namespace (no deadlock). Always unlock in finally.
+    // Requires a pinned PoolClient (not Pool/query facade) for connection-scoped locks.
+    if (idempotencyKey) {
+      sessionLockHandle = await acquireIdempotencySessionLock(pg, clientSlug, idempotencyKey);
+      if (earlyIdem.ok) {
+        const existingEarly = await findIdempotentBooking(pg, clientSlug, idempotencyKey);
+        if (existingEarly && existingEarly.length) {
+          const evaluated = evaluateIdempotentReplay(
+            existingEarly, earlyIdem.input, locationId, earlyIdem.opts,
+          );
+          if (evaluated.replay) {
+            return { ok: true, status: evaluated.status, body: evaluated.body };
+          }
+          if (evaluated.ok === false) return evaluated;
+        }
+      }
+    }
+
+  const requestedRentals = Array.isArray(bodyIn.rentals) ? bodyIn.rentals : [];
   const createDateFrom = String(opts.body && opts.body.date_from || '').slice(0, 10);
   const createDateTo = String(opts.body && opts.body.date_to || opts.body && opts.body.date_from || '').slice(0, 10);
   const createSpanDates = inclusiveIsoDatesFromRange(createDateFrom, createDateTo);
@@ -3836,31 +4107,22 @@ async function createSunsetScheduleBooking(pg, opts) {
     ...(canonicalRentals || []),
     ...genericPrep.genericRentals,
   ];
-  // Intent fingerprint CE identity: use transport selection when present, else
-  // provenance wire (quote-owned included) so omit+provenance matches explicit
-  // equivalent selection before the write txn re-quote canonicalizes further.
-  const ceForIntentFp = isPresentCourseEquipmentSelection(input.course_equipment)
-    ? input.course_equipment
-    : (opts.quoteProvenance && opts.quoteProvenance.course_equipment);
-  const intentFpOpts = {
-    rentals: allRequestedRentals,
-    custom_line_items: input.custom_line_items || [],
-    accommodation: input.accommodation || null,
-    course_equipment: ceForIntentFp,
-  };
-  let idempotencyIntentFp = input.idempotency_key
-    ? buildScheduleBookingIntentFingerprint(input, locationId, intentFpOpts)
-    : null;
-
-  if (input.idempotency_key) {
-    const existingRows = await findIdempotentBooking(pg, clientSlug, input.idempotency_key);
-    if (existingRows && existingRows.length) {
-      const evaluated = evaluateIdempotentReplay(existingRows, input, locationId, intentFpOpts);
-      if (evaluated.replay) {
-        return { ok: true, status: evaluated.status, body: evaluated.body };
-      }
-      if (evaluated.ok === false) return evaluated;
-    }
+  // Prefer pure early fingerprint (matches completed-key replay). Fall back only
+  // when early identity could not be built (malformed transport).
+  let idempotencyIntentFp = earlyIdem.ok ? earlyIdem.fingerprint : null;
+  const intentFpOpts = earlyIdem.ok
+    ? earlyIdem.opts
+    : {
+      rentals: allRequestedRentals,
+      custom_line_items: input.custom_line_items || [],
+      accommodation: input.accommodation || null,
+      course_equipment: isPresentCourseEquipmentSelection(input.course_equipment)
+        ? input.course_equipment
+        : (opts.quoteProvenance && opts.quoteProvenance.course_equipment),
+    };
+  if (!idempotencyIntentFp && input.idempotency_key) {
+    idempotencyIntentFp = buildScheduleBookingIntentFingerprint(input, locationId, intentFpOpts);
+    intentFpOpts.intent_fingerprint = idempotencyIntentFp;
   }
 
   const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
@@ -3978,23 +4240,10 @@ async function createSunsetScheduleBooking(pg, opts) {
           },
           pgClient: pg,
         };
-        let pre = await resolveActiveSunsetAdminPrice(pg, lookupArgs);
-        if (!pre || pre.ok !== true) {
-          try {
-            const { syncPackTierToPriceRules } = require('./sunset-admin-price-sync');
-            const pack = gate.pack || {};
-            await syncPackTierToPriceRules(pg, {
-              clientSlug,
-              locationId,
-              packId: pack.pack_id || courseId,
-              packLabel: pack.label || 'Course',
-              tiers: pack.price_tiers || [],
-              actor: opts.actor || {},
-              skipTransaction: true,
-            });
-            pre = await resolveActiveSunsetAdminPrice(pg, lookupArgs);
-          } catch (_) { /* keep original */ }
-        }
+        // Create preflight is strictly read-only: never heal tenant_price_rules
+        // outside (or before) the booking txn. Missing/wrong-unit rules fail closed;
+        // Admin pack create/patch + reconcile endpoints own explicit sync.
+        const pre = await resolveActiveSunsetAdminPrice(pg, lookupArgs);
         if (!pre || pre.ok !== true || !(pre.amount_cents > 0)) {
           const faced = staffFacingSunsetAdminPriceError(
             (pre && pre.reason) || 'no_price_for_surf_lesson',
@@ -4090,23 +4339,8 @@ async function createSunsetScheduleBooking(pg, opts) {
           },
           pgClient: pg,
         };
-        let pre = await resolveActiveSunsetAdminPrice(pg, lookupArgs);
-        if (!pre || pre.ok !== true) {
-          try {
-            const { syncPackTierToPriceRules } = require('./sunset-admin-price-sync');
-            const pack = gate.pack || {};
-            await syncPackTierToPriceRules(pg, {
-              clientSlug,
-              locationId,
-              packId: pack.pack_id || courseId,
-              packLabel: pack.label || 'Course',
-              tiers: pack.price_tiers || [],
-              actor: opts.actor || {},
-              skipTransaction: true,
-            });
-            pre = await resolveActiveSunsetAdminPrice(pg, lookupArgs);
-          } catch (_) { /* keep original */ }
-        }
+        // Read-only create preflight — no price-rule heal writes here.
+        const pre = await resolveActiveSunsetAdminPrice(pg, lookupArgs);
         if (!pre || pre.ok !== true || !(pre.amount_cents > 0)) {
           const faced = staffFacingSunsetAdminPriceError(
             (pre && pre.reason) || 'no_price_for_surf_lesson',
@@ -4204,28 +4438,11 @@ async function createSunsetScheduleBooking(pg, opts) {
       },
       pgClient: pg,
     };
+    // Read-only create preflight: never write tenant_price_rules before BEGIN.
+    // A heal here with skipTransaction:true would survive stale_quote ROLLBACK
+    // and leave durable price-rule repair from a failed create. Admin pack
+    // create/patch + reconcile-sunset-admin-price-identities own explicit sync.
     coursePricePreflight = await resolveActiveSunsetAdminPrice(pg, lookupArgs);
-    // Heal: Admin Courses card can show config_json amounts while the linked
-    // tenant_price_rules row is missing/wrong-unit. Sync owner-entered tier
-    // amounts into the canonical identity, then retry once.
-    if (!coursePricePreflight || coursePricePreflight.ok !== true) {
-      try {
-        const { syncPackTierToPriceRules } = require('./sunset-admin-price-sync');
-        const pack = gate.pack || {};
-        await syncPackTierToPriceRules(pg, {
-          clientSlug,
-          locationId,
-          packId: pack.pack_id || input.components.course.course_id,
-          packLabel: pack.label || input.components.course.course_label || 'Course',
-          tiers: pack.price_tiers || [],
-          actor: opts.actor || {},
-          skipTransaction: true,
-        });
-        coursePricePreflight = await resolveActiveSunsetAdminPrice(pg, lookupArgs);
-      } catch (_) {
-        // Keep original failure.
-      }
-    }
     if (!coursePricePreflight || coursePricePreflight.ok !== true
       || !(coursePricePreflight.amount_cents > 0)) {
       const faced = staffFacingSunsetAdminPriceError(
@@ -4260,12 +4477,29 @@ async function createSunsetScheduleBooking(pg, opts) {
   await pg.query('BEGIN');
   try {
     if (input.idempotency_key) {
+      // Write-txn defense-in-depth (distinct key namespace from session lock).
+      // Primary completed-key gate already ran under session lock before catalog
+      // prep; this recheck protects the write half if session lock was absent.
       const [k1, k2] = scheduleBookingIdempotencyAdvisoryKeys(clientSlug, input.idempotency_key);
       await pg.query('SELECT pg_advisory_xact_lock($1, $2)', [k1, k2]);
+      const lockedRows = await findIdempotentBooking(pg, clientSlug, input.idempotency_key);
+      if (lockedRows && lockedRows.length) {
+        const evaluated = evaluateIdempotentReplay(
+          lockedRows, earlyIdem.ok ? earlyIdem.input : input, locationId, intentFpOpts,
+        );
+        if (evaluated.replay) {
+          await pg.query('ROLLBACK');
+          return { ok: true, status: evaluated.status, body: evaluated.body };
+        }
+        if (evaluated.ok === false) {
+          await pg.query('ROLLBACK');
+          return evaluated;
+        }
+      }
     }
 
-    // Authoritative Admin quote FIRST (lane-aware when provenance present).
-    // Adopts quote-owned included CE before stock claims and idempotency identity.
+    // Authoritative Admin quote (lane-aware when provenance present).
+    // Adopts quote-owned included CE before stock claims.
     let authoritativeQuote = null;
     {
       const quoteTransport = {
@@ -4327,32 +4561,10 @@ async function createSunsetScheduleBooking(pg, opts) {
       }
     }
 
-    // Canonical intent fingerprint after quote-owned CE is known.
-    const canonicalIntentFpOpts = {
-      rentals: allRequestedRentals,
-      custom_line_items: input.custom_line_items || [],
-      accommodation: input.accommodation || null,
-      course_equipment: input.course_equipment,
-    };
-    if (input.idempotency_key) {
-      idempotencyIntentFp = buildScheduleBookingIntentFingerprint(
-        input, locationId, canonicalIntentFpOpts,
-      );
-      const lockedRows = await findIdempotentBooking(pg, clientSlug, input.idempotency_key);
-      if (lockedRows && lockedRows.length) {
-        const evaluated = evaluateIdempotentReplay(
-          lockedRows, input, locationId, canonicalIntentFpOpts,
-        );
-        if (evaluated.replay) {
-          await pg.query('ROLLBACK');
-          return { ok: true, status: evaluated.status, body: evaluated.body };
-        }
-        if (evaluated.ok === false) {
-          await pg.query('ROLLBACK');
-          return evaluated;
-        }
-      }
-    }
+    // Keep the frozen request-side intent fingerprint for row metadata / storage.
+    // Do not recompute after course stamps or CE adoption — that would make exact
+    // retries (and omit+provenance vs explicit equivalent CE) diverge from the
+    // identity used for locked replay above.
 
     // Physical stock AFTER canonical CE is known. Fail closed with no inserts
     // when included gear (or any CE) is unavailable.
@@ -4760,6 +4972,14 @@ async function createSunsetScheduleBooking(pg, opts) {
     if (err && err.sunsetPriceFail) return err.sunsetPriceFail;
     throw err;
   }
+  } finally {
+    // Always release session serialization lock (replay, conflict, validation,
+    // price fail-closed, success, or thrown DB error). Confirms unlock=true;
+    // false/exception poisons client for withPgClient release(true) — never swallow.
+    if (sessionLockHandle) {
+      await releaseIdempotencySessionLock(pg, sessionLockHandle);
+    }
+  }
 }
 
 module.exports = {
@@ -4806,6 +5026,8 @@ module.exports = {
   createSunsetScheduleBooking,
   prepareGenericRentalsForCreate,
   buildGenericRentalAuthoritativeQuote,
+  transportHasNonGenericCommercialIntent,
+  mergeGenericQuoteLinesIntoBody,
   prepareCanonicalRentalsForCreate,
   CANONICAL_RENTAL_OFFERING_KEYS,
   COMPONENT_LANE_RENTAL_KEYS,
@@ -4830,8 +5052,13 @@ module.exports = {
   isSunsetBookingFinanciallyCommitted,
   findIdempotentBooking,
   buildScheduleBookingIntentFingerprint,
+  buildCreateRequestIdempotencyIdentity,
   evaluateIdempotentReplay,
   scheduleBookingIdempotencyAdvisoryKeys,
+  scheduleBookingIdempotencySessionKeys,
+  acquireIdempotencySessionLock,
+  releaseIdempotencySessionLock,
+  readAdvisoryUnlockBoolean,
   STAFF_CUSTOM_LINE_SOURCE,
   STAFF_CUSTOM_LINE_COMPONENT,
   STAFF_CUSTOM_LINE_MAX,

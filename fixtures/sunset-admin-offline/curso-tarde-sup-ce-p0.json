@@ -1,0 +1,70 @@
+{
+  "_meta": {
+    "purpose": "Production-shaped offline Admin fixture for P0 staff-drawer combo: Curso Tarde qty1 + standalone SUP rental + Surfboard+Wetsuit course_equipment during_course. Expected authoritative total €85. Three independent price sources for board/wetsuit physical keys.",
+    "client_slug": "sunset",
+    "location_id": "sunset-somo",
+    "expected_total_cents": 8500,
+    "expected_total_eur": 85
+  },
+  "rental_offerings": [
+    { "offering_key": "board_rental", "label": "Surfboard", "active": true, "stock_quantity": 20, "location_id": "sunset-somo" },
+    { "offering_key": "wetsuit_rental", "label": "Wetsuit", "active": true, "stock_quantity": 20, "location_id": "sunset-somo" },
+    { "offering_key": "sup_rental", "label": "SUP", "active": true, "stock_quantity": 10, "location_id": "sunset-somo" }
+  ],
+  "rental_prices": [
+    { "item_code": "sup_rental__1_day", "offering_key": "sup_rental", "unit": "day", "amount_cents": 3000, "pricing_status": "confirmed", "price_source": "standalone_rental_duration" },
+    { "item_code": "board_rental__1_day", "offering_key": "board_rental", "unit": "day", "amount_cents": 1500, "pricing_status": "confirmed", "price_source": "standalone_rental_duration" },
+    { "item_code": "wetsuit_rental__1_day", "offering_key": "wetsuit_rental", "unit": "day", "amount_cents": 1000, "pricing_status": "confirmed", "price_source": "standalone_rental_duration" }
+  ],
+  "surf_pack": {
+    "pack_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    "label": "Curso Tarde",
+    "active": true,
+    "group_size": 24,
+    "weekly": "sat_sun",
+    "schedules": ["1600_1800"],
+    "price_tiers": [
+      { "key": "1_day", "label": "1 day", "hours": 2, "amount_cents": 4000 }
+    ],
+    "equipment_options": [
+      {
+        "offering_key": "board_rental",
+        "label": "Surfboard",
+        "during_course_policy": "optional",
+        "during_course_price_cents": 1000,
+        "all_day_price_cents": 1500
+      },
+      {
+        "offering_key": "wetsuit_rental",
+        "label": "Wetsuit",
+        "during_course_policy": "optional",
+        "during_course_price_cents": 500,
+        "all_day_price_cents": 1000
+      }
+    ]
+  },
+  "staff_drawer_selection": {
+    "course": { "course_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "tier_key": "1_day", "quantity": 1 },
+    "rentals": [{ "offering_key": "sup_rental", "duration_key": "1_day", "quantity": 1 }],
+    "course_equipment": [
+      { "offering_key": "board_rental", "mode": "during_course", "quantity": 1 },
+      { "offering_key": "wetsuit_rental", "mode": "during_course", "quantity": 1 }
+    ],
+    "service_date": "2026-09-05",
+    "surfer_count": 1
+  },
+  "line_identity_contract": {
+    "course": { "component": "course", "amount_cents": 4000 },
+    "standalone_sup": { "offering_key": "sup_rental", "duration_key": "1_day", "amount_cents": 3000, "price_source": "standalone_rental_duration" },
+    "ce_surfboard_during": { "offering_key": "board_rental", "mode": "during_course", "amount_cents": 1000, "price_source": "course_option_during_course" },
+    "ce_wetsuit_during": { "offering_key": "wetsuit_rental", "mode": "during_course", "amount_cents": 500, "price_source": "course_option_during_course" },
+    "all_day_variant_independent": {
+      "board_all_day_cents": 1500,
+      "wetsuit_all_day_cents": 1000,
+      "never_uses_standalone_or_during": true
+    },
+    "same_offering_key_two_lines": {
+      "board_rental_as_standalone_and_ce": "two distinct commercial lines; stock demand sums"
+    }
+  }
+}

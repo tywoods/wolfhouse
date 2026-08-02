@@ -9,6 +9,11 @@ const options = [
   { offering_key: 'softboard', during_course_price_cents: 725, all_day_price_cents: 0 },
   { offering_key: 'carbon_fins', during_course_price_cents: 200, all_day_price_cents: 100 },
 ];
+// Server always materializes during_course_policy (infer when absent: €0→included, else optional).
+const optionsCanonical = [
+  { offering_key: 'softboard', during_course_policy: 'optional', during_course_price_cents: 725, all_day_price_cents: 0 },
+  { offering_key: 'carbon_fins', during_course_policy: 'optional', during_course_price_cents: 200, all_day_price_cents: 100 },
+];
 const legacyOptions = [
   { offering_key: 'softboard', equipment_price_cents: 725, all_day_surcharge_cents: 0 },
   { offering_key: 'carbon_fins', equipment_price_cents: 200, all_day_surcharge_cents: 100 },
@@ -16,20 +21,20 @@ const legacyOptions = [
 
 // Course entities own multi-item equipment_options (obsolete scalar fields rejected).
 assert.equal(packs.validatePackBody({ equipment_included: true, equipment_price_cents: 0 }).ok, false);
-// Admin writes only canonical independent totals.
+// Admin writes only canonical independent totals (+ inferred/explicit policy).
 assert.deepStrictEqual(
   packs.validatePackBody({ equipment_options: options }).patch,
-  { equipment_options: options },
+  { equipment_options: optionsCanonical },
 );
 assert.equal(packs.validatePackBody({ equipment_options: legacyOptions }).ok, false);
-// Historical map/load normalizes legacy pair → canonical independent totals.
+// Historical map/load normalizes legacy pair → canonical independent totals + policy.
 assert.deepStrictEqual(
   packs.mapPackRow({ id: 'g', label: 'Group', config_json: { equipment_options: options } }).equipment_options,
-  options,
+  optionsCanonical,
 );
 assert.deepStrictEqual(
   packs.mapPackRow({ id: 'legacy', label: 'Legacy', config_json: { equipment_options: legacyOptions } }).equipment_options,
-  options,
+  optionsCanonical,
 );
 assert.deepStrictEqual(
   packs.mapPackRow({ id: 'legacy-empty', label: 'Legacy', config_json: {} }).equipment_options,
@@ -38,13 +43,13 @@ assert.deepStrictEqual(
 assert.equal(privateRules.validatePrivateLessonBody({ equipment_included: true, equipment_price_cents: 0 }).ok, false);
 assert.deepStrictEqual(
   privateRules.validatePrivateLessonBody({ equipment_options: options }).patch.equipment_options,
-  options,
+  optionsCanonical,
 );
 assert.deepStrictEqual(
   privateRules.mapPrivateLessonRow({
     id: 'p', active: true, label: 'Private', config_json: { equipment_options: options },
   }).equipment_options,
-  options,
+  optionsCanonical,
 );
 
 // Quote uses course-owned independent totals × unique course dates.
@@ -88,6 +93,9 @@ assert(!ui.includes('admin-course-all-day-board'));
 assert(!ui.includes('admin-course-all-day-suit'));
 assert(!ui.includes('save-course-equipment'));
 assert(!ui.includes('admin-course-during-board'));
+// Retired location-wide policy class; per-row policy uses admin-equipment-during-policy.
 assert(!ui.includes('admin-course-equipment-policy'));
+assert(ui.includes('admin-equipment-during-policy'));
+assert(ui.includes('during_course_policy'));
 assert(ui.includes('adminParseEurosToCents'));
 console.log('PASS Sunset course equipment Admin consolidation and course-owned pricing');

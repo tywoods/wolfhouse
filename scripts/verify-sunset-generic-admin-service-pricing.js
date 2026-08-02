@@ -301,12 +301,18 @@ async function main() {
     /Admin price/i.test(face.error) && !/tenant_price_rules|SELECT|uuid/i.test(face.error));
 
   const writes = fs.readFileSync(path.join(__dirname, 'lib/sunset-schedule-booking-writes.js'), 'utf8');
-  assert('manual create heals via syncPackTierToPriceRules', writes.includes('syncPackTierToPriceRules'));
+  // Create preflight is read-only — healing sync outside BEGIN would survive stale
+  // create ROLLBACK. Explicit Admin pack create/patch + reconcile own sync.
+  assert('manual create does not heal via syncPackTierToPriceRules',
+    !writes.includes('syncPackTierToPriceRules')
+    && !writes.includes("require('./sunset-admin-price-sync')"));
   assert('model money fields rejected at normalize', writes.includes('MODEL_MONEY_FIELDS'));
 
   const packs = fs.readFileSync(path.join(__dirname, 'lib/sunset-admin-pack-rules.js'), 'utf8');
   assert('pack create syncs tiers in same transaction', packs.includes('skipTransaction: true')
     && packs.includes('upsertPackPriceTiers'));
+  assert('Admin pack path still owns syncPackTierToPriceRules',
+    packs.includes('syncPackTierToPriceRules'));
 
   const stripe = fs.readFileSync(path.join(__dirname, 'lib/sunset-stripe-payment-links.js'), 'utf8');
   assert('payment path uses resolveActiveSunsetAdminPrice', stripe.includes('resolveActiveSunsetAdminPrice'));

@@ -1,0 +1,43 @@
+{
+  "_meta": {
+    "purpose": "Offline/Admin fixture for Slice H readiness — non-contiguous Mon+Thu service_dates on an existing course. Not a scheduling redesign; Captain selects exact service_dates on a course that already runs those days (or has open capacity). Contiguous date_from/date_to fallback remains for non-course callers.",
+    "client_slug": "sunset",
+    "location_id": "sunset-somo",
+    "captain_setup": [
+      "1. Pick (or create) a Group course whose schedule includes Monday and Thursday sessions (e.g. weekly mon_thu, or open custom dates).",
+      "2. Do NOT invent custom weekday Admin UI if Admin only supports fixed weekly packs — use the course's existing eligible days.",
+      "3. Staff Create: select the course, set From=Mon / To=Thu only if the product expands contiguous days; preferred: pass exact service_dates [Mon, Thu] from the course day buttons when multi-day selection supports it.",
+      "4. Create body must carry service_dates: [\"YYYY-MM-DD mon\", \"YYYY-MM-DD thu\"] — not a contiguous range that includes Tue/Wed for stock claims.",
+      "5. Stock sold-out on Mon or Thu fails closed (zero writes). Sold-out on a gap day (Tue/Wed) is irrelevant when service_dates are exact Mon+Thu."
+    ]
+  },
+  "example_service_dates": ["2026-09-07", "2026-09-10"],
+  "example_gap_dates_not_claimed": ["2026-09-08", "2026-09-09"],
+  "create_api_shape": {
+    "guest_name": "Mon Thu Guest",
+    "guest_phone": "+34600111222",
+    "date_from": "2026-09-07",
+    "date_to": "2026-09-10",
+    "service_dates": ["2026-09-07", "2026-09-10"],
+    "payment_status": "unpaid",
+    "components": {
+      "course": {
+        "course_id": "<existing_pack_uuid>",
+        "tier_key": "2_days",
+        "quantity": 1
+      }
+    },
+    "course_equipment": [
+      { "offering_key": "board_and_suit_rental", "mode": "during_course", "quantity": 1 }
+    ],
+    "rentals": [],
+    "surfer_count": 1
+  },
+  "stock_claims_contract": {
+    "claimed_dates": ["2026-09-07", "2026-09-10"],
+    "not_claimed_gap_dates": ["2026-09-08", "2026-09-09"],
+    "sold_out_on_actual_date": "fail closed, zero writes",
+    "sold_out_on_gap_day": "irrelevant when service_dates are exact",
+    "contiguous_fallback": "when service_dates omitted, collectCourseEquipmentStockClaims uses inclusive date_from..date_to (unchanged for non-course callers)"
+  }
+}

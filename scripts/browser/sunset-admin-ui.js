@@ -641,14 +641,46 @@ function adminEquipmentRowsHtml(rows){
     var allDayCents = (r.all_day_price_cents != null)
       ? r.all_day_price_cents
       : (r.all_day_surcharge_cents || 0);
-    // Compact single-row geometry: wider offering select | During € | All Day € | icon ×.
-    // No redundant "Equipment" column label (section h4 owns that). Remove uses existing
-    // data-admin-action="remove-equipment-option" path with explicit accessible name.
+    // Compact row: offering | during policy | During € | All Day € | ×.
+    // during_course_policy is explicit so optional €0 and unavailable are authorable
+    // (price-only inference cannot distinguish optional €0 from included).
+    // No redundant "Equipment" column label (section h4 owns that).
     var removeEqLabel = portalT('admin.courseEquipment.remove') || 'Remove equipment';
-    return '<div class="portal-admin-equipment-option-row" data-equipment-option-row="'+idx+'">' +
+    // Infer only when policy field is absent. Explicit invalid values are preserved
+    // and fail save closed (never silently rewrite to included/optional).
+    var hasExplicitPolicy = Object.prototype.hasOwnProperty.call(r, 'during_course_policy')
+      && r.during_course_policy != null
+      && String(r.during_course_policy).trim() !== '';
+    var rawPolicy = hasExplicitPolicy ? String(r.during_course_policy).trim() : '';
+    var policyValid = rawPolicy === 'included' || rawPolicy === 'optional' || rawPolicy === 'unavailable';
+    var policyInvalid = hasExplicitPolicy && !policyValid;
+    var policy = policyValid
+      ? rawPolicy
+      : (policyInvalid ? rawPolicy : ((Number(duringCents) === 0) ? 'included' : 'optional'));
+    var policyOpts = '';
+    if (policyInvalid) {
+      policyOpts += '<option value="'+escHtml(rawPolicy)+'" selected disabled data-policy-invalid="1">'
+        + escHtml(rawPolicy + ' — ' + (portalT('admin.courseEquipment.policyInvalid') || 'invalid'))
+        + '</option>';
+    }
+    policyOpts += ['included', 'optional', 'unavailable'].map(function(p){
+      var lab = p === 'included' ? portalT('admin.courseEquipment.policyIncluded')
+        : (p === 'optional' ? portalT('admin.courseEquipment.policyOptional')
+          : portalT('admin.courseEquipment.policyUnavailable'));
+      var sel = (!policyInvalid && p === policy) ? ' selected' : '';
+      return '<option value="'+p+'"'+sel+'>'+escHtml(lab)+'</option>';
+    }).join('');
+    return '<div class="portal-admin-equipment-option-row" data-equipment-option-row="'+idx+'"'
+      + (policyInvalid ? ' data-policy-explicit-invalid="1"' : '')
+      + (hasExplicitPolicy ? ' data-policy-explicit="1"' : ' data-policy-absent="1"')
+      + '>' +
       '<div class="portal-admin-equipment-option-fields">' +
       '<label class="portal-admin-equipment-offering-field">' +
       '<select class="admin-equipment-offering" aria-label="'+escHtml(portalT('admin.courseEquipment.choose'))+'">'+opts+'</select></label>' +
+      '<label class="portal-admin-equipment-policy-field">'+escHtml(portalT('admin.courseEquipment.duringPolicy')) +
+      '<select class="admin-equipment-during-policy" data-admin-action="course-equipment-policy"'
+      + (policyInvalid ? ' data-policy-explicit-invalid="1"' : '')
+      + ' aria-label="'+escHtml(portalT('admin.courseEquipment.duringPolicy'))+'">'+policyOpts+'</select></label>' +
       '<label class="portal-admin-equipment-price-field">'+escHtml(portalT('admin.courseEquipment.duringPrice')) +
       '<input class="admin-equipment-during-price" inputmode="decimal" value="'+escHtml(adminEurosFromAmount((duringCents||0)/100))+'"></label>' +
       '<label class="portal-admin-equipment-price-field">'+escHtml(portalT('admin.courseEquipment.allDayPrice')) +
@@ -661,11 +693,15 @@ function adminRenderEquipmentEditor(rows,prefix){
   // Heading row: section title + compact icon-only + (same add-equipment-option path).
   // No trailing full-width "+ Add equipment" text button under the rows.
   var addEqLabel = portalT('admin.courseEquipment.add') || 'Add equipment';
+  var threePrice = portalT('admin.courseEquipment.threePriceHelp') || '';
   return '<section class="portal-admin-equipment-editor" data-admin-equipment-editor="'+escHtml(prefix)+'">' +
     '<div class="portal-admin-equipment-heading-row" data-admin-equipment-heading>' +
     '<h4>'+escHtml(portalT('admin.courseEquipment.editorTitle'))+'</h4>' +
     '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-equipment-add" data-admin-action="add-equipment-option" aria-label="'+escHtml(addEqLabel)+'" title="'+escHtml(addEqLabel)+'">+</button>' +
     '</div>' +
+    (threePrice
+      ? '<p class="portal-admin-equipment-three-price-help" data-admin-equipment-three-price-help="1">'+escHtml(threePrice)+'</p>'
+      : '') +
     '<div data-equipment-option-rows>'+adminEquipmentRowsHtml(rows||[])+'</div>' +
     '</section>';
 }
@@ -675,11 +711,30 @@ function adminReadEquipmentOptions(root){
     var key=String(row.querySelector('.admin-equipment-offering').value||'').trim();
     var duringEl=row.querySelector('.admin-equipment-during-price')||row.querySelector('.admin-equipment-price');
     var allDayEl=row.querySelector('.admin-equipment-all-day-price')||row.querySelector('.admin-equipment-surcharge');
+    var policyEl=row.querySelector('.admin-equipment-during-policy');
     var p=adminParseEurosToCents(duringEl&&duringEl.value);
     var s=adminParseEurosToCents(allDayEl&&allDayEl.value);
+    var policy=policyEl?String(policyEl.value||'').trim():'';
+    var rowInvalid = !!(row.getAttribute && row.getAttribute('data-policy-explicit-invalid') === '1')
+      || !!(policyEl && policyEl.getAttribute && policyEl.getAttribute('data-policy-explicit-invalid') === '1');
+    var policyAllowed = policy==='included'||policy==='optional'||policy==='unavailable';
+    // Explicit malformed policy: fail closed — never omit to trigger server inference.
+    if(rowInvalid || (policy && !policyAllowed)){
+      error=portalT('admin.courseEquipment.policyInvalid')||'During-course policy is invalid';
+    }else if(!policy){
+      // Truly absent (legacy): omit field so server backward-infers.
+      policy='';
+    }
     if(!key||seen[key])error=portalT('admin.courseEquipment.duplicate');
     else if(!p.ok||!s.ok)error=portalT('admin.edit.amountInvalid');
-    else{seen[key]=true;out.push({offering_key:key,during_course_price_cents:p.value,all_day_price_cents:s.value});}
+    else if(policy==='included'&&p.value!==0){
+      error=portalT('admin.courseEquipment.includedRequiresZero')||'Included during-course gear must be €0';
+    }else if(!error){
+      seen[key]=true;
+      var rowOut={offering_key:key,during_course_price_cents:p.value,all_day_price_cents:s.value};
+      if(policy)rowOut.during_course_policy=policy;
+      out.push(rowOut);
+    }
   });
   return {ok:!error,value:out,error:error};
 }

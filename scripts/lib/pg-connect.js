@@ -3,6 +3,43 @@ const { Pool } = require('pg');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '..', 'infra', '.env') });
 
+/**
+ * Mark a borrowed PoolClient so withPgClient finally discards it via release(true).
+ * Shared cross-module via Symbol.for — session advisory unlock failures set this
+ * when unlock is false/unknown so a still-locked connection never returns to the pool.
+ * Booking code must not call client.release itself (outer withPgClient owns that).
+ */
+const PG_CLIENT_DISCARD_REQUIRED = Symbol.for('wolfhouse.pgClient.discardRequired');
+
+function markPgClientDiscardRequired(client) {
+  if (client && typeof client === 'object') {
+    client[PG_CLIENT_DISCARD_REQUIRED] = true;
+  }
+}
+
+function isPgClientDiscardRequired(client) {
+  return !!(client && typeof client === 'object' && client[PG_CLIENT_DISCARD_REQUIRED] === true);
+}
+
+/**
+ * Session advisory locks are connection-scoped. Reject pg.Pool (or any
+ * connect-capable facade without client.release) so lock/unlock cannot run on
+ * different checked-out sessions via pool.query.
+ */
+function assertPinnedPgClientForSessionAdvisoryLock(pg) {
+  if (!pg || typeof pg.query !== 'function') {
+    const err = new Error('session_advisory_lock_requires_pinned_client');
+    err.reason_code = 'session_advisory_lock_requires_pinned_client';
+    throw err;
+  }
+  // Pool / pool-like: has connect() for checkout, no release() on the pool itself.
+  if (typeof pg.connect === 'function' && typeof pg.release !== 'function') {
+    const err = new Error('session_advisory_lock_rejects_pool');
+    err.reason_code = 'session_advisory_lock_rejects_pool';
+    throw err;
+  }
+}
+
 /** @type {import('pg').Pool | null} */
 let pool = null;
 
@@ -55,7 +92,13 @@ async function withPgClient(fn) {
   try {
     return await fn(client);
   } finally {
-    client.release();
+    // release(true) destroys the connection — required when session advisory
+    // unlock failed or was uncertain so a locked backend is not reused.
+    if (isPgClientDiscardRequired(client)) {
+      client.release(true);
+    } else {
+      client.release();
+    }
   }
 }
 
@@ -94,6 +137,10 @@ module.exports = {
   getPool,
   withPgClient,
   closePgPool,
+  PG_CLIENT_DISCARD_REQUIRED,
+  markPgClientDiscardRequired,
+  isPgClientDiscardRequired,
+  assertPinnedPgClientForSessionAdvisoryLock,
   _setPoolForTests,
   _getPoolForTests,
 };
