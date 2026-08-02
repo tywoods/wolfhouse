@@ -248,6 +248,19 @@ const ASSETS = new Map([
     path: path.join(__dirname, '..', 'public', 'crowsnest', 'logo.png'),
     contentType: 'image/png',
   }],
+  // Same tab icon as www.lunafrontdesk.com (byte-identical favicon.ico).
+  ['/crowsnest/assets/favicon.ico', {
+    path: path.join(__dirname, '..', 'public', 'crowsnest', 'favicon.ico'),
+    contentType: 'image/x-icon',
+  }],
+  ['/favicon.ico', {
+    path: path.join(__dirname, '..', 'public', 'crowsnest', 'favicon.ico'),
+    contentType: 'image/x-icon',
+  }],
+  ['/crowsnest/assets/apple-touch-icon.png', {
+    path: path.join(__dirname, '..', 'public', 'crowsnest', 'apple-touch-icon.png'),
+    contentType: 'image/png',
+  }],
   ['/images/luna-login-bg.jpg', {
     path: path.join(__dirname, '..', 'public', 'images', 'luna-login-bg.jpg'),
     contentType: 'image/jpeg',

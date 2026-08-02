@@ -3293,6 +3293,8 @@ function renderCrowsnestPage(options = {}) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>${escapeHtml(title)} — Crowsnest</title>
+  <link rel="icon" href="/crowsnest/assets/favicon.ico" type="image/x-icon" sizes="any">
+  <link rel="apple-touch-icon" href="/crowsnest/assets/apple-touch-icon.png">
   ${renderStyleTag(CROWSNEST_CSS, nonce)}
 </head>
 <body>
@@ -3339,6 +3341,8 @@ function renderCrowsnestLoginPage(options = {}) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Crowsnest sign in</title>
+  <link rel="icon" href="/crowsnest/assets/favicon.ico" type="image/x-icon" sizes="any">
+  <link rel="apple-touch-icon" href="/crowsnest/assets/apple-touch-icon.png">
   ${renderStyleTag(SUNSET_LOGIN_CSS, nonce)}
 </head>
 <body>

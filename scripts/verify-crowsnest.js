@@ -29,6 +29,8 @@ const DOC_PLAN = path.join(ROOT, 'docs', 'CROWSNEST-LOCATION-PLAN.md');
 const DOC_DEPLOY = path.join(ROOT, 'docs', 'CROWSNEST-DEPLOY-PLAN.md');
 const DOCKERFILE_PATH = path.join(ROOT, 'Dockerfile.crowsnest');
 const LOGO_PATH = path.join(ROOT, 'public', 'crowsnest', 'logo.png');
+const FAVICON_PATH = path.join(ROOT, 'public', 'crowsnest', 'favicon.ico');
+const APPLE_TOUCH_PATH = path.join(ROOT, 'public', 'crowsnest', 'apple-touch-icon.png');
 const PKG_PATH = path.join(ROOT, 'package.json');
 const EXPECTED_LOGO_SHA256 = '7ace8b7e584e0848da3ca248d90988ab71c288f895961f03ec4aa6ee6367ad24';
 const REMOVED_LOGIN_COPY = 'This private portal is for Monshies and Earthling. Use your operator credentials to continue.';
@@ -313,6 +315,12 @@ ok('logout route exists', apiSrc.includes("pathname === '/logout'"));
 ok('asset route exists', apiSrc.includes("pathname === ASSET_ROUTE") || apiSrc.includes("/crowsnest/assets/logo.png"));
 ok('login page renderer exists', /renderCrowsnestLoginPage/.test(pageSrc));
 ok('logo asset copied into repo', fs.existsSync(LOGO_PATH));
+ok('favicon asset copied into repo', fs.existsSync(FAVICON_PATH) && fs.statSync(FAVICON_PATH).size > 500);
+ok('apple-touch-icon asset copied into repo', fs.existsSync(APPLE_TOUCH_PATH) && fs.statSync(APPLE_TOUCH_PATH).size > 500);
+ok('API serves favicon asset routes', apiSrc.includes('/crowsnest/assets/favicon.ico') && apiSrc.includes("'/favicon.ico'"));
+ok('main page head has favicon link', /rel=["']icon["'][^>]*favicon\.ico/.test(pageSrc) || /favicon\.ico["'][^>]*rel=["']icon["']/.test(pageSrc));
+ok('login page head has favicon link', pageSrc.includes('Crowsnest sign in') && pageSrc.includes('/crowsnest/assets/favicon.ico'));
+ok('Dockerfile copies public/crowsnest (favicon rides along)', /COPY public\/crowsnest/.test(fs.readFileSync(path.join(ROOT, 'Dockerfile.crowsnest'), 'utf8')));
 ok('login logo SHA-256 matches transparent replacement', (() => {
   try {
     return crypto.createHash('sha256').update(fs.readFileSync(LOGO_PATH)).digest('hex') === EXPECTED_LOGO_SHA256;
