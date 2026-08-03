@@ -463,6 +463,8 @@ module.exports = {
   'schedule.col.type': 'Tipo',
   'schedule.create.boardQty': 'Cantidad de tablas',
   'schedule.create.rentalQty': 'Cant.',
+  'schedule.create.rentalFrom': 'desde',
+  'schedule.create.rentalLineTotal': 'Total de línea',
   'schedule.create.stockAvailable': '{n} disponibles',
   'schedule.create.stockSoldOut': 'Agotado',
   'schedule.create.stockNotConfigured': 'Stock no configurado',

@@ -1278,6 +1278,45 @@ function schedulePortalFetchQuote(createPayload, opts) {
       return { ok: false, superseded: true, error: 'intent_stale', body: data };
     }
     if (applyState && myGen === schedulePortalQuoteGen) {
+      var lineItems = Array.isArray(data.line_items) ? data.line_items : [];
+      var rentWrap = typeof el === 'function' ? el('ps-create-rentals') : document.getElementById('ps-create-rentals');
+      var paintRes = { ok: true, has_selected: false };
+      if (typeof schedulePaintRentalRowLineTotalsFromQuote === 'function' && rentWrap) {
+        paintRes = schedulePaintRentalRowLineTotalsFromQuote(rentWrap, lineItems) || { ok: false, reason: 'paint_error' };
+      } else if (rentWrap && typeof schedulePaintRentalRowLineTotalsFromQuote === 'function') {
+        paintRes = { ok: false, reason: 'missing_wrap', has_selected: true };
+      }
+      // Selected standalone rentals must each match exactly one quote line — else not a UI success.
+      if (paintRes && paintRes.has_selected && paintRes.ok === false) {
+        schedulePortalQuoteState = null;
+        schedulePortalQuotePriceBlocked = true;
+        if (typeof scheduleClearRentalRowLineTotals === 'function' && rentWrap) {
+          scheduleClearRentalRowLineTotals(rentWrap);
+        }
+        if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
+          schedulePortalRenderCreateQuotePreview({
+            ok: false,
+            error: 'price_not_configured',
+            body: {
+              success: false,
+              reason_code: 'price_not_configured',
+              price_status: 'unpriced',
+              error: 'price_not_configured',
+            },
+          });
+        }
+        if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') {
+          schedulePortalSyncCreateSubmitEnabled();
+        }
+        return {
+          ok: false,
+          error: 'rental_line_paint_failed',
+          reason: (paintRes && paintRes.reason) || 'paint_failed',
+          body: data,
+          gen: myGen,
+          intent_key: intentKey,
+        };
+      }
       schedulePortalQuotePriceBlocked = false;
       schedulePortalQuoteState = {
         quote_provenance: data.quote_provenance || null,
@@ -1285,7 +1324,12 @@ function schedulePortalFetchQuote(createPayload, opts) {
         fetched_at: Date.now(),
         gen: myGen,
         intent_key: intentKey,
+        // Authoritative commercial lines for equipment row paint (standalone rentals).
+        line_items: lineItems,
       };
+      if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') {
+        schedulePortalSyncCreateSubmitEnabled();
+      }
     }
     return { ok: true, body: data, gen: myGen, intent_key: intentKey };
   }).catch(function(err) {
@@ -1561,6 +1605,10 @@ function schedulePortalValidateCreatePayload(payload, opts) {
 }
 
 function schedulePortalInvalidateCreateQuoteIntent(result) {
+  if (typeof scheduleClearRentalRowLineTotals === 'function') {
+    var _rw = typeof el === 'function' ? el('ps-create-rentals') : document.getElementById('ps-create-rentals');
+    if (_rw) scheduleClearRentalRowLineTotals(_rw);
+  }
   schedulePortalInvalidatePreviewWork();
   schedulePortalQuoteState = null;
   if (result) schedulePortalRenderCreateQuotePreview(result);

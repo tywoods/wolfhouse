@@ -1655,7 +1655,7 @@ function scheduleReadDrawerRentalSelectionFromDom() {
     if (qtyRaw !== '' && qtyRaw != null) {
       var qtyStr = String(qtyRaw).trim();
       // Reject fractions (1.5), scientific (2e1), text, blanks, leading junk.
-      if (/^\d{1,2}$/.test(qtyStr)) {
+      if (/^[0-9]{1,2}$/.test(qtyStr)) {
         var qtyN = parseInt(qtyStr, 10);
         if (Number.isInteger(qtyN) && qtyN >= 1 && qtyN <= 99) qty = qtyN;
       }
@@ -1684,7 +1684,7 @@ function scheduleParseRentalEquipmentQtyValue(raw) {
   var s = String(raw).trim();
   if (!s) return null;
   // Reject fractions (1.5), scientific (2e1), text, blanks, leading junk.
-  if (!/^\d{1,2}$/.test(s)) return null;
+  if (!/^[0-9]{1,2}$/.test(s)) return null;
   var n = parseInt(s, 10);
   if (!Number.isInteger(n) || n < 1 || n > 99) return null;
   return n;
@@ -1699,12 +1699,16 @@ function scheduleDrawerApplyRentalExclusionUi(wrap, selectedKeys) {
     var check = row.querySelector('.ps-drawer-rental-check');
     var qtyWrap = row.querySelector('.portal-schedule-create-rental-qty');
     var durSel = row.querySelector('select.ps-drawer-rental-duration');
-    var label = row.querySelector('.portal-schedule-create-check');
     if (!check) return;
     var isOn = selected.indexOf(key) >= 0;
     check.checked = isOn;
     check.disabled = false;
-    if (label) label.classList.remove('is-disabled');
+    if (typeof scheduleSyncRentalRowSelectionChrome === 'function') {
+      scheduleSyncRentalRowSelectionChrome(row, isOn);
+    } else {
+      row.classList.toggle('is-off', !isOn);
+      row.classList.toggle('is-selected', !!isOn);
+    }
     if (durSel) {
       durSel.disabled = !isOn || row.getAttribute('data-compatibility') === '1';
       if (isOn && durSel.value) {
@@ -1740,12 +1744,19 @@ function scheduleWireDrawerRentals(wrap) {
         try { rowDur.setAttribute('data-rental-duration-key', String(t.value || '').trim()); } catch (_rd) { /* ignore */ }
         var opt = t.options && t.selectedIndex >= 0 ? t.options[t.selectedIndex] : null;
         var cents = opt ? opt.getAttribute('data-amount-cents') : '';
-        var priceEl = rowDur.querySelector('.portal-schedule-create-rental-price');
-        if (priceEl && cents && typeof scheduleFormatCentsMoney === 'function') {
-          priceEl.setAttribute('data-amount-cents', cents);
-          priceEl.textContent = scheduleFormatCentsMoney(Number(cents));
+        if (cents) {
+          try { rowDur.setAttribute('data-unit-cents', cents); } catch (_uc) { /* ignore */ }
+          try { rowDur.setAttribute('data-amount-cents', cents); } catch (_ac) { /* ignore */ }
         }
-        if (cents) try { rowDur.setAttribute('data-amount-cents', cents); } catch (_ac) { /* ignore */ }
+        if (typeof scheduleUpdateRentalRowLineTotal === 'function') {
+          scheduleUpdateRentalRowLineTotal(rowDur);
+        } else {
+          var priceEl = rowDur.querySelector('.portal-schedule-create-rental-price');
+          if (priceEl && cents && typeof scheduleFormatCentsMoney === 'function') {
+            priceEl.setAttribute('data-amount-cents', cents);
+            priceEl.textContent = scheduleFormatCentsMoney(Number(cents));
+          }
+        }
       }
       scheduleDrawerMarkPriceStale();
       scheduleDrawerSyncFooter();
@@ -1761,18 +1772,18 @@ function scheduleWireDrawerRentals(wrap) {
         ? scheduleApplyRentalMutualExclusion(selected.filter(function(k) { return k !== key; }), key, !!t.checked)
         : (t.checked ? selected.concat([key]) : selected.filter(function(k) { return k !== key; }));
       scheduleDrawerApplyRentalExclusionUi(wrap, next);
-      // On select: enter at quantity 1 (physical units — independent of guest count).
+      // On select: enter at 1 only when blank (never rewrite invalid raw).
       if (t.checked) {
         var row = t.closest ? t.closest('[data-rental-offering]') : null;
         var qtyEl = row && row.querySelector('input.ps-drawer-rental-qty-input');
         if (qtyEl) {
-          var cur = parseInt(qtyEl.value, 10);
-          if (!Number.isInteger(cur) || cur < 1) qtyEl.value = '1';
-          if (cur > 99) qtyEl.value = '99';
+          var rawQ = String(qtyEl.value == null ? '' : qtyEl.value).trim();
+          if (rawQ === '') qtyEl.value = '1';
           qtyEl.setAttribute('data-qty-owner', 'user');
           qtyEl.setAttribute('data-rental-quantity', '');
         }
       }
+      if (typeof scheduleClearRentalRowLineTotals === 'function') scheduleClearRentalRowLineTotals(wrap);
       scheduleDrawerMarkPriceStale();
       scheduleRefreshDrawerFullDayAddon();
       if (typeof scheduleRefreshDrawerRentalStock === 'function') scheduleRefreshDrawerRentalStock();
@@ -1781,7 +1792,10 @@ function scheduleWireDrawerRentals(wrap) {
     }
     if (t.classList && t.classList.contains('ps-drawer-rental-qty-input')) {
       t.setAttribute('data-qty-owner', 'user');
+      try { t.setAttribute('data-qty-raw', String(t.value == null ? '' : t.value)); } catch (_qr) { /* ignore */ }
       scheduleDrawerClampRentalQtyInput(t, wrap);
+      var rowQ = t.closest ? t.closest('[data-rental-offering]') : null;
+      if (rowQ && typeof scheduleUpdateRentalRowLineTotal === 'function') scheduleUpdateRentalRowLineTotal(rowQ);
       scheduleDrawerMarkPriceStale();
       scheduleRefreshDrawerFullDayAddon();
       if (typeof scheduleRefreshDrawerRentalStock === 'function') scheduleRefreshDrawerRentalStock();
@@ -1792,6 +1806,9 @@ function scheduleWireDrawerRentals(wrap) {
     var t = ev && ev.target;
     if (t && t.classList && t.classList.contains('ps-drawer-rental-qty-input')) {
       t.setAttribute('data-qty-owner', 'user');
+      try { t.setAttribute('data-qty-raw', String(t.value == null ? '' : t.value)); } catch (_qr2) { /* ignore */ }
+      var rowQi = t.closest ? t.closest('[data-rental-offering]') : null;
+      if (rowQi && typeof scheduleUpdateRentalRowLineTotal === 'function') scheduleUpdateRentalRowLineTotal(rowQi);
       scheduleDrawerMarkPriceStale();
       scheduleRefreshDrawerFullDayAddon();
       if (typeof scheduleRefreshDrawerRentalStock === 'function') scheduleRefreshDrawerRentalStock();
@@ -1803,6 +1820,19 @@ function scheduleWireDrawerRentals(wrap) {
     if (t && t.classList && t.classList.contains('ps-drawer-rental-qty-input')) {
       scheduleDrawerClampRentalQtyInput(t, wrap);
     }
+  });
+  // Name-as-toggle: button owns selection; hidden checkbox mirrors for payload readers.
+  wrap.addEventListener('click', function(ev) {
+    var t = ev && ev.target;
+    if (!t || !t.closest) return;
+    var btn = t.closest('.portal-schedule-create-rental-toggle');
+    if (!btn || !wrap.contains(btn)) return;
+    ev.preventDefault();
+    var row = btn.closest('[data-rental-offering]');
+    var check = row && row.querySelector('.ps-drawer-rental-check');
+    if (!check || check.disabled) return;
+    check.checked = !check.checked;
+    try { check.dispatchEvent(new Event('change', { bubbles: true })); } catch (_ce) { /* ignore */ }
   });
 }
 
@@ -1844,13 +1874,22 @@ function scheduleRenderDrawerRentals() {
     var qtyEl = row.querySelector('input.ps-drawer-rental-qty-input');
     var durSel = row.querySelector('select.ps-drawer-rental-duration');
     if (!key) return;
-    var qty = parseInt(qtyEl && qtyEl.value, 10);
+    // Preserve exact raw string across re-render (invalid 1.5 / 2e1 stay fail-closed).
+    var qtyRaw = '';
+    if (qtyEl) {
+      var attrRaw = qtyEl.getAttribute('data-qty-raw');
+      if (attrRaw != null && attrRaw !== '') qtyRaw = String(attrRaw);
+      else qtyRaw = String(qtyEl.value == null ? '' : qtyEl.value);
+    }
+    var qtyCanon = typeof scheduleParseRentalEquipmentQtyValue === 'function'
+      ? scheduleParseRentalEquipmentQtyValue(qtyRaw) : null;
     var prevDur = '';
     if (durSel && durSel.value) prevDur = String(durSel.value).trim();
     if (!prevDur) prevDur = String(row.getAttribute('data-rental-duration-key') || '').trim();
     prev[key] = {
       checked: !!(check && check.checked),
-      quantity: (Number.isInteger(qty) && qty >= 1) ? qty : null,
+      quantityRaw: qtyRaw,
+      quantity: qtyCanon,
       qtyOwner: qtyEl ? String(qtyEl.getAttribute('data-qty-owner') || '') : '',
       duration_key: prevDur,
       compatibility: row.getAttribute('data-compatibility') === '1'
@@ -1934,7 +1973,7 @@ function scheduleRenderDrawerRentals() {
   } else {
     try { wrap.removeAttribute('data-compatibility-rentals'); } catch (_rr) { /* ignore */ }
   }
-  wrap.dataset.rentalWired = '';
+  // Keep rentalWired if already set — handlers are delegated on wrap and must not stack.
   if (!offerings.length) {
     wrap.innerHTML = '<p class="portal-schedule-create-rentals-empty" data-i18n="schedule.create.noRentalsAvailable">'
       + escHtml(portalT('schedule.create.noRentalsAvailable')) + '</p>';
@@ -1966,38 +2005,62 @@ function scheduleRenderDrawerRentals() {
       ? scheduleRentalOfferingDisplayLabel(key, o.label, portalT)
       : (String(o.label || '').trim() || key);
     if (isCompat) offeringLabel = offeringLabel + ' (' + unavailHint + ')';
-    // Hydrate persisted per-item quantity; default 1. Independent of guest/surfer count.
-    var qty = (was.quantity != null && was.quantity >= 1 && was.quantity <= 99)
-      ? was.quantity
-      : 1;
-    if (!checked) qty = 1;
-    var owner = (checked && was.quantity != null) ? 'user' : 'default';
-    var qtyHtml = '<div class="portal-schedule-create-rental-qty"'
-      + (checked ? '' : ' style="display:none" hidden aria-hidden="true"') + '>'
-      + '<label><span data-i18n="schedule.create.rentalQty">'
-      + escHtml(portalT('schedule.create.rentalQty') || 'Qty') + '</span>'
-      + '<input type="number" min="1" max="99" class="ps-drawer-rental-qty-input" data-rental-quantity data-qty-owner="'
-      + escHtml(owner) + '" value="' + escHtml(String(qty))
-      + '" inputmode="numeric" aria-label="'
-      + escHtml(portalT('schedule.create.rentalQty') || 'Qty') + '"></label>'
-      + '<span class="ps-drawer-rental-stock ps-create-rental-stock" data-rental-stock-label data-offering-key="'
-      + escHtml(key) + '" aria-live="polite"></span>'
-      + '</div>';
+    // Hydrate quantity: preserve exact raw on re-render; default 1 only when absent/unselected.
+    var qtyRawOut;
+    if (!checked) {
+      qtyRawOut = '1';
+    } else if (Object.prototype.hasOwnProperty.call(was, 'quantityRaw')) {
+      qtyRawOut = String(was.quantityRaw == null ? '' : was.quantityRaw);
+    } else if (was.quantity != null && was.quantity >= 1 && was.quantity <= 99) {
+      qtyRawOut = String(was.quantity);
+    } else {
+      qtyRawOut = '1';
+    }
+    var owner = (checked && (was.qtyOwner === 'user' || (was.quantityRaw != null && was.quantityRaw !== '')))
+      ? 'user' : 'default';
     var selectedDur = null;
     for (var di = 0; di < durs.length; di++) {
       if (durs[di].duration_key === rowDuration) { selectedDur = durs[di]; break; }
     }
     if (!selectedDur) selectedDur = durs[0] || null;
     var unitCents = selectedDur && selectedDur.amount_cents != null ? selectedDur.amount_cents : null;
-    var priceHtml = (unitCents != null && typeof scheduleFormatCentsMoney === 'function')
-      ? ('<span class="portal-schedule-create-rental-price" data-amount-cents="' + escHtml(String(unitCents)) + '">'
-        + escHtml(scheduleFormatCentsMoney(unitCents)) + '</span>')
+    var minCents = typeof scheduleRentalMinPositiveCents === 'function'
+      ? scheduleRentalMinPositiveCents(durs) : null;
+    var fromWord = portalT('schedule.create.rentalFrom') || 'from';
+    var fromHtml = (minCents != null && typeof scheduleFormatCentsMoney === 'function')
+      ? ('<span class="portal-schedule-create-rental-from" data-from-cents="' + escHtml(String(minCents)) + '"'
+        + (checked ? ' hidden style="display:none"' : '') + '>'
+        + '<span data-i18n="schedule.create.rentalFrom">' + escHtml(fromWord) + '</span> '
+        + escHtml(scheduleFormatCentsMoney(minCents)) + '</span>')
       : '';
+    var qtyHtml = '<div class="portal-schedule-create-rental-qty"'
+      + (checked ? '' : ' style="display:none" hidden aria-hidden="true"') + '>'
+      + '<label><span class="portal-schedule-create-visually-hidden" data-i18n="schedule.create.rentalQty">'
+      + escHtml(portalT('schedule.create.rentalQty') || 'Qty') + '</span>'
+      + '<input type="text" inputmode="numeric" autocomplete="off" min="1" max="99" class="ps-drawer-rental-qty-input" data-rental-quantity data-qty-raw="'
+      + escHtml(String(qtyRawOut)) + '" data-qty-owner="'
+      + escHtml(owner) + '" value="' + escHtml(String(qtyRawOut))
+      + '" aria-label="'
+      + escHtml(portalT('schedule.create.rentalQty') || 'Qty') + '"></label>'
+      + '<span class="ps-drawer-rental-stock ps-create-rental-stock" data-rental-stock-label data-offering-key="'
+      + escHtml(key) + '" aria-live="polite"></span>'
+      + '</div>';
+    // Selected: pending until authoritative quote paints (never catalog unit×qty as final).
+    var priceHtml = checked
+      ? ('<span class="portal-schedule-create-rental-price"'
+        + (unitCents != null ? (' data-unit-cents="' + escHtml(String(unitCents)) + '"') : '')
+        + ' data-line-pending="1" aria-label="'
+        + escHtml(portalT('schedule.create.rentalLineTotal') || 'Line total') + '">—</span>')
+      : (unitCents != null
+        ? ('<span class="portal-schedule-create-rental-price" data-unit-cents="' + escHtml(String(unitCents))
+          + '" hidden></span>')
+        : '');
     var durationHtml = '';
     if (durs.length && !isCompat) {
       durationHtml = '<label class="portal-schedule-create-rental-duration-label">'
-        + '<span class="portal-visually-hidden" data-i18n="schedule.create.rentalDuration">Duration</span>'
+        + '<span class="portal-schedule-create-visually-hidden" data-i18n="schedule.create.rentalDuration">Duration</span>'
         + '<select class="ps-drawer-rental-duration" data-rental-duration-select'
+        + ' aria-label="' + escHtml(portalT('schedule.create.rentalDuration') || 'Duration') + '"'
         + (checked ? '' : ' disabled') + '>';
       durs.forEach(function(d) {
         var dLab = String(d.label || d.duration_key);
@@ -2013,18 +2076,28 @@ function scheduleRenderDrawerRentals() {
       durationHtml = '<span class="portal-schedule-drawer-rental-unavailable-duration">'
         + escHtml(rowDuration) + '</span>';
     }
+    var controlsHtml = '<div class="portal-schedule-create-rental-controls"'
+      + (checked ? '' : ' hidden style="display:none" aria-hidden="true"') + '>'
+      + durationHtml + qtyHtml + priceHtml + '</div>';
+    var toggleAria = offeringLabel;
     html += '<div class="portal-schedule-create-rental-row'
+      + (checked ? ' is-selected' : ' is-off')
       + (isCompat ? ' is-unavailable' : '') + '" data-rental-offering="' + escHtml(key) + '"'
       + ' data-rental-duration-key="' + escHtml(rowDuration) + '"'
       + ' data-eligible="' + (isCompat ? '0' : '1') + '"'
       + (isCompat ? ' data-compatibility="1"' : '')
-      + (unitCents != null ? (' data-amount-cents="' + escHtml(String(unitCents)) + '"') : '') + '>'
-      + '<label class="portal-schedule-create-check"><input type="checkbox" class="ps-drawer-rental-check" data-offering-key="'
+      + (unitCents != null ? (' data-unit-cents="' + escHtml(String(unitCents))
+        + '" data-amount-cents="' + escHtml(String(unitCents)) + '"') : '') + '>'
+      + '<button type="button" class="portal-schedule-create-rental-toggle" data-offering-key="'
+      + escHtml(key) + '" aria-pressed="' + (checked ? 'true' : 'false')
+      + '" aria-label="' + escHtml(toggleAria) + '">'
+      + '<span class="portal-schedule-create-rental-name">' + escHtml(offeringLabel) + '</span>'
+      + fromHtml + '</button>'
+      + '<input type="checkbox" class="ps-drawer-rental-check" tabindex="-1" aria-hidden="true" data-offering-key="'
       + escHtml(key) + '"' + (checked ? ' checked' : '')
       + ' data-eligible="' + (isCompat ? '0' : '1') + '"'
-      + (isCompat ? ' data-compatibility="1"' : '')
-      + '> <span>' + escHtml(offeringLabel) + '</span></label>'
-      + durationHtml + priceHtml + qtyHtml + '</div>';
+      + (isCompat ? ' data-compatibility="1"' : '') + '>'
+      + controlsHtml + '</div>';
   });
   wrap.innerHTML = html;
   var selected = [];
@@ -2040,6 +2113,29 @@ function scheduleRenderDrawerRentals() {
   }
   scheduleDrawerApplyRentalExclusionUi(wrap, selected);
   scheduleWireDrawerRentals(wrap);
+  // Create parity: compact − N + steppers on rental qty (skip already-enhanced).
+  if (typeof scheduleEnhanceIntSteppersIn === 'function') {
+    scheduleEnhanceIntSteppersIn(wrap);
+  }
+  // Authoritative paint when current edit quote state holds line_items.
+  if (typeof scheduleDrawerQuoteState !== 'undefined' && scheduleDrawerQuoteState
+    && Array.isArray(scheduleDrawerQuoteState.line_items)
+    && typeof schedulePaintRentalRowLineTotalsFromQuote === 'function') {
+    var prE = schedulePaintRentalRowLineTotalsFromQuote(wrap, scheduleDrawerQuoteState.line_items);
+    if (prE && prE.has_selected && prE.ok === false) {
+      scheduleDrawerQuoteState = null;
+      scheduleDrawerQuotePriceBlocked = true;
+      if (typeof scheduleDrawerRenderQuotePreview === 'function') {
+        scheduleDrawerRenderQuotePreview({
+          ok: false,
+          error: 'price_not_configured',
+          body: { success: false, reason_code: 'price_not_configured', price_status: 'unpriced' },
+        });
+      } else if (typeof scheduleDrawerSyncSaveEnabled === 'function') {
+        scheduleDrawerSyncSaveEnabled();
+      }
+    }
+  }
   // Advisory stock readout — server remains authority on save.
   if (typeof scheduleRefreshDrawerRentalStock === 'function') {
     scheduleRefreshDrawerRentalStock();
@@ -2861,6 +2957,10 @@ function scheduleDrawerRenderPrivateSessions(sessions) {
 }
 
 function scheduleDrawerMarkPriceStale(){
+  if (typeof scheduleClearRentalRowLineTotals === 'function') {
+    var _rwe = el('ps-drawer-rentals');
+    if (_rwe) scheduleClearRentalRowLineTotals(_rwe);
+  }
   scheduleDrawerPriceStale=true;
   var msg=el('ps-drawer-save-msg');
   if(msg&&msg.dataset&&msg.dataset.reprice==='1'){ msg.style.display='none'; msg.textContent=''; msg.dataset.reprice=''; }
@@ -3252,7 +3352,42 @@ function scheduleDrawerRefreshQuote() {
           scheduleDrawerClearQuotePreviewUi();
           return { ok: false, superseded: true };
         }
-        scheduleDrawerQuoteState = { intent_key: intentKey, total_cents: totalCents };
+        var lineItemsE = Array.isArray(data.line_items) ? data.line_items : [];
+        var rentWrapE = el('ps-drawer-rentals');
+        var paintResE = { ok: true, has_selected: false };
+        if (typeof schedulePaintRentalRowLineTotalsFromQuote === 'function' && rentWrapE) {
+          paintResE = schedulePaintRentalRowLineTotalsFromQuote(rentWrapE, lineItemsE) || { ok: false, reason: 'paint_error' };
+        }
+        // Selected standalone rentals must each match exactly one quote line — else block Save.
+        if (paintResE && paintResE.has_selected && paintResE.ok === false) {
+          scheduleDrawerQuoteState = null;
+          scheduleDrawerQuotePriceBlocked = true;
+          if (typeof scheduleClearRentalRowLineTotals === 'function' && rentWrapE) {
+            scheduleClearRentalRowLineTotals(rentWrapE);
+          }
+          scheduleDrawerRenderQuotePreview({
+            ok: false,
+            error: 'price_not_configured',
+            body: {
+              success: false,
+              reason_code: 'price_not_configured',
+              price_status: 'unpriced',
+              error: 'price_not_configured',
+            },
+          });
+          return {
+            ok: false,
+            error: 'rental_line_paint_failed',
+            reason: (paintResE && paintResE.reason) || 'paint_failed',
+            body: data,
+            intent_key: intentKey,
+          };
+        }
+        scheduleDrawerQuoteState = {
+          intent_key: intentKey,
+          total_cents: totalCents,
+          line_items: lineItemsE,
+        };
         scheduleDrawerRenderQuotePreview({
           ok: true,
           body: data,
