@@ -52,10 +52,18 @@ const EMAIL_MS_DELEGATED_REFRESH_ROTATION_POLICY = Object.freeze({
   ]),
   app_wide_refresh_token: false,
 });
-// Custody/CAS deferred — refresh-exchange blocked until durable grant custodian injected.
+// Slice 2F-A: custody schema/module present (dedicated grant table + envelope contracts).
+// Runtime injection remains false offline; refresh-exchange adapter still blocked (2F-B+/later).
+// Owner-approved: AEAD ciphertext + wrapped DEK may persist in Postgres (raw tokens forbidden).
 const EMAIL_MS_DELEGATED_REFRESH_TOKEN_CUSTODY = Object.freeze({
-  custody_deferred: true, cas_deferred: true, durable_grant_custodian_injected: false,
-  refresh_exchange_adapter_allowed: false, block_reason: 'durable_grant_custodian_required',
+  custody_deferred: false,
+  cas_deferred: false,
+  durable_grant_custodian_module_present: true,
+  durable_grant_custodian_injected: false,
+  refresh_exchange_adapter_allowed: false,
+  block_reason: 'refresh_exchange_adapter_required',
+  envelope_ciphertext_in_postgres_owner_approved: true,
+  raw_refresh_token_in_postgres_forbidden: true,
 });
 const EMAIL_MS_DELEGATED_MAILBOX_ACCESS_KIND_PHASE_A = 'own_user';
 const EMAIL_MS_DELEGATED_FUTURE_LIVE_MAILBOX_PROOF_FIELDS = Object.freeze([
@@ -500,12 +508,22 @@ function evaluateRefreshExchangeAdapterGateImpl(raw) {
   const s = snapOrFail(raw == null ? {} : raw, 'refresh_exchange_gate_invalid');
   if (!s.ok) return s.fail;
   const g = s.value;
-  if (!subsetKeys(g, ['claim_grant_custodian_injected', 'claim_refresh_exchange_allowed'])) {
+  if (!subsetKeys(g, [
+    'claim_grant_custodian_injected',
+    'claim_grant_custodian_module_present',
+    'claim_refresh_exchange_allowed',
+  ])) {
     return fail('refresh_exchange_gate_invalid', { reason: 'unknown_key' });
   }
-  if (g.claim_grant_custodian_injected === true) {
-    return fail('refresh_exchange_gate_invalid', { reason: 'grant_custodian_not_available' });
+  // Module is present in 2F-A; claiming it is absent is false.
+  if (g.claim_grant_custodian_module_present === false) {
+    return fail('refresh_exchange_gate_invalid', { reason: 'module_is_present' });
   }
+  // Runtime injection is composition-time only; offline claim of injected is dishonest.
+  if (g.claim_grant_custodian_injected === true) {
+    return fail('refresh_exchange_gate_invalid', { reason: 'grant_custodian_injection_is_runtime' });
+  }
+  // Exchange adapter remains a separate later slice — still blocked.
   if (g.claim_refresh_exchange_allowed === true) {
     return fail('refresh_exchange_gate_invalid', {
       reason: EMAIL_MS_DELEGATED_REFRESH_TOKEN_CUSTODY.block_reason,

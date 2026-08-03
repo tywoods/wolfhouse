@@ -1,4 +1,4 @@
-# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A + 2B + 2C + 2D)
+# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A + 2B + 2C + 2D + 2F-A)
 
 **Status:**
 - **1A:** provider-neutral adapter/validation contract, fake adapter, focused tests.
@@ -8,8 +8,9 @@
 - **1C-gamma:** smallest admin-only, **explicitly kill-switched** registration **WRITE** API (`POST` locations + disabled channel endpoints). No activation, provider connectivity, live registration, or deploy.
 - **2A:** pure offline **Microsoft Graph mailbox adapter boundary** with injected secret provider + injected HTTP transport, `listMessageEnvelopes({top})` only, deterministic fake transport tests. **No live network**, no Azure/Graph calls from verifiers, no DB/route/activation/deploy.
 - **2B:** pure offline **Microsoft Graph app-only read-readiness contract** — machine-checkable security prerequisites (Exchange Online RBAC for Applications role **`Application Mail.ReadBasic`**, mailbox scope mechanism **`exchange_online_rbac_for_applications`** limited to `support@lunafrontdesk.com`, **empty** Entra application permission grants, opaque 1A `secret_ref` + exact material key *names*, network/activation off). Legacy `application_access_policy` + unscoped Entra `Mail.ReadBasic.All` are rejected. **Does not perform readiness discovery** and does not access Azure/Microsoft; never claims Entra/mailbox facts were independently verified.
-- **2C (+2C.1 correction):** pure offline **Microsoft delegated OAuth + connector/auth-mode contract** — freezes default SaaS (`provider=microsoft_graph` + `auth_mode=delegated_authorization_code` / `microsoft_delegated_oauth`) as a Luna-owned multi-tenant **confidential web client** (auth code + **PKCE S256** + token-endpoint client auth; PKCE alone insufficient). Organizational accounts only; fixed hosts; exact redirect id; Phase A scopes **v2** (`openid`/`profile`/`offline_access` + Graph delegated exact set `User.Read` + `Mail.ReadBasic`; optional OIDC `email` display-only); token auth vocabulary `private_key_jwt` (preferred) + `client_secret_post` (temporary compatibility; form body fields; **not** `client_secret_basic`); server-owned one-time OAuth transaction; principal `ms_delegated_principal:{tid}:{oid}` (**not** mailbox); own-user live bind freeze (`/me.id` == `provider_principal_oid` → persist as `provider_resource_id`; concepts remain separate; no offline Graph); refresh-token custody/CAS deferred (refresh-exchange adapter blocked until durable grant custodian injected); mailbox binding unverified offline; opaque per-grant secret handle; deferred activation (schema does not enforce; readiness/activation false). **App-only enterprise (2A/2B) unchanged.** No live authorize/token/Graph/MSAL, schema, routes, or activation.
-- **2D:** additive **connector + mailbox binding identity** on `tenant_channel_endpoints` only (migration `058`). Nullable identity columns + CHECKs + partial unique ownership index. Domain `email-channel-endpoint-identity-contract`. **Does not flip 2C** activation/`schema_enforces` flags; enforces mailbox ownership identity only. Defers `grant_generation`/`grant_status`. No OAuth routes/tx columns, no Staff API expansion, no activation, no backfill.
+- **2C (+2C.1 correction):** pure offline **Microsoft delegated OAuth + connector/auth-mode contract** — freezes default SaaS (`provider=microsoft_graph` + `auth_mode=delegated_authorization_code` / `microsoft_delegated_oauth`) as a Luna-owned multi-tenant **confidential web client** (auth code + **PKCE S256** + token-endpoint client auth; PKCE alone insufficient). Organizational accounts only; fixed hosts; exact redirect id; Phase A scopes **v2** (`openid`/`profile`/`offline_access` + Graph delegated exact set `User.Read` + `Mail.ReadBasic`; optional OIDC `email` display-only); token auth vocabulary `private_key_jwt` (preferred) + `client_secret_post` (temporary compatibility; form body fields; **not** `client_secret_basic`); server-owned one-time OAuth transaction; principal `ms_delegated_principal:{tid}:{oid}` (**not** mailbox); own-user live bind freeze (`/me.id` == `provider_principal_oid` → persist as `provider_resource_id`; concepts remain separate; no offline Graph); refresh-token custody module present after 2F-A (refresh-exchange adapter still blocked); mailbox binding unverified offline; deferred activation (schema does not enforce; readiness/activation false). **App-only enterprise (2A/2B) unchanged.** No live authorize/token/Graph/MSAL, routes, or activation.
+- **2D:** additive **connector + mailbox binding identity** on `tenant_channel_endpoints` only (migration `058`). Nullable identity columns + CHECKs + partial unique ownership index. Domain `email-channel-endpoint-identity-contract`. **Does not flip 2C** activation/`schema_enforces` flags; enforces mailbox ownership identity only. Grant custody deferred to 2F-A dedicated table. No OAuth routes/tx columns, no Staff API expansion, no activation, no backfill.
+- **2F-A:** durable **delegated grant custody** — dedicated `tenant_email_delegated_grants` table (migration `059`), owner-approved **envelope encryption** (AES-256-GCM ciphertext + wrapped per-generation DEK + exact Key Vault wrapping-key version ID may persist atomically with `grant_generation`; **raw refresh tokens forbidden** in PostgreSQL), injected envelope provider contract + **fake only**, custodian repository (install/acquire/renew/promote/reauth/abort/reconcile), lease TTL via DB `clock_timestamp()`, no TX across external I/O. Existing `resolveSecret` stays read-only. Refresh-exchange, Graph, OAuth routes, real Azure KV provider (**2F-B**), activation remain out.
 
 **Not in slices 1A–1C-gamma:** Microsoft Graph / Gmail / IMAP network calls, OAuth, subscriptions, polling, send/drafts UI, attachment download/storage, Luna SOUL changes, live mailbox config, deploy, invented client/location/mailbox rows. Activation / secret_ref visibility / live provider connectivity remain deferred past 1C-gamma.
 
@@ -33,7 +34,8 @@ Slice **1A intentionally ships no** endpoint persistence schema and no Graph/Gma
 | **2A (Graph adapter boundary)** | `email-secret-provider-contract`, `email-http-transport-contract`, `email-microsoft-graph-adapter`, optional `email-fake-http-transport`; app-only client_credentials → list message envelopes; exact allowlists; sanitized errors; offline verifier | Live network; default transport; SDK; send/draft/reply; polling/webhooks; DB; routes; activation; deploy |
 | **2B (Graph app-only readiness)** | `email-graph-app-only-readiness-contract`: pure offline declaration of human-provided security evidence (`provider`, `auth_mode=application_client_credentials`, exact EXO role `Application Mail.ReadBasic`, empty `entra_application_permission_set`, mechanism `exchange_online_rbac_for_applications` → `support@lunafrontdesk.com` only, admin confirmation flag, opaque 1A `secret_ref` + material key names, network/activation/inbound/outbound/automation off); ready flag never implies live Azure verification | Live discovery; Entra/Graph/KV clients; composition factory; default transport; routes; activation; schema; deploy |
 | **2C (delegated OAuth + connector mode)** | `email-connector-auth-mode-contract` + `email-microsoft-delegated-oauth-contract`: default SaaS matrix (`microsoft_graph` + `delegated_authorization_code`); confidential web + PKCE S256 + token-endpoint client auth; orgs-only authority; Phase A scopes; OAuth transaction / principal / mailbox-hint / refresh / deferred activation; readiness with `network_enabled=false` and binding **not verified offline** | Live OAuth/Graph/MSAL; routes; schema; activation; Google/IMAP; 2A/2B changes |
-| **2D (endpoint identity schema)** | Migration `058` + `email-channel-endpoint-identity-contract`: seven nullable TEXT identity fields; supported mode pairs; binding_status lifecycle; partial unique `(provider, provider_tenant_id, provider_resource_id)` WHERE verified/reauthorization_required (C collation); domain pair/binding/reconnect-transfer validators | grant_generation/grant_status; OAuth tx columns; Staff routes; activation; secret package value inspection; shared-mailbox delegated claim |
+| **2D (endpoint identity schema)** | Migration `058` + `email-channel-endpoint-identity-contract`: seven nullable TEXT identity fields; supported mode pairs; binding_status lifecycle; partial unique `(provider, provider_tenant_id, provider_resource_id)` WHERE verified/reauthorization_required (C collation); domain pair/binding/reconnect-transfer validators | grant custody table (2F-A); OAuth tx columns; Staff routes; activation; secret package value inspection; shared-mailbox delegated claim |
+| **2F-A (grant custody + envelope)** | Migration `059` `tenant_email_delegated_grants`; mode-guard triggers; envelope v1 + fake provider; custodian install/acquire/renew/promote/reauth/abort/reconcile; 2C module-present flags; offline verify + disposable PG prove | Real Azure KV (**2F-B**); Graph/refresh-exchange; OAuth routes; Staff expansion; activation; per-grant KV secrets; broad GC |
 
 Application validation in `validateTenantChannelEndpointInput(input, { locationAuthority })` remains a **contract for writes**, not a substitute for DB integrity. Location authority is a **trusted out-of-band callback** (argument 2 only); it fails closed without a valid second-argument authority and never honors authority embedded in untrusted `input`.
 
@@ -65,6 +67,8 @@ Guest email provider  →  provider adapter (2A Graph app-only boundary today;
                      + email-microsoft-delegated-oauth-contract (2C; default SaaS OAuth freeze)
                      + email-channel-endpoint-identity-contract (2D; binding identity)
                      + 058 tenant_channel_endpoints identity columns (2D)
+                     + tenant_email_delegated_grants + envelope contracts (2F-A)
+                     + email-delegated-grant-custodian (2F-A; no exchange)
 ```
 
 - **One unified Staff Inbox** with channel-native threads (WhatsApp today; email endpoints registered later).
@@ -103,14 +107,17 @@ Down: `057_tenant_locations_and_channel_endpoints_down.sql`
 | `scripts/lib/email-connector-auth-mode-contract.js` (2C) | Provider × auth_mode × connector_mode allowlist; default SaaS vs enterprise separation; material key *names* by mode | Live OAuth; Google/IMAP; capability-flag overload |
 | `scripts/lib/email-microsoft-delegated-oauth-contract.js` (2C) | Delegated OAuth freeze + readiness: confidential+PKCE, orgs hosts, Phase A scopes, transaction/principal/mailbox-hint/refresh/activation declarations; compact frozen DTO; network/activation false | Live authorize/token/Graph/MSAL; routes; schema; activation; 2A/2B mutation |
 | `scripts/lib/email-channel-endpoint-identity-contract.js` (2D) | Exact enums; mode-pair + binding-identity validators; reconnect/transfer ownership declaration (`23505`, same-row reconnect, reauth reservation, aliases not independent); mode-dependent secret package key *names* only; DTO `secret_ref_present`; principal ≠ mailbox | DB/network/SDK; grant rotation writers; OAuth tx state; inspect secret-store values; claim SQL validates package contents |
+| `scripts/lib/email-grant-envelope-provider-contract.js` (2F-A) | Envelope record v1 validation (AES-256-GCM, 12-byte nonce, 16-byte tag, version-pinned KEK, wrapped DEK bounds); AAD builder; refresh package encode/decode; injected `seal/open/rewrap` provider shape; zeroize helper | Azure SDK; production KEK; default provider; put/delete on 2A secret resolver |
+| `scripts/lib/email-grant-envelope-fake-provider.js` (2F-A) | Process-local fake wrap + AES-256-GCM seal/open for tests only | Production crypto claim; network; Key Vault |
+| `scripts/lib/email-delegated-grant-custodian.js` (2F-A) | Pinned `{ client }` install/acquire/renew/promote/reauth/abort/reconcile/rewrap-commit; private open seam; public status DTO strips secrets; short TX; SQL `clock_timestamp()` for lease TTL | Graph/MS exchange; TX across I/O; Staff routes; raw tokens in errors |
 
 Consumers must branch on **capability flags** (`remote_drafts`, `push_notifications`, …), not on provider-specific field shapes. Unknown provider ids, capability shapes, and **unknown capability keys on `supports()`** fail closed (throw / structured reject — never silent `false` for typos).
 
 ## Credentials
 
-**Provider credentials never belong in Git, Postgres product rows, logs, or prompts.**
+**Plaintext provider credentials never belong in Git, Postgres product rows, logs, or prompts.**
 
-- Only opaque **secret references** are accepted by the contract and by the DB CHECK on `secret_ref`, with an **exact** scheme allowlist:
+- Only opaque **secret references** are accepted by the 1A/1B contract and by the DB CHECK on `secret_ref`, with an **exact** scheme allowlist:
   - `kv:<bounded-safe-body>`
   - `secret-ref:<bounded-safe-body>`
 - Validation order: parse/validate the exact scheme first; then enforce a bounded non-whitespace body grammar; then run secret/token/password **shape detectors against the reference body** (not only the full prefixed string).
@@ -118,6 +125,38 @@ Consumers must branch on **capability flags** (`remote_drafts`, `push_notificati
 - **Secrets are retrieved through an external secret provider by the adapter** at runtime. This contract never resolves, logs, or returns secret values.
 - Pattern-based rejects include (non-exhaustive shape heuristics — **not** full entropy scanning): unprefixed raw secrets; unknown schemes; whitespace; empty refs; and secret-looking bodies after an allowed scheme such as `kv:sk-…`, `kv:password-hunter2`, `secret-ref:ya29.…`, prefixed JWT-shaped / Bearer / `api_key=` / `client_secret=` / `password=` values.
 - Valid non-secret examples that remain accepted when body grammar permits: `kv:luna-support-email-credentials`, `secret-ref:tenant/email-mailbox`.
+
+### Owner-approved delegated grant envelope (Slice 2F-A)
+
+**Decision (owner-approved):** raw refresh tokens remain **forbidden** in PostgreSQL. For Microsoft **delegated** refresh-grant custody only, **AES-256-GCM ciphertext + wrapped per-generation DEK + exact Key Vault wrapping-key version ID** may be persisted on `tenant_email_delegated_grants` **atomically** with `grant_generation`.
+
+| Rule | Detail |
+|------|--------|
+| Atomic unit | One PG transaction commits generation + envelope columns together |
+| Not atomic | Microsoft token response; KEK wrap/unwrap I/O; process death between those steps |
+| AAD | Binds `client_id`, `endpoint_id`, `grant_generation`, `operation_id`, algorithm version |
+| KEK pin | Exact version id only — never `latest` / unversioned GET |
+| App-only / Gmail / IMAP | **No grant row** (DB trigger + repository) |
+| 2A `resolveSecret` | **Unchanged read-only** — not used for delegated refresh under envelope model |
+| Public surfaces | `grant_present` / `grant_status` / `grant_generation` only — never ciphertext, wrapped DEK, nonce, tag, lease token, or raw token |
+| 2F-B | Real Azure KV wrapping provider later; 2F-A ships injected interface + fake only |
+
+### Threat / crash model (2F-A)
+
+| Crash / threat | Durable state | Recovery | Reauth risk |
+|----------------|---------------|----------|-------------|
+| Before lease COMMIT | unchanged | retry acquire | none |
+| After lease, before open/exchange | `lease_held` | wait expiry / owner abort | none |
+| After MS success, before seal or PG COMMIT | old generation; MS may have rotated RT | re-acquire; open old; may `invalid_grant` | **yes — accepted** |
+| After CAS COMMIT | new generation + envelope durable | continue | no |
+| Concurrent loser | lease_held_by_other / generation_conflict | discard sealed buffers | no |
+| Lease expiry | DB `clock_timestamp()` steals expired lease | new worker acquires | none from steal alone |
+| Endpoint mode changed under grant | trigger rejects | keep delegated pairing | n/a |
+| Lost KEK version | grants unopenable | mass reauth | **yes** |
+
+**Hard claims we do not make:** end-to-end atomicity with Microsoft; lease fences Microsoft invalidation; fake provider is production crypto; broad Key Vault GC is safe.
+
+**Down migration 059:** structurally reversible (drops table/triggers); **operationally irreversible after use** (sealed grants destroyed → reauth). Does not delete Key Vault KEKs.
 
 ### Secret-ref parity (DB vs Slice 1A app)
 

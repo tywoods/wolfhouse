@@ -263,7 +263,12 @@ function main() {
           && b.persist_me_id_as_provider_resource_id && b.performs_graph === false
           && b.mail_upn_email_not_ownership_keys
           && c && c.refresh_exchange_adapter_allowed === false
-          && c.durable_grant_custodian_injected === false && c.custody_deferred === true
+          && c.durable_grant_custodian_injected === false
+          && c.custody_deferred === false
+          && c.cas_deferred === false
+          && c.durable_grant_custodian_module_present === true
+          && c.envelope_ciphertext_in_postgres_owner_approved === true
+          && c.raw_refresh_token_in_postgres_forbidden === true
           && mod.EMAIL_MS_DELEGATED_PRINCIPAL_KEY_PREFIX === 'ms_delegated_principal:'
           && mod.EMAIL_MS_DELEGATED_PRINCIPAL_VALIDATION_RULES.principal_is_mailbox_identity === false
           && mod.EMAIL_MS_DELEGATED_PRINCIPAL_VALIDATION_RULES.email_claim_is_identity === false
@@ -579,27 +584,34 @@ function main() {
         atomic_cas_or_lease: 'required', generation_handling: 'required',
         retain_old_until_durable_replacement: true, app_wide_refresh_token: false,
       });
-      ok('refresh rotation: atomic/terminal/no app-wide + custody deferred',
+      ok('refresh rotation: atomic/terminal/no app-wide + custody module present',
         good.ok && ['invalid_grant', 'revocation', 'consent_loss'].every((r) =>
           good.value.terminal_reauthorization_reasons.includes(r))
         && good.value.app_wide_refresh_token === false
         && good.value.refresh_token_custody
         && good.value.refresh_token_custody.refresh_exchange_adapter_allowed === false
         && good.value.refresh_token_custody.durable_grant_custodian_injected === false
+        && good.value.refresh_token_custody.durable_grant_custodian_module_present === true
+        && good.value.refresh_token_custody.custody_deferred === false
         && !mod.validateMicrosoftDelegatedRefreshRotationPolicy({
           atomic_cas_or_lease: 'required', generation_handling: 'required',
           retain_old_until_durable_replacement: true, app_wide_refresh_token: true,
         }).ok, ser(good));
       const gate = mod.evaluateMicrosoftDelegatedRefreshExchangeGate({});
-      ok('refresh exchange gate: blocked until durable grant custodian',
+      ok('refresh exchange gate: module present, exchange still blocked',
         gate.ok && gate.value.refresh_exchange_adapter_allowed === false
-        && gate.value.custody_deferred === true
+        && gate.value.custody_deferred === false
+        && gate.value.cas_deferred === false
+        && gate.value.durable_grant_custodian_module_present === true
         && gate.value.durable_grant_custodian_injected === false
         && !mod.evaluateMicrosoftDelegatedRefreshExchangeGate({
           claim_refresh_exchange_allowed: true,
         }).ok
         && !mod.evaluateMicrosoftDelegatedRefreshExchangeGate({
           claim_grant_custodian_injected: true,
+        }).ok
+        && mod.evaluateMicrosoftDelegatedRefreshExchangeGate({
+          claim_grant_custodian_module_present: true,
         }).ok, ser(gate));
       const act = mod.validateMicrosoftDelegatedActivationInvariants({});
       ok('activation: deferred invariants + claim rejects',

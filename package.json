@@ -343,6 +343,8 @@
     "verify:email-microsoft-delegated-oauth-contract": "node scripts/verify-email-microsoft-delegated-oauth-contract.js",
     "verify:email-channel-endpoint-identity": "node scripts/verify-email-channel-endpoint-identity.js",
     "prove:email-channel-endpoint-identity-pg": "node scripts/prove-email-channel-endpoint-identity-pg.js",
+    "verify:email-delegated-grant-custodian": "node scripts/verify-email-delegated-grant-custodian.js",
+    "prove:email-delegated-grant-custody-pg": "node scripts/prove-email-delegated-grant-custody-pg.js",
     "verify:staging-ledger-recovery": "node scripts/verify-staging-ledger-recovery.js",
     "staging-ledger-recovery:plan": "node scripts/run-staging-ledger-recovery.js",
     "staging-ledger-recovery:apply": "node scripts/run-staging-ledger-recovery.js",
