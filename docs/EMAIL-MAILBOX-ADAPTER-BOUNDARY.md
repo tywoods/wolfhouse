@@ -7,7 +7,7 @@
 - **1C-beta:** smallest admin-only **READ** Staff API over that empty registry (list locations + list channel endpoints).
 - **1C-gamma:** smallest admin-only, **explicitly kill-switched** registration **WRITE** API (`POST` locations + disabled channel endpoints). No activation, provider connectivity, live registration, or deploy.
 - **2A:** pure offline **Microsoft Graph mailbox adapter boundary** with injected secret provider + injected HTTP transport, `listMessageEnvelopes({top})` only, deterministic fake transport tests. **No live network**, no Azure/Graph calls from verifiers, no DB/route/activation/deploy.
-- **2B:** pure offline **Microsoft Graph app-only read-readiness contract** — machine-checkable security prerequisites (least-privilege `Mail.ReadBasic.All` only, application access policy scoped to `support@lunafrontdesk.com`, opaque 1A `secret_ref` + exact material key *names*, network/activation off). **Does not perform readiness discovery** and does not access Azure/Microsoft; never claims Entra/mailbox facts were independently verified.
+- **2B:** pure offline **Microsoft Graph app-only read-readiness contract** — machine-checkable security prerequisites (Exchange Online RBAC for Applications role **`Application Mail.ReadBasic`**, mailbox scope mechanism **`exchange_online_rbac_for_applications`** limited to `support@lunafrontdesk.com`, **empty** Entra application permission grants, opaque 1A `secret_ref` + exact material key *names*, network/activation off). Legacy `application_access_policy` + unscoped Entra `Mail.ReadBasic.All` are rejected. **Does not perform readiness discovery** and does not access Azure/Microsoft; never claims Entra/mailbox facts were independently verified.
 
 **Not in slices 1A–1C-gamma:** Microsoft Graph / Gmail / IMAP network calls, OAuth, subscriptions, polling, send/drafts UI, attachment download/storage, Luna SOUL changes, live mailbox config, deploy, invented client/location/mailbox rows. Activation / secret_ref visibility / live provider connectivity remain deferred past 1C-gamma.
 
@@ -27,7 +27,7 @@ Slice **1A intentionally ships no** endpoint persistence schema and no Graph/Gma
 | **1C-beta (admin READ API)** | Extracted DI routes `scripts/lib/staff-email-registry-routes.js` wired into `staff-query-api.js`: `GET /staff/admin/email-registry/locations`, `GET /staff/admin/email-registry/channel-endpoints`; `requireAuth('admin')` + existing `assertStaffClientAccess` + `admin_db_read` gate; DTO allowlists; `secret_ref` always redacted (`secret_ref_present` only) | POST/PATCH/DELETE; activation; secret_ref visibility; provider connectivity; UI |
 | **1C-gamma (admin WRITE API)** | Same module: `POST` same two paths; `requireAuth('admin')` + ACL + requested-tenant `staff_actions`/`admin_writes` via `authorizeAuthenticatedStaffRoute`; global kill switch `EMAIL_REGISTRY_WRITES_ENABLED` (exact case-insensitive `true` only); body allowlists; trusted `clientId` from slug UUID + `actor` from `user.staff_user_id`; domain writes via `{ client }` on `withPgClient`; endpoints always disabled | PATCH/DELETE; activation; secret_ref visibility; provider connectivity; UI; live registration |
 | **2A (Graph adapter boundary)** | `email-secret-provider-contract`, `email-http-transport-contract`, `email-microsoft-graph-adapter`, optional `email-fake-http-transport`; app-only client_credentials → list message envelopes; exact allowlists; sanitized errors; offline verifier | Live network; default transport; SDK; send/draft/reply; polling/webhooks; DB; routes; activation; deploy |
-| **2B (Graph app-only readiness)** | `email-graph-app-only-readiness-contract`: pure offline declaration of human-provided security evidence (`provider`, `auth_mode=application_client_credentials`, exact `Mail.ReadBasic.All`, admin consent flag, application access policy → `support@lunafrontdesk.com` only, opaque 1A `secret_ref` + material key names, network/activation/inbound/outbound/automation off); ready flag never implies live Azure verification | Live discovery; Entra/Graph/KV clients; composition factory; default transport; routes; activation; schema; deploy |
+| **2B (Graph app-only readiness)** | `email-graph-app-only-readiness-contract`: pure offline declaration of human-provided security evidence (`provider`, `auth_mode=application_client_credentials`, exact EXO role `Application Mail.ReadBasic`, empty `entra_application_permission_set`, mechanism `exchange_online_rbac_for_applications` → `support@lunafrontdesk.com` only, admin confirmation flag, opaque 1A `secret_ref` + material key names, network/activation/inbound/outbound/automation off); ready flag never implies live Azure verification | Live discovery; Entra/Graph/KV clients; composition factory; default transport; routes; activation; schema; deploy |
 
 Application validation in `validateTenantChannelEndpointInput(input, { locationAuthority })` remains a **contract for writes**, not a substitute for DB integrity. Location authority is a **trusted out-of-band callback** (argument 2 only); it fails closed without a valid second-argument authority and never honors authority embedded in untrusted `input`.
 
@@ -88,7 +88,7 @@ Down: `057_tenant_locations_and_channel_endpoints_down.sql`
 | `scripts/lib/email-http-transport-contract.js` (2A) | Validate injected async `{ request }` transport shape; fixed timeout constants | Default/network transport implementation |
 | `scripts/lib/email-microsoft-graph-adapter.js` (2A) | Factory scoped to validated `microsoft_graph` endpoint + required `secretProvider` + `transport`; `listMessageEnvelopes({top})` only; app-only token then Graph messages GET; exact DTO allowlists; sanitized error codes | DB lookups; SDK; credential/token cache; access_token secret shortcut; send/draft/reply; host/url injection fields; partial list results |
 | `scripts/lib/email-fake-http-transport.js` (2A tests) | Deterministic recording fake transport for verifiers | Network I/O / DNS |
-| `scripts/lib/email-graph-app-only-readiness-contract.js` (2B) | Offline app-only read-readiness declaration: exact provider/auth/permission/mailbox-scope/secret-package/network-off allowlists; reuses 1A `secret_ref` validator (input only); public DTO `secret_ref_present` + exact material key names (never serializes `secret_ref`); deep-frozen ok/fail envelopes; allowlisted error reasons only; `ready_for_human_authorized_live_prerequisite_check` never claims Azure/Entra/mailbox facts verified | Live discovery; Azure/Graph/KV SDK; env reads; routes; activation; composition factory; expose secret_ref value |
+| `scripts/lib/email-graph-app-only-readiness-contract.js` (2B) | Offline app-only read-readiness declaration: exact provider/auth/EXO Application role/`entra_application_permission_set=[]`/mailbox-scope/secret-package/network-off allowlists; reuses 1A `secret_ref` validator (input only); public DTO `secret_ref_present` + exact material key names (never serializes `secret_ref`); deep-frozen ok/fail envelopes; allowlisted error reasons only; `ready_for_human_authorized_live_prerequisite_check` never claims Azure/Entra/mailbox facts verified | Live discovery; Azure/Graph/KV SDK; env reads; routes; activation; composition factory; expose secret_ref value |
 
 Consumers must branch on **capability flags** (`remote_drafts`, `push_notifications`, …), not on provider-specific field shapes. Unknown provider ids, capability shapes, and **unknown capability keys on `supports()`** fail closed (throw / structured reject — never silent `false` for typos).
 
@@ -246,11 +246,15 @@ Pure offline boundary for a **tenant/endpoint-scoped** `microsoft_graph` mailbox
 
 Hosts and path templates are **fixed** in adapter code. Endpoint input must not supply `host`, `url`, `token_url`, `graph_url`, `authority`, or other injection fields.
 
-### Least-privilege permission (documented starting point)
+### Least-privilege authorization (documented starting point)
 
-- **App-only** application permission **`Mail.ReadBasic.All`** is the documented least-privilege **starting point** for listing basic message envelopes (no full body).
-- This is **subject to live admin confirmation** against the actual Entra app registration and mailbox licensing for the first test mailbox (`support@lunafrontdesk.com`).
-- **Mailbox-scoping requirement:** production use must constrain which mailboxes the app can read (e.g. application access policy / RBAC for applications). Slice 2A does not configure Entra policy; it only documents the requirement. The adapter always targets a single scoped user path from the endpoint identity.
+Official Microsoft Learn model for **resource-scoped** app-only mailbox access is **Exchange Online RBAC for Applications** (replaces legacy Application Access Policies):
+
+- **Exchange Online application role:** **`Application Mail.ReadBasic`** — least privilege for listing basic message envelopes (no body / previewBody / attachments / extended properties). Maps to Graph permission surface **`Mail.ReadBasic`** (Permissions List column on the role table).
+- **Entra application (app-only) mail grants must be absent (empty set).** EXO Application RBAC grants are **independent of** and **union with** unscoped Entra grants; leaving `Mail.Read` / `Mail.ReadBasic` / `Mail.ReadBasic.All` (etc.) consented in Entra **defeats mailbox scope**.
+- **Mailbox scope:** first-test mailbox only — `support@lunafrontdesk.com` — via EXO management scope / AU + `New-ManagementRoleAssignment` (not legacy AAP).
+- This is **subject to live admin confirmation** against the actual service principal, EXO role assignment, and mailbox licensing. Slice 2A does not configure Entra/EXO; it only documents the requirement. The adapter always targets a single scoped user path from the endpoint identity.
+- **Authoritative docs:** [RBAC for Applications in Exchange Online](https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac); [Application Access Policies (legacy)](https://learn.microsoft.com/en-us/exchange/permissions-exo/application-access-policies).
 
 ### Secret material (app-only only)
 
@@ -293,15 +297,18 @@ Pure offline **security-prerequisite contract** for a future human-authorized li
 
 Slice 2B freezes machine-checkable evidence an operator must declare **before** live activation. It **does not perform readiness discovery**, does not call Azure/Entra/Graph/Key Vault, and **never claims** those facts were independently verified — even when `ready_for_human_authorized_live_prerequisite_check` is `true`.
 
+**Official mechanism (current):** [Role Based Access Control for Applications in Exchange Online](https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac). Legacy [Application Access Policies](https://learn.microsoft.com/en-us/exchange/permissions-exo/application-access-policies) are **replaced** and must **not** be used for new configuration. Microsoft Learn states EXO Application RBAC grants are **independent of** unscoped Entra grants and that the effective grant is a **union** — unscoped Entra mail permissions must be **removed** or scope is defeated.
+
 ### Declaration surface (exact own-data keys)
 
 | Field | Rule |
 |-------|------|
 | `provider` | exact `microsoft_graph` |
 | `auth_mode` | exact `application_client_credentials` |
-| `permission_set` | set-equal to `['Mail.ReadBasic.All']` only — reject `Mail.Read`, `Mail.ReadWrite`, send scopes, extras, duplicates, empty |
-| `admin_consent_confirmed` | boolean; `false` ⇒ structurally valid but incomplete |
-| `mailbox_scope.mechanism` | exact `application_access_policy` (not multi/all/tenant-wide mailboxes) |
+| `exchange_application_role` | exact `Application Mail.ReadBasic` — reject broader EXO roles (`Application Mail.Read`, `Application Mail.ReadWrite`, Full Access, …) and Entra permission names used as role |
+| `entra_application_permission_set` | exact empty array `[]` only — reject `Mail.ReadBasic.All`, `Mail.ReadBasic`, `Mail.Read`, send/write scopes, extras, non-empty sets (unscoped Entra defeats EXO resource scope) |
+| `admin_consent_confirmed` | boolean; operator confirmation that EXO RBAC assignment is in place and Entra unscoped mail app grants are absent; `false` ⇒ structurally valid but incomplete |
+| `mailbox_scope.mechanism` | exact `exchange_online_rbac_for_applications` — reject legacy `application_access_policy`, multi/all/tenant-wide |
 | `mailbox_scope.allowed_public_addresses` | exact single element `support@lunafrontdesk.com` |
 | `secret_package.secret_ref` | **input only** — opaque 1A `validateEmailMailboxSecretRef` (reuse — no weaker parser); **never returned** on success |
 | `secret_package.material_keys` | set-equal to `['tenant_id','client_id','client_secret']`; reject `access_token` and raw value keys |
@@ -310,15 +317,18 @@ Slice 2B freezes machine-checkable evidence an operator must declare **before** 
 | `inbound_enabled` / `outbound_enabled` | exact `false` |
 | `default_automation_mode` | exact `off` |
 
-**Outputs:** fresh deeply frozen ok/fail envelopes. Success value is an allowlisted DTO — `secret_package` is `{ secret_ref_present: true, material_keys: [...] }` only (**no** serialized `secret_ref` / ref value). Failures use stable error codes + allowlisted reason tokens only (never attacker-controlled unknown key names or raw values). Complete valid declarations set `ready_for_human_authorized_live_prerequisite_check: true` with empty `missing_requirements`; valid-incomplete (e.g. admin consent false) keeps `ok: true` with allowlisted missing ids only. Always `azure_facts_independently_verified` / `entra_facts_independently_verified` / `mailbox_facts_independently_verified` = `false`.
+**Rejected migration/compatibility shapes:** legacy top-level `permission_set` (including `['Mail.ReadBasic.All']`); mechanism `application_access_policy`; non-empty Entra application permission sets; mixed EXO RBAC + unscoped Entra grants; broader EXO application roles.
+
+**Outputs:** fresh deeply frozen ok/fail envelopes. Success value is an allowlisted DTO — includes `exchange_application_role`, empty `entra_application_permission_set`, derived `graph_permission_via_exchange_rbac: ['Mail.ReadBasic']` (from the EXO role table; **not** an Entra grant claim), and `secret_package` as `{ secret_ref_present: true, material_keys: [...] }` only (**no** serialized `secret_ref` / ref value). Failures use stable error codes + allowlisted reason tokens only (never attacker-controlled unknown key names or raw values). Complete valid declarations set `ready_for_human_authorized_live_prerequisite_check: true` with empty `missing_requirements`; valid-incomplete (e.g. admin consent false) keeps `ok: true` with allowlisted missing ids only. Always `azure_facts_independently_verified` / `entra_facts_independently_verified` / `mailbox_facts_independently_verified` = `false`.
 
 **Operator-owned steps (outside this contract / not automated by 2B):**
 
-1. Entra app registration (application / client-credentials)
-2. Admin consent for **`Mail.ReadBasic.All` only** (starting least privilege)
-3. Application access policy / mailbox RBAC constrained to **`support@lunafrontdesk.com`**
-4. Secret store package under opaque ref with exact three material keys; never Git/Postgres product rows
-5. Keep network, registry activation, inbound, outbound, and automation **off** until a later explicit activation slice
+1. Entra app registration + enterprise application (service principal) for client-credentials — **do not** consent unscoped mail application permissions
+2. Exchange Online service-principal pointer + management scope limited to **`support@lunafrontdesk.com`**
+3. `New-ManagementRoleAssignment` with role **`Application Mail.ReadBasic`** and that resource scope
+4. Confirm Entra application permission grants for mail remain **empty** (remove any unscoped consent if present)
+5. Secret store package under opaque ref with exact three material keys; never Git/Postgres product rows
+6. Keep network, registry activation, inbound, outbound, and automation **off** until a later explicit activation slice
 
 ### Non-goals (Slice 2B)
 
@@ -329,6 +339,129 @@ Slice 2B freezes machine-checkable evidence an operator must declare **before** 
 - Activation / inbound / outbound / automation enablement
 - New or enabled Staff API routes; polling, webhooks, send/draft/reply
 - SOUL, deploy, real credentials in Git/Postgres/logs/prompts
+- Mutating a live tenant from this repo/session (runbook is paste-ready for a later human only)
+
+### Later human runbook (paste-ready placeholders only — not executed by 2B)
+
+> **Warning:** Commands below mutate Entra/Exchange when run. Placeholders only — **no real IDs, secrets, or tenant values**. Never print or log secret values. Do not run from offline verifiers. Confirm each checkpoint before the next mutation.
+
+**Authoritative references:**
+
+- https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac
+- https://learn.microsoft.com/en-us/exchange/permissions-exo/application-access-policies (legacy; do not use for new config)
+- https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/new-managementscope
+- https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/new-managementroleassignment
+- https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/test-serviceprincipalauthorization
+
+**Roles / permissions (exact):**
+
+| Authority | Name | Required for 2B least privilege |
+|-----------|------|----------------------------------|
+| Exchange Online application role | `Application Mail.ReadBasic` | **Yes** (scoped via EXO RBAC) |
+| Graph permission surface (via EXO role table) | `Mail.ReadBasic` | Granted by the EXO role when scoped; **not** consented as unscoped Entra app permission |
+| Entra application permission grants (mail) | *(empty set)* | **Must be empty** — unscoped Entra grants union with EXO RBAC and defeat scope |
+| Legacy AAP | `New-ApplicationAccessPolicy` / `application_access_policy` | **Do not use** for new configuration |
+
+**Placeholders (replace offline; never commit real values):**
+
+```text
+<TENANT_ID>                  # Entra directory (tenant) ID
+<APP_ID>                     # Application (client) ID of the app registration
+<SP_OBJECT_ID>               # Enterprise Application / service principal Object ID
+                             # (Microsoft Learn: do NOT use App Registration page Object ID;
+                             #  AppId + ObjectId come from the enterprise app / Get-MgServicePrincipal)
+<DISPLAY_NAME>               # Human label for the EXO service-principal pointer
+<SCOPE_NAME>                 # Management scope name, e.g. Luna-Support-Mailbox-Only
+<ROLE_ASSIGNMENT_NAME>       # Optional name for New-ManagementRoleAssignment
+<TARGET_MAILBOX>             # support@lunafrontdesk.com
+<SECRET_REF>                 # Opaque ref only, e.g. kv:<package-name> — never the secret value
+```
+
+**Checkpoint 0 — read-only preflight (no mutation)**
+
+```powershell
+# Connect with Exchange Online RBAC authority: Organization Management, or
+# explicitly delegated required Exchange roles including Role Management.
+# A separate Entra role/consent is required to inspect or remove Graph app grants.
+Connect-ExchangeOnline
+# Optional Entra read (Graph PowerShell) — inspect service principal only; do not print secrets.
+# Connect-MgGraph -Scopes "Application.Read.All"
+# Get-MgServicePrincipal -Filter "appId eq '<APP_ID>'" | Format-List AppId, Id, DisplayName
+```
+
+Confirm: app registration exists; enterprise app `AppId` / `Id` known; **no** unscoped mail application permissions consented (`Mail.Read*`, `Mail.Send`, etc.). If any are present, plan removal after EXO RBAC is verified (order below follows Microsoft Learn migration guidance).
+
+**Checkpoint 1 — management scope (mutation)**
+
+```powershell
+New-ManagementScope -Name "<SCOPE_NAME>" `
+  -RecipientRestrictionFilter "PrimarySmtpAddress -eq '<TARGET_MAILBOX>'"
+Get-ManagementScope -Identity "<SCOPE_NAME>" | Format-List Name, RecipientFilter, ScopeRestrictionType
+```
+
+Confirm filter resolves only `support@lunafrontdesk.com` (adjust filter property only if your tenant requires a documented equivalent recipient filter).
+
+**Checkpoint 2 — EXO service-principal pointer (mutation)**
+
+```powershell
+New-ServicePrincipal -AppId <APP_ID> -ObjectId <SP_OBJECT_ID> -DisplayName "<DISPLAY_NAME>"
+Get-ServicePrincipal | Where-Object { $_.AppId -eq '<APP_ID>' } | Format-List DisplayName, AppId, ObjectId
+```
+
+**Checkpoint 3 — role assignment (mutation)**
+
+```powershell
+New-ManagementRoleAssignment -Name "<ROLE_ASSIGNMENT_NAME>" `
+  -Role "Application Mail.ReadBasic" `
+  -App <SP_OBJECT_ID> `
+  -CustomResourceScope "<SCOPE_NAME>"
+Get-ManagementRoleAssignment -RoleAssignee <SP_OBJECT_ID> | Format-Table Name, Role, RoleAssigneeName, AssignmentMethod
+```
+
+**Checkpoint 4 — remove unscoped Entra mail application grants (mutation if any exist)**
+
+Remove organization-wide mail application permission consents from the app in Entra so they do not union with the scoped EXO grant. Do **not** leave `Mail.ReadBasic.All` / `Mail.Read` / etc. consented “just in case.” Prefer portal or Graph admin steps your org already uses; never paste client secrets into shells or tickets.
+
+**Checkpoint 5 — verification (read-only)**
+
+EXO service-principal pointers, management scopes, and role assignments can take
+time to propagate. If the read-only authorization test does not show the new
+grant immediately, wait and retry it before diagnosing failure or repeating any
+mutation command.
+
+```powershell
+Test-ServicePrincipalAuthorization -Identity <SP_OBJECT_ID> -Resource <TARGET_MAILBOX> | Format-Table
+# Expect Application Mail.ReadBasic in scope for support@lunafrontdesk.com (InScope True for that resource).
+# Optional negative check: Test-ServicePrincipalAuthorization -Identity <SP_OBJECT_ID> -Resource <OTHER_MAILBOX>
+# Expect InScope False (or no grant) for mailboxes outside the management scope.
+```
+
+Also confirm offline contract declaration (no live calls):
+
+```bash
+# Operator fills a local declaration object offline; never put secrets in the file.
+npm run verify:email-graph-app-only-readiness
+```
+
+**Checkpoint 6 — secret package (out of band)**
+
+Store `tenant_id`, `client_id`, `client_secret` under opaque `<SECRET_REF>` only. Never put secret values in Git, Postgres product rows, logs, prompts, or this runbook.
+
+**Rollback (if you must undo EXO RBAC mutations)**
+
+```powershell
+# Remove role assignment(s) for the app (identify exact identity first).
+Get-ManagementRoleAssignment -RoleAssignee <SP_OBJECT_ID> | Format-List Identity, Role, RoleAssigneeName
+Remove-ManagementRoleAssignment -Identity "<ROLE_ASSIGNMENT_IDENTITY>" -Confirm:$false
+# Optional: remove EXO service-principal pointer (assignments for it are removed with SP per Learn).
+Remove-ServicePrincipal -Identity <SP_OBJECT_ID>
+# Optional: remove management scope if unused by other assignments.
+Remove-ManagementScope -Identity "<SCOPE_NAME>"
+```
+
+Do **not** re-introduce unscoped Entra mail application permissions as a “rollback.” If access must be denied quickly, remove the EXO role assignment / service principal pointer first.
+
+**Coexistence warning (Microsoft Learn FAQ):** EXO Application RBAC permissions act **in addition to** Entra grants (union). Microsoft Entra permissions can only be constrained with legacy Application Access Policies. Resource-scoped access must be granted with RBAC for Applications **and** unscoped Entra organization-wide mail permissions must be removed, or effective scoping fails.
 
 ## Verifiers
 

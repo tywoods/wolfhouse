@@ -8,6 +8,16 @@
  * any later human-authorized live Graph integration. Does **not** perform
  * readiness discovery, call Azure/Entra/Graph/Key Vault, or enable network.
  *
+ * Authorization model (Microsoft Learn — Exchange Online RBAC for Applications):
+ * - Exchange Online application role **Application Mail.ReadBasic** (least privilege
+ *   for basic message envelopes; maps to Graph **Mail.ReadBasic**).
+ * - Resource scope via **exchange_online_rbac_for_applications** to the first-test
+ *   mailbox only (`support@lunafrontdesk.com`).
+ * - **Entra application permission grants must be empty.** Unscoped Entra grants
+ *   union with EXO RBAC and defeat mailbox scope (Microsoft Learn FAQ).
+ * - Legacy **application_access_policy** + Entra **Mail.ReadBasic.All** is rejected
+ *   (AAP is replaced by RBAC for Applications).
+ *
  * A complete valid declaration may report
  * `ready_for_human_authorized_live_prerequisite_check: true` but must never
  * claim Azure/Entra/mailbox facts were independently verified.
@@ -28,6 +38,10 @@
  * (`declaration_invalid` / `reflection_failed`) with no err/message/input/key.
  * `isEmailGraphAppOnlyReadinessComplete` calls only that public boundary.
  *
+ * Official docs (do not invent beyond these):
+ * - https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac
+ * - https://learn.microsoft.com/en-us/exchange/permissions-exo/application-access-policies
+ *
  * @module email-graph-app-only-readiness-contract
  */
 
@@ -42,12 +56,33 @@ const EMAIL_GRAPH_APP_ONLY_PROVIDER = 'microsoft_graph';
 const EMAIL_GRAPH_APP_ONLY_AUTH_MODE = 'application_client_credentials';
 
 /**
- * Exact least-privilege application permission set for list-envelope read.
- * Starting point only; extras / Mail.Read / Mail.ReadWrite fail closed.
+ * Exact Exchange Online RBAC for Applications role name (Microsoft Learn
+ * Supported Application Roles table) for basic envelope read without body.
  */
-const EMAIL_GRAPH_APP_ONLY_PERMISSION_SET = Object.freeze([
-  'Mail.ReadBasic.All',
+const EMAIL_GRAPH_APP_ONLY_EXCHANGE_APPLICATION_ROLE = 'Application Mail.ReadBasic';
+
+/**
+ * Graph permission surface granted by the EXO role above (Permissions List
+ * column on Microsoft Learn). Not an Entra unscoped application grant.
+ */
+const EMAIL_GRAPH_APP_ONLY_GRAPH_PERMISSION_VIA_EXCHANGE_RBAC = Object.freeze([
+  'Mail.ReadBasic',
 ]);
+
+/**
+ * Entra ID application (app-only) permission grants for mail must be the empty
+ * set. Unscoped Entra grants union with EXO Application RBAC and defeat
+ * resource scoping (Microsoft Learn FAQ on application-rbac).
+ */
+const EMAIL_GRAPH_APP_ONLY_ENTRA_APPLICATION_PERMISSION_SET = Object.freeze([]);
+
+/**
+ * @deprecated Legacy constant name retained only as an alias of the empty Entra
+ * set so older test harnesses that still import PERMISSION_SET fail closed on
+ * non-empty expectations. Prefer ENTRA_APPLICATION_PERMISSION_SET / EXCHANGE role.
+ * Value is always the empty frozen array (not Mail.ReadBasic.All).
+ */
+const EMAIL_GRAPH_APP_ONLY_PERMISSION_SET = EMAIL_GRAPH_APP_ONLY_ENTRA_APPLICATION_PERMISSION_SET;
 
 /** Exact secret-package material key names (no raw values). */
 const EMAIL_GRAPH_APP_ONLY_MATERIAL_KEYS = Object.freeze([
@@ -60,10 +95,13 @@ const EMAIL_GRAPH_APP_ONLY_MATERIAL_KEYS = Object.freeze([
 const EMAIL_GRAPH_APP_ONLY_FIRST_TEST_PUBLIC_ADDRESS = 'support@lunafrontdesk.com';
 
 /**
- * Mailbox-scoping mechanism: application access policy / RBAC constrained to
- * the first-test mailbox only (not tenant-wide / all mailboxes).
+ * Mailbox-scoping mechanism: Exchange Online RBAC for Applications constrained
+ * to the first-test mailbox only (not tenant-wide / all mailboxes; not legacy AAP).
  */
-const EMAIL_GRAPH_APP_ONLY_MAILBOX_SCOPE_MECHANISM = 'application_access_policy';
+const EMAIL_GRAPH_APP_ONLY_MAILBOX_SCOPE_MECHANISM = 'exchange_online_rbac_for_applications';
+
+/** Legacy mechanism token — always rejected (AAP replaced by App RBAC). */
+const EMAIL_GRAPH_APP_ONLY_LEGACY_MAILBOX_SCOPE_MECHANISM = 'application_access_policy';
 
 /** Automation must remain off for a readiness declaration. */
 const EMAIL_GRAPH_APP_ONLY_AUTOMATION_MODE = 'off';
@@ -71,6 +109,9 @@ const EMAIL_GRAPH_APP_ONLY_AUTOMATION_MODE = 'off';
 /**
  * Stable allowlisted missing-requirement identifiers (never free-form text).
  * Used only on structurally valid but incomplete declarations.
+ * `admin_consent_confirmed` = operator confirmation that EXO RBAC assignment
+ * is in place and Entra unscoped mail application grants are absent (not
+ * independent live verification).
  */
 const EMAIL_GRAPH_APP_ONLY_MISSING_REQUIREMENT_IDS = Object.freeze([
   'admin_consent_confirmed',
@@ -80,7 +121,8 @@ const EMAIL_GRAPH_APP_ONLY_MISSING_REQUIREMENT_IDS = Object.freeze([
 const DECLARATION_KEYS = Object.freeze([
   'provider',
   'auth_mode',
-  'permission_set',
+  'exchange_application_role',
+  'entra_application_permission_set',
   'admin_consent_confirmed',
   'mailbox_scope',
   'secret_package',
@@ -91,6 +133,17 @@ const DECLARATION_KEYS = Object.freeze([
   'default_automation_mode',
 ]);
 const DECLARATION_KEY_SET = new Set(DECLARATION_KEYS);
+
+/**
+ * Legacy declaration keys that must never appear on a current declaration
+ * (migration / compatibility fail-closed).
+ */
+const LEGACY_FORBIDDEN_DECLARATION_KEYS = Object.freeze([
+  'permission_set',
+  'application_access_policy',
+  'mailbox_access_policy',
+]);
+const LEGACY_FORBIDDEN_DECLARATION_KEY_SET = new Set(LEGACY_FORBIDDEN_DECLARATION_KEYS);
 
 /** Nested mailbox_scope exact keys. */
 const MAILBOX_SCOPE_KEYS = Object.freeze([
@@ -126,7 +179,51 @@ const FORBIDDEN_VALUE_KEYS = Object.freeze([
 ]);
 const FORBIDDEN_VALUE_KEY_SET = new Set(FORBIDDEN_VALUE_KEYS);
 
-const PERMISSION_SET_EXACT = new Set(EMAIL_GRAPH_APP_ONLY_PERMISSION_SET);
+/**
+ * Broader / wrong Exchange application role names that must fail closed
+ * (explicit coverage; exact-match allowlist still rejects anything else).
+ */
+const BROADER_EXCHANGE_APPLICATION_ROLES = Object.freeze([
+  'Application Mail.Read',
+  'Application Mail.ReadWrite',
+  'Application Mail.Send',
+  'Application Mail Full Access',
+  'Application Exchange Full Access',
+  'Application MailboxSettings.Read',
+  'Application MailboxSettings.ReadWrite',
+  'Application Calendars.Read',
+  'Application Calendars.ReadWrite',
+  'Application Contacts.Read',
+  'Application Contacts.ReadWrite',
+  'Application MailboxFolder.Read',
+  'Application MailboxFolder.ReadWrite',
+  'Application MailboxItem.Read',
+  'Application EWS.AccessAsApp',
+]);
+const BROADER_EXCHANGE_APPLICATION_ROLE_SET = new Set(BROADER_EXCHANGE_APPLICATION_ROLES);
+
+/**
+ * Unscoped / broader Entra application permission names that must never appear
+ * in entra_application_permission_set (empty set only is accepted).
+ */
+const FORBIDDEN_ENTRA_APPLICATION_PERMISSIONS = Object.freeze([
+  'Mail.ReadBasic.All',
+  'Mail.ReadBasic',
+  'Mail.Read',
+  'Mail.ReadWrite',
+  'Mail.Send',
+  'Mail.ReadWrite.All',
+  'Mail.Read.All',
+  'Mail.Send.All',
+  'Calendars.Read',
+  'Calendars.ReadWrite',
+  'Contacts.Read',
+  'Contacts.ReadWrite',
+  'MailboxSettings.Read',
+  'MailboxSettings.ReadWrite',
+]);
+const FORBIDDEN_ENTRA_APPLICATION_PERMISSION_SET = new Set(FORBIDDEN_ENTRA_APPLICATION_PERMISSIONS);
+
 const MATERIAL_KEY_SET = new Set(EMAIL_GRAPH_APP_ONLY_MATERIAL_KEYS);
 const MISSING_REQUIREMENT_SET = new Set(EMAIL_GRAPH_APP_ONLY_MISSING_REQUIREMENT_IDS);
 
@@ -301,6 +398,7 @@ function snapshotStringArray(arr) {
 
 /**
  * True iff string array is set-equal to expected (order-independent, no dups).
+ * Empty expected ⇒ only empty actual is equal.
  * @param {string[]} actual
  * @param {ReadonlyArray<string>} expected
  * @param {Set<string>} expectedSet
@@ -354,8 +452,13 @@ function validateMailboxScope(raw) {
     return fail('mailbox_scope_invalid', { reason: 'key_set' });
   }
 
+  // Explicit legacy AAP rejection (migration/compatibility).
+  if (scope.mechanism === EMAIL_GRAPH_APP_ONLY_LEGACY_MAILBOX_SCOPE_MECHANISM) {
+    return fail('mailbox_scope_invalid', { reason: 'legacy_application_access_policy' });
+  }
+
   if (scope.mechanism !== EMAIL_GRAPH_APP_ONLY_MAILBOX_SCOPE_MECHANISM) {
-    // Fail closed for multi/all/tenant-wide mechanisms.
+    // Fail closed for multi/all/tenant-wide / unknown mechanisms.
     return fail('mailbox_scope_invalid', { reason: 'mechanism' });
   }
 
@@ -456,36 +559,58 @@ function validateSecretPackage(raw) {
 }
 
 /**
- * Validate permission_set exact least-privilege allowlist.
+ * Validate exchange_application_role exact least-privilege EXO App RBAC role.
+ * @param {unknown} raw
+ * @returns {{ok:true,value:string}|{ok:false,error:string,details?:object}}
+ */
+function validateExchangeApplicationRole(raw) {
+  if (typeof raw !== 'string') {
+    return fail('exchange_application_role_invalid', { reason: 'must_be_string' });
+  }
+  if (BROADER_EXCHANGE_APPLICATION_ROLE_SET.has(raw)) {
+    return fail('exchange_application_role_invalid', { reason: 'broader_role' });
+  }
+  // Reject legacy Entra permission names mistakenly used as role.
+  if (
+    raw === 'Mail.ReadBasic.All'
+    || raw === 'Mail.ReadBasic'
+    || raw === 'Mail.Read'
+    || raw === 'Mail.ReadWrite'
+    || raw === 'Mail.Send'
+  ) {
+    return fail('exchange_application_role_invalid', { reason: 'not_exchange_application_role' });
+  }
+  if (raw !== EMAIL_GRAPH_APP_ONLY_EXCHANGE_APPLICATION_ROLE) {
+    return fail('exchange_application_role_invalid', { reason: 'not_least_privilege' });
+  }
+  return ok(EMAIL_GRAPH_APP_ONLY_EXCHANGE_APPLICATION_ROLE);
+}
+
+/**
+ * Validate entra_application_permission_set: exact empty set only.
+ * Non-empty (including legacy Mail.ReadBasic.All) defeats EXO resource scope.
  * @param {unknown} raw
  * @returns {{ok:true,value:ReadonlyArray<string>}|{ok:false,error:string,details?:object}}
  */
-function validatePermissionSet(raw) {
+function validateEntraApplicationPermissionSet(raw) {
   const snap = snapshotStringArray(raw);
   if (!snap.ok) {
-    return fail('permission_set_invalid', { reason: snap.reason });
+    return fail('entra_application_permission_set_invalid', { reason: snap.reason });
   }
-  // Reject known broader permissions explicitly (still covered by set-equal).
+  // Explicit reject of known unscoped / mail permissions (still empty-set equal).
   for (const p of snap.value) {
-    if (
-      p === 'Mail.Read'
-      || p === 'Mail.ReadWrite'
-      || p === 'Mail.Send'
-      || p === 'Mail.ReadWrite.All'
-      || p === 'Mail.Read.All'
-      || p === 'Mail.Send.All'
-    ) {
-      return fail('permission_set_invalid', { reason: 'broader_permission' });
+    if (FORBIDDEN_ENTRA_APPLICATION_PERMISSION_SET.has(p)) {
+      return fail('entra_application_permission_set_invalid', {
+        reason: 'unscoped_or_forbidden_permission',
+      });
     }
   }
-  if (!stringArraySetEqual(
-    snap.value,
-    EMAIL_GRAPH_APP_ONLY_PERMISSION_SET,
-    PERMISSION_SET_EXACT,
-  )) {
-    return fail('permission_set_invalid', { reason: 'not_least_privilege' });
+  // Empty set only — any element fails closed.
+  if (snap.value.length !== 0) {
+    return fail('entra_application_permission_set_invalid', { reason: 'must_be_empty' });
   }
-  return ok(EMAIL_GRAPH_APP_ONLY_PERMISSION_SET.slice());
+  // Fresh empty array (not shared mutable reference).
+  return ok([]);
 }
 
 /**
@@ -530,6 +655,13 @@ function evaluateEmailGraphAppOnlyReadinessImpl(input) {
   const forbidden = rejectForbiddenKeys(decl);
   if (!forbidden.ok) return forbidden;
 
+  // Explicit migration reject of legacy keys (never echo key names beyond stable reason).
+  for (const key of Object.keys(decl)) {
+    if (LEGACY_FORBIDDEN_DECLARATION_KEY_SET.has(key)) {
+      return fail('declaration_legacy_field', { reason: 'legacy_field' });
+    }
+  }
+
   for (const key of Object.keys(decl)) {
     if (!DECLARATION_KEY_SET.has(key)) {
       // Never echo attacker-controlled unknown key names — stable reason only.
@@ -553,8 +685,11 @@ function evaluateEmailGraphAppOnlyReadinessImpl(input) {
     return fail('auth_mode_invalid');
   }
 
-  const permissions = validatePermissionSet(decl.permission_set);
-  if (!permissions.ok) return permissions;
+  const exchangeRole = validateExchangeApplicationRole(decl.exchange_application_role);
+  if (!exchangeRole.ok) return exchangeRole;
+
+  const entraPerms = validateEntraApplicationPermissionSet(decl.entra_application_permission_set);
+  if (!entraPerms.ok) return entraPerms;
 
   // admin_consent_confirmed — must be boolean; false ⇒ incomplete, not invalid
   if (decl.admin_consent_confirmed !== true && decl.admin_consent_confirmed !== false) {
@@ -601,7 +736,11 @@ function evaluateEmailGraphAppOnlyReadinessImpl(input) {
   return ok({
     provider: EMAIL_GRAPH_APP_ONLY_PROVIDER,
     auth_mode: EMAIL_GRAPH_APP_ONLY_AUTH_MODE,
-    permission_set: permissions.value,
+    exchange_application_role: exchangeRole.value,
+    entra_application_permission_set: entraPerms.value,
+    // Derived Graph surface from EXO role table (not an Entra grant declaration).
+    graph_permission_via_exchange_rbac:
+      EMAIL_GRAPH_APP_ONLY_GRAPH_PERMISSION_VIA_EXCHANGE_RBAC.slice(),
     admin_consent_confirmed: adminConsent,
     mailbox_scope: mailboxScope.value,
     secret_package: secretPackage.value,
@@ -670,10 +809,14 @@ module.exports = {
   isEmailGraphAppOnlyReadinessComplete,
   EMAIL_GRAPH_APP_ONLY_PROVIDER,
   EMAIL_GRAPH_APP_ONLY_AUTH_MODE,
+  EMAIL_GRAPH_APP_ONLY_EXCHANGE_APPLICATION_ROLE,
+  EMAIL_GRAPH_APP_ONLY_GRAPH_PERMISSION_VIA_EXCHANGE_RBAC,
+  EMAIL_GRAPH_APP_ONLY_ENTRA_APPLICATION_PERMISSION_SET,
   EMAIL_GRAPH_APP_ONLY_PERMISSION_SET,
   EMAIL_GRAPH_APP_ONLY_MATERIAL_KEYS,
   EMAIL_GRAPH_APP_ONLY_FIRST_TEST_PUBLIC_ADDRESS,
   EMAIL_GRAPH_APP_ONLY_MAILBOX_SCOPE_MECHANISM,
+  EMAIL_GRAPH_APP_ONLY_LEGACY_MAILBOX_SCOPE_MECHANISM,
   EMAIL_GRAPH_APP_ONLY_AUTOMATION_MODE,
   EMAIL_GRAPH_APP_ONLY_MISSING_REQUIREMENT_IDS,
 };
