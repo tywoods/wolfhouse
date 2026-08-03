@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "canonical-migration-manifest",
   "checksumMode": "canonical_lf_v1",
-  "checksumModeNote": "Slice 13A.1: SHA-256 over UTF-8 bytes after CRLF/lone-CR→LF normalization. Rejects NUL/binary. legacySha256 retains exact pre-transition hashes for narrow ledger acceptance only.",
+  "checksumModeNote": "Slice 13A.1: SHA-256 over UTF-8 bytes after CRLF/lone-CR\u2192LF normalization. Rejects NUL/binary. legacySha256 retains exact pre-transition hashes for narrow ledger acceptance only.",
   "generatedForMaster": "235aca35d0c784e4a4c2388f075b5aa0ada85766",
   "slice13a1Transition": {
     "fromMaster": "235aca35d0c784e4a4c2388f075b5aa0ada85766",
@@ -12,7 +12,7 @@
   "intentionalGaps": [
     {
       "number": "015",
-      "note": "Intentionally unused — see 015_INTENTIONALLY_UNUSED.md and README. Phase 25 shipped as 016."
+      "note": "Intentionally unused \u2014 see 015_INTENTIONALLY_UNUSED.md and README. Phase 25 shipped as 016."
     }
   ],
   "duplicateNumberDecisions": [
@@ -60,7 +60,7 @@
       "order": 2,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Must precede 002: renames hostels→clients (README).",
+      "rationale": "Must precede 002: renames hostels\u2192clients (README).",
       "legacySha256": "3aaba830bad279e5107947fc6602ed5d3c16de38c79c49f14a574b73bc1ebc94"
     },
     {
@@ -622,7 +622,7 @@
       "order": 54,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Additive booking_refund_records manual refund ledger (N1/Finance Slice 2). Composite FK (booking_id,client_id)→bookings(id,client_id) with RESTRICT retention; append-only UPDATE/DELETE triggers (DELETE only with wh.allow_booking_refund_mutation=on); unique (client_id,idempotency_key); integer cents; no Stripe refunds."
+      "rationale": "Additive booking_refund_records manual refund ledger (N1/Finance Slice 2). Composite FK (booking_id,client_id)\u2192bookings(id,client_id) with RESTRICT retention; append-only UPDATE/DELETE triggers (DELETE only with wh.allow_booking_refund_mutation=on); unique (client_id,idempotency_key); integer cents; no Stripe refunds."
     },
     {
       "id": "057_tenant_locations_and_channel_endpoints",
@@ -659,6 +659,24 @@
       "classification": "rollback_down",
       "inForwardChain": false,
       "rationale": "Explicit down/rollback for 058_tenant_channel_endpoint_identity. Drops ownership index, CHECKs, then seven identity columns; leaves 057 registry tables intact."
+    },
+    {
+      "id": "059_tenant_email_delegated_grants",
+      "filename": "059_tenant_email_delegated_grants.sql",
+      "sha256": "9370dee76f2d7daefbf51a6af97965b5d546442bb9866e050fbfb4f19cac3752",
+      "order": 57,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Slice 2F-A: dedicated tenant_email_delegated_grants custody table with owner-approved AES-256-GCM envelope (ciphertext+wrapped DEK+version-pinned KEK), lease/CAS, mode-guard triggers. Raw refresh tokens forbidden. No activation/OAuth routes."
+    },
+    {
+      "id": "059_tenant_email_delegated_grants_down",
+      "filename": "059_tenant_email_delegated_grants_down.sql",
+      "sha256": "430e17db3884473e389fca4363f214ea53e162d2843cc98986da3e1336097cd1",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit down for 059. Structurally reversible; operationally irreversible after use (sealed grants destroyed \u2192 reauth). Leaves 057/058 intact; does not touch Key Vault KEKs."
     }
   ]
 }

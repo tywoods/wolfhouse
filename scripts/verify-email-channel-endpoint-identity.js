@@ -154,7 +154,7 @@ ok('manifest-down-rollback', Boolean(downEnt && downEnt.classification === 'roll
 ok('manifest-up-sha', Boolean(upEnt && upEnt.sha256 === upHash));
 ok('manifest-down-sha', Boolean(downEnt && downEnt.sha256 === downHash));
 ok('manifest-checksum-mode', manifest.checksumMode === CHECKSUM_MODE_CANONICAL_LF_V1);
-ok('manifest-forward-count-56', forwardEntries(manifest).length === 56);
+ok('manifest-forward-count-57', forwardEntries(manifest).length === 57);
 
 ok('package-gate', pkg.scripts
   && pkg.scripts['verify:email-channel-endpoint-identity']
