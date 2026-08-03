@@ -35,9 +35,10 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 - Admin Rental Prices card redesign shipped — hybrid (compact rows + expand-in-place editor); `89ace136`, gate 104/104
 - Admin Rental Prices card **polish** shipped — Add-equipment inline, "Stock = X · Enabled/Disabled" (dot left), edit-header fix, ⋯ removed; `9a8aaf35`, gate 230/230
 - Sunset **D/E/H live-verified** (staff cookie): D=unavailable gear rejected + not auto-included (restored); E=full drawer combo quote→create €115 all lines no stale (SUNSET-…707E02); H=per-date SUP stock sold-out fail-closed + isolation
+- Booking-drawer **EQUIPMENT reorg** shipped (Create + Edit) — name-as-toggle, per-line totals, "from €X", labels dropped; `f056e2d6`, gate green
 
 ## 🍳 On the stove (in progress)
-- **Booking-drawer EQUIPMENT reorg** (Skipper building; Captain gates) — Create + Edit drawers, EQUIPMENT section only, same drawer size. Name-as-toggle (no checkbox), drop duration/total labels, per-line total (tier×qty), keep "from €X", always-show qty.
+- _(Captain idle — booking-drawer reorg shipped; awaiting next task.)_
 - **Earthling** — _add what you're on here._
 
 ## 📋 To do
@@ -49,7 +50,7 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 ---
 
 ## 🚀 Live where
-- **Sunset · staff-api** (staging) — `9a8aaf35` rev 0000452 · 08-03 02:00 · Captain
+- **Sunset · staff-api** (staging) — `f056e2d6` rev 0000453 · 08-03 02:56 · Captain
 - **Sunset · Luna** plugin+SOUL (staging) — `c79da8aa` Slice E · 08-02 05:17 · Captain _(separate deploy — drifts from staff-api)_
 - **Wolfhouse · staff-api** (PROD) — _verify_ · Earthling
 - **Wolfhouse · Luna** guest WhatsApp (prod) — _verify_ · Earthling
