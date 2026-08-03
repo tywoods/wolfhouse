@@ -473,6 +473,7 @@
     "verify:luna-front-desk-quote-service": "node scripts/verify-luna-front-desk-quote-service.js",
     "verify:sunset-edit-authoritative-requote": "node scripts/verify-sunset-edit-authoritative-requote.js",
     "verify:sunset-finance-redesign-s1": "node scripts/verify-sunset-finance-redesign-s1.js",
+    "verify:sunset-finance-refund-net-s2": "node scripts/verify-sunset-finance-refund-net-s2.js",
     "verify:sunset-finance-summary": "node scripts/verify-sunset-finance-summary.js",
     "verify:sunset-finance-data": "node scripts/verify-sunset-finance-data.js",
     "verify:sunset-finance-endpoint": "node scripts/verify-sunset-finance-endpoint.js",

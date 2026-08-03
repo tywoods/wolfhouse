@@ -15,7 +15,7 @@ const {
   shiftRangeYears,
   stockTotals,
 } = require(path.join(ROOT, 'scripts', 'lib', 'sunset-finance-summary.js'));
-const { BSR_SQL, PENDING_REFUND_SQL, RENTAL_STOCK_SQL } = require(path.join(ROOT, 'scripts', 'lib', 'sunset-finance-data.js'));
+const { BSR_SQL, REFUNDS_SQL, RENTAL_STOCK_SQL } = require(path.join(ROOT, 'scripts', 'lib', 'sunset-finance-data.js'));
 
 let pass = 0;
 let fail = 0;
@@ -82,11 +82,16 @@ eq(
   'Collected is gross: refunds/reversals are not available until an authoritative refund ledger exists.',
 );
 ok('Seadog#4 legacy limitations has only 2 keys', Object.keys(emptyLim.limitations).sort().join(',') === 'net_collected_available,note');
-ok('Seadog#4 redesign carries pending_refund flag', emptyLim.redesign.limitations.pending_refund_estimated_from_cancellations === true);
-ok('Seadog#4 redesign note mentions Slice 1', /Slice 1/.test(emptyLim.redesign.limitations.note));
+// L1: redesign limitations carry refund-aware flags; legacy top-level stays frozen above.
+ok('Seadog#4 redesign net_uses_recorded_refunds', emptyLim.redesign.limitations.net_uses_recorded_refunds === true);
+ok('Seadog#4 redesign pending proxy retired', emptyLim.redesign.limitations.pending_refund_estimated_from_cancellations === false);
+ok('Seadog#4 redesign note mentions recorded refunds', /recorded refunds|effective date/i.test(emptyLim.redesign.limitations.note));
 
 ok('BSR SQL includes service_type', /service_type/.test(BSR_SQL));
-ok('pending refund SQL targets cancelled bookings', /cancelled/.test(PENDING_REFUND_SQL) && /amount_paid_cents/.test(PENDING_REFUND_SQL));
+ok('REFUNDS_SQL reads booking_refund_records', /booking_refund_records/.test(REFUNDS_SQL));
+ok('REFUNDS_SQL scopes r.location_id = $2', /r\.location_id\s*=\s*\$2/.test(REFUNDS_SQL));
+ok('REFUNDS_SQL does not use booking metadata location', !/metadata\s*->>\s*'location_id'/.test(REFUNDS_SQL));
+ok('REFUNDS_SQL filters source staff_manual_record', /staff_manual_record/.test(REFUNDS_SQL));
 ok('rental stock SQL reads stock_quantity', /stock_quantity/.test(RENTAL_STOCK_SQL));
 
 const bookings = [
@@ -105,8 +110,12 @@ const payments = [
   { booking_id: 'B2', amount_paid_cents: 0, paid_at: '2026-07-10T09:00:00Z' },
 ];
 
-const pending = [
+// Slice 2: pending cancellation proxy ignored; refund_records drive Net.
+const pendingIgnored = [
   { booking_id: 'CXL', amount_paid_cents: 2500, paid_at: '2026-07-01T10:00:00Z' },
+];
+const refunds = [
+  { booking_id: 'B1', amount_cents: 1000, effective_date: '2026-07-12', location_id: 'sunset-somo' },
 ];
 const stock = [
   { offering_key: 'board_rental', group_key: 'boards', label: 'Surfboard', stock_quantity: 20, active: true },
@@ -121,15 +130,18 @@ const s = computeSunsetFinanceSummary({
   bsr,
   payments,
   bookings,
-  pending_refund_payments: pending,
+  pending_refund_payments: pendingIgnored,
+  refund_records: refunds,
   rental_stock: stock,
   surf_packs: packs,
 });
 
 ok('redesign present', !!s.redesign);
-eq('net equals gross', s.redesign.net.net_collected_cents, s.redesign.net.gross_collected_cents);
-eq('pending refund from cancellations', s.redesign.net.pending_refund_cents, 2500);
-eq('completed refunds still 0', s.redesign.net.completed_refunds_cents, 0);
+eq('gross from payments', s.redesign.net.gross_collected_cents, 4000);
+eq('completed refunds from ledger', s.redesign.net.completed_refunds_cents, 1000);
+eq('net = gross − refunds', s.redesign.net.net_collected_cents, 3000);
+eq('pending proxy retired (0)', s.redesign.net.pending_refund_cents, 0);
+eq('pending_refund_payments ignored', s.redesign.net.pending_refund_cents, 0);
 
 const byKey = Object.fromEntries(s.redesign.revenue_by_product.map((p) => [p.key, p.cents]));
 eq('product lessons', byKey.lessons, 4000);
@@ -157,11 +169,13 @@ vm.runInContext(uiSrc + '\nthis.renderFinanceRedesignHtml = renderFinanceRedesig
 const html = sandbox.renderFinanceRedesignHtml(s);
 ok('renders nav stepper', /data-finance-nav="prev"/.test(html) && /data-finance-gran="month"/.test(html));
 ok('renders net hero', /admin\.finance\.netCollected|Net collected/.test(html) || /pfb-big/.test(html));
-ok('renders pending refund', /pendingRefund|Pending refund|2500|25/.test(html));
+ok('renders refunds row (not pending)', /admin\.finance\.refunds|Refunds/.test(html));
+ok('does not render pending refund row', !/pendingRefund|Pending refund/.test(html));
 ok('renders product bars', /pfb-bar-row/.test(html));
 ok('renders capacity', /pfb-ring|Capacity used|admin\.finance\.capacityUsed/.test(html));
 ok('renders daily trend', /pfb-trend/.test(html));
-ok('UI note from redesign.limitations', /Slice 1|Pending refund = paid cents/.test(html));
+ok('UI note from redesign.limitations', /recorded refunds|effective date/i.test(html));
+ok('daily trend labelled Gross', /dailyGrossTrend|Daily gross collected|Gross/.test(html));
 ok('no money arithmetic in renderer source', !/net_collected_cents\s*[+\-*/]/.test(uiSrc));
 
 const adminSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-admin-ui.js'), 'utf8');

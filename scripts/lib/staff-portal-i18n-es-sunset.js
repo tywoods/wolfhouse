@@ -368,6 +368,13 @@ module.exports = {
   'admin.finance.bookings': 'Reservas',
   'admin.finance.trendTitle': 'Tendencia diaria — este mes',
   'admin.finance.grossNote': 'El cobrado es bruto — los reembolsos/reversos aún no están disponibles.',
+
+  'admin.finance.netCollected': 'Cobrado neto',
+  'admin.finance.grossCollected': 'Cobrado bruto',
+  'admin.finance.refunds': 'Reembolsos',
+  'admin.finance.grossSublabel': 'Cobros (pagados)',
+  'admin.finance.refundsSublabel': 'Reembolsos registrados (manual)',
+  'admin.finance.netNote': 'Neto = cobrado bruto − reembolsos registrados en el periodo (fecha efectiva). Solo registros manuales — no Stripe.',
   'admin.finance.loading': 'Cargando el resumen financiero…',
   'admin.finance.empty': 'Aún no hay actividad financiera en estos periodos.',
   'admin.finance.error': 'No se pudo cargar el resumen financiero.',

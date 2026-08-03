@@ -206,17 +206,21 @@ function renderFinanceRedesignHtml(summary) {
   html += '<div class="pfb-card pfb-card--hero">';
   html += '<div class="pfb-card-top">';
   html += '<div class="pfb-lbl">' + financeRedesignEsc(financeRedesignT('admin.finance.netCollected', 'Net collected')) + '</div>';
-  html += '<div class="pfb-big pfb-big--green">' + financeRedesignEsc(financeRedesignFmtEur(net.net_collected_cents || 0)) + '</div>';
+  var netCents = Number(net.net_collected_cents);
+  if (!Number.isFinite(netCents)) netCents = 0;
+  var netBigCls = netCents < 0 ? 'pfb-big pfb-big--amber' : 'pfb-big pfb-big--green';
+  html += '<div class="' + netBigCls + '">' + financeRedesignEsc(financeRedesignFmtEur(netCents)) + '</div>';
   html += '<div class="pfb-row"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.grossCollected', 'Gross collected')) +
     '</span><b>' + financeRedesignEsc(financeRedesignFmtEur(net.gross_collected_cents || 0)) + '</b></div>';
-  html += '<div class="pfb-row"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.refundsChargebacks', 'Refunds / chargebacks')) +
-    '</span><b class="pfb-muted">' + financeRedesignEsc(financeRedesignFmtEur(net.completed_refunds_cents || 0)) + '</b></div>';
-  html += '<div class="pfb-row"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.pendingRefund', 'Pending refund')) +
-    '</span><b class="pfb-amber">' + financeRedesignEsc(financeRedesignFmtEur(net.pending_refund_cents || 0)) + '</b></div>';
+  html += '<div class="pfb-row"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.refunds', 'Refunds')) +
+    '</span><b class="pfb-muted">' + financeRedesignEsc(financeRedesignFmtEur(
+      net.completed_refunds_cents != null ? net.completed_refunds_cents : (net.refunds_cents || 0)
+    )) + '</b></div>';
+  // Pending cancellation proxy retired in Slice 2 — do not render.
   html += '<div class="pfb-note">' + financeRedesignEsc(
     (R.limitations && R.limitations.note)
-      || financeRedesignT('admin.finance.pendingRefundNote',
-        'Pending refund estimated from paid cancelled bookings. Net = gross until completed refunds are tracked.')
+      || financeRedesignT('admin.finance.netNote',
+        'Net = gross collected − recorded refunds in this period (effective date). Manual records only — not Stripe.')
   ) + '</div>';
   html += '</div>';
   html += '<div class="pfb-deltas">' +

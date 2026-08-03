@@ -370,7 +370,9 @@ function resolvePrimaryRange(args) {
  *   Dated + undated allowed; undated are ignored for dated periods.
  * @param {Array<{booking_id,amount_paid_cents,paid_at}>} args.payments  (status='paid', scoped)
  * @param {Array<{booking_id,total_amount_cents}>} args.bookings
- * @param {Array<{booking_id,amount_paid_cents,paid_at}>} [args.pending_refund_payments]
+ * @param {Array<{booking_id,amount_paid_cents,paid_at}>} [args.pending_refund_payments]  // Slice 2: ignored (retired proxy)
+ * @param {Array<{booking_id,amount_cents,effective_date,location_id?}>} [args.refund_records]
+ * @param {boolean} [args.refund_ledger_unavailable]
  * @param {Array} [args.rental_stock]
  * @param {Array} [args.surf_packs]
  * @param {{granularity?:string,anchor?:string,start?:string,end?:string}} [args.view]
@@ -381,9 +383,9 @@ function computeSunsetFinanceSummary(args) {
   const bsr = Array.isArray(args && args.bsr) ? args.bsr : [];
   const payments = Array.isArray(args && args.payments) ? args.payments : [];
   const bookings = Array.isArray(args && args.bookings) ? args.bookings : [];
-  const pendingRefundPayments = Array.isArray(args && args.pending_refund_payments)
-    ? args.pending_refund_payments
-    : [];
+  // Slice 2: pending cancellation proxy retired from Net — do not sum pending_refund_payments.
+  const refundRecords = Array.isArray(args && args.refund_records) ? args.refund_records : [];
+  const refundLedgerUnavailable = !!(args && args.refund_ledger_unavailable);
   const rentalStock = Array.isArray(args && args.rental_stock) ? args.rental_stock : [];
   const surfPacks = Array.isArray(args && args.surf_packs) ? args.surf_packs : [];
 
@@ -413,6 +415,15 @@ function computeSunsetFinanceSummary(args) {
     .filter((p) => p.paid_at != null)
     .map((p) => ({ booking_id: p.booking_id, amount: toInt(p.amount_paid_cents), date: zonedDateString(p.paid_at, timeZone) }));
 
+  // Refunds bucketed by effective_date (DATE / YYYY-MM-DD) — same inclusive inRange as other series.
+  const datedRefunds = refundRecords
+    .map((r) => ({
+      booking_id: r.booking_id,
+      amount: toInt(r.amount_cents),
+      date: r.effective_date != null ? String(r.effective_date).slice(0, 10) : '',
+    }))
+    .filter((r) => r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date));
+
   function summarize(range) {
     let booked = 0;
     for (const r of datedBsr) if (inRange(r.service_date, range)) booked = checkedAdd(booked, r.due);
@@ -434,6 +445,26 @@ function computeSunsetFinanceSummary(args) {
     };
   }
 
+  /** Σ recorded refunds with effective_date ∈ range (L2/L3). */
+  function refundsInRange(range) {
+    let sum = 0;
+    for (const r of datedRefunds) {
+      if (inRange(r.date, range)) sum = checkedAdd(sum, r.amount);
+    }
+    return sum;
+  }
+
+  /** Independent net for a range: gross(R) − refunds_effective(R). Negative allowed (L3/L4). */
+  function netStats(range) {
+    const s = summarize(range);
+    const refunds = refundsInRange(range);
+    return {
+      ...s,
+      refunds_cents: refunds,
+      net_collected_cents: checkedSubtract(s.collected_gross_cents, refunds),
+    };
+  }
+
   const ranges = periodRanges(now, timeZone);
   const daily_trend = eachDate(ranges.month).map((date) => {
     const dayRange = { start: date, end: date };
@@ -452,15 +483,15 @@ function computeSunsetFinanceSummary(args) {
   const priorStats = summarize(priorRange);
   const yoyStats = summarize(yoyRange);
 
-  // Pending refund = SUM paid on cancelled bookings (liability proxy; net stays = gross).
-  let pending_refund_cents = 0;
-  for (const p of pendingRefundPayments) {
-    pending_refund_cents = checkedAdd(pending_refund_cents, p.amount_paid_cents);
-  }
+  const primaryNet = netStats(primaryRange);
+  const priorNet = netStats(priorRange);
+  const yoyNet = netStats(yoyRange);
 
-  const gross = primaryStats.collected_gross_cents;
-  const net_collected_cents = gross; // Slice 1: net = gross until completed refunds exist
-  const completed_refunds_cents = 0;
+  const gross = primaryNet.collected_gross_cents;
+  const completed_refunds_cents = primaryNet.refunds_cents;
+  const net_collected_cents = primaryNet.net_collected_cents;
+  // Retired cancellation proxy — always 0 in Slice 2 redesign Net.
+  const pending_refund_cents = 0;
 
   // Pipeline
   const next30Range = { start: today, end: addDays(today, 29) };
@@ -604,12 +635,16 @@ function computeSunsetFinanceSummary(args) {
       net_collected_cents,
       gross_collected_cents: gross,
       completed_refunds_cents,
+      refunds_cents: completed_refunds_cents,
       pending_refund_cents,
-      pending_refund_label: 'estimated_from_cancellations',
-      // Net = gross in Slice 1
-      net_equals_gross: true,
-      vs_prior_pct: deltaPct(net_collected_cents, priorStats.collected_gross_cents),
-      vs_yoy_pct: deltaPct(net_collected_cents, yoyStats.collected_gross_cents),
+      pending_refund_label: null,
+      // Slice 2: true net from recorded ledger (may equal gross when refunds=0).
+      net_equals_gross: completed_refunds_cents === 0,
+      refund_basis: 'effective_date',
+      refund_source: 'booking_refund_records',
+      // L4: compare nets independently (not prior/yoy gross).
+      vs_prior_pct: deltaPct(net_collected_cents, priorNet.net_collected_cents),
+      vs_yoy_pct: deltaPct(net_collected_cents, yoyNet.net_collected_cents),
     },
     pipeline: {
       booked_cents: primaryStats.booked_cents,
@@ -647,8 +682,13 @@ function computeSunsetFinanceSummary(args) {
     },
     daily_gross_trend,
     limitations: {
-      pending_refund_estimated_from_cancellations: true,
-      note: 'Net equals gross in Slice 1. Pending refund = paid cents on cancelled bookings (estimated). Completed refunds/chargebacks still need a ledger.',
+      pending_refund_estimated_from_cancellations: false,
+      net_uses_recorded_refunds: !refundLedgerUnavailable,
+      refund_basis: 'effective_date',
+      refund_ledger_unavailable: refundLedgerUnavailable,
+      note: refundLedgerUnavailable
+        ? 'Refund ledger unavailable. Net currently equals gross for this response.'
+        : 'Net = gross collected − manual recorded refunds in this period (effective date). Not a Stripe payout report.',
     },
   };
 
@@ -663,7 +703,8 @@ function computeSunsetFinanceSummary(args) {
     },
     daily_trend,
     redesign,
-    // Legacy top-level limitations — byte-identical contract with pre-redesign master.
+    // Legacy top-level limitations — BYTE-COMPATIBLE with Slice 1 / redesign-s1 Seadog#4 (L1).
+    // Do NOT flip net_collected_available in Slice 2.
     limitations: {
       net_collected_available: false,
       note: 'Collected is gross: refunds/reversals are not available until an authoritative refund ledger exists.',
