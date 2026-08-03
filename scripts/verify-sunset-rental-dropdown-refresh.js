@@ -77,8 +77,8 @@ function sourceContracts() {
       && /delete-price[\s\S]{0,200}removeDuration/.test(adminUi),
   );
   ok(
-    'Delete rental via overflow (compact) and edit footer (hybrid redesign)',
-    /equip-overflow|portal-admin-equip-overflow/.test(adminUi)
+    'Delete rental via edit footer only (no browse overflow)',
+    !/equip-overflow-toggle|data-admin-equip-overflow/.test(adminUi)
       && /portal-admin-equip-footer[\s\S]{0,400}delete-rental-offering|delete-rental-offering[\s\S]{0,400}portal-admin-equip-footer/.test(adminUi),
   );
   ok(
@@ -423,19 +423,24 @@ async function browserFixture() {
 
     await page.locator('[data-admin-action="cancel-edit"]').click();
 
-    // ── B) Delete rental via overflow or edit footer (hard delete) ──
+    // ── B) Delete rental via edit footer only (hard delete; no browse overflow) ──
     const softCard = page.locator('[data-admin-equip="softboard"]');
     const ghostCard = page.locator('[data-admin-equip="ghost_fins"]');
     assert.strictEqual(await ghostCard.count(), 1, 'unpriced rental remains visible in Rental Admin');
     assert.strictEqual(
       await softCard.locator('[data-admin-action="equip-overflow-toggle"]').count(),
-      1,
-      'compact priced row has overflow',
+      0,
+      'compact priced row has no overflow',
     );
     assert.strictEqual(
       await ghostCard.locator('[data-admin-action="equip-overflow-toggle"]').count(),
-      1,
-      'compact unpriced row has overflow',
+      0,
+      'compact unpriced row has no overflow',
+    );
+    assert.strictEqual(
+      await softCard.locator('.portal-admin-equip-compact [data-admin-action="delete-rental-offering"]').count(),
+      0,
+      'compact has zero Delete',
     );
 
     await ghostCard.locator('[data-admin-action="edit-equipment"]').click();

@@ -16469,40 +16469,50 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-equip-row.is-equip-disabled .portal-admin-equip-actions,
 .portal-admin-equip-row.is-equip-disabled .portal-admin-equip-status-text{opacity:1}
 /* ── Admin Rental Prices hybrid: compact rows + expand-in-place editor ── */
-.portal-admin-equip-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:0 0 12px;min-width:0}
+/* Section header: title left + Add equipment mount slot right (one row, wrap on narrow) */
+.portal-admin-prices-hdr{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px 12px;min-width:0}
+.portal-admin-prices-hdr .portal-admin-section-hdr-title{flex:1 1 auto;min-width:0;line-height:1.3}
+.portal-admin-prices-hdr-actions{flex:0 0 auto;display:inline-flex;align-items:center;gap:8px;min-width:0}
+.portal-admin-prices-hdr-actions .btn{white-space:nowrap}
+/* Clear separation between add-equipment drawer and the equipment list */
+#admin-prices-body #admin-add-equip-form{margin-bottom:20px}
 .portal-admin-equip-list{display:flex;flex-direction:column;gap:8px;min-width:0;max-width:100%}
 .portal-admin-equip-row{min-width:0;max-width:100%;box-sizing:border-box}
 .portal-admin-equip-compact{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);min-width:0;max-width:100%;box-sizing:border-box}
-.portal-admin-equip-identity{flex:0 1 200px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.portal-admin-equip-identity{flex:0 1 220px;min-width:0;display:flex;flex-direction:column;gap:4px}
+/* Name row: status dot left of name (dot not in meta line) */
+.portal-admin-equip-name-row{display:flex;align-items:flex-start;gap:8px;min-width:0}
+.portal-admin-equip-name-row .portal-admin-equip-status-dot{margin-top:.45em}
 /* Full name available: wrap 1–2 lines + title attribute; no silent single-line ellipsis */
-.portal-admin-equip-name{font-size:14px;font-weight:700;color:var(--text);line-height:1.25;max-width:100%;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;word-break:break-word}
-.portal-admin-equip-status{display:inline-flex;align-items:center;gap:6px;min-width:0;font-size:12px;line-height:1.3;flex-wrap:wrap}
+.portal-admin-equip-name{font-size:14px;font-weight:700;color:var(--text);line-height:1.25;max-width:100%;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;word-break:break-word;min-width:0;flex:1 1 auto}
+.portal-admin-equip-status{display:block;min-width:0;font-size:12px;line-height:1.35}
 .portal-admin-equip-status-dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:var(--text-3)}
 .portal-admin-equip-status-dot.is-on{background:var(--primary)}
 .portal-admin-equip-status-dot.is-off{background:var(--text-3)}
-.portal-admin-equip-status-text{min-width:0}
+.portal-admin-equip-status-text{min-width:0;display:inline}
+.portal-admin-equip-meta-sep{white-space:pre}
 .portal-admin-equip-chips{flex:1 1 160px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}
 .portal-admin-equip-chip{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;border:1px solid var(--border-soft);background:var(--surface);color:var(--text);font-size:12px;font-weight:600;line-height:1.3;white-space:nowrap;max-width:100%;box-sizing:border-box}
 .portal-admin-equip-chip.is-inactive{color:var(--text-2);border-style:dashed}
 .portal-admin-equip-chips-empty{font-size:12px}
 .portal-admin-equip-actions{flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;margin-left:auto}
 /* 44px touch targets desktop + narrow; width/height keep compact density */
-.portal-admin-equip-edit-btn,.portal-admin-equip-overflow-btn,.portal-admin-equip-remove-duration{width:44px;min-width:44px;height:44px;min-height:44px;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box}
-.portal-admin-equip-edit-btn:focus-visible,.portal-admin-equip-overflow-btn:focus-visible,.portal-admin-equip-remove-duration:focus-visible,
-.portal-admin-equip-overflow-item:focus-visible,.portal-admin-equip-add-duration:focus-visible,
+.portal-admin-equip-edit-btn,.portal-admin-equip-remove-duration{width:44px;min-width:44px;height:44px;min-height:44px;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;color:var(--text);font-weight:700;font-size:16px;line-height:1}
+.portal-admin-equip-remove-duration.portal-admin-danger{color:var(--danger,var(--text))}
+.portal-admin-equip-edit-btn:focus-visible,.portal-admin-equip-remove-duration:focus-visible,
+.portal-admin-equip-add-duration:focus-visible,
 .portal-admin-equip-footer .btn:focus-visible,.portal-admin-equip-delete:focus-visible{outline:2px solid var(--focus,var(--primary));outline-offset:2px}
-.portal-admin-equip-overflow{position:relative;display:inline-flex}
-.portal-admin-equip-overflow-panel{position:absolute;right:0;top:calc(100% + 4px);z-index:20;min-width:176px;padding:6px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface);box-shadow:var(--shadow-soft,0 4px 16px rgba(0,0,0,.12));display:none;flex-direction:column;gap:2px}
-.portal-admin-equip-overflow.is-open .portal-admin-equip-overflow-panel,.portal-admin-equip-overflow-panel:not([hidden]){display:flex}
-.portal-admin-equip-overflow-item{display:block;width:100%;text-align:left;padding:12px 14px;min-height:44px;border:0;border-radius:8px;background:transparent;color:var(--text);font:inherit;font-size:13px;font-weight:600;cursor:pointer;box-sizing:border-box}
-.portal-admin-equip-overflow-item:hover{background:var(--surface-soft)}
 /* Edit shell — green accent from theme tokens */
 .portal-admin-equip-edit-shell{border:1px solid var(--primary);border-radius:12px;background:var(--surface);padding:14px 14px 12px;min-width:0;max-width:100%;box-sizing:border-box;overflow-x:hidden}
-.portal-admin-equip-edit-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 12px}
-.portal-admin-equip-edit-heading{margin:0;font-size:15px;font-weight:700;color:var(--primary);line-height:1.3}
-.portal-admin-equip-row.is-editing .portal-admin-equip-meta-form{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(96px,120px) minmax(0,max-content);gap:10px 12px;align-items:end;margin:0 0 12px;min-width:0;max-width:100%;box-sizing:border-box}
-.portal-admin-equip-row.is-editing .portal-admin-equip-enabled-field{min-width:0;max-width:100%;overflow:hidden}
-.portal-admin-equip-row.is-editing .portal-admin-equip-switch{width:44px;max-width:44px;overflow:hidden}
+.portal-admin-equip-edit-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 12px;min-width:0}
+.portal-admin-equip-edit-heading-row{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;flex-wrap:wrap}
+.portal-admin-equip-edit-heading{margin:0;font-size:15px;font-weight:700;color:var(--primary);line-height:1.3;min-width:0}
+.portal-admin-equip-edit-heading-row .portal-admin-equip-active-label{font-size:12px;font-weight:600;color:var(--text-2);line-height:1.3;white-space:nowrap}
+/* Meta form: name flexible, stock bounded, enabled bounded — real gaps, no clip/overlap */
+.portal-admin-equip-row.is-editing .portal-admin-equip-meta-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(96px,120px) minmax(72px,auto);column-gap:16px;row-gap:12px;align-items:end;margin:0 0 12px;min-width:0;max-width:100%;box-sizing:border-box}
+.portal-admin-equip-row.is-editing .portal-admin-equip-meta-form > .portal-admin-equip-field{min-width:0;max-width:100%}
+.portal-admin-equip-row.is-editing .portal-admin-equip-enabled-field{min-width:72px;max-width:none;overflow:visible;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.portal-admin-equip-row.is-editing .portal-admin-equip-switch{width:44px;max-width:none;overflow:visible;flex:0 0 auto}
 .portal-admin-equip-row .portal-admin-equip-price-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;margin:0 0 10px;min-width:0;max-width:100%}
 .portal-admin-equip-row .portal-admin-equip-price-grid .portal-admin-price-card.is-editing{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(72px,.7fr) auto;gap:8px 10px;align-items:end;padding:10px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);min-width:0;max-width:100%;width:100%;box-sizing:border-box;overflow:hidden}
 .portal-admin-equip-row .portal-admin-equip-price-grid .portal-admin-price-card.is-editing .portal-admin-edit-field,
@@ -19407,7 +19417,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <div class="portal-admin-section-body" id="admin-times-body"></div>
       </section>
       <section class="portal-admin-section" id="admin-sec-prices">
-        <div class="portal-admin-section-hdr" data-i18n="admin.section.prices">Rental prices</div>
+        <div class="portal-admin-section-hdr portal-admin-prices-hdr" data-admin-prices-hdr>
+          <div class="portal-admin-section-hdr-title" data-i18n="admin.section.prices">Rental prices</div>
+          <div class="portal-admin-prices-hdr-actions" id="admin-prices-hdr-actions" hidden></div>
+        </div>
         <div class="portal-admin-section-body" id="admin-prices-body"></div>
       </section>
       <section class="portal-admin-section" id="admin-sec-accommodation" data-testid="admin-sec-accommodation">

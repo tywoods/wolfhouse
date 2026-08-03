@@ -1196,27 +1196,64 @@ function adminReadDurationControl(prefix){
   return { unit: unit, count: count, duration_key: key };
 }
 
+/**
+ * Duration count+unit control with one visual label and distinct accessible names.
+ * Label id is unique per prefix; count/unit use aria-labelledby + aria-label (no duplicate IDs).
+ */
 function renderAdminDurationControl(prefix, unit, count){
   var u = unit || 'days';
   var c = count || 1;
-  return '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.prices.duration') || 'Duration') + '</label>' +
-    '<div class="portal-admin-duration-row">' +
-    '<input type="number" class="portal-admin-duration-count" id="' + prefix + '-count" min="1" max="999" step="1" value="' + escHtml(String(c)) + '">' +
-    '<select class="portal-admin-duration-unit" id="' + prefix + '-unit">' +
+  var labelId = String(prefix) + '-duration-label';
+  var countId = String(prefix) + '-count';
+  var unitId = String(prefix) + '-unit';
+  var durLabel = portalT('admin.prices.duration') || 'Duration';
+  var countAria = portalT('admin.prices.durationCountAria') || (durLabel + ' count');
+  var unitAria = portalT('admin.prices.durationUnitAria') || (durLabel + ' unit');
+  // Visual label id on group (aria-labelledby); count/unit use distinct aria-label so
+  // getByLabel resolves uniquely. Do not put aria-labelledby on both controls alone —
+  // that would yield identical accessible names.
+  return '<div class="portal-admin-edit-field portal-admin-equip-field">' +
+    '<span class="portal-admin-field-label" id="' + escHtml(labelId) + '">' + escHtml(durLabel) + '</span>' +
+    '<div class="portal-admin-duration-row" role="group" aria-labelledby="' + escHtml(labelId) + '">' +
+    '<input type="number" class="portal-admin-duration-count" id="' + escHtml(countId) +
+    '" min="1" max="999" step="1" value="' + escHtml(String(c)) +
+    '" aria-label="' + escHtml(countAria) + '">' +
+    '<select class="portal-admin-duration-unit" id="' + escHtml(unitId) +
+    '" aria-label="' + escHtml(unitAria) + '">' +
     '<option value="hours"' + (u === 'hours' ? ' selected' : '') + '>' + escHtml(portalT('admin.prices.hours') || 'Hours') + '</option>' +
     '<option value="days"' + (u === 'days' ? ' selected' : '') + '>' + escHtml(portalT('admin.prices.days') || 'Days') + '</option>' +
     '</select></div></div>';
 }
 
+/** Unknown/invalid duration sentinel — labelled select, no invented writable identity. */
+function renderAdminDurationInvalidControl(prefix, displayLabel){
+  var labelId = String(prefix) + '-duration-label';
+  var selectId = String(prefix) + '-unit-invalid';
+  var durLabel = portalT('admin.prices.duration') || 'Duration';
+  return '<div class="portal-admin-edit-field portal-admin-equip-field">' +
+    '<label id="' + escHtml(labelId) + '" for="' + escHtml(selectId) + '">' + escHtml(durLabel) + '</label>' +
+    '<select class="portal-admin-duration-unit" id="' + escHtml(selectId) +
+    '" disabled data-admin-duration-invalid="1" aria-invalid="true" aria-labelledby="' +
+    escHtml(labelId) + '" aria-label="' + escHtml(durLabel) + '">' +
+    '<option selected value="">' + escHtml(displayLabel || '???') + '</option>' +
+    '</select></div>';
+}
+
 function renderAdminAddEquipmentForm(){
+  var nameId = 'admin-new-equip-name';
+  var stockId = 'admin-new-equip-stock';
+  var amountId = 'admin-new-equip-amount';
   return '<div class="portal-admin-edit-form portal-admin-equip-form" id="admin-add-equip-form">' +
-    '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.prices.equipmentName') || 'Equipment name') + '</label>' +
-    '<input type="text" id="admin-new-equip-name" placeholder="Kayak"></div>' +
-    '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.prices.stock') || 'Total stock') + '</label>' +
-    '<input type="number" id="admin-new-equip-stock" min="0" max="999" step="1" placeholder="" inputmode="numeric"></div>' +
+    '<div class="portal-admin-edit-field portal-admin-equip-field"><label for="' + nameId + '">' +
+    escHtml(portalT('admin.prices.equipmentName') || 'Equipment name') + '</label>' +
+    '<input type="text" id="' + nameId + '" placeholder="Kayak"></div>' +
+    '<div class="portal-admin-edit-field portal-admin-equip-field"><label for="' + stockId + '">' +
+    escHtml(portalT('admin.prices.stock') || 'Total stock') + '</label>' +
+    '<input type="number" id="' + stockId + '" min="0" max="999" step="1" placeholder="" inputmode="numeric"></div>' +
     renderAdminDurationControl('admin-new-equip', 'days', 1) +
-    '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
-    '<input type="text" class="portal-admin-equip-amount" id="admin-new-equip-amount" inputmode="decimal" placeholder="0.00"></div>' +
+    '<div class="portal-admin-edit-field portal-admin-equip-field"><label for="' + amountId + '">' +
+    escHtml(portalT('admin.edit.amountEur')) + '</label>' +
+    '<input type="text" class="portal-admin-equip-amount" id="' + amountId + '" inputmode="decimal" placeholder="0.00"></div>' +
     '<div class="portal-admin-edit-actions">' +
     '<button type="button" class="btn btn-primary" data-admin-action="save-new-equipment">' + escHtml(portalT('admin.action.save')) + '</button>' +
     '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
@@ -1225,11 +1262,13 @@ function renderAdminAddEquipmentForm(){
 
 function renderAdminAddEquipPriceForm(offeringKey){
   // Draft only — committed by the single item-level Save (save-equipment).
+  var amountId = 'admin-new-price-amount';
   return '<div class="portal-admin-edit-form portal-admin-equip-form portal-admin-equip-draft-form" id="admin-add-price-form" data-equip-key="' + escHtml(offeringKey) + '">' +
     '<div class="portal-admin-equip-draft-label">' + escHtml(portalT('admin.prices.addDurationPrice') || portalT('admin.prices.newTimePrice') || 'Add duration + price') + '</div>' +
     renderAdminDurationControl('admin-new-price', 'days', 1) +
-    '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
-    '<input type="text" class="portal-admin-equip-amount" id="admin-new-price-amount" inputmode="decimal" placeholder="0.00"></div>' +
+    '<div class="portal-admin-edit-field portal-admin-equip-field"><label for="' + amountId + '">' +
+    escHtml(portalT('admin.edit.amountEur')) + '</label>' +
+    '<input type="text" class="portal-admin-equip-amount" id="' + amountId + '" inputmode="decimal" placeholder="0.00"></div>' +
     '</div>';
 }
 
@@ -1283,17 +1322,27 @@ function adminEquipStockLabel(stockQuantity){
   }
   var n = Number(stockQuantity);
   if (!Number.isInteger(n)) return portalT('admin.prices.stockUnconfigured') || 'Stock not set';
-  return (portalT('admin.prices.stock') || 'Total stock') + ': ' + n;
+  return String(portalT('admin.prices.stockEquals') || 'Stock = {n}').replace('{n}', String(n));
 }
 
-/** Compact browse status: "<n> stock" (today appended async; never invents availability). */
+/**
+ * Compact browse stock part: "Stock = {n}" or truthful not-configured fallback.
+ * Panel does not fetch/render today availability.
+ */
 function adminEquipCompactStockPart(stockQuantity){
   if (stockQuantity === null || stockQuantity === undefined || stockQuantity === '') {
     return portalT('admin.prices.stockUnconfigured') || 'Stock not set';
   }
   var n = Number(stockQuantity);
   if (!Number.isInteger(n)) return portalT('admin.prices.stockUnconfigured') || 'Stock not set';
-  return String(portalT('admin.prices.stockCount') || '{n} stock').replace('{n}', String(n));
+  return String(portalT('admin.prices.stockEquals') || 'Stock = {n}').replace('{n}', String(n));
+}
+
+/** Semantic Enabled/Disabled label for browse meta + edit heading. */
+function adminEquipEnabledLabel(active){
+  return active
+    ? (portalT('admin.prices.enabled') || 'Enabled')
+    : (portalT('admin.prices.disabled') || 'Disabled');
 }
 
 /** Full localized chip label: "6 hours €10" / "1 day €20". */
@@ -1304,44 +1353,20 @@ function adminEquipPriceChipLabel(durationLabel, euros){
   return dur + ' €' + amt;
 }
 
-/** Monotonic generation for available-today fetches (stale responses must not write DOM). */
-var adminEquipTodayRefreshSeq = 0;
-
-/** Identity for stock-today race gate: client|location + render generation. */
-function adminEquipTodaySchoolKey(){
-  return adminPricingDraftSchoolKey();
-}
-
-function adminCloseAllEquipOverflowMenus(exceptRoot, opts){
-  opts = opts || {};
-  document.querySelectorAll('[data-admin-equip-overflow].is-open').forEach(function(root){
-    if (exceptRoot && root === exceptRoot) return;
-    root.classList.remove('is-open');
-    var btn = root.querySelector('[data-admin-action="equip-overflow-toggle"]');
-    var panel = root.querySelector('[data-admin-equip-overflow-panel]');
-    if (btn) btn.setAttribute('aria-expanded', 'false');
-    if (panel) panel.hidden = true;
-    if (opts.returnFocus && btn && typeof btn.focus === 'function') {
-      try { btn.focus(); } catch (_f) { /* ignore */ }
-    }
-  });
-}
-
-function adminOpenEquipOverflowDisclosure(root){
-  if (!root) return;
-  adminCloseAllEquipOverflowMenus(root);
-  var btn = root.querySelector('[data-admin-action="equip-overflow-toggle"]');
-  var panel = root.querySelector('[data-admin-equip-overflow-panel]');
-  root.classList.add('is-open');
-  if (btn) btn.setAttribute('aria-expanded', 'true');
-  if (panel) {
-    panel.hidden = false;
-    // Focus first action (Delete) for keyboard users.
-    var firstAction = panel.querySelector('[data-admin-action="delete-rental-offering"]')
-      || panel.querySelector('button');
-    if (firstAction && typeof firstAction.focus === 'function') {
-      try { firstAction.focus(); } catch (_f) { /* ignore */ }
-    }
+/**
+ * Mount + Add equipment into the stable section header slot (title left / button right).
+ * Does not render a second toolbar inside #admin-prices-body.
+ */
+function adminPopulatePricesHeaderActions(writes){
+  var hdrActions = el('admin-prices-hdr-actions');
+  if (!hdrActions) return;
+  if (writes){
+    hdrActions.hidden = false;
+    hdrActions.innerHTML = '<button type="button" class="btn btn-primary" data-admin-action="add-equipment">+ ' +
+      escHtml(portalT('admin.prices.addEquipment') || 'Add equipment') + '</button>';
+  } else {
+    hdrActions.hidden = true;
+    hdrActions.innerHTML = '';
   }
 }
 
@@ -1351,23 +1376,15 @@ function renderAdminSectionPricesFromConfig(cfg){
   var writes = adminCfgWritesEnabled(cfg);
   var items = adminMergeEquipmentPricingItems(cfg);
   var addingItem = writes && adminEditTarget === 'equip-add-item';
+  // Title + Add equipment share one header row (stable mount slot outside body).
+  adminPopulatePricesHeaderActions(writes);
   var html = '';
-  if (writes){
-    html += '<div class="portal-admin-equip-toolbar">';
-    // + Add equipment stays available at panel top (even while one row is expanded).
-    html += '<button type="button" class="btn btn-primary" data-admin-action="add-equipment">+ ' +
-      escHtml(portalT('admin.prices.addEquipment') || 'Add equipment') + '</button>';
-    html += '</div>';
-    if (addingItem) html += renderAdminAddEquipmentForm();
-  }
+  // + Add equipment stays available in header even while one row is expanded / add form open.
+  if (writes && addingItem) html += renderAdminAddEquipmentForm();
   if (!items.length && !addingItem){
     html += '<p class="portal-admin-muted">' + escHtml(portalT('admin.prices.noEquipment') || 'No equipment yet — add your first item.') + '</p>';
   }
-  // Stamp list with refresh identity so stale stock-today responses cannot write after re-render.
-  var equipTodayGen = ++adminEquipTodayRefreshSeq;
-  var equipTodaySchool = adminEquipTodaySchoolKey();
-  html += '<div class="portal-admin-equip-list" data-admin-equip-list="1" data-equip-today-gen="' +
-    escHtml(String(equipTodayGen)) + '" data-equip-today-school="' + escHtml(equipTodaySchool) + '">';
+  html += '<div class="portal-admin-equip-list" data-admin-equip-list="1">';
   items.forEach(function(item){
     var key = item.offering_key;
     var itemActive = item.active !== false;
@@ -1375,15 +1392,15 @@ function renderAdminSectionPricesFromConfig(cfg){
     var adding = writes && adminEditTarget === ('equip-add-price:' + key);
     var editing = writes && (adminEditTarget === ('equip:' + key) || adding);
     var deleteLabel = portalT('admin.prices.deleteEquipment') || portalT('admin.prices.deleteRental') || 'Delete equipment';
-    var moreLabel = portalT('admin.prices.moreActions') || 'More actions';
-    var editLabel = portalT('admin.action.edit') || 'Edit';
+    var equipDisplayName = item.label || key;
+    var editLabel = String(portalT('admin.prices.editEquipmentPrices') || 'Edit {name} rental prices')
+      .replace('{name}', equipDisplayName);
     var saveLabel = portalT('admin.prices.saveChanges') || portalT('admin.action.save') || 'Save changes';
     var addDurLabel = portalT('admin.prices.addDurationPrice') || 'Add duration + price';
-    var editingHeading = String(portalT('admin.prices.editingTitle') || 'Editing — {name}').replace('{name}', item.label || key);
-    var statusOnLabel = portalT('admin.prices.on') || portalT('admin.prices.enabled') || 'on';
-    var statusOffLabel = portalT('admin.prices.off') || portalT('admin.prices.disabled') || 'off';
+    var editingHeading = String(portalT('admin.prices.editingTitle') || 'Editing — {name}').replace('{name}', equipDisplayName);
+    var statusOnLabel = adminEquipEnabledLabel(true);
+    var statusOffLabel = adminEquipEnabledLabel(false);
     var removeDurLabel = portalT('admin.prices.removeDuration') || 'Remove duration price now';
-    var overflowPanelId = 'admin-equip-overflow-panel-' + adminPriceInputKey(key);
 
     // Hybrid row: compact browse strip OR expand-in-place editor (one owner via adminEditTarget).
     html += '<div class="portal-admin-equip-row' +
@@ -1397,24 +1414,22 @@ function renderAdminSectionPricesFromConfig(cfg){
       // ── Compact browse row ──
       html += '<div class="portal-admin-equip-compact">';
       html += '<div class="portal-admin-equip-identity">';
-      // Full name always available via title; wrap up to 2 lines (no silent single-line ellipsis).
-      html += '<div class="portal-admin-equip-name" title="' + escHtml(item.label || key) + '">' +
-        escHtml(item.label) + '</div>';
-      html += '<div class="portal-admin-equip-status" data-equip-status="' + escHtml(key) + '">';
+      // Status dot left of name (not in meta line). Full name via title; wrap up to 2 lines.
+      html += '<div class="portal-admin-equip-name-row">';
       html += '<span class="portal-admin-equip-status-dot' + (itemActive ? ' is-on' : ' is-off') +
         '" aria-hidden="true"></span>';
+      html += '<div class="portal-admin-equip-name" title="' + escHtml(item.label || key) + '">' +
+        escHtml(item.label) + '</div>';
+      html += '</div>';
+      // Exact semantic meta: "Stock = X · Enabled|Disabled" (no today availability slot).
+      html += '<div class="portal-admin-equip-status" data-equip-status="' + escHtml(key) + '">';
       html += '<span class="portal-admin-equip-status-text portal-admin-muted">';
       html += '<span class="portal-admin-equip-stock-readout" data-equip-stock="' +
         escHtml(item.stock_quantity == null ? '' : String(item.stock_quantity)) + '">' +
         escHtml(adminEquipCompactStockPart(item.stock_quantity)) + '</span>';
-      // Available today filled async — empty until known; aria-live for updates.
-      html += '<span class="portal-admin-equip-available-today" data-equip-available-today="' +
-        escHtml(key) + '" data-equip-today-gen="' + escHtml(String(equipTodayGen)) +
-        '" data-equip-today-school="' + escHtml(equipTodaySchool) +
-        '" aria-live="polite"></span>';
-      // Semantic enabled state (not color-only).
+      html += '<span class="portal-admin-equip-meta-sep" aria-hidden="true"> · </span>';
       html += '<span class="portal-admin-equip-active-label" data-equip-active-label="' +
-        (itemActive ? '1' : '0') + '"> · ' +
+        (itemActive ? '1' : '0') + '">' +
         escHtml(itemActive ? statusOnLabel : statusOffLabel) + '</span>';
       html += '</span></div></div>';
 
@@ -1435,21 +1450,11 @@ function renderAdminSectionPricesFromConfig(cfg){
       }
       html += '</div>';
 
+      // Browse: pencil only — no overflow / compact Delete.
       if (writes && !adminPriceGroupBusy(key)){
         html += '<div class="portal-admin-equip-actions portal-admin-card-actions">';
         html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-equip-edit-btn" data-admin-action="edit-equipment" data-equip-key="' +
           escHtml(key) + '" aria-label="' + escHtml(editLabel) + '" title="' + escHtml(editLabel) + '">✎</button>';
-        // Simple disclosure (not ARIA menu): Delete lives here on compact rows.
-        html += '<div class="portal-admin-equip-overflow" data-admin-equip-overflow="' + escHtml(key) + '">';
-        html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-equip-overflow-btn" data-admin-action="equip-overflow-toggle" data-equip-key="' +
-          escHtml(key) + '" aria-expanded="false" aria-controls="' + escHtml(overflowPanelId) +
-          '" id="admin-equip-overflow-btn-' + escHtml(adminPriceInputKey(key)) +
-          '" aria-label="' + escHtml(moreLabel) + '" title="' + escHtml(moreLabel) + '">⋯</button>';
-        html += '<div class="portal-admin-equip-overflow-panel" id="' + escHtml(overflowPanelId) +
-          '" data-admin-equip-overflow-panel hidden>';
-        html += '<button type="button" class="portal-admin-equip-overflow-item portal-admin-danger" data-admin-action="delete-rental-offering" data-equip-key="' +
-          escHtml(key) + '" aria-label="' + escHtml(deleteLabel) + '">' + escHtml(deleteLabel) + '</button>';
-        html += '</div></div>';
         html += '</div>';
       }
       html += '</div>'; // compact
@@ -1457,15 +1462,25 @@ function renderAdminSectionPricesFromConfig(cfg){
       // ── Expand-in-place editor (green-accent shell) ──
       html += '<div class="portal-admin-equip-edit-shell" data-admin-equip-edit="' + escHtml(key) + '">';
       html += '<div class="portal-admin-equip-edit-header">';
+      html += '<div class="portal-admin-equip-edit-heading-row portal-admin-equip-name-row">';
+      html += '<span class="portal-admin-equip-status-dot' + (itemActive ? ' is-on' : ' is-off') +
+        '" aria-hidden="true"></span>';
       html += '<h3 class="portal-admin-equip-edit-heading">' + escHtml(editingHeading) + '</h3>';
-      html += '</div>';
+      html += '<span class="portal-admin-equip-active-label" data-equip-active-label="' +
+        (itemActive ? '1' : '0') + '">' +
+        escHtml(itemActive ? statusOnLabel : statusOffLabel) + '</span>';
+      html += '</div></div>';
 
       var stockVal = item.stock_quantity == null ? '' : String(item.stock_quantity);
+      var nameInputId = 'admin-equip-name-' + key;
+      var stockInputId = 'admin-equip-stock-' + key;
       html += '<div class="portal-admin-edit-form portal-admin-equip-meta-form" data-equip-key="' + escHtml(key) + '">' +
-        '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.prices.equipmentName') || 'Equipment name') + '</label>' +
-        '<input type="text" id="admin-equip-name-' + escHtml(key) + '" data-admin-equip-field="name" data-equip-key="' + escHtml(key) + '" value="' + escHtml(item.label || '') + '" maxlength="120"></div>' +
-        '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.prices.stock') || 'Total stock') + '</label>' +
-        '<input type="number" id="admin-equip-stock-' + escHtml(key) + '" data-admin-equip-field="stock" data-equip-key="' + escHtml(key) + '" min="0" max="999" step="1" value="' + escHtml(stockVal) + '" inputmode="numeric" placeholder=""></div>' +
+        '<div class="portal-admin-edit-field portal-admin-equip-field"><label for="' + escHtml(nameInputId) + '">' +
+        escHtml(portalT('admin.prices.equipmentName') || 'Equipment name') + '</label>' +
+        '<input type="text" id="' + escHtml(nameInputId) + '" data-admin-equip-field="name" data-equip-key="' + escHtml(key) + '" value="' + escHtml(item.label || '') + '" maxlength="120"></div>' +
+        '<div class="portal-admin-edit-field portal-admin-equip-field"><label for="' + escHtml(stockInputId) + '">' +
+        escHtml(portalT('admin.prices.stock') || 'Total stock') + '</label>' +
+        '<input type="number" id="' + escHtml(stockInputId) + '" data-admin-equip-field="stock" data-equip-key="' + escHtml(key) + '" min="0" max="999" step="1" value="' + escHtml(stockVal) + '" inputmode="numeric" placeholder=""></div>' +
         '<div class="portal-admin-edit-field portal-admin-equip-field portal-admin-equip-enabled-field">' +
         '<span class="portal-admin-equip-switch-caption">' + escHtml(portalT('admin.prices.enabled') || 'Enabled') + '</span>' +
         '<label class="portal-admin-equip-switch" title="' + escHtml(portalT('admin.prices.enabled') || 'Enabled') + '">' +
@@ -1487,25 +1502,21 @@ function renderAdminSectionPricesFromConfig(cfg){
           var durUnit = (durParsed && durParsed.unit) || 'days';
           var durCount = (durParsed && durParsed.count) || 1;
           var pricePrefix = 'admin-price-' + adminPriceInputKey(r.pid || '');
+          var amountId = 'admin-price-amount-' + adminPriceInputKey(r.pid || '');
           html += '<article class="portal-admin-price-card is-editing' + (r.active ? '' : ' is-inactive') +
             (isInvalid ? ' is-duration-invalid' : '') +
             '" data-admin-price-card="' + escHtml(r.pid || '') +
             '" data-admin-price-duration="' + escHtml(r.duration_key || '') + '">';
           if (isInvalid){
             // Fail-closed sentinel — do not invent a writable duration identity.
-            html += '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' +
-              escHtml(portalT('admin.prices.duration') || 'Duration') + '</label>' +
-              '<select class="portal-admin-duration-unit" disabled data-admin-duration-invalid="1" aria-invalid="true">' +
-              '<option selected value="">' + escHtml(r.duration_label || r.duration_key || '???') + '</option>' +
-              '</select></div>';
+            html += renderAdminDurationInvalidControl(pricePrefix, r.duration_label || r.duration_key || '???');
           } else {
             html += renderAdminDurationControl(pricePrefix, durUnit, durCount);
           }
-          html += '<div class="portal-admin-price-card-edit portal-admin-equip-amount-field"><div><label>' +
-            escHtml(portalT('admin.edit.amountEur')) + '</label>' +
-            '<input type="text" data-admin-price-field="amount" id="admin-price-amount-' +
-            escHtml(adminPriceInputKey(r.pid)) + '" value="' + escHtml(euros) +
-            '" inputmode="decimal"></div></div>';
+          html += '<div class="portal-admin-price-card-edit portal-admin-equip-amount-field"><div><label for="' +
+            escHtml(amountId) + '">' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
+            '<input type="text" data-admin-price-field="amount" id="' + escHtml(amountId) +
+            '" value="' + escHtml(euros) + '" inputmode="decimal"></div></div>';
           if (r.pid){
             // PRE-EXISTING contract: × immediately DELETEs with confirmation; Cancel cannot undo.
             html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger portal-admin-equip-remove-duration" data-admin-action="delete-price" data-price-id="' +
@@ -1543,108 +1554,7 @@ function renderAdminSectionPricesFromConfig(cfg){
   });
   html += '</div>'; // equip-list
   box.innerHTML = html;
-  if (typeof adminRefreshEquipAvailableToday === 'function') {
-    // Pass generation + school captured at render so a held response cannot overwrite a newer paint.
-    adminRefreshEquipAvailableToday(items, {
-      gen: equipTodayGen,
-      schoolKey: equipTodaySchool,
-    });
-  }
-}
-
-/**
- * Populate compact " · N today" via the same Staff rental-stock API (no local math).
- * Never invents availability: unconfigured / failed leave the slot empty.
- *
- * Race gate (operation-local): monotonic gen + captured client|location + list render identity.
- * Exact offering key alone is insufficient — a stale response after re-render/client/location
- * switch must not update the current DOM.
- *
- * @param {Array} items
- * @param {{gen?: number, schoolKey?: string}} [opts]
- */
-async function adminRefreshEquipAvailableToday(items, opts){
-  var list = Array.isArray(items) ? items : [];
-  var keys = list.map(function(it){ return String(it && it.offering_key || '').trim(); }).filter(Boolean);
-  if (!keys.length) return;
-  opts = opts || {};
-  // Prefer caller-captured gen (from render); otherwise allocate a new operation-local gen.
-  var gen = (opts.gen != null) ? Number(opts.gen) : (++adminEquipTodayRefreshSeq);
-  var schoolKey = (opts.schoolKey != null) ? String(opts.schoolKey) : adminEquipTodaySchoolKey();
-  if (opts.gen == null) {
-    // Keep global seq in sync when callers omit gen.
-    if (gen > adminEquipTodayRefreshSeq) adminEquipTodayRefreshSeq = gen;
-  }
-  var today = new Date();
-  var iso = today.getFullYear() + '-'
-    + String(today.getMonth() + 1).padStart(2, '0') + '-'
-    + String(today.getDate()).padStart(2, '0');
-  var loc = (typeof getSunsetLocation === 'function' && getClient && getClient() === 'sunset')
-    ? String(getSunsetLocation() || '')
-    : ((typeof adminActiveLocationId === 'function' && adminActiveLocationId())
-      || (window.adminState && window.adminState.locationId)
-      || 'sunset-somo');
-  var client = (typeof getClient === 'function' && getClient())
-    || (typeof adminClientSlug === 'function' && adminClientSlug())
-    || 'sunset';
-  try {
-    var res = await fetch('/staff/schedule/rental-stock?client=' + encodeURIComponent(client)
-      + '&location=' + encodeURIComponent(loc), {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        date_from: iso,
-        date_to: iso,
-        location_id: loc,
-        offerings: keys.map(function(k){ return { offering_key: k, quantity: 1 }; }),
-      }),
-    });
-    // Stale if a newer render/refresh started, or client/location changed.
-    if (gen !== adminEquipTodayRefreshSeq) return;
-    if (adminEquipTodaySchoolKey() !== schoolKey) return;
-    var listNow = document.querySelector('[data-admin-equip-list]');
-    if (!listNow) return;
-    if (String(listNow.getAttribute('data-equip-today-gen') || '') !== String(gen)) return;
-    if (String(listNow.getAttribute('data-equip-today-school') || '') !== schoolKey) return;
-    var data = await res.json().catch(function(){ return null; });
-    if (gen !== adminEquipTodayRefreshSeq) return;
-    if (adminEquipTodaySchoolKey() !== schoolKey) return;
-    listNow = document.querySelector('[data-admin-equip-list]');
-    if (!listNow
-      || String(listNow.getAttribute('data-equip-today-gen') || '') !== String(gen)
-      || String(listNow.getAttribute('data-equip-today-school') || '') !== schoolKey) {
-      return;
-    }
-    if (!data || !data.success || !Array.isArray(data.items)) return;
-    data.items.forEach(function(it){
-      if (!it || !it.offering_key) return;
-      // Scope query to the current list paint (not a global key match).
-      var elNode = listNow.querySelector(
-        '[data-equip-available-today="' + it.offering_key + '"][data-equip-today-gen="' + gen + '"]',
-      );
-      if (!elNode) return;
-      if (String(elNode.getAttribute('data-equip-today-school') || '') !== schoolKey) return;
-      // Truthful only: omit when not configured rather than inventing a derived number.
-      if (it.not_configured || it.stock_quantity == null) {
-        elNode.textContent = '';
-        elNode.removeAttribute('data-today-count');
-        return;
-      }
-      var n = (it.sold_out || Number(it.remaining) <= 0)
-        ? 0
-        : Math.floor(Number(it.remaining));
-      if (!Number.isFinite(n)) {
-        elNode.textContent = '';
-        elNode.removeAttribute('data-today-count');
-        return;
-      }
-      elNode.setAttribute('data-today-count', String(n));
-      elNode.textContent = ' · ' + String(portalT('admin.prices.todayCount') || '{n} today').replace('{n}', String(n));
-    });
-  } catch (_err) {
-    // Advisory only — leave empty on network failure (no invented availability).
-  }
+  // Rental Prices panel intentionally does not fetch/render today's availability.
 }
 
 function renderAdminSectionCapacityFromConfig(cfg){
@@ -2529,23 +2439,6 @@ function wireAdminTab(){
   var root = el('tab-admin');
   if (!root || root.dataset.adminWired === '1') return;
   root.dataset.adminWired = '1';
-  // Close equipment overflow disclosures on outside click / Escape (return focus to trigger).
-  if (!document.documentElement.dataset.equipOverflowDocWired) {
-    document.documentElement.dataset.equipOverflowDocWired = '1';
-    document.addEventListener('click', function(ev){
-      var t = ev.target;
-      if (t && t.closest && t.closest('[data-admin-equip-overflow]')) return;
-      adminCloseAllEquipOverflowMenus(null);
-    }, true);
-    document.addEventListener('keydown', function(ev){
-      if (ev.key === 'Escape' || ev.key === 'Esc') {
-        var open = document.querySelector('[data-admin-equip-overflow].is-open');
-        if (!open) return;
-        adminCloseAllEquipOverflowMenus(null, { returnFocus: true });
-        try { ev.preventDefault(); } catch (_e) { /* ignore */ }
-      }
-    });
-  }
   root.addEventListener('click', function(ev){
     var btn = ev.target && ev.target.closest ? ev.target.closest('[data-admin-action]') : null;
     if (!btn || adminSaveBusy) return;
@@ -2611,22 +2504,11 @@ function wireAdminTab(){
       if (tierRow && tierRow.parentNode) tierRow.parentNode.removeChild(tierRow);
       return;
     }
-    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'delete-rental-offering' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'toggle-group-availability' || action === 'toggle-equip-enabled' || action === 'add-equipment' || action === 'edit-equipment' || action === 'add-equip-price' || action === 'save-new-equipment' || action === 'save-price-amount' || action === 'save-equip-meta' || action === 'save-equipment' || action === 'edit-accommodation' || action === 'save-accommodation' || action === 'accom-add-range' || action === 'accom-remove-range' || action === 'equip-overflow-toggle'){
+    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'delete-rental-offering' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'toggle-group-availability' || action === 'toggle-equip-enabled' || action === 'add-equipment' || action === 'edit-equipment' || action === 'add-equip-price' || action === 'save-new-equipment' || action === 'save-price-amount' || action === 'save-equip-meta' || action === 'save-equipment' || action === 'edit-accommodation' || action === 'save-accommodation' || action === 'accom-add-range' || action === 'accom-remove-range'){
       if (!adminCfgWritesEnabled(cfg)) return;
     }
-    if (action === 'equip-overflow-toggle'){
-      var overflowRoot = btn.closest ? btn.closest('[data-admin-equip-overflow]') : null;
-      if (!overflowRoot) return;
-      var wasOpen = overflowRoot.classList.contains('is-open');
-      if (wasOpen) {
-        adminCloseAllEquipOverflowMenus(null, { returnFocus: true });
-      } else {
-        adminOpenEquipOverflowDisclosure(overflowRoot);
-      }
-      return;
-    }
     if (action === 'delete-rental-offering'){
-      adminCloseAllEquipOverflowMenus(null);
+      // Equipment hard delete is only reachable from the edit footer (no browse overflow).
       var delEquipKey = String(btn.getAttribute('data-equip-key') || '').trim();
       if (!delEquipKey){ adminShowMessage('error', portalT('admin.edit.saveFailed')); return; }
       // Hard delete: rental identity + all duration prices + course links permanently.
@@ -2671,6 +2553,19 @@ function wireAdminTab(){
         if (toggleEquipActive) toggleCard.classList.remove('is-equip-disabled');
         else toggleCard.classList.add('is-equip-disabled');
         toggleCard.setAttribute('data-equip-active-draft', toggleEquipActive ? '1' : '0');
+        toggleCard.setAttribute('data-equip-active', toggleEquipActive ? '1' : '0');
+        // Live-update heading status affordance without inventing persistence.
+        var statusTxt = adminEquipEnabledLabel(toggleEquipActive);
+        var dots = toggleCard.querySelectorAll('.portal-admin-equip-status-dot');
+        for (var di = 0; di < dots.length; di++) {
+          dots[di].classList.toggle('is-on', toggleEquipActive);
+          dots[di].classList.toggle('is-off', !toggleEquipActive);
+        }
+        var labels = toggleCard.querySelectorAll('[data-equip-active-label]');
+        for (var li = 0; li < labels.length; li++) {
+          labels[li].setAttribute('data-equip-active-label', toggleEquipActive ? '1' : '0');
+          labels[li].textContent = statusTxt;
+        }
       }
       return;
     }
@@ -2717,7 +2612,6 @@ function wireAdminTab(){
       return;
     }
     if (action === 'cancel-edit'){
-      adminCloseAllEquipOverflowMenus(null);
       adminEditTarget = null;
       // Cancel drops rental-edit ownership only — not unrelated Admin notices.
       if (typeof adminClearEquipErrors === 'function') adminClearEquipErrors();
@@ -2731,21 +2625,18 @@ function wireAdminTab(){
       return;
     }
     if (action === 'add-equipment'){
-      adminCloseAllEquipOverflowMenus(null);
       adminEditTarget = 'equip-add-item';
       adminShowMessage('', '');
       renderAdminFromConfig(cfg);
       return;
     }
     if (action === 'edit-equipment'){
-      adminCloseAllEquipOverflowMenus(null);
       adminEditTarget = 'equip:' + String(btn.getAttribute('data-equip-key') || '');
       adminShowMessage('', '');
       renderAdminFromConfig(cfg);
       return;
     }
     if (action === 'add-equip-price'){
-      adminCloseAllEquipOverflowMenus(null);
       adminEditTarget = 'equip-add-price:' + String(btn.getAttribute('data-equip-key') || '');
       adminShowMessage('', '');
       renderAdminFromConfig(cfg);

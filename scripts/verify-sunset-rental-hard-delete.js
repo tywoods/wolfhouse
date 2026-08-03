@@ -110,9 +110,9 @@ function sourceContracts() {
       && /admin\.prices\.deleteRental/.test(adminUi),
   );
   ok(
-    'Delete rental via overflow (compact) + footer (edit); not a bare top-right header button',
+    'Delete rental via edit footer only (no browse overflow); not a bare top-right header button',
     /delete-rental-offering/.test(adminUi)
-      && /equip-overflow|portal-admin-equip-overflow/.test(adminUi)
+      && !/equip-overflow-toggle|data-admin-equip-overflow/.test(adminUi)
       && /portal-admin-equip-footer[\s\S]{0,400}delete-rental-offering/.test(adminUi),
   );
   ok(
@@ -945,6 +945,31 @@ async function browserFixture() {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
 
+  /**
+   * Teardown safety: late config fetches after browser.close() throw
+   * "Storage.getCookies: Failed to find browser context". Track closing +
+   * in-flight route work; short-circuit only when closing (do not swallow
+   * errors while the test is still active).
+   */
+  let closing = false;
+  const inflightRoutes = new Set();
+  async function runRoute(r, fn) {
+    if (closing) {
+      try { await r.abort(); } catch (_e) { /* context already going away */ }
+      return;
+    }
+    const token = Object.create(null);
+    inflightRoutes.add(token);
+    try {
+      await fn(r);
+    } catch (err) {
+      if (closing) return;
+      throw err;
+    } finally {
+      inflightRoutes.delete(token);
+    }
+  }
+
   let offerings = [
     { offering_key: 'softboard', label: 'Soft board', active: true },
     { offering_key: 'ghost_fins', label: 'Ghost fins (unpriced)', active: true },
@@ -1143,19 +1168,32 @@ async function browserFixture() {
   });
 
   await page.route(/\/staff\/admin\/config(?:\?|$)/, async (r) => {
-    configGets.push(r.request().url());
-    const x = await r.fetch();
-    const b = await x.json();
-    b.surf_packs = [pack];
-    b.private_lesson = privateLesson;
-    b.prices = rentalPrices.slice();
-    b.writes_enabled = true;
-    b.read_only = false;
-    await r.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      headers: { 'Cache-Control': 'no-store' },
-      body: JSON.stringify(b),
+    await runRoute(r, async (route) => {
+      configGets.push(route.request().url());
+      // r.fetch() needs a live browser context — abort cleanly if teardown started mid-flight.
+      let x;
+      try {
+        x = await route.fetch();
+      } catch (err) {
+        if (closing) return;
+        throw err;
+      }
+      if (closing) {
+        try { await route.abort(); } catch (_e) { /* ignore */ }
+        return;
+      }
+      const b = await x.json();
+      b.surf_packs = [pack];
+      b.private_lesson = privateLesson;
+      b.prices = rentalPrices.slice();
+      b.writes_enabled = true;
+      b.read_only = false;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'Cache-Control': 'no-store' },
+        body: JSON.stringify(b),
+      });
     });
   });
 
@@ -1225,26 +1263,31 @@ async function browserFixture() {
     assert.strictEqual(await ghostCard.count(), 1);
     assert.strictEqual(await retiredCard.count(), 1);
 
-    // Hybrid: Delete lives in overflow on compact rows (not a bare always-visible header button).
+    // Polish: browse is pencil-only; equipment Delete lives only in edit footer.
     assert.strictEqual(
       await softCard.locator('[data-admin-action="equip-overflow-toggle"]').count(),
-      1,
-      'priced compact row has overflow',
+      0,
+      'priced compact row has no overflow',
     );
     assert.strictEqual(
       await ghostCard.locator('[data-admin-action="equip-overflow-toggle"]').count(),
-      1,
-      'unpriced compact row has overflow',
+      0,
+      'unpriced compact row has no overflow',
     );
     assert.strictEqual(
       await retiredCard.locator('[data-admin-action="equip-overflow-toggle"]').count(),
-      1,
-      'disabled compact row has overflow',
+      0,
+      'disabled compact row has no overflow',
     );
-    // Overflow menu item exists in DOM but is not a top-level bare Delete on compact surface.
-    assert.ok(
-      (await softCard.locator('[data-admin-equip-overflow] [data-admin-action="delete-rental-offering"]').count()) >= 1,
-      'overflow contains Delete action',
+    assert.strictEqual(
+      await softCard.locator('.portal-admin-equip-compact [data-admin-action="delete-rental-offering"]').count(),
+      0,
+      'compact has zero Delete controls',
+    );
+    assert.strictEqual(
+      await softCard.locator('[data-admin-action="edit-equipment"]').count(),
+      1,
+      'priced compact row has pencil',
     );
 
     // Disabled retains edit; add-price is edit-mode only in hybrid
@@ -1363,6 +1406,17 @@ async function browserFixture() {
     assert.deepStrictEqual(errors, []);
     console.log('  browser fixture OK');
   } finally {
+    // Signal routes to abort; drain in-flight handlers before destroying context.
+    closing = true;
+    const deadline = Date.now() + 3000;
+    while (inflightRoutes.size > 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    try {
+      if (typeof page.unrouteAll === 'function') {
+        await page.unrouteAll({ behavior: 'ignoreErrors' });
+      }
+    } catch (_e) { /* ignore */ }
     await browser.close();
     await new Promise((r) => server.close(r));
   }

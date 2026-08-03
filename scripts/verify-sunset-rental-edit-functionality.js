@@ -1057,7 +1057,7 @@ async function browserFixture() {
     const retired = page.locator('[data-admin-equip="retired_board"]');
     const ghost = page.locator('[data-admin-equip="ghost_fins"]');
 
-    // Compact: Delete only in overflow (not a bare labeled header action); no add-duration on compact
+    // Compact: pencil only — no overflow, no footer Delete, no add-duration
     assert.strictEqual(
       await soft.locator('.portal-admin-equip-footer [data-admin-action="delete-rental-offering"]').count(),
       0,
@@ -1070,8 +1070,18 @@ async function browserFixture() {
     );
     assert.strictEqual(
       await soft.locator('[data-admin-action="equip-overflow-toggle"]').count(),
+      0,
+      'compact: no overflow',
+    );
+    assert.strictEqual(
+      await soft.locator('.portal-admin-equip-compact [data-admin-action="delete-rental-offering"]').count(),
+      0,
+      'compact: zero Delete controls',
+    );
+    assert.strictEqual(
+      await soft.locator('[data-admin-action="edit-equipment"]').count(),
       1,
-      'compact: overflow present',
+      'compact: one pencil',
     );
 
     // Pencil mode: Delete in footer + Add duration + price

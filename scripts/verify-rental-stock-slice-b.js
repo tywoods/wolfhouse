@@ -677,18 +677,20 @@ section('B. collect claims — exact offering_key, no component expansion');
         .includes('DEFAULT_SUNSET_LOCATION_ID'));
   }
 
-  // ── Q. Admin available today uses same API ────────────────────────────────
-  section('Q. Admin Available today via same API');
+  // ── Q. Admin Rental Prices panel does not paint today (stock APIs elsewhere intact) ──
+  section('Q. Admin panel no today paint; stock service untouched');
   {
     const adminSrc = fs.readFileSync(
       path.join(ROOT, 'scripts/browser/sunset-admin-ui.js'), 'utf8',
     );
-    ok('admin available today markup',
-      adminSrc.includes('data-equip-available-today'));
-    ok('admin fetches /staff/schedule/rental-stock',
-      adminSrc.includes('/staff/schedule/rental-stock'));
+    ok('admin rental prices panel has no today availability slot',
+      !adminSrc.includes('data-equip-available-today')
+      && !adminSrc.includes('adminRefreshEquipAvailableToday'));
     ok('admin does not reimplement stock calculator',
       !adminSrc.includes('computeRentalStockAvailability'));
+    ok('schedule rental-stock API path still present in repo (backend/UI elsewhere)',
+      fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8').includes('rental-stock')
+      || fs.existsSync(path.join(ROOT, 'scripts/lib/tenant-rental-stock-service.js')));
   }
 
   // ── R. Migration integrity still references 055 ───────────────────────────

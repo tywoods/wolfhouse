@@ -93,37 +93,68 @@ const EXPECTED_CHIPS = {
 };
 
 function sourceContracts() {
-  console.log('\n[source] hybrid layout + race gate + disclosure + i18n + CSS\n');
+  console.log('\n[source] polish layout + meta + no overflow + i18n + CSS\n');
   const adminUi = read('scripts/browser/sunset-admin-ui.js');
   const apiSrc = read('scripts/staff-query-api.js');
   const en = read('scripts/lib/staff-portal-i18n.js');
   const es = read('scripts/lib/staff-portal-i18n-es-sunset.js');
 
   ok(
-    'stock-today race: monotonic gen + school key + list identity gate',
-    /adminEquipTodayRefreshSeq/.test(adminUi)
-      && /data-equip-today-gen/.test(adminUi)
-      && /data-equip-today-school/.test(adminUi)
-      && /gen !== adminEquipTodayRefreshSeq/.test(adminUi)
-      && /adminEquipTodaySchoolKey\(\) !== schoolKey/.test(adminUi)
-      && /\[data-equip-available-today=/.test(adminUi),
+    'header has stable Add Equipment mount slot (not body toolbar)',
+    /id="admin-prices-hdr-actions"/.test(apiSrc)
+      && /adminPopulatePricesHeaderActions|admin-prices-hdr-actions/.test(adminUi)
+      && !/portal-admin-equip-toolbar/.test(adminUi)
+      && /portal-admin-prices-hdr/.test(apiSrc),
   );
   ok(
-    'overflow is simple disclosure (no role=menu/menuitem, no aria-haspopup=menu)',
-    /data-admin-equip-overflow-panel/.test(adminUi)
-      && /aria-controls/.test(adminUi)
-      && /aria-expanded/.test(adminUi)
-      && !/aria-haspopup="menu"/.test(adminUi)
-      && !/role="menu"/.test(adminUi)
-      && !/role="menuitem"/.test(adminUi)
-      && /adminOpenEquipOverflowDisclosure/.test(adminUi)
-      && /returnFocus/.test(adminUi),
+    'panel does not call/render today availability',
+    !/adminRefreshEquipAvailableToday/.test(adminUi)
+      && !/data-equip-available-today/.test(adminUi)
+      && !/adminEquipTodayRefreshSeq/.test(adminUi)
+      && !/portal-admin-equip-available-today/.test(adminUi),
   );
   ok(
-    'semantic on/off status text always rendered',
-    /admin\.prices\.on|statusOnLabel/.test(adminUi)
+    'no equipment overflow helpers/markup/CSS',
+    !/data-admin-equip-overflow/.test(adminUi)
+      && !/equip-overflow-toggle/.test(adminUi)
+      && !/adminOpenEquipOverflowDisclosure/.test(adminUi)
+      && !/adminCloseAllEquipOverflowMenus/.test(adminUi)
+      && !/portal-admin-equip-overflow/.test(apiSrc),
+  );
+  ok(
+    'browse pencil only; delete only via edit footer action',
+    /data-admin-action="edit-equipment"/.test(adminUi)
+      && /portal-admin-equip-footer[\s\S]{0,400}delete-rental-offering/.test(adminUi)
+      && !/equip-overflow[\s\S]{0,200}delete-rental-offering/.test(adminUi),
+  );
+  ok(
+    'duration control associates label via group aria-labelledby + control aria-label (unique id per prefix)',
+    /function renderAdminDurationControl[\s\S]{0,1200}duration-label[\s\S]{0,400}aria-labelledby[\s\S]{0,400}aria-label/.test(adminUi)
+      && /durationCountAria|Duration count/.test(adminUi)
+      && /durationUnitAria|Duration unit/.test(adminUi)
+      && /renderAdminDurationInvalidControl/.test(adminUi),
+  );
+  ok(
+    'add/edit fields use for= association on name/stock/amount',
+    /label for="'\s*\+\s*nameId/.test(adminUi)
+      && /label for="'\s*\+\s*stockId/.test(adminUi)
+      && /label for="'\s*\+\s*amountId/.test(adminUi)
+      && /label for="'\s*\+\s*escHtml\(nameInputId\)/.test(adminUi)
+      && /label for="'\s*\+\s*escHtml\(stockInputId\)/.test(adminUi)
+      && /label for="'\s*\+\s*escHtml\(amountId\)/.test(adminUi),
+  );
+  ok(
+    'edit pencil uses equipment-specific i18n Edit {name} rental prices',
+    /admin\.prices\.editEquipmentPrices/.test(adminUi)
+      && /Edit \{name\} rental prices/.test(en),
+  );
+  ok(
+    'status dot in name row; meta uses Stock = + Enabled/Disabled',
+    /portal-admin-equip-name-row/.test(adminUi)
+      && /adminEquipCompactStockPart/.test(adminUi)
+      && /admin\.prices\.stockEquals|adminEquipEnabledLabel/.test(adminUi)
       && /data-equip-active-label/.test(adminUi)
-      && /aria-live="polite"/.test(adminUi),
+      && /portal-admin-equip-meta-sep/.test(adminUi),
   );
   ok(
     'no full-row opacity fade for disabled equip rows',
@@ -131,17 +162,26 @@ function sourceContracts() {
       && /portal-admin-equip-row\.is-equip-disabled \.portal-admin-equip-chip/.test(apiSrc),
   );
   ok(
-    '44px touch targets for edit/overflow/remove/footer/duration',
+    '44px touch targets for edit/remove/footer/duration',
     /\.portal-admin-equip-edit-btn[^{]*\{[^}]*min-height:44px/.test(apiSrc)
       && /portal-admin-duration-count\{[^}]*min-height:44px/.test(apiSrc)
       && /portal-admin-equip-delete\{[^}]*min-height:44px/.test(apiSrc)
-      && /portal-admin-equip-overflow-item\{[^}]*min-height:44px/.test(apiSrc)
       && /var\(--focus/.test(apiSrc),
   );
   ok(
     'name wraps (line-clamp) not single-line ellipsis-only',
     /-webkit-line-clamp:\s*2/.test(apiSrc)
       && !/\.portal-admin-equip-name\{[^}]*white-space:nowrap/.test(apiSrc),
+  );
+  ok(
+    'add-equipment form has scoped bottom margin before list',
+    /#admin-prices-body #admin-add-equip-form\{[^}]*margin-bottom:\s*20px/.test(apiSrc)
+      || /#admin-add-equip-form\{[^}]*margin-bottom:\s*20px/.test(apiSrc),
+  );
+  ok(
+    'edit meta form explicit columns + no overflow clip on enabled',
+    /portal-admin-equip-meta-form\{[^}]*grid-template-columns:minmax\(0,1fr\) minmax\(96px,120px\) minmax\(72px,auto\)/.test(apiSrc)
+      && /portal-admin-equip-enabled-field\{[^}]*overflow:\s*visible/.test(apiSrc),
   );
   ok(
     'duration × still immediate delete-price (not staged into commit body as remove list)',
@@ -155,24 +195,46 @@ function sourceContracts() {
       || en.includes("'admin.prices.removeDuration': 'Remove duration price now'"),
   );
   for (const key of [
-    'admin.prices.stockCount',
-    'admin.prices.todayCount',
-    'admin.prices.on',
-    'admin.prices.off',
+    'admin.prices.stockEquals',
+    'admin.prices.stockUnconfigured',
+    'admin.prices.enabled',
+    'admin.prices.disabled',
     'admin.prices.editingTitle',
+    'admin.prices.editEquipmentPrices',
+    'admin.prices.durationCountAria',
+    'admin.prices.durationUnitAria',
     'admin.prices.addDurationPrice',
     'admin.prices.saveChanges',
-    'admin.prices.moreActions',
     'admin.prices.deleteEquipment',
   ]) {
     ok(`EN ${key}`, en.includes(`'${key}'`));
-    ok(`ES ${key}`, es.includes(`'${key}'`));
+    ok(`ES ${key}`, es.includes(`'${key}'`) || (key === 'admin.prices.enabled' || key === 'admin.prices.disabled'));
   }
   ok(
-    'IT hybrid keys present (no EN fallback needed when locale it enabled)',
+    'EN Stock = {n} + Enabled/Disabled exact',
+    en.includes("'admin.prices.stockEquals': 'Stock = {n}'")
+      && en.includes("'admin.prices.enabled': 'Enabled'")
+      && en.includes("'admin.prices.disabled': 'Disabled'"),
+  );
+  ok(
+    'EN editEquipmentPrices template',
+    en.includes("'admin.prices.editEquipmentPrices': 'Edit {name} rental prices'"),
+  );
+  ok(
+    'ES Activado/Desactivado + Stock = + edit pencil',
+    es.includes("'admin.prices.enabled': 'Activado'")
+      && es.includes("'admin.prices.disabled': 'Desactivado'")
+      && es.includes("'admin.prices.stockEquals': 'Stock = {n}'")
+      && es.includes("'admin.prices.editEquipmentPrices': 'Editar precios de alquiler de {name}'"),
+  );
+  ok(
+    'IT hybrid keys present (Attivo/Disattivato, Stock =, edit pencil)',
     en.includes("'admin.prices.editingTitle': 'Modifica — {name}'")
       && en.includes("'admin.prices.saveChanges': 'Salva modifiche'")
-      && en.includes("'admin.prices.on': 'attivo'")
+      && en.includes("'admin.prices.enabled': 'Attivo'")
+      && en.includes("'admin.prices.disabled': 'Disattivato'")
+      && en.includes("'admin.prices.stockEquals': 'Stock = {n}'")
+      && en.includes("'admin.prices.editEquipmentPrices': 'Modifica prezzi noleggio di {name}'")
       && en.includes("'admin.prices.removeDuration': 'Rimuovi prezzo durata ora'"),
   );
 }
@@ -461,84 +523,217 @@ async function browserFixture() {
     });
   }
 
-  async function shotPanel(name) {
-    const panel = page.locator('#admin-prices-body');
-    await panel.scrollIntoViewIfNeeded();
-    await page.screenshot({
-      path: path.join(ARTIFACTS, name),
-      clip: await panel.boundingBox().then((b) => {
-        if (!b) return null;
-        return {
-          x: Math.max(0, b.x - 8),
-          y: Math.max(0, b.y - 8),
-          width: Math.min(b.width + 16, 1280),
-          height: Math.min(b.height + 16, 2000),
-        };
-      }),
-    }).catch(async () => {
-      await page.screenshot({ path: path.join(ARTIFACTS, name), fullPage: false });
+  async function shotSection(name) {
+    // Full element screenshot of complete section (may be taller than viewport).
+    // Fail closed if crop/capture fails — no silent full-page fallback.
+    const section = page.locator('#admin-sec-prices');
+    await section.waitFor({ state: 'visible', timeout: 10000 });
+    await section.scrollIntoViewIfNeeded();
+    const outPath = path.join(ARTIFACTS, name);
+    try {
+      await section.screenshot({ path: outPath });
+    } catch (err) {
+      throw new Error(`screenshot crop failed for ${name}: ${err && err.message ? err.message : err}`);
+    }
+    const st = fs.statSync(outPath);
+    if (!st.size || st.size < 200) {
+      throw new Error(`screenshot empty/too small for ${name}: size=${st.size}`);
+    }
+  }
+
+  async function assertNoToday(label) {
+    const r = await page.evaluate(() => {
+      const slots = document.querySelectorAll(
+        '#admin-sec-prices [data-equip-available-today], #admin-sec-prices .portal-admin-equip-available-today',
+      );
+      const body = document.querySelector('#admin-prices-body');
+      const text = body ? (body.innerText || '') : '';
+      const todayish = /\b\d+\s+today\b|\b\d+\s+hoy\b|\b\d+\s+oggi\b|available.?today/i.test(text);
+      return { slots: slots.length, todayish, sample: text.slice(0, 120) };
     });
+    ok(`${label}: zero today DOM`, r.slots === 0, JSON.stringify(r));
+    ok(`${label}: zero today text`, !r.todayish, JSON.stringify(r));
+    ok(`${label}: stockCall===0`, stockCall === 0, `stockCall=${stockCall}`);
+  }
+
+  async function measureHeader(label) {
+    const hdr = await page.evaluate(() => {
+      const root = document.querySelector('[data-admin-prices-hdr]');
+      if (!root) return { missing: true };
+      const titles = root.querySelectorAll('.portal-admin-section-hdr-title, [data-i18n="admin.section.prices"]');
+      const actions = document.getElementById('admin-prices-hdr-actions');
+      const addBtns = actions
+        ? actions.querySelectorAll('[data-admin-action="add-equipment"]')
+        : [];
+      const bodyToolbar = document.querySelector('#admin-prices-body .portal-admin-equip-toolbar');
+      const bodyAdd = document.querySelectorAll('#admin-prices-body [data-admin-action="add-equipment"]');
+      const title = titles[0];
+      const btn = addBtns[0];
+      let titleBefore = false;
+      let sameRow = false;
+      let overlap = false;
+      let overflow = (root.scrollWidth - root.clientWidth) > 4;
+      if (title && btn) {
+        const kids = Array.from(root.children);
+        titleBefore = kids.indexOf(title) >= 0
+          && kids.indexOf(actions) >= 0
+          && kids.indexOf(title) < kids.indexOf(actions);
+        const tr = title.getBoundingClientRect();
+        const br = btn.getBoundingClientRect();
+        sameRow = Math.abs(tr.top - br.top) < 12
+          || (tr.bottom > br.top + 2 && br.bottom > tr.top + 2 && Math.abs(tr.top - br.top) < 28);
+        // Horizontal overlap of boxes while on same row is a failure.
+        const hOverlap = !(tr.right <= br.left + 0.5 || br.right <= tr.left + 0.5);
+        const vOverlap = !(tr.bottom <= br.top + 0.5 || br.bottom <= tr.top + 0.5);
+        overlap = hOverlap && vOverlap;
+      }
+      return {
+        missing: false,
+        titleCount: titles.length,
+        addCount: addBtns.length,
+        bodyToolbar: !!bodyToolbar,
+        bodyAddCount: bodyAdd.length,
+        titleText: title ? (title.textContent || '').trim() : '',
+        btnText: btn ? (btn.textContent || '').trim() : '',
+        titleBefore,
+        sameRow,
+        overlap,
+        overflow,
+      };
+    });
+    ok(`${label}: header present`, !hdr.missing, JSON.stringify(hdr));
+    ok(`${label}: exact one title`, hdr.titleCount === 1, JSON.stringify(hdr));
+    ok(`${label}: exact one + Add equipment`, hdr.addCount === 1, JSON.stringify(hdr));
+    ok(`${label}: DOM order title before action`, hdr.titleBefore, JSON.stringify(hdr));
+    ok(`${label}: no body toolbar/add duplicate`, !hdr.bodyToolbar && hdr.bodyAddCount === 0, JSON.stringify(hdr));
+    ok(`${label}: no title/button overlap`, !hdr.overlap, JSON.stringify(hdr));
+    ok(`${label}: header no horizontal overflow`, !hdr.overflow, JSON.stringify(hdr));
+    // Same row when it fits; if wraps, still no overlap/overflow (already asserted).
+    if (hdr.sameRow) {
+      ok(`${label}: title+button same row when fits`, true);
+    } else {
+      ok(`${label}: wrapped header still clean (no overlap/overflow)`, !hdr.overlap && !hdr.overflow, JSON.stringify(hdr));
+    }
+    return hdr;
   }
 
   try {
     await openAdminPricing();
 
+    // ── 0 header: exact one title + one Add; order + geometry ──
+    const hdrDesktop = await measureHeader('desktop-header');
+    ok('i18n title present on header', /rental prices/i.test(hdrDesktop.titleText), hdrDesktop.titleText);
+    ok('Add equipment button text', /\+|add equipment/i.test(hdrDesktop.btnText), hdrDesktop.btnText);
+
     // ── 1 exact chips + status for every fixture item ──
     for (const key of Object.keys(EXPECTED_CHIPS)) {
       await assertExactChips(key, EXPECTED_CHIPS[key]);
     }
-    ok(
-      'disabled towel has semantic off + is-equip-disabled',
-      (await page.locator('[data-admin-equip="towel_rental"]').evaluate((n) => n.classList.contains('is-equip-disabled')))
-        && (await page.locator('[data-admin-equip="towel_rental"] [data-equip-active-label="0"]').count()) === 1,
-    );
-    ok(
-      'active bicycle has semantic on label',
-      (await page.locator('[data-admin-equip="bicycle"] [data-equip-active-label="1"]').count()) === 1
-        && /on|enabled|activado|attivo/i.test(
-          await page.locator('[data-admin-equip="bicycle"] [data-equip-active-label]').innerText(),
-        ),
-    );
-    ok(
-      'bicycle name has full title attribute',
-      (await page.locator('[data-admin-equip="bicycle"] .portal-admin-equip-name').getAttribute('title')) === 'Bicycle',
-    );
-    ok(
-      'available-today is aria-live polite',
-      (await page.locator('[data-equip-available-today="bicycle"]').getAttribute('aria-live')) === 'polite',
-    );
 
-    await shotPanel('rental-admin-hybrid-desktop-browse.png');
-
-    // ── stock-today race: held older request must not overwrite newer paint ──
-    {
-      let release;
-      const holdCall = stockCall + 1; // next stock request is the stale one
-      holdStock = {
-        holdCall,
-        promise: new Promise((res) => { release = res; }),
-        resolve: () => release && release(),
+    // Browse meta geometry: status dot is sibling before name in name row; absent from meta.
+    const bikeMeta = await page.locator('[data-admin-equip="bicycle"]').evaluate((row) => {
+      const nameRow = row.querySelector('.portal-admin-equip-name-row');
+      const name = row.querySelector('.portal-admin-equip-name');
+      const dotsInName = nameRow ? Array.from(nameRow.querySelectorAll('.portal-admin-equip-status-dot')) : [];
+      const status = row.querySelector('[data-equip-status]');
+      const dotsInMeta = status ? Array.from(status.querySelectorAll('.portal-admin-equip-status-dot')) : [];
+      const metaText = status ? (status.textContent || '').replace(/\s+/g, ' ').trim() : '';
+      const stock = row.querySelector('[data-equip-stock]');
+      const active = row.querySelector('[data-equip-active-label]');
+      const today = row.querySelector('[data-equip-available-today], .portal-admin-equip-available-today');
+      const overflow = row.querySelector('[data-admin-equip-overflow], [data-admin-action="equip-overflow-toggle"]');
+      const compactDelete = row.querySelector('.portal-admin-equip-compact [data-admin-action="delete-rental-offering"]');
+      const pencils = row.querySelectorAll('[data-admin-action="edit-equipment"]');
+      let nameDotBefore = false;
+      if (nameRow && name && dotsInName[0]) {
+        const kids = Array.from(nameRow.children);
+        nameDotBefore = kids.indexOf(dotsInName[0]) >= 0
+          && kids.indexOf(name) >= 0
+          && kids.indexOf(dotsInName[0]) < kids.indexOf(name);
+      }
+      return {
+        nameDotBefore,
+        dotsInName: dotsInName.length,
+        dotsInMeta: dotsInMeta.length,
+        metaText,
+        stockText: stock ? (stock.textContent || '').trim() : '',
+        activeText: active ? (active.textContent || '').trim() : '',
+        activeAttr: active ? active.getAttribute('data-equip-active-label') : null,
+        today: !!today,
+        overflow: !!overflow,
+        compactDelete: !!compactDelete,
+        pencils: pencils.length,
+        title: name ? name.getAttribute('title') : null,
+        disabled: row.classList.contains('is-equip-disabled'),
       };
-      // Trigger re-paint via edit open (calls renderAdminSectionPricesFromConfig + stock refresh).
-      await page.locator('[data-admin-equip="bicycle"] [data-admin-action="edit-equipment"]').click();
-      await page.waitForTimeout(150);
-      ok('race setup: held stock call started', stockCall >= holdCall, `calls=${stockCall} hold=${holdCall}`);
-      // Newer paint with updated remaining while older call still held (snapshot stays 22).
-      stockByLoc['sunset-somo'].bicycle = 7;
-      await page.locator('[data-admin-equip="bicycle"] [data-admin-action="cancel-edit"]').click();
-      await page.waitForTimeout(450);
-      const todayTxt = await page.locator('[data-equip-available-today="bicycle"]').innerText();
-      const todayCount = await page.locator('[data-equip-available-today="bicycle"]').getAttribute('data-today-count');
+    });
+    ok(
+      'status dot sibling before name in name row',
+      bikeMeta.nameDotBefore && bikeMeta.dotsInName === 1,
+      JSON.stringify(bikeMeta),
+    );
+    ok('status dot absent from meta line', bikeMeta.dotsInMeta === 0, JSON.stringify(bikeMeta));
+    ok(
+      'exact Stock = 25 · Enabled meta EN',
+      bikeMeta.metaText === 'Stock = 25 · Enabled'
+        && bikeMeta.stockText === 'Stock = 25'
+        && bikeMeta.activeText === 'Enabled'
+        && bikeMeta.activeAttr === '1',
+      JSON.stringify(bikeMeta),
+    );
+    ok('zero today visible/slot on browse card', !bikeMeta.today && stockCall === 0, `stockCall=${stockCall} ${JSON.stringify(bikeMeta)}`);
+    ok(
+      'zero browse overflow/compact delete; one pencil',
+      !bikeMeta.overflow && !bikeMeta.compactDelete && bikeMeta.pencils === 1,
+      JSON.stringify(bikeMeta),
+    );
+    ok('bicycle name has full title attribute', bikeMeta.title === 'Bicycle');
+
+    // Equipment-specific edit pencil accessible names (EN)
+    const pencilNames = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('#admin-prices-body [data-admin-action="edit-equipment"]')).map((btn) => ({
+        key: btn.getAttribute('data-equip-key') || '',
+        aria: (btn.getAttribute('aria-label') || '').trim(),
+        title: (btn.getAttribute('title') || '').trim(),
+      }));
+    });
+    const expectedEquipNames = {
+      bicycle: 'Bicycle',
+      sup_rental: 'SUP',
+      board_and_suit_rental: 'Surfboard + Wetsuit',
+      towel_rental: 'Towel',
+    };
+    ok('all browse pencils present', pencilNames.length === Object.keys(expectedEquipNames).length, JSON.stringify(pencilNames));
+    const ariaSet = new Set(pencilNames.map((p) => p.aria));
+    ok('edit accessible names are distinct', ariaSet.size === pencilNames.length, JSON.stringify(pencilNames));
+    pencilNames.forEach((p) => {
+      const name = expectedEquipNames[p.key];
+      const expect = `Edit ${name} rental prices`;
       ok(
-        'stock-today race: stale first response does not overwrite newer 7',
-        todayCount === '7' || /7 today/.test(todayTxt),
-        `txt=${todayTxt} count=${todayCount} calls=${stockCall} hold=${holdCall}`,
+        `EN edit name for ${p.key}`,
+        name && p.aria === expect && p.title === expect && p.aria.includes(name),
+        JSON.stringify(p),
       );
-      stockByLoc['sunset-somo'].bicycle = 22;
-      if (release) release();
-      holdStock = null;
-      await page.waitForTimeout(150);
+    });
+    // Accessible-name lookup works for each pencil
+    for (const name of Object.values(expectedEquipNames)) {
+      const loc = page.getByRole('button', { name: `Edit ${name} rental prices`, exact: true });
+      ok(`getByRole edit pencil: ${name}`, (await loc.count()) === 1);
     }
+
+    const towelMeta = await page.locator('[data-admin-equip="towel_rental"]').evaluate((row) => ({
+      disabled: row.classList.contains('is-equip-disabled'),
+      meta: (row.querySelector('[data-equip-status]')?.textContent || '').replace(/\s+/g, ' ').trim(),
+      active: row.querySelector('[data-equip-active-label]')?.getAttribute('data-equip-active-label'),
+    }));
+    ok(
+      'disabled towel: is-equip-disabled + Stock = 50 · Disabled',
+      towelMeta.disabled && towelMeta.meta === 'Stock = 50 · Disabled' && towelMeta.active === '0',
+      JSON.stringify(towelMeta),
+    );
+
+    await assertNoToday('after-browse');
+    await shotSection('rental-admin-polish-desktop-browse.png');
 
     // ── 2 pencil expands exact row ──
     const bundle = page.locator('[data-admin-equip="board_and_suit_rental"]');
@@ -554,23 +749,69 @@ async function browserFixture() {
       'editing heading EN',
       /Editing — Surfboard \+ Wetsuit/.test(await bundle.locator('.portal-admin-equip-edit-heading').innerText()),
     );
+    const editHeader = await bundle.evaluate((row) => {
+      const headingRow = row.querySelector('.portal-admin-equip-edit-heading-row');
+      const dot = headingRow && headingRow.querySelector('.portal-admin-equip-status-dot');
+      const heading = headingRow && headingRow.querySelector('.portal-admin-equip-edit-heading');
+      const label = headingRow && headingRow.querySelector('[data-equip-active-label]');
+      let orderOk = false;
+      if (headingRow && dot && heading) {
+        const kids = Array.from(headingRow.children);
+        orderOk = kids.indexOf(dot) < kids.indexOf(heading);
+      }
+      return {
+        orderOk,
+        label: label ? (label.textContent || '').trim() : '',
+        attr: label ? label.getAttribute('data-equip-active-label') : null,
+        hasDot: !!dot,
+      };
+    });
+    ok(
+      'editor header: dot left of heading + Enabled status',
+      editHeader.orderOk && editHeader.hasDot && editHeader.label === 'Enabled' && editHeader.attr === '1',
+      JSON.stringify(editHeader),
+    );
     ok(
       'fields populated',
       (await bundle.locator('#admin-equip-name-board_and_suit_rental').inputValue()) === 'Surfboard + Wetsuit'
         && (await bundle.locator('#admin-equip-stock-board_and_suit_rental').inputValue()) === '100',
+    );
+    // Accessible-name lookup for edit meta + first duration card amount
+    ok(
+      'edit meta Equipment name via getByLabel',
+      (await bundle.getByLabel('Equipment name', { exact: true }).inputValue()) === 'Surfboard + Wetsuit',
+    );
+    ok(
+      'edit meta Total stock via getByLabel',
+      (await bundle.getByLabel('Total stock', { exact: true }).inputValue()) === '100',
+    );
+    ok(
+      'edit duration count via accessible name',
+      (await bundle.getByLabel('Duration count', { exact: true }).count()) >= 1,
+    );
+    ok(
+      'edit duration unit via accessible name',
+      (await bundle.getByLabel('Duration unit', { exact: true }).count()) >= 1,
+    );
+    ok(
+      'edit amount via accessible name',
+      (await bundle.getByLabel('Amount (EUR)', { exact: true }).count()) >= 1,
+    );
+    ok(
+      'enabled switch aria-label retained',
+      (await bundle.locator('input[data-admin-action="toggle-equip-enabled"]').getAttribute('aria-label')) === 'Enabled',
     );
     ok(
       'multi-duration editor has 4 price rows',
       (await bundle.locator('[data-admin-price-card]').count()) === 4,
     );
     ok(
-      'equip overflow disclosure has no role=menu/menuitem',
-      (await page.locator('[data-admin-equip-overflow] [role="menu"]').count()) === 0
-        && (await page.locator('[data-admin-equip-overflow] [role="menuitem"]').count()) === 0
-        && (await page.locator('[data-admin-equip-overflow] [aria-haspopup="menu"]').count()) === 0,
+      'zero overflow controls in panel',
+      (await page.locator('[data-admin-equip-overflow], [data-admin-action="equip-overflow-toggle"]').count()) === 0,
     );
 
-    await shotPanel('rental-admin-hybrid-desktop-edit.png');
+    await assertNoToday('during-edit');
+    await shotSection('rental-admin-polish-desktop-edit.png');
 
     // ── 3 duration controls + add duration + no old top buttons ──
     ok('duration count controls', (await bundle.locator('.portal-admin-duration-count').count()) >= 4);
@@ -602,19 +843,25 @@ async function browserFixture() {
     await page.waitForTimeout(150);
     ok('cancel collapses', (await bundle.locator('.portal-admin-equip-compact').count()) === 1);
     ok('cancel no commit', commitBodies.length === 0);
+    await assertNoToday('after-edit-cancel');
     ok(
       'cancel restores label (no mutation)',
       offerings.find((o) => o.offering_key === 'board_and_suit_rental').label === nameBefore
         && offerings.find((o) => o.offering_key === 'board_and_suit_rental').active === true,
     );
 
-    // Enabled toggle Cancel then Save
+    // Enabled toggle Cancel then Save — heading status updates live
     await bundle.locator('[data-admin-action="edit-equipment"]').click();
     await page.waitForTimeout(80);
     await bundle.locator('label.portal-admin-equip-switch').click();
     ok(
       'toggle staged disabled class while editing',
       (await bundle.evaluate((n) => n.classList.contains('is-equip-disabled'))),
+    );
+    ok(
+      'toggle updates heading status to Disabled',
+      (await bundle.locator('.portal-admin-equip-edit-heading-row [data-equip-active-label]').innerText()).trim() === 'Disabled'
+        && (await bundle.locator('.portal-admin-equip-edit-heading-row [data-equip-active-label]').getAttribute('data-equip-active-label')) === '0',
     );
     await bundle.locator('[data-admin-action="cancel-edit"]').click();
     await page.waitForTimeout(100);
@@ -645,45 +892,31 @@ async function browserFixture() {
     await bundle.locator('[data-admin-action="save-equipment"]').click();
     await page.waitForTimeout(300);
 
-    // ── 5 overflow disclosure a11y ──
-    const bike = page.locator('[data-admin-equip="bicycle"]');
-    const overflowBtn = bike.locator('[data-admin-action="equip-overflow-toggle"]');
-    await overflowBtn.focus();
-    await overflowBtn.click();
-    await page.waitForTimeout(80);
-    ok('disclosure open aria-expanded true', (await overflowBtn.getAttribute('aria-expanded')) === 'true');
-    ok(
-      'aria-controls points to panel',
-      !!(await overflowBtn.getAttribute('aria-controls'))
-        && (await page.locator(`#${await overflowBtn.getAttribute('aria-controls')}`).count()) === 1,
-    );
-    const delFocused = await page.evaluate(() => {
-      const el = document.activeElement;
-      return el && el.getAttribute && el.getAttribute('data-admin-action') === 'delete-rental-offering';
-    });
-    ok('open focuses Delete action', delFocused);
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(80);
-    ok('Escape closes disclosure', (await overflowBtn.getAttribute('aria-expanded')) === 'false');
-    const focusBack = await page.evaluate(() => {
-      const el = document.activeElement;
-      return el && el.getAttribute && el.getAttribute('data-admin-action') === 'equip-overflow-toggle';
-    });
-    ok('Escape returns focus to trigger', focusBack);
-    await overflowBtn.click();
-    await page.waitForTimeout(50);
-    await page.locator('#admin-prices-body').click({ position: { x: 5, y: 5 } });
-    await page.waitForTimeout(80);
-    ok('outside click closes disclosure', (await overflowBtn.getAttribute('aria-expanded')) === 'false');
-
-    // overflow delete on kayak after create — first create
-    // ── 7 add-equipment exact body ──
+    // ── 5 Add equipment form gap + exact body; footer Delete only ──
     await page.locator('[data-admin-action="add-equipment"]').click();
-    await page.locator('#admin-new-equip-name').fill('Kayak');
-    await page.locator('#admin-new-equip-stock').fill('8');
-    await page.locator('#admin-new-equip-count').fill('1');
-    await page.locator('#admin-new-equip-unit').selectOption('days');
-    await page.locator('#admin-new-equip-amount').fill('35');
+    await page.waitForTimeout(100);
+    const addGap = await page.evaluate(() => {
+      const form = document.getElementById('admin-add-equip-form');
+      const list = document.querySelector('.portal-admin-equip-list');
+      if (!form || !list) return { ok: false, missing: true };
+      const fr = form.getBoundingClientRect();
+      const lr = list.getBoundingClientRect();
+      const visualGap = lr.top - fr.bottom;
+      return { ok: true, missing: false, visualGap };
+    });
+    ok('add form/list nodes present', addGap.ok && !addGap.missing, JSON.stringify(addGap));
+    ok(
+      'add form / list visualGap >= 16 desktop',
+      addGap.ok && addGap.visualGap >= 16,
+      JSON.stringify(addGap),
+    );
+    // Accessible-name fill path (production labels)
+    await page.locator('#admin-add-equip-form').getByLabel('Equipment name', { exact: true }).fill('Kayak');
+    await page.locator('#admin-add-equip-form').getByLabel('Total stock', { exact: true }).fill('8');
+    await page.locator('#admin-add-equip-form').getByLabel('Duration count', { exact: true }).fill('1');
+    await page.locator('#admin-add-equip-form').getByLabel('Duration unit', { exact: true }).selectOption('days');
+    await page.locator('#admin-add-equip-form').getByLabel('Amount (EUR)', { exact: true }).fill('35');
+    await shotSection('rental-admin-polish-desktop-add.png');
     await page.locator('[data-admin-action="save-new-equipment"]').click();
     await page.waitForTimeout(400);
     const createBody = createPosts.find((b) => /kayak/i.test(String(b.offering_key || b.label || '')));
@@ -701,14 +934,35 @@ async function browserFixture() {
     );
     ok('kayak row appears', (await page.locator('[data-admin-equip="kayak_rental"]').count()) === 1);
 
-    page.once('dialog', async (d) => { await d.accept(); });
+    // Delete only from edit footer; dismiss then accept confirm
     const kayak = page.locator('[data-admin-equip="kayak_rental"]');
-    await kayak.locator('[data-admin-action="equip-overflow-toggle"]').click();
-    await page.waitForTimeout(60);
-    await kayak.locator('[data-admin-action="delete-rental-offering"]').click();
+    ok(
+      'compact kayak has zero delete/overflow',
+      (await kayak.locator('[data-admin-action="delete-rental-offering"]').count()) === 0
+        && (await kayak.locator('[data-admin-action="equip-overflow-toggle"]').count()) === 0
+        && (await kayak.locator('[data-admin-action="edit-equipment"]').count()) === 1,
+    );
+    await kayak.locator('[data-admin-action="edit-equipment"]').click();
+    await page.waitForTimeout(80);
+    const kayakEdit = page.locator('[data-admin-equip="kayak_rental"]');
+    ok(
+      'edit footer sole equipment delete',
+      (await kayakEdit.locator('.portal-admin-equip-footer [data-admin-action="delete-rental-offering"]').count()) === 1
+        && (await page.locator('.portal-admin-equip-compact [data-admin-action="delete-rental-offering"]').count()) === 0,
+    );
+    page.once('dialog', async (d) => { await d.dismiss(); });
+    await kayakEdit.locator('.portal-admin-equip-footer [data-admin-action="delete-rental-offering"]').click();
+    await page.waitForTimeout(120);
+    ok('dismiss keeps kayak (no DELETE)', !deletes.includes('kayak_rental') && (await page.locator('[data-admin-equip="kayak_rental"]').count()) === 1);
+    page.once('dialog', async (d) => {
+      ok('equipment delete confirms hard-delete copy', /permanent|delete|duration|course/i.test(d.message()), d.message());
+      await d.accept();
+    });
+    await kayakEdit.locator('.portal-admin-equip-footer [data-admin-action="delete-rental-offering"]').click();
     await page.waitForTimeout(350);
     ok('deleted equipment row disappears', (await page.locator('[data-admin-equip="kayak_rental"]').count()) === 0);
     ok('DELETE equipment API invoked', deletes.includes('kayak_rental'), JSON.stringify(deletes));
+    await assertNoToday('after-add-save-delete');
 
     // ── remove-duration immediate DELETE (pre-existing contract) ──
     await page.locator('[data-admin-equip="bicycle"] [data-admin-action="edit-equipment"]').click();
@@ -801,38 +1055,75 @@ async function browserFixture() {
         localStorage.setItem('wh_staff_portal_locale', l);
         if (typeof window.setStaffLocale === 'function') window.setStaffLocale(l);
       }, loc);
-      await page.evaluate(() => {
-        try {
-          if (typeof adminEditTarget !== 'undefined') adminEditTarget = null;
-          if (typeof renderAdminFromConfig === 'function' && typeof adminConfigCache !== 'undefined') {
-            renderAdminFromConfig(adminConfigCache);
-          }
-        } catch (_e) { /* */ }
-      });
-      await page.waitForTimeout(200);
+      // Admin render helpers live in script scope (not window) — force re-paint via UI.
+      const openEdit = page.locator('[data-admin-equip-edit]');
+      if ((await openEdit.count()) > 0) {
+        await page.locator('[data-admin-action="cancel-edit"]').first().click().catch(() => {});
+        await page.waitForTimeout(80);
+      }
+      await page.locator('[data-admin-action="edit-equipment"]').first().click();
+      await page.waitForTimeout(100);
+      await page.locator('[data-admin-action="cancel-edit"]').first().click();
+      await page.waitForTimeout(150);
     }
 
     await forceLocale('es');
+    await assertNoToday('after-locale-es');
+    const esMeta = (await page.locator('[data-admin-equip="bicycle"] [data-equip-status]').innerText()).replace(/\s+/g, ' ').trim();
+    ok('ES Stock = meta exact', /^Stock = \d+ · Activado$/.test(esMeta), esMeta);
+    const esTowel = (await page.locator('[data-admin-equip="towel_rental"] [data-equip-status]').innerText()).replace(/\s+/g, ' ').trim();
+    ok('ES Disabled meta exact', esTowel === 'Stock = 50 · Desactivado', esTowel);
+    const esPencil = await page.locator('[data-admin-equip="sup_rental"] [data-admin-action="edit-equipment"]').getAttribute('aria-label');
+    ok(
+      'ES edit pencil interpolates equipment name',
+      esPencil === 'Editar precios de alquiler de SUP' && esPencil.includes('SUP'),
+      esPencil,
+    );
     await page.locator('[data-admin-equip="sup_rental"] [data-admin-action="edit-equipment"]').click();
     await page.waitForTimeout(100);
     const esHeading = await page.locator('[data-admin-equip="sup_rental"] .portal-admin-equip-edit-heading').innerText();
     const esSave = await page.locator('[data-admin-equip="sup_rental"] [data-admin-action="save-equipment"]').innerText();
     const esAdd = await page.locator('[data-admin-equip="sup_rental"] .portal-admin-equip-add-duration').innerText();
+    const esHdrStatus = (await page.locator('[data-admin-equip="sup_rental"] .portal-admin-equip-edit-heading-row [data-equip-active-label]').innerText()).trim();
     ok('ES editingTitle in DOM (not EN)', /Editando —/.test(esHeading) && !/^Editing —/.test(esHeading), esHeading);
     ok('ES Save changes in DOM', /Guardar cambios/.test(esSave), esSave);
     ok('ES Add duration in DOM', /Añadir duración \+ precio/.test(esAdd), esAdd);
+    ok('ES edit header Activado', esHdrStatus === 'Activado', esHdrStatus);
     await page.locator('[data-admin-equip="sup_rental"] [data-admin-action="cancel-edit"]').click();
 
     await forceLocale('it');
+    await assertNoToday('after-locale-it');
+    const itTowel = (await page.locator('[data-admin-equip="towel_rental"] [data-equip-status]').innerText()).replace(/\s+/g, ' ').trim();
+    ok('IT Disabled meta exact', itTowel === 'Stock = 50 · Disattivato', itTowel);
+    const itBike = (await page.locator('[data-admin-equip="sup_rental"] [data-equip-status]').innerText()).replace(/\s+/g, ' ').trim();
+    ok('IT Enabled meta form', /^Stock = \d+ · Attivo$/.test(itBike), itBike);
+    const itPencil = await page.locator('[data-admin-equip="sup_rental"] [data-admin-action="edit-equipment"]').getAttribute('aria-label');
+    ok(
+      'IT edit pencil interpolates equipment name',
+      itPencil === 'Modifica prezzi noleggio di SUP' && itPencil.includes('SUP'),
+      itPencil,
+    );
     await page.locator('[data-admin-equip="sup_rental"] [data-admin-action="edit-equipment"]').click();
     await page.waitForTimeout(100);
     const itHeading = await page.locator('[data-admin-equip="sup_rental"] .portal-admin-equip-edit-heading').innerText();
     const itSave = await page.locator('[data-admin-equip="sup_rental"] [data-admin-action="save-equipment"]').innerText();
+    const itHdrStatus = (await page.locator('[data-admin-equip="sup_rental"] .portal-admin-equip-edit-heading-row [data-equip-active-label]').innerText()).trim();
     ok('IT editingTitle in DOM (not EN)', /Modifica —/.test(itHeading) && !/^Editing —/.test(itHeading), itHeading);
     ok('IT Save changes in DOM', /Salva modifiche/.test(itSave), itSave);
+    ok('IT edit header Attivo', itHdrStatus === 'Attivo', itHdrStatus);
     await page.locator('[data-admin-equip="sup_rental"] [data-admin-action="cancel-edit"]').click();
 
     await forceLocale('en');
+    await assertNoToday('after-locale-en');
+    const enBikeMeta = (await page.locator('[data-admin-equip="bicycle"] [data-equip-status]').innerText()).replace(/\s+/g, ' ').trim();
+    ok('EN Stock = meta localized DOM', /^Stock = \d+ · Enabled$/.test(enBikeMeta), enBikeMeta);
+    // City Bike after rename
+    const enBikePencil = await page.locator('[data-admin-equip="bicycle"] [data-admin-action="edit-equipment"]').getAttribute('aria-label');
+    ok(
+      'EN edit pencil after rename uses City Bike',
+      enBikePencil === 'Edit City Bike rental prices',
+      enBikePencil,
+    );
     await page.locator('[data-admin-equip="sup_rental"] [data-admin-action="edit-equipment"]').click();
     await page.waitForTimeout(80);
     ok(
@@ -845,7 +1136,7 @@ async function browserFixture() {
     const scriptBodies = await page.evaluate(() =>
       Array.from(document.scripts)
         .map((s) => s.textContent || '')
-        .filter((t) => t.length > 200 && /adminEditTarget|renderAdminSectionPricesFromConfig|adminEquipTodayRefreshSeq/.test(t)),
+        .filter((t) => t.length > 200 && /adminEditTarget|renderAdminSectionPricesFromConfig|adminPopulatePricesHeaderActions/.test(t)),
     );
     ok('cooked scripts found (>=1)', scriptBodies.length >= 1, `n=${scriptBodies.length}`);
     let parseOk = true;
@@ -866,31 +1157,46 @@ async function browserFixture() {
     ok('no console errors', realConsole.length === 0, realConsole.join('; '));
 
     // ── 10 geometry desktop multi-duration editor + narrow multi-duration ──
-    async function geometryAt(width, label, openKey) {
+    async function geometryAt(width, label, openKey, mode) {
       await page.setViewportSize({ width, height: 900 });
       await page.waitForTimeout(150);
-      if (openKey) {
+      if (openKey && mode === 'edit') {
         const row = page.locator(`[data-admin-equip="${openKey}"]`);
         if ((await row.locator('[data-admin-equip-edit]').count()) === 0) {
           await row.locator('[data-admin-action="edit-equipment"]').click();
           await page.waitForTimeout(120);
         }
       }
-      const layout = await page.evaluate((key) => {
-        const body = document.body;
+      const layout = await page.evaluate((args) => {
+        const key = args.key;
+        const expectEdit = args.expectEdit;
         const root = document.querySelector('#admin-prices-body');
+        const section = document.querySelector('#admin-sec-prices');
         const row = key ? document.querySelector(`[data-admin-equip="${key}"]`) : null;
         const grid = row && row.querySelector('.portal-admin-equip-price-grid');
         const chips = row && row.querySelector('.portal-admin-equip-chips');
+        const meta = row && row.querySelector('.portal-admin-equip-meta-form');
+        const footer = row && row.querySelector('.portal-admin-equip-footer');
+        const hdr = document.querySelector('[data-admin-prices-hdr]');
+        const missing = {
+          root: !root,
+          section: !section,
+          row: !!(key && !row),
+          grid: !!(expectEdit && (!row || !grid)),
+          meta: !!(expectEdit && (!row || !meta)),
+          footer: !!(expectEdit && (!row || !footer)),
+          hdr: !hdr,
+        };
+        const anyMissing = Object.keys(missing).some((k) => missing[k]);
         // Prefer the prices panel/row; allow 4px subpixel/scrollbar noise.
-        const panelOverflow = root ? (root.scrollWidth - root.clientWidth) : 0;
+        const panelOverflow = root ? (root.scrollWidth - root.clientWidth) : 99;
         const rowOverflow = row ? (row.scrollWidth - row.clientWidth) : 0;
-        const overflow = panelOverflow > 4 || rowOverflow > 4;
+        const sectionOverflow = section ? (section.scrollWidth - section.clientWidth) : 99;
+        const hdrOverflow = hdr ? (hdr.scrollWidth - hdr.clientWidth) > 4 : true;
+        const overflow = panelOverflow > 4 || rowOverflow > 4 || sectionOverflow > 4;
         const controls = Array.from(document.querySelectorAll(
           '#admin-prices-body .portal-admin-equip-edit-btn,'
-          + '#admin-prices-body .portal-admin-equip-overflow-btn,'
           + '#admin-prices-body .portal-admin-equip-remove-duration,'
-          + '#admin-prices-body .portal-admin-equip-overflow-item,'
           + '#admin-prices-body .portal-admin-equip-footer .btn,'
           + '#admin-prices-body .portal-admin-equip-add-duration,'
           + '#admin-prices-body .portal-admin-duration-count,'
@@ -915,14 +1221,45 @@ async function browserFixture() {
           const gt = getComputedStyle(grid).gridTemplateColumns || '';
           cols = gt.split(' ').filter((x) => x && x !== 'none').length;
         }
-        const footer = row && row.querySelector('.portal-admin-equip-footer');
-        let footerInBounds = true;
+        let footerInBounds = false;
         if (footer && root) {
           const fr = footer.getBoundingClientRect();
           const rr = root.getBoundingClientRect();
           footerInBounds = fr.left >= rr.left - 2 && fr.right <= rr.right + 2;
         }
+        // Meta form: name / stock / enabled non-overlap + enabled not clipped
+        let metaOverlap = false;
+        let enabledClipped = false;
+        let metaFieldCount = 0;
+        if (meta) {
+          const fields = Array.from(meta.querySelectorAll(':scope > .portal-admin-equip-field'));
+          metaFieldCount = fields.length;
+          const rects = fields.map((f) => {
+            const r = f.getBoundingClientRect();
+            return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+          });
+          for (let i = 0; i < rects.length; i++) {
+            for (let j = i + 1; j < rects.length; j++) {
+              const a = rects[i];
+              const b = rects[j];
+              if (!(a.right <= b.left + 0.5 || b.right <= a.left + 0.5 || a.bottom <= b.top + 0.5 || b.bottom <= a.top + 0.5)) {
+                metaOverlap = true;
+              }
+            }
+          }
+          const enabledField = meta.querySelector('.portal-admin-equip-enabled-field');
+          const sw = enabledField && enabledField.querySelector('.portal-admin-equip-switch');
+          if (enabledField && sw) {
+            const er = enabledField.getBoundingClientRect();
+            const sr = sw.getBoundingClientRect();
+            enabledClipped = sr.right > er.right + 1 || sr.bottom > er.bottom + 1 || sr.width < 40;
+          } else if (expectEdit) {
+            enabledClipped = true;
+          }
+        }
         return {
+          missing,
+          anyMissing,
           overflow,
           minTouch,
           chipsWrap,
@@ -930,40 +1267,93 @@ async function browserFixture() {
           hasGrid: !!grid,
           footerInBounds,
           controlCount: controls.length,
+          metaOverlap,
+          enabledClipped,
+          hdrOverflow,
+          metaFieldCount,
         };
-      }, openKey || null);
-      ok(`${label}: no horizontal overflow`, !layout.overflow, JSON.stringify(layout));
-      ok(`${label}: chipsWrap true`, layout.chipsWrap, JSON.stringify(layout));
-      ok(`${label}: controls >=44px`, layout.minTouch >= 44 && layout.controlCount > 0, JSON.stringify(layout));
-      if (openKey) {
+      }, { key: openKey || null, expectEdit: mode === 'edit' });
+      ok(`${label}: required nodes present`, !layout.anyMissing, JSON.stringify(layout.missing));
+      ok(`${label}: no horizontal overflow`, !layout.overflow && !layout.hdrOverflow, JSON.stringify(layout));
+      if (mode === 'edit') {
+        ok(`${label}: chipsWrap true`, layout.chipsWrap, JSON.stringify(layout));
+        ok(`${label}: controls >=44px`, layout.minTouch >= 44 && layout.controlCount > 0, JSON.stringify(layout));
         ok(`${label}: price grid exists`, layout.hasGrid && layout.cols >= 1, JSON.stringify(layout));
         ok(`${label}: footer within bounds`, layout.footerInBounds, JSON.stringify(layout));
+        ok(`${label}: meta fields present`, layout.metaFieldCount >= 3, JSON.stringify(layout));
+        ok(`${label}: name/stock/enabled non-overlap`, !layout.metaOverlap, JSON.stringify(layout));
+        ok(`${label}: enabled field not clipped`, !layout.enabledClipped, JSON.stringify(layout));
       }
       return layout;
     }
 
-    // Desktop: open multi-duration bicycle (after save has 2 existing + wait re-open)
+    // Desktop: open multi-duration bundle
     await page.locator('[data-admin-equip="board_and_suit_rental"] [data-admin-action="edit-equipment"]').click();
     await page.waitForTimeout(100);
-    const desk = await geometryAt(1280, 'desktop-editor', 'board_and_suit_rental');
+    const desk = await geometryAt(1280, 'desktop-editor', 'board_and_suit_rental', 'edit');
     ok('desktop multi-duration uses 2 columns', desk.cols === 2, JSON.stringify(desk));
-    await shotPanel('rental-admin-hybrid-desktop.png');
+    await measureHeader('desktop-header-recheck');
 
-    // Narrow: multi-duration bundle editor (not single-row SUP)
+    // Narrow: multi-duration bundle editor + browse + add gap
     await page.setViewportSize({ width: 390, height: 900 });
     await page.waitForTimeout(120);
-    // re-open if collapsed
     if ((await page.locator('[data-admin-equip="board_and_suit_rental"] [data-admin-equip-edit]').count()) === 0) {
       await page.locator('[data-admin-equip="board_and_suit_rental"] [data-admin-action="edit-equipment"]').click();
       await page.waitForTimeout(120);
     }
-    const narrow = await geometryAt(390, 'narrow-editor', 'board_and_suit_rental');
+    const narrow = await geometryAt(390, 'narrow-editor', 'board_and_suit_rental', 'edit');
     ok('narrow multi-duration grid is 1 column (not 0)', narrow.cols === 1, JSON.stringify(narrow));
     ok(
       'narrow multi-duration has multiple price cards',
       (await page.locator('[data-admin-equip="board_and_suit_rental"] [data-admin-price-card]').count()) >= 3,
     );
-    await shotPanel('rental-admin-hybrid-narrow.png');
+    await measureHeader('narrow-header-edit');
+    await assertNoToday('narrow-edit');
+    await shotSection('rental-admin-polish-narrow-edit.png');
+
+    await page.locator('[data-admin-equip="board_and_suit_rental"] [data-admin-action="cancel-edit"]').click();
+    await page.waitForTimeout(80);
+    await geometryAt(390, 'narrow-browse', null, 'browse');
+    await measureHeader('narrow-header-browse');
+    await assertNoToday('narrow-browse');
+    await shotSection('rental-admin-polish-narrow-browse.png');
+
+    await page.locator('[data-admin-action="add-equipment"]').click();
+    await page.waitForTimeout(100);
+    const addGapNarrow = await page.evaluate(() => {
+      const form = document.getElementById('admin-add-equip-form');
+      const list = document.querySelector('.portal-admin-equip-list');
+      if (!form || !list) return { ok: false, missing: true };
+      const visualGap = list.getBoundingClientRect().top - form.getBoundingClientRect().bottom;
+      const section = document.querySelector('#admin-sec-prices');
+      const overflow = section ? (section.scrollWidth - section.clientWidth) > 4 : true;
+      return { ok: true, missing: false, visualGap, overflow };
+    });
+    ok('add form/list nodes present narrow', addGapNarrow.ok && !addGapNarrow.missing, JSON.stringify(addGapNarrow));
+    ok(
+      'add form / list visualGap >= 16 narrow',
+      addGapNarrow.ok && addGapNarrow.visualGap >= 16,
+      JSON.stringify(addGapNarrow),
+    );
+    ok('narrow add: no horizontal overflow', addGapNarrow.ok && !addGapNarrow.overflow, JSON.stringify(addGapNarrow));
+    await assertNoToday('narrow-add');
+    await shotSection('rental-admin-polish-narrow-add.png');
+
+    // Six required polish screenshots must exist and be non-empty
+    const requiredShots = [
+      'rental-admin-polish-desktop-browse.png',
+      'rental-admin-polish-desktop-add.png',
+      'rental-admin-polish-desktop-edit.png',
+      'rental-admin-polish-narrow-browse.png',
+      'rental-admin-polish-narrow-add.png',
+      'rental-admin-polish-narrow-edit.png',
+    ];
+    requiredShots.forEach((name) => {
+      const p = path.join(ARTIFACTS, name);
+      let size = 0;
+      try { size = fs.statSync(p).size; } catch (_e) { size = 0; }
+      ok(`screenshot exists nonempty: ${name}`, size >= 200, `size=${size} path=${p}`);
+    });
 
   } finally {
     await browser.close();
