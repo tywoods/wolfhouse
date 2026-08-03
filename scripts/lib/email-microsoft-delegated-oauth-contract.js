@@ -18,14 +18,22 @@ const EMAIL_MS_DELEGATED_CLIENT_TYPE = 'confidential_web';
 const EMAIL_MS_DELEGATED_PKCE_METHOD = 'S256';
 const EMAIL_MS_DELEGATED_TOKEN_ENDPOINT_CLIENT_AUTH_REQUIRED = true;
 const EMAIL_MS_DELEGATED_TOKEN_ENDPOINT_CLIENT_AUTH_METHODS = Object.freeze([
-  'private_key_jwt', 'client_secret_basic',
+  'private_key_jwt', 'client_secret_post',
 ]);
 const EMAIL_MS_DELEGATED_PREFERRED_TOKEN_ENDPOINT_CLIENT_AUTH = 'private_key_jwt';
+// client_secret_post: client_id/client_secret as Microsoft v2 token form fields; no Authorization Basic.
+const EMAIL_MS_DELEGATED_CLIENT_SECRET_POST_DECLARATION = Object.freeze({
+  client_id_token_form_field: true, client_secret_token_form_field: true,
+  authorization_basic_header: false,
+});
 const EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES = Object.freeze(['openid', 'profile', 'offline_access']);
 const EMAIL_MS_DELEGATED_PHASE_A_OPTIONAL_OIDC_SCOPES = Object.freeze(['email']);
-const EMAIL_MS_DELEGATED_PHASE_A_GRAPH_DELEGATED_SCOPES = Object.freeze(['Mail.ReadBasic']);
+// phase_a_v2 Graph exact set: User.Read (/me bind) + Mail.ReadBasic.
+const EMAIL_MS_DELEGATED_PHASE_A_GRAPH_DELEGATED_SCOPES = Object.freeze(['User.Read', 'Mail.ReadBasic']);
 const EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES = Object.freeze(['Mail.ReadWrite', 'Mail.Send']);
-const EMAIL_MS_DELEGATED_SCOPE_VERSION = 'phase_a_v1';
+const EMAIL_MS_DELEGATED_SCOPE_VERSION = 'phase_a_v2';
+const EMAIL_MS_DELEGATED_ME_REQUIRED_DELEGATED_PERMISSION = 'User.Read';
+const EMAIL_MS_DELEGATED_CANONICAL_ADDRESS_FIELDS_ROLE = 'display_routing_evidence_only';
 const EMAIL_MS_DELEGATED_PRINCIPAL_KEY_PREFIX = 'ms_delegated_principal:';
 const EMAIL_MS_DELEGATED_PRINCIPAL_VALIDATION_RULES = Object.freeze({
   signature_and_keys: 'required', issuer: 'derived_from_validated_organizational_tenant',
@@ -44,10 +52,27 @@ const EMAIL_MS_DELEGATED_REFRESH_ROTATION_POLICY = Object.freeze({
   ]),
   app_wide_refresh_token: false,
 });
+// Custody/CAS deferred — refresh-exchange blocked until durable grant custodian injected.
+const EMAIL_MS_DELEGATED_REFRESH_TOKEN_CUSTODY = Object.freeze({
+  custody_deferred: true, cas_deferred: true, durable_grant_custodian_injected: false,
+  refresh_exchange_adapter_allowed: false, block_reason: 'durable_grant_custodian_required',
+});
 const EMAIL_MS_DELEGATED_MAILBOX_ACCESS_KIND_PHASE_A = 'own_user';
 const EMAIL_MS_DELEGATED_FUTURE_LIVE_MAILBOX_PROOF_FIELDS = Object.freeze([
   'durable_microsoft_mailbox_resource_id', 'canonical_address', 'mailbox_kind', 'access_kind',
 ]);
+// Own-user live bind freeze (no Graph): /me.id == provider_principal_oid → provider_resource_id.
+// Equality expected for this path; principal vs mailbox remain separate fields/concepts.
+const EMAIL_MS_DELEGATED_OWN_USER_LIVE_BINDING = Object.freeze({
+  mailbox_kind: 'user', access_kind: 'own_user', live_graph_path: '/me', me_id_field: 'id',
+  required_delegated_permission: EMAIL_MS_DELEGATED_ME_REQUIRED_DELEGATED_PERMISSION,
+  require_me_id_equals_provider_principal_oid: true,
+  persist_me_id_as_provider_resource_id: true,
+  equality_expected_concepts_remain_separate: true,
+  offline_mailbox_derivation_forbidden: true, performs_graph: false,
+  canonical_address_fields_role: EMAIL_MS_DELEGATED_CANONICAL_ADDRESS_FIELDS_ROLE,
+  mail_upn_email_not_ownership_keys: true,
+});
 const EMAIL_MS_DELEGATED_MANUAL_VALIDATION_STATES = Object.freeze([
   'pending_manual_validation', 'manual_validation_required',
 ]);
@@ -266,6 +291,8 @@ function validateScopePlanImpl(raw) {
     include_email_scope: plan.include_email_scope === true, email_scope_authoritative: false,
     optional_oidc_display_only: plan.include_email_scope === true
       ? EMAIL_MS_DELEGATED_PHASE_A_OPTIONAL_OIDC_SCOPES.slice() : [],
+    me_required_delegated_permission: EMAIL_MS_DELEGATED_ME_REQUIRED_DELEGATED_PERMISSION,
+    canonical_address_fields_role: EMAIL_MS_DELEGATED_CANONICAL_ADDRESS_FIELDS_ROLE,
     phase_b_graph_delegated_future: EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES.slice(),
     phase_b_included_in_phase_a: false,
   });
@@ -281,17 +308,24 @@ function validateClientAuthModelImpl(raw) {
   if (model.pkce_method !== EMAIL_MS_DELEGATED_PKCE_METHOD) return fail('client_auth_model_invalid', { reason: 'pkce_method' });
   const tokenAuth = model.token_endpoint_client_authentication;
   if (tokenAuth === 'none' || tokenAuth === 'pkce_only' || tokenAuth === false) return fail('client_auth_model_invalid', { reason: 'pkce_only_insufficient' });
-  if (typeof tokenAuth !== 'string' || !TOKEN_AUTH_METHOD_SET.has(tokenAuth)) return fail('client_auth_model_invalid', { reason: 'token_endpoint_client_auth' });
+  // Reject client_secret_basic explicitly (no silent alias to client_secret_post).
+  if (tokenAuth === 'client_secret_basic') return fail('client_auth_model_invalid', { reason: 'client_secret_basic_forbidden' });
+  if (typeof tokenAuth !== 'string' || !TOKEN_AUTH_METHOD_SET.has(tokenAuth)) {
+    return fail('client_auth_model_invalid', { reason: 'token_endpoint_client_auth' });
+  }
   if (model.browser_holds_app_credential !== false) return fail('client_auth_model_invalid', { reason: 'browser_must_not_hold_app_credential' });
   if (model.tenant_supplies_app_credential !== false) return fail('client_auth_model_invalid', { reason: 'tenant_must_not_supply_app_credential' });
-  return ok({
+  const out = {
     client_type: EMAIL_MS_DELEGATED_CLIENT_TYPE, pkce_method: EMAIL_MS_DELEGATED_PKCE_METHOD,
     token_endpoint_client_authentication: tokenAuth,
     token_endpoint_client_authentication_required: EMAIL_MS_DELEGATED_TOKEN_ENDPOINT_CLIENT_AUTH_REQUIRED,
     preferred_token_endpoint_client_authentication: EMAIL_MS_DELEGATED_PREFERRED_TOKEN_ENDPOINT_CLIENT_AUTH,
+    allowed_token_endpoint_client_authentication: EMAIL_MS_DELEGATED_TOKEN_ENDPOINT_CLIENT_AUTH_METHODS.slice(),
     browser_holds_app_credential: false, tenant_supplies_app_credential: false,
     pkce_alone_sufficient: false,
-  });
+  };
+  if (tokenAuth === 'client_secret_post') out.client_secret_post = { ...EMAIL_MS_DELEGATED_CLIENT_SECRET_POST_DECLARATION };
+  return ok(out);
 }
 
 function validateAuthorityImpl(raw) {
@@ -437,10 +471,47 @@ function validateMailboxBindingHintImpl(raw) {
     principal_is_mailbox_identity: false, shared_mailbox_phase_a: 'rejected_deferred',
     godaddy_support_claimed: false,
     future_live_proof_required_fields: EMAIL_MS_DELEGATED_FUTURE_LIVE_MAILBOX_PROOF_FIELDS.slice(),
+    own_user_live_binding: { ...EMAIL_MS_DELEGATED_OWN_USER_LIVE_BINDING },
     manual_validation_state: restrictionState,
     allowed_manual_validation_states: EMAIL_MS_DELEGATED_MANUAL_VALIDATION_STATES.slice(),
     access_kind_phase_a: EMAIL_MS_DELEGATED_MAILBOX_ACCESS_KIND_PHASE_A,
   });
+}
+
+function validateOwnUserLiveBindingDeclarationImpl(raw) {
+  const s = snapOrFail(raw == null ? {} : raw, 'own_user_live_binding_invalid');
+  if (!s.ok) return s.fail;
+  const b = s.value;
+  const claims = [
+    ['claim_binding_verified_offline', 'offline_binding_not_verified'],
+    ['claim_derived_mailbox_offline', 'offline_mailbox_derivation_forbidden'],
+    ['claim_performed_graph', 'graph_not_performed'],
+    ['claim_me_id_not_required', 'me_id_required_for_own_user'],
+    ['claim_mail_claim_is_ownership_key', 'mail_upn_email_not_ownership_keys'],
+  ];
+  if (!subsetKeys(b, claims.map((c) => c[0]))) return fail('own_user_live_binding_invalid', { reason: 'unknown_key' });
+  for (const [k, reason] of claims) {
+    if (b[k] === true) return fail('own_user_live_binding_invalid', { reason });
+  }
+  return ok({ ...EMAIL_MS_DELEGATED_OWN_USER_LIVE_BINDING });
+}
+
+function evaluateRefreshExchangeAdapterGateImpl(raw) {
+  const s = snapOrFail(raw == null ? {} : raw, 'refresh_exchange_gate_invalid');
+  if (!s.ok) return s.fail;
+  const g = s.value;
+  if (!subsetKeys(g, ['claim_grant_custodian_injected', 'claim_refresh_exchange_allowed'])) {
+    return fail('refresh_exchange_gate_invalid', { reason: 'unknown_key' });
+  }
+  if (g.claim_grant_custodian_injected === true) {
+    return fail('refresh_exchange_gate_invalid', { reason: 'grant_custodian_not_available' });
+  }
+  if (g.claim_refresh_exchange_allowed === true) {
+    return fail('refresh_exchange_gate_invalid', {
+      reason: EMAIL_MS_DELEGATED_REFRESH_TOKEN_CUSTODY.block_reason,
+    });
+  }
+  return ok({ ...EMAIL_MS_DELEGATED_REFRESH_TOKEN_CUSTODY });
 }
 
 function validateGrantSecretPackageImpl(raw) {
@@ -488,6 +559,7 @@ function validateRefreshRotationImpl(raw) {
     terminal_reauthorization_reasons:
       EMAIL_MS_DELEGATED_REFRESH_ROTATION_POLICY.terminal_reauthorization_reasons.slice(),
     app_wide_refresh_token: false,
+    refresh_token_custody: { ...EMAIL_MS_DELEGATED_REFRESH_TOKEN_CUSTODY },
   });
 }
 
@@ -576,7 +648,9 @@ function evaluateReadinessImpl(input) {
       terminal_reauthorization_reasons:
         EMAIL_MS_DELEGATED_REFRESH_ROTATION_POLICY.terminal_reauthorization_reasons.slice(),
       app_wide_refresh_token: false,
+      refresh_token_custody: { ...EMAIL_MS_DELEGATED_REFRESH_TOKEN_CUSTODY },
     },
+    own_user_live_binding: { ...EMAIL_MS_DELEGATED_OWN_USER_LIVE_BINDING },
     activation_invariants: {
       ...EMAIL_MS_DELEGATED_ACTIVATION_INVARIANTS,
       terminal_note: 'schema_does_not_enforce_activation_false',
@@ -615,7 +689,9 @@ const validateMicrosoftDelegatedAuthority = wrap(validateAuthorityImpl, 'authori
 const validateMicrosoftDelegatedOauthTransaction = wrap(validateOauthTransactionImpl, 'oauth_transaction_invalid');
 const validateMicrosoftDelegatedPrincipal = wrap(validatePrincipalImpl, 'principal_invalid');
 const validateMicrosoftDelegatedMailboxBindingHint = wrap(validateMailboxBindingHintImpl, 'mailbox_binding_invalid');
+const validateMicrosoftDelegatedOwnUserLiveBinding = wrap(validateOwnUserLiveBindingDeclarationImpl, 'own_user_live_binding_invalid');
 const validateMicrosoftDelegatedRefreshRotationPolicy = wrap(validateRefreshRotationImpl, 'refresh_rotation_invalid');
+const evaluateMicrosoftDelegatedRefreshExchangeGate = wrap(evaluateRefreshExchangeAdapterGateImpl, 'refresh_exchange_gate_invalid');
 const validateMicrosoftDelegatedActivationInvariants = wrap(validateActivationInvariantsImpl, 'activation_invariants_invalid');
 
 module.exports = {
@@ -623,14 +699,21 @@ module.exports = {
   validateMicrosoftDelegatedScopePlan, validateMicrosoftDelegatedClientAuthModel,
   validateMicrosoftDelegatedAuthority, validateMicrosoftDelegatedOauthTransaction,
   validateMicrosoftDelegatedPrincipal, validateMicrosoftDelegatedMailboxBindingHint,
-  validateMicrosoftDelegatedRefreshRotationPolicy, validateMicrosoftDelegatedActivationInvariants,
+  validateMicrosoftDelegatedOwnUserLiveBinding, validateMicrosoftDelegatedRefreshRotationPolicy,
+  evaluateMicrosoftDelegatedRefreshExchangeGate, validateMicrosoftDelegatedActivationInvariants,
   buildMicrosoftDelegatedPrincipalKey,
   EMAIL_MS_DELEGATED_PROVIDER, EMAIL_MS_DELEGATED_AUTH_MODE, EMAIL_MS_DELEGATED_CONNECTOR_MODE,
   EMAIL_MS_DELEGATED_ACCOUNT_AUDIENCE, EMAIL_MS_DELEGATED_AUTHORITY_HOST,
   EMAIL_MS_DELEGATED_TOKEN_HOST, EMAIL_MS_DELEGATED_GRAPH_HOST, EMAIL_MS_DELEGATED_REDIRECT_URI_ID,
   EMAIL_MS_DELEGATED_PKCE_METHOD, EMAIL_MS_DELEGATED_TOKEN_ENDPOINT_CLIENT_AUTH_REQUIRED,
+  EMAIL_MS_DELEGATED_TOKEN_ENDPOINT_CLIENT_AUTH_METHODS,
+  EMAIL_MS_DELEGATED_PREFERRED_TOKEN_ENDPOINT_CLIENT_AUTH,
+  EMAIL_MS_DELEGATED_CLIENT_SECRET_POST_DECLARATION,
   EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES, EMAIL_MS_DELEGATED_PHASE_A_GRAPH_DELEGATED_SCOPES,
-  EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES, EMAIL_MS_DELEGATED_PRINCIPAL_KEY_PREFIX,
-  EMAIL_MS_DELEGATED_PRINCIPAL_VALIDATION_RULES, EMAIL_MS_DELEGATED_ACTIVATION_INVARIANTS,
-  EMAIL_MS_DELEGATED_REFRESH_ROTATION_POLICY, EMAIL_MS_DELEGATED_OAUTH_TRANSACTION_TTL_SECONDS,
+  EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES, EMAIL_MS_DELEGATED_SCOPE_VERSION,
+  EMAIL_MS_DELEGATED_ME_REQUIRED_DELEGATED_PERMISSION, EMAIL_MS_DELEGATED_CANONICAL_ADDRESS_FIELDS_ROLE,
+  EMAIL_MS_DELEGATED_OWN_USER_LIVE_BINDING, EMAIL_MS_DELEGATED_REFRESH_TOKEN_CUSTODY,
+  EMAIL_MS_DELEGATED_PRINCIPAL_KEY_PREFIX, EMAIL_MS_DELEGATED_PRINCIPAL_VALIDATION_RULES,
+  EMAIL_MS_DELEGATED_ACTIVATION_INVARIANTS, EMAIL_MS_DELEGATED_REFRESH_ROTATION_POLICY,
+  EMAIL_MS_DELEGATED_OAUTH_TRANSACTION_TTL_SECONDS,
 };
