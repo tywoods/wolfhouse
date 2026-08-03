@@ -1065,46 +1065,69 @@ async function testGeneratedUi() {
     await page.waitForTimeout(200);
     ok('type filter query', lastListQuery && lastListQuery.get('type') === 'surf_lesson');
 
-    // Date filters
-    // Date-range picker commits date_from/date_to (hidden fields + live apply)
-    await page.evaluate(() => {
-      const df = document.getElementById('admin-bookings-date-from');
-      const dt = document.getElementById('admin-bookings-date-to');
-      if (df) df.value = '2026-07-01';
-      if (dt) dt.value = '2026-07-31';
-      if (typeof window.adminBookingsSyncDateRangeDisplay === 'function') window.adminBookingsSyncDateRangeDisplay();
-      if (window.adminBookingsState) {
-        window.adminBookingsState.filters.date_from = '2026-07-01';
-        window.adminBookingsState.filters.date_to = '2026-07-31';
-        window.adminBookingsState.filters.offset = 0;
-      }
-      if (typeof window.loadAdminBookings === 'function') window.loadAdminBookings();
-    });
-    await page.waitForTimeout(300);
-    ok('date filters query',
-      lastListQuery && lastListQuery.get('date_from') === '2026-07-01'
-      && lastListQuery.get('date_to') === '2026-07-31');
+    // Date-range picker — live apply on complete selection (no Apply buttons)
     ok('date range control present', await page.locator('#admin-bookings-date-range-trigger').count() === 1);
-    ok('no Apply filters button', await page.locator('#admin-bookings-apply').count() === 0);
+    ok('no toolbar Apply filters button', await page.locator('#admin-bookings-apply').count() === 0);
+    ok('no date-range Apply button', await page.locator('#admin-bookings-date-range-apply').count() === 0);
     ok('no archived checkbox', await page.locator('#admin-bookings-archived').count() === 0);
+
+    await page.click('#admin-bookings-date-range-trigger');
+    await page.waitForSelector('#admin-bookings-date-range-popover:not([hidden])', { timeout: 3000 });
+    // Navigate to July 2026 if needed, then pick start+end days (live commit on complete)
+    await page.evaluate(() => {
+      if (typeof window.adminBookingsDateRangeViewYm !== 'undefined') {
+        window.adminBookingsDateRangeViewYm = '2026-07';
+      }
+      if (typeof window.adminBookingsRenderDateRangeCalendar === 'function') {
+        window.adminBookingsRenderDateRangeCalendar();
+      }
+    });
+    // Prefer production select path: two day clicks complete the range and live-apply
+    const day1 = page.locator('[data-bookings-day="2026-07-01"]');
+    const day31 = page.locator('[data-bookings-day="2026-07-31"]');
+    if (await day1.count() === 0) {
+      // Fallback: set view and re-render via month nav loop
+      for (let i = 0; i < 24 && await page.locator('[data-bookings-day="2026-07-01"]').count() === 0; i++) {
+        await page.click('#admin-bookings-date-range-prev');
+        await page.waitForTimeout(50);
+      }
+    }
+    await page.locator('[data-bookings-day="2026-07-01"]').click();
+    await page.locator('[data-bookings-day="2026-07-31"]').click();
+    await page.waitForTimeout(400);
+    ok('live date-range complete selection query',
+      lastListQuery && lastListQuery.get('date_from') === '2026-07-01'
+      && lastListQuery.get('date_to') === '2026-07-31',
+      lastListQuery ? lastListQuery.toString() : 'no query');
+    ok('popover closed after live commit',
+      await page.locator('#admin-bookings-date-range-popover').evaluate((n) => n.hidden || n.style.display === 'none'));
 
     // Reset filters
     await page.fill('#admin-bookings-q', '');
     await page.selectOption('#admin-bookings-status', '');
     await page.selectOption('#admin-bookings-type', '');
-    await page.evaluate(() => {
-      const df = document.getElementById('admin-bookings-date-from');
-      const dt = document.getElementById('admin-bookings-date-to');
-      if (df) df.value = '';
-      if (dt) dt.value = '';
-      if (window.adminBookingsState) {
-        window.adminBookingsState.filters.date_from = '';
-        window.adminBookingsState.filters.date_to = '';
-        window.adminBookingsState.filters.offset = 0;
-      }
-      if (typeof window.loadAdminBookings === 'function') window.loadAdminBookings();
-    });
+    await page.click('#admin-bookings-date-range-trigger');
+    await page.waitForTimeout(100);
+    if (await page.locator('#admin-bookings-date-range-clear').count()) {
+      await page.click('#admin-bookings-date-range-clear');
+    } else {
+      await page.evaluate(() => {
+        const df = document.getElementById('admin-bookings-date-from');
+        const dt = document.getElementById('admin-bookings-date-to');
+        if (df) df.value = '';
+        if (dt) dt.value = '';
+        if (window.adminBookingsState) {
+          window.adminBookingsState.filters.date_from = '';
+          window.adminBookingsState.filters.date_to = '';
+          window.adminBookingsState.filters.offset = 0;
+        }
+        if (typeof window.loadAdminBookings === 'function') window.loadAdminBookings();
+      });
+    }
     await page.waitForTimeout(300);
+    ok('clear date range reloads without dates',
+      lastListQuery && !lastListQuery.get('date_from') && !lastListQuery.get('date_to'),
+      lastListQuery ? lastListQuery.toString() : 'no query');
 
     // Status=cancelled auto-includes archived (checkbox removed)
     await page.selectOption('#admin-bookings-status', 'cancelled');
@@ -1513,6 +1536,7 @@ async function testGeneratedUi() {
       assertControl('#admin-bookings-export', { minH: 28, minW: 40, focusable: true });
       // Apply + archived checkbox removed (live filters + status covers cancelled/deleted)
       if (document.getElementById('admin-bookings-apply')) issues.push('apply button should be removed');
+      if (document.getElementById('admin-bookings-date-range-apply')) issues.push('date-range Apply button should be removed');
       if (document.getElementById('admin-bookings-archived')) issues.push('archived checkbox should be removed');
       const summary = document.getElementById('admin-bookings-summary');
       const toolbar = document.querySelector('.portal-admin-bookings-toolbar');

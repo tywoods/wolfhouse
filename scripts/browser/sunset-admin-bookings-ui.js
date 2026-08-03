@@ -122,8 +122,6 @@ function renderAdminBookingsShell() {
                 escHtml(portalT('admin.bookings.dateRangeClear') || 'Clear') + '</button>' +
               '<button type="button" class="btn btn-ghost btn-compact" id="admin-bookings-date-range-cancel">' +
                 escHtml(portalT('admin.bookings.dateRangeCancel') || 'Cancel') + '</button>' +
-              '<button type="button" class="btn btn-primary btn-compact" id="admin-bookings-date-range-apply">' +
-                escHtml(portalT('admin.bookings.dateRangeApply') || 'Apply') + '</button>' +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -825,6 +823,11 @@ function adminBookingsDateRangeSelectDay(iso) {
     else adminBookingsDateRangeDraft = { start: s, end: iso };
   }
   adminBookingsRenderDateRangeCalendar();
+  // Live-apply: commit as soon as the range is complete (start+end). No Apply button.
+  var draft = adminBookingsDateRangeDraft || {};
+  if (draft.start && draft.end) {
+    adminBookingsDateRangeCommit(adminBookingsDateRangeOnApply);
+  }
 }
 
 function adminBookingsDateRangeCommit(onApply) {
@@ -878,12 +881,7 @@ function wireAdminBookingsDateRange(onApply) {
       adminBookingsDateRangeSelectDay(btn.getAttribute('data-bookings-day'));
     });
   }
-  var applyBtn = el('admin-bookings-date-range-apply');
-  if (applyBtn) {
-    applyBtn.addEventListener('click', function () {
-      adminBookingsDateRangeCommit(onApply);
-    });
-  }
+  // No date-range Apply — complete selection commits live via adminBookingsDateRangeSelectDay.
   var cancelBtn = el('admin-bookings-date-range-cancel');
   if (cancelBtn) {
     cancelBtn.addEventListener('click', function () {
