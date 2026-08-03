@@ -2,7 +2,7 @@
 
 **Keyword: "Journey".** *"pull up the Journey"* → Captain/Skipper reads this back + brings you current. *"update the Journey"* → we save the current state here. Keep it terse — a living board, not docs. Whoever picks up / ships / deploys updates the matching section. Say *"I'm deploying X"* before deploying to avoid parallel-deploy collisions (deploy only from clean `HEAD == origin/master`).
 
-_Last updated: 2026-08-02 17:56 UTC by Captain_
+_Last updated: 2026-08-03 23:20 UTC by Skipper_
 
 ---
 
@@ -42,15 +42,22 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 - **N1 — "Bookings" tab SHIPPED** (Skipper built, Captain gated+deployed) — historical log w/ search+date/status/type/location filters, filter-global summary (collected/refunded/net/outstanding), full codes, CSV export, Archived (cancelled+deleted), inline item/payment/waiver/guest/creator, guest→Customers link, **manual refund ledger** (append-only DB triggers, operator-write/viewer-read, race-safe over-refund lock, idempotent, **no Stripe refund**); **migration 056** applied to sunset DB (table+2 triggers+idem idx verified); `42e30925`, N1 gate 147/147
 - **Fix:** N1 list 500 + filter layout — waiver query selected non-existent `w.completed_count` (derive from `waiver_form_submissions`); toolbar flex→grid so filter fields stop colliding. Validated the real list query against the live sunset DB (5 rows, summary+CSV clean) before deploy; `27981048` rev 0000457
 
+**Aug 03**
+- Luna email platform foundation through delegated-grant custody shipped to master: endpoint identity + Microsoft delegated OAuth contract, Graph adapter/readiness, dedicated encrypted grant custody, and the Standard-Key-Vault RSA envelope provider.
+- **2F-A encrypted custody merged** — dedicated tenant-safe grant table, lease/generation fencing, reconciliation + commit-unknown handling, canonical encrypted-envelope contract; PR #352, `c04c5f2d`. Stock PostgreSQL concurrency proof: 29/29.
+- **2F-B Azure envelope provider merged** — local AES-256-GCM with exact-version Standard Key Vault RSA-OAEP-256 DEK wrapping; A256KW production path rejected; PR #353, `95754acc`. Focused gate 92/92.
+- Email runtime remains deliberately **OFF**: refresh exchange, OAuth callback integration, Key Vault client composition, activation, routes, and deploy are not enabled.
+
 ## 🍳 On the stove (in progress)
-- _(open — next from SUNSET-TODO.md: Finance Slice 2 seam now unblocked by N1; or bug batch L2/D4/A1)_
-- **Earthling** — _add what you're on here._
-- Full UI/functional backlog lives in **[SUNSET-TODO.md]** (this session's owner dump, sequenced).
+- **L3 / email 2F-C — WAITING on Earthling Azure access (~8h):** inventory `wh-staging-kv` keys, then version-pin or create the approved RSA wrapping key and prove controlled staging wrap/unwrap. Current operator can inspect the Standard/RBAC vault but lacks `keys/read`. No runtime activation while waiting.
+- Safe parallel lane: Sunset UI/functional work from **[SUNSET-TODO.md]** — Finance Slice 2 or bug batch L2/D4/A1, each in an isolated branch/worktree.
+- **Earthling** — resume 2F-C at the Azure credential boundary; add any separate active work here before deploying.
 
 ## 📋 To do
+- Luna email after 2F-C: SDK/managed-identity composition → controlled staging Key Vault proof → refresh-exchange adapter and callback integration → shadow/readiness proof → separately approved activation. No guest mail flow before every gate passes.
 - **Crowsnest favicon deploy** — image `crowsnest:34e4b7f3…` built & in ACR; **blocked** (this host has no write on `luna-crowsnest-rg`) → Earthling runs the `az containerapp update`.
 - Staff-API decomposition — more slices (1–5 shipped).
-- Finance tab — deeper items (real refund ledger / true net).
+- Finance Slice 2 — consume the shipped N1 refund ledger and expose true net/refund reporting.
 - Lunabox deep disk clean (~20G: stale clones + `docker image prune -a`) when agents idle.
 
 ---
