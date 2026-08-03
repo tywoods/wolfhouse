@@ -1,10 +1,10 @@
 # SUNSET-TODO — Sunset staff portal (+ Luna)
 
-Running backlog of UI/UX + functional polish. Owner brain-dumps; Captain sorts, sizes, sketches, and hands scoped briefs to Skipper; Captain gates + deploys. Testing happens during + after each change (devs manage). Linked from [JOURNEY.md].
+Running Sunset product TODO (formerly `UI-BACKLOG.md`): UI/UX, functional work, and Luna platform capabilities. Owner brain-dumps; Captain sorts, sizes, sketches, and hands scoped briefs to Skipper; Captain gates + deploys. Testing happens during + after each change (devs manage). Linked from [JOURNEY.md].
 
 **Tags:** `[UI]` layout/visual · `[BUG]` broken behavior · `[FEAT]` new capability · `[LUNA]` chatbot brain/wiring · `[I18N]` translation.
 **Size:** S / M / L. **Sketch?** = wants a concept mock before build. **@Earthling** = needs Earthling's call.
-_Started 2026-08-03. Owner brain-dump complete; refine + resequence as we go._
+_Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complete; refine + resequence as we go._
 
 ---
 
@@ -14,10 +14,11 @@ _Started 2026-08-03. Owner brain-dump complete; refine + resequence as we go._
 - **Moving a tab** → easy (nav entry + panel); real work is the panel content.
 
 ## ▶️ Recommended next (sequencing)
-1. **Finance Slice 2**, starting with **N1 Bookings tab** as the prerequisite (refunds need a home first) → then wire refund data into Finance.
+1. **Finance Slice 2** — N1 Bookings/refund ledger is shipped, so wire its refund/net data into Finance next.
 2. Quick **bug-fixes** in parallel (L2, D4, A1) — small and high-annoyance.
-3. Then **screen-by-screen UI batches** (drawer polish, courses panels, finance, cockpit, schedule).
-4. **Mobile LAST** — after the main-site UI settles (we're still adding/removing buttons; no point chasing a moving target).
+3. **L3 email 2F-C** resumes only when Earthling has Azure access; until then it is parked safely with runtime OFF.
+4. Then **screen-by-screen UI batches** (courses panels, finance, cockpit, schedule).
+5. **Mobile LAST** — after the main-site UI settles (we're still adding/removing buttons; no point chasing a moving target).
 
 ---
 
@@ -25,6 +26,10 @@ _Started 2026-08-03. Owner brain-dump complete; refine + resequence as we go._
 - **L1 — Personality/voice.** Luna needs a defined personality. **@Earthling.** `L`
 - **L2 — [BUG] Disabled rental still offered.** Turning a rental OFF in Admin doesn't stop Luna offering it; she must respect the enabled/active flag. `M`
 - **L3 — [FEAT] Email capabilities for Luna.** Give Luna the ability to send/handle email (not just WhatsApp). **@Earthling + Skipper — in progress.** `L`
+  - **Shipped foundation:** delegated endpoint/OAuth contracts, Graph adapter/readiness, encrypted grant custody (2F-A, PR #352), and Standard Key Vault RSA envelope provider (2F-B, PR #353).
+  - **WAITING — 2F-C Azure boundary:** Earthling inventories `wh-staging-kv` keys and supplies an exact versioned RSA key path (or creates the approved key with narrow RBAC), then runs a controlled staging wrap/unwrap proof.
+  - **Still OFF / later:** SDK managed-identity composition, refresh exchange, OAuth callback installation, routes, mailbox activation, deployment, and guest email behavior.
+  - **Safety:** raw refresh tokens never enter PostgreSQL; no production A256KW/Managed HSM; no activation until live staging custody proof and later gates pass.
 
 ## 🔌 Luna wiring & de-hardcode (audit)
 - **W1 — [FEAT][LUNA] Wire Luna for every relevant setting.** Standing initiative; beaches (A3) is case #1.
@@ -33,10 +38,7 @@ _Started 2026-08-03. Owner brain-dump complete; refine + resequence as we go._
 - **W3 — Frequency de-hardcode?** Currently hardcoded; maybe it shouldn't be. **@Earthling** to decide. `M`
 - **W4 — [I18N] Custom course names translated everywhere.** Course names are custom but must be translated across menus, cockpit, Luna — everywhere they appear. **@Earthling.** `M–L`
 
-## 🧾 Create / Edit booking drawer (equipment section — ~30% of plan done)
-- **D1 — Quantity stepper too big.** Shrink the `− N +` (quantity stepper); it's so big it pushes the estimated line total *underneath* it. Fix layout so the total sits inline/tight. `S` · sketch?
-- **D2 — Greens don't match.** Green shades on the Create/Edit drawer are inconsistent; unify to one green token. `S`
-- **D3 — Header mismatch (Captain-spotted).** Reads "EQUIPMENT" on Create vs "RENTALS" on Edit; pick one. `S`
+## 🧾 Create / Edit booking drawer
 - **D4 — [BUG] Group Course on, none picked → rentals unpriced.** If "Group Course" is toggled but no actual course is selected, rentals show no estimate → booking can't complete. Fix: let standalone rentals price without a course, OR block submit until a real course is chosen. `M`
 
 ## 📅 Schedule tab
@@ -55,14 +57,9 @@ _Started 2026-08-03. Owner brain-dump complete; refine + resequence as we go._
 - **A2 — [UI] Reformat Group & Private course panels.** Give the Group and Private course admin panels the same treatment as the Rental Prices card (compact rows + expand-in-place editor). `M`
 - **A3 — [FEAT][LUNA] Beaches: de-hardcode + custom + wire.** *(important)* On create/edit group course, beaches are hardcoded — delete them and add a **"+ add beach"** so admin defines their own; also **wire Luna** to pick them up (she doesn't today). First case of W1. `M`
 
-## 🆕 New feature
-- **N1 — [FEAT] "Bookings" tab (historical booking log).** New Admin tab; **design approved** (concept mocked). Prerequisite for Finance Slice 2 (refund home). `M–L`
-  - Summary strip (re-totals per active filter): Bookings · Collected · Refunded · Net · Outstanding.
-  - Table: Booking (**full code visible — wide column**), Guest, Service dates, What, Total, Paid, Status chip (Paid/Unpaid/Partial/Refunded/Cancelled/Deleted).
-  - Filters: search (guest/phone/code), date range, status, type, location; **CSV export**.
-  - Row-click → inline detail: item breakdown, charged/collected/refunded/net, guest/waiver/created-by, **Record refund** (amount·date·reason·staff) = the refund home.
-  - **Deleted bookings viewable** via an **"Archived" filter/toggle** (deleted + cancelled, shown dimmed) — NOT a separate tab. _(Step-0: confirm deletes are soft/retained; if hard-deleted, switch to soft-delete/archive so they can be shown.)_
-  - **Click guest name → opens the Customers tab for that client.**
+## ✅ Recently shipped from this TODO
+- **D1–D3 — Booking-drawer equipment polish:** compact quantity/total layout, unified green, and one Equipment header; `ef936ec5`, followed by picker regression fix `6eed4823`.
+- **N1 — Bookings tab:** searchable historical log, filter-global finance summary, CSV, archived records, guest→Customers, and append-only manual refund ledger; `42e30925`. List-500/layout fix `27981048` is live on Sunset staging.
 
 ## 📱 Mobile — LAST
 - Deprioritized on purpose: do the main-site UI first (still adding/removing buttons, reformatting menus), *then* go mobile screen-by-screen. Add specifics here as you hit them: "mobile: [screen]".
