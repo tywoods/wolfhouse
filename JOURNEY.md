@@ -33,9 +33,10 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 - Crowsnest favicon built; this JOURNEY board added
 - Sunset rental/equipment thread **closed** (owner-verified: pricing, pickups scope, "+" labels)
 - Admin Rental Prices card redesign shipped — hybrid (compact rows + expand-in-place editor); `89ace136`, gate 104/104
+- Admin Rental Prices card **polish** shipped — Add-equipment inline, "Stock = X · Enabled/Disabled" (dot left), edit-header fix, ⋯ removed; `9a8aaf35`, gate 230/230
 
 ## 🍳 On the stove (in progress)
-- **Admin Rental Prices card — polish pass** (Skipper building; Captain gates) — 5 tweaks: Add-equipment inline w/ title; add-drawer spacing; edit-header stock/toggle overlap; row meta → circle-left + "Stock = X" + Enabled/Disabled (drop today's); remove ⋯ (delete lives in edit card).
+- **Booking-drawer EQUIPMENT reorg** (Captain + Skipper) — concept approved; brief written, **ready to hand to Skipper next**. (see To-do for detail)
 - **Earthling** — _add what you're on here._
 
 ## 📋 To do
@@ -49,7 +50,7 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 ---
 
 ## 🚀 Live where
-- **Sunset · staff-api** (staging) — `89ace136` rev 0000451 · 08-02 19:14 · Captain
+- **Sunset · staff-api** (staging) — `9a8aaf35` rev 0000452 · 08-03 02:00 · Captain
 - **Sunset · Luna** plugin+SOUL (staging) — `c79da8aa` Slice E · 08-02 05:17 · Captain _(separate deploy — drifts from staff-api)_
 - **Wolfhouse · staff-api** (PROD) — _verify_ · Earthling
 - **Wolfhouse · Luna** guest WhatsApp (prod) — _verify_ · Earthling
