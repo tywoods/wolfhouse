@@ -1,4 +1,4 @@
-# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A)
+# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A + 2B)
 
 **Status:**
 - **1A:** provider-neutral adapter/validation contract, fake adapter, focused tests.
@@ -7,10 +7,13 @@
 - **1C-beta:** smallest admin-only **READ** Staff API over that empty registry (list locations + list channel endpoints).
 - **1C-gamma:** smallest admin-only, **explicitly kill-switched** registration **WRITE** API (`POST` locations + disabled channel endpoints). No activation, provider connectivity, live registration, or deploy.
 - **2A:** pure offline **Microsoft Graph mailbox adapter boundary** with injected secret provider + injected HTTP transport, `listMessageEnvelopes({top})` only, deterministic fake transport tests. **No live network**, no Azure/Graph calls from verifiers, no DB/route/activation/deploy.
+- **2B:** pure offline **Microsoft Graph app-only read-readiness contract** — machine-checkable security prerequisites (least-privilege `Mail.ReadBasic.All` only, application access policy scoped to `support@lunafrontdesk.com`, opaque 1A `secret_ref` + exact material key *names*, network/activation off). **Does not perform readiness discovery** and does not access Azure/Microsoft; never claims Entra/mailbox facts were independently verified.
 
 **Not in slices 1A–1C-gamma:** Microsoft Graph / Gmail / IMAP network calls, OAuth, subscriptions, polling, send/drafts UI, attachment download/storage, Luna SOUL changes, live mailbox config, deploy, invented client/location/mailbox rows. Activation / secret_ref visibility / live provider connectivity remain deferred past 1C-gamma.
 
 **Not in Slice 2A:** live Graph/Azure calls, default HTTP transport, provider SDKs, credential cache, access_token secret-material shortcut, polling/webhooks, send/draft/reply/forward, attachment download, DB lookups, Staff API routes, registry rows, schema, SOUL, activation, deploy.
+
+**Not in Slice 2B:** live Entra/Azure/Graph/Key Vault discovery or admin confirmation automation; default network transport; composition/runtime factory; schema/migrations; Staff API routes; registry activation; polling/webhooks/send; SOUL; deploy; real credentials.
 
 ## Architectural decision (Slice 1A vs 1B)
 
@@ -24,6 +27,7 @@ Slice **1A intentionally ships no** endpoint persistence schema and no Graph/Gma
 | **1C-beta (admin READ API)** | Extracted DI routes `scripts/lib/staff-email-registry-routes.js` wired into `staff-query-api.js`: `GET /staff/admin/email-registry/locations`, `GET /staff/admin/email-registry/channel-endpoints`; `requireAuth('admin')` + existing `assertStaffClientAccess` + `admin_db_read` gate; DTO allowlists; `secret_ref` always redacted (`secret_ref_present` only) | POST/PATCH/DELETE; activation; secret_ref visibility; provider connectivity; UI |
 | **1C-gamma (admin WRITE API)** | Same module: `POST` same two paths; `requireAuth('admin')` + ACL + requested-tenant `staff_actions`/`admin_writes` via `authorizeAuthenticatedStaffRoute`; global kill switch `EMAIL_REGISTRY_WRITES_ENABLED` (exact case-insensitive `true` only); body allowlists; trusted `clientId` from slug UUID + `actor` from `user.staff_user_id`; domain writes via `{ client }` on `withPgClient`; endpoints always disabled | PATCH/DELETE; activation; secret_ref visibility; provider connectivity; UI; live registration |
 | **2A (Graph adapter boundary)** | `email-secret-provider-contract`, `email-http-transport-contract`, `email-microsoft-graph-adapter`, optional `email-fake-http-transport`; app-only client_credentials → list message envelopes; exact allowlists; sanitized errors; offline verifier | Live network; default transport; SDK; send/draft/reply; polling/webhooks; DB; routes; activation; deploy |
+| **2B (Graph app-only readiness)** | `email-graph-app-only-readiness-contract`: pure offline declaration of human-provided security evidence (`provider`, `auth_mode=application_client_credentials`, exact `Mail.ReadBasic.All`, admin consent flag, application access policy → `support@lunafrontdesk.com` only, opaque 1A `secret_ref` + material key names, network/activation/inbound/outbound/automation off); ready flag never implies live Azure verification | Live discovery; Entra/Graph/KV clients; composition factory; default transport; routes; activation; schema; deploy |
 
 Application validation in `validateTenantChannelEndpointInput(input, { locationAuthority })` remains a **contract for writes**, not a substitute for DB integrity. Location authority is a **trusted out-of-band callback** (argument 2 only); it fails closed without a valid second-argument authority and never honors authority embedded in untrusted `input`.
 
@@ -49,6 +53,7 @@ Guest email provider  →  provider adapter (2A Graph boundary)  →  Staff API 
                      + email-tenant-channel-registry (1C-alpha domain layer)
                      + staff-email-registry-routes (1C-beta READ + 1C-gamma kill-switched WRITE)
                      + email-microsoft-graph-adapter (2A; injected transport only)
+                     + email-graph-app-only-readiness-contract (2B; offline security prerequisites)
 ```
 
 - **One unified Staff Inbox** with channel-native threads (WhatsApp today; email endpoints registered later).
@@ -83,6 +88,7 @@ Down: `057_tenant_locations_and_channel_endpoints_down.sql`
 | `scripts/lib/email-http-transport-contract.js` (2A) | Validate injected async `{ request }` transport shape; fixed timeout constants | Default/network transport implementation |
 | `scripts/lib/email-microsoft-graph-adapter.js` (2A) | Factory scoped to validated `microsoft_graph` endpoint + required `secretProvider` + `transport`; `listMessageEnvelopes({top})` only; app-only token then Graph messages GET; exact DTO allowlists; sanitized error codes | DB lookups; SDK; credential/token cache; access_token secret shortcut; send/draft/reply; host/url injection fields; partial list results |
 | `scripts/lib/email-fake-http-transport.js` (2A tests) | Deterministic recording fake transport for verifiers | Network I/O / DNS |
+| `scripts/lib/email-graph-app-only-readiness-contract.js` (2B) | Offline app-only read-readiness declaration: exact provider/auth/permission/mailbox-scope/secret-package/network-off allowlists; reuses 1A `secret_ref` validator (input only); public DTO `secret_ref_present` + exact material key names (never serializes `secret_ref`); deep-frozen ok/fail envelopes; allowlisted error reasons only; `ready_for_human_authorized_live_prerequisite_check` never claims Azure/Entra/mailbox facts verified | Live discovery; Azure/Graph/KV SDK; env reads; routes; activation; composition factory; expose secret_ref value |
 
 Consumers must branch on **capability flags** (`remote_drafts`, `push_notifications`, …), not on provider-specific field shapes. Unknown provider ids, capability shapes, and **unknown capability keys on `supports()`** fail closed (throw / structured reject — never silent `false` for typos).
 
@@ -281,6 +287,49 @@ Hosts and path templates are **fixed** in adapter code. Endpoint input must not 
 - DB lookups, Staff API routes, registry activation, schema/migrations
 - SOUL changes, deploy, live mailbox registration, credential storage in Git/Postgres product rows
 
+## Microsoft Graph app-only read-readiness (Slice 2B)
+
+Pure offline **security-prerequisite contract** for a future human-authorized live Graph integration. Module: `scripts/lib/email-graph-app-only-readiness-contract.js`.
+
+Slice 2B freezes machine-checkable evidence an operator must declare **before** live activation. It **does not perform readiness discovery**, does not call Azure/Entra/Graph/Key Vault, and **never claims** those facts were independently verified — even when `ready_for_human_authorized_live_prerequisite_check` is `true`.
+
+### Declaration surface (exact own-data keys)
+
+| Field | Rule |
+|-------|------|
+| `provider` | exact `microsoft_graph` |
+| `auth_mode` | exact `application_client_credentials` |
+| `permission_set` | set-equal to `['Mail.ReadBasic.All']` only — reject `Mail.Read`, `Mail.ReadWrite`, send scopes, extras, duplicates, empty |
+| `admin_consent_confirmed` | boolean; `false` ⇒ structurally valid but incomplete |
+| `mailbox_scope.mechanism` | exact `application_access_policy` (not multi/all/tenant-wide mailboxes) |
+| `mailbox_scope.allowed_public_addresses` | exact single element `support@lunafrontdesk.com` |
+| `secret_package.secret_ref` | **input only** — opaque 1A `validateEmailMailboxSecretRef` (reuse — no weaker parser); **never returned** on success |
+| `secret_package.material_keys` | set-equal to `['tenant_id','client_id','client_secret']`; reject `access_token` and raw value keys |
+| `network_enabled` | exact `false` (true fails closed) |
+| `registry_activation_enabled` | exact `false` |
+| `inbound_enabled` / `outbound_enabled` | exact `false` |
+| `default_automation_mode` | exact `off` |
+
+**Outputs:** fresh deeply frozen ok/fail envelopes. Success value is an allowlisted DTO — `secret_package` is `{ secret_ref_present: true, material_keys: [...] }` only (**no** serialized `secret_ref` / ref value). Failures use stable error codes + allowlisted reason tokens only (never attacker-controlled unknown key names or raw values). Complete valid declarations set `ready_for_human_authorized_live_prerequisite_check: true` with empty `missing_requirements`; valid-incomplete (e.g. admin consent false) keeps `ok: true` with allowlisted missing ids only. Always `azure_facts_independently_verified` / `entra_facts_independently_verified` / `mailbox_facts_independently_verified` = `false`.
+
+**Operator-owned steps (outside this contract / not automated by 2B):**
+
+1. Entra app registration (application / client-credentials)
+2. Admin consent for **`Mail.ReadBasic.All` only** (starting least privilege)
+3. Application access policy / mailbox RBAC constrained to **`support@lunafrontdesk.com`**
+4. Secret store package under opaque ref with exact three material keys; never Git/Postgres product rows
+5. Keep network, registry activation, inbound, outbound, and automation **off** until a later explicit activation slice
+
+### Non-goals (Slice 2B)
+
+- Live Azure / Entra / Graph / Key Vault / DNS / network I/O from modules or verifiers
+- Readiness discovery automation or “probe live tenant” helpers
+- Default HTTP transport, MSAL, Graph SDK, composition/runtime factory
+- Schema/migrations, registry rows, inventing client/location/mailbox seeds
+- Activation / inbound / outbound / automation enablement
+- New or enabled Staff API routes; polling, webhooks, send/draft/reply
+- SOUL, deploy, real credentials in Git/Postgres/logs/prompts
+
 ## Verifiers
 
 ```bash
@@ -291,6 +340,7 @@ npm run verify:email-tenant-channel-registry
 npm run prove:email-tenant-channel-registry-pg
 npm run verify:staff-email-registry-routes
 npm run verify:email-microsoft-graph-adapter
+npm run verify:email-graph-app-only-readiness
 npm run verify:migration-integrity
 ```
 
@@ -305,3 +355,5 @@ Slice 1C-beta adds the admin-only READ route module + DI wiring + focused offlin
 Slice 1C-gamma extends the **same** route module with kill-switched POST registration + verifier coverage — **no** activation, provider connectivity, live data, or deploy.
 
 Slice 2A adds the Graph adapter boundary modules + `verify:email-microsoft-graph-adapter` (offline hostile probes; injected fake transport only).
+
+Slice 2B adds the app-only read-readiness contract + `verify:email-graph-app-only-readiness` (offline hostile probes; no network/discovery).
