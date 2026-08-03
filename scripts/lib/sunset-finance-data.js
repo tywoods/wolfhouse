@@ -164,14 +164,25 @@ async function fetchSunsetFinanceData(pg, scope) {
     bookingsRes = await pg.query(BOOKINGS_SQL, params);
     paymentsRes = await pg.query(PAYMENTS_SQL, params);
     try {
-      refundsRes = await pg.query(REFUNDS_SQL, params);
-    } catch (err) {
-      if (isMissingRelationError(err)) {
-        refundsRes = { rows: [] };
-        refundLedgerUnavailable = true;
-      } else {
-        throw err;
+      // SAVEPOINT so 42P01 does not abort the outer REPEATABLE READ txn (PG marks
+      // the whole transaction aborted after any error without a savepoint).
+      await pg.query('SAVEPOINT finance_refunds_sp');
+      try {
+        refundsRes = await pg.query(REFUNDS_SQL, params);
+        await pg.query('RELEASE SAVEPOINT finance_refunds_sp');
+      } catch (err) {
+        if (isMissingRelationError(err)) {
+          try { await pg.query('ROLLBACK TO SAVEPOINT finance_refunds_sp'); } catch (_rb) { /* best effort */ }
+          try { await pg.query('RELEASE SAVEPOINT finance_refunds_sp'); } catch (_rel) { /* already rolled back */ }
+          refundsRes = { rows: [] };
+          refundLedgerUnavailable = true;
+        } else {
+          try { await pg.query('ROLLBACK TO SAVEPOINT finance_refunds_sp'); } catch (_rb) { /* best effort */ }
+          throw err;
+        }
       }
+    } catch (err) {
+      throw err;
     }
     try {
       stockRes = await pg.query(RENTAL_STOCK_SQL, params);

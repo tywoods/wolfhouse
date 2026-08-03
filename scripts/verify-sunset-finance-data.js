@@ -146,36 +146,75 @@ ok('refunds filter source staff_manual_record', /staff_manual_record/.test(ref))
   ok('present legacy persisted balance still fails closed on one-cent mismatch', legacyDrift instanceof FinanceDataQualityError);
 
 
-  // Missing ledger table → soft empty refunds, no throw
-  const missingRelPg = {
-    query(sql, params) {
-      const s = norm(sql);
-      if (/begin|commit|rollback/.test(s)) return Promise.resolve({ rows: [] });
-      if (/from booking_refund_records/.test(s)) {
-        const err = new Error('relation "booking_refund_records" does not exist');
-        err.code = '42P01';
-        return Promise.reject(err);
-      }
-      if (/from booking_service_records/.test(s)) {
-        return Promise.resolve({ rows: [{ booking_id: 'B1', service_date: '2026-07-15', amount_due_cents: 4000, metadata: {} }] });
-      }
-      if (/from payments/.test(s)) {
-        return Promise.resolve({ rows: [{ booking_id: 'B1', amount_paid_cents: 1500, paid_at: '2026-07-15T09:00:00Z' }] });
-      }
-      if (/select distinct|from bookings/.test(s) && /total_amount/.test(s)) {
-        return Promise.resolve({ rows: [{ booking_id: 'B1', total_amount_cents: 10000, balance_due_cents: 8500 }] });
-      }
-      return Promise.resolve({ rows: [] });
-    },
-  };
-  const softData = await fetchSunsetFinanceData(missingRelPg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
-  ok('missing refunds table soft-empty', Array.isArray(softData.refund_records) && softData.refund_records.length === 0);
-  ok('missing refunds table flags unavailable', softData.refund_ledger_unavailable === true);
+  // Missing ledger table → soft empty via SAVEPOINT (PG-accurate aborted-txn semantics)
+    const strictCalls = [];
+    let aborted = false;
+    const missingRelStrictPg = {
+      query(sql, params) {
+        const raw = String(sql || '');
+        const s = norm(raw);
+        strictCalls.push(raw);
+        if (/^\s*begin\b/.test(s)) {
+          aborted = false;
+          return Promise.resolve({ rows: [] });
+        }
+        if (/^\s*commit\b/.test(s)) {
+          if (aborted) {
+            const err = new Error('current transaction is aborted, commands ignored until end of transaction block');
+            err.code = '25P02';
+            return Promise.reject(err);
+          }
+          return Promise.resolve({ rows: [] });
+        }
+        if (/rollback\s+to\s+savepoint\s+finance_refunds_sp/.test(s)) {
+          aborted = false;
+          return Promise.resolve({ rows: [] });
+        }
+        if (/release\s+savepoint\s+finance_refunds_sp/.test(s)) {
+          return Promise.resolve({ rows: [] });
+        }
+        if (/^\s*savepoint\s+finance_refunds_sp/.test(s)) {
+          return Promise.resolve({ rows: [] });
+        }
+        if (/^\s*rollback\b/.test(s) && !/to\s+savepoint/.test(s)) {
+          aborted = false;
+          return Promise.resolve({ rows: [] });
+        }
+        if (aborted) {
+          const err = new Error('current transaction is aborted, commands ignored until end of transaction block');
+          err.code = '25P02';
+          return Promise.reject(err);
+        }
+        if (/from booking_refund_records/.test(s)) {
+          aborted = true; // PG aborts txn until ROLLBACK TO SAVEPOINT
+          const err = new Error('relation "booking_refund_records" does not exist');
+          err.code = '42P01';
+          return Promise.reject(err);
+        }
+        if (/from booking_service_records/.test(s)) {
+          return Promise.resolve({ rows: [{ booking_id: 'B1', service_date: '2026-07-15', amount_due_cents: 4000, metadata: {} }] });
+        }
+        if (/from payments/.test(s)) {
+          return Promise.resolve({ rows: [{ booking_id: 'B1', amount_paid_cents: 1500, paid_at: '2026-07-15T09:00:00Z' }] });
+        }
+        if (/select distinct|from bookings/.test(s) && /total_amount/.test(s)) {
+          return Promise.resolve({ rows: [{ booking_id: 'B1', total_amount_cents: 10000, balance_due_cents: 8500 }] });
+        }
+        return Promise.resolve({ rows: [] });
+      },
+    };
+    const softData = await fetchSunsetFinanceData(missingRelStrictPg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
+    ok('missing refunds table soft-empty', Array.isArray(softData.refund_records) && softData.refund_records.length === 0);
+    ok('missing refunds table flags unavailable', softData.refund_ledger_unavailable === true);
+    ok('soft-empty used SAVEPOINT finance_refunds_sp', strictCalls.some((c) => /savepoint\s+finance_refunds_sp/i.test(c)));
+    ok('soft-empty used ROLLBACK TO SAVEPOINT', strictCalls.some((c) => /rollback\s+to\s+savepoint\s+finance_refunds_sp/i.test(c)));
+    ok('soft-empty still completed stock/packs after 42P01', softData.rental_stock && softData.surf_packs);
+    ok('soft-empty finished with COMMIT (txn recovered)', strictCalls.some((c) => /^\s*commit\b/i.test(c)));
 
-  console.log(`\n── verify:sunset-finance-data: ${pass} passed, ${fail} failed ──`);
-  if (fail === 0) console.log('verify:sunset-finance-data — ALL CHECKS PASSED');
-  process.exit(fail ? 1 : 0);
-})().catch((err) => {
-  console.error('verify:sunset-finance-data — unexpected error', err);
+    console.log(`\n── verify:sunset-finance-data: ${pass} passed, ${fail} failed ──`);
+    if (fail === 0) console.log('verify:sunset-finance-data — ALL CHECKS PASSED');
+    process.exit(fail ? 1 : 0);
+  })().catch((err) => {
+    console.error('verify:sunset-finance-data — unexpected error', err);
   process.exit(1);
 });
