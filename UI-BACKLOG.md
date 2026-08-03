@@ -26,7 +26,8 @@ _Started 2026-08-03. Owner brain-dump complete; refine + resequence as we go._
 - **L2 — [BUG] Disabled rental still offered.** Turning a rental OFF in Admin doesn't stop Luna offering it; she must respect the enabled/active flag. `M`
 
 ## 🔌 Luna wiring & de-hardcode (audit)
-- **W1 — [FEAT][LUNA] Full settings audit.** Go through **every setting on everything**, decide whether Luna should be wired to it, and make it happen. This is the standing initiative; beaches (A3) is the first concrete case. `L` (ongoing)
+- **W1 — [FEAT][LUNA] Wire Luna for every relevant setting.** Standing initiative; beaches (A3) is case #1.
+  - **Pre (not started):** Captain audits every Admin setting → maps which Luna reads vs ignores, with a wire/skip recommendation per setting. This produces the concrete checklist the wiring work runs off. _(deferred — not tonight)_ `L` (ongoing)
 - **W2 — Age range de-hardcode?** Currently hardcoded; maybe it shouldn't be. **@Earthling** to decide. `M`
 - **W3 — Frequency de-hardcode?** Currently hardcoded; maybe it shouldn't be. **@Earthling** to decide. `M`
 - **W4 — [I18N] Custom course names translated everywhere.** Course names are custom but must be translated across menus, cockpit, Luna — everywhere they appear. **@Earthling.** `M–L`
