@@ -340,6 +340,7 @@
     "verify:staff-email-registry-routes": "node scripts/verify-staff-email-registry-routes.js",
     "verify:email-microsoft-graph-adapter": "node scripts/verify-email-microsoft-graph-adapter.js",
     "verify:email-graph-app-only-readiness": "node scripts/verify-email-graph-app-only-readiness.js",
+    "verify:email-microsoft-delegated-oauth-contract": "node scripts/verify-email-microsoft-delegated-oauth-contract.js",
     "verify:staging-ledger-recovery": "node scripts/verify-staging-ledger-recovery.js",
     "staging-ledger-recovery:plan": "node scripts/run-staging-ledger-recovery.js",
     "staging-ledger-recovery:apply": "node scripts/run-staging-ledger-recovery.js",
