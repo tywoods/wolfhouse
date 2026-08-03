@@ -35,12 +35,13 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 - Admin Rental Prices card redesign shipped — hybrid (compact rows + expand-in-place editor); `89ace136`, gate 104/104
 
 ## 🍳 On the stove (in progress)
-- _(Captain idle — Sunset rental + admin-card work shipped; awaiting next task.)_
+- **Admin Rental Prices card — polish pass** (Skipper building; Captain gates) — 5 tweaks: Add-equipment inline w/ title; add-drawer spacing; edit-header stock/toggle overlap; row meta → circle-left + "Stock = X" + Enabled/Disabled (drop today's); remove ⋯ (delete lives in edit card).
 - **Earthling** — _add what you're on here._
 
 ## 📋 To do
 - Sunset D/E/H live gates (policy / lane-replay / non-contiguous stock) — offline-green; need a staff `luna_staff_session` cookie for live exercise.
 - **Crowsnest favicon deploy** — image `crowsnest:34e4b7f3…` built & in ACR; **blocked** (this host has no write on `luna-crowsnest-rg`) → Earthling runs the `az containerapp update`.
+- **Booking-drawer EQUIPMENT reorg** (Create + Edit) — concept approved; queued after admin-card polish. Name-as-toggle (no checkbox), drop duration/total labels, per-line total (tier×qty), keep "from €X" + always-show qty. EQUIPMENT section only, same drawer size.
 - Staff-API decomposition — more slices (1–5 shipped).
 - Finance tab — deeper items (real refund ledger / true net).
 - Lunabox deep disk clean (~20G: stale clones + `docker image prune -a`) when agents idle.
