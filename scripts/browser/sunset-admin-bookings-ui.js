@@ -70,7 +70,12 @@ function adminBookingsBuildQuery(extra) {
   if (f.date_to) params.set('date_to', f.date_to);
   if (f.status) params.set('status', f.status);
   if (f.type) params.set('type', f.type);
-  if (f.include_archived) params.set('include_archived', '1');
+  // Status Cancelled/Deleted rows are archived in the domain model — auto-include
+  // so the Status dropdown works without a separate archived checkbox.
+  var stLower = String(f.status || '').toLowerCase();
+  var needArchived = !!f.include_archived
+    || stLower === 'cancelled' || stLower === 'canceled' || stLower === 'deleted';
+  if (needArchived) params.set('include_archived', '1');
   params.set('limit', String(f.limit || 50));
   params.set('offset', String(f.offset || 0));
   if (extra) {
@@ -86,20 +91,42 @@ function renderAdminBookingsShell() {
   if (!body) return;
   body.innerHTML =
     '<div class="portal-admin-bookings" data-admin-bookings="1">' +
+      '<div id="admin-bookings-summary" class="portal-admin-bookings-summary" aria-live="polite"></div>' +
       '<div class="portal-admin-bookings-toolbar" role="search">' +
         '<label class="portal-admin-bookings-field portal-admin-bookings-search">' +
           '<span class="portal-admin-bookings-label">' + escHtml(portalT('admin.bookings.search')) + '</span>' +
           '<input type="search" id="admin-bookings-q" class="portal-admin-bookings-input" autocomplete="off" ' +
             'placeholder="' + escHtml(portalT('admin.bookings.searchPlaceholder')) + '" />' +
         '</label>' +
-        '<label class="portal-admin-bookings-field">' +
-          '<span class="portal-admin-bookings-label">' + escHtml(portalT('admin.bookings.dateFrom')) + '</span>' +
-          '<input type="date" id="admin-bookings-date-from" class="portal-admin-bookings-input" />' +
-        '</label>' +
-        '<label class="portal-admin-bookings-field">' +
-          '<span class="portal-admin-bookings-label">' + escHtml(portalT('admin.bookings.dateTo')) + '</span>' +
-          '<input type="date" id="admin-bookings-date-to" class="portal-admin-bookings-input" />' +
-        '</label>' +
+        '<div class="portal-admin-bookings-field portal-admin-bookings-date-range" id="admin-bookings-date-range">' +
+          '<span class="portal-admin-bookings-label" id="admin-bookings-date-range-label">' +
+            escHtml(portalT('admin.bookings.dateRange') || portalT('admin.bookings.dateFrom') || 'Dates') + '</span>' +
+          '<button type="button" id="admin-bookings-date-range-trigger" class="portal-admin-bookings-date-range-trigger" ' +
+            'aria-haspopup="dialog" aria-expanded="false" aria-controls="admin-bookings-date-range-popover">' +
+            '<span id="admin-bookings-date-range-display" class="portal-admin-bookings-date-range-display">' +
+              escHtml(portalT('admin.bookings.dateRangeAll') || 'All dates') + '</span>' +
+          '</button>' +
+          '<input type="hidden" id="admin-bookings-date-from" value="" />' +
+          '<input type="hidden" id="admin-bookings-date-to" value="" />' +
+          '<div id="admin-bookings-date-range-popover" class="portal-admin-bookings-date-range-popover" role="dialog" ' +
+            'aria-modal="false" aria-labelledby="admin-bookings-date-range-label" hidden style="display:none">' +
+            '<div class="portal-admin-bookings-date-range-nav">' +
+              '<button type="button" id="admin-bookings-date-range-prev" aria-label="Previous month">&#8249;</button>' +
+              '<span id="admin-bookings-date-range-month-label" class="portal-admin-bookings-date-range-month" aria-live="polite"></span>' +
+              '<button type="button" id="admin-bookings-date-range-next" aria-label="Next month">&#8250;</button>' +
+            '</div>' +
+            '<div id="admin-bookings-date-range-grid" class="portal-admin-bookings-date-range-grid" role="group" ' +
+              'aria-labelledby="admin-bookings-date-range-month-label"></div>' +
+            '<div class="portal-admin-bookings-date-range-actions">' +
+              '<button type="button" class="btn btn-ghost btn-compact" id="admin-bookings-date-range-clear">' +
+                escHtml(portalT('admin.bookings.dateRangeClear') || 'Clear') + '</button>' +
+              '<button type="button" class="btn btn-ghost btn-compact" id="admin-bookings-date-range-cancel">' +
+                escHtml(portalT('admin.bookings.dateRangeCancel') || 'Cancel') + '</button>' +
+              '<button type="button" class="btn btn-primary btn-compact" id="admin-bookings-date-range-apply">' +
+                escHtml(portalT('admin.bookings.dateRangeApply') || 'Apply') + '</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
         '<label class="portal-admin-bookings-field">' +
           '<span class="portal-admin-bookings-label">' + escHtml(portalT('admin.bookings.status')) + '</span>' +
           '<select id="admin-bookings-status" class="portal-admin-bookings-input">' +
@@ -123,20 +150,12 @@ function renderAdminBookingsShell() {
             '<option value="meal">' + escHtml(portalT('admin.bookings.type.meal')) + '</option>' +
           '</select>' +
         '</label>' +
-        '<label class="portal-admin-bookings-check">' +
-          '<input type="checkbox" id="admin-bookings-archived" />' +
-          '<span>' + escHtml(portalT('admin.bookings.includeArchived')) + '</span>' +
-        '</label>' +
         '<div class="portal-admin-bookings-actions">' +
-          '<button type="button" class="btn btn-primary" id="admin-bookings-apply">' +
-            escHtml(portalT('admin.bookings.applyFilters')) +
-          '</button>' +
           '<button type="button" class="btn btn-ghost" id="admin-bookings-export">' +
             escHtml(portalT('admin.bookings.exportCsv')) +
           '</button>' +
         '</div>' +
       '</div>' +
-      '<div id="admin-bookings-summary" class="portal-admin-bookings-summary" aria-live="polite"></div>' +
       '<div id="admin-bookings-table-wrap" class="portal-admin-bookings-table-wrap"></div>' +
       '<div id="admin-bookings-msg" class="state-msg" style="display:none" role="status"></div>' +
     '</div>';
@@ -155,43 +174,40 @@ function wireAdminBookingsPanel() {
     var dt = el('admin-bookings-date-to');
     var st = el('admin-bookings-status');
     var ty = el('admin-bookings-type');
-    var ar = el('admin-bookings-archived');
     adminBookingsState.filters.q = q ? String(q.value || '').trim() : '';
     adminBookingsState.filters.date_from = df ? String(df.value || '') : '';
     adminBookingsState.filters.date_to = dt ? String(dt.value || '') : '';
     adminBookingsState.filters.status = st ? String(st.value || '') : '';
     adminBookingsState.filters.type = ty ? String(ty.value || '') : '';
-    adminBookingsState.filters.include_archived = !!(ar && ar.checked);
+    // Archived checkbox removed — cancelled/deleted auto-include in buildQuery.
+    adminBookingsState.filters.include_archived = false;
     adminBookingsState.filters.offset = 0;
   }
 
-  var applyBtn = el('admin-bookings-apply');
-  if (applyBtn) {
-    applyBtn.addEventListener('click', function () {
-      readFiltersFromDom();
-      loadAdminBookings();
-    });
+  function applyLiveFilters() {
+    readFiltersFromDom();
+    loadAdminBookings();
   }
+
   var qInput = el('admin-bookings-q');
   if (qInput) {
     var searchTimer = null;
     qInput.addEventListener('input', function () {
       clearTimeout(searchTimer);
       searchTimer = setTimeout(function () {
-        readFiltersFromDom();
-        loadAdminBookings();
+        applyLiveFilters();
       }, 220);
     });
   }
-  ['admin-bookings-date-from', 'admin-bookings-date-to', 'admin-bookings-status', 'admin-bookings-type', 'admin-bookings-archived']
-    .forEach(function (id) {
-      var node = el(id);
-      if (!node) return;
-      node.addEventListener('change', function () {
-        readFiltersFromDom();
-        loadAdminBookings();
-      });
+  ['admin-bookings-status', 'admin-bookings-type'].forEach(function (id) {
+    var node = el(id);
+    if (!node) return;
+    node.addEventListener('change', function () {
+      applyLiveFilters();
     });
+  });
+
+  wireAdminBookingsDateRange(applyLiveFilters);
 
   var exportBtn = el('admin-bookings-export');
   if (exportBtn) {
@@ -218,7 +234,7 @@ function wireAdminBookingsPanel() {
       }
       var refundBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-record-refund]') : null;
       if (refundBtn) {
-        ev.preventDefault();
+ev.preventDefault();
         ev.stopPropagation();
         var bookingId = refundBtn.getAttribute('data-bookings-record-refund');
         openAdminBookingsRefundForm(bookingId);
@@ -359,17 +375,18 @@ function renderAdminBookingsSummary() {
   node.innerHTML =
     '<div class="portal-admin-bookings-summary-strip" role="group" aria-label="' +
       escHtml(portalT('admin.bookings.summaryLabel')) + '">' +
-      metric('admin.bookings.metric.bookings', s.bookings_count != null ? String(s.bookings_count) : '0') +
-      metric('admin.bookings.metric.collected', adminBookingsFormatEur(s.collected_cents)) +
-      metric('admin.bookings.metric.refunded', adminBookingsFormatEur(s.refunded_cents)) +
-      metric('admin.bookings.metric.net', adminBookingsFormatEur(s.net_cents)) +
-      metric('admin.bookings.metric.outstanding', adminBookingsFormatEur(s.outstanding_cents)) +
+      metric('admin.bookings.metric.bookings', s.bookings_count != null ? String(s.bookings_count) : '0', 'count') +
+      metric('admin.bookings.metric.collected', adminBookingsFormatEur(s.collected_cents), 'collected') +
+      metric('admin.bookings.metric.refunded', adminBookingsFormatEur(s.refunded_cents), 'refunded') +
+      metric('admin.bookings.metric.net', adminBookingsFormatEur(s.net_cents), 'net') +
+      metric('admin.bookings.metric.outstanding', adminBookingsFormatEur(s.outstanding_cents), 'outstanding') +
     '</div>';
 
-  function metric(labelKey, value) {
+  function metric(labelKey, value, tone) {
+    var toneClass = tone ? (' is-' + String(tone)) : '';
     return '<div class="portal-admin-bookings-metric">' +
       '<div class="portal-admin-bookings-metric-label">' + escHtml(portalT(labelKey)) + '</div>' +
-      '<div class="portal-admin-bookings-metric-value">' + escHtml(value) + '</div></div>';
+      '<div class="portal-admin-bookings-metric-value' + toneClass + '">' + escHtml(value) + '</div></div>';
   }
 }
 
@@ -425,7 +442,7 @@ function renderAdminBookingsTable() {
       escHtml(adminBookingsFormatEur(row.total_cents != null ? row.total_cents : row.charged_cents)) + '</div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-num" role="cell">' +
       escHtml(adminBookingsFormatEur(row.paid_cents != null ? row.paid_cents : row.collected_cents)) + '</div>';
-    html += '<div class="portal-admin-bookings-td" role="cell">' +
+    html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-status" role="cell">' +
       '<span class="portal-admin-bookings-chip portal-admin-bookings-chip--' + escHtml(String(row.status || 'unpaid')) +
       '">' + escHtml(adminBookingsStatusLabel(row.status)) + '</span></div>';
     html += '</div>';
@@ -502,16 +519,21 @@ function renderAdminBookingsExpansion(row) {
   var canRefund = adminBookingsCanWriteRefund();
   var refundAction = canRefund
     ? '<button type="button" class="btn btn-primary btn-compact" data-bookings-record-refund="' +
-      escHtml(String(row.booking_id || '')) + '">' + escHtml(portalT('admin.bookings.recordRefund')) + '</button>' +
-      '<p class="portal-admin-bookings-muted portal-admin-bookings-refund-note">' +
-      escHtml(portalT('admin.bookings.recordRefundNote')) + '</p>'
+      escHtml(String(row.booking_id || '')) + '">' + escHtml(portalT('admin.bookings.recordRefund')) + '</button>'
     : '<p class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.recordRefundViewer')) + '</p>';
 
   return '<div class="portal-admin-bookings-expand" role="region" data-bookings-expand="' +
     escHtml(String(row.booking_id || '')) + '">' +
     '<div class="portal-admin-bookings-expand-grid">' +
-      '<section><h4>' + escHtml(portalT('admin.bookings.items')) + '</h4><ul class="portal-admin-bookings-kv">' + itemsHtml + '</ul></section>' +
-      '<section><h4>' + escHtml(portalT('admin.bookings.paymentStory')) + '</h4>' +
+      '<section data-bookings-section="guest"><h4>' + escHtml(portalT('admin.bookings.guestMeta')) + '</h4>' +
+        '<ul class="portal-admin-bookings-kv">' +
+          '<li><span>' + escHtml(portalT('admin.bookings.guest')) + '</span><span>' + escHtml((row.guest && row.guest.name) || row.guest_name || '—') + '</span></li>' +
+          '<li><span>' + escHtml(portalT('admin.bookings.phone')) + '</span><span>' + escHtml((row.guest && row.guest.phone) || row.phone || '—') + '</span></li>' +
+          '<li><span>' + escHtml(portalT('admin.bookings.waiver')) + '</span><span>' + escHtml(waiverText) + '</span></li>' +
+          '<li><span>' + escHtml(portalT('admin.bookings.createdBy')) + '</span><span>' + escHtml(row.created_by || '—') + '</span></li>' +
+        '</ul></section>' +
+      '<section data-bookings-section="items"><h4>' + escHtml(portalT('admin.bookings.items')) + '</h4><ul class="portal-admin-bookings-kv">' + itemsHtml + '</ul></section>' +
+      '<section data-bookings-section="payment"><h4>' + escHtml(portalT('admin.bookings.paymentStory')) + '</h4>' +
         '<ul class="portal-admin-bookings-kv">' +
           '<li><span>' + escHtml(portalT('admin.bookings.charged')) + '</span><span>' + escHtml(adminBookingsFormatEur(story.charged_cents)) + '</span></li>' +
           '<li><span>' + escHtml(portalT('admin.bookings.collected')) + '</span><span>' + escHtml(adminBookingsFormatEur(story.collected_cents)) + '</span></li>' +
@@ -523,13 +545,6 @@ function renderAdminBookingsExpansion(row) {
           refundAction +
         '</div>' +
       '</section>' +
-      '<section><h4>' + escHtml(portalT('admin.bookings.guestMeta')) + '</h4>' +
-        '<ul class="portal-admin-bookings-kv">' +
-          '<li><span>' + escHtml(portalT('admin.bookings.guest')) + '</span><span>' + escHtml((row.guest && row.guest.name) || row.guest_name || '—') + '</span></li>' +
-          '<li><span>' + escHtml(portalT('admin.bookings.phone')) + '</span><span>' + escHtml((row.guest && row.guest.phone) || row.phone || '—') + '</span></li>' +
-          '<li><span>' + escHtml(portalT('admin.bookings.waiver')) + '</span><span>' + escHtml(waiverText) + '</span></li>' +
-          '<li><span>' + escHtml(portalT('admin.bookings.createdBy')) + '</span><span>' + escHtml(row.created_by || '—') + '</span></li>' +
-        '</ul></section>' +
     '</div></div>';
 }
 
@@ -651,4 +666,255 @@ if (typeof window !== 'undefined') {
   window.adminBookingsCanWriteRefund = adminBookingsCanWriteRefund;
   window.adminBookingsState = adminBookingsState;
   window.openAdminBookingsRefundForm = openAdminBookingsRefundForm;
+}
+
+
+/* ── Bookings date-range picker (reuses scheduleCreateDateRange* select/display) ── */
+var adminBookingsDateRangeDraft = { start: null, end: null };
+var adminBookingsDateRangeViewYm = null;
+var adminBookingsDateRangeDocWired = false;
+var adminBookingsDateRangeOnApply = null;
+
+function adminBookingsIsoValid(iso) {
+  if (typeof scheduleCreateDateRangeIsValidIso === 'function') {
+    return scheduleCreateDateRangeIsValidIso(iso);
+  }
+  iso = String(iso || '').slice(0, 10);
+  return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(iso);
+}
+
+function adminBookingsDateRangeDisplayText(from, to) {
+  from = from ? String(from).slice(0, 10) : '';
+  to = to ? String(to).slice(0, 10) : from;
+  if (!from) {
+    var all = portalT('admin.bookings.dateRangeAll');
+    return (all && all !== 'admin.bookings.dateRangeAll') ? all : 'All dates';
+  }
+  if (typeof scheduleCreateDateRangeDisplayText === 'function') {
+    return scheduleCreateDateRangeDisplayText(from, to || from);
+  }
+  if (!to || from === to) return from;
+  return from + ' – ' + to;
+}
+
+function adminBookingsSyncDateRangeDisplay() {
+  var display = el('admin-bookings-date-range-display');
+  var from = el('admin-bookings-date-from') ? el('admin-bookings-date-from').value : '';
+  var to = el('admin-bookings-date-to') ? el('admin-bookings-date-to').value : from;
+  if (display) display.textContent = adminBookingsDateRangeDisplayText(from, to || from);
+}
+
+function adminBookingsDateRangeIsOpen() {
+  var pop = el('admin-bookings-date-range-popover');
+  return !!(pop && !pop.hidden && pop.style && pop.style.display !== 'none');
+}
+
+function adminBookingsDateRangeClose(opts) {
+  opts = opts || {};
+  var pop = el('admin-bookings-date-range-popover');
+  var trig = el('admin-bookings-date-range-trigger');
+  if (pop) {
+    pop.hidden = true;
+    pop.style.display = 'none';
+  }
+  if (trig) trig.setAttribute('aria-expanded', 'false');
+  if (opts.discard) {
+    adminBookingsDateRangeDraft = {
+      start: el('admin-bookings-date-from') ? (el('admin-bookings-date-from').value || null) : null,
+      end: el('admin-bookings-date-to') ? (el('admin-bookings-date-to').value || null) : null,
+    };
+  }
+}
+
+function adminBookingsDateRangeMonthLabel(ym) {
+  ym = String(ym || '').slice(0, 7);
+  var parts = ym.split('-');
+  if (parts.length < 2) return ym;
+  var d = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+  try {
+    return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  } catch (_e) {
+    return ym;
+  }
+}
+
+function adminBookingsDateRangeShiftYm(ym, delta) {
+  ym = String(ym || '').slice(0, 7);
+  var parts = ym.split('-');
+  var y = Number(parts[0]);
+  var m = Number(parts[1]) - 1 + Number(delta || 0);
+  while (m < 0) { m += 12; y -= 1; }
+  while (m > 11) { m -= 12; y += 1; }
+  return y + '-' + String(m + 1).padStart(2, '0');
+}
+
+function adminBookingsRenderDateRangeCalendar() {
+  var grid = el('admin-bookings-date-range-grid');
+  var monthLab = el('admin-bookings-date-range-month-label');
+  if (!grid) return;
+  var ym = adminBookingsDateRangeViewYm || (function () {
+    var t = new Date();
+    return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0');
+  })();
+  adminBookingsDateRangeViewYm = ym;
+  if (monthLab) monthLab.textContent = adminBookingsDateRangeMonthLabel(ym);
+
+  var start = adminBookingsDateRangeDraft && adminBookingsDateRangeDraft.start
+    ? String(adminBookingsDateRangeDraft.start).slice(0, 10) : null;
+  var end = adminBookingsDateRangeDraft && adminBookingsDateRangeDraft.end
+    ? String(adminBookingsDateRangeDraft.end).slice(0, 10) : null;
+
+  var y = Number(ym.slice(0, 4));
+  var m = Number(ym.slice(5, 7)) - 1;
+  var first = new Date(y, m, 1);
+  var startPad = first.getDay(); // Su=0
+  var daysInMonth = new Date(y, m + 1, 0).getDate();
+  var html = '';
+  ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].forEach(function (d) {
+    html += '<span class="portal-admin-bookings-date-range-dow">' + d + '</span>';
+  });
+  var i;
+  for (i = 0; i < startPad; i++) {
+    html += '<span class="portal-admin-bookings-date-range-day is-pad"></span>';
+  }
+  for (i = 1; i <= daysInMonth; i++) {
+    var iso = y + '-' + String(m + 1).padStart(2, '0') + '-' + String(i).padStart(2, '0');
+    var cls = 'portal-admin-bookings-date-range-day';
+    if (start && iso === start) cls += ' is-start';
+    if (end && iso === end) cls += ' is-end';
+    if (start && end && iso > start && iso < end) cls += ' is-in-range';
+    if (start && !end && iso === start) cls += ' is-end';
+    html += '<button type="button" class="' + cls + '" data-bookings-day="' + iso + '">' + i + '</button>';
+  }
+  grid.innerHTML = html;
+}
+
+function adminBookingsDateRangeOpen() {
+  var from = el('admin-bookings-date-from') ? String(el('admin-bookings-date-from').value || '') : '';
+  var to = el('admin-bookings-date-to') ? String(el('admin-bookings-date-to').value || '') : '';
+  adminBookingsDateRangeDraft = {
+    start: adminBookingsIsoValid(from) ? from : null,
+    end: adminBookingsIsoValid(to) ? to : (adminBookingsIsoValid(from) ? from : null),
+  };
+  var seed = adminBookingsDateRangeDraft.start || (function () {
+    var t = new Date();
+    return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+  })();
+  adminBookingsDateRangeViewYm = String(seed).slice(0, 7);
+  var pop = el('admin-bookings-date-range-popover');
+  var trig = el('admin-bookings-date-range-trigger');
+  if (pop) {
+    pop.hidden = false;
+    pop.style.display = '';
+  }
+  if (trig) trig.setAttribute('aria-expanded', 'true');
+  adminBookingsRenderDateRangeCalendar();
+}
+
+function adminBookingsDateRangeSelectDay(iso) {
+  iso = String(iso || '').slice(0, 10);
+  if (!adminBookingsIsoValid(iso)) return;
+  if (typeof scheduleCreateDateRangeSelectDay === 'function') {
+    adminBookingsDateRangeDraft = scheduleCreateDateRangeSelectDay(adminBookingsDateRangeDraft || {}, iso);
+  } else {
+    var st = adminBookingsDateRangeDraft || {};
+    var s = st.start ? String(st.start).slice(0, 10) : null;
+    var e = st.end ? String(st.end).slice(0, 10) : null;
+    if (!s || (s && e)) adminBookingsDateRangeDraft = { start: iso, end: null };
+    else if (iso < s) adminBookingsDateRangeDraft = { start: iso, end: null };
+    else adminBookingsDateRangeDraft = { start: s, end: iso };
+  }
+  adminBookingsRenderDateRangeCalendar();
+}
+
+function adminBookingsDateRangeCommit(onApply) {
+  var draft = adminBookingsDateRangeDraft || {};
+  var start = draft.start ? String(draft.start).slice(0, 10) : '';
+  var end = draft.end ? String(draft.end).slice(0, 10) : start;
+  if (start && !end) end = start;
+  if (start && end && end < start) {
+    var tmp = start; start = end; end = tmp;
+  }
+  var df = el('admin-bookings-date-from');
+  var dt = el('admin-bookings-date-to');
+  if (df) df.value = start || '';
+  if (dt) dt.value = end || '';
+  adminBookingsSyncDateRangeDisplay();
+  adminBookingsDateRangeClose({});
+  if (typeof onApply === 'function') onApply();
+}
+
+function wireAdminBookingsDateRange(onApply) {
+  adminBookingsDateRangeOnApply = onApply;
+  adminBookingsSyncDateRangeDisplay();
+
+  var trig = el('admin-bookings-date-range-trigger');
+  if (trig) {
+    trig.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      if (adminBookingsDateRangeIsOpen()) adminBookingsDateRangeClose({ discard: true });
+      else adminBookingsDateRangeOpen();
+    });
+  }
+  var prev = el('admin-bookings-date-range-prev');
+  if (prev) {
+    prev.addEventListener('click', function () {
+      adminBookingsDateRangeViewYm = adminBookingsDateRangeShiftYm(adminBookingsDateRangeViewYm, -1);
+      adminBookingsRenderDateRangeCalendar();
+    });
+  }
+  var next = el('admin-bookings-date-range-next');
+  if (next) {
+    next.addEventListener('click', function () {
+      adminBookingsDateRangeViewYm = adminBookingsDateRangeShiftYm(adminBookingsDateRangeViewYm, 1);
+      adminBookingsRenderDateRangeCalendar();
+    });
+  }
+  var grid = el('admin-bookings-date-range-grid');
+  if (grid) {
+    grid.addEventListener('click', function (ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-day]') : null;
+      if (!btn) return;
+      adminBookingsDateRangeSelectDay(btn.getAttribute('data-bookings-day'));
+    });
+  }
+  var applyBtn = el('admin-bookings-date-range-apply');
+  if (applyBtn) {
+    applyBtn.addEventListener('click', function () {
+      adminBookingsDateRangeCommit(onApply);
+    });
+  }
+  var cancelBtn = el('admin-bookings-date-range-cancel');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', function () {
+      adminBookingsDateRangeClose({ discard: true });
+    });
+  }
+  var clearBtn = el('admin-bookings-date-range-clear');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function () {
+      adminBookingsDateRangeDraft = { start: null, end: null };
+      var df = el('admin-bookings-date-from');
+      var dt = el('admin-bookings-date-to');
+      if (df) df.value = '';
+      if (dt) dt.value = '';
+      adminBookingsSyncDateRangeDisplay();
+      adminBookingsDateRangeClose({});
+      if (typeof onApply === 'function') onApply();
+    });
+  }
+  if (!adminBookingsDateRangeDocWired) {
+    adminBookingsDateRangeDocWired = true;
+    document.addEventListener('mousedown', function (ev) {
+      if (!adminBookingsDateRangeIsOpen()) return;
+      var host = el('admin-bookings-date-range');
+      if (host && host.contains(ev.target)) return;
+      adminBookingsDateRangeClose({ discard: true });
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && adminBookingsDateRangeIsOpen()) {
+        adminBookingsDateRangeClose({ discard: true });
+      }
+    });
+  }
 }

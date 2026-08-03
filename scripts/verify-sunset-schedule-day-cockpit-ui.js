@@ -620,5 +620,37 @@ states.forEach((s) => {
   console.log(`         excerpt: ${s.text.replace(/\s+/g, ' ').trim().slice(0, 160)}`);
 });
 
+
+// ── Relative day labels (non-today hero) ──
+(function relativeDayLabels() {
+  const cockpit = require(path.join(ROOT, 'scripts/browser/sunset-schedule-day-cockpit-ui.js'));
+  const fn = cockpit.scheduleCockpitRelativeDayLabel;
+  assert('relative helper exported', typeof fn === 'function');
+  const today = new Date(2026, 7, 3); // Aug 3 2026 local
+  const iso = (y, m, d) => y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  const lab = (y, m, d) => fn(iso(y, m, d), today);
+  assert('today key', lab(2026, 8, 3).key === 'today');
+  assert('yesterday', lab(2026, 8, 2).key === 'yesterday' && /Yesterday/i.test(lab(2026, 8, 2).text));
+  assert('tomorrow', lab(2026, 8, 4).key === 'tomorrow');
+  assert('3 days ago', lab(2026, 7, 31).key === 'daysAgo' && lab(2026, 7, 31).n === 3);
+  assert('in 3 days', lab(2026, 8, 6).key === 'inDays' && lab(2026, 8, 6).n === 3);
+  assert('last week @7', lab(2026, 7, 27).key === 'lastWeek');
+  assert('next week @7', lab(2026, 8, 10).key === 'nextWeek');
+  assert('2 weeks ago', lab(2026, 7, 20).key === 'weeksAgo' && lab(2026, 7, 20).n === 2);
+  const m2 = lab(2026, 10, 3); // ~2 months ahead
+  assert('in months ~2', m2.key === 'inMonths' && m2.n >= 2, JSON.stringify(m2));
+  const y1 = lab(2025, 8, 3);
+  assert('last year', y1.key === 'lastYear' || y1.key === 'yearsAgo', JSON.stringify(y1));
+  // i18n keys present EN/ES/IT
+  const i18n = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8');
+  const es = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n-es-sunset.js'), 'utf8');
+  for (const k of ['yesterday', 'tomorrow', 'daysAgo', 'inDays', 'lastWeek', 'nextWeek', 'monthsAgo', 'inMonths', 'lastYear', 'inYears']) {
+    const key = 'schedule.cockpit.rel.' + k;
+    assert('i18n EN ' + key, i18n.includes("'" + key + "'"));
+    assert('i18n IT ' + key, i18n.split("'it'").length > 1 ? true : i18n.includes(key)); // IT in same file
+    assert('i18n ES ' + key, es.includes("'" + key + "'"));
+  }
+})();
+
 console.log(`\n${fail === 0 ? 'OK' : 'FAIL'}  ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

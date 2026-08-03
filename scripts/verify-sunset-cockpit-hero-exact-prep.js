@@ -24,7 +24,15 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const COCKPIT_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-day-cockpit-ui.js');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
-const DATE = '2026-08-01';
+function localIsoDate(d) {
+  d = d || new Date();
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+const DATE = localIsoDate();
 
 let failed = 0;
 function ok(label, cond, detail) {

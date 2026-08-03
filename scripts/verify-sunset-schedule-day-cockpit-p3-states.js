@@ -314,7 +314,7 @@ const nonToday = paint({
 assert('non-today nowMinutes null', cockpit.scheduleCockpitNowMinutes(nonToday.data) == null);
 assert('non-today no needle', nonToday.needle === 0);
 assert('non-today no ends in / starts in countdown', !/ends in/.test(nonToday.text) && !/starts in/.test(nonToday.text));
-assert('non-today hero first session', /First up:/.test(nonToday.text) || /Curso Mañana/.test(nonToday.text));
+assert('non-today hero relative + summary', !/First up:/.test(nonToday.text) && !/NOTHING IN THE WATER/.test(nonToday.text) && !/starts in/.test(nonToday.text) && (/session/i.test(nonToday.text) || /Curso Mañana/.test(nonToday.text) || /YESTERDAY|DAYS AGO|LAST WEEK|TOMORROW|IN \d+ DAYS/i.test(nonToday.text)));
 
 // Week / Next-30 — README: no needle, no countdown, hero shows first session
 const week = paint({
@@ -365,6 +365,7 @@ const nonTodayNow = paint({
 assert('non-today+now no needle', nonTodayNow.needle === 0);
 assert('non-today+now no ON NOW', !/ON NOW/.test(nonTodayNow.text));
 assert('non-today+now no countdown', !/ends in/.test(nonTodayNow.text) && !/starts in/.test(nonTodayNow.text));
+assert('non-today+now no First up framing', !/First up:/.test(nonTodayNow.text) && !/NOTHING IN THE WATER/.test(nonTodayNow.text));
 
 assert('today+now still live 757', cockpit.scheduleCockpitNowMinutes({
   range: 'today', date: TODAY_ISO, now: 757,
@@ -452,7 +453,7 @@ const todayIso = [
 // System "today" may not be 2026-07-31 — so test timer API via scheduleMountDayCockpit
 // with forceNow and shouldTick override path:
 // scheduleDayCockpitShouldTick returns false when data.now is set.
-// Instead call mount with data without now but spy shouldTick... 
+// Instead call mount with data without now but spy shouldTick...
 // Direct unit: start timer via mount when shouldTick true by patching.
 
 const shouldTickReal = cockpit.scheduleDayCockpitShouldTick;

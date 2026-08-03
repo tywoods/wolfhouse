@@ -1066,28 +1066,63 @@ async function testGeneratedUi() {
     ok('type filter query', lastListQuery && lastListQuery.get('type') === 'surf_lesson');
 
     // Date filters
-    await page.fill('#admin-bookings-date-from', '2026-07-01');
-    await page.fill('#admin-bookings-date-to', '2026-07-31');
-    await page.waitForTimeout(200);
+    // Date-range picker commits date_from/date_to (hidden fields + live apply)
+    await page.evaluate(() => {
+      const df = document.getElementById('admin-bookings-date-from');
+      const dt = document.getElementById('admin-bookings-date-to');
+      if (df) df.value = '2026-07-01';
+      if (dt) dt.value = '2026-07-31';
+      if (typeof window.adminBookingsSyncDateRangeDisplay === 'function') window.adminBookingsSyncDateRangeDisplay();
+      if (window.adminBookingsState) {
+        window.adminBookingsState.filters.date_from = '2026-07-01';
+        window.adminBookingsState.filters.date_to = '2026-07-31';
+        window.adminBookingsState.filters.offset = 0;
+      }
+      if (typeof window.loadAdminBookings === 'function') window.loadAdminBookings();
+    });
+    await page.waitForTimeout(300);
     ok('date filters query',
       lastListQuery && lastListQuery.get('date_from') === '2026-07-01'
       && lastListQuery.get('date_to') === '2026-07-31');
+    ok('date range control present', await page.locator('#admin-bookings-date-range-trigger').count() === 1);
+    ok('no Apply filters button', await page.locator('#admin-bookings-apply').count() === 0);
+    ok('no archived checkbox', await page.locator('#admin-bookings-archived').count() === 0);
 
-    // Reset filters so archived Cancelled/Deleted (other dates) are not excluded
+    // Reset filters
     await page.fill('#admin-bookings-q', '');
     await page.selectOption('#admin-bookings-status', '');
     await page.selectOption('#admin-bookings-type', '');
-    await page.fill('#admin-bookings-date-from', '');
-    await page.fill('#admin-bookings-date-to', '');
+    await page.evaluate(() => {
+      const df = document.getElementById('admin-bookings-date-from');
+      const dt = document.getElementById('admin-bookings-date-to');
+      if (df) df.value = '';
+      if (dt) dt.value = '';
+      if (window.adminBookingsState) {
+        window.adminBookingsState.filters.date_from = '';
+        window.adminBookingsState.filters.date_to = '';
+        window.adminBookingsState.filters.offset = 0;
+      }
+      if (typeof window.loadAdminBookings === 'function') window.loadAdminBookings();
+    });
     await page.waitForTimeout(300);
 
-    // Archived toggle
-    await page.check('#admin-bookings-archived');
+    // Status=cancelled auto-includes archived (checkbox removed)
+    await page.selectOption('#admin-bookings-status', 'cancelled');
     await page.waitForTimeout(400);
-    ok('archived query flag', lastListQuery && lastListQuery.get('include_archived') === '1');
-    const chips = await page.locator('.portal-admin-bookings-chip').allTextContents();
-    ok('archived reveals Cancelled chip', chips.some((c) => /Cancel|Anulad|Cancelad/i.test(c)), chips.join(','));
-    ok('archived reveals Deleted chip', chips.some((c) => /Delete|Eliminad|Eliminato/i.test(c)), chips.join(','));
+    ok('cancelled status auto include_archived',
+      lastListQuery && lastListQuery.get('status') === 'cancelled'
+      && lastListQuery.get('include_archived') === '1');
+    let chips = await page.locator('.portal-admin-bookings-chip').allTextContents();
+    ok('status cancelled reveals Cancelled chip', chips.some((c) => /Cancel|Anulad|Cancelad/i.test(c)), chips.join(','));
+    await page.selectOption('#admin-bookings-status', 'deleted');
+    await page.waitForTimeout(400);
+    ok('deleted status auto include_archived',
+      lastListQuery && lastListQuery.get('status') === 'deleted'
+      && lastListQuery.get('include_archived') === '1');
+    chips = await page.locator('.portal-admin-bookings-chip').allTextContents();
+    ok('status deleted reveals Deleted chip', chips.some((c) => /Delete|Eliminad|Eliminato/i.test(c)), chips.join(','));
+    await page.selectOption('#admin-bookings-status', '');
+    await page.waitForTimeout(300);
 
     // Expansion
     await page.locator('[data-bookings-row-id]').first().click();
@@ -1131,7 +1166,7 @@ async function testGeneratedUi() {
       JSON.stringify(guestCalled));
 
     // ── Viewer refund gating via production session + production re-render ──
-    await page.uncheck('#admin-bookings-archived').catch(() => {});
+    await page.selectOption('#admin-bookings-status', '').catch(() => {});
     await page.waitForTimeout(200);
     // Ensure expanded row exists for paid booking
     await page.evaluate(() => {
@@ -1472,13 +1507,27 @@ async function testGeneratedUi() {
       // Compact premium layout: inputs ~40px CSS min-height; checkbox native ~13–16px;
       // compact btn ~26–32px. Fail-closed on unusable/zero sizes, not arbitrary 44×44.
       assertControl('#admin-bookings-q', { minH: 28, minW: 40, focusable: true });
-      assertControl('#admin-bookings-date-from', { minH: 28, focusable: true });
-      assertControl('#admin-bookings-date-to', { minH: 28, focusable: true });
+      assertControl('#admin-bookings-date-range-trigger', { minH: 28, minW: 40, focusable: true });
       assertControl('#admin-bookings-status', { minH: 28, focusable: true });
       assertControl('#admin-bookings-type', { minH: 28, focusable: true });
-      assertControl('#admin-bookings-archived', { minH: 12, minW: 12, focusable: true });
-      assertControl('#admin-bookings-apply', { minH: 28, minW: 40, focusable: true });
       assertControl('#admin-bookings-export', { minH: 28, minW: 40, focusable: true });
+      // Apply + archived checkbox removed (live filters + status covers cancelled/deleted)
+      if (document.getElementById('admin-bookings-apply')) issues.push('apply button should be removed');
+      if (document.getElementById('admin-bookings-archived')) issues.push('archived checkbox should be removed');
+      const summary = document.getElementById('admin-bookings-summary');
+      const toolbar = document.querySelector('.portal-admin-bookings-toolbar');
+      if (!summary || !toolbar || !(summary.compareDocumentPosition(toolbar) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+        issues.push('summary must be above toolbar');
+      }
+      const tones = Array.from(document.querySelectorAll('.portal-admin-bookings-metric-value')).map((n) => n.className);
+      if (!tones.some((c) => /is-collected/.test(c))) issues.push('collected tone missing');
+      if (!tones.some((c) => /is-refunded/.test(c))) issues.push('refunded tone missing');
+      const statusCell = document.querySelector('.portal-admin-bookings-td-status');
+      if (!statusCell) issues.push('status cell alignment class missing');
+      const sections = Array.from(document.querySelectorAll('[data-bookings-section]')).map((n) => n.getAttribute('data-bookings-section'));
+      if (sections.length >= 3 && sections.join(',') !== 'guest,items,payment') {
+        issues.push('expand section order expected guest,items,payment got ' + sections.join(','));
+      }
       assertControl('.portal-admin-bookings-code', { minH: 12, minW: 40 });
       assertControl('[data-bookings-row-id]', { minH: 28 });
       assertControl('[data-bookings-expand]', { minH: 40 });

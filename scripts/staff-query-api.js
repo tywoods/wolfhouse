@@ -16726,18 +16726,37 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-subtab:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px}
 /* Admin Bookings N1 */
 .portal-admin-bookings{display:flex;flex-direction:column;gap:12px;min-width:0;max-width:100%}
-.portal-admin-bookings-toolbar{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px 14px;align-items:end;max-width:100%}
+.portal-admin-bookings-toolbar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 12px;max-width:100%}
 .portal-admin-bookings-field{display:flex;flex-direction:column;gap:4px;min-width:0}
-.portal-admin-bookings-search{grid-column:1 / -1}
+.portal-admin-bookings-search{flex:1 1 220px;min-width:180px}
 .portal-admin-bookings-label{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2)}
 .portal-admin-bookings-input{width:100%;min-height:40px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;box-sizing:border-box}
 .portal-admin-bookings-input:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px}
-.portal-admin-bookings-check{grid-column:1 / -1;display:flex;align-items:center;gap:8px;min-height:32px;font-size:13px;color:var(--text-2)}
-.portal-admin-bookings-actions{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:2px}
+.portal-admin-bookings-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-left:auto}
+.portal-admin-bookings-summary{order:0}
 .portal-admin-bookings-summary-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;max-width:100%}
 .portal-admin-bookings-metric{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:10px;padding:10px 12px;min-width:0}
 .portal-admin-bookings-metric-label{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);margin-bottom:4px}
-.portal-admin-bookings-metric-value{font-size:16px;font-weight:700;color:var(--text);word-break:break-word}
+.portal-admin-bookings-metric-value{font-size:16px;font-weight:700;color:var(--text);word-break:break-word;font-variant-numeric:tabular-nums}
+.portal-admin-bookings-metric-value.is-collected{color:var(--accent,#2e8b57)}
+.portal-admin-bookings-metric-value.is-refunded{color:#c98a2b}
+.portal-admin-bookings-metric-value.is-outstanding{color:#c98a2b}
+.portal-admin-bookings-metric-value.is-net,.portal-admin-bookings-metric-value.is-count{color:var(--text)}
+.portal-admin-bookings-date-range{position:relative;flex:0 1 200px;min-width:160px}
+.portal-admin-bookings-date-range-trigger{width:100%;min-height:40px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;text-align:left;cursor:pointer;box-sizing:border-box}
+.portal-admin-bookings-date-range-trigger:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px}
+.portal-admin-bookings-date-range-display{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.portal-admin-bookings-date-range-popover{position:absolute;z-index:40;top:calc(100% + 4px);left:0;min-width:280px;padding:10px;border:1px solid var(--border-soft);border-radius:12px;background:var(--surface);box-shadow:0 8px 24px rgba(0,0,0,.12)}
+.portal-admin-bookings-date-range-nav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.portal-admin-bookings-date-range-nav button{min-width:36px;min-height:36px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft);color:var(--text);cursor:pointer;font-size:18px;line-height:1}
+.portal-admin-bookings-date-range-month{font-size:13px;font-weight:600;color:var(--text)}
+.portal-admin-bookings-date-range-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.portal-admin-bookings-date-range-dow{font-size:10px;font-weight:600;text-align:center;color:var(--text-2);padding:2px 0}
+.portal-admin-bookings-date-range-day{min-height:32px;border:0;border-radius:8px;background:transparent;color:var(--text);font:inherit;font-size:12px;cursor:pointer}
+.portal-admin-bookings-date-range-day.is-pad{visibility:hidden;pointer-events:none}
+.portal-admin-bookings-date-range-day.is-in-range{background:rgba(46,139,87,.12)}
+.portal-admin-bookings-date-range-day.is-start,.portal-admin-bookings-date-range-day.is-end{background:var(--accent,#2e8b57);color:#fff;font-weight:700}
+.portal-admin-bookings-date-range-actions{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-top:10px}
 .portal-admin-bookings-table-wrap{min-width:0;max-width:100%;overflow-x:auto}
 .portal-admin-bookings-table{min-width:720px;width:100%;border:1px solid var(--border-soft);border-radius:12px;overflow:hidden;background:var(--surface)}
 .portal-admin-bookings-tr{display:grid;grid-template-columns:minmax(160px,1.4fr) minmax(120px,1.1fr) minmax(110px,.9fr) minmax(140px,1.2fr) 88px 88px 100px;gap:8px;padding:10px 12px;align-items:start;border-bottom:1px solid var(--border-soft);cursor:pointer}
@@ -16751,12 +16770,15 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-bookings-td-num{font-variant-numeric:tabular-nums;text-align:right}
 .portal-admin-bookings-guest-link{appearance:none;border:0;background:none;padding:0;margin:0;color:var(--primary,#2e8b57);font:inherit;font-weight:600;cursor:pointer;text-align:left;text-decoration:underline}
 .portal-admin-bookings-guest-link:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px}
-.portal-admin-bookings-chip{display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.02em;background:var(--surface-soft);border:1px solid var(--border-soft);color:var(--text-2);white-space:nowrap}
-.portal-admin-bookings-chip--paid{color:#1f6b3a;border-color:#9ed0b0;background:#eaf6ef}
-.portal-admin-bookings-chip--unpaid{color:#8a4b12;border-color:#e2c29a;background:#fbf1e6}
-.portal-admin-bookings-chip--partial{color:#6b4f1f;border-color:#d9c48a;background:#f8f3e4}
-.portal-admin-bookings-chip--refunded{color:#1f4f7a;border-color:#9bbbd9;background:#eaf3fb}
-.portal-admin-bookings-chip--cancelled,.portal-admin-bookings-chip--deleted{color:#6b6b6b;border-color:#cfcfcf;background:#f2f2f2}
+.portal-admin-bookings-td-status{display:flex;justify-content:flex-end;align-items:center}
+.portal-admin-bookings-chip{display:inline-flex;align-items:center;justify-content:center;min-width:72px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.02em;border:1px solid transparent;white-space:nowrap}
+.portal-admin-bookings-chip--paid{color:#0f5132;border-color:#74c69d;background:#d8f3dc}
+.portal-admin-bookings-chip--unpaid{color:#3d3d3d;border-color:#c4c4c4;background:#ececec}
+.portal-admin-bookings-chip--partial{color:#0b525b;border-color:#89c2d9;background:#caf0f8}
+.portal-admin-bookings-chip--refunded{color:#4a148c;border-color:#ce93d8;background:#f3e5f5}
+.portal-admin-bookings-chip--cancelled,.portal-admin-bookings-chip--deleted{color:#7f1d1d;border-color:#f1aeb5;background:#fde8ea}
+.portal-admin-bookings-refund-action{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:8px;max-width:220px}
+.portal-admin-bookings-refund-note{margin:0;max-width:28rem}
 .portal-admin-bookings-expand{grid-column:1/-1;padding:4px 12px 14px;border-bottom:1px solid var(--border-soft);background:var(--surface)}
 .portal-admin-bookings-expand-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
 .portal-admin-bookings-expand h4{margin:0 0 8px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2)}

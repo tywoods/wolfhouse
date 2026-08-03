@@ -193,6 +193,107 @@ function scheduleCockpitToMin(hhmm) {
 }
 
 /** Verbatim from design reference cockpit.js `fmtDur`. */
+
+/**
+ * Count-based relative day label vs today (calendar days, date-only).
+ * Returns { key, n, textKey, text } for i18n; d===0 is today (caller keeps rich hero).
+ */
+function scheduleCockpitRelativeDayLabel(dateIso, todayDate) {
+  var iso = String(dateIso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    return { key: 'unknown', n: 0, text: '' };
+  }
+  var today = todayDate instanceof Date ? todayDate : new Date();
+  var t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  var parts = iso.split('-');
+  var d0 = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  var ms = d0.getTime() - t0.getTime();
+  var d = Math.round(ms / 86400000);
+  if (d === 0) return { key: 'today', n: 0, textKey: 'schedule.cockpit.rel.today', text: 'Today' };
+
+  function monthsApart(a, b) {
+    return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  }
+  function yearsApart(a, b) {
+    return b.getFullYear() - a.getFullYear();
+  }
+
+  var abs = Math.abs(d);
+  var past = d < 0;
+  var key, n = abs, textKey, text;
+
+  if (abs === 1) {
+    key = past ? 'yesterday' : 'tomorrow';
+    textKey = past ? 'schedule.cockpit.rel.yesterday' : 'schedule.cockpit.rel.tomorrow';
+    text = past ? 'Yesterday' : 'Tomorrow';
+  } else if (abs >= 2 && abs <= 6) {
+    key = past ? 'daysAgo' : 'inDays';
+    n = abs;
+    textKey = past ? 'schedule.cockpit.rel.daysAgo' : 'schedule.cockpit.rel.inDays';
+    text = past ? (n + ' days ago') : ('In ' + n + ' days');
+  } else if (abs >= 7 && abs <= 13) {
+    key = past ? 'lastWeek' : 'nextWeek';
+    n = 1;
+    textKey = past ? 'schedule.cockpit.rel.lastWeek' : 'schedule.cockpit.rel.nextWeek';
+    text = past ? 'Last week' : 'Next week';
+  } else if (abs >= 14 && abs <= 20) {
+    key = past ? 'weeksAgo' : 'inWeeks';
+    n = 2;
+    textKey = past ? 'schedule.cockpit.rel.weeksAgo' : 'schedule.cockpit.rel.inWeeks';
+    text = past ? '2 weeks ago' : 'In 2 weeks';
+  } else if (abs >= 21 && abs <= 27) {
+    key = past ? 'weeksAgo' : 'inWeeks';
+    n = 3;
+    textKey = past ? 'schedule.cockpit.rel.weeksAgo' : 'schedule.cockpit.rel.inWeeks';
+    text = past ? '3 weeks ago' : 'In 3 weeks';
+  } else {
+    // months / years via calendar unit
+    var mDiff = monthsApart(t0, d0); // signed
+    var aM = Math.abs(mDiff);
+    if (aM < 12) {
+      if (aM <= 1) {
+        key = past ? 'lastMonth' : 'nextMonth';
+        n = 1;
+        textKey = past ? 'schedule.cockpit.rel.lastMonth' : 'schedule.cockpit.rel.nextMonth';
+        text = past ? 'Last month' : 'Next month';
+      } else {
+        key = past ? 'monthsAgo' : 'inMonths';
+        n = aM;
+        textKey = past ? 'schedule.cockpit.rel.monthsAgo' : 'schedule.cockpit.rel.inMonths';
+        text = past ? (n + ' months ago') : ('In ' + n + ' months');
+      }
+    } else {
+      var yDiff = yearsApart(t0, d0);
+      // prefer calendar-month when under 12; else years from full year span, min 1
+      var aY = Math.max(1, Math.abs(yDiff) || Math.floor(aM / 12));
+      if (aY === 1) {
+        key = past ? 'lastYear' : 'nextYear';
+        n = 1;
+        textKey = past ? 'schedule.cockpit.rel.lastYear' : 'schedule.cockpit.rel.nextYear';
+        text = past ? 'Last year' : 'Next year';
+      } else {
+        key = past ? 'yearsAgo' : 'inYears';
+        n = aY;
+        textKey = past ? 'schedule.cockpit.rel.yearsAgo' : 'schedule.cockpit.rel.inYears';
+        text = past ? (n + ' years ago') : ('In ' + n + ' years');
+      }
+    }
+  }
+  return { key: key, n: n, textKey: textKey, text: text, deltaDays: d };
+}
+
+function scheduleCockpitRelativeDayLabelText(dateIso, todayDate) {
+  var info = scheduleCockpitRelativeDayLabel(dateIso, todayDate);
+  if (!info || !info.textKey) return info && info.text ? info.text : '';
+  var raw = '';
+  try {
+    if (typeof portalT === 'function') raw = portalT(info.textKey);
+  } catch (_e) { raw = ''; }
+  if (!raw || raw === info.textKey) raw = info.text || '';
+  if (info.n != null && /\{n\}/.test(raw)) raw = raw.split('{n}').join(String(info.n));
+  return raw;
+}
+
 function scheduleCockpitFmtDur(mins) {
   if (mins < 60) return mins + ' min';
   var h = Math.floor(mins / 60), m = mins % 60;
@@ -415,29 +516,47 @@ function scheduleRenderDayCockpit(mount, data) {
     hero.appendChild(seats);
   } else {
     hero.classList.add('ck-now--idle');
-    var done = now != null && list.length && now >= Math.max.apply(null, list.map(function (x) { return x.e; }));
-    eyebrow.appendChild(el('span', null, done ? 'DAY COMPLETE' : 'NOTHING IN THE WATER'));
-    heroL.appendChild(eyebrow);
-    heroL.appendChild(el('h2', null, done
-      ? list.length + ' session' + (list.length === 1 ? '' : 's') + ' run \u00b7 ' + guests + ' guest' + (guests === 1 ? '' : 's')
-      : next ? 'First up: ' + next.name : 'No sessions scheduled'));
-    heroL.appendChild(el('div', 'ck-now__sub', done
-      ? 'Gear back in, day closed out.'
-      : next
-        ? next.start + ' \u2013 ' + next.end + (now != null ? ' \u00b7 starts in ' + scheduleCockpitFmtDur(next.s - now) : '')
-        : 'Add a session to get going.'));
-    // Idle hero: session-scoped exact prep for classified `next` only.
-    // Day complete keeps non-prep summary (eyebrow/h2/sub) — never next-course prep.
-    if (!done) {
-      var chipsIdle = el('div', 'ck-chips');
+    if (!isToday) {
+      // Non-today: relative label + light day summary (no live "First up" / countdown / prep chips).
+      var relLabel = scheduleCockpitRelativeDayLabelText(data.date, new Date());
+      eyebrow.appendChild(el('span', null, String(relLabel || '').toUpperCase()));
+      heroL.appendChild(eyebrow);
+      var sessWord = list.length === 1 ? 'session' : 'sessions';
+      var guestWord = guests === 1 ? 'guest' : 'guests';
+      heroL.appendChild(el('h2', null,
+        list.length + ' ' + sessWord + ' \u00b7 ' + guests + ' ' + guestWord));
       if (next) {
-        scheduleCockpitAppendExactPrepChips(chipsIdle, next.prepItems, 'prep');
-      } else {
-        chipsIdle.appendChild(el('span', 'ck-chip ck-chip--muted', 'no gear needed'));
+        heroL.appendChild(el('div', 'ck-now__sub',
+          (next.name ? next.name + ' \u00b7 ' : '') + next.start + ' \u2013 ' + next.end));
+      } else if (!list.length) {
+        heroL.appendChild(el('div', 'ck-now__sub', 'No sessions scheduled'));
       }
-      heroL.appendChild(chipsIdle);
+      hero.appendChild(heroL);
+    } else {
+      var done = now != null && list.length && now >= Math.max.apply(null, list.map(function (x) { return x.e; }));
+      eyebrow.appendChild(el('span', null, done ? 'DAY COMPLETE' : 'NOTHING IN THE WATER'));
+      heroL.appendChild(eyebrow);
+      heroL.appendChild(el('h2', null, done
+        ? list.length + ' session' + (list.length === 1 ? '' : 's') + ' run \u00b7 ' + guests + ' guest' + (guests === 1 ? '' : 's')
+        : next ? 'First up: ' + next.name : 'No sessions scheduled'));
+      heroL.appendChild(el('div', 'ck-now__sub', done
+        ? 'Gear back in, day closed out.'
+        : next
+          ? next.start + ' \u2013 ' + next.end + (now != null ? ' \u00b7 starts in ' + scheduleCockpitFmtDur(next.s - now) : '')
+          : 'Add a session to get going.'));
+      // Idle hero: session-scoped exact prep for classified `next` only.
+      // Day complete keeps non-prep summary (eyebrow/h2/sub) — never next-course prep.
+      if (!done) {
+        var chipsIdle = el('div', 'ck-chips');
+        if (next) {
+          scheduleCockpitAppendExactPrepChips(chipsIdle, next.prepItems, 'prep');
+        } else {
+          chipsIdle.appendChild(el('span', 'ck-chip ck-chip--muted', 'no gear needed'));
+        }
+        heroL.appendChild(chipsIdle);
+      }
+      hero.appendChild(heroL);
     }
-    hero.appendChild(heroL);
   }
   main.appendChild(hero);
 
@@ -1282,6 +1401,8 @@ if (typeof module !== 'undefined' && module.exports) {
     SCHEDULE_DAY_COCKPIT_CSS: SCHEDULE_DAY_COCKPIT_CSS,
     scheduleGetDayCockpitCss: scheduleGetDayCockpitCss,
     scheduleCockpitFmtDur: scheduleCockpitFmtDur,
+    scheduleCockpitRelativeDayLabel: scheduleCockpitRelativeDayLabel,
+    scheduleCockpitRelativeDayLabelText: scheduleCockpitRelativeDayLabelText,
     scheduleCockpitPct: scheduleCockpitPct,
     scheduleCockpitClassify: scheduleCockpitClassify,
     scheduleCockpitNowMinutes: scheduleCockpitNowMinutes,
