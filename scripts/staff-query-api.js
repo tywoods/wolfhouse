@@ -2501,13 +2501,15 @@ const bookingsAdminRoutes = createBookingsAdminRoutes({
   SQL_INJECT_RE,
 });
 
-// Email registry READ inventory (Slice 1C-beta). Router: requireAuth('admin')
-// (role + home-tenant admin_db_read). Handlers re-check authorizeAuthenticatedStaffRoute
-// for the *requested* clientSlug after ACL so multi-client admins cannot use tenant A
-// admin_db_read to read tenant B when B has admin_db_read disabled.
+// Email registry READ + kill-switched WRITE (Slice 1C-beta / 1C-gamma).
+// Router: requireAuth('admin') (role + home-tenant gates). Handlers re-check
+// authorizeAuthenticatedStaffRoute for the *requested* clientSlug after ACL so
+// multi-client admins cannot use tenant A flags to access tenant B when B has
+// the corresponding permission disabled. POST also requires EMAIL_REGISTRY_WRITES_ENABLED=true.
 const emailRegistryRoutes = createEmailRegistryRoutes({
   sendJSON,
   send400,
+  readBody,
   assertStaffClientAccess,
   authorizeAuthenticatedStaffRoute,
   appendAuditLog,
@@ -2518,6 +2520,8 @@ const emailRegistryRoutes = createEmailRegistryRoutes({
 const {
   handleLocationsGet: handleEmailRegistryLocationsGet,
   handleChannelEndpointsGet: handleEmailRegistryChannelEndpointsGet,
+  handleLocationsPost: handleEmailRegistryLocationsPost,
+  handleChannelEndpointsPost: handleEmailRegistryChannelEndpointsPost,
 } = emailRegistryRoutes;
 
 // Staff Inbox routes (extracted module). Auth stays in the router with
@@ -48759,7 +48763,7 @@ async function router(req, res) {
     return handleHouseNotesPost(parsed.query, req, res, auth.user);
   }
 
-  // ── Email registry READ (Slice 1C-beta) — admin inventory; no writes ────────
+  // ── Email registry READ/WRITE (Slice 1C-beta/gamma) — admin inventory + kill-switched registration
   // Auth stays here; handlers live in staff-email-registry-routes.js
   if (pathname === EMAIL_REGISTRY_LOCATIONS_PATH && method === 'GET') {
     const auth = await requireAuth(req, res, 'admin');
@@ -48770,6 +48774,16 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleEmailRegistryChannelEndpointsGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === EMAIL_REGISTRY_LOCATIONS_PATH && method === 'POST') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleEmailRegistryLocationsPost(parsed.query, req, res, auth.user);
+  }
+  if (pathname === EMAIL_REGISTRY_ENDPOINTS_PATH && method === 'POST') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleEmailRegistryChannelEndpointsPost(parsed.query, req, res, auth.user);
   }
 
   // ── Staff WhatsApp notification settings (admin+owner) ─────────────────────

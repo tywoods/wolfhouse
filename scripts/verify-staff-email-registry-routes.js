@@ -1,13 +1,13 @@
 'use strict';
 
 /**
- * verify:staff-email-registry-routes — Luna email Slice 1C-beta offline gate.
+ * verify:staff-email-registry-routes — Luna email Slice 1C-beta + 1C-gamma offline gate.
  *
- * Focused DI-mock route verifier for the admin-only READ API over the empty
- * email registry (tenant_locations + tenant_channel_endpoints).
+ * Focused DI-mock route verifier for the admin-only READ + kill-switched WRITE API
+ * over the empty email registry (tenant_locations + tenant_channel_endpoints).
  *
- * Proves:
- *   - extracted DI route module surface + GET-only handlers
+ * Proves (1C-beta READ):
+ *   - extracted DI route module surface + GET handlers
  *   - admin minRole wiring (viewer/operator denied at router; owner inherits)
  *   - tenant ACL isolation (cross-client denied before DB list)
  *   - requested-tenant admin_db_read via injected authorizeAuthenticatedStaffRoute
@@ -20,10 +20,20 @@
  *   - no raw rows / no created_by/updated_by/client_id in responses
  *   - db_error sanitized (no raw PG leakage)
  *   - no err.message / raw secret substrings in logs or audit
- *   - no writes / activation / provider SDK / live DSN
- *   - staff-query-api wiring (requireAuth admin + authorize inject + handlers)
  *
- * No live DB / network / provider connectivity.
+ * Proves (1C-gamma WRITE):
+ *   - POST locations + channel-endpoints only (no PATCH/DELETE)
+ *   - EMAIL_REGISTRY_WRITES_ENABLED exact true only; default/false/1/yes denied
+ *     with zero UUID/domain queries
+ *   - multi-client A→B: B staff_actions/admin_writes false denied before UUID/write
+ *   - body allowlists; attacker actor/id/client/activation keys rejected
+ *   - actor from user.staff_user_id UUID only; invalid/missing before DB
+ *   - domain receives { client } same pinned withPgClient object (not { db })
+ *   - 201 DTO allowlists; conflicts 409; location_not_authorized 404; sanitized 500
+ *   - secret_ref never in response/log/audit
+ *   - staff-query-api requireAuth admin + POST wiring
+ *
+ * No live DB / network / provider connectivity / activation / deploy.
  */
 
 const assert = require('assert');
@@ -46,6 +56,19 @@ const CLIENT_B_SLUG = 'tenant-b';
 const CLIENT_A_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const CLIENT_B_UUID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const SECRET_REF = 'kv:luna-support-email-credentials';
+const ACTOR_UUID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const ACTOR_UUID_B = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+const EIGHT_CAPS = Object.freeze({
+  push_notifications: false,
+  provider_threads: false,
+  remote_drafts: false,
+  reply: false,
+  reply_all: false,
+  forward: false,
+  attachments_metadata: false,
+  delivery_events: false,
+});
 
 let pass = 0;
 let fail = 0;
@@ -167,8 +190,10 @@ function sampleEndpointRow(overrides) {
 function makeDeps(overrides) {
   const audit = [];
   const listCalls = [];
+  const writeCalls = [];
   const authzCalls = [];
   const slugLookups = [];
+  const withPgClients = [];
   const slugToUuid = {
     [CLIENT_A_SLUG]: CLIENT_A_UUID,
     [CLIENT_B_SLUG]: CLIENT_B_UUID,
@@ -194,8 +219,18 @@ function makeDeps(overrides) {
     })],
   };
 
-  // Per-tenant admin_db_read matrix for multi-client tests (overridable).
+  // Per-tenant permission matrices for multi-client tests (overridable).
   const adminDbReadBySlug = {
+    [CLIENT_A_SLUG]: true,
+    [CLIENT_B_SLUG]: true,
+    'wolfhouse-somo': true,
+  };
+  const staffActionsBySlug = {
+    [CLIENT_A_SLUG]: true,
+    [CLIENT_B_SLUG]: true,
+    'wolfhouse-somo': true,
+  };
+  const adminWritesBySlug = {
     [CLIENT_A_SLUG]: true,
     [CLIENT_B_SLUG]: true,
     'wolfhouse-somo': true,
@@ -204,11 +239,18 @@ function makeDeps(overrides) {
   const deps = {
     DEFAULT_CLIENT: 'wolfhouse-somo',
     SQL_INJECT_RE: /['";\\]|--|\bDROP\b|\bALTER\b|\bTRUNCATE\b/i,
+    // Writes enabled by default in deps.runtimeEnv for POST happy-path tests;
+    // individual tests override to prove kill-switch fail-closed.
+    runtimeEnv: { EMAIL_REGISTRY_WRITES_ENABLED: 'true' },
     audit,
     listCalls,
+    writeCalls,
     authzCalls,
     slugLookups,
+    withPgClients,
     adminDbReadBySlug,
+    staffActionsBySlug,
+    adminWritesBySlug,
     sendJSON(res, status, body) {
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(body));
@@ -248,7 +290,8 @@ function makeDeps(overrides) {
       }
       return true;
     },
-    // Mirrors authorizeAuthenticatedStaffRoute shape for admin GET paths.
+    // Mirrors authorizeAuthenticatedStaffRoute for admin GET (admin_db_read) and
+    // POST (staff_actions + admin_writes) on /staff/admin/...
     authorizeAuthenticatedStaffRoute(opts) {
       const o = opts && typeof opts === 'object' ? opts : {};
       const clientSlug = String(o.clientSlug || '').trim();
@@ -275,22 +318,53 @@ function makeDeps(overrides) {
       if (/^wolfhouse/i.test(clientSlug) || clientSlug === 'sunset' || clientSlug === 'wh') {
         return { ok: true, mode: 'process_level', client_slug: clientSlug };
       }
-      const allowed = deps.adminDbReadBySlug[clientSlug] !== false;
-      if (!allowed) {
-        return {
-          ok: false,
-          status: 403,
-          body: {
-            success: false,
-            error: 'tenant_route_forbidden',
-            reason_code: 'admin_db_read_disabled',
-            admin_db_read: false,
-            client_slug: clientSlug,
-          },
-        };
-      }
-      if (method === 'GET' && /^\/staff\/admin(\/|$)/i.test(pathname)) {
+      const mutating = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+      const isAdminPath = /^\/staff\/admin(\/|$)/i.test(pathname);
+      if (isAdminPath && !mutating) {
+        const allowed = deps.adminDbReadBySlug[clientSlug] !== false;
+        if (!allowed) {
+          return {
+            ok: false,
+            status: 403,
+            body: {
+              success: false,
+              error: 'tenant_route_forbidden',
+              reason_code: 'admin_db_read_disabled',
+              admin_db_read: false,
+              client_slug: clientSlug,
+            },
+          };
+        }
         return { ok: true, mode: 'admin_read', client_slug: clientSlug };
+      }
+      if (isAdminPath && mutating) {
+        if (deps.staffActionsBySlug[clientSlug] === false) {
+          return {
+            ok: false,
+            status: 403,
+            body: {
+              success: false,
+              error: 'tenant_route_forbidden',
+              reason_code: 'staff_actions_disabled',
+              staff_actions_enabled: false,
+              client_slug: clientSlug,
+            },
+          };
+        }
+        if (deps.adminWritesBySlug[clientSlug] === false) {
+          return {
+            ok: false,
+            status: 403,
+            body: {
+              success: false,
+              error: 'tenant_route_forbidden',
+              reason_code: 'admin_writes_disabled',
+              admin_writes_enabled: false,
+              client_slug: clientSlug,
+            },
+          };
+        }
+        return { ok: true, mode: 'admin_write', client_slug: clientSlug };
       }
       return { ok: true, mode: 'read', client_slug: clientSlug };
     },
@@ -299,6 +373,8 @@ function makeDeps(overrides) {
     },
     async withPgClient(fn) {
       const pg = {
+        // Pinned mock client identity for write-path equality proofs.
+        __mockPinnedId: `pinned-${withPgClients.length + 1}`,
         async query(sql, params) {
           const q = String(sql || '');
           if (/FROM\s+clients\s+WHERE\s+slug\s*=\s*\$1/i.test(q)) {
@@ -311,6 +387,7 @@ function makeDeps(overrides) {
           throw new Error('unexpected pg query in mock: ' + q.slice(0, 120));
         },
       };
+      withPgClients.push(pg);
       return fn(pg);
     },
     async listTenantLocations(args, listDeps) {
@@ -327,6 +404,59 @@ function makeDeps(overrides) {
       const filtered = args.includeInactive === false ? rows.filter((r) => r.active) : rows;
       return { ok: true, value: filtered.map((r) => ({ ...r })) };
     },
+    async createTenantLocation(input, writeDeps) {
+      const depKeys = Object.keys(writeDeps || {});
+      writeCalls.push({
+        fn: 'createTenantLocation',
+        input: { ...input },
+        depsKeys: depKeys,
+        clientRef: writeDeps && writeDeps.client,
+        hasDb: !!(writeDeps && writeDeps.db),
+        hasClient: !!(writeDeps && writeDeps.client),
+      });
+      if (input && input._forceError) return { ok: false, error: input._forceError };
+      return {
+        ok: true,
+        value: sampleLocationRow({
+          client_id: input.clientId,
+          location_id: input.locationId,
+          display_name: input.displayName,
+          created_by: input.actorStaffUserId,
+          updated_by: input.actorStaffUserId,
+          active: true,
+        }),
+      };
+    },
+    async createDisabledTenantChannelEndpoint(input, writeDeps) {
+      const depKeys = Object.keys(writeDeps || {});
+      writeCalls.push({
+        fn: 'createDisabledTenantChannelEndpoint',
+        input: { ...input },
+        depsKeys: depKeys,
+        clientRef: writeDeps && writeDeps.client,
+        hasDb: !!(writeDeps && writeDeps.db),
+        hasClient: !!(writeDeps && writeDeps.client),
+      });
+      if (input && input._forceError) return { ok: false, error: input._forceError };
+      return {
+        ok: true,
+        value: sampleEndpointRow({
+          client_id: input.clientId,
+          location_id: input.location_id || input.locationId,
+          provider: input.provider,
+          public_address: input.public_address || input.publicAddress,
+          secret_ref: input.secret_ref || input.secretRef,
+          provider_resource_id: input.provider_resource_id || input.providerResourceId || null,
+          capabilities: input.capabilities || EIGHT_CAPS,
+          created_by: input.actorStaffUserId,
+          updated_by: input.actorStaffUserId,
+          active: false,
+          inbound_enabled: false,
+          outbound_enabled: false,
+          default_automation_mode: 'off',
+        }),
+      };
+    },
     ...overrides,
   };
   return deps;
@@ -336,7 +466,7 @@ function makeDeps(overrides) {
  * Thin dispatch matching staff-query-api router contract:
  * requireAuth(minRole) then handler. Auth is outside the module.
  */
-async function dispatchEmailRegistry({ pathname, method, role, user, query, routes }) {
+async function dispatchEmailRegistry({ pathname, method, role, user, query, body, routes }) {
   const res = mockRes();
   const match = routes.match(pathname, method);
   if (!match) {
@@ -345,7 +475,11 @@ async function dispatchEmailRegistry({ pathname, method, role, user, query, rout
       pathname === routes.LOCATIONS_PATH
       || pathname === routes.ENDPOINTS_PATH
     ) {
-      res.writeHead(405, { Allow: 'GET' });
+      const allowed = routes.routes
+        .filter((r) => r.path === pathname)
+        .map((r) => r.method)
+        .join(', ');
+      res.writeHead(405, { Allow: allowed || 'GET, POST' });
       res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
       return { matched: true, res: res.out, auth: null, methodDenied: true };
     }
@@ -370,12 +504,43 @@ async function dispatchEmailRegistry({ pathname, method, role, user, query, rout
     return { matched: true, res: res.out, auth: { ok: false, status: 403 } };
   }
 
-  const authUser = user || { staff_user_id: 'u1', role, allowed_clients: [CLIENT_A_SLUG, 'wolfhouse-somo'] };
-  await match.handler(query || {}, mockReq(), res, authUser);
+  const authUser = user || {
+    staff_user_id: ACTOR_UUID,
+    role,
+    allowed_clients: [CLIENT_A_SLUG, 'wolfhouse-somo'],
+  };
+  await match.handler(query || {}, mockReq(body), res, authUser);
   return { matched: true, res: res.out, auth: { ok: true, user: authUser } };
 }
 
-console.log('verify:staff-email-registry-routes — Slice 1C-beta offline\n');
+function validLocationBody(overrides) {
+  return Object.assign({
+    location_id: 'new-beach-house',
+    display_name: 'New Beach House',
+  }, overrides || {});
+}
+
+function validEndpointBody(overrides) {
+  return Object.assign({
+    location_id: 'beach-house',
+    provider: 'microsoft_graph',
+    public_address: 'support@example.com',
+    provider_resource_id: 'mailbox-1',
+    capabilities: { ...EIGHT_CAPS },
+    secret_ref: SECRET_REF,
+  }, overrides || {});
+}
+
+function adminUser(overrides) {
+  return Object.assign({
+    staff_user_id: ACTOR_UUID,
+    role: 'admin',
+    allowed_clients: [CLIENT_A_SLUG, CLIENT_B_SLUG, 'wolfhouse-somo'],
+    client_slug: CLIENT_A_SLUG,
+  }, overrides || {});
+}
+
+console.log('verify:staff-email-registry-routes — Slice 1C-beta/gamma offline\n');
 
 // ── Module presence (RED until implemented) ─────────────────────────────────
 console.log('── module surface ──');
@@ -437,14 +602,23 @@ ok('endpoints path exact', EMAIL_REGISTRY_ENDPOINTS_PATH === EXPECTED_ENDPOINTS,
 
   ok('handlers.GET locations is function', typeof routes.handleLocationsGet === 'function');
   ok('handlers.GET endpoints is function', typeof routes.handleChannelEndpointsGet === 'function');
-  ok('routes table is array', Array.isArray(routes.routes) && routes.routes.length === 2);
-  ok('routes GET only', routes.routes.every((r) => r.method === 'GET'));
+  ok('handlers.POST locations is function', typeof routes.handleLocationsPost === 'function');
+  ok('handlers.POST endpoints is function', typeof routes.handleChannelEndpointsPost === 'function');
+  ok('routes table is array', Array.isArray(routes.routes) && routes.routes.length === 4);
+  ok(
+    'routes GET+POST only',
+    routes.routes.every((r) => r.method === 'GET' || r.method === 'POST')
+      && routes.routes.filter((r) => r.method === 'GET').length === 2
+      && routes.routes.filter((r) => r.method === 'POST').length === 2,
+  );
   ok('routes minRole admin', routes.routes.every((r) => r.minRole === 'admin'));
   ok('match locations GET', routes.match(EXPECTED_LOCATIONS, 'GET') != null);
   ok('match endpoints GET', routes.match(EXPECTED_ENDPOINTS, 'GET') != null);
-  ok('match locations POST null', routes.match(EXPECTED_LOCATIONS, 'POST') == null);
+  ok('match locations POST', routes.match(EXPECTED_LOCATIONS, 'POST') != null);
+  ok('match endpoints POST', routes.match(EXPECTED_ENDPOINTS, 'POST') != null);
   ok('match endpoints PATCH null', routes.match(EXPECTED_ENDPOINTS, 'PATCH') == null);
   ok('match endpoints DELETE null', routes.match(EXPECTED_ENDPOINTS, 'DELETE') == null);
+  ok('match locations DELETE null', routes.match(EXPECTED_LOCATIONS, 'DELETE') == null);
   ok('match other path null', routes.match('/staff/admin/config', 'GET') == null);
 
   // ── include_inactive strict parse ─────────────────────────────────────────
@@ -1184,16 +1358,7 @@ ok('endpoints path exact', EMAIL_REGISTRY_ENDPOINTS_PATH === EXPECTED_ENDPOINTS,
     }
   }
 
-  // Method not allowed
-  {
-    const r = await dispatchEmailRegistry({
-      pathname: EXPECTED_LOCATIONS,
-      method: 'POST',
-      role: 'admin',
-      routes,
-    });
-    ok('POST locations → 405', r.methodDenied === true && r.res.statusCode === 405);
-  }
+  // Method not allowed (PATCH/DELETE only — POST is now a supported write surface)
   {
     const r = await dispatchEmailRegistry({
       pathname: EXPECTED_ENDPOINTS,
@@ -1203,18 +1368,540 @@ ok('endpoints path exact', EMAIL_REGISTRY_ENDPOINTS_PATH === EXPECTED_ENDPOINTS,
     });
     ok('DELETE endpoints → 405', r.methodDenied === true && r.res.statusCode === 405);
   }
+  {
+    const r = await dispatchEmailRegistry({
+      pathname: EXPECTED_LOCATIONS,
+      method: 'PATCH',
+      role: 'admin',
+      routes,
+    });
+    ok('PATCH locations → 405', r.methodDenied === true && r.res.statusCode === 405);
+  }
 
-  // ── No writes / activation / provider imports ─────────────────────────────
-  console.log('\n── boundary: no writes / no providers ──');
+  // ── 1C-gamma WRITE: kill switch, gates, body allowlist, domain client ─────
+  console.log('\n── 1C-gamma POST locations happy path ──');
+  {
+    deps.writeCalls.length = 0;
+    deps.slugLookups.length = 0;
+    deps.audit.length = 0;
+    deps.withPgClients.length = 0;
+    const res = mockRes();
+    await routes.handleLocationsPost(
+      { client: CLIENT_A_SLUG },
+      mockReq(validLocationBody()),
+      res,
+      adminUser(),
+    );
+    const body = parseBody(res.out);
+    ok('POST locations status 201', res.out.statusCode === 201, `status=${res.out.statusCode} body=${res.out.body}`);
+    ok('POST locations success', body && body.success === true);
+    ok('POST locations has location DTO', body && body.location && typeof body.location === 'object');
+    const loc = body && body.location;
+    const locKeys = loc ? Object.keys(loc).sort() : [];
+    const expectedLocKeys = ['active', 'created_at', 'display_name', 'id', 'location_id', 'updated_at'].sort();
+    ok('POST locations DTO keys exact', JSON.stringify(locKeys) === JSON.stringify(expectedLocKeys), JSON.stringify(locKeys));
+    ok('POST locations no client_id', loc && loc.client_id === undefined);
+    ok('POST locations no created_by', loc && loc.created_by === undefined);
+    ok('POST locations never echoes body location_id alone as raw', body && body.location_id === undefined);
+    ok('POST locations no secret_ref', !(res.out.body || '').includes('secret_ref'));
+    ok('POST locations write once', deps.writeCalls.filter((c) => c.fn === 'createTenantLocation').length === 1);
+    const wc = deps.writeCalls.find((c) => c.fn === 'createTenantLocation');
+    ok('POST locations domain clientId is A UUID', wc && wc.input.clientId === CLIENT_A_UUID, JSON.stringify(wc && wc.input));
+    ok('POST locations domain actor is session UUID', wc && wc.input.actorStaffUserId === ACTOR_UUID);
+    ok('POST locations domain locationId from body', wc && wc.input.locationId === 'new-beach-house');
+    ok('POST locations domain gets {client}', wc && wc.hasClient === true && wc.depsKeys.includes('client'));
+    ok('POST locations domain not {db}', wc && wc.hasDb === false && !wc.depsKeys.includes('db'));
+    ok(
+      'POST locations same pinned client object',
+      wc && deps.withPgClients.length >= 1 && wc.clientRef === deps.withPgClients[deps.withPgClients.length - 1],
+    );
+    ok(
+      'POST locations audit success',
+      deps.audit.some((e) => e.intent === 'api:admin.email_registry.locations.create' && e.success === true && e.staff_user_id === ACTOR_UUID),
+    );
+  }
+
+  console.log('\n── 1C-gamma POST endpoints happy path + secret redaction ──');
+  {
+    deps.writeCalls.length = 0;
+    deps.slugLookups.length = 0;
+    deps.audit.length = 0;
+    deps.withPgClients.length = 0;
+    const res = mockRes();
+    await routes.handleChannelEndpointsPost(
+      { client: CLIENT_A_SLUG },
+      mockReq(validEndpointBody()),
+      res,
+      adminUser(),
+    );
+    const body = parseBody(res.out);
+    const raw = res.out.body || '';
+    ok('POST endpoints status 201', res.out.statusCode === 201, `status=${res.out.statusCode} body=${raw}`);
+    ok('POST endpoints success', body && body.success === true);
+    const ep = body && body.endpoint;
+    ok('POST endpoints has endpoint DTO', ep && typeof ep === 'object');
+    ok('POST endpoints secret_ref omitted', ep && !Object.prototype.hasOwnProperty.call(ep, 'secret_ref'));
+    ok('POST endpoints secret_ref_present true', ep && ep.secret_ref_present === true);
+    ok('POST endpoints body has no secret value', !raw.includes(SECRET_REF) && !/"secret_ref"\s*:/.test(raw));
+    ok('POST endpoints no created_by', ep && ep.created_by === undefined);
+    ok('POST endpoints no client_id', ep && ep.client_id === undefined);
+    ok('POST endpoints forced disabled', ep && ep.active === false && ep.inbound_enabled === false && ep.outbound_enabled === false && ep.default_automation_mode === 'off');
+    const capKeys = ep && ep.capabilities ? Object.keys(ep.capabilities).sort() : [];
+    const expectedCapKeys = Object.keys(EIGHT_CAPS).sort();
+    ok('POST endpoints exact eight capabilities', capKeys.length === 8 && JSON.stringify(capKeys) === JSON.stringify(expectedCapKeys), JSON.stringify(capKeys));
+    const wc = deps.writeCalls.find((c) => c.fn === 'createDisabledTenantChannelEndpoint');
+    ok('POST endpoints domain once', !!wc);
+    ok('POST endpoints domain {client} not {db}', wc && wc.hasClient === true && wc.hasDb === false);
+    ok(
+      'POST endpoints same pinned client',
+      wc && deps.withPgClients.length >= 1 && wc.clientRef === deps.withPgClients[deps.withPgClients.length - 1],
+    );
+    ok('POST endpoints domain no locationAuthority from request', wc && wc.input.locationAuthority === undefined && wc.input.location_authority === undefined);
+    ok(
+      'POST endpoints audit no secret_ref',
+      !JSON.stringify(deps.audit).includes(SECRET_REF) && !/"secret_ref"\s*:/.test(JSON.stringify(deps.audit)),
+    );
+    ok(
+      'POST endpoints audit success with actor',
+      deps.audit.some((e) => e.intent === 'api:admin.email_registry.channel_endpoints.create' && e.success === true && e.staff_user_id === ACTOR_UUID),
+    );
+  }
+
+  console.log('\n── 1C-gamma kill switch EMAIL_REGISTRY_WRITES_ENABLED ──');
+  for (const [label, envVal] of [
+    ['omitted', undefined],
+    ['false', 'false'],
+    ['1', '1'],
+    ['yes', 'yes'],
+    ['empty', ''],
+    ['TRUE_word', 'TRUE'], // allowed (case-insensitive)
+    ['true', 'true'], // allowed
+  ]) {
+    const env = {};
+    if (envVal !== undefined) env.EMAIL_REGISTRY_WRITES_ENABLED = envVal;
+    const d2 = makeDeps({ runtimeEnv: env });
+    const r = createEmailRegistryRoutes(d2);
+    d2.writeCalls.length = 0;
+    d2.slugLookups.length = 0;
+    const res = mockRes();
+    await r.handleLocationsPost(
+      { client: CLIENT_A_SLUG },
+      mockReq(validLocationBody()),
+      res,
+      adminUser(),
+    );
+    const expectAllow = envVal != null && String(envVal).trim().toLowerCase() === 'true';
+    if (expectAllow) {
+      ok(`kill switch ${label} allows write`, res.out.statusCode === 201, `status=${res.out.statusCode}`);
+      ok(`kill switch ${label} domain called`, d2.writeCalls.length === 1);
+    } else {
+      const body = parseBody(res.out);
+      ok(`kill switch ${label} → 403`, res.out.statusCode === 403, `status=${res.out.statusCode} body=${res.out.body}`);
+      ok(
+        `kill switch ${label} error email_registry_writes_disabled`,
+        body && body.error === 'email_registry_writes_disabled',
+      );
+      ok(`kill switch ${label} zero UUID lookups`, d2.slugLookups.length === 0, JSON.stringify(d2.slugLookups));
+      ok(`kill switch ${label} zero domain writes`, d2.writeCalls.length === 0, `writes=${d2.writeCalls.length}`);
+    }
+  }
+
+  console.log('\n── 1C-gamma multi-client admin_writes / staff_actions ──');
+  {
+    const d = makeDeps();
+    d.staffActionsBySlug[CLIENT_A_SLUG] = true;
+    d.adminWritesBySlug[CLIENT_A_SLUG] = true;
+    d.staffActionsBySlug[CLIENT_B_SLUG] = false;
+    d.adminWritesBySlug[CLIENT_B_SLUG] = false;
+    const r = createEmailRegistryRoutes(d);
+    const multi = adminUser({ client_slug: CLIENT_A_SLUG });
+
+    d.writeCalls.length = 0;
+    d.slugLookups.length = 0;
+    d.authzCalls.length = 0;
+    const resDeny = mockRes();
+    await r.handleLocationsPost(
+      { client: CLIENT_B_SLUG },
+      mockReq(validLocationBody()),
+      resDeny,
+      multi,
+    );
+    const bodyDeny = parseBody(resDeny.out);
+    ok('multi B staff_actions false → 403', resDeny.out.statusCode === 403, `status=${resDeny.out.statusCode}`);
+    ok(
+      'multi B reason staff_actions_disabled',
+      bodyDeny && bodyDeny.reason_code === 'staff_actions_disabled',
+      JSON.stringify(bodyDeny),
+    );
+    ok('multi B zero UUID', d.slugLookups.length === 0);
+    ok('multi B zero writes', d.writeCalls.length === 0);
+    ok(
+      'multi B authz POST for B',
+      d.authzCalls.some((c) => c.clientSlug === CLIENT_B_SLUG && c.method === 'POST' && c.pathname === EXPECTED_LOCATIONS),
+    );
+
+    // staff_actions true but admin_writes false
+    d.staffActionsBySlug[CLIENT_B_SLUG] = true;
+    d.adminWritesBySlug[CLIENT_B_SLUG] = false;
+    d.writeCalls.length = 0;
+    d.slugLookups.length = 0;
+    const resDenyW = mockRes();
+    await r.handleChannelEndpointsPost(
+      { client: CLIENT_B_SLUG },
+      mockReq(validEndpointBody()),
+      resDenyW,
+      multi,
+    );
+    const bodyDenyW = parseBody(resDenyW.out);
+    ok('multi B admin_writes false → 403', resDenyW.out.statusCode === 403);
+    ok(
+      'multi B reason admin_writes_disabled',
+      bodyDenyW && bodyDenyW.reason_code === 'admin_writes_disabled',
+      JSON.stringify(bodyDenyW),
+    );
+    ok('multi B writes deny zero UUID/write', d.slugLookups.length === 0 && d.writeCalls.length === 0);
+
+    // B fully enabled → only B UUID
+    d.adminWritesBySlug[CLIENT_B_SLUG] = true;
+    d.writeCalls.length = 0;
+    d.slugLookups.length = 0;
+    const resAllow = mockRes();
+    await r.handleLocationsPost(
+      { client: CLIENT_B_SLUG },
+      mockReq(validLocationBody({ location_id: 'b-only-loc' })),
+      resAllow,
+      multi,
+    );
+    ok('multi B enabled → 201', resAllow.out.statusCode === 201, `status=${resAllow.out.statusCode}`);
+    const wc = d.writeCalls.find((c) => c.fn === 'createTenantLocation');
+    ok('multi B only B UUID to domain', wc && wc.input.clientId === CLIENT_B_UUID, JSON.stringify(wc && wc.input));
+    ok('multi B never A UUID on write', !d.writeCalls.some((c) => c.input && c.input.clientId === CLIENT_A_UUID));
+
+    // Real authorizer: B admin_writes false
+    {
+      const tbc = require('./lib/tenant-business-config');
+      const tenantCfg = {
+        version: 1,
+        tenant_slug: CLIENT_B_SLUG,
+        permissions: {
+          admin_db_read: true,
+          admin_writes: false,
+          stripe_links: false,
+          staff_actions: true,
+          whatsapp_dry_run: true,
+        },
+        locations: [
+          { location_id: `${CLIENT_B_SLUG}-main`, display_name: 'Main', channel_slot: 1 },
+        ],
+      };
+      // effectiveTenantPermission requires process-level flag AND tenant flag.
+      // Process staff_actions on + admin_writes on; tenant B admin_writes off → admin_writes_disabled.
+      const depsReal = makeDeps({
+        authorizeAuthenticatedStaffRoute: tbc.authorizeAuthenticatedStaffRoute,
+        runtimeEnv: {
+          EMAIL_REGISTRY_WRITES_ENABLED: 'true',
+          STAFF_ACTIONS_ENABLED: 'true',
+          SUNSET_ADMIN_WRITES_ENABLED: 'true',
+          SUNSET_ADMIN_DB_READ_ENABLED: 'true',
+          TENANT_RUNTIME_CONFIG_JSON: JSON.stringify(tenantCfg),
+        },
+      });
+      const routesReal = createEmailRegistryRoutes(depsReal);
+      depsReal.writeCalls.length = 0;
+      depsReal.slugLookups.length = 0;
+      const resReal = mockRes();
+      await routesReal.handleLocationsPost(
+        { client: CLIENT_B_SLUG },
+        mockReq(validLocationBody()),
+        resReal,
+        multi,
+      );
+      const bodyReal = parseBody(resReal.out);
+      ok('real authorizer B admin_writes=false → 403', resReal.out.statusCode === 403, `status=${resReal.out.statusCode}`);
+      ok(
+        'real authorizer reason admin_writes_disabled',
+        bodyReal && bodyReal.reason_code === 'admin_writes_disabled',
+        JSON.stringify(bodyReal),
+      );
+      ok('real authorizer zero UUID/write', depsReal.slugLookups.length === 0 && depsReal.writeCalls.length === 0);
+    }
+  }
+
+  console.log('\n── 1C-gamma body allowlist / injection / actor ──');
+  {
+    // client_id in query/body cannot alter scope
+    deps.writeCalls.length = 0;
+    const res = mockRes();
+    await routes.handleLocationsPost(
+      { client: CLIENT_A_SLUG, client_id: CLIENT_B_UUID },
+      mockReq(validLocationBody({
+        client_id: CLIENT_B_UUID,
+        client: CLIENT_B_SLUG,
+        client_slug: CLIENT_B_SLUG,
+      })),
+      res,
+      adminUser(),
+    );
+    // body has unknown fields → 400 reject before write
+    ok('body client_id injection → 400', res.out.statusCode === 400, `status=${res.out.statusCode} body=${res.out.body}`);
+    ok('body client injection zero writes', deps.writeCalls.length === 0);
+
+    // query client_id ignored when body clean
+    deps.writeCalls.length = 0;
+    const resQ = mockRes();
+    await routes.handleLocationsPost(
+      { client: CLIENT_A_SLUG, client_id: CLIENT_B_UUID },
+      mockReq(validLocationBody()),
+      resQ,
+      adminUser(),
+    );
+    ok('query client_id ignored → 201', resQ.out.statusCode === 201, `status=${resQ.out.statusCode}`);
+    const wcQ = deps.writeCalls.find((c) => c.fn === 'createTenantLocation');
+    ok('query client_id still scopes A', wcQ && wcQ.input.clientId === CLIENT_A_UUID);
+
+    // Attacker fields rejected
+    for (const [label, badBody] of [
+      ['id', validLocationBody({ id: '11111111-1111-4111-8111-111111111111' })],
+      ['created_by', validLocationBody({ created_by: ACTOR_UUID_B })],
+      ['updated_by', validLocationBody({ updated_by: ACTOR_UUID_B })],
+      ['actorStaffUserId', validLocationBody({ actorStaffUserId: ACTOR_UUID_B })],
+      ['staff_user_id', validLocationBody({ staff_user_id: ACTOR_UUID_B })],
+      ['active_false', validLocationBody({ active: false })],
+    ]) {
+      deps.writeCalls.length = 0;
+      const rBad = mockRes();
+      await routes.handleLocationsPost(
+        { client: CLIENT_A_SLUG },
+        mockReq(badBody),
+        rBad,
+        adminUser(),
+      );
+      ok(`reject location field ${label} → 400`, rBad.out.statusCode === 400, `status=${rBad.out.statusCode}`);
+      ok(`reject location field ${label} zero writes`, deps.writeCalls.length === 0);
+    }
+
+    for (const [label, badBody] of [
+      ['active', validEndpointBody({ active: true })],
+      ['inbound_enabled', validEndpointBody({ inbound_enabled: true })],
+      ['outbound_enabled', validEndpointBody({ outbound_enabled: true })],
+      ['default_automation_mode', validEndpointBody({ default_automation_mode: 'automatic' })],
+      ['locationAuthority', validEndpointBody({ locationAuthority: () => true })],
+      ['location_authority', validEndpointBody({ location_authority: true })],
+      ['id', validEndpointBody({ id: '22222222-2222-4222-8222-222222222222' })],
+      ['client_id', validEndpointBody({ client_id: CLIENT_B_UUID })],
+      ['created_by', validEndpointBody({ created_by: ACTOR_UUID })],
+    ]) {
+      deps.writeCalls.length = 0;
+      // locationAuthority function is not JSON-serializable via mockReq — use plain true
+      const payload = label === 'locationAuthority'
+        ? validEndpointBody({ locationAuthority: true })
+        : badBody;
+      const rBad = mockRes();
+      await routes.handleChannelEndpointsPost(
+        { client: CLIENT_A_SLUG },
+        mockReq(payload),
+        rBad,
+        adminUser(),
+      );
+      ok(`reject endpoint field ${label} → 400`, rBad.out.statusCode === 400, `status=${rBad.out.statusCode}`);
+      ok(`reject endpoint field ${label} zero writes`, deps.writeCalls.length === 0);
+    }
+
+    // Missing / malformed actor before DB
+    for (const [label, user] of [
+      ['missing', adminUser({ staff_user_id: null })],
+      ['empty', adminUser({ staff_user_id: '' })],
+      ['not-uuid', adminUser({ staff_user_id: 'admin-1' })],
+    ]) {
+      deps.writeCalls.length = 0;
+      deps.slugLookups.length = 0;
+      const rAct = mockRes();
+      await routes.handleLocationsPost(
+        { client: CLIENT_A_SLUG },
+        mockReq(validLocationBody()),
+        rAct,
+        user,
+      );
+      ok(`actor ${label} → 400`, rAct.out.statusCode === 400, `status=${rAct.out.statusCode}`);
+      ok(`actor ${label} zero writes`, deps.writeCalls.length === 0);
+      ok(`actor ${label} zero UUID lookups`, deps.slugLookups.length === 0);
+    }
+
+    // Array body rejected
+    {
+      deps.writeCalls.length = 0;
+      const rArr = mockRes();
+      await routes.handleLocationsPost(
+        { client: CLIENT_A_SLUG },
+        mockReq([{ location_id: 'x', display_name: 'Y' }]),
+        rArr,
+        adminUser(),
+      );
+      ok('array body → 400', rArr.out.statusCode === 400);
+      ok('array body zero writes', deps.writeCalls.length === 0);
+    }
+  }
+
+  console.log('\n── 1C-gamma conflict / error status mapping ──');
+  {
+    for (const [err, status, publicErr] of [
+      ['location_already_exists', 409, 'location_already_exists'],
+      ['endpoint_already_exists', 409, 'endpoint_already_exists'],
+      ['location_not_authorized', 404, 'location_not_authorized'],
+      ['display_name_invalid', 400, 'display_name_invalid'],
+      ['db_error', 500, 'write failed'],
+      ['transaction_client_required', 500, 'write failed'],
+    ]) {
+      const d = makeDeps({
+        async createTenantLocation() {
+          return { ok: false, error: err, details: { password: 'LEAK', secret_ref: SECRET_REF, pg: '42P01' } };
+        },
+        async createDisabledTenantChannelEndpoint() {
+          return { ok: false, error: err, details: { password: 'LEAK', secret_ref: SECRET_REF } };
+        },
+      });
+      d.audit = [];
+      d.appendAuditLog = (e) => { d.audit.push(e); };
+      const r = createEmailRegistryRoutes(d);
+      const res = mockRes();
+      if (err.startsWith('endpoint') || err === 'location_not_authorized') {
+        await r.handleChannelEndpointsPost(
+          { client: CLIENT_A_SLUG },
+          mockReq(validEndpointBody()),
+          res,
+          adminUser(),
+        );
+      } else {
+        await r.handleLocationsPost(
+          { client: CLIENT_A_SLUG },
+          mockReq(validLocationBody()),
+          res,
+          adminUser(),
+        );
+      }
+      const body = parseBody(res.out);
+      const raw = res.out.body || '';
+      ok(`map ${err} → ${status}`, res.out.statusCode === status, `status=${res.out.statusCode} body=${raw}`);
+      ok(`map ${err} public error`, body && body.error === publicErr, JSON.stringify(body));
+      ok(`map ${err} no LEAK/secret`, !raw.includes('LEAK') && !raw.includes(SECRET_REF) && !raw.includes('42P01'));
+      ok(`map ${err} no details echo`, body && body.details === undefined);
+    }
+
+    // Malformed create result capabilities → sanitized 500
+    {
+      const d = makeDeps({
+        async createDisabledTenantChannelEndpoint() {
+          return {
+            ok: true,
+            value: sampleEndpointRow({
+              capabilities: { evil: true, secret_ref: 'kv:LEAK' },
+            }),
+          };
+        },
+      });
+      d.audit = [];
+      d.appendAuditLog = (e) => { d.audit.push(e); };
+      const r = createEmailRegistryRoutes(d);
+      const res = mockRes();
+      await r.handleChannelEndpointsPost(
+        { client: CLIENT_A_SLUG },
+        mockReq(validEndpointBody()),
+        res,
+        adminUser(),
+      );
+      const raw = res.out.body || '';
+      ok('malformed create caps → 500', res.out.statusCode === 500);
+      ok('malformed create caps sanitized', !raw.includes('kv:LEAK') && !raw.includes('evil'));
+      ok('malformed create no endpoint DTO', !parseBody(res.out) || parseBody(res.out).endpoint === undefined);
+    }
+
+    // Hostile thrown secret errors sanitized
+    {
+      const logs = [];
+      const origError = console.error;
+      const capture = (...args) => {
+        logs.push(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '));
+      };
+      let probeStatus = null;
+      let probeBody = '';
+      try {
+        console.error = capture;
+        const d = makeDeps({
+          async withPgClient() {
+            const err = new Error('password=LEAK secret_ref=kv:LEAK');
+            err.code = 'ECONNREFUSED';
+            throw err;
+          },
+        });
+        d.audit = [];
+        d.appendAuditLog = (e) => { d.audit.push(e); };
+        const r = createEmailRegistryRoutes(d);
+        const res = mockRes();
+        await r.handleLocationsPost(
+          { client: CLIENT_A_SLUG },
+          mockReq(validLocationBody()),
+          res,
+          adminUser(),
+        );
+        probeStatus = res.out.statusCode;
+        probeBody = res.out.body || '';
+        const allLogs = logs.join('\n');
+        const auditJson = JSON.stringify(d.audit);
+        ok('write throw → 500', probeStatus === 500);
+        ok('write throw response no password', !probeBody.includes('password=LEAK'));
+        ok('write throw response no kv:LEAK', !probeBody.includes('kv:LEAK'));
+        ok('write throw logs no password', !allLogs.includes('password=LEAK'));
+        ok('write throw audit no secret', !auditJson.includes('password=LEAK') && !auditJson.includes('kv:LEAK'));
+      } finally {
+        console.error = origError;
+      }
+    }
+  }
+
+  console.log('\n── 1C-gamma router auth gate POST ──');
+  {
+    const rUnauth = await dispatchEmailRegistry({
+      pathname: EXPECTED_LOCATIONS,
+      method: 'POST',
+      role: null,
+      body: validLocationBody(),
+      routes,
+    });
+    ok('POST unauth → 401', rUnauth.res.statusCode === 401);
+    for (const role of ['viewer', 'operator']) {
+      const r = await dispatchEmailRegistry({
+        pathname: EXPECTED_LOCATIONS,
+        method: 'POST',
+        role,
+        body: validLocationBody(),
+        routes,
+      });
+      ok(`POST ${role} denied 403`, r.res.statusCode === 403);
+    }
+    for (const role of ['admin', 'owner']) {
+      const r = await dispatchEmailRegistry({
+        pathname: EXPECTED_LOCATIONS,
+        method: 'POST',
+        role,
+        body: validLocationBody(),
+        user: adminUser({ role }),
+        routes,
+      });
+      ok(`POST ${role} allowed 201`, r.res.statusCode === 201, `status=${r.res.statusCode}`);
+    }
+  }
+
+  // ── Boundary: no providers / no nested BEGIN / domain ownership ───────────
+  console.log('\n── boundary: writes via domain, no providers ──');
   {
     const modSrc = fs.readFileSync(MODULE_PATH, 'utf8');
     const modNoComments = modSrc
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
     ok('module does not call requireAuth', !/\brequireAuth\s*\(/.test(modNoComments));
-    ok('module does not import createTenantLocation', !/createTenantLocation/.test(modNoComments));
-    ok('module does not import createDisabledTenantChannelEndpoint', !/createDisabledTenantChannelEndpoint/.test(modNoComments));
-    ok('module does not import provider SDK', !/\b(?:microsoft|graph|gmail|imap|nodemailer|googleapis)\b/i.test(modNoComments));
+    ok('module uses createTenantLocation', /createTenantLocation/.test(modNoComments));
+    ok('module uses createDisabledTenantChannelEndpoint', /createDisabledTenantChannelEndpoint/.test(modNoComments));
+    ok('module does not import provider SDK', !/\b(?:nodemailer|googleapis|@microsoft\/microsoft-graph)\b/i.test(modNoComments));
     ok('module does not open global Pool', !/new\s+Pool\b|createPool\b|DATABASE_URL|PG_CONNECTION/i.test(modNoComments));
     ok('module uses listTenantLocations', /listTenantLocations/.test(modSrc));
     ok('module uses listTenantChannelEndpoints', /listTenantChannelEndpoints/.test(modSrc));
@@ -1222,6 +1909,13 @@ ok('endpoints path exact', EMAIL_REGISTRY_ENDPOINTS_PATH === EXPECTED_ENDPOINTS,
     ok('module never logs secret_ref value', !/console\.(log|info|warn|error|debug)\([^)]*secret_ref/i.test(modNoComments));
     ok('module reuses Slice 1A capability validator', /validateEmailMailboxCapabilities/.test(modSrc));
     ok('module invokes authorizeAuthenticatedStaffRoute', /authorizeAuthenticatedStaffRoute\s*\(/.test(modNoComments));
+    ok('module checks EMAIL_REGISTRY_WRITES_ENABLED', /EMAIL_REGISTRY_WRITES_ENABLED/.test(modSrc));
+    ok(
+      'module passes { client } not nested BEGIN in route',
+      /\{\s*client\s*\}/.test(modNoComments)
+        && !/await\s+client\.query\(\s*['"]BEGIN['"]\s*\)/.test(modNoComments),
+    );
+    ok('module does not construct request locationAuthority for 1A', !/locationAuthority\s*:\s*/.test(modNoComments) || !/buildPreloadedLocationAuthority/.test(modNoComments));
   }
 
   // ── staff-query-api wiring ────────────────────────────────────────────────
@@ -1235,32 +1929,48 @@ ok('endpoints path exact', EMAIL_REGISTRY_ENDPOINTS_PATH === EXPECTED_ENDPOINTS,
     'injects authorizeAuthenticatedStaffRoute into email registry factory',
     /createEmailRegistryRoutes\s*\(\s*\{[\s\S]*?authorizeAuthenticatedStaffRoute[\s\S]*?\}\s*\)/.test(apiSrc),
   );
+  ok(
+    'injects readBody into email registry factory',
+    /createEmailRegistryRoutes\s*\(\s*\{[\s\S]*?readBody[\s\S]*?\}\s*\)/.test(apiSrc),
+  );
 
   const locAuthRe = /pathname === EMAIL_REGISTRY_LOCATIONS_PATH && method === 'GET'[\s\S]{0,220}?requireAuth\(\s*req\s*,\s*res\s*,\s*'admin'\s*\)/;
   const epAuthRe = /pathname === EMAIL_REGISTRY_ENDPOINTS_PATH && method === 'GET'[\s\S]{0,220}?requireAuth\(\s*req\s*,\s*res\s*,\s*'admin'\s*\)/;
-  ok('locations route requireAuth admin', locAuthRe.test(apiSrc));
-  ok('endpoints route requireAuth admin', epAuthRe.test(apiSrc));
+  const locPostAuthRe = /pathname === EMAIL_REGISTRY_LOCATIONS_PATH && method === 'POST'[\s\S]{0,220}?requireAuth\(\s*req\s*,\s*res\s*,\s*'admin'\s*\)/;
+  const epPostAuthRe = /pathname === EMAIL_REGISTRY_ENDPOINTS_PATH && method === 'POST'[\s\S]{0,220}?requireAuth\(\s*req\s*,\s*res\s*,\s*'admin'\s*\)/;
+  ok('locations GET requireAuth admin', locAuthRe.test(apiSrc));
+  ok('endpoints GET requireAuth admin', epAuthRe.test(apiSrc));
+  ok('locations POST requireAuth admin', locPostAuthRe.test(apiSrc));
+  ok('endpoints POST requireAuth admin', epPostAuthRe.test(apiSrc));
   ok(
-    'locations dispatches handler',
+    'locations GET dispatches handler',
     /return handleEmailRegistryLocationsGet\(parsed\.query, req, res, auth\.user\)/.test(apiSrc)
-      || /return handleLocationsGet\(parsed\.query, req, res, auth\.user\)/.test(apiSrc)
       || /handleEmailRegistryLocationsGet|emailRegistryRoutes\.handleLocationsGet/.test(apiSrc),
   );
   ok(
-    'endpoints dispatches handler',
+    'endpoints GET dispatches handler',
     /return handleEmailRegistryChannelEndpointsGet\(parsed\.query, req, res, auth\.user\)/.test(apiSrc)
-      || /return handleChannelEndpointsGet\(parsed\.query, req, res, auth\.user\)/.test(apiSrc)
       || /handleEmailRegistryChannelEndpointsGet|emailRegistryRoutes\.handleChannelEndpointsGet/.test(apiSrc),
   );
-
-  // No POST/PATCH/DELETE wiring for these paths
   ok(
-    'no POST wiring for email-registry locations',
-    !/EMAIL_REGISTRY_LOCATIONS_PATH && method === 'POST'/.test(apiSrc),
+    'locations POST dispatches handler',
+    /return handleEmailRegistryLocationsPost\(parsed\.query, req, res, auth\.user\)/.test(apiSrc)
+      || /handleEmailRegistryLocationsPost|emailRegistryRoutes\.handleLocationsPost/.test(apiSrc),
   );
+  ok(
+    'endpoints POST dispatches handler',
+    /return handleEmailRegistryChannelEndpointsPost\(parsed\.query, req, res, auth\.user\)/.test(apiSrc)
+      || /handleEmailRegistryChannelEndpointsPost|emailRegistryRoutes\.handleChannelEndpointsPost/.test(apiSrc),
+  );
+
+  // No PATCH/DELETE wiring
   ok(
     'no PATCH wiring for email-registry endpoints',
     !/EMAIL_REGISTRY_ENDPOINTS_PATH && method === 'PATCH'/.test(apiSrc),
+  );
+  ok(
+    'no DELETE wiring for email-registry locations',
+    !/EMAIL_REGISTRY_LOCATIONS_PATH && method === 'DELETE'/.test(apiSrc),
   );
 
   // ── package + boundary doc ────────────────────────────────────────────────
@@ -1272,14 +1982,19 @@ ok('endpoints path exact', EMAIL_REGISTRY_ENDPOINTS_PATH === EXPECTED_ENDPOINTS,
   );
   const doc = fs.readFileSync(DOC_PATH, 'utf8');
   ok('boundary doc mentions 1C-beta', /1C-beta/i.test(doc));
+  ok('boundary doc mentions 1C-gamma', /1C-gamma/i.test(doc));
   ok('boundary doc documents locations path', doc.includes(EXPECTED_LOCATIONS));
   ok('boundary doc documents endpoints path', doc.includes(EXPECTED_ENDPOINTS));
   ok('boundary doc notes secret_ref redacted', /secret_ref_present|redact/i.test(doc));
+  ok('boundary doc notes EMAIL_REGISTRY_WRITES_ENABLED', /EMAIL_REGISTRY_WRITES_ENABLED/.test(doc));
+  ok('boundary doc documents POST', /POST.*email-registry|email-registry.*POST/i.test(doc));
 
-  // Registry still has list functions; routes must not mutate domain module exports of writes into route surface
+  // Registry still has list + create functions; no schema/domain structural rewrite required
   const regSrc = fs.readFileSync(REGISTRY_PATH, 'utf8');
   ok('domain listTenantLocations still present', /function listTenantLocations/.test(regSrc));
   ok('domain listTenantChannelEndpoints still present', /function listTenantChannelEndpoints/.test(regSrc));
+  ok('domain createTenantLocation still present', /function createTenantLocation/.test(regSrc));
+  ok('domain createDisabledTenantChannelEndpoint still present', /function createDisabledTenantChannelEndpoint/.test(regSrc));
 
   // ── Secret scan on new files ──────────────────────────────────────────────
   console.log('\n── secret scan (added files) ──');
