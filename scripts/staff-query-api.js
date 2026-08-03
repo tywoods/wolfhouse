@@ -193,6 +193,11 @@ const {
   AUTOMATED_NOTIFICATIONS_PATH,
   resolveAutomatedNotificationsLocationId,
 } = require('./lib/staff-automated-notifications-routes');
+const {
+  createEmailRegistryRoutes,
+  EMAIL_REGISTRY_LOCATIONS_PATH,
+  EMAIL_REGISTRY_ENDPOINTS_PATH,
+} = require('./lib/staff-email-registry-routes');
 
 const {
   listStaffAutomatedNotifications,
@@ -2495,6 +2500,25 @@ const bookingsAdminRoutes = createBookingsAdminRoutes({
   withPgClient,
   SQL_INJECT_RE,
 });
+
+// Email registry READ inventory (Slice 1C-beta). Router: requireAuth('admin')
+// (role + home-tenant admin_db_read). Handlers re-check authorizeAuthenticatedStaffRoute
+// for the *requested* clientSlug after ACL so multi-client admins cannot use tenant A
+// admin_db_read to read tenant B when B has admin_db_read disabled.
+const emailRegistryRoutes = createEmailRegistryRoutes({
+  sendJSON,
+  send400,
+  assertStaffClientAccess,
+  authorizeAuthenticatedStaffRoute,
+  appendAuditLog,
+  withPgClient,
+  DEFAULT_CLIENT,
+  SQL_INJECT_RE,
+});
+const {
+  handleLocationsGet: handleEmailRegistryLocationsGet,
+  handleChannelEndpointsGet: handleEmailRegistryChannelEndpointsGet,
+} = emailRegistryRoutes;
 
 // Staff Inbox routes (extracted module). Auth stays in the router with
 // per-route minRole (viewer reads / operator writes) — do not homogenize.
@@ -48733,6 +48757,19 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleHouseNotesPost(parsed.query, req, res, auth.user);
+  }
+
+  // ── Email registry READ (Slice 1C-beta) — admin inventory; no writes ────────
+  // Auth stays here; handlers live in staff-email-registry-routes.js
+  if (pathname === EMAIL_REGISTRY_LOCATIONS_PATH && method === 'GET') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleEmailRegistryLocationsGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === EMAIL_REGISTRY_ENDPOINTS_PATH && method === 'GET') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleEmailRegistryChannelEndpointsGet(parsed.query, req, res, auth.user);
   }
 
   // ── Staff WhatsApp notification settings (admin+owner) ─────────────────────
