@@ -429,20 +429,24 @@ const PRIVATE_OPTIONS = [
     for (const width of [320, 375, 390, 430]) {
       await page.setViewportSize({ width, height: 900 });
       const shape = await page.locator('#ps-create-course-equipment').evaluate((el) => {
-        // Visible mode/action buttons and quantity inputs only. Styled checkbox radials
-        // are intentionally 18px inside a 44px label hit target.
-        const targets = [...el.querySelectorAll('button, input[type=number]')]
+        // Mode buttons + enable switch stay 44px touch. All-Day qty stepper is D1-compact (~32).
+        const modeTargets = [...el.querySelectorAll('button.portal-schedule-create-activity-btn, label.portal-schedule-course-equipment-check')]
+          .filter((x) => x.offsetParent !== null)
+          .map((x) => x.getBoundingClientRect().height);
+        const stepTargets = [...el.querySelectorAll('.portal-schedule-course-equipment-sets .portal-schedule-int-step, .portal-schedule-course-equipment-sets input[type=number], .portal-schedule-course-equipment-sets input[data-course-equipment-quantity]')]
           .filter((x) => x.offsetParent !== null)
           .map((x) => x.getBoundingClientRect().height);
         return {
           overflow: el.scrollWidth > el.clientWidth + 1,
-          targets,
+          modeTargets,
+          stepTargets,
           checkLabelMin: Math.min(...[...el.querySelectorAll('label.portal-schedule-course-equipment-check')]
             .map((x) => x.getBoundingClientRect().height)),
         };
       });
       ok(width + 'px Create equipment no overflow', !shape.overflow, JSON.stringify(shape));
-      ok(width + 'px Create equipment 44px action targets', shape.targets.every((h) => h >= 44), JSON.stringify(shape.targets));
+      ok(width + 'px Create equipment 44px mode/switch targets', shape.modeTargets.every((h) => h >= 44), JSON.stringify(shape.modeTargets));
+      ok(width + 'px Create All-Day compact qty stepper', shape.stepTargets.every((h) => h >= 28 && h <= 36), JSON.stringify(shape.stepTargets));
       ok(width + 'px Create equipment 44px checkbox labels', shape.checkLabelMin >= 44, String(shape.checkLabelMin));
     }
     await page.locator('#ps-create-close').click();

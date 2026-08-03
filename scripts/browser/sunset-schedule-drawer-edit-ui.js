@@ -1854,15 +1854,8 @@ function scheduleDrawerClampRentalQtyInput(inp, wrap) {
 function scheduleRenderDrawerRentals() {
   var wrap = el('ps-drawer-rentals');
   if (!wrap) return;
-  // Group/Private course gear is owned by #ps-drawer-course-equipment — hide catalog rental rows.
-  var mode = typeof scheduleDrawerMainActivityValue === 'function' ? scheduleDrawerMainActivityValue() : '';
-  if (mode === 'group' || mode === 'private') {
-    wrap.innerHTML = '';
-    wrap.style.display = 'none';
-    wrap.hidden = true;
-    wrap.setAttribute('aria-hidden', 'true');
-    return;
-  }
+  // Create parity: standalone equipment catalog always renders (Group/Private/Equipment only).
+  // Course pack gear lives in #ps-drawer-course-equipment; this list is additive rentals staff can attach.
   wrap.style.display = '';
   wrap.hidden = false;
   wrap.setAttribute('aria-hidden', 'false');

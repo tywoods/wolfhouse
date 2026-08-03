@@ -47,6 +47,7 @@ const listen = (s) => new Promise((r, j) => {
 const ARTIFACT_DIR = '/opt/data/artifacts';
 const DATE = '2026-08-10';
 const BOOKING_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const COURSE_BOOKING_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const ROOT = path.join(__dirname, '..');
 
 const RENTAL_OFFERINGS = [
@@ -153,6 +154,28 @@ function sourceContract() {
   assert.ok(i18n.includes("'schedule.create.rentalFrom': 'from'"), 'EN from');
   assert.ok(i18n.includes("'schedule.create.rentalFrom': 'da'"), 'IT from');
   assert.ok(es.includes("'schedule.create.rentalFrom': 'desde'"), 'ES from');
+  // Bug regression: Edit must always render standalone equipment catalog (Create parity).
+  assert.ok(!/Group\/Private course gear is owned by #ps-drawer-course-equipment — hide catalog rental rows/.test(edit),
+    'Edit must not hide catalog rentals on Group/Private');
+  assert.ok(/Create parity: standalone equipment catalog always renders/.test(edit),
+    'Edit rentals always-render comment');
+  const renderFn = edit.slice(
+    edit.indexOf('function scheduleRenderDrawerRentals'),
+    edit.indexOf('function scheduleRenderDrawerRentals') + 900,
+  );
+  assert.ok(!/mode === 'group' \|\| mode === 'private'/.test(renderFn),
+    'scheduleRenderDrawerRentals must not early-return hide on group/private');
+  // Bug 2: All-Day course qty stepper compact (D1 family), not 44px tall.
+  assert.ok(api.includes('All-Day course qty: D1-compact height'), 'All-Day compact stepper marker');
+  const ceSetsCss = api.replace(/\s+/g, '');
+  assert.ok(
+    /\.portal-schedule-course-equipment-sets\.portal-schedule-int-step\{[^}]*height:32px/.test(ceSetsCss)
+    || /\.portal-schedule-course-equipment-sets \.portal-schedule-int-step\{[^}]*height:32px/.test(api.replace(/\s+/g, ''))
+    || /course-equipment-sets[^\{]{0,80}\.portal-schedule-int-step\{[^}]*height:32px!important/.test(ceSetsCss),
+    'All-Day course int-step height 32',
+  );
+  assert.ok(!/\.portal-schedule-course-equipment-sets \.portal-schedule-int-step\{[^}]*height:44px/.test(api.replace(/\s+/g, '')),
+    'All-Day course int-step must not stay 44px tall');
   // Must not paint final line total from unit * qty in production helpers
   const paintFn = api.slice(
     api.indexOf('function schedulePaintRentalRowLineTotalsFromQuote'),
@@ -305,7 +328,24 @@ async function measureDrawerWidth(page, sel) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ success: true, ok: true, courses: [], offerings: [], rentals: [] }),
+      body: JSON.stringify({
+        success: true,
+        ok: true,
+        courses: [{
+          course_id: 'verify-group',
+          label: 'Verifier Group',
+          eligible_on_requested_dates: true,
+          equipment_options: [{
+            offering_key: 'board_and_suit_rental',
+            label: 'Surfboard + Wetsuit',
+            during_course_price_cents: 0,
+            all_day_price_cents: 1000,
+          }],
+          price_tiers: [{ key: '1_day', label: '1 day', duration_days: 1, bookable: true }],
+        }],
+        offerings: [],
+        rentals: [],
+      }),
     });
   });
 
@@ -440,12 +480,72 @@ async function measureDrawerWidth(page, sel) {
           payment_status: 'unpaid',
           booking_status: 'confirmed',
           status: 'confirmed',
+        }, {
+          booking_id: COURSE_BOOKING_ID,
+          booking_code: 'COURSE-E',
+          guest_name: 'Course Only Edit Guest',
+          record_source: 'staff_manual',
+          service_date: date,
+          service_time_local: '10:00',
+          service_type: 'course',
+          offering_label: 'Group Course',
+          metadata: { component: 'course', course_id: 'verify-group' },
+          quantity: 2,
+          payment_status: 'unpaid',
+          booking_status: 'confirmed',
+          status: 'confirmed',
         }],
       }),
     });
   });
 
   await page.route('**/staff/schedule/bookings/detail?**', (route) => {
+    const url = new URL(route.request().url());
+    const id = url.searchParams.get('booking_id') || url.searchParams.get('id') || BOOKING_ID;
+    if (String(id) === COURSE_BOOKING_ID) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          booking_id: COURSE_BOOKING_ID,
+          booking_code: 'COURSE-E',
+          guest_name: 'Course Only Edit Guest',
+          phone: '+346****9777',
+          payment_status: 'unpaid',
+          date_from: DATE,
+          date_to: DATE,
+          components: {
+            course: {
+              course_id: 'verify-group',
+              quantity: 2,
+              duration_key: '1_day',
+            },
+          },
+          lessons: [{
+            course_id: 'verify-group',
+            service_date: DATE,
+            quantity: 2,
+          }],
+          // Course gear only — NO standalone rentals (regression target).
+          course_equipment: [{
+            offering_key: 'board_and_suit_rental',
+            mode: 'during_course',
+            quantity: 2,
+          }],
+          rentals: [],
+          custom_line_items: [],
+          editable: true,
+          location_id: 'sunset-somo',
+          payment: {
+            subtotal_cents: 8000,
+            paid_cents: 0,
+            balance_due_cents: 8000,
+            line_items: [],
+          },
+        }),
+      });
+    }
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -454,7 +554,7 @@ async function measureDrawerWidth(page, sel) {
         booking_id: BOOKING_ID,
         booking_code: 'EQUIP-E',
         guest_name: 'Equipment Edit Guest',
-        phone: '+34600999888',
+        phone: '+346****9888',
         payment_status: 'unpaid',
         date_from: DATE,
         date_to: DATE,
@@ -1163,6 +1263,108 @@ async function measureDrawerWidth(page, sel) {
     assert.ok(uTowel.duration_key || uTowel.duration);
     assert.ok(!/total_cents|unit_amount|amount_cents|price_cents/i.test(JSON.stringify(last.body.rentals)), 'no client money');
     console.log('  PASS  Edit save/update two rentals exact payload');
+
+    // ═══════════════════════════════════════════════════════════════════
+    // EDIT — course-only booking (NO pre-existing standalone rentals)
+    // Regression: equipment picker must still render (Create parity).
+    // ═══════════════════════════════════════════════════════════════════
+    console.log('[Edit course-only]');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    // Close any open drawer first.
+    await page.evaluate(() => {
+      const close = document.getElementById('ps-drawer-close') || document.getElementById('ps-drawer-cancel');
+      if (close) close.click();
+    });
+    await page.waitForTimeout(300);
+    const courseRow = page.locator('[data-ps-booking-id]').filter({ hasText: 'Course Only Edit Guest' }).first();
+    await courseRow.waitFor({ timeout: 15000 });
+    await courseRow.click();
+    await page.locator('#ps-drawer-edit').click();
+    await page.locator('#ps-drawer-edit-form, #ps-drawer-body').first().waitFor({ timeout: 10000 });
+    await page.waitForTimeout(400);
+    await seedCaches(page, 'edit');
+    await page.waitForTimeout(350);
+
+    // Group course main activity must keep standalone equipment catalog visible.
+    const courseEditPicker = await page.evaluate(() => {
+      const wrap = document.getElementById('ps-drawer-rentals');
+      if (!wrap) return { missingWrap: true };
+      const style = getComputedStyle(wrap);
+      const rows = [...wrap.querySelectorAll('[data-rental-offering]')].map((r) => r.getAttribute('data-rental-offering'));
+      const toggles = [...wrap.querySelectorAll('.portal-schedule-create-rental-toggle')];
+      const selected = rows.filter((key) => {
+        const row = wrap.querySelector(`[data-rental-offering="${key}"]`);
+        const check = row && row.querySelector('.ps-drawer-rental-check');
+        return !!(check && check.checked);
+      });
+      const lab = wrap.parentElement && wrap.parentElement.querySelector('.portal-schedule-create-label');
+      return {
+        missingWrap: false,
+        display: style.display,
+        hidden: wrap.hidden || wrap.getAttribute('aria-hidden') === 'true',
+        rowCount: rows.length,
+        rows,
+        toggleCount: toggles.length,
+        selected,
+        header: lab ? lab.textContent.replace(/\s+/g, ' ').trim() : '',
+        mode: typeof scheduleDrawerMainActivityValue === 'function' ? scheduleDrawerMainActivityValue() : null,
+      };
+    });
+    assert.strictEqual(courseEditPicker.missingWrap, false, 'course-only Edit has #ps-drawer-rentals');
+    assert.notStrictEqual(courseEditPicker.display, 'none', `picker display ${courseEditPicker.display}`);
+    assert.strictEqual(courseEditPicker.hidden, false, 'picker not aria-hidden/hidden');
+    assert.ok(courseEditPicker.rowCount >= 3, `catalog rows present got ${JSON.stringify(courseEditPicker)}`);
+    assert.ok(courseEditPicker.toggleCount >= 3, `name toggles present got ${courseEditPicker.toggleCount}`);
+    assert.ok(/equipment/i.test(courseEditPicker.header), `Equipment header got ${courseEditPicker.header}`);
+    // No pre-seeded standalone rentals → nothing pre-selected from rentals[].
+    assert.deepStrictEqual(courseEditPicker.selected, [], `no standalone preselected got ${JSON.stringify(courseEditPicker.selected)}`);
+    // Staff can select a rental on a course booking.
+    await page.locator('#ps-drawer-rentals [data-rental-offering="towel_rental"] .portal-schedule-create-rental-toggle').click();
+    await page.waitForTimeout(200);
+    const towelOn = await rowState(page, '#ps-drawer-rentals', 'towel_rental');
+    assert.strictEqual(towelOn.ariaPressed, 'true', 'can add towel rental while editing course booking');
+    assert.strictEqual(towelOn.qtyVisible, true, 'towel qty visible after select');
+    console.log('  PASS  course-only Edit shows equipment picker + can add rental');
+
+    // Bug 2 smoke: All-Day course qty CSS is D1-compact (probe; avoid nested <button>).
+    const allDayShape = await page.evaluate(() => {
+      const host = document.createElement('div');
+      host.className = 'portal-schedule-course-equipment';
+      host.innerHTML = ''
+        + '<div class="portal-schedule-course-equipment-modes">'
+        + '<div class="portal-schedule-create-activity-btn portal-schedule-course-equipment-mode-allday" aria-pressed="true" style="display:inline-flex;align-items:center">'
+        + '<span class="portal-schedule-course-equipment-mode-label">All Day</span>'
+        + '<div class="portal-schedule-course-equipment-sets">'
+        + '<div class="portal-schedule-int-stepper">'
+        + '<button type="button" class="portal-schedule-int-step" data-int-step="dec">−</button>'
+        + '<input type="number" data-course-equipment-quantity class="portal-schedule-int-stepper-input" value="1">'
+        + '<button type="button" class="portal-schedule-int-step" data-int-step="inc">+</button>'
+        + '</div></div></div></div>';
+      host.style.cssText = 'position:fixed;left:8px;top:8px;z-index:99999;';
+      document.body.appendChild(host);
+      const step = host.querySelector('.portal-schedule-course-equipment-sets .portal-schedule-int-step');
+      const qty = host.querySelector('.portal-schedule-course-equipment-sets input[data-course-equipment-quantity]');
+      const stepper = host.querySelector('.portal-schedule-course-equipment-sets .portal-schedule-int-stepper');
+      const btn = host.querySelector('.portal-schedule-course-equipment-mode-allday');
+      const out = {
+        stepH: step ? step.getBoundingClientRect().height : 0,
+        stepW: step ? step.getBoundingClientRect().width : 0,
+        qtyH: qty ? qty.getBoundingClientRect().height : 0,
+        stepperH: stepper ? stepper.getBoundingClientRect().height : 0,
+        btnH: btn ? btn.getBoundingClientRect().height : 0,
+        stepCss: step ? getComputedStyle(step).height : '',
+        qtyCss: qty ? getComputedStyle(qty).height : '',
+        found: { step: !!step, qty: !!qty, stepper: !!stepper, btn: !!btn },
+      };
+      host.remove();
+      out.ok = out.stepH >= 28 && out.stepH <= 36
+        && out.qtyH >= 28 && out.qtyH <= 36
+        && out.stepperH >= 28 && out.stepperH <= 36
+        && out.btnH > 0 && out.btnH <= 56;
+      return out;
+    });
+    assert.ok(allDayShape.ok, `All-Day compact stepper shape ${JSON.stringify(allDayShape)}`);
+    console.log('  PASS  All-Day course qty stepper compact height');
 
     const serious = errors.filter((e) => !/ResizeObserver|favicon|net::ERR/i.test(e));
     assert.deepStrictEqual(serious, [], serious.join(' | '));
