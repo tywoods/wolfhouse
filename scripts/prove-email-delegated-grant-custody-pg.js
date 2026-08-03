@@ -411,16 +411,22 @@ async function runConcurrentProofs(Client, connection) {
     await applySqlFile(setup, path.join(MIGRATIONS_DIR, UP057));
     await applySqlFile(setup, path.join(MIGRATIONS_DIR, UP058));
     await applySqlFile(setup, path.join(MIGRATIONS_DIR, UP059));
-    const clientA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-    await setup.query(`INSERT INTO clients (id, slug, name) VALUES ($1,'client-a','A')`, [clientA]);
+    const clientA = crypto.randomUUID();
+    const fixtureTag = crypto.randomBytes(6).toString('hex');
+    const clientSlug = `concurrent-${fixtureTag}`;
+    const locationId = `concurrent-${fixtureTag}-loc`;
     await setup.query(
-      `INSERT INTO tenant_locations (client_id, location_id, display_name) VALUES ($1,'client-a-loc','A')`,
-      [clientA],
+      `INSERT INTO clients (id, slug, name) VALUES ($1,$2,'Concurrent proof')`,
+      [clientA, clientSlug],
+    );
+    await setup.query(
+      `INSERT INTO tenant_locations (client_id, location_id, display_name) VALUES ($1,$2,'Concurrent proof')`,
+      [clientA, locationId],
     );
     const ep = crypto.randomUUID();
     await insertEndpointFixed(setup, {
-      clientId: clientA, endpointId: ep, locationId: 'client-a-loc',
-      address: 'concurrent@example.com', provider: 'microsoft_graph',
+      clientId: clientA, endpointId: ep, locationId,
+      address: `concurrent-${fixtureTag}@example.com`, provider: 'microsoft_graph',
       authMode: 'delegated_authorization_code', connectorMode: 'microsoft_delegated_oauth',
       bindingStatus: 'verified', resourceId: OID,
     });
