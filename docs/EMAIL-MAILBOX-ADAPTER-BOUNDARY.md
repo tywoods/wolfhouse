@@ -1,4 +1,4 @@
-# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma)
+# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A)
 
 **Status:**
 - **1A:** provider-neutral adapter/validation contract, fake adapter, focused tests.
@@ -6,8 +6,11 @@
 - **1C-alpha:** pure domain/repository layer over those tables for future Staff API routes (**no HTTP routes**, no auth role policy, no activation, no provider connectivity, no live data or deploy).
 - **1C-beta:** smallest admin-only **READ** Staff API over that empty registry (list locations + list channel endpoints).
 - **1C-gamma:** smallest admin-only, **explicitly kill-switched** registration **WRITE** API (`POST` locations + disabled channel endpoints). No activation, provider connectivity, live registration, or deploy.
+- **2A:** pure offline **Microsoft Graph mailbox adapter boundary** with injected secret provider + injected HTTP transport, `listMessageEnvelopes({top})` only, deterministic fake transport tests. **No live network**, no Azure/Graph calls from verifiers, no DB/route/activation/deploy.
 
-**Not in these slices:** Microsoft Graph / Gmail / IMAP network calls, OAuth, subscriptions, polling, send/drafts UI, attachment download/storage, Luna SOUL changes, live mailbox config, deploy, invented client/location/mailbox rows. Activation / secret_ref visibility / provider connectivity remain deferred past 1C-gamma.
+**Not in slices 1A–1C-gamma:** Microsoft Graph / Gmail / IMAP network calls, OAuth, subscriptions, polling, send/drafts UI, attachment download/storage, Luna SOUL changes, live mailbox config, deploy, invented client/location/mailbox rows. Activation / secret_ref visibility / live provider connectivity remain deferred past 1C-gamma.
+
+**Not in Slice 2A:** live Graph/Azure calls, default HTTP transport, provider SDKs, credential cache, access_token secret-material shortcut, polling/webhooks, send/draft/reply/forward, attachment download, DB lookups, Staff API routes, registry rows, schema, SOUL, activation, deploy.
 
 ## Architectural decision (Slice 1A vs 1B)
 
@@ -20,6 +23,7 @@ Slice **1A intentionally ships no** endpoint persistence schema and no Graph/Gma
 | **1C-alpha (domain/repository)** | Focused module `scripts/lib/email-tenant-channel-registry.js`: list/create locations, list endpoints, create **disabled** endpoints; pure helper `buildPreloadedLocationAuthority`; offline hostile mock-pg + disposable PG proofs | HTTP routes; auth roles; feature flags; update/deactivate; provider adapters; activation / inbound / outbound enable paths; response redaction |
 | **1C-beta (admin READ API)** | Extracted DI routes `scripts/lib/staff-email-registry-routes.js` wired into `staff-query-api.js`: `GET /staff/admin/email-registry/locations`, `GET /staff/admin/email-registry/channel-endpoints`; `requireAuth('admin')` + existing `assertStaffClientAccess` + `admin_db_read` gate; DTO allowlists; `secret_ref` always redacted (`secret_ref_present` only) | POST/PATCH/DELETE; activation; secret_ref visibility; provider connectivity; UI |
 | **1C-gamma (admin WRITE API)** | Same module: `POST` same two paths; `requireAuth('admin')` + ACL + requested-tenant `staff_actions`/`admin_writes` via `authorizeAuthenticatedStaffRoute`; global kill switch `EMAIL_REGISTRY_WRITES_ENABLED` (exact case-insensitive `true` only); body allowlists; trusted `clientId` from slug UUID + `actor` from `user.staff_user_id`; domain writes via `{ client }` on `withPgClient`; endpoints always disabled | PATCH/DELETE; activation; secret_ref visibility; provider connectivity; UI; live registration |
+| **2A (Graph adapter boundary)** | `email-secret-provider-contract`, `email-http-transport-contract`, `email-microsoft-graph-adapter`, optional `email-fake-http-transport`; app-only client_credentials → list message envelopes; exact allowlists; sanitized errors; offline verifier | Live network; default transport; SDK; send/draft/reply; polling/webhooks; DB; routes; activation; deploy |
 
 Application validation in `validateTenantChannelEndpointInput(input, { locationAuthority })` remains a **contract for writes**, not a substitute for DB integrity. Location authority is a **trusted out-of-band callback** (argument 2 only); it fails closed without a valid second-argument authority and never honors authority embedded in untrusted `input`.
 
@@ -38,12 +42,13 @@ The Slice 1A validator requires a **trusted synchronous / preloaded** `locationA
 ## Architecture
 
 ```
-Guest email provider  →  (future) provider adapter  →  Staff API / Postgres
+Guest email provider  →  provider adapter (2A Graph boundary)  →  Staff API / Postgres
                               ↑
                      email-mailbox-adapter-contract (1A)
                      + tenant_locations / tenant_channel_endpoints (1B)
                      + email-tenant-channel-registry (1C-alpha domain layer)
                      + staff-email-registry-routes (1C-beta READ + 1C-gamma kill-switched WRITE)
+                     + email-microsoft-graph-adapter (2A; injected transport only)
 ```
 
 - **One unified Staff Inbox** with channel-native threads (WhatsApp today; email endpoints registered later).
@@ -52,7 +57,7 @@ Guest email provider  →  (future) provider adapter  →  Staff API / Postgres
 - **1C-beta admin READ API** lists registry rows for authenticated admin/owner only; never enables traffic.
 - **1C-gamma admin WRITE API** registers locations and **disabled** email endpoints only when `EMAIL_REGISTRY_WRITES_ENABLED=true`; never enables traffic.
 - **Provider adapters** may later be `microsoft_graph`, `gmail_api`, or `imap_smtp`.
-- **support@lunafrontdesk.com** is a licensed Microsoft 365 user mailbox and will be the first *test* adapter later — these slices contain **zero Graph-specific network logic**.
+- **support@lunafrontdesk.com** is a licensed Microsoft 365 user mailbox and the intended first *test* Graph mailbox. Slice **2A** ships the Graph adapter **boundary** only (injected transport; verifiers use a deterministic fake — zero live Graph calls).
 
 ## Slice 1B schema (empty on apply)
 
@@ -74,6 +79,10 @@ Down: `057_tenant_locations_and_channel_endpoints_down.sql`
 | `scripts/lib/email-mailbox-fake-adapter.js` | Deterministic in-memory adapter for tests (Graph/Gmail/IMAP capability *combinations* as data); `supports(unknown)` fails closed | Network I/O; production use; resolve secret values |
 | `scripts/lib/email-tenant-channel-registry.js` (1C-alpha) | Tenant-scoped list/create for `tenant_locations`; list endpoints; `createDisabledTenantChannelEndpoint`; pure `buildPreloadedLocationAuthority`; reads via `{ db }`; writes via pinned `{ client }` transaction (BEGIN guarded; no Pool); stable structured errors (`location_already_exists`, `endpoint_already_exists`, `location_not_authorized`, `transaction_client_required`, `db_error`) | HTTP routes; auth roles; enable active/inbound/outbound/automation; resolve `secret_ref`; provider SDK/network; global PG pool; Pool as write executor; upsert; leak raw PG messages |
 | `scripts/lib/staff-email-registry-routes.js` (1C-beta + 1C-gamma) | Admin GET list + POST create handlers; DI factory; client slug → ACL → requested-tenant authz → (writes) kill switch → UUID; DTO allowlists; `secret_ref` → `secret_ref_present` only; strict body allowlists; domain `{ client }` writes; audit intents; sanitized errors | PATCH/DELETE; activation; expose `secret_ref`; trust query/body `client_id` or actor; provider SDK; enforce auth itself (router owns `requireAuth`); nested BEGIN/COMMIT |
+| `scripts/lib/email-secret-provider-contract.js` (2A) | Validate injected `{ resolveSecret }` shape; reuse 1A `validateEmailMailboxSecretRef` before resolve; return material only to private adapter flow | Default secret provider; log/return material in public errors; resolve non-ref credentials |
+| `scripts/lib/email-http-transport-contract.js` (2A) | Validate injected async `{ request }` transport shape; fixed timeout constants | Default/network transport implementation |
+| `scripts/lib/email-microsoft-graph-adapter.js` (2A) | Factory scoped to validated `microsoft_graph` endpoint + required `secretProvider` + `transport`; `listMessageEnvelopes({top})` only; app-only token then Graph messages GET; exact DTO allowlists; sanitized error codes | DB lookups; SDK; credential/token cache; access_token secret shortcut; send/draft/reply; host/url injection fields; partial list results |
+| `scripts/lib/email-fake-http-transport.js` (2A tests) | Deterministic recording fake transport for verifiers | Network I/O / DNS |
 
 Consumers must branch on **capability flags** (`remote_drafts`, `push_notifications`, …), not on provider-specific field shapes. Unknown provider ids, capability shapes, and **unknown capability keys on `supports()`** fail closed (throw / structured reject — never silent `false` for typos).
 
@@ -218,6 +227,60 @@ Same module + wiring. **POST only** (no PATCH/DELETE). Domain owns transactions;
 - No attachment payloads are downloaded or stored in this foundation. Later work may retain only safe attachment-present metadata / provider references.
 - Payments remain in Stripe; payment-card data must never enter email endpoint or adapter records.
 
+## Microsoft Graph adapter boundary (Slice 2A)
+
+Pure offline boundary for a **tenant/endpoint-scoped** `microsoft_graph` mailbox adapter. No Staff API wiring, no registry activation, no live credentials, and no default network transport.
+
+### Official endpoints (fixed hosts/paths)
+
+| Step | Method | URL | Notes |
+|------|--------|-----|--------|
+| App-only token | `POST` | `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token` | `application/x-www-form-urlencoded`; `grant_type=client_credentials`; `scope=https://graph.microsoft.com/.default`; tenant segment is the only variable path part (URI-encoded) |
+| List message envelopes | `GET` | `https://graph.microsoft.com/v1.0/users/{id\|UPN}/messages?$top={1..50}&$select={fixed allowlist}` | User segment is URI-encoded `provider_resource_id` or normalized `public_address`; `$select` is a fixed basic allowlist (no `body` / `uniqueBody` / `internetMessageHeaders`) |
+
+Hosts and path templates are **fixed** in adapter code. Endpoint input must not supply `host`, `url`, `token_url`, `graph_url`, `authority`, or other injection fields.
+
+### Least-privilege permission (documented starting point)
+
+- **App-only** application permission **`Mail.ReadBasic.All`** is the documented least-privilege **starting point** for listing basic message envelopes (no full body).
+- This is **subject to live admin confirmation** against the actual Entra app registration and mailbox licensing for the first test mailbox (`support@lunafrontdesk.com`).
+- **Mailbox-scoping requirement:** production use must constrain which mailboxes the app can read (e.g. application access policy / RBAC for applications). Slice 2A does not configure Entra policy; it only documents the requirement. The adapter always targets a single scoped user path from the endpoint identity.
+
+### Secret material (app-only only)
+
+- Opaque `secret_ref` only on the endpoint (1A schemes).
+- Injected secret provider resolves that ref to **exact** material keys: `tenant_id`, `client_id`, `client_secret` (non-empty strings).
+- **No `access_token` secret-material shortcut.** Tests use fake app credentials + scripted fake transport.
+- Credentials and tokens are **not cached**; discarded after each `listMessageEnvelopes` request path.
+- Never log or return resolved material, `Authorization` values, `client_secret`, raw Graph bodies, or `secret_ref` in adapter errors.
+
+### Capability surface (2A)
+
+| Function | Behavior |
+|----------|----------|
+| `createMicrosoftGraphMailboxAdapter({ endpoint, secretProvider, transport })` | Validates endpoint allowlist + provider deps; returns frozen adapter |
+| `adapter.listMessageEnvelopes(params?)` | See params policy below; token POST then messages GET via injected transport; fresh allowlisted envelope DTOs; **fail closed** (no partial rows) |
+
+### Params, headers, tokens, and test recorder (2A hardening)
+
+- **`listMessageEnvelopes` params:** `undefined` (default `top=10`) or a plain own-data-property object with exact optional key `top` only. Arrays, `null`, unknown keys, symbol keys, and accessor/getter properties → stable **`params_invalid`** (no raw input in details). Present `top` that is not an integer in **1..50** → **`top_invalid`**. Getters are never invoked during allowlist checks.
+- **Successful token / Graph JSON responses:** require exactly one string `Content-Type` (case-insensitive name) whose value is a **strict** HTTP media type `application/json` (case-insensitive) with zero or more valid `;` parameters (`token=token` / `token=quoted-string`). Accepts normal `application/json` and `application/json; charset=utf-8`. Rejects empty/trailing parameters, CR/LF/control/DEL, commas/multiple media types, arrays, duplicate case-variant headers, invalid parameter tokens, malformed/unclosed quotes, and injection. Missing/wrong type → `token_response_malformed` or `graph_response_malformed`. Hostile header values are never surfaced in errors.
+- **Access token:** before `Authorization` construction, bounded strict validation uses a conservative RFC 6750 **b64token** grammar: only ASCII visible non-whitespace `[A-Za-z0-9\-._~+/]` plus optional trailing `=` padding, with max length. Rejects all non-ASCII, every Unicode whitespace/line terminator/control (incl. U+00A0, U+0085, U+2028/U+2029), embedded `=`, invalid punctuation, and malformed padding. Realistic JWT/base64url/b64token values are accepted. Failure → `token_response_malformed` after exactly one token request and **no** Graph request.
+- **Fake transport `getCalls()`:** persistent recorder is **fail-safe sanitized** — never retains raw request body material (stores constant `[REDACTED]` or omits body; exact wire body assertions belong only on the transient scripted-handler call). Persisted headers keep only a tiny safe metadata allowlist (`Accept`, `Content-Type` names/values after descriptor-safe own-data validation); **every other header value is redacted regardless of name** (covers `Authorization`, unknown `X-Access-Token` / `X-Secret` / `API-Key` / custom headers without name-inference). URL / method / `timeout_ms` metadata retained. Transient raw-call construction first snapshots the **request object itself** (own enumerable data properties via `Object.getOwnPropertyDescriptors`), then derives `method`/`url`/`headers`/`body`/`timeout_ms` solely from that snapshot; nested headers use the same descriptor-safe snapshot. Own accessors, inherited prototype getters, symbols, arrays, and non-plain values are never read/invoked. **After the snapshot, only exact expected primitives are accepted — no `String()`/`Number()`/template/`valueOf`/`toString`/`Symbol.toPrimitive` coercion of rejected values:** `method`/`url`/`body` require string data values (else default/omit); headers keep only own enumerable data-property **string** values (names from `Object.keys` descriptors; omit null/object/function/symbol/bigint/…); `timeout_ms` requires a finite safe integer number (else omit). Factory opts (e.g. `handler`) use the same descriptor-safe snapshot — never direct `opts.handler` [[Get]]. Null-prototype plain request data remains supported. Scripted handlers receive the unmutated raw call for wire assertions. `reset()` clears sanitized state.
+- **Exact own-data allowlists (no ignored extras):** `readTransportResponse` accepts only own keys `status` / `headers` / `body` (status required); rejects extra string keys, symbols, and accessors without invocation. Graph list envelope requires exact own key `value` only (no `@odata.*` / nextLink for this non-pagination slice). Each message row requires exact own keys matching `$select` (`id`, `subject`, `from`, `receivedDateTime`, `isRead`, `conversationId`, `hasAttachments`, `internetMessageId`); nested `from` (if non-null) exact own key `emailAddress` only; nested `emailAddress` (if non-null) exact own keys `address`, `name`. Extras (`body` / `uniqueBody` / headers / unknown / symbols / accessors) → `graph_response_malformed`, no partial DTO. Token JSON may still include legitimate `expires_in` / `ext_expires_in` (allowlisted reads of `access_token` + `token_type` only; leak-safe).
+- **Accessor defense:** endpoint, factory opts, secret material, transport response, secret-provider/transport contract shapes, fake-transport **request objects** (all five fields + nested headers), and Graph row/list mapping read own data properties only (reject accessors without invoking getters).
+
+### Non-goals (Slice 2A)
+
+- Live Azure / Graph / DNS / network I/O from modules or verifiers
+- Default or fallback HTTP transport / provider SDK (`@microsoft/microsoft-graph-client`, MSAL, axios, …)
+- Polling, webhooks, subscriptions, delta queries
+- Send / draft / reply / reply-all / forward
+- Attachment content download or storage
+- Full message body / `uniqueBody` / internet headers in DTOs
+- DB lookups, Staff API routes, registry activation, schema/migrations
+- SOUL changes, deploy, live mailbox registration, credential storage in Git/Postgres product rows
+
 ## Verifiers
 
 ```bash
@@ -227,6 +290,7 @@ npm run prove:email-tenant-location-registry-pg
 npm run verify:email-tenant-channel-registry
 npm run prove:email-tenant-channel-registry-pg
 npm run verify:staff-email-registry-routes
+npm run verify:email-microsoft-graph-adapter
 npm run verify:migration-integrity
 ```
 
@@ -239,3 +303,5 @@ Slice 1C-alpha adds the domain/repository module and its offline + disposable PG
 Slice 1C-beta adds the admin-only READ route module + DI wiring + focused offline route verifier — no writes, no activation, no provider connectivity, no live data or deploy.
 
 Slice 1C-gamma extends the **same** route module with kill-switched POST registration + verifier coverage — **no** activation, provider connectivity, live data, or deploy.
+
+Slice 2A adds the Graph adapter boundary modules + `verify:email-microsoft-graph-adapter` (offline hostile probes; injected fake transport only).
