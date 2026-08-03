@@ -332,6 +332,7 @@
     "verify:sunset-staging-iac-secret-scan": "node scripts/verify-sunset-staging-iac-secret-scan.js",
     "verify:sunset-staging-iac-diff-check": "node scripts/verify-sunset-staging-iac-diff-check.js",
     "verify:migration-integrity": "node scripts/verify-migration-integrity.js",
+    "verify:email-mailbox-adapter-contract": "node scripts/verify-email-mailbox-adapter-contract.js",
     "verify:staging-ledger-recovery": "node scripts/verify-staging-ledger-recovery.js",
     "staging-ledger-recovery:plan": "node scripts/run-staging-ledger-recovery.js",
     "staging-ledger-recovery:apply": "node scripts/run-staging-ledger-recovery.js",
