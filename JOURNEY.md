@@ -34,13 +34,13 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 - Sunset rental/equipment thread **closed** (owner-verified: pricing, pickups scope, "+" labels)
 - Admin Rental Prices card redesign shipped — hybrid (compact rows + expand-in-place editor); `89ace136`, gate 104/104
 - Admin Rental Prices card **polish** shipped — Add-equipment inline, "Stock = X · Enabled/Disabled" (dot left), edit-header fix, ⋯ removed; `9a8aaf35`, gate 230/230
+- Sunset **D/E/H live-verified** (staff cookie): D=unavailable gear rejected + not auto-included (restored); E=full drawer combo quote→create €115 all lines no stale (SUNSET-…707E02); H=per-date SUP stock sold-out fail-closed + isolation
 
 ## 🍳 On the stove (in progress)
 - **Booking-drawer EQUIPMENT reorg** (Captain + Skipper) — concept approved; brief written, **ready to hand to Skipper next**. (see To-do for detail)
 - **Earthling** — _add what you're on here._
 
 ## 📋 To do
-- Sunset D/E/H live gates (policy / lane-replay / non-contiguous stock) — offline-green; need a staff `luna_staff_session` cookie for live exercise.
 - **Crowsnest favicon deploy** — image `crowsnest:34e4b7f3…` built & in ACR; **blocked** (this host has no write on `luna-crowsnest-rg`) → Earthling runs the `az containerapp update`.
 - **Booking-drawer EQUIPMENT reorg** (Create + Edit) — concept approved; queued after admin-card polish. Name-as-toggle (no checkbox), drop duration/total labels, per-line total (tier×qty), keep "from €X" + always-show qty. EQUIPMENT section only, same drawer size.
 - Staff-API decomposition — more slices (1–5 shipped).
