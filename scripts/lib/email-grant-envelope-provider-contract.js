@@ -159,6 +159,56 @@ function buildGrantEnvelopeAadV1({ clientId, endpointId, grantGeneration, operat
   ].join('\n'), 'utf8');
 }
 
+/**
+ * Strict reflection-independent parse of 2F-A canonical AAD bytes.
+ * UTF-8 roundtrip; six lines (ENVELOPE_VERSION_V1, aad_v1, ids, gen, op);
+ * rebuild via buildGrantEnvelopeAadV1 must byte-equal. No format change.
+ */
+function parseGrantEnvelopeAadV1(aad) {
+  try {
+    if (!Buffer.isBuffer(aad) || aad.length < 1 || aad.length > 4096) {
+      return fail('aad_invalid', { reason: 'aad_shape' });
+    }
+    const text = aad.toString('utf8');
+    if (!Buffer.from(text, 'utf8').equals(aad) || /[\r\0]/.test(text)) {
+      return fail('aad_invalid', { reason: 'aad_utf8' });
+    }
+    const lines = text.split('\n');
+    if (lines.length !== 6 || lines[0] !== ENVELOPE_VERSION_V1 || lines[1] !== 'aad_v1') {
+      return fail('aad_invalid', { reason: 'aad_structure' });
+    }
+    const field = (line, key) => {
+      const p = `${key}=`;
+      if (typeof line !== 'string' || !line.startsWith(p)) return null;
+      const v = line.slice(p.length);
+      return v.length > 0 ? v : null;
+    };
+    const clientId = field(lines[2], 'client_id');
+    const endpointId = field(lines[3], 'endpoint_id');
+    const genStr = field(lines[4], 'grant_generation');
+    const operationId = field(lines[5], 'operation_id');
+    const uuidCanon = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    if (!clientId || !endpointId || !genStr || !operationId
+      || !uuidCanon.test(clientId) || !uuidCanon.test(endpointId) || !uuidCanon.test(operationId)
+      || !/^[1-9][0-9]*$/.test(genStr)) {
+      return fail('aad_invalid', { reason: 'aad_fields' });
+    }
+    const grantGeneration = BigInt(genStr);
+    const rebuilt = buildGrantEnvelopeAadV1({
+      clientId, endpointId, grantGeneration, operationId,
+    });
+    if (!rebuilt.equals(aad)) return fail('aad_invalid', { reason: 'aad_canonical' });
+    return ok(Object.freeze({
+      client_id: clientId,
+      endpoint_id: endpointId,
+      grant_generation: grantGeneration,
+      operation_id: operationId,
+    }));
+  } catch {
+    return fail('aad_invalid', { reason: 'aad_parse_failed' });
+  }
+}
+
 /** Encode private package; raw refresh token only at this seam. */
 function encodeDelegatedRefreshPackageV1(refreshToken) {
   if (typeof refreshToken !== 'string' || refreshToken.length < 1) {
@@ -333,6 +383,7 @@ module.exports = {
   ENVELOPE_RECORD_KEYS,
   PROVIDER_FN_KEYS,
   buildGrantEnvelopeAadV1,
+  parseGrantEnvelopeAadV1,
   encodeDelegatedRefreshPackageV1,
   decodeDelegatedRefreshPackageV1,
   validateGrantEnvelopeRecordV1,
