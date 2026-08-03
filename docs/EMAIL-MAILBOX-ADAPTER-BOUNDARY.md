@@ -1,4 +1,4 @@
-# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A + 2B)
+# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A + 2B + 2C)
 
 **Status:**
 - **1A:** provider-neutral adapter/validation contract, fake adapter, focused tests.
@@ -8,12 +8,15 @@
 - **1C-gamma:** smallest admin-only, **explicitly kill-switched** registration **WRITE** API (`POST` locations + disabled channel endpoints). No activation, provider connectivity, live registration, or deploy.
 - **2A:** pure offline **Microsoft Graph mailbox adapter boundary** with injected secret provider + injected HTTP transport, `listMessageEnvelopes({top})` only, deterministic fake transport tests. **No live network**, no Azure/Graph calls from verifiers, no DB/route/activation/deploy.
 - **2B:** pure offline **Microsoft Graph app-only read-readiness contract** — machine-checkable security prerequisites (Exchange Online RBAC for Applications role **`Application Mail.ReadBasic`**, mailbox scope mechanism **`exchange_online_rbac_for_applications`** limited to `support@lunafrontdesk.com`, **empty** Entra application permission grants, opaque 1A `secret_ref` + exact material key *names*, network/activation off). Legacy `application_access_policy` + unscoped Entra `Mail.ReadBasic.All` are rejected. **Does not perform readiness discovery** and does not access Azure/Microsoft; never claims Entra/mailbox facts were independently verified.
+- **2C:** pure offline **Microsoft delegated OAuth + connector/auth-mode contract** — freezes default SaaS (`provider=microsoft_graph` + `auth_mode=delegated_authorization_code` / `microsoft_delegated_oauth`) as a Luna-owned multi-tenant **confidential web client** (auth code + **PKCE S256** + token-endpoint client auth; PKCE alone insufficient). Organizational accounts only; fixed hosts; exact redirect id; Phase A scopes (`openid`/`profile`/`offline_access` + `Mail.ReadBasic`); server-owned one-time OAuth transaction; principal `ms_delegated_principal:{tid}:{oid}` (**not** mailbox); mailbox binding unverified offline; opaque per-grant secret handle; deferred activation (schema does not enforce; readiness/activation false). **App-only enterprise (2A/2B) unchanged.** No live authorize/token/Graph/MSAL, schema, routes, or activation.
 
 **Not in slices 1A–1C-gamma:** Microsoft Graph / Gmail / IMAP network calls, OAuth, subscriptions, polling, send/drafts UI, attachment download/storage, Luna SOUL changes, live mailbox config, deploy, invented client/location/mailbox rows. Activation / secret_ref visibility / live provider connectivity remain deferred past 1C-gamma.
 
 **Not in Slice 2A:** live Graph/Azure calls, default HTTP transport, provider SDKs, credential cache, access_token secret-material shortcut, polling/webhooks, send/draft/reply/forward, attachment download, DB lookups, Staff API routes, registry rows, schema, SOUL, activation, deploy.
 
 **Not in Slice 2B:** live Entra/Azure/Graph/Key Vault discovery or admin confirmation automation; default network transport; composition/runtime factory; schema/migrations; Staff API routes; registry activation; polling/webhooks/send; SOUL; deploy; real credentials.
+
+**Not in Slice 2C:** live Entra authorize/token/Graph/MSAL; default HTTP transport; OAuth callback Staff routes; schema/migrations; changing 2A `/me` or refresh_token adapter behavior; changing 2B EXO RBAC; activation/inbound/outbound; polling/webhooks/send; Google/IMAP/forwarding; GoDaddy support claims; per-customer Entra apps as default; deploy.
 
 ## Architectural decision (Slice 1A vs 1B)
 
@@ -28,6 +31,7 @@ Slice **1A intentionally ships no** endpoint persistence schema and no Graph/Gma
 | **1C-gamma (admin WRITE API)** | Same module: `POST` same two paths; `requireAuth('admin')` + ACL + requested-tenant `staff_actions`/`admin_writes` via `authorizeAuthenticatedStaffRoute`; global kill switch `EMAIL_REGISTRY_WRITES_ENABLED` (exact case-insensitive `true` only); body allowlists; trusted `clientId` from slug UUID + `actor` from `user.staff_user_id`; domain writes via `{ client }` on `withPgClient`; endpoints always disabled | PATCH/DELETE; activation; secret_ref visibility; provider connectivity; UI; live registration |
 | **2A (Graph adapter boundary)** | `email-secret-provider-contract`, `email-http-transport-contract`, `email-microsoft-graph-adapter`, optional `email-fake-http-transport`; app-only client_credentials → list message envelopes; exact allowlists; sanitized errors; offline verifier | Live network; default transport; SDK; send/draft/reply; polling/webhooks; DB; routes; activation; deploy |
 | **2B (Graph app-only readiness)** | `email-graph-app-only-readiness-contract`: pure offline declaration of human-provided security evidence (`provider`, `auth_mode=application_client_credentials`, exact EXO role `Application Mail.ReadBasic`, empty `entra_application_permission_set`, mechanism `exchange_online_rbac_for_applications` → `support@lunafrontdesk.com` only, admin confirmation flag, opaque 1A `secret_ref` + material key names, network/activation/inbound/outbound/automation off); ready flag never implies live Azure verification | Live discovery; Entra/Graph/KV clients; composition factory; default transport; routes; activation; schema; deploy |
+| **2C (delegated OAuth + connector mode)** | `email-connector-auth-mode-contract` + `email-microsoft-delegated-oauth-contract`: default SaaS matrix (`microsoft_graph` + `delegated_authorization_code`); confidential web + PKCE S256 + token-endpoint client auth; orgs-only authority; Phase A scopes; OAuth transaction / principal / mailbox-hint / refresh / deferred activation; readiness with `network_enabled=false` and binding **not verified offline** | Live OAuth/Graph/MSAL; routes; schema; activation; Google/IMAP; 2A/2B changes |
 
 Application validation in `validateTenantChannelEndpointInput(input, { locationAuthority })` remains a **contract for writes**, not a substitute for DB integrity. Location authority is a **trusted out-of-band callback** (argument 2 only); it fails closed without a valid second-argument authority and never honors authority embedded in untrusted `input`.
 
@@ -46,14 +50,17 @@ The Slice 1A validator requires a **trusted synchronous / preloaded** `locationA
 ## Architecture
 
 ```
-Guest email provider  →  provider adapter (2A Graph boundary)  →  Staff API / Postgres
+Guest email provider  →  provider adapter (2A Graph app-only boundary today;
+                              delegated /me adapter later)  →  Staff API / Postgres
                               ↑
                      email-mailbox-adapter-contract (1A)
                      + tenant_locations / tenant_channel_endpoints (1B)
                      + email-tenant-channel-registry (1C-alpha domain layer)
                      + staff-email-registry-routes (1C-beta READ + 1C-gamma kill-switched WRITE)
-                     + email-microsoft-graph-adapter (2A; injected transport only)
-                     + email-graph-app-only-readiness-contract (2B; offline security prerequisites)
+                     + email-microsoft-graph-adapter (2A; app-only; injected transport only)
+                     + email-graph-app-only-readiness-contract (2B; enterprise offline prerequisites)
+                     + email-connector-auth-mode-contract (2C; provider × auth_mode matrix)
+                     + email-microsoft-delegated-oauth-contract (2C; default SaaS OAuth freeze)
 ```
 
 - **One unified Staff Inbox** with channel-native threads (WhatsApp today; email endpoints registered later).
@@ -89,6 +96,8 @@ Down: `057_tenant_locations_and_channel_endpoints_down.sql`
 | `scripts/lib/email-microsoft-graph-adapter.js` (2A) | Factory scoped to validated `microsoft_graph` endpoint + required `secretProvider` + `transport`; `listMessageEnvelopes({top})` only; app-only token then Graph messages GET; exact DTO allowlists; sanitized error codes | DB lookups; SDK; credential/token cache; access_token secret shortcut; send/draft/reply; host/url injection fields; partial list results |
 | `scripts/lib/email-fake-http-transport.js` (2A tests) | Deterministic recording fake transport for verifiers | Network I/O / DNS |
 | `scripts/lib/email-graph-app-only-readiness-contract.js` (2B) | Offline app-only read-readiness declaration: exact provider/auth/EXO Application role/`entra_application_permission_set=[]`/mailbox-scope/secret-package/network-off allowlists; reuses 1A `secret_ref` validator (input only); public DTO `secret_ref_present` + exact material key names (never serializes `secret_ref`); deep-frozen ok/fail envelopes; allowlisted error reasons only; `ready_for_human_authorized_live_prerequisite_check` never claims Azure/Entra/mailbox facts verified | Live discovery; Azure/Graph/KV SDK; env reads; routes; activation; composition factory; expose secret_ref value |
+| `scripts/lib/email-connector-auth-mode-contract.js` (2C) | Provider × auth_mode × connector_mode allowlist; default SaaS vs enterprise separation; material key *names* by mode | Live OAuth; Google/IMAP; capability-flag overload |
+| `scripts/lib/email-microsoft-delegated-oauth-contract.js` (2C) | Delegated OAuth freeze + readiness: confidential+PKCE, orgs hosts, Phase A scopes, transaction/principal/mailbox-hint/refresh/activation declarations; compact frozen DTO; network/activation false | Live authorize/token/Graph/MSAL; routes; schema; activation; 2A/2B mutation |
 
 Consumers must branch on **capability flags** (`remote_drafts`, `push_notifications`, …), not on provider-specific field shapes. Unknown provider ids, capability shapes, and **unknown capability keys on `supports()`** fail closed (throw / structured reject — never silent `false` for typos).
 
@@ -341,6 +350,35 @@ Slice 2B freezes machine-checkable evidence an operator must declare **before** 
 - SOUL, deploy, real credentials in Git/Postgres/logs/prompts
 - Mutating a live tenant from this repo/session (runbook is paste-ready for a later human only)
 
+## Microsoft delegated OAuth + connector mode (Slice 2C)
+
+**Pivot:** default SaaS Microsoft path is **one Luna-owned multi-tenant delegated OAuth connector**. App-only Exchange RBAC (2A/2B) remains optional enterprise and is **not** modified.
+
+| `connector_mode` | `provider` | `auth_mode` | Default SaaS? |
+|------------------|------------|-------------|----------------|
+| `microsoft_delegated_oauth` | `microsoft_graph` | `delegated_authorization_code` | **Yes** |
+| `microsoft_app_only_enterprise` | `microsoft_graph` | `application_client_credentials` | No (2A/2B) |
+
+Impossible mixes (e.g. `gmail_api` + app-only, `imap_smtp` + delegated) fail closed. Auth mode is orthogonal to 1A capability booleans.
+
+**Confidential web client:** auth code + PKCE **S256** (plain rejected) **and** separate token-endpoint client auth (`private_key_jwt` preferred; `client_secret_basic` interim). `pkce_only` / `none` rejected. No browser-held or per-tenant customer app credential as default.
+
+**Authority / hosts / redirect:** `account_audience=organizations` only (`consumers`/`common` rejected); fixed hosts `login.microsoftonline.com` + `graph.microsoft.com`; exact redirect id `luna_ms_delegated_oauth_callback`. No caller-supplied tenant/issuer/authority/token/Graph URLs.
+
+**Phase A scopes:** required OIDC `openid`/`profile`/`offline_access`; optional OIDC `email` display-only non-authoritative; Graph delegated `Mail.ReadBasic`. Excluded: write/send, `*.Shared`, `/.default`, EXO app roles. Own-user only; shared deferred. Phase B (`Mail.ReadWrite`/`Mail.Send`) is a named future set only.
+
+**Server-owned OAuth transaction (callback consume declaration only):** high-entropy `state`/`nonce`; **PKCE S256** = real `base64url(SHA256(verifier))` with RFC 7636 verifier grammar (43–128 unreserved) and unpadded challenge; **mandatory** callback ownership (`expected_luna_client_id`/`expected_location_id`/`expected_staff_session_id` exact-equal stored owner); **`prior_consumed` must be exactly `false`** and **`consume` must be exactly `true`** — omission, non-boolean, `prior_consumed:true` (replay), `consume:false`/non-true, ownership mismatch, or expiry fail closed (server-side; not browser authority). Success status is always `consumed` (never `active`). Offline validator does **not** persist; `atomic_consume_required`/`replay_rejected`/`runtime_atomic_compare_and_consume` declare that the **runtime** callback must **atomically compare-and-consume** server state. TTL ≤600s. Public DTOs never include protocol artifacts or ownership secrets (state/nonce/verifier/challenge/codes/tokens/expected_*).
+
+**Principal:** `ms_delegated_principal:{tid}:{oid}` after signature/keys, issuer from validated org tenant, `aud`=Luna app id, exp/nbf, nonce match, GUID tid/oid. **Not** mailbox identity; email claim never identity.
+
+**Mailbox binding:** requested address is a **hint only**; offline never claims verified. Future live proof needs durable Microsoft mailbox resource id, canonical address, mailbox kind, access kind. Do not claim GoDaddy support. Shared/reseller restrictions → `pending_manual_validation` / `manual_validation_required`.
+
+**Secrets / refresh:** Luna-global app credential separate from per-grant opaque `secret_ref` (material name `refresh_token` only in store). Atomic CAS/lease rotation; terminal reauthorization on `invalid_grant`/revocation/policy/consent loss; no app-wide refresh token.
+
+**Deferred activation invariants** (schema does not enforce; readiness/activation false): one verified `(provider, tid, durable mailbox id)` → at most one active Luna client; reconnect updates/rotates; cross-client collision needs explicit transfer; one principal may administer multiple mailboxes; aliases do not create accounts.
+
+**Non-goals (Slice 2C):** live OAuth/Graph/MSAL; routes/schema; mutating 2A/2B; activation; Google/IMAP/forwarding; GoDaddy claims; per-customer Entra apps as default; deploy/SOUL/real credentials in Git/Postgres/logs/prompts.
+
 ### Later human runbook (paste-ready placeholders only — not executed by 2B)
 
 > **Warning:** Commands below mutate Entra/Exchange when run. Placeholders only — **no real IDs, secrets, or tenant values**. Never print or log secret values. Do not run from offline verifiers. Confirm each checkpoint before the next mutation.
@@ -474,8 +512,10 @@ npm run prove:email-tenant-channel-registry-pg
 npm run verify:staff-email-registry-routes
 npm run verify:email-microsoft-graph-adapter
 npm run verify:email-graph-app-only-readiness
+npm run verify:email-microsoft-delegated-oauth-contract
 npm run verify:migration-integrity
 ```
+
 
 `prove:email-tenant-location-registry-pg` and `prove:email-tenant-channel-registry-pg` use the disposable harness (Docker preferred; **PGlite acceptable** for local/CI proof). **Stock PostgreSQL must still be proven before deploy** — do not treat PGlite-only green as production migration sign-off.
 
@@ -490,3 +530,5 @@ Slice 1C-gamma extends the **same** route module with kill-switched POST registr
 Slice 2A adds the Graph adapter boundary modules + `verify:email-microsoft-graph-adapter` (offline hostile probes; injected fake transport only).
 
 Slice 2B adds the app-only read-readiness contract + `verify:email-graph-app-only-readiness` (offline hostile probes; no network/discovery).
+
+Slice 2C adds the connector/auth-mode matrix + Microsoft delegated OAuth contract + `verify:email-microsoft-delegated-oauth-contract` (offline hostile probes; no live OAuth/Graph/MSAL). App-only 2A/2B remain the separate enterprise path.
