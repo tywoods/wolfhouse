@@ -623,6 +623,24 @@
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Additive booking_refund_records manual refund ledger (N1/Finance Slice 2). Composite FK (booking_id,client_id)→bookings(id,client_id) with RESTRICT retention; append-only UPDATE/DELETE triggers (DELETE only with wh.allow_booking_refund_mutation=on); unique (client_id,idempotency_key); integer cents; no Stripe refunds."
+    },
+    {
+      "id": "057_tenant_locations_and_channel_endpoints",
+      "filename": "057_tenant_locations_and_channel_endpoints.sql",
+      "sha256": "f76e92c266de773d9e1095aa37f7529711af87aa08c931fdb78d098c9069cb47",
+      "order": 55,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Slice 1B: empty tenant_locations + tenant_channel_endpoints registry. Composite FK location integrity; email-only endpoints; provider allowlist; secret_ref schemes; capabilities JSONB eight booleans; defaults disable inbound/outbound/automation/active. No backfill DML."
+    },
+    {
+      "id": "057_tenant_locations_and_channel_endpoints_down",
+      "filename": "057_tenant_locations_and_channel_endpoints_down.sql",
+      "sha256": "0dad721192aa8b3d6ae3da05db2ec7e8a153259160cd7c3acde1eb0a3657954f",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit down/rollback for 057_tenant_locations_and_channel_endpoints. Idempotent DROP TABLE IF EXISTS only (endpoints then locations); does not drop shared set_updated_at/clients/staff_users."
     }
   ]
 }

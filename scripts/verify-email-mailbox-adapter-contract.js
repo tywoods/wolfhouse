@@ -79,7 +79,9 @@ if (fs.existsSync(DOC_PATH)) {
     'doc defers endpoint persistence / DB schema to Slice 1B',
     /Slice 1B/i.test(doc)
       && (/no endpoint persistence|ships no (DB|endpoint)|intentionally ships no/i.test(doc)
-        || /no DB schema/i.test(doc)),
+        || /no DB schema/i.test(doc)
+        || /intentionally empty/i.test(doc)
+        || /empty tables/i.test(doc)),
   );
   ok(
     'doc states secrets retrieved via external secret provider by adapter',
@@ -90,8 +92,9 @@ if (fs.existsSync(DOC_PATH)) {
     /kv:/i.test(doc) && /secret-ref:/i.test(doc),
   );
   ok(
-    'doc does not claim migration 057 ships in 1A',
-    !/migration 057/i.test(doc),
+    'doc attributes migration 057 to Slice 1B when mentioned',
+    !/migration 057/i.test(doc)
+      || (/migration:\s*`?057|Migration:\s*`?057|migration `057/i.test(doc) && /Slice 1B/i.test(doc)),
   );
 }
 
