@@ -52,7 +52,7 @@ function baseClientAuth(o) {
 function baseScopePlan(o) {
   return {
     phase: 'A', oidc: ['openid', 'profile', 'offline_access'],
-    graph_delegated: ['Mail.ReadBasic'], include_email_scope: false, ...o,
+    graph_delegated: ['User.Read', 'Mail.ReadBasic'], include_email_scope: false, ...o,
   };
 }
 function baseDeclaration(o) {
@@ -75,7 +75,7 @@ function baseTransaction(o) {
     redirect_uri_id: 'luna_ms_delegated_oauth_callback',
     luna_client_id: LUNA_CLIENT, location_id: 'wolfhouse-main',
     staff_session_id: 'staffsess01', connector_mode: 'microsoft_delegated_oauth',
-    auth_mode: 'delegated_authorization_code', scope_version: 'phase_a_v1',
+    auth_mode: 'delegated_authorization_code', scope_version: 'phase_a_v2',
     issued_at: issued, expires_at: issued + 600, now_at: issued + 10,
     prior_consumed: false, consume: true,
     expected_luna_client_id: LUNA_CLIENT, expected_location_id: 'wolfhouse-main',
@@ -166,10 +166,13 @@ function main() {
       ok('doc: 2C SaaS/PKCE/orgs/scopes/principal/non-goals; 1A/2A/2B; no GoDaddy',
         [/Slice 2C/i, /delegated_authorization_code|microsoft_delegated_oauth/i, /PKCE|S256/i,
           /confidential/i, /organizations|organizational/i, /Mail\.ReadBasic/i,
+          /User\.Read/i, /client_secret_post/i, /private_key_jwt/i, /phase_a_v2|Phase A/i,
+          /\/me\.id|me\.id/i, /provider_resource_id/i,
           /ms_delegated_principal/i, /not mailbox|NOT mailbox|unverified offline|not verified offline/i,
           /1A/i, /2A/i, /2B/i, /application_client_credentials|app-only/i,
           /Not in Slice 2C|non-goal/i, /never belong in Git/i].every((re) => re.test(doc))
-        && !/GoDaddy supported|supports GoDaddy/i.test(doc));
+        && !/GoDaddy supported|supports GoDaddy/i.test(doc)
+        && !/client_secret_basic.*interim|interim.*client_secret_basic/i.test(doc));
     }
     if (fs.existsSync(CONNECTOR_PATH)) assertNoSdkNetworkEnv(fs.readFileSync(CONNECTOR_PATH, 'utf8'), 'connector');
     if (fs.existsSync(CONTRACT_PATH)) {
@@ -205,7 +208,9 @@ function main() {
           'validateMicrosoftDelegatedOauthTransaction',
           'validateMicrosoftDelegatedPrincipal',
           'validateMicrosoftDelegatedMailboxBindingHint',
+          'validateMicrosoftDelegatedOwnUserLiveBinding',
           'validateMicrosoftDelegatedRefreshRotationPolicy',
+          'evaluateMicrosoftDelegatedRefreshExchangeGate',
           'validateMicrosoftDelegatedActivationInvariants',
           'validateMicrosoftDelegatedScopePlan',
           'validateMicrosoftDelegatedClientAuthModel',
@@ -234,19 +239,37 @@ function main() {
         && mod.EMAIL_MS_DELEGATED_ACCOUNT_AUDIENCE === 'organizations'
         && mod.EMAIL_MS_DELEGATED_PKCE_METHOD === 'S256'
         && mod.EMAIL_MS_DELEGATED_TOKEN_ENDPOINT_CLIENT_AUTH_REQUIRED === true],
-      ['profile: Phase A OIDC+Graph; Phase B future; principal/activation rules',
-        Array.isArray(mod.EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES)
-        && ['openid', 'profile', 'offline_access'].every((s) =>
-          mod.EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES.includes(s))
-        && !mod.EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES.includes('email')
-        && mod.EMAIL_MS_DELEGATED_PHASE_A_GRAPH_DELEGATED_SCOPES[0] === 'Mail.ReadBasic'
-        && mod.EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES.includes('Mail.ReadWrite')
-        && mod.EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES.includes('Mail.Send')
-        && mod.EMAIL_MS_DELEGATED_PRINCIPAL_KEY_PREFIX === 'ms_delegated_principal:'
-        && mod.EMAIL_MS_DELEGATED_PRINCIPAL_VALIDATION_RULES.principal_is_mailbox_identity === false
-        && mod.EMAIL_MS_DELEGATED_PRINCIPAL_VALIDATION_RULES.email_claim_is_identity === false
-        && mod.EMAIL_MS_DELEGATED_ACTIVATION_INVARIANTS.schema_enforces_invariants === false
-        && mod.EMAIL_MS_DELEGATED_ACTIVATION_INVARIANTS.readiness_activation_complete === false],
+      ['profile: Phase A OIDC+Graph v2; token auth; /me bind; custody; principal', (() => {
+        const g = mod.EMAIL_MS_DELEGATED_PHASE_A_GRAPH_DELEGATED_SCOPES;
+        const m = mod.EMAIL_MS_DELEGATED_TOKEN_ENDPOINT_CLIENT_AUTH_METHODS;
+        const b = mod.EMAIL_MS_DELEGATED_OWN_USER_LIVE_BINDING;
+        const c = mod.EMAIL_MS_DELEGATED_REFRESH_TOKEN_CUSTODY;
+        const post = mod.EMAIL_MS_DELEGATED_CLIENT_SECRET_POST_DECLARATION;
+        return Array.isArray(mod.EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES)
+          && ['openid', 'profile', 'offline_access'].every((s) =>
+            mod.EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES.includes(s))
+          && !mod.EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES.includes('email')
+          && mod.EMAIL_MS_DELEGATED_SCOPE_VERSION === 'phase_a_v2'
+          && Array.isArray(g) && g.length === 2 && g.includes('User.Read') && g.includes('Mail.ReadBasic')
+          && !g.includes('Mail.Read') && mod.EMAIL_MS_DELEGATED_ME_REQUIRED_DELEGATED_PERMISSION === 'User.Read'
+          && mod.EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES.includes('Mail.ReadWrite')
+          && mod.EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES.includes('Mail.Send')
+          && Array.isArray(m) && m.length === 2 && m.includes('private_key_jwt') && m.includes('client_secret_post')
+          && !m.includes('client_secret_basic')
+          && mod.EMAIL_MS_DELEGATED_PREFERRED_TOKEN_ENDPOINT_CLIENT_AUTH === 'private_key_jwt'
+          && post.client_id_token_form_field && post.client_secret_token_form_field
+          && post.authorization_basic_header === false
+          && b && b.live_graph_path === '/me' && b.require_me_id_equals_provider_principal_oid
+          && b.persist_me_id_as_provider_resource_id && b.performs_graph === false
+          && b.mail_upn_email_not_ownership_keys
+          && c && c.refresh_exchange_adapter_allowed === false
+          && c.durable_grant_custodian_injected === false && c.custody_deferred === true
+          && mod.EMAIL_MS_DELEGATED_PRINCIPAL_KEY_PREFIX === 'ms_delegated_principal:'
+          && mod.EMAIL_MS_DELEGATED_PRINCIPAL_VALIDATION_RULES.principal_is_mailbox_identity === false
+          && mod.EMAIL_MS_DELEGATED_PRINCIPAL_VALIDATION_RULES.email_claim_is_identity === false
+          && mod.EMAIL_MS_DELEGATED_ACTIVATION_INVARIANTS.schema_enforces_invariants === false
+          && mod.EMAIL_MS_DELEGATED_ACTIVATION_INVARIANTS.readiness_activation_complete === false;
+      })()],
       ['default SaaS constants match connector',
         connector.EMAIL_DEFAULT_SAAS_CONNECTOR_MODE === 'microsoft_delegated_oauth'
         && connector.EMAIL_DEFAULT_SAAS_AUTH_MODE === 'delegated_authorization_code'],
@@ -307,7 +330,19 @@ function main() {
             && !Object.prototype.hasOwnProperty.call(v.grant_secret_package, 'secret_ref')
             && v.client_auth_model.pkce_alone_sufficient === false
             && v.client_auth_model.token_endpoint_client_authentication_required === true
+            && v.client_auth_model.preferred_token_endpoint_client_authentication === 'private_key_jwt'
             && v.scope_plan.phase_b_included_in_phase_a === false
+            && v.scope_plan.scope_version === 'phase_a_v2'
+            && v.scope_plan.graph_delegated.includes('User.Read')
+            && v.scope_plan.graph_delegated.includes('Mail.ReadBasic')
+            && v.scope_plan.me_required_delegated_permission === 'User.Read'
+            && v.scope_plan.canonical_address_fields_role === 'display_routing_evidence_only'
+            && v.own_user_live_binding
+            && v.own_user_live_binding.require_me_id_equals_provider_principal_oid === true
+            && v.own_user_live_binding.persist_me_id_as_provider_resource_id === true
+            && v.own_user_live_binding.performs_graph === false
+            && v.refresh_rotation_policy.refresh_token_custody
+            && v.refresh_rotation_policy.refresh_token_custody.refresh_exchange_adapter_allowed === false
             && v.activation_invariants.schema_enforces_invariants === false
             && Object.isFrozen(result) && Object.isFrozen(v)
             && isComplete(input) === true
@@ -327,11 +362,34 @@ function main() {
         && result.value.scope_plan.include_email_scope === true
         && result.value.scope_plan.optional_oidc_display_only.includes('email'), ser(result));
     }
+    // Token endpoint client auth vocabulary (2C.1)
+    {
+      const jwt = mod.validateMicrosoftDelegatedClientAuthModel(baseClientAuth());
+      const post = mod.validateMicrosoftDelegatedClientAuthModel(
+        baseClientAuth({ token_endpoint_client_authentication: 'client_secret_post' }),
+      );
+      const basic = mod.validateMicrosoftDelegatedClientAuthModel(
+        baseClientAuth({ token_endpoint_client_authentication: 'client_secret_basic' }),
+      );
+      const csp = post.ok && post.value.client_secret_post;
+      ok('client auth: jwt preferred; post form fields; basic rejected; readiness accepts post',
+        jwt.ok && jwt.value.token_endpoint_client_authentication === 'private_key_jwt'
+        && jwt.value.preferred_token_endpoint_client_authentication === 'private_key_jwt'
+        && jwt.value.allowed_token_endpoint_client_authentication.includes('client_secret_post')
+        && !jwt.value.allowed_token_endpoint_client_authentication.includes('client_secret_basic')
+        && post.ok && csp && csp.client_id_token_form_field && csp.client_secret_token_form_field
+        && csp.authorization_basic_header === false
+        && basic.ok === false && basic.details && basic.details.reason === 'client_secret_basic_forbidden'
+        && evaluate(baseDeclaration({
+          client_auth_model: baseClientAuth({ token_endpoint_client_authentication: 'client_secret_post' }),
+        })).ok === true, ser({ jwt, post, basic }));
+    }
     // Readiness rejection table
     for (const [name, input, err] of [
       ['pkce_only', baseDeclaration({ client_auth_model: baseClientAuth({ token_endpoint_client_authentication: 'pkce_only' }) }), 'client_auth_model_invalid'],
       ['pkce none', baseDeclaration({ client_auth_model: baseClientAuth({ token_endpoint_client_authentication: 'none' }) }), 'client_auth_model_invalid'],
       ['pkce false', baseDeclaration({ client_auth_model: baseClientAuth({ token_endpoint_client_authentication: false }) }), 'client_auth_model_invalid'],
+      ['client_secret_basic', baseDeclaration({ client_auth_model: baseClientAuth({ token_endpoint_client_authentication: 'client_secret_basic' }) }), 'client_auth_model_invalid'],
       ['pkce plain', baseDeclaration({ client_auth_model: baseClientAuth({ pkce_method: 'plain' }) }), null],
       ['browser credential', baseDeclaration({ client_auth_model: baseClientAuth({ browser_holds_app_credential: true }) }), null],
       ['tenant credential', baseDeclaration({ client_auth_model: baseClientAuth({ tenant_supplies_app_credential: true }) }), null],
@@ -374,13 +432,26 @@ function main() {
     ok('authority: consumers + bad host rejected',
       !mod.validateMicrosoftDelegatedAuthority(baseAuthority({ account_audience: 'consumers' })).ok
       && !mod.validateMicrosoftDelegatedAuthority(baseAuthority({ authority_host: 'evil.example' })).ok);
-    // Scopes
-    ok('scope plan phase A ok', mod.validateMicrosoftDelegatedScopePlan(baseScopePlan()).ok);
+    // Scopes (phase_a_v2 exact set: User.Read + Mail.ReadBasic)
+    {
+      const sp = mod.validateMicrosoftDelegatedScopePlan(baseScopePlan());
+      ok('scope plan phase A v2 ok',
+        sp.ok && sp.value.scope_version === 'phase_a_v2'
+        && sp.value.graph_delegated.length === 2
+        && sp.value.graph_delegated.includes('User.Read')
+        && sp.value.graph_delegated.includes('Mail.ReadBasic')
+        && sp.value.me_required_delegated_permission === 'User.Read'
+        && sp.value.canonical_address_fields_role === 'display_routing_evidence_only', ser(sp));
+    }
     for (const graph of [
       ['Mail.ReadWrite'], ['Mail.Send'], ['Mail.Read'], ['Mail.Read.Shared'],
       ['Mail.ReadWrite.Shared'], ['Mail.Send.Shared'],
       ['https://graph.microsoft.com/.default'], ['/.default'],
       ['Application Mail.ReadBasic'], ['Mail.ReadBasic', 'Mail.Send'],
+      ['Mail.ReadBasic'], // incomplete vs phase_a_v2 exact set
+      ['User.Read'], // incomplete without Mail.ReadBasic
+      ['User.Read', 'Mail.Read'], // broader Mail.Read forbidden
+      ['User.Read', 'Mail.ReadBasic', 'Mail.Send'],
     ]) {
       ok(`scope forbid: ${graph.join('+')}`,
         mod.validateMicrosoftDelegatedScopePlan(baseScopePlan({ graph_delegated: graph })).ok === false);
@@ -392,6 +463,10 @@ function main() {
       && mod.validateMicrosoftDelegatedScopePlan(baseScopePlan({
         graph_delegated: ['Mail.ReadWrite', 'Mail.Send'],
       })).ok === false);
+    ok('scope: phase_a_v1 scope_version rejected on tx',
+      mod.validateMicrosoftDelegatedOauthTransaction(
+        baseTransaction({ scope_version: 'phase_a_v1' }),
+      ).ok === false);
     // Principal
     {
       const good = mod.validateMicrosoftDelegatedPrincipal(basePrincipal());
@@ -411,7 +486,7 @@ function main() {
       const key = mod.buildMicrosoftDelegatedPrincipalKey(TID, OID);
       ok('build principal key', key.ok && key.value === `ms_delegated_principal:${TID}:${OID}`);
     }
-    // Mailbox binding
+    // Mailbox binding + own-user /me live bind freeze (2C.1; no Graph)
     {
       const hint = mod.validateMicrosoftDelegatedMailboxBindingHint({ requested_address: 'front@contoso.com' });
       const reseller = mod.validateMicrosoftDelegatedMailboxBindingHint({ reseller_or_shared_restriction: true });
@@ -419,11 +494,29 @@ function main() {
         hint.ok && hint.value.binding_status === 'unverified_offline'
         && hint.value.requested_address_is_hint_only && !hint.value.godaddy_support_claimed
         && hint.value.future_live_proof_required_fields.includes('durable_microsoft_mailbox_resource_id')
+        && hint.value.own_user_live_binding
+        && hint.value.own_user_live_binding.live_graph_path === '/me'
+        && hint.value.own_user_live_binding.require_me_id_equals_provider_principal_oid === true
+        && hint.value.own_user_live_binding.persist_me_id_as_provider_resource_id === true
+        && hint.value.own_user_live_binding.equality_expected_concepts_remain_separate === true
+        && hint.value.own_user_live_binding.performs_graph === false
         && !mod.validateMicrosoftDelegatedMailboxBindingHint({ claim_binding_verified_offline: true }).ok
         && !mod.validateMicrosoftDelegatedMailboxBindingHint({ claim_godaddy_supported: true }).ok
         && !mod.validateMicrosoftDelegatedMailboxBindingHint({ claimed_shared: true }).ok
         && !mod.validateMicrosoftDelegatedMailboxBindingHint({ claim_principal_equals_mailbox: true }).ok
         && reseller.ok && reseller.value.manual_validation_state === 'pending_manual_validation', ser(hint));
+      const live = mod.validateMicrosoftDelegatedOwnUserLiveBinding({});
+      ok('own-user live bind freeze: /me.id==oid → provider_resource_id; no offline derive',
+        live.ok && live.value.required_delegated_permission === 'User.Read'
+        && live.value.require_me_id_equals_provider_principal_oid === true
+        && live.value.persist_me_id_as_provider_resource_id === true
+        && live.value.mail_upn_email_not_ownership_keys === true
+        && live.value.canonical_address_fields_role === 'display_routing_evidence_only'
+        && live.value.performs_graph === false
+        && !mod.validateMicrosoftDelegatedOwnUserLiveBinding({ claim_binding_verified_offline: true }).ok
+        && !mod.validateMicrosoftDelegatedOwnUserLiveBinding({ claim_derived_mailbox_offline: true }).ok
+        && !mod.validateMicrosoftDelegatedOwnUserLiveBinding({ claim_performed_graph: true }).ok
+        && !mod.validateMicrosoftDelegatedOwnUserLiveBinding({ claim_mail_claim_is_ownership_key: true }).ok, ser(live));
     }
     // OAuth transaction: callback consume (prior_consumed:false + consume:true) + ownership + PKCE S256
     {
@@ -480,20 +573,34 @@ function main() {
       ok('oauth tx: success status is consumed not active',
         good.ok && good.value.status === 'consumed' && good.value.status !== 'active', ser(good));
     }
-    // Refresh + activation
+    // Refresh + custody gate + activation
     {
       const good = mod.validateMicrosoftDelegatedRefreshRotationPolicy({
         atomic_cas_or_lease: 'required', generation_handling: 'required',
         retain_old_until_durable_replacement: true, app_wide_refresh_token: false,
       });
-      ok('refresh rotation: atomic/terminal/no app-wide',
+      ok('refresh rotation: atomic/terminal/no app-wide + custody deferred',
         good.ok && ['invalid_grant', 'revocation', 'consent_loss'].every((r) =>
           good.value.terminal_reauthorization_reasons.includes(r))
         && good.value.app_wide_refresh_token === false
+        && good.value.refresh_token_custody
+        && good.value.refresh_token_custody.refresh_exchange_adapter_allowed === false
+        && good.value.refresh_token_custody.durable_grant_custodian_injected === false
         && !mod.validateMicrosoftDelegatedRefreshRotationPolicy({
           atomic_cas_or_lease: 'required', generation_handling: 'required',
           retain_old_until_durable_replacement: true, app_wide_refresh_token: true,
         }).ok, ser(good));
+      const gate = mod.evaluateMicrosoftDelegatedRefreshExchangeGate({});
+      ok('refresh exchange gate: blocked until durable grant custodian',
+        gate.ok && gate.value.refresh_exchange_adapter_allowed === false
+        && gate.value.custody_deferred === true
+        && gate.value.durable_grant_custodian_injected === false
+        && !mod.evaluateMicrosoftDelegatedRefreshExchangeGate({
+          claim_refresh_exchange_allowed: true,
+        }).ok
+        && !mod.evaluateMicrosoftDelegatedRefreshExchangeGate({
+          claim_grant_custodian_injected: true,
+        }).ok, ser(gate));
       const act = mod.validateMicrosoftDelegatedActivationInvariants({});
       ok('activation: deferred invariants + claim rejects',
         act.ok && !act.value.schema_enforces_invariants && !act.value.readiness_activation_complete
