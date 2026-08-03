@@ -55,7 +55,13 @@ _Started 2026-08-03. Owner brain-dump complete; refine + resequence as we go._
 - **A3 — [FEAT][LUNA] Beaches: de-hardcode + custom + wire.** *(important)* On create/edit group course, beaches are hardcoded — delete them and add a **"+ add beach"** so admin defines their own; also **wire Luna** to pick them up (she doesn't today). First case of W1. `M`
 
 ## 🆕 New feature
-- **N1 — [FEAT] "Bookings" tab (historical booking log).** New Admin tab: searchable list of all bookings (past + present); find one, see basic info; **home for refund info** we lacked. Prerequisite for Finance Slice 2. `M–L` · sketch?
+- **N1 — [FEAT] "Bookings" tab (historical booking log).** New Admin tab; **design approved** (concept mocked). Prerequisite for Finance Slice 2 (refund home). `M–L`
+  - Summary strip (re-totals per active filter): Bookings · Collected · Refunded · Net · Outstanding.
+  - Table: Booking (**full code visible — wide column**), Guest, Service dates, What, Total, Paid, Status chip (Paid/Unpaid/Partial/Refunded/Cancelled/Deleted).
+  - Filters: search (guest/phone/code), date range, status, type, location; **CSV export**.
+  - Row-click → inline detail: item breakdown, charged/collected/refunded/net, guest/waiver/created-by, **Record refund** (amount·date·reason·staff) = the refund home.
+  - **Deleted bookings viewable** via an **"Archived" filter/toggle** (deleted + cancelled, shown dimmed) — NOT a separate tab. _(Step-0: confirm deletes are soft/retained; if hard-deleted, switch to soft-delete/archive so they can be shown.)_
+  - **Click guest name → opens the Customers tab for that client.**
 
 ## 📱 Mobile — LAST
 - Deprioritized on purpose: do the main-site UI first (still adding/removing buttons, reformatting menus), *then* go mobile screen-by-screen. Add specifics here as you hit them: "mobile: [screen]".
