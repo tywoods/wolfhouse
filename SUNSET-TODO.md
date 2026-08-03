@@ -1,4 +1,4 @@
-# UI-BACKLOG — Sunset staff portal (+ Luna)
+# SUNSET-TODO — Sunset staff portal (+ Luna)
 
 Running backlog of UI/UX + functional polish. Owner brain-dumps; Captain sorts, sizes, sketches, and hands scoped briefs to Skipper; Captain gates + deploys. Testing happens during + after each change (devs manage). Linked from [JOURNEY.md].
 
@@ -24,6 +24,7 @@ _Started 2026-08-03. Owner brain-dump complete; refine + resequence as we go._
 ## 🧠 Luna (brain / behavior)
 - **L1 — Personality/voice.** Luna needs a defined personality. **@Earthling.** `L`
 - **L2 — [BUG] Disabled rental still offered.** Turning a rental OFF in Admin doesn't stop Luna offering it; she must respect the enabled/active flag. `M`
+- **L3 — [FEAT] Email capabilities for Luna.** Give Luna the ability to send/handle email (not just WhatsApp). **@Earthling + Skipper — in progress.** `L`
 
 ## 🔌 Luna wiring & de-hardcode (audit)
 - **W1 — [FEAT][LUNA] Wire Luna for every relevant setting.** Standing initiative; beaches (A3) is case #1.

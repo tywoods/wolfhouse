@@ -38,14 +38,14 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 - Booking-drawer **EQUIPMENT reorg** shipped (Create + Edit) — name-as-toggle, per-line totals, "from €X", labels dropped; `f056e2d6`, gate green
 - Booking-drawer polish **D1–D3** shipped (Nav team: Deckhand+Seadog) — compact qty stepper + total inline, unified greens, "Equipment" header; `ef936ec5`
 - **Fix:** Edit-drawer equipment picker regression (from D1–D3) + All-Day compact qty; gate extended w/ edit-no-rentals case; `6eed4823` (Nav team)
-- UI-BACKLOG.md added (full owner dump, sorted + sequenced); Bookings tab (N1) design approved
+- SUNSET-TODO.md added (full owner dump, sorted + sequenced); Bookings tab (N1) design approved
 - **N1 — "Bookings" tab SHIPPED** (Skipper built, Captain gated+deployed) — historical log w/ search+date/status/type/location filters, filter-global summary (collected/refunded/net/outstanding), full codes, CSV export, Archived (cancelled+deleted), inline item/payment/waiver/guest/creator, guest→Customers link, **manual refund ledger** (append-only DB triggers, operator-write/viewer-read, race-safe over-refund lock, idempotent, **no Stripe refund**); **migration 056** applied to sunset DB (table+2 triggers+idem idx verified); `42e30925`, N1 gate 147/147
 - **Fix:** N1 list 500 + filter layout — waiver query selected non-existent `w.completed_count` (derive from `waiver_form_submissions`); toolbar flex→grid so filter fields stop colliding. Validated the real list query against the live sunset DB (5 rows, summary+CSV clean) before deploy; `27981048` rev 0000457
 
 ## 🍳 On the stove (in progress)
-- _(open — next from UI-BACKLOG.md: Finance Slice 2 seam now unblocked by N1; or bug batch L2/D4/A1)_
+- _(open — next from SUNSET-TODO.md: Finance Slice 2 seam now unblocked by N1; or bug batch L2/D4/A1)_
 - **Earthling** — _add what you're on here._
-- Full UI/functional backlog lives in **[UI-BACKLOG.md]** (this session's owner dump, sequenced).
+- Full UI/functional backlog lives in **[SUNSET-TODO.md]** (this session's owner dump, sequenced).
 
 ## 📋 To do
 - **Crowsnest favicon deploy** — image `crowsnest:34e4b7f3…` built & in ACR; **blocked** (this host has no write on `luna-crowsnest-rg`) → Earthling runs the `az containerapp update`.
