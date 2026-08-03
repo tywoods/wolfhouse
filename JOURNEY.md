@@ -40,6 +40,7 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 - **Fix:** Edit-drawer equipment picker regression (from D1–D3) + All-Day compact qty; gate extended w/ edit-no-rentals case; `6eed4823` (Nav team)
 - UI-BACKLOG.md added (full owner dump, sorted + sequenced); Bookings tab (N1) design approved
 - **N1 — "Bookings" tab SHIPPED** (Skipper built, Captain gated+deployed) — historical log w/ search+date/status/type/location filters, filter-global summary (collected/refunded/net/outstanding), full codes, CSV export, Archived (cancelled+deleted), inline item/payment/waiver/guest/creator, guest→Customers link, **manual refund ledger** (append-only DB triggers, operator-write/viewer-read, race-safe over-refund lock, idempotent, **no Stripe refund**); **migration 056** applied to sunset DB (table+2 triggers+idem idx verified); `42e30925`, N1 gate 147/147
+- **Fix:** N1 list 500 + filter layout — waiver query selected non-existent `w.completed_count` (derive from `waiver_form_submissions`); toolbar flex→grid so filter fields stop colliding. Validated the real list query against the live sunset DB (5 rows, summary+CSV clean) before deploy; `27981048` rev 0000457
 
 ## 🍳 On the stove (in progress)
 - _(open — next from UI-BACKLOG.md: Finance Slice 2 seam now unblocked by N1; or bug batch L2/D4/A1)_
@@ -55,7 +56,7 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 ---
 
 ## 🚀 Live where
-- **Sunset · staff-api** (staging) — `42e30925` rev 0000456 · 08-03 07:32 · Captain _(N1 Bookings tab + migration 056)_
+- **Sunset · staff-api** (staging) — `27981048` rev 0000457 · 08-03 07:46 · Captain _(N1 Bookings tab; list-500 + layout fix)_
 - **Sunset · Luna** plugin+SOUL (staging) — `c79da8aa` Slice E · 08-02 05:17 · Captain _(separate deploy — drifts from staff-api)_
 - **Wolfhouse · staff-api** (PROD) — _verify_ · Earthling
 - **Wolfhouse · Luna** guest WhatsApp (prod) — _verify_ · Earthling
