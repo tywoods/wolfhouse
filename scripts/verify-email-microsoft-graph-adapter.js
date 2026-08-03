@@ -231,10 +231,13 @@ async function main() {
         'doc mentions Graph messages endpoint',
         /graph\.microsoft\.com/i.test(doc) && /\/v1\.0\/users\//i.test(doc) && /messages/i.test(doc),
       );
-      ok('doc mentions Mail.ReadBasic.All least privilege', /Mail\.ReadBasic\.All/i.test(doc));
       ok(
-        'doc mentions mailbox-scoping requirement',
-        /mailbox-scop|scoped mailbox|mailbox scop/i.test(doc),
+        'doc mentions Application Mail.ReadBasic or Mail.ReadBasic least privilege',
+        /Application Mail\.ReadBasic|Mail\.ReadBasic/i.test(doc),
+      );
+      ok(
+        'doc mentions mailbox-scoping / EXO RBAC requirement',
+        /mailbox-scop|scoped mailbox|mailbox scop|RBAC for Applications|exchange_online_rbac/i.test(doc),
       );
       ok(
         'doc lists Slice 2A non-goals',

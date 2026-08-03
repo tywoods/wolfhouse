@@ -77,10 +77,11 @@ function baseDeclaration(overrides) {
   return {
     provider: 'microsoft_graph',
     auth_mode: 'application_client_credentials',
-    permission_set: ['Mail.ReadBasic.All'],
+    exchange_application_role: 'Application Mail.ReadBasic',
+    entra_application_permission_set: [],
     admin_consent_confirmed: true,
     mailbox_scope: {
-      mechanism: 'application_access_policy',
+      mechanism: 'exchange_online_rbac_for_applications',
       allowed_public_addresses: ['support@lunafrontdesk.com'],
     },
     secret_package: {
@@ -175,7 +176,22 @@ function main() {
         'doc mentions app-only readiness / read-readiness',
         /app-only read[- ]?readiness|app-only security readiness|Graph app-only readiness/i.test(doc),
       );
-      ok('doc mentions Mail.ReadBasic.All', /Mail\.ReadBasic\.All/i.test(doc));
+      ok(
+        'doc mentions Application Mail.ReadBasic EXO role',
+        /Application Mail\.ReadBasic/i.test(doc),
+      );
+      ok(
+        'doc mentions exchange_online_rbac_for_applications or RBAC for Applications',
+        /exchange_online_rbac_for_applications|RBAC for Applications/i.test(doc),
+      );
+      ok(
+        'doc requires empty Entra application permission grants',
+        /entra_application_permission_set|empty.*Entra|Entra.*empty|unscoped.*Entra|remove.*Entra/i.test(doc),
+      );
+      ok(
+        'doc rejects or replaces legacy application_access_policy',
+        /application_access_policy|Application Access Polic/i.test(doc),
+      );
       ok(
         'doc mentions application_client_credentials or client credentials',
         /application_client_credentials|client_credentials/i.test(doc),
@@ -185,8 +201,8 @@ function main() {
         /support@lunafrontdesk\.com/i.test(doc),
       );
       ok(
-        'doc mentions application access policy / mailbox scoping',
-        /application access policy|mailbox-scop|mailbox scop/i.test(doc),
+        'doc mentions human runbook or later operator steps',
+        /runbook|human-authorized|operator-owned|paste-ready/i.test(doc),
       );
       ok(
         'doc states 2B does not independently verify Azure/Entra',
@@ -233,10 +249,14 @@ function main() {
       'isEmailGraphAppOnlyReadinessComplete',
       'EMAIL_GRAPH_APP_ONLY_PROVIDER',
       'EMAIL_GRAPH_APP_ONLY_AUTH_MODE',
+      'EMAIL_GRAPH_APP_ONLY_EXCHANGE_APPLICATION_ROLE',
+      'EMAIL_GRAPH_APP_ONLY_GRAPH_PERMISSION_VIA_EXCHANGE_RBAC',
+      'EMAIL_GRAPH_APP_ONLY_ENTRA_APPLICATION_PERMISSION_SET',
       'EMAIL_GRAPH_APP_ONLY_PERMISSION_SET',
       'EMAIL_GRAPH_APP_ONLY_MATERIAL_KEYS',
       'EMAIL_GRAPH_APP_ONLY_FIRST_TEST_PUBLIC_ADDRESS',
       'EMAIL_GRAPH_APP_ONLY_MAILBOX_SCOPE_MECHANISM',
+      'EMAIL_GRAPH_APP_ONLY_LEGACY_MAILBOX_SCOPE_MECHANISM',
       'EMAIL_GRAPH_APP_ONLY_AUTOMATION_MODE',
       'EMAIL_GRAPH_APP_ONLY_MISSING_REQUIREMENT_IDS',
     ];
@@ -309,11 +329,39 @@ function main() {
       mod.EMAIL_GRAPH_APP_ONLY_AUTH_MODE === 'application_client_credentials',
     );
     ok(
-      'PERMISSION_SET is exactly Mail.ReadBasic.All',
+      'EXCHANGE_APPLICATION_ROLE is Application Mail.ReadBasic',
+      mod.EMAIL_GRAPH_APP_ONLY_EXCHANGE_APPLICATION_ROLE === 'Application Mail.ReadBasic',
+    );
+    ok(
+      'GRAPH_PERMISSION_VIA_EXCHANGE_RBAC is exactly Mail.ReadBasic',
+      Array.isArray(mod.EMAIL_GRAPH_APP_ONLY_GRAPH_PERMISSION_VIA_EXCHANGE_RBAC)
+        && mod.EMAIL_GRAPH_APP_ONLY_GRAPH_PERMISSION_VIA_EXCHANGE_RBAC.length === 1
+        && mod.EMAIL_GRAPH_APP_ONLY_GRAPH_PERMISSION_VIA_EXCHANGE_RBAC[0] === 'Mail.ReadBasic'
+        && Object.isFrozen(mod.EMAIL_GRAPH_APP_ONLY_GRAPH_PERMISSION_VIA_EXCHANGE_RBAC),
+    );
+    ok(
+      'ENTRA_APPLICATION_PERMISSION_SET is exact empty frozen array',
+      Array.isArray(mod.EMAIL_GRAPH_APP_ONLY_ENTRA_APPLICATION_PERMISSION_SET)
+        && mod.EMAIL_GRAPH_APP_ONLY_ENTRA_APPLICATION_PERMISSION_SET.length === 0
+        && Object.isFrozen(mod.EMAIL_GRAPH_APP_ONLY_ENTRA_APPLICATION_PERMISSION_SET),
+    );
+    ok(
+      'PERMISSION_SET alias is empty (not legacy Mail.ReadBasic.All)',
       Array.isArray(mod.EMAIL_GRAPH_APP_ONLY_PERMISSION_SET)
-        && mod.EMAIL_GRAPH_APP_ONLY_PERMISSION_SET.length === 1
-        && mod.EMAIL_GRAPH_APP_ONLY_PERMISSION_SET[0] === 'Mail.ReadBasic.All'
-        && Object.isFrozen(mod.EMAIL_GRAPH_APP_ONLY_PERMISSION_SET),
+        && mod.EMAIL_GRAPH_APP_ONLY_PERMISSION_SET.length === 0
+        && Object.isFrozen(mod.EMAIL_GRAPH_APP_ONLY_PERMISSION_SET)
+        && mod.EMAIL_GRAPH_APP_ONLY_PERMISSION_SET
+          === mod.EMAIL_GRAPH_APP_ONLY_ENTRA_APPLICATION_PERMISSION_SET,
+    );
+    ok(
+      'MAILBOX_SCOPE_MECHANISM is exchange_online_rbac_for_applications',
+      mod.EMAIL_GRAPH_APP_ONLY_MAILBOX_SCOPE_MECHANISM
+        === 'exchange_online_rbac_for_applications',
+    );
+    ok(
+      'LEGACY_MAILBOX_SCOPE_MECHANISM is application_access_policy',
+      mod.EMAIL_GRAPH_APP_ONLY_LEGACY_MAILBOX_SCOPE_MECHANISM
+        === 'application_access_policy',
     );
     ok(
       'MATERIAL_KEYS exact three',
@@ -347,16 +395,25 @@ function main() {
           v.auth_mode === 'application_client_credentials',
         );
         ok(
-          'complete-valid: permission_set Mail.ReadBasic.All only',
-          Array.isArray(v.permission_set)
-            && v.permission_set.length === 1
-            && v.permission_set[0] === 'Mail.ReadBasic.All',
+          'complete-valid: exchange_application_role Application Mail.ReadBasic',
+          v.exchange_application_role === 'Application Mail.ReadBasic',
+        );
+        ok(
+          'complete-valid: entra_application_permission_set empty',
+          Array.isArray(v.entra_application_permission_set)
+            && v.entra_application_permission_set.length === 0,
+        );
+        ok(
+          'complete-valid: graph_permission_via_exchange_rbac Mail.ReadBasic',
+          Array.isArray(v.graph_permission_via_exchange_rbac)
+            && v.graph_permission_via_exchange_rbac.length === 1
+            && v.graph_permission_via_exchange_rbac[0] === 'Mail.ReadBasic',
         );
         ok('complete-valid: admin_consent_confirmed true', v.admin_consent_confirmed === true);
         ok(
-          'complete-valid: mailbox scope mechanism application_access_policy',
+          'complete-valid: mailbox scope mechanism exchange_online_rbac_for_applications',
           v.mailbox_scope
-            && v.mailbox_scope.mechanism === 'application_access_policy',
+            && v.mailbox_scope.mechanism === 'exchange_online_rbac_for_applications',
         );
         ok(
           'complete-valid: single first-test address',
@@ -402,7 +459,8 @@ function main() {
           'complete-valid: nested objects frozen',
           Object.isFrozen(v.mailbox_scope)
             && Object.isFrozen(v.secret_package)
-            && Object.isFrozen(v.permission_set)
+            && Object.isFrozen(v.entra_application_permission_set)
+            && Object.isFrozen(v.graph_permission_via_exchange_rbac)
             && Object.isFrozen(v.missing_requirements)
             && Object.isFrozen(v.mailbox_scope.allowed_public_addresses)
             && Object.isFrozen(v.secret_package.material_keys),
@@ -423,13 +481,14 @@ function main() {
         // Mutating input after evaluate must not affect result
         input.provider = 'gmail_api';
         input.admin_consent_confirmed = false;
-        input.permission_set.push('Mail.Read');
+        input.entra_application_permission_set.push('Mail.ReadBasic.All');
+        input.exchange_application_role = 'Application Mail.Read';
         ok(
           'complete-valid: input mutation does not affect frozen DTO',
           v.provider === 'microsoft_graph'
             && v.admin_consent_confirmed === true
-            && v.permission_set.length === 1
-            && v.permission_set[0] === 'Mail.ReadBasic.All',
+            && v.entra_application_permission_set.length === 0
+            && v.exchange_application_role === 'Application Mail.ReadBasic',
         );
 
         // Success JSON must never contain secret_ref key or planted ref value
@@ -484,22 +543,50 @@ function main() {
       }
     }
 
-    // ── Wrong / additional permissions ───────────────────────────────────
-    const permissionCases = [
-      { name: 'Mail.Read', permission_set: ['Mail.Read'] },
-      { name: 'Mail.ReadWrite', permission_set: ['Mail.ReadWrite'] },
-      { name: 'Mail.Read + basic', permission_set: ['Mail.ReadBasic.All', 'Mail.Read'] },
-      { name: 'Mail.Send', permission_set: ['Mail.Send'] },
-      { name: 'Mail.Read.All', permission_set: ['Mail.Read.All'] },
-      { name: 'empty set', permission_set: [] },
-      { name: 'duplicate basic', permission_set: ['Mail.ReadBasic.All', 'Mail.ReadBasic.All'] },
-      { name: 'unknown permission', permission_set: ['Calendars.Read'] },
+    // ── Wrong / broader Exchange application roles ───────────────────────
+    const roleCases = [
+      { name: 'Application Mail.Read', role: 'Application Mail.Read' },
+      { name: 'Application Mail.ReadWrite', role: 'Application Mail.ReadWrite' },
+      { name: 'Application Mail.Send', role: 'Application Mail.Send' },
+      { name: 'Application Mail Full Access', role: 'Application Mail Full Access' },
+      { name: 'Application Exchange Full Access', role: 'Application Exchange Full Access' },
+      { name: 'legacy Entra Mail.ReadBasic.All as role', role: 'Mail.ReadBasic.All' },
+      { name: 'Graph Mail.ReadBasic as role', role: 'Mail.ReadBasic' },
+      { name: 'empty role', role: '' },
+      { name: 'unknown role', role: 'Application Something.Else' },
     ];
-    for (const tc of permissionCases) {
-      const result = evaluate(baseDeclaration({ permission_set: tc.permission_set }));
+    for (const tc of roleCases) {
+      const result = evaluate(baseDeclaration({ exchange_application_role: tc.role }));
       ok(
-        `permissions reject: ${tc.name}`,
-        result.ok === false && result.error === 'permission_set_invalid',
+        `exchange role reject: ${tc.name}`,
+        result.ok === false && result.error === 'exchange_application_role_invalid',
+        serializeSafe(result),
+      );
+    }
+    ok(
+      'exchange role reject: non-string',
+      evaluate(baseDeclaration({ exchange_application_role: ['Application Mail.ReadBasic'] })).ok === false
+        && evaluate(baseDeclaration({ exchange_application_role: ['Application Mail.ReadBasic'] })).error
+          === 'exchange_application_role_invalid',
+    );
+
+    // ── Non-empty / forbidden Entra application permission sets ──────────
+    const entraCases = [
+      { name: 'legacy Mail.ReadBasic.All', set: ['Mail.ReadBasic.All'] },
+      { name: 'Mail.ReadBasic (unscoped Entra)', set: ['Mail.ReadBasic'] },
+      { name: 'Mail.Read', set: ['Mail.Read'] },
+      { name: 'Mail.ReadWrite', set: ['Mail.ReadWrite'] },
+      { name: 'Mail.Send', set: ['Mail.Send'] },
+      { name: 'Mail.Read + basic', set: ['Mail.ReadBasic.All', 'Mail.Read'] },
+      { name: 'duplicate basic', set: ['Mail.ReadBasic.All', 'Mail.ReadBasic.All'] },
+      { name: 'unknown permission', set: ['Calendars.Read'] },
+      { name: 'non-mail permission', set: ['User.Read.All'] },
+    ];
+    for (const tc of entraCases) {
+      const result = evaluate(baseDeclaration({ entra_application_permission_set: tc.set }));
+      ok(
+        `entra permissions reject: ${tc.name}`,
+        result.ok === false && result.error === 'entra_application_permission_set_invalid',
         serializeSafe(result),
       );
     }
@@ -521,9 +608,17 @@ function main() {
         },
       },
       {
-        name: 'multi-mailbox addresses',
+        name: 'legacy application_access_policy mechanism',
         mailbox_scope: {
           mechanism: 'application_access_policy',
+          allowed_public_addresses: ['support@lunafrontdesk.com'],
+        },
+        details_reason: 'legacy_application_access_policy',
+      },
+      {
+        name: 'multi-mailbox addresses',
+        mailbox_scope: {
+          mechanism: 'exchange_online_rbac_for_applications',
           allowed_public_addresses: [
             'support@lunafrontdesk.com',
             'ops@lunafrontdesk.com',
@@ -533,28 +628,28 @@ function main() {
       {
         name: 'empty address list',
         mailbox_scope: {
-          mechanism: 'application_access_policy',
+          mechanism: 'exchange_online_rbac_for_applications',
           allowed_public_addresses: [],
         },
       },
       {
         name: 'wrong address',
         mailbox_scope: {
-          mechanism: 'application_access_policy',
+          mechanism: 'exchange_online_rbac_for_applications',
           allowed_public_addresses: ['other@example.com'],
         },
       },
       {
         name: 'case-variant address (no coercion)',
         mailbox_scope: {
-          mechanism: 'application_access_policy',
+          mechanism: 'exchange_online_rbac_for_applications',
           allowed_public_addresses: ['Support@Lunafrontdesk.com'],
         },
       },
       {
         name: 'unknown scope key',
         mailbox_scope: {
-          mechanism: 'application_access_policy',
+          mechanism: 'exchange_online_rbac_for_applications',
           allowed_public_addresses: ['support@lunafrontdesk.com'],
           extra: true,
         },
@@ -562,9 +657,11 @@ function main() {
     ];
     for (const tc of scopeCases) {
       const result = evaluate(baseDeclaration({ mailbox_scope: tc.mailbox_scope }));
+      const reasonOk = !tc.details_reason
+        || (result.details && result.details.reason === tc.details_reason);
       ok(
         `mailbox_scope reject: ${tc.name}`,
-        result.ok === false && result.error === 'mailbox_scope_invalid',
+        result.ok === false && result.error === 'mailbox_scope_invalid' && reasonOk,
         serializeSafe(result),
       );
     }
@@ -824,10 +921,11 @@ function main() {
       const inherited = Object.create(protoBase);
       // Only set non-inherited remaining keys as own
       Object.assign(inherited, {
-        permission_set: ['Mail.ReadBasic.All'],
+        exchange_application_role: 'Application Mail.ReadBasic',
+        entra_application_permission_set: [],
         admin_consent_confirmed: true,
         mailbox_scope: {
-          mechanism: 'application_access_policy',
+          mechanism: 'exchange_online_rbac_for_applications',
           allowed_public_addresses: ['support@lunafrontdesk.com'],
         },
         secret_package: {
@@ -850,7 +948,7 @@ function main() {
 
       // Coercion trap: object pretending to be string via valueOf/toString
       const coercePerm = baseDeclaration({
-        permission_set: [
+        entra_application_permission_set: [
           {
             toString() { return 'Mail.ReadBasic.All'; },
             valueOf() { return 'Mail.ReadBasic.All'; },
@@ -859,9 +957,9 @@ function main() {
         ],
       });
       ok(
-        'reject non-string permission element (no coercion)',
+        'reject non-string entra permission element (no coercion)',
         evaluate(coercePerm).ok === false
-          && evaluate(coercePerm).error === 'permission_set_invalid',
+          && evaluate(coercePerm).error === 'entra_application_permission_set_invalid',
         serializeSafe(evaluate(coercePerm)),
       );
 
@@ -869,14 +967,14 @@ function main() {
       const nestedAcc = baseDeclaration();
       let nestedHit = 0;
       const scopeObj = {
-        mechanism: 'application_access_policy',
+        mechanism: 'exchange_online_rbac_for_applications',
         allowed_public_addresses: ['support@lunafrontdesk.com'],
       };
       Object.defineProperty(scopeObj, 'mechanism', {
         enumerable: true,
         get() {
           nestedHit += 1;
-          return 'application_access_policy';
+          return 'exchange_online_rbac_for_applications';
         },
       });
       nestedAcc.mailbox_scope = scopeObj;
@@ -901,12 +999,12 @@ function main() {
           return 'Mail.ReadBasic.All';
         },
       });
-      arrAcc.permission_set = perms;
+      arrAcc.entra_application_permission_set = perms;
       const arrAccResult = evaluate(arrAcc);
       ok(
-        'reject permission_set index accessor without invoke',
+        'reject entra permission_set index accessor without invoke',
         arrAccResult.ok === false
-          && arrAccResult.error === 'permission_set_invalid'
+          && arrAccResult.error === 'entra_application_permission_set_invalid'
           && arrHit === 0,
         `hit=${arrHit} ${serializeSafe(arrAccResult)}`,
       );
@@ -1103,7 +1201,8 @@ function main() {
           && mutationHasNoEffect(okA.value, () => {
             okA.value.provider = 'gmail_api';
             okA.value.network_enabled = true;
-            okA.value.permission_set.push('Mail.Read');
+            okA.value.entra_application_permission_set.push('Mail.Read');
+            okA.value.exchange_application_role = 'Application Mail.Read';
             okA.value.secret_package.secret_ref = 'planted-ref';
             okA.value.secret_package.secret_ref_present = false;
             okA.value.mailbox_scope.allowed_public_addresses.push('x@y.com');
@@ -1111,8 +1210,8 @@ function main() {
       );
 
       // Fail envelope deeply frozen
-      const failA = evaluate(baseDeclaration({ permission_set: ['Mail.Read'] }));
-      const failB = evaluate(baseDeclaration({ permission_set: ['Mail.Read'] }));
+      const failA = evaluate(baseDeclaration({ entra_application_permission_set: ['Mail.Read'] }));
+      const failB = evaluate(baseDeclaration({ entra_application_permission_set: ['Mail.Read'] }));
       ok('probe: fail ok wrapper frozen', Object.isFrozen(failA));
       ok('probe: fail has error code', failA.ok === false && typeof failA.error === 'string');
       const unfrozenFail = [];
@@ -1158,7 +1257,7 @@ function main() {
 
       const nestedUnknown = evaluate(baseDeclaration({
         mailbox_scope: {
-          mechanism: 'application_access_policy',
+          mechanism: 'exchange_online_rbac_for_applications',
           allowed_public_addresses: ['support@lunafrontdesk.com'],
           [hostileNested]: 'planted',
         },
@@ -1220,7 +1319,8 @@ function main() {
         okA.ok && okB.ok
           && okA.value.mailbox_scope !== okB.value.mailbox_scope
           && okA.value.secret_package !== okB.value.secret_package
-          && okA.value.permission_set !== okB.value.permission_set
+          && okA.value.entra_application_permission_set !== okB.value.entra_application_permission_set
+          && okA.value.graph_permission_via_exchange_rbac !== okB.value.graph_permission_via_exchange_rbac
           && okA.value.missing_requirements !== okB.value.missing_requirements,
       );
       ok(
@@ -1250,8 +1350,8 @@ function main() {
       );
       ok(
         'probe: helper agrees invalid permissions',
-        isComplete(baseDeclaration({ permission_set: ['Mail.Read'] })) === false
-          && evaluate(baseDeclaration({ permission_set: ['Mail.Read'] })).ok === false,
+        isComplete(baseDeclaration({ entra_application_permission_set: ['Mail.Read'] })) === false
+          && evaluate(baseDeclaration({ entra_application_permission_set: ['Mail.Read'] })).ok === false,
       );
       ok(
         'probe: helper agrees invalid secret_ref',
@@ -1382,23 +1482,24 @@ function main() {
         throwingProxy(baseDeclaration(), 'top-all'),
       );
 
-      // Nested permission_set (array target so Array.isArray is true → reflection hits)
+      // Nested entra_application_permission_set (non-empty array target so index
+      // getOwnPropertyDescriptor is exercised; empty array would skip index reads).
       assertReflectionFail(
-        'nested/permission_set',
+        'nested/entra_application_permission_set',
         baseDeclaration({
-          permission_set: throwingProxy(
+          entra_application_permission_set: throwingProxy(
             ['Mail.ReadBasic.All'],
-            'permission_set',
+            'entra_application_permission_set',
           ),
         }),
       );
       for (const trapName of ['getPrototypeOf', 'ownKeys', 'getOwnPropertyDescriptor']) {
         assertReflectionFail(
-          `nested/permission_set/${trapName}`,
+          `nested/entra_application_permission_set/${trapName}`,
           baseDeclaration({
-            permission_set: throwingProxy(
+            entra_application_permission_set: throwingProxy(
               ['Mail.ReadBasic.All'],
-              `permission_set-${trapName}`,
+              `entra_application_permission_set-${trapName}`,
               [trapName],
             ),
           }),
@@ -1411,7 +1512,7 @@ function main() {
         baseDeclaration({
           mailbox_scope: throwingProxy(
             {
-              mechanism: 'application_access_policy',
+              mechanism: 'exchange_online_rbac_for_applications',
               allowed_public_addresses: ['support@lunafrontdesk.com'],
             },
             'mailbox_scope',
@@ -1424,7 +1525,7 @@ function main() {
           baseDeclaration({
             mailbox_scope: throwingProxy(
               {
-                mechanism: 'application_access_policy',
+                mechanism: 'exchange_online_rbac_for_applications',
                 allowed_public_addresses: ['support@lunafrontdesk.com'],
               },
               `mailbox_scope-${trapName}`,
@@ -1439,7 +1540,7 @@ function main() {
         'nested/addresses',
         baseDeclaration({
           mailbox_scope: {
-            mechanism: 'application_access_policy',
+            mechanism: 'exchange_online_rbac_for_applications',
             allowed_public_addresses: throwingProxy(
               ['support@lunafrontdesk.com'],
               'addresses',
@@ -1452,7 +1553,7 @@ function main() {
           `nested/addresses/${trapName}`,
           baseDeclaration({
             mailbox_scope: {
-              mechanism: 'application_access_policy',
+              mechanism: 'exchange_online_rbac_for_applications',
               allowed_public_addresses: throwingProxy(
                 ['support@lunafrontdesk.com'],
                 `addresses-${trapName}`,
@@ -1533,13 +1634,13 @@ function main() {
         );
         revokeArr();
         assertReflectionFail(
-          'revoked/permission_set',
-          baseDeclaration({ permission_set: revokedArr }),
+          'revoked/entra_application_permission_set',
+          baseDeclaration({ entra_application_permission_set: revokedArr }),
         );
 
         const { proxy: revokedScope, revoke: revokeScope } = Proxy.revocable(
           {
-            mechanism: 'application_access_policy',
+            mechanism: 'exchange_online_rbac_for_applications',
             allowed_public_addresses: ['support@lunafrontdesk.com'],
           },
           {},
@@ -1581,6 +1682,115 @@ function main() {
       }
     }
 
+
+    // ── Migration / compatibility: reject legacy AAP + unscoped Entra ────
+    {
+      // Full legacy Slice 2B declaration shape (permission_set + AAP)
+      const legacyFull = {
+        provider: 'microsoft_graph',
+        auth_mode: 'application_client_credentials',
+        permission_set: ['Mail.ReadBasic.All'],
+        admin_consent_confirmed: true,
+        mailbox_scope: {
+          mechanism: 'application_access_policy',
+          allowed_public_addresses: ['support@lunafrontdesk.com'],
+        },
+        secret_package: {
+          secret_ref: VALID_SECRET_REF,
+          material_keys: ['tenant_id', 'client_id', 'client_secret'],
+        },
+        network_enabled: false,
+        registry_activation_enabled: false,
+        inbound_enabled: false,
+        outbound_enabled: false,
+        default_automation_mode: 'off',
+      };
+      const legacyResult = evaluate(legacyFull);
+      ok(
+        'migration: full legacy AAP+Mail.ReadBasic.All declaration rejected',
+        legacyResult.ok === false
+          && (legacyResult.error === 'declaration_legacy_field'
+            || legacyResult.error === 'declaration_unknown_key'
+            || legacyResult.error === 'declaration_missing_key'
+            || legacyResult.error === 'mailbox_scope_invalid'),
+        serializeSafe(legacyResult),
+      );
+      ok(
+        'migration: legacy full isComplete false',
+        isComplete(legacyFull) === false,
+      );
+
+      // Legacy permission_set key only on otherwise current shape
+      const withLegacyPermKey = baseDeclaration({
+        permission_set: ['Mail.ReadBasic.All'],
+      });
+      const legPerm = evaluate(withLegacyPermKey);
+      ok(
+        'migration: legacy permission_set key rejected',
+        legPerm.ok === false
+          && (legPerm.error === 'declaration_legacy_field'
+            || legPerm.error === 'declaration_unknown_key'),
+        serializeSafe(legPerm),
+      );
+
+      // Mixed: EXO RBAC mechanism + non-empty Entra unscoped grants
+      const mixedUnscoped = baseDeclaration({
+        entra_application_permission_set: ['Mail.ReadBasic.All'],
+      });
+      const mixedR = evaluate(mixedUnscoped);
+      ok(
+        'migration: mixed EXO RBAC + unscoped Entra Mail.ReadBasic.All rejected',
+        mixedR.ok === false
+          && mixedR.error === 'entra_application_permission_set_invalid',
+        serializeSafe(mixedR),
+      );
+
+      // Mixed: EXO role present but legacy AAP mechanism
+      const mixedAap = baseDeclaration({
+        mailbox_scope: {
+          mechanism: 'application_access_policy',
+          allowed_public_addresses: ['support@lunafrontdesk.com'],
+        },
+      });
+      const mixedAapR = evaluate(mixedAap);
+      ok(
+        'migration: mixed EXO role + legacy AAP mechanism rejected',
+        mixedAapR.ok === false
+          && mixedAapR.error === 'mailbox_scope_invalid'
+          && mixedAapR.details
+          && mixedAapR.details.reason === 'legacy_application_access_policy',
+        serializeSafe(mixedAapR),
+      );
+
+      // Mixed: broader EXO role + empty Entra (still reject broader role)
+      const broaderRole = evaluate(baseDeclaration({
+        exchange_application_role: 'Application Mail.Read',
+      }));
+      ok(
+        'migration: broader Application Mail.Read rejected even with empty Entra',
+        broaderRole.ok === false
+          && broaderRole.error === 'exchange_application_role_invalid',
+        serializeSafe(broaderRole),
+      );
+
+      // Mixed: EXO RBAC + Mail.Read Entra (union would defeat scope)
+      const mixedRead = evaluate(baseDeclaration({
+        entra_application_permission_set: ['Mail.Read'],
+      }));
+      ok(
+        'migration: EXO RBAC + Entra Mail.Read rejected (scope-defeating union)',
+        mixedRead.ok === false
+          && mixedRead.error === 'entra_application_permission_set_invalid',
+        serializeSafe(mixedRead),
+      );
+
+      // Current complete declaration still accepted
+      ok(
+        'migration: current EXO RBAC empty-Entra declaration still complete',
+        isComplete(baseDeclaration()) === true,
+      );
+    }
+
     // ── Network hits must stay zero ──────────────────────────────────────
     ok('runtime network guards never triggered', networkHits === 0, `hits=${networkHits}`);
 
@@ -1588,7 +1798,7 @@ function main() {
     for (let i = 0; i < 5; i += 1) {
       evaluate(baseDeclaration());
       evaluate(baseDeclaration({ admin_consent_confirmed: false }));
-      evaluate(baseDeclaration({ permission_set: ['Mail.Read'] }));
+      evaluate(baseDeclaration({ entra_application_permission_set: ['Mail.Read'] }));
     }
     ok('repeated evaluate still zero network hits', networkHits === 0, `hits=${networkHits}`);
   } finally {
