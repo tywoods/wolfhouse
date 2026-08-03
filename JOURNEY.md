@@ -39,9 +39,10 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 - Booking-drawer polish **D1–D3** shipped (Nav team: Deckhand+Seadog) — compact qty stepper + total inline, unified greens, "Equipment" header; `ef936ec5`
 - **Fix:** Edit-drawer equipment picker regression (from D1–D3) + All-Day compact qty; gate extended w/ edit-no-rentals case; `6eed4823` (Nav team)
 - UI-BACKLOG.md added (full owner dump, sorted + sequenced); Bookings tab (N1) design approved
+- **N1 — "Bookings" tab SHIPPED** (Skipper built, Captain gated+deployed) — historical log w/ search+date/status/type/location filters, filter-global summary (collected/refunded/net/outstanding), full codes, CSV export, Archived (cancelled+deleted), inline item/payment/waiver/guest/creator, guest→Customers link, **manual refund ledger** (append-only DB triggers, operator-write/viewer-read, race-safe over-refund lock, idempotent, **no Stripe refund**); **migration 056** applied to sunset DB (table+2 triggers+idem idx verified); `42e30925`, N1 gate 147/147
 
 ## 🍳 On the stove (in progress)
-- **N1 — "Bookings" tab** (Skipper building; Captain gates) — new Admin tab: searchable booking log + refund home + archived (deleted) view + guest→customer link. Foundation for Finance Slice 2.
+- _(open — next from UI-BACKLOG.md: Finance Slice 2 seam now unblocked by N1; or bug batch L2/D4/A1)_
 - **Earthling** — _add what you're on here._
 - Full UI/functional backlog lives in **[UI-BACKLOG.md]** (this session's owner dump, sequenced).
 
@@ -54,7 +55,7 @@ _Last updated: 2026-08-02 17:56 UTC by Captain_
 ---
 
 ## 🚀 Live where
-- **Sunset · staff-api** (staging) — `6eed4823` rev 0000455 · 08-03 07:08 · Captain
+- **Sunset · staff-api** (staging) — `42e30925` rev 0000456 · 08-03 07:32 · Captain _(N1 Bookings tab + migration 056)_
 - **Sunset · Luna** plugin+SOUL (staging) — `c79da8aa` Slice E · 08-02 05:17 · Captain _(separate deploy — drifts from staff-api)_
 - **Wolfhouse · staff-api** (PROD) — _verify_ · Earthling
 - **Wolfhouse · Luna** guest WhatsApp (prod) — _verify_ · Earthling
