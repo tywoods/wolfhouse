@@ -16698,14 +16698,14 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-subtab:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px}
 /* Admin Bookings N1 */
 .portal-admin-bookings{display:flex;flex-direction:column;gap:12px;min-width:0;max-width:100%}
-.portal-admin-bookings-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;max-width:100%}
-.portal-admin-bookings-field{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 140px}
-.portal-admin-bookings-search{flex:2 1 220px}
+.portal-admin-bookings-toolbar{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px 14px;align-items:end;max-width:100%}
+.portal-admin-bookings-field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.portal-admin-bookings-search{grid-column:1 / -1}
 .portal-admin-bookings-label{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2)}
 .portal-admin-bookings-input{width:100%;min-height:40px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;box-sizing:border-box}
 .portal-admin-bookings-input:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px}
-.portal-admin-bookings-check{display:flex;align-items:center;gap:8px;min-height:40px;font-size:13px;color:var(--text-2)}
-.portal-admin-bookings-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.portal-admin-bookings-check{grid-column:1 / -1;display:flex;align-items:center;gap:8px;min-height:32px;font-size:13px;color:var(--text-2)}
+.portal-admin-bookings-actions{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:2px}
 .portal-admin-bookings-summary-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;max-width:100%}
 .portal-admin-bookings-metric{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:10px;padding:10px 12px;min-width:0}
 .portal-admin-bookings-metric-label{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);margin-bottom:4px}

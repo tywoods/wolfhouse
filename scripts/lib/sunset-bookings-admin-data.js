@@ -170,7 +170,7 @@ SELECT DISTINCT ON (w.booking_id)
   w.status::text AS waiver_status,
   w.request_mode,
   w.public_id,
-  w.completed_count,
+  (SELECT COUNT(*)::int FROM waiver_form_submissions s WHERE s.request_id = w.id) AS completed_count,
   w.target_count
 FROM waiver_form_requests w
 INNER JOIN bookings b ON b.id = w.booking_id
