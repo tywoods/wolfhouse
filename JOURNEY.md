@@ -41,6 +41,8 @@ _Last updated: 2026-08-03 23:20 UTC by Skipper_
 - SUNSET-TODO.md added (full owner dump, sorted + sequenced); Bookings tab (N1) design approved
 - **N1 — "Bookings" tab SHIPPED** (Skipper built, Captain gated+deployed) — historical log w/ search+date/status/type/location filters, filter-global summary (collected/refunded/net/outstanding), full codes, CSV export, Archived (cancelled+deleted), inline item/payment/waiver/guest/creator, guest→Customers link, **manual refund ledger** (append-only DB triggers, operator-write/viewer-read, race-safe over-refund lock, idempotent, **no Stripe refund**); **migration 056** applied to sunset DB (table+2 triggers+idem idx verified); `42e30925`, N1 gate 147/147
 - **Fix:** N1 list 500 + filter layout — waiver query selected non-existent `w.completed_count` (derive from `waiver_form_submissions`); toolbar flex→grid so filter fields stop colliding. Validated the real list query against the live sunset DB (5 rows, summary+CSV clean) before deploy; `27981048` rev 0000457
+- **Bookings + Cockpit UI polish SHIPPED** (Nav team built, Captain gated+deployed) — Bookings: cards-on-top, colored metrics, live filters (no Apply/checkbox), drawer date-range picker, status pills, expand Guest→Items→Payment, trimmed refund note; Cockpit: non-today relative-day labels (Yesterday/In N days/Last week…/years)+day summary, EN/ES/IT. Verified pack (bundle `b36b9f95`) cherry-picked atop 2F-B master, zero email overlap; N1 154 + cockpit ui 116/p3 91 + luna-all 21; `1805d95b` rev 0000458
+- **Finance Slice 2 — refund-aware Net SHIPPED** (Nav team built, Captain gated+deployed) — Finance hero now Net = gross collected − Σ recorded refunds (from `booking_refund_records`, `effective_date`), Gross/Refunds broken out, retired the pending-cancellation proxy; L1–L4 contracts, SAVEPOINT soft-empty if ledger absent, EN/ES/IT. Verified pack (bundle `8ab6d1f0`); gates S2 61 + finance-data 55 + redesign 63 + luna-all 21; **live-DB probe confirmed refund query returns €80/2 rows** before deploy; `454f8015` rev 0000459
 
 **Aug 03**
 - Luna email platform foundation through delegated-grant custody shipped to master: endpoint identity + Microsoft delegated OAuth contract, Graph adapter/readiness, dedicated encrypted grant custody, and the Standard-Key-Vault RSA envelope provider.
@@ -63,7 +65,7 @@ _Last updated: 2026-08-03 23:20 UTC by Skipper_
 ---
 
 ## 🚀 Live where
-- **Sunset · staff-api** (staging) — `27981048` rev 0000457 · 08-03 07:46 · Captain _(N1 Bookings tab; list-500 + layout fix)_
+- **Sunset · staff-api** (staging) — `454f8015` rev 0000459 · 08-03 23:56 · Captain _(Bookings+Cockpit UI + Finance Slice 2 refund-aware Net; atop 2F-B)_
 - **Sunset · Luna** plugin+SOUL (staging) — `c79da8aa` Slice E · 08-02 05:17 · Captain _(separate deploy — drifts from staff-api)_
 - **Wolfhouse · staff-api** (PROD) — _verify_ · Earthling
 - **Wolfhouse · Luna** guest WhatsApp (prod) — _verify_ · Earthling
