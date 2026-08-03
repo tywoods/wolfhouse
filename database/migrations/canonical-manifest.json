@@ -614,6 +614,15 @@
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Additive nullable stock_quantity (0..999) on tenant_rental_offerings for location-scoped physical rental stock. Unconfigured (NULL) fails closed; zero means sold out. Stock is independent per offering_key with no bundle coupling."
+    },
+    {
+      "id": "056_booking_refund_records",
+      "filename": "056_booking_refund_records.sql",
+      "sha256": "622157ecda3995ce0a9888d2e4382d0eb9a65e9d8318da97c4d2e64ea4fe8986",
+      "order": 54,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Additive booking_refund_records manual refund ledger (N1/Finance Slice 2). Composite FK (booking_id,client_id)→bookings(id,client_id) with RESTRICT retention; append-only UPDATE/DELETE triggers (DELETE only with wh.allow_booking_refund_mutation=on); unique (client_id,idempotency_key); integer cents; no Stripe refunds."
     }
   ]
 }

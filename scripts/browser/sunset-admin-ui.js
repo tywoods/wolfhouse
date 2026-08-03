@@ -2258,7 +2258,7 @@ function renderFinanceSummaryHtml(summary){
  * @param {{focus?: boolean}} [opts]
  */
 function adminSelectSubTab(key, opts){
-  var next = (key === 'pricing' || key === 'luna-staff') ? key : 'finance';
+  var next = (key === 'pricing' || key === 'luna-staff' || key === 'bookings') ? key : 'finance';
   adminActiveSubTab = next;
   // Rental write errors are operation-scoped — never stick across Admin subtabs.
   // Equipment-local only: do not hide unrelated shared Admin notices.
@@ -2275,12 +2275,17 @@ function adminSelectSubTab(key, opts){
     if (selected && opts && opts.focus && typeof tab.focus === 'function') tab.focus();
   }
   var finPanel = el('admin-panel-finance');
+  var bookingsPanel = el('admin-panel-bookings');
   var prPanel = el('admin-panel-pricing');
   var lunaAdminPanel = el('admin-panel-luna-staff');
   var lunaPanel = el('tab-ask-luna');
   if (finPanel){
     if (next === 'finance') finPanel.removeAttribute('hidden');
     else finPanel.setAttribute('hidden', '');
+  }
+  if (bookingsPanel){
+    if (next === 'bookings') bookingsPanel.removeAttribute('hidden');
+    else bookingsPanel.setAttribute('hidden', '');
   }
   if (prPanel){
     if (next === 'pricing') prPanel.removeAttribute('hidden');
@@ -2292,6 +2297,15 @@ function adminSelectSubTab(key, opts){
   }
   if (lunaPanel) lunaPanel.classList.toggle('active', next === 'luna-staff');
   if (next === 'luna-staff' && typeof wireLunaStaffTabCards === 'function') wireLunaStaffTabCards();
+  if (next === 'bookings' && typeof renderAdminBookingsShell === 'function') {
+    var bookingsBody = el('admin-bookings-body');
+    if (bookingsBody && !bookingsBody.dataset.bookingsMounted) {
+      bookingsBody.dataset.bookingsMounted = '1';
+      renderAdminBookingsShell();
+    } else if (typeof loadAdminBookings === 'function') {
+      loadAdminBookings();
+    }
+  }
 }
 
 function wireAdminSubTabs(){
@@ -2354,9 +2368,16 @@ function loadAdminTab(opts){
     // Deliberate Admin reopen/reload — drop any in-memory Pricing drafts.
     adminClearPricingDraftState();
   }
-  if (adminActiveSubTab !== 'pricing' && adminActiveSubTab !== 'finance' && adminActiveSubTab !== 'luna-staff') adminActiveSubTab = 'finance';
+  if (adminActiveSubTab !== 'pricing' && adminActiveSubTab !== 'finance' && adminActiveSubTab !== 'luna-staff' && adminActiveSubTab !== 'bookings') adminActiveSubTab = 'finance';
   adminSelectSubTab(adminActiveSubTab);
   renderAdminFinanceShell();
+  if (adminActiveSubTab === 'bookings' && typeof renderAdminBookingsShell === 'function') {
+    var bookingsBodyOnLoad = el('admin-bookings-body');
+    if (bookingsBodyOnLoad && !bookingsBodyOnLoad.dataset.bookingsMounted) {
+      bookingsBodyOnLoad.dataset.bookingsMounted = '1';
+      renderAdminBookingsShell();
+    }
+  }
   var profile = getPortalProfile(getClient());
   // Canonical load generation: supersede prior keep-edit/load/mutation and own busy so a
   // stale handler cannot leave Admin permanently blocked when it cannot release.

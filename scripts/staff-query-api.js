@@ -77,6 +77,7 @@ const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(pr
 const { withPgClient: _withPgClientImpl } = require('./lib/pg-connect');
 const { fetchSunsetFinanceData, FinanceDataQualityError } = require('./lib/sunset-finance-data');
 const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
+const { createBookingsAdminRoutes } = require('./lib/sunset-bookings-admin-routes');
 const {
   READYZ_PATH,
   handleStaffApiReadyz,
@@ -2483,6 +2484,17 @@ const {
   handleCustomerUpdate,
   handleCustomerCreateConversation,
 } = customersRoutes;
+
+// Sunset Admin Bookings (N1) — list/export viewer; manual refund operator+.
+const bookingsAdminRoutes = createBookingsAdminRoutes({
+  sendJSON,
+  send400,
+  readBody,
+  assertStaffClientAccess,
+  appendAuditLog,
+  withPgClient,
+  SQL_INJECT_RE,
+});
 
 // Staff Inbox routes (extracted module). Auth stays in the router with
 // per-route minRole (viewer reads / operator writes) — do not homogenize.
@@ -16684,6 +16696,57 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-subtab{appearance:none;-webkit-appearance:none;flex:1 1 auto;min-width:44px;min-height:44px;padding:10px 14px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);color:var(--text-2);font:inherit;font-size:14px;font-weight:600;line-height:1.2;cursor:pointer;box-sizing:border-box;text-align:center}
 .portal-admin-subtab[aria-selected="true"]{background:var(--surface);color:var(--text);border-color:var(--text-2);box-shadow:var(--shadow-soft)}
 .portal-admin-subtab:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px}
+/* Admin Bookings N1 */
+.portal-admin-bookings{display:flex;flex-direction:column;gap:12px;min-width:0;max-width:100%}
+.portal-admin-bookings-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;max-width:100%}
+.portal-admin-bookings-field{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 140px}
+.portal-admin-bookings-search{flex:2 1 220px}
+.portal-admin-bookings-label{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2)}
+.portal-admin-bookings-input{width:100%;min-height:40px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;box-sizing:border-box}
+.portal-admin-bookings-input:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px}
+.portal-admin-bookings-check{display:flex;align-items:center;gap:8px;min-height:40px;font-size:13px;color:var(--text-2)}
+.portal-admin-bookings-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.portal-admin-bookings-summary-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;max-width:100%}
+.portal-admin-bookings-metric{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:10px;padding:10px 12px;min-width:0}
+.portal-admin-bookings-metric-label{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);margin-bottom:4px}
+.portal-admin-bookings-metric-value{font-size:16px;font-weight:700;color:var(--text);word-break:break-word}
+.portal-admin-bookings-table-wrap{min-width:0;max-width:100%;overflow-x:auto}
+.portal-admin-bookings-table{min-width:720px;width:100%;border:1px solid var(--border-soft);border-radius:12px;overflow:hidden;background:var(--surface)}
+.portal-admin-bookings-tr{display:grid;grid-template-columns:minmax(160px,1.4fr) minmax(120px,1.1fr) minmax(110px,.9fr) minmax(140px,1.2fr) 88px 88px 100px;gap:8px;padding:10px 12px;align-items:start;border-bottom:1px solid var(--border-soft);cursor:pointer}
+.portal-admin-bookings-thead .portal-admin-bookings-tr{cursor:default;background:var(--surface-soft);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2)}
+.portal-admin-bookings-tr:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:-2px}
+.portal-admin-bookings-tr.is-archived{opacity:.62}
+.portal-admin-bookings-tr.is-expanded{background:var(--surface-soft)}
+.portal-admin-bookings-td,.portal-admin-bookings-th{min-width:0;font-size:13px;line-height:1.35;word-break:break-word}
+.portal-admin-bookings-td-code .portal-admin-bookings-code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;font-weight:600;white-space:nowrap;overflow:visible}
+.portal-admin-bookings-sub{font-size:11px;color:var(--text-2);margin-top:2px}
+.portal-admin-bookings-td-num{font-variant-numeric:tabular-nums;text-align:right}
+.portal-admin-bookings-guest-link{appearance:none;border:0;background:none;padding:0;margin:0;color:var(--primary,#2e8b57);font:inherit;font-weight:600;cursor:pointer;text-align:left;text-decoration:underline}
+.portal-admin-bookings-guest-link:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px}
+.portal-admin-bookings-chip{display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.02em;background:var(--surface-soft);border:1px solid var(--border-soft);color:var(--text-2);white-space:nowrap}
+.portal-admin-bookings-chip--paid{color:#1f6b3a;border-color:#9ed0b0;background:#eaf6ef}
+.portal-admin-bookings-chip--unpaid{color:#8a4b12;border-color:#e2c29a;background:#fbf1e6}
+.portal-admin-bookings-chip--partial{color:#6b4f1f;border-color:#d9c48a;background:#f8f3e4}
+.portal-admin-bookings-chip--refunded{color:#1f4f7a;border-color:#9bbbd9;background:#eaf3fb}
+.portal-admin-bookings-chip--cancelled,.portal-admin-bookings-chip--deleted{color:#6b6b6b;border-color:#cfcfcf;background:#f2f2f2}
+.portal-admin-bookings-expand{grid-column:1/-1;padding:4px 12px 14px;border-bottom:1px solid var(--border-soft);background:var(--surface)}
+.portal-admin-bookings-expand-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.portal-admin-bookings-expand h4{margin:0 0 8px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2)}
+.portal-admin-bookings-kv,.portal-admin-bookings-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.portal-admin-bookings-kv li{display:flex;justify-content:space-between;gap:10px;font-size:13px}
+.portal-admin-bookings-muted{color:var(--text-2);font-size:12px}
+.portal-admin-bookings-refund-note{margin:6px 0 0}
+.portal-admin-bookings-refund-form{display:flex;flex-direction:column;gap:8px;margin-top:8px;max-width:360px}
+.portal-admin-bookings-refund-form label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-2)}
+.portal-admin-bookings-refund-form-actions{display:flex;flex-wrap:wrap;gap:8px}
+.portal-admin-bookings-pager{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:8px 0}
+.portal-admin-bookings-loading,.portal-admin-bookings-empty,.portal-admin-bookings-error{padding:18px 8px;color:var(--text-2);font-size:14px}
+@media(max-width:900px){
+  .portal-admin-bookings-summary-strip{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .portal-admin-bookings-expand-grid{grid-template-columns:1fr}
+  .portal-admin-bookings-tr{grid-template-columns:minmax(140px,1.3fr) minmax(110px,1fr) minmax(90px,.8fr) minmax(100px,1fr) 72px 72px 88px;gap:6px;padding:10px 8px}
+  .portal-admin-bookings-table{min-width:640px}
+}
 .portal-admin-tabpanel{max-width:100%}
 .portal-admin-tabpanel[hidden]{display:none!important}
 .portal-admin-finance-shell{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:18px 16px;box-shadow:var(--shadow-soft)}
@@ -19469,11 +19532,15 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   </header>
   <div class="portal-admin-subtabs" id="admin-subtab-list" role="tablist" data-i18n-aria="admin.tabs.listLabel" aria-label="Admin sections">
     <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-finance" data-admin-tab="finance" aria-controls="admin-panel-finance" aria-selected="true" tabindex="0" data-i18n="admin.tabs.finance">Finance</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-bookings" data-admin-tab="bookings" aria-controls="admin-panel-bookings" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.bookings">Bookings</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-pricing" data-admin-tab="pricing" aria-controls="admin-panel-pricing" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.pricing">Pricing</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-luna-staff" data-admin-tab="luna-staff" aria-controls="admin-panel-luna-staff" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.lunaStaff" hidden>Luna Staff</button>
   </div>
   <div id="admin-panel-finance" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="finance" aria-labelledby="admin-tab-finance">
     <div id="admin-finance-body" class="portal-admin-finance-shell"></div>
+  </div>
+  <div id="admin-panel-bookings" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="bookings" aria-labelledby="admin-tab-bookings" hidden>
+    <div id="admin-bookings-body" class="portal-admin-bookings-shell"></div>
   </div>
   <div id="admin-panel-pricing" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="pricing" aria-labelledby="admin-tab-pricing" hidden>
     <div class="portal-admin-sections">
@@ -48569,6 +48636,30 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAdminFinanceSummaryGet(parsed.query, req, res, auth.user);
+  }
+
+  // Sunset Admin Bookings N1 — historical log + manual refund seam (no Stripe refund).
+  if (pathname === '/staff/admin/bookings' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return bookingsAdminRoutes.handleList(parsed.query, res, auth.user);
+  }
+  if (pathname === '/staff/admin/bookings/export.csv' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return bookingsAdminRoutes.handleExport(parsed.query, res, auth.user);
+  }
+  const bookingsRefundMatch = /^\/staff\/admin\/bookings\/([0-9a-f-]{36})\/refunds$/i.exec(pathname);
+  if (bookingsRefundMatch && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return bookingsAdminRoutes.handleRecordRefund(
+      bookingsRefundMatch[1],
+      parsed.query,
+      req,
+      res,
+      auth.user,
+    );
   }
 
   if (pathname === '/staff/admin/config/prices' && method === 'POST') {

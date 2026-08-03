@@ -30,6 +30,7 @@ let BASE_URL = '';
 
 const TAB_I18N_KEYS = [
   'admin.tabs.finance',
+  'admin.tabs.bookings',
   'admin.tabs.pricing',
   'admin.tabs.listLabel',
   'admin.finance.summaryUnavailable',
@@ -86,30 +87,38 @@ function runStaticStructureChecks() {
   assert('production owner sunset-admin-ui.js readable via browser-source',
     adminUiSrc.length > 500 && fs.existsSync(ADMIN_UI));
 
-  // Required: two tabs Finance first, Pricing second
-  const tabKeyRe = /data-admin-tab="(finance|pricing)"/g;
+  // Required: Finance first, Bookings second, Pricing third (Luna Staff optional/hidden)
+  const tabKeyRe = /data-admin-tab="(finance|bookings|pricing|luna-staff)"/g;
   const keys = [];
   let m;
   while ((m = tabKeyRe.exec(html))) keys.push(m[1]);
-  assert('exactly two data-admin-tab keys in Admin shell', keys.length === 2, `got ${keys.join(',')}`);
-  assert('Finance tab first, Pricing second',
-    keys[0] === 'finance' && keys[1] === 'pricing',
+  assert('Admin shell has finance+bookings+pricing data-admin-tab keys',
+    keys.includes('finance') && keys.includes('bookings') && keys.includes('pricing'),
+    `got ${keys.join(',')}`);
+  assert('Finance first, Bookings second, Pricing third',
+    keys[0] === 'finance' && keys[1] === 'bookings' && keys[2] === 'pricing',
     `order=${keys.join(',')}`);
 
   assert('Finance button type=button',
     /<button[^>]*type="button"[^>]*data-admin-tab="finance"/.test(html)
     || /<button[^>]*data-admin-tab="finance"[^>]*type="button"/.test(html));
+  assert('Bookings button type=button',
+    /<button[^>]*type="button"[^>]*data-admin-tab="bookings"/.test(html)
+    || /<button[^>]*data-admin-tab="bookings"[^>]*type="button"/.test(html));
   assert('Pricing button type=button',
     /<button[^>]*type="button"[^>]*data-admin-tab="pricing"/.test(html)
     || /<button[^>]*data-admin-tab="pricing"[^>]*type="button"/.test(html));
 
   assert('tablist role present', /role="tablist"/.test(html));
-  assert('role=tab on both buttons', (html.match(/role="tab"/g) || []).length >= 2);
-  assert('role=tabpanel for finance and pricing', (html.match(/role="tabpanel"/g) || []).length >= 2);
+  assert('role=tab on admin subtabs', (html.match(/role="tab"/g) || []).length >= 3);
+  assert('role=tabpanel for finance, bookings, pricing', (html.match(/role="tabpanel"/g) || []).length >= 3);
 
   assert('aria-controls on finance tab',
     /data-admin-tab="finance"[^>]*aria-controls="admin-panel-finance"/.test(html)
     || /aria-controls="admin-panel-finance"[^>]*data-admin-tab="finance"/.test(html));
+  assert('aria-controls on bookings tab',
+    /data-admin-tab="bookings"[^>]*aria-controls="admin-panel-bookings"/.test(html)
+    || /aria-controls="admin-panel-bookings"[^>]*data-admin-tab="bookings"/.test(html));
   assert('aria-controls on pricing tab',
     /data-admin-tab="pricing"[^>]*aria-controls="admin-panel-pricing"/.test(html)
     || /aria-controls="admin-panel-pricing"[^>]*data-admin-tab="pricing"/.test(html));
@@ -454,6 +463,28 @@ function createMinimalDom(htmlFragment) {
   finBtn.setAttribute('tabindex', '0');
   list.appendChild(finBtn);
 
+  const bookingsBtn = makeEl('admin-tab-bookings', {
+    tagName: 'BUTTON',
+    className: 'portal-admin-subtab',
+    attributes: {
+      type: 'button',
+      role: 'tab',
+      'data-admin-tab': 'bookings',
+      'aria-controls': 'admin-panel-bookings',
+      'aria-selected': 'false',
+      tabindex: '-1',
+    },
+    dataset: { adminTab: 'bookings' },
+    textContent: 'Bookings',
+  });
+  bookingsBtn.setAttribute('type', 'button');
+  bookingsBtn.setAttribute('role', 'tab');
+  bookingsBtn.setAttribute('data-admin-tab', 'bookings');
+  bookingsBtn.setAttribute('aria-controls', 'admin-panel-bookings');
+  bookingsBtn.setAttribute('aria-selected', 'false');
+  bookingsBtn.setAttribute('tabindex', '-1');
+  list.appendChild(bookingsBtn);
+
   const prBtn = makeEl('admin-tab-pricing', {
     tagName: 'BUTTON',
     className: 'portal-admin-subtab',
@@ -486,6 +517,25 @@ function createMinimalDom(htmlFragment) {
   root.appendChild(finPanel);
   const finBody = makeEl('admin-finance-body', { tagName: 'DIV', className: 'portal-admin-finance-shell' });
   finPanel.appendChild(finBody);
+
+  const bookingsPanel = makeEl('admin-panel-bookings', {
+    tagName: 'DIV',
+    attributes: {
+      role: 'tabpanel',
+      'data-admin-tab-panel': 'bookings',
+      'aria-labelledby': 'admin-tab-bookings',
+      hidden: '',
+    },
+    dataset: { adminTabPanel: 'bookings' },
+    hidden: true,
+  });
+  bookingsPanel.setAttribute('role', 'tabpanel');
+  bookingsPanel.setAttribute('data-admin-tab-panel', 'bookings');
+  bookingsPanel.setAttribute('hidden', '');
+  bookingsPanel.hidden = true;
+  root.appendChild(bookingsPanel);
+  const bookingsBody = makeEl('admin-bookings-body', { tagName: 'DIV', className: 'portal-admin-bookings-shell' });
+  bookingsPanel.appendChild(bookingsBody);
 
   const prPanel = makeEl('admin-panel-pricing', {
     tagName: 'DIV',
@@ -532,7 +582,7 @@ function createMinimalDom(htmlFragment) {
       || sel === '[role="tab"][data-admin-tab]'
       || sel === 'button[role="tab"][data-admin-tab]'
     ) {
-      return [finBtn, prBtn];
+      return [finBtn, bookingsBtn, prBtn];
     }
     return queryIn(list, sel, true);
   };
@@ -540,7 +590,20 @@ function createMinimalDom(htmlFragment) {
     return list.querySelectorAll(sel)[0] || null;
   };
 
-  return { document, elements, listeners, finBtn, prBtn, finPanel, prPanel, draftInput, list, root };
+  return {
+    document,
+    elements,
+    listeners,
+    finBtn,
+    bookingsBtn,
+    prBtn,
+    finPanel,
+    bookingsPanel,
+    prPanel,
+    draftInput,
+    list,
+    root,
+  };
 }
 
 function runDomBehaviorChecks() {
@@ -555,10 +618,13 @@ function runDomBehaviorChecks() {
   assert('production wireAdminSubTabs exists for DOM harness', hasWire);
   if (!hasSelect || !hasWire) return;
 
-  const { document, listeners, finBtn, prBtn, finPanel, prPanel, draftInput, list, root } = createMinimalDom();
+  const {
+    document, listeners, finBtn, bookingsBtn, prBtn, finPanel, bookingsPanel, prPanel, draftInput, list, root,
+  } = createMinimalDom();
 
   const i18n = {
     'admin.tabs.finance': 'Finance',
+    'admin.tabs.bookings': 'Bookings',
     'admin.tabs.pricing': 'Pricing',
     'admin.tabs.listLabel': 'Admin sections',
     'admin.finance.summaryUnavailable': 'Finance summary is not available yet.',
@@ -719,8 +785,8 @@ function runDomBehaviorChecks() {
   sandbox.adminSelectSubTab('finance', { focus: true });
   assert('pre-ArrowRight finance selected', finBtn.getAttribute('aria-selected') === 'true');
   list.dispatchEvent(keyEv('ArrowRight', finBtn));
-  assert('ArrowRight keydown selects pricing tab', prBtn.getAttribute('aria-selected') === 'true');
-  assert('ArrowRight keydown moves focus to pricing tab', document.activeElement === prBtn);
+  assert('ArrowRight keydown selects bookings tab', bookingsBtn.getAttribute('aria-selected') === 'true');
+  assert('ArrowRight keydown moves focus to bookings tab', document.activeElement === bookingsBtn);
 
   sandbox.adminSelectSubTab('finance', { focus: true });
   assert('focus synchronized with finance selection', document.activeElement === finBtn);
@@ -1007,6 +1073,15 @@ function seedAdminHarnessDom(registry) {
     removeAttribute() {},
     setAttribute() {},
     hidden: true,
+  });
+  registry.byId.set('admin-panel-bookings', {
+    removeAttribute() {},
+    setAttribute() {},
+    hidden: true,
+  });
+  registry.byId.set('admin-bookings-body', {
+    dataset: {},
+    innerHTML: '',
   });
   registry.byId.set('admin-subtab-list', {
     dataset: {},
@@ -2575,8 +2650,9 @@ async function runBrowserSmoke(playwright) {
           finText: document.getElementById('admin-finance-body')?.innerText || '',
         };
       });
-      assert('desktop Finance first, Pricing second',
-        desktop.keys[0] === 'finance' && desktop.keys[1] === 'pricing', desktop.keys.join(','));
+      assert('desktop Finance first, Bookings second, Pricing third',
+        desktop.keys[0] === 'finance' && desktop.keys[1] === 'bookings' && desktop.keys[2] === 'pricing',
+        desktop.keys.join(','));
       assert('desktop Finance default selected', desktop.financeSelected);
       assert('desktop Pricing panel hidden by default', desktop.pricingHidden);
       assert('desktop finance shell honest empty copy', /(?:not available yet|could not load the finance summary)/i.test(desktop.finText));
@@ -2600,11 +2676,11 @@ async function runBrowserSmoke(playwright) {
       await page.locator('[data-admin-tab="finance"]').focus();
       await page.keyboard.press('ArrowRight');
       const keySel = await page.evaluate(() => ({
-        pricing: document.getElementById('admin-tab-pricing')?.getAttribute('aria-selected'),
+        bookings: document.getElementById('admin-tab-bookings')?.getAttribute('aria-selected'),
         active: document.activeElement?.getAttribute('data-admin-tab'),
       }));
-      assert('desktop ArrowRight selects pricing', keySel.pricing === 'true');
-      assert('desktop ArrowRight focus follows selection', keySel.active === 'pricing');
+      assert('desktop ArrowRight selects bookings', keySel.bookings === 'true');
+      assert('desktop ArrowRight focus follows selection', keySel.active === 'bookings');
       await page.keyboard.press('Home');
       const homeSel = await page.evaluate(() => ({
         finance: document.getElementById('admin-tab-finance')?.getAttribute('aria-selected'),
@@ -2708,8 +2784,9 @@ async function runBrowserSmoke(playwright) {
         };
       });
 
-      assert(`${width}px Finance first, Pricing second`,
-        snap.keys[0] === 'finance' && snap.keys[1] === 'pricing', snap.keys.join(','));
+      assert(`${width}px Finance first, Bookings second, Pricing third`,
+        snap.keys[0] === 'finance' && snap.keys[1] === 'bookings' && snap.keys[2] === 'pricing',
+        snap.keys.join(','));
       assert(`${width}px Finance default selected`, snap.financeSelected);
       assert(`${width}px finance shell honest empty copy`, /(?:not available yet|could not load the finance summary)/i.test(snap.finText));
       assert(`${width}px no horizontal subtab overflow/clip`, !snap.overflow);
