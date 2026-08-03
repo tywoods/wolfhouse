@@ -337,6 +337,7 @@
     "prove:email-tenant-location-registry-pg": "node scripts/prove-email-tenant-location-registry-pg.js",
     "verify:email-tenant-channel-registry": "node scripts/verify-email-tenant-channel-registry.js",
     "prove:email-tenant-channel-registry-pg": "node scripts/prove-email-tenant-channel-registry-pg.js",
+    "verify:staff-email-registry-routes": "node scripts/verify-staff-email-registry-routes.js",
     "verify:staging-ledger-recovery": "node scripts/verify-staging-ledger-recovery.js",
     "staging-ledger-recovery:plan": "node scripts/run-staging-ledger-recovery.js",
     "staging-ledger-recovery:apply": "node scripts/run-staging-ledger-recovery.js",

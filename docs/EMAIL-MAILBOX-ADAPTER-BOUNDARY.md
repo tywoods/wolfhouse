@@ -1,11 +1,12 @@
-# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha)
+# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta)
 
 **Status:**
 - **1A:** provider-neutral adapter/validation contract, fake adapter, focused tests.
 - **1B:** canonical Postgres registry for tenant locations + email channel endpoints (**empty tables** on migrate; no backfill).
 - **1C-alpha:** pure domain/repository layer over those tables for future Staff API routes (**no HTTP routes**, no auth role policy, no activation, no provider connectivity, no live data or deploy).
+- **1C-beta:** smallest admin-only **READ** Staff API over that empty registry (list locations + list channel endpoints). No writes, activation, providers, or live access.
 
-**Not in these slices:** Microsoft Graph / Gmail / IMAP network calls, OAuth, subscriptions, polling, send/drafts UI, attachment download/storage, Luna SOUL changes, live mailbox config, deploy, invented client/location/mailbox rows. HTTP routes, response redaction, and role gates remain deferred past 1C-alpha.
+**Not in these slices:** Microsoft Graph / Gmail / IMAP network calls, OAuth, subscriptions, polling, send/drafts UI, attachment download/storage, Luna SOUL changes, live mailbox config, deploy, invented client/location/mailbox rows. Writes / activation / secret_ref visibility / provider connectivity remain deferred past 1C-beta.
 
 ## Architectural decision (Slice 1A vs 1B)
 
@@ -16,6 +17,7 @@ Slice **1A intentionally ships no** endpoint persistence schema and no Graph/Gma
 | **1A** | Provider-neutral adapter identity + capability contract, secret-ref validation, tenant-aware location validation API (injected **synchronous** authority), fake adapter, verifiers | Endpoint persistence until a real tenant–location parent exists |
 | **1B** | Authoritative `tenant_locations` parent + `tenant_channel_endpoints` with composite FK, CHECK constraints, partial unique active address; offline + ephemeral PG proofs | Provider network adapters (Graph/Gmail/IMAP); operator registration of real mappings; **any async PG→app locationAuthority bridge** |
 | **1C-alpha (domain/repository)** | Focused module `scripts/lib/email-tenant-channel-registry.js`: list/create locations, list endpoints, create **disabled** endpoints; pure helper `buildPreloadedLocationAuthority`; offline hostile mock-pg + disposable PG proofs | HTTP routes; auth roles; feature flags; update/deactivate; provider adapters; activation / inbound / outbound enable paths; response redaction |
+| **1C-beta (admin READ API)** | Extracted DI routes `scripts/lib/staff-email-registry-routes.js` wired into `staff-query-api.js`: `GET /staff/admin/email-registry/locations`, `GET /staff/admin/email-registry/channel-endpoints`; `requireAuth('admin')` + existing `assertStaffClientAccess` + `admin_db_read` gate; DTO allowlists; `secret_ref` always redacted (`secret_ref_present` only) | POST/PATCH/DELETE; activation; secret_ref visibility; provider connectivity; UI |
 
 Application validation in `validateTenantChannelEndpointInput(input, { locationAuthority })` remains a **contract for writes**, not a substitute for DB integrity. Location authority is a **trusted out-of-band callback** (argument 2 only); it fails closed without a valid second-argument authority and never honors authority embedded in untrusted `input`.
 
@@ -39,11 +41,13 @@ Guest email provider  →  (future) provider adapter  →  Staff API / Postgres
                      email-mailbox-adapter-contract (1A)
                      + tenant_locations / tenant_channel_endpoints (1B)
                      + email-tenant-channel-registry (1C-alpha domain layer)
+                     + staff-email-registry-routes (1C-beta admin READ API)
 ```
 
 - **One unified Staff Inbox** with channel-native threads (WhatsApp today; email endpoints registered later).
 - **Staff API / Postgres** owns canonical endpoint product state via Slice 1B tables (still empty until operator registration).
-- **1C-alpha repository** (`email-tenant-channel-registry.js`) is the only supported write path for locations/disabled endpoints until routes land. **Reads** inject `{ db }` (single-query executor; Pool OK for one SELECT). **Writes** require an explicitly pinned transaction `{ client }` for the full BEGIN…COMMIT/ROLLBACK sequence — not a Pool or generic `{ db }` (rejected as `transaction_client_required` before any SQL). No global PG/live config; future Staff API `withPgClient` supplies the pinned client.
+- **1C-alpha repository** (`email-tenant-channel-registry.js`) is the only supported write path for locations/disabled endpoints until write routes land. **Reads** inject `{ db }` (single-query executor; Pool OK for one SELECT). **Writes** require an explicitly pinned transaction `{ client }` for the full BEGIN…COMMIT/ROLLBACK sequence — not a Pool or generic `{ db }` (rejected as `transaction_client_required` before any SQL). No global PG/live config; Staff API `withPgClient` supplies the pinned client for 1C-beta reads.
+- **1C-beta admin READ API** (see below) lists registry rows for authenticated admin/owner only; never enables traffic.
 - **Provider adapters** may later be `microsoft_graph`, `gmail_api`, or `imap_smtp`.
 - **support@lunafrontdesk.com** is a licensed Microsoft 365 user mailbox and will be the first *test* adapter later — these slices contain **zero Graph-specific network logic**.
 
@@ -66,6 +70,7 @@ Down: `057_tenant_locations_and_channel_endpoints_down.sql`
 | `scripts/lib/email-mailbox-adapter-contract.js` | Provider id allowlist, exact eight boolean capability keys, secret-ref scheme allowlist (`kv:`, `secret-ref:`) with body secret-shape checks, public-address normalization, endpoint **write validation** requiring trusted **synchronous** out-of-band `locationAuthority` callback | Import provider SDKs; store credentials; hardcode tenant locations; invent default locations; honor authority from untrusted input; accept async/`Promise` authority |
 | `scripts/lib/email-mailbox-fake-adapter.js` | Deterministic in-memory adapter for tests (Graph/Gmail/IMAP capability *combinations* as data); `supports(unknown)` fails closed | Network I/O; production use; resolve secret values |
 | `scripts/lib/email-tenant-channel-registry.js` (1C-alpha) | Tenant-scoped list/create for `tenant_locations`; list endpoints; `createDisabledTenantChannelEndpoint`; pure `buildPreloadedLocationAuthority`; reads via `{ db }`; writes via pinned `{ client }` transaction (BEGIN guarded; no Pool); stable structured errors (`location_already_exists`, `endpoint_already_exists`, `location_not_authorized`, `transaction_client_required`, `db_error`) | HTTP routes; auth roles; enable active/inbound/outbound/automation; resolve `secret_ref`; provider SDK/network; global PG pool; Pool as write executor; upsert; leak raw PG messages |
+| `scripts/lib/staff-email-registry-routes.js` (1C-beta) | Admin GET list handlers; DI factory; client slug → ACL → UUID lookup; DTO allowlists; `secret_ref` → `secret_ref_present` only; strict `include_inactive`; audit intents; maps repo `db_error` to sanitized 500 | Writes; activation; expose `secret_ref`; trust query/body `client_id`; provider SDK; enforce auth itself (router owns `requireAuth`) |
 
 Consumers must branch on **capability flags** (`remote_drafts`, `push_notifications`, …), not on provider-specific field shapes. Unknown provider ids, capability shapes, and **unknown capability keys on `supports()`** fail closed (throw / structured reject — never silent `false` for typos).
 
@@ -126,6 +131,41 @@ Cross-tenant, missing, and inactive locations are indistinguishable as `location
 
 Conflicts fail closed (409-style codes, not upsert): `location_already_exists` / `endpoint_already_exists`. DB errors map to `db_error` without raw SQL/secret content.
 
+## Admin READ API (1C-beta)
+
+Module: `scripts/lib/staff-email-registry-routes.js`
+Wired in: `scripts/staff-query-api.js` (extracted-route ownership; auth + tenant route gate stay in the router).
+
+| Method | Path | minRole | Behavior |
+|--------|------|---------|----------|
+| `GET` | `/staff/admin/email-registry/locations` | `admin` (owner inherits via rank) | List tenant locations for the ACL-scoped client |
+| `GET` | `/staff/admin/email-registry/channel-endpoints` | `admin` (owner inherits via rank) | List tenant channel endpoints for the ACL-scoped client |
+
+**Authorization (existing helpers only):**
+
+1. Router: `requireAuth(req, res, 'admin')` → session + role rank; also runs `authorizeAuthenticatedStaffRoute` for the **home** tenant so `/staff/admin/...` requires that tenant’s `admin_db_read` (defense in depth).
+2. Handler: `assertStaffClientAccess(user, clientSlug, res)` for the **requested** client slug (cross-client denied; does not reveal row existence).
+3. Handler: injects and calls the same `authorizeAuthenticatedStaffRoute` for the **requested** `clientSlug`, method `GET`, and the exact admin route pathname (runtime env convention). Denied → existing 403 body (e.g. `reason_code: admin_db_read_disabled`) **before** client UUID lookup or repository list. Process-level reserved tenants keep authorizer behavior; no new exception list in the route module.
+4. Client UUID resolved solely via parameterized `SELECT id FROM clients WHERE slug = $1` after ACL + requested-tenant authz. Query/body `client_id` is **never** used for scoping.
+
+**Query params:**
+
+| Param | Rules |
+|-------|--------|
+| `client` / `client_slug` | Tenant slug (default `DEFAULT_CLIENT`); subject to inject check + ACL |
+| `include_inactive` | Omit → **true** (return all registry records — admin inventory default; endpoints are created inactive until a later activation slice). Exact `true` \| `false` (case-insensitive after trim). Any other value → **400**. No SQL from this flag beyond the repository’s active filter. |
+
+**Response DTO allowlists (not raw rows):**
+
+- **locations:** `id`, `location_id`, `display_name`, `active`, `created_at`, `updated_at`
+- **endpoints:** `id`, `location_id`, `channel`, `provider`, `public_address`, `provider_resource_id`, `capabilities`, `inbound_enabled`, `outbound_enabled`, `default_automation_mode`, `active`, `created_at`, `updated_at`, `secret_ref_present` (boolean)
+
+**Capabilities (fail-closed):** Before returning an endpoint DTO, capabilities must pass the Slice 1A `validateEmailMailboxCapabilities` allowlist (exactly the eight boolean keys). The response rebuilds a **fresh** object from that allowlist — never copies arbitrary JSON keys/nesting. Malformed DB capabilities (missing/extra/nested/non-boolean) fail the **whole** request as sanitized 500 `{ success: false, error: 'read failed' }` (no partial row).
+
+Always omit for every role including admin: `secret_ref`, `created_by`, `updated_by`, `client_id`. Never log `secret_ref` or `err.message`. Logs use a bounded category + sanitized code allowlist only. Audit error fields use a stable allowlist (`db_error`, `capabilities_invalid`, …), never arbitrary repository text.
+
+**Out of 1C-beta:** POST/PATCH/DELETE, endpoint activation, secret_ref visibility, provider connectivity/OAuth/send/poll, feature flags, UI/SOUL/deploy, domain repository changes.
+
 ## Automation vs attention
 
 - **Automation modes:** `automatic` | `draft_only` | `off` (DB default `off`).
@@ -144,6 +184,7 @@ npm run verify:email-tenant-location-registry
 npm run prove:email-tenant-location-registry-pg
 npm run verify:email-tenant-channel-registry
 npm run prove:email-tenant-channel-registry-pg
+npm run verify:staff-email-registry-routes
 npm run verify:migration-integrity
 ```
 
@@ -152,3 +193,5 @@ npm run verify:migration-integrity
 Slice 1B registers migration `057` in `database/migrations/canonical-manifest.json` (forward order 55) plus explicit down classification. Tables remain empty until operator-controlled registration.
 
 Slice 1C-alpha adds the domain/repository module and its offline + disposable PG proofs only — **no routes**, no auth role policy, no activation, no provider connectivity.
+
+Slice 1C-beta adds the admin-only READ route module + DI wiring + focused offline route verifier only — **no writes**, no activation, no provider connectivity, no live data or deploy.
