@@ -39,5 +39,8 @@ _Started 2026-08-03. Still being added to — not final._
 ## 🆕 New features
 - **N1 [FEAT] Bookings tab (historical booking log)** — new Admin tab: searchable list of all bookings (past + present), find one, see basic info; **home for refund info** (the piece we didn't know where to put). Ties into Finance Slice 2. `M–L` · sketch?
 
+## 🛠️ Admin panel (courses / other)
+- **A1 [UI] Group courses sorted by name → sort by time** — the created group-courses list in Admin currently orders alphabetically by name; it should order by the **time each course runs** (earliest → latest). `S`
+
 ## 🔁 Process
 - Testing runs **during + after** each change; devs (Monshies + Earthling) manage it for now.
