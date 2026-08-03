@@ -1397,7 +1397,7 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
     escHtml(String((comps.private_lesson && comps.private_lesson.surfer_count) || 1)) + '"></div>';
   html += '</div></div>';
   html += '<div class="portal-schedule-create-field portal-schedule-drawer-gear-secondary">';
-  html += '<span class="portal-schedule-create-label">' + escHtml(portalT('schedule.drawer.section.rentals') || 'Gear') + '</span>';
+  html += '<span class="portal-schedule-create-label" data-i18n="schedule.drawer.section.rentals">' + escHtml(portalT('schedule.drawer.section.rentals') || 'Equipment') + '</span>';
   html += '<div id="ps-drawer-rentals" class="portal-schedule-create-rentals portal-schedule-drawer-rentals" aria-live="polite"';
   html += ' data-seed-board="' + (boardOn ? '1' : '0') + '" data-seed-wetsuit="' + (wetsuitOn ? '1' : '0') + '"';
   html += ' data-seed-board-qty="' + escHtml(String((comps.surfboard && comps.surfboard.quantity) || 1)) + '"';

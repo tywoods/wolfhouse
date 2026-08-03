@@ -140,9 +140,16 @@ function sourceContract() {
   assert.ok(portal.includes('line_items: Array.isArray(data.line_items)') || portal.includes('rental_line_paint_failed'), 'Create quote stores line_items / paint fail');
   assert.ok(portal.includes('rental_line_paint_failed'), 'Create fail-closed on paint');
   assert.ok(edit.includes('rental_line_paint_failed'), 'Edit fail-closed on paint');
-  assert.ok(api.includes('Equipment list qty steppers only') || api.includes('44px') && api.includes('ps-create-rentals') && api.includes('portal-schedule-int-step'), '44px equipment stepper CSS');
-  assert.ok(/#ps-create-rentals[^{]*\.portal-schedule-int-step\{[^}]*min-height:44px/.test(api.replace(/\s+/g, ''))
-    || api.includes('#ps-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-step'), 'equipment step CSS selector');
+  assert.ok(api.includes('Equipment list qty steppers only') || (api.includes('ps-create-rentals') && api.includes('portal-schedule-int-step')), 'equipment stepper CSS');
+  assert.ok(api.includes('#ps-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-step'), 'equipment step CSS selector');
+  assert.ok(/#ps-create-rentals[^{]*\.portal-schedule-int-step\{[^}]*min-height:32px/.test(api.replace(/\s+/g, ''))
+    || /#ps-create-rentals[^\{]*\.portal-schedule-int-step\{[^}]*height:32px/.test(api.replace(/\s+/g, '')), 'compact equipment step height');
+  assert.ok(api.includes('flex-wrap:nowrap') && api.includes('portal-schedule-create-rental-controls'), 'controls stay one row');
+  assert.ok(api.includes('--sched-primary:#4E5853') && api.includes('.portal-schedule-create-modal'), 'drawer green token on create modal');
+  assert.ok(api.includes('#ps-create-submit') && !/\.portal-schedule-drawer\s+\.btn-primary/.test(api.slice(api.indexOf('/* Drawer green tokens'), api.indexOf('.portal-schedule-create-rental-row{'))), 'Create CTA only — no Edit drawer .btn-primary restyle');
+  assert.ok(api.includes('schedule.drawer.section.rentals') || api.includes('ps-create-equipment-catalog-label'), 'Create equipment header');
+  assert.ok(edit.includes("schedule.drawer.section.rentals") && edit.includes('Equipment'), 'Edit equipment header');
+  assert.ok(i18n.includes("'schedule.drawer.section.rentals': 'Equipment'"), 'i18n Equipment label');
   assert.ok(i18n.includes("'schedule.create.rentalFrom': 'from'"), 'EN from');
   assert.ok(i18n.includes("'schedule.create.rentalFrom': 'da'"), 'IT from');
   assert.ok(es.includes("'schedule.create.rentalFrom': 'desde'"), 'ES from');
@@ -546,9 +553,34 @@ async function measureDrawerWidth(page, sel) {
     assert.ok(await inc.isVisible());
     assert.ok(await dec.isVisible());
     const incBox = await inc.boundingBox();
-    assert.ok(incBox && incBox.height >= 44 && incBox.width >= 44, `Create + >=44 got ${JSON.stringify(incBox)}`);
+    assert.ok(incBox && incBox.height >= 28 && incBox.height <= 36 && incBox.width >= 24 && incBox.width <= 36, `Create + compact got ${JSON.stringify(incBox)}`);
     const decBox = await dec.boundingBox();
-    assert.ok(decBox && decBox.height >= 44 && decBox.width >= 44, `Create − >=44 got ${JSON.stringify(decBox)}`);
+    assert.ok(decBox && decBox.height >= 28 && decBox.height <= 36 && decBox.width >= 24 && decBox.width <= 36, `Create − compact got ${JSON.stringify(decBox)}`);
+    // D1: duration · qty · line total stay on one controls row (total not under stepper)
+    const inline = await page.evaluate((sel) => {
+      const row = document.querySelector(sel);
+      if (!row) return { ok: false, reason: 'missing row' };
+      const controls = row.querySelector('.portal-schedule-create-rental-controls');
+      const dur = row.querySelector('select[data-rental-duration-select], select.ps-create-rental-duration');
+      const qty = row.querySelector('.portal-schedule-create-rental-qty');
+      const price = row.querySelector('.portal-schedule-create-rental-price');
+      if (!controls || !dur || !qty || !price) return { ok: false, reason: 'missing pieces' };
+      const cr = controls.getBoundingClientRect();
+      const dr = dur.getBoundingClientRect();
+      const qr = qty.getBoundingClientRect();
+      const pr = price.getBoundingClientRect();
+      const mid = (a, b) => Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2);
+      return {
+        ok: mid(dr, qr) <= 8 && mid(qr, pr) <= 8 && pr.left >= qr.right - 2 && qr.left >= dr.right - 4,
+        tops: { d: Math.round(dr.top), q: Math.round(qr.top), p: Math.round(pr.top) },
+        lefts: { d: Math.round(dr.left), q: Math.round(qr.left), p: Math.round(pr.left) },
+        controlsH: Math.round(cr.height),
+      };
+    }, `${createWrap} [data-rental-offering="sup_rental"]`);
+    assert.ok(inline.ok, `Create controls inline duration·qty·total got ${JSON.stringify(inline)}`);
+    // Equipment section header
+    const createHdr = await page.locator('#ps-create-equipment-catalog-label').innerText();
+    assert.ok(/equipment/i.test(createHdr.trim()), `Create header EQUIPMENT got ${createHdr}`);
     await inc.click();
     await page.waitForTimeout(700);
     sup = await rowState(page, createWrap, 'sup_rental');
@@ -812,16 +844,16 @@ async function measureDrawerWidth(page, sel) {
     const createDesktopW = await measureDrawerWidth(page, '#ps-create-modal .portal-schedule-create-drawer');
     assert.ok(createDesktopW && createDesktopW.width <= 442);
     const cIncD = await page.locator(`${createWrap} [data-rental-offering="sup_rental"] .portal-schedule-int-stepper [data-int-step="inc"]`).boundingBox();
-    assert.ok(cIncD && cIncD.height >= 44 && cIncD.width >= 44, 'Create desktop stepper 44');
+    assert.ok(cIncD && cIncD.height >= 28 && cIncD.height <= 36 && cIncD.width >= 24 && cIncD.width <= 36, 'Create desktop compact stepper');
     await page.screenshot({ path: path.join(ARTIFACT_DIR, 'booking-equipment-reorg-create-desktop.png') });
     await page.setViewportSize({ width: 390, height: 900 });
     await page.waitForTimeout(80);
     const cIncN = await page.locator(`${createWrap} [data-rental-offering="sup_rental"] .portal-schedule-int-stepper [data-int-step="inc"]`).boundingBox();
-    assert.ok(cIncN && cIncN.height >= 44 && cIncN.width >= 44, 'Create narrow stepper 44');
+    assert.ok(cIncN && cIncN.height >= 28 && cIncN.height <= 36 && cIncN.width >= 24 && cIncN.width <= 36, 'Create narrow compact stepper');
     const createNarrowW = await measureDrawerWidth(page, '#ps-create-modal .portal-schedule-create-drawer');
     assert.ok(createNarrowW && !createNarrowW.overflow, 'create narrow no overflow');
     await page.screenshot({ path: path.join(ARTIFACT_DIR, 'booking-equipment-reorg-create-narrow.png') });
-    console.log('  PASS  Create screenshots + width + 44px steppers');
+    console.log('  PASS  Create screenshots + width + compact steppers');
 
     await page.locator('#ps-create-close').click().catch(() => {});
     await page.keyboard.press('Escape').catch(() => {});
@@ -894,9 +926,29 @@ async function measureDrawerWidth(page, sel) {
     assert.ok(await eInc.isVisible(), 'Edit + visible');
     assert.ok(await eDec.isVisible(), 'Edit − visible');
     const eIncBox = await eInc.boundingBox();
-    assert.ok(eIncBox && eIncBox.height >= 44 && eIncBox.width >= 44, `Edit + >=44 got ${JSON.stringify(eIncBox)}`);
+    assert.ok(eIncBox && eIncBox.height >= 28 && eIncBox.height <= 36 && eIncBox.width >= 24 && eIncBox.width <= 36, `Edit + compact got ${JSON.stringify(eIncBox)}`);
     const eDecBox = await eDec.boundingBox();
-    assert.ok(eDecBox && eDecBox.height >= 44 && eDecBox.width >= 44, `Edit − >=44 got ${JSON.stringify(eDecBox)}`);
+    assert.ok(eDecBox && eDecBox.height >= 28 && eDecBox.height <= 36 && eDecBox.width >= 24 && eDecBox.width <= 36, `Edit − compact got ${JSON.stringify(eDecBox)}`);
+    const editInline = await page.evaluate((sel) => {
+      const row = document.querySelector(sel);
+      if (!row) return { ok: false };
+      const dur = row.querySelector('select[data-rental-duration-select], select.ps-drawer-rental-duration');
+      const qty = row.querySelector('.portal-schedule-create-rental-qty');
+      const price = row.querySelector('.portal-schedule-create-rental-price');
+      if (!dur || !qty || !price) return { ok: false };
+      const dr = dur.getBoundingClientRect();
+      const qr = qty.getBoundingClientRect();
+      const pr = price.getBoundingClientRect();
+      const mid = (a, b) => Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2);
+      return { ok: mid(dr, qr) <= 8 && mid(qr, pr) <= 8 && pr.left >= qr.right - 2 };
+    }, `${editWrap} [data-rental-offering="sup_rental"]`);
+    assert.ok(editInline.ok, `Edit controls inline got ${JSON.stringify(editInline)}`);
+    const editHdr = await page.evaluate(() => {
+      const wrap = document.getElementById('ps-drawer-rentals');
+      const lab = wrap && wrap.parentElement && wrap.parentElement.querySelector('.portal-schedule-create-label');
+      return lab ? lab.textContent.replace(/\s+/g, ' ').trim() : '';
+    });
+    assert.ok(/equipment/i.test(editHdr), `Edit header EQUIPMENT got ${editHdr}`);
     // qty between
     const qtyBetween = await editSupRow.evaluate((row) => {
       const ste = row.querySelector('.portal-schedule-int-stepper');
@@ -1076,18 +1128,18 @@ async function measureDrawerWidth(page, sel) {
     editSup = await rowState(page, editWrap, 'sup_rental');
     assert.ok(editSup.hasStepper && editSup.incVisible, 'Edit screenshot requires stepper');
     const eIncFinal = await page.locator(`${editWrap} [data-rental-offering="sup_rental"] .portal-schedule-int-stepper [data-int-step="inc"]`).boundingBox();
-    assert.ok(eIncFinal && eIncFinal.height >= 44 && eIncFinal.width >= 44, 'Edit desktop stepper 44');
+    assert.ok(eIncFinal && eIncFinal.height >= 28 && eIncFinal.height <= 36 && eIncFinal.width >= 24 && eIncFinal.width <= 36, 'Edit desktop compact stepper');
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.screenshot({ path: path.join(ARTIFACT_DIR, 'booking-equipment-reorg-edit-desktop.png') });
     await page.setViewportSize({ width: 390, height: 900 });
     await page.waitForTimeout(80);
     const eIncNarrow = await page.locator(`${editWrap} [data-rental-offering="sup_rental"] .portal-schedule-int-stepper [data-int-step="inc"]`).boundingBox();
-    assert.ok(eIncNarrow && eIncNarrow.height >= 44 && eIncNarrow.width >= 44, 'Edit narrow stepper 44');
+    assert.ok(eIncNarrow && eIncNarrow.height >= 28 && eIncNarrow.height <= 36 && eIncNarrow.width >= 24 && eIncNarrow.width <= 36, 'Edit narrow compact stepper');
     const editNarrowOverflow = await measureDrawerWidth(page, '#ps-detail-drawer');
     assert.ok(editNarrowOverflow && !editNarrowOverflow.overflow, 'edit narrow no overflow');
     await page.screenshot({ path: path.join(ARTIFACT_DIR, 'booking-equipment-reorg-edit-narrow.png') });
-    console.log('  PASS  Edit screenshots with steppers >=44');
+    console.log('  PASS  Edit screenshots with compact steppers');
 
     // REAL Save with TWO rentals — must produce exactly one update
     await page.setViewportSize({ width: 1280, height: 900 });

@@ -1056,7 +1056,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.drawer.bookedItems': 'Booked items',
     'schedule.drawer.section.components': 'What\'s included',
     'schedule.drawer.section.course': 'Course',
-    'schedule.drawer.section.rentals': 'Rentals',
+    'schedule.drawer.section.rentals': 'Equipment',
     'schedule.drawer.section.payment': 'Payment',
     'schedule.drawer.section.notes': 'Notes',
     'schedule.create.notes': 'Notes',

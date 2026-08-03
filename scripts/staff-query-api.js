@@ -17150,12 +17150,36 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .portal-schedule-create-activity-hint{margin:8px 0 0;font-size:12px;color:var(--text-muted);line-height:1.4}.portal-schedule-create-rentals{display:flex;flex-direction:column;gap:8px;margin-top:8px;min-width:0;max-width:100%}
 /* Standalone rental EQUIPMENT rows (Create + Edit shared):
    Name-as-toggle button (no visible checkbox); unselected = one line name+from €X;
-   selected = green card revealing duration + qty stepper + line total (unit×qty). */
+   selected = green card revealing one compact controls row: duration · qty · line total. */
+/* Drawer green tokens — equipment selected + course pressed share --sched-primary.
+   Create booking CTA only (not every primary in Edit drawer / modal). */
+.portal-schedule-create-modal,
+.portal-schedule-drawer{
+  --sched-primary:#4E5853;
+  --sched-primary-hover:#3F4843;
+}
+[data-theme="dark"] .portal-schedule-create-modal,
+[data-theme="dark"] .portal-schedule-drawer{
+  --sched-primary:#4E5853;
+  --sched-primary-hover:#3F4843;
+}
+#ps-create-submit.btn-primary,
+#ps-create-modal #ps-create-submit{
+  background:var(--sched-primary,#4E5853);
+  border-color:var(--sched-primary,#4E5853);
+  color:#fff;
+  box-shadow:none;
+}
+#ps-create-submit.btn-primary:hover,
+#ps-create-modal #ps-create-submit:hover{
+  background:var(--sched-primary-hover,#3F4843);
+  border-color:var(--sched-primary-hover,#3F4843);
+}
 .portal-schedule-create-rental-row{display:flex;flex-direction:column;gap:0;width:100%;max-width:100%;min-width:0;box-sizing:border-box;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);overflow:hidden}
 .portal-schedule-create-rental-row.is-selected{border-color:var(--sched-primary,#4E5853);background:rgba(78,88,83,.16)}
-[data-theme="dark"] .portal-schedule-create-rental-row.is-selected{border-color:rgba(126,176,126,.55);background:rgba(70,120,70,.22)}
+[data-theme="dark"] .portal-schedule-create-rental-row.is-selected{border-color:var(--sched-primary,#4E5853);background:rgba(78,88,83,.28)}
 .portal-schedule-create-rental-row.is-off{background:var(--surface);border-color:var(--border-soft)}
-.portal-schedule-create-rental-toggle{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:10px 14px;border:none;border-radius:0;background:transparent;color:var(--text);font:inherit;font-size:13px;font-weight:600;cursor:pointer;margin:0;box-sizing:border-box;text-align:left;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.portal-schedule-create-rental-toggle{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:8px 12px;border:none;border-radius:0;background:transparent;color:var(--text);font:inherit;font-size:13px;font-weight:600;cursor:pointer;margin:0;box-sizing:border-box;text-align:left;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .portal-schedule-create-rental-toggle:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:-2px;z-index:1}
 .portal-schedule-create-rental-row.is-selected .portal-schedule-create-rental-toggle{color:var(--text)}
 .portal-schedule-create-rental-name{flex:1 1 auto;min-width:0;overflow-wrap:anywhere;word-break:break-word;line-height:1.25}
@@ -17166,26 +17190,27 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .portal-schedule-drawer-rentals input.ps-drawer-rental-check,
 #ps-create-rentals input.ps-create-rental-check,
 #ps-drawer-rentals input.ps-drawer-rental-check{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important;opacity:0!important;pointer-events:none!important}
-.portal-schedule-create-rental-controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;width:100%;max-width:100%;min-width:0;box-sizing:border-box;padding:0 12px 12px}
+/* One tight controls row: duration · compact qty · line total (never stack total under stepper) */
+.portal-schedule-create-rental-controls{display:flex;flex-wrap:nowrap;align-items:center;gap:8px;width:100%;max-width:100%;min-width:0;box-sizing:border-box;padding:0 12px 10px}
 .portal-schedule-create-rental-row.is-off .portal-schedule-create-rental-controls,
 .portal-schedule-create-rental-controls[hidden]{display:none!important}
-.portal-schedule-create-rental-duration-label{display:flex;align-items:center;flex:1 1 140px;min-width:0;max-width:100%;margin:0;box-sizing:border-box}
+.portal-schedule-create-rental-duration-label{display:flex;align-items:center;flex:1 1 auto;min-width:0;max-width:none;margin:0;box-sizing:border-box}
 .portal-schedule-create-rental-duration-label select.ps-create-rental-duration,
 .portal-schedule-create-rental-duration-label select.ps-drawer-rental-duration,
 .portal-schedule-create-rental-row select.ps-create-rental-duration,
 .portal-schedule-create-rental-row select.ps-drawer-rental-duration,
-.portal-schedule-create-rental-row select[data-rental-duration-select]{width:100%;max-width:100%;min-width:0;min-height:36px;box-sizing:border-box;font-size:13px}
-.portal-schedule-create-rental-price{flex:0 0 auto;margin-left:auto;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}
-.portal-schedule-create-rental-qty{display:flex;align-items:center;justify-content:center;gap:8px;flex:0 0 auto;min-width:0;margin-left:0}
+.portal-schedule-create-rental-row select[data-rental-duration-select]{width:100%;max-width:100%;min-width:0;min-height:32px;height:32px;box-sizing:border-box;font-size:12px;padding:4px 8px}
+.portal-schedule-create-rental-price{flex:0 0 auto;margin-left:0;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap;line-height:1.2}
+.portal-schedule-create-rental-qty{display:flex;align-items:center;justify-content:center;gap:0;flex:0 0 auto;min-width:0;margin-left:0}
 .portal-schedule-create-rental-qty label{display:inline-flex;align-items:center;gap:0;margin:0;font-size:11px;font-weight:600;color:var(--text-2);white-space:nowrap}
-.portal-schedule-create-rental-qty input[type=number]{width:64px;min-width:56px;min-height:36px;padding:6px 8px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}
+.portal-schedule-create-rental-qty input[type=number]{width:36px;min-width:32px;min-height:32px;height:32px;padding:2px 4px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}
 .ps-create-rental-stock,.ps-drawer-rental-stock{display:inline-block;font-size:11px;font-weight:600;color:var(--text-2);white-space:nowrap;margin-left:4px}
 .ps-create-rental-stock.is-sold-out,.ps-drawer-rental-stock.is-sold-out{color:#c0392b}
 .ps-create-rental-stock.is-not-configured,.ps-drawer-rental-stock.is-not-configured{color:#a67c00}
-/* Equipment list qty steppers only — 44×44 −/+ (do not change non-equipment steppers) */
+/* Equipment list qty steppers only — compact − N + so line total stays inline (do not change non-equipment steppers) */
 #ps-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-step,
 #ps-drawer-rentals .portal-schedule-create-rental-row .portal-schedule-int-step,
-.portal-schedule-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-step{width:44px;height:44px;min-width:44px;min-height:44px;box-sizing:border-box}
+.portal-schedule-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-step{width:28px;height:32px;min-width:28px;min-height:32px;max-width:28px;padding:0;font-size:15px;line-height:1;box-sizing:border-box}
 #ps-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-stepper input.portal-schedule-int-stepper-input,
 #ps-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-stepper input[type=number],
 #ps-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-stepper input[type=text],
@@ -17194,24 +17219,24 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 #ps-drawer-rentals .portal-schedule-create-rental-row .portal-schedule-int-stepper input[type=text],
 .portal-schedule-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-stepper input.portal-schedule-int-stepper-input,
 .portal-schedule-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-stepper input[type=number],
-.portal-schedule-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-stepper input[type=text]{min-height:44px;height:44px;width:44px;min-width:40px;box-sizing:border-box}
+.portal-schedule-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-stepper input[type=text]{min-height:32px;height:32px;width:36px;min-width:32px;max-width:40px;padding:0 2px;font-size:13px;box-sizing:border-box}
 #ps-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-stepper,
 #ps-drawer-rentals .portal-schedule-create-rental-row .portal-schedule-int-stepper,
-.portal-schedule-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-stepper{min-height:44px;align-items:stretch}
+.portal-schedule-create-rentals .portal-schedule-create-rental-row .portal-schedule-int-stepper{min-height:32px;height:32px;align-items:stretch;flex:0 0 auto}
 #ps-create-rentals .portal-schedule-create-rental-qty input.ps-create-rental-qty-input,
-#ps-drawer-rentals .portal-schedule-create-rental-qty input.ps-drawer-rental-qty-input{min-height:44px;height:44px;box-sizing:border-box}
+#ps-drawer-rentals .portal-schedule-create-rental-qty input.ps-drawer-rental-qty-input{min-height:32px;height:32px;box-sizing:border-box}
 @media(max-width:768px){
-  .portal-schedule-create-rental-toggle{padding:10px 12px;font-size:13px}
-  .portal-schedule-create-rental-controls{gap:8px;padding:0 10px 10px;align-items:stretch}
-  .portal-schedule-create-rental-duration-label{flex:1 1 100%;width:100%}
+  .portal-schedule-create-rental-toggle{padding:8px 10px;font-size:13px}
+  .portal-schedule-create-rental-controls{gap:6px;padding:0 10px 8px;align-items:center;flex-wrap:nowrap}
+  .portal-schedule-create-rental-duration-label{flex:1 1 auto;min-width:0;width:auto}
   .portal-schedule-create-rental-duration-label select.ps-create-rental-duration,
   .portal-schedule-create-rental-duration-label select.ps-drawer-rental-duration,
   .portal-schedule-create-rental-row select.ps-create-rental-duration,
   .portal-schedule-create-rental-row select.ps-drawer-rental-duration,
-  .portal-schedule-create-rental-row select[data-rental-duration-select]{min-height:40px;font-size:14px}
-  .portal-schedule-create-rental-qty{flex:1 1 auto;justify-content:flex-start}
-  .portal-schedule-create-rental-qty input[type=number]{width:56px;min-width:56px;min-height:36px;padding:6px 6px;font-size:14px;border-radius:8px}
-  .portal-schedule-create-rental-price{flex:0 0 auto;align-self:center;margin-left:auto}
+  .portal-schedule-create-rental-row select[data-rental-duration-select]{min-height:32px;height:32px;font-size:12px}
+  .portal-schedule-create-rental-qty{flex:0 0 auto;justify-content:center}
+  .portal-schedule-create-rental-qty input[type=number]{width:34px;min-width:30px;min-height:32px;height:32px;padding:2px 2px;font-size:13px;border-radius:6px}
+  .portal-schedule-create-rental-price{flex:0 0 auto;align-self:center;margin-left:0}
   .portal-schedule-create-check input[type=checkbox],.portal-schedule-create-components input[type=checkbox],.portal-schedule-create-check input[type=radio],.portal-schedule-create-components input[type=radio]{width:20px;height:20px;accent-color:var(--sched-primary, #4E5853)}
 }
 
@@ -19255,7 +19280,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <div id="ps-create-course-equipment-list" class="portal-schedule-course-equipment-list"></div>
           </div>
           <div class="portal-schedule-create-main-activity-header portal-schedule-create-equipment-header">
-            <span id="ps-create-equipment-catalog-label" class="portal-schedule-create-label">Equipment</span>
+            <span id="ps-create-equipment-catalog-label" class="portal-schedule-create-label" data-i18n="schedule.drawer.section.rentals">Equipment</span>
           </div>
           <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-labelledby="ps-create-equipment-catalog-label" aria-live="polite"></div>
         </div>
