@@ -18144,6 +18144,22 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .detail-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:visible}
 .detail-sidebar{width:280px;flex-shrink:0;align-self:flex-start;max-height:calc(100vh - 280px);overflow-y:auto;-webkit-overflow-scrolling:touch}
 @media(max-width:860px){.detail-layout{flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;align-items:stretch}.detail-sidebar{width:100%;max-height:none;overflow:visible;flex-shrink:0}}
+
+/* Inbox detail: collapsible booking/payment right rail */
+
+.detail-layout{position:relative}
+.detail-layout > .detail-sidebar-toggle{position:absolute;top:0;right:0;z-index:2}
+.detail-layout:not(.is-sidebar-collapsed) > .detail-sidebar-toggle{right:288px}
+@media(max-width:860px){
+  .detail-layout > .detail-sidebar-toggle{position:static;align-self:flex-end;margin:0 0 6px auto}
+  .detail-layout:not(.is-sidebar-collapsed) > .detail-sidebar-toggle{right:auto}
+}
+
+.detail-sidebar-toggle{flex-shrink:0;min-height:32px;padding:6px 10px;font-size:12px;font-weight:600;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);color:var(--text-2);cursor:pointer;white-space:nowrap}
+.detail-sidebar-toggle:hover{color:var(--text);background:var(--surface)}
+.detail-sidebar-toggle:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.detail-layout.is-sidebar-collapsed .detail-sidebar{display:none!important}
+.detail-layout.is-sidebar-collapsed .detail-main{flex:1 1 auto;min-width:0;width:100%;max-width:100%}
 /* ── Message thread ──────────────────────────────────────────────────────── */
 .thread-section{flex:0 0 auto;min-height:0;display:flex;flex-direction:column;overflow:visible}
 .thread-section h3{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;flex-shrink:0}
@@ -31669,6 +31685,44 @@ function loadSurfInboxDemoDetail(convId, targetEl){
   return true;
 }
 
+
+function inboxSidebarCollapsedPreferred() {
+  try {
+    return sessionStorage.getItem('inbox-detail-sidebar-collapsed') === '1';
+  } catch (_e) { return false; }
+}
+function inboxSetSidebarCollapsed(layout, collapsed) {
+  if (!layout) return;
+  if (collapsed) layout.classList.add('is-sidebar-collapsed');
+  else layout.classList.remove('is-sidebar-collapsed');
+  var btn = layout.querySelector('#inbox-sidebar-toggle') || layout.parentElement && layout.parentElement.querySelector('#inbox-sidebar-toggle');
+  // toggle may be sibling before sidebar inside layout
+  if (!btn && layout.previousElementSibling && layout.previousElementSibling.id === 'inbox-sidebar-toggle') btn = layout.previousElementSibling;
+  // Our HTML puts button inside layout before sidebar
+  btn = layout.querySelector('#inbox-sidebar-toggle');
+  if (btn) {
+    btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    var lab = collapsed
+      ? (typeof portalT === 'function' ? portalT('inbox.detail.sidebar.show') : null) || (typeof t === 'function' ? t('inbox.detail.sidebar.show') : null) || 'Show bookings'
+      : (typeof portalT === 'function' ? portalT('inbox.detail.sidebar.hide') : null) || (typeof t === 'function' ? t('inbox.detail.sidebar.hide') : null) || 'Hide bookings';
+    btn.textContent = lab;
+  }
+  try { sessionStorage.setItem('inbox-detail-sidebar-collapsed', collapsed ? '1' : '0'); } catch (_s) { /* ignore */ }
+}
+function wireInboxSidebarToggle(targetEl) {
+  targetEl = targetEl || (typeof el === 'function' ? el('detail-content') : null);
+  if (!targetEl) return;
+  var layout = targetEl.querySelector('.detail-layout');
+  var btn = targetEl.querySelector('#inbox-sidebar-toggle');
+  if (!layout || !btn || btn.dataset.wired === '1') return;
+  btn.dataset.wired = '1';
+  inboxSetSidebarCollapsed(layout, inboxSidebarCollapsedPreferred());
+  btn.addEventListener('click', function() {
+    var next = !layout.classList.contains('is-sidebar-collapsed');
+    inboxSetSidebarCollapsed(layout, next);
+  });
+}
+
 function loadConvDetail(convId, targetEl){
   targetEl = targetEl || el('detail-content');
   selectedConvId = convId;
@@ -31791,7 +31845,8 @@ function loadConvDetail(convId, targetEl){
     html += '</div>'; /* /detail-main */
 
     /* ═══ RIGHT — context sidebar ═══ */
-    html += '<div class="detail-sidebar">';
+    html += '<button type="button" class="detail-sidebar-toggle" id="inbox-sidebar-toggle" aria-controls="inbox-detail-sidebar" aria-expanded="true">' + escHtml(t('inbox.detail.sidebar.hide') || portalT('inbox.detail.sidebar.hide') || 'Hide bookings') + '</button>';
+    html += '<div class="detail-sidebar" id="inbox-detail-sidebar">';
 
     /* ── Guest bookings (stacked) ── */
     html += '<div class="sidebar-card">';
@@ -31838,6 +31893,7 @@ function loadConvDetail(convId, targetEl){
         internal_staff_notes: c.internal_staff_notes
       });
     });
+    wireInboxSidebarToggle(targetEl);
     wireNeedsHumanToggle(convId, targetEl);
     wireLunaPauseSwitch(convId, targetEl);
     wireFreshStart(convId, targetEl);

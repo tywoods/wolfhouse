@@ -379,6 +379,9 @@ module.exports = {
   'admin.finance.empty': 'Aún no hay actividad financiera en estos periodos.',
   'admin.finance.error': 'No se pudo cargar el resumen financiero.',
   'admin.finance.retry': 'Reintentar',
+  'admin.finance.product.lessons': 'Clases',
+  'admin.finance.product.courseIncluded': 'Equipo del curso',
+  'admin.finance.product.other': 'Otros',
   'calendar.block.actionsDisabled': 'Acciones deshabilitadas durante el bloqueo',
   'calendar.block.button': 'Bloquear fechas',
   'calendar.block.confirm': '¿Bloquear estas fechas?',
@@ -774,7 +777,8 @@ module.exports = {
   'schedule.create.courseTierRequired': 'Selecciona una duración del curso antes de crear la reserva.',
   'schedule.create.courseDurationUnavailable': 'No hay una duración de curso vendible que coincida con las fechas seleccionadas.',
   'schedule.create.courseDurationAmbiguous': 'Varias duraciones de curso coinciden con estas fechas — ajusta el intervalo o los niveles del catálogo.',
-  'schedule.create.courseRequired': 'Selecciona un curso en grupo.',
+  'schedule.create.courseRequired': 'Selecciona un curso o desactiva Curso en grupo',
+  'schedule.create.courseOrTurnOff': 'Selecciona un curso o desactiva Curso en grupo',
   'schedule.create.courseWeekendsOnly': 'Solo fines de semana',
   'schedule.create.courseWeekdaysOnly': 'Solo entre semana',
   'schedule.create.courseDaily': 'Todos los días',
@@ -901,5 +905,7 @@ module.exports = {
     'admin.school.active': 'Configuración de',
     'admin.school.switchHint': ' (usa el selector de escuela del encabezado)',
     'inbox.school.context': 'Bandeja de:',
+  'inbox.detail.sidebar.hide': 'Ocultar reservas',
+  'inbox.detail.sidebar.show': 'Mostrar reservas',
 
 };

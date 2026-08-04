@@ -208,6 +208,168 @@ function productBucket(serviceTypeOrRow, metadataMaybe) {
   return 'retail';
 }
 
+/**
+ * F2 — exactly 5 revenue rows for the selected period:
+ *  1. Lessons (surf_lesson / course)
+ *  2. Course-included item(s) — offerings marked course-includable on packs;
+ *     sum across during_course + all_day + standalone modes
+ *  3–4. Next 2 items by € revenue (excluding lessons + course-included keys)
+ *  5. Other — remainder
+ * Empty/low-item periods keep the 5-row structure with €0 slots.
+ */
+function courseIncludableOfferingKeys(surfPacks) {
+  const keys = new Set();
+  for (const pack of Array.isArray(surfPacks) ? surfPacks : []) {
+    const cfg = pack && pack.config && typeof pack.config === 'object' ? pack.config : {};
+    const opts = Array.isArray(pack && pack.equipment_options)
+      ? pack.equipment_options
+      : (Array.isArray(cfg.equipment_options) ? cfg.equipment_options : []);
+    for (const o of opts) {
+      const k = String((o && o.offering_key) || '').trim();
+      if (k) keys.add(k);
+    }
+  }
+  return keys;
+}
+
+function revenueItemKeyAndLabel(row) {
+  const md = (row && row.metadata) || {};
+  const st = String(row && row.service_type || '').toLowerCase();
+  // Lessons / courses
+  if (st === 'surf_lesson' || st === 'course' || md.component === 'course') {
+    return { kind: 'lessons', key: 'lessons', label: 'Lessons' };
+  }
+  const offering = String(md.offering_key || '').trim();
+  if (offering) {
+    const label = String(md.offering_label || md.label || md.staff_ui_service_type || offering)
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+    return { kind: 'item', key: offering, label: label || offering };
+  }
+  // Legacy typed rentals without offering_key
+  if (st === 'surfboard') return { kind: 'item', key: 'board_rental', label: 'Board rental' };
+  if (st === 'wetsuit') return { kind: 'item', key: 'wetsuit_rental', label: 'Wetsuit rental' };
+  const bucket = productBucket(row);
+  if (bucket === 'boards') return { kind: 'item', key: 'board_rental', label: 'Board rental' };
+  if (bucket === 'wetsuits') return { kind: 'item', key: 'wetsuit_rental', label: 'Wetsuit rental' };
+  const fallback = String(md.component || st || 'other').trim() || 'other';
+  return {
+    kind: 'item',
+    key: `misc:${fallback}`,
+    label: fallback.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+  };
+}
+
+function buildRevenueByProductFiveRows(datedBsr, range, surfPacks) {
+  const includable = courseIncludableOfferingKeys(surfPacks);
+  let lessonsCents = 0;
+  const itemCents = new Map(); // key -> { cents, label }
+  const courseIncludedParts = new Map(); // offering keys that are includable
+
+  for (const r of Array.isArray(datedBsr) ? datedBsr : []) {
+    if (!inRange(r.service_date, range)) continue;
+    const due = Number.isFinite(r.due) ? r.due : 0;
+    if (!Number.isFinite(due)) continue;
+    const id = revenueItemKeyAndLabel(r);
+    if (id.kind === 'lessons') {
+      lessonsCents = checkedAdd(lessonsCents, due);
+      continue;
+    }
+    const prev = itemCents.get(id.key) || { cents: 0, label: id.label };
+    prev.cents = checkedAdd(prev.cents, due);
+    if (!prev.label) prev.label = id.label;
+    itemCents.set(id.key, prev);
+    if (includable.has(id.key)) courseIncludedParts.set(id.key, true);
+  }
+
+  // Course-included row: sum ALL modes for includable offering keys (even if €0).
+  let courseIncludedCents = 0;
+  const courseIncludedLabels = [];
+  for (const key of includable) {
+    const row = itemCents.get(key);
+    if (row) {
+      courseIncludedCents = checkedAdd(courseIncludedCents, row.cents);
+      if (row.label) courseIncludedLabels.push(row.label);
+      itemCents.delete(key); // exclude from ranked top-2 / other
+    }
+  }
+  // If packs define no includable set, but period has course_equipment rows, treat those keys as included.
+  if (includable.size === 0) {
+    for (const r of Array.isArray(datedBsr) ? datedBsr : []) {
+      if (!inRange(r.service_date, range)) continue;
+      const md = r.metadata || {};
+      if (md.course_equipment === true || md.course_equipment === 'true') {
+        const k = String(md.offering_key || '').trim();
+        if (!k) continue;
+        const row = itemCents.get(k);
+        if (row) {
+          courseIncludedCents = checkedAdd(courseIncludedCents, row.cents);
+          if (row.label) courseIncludedLabels.push(row.label);
+          itemCents.delete(k);
+          courseIncludedParts.set(k, true);
+        }
+      }
+    }
+  }
+
+  const ranked = Array.from(itemCents.entries())
+    .map(([key, v]) => ({ key, label: v.label || key, cents: v.cents }))
+    .sort((a, b) => {
+      if (b.cents !== a.cents) return b.cents - a.cents;
+      return String(a.label).localeCompare(String(b.label));
+    });
+
+  const top1 = ranked[0] || { key: 'item_1', label: '—', cents: 0 };
+  const top2 = ranked[1] || { key: 'item_2', label: '—', cents: 0 };
+  let otherCents = 0;
+  for (let i = 2; i < ranked.length; i++) {
+    otherCents = checkedAdd(otherCents, ranked[i].cents);
+  }
+
+  const courseLabel = courseIncludedLabels.length
+    ? (courseIncludedLabels.length === 1
+      ? courseIncludedLabels[0]
+      : 'Course equipment')
+    : 'Course equipment';
+
+  const rows = [
+    { key: 'lessons', label: 'Lessons', cents: lessonsCents, slot: 'lessons' },
+    {
+      key: 'course_included',
+      label: courseLabel,
+      cents: courseIncludedCents,
+      slot: 'course_included',
+      offering_keys: Array.from(courseIncludedParts.keys()),
+    },
+    {
+      key: top1.key === 'item_1' ? 'rank_1' : top1.key,
+      label: top1.cents > 0 || ranked[0] ? top1.label : '—',
+      cents: top1.cents,
+      slot: 'rank_1',
+    },
+    {
+      key: top2.key === 'item_2' ? 'rank_2' : top2.key,
+      label: top2.cents > 0 || ranked[1] ? top2.label : '—',
+      cents: top2.cents,
+      slot: 'rank_2',
+    },
+    { key: 'other', label: 'Other', cents: otherCents, slot: 'other' },
+  ];
+
+  const productTotal = rows.reduce((a, p) => checkedAdd(a, p.cents), 0);
+  return rows.map((p) => {
+    const pct = productTotal > 0 ? Math.round((1000 * p.cents) / productTotal) / 10 : 0;
+    return {
+      key: p.key,
+      label: p.label,
+      cents: p.cents,
+      pct,
+      slot: p.slot,
+      offering_keys: p.offering_keys || undefined,
+    };
+  });
+}
+
 function metaFlagTrue(md, key) {
   const v = md && md[key];
   return v === true || v === 'true' || v === 1 || v === '1';
@@ -539,24 +701,8 @@ function computeSunsetFinanceSummary(args) {
     }
   }
 
-  // Product revenue (BSR recognition by service_date in primary range)
-  const product = {
-    lessons: { cents: 0, label: 'Surf lessons' },
-    boards: { cents: 0, label: 'Board rental' },
-    wetsuits: { cents: 0, label: 'Wetsuit rental' },
-    retail: { cents: 0, label: 'Retail / other' },
-  };
-  for (const r of datedBsr) {
-    if (!inRange(r.service_date, primaryRange)) continue;
-    const bucket = productBucket(r);
-    product[bucket].cents = checkedAdd(product[bucket].cents, r.due);
-  }
-  const productTotal = Object.values(product).reduce((a, p) => checkedAdd(a, p.cents), 0);
-  const revenue_by_product = Object.keys(product).map((key) => {
-    const p = product[key];
-    const pct = productTotal > 0 ? Math.round((1000 * p.cents) / productTotal) / 10 : 0;
-    return { key, label: p.label, cents: p.cents, pct };
-  });
+  // Product revenue (BSR recognition by service_date in primary range) — F2 five-row shape
+  const revenue_by_product = buildRevenueByProductFiveRows(datedBsr, primaryRange, surfPacks);
 
   // Capacity — lesson seats
   const fallbackGs = defaultPackGroupSize(surfPacks);
@@ -761,6 +907,8 @@ module.exports = {
   periodRanges,
   resolvePrimaryRange,
   productBucket,
+  buildRevenueByProductFiveRows,
+  courseIncludableOfferingKeys,
   shiftRangeYears,
   stockTotals,
   isStaffCustomLine,

@@ -276,9 +276,21 @@ function renderFinanceRedesignHtml(summary) {
   html += '<div class="pfb-sec">' + financeRedesignEsc(financeRedesignT('admin.finance.revenueByProduct', 'Revenue by product')) + '</div>';
   html += '<div class="pfb-sub">' + financeRedesignEsc(financeRedesignT('admin.finance.revenueByProductNote', "Where the money's coming from (booked by service date)")) + '</div>';
   html += '<div class="pfb-bars">';
-  var colorMap = { lessons: 'is-green', boards: 'is-blue', wetsuits: 'is-violet', retail: 'is-amber' };
-  products.forEach(function (p) {
-    html += financeRedesignBarRow(p.label, p.cents, p.pct, colorMap[p.key] || 'is-green');
+  var colorCycle = ['is-green', 'is-blue', 'is-violet', 'is-amber', 'is-green'];
+  var colorMap = { lessons: 'is-green', course_included: 'is-blue', boards: 'is-blue', wetsuits: 'is-violet', retail: 'is-amber', other: 'is-amber' };
+  products.forEach(function (p, idx) {
+    var cls = colorMap[p.key] || colorMap[p.slot] || colorCycle[idx % colorCycle.length] || 'is-green';
+    var lab = p.label;
+    if (p.slot === 'lessons' || p.key === 'lessons') {
+      lab = financeRedesignT('admin.finance.product.lessons', p.label || 'Lessons');
+    } else if (p.slot === 'course_included' || p.key === 'course_included') {
+      lab = p.label && p.label !== 'Course equipment'
+        ? p.label
+        : financeRedesignT('admin.finance.product.courseIncluded', 'Course equipment');
+    } else if (p.slot === 'other' || p.key === 'other') {
+      lab = financeRedesignT('admin.finance.product.other', 'Other');
+    }
+    html += financeRedesignBarRow(lab, p.cents, p.pct, cls);
   });
   html += '</div></div>';
 

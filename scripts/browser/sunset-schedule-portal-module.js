@@ -26,6 +26,7 @@ var schedulePortalSubmitIdemKey = null;
 var schedulePortalSubmitIdemIntent = null;
 /** True after a quote failure that must clear total + keep Create disabled (e.g. unpriced). */
 var schedulePortalQuotePriceBlocked = false;
+var schedulePortalPendingCourseSelectionRequired = false;
 
 /**
  * Resolve human quote-failure copy. Prefer server ui_message_key / price reasons
@@ -1499,6 +1500,37 @@ function schedulePortalIsValidCreatePhone(raw) {
  * opts.soft: skip guest name/phone; return softInvalid/idle rather than hard block.
  * Quote recalculates while name/phone are blank; Create stays fail-closed.
  */
+
+/**
+ * D4: Quote payload may omit incomplete Group Course so standalone rentals still price.
+ * Create hard-gate still requires a selected course when Group Course is on.
+ */
+function schedulePortalCourseSelectionIncomplete(payload) {
+  var p = payload || {};
+  var comps = p.components || {};
+  if (!comps.course) return false;
+  var selectedCourses = Array.isArray(comps.course.selected_courses) ? comps.course.selected_courses : [];
+  if (selectedCourses.length > 0) {
+    for (var i = 0; i < selectedCourses.length; i++) {
+      if (!String((selectedCourses[i] && selectedCourses[i].course_id) || '').trim()) return true;
+    }
+    return false;
+  }
+  return !String(comps.course.course_id || '').trim();
+}
+
+function schedulePortalPayloadForQuote(payload) {
+  var p = payload || {};
+  try { p = JSON.parse(JSON.stringify(p)); } catch (_c) { p = payload || {}; }
+  if (!schedulePortalCourseSelectionIncomplete(p)) return p;
+  if (p.components && p.components.course) {
+    try { delete p.components.course; } catch (_d) { p.components.course = undefined; }
+  }
+  // Incomplete group course cannot own course_equipment modes.
+  p.course_equipment = [];
+  return p;
+}
+
 function schedulePortalValidateCreatePayload(payload, opts) {
   opts = opts || {};
   var soft = opts.soft === true;
@@ -1520,28 +1552,49 @@ function schedulePortalValidateCreatePayload(payload, opts) {
     var phone = p.guest_phone != null ? String(p.guest_phone).trim() : '';
     if (!schedulePortalIsValidCreatePhone(phone)) return fail('schedule.create.phoneRequired');
   }
+  // D4: Group Course on with no course picked.
+  // Hard create → block with clear message. Soft quote → allow rentals to price
+  // (caller strips incomplete course via schedulePortalPayloadForQuote).
+  var courseSelectionRequired = false;
   if (comps.course) {
     var selectedCourses = Array.isArray(comps.course.selected_courses)
       ? comps.course.selected_courses
       : [];
     var hasSelectedCourses = selectedCourses.length > 0;
     if (!hasSelectedCourses && !String(comps.course.course_id || '').trim()) {
-      return fail('schedule.create.courseRequired');
-    }
-    if (hasSelectedCourses) {
+      courseSelectionRequired = true;
+      if (!soft) return fail('schedule.create.courseOrTurnOff');
+      // Soft: continue — rentals/other lines may still quote. No silent empty estimate.
+    } else if (hasSelectedCourses) {
       for (var sci = 0; sci < selectedCourses.length; sci++) {
         var sc = selectedCourses[sci] || {};
-        if (!String(sc.course_id || '').trim()) return fail('schedule.create.courseRequired');
-        // Tier is derived from inclusive dates + sellable catalog match — never free-typed.
-        if (!String(sc.tier_key || '').trim()) return fail('schedule.create.courseDurationUnavailable');
+        if (!String(sc.course_id || '').trim()) {
+          courseSelectionRequired = true;
+          if (!soft) return fail('schedule.create.courseOrTurnOff');
+        } else if (!String(sc.tier_key || '').trim()) {
+          return fail('schedule.create.courseDurationUnavailable');
+        }
       }
     } else if (!String(comps.course.tier_key || '').trim()) {
+      // Course id present but tier unresolved for date span.
       return fail('schedule.create.courseDurationUnavailable');
     }
   }
 
   if (!schedulePortalHasSellableIntent(p)) {
+    // Group Course toggled with nothing else → clear course-pick message (not silent idle).
+    if (courseSelectionRequired) return fail('schedule.create.courseOrTurnOff');
     return fail('schedule.create.componentsRequired', { idle: true });
+  }
+  // Soft + course incomplete + rentals present: sellable via rentals; keep courseSelectionRequired flag.
+  if (courseSelectionRequired && soft) {
+    // Ensure rentals (or other non-course lines) exist so we don't quote empty course shell.
+    var nonCourseSellable = rentals.length > 0
+      || !!(comps.private_lesson)
+      || !!(comps.full_day_equipment_extension)
+      || !!(comps.surfboard || comps.wetsuit)
+      || (p.accommodation && p.accommodation.enabled !== false);
+    if (!nonCourseSellable) return fail('schedule.create.courseOrTurnOff');
   }
 
   if (comps.private_lesson) {
@@ -1601,7 +1654,9 @@ function schedulePortalValidateCreatePayload(payload, opts) {
     }
   }
 
-  return { ok: true };
+  var outOk = { ok: true };
+  if (courseSelectionRequired) outOk.courseSelectionRequired = true;
+  return outOk;
 }
 
 function schedulePortalInvalidateCreateQuoteIntent(result) {
@@ -1630,8 +1685,21 @@ function schedulePortalRenderCreateQuotePreview(result) {
   try { box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite'); } catch (_e) { /* ignore */ }
   if (result && (result.idle || result.softInvalid)) {
     schedulePortalQuoteState = null;
-    schedulePortalQuotePriceBlocked = false;
-    box.innerHTML = ''; box.style.display = 'none';
+    // Course gate is a hard Create block but still a clear soft message (D4).
+    var gateKey = result.errorKey || '';
+    if (!result.idle && (gateKey === 'schedule.create.courseOrTurnOff' || gateKey === 'schedule.create.courseRequired'
+      || result.courseSelectionRequired)) {
+      schedulePortalQuotePriceBlocked = true;
+      var gateMsg = portalT('schedule.create.courseOrTurnOff')
+        || portalT('schedule.create.courseRequired')
+        || 'Select a course or turn off Group Course';
+      box.innerHTML = '<p class="portal-schedule-drawer-hint portal-schedule-quote-course-gate" style="margin:0;color:var(--danger,#b33)" data-quote-status="course-required">'
+        + escHtml(String(gateMsg)) + '</p>';
+      box.style.display = 'block';
+    } else {
+      schedulePortalQuotePriceBlocked = false;
+      box.innerHTML = ''; box.style.display = 'none';
+    }
     if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
     return;
   }
@@ -1677,9 +1745,19 @@ function schedulePortalRenderCreateQuotePreview(result) {
     if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
     return;
   }
-  schedulePortalQuotePriceBlocked = false;
-  box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0">'
+  // D4: rental quote can succeed while Group Course still needs a pick — Create stays blocked.
+  var courseGate = !!(result && result.courseSelectionRequired);
+  schedulePortalQuotePriceBlocked = courseGate ? true : false;
+  var htmlQ = '';
+  if (courseGate) {
+    htmlQ += '<p class="portal-schedule-drawer-hint portal-schedule-quote-course-gate" style="margin:0 0 6px;color:var(--danger,#b33)" data-quote-status="course-required">'
+      + escHtml(portalT('schedule.create.courseOrTurnOff')
+        || portalT('schedule.create.courseRequired')
+        || 'Select a course or turn off Group Course') + '</p>';
+  }
+  htmlQ += '<p class="portal-schedule-drawer-hint" style="margin:0" data-quote-status="ok">'
     + escHtml((portalT('schedule.create.quoteTotal') || 'Quoted total') + ': \u20ac' + (raw / 100).toFixed(2)) + '</p>';
+  box.innerHTML = htmlQ;
   box.style.display = 'block';
   if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
   // Attach authoritative accommodation season/price onto locked Create stay cards.
@@ -1981,7 +2059,12 @@ function schedulePortalRunPreviewQuote() {
       schedulePortalRenderCreateIntentSummary(payload);
     }
     if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
-      schedulePortalRenderCreateQuotePreview({ ok: false, softInvalid: true });
+      schedulePortalRenderCreateQuotePreview({
+        ok: false,
+        softInvalid: true,
+        errorKey: softGate && softGate.errorKey,
+        courseSelectionRequired: !!(softGate && softGate.courseSelectionRequired),
+      });
     }
     return Promise.resolve({ ok: false, softInvalid: true, errorKey: softGate && softGate.errorKey });
   }
@@ -1998,13 +2081,19 @@ function schedulePortalRunPreviewQuote() {
   }
   if (typeof schedulePortalShowQuoteChecking === 'function') schedulePortalShowQuoteChecking();
 
-  return schedulePortalFetchQuote(payload, {
+  var quotePayload = typeof schedulePortalPayloadForQuote === 'function'
+    ? schedulePortalPayloadForQuote(payload)
+    : payload;
+  var courseSelReq = !!(softGate && softGate.courseSelectionRequired);
+
+  return schedulePortalFetchQuote(quotePayload, {
     gen: myGen,
     signal: controller ? controller.signal : undefined,
     applyState: true,
   }).then(function(result) {
     if (myGen !== schedulePortalQuoteGen || schedulePortalSubmitInFlight) return { ok: false, superseded: true };
     if (result && result.aborted) return result;
+    if (result && courseSelReq) result.courseSelectionRequired = true;
     if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
       schedulePortalRenderCreateQuotePreview(result);
     }
@@ -2034,13 +2123,29 @@ function schedulePortalRefreshCreateQuote() {
   try { softGate = schedulePortalValidateCreatePayload(payload || {}, { soft: true }); }
   catch (_sg) { softGate = { ok: false, softInvalid: true }; }
   if (!softGate || softGate.ok !== true) {
-    var inv = (softGate && softGate.idle === true) ? { idle: true } : { ok: false, softInvalid: true };
-    schedulePortalInvalidateCreateQuoteIntent(inv);
+    var inv = (softGate && softGate.idle === true)
+      ? { idle: true }
+      : {
+          ok: false,
+          softInvalid: true,
+          errorKey: softGate && softGate.errorKey,
+          courseSelectionRequired: !!(softGate && softGate.courseSelectionRequired),
+        };
+    // D4: course gate must paint a message — do not blank via Invalidate alone.
+    if (inv.softInvalid && typeof schedulePortalRenderCreateQuotePreview === 'function') {
+      schedulePortalQuoteState = null;
+      schedulePortalRenderCreateQuotePreview(inv);
+      if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
+    } else {
+      schedulePortalInvalidateCreateQuoteIntent(inv);
+    }
     if (!inv.idle && payload && payload.components && payload.components.private_lesson) {
       try { schedulePortalRenderCreateIntentSummary(payload); } catch (_s) { /* ignore */ }
     }
     return Promise.resolve(null);
   }
+  // Stash for debounced fetch (course gate while rentals quote).
+  schedulePortalPendingCourseSelectionRequired = !!(softGate && softGate.courseSelectionRequired);
   if (schedulePortalQuoteAbort) {
     try { schedulePortalQuoteAbort.abort(); } catch (_a) { /* ignore */ }
     schedulePortalQuoteAbort = null;
