@@ -844,23 +844,32 @@ function computeSunsetFinanceSummary(args) {
     };
   });
 
-  // F3 — 12 calendar months of the primary range's year (for yearly chart toggle).
-  const yearAnchor = String(primaryRange.start || today).slice(0, 4);
+  // F3 — trailing 12 calendar months ending at primary range end (independent of top gran).
+  const trailEnd = String(primaryRange.end || primaryRange.start || today).slice(0, 10);
+  const trailParts = trailEnd.split('-').map((x) => Number(x));
+  let trailY = trailParts[0];
+  let trailM = trailParts[1];
   const monthly_gross_trend = [];
-  for (let mo = 1; mo <= 12; mo++) {
-    const mm = String(mo).padStart(2, '0');
-    const start = `${yearAnchor}-${mm}-01`;
-    const endDt = new Date(Date.UTC(Number(yearAnchor), mo, 0)); // last day of month
-    const end = `${yearAnchor}-${mm}-${String(endDt.getUTCDate()).padStart(2, '0')}`;
+  // Build oldest → newest (11 months back through end month).
+  for (let i = 11; i >= 0; i--) {
+    let y = trailY;
+    let m = trailM - i;
+    while (m <= 0) { m += 12; y -= 1; }
+    while (m > 12) { m -= 12; y += 1; }
+    const mm = String(m).padStart(2, '0');
+    const start = `${y}-${mm}-01`;
+    const endDt = new Date(Date.UTC(y, m, 0)); // last day of month
+    const end = `${y}-${mm}-${String(endDt.getUTCDate()).padStart(2, '0')}`;
     const monthRange = { start, end };
     const cur = summarize(monthRange);
-    const lyStart = `${Number(yearAnchor) - 1}-${mm}-01`;
-    const lyEndDt = new Date(Date.UTC(Number(yearAnchor) - 1, mo, 0));
-    const lyEnd = `${Number(yearAnchor) - 1}-${mm}-${String(lyEndDt.getUTCDate()).padStart(2, '0')}`;
+    const lyY = y - 1;
+    const lyStart = `${lyY}-${mm}-01`;
+    const lyEndDt = new Date(Date.UTC(lyY, m, 0));
+    const lyEnd = `${lyY}-${mm}-${String(lyEndDt.getUTCDate()).padStart(2, '0')}`;
     const ly = summarize({ start: lyStart, end: lyEnd });
     monthly_gross_trend.push({
       date: start,
-      month: `${yearAnchor}-${mm}`,
+      month: `${y}-${mm}`,
       booked_cents: cur.booked_cents,
       collected_gross_cents: cur.collected_gross_cents,
       ly_booked_cents: ly.booked_cents,

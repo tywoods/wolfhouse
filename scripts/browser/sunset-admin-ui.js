@@ -2056,6 +2056,7 @@ function renderAdminFinanceShell(){
 var financeLoadSeq = 0;
 // Option B navigator state (client-only; server recomputes redesign for this view).
 var financeViewState = { granularity: 'month', anchor: null, start: null, end: null };
+var financeLastSummary = null;
 
 function financeViewQuery(){
   var q = '';
@@ -2093,8 +2094,27 @@ function wireFinanceRedesignNav(body){
   body.addEventListener('click', function(ev){
     var t = ev.target;
     if (!t || !t.closest) return;
-    var btn = t.closest('[data-finance-nav], [data-finance-gran]');
+    // Include trend toggle + custom open — previously only nav/gran matched, so
+    // Days/12 months clicks never fired (F3 broken / not decoupled).
+    var btn = t.closest('[data-finance-nav], [data-finance-gran], [data-finance-trend]');
     if (!btn || !body.contains(btn)) return;
+
+    // F3 first: chart mode is independent of Day/Month/Year period.
+    var trend = btn.getAttribute('data-finance-trend');
+    if (trend === 'days' || trend === 'month' || trend === 'year' || trend === '12m' || trend === 'months') {
+      ev.preventDefault();
+      var mode = (trend === 'year' || trend === '12m' || trend === 'months') ? 'year' : 'days';
+      try { window.__financeTrendMode = mode; } catch (_t) { /* ignore */ }
+      // Re-render from last summary when possible — no period refetch.
+      if (financeLastSummary && typeof renderFinanceRedesignHtml === 'function') {
+        body.innerHTML = renderFinanceRedesignHtml(financeLastSummary);
+        // Keep delegated listener; body node is stable.
+      } else {
+        loadAdminFinanceSummary();
+      }
+      return;
+    }
+
     var gran = btn.getAttribute('data-finance-gran');
     if (gran){
       // F1: Day/Month/Year are home controls — click (or re-click active) snaps to now.
@@ -2109,10 +2129,11 @@ function wireFinanceRedesignNav(body){
         } catch (_a) {
           financeViewState.anchor = new Date().toISOString().slice(0, 10);
         }
+        loadAdminFinanceSummary();
       } else {
-        // Custom: open picker path (wired after paint) — do not force dates here.
+        // Custom: load shell for this gran, then open date-range picker.
+        loadAdminFinanceSummary({ openCustomPicker: true });
       }
-      loadAdminFinanceSummary();
       return;
     }
     var nav = btn.getAttribute('data-finance-nav');
@@ -2122,8 +2143,6 @@ function wireFinanceRedesignNav(body){
       if (g === 'custom') return;
       var anchor = financeViewState.anchor;
       if (!anchor){
-        // Prefer current label range start from DOM data if present
-        var lab = body.querySelector('[data-finance-range-label]');
         anchor = new Date().toISOString().slice(0, 10);
       }
       financeViewState.anchor = financeShiftAnchor(anchor, g, dir);
@@ -2131,27 +2150,7 @@ function wireFinanceRedesignNav(body){
       return;
     }
     if (nav === 'apply-custom' || nav === 'open-custom-range'){
-      if (nav === 'open-custom-range') {
-        financeOpenCustomRangePicker(body);
-        return;
-      }
-      var sEl = el('pfb-custom-start');
-      var eEl = el('pfb-custom-end');
-      var s = sEl && sEl.value;
-      var e = eEl && eEl.value;
-      if (s && e && s <= e){
-        financeViewState.granularity = 'custom';
-        financeViewState.start = s;
-        financeViewState.end = e;
-        financeViewState.anchor = s;
-        loadAdminFinanceSummary();
-      }
-      return;
-    }
-    var trend = btn.getAttribute('data-finance-trend');
-    if (trend === 'month' || trend === 'year') {
-      try { window.__financeTrendMode = trend; } catch (_t) { /* ignore */ }
-      loadAdminFinanceSummary();
+      financeOpenCustomRangePicker(body);
       return;
     }
   });
@@ -2160,7 +2159,17 @@ function wireFinanceRedesignNav(body){
 var financeCustomRangeDraft = { start: null, end: null };
 function financeOpenCustomRangePicker(body) {
   var pop = el('pfb-custom-range-pop');
-  if (!pop) return;
+  if (!pop && body && body.querySelector) pop = body.querySelector('#pfb-custom-range-pop');
+  if (!pop && typeof document !== 'undefined') pop = document.getElementById('pfb-custom-range-pop');
+  if (!pop) {
+    // Custom gran shell may not have painted yet — force custom shell then retry once.
+    try {
+      if ((financeViewState.granularity || '') !== 'custom') {
+        financeViewState.granularity = 'custom';
+      }
+    } catch (_e) { /* ignore */ }
+    return;
+  }
   financeCustomRangeDraft = {
     start: (el('pfb-custom-start') && el('pfb-custom-start').value) || null,
     end: (el('pfb-custom-end') && el('pfb-custom-end').value) || null,
@@ -2216,7 +2225,8 @@ function financeOpenCustomRangePicker(body) {
     var iso = b.getAttribute('data-pfb-day');
     if (!iso) return;
     if (typeof scheduleCreateDateRangeSelectDay === 'function') {
-      financeCustomRangeDraft = scheduleCreateDateRangeSelectDay(iso, financeCustomRangeDraft) || financeCustomRangeDraft;
+      // Shared helper signature is (state, iso) — never (iso, state).
+      financeCustomRangeDraft = scheduleCreateDateRangeSelectDay(financeCustomRangeDraft || {}, iso) || financeCustomRangeDraft;
     } else {
       if (!financeCustomRangeDraft.start || financeCustomRangeDraft.end) {
         financeCustomRangeDraft = { start: iso, end: null };
@@ -2225,7 +2235,12 @@ function financeOpenCustomRangePicker(body) {
       } else {
         financeCustomRangeDraft.end = iso;
       }
+      // Single day: second click on the same start day completes the range.
+      if (financeCustomRangeDraft.start && !financeCustomRangeDraft.end && iso === financeCustomRangeDraft.start) {
+        financeCustomRangeDraft.end = iso;
+      }
     }
+    // Single-day ranges are valid (start === end).
     if (financeCustomRangeDraft.start && financeCustomRangeDraft.end) {
       financeViewState.granularity = 'custom';
       financeViewState.start = financeCustomRangeDraft.start;
@@ -2240,7 +2255,8 @@ function financeOpenCustomRangePicker(body) {
 }
 
 
-function loadAdminFinanceSummary(){
+function loadAdminFinanceSummary(opts){
+  opts = opts || {};
   var body = el('admin-finance-body');
   if (!body) return;
   var seq = ++financeLoadSeq;
@@ -2269,8 +2285,13 @@ function loadAdminFinanceSummary(){
           financeViewState.anchor = data.summary.redesign.view.range.start;
           if (!financeViewState.granularity) financeViewState.granularity = data.summary.redesign.view.granularity || 'month';
         }
+        financeLastSummary = data.summary;
         body.innerHTML = renderFinanceSummaryHtml(data.summary);
         wireFinanceRedesignNav(body);
+        if (opts.openCustomPicker) {
+          // Defer so #pfb-custom-range-pop exists after paint.
+          setTimeout(function () { financeOpenCustomRangePicker(body); }, 0);
+        }
       })
       .catch(function(e){
         clearFinanceTimeout();

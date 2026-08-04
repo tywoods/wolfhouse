@@ -112,30 +112,46 @@ function financeRedesignUtilRow(name, pct, detail, colorClass) {
     '</div>';
 }
 
-function financeRedesignTrendHtml(trend) {
+function financeRedesignTrendHtml(trend, mode) {
   var rows = Array.isArray(trend) ? trend : [];
   if (!rows.length) {
-    return '<div class="pfb-trend-empty">' + financeRedesignEsc(financeRedesignT('admin.finance.empty', 'No activity in this period.')) + '</div>';
+    return '<div class="pfb-trend-empty" data-finance-trend-empty="1">' + financeRedesignEsc(financeRedesignT('admin.finance.empty', 'No activity in this period.')) + '</div>';
   }
   var max = 1;
   rows.forEach(function (r) {
     max = Math.max(max, Number(r.collected_gross_cents) || 0, Number(r.ly_collected_gross_cents) || 0);
   });
-  var html = '<div class="pfb-trend" role="img" aria-label="' +
-    financeRedesignEsc(financeRedesignT('admin.finance.trendTitle', 'Daily net revenue — vs last year')) + '">';
+  var isYear = mode === 'year' || mode === 'months' || mode === '12m';
+  var aria = isYear
+    ? financeRedesignT('admin.finance.trendTitleYear', 'Monthly gross collected — trailing 12 months vs last year')
+    : financeRedesignT('admin.finance.trendTitle', 'Daily gross collected — vs last year');
+  var html = '<div class="pfb-trend" data-finance-trend-mode="' + (isYear ? 'year' : 'days') + '" role="img" aria-label="' +
+    financeRedesignEsc(aria) + '">';
   rows.forEach(function (r) {
     var cur = Math.max(0, Number(r.collected_gross_cents) || 0);
     var ly = Math.max(0, Number(r.ly_collected_gross_cents) || 0);
     var hCur = Math.round((100 * cur) / max);
     var hLy = Math.round((100 * ly) / max);
-    var dayNum = String(r.date || '').slice(8, 10);
-    if (dayNum.charAt(0) === '0') dayNum = dayNum.slice(1);
-    html += '<div class="pfb-trend-day" title="' + financeRedesignEsc(r.date + ' · ' + financeRedesignFmtEurExact(cur)) + '">' +
+    var lab = '';
+    if (isYear) {
+      // Prefer month key YYYY-MM → short month
+      var mk = String(r.month || r.date || '').slice(0, 7);
+      try {
+        var md = new Date(mk + '-15T12:00:00');
+        lab = md.toLocaleDateString(typeof portalLang === 'string' ? portalLang : 'en', { month: 'short' });
+      } catch (_e) {
+        lab = mk.slice(5) || '';
+      }
+    } else {
+      lab = String(r.date || '').slice(8, 10);
+      if (lab.charAt(0) === '0') lab = lab.slice(1);
+    }
+    html += '<div class="pfb-trend-day" title="' + financeRedesignEsc((r.month || r.date || '') + ' · ' + financeRedesignFmtEurExact(cur)) + '">' +
       '<div class="pfb-trend-col">' +
       '<span class="pfb-trend-prev" style="height:' + hLy + '%"></span>' +
       '<span class="pfb-trend-cur" style="height:' + hCur + '%"></span>' +
       '</div>' +
-      '<div class="pfb-trend-d">' + financeRedesignEsc(dayNum || '') + '</div>' +
+      '<div class="pfb-trend-d">' + financeRedesignEsc(lab || '') + '</div>' +
       '</div>';
   });
   html += '</div>';
@@ -295,9 +311,20 @@ function renderFinanceRedesignHtml(summary) {
   html += '<div class="pfb-sub pfb-sub--foot">' + financeRedesignEsc(financeRedesignT('admin.finance.revenueByProductNote', "Where the money's coming from (booked by service date)")) + '</div>';
   html += '</div>';
 
-  html += '<div class="pfb-card pfb-card--bars">';
+  html += '<div class="pfb-card pfb-card--bars pfb-card--capacity">';
   html += '<div class="pfb-sec">' + financeRedesignEsc(financeRedesignT('admin.finance.capacityUsed', 'Capacity used')) + '</div>';
-  html += '<div class="pfb-bars pfb-bars--compact">';
+  html += '<div class="pfb-cap-top">';
+  var seatsPct = cap.seats_pct;
+  var ringPct = seatsPct != null && Number.isFinite(Number(seatsPct))
+    ? Math.max(0, Math.min(100, Math.round(Number(seatsPct))))
+    : 0;
+  html += '<div class="pfb-ring" data-finance-cap-ring="1" style="--pfb-ring:' + ringPct + '%" aria-hidden="true">' +
+    '<div class="pfb-ring-in"><b>' +
+    (seatsPct != null && Number.isFinite(Number(seatsPct))
+      ? financeRedesignEsc(String(Math.round(Number(seatsPct))) + '%')
+      : '\u2014') +
+    '</b><span>' + financeRedesignEsc(financeRedesignT('admin.finance.lessonSeats', 'lesson seats')) + '</span></div></div>';
+  html += '<div class="pfb-bars pfb-bars--compact pfb-bars--capacity">';
   var capRows = Array.isArray(cap.by_product) && cap.by_product.length
     ? cap.by_product
     : [
@@ -320,7 +347,7 @@ function renderFinanceRedesignHtml(summary) {
     html += '<span class="pfb-bar-pct">' + financeRedesignEsc(pct != null ? (String(Math.round(w)) + '%') : '\u2014') + '</span>';
     html += '</div>';
   });
-  html += '</div>';
+  html += '</div></div>'; // bars + cap-top
   if (cap.unsold_seats != null) {
     html += '<div class="pfb-callout">';
     html += '<span>' + financeRedesignEsc(String(cap.unsold_seats) + ' ' +
@@ -334,16 +361,18 @@ function renderFinanceRedesignHtml(summary) {
   html += '</div></div>'; // two
 
   // Gross trend — F3 toggle: month-days vs 12-month year
-  var trendMode = (typeof window !== 'undefined' && window.__financeTrendMode === 'year') ? 'year' : 'month';
+  // F3: chart mode is independent of top Day/Month/Year period selector.
+  var rawTrend = (typeof window !== 'undefined' && window.__financeTrendMode) ? String(window.__financeTrendMode) : 'days';
+  var trendMode = (rawTrend === 'year' || rawTrend === 'months' || rawTrend === '12m') ? 'year' : 'days';
   var trendRows = trendMode === 'year'
     ? (Array.isArray(R.monthly_gross_trend) ? R.monthly_gross_trend : [])
     : (Array.isArray(R.daily_gross_trend) ? R.daily_gross_trend : []);
-  html += '<div class="pfb-card pfb-card--trend">';
+  html += '<div class="pfb-card pfb-card--trend" data-finance-trend-card="1">';
   html += '<div class="pfb-sec-row">';
   html += '<div class="pfb-sec">' + financeRedesignEsc(financeRedesignT('admin.finance.dailyGrossTrend',
-    'Gross collected — vs last year')) + '</div>';
-  html += '<div class="pfb-trend-toggle" role="tablist" aria-label="Trend range">';
-  html += '<button type="button" class="pfb-trend-btn' + (trendMode === 'month' ? ' is-on' : '') + '" data-finance-trend="month" role="tab" aria-selected="' + (trendMode === 'month' ? 'true' : 'false') + '">' +
+    'Daily gross vs last year')) + '</div>';
+  html += '<div class="pfb-trend-toggle" role="tablist" aria-label="Trend chart range">';
+  html += '<button type="button" class="pfb-trend-btn' + (trendMode === 'days' ? ' is-on' : '') + '" data-finance-trend="days" role="tab" aria-selected="' + (trendMode === 'days' ? 'true' : 'false') + '">' +
     financeRedesignEsc(financeRedesignT('admin.finance.trend.monthDays', 'Days')) + '</button>';
   html += '<button type="button" class="pfb-trend-btn' + (trendMode === 'year' ? ' is-on' : '') + '" data-finance-trend="year" role="tab" aria-selected="' + (trendMode === 'year' ? 'true' : 'false') + '">' +
     financeRedesignEsc(financeRedesignT('admin.finance.trend.yearMonths', '12 months')) + '</button>';
