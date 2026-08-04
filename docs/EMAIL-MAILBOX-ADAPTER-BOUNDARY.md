@@ -1,4 +1,4 @@
-# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A + 2B + 2C + 2D + 2F-A + 2F-B)
+# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A + 2B + 2C + 2D + 2F-A + 2F-B + 2F-C2)
 
 **Status:**
 - **1A:** provider-neutral adapter/validation contract, fake adapter, focused tests.
@@ -12,6 +12,7 @@
 - **2D:** additive **connector + mailbox binding identity** on `tenant_channel_endpoints` only (migration `058`). Nullable identity columns + CHECKs + partial unique ownership index. Domain `email-channel-endpoint-identity-contract`. **Does not flip 2C** activation/`schema_enforces` flags; enforces mailbox ownership identity only. Grant custody deferred to 2F-A dedicated table. No OAuth routes/tx columns, no Staff API expansion, no activation, no backfill.
 - **2F-A:** durable **delegated grant custody** — dedicated `tenant_email_delegated_grants` table (migration `059`), owner-approved **envelope encryption** (AES-256-GCM ciphertext + wrapped per-generation DEK + exact Key Vault wrapping-key version ID may persist atomically with `grant_generation`; **raw refresh tokens forbidden** in PostgreSQL), injected envelope provider contract + **fake only**, custodian repository (install/acquire/renew/promote/reauth/abort/reconcile), lease TTL via DB `clock_timestamp()`, no TX across external I/O. Existing `resolveSecret` stays read-only. Refresh-exchange, Graph, OAuth routes, activation remain out.
 - **2F-B:** production **Azure Key Vault envelope provider core** (`email-grant-envelope-azure-kv-provider`) — local AES-256-GCM + **RSA-OAEP-256 only** via injected exact-version `CryptographyClient` resolver (`{wrapKey,unwrapKey}`). Existing **Standard** vault (`wh-staging-kv` class) cannot hold symmetric oct/AES keys for A256KW; production **must not** use A256KW (requires Premium preview / Managed HSM — **not used**). Exact non-`latest` version pin; full HTTPS `/keys/{name}/{version}` identity; **full decrypt+reseal** rewrap (`next_aad`). No credential/SDK composition, live key, RBAC, network verifier, SecretClient, KeyClient/getKey, or activation in this slice.
+- **2F-C2 (current):** **Sunset-staging-canary-only** runtime composition module (`email-grant-envelope-azure-kv-sunset-staging-runtime-composition`) — **default-off**, import-inert. Explicit factory only (not Staff API startup). When enabled via exact env allowlist, constructs `@azure/identity` `ManagedIdentityCredential` pinned to Sunset user-assigned MI client ID `0e05fbe3-e8c5-48aa-a914-30aed284e6f7` (prior live Azure evidence ↔ principal `5338388f-1685-40cb-ae69-dc2e00f32ad6`; **current Azure readback mandatory before deploy**) + `@azure/keyvault-keys` `CryptographyClient` for the **exact** Sunset staging versioned KEK, then hands the resolver into the 2F-B core. Never `DefaultAzureCredential`; never env/request-selected identity (`AZURE_CLIENT_ID`/`TENANT_ID`/`CLIENT_SECRET` ignored). **Must not** be deployed to production/other tenants/DR; those need a separately reviewed profile. **Does not claim runtime activation.** No OAuth routes, polling, Graph, refresh-exchange, migration changes, or live network from verifiers.
 
 **Not in slices 1A–1C-gamma:** Microsoft Graph / Gmail / IMAP network calls, OAuth, subscriptions, polling, send/drafts UI, attachment download/storage, Luna SOUL changes, live mailbox config, deploy, invented client/location/mailbox rows. Activation / secret_ref visibility / live provider connectivity remain deferred past 1C-gamma.
 
@@ -38,6 +39,7 @@ Slice **1A intentionally ships no** endpoint persistence schema and no Graph/Gma
 | **2D (endpoint identity schema)** | Migration `058` + `email-channel-endpoint-identity-contract`: seven nullable TEXT identity fields; supported mode pairs; binding_status lifecycle; partial unique `(provider, provider_tenant_id, provider_resource_id)` WHERE verified/reauthorization_required (C collation); domain pair/binding/reconnect-transfer validators | grant custody table (2F-A); OAuth tx columns; Staff routes; activation; secret package value inspection; shared-mailbox delegated claim |
 | **2F-A (grant custody + envelope)** | Migration `059` `tenant_email_delegated_grants`; mode-guard triggers; envelope v1 + fake provider (A256KW local contract proof); custodian install/acquire/renew/promote/reauth/abort/reconcile; 2C module-present flags; offline verify + disposable PG prove | Real Azure KV wrap wiring; Graph/refresh-exchange; OAuth routes; Staff expansion; activation; per-grant KV secrets; broad GC |
 | **2F-B (Azure KV envelope core)** | `email-grant-envelope-azure-kv-provider`: RSA-OAEP-256 only on Standard KV; version-pinned KEK; injected crypto client; full reseal rewrap; offline RSA fake verifier | Live KV/RBAC/credential composition; A256KW; Premium/HSM/new vault; @azure/identity; refresh-exchange; activation |
+| **2F-C2 (Sunset-staging canary composition)** | `email-grant-envelope-azure-kv-sunset-staging-runtime-composition`: default-off; hard-pinned Sunset host+versioned key+MI client ID; lazy `ManagedIdentityCredential` + `CryptographyClient` (retries 0); canary-only boundary; offline verifier intercepts `Module._load` (no production DI) | Staff API wiring; other tenants/prod/DR deploy; OAuth routes; live network verifier; KeyClient/list/latest; request/env-selected identity; activation; refresh-exchange |
 
 Application validation in `validateTenantChannelEndpointInput(input, { locationAuthority })` remains a **contract for writes**, not a substitute for DB integrity. Location authority is a **trusted out-of-band callback** (argument 2 only); it fails closed without a valid second-argument authority and never honors authority embedded in untrusted `input`.
 
@@ -72,6 +74,7 @@ Guest email provider  →  provider adapter (2A Graph app-only boundary today;
                      + tenant_email_delegated_grants + envelope contracts (2F-A)
                      + email-delegated-grant-custodian (2F-A; no exchange)
                      + email-grant-envelope-azure-kv-provider (2F-B; RSA-OAEP-256 core)
+                     + email-grant-envelope-azure-kv-sunset-staging-runtime-composition (2F-C2 canary; default-off)
 ```
 
 - **One unified Staff Inbox** with channel-native threads (WhatsApp today; email endpoints registered later).
@@ -113,6 +116,7 @@ Down: `057_tenant_locations_and_channel_endpoints_down.sql`
 | `scripts/lib/email-grant-envelope-provider-contract.js` (2F-A) | Envelope record v1 validation (AES-256-GCM, 12-byte nonce, 16-byte tag, version-pinned KEK, wrapped DEK bounds); AAD builder; refresh package encode/decode; injected `seal/open/rewrap` provider shape; zeroize helper | Azure SDK; production KEK; default provider; put/delete on 2A secret resolver |
 | `scripts/lib/email-grant-envelope-fake-provider.js` (2F-A) | Process-local fake wrap + AES-256-GCM seal/open for tests only | Production crypto claim; network; Key Vault |
 | `scripts/lib/email-grant-envelope-azure-kv-provider.js` (2F-B) | Production core: AES-256-GCM + RSA-OAEP-256 via injected version-pinned CryptographyClient; Standard KV only; rejects A256KW; full decrypt+reseal rewrap; zero provider-level retries | @azure/identity; KeyClient/getKey/latest; SecretClient; live network; credential composition |
+| `scripts/lib/email-grant-envelope-azure-kv-sunset-staging-runtime-composition.js` (2F-C2) | Sunset-staging-canary-only default-off composition: exact 3-key env allowlist; hard-pin host+versioned key+MI client ID; lazy `ManagedIdentityCredential` + version-pinned `CryptographyClient` (maxRetries 0); one-arg env factory only (no production DI); public metadata allowlist; import-inert; never deploy elsewhere | Staff API startup; other tenants/prod/DR; request/env identity selection; KeyClient/list/latest; OAuth/Graph/activation; production test hooks |
 | `scripts/lib/email-delegated-grant-custodian.js` (2F-A) | Pinned `{ client }` install/acquire/renew/promote/reauth/abort/reconcile/rewrap-commit; private open seam; public status DTO strips secrets; short TX; SQL `clock_timestamp()` for lease TTL | Graph/MS exchange; TX across I/O; Staff routes; raw tokens in errors |
 
 Consumers must branch on **capability flags** (`remote_drafts`, `push_notifications`, …), not on provider-specific field shapes. Unknown provider ids, capability shapes, and **unknown capability keys on `supports()`** fail closed (throw / structured reject — never silent `false` for typos).
@@ -143,20 +147,71 @@ Consumers must branch on **capability flags** (`remote_drafts`, `push_notificati
 | App-only / Gmail / IMAP | **No grant row** (DB trigger + repository) |
 | 2A `resolveSecret` | **Unchanged read-only** — not used for delegated refresh under envelope model |
 | Public surfaces | `grant_present` / `grant_status` / `grant_generation` only — never ciphertext, wrapped DEK, nonce, tag, lease token, or raw token |
-| 2F-B | Production KV provider core (this slice): RSA-OAEP-256 only; client composition deferred |
+| 2F-B | Production KV provider core: RSA-OAEP-256 only; client composition deferred to 2F-C2 |
+| 2F-C2 | Runtime composition default-**off**; explicit factory; no Staff API activation |
 
 ### Production KEK wrap (Slice 2F-B)
 
 | Rule | Detail |
 |------|--------|
-| Vault SKU | Existing **Standard** Key Vault only (e.g. `wh-staging-kv`) — no Premium / Managed HSM / new resource |
+| Vault SKU | Existing **Standard** Key Vault only (e.g. `wh-staging-kv` class / Sunset staging vault) — no Premium / Managed HSM / new resource |
 | Wrap alg | **RSA-OAEP-256** only (RSA 3072/4096 KEK, exact version pin) |
 | A256KW | **Not used in production** — requires Premium preview or Managed HSM; 2F-A fake keeps A256KW as local contract proof only; production provider **rejects** A256KW envelopes/config (no silent fallback) |
 | Key identity | Full `https://{trusted-host}/keys/{name}/{version}` — never `latest`, unversioned, query, fragment, or path traversal |
-| Client surface | Injected `getCryptographyClient(fullVersionedKeyId)` → own-data `{wrapKey,unwrapKey}` only; no KeyClient/getKey/SecretClient/DefaultAzureCredential in this module |
+| Client surface | Injected `getCryptographyClient(fullVersionedKeyId)` → own-data `{wrapKey,unwrapKey}` only; no KeyClient/getKey/SecretClient/`ManagedIdentityCredential`/`DefaultAzureCredential` in this module |
 | Rewrap | **Full decrypt + reseal** under `next_aad` + target configured KEK (fresh DEK+nonce); never pure DEK rewrap while generation advances |
 | Retry | Zero provider-level retries; sanitized transient codes (`408`/`429`/`5xx`) for caller lease policy |
-| Deferred | Real SDK credential composition, live key create, RBAC, controlled live test, refresh-exchange, activation |
+| Deferred (2F-B) | Real SDK credential composition (see 2F-C2), live key create, RBAC, controlled live test, refresh-exchange, activation |
+
+### Runtime composition (Slice 2F-C2) — Sunset-staging canary, default-off
+
+Module: `scripts/lib/email-grant-envelope-azure-kv-sunset-staging-runtime-composition.js`
+Gate: `npm run verify:email-grant-envelope-azure-kv-sunset-staging-runtime-composition`
+
+**Deployment boundary:** this module is an **unmistakable Sunset-staging canary**. Host, versioned KEK, and user-assigned managed identity client ID are **hardcoded**. It must **never** be deployed to production, other tenants, DR, or rotated-key environments. Those require a **separately reviewed deployment authority/profile** (an analogous explicit module). Future tenant templates create their own profile — they must not silently reuse Sunset.
+
+**Current state:** composition ships **default-off**. Future OAuth/refresh code must call the **explicit factory**; it is **not** wired into Staff API startup. `runtime_activation: false` always. This slice does **not** enable guest email, refresh-exchange, OAuth routes, polling, or Graph.
+
+**Azure / RBAC facts (as of this slice):** C1 complete; controlled operator proof passed. Runtime ACA proof still deferred.
+
+| Rule | Detail |
+|------|--------|
+| Credential | `@azure/identity` `ManagedIdentityCredential` with **source-pinned** client ID only — constructed only after enabled+valid config. **Never** `DefaultAzureCredential`. **Never** select identity from `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET` or request/env |
+| Crypto client | `@azure/keyvault-keys` `CryptographyClient` for the **exact full versioned key ID** only; `retryOptions.maxRetries: 0` |
+| Lazy load | Azure packages `require`d inside the enabled factory path only — module **import-inert** (no credential discovery/network at `require`) |
+| Core boundary | 2F-B remains free of `@azure/*` / credential classes; composition supplies `getCryptographyClient` |
+| No list/latest | Never `KeyClient`, `getKey`, `listPropertiesOfKeys`, unversioned, or `latest` resolution |
+| Selection authority | **Source pin only** — request/body/tenant/query/env must never select vault host, key ID, or credential identity |
+| Errors | Construction / SDK load never reads dependency exception properties (throwing `code` getters and proxy `ownKeys` / `getOwnPropertyDescriptor` / `getPrototypeOf` traps must not execute or leak). Caught SDK/client construction failures become a **newly-created fixed-code** error only. Provider ops use existing sanitized boundary |
+| Factory surface | Public factory accepts **env only (one argument)** and always lazy-loads `@azure/identity` + `@azure/keyvault-keys` then constructs MIC + CryptographyClient. **No production DI** — no second-arg `createCredential` / `createCryptographyClient` / `loadAzureSdks` / `testDeps`. Exports are Sunset-specific create/parse names only (no generic aliases; no public mutable sanitized-code Set) |
+| Offline tests | Verifier uses **fresh child processes** that intercept Node `Module._load` **before** requiring the composition module, supplying constructor spies/fakes for `@azure/*`. Ordinary in-process consumers cannot bypass Azure SDK identity while still receiving canary metadata |
+| Public metadata | `composition_enabled`, `runtime_activation`, `deployment_boundary`, `trusted_host`, `kek_key_name`, `kek_key_version`, `wrap_alg` — never credentials, tokens, ciphertext, wrapped DEK |
+
+**Sunset staging pin (public identities — not secrets):**
+
+| Field | Exact value |
+|-------|-------------|
+| Trusted host | `luna-sunset-staging-kv.vault.azure.net` |
+| Key name | `luna-email-grant-kek` |
+| Key version | `fde9704bd37b45fabe1f12a6a615b032` |
+| Versioned key ID | `https://luna-sunset-staging-kv.vault.azure.net/keys/luna-email-grant-kek/fde9704bd37b45fabe1f12a6a615b032` |
+| MI client ID (constructor pin) | `0e05fbe3-e8c5-48aa-a914-30aed284e6f7` |
+| MI principal (evidence; not constructor arg) | `5338388f-1685-40cb-ae69-dc2e00f32ad6` (`luna-sunset-staging-identity`) |
+| Wrap alg | `RSA-OAEP-256` |
+
+**Pre-deploy:** current Azure readback confirming the MI client ID still maps to principal `5338388f-1685-40cb-ae69-dc2e00f32ad6` is **mandatory** before any deploy.
+
+**Env contract (exact allowlist — no secret values; three keys only):**
+
+| Variable | Rule |
+|----------|------|
+| `EMAIL_GRANT_ENVELOPE_AZURE_KV_COMPOSITION_ENABLED` | Exact case-insensitive `true` required to enable; omitted / `false` / `1` / `yes` → disabled (zero credential construction) |
+| `EMAIL_GRANT_ENVELOPE_AZURE_KV_TRUSTED_HOST` | Required when enabled; must **exact-equal** the Sunset staging host above |
+| `EMAIL_GRANT_ENVELOPE_AZURE_KV_VERSIONED_KEY_ID` | Required when enabled; must **exact-equal** the full versioned key ID above (no query/fragment/latest/unversioned) |
+
+Fail-closed **before** `ManagedIdentityCredential` construction: omitted/false enablement; malformed env; foreign host; unversioned/`latest`/query/fragment key ID; key-name or version mismatch; host/key disagreement; non-string/accessor traps. Hostile `AZURE_CLIENT_ID` / DI-looking env keys cannot influence identity or construction. Malformed/disabled paths never import `@azure/*`.
+
+**Remaining activation steps (out of 2F-C2):** reconfirm RBAC Crypto User on the app identity; set the three env vars on Sunset staging ACA only; controlled live wrap/unwrap / runtime ACA proof (still deferred); wire factory into future refresh-exchange / OAuth callback (still gated); no guest email until those gates are green.
 
 ### Threat / crash model (2F-A)
 
@@ -578,6 +633,9 @@ npm run verify:email-graph-app-only-readiness
 npm run verify:email-microsoft-delegated-oauth-contract
 npm run verify:email-channel-endpoint-identity
 npm run prove:email-channel-endpoint-identity-pg
+npm run verify:email-delegated-grant-custodian
+npm run verify:email-grant-envelope-azure-kv-provider
+npm run verify:email-grant-envelope-azure-kv-sunset-staging-runtime-composition
 npm run verify:migration-integrity
 ```
 

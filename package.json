@@ -346,6 +346,7 @@
     "verify:email-delegated-grant-custodian": "node scripts/verify-email-delegated-grant-custodian.js",
     "prove:email-delegated-grant-custody-pg": "node scripts/prove-email-delegated-grant-custody-pg.js",
     "verify:email-grant-envelope-azure-kv-provider": "node scripts/verify-email-grant-envelope-azure-kv-provider.js",
+    "verify:email-grant-envelope-azure-kv-sunset-staging-runtime-composition": "node scripts/verify-email-grant-envelope-azure-kv-sunset-staging-runtime-composition.js",
     "verify:staging-ledger-recovery": "node scripts/verify-staging-ledger-recovery.js",
     "staging-ledger-recovery:plan": "node scripts/run-staging-ledger-recovery.js",
     "staging-ledger-recovery:apply": "node scripts/run-staging-ledger-recovery.js",
@@ -883,6 +884,8 @@
     "verify:sunset-group-course-card-opt3": "node scripts/verify-sunset-group-course-card-opt3.js"
   },
   "dependencies": {
+    "@azure/identity": "4.13.1",
+    "@azure/keyvault-keys": "4.10.2",
     "acorn": "8.14.1",
     "dotenv": "^16.4.5",
     "pg": "^8.13.1",
