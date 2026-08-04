@@ -69,7 +69,7 @@ _Last updated: 2026-08-03 23:20 UTC by Skipper_
 ---
 
 ## 🚀 Live where
-- **Sunset · staff-api** (staging) — `ef68c3b4` rev 0000464 · 08-04 03:50 · Captain _(Finance Custom picker fix — Skipper audit)_
+- **Sunset · staff-api** (staging) — `4ddb90d2` rev 0000465 · 08-04 05:10 · Captain _(Finance polish v2: equal cards, Jan→Dec monthly graph, floating styled custom picker)_
 - **Sunset · Luna** plugin+SOUL (staging) — `c79da8aa` Slice E · 08-02 05:17 · Captain _(separate deploy — drifts from staff-api)_
 - **Wolfhouse · staff-api** (PROD) — _verify_ · Earthling
 - **Wolfhouse · Luna** guest WhatsApp (prod) — _verify_ · Earthling
