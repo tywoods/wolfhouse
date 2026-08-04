@@ -15,7 +15,7 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 
 ## ▶️ Recommended next (sequencing)
 1. ✅ SHIPPED (revs 0458–0460): Bookings/Cockpit polish, Finance S2 (refund-aware Net), **D4**, Inbox toggle, **F2**.
-2. **Next small wins:** **A1** (group courses sort by time, `S`) + **L2** (Luna still offers disabled rentals — Luna/@Earthling layer).
+2. **Next small wins:** **L2** (Luna still offers disabled rentals — Luna/@Earthling layer) + Admin **A2/A3**, Cockpit **C1**. (A1/F1/F3 shipped.)
 3. Then Finance **F1/F3** + Cockpit **C1** + Admin course panels (**A2/A3**).
 4. **L3 email 2F-C** resumes only when Earthling has Azure access; until then parked safely with runtime OFF.
 4. Then **screen-by-screen UI batches** (courses panels, finance, cockpit, schedule).
@@ -64,6 +64,7 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 - **Bookings summary + Cockpit UI polish:** Bookings cards-on-top, colored metrics, live filters (no Apply/checkbox), drawer date-range picker, status pills, expand order Guest→Items→Payment, trimmed refund note; Cockpit non-today relative-day labels (Yesterday/In N days/Last week…/years) + day summary, EN/ES/IT; `1805d95b` rev 0000458.
 - **Finance Slice 2 — refund-aware Net:** Finance hero Net = gross − Σ recorded refunds (`booking_refund_records`, by `effective_date`), Gross/Refunds broken out, pending-cancellation proxy retired; L1–L4, SAVEPOINT soft-empty, EN/ES/IT; live-DB validated; `454f8015` rev 0000459.
 - **Sunset batch (D4 + Inbox + F2):** D4 group-course/no-course now quotes standalone rentals + blocks Create with a clear message; Inbox collapsible booking/payment right rail (sessionStorage); F2 Revenue-by-product = 5 fixed rows (Lessons/course-equipment-all-modes/top-2-€/Other); `b217238b` rev 0000460.
+- **Sunset batch (A1 + F1/F3 + Finance UI + cancel/hide):** A1 courses sort-by-time; F1 tabs snap to current period; F3 gross month↔year toggle; Finance UI cleanup (no title, Custom calendar, Accommodation, uniform bars, note-under); Revenue 5 rows / Capacity 4 rows; **essential cancel/hide** (migration 060 `bookings.hidden`; no site delete; Cancel→grey+refund; Hide off schedule; Unhide in Bookings; refund only when cancelled); `0c9c8d3d` rev 0000461.
 
 ## 📱 Mobile — LAST
 - Deprioritized on purpose: do the main-site UI first (still adding/removing buttons, reformatting menus), *then* go mobile screen-by-screen. Add specifics here as you hit them: "mobile: [screen]".
