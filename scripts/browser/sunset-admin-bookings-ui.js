@@ -38,7 +38,7 @@ var adminBookingsState = {
 var ADMIN_BOOKINGS_SORT_FIRST_DIR = {
   booking: 'desc',
   guest: 'desc',
-  dates: 'asc',
+  created: 'desc',
   type: 'asc',
   total: 'desc',
   paid: 'desc',
@@ -57,12 +57,34 @@ function adminBookingsCanWriteRefund() {
 
 function adminBookingsFormatEur(cents) {
   var n = Number(cents || 0);
-  if (!Number.isFinite(n)) n = 0;
-  var neg = n < 0;
-  var abs = Math.abs(Math.round(n));
-  var whole = Math.floor(abs / 100);
-  var frac = String(abs % 100).padStart(2, '0');
-  return (neg ? '-' : '') + '€' + whole + '.' + frac;
+  if (!isFinite(n)) n = 0;
+  return '€' + (n / 100).toFixed(2);
+}
+
+/** Booking created_at → YYYY-MM-DD HH:MM in Europe/Madrid. */
+function adminBookingsFormatMadridCreated(iso) {
+  if (iso == null || iso === '') return '—';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) {
+    var s = String(iso);
+    return s.length >= 16 ? s.slice(0, 16).replace('T', ' ') : s;
+  }
+  try {
+    var parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Madrid',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(d);
+    var map = {};
+    parts.forEach(function (p) { if (p.type !== 'literal') map[p.type] = p.value; });
+    return map.year + '-' + map.month + '-' + map.day + ' ' + map.hour + ':' + map.minute;
+  } catch (e) {
+    return String(iso).slice(0, 16).replace('T', ' ');
+  }
 }
 
 function adminBookingsStatusLabel(status) {
@@ -294,6 +316,13 @@ function wireAdminBookingsPanel() {
               adminBookingsUnhideBooking(unhideBtn.getAttribute('data-bookings-unhide'));
               return;
             }
+            var restoreBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-restore]') : null;
+            if (restoreBtn) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              adminBookingsRestoreBooking(restoreBtn.getAttribute('data-bookings-restore'));
+              return;
+            }
             // Nested interactive controls must not toggle expansion.
       var interactive = ev.target && ev.target.closest
         ? ev.target.closest('button, a, input, select, textarea, label')
@@ -461,7 +490,7 @@ function renderAdminBookingsTable() {
     '<div class="portal-admin-bookings-tr" role="row">' +
       adminBookingsTh('admin.bookings.col.booking', 'booking') +
       adminBookingsTh('admin.bookings.col.guest', 'guest') +
-      adminBookingsTh('admin.bookings.col.dates', 'dates') +
+      adminBookingsTh('admin.bookings.col.created', 'created') +
       adminBookingsTh('admin.bookings.col.type', 'type') +
       adminBookingsTh('admin.bookings.col.total', 'total', 'num') +
       adminBookingsTh('admin.bookings.col.paid', 'paid', 'num') +
@@ -474,24 +503,18 @@ function renderAdminBookingsTable() {
     // Bookings panel: never grey cancelled (schedule greys separately).
     var archived = false;
     var code = String(row.booking_code || '');
-    var created = row.created_at ? String(row.created_at).slice(0, 10) : '';
-    var dates = '';
-    if (row.service_date_start && row.service_date_end && row.service_date_start !== row.service_date_end) {
-      dates = row.service_date_start + ' → ' + row.service_date_end;
-    } else {
-      dates = row.service_date_start || row.service_date_end || '—';
-    }
+    var createdText = adminBookingsFormatMadridCreated(row.created_at);
     html += '<div class="portal-admin-bookings-tr' + (archived ? ' is-archived' : '') +
       (expanded ? ' is-expanded' : '') + '" role="row" data-bookings-row-id="' + escHtml(id) +
       '" tabindex="0" aria-expanded="' + (expanded ? 'true' : 'false') + '">';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-code" role="cell">' +
-      '<div class="portal-admin-bookings-code" title="' + escHtml(code) + '">' + escHtml(code) + '</div>' +
-      '<div class="portal-admin-bookings-sub">' + escHtml(created) + '</div></div>';
+      '<div class="portal-admin-bookings-code" title="' + escHtml(code) + '">' + escHtml(code) + '</div></div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-guest" role="cell">' +
       '<button type="button" class="portal-admin-bookings-guest-link" data-bookings-guest-phone="' +
       escHtml(String(row.phone || '')) + '">' + escHtml(row.guest_name || '—') + '</button>' +
       '<div class="portal-admin-bookings-sub">' + escHtml(row.phone || '') + '</div></div>';
-    html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-dates" role="cell">' + escHtml(dates) + '</div>';
+    html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-created" role="cell">' +
+      escHtml(createdText) + '</div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-type" role="cell">' +
       adminBookingsTypeChipsHtml(row) + '</div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-num" role="cell">' +
@@ -562,9 +585,16 @@ function renderAdminBookingsTable() {
 }
 
 function adminBookingsTypeChipsHtml(row) {
+  // Prefer server-derived type_categories / type_flags (component-based).
   var cats = Array.isArray(row && row.type_categories) ? row.type_categories.slice() : [];
+  var flags = row && row.type_flags && typeof row.type_flags === 'object' ? row.type_flags : null;
+  if (!cats.length && flags) {
+    if (flags.lessons) cats.push('lessons');
+    if (flags.rentals) cats.push('rentals');
+    if (flags.accommodation) cats.push('accommodation');
+  }
   if (!cats.length) {
-    // Compat: derive from what_summary labels if older payload.
+    // Compat only for older payloads without type_categories/type_flags.
     var what = String((row && row.what_summary) || '');
     if (/lesson/i.test(what)) cats.push('lessons');
     if (/rental/i.test(what)) cats.push('rentals');
@@ -575,15 +605,16 @@ function adminBookingsTypeChipsHtml(row) {
   }
   var order = ['lessons', 'rentals', 'accommodation'];
   cats = order.filter(function (c) { return cats.indexOf(c) >= 0; });
-  return '<div class="portal-admin-bookings-type-chips">' + cats.map(function (c) {
+  var labels = cats.map(function (c) {
     var key = 'admin.bookings.type.' + c;
     var label = portalT(key);
     if (!label || label === key) {
       label = c === 'lessons' ? 'Lessons' : (c === 'rentals' ? 'Rentals' : (c === 'accommodation' ? 'Accommodation' : c));
     }
-    return '<span class="portal-admin-bookings-type-chip portal-admin-bookings-type-chip--' + escHtml(c) + '">' +
-      escHtml(label) + '</span>';
-  }).join('') + '</div>';
+    return label;
+  });
+  // Plain text (no type-chip spans) — joined with middle-dot separator.
+  return '<span class="portal-admin-bookings-type-text">' + escHtml(labels.join(' · ')) + '</span>';
 }
 
 function adminBookingsTh(key, sortKey, align) {
@@ -592,6 +623,10 @@ function adminBookingsTh(key, sortKey, align) {
   if ((!label || label === key) && key === 'admin.bookings.col.type') {
     label = portalT('admin.bookings.col.what');
     if (!label || label === 'admin.bookings.col.what') label = 'Type';
+  }
+  if ((!label || label === key) && key === 'admin.bookings.col.created') {
+    label = portalT('admin.bookings.col.dates');
+    if (!label || label === 'admin.bookings.col.dates') label = 'Created';
   }
   var activeSort = String(adminBookingsState.filters.sort || '');
   var activeDir = String(adminBookingsState.filters.dir || '');
@@ -656,26 +691,46 @@ function renderAdminBookingsExpansion(row) {
     || tags.indexOf('refund_needed') >= 0
     || (isCancelled && storyCollected > 0 && storyRefunded < storyCollected);
   var canRefund = adminBookingsCanWriteRefund() && needsRefund;
+  // Show refund block only when cancelled or there are refund records (hide noise on normal bookings).
+  var showRefundSection = isCancelled || refunds.length > 0;
   var refundAction = '';
-  if (canRefund) {
-    refundAction = '<button type="button" class="btn btn-primary btn-compact" data-bookings-record-refund="' +
-      escHtml(String(row.booking_id || '')) + '">' + escHtml(portalT('admin.bookings.recordRefund')) + '</button>';
-  } else if (adminBookingsCanWriteRefund() && isCancelled) {
-    refundAction = ''; // unpaid or fully refunded — no Record Refund
-  } else if (adminBookingsCanWriteRefund()) {
-    refundAction = '<p class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.refundNeedsCancel') || 'Cancel the booking before recording a refund.') + '</p>';
-  } else {
-    refundAction = '<p class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.recordRefundViewer')) + '</p>';
+  if (showRefundSection) {
+    if (canRefund) {
+      refundAction = '<button type="button" class="btn btn-primary btn-compact" data-bookings-record-refund="' +
+        escHtml(String(row.booking_id || '')) + '">' + escHtml(portalT('admin.bookings.recordRefund')) + '</button>';
+    } else if (adminBookingsCanWriteRefund() && isCancelled) {
+      refundAction = ''; // unpaid or fully refunded — no Record Refund
+    } else if (adminBookingsCanWriteRefund()) {
+      // Belt-and-suspenders: only when section is shown and not cancelled (shouldn't normally hit).
+      refundAction = '<p class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.refundNeedsCancel') || 'Cancel the booking before recording a refund.') + '</p>';
+    } else {
+      refundAction = '<p class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.recordRefundViewer')) + '</p>';
+    }
   }
-  var hideAction = '';
+  var rowActions = '';
   if (isCancelled && adminBookingsCanWriteRefund()) {
+    // Restore only when cancelled and not hidden — restore endpoint rejects archived/hidden.
+    if (!isHidden) {
+      rowActions += '<button type="button" class="btn btn-ghost btn-compact" data-bookings-restore="' +
+        escHtml(String(row.booking_id || '')) + '">' +
+        escHtml(portalT('admin.bookings.action.restore') || 'Restore') + '</button>';
+    }
     if (isHidden) {
-      hideAction = '<button type="button" class="btn btn-ghost btn-compact" data-bookings-unhide="' +
+      rowActions += '<button type="button" class="btn btn-ghost btn-compact" data-bookings-unhide="' +
         escHtml(String(row.booking_id || '')) + '">' + escHtml(portalT('admin.bookings.action.unhide') || 'Unhide') + '</button>';
     } else {
-      hideAction = '<button type="button" class="btn btn-ghost btn-compact" data-bookings-hide="' +
+      rowActions += '<button type="button" class="btn btn-ghost btn-compact" data-bookings-hide="' +
         escHtml(String(row.booking_id || '')) + '">' + escHtml(portalT('admin.bookings.action.hide') || 'Hide') + '</button>';
     }
+  }
+
+  var refundSectionHtml = '';
+  if (showRefundSection) {
+    refundSectionHtml =
+      '<h4>' + escHtml(portalT('admin.bookings.refunds')) + '</h4><ul class="portal-admin-bookings-list">' + refundsHtml + '</ul>' +
+      '<div class="portal-admin-bookings-refund-action" id="admin-bookings-refund-action-' + escHtml(String(row.booking_id || '')) + '">' +
+        refundAction +
+      '</div>';
   }
 
   return '<div class="portal-admin-bookings-expand" role="region" data-bookings-expand="' +
@@ -696,10 +751,10 @@ function renderAdminBookingsExpansion(row) {
           '<li><span>' + escHtml(portalT('admin.bookings.refunded')) + '</span><span>' + escHtml(adminBookingsFormatEur(story.refunded_cents)) + '</span></li>' +
           '<li><span>' + escHtml(portalT('admin.bookings.net')) + '</span><span>' + escHtml(adminBookingsFormatEur(story.net_cents)) + '</span></li>' +
         '</ul>' +
-        '<h4>' + escHtml(portalT('admin.bookings.refunds')) + '</h4><ul class="portal-admin-bookings-list">' + refundsHtml + '</ul>' +
-        '<div class="portal-admin-bookings-refund-action" id="admin-bookings-refund-action-' + escHtml(String(row.booking_id || '')) + '">' +
-          refundAction + hideAction +
-        '</div>' +
+        refundSectionHtml +
+        (rowActions
+          ? '<div class="portal-admin-bookings-row-actions">' + rowActions + '</div>'
+          : '') +
       '</section>' +
     '</div></div>';
 }
@@ -1111,5 +1166,31 @@ function adminBookingsUnhideBooking(bookingId) {
       loadAdminBookings();
     }).catch(function (err) {
       setAdminBookingsMsg(err.message || 'Unhide failed', true);
+    });
+}
+
+/** Cancelled → active. Does not touch money/refund records. */
+function adminBookingsRestoreBooking(bookingId) {
+  if (!bookingId) return;
+  var confirmMsg = portalT('schedule.drawer.restoreBookingConfirm')
+    || portalT('admin.bookings.action.restoreConfirm')
+    || 'Restore this cancelled booking?';
+  if (!window.confirm(confirmMsg)) return;
+  fetch('/staff/schedule/bookings/restore?' + adminBookingsSchoolQuery(), {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ booking_id: bookingId }),
+  }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+    .then(function (out) {
+      if (!out.ok || !out.d || out.d.success !== true) {
+        var d = out.d || {};
+        var msg = d.message || d.error || 'Restore failed';
+        if (d.detail) msg += ' (' + String(d.detail).slice(0, 180) + ')';
+        throw new Error(msg);
+      }
+      loadAdminBookings();
+    }).catch(function (err) {
+      setAdminBookingsMsg(err.message || 'Restore failed', true);
     });
 }

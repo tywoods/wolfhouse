@@ -71,7 +71,10 @@ function main() {
   ok('total first-click default DESC', DOMAIN.normalizeSortParams('total', null).dir === 'desc'
     && DOMAIN.SORT_FIRST_DIR.total === 'desc');
   ok('paid first-click default DESC', DOMAIN.normalizeSortParams('paid', null).dir === 'desc');
-  ok('dates first-click default ASC', DOMAIN.normalizeSortParams('dates', null).dir === 'asc');
+  ok('created first-click default DESC', DOMAIN.normalizeSortParams('created', null).dir === 'desc'
+    && DOMAIN.SORT_FIRST_DIR.created === 'desc');
+  ok('dates alias → created DESC', DOMAIN.normalizeSortParams('dates', null).sort === 'created'
+    && DOMAIN.normalizeSortParams('dates', null).dir === 'desc');
   ok('booking first-click default DESC', DOMAIN.normalizeSortParams('booking', null).dir === 'desc');
   ok('guest first-click default DESC', DOMAIN.normalizeSortParams('guest', null).dir === 'desc');
   ok('type first-click default ASC', DOMAIN.normalizeSortParams('type', null).dir === 'asc');
@@ -110,9 +113,13 @@ function main() {
     const s = DOMAIN.sortBookingRows(sample, 'total', 'asc');
     return s.map((r) => r.total_cents).join(',') === '100,500,900';
   })());
-  ok('dates ASC earliest first', (() => {
-    const s = DOMAIN.sortBookingRows(sample, 'dates', 'asc');
-    return s.map((r) => r.service_date_start).join(',') === '2026-07-01,2026-07-05,2026-07-10';
+  ok('created ASC oldest first', (() => {
+    const s = DOMAIN.sortBookingRows(sample, 'created', 'asc');
+    return s.map((r) => r.created_at).join(',') === '2026-07-01T00:00:00Z,2026-07-02T00:00:00Z,2026-07-03T00:00:00Z';
+  })());
+  ok('created DESC newest first', (() => {
+    const s = DOMAIN.sortBookingRows(sample, 'created', 'desc');
+    return s.map((r) => r.booking_code).join(',') === 'C,B,A';
   })());
   ok('guest DESC Z first', (() => {
     const s = DOMAIN.sortBookingRows(sample, 'guest', 'desc');
@@ -182,7 +189,27 @@ function main() {
   })());
   ok('accommodation → Accommodation', (() => {
     const r = rowFromServices([{ service_type: 'accommodation', service_date: '2026-07-10', status: 'active' }]);
-    return JSON.stringify(r.type_categories) === JSON.stringify(['accommodation']);
+    return JSON.stringify(r.type_categories) === JSON.stringify(['accommodation'])
+      && r.type_flags && r.type_flags.accommodation === true;
+  })());
+  ok('staff_accommodation addon_service → Accommodation (not unknown)', (() => {
+    const r = rowFromServices([{
+      service_type: 'addon_service',
+      service_date: '2026-07-10',
+      status: 'active',
+      metadata: {
+        source: 'staff_accommodation',
+        staff_accommodation: true,
+        component: 'staff_accommodation',
+        staff_ui_service_type: 'staff_accommodation',
+        check_in: '2026-07-10',
+        check_out: '2026-07-12',
+        nights: 2,
+      },
+    }]);
+    return JSON.stringify(r.type_categories) === JSON.stringify(['accommodation'])
+      && r.type_flags.accommodation === true
+      && r.what_summary === 'Accommodation';
   })());
   ok('course + course-included equip → Lessons only (no Rentals)', (() => {
     const r = rowFromServices([
@@ -267,7 +294,7 @@ function main() {
   })());
 
   // ── UI / CSS gates ───────────────────────────────────────────────────────
-  section('5. UI sort headers, Type chips, alignment, dark chips');
+  section('5. UI sort headers, Type plain text, alignment, dark chips');
   const ui = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-bookings-ui.js'), 'utf8');
   const api = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
   let browserSrc = '';
@@ -279,16 +306,22 @@ function main() {
 
   ok('UI sortable headers data-bookings-sort', /data-bookings-sort/.test(ui));
   ok('UI col.type header key', /admin\.bookings\.col\.type/.test(ui));
-  ok('UI type chips renderer', /adminBookingsTypeChipsHtml/.test(ui));
+  ok('UI col.created header key', /admin\.bookings\.col\.created/.test(ui));
+  ok('UI type plain-text renderer', /adminBookingsTypeChipsHtml/.test(ui) && /portal-admin-bookings-type-text/.test(ui));
+  ok('UI no type-chip classes', !/portal-admin-bookings-type-chip--/.test(ui));
   ok('UI sends sort+dir query params', /params\.set\('sort'/.test(ui) && /params\.set\('dir'/.test(ui));
   ok('UI first-click defaults Total/Paid DESC', /total:\s*'desc'/.test(ui) && /paid:\s*'desc'/.test(ui));
-  ok('UI first-click dates ASC', /dates:\s*'asc'/.test(ui));
+  ok('UI first-click created DESC', /created:\s*'desc'/.test(ui));
+  ok('UI restore action present', /data-bookings-restore/.test(ui));
+  ok('UI restore gated not-hidden', /!isHidden/.test(ui) && /data-bookings-restore/.test(ui));
   ok('UI type filter uses 3 buckets', /value="lessons"/.test(ui) && /value="rentals"/.test(ui)
     && /value="accommodation"/.test(ui));
   ok('UI th-num right-align class', /portal-admin-bookings-th-num/.test(ui));
   ok('CSS th-num text-align right', /\.portal-admin-bookings-th-num\{[^}]*text-align:right/.test(api));
   ok('CSS Status column wider (minmax 132)', /minmax\(132px/.test(api));
-  ok('CSS Booking/Guest slimmed (108/96)', /minmax\(108px/.test(api) && /minmax\(96px/.test(api));
+  ok('CSS Booking wider (minmax 128)', /minmax\(128px,1\.15fr\)/.test(api));
+  ok('CSS Type narrower (minmax 88)', /minmax\(88px,\.75fr\)/.test(api));
+  ok('CSS status chips centered', /\.portal-admin-bookings-td-status\{[^}]*justify-content:center/.test(api));
   ok('CSS chip paid dark palette', /chip--paid\{color:#86efac;[^}]*background:rgba\(34,197,94,\.15\)/.test(api));
   ok('CSS chip unpaid dark palette', /chip--unpaid\{color:#cbd5e1;[^}]*background:rgba\(148,163,184,\.15\)/.test(api));
   ok('CSS chip partial dark palette', /chip--partial\{color:#5eead4;[^}]*background:rgba\(20,184,166,\.15\)/.test(api));
@@ -299,7 +332,10 @@ function main() {
   ok('CSS chips smaller padding/font', /\.portal-admin-bookings-chip\{[^}]*padding:2px 7px;[^}]*font-size:10px/.test(api));
   ok('i18n col.type present EN', (() => {
     const i18n = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8');
-    return /'admin\.bookings\.col\.type':\s*'Type'/.test(i18n);
+    return /'admin\.bookings\.col\.type':\s*'Type'/.test(i18n)
+      && /'admin\.bookings\.col\.created':\s*'Created'/.test(i18n)
+      && /'admin\.bookings\.action\.restore'/.test(i18n)
+      && /'admin\.bookings\.refundNeedsCancel'/.test(i18n);
   })());
   ok('browser source includes bookings UI or ui file present', browserSrc.length > 0 || ui.length > 0);
 

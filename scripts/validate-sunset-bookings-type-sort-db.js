@@ -82,32 +82,46 @@ async function main() {
         samples.rentals.push({ code: row.booking_code, what: row.what_summary });
       }
       if (cats.includes('accommodation') && samples.accommodation.length < 3) {
-        samples.accommodation.push({ code: row.booking_code, what: row.what_summary });
+        samples.accommodation.push({
+          code: row.booking_code,
+          what: row.what_summary,
+          type_flags: row.type_flags || null,
+          created_at: row.created_at || null,
+        });
       }
     }
 
     // Sort smoke on real rows
     const byTotalDesc = DOMAIN.sortBookingRows(rows, 'total', 'desc');
-    const byDatesAsc = DOMAIN.sortBookingRows(rows, 'dates', 'asc');
+    const byCreatedDesc = DOMAIN.sortBookingRows(rows, 'created', 'desc');
     const totalOk = byTotalDesc.length < 2 || (
       Number(byTotalDesc[0].total_cents || 0) >= Number(byTotalDesc[byTotalDesc.length - 1].total_cents || 0)
     );
-    const datesOk = byDatesAsc.length < 2 || (() => {
-      const a = byDatesAsc.find((r) => r.service_date_start);
-      const b = [...byDatesAsc].reverse().find((r) => r.service_date_start);
+    const createdOk = byCreatedDesc.length < 2 || (() => {
+      const a = byCreatedDesc.find((r) => r.created_at);
+      const b = [...byCreatedDesc].reverse().find((r) => r.created_at);
       if (!a || !b) return true;
-      return String(a.service_date_start) <= String(b.service_date_start);
+      return String(a.created_at) >= String(b.created_at);
     })();
+    const flagsOk = rows.every((r) => {
+      const f = r.type_flags || {};
+      const cats = Array.isArray(r.type_categories) ? r.type_categories : [];
+      return (!!f.lessons) === cats.includes('lessons')
+        && (!!f.rentals) === cats.includes('rentals')
+        && (!!f.accommodation) === cats.includes('accommodation');
+    });
 
     console.log(JSON.stringify({
-      ok: courseEquipAsRentals === 0 && totalOk && datesOk,
+      ok: courseEquipAsRentals === 0 && totalOk && createdOk && flagsOk,
       client: clientSlug,
       location_id: locationId,
       row_count: rows.length,
       bucket_counts: bucketCounts,
       course_equip_as_rentals_only: courseEquipAsRentals,
       sort_total_desc_ok: totalOk,
-      sort_dates_asc_ok: datesOk,
+      sort_created_desc_ok: createdOk,
+      type_flags_match_categories: flagsOk,
+      accommodation_sample_count: samples.accommodation.length,
       unknown_service_types: Object.fromEntries([...unknown.entries()].sort((a, b) => b[1] - a[1])),
       samples,
       owner_confirm_needed: unknown.size > 0
@@ -115,7 +129,7 @@ async function main() {
         : [],
     }, null, 2));
 
-    if (courseEquipAsRentals > 0 || !totalOk || !datesOk) process.exitCode = 1;
+    if (courseEquipAsRentals > 0 || !totalOk || !createdOk || !flagsOk) process.exitCode = 1;
   } catch (err) {
     try { await pg.query('ROLLBACK'); } catch (_e) { /* ignore */ }
     console.error('FAIL real-DB validate:', err && err.message);

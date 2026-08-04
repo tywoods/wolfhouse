@@ -100,10 +100,12 @@ ok('badge prefers Cancelled over Paid/Unpaid',
   /function scheduleRenderStatusBadgeHtml\(group, opts\)\{[\s\S]{0,900}is-cancelled[\s\S]{0,200}schedule\.status\.cancelled/.test(apiSrc));
 
 console.log('\n[4] Drawer Active / Cancelled lifecycle');
-ok('view hide-only for cancelled (no restore id in danger path)', !/if \(cancelled\) \{[\s\S]{0,300}ps-drawer-restore-booking/.test(viewSrc));
+ok('view cancelled offers Restore + Hide', /if \(cancelled\) \{[\s\S]{0,500}ps-drawer-restore-booking/.test(viewSrc)
+  && /ps-drawer-delete-booking/.test(viewSrc));
 ok('view has cancel + delete ids', viewSrc.includes('ps-drawer-cancel-booking') && viewSrc.includes('ps-drawer-delete-booking'));
+ok('view has restore id', viewSrc.includes('ps-drawer-restore-booking'));
 ok('hide/delete button class still present', viewSrc.includes('portal-schedule-delete-booking-btn'));
-ok('delete stays red class', viewSrc.includes('portal-schedule-delete-booking-btn'));
+ok('restore button class present', viewSrc.includes('portal-schedule-restore-booking-btn'));
 ok('canRestoreBooking present', /canRestoreBooking/.test(actionsSrc));
 ok('restore posts /restore', actionsSrc.includes('/staff/schedule/bookings/restore'));
 const deleteFn = (actionsSrc.match(/function deleteBookingFromDrawer\(\) \{[\s\S]*?\n  \}\n\n  function wireDeleteBooking/) || [])[0] || '';

@@ -861,6 +861,8 @@ async function testGeneratedUi() {
     phone: '+346****8777',
     status: 'cancelled',
     archived: true,
+    hidden: true,
+    status_tags: ['cancelled', 'hidden'],
     total_cents: 2000,
     paid_cents: 2000,
     charged_cents: 2000,
@@ -1111,10 +1113,13 @@ async function testGeneratedUi() {
     // Sortable headers + dark chip palette + Type column
     ok('sortable header buttons present', await page.locator('[data-bookings-sort]').count() >= 7);
     ok('Type column header/sort key', await page.locator('[data-bookings-sort="type"]').count() === 1);
+    ok('Created column header/sort key', await page.locator('[data-bookings-sort="created"]').count() === 1);
     ok('Total header right-aligned class', await page.locator('.portal-admin-bookings-th-num').count() >= 2);
     ok('Status header width class', await page.locator('.portal-admin-bookings-th-status').count() >= 1);
     const typeChipCount = await page.locator('.portal-admin-bookings-type-chip').count();
-    ok('Type chips rendered in rows', typeChipCount >= 1, `type chips=${typeChipCount}`);
+    ok('Type has no chip classes', typeChipCount === 0, `type chips=${typeChipCount}`);
+    const typeTextCount = await page.locator('.portal-admin-bookings-type-text').count();
+    ok('Type plain text rendered', typeTextCount >= 1, `type text=${typeTextCount}`);
     await page.click('[data-bookings-sort="total"]');
     await page.waitForTimeout(250);
     ok('sort total first-click sends dir=desc', lastListQuery && lastListQuery.get('sort') === 'total'
@@ -1123,10 +1128,10 @@ async function testGeneratedUi() {
     await page.waitForTimeout(250);
     ok('sort total toggle flips to asc', lastListQuery && lastListQuery.get('sort') === 'total'
       && lastListQuery.get('dir') === 'asc', lastListQuery && lastListQuery.toString());
-    await page.click('[data-bookings-sort="dates"]');
+    await page.click('[data-bookings-sort="created"]');
     await page.waitForTimeout(250);
-    ok('sort dates first-click dir=asc', lastListQuery && lastListQuery.get('sort') === 'dates'
-      && lastListQuery.get('dir') === 'asc', lastListQuery && lastListQuery.toString());
+    ok('sort created first-click dir=desc', lastListQuery && lastListQuery.get('sort') === 'created'
+      && lastListQuery.get('dir') === 'desc', lastListQuery && lastListQuery.toString());
     const chipPaidCss = await page.evaluate(() => {
       const el = document.querySelector('.portal-admin-bookings-chip--paid');
       if (!el) return null;
@@ -1240,6 +1245,30 @@ async function testGeneratedUi() {
       (/Hidden|Oculto|Nascosto/i.test(chipBlob) || /chip--hidden/.test(await page.content()))
       && !chips.some((c) => /^Deleted$|^Eliminado$|^Eliminato$/i.test(String(c).trim())),
       chipBlob);
+    // Hidden cancelled expand: Unhide only — Restore must not appear (endpoint rejects archived/hidden).
+    await page.evaluate(() => {
+      window.staffPortalSession = {
+        auth_required: true,
+        role: 'operator',
+        email: 'operator@test',
+        clients: ['sunset'],
+        can_use_owner_insights: false,
+      };
+      if (window.adminBookingsState) {
+        window.adminBookingsState.role = 'operator';
+        window.adminBookingsState.expandedId = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+      }
+      if (typeof window.renderAdminBookingsTable === 'function') window.renderAdminBookingsTable();
+    });
+    await page.waitForSelector('[data-bookings-expand]', { timeout: 5000 });
+    {
+      const restoreCnt = await page.locator('[data-bookings-restore]').count();
+      const unhideCnt = await page.locator('[data-bookings-unhide]').count();
+      const hideCnt = await page.locator('[data-bookings-hide]').count();
+      ok('hidden cancelled row has Unhide', unhideCnt >= 1, `unhide=${unhideCnt}`);
+      ok('hidden cancelled row has NO Restore', restoreCnt === 0, `restore=${restoreCnt}`);
+      ok('hidden cancelled row has no Hide', hideCnt === 0, `hide=${hideCnt}`);
+    }
     await page.selectOption('#admin-bookings-status', '');
     await page.waitForTimeout(300);
 
@@ -1337,6 +1366,14 @@ async function testGeneratedUi() {
       const cnt = await page.locator('[data-bookings-record-refund]').count();
       ok(`production helper allows ${role}`, can === true);
       ok(`${role} DOM has Record refund control`, cnt >= 1, `count=${cnt}`);
+      if (role === 'operator') {
+        const restoreCnt = await page.locator('[data-bookings-restore]').count();
+        const hideCnt = await page.locator('[data-bookings-hide]').count();
+        const unhideCnt = await page.locator('[data-bookings-unhide]').count();
+        ok('non-hidden cancelled row has Restore', restoreCnt >= 1, `restore=${restoreCnt}`);
+        ok('non-hidden cancelled row has Hide (not Unhide)', hideCnt >= 1 && unhideCnt === 0,
+          `hide=${hideCnt} unhide=${unhideCnt}`);
+      }
     }
 
     // ── Refund single-flight + stable idempotency (hold response) ─────────
@@ -1741,14 +1778,21 @@ function testOwnerWiring() {
   ok('domain exports sortBookingRows', typeof DOMAIN.sortBookingRows === 'function');
   ok('domain exports buildTypeCategories', typeof DOMAIN.buildTypeCategories === 'function');
   ok('SORT_FIRST_DIR total/paid DESC', DOMAIN.SORT_FIRST_DIR.total === 'desc' && DOMAIN.SORT_FIRST_DIR.paid === 'desc');
-  ok('SORT_FIRST_DIR dates ASC', DOMAIN.SORT_FIRST_DIR.dates === 'asc');
+  ok('SORT_FIRST_DIR created DESC', DOMAIN.SORT_FIRST_DIR.created === 'desc');
   ok('data layer dynamic ORDER BY builder', typeof DATA.buildListBookingsSql === 'function');
   ok('list sorts full filtered set', /sortBookingRows\(filtered/.test(dataSrc));
   ok('UI data-bookings-sort wired', /data-bookings-sort/.test(bookingsUi));
-  ok('UI Type chips', /adminBookingsTypeChipsHtml/.test(bookingsUi));
+  ok('UI Type plain text', /adminBookingsTypeChipsHtml/.test(bookingsUi) && /portal-admin-bookings-type-text/.test(bookingsUi));
+  ok('UI Restore on cancelled', /data-bookings-restore/.test(bookingsUi));
+  ok('UI Restore only when not hidden', /!isHidden[\s\S]{0,200}data-bookings-restore/.test(bookingsUi)
+    || /if \(!isHidden\) \{[\s\S]{0,300}data-bookings-restore/.test(bookingsUi));
+  ok('UI refund section gated', /showRefundSection/.test(bookingsUi));
   ok('CSS dark chip paid palette', /chip--paid\{color:#86efac/.test(apiSrc));
   ok('CSS Status column widened', /minmax\(132px/.test(apiSrc));
+  ok('CSS status chips centered', /portal-admin-bookings-td-status\{[^}]*justify-content:center/.test(apiSrc));
   ok('course equipment excluded helper present', /isCourseIncludedEquipmentService/.test(domainSrc));
+  ok('staff_accommodation detected', /staff_accommodation/.test(domainSrc));
+  ok('i18n refundNeedsCancel', /refundNeedsCancel/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8')));
   noteTracer('owner-wiring', true);
 }
 
