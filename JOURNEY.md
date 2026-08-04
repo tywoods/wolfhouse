@@ -69,7 +69,7 @@ _Last updated: 2026-08-03 23:20 UTC by Skipper_
 ---
 
 ## 🚀 Live where
-- **Sunset · staff-api** (staging) — `5c930314` rev 0000467 · 08-04 06:10 · Captain _(Bookings tab v2: sortable columns, What→Type 3-cat, aligned/slimmer cols, darker chips)_
+- **Sunset · staff-api** (staging) — `9271c3d3` rev 0000468 · 08-04 06:30 · Captain _(rental editor v5: stock 72px, switch align, 30×30 remove ×, 3/2/1 grid — supersedes v3/v4)_
 - **Sunset · Luna** plugin+SOUL (staging) — `c79da8aa` Slice E · 08-02 05:17 · Captain _(separate deploy — drifts from staff-api)_
 - **Wolfhouse · staff-api** (PROD) — _verify_ · Earthling
 - **Wolfhouse · Luna** guest WhatsApp (prod) — _verify_ · Earthling
