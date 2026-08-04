@@ -2,7 +2,7 @@
 
 **Keyword: "Journey".** *"pull up the Journey"* → Captain/Skipper reads this back + brings you current. *"update the Journey"* → we save the current state here. Keep it terse — a living board, not docs. Whoever picks up / ships / deploys updates the matching section. Say *"I'm deploying X"* before deploying to avoid parallel-deploy collisions (deploy only from clean `HEAD == origin/master`).
 
-_Last updated: 2026-08-03 23:20 UTC by Skipper_
+_Last updated: 2026-08-04 08:30 UTC by Captain_
 
 ---
 
@@ -59,9 +59,13 @@ _Last updated: 2026-08-03 23:20 UTC by Skipper_
 - **2F-B Azure envelope provider merged** — local AES-256-GCM with exact-version Standard Key Vault RSA-OAEP-256 DEK wrapping; A256KW production path rejected; PR #353, `95754acc`. Focused gate 92/92.
 - Email runtime remains deliberately **OFF**: refresh exchange, OAuth callback integration, Key Vault client composition, activation, routes, and deploy are not enabled.
 
+**Aug 04**
+- **Private Course card redesign SHIPPED** (Nav team built, Captain gated+deployed) — closed **2a** full-width columns (Lesson · Price · Duration · Equipment pills · ✎) + **one-row edit** (identity | equipment | Save/Cancel) with Notes under; equipment editor subtree byte-intact. New served-`/staff/ui` gate 26/26 (round-trip save, invalid-policy fail-closed, remove-to-zero, narrow-width) + rental-fixes 63 + pricing-model 17 + private-lessons 27 + authority; base-integrity verified (parent==master); `0ac9c499` rev 0000469. **Live-wire confirmed on authed page** (staff cookie).
+- **Course-cards polish SHIPPED** (Nav team; Captain gated+deployed) — **Private:** dropped the accent palette (no blue/purple/green → neutral `--text`/`--text-3`), price/duration 88/86→64px, name field grows, true one-row closed; **Group Option 3:** meta rows + equipment moved under meta + **two-column price list**; **shared equipment editor:** equal During/All-day widths, `×` on the same row, `+` beside `×`. CSS-only, no backend/migration. Gates private-onerow + group-opt3 + rental-fixes 63 + pricing-model 17 + private-lessons + authority; **live authed check = 0 accent tokens on the served page**; `068c8874` rev 0000470. _Owner has a few more tweaks coming tomorrow._
+
 ## 🍳 On the stove (in progress)
-- **L3 / email 2F-C — WAITING on Earthling Azure access (~8h):** inventory `wh-staging-kv` keys, then version-pin or create the approved RSA wrapping key and prove controlled staging wrap/unwrap. Current operator can inspect the Standard/RBAC vault but lacks `keys/read`. No runtime activation while waiting.
-- Safe parallel lane (while 2F-C waits): Sunset UI from **[SUNSET-TODO.md]** — the full Bookings/Finance/cancel-hide/rental-editor batch **shipped (revs 0458–0468)**. **Remaining:** **L2** (Luna still offers disabled rentals — @Earthling/Luna layer), Admin **A2/A3**, Cockpit **C1**, Luna wiring **W1–W4** (@Earthling), then **Mobile** last.
+- **L3 / email 2F-C — WAITING on Earthling Azure access:** step-by-step runbook left at **[EARTHLING-2F-C-AZURE-RUNBOOK.md]** — create/version-pin the RSA wrapping key in `wh-staging-kv` + grant the Sunset identity (`5338388f…`) Crypto User, then paste the versioned key ID back. Captain then wires config + runs the staging wrap/unwrap proof. Current host identity (`0dd41fa2`) confirmed lacks `keys/read` — needs Earthling. No runtime activation while waiting.
+- Safe parallel lane (while 2F-C waits): Sunset UI from **[SUNSET-TODO.md]** — Bookings/Finance/cancel-hide/rental-editor batch **shipped (revs 0458–0468)**; **course-card redesign + polish shipped (revs 0469–0470)** — owner has minor tweaks tomorrow. **Remaining:** **L2** (Luna still offers disabled rentals — @Earthling/Luna layer), Admin **A3** (beaches de-hardcode + Luna wire), Cockpit **C1**, Luna wiring **W1–W4** (@Earthling), then **Mobile** last.
 - Notice-board auto-message idea (one editable Discord message mirroring Journey+SUNSET-TODO) — parked pending owner enabling the Discord send/edit tool for Captain.
 - **Earthling** — resume 2F-C at the Azure credential boundary; add any separate active work here before deploying.
 
@@ -74,7 +78,7 @@ _Last updated: 2026-08-03 23:20 UTC by Skipper_
 ---
 
 ## 🚀 Live where
-- **Sunset · staff-api** (staging) — `9271c3d3` rev 0000468 · 08-04 06:30 · Captain _(rental editor v5: stock 72px, switch align, 30×30 remove ×, 3/2/1 grid — supersedes v3/v4)_
+- **Sunset · staff-api** (staging) — `068c8874` rev 0000470 · 08-04 08:21 · Captain _(course-cards polish: neutral colors, group Option 3 2-col price, shared equipment editor + beside ×; live-verified 0 accent tokens)_
 - **Sunset · Luna** plugin+SOUL (staging) — `c79da8aa` Slice E · 08-02 05:17 · Captain _(separate deploy — drifts from staff-api)_
 - **Wolfhouse · staff-api** (PROD) — _verify_ · Earthling
 - **Wolfhouse · Luna** guest WhatsApp (prod) — _verify_ · Earthling

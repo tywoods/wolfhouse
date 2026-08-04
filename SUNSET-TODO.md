@@ -14,8 +14,8 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 - **Moving a tab** → easy (nav entry + panel); real work is the panel content.
 
 ## ▶️ Recommended next (sequencing)
-1. ✅ **SHIPPED (revs 0458–0468):** Bookings/Cockpit polish, Finance S2, D4, Inbox toggle, F2, A1, F1, F3, full Finance-UI cleanup + revisions + polish v2 (equal cards, Jan→Dec monthly graph, floating custom picker), cancel/hide v2 (+ migration 060), Bookings tab v2 (sort + Type + darker chips), rental-editor layout (v1 + v5).
-2. **Remaining:** **A2** (reformat Group/Private course panels), **A3** (beaches de-hardcode + Luna wire — *important*), Cockpit **C1** (selector placement — needs design), **L2** (Luna offers disabled rentals — @Earthling), Luna wiring **W1–W4** (@Earthling).
+1. ✅ **SHIPPED (revs 0458–0470):** Bookings/Cockpit polish, Finance S2, D4, Inbox toggle, F2, A1, F1, F3, full Finance-UI cleanup + revisions + polish v2, cancel/hide v2 (+ migration 060), Bookings tab v2, rental-editor layout (v1 + v5), and **A2 course-card redesign + polish** (Private closed 2a + one-row edit, Group Option 3, neutral colors, shared equipment editor) — revs 0469–0470. _Owner has minor tweaks tomorrow._
+2. **Remaining:** **A3** (beaches de-hardcode + Luna wire — *important*), Cockpit **C1** (selector placement — needs design), **L2** (Luna offers disabled rentals — @Earthling), Luna wiring **W1–W4** (@Earthling).
 3. **Mobile — LAST.**
 4. **L3 email 2F-C** resumes only when Earthling has Azure access; parked with runtime OFF.
 5. **Mobile LAST** — after the main-site UI settles (we're still adding/removing buttons; no point chasing a moving target).
@@ -27,7 +27,7 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 - **L2 — [BUG] Disabled rental still offered.** Turning a rental OFF in Admin doesn't stop Luna offering it; she must respect the enabled/active flag. `M`
 - **L3 — [FEAT] Email capabilities for Luna.** Give Luna the ability to send/handle email (not just WhatsApp). **@Earthling + Skipper — in progress.** `L`
   - **Shipped foundation:** delegated endpoint/OAuth contracts, Graph adapter/readiness, encrypted grant custody (2F-A, PR #352), and Standard Key Vault RSA envelope provider (2F-B, PR #353).
-  - **WAITING — 2F-C Azure boundary:** Earthling inventories `wh-staging-kv` keys and supplies an exact versioned RSA key path (or creates the approved key with narrow RBAC), then runs a controlled staging wrap/unwrap proof.
+  - **WAITING — 2F-C Azure boundary:** step-by-step runbook at **[EARTHLING-2F-C-AZURE-RUNBOOK.md]** — create/version-pin the RSA wrapping key in `wh-staging-kv`, grant the Sunset identity (`5338388f…`) Crypto User, paste the versioned key ID back; Captain then wires config + runs the staging wrap/unwrap proof.
   - **Still OFF / later:** SDK managed-identity composition, refresh exchange, OAuth callback installation, routes, mailbox activation, deployment, and guest email behavior.
   - **Safety:** raw refresh tokens never enter PostgreSQL; no production A256KW/Managed HSM; no activation until live staging custody proof and later gates pass.
 
@@ -54,10 +54,11 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 
 ## 🛠️ Admin panel (courses / config)
 - ✅ **A1 (shipped) — Group courses sorted by name → by time.** The created group-courses list orders alphabetically; sort by the time each course runs (earliest → latest). `S`
-- **A2 — [UI] Reformat Group & Private course panels.** Give the Group and Private course admin panels the same treatment as the Rental Prices card (compact rows + expand-in-place editor). `M`
+- ✅ **A2 (shipped, revs 0469–0470) — [UI] Reformat Group & Private course panels.** Private: closed 2a full-width columns + one-row edit, neutral site colors. Group: Option 3 (meta rows + equipment-under-meta + two-column price). Shared equipment editor: equal During/All-day widths, `×` inline, `+` beside `×`. _Owner has minor tweaks tomorrow (proportions/one-row polish)._ `M`
 - **A3 — [FEAT][LUNA] Beaches: de-hardcode + custom + wire.** *(important)* On create/edit group course, beaches are hardcoded — delete them and add a **"+ add beach"** so admin defines their own; also **wire Luna** to pick them up (she doesn't today). First case of W1. `M`
 
 ## ✅ Recently shipped from this TODO
+- **A2 course-card redesign + polish** (revs 0469–0470): Private closed **2a** full-width columns + **one-row edit** (Notes under), Group **Option 3** (meta rows + equipment-under-meta + two-column price), **neutral site colors** (dropped blue/purple/green), and shared equipment editor (equal During/All-day widths, `×` inline, `+` beside `×`); `0ac9c499` + `068c8874`. Live-verified on authed page. Owner has minor tweaks tomorrow.
 - **Cancel/hide v2** (no Deleted; Hidden filter/tag/Unhide; Refund-needed gating), **Finance UI cleanup + revisions + polish v2** (title removed, Custom floating calendar, Accommodation, equal cards, Jan→Dec monthly graph, capacity ring), **Bookings tab v2** (sortable cols, What→Type Rentals/Lessons/Accommodation, aligned/slimmer cols, darker chips), and the **rental-editor layout** v1+v5 — all live, revs 0461–0468.
 - **D1–D3 — Booking-drawer equipment polish:** compact quantity/total layout, unified green, and one Equipment header; `ef936ec5`, followed by picker regression fix `6eed4823`.
 - **N1 — Bookings tab:** searchable historical log, filter-global finance summary, CSV, archived records, guest→Customers, and append-only manual refund ledger; `42e30925`. List-500/layout fix `27981048` is live on Sunset staging.
