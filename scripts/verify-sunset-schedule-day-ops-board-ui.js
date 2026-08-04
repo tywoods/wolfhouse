@@ -1344,11 +1344,37 @@ if (modExists) {
   ctx.renderScheduleDayOpsBoard({ rows: [gPast] }, '2026-07-15');
   const atEndToggle = dom['ps-ops-board'].querySelector('[data-ps-ops-guest-toggle]');
   const atEndPanel = panelState(dom['ps-ops-board'], atEndToggle);
-  assert('today exactly at end: guest panel starts hidden (done)',
+  // New rule (Earthling): exactly at end is within the 1h grace → guests stay visible
+  // (people/gear still around). Only collapse when no all-day gear AND >=1h past end.
+  assert('today exactly at end: guest panel STAYS visible (within 1h grace, no all-day)',
     atEndToggle
-      && atEndToggle.getAttribute('aria-expanded') === 'false'
-      && atEndPanel.panel && atEndPanel.hidden === true
-      && (atEndToggle._labelText || '').indexOf('Show guests') >= 0);
+      && atEndToggle.getAttribute('aria-expanded') === 'true'
+      && atEndPanel.panel && atEndPanel.hidden === false
+      && (atEndToggle._labelText || '').indexOf('Hide guests') >= 0);
+
+  // Direct unit coverage for the collapse rule + all-day detector.
+  var noCe = { records: [] };
+  var allDayCe = { records: [{ metadata: { course_equipment: true, course_equipment_mode: 'all_day' } }] };
+  var duringCe = { records: [{ metadata: { course_equipment: true, course_equipment_mode: 'during_course' } }] };
+  var tCtx = function (nowMin) { return { isToday: true, nowMin: nowMin }; };
+  assert('collapse rule: no all-day, exactly at end → stay open (grace)',
+    ctx.scheduleTimelineGuestsShouldCollapse({ kind: 'course', end: 600, groups: [noCe] }, tCtx(600)) === false);
+  assert('collapse rule: no all-day, +30min → stay open (grace)',
+    ctx.scheduleTimelineGuestsShouldCollapse({ kind: 'course', end: 600, groups: [duringCe] }, tCtx(630)) === false);
+  assert('collapse rule: no all-day, +59min → stay open (grace)',
+    ctx.scheduleTimelineGuestsShouldCollapse({ kind: 'course', end: 600, groups: [noCe] }, tCtx(659)) === false);
+  assert('collapse rule: no all-day, +60min → collapse',
+    ctx.scheduleTimelineGuestsShouldCollapse({ kind: 'course', end: 600, groups: [noCe] }, tCtx(660)) === true);
+  assert('collapse rule: all-day gear, +3h past end → stay open',
+    ctx.scheduleTimelineGuestsShouldCollapse({ kind: 'course', end: 600, groups: [allDayCe] }, tCtx(780)) === false);
+  assert('collapse rule: non-course never auto-collapses',
+    ctx.scheduleTimelineGuestsShouldCollapse({ kind: 'private_lesson', end: 600, groups: [noCe] }, tCtx(900)) === false);
+  assert('collapse rule: not today never auto-collapses',
+    ctx.scheduleTimelineGuestsShouldCollapse({ kind: 'course', end: 600, groups: [noCe] }, { isToday: false, nowMin: 900 }) === false);
+  assert('all-day detector true for all_day CE',
+    ctx.scheduleCourseHasAllDayEquipment({ groups: [allDayCe] }) === true);
+  assert('all-day detector false for during_course CE',
+    ctx.scheduleCourseHasAllDayEquipment({ groups: [duringCe] }) === false);
 
   // Missing end → not done
   installFixedClock(18 * 60);

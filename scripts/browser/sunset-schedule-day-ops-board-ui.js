@@ -981,7 +981,23 @@ function scheduleRenderTimelineNowLine(nowLabel){
   return '<div class="portal-schedule-tl-now" aria-hidden="true"><span>' + escHtml(nowLabel) + '</span></div>';
 }
 
-function scheduleRenderTimelineSession(session, done){
+/**
+ * Course guests auto-collapse only when its course-owned gear is done AND we're well
+ * past the lesson: NO all-day course equipment out, and >=1h since the end time (today).
+ * All-day course equipment (guests still hold gear) or within the 1h grace => stay open.
+ * Cards mode never auto-collapses (guests shown by default).
+ */
+function scheduleCourseHasAllDayEquipment(session){
+  return ((session && session.groups) || []).some(function(g){
+    return scheduleDayOpsCourseEquipmentMode(g) === 'all_day';
+  });
+}
+function scheduleTimelineGuestsShouldCollapse(session, ctx){
+  if (!session || session.kind !== 'course') return false;
+  if (scheduleCourseHasAllDayEquipment(session)) return false;
+  return !!(ctx && ctx.isToday && session.end != null && ctx.nowMin >= session.end + 60);
+}
+function scheduleRenderTimelineSession(session, done, guestsCollapse){
   var groupCls = 'portal-schedule-ops-lesson-group' +
     (session.kind === 'course' ? ' portal-schedule-ops-course-group' : '') +
     (session.kind === 'private_lesson' ? ' portal-schedule-ops-private-group' : '') +
@@ -990,9 +1006,9 @@ function scheduleRenderTimelineSession(session, done){
   var hdrLabel = session.kind === 'private_lesson' ? (session.sectionLabel || session.label) : session.label;
   var hdrTime = session.kind === 'private_lesson' ? session.timeLabel : session.timeLabel;
   var panelId = scheduleOpsGuestPanelId(session);
-  // Reuse timeline `done` (today + end <= nowMin): past populated courses start with
-  // the guest/booking panel collapsed. Private/other sessions stay expanded.
-  var guestExpanded = session.kind !== 'course' || !done;
+  // Guests collapse only per scheduleTimelineGuestsShouldCollapse (no all-day course
+  // gear + >=1h past end). Cards mode / non-course / within grace => expanded.
+  var guestExpanded = !guestsCollapse;
   var html = '<section class="' + groupCls + '">' +
     scheduleRenderOpsGroupHeader(hdrLabel, hdrTime, stats, session.boardsNeeded || 0, session.wetsuitsNeeded || 0,
       {
@@ -1037,7 +1053,8 @@ function scheduleRenderTimelineItem(session, ctx){
   var timeCol = '<div class="portal-schedule-tl-time">' +
     (startLabel ? '<b>' + escHtml(startLabel) + '</b>' + (endLabel ? '<small>– ' + escHtml(endLabel) + '</small>' : '') : '') +
     '</div>';
-  var body = isEmpty ? scheduleRenderTimelineEmptySlot(session) : scheduleRenderTimelineSession(session, done);
+  var guestsCollapse = scheduleTimelineGuestsShouldCollapse(session, ctx);
+  var body = isEmpty ? scheduleRenderTimelineEmptySlot(session) : scheduleRenderTimelineSession(session, done, guestsCollapse);
   return '<div class="' + cls + '">' + timeCol + '<span class="portal-schedule-tl-dot" aria-hidden="true"></span>' +
     '<div class="portal-schedule-tl-body">' + body + '</div></div>';
 }
@@ -1164,7 +1181,8 @@ function scheduleRenderCardsItem(session, ctx) {
   var done = !!(ctx.isToday && session.end != null && session.end <= ctx.nowMin);
   var isEmpty = !(session.groups && session.groups.length);
   var cls = 'portal-schedule-card-item' + (done ? ' is-done' : '') + (isEmpty ? ' is-empty' : '');
-  var body = isEmpty ? scheduleRenderTimelineEmptySlot(session) : scheduleRenderTimelineSession(session, done);
+  // Cards mode: guests shown by default (never auto-collapse).
+  var body = isEmpty ? scheduleRenderTimelineEmptySlot(session) : scheduleRenderTimelineSession(session, done, false);
   return '<div class="' + cls + '">' + body + '</div>';
 }
 
