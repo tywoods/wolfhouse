@@ -876,7 +876,8 @@
     "verify:sunset-rental-pickups-p0d": "node scripts/verify-sunset-rental-pickups-p0d.js",
     "verify:sunset-rental-labels-p0e": "node scripts/verify-sunset-rental-labels-p0e.js",
     "job:sunset-staff-sw-quote-readonly": "node scripts/job-sunset-staff-sw-quote-readonly.js",
-    "verify:sunset-bookings-admin-sort-type": "node scripts/verify-sunset-bookings-admin-sort-type.js"
+    "verify:sunset-bookings-admin-sort-type": "node scripts/verify-sunset-bookings-admin-sort-type.js",
+    "verify:sunset-private-course-card-onerow": "node scripts/verify-sunset-private-course-card-onerow.js"
   },
   "dependencies": {
     "acorn": "8.14.1",

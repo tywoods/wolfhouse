@@ -1750,57 +1750,144 @@ function renderAdminPackCards(packs, writes, defaultCap){
   });
   return html + '</div></div>';
 }
+/**
+ * Private closed card equipment cell — same markers/semantics as adminRenderEquipmentReadout
+ * (data-admin-equipment-readout, pill-label Equipment, per-row keys, Included for €0)
+ * but laid out as inline name + During/All-day pills for the 2a full-width row.
+ */
+function adminRenderPrivateEquipmentInline(options){
+  var rows = Array.isArray(options) ? options : [];
+  var html = '<div class="portal-admin-private-eq-readout portal-admin-equipment-readout" data-admin-equipment-readout="1">' +
+    '<span class="portal-admin-pill-label portal-admin-visually-hidden">' +
+    escHtml(portalT('admin.courseEquipment.editorTitle')) + '</span>';
+  if (!rows.length){
+    return html + '<div class="portal-admin-muted" data-admin-equipment-empty="1">' +
+      escHtml(portalT('admin.courseEquipment.empty')) + '</div></div>';
+  }
+  html += '<div class="portal-admin-private-eq-items">';
+  rows.forEach(function(r){
+    if (!r) return;
+    var key = String(r.offering_key || '');
+    var label = adminEquipmentLabelForKey(key);
+    var prices = adminEquipmentOptionPrices(r);
+    // Existing semantics: 0 => Included; honor during_course_policy for During pill.
+    var hasExplicitPolicy = Object.prototype.hasOwnProperty.call(r, 'during_course_policy')
+      && r.during_course_policy != null
+      && String(r.during_course_policy).trim() !== '';
+    var rawPolicy = hasExplicitPolicy ? String(r.during_course_policy).trim() : '';
+    var duringText;
+    if (rawPolicy === 'unavailable') {
+      duringText = portalT('admin.courseEquipment.policyUnavailable') || 'Unavailable';
+    } else if (rawPolicy === 'included' || Number(prices.during) === 0) {
+      duringText = adminEquipmentCentsText(0);
+    } else {
+      duringText = adminEquipmentCentsText(prices.during);
+    }
+    var allDayText = adminEquipmentCentsText(prices.allDay);
+    var duringLab = portalT('admin.courseEquipment.during') || 'During';
+    var allDayLab = portalT('admin.courseEquipment.allDay') || 'All day';
+    html += '<div class="portal-admin-private-eq-item" data-equipment-readout-row="' + escHtml(key) + '">' +
+      '<span class="portal-admin-private-eq-name">' + escHtml(label) + '</span>' +
+      '<span class="portal-admin-private-price-pill">' +
+      '<span class="portal-admin-private-price-pill-k">' + escHtml(duringLab) + '</span>' +
+      '<b class="portal-admin-private-price-pill-v" data-equipment-price="during">' + escHtml(duringText) + '</b></span>' +
+      '<span class="portal-admin-private-price-pill">' +
+      '<span class="portal-admin-private-price-pill-k">' + escHtml(allDayLab) + '</span>' +
+      '<b class="portal-admin-private-price-pill-v" data-equipment-price="all_day">' + escHtml(allDayText) + '</b></span>' +
+      '</div>';
+  });
+  return html + '</div></div>';
+}
 function renderAdminPrivateLessonEditForm(pl){
   var p = pl || {};
-  return '<div class="portal-admin-edit-form" data-admin-private-lesson-form="1">' +
-    '<div class="portal-admin-edit-field svc-check"><label><input type="checkbox" id="admin-private-enabled"' +
-    (p.enabled ? ' checked' : '') + '> ' + escHtml(portalT('admin.privateLessons.enabled')) + '</label></div>' +
-    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.displayName')) + '</label>' +
-    '<input type="text" id="admin-private-label" value="' + escHtml(p.label || '') + '" maxlength="120"></div>' +
-    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.privateLessons.price')) + '</label>' +
-    '<input type="text" id="admin-private-price" value="' + escHtml(adminEurosFromAmount((p.amount_cents || 0) / 100)) + '" inputmode="decimal" placeholder="0.00"></div>' +
-    adminRenderEquipmentEditor(p.equipment_options || [], 'admin-private') +
-    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.privateLessons.duration')) + '</label>' +
-    '<input type="number" id="admin-private-duration" min="15" max="480" step="1" value="' +
-    escHtml(String(p.default_duration_minutes != null ? p.default_duration_minutes : 120)) + '"></div>' +
-    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.privateLessons.notes')) + '</label>' +
-    '<textarea id="admin-private-notes" rows="3" maxlength="2000">' + escHtml(p.notes || '') + '</textarea></div>' +
-    '<div class="portal-admin-edit-actions">' +
-    '<button type="button" class="btn btn-primary" data-admin-action="save-private-lesson">' + escHtml(portalT('admin.action.save')) + '</button>' +
-    '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
-    '</div></div>';
+  // One-row edit (approved mockup): identity | equipment editor | Save/Cancel.
+  // Equipment subtree stays byte-intact (adminRenderEquipmentEditor hooks).
+  // Notes is full-width under the control row (does not fit the single row).
+  return '<div class="portal-admin-edit-form portal-admin-private-edit-form" data-admin-private-lesson-form="1">' +
+    '<div class="portal-admin-private-edit-row" data-admin-private-edit-row="1">' +
+      '<div class="portal-admin-private-identity" data-admin-private-identity="1">' +
+        '<div class="portal-admin-edit-field portal-admin-private-enabled-field">' +
+          '<span class="portal-admin-private-field-lab">' + escHtml(portalT('admin.privateLessons.enabled') || 'On') + '</span>' +
+          '<label class="portal-admin-private-enabled-switch" for="admin-private-enabled">' +
+          '<input type="checkbox" id="admin-private-enabled"' + (p.enabled ? ' checked' : '') + '>' +
+          '<span class="portal-admin-private-enabled-slider" aria-hidden="true"></span>' +
+          '</label></div>' +
+        '<div class="portal-admin-edit-field portal-admin-private-label-field"><label for="admin-private-label">' +
+          escHtml(portalT('admin.edit.displayName')) + '</label>' +
+          '<input type="text" id="admin-private-label" value="' + escHtml(p.label || '') + '" maxlength="120"></div>' +
+        '<div class="portal-admin-edit-field portal-admin-private-price-field"><label for="admin-private-price">' +
+          escHtml(portalT('admin.privateLessons.price')) + '</label>' +
+          '<input type="text" id="admin-private-price" value="' +
+          escHtml(adminEurosFromAmount((p.amount_cents || 0) / 100)) +
+          '" inputmode="decimal" placeholder="0.00"></div>' +
+        '<div class="portal-admin-edit-field portal-admin-private-duration-field"><label for="admin-private-duration">' +
+          escHtml(portalT('admin.privateLessons.duration')) + '</label>' +
+          '<input type="number" id="admin-private-duration" min="15" max="480" step="1" value="' +
+          escHtml(String(p.default_duration_minutes != null ? p.default_duration_minutes : 120)) + '"></div>' +
+      '</div>' +
+      '<div class="portal-admin-private-equip-zone" data-admin-private-equip-zone="1">' +
+        adminRenderEquipmentEditor(p.equipment_options || [], 'admin-private') +
+      '</div>' +
+      '<div class="portal-admin-private-edit-actions portal-admin-edit-actions" data-admin-private-edit-actions="1">' +
+        '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' +
+          escHtml(portalT('admin.action.cancel')) + '</button>' +
+        '<button type="button" class="btn btn-primary" data-admin-action="save-private-lesson">' +
+          escHtml(portalT('admin.action.save')) + '</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="portal-admin-edit-field portal-admin-private-notes-field" data-admin-private-notes-field="1">' +
+      '<label for="admin-private-notes">' + escHtml(portalT('admin.privateLessons.notes')) + '</label>' +
+      '<textarea id="admin-private-notes" rows="2" maxlength="2000">' + escHtml(p.notes || '') + '</textarea>' +
+    '</div>' +
+  '</div>';
 }
-function renderAdminPrivateLessonReadout(pl){
+function renderAdminPrivateLessonReadout(pl, opts){
   var p = pl || {};
-  // Enabled lives only in the edit form (✎) — keep the card tidy for day-to-day reading.
-  var priceText = adminFormatEuroDisplay((p.amount_cents || 0) / 100) +
-    ' · ' + portalT('admin.privateLessons.perSession');
-  var durationText = String(p.default_duration_minutes != null ? p.default_duration_minutes : 120) + ' ' + portalT('admin.privateLessons.minutes');
-  var html = '<div class="portal-admin-lesson-facts">' +
-    '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.edit.displayName')) + '<strong>' + escHtml(p.label || '—') + '</strong></div>' +
-    '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.privateLessons.price')) + '<strong>' + escHtml(priceText) + '</strong></div>' +
-    '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.privateLessons.duration')) + '<strong>' + escHtml(durationText) + '</strong></div>';
-  if (p.notes) {
-    html += '<div class="portal-admin-lesson-fact" style="grid-column:1 / -1">' + escHtml(portalT('admin.privateLessons.notes')) +
-      '<strong>' + escHtml(p.notes) + '</strong></div>';
+  var showEdit = !!(opts && opts.showEdit);
+  // Closed 2a — full-width columns: Lesson | Price | Duration | Equipment | ✎
+  var priceMain = adminFormatEuroDisplay((p.amount_cents || 0) / 100);
+  var perSess = portalT('admin.privateLessons.perSession') || '/ session';
+  var durationNum = String(p.default_duration_minutes != null ? p.default_duration_minutes : 120);
+  var minLab = portalT('admin.privateLessons.minutes') || 'min';
+  var html = '<div class="portal-admin-private-closed-row" data-admin-private-closed-row="1">' +
+    '<div class="portal-admin-private-col portal-admin-private-col-name">' +
+      '<span class="portal-admin-private-col-k">' + escHtml(portalT('admin.privateLessons.defaultName') || portalT('admin.edit.displayName') || 'Lesson') + '</span>' +
+      '<span class="portal-admin-private-col-v">' + escHtml(p.label || '—') + '</span></div>' +
+    '<div class="portal-admin-private-col portal-admin-private-col-price">' +
+      '<span class="portal-admin-private-col-k">' + escHtml(portalT('admin.privateLessons.price')) + '</span>' +
+      '<span class="portal-admin-private-col-v"><span class="portal-admin-private-price-val">' +
+      escHtml(priceMain) + '</span> <small>' + escHtml(perSess) + '</small></span></div>' +
+    '<div class="portal-admin-private-col portal-admin-private-col-dur">' +
+      '<span class="portal-admin-private-col-k">' + escHtml(portalT('admin.privateLessons.duration')) + '</span>' +
+      '<span class="portal-admin-private-col-v">' + escHtml(durationNum) +
+      ' <small>' + escHtml(minLab) + '</small></span></div>' +
+    '<div class="portal-admin-private-col portal-admin-private-col-eq">' +
+      '<span class="portal-admin-private-col-k">' + escHtml(portalT('admin.courseEquipment.editorTitle') || 'Equipment') + '</span>' +
+      '<div class="portal-admin-private-col-v">' + adminRenderPrivateEquipmentInline(p.equipment_options || []) + '</div></div>';
+  if (showEdit) {
+    html += '<div class="portal-admin-private-col portal-admin-private-col-edit">' +
+      '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-private-lesson" aria-label="' +
+      escHtml(portalT('admin.action.edit')) + '">✎</button></div>';
   }
   html += '</div>';
-  // Same fact-card chrome as Display name / Price (via adminRenderEquipmentReadout).
-  html += adminRenderEquipmentReadout(p.equipment_options || []);
+  if (p.notes) {
+    html += '<div class="portal-admin-private-closed-notes" data-admin-private-closed-notes="1">' +
+      '<span class="portal-admin-private-col-k">' + escHtml(portalT('admin.privateLessons.notes')) + '</span>' +
+      '<span class="portal-admin-private-closed-notes-v">' + escHtml(p.notes) + '</span></div>';
+  }
   return html;
 }
 function renderAdminPrivateLessonCard(cfg, writes){
   var pl = (cfg && cfg.private_lesson) ? cfg.private_lesson : { enabled: false, label: portalT('admin.privateLessons.defaultName'), amount_cents: 0, currency: 'EUR', default_duration_minutes: 120, notes: '' };
   var editing = writes && adminEditTarget === 'private-lesson';
+  var canEdit = !!(writes && !editing && !adminLessonSectionEditing() && !adminPackSectionEditing());
   var html = '<div class="portal-admin-subsection"><div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
   html += '<h3 class="portal-admin-subsection-title">' + escHtml(portalT('admin.privateLessons.title')) + '</h3>';
-  if (writes && !editing && !adminLessonSectionEditing() && !adminPackSectionEditing()){
-    html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-private-lesson" aria-label="' + escHtml(portalT('admin.action.edit')) + '">✎</button></div>';
-  }
+  // Edit control lives on the closed 2a row (full-width columns mockup) — not the title row.
   html += '</div></div><p class="portal-admin-muted">' + escHtml(portalT('admin.privateLessons.help')) + '</p>';
-  html += '<article class="portal-admin-lesson-card" data-admin-private-lesson-card="1">';
+  html += '<article class="portal-admin-lesson-card portal-admin-private-lesson-card" data-admin-private-lesson-card="1">';
   if (editing) html += renderAdminPrivateLessonEditForm(pl);
-  else html += renderAdminPrivateLessonReadout(pl);
+  else html += renderAdminPrivateLessonReadout(pl, { showEdit: canEdit });
   html += '</article></div>';
   return html;
 }

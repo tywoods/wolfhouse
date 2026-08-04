@@ -16418,6 +16418,72 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-lesson-facts{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;color:var(--text-2)}
 .portal-admin-lesson-fact{border:1px solid var(--border-soft);border-radius:8px;padding:5px 6px;background:var(--surface)}
 .portal-admin-lesson-fact strong{display:block;color:var(--text);font-size:12px;margin-top:1px}
+/* ── Private Courses card: closed 2a full-width columns + one-row edit ── */
+.portal-admin-private-lesson-card{min-width:0}
+.portal-admin-private-closed-row{display:flex;align-items:stretch;width:100%;gap:0;min-width:0}
+.portal-admin-private-col{padding:2px 16px;border-left:1px solid var(--border-soft);display:flex;flex-direction:column;justify-content:center;min-width:0}
+.portal-admin-private-col:first-child{padding-left:0;border-left:none}
+.portal-admin-private-col-k,.portal-admin-private-field-lab{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#7fa8cf;margin:0 0 3px;line-height:1.2;white-space:nowrap}
+.portal-admin-private-col-v{font-size:14px;font-weight:700;color:var(--text);line-height:1.25;min-width:0}
+.portal-admin-private-col-v small{font-weight:600;color:var(--text-2);font-size:11px}
+.portal-admin-private-price-val{color:var(--sage,#7bbf8f)}
+.portal-admin-private-col-name{flex:0 1 auto;max-width:22%}
+.portal-admin-private-col-price{flex:1 1 0}
+.portal-admin-private-col-dur{flex:1 1 0}
+.portal-admin-private-col-eq{flex:2.4 1 0}
+.portal-admin-private-col-eq .portal-admin-private-col-v{display:block}
+.portal-admin-private-col-edit{display:flex;align-items:center;justify-content:center;padding-left:12px;border-left:1px solid var(--border-soft);flex:0 0 auto}
+.portal-admin-private-eq-readout{min-width:0}
+.portal-admin-private-eq-items{display:flex;flex-direction:column;gap:6px;min-width:0}
+.portal-admin-private-eq-item{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.portal-admin-private-eq-name{font-weight:700;color:#b39ddb;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.portal-admin-private-price-pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:var(--surface-soft);border:1px solid var(--border-soft);color:var(--text);white-space:nowrap}
+.portal-admin-private-price-pill-k{color:var(--text-3);font-weight:700;font-size:9.5px;text-transform:uppercase;letter-spacing:.03em}
+.portal-admin-private-price-pill-v{color:var(--sage,#7bbf8f);font-weight:700}
+.portal-admin-private-closed-notes{margin-top:10px;padding-top:8px;border-top:1px solid var(--border-soft);min-width:0}
+.portal-admin-private-closed-notes-v{display:block;font-size:12px;font-weight:600;color:var(--text);margin-top:2px}
+/* Private edit: one control row (identity | equipment | actions) + notes under */
+.portal-admin-private-edit-form.portal-admin-edit-form{display:flex;flex-direction:column;gap:10px;align-items:stretch;grid-template-columns:none}
+.portal-admin-private-edit-row{display:flex;align-items:flex-end;gap:0;width:100%;min-width:0}
+.portal-admin-private-identity{display:flex;align-items:flex-end;gap:10px;flex:1 1 42%;min-width:0;padding-right:12px}
+.portal-admin-private-equip-zone{display:flex;align-items:flex-end;flex:1 1 58%;min-width:0;padding:0 12px;border-left:1px solid var(--border-soft)}
+.portal-admin-private-equip-zone .portal-admin-equipment-editor{grid-column:auto;width:100%;min-width:0;margin:0}
+.portal-admin-private-equip-zone .portal-admin-equipment-heading-row{margin:0 0 6px}
+.portal-admin-private-equip-zone .portal-admin-equipment-three-price-help{display:none}
+.portal-admin-private-equip-zone [data-equipment-option-rows]{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}
+.portal-admin-private-equip-zone .portal-admin-equipment-option-row{margin:0}
+.portal-admin-private-equip-zone .portal-admin-equipment-option-fields{
+  grid-template-columns:minmax(110px,1.8fr) minmax(88px,.9fr) minmax(64px,.7fr) minmax(64px,.7fr) auto;
+  gap:6px 8px
+}
+.portal-admin-private-edit-actions{display:flex;align-items:flex-end;gap:8px;flex:0 0 auto;padding-left:12px;border-left:1px solid var(--border-soft);margin:0}
+.portal-admin-private-edit-actions .btn{white-space:nowrap}
+.portal-admin-private-enabled-field{display:flex;flex-direction:column;align-items:flex-start;gap:3px;flex:0 0 auto;min-width:0}
+.portal-admin-private-enabled-switch{position:relative;display:inline-flex;align-items:center;justify-content:center;width:36px;min-width:36px;height:20px;min-height:20px;margin:0;cursor:pointer;user-select:none;line-height:0}
+.portal-admin-private-enabled-switch input[type=checkbox]{position:absolute!important;opacity:0!important;width:1px!important;height:1px!important;margin:0!important;padding:0!important;border:0!important;appearance:none!important;-webkit-appearance:none!important;pointer-events:none}
+.portal-admin-private-enabled-slider{position:relative;display:block;width:34px;height:19px;border-radius:999px;background:var(--border-soft);transition:background .2s;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}
+.portal-admin-private-enabled-slider:before{position:absolute;content:"";height:15px;width:15px;left:2px;top:2px;background:var(--surface,#fff);border-radius:50%;transition:transform .2s;box-shadow:0 1px 2px rgba(0,0,0,.18)}
+.portal-admin-private-enabled-switch input:checked + .portal-admin-private-enabled-slider{background:var(--primary)}
+.portal-admin-private-enabled-switch input:checked + .portal-admin-private-enabled-slider:before{transform:translateX(15px);background:#eafff0}
+.portal-admin-private-label-field{flex:1 1 auto;min-width:0}
+.portal-admin-private-price-field{width:88px;flex:0 0 auto}
+.portal-admin-private-duration-field{width:86px;flex:0 0 auto}
+.portal-admin-private-edit-form .portal-admin-edit-field label,
+.portal-admin-private-edit-form .portal-admin-private-field-lab{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#7fa8cf;margin:0 0 3px}
+.portal-admin-private-edit-form .portal-admin-edit-field input,
+.portal-admin-private-edit-form .portal-admin-edit-field textarea{max-width:none;width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border-soft);border-radius:7px;font-size:12.5px;background:var(--surface);color:var(--text);min-height:34px}
+.portal-admin-private-notes-field{width:100%;min-width:0;margin:0}
+.portal-admin-private-notes-field textarea{width:100%;max-width:none;min-height:52px;resize:vertical}
+@media (max-width:520px){
+  .portal-admin-private-closed-row{flex-wrap:wrap;gap:8px 0}
+  .portal-admin-private-col{border-left:none;padding:4px 0;flex:1 1 45%}
+  .portal-admin-private-col-eq{flex:1 1 100%}
+  .portal-admin-private-col-edit{border-left:none;padding-left:0;margin-left:auto}
+  .portal-admin-private-edit-row{flex-wrap:wrap;align-items:stretch;gap:10px}
+  .portal-admin-private-identity{flex:1 1 100%;padding-right:0;flex-wrap:wrap}
+  .portal-admin-private-equip-zone{flex:1 1 100%;padding:10px 0 0;border-left:none;border-top:1px solid var(--border-soft)}
+  .portal-admin-private-edit-actions{flex:1 1 100%;padding-left:0;border-left:none;border-top:1px solid var(--border-soft);padding-top:8px;justify-content:flex-end}
+}
 .portal-admin-lesson-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;margin-top:2px}
 .portal-admin-lesson-price-strip{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 10px}
 .portal-admin-lesson-price-pill{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--border-soft);background:var(--surface-soft);border-radius:999px;padding:5px 9px;font-size:12px;min-width:170px}
