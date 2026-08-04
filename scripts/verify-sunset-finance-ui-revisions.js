@@ -26,18 +26,19 @@ const { renderFinanceRedesignHtml } = require(path.join(ROOT, 'scripts/browser/s
 // F3 — click target includes data-finance-trend
 ok('wire closest includes data-finance-trend',
   /closest\([^\)]*data-finance-trend/.test(adminUi));
-ok('trend handled before gran (independent)',
-  /F3 first|chart mode is independent/.test(adminUi)
-  && adminUi.indexOf('data-finance-trend') < adminUi.indexOf("getAttribute('data-finance-gran')"));
+ok('trend handled independently from granularity selection',
+  /window\.__financeTrendMode/.test(adminUi)
+  && /renderFinanceRedesignHtml\(financeLastSummary\)/.test(adminUi)
+  && /chart mode is independent|data-finance-trend/.test(adminUi));
 ok('trend re-renders from financeLastSummary (no period refetch required)',
   /financeLastSummary/.test(adminUi)
   && /renderFinanceRedesignHtml\(financeLastSummary\)/.test(adminUi));
 ok('trend buttons use days|year',
   /data-finance-trend=\"days\"/.test(redesign) && /data-finance-trend=\"year\"/.test(redesign));
 
-// Trailing 12 months
-ok('monthly_gross_trend is trailing (not fixed calendar year only)',
-  /trailing 12 calendar months|trailEnd|for \(let i = 11; i >= 0/.test(summarySrc));
+// Fixed Jan-Dec monthly comparison for the selected year.
+ok('monthly_gross_trend is fixed Jan-Dec for selected year',
+  /monthlyCollectedGrossTrend/.test(summarySrc) && /monthRangeForYearMonth/.test(summarySrc));
 
 const s = computeSunsetFinanceSummary({
   now: new Date('2026-08-15T12:00:00Z'),
@@ -57,8 +58,9 @@ const s = computeSunsetFinanceSummary({
 });
 ok('monthly trend length 12', Array.isArray(s.redesign.monthly_gross_trend) && s.redesign.monthly_gross_trend.length === 12);
 const months = s.redesign.monthly_gross_trend.map((r) => r.month);
-ok('trailing ends at Aug 2026', months[months.length - 1] === '2026-08');
-ok('trailing starts Sep 2025', months[0] === '2025-09');
+ok('fixed chart starts at January', months[0] === 1);
+ok('fixed chart ends at December', months[months.length - 1] === 12);
+ok('fixed chart year is selected anchor year', s.redesign.monthly_gross_trend.every((r) => r.year === 2026));
 ok('daily trend is period days', Array.isArray(s.redesign.daily_gross_trend) && s.redesign.daily_gross_trend.length >= 28);
 
 // Render with days mode
@@ -66,27 +68,33 @@ global.window = { __financeTrendMode: 'days' };
 const htmlDays = renderFinanceRedesignHtml(s);
 ok('days mode paints daily trend container', /data-finance-trend-mode=\"days\"/.test(htmlDays) || /pfb-trend/.test(htmlDays));
 ok('days toggle is-on', /data-finance-trend=\"days\"[^>]*is-on|class=\"pfb-trend-btn is-on\"[^>]*data-finance-trend=\"days\"/.test(htmlDays));
+ok('days mode keeps daily trend label', /Daily gross vs last year/.test(htmlDays) && !/Monthly gross vs last year/.test(htmlDays));
 
 global.window.__financeTrendMode = 'year';
 const htmlYear = renderFinanceRedesignHtml(s);
 ok('year mode paints monthly series', /data-finance-trend-mode=\"year\"/.test(htmlYear));
 ok('year toggle is-on', /data-finance-trend=\"year\"[^>]*is-on|class=\"pfb-trend-btn is-on\"[^>]*data-finance-trend=\"year\"/.test(htmlYear));
+ok('year mode uses exact monthly trend label', /Monthly gross vs last year/.test(htmlYear));
+ok('year mode paints Jan-Dec axis', /Jan/.test(htmlYear) && /Dec/.test(htmlYear));
 // Switching mode must not change KPI period labels from summary view (month still)
 ok('period still month while chart is year', /data-finance-gran=\"month\"[^>]*is-on|aria-selected=\"true\"[^>]*>Month|class=\"pfb-gran-btn is-on\"[^>]*data-finance-gran=\"month\"/.test(htmlYear));
 
-// Custom picker — client-owned overlay; no incomplete custom summary reload
-ok('Custom gran opens client picker without openCustomPicker reload',
-  /financeOpenCustomRangePicker\(\s*body\s*\)/.test(adminUi)
-  && /function\s+financeEnsureCustomRangePop/.test(adminUi)
+// Custom picker — anchored floating overlay; no incomplete custom summary reload
+ok('Custom gran opens anchored picker without openCustomPicker reload',
+  /financeCustomTogglePopover\(\)/.test(adminUi)
+  && /function\s+financeOpenCustomRangePicker/.test(adminUi)
   && !/loadAdminFinanceSummary\(\s*\{\s*openCustomPicker\s*:\s*true\s*\}\s*\)/.test(adminUi));
 ok('custom trigger + pop in redesign',
-  /data-finance-nav=\"open-custom-range\"/.test(redesign)
+  /id=\"pfb-custom-range-trigger\"/.test(redesign)
+  && /id=\"pfb-custom-display\"/.test(redesign)
   && /id=\"pfb-custom-range-pop\"/.test(redesign));
-ok('picker paint sets display block',
-  /pop\.hidden = false/.test(adminUi) && /pop\.style\.display = 'block'/.test(adminUi));
-ok('custom picker uses shared helper (state, iso)',
-  /scheduleCreateDateRangeSelectDay\(\s*financeCustomRangeDraft[^,]*,\s*iso\s*\)/.test(adminUi)
-  && !/scheduleCreateDateRangeSelectDay\(\s*iso\s*,\s*financeCustomRangeDraft/.test(adminUi));
+ok('picker paint shows floating popover',
+  /pop\.hidden = false/.test(adminUi) && /pop\.style\.display = ''/.test(adminUi));
+ok('custom picker keeps live-apply selection with Clear/Close controls',
+  /financeSelectRangeDay\(/.test(adminUi)
+  && /financeApplyCustomDraft\(/.test(adminUi)
+  && /data-pfb-cal=\"clear\"/.test(redesign)
+  && /data-pfb-cal=\"close\"/.test(redesign));
 
 // Capacity ring
 ok('capacity ring in redesign HTML',

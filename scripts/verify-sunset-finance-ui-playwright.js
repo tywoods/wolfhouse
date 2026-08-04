@@ -77,6 +77,170 @@ const COPY = {
   },
 };
 
+const NOW = new Date('2026-07-15T10:00:00Z');
+const MONTHLY_CURRENT = [1800, 2600, 3900, 4700, 5600, 6800, 9000, 7200, 6100, 5300, 4100, 3000];
+const MONTHLY_PREV = [1500, 2100, 3100, 4300, 5000, 5900, 7800, 6600, 5200, 4900, 3600, 2600];
+
+function addDays(iso, days) {
+  const parts = String(iso || '').split('-').map(Number);
+  return new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]) + (days * 86400000)).toISOString().slice(0, 10);
+}
+function monthRange(anchor) {
+  const [y, m] = String(anchor || '2026-07-15').split('-').map(Number);
+  const mm = String(m).padStart(2, '0');
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { start: `${y}-${mm}-01`, end: `${y}-${mm}-${String(lastDay).padStart(2, '0')}` };
+}
+function yearRange(anchor) {
+  const y = Number(String(anchor || '2026-07-15').slice(0, 4)) || 2026;
+  return { start: `${y}-01-01`, end: `${y}-12-31` };
+}
+function shiftYearRange(range) {
+  return {
+    start: `${Number(String(range.start).slice(0, 4)) - 1}${String(range.start).slice(4)}`,
+    end: `${Number(String(range.end).slice(0, 4)) - 1}${String(range.end).slice(4)}`,
+  };
+}
+function eachDate(range) {
+  const out = [];
+  for (let d = range.start; d <= range.end; d = addDays(d, 1)) out.push(d);
+  return out;
+}
+function resolveRange(opts) {
+  const granularity = opts.granularity || 'month';
+  if (granularity === 'custom') return { start: opts.start, end: opts.end };
+  if (granularity === 'day') return { start: opts.anchor, end: opts.anchor };
+  if (granularity === 'year') return yearRange(opts.anchor);
+  return monthRange(opts.anchor);
+}
+function buildDailyTrend(range, netCents) {
+  const dates = eachDate(range);
+  return dates.map((date, idx) => {
+    const pct = dates.length === 1 ? 1 : ((idx + 1) / dates.length);
+    const cur = Math.max(0, Math.round(netCents * pct * (dates.length === 1 ? 1 : 0.65)));
+    const ly = Math.max(0, Math.round(cur * 0.78));
+    return {
+      date,
+      booked_cents: 1200 + (idx * 110),
+      collected_gross_cents: idx === dates.length - 1 ? netCents : cur,
+      ly_booked_cents: Math.max(0, 900 + (idx * 80)),
+      ly_collected_gross_cents: ly,
+    };
+  });
+}
+function buildMonthlyTrend(year) {
+  return Array.from({ length: 12 }, (_, idx) => {
+    const month = idx + 1;
+    const mm = String(month).padStart(2, '0');
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return {
+      year,
+      month,
+      start: `${year}-${mm}-01`,
+      end: `${year}-${mm}-${String(lastDay).padStart(2, '0')}`,
+      collected_gross_cents: MONTHLY_CURRENT[idx],
+      ly_collected_gross_cents: MONTHLY_PREV[idx],
+    };
+  });
+}
+function redesignSummary(opts) {
+  const config = Object.assign({
+    granularity: 'month',
+    anchor: '2026-07-15',
+    start: null,
+    end: null,
+    netCents: 9000,
+  }, opts || {});
+  const range = resolveRange(config);
+  const year = Number(String(range.start).slice(0, 4)) || 2026;
+  const period = { booked_cents: 24000, collected_gross_cents: config.netCents, outstanding_cents: 6200, bookings_count: 18 };
+  return {
+    currency: 'EUR',
+    time_zone: 'Europe/Madrid',
+    generated_at: NOW.toISOString(),
+    periods: { today: { ...period }, week: { ...period }, month: { ...period } },
+    daily_trend: buildDailyTrend(monthRange(config.anchor), config.netCents),
+    redesign: {
+      view: {
+        granularity: config.granularity,
+        range,
+        prior_range: config.granularity === 'year'
+          ? shiftYearRange(range)
+          : { start: addDays(range.start, -7), end: addDays(range.end, -7) },
+        yoy_range: shiftYearRange(range),
+        today: '2026-07-15',
+      },
+      net: {
+        net_collected_cents: config.netCents,
+        gross_collected_cents: config.netCents,
+        completed_refunds_cents: 0,
+        pending_refund_cents: 0,
+        pending_refund_label: 'recorded_refunds_only',
+        net_equals_gross: true,
+        vs_prior_pct: 12.5,
+        vs_yoy_pct: 8.2,
+      },
+      pipeline: {
+        booked_cents: 32400,
+        bookings_count: 18,
+        avg_booking_cents: 1800,
+        next_30_days_cents: 10800,
+        delivered_unpaid_cents: 4200,
+        delivered_unpaid_bookings: 3,
+        vs_prior_pct: 16.4,
+        vs_yoy_pct: 9.1,
+      },
+      outstanding: {
+        outstanding_cents: 6200,
+        bookings_count: 5,
+        due_soon_cents: 3800,
+        overdue_cents: 2400,
+        aging_proxy: 'service_date',
+        vs_prior_pct: -4.5,
+        vs_yoy_pct: -10.2,
+      },
+      revenue_by_product: [
+        { key: 'lessons', label: 'Lessons', cents: 14000, pct: 46.7, slot: 'lessons' },
+        { key: 'course_included', label: 'Course equipment', cents: 7000, pct: 23.3, slot: 'course_included' },
+        { key: 'board_rental', label: 'Board rental', cents: 5000, pct: 16.7, slot: 'rank_1' },
+        { key: 'wetsuit_rental', label: 'Wetsuit rental', cents: 4000, pct: 13.3, slot: 'rank_2' },
+        { key: 'other', label: 'Other', cents: 0, pct: 0, slot: 'other' },
+      ],
+      capacity: {
+        seats_filled: 34,
+        seats_capacity: 48,
+        seats_pct: 71,
+        unsold_seats: 14,
+        avg_lesson_price_cents: 2200,
+        left_on_table_cents: 30800,
+        boards_out: 15,
+        boards_stock: 24,
+        boards_pct: 63,
+        wetsuits_out: 12,
+        wetsuits_stock: 20,
+        wetsuits_pct: 60,
+        by_product: [
+          { slot: 'lessons', label: 'Lessons', pct: 71, detail: '34/48' },
+          { slot: 'course_included', label: 'Course equipment', pct: 63, detail: '15/24' },
+          { slot: 'rank_1', label: 'Board rental', pct: 63, detail: '15/24' },
+          { slot: 'rank_2', label: 'Wetsuit rental', pct: 60, detail: '12/20' },
+        ],
+      },
+      monthly_gross_trend: buildMonthlyTrend(year),
+      daily_gross_trend: buildDailyTrend(range, config.netCents),
+      limitations: {
+        net_uses_recorded_refunds: true,
+        pending_refund_estimated_from_cancellations: false,
+        note: 'Net equals gross in Slice 2 until recorded refunds exist for this period.',
+      },
+    },
+    limitations: {
+      net_collected_available: false,
+      note: 'Collected is gross: refunds/reversals are not available until an authoritative refund ledger exists.',
+    },
+  };
+}
+
 async function waitPortal(page) {
   await page.waitForFunction(() => {
     const select = document.getElementById('c-client');
@@ -97,6 +261,13 @@ async function nextPending(pending, timeout = 5000) {
   while (!pending.length && Date.now() - start < timeout) await sleep(10);
   if (!pending.length) throw new Error('Timed out waiting for intercepted Finance request');
   return pending.shift();
+}
+async function waitForRedesignSuccess(page) {
+  await page.waitForSelector('.pfb-card', { timeout: 20000 });
+}
+function moneyRx(cents) {
+  const whole = Math.round((Number(cents) || 0) / 100);
+  return new RegExp(`€${whole}(?:[\\.,]00)?`);
 }
 
 async function main() {
@@ -125,6 +296,9 @@ async function main() {
     if (mode === 'pending') { pending.push(route); return; }
     if (mode === 'empty') return fulfill(route, { success: true, summary: emptySummary });
     if (mode === 'error') return fulfill(route, { success: false, error: 'unavailable' });
+    if (mode && typeof mode === 'object' && mode.kind === 'redesign') {
+      return fulfill(route, { success: true, summary: redesignSummary(mode.summary) });
+    }
     return fulfill(route, { success: true, summary: summary() });
   });
 
@@ -225,7 +399,7 @@ async function main() {
     await page.locator('#admin-tab-pricing').click();
     await page.waitForSelector('#admin-panel-pricing:not([hidden])');
     const pricingBefore = await page.locator('#admin-panel-pricing').innerText();
-    await page.locator('#admin-panel-pricing [data-admin-action="edit-price-group"]').first().click();
+    await page.locator('#admin-panel-pricing [data-admin-action="edit-equipment"]').first().click();
     const draft = page.locator('#admin-panel-pricing input[data-admin-price-field="amount"]').first();
     await draft.waitFor({ state: 'visible' });
     await draft.fill('137');
@@ -304,6 +478,34 @@ async function main() {
       if (width < 720) check(`${width}px result cards stack in one column`, layout.cards.every((x) => Math.abs(x.left - layout.cards[0].left) < 2));
       else check(`${width}px desktop result cards form a three-column row`, new Set(layout.cards.map((x) => Math.round(x.left))).size === 3);
     }
+
+    console.log('\n[6] Finance polish redesign smoke\n');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.evaluate(() => window.setStaffLocale('en'));
+    mode = { kind: 'redesign', summary: { granularity: 'month', anchor: '2026-07-15', netCents: 9000 } };
+    await page.locator('button.tab-btn[data-tab="admin"]').click();
+    await waitForRedesignSuccess(page);
+    check('loading → redesign success paints backend value', moneyRx(9000).test(await text(page)), await text(page));
+    equal('default trend label is daily', await page.locator('.pfb-card--trend .pfb-sec').innerText(), 'Daily gross vs last year');
+    await page.locator('[data-finance-trend="year"]').click();
+    equal('year trend label is exact', await page.locator('.pfb-card--trend .pfb-sec').innerText(), 'Monthly gross vs last year');
+    equal('year chart uses fixed Jan-Dec axis', (await page.locator('.pfb-trend--monthly .pfb-trend-d').allInnerTexts()).join(','), 'Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec');
+    check('year chart is full width without horizontal scroll', await page.evaluate(() => {
+      const chart = document.querySelector('.pfb-trend--monthly');
+      return !!(chart && chart.scrollWidth <= chart.clientWidth + 1);
+    }));
+    check('Revenue by product and Capacity used cards are equal width', await page.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll('.pfb-two .pfb-card'));
+      if (cards.length !== 2) return false;
+      const widths = cards.map((el) => Math.round(el.getBoundingClientRect().width));
+      return Math.abs(widths[0] - widths[1]) <= 1;
+    }));
+    await page.locator('[data-finance-trend="days"]').click();
+    equal('days trend label is exact', await page.locator('.pfb-card--trend .pfb-sec').innerText(), 'Daily gross vs last year');
+    check('days trend stays daily (not monthly)', await page.evaluate(() => {
+      const chart = document.querySelector('.pfb-trend');
+      return !!(chart && !chart.classList.contains('pfb-trend--monthly'));
+    }));
 
     equal('all pageerror messages', pageErrors.join(' | '), '');
     equal('all console.error messages', consoleErrors.join(' | '), '');

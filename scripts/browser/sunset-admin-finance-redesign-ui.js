@@ -91,6 +91,25 @@ function financeRedesignTitle(view) {
   }
 }
 
+function financeRedesignCustomDisplay(view) {
+  var start = view && view.range ? String(view.range.start || '') : '';
+  var end = view && view.range ? String(view.range.end || '') : '';
+  if (!(view && view.granularity === 'custom' && start && end)) {
+    return financeRedesignT('admin.finance.gran.custom', 'Custom');
+  }
+  return start === end ? start : (start + ' – ' + end);
+}
+
+function financeRedesignTrendTitle(trendMode) {
+  return trendMode === 'year'
+    ? financeRedesignT('admin.finance.monthlyGrossTrend', 'Monthly gross vs last year')
+    : financeRedesignT('admin.finance.dailyGrossTrend', 'Daily gross vs last year');
+}
+
+function financeRedesignMonthLabel(idx) {
+  return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][idx] || '';
+}
+
 function financeRedesignBarRow(name, cents, pct, colorClass) {
   var w = Math.max(0, Math.min(100, Number(pct) || 0));
   return '<div class="pfb-bar-row">' +
@@ -122,30 +141,37 @@ function financeRedesignTrendHtml(trend, mode) {
     max = Math.max(max, Number(r.collected_gross_cents) || 0, Number(r.ly_collected_gross_cents) || 0);
   });
   var isYear = mode === 'year' || mode === 'months' || mode === '12m';
-  var aria = isYear
-    ? financeRedesignT('admin.finance.trendTitleYear', 'Monthly gross collected — trailing 12 months vs last year')
-    : financeRedesignT('admin.finance.trendTitle', 'Daily gross collected — vs last year');
-  var html = '<div class="pfb-trend" data-finance-trend-mode="' + (isYear ? 'year' : 'days') + '" role="img" aria-label="' +
-    financeRedesignEsc(aria) + '">';
+  if (isYear) {
+    var htmlMonthly = '<div class="pfb-trend pfb-trend--monthly" data-finance-trend-mode="year" role="img" aria-label="' +
+      financeRedesignEsc(financeRedesignTrendTitle('year')) + '">';
+    rows.forEach(function (r, idx) {
+      var cur = Math.max(0, Number(r.collected_gross_cents) || 0);
+      var ly = Math.max(0, Number(r.ly_collected_gross_cents) || 0);
+      var hCur = Math.round((100 * cur) / max);
+      var hLy = Math.round((100 * ly) / max);
+      var monthNum = Number(r.month);
+      var monthLabel = financeRedesignMonthLabel(((monthNum >= 1 && monthNum <= 12) ? monthNum : (idx + 1)) - 1);
+      htmlMonthly += '<div class="pfb-trend-day pfb-trend-day--month" title="' +
+        financeRedesignEsc(monthLabel + ' · ' + financeRedesignFmtEurExact(cur) + ' · LY ' + financeRedesignFmtEurExact(ly)) + '">' +
+        '<div class="pfb-trend-col">' +
+        '<span class="pfb-trend-prev" style="height:' + hLy + '%"></span>' +
+        '<span class="pfb-trend-cur" style="height:' + hCur + '%"></span>' +
+        '</div>' +
+        '<div class="pfb-trend-d">' + financeRedesignEsc(monthLabel) + '</div>' +
+        '</div>';
+    });
+    htmlMonthly += '</div>';
+    return htmlMonthly;
+  }
+  var html = '<div class="pfb-trend" data-finance-trend-mode="days" role="img" aria-label="' +
+    financeRedesignEsc(financeRedesignTrendTitle('days')) + '">';
   rows.forEach(function (r) {
     var cur = Math.max(0, Number(r.collected_gross_cents) || 0);
     var ly = Math.max(0, Number(r.ly_collected_gross_cents) || 0);
     var hCur = Math.round((100 * cur) / max);
     var hLy = Math.round((100 * ly) / max);
-    var lab = '';
-    if (isYear) {
-      // Prefer month key YYYY-MM → short month
-      var mk = String(r.month || r.date || '').slice(0, 7);
-      try {
-        var md = new Date(mk + '-15T12:00:00');
-        lab = md.toLocaleDateString(typeof portalLang === 'string' ? portalLang : 'en', { month: 'short' });
-      } catch (_e) {
-        lab = mk.slice(5) || '';
-      }
-    } else {
-      lab = String(r.date || '').slice(8, 10);
-      if (lab.charAt(0) === '0') lab = lab.slice(1);
-    }
+    var lab = String(r.date || '').slice(8, 10);
+    if (lab.charAt(0) === '0') lab = lab.slice(1);
     html += '<div class="pfb-trend-day" title="' + financeRedesignEsc((r.month || r.date || '') + ' · ' + financeRedesignFmtEurExact(cur)) + '">' +
       '<div class="pfb-trend-col">' +
       '<span class="pfb-trend-prev" style="height:' + hLy + '%"></span>' +
@@ -198,23 +224,30 @@ function renderFinanceRedesignHtml(summary) {
       ' aria-selected="' + (g === key ? 'true' : 'false') + '">' +
       financeRedesignEsc(financeRedesignT('admin.finance.gran.' + key, lab)) + '</button>';
   });
-  html += '<button type="button" class="pfb-custom' + (g === 'custom' ? ' is-on' : '') + '" data-finance-gran="custom">' +
-    financeRedesignEsc(financeRedesignT('admin.finance.gran.custom', 'Custom')) + '</button>';
+  html += '<div class="pfb-custom-wrap">';
+  html += '<button type="button" class="pfb-custom' + (g === 'custom' ? ' is-on' : '') + '" id="pfb-custom-range-trigger" data-finance-gran="custom" data-finance-nav="open-custom-range"' +
+    ' aria-haspopup="dialog" aria-expanded="false" aria-controls="pfb-custom-range-pop">' +
+    '<span id="pfb-custom-display" class="portal-schedule-create-date-range-display">' +
+    financeRedesignEsc(financeRedesignCustomDisplay(view)) + '</span></button>';
+  html += '<div id="pfb-custom-range-pop" class="portal-schedule-create-date-range-popover pfb-custom-popover" role="dialog" aria-modal="false" aria-labelledby="pfb-custom-month-label" hidden style="display:none">';
+  html += '<div class="pfb-custom-head pfb-cal-head">';
+  html += '<button type="button" id="pfb-custom-prev" data-pfb-cal="prev" aria-label="Previous month">&#8249;</button>';
+  html += '<span id="pfb-custom-month-label" class="portal-schedule-create-date-range-month" aria-live="polite"></span>';
+  html += '<button type="button" id="pfb-custom-next" data-pfb-cal="next" aria-label="Next month">&#8250;</button>';
+  html += '</div>';
+  html += '<div id="pfb-custom-grid" class="portal-schedule-create-date-range-grid pfb-cal-grid" role="group" aria-labelledby="pfb-custom-month-label"></div>';
+  html += '<div class="portal-schedule-create-date-range-actions">';
+  html += '<button type="button" class="btn btn-ghost" id="pfb-custom-clear" data-pfb-cal="clear">' +
+    financeRedesignEsc(financeRedesignT('calendar.create.clearSelection', 'Clear Selection')) + '</button>';
+  html += '<button type="button" class="btn btn-primary" id="pfb-custom-close" data-pfb-cal="close">' +
+    financeRedesignEsc(financeRedesignT('schedule.drawer.close', 'Close')) + '</button>';
   html += '</div></div>';
-
-  // Custom range: compact calendar trigger (drawer-style picker wired after paint)
-  if (g === 'custom') {
-    var cs = (view.range && view.range.start) || '';
-    var ce = (view.range && view.range.end) || cs;
-    var cLab = cs && ce ? (cs === ce ? cs : (cs + ' \u2192 ' + ce)) : financeRedesignT('admin.finance.pickRange', 'Pick dates');
-    html += '<div class="pfb-custom-row">';
-    html += '<button type="button" class="pfb-custom-range-trigger" id="pfb-custom-range-trigger" data-finance-nav="open-custom-range" aria-haspopup="dialog">' +
-      financeRedesignEsc(cLab) + '</button>';
-    html += '<input type="hidden" id="pfb-custom-start" value="' + financeRedesignEsc(cs) + '">';
-    html += '<input type="hidden" id="pfb-custom-end" value="' + financeRedesignEsc(ce) + '">';
-    html += '<div id="pfb-custom-range-pop" class="pfb-custom-range-pop" hidden style="display:none"></div>';
-    html += '</div>';
-  }
+  html += '<input id="pfb-custom-start" type="date" class="portal-schedule-create-date-hidden" tabindex="-1" aria-hidden="true" hidden value="' +
+    financeRedesignEsc(g === 'custom' && view.range ? (view.range.start || '') : '') + '">';
+  html += '<input id="pfb-custom-end" type="date" class="portal-schedule-create-date-hidden" tabindex="-1" aria-hidden="true" hidden value="' +
+    financeRedesignEsc(g === 'custom' && view.range ? (view.range.end || '') : '') + '">';
+  html += '</div>';
+  html += '</div></div>';
 
   // Hero cards
   html += '<div class="pfb-hero">';
@@ -369,8 +402,7 @@ function renderFinanceRedesignHtml(summary) {
     : (Array.isArray(R.daily_gross_trend) ? R.daily_gross_trend : []);
   html += '<div class="pfb-card pfb-card--trend" data-finance-trend-card="1">';
   html += '<div class="pfb-sec-row">';
-  html += '<div class="pfb-sec">' + financeRedesignEsc(financeRedesignT('admin.finance.dailyGrossTrend',
-    'Daily gross vs last year')) + '</div>';
+  html += '<div class="pfb-sec">' + financeRedesignEsc(financeRedesignTrendTitle(trendMode)) + '</div>';
   html += '<div class="pfb-trend-toggle" role="tablist" aria-label="Trend chart range">';
   html += '<button type="button" class="pfb-trend-btn' + (trendMode === 'days' ? ' is-on' : '') + '" data-finance-trend="days" role="tab" aria-selected="' + (trendMode === 'days' ? 'true' : 'false') + '">' +
     financeRedesignEsc(financeRedesignT('admin.finance.trend.monthDays', 'Days')) + '</button>';

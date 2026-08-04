@@ -177,17 +177,19 @@ function runSupplementaryUnitChecks() {
   ok('helper reverse second click restarts start', st.start === '2026-08-10' && st.end == null);
 
   const adminSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-ui.js'), 'utf8');
+  const redesignSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-finance-redesign-ui.js'), 'utf8');
   ok(
     'source uses (state, iso) order',
-    /scheduleCreateDateRangeSelectDay\(\s*financeCustomRangeDraft[^,]*,\s*iso\s*\)/.test(adminSrc)
+    /scheduleCreateDateRangeSelectDay\(\s*draft\s*,\s*iso\s*\)/.test(adminSrc)
+      || /scheduleCreateDateRangeSelectDay\(\s*financeCustomRangeDraft[^,]*,\s*iso\s*\)/.test(adminSrc)
   );
   ok(
     'source does not use (iso, state) order',
-    !/scheduleCreateDateRangeSelectDay\(\s*iso\s*,\s*financeCustomRangeDraft/.test(adminSrc)
+    !/scheduleCreateDateRangeSelectDay\(\s*iso\s*,\s*(?:draft|financeCustomRangeDraft)/.test(adminSrc)
   );
   ok(
     'source Custom gran opens client picker (no openCustomPicker reload)',
-    /gran\s*!==\s*['"]custom['"][\s\S]{0,1200}financeOpenCustomRangePicker\(\s*body\s*\)/.test(adminSrc) &&
+    /gran\s*===\s*['"]custom['"][\s\S]{0,400}financeCustomTogglePopover\(\)/.test(adminSrc) &&
       !/loadAdminFinanceSummary\(\s*\{\s*openCustomPicker\s*:\s*true\s*\}\s*\)/.test(adminSrc)
   );
   ok(
@@ -201,8 +203,14 @@ function runSupplementaryUnitChecks() {
   );
   ok(
     'source Clear does not load incomplete custom summary',
-    /act\s*===\s*['"]clear['"][\s\S]{0,200}financeCustomRangeDraft\s*=\s*\{\s*start:\s*null/.test(adminSrc) &&
-      !/act\s*===\s*['"]clear['"][\s\S]{0,180}loadAdminFinanceSummary\s*\(/.test(adminSrc)
+    /clearBtn\.addEventListener\(\s*['"]click['"][\s\S]{0,240}financeCustomDraft\s*=\s*\{\s*start:\s*null,\s*end:\s*null\s*\}/.test(adminSrc) &&
+      !/clearBtn\.addEventListener\(\s*['"]click['"][\s\S]{0,240}loadAdminFinanceSummary\s*\(/.test(adminSrc)
+  );
+  ok(
+    'source exposes anchored trigger + single readout + popover host',
+    /id="pfb-custom-range-trigger"/.test(redesignSrc)
+      && /id="pfb-custom-display"/.test(redesignSrc)
+      && /id="pfb-custom-range-pop"/.test(redesignSrc)
   );
 }
 
@@ -586,6 +594,16 @@ async function main() {
         { timeout: 8000 }
       );
       ok('Month gran reload after custom', requests.length > reqBeforeMonth);
+      const clearedCustom = await page.evaluate(() => ({
+        display: document.getElementById('pfb-custom-display')?.innerText || '',
+        start: document.getElementById('pfb-custom-start')?.value || '',
+        end: document.getElementById('pfb-custom-end')?.value || '',
+      }));
+      ok(
+        'switching away clears custom trigger readout + hidden dates',
+        clearedCustom.display === 'Custom' && !clearedCustom.start && !clearedCustom.end,
+        JSON.stringify(clearedCustom)
+      );
 
       // Custom → Month → Custom
       await clickCustom(page);
@@ -662,7 +680,8 @@ async function main() {
           : '';
         return {
           decl: /function\s+scheduleCreateDateRangeSelectDay\s*\(\s*state\s*,\s*iso\s*\)/.test(html),
-          callSite: /scheduleCreateDateRangeSelectDay\(\s*financeCustomRangeDraft/.test(html),
+          callSite: /scheduleCreateDateRangeSelectDay\(\s*draft\s*,\s*iso\s*\)/.test(html)
+            || /scheduleCreateDateRangeSelectDay\(\s*financeCustomRangeDraft/.test(html),
           fallback: /typeof scheduleCreateDateRangeSelectDay\s*===\s*['"]function['"]/.test(html),
         };
       });

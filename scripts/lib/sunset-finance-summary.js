@@ -122,6 +122,11 @@ function monthRange(dateStr) {
   const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
   return { start: `${y}-${mm}-01`, end: `${y}-${mm}-${String(lastDay).padStart(2, '0')}` };
 }
+function monthRangeForYearMonth(year, month) {
+  const mm = String(month).padStart(2, '0');
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return { start: `${year}-${mm}-01`, end: `${year}-${mm}-${String(lastDay).padStart(2, '0')}` };
+}
 function eachDate(range) {
   const out = [];
   for (let d = range.start; d <= range.end; d = addDays(d, 1)) out.push(d);
@@ -178,6 +183,33 @@ function priorPeriodRange(range, granularity) {
   const end = addDays(range.start, -1);
   const start = addDays(end, -(days - 1));
   return { start, end };
+}
+
+function sumCollectedGrossForRange(datedPayments, range) {
+  let collected = 0;
+  for (const p of datedPayments) {
+    if (inRange(p.date, range)) collected = checkedAdd(collected, p.amount);
+  }
+  return collected;
+}
+
+function monthlyCollectedGrossTrend(datedPayments, year) {
+  const y = Number(year);
+  if (!Number.isFinite(y)) return [];
+  const rows = [];
+  for (let month = 1; month <= 12; month += 1) {
+    const range = monthRangeForYearMonth(y, month);
+    const lyRange = shiftRangeYears(range, -1);
+    rows.push({
+      year: y,
+      month,
+      start: range.start,
+      end: range.end,
+      collected_gross_cents: sumCollectedGrossForRange(datedPayments, range),
+      ly_collected_gross_cents: sumCollectedGrossForRange(datedPayments, lyRange),
+    });
+  }
+  return rows;
 }
 
 /**
@@ -844,38 +876,8 @@ function computeSunsetFinanceSummary(args) {
     };
   });
 
-  // F3 — trailing 12 calendar months ending at primary range end (independent of top gran).
-  const trailEnd = String(primaryRange.end || primaryRange.start || today).slice(0, 10);
-  const trailParts = trailEnd.split('-').map((x) => Number(x));
-  let trailY = trailParts[0];
-  let trailM = trailParts[1];
-  const monthly_gross_trend = [];
-  // Build oldest → newest (11 months back through end month).
-  for (let i = 11; i >= 0; i--) {
-    let y = trailY;
-    let m = trailM - i;
-    while (m <= 0) { m += 12; y -= 1; }
-    while (m > 12) { m -= 12; y += 1; }
-    const mm = String(m).padStart(2, '0');
-    const start = `${y}-${mm}-01`;
-    const endDt = new Date(Date.UTC(y, m, 0)); // last day of month
-    const end = `${y}-${mm}-${String(endDt.getUTCDate()).padStart(2, '0')}`;
-    const monthRange = { start, end };
-    const cur = summarize(monthRange);
-    const lyY = y - 1;
-    const lyStart = `${lyY}-${mm}-01`;
-    const lyEndDt = new Date(Date.UTC(lyY, m, 0));
-    const lyEnd = `${lyY}-${mm}-${String(lyEndDt.getUTCDate()).padStart(2, '0')}`;
-    const ly = summarize({ start: lyStart, end: lyEnd });
-    monthly_gross_trend.push({
-      date: start,
-      month: `${y}-${mm}`,
-      booked_cents: cur.booked_cents,
-      collected_gross_cents: cur.collected_gross_cents,
-      ly_booked_cents: ly.booked_cents,
-      ly_collected_gross_cents: ly.collected_gross_cents,
-    });
-  }
+  const chartYear = Number(String(primaryRange.start || today).slice(0, 4));
+  const monthly_gross_trend = monthlyCollectedGrossTrend(datedPayments, chartYear);
 
   const avg_booking_cents = primaryStats.bookings_count > 0
     ? Math.round(primaryStats.booked_cents / primaryStats.bookings_count)
