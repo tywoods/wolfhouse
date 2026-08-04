@@ -164,9 +164,16 @@ function sourceContracts() {
   ok(
     '44px touch targets for edit/remove/footer/duration',
     /\.portal-admin-equip-edit-btn[^{]*\{[^}]*min-height:44px/.test(apiSrc)
+      && /\.portal-admin-equip-remove-duration\{[^}]*min-height:44px/.test(apiSrc)
       && /portal-admin-duration-count\{[^}]*min-height:44px/.test(apiSrc)
       && /portal-admin-equip-delete\{[^}]*min-height:44px/.test(apiSrc)
       && /var\(--focus/.test(apiSrc),
+  );
+  ok(
+    'duration × is compact inline (transparent, no large boxed dominance)',
+    /\.portal-admin-equip-remove-duration\{[^}]*background:\s*transparent/.test(apiSrc)
+      && /\.portal-admin-equip-remove-duration\{[^}]*font-size:\s*14px/.test(apiSrc)
+      && !/\.portal-admin-equip-edit-btn,\s*\.portal-admin-equip-remove-duration\{/.test(apiSrc),
   );
   ok(
     'name wraps (line-clamp) not single-line ellipsis-only',
@@ -179,9 +186,17 @@ function sourceContracts() {
       || /#admin-add-equip-form\{[^}]*margin-bottom:\s*20px/.test(apiSrc),
   );
   ok(
-    'edit meta form explicit columns + no overflow clip on enabled',
-    /portal-admin-equip-meta-form\{[^}]*grid-template-columns:minmax\(0,1fr\) minmax\(96px,120px\) minmax\(72px,auto\)/.test(apiSrc)
+    'edit meta form compact left flex row + no overflow clip on enabled',
+    /portal-admin-equip-meta-form\{[^}]*display:\s*flex/.test(apiSrc)
+      && /portal-admin-equip-meta-form\{[^}]*justify-content:\s*flex-start/.test(apiSrc)
+      && /portal-admin-equip-meta-form > \.portal-admin-equip-field:first-child\{[^}]*max-width:\s*min\(100%,360px\)/.test(apiSrc)
       && /portal-admin-equip-enabled-field\{[^}]*overflow:\s*visible/.test(apiSrc),
+  );
+  ok(
+    'price grid 3-col desktop / 2 intermediate / 1 mobile',
+    /portal-admin-equip-price-grid\{[^}]*grid-template-columns:\s*repeat\(3,minmax\(0,1fr\)\)/.test(apiSrc)
+      && /@media\(max-width:1100px\)\{[\s\S]{0,200}portal-admin-equip-price-grid\{[^}]*repeat\(2,minmax\(0,1fr\)\)/.test(apiSrc)
+      && /@media\(max-width:720px\)\{[\s\S]{0,400}portal-admin-equip-price-grid\{[^}]*minmax\(0,1fr\)/.test(apiSrc),
   );
   ok(
     'duration × still immediate delete-price (not staged into commit body as remove list)',
@@ -1193,7 +1208,12 @@ async function browserFixture() {
         const rowOverflow = row ? (row.scrollWidth - row.clientWidth) : 0;
         const sectionOverflow = section ? (section.scrollWidth - section.clientWidth) : 99;
         const hdrOverflow = hdr ? (hdr.scrollWidth - hdr.clientWidth) > 4 : true;
-        const overflow = panelOverflow > 4 || rowOverflow > 4 || sectionOverflow > 4;
+        const cardOverflow = grid
+          ? Array.from(grid.querySelectorAll('.portal-admin-price-card')).some(
+            (c) => (c.scrollWidth - c.clientWidth) > 4,
+          )
+          : false;
+        const overflow = panelOverflow > 4 || rowOverflow > 4 || sectionOverflow > 4 || cardOverflow;
         const controls = Array.from(document.querySelectorAll(
           '#admin-prices-body .portal-admin-equip-edit-btn,'
           + '#admin-prices-body .portal-admin-equip-remove-duration,'
@@ -1227,16 +1247,20 @@ async function browserFixture() {
           const rr = root.getBoundingClientRect();
           footerInBounds = fr.left >= rr.left - 2 && fr.right <= rr.right + 2;
         }
-        // Meta form: name / stock / enabled non-overlap + enabled not clipped
+        // Meta form: name / stock / enabled non-overlap + enabled not clipped + left cluster
         let metaOverlap = false;
         let enabledClipped = false;
         let metaFieldCount = 0;
+        let metaLeftCluster = false;
+        let metaOrderOk = false;
+        let metaSameRow = false;
+        let metaTrailingSlack = 0;
         if (meta) {
           const fields = Array.from(meta.querySelectorAll(':scope > .portal-admin-equip-field'));
           metaFieldCount = fields.length;
           const rects = fields.map((f) => {
             const r = f.getBoundingClientRect();
-            return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+            return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
           });
           for (let i = 0; i < rects.length; i++) {
             for (let j = i + 1; j < rects.length; j++) {
@@ -1256,11 +1280,58 @@ async function browserFixture() {
           } else if (expectEdit) {
             enabledClipped = true;
           }
+          if (fields.length >= 3) {
+            const nameF = fields[0];
+            const stockF = fields[1];
+            const enF = fields[2];
+            const nr = nameF.getBoundingClientRect();
+            const sr = stockF.getBoundingClientRect();
+            const er = enF.getBoundingClientRect();
+            const mr = meta.getBoundingClientRect();
+            metaOrderOk = nr.left <= sr.left + 1 && sr.left <= er.left + 1;
+            metaSameRow = Math.abs(nr.top - sr.top) < 18 && Math.abs(sr.top - er.top) < 18;
+            // Cluster left: last field ends well before panel/meta right (not stretched far-right).
+            metaTrailingSlack = mr.right - er.right;
+            metaLeftCluster = metaSameRow
+              && metaOrderOk
+              && metaTrailingSlack >= 40
+              && (sr.left - nr.right) < 40
+              && (er.left - sr.right) < 40
+              && nr.width >= sr.width;
+          }
+        }
+        // Compact × visual vs 44×44 hit target
+        let removeHitOk = true;
+        let removeVisualCompact = true;
+        let removeLabelOk = true;
+        const removes = row
+          ? Array.from(row.querySelectorAll('.portal-admin-equip-remove-duration'))
+          : [];
+        removes.forEach((btn) => {
+          const r = btn.getBoundingClientRect();
+          if (r.width < 44 || r.height < 44) removeHitOk = false;
+          const cs = getComputedStyle(btn);
+          const bg = (cs.backgroundColor || '').replace(/\s/g, '');
+          const transparentBg = bg === 'transparent' || bg === 'rgba(0,0,0,0)' || bg === 'rgba(0,0,0,0.0)';
+          const fontPx = parseFloat(cs.fontSize) || 99;
+          const weight = parseInt(cs.fontWeight, 10) || 700;
+          if (!transparentBg || fontPx > 15 || weight >= 700) removeVisualCompact = false;
+          const al = (btn.getAttribute('aria-label') || '').trim();
+          if (!/remove duration/i.test(al)) removeLabelOk = false;
+        });
+        if (expectEdit && removes.length === 0) {
+          removeHitOk = false;
+          removeVisualCompact = false;
+          removeLabelOk = false;
         }
         return {
           missing,
           anyMissing,
           overflow,
+          panelOverflow,
+          rowOverflow,
+          sectionOverflow,
+          cardOverflow,
           minTouch,
           chipsWrap,
           cols,
@@ -1271,6 +1342,14 @@ async function browserFixture() {
           enabledClipped,
           hdrOverflow,
           metaFieldCount,
+          metaLeftCluster,
+          metaOrderOk,
+          metaSameRow,
+          metaTrailingSlack,
+          removeHitOk,
+          removeVisualCompact,
+          removeLabelOk,
+          removeCount: removes.length,
         };
       }, { key: openKey || null, expectEdit: mode === 'edit' });
       ok(`${label}: required nodes present`, !layout.anyMissing, JSON.stringify(layout.missing));
@@ -1283,16 +1362,54 @@ async function browserFixture() {
         ok(`${label}: meta fields present`, layout.metaFieldCount >= 3, JSON.stringify(layout));
         ok(`${label}: name/stock/enabled non-overlap`, !layout.metaOverlap, JSON.stringify(layout));
         ok(`${label}: enabled field not clipped`, !layout.enabledClipped, JSON.stringify(layout));
+        ok(
+          `${label}: compact × hit target ~44 + aria label`,
+          layout.removeHitOk && layout.removeLabelOk && layout.removeCount > 0,
+          JSON.stringify({
+            removeHitOk: layout.removeHitOk,
+            removeLabelOk: layout.removeLabelOk,
+            removeCount: layout.removeCount,
+          }),
+        );
+        ok(
+          `${label}: × visually compact (transparent/lighter)`,
+          layout.removeVisualCompact,
+          JSON.stringify({ removeVisualCompact: layout.removeVisualCompact }),
+        );
       }
       return layout;
     }
 
-    // Desktop: open multi-duration bundle
+    // Desktop: open multi-duration bundle — exact 3 columns + left meta cluster
     await page.locator('[data-admin-equip="board_and_suit_rental"] [data-admin-action="edit-equipment"]').click();
     await page.waitForTimeout(100);
     const desk = await geometryAt(1280, 'desktop-editor', 'board_and_suit_rental', 'edit');
-    ok('desktop multi-duration uses 2 columns', desk.cols === 2, JSON.stringify(desk));
+    ok('desktop multi-duration uses exact 3 columns', desk.cols === 3, JSON.stringify(desk));
+    ok(
+      'desktop meta left-aligned cluster (name wider, stock+switch compact together)',
+      desk.metaLeftCluster && desk.metaOrderOk && desk.metaSameRow && desk.metaTrailingSlack >= 40,
+      JSON.stringify({
+        metaLeftCluster: desk.metaLeftCluster,
+        metaOrderOk: desk.metaOrderOk,
+        metaSameRow: desk.metaSameRow,
+        metaTrailingSlack: desk.metaTrailingSlack,
+      }),
+    );
+    ok(
+      'desktop: no body/panel/card overflow',
+      !desk.overflow && desk.panelOverflow <= 4 && desk.rowOverflow <= 4 && !desk.cardOverflow,
+      JSON.stringify(desk),
+    );
     await measureHeader('desktop-header-recheck');
+
+    // Intermediate width: exact 2-column duration grid
+    const mid = await geometryAt(900, 'intermediate-editor', 'board_and_suit_rental', 'edit');
+    ok('intermediate multi-duration uses exact 2 columns', mid.cols === 2, JSON.stringify(mid));
+    ok(
+      'intermediate: no body/panel/card overflow',
+      !mid.overflow && mid.panelOverflow <= 4 && mid.rowOverflow <= 4 && !mid.cardOverflow,
+      JSON.stringify(mid),
+    );
 
     // Narrow: multi-duration bundle editor + browse + add gap
     await page.setViewportSize({ width: 390, height: 900 });
@@ -1306,6 +1423,11 @@ async function browserFixture() {
     ok(
       'narrow multi-duration has multiple price cards',
       (await page.locator('[data-admin-equip="board_and_suit_rental"] [data-admin-price-card]').count()) >= 3,
+    );
+    ok(
+      'narrow: no body/panel/card overflow',
+      !narrow.overflow && narrow.panelOverflow <= 4 && narrow.rowOverflow <= 4 && !narrow.cardOverflow,
+      JSON.stringify(narrow),
     );
     await measureHeader('narrow-header-edit');
     await assertNoToday('narrow-edit');

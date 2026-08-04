@@ -1490,7 +1490,7 @@ function renderAdminSectionPricesFromConfig(cfg){
         '<span class="portal-admin-equip-switch-slider" aria-hidden="true"></span>' +
         '</label></div></div>';
 
-      // Duration prices: responsive 2-col grid (1-col narrow). Semantic duration + € + ×.
+      // Duration prices: responsive 3-col desktop / 2-col intermediate / 1-col mobile. Semantic duration + € + ×.
       html += '<div class="portal-admin-equip-price-grid" id="admin-prices-card-grid-' + escHtml(key) + '">';
       if (item.rows.length){
         item.rows.forEach(function(r){
