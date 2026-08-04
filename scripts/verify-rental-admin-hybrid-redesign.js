@@ -162,17 +162,28 @@ function sourceContracts() {
       && /portal-admin-equip-row\.is-equip-disabled \.portal-admin-equip-chip/.test(apiSrc),
   );
   ok(
-    '44px touch targets for edit/remove/footer/duration',
+    '44px touch targets for edit/footer (compact editor inputs are separate)',
     /\.portal-admin-equip-edit-btn[^{]*\{[^}]*min-height:44px/.test(apiSrc)
-      && /\.portal-admin-equip-remove-duration\{[^}]*min-height:44px/.test(apiSrc)
-      && /portal-admin-duration-count\{[^}]*min-height:44px/.test(apiSrc)
       && /portal-admin-equip-delete\{[^}]*min-height:44px/.test(apiSrc)
+      && /portal-admin-equip-footer \.btn-primary[^}]*min-height:44px/.test(apiSrc)
       && /var\(--focus/.test(apiSrc),
   );
   ok(
-    'duration × is compact inline (transparent, no large boxed dominance)',
-    /\.portal-admin-equip-remove-duration\{[^}]*background:\s*transparent/.test(apiSrc)
-      && /\.portal-admin-equip-remove-duration\{[^}]*font-size:\s*14px/.test(apiSrc)
+    'scoped rental editor inputs/selects compact 34–36px height',
+    /portal-admin-equip-meta-form input\[type=text\][\s\S]{0,220}min-height:\s*35px/.test(apiSrc)
+      && /portal-admin-duration-count\{[^}]*min-height:\s*35px/.test(apiSrc)
+      && /portal-admin-duration-unit\{[^}]*min-height:\s*35px/.test(apiSrc)
+      && /portal-admin-equip-amount-field input\{[^}]*min-height:\s*35px/.test(apiSrc)
+      && /max-height:\s*36px/.test(apiSrc)
+      && /nth-child\(2\) input\[type=number\]\{[^}]*max-width:\s*76px/.test(apiSrc)
+      && /nth-child\(2\) input\[type=number\]\{[^}]*min-width:\s*0/.test(apiSrc),
+  );
+  ok(
+    'duration × compact physical button <=32px with larger glyph >=16px',
+    /portal-admin-equip-remove-duration\{[^}]*max-width:\s*32px/.test(apiSrc)
+      && /portal-admin-equip-remove-duration\{[^}]*max-height:\s*32px/.test(apiSrc)
+      && /portal-admin-equip-remove-duration\{[^}]*font-size:\s*1[6-9]px|portal-admin-equip-remove-duration\{[^}]*font-size:\s*20px/.test(apiSrc)
+      && /portal-admin-equip-remove-duration\{[^}]*background:\s*transparent/.test(apiSrc)
       && !/\.portal-admin-equip-edit-btn,\s*\.portal-admin-equip-remove-duration\{/.test(apiSrc),
   );
   ok(
@@ -186,17 +197,30 @@ function sourceContracts() {
       || /#admin-add-equip-form\{[^}]*margin-bottom:\s*20px/.test(apiSrc),
   );
   ok(
-    'edit meta form compact left flex row + no overflow clip on enabled',
+    'edit meta form three adjacent left columns (no 1fr stretch, nowrap desktop)',
     /portal-admin-equip-meta-form\{[^}]*display:\s*flex/.test(apiSrc)
       && /portal-admin-equip-meta-form\{[^}]*justify-content:\s*flex-start/.test(apiSrc)
-      && /portal-admin-equip-meta-form > \.portal-admin-equip-field:first-child\{[^}]*max-width:\s*min\(100%,360px\)/.test(apiSrc)
-      && /portal-admin-equip-enabled-field\{[^}]*overflow:\s*visible/.test(apiSrc),
+      && /portal-admin-equip-meta-form\{[^}]*flex-wrap:\s*nowrap/.test(apiSrc)
+      && /portal-admin-equip-meta-form > \.portal-admin-equip-field:first-child\{[^}]*max-width:\s*320px/.test(apiSrc)
+      && /portal-admin-equip-meta-form > \.portal-admin-equip-field:nth-child\(2\)\{[^}]*max-width:\s*76px/.test(apiSrc)
+      && /portal-admin-equip-meta-form > \.portal-admin-equip-field:nth-child\(2\)\{[^}]*min-width:\s*68px/.test(apiSrc)
+      && /portal-admin-equip-enabled-field\{[^}]*overflow:\s*visible/.test(apiSrc)
+      && /portal-admin-equip-meta-form\{[^}]*grid-template-columns:\s*none/.test(apiSrc)
+      && /gap:\s*10px\s+1[4-8]px|column-gap:\s*1[4-8]px/.test(apiSrc),
+  );
+  ok(
+    'price card single horizontal control row (count/unit/amount/×)',
+    /portal-admin-price-card\.is-editing\{[^}]*display:\s*flex/.test(apiSrc)
+      && /portal-admin-price-card\.is-editing\{[^}]*flex-direction:\s*row/.test(apiSrc)
+      && /portal-admin-price-card\.is-editing\{[^}]*flex-wrap:\s*nowrap/.test(apiSrc)
+      && !/portal-admin-equip-remove-duration\{[^}]*grid-row:\s*2/.test(apiSrc)
+      && !/portal-admin-edit-field\{[^}]*grid-column:\s*1\s*\/\s*-1/.test(apiSrc),
   );
   ok(
     'price grid 3-col desktop / 2 intermediate / 1 mobile',
     /portal-admin-equip-price-grid\{[^}]*grid-template-columns:\s*repeat\(3,minmax\(0,1fr\)\)/.test(apiSrc)
-      && /@media\(max-width:1100px\)\{[\s\S]{0,200}portal-admin-equip-price-grid\{[^}]*repeat\(2,minmax\(0,1fr\)\)/.test(apiSrc)
-      && /@media\(max-width:720px\)\{[\s\S]{0,400}portal-admin-equip-price-grid\{[^}]*minmax\(0,1fr\)/.test(apiSrc),
+      && /@media\(max-width:1100px\)\{[\s\S]{0,400}portal-admin-equip-price-grid\{[^}]*repeat\(2,minmax\(0,1fr\)\)/.test(apiSrc)
+      && /@media\(max-width:720px\)\{[\s\S]{0,900}portal-admin-equip-price-grid\{[^}]*minmax\(0,1fr\)/.test(apiSrc),
   );
   ok(
     'duration × still immediate delete-price (not staged into commit body as remove list)',
@@ -1214,14 +1238,12 @@ async function browserFixture() {
           )
           : false;
         const overflow = panelOverflow > 4 || rowOverflow > 4 || sectionOverflow > 4 || cardOverflow;
+        // Touch targets: edit/footer/add-duration stay >=44; compact editor inputs/selects excluded.
+        // × is a separate compact exception (<=32).
         const controls = Array.from(document.querySelectorAll(
           '#admin-prices-body .portal-admin-equip-edit-btn,'
-          + '#admin-prices-body .portal-admin-equip-remove-duration,'
           + '#admin-prices-body .portal-admin-equip-footer .btn,'
-          + '#admin-prices-body .portal-admin-equip-add-duration,'
-          + '#admin-prices-body .portal-admin-duration-count,'
-          + '#admin-prices-body .portal-admin-duration-unit,'
-          + '#admin-prices-body [data-admin-price-field="amount"]',
+          + '#admin-prices-body .portal-admin-equip-add-duration',
         )).filter((el) => {
           if (!el.getClientRects().length) return false;
           const r = el.getBoundingClientRect();
@@ -1247,14 +1269,27 @@ async function browserFixture() {
           const rr = root.getBoundingClientRect();
           footerInBounds = fr.left >= rr.left - 2 && fr.right <= rr.right + 2;
         }
-        // Meta form: name / stock / enabled non-overlap + enabled not clipped + left cluster
+        // Meta form geometry: three adjacent columns; CONTROL boxes for stock→enabled gap
         let metaOverlap = false;
         let enabledClipped = false;
+        let enabledAboveStock = false;
+        let enabledOverlapsStock = false;
         let metaFieldCount = 0;
         let metaLeftCluster = false;
         let metaOrderOk = false;
         let metaSameRow = false;
         let metaTrailingSlack = 0;
+        let metaGapNameStock = 999;
+        let metaGapStockEnabled = 999;
+        let metaControlGapStockEnabled = 999;
+        let metaLabelTopDelta = 99;
+        let metaControlYDelta = 99;
+        let metaControlTopDelta = 99;
+        let stockInputW = 999;
+        let stockFieldW = 999;
+        let metaGeom = null;
+        let editorInputHeights = [];
+        let editorInputsCompact = false;
         if (meta) {
           const fields = Array.from(meta.querySelectorAll(':scope > .portal-admin-equip-field'));
           metaFieldCount = fields.length;
@@ -1289,39 +1324,180 @@ async function browserFixture() {
             const er = enF.getBoundingClientRect();
             const mr = meta.getBoundingClientRect();
             metaOrderOk = nr.left <= sr.left + 1 && sr.left <= er.left + 1;
-            metaSameRow = Math.abs(nr.top - sr.top) < 18 && Math.abs(sr.top - er.top) < 18;
-            // Cluster left: last field ends well before panel/meta right (not stretched far-right).
+            metaSameRow = Math.abs(nr.top - sr.top) < 12 && Math.abs(sr.top - er.top) < 12;
+            metaGapNameStock = sr.left - nr.right;
+            metaGapStockEnabled = er.left - sr.right;
             metaTrailingSlack = mr.right - er.right;
+            stockFieldW = sr.width;
+            // Labels top-align; controls share input band (top + center within 2px)
+            const nameLab = nameF.querySelector('label');
+            const stockLab = stockF.querySelector('label');
+            const enLab = enF.querySelector('.portal-admin-equip-switch-caption, label');
+            const nameIn = nameF.querySelector('input');
+            const stockIn = stockF.querySelector('input');
+            const enSw = enF.querySelector('.portal-admin-equip-switch');
+            if (nameLab && stockLab && enLab) {
+              const lt = [nameLab, stockLab, enLab].map((el) => el.getBoundingClientRect().top);
+              metaLabelTopDelta = Math.max(...lt) - Math.min(...lt);
+            }
+            if (nameIn && stockIn && enSw) {
+              const nameR = nameIn.getBoundingClientRect();
+              const stockR = stockIn.getBoundingClientRect();
+              const swR = enSw.getBoundingClientRect();
+              stockInputW = stockR.width;
+              // Real control gap: stock.right + >=14px <= enabled.left (no field-box proxy)
+              metaControlGapStockEnabled = swR.left - stockR.right;
+              const tops = [nameR.top, stockR.top, swR.top];
+              const centers = [
+                nameR.top + nameR.height / 2,
+                stockR.top + stockR.height / 2,
+                swR.top + swR.height / 2,
+              ];
+              metaControlTopDelta = Math.max(...tops) - Math.min(...tops);
+              metaControlYDelta = Math.max(...centers) - Math.min(...centers);
+            }
+            // Enabled must not sit above stock field or overlap it (fields + controls).
+            enabledAboveStock = er.bottom < sr.top - 2 || (er.top + 8 < sr.top && Math.abs(er.left - sr.left) < 40);
+            enabledOverlapsStock = !(er.right <= sr.left + 0.5 || sr.right <= er.left + 0.5
+              || er.bottom <= sr.top + 0.5 || sr.bottom <= er.top + 0.5);
+            if (nameIn && stockIn && enSw) {
+              const sIn = stockIn.getBoundingClientRect();
+              const eSw = enSw.getBoundingClientRect();
+              if (!(eSw.right <= sIn.left + 0.5 || sIn.right <= eSw.left + 0.5
+                || eSw.bottom <= sIn.top + 0.5 || sIn.bottom <= eSw.top + 0.5)) {
+                enabledOverlapsStock = true;
+              }
+            }
+            // Left cluster: stock <=76, control gap >=24 after the owner-requested +10px offset,
+            // control top/center <=2 after the owner-requested +2px drop, name wider.
             metaLeftCluster = metaSameRow
               && metaOrderOk
               && metaTrailingSlack >= 40
-              && (sr.left - nr.right) < 40
-              && (er.left - sr.right) < 40
-              && nr.width >= sr.width;
+              && metaGapNameStock >= 8 && metaGapNameStock <= 28
+              && metaControlGapStockEnabled >= 24 && metaControlGapStockEnabled <= 28
+              && nr.width >= 200 && nr.width <= 340
+              && stockFieldW >= 60 && stockFieldW <= 76
+              && stockInputW >= 60 && stockInputW <= 76
+              && metaLabelTopDelta <= 6
+              && metaControlTopDelta <= 2
+              && metaControlYDelta <= 2
+              && !enabledAboveStock
+              && !enabledOverlapsStock;
+            metaGeom = {
+              name: { x: Math.round(nr.left), y: Math.round(nr.top), w: Math.round(nr.width) },
+              stock: { x: Math.round(sr.left), y: Math.round(sr.top), w: Math.round(sr.width) },
+              enabled: { x: Math.round(er.left), y: Math.round(er.top), w: Math.round(er.width) },
+              stockInputW: Math.round(stockInputW * 10) / 10,
+              stockFieldW: Math.round(stockFieldW * 10) / 10,
+              gapNameStock: Math.round(metaGapNameStock * 10) / 10,
+              gapStockEnabledField: Math.round(metaGapStockEnabled * 10) / 10,
+              controlGapStockEnabled: Math.round(metaControlGapStockEnabled * 10) / 10,
+              labelTopDelta: Math.round(metaLabelTopDelta * 10) / 10,
+              controlTopDelta: Math.round(metaControlTopDelta * 10) / 10,
+              controlYDelta: Math.round(metaControlYDelta * 10) / 10,
+              trailingSlack: Math.round(metaTrailingSlack),
+            };
           }
         }
-        // Compact × visual vs 44×44 hit target
-        let removeHitOk = true;
-        let removeVisualCompact = true;
+        // All scoped editor text/number inputs + selects: computed height 34–36px
+        if (row && expectEdit) {
+          const nodes = Array.from(row.querySelectorAll(
+            '.portal-admin-equip-meta-form input[type="text"],'
+            + '.portal-admin-equip-meta-form input[type="number"],'
+            + '.portal-admin-duration-count,'
+            + '.portal-admin-duration-unit,'
+            + '[data-admin-price-field="amount"],'
+            + '.portal-admin-equip-draft-form input[type="text"],'
+            + '.portal-admin-equip-draft-form input[type="number"],'
+            + '.portal-admin-equip-draft-form select',
+          )).filter((el) => el.getClientRects().length);
+          editorInputHeights = nodes.map((el) => {
+            const r = el.getBoundingClientRect();
+            return Math.round(r.height * 10) / 10;
+          });
+          editorInputsCompact = editorInputHeights.length > 0
+            && editorInputHeights.every((h) => h >= 34 && h <= 36);
+        }
+        // Duration cards: count | unit | amount | × all same row; amount not beneath duration
+        let cardRowOk = true;
+        let cardAmountBeside = true;
+        let cardHeights = [];
+        let cardSample = null;
+        if (grid && expectEdit) {
+          const cards = Array.from(grid.querySelectorAll('.portal-admin-price-card.is-editing'));
+          cards.forEach((card, idx) => {
+            const count = card.querySelector('.portal-admin-duration-count');
+            const unit = card.querySelector('.portal-admin-duration-unit');
+            const amount = card.querySelector('[data-admin-price-field="amount"]');
+            const remove = card.querySelector('.portal-admin-equip-remove-duration');
+            const cr = card.getBoundingClientRect();
+            cardHeights.push(Math.round(cr.height));
+            if (!count || !unit || !amount) {
+              cardRowOk = false;
+              cardAmountBeside = false;
+              return;
+            }
+            const cR = count.getBoundingClientRect();
+            const uR = unit.getBoundingClientRect();
+            const aR = amount.getBoundingClientRect();
+            const rR = remove ? remove.getBoundingClientRect() : null;
+            // Same horizontal row: centers within 12px
+            const mids = [cR, uR, aR].map((r) => r.top + r.height / 2);
+            if (rR) mids.push(rR.top + rR.height / 2);
+            const midDelta = Math.max(...mids) - Math.min(...mids);
+            if (midDelta > 12) cardRowOk = false;
+            // Left-to-right order
+            if (!(cR.left <= uR.left + 1 && uR.left <= aR.left + 1)) cardRowOk = false;
+            if (rR && !(aR.left <= rR.left + 1)) cardRowOk = false;
+            // Amount must not sit beneath duration (fail the stacked screenshot layout)
+            const durBottom = Math.max(cR.bottom, uR.bottom);
+            if (aR.top >= durBottom - 4) cardAmountBeside = false;
+            if (idx === 0) {
+              cardSample = {
+                height: Math.round(cr.height),
+                countX: Math.round(cR.left),
+                unitX: Math.round(uR.left),
+                amountX: Math.round(aR.left),
+                removeX: rR ? Math.round(rR.left) : null,
+                midDelta: Math.round(midDelta * 10) / 10,
+                amountTop: Math.round(aR.top),
+                durBottom: Math.round(durBottom),
+              };
+            }
+          });
+          if (cards.length === 0) {
+            cardRowOk = false;
+            cardAmountBeside = false;
+          }
+        }
+        // × physical box <=32, glyph font-size >=16, aria-label preserved
+        let removeBoxOk = true;
+        let removeGlyphOk = true;
         let removeLabelOk = true;
+        let removeSample = null;
         const removes = row
           ? Array.from(row.querySelectorAll('.portal-admin-equip-remove-duration'))
           : [];
         removes.forEach((btn) => {
           const r = btn.getBoundingClientRect();
-          if (r.width < 44 || r.height < 44) removeHitOk = false;
+          if (r.width > 32.5 || r.height > 32.5 || r.width < 20 || r.height < 20) removeBoxOk = false;
           const cs = getComputedStyle(btn);
-          const bg = (cs.backgroundColor || '').replace(/\s/g, '');
-          const transparentBg = bg === 'transparent' || bg === 'rgba(0,0,0,0)' || bg === 'rgba(0,0,0,0.0)';
-          const fontPx = parseFloat(cs.fontSize) || 99;
-          const weight = parseInt(cs.fontWeight, 10) || 700;
-          if (!transparentBg || fontPx > 15 || weight >= 700) removeVisualCompact = false;
+          const fontPx = parseFloat(cs.fontSize) || 0;
+          if (fontPx < 16) removeGlyphOk = false;
           const al = (btn.getAttribute('aria-label') || '').trim();
           if (!/remove duration/i.test(al)) removeLabelOk = false;
+          if (!removeSample) {
+            removeSample = {
+              w: Math.round(r.width * 10) / 10,
+              h: Math.round(r.height * 10) / 10,
+              fontSize: fontPx,
+              aria: al,
+            };
+          }
         });
         if (expectEdit && removes.length === 0) {
-          removeHitOk = false;
-          removeVisualCompact = false;
+          removeBoxOk = false;
+          removeGlyphOk = false;
           removeLabelOk = false;
         }
         return {
@@ -1340,15 +1516,33 @@ async function browserFixture() {
           controlCount: controls.length,
           metaOverlap,
           enabledClipped,
+          enabledAboveStock,
+          enabledOverlapsStock,
           hdrOverflow,
           metaFieldCount,
           metaLeftCluster,
           metaOrderOk,
           metaSameRow,
           metaTrailingSlack,
-          removeHitOk,
-          removeVisualCompact,
+          metaGapNameStock,
+          metaGapStockEnabled,
+          metaControlGapStockEnabled,
+          metaLabelTopDelta,
+          metaControlYDelta,
+          metaControlTopDelta,
+          stockInputW,
+          stockFieldW,
+          metaGeom,
+          editorInputHeights,
+          editorInputsCompact,
+          cardRowOk,
+          cardAmountBeside,
+          cardHeights,
+          cardSample,
+          removeBoxOk,
+          removeGlyphOk,
           removeLabelOk,
+          removeSample,
           removeCount: removes.length,
         };
       }, { key: openKey || null, expectEdit: mode === 'edit' });
@@ -1356,50 +1550,116 @@ async function browserFixture() {
       ok(`${label}: no horizontal overflow`, !layout.overflow && !layout.hdrOverflow, JSON.stringify(layout));
       if (mode === 'edit') {
         ok(`${label}: chipsWrap true`, layout.chipsWrap, JSON.stringify(layout));
-        ok(`${label}: controls >=44px`, layout.minTouch >= 44 && layout.controlCount > 0, JSON.stringify(layout));
+        ok(`${label}: controls >=44px (excl. compact inputs/×)`, layout.minTouch >= 44 && layout.controlCount > 0, JSON.stringify(layout));
         ok(`${label}: price grid exists`, layout.hasGrid && layout.cols >= 1, JSON.stringify(layout));
         ok(`${label}: footer within bounds`, layout.footerInBounds, JSON.stringify(layout));
         ok(`${label}: meta fields present`, layout.metaFieldCount >= 3, JSON.stringify(layout));
         ok(`${label}: name/stock/enabled non-overlap`, !layout.metaOverlap, JSON.stringify(layout));
         ok(`${label}: enabled field not clipped`, !layout.enabledClipped, JSON.stringify(layout));
         ok(
-          `${label}: compact × hit target ~44 + aria label`,
-          layout.removeHitOk && layout.removeLabelOk && layout.removeCount > 0,
-          JSON.stringify({
-            removeHitOk: layout.removeHitOk,
-            removeLabelOk: layout.removeLabelOk,
-            removeCount: layout.removeCount,
-          }),
+          `${label}: × physical box <=32px + aria label`,
+          layout.removeBoxOk && layout.removeLabelOk && layout.removeCount > 0,
+          JSON.stringify(layout.removeSample || { removeBoxOk: layout.removeBoxOk, removeCount: layout.removeCount }),
         );
         ok(
-          `${label}: × visually compact (transparent/lighter)`,
-          layout.removeVisualCompact,
-          JSON.stringify({ removeVisualCompact: layout.removeVisualCompact }),
+          `${label}: × glyph font-size >=16px`,
+          layout.removeGlyphOk,
+          JSON.stringify(layout.removeSample || { removeGlyphOk: layout.removeGlyphOk }),
+        );
+        ok(
+          `${label}: editor input/select heights 34–36px`,
+          layout.editorInputsCompact === true
+            && Array.isArray(layout.editorInputHeights)
+            && layout.editorInputHeights.length > 0,
+          JSON.stringify({ heights: layout.editorInputHeights, compact: layout.editorInputsCompact }),
         );
       }
       return layout;
     }
 
-    // Desktop: open multi-duration bundle — exact 3 columns + left meta cluster
+    // Desktop: open multi-duration bundle — exact 3 columns + left meta cluster + card row geometry
     await page.locator('[data-admin-equip="board_and_suit_rental"] [data-admin-action="edit-equipment"]').click();
     await page.waitForTimeout(100);
     const desk = await geometryAt(1280, 'desktop-editor', 'board_and_suit_rental', 'edit');
     ok('desktop multi-duration uses exact 3 columns', desk.cols === 3, JSON.stringify(desk));
     ok(
-      'desktop meta left-aligned cluster (name wider, stock+switch compact together)',
-      desk.metaLeftCluster && desk.metaOrderOk && desk.metaSameRow && desk.metaTrailingSlack >= 40,
-      JSON.stringify({
+      'desktop meta: stock width <=76, control gap stock→enabled >=24, align <=2',
+      desk.metaLeftCluster && desk.metaOrderOk && desk.metaSameRow && desk.metaTrailingSlack >= 40
+        && desk.stockInputW <= 76 && desk.stockFieldW <= 76
+        && desk.metaControlGapStockEnabled >= 24
+        && desk.metaControlTopDelta <= 2
+        && desk.metaControlYDelta <= 2
+        && !desk.enabledAboveStock && !desk.enabledOverlapsStock,
+      JSON.stringify(desk.metaGeom || {
         metaLeftCluster: desk.metaLeftCluster,
-        metaOrderOk: desk.metaOrderOk,
-        metaSameRow: desk.metaSameRow,
-        metaTrailingSlack: desk.metaTrailingSlack,
+        stockInputW: desk.stockInputW,
+        stockFieldW: desk.stockFieldW,
+        metaControlGapStockEnabled: desk.metaControlGapStockEnabled,
+        metaControlTopDelta: desk.metaControlTopDelta,
+        metaControlYDelta: desk.metaControlYDelta,
+        enabledAboveStock: desk.enabledAboveStock,
+        enabledOverlapsStock: desk.enabledOverlapsStock,
       }),
+    );
+    ok(
+      'desktop: stock.right + >=14px <= enabled.left (control boxes)',
+      desk.metaControlGapStockEnabled >= 14 && desk.metaControlGapStockEnabled <= 28,
+      JSON.stringify({
+        controlGapStockEnabled: desk.metaControlGapStockEnabled,
+        stockInputW: desk.stockInputW,
+      }),
+    );
+    ok(
+      'desktop: name/stock/switch control top or center delta <=2px',
+      desk.metaControlTopDelta <= 2 && desk.metaControlYDelta <= 2,
+      JSON.stringify({
+        controlTopDelta: desk.metaControlTopDelta,
+        controlYDelta: desk.metaControlYDelta,
+      }),
+    );
+    ok(
+      'desktop: all scoped editor input/select heights 34–36px',
+      desk.editorInputsCompact === true
+        && Array.isArray(desk.editorInputHeights)
+        && desk.editorInputHeights.length >= 5
+        && desk.editorInputHeights.every((h) => h >= 34 && h <= 36),
+      JSON.stringify({ heights: desk.editorInputHeights }),
+    );
+    ok(
+      'desktop: duration card single-row controls (count|unit|amount|×)',
+      desk.cardRowOk && desk.cardAmountBeside,
+      JSON.stringify(desk.cardSample || { cardRowOk: desk.cardRowOk, cardAmountBeside: desk.cardAmountBeside }),
+    );
+    ok(
+      'desktop: duration cards compact height (not stacked amount row)',
+      Array.isArray(desk.cardHeights) && desk.cardHeights.length > 0
+        && desk.cardHeights.every((h) => h > 40 && h <= 110),
+      JSON.stringify({ cardHeights: desk.cardHeights }),
     );
     ok(
       'desktop: no body/panel/card overflow',
       !desk.overflow && desk.panelOverflow <= 4 && desk.rowOverflow <= 4 && !desk.cardOverflow,
       JSON.stringify(desk),
     );
+    // Persist measured geometry for the final report
+    try {
+      fs.writeFileSync(
+        path.join(ARTIFACTS, 'rental-editor-layout-v4-desktop-geometry.json'),
+        JSON.stringify({
+          meta: desk.metaGeom,
+          card: desk.cardSample,
+          cardHeights: desk.cardHeights,
+          remove: desk.removeSample,
+          cols: desk.cols,
+          editorInputHeights: desk.editorInputHeights,
+          gaps: {
+            nameStock: desk.metaGapNameStock,
+            stockEnabledField: desk.metaGapStockEnabled,
+            stockEnabledControl: desk.metaControlGapStockEnabled,
+          },
+        }, null, 2),
+      );
+    } catch (_e) { /* non-fatal */ }
     await measureHeader('desktop-header-recheck');
 
     // Intermediate width: exact 2-column duration grid
