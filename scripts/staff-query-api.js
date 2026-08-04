@@ -16778,7 +16778,12 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-bookings-chip--unpaid{color:#3d3d3d;border-color:#c4c4c4;background:#ececec}
 .portal-admin-bookings-chip--partial{color:#0b525b;border-color:#89c2d9;background:#caf0f8}
 .portal-admin-bookings-chip--refunded{color:#4a148c;border-color:#ce93d8;background:#f3e5f5}
-.portal-admin-bookings-chip--cancelled,.portal-admin-bookings-chip--deleted{color:#7f1d1d;border-color:#f1aeb5;background:#fde8ea}
+.portal-admin-bookings-chip--cancelled{color:#7f1d1d;border-color:#f1aeb5;background:#fde8ea}
+.portal-admin-bookings-chip--hidden{color:#334155;border-color:#94a3b8;background:#e2e8f0}
+.portal-admin-bookings-chip--refund_needed{color:#9a3412;border-color:#fdba74;background:#ffedd5}
+.portal-admin-bookings-chip-row{display:inline-flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;align-items:center}
+/* Bookings panel: do not grey cancelled rows (schedule greys separately). */
+.portal-admin-bookings-tr.is-archived{opacity:1}
 .portal-admin-bookings-refund-action{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:8px;max-width:220px}
 .portal-admin-bookings-refund-note{margin:0;max-width:28rem}
 .portal-admin-bookings-expand{grid-column:1/-1;padding:4px 12px 14px;border-bottom:1px solid var(--border-soft);background:var(--surface)}

@@ -54,10 +54,38 @@ function adminBookingsFormatEur(cents) {
 
 function adminBookingsStatusLabel(status) {
   var s = String(status || '').toLowerCase();
+  // Deleted is not a booking status — leave unknown labels to fallback.
+  if (s === 'canceled') s = 'cancelled';
   var key = 'admin.bookings.status.' + s;
-  var t = portalT(key);
-  if (t && t !== key) return t;
+  var translated = portalT(key);
+  if (translated && translated !== key) return translated;
+  var fallback = {
+    paid: 'Paid', unpaid: 'Unpaid', partial: 'Partial', refunded: 'Refunded',
+    cancelled: 'Cancelled', hidden: 'Hidden', refund_needed: 'Refund needed',
+  };
+  if (fallback[s]) return fallback[s];
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—';
+}
+
+function adminBookingsStatusChipsHtml(row) {
+  var tags = Array.isArray(row && row.status_tags) && row.status_tags.length
+    ? row.status_tags.slice()
+    : [row && row.status ? row.status : 'unpaid'];
+  // Derive tags from flags when API omits status_tags (compat).
+  if (row && (row.hidden === true || row.archived === true) && tags.indexOf('hidden') < 0) tags.push('hidden');
+  if (row && row.needs_refund === true && tags.indexOf('refund_needed') < 0) tags.push('refund_needed');
+  tags = tags.filter(function (tag) {
+    var s = String(tag || '').toLowerCase();
+    return s && s !== 'deleted';
+  }).map(function (tag) {
+    var s = String(tag || '').toLowerCase();
+    return s === 'canceled' ? 'cancelled' : s;
+  });
+  if (!tags.length) tags = ['unpaid'];
+  return tags.map(function (s) {
+    return '<span class="portal-admin-bookings-chip portal-admin-bookings-chip--' + escHtml(s) + '">' +
+      escHtml(adminBookingsStatusLabel(s)) + '</span>';
+  }).join(' ');
 }
 
 function adminBookingsBuildQuery(extra) {
@@ -70,12 +98,11 @@ function adminBookingsBuildQuery(extra) {
   if (f.date_to) params.set('date_to', f.date_to);
   if (f.status) params.set('status', f.status);
   if (f.type) params.set('type', f.type);
-  // Status Cancelled/Deleted rows are archived in the domain model — auto-include
-  // so the Status dropdown works without a separate archived checkbox.
+  // Hidden filter needs show_hidden. Cancelled stays in the default list.
   var stLower = String(f.status || '').toLowerCase();
-  var needArchived = !!f.include_archived
-    || stLower === 'cancelled' || stLower === 'canceled' || stLower === 'deleted';
-  if (needArchived) { params.set('include_archived', '1'); params.set('show_hidden', '1'); }
+  var needHidden = !!f.include_archived || stLower === 'hidden';
+  // status=deleted is not a product path — do not map to Hidden.
+  if (needHidden) { params.set('include_archived', '1'); params.set('show_hidden', '1'); }
   params.set('limit', String(f.limit || 50));
   params.set('offset', String(f.offset || 0));
   if (extra) {
@@ -133,8 +160,8 @@ function renderAdminBookingsShell() {
             '<option value="unpaid">' + escHtml(portalT('admin.bookings.status.unpaid')) + '</option>' +
             '<option value="partial">' + escHtml(portalT('admin.bookings.status.partial')) + '</option>' +
             '<option value="refunded">' + escHtml(portalT('admin.bookings.status.refunded')) + '</option>' +
-            '<option value="cancelled">' + escHtml(portalT('admin.bookings.status.cancelled')) + '</option>' +
-            '<option value="deleted">' + escHtml(portalT('admin.bookings.status.hidden') || portalT('admin.bookings.status.deleted') || 'Hidden') + '</option>' +
+            '<option value="cancelled">' + escHtml(portalT('admin.bookings.status.cancelled') || 'Cancelled') + '</option>' +
+            '<option value="hidden">' + escHtml(portalT('admin.bookings.status.hidden') || 'Hidden') + '</option>' +
           '</select>' +
         '</label>' +
         '<label class="portal-admin-bookings-field">' +
@@ -177,7 +204,7 @@ function wireAdminBookingsPanel() {
     adminBookingsState.filters.date_to = dt ? String(dt.value || '') : '';
     adminBookingsState.filters.status = st ? String(st.value || '') : '';
     adminBookingsState.filters.type = ty ? String(ty.value || '') : '';
-    // Archived checkbox removed — cancelled/deleted auto-include in buildQuery.
+    // Archived checkbox removed — hidden filter uses show_hidden only.
     adminBookingsState.filters.include_archived = false;
     adminBookingsState.filters.offset = 0;
   }
@@ -429,7 +456,8 @@ function renderAdminBookingsTable() {
   rows.forEach(function (row) {
     var id = String(row.booking_id || '');
     var expanded = adminBookingsState.expandedId === id;
-    var archived = !!row.archived;
+    // Bookings panel: never grey cancelled (schedule greys separately).
+    var archived = false;
     var code = String(row.booking_code || '');
     var created = row.created_at ? String(row.created_at).slice(0, 10) : '';
     var dates = '';
@@ -455,8 +483,7 @@ function renderAdminBookingsTable() {
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-num" role="cell">' +
       escHtml(adminBookingsFormatEur(row.paid_cents != null ? row.paid_cents : row.collected_cents)) + '</div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-status" role="cell">' +
-      '<span class="portal-admin-bookings-chip portal-admin-bookings-chip--' + escHtml(String(row.status || 'unpaid')) +
-      '">' + escHtml(adminBookingsStatusLabel(row.status)) + '</span></div>';
+      '<div class="portal-admin-bookings-chip-row">' + adminBookingsStatusChipsHtml(row) + '</div></div>';
     html += '</div>';
     if (expanded) {
       html += renderAdminBookingsExpansion(row);
@@ -528,21 +555,31 @@ function renderAdminBookingsExpansion(row) {
     }).join('')
     : '<li class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.noRefunds')) + '</li>';
 
-  var canRefund = adminBookingsCanWriteRefund()
-    && (String(row.status || '').toLowerCase() === 'cancelled'
-      || String(row.status || '').toLowerCase() === 'canceled'
-      || String(row.status || '').toLowerCase() === 'deleted'
-      || String(row.status || '').toLowerCase() === 'hidden');
-  var refundAction = canRefund
-    ? '<button type="button" class="btn btn-primary btn-compact" data-bookings-record-refund="' +
-      escHtml(String(row.booking_id || '')) + '">' + escHtml(portalT('admin.bookings.recordRefund')) + '</button>'
-    : (adminBookingsCanWriteRefund()
-      ? '<p class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.refundNeedsCancel') || 'Cancel the booking before recording a refund.') + '</p>'
-      : '<p class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.recordRefundViewer')) + '</p>');
-
   var st = String(row.status || '').toLowerCase();
-  var isCancelled = st === 'cancelled' || st === 'canceled' || st === 'deleted' || st === 'hidden';
-  var isHidden = !!(row.hidden || row.archived || st === 'deleted' || st === 'hidden');
+  var tags = Array.isArray(row.status_tags) ? row.status_tags : [];
+  var isCancelled = st === 'cancelled' || st === 'canceled' || tags.indexOf('cancelled') >= 0;
+  var isHidden = !!(row.hidden === true || tags.indexOf('hidden') >= 0);
+  var storyCollected = Number((row.payment_story && row.payment_story.collected_cents) != null
+    ? row.payment_story.collected_cents
+    : (row.collected_cents != null ? row.collected_cents : (row.paid_cents || 0)));
+  var storyRefunded = Number((row.payment_story && row.payment_story.refunded_cents) != null
+    ? row.payment_story.refunded_cents
+    : (row.refunded_cents != null ? row.refunded_cents : 0));
+  var needsRefund = row.needs_refund === true
+    || tags.indexOf('refund_needed') >= 0
+    || (isCancelled && storyCollected > 0 && storyRefunded < storyCollected);
+  var canRefund = adminBookingsCanWriteRefund() && needsRefund;
+  var refundAction = '';
+  if (canRefund) {
+    refundAction = '<button type="button" class="btn btn-primary btn-compact" data-bookings-record-refund="' +
+      escHtml(String(row.booking_id || '')) + '">' + escHtml(portalT('admin.bookings.recordRefund')) + '</button>';
+  } else if (adminBookingsCanWriteRefund() && isCancelled) {
+    refundAction = ''; // unpaid or fully refunded — no Record Refund
+  } else if (adminBookingsCanWriteRefund()) {
+    refundAction = '<p class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.refundNeedsCancel') || 'Cancel the booking before recording a refund.') + '</p>';
+  } else {
+    refundAction = '<p class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.recordRefundViewer')) + '</p>';
+  }
   var hideAction = '';
   if (isCancelled && adminBookingsCanWriteRefund()) {
     if (isHidden) {

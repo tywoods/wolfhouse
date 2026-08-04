@@ -123,7 +123,7 @@ function testDomain() {
     },
     charged_cents: 1000, collected_cents: 0, refunded_cents: 0,
   });
-  ok('deleted from archiveSunsetScheduleBooking metadata (schedule_archived*)', delArch === 'deleted', delArch);
+  ok('archive meta classifies as cancelled primary (hidden flag), never deleted status', delArch === 'cancelled', delArch);
 
   const delBoth = DOMAIN.classifyBookingStatus({
     booking: {
@@ -132,7 +132,7 @@ function testDomain() {
     },
     charged_cents: 0, collected_cents: 0, refunded_cents: 0,
   });
-  ok('deleted with combined cancel+archive flags / canceled spelling', delBoth === 'deleted', delBoth);
+  ok('cancel+archive still primary cancelled (not deleted status)', delBoth === 'cancelled', delBoth);
 
   const cancelledOnly = DOMAIN.classifyBookingStatus({
     booking: { status: 'cancelled', metadata: {} },
@@ -148,12 +148,21 @@ function testDomain() {
   const rows = [
     { booking_code: 'A', status: 'paid', archived: false, guest_name: 'Ada', phone: '+34600111', service_dates: ['2026-07-10'], service_types: ['surf_lesson'], location_id: 'sunset-somo', collected_cents: 1000, refunded_cents: 0, outstanding_cents: 0 },
     { booking_code: 'B', status: 'cancelled', archived: true, guest_name: 'Bob', phone: '+34600222', service_dates: ['2026-07-11'], service_types: ['yoga'], location_id: 'sunset-somo', collected_cents: 0, refunded_cents: 0, outstanding_cents: 0 },
-    { booking_code: 'C', status: 'deleted', archived: true, guest_name: 'Cy', phone: '+34600333', service_dates: ['2026-07-12'], service_types: ['surfboard'], location_id: 'sunset-somo', collected_cents: 0, refunded_cents: 0, outstanding_cents: 0 },
+    { booking_code: 'C', status: 'cancelled', archived: true, guest_name: 'Cy', phone: '+34600333', service_dates: ['2026-07-12'], service_types: ['surfboard'], location_id: 'sunset-somo', collected_cents: 0, refunded_cents: 0, outstanding_cents: 0 },
   ];
-  ok('default excludes archived', DOMAIN.filterBookingRows(rows, {}).length === 1);
-  const arch = DOMAIN.filterBookingRows(rows, { include_archived: true });
-  ok('archived reveals cancelled + deleted',
-    arch.some((r) => r.status === 'cancelled') && arch.some((r) => r.status === 'deleted'));
+  // Row C is hidden cancelled (product: Hidden filter, not Deleted).
+  // Prefer hidden flag rows for product truth:
+  const rows2 = [
+    { booking_code: 'A', status: 'paid', hidden: false, guest_name: 'Ada', phone: '+346****0111', service_dates: ['2026-07-10'], service_types: ['surf_lesson'], location_id: 'sunset-somo', collected_cents: 1000, refunded_cents: 0, outstanding_cents: 0 },
+    { booking_code: 'B', status: 'cancelled', hidden: false, guest_name: 'Bob', phone: '+346****0222', service_dates: ['2026-07-11'], service_types: ['yoga'], location_id: 'sunset-somo', collected_cents: 0, refunded_cents: 0, outstanding_cents: 0 },
+    { booking_code: 'C', status: 'cancelled', hidden: true, status_tags: ['cancelled', 'hidden'], guest_name: 'Cy', phone: '+346****0333', service_dates: ['2026-07-12'], service_types: ['surfboard'], location_id: 'sunset-somo', collected_cents: 0, refunded_cents: 0, outstanding_cents: 0 },
+  ];
+  ok('default includes cancelled excludes hidden',
+    DOMAIN.filterBookingRows(rows2, {}).length === 2
+    && DOMAIN.filterBookingRows(rows2, {}).every((r) => r.booking_code !== 'C'));
+  const arch = DOMAIN.filterBookingRows(rows2, { include_archived: true });
+  ok('show_hidden reveals hidden cancelled',
+    arch.some((r) => r.booking_code === 'C' && r.hidden === true));
 
   noteTracer('domain', fail === 0);
 }
@@ -391,6 +400,8 @@ function seedBooking(store, overrides) {
     amount_paid_cents: 10000,
     balance_due_cents: 0,
     metadata: (overrides && overrides.metadata) || { location_id: 'sunset-somo', created_by_staff: 'ops@sunset.test' },
+    hidden: !!(overrides && (overrides.hidden === true
+      || (overrides.metadata && (overrides.metadata.schedule_archived || overrides.metadata.schedule_archived_by_staff)))),
     created_at: '2026-07-01T09:00:00Z',
     client_id: (overrides && overrides.client_id) || 'cccccccc-cccc-cccc-cccc-cccccccccccc',
     client_slug: 'sunset',
@@ -498,16 +509,16 @@ async function testFakePgIntegration() {
     archCancelled.rows.map((r) => r.booking_code).join(','));
 
   const archDeleted = await DATA.listSunsetBookingsAdmin(pg, { clientSlug: 'sunset', locationId: 'sunset-somo' }, {
-    include_archived: '1', status: 'deleted', limit: 50, offset: 0,
+    include_archived: '1', status: 'hidden', limit: 50, offset: 0,
   });
-  ok('include_archived + status=deleted reveals deleted rows',
-    archDeleted.rows.some((r) => r.status === 'deleted'),
-    archDeleted.rows.map((r) => `${r.booking_code}:${r.status}`).join(','));
-  ok('deleted classification for schedule_archived booking',
-    archDeleted.rows.some((r) => r.booking_code === 'MB-DELETED-ARCHIVE' && r.status === 'deleted'));
+  ok('status=hidden maps to hidden rows (primary status cancelled)',
+    archDeleted.rows.some((r) => r.hidden === true),
+    archDeleted.rows.map((r) => `${r.booking_code}:${r.status}:h=${r.hidden}`).join(','));
+  ok('schedule_archived booking is hidden not deleted status',
+    archDeleted.rows.some((r) => r.booking_code === 'MB-DELETED-ARCHIVE' && r.status === 'cancelled' && r.hidden === true));
   ok('cancelled_by_staff without hide stays cancelled (not deleted/hidden)',
-    archAll.rows.some((r) => r.booking_code === 'MB-DELETED-CANCEL-STAFF' && r.status === 'cancelled')
-    || archCancelled.rows.some((r) => r.booking_code === 'MB-DELETED-CANCEL-STAFF' && r.status === 'cancelled'));
+    archCancelled.rows.some((r) => r.booking_code === 'MB-DELETED-CANCEL-STAFF' && r.status === 'cancelled' && !r.hidden)
+    || archAll.rows.some((r) => r.booking_code === 'MB-DELETED-CANCEL-STAFF' && r.status === 'cancelled' && !r.hidden));
 
   // Refund path on first seeded full-paid booking (index 0) — must be cancelled (ESSENTIAL gate).
   store.bookings[0].status = 'cancelled';
@@ -825,6 +836,8 @@ async function testGeneratedUi() {
     status: 'cancelled',
     archived: false,
     hidden: false,
+    status_tags: ['cancelled', 'refund_needed'],
+    needs_refund: true,
     total_cents: 15000,
     paid_cents: 15000,
     charged_cents: 15000,
@@ -844,7 +857,7 @@ async function testGeneratedUi() {
     booking_code: 'MB-DELETED-ARCHIVE-CODE',
     guest_name: 'Deleted Guest',
     phone: '+34600888777',
-    status: 'deleted',
+    status: 'cancelled',
     archived: true,
     total_cents: 2000,
     paid_cents: 2000,
@@ -900,7 +913,8 @@ async function testGeneratedUi() {
     const u = new URL(req.url, 'http://127.0.0.1');
     if (u.pathname === '/staff/admin/bookings' && req.method === 'GET') {
       lastListQuery = u.searchParams;
-      const includeArchived = u.searchParams.get('include_archived') === '1';
+      const includeArchived = u.searchParams.get('include_archived') === '1'
+        || u.searchParams.get('show_hidden') === '1';
       const qRaw = u.searchParams.get('q') || '';
       const q = qRaw.toLowerCase();
       const status = (u.searchParams.get('status') || '').toLowerCase();
@@ -912,13 +926,27 @@ async function testGeneratedUi() {
       if (q.includes('stale-old')) rows = [sampleStale];
       else if (q.includes('newest-scope')) rows = [sampleNewest];
       else {
-        if (includeArchived) rows = [samplePaid, sampleCancelled, sampleDeleted];
+        if (includeArchived || status === 'hidden') {
+          rows = [samplePaid, sampleCancelled, sampleDeleted];
+        }
         if (q) {
           rows = rows.filter((r) => String(r.booking_code).toLowerCase().includes(q)
             || String(r.guest_name).toLowerCase().includes(q)
             || String(r.phone).includes(q));
         }
-        if (status) rows = rows.filter((r) => r.status === status);
+        if (status === 'deleted') {
+          rows = []; // product path removed — no Deleted filter
+        } else if (status === 'hidden') {
+          rows = rows.filter((r) => r.hidden === true);
+        } else if (status === 'cancelled' || status === 'canceled') {
+          rows = rows.filter((r) => r.status === 'cancelled' && !r.hidden);
+        } else if (status) {
+          rows = rows.filter((r) => r.status === status);
+        }
+        // Default list excludes hidden
+        if (!includeArchived && status !== 'hidden') {
+          rows = rows.filter((r) => !r.hidden);
+        }
         if (type) rows = rows.filter((r) => (r.service_types || []).includes(type));
         if (dateFrom) rows = rows.filter((r) => String(r.service_date_start) >= dateFrom);
         if (dateTo) rows = rows.filter((r) => String(r.service_date_start) <= dateTo);
@@ -1138,18 +1166,23 @@ async function testGeneratedUi() {
     // Status=cancelled auto-includes archived (checkbox removed)
     await page.selectOption('#admin-bookings-status', 'cancelled');
     await page.waitForTimeout(400);
-    ok('cancelled status auto include_archived',
+    ok('cancelled status does not force show_hidden (cancelled in default list)',
       lastListQuery && lastListQuery.get('status') === 'cancelled'
-      && lastListQuery.get('include_archived') === '1');
+      && lastListQuery.get('include_archived') !== '1'
+      && lastListQuery.get('show_hidden') !== '1');
     let chips = await page.locator('.portal-admin-bookings-chip').allTextContents();
     ok('status cancelled reveals Cancelled chip', chips.some((c) => /Cancel|Anulad|Cancelad/i.test(c)), chips.join(','));
-    await page.selectOption('#admin-bookings-status', 'deleted');
-    await page.waitForTimeout(400);
-    ok('deleted status auto include_archived',
-      lastListQuery && lastListQuery.get('status') === 'deleted'
-      && lastListQuery.get('include_archived') === '1');
+    await page.selectOption('#admin-bookings-status', 'hidden');
+    await page.waitForTimeout(600);
+    ok('hidden status auto show_hidden',
+      lastListQuery && lastListQuery.get('status') === 'hidden'
+      && (lastListQuery.get('include_archived') === '1' || lastListQuery.get('show_hidden') === '1'));
     chips = await page.locator('.portal-admin-bookings-chip').allTextContents();
-    ok('status deleted reveals Deleted chip', chips.some((c) => /Delete|Eliminad|Eliminato/i.test(c)), chips.join(','));
+    const chipBlob = chips.join(' | ');
+    ok('status hidden reveals Hidden chip (not Deleted)',
+      (/Hidden|Oculto|Nascosto/i.test(chipBlob) || /chip--hidden/.test(await page.content()))
+      && !chips.some((c) => /^Deleted$|^Eliminado$|^Eliminato$/i.test(String(c).trim())),
+      chipBlob);
     await page.selectOption('#admin-bookings-status', '');
     await page.waitForTimeout(300);
 
@@ -1540,7 +1573,7 @@ async function testGeneratedUi() {
       assertControl('#admin-bookings-status', { minH: 28, focusable: true });
       assertControl('#admin-bookings-type', { minH: 28, focusable: true });
       assertControl('#admin-bookings-export', { minH: 28, minW: 40, focusable: true });
-      // Apply + archived checkbox removed (live filters + status covers cancelled/deleted)
+      // Apply + archived checkbox removed (live filters + status covers cancelled/hidden)
       if (document.getElementById('admin-bookings-apply')) issues.push('apply button should be removed');
       if (document.getElementById('admin-bookings-date-range-apply')) issues.push('date-range Apply button should be removed');
       if (document.getElementById('admin-bookings-archived')) issues.push('archived checkbox should be removed');

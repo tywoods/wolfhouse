@@ -804,6 +804,7 @@
     "verify:sunset-admin-font-parity": "node scripts/verify-sunset-admin-font-parity.js",
     "verify:sunset-admin-i18n": "node scripts/verify-sunset-admin-i18n.js",
     "verify:sunset-admin-tabs": "node scripts/verify-sunset-admin-tabs.js",
+    "verify:sunset-cancel-hide-v2": "node scripts/verify-sunset-cancel-hide-v2.js",
     "verify:sunset-bookings-admin-n1": "node scripts/verify-sunset-bookings-admin-n1.js",
     "verify:sunset-admin-pure": "node scripts/verify-sunset-admin-pure.js",
     "verify:sunset-admin-helper-parity": "node scripts/verify-sunset-admin-helper-parity.js",

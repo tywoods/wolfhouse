@@ -6,15 +6,14 @@
  * Status taxonomy, money arithmetic, filter predicates, CSV sanitization.
  * No DB, no HTTP, no Stripe. Integer cents only.
  *
- * Status precedence (highest first):
- *   deleted > cancelled > refunded > paid > partial > unpaid
- *
- * Archived = deleted | cancelled.
+ * Status chips (Bookings panel):
+ *   paid | unpaid | partial | refunded | cancelled | hidden | refund_needed
+ * "Deleted" is removed — never a status/tag/filter.
+ * hidden = flag only cancelled bookings carry (declutter). Not a money status.
+ * Default list includes cancelled (not greyed on panel); excludes hidden.
  * Soft retention:
- *   - cancelSunsetScheduleBooking writes cancelled_by_staff (+ cancelled_at)
- *   - archiveSunsetScheduleBooking ("Delete booking") writes schedule_archived /
- *     schedule_archived_by_staff (+ timestamps) on already-cancelled rows
- * Deleted recognizes both staff-cancel and schedule-archive metadata shapes.
+ *   - cancel → status=cancelled
+ *   - hide → bookings.hidden (+ legacy schedule_archived meta)
  *
  * Money:
  *   collected  = gross settled/collected payments (status paid)
@@ -39,13 +38,14 @@ const STATUS = Object.freeze({
   PARTIAL: 'partial',
   REFUNDED: 'refunded',
   CANCELLED: 'cancelled',
-  DELETED: 'deleted',
+  HIDDEN: 'hidden',
+  REFUND_NEEDED: 'refund_needed',
 });
 
-const ARCHIVED_STATUSES = Object.freeze([STATUS.CANCELLED, STATUS.DELETED]);
+/** @deprecated — "Deleted" removed; hidden is a flag, not a money status. */
+const ARCHIVED_STATUSES = Object.freeze([STATUS.HIDDEN]);
 
 const STATUS_PRECEDENCE = Object.freeze([
-  STATUS.DELETED,
   STATUS.CANCELLED,
   STATUS.REFUNDED,
   STATUS.PAID,
@@ -120,11 +120,8 @@ function isCancelledBookingStatus(status) {
 }
 
 /**
- * Soft Schedule Delete / archive classification.
- * Deleted when booking is cancelled/canceled AND any staff-removal flag is set:
- *   - cancelled_by_staff (cancelSunsetScheduleBooking)
- *   - schedule_archived / schedule_archived_by_staff (archiveSunsetScheduleBooking)
- * Other cancelled → Cancelled. Both are archived.
+ * Hidden declutter flag (column or legacy schedule_archived*).
+ * Only meaningful on cancelled bookings (enforced on write).
  */
 function isHiddenBooking(booking) {
   if (!booking) return false;
@@ -137,23 +134,26 @@ function isHiddenBooking(booking) {
     || isTruthyMetaFlag(meta.schedule_archived_by_staff);
 }
 
-/** Hidden = cancelled + hidden flag (or legacy archive meta). */
-function isDeletedBooking(booking) {
+
+/** Default list exclusion = hidden only (cancelled stay visible). */
+function isArchivedBooking(booking) {
   if (!booking) return false;
-  if (!isCancelledBookingStatus(booking.status)) return false;
   return isHiddenBooking(booking);
 }
 
-/** Archived-for-list defaults: cancelled rows (shown greyed unless hidden filter off). */
-function isArchivedBooking(booking) {
-  if (!booking) return false;
-  if (isCancelledBookingStatus(booking.status)) return true;
-  return isHiddenBooking(booking);
+/** Cancelled + collected > refunded → refund still needed. */
+function bookingNeedsRefund(input) {
+  const src = input || {};
+  const booking = src.booking || src;
+  if (!isCancelledBookingStatus(booking.status)) return false;
+  const collected = clampNonNegative(src.collected_cents != null ? src.collected_cents : (booking.collected_cents != null ? booking.collected_cents : 0));
+  const refunded = clampNonNegative(src.refunded_cents != null ? src.refunded_cents : (booking.refunded_cents != null ? booking.refunded_cents : 0));
+  return collected > 0 && refunded < collected;
 }
 
 /**
- * Deterministic status chip from money + archived classification.
- * Precedence: deleted > cancelled > refunded > paid > partial > unpaid.
+ * Primary status for filters/CSV. No Deleted status exists.
+ * Cancelled (incl. hidden) → cancelled; else money chips.
  */
 function classifyBookingStatus(input) {
   const src = input || {};
@@ -167,7 +167,6 @@ function classifyBookingStatus(input) {
       : checkedSubtract(charged, collected),
   );
 
-  if (isDeletedBooking(booking)) return STATUS.DELETED;
   if (isCancelledBookingStatus(booking.status)) return STATUS.CANCELLED;
 
   const netCollected = checkedSubtract(collected, refunded);
@@ -175,6 +174,35 @@ function classifyBookingStatus(input) {
   if (outstanding === 0 && (charged > 0 || collected > 0)) return STATUS.PAID;
   if (collected > 0 && outstanding > 0) return STATUS.PARTIAL;
   return STATUS.UNPAID;
+}
+
+/**
+ * Multi-tags for Status column (Bookings panel).
+ * Cancelled rows: Cancelled [+ Hidden] [+ Refund needed | Refunded].
+ * Active rows: single money tag.
+ */
+function buildBookingStatusTags(input) {
+  const src = input || {};
+  const booking = src.booking || src;
+  const money = {
+    collected_cents: clampNonNegative(src.collected_cents != null ? src.collected_cents : 0),
+    refunded_cents: clampNonNegative(src.refunded_cents != null ? src.refunded_cents : 0),
+    charged_cents: clampNonNegative(src.charged_cents != null ? src.charged_cents : 0),
+  };
+  const tags = [];
+  if (isCancelledBookingStatus(booking.status)) {
+    tags.push(STATUS.CANCELLED);
+    if (isHiddenBooking(booking)) tags.push(STATUS.HIDDEN);
+    if (bookingNeedsRefund({ booking, ...money })) {
+      tags.push(STATUS.REFUND_NEEDED);
+    } else if (money.refunded_cents > 0 && money.collected_cents > 0
+      && checkedSubtract(money.collected_cents, money.refunded_cents) <= 0) {
+      tags.push(STATUS.REFUNDED);
+    }
+    return tags;
+  }
+  tags.push(classifyBookingStatus({ booking, ...money, outstanding_cents: src.outstanding_cents }));
+  return tags;
 }
 
 function computeMoneyStory(input) {
@@ -277,6 +305,25 @@ function bookingMatchesDateRange(row, dateFrom, dateTo) {
 function bookingMatchesStatus(row, statusFilter) {
   const want = String(statusFilter || '').trim().toLowerCase();
   if (!want || want === 'all') return true;
+  // "Deleted" product path removed — unknown/deleted status matches nothing.
+  if (want === 'deleted') return false;
+  if (want === 'hidden') {
+    return row.hidden === true || (Array.isArray(row.status_tags) && row.status_tags.includes(STATUS.HIDDEN));
+  }
+  if (want === 'cancelled' || want === 'canceled') {
+    const cancelled = String(row.status || '').toLowerCase() === STATUS.CANCELLED
+      || (Array.isArray(row.status_tags) && row.status_tags.includes(STATUS.CANCELLED));
+    const hidden = row.hidden === true || (Array.isArray(row.status_tags) && row.status_tags.includes(STATUS.HIDDEN));
+    return cancelled && !hidden;
+  }
+  if (want === 'refund_needed' || want === 'refund-needed') {
+    return row.needs_refund === true
+      || (Array.isArray(row.status_tags) && row.status_tags.includes(STATUS.REFUND_NEEDED));
+  }
+  if (want === 'refunded') {
+    return String(row.status || '').toLowerCase() === STATUS.REFUNDED
+      || (Array.isArray(row.status_tags) && row.status_tags.includes(STATUS.REFUNDED));
+  }
   return String(row.status || '').toLowerCase() === want;
 }
 
@@ -303,7 +350,8 @@ function bookingMatchesLocation(row, locationId) {
  */
 function filterBookingRows(rows, filters) {
   const f = filters || {};
-  const includeArchived = f.include_archived === true
+  const statusWant = String(f.status || '').trim().toLowerCase();
+  const includeHidden = f.include_archived === true
     || f.include_archived === 1
     || f.include_archived === '1'
     || f.include_archived === 'true'
@@ -314,12 +362,20 @@ function filterBookingRows(rows, filters) {
     || f.show_hidden === true
     || f.show_hidden === 1
     || f.show_hidden === '1'
-    || f.show_hidden === 'true';
+    || f.show_hidden === 'true'
+    || statusWant === 'hidden';
   return (rows || []).filter((row) => {
-    const archived = row.archived === true
-      || row.status === STATUS.CANCELLED
-      || row.status === STATUS.DELETED;
-    if (!includeArchived && archived) return false;
+    const hidden = row.hidden === true
+      || (Array.isArray(row.status_tags) && row.status_tags.includes(STATUS.HIDDEN));
+    // Default All statuses: include cancelled, exclude hidden.
+    // Hidden filter (or show_hidden): only hidden rows via status match.
+    // status=deleted is ignored (no rows) — product path removed.
+    if (statusWant === 'deleted') return false;
+    if (statusWant === 'hidden') {
+      if (!hidden) return false;
+    } else if (!includeHidden && hidden) {
+      return false;
+    }
     if (!bookingMatchesSearch(row, f.q || f.search)) return false;
     if (!bookingMatchesDateRange(row, f.date_from || f.from, f.date_to || f.to)) return false;
     if (!bookingMatchesStatus(row, f.status)) return false;
@@ -483,7 +539,20 @@ function buildBookingListRow(input) {
     booking,
     ...money,
   });
-  const archived = status === STATUS.DELETED || status === STATUS.CANCELLED;
+  const hidden = isHiddenBooking(booking);
+  const status_tags = buildBookingStatusTags({
+    booking,
+    collected_cents: money.collected_cents,
+    refunded_cents: money.refunded_cents,
+    charged_cents: money.charged_cents,
+  });
+  const needs_refund = bookingNeedsRefund({
+    booking,
+    collected_cents: money.collected_cents,
+    refunded_cents: money.refunded_cents,
+  });
+  // Bookings panel never greys cancelled; archived retained only as hidden alias.
+  const archived = hidden;
   const serviceTypes = [];
   for (const svc of services) {
     if (!svc || String(svc.status || '').toLowerCase() === 'cancelled') continue;
@@ -526,6 +595,9 @@ function buildBookingListRow(input) {
     paid_cents: money.collected_cents,
     ...money,
     status,
+    status_tags,
+    hidden,
+    needs_refund,
     archived,
     location_id: locationId || null,
     items,
@@ -680,10 +752,11 @@ module.exports = {
   clampNonNegative,
   parseMeta,
   isTruthyMetaFlag,
-  isDeletedBooking,
   isHiddenBooking,
   isArchivedBooking,
   isCancelledBookingStatus,
+  bookingNeedsRefund,
+  buildBookingStatusTags,
   classifyBookingStatus,
   computeMoneyStory,
   computeBookingsSummary,
