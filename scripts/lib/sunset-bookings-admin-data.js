@@ -253,6 +253,25 @@ async function fetchScopedBookingRows(pg, clientSlug, locationId, sortOpts) {
   const refundsBy = groupByBookingId(rows(refundRes));
   const waiverBy = new Map(rows(waiverRes).map((r) => [String(r.booking_id), r]));
 
+  // Authoritative rental catalog labels for item display names (exact offering_key).
+  let catalogLabelMap = null;
+  try {
+    const { listRentalOfferings } = require('./tenant-rental-offerings');
+    const { buildRentalCatalogLabelMap } = require('./rental-offering-label');
+    const offerings = await listRentalOfferings(pg, {
+      clientSlug,
+      locationId,
+      includeInactive: true, // historical readers may need retired offering labels
+    });
+    catalogLabelMap = buildRentalCatalogLabelMap(offerings, {
+      clientSlug,
+      locationId,
+      includeInactive: true,
+    });
+  } catch (_e) {
+    catalogLabelMap = null;
+  }
+
   return bookingRows.map((b) => {
     const services = servicesBy.get(String(b.booking_id)) || [];
     const refunds = (refundsBy.get(String(b.booking_id)) || []).map((r) => ({
@@ -280,6 +299,7 @@ async function fetchScopedBookingRows(pg, clientSlug, locationId, sortOpts) {
       refunded_cents: refunded,
       refunds,
       location_id: b.location_id || locationId,
+      catalog_label_map: catalogLabelMap,
       waiver: waiverRow
         ? {
           status: waiverRow.waiver_status || null,

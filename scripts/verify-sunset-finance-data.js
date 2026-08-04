@@ -15,7 +15,6 @@ const {
   BOOKINGS_SQL,
   PAYMENTS_SQL,
   REFUNDS_SQL,
-  FinanceDataQualityError,
 } = require(path.join(ROOT, 'scripts', 'lib', 'sunset-finance-data.js'));
 const { computeSunsetFinanceSummary } = require(path.join(ROOT, 'scripts', 'lib', 'sunset-finance-summary.js'));
 
@@ -112,10 +111,96 @@ ok('refunds filter source staff_manual_record', /staff_manual_record/.test(ref))
   ok('end-to-end: refunds = 200', summary.redesign.net.completed_refunds_cents === 200, summary.redesign.net.completed_refunds_cents);
   ok('end-to-end: Outstanding today = 8500 (10000-1500)', summary.periods.today.outstanding_cents === 8500, summary.periods.today.outstanding_cents);
 
-  const driftPg = { query(sql) { const s = norm(sql); if (/from booking_service_records/.test(s)) return Promise.resolve({rows:[]}); if (/from payments/.test(s)) return Promise.resolve({rows:[]}); if (/select distinct/.test(s)) return Promise.resolve({rows:[{booking_id:'secret',total_amount_cents:1000,balance_due_cents:999}]}); return Promise.resolve({rows:[]}); } };
-  let drift;
-  try { await fetchSunsetFinanceData(driftPg, { clientSlug:'sunset', locationId:'sunset-somo' }); } catch (e) { drift = e; }
-  ok('material persisted-balance drift fails closed with typed generic error', drift instanceof FinanceDataQualityError && drift.code === 'FINANCE_DATA_QUALITY' && !JSON.stringify(drift).includes('secret'));
+  // Material drift soft-fails: one stale balance_due must not black out Finance.
+  const driftLogs = [];
+  const origDriftWarn = console.warn;
+  console.warn = (...a) => { driftLogs.push(a.map(String).join(' ')); };
+  let driftData = null;
+  let driftErr = null;
+  try {
+    const driftPg = {
+      query(sql) {
+        const s = norm(sql);
+        if (/from booking_service_records/.test(s)) {
+          return Promise.resolve({
+            rows: [
+              { booking_id: 'GOOD-B', service_record_id: 'sr-g', service_date: '2026-07-15', amount_due_cents: 4000, metadata: {} },
+              // Drift fixture mirrors live class: total 3500, balance_due 2000, no payment → expected 3500, delta 1500.
+              { booking_id: 'c713c1d7-7f11-4087-bb95-f78c0eaec65e', service_record_id: 'sr-d', service_date: '2026-07-15', amount_due_cents: 3500, metadata: {} },
+            ],
+          });
+        }
+        if (/from payments/.test(s)) {
+          return Promise.resolve({
+            rows: [
+              { booking_id: 'GOOD-B', payment_id: 'pay-g', amount_paid_cents: 1000, paid_at: '2026-07-15T09:00:00Z' },
+            ],
+          });
+        }
+        if (/select distinct/.test(s)) {
+          return Promise.resolve({
+            rows: [
+              { booking_id: 'GOOD-B', total_amount_cents: 4000, balance_due_cents: 3000 },
+              { booking_id: 'c713c1d7-7f11-4087-bb95-f78c0eaec65e', total_amount_cents: 3500, balance_due_cents: 2000 },
+            ],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      },
+    };
+    driftData = await fetchSunsetFinanceData(driftPg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
+  } catch (e) {
+    driftErr = e;
+  } finally {
+    console.warn = origDriftWarn;
+  }
+  ok('material balance drift does not throw (soft-fail)', driftErr == null && driftData != null);
+  ok('material balance drift returns bookings for aggregation', Array.isArray(driftData && driftData.bookings) && driftData.bookings.length === 2);
+  ok('material balance drift flags offending booking_id',
+    driftData
+    && driftData.data_quality
+    && Array.isArray(driftData.data_quality.balance_drift)
+    && driftData.data_quality.balance_drift.some((d) => d.booking_id === 'c713c1d7-7f11-4087-bb95-f78c0eaec65e'),
+    JSON.stringify(driftData && driftData.data_quality));
+  ok('material balance drift includes reconciliation fields',
+    driftData
+    && driftData.data_quality.balance_drift.some((d) => (
+      d.booking_id === 'c713c1d7-7f11-4087-bb95-f78c0eaec65e'
+      && d.computed_cents === 3500
+      && d.persisted_cents === 2000
+      && d.delta_cents === 1500
+    )));
+  ok('material balance drift does not flag healthy booking',
+    driftData
+    && !driftData.data_quality.balance_drift.some((d) => d.booking_id === 'GOOD-B')
+    && (driftData.data_quality.flagged_booking_ids || []).indexOf('GOOD-B') < 0);
+  ok('material balance drift structured log has booking_id + recon fields',
+    driftLogs.some((l) => /material_balance_drift/.test(l)
+      && /c713c1d7-7f11-4087-bb95-f78c0eaec65e/.test(l)
+      && /"computed_cents":3500/.test(l)
+      && /"persisted_cents":2000/.test(l)
+      && /"delta_cents":1500/.test(l)),
+    driftLogs.join(' | '));
+  const driftSummary = computeSunsetFinanceSummary({
+    now: new Date('2026-07-15T10:00:00Z'),
+    timeZone: 'Europe/Madrid',
+    ...driftData,
+  });
+  ok('material balance drift still returns summary periods (HTTP 200 path)',
+    !!(driftSummary && driftSummary.periods && driftSummary.periods.today));
+  // GOOD: booked 4000 + DRIFT: booked 3500 = 7500; collected only GOOD 1000.
+  ok('unaffected booking still aggregates with drift peer present',
+    driftSummary.periods.today.booked_cents === 7500
+    && driftSummary.periods.today.collected_gross_cents === 1000,
+    `booked=${driftSummary.periods.today.booked_cents} collected=${driftSummary.periods.today.collected_gross_cents}`);
+  // Outstanding: GOOD max(4000-1000,0)=3000 + DRIFT max(3500-0,0)=3500 = 6500 (uses total−paid, not stale balance_due).
+  ok('outstanding uses total−paid (not stale balance_due) with drift present',
+    driftSummary.periods.today.outstanding_cents === 6500,
+    driftSummary.periods.today.outstanding_cents);
+  ok('summary surfaces balance_drift from fetch data_quality',
+    driftSummary.data_quality
+    && driftSummary.data_quality.balance_drift_count >= 1
+    && driftSummary.data_quality.balance_drift.some((d) => d.booking_id === 'c713c1d7-7f11-4087-bb95-f78c0eaec65e'));
 
   const legacyPg = { query(sql) {
     const s = norm(sql);
@@ -141,10 +226,120 @@ ok('refunds filter source staff_manual_record', /staff_manual_record/.test(ref))
     if (/select distinct/.test(s)) return Promise.resolve({rows:[{booking_id:'LEGACY',total_amount_cents:null,balance_due_cents:4499}]});
     return Promise.resolve({rows:[]});
   } };
-  let legacyDrift;
-  try { await fetchSunsetFinanceData(legacyDriftPg, { clientSlug:'sunset', locationId:'sunset-somo' }); } catch (e) { legacyDrift = e; }
-  ok('present legacy persisted balance still fails closed on one-cent mismatch', legacyDrift instanceof FinanceDataQualityError);
+  let legacyDriftErr = null;
+  let legacyDriftData = null;
+  try {
+    legacyDriftData = await fetchSunsetFinanceData(legacyDriftPg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
+  } catch (e) {
+    legacyDriftErr = e;
+  }
+  ok('present legacy one-cent mismatch soft-fails (no throw)', legacyDriftErr == null && legacyDriftData != null);
+  ok('present legacy one-cent mismatch flags material drift on LEGACY',
+    legacyDriftData
+    && legacyDriftData.data_quality
+    && legacyDriftData.data_quality.balance_drift.some((d) => (
+      d.booking_id === 'LEGACY' && d.delta_cents === 1
+    )));
 
+  // RED→GREEN: legacy null total + one malformed BSR + persisted balance must NOT invent material drift
+  // from incomplete clean BSR. Malformed soft-fails; recon skips/flags unavailable for that booking.
+  {
+    const comboLogs = [];
+    const origComboWarn = console.warn;
+    console.warn = (...a) => { comboLogs.push(a.map(String).join(' ')); };
+    let comboData = null;
+    let comboErr = null;
+    try {
+      const comboPg = {
+        query(sql) {
+          const s = norm(sql);
+          if (/from booking_service_records/.test(s)) {
+            return Promise.resolve({
+              rows: [
+                // Healthy peer — must still aggregate.
+                { booking_id: 'GOOD-COMBO', service_record_id: 'sr-good-c', service_date: '2026-07-15', amount_due_cents: 4000, metadata: {} },
+                // Legacy incomplete: full commercial truth would be 4000+3000-1000=6000 → owed 4500 with paid 1500.
+                // If recon uses only clean BSR (drops malformed 3000) it invents false drift vs balance 4500.
+                { booking_id: 'LEGACY-MAL', service_record_id: 'sr-leg-ok', service_date: '2026-07-15', amount_due_cents: 4000, metadata: {} },
+                { booking_id: 'LEGACY-MAL', service_record_id: 'sr-leg-bad', service_date: '2026-07-16', amount_due_cents: 'not-a-cent', metadata: {} },
+                {
+                  booking_id: 'LEGACY-MAL',
+                  service_record_id: 'sr-leg-custom',
+                  service_date: '2026-07-16',
+                  amount_due_cents: 0,
+                  metadata: { source: 'staff_custom_line', amount_cents: -1000 },
+                },
+              ],
+            });
+          }
+          if (/from payments/.test(s)) {
+            return Promise.resolve({
+              rows: [
+                { booking_id: 'GOOD-COMBO', payment_id: 'pay-gc', amount_paid_cents: 1000, paid_at: '2026-07-15T09:00:00Z' },
+                { booking_id: 'LEGACY-MAL', payment_id: 'pay-lm', amount_paid_cents: 1500, paid_at: '2026-07-15T09:00:00Z' },
+              ],
+            });
+          }
+          if (/select distinct/.test(s)) {
+            return Promise.resolve({
+              rows: [
+                { booking_id: 'GOOD-COMBO', total_amount_cents: 4000, balance_due_cents: 3000 },
+                { booking_id: 'LEGACY-MAL', total_amount_cents: null, balance_due_cents: 4500 },
+              ],
+            });
+          }
+          return Promise.resolve({ rows: [] });
+        },
+      };
+      comboData = await fetchSunsetFinanceData(comboPg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
+    } catch (e) {
+      comboErr = e;
+    } finally {
+      console.warn = origComboWarn;
+    }
+    ok('legacy+malformed combo does not throw', comboErr == null && comboData != null);
+    ok('legacy+malformed combo soft-logs malformed BSR (IDs only)',
+      comboData
+      && comboData.data_quality
+      && comboData.data_quality.malformed.some((m) => (
+        m.booking_id === 'LEGACY-MAL' && m.service_record_id === 'sr-leg-bad'
+      ))
+      && comboLogs.some((l) => /malformed_monetary_row/.test(l) && /sr-leg-bad/.test(l)),
+      JSON.stringify(comboData && comboData.data_quality && comboData.data_quality.malformed));
+    ok('legacy+malformed combo NEVER invents material_balance_drift on incomplete inputs',
+      comboData
+      && comboData.data_quality
+      && !(comboData.data_quality.balance_drift || []).some((d) => d.booking_id === 'LEGACY-MAL')
+      && !(comboData.data_quality.flagged_booking_ids || []).includes('LEGACY-MAL'),
+      JSON.stringify(comboData && comboData.data_quality));
+    ok('legacy+malformed combo flags reconciliation unavailable (incomplete inputs)',
+      comboData
+      && comboData.data_quality
+      && Array.isArray(comboData.data_quality.reconciliation_unavailable)
+      && comboData.data_quality.reconciliation_unavailable.some((r) => (
+        r.booking_id === 'LEGACY-MAL'
+        && /incomplete|malformed|unavailable/i.test(String(r.reason || ''))
+      )),
+      JSON.stringify(comboData && comboData.data_quality && comboData.data_quality.reconciliation_unavailable));
+    ok('legacy+malformed combo does not flag healthy peer',
+      comboData
+      && !(comboData.data_quality.balance_drift || []).some((d) => d.booking_id === 'GOOD-COMBO')
+      && !(comboData.data_quality.reconciliation_unavailable || []).some((r) => r.booking_id === 'GOOD-COMBO'));
+    const comboSummary = computeSunsetFinanceSummary({
+      now: new Date('2026-07-15T10:00:00Z'),
+      timeZone: 'Europe/Madrid',
+      ...comboData,
+    });
+    // Today (2026-07-15): GOOD 4000 + LEGACY good-row 4000 = 8000 (malformed/custom are 07-16).
+    // Collected: GOOD 1000 + LEGACY 1500 = 2500. Incomplete recon must not invent money.
+    ok('legacy+malformed combo unaffected + clean same-day BSR still aggregate',
+      comboSummary.periods.today.booked_cents === 8000
+      && comboSummary.periods.today.collected_gross_cents === 2500,
+      `booked=${comboSummary.periods.today.booked_cents} collected=${comboSummary.periods.today.collected_gross_cents}`);
+    ok('legacy+malformed combo summary has no invented material drift',
+      !(comboSummary.data_quality && (comboSummary.data_quality.balance_drift || [])
+        .some((d) => d.booking_id === 'LEGACY-MAL')));
+  }
 
   // Missing ledger table → soft empty via SAVEPOINT (PG-accurate aborted-txn semantics)
     const strictCalls = [];

@@ -877,6 +877,8 @@
     "verify:sunset-rental-labels-p0e": "node scripts/verify-sunset-rental-labels-p0e.js",
     "job:sunset-staff-sw-quote-readonly": "node scripts/job-sunset-staff-sw-quote-readonly.js",
     "verify:sunset-bookings-admin-sort-type": "node scripts/verify-sunset-bookings-admin-sort-type.js",
+    "verify:item-display-name": "node scripts/verify-item-display-name.js",
+    "diagnose:sunset-finance-data-quality": "node scripts/diagnose-sunset-finance-data-quality.js",
     "verify:sunset-private-course-card-onerow": "node scripts/verify-sunset-private-course-card-onerow.js",
     "verify:sunset-group-course-card-opt3": "node scripts/verify-sunset-group-course-card-opt3.js"
   },

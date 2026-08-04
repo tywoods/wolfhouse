@@ -1082,10 +1082,78 @@ async function testGeneratedUi() {
     // Full code + XSS escaped
     const codeText = await page.locator('.portal-admin-bookings-code').first().innerText();
     ok('UI full booking code visible', codeText.includes(fullCode), codeText);
+    ok('booking code is keyboard-accessible button control',
+      await page.locator('button.portal-admin-bookings-code-link[data-bookings-open-schedule]').count() >= 1);
+    const codeAria = await page.locator('button.portal-admin-bookings-code-link').first().getAttribute('aria-label');
+    ok('booking code has ARIA label', !!(codeAria && /schedule|Schedule|abrir|Abrir/i.test(codeAria)), codeAria);
     const guestHtml = await page.locator('.portal-admin-bookings-guest-link').first().innerHTML();
     ok('adversarial guest name escaped (entities, no raw HTML tag)',
       guestHtml.includes('&lt;') && !/<img\b/i.test(guestHtml) && !/<script\b/i.test(guestHtml),
       guestHtml.slice(0, 160));
+
+    // Code → Schedule day nav + drawer via REAL generated production openBookingInSchedule.
+    // Intercept only legitimate boundaries (tab / day nav / drawer) — never replace the owner.
+    const hasProductionOpen = await page.evaluate(() => typeof window.openBookingInSchedule === 'function');
+    ok('generated production openBookingInSchedule is present on portal', hasProductionOpen);
+    await page.evaluate(() => {
+      window.__bookingsScheduleNav = [];
+      window.__productionOpenBookingInSchedule = window.openBookingInSchedule;
+      // Legitimate boundary stubs only — production owner must call these.
+      window.scheduleOpenDayDetail = function (iso) {
+        window.__bookingsScheduleNav.push({ kind: 'day', iso: String(iso || '') });
+        return Promise.resolve({ ok: true, iso: String(iso || '') });
+      };
+      window.openScheduleDetailDrawer = function (row) {
+        window.__bookingsScheduleNav.push({
+          kind: 'drawer',
+          booking_id: row && row.booking_id,
+          booking_code: row && row.booking_code,
+          service_date: row && row.service_date,
+        });
+      };
+      window.switchToTab = function (tab) {
+        window.__bookingsScheduleNav.push({ kind: 'tab', tab: String(tab || '') });
+      };
+    });
+    await page.locator('button.portal-admin-bookings-code-link').first().click();
+    await page.waitForTimeout(200);
+    const navCalls = await page.evaluate(() => window.__bookingsScheduleNav || []);
+    ok('code click switches to portal-home (Schedule) via production openBookingInSchedule',
+      navCalls.some((c) => c.kind === 'tab' && c.tab === 'portal-home'), JSON.stringify(navCalls));
+    ok('code click navigates to booking start day 2026-07-10',
+      navCalls.some((c) => c.kind === 'day' && c.iso === '2026-07-10'), JSON.stringify(navCalls));
+    ok('code click opens exact booking in detail drawer',
+      navCalls.some((c) => c.kind === 'drawer'
+        && c.booking_id === 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        && c.booking_code === fullCode
+        && c.service_date === '2026-07-10'),
+      JSON.stringify(navCalls));
+
+    // Mutation/negative seam: disable production openBookingInSchedule without stubbing a
+    // working reimplementation back in. Gate must fail (no tab/day/drawer).
+    await page.evaluate(() => {
+      window.__bookingsScheduleNav = [];
+      // Disabled owner (noop) — adminBookingsOpenInSchedule prefers window.openBookingInSchedule
+      // and will not fall through to its local fallback while a function is present.
+      window.openBookingInSchedule = function disabledProductionOpenBookingInSchedule() {
+        /* intentionally empty — production owner disabled/renamed */
+      };
+    });
+    await page.locator('button.portal-admin-bookings-code-link').first().click();
+    await page.waitForTimeout(200);
+    const navAfterDisable = await page.evaluate(() => window.__bookingsScheduleNav || []);
+    ok('negative seam: disabled production openBookingInSchedule yields no tab/day/drawer',
+      navAfterDisable.length === 0
+      && !navAfterDisable.some((c) => c.kind === 'tab')
+      && !navAfterDisable.some((c) => c.kind === 'day')
+      && !navAfterDisable.some((c) => c.kind === 'drawer'),
+      JSON.stringify(navAfterDisable));
+    // Restore production owner for remaining journey assertions (not a test reimplementation).
+    await page.evaluate(() => {
+      if (typeof window.__productionOpenBookingInSchedule === 'function') {
+        window.openBookingInSchedule = window.__productionOpenBookingInSchedule;
+      }
+    });
 
     // Summary strip
     const summaryText = await page.locator('#admin-bookings-summary').innerText();

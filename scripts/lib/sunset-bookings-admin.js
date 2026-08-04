@@ -556,9 +556,8 @@ function isStandaloneRentalService(svc) {
  */
 function classifyServiceTypeCategory(svc) {
   if (!svc) return { category: null, unknown: null };
-  if (String(svc.status || '').toLowerCase() === 'cancelled') {
-    return { category: null, unknown: null };
-  }
+  // Cancelled / terminal service rows still contribute Type for list display.
+  // Inventory / occupancy queries remain separate and continue to exclude them.
   // Course-included gear rides with Lessons (never Rentals).
   if (isCourseIncludedEquipmentService(svc)) {
     return { category: TYPE_CATEGORY.LESSONS, unknown: null };
@@ -764,10 +763,12 @@ function buildListBookingsOrderBySql(sortRaw, dirRaw) {
 }
 
 function serviceDateSpan(services) {
+  // Include cancelled service dates so cancelled/hidden list rows still expose
+  // the original service window (Type + Schedule deep-link start day).
+  // Occupancy/inventory paths do not use this helper.
   const dates = [];
   for (const svc of services || []) {
     if (!svc) continue;
-    if (String(svc.status || '').toLowerCase() === 'cancelled') continue;
     const d = svc.service_date != null ? String(svc.service_date).slice(0, 10) : '';
     if (/^\d{4}-\d{2}-\d{2}$/.test(d)) dates.push(d);
   }
@@ -911,7 +912,8 @@ function buildBookingListRow(input) {
   const archived = hidden;
   const serviceTypes = [];
   for (const svc of services) {
-    if (!svc || String(svc.status || '').toLowerCase() === 'cancelled') continue;
+    if (!svc) continue;
+    // Include cancelled service types so Type/history remains accurate after cancel.
     const t = String(svc.service_type || '').toLowerCase();
     if (t && !serviceTypes.includes(t)) serviceTypes.push(t);
   }
@@ -939,8 +941,26 @@ function buildBookingListRow(input) {
     }
     : buildTypeCategories(services);
 
+  let resolveItemDisplayName;
+  try {
+    resolveItemDisplayName = require('./item-display-name').resolveItemDisplayName;
+  } catch (_e) {
+    resolveItemDisplayName = null;
+  }
+  const catalogLabelMap = src.catalog_label_map || src.rental_catalog_label_map || null;
+
   const items = (services || []).map((svc) => {
     const sm = parseMeta(svc.metadata);
+    let label = null;
+    if (typeof resolveItemDisplayName === 'function') {
+      label = resolveItemDisplayName(svc, {
+        catalogLabelMap,
+        metadata: sm,
+      }) || null;
+    }
+    if (!label) {
+      label = sm.course_label || sm.label || sm.staff_ui_service_type || svc.service_type || null;
+    }
     return {
       service_record_id: svc.service_record_id || svc.id || null,
       service_type: svc.service_type || null,
@@ -948,7 +968,8 @@ function buildBookingListRow(input) {
       quantity: svc.quantity != null ? Number(svc.quantity) : 1,
       amount_due_cents: effectiveServiceDueCents(svc),
       status: svc.status || null,
-      label: sm.course_label || sm.label || sm.staff_ui_service_type || svc.service_type || null,
+      label,
+      offering_key: sm.offering_key || null,
     };
   });
 

@@ -10,6 +10,7 @@ const {
 const {
   resolveRentalOfferingFriendlyLabel,
 } = require('./rental-offering-label');
+const { resolveItemDisplayName } = require('./item-display-name');
 
 const DEFAULT_PRICING_PATH = path.join(
   __dirname,
@@ -153,7 +154,8 @@ function resolveGenericRentalInvoiceLabel(meta, fallback) {
     || m.generic_rental === true
     || (m.offering_key && (m.duration_key || m.item_code || m.unit_cents != null))
   ) {
-    const name = resolveRentalOfferingFriendlyLabel(m);
+    const name = resolveItemDisplayName({ metadata: m, service_type: m.service_type }, { metadata: m })
+      || resolveRentalOfferingFriendlyLabel(m);
     if (name && name.toLowerCase() !== 'addon_service') return name;
   }
   return fallback;
@@ -164,9 +166,9 @@ function formatServiceRecordInvoiceLineText(sr, opts = {}) {
   const rawLabel = opts.typeLabel
     ? opts.typeLabel(sr.service_type, meta)
     : (sr.service_type || '\u2014');
-  // Prefer persisted Admin-owned generic rental labels over the coarse
-  // addon_service bucket — including historical snapshots without live catalog.
-  const label = resolveGenericRentalInvoiceLabel(meta, rawLabel);
+  // Shared item-display-name owner: catalog → historical snapshot → typeLabel.
+  const shared = resolveItemDisplayName(sr, { metadata: meta, catalogLabelMap: opts.catalogLabelMap });
+  const label = shared || resolveGenericRentalInvoiceLabel(meta, rawLabel);
   const billable = opts.billableCents
     ? opts.billableCents(sr)
     : (sr.amount_due_cents != null ? Number(sr.amount_due_cents) : 0);

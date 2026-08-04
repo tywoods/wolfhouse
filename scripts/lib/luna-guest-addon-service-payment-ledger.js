@@ -8,6 +8,7 @@
  */
 
 const { resolveClientId } = require('./main-booking-hold-pg-sql');
+const { resolveItemDisplayName } = require('./item-display-name');
 
 const PAYMENT_ORIGIN = 'luna_guest_service_addon';
 const LEDGER_STAGE = '38b_guest_addon_service_ledger';
@@ -31,8 +32,46 @@ function parseMetadata(raw) {
   try { return JSON.parse(raw); } catch (_) { return {}; }
 }
 
-function serviceTypeStaffLabel(serviceType, meta) {
+/**
+ * Normalize optional catalog authority for guest-copy labels.
+ * Accepts catalogLabelMap / catalog_label_map / rental_label_map for caller compat.
+ * @param {object|null|undefined} opts
+ * @returns {{ catalogLabelMap: object|Map|null }}
+ */
+function resolveCatalogLabelOpts(opts) {
+  const o = opts && typeof opts === 'object' ? opts : {};
+  const map = o.catalogLabelMap != null
+    ? o.catalogLabelMap
+    : (o.catalog_label_map != null
+      ? o.catalog_label_map
+      : (o.rental_label_map != null ? o.rental_label_map : null));
+  return { catalogLabelMap: map || null };
+}
+
+/**
+ * Staff/guest display label for a service type + metadata.
+ * Optional third arg (or opts object) carries current Admin rental catalog map.
+ * Historical snapshot fields remain the fallback when current identity is absent.
+ *
+ * @param {string} serviceType
+ * @param {object} [meta]
+ * @param {object} [opts]  { catalogLabelMap|catalog_label_map|rental_label_map }
+ */
+function serviceTypeStaffLabel(serviceType, meta, opts) {
   const md = meta || {};
+  const catalogOpts = resolveCatalogLabelOpts(opts);
+  // Shared item-display-name owner: current catalog map first, then historical snapshots.
+  const shared = resolveItemDisplayName(
+    { service_type: serviceType, metadata: md },
+    {
+      metadata: md,
+      serviceType,
+      catalogLabelMap: catalogOpts.catalogLabelMap,
+    },
+  );
+  if (shared && shared.toLowerCase() !== 'addon_service' && shared.toLowerCase() !== String(serviceType || '').toLowerCase()) {
+    return shared;
+  }
   if (md.catalog_service && md.service_name) return String(md.service_name);
   if (md.staff_ui_service_type) {
     const ui = String(md.staff_ui_service_type);
@@ -41,7 +80,7 @@ function serviceTypeStaffLabel(serviceType, meta) {
   }
   const t = trimStr(serviceType).toLowerCase();
   if (t === 'meal' && md.meal_type === 'dinner') return 'Dinner';
-  return SERVICE_TYPE_LABELS[t] || t.replace(/_/g, ' ');
+  return shared || SERVICE_TYPE_LABELS[t] || t.replace(/_/g, ' ');
 }
 
 function buildServicePaymentIdempotencyKey(bookingId, serviceRecordId) {
@@ -63,17 +102,17 @@ function formatEuro(cents) {
   return `€${(Number(cents) / 100).toFixed(2)}`;
 }
 
-function formatServiceChargeDueLine(serviceType, amountCents, meta) {
-  const label = serviceTypeStaffLabel(serviceType, meta);
+function formatServiceChargeDueLine(serviceType, amountCents, meta, opts) {
+  const label = serviceTypeStaffLabel(serviceType, meta, opts);
   const eur = formatEuro(amountCents);
   return eur ? `${label} — ${eur} due at checkout` : `${label} — due at checkout`;
 }
 
-function formatAddonServicePaymentLedgerLabel(paymentRow) {
+function formatAddonServicePaymentLedgerLabel(paymentRow, opts) {
   const pr = paymentRow || {};
   const md = parseMetadata(pr.metadata);
   const st = String(pr.payment_status || '').toLowerCase();
-  const label = serviceTypeStaffLabel(md.service_type, md);
+  const label = serviceTypeStaffLabel(md.service_type, md, opts);
   if (st === 'paid') return `${label} — paid`;
   if (st === 'checkout_created' && pr.checkout_url) {
     return `${label} — Stripe link awaiting payment`;
@@ -102,7 +141,8 @@ function sumUnpaidServicePaymentCents(paymentRows) {
     .reduce((sum, row) => sum + Number(row.amount_due_cents || 0), 0);
 }
 
-function buildDryRunLedgerPlan(serviceRecords) {
+function buildDryRunLedgerPlan(serviceRecords, opts) {
+  const catalogOpts = resolveCatalogLabelOpts(opts);
   const rows = (serviceRecords || []).filter((sr) => Number(sr.amount_due_cents || 0) > 0);
   const lines = rows.map((sr) => {
     const meta = parseMetadata(sr.metadata);
@@ -110,7 +150,7 @@ function buildDryRunLedgerPlan(serviceRecords) {
       service_record_id: sr.id || sr.service_record_id,
       service_type: sr.service_type,
       amount_due_cents: Number(sr.amount_due_cents),
-      staff_line: formatServiceChargeDueLine(sr.service_type, sr.amount_due_cents, meta),
+      staff_line: formatServiceChargeDueLine(sr.service_type, sr.amount_due_cents, meta, catalogOpts),
       payable_at_checkout: true,
       optional_pay_now: false,
     };
@@ -130,13 +170,14 @@ function buildServiceChargesDueFromContext(input) {
   const booking = src.booking || {};
   const serviceRecords = src.serviceRecords || src.service_records || [];
   const paymentRows = src.paymentRows || src.payment_rows || [];
+  const catalogOpts = resolveCatalogLabelOpts(src);
 
   const addonPayments = (paymentRows || []).filter(isGuestAddonServicePaymentRow);
   const unpaidAddonPayments = addonPayments.filter(isUnpaidServiceLedgerRow);
 
   let lines = unpaidAddonPayments.map((pr) => {
     const md = parseMetadata(pr.metadata);
-    return formatServiceChargeDueLine(md.service_type, pr.amount_due_cents, md);
+    return formatServiceChargeDueLine(md.service_type, pr.amount_due_cents, md, catalogOpts);
   });
 
   let serviceChargesDueCents = sumUnpaidServicePaymentCents(paymentRows);
@@ -149,7 +190,7 @@ function buildServiceChargesDueFromContext(input) {
     });
     lines = pendingRecords.map((sr) => {
       const meta = parseMetadata(sr.metadata);
-      return formatServiceChargeDueLine(sr.service_type, sr.amount_due_cents, meta);
+      return formatServiceChargeDueLine(sr.service_type, sr.amount_due_cents, meta, catalogOpts);
     });
     if (!serviceChargesDueCents) {
       serviceChargesDueCents = pendingRecords.reduce(
@@ -319,10 +360,36 @@ async function syncGuestAddonServicePaymentLedger(pg, opts) {
   const bookingId = trimStr(o.bookingId);
   const clientSlug = trimStr(o.clientSlug) || 'wolfhouse-somo';
   let clientId = o.clientId;
+  let catalogOpts = resolveCatalogLabelOpts(o);
+
+  // Load authoritative current rental catalog when caller did not pass a map.
+  if (!catalogOpts.catalogLabelMap && pg) {
+    const locationId = trimStr(o.locationId || o.location_id || '');
+    if (locationId && clientSlug) {
+      try {
+        const { listRentalOfferings } = require('./tenant-rental-offerings');
+        const { buildRentalCatalogLabelMap } = require('./rental-offering-label');
+        const offerings = await listRentalOfferings(pg, {
+          clientSlug,
+          locationId,
+          includeInactive: false,
+        });
+        catalogOpts = {
+          catalogLabelMap: buildRentalCatalogLabelMap(offerings, {
+            clientSlug,
+            locationId,
+          }),
+        };
+      } catch (_e) {
+        // Catalog unavailable — fall back to historical snapshot labels.
+        catalogOpts = { catalogLabelMap: null };
+      }
+    }
+  }
 
   if (!pg || !bookingId) {
     return {
-      ...buildDryRunLedgerPlan(o.serviceRecords || []),
+      ...buildDryRunLedgerPlan(o.serviceRecords || [], catalogOpts),
       skipped: true,
       reason: 'missing_pg_or_booking',
     };
@@ -341,7 +408,7 @@ async function syncGuestAddonServicePaymentLedger(pg, opts) {
     serviceRecords = await loadPricedGuestServiceRecords(pg, bookingId);
   }
 
-  const plan = buildDryRunLedgerPlan(serviceRecords);
+  const plan = buildDryRunLedgerPlan(serviceRecords, catalogOpts);
   if (!plan.service_payment_rows_planned) {
     return {
       service_payment_rows_created: 0,
@@ -390,7 +457,12 @@ async function syncGuestAddonServicePaymentLedger(pg, opts) {
 
   const lines = serviceRecords
     .filter((sr) => Number(sr.amount_due_cents || 0) > 0)
-    .map((sr) => formatServiceChargeDueLine(sr.service_type, sr.amount_due_cents, parseMetadata(sr.metadata)));
+    .map((sr) => formatServiceChargeDueLine(
+      sr.service_type,
+      sr.amount_due_cents,
+      parseMetadata(sr.metadata),
+      catalogOpts,
+    ));
 
   return {
     service_payment_rows_created: created.length,
@@ -434,4 +506,5 @@ module.exports = {
   loadPricedGuestServiceRecords,
   upsertServicePaymentForRecord,
   paymentLedgerSummary,
+  resolveCatalogLabelOpts,
 };

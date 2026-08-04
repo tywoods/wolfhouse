@@ -1,6 +1,15 @@
 'use strict';
 
-const { effectiveServiceDueCents, reconcileBookingBalances, FinanceDataQualityError } = require('./sunset-finance-summary');
+const {
+  effectiveServiceDueCents,
+  reconcileBookingBalances,
+  FinanceDataQualityError,
+  createFinanceDiagnostics,
+  parseCanonicalIntCents,
+  reportMalformedMonetary,
+  withFinanceDiagnostics,
+  toIntSoft,
+} = require('./sunset-finance-summary');
 
 // Finance excludes transient/terminal non-operational bookings from BSR/booked views.
 // Gross paid cash intentionally includes cancelled-booking payments until recorded refunds
@@ -8,7 +17,8 @@ const { effectiveServiceDueCents, reconcileBookingBalances, FinanceDataQualityEr
 const BOOKING_EXCLUSIONS = "('cancelled', 'canceled', 'expired', 'hold')";
 
 const BSR_SQL = `
-  SELECT bsr.booking_id, bsr.service_date::text AS service_date,
+  SELECT bsr.id::text AS service_record_id,
+         bsr.booking_id, bsr.service_date::text AS service_date,
          bsr.service_type::text AS service_type,
          bsr.quantity,
          bsr.amount_due_cents, bsr.metadata
@@ -39,7 +49,7 @@ const BOOKINGS_SQL = `
 `;
 
 const PAYMENTS_SQL = `
-  SELECT p.booking_id, p.amount_paid_cents, p.paid_at
+  SELECT p.id::text AS payment_id, p.booking_id, p.amount_paid_cents, p.paid_at
     FROM payments p
     JOIN bookings b ON b.id = p.booking_id AND p.client_id = b.client_id
     JOIN clients c ON b.client_id = c.id
@@ -59,7 +69,8 @@ const PAYMENTS_SQL = `
  * Date bucketing is pure-math on effective_date (fetch all for location, multi-range).
  */
 const REFUNDS_SQL = `
-  SELECT r.booking_id::text AS booking_id,
+  SELECT r.id::text AS refund_id,
+         r.booking_id::text AS booking_id,
          r.amount_cents,
          r.effective_date::text AS effective_date,
          r.location_id,
@@ -89,12 +100,9 @@ const SURF_PACKS_SQL = `
 
 function rows(result) { return result && Array.isArray(result.rows) ? result.rows : []; }
 
-function integerCents(value) {
-  return effectiveServiceDueCents({ amount_due_cents: value, metadata: {} });
-}
-
 function mapBsr(r) {
   return {
+    service_record_id: r.service_record_id != null ? String(r.service_record_id) : null,
     booking_id: r.booking_id,
     service_date: r.service_date,
     service_type: r.service_type != null ? String(r.service_type) : null,
@@ -136,12 +144,62 @@ function mapPack(r) {
 
 function mapRefund(r) {
   return {
+    refund_id: r.refund_id != null ? String(r.refund_id) : null,
     booking_id: r.booking_id != null ? String(r.booking_id) : null,
     amount_cents: r.amount_cents,
     effective_date: r.effective_date != null ? String(r.effective_date).slice(0, 10) : null,
     location_id: r.location_id != null ? String(r.location_id) : null,
     source: r.source != null ? String(r.source) : null,
   };
+}
+
+/**
+ * Soft-scan monetary rows at fetch time. Malformed amounts stay on the row
+ * (summary soft-zeros them) and emit sanitized ID diagnostics. Never throws
+ * for per-row malformations. Material balance drift is also soft-flagged by
+ * the caller (structured log + data_quality) — never aborts the whole tab.
+ * FinanceDataQualityError is reserved for unrecoverable overflow/structure.
+ */
+function softScanFinanceRows({ bsr, bookings, payments, refund_records }, diagnostics) {
+  return withFinanceDiagnostics(diagnostics || createFinanceDiagnostics(), (diag) => {
+    for (const row of bsr || []) {
+      // Touch soft path so logs fire with service_record_id when present.
+      effectiveServiceDueCents(row);
+    }
+    for (const payment of payments || []) {
+      toIntSoft(payment.amount_paid_cents, {
+        source: 'payment.amount_paid_cents',
+        booking_id: payment.booking_id,
+        payment_id: payment.payment_id || null,
+      });
+    }
+    for (const refund of refund_records || []) {
+      toIntSoft(refund.amount_cents, {
+        source: 'refund.amount_cents',
+        booking_id: refund.booking_id,
+        refund_id: refund.refund_id || null,
+      });
+    }
+    for (const booking of bookings || []) {
+      if (booking.total_amount_cents != null) {
+        toIntSoft(booking.total_amount_cents, {
+          source: 'booking.total_amount_cents',
+          booking_id: booking.booking_id,
+        });
+      }
+      if (booking.balance_due_cents != null) {
+        const p = parseCanonicalIntCents(booking.balance_due_cents);
+        if (!p.ok) {
+          reportMalformedMonetary({
+            source: 'booking.balance_due_cents',
+            booking_id: booking.booking_id,
+            reason: p.reason,
+          });
+        }
+      }
+    }
+    return diag;
+  });
 }
 
 function isMissingRelationError(err) {
@@ -202,6 +260,7 @@ async function fetchSunsetFinanceData(pg, scope) {
       balance_due_cents: r.balance_due_cents,
     }));
     const payments = rows(paymentsRes).map((r) => ({
+      payment_id: r.payment_id != null ? String(r.payment_id) : null,
       booking_id: r.booking_id,
       amount_paid_cents: r.amount_paid_cents,
       paid_at: r.paid_at,
@@ -210,19 +269,56 @@ async function fetchSunsetFinanceData(pg, scope) {
     const rental_stock = rows(stockRes).map(mapStock);
     const surf_packs = rows(packsRes).map(mapPack);
 
+    // Soft-scan: one malformed row or one stale balance_due must not abort Finance.
+    // Keep FinanceDataQualityError only for genuine unrecoverable invariants
+    // (unsafe overflow during checked math elsewhere). Material drift → flag + continue.
+    const diagnostics = createFinanceDiagnostics();
+    softScanFinanceRows({ bsr, bookings, payments, refund_records }, diagnostics);
+    // Reconcile only — soft malformed already logged; do not re-soft-parse here.
+    // Skip rows with malformed money so we do not invent drift from soft zeros.
+    // Track bookings whose BSR was incomplete so legacy null-total recon can skip
+    // (never invent material_balance_drift from partial BSR sums).
+    const incompleteBsrBookingIds = new Set();
+    const cleanPayments = payments.filter((p) => parseCanonicalIntCents(p.amount_paid_cents).ok);
+    const cleanBookings = bookings.filter((b) => {
+      if (b.total_amount_cents != null && !parseCanonicalIntCents(b.total_amount_cents).ok) return false;
+      if (b.balance_due_cents != null && !parseCanonicalIntCents(b.balance_due_cents).ok) return false;
+      // Skip bookings whose payments had malformed amounts (already in diagnostics).
+      const badPay = payments.some((p) => String(p.booking_id) === String(b.booking_id)
+        && !parseCanonicalIntCents(p.amount_paid_cents).ok);
+      return !badPay;
+    });
+    const cleanBsr = bsr.filter((row) => {
+      const md = row.metadata || {};
+      const isCustom = md.source === 'staff_custom_line'
+        || md.staff_custom_line === true
+        || md.component === 'staff_custom_line';
+      const raw = isCustom && md.amount_cents != null ? md.amount_cents : row.amount_due_cents;
+      const ok = parseCanonicalIntCents(raw).ok;
+      if (!ok && row.booking_id != null) incompleteBsrBookingIds.add(String(row.booking_id));
+      return ok;
+    });
+    // Soft-fail path: log + flag material drifts; never throw (summary still returns).
+    // Overflow inside reconcile (checkedAdd/Subtract) remains the only hard path.
+    let reconcileResult;
     try {
-      for (const row of bsr) effectiveServiceDueCents(row);
-      for (const payment of payments) integerCents(payment.amount_paid_cents);
-      for (const refund of refund_records) integerCents(refund.amount_cents);
-      for (const booking of bookings) {
-        if (booking.total_amount_cents != null) integerCents(booking.total_amount_cents);
-        if (booking.balance_due_cents != null) integerCents(booking.balance_due_cents);
-      }
-      if (reconcileBookingBalances({ bookings, bsr, payments }).material) throw new FinanceDataQualityError();
+      reconcileResult = reconcileBookingBalances({
+        bookings: cleanBookings,
+        bsr: cleanBsr,
+        payments: cleanPayments,
+        diagnostics,
+        report: true,
+        // When cleanBsr dropped rows, recon cannot re-detect them — pass the set.
+        incompleteBsrBookingIds,
+      });
     } catch (err) {
+      // Only genuine unrecoverable structure/overflow escapes as typed quality error.
       throw err instanceof FinanceDataQualityError ? err : new FinanceDataQualityError();
     }
     await pg.query('COMMIT');
+    const reconUnavailable = (reconcileResult && Array.isArray(reconcileResult.reconciliation_unavailable))
+      ? reconcileResult.reconciliation_unavailable.slice()
+      : (diagnostics.reconciliation_unavailable || []).slice();
     return {
       bsr,
       bookings,
@@ -233,6 +329,18 @@ async function fetchSunsetFinanceData(pg, scope) {
       refund_ledger_unavailable: refundLedgerUnavailable,
       rental_stock,
       surf_packs,
+      // Soft-fail diagnostics for Captain (malformed: IDs only; drift: booking_id + recon cents).
+      data_quality: {
+        malformed_count: diagnostics.malformed.length,
+        malformed: diagnostics.malformed.slice(),
+        balance_drift_count: diagnostics.balance_drift.length,
+        balance_drift: diagnostics.balance_drift.slice(),
+        flagged_booking_ids: (reconcileResult && reconcileResult.flagged_booking_ids)
+          ? reconcileResult.flagged_booking_ids.slice()
+          : [],
+        reconciliation_unavailable: reconUnavailable,
+        reconciliation_unavailable_count: reconUnavailable.length,
+      },
     };
   } catch (err) {
     try { await pg.query('ROLLBACK'); } catch (_) { /* preserve original */ }

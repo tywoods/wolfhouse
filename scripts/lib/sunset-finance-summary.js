@@ -39,13 +39,149 @@ class FinanceDataQualityError extends Error {
   toJSON() { return { name: this.name, code: this.code }; }
 }
 
+/**
+ * Parse a monetary integer-cents value.
+ * Accepts safe integers and canonical decimal integer strings only
+ * (no leading zeros, no scientific notation, no fractions).
+ * @returns {{ ok:true, value:number } | { ok:false, reason:string }}
+ */
+function parseCanonicalIntCents(value) {
+  if (value === null || value === undefined || value === '') {
+    return { ok: false, reason: 'null_or_empty' };
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return { ok: false, reason: 'non_finite' };
+    if (!Number.isSafeInteger(value)) return { ok: false, reason: 'non_integer_or_unsafe' };
+    return { ok: true, value };
+  }
+  if (typeof value === 'string') {
+    // Canonical only — no trim, no leading zeros, no scientific notation.
+    // Leading/trailing whitespace is non-canonical (matches prior hard toInt).
+    if (!value) return { ok: false, reason: 'null_or_empty' };
+    if (!/^(?:0|[1-9][0-9]*|-[1-9][0-9]*)$/.test(value)) {
+      return { ok: false, reason: 'non_canonical' };
+    }
+    const n = Number(value);
+    if (!Number.isSafeInteger(n)) return { ok: false, reason: 'non_integer_or_unsafe' };
+    return { ok: true, value: n };
+  }
+  return { ok: false, reason: 'unsupported_type' };
+}
+
+/**
+ * Sanitized diagnostic record — IDs + field source only. Never amounts, names, phones.
+ * @param {object} entry
+ * @returns {object}
+ */
+function sanitizeFinanceOffendingRecord(entry) {
+  const e = entry || {};
+  const out = {
+    source: e.source != null ? String(e.source) : 'unknown',
+    reason: e.reason != null ? String(e.reason) : 'malformed',
+  };
+  if (e.booking_id != null && String(e.booking_id).trim()) {
+    out.booking_id = String(e.booking_id).trim();
+  }
+  if (e.payment_id != null && String(e.payment_id).trim()) {
+    out.payment_id = String(e.payment_id).trim();
+  }
+  if (e.refund_id != null && String(e.refund_id).trim()) {
+    out.refund_id = String(e.refund_id).trim();
+  }
+  if (e.service_record_id != null && String(e.service_record_id).trim()) {
+    out.service_record_id = String(e.service_record_id).trim();
+  }
+  return out;
+}
+
+/** Module-level soft-fail diagnostics sink for one compute/fetch pass. */
+let _financeDiagSink = null;
+
+function createFinanceDiagnostics() {
+  return { malformed: [], balance_drift: [], reconciliation_unavailable: [] };
+}
+
+/**
+ * Raw commercial cents field for a BSR row (custom lines use signed metadata.amount_cents).
+ * @param {object} row
+ * @returns {*}
+ */
+function bsrRawCommercialAmount(row) {
+  const md = (row && row.metadata) || {};
+  if (isStaffCustomLine(md) && md.amount_cents != null) return md.amount_cents;
+  return row && row.amount_due_cents;
+}
+
+function reportMalformedMonetary(entry) {
+  const rec = sanitizeFinanceOffendingRecord(entry);
+  if (_financeDiagSink && Array.isArray(_financeDiagSink.malformed)) {
+    _financeDiagSink.malformed.push(rec);
+  }
+  try {
+    // Structured, sanitized only — no amounts / PII.
+    console.warn('[finance.data_quality] malformed_monetary_row', JSON.stringify(rec));
+  } catch (_e) { /* ignore log failures */ }
+  return rec;
+}
+
+/**
+ * Material balance-drift diagnostic. Includes booking_id + reconciliation fields
+ * (computed/persisted/delta cents) so Captain can identify stale balance_due rows.
+ * Never includes guest names/phones. Soft-fail only — does not throw.
+ */
+function reportMaterialBalanceDrift(entry) {
+  const e = entry || {};
+  const rec = {
+    source: e.source != null ? String(e.source) : 'booking.balance_due_cents',
+    reason: e.reason != null ? String(e.reason) : 'material_balance_drift',
+  };
+  if (e.booking_id != null && String(e.booking_id).trim()) {
+    rec.booking_id = String(e.booking_id).trim();
+  }
+  // Reconciliation fields (integer cents) are intentional operator diagnostics.
+  if (Number.isFinite(e.computed_cents)) rec.computed_cents = Math.trunc(e.computed_cents);
+  if (Number.isFinite(e.persisted_cents)) rec.persisted_cents = Math.trunc(e.persisted_cents);
+  if (Number.isFinite(e.delta_cents)) rec.delta_cents = Math.trunc(e.delta_cents);
+  if (_financeDiagSink && Array.isArray(_financeDiagSink.balance_drift)) {
+    _financeDiagSink.balance_drift.push(rec);
+  }
+  try {
+    console.warn('[finance.data_quality] material_balance_drift', JSON.stringify(rec));
+  } catch (_e) { /* ignore log failures */ }
+  return rec;
+}
+
+/** Run fn with diagnostics sink active (for fetch soft-scan without full compute). */
+function withFinanceDiagnostics(diagnostics, fn) {
+  const diag = diagnostics || createFinanceDiagnostics();
+  const prev = _financeDiagSink;
+  _financeDiagSink = diag;
+  try {
+    return fn(diag);
+  } finally {
+    _financeDiagSink = prev;
+  }
+}
+
+/**
+ * Hard parse — throws FinanceDataQualityError. Reserved for already-validated
+ * aggregate math (checkedAdd/Subtract) and genuine invariant failures.
+ */
 function toInt(value) {
-  let n;
-  if (typeof value === 'number') n = value;
-  else if (typeof value === 'string' && /^(?:0|[1-9][0-9]*|-[1-9][0-9]*)$/.test(value)) n = Number(value);
-  else throw new FinanceDataQualityError();
-  if (!Number.isSafeInteger(n)) throw new FinanceDataQualityError();
-  return n;
+  const parsed = parseCanonicalIntCents(value);
+  if (!parsed.ok) throw new FinanceDataQualityError();
+  return parsed.value;
+}
+
+/**
+ * Soft parse for a single monetary row field. Malformed → 0 + diagnostic log.
+ * One bad row must never abort the whole summary.
+ */
+function toIntSoft(value, ctx) {
+  const parsed = parseCanonicalIntCents(value);
+  if (parsed.ok) return parsed.value;
+  reportMalformedMonetary({ ...(ctx || {}), reason: parsed.reason });
+  return 0;
 }
 
 function checkedAdd(a, b) {
@@ -74,13 +210,27 @@ function isStaffCustomLine(metadata) {
  * Effective per-row due. Discounts cannot be stored as negative amount_due_cents
  * (DB CHECK >= 0), so staff custom commercial lines carry the signed authoritative
  * value in metadata.amount_cents — matching readPersistedServiceDueCents().
+ *
+ * Soft by default: malformed/null/non-finite/non-integer → 0 + structured log.
+ * Pass { hard: true } only for callers that intentionally fail closed.
  */
-function effectiveServiceDueCents(row) {
+function effectiveServiceDueCents(row, opts) {
+  const hard = !!(opts && opts.hard);
   const md = (row && row.metadata) || {};
+  const ctx = {
+    source: isStaffCustomLine(md) && md.amount_cents != null
+      ? 'bsr.metadata.amount_cents'
+      : 'bsr.amount_due_cents',
+    booking_id: row && row.booking_id != null ? row.booking_id : null,
+    service_record_id: row && (row.service_record_id || row.id) != null
+      ? (row.service_record_id || row.id)
+      : null,
+  };
   if (isStaffCustomLine(md) && md.amount_cents != null) {
-    return toInt(md.amount_cents);
+    return hard ? toInt(md.amount_cents) : toIntSoft(md.amount_cents, ctx);
   }
-  return toInt(row && row.amount_due_cents);
+  const raw = row && row.amount_due_cents;
+  return hard ? toInt(raw) : toIntSoft(raw, ctx);
 }
 
 function authoritativeTotalByBooking(bookings, bsr) {
@@ -88,12 +238,19 @@ function authoritativeTotalByBooking(bookings, bsr) {
   for (const row of bsr) {
     fallback.set(row.booking_id, checkedAdd(fallback.get(row.booking_id) || 0, effectiveServiceDueCents(row)));
   }
-  return new Map(bookings.map((booking) => [
-    booking.booking_id,
-    booking.total_amount_cents == null
-      ? (fallback.get(booking.booking_id) || 0)
-      : toInt(booking.total_amount_cents),
-  ]));
+  return new Map(bookings.map((booking) => {
+    if (booking.total_amount_cents == null) {
+      return [booking.booking_id, fallback.get(booking.booking_id) || 0];
+    }
+    // Present but malformed total → soft 0 (do not silently swap to BSR fallback).
+    return [
+      booking.booking_id,
+      toIntSoft(booking.total_amount_cents, {
+        source: 'booking.total_amount_cents',
+        booking_id: booking.booking_id,
+      }),
+    ];
+  }));
 }
 
 /** Calendar date (YYYY-MM-DD) of an instant in the given IANA time zone. DST-safe. */
@@ -598,15 +755,31 @@ function computeSunsetFinanceSummary(args) {
   const rentalStock = Array.isArray(args && args.rental_stock) ? args.rental_stock : [];
   const surfPacks = Array.isArray(args && args.surf_packs) ? args.surf_packs : [];
 
+  // Soft-fail diagnostics for this pass (malformed rows → 0; overflow still hard-fails).
+  const diagnostics = (args && args.diagnostics && typeof args.diagnostics === 'object')
+    ? args.diagnostics
+    : createFinanceDiagnostics();
+  const prevSink = _financeDiagSink;
+  _financeDiagSink = diagnostics;
+
+  try {
   const totalByBooking = authoritativeTotalByBooking(bookings, bsr);
+
+  // Soft-parse each payment once (cumulative paid + dated collected share the same amount).
+  const paymentAmounts = payments.map((p) => ({
+    booking_id: p.booking_id,
+    paid_at: p.paid_at,
+    amount: toIntSoft(p.amount_paid_cents, {
+      source: 'payment.amount_paid_cents',
+      booking_id: p.booking_id,
+      payment_id: p.payment_id || p.id || null,
+    }),
+  }));
 
   // Cumulative paid per booking (balance is total − ALL scoped paid, not period-scoped).
   const paidByBooking = new Map();
-  for (const p of payments) {
-    paidByBooking.set(p.booking_id, checkedAdd(paidByBooking.get(p.booking_id) || 0, p.amount_paid_cents));
-  }
-  function bookingBalance(bookingId) {
-    return Math.max(0, checkedSubtract(totalByBooking.get(bookingId) || 0, paidByBooking.get(bookingId) || 0));
+  for (const p of paymentAmounts) {
+    paidByBooking.set(p.booking_id, checkedAdd(paidByBooking.get(p.booking_id) || 0, p.amount));
   }
 
   // Pre-index dated BSR rows with their effective due and Madrid payment dates.
@@ -620,18 +793,30 @@ function computeSunsetFinanceSummary(args) {
       quantity: r.quantity != null && Number.isFinite(Number(r.quantity)) ? Number(r.quantity) : 1,
       metadata: r.metadata || {},
     }));
-  const datedPayments = payments
+  const datedPayments = paymentAmounts
     .filter((p) => p.paid_at != null)
-    .map((p) => ({ booking_id: p.booking_id, amount: toInt(p.amount_paid_cents), date: zonedDateString(p.paid_at, timeZone) }));
+    .map((p) => ({
+      booking_id: p.booking_id,
+      amount: p.amount,
+      date: zonedDateString(p.paid_at, timeZone),
+    }));
 
   // Refunds bucketed by effective_date (DATE / YYYY-MM-DD) — same inclusive inRange as other series.
   const datedRefunds = refundRecords
     .map((r) => ({
       booking_id: r.booking_id,
-      amount: toInt(r.amount_cents),
+      amount: toIntSoft(r.amount_cents, {
+        source: 'refund.amount_cents',
+        booking_id: r.booking_id,
+        refund_id: r.refund_id || r.id || null,
+      }),
       date: r.effective_date != null ? String(r.effective_date).slice(0, 10) : '',
     }))
     .filter((r) => r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date));
+
+  function bookingBalance(bookingId) {
+    return Math.max(0, checkedSubtract(totalByBooking.get(bookingId) || 0, paidByBooking.get(bookingId) || 0));
+  }
 
   function summarize(range) {
     let booked = 0;
@@ -965,6 +1150,30 @@ function computeSunsetFinanceSummary(args) {
     },
     daily_trend,
     redesign,
+    // Soft-fail diagnostics. Malformed rows: IDs/source only.
+    // Material balance drift: booking_id + reconciliation cents (no guest PII).
+    // Merge any fetch-time data_quality so one path surfaces both classes.
+    data_quality: (() => {
+      const fetchDq = (args && args.data_quality && typeof args.data_quality === 'object')
+        ? args.data_quality
+        : null;
+      const malformed = diagnostics.malformed.slice();
+      if (fetchDq && Array.isArray(fetchDq.malformed)) {
+        for (const m of fetchDq.malformed) malformed.push(m);
+      }
+      const balanceDrift = Array.isArray(diagnostics.balance_drift)
+        ? diagnostics.balance_drift.slice()
+        : [];
+      if (fetchDq && Array.isArray(fetchDq.balance_drift)) {
+        for (const d of fetchDq.balance_drift) balanceDrift.push(d);
+      }
+      return {
+        malformed_count: malformed.length,
+        malformed,
+        balance_drift_count: balanceDrift.length,
+        balance_drift: balanceDrift,
+      };
+    })(),
     // Legacy top-level limitations — BYTE-COMPATIBLE with Slice 1 / redesign-s1 Seadog#4 (L1).
     // Do NOT flip net_collected_available in Slice 2.
     limitations: {
@@ -972,6 +1181,9 @@ function computeSunsetFinanceSummary(args) {
       note: 'Collected is gross: refunds/reversals are not available until an authoritative refund ledger exists.',
     },
   };
+  } finally {
+    _financeDiagSink = prevSink;
+  }
 }
 
 /**
@@ -980,40 +1192,174 @@ function computeSunsetFinanceSummary(args) {
  * total only when that aggregate is absent, then subtracts the authoritative paid
  * ledger and clamps at zero. Persisted
  * bookings.balance_due_cents is operational state that SHOULD equal that. This
- * surfaces any material disagreement so the staging reconciliation (and a
- * fail-closed test) can catch drift before it reaches money figures.
+ * surfaces any material disagreement. Callers soft-flag and continue — one
+ * stale balance_due must not black out Finance. FinanceDataQualityError is
+ * reserved for unrecoverable structure/overflow during money math.
+ *
+ * Incomplete inputs: when booking total is null (legacy BSR fallback) and any
+ * commercial BSR amount for that booking is malformed, reconciliation is
+ * unavailable — never invent material_balance_drift from partial BSR sums.
  *
  * @param {object} args
  * @param {Array<{booking_id,total_amount_cents,balance_due_cents}>} args.bookings
  * @param {Array<{booking_id,amount_due_cents,metadata}>} args.bsr
  * @param {Array<{booking_id,amount_paid_cents}>} args.payments  (scoped paid payments)
  * @param {number} [args.toleranceCents=0]  materiality threshold (integer cents)
- * @returns {{ checked:number, discrepancies:Array, material:boolean }}
+ * @param {boolean} [args.report=true]  emit structured soft-fail logs for drifts
+ * @param {Iterable<string>} [args.incompleteBsrBookingIds]  booking ids known to have
+ *   malformed/filtered BSR rows (when caller passes pre-cleaned BSR only)
+ * @returns {{ checked:number, discrepancies:Array, material:boolean, flagged_booking_ids:string[], reconciliation_unavailable:Array, diagnostics:object }}
  */
 function reconcileBookingBalances(args) {
   const bookings = Array.isArray(args && args.bookings) ? args.bookings : [];
   const bsr = Array.isArray(args && args.bsr) ? args.bsr : [];
   const payments = Array.isArray(args && args.payments) ? args.payments : [];
   const tolerance = Number.isFinite(args && args.toleranceCents) ? Math.abs(Math.trunc(args.toleranceCents)) : 0;
+  const shouldReport = !(args && args.report === false);
+  const diagnostics = (args && args.diagnostics && typeof args.diagnostics === 'object')
+    ? args.diagnostics
+    : createFinanceDiagnostics();
+  if (!Array.isArray(diagnostics.balance_drift)) diagnostics.balance_drift = [];
+  if (!Array.isArray(diagnostics.malformed)) diagnostics.malformed = [];
+  if (!Array.isArray(diagnostics.reconciliation_unavailable)) diagnostics.reconciliation_unavailable = [];
+  const prevSink = _financeDiagSink;
+  _financeDiagSink = diagnostics;
 
-  const paidByBooking = new Map();
-  for (const p of payments) {
-    paidByBooking.set(p.booking_id, checkedAdd(paidByBooking.get(p.booking_id) || 0, p.amount_paid_cents));
-  }
-
-  const discrepancies = [];
-  const totalByBooking = authoritativeTotalByBooking(bookings, bsr);
-  for (const b of bookings) {
-    if (b.balance_due_cents == null) continue; // nothing persisted to reconcile against
-    const computed = Math.max(0, checkedSubtract(totalByBooking.get(b.booking_id), paidByBooking.get(b.booking_id) || 0));
-    const persisted = toInt(b.balance_due_cents);
-    const delta = checkedSubtract(computed, persisted);
-    if (Math.abs(delta) > tolerance) {
-      discrepancies.push({ booking_id: b.booking_id, computed_cents: computed, persisted_cents: persisted, delta_cents: delta });
+  try {
+    const skipBookingIds = new Set();
+    const incompleteBsrBookingIds = new Set();
+    if (args && args.incompleteBsrBookingIds) {
+      for (const id of args.incompleteBsrBookingIds) {
+        if (id != null) incompleteBsrBookingIds.add(String(id));
+      }
     }
-  }
+    const paidByBooking = new Map();
+    for (const p of payments) {
+      const parsed = parseCanonicalIntCents(p.amount_paid_cents);
+      if (!parsed.ok) {
+        reportMalformedMonetary({
+          source: 'payment.amount_paid_cents',
+          booking_id: p.booking_id,
+          payment_id: p.payment_id || p.id || null,
+          reason: parsed.reason,
+        });
+        if (p.booking_id != null) skipBookingIds.add(String(p.booking_id));
+        continue;
+      }
+      paidByBooking.set(p.booking_id, checkedAdd(paidByBooking.get(p.booking_id) || 0, parsed.value));
+    }
 
-  return { checked: bookings.length, discrepancies, material: discrepancies.length > 0 };
+    // Pre-mark bookings with malformed totals so we do not invent drift.
+    for (const b of bookings) {
+      if (b.total_amount_cents == null) continue;
+      const t = parseCanonicalIntCents(b.total_amount_cents);
+      if (!t.ok) {
+        reportMalformedMonetary({
+          source: 'booking.total_amount_cents',
+          booking_id: b.booking_id,
+          reason: t.reason,
+        });
+        if (b.booking_id != null) skipBookingIds.add(String(b.booking_id));
+      }
+    }
+
+    // BSR: detect malformed commercial amounts. Soft-touch logs IDs; never invent
+    // drift from incomplete legacy (null total) BSR fallbacks.
+    for (const row of bsr) {
+      const raw = bsrRawCommercialAmount(row);
+      const parsed = parseCanonicalIntCents(raw);
+      if (!parsed.ok) {
+        reportMalformedMonetary({
+          source: isStaffCustomLine((row && row.metadata) || {}) && (row.metadata || {}).amount_cents != null
+            ? 'bsr.metadata.amount_cents'
+            : 'bsr.amount_due_cents',
+          booking_id: row && row.booking_id != null ? row.booking_id : null,
+          service_record_id: row && (row.service_record_id || row.id) != null
+            ? (row.service_record_id || row.id)
+            : null,
+          reason: parsed.reason,
+        });
+        if (row && row.booking_id != null) incompleteBsrBookingIds.add(String(row.booking_id));
+        continue;
+      }
+      // Soft path for sink consistency when already clean.
+      effectiveServiceDueCents(row);
+    }
+
+    const discrepancies = [];
+    const flagged_booking_ids = [];
+    const reconciliation_unavailable = [];
+    const totalByBooking = authoritativeTotalByBooking(bookings, bsr);
+    let checked = 0;
+    for (const b of bookings) {
+      if (b.balance_due_cents == null) continue; // nothing persisted to reconcile against
+      if (b.booking_id != null && skipBookingIds.has(String(b.booking_id))) continue;
+      const balParsed = parseCanonicalIntCents(b.balance_due_cents);
+      if (!balParsed.ok) {
+        // Malformed balance: log + skip (do not invent drift from soft zeros).
+        reportMalformedMonetary({
+          source: 'booking.balance_due_cents',
+          booking_id: b.booking_id,
+          reason: balParsed.reason,
+        });
+        continue;
+      }
+      // Legacy null total depends on full BSR sum. Incomplete/malformed BSR inputs
+      // must not invent material_balance_drift — flag recon unavailable instead.
+      if (
+        b.total_amount_cents == null
+        && b.booking_id != null
+        && incompleteBsrBookingIds.has(String(b.booking_id))
+      ) {
+        const rec = {
+          booking_id: String(b.booking_id),
+          reason: 'incomplete_inputs_malformed_bsr',
+          source: 'reconcile.legacy_bsr_fallback',
+        };
+        reconciliation_unavailable.push(rec);
+        diagnostics.reconciliation_unavailable.push(rec);
+        if (shouldReport) {
+          try {
+            console.warn('[finance.data_quality] reconciliation_unavailable', JSON.stringify(rec));
+          } catch (_e) { /* ignore log failures */ }
+        }
+        continue;
+      }
+      checked += 1;
+      const computed = Math.max(0, checkedSubtract(totalByBooking.get(b.booking_id), paidByBooking.get(b.booking_id) || 0));
+      const persisted = balParsed.value;
+      const delta = checkedSubtract(computed, persisted);
+      if (Math.abs(delta) > tolerance) {
+        const disc = {
+          booking_id: b.booking_id,
+          computed_cents: computed,
+          persisted_cents: persisted,
+          delta_cents: delta,
+        };
+        discrepancies.push(disc);
+        if (b.booking_id != null) flagged_booking_ids.push(String(b.booking_id));
+        // Soft-flag only — never throw. Outstanding uses total−paid, not balance_due.
+        if (shouldReport) {
+          reportMaterialBalanceDrift({
+            ...disc,
+            source: 'booking.balance_due_cents',
+            reason: 'material_balance_drift',
+          });
+        }
+      }
+    }
+
+    return {
+      checked,
+      discrepancies,
+      material: discrepancies.length > 0,
+      flagged_booking_ids,
+      reconciliation_unavailable,
+      diagnostics,
+    };
+  } finally {
+    _financeDiagSink = prevSink;
+  }
 }
 
 module.exports = {
@@ -1031,4 +1377,12 @@ module.exports = {
   isStaffCustomLine,
   reconcileBookingBalances,
   FinanceDataQualityError,
+  parseCanonicalIntCents,
+  sanitizeFinanceOffendingRecord,
+  createFinanceDiagnostics,
+  reportMalformedMonetary,
+  reportMaterialBalanceDrift,
+  withFinanceDiagnostics,
+  toIntSoft,
+  toInt,
 };

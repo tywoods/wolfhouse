@@ -16900,6 +16900,9 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-bookings-tr.is-expanded{background:var(--surface-soft)}
 .portal-admin-bookings-td,.portal-admin-bookings-th{min-width:0;font-size:13px;line-height:1.35;word-break:break-word}
 .portal-admin-bookings-td-code .portal-admin-bookings-code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;font-weight:600;white-space:nowrap;overflow:visible}
+.portal-admin-bookings-code-link{appearance:none;border:0;background:none;padding:0;margin:0;font:inherit;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;font-weight:600;color:var(--primary,#2e8b57);cursor:pointer;text-align:left;text-decoration:underline;text-underline-offset:2px;white-space:nowrap}
+.portal-admin-bookings-code-link:hover{color:var(--sched-primary-hover,#3F4843)}
+.portal-admin-bookings-code-link:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px;border-radius:4px}
 .portal-admin-bookings-sub{font-size:11px;color:var(--text-2);margin-top:2px}
 .portal-admin-bookings-td-num,.portal-admin-bookings-th-num{font-variant-numeric:tabular-nums;text-align:right}
 .portal-admin-bookings-th-num .portal-admin-bookings-sort-btn{justify-content:flex-end;width:100%}
@@ -31077,14 +31080,43 @@ function openBookingInSchedule(booking){
   var code = String(booking.booking_code || '').trim();
   var id = String(booking.booking_id || '').trim();
   if (!code && !id) return;
-  switchToTab('portal-home', null);
-  openScheduleDetailDrawer({
-    booking_id: id || null,
-    booking_code: code || null,
-    guest_name: booking.guest_name || booking.booking_guest_name || '',
-    _drawerFromCustomer: true,
-  });
+  // Prefer window.* owners so portal surfaces share one interceptable boundary
+  // (parity with window.openBookingInCalendar). Free-name fallback keeps IIFE scope.
+  var tabFn = (typeof window !== 'undefined' && typeof window.switchToTab === 'function')
+    ? window.switchToTab
+    : (typeof switchToTab === 'function' ? switchToTab : null);
+  if (tabFn) tabFn('portal-home', null);
+  // Canonical Schedule day nav owner: scheduleOpenDayDetail → openScheduleDetailDrawer.
+  // Prefer service window start, then check_in. No second navigation owner.
+  var start = booking.service_date_start || booking.service_date || booking.check_in || '';
+  start = start ? String(start).slice(0, 10) : '';
+  var dayFn = (typeof window !== 'undefined' && typeof window.scheduleOpenDayDetail === 'function')
+    ? window.scheduleOpenDayDetail
+    : (typeof scheduleOpenDayDetail === 'function' ? scheduleOpenDayDetail : null);
+  var drawerFn = (typeof window !== 'undefined' && typeof window.openScheduleDetailDrawer === 'function')
+    ? window.openScheduleDetailDrawer
+    : (typeof openScheduleDetailDrawer === 'function' ? openScheduleDetailDrawer : null);
+  function openDrawer(){
+    if (!drawerFn) return;
+    drawerFn({
+      booking_id: id || null,
+      booking_code: code || null,
+      guest_name: booking.guest_name || booking.booking_guest_name || '',
+      service_date: start || null,
+      _drawerFromCustomer: true,
+    });
+  }
+  if (start && dayFn) {
+    var navResult = dayFn(start);
+    if (navResult && typeof navResult.then === 'function') {
+      navResult.then(function(){ openDrawer(); }).catch(function(){ openDrawer(); });
+      return;
+    }
+  }
+  openDrawer();
 }
+// Portal owner export (same pattern as openBookingInCalendar).
+window.openBookingInSchedule = openBookingInSchedule;
 
 function openBookingInCalendar(booking){
   if (isSunsetSurfActive()) {
@@ -47550,10 +47582,35 @@ async function handleBookingContext(bookingCode, query, res, user) {
     source: row.source,
   }));
 
+  // Authoritative current rental catalog for Luna guest-copy charge lines.
+  // Do not assume pre-enriched metadata labels — Admin renames must win.
+  let bookingContextCatalogLabelMap = null;
+  try {
+    const locRaw = (bkMetadata && (bkMetadata.location_id || bkMetadata.locationId))
+      || (query && (query.location || query.location_id))
+      || null;
+    const locationId = locRaw != null ? String(locRaw).trim() : '';
+    if (locationId) {
+      const offerings = await withPgClient((pg) => listRentalOfferings(pg, {
+        clientSlug,
+        locationId,
+        includeInactive: false,
+      }));
+      const { buildRentalCatalogLabelMap } = require('./lib/rental-offering-label');
+      bookingContextCatalogLabelMap = buildRentalCatalogLabelMap(offerings, {
+        clientSlug,
+        locationId,
+      });
+    }
+  } catch (_catalogErr) {
+    bookingContextCatalogLabelMap = null;
+  }
+
   const serviceChargesDue = buildServiceChargesDueFromContext({
     booking: bk,
     serviceRecords: serviceRecordRows,
     paymentRows,
+    catalogLabelMap: bookingContextCatalogLabelMap,
   });
 
   let transfersDrawer = null;

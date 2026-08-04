@@ -140,6 +140,69 @@ function syntheticGuestEmailFromPhone(phone) {
   return `open-demo+${digits}@example.test`;
 }
 
+/**
+ * Resolve tenant location for guest-copy catalog authority on hold/add-on attach.
+ * Prefer write context (agent school location), then fields/result, then booking metadata.
+ * Empty when unknown — ledger then falls back to historical snapshot labels.
+ */
+function resolveHoldWriteLocationId(context, fields, booking, resultContext) {
+  const ctx = context || {};
+  const f = fields || {};
+  const r = resultContext || {};
+  const b = booking || {};
+  let bMeta = {};
+  if (b.metadata && typeof b.metadata === 'object') {
+    bMeta = b.metadata;
+  } else if (typeof b.metadata === 'string' && b.metadata) {
+    try { bMeta = JSON.parse(b.metadata); } catch (_) { bMeta = {}; }
+  }
+  return trimStr(
+    ctx.location_id
+    || ctx.locationId
+    || f.location_id
+    || f.locationId
+    || r.location_id
+    || r.locationId
+    || b.location_id
+    || b.locationId
+    || bMeta.location_id
+    || bMeta.locationId
+    || '',
+  ) || null;
+}
+
+function resolveHoldWriteCatalogLabelMap(context) {
+  const ctx = context || {};
+  if (ctx.catalogLabelMap != null) return ctx.catalogLabelMap;
+  if (ctx.catalog_label_map != null) return ctx.catalog_label_map;
+  if (ctx.rental_label_map != null) return ctx.rental_label_map;
+  return null;
+}
+
+/**
+ * Shared attach args for both reuse + create hold-write branches.
+ * Must pass locationId (and optional catalogLabelMap) so
+ * syncGuestAddonServicePaymentLedger can load the current Admin rental catalog
+ * instead of emitting stale historical offering labels on service_charges_due_lines.
+ */
+function buildHoldWriteAddonAttachOpts(input) {
+  const o = input || {};
+  return {
+    clientSlug: o.clientSlug,
+    bookingId: o.bookingId,
+    bookingCode: o.bookingCode,
+    guestName: o.guestName,
+    extractedFields: o.extractedFields,
+    resultContext: o.resultContext,
+    quote: o.quote,
+    clientId: o.clientId,
+    writeSource: o.writeSource || WRITE_SOURCE,
+    // Catalog authority for guest-copy ledger lines (location → listRentalOfferings).
+    locationId: o.locationId || o.location_id || null,
+    catalogLabelMap: o.catalogLabelMap || o.catalog_label_map || o.rental_label_map || null,
+  };
+}
+
 async function loadPaymentDraftForBooking(pg, bookingId, clientId) {
   if (!pg || !bookingId || !clientId) return null;
   const payRes = await pg.query(
@@ -391,6 +454,10 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
   const clientSlug = trimStr(ctx.client_slug) || DEFAULT_CLIENT;
   const idempotencyKey = planner.idempotency_key_preview;
   const paymentIdemKey = `ghpd-pay-${idempotencyKey}`;
+  // Optional inject (tests): real attachAllGuestAddonServices by default. Same pattern as ctx.pg.
+  const attachAll = typeof ctx.attachAllGuestAddonServices === 'function'
+    ? ctx.attachAllGuestAddonServices
+    : attachAllGuestAddonServices;
 
   const guestName = trimStr(fields.guest_name) || trimStr(ctx.guest_name) || 'Guest';
   const guestPhone = trimStr(ctx.guest_phone) || trimStr(fields.guest_phone) || trimStr(fields.phone);
@@ -408,6 +475,10 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
   const clientRes = await resolveClientId(pg, clientSlug);
   if (clientRes.error) return { error: clientRes.error };
 
+  // Shared catalog scope for both attach branches (reuse + create).
+  const catalogLabelMap = resolveHoldWriteCatalogLabelMap(ctx);
+  let locationId = resolveHoldWriteLocationId(ctx, attachFields, null, chain.result);
+
   const existing = await lookupExistingHoldPaymentDraft(pg, clientSlug, idempotencyKey);
   if (existing && existing.booking) {
     const clientResReuse = await resolveClientId(pg, clientSlug);
@@ -420,7 +491,14 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
         idempotencyKey,
       });
     }
-    const attach = await attachAllGuestAddonServices(pg, {
+    locationId = resolveHoldWriteLocationId(
+      ctx,
+      attachFields,
+      existing.booking,
+      chain.result,
+    ) || locationId;
+    // Existing-hold reuse branch — production attach call site (must keep location authority).
+    const attach = await attachAll(pg, buildHoldWriteAddonAttachOpts({
       clientSlug,
       bookingId: existing.booking.booking_id,
       bookingCode: existing.booking.booking_code,
@@ -430,7 +508,9 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
       quote,
       clientId: clientResReuse.client_id,
       writeSource: WRITE_SOURCE,
-    });
+      locationId,
+      catalogLabelMap,
+    }));
     const transferAttach = await attachGuestBookingTransfers(pg, {
       clientSlug,
       bookingId: existing.booking.booking_id,
@@ -529,6 +609,8 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
       email: guestEmail,
     },
   };
+  // Persist school location when known so later attach/reuse can load current catalog.
+  if (locationId) holdMeta.location_id = locationId;
 
   await pg.query('BEGIN');
   try {
@@ -558,6 +640,7 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
           idempotency_key: idempotencyKey,
           quote_snapshot: quoteSnapshot,
           guest_intake_stage: 'hold_payment_draft_ready',
+          ...(locationId ? { location_id: locationId } : {}),
           guest: {
             name: guestName,
             phone: guestPhone,
@@ -605,7 +688,8 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
       package_code: holdInput.package_code,
     };
 
-    const attach = await attachAllGuestAddonServices(pg, {
+    // Newly-created hold branch — production attach call site (must keep location authority).
+    const attach = await attachAll(pg, buildHoldWriteAddonAttachOpts({
       clientSlug,
       bookingId,
       bookingCode: holdOutcome.booking.booking_code,
@@ -615,7 +699,9 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
       quote,
       clientId: clientRes.client_id,
       writeSource: WRITE_SOURCE,
-    });
+      locationId,
+      catalogLabelMap,
+    }));
 
     const transferAttach = await attachGuestBookingTransfers(pg, {
       clientSlug,
@@ -645,7 +731,9 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
  * Stage 27n gated hold + payment draft write.
  *
  * @param {object} chainResult - { result, availability, quote, payment_choice }
- * @param {object} [context] - { confirm_write, client_slug, guest_name, guest_email, guest_phone, env, pg, planner }
+ * @param {object} [context] - { confirm_write, client_slug, guest_name, guest_email, guest_phone,
+ *   env, pg, planner, location_id, catalogLabelMap,
+ *   attachAllGuestAddonServices? (optional inject; defaults to production attach) }
  */
 async function runGuestHoldPaymentDraftWriteDryRunApproved(chainResult, context) {
   const ctx = context || {};
@@ -761,6 +849,9 @@ module.exports = {
   deriveBookingCode,
   syntheticGuestEmailFromPhone,
   mapPaymentKind,
+  resolveHoldWriteLocationId,
+  resolveHoldWriteCatalogLabelMap,
+  buildHoldWriteAddonAttachOpts,
   HOLD_EXPIRES_IN_HOURS,
   VALID_WRITE_STATUSES,
   WRITE_SAFETY,

@@ -162,6 +162,9 @@ async function attachAllGuestAddonServices(pg, opts) {
     bookingId: o.bookingId,
     bookingCode: o.bookingCode,
     writeSource: o.writeSource,
+    // Current Admin rental catalog authority for guest-copy ledger lines.
+    locationId: o.locationId || o.location_id || null,
+    catalogLabelMap: o.catalogLabelMap || o.catalog_label_map || o.rental_label_map || null,
   });
 
   return {

@@ -18,6 +18,7 @@ const {
   buildRentalCatalogLabelMap,
   enrichServiceRecordsWithCatalogLabels,
 } = require('./rental-offering-label');
+const { resolveItemDisplayName } = require('./item-display-name');
 
 const { resolveTenantBusinessConfigAsync, resolveTenantBusinessConfig } = require('./tenant-business-config');
 const {
@@ -145,7 +146,9 @@ function formatSunsetDrawerDailyItemLabel(dbType, qty, sr) {
   const q = Number(qty) || 1;
   const sep = ' · ';
   if (meta.course_equipment === true) {
-    const name = resolveRentalOfferingFriendlyLabel(meta) || 'Equipment';
+    const name = resolveItemDisplayName({ service_type: dbType, metadata: meta }, { metadata: meta })
+      || resolveRentalOfferingFriendlyLabel(meta)
+      || 'Equipment';
     const modeLabel = meta.course_equipment_mode === 'all_day' ? 'All Day' : 'During Course';
     return `${name}${sep}${modeLabel}${sep}${q}`;
   }
@@ -155,15 +158,16 @@ function formatSunsetDrawerDailyItemLabel(dbType, qty, sr) {
     return `Full-day gear${sep}${q}`;
   }
   // Generic Admin rental catalog rows (service_type addon_service): prefer the
-  // persisted Admin-owned label snapshotted at create/edit. Never surface the
-  // coarse bucket name "addon_service" on the invoice.
+  // shared item-display resolver (catalog → historical snapshot). Never surface
+  // the coarse bucket name "addon_service" on the invoice.
   if (
     dbType === 'addon_service'
     || meta.rental_offering === true
     || meta.generic_rental === true
     || (meta.offering_key && (meta.duration_key || meta.item_code))
   ) {
-    const adminName = resolveRentalOfferingFriendlyLabel(meta);
+    const adminName = resolveItemDisplayName({ service_type: dbType, metadata: meta }, { metadata: meta })
+      || resolveRentalOfferingFriendlyLabel(meta);
     if (adminName && adminName.toLowerCase() !== 'addon_service') {
       return `${adminName}${sep}${q}`;
     }

@@ -5,6 +5,7 @@
  * Money display only — all arithmetic is server-authoritative.
  */
 /* global el, portalT, escHtml, getClient, getSunsetLocation, openCustomerCardForPhone,
+   openBookingInSchedule, switchToTab, scheduleOpenDayDetail, openScheduleDetailDrawer,
    adminBookingsState, fetch */
 
 var adminBookingsState = {
@@ -323,6 +324,13 @@ function wireAdminBookingsPanel() {
               adminBookingsRestoreBooking(restoreBtn.getAttribute('data-bookings-restore'));
               return;
             }
+            var codeBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-open-schedule]') : null;
+            if (codeBtn) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              adminBookingsOpenInSchedule(codeBtn.getAttribute('data-bookings-open-schedule'));
+              return;
+            }
             // Nested interactive controls must not toggle expansion.
       var interactive = ev.target && ev.target.closest
         ? ev.target.closest('button, a, input, select, textarea, label')
@@ -351,6 +359,13 @@ function wireAdminBookingsPanel() {
           ? window.openCustomerCardForPhone
           : (typeof openCustomerCardForPhone === 'function' ? openCustomerCardForPhone : null);
         if (phoneKey && openCustKey) openCustKey(phoneKey, { from: 'admin-bookings' });
+        return;
+      }
+      var codeKeyBtn = target.closest ? target.closest('[data-bookings-open-schedule]') : null;
+      if (codeKeyBtn) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        adminBookingsOpenInSchedule(codeKeyBtn.getAttribute('data-bookings-open-schedule'));
         return;
       }
       var refundBtn = target.closest ? target.closest('[data-bookings-record-refund]') : null;
@@ -508,7 +523,12 @@ function renderAdminBookingsTable() {
       (expanded ? ' is-expanded' : '') + '" role="row" data-bookings-row-id="' + escHtml(id) +
       '" tabindex="0" aria-expanded="' + (expanded ? 'true' : 'false') + '">';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-code" role="cell">' +
-      '<div class="portal-admin-bookings-code" title="' + escHtml(code) + '">' + escHtml(code) + '</div></div>';
+      '<button type="button" class="portal-admin-bookings-code portal-admin-bookings-code-link" ' +
+      'data-bookings-open-schedule="' + escHtml(id) + '" ' +
+      'data-booking-code="' + escHtml(code) + '" ' +
+      'data-service-date-start="' + escHtml(String(row.service_date_start || '').slice(0, 10)) + '" ' +
+      'aria-label="' + escHtml((portalT('admin.bookings.openInSchedule') || 'Open in Schedule') + ': ' + code) + '">' +
+      escHtml(code) + '</button></div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-guest" role="cell">' +
       '<button type="button" class="portal-admin-bookings-guest-link" data-bookings-guest-phone="' +
       escHtml(String(row.phone || '')) + '">' + escHtml(row.guest_name || '—') + '</button>' +
@@ -582,6 +602,60 @@ function renderAdminBookingsTable() {
       loadAdminBookings();
     });
   });
+}
+
+/**
+ * Open booking on Schedule at its service start day via the single canonical
+ * owners: openBookingInSchedule → scheduleOpenDayDetail + openScheduleDetailDrawer.
+ */
+function adminBookingsOpenInSchedule(bookingId) {
+  var id = String(bookingId || '').trim();
+  if (!id) return;
+  var rows = (adminBookingsState.data && adminBookingsState.data.rows) || [];
+  var row = null;
+  for (var i = 0; i < rows.length; i += 1) {
+    if (String(rows[i].booking_id || '') === id) { row = rows[i]; break; }
+  }
+  if (!row) {
+    row = { booking_id: id };
+  }
+  var openFn = (typeof window !== 'undefined' && typeof window.openBookingInSchedule === 'function')
+    ? window.openBookingInSchedule
+    : (typeof openBookingInSchedule === 'function' ? openBookingInSchedule : null);
+  if (openFn) {
+    openFn({
+      booking_id: row.booking_id,
+      booking_code: row.booking_code,
+      guest_name: row.guest_name,
+      service_date_start: row.service_date_start,
+      service_date: row.service_date_start || (row.items && row.items[0] && row.items[0].service_date) || null,
+      check_in: row.check_in || null,
+    });
+    return;
+  }
+  // Fallback if openBookingInSchedule is not on the page (tests / partial loads).
+  if (typeof switchToTab === 'function') switchToTab('portal-home', null);
+  var start = row.service_date_start || (row.items && row.items[0] && row.items[0].service_date) || row.check_in || '';
+  start = start ? String(start).slice(0, 10) : '';
+  function openDrawer() {
+    if (typeof openScheduleDetailDrawer === 'function') {
+      openScheduleDetailDrawer({
+        booking_id: row.booking_id || id,
+        booking_code: row.booking_code || null,
+        guest_name: row.guest_name || '',
+        service_date: start || null,
+        _drawerFromCustomer: true,
+      });
+    }
+  }
+  if (start && typeof scheduleOpenDayDetail === 'function') {
+    var p = scheduleOpenDayDetail(start);
+    if (p && typeof p.then === 'function') {
+      p.then(openDrawer).catch(openDrawer);
+      return;
+    }
+  }
+  openDrawer();
 }
 
 function adminBookingsTypeChipsHtml(row) {

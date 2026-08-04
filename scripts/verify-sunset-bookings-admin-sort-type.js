@@ -292,6 +292,58 @@ function main() {
     }]);
     return JSON.stringify(r.type_categories) === JSON.stringify(['lessons']);
   })());
+  // Cancelled / hidden bookings must still show Type (services are marked cancelled on cancel).
+  ok('cancelled lesson services still derive Lessons Type (not —)', (() => {
+    const r = rowFromServices([{
+      service_type: 'surf_lesson',
+      service_date: '2026-07-10',
+      status: 'cancelled',
+      metadata: { component: 'course' },
+    }]);
+    return JSON.stringify(r.type_categories) === JSON.stringify(['lessons'])
+      && r.what_summary === 'Lessons'
+      && r.service_date_start === '2026-07-10';
+  })());
+  ok('cancelled multi-type still Lessons · Rentals', (() => {
+    const r = rowFromServices([
+      { service_type: 'surf_lesson', status: 'cancelled', service_date: '2026-07-10' },
+      {
+        service_type: 'rental',
+        status: 'cancelled',
+        service_date: '2026-07-11',
+        metadata: { staff_ui_service_type: 'rental', component: 'board_rental', rental_offering: true },
+      },
+    ]);
+    return JSON.stringify(r.type_categories) === JSON.stringify(['lessons', 'rentals'])
+      && r.service_date_start === '2026-07-10'
+      && r.service_date_end === '2026-07-11';
+  })());
+  ok('hidden cancelled accommodation still Accommodation Type', (() => {
+    const r = DOMAIN.buildBookingListRow({
+      booking: {
+        booking_id: 'h1',
+        booking_code: 'HID-1',
+        status: 'cancelled',
+        hidden: true,
+        total_amount_cents: 1000,
+      },
+      services: [{
+        service_type: 'addon_service',
+        status: 'cancelled',
+        service_date: '2026-07-12',
+        metadata: {
+          source: 'staff_accommodation',
+          staff_accommodation: true,
+          component: 'staff_accommodation',
+        },
+      }],
+      collected_cents: 0,
+      refunded_cents: 0,
+    });
+    return r.hidden === true
+      && JSON.stringify(r.type_categories) === JSON.stringify(['accommodation'])
+      && r.what_summary === 'Accommodation';
+  })());
 
   // ── UI / CSS gates ───────────────────────────────────────────────────────
   section('5. UI sort headers, Type plain text, alignment, dark chips');
