@@ -14,11 +14,10 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 - **Moving a tab** → easy (nav entry + panel); real work is the panel content.
 
 ## ▶️ Recommended next (sequencing)
-1. ✅ SHIPPED (revs 0458–0460): Bookings/Cockpit polish, Finance S2 (refund-aware Net), **D4**, Inbox toggle, **F2**.
-2. **Next small wins:** **L2** (Luna still offers disabled rentals — Luna/@Earthling layer) + Admin **A2/A3**, Cockpit **C1**. (A1/F1/F3 shipped.)
-3. Then Finance **F1/F3** + Cockpit **C1** + Admin course panels (**A2/A3**).
-4. **L3 email 2F-C** resumes only when Earthling has Azure access; until then parked safely with runtime OFF.
-4. Then **screen-by-screen UI batches** (courses panels, finance, cockpit, schedule).
+1. ✅ **SHIPPED (revs 0458–0468):** Bookings/Cockpit polish, Finance S2, D4, Inbox toggle, F2, A1, F1, F3, full Finance-UI cleanup + revisions + polish v2 (equal cards, Jan→Dec monthly graph, floating custom picker), cancel/hide v2 (+ migration 060), Bookings tab v2 (sort + Type + darker chips), rental-editor layout (v1 + v5).
+2. **Remaining:** **A2** (reformat Group/Private course panels), **A3** (beaches de-hardcode + Luna wire — *important*), Cockpit **C1** (selector placement — needs design), **L2** (Luna offers disabled rentals — @Earthling), Luna wiring **W1–W4** (@Earthling).
+3. **Mobile — LAST.**
+4. **L3 email 2F-C** resumes only when Earthling has Azure access; parked with runtime OFF.
 5. **Mobile LAST** — after the main-site UI settles (we're still adding/removing buttons; no point chasing a moving target).
 
 ---
@@ -40,7 +39,7 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 - **W4 — [I18N] Custom course names translated everywhere.** Course names are custom but must be translated across menus, cockpit, Luna — everywhere they appear. **@Earthling.** `M–L`
 
 ## 🧾 Create / Edit booking drawer
-- **D4 — [BUG] Group Course on, none picked → rentals unpriced.** If "Group Course" is toggled but no actual course is selected, rentals show no estimate → booking can't complete. Fix: let standalone rentals price without a course, OR block submit until a real course is chosen. `M`
+- ✅ **D4 (shipped) — [BUG] Group Course on, none picked → rentals unpriced.** If "Group Course" is toggled but no actual course is selected, rentals show no estimate → booking can't complete. Fix: let standalone rentals price without a course, OR block submit until a real course is chosen. `M`
 
 ## 📅 Schedule tab
 - **S1 — Rental pickups (by-guest) redundant tags.** Staff/Paid/Unpaid/Waiver repeat on every *item* row; keep them only next to the *guest*, items stay clean. _(concept already sketched)_ `S–M`
@@ -49,16 +48,17 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 - **C1 — Selector placement.** Daily/Monthly + Timeline/Cards selectors control a whole panel underneath them, so they're misplaced; need repositioning + some redesign (no obvious home right now). `M` · sketch?
 
 ## 💶 Finance tab
-- **F1 — "This month" quick jump.** Month switcher up top needs a fast way back to the current month. `S`
-- **F2 — [FEAT] Revenue-by-product hardcoded.** Remove hardcoded "board rental / wetsuit rental"; show the same items as the Cockpit right side: course-included item(s) + the 2 next most-rented items for the selected period (driven by the day/month/year filter). `M`
-- **F3 — [FEAT] Gross-vs-last-year view toggle.** The "daily gross collected vs last year" chart needs a switch between the current month's days (now) and a yearly 12-months view. `M`
+- ✅ **F1 (shipped) — "This month" quick jump.** Month switcher up top needs a fast way back to the current month. `S`
+- ✅ **F2 (shipped) — [FEAT] Revenue-by-product hardcoded.** Remove hardcoded "board rental / wetsuit rental"; show the same items as the Cockpit right side: course-included item(s) + the 2 next most-rented items for the selected period (driven by the day/month/year filter). `M`
+- ✅ **F3 (shipped) — [FEAT] Gross-vs-last-year view toggle.** The "daily gross collected vs last year" chart needs a switch between the current month's days (now) and a yearly 12-months view. `M`
 
 ## 🛠️ Admin panel (courses / config)
-- **A1 — Group courses sorted by name → by time.** The created group-courses list orders alphabetically; sort by the time each course runs (earliest → latest). `S`
+- ✅ **A1 (shipped) — Group courses sorted by name → by time.** The created group-courses list orders alphabetically; sort by the time each course runs (earliest → latest). `S`
 - **A2 — [UI] Reformat Group & Private course panels.** Give the Group and Private course admin panels the same treatment as the Rental Prices card (compact rows + expand-in-place editor). `M`
 - **A3 — [FEAT][LUNA] Beaches: de-hardcode + custom + wire.** *(important)* On create/edit group course, beaches are hardcoded — delete them and add a **"+ add beach"** so admin defines their own; also **wire Luna** to pick them up (she doesn't today). First case of W1. `M`
 
 ## ✅ Recently shipped from this TODO
+- **Cancel/hide v2** (no Deleted; Hidden filter/tag/Unhide; Refund-needed gating), **Finance UI cleanup + revisions + polish v2** (title removed, Custom floating calendar, Accommodation, equal cards, Jan→Dec monthly graph, capacity ring), **Bookings tab v2** (sortable cols, What→Type Rentals/Lessons/Accommodation, aligned/slimmer cols, darker chips), and the **rental-editor layout** v1+v5 — all live, revs 0461–0468.
 - **D1–D3 — Booking-drawer equipment polish:** compact quantity/total layout, unified green, and one Equipment header; `ef936ec5`, followed by picker regression fix `6eed4823`.
 - **N1 — Bookings tab:** searchable historical log, filter-global finance summary, CSV, archived records, guest→Customers, and append-only manual refund ledger; `42e30925`. List-500/layout fix `27981048` is live on Sunset staging.
 - **Bookings summary + Cockpit UI polish:** Bookings cards-on-top, colored metrics, live filters (no Apply/checkbox), drawer date-range picker, status pills, expand order Guest→Items→Payment, trimmed refund note; Cockpit non-today relative-day labels (Yesterday/In N days/Last week…/years) + day summary, EN/ES/IT; `1805d95b` rev 0000458.
