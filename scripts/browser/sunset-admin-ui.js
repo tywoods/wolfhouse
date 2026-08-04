@@ -2118,8 +2118,8 @@ function wireFinanceRedesignNav(body){
     var gran = btn.getAttribute('data-finance-gran');
     if (gran){
       // F1: Day/Month/Year are home controls — click (or re-click active) snaps to now.
-      financeViewState.granularity = gran;
       if (gran !== 'custom'){
+        financeViewState.granularity = gran;
         financeViewState.start = null;
         financeViewState.end = null;
         try {
@@ -2131,8 +2131,11 @@ function wireFinanceRedesignNav(body){
         }
         loadAdminFinanceSummary();
       } else {
-        // Custom: load shell for this gran, then open date-range picker.
-        loadAdminFinanceSummary({ openCustomPicker: true });
+        // Custom: open client-owned calendar immediately. Do not set custom gran or
+        // refetch until two valid dates are chosen — server resolvePrimaryRange only
+        // honors custom when start+end are present; incomplete custom falls through
+        // to month and paints no #pfb-custom-range-pop host.
+        financeOpenCustomRangePicker(body);
       }
       return;
     }
@@ -2157,24 +2160,64 @@ function wireFinanceRedesignNav(body){
 }
 
 var financeCustomRangeDraft = { start: null, end: null };
-function financeOpenCustomRangePicker(body) {
-  var pop = el('pfb-custom-range-pop');
+
+/**
+ * Ensure a #pfb-custom-range-pop host exists. Server custom shell only paints the
+ * host when granularity is already custom with a valid range; opening Custom from
+ * month/day/year therefore needs a client-owned overlay host under the stable
+ * #admin-finance-body (cards remain underneath while choosing dates).
+ */
+function financeEnsureCustomRangePop(body) {
+  var pop = null;
+  try { pop = el('pfb-custom-range-pop'); } catch (_e0) { pop = null; }
   if (!pop && body && body.querySelector) pop = body.querySelector('#pfb-custom-range-pop');
-  if (!pop && typeof document !== 'undefined') pop = document.getElementById('pfb-custom-range-pop');
-  if (!pop) {
-    // Custom gran shell may not have painted yet — force custom shell then retry once.
-    try {
-      if ((financeViewState.granularity || '') !== 'custom') {
-        financeViewState.granularity = 'custom';
-      }
-    } catch (_e) { /* ignore */ }
-    return;
+  if (!pop && typeof document !== 'undefined' && document.getElementById) {
+    pop = document.getElementById('pfb-custom-range-pop');
   }
-  financeCustomRangeDraft = {
-    start: (el('pfb-custom-start') && el('pfb-custom-start').value) || null,
-    end: (el('pfb-custom-end') && el('pfb-custom-end').value) || null,
-  };
-  var ym = (financeCustomRangeDraft.start || new Date().toISOString().slice(0, 10)).slice(0, 7);
+  if (pop) return pop;
+  var root = body || (typeof el === 'function' ? el('admin-finance-body') : null);
+  if (!root || typeof document === 'undefined' || !document.createElement) return null;
+  var row = root.querySelector ? root.querySelector('.pfb-custom-row--client-host') : null;
+  if (!row) {
+    row = document.createElement('div');
+    row.className = 'pfb-custom-row pfb-custom-row--client-host';
+    var nav = root.querySelector ? root.querySelector('.pfb-nav') : null;
+    if (nav && nav.parentNode === root) {
+      if (nav.nextSibling) root.insertBefore(row, nav.nextSibling);
+      else root.appendChild(row);
+    } else if (root.firstChild) {
+      root.insertBefore(row, root.firstChild);
+    } else {
+      root.appendChild(row);
+    }
+  }
+  pop = document.createElement('div');
+  pop.id = 'pfb-custom-range-pop';
+  pop.className = 'pfb-custom-range-pop';
+  pop.hidden = true;
+  pop.style.display = 'none';
+  row.appendChild(pop);
+  return pop;
+}
+
+function financeOpenCustomRangePicker(body) {
+  var pop = financeEnsureCustomRangePop(body);
+  if (!pop) return;
+  var startSeed = null;
+  var endSeed = null;
+  try {
+    var startEl = el('pfb-custom-start');
+    var endEl = el('pfb-custom-end');
+    startSeed = (startEl && startEl.value) || null;
+    endSeed = (endEl && endEl.value) || null;
+  } catch (_e1) { /* ignore */ }
+  // Prefer applied custom range when reopening; otherwise empty draft (do not fabricate dates).
+  if (financeViewState && financeViewState.granularity === 'custom' && financeViewState.start && financeViewState.end) {
+    startSeed = financeViewState.start;
+    endSeed = financeViewState.end;
+  }
+  financeCustomRangeDraft = { start: startSeed || null, end: endSeed || null };
+  var ym = (financeCustomRangeDraft.start || (financeViewState && financeViewState.anchor) || new Date().toISOString().slice(0, 10)).slice(0, 7);
   function paint() {
     var parts = ym.split('-').map(Number);
     var y = parts[0], m = parts[1];
@@ -2218,9 +2261,10 @@ function financeOpenCustomRangePicker(body) {
     }
     if (act === 'close') { pop.hidden = true; pop.style.display = 'none'; return; }
     if (act === 'clear') {
-      financeViewState.granularity = 'custom';
-      financeViewState.start = null; financeViewState.end = null;
-      loadAdminFinanceSummary(); return;
+      // Clear draft only — never ask the server for incomplete custom.
+      financeCustomRangeDraft = { start: null, end: null };
+      paint();
+      return;
     }
     var iso = b.getAttribute('data-pfb-day');
     if (!iso) return;
@@ -2228,15 +2272,14 @@ function financeOpenCustomRangePicker(body) {
       // Shared helper signature is (state, iso) — never (iso, state).
       financeCustomRangeDraft = scheduleCreateDateRangeSelectDay(financeCustomRangeDraft || {}, iso) || financeCustomRangeDraft;
     } else {
+      // Two-click range: first click sets start only; second sets end (incl. same-day).
+      // Do not auto-complete on first click when iso === start — that path is only
+      // reached after a prior start exists (second click falls into the else branch).
       if (!financeCustomRangeDraft.start || financeCustomRangeDraft.end) {
         financeCustomRangeDraft = { start: iso, end: null };
       } else if (iso < financeCustomRangeDraft.start) {
         financeCustomRangeDraft = { start: iso, end: null };
       } else {
-        financeCustomRangeDraft.end = iso;
-      }
-      // Single day: second click on the same start day completes the range.
-      if (financeCustomRangeDraft.start && !financeCustomRangeDraft.end && iso === financeCustomRangeDraft.start) {
         financeCustomRangeDraft.end = iso;
       }
     }

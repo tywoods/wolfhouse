@@ -74,10 +74,11 @@ ok('year toggle is-on', /data-finance-trend=\"year\"[^>]*is-on|class=\"pfb-trend
 // Switching mode must not change KPI period labels from summary view (month still)
 ok('period still month while chart is year', /data-finance-gran=\"month\"[^>]*is-on|aria-selected=\"true\"[^>]*>Month|class=\"pfb-gran-btn is-on\"[^>]*data-finance-gran=\"month\"/.test(htmlYear));
 
-// Custom picker
-ok('Custom gran opens picker via openCustomPicker',
-  /openCustomPicker:\s*true/.test(adminUi)
-  && /financeOpenCustomRangePicker/.test(adminUi));
+// Custom picker — client-owned overlay; no incomplete custom summary reload
+ok('Custom gran opens client picker without openCustomPicker reload',
+  /financeOpenCustomRangePicker\(\s*body\s*\)/.test(adminUi)
+  && /function\s+financeEnsureCustomRangePop/.test(adminUi)
+  && !/loadAdminFinanceSummary\(\s*\{\s*openCustomPicker\s*:\s*true\s*\}\s*\)/.test(adminUi));
 ok('custom trigger + pop in redesign',
   /data-finance-nav=\"open-custom-range\"/.test(redesign)
   && /id=\"pfb-custom-range-pop\"/.test(redesign));
