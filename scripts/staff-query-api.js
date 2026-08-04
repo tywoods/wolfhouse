@@ -16419,44 +16419,41 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-lesson-fact{border:1px solid var(--border-soft);border-radius:8px;padding:5px 6px;background:var(--surface)}
 .portal-admin-lesson-fact strong{display:block;color:var(--text);font-size:12px;margin-top:1px}
 /* ── Private Courses card: closed 2a full-width columns + one-row edit ── */
+/* Global rule: NO accent colors — labels text-3, values text, units text-2 */
 .portal-admin-private-lesson-card{min-width:0}
-.portal-admin-private-closed-row{display:flex;align-items:stretch;width:100%;gap:0;min-width:0}
-.portal-admin-private-col{padding:2px 16px;border-left:1px solid var(--border-soft);display:flex;flex-direction:column;justify-content:center;min-width:0}
+.portal-admin-private-closed-row{display:flex;align-items:center;flex-wrap:nowrap;width:100%;gap:0;min-width:0}
+.portal-admin-private-col{padding:2px 12px;border-left:1px solid var(--border-soft);display:flex;flex-direction:column;justify-content:center;min-width:0}
 .portal-admin-private-col:first-child{padding-left:0;border-left:none}
-.portal-admin-private-col-k,.portal-admin-private-field-lab{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#7fa8cf;margin:0 0 3px;line-height:1.2;white-space:nowrap}
-.portal-admin-private-col-v{font-size:14px;font-weight:700;color:var(--text);line-height:1.25;min-width:0}
+.portal-admin-private-col-k,.portal-admin-private-field-lab{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin:0 0 3px;line-height:1.2;white-space:nowrap}
+.portal-admin-private-col-v{font-size:13px;font-weight:700;color:var(--text);line-height:1.25;min-width:0;white-space:nowrap}
 .portal-admin-private-col-v small{font-weight:600;color:var(--text-2);font-size:11px}
-.portal-admin-private-price-val{color:var(--sage,#7bbf8f)}
-.portal-admin-private-col-name{flex:0 1 auto;max-width:22%}
-.portal-admin-private-col-price{flex:1 1 0}
-.portal-admin-private-col-dur{flex:1 1 0}
-.portal-admin-private-col-eq{flex:2.4 1 0}
-.portal-admin-private-col-eq .portal-admin-private-col-v{display:block}
-.portal-admin-private-col-edit{display:flex;align-items:center;justify-content:center;padding-left:12px;border-left:1px solid var(--border-soft);flex:0 0 auto}
-.portal-admin-private-eq-readout{min-width:0}
-.portal-admin-private-eq-items{display:flex;flex-direction:column;gap:6px;min-width:0}
-.portal-admin-private-eq-item{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
-.portal-admin-private-eq-name{font-weight:700;color:#b39ddb;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
-.portal-admin-private-price-pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:var(--surface-soft);border:1px solid var(--border-soft);color:var(--text);white-space:nowrap}
-.portal-admin-private-price-pill-k{color:var(--text-3);font-weight:700;font-size:9.5px;text-transform:uppercase;letter-spacing:.03em}
-.portal-admin-private-price-pill-v{color:var(--sage,#7bbf8f);font-weight:700}
+.portal-admin-private-price-val{color:var(--text)}
+.portal-admin-private-col-name{flex:0 1 auto;max-width:none}
+.portal-admin-private-col-price{flex:0 0 auto}
+.portal-admin-private-col-dur{flex:0 0 auto}
+.portal-admin-private-col-eq{flex:1 1 auto;min-width:0}
+.portal-admin-private-col-eq .portal-admin-private-col-v{display:block;overflow:hidden}
+.portal-admin-private-col-edit{display:flex;align-items:center;justify-content:center;padding-left:10px;border-left:1px solid var(--border-soft);flex:0 0 auto}
+.portal-admin-private-eq-readout{min-width:0;overflow:hidden}
+.portal-admin-private-eq-items{display:flex;flex-direction:row;flex-wrap:nowrap;gap:10px;min-width:0;overflow:hidden}
+.portal-admin-private-eq-item{display:inline-flex;align-items:center;gap:6px;flex-wrap:nowrap;min-width:0;white-space:nowrap}
+.portal-admin-private-eq-name{font-weight:700;color:var(--text);white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis}
+.portal-admin-private-price-pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--surface-soft);border:1px solid var(--border-soft);color:var(--text);white-space:nowrap}
+.portal-admin-private-price-pill-k{color:var(--text-3);font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:.03em}
+.portal-admin-private-price-pill-v{color:var(--text);font-weight:700}
 .portal-admin-private-closed-notes{margin-top:10px;padding-top:8px;border-top:1px solid var(--border-soft);min-width:0}
 .portal-admin-private-closed-notes-v{display:block;font-size:12px;font-weight:600;color:var(--text);margin-top:2px}
-/* Private edit: one control row (identity | equipment | actions) + notes under */
+/* Private edit: one control row (identity | equipment | actions) + notes under — never overlap */
 .portal-admin-private-edit-form.portal-admin-edit-form{display:flex;flex-direction:column;gap:10px;align-items:stretch;grid-template-columns:none}
-.portal-admin-private-edit-row{display:flex;align-items:flex-end;gap:0;width:100%;min-width:0}
-.portal-admin-private-identity{display:flex;align-items:flex-end;gap:10px;flex:1 1 42%;min-width:0;padding-right:12px}
-.portal-admin-private-equip-zone{display:flex;align-items:flex-end;flex:1 1 58%;min-width:0;padding:0 12px;border-left:1px solid var(--border-soft)}
+.portal-admin-private-edit-row{display:flex;align-items:flex-end;flex-wrap:nowrap;gap:0;width:100%;min-width:0}
+.portal-admin-private-identity{display:flex;align-items:flex-end;gap:8px;flex:1 1 36%;min-width:0;padding-right:10px}
+.portal-admin-private-equip-zone{display:flex;align-items:flex-end;flex:1 1 48%;min-width:0;padding:0 10px;border-left:1px solid var(--border-soft);overflow:hidden}
 .portal-admin-private-equip-zone .portal-admin-equipment-editor{grid-column:auto;width:100%;min-width:0;margin:0}
 .portal-admin-private-equip-zone .portal-admin-equipment-heading-row{margin:0 0 6px}
 .portal-admin-private-equip-zone .portal-admin-equipment-three-price-help{display:none}
 .portal-admin-private-equip-zone [data-equipment-option-rows]{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}
 .portal-admin-private-equip-zone .portal-admin-equipment-option-row{margin:0}
-.portal-admin-private-equip-zone .portal-admin-equipment-option-fields{
-  grid-template-columns:minmax(110px,1.8fr) minmax(88px,.9fr) minmax(64px,.7fr) minmax(64px,.7fr) auto;
-  gap:6px 8px
-}
-.portal-admin-private-edit-actions{display:flex;align-items:flex-end;gap:8px;flex:0 0 auto;padding-left:12px;border-left:1px solid var(--border-soft);margin:0}
+.portal-admin-private-edit-actions{display:flex;align-items:flex-end;gap:8px;flex:0 0 auto;padding-left:10px;border-left:1px solid var(--border-soft);margin:0}
 .portal-admin-private-edit-actions .btn{white-space:nowrap}
 .portal-admin-private-enabled-field{display:flex;flex-direction:column;align-items:flex-start;gap:3px;flex:0 0 auto;min-width:0}
 .portal-admin-private-enabled-switch{position:relative;display:inline-flex;align-items:center;justify-content:center;width:36px;min-width:36px;height:20px;min-height:20px;margin:0;cursor:pointer;user-select:none;line-height:0}
@@ -16465,24 +16462,57 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-private-enabled-slider:before{position:absolute;content:"";height:15px;width:15px;left:2px;top:2px;background:var(--surface,#fff);border-radius:50%;transition:transform .2s;box-shadow:0 1px 2px rgba(0,0,0,.18)}
 .portal-admin-private-enabled-switch input:checked + .portal-admin-private-enabled-slider{background:var(--primary)}
 .portal-admin-private-enabled-switch input:checked + .portal-admin-private-enabled-slider:before{transform:translateX(15px);background:#eafff0}
-.portal-admin-private-label-field{flex:1 1 auto;min-width:0}
-.portal-admin-private-price-field{width:88px;flex:0 0 auto}
-.portal-admin-private-duration-field{width:86px;flex:0 0 auto}
+.portal-admin-private-label-field{flex:1 1 auto;min-width:80px;max-width:100%}
+.portal-admin-private-price-field{width:64px;flex:0 0 64px;min-width:64px;max-width:64px}
+.portal-admin-private-duration-field{width:64px;flex:0 0 64px;min-width:64px;max-width:64px}
 .portal-admin-private-edit-form .portal-admin-edit-field label,
-.portal-admin-private-edit-form .portal-admin-private-field-lab{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#7fa8cf;margin:0 0 3px}
+.portal-admin-private-edit-form .portal-admin-private-field-lab{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin:0 0 3px}
 .portal-admin-private-edit-form .portal-admin-edit-field input,
-.portal-admin-private-edit-form .portal-admin-edit-field textarea{max-width:none;width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border-soft);border-radius:7px;font-size:12.5px;background:var(--surface);color:var(--text);min-height:34px}
+.portal-admin-private-edit-form .portal-admin-edit-field textarea,
+.portal-admin-private-edit-form .portal-admin-edit-field select{
+  max-width:none!important;min-width:0!important;width:100%!important;box-sizing:border-box;
+  padding:6px 8px;border:1px solid var(--border-soft);border-radius:7px;font-size:12.5px;
+  background:var(--surface);color:var(--text);min-height:34px
+}
+.portal-admin-private-identity{display:flex;align-items:flex-end;gap:8px;flex:1 1 36%;min-width:0;max-width:42%;padding-right:10px;overflow:hidden}
+.portal-admin-private-equip-zone{display:flex;align-items:flex-end;flex:1 1 48%;min-width:0;max-width:55%;padding:0 10px;border-left:1px solid var(--border-soft);overflow:hidden}
 .portal-admin-private-notes-field{width:100%;min-width:0;margin:0}
 .portal-admin-private-notes-field textarea{width:100%;max-width:none;min-height:52px;resize:vertical}
+/* Group Option 3 closed: meta rows + equipment under meta + 2-col prices */
+.portal-admin-pack-meta-rows{margin-top:4px;min-width:0}
+.portal-admin-pack-meta-row{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:5px 0;border-top:1px solid var(--border-soft)}
+.portal-admin-pack-meta-row:first-child{border-top:none;padding-top:0}
+.portal-admin-pack-meta-k{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--text-3);flex:0 1 auto}
+.portal-admin-pack-meta-v{font-size:13px;font-weight:700;color:var(--text);text-align:right;min-width:0}
+.portal-admin-pack-eq-readout{margin-top:8px}
+.portal-admin-pack-eq-items{display:flex;flex-direction:column;gap:8px;min-width:0}
+.portal-admin-pack-eq-item{border:1px solid var(--border-soft);border-radius:9px;background:var(--surface);padding:9px 10px;min-width:0}
+.portal-admin-pack-eq-name{display:block;font-size:13px;font-weight:700;color:var(--text)}
+.portal-admin-pack-eq-pills{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.portal-admin-pack-prices{margin-top:10px;min-width:0}
+.portal-admin-pack-sectlab{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin:0 0 6px}
+.portal-admin-pack-prices-2col{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;min-width:0}
+.portal-admin-pack-prices-col{min-width:0}
+.portal-admin-pack-tier-row{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:3.5px 0;font-size:12.5px;color:var(--text)}
+.portal-admin-pack-tier-days{color:var(--text-2);font-weight:600}
+.portal-admin-pack-tier-amt{color:var(--text);font-weight:700}
+@media (max-width:900px){
+  .portal-admin-private-edit-row{flex-wrap:wrap}
+  .portal-admin-private-identity{flex:1 1 100%;padding-right:0;border:0}
+  .portal-admin-private-equip-zone{flex:1 1 100%;padding:10px 0 0;border-left:none;border-top:1px solid var(--border-soft)}
+  .portal-admin-private-edit-actions{flex:1 1 100%;padding-left:0;border-left:none;border-top:1px solid var(--border-soft);padding-top:8px;justify-content:flex-end}
+}
 @media (max-width:520px){
   .portal-admin-private-closed-row{flex-wrap:wrap;gap:8px 0}
   .portal-admin-private-col{border-left:none;padding:4px 0;flex:1 1 45%}
   .portal-admin-private-col-eq{flex:1 1 100%}
   .portal-admin-private-col-edit{border-left:none;padding-left:0;margin-left:auto}
+  .portal-admin-private-eq-items,.portal-admin-private-eq-item{flex-wrap:wrap;white-space:normal}
   .portal-admin-private-edit-row{flex-wrap:wrap;align-items:stretch;gap:10px}
   .portal-admin-private-identity{flex:1 1 100%;padding-right:0;flex-wrap:wrap}
   .portal-admin-private-equip-zone{flex:1 1 100%;padding:10px 0 0;border-left:none;border-top:1px solid var(--border-soft)}
   .portal-admin-private-edit-actions{flex:1 1 100%;padding-left:0;border-left:none;border-top:1px solid var(--border-soft);padding-top:8px;justify-content:flex-end}
+  .portal-admin-pack-prices-2col{grid-template-columns:1fr}
 }
 .portal-admin-lesson-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;margin-top:2px}
 .portal-admin-lesson-price-strip{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 10px}
@@ -16506,33 +16536,30 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-edit-field input{width:100%;max-width:240px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text)}
 .portal-admin-course-equipment-grid{display:grid;grid-template-columns:repeat(2,minmax(0,240px));gap:12px;max-width:100%}
 .portal-admin-equipment-editor{grid-column:1/-1;min-width:0}
-/* Equipment heading: title + icon-only + immediately beside (no full "+ Add equipment" below) */
+/* Equipment heading: title; empty-state + beside title; filled rows carry + next to × */
 .portal-admin-equipment-heading-row{display:flex;align-items:center;gap:6px;margin:4px 0 8px;min-width:0}
 .portal-admin-equipment-heading-row h4,.portal-admin-equipment-editor h4{margin:0;font-size:13px;font-weight:700;color:var(--text);line-height:1.2}
-.portal-admin-equipment-add{flex:0 0 auto;width:32px;min-width:32px;height:32px;min-height:32px;margin:0;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:18px;line-height:1;font-weight:700;box-sizing:border-box}
-/* Group/Private course equipment: identity select + prices + icon × */
+.portal-admin-equipment-add{flex:0 0 auto;width:28px;min-width:28px;height:28px;min-height:28px;margin:0;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:16px;line-height:1;font-weight:700;box-sizing:border-box}
+/* Offering on its own row; policy | During | All-day (equal) | ×[+ ] same row — never wrap × alone */
 .portal-admin-equipment-option-row{display:block;margin:0 0 8px;min-width:0;max-width:100%}
-/* Default: one compact row when the editor is wide enough (private lesson etc.) */
-.portal-admin-equipment-option-fields{display:grid;grid-template-columns:minmax(180px,2.6fr) minmax(72px,.62fr) minmax(72px,.62fr) auto;gap:6px 8px;align-items:end;min-width:0;max-width:100%}
-/*
- * Group Course pack cards stay in auto-fill columns while editing (~300–360px each when
- * three courses coexist). Always use a deliberate two-row equipment layout inside pack
- * forms so "Surfboard + Wetsuit" fits without spanning the full grid or relying on
- * viewport media alone (desktop viewport still has a narrow grid card).
- */
+.portal-admin-equipment-offering-row{margin:0 0 6px;min-width:0}
+.portal-admin-equipment-option-fields{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(56px,1fr) minmax(56px,1fr) auto;gap:6px 8px;align-items:end;min-width:0;max-width:100%}
+.portal-admin-equipment-row-actions{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto;align-self:end}
 .portal-admin-pack-form .portal-admin-equipment-option-fields,
 .portal-admin-pack-card .portal-admin-equipment-option-fields{
-  grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:5px 6px
+  grid-template-columns:minmax(0,1.15fr) minmax(52px,1fr) minmax(52px,1fr) auto;gap:5px 6px
 }
 .portal-admin-pack-form .portal-admin-equipment-offering-field,
-.portal-admin-pack-card .portal-admin-equipment-offering-field{grid-column:1/-1}
+.portal-admin-pack-card .portal-admin-equipment-offering-field{grid-column:auto}
 .portal-admin-equipment-option-row label{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:10px;font-weight:700;color:var(--text-2);line-height:1.25}
-.portal-admin-equipment-offering-field{min-width:0}
-.portal-admin-equipment-price-field{min-width:0}
+.portal-admin-equipment-offering-field{min-width:0;display:block;width:100%}
+.portal-admin-equipment-price-field{min-width:0;max-width:none}
+.portal-admin-equipment-during-field,
+.portal-admin-equipment-allday-field{min-width:0}
 .portal-admin-equipment-option-row select,.portal-admin-equipment-option-row input{width:100%;min-width:0;min-height:34px;height:34px;padding:5px 8px;box-sizing:border-box;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px}
 /* Prefer showing full selected identity; ellipsis only as last-resort overflow guard */
 .portal-admin-equipment-option-row select.admin-equipment-offering{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.portal-admin-equipment-remove{flex:0 0 auto;width:28px;min-width:28px;height:28px;min-height:28px;margin:0 0 3px;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:15px;line-height:1;align-self:end;box-sizing:border-box}
+.portal-admin-equipment-remove{flex:0 0 auto;width:28px;min-width:28px;height:28px;min-height:28px;margin:0;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:15px;line-height:1;align-self:center;box-sizing:border-box}
 /* Group course equipment/price × only — compact circular danger (override btn-ghost wash) */
 .portal-admin-pack-form .portal-admin-equipment-remove.portal-admin-danger,
 .portal-admin-pack-form .portal-admin-pack-tier-remove.portal-admin-danger{
@@ -16752,11 +16779,10 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-schedule-course-equipment-surfers .portal-schedule-course-equipment-qty-label{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);white-space:nowrap}
 .portal-schedule-course-equipment-surfers input[type=number]{width:64px;min-width:64px;min-height:36px;padding:6px 8px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}
 .portal-schedule-create-main-activity-path{display:none!important}.portal-schedule-create-rental-price{margin-left:auto;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}
-/* Narrow: wrap equipment into two rows (identity full-width, then prices+×) rather than truncate */
+/* Narrow: offering stays full-width above; policy|during|allday|actions stay one row when possible */
 @media(max-width:520px){
   .portal-admin-course-equipment-grid{grid-template-columns:minmax(0,1fr)}
-  .portal-admin-equipment-option-fields{grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:5px 6px}
-  .portal-admin-equipment-offering-field{grid-column:1/-1}
+  .portal-admin-equipment-option-fields{grid-template-columns:minmax(0,1fr) minmax(48px,1fr) minmax(48px,1fr) auto;gap:5px 6px}
   .portal-admin-edit-field input{min-height:34px;max-width:100%;box-sizing:border-box}
   .portal-admin-pack-schedule-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
 }

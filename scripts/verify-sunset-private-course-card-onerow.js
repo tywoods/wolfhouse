@@ -72,6 +72,21 @@ function ok(name, cond, detail) {
   ok('CSS ≤520 collapse present',
     /@media\s*\(max-width:\s*520px\)[\s\S]{0,800}portal-admin-private-edit-row/.test(apiSrc)
     || /@media \(max-width:520px\)[\s\S]*portal-admin-private-closed-row/.test(apiSrc));
+  ok('no private label blue accent', !/\.portal-admin-private-col-k[^{]*\{[^}]*#7fa8cf/.test(apiSrc));
+  ok('private labels use text-3',
+    /\.portal-admin-private-col-k[^{]*\{[^}]*color:\s*var\(--text-3\)/.test(apiSrc));
+  ok('private price value not sage',
+    !/\.portal-admin-private-price-val\{[^}]*sage/.test(apiSrc)
+    && /\.portal-admin-private-price-val\{[^}]*var\(--text\)/.test(apiSrc));
+  ok('private eq name not purple',
+    !/\.portal-admin-private-eq-name\{[^}]*#b39ddb/.test(apiSrc));
+  ok('price/duration ~64px',
+    /\.portal-admin-private-price-field\{[^}]*64px/.test(apiSrc)
+    && /\.portal-admin-private-duration-field\{[^}]*64px/.test(apiSrc));
+  ok('equipment + beside × on last row pattern',
+    /portal-admin-equipment-row-actions/.test(uiSrc)
+    && /isLast/.test(uiSrc));
+  ok('closed row nowrap CSS', /portal-admin-private-closed-row\{[^}]*flex-wrap:\s*nowrap/.test(apiSrc));
 
   const { createSunsetAdminVerifyServer } = require('./fixtures/sunset-admin-verify-server');
   const server = createSunsetAdminVerifyServer();
@@ -174,9 +189,58 @@ function ok(name, cond, detail) {
     const closedText = await page.locator('[data-admin-private-lesson-card]').innerText();
     ok('closed shows Included for €0 during', /Included/i.test(closedText));
     ok('closed shows all-day amount', /10\.00/.test(closedText));
-    ok('closed shows price green value', /60\.00|€60/.test(closedText));
+    ok('closed shows price value', /60\.00|€60/.test(closedText));
     ok('closed notes under row',
       (await page.locator('[data-admin-private-closed-notes]').count()) === 1);
+
+    // Neutral colors on closed row (no blue/purple/green accents)
+    const closedColors = await page.evaluate(() => {
+      const row = document.querySelector('[data-admin-private-closed-row]');
+      if (!row) return { ok: false, why: 'no row' };
+      const k = row.querySelector('.portal-admin-private-col-k');
+      const price = row.querySelector('.portal-admin-private-price-val');
+      const eq = row.querySelector('.portal-admin-private-eq-name');
+      const pillV = row.querySelector('.portal-admin-private-price-pill-v');
+      function rgb(el) {
+        if (!el) return '';
+        return getComputedStyle(el).color;
+      }
+      function isAccent(rgbStr) {
+        // Flag only the removed accents (blue label / purple item / sage price),
+        // not neutral site greys or primary text.
+        const m = String(rgbStr).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+        if (!m) return false;
+        const r = +m[1], g = +m[2], b = +m[3];
+        // #7fa8cf ≈ 127,168,207
+        if (Math.abs(r - 127) < 25 && Math.abs(g - 168) < 25 && Math.abs(b - 207) < 25) return true;
+        // #b39ddb ≈ 179,157,219
+        if (Math.abs(r - 179) < 25 && Math.abs(g - 157) < 25 && Math.abs(b - 219) < 25) return true;
+        // #7bbf8f / sage ≈ 123,191,143
+        if (Math.abs(r - 123) < 25 && Math.abs(g - 191) < 25 && Math.abs(b - 143) < 25) return true;
+        return false;
+      }
+      return {
+        ok: true,
+        k: rgb(k), price: rgb(price), eq: rgb(eq), pillV: rgb(pillV),
+        accent: [k, price, eq, pillV].some((el) => isAccent(rgb(el))),
+      };
+    });
+    ok('closed colors readable', closedColors.ok);
+    ok('closed no accent text colors', !closedColors.accent, JSON.stringify(closedColors));
+
+    // Single-line closed at desktop width: eq pills/row don't wrap to second line
+    const closedLayout = await page.evaluate(() => {
+      const row = document.querySelector('[data-admin-private-closed-row]');
+      if (!row) return { ok: false };
+      const item = row.querySelector('.portal-admin-private-eq-item');
+      if (!item) return { ok: true, skip: true };
+      const rh = row.getBoundingClientRect().height;
+      const ih = item.getBoundingClientRect().height;
+      // one line ~ under 48px for the control row (notes are outside)
+      return { ok: true, rh, ih, single: rh < 56 && ih < 40 };
+    });
+    ok('closed row roughly single-line height', closedLayout.skip || closedLayout.single,
+      JSON.stringify(closedLayout));
 
     // ── Open edit one-row ──
     await page.locator('[data-admin-action="edit-private-lesson"]').click();
@@ -210,6 +274,66 @@ function ok(name, cond, detail) {
       && (await ed.locator('[data-admin-action="remove-equipment-option"]').count()) >= 1);
     ok('add-equipment-option hook',
       (await ed.locator('[data-admin-action="add-equipment-option"]').count()) === 1);
+    // With items present: + sits beside × on the last row (not in heading)
+    ok('+ not in heading when rows exist',
+      (await ed.locator('[data-admin-equipment-heading] [data-admin-action="add-equipment-option"]').count()) === 0);
+    ok('+ beside × on last row',
+      (await ed.locator('[data-equipment-option-row] .portal-admin-equipment-row-actions [data-admin-action="add-equipment-option"]').count()) === 1
+      && (await ed.locator('[data-equipment-option-row] .portal-admin-equipment-row-actions [data-admin-action="remove-equipment-option"]').count()) >= 1);
+    // During and All-day fields equal-ish width; × same row (no vertical offset beyond threshold)
+    const fieldGeom = await ed.locator('[data-equipment-option-row]').first().evaluate((row) => {
+      const d = row.querySelector('.admin-equipment-during-price');
+      const a = row.querySelector('.admin-equipment-all-day-price');
+      const x = row.querySelector('[data-admin-action="remove-equipment-option"]');
+      if (!d || !a || !x) return { ok: false };
+      const dr = d.getBoundingClientRect();
+      const ar = a.getBoundingClientRect();
+      const xr = x.getBoundingClientRect();
+      return {
+        ok: true,
+        dw: dr.width, aw: ar.width,
+        sameRow: Math.abs(dr.top - xr.top) < 20 && Math.abs(ar.top - xr.top) < 20,
+        equalW: Math.abs(dr.width - ar.width) < 24,
+      };
+    });
+    ok('during/all-day equal width', fieldGeom.ok && fieldGeom.equalW, JSON.stringify(fieldGeom));
+    ok('× same row as price fields', fieldGeom.ok && fieldGeom.sameRow, JSON.stringify(fieldGeom));
+
+    // No field overlap at a couple of widths
+    async function assertNoOverlap(width) {
+      await page.setViewportSize({ width, height: 900 });
+      // ensure still in edit
+      if ((await page.locator('[data-admin-private-lesson-form]').count()) === 0) {
+        await page.locator('[data-admin-action="edit-private-lesson"]').click();
+        await page.locator('[data-admin-private-lesson-form]').waitFor();
+      }
+      const overlap = await page.evaluate(() => {
+        const form = document.querySelector('[data-admin-private-lesson-form]');
+        if (!form) return 'no-form';
+        const els = Array.from(form.querySelectorAll('input,select,button,textarea'));
+        const boxes = els.map((el) => {
+          const r = el.getBoundingClientRect();
+          return { el, r };
+        }).filter((x) => x.r.width > 2 && x.r.height > 2 && getComputedStyle(x.el).visibility !== 'hidden' && getComputedStyle(x.el).opacity !== '0');
+        for (let i = 0; i < boxes.length; i++) {
+          for (let j = i + 1; j < boxes.length; j++) {
+            const a = boxes[i].r, b = boxes[j].r;
+            if (boxes[i].el.contains(boxes[j].el) || boxes[j].el.contains(boxes[i].el)) continue;
+            // ignore tiny 1px anti-alias collisions
+            const ox = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+            const oy = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+            if (ox > 4 && oy > 4) {
+              return `overlap@${Math.round(a.left)},${Math.round(a.top)} w${Math.round(ox)}xh${Math.round(oy)}`;
+            }
+          }
+        }
+        return '';
+      });
+      ok('no control overlap @' + width, !overlap, overlap);
+    }
+    await assertNoOverlap(1280);
+    await assertNoOverlap(980);
+    await page.setViewportSize({ width: 1280, height: 900 });
 
     // Invalid policy fail-closed: set explicit invalid via evaluate, then try save
     await ed.locator('[data-equipment-option-row]').first().evaluate((row) => {

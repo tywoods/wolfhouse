@@ -626,8 +626,10 @@ function adminEquipmentOfferings(){
 function adminAllEquipmentOfferings(){ return (adminConfigCache && adminConfigCache._equipment_offerings || adminConfigCache && adminConfigCache.rental_offerings || []).filter(function(o){ return !!o; }); }
 function adminEquipmentRowsHtml(rows){
   var active=adminEquipmentOfferings(), selected={};
-  (rows||[]).forEach(function(r){if(r&&r.offering_key)selected[String(r.offering_key)]=true;});
-  return (rows||[]).map(function(r,idx){
+  var list = rows || [];
+  list.forEach(function(r){if(r&&r.offering_key)selected[String(r.offering_key)]=true;});
+  var addEqLabel = portalT('admin.courseEquipment.add') || 'Add equipment';
+  return list.map(function(r,idx){
     var key=String(r.offering_key||''), exists=active.some(function(o){return String(o.offering_key)===key;});
     var opts='<option value="">'+escHtml(portalT('admin.courseEquipment.choose'))+'</option>';
     // Historical/unavailable: preserve selected disabled option — never silently rewrite.
@@ -641,10 +643,8 @@ function adminEquipmentRowsHtml(rows){
     var allDayCents = (r.all_day_price_cents != null)
       ? r.all_day_price_cents
       : (r.all_day_surcharge_cents || 0);
-    // Compact row: offering | during policy | During € | All Day € | ×.
-    // during_course_policy is explicit so optional €0 and unavailable are authorable
-    // (price-only inference cannot distinguish optional €0 from included).
-    // No redundant "Equipment" column label (section h4 owns that).
+    // Offering on its own row; then policy | During € | All Day € | × [+ on last row].
+    // during_course_policy is explicit so optional €0 and unavailable are authorable.
     var removeEqLabel = portalT('admin.courseEquipment.remove') || 'Remove equipment';
     // Infer only when policy field is absent. Explicit invalid values are preserved
     // and fail save closed (never silently rewrite to included/optional).
@@ -670,39 +670,52 @@ function adminEquipmentRowsHtml(rows){
       var sel = (!policyInvalid && p === policy) ? ' selected' : '';
       return '<option value="'+p+'"'+sel+'>'+escHtml(lab)+'</option>';
     }).join('');
+    var isLast = idx === list.length - 1;
+    var actionsHtml = '<div class="portal-admin-equipment-row-actions">' +
+      '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-danger portal-admin-equipment-remove" data-admin-action="remove-equipment-option" aria-label="'+escHtml(removeEqLabel)+'" title="'+escHtml(removeEqLabel)+'">×</button>' +
+      (isLast
+        ? '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-equipment-add" data-admin-action="add-equipment-option" aria-label="'+escHtml(addEqLabel)+'" title="'+escHtml(addEqLabel)+'">+</button>'
+        : '') +
+      '</div>';
     return '<div class="portal-admin-equipment-option-row" data-equipment-option-row="'+idx+'"'
       + (policyInvalid ? ' data-policy-explicit-invalid="1"' : '')
       + (hasExplicitPolicy ? ' data-policy-explicit="1"' : ' data-policy-absent="1"')
       + '>' +
-      '<div class="portal-admin-equipment-option-fields">' +
+      '<div class="portal-admin-equipment-offering-row">' +
       '<label class="portal-admin-equipment-offering-field">' +
       '<select class="admin-equipment-offering" aria-label="'+escHtml(portalT('admin.courseEquipment.choose'))+'">'+opts+'</select></label>' +
+      '</div>' +
+      '<div class="portal-admin-equipment-option-fields">' +
       '<label class="portal-admin-equipment-policy-field">'+escHtml(portalT('admin.courseEquipment.duringPolicy')) +
       '<select class="admin-equipment-during-policy" data-admin-action="course-equipment-policy"'
       + (policyInvalid ? ' data-policy-explicit-invalid="1"' : '')
       + ' aria-label="'+escHtml(portalT('admin.courseEquipment.duringPolicy'))+'">'+policyOpts+'</select></label>' +
-      '<label class="portal-admin-equipment-price-field">'+escHtml(portalT('admin.courseEquipment.duringPrice')) +
+      '<label class="portal-admin-equipment-price-field portal-admin-equipment-during-field">'+escHtml(portalT('admin.courseEquipment.duringPrice')) +
       '<input class="admin-equipment-during-price" inputmode="decimal" value="'+escHtml(adminEurosFromAmount((duringCents||0)/100))+'"></label>' +
-      '<label class="portal-admin-equipment-price-field">'+escHtml(portalT('admin.courseEquipment.allDayPrice')) +
+      '<label class="portal-admin-equipment-price-field portal-admin-equipment-allday-field">'+escHtml(portalT('admin.courseEquipment.allDayPrice')) +
       '<input class="admin-equipment-all-day-price" inputmode="decimal" value="'+escHtml(adminEurosFromAmount((allDayCents||0)/100))+'"></label>' +
-      '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-danger portal-admin-equipment-remove" data-admin-action="remove-equipment-option" aria-label="'+escHtml(removeEqLabel)+'" title="'+escHtml(removeEqLabel)+'">×</button>' +
+      actionsHtml +
       '</div></div>';
   }).join('');
 }
 function adminRenderEquipmentEditor(rows,prefix){
-  // Heading row: section title + compact icon-only + (same add-equipment-option path).
-  // No trailing full-width "+ Add equipment" text button under the rows.
+  // Heading keeps Equipment title. Empty state: compact + beside title.
+  // Once items exist: + moves next to the last row's × (no heading +).
+  var list = rows || [];
   var addEqLabel = portalT('admin.courseEquipment.add') || 'Add equipment';
   var threePrice = portalT('admin.courseEquipment.threePriceHelp') || '';
+  var headingAdd = !list.length
+    ? '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-equipment-add" data-admin-action="add-equipment-option" aria-label="'+escHtml(addEqLabel)+'" title="'+escHtml(addEqLabel)+'">+</button>'
+    : '';
   return '<section class="portal-admin-equipment-editor" data-admin-equipment-editor="'+escHtml(prefix)+'">' +
     '<div class="portal-admin-equipment-heading-row" data-admin-equipment-heading>' +
     '<h4>'+escHtml(portalT('admin.courseEquipment.editorTitle'))+'</h4>' +
-    '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-equipment-add" data-admin-action="add-equipment-option" aria-label="'+escHtml(addEqLabel)+'" title="'+escHtml(addEqLabel)+'">+</button>' +
+    headingAdd +
     '</div>' +
     (threePrice
       ? '<p class="portal-admin-equipment-three-price-help" data-admin-equipment-three-price-help="1">'+escHtml(threePrice)+'</p>'
       : '') +
-    '<div data-equipment-option-rows>'+adminEquipmentRowsHtml(rows||[])+'</div>' +
+    '<div data-equipment-option-rows>'+adminEquipmentRowsHtml(list)+'</div>' +
     '</section>';
 }
 function adminReadEquipmentOptions(root){
@@ -738,6 +751,47 @@ function adminReadEquipmentOptions(root){
   });
   return {ok:!error,value:out,error:error};
 }
+/** Loose DOM snapshot for add/remove re-render (keeps drafts, no validation). */
+function adminDraftEquipmentRowsFromDom(root){
+  if (!root) return [];
+  return Array.prototype.slice.call(root.querySelectorAll('[data-equipment-option-row]')).map(function(row){
+    var keyEl=row.querySelector('.admin-equipment-offering');
+    var duringEl=row.querySelector('.admin-equipment-during-price')||row.querySelector('.admin-equipment-price');
+    var allDayEl=row.querySelector('.admin-equipment-all-day-price')||row.querySelector('.admin-equipment-surcharge');
+    var policyEl=row.querySelector('.admin-equipment-during-policy');
+    var p=adminParseEurosToCents(duringEl&&duringEl.value);
+    var s=adminParseEurosToCents(allDayEl&&allDayEl.value);
+    var policy=policyEl?String(policyEl.value||'').trim():'';
+    var out={
+      offering_key:String(keyEl&&keyEl.value||'').trim(),
+      during_course_price_cents:p.ok?p.value:0,
+      all_day_price_cents:s.ok?s.value:0,
+    };
+    if(policy) out.during_course_policy=policy;
+    return out;
+  });
+}
+/** Empty editor: + in heading. Non-empty: + lives on last row only. */
+function adminSyncEquipmentEditorHeadingAdd(editor, rowCount){
+  if (!editor) return;
+  var heading = editor.querySelector('[data-admin-equipment-heading]');
+  if (!heading) return;
+  var existing = heading.querySelector('[data-admin-action="add-equipment-option"]');
+  if (rowCount > 0) {
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    return;
+  }
+  if (existing) return;
+  var addEqLabel = portalT('admin.courseEquipment.add') || 'Add equipment';
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn-ghost portal-admin-icon-btn portal-admin-equipment-add';
+  btn.setAttribute('data-admin-action', 'add-equipment-option');
+  btn.setAttribute('aria-label', addEqLabel);
+  btn.setAttribute('title', addEqLabel);
+  btn.textContent = '+';
+  heading.appendChild(btn);
+}
 /** Read-only card cents: exact 0 => localized Included; nonzero uses leading € (no trailing EUR). */
 function adminEquipmentCentsText(cents){
   var n = Number(cents);
@@ -766,30 +820,46 @@ function adminEquipmentOptionPrices(r){
   };
 }
 /** Group/Private read-only Equipment section — course-owned options only, no invented defaults.
- *  Prices stack vertically (During Course above All Day) in the same fact-card chrome as
- *  Capacity / Price / Display name. */
+ *  Neutral pill chrome (no accent colors): item name + During/All Day chips. */
 function adminRenderEquipmentReadout(options){
   var rows = Array.isArray(options) ? options : [];
-  var html = '<div class="portal-admin-pill-group portal-admin-equipment-readout" data-admin-equipment-readout="1">' +
+  var html = '<div class="portal-admin-pill-group portal-admin-equipment-readout portal-admin-pack-eq-readout" data-admin-equipment-readout="1">' +
     '<span class="portal-admin-pill-label">' + escHtml(portalT('admin.courseEquipment.editorTitle')) + '</span>';
   if (!rows.length){
     return html + '<div class="portal-admin-muted" data-admin-equipment-empty="1">' +
       escHtml(portalT('admin.courseEquipment.empty')) + '</div></div>';
   }
-  html += '<div class="portal-admin-lesson-facts portal-admin-equipment-facts">';
+  html += '<div class="portal-admin-pack-eq-items">';
   rows.forEach(function(r){
     if (!r) return;
     var key = String(r.offering_key || '');
     var label = adminEquipmentLabelForKey(key);
     var prices = adminEquipmentOptionPrices(r);
-    var duringLine = portalT('admin.courseEquipment.during') + ' ' + adminEquipmentCentsText(prices.during);
-    var allDayLine = portalT('admin.courseEquipment.allDay') + ' ' + adminEquipmentCentsText(prices.allDay);
-    html += '<div class="portal-admin-lesson-fact" data-equipment-readout-row="' + escHtml(key) + '">' +
-      escHtml(label) +
-      '<strong class="portal-admin-equipment-price-stack" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;margin-top:2px">' +
-      '<span class="portal-admin-equipment-price-line" data-equipment-price="during">' + escHtml(duringLine) + '</span>' +
-      '<span class="portal-admin-equipment-price-line" data-equipment-price="all_day">' + escHtml(allDayLine) + '</span>' +
-      '</strong></div>';
+    var hasExplicitPolicy = Object.prototype.hasOwnProperty.call(r, 'during_course_policy')
+      && r.during_course_policy != null
+      && String(r.during_course_policy).trim() !== '';
+    var rawPolicy = hasExplicitPolicy ? String(r.during_course_policy).trim() : '';
+    var duringText;
+    if (rawPolicy === 'unavailable') {
+      duringText = portalT('admin.courseEquipment.policyUnavailable') || 'Unavailable';
+    } else if (rawPolicy === 'included' || Number(prices.during) === 0) {
+      duringText = adminEquipmentCentsText(0);
+    } else {
+      duringText = adminEquipmentCentsText(prices.during);
+    }
+    var allDayText = adminEquipmentCentsText(prices.allDay);
+    var duringLab = portalT('admin.courseEquipment.during') || 'During';
+    var allDayLab = portalT('admin.courseEquipment.allDay') || 'All day';
+    html += '<div class="portal-admin-pack-eq-item" data-equipment-readout-row="' + escHtml(key) + '">' +
+      '<span class="portal-admin-pack-eq-name">' + escHtml(label) + '</span>' +
+      '<div class="portal-admin-pack-eq-pills">' +
+      '<span class="portal-admin-private-price-pill">' +
+      '<span class="portal-admin-private-price-pill-k">' + escHtml(duringLab) + '</span>' +
+      '<b class="portal-admin-private-price-pill-v" data-equipment-price="during">' + escHtml(duringText) + '</b></span>' +
+      '<span class="portal-admin-private-price-pill">' +
+      '<span class="portal-admin-private-price-pill-k">' + escHtml(allDayLab) + '</span>' +
+      '<b class="portal-admin-private-price-pill-v" data-equipment-price="all_day">' + escHtml(allDayText) + '</b></span>' +
+      '</div></div>';
   });
   return html + '</div></div>';
 }
@@ -928,15 +998,39 @@ function adminRenderPackTierFields(tiers, prefix){
 }
 function adminRenderPackTierReadout(tiers){
   // Course cards: commercial rows are only canonical 1_day…7_days.
-  // Legacy keys (e.g. single_class) may remain in DB for old bookings but
-  // never appear on Admin Group course card readouts or editable tier rows.
-  var html = '<div class="portal-admin-pill-group"><span class="portal-admin-pill-label">' + escHtml(portalT('admin.packs.priceTiers')) + '</span>';
-  (tiers || []).filter(function(t){
+  // Option 3: two-column price list (1–4 | 5–7), neutral tokens.
+  var list = (tiers || []).filter(function(t){
     return t && ADMIN_CANONICAL_PACK_TIER_KEYS[String(t.key || '').trim()];
-  }).forEach(function(t){
-    html += '<div class="portal-admin-pack-tier-row"><span>' + escHtml(t.label || t.key) + '</span><strong>' + escHtml(adminFormatEuroDisplay((t.amount_cents != null ? t.amount_cents : 0) / 100) + ' ' + portalT('admin.packs.perStudent')) + '</strong></div>';
+  }).slice().sort(function(a, b){
+    var na = parseInt(String(a.key || ''), 10) || 0;
+    var nb = parseInt(String(b.key || ''), 10) || 0;
+    return na - nb;
   });
-  return html + '</div>';
+  var left = [];
+  var right = [];
+  list.forEach(function(t){
+    var n = parseInt(String(t.key || ''), 10) || 0;
+    if (n >= 5) right.push(t);
+    else left.push(t);
+  });
+  function colHtml(items){
+    var h = '<div class="portal-admin-pack-prices-col">';
+    items.forEach(function(t){
+      h += '<div class="portal-admin-pack-tier-row" data-pack-tier-key="' + escHtml(String(t.key || '')) + '">' +
+        '<span class="portal-admin-pack-tier-days">' + escHtml(t.label || t.key) + '</span>' +
+        '<strong class="portal-admin-pack-tier-amt">' +
+        escHtml(adminFormatEuroDisplay((t.amount_cents != null ? t.amount_cents : 0) / 100)) +
+        '</strong></div>';
+    });
+    return h + '</div>';
+  }
+  var html = '<div class="portal-admin-pack-prices" data-admin-pack-prices="1">' +
+    '<span class="portal-admin-pack-sectlab">' + escHtml(portalT('admin.packs.priceTiers')) + '</span>';
+  if (!list.length) {
+    return html + '<div class="portal-admin-muted">—</div></div>';
+  }
+  html += '<div class="portal-admin-pack-prices-2col">' + colHtml(left) + colHtml(right) + '</div></div>';
+  return html;
 }
 function adminRenderPackEditForm(pid, pack){
   var p = pack || adminDefaultPackSeed();
@@ -1736,15 +1830,42 @@ function renderAdminPackCards(packs, writes, defaultCap){
     html += '</div>';
     if (editing) html += adminRenderPackEditForm(pid, p);
     else {
-      var capText = String(p.group_size != null ? p.group_size : defaultCap);
-      html += '<div class="portal-admin-lesson-facts">' +
-        '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.edit.capacity')) + '<strong>' + escHtml(capText + ' ' + portalT('admin.lessonTimes.seats')) + '</strong></div>' +
+      // Option 3 closed card: meta as tidy label:value rows, equipment under meta,
+      // then two-column price list (1–4 | 5–7). Neutral site tokens only.
+      var capText = String(p.group_size != null ? p.group_size : defaultCap) + ' ' + portalT('admin.lessonTimes.seats');
+      var beachLabels = (function(){
+        var map = {};
+        adminPackBeachOptions().forEach(function(o){ map[o.value] = o.label; });
+        return (p.beaches || []).map(function(v){ return map[v] || v; }).filter(Boolean).join(', ') || '—';
+      })();
+      var weeklyLabel = (function(){
+        var map = {};
+        adminPackWeeklyPillOptions().forEach(function(o){ map[o.value] = o.label; });
+        var w = p.weekly || 'mon_fri';
+        return map[w] || w || '—';
+      })();
+      var schedLabel = (function(){
+        var list = (p.schedules || []).filter(Boolean).map(function(k){
+          if (k && typeof k === 'object') k = k.key || '';
+          var t = adminTimesFromScheduleKey(k);
+          return (t.start && t.end) ? (t.start + ' – ' + t.end) : null;
+        }).filter(Boolean);
+        return list.length ? list.join(', ') : '—';
+      })();
+      function metaRow(lab, val){
+        return '<div class="portal-admin-pack-meta-row">' +
+          '<span class="portal-admin-pack-meta-k">' + escHtml(lab) + '</span>' +
+          '<span class="portal-admin-pack-meta-v">' + escHtml(val) + '</span></div>';
+      }
+      html += '<div class="portal-admin-pack-meta-rows" data-admin-pack-meta="1">' +
+        metaRow(portalT('admin.edit.capacity'), capText) +
+        metaRow(portalT('admin.packs.beaches'), beachLabels) +
+        metaRow(portalT('admin.edit.frequency'), weeklyLabel) +
+        metaRow(portalT('admin.packs.schedules'), schedLabel) +
         '</div>';
-      html += adminRenderPackPillReadout('beaches', adminPackBeachOptions(), p.beaches || [], true);
-      html += adminRenderPackPillReadout('weekly', adminPackWeeklyPillOptions(), p.weekly || 'mon_fri', false);
-      html += adminRenderPackScheduleReadout(p.schedules || []);
-      html += adminRenderPackTierReadout(p.price_tiers || []);
+      // Equipment directly under meta (matches edit-form order).
       html += adminRenderEquipmentReadout(p.equipment_options || []);
+      html += adminRenderPackTierReadout(p.price_tiers || []);
     }
     html += '</article>';
   });
@@ -3080,9 +3201,10 @@ function wireAdminTab(){
       var equipmentEditor=btn.closest('[data-admin-equipment-editor]');
       var equipmentWrap=equipmentEditor&&equipmentEditor.querySelector('[data-equipment-option-rows]');
       if(!equipmentWrap)return;
-      var equipmentRows=adminReadEquipmentOptions(equipmentEditor).value;
-      equipmentRows.push({offering_key:'',during_course_price_cents:0,all_day_price_cents:0});
+      var equipmentRows=adminDraftEquipmentRowsFromDom(equipmentEditor);
+      equipmentRows.push({offering_key:'',during_course_price_cents:0,all_day_price_cents:0,during_course_policy:'included'});
       equipmentWrap.innerHTML=adminEquipmentRowsHtml(equipmentRows);
+      adminSyncEquipmentEditorHeadingAdd(equipmentEditor, equipmentRows.length);
       return;
     }
     if (action === 'add-secondary-schedule'){
@@ -3095,8 +3217,15 @@ function wireAdminTab(){
       return;
     }
     if (action === 'remove-equipment-option'){
+      var equipmentEditorRm=btn.closest('[data-admin-equipment-editor]');
       var equipmentRow=btn.closest('[data-equipment-option-row]');
       if(equipmentRow)equipmentRow.remove();
+      if(equipmentEditorRm){
+        var equipmentWrapRm=equipmentEditorRm.querySelector('[data-equipment-option-rows]');
+        var remaining=adminDraftEquipmentRowsFromDom(equipmentEditorRm);
+        if(equipmentWrapRm) equipmentWrapRm.innerHTML=adminEquipmentRowsHtml(remaining);
+        adminSyncEquipmentEditorHeadingAdd(equipmentEditorRm, remaining.length);
+      }
       return;
     }
     if (action === 'add-pack-tier'){
