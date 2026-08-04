@@ -805,7 +805,8 @@ async function testGeneratedUi() {
     phone: '+34600111222',
     service_date_start: '2026-07-10',
     service_date_end: '2026-07-11',
-    what_summary: 'Adult group course · Wetsuit rental',
+    what_summary: 'Lessons · Rentals',
+    type_categories: ['lessons', 'rentals'],
     total_cents: 15000,
     paid_cents: 15000,
     charged_cents: 15000,
@@ -847,7 +848,8 @@ async function testGeneratedUi() {
     outstanding_cents: 0,
     service_date_start: '2026-07-10',
     service_date_end: '2026-07-11',
-    what_summary: 'Adult group course · Wetsuit rental',
+    what_summary: 'Lessons · Rentals',
+    type_categories: ['lessons', 'rentals'],
     service_types: ['surf_lesson', 'wetsuit'],
     payment_story: { charged_cents: 15000, collected_cents: 15000, refunded_cents: 0, net_cents: 15000 },
   };
@@ -856,7 +858,7 @@ async function testGeneratedUi() {
     booking_id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
     booking_code: 'MB-DELETED-ARCHIVE-CODE',
     guest_name: 'Deleted Guest',
-    phone: '+34600888777',
+    phone: '+346****8777',
     status: 'cancelled',
     archived: true,
     total_cents: 2000,
@@ -867,7 +869,8 @@ async function testGeneratedUi() {
     outstanding_cents: 0,
     service_date_start: '2026-05-01',
     service_date_end: '2026-05-01',
-    what_summary: 'surfboard',
+    what_summary: 'Rentals',
+    type_categories: ['rentals'],
     service_types: ['surfboard'],
   };
 
@@ -947,12 +950,16 @@ async function testGeneratedUi() {
         if (!includeArchived && status !== 'hidden') {
           rows = rows.filter((r) => !r.hidden);
         }
-        if (type) rows = rows.filter((r) => (r.service_types || []).includes(type));
+        if (type) rows = rows.filter((r) => DOMAIN.bookingMatchesType(r, type));
         if (dateFrom) rows = rows.filter((r) => String(r.service_date_start) >= dateFrom);
         if (dateTo) rows = rows.filter((r) => String(r.service_date_start) <= dateTo);
       }
       const limit = Math.min(Number(u.searchParams.get('limit') || 50), 200);
       const offset = Math.max(Number(u.searchParams.get('offset') || 0), 0);
+      // Server-side sort of the full filtered set before page slice.
+      const sort = u.searchParams.get('sort') || '';
+      const dir = u.searchParams.get('dir') || '';
+      if (sort) rows = DOMAIN.sortBookingRows(rows, sort, dir);
       const page = rows.slice(offset, offset + limit);
       const summary = DOMAIN.computeBookingsSummary(rows);
       const totalCount = forceListTotal != null ? forceListTotal : rows.length;
@@ -969,6 +976,8 @@ async function testGeneratedUi() {
           date_to: dateTo || null,
           limit,
           offset,
+          sort: sort || null,
+          dir: sort ? (dir || null) : null,
         },
         summary,
         total_count: totalCount,
@@ -1094,11 +1103,43 @@ async function testGeneratedUi() {
     await page.waitForTimeout(200);
     ok('status filter query', lastListQuery && lastListQuery.get('status') === 'paid');
 
-    // Type filter
-    await page.selectOption('#admin-bookings-type', 'surf_lesson');
+    // Type filter (canonical 3 buckets)
+    await page.selectOption('#admin-bookings-type', 'lessons');
     await page.waitForTimeout(200);
-    ok('type filter query', lastListQuery && lastListQuery.get('type') === 'surf_lesson');
+    ok('type filter query', lastListQuery && lastListQuery.get('type') === 'lessons');
 
+    // Sortable headers + dark chip palette + Type column
+    ok('sortable header buttons present', await page.locator('[data-bookings-sort]').count() >= 7);
+    ok('Type column header/sort key', await page.locator('[data-bookings-sort="type"]').count() === 1);
+    ok('Total header right-aligned class', await page.locator('.portal-admin-bookings-th-num').count() >= 2);
+    ok('Status header width class', await page.locator('.portal-admin-bookings-th-status').count() >= 1);
+    const typeChipCount = await page.locator('.portal-admin-bookings-type-chip').count();
+    ok('Type chips rendered in rows', typeChipCount >= 1, `type chips=${typeChipCount}`);
+    await page.click('[data-bookings-sort="total"]');
+    await page.waitForTimeout(250);
+    ok('sort total first-click sends dir=desc', lastListQuery && lastListQuery.get('sort') === 'total'
+      && lastListQuery.get('dir') === 'desc', lastListQuery && lastListQuery.toString());
+    await page.click('[data-bookings-sort="total"]');
+    await page.waitForTimeout(250);
+    ok('sort total toggle flips to asc', lastListQuery && lastListQuery.get('sort') === 'total'
+      && lastListQuery.get('dir') === 'asc', lastListQuery && lastListQuery.toString());
+    await page.click('[data-bookings-sort="dates"]');
+    await page.waitForTimeout(250);
+    ok('sort dates first-click dir=asc', lastListQuery && lastListQuery.get('sort') === 'dates'
+      && lastListQuery.get('dir') === 'asc', lastListQuery && lastListQuery.toString());
+    const chipPaidCss = await page.evaluate(() => {
+      const el = document.querySelector('.portal-admin-bookings-chip--paid');
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      return { color: cs.color, bg: cs.backgroundColor, fontSize: cs.fontSize, padding: cs.padding };
+    });
+    ok('status chip paid uses light text (dark palette)', (() => {
+      if (!chipPaidCss || !chipPaidCss.color) return false;
+      // #86efac ≈ rgb(134, 239, 172)
+      return /134,\s*239,\s*172/.test(chipPaidCss.color) || /86efac/i.test(chipPaidCss.color);
+    })(), JSON.stringify(chipPaidCss));
+    ok('status chips smaller font (~10px)', chipPaidCss && parseFloat(chipPaidCss.fontSize) <= 11.5,
+      chipPaidCss && chipPaidCss.fontSize);
     // Date-range picker — live apply on complete selection (no Apply buttons)
     ok('date range control present', await page.locator('#admin-bookings-date-range-trigger').count() === 1);
     ok('no toolbar Apply filters button', await page.locator('#admin-bookings-apply').count() === 0);
@@ -1140,6 +1181,13 @@ async function testGeneratedUi() {
     await page.fill('#admin-bookings-q', '');
     await page.selectOption('#admin-bookings-status', '');
     await page.selectOption('#admin-bookings-type', '');
+    await page.evaluate(() => {
+      if (window.adminBookingsState && window.adminBookingsState.filters) {
+        window.adminBookingsState.filters.sort = '';
+        window.adminBookingsState.filters.dir = '';
+        window.adminBookingsState.filters.offset = 0;
+      }
+    });
     await page.click('#admin-bookings-date-range-trigger');
     await page.waitForTimeout(100);
     if (await page.locator('#admin-bookings-date-range-clear').count()) {
@@ -1158,6 +1206,15 @@ async function testGeneratedUi() {
         if (typeof window.loadAdminBookings === 'function') window.loadAdminBookings();
       });
     }
+    await page.waitForTimeout(300);
+    // Ensure default created_at order (Ada paid row first for guest-link assertions).
+    await page.evaluate(() => {
+      if (window.adminBookingsState && window.adminBookingsState.filters) {
+        window.adminBookingsState.filters.sort = '';
+        window.adminBookingsState.filters.dir = '';
+      }
+      if (typeof window.loadAdminBookings === 'function') window.loadAdminBookings();
+    });
     await page.waitForTimeout(300);
     ok('clear date range reloads without dates',
       lastListQuery && !lastListQuery.get('date_from') && !lastListQuery.get('date_to'),
@@ -1203,14 +1260,15 @@ async function testGeneratedUi() {
       const stub = function (p) { calls.push(String(p || '')); return Promise.resolve(); };
       window.openCustomerCardForPhone = stub;
       try { openCustomerCardForPhone = stub; } catch (_e) { /* non-writable binding */ }
-      const btn = document.querySelector('[data-bookings-guest-phone]');
+      // Prefer paid Ada row phone (stable under default created_at order).
+      const btn = document.querySelector('[data-bookings-guest-phone="+346****1222"]')
+        || document.querySelector('[data-bookings-guest-phone]');
       if (!btn) return { err: 'no-btn', calls };
       btn.scrollIntoView({ block: 'center' });
       // Direct production click path via bubbling to wrap listener
       btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       const afterClick = calls.slice();
       calls.length = 0;
-      const wrap = document.getElementById('admin-bookings-table-wrap');
       const keyEv = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
       // re-target: dispatch from button so closest() works
       btn.dispatchEvent(keyEv);
@@ -1675,6 +1733,22 @@ function testOwnerWiring() {
     !/stripe_refund|ALTER TABLE payments/i.test(
       fs.readFileSync(path.join(ROOT, 'database/migrations/056_booking_refund_records.sql'), 'utf8'),
     ));
+
+  section('8b. Bookings v2 sort + Type gates (static)');
+  const domainSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-bookings-admin.js'), 'utf8');
+  const dataSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-bookings-admin-data.js'), 'utf8');
+  const bookingsUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-bookings-ui.js'), 'utf8');
+  ok('domain exports sortBookingRows', typeof DOMAIN.sortBookingRows === 'function');
+  ok('domain exports buildTypeCategories', typeof DOMAIN.buildTypeCategories === 'function');
+  ok('SORT_FIRST_DIR total/paid DESC', DOMAIN.SORT_FIRST_DIR.total === 'desc' && DOMAIN.SORT_FIRST_DIR.paid === 'desc');
+  ok('SORT_FIRST_DIR dates ASC', DOMAIN.SORT_FIRST_DIR.dates === 'asc');
+  ok('data layer dynamic ORDER BY builder', typeof DATA.buildListBookingsSql === 'function');
+  ok('list sorts full filtered set', /sortBookingRows\(filtered/.test(dataSrc));
+  ok('UI data-bookings-sort wired', /data-bookings-sort/.test(bookingsUi));
+  ok('UI Type chips', /adminBookingsTypeChipsHtml/.test(bookingsUi));
+  ok('CSS dark chip paid palette', /chip--paid\{color:#86efac/.test(apiSrc));
+  ok('CSS Status column widened', /minmax\(132px/.test(apiSrc));
+  ok('course equipment excluded helper present', /isCourseIncludedEquipmentService/.test(domainSrc));
   noteTracer('owner-wiring', true);
 }
 

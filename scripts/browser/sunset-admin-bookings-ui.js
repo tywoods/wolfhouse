@@ -21,6 +21,8 @@ var adminBookingsState = {
     include_archived: false,
     limit: 50,
     offset: 0,
+    sort: '',
+    dir: '',
   },
   role: null,
   /** Monotonic generation for stale-response suppression across filter/page/location loads. */
@@ -30,6 +32,17 @@ var adminBookingsState = {
   refundInFlight: false,
   refundIdempotencyKey: null,
   refundBookingId: null,
+};
+
+/** First-click sort direction per column (server defaults). */
+var ADMIN_BOOKINGS_SORT_FIRST_DIR = {
+  booking: 'desc',
+  guest: 'desc',
+  dates: 'asc',
+  type: 'asc',
+  total: 'desc',
+  paid: 'desc',
+  status: 'asc',
 };
 
 function adminBookingsCanWriteRefund() {
@@ -105,6 +118,10 @@ function adminBookingsBuildQuery(extra) {
   if (needHidden) { params.set('include_archived', '1'); params.set('show_hidden', '1'); }
   params.set('limit', String(f.limit || 50));
   params.set('offset', String(f.offset || 0));
+  if (f.sort) {
+    params.set('sort', String(f.sort));
+    params.set('dir', String(f.dir || ADMIN_BOOKINGS_SORT_FIRST_DIR[f.sort] || 'asc'));
+  }
   if (extra) {
     Object.keys(extra).forEach(function (k) {
       if (extra[k] != null && extra[k] !== '') params.set(k, String(extra[k]));
@@ -168,11 +185,9 @@ function renderAdminBookingsShell() {
           '<span class="portal-admin-bookings-label">' + escHtml(portalT('admin.bookings.type')) + '</span>' +
           '<select id="admin-bookings-type" class="portal-admin-bookings-input">' +
             '<option value="">' + escHtml(portalT('admin.bookings.typeAll')) + '</option>' +
-            '<option value="surf_lesson">' + escHtml(portalT('admin.bookings.type.surf_lesson')) + '</option>' +
-            '<option value="wetsuit">' + escHtml(portalT('admin.bookings.type.wetsuit')) + '</option>' +
-            '<option value="surfboard">' + escHtml(portalT('admin.bookings.type.surfboard')) + '</option>' +
-            '<option value="yoga">' + escHtml(portalT('admin.bookings.type.yoga')) + '</option>' +
-            '<option value="meal">' + escHtml(portalT('admin.bookings.type.meal')) + '</option>' +
+            '<option value="lessons">' + escHtml(portalT('admin.bookings.type.lessons') || 'Lessons') + '</option>' +
+            '<option value="rentals">' + escHtml(portalT('admin.bookings.type.rentals') || 'Rentals') + '</option>' +
+            '<option value="accommodation">' + escHtml(portalT('admin.bookings.type.accommodation') || 'Accommodation') + '</option>' +
           '</select>' +
         '</label>' +
         '<div class="portal-admin-bookings-actions">' +
@@ -444,13 +459,13 @@ function renderAdminBookingsTable() {
     escHtml(portalT('admin.bookings.tableLabel')) + '">';
   html += '<div class="portal-admin-bookings-thead" role="rowgroup">' +
     '<div class="portal-admin-bookings-tr" role="row">' +
-      adminBookingsTh('admin.bookings.col.booking') +
-      adminBookingsTh('admin.bookings.col.guest') +
-      adminBookingsTh('admin.bookings.col.dates') +
-      adminBookingsTh('admin.bookings.col.what') +
-      adminBookingsTh('admin.bookings.col.total') +
-      adminBookingsTh('admin.bookings.col.paid') +
-      adminBookingsTh('admin.bookings.col.status') +
+      adminBookingsTh('admin.bookings.col.booking', 'booking') +
+      adminBookingsTh('admin.bookings.col.guest', 'guest') +
+      adminBookingsTh('admin.bookings.col.dates', 'dates') +
+      adminBookingsTh('admin.bookings.col.type', 'type') +
+      adminBookingsTh('admin.bookings.col.total', 'total', 'num') +
+      adminBookingsTh('admin.bookings.col.paid', 'paid', 'num') +
+      adminBookingsTh('admin.bookings.col.status', 'status', 'status') +
     '</div></div><div class="portal-admin-bookings-tbody" role="rowgroup">';
 
   rows.forEach(function (row) {
@@ -472,12 +487,13 @@ function renderAdminBookingsTable() {
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-code" role="cell">' +
       '<div class="portal-admin-bookings-code" title="' + escHtml(code) + '">' + escHtml(code) + '</div>' +
       '<div class="portal-admin-bookings-sub">' + escHtml(created) + '</div></div>';
-    html += '<div class="portal-admin-bookings-td" role="cell">' +
+    html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-guest" role="cell">' +
       '<button type="button" class="portal-admin-bookings-guest-link" data-bookings-guest-phone="' +
       escHtml(String(row.phone || '')) + '">' + escHtml(row.guest_name || '—') + '</button>' +
       '<div class="portal-admin-bookings-sub">' + escHtml(row.phone || '') + '</div></div>';
-    html += '<div class="portal-admin-bookings-td" role="cell">' + escHtml(dates) + '</div>';
-    html += '<div class="portal-admin-bookings-td" role="cell">' + escHtml(row.what_summary || '—') + '</div>';
+    html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-dates" role="cell">' + escHtml(dates) + '</div>';
+    html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-type" role="cell">' +
+      adminBookingsTypeChipsHtml(row) + '</div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-num" role="cell">' +
       escHtml(adminBookingsFormatEur(row.total_cents != null ? row.total_cents : row.charged_cents)) + '</div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-num" role="cell">' +
@@ -523,10 +539,81 @@ function renderAdminBookingsTable() {
       loadAdminBookings();
     });
   }
+
+  // Sortable column headers — server-side sort of the full result set.
+  wrap.querySelectorAll('[data-bookings-sort]').forEach(function (btn) {
+    btn.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      var col = String(btn.getAttribute('data-bookings-sort') || '');
+      if (!col) return;
+      var cur = String(adminBookingsState.filters.sort || '');
+      var curDir = String(adminBookingsState.filters.dir || '');
+      if (cur === col) {
+        adminBookingsState.filters.dir = curDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        adminBookingsState.filters.sort = col;
+        adminBookingsState.filters.dir = ADMIN_BOOKINGS_SORT_FIRST_DIR[col] || 'asc';
+      }
+      adminBookingsState.filters.offset = 0;
+      loadAdminBookings();
+    });
+  });
 }
 
-function adminBookingsTh(key) {
-  return '<div class="portal-admin-bookings-th" role="columnheader">' + escHtml(portalT(key)) + '</div>';
+function adminBookingsTypeChipsHtml(row) {
+  var cats = Array.isArray(row && row.type_categories) ? row.type_categories.slice() : [];
+  if (!cats.length) {
+    // Compat: derive from what_summary labels if older payload.
+    var what = String((row && row.what_summary) || '');
+    if (/lesson/i.test(what)) cats.push('lessons');
+    if (/rental/i.test(what)) cats.push('rentals');
+    if (/accommodation|stay|lodging/i.test(what)) cats.push('accommodation');
+  }
+  if (!cats.length) {
+    return '<span class="portal-admin-bookings-muted">—</span>';
+  }
+  var order = ['lessons', 'rentals', 'accommodation'];
+  cats = order.filter(function (c) { return cats.indexOf(c) >= 0; });
+  return '<div class="portal-admin-bookings-type-chips">' + cats.map(function (c) {
+    var key = 'admin.bookings.type.' + c;
+    var label = portalT(key);
+    if (!label || label === key) {
+      label = c === 'lessons' ? 'Lessons' : (c === 'rentals' ? 'Rentals' : (c === 'accommodation' ? 'Accommodation' : c));
+    }
+    return '<span class="portal-admin-bookings-type-chip portal-admin-bookings-type-chip--' + escHtml(c) + '">' +
+      escHtml(label) + '</span>';
+  }).join('') + '</div>';
+}
+
+function adminBookingsTh(key, sortKey, align) {
+  var label = portalT(key);
+  // Fallback if col.type not yet in i18n bundle (keep col.what as alias).
+  if ((!label || label === key) && key === 'admin.bookings.col.type') {
+    label = portalT('admin.bookings.col.what');
+    if (!label || label === 'admin.bookings.col.what') label = 'Type';
+  }
+  var activeSort = String(adminBookingsState.filters.sort || '');
+  var activeDir = String(adminBookingsState.filters.dir || '');
+  var isActive = sortKey && activeSort === sortKey;
+  var arrow = '';
+  if (isActive) {
+    arrow = activeDir === 'asc' ? ' ▲' : ' ▼';
+  }
+  var alignClass = '';
+  if (align === 'num') alignClass = ' portal-admin-bookings-th-num';
+  if (align === 'status') alignClass = ' portal-admin-bookings-th-status';
+  if (!sortKey) {
+    return '<div class="portal-admin-bookings-th' + alignClass + '" role="columnheader">' +
+      escHtml(label) + '</div>';
+  }
+  var ariaSort = isActive ? (activeDir === 'asc' ? 'ascending' : 'descending') : 'none';
+  return '<div class="portal-admin-bookings-th' + alignClass + (isActive ? ' is-sorted' : '') +
+    '" role="columnheader" aria-sort="' + ariaSort + '">' +
+    '<button type="button" class="portal-admin-bookings-sort-btn" data-bookings-sort="' +
+    escHtml(sortKey) + '" title="' + escHtml(label) + '">' +
+    escHtml(label) + '<span class="portal-admin-bookings-sort-arrow" aria-hidden="true">' +
+    escHtml(arrow) + '</span></button></div>';
 }
 
 function renderAdminBookingsExpansion(row) {

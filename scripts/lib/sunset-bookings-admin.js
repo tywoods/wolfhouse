@@ -53,6 +53,53 @@ const STATUS_PRECEDENCE = Object.freeze([
   STATUS.UNPAID,
 ]);
 
+/** Canonical Type column buckets (multi-chip). */
+const TYPE_CATEGORY = Object.freeze({
+  LESSONS: 'lessons',
+  RENTALS: 'rentals',
+  ACCOMMODATION: 'accommodation',
+});
+
+/** Stable display order for multi-chip Type. */
+const TYPE_CATEGORY_ORDER = Object.freeze([
+  TYPE_CATEGORY.LESSONS,
+  TYPE_CATEGORY.RENTALS,
+  TYPE_CATEGORY.ACCOMMODATION,
+]);
+
+const TYPE_CATEGORY_LABEL = Object.freeze({
+  [TYPE_CATEGORY.LESSONS]: 'Lessons',
+  [TYPE_CATEGORY.RENTALS]: 'Rentals',
+  [TYPE_CATEGORY.ACCOMMODATION]: 'Accommodation',
+});
+
+/**
+ * Sortable list columns (query `sort` values).
+ * Default list (no sort) stays created_at DESC.
+ */
+const SORT_COLUMNS = Object.freeze({
+  booking: 'booking_code',
+  guest: 'guest_name',
+  dates: 'service_date_start',
+  type: 'type',
+  total: 'total_cents',
+  paid: 'paid_cents',
+  status: 'status',
+  created_at: 'created_at',
+});
+
+/** First-click direction per column (task defaults). */
+const SORT_FIRST_DIR = Object.freeze({
+  booking: 'desc',
+  guest: 'desc',
+  dates: 'asc',
+  type: 'asc',
+  total: 'desc',
+  paid: 'desc',
+  status: 'asc',
+  created_at: 'desc',
+});
+
 class BookingsAdminError extends Error {
   constructor(code, message, status = 400) {
     super(message || code);
@@ -330,6 +377,21 @@ function bookingMatchesStatus(row, statusFilter) {
 function bookingMatchesType(row, typeFilter) {
   const want = String(typeFilter || '').trim().toLowerCase();
   if (!want || want === 'all') return true;
+  // Canonical Type buckets (Rentals · Lessons · Accommodation).
+  const cats = Array.isArray(row.type_categories)
+    ? row.type_categories.map((t) => String(t || '').toLowerCase())
+    : [];
+  if (cats.includes(want)) return true;
+  // Legacy aliases for older clients/filters.
+  if (want === 'lesson' || want === 'surf_lesson' || want === 'course' || want === 'private_lesson') {
+    return cats.includes(TYPE_CATEGORY.LESSONS);
+  }
+  if (want === 'rental' || want === 'wetsuit' || want === 'surfboard' || want === 'board_rental') {
+    return cats.includes(TYPE_CATEGORY.RENTALS);
+  }
+  if (want === 'stay' || want === 'lodging') {
+    return cats.includes(TYPE_CATEGORY.ACCOMMODATION);
+  }
   const types = Array.isArray(row.service_types)
     ? row.service_types.map((t) => String(t || '').toLowerCase())
     : [];
@@ -385,26 +447,293 @@ function filterBookingRows(rows, filters) {
   });
 }
 
-function buildWhatSummary(services) {
-  const labels = [];
-  const seen = new Set();
-  for (const svc of services || []) {
-    if (!svc) continue;
-    if (String(svc.status || '').toLowerCase() === 'cancelled') continue;
-    const meta = parseMeta(svc.metadata);
-    let label = meta.course_label
-      || meta.label
-      || meta.staff_ui_service_type
-      || svc.service_type
-      || '';
-    label = String(label).replace(/_/g, ' ').trim();
-    if (!label) continue;
-    const key = label.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    labels.push(label);
+/**
+ * Course-included / course-owned equipment belongs with the course (Lessons),
+ * never as a standalone Rentals chip.
+ */
+function isCourseIncludedEquipmentService(svc) {
+  if (!svc) return false;
+  const meta = parseMeta(svc.metadata);
+  if (meta.course_equipment === true) return true;
+  if (meta.included_equipment === true) return true;
+  if (meta.price_source === 'course_owned_equipment') return true;
+  const provenance = String(meta.pricing_provenance || '').toLowerCase();
+  if (provenance.includes('course_owned')) return true;
+  if (String(meta.course_equipment_mode || '').toLowerCase() === 'during_course') return true;
+  if (String(meta.component || '').toLowerCase() === 'course_equipment') return true;
+  if (meta.included_course_id) return true;
+  // during_course CE lines often carry mode without all_day rental flag
+  if (String(meta.mode || '').toLowerCase() === 'during_course'
+    && (meta.during_course_policy != null || meta.course_id || meta.included_course_id)) {
+    return true;
   }
-  return labels.join(' · ');
+  return false;
+}
+
+function isPrimaryLessonService(svc) {
+  const meta = parseMeta(svc && svc.metadata);
+  const st = String((svc && svc.service_type) || '').toLowerCase();
+  const component = String(meta.component || '').toLowerCase();
+  const staffUi = String(meta.staff_ui_service_type || '').toLowerCase();
+  if (st === 'surf_lesson' || st === 'lesson' || st === 'course'
+    || st === 'private_lesson' || st === 'group_lesson' || st === 'private') {
+    return true;
+  }
+  if (component === 'course' || component === 'lesson' || component === 'group_lesson'
+    || component === 'private_lesson' || component === 'private') {
+    return true;
+  }
+  if (staffUi === 'course' || staffUi === 'lesson' || staffUi === 'private_lesson') {
+    return true;
+  }
+  return false;
+}
+
+function isAccommodationService(svc) {
+  const meta = parseMeta(svc && svc.metadata);
+  const st = String((svc && svc.service_type) || '').toLowerCase();
+  const component = String(meta.component || '').toLowerCase();
+  const staffUi = String(meta.staff_ui_service_type || '').toLowerCase();
+  const blob = [st, component, staffUi, meta.label, meta.course_label]
+    .map((x) => String(x || '').toLowerCase())
+    .join(' ');
+  if (st === 'accommodation' || st === 'stay' || st === 'lodging' || st === 'room'
+    || st === 'hostel' || st === 'bed') {
+    return true;
+  }
+  if (component === 'accommodation' || component === 'stay' || component === 'lodging') {
+    return true;
+  }
+  if (staffUi === 'accommodation' || staffUi === 'stay') return true;
+  if (/\b(accommodation|lodging|hostel|room_night|\bstay\b)\b/.test(blob)) return true;
+  return false;
+}
+
+function isStandaloneRentalService(svc) {
+  if (!svc || isCourseIncludedEquipmentService(svc) || isPrimaryLessonService(svc)) return false;
+  const meta = parseMeta(svc.metadata);
+  const st = String(svc.service_type || '').toLowerCase();
+  const component = String(meta.component || '').toLowerCase();
+  const staffUi = String(meta.staff_ui_service_type || '').toLowerCase();
+  if (st === 'rental' || st.endsWith('_rental') || st.includes('rental')) return true;
+  if (st === 'surfboard' || st === 'wetsuit' || st === 'board' || st === 'board_and_suit') return true;
+  if (component.includes('rental') || component === 'surfboard' || component === 'wetsuit'
+    || component === 'board_and_suit_rental' || component === 'addon_service') {
+    if (meta.generic_rental === true || meta.rental_offering === true || staffUi === 'rental'
+      || component.includes('rental') || st.includes('rental') || st === 'surfboard' || st === 'wetsuit') {
+      return true;
+    }
+  }
+  if (staffUi === 'rental' || meta.generic_rental === true || meta.rental_offering === true) return true;
+  // all_day equipment upsell is a real rental (not course-included)
+  if (String(meta.course_equipment_mode || meta.mode || '').toLowerCase() === 'all_day'
+    && (st.includes('rental') || component.includes('rental') || staffUi === 'rental'
+      || st === 'surfboard' || st === 'wetsuit' || meta.rental_offering === true)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Classify one service into Lessons | Rentals | Accommodation, or unknown key.
+ * @returns {{ category: string|null, unknown: string|null }}
+ */
+function classifyServiceTypeCategory(svc) {
+  if (!svc) return { category: null, unknown: null };
+  if (String(svc.status || '').toLowerCase() === 'cancelled') {
+    return { category: null, unknown: null };
+  }
+  // Course-included gear rides with Lessons (never Rentals).
+  if (isCourseIncludedEquipmentService(svc)) {
+    return { category: TYPE_CATEGORY.LESSONS, unknown: null };
+  }
+  if (isPrimaryLessonService(svc)) {
+    return { category: TYPE_CATEGORY.LESSONS, unknown: null };
+  }
+  if (isAccommodationService(svc)) {
+    return { category: TYPE_CATEGORY.ACCOMMODATION, unknown: null };
+  }
+  if (isStandaloneRentalService(svc)) {
+    return { category: TYPE_CATEGORY.RENTALS, unknown: null };
+  }
+  const meta = parseMeta(svc.metadata);
+  const raw = String(svc.service_type || meta.component || meta.staff_ui_service_type || '').trim().toLowerCase();
+  if (!raw) return { category: null, unknown: null };
+  return { category: null, unknown: raw };
+}
+
+/**
+ * Derive Type chips: Rentals · Lessons · Accommodation (all applicable).
+ * Unknown service types (yoga/meal/…) are listed separately for owner confirm —
+ * they are not guessed into the three buckets.
+ */
+function buildTypeCategories(services) {
+  const present = new Set();
+  const unknown = [];
+  const unknownSeen = new Set();
+  for (const svc of services || []) {
+    const { category, unknown: unk } = classifyServiceTypeCategory(svc);
+    if (category) present.add(category);
+    if (unk) {
+      const key = String(unk).toLowerCase();
+      if (!unknownSeen.has(key)) {
+        unknownSeen.add(key);
+        unknown.push(key);
+      }
+    }
+  }
+  const type_categories = TYPE_CATEGORY_ORDER.filter((c) => present.has(c));
+  return {
+    type_categories,
+    type_categories_unknown: unknown,
+    what_summary: type_categories.map((c) => TYPE_CATEGORY_LABEL[c] || c).join(' · '),
+  };
+}
+
+/** @deprecated Prefer buildTypeCategories — kept for CSV/compat label join. */
+function buildWhatSummary(services) {
+  return buildTypeCategories(services).what_summary;
+}
+
+/**
+ * Normalize sort key + direction. Unknown sort → null (caller uses created_at DESC).
+ * @returns {{ sort: string|null, dir: 'asc'|'desc' }}
+ */
+function normalizeSortParams(sortRaw, dirRaw) {
+  const sortKey = String(sortRaw || '').trim().toLowerCase();
+  const aliases = {
+    booking_code: 'booking',
+    code: 'booking',
+    guest_name: 'guest',
+    name: 'guest',
+    service_dates: 'dates',
+    service_date: 'dates',
+    service_date_start: 'dates',
+    what: 'type',
+    total_cents: 'total',
+    paid_cents: 'paid',
+    collected: 'paid',
+  };
+  const sort = Object.prototype.hasOwnProperty.call(SORT_COLUMNS, sortKey)
+    ? sortKey
+    : (aliases[sortKey] || null);
+  if (!sort) {
+    return { sort: null, dir: 'desc' };
+  }
+  const dirIn = String(dirRaw || '').trim().toLowerCase();
+  let dir;
+  if (dirIn === 'asc' || dirIn === 'desc') dir = dirIn;
+  else dir = SORT_FIRST_DIR[sort] || 'asc';
+  return { sort, dir };
+}
+
+function typeSortKey(row) {
+  const cats = Array.isArray(row && row.type_categories) ? row.type_categories : [];
+  if (!cats.length) return '';
+  return cats.join(',');
+}
+
+function compareNullableString(a, b, dir) {
+  const left = a == null || a === '' ? null : String(a);
+  const right = b == null || b === '' ? null : String(b);
+  if (left == null && right == null) return 0;
+  if (left == null) return 1; // nulls last
+  if (right == null) return -1;
+  const cmp = left.localeCompare(right, undefined, { sensitivity: 'base', numeric: true });
+  return dir === 'desc' ? -cmp : cmp;
+}
+
+function compareNullableNumber(a, b, dir) {
+  const left = a == null || a === '' || !Number.isFinite(Number(a)) ? null : Number(a);
+  const right = b == null || b === '' || !Number.isFinite(Number(b)) ? null : Number(b);
+  if (left == null && right == null) return 0;
+  if (left == null) return 1;
+  if (right == null) return -1;
+  if (left === right) return 0;
+  const cmp = left < right ? -1 : 1;
+  return dir === 'desc' ? -cmp : cmp;
+}
+
+/**
+ * Sort the full filtered result set (server-side; before pagination).
+ * Default (no sort): created_at DESC, booking_code ASC tie-break.
+ */
+function sortBookingRows(rows, sortRaw, dirRaw) {
+  const list = Array.isArray(rows) ? rows.slice() : [];
+  const { sort, dir } = normalizeSortParams(sortRaw, dirRaw);
+  const effectiveSort = sort || 'created_at';
+  const effectiveDir = sort ? dir : 'desc';
+
+  list.sort((a, b) => {
+    let cmp = 0;
+    switch (effectiveSort) {
+      case 'booking':
+        cmp = compareNullableString(a.booking_code, b.booking_code, effectiveDir);
+        break;
+      case 'guest':
+        cmp = compareNullableString(a.guest_name, b.guest_name, effectiveDir);
+        break;
+      case 'dates':
+        cmp = compareNullableString(a.service_date_start, b.service_date_start, effectiveDir);
+        break;
+      case 'type':
+        cmp = compareNullableString(typeSortKey(a), typeSortKey(b), effectiveDir);
+        break;
+      case 'total':
+        cmp = compareNullableNumber(
+          a.total_cents != null ? a.total_cents : a.charged_cents,
+          b.total_cents != null ? b.total_cents : b.charged_cents,
+          effectiveDir,
+        );
+        break;
+      case 'paid':
+        cmp = compareNullableNumber(
+          a.paid_cents != null ? a.paid_cents : a.collected_cents,
+          b.paid_cents != null ? b.paid_cents : b.collected_cents,
+          effectiveDir,
+        );
+        break;
+      case 'status':
+        cmp = compareNullableString(a.status, b.status, effectiveDir);
+        break;
+      case 'created_at':
+      default:
+        cmp = compareNullableString(a.created_at, b.created_at, effectiveDir);
+        break;
+    }
+    if (cmp !== 0) return cmp;
+    // Stable tie-breakers
+    const codeCmp = compareNullableString(a.booking_code, b.booking_code, 'asc');
+    if (codeCmp !== 0) return codeCmp;
+    return compareNullableString(a.booking_id, b.booking_id, 'asc');
+  });
+  return list;
+}
+
+/**
+ * Whitelist SQL ORDER BY fragment for LIST_BOOKINGS_SQL (booking-table cols only).
+ * Derived cols (type/dates/total/paid) are sorted after row build.
+ */
+function buildListBookingsOrderBySql(sortRaw, dirRaw) {
+  const { sort, dir } = normalizeSortParams(sortRaw, dirRaw);
+  const d = dir === 'asc' ? 'ASC' : 'DESC';
+  // Default + non-SQL cols: keep created_at DESC so fetch order is predictable.
+  if (!sort || sort === 'type' || sort === 'dates' || sort === 'total' || sort === 'paid') {
+    return 'ORDER BY b.created_at DESC NULLS LAST, b.booking_code ASC';
+  }
+  if (sort === 'booking') {
+    return `ORDER BY b.booking_code ${d} NULLS LAST, b.created_at DESC NULLS LAST`;
+  }
+  if (sort === 'guest') {
+    return `ORDER BY b.guest_name ${d} NULLS LAST, b.booking_code ASC`;
+  }
+  if (sort === 'status') {
+    return `ORDER BY b.status ${d} NULLS LAST, b.created_at DESC NULLS LAST`;
+  }
+  if (sort === 'created_at') {
+    return `ORDER BY b.created_at ${d} NULLS LAST, b.booking_code ASC`;
+  }
+  return 'ORDER BY b.created_at DESC NULLS LAST, b.booking_code ASC';
 }
 
 function serviceDateSpan(services) {
@@ -560,6 +889,18 @@ function buildBookingListRow(input) {
     if (t && !serviceTypes.includes(t)) serviceTypes.push(t);
   }
 
+  const typeInfo = src.type_categories != null
+    ? {
+      type_categories: Array.isArray(src.type_categories) ? src.type_categories : [],
+      type_categories_unknown: Array.isArray(src.type_categories_unknown) ? src.type_categories_unknown : [],
+      what_summary: src.what_summary != null
+        ? src.what_summary
+        : (Array.isArray(src.type_categories)
+          ? src.type_categories.map((c) => TYPE_CATEGORY_LABEL[c] || c).join(' · ')
+          : ''),
+    }
+    : buildTypeCategories(services);
+
   const items = (services || []).map((svc) => {
     const sm = parseMeta(svc.metadata);
     return {
@@ -589,7 +930,9 @@ function buildBookingListRow(input) {
     check_in: booking.check_in || null,
     check_out: booking.check_out || null,
     ...span,
-    what_summary: src.what_summary != null ? src.what_summary : buildWhatSummary(services),
+    what_summary: src.what_summary != null ? src.what_summary : typeInfo.what_summary,
+    type_categories: typeInfo.type_categories,
+    type_categories_unknown: typeInfo.type_categories_unknown,
     service_types: serviceTypes,
     total_cents: money.charged_cents,
     paid_cents: money.collected_cents,
@@ -735,6 +1078,7 @@ function parseListQuery(query, opts) {
     offset,
     mode,
     max_limit: maxLimit,
+    ...normalizeSortParams(q.sort, q.dir),
   };
 }
 
@@ -742,6 +1086,11 @@ module.exports = {
   STATUS,
   ARCHIVED_STATUSES,
   STATUS_PRECEDENCE,
+  TYPE_CATEGORY,
+  TYPE_CATEGORY_ORDER,
+  TYPE_CATEGORY_LABEL,
+  SORT_COLUMNS,
+  SORT_FIRST_DIR,
   CSV_COLUMNS,
   LIST_MAX_LIMIT,
   EXPORT_HARD_CAP,
@@ -766,7 +1115,16 @@ module.exports = {
   bookingMatchesStatus,
   bookingMatchesType,
   bookingMatchesLocation,
+  isCourseIncludedEquipmentService,
+  isPrimaryLessonService,
+  isAccommodationService,
+  isStandaloneRentalService,
+  classifyServiceTypeCategory,
+  buildTypeCategories,
   buildWhatSummary,
+  normalizeSortParams,
+  sortBookingRows,
+  buildListBookingsOrderBySql,
   serviceDateSpan,
   effectiveServiceDueCents,
   computeChargedCents,

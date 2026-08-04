@@ -25,6 +25,8 @@ const {
   rowsToCsv,
   clampNonNegative,
   checkedAdd,
+  sortBookingRows,
+  buildListBookingsOrderBySql,
   EXPORT_HARD_CAP,
   LIST_MAX_LIMIT,
 } = require('./sunset-bookings-admin');
@@ -78,7 +80,7 @@ const LOCATION_SQL = `COALESCE(b.metadata->>'location_id', (
    LIMIT 1
 ), '${DEFAULT_LOCATION}')`;
 
-const LIST_BOOKINGS_SQL = `
+const LIST_BOOKINGS_SQL_BASE = `
 SELECT
   b.id::text AS booking_id,
   b.booking_code,
@@ -104,9 +106,23 @@ FROM bookings b
 INNER JOIN clients c ON c.id = b.client_id
 WHERE c.slug = $1
   AND ${LOCATION_SQL} = $2
+`;
+
+/** Default ORDER BY (no sort param) — created_at DESC. */
+const LIST_BOOKINGS_SQL = `${LIST_BOOKINGS_SQL_BASE}
 ORDER BY b.created_at DESC NULLS LAST, b.booking_code ASC
 `;
 
+/**
+ * Build list SQL with whitelist ORDER BY from sort/dir.
+ * Replaces the fixed created_at order when a sortable booking-table column is requested.
+ */
+function buildListBookingsSql(sort, dir) {
+  const orderBy = buildListBookingsOrderBySql(sort, dir);
+  return `${LIST_BOOKINGS_SQL_BASE}
+${orderBy}
+`;
+}
 const SERVICES_FOR_BOOKINGS_SQL = `
 SELECT
   bsr.id::text AS service_record_id,
@@ -204,8 +220,12 @@ function sumRefunds(refundRows) {
   return sum;
 }
 
-async function fetchScopedBookingRows(pg, clientSlug, locationId) {
-  const bookingRes = await pg.query(LIST_BOOKINGS_SQL, [clientSlug, locationId]);
+async function fetchScopedBookingRows(pg, clientSlug, locationId, sortOpts) {
+  const listSql = buildListBookingsSql(
+    sortOpts && sortOpts.sort,
+    sortOpts && sortOpts.dir,
+  );
+  const bookingRes = await pg.query(listSql, [clientSlug, locationId]);
   const bookingRows = rows(bookingRes);
   if (!bookingRows.length) return [];
 
@@ -291,7 +311,10 @@ async function listSunsetBookingsAdmin(pg, scope, query) {
   await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
   let allRows;
   try {
-    allRows = await fetchScopedBookingRows(pg, clientSlug, locationId);
+    allRows = await fetchScopedBookingRows(pg, clientSlug, locationId, {
+      sort: filters.sort,
+      dir: filters.dir,
+    });
     await pg.query('COMMIT');
   } catch (err) {
     try { await pg.query('ROLLBACK'); } catch (_e) { /* ignore */ }
@@ -299,8 +322,10 @@ async function listSunsetBookingsAdmin(pg, scope, query) {
   }
 
   const filtered = filterBookingRows(allRows, filters);
-  const summary = computeBookingsSummary(filtered);
-  const page = filtered.slice(filters.offset, filters.offset + filters.limit);
+  // Server-side sort of the full filtered set (not just the visible page).
+  const sorted = sortBookingRows(filtered, filters.sort, filters.dir);
+  const summary = computeBookingsSummary(sorted);
+  const page = sorted.slice(filters.offset, filters.offset + filters.limit);
 
   return {
     success: true,
@@ -315,9 +340,11 @@ async function listSunsetBookingsAdmin(pg, scope, query) {
       include_archived: filters.include_archived,
       limit: filters.limit,
       offset: filters.offset,
+      sort: filters.sort || null,
+      dir: filters.sort ? filters.dir : null,
     },
     summary,
-    total_count: filtered.length,
+    total_count: sorted.length,
     rows: page,
   };
 }
@@ -342,7 +369,10 @@ async function exportSunsetBookingsAdminCsv(pg, scope, query) {
   await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
   let allRows;
   try {
-    allRows = await fetchScopedBookingRows(pg, clientSlug, locationId);
+    allRows = await fetchScopedBookingRows(pg, clientSlug, locationId, {
+      sort: filters.sort,
+      dir: filters.dir,
+    });
     await pg.query('COMMIT');
   } catch (err) {
     try { await pg.query('ROLLBACK'); } catch (_e) { /* ignore */ }
@@ -350,10 +380,11 @@ async function exportSunsetBookingsAdminCsv(pg, scope, query) {
   }
 
   const filtered = filterBookingRows(allRows, filters);
-  const summary = computeBookingsSummary(filtered);
-  const totalMatching = filtered.length;
+  const sorted = sortBookingRows(filtered, filters.sort, filters.dir);
+  const summary = computeBookingsSummary(sorted);
+  const totalMatching = sorted.length;
   const truncated = totalMatching > EXPORT_HARD_CAP;
-  const exportRows = truncated ? filtered.slice(0, EXPORT_HARD_CAP) : filtered;
+  const exportRows = truncated ? sorted.slice(0, EXPORT_HARD_CAP) : sorted;
   let csv = rowsToCsv(exportRows);
   if (truncated) {
     // Truthful non-formula comment header for operators (not a data row).
@@ -375,6 +406,8 @@ async function exportSunsetBookingsAdminCsv(pg, scope, query) {
       offset: 0,
       mode: 'export',
       hard_cap: EXPORT_HARD_CAP,
+      sort: filters.sort || null,
+      dir: filters.sort ? filters.dir : null,
     },
     summary,
     csv,
@@ -681,6 +714,8 @@ module.exports = {
   recordSunsetBookingRefund,
   fetchScopedBookingRows,
   LIST_BOOKINGS_SQL,
+  LIST_BOOKINGS_SQL_BASE,
+  buildListBookingsSql,
   SERVICES_FOR_BOOKINGS_SQL,
   PAYMENTS_FOR_BOOKINGS_SQL,
   REFUNDS_FOR_BOOKINGS_SQL,
