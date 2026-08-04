@@ -428,6 +428,8 @@ const {
   updateSunsetScheduleBooking,
   cancelSunsetScheduleBooking,
   archiveSunsetScheduleBooking,
+  hideSunsetScheduleBooking,
+  unhideSunsetScheduleBooking,
   restoreSunsetScheduleBooking,
 } = require('./lib/sunset-schedule-booking-drawer');
 const {
@@ -16874,6 +16876,26 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .pfb-sec{font-size:15px;font-weight:700;color:var(--text)}
 .pfb-sub{font-size:12px;color:var(--text-2);margin:2px 0 12px}
 .pfb-bar-row,.pfb-util-row{display:grid;grid-template-columns:minmax(0,7.5rem) minmax(0,1fr) auto auto;gap:8px;align-items:center;margin:8px 0}
+
+/* Finance redesign — compact 4-row bars + trend toggle + custom cal */
+.pfb-bars--compact{display:flex;flex-direction:column;gap:10px}
+.pfb-bars--compact .pfb-bar-row{min-height:28px;align-items:center}
+.pfb-bars--compact .pfb-bar-track{height:8px}
+.pfb-sub--foot{margin-top:12px;margin-bottom:0}
+.pfb-sec-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.pfb-trend-toggle{display:inline-flex;border:1px solid var(--border-soft);border-radius:999px;overflow:hidden}
+.pfb-trend-btn{border:0;background:transparent;padding:6px 12px;font-size:12px;font-weight:600;color:var(--text-2);cursor:pointer}
+.pfb-trend-btn.is-on{background:var(--surface-soft);color:var(--text)}
+.pfb-custom-range-trigger{min-height:36px;padding:6px 12px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);font-weight:600;cursor:pointer}
+.pfb-custom-range-pop{position:relative;margin-top:8px;padding:10px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow);max-width:320px;z-index:5}
+.pfb-cal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-weight:600}
+.pfb-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.pfb-cal-day{min-height:32px;border:0;background:var(--surface-soft);border-radius:8px;cursor:pointer;font-size:12px}
+.pfb-cal-day.is-start,.pfb-cal-day.is-end{background:var(--primary,#4E5853);color:#fff}
+.pfb-cal-day.is-mid{background:rgba(78,88,83,.18)}
+.pfb-cal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+.pfb-kick{display:none!important}
+.portal-schedule-row.is-cancelled,.portal-schedule-card.is-cancelled{opacity:.55;filter:grayscale(.35)}
 .pfb-bar-name,.pfb-util-name{font-size:13px;color:var(--text);min-width:0}
 .pfb-bar-track,.pfb-util-track{height:10px;background:var(--surface);border-radius:999px;overflow:hidden;min-width:0}
 .pfb-bar-fill,.pfb-util-fill{display:block;height:100%;border-radius:999px}
@@ -42687,6 +42709,41 @@ async function handleSunsetScheduleBookingDelete(query, req, res, user) {
   }
 }
 
+async function handleSunsetScheduleBookingUnhide(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (clientSlug !== SUNSET_CLIENT_SLUG) {
+    return sendJSON(res, 403, { success: false, error: 'unsupported_client', client_slug: clientSlug });
+  }
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  if (!isSunsetLocationId(query.location)) return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  const trustedLocationId = normalizeSunsetLocationId(query.location);
+  const bookingId = String(body.booking_id || query.booking_id || '').trim();
+  try {
+    const result = await withPgClient(async (pg) => unhideSunsetScheduleBooking(pg, {
+      clientSlug,
+      bookingId,
+      locationId: trustedLocationId,
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:sunset.schedule.booking_unhide',
+      category: 'schedule_api',
+      client_slug: clientSlug,
+      success: !!(result && result.ok),
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, result.status, { ...(result.body || {}), elapsed_ms: Date.now() - started });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'unhide failed', detail: err.message });
+  }
+}
+
 async function handleSunsetSchedulePaymentLinkGet(query, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -49068,6 +49125,16 @@ async function router(req, res) {
     return handleSunsetScheduleBookingRestore(parsed.query, req, res, auth.user);
   }
   if (pathname === '/staff/schedule/bookings' && method === 'DELETE') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleSunsetScheduleBookingDelete(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/schedule/bookings/unhide' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleSunsetScheduleBookingUnhide(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/schedule/bookings/hide' && method === 'POST') {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleSunsetScheduleBookingDelete(parsed.query, req, res, auth.user);

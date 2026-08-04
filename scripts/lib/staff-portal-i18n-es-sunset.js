@@ -907,5 +907,15 @@ module.exports = {
     'inbox.school.context': 'Bandeja de:',
   'inbox.detail.sidebar.hide': 'Ocultar reservas',
   'inbox.detail.sidebar.show': 'Mostrar reservas',
+  'schedule.drawer.hideBooking': 'Ocultar reserva',
+  'schedule.drawer.hideBookingConfirm': '¿Ocultar esta reserva cancelada del horario?',
+  'admin.bookings.filter.showHidden': 'Mostrar ocultas',
+  'admin.bookings.action.hide': 'Ocultar',
+  'admin.bookings.action.unhide': 'Mostrar de nuevo',
+  'admin.bookings.status.hidden': 'Oculta',
+  'admin.finance.product.accommodation': 'Alojamiento',
+  'admin.finance.trend.monthDays': 'Días',
+  'admin.finance.trend.yearMonths': '12 meses',
+  'admin.finance.pickRange': 'Elegir fechas',
 
 };

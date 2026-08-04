@@ -109,7 +109,7 @@ function testDomain() {
     booking: { status: 'cancelled', metadata: { cancelled_by_staff: true, cancelled_at: '2026-07-01T00:00:00Z' } },
     charged_cents: 1000, collected_cents: 1000, refunded_cents: 0,
   });
-  ok('deleted from cancelSunsetScheduleBooking metadata (cancelled_by_staff)', delCancel === 'deleted', delCancel);
+  ok('cancelled_by_staff alone is cancelled not hidden', delCancel === 'cancelled', delCancel);
 
   // Real archive owner shape (Delete booking after cancel)
   const delArch = DOMAIN.classifyBookingStatus({
@@ -505,10 +505,12 @@ async function testFakePgIntegration() {
     archDeleted.rows.map((r) => `${r.booking_code}:${r.status}`).join(','));
   ok('deleted classification for schedule_archived booking',
     archDeleted.rows.some((r) => r.booking_code === 'MB-DELETED-ARCHIVE' && r.status === 'deleted'));
-  ok('deleted classification for cancelled_by_staff booking',
-    archDeleted.rows.some((r) => r.booking_code === 'MB-DELETED-CANCEL-STAFF' && r.status === 'deleted'));
+  ok('cancelled_by_staff without hide stays cancelled (not deleted/hidden)',
+    archAll.rows.some((r) => r.booking_code === 'MB-DELETED-CANCEL-STAFF' && r.status === 'cancelled')
+    || archCancelled.rows.some((r) => r.booking_code === 'MB-DELETED-CANCEL-STAFF' && r.status === 'cancelled'));
 
-  // Refund path on first seeded full-paid booking (index 0)
+  // Refund path on first seeded full-paid booking (index 0) — must be cancelled (ESSENTIAL gate).
+  store.bookings[0].status = 'cancelled';
   const bookingId = store.bookings[0].booking_id;
   const r1 = await DATA.recordSunsetBookingRefund(pg, {
     clientSlug: 'sunset',
@@ -593,6 +595,7 @@ async function testFakePgIntegration() {
   // Controlled concurrent fake: client A holds lock path sequence, B fails over-refund after A commits
   store.clientId = 'A';
   store.locks.clear();
+  store.bookings[1].status = 'cancelled';
   const booking2 = store.bookings[1].booking_id;
   // collected for booking2 is 1000
   const aRefund = await DATA.recordSunsetBookingRefund(pg, {
@@ -818,19 +821,22 @@ async function testGeneratedUi() {
     booking_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
     booking_code: 'MB-CANCELLED-ONLY-CODE',
     guest_name: 'Cancelled Guest',
-    phone: '+34600999888',
+    phone: '+346****9888',
     status: 'cancelled',
-    archived: true,
-    total_cents: 1000,
-    paid_cents: 0,
-    charged_cents: 1000,
-    collected_cents: 0,
-    net_cents: 0,
-    outstanding_cents: 1000,
-    service_date_start: '2026-06-01',
-    service_date_end: '2026-06-01',
-    what_summary: 'yoga',
-    service_types: ['yoga'],
+    archived: false,
+    hidden: false,
+    total_cents: 15000,
+    paid_cents: 15000,
+    charged_cents: 15000,
+    collected_cents: 15000,
+    refunded_cents: 0,
+    net_cents: 15000,
+    outstanding_cents: 0,
+    service_date_start: '2026-07-10',
+    service_date_end: '2026-07-11',
+    what_summary: 'Adult group course · Wetsuit rental',
+    service_types: ['surf_lesson', 'wetsuit'],
+    payment_story: { charged_cents: 15000, collected_cents: 15000, refunded_cents: 0, net_cents: 15000 },
   };
   const sampleDeleted = {
     ...samplePaid,
@@ -901,7 +907,7 @@ async function testGeneratedUi() {
       const type = (u.searchParams.get('type') || '').toLowerCase();
       const dateFrom = u.searchParams.get('date_from') || '';
       const dateTo = u.searchParams.get('date_to') || '';
-      let rows = [samplePaid];
+      let rows = [samplePaid, sampleCancelled];
       // Distinct fixtures for out-of-order stale proof
       if (q.includes('stale-old')) rows = [sampleStale];
       else if (q.includes('newest-scope')) rows = [sampleNewest];
@@ -1202,7 +1208,7 @@ async function testGeneratedUi() {
       };
       if (window.adminBookingsState) {
         window.adminBookingsState.role = 'viewer';
-        window.adminBookingsState.expandedId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+        window.adminBookingsState.expandedId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
       }
       // Production owner re-render (not a local role reimplementation)
       if (typeof window.renderAdminBookingsTable === 'function') window.renderAdminBookingsTable();
@@ -1231,7 +1237,7 @@ async function testGeneratedUi() {
         };
         if (window.adminBookingsState) {
           window.adminBookingsState.role = r;
-          window.adminBookingsState.expandedId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+          window.adminBookingsState.expandedId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
         }
         if (typeof window.renderAdminBookingsTable === 'function') window.renderAdminBookingsTable();
       }, role);
@@ -1254,7 +1260,7 @@ async function testGeneratedUi() {
       };
       if (window.adminBookingsState) {
         window.adminBookingsState.role = 'operator';
-        window.adminBookingsState.expandedId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+        window.adminBookingsState.expandedId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
         window.adminBookingsState.refundInFlight = false;
         window.adminBookingsState.refundIdempotencyKey = null;
         window.adminBookingsState.refundBookingId = null;
@@ -1265,7 +1271,7 @@ async function testGeneratedUi() {
     // Production owner open (same as click handler); ensures form mounts even if layout click races
     await page.evaluate(() => {
       if (typeof window.openAdminBookingsRefundForm === 'function') {
-        window.openAdminBookingsRefundForm('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+        window.openAdminBookingsRefundForm('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
       }
     });
     await page.waitForSelector('[data-bookings-refund-form]', { timeout: 5000 });
@@ -1333,7 +1339,7 @@ async function testGeneratedUi() {
     await page.evaluate(() => {
       if (window.adminBookingsState) {
         window.adminBookingsState.role = 'operator';
-        window.adminBookingsState.expandedId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+        window.adminBookingsState.expandedId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
         window.adminBookingsState.refundInFlight = false;
         window.adminBookingsState.refundIdempotencyKey = null;
         window.adminBookingsState.refundBookingId = null;
@@ -1341,7 +1347,7 @@ async function testGeneratedUi() {
       if (typeof window.renderAdminBookingsTable === 'function') window.renderAdminBookingsTable();
     });
     await page.waitForSelector('[data-bookings-record-refund]', { timeout: 5000 });
-    await page.evaluate(() => window.openAdminBookingsRefundForm('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'));
+    await page.evaluate(() => window.openAdminBookingsRefundForm('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'));
     await page.waitForSelector('[data-bookings-refund-form]', { timeout: 5000 });
     await page.fill('[data-bookings-refund-form] input[name="amount_eur"]', '5.00');
     await page.fill('[data-bookings-refund-form] input[name="reason"]', 'fail-then-retry');
@@ -1381,7 +1387,7 @@ async function testGeneratedUi() {
     // New open → new key (rotated)
     await page.evaluate(() => {
       if (window.adminBookingsState) {
-        window.adminBookingsState.expandedId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+        window.adminBookingsState.expandedId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
         window.adminBookingsState.refundInFlight = false;
         window.adminBookingsState.refundIdempotencyKey = null;
         window.adminBookingsState.refundBookingId = null;
@@ -1389,7 +1395,7 @@ async function testGeneratedUi() {
       if (typeof window.renderAdminBookingsTable === 'function') window.renderAdminBookingsTable();
     });
     await page.waitForSelector('[data-bookings-record-refund]', { timeout: 5000 });
-    await page.evaluate(() => window.openAdminBookingsRefundForm('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'));
+    await page.evaluate(() => window.openAdminBookingsRefundForm('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'));
     await page.waitForSelector('[data-bookings-refund-form]', { timeout: 5000 });
     const newKey = await page.evaluate(() => window.adminBookingsState.refundIdempotencyKey);
     ok('newly opened refund form gets a different idempotency key',
@@ -1470,12 +1476,12 @@ async function testGeneratedUi() {
       };
       if (window.adminBookingsState) {
         window.adminBookingsState.role = 'operator';
-        window.adminBookingsState.expandedId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+        window.adminBookingsState.expandedId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
       }
       if (typeof window.renderAdminBookingsTable === 'function') window.renderAdminBookingsTable();
     });
     await page.waitForSelector('[data-bookings-record-refund]', { timeout: 5000 });
-    await page.evaluate(() => window.openAdminBookingsRefundForm('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'));
+    await page.evaluate(() => window.openAdminBookingsRefundForm('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'));
     await page.waitForSelector('[data-bookings-refund-form]', { timeout: 5000 });
 
     const geo = await page.evaluate(() => {

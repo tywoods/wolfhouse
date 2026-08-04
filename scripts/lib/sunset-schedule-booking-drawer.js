@@ -2365,6 +2365,10 @@ async function cancelSunsetScheduleBooking(pg, opts) {
     };
   }
 }
+async function hideSunsetScheduleBooking(pg, opts) {
+  return archiveSunsetScheduleBooking(pg, opts);
+}
+
 async function archiveSunsetScheduleBooking(pg, opts) {
   const clientSlug = String(opts.clientSlug || '').trim();
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
@@ -2402,7 +2406,8 @@ async function archiveSunsetScheduleBooking(pg, opts) {
       schedule_archived_by_staff: true,
     };
     const upd = await pg.query(
-      `UPDATE bookings b SET metadata = COALESCE(b.metadata, '{}'::jsonb) || $1::jsonb
+      `UPDATE bookings b SET hidden = true,
+             metadata = COALESCE(b.metadata, '{}'::jsonb) || $1::jsonb
         FROM clients c
         WHERE b.id = $2::uuid AND c.id = b.client_id AND c.slug = $3`,
       [JSON.stringify(patch), bookingId, clientSlug],
@@ -2830,12 +2835,118 @@ async function restoreSunsetScheduleBooking(pg, opts) {
   }
 }
 
+
+/**
+ * Unhide a cancelled booking (Bookings tab only). Clears hidden + legacy archive meta.
+ */
+async function unhideSunsetScheduleBooking(pg, opts) {
+  const clientSlug = String((opts && opts.clientSlug) || '').trim();
+  if (clientSlug !== SUNSET_CLIENT_SLUG) {
+    return { ok: false, status: 403, body: { success: false, error: 'unsupported_client' } };
+  }
+  const bookingId = String((opts && (opts.bookingId || (opts.body && opts.body.booking_id))) || '').trim();
+  if (!bookingId || !isUuid(bookingId)) {
+    return { ok: false, status: 400, body: { success: false, error: 'booking_id is required' } };
+  }
+  let began = false;
+  try {
+    await pg.query('BEGIN');
+    began = true;
+    // Positional load/lock — same signature as archive/hide/cancel owners.
+    const bundle = await loadSunsetBookingBundle(pg, clientSlug, bookingId, null, true);
+    const reject = async (result) => {
+      await pg.query('ROLLBACK');
+      began = false;
+      return result;
+    };
+    if (!bundle || !bundle.booking) {
+      return reject({ ok: false, status: 404, body: { success: false, error: 'booking not found' } });
+    }
+    const activeLocationId = normalizeSunsetLocationId(opts && opts.locationId);
+    if (resolveBundleLocationId(bundle) !== activeLocationId) {
+      return reject({
+        ok: false,
+        status: 404,
+        body: { success: false, error: 'booking_not_in_active_school' },
+      });
+    }
+    const st = String(bundle.booking.status || '').toLowerCase();
+    if (st !== 'cancelled' && st !== 'canceled') {
+      return reject({
+        ok: false,
+        status: 409,
+        body: {
+          success: false,
+          error: 'booking_not_cancelled',
+          message: 'Only cancelled bookings can be unhidden.',
+        },
+      });
+    }
+    const meta = bundle.booking.metadata && typeof bundle.booking.metadata === 'object'
+      ? bundle.booking.metadata
+      : {};
+    const alreadyVisible = !(
+      bundle.booking.hidden === true
+      || bundle.booking.hidden === 'true'
+      || bundle.booking.hidden === 1
+      || meta.schedule_archived === true
+      || meta.schedule_archived === 'true'
+    );
+    if (alreadyVisible) {
+      await pg.query('ROLLBACK');
+      began = false;
+      return {
+        ok: true,
+        status: 200,
+        body: { success: true, hidden: false, idempotent: true, booking_id: bookingId },
+      };
+    }
+    const upd = await pg.query(
+      `UPDATE bookings b SET hidden = false,
+             metadata = COALESCE(b.metadata, '{}'::jsonb)
+               - 'schedule_archived' - 'schedule_archived_at' - 'schedule_archived_by_staff'
+               || jsonb_build_object('schedule_unhidden_at', $3::text)
+        FROM clients c
+       WHERE c.id = b.client_id AND c.slug = $1 AND b.id = $2::uuid`,
+      [clientSlug, bookingId, new Date().toISOString()],
+    );
+    if (Number(upd && upd.rowCount) !== 1) {
+      return reject({ ok: false, status: 409, body: { success: false, error: 'booking_unhide_conflict' } });
+    }
+    // Clear legacy archive flags on service records so ghosts can reappear.
+    await pg.query(
+      `UPDATE booking_service_records
+          SET metadata = COALESCE(metadata, '{}'::jsonb) - 'schedule_archived'
+        WHERE client_slug = $1 AND booking_id = $2::uuid`,
+      [clientSlug, bookingId],
+    );
+    await pg.query('COMMIT');
+    began = false;
+    return { ok: true, status: 200, body: { success: true, hidden: false, booking_id: bookingId } };
+  } catch (err) {
+    if (began) {
+      try { await pg.query('ROLLBACK'); } catch (_r) { /* ignore */ }
+    }
+    return {
+      ok: false,
+      status: 500,
+      body: {
+        success: false,
+        error: 'unhide failed',
+        detail: String(err && err.message || err).slice(0, 200),
+      },
+    };
+  }
+}
+
 module.exports = {
   resolveBookingEditAttribution,
   getSunsetScheduleBookingDrawerContext,
   updateSunsetScheduleBooking,
   cancelSunsetScheduleBooking,
   archiveSunsetScheduleBooking,
+  hideSunsetScheduleBooking,
+  unhideSunsetScheduleBooking,
   restoreSunsetScheduleBooking,
   buildPaymentSummary,
   buildPaidPaymentLedger,

@@ -100,9 +100,9 @@ ok('badge prefers Cancelled over Paid/Unpaid',
   /function scheduleRenderStatusBadgeHtml\(group, opts\)\{[\s\S]{0,900}is-cancelled[\s\S]{0,200}schedule\.status\.cancelled/.test(apiSrc));
 
 console.log('\n[4] Drawer Active / Cancelled lifecycle');
-ok('view has restore button', viewSrc.includes('ps-drawer-restore-booking'));
+ok('view hide-only for cancelled (no restore id in danger path)', !/if \(cancelled\) \{[\s\S]{0,300}ps-drawer-restore-booking/.test(viewSrc));
 ok('view has cancel + delete ids', viewSrc.includes('ps-drawer-cancel-booking') && viewSrc.includes('ps-drawer-delete-booking'));
-ok('restore non-red class', viewSrc.includes('portal-schedule-restore-booking-btn'));
+ok('hide/delete button class still present', viewSrc.includes('portal-schedule-delete-booking-btn'));
 ok('delete stays red class', viewSrc.includes('portal-schedule-delete-booking-btn'));
 ok('canRestoreBooking present', /canRestoreBooking/.test(actionsSrc));
 ok('restore posts /restore', actionsSrc.includes('/staff/schedule/bookings/restore'));
@@ -328,7 +328,7 @@ console.log('\n[7] Restore / Delete behavioral (fake pg)');
     const classifyLog = [];
     const archPg = makePg(baseBundleHandlers(cancelledBooking, [
       {
-        match: (s) => s.includes('UPDATE bookings b SET metadata') && s.includes('FROM clients c'),
+        match: (s) => s.includes('UPDATE bookings b SET') && s.includes('FROM clients c') && (s.includes('metadata') || s.includes('hidden')),
         run: async (_sql, params) => {
           classifyLog.push({ kind: 'archive_booking', params });
           return { rowCount: 1, rows: [] };

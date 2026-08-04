@@ -126,22 +126,29 @@ function isCancelledBookingStatus(status) {
  *   - schedule_archived / schedule_archived_by_staff (archiveSunsetScheduleBooking)
  * Other cancelled → Cancelled. Both are archived.
  */
-function isDeletedBooking(booking) {
+function isHiddenBooking(booking) {
   if (!booking) return false;
-  if (!isCancelledBookingStatus(booking.status)) return false;
+  if (booking.hidden === true || booking.hidden === 'true' || booking.hidden === 1 || booking.hidden === '1') {
+    return true;
+  }
   const meta = parseMeta(booking.metadata);
-  return isTruthyMetaFlag(meta.cancelled_by_staff)
-    || isTruthyMetaFlag(meta.schedule_archived)
+  // Legacy schedule_archived maps to hidden.
+  return isTruthyMetaFlag(meta.schedule_archived)
     || isTruthyMetaFlag(meta.schedule_archived_by_staff);
 }
 
+/** Hidden = cancelled + hidden flag (or legacy archive meta). */
+function isDeletedBooking(booking) {
+  if (!booking) return false;
+  if (!isCancelledBookingStatus(booking.status)) return false;
+  return isHiddenBooking(booking);
+}
+
+/** Archived-for-list defaults: cancelled rows (shown greyed unless hidden filter off). */
 function isArchivedBooking(booking) {
   if (!booking) return false;
   if (isCancelledBookingStatus(booking.status)) return true;
-  const meta = parseMeta(booking.metadata);
-  // Defensive: archive flags without cancelled status still count as archived.
-  return isTruthyMetaFlag(meta.schedule_archived)
-    || isTruthyMetaFlag(meta.schedule_archived_by_staff);
+  return isHiddenBooking(booking);
 }
 
 /**
@@ -299,7 +306,15 @@ function filterBookingRows(rows, filters) {
   const includeArchived = f.include_archived === true
     || f.include_archived === 1
     || f.include_archived === '1'
-    || f.include_archived === 'true';
+    || f.include_archived === 'true'
+    || f.include_hidden === true
+    || f.include_hidden === 1
+    || f.include_hidden === '1'
+    || f.include_hidden === 'true'
+    || f.show_hidden === true
+    || f.show_hidden === 1
+    || f.show_hidden === '1'
+    || f.show_hidden === 'true';
   return (rows || []).filter((row) => {
     const archived = row.archived === true
       || row.status === STATUS.CANCELLED
@@ -666,6 +681,7 @@ module.exports = {
   parseMeta,
   isTruthyMetaFlag,
   isDeletedBooking,
+  isHiddenBooking,
   isArchivedBooking,
   isCancelledBookingStatus,
   classifyBookingStatus,

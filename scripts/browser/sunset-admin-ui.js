@@ -1693,7 +1693,30 @@ function renderAdminPackCards(packs, writes, defaultCap){
   }
   html += '</div></div><p class="portal-admin-muted">' + escHtml(portalT('admin.packs.help')) + '</p>';
   if (writes && adminEditTarget === 'pack:new') html += adminRenderPackEditForm('', adminDefaultPackSeed());
-  var list = packs && packs.length ? packs : [];
+  var list = packs && packs.length ? packs.slice() : [];
+  // A1: earliest course run time first (not alphabetical by name).
+  list.sort(function(a, b){
+    function earliestStart(p){
+      var mins = null;
+      var scheds = (p && p.schedules) || [];
+      for (var i = 0; i < scheds.length; i++){
+        var k = scheds[i];
+        if (k && typeof k === 'object') k = k.key || '';
+        k = String(k || '');
+        var start = k.split('_')[0] || '';
+        start = start.replace(':', '');
+        if (start.length === 3) start = '0' + start;
+        if (!/^\d{4}$/.test(start)) continue;
+        var m = parseInt(start.slice(0, 2), 10) * 60 + parseInt(start.slice(2), 10);
+        if (!Number.isFinite(m)) continue;
+        if (mins == null || m < mins) mins = m;
+      }
+      return mins == null ? 24 * 60 + 1 : mins;
+    }
+    var da = earliestStart(a), db = earliestStart(b);
+    if (da !== db) return da - db;
+    return String((a && a.label) || '').localeCompare(String((b && b.label) || ''));
+  });
   if (!list.length && adminEditTarget !== 'pack:new'){
     html += '<p class="portal-admin-muted">' + escHtml(portalT('admin.packs.placeholder')) + '</p></div>';
     return html;
@@ -2074,10 +2097,20 @@ function wireFinanceRedesignNav(body){
     if (!btn || !body.contains(btn)) return;
     var gran = btn.getAttribute('data-finance-gran');
     if (gran){
+      // F1: Day/Month/Year are home controls — click (or re-click active) snaps to now.
       financeViewState.granularity = gran;
       if (gran !== 'custom'){
         financeViewState.start = null;
         financeViewState.end = null;
+        try {
+          financeViewState.anchor = (typeof schedulePortalMadridTodayIso === 'function')
+            ? schedulePortalMadridTodayIso()
+            : new Date().toISOString().slice(0, 10);
+        } catch (_a) {
+          financeViewState.anchor = new Date().toISOString().slice(0, 10);
+        }
+      } else {
+        // Custom: open picker path (wired after paint) — do not force dates here.
       }
       loadAdminFinanceSummary();
       return;
@@ -2097,7 +2130,11 @@ function wireFinanceRedesignNav(body){
       loadAdminFinanceSummary();
       return;
     }
-    if (nav === 'apply-custom'){
+    if (nav === 'apply-custom' || nav === 'open-custom-range'){
+      if (nav === 'open-custom-range') {
+        financeOpenCustomRangePicker(body);
+        return;
+      }
       var sEl = el('pfb-custom-start');
       var eEl = el('pfb-custom-end');
       var s = sEl && sEl.value;
@@ -2109,9 +2146,99 @@ function wireFinanceRedesignNav(body){
         financeViewState.anchor = s;
         loadAdminFinanceSummary();
       }
+      return;
+    }
+    var trend = btn.getAttribute('data-finance-trend');
+    if (trend === 'month' || trend === 'year') {
+      try { window.__financeTrendMode = trend; } catch (_t) { /* ignore */ }
+      loadAdminFinanceSummary();
+      return;
     }
   });
 }
+
+var financeCustomRangeDraft = { start: null, end: null };
+function financeOpenCustomRangePicker(body) {
+  var pop = el('pfb-custom-range-pop');
+  if (!pop) return;
+  financeCustomRangeDraft = {
+    start: (el('pfb-custom-start') && el('pfb-custom-start').value) || null,
+    end: (el('pfb-custom-end') && el('pfb-custom-end').value) || null,
+  };
+  var ym = (financeCustomRangeDraft.start || new Date().toISOString().slice(0, 10)).slice(0, 7);
+  function paint() {
+    var parts = ym.split('-').map(Number);
+    var y = parts[0], m = parts[1];
+    var first = new Date(y, m - 1, 1);
+    var startPad = (first.getDay() + 6) % 7;
+    var daysIn = new Date(y, m, 0).getDate();
+    var html = '<div class="pfb-cal">';
+    html += '<div class="pfb-cal-head"><button type="button" data-pfb-cal="prev">\u2039</button><span>' + ym + '</span><button type="button" data-pfb-cal="next">\u203a</button></div>';
+    html += '<div class="pfb-cal-grid">';
+    for (var i = 0; i < startPad; i++) html += '<span class="pfb-cal-pad"></span>';
+    for (var d = 1; d <= daysIn; d++) {
+      var iso = y + '-' + String(m).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+      var cls = 'pfb-cal-day';
+      if (financeCustomRangeDraft.start === iso) cls += ' is-start';
+      if (financeCustomRangeDraft.end === iso) cls += ' is-end';
+      if (financeCustomRangeDraft.start && financeCustomRangeDraft.end && iso > financeCustomRangeDraft.start && iso < financeCustomRangeDraft.end) cls += ' is-mid';
+      html += '<button type="button" class="' + cls + '" data-pfb-day="' + iso + '">' + d + '</button>';
+    }
+    html += '</div>';
+    html += '<div class="pfb-cal-actions"><button type="button" data-pfb-cal="clear">Clear</button><button type="button" data-pfb-cal="close">Close</button></div>';
+    html += '</div>';
+    pop.innerHTML = html;
+    pop.hidden = false; pop.style.display = 'block';
+  }
+  paint();
+  pop.onclick = function(ev) {
+    var b = ev.target && ev.target.closest ? ev.target.closest('[data-pfb-cal],[data-pfb-day]') : null;
+    if (!b) return;
+    var act = b.getAttribute('data-pfb-cal');
+    if (act === 'prev') {
+      var p2 = ym.split('-').map(Number);
+      var dt = new Date(p2[0], p2[1] - 2, 1);
+      ym = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0');
+      paint(); return;
+    }
+    if (act === 'next') {
+      var p3 = ym.split('-').map(Number);
+      var dt2 = new Date(p3[0], p3[1], 1);
+      ym = dt2.getFullYear() + '-' + String(dt2.getMonth()+1).padStart(2,'0');
+      paint(); return;
+    }
+    if (act === 'close') { pop.hidden = true; pop.style.display = 'none'; return; }
+    if (act === 'clear') {
+      financeViewState.granularity = 'custom';
+      financeViewState.start = null; financeViewState.end = null;
+      loadAdminFinanceSummary(); return;
+    }
+    var iso = b.getAttribute('data-pfb-day');
+    if (!iso) return;
+    if (typeof scheduleCreateDateRangeSelectDay === 'function') {
+      financeCustomRangeDraft = scheduleCreateDateRangeSelectDay(iso, financeCustomRangeDraft) || financeCustomRangeDraft;
+    } else {
+      if (!financeCustomRangeDraft.start || financeCustomRangeDraft.end) {
+        financeCustomRangeDraft = { start: iso, end: null };
+      } else if (iso < financeCustomRangeDraft.start) {
+        financeCustomRangeDraft = { start: iso, end: null };
+      } else {
+        financeCustomRangeDraft.end = iso;
+      }
+    }
+    if (financeCustomRangeDraft.start && financeCustomRangeDraft.end) {
+      financeViewState.granularity = 'custom';
+      financeViewState.start = financeCustomRangeDraft.start;
+      financeViewState.end = financeCustomRangeDraft.end;
+      financeViewState.anchor = financeCustomRangeDraft.start;
+      pop.hidden = true; pop.style.display = 'none';
+      loadAdminFinanceSummary();
+    } else {
+      paint();
+    }
+  };
+}
+
 
 function loadAdminFinanceSummary(){
   var body = el('admin-finance-body');
@@ -3502,5 +3629,3 @@ function wireAdminTab(){
     }
   });
 }
-
-

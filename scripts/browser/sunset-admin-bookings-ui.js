@@ -75,7 +75,7 @@ function adminBookingsBuildQuery(extra) {
   var stLower = String(f.status || '').toLowerCase();
   var needArchived = !!f.include_archived
     || stLower === 'cancelled' || stLower === 'canceled' || stLower === 'deleted';
-  if (needArchived) params.set('include_archived', '1');
+  if (needArchived) { params.set('include_archived', '1'); params.set('show_hidden', '1'); }
   params.set('limit', String(f.limit || 50));
   params.set('offset', String(f.offset || 0));
   if (extra) {
@@ -134,7 +134,7 @@ function renderAdminBookingsShell() {
             '<option value="partial">' + escHtml(portalT('admin.bookings.status.partial')) + '</option>' +
             '<option value="refunded">' + escHtml(portalT('admin.bookings.status.refunded')) + '</option>' +
             '<option value="cancelled">' + escHtml(portalT('admin.bookings.status.cancelled')) + '</option>' +
-            '<option value="deleted">' + escHtml(portalT('admin.bookings.status.deleted')) + '</option>' +
+            '<option value="deleted">' + escHtml(portalT('admin.bookings.status.hidden') || portalT('admin.bookings.status.deleted') || 'Hidden') + '</option>' +
           '</select>' +
         '</label>' +
         '<label class="portal-admin-bookings-field">' +
@@ -231,14 +231,28 @@ function wireAdminBookingsPanel() {
         return;
       }
       var refundBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-record-refund]') : null;
-      if (refundBtn) {
-ev.preventDefault();
-        ev.stopPropagation();
-        var bookingId = refundBtn.getAttribute('data-bookings-record-refund');
-        openAdminBookingsRefundForm(bookingId);
-        return;
-      }
-      // Nested interactive controls must not toggle expansion.
+            if (refundBtn) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              var bookingId = refundBtn.getAttribute('data-bookings-record-refund');
+              openAdminBookingsRefundForm(bookingId);
+              return;
+            }
+            var hideBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-hide]') : null;
+            if (hideBtn) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              adminBookingsHideBooking(hideBtn.getAttribute('data-bookings-hide'));
+              return;
+            }
+            var unhideBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-unhide]') : null;
+            if (unhideBtn) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              adminBookingsUnhideBooking(unhideBtn.getAttribute('data-bookings-unhide'));
+              return;
+            }
+            // Nested interactive controls must not toggle expansion.
       var interactive = ev.target && ev.target.closest
         ? ev.target.closest('button, a, input, select, textarea, label')
         : null;
@@ -514,11 +528,31 @@ function renderAdminBookingsExpansion(row) {
     }).join('')
     : '<li class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.noRefunds')) + '</li>';
 
-  var canRefund = adminBookingsCanWriteRefund();
+  var canRefund = adminBookingsCanWriteRefund()
+    && (String(row.status || '').toLowerCase() === 'cancelled'
+      || String(row.status || '').toLowerCase() === 'canceled'
+      || String(row.status || '').toLowerCase() === 'deleted'
+      || String(row.status || '').toLowerCase() === 'hidden');
   var refundAction = canRefund
     ? '<button type="button" class="btn btn-primary btn-compact" data-bookings-record-refund="' +
       escHtml(String(row.booking_id || '')) + '">' + escHtml(portalT('admin.bookings.recordRefund')) + '</button>'
-    : '<p class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.recordRefundViewer')) + '</p>';
+    : (adminBookingsCanWriteRefund()
+      ? '<p class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.refundNeedsCancel') || 'Cancel the booking before recording a refund.') + '</p>'
+      : '<p class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.recordRefundViewer')) + '</p>');
+
+  var st = String(row.status || '').toLowerCase();
+  var isCancelled = st === 'cancelled' || st === 'canceled' || st === 'deleted' || st === 'hidden';
+  var isHidden = !!(row.hidden || row.archived || st === 'deleted' || st === 'hidden');
+  var hideAction = '';
+  if (isCancelled && adminBookingsCanWriteRefund()) {
+    if (isHidden) {
+      hideAction = '<button type="button" class="btn btn-ghost btn-compact" data-bookings-unhide="' +
+        escHtml(String(row.booking_id || '')) + '">' + escHtml(portalT('admin.bookings.action.unhide') || 'Unhide') + '</button>';
+    } else {
+      hideAction = '<button type="button" class="btn btn-ghost btn-compact" data-bookings-hide="' +
+        escHtml(String(row.booking_id || '')) + '">' + escHtml(portalT('admin.bookings.action.hide') || 'Hide') + '</button>';
+    }
+  }
 
   return '<div class="portal-admin-bookings-expand" role="region" data-bookings-expand="' +
     escHtml(String(row.booking_id || '')) + '">' +
@@ -540,7 +574,7 @@ function renderAdminBookingsExpansion(row) {
         '</ul>' +
         '<h4>' + escHtml(portalT('admin.bookings.refunds')) + '</h4><ul class="portal-admin-bookings-list">' + refundsHtml + '</ul>' +
         '<div class="portal-admin-bookings-refund-action" id="admin-bookings-refund-action-' + escHtml(String(row.booking_id || '')) + '">' +
-          refundAction +
+          refundAction + hideAction +
         '</div>' +
       '</section>' +
     '</div></div>';
@@ -915,4 +949,43 @@ function wireAdminBookingsDateRange(onApply) {
       }
     });
   }
+}
+
+function adminBookingsSchoolQuery() {
+  var q = 'client=' + encodeURIComponent(typeof getClient === 'function' ? getClient() : 'sunset');
+  if (typeof getSunsetLocation === 'function') {
+    q += '&location=' + encodeURIComponent(getSunsetLocation() || '');
+  }
+  return q;
+}
+function adminBookingsHideBooking(bookingId) {
+  if (!bookingId) return;
+  if (!window.confirm(portalT('schedule.drawer.hideBookingConfirm') || 'Hide this cancelled booking from the schedule?')) return;
+  fetch('/staff/schedule/bookings/hide?' + adminBookingsSchoolQuery(), {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ booking_id: bookingId }),
+  }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+    .then(function (out) {
+      if (!out.ok || !out.d || out.d.success !== true) throw new Error((out.d && (out.d.message || out.d.error)) || 'Hide failed');
+      loadAdminBookings();
+    }).catch(function (err) {
+      setAdminBookingsMsg(err.message || 'Hide failed', true);
+    });
+}
+function adminBookingsUnhideBooking(bookingId) {
+  if (!bookingId) return;
+  fetch('/staff/schedule/bookings/unhide?' + adminBookingsSchoolQuery(), {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ booking_id: bookingId }),
+  }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+    .then(function (out) {
+      if (!out.ok || !out.d || out.d.success !== true) throw new Error((out.d && (out.d.message || out.d.error)) || 'Unhide failed');
+      loadAdminBookings();
+    }).catch(function (err) {
+      setAdminBookingsMsg(err.message || 'Unhide failed', true);
+    });
 }

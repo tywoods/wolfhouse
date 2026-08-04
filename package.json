@@ -475,6 +475,8 @@
     "verify:sunset-batch-d4-course-rental-quote": "node scripts/verify-sunset-batch-d4-course-rental-quote.js",
     "verify:sunset-batch-inbox-sidebar-toggle": "node scripts/verify-sunset-batch-inbox-sidebar-toggle.js",
     "verify:sunset-finance-revenue-by-product-f2": "node scripts/verify-sunset-finance-revenue-by-product-f2.js",
+    "verify:sunset-booking-unhide-action": "node scripts/verify-sunset-booking-unhide-action.js",
+    "verify:sunset-batch-a1-f1-f3-cancel-hide": "node scripts/verify-sunset-batch-a1-f1-f3-cancel-hide.js",
     "verify:sunset-finance-redesign-s1": "node scripts/verify-sunset-finance-redesign-s1.js",
     "verify:sunset-finance-refund-net-s2": "node scripts/verify-sunset-finance-refund-net-s2.js",
     "verify:sunset-finance-summary": "node scripts/verify-sunset-finance-summary.js",

@@ -169,7 +169,6 @@ function renderFinanceRedesignHtml(summary) {
   // Navigator
   html += '<div class="pfb-nav">';
   html += '<div class="pfb-nav-left">';
-  html += '<div class="pfb-kick">' + financeRedesignEsc(financeRedesignT('admin.finance.kick', 'Sunset · Finance')) + '</div>';
   html += '<div class="pfb-range" role="group" aria-label="Period">';
   html += '<button type="button" class="pfb-arw" data-finance-nav="prev" aria-label="Previous">‹</button>';
   html += '<span class="pfb-range-label" data-finance-range-label="1">' + financeRedesignEsc(title) + '</span>';
@@ -187,15 +186,17 @@ function renderFinanceRedesignHtml(summary) {
     financeRedesignEsc(financeRedesignT('admin.finance.gran.custom', 'Custom')) + '</button>';
   html += '</div></div>';
 
-  // Custom range inputs (shown when custom)
+  // Custom range: compact calendar trigger (drawer-style picker wired after paint)
   if (g === 'custom') {
+    var cs = (view.range && view.range.start) || '';
+    var ce = (view.range && view.range.end) || cs;
+    var cLab = cs && ce ? (cs === ce ? cs : (cs + ' \u2192 ' + ce)) : financeRedesignT('admin.finance.pickRange', 'Pick dates');
     html += '<div class="pfb-custom-row">';
-    html += '<label class="pfb-custom-field">From <input type="date" id="pfb-custom-start" value="' +
-      financeRedesignEsc((view.range && view.range.start) || '') + '"></label>';
-    html += '<label class="pfb-custom-field">To <input type="date" id="pfb-custom-end" value="' +
-      financeRedesignEsc((view.range && view.range.end) || '') + '"></label>';
-    html += '<button type="button" class="btn btn-primary pfb-custom-apply" data-finance-nav="apply-custom">' +
-      financeRedesignEsc(financeRedesignT('admin.action.apply', 'Apply')) + '</button>';
+    html += '<button type="button" class="pfb-custom-range-trigger" id="pfb-custom-range-trigger" data-finance-nav="open-custom-range" aria-haspopup="dialog">' +
+      financeRedesignEsc(cLab) + '</button>';
+    html += '<input type="hidden" id="pfb-custom-start" value="' + financeRedesignEsc(cs) + '">';
+    html += '<input type="hidden" id="pfb-custom-end" value="' + financeRedesignEsc(ce) + '">';
+    html += '<div id="pfb-custom-range-pop" class="pfb-custom-range-pop" hidden style="display:none"></div>';
     html += '</div>';
   }
 
@@ -272,51 +273,54 @@ function renderFinanceRedesignHtml(summary) {
 
   // Two-col: product + capacity
   html += '<div class="pfb-two">';
-  html += '<div class="pfb-card">';
+  html += '<div class="pfb-card pfb-card--bars">';
   html += '<div class="pfb-sec">' + financeRedesignEsc(financeRedesignT('admin.finance.revenueByProduct', 'Revenue by product')) + '</div>';
-  html += '<div class="pfb-sub">' + financeRedesignEsc(financeRedesignT('admin.finance.revenueByProductNote', "Where the money's coming from (booked by service date)")) + '</div>';
-  html += '<div class="pfb-bars">';
-  var colorCycle = ['is-green', 'is-blue', 'is-violet', 'is-amber', 'is-green'];
-  var colorMap = { lessons: 'is-green', course_included: 'is-blue', boards: 'is-blue', wetsuits: 'is-violet', retail: 'is-amber', other: 'is-amber' };
+  html += '<div class="pfb-bars pfb-bars--compact">';
+  var colorCycle = ['is-green', 'is-blue', 'is-violet', 'is-amber'];
+  var colorMap = { lessons: 'is-green', course_included: 'is-blue', boards: 'is-blue', wetsuits: 'is-violet', other: 'is-amber' };
   products.forEach(function (p, idx) {
     var cls = colorMap[p.key] || colorMap[p.slot] || colorCycle[idx % colorCycle.length] || 'is-green';
-    var lab = p.label;
+    var lab = p.label || '\u2014';
+    if (/staff\s*accommodation/i.test(lab)) lab = financeRedesignT('admin.finance.product.accommodation', 'Accommodation');
     if (p.slot === 'lessons' || p.key === 'lessons') {
-      lab = financeRedesignT('admin.finance.product.lessons', p.label || 'Lessons');
+      lab = financeRedesignT('admin.finance.product.lessons', 'Lessons');
     } else if (p.slot === 'course_included' || p.key === 'course_included') {
-      lab = p.label && p.label !== 'Course equipment'
+      lab = p.label && p.label !== 'Course equipment' && !/^\u2014$/.test(p.label)
         ? p.label
         : financeRedesignT('admin.finance.product.courseIncluded', 'Course equipment');
-    } else if (p.slot === 'other' || p.key === 'other') {
-      lab = financeRedesignT('admin.finance.product.other', 'Other');
     }
     html += financeRedesignBarRow(lab, p.cents, p.pct, cls);
   });
-  html += '</div></div>';
+  html += '</div>';
+  html += '<div class="pfb-sub pfb-sub--foot">' + financeRedesignEsc(financeRedesignT('admin.finance.revenueByProductNote', "Where the money's coming from (booked by service date)")) + '</div>';
+  html += '</div>';
 
-  html += '<div class="pfb-card">';
+  html += '<div class="pfb-card pfb-card--bars">';
   html += '<div class="pfb-sec">' + financeRedesignEsc(financeRedesignT('admin.finance.capacityUsed', 'Capacity used')) + '</div>';
-  html += '<div class="pfb-sub">' + financeRedesignEsc(financeRedesignT('admin.finance.capacityNote',
-    'Empty seats & idle gear = money you can\'t get back')) + '</div>';
-  html += '<div class="pfb-cap-top">';
-  var seatsPct = cap.seats_pct;
-  html += '<div class="pfb-ring" style="--pfb-ring:' + (seatsPct != null ? Math.max(0, Math.min(100, Math.round(seatsPct))) : 0) + '%" aria-hidden="true"><div class="pfb-ring-in"><b>' +
-    (seatsPct != null ? financeRedesignEsc(String(Math.round(seatsPct)) + '%') : '—') +
-    '</b><span>' + financeRedesignEsc(financeRedesignT('admin.finance.lessonSeats', 'lesson seats')) + '</span></div></div>';
-  html += '<div class="pfb-utils">';
-  var seatsDetail = (cap.seats_filled != null && cap.seats_capacity != null)
-    ? (cap.seats_filled + '/' + cap.seats_capacity)
-    : (cap.seats_filled != null ? String(cap.seats_filled) : '—');
-  html += financeRedesignUtilRow(financeRedesignT('admin.finance.seats', 'Seats'), seatsPct, seatsDetail, 'is-green');
-  var boardDetail = cap.boards_stock != null
-    ? (String(cap.boards_out || 0) + '/' + cap.boards_stock)
-    : (financeRedesignT('admin.finance.out', 'out') + ' ' + String(cap.boards_out || 0));
-  html += financeRedesignUtilRow(financeRedesignT('admin.finance.boards', 'Boards'), cap.boards_pct, boardDetail, 'is-blue');
-  var suitDetail = cap.wetsuits_stock != null
-    ? (String(cap.wetsuits_out || 0) + '/' + cap.wetsuits_stock)
-    : (financeRedesignT('admin.finance.out', 'out') + ' ' + String(cap.wetsuits_out || 0));
-  html += financeRedesignUtilRow(financeRedesignT('admin.finance.wetsuits', 'Wetsuits'), cap.wetsuits_pct, suitDetail, 'is-violet');
-  html += '</div></div>';
+  html += '<div class="pfb-bars pfb-bars--compact">';
+  var capRows = Array.isArray(cap.by_product) && cap.by_product.length
+    ? cap.by_product
+    : [
+        { slot: 'lessons', label: financeRedesignT('admin.finance.product.lessons', 'Lessons'), pct: cap.seats_pct,
+          detail: (cap.seats_filled != null && cap.seats_capacity != null) ? (cap.seats_filled + '/' + cap.seats_capacity) : '\u2014' },
+      ];
+  var colorCycle2 = ['is-green', 'is-blue', 'is-violet', 'is-amber'];
+  capRows.forEach(function (row, idx) {
+    var cls = colorCycle2[idx % colorCycle2.length];
+    var lab = row.label || '\u2014';
+    if (row.slot === 'lessons') lab = financeRedesignT('admin.finance.product.lessons', 'Lessons');
+    if (/staff\s*accommodation/i.test(lab)) lab = financeRedesignT('admin.finance.product.accommodation', 'Accommodation');
+    var pct = row.pct;
+    var w = pct != null && Number.isFinite(Number(pct)) ? Math.max(0, Math.min(100, Number(pct))) : 0;
+    var detail = row.detail != null ? String(row.detail) : '\u2014';
+    html += '<div class="pfb-bar-row pfb-bar-row--util">';
+    html += '<span class="pfb-bar-name">' + financeRedesignEsc(lab) + '</span>';
+    html += '<span class="pfb-bar-track"><span class="pfb-bar-fill ' + cls + '" style="width:' + w + '%"></span></span>';
+    html += '<span class="pfb-bar-amt">' + financeRedesignEsc(detail) + '</span>';
+    html += '<span class="pfb-bar-pct">' + financeRedesignEsc(pct != null ? (String(Math.round(w)) + '%') : '\u2014') + '</span>';
+    html += '</div>';
+  });
+  html += '</div>';
   if (cap.unsold_seats != null) {
     html += '<div class="pfb-callout">';
     html += '<span>' + financeRedesignEsc(String(cap.unsold_seats) + ' ' +
@@ -329,11 +333,22 @@ function renderFinanceRedesignHtml(summary) {
   }
   html += '</div></div>'; // two
 
-  // Daily trend
+  // Gross trend — F3 toggle: month-days vs 12-month year
+  var trendMode = (typeof window !== 'undefined' && window.__financeTrendMode === 'year') ? 'year' : 'month';
+  var trendRows = trendMode === 'year'
+    ? (Array.isArray(R.monthly_gross_trend) ? R.monthly_gross_trend : [])
+    : (Array.isArray(R.daily_gross_trend) ? R.daily_gross_trend : []);
   html += '<div class="pfb-card pfb-card--trend">';
+  html += '<div class="pfb-sec-row">';
   html += '<div class="pfb-sec">' + financeRedesignEsc(financeRedesignT('admin.finance.dailyGrossTrend',
-    'Daily gross collected — vs last year')) + '</div>';
-  html += financeRedesignTrendHtml(R.daily_gross_trend);
+    'Gross collected — vs last year')) + '</div>';
+  html += '<div class="pfb-trend-toggle" role="tablist" aria-label="Trend range">';
+  html += '<button type="button" class="pfb-trend-btn' + (trendMode === 'month' ? ' is-on' : '') + '" data-finance-trend="month" role="tab" aria-selected="' + (trendMode === 'month' ? 'true' : 'false') + '">' +
+    financeRedesignEsc(financeRedesignT('admin.finance.trend.monthDays', 'Days')) + '</button>';
+  html += '<button type="button" class="pfb-trend-btn' + (trendMode === 'year' ? ' is-on' : '') + '" data-finance-trend="year" role="tab" aria-selected="' + (trendMode === 'year' ? 'true' : 'false') + '">' +
+    financeRedesignEsc(financeRedesignT('admin.finance.trend.yearMonths', '12 months')) + '</button>';
+  html += '</div></div>';
+  html += financeRedesignTrendHtml(trendRows, trendMode);
   html += '</div>';
 
   html += '</div>'; // root

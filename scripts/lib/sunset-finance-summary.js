@@ -209,13 +209,14 @@ function productBucket(serviceTypeOrRow, metadataMaybe) {
 }
 
 /**
- * F2 — exactly 5 revenue rows for the selected period:
+ * F2/F-cleanup — exactly 5 revenue rows for the selected period:
  *  1. Lessons (surf_lesson / course)
  *  2. Course-included item(s) — offerings marked course-includable on packs;
  *     sum across during_course + all_day + standalone modes
  *  3–4. Next 2 items by € revenue (excluding lessons + course-included keys)
- *  5. Other — remainder
- * Empty/low-item periods keep the 5-row structure with €0 slots.
+ *  5. Other — remainder (all unranked items) as its own row.
+ * Capacity mirrors only the first 4 (no Other — Other has no stock denominator).
+ * Empty/sparse periods keep the 5-row structure with €0 slots.
  */
 function courseIncludableOfferingKeys(surfPacks) {
   const keys = new Set();
@@ -241,9 +242,14 @@ function revenueItemKeyAndLabel(row) {
   }
   const offering = String(md.offering_key || '').trim();
   if (offering) {
-    const label = String(md.offering_label || md.label || md.staff_ui_service_type || offering)
+    let label = String(md.offering_label || md.label || md.staff_ui_service_type || offering)
       .replace(/_/g, ' ')
       .replace(/\b\w/g, (c) => c.toUpperCase());
+    if (/^staff\s+accommodation$/i.test(label) || offering === 'staff_accommodation') {
+      label = 'Accommodation';
+    } else if (/accommodation/i.test(label) && /staff/i.test(label)) {
+      label = 'Accommodation';
+    }
     return { kind: 'item', key: offering, label: label || offering };
   }
   // Legacy typed rentals without offering_key
@@ -260,7 +266,7 @@ function revenueItemKeyAndLabel(row) {
   };
 }
 
-function buildRevenueByProductFiveRows(datedBsr, range, surfPacks) {
+function buildRevenueByProductRows(datedBsr, range, surfPacks) {
   const includable = courseIncludableOfferingKeys(surfPacks);
   let lessonsCents = 0;
   const itemCents = new Map(); // key -> { cents, label }
@@ -321,9 +327,9 @@ function buildRevenueByProductFiveRows(datedBsr, range, surfPacks) {
 
   const top1 = ranked[0] || { key: 'item_1', label: '—', cents: 0 };
   const top2 = ranked[1] || { key: 'item_2', label: '—', cents: 0 };
-  let otherCents = 0;
+  let remainderCents = 0;
   for (let i = 2; i < ranked.length; i++) {
-    otherCents = checkedAdd(otherCents, ranked[i].cents);
+    remainderCents = checkedAdd(remainderCents, ranked[i].cents);
   }
 
   const courseLabel = courseIncludedLabels.length
@@ -346,16 +352,25 @@ function buildRevenueByProductFiveRows(datedBsr, range, surfPacks) {
       label: top1.cents > 0 || ranked[0] ? top1.label : '—',
       cents: top1.cents,
       slot: 'rank_1',
+      offering_keys: top1.key && top1.key !== 'item_1' ? [top1.key] : [],
     },
     {
       key: top2.key === 'item_2' ? 'rank_2' : top2.key,
       label: top2.cents > 0 || ranked[1] ? top2.label : '—',
       cents: top2.cents,
       slot: 'rank_2',
+      offering_keys: top2.key && top2.key !== 'item_2' ? [top2.key] : [],
     },
-    { key: 'other', label: 'Other', cents: otherCents, slot: 'other' },
+    {
+      key: 'other',
+      label: 'Other',
+      cents: remainderCents,
+      slot: 'other',
+      offering_keys: [],
+    },
   ];
 
+  // Full product total (the Other row already carries the unranked remainder).
   const productTotal = rows.reduce((a, p) => checkedAdd(a, p.cents), 0);
   return rows.map((p) => {
     const pct = productTotal > 0 ? Math.round((1000 * p.cents) / productTotal) / 10 : 0;
@@ -702,7 +717,7 @@ function computeSunsetFinanceSummary(args) {
   }
 
   // Product revenue (BSR recognition by service_date in primary range) — F2 five-row shape
-  const revenue_by_product = buildRevenueByProductFiveRows(datedBsr, primaryRange, surfPacks);
+  const revenue_by_product = buildRevenueByProductRows(datedBsr, primaryRange, surfPacks);
 
   // Capacity — lesson seats
   const fallbackGs = defaultPackGroupSize(surfPacks);
@@ -741,6 +756,70 @@ function computeSunsetFinanceSummary(args) {
     }
   }
   const unsold_seats = capacityKnown ? Math.max(0, seats_capacity - seats_filled) : null;
+
+  // Capacity rows mirror the first 4 revenue slots — NO "Other" (no stock denominator).
+  const stockByOffering = new Map();
+  for (const row of Array.isArray(rentalStock) ? rentalStock : []) {
+    const k = String((row && (row.offering_key || row.group_key)) || '').trim();
+    if (!k) continue;
+    const q = row.stock_quantity != null ? Number(row.stock_quantity) : null;
+    if (q != null && Number.isFinite(q) && q >= 0) {
+      const prev = stockByOffering.get(k);
+      stockByOffering.set(k, prev == null ? q : prev + q);
+    }
+  }
+  // Units booked per offering in primary range (qty sum on non-lesson BSR).
+  const unitsByOffering = new Map();
+  for (const r of datedBsr) {
+    if (!inRange(r.service_date, primaryRange)) continue;
+    const id = revenueItemKeyAndLabel(r);
+    if (id.kind === 'lessons') continue;
+    const qty = Number.isFinite(r.quantity) && r.quantity > 0 ? Math.trunc(r.quantity) : 1;
+    unitsByOffering.set(id.key, (unitsByOffering.get(id.key) || 0) + qty);
+  }
+  const capacity_by_product = revenue_by_product.filter((p) => p.slot !== 'other').map((p) => {
+    if (p.slot === 'lessons') {
+      const filled = capacityKnown ? seats_filled : lessonQty;
+      const cap = capacityKnown ? seats_capacity : null;
+      return {
+        key: p.key,
+        label: p.label,
+        slot: p.slot,
+        used: filled,
+        stock: cap,
+        pct: cap != null && cap > 0 ? pctInt(filled, cap) : null,
+        detail: cap != null ? `${filled}/${cap}` : String(filled != null ? filled : '—'),
+      };
+    }
+    const keys = Array.isArray(p.offering_keys) && p.offering_keys.length
+      ? p.offering_keys
+      : (p.key && p.key !== 'rank_1' && p.key !== 'rank_2' && p.key !== 'course_included' ? [p.key] : []);
+    let used = 0;
+    let stockSum = 0;
+    let stockKnown = false;
+    for (const k of keys) {
+      used += unitsByOffering.get(k) || 0;
+      if (stockByOffering.has(k)) {
+        stockSum += stockByOffering.get(k);
+        stockKnown = true;
+      }
+    }
+    // course_included may sum multiple pack equipment keys
+    if (p.slot === 'course_included' && keys.length === 0) {
+      // no keys → zero util
+    }
+    return {
+      key: p.key,
+      label: p.label,
+      slot: p.slot,
+      used,
+      stock: stockKnown ? stockSum : null,
+      pct: stockKnown && stockSum > 0 ? pctInt(used, stockSum) : null,
+      detail: stockKnown ? `${used}/${stockSum}` : (used ? `out ${used}` : '—'),
+      offering_keys: keys,
+    };
+  });
+
   const avg_lesson_price_cents = lessonQty > 0 ? Math.round(lessonDue / lessonQty) : null;
   const left_on_table_cents = (unsold_seats != null && avg_lesson_price_cents != null)
     ? unsold_seats * avg_lesson_price_cents
@@ -764,6 +843,30 @@ function computeSunsetFinanceSummary(args) {
       ly_collected_gross_cents: ly.collected_gross_cents,
     };
   });
+
+  // F3 — 12 calendar months of the primary range's year (for yearly chart toggle).
+  const yearAnchor = String(primaryRange.start || today).slice(0, 4);
+  const monthly_gross_trend = [];
+  for (let mo = 1; mo <= 12; mo++) {
+    const mm = String(mo).padStart(2, '0');
+    const start = `${yearAnchor}-${mm}-01`;
+    const endDt = new Date(Date.UTC(Number(yearAnchor), mo, 0)); // last day of month
+    const end = `${yearAnchor}-${mm}-${String(endDt.getUTCDate()).padStart(2, '0')}`;
+    const monthRange = { start, end };
+    const cur = summarize(monthRange);
+    const lyStart = `${Number(yearAnchor) - 1}-${mm}-01`;
+    const lyEndDt = new Date(Date.UTC(Number(yearAnchor) - 1, mo, 0));
+    const lyEnd = `${Number(yearAnchor) - 1}-${mm}-${String(lyEndDt.getUTCDate()).padStart(2, '0')}`;
+    const ly = summarize({ start: lyStart, end: lyEnd });
+    monthly_gross_trend.push({
+      date: start,
+      month: `${yearAnchor}-${mm}`,
+      booked_cents: cur.booked_cents,
+      collected_gross_cents: cur.collected_gross_cents,
+      ly_booked_cents: ly.booked_cents,
+      ly_collected_gross_cents: ly.collected_gross_cents,
+    });
+  }
 
   const avg_booking_cents = primaryStats.bookings_count > 0
     ? Math.round(primaryStats.booked_cents / primaryStats.bookings_count)
@@ -825,8 +928,10 @@ function computeSunsetFinanceSummary(args) {
       wetsuits_out: gear.wetsuits_out,
       wetsuits_stock: stock.wetsuits_stock,
       wetsuits_pct: stock.wetsuits_stock != null ? pctInt(gear.wetsuits_out, stock.wetsuits_stock) : null,
+      by_product: capacity_by_product,
     },
     daily_gross_trend,
+    monthly_gross_trend,
     limitations: {
       pending_refund_estimated_from_cancellations: false,
       net_uses_recorded_refunds: !refundLedgerUnavailable,
@@ -907,7 +1012,8 @@ module.exports = {
   periodRanges,
   resolvePrimaryRange,
   productBucket,
-  buildRevenueByProductFiveRows,
+  buildRevenueByProductRows,
+  buildRevenueByProductFiveRows: buildRevenueByProductRows, // alias
   courseIncludableOfferingKeys,
   shiftRangeYears,
   stockTotals,

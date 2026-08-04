@@ -47,7 +47,7 @@ const addonBoardSummary = computeSunsetFinanceSummary({
   bookings: [{ booking_id: 'A1', total_amount_cents: 1000 }],
 });
 const addonRows = addonBoardSummary.redesign.revenue_by_product;
-ok('Seadog#1 F2 still 5 product rows', Array.isArray(addonRows) && addonRows.length === 5);
+ok('Seadog#1 F2 now 5 product rows', Array.isArray(addonRows) && addonRows.length === 5);
 // addon_service + component surfboard → board_rental item (not lessons)
 const addonBoardCents = addonRows.reduce((a, r) => a + (String(r.key).includes('board') || /board/i.test(r.label) ? r.cents : 0), 0);
 ok('Seadog#1 board revenue present (€10)', addonBoardCents === 1000 || addonRows.some((r) => r.cents === 1000 && r.slot !== 'lessons'));

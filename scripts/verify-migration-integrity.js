@@ -66,7 +66,7 @@ pass(
 );
 pass(
   'green-forward-count',
-  forwardEntries(manifest).length === 57,
+  forwardEntries(manifest).length === 58,
   `forward=${forwardEntries(manifest).length}`,
 );
 pass(
@@ -98,7 +98,7 @@ pass(
     byClass[e.classification] = (byClass[e.classification] || 0) + 1;
   }
   pass('green-has-proposed', (byClass.proposed_not_executable || 0) >= 4);
-  pass('green-has-rollback', (byClass.rollback_down || 0) === 5);
+  pass('green-has-rollback', (byClass.rollback_down || 0) === 6);
   pass('green-no-unresolved', (byClass.unresolved || 0) === 0);
 }
 
@@ -365,7 +365,7 @@ pass(
     const live = checksumMigrationFile(path.join(MIGRATIONS_DIR, e.filename), CHECKSUM_MODE_CANONICAL_LF_V1);
     if (live.ok && live.sha256 === e.sha256) forwardVerified += 1;
   }
-  pass('green-all-57-forward-canonical-lf-v1', forwardVerified === 57, `verified=${forwardVerified}`);
+  pass('green-all-58-forward-canonical-lf-v1', forwardVerified === 58, `verified=${forwardVerified}`);
 
   // Previously CRLF Git files normalize identically (named in transition report)
   pass('green-transition-report-present', fs.existsSync(TRANSITION));

@@ -166,6 +166,7 @@ WHERE c.slug = $1
     sr.status = 'cancelled'
     OR LOWER(b.status::text) IN ('cancelled', 'canceled')
   )
+  AND COALESCE(b.hidden, false) = false
   AND COALESCE(b.metadata->>'schedule_archived', '') <> 'true'
   AND COALESCE(sr.metadata->>'schedule_archived', '') <> 'true'
   AND ${sqlLocationMatch('sr', 'b', 3)}
@@ -239,6 +240,7 @@ WHERE c.slug = $1
     sr.status = 'cancelled'
     OR LOWER(b.status::text) IN ('cancelled', 'canceled')
   )
+  AND COALESCE(b.hidden, false) = false
   AND COALESCE(b.metadata->>'schedule_archived', '') <> 'true'
   AND COALESCE(sr.metadata->>'schedule_archived', '') <> 'true'
   AND ${sqlLocationMatch('sr', 'b', 3)}

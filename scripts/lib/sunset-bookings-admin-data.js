@@ -95,6 +95,7 @@ SELECT
   b.amount_paid_cents,
   b.balance_due_cents,
   b.metadata,
+  b.hidden,
   b.created_at,
   c.id AS client_id,
   c.slug AS client_slug,
@@ -449,7 +450,7 @@ async function recordSunsetBookingRefund(pg, opts) {
                 b.booking_source::text AS booking_source, b.operator_name,
                 b.check_in::text AS check_in, b.check_out::text AS check_out,
                 b.total_amount_cents, b.amount_paid_cents, b.balance_due_cents,
-                b.metadata, b.created_at, c.id AS client_id, c.slug AS client_slug,
+                b.metadata, b.hidden, b.created_at, c.id AS client_id, c.slug AS client_slug,
                 ${LOCATION_SQL} AS location_id
            FROM bookings b
            INNER JOIN clients c ON c.id = b.client_id
@@ -479,6 +480,22 @@ async function recordSunsetBookingRefund(pg, opts) {
       await pg.query('ROLLBACK'); began = false;
       return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
     }
+
+    // ESSENTIAL: manual refund only on cancelled bookings.
+    const st = String(booking.status || '').toLowerCase();
+    if (st !== 'cancelled' && st !== 'canceled') {
+      await pg.query('ROLLBACK'); began = false;
+      return {
+        ok: false,
+        status: 409,
+        body: {
+          success: false,
+          error: 'booking_not_cancelled',
+          message: 'Record a refund only after the booking is cancelled.',
+        },
+      };
+    }
+
 
     // Idempotent retry: only when existing record matches full semantic payload.
     const existingIdem = await pg.query(

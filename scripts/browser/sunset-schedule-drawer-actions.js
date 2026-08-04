@@ -655,7 +655,7 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
   }
 
   function archiveConfirmMessage(ctx) {
-    var msg = portalT('schedule.drawer.deleteBookingConfirm');
+    var msg = portalT('schedule.drawer.hideBookingConfirm') || portalT('schedule.drawer.deleteBookingConfirm');
     if (ctx && ctx.booking_code) msg += ' (' + String(ctx.booking_code) + ')';
     return msg;
   }

@@ -78,18 +78,14 @@ function scheduleRenderDeleteBookingRowHtml(ctx, row){
   var canArchive = typeof scheduleDrawerCanDeleteBooking === 'function'
     ? scheduleDrawerCanDeleteBooking(r, ctx)
     : cancelled;
-  // Active → Cancel only. Cancelled → Restore + Delete. Never Active → Delete.
+  // Active → Cancel only. Cancelled → Hide only (unhide lives on Bookings tab). Never hard-delete.
   if (!cancelled && !canCancel) return '';
-  if (cancelled && !canRestore && !canArchive) return '';
+  if (cancelled && !canArchive) return '';
   var html = '<div class="portal-schedule-drawer-danger-row">';
   if (cancelled) {
-    if (canRestore) {
-      html += '<button type="button" class="btn portal-schedule-restore-booking-btn" id="ps-drawer-restore-booking">' +
-        escHtml(portalT('schedule.drawer.restoreBooking')) + '</button>';
-    }
     if (canArchive) {
-      html += '<button type="button" class="btn portal-schedule-delete-booking-btn" id="ps-drawer-delete-booking">' +
-        escHtml(portalT('schedule.drawer.deleteBooking')) + '</button>';
+      html += '<button type="button" class="btn portal-schedule-delete-booking-btn" id="ps-drawer-delete-booking" data-action="hide-booking">' +
+        escHtml(portalT('schedule.drawer.hideBooking') || portalT('schedule.drawer.deleteBooking') || 'Hide booking') + '</button>';
     }
   } else {
     html += '<button type="button" class="btn portal-schedule-cancel-booking-btn" id="ps-drawer-cancel-booking">' +
@@ -1200,4 +1196,3 @@ function scheduleRenderDrawerPaymentSectionViewHtml(ctx){
   html += '</div>';
   return html;
 }
-
