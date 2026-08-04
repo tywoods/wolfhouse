@@ -53,7 +53,7 @@ _Last updated: 2026-08-03 23:20 UTC by Skipper_
 
 ## 🍳 On the stove (in progress)
 - **L3 / email 2F-C — WAITING on Earthling Azure access (~8h):** inventory `wh-staging-kv` keys, then version-pin or create the approved RSA wrapping key and prove controlled staging wrap/unwrap. Current operator can inspect the Standard/RBAC vault but lacks `keys/read`. No runtime activation while waiting.
-- Safe parallel lane (while 2F-C waits): Sunset UI/functional work from **[SUNSET-TODO.md]** — Bookings/Cockpit polish + Finance Slice 2 now shipped; next up is the bug batch **L2/D4/A1**, then Finance **F1/F2/F3** & Cockpit **C1**, each in an isolated branch/worktree.
+- Safe parallel lane (while 2F-C waits): Sunset UI/functional work from **[SUNSET-TODO.md]** — shipped: Bookings/Cockpit polish, Finance S2, D4, Inbox toggle, F2; **next up: A1** (courses sort-by-time) + **L2** (Luna/@Earthling), then Finance **F1/F3** & Cockpit **C1**, each in an isolated branch/worktree.
 - **Earthling** — resume 2F-C at the Azure credential boundary; add any separate active work here before deploying.
 
 ## 📋 To do

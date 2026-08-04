@@ -14,10 +14,10 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 - **Moving a tab** → easy (nav entry + panel); real work is the panel content.
 
 ## ▶️ Recommended next (sequencing)
-1. ✅ **Finance Slice 2 (refund-aware Net)** — SHIPPED (rev 0000459).
-2. **Bug-fixes batch (L2, D4, A1)** — small, high-annoyance — **recommended next.**
-3. Then Finance **F1/F2/F3** + Cockpit **C1** + Admin course panels (A2/A3).
-3. **L3 email 2F-C** resumes only when Earthling has Azure access; until then it is parked safely with runtime OFF.
+1. ✅ SHIPPED (revs 0458–0460): Bookings/Cockpit polish, Finance S2 (refund-aware Net), **D4**, Inbox toggle, **F2**.
+2. **Next small wins:** **A1** (group courses sort by time, `S`) + **L2** (Luna still offers disabled rentals — Luna/@Earthling layer).
+3. Then Finance **F1/F3** + Cockpit **C1** + Admin course panels (**A2/A3**).
+4. **L3 email 2F-C** resumes only when Earthling has Azure access; until then parked safely with runtime OFF.
 4. Then **screen-by-screen UI batches** (courses panels, finance, cockpit, schedule).
 5. **Mobile LAST** — after the main-site UI settles (we're still adding/removing buttons; no point chasing a moving target).
 
