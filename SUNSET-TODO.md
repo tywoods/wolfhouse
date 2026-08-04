@@ -63,6 +63,7 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 - **N1 — Bookings tab:** searchable historical log, filter-global finance summary, CSV, archived records, guest→Customers, and append-only manual refund ledger; `42e30925`. List-500/layout fix `27981048` is live on Sunset staging.
 - **Bookings summary + Cockpit UI polish:** Bookings cards-on-top, colored metrics, live filters (no Apply/checkbox), drawer date-range picker, status pills, expand order Guest→Items→Payment, trimmed refund note; Cockpit non-today relative-day labels (Yesterday/In N days/Last week…/years) + day summary, EN/ES/IT; `1805d95b` rev 0000458.
 - **Finance Slice 2 — refund-aware Net:** Finance hero Net = gross − Σ recorded refunds (`booking_refund_records`, by `effective_date`), Gross/Refunds broken out, pending-cancellation proxy retired; L1–L4, SAVEPOINT soft-empty, EN/ES/IT; live-DB validated; `454f8015` rev 0000459.
+- **Sunset batch (D4 + Inbox + F2):** D4 group-course/no-course now quotes standalone rentals + blocks Create with a clear message; Inbox collapsible booking/payment right rail (sessionStorage); F2 Revenue-by-product = 5 fixed rows (Lessons/course-equipment-all-modes/top-2-€/Other); `b217238b` rev 0000460.
 
 ## 📱 Mobile — LAST
 - Deprioritized on purpose: do the main-site UI first (still adding/removing buttons, reformatting menus), *then* go mobile screen-by-screen. Add specifics here as you hit them: "mobile: [screen]".

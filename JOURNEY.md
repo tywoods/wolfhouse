@@ -43,6 +43,7 @@ _Last updated: 2026-08-03 23:20 UTC by Skipper_
 - **Fix:** N1 list 500 + filter layout — waiver query selected non-existent `w.completed_count` (derive from `waiver_form_submissions`); toolbar flex→grid so filter fields stop colliding. Validated the real list query against the live sunset DB (5 rows, summary+CSV clean) before deploy; `27981048` rev 0000457
 - **Bookings + Cockpit UI polish SHIPPED** (Nav team built, Captain gated+deployed) — Bookings: cards-on-top, colored metrics, live filters (no Apply/checkbox), drawer date-range picker, status pills, expand Guest→Items→Payment, trimmed refund note; Cockpit: non-today relative-day labels (Yesterday/In N days/Last week…/years)+day summary, EN/ES/IT. Verified pack (bundle `b36b9f95`) cherry-picked atop 2F-B master, zero email overlap; N1 154 + cockpit ui 116/p3 91 + luna-all 21; `1805d95b` rev 0000458
 - **Finance Slice 2 — refund-aware Net SHIPPED** (Nav team built, Captain gated+deployed) — Finance hero now Net = gross collected − Σ recorded refunds (from `booking_refund_records`, `effective_date`), Gross/Refunds broken out, retired the pending-cancellation proxy; L1–L4 contracts, SAVEPOINT soft-empty if ledger absent, EN/ES/IT. Verified pack (bundle `8ab6d1f0`); gates S2 61 + finance-data 55 + redesign 63 + luna-all 21; **live-DB probe confirmed refund query returns €80/2 rows** before deploy; `454f8015` rev 0000459
+- **Sunset batch SHIPPED — D4 + Inbox toggle + F2** (Nav team built, Captain gated+deployed) — **D4:** Group-Course-on/no-course now still quotes standalone rentals + blocks Create with "Select a course or turn off Group Course"; **Inbox:** collapsible booking/payment right rail (sessionStorage, chat reflows); **F2:** Revenue-by-product = 5 fixed rows (Lessons · course-equipment all-modes · top-2 by € · Other), EN/ES/IT. sha256 `238965ff`; gates D4 21 + Inbox 11 + F2 26 + redesign 64 + luna-all 21; live-DB validated F2 over 100 real BSR rows (a 0-rows scare was a probe-key artifact, not F2); `b217238b` rev 0000460
 
 **Aug 03**
 - Luna email platform foundation through delegated-grant custody shipped to master: endpoint identity + Microsoft delegated OAuth contract, Graph adapter/readiness, dedicated encrypted grant custody, and the Standard-Key-Vault RSA envelope provider.
@@ -64,7 +65,7 @@ _Last updated: 2026-08-03 23:20 UTC by Skipper_
 ---
 
 ## 🚀 Live where
-- **Sunset · staff-api** (staging) — `454f8015` rev 0000459 · 08-03 23:56 · Captain _(Bookings+Cockpit UI + Finance Slice 2 refund-aware Net; atop 2F-B)_
+- **Sunset · staff-api** (staging) — `b217238b` rev 0000460 · 08-04 00:50 · Captain _(D4 quote gate + Inbox toggle + F2 5-row revenue)_
 - **Sunset · Luna** plugin+SOUL (staging) — `c79da8aa` Slice E · 08-02 05:17 · Captain _(separate deploy — drifts from staff-api)_
 - **Wolfhouse · staff-api** (PROD) — _verify_ · Earthling
 - **Wolfhouse · Luna** guest WhatsApp (prod) — _verify_ · Earthling
