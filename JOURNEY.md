@@ -52,14 +52,13 @@ _Last updated: 2026-08-03 23:20 UTC by Skipper_
 
 ## 🍳 On the stove (in progress)
 - **L3 / email 2F-C — WAITING on Earthling Azure access (~8h):** inventory `wh-staging-kv` keys, then version-pin or create the approved RSA wrapping key and prove controlled staging wrap/unwrap. Current operator can inspect the Standard/RBAC vault but lacks `keys/read`. No runtime activation while waiting.
-- Safe parallel lane: Sunset UI/functional work from **[SUNSET-TODO.md]** — Finance Slice 2 or bug batch L2/D4/A1, each in an isolated branch/worktree.
+- Safe parallel lane (while 2F-C waits): Sunset UI/functional work from **[SUNSET-TODO.md]** — Bookings/Cockpit polish + Finance Slice 2 now shipped; next up is the bug batch **L2/D4/A1**, then Finance **F1/F2/F3** & Cockpit **C1**, each in an isolated branch/worktree.
 - **Earthling** — resume 2F-C at the Azure credential boundary; add any separate active work here before deploying.
 
 ## 📋 To do
 - Luna email after 2F-C: SDK/managed-identity composition → controlled staging Key Vault proof → refresh-exchange adapter and callback integration → shadow/readiness proof → separately approved activation. No guest mail flow before every gate passes.
 - **Crowsnest favicon deploy** — image `crowsnest:34e4b7f3…` built & in ACR; **blocked** (this host has no write on `luna-crowsnest-rg`) → Earthling runs the `az containerapp update`.
 - Staff-API decomposition — more slices (1–5 shipped).
-- Finance Slice 2 — consume the shipped N1 refund ledger and expose true net/refund reporting.
 - Lunabox deep disk clean (~20G: stale clones + `docker image prune -a`) when agents idle.
 
 ---

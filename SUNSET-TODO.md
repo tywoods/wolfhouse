@@ -14,8 +14,9 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 - **Moving a tab** → easy (nav entry + panel); real work is the panel content.
 
 ## ▶️ Recommended next (sequencing)
-1. **Finance Slice 2** — N1 Bookings/refund ledger is shipped, so wire its refund/net data into Finance next.
-2. Quick **bug-fixes** in parallel (L2, D4, A1) — small and high-annoyance.
+1. ✅ **Finance Slice 2 (refund-aware Net)** — SHIPPED (rev 0000459).
+2. **Bug-fixes batch (L2, D4, A1)** — small, high-annoyance — **recommended next.**
+3. Then Finance **F1/F2/F3** + Cockpit **C1** + Admin course panels (A2/A3).
 3. **L3 email 2F-C** resumes only when Earthling has Azure access; until then it is parked safely with runtime OFF.
 4. Then **screen-by-screen UI batches** (courses panels, finance, cockpit, schedule).
 5. **Mobile LAST** — after the main-site UI settles (we're still adding/removing buttons; no point chasing a moving target).
@@ -60,6 +61,8 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 ## ✅ Recently shipped from this TODO
 - **D1–D3 — Booking-drawer equipment polish:** compact quantity/total layout, unified green, and one Equipment header; `ef936ec5`, followed by picker regression fix `6eed4823`.
 - **N1 — Bookings tab:** searchable historical log, filter-global finance summary, CSV, archived records, guest→Customers, and append-only manual refund ledger; `42e30925`. List-500/layout fix `27981048` is live on Sunset staging.
+- **Bookings summary + Cockpit UI polish:** Bookings cards-on-top, colored metrics, live filters (no Apply/checkbox), drawer date-range picker, status pills, expand order Guest→Items→Payment, trimmed refund note; Cockpit non-today relative-day labels (Yesterday/In N days/Last week…/years) + day summary, EN/ES/IT; `1805d95b` rev 0000458.
+- **Finance Slice 2 — refund-aware Net:** Finance hero Net = gross − Σ recorded refunds (`booking_refund_records`, by `effective_date`), Gross/Refunds broken out, pending-cancellation proxy retired; L1–L4, SAVEPOINT soft-empty, EN/ES/IT; live-DB validated; `454f8015` rev 0000459.
 
 ## 📱 Mobile — LAST
 - Deprioritized on purpose: do the main-site UI first (still adding/removing buttons, reformatting menus), *then* go mobile screen-by-screen. Add specifics here as you hit them: "mobile: [screen]".
