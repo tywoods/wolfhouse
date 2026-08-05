@@ -185,6 +185,9 @@ async function main() {
     '{"id":"a","id":"b","mail":"a@example.com"}',
     '{"id":"a","mail":"a@example.com","nested":{"__proto__":1}}',
     '{"id":"a","mail":"a@example.com","nested":{"\\u005f\\u005fproto__":1}}',
+    '{"id":"x\\ud800y","mail":"x@example.com"}',
+    '{"id":"x","displayName":"x\\ud800y","mail":"x@example.com"}',
+    '{"id":"x\\udc00y","mail":"x@example.com"}',
     '{"id":"a","mail":"a@example.com","nested":{"safe":1,"s\\u0061fe":2}}'];
   for (const body of invalidJson) await rejectsCode((await one({ body })).promise, 'RESPONSE_INVALID');
 
@@ -194,6 +197,7 @@ async function main() {
     assert.equal((await (await one({ body: JSON.stringify(body) })).promise).displayName, null);
   }
   assert.equal((await (await one({ body: JSON.stringify({ id: 'x', mail: 'x@example.com', displayName: ' X ' }) })).promise).displayName, ' X ');
+  assert.equal((await (await one({ body: JSON.stringify({ id: 'x', mail: 'x@example.com', displayName: 'Wave 🏄' }) })).promise).displayName, 'Wave 🏄');
   for (const displayName of [1, {}, 'bad\nname', 'x'.repeat(257)]) {
     await rejectsCode((await one({ body: JSON.stringify({ id: 'x', mail: 'x@example.com', displayName }) })).promise, 'IDENTITY_INVALID');
   }

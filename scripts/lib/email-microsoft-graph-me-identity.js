@@ -63,7 +63,19 @@ function readInput(input) {
   return token;
 }
 
-// Strict JSON parser: duplicate, escaped-dangerous, and nested-dangerous names are rejected.
+// Strict JSON parser: duplicate, escaped-dangerous, nested-dangerous names, and lone surrogates are rejected.
+function hasUnpairedSurrogate(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+      index += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) return true;
+  }
+  return false;
+}
+
 function parseStrictJson(text) {
   let at = 0;
   const fail = () => { throw failure('RESPONSE_INVALID'); };
@@ -95,7 +107,7 @@ function parseStrictJson(text) {
         at += 1;
         let result;
         try { result = JSON.parse(text.slice(start, at)); } catch { fail(); }
-        if (result.length > 2048) fail();
+        if (result.length > 2048 || hasUnpairedSurrogate(result)) fail();
         return result;
       }
       if (!escaped && code < 0x20) fail();
