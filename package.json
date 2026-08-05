@@ -341,6 +341,7 @@
     "verify:sunset-email-settings": "node scripts/verify-sunset-email-settings.js",
     "verify:email-microsoft-graph-adapter": "node scripts/verify-email-microsoft-graph-adapter.js",
     "verify:email-microsoft-graph-me-identity": "node scripts/verify-email-microsoft-graph-me-identity.js",
+    "verify:email-microsoft-oidc-id-token": "node scripts/verify-email-microsoft-oidc-id-token.js",
     "verify:email-graph-app-only-readiness": "node scripts/verify-email-graph-app-only-readiness.js",
     "verify:email-microsoft-delegated-oauth-contract": "node scripts/verify-email-microsoft-delegated-oauth-contract.js",
     "verify:email-microsoft-oauth-transaction-service": "node scripts/verify-email-microsoft-oauth-transaction-service.js",
