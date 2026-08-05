@@ -96,10 +96,23 @@ Optional KV bootstrap before either command:
 SUNSET_STAGING_LEDGER_RECONCILE_LOAD_KV_ADMIN=1 node scripts/load-sunset-staging-pg-admin-env.js
 ```
 
-## Verification (offline)
+## Semantic certification (056/060)
 
-```bash
-node scripts/verify-sunset-staging-ledger-reconcile.js
+Structural certification compares normalized PostgreSQL catalog definitions (`pg_get_constraintdef`, `pg_get_indexdef`, `pg_get_triggerdef`, `pg_get_functiondef`) against a committed disposable-Postgres baseline, including the migration **056** UUID primary-key constraint and primary index.
+
+Migration-owned `COMMENT ON` statements are **non-behavioral metadata** — they are excluded from structural certification and are not reconciled by this tooling.
+
+The committed baseline fixture binds:
+
+- Git source SHA at capture time
+- Migration 056 manifest checksum
+- Capture-script digest
+- PostgreSQL version
+- Resulting semantic fingerprint
+
+Verify gates refuse the baseline when any binding drifts.
+
+## Verification (offline)
 node scripts/prove-sunset-staging-ledger-reconcile-fresh-db.js   # requires Docker; exercises production CLI subprocess
 node scripts/verify-migration-integrity.js
 ```

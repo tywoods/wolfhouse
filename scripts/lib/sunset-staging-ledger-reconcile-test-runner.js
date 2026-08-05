@@ -1,21 +1,28 @@
 'use strict';
 
+/**
+ * Test-only CLI runner with pinned-client injection for offline verify gates.
+ * Production entrypoints must not import this module.
+ */
+
 const fs = require('fs');
 const {
   executeReconcileDryRun,
   executeReconcileMutation,
   CLI_DRY_RUN,
-  CLI_APPLY,
   CLI_EVIDENCE,
   parseArgvFlags,
-  APPLICATION_NAME,
 } = require('./sunset-staging-ledger-reconcile');
-const {
-  createProductionPinnedPgClient,
-  closePinnedPgClient,
-} = require('./sunset-staging-ledger-reconcile-pg');
+const { closePinnedPgClient } = require('./sunset-staging-ledger-reconcile-pg');
 
-async function runSunsetStagingLedgerReconcileCli(options) {
+async function runSunsetStagingLedgerReconcileCliTest(options) {
+  if (typeof options.clientFactory !== 'function') {
+    return {
+      result: { ok: false, code: 'test_client_factory_required' },
+      clientsClosed: 0,
+    };
+  }
+
   const env = options.env || process.env;
   const argv = options.argv || [];
   const parsed = parseArgvFlags(argv);
@@ -30,19 +37,7 @@ async function runSunsetStagingLedgerReconcileCli(options) {
   let clientsClosed = 0;
   let result = { ok: false, code: 'unhandled' };
   try {
-    const pinned = await createProductionPinnedPgClient(APPLICATION_NAME, env);
-    if (!pinned.ok) {
-      return {
-        result: {
-          ok: false,
-          code: pinned.errors[0]?.code || 'pinned_client_refused',
-          errors: pinned.errors,
-        },
-        clientsClosed: 0,
-      };
-    }
-    client = pinned.client;
-
+    client = options.clientFactory();
     const fn = dry ? executeReconcileDryRun : executeReconcileMutation;
     result = await fn({
       env,
@@ -51,7 +46,7 @@ async function runSunsetStagingLedgerReconcileCli(options) {
       evidencePath,
       client,
       pinnedClient: client,
-      productionCli: true,
+      productionCli: false,
     });
   } catch (err) {
     result = {
@@ -69,5 +64,5 @@ async function runSunsetStagingLedgerReconcileCli(options) {
 }
 
 module.exports = {
-  runSunsetStagingLedgerReconcileCli,
+  runSunsetStagingLedgerReconcileCliTest,
 };

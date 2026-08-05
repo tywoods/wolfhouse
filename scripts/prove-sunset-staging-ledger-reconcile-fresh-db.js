@@ -8,6 +8,7 @@
 const { execFileSync, spawnSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { Client } = require('pg');
 const {
@@ -32,12 +33,17 @@ const ROLLBACK_STAGES = Object.freeze([
   'apply_057',
   'apply_058',
   'apply_059',
+  'ledger_060_baseline',
 ]);
 
 const suffix = crypto.randomBytes(3).toString('hex');
 const container = `wh-sunset-reconcile-proof-${suffix}`;
 const port = 55430 + (parseInt(suffix, 16) % 200);
 const admin = { host: '127.0.0.1', port, user: 'postgres', password: 'postgres', database: 'postgres' };
+
+function proofTmp(name) {
+  return path.join(os.tmpdir(), `wh-sunset-reconcile-proof-${suffix}-${name}`);
+}
 
 function docker(...args) {
   execFileSync('docker', args, { stdio: 'inherit' });
@@ -140,7 +146,7 @@ function assertRollbackJson(json, stage, pre) {
   if (!Array.isArray(json.steps) || !json.steps.includes('ROLLBACK')) {
     throw new Error(`rollback stage ${stage}: missing ROLLBACK step`);
   }
-  if (!json.steps.includes('ledger_056_baseline')) {
+  if (!json.steps.includes('ledger_056_baseline') && stage !== 'ledger_056_baseline') {
     throw new Error(`rollback stage ${stage}: mutation did not progress beyond first baseline ledger write`);
   }
   if (!json.steps.includes(stage)) {
@@ -191,8 +197,8 @@ async function buildSplitState(connection) {
 
 async function proveRollbackStage(adminConn, rollbackConn, stage, suffixLocal) {
   const split = await buildSplitState(rollbackConn);
-  const evidencePath = path.join(ROOT, 'tmp', `sunset-reconcile-rollback-${stage}-${suffixLocal}.json`);
-  const connectionPath = path.join(ROOT, 'tmp', `sunset-reconcile-conn-${stage}-${suffixLocal}.json`);
+  const evidencePath = proofTmp(`evidence-${stage}.json`);
+  const connectionPath = proofTmp(`conn-${stage}.json`);
   fs.mkdirSync(path.dirname(evidencePath), { recursive: true });
   fs.writeFileSync(evidencePath, JSON.stringify(split.evidence, null, 2));
   writeProofConnectionFile(rollbackConn, connectionPath);
@@ -243,8 +249,8 @@ async function main() {
 
     const connection = { host: '127.0.0.1', port, user: 'postgres', password: 'postgres', database: DB_NAME };
     const split = await buildSplitState(connection);
-    const evidencePath = path.join(ROOT, 'tmp', `sunset-reconcile-proof-${suffix}.json`);
-    const connectionPath = path.join(ROOT, 'tmp', `sunset-reconcile-conn-${suffix}.json`);
+    const evidencePath = proofTmp('evidence-main.json');
+    const connectionPath = proofTmp('conn-main.json');
     fs.mkdirSync(path.dirname(evidencePath), { recursive: true });
     fs.writeFileSync(evidencePath, JSON.stringify(split.evidence, null, 2));
     writeProofConnectionFile(connection, connectionPath);

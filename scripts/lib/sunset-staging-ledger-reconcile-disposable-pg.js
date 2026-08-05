@@ -6,7 +6,7 @@
 
 const { Client } = require('pg');
 const { TARGETS } = require('./sunset-schema-observer-role-provision');
-const { assertPinnedReconcilePgClient, closePinnedPgClient } = require('./sunset-staging-ledger-reconcile-pg');
+const { assertPinnedReconcilePgClient, closePinnedPgClient, endClientAfterConnectFailure } = require('./sunset-staging-ledger-reconcile-pg');
 
 const SUNSET_LOCKED_CONNECT = Symbol.for('sunset.reconcile.lockedConnect');
 
@@ -41,6 +41,7 @@ async function createDisposablePinnedPgClient(connect, applicationName) {
   try {
     await client.connect();
   } catch (_) {
+    await endClientAfterConnectFailure(client);
     return { ok: false, errors: [{ code: 'connect_failed', message: 'connect failed' }] };
   }
   attachLockedConnect(client, {

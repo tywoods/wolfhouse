@@ -23,14 +23,27 @@ const SUNSET_LOCKED_HOST_IDENTITY = Symbol.for('sunset.reconcile.lockedHostIdent
 
 let clientsInstantiated = 0;
 let cachedHostIdentity = null;
+let connectFailureEndCalls = 0;
 
 function resetPgCounters() {
   clientsInstantiated = 0;
   cachedHostIdentity = null;
+  connectFailureEndCalls = 0;
 }
 
 function getPgCounters() {
-  return { clientsInstantiated };
+  return { clientsInstantiated, connectFailureEndCalls };
+}
+
+async function endClientAfterConnectFailure(client) {
+  if (!client || typeof client.end !== 'function') return false;
+  try {
+    await client.end();
+    connectFailureEndCalls += 1;
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 function assertProductionSeamEnvRejected(env) {
@@ -156,6 +169,7 @@ async function createProductionPinnedPgClient(applicationName, env) {
   try {
     await client.connect();
   } catch (_) {
+    await endClientAfterConnectFailure(client);
     return { ok: false, errors: [{ code: 'connect_failed', message: 'connect failed' }] };
   }
   attachLockedConnect(client, {
@@ -203,7 +217,9 @@ async function assertLiveSessionTarget(client, applicationName) {
   if (Number(row.server_port) !== 5432) errors.push({ code: 'live_server_port_mismatch' });
 
   const addr = String(row.server_addr || '').trim();
-  if (addr && hostIdentity && !hostIdentity.addresses.includes(addr)) {
+  if (!addr) {
+    errors.push({ code: 'live_server_addr_empty', message: 'inet_server_addr() is empty or null' });
+  } else if (!hostIdentity || !hostIdentity.addresses.includes(addr)) {
     errors.push({ code: 'live_server_addr_not_locked_host', message: 'server_addr does not match resolved locked hostname' });
   }
 
@@ -245,4 +261,5 @@ module.exports = {
   resetPgCounters,
   getPgCounters,
   getLockedConnect,
+  endClientAfterConnectFailure,
 };

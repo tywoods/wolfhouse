@@ -17,7 +17,13 @@ const {
 } = require('./lib/migration-integrity');
 const { ensureLedger, applyOne } = require('./run-canonical-migrations');
 const lib = require('./lib/sunset-staging-ledger-reconcile');
-const { captureSemanticCatalog, BASELINE_PATH } = require('./lib/sunset-staging-ledger-reconcile-semantics');
+const {
+  captureSemanticCatalog,
+  BASELINE_PATH,
+  digestCaptureScript,
+  resolveMigration056Checksum,
+  resolveSourceSha,
+} = require('./lib/sunset-staging-ledger-reconcile-semantics');
 
 const ROOT = path.join(__dirname, '..');
 const DB_NAME = 'sunset_staging';
@@ -39,8 +45,10 @@ async function captureFromConnection(connection) {
   await applySqlFile(client, ctx.entries[0].filename);
   await applySqlFile(client, ctx.entries[4].filename);
   const captured = await captureSemanticCatalog(client);
+  const verRes = await client.query('SELECT version() AS version');
+  const postgresVersion = (verRes.rows && verRes.rows[0] && verRes.rows[0].version) || '';
   await client.end();
-  return captured;
+  return { ...captured, postgresVersion };
 }
 
 async function captureWithDocker() {
@@ -84,6 +92,13 @@ async function main() {
   const payload = {
     capturedAt: new Date().toISOString(),
     source: 'disposable-postgres-canonical-056-060-prefix',
+    provenance: {
+      sourceSha: resolveSourceSha(),
+      migration056ChecksumSha256: resolveMigration056Checksum(),
+      captureScriptDigest: digestCaptureScript(),
+      postgresVersion: captured.postgresVersion,
+      semanticFingerprint: captured.fingerprint,
+    },
     catalog: captured.row,
     fingerprint: captured.fingerprint,
   };

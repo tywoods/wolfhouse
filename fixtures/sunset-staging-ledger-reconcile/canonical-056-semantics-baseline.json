@@ -1,6 +1,13 @@
 {
-  "capturedAt": "2026-08-05T08:37:44.898Z",
+  "capturedAt": "2026-08-05T09:04:36.834Z",
   "source": "disposable-postgres-canonical-056-060-prefix",
+  "provenance": {
+    "sourceSha": "d4b15a0bbdc7e54fe1bee1a461ea0baf0d0d947a",
+    "migration056ChecksumSha256": "622157ecda3995ce0a9888d2e4382d0eb9a65e9d8318da97c4d2e64ea4fe8986",
+    "captureScriptDigest": "0c5a52f71cd47fd51bdf595d23d0bca4d967fcf1c8c99172d3c534c3e61e65bf",
+    "postgresVersion": "PostgreSQL 16.14 (Debian 16.14-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+    "semanticFingerprint": "d31907b16778352e4233736a538a7821414e4f4b41b13bf8574ef36846567eb4"
+  },
   "catalog": {
     "columns_056": [
       {
@@ -130,6 +137,16 @@
         "def": "foreign key (client_id) references clients(id) on update cascade on delete restrict"
       }
     ],
+    "pk_056": {
+      "name": "booking_refund_records_pkey",
+      "def": "primary key (id)"
+    },
+    "pk_index_056": {
+      "name": "booking_refund_records_pkey",
+      "def": "create unique index booking_refund_records_pkey on booking_refund_records using btree (id)",
+      "unique": true,
+      "method": "btree"
+    },
     "indexes_booking_refund_records": [
       {
         "name": "booking_refund_records_booking_idx",
@@ -203,5 +220,5 @@
     "has_058_connector_mode": false,
     "has_059_grants": false
   },
-  "fingerprint": "ca9c69c6d610840fd68958bb8676b3b0822e4b32a2c701d3b6286a63c21a04d1"
+  "fingerprint": "d31907b16778352e4233736a538a7821414e4f4b41b13bf8574ef36846567eb4"
 }

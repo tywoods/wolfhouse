@@ -3,8 +3,11 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 const BASELINE_PATH = path.join(__dirname, '..', '..', 'fixtures', 'sunset-staging-ledger-reconcile', 'canonical-056-semantics-baseline.json');
+const CAPTURE_SCRIPT_PATH = path.join(__dirname, '..', 'capture-sunset-056-semantics-baseline.js');
+const MIGRATION_056_ID = '056_booking_refund_records';
 
 const CATALOG_PROBE_SQL = `
 SELECT json_build_object(
@@ -40,6 +43,32 @@ SELECT json_build_object(
     JOIN pg_class rel ON rel.oid = con.conrelid
     JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
     WHERE nsp.nspname = 'public' AND rel.relname = 'booking_refund_records' AND con.contype = 'f'
+  ),
+  'pk_056', (
+    SELECT json_build_object(
+      'name', con.conname,
+      'def', pg_get_constraintdef(con.oid, true)
+    )
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+    WHERE nsp.nspname = 'public' AND rel.relname = 'booking_refund_records' AND con.contype = 'p'
+    LIMIT 1
+  ),
+  'pk_index_056', (
+    SELECT json_build_object(
+      'name', i.relname,
+      'def', pg_get_indexdef(ix.indexrelid, 0, true),
+      'unique', ix.indisunique,
+      'method', am.amname
+    )
+    FROM pg_index ix
+    JOIN pg_class i ON i.oid = ix.indexrelid
+    JOIN pg_class t ON t.oid = ix.indrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    JOIN pg_am am ON am.oid = i.relam
+    WHERE n.nspname = 'public' AND t.relname = 'booking_refund_records' AND ix.indisprimary
+    LIMIT 1
   ),
   'indexes_booking_refund_records', (
     SELECT COALESCE(json_agg(json_build_object(
@@ -173,6 +202,8 @@ function canonicalizeCatalogRow(row) {
     columns_056: (data.columns_056 || []).map(normalizeColumn),
     checks_056: (data.checks_056 || []).map(normalizeNamedDef).sort((a, b) => a.name.localeCompare(b.name)),
     fks_056: (data.fks_056 || []).map(normalizeNamedDef).sort((a, b) => a.name.localeCompare(b.name)),
+    pk_056: data.pk_056 ? normalizeNamedDef(data.pk_056) : null,
+    pk_index_056: data.pk_index_056 ? normalizeNamedDef(data.pk_index_056) : null,
     indexes_booking_refund_records: (data.indexes_booking_refund_records || []).map(normalizeNamedDef).sort((a, b) => a.name.localeCompare(b.name)),
     index_bookings_uidx_056: data.index_bookings_uidx_056 ? normalizeNamedDef(data.index_bookings_uidx_056) : null,
     triggers_056: (data.triggers_056 || []).map(normalizeNamedDef).sort((a, b) => a.name.localeCompare(b.name)),
@@ -201,9 +232,87 @@ async function probeSemanticCatalog(client) {
   return captureSemanticCatalog(client);
 }
 
+function digestCaptureScript() {
+  return sha256Text(fs.readFileSync(CAPTURE_SCRIPT_PATH, 'utf8'));
+}
+
+function readBaselineArtifact() {
+  return JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8'));
+}
+
+function resolveMigration056Checksum() {
+  const { loadManifestContext } = require('./sunset-staging-ledger-reconcile');
+  const ctx = loadManifestContext();
+  const entry = ctx.entries.find((e) => e.id === MIGRATION_056_ID);
+  if (!entry) throw new Error(`migration ${MIGRATION_056_ID} not found in manifest`);
+  return entry.sha256;
+}
+
+function resolveSourceSha() {
+  return String(execSync('git rev-parse HEAD', { encoding: 'utf8' })).trim();
+}
+
+function assertSourceShaKnown(sourceSha) {
+  try {
+    execSync(`git merge-base --is-ancestor ${sourceSha} HEAD`, {
+      encoding: 'utf8',
+      cwd: path.join(__dirname, '..', '..'),
+      stdio: 'pipe',
+    });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function verifyCanonical056BaselineBindings(raw) {
+  const artifact = raw || readBaselineArtifact();
+  const provenance = artifact.provenance || {};
+  const errors = [];
+  const catalog = canonicalizeCatalogRow(artifact.catalog || artifact);
+  const fingerprint = semanticCatalogFingerprint(catalog);
+
+  if (!provenance.sourceSha) errors.push({ code: 'baseline_binding_source_sha_missing' });
+  else if (!assertSourceShaKnown(provenance.sourceSha)) {
+    errors.push({ code: 'baseline_binding_source_sha_unknown' });
+  }
+
+  if (!provenance.migration056ChecksumSha256) errors.push({ code: 'baseline_binding_migration056_checksum_missing' });
+  else if (provenance.migration056ChecksumSha256 !== resolveMigration056Checksum()) {
+    errors.push({ code: 'baseline_binding_migration056_checksum_mismatch' });
+  }
+
+  if (!provenance.captureScriptDigest) errors.push({ code: 'baseline_binding_capture_script_digest_missing' });
+  else if (provenance.captureScriptDigest !== digestCaptureScript()) {
+    errors.push({ code: 'baseline_binding_capture_script_digest_mismatch' });
+  }
+
+  if (!provenance.postgresVersion) errors.push({ code: 'baseline_binding_postgres_version_missing' });
+  if (!provenance.semanticFingerprint) errors.push({ code: 'baseline_binding_semantic_fingerprint_missing' });
+  else if (provenance.semanticFingerprint !== fingerprint) {
+    errors.push({ code: 'baseline_binding_semantic_fingerprint_mismatch' });
+  } else if (artifact.fingerprint && artifact.fingerprint !== fingerprint) {
+    errors.push({ code: 'baseline_top_level_fingerprint_mismatch' });
+  }
+
+  if (!catalog.pk_056 || !catalog.pk_index_056) errors.push({ code: 'baseline_pk_056_missing' });
+
+  return { ok: errors.length === 0, errors, catalog, fingerprint, provenance };
+}
+
 function loadCanonical056Baseline() {
-  const raw = JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8'));
-  return canonicalizeCatalogRow(raw.catalog || raw);
+  const gate = verifyCanonical056BaselineBindings();
+  if (!gate.ok) {
+    const err = new Error('canonical 056 baseline bindings refused');
+    err.code = gate.errors[0].code;
+    err.errors = gate.errors;
+    throw err;
+  }
+  return gate.catalog;
+}
+
+function tryLoadCanonical056Baseline() {
+  return verifyCanonical056BaselineBindings();
 }
 
 function compareCatalog(live, baseline, scope) {
@@ -248,15 +357,24 @@ function driftCatalog(baseline, kind) {
   if (kind === 'non_unique_index') copy.index_bookings_uidx_056.unique = false;
   if (kind === 'wrong_trigger_event') copy.triggers_056[1].def = copy.triggers_056[1].def.replace('update', 'insert');
   if (kind === 'wrong_function_body') copy.functions_056[0].def = 'create function x() returns trigger language plpgsql as $$ begin return null; end $$;';
+  if (kind === 'wrong_pk_constraint') copy.pk_056.def = 'primary key (client_id)';
+  if (kind === 'wrong_pk_index') copy.pk_index_056.def = copy.pk_index_056.def.replace('(id)', '(client_id)');
   return copy;
 }
 
 module.exports = {
   BASELINE_PATH,
+  CAPTURE_SCRIPT_PATH,
+  MIGRATION_056_ID,
   CATALOG_PROBE_SQL,
   captureSemanticCatalog,
   probeSemanticCatalog,
   loadCanonical056Baseline,
+  tryLoadCanonical056Baseline,
+  verifyCanonical056BaselineBindings,
+  digestCaptureScript,
+  resolveMigration056Checksum,
+  resolveSourceSha,
   canonicalizeCatalogRow,
   assertSemanticBaseline056060,
   assertPostApplySemantic,
