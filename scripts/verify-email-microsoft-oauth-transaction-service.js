@@ -20,5 +20,16 @@ const env={LUNA_EMAIL_OAUTH_START_ENABLED:'true',LUNA_DEPLOYMENT:'sunset-staging
   for(const field of ['authority','redirect_uri','client_id','scope','state','nonce','code_verifier','__proto__']) await assert.rejects(()=>service.start({...ids,[field]:'attacker'}),/invalid_request/);
   for(const bad of [{...env,LUNA_EMAIL_OAUTH_START_ENABLED:'TRUE'},{...env,LUNA_DEPLOYMENT:'production'},{...env,LUNA_EMAIL_OAUTH_CLIENT_ID:'bad'}]) await assert.rejects(()=>svc.createMicrosoftOAuthTransactionService({repository:{create:async()=>{}},env:bad}).start(ids));
   const queries=[]; const repo=svc.createPostgresOAuthTransactionRepository({query:async(sql,p)=>{queries.push([sql,p]);return {rows:[]};}}); await repo.consume({stateHash:Buffer.alloc(32),clientId:ids.clientId,authSessionId:ids.authSessionId,now:new Date()}); assert.match(queries[0][0],/consumed_at IS NULL AND expires_at>/);
+  for(const value of [undefined,'TRUE','1',true]) assert.strictEqual(svc.isCallbackEnabled({LUNA_EMAIL_OAUTH_CALLBACK_ENABLED:value}),false);
+  const state=Buffer.alloc(32,9).toString('base64url'); let consumed;
+  const callback=svc.createMicrosoftOAuthCallbackService({repository:{consume:async input=>{consumed=input;return {id:'tx'};}},env:{LUNA_EMAIL_OAUTH_CALLBACK_ENABLED:'true',LUNA_DEPLOYMENT:'sunset-staging'},now:()=>new Date('2026-08-05T12:01:00Z')});
+  assert.deepStrictEqual(await callback.accept({state,code:'provider-code'}, {clientId:ids.clientId,authSessionId:ids.authSessionId}),{status:'authorization_received'});
+  assert.strictEqual(consumed.stateHash.equals(crypto.createHash('sha256').update(state,'ascii').digest()),true); assert.strictEqual(consumed.clientId,ids.clientId); assert.strictEqual(consumed.authSessionId,ids.authSessionId);
+  assert.deepStrictEqual(await callback.accept({state,error:'access_denied'}, {clientId:ids.clientId,authSessionId:ids.authSessionId}),{status:'authorization_declined'});
+  const parsedQuery=require('url').parse(`/staff/email/oauth/microsoft/callback?state=${state}&code=provider-code`,true).query;
+  assert.strictEqual(Object.getPrototypeOf(parsedQuery),null);
+  assert.deepStrictEqual(await callback.accept(parsedQuery,{clientId:ids.clientId,authSessionId:ids.authSessionId}),{status:'authorization_received'});
+  for(const hostile of [{state,code:'x',error:'access_denied'},{state:'bad',code:'x'},{state,code:''},{state,error:'bad error'},{state,code:'x',scope:'evil'},Object.create({state,code:'x'}),null]) await assert.rejects(()=>callback.accept(hostile,{clientId:ids.clientId,authSessionId:ids.authSessionId}),/invalid_request/);
+  await assert.rejects(()=>callback.accept({state,code:'x'},{clientId:ids.clientId,authSessionId:'bad'}),/invalid_owner/);
   console.log('PASS email Microsoft OAuth transaction service hostile gates');
 })().catch(e=>{console.error(e);process.exit(1);});

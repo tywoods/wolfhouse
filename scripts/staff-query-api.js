@@ -206,6 +206,7 @@ const {
 const {
   createStaffEmailOAuthRoutes,
   OAUTH_START_PATH,
+  OAUTH_CALLBACK_PATH,
 } = require('./lib/staff-email-oauth-routes');
 
 const {
@@ -49164,6 +49165,16 @@ async function router(req, res) {
     try { body = JSON.parse((await readBody(req)) || '{}'); }
     catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
     return emailOAuthRoutes.handleStart(body, req, res, auth.user);
+  }
+  // Microsoft returns by top-level GET. SameSite=Lax plus Path=/staff allows
+  // this server to resolve the live initiating session. Provider parameters
+  // never supply client or session ownership.
+  if (pathname === OAUTH_CALLBACK_PATH && method === 'GET') {
+    if (process.env.LUNA_EMAIL_OAUTH_CALLBACK_ENABLED !== 'true') return sendJSON(res, 404, { success:false, error:'not_found' });
+    let user = null;
+    try { user = await loadAuthSession(req); } catch (_) { user = null; }
+    if (!user || !hasRole(resolveStaffRole(user), 'admin')) return emailOAuthRoutes.handleCallback(parsed.query, req, res, null);
+    return emailOAuthRoutes.handleCallback(parsed.query, req, res, user);
   }
   // Auth stays here; handlers live in staff-email-registry-routes.js
   if (pathname === EMAIL_REGISTRY_LOCATIONS_PATH && method === 'GET') {
