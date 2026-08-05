@@ -36,16 +36,18 @@ const {
 } = require('./migration-integrity');
 const { scanSecretValues } = require('./sunset-staging-iac-drift');
 const {
+  assertPinnedReconcilePgClient,
+  assertLiveSessionTarget,
+  assertProductionSeamEnvRejected,
+  FORBIDDEN_PRODUCTION_SEAM_ENVS,
+} = require('./sunset-staging-ledger-reconcile-pg');
+const {
   probeSemanticCatalog,
   assertSemanticBaseline056060,
   assertPostApplySemantic,
   semanticCatalogFingerprint,
+  loadCanonical056Baseline,
 } = require('./sunset-staging-ledger-reconcile-semantics');
-const {
-  assertPinnedReconcilePgClient,
-  assertLiveSessionTarget,
-  isDisposableProofEnv,
-} = require('./sunset-staging-ledger-reconcile-pg');
 
 const SLICE_ID = 'sunset-staging-ledger-reconcile-056-060';
 const EVIDENCE_KIND = 'sunset-staging-ledger-reconcile-evidence-v1';
@@ -129,6 +131,11 @@ const FORBIDDEN_ARGV_FLAGS = Object.freeze([
   '--apply-ledger-recovery',
 ]);
 
+const FORBIDDEN_PRODUCTION_ARGV_FLAGS = Object.freeze([
+  '--proof-connection-file',
+  '--inject-fail-step',
+]);
+
 const SET_LOCK_TIMEOUT_SQL = "SET LOCAL lock_timeout = '5000ms'";
 const SET_STATEMENT_TIMEOUT_SQL = "SET LOCAL statement_timeout = '30000ms'";
 const SET_IDLE_TIMEOUT_SQL = "SET LOCAL idle_in_transaction_session_timeout = '60000ms'";
@@ -160,7 +167,7 @@ const SAFE_OUTPUT_KEYS = Object.freeze([
   'errors', 'message', 'note', 'evidenceDigest', 'planDigest', 'ledgerPrefixDigest',
   'target', 'manifestDigest', 'catalogFingerprint', 'ledgerRowCount', 'reconcileOk',
   'appliedIds', 'steps', 'queryCalls', 'clientsInstantiated', 'targetProofMode',
-  'sessionPinned', 'liveTargetProof',
+  'sessionPinned', 'liveTargetProof', 'injectFailStepReached',
 ]);
 
 let reconcileQueryCallCount = 0;
@@ -369,11 +376,17 @@ function evaluateReconcileGates(opts) {
   const dryRun = parsed.flags.has(CLI_DRY_RUN);
 
   for (const f of parsed.flags) {
-    if (FORBIDDEN_ARGV_FLAGS.includes(f)) {
+    const productionOnlyForbidden = options.productionCli === true && FORBIDDEN_PRODUCTION_ARGV_FLAGS.includes(f);
+    if (FORBIDDEN_ARGV_FLAGS.includes(f) || productionOnlyForbidden) {
       errors.push({ code: 'forbidden_argv', message: `forbidden argv ${f}`, flag: f });
     } else if (!ALLOWED_ARGV_FLAGS.includes(f)) {
       errors.push({ code: 'unknown_argv', message: `unknown argv ${f}`, flag: f });
     }
+  }
+
+  if (options.productionCli === true) {
+    const seam = assertProductionSeamEnvRejected(env);
+    if (!seam.ok) errors.push(...seam.errors);
   }
 
   if (String(env[ENV_ENABLED] || '') !== '1') {
@@ -548,8 +561,8 @@ function catalogFingerprintFromProbe(row) {
   return semanticCatalogFingerprint(row);
 }
 
-function assertPreApplyStructural(row) {
-  return assertSemanticBaseline056060(row);
+function assertPreApplyStructural(row, baseline) {
+  return assertSemanticBaseline056060(row, baseline || loadCanonical056Baseline());
 }
 
 function assertPostApplyStructural(row) {
@@ -561,7 +574,7 @@ async function probeStructuralState(client) {
   return probeSemanticCatalog(client);
 }
 
-async function assertPinnedSessionAndLiveTarget(client, targetProofMode) {
+async function assertPinnedSessionAndLiveTarget(client, options) {
   const pin = assertPinnedReconcilePgClient(client);
   if (!pin.ok) {
     const err = new Error('pinned client required');
@@ -569,7 +582,10 @@ async function assertPinnedSessionAndLiveTarget(client, targetProofMode) {
     err.errors = pin.errors;
     throw err;
   }
-  const live = await assertLiveSessionTarget(client, APPLICATION_NAME, targetProofMode);
+  const assertFn = options && options.sessionAssertFn;
+  const live = assertFn
+    ? await assertFn(client, APPLICATION_NAME)
+    : await assertLiveSessionTarget(client, APPLICATION_NAME);
   if (!live.ok) {
     const err = new Error('live session target proof failed');
     err.code = live.errors[0].code;
@@ -686,9 +702,9 @@ async function executeReconcileDryRun(options) {
     });
   }
   const client = options.pinnedClient || options.client;
-  const targetProofMode = options.targetProofMode || 'sunset_staging_locked';
+  const sessionOpts = { sessionAssertFn: options.sessionAssertFn };
   try {
-    await assertPinnedSessionAndLiveTarget(client, targetProofMode);
+    await assertPinnedSessionAndLiveTarget(client, sessionOpts);
   } catch (e) {
     return publicResult({
       ok: false, code: e.code || 'pinned_client_refused', dryRun: true, errors: e.errors || [{ code: e.code }],
@@ -701,7 +717,7 @@ async function executeReconcileDryRun(options) {
       errors: [{ code: 'catalog_fingerprint_mismatch' }],
     });
   }
-  const structGate = assertPreApplyStructural(structural.row);
+  const structGate = assertPreApplyStructural(structural.row, options.semanticBaseline);
   if (!structGate.ok) {
     return publicResult({ ok: false, code: structGate.errors[0].code, dryRun: true, errors: structGate.errors });
   }
@@ -723,7 +739,7 @@ async function executeReconcileDryRun(options) {
     ledgerPrefixDigest: liveLedgerDigest,
     catalogFingerprint: structural.fingerprint, ledgerRowCount: ledgerRows.length,
     reconcileOk: true, liveMutation: false, ledgerWritten: false, schemaMutation: false,
-    target: RECONCILE_TARGET, sessionPinned: true, targetProofMode,
+    target: RECONCILE_TARGET, sessionPinned: true,
   });
 }
 
@@ -756,7 +772,7 @@ async function executeReconcileMutation(options) {
   }
 
   const client = options.pinnedClient || options.client;
-  const targetProofMode = options.targetProofMode || 'sunset_staging_locked';
+  const sessionOpts = { sessionAssertFn: options.sessionAssertFn };
   const pinGate = assertPinnedReconcilePgClient(client);
   if (!pinGate.ok) {
     return publicResult({ ok: false, code: pinGate.errors[0].code, errors: pinGate.errors });
@@ -765,9 +781,7 @@ async function executeReconcileMutation(options) {
   let began = false;
   const steps = [];
   let liveTargetProof = null;
-  const injectFailStep = isDisposableProofEnv(options.env || {})
-    ? String((options.env || {}).SUNSET_STAGING_LEDGER_RECONCILE_INJECT_FAIL_STEP || '')
-    : '';
+  const injectFailStep = String(options.injectFailStep || '');
   const maybeInjectFailure = (stepName) => {
     if (injectFailStep && injectFailStep === stepName) {
       throw Object.assign(new Error(`injected failure on ${stepName}`), { code: 'injected_failure' });
@@ -785,20 +799,14 @@ async function executeReconcileMutation(options) {
     await client.query(ADVISORY_XACT_LOCK_SQL, [ADVISORY_LOCK_KEY1, ADVISORY_LOCK_KEY2]);
     steps.push('advisory_xact_lock');
 
-    liveTargetProof = await assertLiveSessionTarget(client, APPLICATION_NAME, targetProofMode);
-    if (!liveTargetProof.ok) {
-      const err = new Error('live session target proof failed inside transaction');
-      err.code = liveTargetProof.errors[0].code;
-      err.errors = liveTargetProof.errors;
-      throw err;
-    }
+    liveTargetProof = await assertPinnedSessionAndLiveTarget(client, sessionOpts);
     steps.push('live_target_proof');
 
     const structural = await probeStructuralState(client);
     if (structural.fingerprint !== evidence.catalogFingerprint) {
       throw Object.assign(new Error('catalog fingerprint mismatch inside transaction'), { code: 'catalog_fingerprint_mismatch' });
     }
-    const structGate = assertPreApplyStructural(structural.row);
+    const structGate = assertPreApplyStructural(structural.row, options.semanticBaseline);
     if (!structGate.ok) {
       const err = new Error('pre-apply structural assertion failed');
       err.code = structGate.errors[0].code;
@@ -885,8 +893,8 @@ async function executeReconcileMutation(options) {
       target: RECONCILE_TARGET,
       slice: SLICE_ID,
       sessionPinned: true,
-      targetProofMode,
       liveTargetProof: liveTargetProof.row,
+      injectFailStepReached: injectFailStep || null,
     });
   } catch (e) {
     if (began) {
@@ -904,6 +912,7 @@ async function executeReconcileMutation(options) {
       rolledBack: began,
       committed: false,
       steps,
+      injectFailStepReached: injectFailStep || null,
       liveMutation: false,
       ledgerWritten: false,
     });
@@ -952,14 +961,14 @@ function createScriptedReconcileFakeClient(script) {
   let stepCounter = 0;
 
   let txnLedgerSnapshot = null;
-  return {
+  const serverAddr = s.serverAddr || '10.0.0.1';
+  const client = {
     calls,
     get ledgerRows() { return ledger; },
     setSemanticRow(row) { semantic = { ...row }; },
     setStructuralRow(row) { semantic = { ...row }; },
     async connect() { return undefined; },
     async end() { return undefined; },
-    async release() { return undefined; },
     async query(sql, params) {
       const q = String(sql);
       calls.push({ sql: q.slice(0, 120), params: params ? '[redacted]' : null });
@@ -996,11 +1005,14 @@ function createScriptedReconcileFakeClient(script) {
             rows: [{
               database_name: 'sunset_staging',
               application_name: APPLICATION_NAME,
-              server_addr: s.serverAddr || '10.0.0.1',
+              server_addr: serverAddr,
               server_port: 5432,
               server_version: 'PostgreSQL 16.0',
             }],
           };
+        }
+        if (q.includes('columns_056') && q.includes('json_build_object')) {
+          return { rows: [{ catalog: semantic }] };
         }
         if (q.includes('json_build_object') && q.includes('semantic_row')) {
           return { rows: [{ semantic_row: semantic }] };
@@ -1037,6 +1049,28 @@ function createScriptedReconcileFakeClient(script) {
       }
     },
   };
+  const SUNSET_LOCKED_CONNECT = Symbol.for('sunset.reconcile.lockedConnect');
+  const SUNSET_LOCKED_HOST_IDENTITY = Symbol.for('sunset.reconcile.lockedHostIdentity');
+  Object.defineProperty(client, SUNSET_LOCKED_CONNECT, {
+    value: Object.freeze({
+      host: RECONCILE_TARGET.postgresHost,
+      port: RECONCILE_TARGET.port,
+      database: RECONCILE_TARGET.database,
+      applicationName: APPLICATION_NAME,
+      mode: 'sunset_staging_locked',
+    }),
+    enumerable: false,
+    configurable: false,
+  });
+  Object.defineProperty(client, SUNSET_LOCKED_HOST_IDENTITY, {
+    value: Object.freeze({
+      host: RECONCILE_TARGET.postgresHost,
+      addresses: [serverAddr],
+    }),
+    enumerable: false,
+    configurable: false,
+  });
+  return client;
 }
 
 module.exports = {
@@ -1050,6 +1084,8 @@ module.exports = {
   PREFIX_END_ORDER,
   PREFIX_END_ID,
   TIP_ORDER,
+  FORBIDDEN_PRODUCTION_ARGV_FLAGS,
+  FORBIDDEN_PRODUCTION_SEAM_ENVS,
   ENV_ENABLED,
   ENV_TOKEN,
   ENV_EMAIL_COMPOSITION,

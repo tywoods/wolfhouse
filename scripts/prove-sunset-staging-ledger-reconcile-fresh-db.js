@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Disposable local PostgreSQL proof via production CLI subprocess.
+ * Disposable local PostgreSQL proof via test-only disposable proof CLI.
  * Never connects to Azure or live sunset_staging hostnames.
  */
 
@@ -18,16 +18,21 @@ const {
 } = require('./lib/migration-integrity');
 const { ensureLedger, applyOne, loadLedger } = require('./run-canonical-migrations');
 const lib = require('./lib/sunset-staging-ledger-reconcile');
-const { probeSemanticCatalog } = require('./lib/sunset-staging-ledger-reconcile-semantics');
-const {
-  ENV_DISPOSABLE_PROOF,
-  ENV_INTERNAL_CONNECT_HOST,
-  ENV_INTERNAL_CONNECT_PORT,
-} = require('./lib/sunset-staging-ledger-reconcile-pg');
+const { probeSemanticCatalog, BASELINE_PATH } = require('./lib/sunset-staging-ledger-reconcile-semantics');
+const { CLI_INJECT_FAIL } = require('./lib/sunset-staging-ledger-reconcile-disposable-runner');
+const { FORBIDDEN_PRODUCTION_SEAM_ENVS } = require('./lib/sunset-staging-ledger-reconcile-pg');
 
 const ROOT = path.join(__dirname, '..');
-const CLI = path.join(ROOT, 'scripts', 'run-sunset-staging-ledger-reconcile.js');
+const PROD_CLI = path.join(ROOT, 'scripts', 'run-sunset-staging-ledger-reconcile.js');
+const PROOF_CLI = path.join(ROOT, 'scripts', 'run-sunset-staging-ledger-reconcile-disposable-proof.js');
 const DB_NAME = 'sunset_staging';
+
+const ROLLBACK_STAGES = Object.freeze([
+  'ledger_056_baseline',
+  'apply_057',
+  'apply_058',
+  'apply_059',
+]);
 
 const suffix = crypto.randomBytes(3).toString('hex');
 const container = `wh-sunset-reconcile-proof-${suffix}`;
@@ -75,39 +80,87 @@ async function fingerprintLedgerAndCatalog(client) {
   };
 }
 
-function baseCliEnv(token, extra) {
+function writeProofConnectionFile(connection, filePath) {
+  fs.writeFileSync(filePath, JSON.stringify({
+    host: connection.host,
+    port: connection.port,
+    database: connection.database,
+    user: connection.user,
+    password: connection.password,
+  }));
+}
+
+function baseProofEnv(token) {
   return {
     ...process.env,
     SUNSET_STAGING_PG_ADMIN_USER: 'postgres',
     SUNSET_STAGING_PG_ADMIN_PASSWORD: 'postgres',
     [lib.ENV_ENABLED]: '1',
     [lib.ENV_TOKEN]: token,
-    [ENV_DISPOSABLE_PROOF]: '1',
-    [ENV_INTERNAL_CONNECT_HOST]: '127.0.0.1',
-    [ENV_INTERNAL_CONNECT_PORT]: String(port),
-    ...(extra || {}),
   };
 }
 
-function baseCliArgv(mode, evidencePath) {
-  return [
+function baseProofArgv(mode, evidencePath, connectionPath, injectStep) {
+  const argv = [
     mode,
     lib.CLI_APPROVE,
     lib.CLI_EVIDENCE, evidencePath,
+    '--proof-connection-file', connectionPath,
     '--subscription', lib.RECONCILE_TARGET.subscriptionId,
     '--resource-group', lib.RECONCILE_TARGET.resourceGroup,
     '--postgres-server', lib.RECONCILE_TARGET.postgresServer,
     '--database', lib.RECONCILE_TARGET.database,
   ];
+  if (injectStep) argv.push(CLI_INJECT_FAIL, injectStep);
+  return argv;
 }
 
-function spawnCli(env, argv) {
-  return spawnSync(process.execPath, [CLI, ...argv], {
+function spawnProofCli(env, argv) {
+  return spawnSync(process.execPath, [PROOF_CLI, ...argv], {
     cwd: ROOT,
     env,
     encoding: 'utf8',
     timeout: 600000,
   });
+}
+
+function spawnProdCli(env, argv) {
+  return spawnSync(process.execPath, [PROD_CLI, ...argv], {
+    cwd: ROOT,
+    env,
+    encoding: 'utf8',
+    timeout: 600000,
+  });
+}
+
+function assertRollbackJson(json, stage, pre) {
+  if (json.code !== 'injected_failure') {
+    throw new Error(`rollback stage ${stage}: expected code injected_failure, got ${json.code}`);
+  }
+  if (!Array.isArray(json.steps) || !json.steps.includes('ROLLBACK')) {
+    throw new Error(`rollback stage ${stage}: missing ROLLBACK step`);
+  }
+  if (!json.steps.includes('ledger_056_baseline')) {
+    throw new Error(`rollback stage ${stage}: mutation did not progress beyond first baseline ledger write`);
+  }
+  if (!json.steps.includes(stage)) {
+    throw new Error(`rollback stage ${stage}: injection point not reached`);
+  }
+  if (json.injectFailStepReached !== stage) {
+    throw new Error(`rollback stage ${stage}: injectFailStepReached mismatch`);
+  }
+  if (!json.rolledBack) {
+    throw new Error(`rollback stage ${stage}: rolledBack not true`);
+  }
+  return {
+    stage,
+    code: json.code,
+    steps: json.steps,
+    injectFailStepReached: json.injectFailStepReached,
+    rolledBack: json.rolledBack,
+    preLedgerDigest: pre.ledgerDigest,
+    preCatalogFingerprint: pre.catalogFingerprint,
+  };
 }
 
 async function buildSplitState(connection) {
@@ -136,9 +189,51 @@ async function buildSplitState(connection) {
   return { ctx, evidence, token, pre, planDigest };
 }
 
+async function proveRollbackStage(adminConn, rollbackConn, stage, suffixLocal) {
+  const split = await buildSplitState(rollbackConn);
+  const evidencePath = path.join(ROOT, 'tmp', `sunset-reconcile-rollback-${stage}-${suffixLocal}.json`);
+  const connectionPath = path.join(ROOT, 'tmp', `sunset-reconcile-conn-${stage}-${suffixLocal}.json`);
+  fs.mkdirSync(path.dirname(evidencePath), { recursive: true });
+  fs.writeFileSync(evidencePath, JSON.stringify(split.evidence, null, 2));
+  writeProofConnectionFile(rollbackConn, connectionPath);
+
+  const preClient = new Client(rollbackConn);
+  await preClient.connect();
+  const pre = await fingerprintLedgerAndCatalog(preClient);
+  await preClient.end();
+
+  const run = spawnProofCli(baseProofEnv(split.token), baseProofArgv(lib.CLI_APPLY, evidencePath, connectionPath, stage));
+  if (!run.stdout) throw new Error(`rollback ${stage}: no stdout (${run.stderr || 'empty'})`);
+  const json = JSON.parse(run.stdout);
+  const evidence = assertRollbackJson(json, stage, pre);
+
+  const postClient = new Client(rollbackConn);
+  await postClient.connect();
+  const post = await fingerprintLedgerAndCatalog(postClient);
+  await postClient.end();
+
+  if (pre.ledgerDigest !== post.ledgerDigest || pre.catalogFingerprint !== post.catalogFingerprint) {
+    throw new Error(`rollback ${stage}: pre/post fingerprints differ`);
+  }
+  return {
+    ...evidence,
+    postLedgerDigest: post.ledgerDigest,
+    postCatalogFingerprint: post.catalogFingerprint,
+    ledgerIdentical: true,
+    catalogIdentical: true,
+    exitCode: run.status,
+  };
+}
+
 async function main() {
+  if (!fs.existsSync(BASELINE_PATH)) {
+    const { main: capture } = require('./capture-sunset-056-semantics-baseline');
+    await capture();
+  }
+
   docker('run', '--rm', '-d', '--name', container, '-e', 'POSTGRES_PASSWORD=postgres', '-p', `${port}:5432`, 'postgres:16');
-  const proof = { ok: false, hostile: {}, cli: {} };
+  await new Promise((r) => setTimeout(r, 8000));
+  const proof = { ok: false, hostile: {}, cli: {}, rollbackStages: {} };
   try {
     await waitReady(admin);
     const boot = new Client(admin);
@@ -149,16 +244,18 @@ async function main() {
     const connection = { host: '127.0.0.1', port, user: 'postgres', password: 'postgres', database: DB_NAME };
     const split = await buildSplitState(connection);
     const evidencePath = path.join(ROOT, 'tmp', `sunset-reconcile-proof-${suffix}.json`);
+    const connectionPath = path.join(ROOT, 'tmp', `sunset-reconcile-conn-${suffix}.json`);
     fs.mkdirSync(path.dirname(evidencePath), { recursive: true });
     fs.writeFileSync(evidencePath, JSON.stringify(split.evidence, null, 2));
+    writeProofConnectionFile(connection, connectionPath);
 
     const preDryClient = new Client(connection);
     await preDryClient.connect();
     const preDry = await fingerprintLedgerAndCatalog(preDryClient);
     await preDryClient.end();
 
-    const dryRun = spawnCli(baseCliEnv(split.token), baseCliArgv(lib.CLI_DRY_RUN, evidencePath));
-    if (dryRun.status !== 0) throw new Error(`cli dry-run failed: ${dryRun.stdout || dryRun.stderr}`);
+    const dryRun = spawnProofCli(baseProofEnv(split.token), baseProofArgv(lib.CLI_DRY_RUN, evidencePath, connectionPath));
+    if (dryRun.status !== 0) throw new Error(`proof cli dry-run failed: ${dryRun.stdout || dryRun.stderr}`);
     const dryJson = JSON.parse(dryRun.stdout);
     proof.cli.dryRun = { ok: dryJson.ok, code: dryJson.code, sessionPinned: dryJson.sessionPinned };
 
@@ -174,14 +271,12 @@ async function main() {
       postLedgerDigest: postDry.ledgerDigest,
       preCatalogFingerprint: preDry.catalogFingerprint,
       postCatalogFingerprint: postDry.catalogFingerprint,
-      preLedgerPrefixDigest: preDry.ledgerPrefixDigest,
-      postLedgerPrefixDigest: postDry.ledgerPrefixDigest,
       ledgerIdentical: true,
       catalogIdentical: true,
     };
 
-    const applyRun = spawnCli(baseCliEnv(split.token), baseCliArgv(lib.CLI_APPLY, evidencePath));
-    if (applyRun.status !== 0) throw new Error(`cli apply failed: ${applyRun.stdout || applyRun.stderr}`);
+    const applyRun = spawnProofCli(baseProofEnv(split.token), baseProofArgv(lib.CLI_APPLY, evidencePath, connectionPath));
+    if (applyRun.status !== 0) throw new Error(`proof cli apply failed: ${applyRun.stdout || applyRun.stderr}`);
     const applyJson = JSON.parse(applyRun.stdout);
     proof.cli.apply = {
       ok: applyJson.ok,
@@ -208,50 +303,49 @@ async function main() {
       }));
     await finalClient.end();
 
-    const rerun = spawnCli(baseCliEnv(split.token), baseCliArgv(lib.CLI_APPLY, evidencePath));
+    const rerun = spawnProofCli(baseProofEnv(split.token), baseProofArgv(lib.CLI_APPLY, evidencePath, connectionPath));
     proof.rerunProof = { refused: rerun.status !== 0, exitCode: rerun.status };
 
-    const rollbackDb = `sunset_staging_rb_${suffix}`;
-    const bootRb = new Client(admin);
-    await bootRb.connect();
-    await bootRb.query(`CREATE DATABASE ${rollbackDb}`);
-    await bootRb.end();
-    const rollbackConn = { host: '127.0.0.1', port, user: 'postgres', password: 'postgres', database: rollbackDb };
-    const rollbackSplit = await buildSplitState(rollbackConn);
-    const rollbackEvidencePath = path.join(ROOT, 'tmp', `sunset-reconcile-rollback-${suffix}.json`);
-    fs.writeFileSync(rollbackEvidencePath, JSON.stringify(rollbackSplit.evidence, null, 2));
-    process.env.SUNSET_STAGING_LEDGER_RECONCILE_INJECT_FAIL_STEP = 'apply_057';
-    const rollbackRun = spawnCli({
-      ...baseCliEnv(rollbackSplit.token),
-      SUNSET_STAGING_LEDGER_RECONCILE_INJECT_FAIL_STEP: 'apply_057',
-    }, baseCliArgv(lib.CLI_APPLY, rollbackEvidencePath));
-    delete process.env.SUNSET_STAGING_LEDGER_RECONCILE_INJECT_FAIL_STEP;
-    const rollbackClient = new Client(rollbackConn);
-    await rollbackClient.connect();
-    const rollbackPost = await fingerprintLedgerAndCatalog(rollbackClient);
-    await rollbackClient.end();
-    proof.rollbackProof = {
-      refused: rollbackRun.status !== 0,
-      preLedgerDigest: rollbackSplit.pre.ledgerDigest,
-      postLedgerDigest: rollbackPost.ledgerDigest,
-      ledgerIdentical: rollbackSplit.pre.ledgerDigest === rollbackPost.ledgerDigest,
-      catalogIdentical: rollbackSplit.pre.catalogFingerprint === rollbackPost.catalogFingerprint,
-    };
+    for (const stage of ROLLBACK_STAGES) {
+      const rollbackDb = `sunset_staging_rb_${stage}_${suffix}`;
+      const bootRb = new Client(admin);
+      await bootRb.connect();
+      await bootRb.query(`CREATE DATABASE ${rollbackDb}`);
+      await bootRb.end();
+      const rollbackConn = { host: '127.0.0.1', port, user: 'postgres', password: 'postgres', database: rollbackDb };
+      proof.rollbackStages[stage] = await proveRollbackStage(admin, rollbackConn, stage, suffix);
+    }
 
-    const wrongDbEnv = baseCliEnv(split.token, { [ENV_INTERNAL_CONNECT_PORT]: String(port) });
-    const wrongDb = spawnCli(wrongDbEnv, baseCliArgv(lib.CLI_DRY_RUN, evidencePath));
+    const seamEnv = baseProofEnv(split.token);
+    for (const name of FORBIDDEN_PRODUCTION_SEAM_ENVS) seamEnv[name] = '1';
+    const prodSeam = spawnProdCli(seamEnv, [
+      lib.CLI_DRY_RUN,
+      lib.CLI_APPROVE,
+      lib.CLI_EVIDENCE, evidencePath,
+      '--subscription', lib.RECONCILE_TARGET.subscriptionId,
+      '--resource-group', lib.RECONCILE_TARGET.resourceGroup,
+      '--postgres-server', lib.RECONCILE_TARGET.postgresServer,
+      '--database', lib.RECONCILE_TARGET.database,
+    ]);
+    const prodNoSeam = spawnProdCli({
+      ...baseProofEnv(split.token),
+      SUNSET_STAGING_PG_ADMIN_USER: 'postgres',
+      SUNSET_STAGING_PG_ADMIN_PASSWORD: 'postgres',
+    }, [
+      lib.CLI_DRY_RUN,
+      lib.CLI_APPROVE,
+      lib.CLI_EVIDENCE, evidencePath,
+      '--subscription', lib.RECONCILE_TARGET.subscriptionId,
+      '--resource-group', lib.RECONCILE_TARGET.resourceGroup,
+      '--postgres-server', lib.RECONCILE_TARGET.postgresServer,
+      '--database', lib.RECONCILE_TARGET.database,
+    ]);
+
     proof.hostile = {
       rerunRefused: rerun.status !== 0,
-      rollbackLedgerUnchanged: proof.rollbackProof.ledgerIdentical,
-      productionLoopbackRefused: (() => {
-        const noSeam = spawnCli({
-          ...baseCliEnv(split.token),
-          [ENV_DISPOSABLE_PROOF]: '',
-          [ENV_INTERNAL_CONNECT_HOST]: '',
-          [ENV_INTERNAL_CONNECT_PORT]: '',
-        }, baseCliArgv(lib.CLI_DRY_RUN, evidencePath));
-        return noSeam.status !== 0;
-      })(),
+      productionSeamEnvRefused: prodSeam.status !== 0,
+      productionLoopbackWithoutAzureRefused: prodNoSeam.status !== 0,
+      rollbackStagesProved: ROLLBACK_STAGES.length,
     };
 
     proof.ok = true;
@@ -278,4 +372,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { main };
+module.exports = { main, ROLLBACK_STAGES, assertRollbackJson };
