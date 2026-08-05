@@ -41,7 +41,7 @@ async function main() {
   assert.deepEqual(result, { providerTenantId: TID, providerPrincipalId: 'principal-1' });
   assert.deepEqual(Object.keys(result), ['providerTenantId', 'providerPrincipalId']); assert(Object.isFrozen(result));
   assert(!('idToken' in result) && !('claims' in result) && !('nonce' in result));
-  assert.equal(good.calls.length, 1); assert.equal(good.calls[0].thisValue, undefined); assert(Object.isFrozen(good.calls[0].request));
+  assert.equal(good.calls.length, 1); assert.equal(good.calls[0].thisValue, good.dependency); assert(Object.isFrozen(good.calls[0].request));
   assert.equal(good.calls[0].request.signingInput, token().split('.').slice(0, 2).join('.'));
   assert.deepEqual(good.calls[0].request.signature, Buffer.from([0, 1, 2, 254, 255]));
   assert.deepEqual({ alg: good.calls[0].request.alg, kid: good.calls[0].request.kid }, { alg: 'RS256', kid: 'key-1' });

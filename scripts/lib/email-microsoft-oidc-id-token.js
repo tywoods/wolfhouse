@@ -133,10 +133,11 @@ function bounded(value, max = LIMITS.text) {
 }
 
 function createMicrosoftOidcIdTokenValidator(dependencies) {
+  let verifier;
   let verify;
   try {
     const deps = exactPlainData(dependencies, ['signatureVerifier']);
-    const verifier = deps && deps.signatureVerifier;
+    verifier = deps && deps.signatureVerifier;
     if (!verifier || Object.getPrototypeOf(verifier) !== Object.prototype || !Object.isFrozen(verifier)
         || Reflect.ownKeys(verifier).length !== 1) throw failure();
     const descriptor = Object.getOwnPropertyDescriptor(verifier, 'verify');
@@ -163,7 +164,7 @@ function createMicrosoftOidcIdTokenValidator(dependencies) {
       const signingInput = `${encodedHeader}.${encodedClaims}`;
       const request = Object.freeze({ signingInput, signature: Buffer.from(signature), alg: 'RS256', kid: header.kid });
       let acknowledgement;
-      try { acknowledgement = await Reflect.apply(verify, undefined, [request]); } catch { throw failure(); }
+      try { acknowledgement = await Reflect.apply(verify, verifier, [request]); } catch { throw failure(); }
       if (!acknowledgement || typeof acknowledgement !== 'object' || !Object.isSealed(acknowledgement)
           || Object.getPrototypeOf(acknowledgement) !== Object.prototype
           || Reflect.ownKeys(acknowledgement).length !== 1
