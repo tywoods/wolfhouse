@@ -208,12 +208,22 @@ async function main() {
       return assertLiveSessionTarget(client, lib.APPLICATION_NAME);
     };
     pass('accepts_approved_vnet_private_path_10_33_0_4', (await targetProbe()).ok === true);
+    pass('accepts_canonical_approved_vnet_private_path_10_33_0_4_32', (await targetProbe({ addr: '10.33.0.4/32' })).ok === true);
     pass('preserves_locked_public_dns_path', (await targetProbe({ addr: '51.124.155.177' })).ok === true);
+    pass('preserves_canonical_locked_public_dns_path_32', (await targetProbe({ addr: '51.124.155.177/32' })).ok === true);
     pass('rejects_wrong_fqdn_or_tls_hostname', !(await targetProbe({ host: 'evil.example.com', tlsServername: 'evil.example.com' })).ok);
     pass('rejects_wrong_azure_resource', !(await targetProbe({ postgresServer: 'other-pg-server' })).ok);
     pass('rejects_wrong_live_database', !(await targetProbe({ database: 'postgres' })).ok);
     pass('rejects_arbitrary_private_ip', !(await targetProbe({ addr: '10.33.0.5' })).ok);
     pass('rejects_public_impostor', !(await targetProbe({ addr: '203.0.113.9' })).ok);
+    for (const addr of [
+      '10.33.0.4/31', '10.33.0.4/24', '10.33.0.4/0', '10.33.0.4/33',
+      '10.33.0.5/32', '10.33.0.4/', '10.33.0.4//32', '10.33.0.999/32',
+      '010.33.0.4/32', '10.33.0.4 /32', ' 10.33.0.4/32', '10.33.0.4/32 ',
+      '::ffff:10.33.0.4', '::ffff:10.33.0.4/128', '::1', {},
+    ]) {
+      pass(`rejects_hostile_inet_server_addr_${JSON.stringify(addr)}`, !(await targetProbe({ addr })).ok);
+    }
     pass('rejects_forged_private_address_seam', !(await targetProbe({
       addr: '10.33.0.5', approvedPrivateAddresses: ['10.33.0.5'],
     })).ok);

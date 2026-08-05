@@ -157,6 +157,15 @@ function getLockedConnect(client) {
   return client && client[SUNSET_LOCKED_CONNECT] ? client[SUNSET_LOCKED_CONNECT] : null;
 }
 
+function parseCanonicalInetServerIpv4(value) {
+  if (typeof value !== 'string' || value !== value.trim()) return null;
+  const match = value.match(/^(\d{1,3}(?:\.\d{1,3}){3})(?:\/(\d{1,2}))?$/);
+  if (!match || (match[2] !== undefined && match[2] !== '32')) return null;
+  const octets = match[1].split('.').map(Number);
+  if (octets.some((octet) => octet > 255) || octets.join('.') !== match[1]) return null;
+  return match[1];
+}
+
 async function createProductionPinnedPgClient(applicationName, env) {
   const seam = assertProductionSeamEnvRejected(env);
   if (!seam.ok) return seam;
@@ -235,17 +244,18 @@ async function assertLiveSessionTarget(client, applicationName) {
   if (String(row.application_name || '') !== applicationName) errors.push({ code: 'live_application_name_mismatch' });
   if (Number(row.server_port) !== 5432) errors.push({ code: 'live_server_port_mismatch' });
 
-  const addr = String(row.server_addr || '').trim();
-  if (!addr) {
+  const rawAddr = row.server_addr;
+  if (rawAddr === null || rawAddr === undefined || rawAddr === '') {
     errors.push({ code: 'live_server_addr_empty', message: 'inet_server_addr() is empty or null' });
   } else {
+    const addr = parseCanonicalInetServerIpv4(rawAddr);
     const publicAddresses = hostIdentity && Array.isArray(hostIdentity.publicDnsAddresses)
       ? hostIdentity.publicDnsAddresses : [];
     const privateAddresses = hostIdentity && Array.isArray(hostIdentity.approvedPrivateAddresses)
       ? hostIdentity.approvedPrivateAddresses : [];
     const privateIdentityIsExact = privateAddresses.length === APPROVED_PRIVATE_SERVER_ADDRESSES.length
       && privateAddresses.every((value, index) => value === APPROVED_PRIVATE_SERVER_ADDRESSES[index]);
-    if (!publicAddresses.includes(addr) && !(privateIdentityIsExact && privateAddresses.includes(addr))) {
+    if (!addr || (!publicAddresses.includes(addr) && !(privateIdentityIsExact && privateAddresses.includes(addr)))) {
       errors.push({ code: 'live_server_addr_not_approved_target', message: 'server_addr is neither locked public DNS nor the approved private endpoint' });
     }
   }
