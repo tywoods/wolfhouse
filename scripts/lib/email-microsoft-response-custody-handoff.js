@@ -1,10 +1,17 @@
 'use strict';
 
-const { createMicrosoftTokenHttpTransport } = require('./email-microsoft-token-http-transport');
+const {
+  createMicrosoftTokenHttpTransport,
+  RESPONSE_LIMIT_BYTES,
+} = require('./email-microsoft-token-http-transport');
 
 const FAILURE_CODE = 'microsoft_token_custody_failed';
-const JSON_LIMIT_BYTES = 32_768;
+// Custody JSON body bound equals transport response cap (do not weaken transport).
+const JSON_LIMIT_BYTES = RESPONSE_LIMIT_BYTES;
+// Access/refresh stay at the historical 8KiB printable bound.
 const TOKEN_LIMIT_CHARS = 8192;
+// Own required id_token bound — aligned with merged OIDC LIMITS.token (32768).
+const ID_TOKEN_LIMIT_CHARS = 32768;
 const MAX_EXPIRES_IN_SECONDS = 86_400;
 const PHASE_A_SCOPES = Object.freeze(['openid', 'profile', 'offline_access', 'User.Read', 'Mail.ReadBasic']);
 const ALLOWED_SCOPES = new Set(PHASE_A_SCOPES);
@@ -16,8 +23,8 @@ function ownData(object, key) {
   const descriptor = Object.getOwnPropertyDescriptor(object, key);
   return descriptor && !descriptor.get && !descriptor.set ? descriptor.value : undefined;
 }
-function printable(value) {
-  return typeof value === 'string' && value.length > 0 && value.length <= TOKEN_LIMIT_CHARS && /^[\x21-\x7e]+$/.test(value);
+function printable(value, limit) {
+  return typeof value === 'string' && value.length > 0 && value.length <= limit && /^[\x21-\x7e]+$/.test(value);
 }
 function assertUniqueTopLevelKeys(body) {
   const seen = new Set();
@@ -75,7 +82,8 @@ function validate(response) {
   const idToken = ownData(value, 'id_token');
   const scope = ownData(value, 'scope');
   if (tokenType !== 'Bearer' || !Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > MAX_EXPIRES_IN_SECONDS
-      || !printable(accessToken) || !printable(refreshToken) || !printable(idToken)
+      || !printable(accessToken, TOKEN_LIMIT_CHARS) || !printable(refreshToken, TOKEN_LIMIT_CHARS)
+      || !printable(idToken, ID_TOKEN_LIMIT_CHARS)
       || typeof scope !== 'string' || scope.length < 1 || scope.length > 512) throw failure();
   if (Object.hasOwn(value, 'ext_expires_in')) {
     const ext = ownData(value, 'ext_expires_in');
@@ -117,6 +125,6 @@ function createMicrosoftTokenResponseCustodyService(deps = {}) {
 }
 
 module.exports = Object.freeze({
-  FAILURE_CODE, JSON_LIMIT_BYTES, TOKEN_LIMIT_CHARS, MAX_EXPIRES_IN_SECONDS, PHASE_A_SCOPES,
+  FAILURE_CODE, JSON_LIMIT_BYTES, TOKEN_LIMIT_CHARS, ID_TOKEN_LIMIT_CHARS, MAX_EXPIRES_IN_SECONDS, PHASE_A_SCOPES,
   createMicrosoftTokenResponseCustodyService,
 });

@@ -2,7 +2,14 @@
 
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { FAILURE_CODE, TOKEN_LIMIT_CHARS, createMicrosoftTokenResponseCustodyService } = require('./lib/email-microsoft-response-custody-handoff');
+const {
+  FAILURE_CODE,
+  JSON_LIMIT_BYTES,
+  TOKEN_LIMIT_CHARS,
+  ID_TOKEN_LIMIT_CHARS,
+  createMicrosoftTokenResponseCustodyService,
+} = require('./lib/email-microsoft-response-custody-handoff');
+const { RESPONSE_LIMIT_BYTES } = require('./lib/email-microsoft-token-http-transport');
 
 const SECRET = 'ACCESS_SECRET_NEVER_LEAK';
 const REFRESH = 'REFRESH_SECRET_NEVER_LEAK';
@@ -38,6 +45,29 @@ function harness(spec, accept) {
   return createMicrosoftTokenResponseCustodyService({ transportDeps: { httpsImpl, timers }, custody: { acceptValidatedTokens: accept } });
 }
 
+/** Build a valid token JSON body with exact UTF-8 byte length using ignored client_info pad. */
+function bodyWithExactBytes(base, targetBytes) {
+  const seed = { ...base, client_info: '' };
+  const empty = JSON.stringify(seed);
+  const emptyBytes = Buffer.byteLength(empty, 'utf8');
+  assert.ok(emptyBytes <= targetBytes, 'base body already exceeds target');
+  const padLen = targetBytes - emptyBytes;
+  const body = JSON.stringify({ ...base, client_info: 'p'.repeat(padLen) });
+  assert.equal(Buffer.byteLength(body, 'utf8'), targetBytes);
+  return body;
+}
+
+async function succeeds(spec, accept) {
+  let selected;
+  const result = await harness(spec, async (value) => {
+    selected = value;
+    if (typeof accept === 'function') return accept(value);
+    return Object.freeze({ status: 'accepted' });
+  }).exchangeAndCustody({ body: 'trusted=already-encoded' });
+  assert.deepEqual(result, { status: 'custodied' });
+  return selected;
+}
+
 function noSecrets(value) {
   const text = typeof value === 'string' ? value : JSON.stringify(value);
   return !text.includes(SECRET) && !text.includes(REFRESH) && !text.includes(ID_TOKEN);
@@ -58,6 +88,22 @@ async function main() {
   const logged = []; const original = console.log; const originalError = console.error;
   console.log = console.error = (...args) => logged.push(args);
   try {
+    // Anti-drift: custody JSON bound equals exported transport response cap.
+    assert.equal(JSON_LIMIT_BYTES, RESPONSE_LIMIT_BYTES);
+    assert.equal(JSON_LIMIT_BYTES, 65_536);
+    // Access/refresh remain 8KiB; id_token is the separate OIDC-aligned 32KiB bound.
+    assert.equal(TOKEN_LIMIT_CHARS, 8192);
+    assert.equal(ID_TOKEN_LIMIT_CHARS, 32768);
+    // OIDC LIMITS is not exported; keep numeric alignment with LIMITS.token (merged module).
+    // If LIMITS is later exported, require equality here to prevent drift.
+    try {
+      // eslint-disable-next-line global-require
+      const oidc = require('./lib/email-microsoft-oidc-id-token');
+      if (oidc && oidc.LIMITS && typeof oidc.LIMITS.token === 'number') {
+        assert.equal(ID_TOKEN_LIMIT_CHARS, oidc.LIMITS.token);
+      }
+    } catch (_) { /* module load failure is out of scope for this anti-drift probe */ }
+
     await fails({ statusCode: 400, body: JSON.stringify({ error_description: `provider ${SECRET}` }) });
     await fails({ contentType: 'text/html', body: SECRET });
     await fails({ body: '{bad json ' + SECRET });
@@ -68,6 +114,19 @@ async function main() {
     ]) {
       const value = patch === null ? null : Array.isArray(patch) ? patch : { ...GOOD, ...patch };
       await fails({ body: JSON.stringify(value) });
+    }
+
+    // Access/refresh exact 8192 accepted; 8193 rejected (TOKEN_LIMIT_CHARS only).
+    {
+      const accessOk = 'A'.repeat(TOKEN_LIMIT_CHARS);
+      const refreshOk = 'R'.repeat(TOKEN_LIMIT_CHARS);
+      const selected = await succeeds({
+        body: JSON.stringify({ ...GOOD, access_token: accessOk, refresh_token: refreshOk }),
+      });
+      assert.equal(selected.accessToken, accessOk);
+      assert.equal(selected.refreshToken, refreshOk);
+      await fails({ body: JSON.stringify({ ...GOOD, access_token: 'A'.repeat(TOKEN_LIMIT_CHARS + 1) }) });
+      await fails({ body: JSON.stringify({ ...GOOD, refresh_token: 'R'.repeat(TOKEN_LIMIT_CHARS + 1) }) });
     }
 
     // Required own printable bounded id_token — missing / null / empty / control /
@@ -85,13 +144,47 @@ async function main() {
       'tokén',
       'token\u00a0nb',
       'token\u0085',
-      'x'.repeat(TOKEN_LIMIT_CHARS + 1),
+      'x'.repeat(ID_TOKEN_LIMIT_CHARS + 1),
       1,
       true,
       { nested: ID_TOKEN },
       ['segment'],
     ]) {
       await fails({ body: JSON.stringify({ ...GOOD, id_token }) });
+    }
+
+    // Exact id_token boundary: 32768 accepted when complete response remains <=65536;
+    // 32769 rejected even when total JSON is still under the response cap.
+    {
+      const idAtCap = 'I'.repeat(ID_TOKEN_LIMIT_CHARS);
+      const bodyAtIdCap = JSON.stringify({ ...GOOD, id_token: idAtCap });
+      assert.ok(Buffer.byteLength(bodyAtIdCap, 'utf8') <= JSON_LIMIT_BYTES);
+      const selected = await succeeds({ body: bodyAtIdCap });
+      assert.equal(selected.idToken, idAtCap);
+      assert.equal(selected.idToken.length, ID_TOKEN_LIMIT_CHARS);
+
+      const idOver = 'I'.repeat(ID_TOKEN_LIMIT_CHARS + 1);
+      const bodyOverId = JSON.stringify({ ...GOOD, id_token: idOver });
+      assert.ok(
+        Buffer.byteLength(bodyOverId, 'utf8') <= JSON_LIMIT_BYTES,
+        'id_token oversize must fail on ID_TOKEN_LIMIT_CHARS, not only JSON/response cap',
+      );
+      await fails({ body: bodyOverId });
+    }
+
+    // Full JSON/response boundary: exactly 65536 accepted if valid; 65537 rejected
+    // (custody + transport-adjacent shared cap contract).
+    {
+      const exactCapBody = bodyWithExactBytes(GOOD, JSON_LIMIT_BYTES);
+      assert.equal(Buffer.byteLength(exactCapBody, 'utf8'), JSON_LIMIT_BYTES);
+      const selected = await succeeds({ body: exactCapBody });
+      assert.deepEqual(Reflect.ownKeys(selected), [...SELECTED_KEYS]);
+      assert.equal(selected.idToken, ID_TOKEN);
+      assert.equal(Object.hasOwn(selected, 'client_info'), false);
+
+      const overCapBody = bodyWithExactBytes(GOOD, JSON_LIMIT_BYTES) + ' ';
+      assert.equal(Buffer.byteLength(overCapBody, 'utf8'), JSON_LIMIT_BYTES + 1);
+      await fails({ body: overCapBody });
     }
 
     // Prototype-only id_token must not satisfy the own-data requirement.
