@@ -83,11 +83,11 @@ const INSTALL_KEYS = Object.freeze([
 const SEALED_ACK = Object.freeze({ status: 'accepted' });
 /**
  * Future atomic installer boundary (owner-preserving receiver).
- * Not the existing custodian installInitialDelegatedGrant (envelope-only;
- * does not bind verified identity). This adapter targets a single-method
- * future installer that atomically receives identity + envelope.
+ * Not install (too generic) and not the existing custodian
+ * installInitialDelegatedGrant (envelope-only; does not bind verified
+ * identity). Exact single method that atomically receives identity + envelope.
  */
-const INSTALLER_METHOD = 'install';
+const INSTALLER_METHOD = 'installVerifiedGrant';
 
 function failure() {
   const error = new Error(ERROR_MESSAGE);
@@ -310,7 +310,7 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
   let clock;
   let nowEpochSecondsFn;
   let installer;
-  let install;
+  let installVerifiedGrant;
 
   try {
     frozenConfig = snapshotAndValidateConfig(config);
@@ -324,8 +324,8 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
 
     if (!exactFrozenService(verifiedIdentity, 'verifyIdentity')) throw failure();
     if (!exactFrozenService(clock, 'nowEpochSeconds')) throw failure();
-    // Exact future atomic installer surface only — reject envelope-only
-    // installInitialDelegatedGrant and any other non-exact method name.
+    // Exact future atomic installer surface only — reject install,
+    // envelope-only installInitialDelegatedGrant, and any extra methods.
     if (!exactFrozenService(installer, INSTALLER_METHOD)) throw failure();
 
     const providerOk = validateEmailGrantEnvelopeProvider(rawEnvelopeProvider);
@@ -336,7 +336,7 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
 
     verifyIdentity = ownData(verifiedIdentity, 'verifyIdentity');
     nowEpochSecondsFn = ownData(clock, 'nowEpochSeconds');
-    install = ownData(installer, INSTALLER_METHOD);
+    installVerifiedGrant = ownData(installer, INSTALLER_METHOD);
   } catch {
     throw failure();
   }
@@ -433,7 +433,7 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
 
       let ack;
       try {
-        ack = await Reflect.apply(install, installer, [installInput]);
+        ack = await Reflect.apply(installVerifiedGrant, installer, [installInput]);
       } catch {
         throw failure();
       }
