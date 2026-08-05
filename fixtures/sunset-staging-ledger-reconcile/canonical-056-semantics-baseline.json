@@ -1,10 +1,10 @@
 {
-  "capturedAt": "2026-08-05T09:04:36.834Z",
+  "capturedAt": "2026-08-05T09:15:49.820Z",
   "source": "disposable-postgres-canonical-056-060-prefix",
   "provenance": {
-    "sourceSha": "d4b15a0bbdc7e54fe1bee1a461ea0baf0d0d947a",
+    "sourceSha": "e31c817b1e12496ea89049a501baeca0d3b4594b",
     "migration056ChecksumSha256": "622157ecda3995ce0a9888d2e4382d0eb9a65e9d8318da97c4d2e64ea4fe8986",
-    "captureScriptDigest": "0c5a52f71cd47fd51bdf595d23d0bca4d967fcf1c8c99172d3c534c3e61e65bf",
+    "captureScriptDigest": "b69f29b8773f514da6b452cbe675a282e6786c8d8613c266d4ce1315a9a4b351",
     "postgresVersion": "PostgreSQL 16.14 (Debian 16.14-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
     "semanticFingerprint": "d31907b16778352e4233736a538a7821414e4f4b41b13bf8574ef36846567eb4"
   },
