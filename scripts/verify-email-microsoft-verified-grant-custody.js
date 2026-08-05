@@ -2,8 +2,8 @@
 
 /**
  * Hostile offline gate for Stage 6 Microsoft verified-grant custody adapter.
- * Stubs + real merged fake envelope provider roundtrip. No DB/callback/routes/
- * Azure/live/activation/sync/send.
+ * Stubs + real merged fake envelope provider roundtrip + response-custody
+ * interoperability. No DB/callback/routes/Azure/live/activation/sync/send.
  */
 
 const assert = require('assert/strict');
@@ -1224,30 +1224,47 @@ test('merged response-custody handoff with this adapter as custody returns only 
   assert.equal(JSON.stringify(publicResult).includes(ID_TOKEN), false);
   assert.deepEqual(logged, []);
 
-  // Adapter received exact six selected token fields from response custody.
+  // Exact six selected token fields reached the adapter (response-custody shape).
+  // Proven by successful acceptValidatedTokens + material at each dep boundary:
+  // access+id → identity; refresh → seal; tokenType/expiresIn/scope validated inside.
+  assert.deepEqual([...SELECTED_KEYS], [
+    'accessToken', 'refreshToken', 'tokenType', 'expiresIn', 'scope', 'idToken',
+  ]);
+  assert.equal(SELECTED_KEYS.length, 6);
+  assert.equal(clock.calls.length, 1);
   assert.equal(identity.calls.length, 1);
   assert.deepEqual(Reflect.ownKeys(identity.calls[0].request), [
     'idToken', 'accessToken', 'expectedNonce', 'expectedClientId', 'nowEpochSeconds',
   ]);
   assert.equal(identity.calls[0].request.accessToken, ACCESS);
   assert.equal(identity.calls[0].request.idToken, ID_TOKEN);
+  assert.equal(identity.calls[0].thisValue, identity.verifiedIdentity);
 
   // Installer saw no raw tokens; payload is identity-before-envelope minimized shape.
   assert.equal(installer.calls.length, 1);
   assert.equal(installer.calls[0].thisValue, installer.installer);
+  assert.deepEqual(Reflect.ownKeys(installer.calls[0].request), [...INSTALL_KEYS]);
   assert.deepEqual(Reflect.ownKeys(installer.calls[0].request), [
     'clientId', 'endpointId', 'operationId', 'actorStaffUserId', 'identity', 'envelope',
   ]);
   assertNoSensitiveKeys(installer.calls[0].request);
   assert.equal(installer.calls[0].request.identity.mailboxAddress, MAILBOX);
   assert.equal(validateGrantEnvelopeRecordV1(installer.calls[0].request.envelope).ok, true);
+  assert.equal(typeof installer.installer.installInitialDelegatedGrant, 'function');
+  assert.equal(installer.installer.install, undefined);
 
-  // Seal used refresh only.
+  // Seal used refresh only; no access/id tokens on seal or installer surfaces.
   const seal = envelope.calls.find((c) => c.op === 'seal');
   assert.ok(seal);
   assert.equal(seal.input.refresh_token, REFRESH);
   assert.equal('access_token' in seal.input, false);
   assert.equal('id_token' in seal.input, false);
+  assert.equal('accessToken' in seal.input, false);
+  assert.equal('idToken' in seal.input, false);
+
+  // Adapter sealedAck is accepted; public surface above is custodied only.
+  assert.deepEqual(SEALED_ACK, { status: 'accepted' });
+  assert.notDeepEqual(publicResult, SEALED_ACK);
 });
 
 async function runTests() {
