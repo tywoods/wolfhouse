@@ -7,8 +7,8 @@
  * concurrent/reentrant, state/owner mutation, repository row mutation/accessors/
  * proxy, row missing/duplicate semantics, error path, completion ack/throw/
  * thenable, transaction mix-up, no secret material public/logs.
- * Direct interop with operation completion fake proving exact bound
- * endpoint/operation/staff/verifier/nonce/client (+ code) passed.
+ * Direct interop with completeAuthorization fake proving exact bound
+ * location/endpoint/transaction/staff/verifier/nonce/client (+ code) once.
  * No route wiring. Existing disabled callback export remains independent.
  */
 
@@ -59,6 +59,7 @@ const OTHER_SESSION = '55555555-6666-4777-8888-999999999999';
 const OTHER_ENDPOINT = 'aaaaaaaa-0000-4000-8000-bbbbbbbbbbbb';
 const OTHER_OP = 'cccccccc-0000-4000-8000-dddddddddddd';
 const OTHER_STAFF = 'eeeeeeee-0000-4000-8000-ffffffffffff';
+const OTHER_LOCATION = 'ffffffff-0000-4000-8000-aaaaaaaaaaaa';
 
 const STATE = Buffer.alloc(32, 9).toString('base64url');
 const CODE = 'provider-code+/%?=&NEVER_LEAK';
@@ -173,7 +174,7 @@ function stubRepository(spec = {}) {
 function stubCompletion(spec = {}) {
   const calls = [];
   const completion = Object.freeze({
-    async completeBoundOperation(request) {
+    async completeAuthorization(request) {
       calls.push({ request, thisValue: this });
       if (spec.wait) await spec.wait;
       if (spec.throw) throw new Error(`${LEAK} completion`);
@@ -234,7 +235,7 @@ test('exports frozen factory, fixed error constants, and completion-aligned keys
   assert.equal(ERROR_CODE, 'MICROSOFT_OAUTH_CALLBACK_COMPLETION_INVALID');
   assert.equal(ERROR_MESSAGE, 'Microsoft OAuth callback completion failed.');
   assert.equal(ACCEPT_METHOD, 'accept');
-  assert.equal(COMPLETION_METHOD, 'completeBoundOperation');
+  assert.equal(COMPLETION_METHOD, 'completeAuthorization');
   assert.equal(COMPLETION_ACK_STATUS, 'completed');
   assert.deepEqual(COMPLETION_ACK, { status: 'completed' });
   assert.equal(Object.isFrozen(COMPLETION_ACK), true);
@@ -246,9 +247,12 @@ test('exports frozen factory, fixed error constants, and completion-aligned keys
     'id', 'location_id', 'staff_user_id', 'code_verifier', 'nonce', 'endpoint_id',
   ]);
   assert.deepEqual([...COMPLETION_KEYS], [
-    'clientId', 'endpointId', 'operationId', 'actorStaffUserId',
+    'clientId', 'locationId', 'endpointId', 'transactionId', 'staffUserId',
     'codeVerifier', 'nonce', 'applicationClientId', 'authorizationCode',
   ]);
+  assert.equal(COMPLETION_KEYS.length, 9);
+  assert.equal(COMPLETION_KEYS.includes('operationId'), false);
+  assert.equal(COMPLETION_KEYS.includes('actorStaffUserId'), false);
   assert.deepEqual([...OWNER_KEYS], [...txn.OWNER_KEYS]);
   assert.deepEqual([...CALLBACK_CODE_KEYS], [...txn.CALLBACK_CODE_KEYS]);
   assert.deepEqual([...CALLBACK_ERROR_KEYS], [...txn.CALLBACK_ERROR_KEYS]);
@@ -270,6 +274,7 @@ test('package.json wires verify script; routes and old callback export unchanged
   assert.match(routesSrc, /createMicrosoftOAuthCallbackService/);
   assert.equal(routesSrc.includes('createMicrosoftOAuthCallbackCompletionService'), false);
   assert.equal(routesSrc.includes('completeBoundOperation'), false);
+  assert.equal(routesSrc.includes('completeAuthorization'), false);
 
   const txnSrc = fs.readFileSync(path.join(ROOT, TXN_REL), 'utf8');
   assert.match(txnSrc, /function createMicrosoftOAuthCallbackService/);
@@ -289,13 +294,14 @@ test('returns frozen single-method service with accept', async function frozenSe
   assert.deepEqual(Reflect.ownKeys(service), ['accept']);
   assert.equal(Object.isFrozen(service), true);
   assert.equal(typeof service.accept, 'function');
+  assert.equal('completeAuthorization' in service, false);
   assert.equal('completeBoundOperation' in service, false);
   assert.equal('consume' in service, false);
 });
 
 // ── Happy path + interop ───────────────────────────────────────────────────
 
-test('happy path: consume then completeBoundOperation with exact bound material', async function happyPath() {
+test('happy path: consume then completeAuthorization with exact nine-key bound material', async function happyPath() {
   const { service, clock, repository, completion } = composition();
   const result = await service.accept(goodCodeInput(), goodOwner());
   assert.deepEqual(result, { status: 'authorization_received' });
@@ -324,29 +330,38 @@ test('happy path: consume then completeBoundOperation with exact bound material'
   assert.deepEqual(Reflect.ownKeys(req), [...COMPLETION_KEYS]);
   assert.deepEqual(req, {
     clientId: CLIENT_ID,
+    locationId: LOCATION_ID,
     endpointId: ENDPOINT_ID,
-    operationId: OPERATION_ID,
-    actorStaffUserId: STAFF_ID,
+    transactionId: OPERATION_ID,
+    staffUserId: STAFF_ID,
     codeVerifier: VERIFIER,
     nonce: NONCE,
     applicationClientId: APP_CLIENT_ID,
     authorizationCode: CODE,
   });
-  // Interop proof: exact bound endpoint/operation/staff/verifier/nonce/client.
+  // Interop proof: exact bound location/endpoint/transaction/staff/verifier/nonce/client.
+  assert.equal(req.locationId, LOCATION_ID);
   assert.equal(req.endpointId, ENDPOINT_ID);
-  assert.equal(req.operationId, OPERATION_ID);
-  assert.equal(req.actorStaffUserId, STAFF_ID);
+  assert.equal(req.transactionId, OPERATION_ID);
+  assert.equal(req.staffUserId, STAFF_ID);
   assert.equal(req.codeVerifier, VERIFIER);
   assert.equal(req.nonce, NONCE);
   assert.equal(req.clientId, CLIENT_ID);
   assert.equal(req.applicationClientId, APP_CLIENT_ID);
+  // Callback boundary must not rename to operation-scoped names.
+  assert.equal('operationId' in req, false);
+  assert.equal('actorStaffUserId' in req, false);
   assert.equal('authSessionId' in req, false);
   assert.equal('state' in req, false);
   assert.equal('stateHash' in req, false);
   assert.equal('error' in req, false);
   assert.equal('accessToken' in req, false);
   assert.equal('token' in req, false);
-  assert.equal('locationId' in req, false);
+  assert.equal('id' in req, false);
+  assert.equal('location_id' in req, false);
+  assert.equal('staff_user_id' in req, false);
+  assert.equal('code_verifier' in req, false);
+  assert.equal('endpoint_id' in req, false);
   assertNoSensitive(result);
 });
 
@@ -356,6 +371,167 @@ test('preserves exact repository, completion, and clock receivers', async functi
   assert.equal(clock.calls[0].thisValue, clock.clock);
   assert.equal(repository.calls[0].thisValue, repository.repository);
   assert.equal(completion.calls[0].thisValue, completion.completion);
+});
+
+test('factory rejects completion that only exposes completeBoundOperation', async function onlyBoundOperationRejected() {
+  const clock = stubClock().clock;
+  const repository = stubRepository().repository;
+  const env = goodEnv();
+  assert.throws(
+    () => createMicrosoftOAuthCallbackCompletionService(Object.freeze({
+      repository,
+      completion: Object.freeze({
+        completeBoundOperation: async () => goodAck(),
+      }),
+      env,
+      clock,
+    })),
+    (e) => failSanitized(e),
+  );
+});
+
+test('factory rejects completeAuthorization dependency with any extra method', async function completionExtraMethodRejected() {
+  const clock = stubClock().clock;
+  const repository = stubRepository().repository;
+  const env = goodEnv();
+  assert.throws(
+    () => createMicrosoftOAuthCallbackCompletionService(Object.freeze({
+      repository,
+      completion: Object.freeze({
+        completeAuthorization: async () => goodAck(),
+        completeBoundOperation: async () => goodAck(),
+      }),
+      env,
+      clock,
+    })),
+    (e) => failSanitized(e),
+  );
+  assert.throws(
+    () => createMicrosoftOAuthCallbackCompletionService(Object.freeze({
+      repository,
+      completion: Object.freeze({
+        completeAuthorization: async () => goodAck(),
+        extra: async () => goodAck(),
+      }),
+      env,
+      clock,
+    })),
+    (e) => failSanitized(e),
+  );
+});
+
+test('completeAuthorization invoked once with locationId and exact key order', async function exactMethodOnceKeyOrder() {
+  const { service, completion } = composition();
+  await service.accept(goodCodeInput(), goodOwner());
+  assert.equal(completion.calls.length, 1);
+  const req = completion.calls[0].request;
+  assert.deepEqual(Reflect.ownKeys(req), [
+    'clientId',
+    'locationId',
+    'endpointId',
+    'transactionId',
+    'staffUserId',
+    'codeVerifier',
+    'nonce',
+    'applicationClientId',
+    'authorizationCode',
+  ]);
+  assert.equal(req.locationId, LOCATION_ID);
+  assert.equal(Object.keys(req).length, 9);
+});
+
+test('wrong or mutated row location cannot be omitted or substituted into completion', async function locationFromRowOnly() {
+  // Missing location_id fails after consume; no completion.
+  {
+    const row = goodRow();
+    delete row.location_id;
+    const { service, repository, completion } = composition({
+      repository: { row },
+    });
+    await expectSanitizedFailure(() => service.accept(goodCodeInput(), goodOwner()));
+    assert.equal(repository.calls.length, 1);
+    assert.equal(completion.calls.length, 0);
+  }
+
+  // Invalid location_id grammar fails after consume; no completion.
+  {
+    const { service, repository, completion } = composition({
+      repository: { row: goodRow({ location_id: 'not-a-uuid' }) },
+    });
+    await expectSanitizedFailure(() => service.accept(goodCodeInput(), goodOwner()));
+    assert.equal(repository.calls.length, 1);
+    assert.equal(completion.calls.length, 0);
+  }
+
+  // Uppercase non-canonical location_id rejected.
+  {
+    const upperLoc = 'abcdef01-2345-4678-89ab-cdef01234567'.toUpperCase();
+    const { service, repository, completion } = composition({
+      repository: { row: goodRow({ location_id: upperLoc }) },
+    });
+    await expectSanitizedFailure(() => service.accept(goodCodeInput(), goodOwner()));
+    assert.equal(repository.calls.length, 1);
+    assert.equal(completion.calls.length, 0);
+  }
+
+  // Snapshotted location is what completion sees; later driver mutation ignored.
+  {
+    const mutable = goodRow({ location_id: LOCATION_ID });
+    const completion = stubCompletion();
+    const service = createMicrosoftOAuthCallbackCompletionService(Object.freeze({
+      repository: Object.freeze({
+        async consume() { return mutable; },
+      }),
+      completion: completion.completion,
+      env: goodEnv(),
+      clock: stubClock().clock,
+    }));
+    assert.deepEqual(await service.accept(goodCodeInput(), goodOwner()), PUBLIC_STATUS_RECEIVED);
+    mutable.location_id = OTHER_LOCATION;
+    assert.equal(completion.calls.length, 1);
+    assert.equal(completion.calls[0].request.locationId, LOCATION_ID);
+    assert.notEqual(completion.calls[0].request.locationId, OTHER_LOCATION);
+  }
+
+  // Bound alternate location from row is passed through once (not omitted).
+  {
+    const { service, completion } = composition({
+      repository: { row: goodRow({ location_id: OTHER_LOCATION }) },
+    });
+    await service.accept(goodCodeInput(), goodOwner());
+    assert.equal(completion.calls[0].request.locationId, OTHER_LOCATION);
+    assert.notEqual(completion.calls[0].request.locationId, LOCATION_ID);
+  }
+});
+
+test('completion/public/logs never carry state authSession hash raw row or token', async function noSecretsOnSurfaces() {
+  const logs = [];
+  const log = console.log;
+  const err = console.error;
+  console.log = (...a) => logs.push(a);
+  console.error = (...a) => logs.push(a);
+  try {
+    const { service, completion } = composition();
+    const result = await service.accept(goodCodeInput(), goodOwner());
+    const req = completion.calls[0].request;
+    for (const banned of [
+      'authSessionId', 'state', 'stateHash', 'error',
+      'accessToken', 'refreshToken', 'idToken', 'token',
+      'id', 'location_id', 'staff_user_id', 'code_verifier', 'endpoint_id',
+      'operationId', 'actorStaffUserId',
+    ]) {
+      assert.equal(banned in req, false, banned);
+    }
+    assert.deepEqual(Object.keys(result), ['status']);
+    assert.equal(JSON.stringify(result).includes(STATE), false);
+    assert.equal(JSON.stringify(result).includes(AUTH_SESSION_ID), false);
+    assert.equal(JSON.stringify(result).includes(CODE), false);
+    assert.equal(JSON.stringify(result).includes(VERIFIER), false);
+    assert.equal(logs.length, 0);
+  } finally {
+    console.log = log;
+    console.error = err;
+  }
 });
 
 test('provider error after valid consume: authorization_declined, no completion', async function errorPathNoCompletion() {
@@ -431,7 +607,7 @@ test('concurrent accepts: only one consume/completion', async function concurren
 test('reentrant accept from completion is burned', async function reentrantBurn() {
   let service;
   const completion = Object.freeze({
-    async completeBoundOperation() {
+    async completeAuthorization() {
       await expectSanitizedFailure(() => service.accept(goodCodeInput(), goodOwner()));
       return goodAck();
     },
@@ -774,18 +950,23 @@ test('accepted row copied once; mutate driver after accept does not affect compl
   // After snapshot, driver mutation must not rewrite what completion already received.
   mutable.endpoint_id = OTHER_ENDPOINT;
   mutable.id = OTHER_OP;
+  mutable.location_id = 'ffffffff-0000-4000-8000-ffffffffffff';
   mutable.staff_user_id = OTHER_STAFF;
   mutable.code_verifier = `EVIL_VERIFIER_${'x'.repeat(30)}`;
   mutable.nonce = `EVIL_NONCE_${'y'.repeat(33)}`;
   const req = completion.calls[0].request;
   assert.equal(req.endpointId, ENDPOINT_ID);
-  assert.equal(req.operationId, OPERATION_ID);
-  assert.equal(req.actorStaffUserId, STAFF_ID);
+  assert.equal(req.transactionId, OPERATION_ID);
+  assert.equal(req.locationId, LOCATION_ID);
+  assert.equal(req.staffUserId, STAFF_ID);
   assert.equal(req.codeVerifier, VERIFIER);
   assert.equal(req.nonce, NONCE);
   // Completing material is frozen — caller cannot rewrite via completion input either.
   assert.throws(() => {
     req.endpointId = OTHER_ENDPOINT;
+  });
+  assert.throws(() => {
+    req.locationId = 'ffffffff-0000-4000-8000-ffffffffffff';
   });
 });
 
@@ -903,6 +1084,7 @@ test('completion receives only consumed bound row — not alternate transaction 
     repository: {
       row: goodRow({
         id: OPERATION_ID,
+        location_id: LOCATION_ID,
         endpoint_id: ENDPOINT_ID,
         staff_user_id: STAFF_ID,
       }),
@@ -910,18 +1092,21 @@ test('completion receives only consumed bound row — not alternate transaction 
   });
   await service.accept(goodCodeInput(), goodOwner());
   const req = completion.calls[0].request;
-  assert.equal(req.operationId, OPERATION_ID);
+  assert.equal(req.transactionId, OPERATION_ID);
+  assert.equal(req.locationId, LOCATION_ID);
   assert.equal(req.endpointId, ENDPOINT_ID);
-  assert.equal(req.actorStaffUserId, STAFF_ID);
-  assert.notEqual(req.operationId, OTHER_OP);
+  assert.equal(req.staffUserId, STAFF_ID);
+  assert.notEqual(req.transactionId, OTHER_OP);
   assert.notEqual(req.endpointId, OTHER_ENDPOINT);
-  assert.notEqual(req.actorStaffUserId, OTHER_STAFF);
+  assert.notEqual(req.staffUserId, OTHER_STAFF);
   assert.notEqual(req.clientId, OTHER_CLIENT);
   assert.equal(req.clientId, CLIENT_ID);
 
   // Different owner cannot be smuggled via row fields.
   assert.equal(req.clientId, CLIENT_ID);
   assert.equal('authSessionId' in req, false);
+  assert.equal('operationId' in req, false);
+  assert.equal('actorStaffUserId' in req, false);
 });
 
 test('null-prototype parsed query accepted (real callback query shape)', async function nullProtoQuery() {

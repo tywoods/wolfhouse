@@ -5,8 +5,8 @@
  *
  * Atomically consumes a bound tenant_email_oauth_transactions row (owner +
  * state hash + clock) and, on a provider success code, hands server-confined
- * completion material once to an operation-scoped downstream completion
- * boundary. Public surface stays the existing status-only callback contract.
+ * completion material once to an authorization completion boundary. Public
+ * surface stays the existing status-only callback contract.
  *
  * Does NOT wire routes, token exchange, Azure, or DB installer construction.
  * Existing createMicrosoftOAuthCallbackService (disabled-route export) is
@@ -14,7 +14,7 @@
  *
  * Factory takes exact frozen dependencies:
  *   repository  — owner-preserving { consume }
- *   completion  — owner-preserving { completeBoundOperation }
+ *   completion  — owner-preserving { completeAuthorization }
  *   env         — sunset-staging + callback enabled + canonical app client id
  *   clock       — { now } → one Date (no accept-time clock control)
  *
@@ -29,8 +29,10 @@
  *   5) snapshot/validate RETURNING row (exact own-data keys, SQL order set,
  *      canonical UUIDs, PKCE/nonce bounds); copy once — never reread driver row
  *   6) provider error → { status: 'authorization_declined' } (no completion)
- *   7) code → completeBoundOperation once with exact frozen COMPLETION_KEYS
- *      sourced only from snapshots/env (no authSession/state/hash/row/error/token)
+ *   7) code → completeAuthorization once with exact frozen nine-key
+ *      COMPLETION_KEYS sourced only from snapshots/env (no authSession/state/
+ *      hash/raw row/error/token). Names stay transactionId/staffUserId at this
+ *      boundary; downstream operation composer maps them later.
  *   8) require exact frozen completion ack → { status: 'authorization_received' }
  *
  * Hostile row / completion failures after consume stay consumed (no retry).
@@ -51,7 +53,7 @@ const ERROR_CODE = 'MICROSOFT_OAUTH_CALLBACK_COMPLETION_INVALID';
 const ERROR_MESSAGE = 'Microsoft OAuth callback completion failed.';
 
 const ACCEPT_METHOD = 'accept';
-const COMPLETION_METHOD = 'completeBoundOperation';
+const COMPLETION_METHOD = 'completeAuthorization';
 const COMPLETION_ACK_STATUS = 'completed';
 const COMPLETION_ACK = Object.freeze({ status: COMPLETION_ACK_STATUS });
 
@@ -78,15 +80,18 @@ const CONSUME_ROW_KEYS = Object.freeze([
 const CONSUME_ROW_KEY_SET = new Set(CONSUME_ROW_KEYS);
 
 /**
- * Exact ordered completion material (server-confined). Sourced only from
- * owner/input/row snapshots + env application client id. Never authSession,
- * state, state hash, raw DB row, provider error, or token material.
+ * Exact ordered nine-key completion material (server-confined).
+ * Sourced only from owner/input/row snapshots + env application client id.
+ * Never authSession, state, state hash, raw DB row, provider error, or token.
+ * Keep transactionId/staffUserId names here; do not rename to operationId/
+ * actorStaffUserId at this callback boundary.
  */
 const COMPLETION_KEYS = Object.freeze([
   'clientId',
+  'locationId',
   'endpointId',
-  'operationId',
-  'actorStaffUserId',
+  'transactionId',
+  'staffUserId',
   'codeVerifier',
   'nonce',
   'applicationClientId',
@@ -280,9 +285,9 @@ function snapshotAndValidateConsumeRow(row) {
   }
 
   return Object.freeze({
-    operationId: own.id,
+    transactionId: own.id,
     locationId: own.location_id,
-    actorStaffUserId: own.staff_user_id,
+    staffUserId: own.staff_user_id,
     codeVerifier: own.code_verifier,
     nonce: own.nonce,
     endpointId: own.endpoint_id,
@@ -337,7 +342,7 @@ function pinDependencies(dependencies) {
     repository,
     consume: ownData(repository, 'consume'),
     completion,
-    completeBoundOperation: ownData(completion, COMPLETION_METHOD),
+    completeAuthorization: ownData(completion, COMPLETION_METHOD),
     applicationClientId: envSnap.applicationClientId,
     clock,
     now: ownData(clock, 'now'),
@@ -405,12 +410,13 @@ function createMicrosoftOAuthCallbackCompletionService(dependencies) {
         return PUBLIC_STATUS_DECLINED;
       }
 
-      // Code path: hand exact frozen ordered completion material once.
+      // Code path: hand exact frozen ordered nine-key completion material once.
       const completionInput = Object.freeze({
         clientId: ownerSnap.clientId,
+        locationId: rowSnap.locationId,
         endpointId: rowSnap.endpointId,
-        operationId: rowSnap.operationId,
-        actorStaffUserId: rowSnap.actorStaffUserId,
+        transactionId: rowSnap.transactionId,
+        staffUserId: rowSnap.staffUserId,
         codeVerifier: rowSnap.codeVerifier,
         nonce: rowSnap.nonce,
         applicationClientId: pinned.applicationClientId,
@@ -418,6 +424,7 @@ function createMicrosoftOAuthCallbackCompletionService(dependencies) {
       });
       if (!exactPlainData(completionInput, COMPLETION_KEYS)) throw failure();
       // Hard ban: no authSession/state/hash/raw row/error/token on completion surface.
+      // Also ban premature operation renames at this boundary.
       if ('authSessionId' in completionInput
           || 'state' in completionInput
           || 'stateHash' in completionInput
@@ -425,14 +432,21 @@ function createMicrosoftOAuthCallbackCompletionService(dependencies) {
           || 'accessToken' in completionInput
           || 'refreshToken' in completionInput
           || 'idToken' in completionInput
-          || 'token' in completionInput) {
+          || 'token' in completionInput
+          || 'operationId' in completionInput
+          || 'actorStaffUserId' in completionInput
+          || 'id' in completionInput
+          || 'location_id' in completionInput
+          || 'staff_user_id' in completionInput
+          || 'code_verifier' in completionInput
+          || 'endpoint_id' in completionInput) {
         throw failure();
       }
 
       let ack;
       try {
         ack = await Reflect.apply(
-          pinned.completeBoundOperation,
+          pinned.completeAuthorization,
           pinned.completion,
           [completionInput],
         );
