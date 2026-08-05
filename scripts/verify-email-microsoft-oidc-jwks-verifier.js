@@ -33,6 +33,11 @@ function makeHarness(configuration = {}) {
     options: null,
     deadline: null,
     responseCallback: null,
+    httpsReceiver: null,
+    cryptoCreateReceiver: null,
+    cryptoVerifyReceiver: null,
+    setTimerReceiver: null,
+    clearTimerReceiver: null,
   };
 
   const response = new EventEmitter();
@@ -73,6 +78,7 @@ function makeHarness(configuration = {}) {
 
   const https = frozenRecord({
     request(options, callback) {
+      state.httpsReceiver = this;
       state.requestCalls += 1;
       state.options = options;
       state.responseCallback = callback;
@@ -90,12 +96,19 @@ function makeHarness(configuration = {}) {
   });
 
   const crypto = configuration.crypto || frozenRecord({
-    createPublicKey: nativeCrypto.createPublicKey,
-    verify: nativeCrypto.verify,
+    createPublicKey(input) {
+      state.cryptoCreateReceiver = this;
+      return nativeCrypto.createPublicKey(input);
+    },
+    verify(...args) {
+      state.cryptoVerifyReceiver = this;
+      return nativeCrypto.verify(...args);
+    },
   });
 
   const timers = configuration.timers || frozenRecord({
     setTimeout(callback, milliseconds) {
+      state.setTimerReceiver = this;
       assert.equal(milliseconds, 5000);
       state.deadline = callback;
       if (configuration.synchronousDeadline) {
@@ -107,6 +120,7 @@ function makeHarness(configuration = {}) {
       return configuration.timerHandle || frozenRecord({ id: 1 });
     },
     clearTimeout(handle) {
+      state.clearTimerReceiver = this;
       state.clearCalls.push(handle);
       if (configuration.clearThrows) {
         throw new Error('hostile clear');
@@ -116,6 +130,9 @@ function makeHarness(configuration = {}) {
 
   return {
     dependencies: frozenRecord({ https, crypto, timers }),
+    https,
+    crypto,
+    timers,
     request,
     response,
     state,
@@ -180,10 +197,15 @@ test('uses only the fixed Microsoft organizations JWKS destination', async funct
   assert.equal(Object.isFrozen(harness.state.options.headers), true);
 });
 
-test('preserves verifier receiver compatibility', async function checksVerifierReceiver() {
+test('preserves exact verifier and dependency receivers', async function checksVerifierReceiver() {
   const harness = makeHarness();
   const verifier = createMicrosoftOidcJwksSignatureVerifier(harness.dependencies);
   assert.deepEqual(await Reflect.apply(verifier.verify, verifier, [verificationRequest()]), { verified: true });
+  assert.equal(harness.state.httpsReceiver, harness.https);
+  assert.equal(harness.state.cryptoCreateReceiver, harness.crypto);
+  assert.equal(harness.state.cryptoVerifyReceiver, harness.crypto);
+  assert.equal(harness.state.setTimerReceiver, harness.timers);
+  assert.equal(harness.state.clearTimerReceiver, harness.timers);
 });
 
 test('claims single use atomically before reflecting on hostile input', async function claimsSingleUseFirst() {
@@ -193,6 +215,28 @@ test('claims single use atomically before reflecting on hostile input', async fu
   await expectSanitizedFailure(() => verifier.verify(hostile));
   await expectSanitizedFailure(() => verifier.verify(verificationRequest()));
   assert.equal(harness.state.requestCalls, 0);
+});
+
+test('snapshots caller-owned signature bytes before awaiting JWKS', async function snapshotsSignature() {
+  const passingHarness = makeHarness({ manualResponse: true });
+  const passingVerifier = createMicrosoftOidcJwksSignatureVerifier(passingHarness.dependencies);
+  const validAtInvocation = Buffer.from(validSignature);
+  const passing = passingVerifier.verify(verificationRequest({ signature: validAtInvocation }));
+  validAtInvocation.fill(0);
+  passingHarness.state.responseCallback(passingHarness.response);
+  passingHarness.response.emit('data', Buffer.from(validJwks()));
+  passingHarness.response.emit('end');
+  assert.deepEqual(await passing, { verified: true });
+
+  const failingHarness = makeHarness({ manualResponse: true });
+  const failingVerifier = createMicrosoftOidcJwksSignatureVerifier(failingHarness.dependencies);
+  const invalidAtInvocation = Buffer.alloc(validSignature.length);
+  const failing = failingVerifier.verify(verificationRequest({ signature: invalidAtInvocation }));
+  validSignature.copy(invalidAtInvocation);
+  failingHarness.state.responseCallback(failingHarness.response);
+  failingHarness.response.emit('data', Buffer.from(validJwks()));
+  failingHarness.response.emit('end');
+  await expectSanitizedFailure(() => failing);
 });
 
 test('rejects altered signing input, signature, algorithm, and kid', async function rejectsAlteredInputs() {
@@ -357,6 +401,19 @@ test('handles request and response failures, aborts, timeouts, premature closes,
   }
 });
 
+test('safely ignores bounded unknown JWKS fields', async function ignoresSafeUnknownFields() {
+  const body = JSON.stringify({
+    issuer: 'https://login.microsoftonline.com/organizations/v2.0',
+    metadata: { version: 1 },
+    keys: [{ ...exportedJwk, kid, use: 'sig', alg: 'RS256', unknown: 'discard-me' }],
+  });
+  const harness = makeHarness({ body });
+  assert.deepEqual(
+    await createMicrosoftOidcJwksSignatureVerifier(harness.dependencies).verify(verificationRequest()),
+    { verified: true },
+  );
+});
+
 test('rejects duplicate, escaped dangerous, surrogate, depth, and collection JSON attacks', async function rejectsHostileJson() {
   const deep = `${'{"a":'.repeat(12)}0${'}'.repeat(12)}`;
   const largeArray = JSON.stringify({ keys: Array.from({ length: 65 }, () => null) });
@@ -446,7 +503,8 @@ test('passes only selected JWK fields and exact bytes to native-shaped crypto me
   assert.equal(verifyArguments[0], 'RSA-SHA256');
   assert.deepEqual(verifyArguments[1], Buffer.from(signingInput));
   assert.equal(verifyArguments[2], pair.publicKey);
-  assert.equal(verifyArguments[3], validSignature);
+  assert.deepEqual(verifyArguments[3], validSignature);
+  assert.notEqual(verifyArguments[3], validSignature);
 });
 
 test('requires crypto verification to return strict true', async function checksStrictTrue() {

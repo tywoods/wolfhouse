@@ -66,18 +66,25 @@ function readDependencies(dependencies) {
     throw verificationFailure();
   }
 
-  const https = readExactFrozenRecord(record.https, ['request']);
-  const crypto = readExactFrozenRecord(record.crypto, ['createPublicKey', 'verify']);
-  const timers = readExactFrozenRecord(record.timers, ['setTimeout', 'clearTimeout']);
-  if (!https || !crypto || !timers
-      || typeof https.request !== 'function'
-      || typeof crypto.createPublicKey !== 'function'
-      || typeof crypto.verify !== 'function'
-      || typeof timers.setTimeout !== 'function'
-      || typeof timers.clearTimeout !== 'function') {
+  const httpsOwner = record.https;
+  const cryptoOwner = record.crypto;
+  const timersOwner = record.timers;
+  const httpsRecord = readExactFrozenRecord(httpsOwner, ['request']);
+  const cryptoRecord = readExactFrozenRecord(cryptoOwner, ['createPublicKey', 'verify']);
+  const timersRecord = readExactFrozenRecord(timersOwner, ['setTimeout', 'clearTimeout']);
+  if (!httpsRecord || !cryptoRecord || !timersRecord
+      || typeof httpsRecord.request !== 'function'
+      || typeof cryptoRecord.createPublicKey !== 'function'
+      || typeof cryptoRecord.verify !== 'function'
+      || typeof timersRecord.setTimeout !== 'function'
+      || typeof timersRecord.clearTimeout !== 'function') {
     throw verificationFailure();
   }
-  return { https, crypto, timers };
+  return {
+    https: Object.freeze({ owner: httpsOwner, request: httpsRecord.request }),
+    crypto: Object.freeze({ owner: cryptoOwner, createPublicKey: cryptoRecord.createPublicKey, verify: cryptoRecord.verify }),
+    timers: Object.freeze({ owner: timersOwner, setTimeout: timersRecord.setTimeout, clearTimeout: timersRecord.clearTimeout }),
+  };
 }
 
 function readVerificationInput(input) {
@@ -305,7 +312,6 @@ function selectJwk(body, expectedKid) {
   }
   const document = parseStrictJson(text);
   if (!document || Object.getPrototypeOf(document) !== null
-      || Reflect.ownKeys(document).length !== 1
       || !Array.isArray(document.keys)
       || document.keys.length === 0
       || document.keys.length > MAX_KEYS) {
@@ -368,7 +374,7 @@ function fetchJwks(https, timers) {
       }
       timerCleared = true;
       try {
-        Reflect.apply(timers.clearTimeout, timers, [timerHandle]);
+        Reflect.apply(timers.clearTimeout, timers.owner, [timerHandle]);
       } catch {
         // Settlement remains deterministic even when timer cleanup is hostile.
       }
@@ -399,7 +405,7 @@ function fetchJwks(https, timers) {
     }
 
     try {
-      timerHandle = Reflect.apply(timers.setTimeout, timers, [onDeadline, REQUEST_TIMEOUT_MS]);
+      timerHandle = Reflect.apply(timers.setTimeout, timers.owner, [onDeadline, REQUEST_TIMEOUT_MS]);
       timerAcquired = true;
       if (settled) {
         clearAcquiredTimer();
@@ -480,7 +486,7 @@ function fetchJwks(https, timers) {
     }
 
     try {
-      const acquiredRequest = Reflect.apply(https.request, https, [REQUEST_OPTIONS, onResponse]);
+      const acquiredRequest = Reflect.apply(https.request, https.owner, [REQUEST_OPTIONS, onResponse]);
       request = acquiredRequest;
       if (settled) {
         safelyDestroy(acquiredRequest);
@@ -522,15 +528,16 @@ function createMicrosoftOidcJwksSignatureVerifier(dependencies) {
 
     try {
       const record = readVerificationInput(input);
+      const signingBytes = Buffer.from(record.signingInput, 'utf8');
+      const signature = Buffer.from(record.signature);
       const body = await fetchJwks(https, timers);
       const jwk = selectJwk(body, record.kid);
-      const key = Reflect.apply(crypto.createPublicKey, crypto, [{ key: jwk, format: 'jwk' }]);
-      const signingBytes = Buffer.from(record.signingInput, 'utf8');
-      const verified = Reflect.apply(crypto.verify, crypto, [
+      const key = Reflect.apply(crypto.createPublicKey, crypto.owner, [{ key: jwk, format: 'jwk' }]);
+      const verified = Reflect.apply(crypto.verify, crypto.owner, [
         'RSA-SHA256',
         signingBytes,
         key,
-        record.signature,
+        signature,
       ]);
       if (verified !== true) {
         throw verificationFailure();
