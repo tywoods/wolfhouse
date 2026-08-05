@@ -213,33 +213,33 @@ function stubGraph(spec = {}) {
 function compositionFromStubs(oidcSpec, graphSpec) {
   const oidc = stubOidc(oidcSpec);
   const graph = stubGraph(graphSpec);
-  const composition = createMicrosoftVerifiedIdentityComposition({
+  const composition = createMicrosoftVerifiedIdentityComposition(Object.freeze({
     oidcValidator: oidc.oidcValidator,
     graphIdentity: graph.graphIdentity,
-  });
+  }));
   return { composition, oidc, graph };
 }
 
 function goodInput(patch = {}) {
-  return {
+  return Object.freeze({
     idToken: goodIdToken(),
     accessToken: ACCESS,
     expectedNonce: NONCE,
     expectedClientId: CLIENT,
     nowEpochSeconds: NOW,
     ...patch,
-  };
+  });
 }
 
 function stubInput(patch = {}) {
-  return {
+  return Object.freeze({
     idToken: 'stub-id-token',
     accessToken: ACCESS,
     expectedNonce: NONCE,
     expectedClientId: CLIENT,
     nowEpochSeconds: NOW,
     ...patch,
-  };
+  });
 }
 
 async function expectSanitizedFailure(action) {
@@ -257,6 +257,13 @@ async function expectSanitizedFailure(action) {
   });
 }
 
+const OUTPUT_KEYS_LOCAL = [
+  'providerTenantId',
+  'providerPrincipalId',
+  'mailboxAddress',
+  'displayName',
+];
+
 function assertExactOutput(result) {
   assert.deepEqual(result, {
     providerTenantId: TID,
@@ -273,22 +280,15 @@ function assertExactOutput(result) {
   assert.equal('nonce' in result, false);
 }
 
-const OUTPUT_KEYS_LOCAL = [
-  'providerTenantId',
-  'providerPrincipalId',
-  'mailboxAddress',
-  'displayName',
-];
-
 function mergedComposition(jwksConfig = {}, graphSpec = {}) {
   const harness = jwksHarness(jwksConfig);
   const signatureVerifier = createMicrosoftOidcJwksSignatureVerifier(harness.dependencies);
   const oidcValidator = createMicrosoftOidcIdTokenValidator({ signatureVerifier });
   const graph = graphFake(graphSpec);
-  const composition = createMicrosoftVerifiedIdentityComposition({
+  const composition = createMicrosoftVerifiedIdentityComposition(Object.freeze({
     oidcValidator,
     graphIdentity: graph.service,
-  });
+  }));
   return { composition, harness, graph };
 }
 
@@ -349,9 +349,10 @@ test('preserves exact oidcValidator and graphIdentity receivers', async function
 
 // ── Exact shapes passed to dependencies ────────────────────────────────────
 
-test('passes exact OIDC and Graph input shapes only', async function exactDependencyInputs() {
+test('passes exact OIDC and Graph input shapes only from one snapshot', async function exactDependencyInputs() {
   const { composition, oidc, graph } = compositionFromStubs();
-  await composition.verifyIdentity(stubInput());
+  const input = stubInput();
+  await composition.verifyIdentity(input);
   assert.deepEqual(Reflect.ownKeys(oidc.calls[0].request), [
     'idToken',
     'expectedNonce',
@@ -360,6 +361,10 @@ test('passes exact OIDC and Graph input shapes only', async function exactDepend
   ]);
   assert.equal(Object.isFrozen(oidc.calls[0].request), true);
   assert.equal('accessToken' in oidc.calls[0].request, false);
+  assert.equal(oidc.calls[0].request.idToken, input.idToken);
+  assert.equal(oidc.calls[0].request.expectedNonce, input.expectedNonce);
+  assert.equal(oidc.calls[0].request.expectedClientId, input.expectedClientId);
+  assert.equal(oidc.calls[0].request.nowEpochSeconds, input.nowEpochSeconds);
   assert.deepEqual(Reflect.ownKeys(graph.calls[0].request), ['accessToken']);
   assert.equal(Object.isFrozen(graph.calls[0].request), true);
   assert.equal(graph.calls[0].request.accessToken, ACCESS);
@@ -385,7 +390,10 @@ test('calls OIDC before Graph and never Graph when OIDC fails', async function o
       });
     },
   });
-  const composition = createMicrosoftVerifiedIdentityComposition({ oidcValidator, graphIdentity });
+  const composition = createMicrosoftVerifiedIdentityComposition(Object.freeze({
+    oidcValidator,
+    graphIdentity,
+  }));
   await expectSanitizedFailure(() => composition.verifyIdentity(stubInput()));
   assert.deepEqual(order, ['oidc']);
 });
@@ -415,7 +423,10 @@ test('invokes Graph only after successful OIDC', async function graphAfterSucces
       });
     },
   });
-  const composition = createMicrosoftVerifiedIdentityComposition({ oidcValidator, graphIdentity });
+  const composition = createMicrosoftVerifiedIdentityComposition(Object.freeze({
+    oidcValidator,
+    graphIdentity,
+  }));
   const pending = composition.verifyIdentity(stubInput());
   await Promise.resolve();
   assert.deepEqual(order, ['oidc-start']);
@@ -465,6 +476,162 @@ test('merged factories reject principal mismatch after both dependencies succeed
   assert.equal(graph.calls.length, 1);
 });
 
+// ── Frozen contract: outer deps, input, each child output ──────────────────
+
+test('rejects unfrozen outer dependencies bag even when children are frozen', async function unfrozenOuterDependencies() {
+  const oidc = stubOidc();
+  const graph = stubGraph();
+  const unfrozen = {
+    oidcValidator: oidc.oidcValidator,
+    graphIdentity: graph.graphIdentity,
+  };
+  assert.equal(Object.isFrozen(unfrozen), false);
+  assert.throws(
+    () => createMicrosoftVerifiedIdentityComposition(unfrozen),
+    (error) => error.code === ERROR_CODE && !String(error).includes(LEAK),
+  );
+});
+
+test('rejects unfrozen top-level input without calling either child', async function unfrozenTopLevelInput() {
+  const { composition, oidc, graph } = compositionFromStubs();
+  const unfrozen = {
+    idToken: 'stub-id-token',
+    accessToken: ACCESS,
+    expectedNonce: NONCE,
+    expectedClientId: CLIENT,
+    nowEpochSeconds: NOW,
+  };
+  assert.equal(Object.isFrozen(unfrozen), false);
+  await expectSanitizedFailure(() => composition.verifyIdentity(unfrozen));
+  assert.equal(oidc.calls.length, 0);
+  assert.equal(graph.calls.length, 0);
+});
+
+test('rejects unfrozen OIDC child result without calling Graph', async function unfrozenOidcChildResult() {
+  const unfrozenOidc = {
+    providerTenantId: TID,
+    providerPrincipalId: PRINCIPAL,
+  };
+  assert.equal(Object.isFrozen(unfrozenOidc), false);
+  const fresh = compositionFromStubs(
+    { result: unfrozenOidc },
+    {
+      result: Object.freeze({
+        providerSubjectId: PRINCIPAL,
+        mailboxAddress: 'ada@example.com',
+        displayName: 'Ada Lovelace',
+      }),
+    },
+  );
+  await expectSanitizedFailure(() => fresh.composition.verifyIdentity(stubInput()));
+  assert.equal(fresh.oidc.calls.length, 1);
+  assert.equal(fresh.graph.calls.length, 0);
+});
+
+test('rejects unfrozen Graph child result sanitized', async function unfrozenGraphChildResult() {
+  const unfrozenGraph = {
+    providerSubjectId: PRINCIPAL,
+    mailboxAddress: 'ada@example.com',
+    displayName: 'Ada Lovelace',
+  };
+  assert.equal(Object.isFrozen(unfrozenGraph), false);
+  const fresh = compositionFromStubs(
+    {
+      result: Object.freeze({
+        providerTenantId: TID,
+        providerPrincipalId: PRINCIPAL,
+      }),
+    },
+    { result: unfrozenGraph },
+  );
+  await expectSanitizedFailure(() => fresh.composition.verifyIdentity(stubInput()));
+  assert.equal(fresh.oidc.calls.length, 1);
+  assert.equal(fresh.graph.calls.length, 1);
+});
+
+// ── Malformed snapshotted input: zero child calls ──────────────────────────
+
+test('rejects malformed snapshotted input bounds with zero child calls', async function malformedInputZeroChildCalls() {
+  const cases = [
+    stubInput({ idToken: '' }),
+    stubInput({ idToken: 'x'.repeat(32769) }),
+    stubInput({ idToken: 'has\nnewline' }),
+    stubInput({ accessToken: '' }),
+    stubInput({ accessToken: 'x'.repeat(16385) }),
+    stubInput({ accessToken: 'has space' }),
+    stubInput({ accessToken: 'has\ttab' }),
+    stubInput({ expectedNonce: '' }),
+    stubInput({ expectedNonce: 'n'.repeat(513) }),
+    stubInput({ expectedNonce: 'bad\nnonce' }),
+    stubInput({ expectedClientId: '' }),
+    stubInput({ expectedClientId: 'c'.repeat(257) }),
+    stubInput({ nowEpochSeconds: -1 }),
+    stubInput({ nowEpochSeconds: 1.5 }),
+    stubInput({ nowEpochSeconds: Number.MAX_SAFE_INTEGER + 1 }),
+  ];
+  for (const bad of cases) {
+    const fresh = compositionFromStubs();
+    await expectSanitizedFailure(() => fresh.composition.verifyIdentity(bad));
+    assert.equal(fresh.oidc.calls.length, 0, 'OIDC must not run on malformed input');
+    assert.equal(fresh.graph.calls.length, 0, 'Graph must not run on malformed input');
+  }
+});
+
+// ── Mailbox Graph contract: malformed / uppercase / space / no-domain ──────
+
+test('rejects malformed uppercase space and no-domain Graph mailbox addresses', async function mailboxContractHostiles() {
+  const mailboxes = [
+    'not-an-email',
+    'Ada@Example.COM', // uppercase noncanonical — composer must not case-fold
+    ' ada@example.com', // leading space
+    'ada@example.com ', // trailing space
+    'ada@example.com', // wait this is valid - skip
+    'ada example@example.com', // internal space
+    'ada@', // no domain
+    'ada@localhost', // no-dot domain (Graph regex requires a dot label)
+    'ada@example', // single label domain
+    'ada@@example.com',
+    'ada@ex..ample.com',
+    '',
+    'a@b', // too short / no multi-label domain
+  ];
+  // Filter to only invalid ones for the loop clarity
+  const invalid = [
+    'not-an-email',
+    'Ada@Example.COM',
+    ' ada@example.com',
+    'ada@example.com ',
+    'ada example@example.com',
+    'ada@',
+    'ada@localhost',
+    'ada@example',
+    'ada@@example.com',
+    'ada@ex..ample.com',
+    '',
+    'a@b',
+  ];
+  for (const mailboxAddress of invalid) {
+    const fresh = compositionFromStubs(
+      {
+        result: Object.freeze({
+          providerTenantId: TID,
+          providerPrincipalId: PRINCIPAL,
+        }),
+      },
+      {
+        result: Object.freeze({
+          providerSubjectId: PRINCIPAL,
+          mailboxAddress,
+          displayName: 'Ada Lovelace',
+        }),
+      },
+    );
+    await expectSanitizedFailure(() => fresh.composition.verifyIdentity(stubInput()));
+    assert.equal(fresh.oidc.calls.length, 1);
+    assert.equal(fresh.graph.calls.length, 1);
+  }
+});
+
 // ── Dependency / input traps, accessors, symbols ───────────────────────────
 
 test('masks hostile factory dependency traps accessors symbols and extra keys', async function hostileFactoryDeps() {
@@ -475,16 +642,18 @@ test('masks hostile factory dependency traps accessors symbols and extra keys', 
     undefined,
     [],
     {},
-    { oidcValidator: goodOidc },
-    { graphIdentity: goodGraph },
-    { oidcValidator: goodOidc, graphIdentity: goodGraph, extra: 1 },
-    { oidcValidator: {}, graphIdentity: goodGraph },
-    { oidcValidator: goodOidc, graphIdentity: {} },
-    { oidcValidator: Object.freeze({ validate: 1 }), graphIdentity: goodGraph },
-    { oidcValidator: Object.freeze({ validate() {}, extra: 1 }), graphIdentity: goodGraph },
-    { oidcValidator: { validate() {} }, graphIdentity: goodGraph }, // not frozen
-    { oidcValidator: goodOidc, graphIdentity: { fetchIdentity() {} } },
-    { [Symbol('x')]: 1, oidcValidator: goodOidc, graphIdentity: goodGraph },
+    Object.freeze({ oidcValidator: goodOidc }),
+    Object.freeze({ graphIdentity: goodGraph }),
+    Object.freeze({ oidcValidator: goodOidc, graphIdentity: goodGraph, extra: 1 }),
+    Object.freeze({ oidcValidator: {}, graphIdentity: goodGraph }),
+    Object.freeze({ oidcValidator: goodOidc, graphIdentity: {} }),
+    Object.freeze({ oidcValidator: Object.freeze({ validate: 1 }), graphIdentity: goodGraph }),
+    Object.freeze({ oidcValidator: Object.freeze({ validate() {}, extra: 1 }), graphIdentity: goodGraph }),
+    Object.freeze({ oidcValidator: { validate() {} }, graphIdentity: goodGraph }), // child not frozen
+    Object.freeze({ oidcValidator: goodOidc, graphIdentity: { fetchIdentity() {} } }),
+    Object.freeze({ [Symbol('x')]: 1, oidcValidator: goodOidc, graphIdentity: goodGraph }),
+    // unfrozen bag with good children
+    { oidcValidator: goodOidc, graphIdentity: goodGraph },
   ];
   for (const deps of hostiles) {
     assert.throws(
@@ -503,7 +672,7 @@ test('masks hostile factory dependency traps accessors symbols and extra keys', 
     value: goodGraph,
   });
   assert.throws(
-    () => createMicrosoftVerifiedIdentityComposition(accessor),
+    () => createMicrosoftVerifiedIdentityComposition(Object.freeze(accessor)),
     (error) => error.code === ERROR_CODE && !String(error).includes(LEAK),
   );
 
@@ -518,16 +687,33 @@ test('masks hostile factory dependency traps accessors symbols and extra keys', 
 });
 
 test('masks hostile input accessors symbols extra keys and wrong prototypes', async function hostileInputs() {
-  const { composition } = compositionFromStubs();
   const badInputs = [
     null,
     undefined,
     [],
     {},
     Object.create(null),
-    { ...stubInput(), extra: 1 },
-    { idToken: 'x', accessToken: ACCESS, expectedNonce: NONCE, expectedClientId: CLIENT },
-    Object.assign(Object.create({ inherited: 1 }), stubInput()),
+    Object.freeze({ ...{
+      idToken: 'stub-id-token',
+      accessToken: ACCESS,
+      expectedNonce: NONCE,
+      expectedClientId: CLIENT,
+      nowEpochSeconds: NOW,
+      extra: 1,
+    } }),
+    Object.freeze({
+      idToken: 'x',
+      accessToken: ACCESS,
+      expectedNonce: NONCE,
+      expectedClientId: CLIENT,
+    }),
+    Object.assign(Object.create({ inherited: 1 }), {
+      idToken: 'stub-id-token',
+      accessToken: ACCESS,
+      expectedNonce: NONCE,
+      expectedClientId: CLIENT,
+      nowEpochSeconds: NOW,
+    }),
   ];
   for (const bad of badInputs) {
     const fresh = compositionFromStubs();
@@ -547,14 +733,19 @@ test('masks hostile input accessors symbols extra keys and wrong prototypes', as
     get() { throw new Error(LEAK); },
   });
   const accessored = compositionFromStubs();
-  await expectSanitizedFailure(() => accessored.composition.verifyIdentity(accessor));
+  await expectSanitizedFailure(() => accessored.composition.verifyIdentity(Object.freeze(accessor)));
   assert.equal(accessored.oidc.calls.length, 0);
 
-  const withSymbol = stubInput();
+  const withSymbol = {
+    idToken: 'stub-id-token',
+    accessToken: ACCESS,
+    expectedNonce: NONCE,
+    expectedClientId: CLIENT,
+    nowEpochSeconds: NOW,
+  };
   Object.defineProperty(withSymbol, Symbol('trap'), { value: LEAK, enumerable: false });
-  // Symbol own key makes ownKeys length differ from exact five string keys.
   const symbolled = compositionFromStubs();
-  await expectSanitizedFailure(() => symbolled.composition.verifyIdentity(withSymbol));
+  await expectSanitizedFailure(() => symbolled.composition.verifyIdentity(Object.freeze(withSymbol)));
   assert.equal(symbolled.oidc.calls.length, 0);
 
   const protoTrap = new Proxy(stubInput(), {
@@ -565,74 +756,7 @@ test('masks hostile input accessors symbols extra keys and wrong prototypes', as
   assert.equal(proxied.oidc.calls.length, 0);
 });
 
-// ── Mutable outputs and token races ────────────────────────────────────────
-
-test('snapshots tokens before await so post-OIDC input mutation cannot race Graph', async function tokenRaceSnapshot() {
-  const mutable = stubInput();
-  let graphToken;
-  let release;
-  const waiting = new Promise((resolve) => { release = resolve; });
-  const oidcValidator = Object.freeze({
-    async validate() {
-      mutable.accessToken = `mutated-${LEAK}`;
-      mutable.idToken = `mutated-id-${LEAK}`;
-      mutable.expectedNonce = 'mutated-nonce';
-      mutable.expectedClientId = 'mutated-client';
-      mutable.nowEpochSeconds = 0;
-      await waiting;
-      return Object.freeze({
-        providerTenantId: TID,
-        providerPrincipalId: PRINCIPAL,
-      });
-    },
-  });
-  const graphIdentity = Object.freeze({
-    async fetchIdentity(request) {
-      graphToken = request.accessToken;
-      return Object.freeze({
-        providerSubjectId: PRINCIPAL,
-        mailboxAddress: 'ada@example.com',
-        displayName: 'Ada Lovelace',
-      });
-    },
-  });
-  const composition = createMicrosoftVerifiedIdentityComposition({ oidcValidator, graphIdentity });
-  const pending = composition.verifyIdentity(mutable);
-  await Promise.resolve();
-  release();
-  const result = await pending;
-  assert.equal(graphToken, ACCESS);
-  assertExactOutput(result);
-});
-
-test('copies dependency outputs so later mutation of returned objects is ignored', async function mutableDependencyOutputs() {
-  const oidcMutable = {
-    providerTenantId: TID,
-    providerPrincipalId: PRINCIPAL,
-  };
-  const graphMutable = {
-    providerSubjectId: PRINCIPAL,
-    mailboxAddress: 'ada@example.com',
-    displayName: 'Ada Lovelace',
-  };
-  const oidcValidator = Object.freeze({
-    async validate() { return oidcMutable; },
-  });
-  const graphIdentity = Object.freeze({
-    async fetchIdentity() { return graphMutable; },
-  });
-  const composition = createMicrosoftVerifiedIdentityComposition({ oidcValidator, graphIdentity });
-  const pending = composition.verifyIdentity(stubInput());
-  const result = await pending;
-  oidcMutable.providerTenantId = '00000000-0000-4000-8000-000000000000';
-  oidcMutable.providerPrincipalId = LEAK;
-  graphMutable.mailboxAddress = 'evil@example.com';
-  graphMutable.displayName = LEAK;
-  graphMutable.providerSubjectId = LEAK;
-  assertExactOutput(result);
-  assert.equal(result.mailboxAddress, 'ada@example.com');
-  assert.equal(result.displayName, 'Ada Lovelace');
-});
+// ── Hostile result shapes (including unfrozen already covered above) ───────
 
 test('rejects hostile OIDC or Graph result shapes without leaking', async function hostileResultShapes() {
   const goodOidc = Object.freeze({
@@ -710,7 +834,6 @@ test('burns on first use including invalid input concurrent and reentrant calls'
   assert.equal(concurrent.oidc.calls.length, 1);
   assert.equal(concurrent.graph.calls.length, 1);
 
-  // Reentrant second call from inside OIDC must already see burned composition.
   let reentrantError = null;
   let outerComposition;
   const reentrantOidc = Object.freeze({
@@ -727,17 +850,17 @@ test('burns on first use including invalid input concurrent and reentrant calls'
     },
   });
   const reentrantGraph = stubGraph();
-  outerComposition = createMicrosoftVerifiedIdentityComposition({
+  outerComposition = createMicrosoftVerifiedIdentityComposition(Object.freeze({
     oidcValidator: reentrantOidc,
     graphIdentity: reentrantGraph.graphIdentity,
-  });
+  }));
   const reentrantResult = await outerComposition.verifyIdentity(stubInput());
   assertExactOutput(reentrantResult);
   assert.equal(reentrantError && reentrantError.code, ERROR_CODE);
   assert.equal(reentrantGraph.calls.length, 1);
 });
 
-// ── Output freeze / minimization ───────────────────────────────────────────
+// ── Output freeze / minimization + nullable displayName ────────────────────
 
 test('output is frozen minimized and key-ordered without token fields', async function outputFreezeMinimization() {
   const { composition } = compositionFromStubs({
@@ -766,6 +889,20 @@ test('output is frozen minimized and key-ordered without token fields', async fu
   assert.equal('extra' in result, false);
 });
 
+test('accepts null displayName from Graph when principals match', async function nullDisplayName() {
+  const { composition } = compositionFromStubs({}, {
+    result: Object.freeze({
+      providerSubjectId: PRINCIPAL,
+      mailboxAddress: 'ada@example.com',
+      displayName: null,
+    }),
+  });
+  const result = await composition.verifyIdentity(stubInput());
+  assert.equal(result.displayName, null);
+  assert.deepEqual(Object.keys(result), OUTPUT_KEYS_LOCAL);
+  assert.equal(Object.isFrozen(result), true);
+});
+
 // ── Sanitized fixed error from dependency throws ───────────────────────────
 
 test('masks OIDC and Graph throws into one fixed sanitized error', async function sanitizedDependencyErrors() {
@@ -790,19 +927,6 @@ test('merged factories fail closed on Graph HTTP rejection after OIDC success', 
   await expectSanitizedFailure(() => composition.verifyIdentity(goodInput()));
   assert.equal(harness.state.requestCalls, 1);
   assert.equal(graph.calls.length, 1);
-});
-
-test('accepts null displayName from Graph when principals match', async function nullDisplayName() {
-  const { composition } = compositionFromStubs({}, {
-    result: Object.freeze({
-      providerSubjectId: PRINCIPAL,
-      mailboxAddress: 'ada@example.com',
-      displayName: null,
-    }),
-  });
-  const result = await composition.verifyIdentity(stubInput());
-  assert.equal(result.displayName, null);
-  assert.deepEqual(Object.keys(result), OUTPUT_KEYS_LOCAL);
 });
 
 test('does not log or print secrets during success or failure paths', async function noLogsOrLeaks() {
