@@ -8,7 +8,7 @@ const SUNSET_CLIENT_SLUG = 'sunset';
 
 function isSunsetEmailSettingsUiEnabled(env) {
   const src = env && typeof env === 'object' ? env : process.env;
-  return String(src.SUNSET_EMAIL_SETTINGS_UI_ENABLED || '').trim().toLowerCase() === 'true';
+  return src.SUNSET_EMAIL_SETTINGS_UI_ENABLED === 'true';
 }
 
 function publicState(endpoint, grant) {

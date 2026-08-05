@@ -19808,7 +19808,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-bookings" data-admin-tab="bookings" aria-controls="admin-panel-bookings" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.bookings">Bookings</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-pricing" data-admin-tab="pricing" aria-controls="admin-panel-pricing" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.pricing">Pricing</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-luna-staff" data-admin-tab="luna-staff" aria-controls="admin-panel-luna-staff" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.lunaStaff" hidden>Luna Staff</button>
-    ${isSunsetEmailSettingsUiEnabled(process.env) ? '<button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-email" data-admin-tab="email" aria-controls="admin-panel-email" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.email">Email</button>' : ''}
+    ${isSunsetEmailSettingsUiEnabled(process.env) && portalDefaultClient === 'sunset' ? '<button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-email" data-admin-tab="email" aria-controls="admin-panel-email" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.email">Email</button>' : ''}
   </div>
   <div id="admin-panel-finance" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="finance" aria-labelledby="admin-tab-finance">
     <div id="admin-finance-body" class="portal-admin-finance-shell"></div>
@@ -19816,7 +19816,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <div id="admin-panel-bookings" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="bookings" aria-labelledby="admin-tab-bookings" hidden>
     <div id="admin-bookings-body" class="portal-admin-bookings-shell"></div>
   </div>
-  ${isSunsetEmailSettingsUiEnabled(process.env) ? '<div id="admin-panel-email" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="email" aria-labelledby="admin-tab-email" hidden><div id="admin-email-settings-body"></div></div>' : ''}
+  ${isSunsetEmailSettingsUiEnabled(process.env) && portalDefaultClient === 'sunset' ? '<div id="admin-panel-email" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="email" aria-labelledby="admin-tab-email" hidden><div id="admin-email-settings-body"></div></div>' : ''}
   <div id="admin-panel-pricing" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="pricing" aria-labelledby="admin-tab-pricing" hidden>
     <div class="portal-admin-sections">
       <section class="portal-admin-section" id="admin-sec-times">

@@ -14,8 +14,31 @@ function sendJSON(res, status, body) { res.status = status; res.body = body; ret
 (async () => {
   await test('flag defaults off and accepts only true', () => {
     assert.strictEqual(isSunsetEmailSettingsUiEnabled({}), false);
-    assert.strictEqual(isSunsetEmailSettingsUiEnabled({ SUNSET_EMAIL_SETTINGS_UI_ENABLED: '1' }), false);
+    for (const value of ['1', 'TRUE', 'True', ' true', 'true ', 'yes', true]) {
+      assert.strictEqual(isSunsetEmailSettingsUiEnabled({ SUNSET_EMAIL_SETTINGS_UI_ENABLED: value }), false, String(value));
+    }
     assert.strictEqual(isSunsetEmailSettingsUiEnabled({ SUNSET_EMAIL_SETTINGS_UI_ENABLED: 'true' }), true);
+  });
+  await test('production render conceals Email DOM while flag is off', () => {
+    process.env.NODE_ENV = 'test'; process.env.STAFF_UI_BUILDER_TEST_SEAM = '1';
+    process.env.STAFF_AUTH_REQUIRED = 'false'; process.env.STAFF_AUTH_ALLOW_OPEN = 'true';
+    process.env.SUNSET_EMAIL_SETTINGS_UI_ENABLED = 'false';
+    const html = require('./staff-query-api').buildUiHtmlForOfflineTest(3036, 'sunset');
+    assert.ok(!html.includes('id="admin-tab-email"'));
+    assert.ok(!html.includes('id="admin-panel-email"'));
+  });
+  await test('production render conceals Email DOM for enabled non-Sunset tenant', () => {
+    process.env.SUNSET_EMAIL_SETTINGS_UI_ENABLED = 'true';
+    const html = require('./staff-query-api').buildUiHtmlForOfflineTest(3036, 'wolfhouse-somo');
+    assert.ok(!html.includes('id="admin-tab-email"'));
+    assert.ok(!html.includes('id="admin-panel-email"'));
+  });
+  await test('production render reveals hidden Email panel only for exact enabled Sunset confirmation', () => {
+    process.env.SUNSET_EMAIL_SETTINGS_UI_ENABLED = 'true';
+    const html = require('./staff-query-api').buildUiHtmlForOfflineTest(3036, 'sunset');
+    assert.ok(html.includes('id="admin-tab-email"'));
+    assert.match(html, /id="admin-tab-email"[^>]*aria-selected="false"[^>]*tabindex="-1"/);
+    assert.match(html, /id="admin-panel-email"[^>]*\shidden(?:\s|>)/);
   });
   await test('off boundary returns 404 before ACL or lookup', async () => {
     let touched = false; const res = response();
