@@ -344,6 +344,7 @@
     "verify:email-microsoft-delegated-oauth-contract": "node scripts/verify-email-microsoft-delegated-oauth-contract.js",
     "verify:email-microsoft-oauth-transaction-service": "node scripts/verify-email-microsoft-oauth-transaction-service.js",
     "verify:email-microsoft-token-http-transport": "node scripts/verify-email-microsoft-token-http-transport.js",
+    "verify:email-microsoft-response-custody-handoff": "node scripts/verify-email-microsoft-response-custody-handoff.js",
     "prove:email-microsoft-oauth-transactions-pglite": "node scripts/prove-email-microsoft-oauth-transactions-pglite.js",
     "verify:staff-email-oauth-routes": "node scripts/verify-staff-email-oauth-routes.js",
     "verify:email-channel-endpoint-identity": "node scripts/verify-email-channel-endpoint-identity.js",
