@@ -948,6 +948,138 @@ test('does not log or print secrets during success or failure paths', async func
   }
 });
 
+// ── Lone-surrogate principal collision defenses ────────────────────────────
+
+const GOOD_MAILBOX = 'ada@example.com';
+
+function graphResult(subjectId, displayName = 'Ada Lovelace') {
+  return Object.freeze({
+    providerSubjectId: subjectId,
+    mailboxAddress: GOOD_MAILBOX,
+    displayName,
+  });
+}
+
+function oidcResult(principalId = PRINCIPAL) {
+  return Object.freeze({
+    providerTenantId: TID,
+    providerPrincipalId: principalId,
+  });
+}
+
+test('rejects Graph providerSubjectId with lone high/low surrogates in all positions', async function loneSurrogatePositionsReject() {
+  // Lone high (U+D800..U+DBFF) and lone low (U+DC00..U+DFFF) at start/middle/end.
+  const specimens = [
+    '\uD800', // lone high alone
+    '\uDBFF', // lone high upper bound
+    '\uDC00', // lone low alone
+    '\uDFFF', // lone low upper bound
+    `\uD800${PRINCIPAL}`, // high at start
+    `${PRINCIPAL}\uD800`, // high at end
+    `${PRINCIPAL.slice(0, 4)}\uD800${PRINCIPAL.slice(4)}`, // high in middle
+    `\uDC00${PRINCIPAL}`, // low at start
+    `${PRINCIPAL}\uDC00`, // low at end
+    `${PRINCIPAL.slice(0, 4)}\uDC00${PRINCIPAL.slice(4)}`, // low in middle
+  ];
+  for (const subject of specimens) {
+    const fresh = compositionFromStubs(
+      { result: oidcResult(PRINCIPAL) },
+      { result: graphResult(subject) },
+    );
+    await expectSanitizedFailure(() => fresh.composition.verifyIdentity(stubInput()));
+    assert.equal(fresh.oidc.calls.length, 1);
+    assert.equal(fresh.graph.calls.length, 1);
+  }
+});
+
+test('rejects Graph providerSubjectId with malformed adjacent surrogate sequences', async function malformedAdjacentSurrogatesReject() {
+  const specimens = [
+    '\uD800\uD800', // high + high
+    '\uDC00\uDC00', // low + low
+    '\uDC00\uD800', // low + high (wrong order)
+    '\uD800\uD800\uDC00', // high + valid-looking pair starting mid-sequence
+    '\uD83D\uD800', // high + high (emoji high without its low)
+    '\uDE00', // lone low half of an emoji
+    `${PRINCIPAL}\uD800\uDBFF`, // trailing double high
+    `\uDC00\uDFFF${PRINCIPAL}`, // leading double low
+  ];
+  for (const subject of specimens) {
+    const fresh = compositionFromStubs(
+      { result: oidcResult(PRINCIPAL) },
+      { result: graphResult(subject) },
+    );
+    await expectSanitizedFailure(() => fresh.composition.verifyIdentity(stubInput()));
+    assert.equal(fresh.graph.calls.length, 1);
+  }
+});
+
+test('rejects explicit OIDC U+FFFD vs Graph lone-high collision without false match', async function fffdVsLoneHighCollisionRejects() {
+  // Node Buffer.from maps lone high surrogates to U+FFFD UTF-8 bytes; a naive
+  // UTF-8 compare would treat Graph '\uD800' as matching OIDC '\uFFFD'.
+  const oidcReplacement = '\uFFFD';
+  const graphLoneHigh = '\uD800';
+  assert.deepEqual(
+    Buffer.from(graphLoneHigh, 'utf8'),
+    Buffer.from(oidcReplacement, 'utf8'),
+    'precondition: Buffer collapses lone high to U+FFFD bytes',
+  );
+
+  const fresh = compositionFromStubs(
+    { result: oidcResult(oidcReplacement) },
+    { result: graphResult(graphLoneHigh) },
+  );
+  await expectSanitizedFailure(() => fresh.composition.verifyIdentity(stubInput()));
+  assert.equal(fresh.oidc.calls.length, 1);
+  assert.equal(fresh.graph.calls.length, 1);
+
+  // Also reject lone low colliding the same way.
+  const graphLoneLow = '\uDC00';
+  assert.deepEqual(Buffer.from(graphLoneLow, 'utf8'), Buffer.from(oidcReplacement, 'utf8'));
+  const lowCase = compositionFromStubs(
+    { result: oidcResult(oidcReplacement) },
+    { result: graphResult(graphLoneLow) },
+  );
+  await expectSanitizedFailure(() => lowCase.composition.verifyIdentity(stubInput()));
+  assert.equal(lowCase.graph.calls.length, 1);
+
+  // When both sides genuinely share U+FFFD (no surrogates), match remains allowed.
+  const genuine = compositionFromStubs(
+    { result: oidcResult(oidcReplacement) },
+    { result: graphResult(oidcReplacement) },
+  );
+  const matched = await genuine.composition.verifyIdentity(stubInput());
+  assert.equal(matched.providerPrincipalId, oidcReplacement);
+  assert.equal(Object.isFrozen(matched), true);
+});
+
+test('accepts valid surrogate-pair and emoji principals when both children agree', async function validSurrogatePairsAndEmojiAccepted() {
+  const emoji = '😀'; // U+1F600 = \uD83D\uDE00 (valid pair)
+  const mixed = `id-${emoji}-ok`;
+  for (const principal of [emoji, mixed, 'café-ascii-safe']) {
+    // café uses no surrogates; included as control that non-ASCII non-surrogate still works.
+    if (principal === 'café-ascii-safe') {
+      // OIDC principal uses boundedOidcText which allows non-ASCII without unpaired surrogates.
+    }
+    const fresh = compositionFromStubs(
+      { result: oidcResult(principal) },
+      { result: graphResult(principal) },
+    );
+    const result = await fresh.composition.verifyIdentity(stubInput());
+    assert.equal(result.providerPrincipalId, principal);
+    assert.equal(result.mailboxAddress, GOOD_MAILBOX);
+    assert.equal(Object.isFrozen(result), true);
+    assert.equal(fresh.oidc.calls.length, 1);
+    assert.equal(fresh.graph.calls.length, 1);
+  }
+
+  // Valid pair on Graph but different OIDC principal still mismatches (no false match).
+  const mismatch = compositionFromStubs(
+    { result: oidcResult(PRINCIPAL) },
+    { result: graphResult(emoji) },
+  );
+  await expectSanitizedFailure(() => mismatch.composition.verifyIdentity(stubInput()));
+});
+
 async function runTests() {
   for (const { name, run } of tests) {
     await run();

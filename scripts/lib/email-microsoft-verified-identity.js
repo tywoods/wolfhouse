@@ -201,7 +201,13 @@ function readGraphIdentity(value) {
   const providerSubjectId = ownData(value, 'providerSubjectId');
   const mailboxAddress = ownData(value, 'mailboxAddress');
   const displayName = ownData(value, 'displayName');
-  if (!boundedGraphText(providerSubjectId, 1, PRINCIPAL_LIMIT)) return null;
+  // Graph subject bounds plus the same unpaired-surrogate pair walk as OIDC.
+  // Lone surrogates must never reach Buffer.from UTF-8 (which maps them to U+FFFD
+  // and can collide with a literal OIDC principal containing U+FFFD).
+  if (!boundedGraphText(providerSubjectId, 1, PRINCIPAL_LIMIT)
+      || hasUnpairedSurrogate(providerSubjectId)) {
+    return null;
+  }
   // No trim/case normalization: require already-canonical Graph mailbox form.
   if (!isCanonicalGraphMailbox(mailboxAddress)) return null;
   if (displayName !== null) {
