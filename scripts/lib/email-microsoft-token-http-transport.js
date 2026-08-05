@@ -5,6 +5,7 @@ const https = require('node:https');
 const TOKEN_HOST = 'login.microsoftonline.com';
 const TOKEN_PATH = '/organizations/oauth2/v2.0/token';
 const RESPONSE_LIMIT_BYTES = 65_536;
+const REQUEST_LIMIT_BYTES = 32_768;
 const DEADLINE_MS = 10_000;
 
 function fixedError(code) {
@@ -30,6 +31,8 @@ function createMicrosoftTokenHttpTransport(deps = {}) {
   function postTokenForm(input) {
     const body = snapshotBody(input);
     if (body === null) return Promise.reject(fixedError('microsoft_token_request_invalid'));
+    const bodyBytes = Buffer.byteLength(body, 'utf8');
+    if (bodyBytes > REQUEST_LIMIT_BYTES) return Promise.reject(fixedError('microsoft_token_request_too_large'));
 
     return new Promise((resolve, reject) => {
       let request;
@@ -53,7 +56,7 @@ function createMicrosoftTokenHttpTransport(deps = {}) {
         path: TOKEN_PATH,
         headers: Object.freeze({
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Content-Length': Buffer.byteLength(body),
+          'Content-Length': bodyBytes,
           Accept: 'application/json',
         }),
       });
@@ -90,13 +93,15 @@ function createMicrosoftTokenHttpTransport(deps = {}) {
           incoming.on('error', () => finish(fixedError('microsoft_token_transport_failed')));
         });
         request.on('error', () => finish(fixedError('microsoft_token_transport_failed')));
-        timer = timers.setTimeout(() => {
+        const acquiredTimer = timers.setTimeout(() => {
           if (settled) return;
           const error = fixedError('microsoft_token_request_timed_out');
           finish(error);
           if (response && typeof response.destroy === 'function') response.destroy(error);
           request.destroy(error);
         }, DEADLINE_MS);
+        timer = acquiredTimer;
+        if (settled) timers.clearTimeout(timer);
         request.end(body);
       } catch (_) {
         if (request && typeof request.destroy === 'function') request.destroy();
@@ -112,6 +117,7 @@ module.exports = Object.freeze({
   TOKEN_HOST,
   TOKEN_PATH,
   RESPONSE_LIMIT_BYTES,
+  REQUEST_LIMIT_BYTES,
   DEADLINE_MS,
   createMicrosoftTokenHttpTransport,
 });

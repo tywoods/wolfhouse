@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const {
-  TOKEN_HOST, TOKEN_PATH, RESPONSE_LIMIT_BYTES, DEADLINE_MS,
+  TOKEN_HOST, TOKEN_PATH, REQUEST_LIMIT_BYTES, RESPONSE_LIMIT_BYTES, DEADLINE_MS,
   createMicrosoftTokenHttpTransport,
 } = require('./lib/email-microsoft-token-http-transport');
 
@@ -128,6 +128,32 @@ async function rejectedCode(promise, code) {
         'microsoft_token_request_invalid',
       );
       assert.equal(h.calls.length, 0);
+    }
+
+    {
+      const h = harness();
+      const transport = createMicrosoftTokenHttpTransport({ httpsImpl: h.httpsImpl, timers: h.timerApi });
+      const atLimit = 'x'.repeat(REQUEST_LIMIT_BYTES);
+      const pending = transport.postTokenForm({ body: atLimit });
+      assert.equal(h.calls[0].options.headers['Content-Length'], REQUEST_LIMIT_BYTES);
+      h.timers[0].fn();
+      await rejectedCode(pending, 'microsoft_token_request_timed_out');
+      await rejectedCode(transport.postTokenForm({ body: `${atLimit}x` }), 'microsoft_token_request_too_large');
+      await rejectedCode(transport.postTokenForm({ body: `${'x'.repeat(REQUEST_LIMIT_BYTES - 1)}π` }), 'microsoft_token_request_too_large');
+      assert.equal(h.calls.length, 1, 'oversized bodies must fail before request creation');
+    }
+
+    {
+      const h = harness();
+      let cleared = 0;
+      const timers = {
+        setTimeout(fn, ms) { const handle = { ms }; fn(); return handle; },
+        clearTimeout(handle) { assert.equal(handle.ms, DEADLINE_MS); cleared += 1; },
+      };
+      const pending = createMicrosoftTokenHttpTransport({ httpsImpl: h.httpsImpl, timers }).postTokenForm({ body: 'code=x' });
+      await rejectedCode(pending, 'microsoft_token_request_timed_out');
+      assert.equal(h.calls[0].request.destroyed, true);
+      assert.equal(cleared, 1, 'synchronously acquired timer handle must be cleared exactly once');
     }
 
     assert.deepEqual(captured, [], 'transport and hostile cases must not log secrets or errors');
