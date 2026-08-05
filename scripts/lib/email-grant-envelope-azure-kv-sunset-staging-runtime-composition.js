@@ -158,6 +158,24 @@ function publicMetadata() {
   });
 }
 
+/** Adapt Azure's prototype methods to the provider's narrow own-data contract. */
+function bindCryptographyClient(client) {
+  let wrapKey; let unwrapKey;
+  try {
+    wrapKey = client && client.wrapKey;
+    unwrapKey = client && client.unwrapKey;
+  } catch {
+    throw err('envelope_kv_client_invalid');
+  }
+  if (typeof wrapKey !== 'function' || typeof unwrapKey !== 'function') {
+    throw err('envelope_kv_client_invalid');
+  }
+  return Object.freeze({
+    async wrapKey(...args) { return wrapKey.apply(client, args); },
+    async unwrapKey(...args) { return unwrapKey.apply(client, args); },
+  });
+}
+
 /**
  * Explicit Sunset-staging-canary factory. Accepts env only (one argument).
  * Always lazy-loads @azure/identity + @azure/keyvault-keys and constructs
@@ -192,12 +210,13 @@ function createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(env) {
   if (cryptoClient == null || typeof cryptoClient !== 'object') {
     throw err('envelope_kv_client_invalid');
   }
+  const boundCryptoClient = bindCryptographyClient(cryptoClient);
 
   function getCryptographyClient(fullVersionedKeyId) {
     if (fullVersionedKeyId !== SUNSET_STAGING_VERSIONED_KEY_ID) {
       throw err('envelope_kv_client_invalid');
     }
-    return cryptoClient;
+    return boundCryptoClient;
   }
 
   let provider;
