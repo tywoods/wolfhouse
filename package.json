@@ -350,6 +350,7 @@
     "verify:email-microsoft-delegated-oauth-contract": "node scripts/verify-email-microsoft-delegated-oauth-contract.js",
     "verify:email-microsoft-oauth-transaction-service": "node scripts/verify-email-microsoft-oauth-transaction-service.js",
     "verify:email-microsoft-oauth-callback-completion": "node scripts/verify-email-microsoft-oauth-callback-completion.js",
+    "verify:email-microsoft-oauth-operation-composition": "node scripts/verify-email-microsoft-oauth-operation-composition.js",
     "verify:email-microsoft-token-http-transport": "node scripts/verify-email-microsoft-token-http-transport.js",
     "verify:email-microsoft-response-custody-handoff": "node scripts/verify-email-microsoft-response-custody-handoff.js",
     "verify:email-microsoft-authorization-code-request": "node scripts/verify-email-microsoft-authorization-code-request.js",
