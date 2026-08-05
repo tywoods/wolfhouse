@@ -21,7 +21,10 @@
  *
  * Factory takes exact frozen deps { client } where client is a pinned transaction
  * client (query only surface required; pool/connect counters rejected). Returns
- * exact frozen { installVerifiedGrant }. One fixed sanitized thrown error.
+ * exact frozen { installVerifiedGrant }. Single-use atomic burn at entry of
+ * installVerifiedGrant (before input reflection/validation/SQL): first call
+ * (even malformed/hostile) burns the installer; concurrent/reentrant/second
+ * attempts fail sanitized with zero further SQL. One fixed sanitized thrown error.
  *
  * @module email-microsoft-verified-grant-installer
  */
@@ -468,7 +471,7 @@ async function installInTransaction(client, snap) {
 
 /**
  * @param {object} dependencies exact frozen { client } pinned transaction client
- * @returns {{ installVerifiedGrant: Function }} exact frozen installer surface
+ * @returns {{ installVerifiedGrant: Function }} exact frozen single-use installer surface
  */
 function createMicrosoftVerifiedGrantInstaller(dependencies) {
   let client;
@@ -479,7 +482,10 @@ function createMicrosoftVerifiedGrantInstaller(dependencies) {
     throw failure();
   }
 
+  let used = false;
   async function installVerifiedGrant(input) {
+    if (used) throw failure();
+    used = true; // Atomic burn before input reflection, validation, await, or SQL.
     let snap;
     try {
       snap = snapshotAndValidateInstallInput(input);

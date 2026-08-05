@@ -6,7 +6,8 @@
  * status/address mismatch, missing/duplicate rows, ownership 23505, insert/update
  * failures, commit ambiguity, input/deps proxies/accessors/symbols/prototypes/
  * descriptors/mutation, identity/envelope shape + operation mismatch, actor null,
- * no token keys, receiver/single-use/reentrant/concurrent.
+ * no token keys, single-use atomic burn (invalid-first / sequential / concurrent /
+ * reentrant-from-query / hostile second traps).
  * Direct merged adapter interop via fake envelope provider + this installer fake DB.
  * Optional disposable local PG proof when available (no network). No routes/Azure/live.
  */
@@ -986,22 +987,52 @@ test('rebuilds gen-1 AAD identity; operation bind; does not require AAD on input
   }
 });
 
-// ── Receiver reentrant / concurrent ────────────────────────────────────────
+// ── Single-use atomic burn (callback-operation scoped; not DB-status reuse) ─
 
-test('installer is reentrant: second install after status verified fails; first stays committed', async function reentrant() {
+test('invalid first input burns; second good call executes zero SQL', async function invalidFirstBurn() {
   const fake = createFakePinnedClient();
   const installer = installerFromFake(fake);
-  const ack1 = await installer.installVerifiedGrant(goodInstall());
-  assert.deepEqual(ack1, INSTALLER_ACK);
-  assert.equal(fake.endpointState.binding_status, 'verified');
-
-  // Second call: endpoint now verified → reject + rollback of second TX only.
+  await assert.rejects(() => installer.installVerifiedGrant(null), failSanitized);
+  assert.equal(fake.queries.length, 0);
   await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+  assert.equal(fake.queries.length, 0);
+  assert.equal(fake.grantInserted, false);
+  assert.equal(fake.endpointState.binding_status, 'unverified_offline');
+});
+
+test('sequential after success: second call zero SQL; first remains committed', async function sequentialAfterSuccess() {
+  const fake = createFakePinnedClient();
+  const installer = installerFromFake(fake);
+  const ack = await installer.installVerifiedGrant(goodInstall());
+  assert.deepEqual(ack, INSTALLER_ACK);
+  assert.equal(fake.endpointState.binding_status, 'verified');
+  assert.equal(fake.grantInserted, true);
+  const afterSuccess = fake.queries.length;
+  assert.ok(afterSuccess >= 1);
+  assert.equal(sqlKinds(fake.queries).filter((k) => k === 'BEGIN').length, 1);
+
+  await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+  assert.equal(fake.queries.length, afterSuccess, 'second call must execute zero SQL');
   assert.equal(fake.endpointState.binding_status, 'verified');
   assert.equal(fake.grantInserted, true);
 });
 
-test('concurrent installs: one succeeds semantics via fake sequential 23505', async function concurrent() {
+test('sequential after failure: second call zero SQL', async function sequentialAfterFailure() {
+  const fake = createFakePinnedClient({
+    insertThrow: Object.assign(new Error(`${LEAK} boom`), { code: '23505' }),
+  });
+  const installer = installerFromFake(fake);
+  await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+  const afterFailure = fake.queries.length;
+  assert.ok(afterFailure >= 1);
+  assert.equal(fake.grantInserted, false);
+
+  await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+  assert.equal(fake.queries.length, afterFailure, 'second call must execute zero SQL');
+  assert.equal(fake.grantInserted, false);
+});
+
+test('concurrent Promise calls: exactly one BEGIN; one ack or sanitized fail', async function concurrentOneBegin() {
   const fake = createFakePinnedClient();
   const installer = installerFromFake(fake);
   const p1 = installer.installVerifiedGrant(goodInstall());
@@ -1009,11 +1040,78 @@ test('concurrent installs: one succeeds semantics via fake sequential 23505', as
   const results = await Promise.allSettled([p1, p2]);
   const fulfilled = results.filter((r) => r.status === 'fulfilled');
   const rejected = results.filter((r) => r.status === 'rejected');
-  // At least one must fail sanitized; at most one installed ack.
-  assert.equal(fulfilled.length + rejected.length, 2);
-  assert.ok(rejected.length >= 1);
-  for (const r of rejected) assert.equal(failSanitized(r.reason), true);
-  for (const r of fulfilled) assert.deepEqual(r.value, INSTALLER_ACK);
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.deepEqual(fulfilled[0].value, INSTALLER_ACK);
+  assert.equal(failSanitized(rejected[0].reason), true);
+  assert.equal(sqlKinds(fake.queries).filter((k) => k === 'BEGIN').length, 1);
+  assert.equal(sqlKinds(fake.queries).filter((k) => k === 'COMMIT').length, 1);
+  assert.equal(fake.endpointState.binding_status, 'verified');
+  assert.equal(fake.grantInserted, true);
+});
+
+test('reentrant install from client.query: exactly one transaction; reentry sanitized', async function reentrantFromQuery() {
+  const fake = createFakePinnedClient();
+  let installer;
+  let reentrantError = null;
+  const origQuery = fake.client.query.bind(fake.client);
+  let beginSeen = 0;
+  fake.client.query = async function query(sql, params) {
+    const text = String(sql || '');
+    if (/^\s*BEGIN\b/i.test(text)) {
+      beginSeen += 1;
+      if (beginSeen === 1) {
+        try {
+          await installer.installVerifiedGrant(goodInstall());
+        } catch (error) {
+          reentrantError = error;
+        }
+      }
+    }
+    return origQuery(sql, params);
+  };
+  installer = installerFromFake(fake);
+  const ack = await installer.installVerifiedGrant(goodInstall());
+  assert.deepEqual(ack, INSTALLER_ACK);
+  assert.equal(failSanitized(reentrantError), true);
+  assert.equal(sqlKinds(fake.queries).filter((k) => k === 'BEGIN').length, 1);
+  assert.equal(sqlKinds(fake.queries).filter((k) => k === 'COMMIT').length, 1);
+  assert.equal(fake.endpointState.binding_status, 'verified');
+  assert.equal(fake.grantInserted, true);
+});
+
+test('hostile second input traps never touched after burn', async function hostileSecondTraps() {
+  const fake = createFakePinnedClient();
+  const installer = installerFromFake(fake);
+  await assert.rejects(() => installer.installVerifiedGrant(null), failSanitized);
+  assert.equal(fake.queries.length, 0);
+
+  const traps = [];
+  const hostile = new Proxy({}, {
+    get(_t, prop) {
+      traps.push(['get', String(prop)]);
+      throw new Error(`${LEAK} get ${String(prop)}`);
+    },
+    ownKeys() {
+      traps.push(['ownKeys']);
+      throw new Error(`${LEAK} ownKeys`);
+    },
+    getOwnPropertyDescriptor(_t, prop) {
+      traps.push(['getOwnPropertyDescriptor', String(prop)]);
+      throw new Error(`${LEAK} descriptor`);
+    },
+    getPrototypeOf() {
+      traps.push(['getPrototypeOf']);
+      throw new Error(`${LEAK} proto`);
+    },
+    has(_t, prop) {
+      traps.push(['has', String(prop)]);
+      throw new Error(`${LEAK} has`);
+    },
+  });
+  await assert.rejects(() => installer.installVerifiedGrant(hostile), failSanitized);
+  assert.deepEqual(traps, []);
+  assert.equal(fake.queries.length, 0);
 });
 
 // ── Error sanitization ─────────────────────────────────────────────────────
