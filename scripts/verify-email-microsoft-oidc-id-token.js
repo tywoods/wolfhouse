@@ -77,16 +77,22 @@ async function main() {
     await rejected(service().validator.validate(input(`${b64({ alg: 'RS256', kid: 'k' })}.${b64(rawClaims)}.AA`)));
 
   for (const header of [{ alg: 'none', kid: 'k' }, { alg: 'RS256' }, { alg: 'RS256', kid: '' },
-    { alg: 'RS256', kid: 'x'.repeat(257) }, { alg: 'RS256', kid: 'k', typ: 'jwt' }, { alg: ['RS256'], kid: 'k' }])
+    { alg: 'RS256', kid: 'x'.repeat(257) }, { alg: 'RS256', kid: 'k', typ: 'jwt' }, { alg: ['RS256'], kid: 'k' },
+    { alg: 'RS256', kid: 'k', crit: [] }, { alg: 'RS256', kid: 'k', crit: ['future'], future: true },
+    { alg: 'RS256', kid: 'k', crit: ['b64'], b64: true }, { alg: 'RS256', kid: 'k', crit: ['b64'], b64: false }])
     await rejected(service().validator.validate(input(token(header))));
 
   const claimMutations = [
-    { tid: TID.toUpperCase() }, { tid: 'not-uuid' }, { oid: '' }, { oid: 1 }, { sub: '' },
+    { tid: TID.toUpperCase() }, { tid: 'not-uuid' }, { oid: '' }, { oid: 1 }, { sub: '' }, { sub: 1 },
+    { sub: 'bad\nsubject' }, { sub: 'x'.repeat(257) },
     { aud: [CLIENT] }, { aud: 'other' }, { nonce: 'other' }, { iss: `https://login.microsoftonline.com/${TID}/v2.0/` },
     { azp: 'other' }, { azp: [CLIENT] }, { exp: NOW - 301 }, { exp: NOW + 10, iat: NOW + 11 },
     { iat: NOW + 301 }, { nbf: NOW + 301 }, { exp: NOW + 86401, iat: NOW }, { exp: 1.5 }, { nbf: null },
   ];
   for (const patch of claimMutations) await rejected(service().validator.validate(input(token(undefined, { ...baseClaims, ...patch }))));
+  const missingSub = { ...baseClaims }; delete missingSub.sub;
+  await rejected(service().validator.validate(input(token(undefined, missingSub))));
+  await rejected(service().validator.validate(input(`${b64({ alg: 'RS256', kid: 'k' })}.${b64('{"tid":"01234567-89ab-4def-8123-456789abcdef","oid":"x","sub":"x\\ud800"}')}.AA`)));
   assert.deepEqual(await service().validator.validate(input(token(undefined, { ...baseClaims, azp: CLIENT }))), result);
 
   // Verification is mandatory and all verifier failures/ack tricks are masked. No claims return before it resolves.

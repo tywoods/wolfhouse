@@ -160,7 +160,8 @@ function createMicrosoftOidcIdTokenValidator(dependencies) {
       const claims = decodeJson(encodedClaims, LIMITS.claimsSegment);
       const signature = decodeSegment(encodedSignature, LIMITS.signatureSegment);
       if (!header || Object.getPrototypeOf(header) !== null || header.alg !== 'RS256'
-          || !bounded(header.kid, LIMITS.kid) || (header.typ !== undefined && header.typ !== 'JWT')) throw failure();
+          || !bounded(header.kid, LIMITS.kid) || header.crit !== undefined
+          || (header.typ !== undefined && header.typ !== 'JWT')) throw failure();
       const signingInput = `${encodedHeader}.${encodedClaims}`;
       const request = Object.freeze({ signingInput, signature: Buffer.from(signature), alg: 'RS256', kid: header.kid });
       let acknowledgement;
@@ -171,7 +172,7 @@ function createMicrosoftOidcIdTokenValidator(dependencies) {
           || Object.getOwnPropertyDescriptor(acknowledgement, 'verified')?.value !== true) throw failure();
 
       if (!claims || Object.getPrototypeOf(claims) !== null || !UUID.test(claims.tid)
-          || !bounded(claims.oid, 256) || (claims.sub !== undefined && !bounded(claims.sub, 256))
+          || !bounded(claims.oid, 256) || !bounded(claims.sub, 256)
           || typeof claims.aud !== 'string' || !safeEqual(claims.aud, data.expectedClientId)
           || !safeEqual(claims.nonce, data.expectedNonce)
           || claims.iss !== `https://login.microsoftonline.com/${claims.tid}/v2.0`
