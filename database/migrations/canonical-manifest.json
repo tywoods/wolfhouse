@@ -40,6 +40,14 @@
         "033_staff_automated_notifications.sql"
       ],
       "rationale": "Both are forward DDL. private_lesson claims 033 first chronologically; staff_automated follows (staging runbook). Filenames unchanged."
+    },
+    {
+      "number": "060",
+      "order": [
+        "060_bookings_hidden.sql",
+        "060_tenant_email_oauth_transactions.sql"
+      ],
+      "rationale": "Both are canonical forward DDL created concurrently. bookings_hidden precedes the independent email OAuth transaction table; filenames remain stable."
     }
   ],
   "entries": [
@@ -697,6 +705,26 @@
       "inForwardChain": false,
       "rationale": "Explicit down/rollback for 060_bookings_hidden.",
       "pairsWith": "060_bookings_hidden.sql"
+    },
+    {
+      "id": "060_tenant_email_oauth_transactions",
+      "filename": "060_tenant_email_oauth_transactions.sql",
+      "sha256": "0ba28b580b7663f5797387be91b3530a1bac5ca24138576b3a084c8560ba4afe",
+      "order": 59,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Stage 6 server-owned, short-lived Microsoft OAuth transaction ownership and replay boundary. No token or grant storage.",
+      "downFilename": "060_tenant_email_oauth_transactions_down.sql"
+    },
+    {
+      "id": "060_tenant_email_oauth_transactions_down",
+      "filename": "060_tenant_email_oauth_transactions_down.sql",
+      "sha256": "7c0258795fae3ade98cfe42c579ffeac599565127906803a7155329a6ef0b636",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit rollback for Stage 6 OAuth transactions and its supporting parent uniqueness constraints.",
+      "pairsWith": "060_tenant_email_oauth_transactions.sql"
     }
   ]
 }

@@ -82,10 +82,13 @@ function sendJSON(res, status, body) { res.status = status; res.body = body; ret
     assert.strictEqual(endpointDto({id:'e',location_id:'l'}, {grant_present:true,grant_status:'reauthorization_required'}).connection_state,'reauth_required');
     assert.strictEqual(endpointDto({id:'e',location_id:'l'}, {grant_present:true,grant_status:'revoked'}).connection_state,'revoked');
   });
-  await test('browser panel has all inert states and no connect/disconnect controls', () => {
+  await test('browser panel has gated Connect POST and validates fixed Microsoft authority', () => {
     const src=fs.readFileSync(require.resolve('./browser/sunset-admin-email-settings-ui.js'),'utf8');
     for(const state of ['unavailable','loading','disconnected','registered_not_connected','connected_health','reauth_required','revoked','error']) assert.ok(src.includes(state));
-    assert.ok(!/<button[^>]*connect/i.test(src)); assert.ok(!/method\s*:\s*['"]POST/i.test(src));
+    assert.ok(/<button[^>]*connect/i.test(src)); assert.ok(/method\s*:\s*['"]POST/i.test(src));
+    assert.ok(src.includes("target.hostname !== 'login.microsoftonline.com'"));
+    assert.ok(!/data-email-action=["']disconnect/i.test(src));
+    assert.ok(!/\/disconnect(?:[?'"`/]|$)/i.test(src));
     new vm.Script(src);
   });
   await test('startup sources and i18n load safely', () => {

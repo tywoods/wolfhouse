@@ -11,6 +11,11 @@ function isSunsetEmailSettingsUiEnabled(env) {
   return src.SUNSET_EMAIL_SETTINGS_UI_ENABLED === 'true';
 }
 
+function isSunsetEmailOAuthStartEnabled(env) {
+  const src = env && typeof env === 'object' ? env : process.env;
+  return src.LUNA_EMAIL_OAUTH_START_ENABLED === 'true' && src.LUNA_DEPLOYMENT === 'sunset-staging';
+}
+
 function publicState(endpoint, grant) {
   if (!endpoint) return 'disconnected';
   if (!grant || grant.grant_present !== true) return 'registered_not_connected';
@@ -68,11 +73,13 @@ function createEmailSettingsRoutes(deps) {
         const locations = locationsResult.value.map((row) => Object.freeze({
           location_id: row.location_id, display_name: row.display_name, active: row.active === true,
         }));
+        const connect = isSunsetEmailOAuthStartEnabled(runtimeEnv) && locations.some((location) =>
+          location.active && !endpoints.some((endpoint) => endpoint.location_id === location.location_id));
         return deps.sendJSON(res, 200, {
           success: true,
           client: SUNSET_CLIENT_SLUG,
           read_only: true,
-          actions: { connect: false, disconnect: false },
+          actions: { connect, disconnect: false },
           locations,
           endpoints,
         });
@@ -84,4 +91,4 @@ function createEmailSettingsRoutes(deps) {
   return { handleGet };
 }
 
-module.exports = { EMAIL_SETTINGS_PATH, SUNSET_CLIENT_SLUG, isSunsetEmailSettingsUiEnabled, publicState, endpointDto, createEmailSettingsRoutes };
+module.exports = { EMAIL_SETTINGS_PATH, SUNSET_CLIENT_SLUG, isSunsetEmailSettingsUiEnabled, isSunsetEmailOAuthStartEnabled, publicState, endpointDto, createEmailSettingsRoutes };

@@ -203,6 +203,10 @@ const {
   EMAIL_SETTINGS_PATH,
   isSunsetEmailSettingsUiEnabled,
 } = require('./lib/staff-email-settings-routes');
+const {
+  createStaffEmailOAuthRoutes,
+  OAUTH_START_PATH,
+} = require('./lib/staff-email-oauth-routes');
 
 const {
   listStaffAutomatedNotifications,
@@ -2537,6 +2541,12 @@ const emailSettingsRoutes = createEmailSettingsRoutes({
   withPgClient,
 });
 const { handleGet: handleEmailSettingsGet } = emailSettingsRoutes;
+const emailOAuthRoutes = createStaffEmailOAuthRoutes({
+  sendJSON,
+  assertStaffClientAccess,
+  authorizeAuthenticatedStaffRoute,
+  withPgClient,
+});
 
 // Staff Inbox routes (extracted module). Auth stays in the router with
 // per-route minRole (viewer reads / operator writes) — do not homogenize.
@@ -49146,6 +49156,14 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleEmailSettingsGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === OAUTH_START_PATH && method === 'POST') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); }
+    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    return emailOAuthRoutes.handleStart(body, req, res, auth.user);
   }
   // Auth stays here; handlers live in staff-email-registry-routes.js
   if (pathname === EMAIL_REGISTRY_LOCATIONS_PATH && method === 'GET') {
