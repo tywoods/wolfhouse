@@ -92,7 +92,7 @@ function createMicrosoftOAuthTransactionService({ repository, env = process.env,
 const CALLBACK_KEYS = Object.freeze([Object.freeze(['state', 'code']), Object.freeze(['state', 'error'])]);
 const PROVIDER_CODE_RE = /^[\x21-\x7e]{1,4096}$/;
 const PROVIDER_ERROR_RE = /^[a-z][a-z0-9_]{0,63}$/;
-function createMicrosoftOAuthCallbackService({ repository, env = process.env, now = () => new Date() }) {
+function createMicrosoftOAuthCallbackService({ repository, tokenExchange = null, env = process.env, now = () => new Date() }) {
   if (!repository || typeof repository.consume !== 'function') throw new TypeError('repository_required');
   return Object.freeze({
     async accept(input, owner) {
@@ -105,7 +105,16 @@ function createMicrosoftOAuthCallbackService({ repository, env = process.env, no
       const stateHash = crypto.createHash('sha256').update(input.state, 'ascii').digest();
       const row = await repository.consume({ stateHash, clientId: owner.clientId, authSessionId: owner.authSessionId, now: new Date(now()) });
       if (!row) return Object.freeze({ status: 'invalid_or_expired' });
-      return Object.freeze({ status: shape[1] === 'code' ? 'authorization_received' : 'authorization_declined' });
+      if (shape[1] === 'error') return Object.freeze({ status: 'authorization_declined' });
+      // Consume first, then keep the one-use provider code and verifier in this
+      // stack frame only. A failed remote attempt is terminal, never replayable.
+      if (env.LUNA_EMAIL_OAUTH_TOKEN_EXCHANGE_ENABLED === 'true') {
+        if (!tokenExchange || typeof tokenExchange.exchange !== 'function' || typeof row.code_verifier !== 'string') throw new Error('oauth_callback_exchange_failed');
+        const sealed = await tokenExchange.exchange({ code: input.code, codeVerifier: row.code_verifier });
+        if (!sealed || sealed.status !== 'exchanged') throw new Error('oauth_callback_exchange_failed');
+        return Object.freeze({ status: 'authorization_exchanged' });
+      }
+      return Object.freeze({ status: 'authorization_received' });
     },
   });
 }

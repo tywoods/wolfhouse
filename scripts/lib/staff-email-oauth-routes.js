@@ -6,6 +6,7 @@ const {
   isCallbackEnabled,
   createMicrosoftOAuthCallbackService,
 } = require('./email-microsoft-oauth-transaction-service');
+const { createMicrosoftAuthorizationCodeExchange } = require('./email-microsoft-authorization-code-exchange');
 
 const OAUTH_START_PATH = '/staff/admin/email-settings/oauth/microsoft/start';
 const OAUTH_CALLBACK_PATH = '/staff/email/oauth/microsoft/callback';
@@ -44,7 +45,7 @@ function createStaffEmailOAuthRoutes(deps) {
     }
   }
   function terminal(res, statusCode, status) {
-    const messages = { authorization_received:'Authorization response received. You may close this window.', authorization_declined:'Authorization was declined. You may close this window.', invalid_or_expired:'This authorization request could not be accepted.' };
+    const messages = { authorization_received:'Authorization response received. You may close this window.', authorization_exchanged:'Authorization response received. You may close this window.', authorization_declined:'Authorization was declined. You may close this window.', invalid_or_expired:'This authorization request could not be accepted.' };
     res.statusCode = statusCode;
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
@@ -56,7 +57,11 @@ function createStaffEmailOAuthRoutes(deps) {
     if (!isCallbackEnabled(env)) return terminal(res, 404, 'invalid_or_expired');
     if (!user || user.client_slug !== 'sunset' || !UUID_RE.test(user.client_id || '') || !UUID_RE.test(user.session_id || '')) return terminal(res, 400, 'invalid_or_expired');
     try {
-      const result = await deps.withPgClient(async (pg) => createMicrosoftOAuthCallbackService({ repository:createPostgresOAuthTransactionRepository(pg), env }).accept(query, { clientId:user.client_id, authSessionId:user.session_id }));
+      const result = await deps.withPgClient(async (pg) => {
+        const tokenExchange = env.LUNA_EMAIL_OAUTH_TOKEN_EXCHANGE_ENABLED === 'true'
+          ? createMicrosoftAuthorizationCodeExchange({ httpClient:deps.oauthTokenHttpClient, clientSecretProvider:deps.oauthClientSecretProvider, env }) : null;
+        return createMicrosoftOAuthCallbackService({ repository:createPostgresOAuthTransactionRepository(pg), tokenExchange, env }).accept(query, { clientId:user.client_id, authSessionId:user.session_id });
+      });
       return terminal(res, result.status === 'invalid_or_expired' ? 400 : 200, result.status);
     } catch (_) { return terminal(res, 400, 'invalid_or_expired'); }
   }
