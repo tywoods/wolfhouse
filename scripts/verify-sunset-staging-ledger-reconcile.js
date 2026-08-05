@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * verify:sunset-staging-ledger-reconcile — RED→GREEN gate (injected client + optional Docker proof).
+ * verify:sunset-staging-ledger-reconcile — RED→GREEN gate (pinned client + optional Docker CLI proof).
  */
 
 const fs = require('fs');
@@ -12,6 +12,14 @@ const {
   APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
 } = require('./lib/migration-integrity');
 const lib = require('./lib/sunset-staging-ledger-reconcile');
+const { buildCanonicalPreApplySemanticRow } = require('./lib/sunset-staging-ledger-reconcile-semantics');
+const { runSunsetStagingLedgerReconcileCli } = require('./lib/sunset-staging-ledger-reconcile-cli');
+const {
+  assertPinnedReconcilePgClient,
+  ENV_DISPOSABLE_PROOF,
+  ENV_INTERNAL_CONNECT_HOST,
+  ENV_INTERNAL_CONNECT_PORT,
+} = require('./lib/sunset-staging-ledger-reconcile-pg');
 
 const ROOT = path.join(__dirname, '..');
 const CLI = path.join(ROOT, 'scripts', 'run-sunset-staging-ledger-reconcile.js');
@@ -27,8 +35,8 @@ function pass(name, cond, detail) {
   }
 }
 
-function envWithToken(token) {
-  return { [lib.ENV_ENABLED]: '1', [lib.ENV_TOKEN]: token };
+function envWithToken(token, extra) {
+  return { [lib.ENV_ENABLED]: '1', [lib.ENV_TOKEN]: token, ...(extra || {}) };
 }
 
 function baseArgv(mode) {
@@ -40,22 +48,6 @@ function baseArgv(mode) {
     '--postgres-server', lib.RECONCILE_TARGET.postgresServer,
     '--database', lib.RECONCILE_TARGET.database,
   ];
-}
-
-function preApplyStructural() {
-  return {
-    has_056_table: true,
-    has_056_bookings_uidx: true,
-    has_056_idem_uidx: true,
-    refund_trigger_count: 2,
-    has_057_locations: false,
-    has_057_endpoints: false,
-    has_058_connector_mode: false,
-    has_059_grants: false,
-    has_059_endpoint_uq: false,
-    has_060_hidden: true,
-    has_060_hidden_idx: true,
-  };
 }
 
 async function buildFixture() {
@@ -72,8 +64,8 @@ async function buildFixture() {
     applied_at: '2026-08-01T00:00:00.000Z',
     ledger_recorded_at: '2026-08-01T00:00:00.000Z',
   }));
-  const structural = preApplyStructural();
-  const fingerprint = lib.catalogFingerprintFromProbe(structural);
+  const semantic = buildCanonicalPreApplySemanticRow();
+  const fingerprint = lib.catalogFingerprintFromProbe(semantic);
   const planDigest = lib.digestPlan(ctx.entries);
   const evidence = lib.sealEvidence({
     target: lib.RECONCILE_TARGET,
@@ -84,7 +76,7 @@ async function buildFixture() {
     notes: ['synthetic offline fixture — not live Sunset evidence'],
   });
   const approvalToken = lib.deriveApprovalToken(evidence.evidenceDigest, planDigest);
-  return { ctx, ledgerRows, structural, fingerprint, evidence, approvalToken, planDigest };
+  return { ctx, ledgerRows, semantic, fingerprint, evidence, approvalToken, planDigest };
 }
 
 function runCli(env, argv) {
@@ -103,7 +95,6 @@ async function main() {
   pass('docs_present', fs.existsSync(DOC));
   pass('contract_present', fs.existsSync(CONTRACT));
 
-  // RED gates
   pass('rejects_missing_env', !lib.evaluateReconcileGates({ env: {}, argv: baseArgv(lib.CLI_DRY_RUN), evidence: fx.evidence }).ok);
   pass('rejects_wrong_database', !lib.evaluateReconcileGates({
     env: envWithToken(fx.approvalToken),
@@ -126,12 +117,15 @@ async function main() {
     argv: baseArgv(lib.CLI_DRY_RUN),
     evidence: fx.evidence,
   }).ok);
-  const badPlanEvidence = { ...fx.evidence, planDigest: 'deadbeef' };
   pass('rejects_plan_digest_mismatch', !lib.evaluateReconcileGates({
     env: envWithToken(fx.approvalToken),
     argv: baseArgv(lib.CLI_DRY_RUN),
-    evidence: badPlanEvidence,
+    evidence: { ...fx.evidence, planDigest: 'deadbeef' },
   }).ok);
+  pass('rejects_ledger_prefix_digest_mismatch', !lib.validateEvidenceArtifact({
+    ...fx.evidence,
+    ledgerPrefixDigest: 'f'.repeat(64),
+  }, fx.ctx).ok);
   pass('rejects_email_composition_enabled', !lib.evaluateReconcileGates({
     env: { ...envWithToken(fx.approvalToken), [lib.ENV_EMAIL_COMPOSITION]: '1' },
     argv: baseArgv(lib.CLI_DRY_RUN),
@@ -147,6 +141,9 @@ async function main() {
     argv: [...baseArgv(lib.CLI_DRY_RUN), lib.CLI_APPLY],
     evidence: fx.evidence,
   }).ok);
+
+  pass('rejects_pool_at_mutation_boundary', !assertPinnedReconcilePgClient({ query: async () => ({}), connect: async () => ({}), end: async () => ({}), totalCount: 0, idleCount: 0 }).ok);
+  pass('rejects_query_facade_at_mutation_boundary', !assertPinnedReconcilePgClient({ query: async () => ({}) }).ok);
 
   const shortLedger = { ...fx.evidence, ledgerRows: fx.ledgerRows.slice(0, 10) };
   pass('rejects_ledger_not_through_055', !lib.validateEvidenceArtifact(shortLedger, fx.ctx).ok);
@@ -165,24 +162,26 @@ async function main() {
   };
   pass('rejects_056_already_ledgered', !lib.validateEvidenceArtifact(with056, fx.ctx).ok);
 
-  const missing056 = { ...preApplyStructural(), has_056_table: false };
-  pass('rejects_056_structure_absent', !lib.assertPreApplyStructural(missing056).ok);
-  const unexpected057 = { ...preApplyStructural(), has_057_locations: true };
-  pass('rejects_057_unexpected_object', !lib.assertPreApplyStructural(unexpected057).ok);
+  const badSemantic = { ...buildCanonicalPreApplySemanticRow(), has_057_locations: true };
+  pass('rejects_semantic_057_unexpected', !lib.assertPreApplyStructural(badSemantic).ok);
+  const missing056 = { ...buildCanonicalPreApplySemanticRow(), columns_056: [] };
+  pass('rejects_semantic_056_drift', !lib.assertPreApplyStructural(missing056).ok);
 
   const clientDry = lib.createScriptedReconcileFakeClient({
     ledgerRows: fx.ledgerRows,
-    structuralRow: fx.structural,
+    semanticRow: fx.semantic,
+    serverAddr: '10.0.0.1',
   });
-  const dryBeforeCalls = clientDry.calls.length;
   const dry = await lib.executeReconcileDryRun({
     env: envWithToken(fx.approvalToken),
     argv: baseArgv(lib.CLI_DRY_RUN),
     evidence: fx.evidence,
     context: fx.ctx,
     client: clientDry,
+    pinnedClient: clientDry,
+    targetProofMode: 'sunset_staging_locked',
   });
-  pass('dry_run_ok', dry.ok === true);
+  pass('dry_run_ok', dry.ok === true && dry.sessionPinned === true);
   pass('dry_run_zero_ledger_writes', clientDry.ledgerRows.length === fx.ledgerRows.length);
   pass('dry_run_no_begin', !clientDry.calls.some((c) => c.sql === 'BEGIN'));
   pass('dry_run_catalog_mismatch_refused', !(await lib.executeReconcileDryRun({
@@ -191,11 +190,31 @@ async function main() {
     evidence: { ...fx.evidence, catalogFingerprint: 'f'.repeat(64) },
     context: fx.ctx,
     client: clientDry,
+    pinnedClient: clientDry,
+    targetProofMode: 'sunset_staging_locked',
+  })).ok);
+  pass('dry_run_live_ledger_digest_mismatch_refused', !(await lib.executeReconcileDryRun({
+    env: envWithToken(fx.approvalToken),
+    argv: baseArgv(lib.CLI_DRY_RUN),
+    evidence: fx.evidence,
+    context: fx.ctx,
+    client: lib.createScriptedReconcileFakeClient({
+      ledgerRows: fx.ledgerRows.slice(0, 10),
+      semanticRow: fx.semantic,
+      serverAddr: '10.0.0.1',
+    }),
+    pinnedClient: lib.createScriptedReconcileFakeClient({
+      ledgerRows: fx.ledgerRows.slice(0, 10),
+      semanticRow: fx.semantic,
+      serverAddr: '10.0.0.1',
+    }),
+    targetProofMode: 'sunset_staging_locked',
   })).ok);
 
   const clientApply = lib.createScriptedReconcileFakeClient({
     ledgerRows: fx.ledgerRows.map((r) => ({ ...r })),
-    structuralRow: { ...fx.structural },
+    semanticRow: { ...fx.semantic },
+    serverAddr: '10.0.0.1',
   });
   const applied = await lib.executeReconcileMutation({
     env: envWithToken(fx.approvalToken),
@@ -203,15 +222,21 @@ async function main() {
     evidence: fx.evidence,
     context: fx.ctx,
     client: clientApply,
+    pinnedClient: clientApply,
+    targetProofMode: 'sunset_staging_locked',
   });
-  pass('apply_ok', applied.ok === true);
+  pass('apply_ok', applied.ok === true && applied.sessionPinned === true);
+  pass('apply_live_target_proof_recorded', applied.liveTargetProof && applied.liveTargetProof.database_name === 'sunset_staging');
   pass('apply_ledger_58_rows', clientApply.ledgerRows.length === lib.TIP_ORDER);
   const row056 = clientApply.ledgerRows.find((r) => r.id === lib.LOCKED_MIGRATION_IDS[0]);
   const row060 = clientApply.ledgerRows.find((r) => r.id === lib.LOCKED_MIGRATION_IDS[4]);
   pass('056_baseline_kind', row056.apply_kind === lib.APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE);
   pass('060_baseline_kind', row060.apply_kind === lib.APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE);
   for (const id of lib.LOCKED_MIGRATION_IDS.slice(1, 4)) {
-    pass(`runner_kind_${id}`, clientApply.ledgerRows.find((r) => r.id === id).apply_kind === APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER);
+    const row = clientApply.ledgerRows.find((r) => r.id === id);
+    pass(`runner_kind_${id}`, row.apply_kind === APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER);
+    pass(`runner_provenance_${id}`, String(row.provenance_notes).includes('wh-sunset-ledger-reconcile-056-060'));
+    pass(`runner_not_runCanonicalMigrations_${id}`, !String(row.provenance_notes).includes('runCanonicalMigrations'));
   }
   const recon = reconcileLedger(fx.ctx.forward, clientApply.ledgerRows);
   pass('post_apply_reconcile_ok', recon.ok === true);
@@ -222,13 +247,16 @@ async function main() {
     evidence: fx.evidence,
     context: fx.ctx,
     client: clientApply,
+    pinnedClient: clientApply,
+    targetProofMode: 'sunset_staging_locked',
   });
   pass('rerun_refused_after_success', rerun.ok === false);
 
   const rollbackClient = lib.createScriptedReconcileFakeClient({
     ledgerRows: fx.ledgerRows.map((r) => ({ ...r })),
-    structuralRow: { ...fx.structural },
-    failOnSubstr: 'tenant_email_delegated_grants',
+    semanticRow: { ...fx.semantic },
+    serverAddr: '10.0.0.1',
+    failOnStep: 'apply_057',
   });
   const rollback = await lib.executeReconcileMutation({
     env: envWithToken(fx.approvalToken),
@@ -236,14 +264,17 @@ async function main() {
     evidence: fx.evidence,
     context: fx.ctx,
     client: rollbackClient,
+    pinnedClient: rollbackClient,
+    targetProofMode: 'sunset_staging_locked',
   });
   pass('injected_failure_rolls_back', rollback.ok === false && rollback.rolledBack === true);
-  pass('rollback_no_extra_ledger_rows', rollbackClient.ledgerRows.length === fx.ledgerRows.length);
+  pass('rollback_after_ledger_baseline_write', rollbackClient.ledgerRows.length === fx.ledgerRows.length);
   pass('rollback_contains_rollback_step', (rollback.steps || []).includes('ROLLBACK'));
 
   const lockClient = lib.createScriptedReconcileFakeClient({
     ledgerRows: fx.ledgerRows.map((r) => ({ ...r })),
-    structuralRow: { ...fx.structural },
+    semanticRow: { ...fx.semantic },
+    serverAddr: '10.0.0.1',
     advisoryBlocked: true,
   });
   const lockFail = await lib.executeReconcileMutation({
@@ -252,21 +283,36 @@ async function main() {
     evidence: fx.evidence,
     context: fx.ctx,
     client: lockClient,
+    pinnedClient: lockClient,
+    targetProofMode: 'sunset_staging_locked',
   });
   pass('advisory_lock_failure_rolls_back', lockFail.ok === false);
 
   const tmpEvidence = path.join(ROOT, 'tmp', 'sunset-reconcile-evidence-cli.json');
   fs.mkdirSync(path.dirname(tmpEvidence), { recursive: true });
   fs.writeFileSync(tmpEvidence, JSON.stringify(fx.evidence, null, 2));
-  const cliDry = runCli(envWithToken(fx.approvalToken), [...baseArgv(lib.CLI_DRY_RUN), lib.CLI_EVIDENCE, tmpEvidence]);
-  pass('cli_dry_run_exit_0_without_client', cliDry.status === 0);
+  const wired = await runSunsetStagingLedgerReconcileCli({
+    env: envWithToken(fx.approvalToken, {
+      SUNSET_STAGING_PG_ADMIN_USER: 'fixture-user',
+      SUNSET_STAGING_PG_ADMIN_PASSWORD: 'fixture-password',
+    }),
+    argv: [...baseArgv(lib.CLI_DRY_RUN), lib.CLI_EVIDENCE, tmpEvidence],
+    clientFactory: () => lib.createScriptedReconcileFakeClient({
+      ledgerRows: fx.ledgerRows,
+      semanticRow: fx.semantic,
+      serverAddr: '10.0.0.1',
+    }),
+  });
+  await wired.cleanup();
+  pass('cli_pinned_client_dry_run_ok', wired.result.ok === true);
+  const cliMissingCreds = runCli(envWithToken(fx.approvalToken), [...baseArgv(lib.CLI_DRY_RUN), lib.CLI_EVIDENCE, tmpEvidence]);
+  pass('cli_rejects_missing_db_credentials', cliMissingCreds.status !== 0);
   const secretProbe = JSON.stringify(applied);
   pass('public_output_secret_free', !secretProbe.includes('postgres://') && !secretProbe.includes(fx.approvalToken));
 
-  // Optional Docker proof
   const docker = spawnSync('docker', ['info'], { encoding: 'utf8' });
   if (docker.status === 0) {
-    console.log('\n── disposable Postgres proof ──');
+    console.log('\n── disposable Postgres CLI proof ──');
     const prove = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'prove-sunset-staging-ledger-reconcile-fresh-db.js')], {
       cwd: ROOT,
       encoding: 'utf8',

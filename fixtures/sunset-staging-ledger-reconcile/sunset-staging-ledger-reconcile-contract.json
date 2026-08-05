@@ -22,6 +22,7 @@
   "ledgerPrefixEndId": "055_tenant_rental_offering_stock",
   "ledgerPrefixEndOrder": 53,
   "ledgerTipOrder": 58,
+  "ledgerPrefixDigestRequired": true,
   "baselineApplyKind": "verified_structural_baseline",
   "runnerApplyKind": "executed_by_canonical_runner",
   "approvalEnv": "SUNSET_STAGING_LEDGER_RECONCILE_APPROVAL_TOKEN",

@@ -31,11 +31,21 @@ const {
   reconcileLedger,
   prepareMigrationBody,
   checksumMigrationFile,
-  buildExecutedByCanonicalRunnerProvenance,
   SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET,
   assertSafeDatabaseTarget,
 } = require('./migration-integrity');
 const { scanSecretValues } = require('./sunset-staging-iac-drift');
+const {
+  probeSemanticCatalog,
+  assertSemanticBaseline056060,
+  assertPostApplySemantic,
+  semanticCatalogFingerprint,
+} = require('./sunset-staging-ledger-reconcile-semantics');
+const {
+  assertPinnedReconcilePgClient,
+  assertLiveSessionTarget,
+  isDisposableProofEnv,
+} = require('./sunset-staging-ledger-reconcile-pg');
 
 const SLICE_ID = 'sunset-staging-ledger-reconcile-056-060';
 const EVIDENCE_KIND = 'sunset-staging-ledger-reconcile-evidence-v1';
@@ -147,9 +157,10 @@ const LEDGER_INSERT_SQL = [
 const SAFE_OUTPUT_KEYS = Object.freeze([
   'ok', 'code', 'slice', 'dryRun', 'requestApply', 'certified', 'liveMutation',
   'ledgerWritten', 'schemaMutation', 'dataMutation', 'rolledBack', 'committed',
-  'errors', 'message', 'note', 'evidenceDigest', 'planDigest',
+  'errors', 'message', 'note', 'evidenceDigest', 'planDigest', 'ledgerPrefixDigest',
   'target', 'manifestDigest', 'catalogFingerprint', 'ledgerRowCount', 'reconcileOk',
-  'appliedIds', 'steps', 'queryCalls', 'clientsInstantiated',
+  'appliedIds', 'steps', 'queryCalls', 'clientsInstantiated', 'targetProofMode',
+  'sessionPinned', 'liveTargetProof',
 ]);
 
 let reconcileQueryCallCount = 0;
@@ -193,6 +204,35 @@ function digestPlan(entries) {
 
 function deriveApprovalToken(evidenceDigestValue, planDigestValue) {
   return `${APPROVAL_PREFIX}${sha256Text(`${evidenceDigestValue}:${planDigestValue}`).slice(0, 32)}`;
+}
+
+function canonicalizeLedgerPrefixRow(row) {
+  return {
+    id: String(row.id),
+    filename: String(row.filename),
+    apply_order: Number(row.apply_order),
+    checksum_sha256: String(row.checksum_sha256),
+    checksum_mode: String(row.checksum_mode),
+    apply_kind: String(row.apply_kind),
+    evidence_ref: row.evidence_ref == null ? null : String(row.evidence_ref),
+    provenance_notes: row.provenance_notes == null ? null : String(row.provenance_notes),
+  };
+}
+
+function digestLedgerPrefix(rows) {
+  const canon = (rows || []).map(canonicalizeLedgerPrefixRow);
+  return sha256Text(stableStringify(canon));
+}
+
+function buildSunsetReconcileRunnerProvenance(entry) {
+  const id = entry && entry.id ? String(entry.id) : 'unknown';
+  return {
+    apply_kind: APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
+    checksum_mode: CHECKSUM_MODE_CANONICAL_LF_V1,
+    evidence_ref: `sunset_ledger_reconcile:${id}`,
+    provenance_notes:
+      `executed_by_canonical_runner via wh-sunset-ledger-reconcile-056-060 guarded reconciler; checksumMode=${CHECKSUM_MODE_CANONICAL_LF_V1}`,
+  };
 }
 
 function truthyEnv(v) {
@@ -441,6 +481,12 @@ function validateEvidenceArtifact(evidence, ctx) {
     errors.push({ code: 'catalog_fingerprint_missing', message: 'catalogFingerprint required' });
   }
   const rows = (evidence || {}).ledgerRows || [];
+  const ledgerPrefixDigest = String((evidence || {}).ledgerPrefixDigest || '');
+  if (!/^[0-9a-f]{64}$/.test(ledgerPrefixDigest)) {
+    errors.push({ code: 'ledger_prefix_digest_missing', message: 'ledgerPrefixDigest required' });
+  } else if (rows.length && digestLedgerPrefix(rows) !== ledgerPrefixDigest) {
+    errors.push({ code: 'ledger_prefix_digest_mismatch', message: 'ledgerPrefixDigest does not match ledgerRows' });
+  }
   if (rows.length !== PREFIX_END_ORDER) {
     errors.push({ code: 'ledger_prefix_count_mismatch', message: `ledgerRows must contain exactly ${PREFIX_END_ORDER} rows` });
   }
@@ -461,6 +507,25 @@ function validateEvidenceArtifact(evidence, ctx) {
   return { ok: errors.length === 0, errors, evidenceDigest: digest };
 }
 
+function canonicalizeEvidenceLedgerRow(row) {
+  const ts = (v) => {
+    if (v instanceof Date) return v.toISOString();
+    return v == null ? null : String(v);
+  };
+  return {
+    id: String(row.id),
+    filename: String(row.filename),
+    checksum_sha256: String(row.checksum_sha256),
+    apply_order: Number(row.apply_order),
+    apply_kind: String(row.apply_kind),
+    checksum_mode: String(row.checksum_mode),
+    evidence_ref: row.evidence_ref == null ? null : String(row.evidence_ref),
+    provenance_notes: row.provenance_notes == null ? null : String(row.provenance_notes),
+    applied_at: ts(row.applied_at),
+    ledger_recorded_at: ts(row.ledger_recorded_at),
+  };
+}
+
 function sealEvidence(evidence) {
   const copy = {
     ...(evidence || {}),
@@ -471,57 +536,47 @@ function sealEvidence(evidence) {
   };
   delete copy.evidenceDigest;
   if (!copy.planDigest && copy._planDigest) copy.planDigest = copy._planDigest;
+  if (Array.isArray(copy.ledgerRows)) {
+    copy.ledgerRows = copy.ledgerRows.map(canonicalizeEvidenceLedgerRow);
+    copy.ledgerPrefixDigest = digestLedgerPrefix(copy.ledgerRows);
+  }
   copy.evidenceDigest = digestEvidencePayload(copy);
   return copy;
 }
 
-const STRUCTURAL_PROBE_SQL = `
-SELECT
-  to_regclass('public.booking_refund_records') IS NOT NULL AS has_056_table,
-  EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='bookings_id_client_id_uidx') AS has_056_bookings_uidx,
-  EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='booking_refund_records_client_idempotency_uidx') AS has_056_idem_uidx,
-  (SELECT COUNT(*)::int FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-    WHERE n.nspname='public' AND c.relname='booking_refund_records' AND NOT t.tgisinternal) AS refund_trigger_count,
-  to_regclass('public.tenant_locations') IS NOT NULL AS has_057_locations,
-  to_regclass('public.tenant_channel_endpoints') IS NOT NULL AS has_057_endpoints,
-  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tenant_channel_endpoints' AND column_name='connector_mode') AS has_058_connector_mode,
-  to_regclass('public.tenant_email_delegated_grants') IS NOT NULL AS has_059_grants,
-  EXISTS (SELECT 1 FROM pg_constraint WHERE conname='tenant_channel_endpoints_client_id_id_uq') AS has_059_endpoint_uq,
-  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='bookings' AND column_name='hidden') AS has_060_hidden,
-  EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='bookings_hidden_true_idx') AS has_060_hidden_idx
-`;
-
 function catalogFingerprintFromProbe(row) {
-  return sha256Text(stableStringify(row || {}));
+  return semanticCatalogFingerprint(row);
 }
 
 function assertPreApplyStructural(row) {
-  const errors = [];
-  if (!row.has_056_table) errors.push({ code: 'structural_056_table_missing' });
-  if (!row.has_056_bookings_uidx) errors.push({ code: 'structural_056_bookings_uidx_missing' });
-  if (!row.has_056_idem_uidx) errors.push({ code: 'structural_056_idem_uidx_missing' });
-  if (Number(row.refund_trigger_count) < 2) errors.push({ code: 'structural_056_triggers_missing' });
-  if (!row.has_060_hidden) errors.push({ code: 'structural_060_hidden_missing' });
-  if (!row.has_060_hidden_idx) errors.push({ code: 'structural_060_hidden_idx_missing' });
-  if (row.has_057_locations || row.has_057_endpoints) errors.push({ code: 'structural_057_unexpected' });
-  if (row.has_058_connector_mode) errors.push({ code: 'structural_058_unexpected' });
-  if (row.has_059_grants || row.has_059_endpoint_uq) errors.push({ code: 'structural_059_unexpected' });
-  return { ok: errors.length === 0, errors };
+  return assertSemanticBaseline056060(row);
 }
 
 function assertPostApplyStructural(row) {
-  const errors = [];
-  if (!row.has_057_locations || !row.has_057_endpoints) errors.push({ code: 'structural_057_missing' });
-  if (!row.has_058_connector_mode) errors.push({ code: 'structural_058_missing' });
-  if (!row.has_059_grants || !row.has_059_endpoint_uq) errors.push({ code: 'structural_059_missing' });
-  return { ok: errors.length === 0, errors };
+  return assertPostApplySemantic(row);
 }
 
 async function probeStructuralState(client) {
   reconcileQueryCallCount += 1;
-  const res = await client.query(STRUCTURAL_PROBE_SQL);
-  const row = (res.rows && res.rows[0]) || {};
-  return { row, fingerprint: catalogFingerprintFromProbe(row) };
+  return probeSemanticCatalog(client);
+}
+
+async function assertPinnedSessionAndLiveTarget(client, targetProofMode) {
+  const pin = assertPinnedReconcilePgClient(client);
+  if (!pin.ok) {
+    const err = new Error('pinned client required');
+    err.code = pin.errors[0].code;
+    err.errors = pin.errors;
+    throw err;
+  }
+  const live = await assertLiveSessionTarget(client, APPLICATION_NAME, targetProofMode);
+  if (!live.ok) {
+    const err = new Error('live session target proof failed');
+    err.code = live.errors[0].code;
+    err.errors = live.errors;
+    throw err;
+  }
+  return live;
 }
 
 async function loadLedgerRows(client) {
@@ -580,7 +635,7 @@ async function applyMigrationInTransaction(client, entry, migrationsDir, txnTs) 
   }
   reconcileQueryCallCount += 1;
   await client.query(prepared.body);
-  const provenance = buildExecutedByCanonicalRunnerProvenance(entry);
+  const provenance = buildSunsetReconcileRunnerProvenance(entry);
   reconcileQueryCallCount += 1;
   await client.query(LEDGER_INSERT_SQL, [
     entry.id,
@@ -621,14 +676,24 @@ async function executeReconcileDryRun(options) {
   }
   if (!options.client) {
     return publicResult({
-      ok: true, code: 'sunset_ledger_reconcile_dry_run_certified', dryRun: true, certified: true,
-      evidenceDigest: ev.evidenceDigest, planDigest: planDigestValue, approvalToken,
-      target: RECONCILE_TARGET, manifestDigest: ctx.manifestDigest,
-      note: 'Gate+evidence certified; inject client for live structural readback before apply',
-      liveMutation: false, ledgerWritten: false, schemaMutation: false,
+      ok: false,
+      code: 'pinned_client_required',
+      dryRun: true,
+      note: 'Dry-run requires pinned pg.Client from production CLI path',
+      liveMutation: false,
+      ledgerWritten: false,
+      schemaMutation: false,
     });
   }
-  const client = options.client;
+  const client = options.pinnedClient || options.client;
+  const targetProofMode = options.targetProofMode || 'sunset_staging_locked';
+  try {
+    await assertPinnedSessionAndLiveTarget(client, targetProofMode);
+  } catch (e) {
+    return publicResult({
+      ok: false, code: e.code || 'pinned_client_refused', dryRun: true, errors: e.errors || [{ code: e.code }],
+    });
+  }
   const structural = await probeStructuralState(client);
   if (structural.fingerprint !== evidence.catalogFingerprint) {
     return publicResult({
@@ -645,12 +710,20 @@ async function executeReconcileDryRun(options) {
   if (!ledgerGate.ok) {
     return publicResult({ ok: false, code: ledgerGate.errors[0].code, dryRun: true, errors: ledgerGate.errors });
   }
+  const liveLedgerDigest = digestLedgerPrefix(ledgerRows);
+  if (liveLedgerDigest !== evidence.ledgerPrefixDigest) {
+    return publicResult({
+      ok: false, code: 'ledger_prefix_digest_mismatch', dryRun: true,
+      errors: [{ code: 'ledger_prefix_digest_mismatch' }],
+    });
+  }
   return publicResult({
     ok: true, code: 'sunset_ledger_reconcile_dry_run_ok', dryRun: true, certified: true,
     evidenceDigest: ev.evidenceDigest, planDigest: planDigestValue, approvalToken,
+    ledgerPrefixDigest: liveLedgerDigest,
     catalogFingerprint: structural.fingerprint, ledgerRowCount: ledgerRows.length,
     reconcileOk: true, liveMutation: false, ledgerWritten: false, schemaMutation: false,
-    target: RECONCILE_TARGET,
+    target: RECONCILE_TARGET, sessionPinned: true, targetProofMode,
   });
 }
 
@@ -676,15 +749,30 @@ async function executeReconcileMutation(options) {
   }
   if (!options.client || typeof options.client.query !== 'function') {
     return publicResult({
-      ok: false, code: 'db_client_required',
-      note: 'Apply requires injected client bound to locked Sunset target after live structural evidence collection',
-      certified: true, evidenceDigest: ev.evidenceDigest, planDigest: planDigestValue,
+      ok: false, code: 'pinned_client_required',
+      note: 'Apply requires pinned pg.Client from production CLI path',
+      certified: false,
     });
   }
 
-  const client = options.client;
+  const client = options.pinnedClient || options.client;
+  const targetProofMode = options.targetProofMode || 'sunset_staging_locked';
+  const pinGate = assertPinnedReconcilePgClient(client);
+  if (!pinGate.ok) {
+    return publicResult({ ok: false, code: pinGate.errors[0].code, errors: pinGate.errors });
+  }
+
   let began = false;
   const steps = [];
+  let liveTargetProof = null;
+  const injectFailStep = isDisposableProofEnv(options.env || {})
+    ? String((options.env || {}).SUNSET_STAGING_LEDGER_RECONCILE_INJECT_FAIL_STEP || '')
+    : '';
+  const maybeInjectFailure = (stepName) => {
+    if (injectFailStep && injectFailStep === stepName) {
+      throw Object.assign(new Error(`injected failure on ${stepName}`), { code: 'injected_failure' });
+    }
+  };
   try {
     reconcileQueryCallCount += 1;
     await client.query('BEGIN');
@@ -696,6 +784,15 @@ async function executeReconcileMutation(options) {
     reconcileQueryCallCount += 1;
     await client.query(ADVISORY_XACT_LOCK_SQL, [ADVISORY_LOCK_KEY1, ADVISORY_LOCK_KEY2]);
     steps.push('advisory_xact_lock');
+
+    liveTargetProof = await assertLiveSessionTarget(client, APPLICATION_NAME, targetProofMode);
+    if (!liveTargetProof.ok) {
+      const err = new Error('live session target proof failed inside transaction');
+      err.code = liveTargetProof.errors[0].code;
+      err.errors = liveTargetProof.errors;
+      throw err;
+    }
+    steps.push('live_target_proof');
 
     const structural = await probeStructuralState(client);
     if (structural.fingerprint !== evidence.catalogFingerprint) {
@@ -716,6 +813,13 @@ async function executeReconcileMutation(options) {
       err.code = ledgerGate.errors[0].code;
       throw err;
     }
+    const liveLedgerDigest = digestLedgerPrefix(ledgerBefore);
+    if (liveLedgerDigest !== evidence.ledgerPrefixDigest) {
+      throw Object.assign(new Error('ledger prefix digest mismatch inside transaction'), {
+        code: 'ledger_prefix_digest_mismatch',
+      });
+    }
+    steps.push('ledger_prefix_digest_verified');
 
     reconcileQueryCallCount += 1;
     const tsRes = await client.query(LEDGER_TXN_TS_SQL);
@@ -725,14 +829,19 @@ async function executeReconcileMutation(options) {
     const [e056, e057, e058, e059, e060] = ctx.entries;
     await insertBaselineLedgerRow(client, e056, txnTs, ev.evidenceDigest, '056');
     steps.push('ledger_056_baseline');
+    maybeInjectFailure('ledger_056_baseline');
     await applyMigrationInTransaction(client, e057, options.migrationsDir, txnTs);
     steps.push('apply_057');
+    maybeInjectFailure('apply_057');
     await applyMigrationInTransaction(client, e058, options.migrationsDir, txnTs);
     steps.push('apply_058');
+    maybeInjectFailure('apply_058');
     await applyMigrationInTransaction(client, e059, options.migrationsDir, txnTs);
     steps.push('apply_059');
+    maybeInjectFailure('apply_059');
     await insertBaselineLedgerRow(client, e060, txnTs, ev.evidenceDigest, '060');
     steps.push('ledger_060_baseline');
+    maybeInjectFailure('ledger_060_baseline');
 
     const ledgerAfter = await loadLedgerRows(client);
     const recon = reconcileLedger(ctx.forward, ledgerAfter);
@@ -767,7 +876,7 @@ async function executeReconcileMutation(options) {
       schemaMutation: true,
       evidenceDigest: ev.evidenceDigest,
       planDigest: planDigestValue,
-      approvalToken,
+      ledgerPrefixDigest: liveLedgerDigest,
       catalogFingerprint: structural.fingerprint,
       ledgerRowCount: ledgerAfter.length,
       reconcileOk: recon.ok,
@@ -775,6 +884,9 @@ async function executeReconcileMutation(options) {
       steps,
       target: RECONCILE_TARGET,
       slice: SLICE_ID,
+      sessionPinned: true,
+      targetProofMode,
+      liveTargetProof: liveTargetProof.row,
     });
   } catch (e) {
     if (began) {
@@ -805,6 +917,8 @@ function renderUsage() {
     'Locked target: sunset_staging @ luna-sunset-staging-pg-app.postgres.database.azure.com',
     'Locked migrations: 056..060 only',
     '',
+    'Credentials: SUNSET_STAGING_PG_ADMIN_USER/PASSWORD (optional KV load via SUNSET_STAGING_LEDGER_RECONCILE_LOAD_KV_ADMIN=1)',
+    '',
     'Dry-run (zero mutation):',
     `  ${ENV_ENABLED}=1 ${ENV_TOKEN}=<digest-bound-token> npm run sunset-staging-ledger-reconcile:dry-run -- \\`,
     `    ${CLI_DRY_RUN} ${CLI_APPROVE} ${CLI_EVIDENCE} <sealed-evidence.json> \\`,
@@ -813,9 +927,13 @@ function renderUsage() {
     `    --postgres-server ${RECONCILE_TARGET.postgresServer} \\`,
     `    --database ${RECONCILE_TARGET.database}`,
     '',
-    'Apply (requires injected live client seam in operator tooling — not self-serve DSN):',
+    'Apply (same pinned-client production path):',
     `  ${ENV_ENABLED}=1 ${ENV_TOKEN}=<digest-bound-token> npm run sunset-staging-ledger-reconcile:apply -- \\`,
-    `    ${CLI_APPLY} ${CLI_APPROVE} ${CLI_EVIDENCE} <sealed-evidence.json> ...`,
+    `    ${CLI_APPLY} ${CLI_APPROVE} ${CLI_EVIDENCE} <sealed-evidence.json> \\`,
+    `    --subscription ${RECONCILE_TARGET.subscriptionId} \\`,
+    `    --resource-group ${RECONCILE_TARGET.resourceGroup} \\`,
+    `    --postgres-server ${RECONCILE_TARGET.postgresServer} \\`,
+    `    --database ${RECONCILE_TARGET.database}`,
   ].join('\n');
 }
 
@@ -825,58 +943,98 @@ function renderUsage() {
 function createScriptedReconcileFakeClient(script) {
   const s = script || {};
   let ledger = Array.isArray(s.ledgerRows) ? s.ledgerRows.map((r) => ({ ...r })) : [];
-  let structural = { ...(s.structuralRow || {}) };
+  let semantic = { ...(s.semanticRow || s.structuralRow || {}) };
   let inTxn = false;
   let advisoryHeld = false;
   const calls = [];
   const failOn = s.failOnSubstr || null;
+  const failOnStep = s.failOnStep || null;
+  let stepCounter = 0;
 
+  let txnLedgerSnapshot = null;
   return {
     calls,
-  get ledgerRows() { return ledger; },
-  setStructuralRow(row) { structural = { ...row }; },
+    get ledgerRows() { return ledger; },
+    setSemanticRow(row) { semantic = { ...row }; },
+    setStructuralRow(row) { semantic = { ...row }; },
     async connect() { return undefined; },
     async end() { return undefined; },
+    async release() { return undefined; },
     async query(sql, params) {
       const q = String(sql);
       calls.push({ sql: q.slice(0, 120), params: params ? '[redacted]' : null });
-      if (failOn && q.includes(failOn)) {
-        throw Object.assign(new Error(`injected failure on ${failOn}`), { code: 'injected_failure' });
-      }
-      if (q === 'BEGIN') { inTxn = true; return { rows: [] }; }
-      if (q === 'COMMIT') { inTxn = false; advisoryHeld = false; return { rows: [] }; }
-      if (q === 'ROLLBACK') { inTxn = false; advisoryHeld = false; return { rows: [] }; }
-      if (q.includes('pg_advisory_xact_lock')) {
-        if (s.advisoryBlocked) {
-          throw Object.assign(new Error('advisory lock unavailable'), { code: 'advisory_lock_blocked' });
+      const bumpStep = (name) => {
+        stepCounter += 1;
+        if (failOnStep && failOnStep === name) {
+          const err = Object.assign(new Error(`injected failure on ${name}`), { code: 'injected_failure' });
+          if (inTxn && txnLedgerSnapshot) ledger = txnLedgerSnapshot.map((r) => ({ ...r }));
+          throw err;
         }
-        advisoryHeld = true;
+      };
+      try {
+        if (failOn && q.includes(failOn)) {
+          const err = Object.assign(new Error(`injected failure on ${failOn}`), { code: 'injected_failure' });
+          if (inTxn && txnLedgerSnapshot) ledger = txnLedgerSnapshot.map((r) => ({ ...r }));
+          throw err;
+        }
+        if (q === 'BEGIN') {
+          inTxn = true;
+          txnLedgerSnapshot = ledger.map((r) => ({ ...r }));
+          return { rows: [] };
+        }
+        if (q === 'COMMIT') { inTxn = false; advisoryHeld = false; txnLedgerSnapshot = null; return { rows: [] }; }
+        if (q === 'ROLLBACK') { inTxn = false; advisoryHeld = false; if (txnLedgerSnapshot) ledger = txnLedgerSnapshot.map((r) => ({ ...r })); txnLedgerSnapshot = null; return { rows: [] }; }
+        if (q.includes('pg_advisory_xact_lock')) {
+          if (s.advisoryBlocked) {
+            throw Object.assign(new Error('advisory lock unavailable'), { code: 'advisory_lock_blocked' });
+          }
+          advisoryHeld = true;
+          return { rows: [] };
+        }
+        if (q.includes('current_database()') && q.includes('application_name')) {
+          return {
+            rows: [{
+              database_name: 'sunset_staging',
+              application_name: APPLICATION_NAME,
+              server_addr: s.serverAddr || '10.0.0.1',
+              server_port: 5432,
+              server_version: 'PostgreSQL 16.0',
+            }],
+          };
+        }
+        if (q.includes('json_build_object') && q.includes('semantic_row')) {
+          return { rows: [{ semantic_row: semantic }] };
+        }
+        if (q.startsWith('SELECT') && q.includes('schema_migration_ledger')) {
+          return { rows: ledger.slice().sort((a, b) => a.apply_order - b.apply_order) };
+        }
+        if (q.includes('ledger_txn_ts')) return { rows: [{ ledger_txn_ts: '2026-08-05T00:00:00.000Z' }] };
+        if (q.startsWith('INSERT INTO schema_migration_ledger')) {
+          bumpStep('ledger_write');
+          ledger.push({
+            id: params[0], filename: params[1], checksum_sha256: params[2], apply_order: params[3],
+            apply_kind: params[4], checksum_mode: params[5], evidence_ref: params[6], provenance_notes: params[7],
+            applied_at: params[8], ledger_recorded_at: params[8],
+          });
+          if (String(params[0]).startsWith('056')) bumpStep('ledger_056_baseline');
+          if (String(params[0]).startsWith('060')) bumpStep('ledger_060_baseline');
+          return { rows: [] };
+        }
+        if (q.includes('CREATE TABLE') || q.includes('ALTER TABLE') || q.includes('CREATE UNIQUE INDEX')) {
+          if (q.includes('tenant_locations')) semantic.has_057_locations = true;
+          if (q.includes('tenant_channel_endpoints') && q.includes('CREATE TABLE')) semantic.has_057_endpoints = true;
+          if (q.includes('connector_mode')) semantic.has_058_connector_mode = true;
+          if (q.includes('tenant_email_delegated_grants')) semantic.has_059_grants = true;
+          if (q.includes('CREATE TABLE') && q.includes('tenant_locations')) bumpStep('apply_057');
+          if (q.includes('ALTER TABLE') && q.includes('connector_mode')) bumpStep('apply_058');
+          if (q.includes('tenant_email_delegated_grants')) bumpStep('apply_059');
+          return { rows: [] };
+        }
         return { rows: [] };
+      } catch (e) {
+        if (inTxn && txnLedgerSnapshot) ledger = txnLedgerSnapshot.map((r) => ({ ...r }));
+        throw e;
       }
-      if (q.includes('has_056_table') || q.includes('to_regclass')) {
-        return { rows: [structural] };
-      }
-      if (q.startsWith('SELECT') && q.includes('schema_migration_ledger')) {
-        return { rows: ledger.slice().sort((a, b) => a.apply_order - b.apply_order) };
-      }
-      if (q.includes('ledger_txn_ts')) return { rows: [{ ledger_txn_ts: '2026-08-05T00:00:00.000Z' }] };
-      if (q.startsWith('INSERT INTO schema_migration_ledger')) {
-        ledger.push({
-          id: params[0], filename: params[1], checksum_sha256: params[2], apply_order: params[3],
-          apply_kind: params[4], checksum_mode: params[5], evidence_ref: params[6], provenance_notes: params[7],
-          applied_at: params[8], ledger_recorded_at: params[8],
-        });
-        return { rows: [] };
-      }
-      if (q.includes('CREATE TABLE') || q.includes('ALTER TABLE') || q.includes('CREATE UNIQUE INDEX')) {
-        if (q.includes('tenant_locations')) structural.has_057_locations = true;
-        if (q.includes('tenant_channel_endpoints') && q.includes('CREATE TABLE')) structural.has_057_endpoints = true;
-        if (q.includes('connector_mode')) structural.has_058_connector_mode = true;
-        if (q.includes('tenant_email_delegated_grants')) structural.has_059_grants = true;
-        if (q.includes('tenant_channel_endpoints_client_id_id_uq')) structural.has_059_endpoint_uq = true;
-        return { rows: [] };
-      }
-      return { rows: [] };
     },
   };
 }
@@ -905,13 +1063,13 @@ module.exports = {
   APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
   ADVISORY_LOCK_KEY1,
   ADVISORY_LOCK_KEY2,
-  STRUCTURAL_PROBE_SQL,
-  LEDGER_SELECT_SQL,
   parseArgvFlags,
   evaluateReconcileGates,
   loadManifestContext,
   digestEvidencePayload,
   digestPlan,
+  digestLedgerPrefix,
+  canonicalizeLedgerPrefixRow,
   deriveApprovalToken,
   validateEvidenceArtifact,
   sealEvidence,
@@ -921,10 +1079,13 @@ module.exports = {
   assertLedgerPrefix,
   assertLockedTarget,
   catalogFingerprintFromProbe,
-  insertBaselineLedgerRow,
-  applyMigrationInTransaction,
+  assertPinnedSessionAndLiveTarget,
+  buildSunsetReconcileRunnerProvenance,
+  LEDGER_SELECT_SQL,
   executeReconcileDryRun,
   executeReconcileMutation,
+  insertBaselineLedgerRow,
+  applyMigrationInTransaction,
   renderUsage,
   createScriptedReconcileFakeClient,
   resetReconcileCounters,

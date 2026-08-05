@@ -14,15 +14,15 @@ Sunset `sunset_staging` has a known split:
 
 ## One atomic transaction (manifest order 54–58)
 
-Inside a single PostgreSQL transaction + advisory lock (`WH` / `MIG1`):
+Inside a single PostgreSQL transaction on one pinned `pg.Client` + advisory lock (`WH` / `MIG1`):
 
-1. Re-probe structural catalog; fingerprint must match sealed evidence.
-2. **INSERT ledger 056** as `verified_structural_baseline` — **no DDL** (already applied).
-3. **Execute 057 → 058 → 059** canonical SQL + **INSERT** as `executed_by_canonical_runner`.
-4. **INSERT ledger 060** as `verified_structural_baseline` — **no DDL** (already applied).
-5. `reconcileLedger` must pass with **58** contiguous rows through order 58.
-
-Provenance is truthful: baseline rows document pre-existing schema; runner rows document SQL executed in this transaction.
+1. Live session target proof via PostgreSQL readbacks (`current_database()`, `application_name`, server identity).
+2. Re-probe semantic catalog fingerprint; must match sealed evidence.
+3. Verify live ledger prefix digest matches sealed `ledgerPrefixDigest`.
+4. **INSERT ledger 056** as `verified_structural_baseline` — **no DDL** (already applied).
+5. **Execute 057 → 058 → 059** canonical SQL + **INSERT** as `executed_by_canonical_runner` (truthful reconciler provenance).
+6. **INSERT ledger 060** as `verified_structural_baseline` — **no DDL** (already applied).
+7. `reconcileLedger` must pass with **58** contiguous rows through order 58.
 
 ## Hard locks
 
@@ -34,6 +34,16 @@ Provenance is truthful: baseline rows document pre-existing schema; runner rows 
 | migrations | exactly `056`–`060` manifest IDs + checksums |
 | email | `EMAIL_GRANT_ENVELOPE_AZURE_KV_COMPOSITION_ENABLED` must be off |
 
+## Credentials
+
+Protected admin env only (`SUNSET_STAGING_PG_ADMIN_USER` / `SUNSET_STAGING_PG_ADMIN_PASSWORD`), optionally populated via:
+
+```bash
+SUNSET_STAGING_LEDGER_RECONCILE_LOAD_KV_ADMIN=1 node scripts/load-sunset-staging-pg-admin-env.js
+```
+
+The CLI creates exactly one pinned `pg.Client`, uses it for the full transaction, and awaits `client.end()` before exit. `pg.Pool` and query facades are rejected.
+
 ## Approval token
 
 Derived from sealed evidence + plan digests (not a static string):
@@ -43,11 +53,16 @@ APPROVE-SUNSET-056060-<32-hex>
 sha256(evidenceDigest + ':' + planDigest)[0:32]
 ```
 
+Evidence must include:
+
+- `catalogFingerprint` — semantic catalog digest for 056/060 baseline + absent 057–059
+- `ledgerPrefixDigest` — canonical digest of live ledger rows 001–055
+
 Requires `SUNSET_STAGING_LEDGER_RECONCILE=1` and matching `SUNSET_STAGING_LEDGER_RECONCILE_APPROVAL_TOKEN`.
 
 ## Operator commands (future live — do not run until approved)
 
-**Dry-run** (read-only when client injected; gate-only without client):
+**Dry-run** (zero mutation; pinned client + live readbacks):
 
 ```bash
 SUNSET_STAGING_LEDGER_RECONCILE=1 \
@@ -61,7 +76,7 @@ npm run sunset-staging-ledger-reconcile:dry-run -- \
   --database sunset_staging
 ```
 
-**Apply** (requires operator-injected `pg` client bound to locked target — this CLI does not fetch DSN/secrets):
+**Apply** (same CLI path; mutates only after all gates pass):
 
 ```bash
 SUNSET_STAGING_LEDGER_RECONCILE=1 \
@@ -75,11 +90,17 @@ npm run sunset-staging-ledger-reconcile:apply -- \
   --database sunset_staging
 ```
 
+Optional KV bootstrap before either command:
+
+```bash
+SUNSET_STAGING_LEDGER_RECONCILE_LOAD_KV_ADMIN=1 node scripts/load-sunset-staging-pg-admin-env.js
+```
+
 ## Verification (offline)
 
 ```bash
 node scripts/verify-sunset-staging-ledger-reconcile.js
-node scripts/prove-sunset-staging-ledger-reconcile-fresh-db.js   # requires Docker
+node scripts/prove-sunset-staging-ledger-reconcile-fresh-db.js   # requires Docker; exercises production CLI subprocess
 node scripts/verify-migration-integrity.js
 ```
 
