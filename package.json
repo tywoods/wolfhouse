@@ -344,6 +344,7 @@
     "verify:email-microsoft-oidc-id-token": "node scripts/verify-email-microsoft-oidc-id-token.js",
     "verify:email-microsoft-oidc-jwks-verifier": "node scripts/verify-email-microsoft-oidc-jwks-verifier.js",
     "verify:email-microsoft-verified-identity": "node scripts/verify-email-microsoft-verified-identity.js",
+    "verify:email-microsoft-verified-grant-custody": "node scripts/verify-email-microsoft-verified-grant-custody.js",
     "verify:email-graph-app-only-readiness": "node scripts/verify-email-graph-app-only-readiness.js",
     "verify:email-microsoft-delegated-oauth-contract": "node scripts/verify-email-microsoft-delegated-oauth-contract.js",
     "verify:email-microsoft-oauth-transaction-service": "node scripts/verify-email-microsoft-oauth-transaction-service.js",
