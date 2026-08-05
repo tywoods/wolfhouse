@@ -198,6 +198,11 @@ const {
   EMAIL_REGISTRY_LOCATIONS_PATH,
   EMAIL_REGISTRY_ENDPOINTS_PATH,
 } = require('./lib/staff-email-registry-routes');
+const {
+  createEmailSettingsRoutes,
+  EMAIL_SETTINGS_PATH,
+  isSunsetEmailSettingsUiEnabled,
+} = require('./lib/staff-email-settings-routes');
 
 const {
   listStaffAutomatedNotifications,
@@ -2525,6 +2530,13 @@ const {
   handleLocationsPost: handleEmailRegistryLocationsPost,
   handleChannelEndpointsPost: handleEmailRegistryChannelEndpointsPost,
 } = emailRegistryRoutes;
+const emailSettingsRoutes = createEmailSettingsRoutes({
+  sendJSON,
+  assertStaffClientAccess,
+  authorizeAuthenticatedStaffRoute,
+  withPgClient,
+});
+const { handleGet: handleEmailSettingsGet } = emailSettingsRoutes;
 
 // Staff Inbox routes (extracted module). Auth stays in the router with
 // per-route minRole (viewer reads / operator writes) — do not homogenize.
@@ -19796,6 +19808,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-bookings" data-admin-tab="bookings" aria-controls="admin-panel-bookings" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.bookings">Bookings</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-pricing" data-admin-tab="pricing" aria-controls="admin-panel-pricing" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.pricing">Pricing</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-luna-staff" data-admin-tab="luna-staff" aria-controls="admin-panel-luna-staff" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.lunaStaff" hidden>Luna Staff</button>
+    ${isSunsetEmailSettingsUiEnabled(process.env) && portalDefaultClient === 'sunset' ? '<button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-email" data-admin-tab="email" aria-controls="admin-panel-email" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.email">Email</button>' : ''}
   </div>
   <div id="admin-panel-finance" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="finance" aria-labelledby="admin-tab-finance">
     <div id="admin-finance-body" class="portal-admin-finance-shell"></div>
@@ -19803,6 +19816,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <div id="admin-panel-bookings" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="bookings" aria-labelledby="admin-tab-bookings" hidden>
     <div id="admin-bookings-body" class="portal-admin-bookings-shell"></div>
   </div>
+  ${isSunsetEmailSettingsUiEnabled(process.env) && portalDefaultClient === 'sunset' ? '<div id="admin-panel-email" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="email" aria-labelledby="admin-tab-email" hidden><div id="admin-email-settings-body"></div></div>' : ''}
   <div id="admin-panel-pricing" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="pricing" aria-labelledby="admin-tab-pricing" hidden>
     <div class="portal-admin-sections">
       <section class="portal-admin-section" id="admin-sec-times">
@@ -49126,6 +49140,13 @@ async function router(req, res) {
   }
 
   // ── Email registry READ/WRITE (Slice 1C-beta/gamma) — admin inventory + kill-switched registration
+  // The Stage 6 status boundary is concealed before auth and before every lookup.
+  if (pathname === EMAIL_SETTINGS_PATH && method === 'GET') {
+    if (!isSunsetEmailSettingsUiEnabled(process.env)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleEmailSettingsGet(parsed.query, req, res, auth.user);
+  }
   // Auth stays here; handlers live in staff-email-registry-routes.js
   if (pathname === EMAIL_REGISTRY_LOCATIONS_PATH && method === 'GET') {
     const auth = await requireAuth(req, res, 'admin');
