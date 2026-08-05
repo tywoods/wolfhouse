@@ -1,7 +1,58 @@
 'use strict';
-const F=['sunset','microsoft','oauth','provider','unavailable'].join('_'),D='sunset-staging',K=['LUNA','EMAIL','OAUTH','CLIENT','SECRET'].join('_'),M=['get','Client','Secret'].join(''),N=['create','Sunset','Microsoft','OAuth','Client','Secret','Provider'].join(''),L=4096;
-function fail(){const e=new Error(F);e.code=F;return e;}
-function own(o,k){const d=Object.getOwnPropertyDescriptor(o,k);return d&&!d.get&&!d.set?d.value:undefined;}
-function exact(o,ks){if(!o||Object.getPrototypeOf(o)!==Object.prototype)return false;const a=Reflect.ownKeys(o);return a.length===ks.length&&!a.some(k=>typeof k!=='string'||!ks.includes(k))&&ks.every(k=>{const d=Object.getOwnPropertyDescriptor(o,k);return d&&!d.get&&!d.set;});}
-function create(x){let v;try{if(!exact(x,['deployment','env'])||own(x,'deployment')!==D)throw fail();const e=own(x,'env');if((typeof e!=='object'&&typeof e!=='function')||e===null)throw fail();v=own(e,K);if(typeof v!=='string'||!v.length||v.length>L||!(/^[\x20-\x7e]+$/).test(v))throw fail();}catch(_){throw fail();}let used=false;async function get(){if(used)throw fail();used=true;return v;}return Object.freeze({[M]:get});}
-module.exports=Object.freeze({FAILURE_CODE:F,SUNSET_DEPLOYMENT:D,ENV_KEY:K,VALUE_LIMIT_CHARS:L,[N]:create});
+
+const FAILURE_CODE = 'sunset_microsoft_oauth_provider_unavailable';
+const SUNSET_DEPLOYMENT = 'sunset-staging';
+const ENV_KEY = 'LUNA_EMAIL_OAUTH_CLIENT_SECRET';
+const VALUE_LIMIT_CHARS = 4096;
+
+function failure() {
+  const error = new Error(FAILURE_CODE);
+  error.code = FAILURE_CODE;
+  return error;
+}
+
+function ownData(object, key) {
+  const descriptor = Object.getOwnPropertyDescriptor(object, key);
+  return descriptor && !descriptor.get && !descriptor.set ? descriptor.value : undefined;
+}
+
+function exactPlainData(object, keys) {
+  if (!object || Object.getPrototypeOf(object) !== Object.prototype) return false;
+  const actual = Reflect.ownKeys(object);
+  return actual.length === keys.length
+    && actual.every((key) => typeof key === 'string' && keys.includes(key))
+    && keys.every((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(object, key);
+      return descriptor && !descriptor.get && !descriptor.set;
+    });
+}
+
+function createSunsetMicrosoftOAuthClientSecretProvider(deps) {
+  let clientSecret;
+  try {
+    if (!exactPlainData(deps, ['deployment', 'env'])
+        || ownData(deps, 'deployment') !== SUNSET_DEPLOYMENT) throw failure();
+    const env = ownData(deps, 'env');
+    if ((typeof env !== 'object' && typeof env !== 'function') || env === null) throw failure();
+    clientSecret = ownData(env, ENV_KEY);
+    if (typeof clientSecret !== 'string' || clientSecret.length < 1
+        || clientSecret.length > VALUE_LIMIT_CHARS || !/^[\x21-\x7e]+$/.test(clientSecret)) throw failure();
+  } catch (_) { throw failure(); }
+
+  let used = false;
+  async function getClientSecret() {
+    if (used) throw failure();
+    used = true;
+    return clientSecret;
+  }
+
+  return Object.freeze({ getClientSecret });
+}
+
+module.exports = Object.freeze({
+  FAILURE_CODE,
+  SUNSET_DEPLOYMENT,
+  ENV_KEY,
+  VALUE_LIMIT_CHARS,
+  createSunsetMicrosoftOAuthClientSecretProvider,
+});
