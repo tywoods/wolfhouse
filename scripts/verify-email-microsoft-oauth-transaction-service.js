@@ -12,6 +12,11 @@ const env={LUNA_EMAIL_OAUTH_START_ENABLED:'true',LUNA_DEPLOYMENT:'sunset-staging
   assert.deepStrictEqual(Object.fromEntries(['client_id','response_type','redirect_uri','response_mode','scope','code_challenge_method'].map(k=>[k,url.searchParams.get(k)])),{client_id:env.LUNA_EMAIL_OAUTH_CLIENT_ID,response_type:'code',redirect_uri:svc.REDIRECT_URI,response_mode:'query',scope:svc.SCOPES,code_challenge_method:'S256'});
   assert.strictEqual(writes.length,1); assert.strictEqual(writes[0].stateHash.length,32); assert.match(writes[0].codeVerifier,/^[A-Za-z0-9_-]{43}$/); assert.strictEqual(dto.expires_at,'2026-08-05T12:10:00.000Z');
   assert.strictEqual(crypto.createHash('sha256').update(url.searchParams.get('state')).digest().equals(writes[0].stateHash),true);
+  let malformedWrites=0;
+  const malformed=svc.createMicrosoftOAuthTransactionService({repository:{create:async()=>{malformedWrites++;}},env,randomBytes:()=>Buffer.alloc(1)});
+  await assert.rejects(()=>malformed.start(ids),/generation_failed/); assert.strictEqual(malformedWrites,0);
+  const nonBuffer=svc.createMicrosoftOAuthTransactionService({repository:{create:async()=>{malformedWrites++;}},env,randomBytes:()=>new Uint8Array(32)});
+  await assert.rejects(()=>nonBuffer.start(ids),/generation_failed/); assert.strictEqual(malformedWrites,0);
   for(const field of ['authority','redirect_uri','client_id','scope','state','nonce','code_verifier','__proto__']) await assert.rejects(()=>service.start({...ids,[field]:'attacker'}),/invalid_request/);
   for(const bad of [{...env,LUNA_EMAIL_OAUTH_START_ENABLED:'TRUE'},{...env,LUNA_DEPLOYMENT:'production'},{...env,LUNA_EMAIL_OAUTH_CLIENT_ID:'bad'}]) await assert.rejects(()=>svc.createMicrosoftOAuthTransactionService({repository:{create:async()=>{}},env:bad}).start(ids));
   const queries=[]; const repo=svc.createPostgresOAuthTransactionRepository({query:async(sql,p)=>{queries.push([sql,p]);return {rows:[]};}}); await repo.consume({stateHash:Buffer.alloc(32),clientId:ids.clientId,authSessionId:ids.authSessionId,now:new Date()}); assert.match(queries[0][0],/consumed_at IS NULL AND expires_at>/);

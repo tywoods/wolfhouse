@@ -5,6 +5,12 @@ function adminEmailStateKey(state){
   var allowed = ['unavailable','loading','disconnected','registered_not_connected','connected_health','reauth_required','revoked'];
   return allowed.indexOf(String(state || '')) >= 0 ? String(state) : 'error';
 }
+function isAllowedMicrosoftAuthorizationUrl(raw){
+  try {
+    var target = new URL(raw);
+    return target.origin === 'https://login.microsoftonline.com' && target.pathname === '/organizations/oauth2/v2.0/authorize';
+  } catch (_) { return false; }
+}
 function renderAdminEmailSettingsState(state, data){
   var body = el('admin-email-settings-body');
   if (!body) return;
@@ -31,7 +37,7 @@ function renderAdminEmailSettingsState(state, data){
     }).then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('unavailable')); })
       .then(function(dto){
         var target = new URL(dto.authorization_url);
-        if (target.protocol !== 'https:' || target.hostname !== 'login.microsoftonline.com' || target.pathname !== '/organizations/oauth2/v2.0/authorize') throw new Error('invalid_authority');
+        if (!isAllowedMicrosoftAuthorizationUrl(target.toString())) throw new Error('invalid_authority');
         window.location.assign(target.toString());
       }).catch(function(){ connect.disabled = false; renderAdminEmailSettingsState('error'); });
   });

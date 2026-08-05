@@ -6,9 +6,18 @@ const REDIRECT_URI = ['https://sunset-staging.lunafrontdesk.com', 'staff', 'emai
 const SCOPES = 'openid profile offline_access User.Read Mail.ReadBasic';
 const TTL_SECONDS = 600;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const B64URL_32_RE = /^[A-Za-z0-9_-]{43}$/;
+const PKCE_VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/;
 const INPUT_KEYS = Object.freeze(['clientId', 'locationId', 'staffUserId', 'authSessionId']);
 
 function b64url(buffer) { return buffer.toString('base64url'); }
+function generate32(randomBytes, error) {
+  const bytes = randomBytes(32);
+  if (!Buffer.isBuffer(bytes) || bytes.length !== 32) throw new Error(error);
+  const value = b64url(bytes);
+  if (!B64URL_32_RE.test(value)) throw new Error(error);
+  return value;
+}
 function exactObject(value, keys) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return false;
   const own = Object.keys(value);
@@ -56,11 +65,13 @@ function createMicrosoftOAuthTransactionService({ repository, env = process.env,
     async start(input) {
       if (!exactObject(input, INPUT_KEYS) || !INPUT_KEYS.every((key) => UUID_RE.test(input[key]))) throw new Error('oauth_start_invalid_request');
       const appId = validateRuntime(env);
-      const state = b64url(randomBytes(32));
-      const nonce = b64url(randomBytes(32));
-      const verifier = b64url(randomBytes(32));
+      const state = generate32(randomBytes, 'oauth_start_state_generation_failed');
+      const nonce = generate32(randomBytes, 'oauth_start_nonce_generation_failed');
+      const verifier = generate32(randomBytes, 'oauth_start_verifier_generation_failed');
+      if (!PKCE_VERIFIER_RE.test(verifier)) throw new Error('oauth_start_verifier_generation_failed');
       const challenge = b64url(crypto.createHash('sha256').update(verifier, 'ascii').digest());
       const stateHash = crypto.createHash('sha256').update(state, 'ascii').digest();
+      if (!B64URL_32_RE.test(challenge) || !Buffer.isBuffer(stateHash) || stateHash.length !== 32) throw new Error('oauth_start_pkce_generation_failed');
       const issuedAt = new Date(now());
       const expiresAt = new Date(issuedAt.getTime() + TTL_SECONDS * 1000);
       await repository.create({ ...input, stateHash, codeVerifier: verifier, nonce, issuedAt, expiresAt });
