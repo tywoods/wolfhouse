@@ -26,6 +26,16 @@
  * (even malformed/hostile) burns the installer; concurrent/reentrant/second
  * attempts fail sanitized with zero further SQL. One fixed sanitized thrown error.
  *
+ * Preflight: identity.providerPrincipalId must be canonical lowercase hyphenated
+ * UUID (same grammar as migration 058 provider_principal_oid_shape) before any
+ * SQL — written to provider_principal_oid and provider_resource_id.
+ *
+ * Driver rows: every SELECT/RETURNING row is validated as exact own-data keys
+ * (SQL textual order constants; exact set, safe prototype, no accessors/symbols/
+ * extras) and snapshotted into a fresh frozen record before later use. Lock
+ * eligibility + UPDATE CAS use only snapshot.bindingStatus (never reread the
+ * mutable driver row).
+ *
  * @module email-microsoft-verified-grant-installer
  */
 
@@ -74,10 +84,31 @@ const TOKEN_AND_AAD_KEYS = Object.freeze([
 const PRINCIPAL_LIMIT = 256;
 const MAILBOX_MIN = 3;
 const MAILBOX_MAX = 254;
+/** Same canonical lowercase hyphenated UUID grammar as migration 058 provider_*_shape. */
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const CANONICAL_MAILBOX_RE = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 
 const ENVELOPE_COLS = 'envelope_version, aead_alg, kek_wrap_alg, kek_key_name, kek_key_version, nonce, ciphertext, auth_tag, wrapped_dek';
+
+/**
+ * Exact own-data key sets for driver rows (SQL textual order). node-postgres assigns
+ * keys in SELECT/RETURNING field order; we enforce exact set membership (no extras/
+ * symbols/accessors) rather than fragile Reflect.ownKeys order equality, while
+ * keeping these constants aligned with SQL text for maintainable assertions.
+ */
+const LOCK_ROW_KEYS = Object.freeze([
+  'id', 'client_id', 'provider', 'auth_mode', 'connector_mode', 'binding_status', 'public_address',
+]);
+const GRANT_RETURNING_KEYS = Object.freeze([
+  'client_id', 'endpoint_id', 'grant_generation', 'grant_status', 'reconcile_state',
+]);
+const UPDATE_RETURNING_KEYS = Object.freeze([
+  'id', 'client_id', 'binding_status', 'provider_tenant_id', 'provider_principal_oid',
+  'provider_resource_id', 'mailbox_kind', 'mailbox_access_kind', 'public_address',
+]);
+const LOCK_ROW_KEY_SET = new Set(LOCK_ROW_KEYS);
+const GRANT_RETURNING_KEY_SET = new Set(GRANT_RETURNING_KEYS);
+const UPDATE_RETURNING_KEY_SET = new Set(UPDATE_RETURNING_KEYS);
 
 const SQL_BEGIN = 'BEGIN';
 const SQL_COMMIT = 'COMMIT';
@@ -164,6 +195,44 @@ function exactFrozenData(object, keys) {
   return Boolean(object && Object.isFrozen(object) && exactPlainData(object, keys));
 }
 
+/**
+ * Exact own-data DB row surface for node-postgres SELECT/RETURNING rows.
+ * Safe prototypes only (Object.prototype or null — pg prebuild uses null then
+ * spreads to Object.prototype). Exact key *set* (no order equality dependency),
+ * no symbols/accessors/extras. Values read via own data descriptors only.
+ * @param {unknown} row
+ * @param {readonly string[]} keys SQL textual order constant
+ * @param {Set<string>} keySet
+ * @returns {object|null} plain snapshot of own data values, or null
+ */
+function snapshotExactOwnDataRow(row, keys, keySet) {
+  try {
+    if (!row || typeof row !== 'object') return null;
+    const proto = Object.getPrototypeOf(row);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(row);
+    if (actual.length !== keys.length) return null;
+    for (const key of actual) {
+      if (typeof key !== 'string' || !keySet.has(key)) return null;
+    }
+    const out = Object.create(null);
+    for (const key of keys) {
+      const descriptor = Object.getOwnPropertyDescriptor(row, key);
+      if (!descriptor
+          || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+          || descriptor.get
+          || descriptor.set
+          || !descriptor.enumerable) {
+        return null;
+      }
+      out[key] = descriptor.value;
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 function hasUnpairedSurrogate(value) {
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
@@ -238,7 +307,9 @@ function hasForbiddenTokenOrAadKeys(object) {
 
 /**
  * Snapshot + validate exact frozen identity (custody adapter shape).
- * providerTenantId: canonical UUID; principal: bounded OIDC text;
+ * providerTenantId + providerPrincipalId: canonical lowercase hyphenated UUID
+ * (same grammar as migration 058 provider_tenant_id / provider_principal_oid;
+ * principal is written to both provider_principal_oid and provider_resource_id).
  * mailbox: already-canonical lowercase Graph form; displayName null|string.
  */
 function snapshotAndValidateIdentity(value) {
@@ -248,10 +319,14 @@ function snapshotAndValidateIdentity(value) {
   const mailboxAddress = ownData(value, 'mailboxAddress');
   const displayName = ownData(value, 'displayName');
 
-  if (!boundedOidcText(providerTenantId, PRINCIPAL_LIMIT) || !UUID_CANON.test(providerTenantId)) {
+  if (!boundedOidcText(providerTenantId, PRINCIPAL_LIMIT) || !isCanonicalUuid(providerTenantId)) {
     return null;
   }
-  if (!boundedOidcText(providerPrincipalId, PRINCIPAL_LIMIT)) return null;
+  // Preflight before any SQL: principal must satisfy 058 provider_principal_oid_shape.
+  if (!boundedOidcText(providerPrincipalId, PRINCIPAL_LIMIT)
+      || !isCanonicalUuid(providerPrincipalId)) {
+    return null;
+  }
   if (!isCanonicalGraphMailbox(mailboxAddress)) return null;
   if (displayName !== null) {
     if (typeof displayName !== 'string'
@@ -267,6 +342,83 @@ function snapshotAndValidateIdentity(value) {
     providerPrincipalId,
     mailboxAddress,
     displayName,
+  });
+}
+
+/**
+ * Snapshot lock-row observations once into a fresh frozen record.
+ * Never reread the mutable driver row after this returns.
+ */
+function snapshotAndValidateLockRow(row, clientId, endpointId) {
+  const own = snapshotExactOwnDataRow(row, LOCK_ROW_KEYS, LOCK_ROW_KEY_SET);
+  if (!own) return null;
+  if (own.id !== endpointId || own.client_id !== clientId) return null;
+  if (typeof own.provider !== 'string'
+      || typeof own.auth_mode !== 'string'
+      || typeof own.connector_mode !== 'string') {
+    return null;
+  }
+  // binding_status may be null (ineligible); public_address must be string when compared later.
+  if (own.binding_status != null && typeof own.binding_status !== 'string') return null;
+  if (own.public_address != null && typeof own.public_address !== 'string') return null;
+  return Object.freeze({
+    id: own.id,
+    clientId: own.client_id,
+    provider: own.provider,
+    authMode: own.auth_mode,
+    connectorMode: own.connector_mode,
+    bindingStatus: own.binding_status,
+    publicAddress: own.public_address,
+  });
+}
+
+/**
+ * INSERT RETURNING: exact keys; require returned client/endpoint exact + gen-1 state.
+ */
+function snapshotAndValidateGrantReturning(row, clientId, endpointId) {
+  const own = snapshotExactOwnDataRow(row, GRANT_RETURNING_KEYS, GRANT_RETURNING_KEY_SET);
+  if (!own) return null;
+  if (own.client_id !== clientId || own.endpoint_id !== endpointId) return null;
+  if (Number(own.grant_generation) !== GRANT_GENERATION_INITIAL
+      || own.grant_status !== 'active'
+      || own.reconcile_state !== 'clean') {
+    return null;
+  }
+  return Object.freeze({
+    clientId: own.client_id,
+    endpointId: own.endpoint_id,
+    grantGeneration: GRANT_GENERATION_INITIAL,
+    grantStatus: 'active',
+    reconcileState: 'clean',
+  });
+}
+
+/**
+ * UPDATE RETURNING: exact keys/order as SQL; require id/client_id exact + identity/state.
+ */
+function snapshotAndValidateUpdateReturning(row, snap) {
+  const own = snapshotExactOwnDataRow(row, UPDATE_RETURNING_KEYS, UPDATE_RETURNING_KEY_SET);
+  if (!own) return null;
+  if (own.id !== snap.endpointId || own.client_id !== snap.clientId) return null;
+  if (own.binding_status !== 'verified'
+      || own.provider_tenant_id !== snap.identity.providerTenantId
+      || own.provider_principal_oid !== snap.identity.providerPrincipalId
+      || own.provider_resource_id !== snap.identity.providerPrincipalId
+      || own.mailbox_kind !== 'user'
+      || own.mailbox_access_kind !== 'own_user'
+      || own.public_address !== snap.identity.mailboxAddress) {
+    return null;
+  }
+  return Object.freeze({
+    id: own.id,
+    clientId: own.client_id,
+    bindingStatus: 'verified',
+    providerTenantId: own.provider_tenant_id,
+    providerPrincipalOid: own.provider_principal_oid,
+    providerResourceId: own.provider_resource_id,
+    mailboxKind: 'user',
+    mailboxAccessKind: 'own_user',
+    publicAddress: own.public_address,
   });
 }
 
@@ -382,20 +534,27 @@ async function installInTransaction(client, snap) {
     if (!locked || !Array.isArray(locked.rows) || locked.rows.length !== 1) {
       throw failure();
     }
-    const row = locked.rows[0];
-    if (row.provider !== 'microsoft_graph'
-        || row.auth_mode !== 'delegated_authorization_code'
-        || row.connector_mode !== 'microsoft_delegated_oauth') {
+    // Snapshot once: never reread mutable driver row for eligibility or UPDATE CAS.
+    const lockSnap = snapshotAndValidateLockRow(
+      locked.rows[0],
+      snap.clientId,
+      snap.endpointId,
+    );
+    if (!lockSnap) throw failure();
+    if (lockSnap.provider !== 'microsoft_graph'
+        || lockSnap.authMode !== 'delegated_authorization_code'
+        || lockSnap.connectorMode !== 'microsoft_delegated_oauth') {
       throw failure();
     }
-    if (row.binding_status == null || !ELIGIBLE_BINDING_SET.has(row.binding_status)) {
+    if (lockSnap.bindingStatus == null
+        || !ELIGIBLE_BINDING_SET.has(lockSnap.bindingStatus)) {
       // Reject null / verified / reauthorization_required / revoked (and unknowns).
       // Reconnect of already-verified endpoints is a separate future flow.
       throw failure();
     }
     // Canonical exact-equals: endpoint public_address must match verified mailbox.
-    if (typeof row.public_address !== 'string'
-        || row.public_address !== snap.identity.mailboxAddress) {
+    if (typeof lockSnap.publicAddress !== 'string'
+        || lockSnap.publicAddress !== snap.identity.mailboxAddress) {
       throw failure();
     }
 
@@ -419,14 +578,15 @@ async function installInTransaction(client, snap) {
     if (!inserted || !Array.isArray(inserted.rows) || inserted.rows.length !== 1) {
       throw failure();
     }
-    const grantRow = inserted.rows[0];
-    if (Number(grantRow.grant_generation) !== GRANT_GENERATION_INITIAL
-        || grantRow.grant_status !== 'active'
-        || grantRow.reconcile_state !== 'clean') {
-      throw failure();
-    }
+    const grantSnap = snapshotAndValidateGrantReturning(
+      inserted.rows[0],
+      snap.clientId,
+      snap.endpointId,
+    );
+    if (!grantSnap) throw failure();
 
     // provider_resource_id = providerPrincipalId (durable mailbox resource for ownership).
+    // CAS uses frozen lockSnap.bindingStatus only — never reread driver row.
     const updated = await client.query(SQL_UPDATE_ENDPOINT, [
       snap.clientId,
       snap.endpointId,
@@ -434,22 +594,14 @@ async function installInTransaction(client, snap) {
       snap.identity.providerPrincipalId,
       snap.identity.providerPrincipalId,
       actor,
-      row.binding_status,
+      lockSnap.bindingStatus,
       snap.identity.mailboxAddress,
     ]);
     if (!updated || !Array.isArray(updated.rows) || updated.rows.length !== 1) {
       throw failure();
     }
-    const ep = updated.rows[0];
-    if (ep.binding_status !== 'verified'
-        || ep.provider_tenant_id !== snap.identity.providerTenantId
-        || ep.provider_principal_oid !== snap.identity.providerPrincipalId
-        || ep.provider_resource_id !== snap.identity.providerPrincipalId
-        || ep.mailbox_kind !== 'user'
-        || ep.mailbox_access_kind !== 'own_user'
-        || ep.public_address !== snap.identity.mailboxAddress) {
-      throw failure();
-    }
+    const epSnap = snapshotAndValidateUpdateReturning(updated.rows[0], snap);
+    if (!epSnap) throw failure();
 
     commitSent = true;
     await client.query(SQL_COMMIT);
@@ -516,5 +668,8 @@ module.exports = Object.freeze({
   IDENTITY_KEYS,
   DEPENDENCY_KEYS,
   ELIGIBLE_BINDING_STATUSES,
+  LOCK_ROW_KEYS,
+  GRANT_RETURNING_KEYS,
+  UPDATE_RETURNING_KEYS,
   createMicrosoftVerifiedGrantInstaller,
 });

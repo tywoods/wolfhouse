@@ -28,6 +28,9 @@ const {
   IDENTITY_KEYS,
   DEPENDENCY_KEYS,
   ELIGIBLE_BINDING_STATUSES,
+  LOCK_ROW_KEYS,
+  GRANT_RETURNING_KEYS,
+  UPDATE_RETURNING_KEYS,
   createMicrosoftVerifiedGrantInstaller,
 } = require('./lib/email-microsoft-verified-grant-installer');
 const {
@@ -429,6 +432,17 @@ test('exports exact frozen surface and constants', function exportsSurface() {
   assert.deepEqual([...IDENTITY_KEYS], [
     'providerTenantId', 'providerPrincipalId', 'mailboxAddress', 'displayName',
   ]);
+  // SQL textual order constants (exact set enforced on driver rows).
+  assert.deepEqual([...LOCK_ROW_KEYS], [
+    'id', 'client_id', 'provider', 'auth_mode', 'connector_mode', 'binding_status', 'public_address',
+  ]);
+  assert.deepEqual([...GRANT_RETURNING_KEYS], [
+    'client_id', 'endpoint_id', 'grant_generation', 'grant_status', 'reconcile_state',
+  ]);
+  assert.deepEqual([...UPDATE_RETURNING_KEYS], [
+    'id', 'client_id', 'binding_status', 'provider_tenant_id', 'provider_principal_oid',
+    'provider_resource_id', 'mailbox_kind', 'mailbox_access_kind', 'public_address',
+  ]);
   assert.equal(typeof createMicrosoftVerifiedGrantInstaller, 'function');
 });
 
@@ -637,6 +651,308 @@ test('missing endpoint row rolls back; duplicate select rows roll back', async f
   }
 });
 
+// ── Driver-row exact snapshot / hostile rows / lock observation freeze ─────
+
+test('rejects lock-row getters/proxies/symbols/extras/wrong ids with rollback', async function lockRowHostile() {
+  const wrongId = 'ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb';
+
+  // Accessor on binding_status
+  {
+    const row = eligibleEndpoint();
+    Object.defineProperty(row, 'binding_status', {
+      enumerable: true,
+      get() { return 'unverified_offline'; },
+    });
+    const fake = createFakePinnedClient({ selectRows: [row] });
+    const installer = installerFromFake(fake);
+    await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+    assert.deepEqual(sqlKinds(fake.queries), ['BEGIN', 'SELECT_LOCK', 'ROLLBACK']);
+    assert.equal(fake.grantInserted, false);
+    assert.equal(fake.endpointState.binding_status, 'unverified_offline');
+  }
+
+  // Extra column on lock row
+  {
+    const fake = createFakePinnedClient({
+      selectRows: [{ ...eligibleEndpoint(), secret_ref: LEAK }],
+    });
+    const installer = installerFromFake(fake);
+    await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+    assert.deepEqual(sqlKinds(fake.queries), ['BEGIN', 'SELECT_LOCK', 'ROLLBACK']);
+    assert.equal(fake.grantInserted, false);
+  }
+
+  // Symbol key on lock row
+  {
+    const row = eligibleEndpoint();
+    row[Symbol('x')] = 1;
+    const fake = createFakePinnedClient({ selectRows: [row] });
+    const installer = installerFromFake(fake);
+    await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+    assert.equal(sqlKinds(fake.queries).includes('ROLLBACK'), true);
+    assert.equal(fake.grantInserted, false);
+  }
+
+  // Wrong endpoint id on locked row
+  {
+    const fake = createFakePinnedClient({
+      selectRows: [eligibleEndpoint({ id: wrongId })],
+    });
+    const installer = installerFromFake(fake);
+    await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+    assert.deepEqual(sqlKinds(fake.queries), ['BEGIN', 'SELECT_LOCK', 'ROLLBACK']);
+    assert.equal(fake.grantInserted, false);
+  }
+
+  // Wrong client_id on locked row
+  {
+    const fake = createFakePinnedClient({
+      selectRows: [eligibleEndpoint({ client_id: wrongId })],
+    });
+    const installer = installerFromFake(fake);
+    await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+    assert.deepEqual(sqlKinds(fake.queries), ['BEGIN', 'SELECT_LOCK', 'ROLLBACK']);
+    assert.equal(fake.grantInserted, false);
+  }
+
+  // Proxy lock row
+  {
+    const target = eligibleEndpoint();
+    const proxy = new Proxy(target, {
+      get(t, p) { return t[p]; },
+      ownKeys(t) { return Reflect.ownKeys(t); },
+      getOwnPropertyDescriptor(t, p) { return Reflect.getOwnPropertyDescriptor(t, p); },
+      getPrototypeOf() { return Object.prototype; },
+    });
+    // Proxy always has Proxy identity; getPrototypeOf may still be Object.prototype,
+    // but ownKeys/descriptors go through traps — if traps return data descs matching
+    // keys, snapshotExactOwnDataRow may accept. Force failure via extra trap that
+    // injects an accessor-like descriptor for one key when inspected carefully:
+    // Actually Proxy with transparent forwarding of data props on plain object can
+    // pass Object.getOwnPropertyDescriptor to target. Reject via wrong prototype path
+    // is unreliable; use a Proxy that presents a getter for binding_status.
+    const getterProxy = new Proxy({}, {
+      ownKeys() {
+        return [...LOCK_ROW_KEYS];
+      },
+      getOwnPropertyDescriptor(_t, prop) {
+        if (prop === 'binding_status') {
+          return {
+            enumerable: true,
+            configurable: true,
+            get() { return 'unverified_offline'; },
+          };
+        }
+        if (LOCK_ROW_KEYS.includes(prop)) {
+          return {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: target[prop],
+          };
+        }
+        return undefined;
+      },
+      getPrototypeOf() { return Object.prototype; },
+    });
+    const fake = createFakePinnedClient({ selectRows: [getterProxy] });
+    const installer = installerFromFake(fake);
+    await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+    assert.deepEqual(sqlKinds(fake.queries), ['BEGIN', 'SELECT_LOCK', 'ROLLBACK']);
+    assert.equal(fake.grantInserted, false);
+  }
+});
+
+test('rejects insert/update RETURNING wrong ids/extras/accessors with rollback', async function returningRowHostile() {
+  // INSERT RETURNING wrong client_id
+  {
+    const fake = createFakePinnedClient({
+      insertRows: [{
+        client_id: 'ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb',
+        endpoint_id: ENDPOINT_ID,
+        grant_generation: 1,
+        grant_status: 'active',
+        reconcile_state: 'clean',
+      }],
+    });
+    const installer = installerFromFake(fake);
+    await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+    const kinds = sqlKinds(fake.queries);
+    assert.equal(kinds.includes('INSERT_GRANT'), true);
+    assert.equal(kinds.includes('UPDATE_ENDPOINT'), false);
+    assert.equal(kinds.includes('ROLLBACK'), true);
+    assert.equal(kinds.includes('COMMIT'), false);
+  }
+
+  // INSERT RETURNING extra key
+  {
+    const fake = createFakePinnedClient({
+      insertRows: [{
+        client_id: CLIENT_ID,
+        endpoint_id: ENDPOINT_ID,
+        grant_generation: 1,
+        grant_status: 'active',
+        reconcile_state: 'clean',
+        extra: LEAK,
+      }],
+    });
+    const installer = installerFromFake(fake);
+    await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+    assert.equal(sqlKinds(fake.queries).includes('ROLLBACK'), true);
+    assert.equal(sqlKinds(fake.queries).includes('COMMIT'), false);
+  }
+
+  // UPDATE RETURNING wrong id
+  {
+    const fake = createFakePinnedClient({
+      updateRows: [{
+        id: 'ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb',
+        client_id: CLIENT_ID,
+        binding_status: 'verified',
+        provider_tenant_id: TID,
+        provider_principal_oid: PRINCIPAL,
+        provider_resource_id: PRINCIPAL,
+        mailbox_kind: 'user',
+        mailbox_access_kind: 'own_user',
+        public_address: MAILBOX,
+      }],
+    });
+    const installer = installerFromFake(fake);
+    await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+    const kinds = sqlKinds(fake.queries);
+    assert.equal(kinds.includes('UPDATE_ENDPOINT'), true);
+    assert.equal(kinds.includes('ROLLBACK'), true);
+    assert.equal(kinds.includes('COMMIT'), false);
+    assert.equal(fake.grantInserted, false);
+  }
+
+  // UPDATE RETURNING accessor on binding_status
+  {
+    const row = {
+      id: ENDPOINT_ID,
+      client_id: CLIENT_ID,
+      binding_status: 'verified',
+      provider_tenant_id: TID,
+      provider_principal_oid: PRINCIPAL,
+      provider_resource_id: PRINCIPAL,
+      mailbox_kind: 'user',
+      mailbox_access_kind: 'own_user',
+      public_address: MAILBOX,
+    };
+    Object.defineProperty(row, 'binding_status', {
+      enumerable: true,
+      get() { return 'verified'; },
+    });
+    const fake = createFakePinnedClient({ updateRows: [row] });
+    const installer = installerFromFake(fake);
+    await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+    assert.equal(sqlKinds(fake.queries).includes('ROLLBACK'), true);
+    assert.equal(sqlKinds(fake.queries).includes('COMMIT'), false);
+  }
+});
+
+test('lock snapshot freezes bindingStatus; driver-row mutation cannot change UPDATE CAS', async function lockSnapshotStable() {
+  const lockRow = eligibleEndpoint({ binding_status: 'unverified_offline' });
+  const fake = createFakePinnedClient({ selectRows: [lockRow] });
+  const origQuery = fake.client.query.bind(fake.client);
+  fake.client.query = async function query(sql, params) {
+    const text = String(sql || '');
+    // After lock validation, before/at insert: mutate original driver row.
+    if (/INSERT\s+INTO\s+tenant_email_delegated_grants/i.test(text)) {
+      lockRow.binding_status = 'revoked';
+      lockRow.public_address = 'mutated-evil@example.com';
+      lockRow.provider = 'gmail_api';
+      lockRow.id = 'ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb';
+      lockRow.client_id = 'ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb';
+    }
+    return origQuery(sql, params);
+  };
+  const installer = installerFromFake(fake);
+  const ack = await installer.installVerifiedGrant(goodInstall());
+  assert.deepEqual(ack, INSTALLER_ACK);
+  // UPDATE CAS must use frozen observed bindingStatus, not mutated driver value.
+  const upd = fake.queries.find((q) => /UPDATE\s+tenant_channel_endpoints/i.test(q.text));
+  assert.ok(upd);
+  assert.equal(upd.params[6], 'unverified_offline');
+  assert.equal(upd.params[7], MAILBOX);
+  assert.equal(fake.endpointState.binding_status, 'verified');
+  assert.equal(fake.grantInserted, true);
+});
+
+test('changing getter lock row fails before insert; never false-installed', async function lockChangingGetter() {
+  let reads = 0;
+  const row = {
+    id: ENDPOINT_ID,
+    client_id: CLIENT_ID,
+    provider: 'microsoft_graph',
+    auth_mode: 'delegated_authorization_code',
+    connector_mode: 'microsoft_delegated_oauth',
+    public_address: MAILBOX,
+  };
+  Object.defineProperty(row, 'binding_status', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      reads += 1;
+      return reads === 1 ? 'unverified_offline' : 'verified';
+    },
+  });
+  const fake = createFakePinnedClient({ selectRows: [row] });
+  const installer = installerFromFake(fake);
+  await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+  assert.deepEqual(sqlKinds(fake.queries), ['BEGIN', 'SELECT_LOCK', 'ROLLBACK']);
+  assert.equal(fake.grantInserted, false);
+  assert.notEqual(fake.endpointState.binding_status, 'verified');
+  // Accessor rejected without relying on multi-read flip.
+  assert.equal(sqlKinds(fake.queries).includes('INSERT_GRANT'), false);
+  assert.equal(sqlKinds(fake.queries).includes('COMMIT'), false);
+});
+
+test('pending lock snapshot: mutated status after lock still uses observed pending CAS', async function pendingLockSnapshotStable() {
+  const lockRow = eligibleEndpoint({ binding_status: 'pending_manual_validation' });
+  const fake = createFakePinnedClient({ selectRows: [lockRow] });
+  const observed = { casStatus: null, casAddress: null };
+  const oq = fake.client.query.bind(fake.client);
+  fake.client.query = async function query(sql, params) {
+    const text = String(sql || '');
+    if (/INSERT\s+INTO\s+tenant_email_delegated_grants/i.test(text)) {
+      // Mutate original driver row after lock snapshot; must not affect CAS params.
+      lockRow.binding_status = 'revoked';
+      lockRow.public_address = 'evil@example.com';
+    }
+    if (/UPDATE\s+tenant_channel_endpoints/i.test(text)) {
+      observed.casStatus = params[6];
+      observed.casAddress = params[7];
+      // Succeed only when installer still sends the frozen observed values.
+      if (params[6] === 'pending_manual_validation' && params[7] === MAILBOX) {
+        return {
+          rows: [{
+            id: ENDPOINT_ID,
+            client_id: CLIENT_ID,
+            binding_status: 'verified',
+            provider_tenant_id: TID,
+            provider_principal_oid: PRINCIPAL,
+            provider_resource_id: PRINCIPAL,
+            mailbox_kind: 'user',
+            mailbox_access_kind: 'own_user',
+            public_address: MAILBOX,
+          }],
+          rowCount: 1,
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+    return oq(sql, params);
+  };
+  const installer = installerFromFake(fake);
+  const ack = await installer.installVerifiedGrant(goodInstall());
+  assert.deepEqual(ack, INSTALLER_ACK);
+  assert.equal(observed.casStatus, 'pending_manual_validation');
+  assert.equal(observed.casAddress, MAILBOX);
+  assert.equal(lockRow.binding_status, 'revoked');
+  assert.equal(lockRow.public_address, 'evil@example.com');
+});
+
 // ── 23505 / insert / update / commit failures ──────────────────────────────
 
 test('SQLSTATE 23505 ownership/grant conflict sanitized + rollback', async function conflict23505() {
@@ -773,6 +1089,11 @@ test('rejects identity shape/mailbox/surrogate/case without SQL', async function
     goodIdentity({ providerTenantId: 'not-uuid' }),
     goodIdentity({ providerTenantId: TID.toUpperCase() }),
     goodIdentity({ providerPrincipalId: '' }),
+    // principal must be canonical UUID (migration 058 provider_principal_oid_shape)
+    goodIdentity({ providerPrincipalId: 'not-a-uuid-principal' }),
+    goodIdentity({ providerPrincipalId: PRINCIPAL.toUpperCase() }),
+    goodIdentity({ providerPrincipalId: 'user@example.com' }),
+    goodIdentity({ providerPrincipalId: '😀-emoji-principal' }),
     goodIdentity({ mailboxAddress: 'Ada@Example.com' }),
     goodIdentity({ mailboxAddress: ' ada@example.com' }),
     goodIdentity({ mailboxAddress: 'ada@example.com ' }),
@@ -821,6 +1142,36 @@ test('rejects identity shape/mailbox/surrogate/case without SQL', async function
     await assert.rejects(() => installer.installVerifiedGrant(input), failSanitized);
   }
   assert.equal(fake.queries.length, 0);
+});
+
+test('non-UUID/emoji principal: zero SQL + burn; second good call still zero SQL', async function principalUuidPreflightBurn() {
+  const badPrincipals = [
+    'not-a-uuid',
+    '😀',
+    'user-oid-not-uuid',
+    PRINCIPAL.toUpperCase(),
+    `${PRINCIPAL} `,
+    ` ${PRINCIPAL}`,
+    PRINCIPAL.replace(/-/g, ''),
+    'zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz',
+  ];
+  for (const providerPrincipalId of badPrincipals) {
+    const fake = createFakePinnedClient();
+    const installer = installerFromFake(fake);
+    await assert.rejects(
+      () => installer.installVerifiedGrant(goodInstall({
+        identity: goodIdentity({ providerPrincipalId }),
+      })),
+      failSanitized,
+    );
+    assert.equal(fake.queries.length, 0, `expected zero SQL for principal=${providerPrincipalId}`);
+    assert.equal(fake.grantInserted, false);
+    assert.equal(fake.endpointState.binding_status, 'unverified_offline');
+    // Burn: second good call must not open SQL either.
+    await assert.rejects(() => installer.installVerifiedGrant(goodInstall()), failSanitized);
+    assert.equal(fake.queries.length, 0);
+    assert.equal(fake.grantInserted, false);
+  }
 });
 
 test('rejects envelope operation mismatch / invalid envelope without SQL', async function envelopeRules() {
