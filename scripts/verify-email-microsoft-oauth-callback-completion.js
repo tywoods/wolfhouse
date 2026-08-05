@@ -8,7 +8,7 @@
  * proxy, row missing/duplicate semantics, error path, completion ack/throw/
  * thenable, transaction mix-up, no secret material public/logs.
  * Direct interop with completeAuthorization fake proving exact bound
- * location/endpoint/transaction/staff/verifier/nonce/client (+ code) once.
+ * nine-key order (authorizationCode first … applicationClientId last) once.
  * No route wiring. Existing disabled callback export remains independent.
  */
 
@@ -247,12 +247,29 @@ test('exports frozen factory, fixed error constants, and completion-aligned keys
     'id', 'location_id', 'staff_user_id', 'code_verifier', 'nonce', 'endpoint_id',
   ]);
   assert.deepEqual([...COMPLETION_KEYS], [
-    'clientId', 'locationId', 'endpointId', 'transactionId', 'staffUserId',
-    'codeVerifier', 'nonce', 'applicationClientId', 'authorizationCode',
+    'authorizationCode', 'transactionId', 'clientId', 'locationId', 'endpointId',
+    'staffUserId', 'codeVerifier', 'nonce', 'applicationClientId',
   ]);
   assert.equal(COMPLETION_KEYS.length, 9);
+  assert.equal(COMPLETION_KEYS[0], 'authorizationCode');
+  assert.equal(COMPLETION_KEYS[COMPLETION_KEYS.length - 1], 'applicationClientId');
   assert.equal(COMPLETION_KEYS.includes('operationId'), false);
   assert.equal(COMPLETION_KEYS.includes('actorStaffUserId'), false);
+  // Static source order proof: authorizationCode first, applicationClientId last.
+  const libSrc = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8');
+  assert.match(
+    libSrc,
+    /COMPLETION_KEYS\s*=\s*Object\.freeze\(\[\s*['"]authorizationCode['"]\s*,\s*['"]transactionId['"]\s*,\s*['"]clientId['"]\s*,\s*['"]locationId['"]\s*,\s*['"]endpointId['"]\s*,\s*['"]staffUserId['"]\s*,\s*['"]codeVerifier['"]\s*,\s*['"]nonce['"]\s*,\s*['"]applicationClientId['"]\s*,?\s*\]\)/s,
+    'static COMPLETION_KEYS source order: authorizationCode first, applicationClientId last',
+  );
+  assert.ok(
+    !/COMPLETION_KEYS\s*=\s*Object\.freeze\(\[\s*['"]clientId['"]/s.test(libSrc),
+    'static COMPLETION_KEYS must not start with clientId',
+  );
+  assert.ok(
+    !/COMPLETION_KEYS\s*=\s*Object\.freeze\(\[[^\]]*['"]authorizationCode['"]\s*\]\)/s.test(libSrc),
+    'static COMPLETION_KEYS must not place authorizationCode last',
+  );
   assert.deepEqual([...OWNER_KEYS], [...txn.OWNER_KEYS]);
   assert.deepEqual([...CALLBACK_CODE_KEYS], [...txn.CALLBACK_CODE_KEYS]);
   assert.deepEqual([...CALLBACK_ERROR_KEYS], [...txn.CALLBACK_ERROR_KEYS]);
@@ -329,15 +346,15 @@ test('happy path: consume then completeAuthorization with exact nine-key bound m
   assert.equal(Object.isFrozen(req), true);
   assert.deepEqual(Reflect.ownKeys(req), [...COMPLETION_KEYS]);
   assert.deepEqual(req, {
+    authorizationCode: CODE,
+    transactionId: OPERATION_ID,
     clientId: CLIENT_ID,
     locationId: LOCATION_ID,
     endpointId: ENDPOINT_ID,
-    transactionId: OPERATION_ID,
     staffUserId: STAFF_ID,
     codeVerifier: VERIFIER,
     nonce: NONCE,
     applicationClientId: APP_CLIENT_ID,
-    authorizationCode: CODE,
   });
   // Interop proof: exact bound location/endpoint/transaction/staff/verifier/nonce/client.
   assert.equal(req.locationId, LOCATION_ID);
@@ -426,6 +443,23 @@ test('completeAuthorization invoked once with locationId and exact key order', a
   assert.equal(completion.calls.length, 1);
   const req = completion.calls[0].request;
   assert.deepEqual(Reflect.ownKeys(req), [
+    'authorizationCode',
+    'transactionId',
+    'clientId',
+    'locationId',
+    'endpointId',
+    'staffUserId',
+    'codeVerifier',
+    'nonce',
+    'applicationClientId',
+  ]);
+  assert.equal(req.locationId, LOCATION_ID);
+  assert.equal(Object.keys(req).length, 9);
+});
+
+test('old clientId-first completion order fails exact assertion; required order reaches completeAuthorization once', async function oldClientIdFirstOrderFails() {
+  // Prior wrong nine-key order (clientId first, authorizationCode last).
+  const OLD_CLIENT_ID_FIRST = [
     'clientId',
     'locationId',
     'endpointId',
@@ -435,9 +469,42 @@ test('completeAuthorization invoked once with locationId and exact key order', a
     'nonce',
     'applicationClientId',
     'authorizationCode',
-  ]);
+  ];
+  const REQUIRED = [
+    'authorizationCode',
+    'transactionId',
+    'clientId',
+    'locationId',
+    'endpointId',
+    'staffUserId',
+    'codeVerifier',
+    'nonce',
+    'applicationClientId',
+  ];
+  assert.notDeepEqual(
+    [...COMPLETION_KEYS],
+    OLD_CLIENT_ID_FIRST,
+    'exported COMPLETION_KEYS must not be the old clientId-first order',
+  );
+  assert.deepEqual([...COMPLETION_KEYS], REQUIRED);
+  assert.notDeepEqual(OLD_CLIENT_ID_FIRST, REQUIRED);
+  assert.equal(OLD_CLIENT_ID_FIRST[0], 'clientId');
+  assert.equal(OLD_CLIENT_ID_FIRST[OLD_CLIENT_ID_FIRST.length - 1], 'authorizationCode');
+  assert.equal(REQUIRED[0], 'authorizationCode');
+  assert.equal(REQUIRED[REQUIRED.length - 1], 'applicationClientId');
+
+  // Runtime proof: required order is what completeAuthorization receives, once.
+  const { service, completion, repository } = composition();
+  const result = await service.accept(goodCodeInput(), goodOwner());
+  assert.deepEqual(result, PUBLIC_STATUS_RECEIVED);
+  assert.equal(repository.calls.length, 1);
+  assert.equal(completion.calls.length, 1);
+  const req = completion.calls[0].request;
+  assert.deepEqual(Reflect.ownKeys(req), REQUIRED);
+  assert.notDeepEqual(Reflect.ownKeys(req), OLD_CLIENT_ID_FIRST);
+  assert.equal(req.authorizationCode, CODE);
+  assert.equal(req.applicationClientId, APP_CLIENT_ID);
   assert.equal(req.locationId, LOCATION_ID);
-  assert.equal(Object.keys(req).length, 9);
 });
 
 test('wrong or mutated row location cannot be omitted or substituted into completion', async function locationFromRowOnly() {

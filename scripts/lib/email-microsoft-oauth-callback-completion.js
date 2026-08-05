@@ -81,21 +81,24 @@ const CONSUME_ROW_KEY_SET = new Set(CONSUME_ROW_KEYS);
 
 /**
  * Exact ordered nine-key completion material (server-confined).
+ * Required order: authorizationCode first, then transactionId, clientId,
+ * locationId, endpointId, staffUserId, codeVerifier, nonce,
+ * applicationClientId last.
  * Sourced only from owner/input/row snapshots + env application client id.
  * Never authSession, state, state hash, raw DB row, provider error, or token.
  * Keep transactionId/staffUserId names here; do not rename to operationId/
  * actorStaffUserId at this callback boundary.
  */
 const COMPLETION_KEYS = Object.freeze([
+  'authorizationCode',
+  'transactionId',
   'clientId',
   'locationId',
   'endpointId',
-  'transactionId',
   'staffUserId',
   'codeVerifier',
   'nonce',
   'applicationClientId',
-  'authorizationCode',
 ]);
 
 const CALLBACK_KEY_SHAPES = Object.freeze([CALLBACK_CODE_KEYS, CALLBACK_ERROR_KEYS]);
@@ -410,17 +413,18 @@ function createMicrosoftOAuthCallbackCompletionService(dependencies) {
         return PUBLIC_STATUS_DECLINED;
       }
 
-      // Code path: hand exact frozen ordered nine-key completion material once.
+      // Code path: hand exact frozen ordered nine-key completion material once
+      // (authorizationCode first … applicationClientId last).
       const completionInput = Object.freeze({
+        authorizationCode: inputSnap.code,
+        transactionId: rowSnap.transactionId,
         clientId: ownerSnap.clientId,
         locationId: rowSnap.locationId,
         endpointId: rowSnap.endpointId,
-        transactionId: rowSnap.transactionId,
         staffUserId: rowSnap.staffUserId,
         codeVerifier: rowSnap.codeVerifier,
         nonce: rowSnap.nonce,
         applicationClientId: pinned.applicationClientId,
-        authorizationCode: inputSnap.code,
       });
       if (!exactPlainData(completionInput, COMPLETION_KEYS)) throw failure();
       // Hard ban: no authSession/state/hash/raw row/error/token on completion surface.
