@@ -81,8 +81,13 @@ const INSTALL_KEYS = Object.freeze([
 ]);
 /** Exact sealedAck shape required by response-custody handoff. */
 const SEALED_ACK = Object.freeze({ status: 'accepted' });
-/** Downstream installer surface method (owner-preserving receiver). */
-const INSTALLER_METHOD = 'installInitialDelegatedGrant';
+/**
+ * Future atomic installer boundary (owner-preserving receiver).
+ * Not the existing custodian installInitialDelegatedGrant (envelope-only;
+ * does not bind verified identity). This adapter targets a single-method
+ * future installer that atomically receives identity + envelope.
+ */
+const INSTALLER_METHOD = 'install';
 
 function failure() {
   const error = new Error(ERROR_MESSAGE);
@@ -305,7 +310,7 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
   let clock;
   let nowEpochSecondsFn;
   let installer;
-  let installInitialDelegatedGrant;
+  let install;
 
   try {
     frozenConfig = snapshotAndValidateConfig(config);
@@ -319,6 +324,8 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
 
     if (!exactFrozenService(verifiedIdentity, 'verifyIdentity')) throw failure();
     if (!exactFrozenService(clock, 'nowEpochSeconds')) throw failure();
+    // Exact future atomic installer surface only — reject envelope-only
+    // installInitialDelegatedGrant and any other non-exact method name.
     if (!exactFrozenService(installer, INSTALLER_METHOD)) throw failure();
 
     const providerOk = validateEmailGrantEnvelopeProvider(rawEnvelopeProvider);
@@ -329,7 +336,7 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
 
     verifyIdentity = ownData(verifiedIdentity, 'verifyIdentity');
     nowEpochSecondsFn = ownData(clock, 'nowEpochSeconds');
-    installInitialDelegatedGrant = ownData(installer, INSTALLER_METHOD);
+    install = ownData(installer, INSTALLER_METHOD);
   } catch {
     throw failure();
   }
@@ -426,11 +433,7 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
 
       let ack;
       try {
-        ack = await Reflect.apply(
-          installInitialDelegatedGrant,
-          installer,
-          [installInput],
-        );
+        ack = await Reflect.apply(install, installer, [installInput]);
       } catch {
         throw failure();
       }

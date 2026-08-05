@@ -132,7 +132,7 @@ function stubClock(spec = {}) {
 function stubInstaller(spec = {}) {
   const calls = [];
   const installer = Object.freeze({
-    async installInitialDelegatedGrant(request) {
+    async install(request) {
       calls.push({ request, thisValue: this });
       if (spec.wait) await spec.wait;
       if (spec.throw) throw new Error(`${LEAK} installer`);
@@ -266,7 +266,7 @@ test('exports frozen factory, fixed error constants, and custody-aligned bounds'
   assert.deepEqual([...INSTALL_KEYS], [
     'clientId', 'endpointId', 'operationId', 'actorStaffUserId', 'identity', 'envelope',
   ]);
-  assert.equal(INSTALLER_METHOD, 'installInitialDelegatedGrant');
+  assert.equal(INSTALLER_METHOD, 'install');
   assert.deepEqual(SEALED_ACK, { status: 'accepted' });
   assert.equal(Object.isFrozen(SEALED_ACK), true);
 });
@@ -437,7 +437,7 @@ test('strict order clock then identity then seal then install', async function s
     async rewrapGrantDek() { throw new Error('no rewrap'); },
   };
   const installer = Object.freeze({
-    async installInitialDelegatedGrant() {
+    async install() {
       order.push('install');
       return Object.freeze({ status: 'accepted' });
     },
@@ -479,7 +479,7 @@ test('never seals before identity succeeds and never installs before seal', asyn
     async rewrapGrantDek() { throw new Error('no'); },
   };
   const installer = Object.freeze({
-    async installInitialDelegatedGrant() {
+    async install() {
       order.push('install');
       return Object.freeze({ status: 'accepted' });
     },
@@ -508,7 +508,7 @@ test('never seals before identity succeeds and never installs before seal', asyn
     async rewrapGrantDek() { throw new Error('no'); },
   };
   const install2 = Object.freeze({
-    async installInitialDelegatedGrant() {
+    async install() {
       order2.push('install');
       return Object.freeze({ status: 'accepted' });
     },
@@ -650,16 +650,26 @@ test('rejects hostile factory dependency traps, accessors, symbols, prototypes',
       verifiedIdentity: goodId,
       envelopeProvider: goodEnv,
       clock: goodClock,
-      // wrong method name — must be installInitialDelegatedGrant, not install
+      // wrong method name — future atomic boundary is install, not installVerifiedGrant
       installer: Object.freeze({
-        install: async () => Object.freeze({ status: 'accepted' }),
+        installVerifiedGrant: async () => Object.freeze({ status: 'accepted' }),
       }),
     }),
     Object.freeze({
       verifiedIdentity: goodId,
       envelopeProvider: goodEnv,
       clock: goodClock,
-      installer: { installInitialDelegatedGrant: async () => Object.freeze({ status: 'accepted' }) },
+      // existing envelope-only custodian method — rejected (does not bind identity)
+      installer: Object.freeze({
+        installInitialDelegatedGrant: async () => Object.freeze({ status: 'accepted' }),
+      }),
+    }),
+    Object.freeze({
+      verifiedIdentity: goodId,
+      envelopeProvider: goodEnv,
+      clock: goodClock,
+      // unfrozen installer service even with correct method name
+      installer: { install: async () => Object.freeze({ status: 'accepted' }) },
     }),
     // unfrozen deps bag
     {
@@ -1146,6 +1156,85 @@ test('fake roundtrip package decode proves refresh-only EMAIL_GRANT_PKG_V1', asy
   assert.equal(decoded.ok, false);
 });
 
+// ── Future atomic installer boundary regression ─────────────────────────────
+
+test('rejects envelope-only installInitialDelegatedGrant before use; exact install invoked once with identity+envelope', async function futureAtomicInstallerBoundary() {
+  // Existing custodian surface installs envelope only and does NOT bind verified
+  // identity. Adapter must refuse it at factory time (zero calls / never used).
+  const envelopeOnlyCalls = [];
+  const envelopeOnlyInstaller = Object.freeze({
+    async installInitialDelegatedGrant(request) {
+      envelopeOnlyCalls.push(request);
+      return Object.freeze({ status: 'accepted' });
+    },
+  });
+  assert.throws(
+    () => createMicrosoftVerifiedGrantCustodyAdapter(
+      goodConfig(),
+      Object.freeze({
+        verifiedIdentity: stubIdentity().verifiedIdentity,
+        envelopeProvider: stubEnvelope().envelopeProvider,
+        clock: stubClock().clock,
+        installer: envelopeOnlyInstaller,
+      }),
+    ),
+    (error) => error.code === ERROR_CODE && !String(error).includes(LEAK),
+  );
+  assert.equal(envelopeOnlyCalls.length, 0);
+  assert.equal(typeof envelopeOnlyInstaller.installInitialDelegatedGrant, 'function');
+  assert.equal(envelopeOnlyInstaller.install, undefined);
+
+  // Also reject when both methods are present (exact single-method install only).
+  assert.throws(
+    () => createMicrosoftVerifiedGrantCustodyAdapter(
+      goodConfig(),
+      Object.freeze({
+        verifiedIdentity: stubIdentity().verifiedIdentity,
+        envelopeProvider: stubEnvelope().envelopeProvider,
+        clock: stubClock().clock,
+        installer: Object.freeze({
+          install: async () => Object.freeze({ status: 'accepted' }),
+          installInitialDelegatedGrant: async () => Object.freeze({ status: 'accepted' }),
+        }),
+      }),
+    ),
+    (error) => error.code === ERROR_CODE,
+  );
+
+  // Exact future atomic installer.install is invoked once with identity+envelope.
+  const atomicCalls = [];
+  const atomicInstaller = Object.freeze({
+    async install(request) {
+      atomicCalls.push({ request, thisValue: this });
+      return Object.freeze({ status: 'accepted' });
+    },
+  });
+  const adapter = createMicrosoftVerifiedGrantCustodyAdapter(
+    goodConfig(),
+    Object.freeze({
+      verifiedIdentity: stubIdentity().verifiedIdentity,
+      envelopeProvider: stubEnvelope().envelopeProvider,
+      clock: stubClock().clock,
+      installer: atomicInstaller,
+    }),
+  );
+  const result = await adapter.acceptValidatedTokens(goodSelected());
+  assert.deepEqual(result, SEALED_ACK);
+  assert.equal(atomicCalls.length, 1);
+  assert.equal(atomicCalls[0].thisValue, atomicInstaller);
+  assert.deepEqual(Reflect.ownKeys(atomicCalls[0].request), [...INSTALL_KEYS]);
+  assert.deepEqual(Reflect.ownKeys(atomicCalls[0].request), [
+    'clientId', 'endpointId', 'operationId', 'actorStaffUserId', 'identity', 'envelope',
+  ]);
+  assert.deepEqual(atomicCalls[0].request.identity, goodIdentity());
+  assert.equal(Object.isFrozen(atomicCalls[0].request.identity), true);
+  assert.equal(validateGrantEnvelopeRecordV1(atomicCalls[0].request.envelope).ok, true);
+  assertNoSensitiveKeys(atomicCalls[0].request);
+  assert.equal(INSTALLER_METHOD, 'install');
+  assert.equal(typeof atomicInstaller.install, 'function');
+  assert.equal(atomicInstaller.installInitialDelegatedGrant, undefined);
+});
+
 // ── Response-custody interoperability regression ───────────────────────────
 
 test('merged response-custody handoff with this adapter as custody returns only custodied', async function responseCustodyInterop() {
@@ -1250,8 +1339,9 @@ test('merged response-custody handoff with this adapter as custody returns only 
   assertNoSensitiveKeys(installer.calls[0].request);
   assert.equal(installer.calls[0].request.identity.mailboxAddress, MAILBOX);
   assert.equal(validateGrantEnvelopeRecordV1(installer.calls[0].request.envelope).ok, true);
-  assert.equal(typeof installer.installer.installInitialDelegatedGrant, 'function');
-  assert.equal(installer.installer.install, undefined);
+  assert.equal(typeof installer.installer.install, 'function');
+  assert.equal(installer.installer.installInitialDelegatedGrant, undefined);
+  assert.equal(installer.installer.installVerifiedGrant, undefined);
 
   // Seal used refresh only; no access/id tokens on seal or installer surfaces.
   const seal = envelope.calls.find((c) => c.op === 'seal');
