@@ -19,7 +19,9 @@ function generate32(randomBytes, error) {
   return value;
 }
 function exactObject(value, keys) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return false;
   const own = Object.keys(value);
   return own.length === keys.length && own.every((key) => keys.includes(key));
 }

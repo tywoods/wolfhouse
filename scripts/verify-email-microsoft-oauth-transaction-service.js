@@ -26,6 +26,9 @@ const env={LUNA_EMAIL_OAUTH_START_ENABLED:'true',LUNA_DEPLOYMENT:'sunset-staging
   assert.deepStrictEqual(await callback.accept({state,code:'provider-code'}, {clientId:ids.clientId,authSessionId:ids.authSessionId}),{status:'authorization_received'});
   assert.strictEqual(consumed.stateHash.equals(crypto.createHash('sha256').update(state,'ascii').digest()),true); assert.strictEqual(consumed.clientId,ids.clientId); assert.strictEqual(consumed.authSessionId,ids.authSessionId);
   assert.deepStrictEqual(await callback.accept({state,error:'access_denied'}, {clientId:ids.clientId,authSessionId:ids.authSessionId}),{status:'authorization_declined'});
+  const parsedQuery=require('url').parse(`/staff/email/oauth/microsoft/callback?state=${state}&code=provider-code`,true).query;
+  assert.strictEqual(Object.getPrototypeOf(parsedQuery),null);
+  assert.deepStrictEqual(await callback.accept(parsedQuery,{clientId:ids.clientId,authSessionId:ids.authSessionId}),{status:'authorization_received'});
   for(const hostile of [{state,code:'x',error:'access_denied'},{state:'bad',code:'x'},{state,code:''},{state,error:'bad error'},{state,code:'x',scope:'evil'},Object.create({state,code:'x'}),null]) await assert.rejects(()=>callback.accept(hostile,{clientId:ids.clientId,authSessionId:ids.authSessionId}),/invalid_request/);
   await assert.rejects(()=>callback.accept({state,code:'x'},{clientId:ids.clientId,authSessionId:'bad'}),/invalid_owner/);
   console.log('PASS email Microsoft OAuth transaction service hostile gates');
