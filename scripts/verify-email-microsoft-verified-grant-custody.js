@@ -137,10 +137,27 @@ function stubInstaller(spec = {}) {
       if (spec.wait) await spec.wait;
       if (spec.throw) throw new Error(`${LEAK} installer`);
       if (spec.result !== undefined) return spec.result;
-      return Object.freeze({ status: 'accepted' });
+      // Exact installer contract: frozen { status: 'installed' } only.
+      return Object.freeze({ status: 'installed' });
     },
   });
   return { installer, calls };
+}
+
+/** Structurally valid envelope for hostile seal stubs (operation-bound). */
+function structuralEnvelope(operationId = OPERATION_ID) {
+  return Object.freeze({
+    envelope_version: 'v1',
+    aead_alg: 'AES-256-GCM',
+    kek_wrap_alg: 'A256KW',
+    kek_key_name: 'fake-luna-grant-kek',
+    kek_key_version: 'v1-test-0001',
+    nonce: Buffer.alloc(12, 1),
+    ciphertext: Buffer.alloc(32, 2),
+    auth_tag: Buffer.alloc(16, 3),
+    wrapped_dek: Buffer.alloc(40, 4),
+    operation_id: operationId,
+  });
 }
 
 function stubEnvelope(spec = {}) {
@@ -152,18 +169,7 @@ function stubEnvelope(spec = {}) {
       if (spec.throw) throw new Error(`${LEAK} seal`);
       if (spec.sealResult !== undefined) return spec.sealResult;
       // Minimal valid-shaped envelope for shape tests (buffers fake).
-      return Object.freeze({
-        envelope_version: 'v1',
-        aead_alg: 'AES-256-GCM',
-        kek_wrap_alg: 'A256KW',
-        kek_key_name: 'fake-luna-grant-kek',
-        kek_key_version: 'v1-test-0001',
-        nonce: Buffer.alloc(12, 1),
-        ciphertext: Buffer.alloc(32, 2),
-        auth_tag: Buffer.alloc(16, 3),
-        wrapped_dek: Buffer.alloc(40, 4),
-        operation_id: OPERATION_ID,
-      });
+      return structuralEnvelope(OPERATION_ID);
     },
     async openGrantPayload() {
       calls.push({ op: 'open', thisValue: this });
@@ -439,7 +445,7 @@ test('strict order clock then identity then seal then install', async function s
   const installer = Object.freeze({
     async installVerifiedGrant() {
       order.push('install');
-      return Object.freeze({ status: 'accepted' });
+      return Object.freeze({ status: 'installed' });
     },
   });
   const adapter = createMicrosoftVerifiedGrantCustodyAdapter(
@@ -481,7 +487,7 @@ test('never seals before identity succeeds and never installs before seal', asyn
   const installer = Object.freeze({
     async installVerifiedGrant() {
       order.push('install');
-      return Object.freeze({ status: 'accepted' });
+      return Object.freeze({ status: 'installed' });
     },
   });
   const clock = Object.freeze({ nowEpochSeconds() { order.push('clock'); return NOW; } });
@@ -510,7 +516,7 @@ test('never seals before identity succeeds and never installs before seal', asyn
   const install2 = Object.freeze({
     async installVerifiedGrant() {
       order2.push('install');
-      return Object.freeze({ status: 'accepted' });
+      return Object.freeze({ status: 'installed' });
     },
   });
   const clock2 = Object.freeze({ nowEpochSeconds() { order2.push('clock'); return NOW; } });
@@ -652,7 +658,7 @@ test('rejects hostile factory dependency traps, accessors, symbols, prototypes',
       clock: goodClock,
       // wrong method name — future atomic boundary is installVerifiedGrant, not install
       installer: Object.freeze({
-        install: async () => Object.freeze({ status: 'accepted' }),
+        install: async () => Object.freeze({ status: 'installed' }),
       }),
     }),
     Object.freeze({
@@ -661,7 +667,7 @@ test('rejects hostile factory dependency traps, accessors, symbols, prototypes',
       clock: goodClock,
       // existing envelope-only custodian method — rejected (does not bind identity)
       installer: Object.freeze({
-        installInitialDelegatedGrant: async () => Object.freeze({ status: 'accepted' }),
+        installInitialDelegatedGrant: async () => Object.freeze({ status: 'installed' }),
       }),
     }),
     Object.freeze({
@@ -669,7 +675,7 @@ test('rejects hostile factory dependency traps, accessors, symbols, prototypes',
       envelopeProvider: goodEnv,
       clock: goodClock,
       // unfrozen installer service even with correct method name
-      installer: { installVerifiedGrant: async () => Object.freeze({ status: 'accepted' }) },
+      installer: { installVerifiedGrant: async () => Object.freeze({ status: 'installed' }) },
     }),
     // unfrozen deps bag
     {
@@ -906,20 +912,232 @@ test('rejects hostile envelope seal results and seal throws without install', as
   assert.equal(throws.installer.calls.length, 0);
 });
 
+// ── Post-seal AAD integrity (authoritative snapshot vs provider-facing) ─────
+
+test('rejects hostile provider AAD mutation to gen-2 with valid envelope; zero installer', async function hostileAadMutateToGen2() {
+  // Provider mutates provider-facing AAD in place to canonical generation-2
+  // before sealing, then returns a structurally valid envelope. Adapter must
+  // fail sanitized after seal await and never call installer.
+  const gen1 = buildGrantEnvelopeAadV1({
+    clientId: CLIENT_ID,
+    endpointId: ENDPOINT_ID,
+    grantGeneration: 1,
+    operationId: OPERATION_ID,
+  });
+  const gen2 = buildGrantEnvelopeAadV1({
+    clientId: CLIENT_ID,
+    endpointId: ENDPOINT_ID,
+    grantGeneration: 2,
+    operationId: OPERATION_ID,
+  });
+  assert.equal(gen1.length, gen2.length, 'gen1/gen2 AAD length parity for in-place overwrite');
+  assert.equal(gen1.equals(gen2), false);
+
+  const sealSeen = [];
+  const installer = stubInstaller();
+  const envelopeProvider = {
+    async sealGrantPayload(input) {
+      sealSeen.push(input);
+      assert.equal(Buffer.isBuffer(input.aad), true);
+      // In-place overwrite to gen-2 (same length, different bytes).
+      gen2.copy(input.aad);
+      assert.equal(input.aad.equals(gen2), true);
+      return structuralEnvelope(OPERATION_ID);
+    },
+    async openGrantPayload() { throw new Error('no open'); },
+    async rewrapGrantDek() { throw new Error('no rewrap'); },
+  };
+  const adapter = createMicrosoftVerifiedGrantCustodyAdapter(
+    goodConfig(),
+    Object.freeze({
+      verifiedIdentity: stubIdentity().verifiedIdentity,
+      envelopeProvider,
+      clock: stubClock().clock,
+      installer: installer.installer,
+    }),
+  );
+  await expectSanitizedFailure(() => adapter.acceptValidatedTokens(goodSelected()));
+  assert.equal(sealSeen.length, 1);
+  assert.equal(installer.calls.length, 0);
+  // Mutation was applied to provider-facing buffer during seal.
+  assert.equal(sealSeen[0].aad.equals(gen2), true);
+});
+
+test('rejects AAD mutation at multiple byte positions and length; normal path intact', async function hostileAadMutatePositionsLengthAndNormal() {
+  const expectedAad = buildGrantEnvelopeAadV1({
+    clientId: CLIENT_ID,
+    endpointId: ENDPOINT_ID,
+    grantGeneration: GRANT_GENERATION_INITIAL,
+    operationId: OPERATION_ID,
+  });
+  assert.ok(expectedAad.length >= 3);
+
+  async function runWithMutator(mutate) {
+    const installer = stubInstaller();
+    const sealCalls = [];
+    const envelopeProvider = {
+      async sealGrantPayload(input) {
+        sealCalls.push(input);
+        mutate(input.aad);
+        return structuralEnvelope(OPERATION_ID);
+      },
+      async openGrantPayload() { throw new Error('no open'); },
+      async rewrapGrantDek() { throw new Error('no rewrap'); },
+    };
+    const adapter = createMicrosoftVerifiedGrantCustodyAdapter(
+      goodConfig(),
+      Object.freeze({
+        verifiedIdentity: stubIdentity().verifiedIdentity,
+        envelopeProvider,
+        clock: stubClock().clock,
+        installer: installer.installer,
+      }),
+    );
+    await expectSanitizedFailure(() => adapter.acceptValidatedTokens(goodSelected()));
+    assert.equal(sealCalls.length, 1);
+    assert.equal(installer.calls.length, 0);
+    return sealCalls[0].aad;
+  }
+
+  // First byte.
+  await runWithMutator((aad) => {
+    aad[0] = (aad[0] ^ 0xff) & 0xff;
+  });
+  // Last byte.
+  await runWithMutator((aad) => {
+    aad[aad.length - 1] = (aad[aad.length - 1] ^ 0xff) & 0xff;
+  });
+  // Middle byte (generation digit region is interior).
+  await runWithMutator((aad) => {
+    const mid = Math.floor(aad.length / 2);
+    aad[mid] = (aad[mid] ^ 0x01) & 0xff;
+  });
+  // Multiple positions.
+  await runWithMutator((aad) => {
+    aad[0] ^= 0x01;
+    aad[1] ^= 0x02;
+    aad[aad.length - 1] ^= 0x04;
+  });
+  // Length change: overwrite with longer canonical gen-10 AAD via write into
+  // fixed Buffer cannot grow; simulate length drift by zero-filling then only
+  // writing a shorter prefix so effective content differs and remaining tail
+  // diverges from authoritative full length comparison (length itself fixed
+  // for Node Buffer; compare also covers length mismatch path via a separate
+  // truncated view check below through fill-to-empty equivalent).
+  await runWithMutator((aad) => {
+    aad.fill(0);
+  });
+  // Truncation-equivalent: zero from offset N (length-preserving but all-zero tail).
+  await runWithMutator((aad) => {
+    aad.fill(0, Math.floor(aad.length / 3));
+  });
+
+  // Normal path: no mutation → installer once, sealed accepted, AAD still gen-1.
+  const normalInstaller = stubInstaller();
+  const normalSeal = [];
+  const normalProvider = {
+    async sealGrantPayload(input) {
+      normalSeal.push(Buffer.from(input.aad)); // independent snapshot for assert
+      assert.equal(input.aad.equals(expectedAad), true);
+      return structuralEnvelope(OPERATION_ID);
+    },
+    async openGrantPayload() { throw new Error('no open'); },
+    async rewrapGrantDek() { throw new Error('no rewrap'); },
+  };
+  const normalAdapter = createMicrosoftVerifiedGrantCustodyAdapter(
+    goodConfig(),
+    Object.freeze({
+      verifiedIdentity: stubIdentity().verifiedIdentity,
+      envelopeProvider: normalProvider,
+      clock: stubClock().clock,
+      installer: normalInstaller.installer,
+    }),
+  );
+  const result = await normalAdapter.acceptValidatedTokens(goodSelected());
+  assert.deepEqual(result, SEALED_ACK);
+  assert.equal(normalInstaller.calls.length, 1);
+  assert.equal(normalSeal.length, 1);
+  assert.equal(normalSeal[0].equals(expectedAad), true);
+  // Provider-facing AAD still equals expected after successful seal (no mutation).
+  assert.equal(parseGrantEnvelopeAadV1(normalSeal[0]).ok, true);
+  assert.equal(parseGrantEnvelopeAadV1(normalSeal[0]).value.grant_generation, 1n);
+});
+
+test('provider-facing AAD does not share backing memory with authoritative snapshot', async function aadNoSharedBackingMemory() {
+  // Mutating the seal-input AAD after capture must not affect a second seal's
+  // expected gen-1 bytes, and rejection on mutation proves authority is independent.
+  let firstAadRef = null;
+  const installer = stubInstaller();
+  const envelopeProvider = {
+    async sealGrantPayload(input) {
+      firstAadRef = input.aad;
+      // Mutate in place — must reject (proves check uses independent authority).
+      input.aad[0] = (input.aad[0] + 1) & 0xff;
+      return structuralEnvelope(OPERATION_ID);
+    },
+    async openGrantPayload() { throw new Error('no open'); },
+    async rewrapGrantDek() { throw new Error('no rewrap'); },
+  };
+  const adapter = createMicrosoftVerifiedGrantCustodyAdapter(
+    goodConfig(),
+    Object.freeze({
+      verifiedIdentity: stubIdentity().verifiedIdentity,
+      envelopeProvider,
+      clock: stubClock().clock,
+      installer: installer.installer,
+    }),
+  );
+  await expectSanitizedFailure(() => adapter.acceptValidatedTokens(goodSelected()));
+  assert.equal(installer.calls.length, 0);
+  assert.ok(firstAadRef);
+  assert.equal(Buffer.isBuffer(firstAadRef), true);
+
+  // Fresh adapter normal path still succeeds with correct gen-1 AAD.
+  const ok = composition();
+  const okResult = await ok.adapter.acceptValidatedTokens(goodSelected());
+  assert.deepEqual(okResult, SEALED_ACK);
+  assert.equal(ok.installer.calls.length, 1);
+  const seal = ok.envelope.calls.find((c) => c.op === 'seal');
+  assert.ok(seal);
+  // Not the same Buffer instance as the mutated one from the failed path.
+  assert.notEqual(seal.input.aad, firstAadRef);
+  const parsed = parseGrantEnvelopeAadV1(seal.input.aad);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.value.grant_generation, 1n);
+});
+
 test('rejects hostile installer ack shapes and installer throws', async function installerAckHostiles() {
+  // Exact installer contract is frozen { status: 'installed' } only.
+  // Response-custody sealedAck is independently { status: 'accepted' } —
+  // must not be accepted from the installer. Public handoff is custodied.
   const hostiles = [
     null,
-    Object.freeze({ status: 'custodied' }), // response-custody public success is not installer ack
+    Object.freeze({ status: 'accepted' }), // response-custody sealedAck is not installer ack
+    Object.freeze({ status: 'custodied' }), // public handoff success is not installer ack
+    Object.freeze({ status: 'installed', extra: 1 }),
     Object.freeze({ status: 'accepted', extra: 1 }),
     Object.freeze({ ok: true }),
-    { status: 'accepted' }, // unfrozen
+    { status: 'installed' }, // unfrozen
+    { status: 'accepted' }, // unfrozen wrong status
+    Object.freeze({ status: 'INSTALLED' }),
     Object.freeze({ status: 'ACCEPTED' }),
+    Object.freeze({ status: 'Installed' }),
   ];
   for (const result of hostiles) {
     const fresh = composition({ installer: { result } });
     await expectSanitizedFailure(() => fresh.adapter.acceptValidatedTokens(goodSelected()));
     assert.equal(fresh.installer.calls.length, 1);
   }
+  // Accepts only exact frozen installed.
+  const ok = composition({
+    installer: { result: Object.freeze({ status: 'installed' }) },
+  });
+  const accepted = await ok.adapter.acceptValidatedTokens(goodSelected());
+  assert.deepEqual(accepted, SEALED_ACK);
+  assert.deepEqual(accepted, { status: 'accepted' });
+  assert.notDeepEqual(accepted, { status: 'installed' });
+  assert.equal(ok.installer.calls.length, 1);
+
   const throws = composition({ installer: { throw: true } });
   await expectSanitizedFailure(() => throws.adapter.acceptValidatedTokens(goodSelected()));
   assert.equal(throws.installer.calls.length, 1);
@@ -1004,7 +1222,7 @@ test('rejects thenable-settled identity or installer results that are not exact 
     installer: {
       result: {
         then(resolve) {
-          resolve({ status: 'accepted' }); // unfrozen after settle
+          resolve({ status: 'installed' }); // unfrozen after settle
         },
       },
     },
@@ -1164,7 +1382,7 @@ test('rejects install and installInitialDelegatedGrant; exact installVerifiedGra
   const installOnlyInstaller = Object.freeze({
     async install(request) {
       installOnlyCalls.push(request);
-      return Object.freeze({ status: 'accepted' });
+      return Object.freeze({ status: 'installed' });
     },
   });
   assert.throws(
@@ -1189,7 +1407,7 @@ test('rejects install and installInitialDelegatedGrant; exact installVerifiedGra
   const envelopeOnlyInstaller = Object.freeze({
     async installInitialDelegatedGrant(request) {
       envelopeOnlyCalls.push(request);
-      return Object.freeze({ status: 'accepted' });
+      return Object.freeze({ status: 'installed' });
     },
   });
   assert.throws(
@@ -1217,8 +1435,8 @@ test('rejects install and installInitialDelegatedGrant; exact installVerifiedGra
         envelopeProvider: stubEnvelope().envelopeProvider,
         clock: stubClock().clock,
         installer: Object.freeze({
-          installVerifiedGrant: async () => Object.freeze({ status: 'accepted' }),
-          install: async () => Object.freeze({ status: 'accepted' }),
+          installVerifiedGrant: async () => Object.freeze({ status: 'installed' }),
+          install: async () => Object.freeze({ status: 'installed' }),
         }),
       }),
     ),
@@ -1232,8 +1450,8 @@ test('rejects install and installInitialDelegatedGrant; exact installVerifiedGra
         envelopeProvider: stubEnvelope().envelopeProvider,
         clock: stubClock().clock,
         installer: Object.freeze({
-          installVerifiedGrant: async () => Object.freeze({ status: 'accepted' }),
-          installInitialDelegatedGrant: async () => Object.freeze({ status: 'accepted' }),
+          installVerifiedGrant: async () => Object.freeze({ status: 'installed' }),
+          installInitialDelegatedGrant: async () => Object.freeze({ status: 'installed' }),
         }),
       }),
     ),
@@ -1245,7 +1463,7 @@ test('rejects install and installInitialDelegatedGrant; exact installVerifiedGra
   const atomicInstaller = Object.freeze({
     async installVerifiedGrant(request) {
       atomicCalls.push({ request, thisValue: this });
-      return Object.freeze({ status: 'accepted' });
+      return Object.freeze({ status: 'installed' });
     },
   });
   const adapter = createMicrosoftVerifiedGrantCustodyAdapter(

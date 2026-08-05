@@ -16,6 +16,7 @@
  * @module email-microsoft-verified-grant-custody
  */
 
+const { timingSafeEqual } = require('crypto');
 const {
   buildGrantEnvelopeAadV1,
   validateGrantEnvelopeRecordV1,
@@ -81,6 +82,12 @@ const INSTALL_KEYS = Object.freeze([
 ]);
 /** Exact sealedAck shape required by response-custody handoff. */
 const SEALED_ACK = Object.freeze({ status: 'accepted' });
+/**
+ * Exact installer acknowledgement. Distinct from response-custody sealedAck
+ * (`accepted`) and public handoff success (`custodied`). Adapter validates
+ * this from the installer, then independently returns SEALED_ACK upstream.
+ */
+const INSTALLER_ACK_STATUS = 'installed';
 /**
  * Future atomic installer boundary (owner-preserving receiver).
  * Not install (too generic) and not the existing custodian
@@ -292,8 +299,33 @@ function sealedInstallerAck(value) {
     && Object.isFrozen(value)
     && Object.getPrototypeOf(value) === Object.prototype
     && Reflect.ownKeys(value).length === 1
-    && ownData(value, 'status') === 'accepted',
+    && ownData(value, 'status') === INSTALLER_ACK_STATUS,
   );
+}
+
+/**
+ * Independent Buffer copy (no shared ArrayBuffer backing).
+ * @param {Buffer} source
+ * @returns {Buffer}
+ */
+function independentBufferCopy(source) {
+  const copy = Buffer.alloc(source.length);
+  source.copy(copy);
+  return copy;
+}
+
+/**
+ * Timing-safe byte equality for post-seal AAD integrity.
+ * Length mismatch fails closed without throwing from timingSafeEqual.
+ * @param {Buffer} left
+ * @param {Buffer} right
+ * @returns {boolean}
+ */
+function aadBytesUnchanged(left, right) {
+  if (!Buffer.isBuffer(left) || !Buffer.isBuffer(right)) return false;
+  if (left.length !== right.length) return false;
+  if (left.length === 0) return false;
+  return timingSafeEqual(left, right);
 }
 
 /**
@@ -373,9 +405,10 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
       const identity = readVerifiedIdentity(identityRaw);
       if (!identity) throw failure();
 
-      let aad;
+      // Canonical generation-1 AAD. Authoritative snapshot is never provider-facing.
+      let aadCanonical;
       try {
-        aad = buildGrantEnvelopeAadV1({
+        aadCanonical = buildGrantEnvelopeAadV1({
           clientId: frozenConfig.clientId,
           endpointId: frozenConfig.endpointId,
           grantGeneration: GRANT_GENERATION_INITIAL,
@@ -384,11 +417,15 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
       } catch {
         throw failure();
       }
-      if (!Buffer.isBuffer(aad) || aad.length < 1) throw failure();
+      if (!Buffer.isBuffer(aadCanonical) || aadCanonical.length < 1) throw failure();
+
+      // Independent copies: no shared backing memory between authority and provider.
+      const aadAuthoritative = independentBufferCopy(aadCanonical);
+      const aadProviderFacing = independentBufferCopy(aadCanonical);
 
       const sealInput = Object.freeze({
         refresh_token: selected.refreshToken,
-        aad,
+        aad: aadProviderFacing,
         operation_id: frozenConfig.operationId,
       });
       // Exact seal key allowlist only (refresh sealed; never access/id tokens).
@@ -398,6 +435,12 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
       try {
         envelopeRaw = await Reflect.apply(sealGrantPayload, envelopeProvider, [sealInput]);
       } catch {
+        throw failure();
+      }
+
+      // After seal await, before envelope validation/installer: provider must not
+      // have mutated the AAD bytes or length. Fail sanitized; zero installer calls.
+      if (!aadBytesUnchanged(aadProviderFacing, aadAuthoritative)) {
         throw failure();
       }
 
@@ -437,9 +480,10 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
       } catch {
         throw failure();
       }
+      // Installer must return exact frozen { status: 'installed' } only.
       if (!sealedInstallerAck(ack)) throw failure();
 
-      // Response-custody sealedAck: exact frozen { status: 'accepted' }.
+      // Independently return response-custody sealedAck (not installer ack).
       return SEALED_ACK;
     } catch {
       throw failure();
