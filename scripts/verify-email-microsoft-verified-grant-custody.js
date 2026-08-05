@@ -17,6 +17,9 @@ const {
   GRANT_GENERATION_INITIAL,
   SELECTED_KEYS,
   CONFIG_KEYS,
+  INSTALL_KEYS,
+  INSTALLER_METHOD,
+  SEALED_ACK,
   createMicrosoftVerifiedGrantCustodyAdapter,
 } = require('./lib/email-microsoft-verified-grant-custody');
 const {
@@ -35,7 +38,9 @@ const {
   ID_TOKEN_LIMIT_CHARS: CUSTODY_ID_TOKEN_LIMIT,
   MAX_EXPIRES_IN_SECONDS: CUSTODY_MAX_EXPIRES,
   PHASE_A_SCOPES: CUSTODY_PHASE_A_SCOPES,
+  createMicrosoftTokenResponseCustodyService,
 } = require('./lib/email-microsoft-response-custody-handoff');
+const { EventEmitter } = require('events');
 
 const NOW = 1_900_000_000;
 const CLIENT_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
@@ -127,7 +132,7 @@ function stubClock(spec = {}) {
 function stubInstaller(spec = {}) {
   const calls = [];
   const installer = Object.freeze({
-    async install(request) {
+    async installInitialDelegatedGrant(request) {
       calls.push({ request, thisValue: this });
       if (spec.wait) await spec.wait;
       if (spec.throw) throw new Error(`${LEAK} installer`);
@@ -238,6 +243,9 @@ test('exports frozen factory, fixed error constants, and custody-aligned bounds'
     'GRANT_GENERATION_INITIAL',
     'SELECTED_KEYS',
     'CONFIG_KEYS',
+    'INSTALL_KEYS',
+    'INSTALLER_METHOD',
+    'SEALED_ACK',
     'createMicrosoftVerifiedGrantCustodyAdapter',
   ]);
   assert.equal(Object.isFrozen(exported), true);
@@ -255,22 +263,31 @@ test('exports frozen factory, fixed error constants, and custody-aligned bounds'
     'clientId', 'endpointId', 'operationId', 'actorStaffUserId',
     'expectedNonce', 'expectedClientId',
   ]);
+  assert.deepEqual([...INSTALL_KEYS], [
+    'clientId', 'endpointId', 'operationId', 'actorStaffUserId', 'identity', 'envelope',
+  ]);
+  assert.equal(INSTALLER_METHOD, 'installInitialDelegatedGrant');
+  assert.deepEqual(SEALED_ACK, { status: 'accepted' });
+  assert.equal(Object.isFrozen(SEALED_ACK), true);
 });
 
-test('returns frozen single-method adapter with installVerifiedGrant', async function frozenAdapterShape() {
+test('returns frozen single-method adapter with acceptValidatedTokens', async function frozenAdapterShape() {
   const { adapter } = composition();
-  assert.deepEqual(Object.keys(adapter), ['installVerifiedGrant']);
-  assert.deepEqual(Reflect.ownKeys(adapter), ['installVerifiedGrant']);
+  assert.deepEqual(Object.keys(adapter), ['acceptValidatedTokens']);
+  assert.deepEqual(Reflect.ownKeys(adapter), ['acceptValidatedTokens']);
   assert.equal(Object.isFrozen(adapter), true);
-  assert.equal(typeof adapter.installVerifiedGrant, 'function');
+  assert.equal(typeof adapter.acceptValidatedTokens, 'function');
+  assert.equal('installVerifiedGrant' in adapter, false);
+  assert.equal('install' in adapter, false);
 });
 
 // ── Happy path ─────────────────────────────────────────────────────────────
 
-test('happy path stubs: clock → identity → seal → install → custodied', async function happyPathStubs() {
+test('happy path stubs: clock → identity → seal → install → sealed accepted', async function happyPathStubs() {
   const { adapter, identity, clock, installer, envelope } = composition();
-  const result = await adapter.installVerifiedGrant(goodSelected());
-  assert.deepEqual(result, { status: 'custodied' });
+  const result = await adapter.acceptValidatedTokens(goodSelected());
+  assert.deepEqual(result, { status: 'accepted' });
+  assert.deepEqual(result, SEALED_ACK);
   assert.deepEqual(Object.keys(result), ['status']);
   assert.equal(Object.isFrozen(result), true);
   assert.equal(clock.calls.length, 1);
@@ -282,8 +299,8 @@ test('happy path stubs: clock → identity → seal → install → custodied', 
 
 test('happy path with null actorStaffUserId', async function happyPathNullActor() {
   const { adapter, installer } = composition({ config: nullActorConfig() });
-  const result = await adapter.installVerifiedGrant(goodSelected());
-  assert.deepEqual(result, { status: 'custodied' });
+  const result = await adapter.acceptValidatedTokens(goodSelected());
+  assert.deepEqual(result, { status: 'accepted' });
   assert.equal(installer.calls[0].request.actorStaffUserId, null);
 });
 
@@ -291,7 +308,7 @@ test('happy path with null actorStaffUserId', async function happyPathNullActor(
 
 test('preserves exact clock, verifiedIdentity, envelope, and installer receivers', async function preservesReceivers() {
   const { adapter, identity, clock, installer, envelope, provider } = composition();
-  await adapter.installVerifiedGrant(goodSelected());
+  await adapter.acceptValidatedTokens(goodSelected());
   assert.equal(clock.calls[0].thisValue, clock.clock);
   assert.equal(identity.calls[0].thisValue, identity.verifiedIdentity);
   assert.equal(envelope.calls[0].thisValue, provider);
@@ -302,7 +319,7 @@ test('preserves exact clock, verifiedIdentity, envelope, and installer receivers
 
 test('passes exact identity input from clock snapshot and config only', async function exactIdentityInput() {
   const { adapter, identity, clock } = composition();
-  await adapter.installVerifiedGrant(goodSelected());
+  await adapter.acceptValidatedTokens(goodSelected());
   assert.equal(clock.calls.length, 1);
   assert.deepEqual(Reflect.ownKeys(identity.calls[0].request), [
     'idToken', 'accessToken', 'expectedNonce', 'expectedClientId', 'nowEpochSeconds',
@@ -318,7 +335,7 @@ test('passes exact identity input from clock snapshot and config only', async fu
 
 test('seals only refresh_token with exact gen-1 AAD binding client/endpoint/op', async function exactSealInputAndAad() {
   const { adapter, envelope } = composition();
-  await adapter.installVerifiedGrant(goodSelected());
+  await adapter.acceptValidatedTokens(goodSelected());
   const seal = envelope.calls.find((c) => c.op === 'seal');
   assert.ok(seal);
   assert.deepEqual(Reflect.ownKeys(seal.input), ['refresh_token', 'aad', 'operation_id']);
@@ -349,10 +366,13 @@ test('seals only refresh_token with exact gen-1 AAD binding client/endpoint/op',
 
 test('installer receives exact minimized input with identity and no secrets', async function exactInstallerInput() {
   const { adapter, installer, envelope } = composition();
-  await adapter.installVerifiedGrant(goodSelected());
+  await adapter.acceptValidatedTokens(goodSelected());
   const req = installer.calls[0].request;
   assert.deepEqual(Reflect.ownKeys(req), [
-    'clientId', 'endpointId', 'operationId', 'actorStaffUserId', 'envelope', 'identity',
+    'clientId', 'endpointId', 'operationId', 'actorStaffUserId', 'identity', 'envelope',
+  ]);
+  assert.deepEqual([...INSTALL_KEYS], [
+    'clientId', 'endpointId', 'operationId', 'actorStaffUserId', 'identity', 'envelope',
   ]);
   assert.equal(Object.isFrozen(req), true);
   assert.equal(req.clientId, CLIENT_ID);
@@ -417,7 +437,7 @@ test('strict order clock then identity then seal then install', async function s
     async rewrapGrantDek() { throw new Error('no rewrap'); },
   };
   const installer = Object.freeze({
-    async install() {
+    async installInitialDelegatedGrant() {
       order.push('install');
       return Object.freeze({ status: 'accepted' });
     },
@@ -426,7 +446,7 @@ test('strict order clock then identity then seal then install', async function s
     goodConfig(),
     Object.freeze({ verifiedIdentity, envelopeProvider, clock, installer }),
   );
-  const pending = adapter.installVerifiedGrant(goodSelected());
+  const pending = adapter.acceptValidatedTokens(goodSelected());
   await Promise.resolve();
   assert.deepEqual(order, ['clock', 'identity-start']);
   releaseIdentity();
@@ -459,7 +479,7 @@ test('never seals before identity succeeds and never installs before seal', asyn
     async rewrapGrantDek() { throw new Error('no'); },
   };
   const installer = Object.freeze({
-    async install() {
+    async installInitialDelegatedGrant() {
       order.push('install');
       return Object.freeze({ status: 'accepted' });
     },
@@ -469,7 +489,7 @@ test('never seals before identity succeeds and never installs before seal', asyn
     goodConfig(),
     Object.freeze({ verifiedIdentity, envelopeProvider, clock, installer }),
   );
-  await expectSanitizedFailure(() => adapter.installVerifiedGrant(goodSelected()));
+  await expectSanitizedFailure(() => adapter.acceptValidatedTokens(goodSelected()));
   assert.deepEqual(order, ['clock', 'identity']);
 
   const order2 = [];
@@ -488,7 +508,7 @@ test('never seals before identity succeeds and never installs before seal', asyn
     async rewrapGrantDek() { throw new Error('no'); },
   };
   const install2 = Object.freeze({
-    async install() {
+    async installInitialDelegatedGrant() {
       order2.push('install');
       return Object.freeze({ status: 'accepted' });
     },
@@ -503,7 +523,7 @@ test('never seals before identity succeeds and never installs before seal', asyn
       installer: install2,
     }),
   );
-  await expectSanitizedFailure(() => adapter2.installVerifiedGrant(goodSelected()));
+  await expectSanitizedFailure(() => adapter2.acceptValidatedTokens(goodSelected()));
   assert.deepEqual(order2, ['clock', 'identity', 'seal']);
 });
 
@@ -630,7 +650,16 @@ test('rejects hostile factory dependency traps, accessors, symbols, prototypes',
       verifiedIdentity: goodId,
       envelopeProvider: goodEnv,
       clock: goodClock,
-      installer: { install: async () => Object.freeze({ status: 'accepted' }) },
+      // wrong method name — must be installInitialDelegatedGrant, not install
+      installer: Object.freeze({
+        install: async () => Object.freeze({ status: 'accepted' }),
+      }),
+    }),
+    Object.freeze({
+      verifiedIdentity: goodId,
+      envelopeProvider: goodEnv,
+      clock: goodClock,
+      installer: { installInitialDelegatedGrant: async () => Object.freeze({ status: 'accepted' }) },
     }),
     // unfrozen deps bag
     {
@@ -725,7 +754,7 @@ test('rejects unfrozen or malformed selected input with zero dependency calls', 
   ];
   for (const bad of cases) {
     const fresh = composition();
-    await expectSanitizedFailure(() => fresh.adapter.installVerifiedGrant(bad));
+    await expectSanitizedFailure(() => fresh.adapter.acceptValidatedTokens(bad));
     assert.equal(fresh.clock.calls.length, 0, 'clock must not run on bad input');
     assert.equal(fresh.identity.calls.length, 0);
     assert.equal(fresh.envelope.calls.length, 0);
@@ -744,7 +773,7 @@ test('rejects unfrozen or malformed selected input with zero dependency calls', 
     get() { throw new Error(LEAK); },
   });
   const accessored = composition();
-  await expectSanitizedFailure(() => accessored.adapter.installVerifiedGrant(Object.freeze(accessor)));
+  await expectSanitizedFailure(() => accessored.adapter.acceptValidatedTokens(Object.freeze(accessor)));
   assert.equal(accessored.clock.calls.length, 0);
 
   const withSymbol = {
@@ -757,14 +786,14 @@ test('rejects unfrozen or malformed selected input with zero dependency calls', 
   };
   Object.defineProperty(withSymbol, Symbol('x'), { value: LEAK });
   const symbolled = composition();
-  await expectSanitizedFailure(() => symbolled.adapter.installVerifiedGrant(Object.freeze(withSymbol)));
+  await expectSanitizedFailure(() => symbolled.adapter.acceptValidatedTokens(Object.freeze(withSymbol)));
   assert.equal(symbolled.identity.calls.length, 0);
 
   const protoTrap = new Proxy(goodSelected(), {
     getPrototypeOf() { throw new Error(LEAK); },
   });
   const proxied = composition();
-  await expectSanitizedFailure(() => proxied.adapter.installVerifiedGrant(protoTrap));
+  await expectSanitizedFailure(() => proxied.adapter.acceptValidatedTokens(protoTrap));
   assert.equal(proxied.installer.calls.length, 0);
 });
 
@@ -773,12 +802,12 @@ test('accepts exact custody token length boundaries', async function tokenBounda
   const refreshOk = 'R'.repeat(TOKEN_LIMIT_CHARS);
   const idOk = 'I'.repeat(ID_TOKEN_LIMIT_CHARS);
   const { adapter } = composition();
-  const result = await adapter.installVerifiedGrant(goodSelected({
+  const result = await adapter.acceptValidatedTokens(goodSelected({
     accessToken: accessOk,
     refreshToken: refreshOk,
     idToken: idOk,
   }));
-  assert.deepEqual(result, { status: 'custodied' });
+  assert.deepEqual(result, { status: 'accepted' });
 });
 
 // ── Clock / identity / envelope / ack shapes ───────────────────────────────
@@ -786,13 +815,13 @@ test('accepts exact custody token length boundaries', async function tokenBounda
 test('rejects bad clock values and clock throws without identity', async function clockHostiles() {
   for (const value of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, null, 'now', undefined]) {
     const fresh = composition({ clock: { value } });
-    await expectSanitizedFailure(() => fresh.adapter.installVerifiedGrant(goodSelected()));
+    await expectSanitizedFailure(() => fresh.adapter.acceptValidatedTokens(goodSelected()));
     assert.equal(fresh.clock.calls.length, 1);
     assert.equal(fresh.identity.calls.length, 0);
     assert.equal(fresh.envelope.calls.length, 0);
   }
   const throws = composition({ clock: { throw: true } });
-  await expectSanitizedFailure(() => throws.adapter.installVerifiedGrant(goodSelected()));
+  await expectSanitizedFailure(() => throws.adapter.acceptValidatedTokens(goodSelected()));
   assert.equal(throws.identity.calls.length, 0);
 });
 
@@ -828,13 +857,13 @@ test('rejects hostile identity results and identity throws without sealing', asy
   ];
   for (const result of hostiles) {
     const fresh = composition({ identity: { result } });
-    await expectSanitizedFailure(() => fresh.adapter.installVerifiedGrant(goodSelected()));
+    await expectSanitizedFailure(() => fresh.adapter.acceptValidatedTokens(goodSelected()));
     assert.equal(fresh.identity.calls.length, 1);
     assert.equal(fresh.envelope.calls.length, 0);
     assert.equal(fresh.installer.calls.length, 0);
   }
   const throws = composition({ identity: { throw: true } });
-  await expectSanitizedFailure(() => throws.adapter.installVerifiedGrant(goodSelected()));
+  await expectSanitizedFailure(() => throws.adapter.acceptValidatedTokens(goodSelected()));
   assert.equal(throws.envelope.calls.length, 0);
 });
 
@@ -857,20 +886,20 @@ test('rejects hostile envelope seal results and seal throws without install', as
   ];
   for (const sealResult of hostiles) {
     const fresh = composition({ envelope: { sealResult } });
-    await expectSanitizedFailure(() => fresh.adapter.installVerifiedGrant(goodSelected()));
+    await expectSanitizedFailure(() => fresh.adapter.acceptValidatedTokens(goodSelected()));
     assert.equal(fresh.identity.calls.length, 1);
     assert.equal(fresh.envelope.calls.filter((c) => c.op === 'seal').length, 1);
     assert.equal(fresh.installer.calls.length, 0);
   }
   const throws = composition({ envelope: { throw: true } });
-  await expectSanitizedFailure(() => throws.adapter.installVerifiedGrant(goodSelected()));
+  await expectSanitizedFailure(() => throws.adapter.acceptValidatedTokens(goodSelected()));
   assert.equal(throws.installer.calls.length, 0);
 });
 
 test('rejects hostile installer ack shapes and installer throws', async function installerAckHostiles() {
   const hostiles = [
     null,
-    Object.freeze({ status: 'custodied' }),
+    Object.freeze({ status: 'custodied' }), // response-custody public success is not installer ack
     Object.freeze({ status: 'accepted', extra: 1 }),
     Object.freeze({ ok: true }),
     { status: 'accepted' }, // unfrozen
@@ -878,11 +907,11 @@ test('rejects hostile installer ack shapes and installer throws', async function
   ];
   for (const result of hostiles) {
     const fresh = composition({ installer: { result } });
-    await expectSanitizedFailure(() => fresh.adapter.installVerifiedGrant(goodSelected()));
+    await expectSanitizedFailure(() => fresh.adapter.acceptValidatedTokens(goodSelected()));
     assert.equal(fresh.installer.calls.length, 1);
   }
   const throws = composition({ installer: { throw: true } });
-  await expectSanitizedFailure(() => throws.adapter.installVerifiedGrant(goodSelected()));
+  await expectSanitizedFailure(() => throws.adapter.acceptValidatedTokens(goodSelected()));
   assert.equal(throws.installer.calls.length, 1);
 });
 
@@ -890,22 +919,22 @@ test('rejects hostile installer ack shapes and installer throws', async function
 
 test('burns on first use including invalid input concurrent reentrant and second call', async function singleUseAtomicBurn() {
   const invalid = composition();
-  await expectSanitizedFailure(() => invalid.adapter.installVerifiedGrant(null));
-  await expectSanitizedFailure(() => invalid.adapter.installVerifiedGrant(goodSelected()));
+  await expectSanitizedFailure(() => invalid.adapter.acceptValidatedTokens(null));
+  await expectSanitizedFailure(() => invalid.adapter.acceptValidatedTokens(goodSelected()));
   assert.equal(invalid.clock.calls.length, 0);
   assert.equal(invalid.identity.calls.length, 0);
 
   const sequential = composition();
-  await sequential.adapter.installVerifiedGrant(goodSelected());
-  await expectSanitizedFailure(() => sequential.adapter.installVerifiedGrant(goodSelected()));
+  await sequential.adapter.acceptValidatedTokens(goodSelected());
+  await expectSanitizedFailure(() => sequential.adapter.acceptValidatedTokens(goodSelected()));
   assert.equal(sequential.identity.calls.length, 1);
   assert.equal(sequential.installer.calls.length, 1);
 
   let release;
   const waiting = new Promise((resolve) => { release = resolve; });
   const concurrent = composition({ identity: { wait: waiting } });
-  const first = concurrent.adapter.installVerifiedGrant(goodSelected());
-  await expectSanitizedFailure(() => concurrent.adapter.installVerifiedGrant(goodSelected()));
+  const first = concurrent.adapter.acceptValidatedTokens(goodSelected());
+  await expectSanitizedFailure(() => concurrent.adapter.acceptValidatedTokens(goodSelected()));
   release();
   await first;
   assert.equal(concurrent.identity.calls.length, 1);
@@ -916,7 +945,7 @@ test('burns on first use including invalid input concurrent reentrant and second
   const reentrantIdentity = Object.freeze({
     async verifyIdentity() {
       try {
-        await outerAdapter.installVerifiedGrant(goodSelected());
+        await outerAdapter.acceptValidatedTokens(goodSelected());
       } catch (error) {
         reentrantError = error;
       }
@@ -935,8 +964,8 @@ test('burns on first use including invalid input concurrent reentrant and second
       installer: installer.installer,
     }),
   );
-  const reentrantResult = await outerAdapter.installVerifiedGrant(goodSelected());
-  assert.deepEqual(reentrantResult, { status: 'custodied' });
+  const reentrantResult = await outerAdapter.acceptValidatedTokens(goodSelected());
+  assert.deepEqual(reentrantResult, { status: 'accepted' });
   assert.equal(reentrantError && reentrantError.code, ERROR_CODE);
   assert.equal(installer.calls.length, 1);
 });
@@ -958,7 +987,7 @@ test('rejects thenable-settled identity or installer results that are not exact 
       },
     },
   });
-  await expectSanitizedFailure(() => thenableIdentity.adapter.installVerifiedGrant(goodSelected()));
+  await expectSanitizedFailure(() => thenableIdentity.adapter.acceptValidatedTokens(goodSelected()));
   assert.equal(thenableIdentity.envelope.calls.length, 0);
 
   const thenableAck = composition({
@@ -970,20 +999,20 @@ test('rejects thenable-settled identity or installer results that are not exact 
       },
     },
   });
-  await expectSanitizedFailure(() => thenableAck.adapter.installVerifiedGrant(goodSelected()));
+  await expectSanitizedFailure(() => thenableAck.adapter.acceptValidatedTokens(goodSelected()));
   assert.equal(thenableAck.installer.calls.length, 1);
 });
 
 test('output freeze resists mutation and carries no secrets', async function outputFreezeNoLeak() {
   const { adapter } = composition();
-  const result = await adapter.installVerifiedGrant(goodSelected());
+  const result = await adapter.acceptValidatedTokens(goodSelected());
   assert.throws(() => {
     result.status = LEAK;
   });
   assert.throws(() => {
     result.extra = LEAK;
   });
-  assert.equal(result.status, 'custodied');
+  assert.equal(result.status, 'accepted');
   assert.equal('extra' in result, false);
   assert.equal(JSON.stringify(result).includes(ACCESS), false);
 });
@@ -996,9 +1025,9 @@ test('does not log secrets on success or failure paths', async function noLogsOr
   console.error = (...args) => { logged.push(args); };
   try {
     const ok = composition();
-    await ok.adapter.installVerifiedGrant(goodSelected());
+    await ok.adapter.acceptValidatedTokens(goodSelected());
     await expectSanitizedFailure(() => composition({ identity: { throw: true } })
-      .adapter.installVerifiedGrant(goodSelected({ accessToken: `${ACCESS}-${LEAK}` })));
+      .adapter.acceptValidatedTokens(goodSelected({ accessToken: `${ACCESS}-${LEAK}` })));
     assert.deepEqual(logged, []);
   } finally {
     console.log = originalLog;
@@ -1043,8 +1072,8 @@ test('real fake envelope roundtrip seals only refresh token under gen-1 AAD', as
     }),
   );
 
-  const result = await adapter.installVerifiedGrant(goodSelected());
-  assert.deepEqual(result, { status: 'custodied' });
+  const result = await adapter.acceptValidatedTokens(goodSelected());
+  assert.deepEqual(result, { status: 'accepted' });
   assert.equal(sealCalls.length, 1);
   assert.equal(sealCalls[0].refresh_token, REFRESH);
   assert.equal(Object.prototype.hasOwnProperty.call(sealCalls[0], 'access_token'), false);
@@ -1115,6 +1144,110 @@ test('fake roundtrip package decode proves refresh-only EMAIL_GRANT_PKG_V1', asy
   );
   const decoded = decodeDelegatedRefreshPackageV1(smuggled);
   assert.equal(decoded.ok, false);
+});
+
+// ── Response-custody interoperability regression ───────────────────────────
+
+test('merged response-custody handoff with this adapter as custody returns only custodied', async function responseCustodyInterop() {
+  const GOOD_BODY = {
+    token_type: 'Bearer',
+    expires_in: 3600,
+    scope: GOOD_SCOPE,
+    access_token: ACCESS,
+    refresh_token: REFRESH,
+    id_token: ID_TOKEN,
+  };
+
+  const identity = stubIdentity();
+  const clock = stubClock();
+  const installer = stubInstaller();
+  const envelope = stubEnvelope();
+  const grantCustody = createMicrosoftVerifiedGrantCustodyAdapter(
+    goodConfig(),
+    Object.freeze({
+      verifiedIdentity: identity.verifiedIdentity,
+      envelopeProvider: envelope.envelopeProvider,
+      clock: clock.clock,
+      installer: installer.installer,
+    }),
+  );
+  // Adapter is the exact response-custody `custody` surface.
+  assert.deepEqual(Reflect.ownKeys(grantCustody), ['acceptValidatedTokens']);
+  assert.equal(Object.isFrozen(grantCustody), true);
+
+  const incoming = new EventEmitter();
+  incoming.statusCode = 200;
+  incoming.headers = { 'content-type': 'application/json; charset=utf-8' };
+  incoming.destroy = () => {};
+  const request = new EventEmitter();
+  let responseCallback;
+  request.end = () => {
+    queueMicrotask(() => {
+      responseCallback(incoming);
+      incoming.emit('data', JSON.stringify(GOOD_BODY));
+      incoming.emit('end');
+    });
+  };
+  request.destroy = () => {};
+  const httpsImpl = {
+    request(_options, cb) {
+      responseCallback = cb;
+      return request;
+    },
+  };
+  const timers = { setTimeout() { return 1; }, clearTimeout() {} };
+
+  const logged = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+  console.log = (...args) => { logged.push(args); };
+  console.error = (...args) => { logged.push(args); };
+
+  let publicResult;
+  try {
+    const handoff = createMicrosoftTokenResponseCustodyService({
+      transportDeps: { httpsImpl, timers },
+      custody: grantCustody,
+    });
+    publicResult = await handoff.exchangeAndCustody({ body: 'trusted=already-encoded' });
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+  }
+
+  // End-to-end public response is only response-custody SUCCESS.
+  assert.deepEqual(publicResult, { status: 'custodied' });
+  assert.deepEqual(Object.keys(publicResult), ['status']);
+  assert.equal(Object.isFrozen(publicResult), true);
+  assert.equal(JSON.stringify(publicResult).includes(ACCESS), false);
+  assert.equal(JSON.stringify(publicResult).includes(REFRESH), false);
+  assert.equal(JSON.stringify(publicResult).includes(ID_TOKEN), false);
+  assert.deepEqual(logged, []);
+
+  // Adapter received exact six selected token fields from response custody.
+  assert.equal(identity.calls.length, 1);
+  assert.deepEqual(Reflect.ownKeys(identity.calls[0].request), [
+    'idToken', 'accessToken', 'expectedNonce', 'expectedClientId', 'nowEpochSeconds',
+  ]);
+  assert.equal(identity.calls[0].request.accessToken, ACCESS);
+  assert.equal(identity.calls[0].request.idToken, ID_TOKEN);
+
+  // Installer saw no raw tokens; payload is identity-before-envelope minimized shape.
+  assert.equal(installer.calls.length, 1);
+  assert.equal(installer.calls[0].thisValue, installer.installer);
+  assert.deepEqual(Reflect.ownKeys(installer.calls[0].request), [
+    'clientId', 'endpointId', 'operationId', 'actorStaffUserId', 'identity', 'envelope',
+  ]);
+  assertNoSensitiveKeys(installer.calls[0].request);
+  assert.equal(installer.calls[0].request.identity.mailboxAddress, MAILBOX);
+  assert.equal(validateGrantEnvelopeRecordV1(installer.calls[0].request.envelope).ok, true);
+
+  // Seal used refresh only.
+  const seal = envelope.calls.find((c) => c.op === 'seal');
+  assert.ok(seal);
+  assert.equal(seal.input.refresh_token, REFRESH);
+  assert.equal('access_token' in seal.input, false);
+  assert.equal('id_token' in seal.input, false);
 });
 
 async function runTests() {

@@ -6,9 +6,12 @@
  * envelope validate → installer ack. Single-use atomic burn. No DB/callback/
  * routes/Azure/live/activation/sync/send.
  *
+ * Implements the merged response-custody handoff interface:
+ *   custody = { acceptValidatedTokens(selected) → frozen { status: 'accepted' } }
+ * so createMicrosoftTokenResponseCustodyService can inject this adapter as custody.
+ *
  * Factory takes exact frozen config + exact frozen owner-preserving dependencies.
- * Selected input matches response-custody camelCase shape. Success matches
- * response custody ({ status: 'custodied' }). One fixed sanitized error.
+ * Selected input matches response-custody camelCase shape. One fixed sanitized error.
  *
  * @module email-microsoft-verified-grant-custody
  */
@@ -67,15 +70,19 @@ const IDENTITY_KEYS = Object.freeze([
   'displayName',
 ]);
 const SEAL_KEYS = Object.freeze(['refresh_token', 'aad', 'operation_id']);
+/** Installer payload key order: identity before envelope (no tokens/AAD/providers). */
 const INSTALL_KEYS = Object.freeze([
   'clientId',
   'endpointId',
   'operationId',
   'actorStaffUserId',
-  'envelope',
   'identity',
+  'envelope',
 ]);
-const SUCCESS = Object.freeze({ status: 'custodied' });
+/** Exact sealedAck shape required by response-custody handoff. */
+const SEALED_ACK = Object.freeze({ status: 'accepted' });
+/** Downstream installer surface method (owner-preserving receiver). */
+const INSTALLER_METHOD = 'installInitialDelegatedGrant';
 
 function failure() {
   const error = new Error(ERROR_MESSAGE);
@@ -287,7 +294,7 @@ function sealedInstallerAck(value) {
 /**
  * @param {object} config exact frozen custody binding config
  * @param {object} dependencies exact frozen owner-preserving deps
- * @returns {{ installVerifiedGrant: Function }} frozen single-use adapter
+ * @returns {{ acceptValidatedTokens: Function }} frozen single-use custody adapter
  */
 function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
   let frozenConfig;
@@ -298,7 +305,7 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
   let clock;
   let nowEpochSecondsFn;
   let installer;
-  let install;
+  let installInitialDelegatedGrant;
 
   try {
     frozenConfig = snapshotAndValidateConfig(config);
@@ -312,7 +319,7 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
 
     if (!exactFrozenService(verifiedIdentity, 'verifyIdentity')) throw failure();
     if (!exactFrozenService(clock, 'nowEpochSeconds')) throw failure();
-    if (!exactFrozenService(installer, 'install')) throw failure();
+    if (!exactFrozenService(installer, INSTALLER_METHOD)) throw failure();
 
     const providerOk = validateEmailGrantEnvelopeProvider(rawEnvelopeProvider);
     if (!providerOk.ok) throw failure();
@@ -322,13 +329,13 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
 
     verifyIdentity = ownData(verifiedIdentity, 'verifyIdentity');
     nowEpochSecondsFn = ownData(clock, 'nowEpochSeconds');
-    install = ownData(installer, 'install');
+    installInitialDelegatedGrant = ownData(installer, INSTALLER_METHOD);
   } catch {
     throw failure();
   }
 
   let used = false;
-  async function installVerifiedGrant(input) {
+  async function acceptValidatedTokens(input) {
     if (used) throw failure();
     used = true; // Atomic burn before input reflection, await, or dependency calls.
     try {
@@ -397,13 +404,14 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
         throw failure();
       }
 
+      // Exact key order: identity before envelope (no tokens/AAD/raw providers).
       const installInput = Object.freeze({
         clientId: frozenConfig.clientId,
         endpointId: frozenConfig.endpointId,
         operationId: frozenConfig.operationId,
         actorStaffUserId: frozenConfig.actorStaffUserId,
-        envelope: envelopeValidated,
         identity,
+        envelope: envelopeValidated,
       });
       if (!exactPlainData(installInput, INSTALL_KEYS)) throw failure();
       // Hard ban: no tokens / AAD / raw provider objects on installer surface.
@@ -418,19 +426,24 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
 
       let ack;
       try {
-        ack = await Reflect.apply(install, installer, [installInput]);
+        ack = await Reflect.apply(
+          installInitialDelegatedGrant,
+          installer,
+          [installInput],
+        );
       } catch {
         throw failure();
       }
       if (!sealedInstallerAck(ack)) throw failure();
 
-      return SUCCESS;
+      // Response-custody sealedAck: exact frozen { status: 'accepted' }.
+      return SEALED_ACK;
     } catch {
       throw failure();
     }
   }
 
-  return Object.freeze({ installVerifiedGrant });
+  return Object.freeze({ acceptValidatedTokens });
 }
 
 module.exports = Object.freeze({
@@ -443,5 +456,8 @@ module.exports = Object.freeze({
   GRANT_GENERATION_INITIAL,
   SELECTED_KEYS,
   CONFIG_KEYS,
+  INSTALL_KEYS,
+  INSTALLER_METHOD,
+  SEALED_ACK,
   createMicrosoftVerifiedGrantCustodyAdapter,
 });
