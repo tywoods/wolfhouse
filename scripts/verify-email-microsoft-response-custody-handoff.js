@@ -2,11 +2,29 @@
 
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { FAILURE_CODE, createMicrosoftTokenResponseCustodyService } = require('./lib/email-microsoft-response-custody-handoff');
+const { FAILURE_CODE, TOKEN_LIMIT_CHARS, createMicrosoftTokenResponseCustodyService } = require('./lib/email-microsoft-response-custody-handoff');
 
 const SECRET = 'ACCESS_SECRET_NEVER_LEAK';
 const REFRESH = 'REFRESH_SECRET_NEVER_LEAK';
-const GOOD = { token_type: 'Bearer', expires_in: 3600, scope: 'openid profile offline_access User.Read Mail.ReadBasic', access_token: SECRET, refresh_token: REFRESH, id_token: 'discarded.id.token' };
+const ID_TOKEN = 'ID_TOKEN_SECRET_NEVER_LEAK.header.payload.sig';
+const SELECTED_KEYS = Object.freeze(['accessToken', 'refreshToken', 'tokenType', 'expiresIn', 'scope', 'idToken']);
+const GOOD = {
+  token_type: 'Bearer',
+  expires_in: 3600,
+  scope: 'openid profile offline_access User.Read Mail.ReadBasic',
+  access_token: SECRET,
+  refresh_token: REFRESH,
+  id_token: ID_TOKEN,
+};
+const EXPECTED_SELECTED = Object.freeze({
+  accessToken: SECRET,
+  refreshToken: REFRESH,
+  tokenType: 'Bearer',
+  expiresIn: 3600,
+  scope: GOOD.scope,
+  idToken: ID_TOKEN,
+});
+
 function harness(spec, accept) {
   const incoming = new EventEmitter(); incoming.statusCode = spec.statusCode ?? 200;
   incoming.headers = { 'content-type': spec.contentType ?? 'application/json; charset=utf-8' };
@@ -19,13 +37,23 @@ function harness(spec, accept) {
   const timers = { setTimeout() { return 1; }, clearTimeout() {} };
   return createMicrosoftTokenResponseCustodyService({ transportDeps: { httpsImpl, timers }, custody: { acceptValidatedTokens: accept } });
 }
+
+function noSecrets(value) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return !text.includes(SECRET) && !text.includes(REFRESH) && !text.includes(ID_TOKEN);
+}
+
 async function fails(spec, accept = async () => Object.freeze({ status: 'accepted' })) {
   try { await harness(spec, accept).exchangeAndCustody({ body: 'trusted=already-encoded' }); assert.fail('expected failure'); }
   catch (error) {
     assert.equal(error.code, FAILURE_CODE); assert.equal(error.message, FAILURE_CODE);
-    assert.equal(JSON.stringify(error).includes(SECRET), false); assert.equal(JSON.stringify(error).includes(REFRESH), false);
+    assert.equal(noSecrets(error), true);
+    assert.equal(noSecrets(String(error)), true);
+    assert.equal(Object.hasOwn(error, 'idToken'), false);
+    assert.equal(Object.hasOwn(error, 'id_token'), false);
   }
 }
+
 async function main() {
   const logged = []; const original = console.log; const originalError = console.error;
   console.log = console.error = (...args) => logged.push(args);
@@ -41,10 +69,58 @@ async function main() {
       const value = patch === null ? null : Array.isArray(patch) ? patch : { ...GOOD, ...patch };
       await fails({ body: JSON.stringify(value) });
     }
+
+    // Required own printable bounded id_token — missing / null / empty / control /
+    // non-ASCII / oversized must fail closed before custody.
+    const missingId = { ...GOOD };
+    delete missingId.id_token;
+    await fails({ body: JSON.stringify(missingId) });
+    for (const id_token of [
+      null,
+      '',
+      'bad\ntoken',
+      'bad\rtoken',
+      'bad\ttoken',
+      'has space',
+      'tokén',
+      'token\u00a0nb',
+      'token\u0085',
+      'x'.repeat(TOKEN_LIMIT_CHARS + 1),
+      1,
+      true,
+      { nested: ID_TOKEN },
+      ['segment'],
+    ]) {
+      await fails({ body: JSON.stringify({ ...GOOD, id_token }) });
+    }
+
+    // Prototype-only id_token must not satisfy the own-data requirement.
+    const priorProto = Object.prototype.id_token;
+    try {
+      Object.prototype.id_token = ID_TOKEN;
+      await fails({ body: JSON.stringify(missingId) });
+    } finally {
+      if (priorProto === undefined) delete Object.prototype.id_token;
+      else Object.prototype.id_token = priorProto;
+    }
+
+    // Duplicate top-level id_token rejected before custody.
+    const duplicateIdValid = JSON.stringify(GOOD).replace(
+      `"id_token":"${ID_TOKEN}"`,
+      `"id_token":"first.id.token","id_token":"${ID_TOKEN}"`,
+    );
+    const duplicateIdInvalid = JSON.stringify(GOOD).replace(
+      `"id_token":"${ID_TOKEN}"`,
+      `"id_token":"${ID_TOKEN}","id_token":"second.id.token"`,
+    );
+    await fails({ body: duplicateIdValid });
+    await fails({ body: duplicateIdInvalid });
+
     const duplicateTailValid = JSON.stringify(GOOD).replace('"token_type":"Bearer"', '"token_type":"Basic","token_type":"Bearer"');
     const duplicateTailInvalid = JSON.stringify(GOOD).replace('"token_type":"Bearer"', '"token_type":"Bearer","token_type":"Basic"');
     await fails({ body: duplicateTailValid });
     await fails({ body: duplicateTailInvalid });
+
     let unknownSelected;
     const unknownResult = await harness({ body: JSON.stringify({ ...GOOD, client_info: 'opaque', future_extension: { nested: ['ignored'] } }) }, async (value) => {
       unknownSelected = value;
@@ -53,6 +129,9 @@ async function main() {
     assert.deepEqual(unknownResult, { status: 'custodied' });
     assert.equal(Object.hasOwn(unknownSelected, 'client_info'), false);
     assert.equal(Object.hasOwn(unknownSelected, 'future_extension'), false);
+    assert.deepEqual(Reflect.ownKeys(unknownSelected), [...SELECTED_KEYS]);
+    assert.equal(unknownSelected.idToken, ID_TOKEN);
+
     for (const hostile of [
       new Proxy({}, { getPrototypeOf() { throw new Error('SECRET deps'); } }),
       new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('SECRET descriptor'); } }),
@@ -60,23 +139,85 @@ async function main() {
     ]) {
       assert.throws(() => createMicrosoftTokenResponseCustodyService(hostile), (error) => error.code === FAILURE_CODE && !String(error).includes('SECRET'));
     }
+
+    // Custody receiver preserved (this-binding) and receives exact frozen selected.
     let thisBound = false;
-    const boundAccept = async function boundAccept() {
+    let boundSelected;
+    const boundAccept = async function boundAccept(value) {
       thisBound = this && this.acceptValidatedTokens === boundAccept;
+      boundSelected = value;
       return Object.freeze({ status: 'accepted' });
     };
-    await harness({}, boundAccept).exchangeAndCustody({ body: 'trusted=already-encoded' });
+    const boundResult = await harness({}, boundAccept).exchangeAndCustody({ body: 'trusted=already-encoded' });
     assert.equal(thisBound, true);
-    await fails({ body: JSON.stringify(GOOD) }, async () => { throw new Error(`custody leak ${REFRESH}`); });
+    assert.deepEqual(boundSelected, EXPECTED_SELECTED);
+    assert.deepEqual(Reflect.ownKeys(boundSelected), [...SELECTED_KEYS]);
+    assert.equal(Object.isFrozen(boundSelected), true);
+    assert.deepEqual(boundResult, { status: 'custodied' });
+    assert.equal(Object.hasOwn(boundResult, 'idToken'), false);
+    assert.equal(Object.hasOwn(boundResult, 'id_token'), false);
+    assert.equal(noSecrets(boundResult), true);
+
+    // Custody throw / unsealed ack: fixed sanitized failure, no secret leak.
+    await fails({ body: JSON.stringify(GOOD) }, async () => { throw new Error(`custody leak ${REFRESH} ${ID_TOKEN}`); });
     await fails({ body: JSON.stringify(GOOD) }, async () => ({ status: 'accepted' }));
+
+    // Happy path: idToken reaches custody only; public return is minimized ack.
     let selected;
-    const service = harness({}, async (value) => { selected = value; return Object.freeze({ status: 'accepted' }); });
+    let acceptCalls = 0;
+    const service = harness({}, async (value) => {
+      acceptCalls += 1;
+      selected = value;
+      // Frozen snapshot — mutation must throw and must not alter custody view.
+      assert.throws(() => { value.idToken = 'mutated'; });
+      assert.throws(() => { value.accessToken = 'mutated'; });
+      assert.throws(() => { delete value.idToken; });
+      assert.throws(() => { Object.assign(value, { extra: ID_TOKEN }); });
+      assert.equal(value.idToken, ID_TOKEN);
+      return Object.freeze({ status: 'accepted' });
+    });
     const result = await service.exchangeAndCustody({ body: 'trusted=already-encoded' });
-    assert.deepEqual(selected, { accessToken: SECRET, refreshToken: REFRESH, tokenType: 'Bearer', expiresIn: 3600, scope: GOOD.scope });
-    assert.equal(Object.isFrozen(selected), true); assert.equal(Object.hasOwn(selected, 'idToken'), false);
-    assert.deepEqual(result, { status: 'custodied' }); assert.equal(Object.isFrozen(result), true);
+    assert.equal(acceptCalls, 1);
+    assert.deepEqual(selected, EXPECTED_SELECTED);
+    assert.deepEqual(Reflect.ownKeys(selected), [...SELECTED_KEYS]);
+    assert.equal(Object.isFrozen(selected), true);
+    assert.equal(Object.getPrototypeOf(selected), Object.prototype);
+    assert.equal(selected.idToken, ID_TOKEN);
+    assert.deepEqual(result, { status: 'custodied' });
+    assert.equal(Object.isFrozen(result), true);
+    assert.deepEqual(Reflect.ownKeys(result), ['status']);
+    assert.equal(Object.hasOwn(result, 'idToken'), false);
+    assert.equal(Object.hasOwn(result, 'accessToken'), false);
+    assert.equal(Object.hasOwn(result, 'refreshToken'), false);
+    assert.equal(noSecrets(result), true);
+
+    // Single-use preserved.
     await assert.rejects(service.exchangeAndCustody({ body: 'again=x' }), (error) => error.code === FAILURE_CODE);
-    assert.deepEqual(logged, []);
+
+    // Snapshot-before-handoff: selected object handed to custody is the frozen
+    // exact object produced by validation (identity + contents), not a live view
+    // of raw HTTP material.
+    let handoffIdentity;
+    const snapService = harness({}, async (value) => {
+      handoffIdentity = value;
+      return Object.freeze({ status: 'accepted' });
+    });
+    await snapService.exchangeAndCustody({ body: 'trusted=already-encoded' });
+    assert.equal(Object.isFrozen(handoffIdentity), true);
+    assert.deepEqual(Reflect.ownKeys(handoffIdentity), [...SELECTED_KEYS]);
+    assert.equal(handoffIdentity.idToken, ID_TOKEN);
+
+    // No application secrets ever logged (ignore Node runtime env warnings).
+    for (const entry of logged) {
+      assert.equal(noSecrets(entry), true);
+      const text = entry.map(String).join(' ');
+      assert.equal(/ACCESS_SECRET|REFRESH_SECRET|ID_TOKEN_SECRET|id_token|idToken/.test(text), false);
+    }
+    assert.equal(
+      logged.every((entry) => entry.map(String).join(' ').includes('Warning:')),
+      true,
+      'unexpected non-warning console output during custody exchange',
+    );
   } finally { console.log = original; console.error = originalError; }
   original('verify:email-microsoft-response-custody-handoff: ok');
 }

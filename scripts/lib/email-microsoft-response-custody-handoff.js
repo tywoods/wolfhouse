@@ -72,20 +72,21 @@ function validate(response) {
   const expiresIn = ownData(value, 'expires_in');
   const accessToken = ownData(value, 'access_token');
   const refreshToken = ownData(value, 'refresh_token');
+  const idToken = ownData(value, 'id_token');
   const scope = ownData(value, 'scope');
   if (tokenType !== 'Bearer' || !Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > MAX_EXPIRES_IN_SECONDS
-      || !printable(accessToken) || !printable(refreshToken)
+      || !printable(accessToken) || !printable(refreshToken) || !printable(idToken)
       || typeof scope !== 'string' || scope.length < 1 || scope.length > 512) throw failure();
   if (Object.hasOwn(value, 'ext_expires_in')) {
     const ext = ownData(value, 'ext_expires_in');
     if (!Number.isInteger(ext) || ext < 1 || ext > MAX_EXPIRES_IN_SECONDS) throw failure();
   }
-  if (Object.hasOwn(value, 'id_token') && !printable(ownData(value, 'id_token'))) throw failure();
   const scopes = scope.split(' ');
   const scopeSet = new Set(scopes);
   if (scopes.some((item) => !item || !ALLOWED_SCOPES.has(item)) || scopeSet.size !== scopes.length
       || scopeSet.size !== PHASE_A_SCOPES.length || PHASE_A_SCOPES.some((item) => !scopeSet.has(item))) throw failure();
-  return Object.freeze({ accessToken, refreshToken, tokenType, expiresIn, scope });
+  // Exact minimized selected shape for custody only (camelCase; fixed key order).
+  return Object.freeze({ accessToken, refreshToken, tokenType, expiresIn, scope, idToken });
 }
 function sealedAck(value) {
   return value && Object.isFrozen(value) && Object.getPrototypeOf(value) === Object.prototype
