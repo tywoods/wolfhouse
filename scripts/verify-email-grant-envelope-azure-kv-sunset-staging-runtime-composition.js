@@ -98,14 +98,24 @@ function installSpies(c,mode){
   const {publicKey,privateKey}=crypto.generateKeyPairSync('rsa',{modulusLength:3072});
   const w={key:publicKey,padding:crypto.constants.RSA_PKCS1_OAEP_PADDING,oaepHash:'sha256'};
   const u={key:privateKey,padding:crypto.constants.RSA_PKCS1_OAEP_PADDING,oaepHash:'sha256'};
-  function makeClient(keyId){return{
-    async wrapKey(algorithm,key){
-      if(mode==='plantWrap')throw Object.assign(new Error(PLANTED),{statusCode:403,secret_field:PLANTED});
-      return{result:crypto.publicEncrypt(w,Buffer.isBuffer(key)?key:Buffer.from(key)),algorithm,keyID:keyId};},
-    async unwrapKey(algorithm,encryptedKey){
-      if(mode==='plantWrap')throw Object.assign(new Error(PLANTED),{statusCode:403,secret_field:PLANTED});
-      return{result:crypto.privateDecrypt(u,Buffer.isBuffer(encryptedKey)?encryptedKey:Buffer.from(encryptedKey)),algorithm,keyID:keyId};},
-  };}
+  function makeClient(keyId){
+    class PrototypeCryptographyClient{
+      constructor(){this.keyId=keyId;this.marker={keyId};}
+      async wrapKey(algorithm,key){
+        if(this.marker.keyId!==keyId)throw new Error('wrap this lost');
+        c.wrapThis=this;c.wrapArgs=[algorithm,key];
+        if(mode==='plantWrap')throw Object.assign(new Error(PLANTED),{statusCode:403,secret_field:PLANTED});
+        return{result:crypto.publicEncrypt(w,Buffer.isBuffer(key)?key:Buffer.from(key)),algorithm,keyID:keyId};
+      }
+      async unwrapKey(algorithm,encryptedKey){
+        if(this.marker.keyId!==keyId)throw new Error('unwrap this lost');
+        c.unwrapThis=this;c.unwrapArgs=[algorithm,encryptedKey];
+        if(mode==='plantWrap')throw Object.assign(new Error(PLANTED),{statusCode:403,secret_field:PLANTED});
+        return{result:crypto.privateDecrypt(u,Buffer.isBuffer(encryptedKey)?encryptedKey:Buffer.from(encryptedKey)),algorithm,keyID:keyId};
+      }
+    }
+    return new PrototypeCryptographyClient();
+  }
   function ManagedIdentityCredential(clientId){
     c.mic++;c.micClientId=clientId;
     if(mode==='throwGetter'){const h={};Object.defineProperty(h,'code',{enumerable:true,get(){throw new Error(PLANTED);}});
@@ -115,7 +125,12 @@ function installSpies(c,mode){
       getPrototypeOf(){throw new Error(PLANTED);},has(){throw new Error(PLANTED);}});}
     return Object.freeze({kind:'spy-mic',clientId});}
   function CryptographyClient(keyId,credential,options){
-    c.cc++;c.ccKeyId=keyId;c.ccCredential=credential;c.ccOptions=options;return makeClient(keyId);}
+    c.cc++;c.ccKeyId=keyId;c.ccCredential=credential;c.ccOptions=options;
+    const client=makeClient(keyId);
+    c.prototypeOnly=!Object.prototype.hasOwnProperty.call(client,'wrapKey')
+      &&!Object.prototype.hasOwnProperty.call(client,'unwrapKey');
+    return client;
+  }
   function DefaultAzureCredential(){c.dac++;throw new Error('DAC forbidden');}
   function KeyClient(){c.keyClient++;throw new Error('KeyClient forbidden');}
   Module._load=function(r,p,m){
@@ -278,15 +293,19 @@ async function main() {
         out({ok:sealed.kek_wrap_alg==='RSA-OAEP-256'&&sealed.kek_key_name===KNAME&&sealed.kek_key_version===KVER
           &&opened.refresh_token==='rt-2fc2-round-trip'&&opened2.refresh_token==='rt-2fc2-round-trip'
           &&!rew.wrapped_dek.equals(sealed.wrapped_dek)&&rew.operation_id===op2
+          &&c.wrapThis&&c.unwrapThis&&c.wrapThis===c.unwrapThis
+          &&c.wrapArgs[0]==='RSA-OAEP-256'&&Buffer.isBuffer(c.wrapArgs[1])
+          &&c.unwrapArgs[0]==='RSA-OAEP-256'&&Buffer.isBuffer(c.unwrapArgs[1])
           &&meta.deployment_boundary==='sunset-staging-canary-only'&&meta.runtime_activation===false&&noPlanted(meta),
           c:{mic:c.mic,cc:c.cc,idLoad:c.idLoad,kvLoad:c.kvLoad,micClientId:c.micClientId,ccKeyId:c.ccKeyId,
-            maxRetries:c.ccOptions.retryOptions.maxRetries}});
+            maxRetries:c.ccOptions.retryOptions.maxRetries,prototypeOnly:c.prototypeOnly}});
         process.exit(0);
       }catch(e){out({ok:false,stage:'async',err:String(e&&e.message)});process.exit(4);}})();
     `);
     const b = parseChildJson(ch);
-    ok('SDK Module._load spies: exact MIC client ID + CC key ID/options (one each)',
-      ch.status === 0 && b && b.ok && b.c && b.c.mic === 1 && b.c.cc === 1
+    ok('prototype-only SDK client succeeds through own bound adapter with exact options',
+      ch.status === 0 && b && b.ok && b.c && b.c.prototypeOnly === true
+      && b.c.mic === 1 && b.c.cc === 1
       && b.c.micClientId === MI && b.c.ccKeyId === KID && b.c.maxRetries === 0,
       `st=${ch.status} ${(ch.stderr || '').slice(0, 160)} ${JSON.stringify(b)}`);
     ok('SDK path seal/open/reseal + canary metadata; hostile AZURE env ignored',
