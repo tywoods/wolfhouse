@@ -338,6 +338,7 @@
     "verify:email-tenant-channel-registry": "node scripts/verify-email-tenant-channel-registry.js",
     "prove:email-tenant-channel-registry-pg": "node scripts/prove-email-tenant-channel-registry-pg.js",
     "verify:staff-email-registry-routes": "node scripts/verify-staff-email-registry-routes.js",
+    "verify:sunset-email-settings": "node scripts/verify-sunset-email-settings.js",
     "verify:email-microsoft-graph-adapter": "node scripts/verify-email-microsoft-graph-adapter.js",
     "verify:email-graph-app-only-readiness": "node scripts/verify-email-graph-app-only-readiness.js",
     "verify:email-microsoft-delegated-oauth-contract": "node scripts/verify-email-microsoft-delegated-oauth-contract.js",

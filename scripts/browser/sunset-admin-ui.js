@@ -2967,7 +2967,7 @@ function renderFinanceSummaryHtml(summary){
  * @param {{focus?: boolean}} [opts]
  */
 function adminSelectSubTab(key, opts){
-  var next = (key === 'pricing' || key === 'luna-staff' || key === 'bookings') ? key : 'finance';
+  var next = (key === 'pricing' || key === 'luna-staff' || key === 'bookings' || key === 'email') ? key : 'finance';
   adminActiveSubTab = next;
   // Rental write errors are operation-scoped — never stick across Admin subtabs.
   // Equipment-local only: do not hide unrelated shared Admin notices.
@@ -2987,6 +2987,7 @@ function adminSelectSubTab(key, opts){
   var bookingsPanel = el('admin-panel-bookings');
   var prPanel = el('admin-panel-pricing');
   var lunaAdminPanel = el('admin-panel-luna-staff');
+  var emailPanel = el('admin-panel-email');
   var lunaPanel = el('tab-ask-luna');
   if (finPanel){
     if (next === 'finance') finPanel.removeAttribute('hidden');
@@ -3004,8 +3005,13 @@ function adminSelectSubTab(key, opts){
     if (next === 'luna-staff') lunaAdminPanel.removeAttribute('hidden');
     else lunaAdminPanel.setAttribute('hidden', '');
   }
+  if (emailPanel){
+    if (next === 'email') emailPanel.removeAttribute('hidden');
+    else emailPanel.setAttribute('hidden', '');
+  }
   if (lunaPanel) lunaPanel.classList.toggle('active', next === 'luna-staff');
   if (next === 'luna-staff' && typeof wireLunaStaffTabCards === 'function') wireLunaStaffTabCards();
+  if (next === 'email' && typeof loadAdminEmailSettings === 'function') loadAdminEmailSettings();
   if (next === 'bookings' && typeof renderAdminBookingsShell === 'function') {
     var bookingsBody = el('admin-bookings-body');
     if (bookingsBody && !bookingsBody.dataset.bookingsMounted) {
@@ -3015,6 +3021,17 @@ function adminSelectSubTab(key, opts){
       loadAdminBookings();
     }
   }
+}
+
+function adminSyncEmailTabVisibility(){
+  var tab = el('admin-tab-email');
+  var panel = el('admin-panel-email');
+  if (!tab) return;
+  var available = getClient() === 'sunset';
+  if (available) tab.removeAttribute('hidden');
+  else tab.setAttribute('hidden', '');
+  if (!available && panel) panel.setAttribute('hidden', '');
+  if (!available && adminActiveSubTab === 'email') adminActiveSubTab = 'finance';
 }
 
 function wireAdminSubTabs(){
@@ -3068,6 +3085,7 @@ function wireAdminSubTabs(){
  */
 function loadAdminTab(opts){
   opts = opts || {};
+  adminSyncEmailTabVisibility();
   wireAdminTab();
   wireAdminSubTabs();
   // Equipment-local only on Admin load/re-entry (shared banner retains own lifecycle).
@@ -3077,7 +3095,7 @@ function loadAdminTab(opts){
     // Deliberate Admin reopen/reload — drop any in-memory Pricing drafts.
     adminClearPricingDraftState();
   }
-  if (adminActiveSubTab !== 'pricing' && adminActiveSubTab !== 'finance' && adminActiveSubTab !== 'luna-staff' && adminActiveSubTab !== 'bookings') adminActiveSubTab = 'finance';
+  if (adminActiveSubTab !== 'pricing' && adminActiveSubTab !== 'finance' && adminActiveSubTab !== 'luna-staff' && adminActiveSubTab !== 'bookings' && adminActiveSubTab !== 'email') adminActiveSubTab = 'finance';
   adminSelectSubTab(adminActiveSubTab);
   renderAdminFinanceShell();
   if (adminActiveSubTab === 'bookings' && typeof renderAdminBookingsShell === 'function') {

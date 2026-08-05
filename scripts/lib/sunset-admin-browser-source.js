@@ -11,6 +11,7 @@ const path = require('path');
 const BROWSER_UI = path.join(__dirname, '..', 'browser', 'sunset-admin-ui.js');
 const FINANCE_REDESIGN = path.join(__dirname, '..', 'browser', 'sunset-admin-finance-redesign-ui.js');
 const BOOKINGS_UI = path.join(__dirname, '..', 'browser', 'sunset-admin-bookings-ui.js');
+const EMAIL_SETTINGS_UI = path.join(__dirname, '..', 'browser', 'sunset-admin-email-settings-ui.js');
 const DURATION_MODEL = path.join(__dirname, '..', 'browser', 'sunset-rental-duration-model.js');
 const EQUIPMENT_MODEL = path.join(__dirname, '..', 'browser', 'sunset-equipment-pricing-model.js');
 
@@ -19,6 +20,7 @@ function getSunsetAdminUiBrowserSource() {
   return [
     fs.readFileSync(FINANCE_REDESIGN, 'utf8'),
     fs.readFileSync(BOOKINGS_UI, 'utf8'),
+    fs.readFileSync(EMAIL_SETTINGS_UI, 'utf8'),
     fs.readFileSync(BROWSER_UI, 'utf8'),
   ].join('\n');
 }
