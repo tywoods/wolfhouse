@@ -20,6 +20,9 @@ const FORBIDDEN_PRODUCTION_SEAM_ENVS = Object.freeze([
 
 const SUNSET_LOCKED_CONNECT = Symbol.for('sunset.reconcile.lockedConnect');
 const SUNSET_LOCKED_HOST_IDENTITY = Symbol.for('sunset.reconcile.lockedHostIdentity');
+// Deployment-owned address of the approved delegated-subnet endpoint. This is
+// deliberately an exact address lock, not an RFC1918/private-network bypass.
+const APPROVED_PRIVATE_SERVER_ADDRESSES = Object.freeze(['10.33.0.4']);
 
 let clientsInstantiated = 0;
 let cachedHostIdentity = null;
@@ -136,7 +139,15 @@ function attachLockedConnect(client, connect, hostIdentity) {
     configurable: false,
   });
   Object.defineProperty(client, SUNSET_LOCKED_HOST_IDENTITY, {
-    value: Object.freeze({ host: hostIdentity.host, addresses: hostIdentity.addresses.slice() }),
+    value: Object.freeze({
+      subscriptionId: TARGETS.subscriptionId,
+      resourceGroup: TARGETS.resourceGroup,
+      postgresServer: TARGETS.postgresServer,
+      host: hostIdentity.host,
+      tlsServername: connect.tlsServername,
+      publicDnsAddresses: Object.freeze(hostIdentity.addresses.slice()),
+      approvedPrivateAddresses: APPROVED_PRIVATE_SERVER_ADDRESSES,
+    }),
     enumerable: false,
     configurable: false,
   });
@@ -177,6 +188,7 @@ async function createProductionPinnedPgClient(applicationName, env) {
     port: config.port,
     database: config.database,
     applicationName,
+    tlsServername: config.ssl.servername,
   }, hostIdentity);
   return {
     ok: true,
@@ -190,6 +202,7 @@ async function createProductionPinnedPgClient(applicationName, env) {
     },
     lockedHost: hostIdentity.host,
     lockedHostAddresses: hostIdentity.addresses,
+    approvedPrivateServerAddresses: APPROVED_PRIVATE_SERVER_ADDRESSES,
   };
 }
 
@@ -197,10 +210,16 @@ async function assertLiveSessionTarget(client, applicationName) {
   const locked = getLockedConnect(client);
   const hostIdentity = client && client[SUNSET_LOCKED_HOST_IDENTITY];
   const errors = [];
-  if (!locked || locked.host !== TARGETS.postgresHost || locked.database !== TARGETS.database) {
+  if (!locked || locked.host !== TARGETS.postgresHost || locked.database !== TARGETS.database
+      || locked.tlsServername !== TARGETS.postgresHost) {
     errors.push({ code: 'locked_connect_metadata_mismatch' });
   }
-  if (!hostIdentity || hostIdentity.host !== TARGETS.postgresHost) {
+  if (!hostIdentity
+      || hostIdentity.subscriptionId !== TARGETS.subscriptionId
+      || hostIdentity.resourceGroup !== TARGETS.resourceGroup
+      || hostIdentity.postgresServer !== TARGETS.postgresServer
+      || hostIdentity.host !== TARGETS.postgresHost
+      || hostIdentity.tlsServername !== TARGETS.postgresHost) {
     errors.push({ code: 'locked_host_identity_mismatch' });
   }
 
@@ -219,8 +238,16 @@ async function assertLiveSessionTarget(client, applicationName) {
   const addr = String(row.server_addr || '').trim();
   if (!addr) {
     errors.push({ code: 'live_server_addr_empty', message: 'inet_server_addr() is empty or null' });
-  } else if (!hostIdentity || !hostIdentity.addresses.includes(addr)) {
-    errors.push({ code: 'live_server_addr_not_locked_host', message: 'server_addr does not match resolved locked hostname' });
+  } else {
+    const publicAddresses = hostIdentity && Array.isArray(hostIdentity.publicDnsAddresses)
+      ? hostIdentity.publicDnsAddresses : [];
+    const privateAddresses = hostIdentity && Array.isArray(hostIdentity.approvedPrivateAddresses)
+      ? hostIdentity.approvedPrivateAddresses : [];
+    const privateIdentityIsExact = privateAddresses.length === APPROVED_PRIVATE_SERVER_ADDRESSES.length
+      && privateAddresses.every((value, index) => value === APPROVED_PRIVATE_SERVER_ADDRESSES[index]);
+    if (!publicAddresses.includes(addr) && !(privateIdentityIsExact && privateAddresses.includes(addr))) {
+      errors.push({ code: 'live_server_addr_not_approved_target', message: 'server_addr is neither locked public DNS nor the approved private endpoint' });
+    }
   }
 
   return {
@@ -262,4 +289,5 @@ module.exports = {
   getPgCounters,
   getLockedConnect,
   endClientAfterConnectFailure,
+  APPROVED_PRIVATE_SERVER_ADDRESSES,
 };

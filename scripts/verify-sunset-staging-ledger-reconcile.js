@@ -169,13 +169,54 @@ async function main() {
         port: 5432,
         database: lib.RECONCILE_TARGET.database,
         applicationName: lib.APPLICATION_NAME,
+        tlsServername: lib.RECONCILE_TARGET.postgresHost,
       }),
     });
     Object.defineProperty(emptyAddrClient, SUNSET_LOCKED_HOST_IDENTITY, {
-      value: Object.freeze({ host: lib.RECONCILE_TARGET.postgresHost, addresses: ['10.0.0.1'] }),
+      value: Object.freeze({
+        subscriptionId: lib.RECONCILE_TARGET.subscriptionId,
+        resourceGroup: lib.RECONCILE_TARGET.resourceGroup,
+        postgresServer: lib.RECONCILE_TARGET.postgresServer,
+        host: lib.RECONCILE_TARGET.postgresHost,
+        tlsServername: lib.RECONCILE_TARGET.postgresHost,
+        publicDnsAddresses: ['51.124.155.177'],
+        approvedPrivateAddresses: ['10.33.0.4'],
+      }),
     });
     const emptyAddr = await assertLiveSessionTarget(emptyAddrClient, lib.APPLICATION_NAME);
     pass('rejects_empty_inet_server_addr', emptyAddr.ok === false && emptyAddr.errors.some((e) => e.code === 'live_server_addr_empty'));
+
+    const targetProbe = async ({ addr = '10.33.0.4', database = lib.RECONCILE_TARGET.database,
+      host = lib.RECONCILE_TARGET.postgresHost, tlsServername = lib.RECONCILE_TARGET.postgresHost,
+      subscriptionId = lib.RECONCILE_TARGET.subscriptionId,
+      resourceGroup = lib.RECONCILE_TARGET.resourceGroup,
+      postgresServer = lib.RECONCILE_TARGET.postgresServer,
+      publicDnsAddresses = ['51.124.155.177'], approvedPrivateAddresses = ['10.33.0.4'] } = {}) => {
+      const client = {
+        async query() {
+          return { rows: [{ database_name: database, application_name: lib.APPLICATION_NAME, server_addr: addr, server_port: 5432 }] };
+        },
+      };
+      Object.defineProperty(client, SUNSET_LOCKED_CONNECT, { value: Object.freeze({
+        host, port: 5432, database: lib.RECONCILE_TARGET.database,
+        applicationName: lib.APPLICATION_NAME, tlsServername,
+      }) });
+      Object.defineProperty(client, SUNSET_LOCKED_HOST_IDENTITY, { value: Object.freeze({
+        subscriptionId, resourceGroup, postgresServer, host, tlsServername,
+        publicDnsAddresses, approvedPrivateAddresses,
+      }) });
+      return assertLiveSessionTarget(client, lib.APPLICATION_NAME);
+    };
+    pass('accepts_approved_vnet_private_path_10_33_0_4', (await targetProbe()).ok === true);
+    pass('preserves_locked_public_dns_path', (await targetProbe({ addr: '51.124.155.177' })).ok === true);
+    pass('rejects_wrong_fqdn_or_tls_hostname', !(await targetProbe({ host: 'evil.example.com', tlsServername: 'evil.example.com' })).ok);
+    pass('rejects_wrong_azure_resource', !(await targetProbe({ postgresServer: 'other-pg-server' })).ok);
+    pass('rejects_wrong_live_database', !(await targetProbe({ database: 'postgres' })).ok);
+    pass('rejects_arbitrary_private_ip', !(await targetProbe({ addr: '10.33.0.5' })).ok);
+    pass('rejects_public_impostor', !(await targetProbe({ addr: '203.0.113.9' })).ok);
+    pass('rejects_forged_private_address_seam', !(await targetProbe({
+      addr: '10.33.0.5', approvedPrivateAddresses: ['10.33.0.5'],
+    })).ok);
 
   pass('rejects_missing_env', !lib.evaluateReconcileGates({ env: {}, argv: baseArgv(lib.CLI_DRY_RUN), evidence: fx.evidence }).ok);
   pass('rejects_wrong_database', !lib.evaluateReconcileGates({

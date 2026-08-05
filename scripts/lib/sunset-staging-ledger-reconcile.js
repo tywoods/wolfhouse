@@ -1057,6 +1057,7 @@ function createScriptedReconcileFakeClient(script) {
       port: RECONCILE_TARGET.port,
       database: RECONCILE_TARGET.database,
       applicationName: APPLICATION_NAME,
+      tlsServername: RECONCILE_TARGET.postgresHost,
       mode: 'sunset_staging_locked',
     }),
     enumerable: false,
@@ -1064,8 +1065,13 @@ function createScriptedReconcileFakeClient(script) {
   });
   Object.defineProperty(client, SUNSET_LOCKED_HOST_IDENTITY, {
     value: Object.freeze({
+      subscriptionId: RECONCILE_TARGET.subscriptionId,
+      resourceGroup: RECONCILE_TARGET.resourceGroup,
+      postgresServer: RECONCILE_TARGET.postgresServer,
       host: RECONCILE_TARGET.postgresHost,
-      addresses: [serverAddr],
+      tlsServername: RECONCILE_TARGET.postgresHost,
+      publicDnsAddresses: [serverAddr],
+      approvedPrivateAddresses: ['10.33.0.4'],
     }),
     enumerable: false,
     configurable: false,

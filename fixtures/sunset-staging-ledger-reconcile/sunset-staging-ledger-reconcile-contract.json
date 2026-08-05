@@ -10,7 +10,8 @@
     "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
     "database": "sunset_staging",
     "port": 5432,
-    "applicationName": "wh-sunset-ledger-reconcile-056-060"
+    "applicationName": "wh-sunset-ledger-reconcile-056-060",
+    "approvedPrivateServerAddresses": ["10.33.0.4"]
   },
   "lockedMigrationIds": [
     "056_booking_refund_records",

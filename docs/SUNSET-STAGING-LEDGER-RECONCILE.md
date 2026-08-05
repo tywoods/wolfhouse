@@ -31,6 +31,8 @@ Inside a single PostgreSQL transaction on one pinned `pg.Client` + advisory lock
 | database | `sunset_staging` |
 | host | `luna-sunset-staging-pg-app.postgres.database.azure.com` |
 | resource group | `luna-sunset-staging-rg` |
+| Azure PostgreSQL server | `luna-sunset-staging-pg-app` in subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9` |
+| approved delegated-subnet server address | exactly `10.33.0.4` |
 | migrations | exactly `056`–`060` manifest IDs + checksums |
 | email | `EMAIL_GRANT_ENVELOPE_AZURE_KV_COMPOSITION_ENABLED` must be off |
 
@@ -43,6 +45,8 @@ SUNSET_STAGING_LEDGER_RECONCILE_LOAD_KV_ADMIN=1 node scripts/load-sunset-staging
 ```
 
 The CLI creates exactly one pinned `pg.Client`, uses it for the full transaction, and awaits `client.end()` before exit. `pg.Pool` and query facades are rejected.
+
+The live-target proof always connects to the locked FQDN and verifies the TLS certificate with that FQDN as `servername`. It also binds the session metadata to the fixed subscription, resource group, PostgreSQL server, FQDN, database, port, and application name. `inet_server_addr()` must be either an address returned for the locked FQDN (normal public path) or the single deployment-owned delegated-subnet address `10.33.0.4` (approved VNet path). Empty addresses, arbitrary private ranges, and caller/env supplied address overrides fail closed. The private address is a fixed repository deployment contract; update it only with reviewed Azure network evidence when the server endpoint changes.
 
 ## Approval token
 
