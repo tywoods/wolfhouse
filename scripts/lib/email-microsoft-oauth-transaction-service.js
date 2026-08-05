@@ -8,8 +8,22 @@ const TTL_SECONDS = 600;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const B64URL_32_RE = /^[A-Za-z0-9_-]{43}$/;
 const PKCE_VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/;
-/** Exact start input key order — endpoint is selected at start and bound in-row. */
-const INPUT_KEYS = Object.freeze(['clientId', 'locationId', 'staffUserId', 'authSessionId', 'endpointId']);
+/**
+ * Exact start input key order — endpoint is selected at start and bound in-row.
+ * endpointId is the third key (after clientId, locationId); not trailing.
+ */
+const INPUT_KEYS = Object.freeze([
+  'clientId',
+  'locationId',
+  'endpointId',
+  'staffUserId',
+  'authSessionId',
+]);
+/** Static contract: endpointId is INPUT_KEYS[2] (third start key). */
+const START_ENDPOINT_ID_KEY_INDEX = 2;
+if (INPUT_KEYS[START_ENDPOINT_ID_KEY_INDEX] !== 'endpointId') {
+  throw new Error('oauth_start_input_keys_endpoint_id_not_third');
+}
 const OWNER_KEYS = Object.freeze(['clientId', 'authSessionId']);
 const CALLBACK_CODE_KEYS = Object.freeze(['state', 'code']);
 const CALLBACK_ERROR_KEYS = Object.freeze(['state', 'error']);
@@ -243,6 +257,7 @@ module.exports = {
   SCOPES,
   TTL_SECONDS,
   INPUT_KEYS,
+  START_ENDPOINT_ID_KEY_INDEX,
   OWNER_KEYS,
   CALLBACK_CODE_KEYS,
   CALLBACK_ERROR_KEYS,

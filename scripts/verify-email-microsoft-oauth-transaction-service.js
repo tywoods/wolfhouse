@@ -25,12 +25,13 @@ const DOWN_PATH = path.join(MIG_DIR, DOWN);
 const MANIFEST_PATH = path.join(MIG_DIR, 'canonical-manifest.json');
 const SVC_PATH = path.join(ROOT, 'scripts/lib/email-microsoft-oauth-transaction-service.js');
 
+/** Canonical start-input order: clientId, locationId, endpointId, staffUserId, authSessionId. */
 const ids = {
   clientId: '11111111-1111-1111-1111-111111111111',
   locationId: '22222222-2222-2222-2222-222222222222',
+  endpointId: '55555555-5555-5555-5555-555555555555',
   staffUserId: '33333333-3333-3333-3333-333333333333',
   authSessionId: '44444444-4444-4444-4444-444444444444',
-  endpointId: '55555555-5555-5555-5555-555555555555',
 };
 const other = {
   clientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -178,8 +179,24 @@ function eligibleEndpoint(overrides = {}) {
   };
 }
 
+/** Build exact-ordered start input (endpointId third). Overrides replace values only. */
 function startInput(overrides = {}) {
-  return { ...ids, ...overrides };
+  const base = {
+    clientId: ids.clientId,
+    locationId: ids.locationId,
+    endpointId: ids.endpointId,
+    staffUserId: ids.staffUserId,
+    authSessionId: ids.authSessionId,
+  };
+  if (!overrides || typeof overrides !== 'object') return base;
+  for (const key of Object.keys(base)) {
+    if (Object.prototype.hasOwnProperty.call(overrides, key)) base[key] = overrides[key];
+  }
+  // Allow intentional extra keys for hostility tests when present.
+  for (const key of Object.keys(overrides)) {
+    if (!Object.prototype.hasOwnProperty.call(base, key)) base[key] = overrides[key];
+  }
+  return base;
 }
 
 (async () => {
@@ -246,9 +263,18 @@ function startInput(overrides = {}) {
   // ---------------------------------------------------------------------------
   assert.deepStrictEqual(
     [...svc.INPUT_KEYS],
-    ['clientId', 'locationId', 'staffUserId', 'authSessionId', 'endpointId'],
-    'ordered INPUT_KEYS include endpointId',
+    ['clientId', 'locationId', 'endpointId', 'staffUserId', 'authSessionId'],
+    'ordered INPUT_KEYS: endpointId is third',
   );
+  assert.strictEqual(svc.START_ENDPOINT_ID_KEY_INDEX, 2, 'exported third-key index is 2');
+  assert.strictEqual(
+    svc.INPUT_KEYS[svc.START_ENDPOINT_ID_KEY_INDEX],
+    'endpointId',
+    'endpointId is the third start key',
+  );
+  assert.strictEqual(svc.INPUT_KEYS.indexOf('endpointId'), 2, 'endpointId index is 2');
+  assert.deepStrictEqual(Object.keys(ids), [...svc.INPUT_KEYS], 'fixture ids key order matches INPUT_KEYS');
+  assert.deepStrictEqual(Object.keys(startInput()), [...svc.INPUT_KEYS], 'startInput key order matches INPUT_KEYS');
   assert.match(svc.SQL_CREATE_TRANSACTION, /INSERT INTO tenant_email_oauth_transactions/);
   assert.match(svc.SQL_CREATE_TRANSACTION, /INNER JOIN tenant_locations tl/);
   assert.match(svc.SQL_CREATE_TRANSACTION, /tl\.location_id = e\.location_id/);
@@ -264,6 +290,20 @@ function startInput(overrides = {}) {
   assert.match(svc.SQL_CONSUME_TRANSACTION, /RETURNING id, location_id, staff_user_id, code_verifier, nonce, endpoint_id/);
 
   const svcSrc = fs.readFileSync(SVC_PATH, 'utf8');
+  assert.match(
+    svcSrc,
+    /START_ENDPOINT_ID_KEY_INDEX\s*=\s*2/,
+    'static START_ENDPOINT_ID_KEY_INDEX = 2 in source',
+  );
+  assert.match(
+    svcSrc,
+    /INPUT_KEYS\s*=\s*Object\.freeze\(\[\s*['"]clientId['"]\s*,\s*['"]locationId['"]\s*,\s*['"]endpointId['"]\s*,\s*['"]staffUserId['"]\s*,\s*['"]authSessionId['"]\s*,?\s*\]\)/s,
+    'static INPUT_KEYS source order has endpointId third',
+  );
+  assert.ok(
+    !/INPUT_KEYS\s*=\s*Object\.freeze\(\[[^\]]*['"]authSessionId['"][^\]]*['"]endpointId['"]/s.test(svcSrc),
+    'static INPUT_KEYS must not place endpointId after authSessionId',
+  );
   assert.ok(!/authorization_url[\s\S]{0,200}endpoint/i.test(svcSrc.split('return Object.freeze({ authorization_url')[1] || ''), 'start DTO has no endpoint field wiring');
 
   // ---------------------------------------------------------------------------
@@ -443,18 +483,33 @@ function startInput(overrides = {}) {
   await rejectStart(Object.assign(Object.create({ sneaky: true }), ids), 'custom prototype');
   await rejectStart(Object.assign([], ids), 'array host');
 
-  // Wrong key order (exact ordered list required)
-  const wrongOrder = {
+  // Wrong key order: endpointId after authSessionId (trailing) must reject before random/repo
+  const wrongOrderEndpointTrailing = {
     clientId: ids.clientId,
     locationId: ids.locationId,
-    endpointId: ids.endpointId,
     staffUserId: ids.staffUserId,
     authSessionId: ids.authSessionId,
+    endpointId: ids.endpointId,
   };
-  assert.deepStrictEqual(Object.keys(wrongOrder), [
-    'clientId', 'locationId', 'endpointId', 'staffUserId', 'authSessionId',
+  assert.deepStrictEqual(Object.keys(wrongOrderEndpointTrailing), [
+    'clientId', 'locationId', 'staffUserId', 'authSessionId', 'endpointId',
   ]);
-  await rejectStart(wrongOrder, 'wrong key order');
+  assert.notDeepStrictEqual(
+    Object.keys(wrongOrderEndpointTrailing),
+    [...svc.INPUT_KEYS],
+    'trailing endpointId is not the required start order',
+  );
+  await rejectStart(wrongOrderEndpointTrailing, 'endpointId after authSessionId (wrong order)');
+
+  // Also reject staff/session before endpoint (any permutation off the exact list)
+  const wrongOrderSwapStaffEndpoint = {
+    clientId: ids.clientId,
+    locationId: ids.locationId,
+    staffUserId: ids.staffUserId,
+    endpointId: ids.endpointId,
+    authSessionId: ids.authSessionId,
+  };
+  await rejectStart(wrongOrderSwapStaffEndpoint, 'staffUserId before endpointId (wrong order)');
 
   // Frozen plain exact input still accepted (public contract)
   const frozenIn = Object.freeze({ ...ids });
@@ -496,10 +551,11 @@ function startInput(overrides = {}) {
   const upper = {
     clientId: ids.clientId.toUpperCase(),
     locationId: ids.locationId.toUpperCase(),
+    endpointId: ids.endpointId.toUpperCase(),
     staffUserId: ids.staffUserId.toUpperCase(),
     authSessionId: ids.authSessionId.toUpperCase(),
-    endpointId: ids.endpointId.toUpperCase(),
   };
+  assert.deepStrictEqual(Object.keys(upper), [...svc.INPUT_KEYS], 'upper input key order exact');
   const upperWrites = [];
   const upperSvc = svc.createMicrosoftOAuthTransactionService({
     repository: {
