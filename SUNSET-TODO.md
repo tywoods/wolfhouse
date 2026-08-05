@@ -4,7 +4,7 @@ Running Sunset product TODO (formerly `UI-BACKLOG.md`): UI/UX, functional work, 
 
 **Tags:** `[UI]` layout/visual · `[BUG]` broken behavior · `[FEAT]` new capability · `[LUNA]` chatbot brain/wiring · `[I18N]` translation.
 **Size:** S / M / L. **Sketch?** = wants a concept mock before build. **@Earthling** = needs Earthling's call.
-_Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complete; refine + resequence as we go._
+_Started 2026-08-03. Last updated 2026-08-05 03:40 UTC. Owner brain-dump complete; refine + resequence as we go._
 
 ---
 
@@ -14,8 +14,9 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 - **Moving a tab** → easy (nav entry + panel); real work is the panel content.
 
 ## ▶️ Recommended next (sequencing)
-1. ✅ **SHIPPED (revs 0458–0470):** Bookings/Cockpit polish, Finance S2, D4, Inbox toggle, F2, A1, F1, F3, full Finance-UI cleanup + revisions + polish v2, cancel/hide v2 (+ migration 060), Bookings tab v2, rental-editor layout (v1 + v5), and **A2 course-card redesign + polish** (Private closed 2a + one-row edit, Group Option 3, neutral colors, shared equipment editor) — revs 0469–0470. _Owner has minor tweaks tomorrow._
-2. **Remaining:** **A3** (beaches de-hardcode + Luna wire — *important*), Cockpit **C1** (selector placement — needs design), **L2** (Luna offers disabled rentals — @Earthling), Luna wiring **W1–W4** (@Earthling).
+1. ✅ **SHIPPED (revs 0458–0473):** Bookings/Cockpit polish, Finance S2, D4, Inbox toggle, F2, A1, F1, F3, Finance-UI cleanup/revisions/polish v2, cancel/hide v2 (+ migration 060), Bookings tab v2, rental-editor v1+v5, **A2 course-cards** (revs 0469–0470), **Bookings tab edits + Restore** (0471), **finance fail-soft + clickable codes + cancelled-Type + shared item-name resolver** (0472), **schedule guest-collapse rule** (0473). Email **2F-C2** runtime-composition factory integrated to master (`1b6fa65b`, default-off, **not deployed**).
+2. **Remaining:** **A3** (beaches de-hardcode + Luna wire — *important*), Cockpit **C1** (selector placement — needs design), **L2** (Luna offers disabled rentals — @Earthling), Luna wiring **W1–W4** (@Earthling), then **Mobile** last.
+3. **OPEN — finance money-truth:** booking `c713c1d7` (€35 total / €20 balance / no captured payment) needs correcting once owner says whether €15 was paid or €35 owed.
 3. **Mobile — LAST.**
 4. **L3 email 2F-C** resumes only when Earthling has Azure access; parked with runtime OFF.
 5. **Mobile LAST** — after the main-site UI settles (we're still adding/removing buttons; no point chasing a moving target).
@@ -25,7 +26,8 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 ## 🧠 Luna (brain / behavior)
 - **L1 — Personality/voice.** Luna needs a defined personality. **@Earthling.** `L`
 - **L2 — [BUG] Disabled rental still offered.** Turning a rental OFF in Admin doesn't stop Luna offering it; she must respect the enabled/active flag. `M`
-- **L3 — [FEAT] Email capabilities for Luna.** Give Luna the ability to send/handle email (not just WhatsApp). **@Earthling + Skipper — in progress.** `L`
+- **L3 — [FEAT] Email capabilities for Luna.** Give Luna the ability to send/handle email (not just WhatsApp). **@Earthling + Skipper — in progress (foundation on master, email OFF).** `L`
+  - **2F-C done + 2F-C2 integrated:** KEK created in `luna-sunset-staging-kv` (`luna-email-grant-kek/fde9704b…`) + Sunset identity granted Crypto User; default-off runtime-composition factory on master (`1b6fa65b`), **not deployed**. Next: Azure pre-deploy gate → deploy → staging wrap/unwrap custody proof → refresh-exchange/OAuth callback → separately-approved activation. Nothing on until each gate passes.
   - **Shipped foundation:** delegated endpoint/OAuth contracts, Graph adapter/readiness, encrypted grant custody (2F-A, PR #352), and Standard Key Vault RSA envelope provider (2F-B, PR #353).
   - **WAITING — 2F-C Azure boundary:** step-by-step runbook at **[EARTHLING-2F-C-AZURE-RUNBOOK.md]** — create/version-pin the RSA wrapping key in `wh-staging-kv`, grant the Sunset identity (`5338388f…`) Crypto User, paste the versioned key ID back; Captain then wires config + runs the staging wrap/unwrap proof.
   - **Still OFF / later:** SDK managed-identity composition, refresh exchange, OAuth callback installation, routes, mailbox activation, deployment, and guest email behavior.
@@ -58,6 +60,9 @@ _Started 2026-08-03. Last updated 2026-08-03 23:20 UTC. Owner brain-dump complet
 - **A3 — [FEAT][LUNA] Beaches: de-hardcode + custom + wire.** *(important)* On create/edit group course, beaches are hardcoded — delete them and add a **"+ add beach"** so admin defines their own; also **wire Luna** to pick them up (she doesn't today). First case of W1. `M`
 
 ## ✅ Recently shipped from this TODO
+- **Schedule guest-collapse rule** (rev 0473): cards mode shows course guests by default; timeline collapses a course's guests only when no all-day course gear AND ≥1h past end (people keep equipment). `2b25d077`.
+- **Finance fail-soft + item-name audit** (rev 0472): one stale-balance/malformed row no longer 503s the whole finance tab (flagged in `data_quality`, still renders); clickable booking codes → Schedule day + drawer; cancelled/hidden show Type; shared `item-display-name` resolver (rentals by catalog key, accommodation package name) across bookings/drawer/invoices/Luna. `820d4ec7`. Audit map `docs/BOOKINGS-FINANCE-LABEL-AUDIT-MAP.md`.
+- **Bookings tab edits + Restore** (rev 0471): Type→plain text (+ server accommodation categories), refund section hidden unless cancelled/refunded, Restore on cancelled rows (Bookings + schedule drawer), Created column sorting `created_at`, centered status chips. `7bdbcacf`.
 - **A2 course-card redesign + polish** (revs 0469–0470): Private closed **2a** full-width columns + **one-row edit** (Notes under), Group **Option 3** (meta rows + equipment-under-meta + two-column price), **neutral site colors** (dropped blue/purple/green), and shared equipment editor (equal During/All-day widths, `×` inline, `+` beside `×`); `0ac9c499` + `068c8874`. Live-verified on authed page. Owner has minor tweaks tomorrow.
 - **Cancel/hide v2** (no Deleted; Hidden filter/tag/Unhide; Refund-needed gating), **Finance UI cleanup + revisions + polish v2** (title removed, Custom floating calendar, Accommodation, equal cards, Jan→Dec monthly graph, capacity ring), **Bookings tab v2** (sortable cols, What→Type Rentals/Lessons/Accommodation, aligned/slimmer cols, darker chips), and the **rental-editor layout** v1+v5 — all live, revs 0461–0468.
 - **D1–D3 — Booking-drawer equipment polish:** compact quantity/total layout, unified green, and one Equipment header; `ef936ec5`, followed by picker regression fix `6eed4823`.
