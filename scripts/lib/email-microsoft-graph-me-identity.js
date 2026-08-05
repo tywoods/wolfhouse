@@ -24,21 +24,46 @@ function failure(code) {
   return Object.freeze(error);
 }
 
-function ownData(object, key) {
-  const descriptor = Object.getOwnPropertyDescriptor(object, key);
-  return descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'value')
-    ? descriptor.value : undefined;
+function inspectPlainDataObject(value, allowed, required = allowed) {
+  try {
+    if (value === null || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) return null;
+    const keys = Reflect.ownKeys(value);
+    if (keys.some((key) => typeof key !== 'string' || !allowed.includes(key))) return null;
+    if (required.some((key) => !keys.includes(key))) return null;
+    const result = Object.create(null);
+    for (const key of keys) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return null;
+      result[key] = descriptor.value;
+    }
+    return result;
+  } catch {
+    return null;
+  }
 }
 
-function validInput(input) {
-  if (input === null || typeof input !== 'object' || Object.getPrototypeOf(input) !== Object.prototype) return false;
-  if (Reflect.ownKeys(input).length !== 1 || !Object.prototype.hasOwnProperty.call(input, 'accessToken')) return false;
-  const token = ownData(input, 'accessToken');
-  return typeof token === 'string' && token.length >= 1 && token.length <= 16384
-    && /^[\x21-\x7e]+$/.test(token);
+function readOwnData(value, key) {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'value')
+      ? descriptor.value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
-// Strict JSON parser: duplicate names are rejected instead of silently overwritten.
+function readInput(input) {
+  const inspected = inspectPlainDataObject(input, ['accessToken']);
+  if (!inspected) return null;
+  let descriptor;
+  try { descriptor = Object.getOwnPropertyDescriptor(input, 'accessToken'); } catch { return null; }
+  const token = inspected.accessToken;
+  if (!descriptor.enumerable || typeof token !== 'string' || token.length < 1 || token.length > 16384
+      || !/^[\x21-\x7e]+$/.test(token)) return null;
+  return token;
+}
+
+// Strict JSON parser: duplicate, escaped-dangerous, and nested-dangerous names are rejected.
 function parseStrictJson(text) {
   let at = 0;
   const fail = () => { throw failure('RESPONSE_INVALID'); };
@@ -122,14 +147,14 @@ function parseStrictJson(text) {
   return result;
 }
 
-function boundedString(value, min, max) {
+function boundedText(value, min, max) {
   return typeof value === 'string' && value.length >= min && value.length <= max
     && !/[\u0000-\u001f\u007f]/.test(value);
 }
 
 function normalizeMailbox(value) {
   if (value === null || value === undefined || value === '') return null;
-  if (!boundedString(value, 3, 254) || value !== value.trim()) return false;
+  if (!boundedText(value, 3, 254) || value !== value.trim()) return false;
   const normalized = value.toLowerCase();
   if (!/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(normalized)) return false;
   if (normalized.includes('..')) return false;
@@ -141,97 +166,152 @@ function selectIdentity(parsed) {
     throw failure('RESPONSE_INVALID');
   }
   const id = parsed.id;
-  const displayName = parsed.displayName;
-  if (!boundedString(id, 1, 256) || !boundedString(displayName, 1, 256)) throw failure('IDENTITY_INVALID');
+  const rawDisplayName = parsed.displayName;
+  if (!boundedText(id, 1, 256)) throw failure('IDENTITY_INVALID');
+  let displayName = null;
+  if (rawDisplayName !== null && rawDisplayName !== undefined && rawDisplayName !== '') {
+    if (!boundedText(rawDisplayName, 1, 256)) throw failure('IDENTITY_INVALID');
+    displayName = rawDisplayName;
+  }
   const mail = normalizeMailbox(parsed.mail);
   const upn = normalizeMailbox(parsed.userPrincipalName);
-  if (mail === false || upn === false || (!mail && !upn) || (mail && upn && mail !== upn)) {
-    throw failure('IDENTITY_INVALID');
-  }
-  return Object.freeze({ id, displayName, mailbox: mail || upn });
+  if (mail === false || upn === false || (!mail && !upn) || (mail && upn && mail !== upn)) throw failure('IDENTITY_INVALID');
+  return Object.freeze({ providerSubjectId: id, mailboxAddress: mail || upn, displayName });
 }
 
-function createMicrosoftGraphMeIdentityTransport(testDependencies) {
-  const requestImpl = testDependencies && testDependencies.requestImpl;
-  if (testDependencies !== undefined && (Object.keys(testDependencies).length !== 1 || typeof requestImpl !== 'function')) {
-    throw failure('INPUT_INVALID');
+function createMicrosoftGraphMeIdentityTransport(dependencies = {}) {
+  const deps = inspectPlainDataObject(dependencies, ['httpsImpl', 'timers'], []);
+  if (!deps) throw failure('INPUT_INVALID');
+  const request = deps.httpsImpl === undefined ? https.request : deps.httpsImpl;
+  if (typeof request !== 'function') throw failure('INPUT_INVALID');
+  let setTimer = setTimeout;
+  let clearTimer = clearTimeout;
+  if (deps.timers !== undefined) {
+    const timerDeps = inspectPlainDataObject(deps.timers, ['setTimeout', 'clearTimeout']);
+    if (!timerDeps || typeof timerDeps.setTimeout !== 'function' || typeof timerDeps.clearTimeout !== 'function') {
+      throw failure('INPUT_INVALID');
+    }
+    setTimer = timerDeps.setTimeout;
+    clearTimer = timerDeps.clearTimeout;
   }
-  const request = requestImpl || https.request;
 
-  return function fetchMicrosoftGraphMeIdentity(input) {
-    let accepted = false;
-    try { accepted = validInput(input); } catch { accepted = false; }
-    if (!accepted) return Promise.reject(failure('INPUT_INVALID'));
-    const accessToken = ownData(input, 'accessToken');
+  let used = false;
+  function fetchIdentity(input) {
+    if (used) return Promise.reject(failure('INPUT_INVALID'));
+    used = true; // Burn atomically before input inspection, Promise construction, timers, or I/O.
+    const accessToken = readInput(input);
+    if (accessToken === null) return Promise.reject(failure('INPUT_INVALID'));
+
     return new Promise((resolve, reject) => {
       let settled = false;
-      let req;
+      let requestObject;
+      let activeResponse;
+      let requestDestroyed = false;
+      let responseDestroyed = false;
+      let timerHandle;
+      let timerAcquired = false;
+      let timerCleared = false;
+
+      const clearDeadline = () => {
+        if (!timerAcquired || timerCleared) return;
+        timerCleared = true;
+        try { clearTimer(timerHandle); } catch { /* settlement must remain stable */ }
+      };
+      const destroyRequest = () => {
+        if (requestDestroyed || !requestObject) return;
+        requestDestroyed = true;
+        try { if (typeof requestObject.destroy === 'function') requestObject.destroy(); } catch { /* masked */ }
+      };
+      const destroyResponse = () => {
+        if (responseDestroyed || !activeResponse) return;
+        responseDestroyed = true;
+        try { if (typeof activeResponse.destroy === 'function') activeResponse.destroy(); } catch { /* masked */ }
+      };
       const finish = (error, result) => {
         if (settled) return;
         settled = true;
-        clearTimeout(deadline);
+        clearDeadline();
         if (error) reject(error); else resolve(result);
       };
-      const deadline = setTimeout(() => {
-        if (req && typeof req.destroy === 'function') req.destroy();
-        finish(failure('DEADLINE_EXCEEDED'));
-      }, DEADLINE_MS);
+      const terminate = (error) => {
+        destroyResponse();
+        destroyRequest();
+        finish(error);
+      };
+
       try {
-        req = request({
-          protocol: 'https:', hostname: HOST, host: HOST, port: 443,
-          method: 'GET', path: PATH, agent: false,
-          headers: Object.freeze({ Accept: 'application/json', Authorization: 'Bearer ' + accessToken }),
-        }, (response) => {
-          const status = response.statusCode;
-          const responseHeaders = response.headers;
-          const contentType = responseHeaders && typeof responseHeaders === 'object'
-            ? ownData(responseHeaders, 'content-type') : undefined;
-          const contentLength = responseHeaders && typeof responseHeaders === 'object'
-            ? ownData(responseHeaders, 'content-length') : undefined;
-          if (!Number.isInteger(status) || status < 200 || status > 299) {
-            if (typeof response.destroy === 'function') response.destroy();
-            finish(failure('HTTP_ERROR'));
-            return;
-          }
-          if (typeof contentType !== 'string' || !/^application\/json(?:\s*;|$)/i.test(contentType)
-              || (contentLength !== undefined && (!/^\d+$/.test(contentLength) || Number(contentLength) > RESPONSE_CAP_BYTES))) {
-            if (typeof response.destroy === 'function') response.destroy();
-            finish(contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > RESPONSE_CAP_BYTES
-              ? failure('RESPONSE_TOO_LARGE') : failure('RESPONSE_INVALID'));
-            return;
-          }
-          const chunks = [];
-          let bytes = 0;
-          response.on('data', (chunk) => {
-            if (settled) return;
-            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-            bytes += buffer.length;
-            if (bytes > RESPONSE_CAP_BYTES) {
-              if (typeof response.destroy === 'function') response.destroy();
-              if (req && typeof req.destroy === 'function') req.destroy();
-              finish(failure('RESPONSE_TOO_LARGE'));
-            } else chunks.push(buffer);
-          });
-          response.once('error', () => finish(failure('REQUEST_FAILED')));
-          response.once('end', () => {
-            if (settled) return;
-            try { finish(null, selectIdentity(parseStrictJson(Buffer.concat(chunks).toString('utf8')))); }
-            catch (error) { finish(error && ERROR_MESSAGES[error.code] ? error : failure('RESPONSE_INVALID')); }
-          });
-        });
-        req.once('error', () => finish(failure('REQUEST_FAILED')));
-        req.end();
+        timerHandle = setTimer(() => terminate(failure('DEADLINE_EXCEEDED')), DEADLINE_MS);
+        timerAcquired = true;
+        if (settled) clearDeadline();
       } catch {
-        if (req && typeof req.destroy === 'function') req.destroy();
         finish(failure('REQUEST_FAILED'));
       }
+      if (settled) return;
+
+      try {
+        requestObject = request(Object.freeze({
+          protocol: 'https:', hostname: HOST, host: HOST, port: 443,
+          method: 'GET', path: PATH, agent: false,
+          headers: Object.freeze({ Accept: 'application/json', Authorization: ['Bearer', accessToken].join(' ') }),
+        }), (response) => {
+          if (settled) {
+            activeResponse = response;
+            destroyResponse();
+            return;
+          }
+          activeResponse = response;
+          try {
+            const status = readOwnData(response, 'statusCode');
+            const headers = readOwnData(response, 'headers');
+            const contentType = headers && typeof headers === 'object' ? readOwnData(headers, 'content-type') : undefined;
+            const contentLength = headers && typeof headers === 'object' ? readOwnData(headers, 'content-length') : undefined;
+            if (status !== 200) { terminate(failure('HTTP_ERROR')); return; }
+            if (typeof contentType !== 'string' || !/^application\/json(?:\s*;|$)/i.test(contentType)) {
+              terminate(failure('RESPONSE_INVALID')); return;
+            }
+            if (contentLength !== undefined && (!/^\d+$/.test(contentLength) || Number(contentLength) > RESPONSE_CAP_BYTES)) {
+              terminate(contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > RESPONSE_CAP_BYTES
+                ? failure('RESPONSE_TOO_LARGE') : failure('RESPONSE_INVALID'));
+              return;
+            }
+            if (typeof response.on !== 'function' || typeof response.once !== 'function') {
+              terminate(failure('REQUEST_FAILED')); return;
+            }
+            const chunks = [];
+            let bytes = 0;
+            let ended = false;
+            response.on('data', (chunk) => {
+              if (settled) return;
+              if (!Buffer.isBuffer(chunk)) { terminate(failure('RESPONSE_INVALID')); return; }
+              if (chunk.length > RESPONSE_CAP_BYTES - bytes) { terminate(failure('RESPONSE_TOO_LARGE')); return; }
+              bytes += chunk.length;
+              chunks.push(chunk);
+            });
+            response.once('error', () => terminate(failure('REQUEST_FAILED')));
+            response.once('aborted', () => terminate(failure('REQUEST_FAILED')));
+            response.once('close', () => { if (!ended) terminate(failure('REQUEST_FAILED')); });
+            response.once('end', () => {
+              if (settled) return;
+              ended = true;
+              try { finish(null, selectIdentity(parseStrictJson(Buffer.concat(chunks, bytes).toString('utf8')))); }
+              catch (error) { finish(error && ERROR_MESSAGES[error.code] ? error : failure('RESPONSE_INVALID')); }
+            });
+          } catch {
+            terminate(failure('REQUEST_FAILED'));
+          }
+        });
+        if (!requestObject || typeof requestObject.once !== 'function' || typeof requestObject.end !== 'function') {
+          terminate(failure('REQUEST_FAILED')); return;
+        }
+        requestObject.once('error', () => terminate(failure('REQUEST_FAILED')));
+        requestObject.end();
+      } catch {
+        terminate(failure('REQUEST_FAILED'));
+      }
     });
-  };
+  }
+
+  return Object.freeze({ fetchIdentity });
 }
 
-const fetchMicrosoftGraphMeIdentity = createMicrosoftGraphMeIdentityTransport();
-
-module.exports = Object.freeze({
-  createMicrosoftGraphMeIdentityTransport,
-  fetchMicrosoftGraphMeIdentity,
-});
+module.exports = Object.freeze({ createMicrosoftGraphMeIdentityTransport });
