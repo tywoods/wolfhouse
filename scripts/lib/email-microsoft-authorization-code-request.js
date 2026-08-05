@@ -1,6 +1,7 @@
 'use strict';
 
 const { REDIRECT_URI } = require('./email-microsoft-oauth-transaction-service');
+const { REQUEST_LIMIT_BYTES } = require('./email-microsoft-token-http-transport');
 
 const FAILURE_CODE = 'microsoft_authorization_code_exchange_failed';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
@@ -81,6 +82,7 @@ function createMicrosoftAuthorizationCodeRequestService(deps) {
         ['redirect_uri', REDIRECT_URI],
         ['code_verifier', ownData(input, 'codeVerifier')],
       ]).toString();
+      if (Buffer.byteLength(body, 'utf8') > REQUEST_LIMIT_BYTES) throw failure();
       const result = await Reflect.apply(exchangeAndCustody, responseCustody, [{ body }]);
       if (result !== SUCCESS && !(result && Object.isFrozen(result) && Object.getPrototypeOf(result) === Object.prototype
           && Reflect.ownKeys(result).length === 1 && ownData(result, 'status') === 'custodied')) throw failure();

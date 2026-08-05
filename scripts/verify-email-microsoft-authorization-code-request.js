@@ -1,6 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { REDIRECT_URI } = require('./lib/email-microsoft-oauth-transaction-service');
+const { REQUEST_LIMIT_BYTES } = require('./lib/email-microsoft-token-http-transport');
 const { FAILURE_CODE, SUNSET_DEPLOYMENT, createMicrosoftAuthorizationCodeRequestService } = require('./lib/email-microsoft-authorization-code-request');
 const CLIENT_ID = '12345678-1234-4234-8234-123456789abc';
 const CODE = 'code+/%?=&NEVER_LEAK';
@@ -10,6 +11,22 @@ const ACK = Object.freeze({ status: 'custodied' });
 function frozenMethod(name, fn) { return Object.freeze({ [name]: fn }); }
 function deps(provider, custody, patch = {}) { return { deployment:SUNSET_DEPLOYMENT, applicationClientId:CLIENT_ID, secretProvider:provider, responseCustody:custody, ...patch }; }
 function input(patch = {}) { return { authorizationCode:CODE, codeVerifier:VERIFIER, clientId:CLIENT_ID, ...patch }; }
+function encodedBody(code, secret) {
+  return new URLSearchParams([
+    ['client_id', CLIENT_ID], ['client_secret', secret], ['grant_type', 'authorization_code'],
+    ['code', code], ['redirect_uri', REDIRECT_URI], ['code_verifier', VERIFIER],
+  ]).toString();
+}
+function codeForBodyBytes(target, secret) {
+  const base = Buffer.byteLength(encodedBody('', secret), 'utf8');
+  for (let length = 1; length <= 8192; length += 1) {
+    const encodedCount = (target - base - length) / 2;
+    if (Number.isInteger(encodedCount) && encodedCount >= 0 && encodedCount <= length) {
+      return `${'%'.repeat(encodedCount)}${'A'.repeat(length - encodedCount)}`;
+    }
+  }
+  throw new Error(`no boundary specimen for ${target}`);
+}
 async function mustFail(action) {
   await assert.rejects(action, (error) => error.code === FAILURE_CODE && error.message === FAILURE_CODE
     && !String(error).includes('NEVER_LEAK') && !JSON.stringify(error).includes('NEVER_LEAK'));
@@ -27,6 +44,28 @@ async function main() {
     assert.equal(captured.body,`client_id=${CLIENT_ID}&client_secret=secret%2B%2F%25%3F%3D%26NEVER_LEAK&grant_type=authorization_code&code=code%2B%2F%25%3F%3D%26NEVER_LEAK&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&code_verifier=${VERIFIER.slice(0, -1)}%7E`);
     assert.deepEqual([...new URLSearchParams(captured.body)], [['client_id',CLIENT_ID],['client_secret',SECRET],['grant_type','authorization_code'],['code',CODE],['redirect_uri',REDIRECT_URI],['code_verifier',VERIFIER]]);
     assert.equal(new URLSearchParams(captured.body).has('scope'),false);
+
+    const boundarySecret = '%'.repeat(4096);
+    const exactCode = codeForBodyBytes(REQUEST_LIMIT_BYTES, boundarySecret);
+    let boundaryCalls = 0;
+    let boundaryBody;
+    const boundaryCustody = frozenMethod('exchangeAndCustody', async ({ body }) => {
+      boundaryCalls += 1; boundaryBody = body; return ACK;
+    });
+    await createMicrosoftAuthorizationCodeRequestService(deps(
+      frozenMethod('getClientSecret', async () => boundarySecret), boundaryCustody,
+    )).exchangeAuthorizationCode(input({ authorizationCode: exactCode }));
+    assert.equal(Buffer.byteLength(boundaryBody, 'utf8'), REQUEST_LIMIT_BYTES);
+    assert.equal(boundaryCalls, 1);
+    const overCode = codeForBodyBytes(REQUEST_LIMIT_BYTES + 1, boundarySecret);
+    boundaryCalls = 0;
+    const oversized = createMicrosoftAuthorizationCodeRequestService(deps(
+      frozenMethod('getClientSecret', async () => boundarySecret), boundaryCustody,
+    ));
+    await mustFail(() => oversized.exchangeAuthorizationCode(input({ authorizationCode: overCode })));
+    assert.equal(boundaryCalls, 0, 'oversized composed body must not reach downstream custody');
+    await mustFail(() => oversized.exchangeAuthorizationCode(input()));
+    assert.equal(boundaryCalls, 0, 'oversized failure must burn the single-use service');
 
     for (const bad of [null, [], {}, {...input(), extra:true}, {...input(), clientId:'22345678-1234-4234-8234-123456789abc'}, {...input(), authorizationCode:''}, {...input(), authorizationCode:'bad\n'}, {...input(), codeVerifier:'short'}, Object.create(null)]) {
       providerCalls=0; await mustFail(()=>createMicrosoftAuthorizationCodeRequestService(deps(provider,custody)).exchangeAuthorizationCode(bad)); assert.equal(providerCalls,0);
