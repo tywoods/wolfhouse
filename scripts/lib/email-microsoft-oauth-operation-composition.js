@@ -292,8 +292,35 @@ function snapshotAndValidateCompletionInput(input) {
 }
 
 /**
- * Snapshot exact offline transport dependency bag.
- * Pins httpsImpl + timers receivers; rejects ambient defaulting holes.
+ * Descriptor-snapshot one own-data function without invoking accessors/getters.
+ * Rejects missing/accessors/non-functions/reflection traps; never reads via [[Get]].
+ */
+function ownDataFunction(object, key) {
+  try {
+    if (object == null || (typeof object !== 'object' && typeof object !== 'function')) {
+      return null;
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(object, key);
+    if (!descriptor
+        || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+        || descriptor.get
+        || descriptor.set
+        || typeof descriptor.value !== 'function') {
+      return null;
+    }
+    return descriptor.value;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Snapshot exact offline transport dependency bag at factory time.
+ * Descriptor-snapshots httpsImpl.request and timers.setTimeout/clearTimeout once,
+ * then returns fresh frozen wrappers that forward via Reflect.apply to the
+ * original owners — post-factory method replacement on the raw objects has no
+ * effect. Rejects accessors/symbols/extras/unsafe prototypes/reflection traps
+ * without invocation. No ambient defaulting holes.
  */
 function snapshotTransportDeps(raw) {
   try {
@@ -310,31 +337,77 @@ function snapshotTransportDeps(raw) {
     if (!httpsImpl || (typeof httpsImpl !== 'object' && typeof httpsImpl !== 'function')) {
       return null;
     }
-    // Merged transport calls httpsImpl.request(...); require a callable request.
-    if (typeof httpsImpl.request !== 'function') return null;
+    // Descriptor-snapshot request exactly once (no getter invocation).
+    const capturedRequest = ownDataFunction(httpsImpl, 'request');
+    if (typeof capturedRequest !== 'function') return null;
 
     // Timers: exact own-data setTimeout + clearTimeout (no ambient substitution).
     if (!timers || typeof timers !== 'object' || Array.isArray(timers)) return null;
-    const timerProto = Object.getPrototypeOf(timers);
+    let timerProto;
+    try {
+      timerProto = Object.getPrototypeOf(timers);
+    } catch {
+      return null;
+    }
     if (timerProto !== Object.prototype && timerProto !== null) return null;
-    const timerKeys = Reflect.ownKeys(timers);
-    if (timerKeys.length !== TIMERS_KEYS.length) return null;
+    let timerKeys;
+    try {
+      timerKeys = Reflect.ownKeys(timers);
+    } catch {
+      return null;
+    }
+    if (timerKeys.length !== TIMERS_KEYS.length
+        || timerKeys.some((key) => typeof key !== 'string')) {
+      return null;
+    }
     for (let i = 0; i < TIMERS_KEYS.length; i += 1) {
       if (timerKeys[i] !== TIMERS_KEYS[i]) return null;
     }
-    const setTimeoutFn = ownData(timers, 'setTimeout');
-    const clearTimeoutFn = ownData(timers, 'clearTimeout');
-    if (typeof setTimeoutFn !== 'function' || typeof clearTimeoutFn !== 'function') {
+    // Descriptor-snapshot both timer methods exactly once.
+    const capturedSetTimeout = ownDataFunction(timers, 'setTimeout');
+    const capturedClearTimeout = ownDataFunction(timers, 'clearTimeout');
+    if (typeof capturedSetTimeout !== 'function' || typeof capturedClearTimeout !== 'function') {
       return null;
     }
 
-    // Freeze a fresh bag pinning the exact receivers (no later ambient merge).
+    // Fresh frozen wrappers: forward with original owners as thisArg.
+    const pinnedHttps = Object.freeze({
+      request(...args) {
+        return Reflect.apply(capturedRequest, httpsImpl, args);
+      },
+    });
+    const pinnedTimers = Object.freeze({
+      setTimeout(...args) {
+        return Reflect.apply(capturedSetTimeout, timers, args);
+      },
+      clearTimeout(...args) {
+        return Reflect.apply(capturedClearTimeout, timers, args);
+      },
+    });
+
     return Object.freeze({
-      httpsImpl,
-      timers: Object.freeze({
-        setTimeout: setTimeoutFn,
-        clearTimeout: clearTimeoutFn,
-      }),
+      httpsImpl: pinnedHttps,
+      timers: pinnedTimers,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pin secretProvider at factory: capture getClientSecret once into a fresh exact
+ * provider wrapper that always applies to the original owner. Post-factory
+ * mutation/replacement of the raw method has no effect.
+ */
+function pinSecretProvider(raw) {
+  try {
+    if (!exactSecretProvider(raw)) return null;
+    const capturedGetClientSecret = ownDataFunction(raw, 'getClientSecret');
+    if (typeof capturedGetClientSecret !== 'function') return null;
+    return Object.freeze({
+      getClientSecret(...args) {
+        return Reflect.apply(capturedGetClientSecret, raw, args);
+      },
     });
   } catch {
     return null;
@@ -361,20 +434,27 @@ function pinDependencies(dependencies) {
     if (ordered[i] !== DEPENDENCY_KEYS[i]) return null;
   }
 
+  // Preserve already-frozen verifiedIdentity / clock / installer receivers.
   const verifiedIdentity = ownData(dependencies, 'verifiedIdentity');
-  const envelopeProvider = ownData(dependencies, 'envelopeProvider');
+  const envelopeProviderRaw = ownData(dependencies, 'envelopeProvider');
   const clock = ownData(dependencies, 'clock');
   const installer = ownData(dependencies, 'installer');
   const transportDepsRaw = ownData(dependencies, 'transportDeps');
-  const secretProvider = ownData(dependencies, 'secretProvider');
+  const secretProviderRaw = ownData(dependencies, 'secretProvider');
 
   if (!exactFrozenService(verifiedIdentity, 'verifyIdentity')) return null;
   if (!exactFrozenService(clock, 'nowEpochSeconds')) return null;
   if (!exactFrozenService(installer, 'installVerifiedGrant')) return null;
-  if (!exactSecretProvider(secretProvider)) return null;
 
-  const providerOk = validateEmailGrantEnvelopeProvider(envelopeProvider);
-  if (!providerOk.ok) return null;
+  // secretProvider: capture getClientSecret once; fresh exact owner-preserving wrapper.
+  const secretProvider = pinSecretProvider(secretProviderRaw);
+  if (!secretProvider) return null;
+
+  // envelopeProvider: use validated frozen wrapper (not raw provider) so methods
+  // and owner are pinned; post-factory mutation of raw methods has no effect.
+  const providerOk = validateEmailGrantEnvelopeProvider(envelopeProviderRaw);
+  if (!providerOk.ok || !providerOk.value) return null;
+  const envelopeProvider = providerOk.value;
 
   const transportDeps = snapshotTransportDeps(transportDepsRaw);
   if (!transportDeps) return null;

@@ -252,18 +252,24 @@ function stubEnvelope(spec = {}) {
 }
 
 /**
- * Fake offline token transport. Captures request options + body.
- * Emits a successful token JSON body by default.
+ * Fake offline token transport. Captures request options + body + this receivers.
+ * httpsImpl/timers are mutable own-data so post-factory replacement can be proved
+ * ineffective against factory-time descriptor snapshots. Emits success by default.
  */
 function createFakeTransport(spec = {}) {
   const calls = [];
-  const timers = Object.freeze({
-    setTimeout(fn) {
+  const timerCalls = { setTimeout: [], clearTimeout: [] };
+  // Mutable own-data methods (not frozen) so post-factory replace tests work.
+  const timers = {
+    setTimeout(fn, ms) {
+      timerCalls.setTimeout.push({ thisValue: this, fn, ms });
       // Immediate deadline timer that we clear — never fire for happy path.
       return 1;
     },
-    clearTimeout() {},
-  });
+    clearTimeout(id) {
+      timerCalls.clearTimeout.push({ thisValue: this, id });
+    },
+  };
   let responseCallback;
   const incoming = new EventEmitter();
   incoming.statusCode = spec.statusCode ?? 200;
@@ -294,7 +300,7 @@ function createFakeTransport(spec = {}) {
     },
   };
   const transportDeps = Object.freeze({ httpsImpl, timers });
-  return { transportDeps, calls, timers, httpsImpl };
+  return { transportDeps, calls, timerCalls, timers, httpsImpl };
 }
 
 function composition(spec = {}) {
@@ -518,6 +524,89 @@ test('preserves exact identity, clock, installer, secret receivers', async funct
   assert.equal(c.secret.calls[0].thisValue, c.secret.secretProvider);
 });
 
+test('preserves exact https request and timer receivers via factory pin wrappers', async function preservesTransportReceivers() {
+  const c = composition();
+  await c.service.completeAuthorization(goodCompletionInput());
+  // httpsImpl.request must see original httpsImpl as this (not the frozen pin wrapper).
+  assert.equal(c.transport.calls.length, 1);
+  assert.equal(c.transport.calls[0].thisValue, c.transport.httpsImpl);
+  // Both timers must see original timers bag as this.
+  assert.ok(c.transport.timerCalls.setTimeout.length >= 1);
+  assert.ok(c.transport.timerCalls.clearTimeout.length >= 1);
+  for (const call of c.transport.timerCalls.setTimeout) {
+    assert.equal(call.thisValue, c.transport.timers);
+  }
+  for (const call of c.transport.timerCalls.clearTimeout) {
+    assert.equal(call.thisValue, c.transport.timers);
+  }
+});
+
+test('post-factory transport/secret/envelope method replacement uses captured originals only', async function postFactoryMethodPin() {
+  const identity = stubIdentity();
+  const clock = stubClock();
+  const installer = stubInstaller();
+  const secret = stubSecret();
+  const envelope = stubEnvelope();
+  const transport = createFakeTransport();
+
+  const service = createMicrosoftOAuthOperationComposition(Object.freeze({
+    verifiedIdentity: identity.verifiedIdentity,
+    envelopeProvider: envelope.envelopeProvider,
+    clock: clock.clock,
+    installer: installer.installer,
+    transportDeps: transport.transportDeps,
+    secretProvider: secret.secretProvider,
+  }));
+
+  // Replace raw methods after factory — must not be observed by the operation.
+  let hostileHttps = 0;
+  let hostileSet = 0;
+  let hostileClear = 0;
+  let hostileSecret = 0;
+  let hostileSeal = 0;
+  transport.httpsImpl.request = function hostileRequest() {
+    hostileHttps += 1;
+    throw new Error(`${LEAK} hostile https`);
+  };
+  transport.timers.setTimeout = function hostileSetTimeout() {
+    hostileSet += 1;
+    throw new Error(`${LEAK} hostile setTimeout`);
+  };
+  transport.timers.clearTimeout = function hostileClearTimeout() {
+    hostileClear += 1;
+    throw new Error(`${LEAK} hostile clearTimeout`);
+  };
+  secret.secretProvider.getClientSecret = async function hostileSecretFn() {
+    hostileSecret += 1;
+    throw new Error(`${LEAK} hostile secret`);
+  };
+  envelope.envelopeProvider.sealGrantPayload = async function hostileSeal() {
+    hostileSeal += 1;
+    throw new Error(`${LEAK} hostile seal`);
+  };
+
+  const result = await service.completeAuthorization(goodCompletionInput());
+  assert.deepEqual(result, COMPLETION_ACK);
+  assert.equal(hostileHttps, 0);
+  assert.equal(hostileSet, 0);
+  assert.equal(hostileClear, 0);
+  assert.equal(hostileSecret, 0);
+  assert.equal(hostileSeal, 0);
+  // Captured originals still ran with original owners.
+  assert.equal(transport.calls.length, 1);
+  assert.equal(transport.calls[0].thisValue, transport.httpsImpl);
+  assert.ok(transport.timerCalls.setTimeout.length >= 1);
+  assert.ok(transport.timerCalls.clearTimeout.length >= 1);
+  assert.equal(transport.timerCalls.setTimeout[0].thisValue, transport.timers);
+  assert.equal(transport.timerCalls.clearTimeout[0].thisValue, transport.timers);
+  assert.equal(secret.calls.length, 1);
+  assert.equal(secret.calls[0].thisValue, secret.secretProvider);
+  const seal = envelope.calls.find((x) => x.op === 'seal');
+  assert.ok(seal);
+  assert.equal(seal.thisValue, envelope.envelopeProvider);
+  assert.equal(installer.calls.length, 1);
+});
+
 test('endpoint/operation/actor/nonce/client exact mapping; location not used for endpoint', async function exactMappingNoLocationEndpoint() {
   const c = composition();
   await c.service.completeAuthorization(goodCompletionInput({
@@ -681,6 +770,148 @@ test('factory rejects missing/extra/unfrozen/wrong-order deps, proxies, symbols,
     })),
     failSanitized,
   );
+
+  // transportDeps: accessor on httpsImpl.request must be rejected without invocation.
+  {
+    let accessed = 0;
+    const httpsImpl = {};
+    Object.defineProperty(httpsImpl, 'request', {
+      enumerable: true,
+      get() {
+        accessed += 1;
+        throw new Error(LEAK);
+      },
+    });
+    assert.throws(
+      () => createMicrosoftOAuthOperationComposition(Object.freeze({
+        ...good,
+        transportDeps: Object.freeze({
+          httpsImpl,
+          timers: good.transportDeps.timers,
+        }),
+      })),
+      failSanitized,
+    );
+    assert.equal(accessed, 0);
+  }
+
+  // transportDeps: accessor on timers.setTimeout rejected without invocation.
+  {
+    let accessed = 0;
+    const timers = {
+      clearTimeout() {},
+    };
+    Object.defineProperty(timers, 'setTimeout', {
+      enumerable: true,
+      get() {
+        accessed += 1;
+        throw new Error(LEAK);
+      },
+    });
+    // Rebuild with exact order setTimeout, clearTimeout via defineProperty order.
+    const orderedTimers = {};
+    Object.defineProperty(orderedTimers, 'setTimeout', {
+      enumerable: true,
+      configurable: true,
+      get() {
+        accessed += 1;
+        throw new Error(LEAK);
+      },
+    });
+    Object.defineProperty(orderedTimers, 'clearTimeout', {
+      enumerable: true,
+      configurable: true,
+      value() {},
+      writable: true,
+    });
+    assert.throws(
+      () => createMicrosoftOAuthOperationComposition(Object.freeze({
+        ...good,
+        transportDeps: Object.freeze({
+          httpsImpl: good.transportDeps.httpsImpl,
+          timers: orderedTimers,
+        }),
+      })),
+      failSanitized,
+    );
+    assert.equal(accessed, 0);
+  }
+
+  // transportDeps: symbol / extra timer keys rejected.
+  {
+    const timers = {
+      setTimeout() { return 1; },
+      clearTimeout() {},
+    };
+    timers[Symbol('x')] = () => {};
+    assert.throws(
+      () => createMicrosoftOAuthOperationComposition(Object.freeze({
+        ...good,
+        transportDeps: Object.freeze({
+          httpsImpl: good.transportDeps.httpsImpl,
+          timers,
+        }),
+      })),
+      failSanitized,
+    );
+  }
+  {
+    const timers = {
+      setTimeout() { return 1; },
+      clearTimeout() {},
+      extra: () => {},
+    };
+    assert.throws(
+      () => createMicrosoftOAuthOperationComposition(Object.freeze({
+        ...good,
+        transportDeps: Object.freeze({
+          httpsImpl: good.transportDeps.httpsImpl,
+          timers,
+        }),
+      })),
+      failSanitized,
+    );
+  }
+
+  // transportDeps: unsafe timer prototype rejected.
+  {
+    const timers = Object.create({ setTimeout() { return 1; }, clearTimeout() {} });
+    timers.setTimeout = function setTimeout() { return 1; };
+    timers.clearTimeout = function clearTimeout() {};
+    assert.throws(
+      () => createMicrosoftOAuthOperationComposition(Object.freeze({
+        ...good,
+        transportDeps: Object.freeze({
+          httpsImpl: good.transportDeps.httpsImpl,
+          timers,
+        }),
+      })),
+      failSanitized,
+    );
+  }
+
+  // transportDeps: reflection trap on ownKeys rejected without invoking methods.
+  {
+    let invoked = 0;
+    const timersTarget = {
+      setTimeout() { invoked += 1; return 1; },
+      clearTimeout() { invoked += 1; },
+    };
+    const timers = new Proxy(timersTarget, {
+      ownKeys() { throw new Error(LEAK); },
+    });
+    assert.throws(
+      () => createMicrosoftOAuthOperationComposition(Object.freeze({
+        ...good,
+        transportDeps: Object.freeze({
+          httpsImpl: good.transportDeps.httpsImpl,
+          timers,
+        }),
+      })),
+      failSanitized,
+    );
+    assert.equal(invoked, 0);
+  }
 });
 
 // ── Input validation / burn ────────────────────────────────────────────────
@@ -997,7 +1228,13 @@ test('no false completed and no raw refresh persistence on child failure', async
 
 // ── Full fake end-to-end with real installer ───────────────────────────────
 
-function createStatefulFakeClient() {
+/**
+ * Stateful fake pinned transaction client for composed E2E proofs.
+ * Throws on unknown SQL (never silently returns zero rows) so accidental
+ * installer SQL drift fails the gate loudly. Supports injected insert/update
+ * failures for ROLLBACK proofs.
+ */
+function createStatefulFakeClient(spec = {}) {
   const queries = [];
   let tx = 'idle';
   let draft = null;
@@ -1013,6 +1250,10 @@ function createStatefulFakeClient() {
     },
     grantInserted: false,
     grantRow: null,
+  };
+  const modes = {
+    insertThrow: spec.insertThrow || null,
+    updateThrow: spec.updateThrow || null,
   };
 
   function view() {
@@ -1067,6 +1308,12 @@ function createStatefulFakeClient() {
         return { rows: [{ ...state.endpoint }], rowCount: 1 };
       }
       if (/INSERT\s+INTO\s+tenant_email_delegated_grants/i.test(text)) {
+        if (modes.insertThrow) {
+          const err = modes.insertThrow instanceof Error
+            ? modes.insertThrow
+            : Object.assign(new Error(modes.insertThrow.message || `${LEAK} insert`), modes.insertThrow);
+          throw err;
+        }
         const state = ensureDraft();
         if (state.grantInserted) {
           const err = new Error('duplicate key');
@@ -1105,6 +1352,12 @@ function createStatefulFakeClient() {
         };
       }
       if (/UPDATE\s+tenant_channel_endpoints/i.test(text)) {
+        if (modes.updateThrow) {
+          const err = modes.updateThrow instanceof Error
+            ? modes.updateThrow
+            : Object.assign(new Error(modes.updateThrow.message || `${LEAK} update`), modes.updateThrow);
+          throw err;
+        }
         const state = ensureDraft();
         if (!state.endpoint
             || state.endpoint.binding_status !== p[6]
@@ -1138,7 +1391,8 @@ function createStatefulFakeClient() {
           rowCount: 1,
         };
       }
-      return { rows: [], rowCount: 0 };
+      // Proof quality: never silently swallow unknown SQL as empty success.
+      throw new Error(`unknown SQL in stateful fake client: ${text.slice(0, 120)}`);
     },
   };
 
@@ -1150,6 +1404,19 @@ function createStatefulFakeClient() {
     get endpointState() { return (draft || committed).endpoint; },
     get tx() { return tx; },
   };
+}
+
+function sqlKinds(queries) {
+  return queries.map((q) => {
+    const t = q.text;
+    if (/^\s*BEGIN\b/i.test(t)) return 'BEGIN';
+    if (/^\s*COMMIT\b/i.test(t)) return 'COMMIT';
+    if (/^\s*ROLLBACK\b/i.test(t)) return 'ROLLBACK';
+    if (/FOR\s+UPDATE/i.test(t) && /tenant_channel_endpoints/i.test(t)) return 'SELECT_LOCK';
+    if (/INSERT\s+INTO\s+tenant_email_delegated_grants/i.test(t)) return 'INSERT_GRANT';
+    if (/UPDATE\s+tenant_channel_endpoints/i.test(t)) return 'UPDATE_ENDPOINT';
+    return 'OTHER';
+  });
 }
 
 test('full fake e2e: real auth+response+verified custody+fake envelope+stateful installer', async function fullFakeE2E() {
@@ -1267,6 +1534,88 @@ test('e2e failure at identity leaves no grant insert and endpoint unverified', a
   assert.equal(fakeDb.grantInserted, false);
   assert.equal(fakeDb.endpointState.binding_status, 'unverified_offline');
   assert.equal(fakeDb.grantRow, null);
+});
+
+test('composed e2e: real installer endpoint UPDATE failure after grant INSERT rolls back; never completed', async function e2eUpdateFailRollback() {
+  const fakeDb = createStatefulFakeClient({
+    updateThrow: Object.assign(new Error(`${LEAK} endpoint update boom`), { code: '40001' }),
+  });
+  const installer = createMicrosoftVerifiedGrantInstaller(Object.freeze({ client: fakeDb.client }));
+  const identity = stubIdentity();
+  const clock = stubClock();
+  const secret = stubSecret();
+  const transport = createFakeTransport();
+  const envelopeProvider = createFakeEmailGrantEnvelopeProvider();
+
+  const service = createMicrosoftOAuthOperationComposition(Object.freeze({
+    verifiedIdentity: identity.verifiedIdentity,
+    envelopeProvider,
+    clock: clock.clock,
+    installer,
+    transportDeps: transport.transportDeps,
+    secretProvider: secret.secretProvider,
+  }));
+
+  let completed = false;
+  await expectSanitizedFailure(async () => {
+    const result = await service.completeAuthorization(goodCompletionInput());
+    completed = result && result.status === 'completed';
+    return result;
+  });
+  assert.equal(completed, false);
+  // ROLLBACK undoes the in-flight INSERT; grant absent; endpoint still unverified.
+  assert.equal(fakeDb.tx, 'rolled_back');
+  assert.equal(fakeDb.grantInserted, false);
+  assert.equal(fakeDb.grantRow, null);
+  assert.equal(fakeDb.endpointState.binding_status, 'unverified_offline');
+  const kinds = sqlKinds(fakeDb.queries);
+  assert.equal(kinds.includes('BEGIN'), true);
+  assert.equal(kinds.includes('SELECT_LOCK'), true);
+  assert.equal(kinds.includes('INSERT_GRANT'), true);
+  assert.equal(kinds.includes('UPDATE_ENDPOINT'), true);
+  assert.equal(kinds.includes('ROLLBACK'), true);
+  assert.equal(kinds.includes('COMMIT'), false);
+  assert.equal(kinds.includes('OTHER'), false);
+});
+
+test('composed e2e: real installer grant INSERT failure rolls back; never completed', async function e2eInsertFailRollback() {
+  const fakeDb = createStatefulFakeClient({
+    insertThrow: Object.assign(new Error(`${LEAK} grant insert boom`), { code: '23505' }),
+  });
+  const installer = createMicrosoftVerifiedGrantInstaller(Object.freeze({ client: fakeDb.client }));
+  const identity = stubIdentity();
+  const clock = stubClock();
+  const secret = stubSecret();
+  const transport = createFakeTransport();
+
+  const service = createMicrosoftOAuthOperationComposition(Object.freeze({
+    verifiedIdentity: identity.verifiedIdentity,
+    envelopeProvider: createFakeEmailGrantEnvelopeProvider(),
+    clock: clock.clock,
+    installer,
+    transportDeps: transport.transportDeps,
+    secretProvider: secret.secretProvider,
+  }));
+
+  let completed = false;
+  await expectSanitizedFailure(async () => {
+    const result = await service.completeAuthorization(goodCompletionInput());
+    completed = result && result.status === 'completed';
+    return result;
+  });
+  assert.equal(completed, false);
+  assert.equal(fakeDb.tx, 'rolled_back');
+  assert.equal(fakeDb.grantInserted, false);
+  assert.equal(fakeDb.grantRow, null);
+  assert.equal(fakeDb.endpointState.binding_status, 'unverified_offline');
+  const kinds = sqlKinds(fakeDb.queries);
+  assert.equal(kinds.includes('BEGIN'), true);
+  assert.equal(kinds.includes('SELECT_LOCK'), true);
+  assert.equal(kinds.includes('INSERT_GRANT'), true);
+  assert.equal(kinds.includes('UPDATE_ENDPOINT'), false);
+  assert.equal(kinds.includes('ROLLBACK'), true);
+  assert.equal(kinds.includes('COMMIT'), false);
+  assert.equal(kinds.includes('OTHER'), false);
 });
 
 test('callback completion interop: operation composition as completion dependency', async function callbackInterop() {
