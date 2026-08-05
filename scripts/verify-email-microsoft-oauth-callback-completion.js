@@ -288,7 +288,11 @@ test('package.json wires verify script; routes and old callback export unchanged
   assert.ok(fs.existsSync(path.join(ROOT, VERIFY_REL)));
 
   const routesSrc = fs.readFileSync(path.join(ROOT, ROUTES_REL), 'utf8');
-  assert.match(routesSrc, /createMicrosoftOAuthCallbackService/);
+  // Stage 6 runtime wiring: routes use completing runtime factory (not legacy
+  // receive-only service). completeAuthorization lives in operation composition
+  // / runtime module — routes must not re-implement it.
+  assert.match(routesSrc, /createSunsetStagingMicrosoftOAuthCallbackRuntime/);
+  assert.equal(routesSrc.includes('createMicrosoftOAuthCallbackService'), false);
   assert.equal(routesSrc.includes('createMicrosoftOAuthCallbackCompletionService'), false);
   assert.equal(routesSrc.includes('completeBoundOperation'), false);
   assert.equal(routesSrc.includes('completeAuthorization'), false);

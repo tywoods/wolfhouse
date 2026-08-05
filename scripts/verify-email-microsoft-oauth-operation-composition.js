@@ -422,9 +422,12 @@ test('package.json wires verify script; routes and flags unchanged', async funct
   assert.ok(fs.existsSync(path.join(ROOT, VERIFY_REL)));
 
   const routesSrc = fs.readFileSync(path.join(ROOT, ROUTES_REL), 'utf8');
+  // Stage 6 runtime wiring: operation composition is reached only via the
+  // runtime factory (not inlined in routes). Routes must not call completeAuthorization.
   assert.equal(routesSrc.includes('createMicrosoftOAuthOperationComposition'), false);
   assert.equal(routesSrc.includes('completeAuthorization'), false);
-  assert.match(routesSrc, /createMicrosoftOAuthCallbackService/);
+  assert.match(routesSrc, /createSunsetStagingMicrosoftOAuthCallbackRuntime/);
+  assert.equal(routesSrc.includes('createMicrosoftOAuthCallbackService'), false);
 
   // Default flags stay false (no activation).
   const txn = require('./lib/email-microsoft-oauth-transaction-service');
