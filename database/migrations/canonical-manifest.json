@@ -725,6 +725,26 @@
       "inForwardChain": false,
       "rationale": "Explicit rollback for Stage 6 OAuth transactions and its supporting parent uniqueness constraints.",
       "pairsWith": "060_tenant_email_oauth_transactions.sql"
+    },
+    {
+      "id": "061_tenant_email_oauth_transaction_endpoint_binding",
+      "filename": "061_tenant_email_oauth_transaction_endpoint_binding.sql",
+      "sha256": "3cf23f64e6e0352b2d08e6b6cba06a695a13c90ff15e70d6f31d58657b830d8d",
+      "order": 60,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Stage 6 prerequisite: bind OAuth transactions to exact tenant email endpoint selected at start via NOT NULL endpoint_id + tenant-safe composite FK. Fail-closed if preexisting rows block safe NOT NULL. No token/grant/activation.",
+      "downFilename": "061_tenant_email_oauth_transaction_endpoint_binding_down.sql"
+    },
+    {
+      "id": "061_tenant_email_oauth_transaction_endpoint_binding_down",
+      "filename": "061_tenant_email_oauth_transaction_endpoint_binding_down.sql",
+      "sha256": "b65e93e1e639ee45300cc52302b7baf8a57c2af3eb46c5b8edd92a5238f16651",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit down for 061: drops new endpoint FK, owner-endpoint index, and endpoint_id column only.",
+      "pairsWith": "061_tenant_email_oauth_transaction_endpoint_binding.sql"
     }
   ]
 }
