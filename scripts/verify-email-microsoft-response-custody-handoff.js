@@ -36,11 +36,37 @@ async function main() {
     for (const patch of [
       null, [], { token_type: 'bearer' }, { expires_in: 0 }, { expires_in: 1.5 },
       { access_token: '' }, { access_token: 'bad\ntoken' }, { refresh_token: '' },
-      { scope: 'openid Mail.Send' }, { scope: 'openid  profile' }, { surprise: true },
+      { scope: 'openid' }, { scope: 'openid Mail.Send' }, { scope: 'openid  profile' },
     ]) {
       const value = patch === null ? null : Array.isArray(patch) ? patch : { ...GOOD, ...patch };
       await fails({ body: JSON.stringify(value) });
     }
+    const duplicateTailValid = JSON.stringify(GOOD).replace('"token_type":"Bearer"', '"token_type":"Basic","token_type":"Bearer"');
+    const duplicateTailInvalid = JSON.stringify(GOOD).replace('"token_type":"Bearer"', '"token_type":"Bearer","token_type":"Basic"');
+    await fails({ body: duplicateTailValid });
+    await fails({ body: duplicateTailInvalid });
+    let unknownSelected;
+    const unknownResult = await harness({ body: JSON.stringify({ ...GOOD, client_info: 'opaque', future_extension: { nested: ['ignored'] } }) }, async (value) => {
+      unknownSelected = value;
+      return Object.freeze({ status: 'accepted' });
+    }).exchangeAndCustody({ body: 'trusted=already-encoded' });
+    assert.deepEqual(unknownResult, { status: 'custodied' });
+    assert.equal(Object.hasOwn(unknownSelected, 'client_info'), false);
+    assert.equal(Object.hasOwn(unknownSelected, 'future_extension'), false);
+    for (const hostile of [
+      new Proxy({}, { getPrototypeOf() { throw new Error('SECRET deps'); } }),
+      new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('SECRET descriptor'); } }),
+      { custody: new Proxy({}, { getPrototypeOf() { throw new Error('SECRET custody'); } }) },
+    ]) {
+      assert.throws(() => createMicrosoftTokenResponseCustodyService(hostile), (error) => error.code === FAILURE_CODE && !String(error).includes('SECRET'));
+    }
+    let thisBound = false;
+    const boundAccept = async function boundAccept() {
+      thisBound = this && this.acceptValidatedTokens === boundAccept;
+      return Object.freeze({ status: 'accepted' });
+    };
+    await harness({}, boundAccept).exchangeAndCustody({ body: 'trusted=already-encoded' });
+    assert.equal(thisBound, true);
     await fails({ body: JSON.stringify(GOOD) }, async () => { throw new Error(`custody leak ${REFRESH}`); });
     await fails({ body: JSON.stringify(GOOD) }, async () => ({ status: 'accepted' }));
     let selected;
