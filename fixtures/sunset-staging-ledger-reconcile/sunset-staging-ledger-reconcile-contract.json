@@ -1,0 +1,28 @@
+{
+  "kind": "sunset-staging-ledger-reconcile-contract",
+  "slice": "sunset-staging-ledger-reconcile-056-060",
+  "target": {
+    "database": "sunset_staging",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9"
+  },
+  "applicationName": "wh-sunset-ledger-reconcile-056-060",
+  "manifestOrders": [54, 55, 56, 57, 58],
+  "migrationIds": [
+    "056_booking_refund_records",
+    "057_tenant_locations_and_channel_endpoints",
+    "058_tenant_channel_endpoint_identity",
+    "059_tenant_email_delegated_grants",
+    "060_bookings_hidden"
+  ],
+  "baselineMigrationIds": ["056_booking_refund_records", "060_bookings_hidden"],
+  "canonicalRunnerMigrationIds": [
+    "057_tenant_locations_and_channel_endpoints",
+    "058_tenant_channel_endpoint_identity",
+    "059_tenant_email_delegated_grants"
+  ],
+  "approval": "sha256(evidenceDigest + ':' + planDigest), prefix APPROVE-SUNSET-056060-",
+  "emailCompositionMustBeOff": true,
+  "singleTransaction": true
+}

@@ -1,0 +1,20 @@
+{
+  "kind": "sunset-staging-ledger-reconcile-evidence-v1",
+  "immutable": true,
+  "checksumMode": "canonical_lf_v1",
+  "target": {
+    "environment": "staging",
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "port": 5432,
+    "applicationName": "wh-sunset-ledger-reconcile-056-060"
+  },
+  "manifestDigest": "REPLACE_WITH_LIVE_CANONICAL_MANIFEST_DIGEST",
+  "catalogFingerprint": "REPLACE_WITH_LIVE_READ_ONLY_CATALOG_SHA256",
+  "ledgerRows": "REPLACE_WITH_SANITIZED_CONTIGUOUS_ROWS_001_THROUGH_055",
+  "evidenceDigest": "REPLACE_BY_RUNNING_sealEvidence_AFTER_REAL_OBSERVATION",
+  "note": "Synthetic sanitized shape only. It is intentionally not sealed or applyable."
+}
