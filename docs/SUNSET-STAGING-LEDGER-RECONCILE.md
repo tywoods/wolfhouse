@@ -1,42 +1,88 @@
-# Sunset staging ledger reconcile 056–060
+# Sunset staging ledger reconcile (056–060)
 
-This is a one-time, fail-closed repair for the exact Sunset split where the
-ledger is contiguous through order 53 / migration 055, while schema objects
-from 056 and 060 already exist and 057–059 do not.
+**Status:** source-only operator tooling (Email 2F-C3-b1). Not executed against live Sunset staging in this slice.
 
-It is not `staging-ledger-recovery.js`, does not accept a DSN, host, password,
-SQL, or migration-range CLI option, and cannot target anything except
-`sunset_staging` on the locked Sunset staging PostgreSQL server.
+## Problem
 
-The sealed evidence must contain the canonical manifest digest, the full
-contiguous 001–055 ledger observation, and a SHA-256 fingerprint of read-only
-catalog output. The mutation transaction re-probes the catalog and refuses a
-fingerprint change before any write.
+Sunset `sunset_staging` has a known split:
 
-Within one transaction and the migration-integrity advisory lock, it:
+| State | Detail |
+|-------|--------|
+| Ledger | Contiguous canonical prefix through **055** (`055_tenant_rental_offering_stock`, order 53) |
+| Schema | **056** + **060** applied out-of-band (no ledger rows) |
+| Pending | **057**, **058**, **059** absent |
 
-1. records 056 as `verified_structural_baseline`, without DDL;
-2. executes canonical 057, 058, and 059 SQL and inserts each as
-   `executed_by_canonical_runner`;
-3. records 060 as `verified_structural_baseline`, without DDL;
-4. calls canonical `reconcileLedger` before committing.
+## One atomic transaction (manifest order 54–58)
 
-The required approval value is:
+Inside a single PostgreSQL transaction + advisory lock (`WH` / `MIG1`):
 
-```text
-APPROVE-SUNSET-056060-<first 32 hex of sha256(evidenceDigest + ':' + planDigest)>
+1. Re-probe structural catalog; fingerprint must match sealed evidence.
+2. **INSERT ledger 056** as `verified_structural_baseline` — **no DDL** (already applied).
+3. **Execute 057 → 058 → 059** canonical SQL + **INSERT** as `executed_by_canonical_runner`.
+4. **INSERT ledger 060** as `verified_structural_baseline` — **no DDL** (already applied).
+5. `reconcileLedger` must pass with **58** contiguous rows through order 58.
+
+Provenance is truthful: baseline rows document pre-existing schema; runner rows document SQL executed in this transaction.
+
+## Hard locks
+
+| Field | Value |
+|-------|-------|
+| database | `sunset_staging` |
+| host | `luna-sunset-staging-pg-app.postgres.database.azure.com` |
+| resource group | `luna-sunset-staging-rg` |
+| migrations | exactly `056`–`060` manifest IDs + checksums |
+| email | `EMAIL_GRANT_ENVELOPE_AZURE_KV_COMPOSITION_ENABLED` must be off |
+
+## Approval token
+
+Derived from sealed evidence + plan digests (not a static string):
+
+```
+APPROVE-SUNSET-056060-<32-hex>
+sha256(evidenceDigest + ':' + planDigest)[0:32]
 ```
 
-`SUNSET_STAGING_LEDGER_RECONCILE=1`, the approval environment variable, the
-approval CLI flag, and a sealed evidence artifact are all required for both
-dry-run and apply. Apply additionally requires
-`EMAIL_GRANT_ENVELOPE_AZURE_KV_COMPOSITION_ENABLED` to be unset/false.
+Requires `SUNSET_STAGING_LEDGER_RECONCILE=1` and matching `SUNSET_STAGING_LEDGER_RECONCILE_APPROVAL_TOKEN`.
 
-Examples:
+## Operator commands (future live — do not run until approved)
 
-```text
-node scripts/run-sunset-staging-ledger-reconcile.js --dry-run --approve-sunset-ledger-reconcile --evidence evidence.json --subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 --resource-group luna-sunset-staging-rg --postgres-server luna-sunset-staging-pg-app --database sunset_staging
+**Dry-run** (read-only when client injected; gate-only without client):
+
+```bash
+SUNSET_STAGING_LEDGER_RECONCILE=1 \
+SUNSET_STAGING_LEDGER_RECONCILE_APPROVAL_TOKEN='<APPROVE-SUNSET-056060-…>' \
+npm run sunset-staging-ledger-reconcile:dry-run -- \
+  --dry-run --approve-sunset-ledger-reconcile \
+  --evidence fixtures/sunset-staging-ledger-reconcile/sealed-evidence.json \
+  --subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 \
+  --resource-group luna-sunset-staging-rg \
+  --postgres-server luna-sunset-staging-pg-app \
+  --database sunset_staging
 ```
 
-The CLI never prints credentials. Do not run the apply command until evidence
-has been independently reviewed.
+**Apply** (requires operator-injected `pg` client bound to locked target — this CLI does not fetch DSN/secrets):
+
+```bash
+SUNSET_STAGING_LEDGER_RECONCILE=1 \
+SUNSET_STAGING_LEDGER_RECONCILE_APPROVAL_TOKEN='<APPROVE-SUNSET-056060-…>' \
+npm run sunset-staging-ledger-reconcile:apply -- \
+  --apply-sunset-ledger-reconcile --approve-sunset-ledger-reconcile \
+  --evidence fixtures/sunset-staging-ledger-reconcile/sealed-evidence.json \
+  --subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 \
+  --resource-group luna-sunset-staging-rg \
+  --postgres-server luna-sunset-staging-pg-app \
+  --database sunset_staging
+```
+
+## Verification (offline)
+
+```bash
+node scripts/verify-sunset-staging-ledger-reconcile.js
+node scripts/prove-sunset-staging-ledger-reconcile-fresh-db.js   # requires Docker
+node scripts/verify-migration-integrity.js
+```
+
+## Rollback
+
+On any failure the transaction **ROLLBACK**s (no partial ledger). Down migrations `059_down`, `058_down`, `057_down` are a separate operator gate if schema must be reversed after a committed apply.
