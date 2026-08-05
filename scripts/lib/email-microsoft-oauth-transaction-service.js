@@ -10,6 +10,10 @@ const B64URL_32_RE = /^[A-Za-z0-9_-]{43}$/;
 const PKCE_VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/;
 /** Exact start input key order — endpoint is selected at start and bound in-row. */
 const INPUT_KEYS = Object.freeze(['clientId', 'locationId', 'staffUserId', 'authSessionId', 'endpointId']);
+const OWNER_KEYS = Object.freeze(['clientId', 'authSessionId']);
+const CALLBACK_CODE_KEYS = Object.freeze(['state', 'code']);
+const CALLBACK_ERROR_KEYS = Object.freeze(['state', 'error']);
+const CALLBACK_KEY_SHAPES = Object.freeze([CALLBACK_CODE_KEYS, CALLBACK_ERROR_KEYS]);
 
 const SQL_CREATE_TRANSACTION = `
 INSERT INTO tenant_email_oauth_transactions
@@ -53,13 +57,58 @@ function generate32(randomBytes, error) {
   if (!B64URL_32_RE.test(value)) throw new Error(error);
   return value;
 }
-function exactObject(value, keys) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  if (proto !== Object.prototype && proto !== null) return false;
-  const own = Object.keys(value);
-  return own.length === keys.length && own.every((key) => keys.includes(key));
+
+/**
+ * Exact immutable own-data snapshot of a caller object.
+ * - Ordinary Object.prototype or null prototype only (arrays / custom protos rejected)
+ * - Frozen or unfrozen accepted (public contract)
+ * - Exact own string keys in exact order; no symbols, extras, or missing keys
+ * - Each key must be an own enumerable data descriptor (no getter/setter)
+ * - Each descriptor value is read exactly once
+ * - Reflection/proxy throws are contained; returns null
+ * Never re-reads the caller after return.
+ */
+function snapshotExactOrderedOwnData(input, keys) {
+  try {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+    const proto = Object.getPrototypeOf(input);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(input);
+    if (actual.length !== keys.length) return null;
+    for (let i = 0; i < keys.length; i += 1) {
+      if (actual[i] !== keys[i]) return null;
+    }
+    const out = Object.create(null);
+    for (const key of keys) {
+      const descriptor = Object.getOwnPropertyDescriptor(input, key);
+      if (!descriptor
+          || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+          || descriptor.get
+          || descriptor.set
+          || !descriptor.enumerable) {
+        return null;
+      }
+      out[key] = descriptor.value;
+    }
+    return Object.freeze(out);
+  } catch {
+    return null;
+  }
 }
+
+/** Start/owner UUID fields: exact snapshot + UUID grammar + lowercase locals. */
+function snapshotExactOrderedUuids(input, keys) {
+  const raw = snapshotExactOrderedOwnData(input, keys);
+  if (!raw) return null;
+  const out = Object.create(null);
+  for (const key of keys) {
+    const value = raw[key];
+    if (typeof value !== 'string' || !UUID_RE.test(value)) return null;
+    out[key] = value.toLowerCase();
+  }
+  return Object.freeze(out);
+}
+
 function isStartEnabled(env) { return !!env && env.LUNA_EMAIL_OAUTH_START_ENABLED === 'true'; }
 function isCallbackEnabled(env) { return !!env && env.LUNA_EMAIL_OAUTH_CALLBACK_ENABLED === 'true'; }
 function validateRuntime(env) {
@@ -106,9 +155,9 @@ function createMicrosoftOAuthTransactionService({ repository, env = process.env,
   if (!repository || typeof repository.create !== 'function') throw new TypeError('repository_required');
   return Object.freeze({
     async start(input) {
-      if (!exactObject(input, INPUT_KEYS) || !INPUT_KEYS.every((key) => UUID_RE.test(input[key]))) {
-        throw new Error('oauth_start_invalid_request');
-      }
+      // Snapshot before any randomness or persistence; never reread caller.
+      const snapshot = snapshotExactOrderedUuids(input, INPUT_KEYS);
+      if (!snapshot) throw new Error('oauth_start_invalid_request');
       const appId = validateRuntime(env);
       const state = generate32(randomBytes, 'oauth_start_state_generation_failed');
       const nonce = generate32(randomBytes, 'oauth_start_nonce_generation_failed');
@@ -122,11 +171,11 @@ function createMicrosoftOAuthTransactionService({ repository, env = process.env,
       const issuedAt = new Date(now());
       const expiresAt = new Date(issuedAt.getTime() + TTL_SECONDS * 1000);
       await repository.create({
-        clientId: input.clientId,
-        locationId: input.locationId,
-        staffUserId: input.staffUserId,
-        authSessionId: input.authSessionId,
-        endpointId: input.endpointId,
+        clientId: snapshot.clientId,
+        locationId: snapshot.locationId,
+        staffUserId: snapshot.staffUserId,
+        authSessionId: snapshot.authSessionId,
+        endpointId: snapshot.endpointId,
         stateHash,
         codeVerifier: verifier,
         nonce,
@@ -144,30 +193,46 @@ function createMicrosoftOAuthTransactionService({ repository, env = process.env,
   });
 }
 
-const CALLBACK_KEYS = Object.freeze([Object.freeze(['state', 'code']), Object.freeze(['state', 'error'])]);
 const PROVIDER_CODE_RE = /^[\x21-\x7e]{1,4096}$/;
 const PROVIDER_ERROR_RE = /^[a-z][a-z0-9_]{0,63}$/;
+
+function snapshotCallbackInput(input) {
+  for (const keys of CALLBACK_KEY_SHAPES) {
+    const raw = snapshotExactOrderedOwnData(input, keys);
+    if (!raw) continue;
+    if (typeof raw.state !== 'string' || !B64URL_32_RE.test(raw.state)) continue;
+    if (keys[1] === 'code') {
+      if (typeof raw.code !== 'string' || !PROVIDER_CODE_RE.test(raw.code)) continue;
+      return Object.freeze({ kind: 'code', state: raw.state, code: raw.code });
+    }
+    if (typeof raw.error !== 'string' || !PROVIDER_ERROR_RE.test(raw.error)) continue;
+    return Object.freeze({ kind: 'error', state: raw.state, error: raw.error });
+  }
+  return null;
+}
+
 function createMicrosoftOAuthCallbackService({ repository, env = process.env, now = () => new Date() }) {
   if (!repository || typeof repository.consume !== 'function') throw new TypeError('repository_required');
   return Object.freeze({
     async accept(input, owner) {
       if (!isCallbackEnabled(env) || env.LUNA_DEPLOYMENT !== 'sunset-staging') throw new Error('oauth_callback_disabled');
-      if (!exactObject(owner, ['clientId', 'authSessionId']) || !UUID_RE.test(owner.clientId) || !UUID_RE.test(owner.authSessionId)) {
-        throw new Error('oauth_callback_invalid_owner');
-      }
-      const shape = CALLBACK_KEYS.find((keys) => exactObject(input, keys));
-      if (!shape || !B64URL_32_RE.test(input.state)
-        || (shape[1] === 'code' && (typeof input.code !== 'string' || !PROVIDER_CODE_RE.test(input.code)))
-        || (shape[1] === 'error' && (typeof input.error !== 'string' || !PROVIDER_ERROR_RE.test(input.error)))) {
-        throw new Error('oauth_callback_invalid_request');
-      }
-      const stateHash = crypto.createHash('sha256').update(input.state, 'ascii').digest();
+      // Exact owner snapshot before any consume; never reread caller.
+      const ownerSnap = snapshotExactOrderedUuids(owner, OWNER_KEYS);
+      if (!ownerSnap) throw new Error('oauth_callback_invalid_owner');
+      const inputSnap = snapshotCallbackInput(input);
+      if (!inputSnap) throw new Error('oauth_callback_invalid_request');
+      const stateHash = crypto.createHash('sha256').update(inputSnap.state, 'ascii').digest();
       const row = await repository.consume({
-        stateHash, clientId: owner.clientId, authSessionId: owner.authSessionId, now: new Date(now()),
+        stateHash,
+        clientId: ownerSnap.clientId,
+        authSessionId: ownerSnap.authSessionId,
+        now: new Date(now()),
       });
       if (!row) return Object.freeze({ status: 'invalid_or_expired' });
       // Public surface: status only — never expose row id, verifier, nonce, or endpoint_id.
-      return Object.freeze({ status: shape[1] === 'code' ? 'authorization_received' : 'authorization_declined' });
+      return Object.freeze({
+        status: inputSnap.kind === 'code' ? 'authorization_received' : 'authorization_declined',
+      });
     },
   });
 }
@@ -178,6 +243,9 @@ module.exports = {
   SCOPES,
   TTL_SECONDS,
   INPUT_KEYS,
+  OWNER_KEYS,
+  CALLBACK_CODE_KEYS,
+  CALLBACK_ERROR_KEYS,
   SQL_CREATE_TRANSACTION,
   SQL_CONSUME_TRANSACTION,
   isStartEnabled,

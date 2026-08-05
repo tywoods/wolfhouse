@@ -319,56 +319,279 @@ function startInput(overrides = {}) {
   assert.ok(!('code_verifier' in dto) && !('endpoint_id' in dto) && !('endpointId' in dto), 'start DTO keys exclude secrets/endpoint');
 
   // ---------------------------------------------------------------------------
-  // Input hostility: missing/wrong endpoint, extras, proxies, symbols, accessors
+  // Input hostility: exact immutable snapshot (real gates, not comments)
   // ---------------------------------------------------------------------------
+  const PLANTED = 'PLANTED_ATTACKER_SECRET_MUST_NOT_LEAK_xyzzy';
+  const EVIL_EP = '99999999-9999-4999-8999-999999999999';
+  let randomCalls = 0;
   let malformedWrites = 0;
-  const rejectStart = async (input, pattern = /invalid_request/) => {
-    const s = svc.createMicrosoftOAuthTransactionService({
-      repository: { create: async () => { malformedWrites += 1; return { expires_at: new Date() }; } },
+  function makeHostileStartService(overrides = {}) {
+    randomCalls = 0;
+    return svc.createMicrosoftOAuthTransactionService({
+      repository: {
+        create: async (row) => {
+          malformedWrites += 1;
+          return { expires_at: row && row.expiresAt ? row.expiresAt : new Date() };
+        },
+      },
       env,
-      randomBytes: (n) => Buffer.alloc(n, 7),
+      randomBytes: (n) => {
+        randomCalls += 1;
+        return Buffer.alloc(n, 7);
+      },
+      now: () => new Date('2026-08-05T12:00:00Z'),
+      ...overrides,
     });
-    await assert.rejects(() => s.start(input), pattern);
+  }
+  const rejectStart = async (input, label) => {
+    const beforeWrites = malformedWrites;
+    const beforeRandom = randomCalls;
+    const s = makeHostileStartService();
+    await assert.rejects(
+      () => s.start(input),
+      (err) => {
+        assert.ok(err instanceof Error, `${label}: Error instance`);
+        assert.strictEqual(err.message, 'oauth_start_invalid_request', `${label}: fixed message`);
+        assert.ok(!String(err.message).includes(PLANTED), `${label}: no planted leak in message`);
+        assert.ok(!String(err.stack || '').includes(PLANTED), `${label}: no planted leak in stack`);
+        return true;
+      },
+      label,
+    );
+    assert.strictEqual(malformedWrites, beforeWrites, `${label}: zero repository writes`);
+    assert.strictEqual(randomCalls, beforeRandom, `${label}: zero randomBytes`);
   };
+
   await rejectStart({
     clientId: ids.clientId,
     locationId: ids.locationId,
     staffUserId: ids.staffUserId,
     authSessionId: ids.authSessionId,
-  });
-  await rejectStart({ ...ids, endpointId: 'not-a-uuid' });
-  await rejectStart({ ...ids, endpointId: ids.endpointId, extra: 'evil' });
-  await rejectStart({ ...ids, endpointId: ids.endpointId, __proto__: { x: 1 } });
+  }, 'missing endpointId');
+  await rejectStart({ ...ids, endpointId: 'not-a-uuid' }, 'non-uuid endpoint');
+  await rejectStart({ ...ids, endpointId: ids.endpointId, extra: 'evil' }, 'extra key');
+  await rejectStart({ ...ids, endpointId: ids.endpointId, __proto__: { x: 1 } }, 'proto pollution shape');
   for (const field of ['authority', 'redirect_uri', 'client_id', 'scope', 'state', 'nonce', 'code_verifier', 'endpoint_id']) {
-    await rejectStart({ ...ids, [field]: 'attacker' });
+    await rejectStart({ ...ids, [field]: 'attacker' }, `extra field ${field}`);
   }
+
+  // Symbols: Reflect.ownKeys sees them — must reject with zero side effects
   const withSymbol = { ...ids };
-  withSymbol[Symbol('x')] = 'evil';
-  // Object.keys ignores symbols; exactObject uses Object.keys — symbols alone do not inflate length.
-  // Ensure non-UUID and proxy still fail.
-  const proxyInput = new Proxy({ ...ids }, {
-    get(t, p) { return p === 'endpointId' ? 'bad' : t[p]; },
-    ownKeys() { return svc.INPUT_KEYS.slice(); },
-    getOwnPropertyDescriptor(t, p) {
-      return { configurable: true, enumerable: true, value: p === 'endpointId' ? 'bad' : t[p] };
-    },
-  });
-  await rejectStart(proxyInput);
+  withSymbol[Symbol('x')] = PLANTED;
+  await rejectStart(withSymbol, 'own symbol key');
+
+  // Accessors: must reject without invoking getters (call count stays zero)
+  const getterCounts = Object.create(null);
+  for (const key of svc.INPUT_KEYS) getterCounts[key] = 0;
   const accessor = {};
   for (const key of svc.INPUT_KEYS) {
     Object.defineProperty(accessor, key, {
       enumerable: true,
-      get() { return ids[key]; },
+      configurable: true,
+      get() {
+        getterCounts[key] += 1;
+        return ids[key];
+      },
     });
   }
-  // exactObject allows accessors if keys match — UUID still read via getter; ensure frozen path not required.
-  // Add non-enumerable trap field rejection via length: already exact keys.
-  await assert.doesNotReject(async () => {
-    // Accessors with valid UUID values currently pass exactObject (uses Object.keys + value access).
-    // Document: start accepts plain data objects; repository must not trust endpoint alone.
+  await rejectStart(accessor, 'accessor descriptors');
+  for (const key of svc.INPUT_KEYS) {
+    assert.strictEqual(getterCounts[key], 0, `getter ${key} never invoked`);
+  }
+
+  // Setter-only / non-data descriptor
+  const setterOnly = {};
+  for (const key of svc.INPUT_KEYS) {
+    Object.defineProperty(setterOnly, key, {
+      enumerable: true,
+      configurable: true,
+      set() { /* no-op */ },
+    });
+  }
+  await rejectStart(setterOnly, 'setter-only descriptors');
+
+  // Proxy traps: throws on getPrototypeOf / ownKeys / getOwnPropertyDescriptor
+  for (const trapName of ['getPrototypeOf', 'ownKeys', 'getOwnPropertyDescriptor']) {
+    const traps = {
+      getPrototypeOf() { return Object.prototype; },
+      ownKeys() { return svc.INPUT_KEYS.slice(); },
+      getOwnPropertyDescriptor(t, p) {
+        return { configurable: true, enumerable: true, writable: true, value: t[p] };
+      },
+    };
+    traps[trapName] = () => { throw new Error(PLANTED); };
+    const target = { ...ids };
+    await rejectStart(new Proxy(target, traps), `proxy ${trapName} throw`);
+  }
+
+  // Proxy returns non-UUID via descriptor once — reject before random/repo
+  const badDescProxy = new Proxy({ ...ids }, {
+    getPrototypeOf() { return Object.prototype; },
+    ownKeys() { return svc.INPUT_KEYS.slice(); },
+    getOwnPropertyDescriptor(t, p) {
+      return {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: p === 'endpointId' ? 'not-uuid' : t[p],
+      };
+    },
   });
-  // Non-Object / non-null prototypes rejected (arrays already covered by exactObject).
-  await rejectStart(Object.assign(Object.create({ sneaky: true }), ids));
+  await rejectStart(badDescProxy, 'proxy bad endpoint descriptor');
+
+  // Wrong prototype (custom / Array)
+  await rejectStart(Object.assign(Object.create({ sneaky: true }), ids), 'custom prototype');
+  await rejectStart(Object.assign([], ids), 'array host');
+
+  // Wrong key order (exact ordered list required)
+  const wrongOrder = {
+    clientId: ids.clientId,
+    locationId: ids.locationId,
+    endpointId: ids.endpointId,
+    staffUserId: ids.staffUserId,
+    authSessionId: ids.authSessionId,
+  };
+  assert.deepStrictEqual(Object.keys(wrongOrder), [
+    'clientId', 'locationId', 'endpointId', 'staffUserId', 'authSessionId',
+  ]);
+  await rejectStart(wrongOrder, 'wrong key order');
+
+  // Frozen plain exact input still accepted (public contract)
+  const frozenIn = Object.freeze({ ...ids });
+  const frozenWrites = [];
+  const frozenSvc = svc.createMicrosoftOAuthTransactionService({
+    repository: {
+      create: async (row) => {
+        frozenWrites.push(row);
+        return { expires_at: row.expiresAt };
+      },
+    },
+    env,
+    randomBytes: (n) => Buffer.alloc(n, 7),
+    now: () => new Date('2026-08-05T12:00:00Z'),
+  });
+  await frozenSvc.start(frozenIn);
+  assert.strictEqual(frozenWrites.length, 1);
+  assert.strictEqual(frozenWrites[0].endpointId, ids.endpointId);
+
+  // Null prototype exact input still accepted
+  const nullProto = Object.create(null);
+  for (const key of svc.INPUT_KEYS) nullProto[key] = ids[key];
+  const nullWrites = [];
+  const nullSvc = svc.createMicrosoftOAuthTransactionService({
+    repository: {
+      create: async (row) => {
+        nullWrites.push(row);
+        return { expires_at: row.expiresAt };
+      },
+    },
+    env,
+    randomBytes: (n) => Buffer.alloc(n, 7),
+    now: () => new Date('2026-08-05T12:00:00Z'),
+  });
+  await nullSvc.start(nullProto);
+  assert.strictEqual(nullWrites[0].endpointId, ids.endpointId);
+
+  // Uppercase UUIDs accepted and canonicalized to lowercase for repository
+  const upper = {
+    clientId: ids.clientId.toUpperCase(),
+    locationId: ids.locationId.toUpperCase(),
+    staffUserId: ids.staffUserId.toUpperCase(),
+    authSessionId: ids.authSessionId.toUpperCase(),
+    endpointId: ids.endpointId.toUpperCase(),
+  };
+  const upperWrites = [];
+  const upperSvc = svc.createMicrosoftOAuthTransactionService({
+    repository: {
+      create: async (row) => {
+        upperWrites.push(row);
+        return { expires_at: row.expiresAt };
+      },
+    },
+    env,
+    randomBytes: (n) => Buffer.alloc(n, 7),
+    now: () => new Date('2026-08-05T12:00:00Z'),
+  });
+  await upperSvc.start(upper);
+  assert.strictEqual(upperWrites[0].clientId, ids.clientId);
+  assert.strictEqual(upperWrites[0].locationId, ids.locationId);
+  assert.strictEqual(upperWrites[0].staffUserId, ids.staffUserId);
+  assert.strictEqual(upperWrites[0].authSessionId, ids.authSessionId);
+  assert.strictEqual(upperWrites[0].endpointId, ids.endpointId);
+
+  // Mutation after snapshot: repository receives originally snapshotted IDs only
+  const mutable = { ...ids };
+  const raceWrites = [];
+  let descReads = Object.create(null);
+  for (const key of svc.INPUT_KEYS) descReads[key] = 0;
+  const raceTarget = { ...ids };
+  const raceProxy = new Proxy(raceTarget, {
+    getPrototypeOf() { return Object.prototype; },
+    ownKeys() { return svc.INPUT_KEYS.slice(); },
+    getOwnPropertyDescriptor(t, p) {
+      if (typeof p === 'string' && Object.prototype.hasOwnProperty.call(descReads, p)) {
+        descReads[p] += 1;
+        // First read: original canonical; later reads (if any): evil endpoint/owner
+        if (descReads[p] === 1) {
+          return { configurable: true, enumerable: true, writable: true, value: ids[p] };
+        }
+        return {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: p === 'endpointId' || p === 'clientId' ? EVIL_EP : ids[p],
+        };
+      }
+      return undefined;
+    },
+    get(t, p) {
+      // Accidental property re-read must not influence snapshotted path
+      if (p === 'endpointId' || p === 'clientId') return EVIL_EP;
+      return t[p];
+    },
+  });
+  const raceSvc = svc.createMicrosoftOAuthTransactionService({
+    repository: {
+      create: async (row) => {
+        // Mutate plain mutable companion and prove row already fixed
+        mutable.endpointId = EVIL_EP;
+        mutable.clientId = EVIL_EP;
+        raceWrites.push(row);
+        return { expires_at: row.expiresAt };
+      },
+    },
+    env,
+    randomBytes: (n) => Buffer.alloc(n, 7),
+    now: () => new Date('2026-08-05T12:00:00Z'),
+  });
+  await raceSvc.start(raceProxy);
+  assert.strictEqual(raceWrites.length, 1);
+  assert.strictEqual(raceWrites[0].endpointId, ids.endpointId, 'repo gets snapshotted endpointId');
+  assert.strictEqual(raceWrites[0].clientId, ids.clientId, 'repo gets snapshotted clientId');
+  for (const key of svc.INPUT_KEYS) {
+    assert.strictEqual(descReads[key], 1, `descriptor ${key} read exactly once`);
+  }
+
+  // Plain mutation after start begins: still uses pre-mutation snapshot
+  const plainMut = { ...ids };
+  const plainMutWrites = [];
+  const plainMutSvc = svc.createMicrosoftOAuthTransactionService({
+    repository: {
+      create: async (row) => {
+        plainMut.endpointId = EVIL_EP;
+        plainMutWrites.push(row);
+        return { expires_at: row.expiresAt };
+      },
+    },
+    env,
+    randomBytes: (n) => Buffer.alloc(n, 7),
+    now: () => new Date('2026-08-05T12:00:00Z'),
+  });
+  // Mutate immediately after call is in flight is hard; mutate between snapshot and create
+  // by changing properties after synchronous return of snapshot — create uses snapshot only.
+  await plainMutSvc.start(plainMut);
+  plainMut.endpointId = EVIL_EP;
+  assert.strictEqual(plainMutWrites[0].endpointId, ids.endpointId);
 
   for (const bad of [
     { ...env, LUNA_EMAIL_OAUTH_START_ENABLED: 'TRUE' },
@@ -605,6 +828,33 @@ function startInput(overrides = {}) {
     { status: 'authorization_received' },
   );
 
+  let callbackConsumes = 0;
+  const rejectCallback = async (input, owner, pattern, label) => {
+    const before = callbackConsumes;
+    const cb = svc.createMicrosoftOAuthCallbackService({
+      repository: {
+        consume: async () => {
+          callbackConsumes += 1;
+          return null;
+        },
+      },
+      env: callbackEnv,
+    });
+    await assert.rejects(
+      () => cb.accept(input, owner),
+      (err) => {
+        assert.ok(err instanceof Error, `${label}: Error`);
+        assert.match(err.message, pattern, `${label}: sanitized code`);
+        assert.ok(!String(err.message).includes(PLANTED), `${label}: no planted message`);
+        assert.ok(!String(err.stack || '').includes(PLANTED), `${label}: no planted stack`);
+        return true;
+      },
+      label,
+    );
+    assert.strictEqual(callbackConsumes, before, `${label}: zero consume`);
+  };
+  const goodOwner = { clientId: ids.clientId, authSessionId: ids.authSessionId };
+
   for (const hostile of [
     { state, code: 'x', error: 'access_denied' },
     { state: 'bad', code: 'x' },
@@ -615,15 +865,219 @@ function startInput(overrides = {}) {
     Object.create({ state, code: 'x' }),
     null,
   ]) {
-    await assert.rejects(
-      () => callback.accept(hostile, { clientId: ids.clientId, authSessionId: ids.authSessionId }),
-      /invalid_request/,
+    await rejectCallback(hostile, goodOwner, /^oauth_callback_invalid_request$/, 'callback invalid request shape');
+  }
+  await rejectCallback(
+    { state, code: 'x' },
+    { clientId: ids.clientId, authSessionId: 'bad' },
+    /^oauth_callback_invalid_owner$/,
+    'callback invalid owner uuid',
+  );
+
+  // Callback input: symbols
+  const cbSym = { state, code: 'provider-code' };
+  cbSym[Symbol('x')] = PLANTED;
+  await rejectCallback(cbSym, goodOwner, /^oauth_callback_invalid_request$/, 'callback symbol key');
+
+  // Callback input: accessors — getter call count zero
+  let codeGets = 0;
+  let stateGets = 0;
+  const cbAccessor = {};
+  Object.defineProperty(cbAccessor, 'state', {
+    enumerable: true,
+    get() { stateGets += 1; return state; },
+  });
+  Object.defineProperty(cbAccessor, 'code', {
+    enumerable: true,
+    get() { codeGets += 1; return 'provider-code'; },
+  });
+  await rejectCallback(cbAccessor, goodOwner, /^oauth_callback_invalid_request$/, 'callback accessors');
+  assert.strictEqual(stateGets, 0, 'callback state getter never invoked');
+  assert.strictEqual(codeGets, 0, 'callback code getter never invoked');
+
+  // Callback proxy traps throw
+  for (const trapName of ['getPrototypeOf', 'ownKeys', 'getOwnPropertyDescriptor']) {
+    const traps = {
+      getPrototypeOf() { return Object.prototype; },
+      ownKeys() { return ['state', 'code']; },
+      getOwnPropertyDescriptor(t, p) {
+        return { configurable: true, enumerable: true, writable: true, value: t[p] };
+      },
+    };
+    traps[trapName] = () => { throw new Error(PLANTED); };
+    await rejectCallback(
+      new Proxy({ state, code: 'provider-code' }, traps),
+      goodOwner,
+      /^oauth_callback_invalid_request$/,
+      `callback proxy ${trapName}`,
     );
   }
-  await assert.rejects(
-    () => callback.accept({ state, code: 'x' }, { clientId: ids.clientId, authSessionId: 'bad' }),
-    /invalid_owner/,
+
+  // Callback wrong key order
+  await rejectCallback(
+    { code: 'provider-code', state },
+    goodOwner,
+    /^oauth_callback_invalid_request$/,
+    'callback wrong key order',
   );
+
+  // Owner: symbols / accessors / wrong order / wrong proto / proxy throw
+  const ownerSym = { clientId: ids.clientId, authSessionId: ids.authSessionId };
+  ownerSym[Symbol('x')] = PLANTED;
+  await rejectCallback(
+    { state, code: 'provider-code' },
+    ownerSym,
+    /^oauth_callback_invalid_owner$/,
+    'owner symbol',
+  );
+  let ownerGets = 0;
+  const ownerAcc = {};
+  Object.defineProperty(ownerAcc, 'clientId', {
+    enumerable: true,
+    get() { ownerGets += 1; return ids.clientId; },
+  });
+  Object.defineProperty(ownerAcc, 'authSessionId', {
+    enumerable: true,
+    get() { ownerGets += 1; return ids.authSessionId; },
+  });
+  await rejectCallback(
+    { state, code: 'provider-code' },
+    ownerAcc,
+    /^oauth_callback_invalid_owner$/,
+    'owner accessors',
+  );
+  assert.strictEqual(ownerGets, 0, 'owner getters never invoked');
+  await rejectCallback(
+    { state, code: 'provider-code' },
+    { authSessionId: ids.authSessionId, clientId: ids.clientId },
+    /^oauth_callback_invalid_owner$/,
+    'owner wrong key order',
+  );
+  await rejectCallback(
+    { state, code: 'provider-code' },
+    Object.assign(Object.create({ sneaky: true }), goodOwner),
+    /^oauth_callback_invalid_owner$/,
+    'owner wrong prototype',
+  );
+  for (const trapName of ['getPrototypeOf', 'ownKeys', 'getOwnPropertyDescriptor']) {
+    const traps = {
+      getPrototypeOf() { return Object.prototype; },
+      ownKeys() { return ['clientId', 'authSessionId']; },
+      getOwnPropertyDescriptor(t, p) {
+        return { configurable: true, enumerable: true, writable: true, value: t[p] };
+      },
+    };
+    traps[trapName] = () => { throw new Error(PLANTED); };
+    await rejectCallback(
+      { state, code: 'provider-code' },
+      new Proxy({ ...goodOwner }, traps),
+      /^oauth_callback_invalid_owner$/,
+      `owner proxy ${trapName}`,
+    );
+  }
+
+  // Callback race: descriptor read once; consume gets snapshotted owner + state hash
+  const EVIL_OWNER = '99999999-9999-4999-8999-999999999999';
+  const ownerDescReads = { clientId: 0, authSessionId: 0 };
+  const ownerRace = new Proxy({ ...goodOwner }, {
+    getPrototypeOf() { return Object.prototype; },
+    ownKeys() { return ['clientId', 'authSessionId']; },
+    getOwnPropertyDescriptor(t, p) {
+      if (p === 'clientId' || p === 'authSessionId') {
+        ownerDescReads[p] += 1;
+        return {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: ownerDescReads[p] === 1 ? goodOwner[p] : EVIL_OWNER,
+        };
+      }
+      return undefined;
+    },
+    get() { return EVIL_OWNER; },
+  });
+  const inputDescReads = { state: 0, code: 0 };
+  const evilState = Buffer.alloc(32, 1).toString('base64url');
+  const inputRace = new Proxy({ state, code: 'provider-code' }, {
+    getPrototypeOf() { return Object.prototype; },
+    ownKeys() { return ['state', 'code']; },
+    getOwnPropertyDescriptor(t, p) {
+      if (p === 'state' || p === 'code') {
+        inputDescReads[p] += 1;
+        const first = p === 'state' ? state : 'provider-code';
+        const later = p === 'state' ? evilState : 'evil-code';
+        return {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: inputDescReads[p] === 1 ? first : later,
+        };
+      }
+      return undefined;
+    },
+    get(t, p) {
+      if (p === 'state') return evilState;
+      if (p === 'code') return 'evil-code';
+      return t[p];
+    },
+  });
+  let racedConsume;
+  const raceCb = svc.createMicrosoftOAuthCallbackService({
+    repository: {
+      consume: async (arg) => {
+        racedConsume = arg;
+        return {
+          id: 'tx-secret',
+          location_id: ids.locationId,
+          staff_user_id: ids.staffUserId,
+          code_verifier: 'VERIFIER',
+          nonce: 'NONCE',
+          endpoint_id: ids.endpointId,
+        };
+      },
+    },
+    env: callbackEnv,
+    now: () => new Date('2026-08-05T12:01:00Z'),
+  });
+  assert.deepStrictEqual(
+    await raceCb.accept(inputRace, ownerRace),
+    { status: 'authorization_received' },
+  );
+  assert.strictEqual(racedConsume.clientId, ids.clientId);
+  assert.strictEqual(racedConsume.authSessionId, ids.authSessionId);
+  assert.strictEqual(
+    racedConsume.stateHash.equals(crypto.createHash('sha256').update(state, 'ascii').digest()),
+    true,
+    'consume uses first-snapshotted state',
+  );
+  assert.strictEqual(ownerDescReads.clientId, 1);
+  assert.strictEqual(ownerDescReads.authSessionId, 1);
+  assert.strictEqual(inputDescReads.state, 1);
+  assert.strictEqual(inputDescReads.code, 1);
+
+  // Owner uppercase UUID canonicalize
+  let upperOwnerConsume;
+  const upperOwnerCb = svc.createMicrosoftOAuthCallbackService({
+    repository: {
+      consume: async (arg) => {
+        upperOwnerConsume = arg;
+        return null;
+      },
+    },
+    env: callbackEnv,
+  });
+  assert.deepStrictEqual(
+    await upperOwnerCb.accept(
+      { state, code: 'provider-code' },
+      {
+        clientId: ids.clientId.toUpperCase(),
+        authSessionId: ids.authSessionId.toUpperCase(),
+      },
+    ),
+    { status: 'invalid_or_expired' },
+  );
+  assert.strictEqual(upperOwnerConsume.clientId, ids.clientId);
+  assert.strictEqual(upperOwnerConsume.authSessionId, ids.authSessionId);
 
   // Replay / expiry via stateful fake
   const lifeFake = createStatefulSqlFake([eligibleEndpoint()]);
