@@ -3,9 +3,12 @@ const {
   createMicrosoftOAuthTransactionService,
   createPostgresOAuthTransactionRepository,
   isStartEnabled,
+  isCallbackEnabled,
+  createMicrosoftOAuthCallbackService,
 } = require('./email-microsoft-oauth-transaction-service');
 
 const OAUTH_START_PATH = '/staff/admin/email-settings/oauth/microsoft/start';
+const OAUTH_CALLBACK_PATH = '/staff/email/oauth/microsoft/callback';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function validBody(body) {
@@ -40,6 +43,23 @@ function createStaffEmailOAuthRoutes(deps) {
       return deps.sendJSON(res, 503, { success:false, error:'oauth_start_unavailable' });
     }
   }
-  return Object.freeze({ handleStart });
+  function terminal(res, statusCode, status) {
+    const messages = { authorization_received:'Authorization response received. You may close this window.', authorization_declined:'Authorization was declined. You may close this window.', invalid_or_expired:'This authorization request could not be accepted.' };
+    res.statusCode = statusCode;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    return res.end(`<!doctype html><html><head><meta charset="utf-8"><title>Authorization status</title></head><body><main><h1>Authorization status</h1><p>${messages[status] || messages.invalid_or_expired}</p></main></body></html>`);
+  }
+  async function handleCallback(query, req, res, user) {
+    if (!isCallbackEnabled(env)) return terminal(res, 404, 'invalid_or_expired');
+    if (!user || user.client_slug !== 'sunset' || !UUID_RE.test(user.client_id || '') || !UUID_RE.test(user.session_id || '')) return terminal(res, 400, 'invalid_or_expired');
+    try {
+      const result = await deps.withPgClient(async (pg) => createMicrosoftOAuthCallbackService({ repository:createPostgresOAuthTransactionRepository(pg), env }).accept(query, { clientId:user.client_id, authSessionId:user.session_id }));
+      return terminal(res, result.status === 'invalid_or_expired' ? 400 : 200, result.status);
+    } catch (_) { return terminal(res, 400, 'invalid_or_expired'); }
+  }
+  return Object.freeze({ handleStart, handleCallback });
 }
-module.exports = { OAUTH_START_PATH, validBody, createStaffEmailOAuthRoutes };
+module.exports = { OAUTH_START_PATH, OAUTH_CALLBACK_PATH, validBody, createStaffEmailOAuthRoutes };

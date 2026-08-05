@@ -24,6 +24,7 @@ function exactObject(value, keys) {
   return own.length === keys.length && own.every((key) => keys.includes(key));
 }
 function isStartEnabled(env) { return !!env && env.LUNA_EMAIL_OAUTH_START_ENABLED === 'true'; }
+function isCallbackEnabled(env) { return !!env && env.LUNA_EMAIL_OAUTH_CALLBACK_ENABLED === 'true'; }
 function validateRuntime(env) {
   if (!env || typeof env !== 'object') throw new Error('oauth_start_unconfigured');
   if (!isStartEnabled(env)) throw new Error('oauth_start_disabled');
@@ -86,4 +87,25 @@ function createMicrosoftOAuthTransactionService({ repository, env = process.env,
   });
 }
 
-module.exports = { AUTHORITY, REDIRECT_URI, SCOPES, TTL_SECONDS, isStartEnabled, validateRuntime, createPostgresOAuthTransactionRepository, createMicrosoftOAuthTransactionService };
+const CALLBACK_KEYS = Object.freeze([Object.freeze(['state', 'code']), Object.freeze(['state', 'error'])]);
+const PROVIDER_CODE_RE = /^[\x21-\x7e]{1,4096}$/;
+const PROVIDER_ERROR_RE = /^[a-z][a-z0-9_]{0,63}$/;
+function createMicrosoftOAuthCallbackService({ repository, env = process.env, now = () => new Date() }) {
+  if (!repository || typeof repository.consume !== 'function') throw new TypeError('repository_required');
+  return Object.freeze({
+    async accept(input, owner) {
+      if (!isCallbackEnabled(env) || env.LUNA_DEPLOYMENT !== 'sunset-staging') throw new Error('oauth_callback_disabled');
+      if (!exactObject(owner, ['clientId', 'authSessionId']) || !UUID_RE.test(owner.clientId) || !UUID_RE.test(owner.authSessionId)) throw new Error('oauth_callback_invalid_owner');
+      const shape = CALLBACK_KEYS.find((keys) => exactObject(input, keys));
+      if (!shape || !B64URL_32_RE.test(input.state)
+        || (shape[1] === 'code' && (typeof input.code !== 'string' || !PROVIDER_CODE_RE.test(input.code)))
+        || (shape[1] === 'error' && (typeof input.error !== 'string' || !PROVIDER_ERROR_RE.test(input.error)))) throw new Error('oauth_callback_invalid_request');
+      const stateHash = crypto.createHash('sha256').update(input.state, 'ascii').digest();
+      const row = await repository.consume({ stateHash, clientId: owner.clientId, authSessionId: owner.authSessionId, now: new Date(now()) });
+      if (!row) return Object.freeze({ status: 'invalid_or_expired' });
+      return Object.freeze({ status: shape[1] === 'code' ? 'authorization_received' : 'authorization_declined' });
+    },
+  });
+}
+
+module.exports = { AUTHORITY, REDIRECT_URI, SCOPES, TTL_SECONDS, isStartEnabled, isCallbackEnabled, validateRuntime, createPostgresOAuthTransactionRepository, createMicrosoftOAuthTransactionService, createMicrosoftOAuthCallbackService };
