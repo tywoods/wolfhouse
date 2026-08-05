@@ -1,0 +1,25 @@
+{
+  "kind": "sunset-staging-ledger-reconcile-evidence-v1",
+  "immutable": true,
+  "checksumMode": "canonical_lf_v1",
+  "notes": [
+    "SYNTHETIC OFFLINE FIXTURE — not live Sunset structural proof",
+    "Replace catalogFingerprint and ledgerRows with live readback before any operator apply"
+  ],
+  "target": {
+    "environment": "staging",
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "port": 5432,
+    "applicationName": "wh-sunset-ledger-reconcile-056-060"
+  },
+  "manifestDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "planDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "catalogFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+  "ledgerPrefixDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "ledgerRows": [],
+  "evidenceDigest": "0000000000000000000000000000000000000000000000000000000000000000"
+}

@@ -1,0 +1,224 @@
+{
+  "capturedAt": "2026-08-05T09:15:49.820Z",
+  "source": "disposable-postgres-canonical-056-060-prefix",
+  "provenance": {
+    "sourceSha": "e31c817b1e12496ea89049a501baeca0d3b4594b",
+    "migration056ChecksumSha256": "622157ecda3995ce0a9888d2e4382d0eb9a65e9d8318da97c4d2e64ea4fe8986",
+    "captureScriptDigest": "b69f29b8773f514da6b452cbe675a282e6786c8d8613c266d4ce1315a9a4b351",
+    "postgresVersion": "PostgreSQL 16.14 (Debian 16.14-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+    "semanticFingerprint": "d31907b16778352e4233736a538a7821414e4f4b41b13bf8574ef36846567eb4"
+  },
+  "catalog": {
+    "columns_056": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "not_null": true,
+        "default": "gen_random_uuid()"
+      },
+      {
+        "name": "client_id",
+        "type": "uuid",
+        "not_null": true,
+        "default": null
+      },
+      {
+        "name": "booking_id",
+        "type": "uuid",
+        "not_null": true,
+        "default": null
+      },
+      {
+        "name": "location_id",
+        "type": "text",
+        "not_null": true,
+        "default": null
+      },
+      {
+        "name": "amount_cents",
+        "type": "integer",
+        "not_null": true,
+        "default": null
+      },
+      {
+        "name": "currency",
+        "type": "character(3)",
+        "not_null": true,
+        "default": "'eur'::bpchar"
+      },
+      {
+        "name": "effective_date",
+        "type": "date",
+        "not_null": true,
+        "default": null
+      },
+      {
+        "name": "reason",
+        "type": "text",
+        "not_null": true,
+        "default": null
+      },
+      {
+        "name": "staff_user_id",
+        "type": "text",
+        "not_null": false,
+        "default": null
+      },
+      {
+        "name": "staff_email",
+        "type": "text",
+        "not_null": false,
+        "default": null
+      },
+      {
+        "name": "staff_role",
+        "type": "text",
+        "not_null": false,
+        "default": null
+      },
+      {
+        "name": "idempotency_key",
+        "type": "text",
+        "not_null": true,
+        "default": null
+      },
+      {
+        "name": "source",
+        "type": "text",
+        "not_null": true,
+        "default": "'staff_manual_record'::text"
+      },
+      {
+        "name": "metadata",
+        "type": "jsonb",
+        "not_null": true,
+        "default": "'{}'::jsonb"
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "not_null": true,
+        "default": "now()"
+      }
+    ],
+    "checks_056": [
+      {
+        "name": "booking_refund_records_amount_cents_check",
+        "def": "check (amount_cents > 0)"
+      },
+      {
+        "name": "booking_refund_records_currency_eur",
+        "def": "check (currency = 'eur'::bpchar)"
+      },
+      {
+        "name": "booking_refund_records_idempotency_nonempty",
+        "def": "check (char_length(btrim(idempotency_key)) > 0)"
+      },
+      {
+        "name": "booking_refund_records_location_nonempty",
+        "def": "check (char_length(btrim(location_id)) > 0)"
+      },
+      {
+        "name": "booking_refund_records_reason_nonempty",
+        "def": "check (char_length(btrim(reason)) > 0)"
+      },
+      {
+        "name": "booking_refund_records_source_check",
+        "def": "check (source = 'staff_manual_record'::text)"
+      }
+    ],
+    "fks_056": [
+      {
+        "name": "booking_refund_records_booking_client_fk",
+        "def": "foreign key (booking_id, client_id) references bookings(id, client_id) on update cascade on delete restrict"
+      },
+      {
+        "name": "booking_refund_records_client_fk",
+        "def": "foreign key (client_id) references clients(id) on update cascade on delete restrict"
+      }
+    ],
+    "pk_056": {
+      "name": "booking_refund_records_pkey",
+      "def": "primary key (id)"
+    },
+    "pk_index_056": {
+      "name": "booking_refund_records_pkey",
+      "def": "create unique index booking_refund_records_pkey on booking_refund_records using btree (id)",
+      "unique": true,
+      "method": "btree"
+    },
+    "indexes_booking_refund_records": [
+      {
+        "name": "booking_refund_records_booking_idx",
+        "def": "create index booking_refund_records_booking_idx on booking_refund_records using btree (booking_id, created_at desc)",
+        "unique": false,
+        "method": "btree"
+      },
+      {
+        "name": "booking_refund_records_client_created_idx",
+        "def": "create index booking_refund_records_client_created_idx on booking_refund_records using btree (client_id, created_at desc)",
+        "unique": false,
+        "method": "btree"
+      },
+      {
+        "name": "booking_refund_records_client_idempotency_uidx",
+        "def": "create unique index booking_refund_records_client_idempotency_uidx on booking_refund_records using btree (client_id, idempotency_key)",
+        "unique": true,
+        "method": "btree"
+      },
+      {
+        "name": "booking_refund_records_client_location_idx",
+        "def": "create index booking_refund_records_client_location_idx on booking_refund_records using btree (client_id, location_id, effective_date desc)",
+        "unique": false,
+        "method": "btree"
+      }
+    ],
+    "index_bookings_uidx_056": {
+      "name": "bookings_id_client_id_uidx",
+      "def": "create unique index bookings_id_client_id_uidx on bookings using btree (id, client_id)",
+      "unique": true,
+      "method": "btree"
+    },
+    "triggers_056": [
+      {
+        "name": "booking_refund_records_no_delete",
+        "def": "create trigger booking_refund_records_no_delete before delete on booking_refund_records for each row execute function booking_refund_records_reject_delete()",
+        "enabled": true
+      },
+      {
+        "name": "booking_refund_records_no_update",
+        "def": "create trigger booking_refund_records_no_update before update on booking_refund_records for each row execute function booking_refund_records_reject_update()",
+        "enabled": true
+      }
+    ],
+    "functions_056": [
+      {
+        "name": "booking_refund_records_reject_delete",
+        "def": "create or replace function booking_refund_records_reject_delete() returns trigger language plpgsql as $function$ declare allow_flag text; begin begin allow_flag := current_setting('wh.allow_booking_refund_mutation', true); exception when others then allow_flag := null; end; if allow_flag is distinct from 'on' then raise exception 'booking_refund_records is append-only (delete forbidden unless wh.allow_booking_refund_mutation=on)' using errcode = 'integrity_constraint_violation'; end if; return old; end; $function$",
+        "identity": ""
+      },
+      {
+        "name": "booking_refund_records_reject_update",
+        "def": "create or replace function booking_refund_records_reject_update() returns trigger language plpgsql as $function$ begin raise exception 'booking_refund_records is append-only (update forbidden)' using errcode = 'integrity_constraint_violation'; end; $function$",
+        "identity": ""
+      }
+    ],
+    "hidden_060": {
+      "name": "hidden",
+      "type": "boolean",
+      "not_null": true,
+      "default": "false"
+    },
+    "index_060": {
+      "name": "bookings_hidden_true_idx",
+      "def": "create index bookings_hidden_true_idx on bookings using btree (client_id, hidden) where hidden = true",
+      "unique": false,
+      "method": "btree"
+    },
+    "has_057_locations": false,
+    "has_057_endpoints": false,
+    "has_058_connector_mode": false,
+    "has_059_grants": false
+  },
+  "fingerprint": "d31907b16778352e4233736a538a7821414e4f4b41b13bf8574ef36846567eb4"
+}
