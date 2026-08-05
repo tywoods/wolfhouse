@@ -67,6 +67,23 @@ async function main() {
     await mustFail(() => oversized.exchangeAuthorizationCode(input()));
     assert.equal(boundaryCalls, 0, 'oversized failure must burn the single-use service');
 
+    const mutableInput = input();
+    let mutationBody;
+    const mutatingProvider = frozenMethod('getClientSecret', async () => {
+      mutableInput.authorizationCode = 'é';
+      mutableInput.codeVerifier = 'invalid-after-await';
+      mutableInput.clientId = '00000000-0000-0000-0000-000000000000';
+      return SECRET;
+    });
+    await createMicrosoftAuthorizationCodeRequestService(deps(
+      mutatingProvider,
+      frozenMethod('exchangeAndCustody', async ({ body }) => { mutationBody = body; return ACK; }),
+    )).exchangeAuthorizationCode(mutableInput);
+    const mutationForm = new URLSearchParams(mutationBody);
+    assert.equal(mutationForm.get('code'), CODE, 'authorization code must be snapshotted before provider await');
+    assert.equal(mutationForm.get('code_verifier'), VERIFIER, 'verifier must be snapshotted before provider await');
+    assert.equal(mutationForm.get('client_id'), CLIENT_ID, 'client id must remain the configured application id');
+
     for (const bad of [null, [], {}, {...input(), extra:true}, {...input(), clientId:'22345678-1234-4234-8234-123456789abc'}, {...input(), authorizationCode:''}, {...input(), authorizationCode:'bad\n'}, {...input(), codeVerifier:'short'}, Object.create(null)]) {
       providerCalls=0; await mustFail(()=>createMicrosoftAuthorizationCodeRequestService(deps(provider,custody)).exchangeAuthorizationCode(bad)); assert.equal(providerCalls,0);
     }

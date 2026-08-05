@@ -40,11 +40,14 @@ function exactProvider(object) {
 function printable(value, limit) {
   return typeof value === 'string' && value.length > 0 && value.length <= limit && /^[\x21-\x7e]+$/.test(value);
 }
-function validInput(input, applicationClientId) {
-  return exactPlainData(input, ['authorizationCode', 'codeVerifier', 'clientId'])
-    && printable(ownData(input, 'authorizationCode'), AUTHORIZATION_CODE_LIMIT_CHARS)
-    && PKCE_VERIFIER_RE.test(ownData(input, 'codeVerifier'))
-    && ownData(input, 'clientId') === applicationClientId;
+function snapshotInput(input, applicationClientId) {
+  if (!exactPlainData(input, ['authorizationCode', 'codeVerifier', 'clientId'])) return null;
+  const authorizationCode = ownData(input, 'authorizationCode');
+  const codeVerifier = ownData(input, 'codeVerifier');
+  const clientId = ownData(input, 'clientId');
+  if (!printable(authorizationCode, AUTHORIZATION_CODE_LIMIT_CHARS)
+      || !PKCE_VERIFIER_RE.test(codeVerifier) || clientId !== applicationClientId) return null;
+  return Object.freeze({ authorizationCode, codeVerifier });
 }
 
 function createMicrosoftAuthorizationCodeRequestService(deps) {
@@ -71,16 +74,17 @@ function createMicrosoftAuthorizationCodeRequestService(deps) {
     if (used) throw failure();
     used = true;
     try {
-      if (!validInput(input, applicationClientId)) throw failure();
+      const inputSnapshot = snapshotInput(input, applicationClientId);
+      if (!inputSnapshot) throw failure();
       const clientSecret = await Reflect.apply(getClientSecret, secretProvider, []);
       if (!printable(clientSecret, CLIENT_SECRET_LIMIT_CHARS)) throw failure();
       const body = new URLSearchParams([
         ['client_id', applicationClientId],
         ['client_secret', clientSecret],
         ['grant_type', 'authorization_code'],
-        ['code', ownData(input, 'authorizationCode')],
+        ['code', inputSnapshot.authorizationCode],
         ['redirect_uri', REDIRECT_URI],
-        ['code_verifier', ownData(input, 'codeVerifier')],
+        ['code_verifier', inputSnapshot.codeVerifier],
       ]).toString();
       if (Buffer.byteLength(body, 'utf8') > REQUEST_LIMIT_BYTES) throw failure();
       const result = await Reflect.apply(exchangeAndCustody, responseCustody, [{ body }]);
