@@ -207,6 +207,7 @@ const {
   createStaffEmailOAuthRoutes,
   OAUTH_START_PATH,
   OAUTH_PREPARE_PATH,
+  OAUTH_REFRESH_HEALTH_PATH,
   OAUTH_CALLBACK_PATH,
 } = require('./lib/staff-email-oauth-routes');
 
@@ -49174,6 +49175,14 @@ async function router(req, res) {
     try { body = JSON.parse((await readBody(req)) || '{}'); }
     catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
     return emailOAuthRoutes.handleStart(body, req, res, auth.user);
+  }
+  if (pathname === OAUTH_REFRESH_HEALTH_PATH && method === 'POST') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); }
+    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    return emailOAuthRoutes.handleRefreshHealth(body, req, res, auth.user);
   }
   // Microsoft returns by top-level GET. SameSite=Lax plus Path=/staff allows
   // this server to resolve the live initiating session. Provider parameters

@@ -1,0 +1,141 @@
+'use strict';
+
+/**
+ * Hostile-path gate for Microsoft refresh_token request form + classification.
+ */
+
+const assert = require('node:assert/strict');
+const { REQUEST_LIMIT_BYTES } = require('./lib/email-microsoft-token-http-transport');
+const {
+  FAILURE_CODE,
+  SUNSET_DEPLOYMENT,
+  createMicrosoftRefreshTokenRequestService,
+} = require('./lib/email-microsoft-refresh-token-request');
+
+const CLIENT_ID = '12345678-1234-4234-8234-123456789abc';
+const REFRESH = 'rt+/%?=&NEVER_LEAK';
+const SECRET = 'secret+/%?=&NEVER_LEAK';
+const PLANTED_AT = 'at-NEVER_LEAK';
+
+function frozenMethod(name, fn) { return Object.freeze({ [name]: fn }); }
+function deps(provider, transport, patch = {}) {
+  return {
+    deployment: SUNSET_DEPLOYMENT,
+    applicationClientId: CLIENT_ID,
+    secretProvider: provider,
+    transport,
+    ...patch,
+  };
+}
+function input(patch = {}) {
+  return { refreshToken: REFRESH, ...patch };
+}
+function successResponse() {
+  return Object.freeze({
+    statusCode: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      token_type: 'Bearer',
+      expires_in: 3600,
+      access_token: PLANTED_AT,
+      refresh_token: 'rt-rotated-NEVER_LEAK',
+      scope: 'openid profile User.Read Mail.ReadBasic',
+    }),
+  });
+}
+
+async function mustFail(action) {
+  await assert.rejects(action, (error) => error.code === FAILURE_CODE
+    && error.message === FAILURE_CODE
+    && !String(error).includes('NEVER_LEAK')
+    && !JSON.stringify(error).includes('NEVER_LEAK'));
+}
+
+async function main() {
+  const logged = [];
+  const log = console.log;
+  const error = console.error;
+  console.log = console.error = (...v) => logged.push(v);
+  try {
+    let captured;
+    const provider = { getClientSecret: async function getClientSecret() { return SECRET; } };
+    const transport = frozenMethod('postTokenForm', async function postTokenForm(arg) {
+      captured = arg;
+      return successResponse();
+    });
+    const result = await createMicrosoftRefreshTokenRequestService(deps(provider, transport))
+      .exchangeRefreshToken(input());
+    assert.equal(result.kind, 'success');
+    assert.equal(result.selected.refreshToken, 'rt-rotated-NEVER_LEAK');
+    assert.deepEqual(Reflect.ownKeys(captured), ['body']);
+    assert.deepEqual([...new URLSearchParams(captured.body)], [
+      ['client_id', CLIENT_ID],
+      ['client_secret', SECRET],
+      ['grant_type', 'refresh_token'],
+      ['refresh_token', REFRESH],
+    ]);
+    assert.equal(new URLSearchParams(captured.body).has('scope'), false);
+    assert.equal(new URLSearchParams(captured.body).has('redirect_uri'), false);
+
+    const invalid = await createMicrosoftRefreshTokenRequestService(deps(
+      frozenMethod('getClientSecret', async () => SECRET),
+      frozenMethod('postTokenForm', async () => Object.freeze({
+        statusCode: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: 'invalid_grant',
+          error_description: 'NEVER_LEAK_desc',
+        }),
+      })),
+    )).exchangeRefreshToken(input());
+    assert.equal(invalid.kind, 'invalid_grant');
+    assert.equal(JSON.stringify(invalid).includes('NEVER_LEAK'), false);
+
+    const uncertain = await createMicrosoftRefreshTokenRequestService(deps(
+      frozenMethod('getClientSecret', async () => SECRET),
+      frozenMethod('postTokenForm', async () => Object.freeze({
+        statusCode: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'temporarily_unavailable', error_description: 'NEVER_LEAK' }),
+      })),
+    )).exchangeRefreshToken(input());
+    assert.equal(uncertain.kind, 'uncertain');
+    assert.equal(JSON.stringify(uncertain).includes('NEVER_LEAK'), false);
+
+    for (const bad of [
+      null, [], {}, { ...input(), extra: true }, Object.create(null),
+      { refreshToken: '' }, { refreshToken: 'bad\n' },
+    ]) {
+      await mustFail(() => createMicrosoftRefreshTokenRequestService(deps(
+        frozenMethod('getClientSecret', async () => SECRET),
+        frozenMethod('postTokenForm', async () => successResponse()),
+      )).exchangeRefreshToken(bad));
+    }
+
+    for (const hostile of [
+      null, {}, deps(provider, transport, { deployment: 'production' }),
+      deps(provider, { postTokenForm: async () => successResponse() }),
+    ]) {
+      assert.throws(
+        () => createMicrosoftRefreshTokenRequestService(hostile),
+        (e) => e.code === FAILURE_CODE && !String(e).includes('NEVER_LEAK'),
+      );
+    }
+
+    const single = createMicrosoftRefreshTokenRequestService(deps(
+      frozenMethod('getClientSecret', async () => SECRET),
+      frozenMethod('postTokenForm', async () => successResponse()),
+    ));
+    await single.exchangeRefreshToken(input());
+    await mustFail(() => single.exchangeRefreshToken(input()));
+
+    assert.ok(REQUEST_LIMIT_BYTES > 0);
+    assert.deepEqual(logged, []);
+  } finally {
+    console.log = log;
+    console.error = error;
+  }
+  log('verify:email-microsoft-refresh-token-request: ok');
+}
+
+main().catch((e) => { console.error(e); process.exitCode = 1; });

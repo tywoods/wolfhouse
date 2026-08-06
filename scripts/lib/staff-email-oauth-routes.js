@@ -14,6 +14,10 @@ const {
   DEPENDENCY_KEYS,
 } = require('./email-microsoft-oauth-sunset-staging-runtime-composition');
 const {
+  createSunsetStagingMicrosoftDelegatedRefreshRuntime,
+  isRefreshHealthEnabled,
+} = require('./email-microsoft-delegated-refresh-sunset-staging-runtime-composition');
+const {
   createSunsetMicrosoftEndpointPrepare,
   INPUT_KEYS: PREPARE_DOMAIN_INPUT_KEYS,
   ERROR_CODE: PREPARE_ERROR_CODE,
@@ -27,6 +31,8 @@ const {
 const OAUTH_START_PATH = '/staff/admin/email-settings/oauth/microsoft/start';
 /** Exact prepare path — endpoint creation prerequisite for Microsoft OAuth. */
 const OAUTH_PREPARE_PATH = '/staff/admin/email-settings/oauth/microsoft/endpoint';
+/** Admin-only delegated refresh-health (rotation proof); default-off. */
+const OAUTH_REFRESH_HEALTH_PATH = '/staff/admin/email-settings/oauth/microsoft/refresh-health';
 const OAUTH_CALLBACK_PATH = '/staff/email/oauth/microsoft/callback';
 /** Canonical lowercase UUID (start body endpoint_id + ordinary SQL row ids). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -37,9 +43,21 @@ const LOCATION_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const START_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 /** Exact ordered own-data prepare body keys (location_id then public_address). */
 const PREPARE_BODY_KEYS = Object.freeze(['location_id', 'public_address']);
+/** Exact ordered own-data refresh-health body keys (location_id then endpoint_id). */
+const REFRESH_HEALTH_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 /** Exact ordered prepare success JSON keys (no mailbox echo). */
 const PREPARE_SUCCESS_KEYS = Object.freeze(['success', 'endpoint_id']);
+/** Exact ordered refresh-health success JSON keys (sanitized status only). */
+const REFRESH_HEALTH_SUCCESS_KEYS = Object.freeze([
+  'success',
+  'status',
+  'grant_generation',
+  'grant_status',
+  'reconcile_state',
+  'reauthorization_required',
+]);
 const PREPARE_ERROR = 'endpoint_prepare_unavailable';
+const REFRESH_HEALTH_ERROR = 'refresh_health_unavailable';
 /** Exact ordered own-data resolve SQL row keys (matches SELECT aliases / order). */
 const RESOLVE_ROW_KEYS = Object.freeze(['client_id', 'location_id', 'endpoint_id']);
 const RESOLVE_ROW_KEY_SET = new Set(RESOLVE_ROW_KEYS);
@@ -99,6 +117,35 @@ SELECT c.id::text AS client_id,
    AND e.auth_mode = 'delegated_authorization_code'
    AND e.connector_mode = 'microsoft_delegated_oauth'
    AND e.binding_status IN ('unverified_offline', 'pending_manual_validation')
+   AND e.public_address IS NOT NULL
+   AND btrim(e.public_address) <> ''`.replace(/\s+/g, ' ').trim();
+
+/**
+ * Trusted resolve for refresh-health: Sunset + active location + verified-or-
+ * reauth Microsoft delegated endpoint that already holds a grant. Params:
+ * [location_id, endpoint_id]. Never trust body client_id.
+ */
+const SQL_RESOLVE_REFRESH_HEALTH_BINDING = `
+SELECT c.id::text AS client_id,
+       l.id::text AS location_id,
+       e.id::text AS endpoint_id
+  FROM clients c
+  INNER JOIN tenant_locations l
+    ON l.client_id = c.id
+  INNER JOIN tenant_channel_endpoints e
+    ON e.client_id = c.id
+   AND e.location_id = l.location_id
+   AND e.id = $2::uuid
+  INNER JOIN tenant_email_delegated_grants g
+    ON g.client_id = c.id
+   AND g.endpoint_id = e.id
+ WHERE c.slug = 'sunset'
+   AND l.location_id = $1
+   AND l.active = true
+   AND e.provider = 'microsoft_graph'
+   AND e.auth_mode = 'delegated_authorization_code'
+   AND e.connector_mode = 'microsoft_delegated_oauth'
+   AND e.binding_status IN ('verified', 'reauthorization_required')
    AND e.public_address IS NOT NULL
    AND btrim(e.public_address) <> ''`.replace(/\s+/g, ' ').trim();
 
@@ -201,6 +248,43 @@ function buildPrepareSuccessJson(endpointId) {
   dto.success = true;
   dto.endpoint_id = endpointId;
   return Object.freeze(dto);
+}
+
+/** Exact ordered refresh-health success DTO — sanitized status fields only. */
+function buildRefreshHealthSuccessJson(result) {
+  try {
+    if (!result || typeof result !== 'object') return null;
+    const status = result.status;
+    const grantGeneration = result.grant_generation;
+    const grantStatus = result.grant_status;
+    const reconcileState = result.reconcile_state;
+    const reauth = result.reauthorization_required;
+    if (typeof status !== 'string'
+        || !['healthy', 'reauthorization_required', 'uncertain', 'unavailable'].includes(status)) {
+      return null;
+    }
+    if (grantGeneration != null && (!Number.isInteger(grantGeneration) || grantGeneration < 1)) {
+      return null;
+    }
+    if (grantStatus != null && typeof grantStatus !== 'string') return null;
+    if (reconcileState != null && typeof reconcileState !== 'string') return null;
+    if (typeof reauth !== 'boolean') return null;
+    const dto = {};
+    dto.success = true;
+    dto.status = status;
+    dto.grant_generation = grantGeneration == null ? null : grantGeneration;
+    dto.grant_status = grantStatus == null ? null : grantStatus;
+    dto.reconcile_state = reconcileState == null ? null : reconcileState;
+    dto.reauthorization_required = reauth;
+    return Object.freeze(dto);
+  } catch {
+    return null;
+  }
+}
+
+/** Refresh-health body shares start shape: exact ordered location_id + endpoint_id. */
+function snapshotRefreshHealthBody(body) {
+  return snapshotStartBody(body);
 }
 
 /**
@@ -563,6 +647,16 @@ function buildCallbackRuntime(env, pg, stageTelemetry) {
   }));
 }
 
+function buildRefreshHealthRuntime(env, pg) {
+  const natives = productionNativeSurfaces();
+  return createSunsetStagingMicrosoftDelegatedRefreshRuntime(Object.freeze({
+    env,
+    pgClient: pg,
+    https: natives.https,
+    timers: natives.timers,
+  }));
+}
+
 function createStaffEmailOAuthRoutes(deps) {
   const env = deps.runtimeEnv || process.env;
 
@@ -707,6 +801,70 @@ function createStaffEmailOAuthRoutes(deps) {
     }
   }
 
+  /**
+   * POST refresh-health — lease/open/MS refresh/reseal/CAS for Sunset grant.
+   * Gate: LUNA_EMAIL_OAUTH_REFRESH_HEALTH_ENABLED + sunset-staging composition.
+   * Auth: Sunset admin. Sanitized status only; never tokens/envelopes/raw errors.
+   * Does not flip start/callback flags or endpoint activation.
+   */
+  async function handleRefreshHealth(body, req, res, user) {
+    if (!isRefreshHealthEnabled(env)) {
+      return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    if (!user || user.client_slug !== 'sunset'
+        || !UUID_RE_CI.test(user.staff_user_id || '')
+        || !UUID_RE_CI.test(user.session_id || '')) {
+      return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    }
+    if (!deps.assertStaffClientAccess(user, 'sunset', res)) return;
+    const authz = deps.authorizeAuthenticatedStaffRoute({
+      clientSlug: 'sunset',
+      method: 'POST',
+      pathname: OAUTH_REFRESH_HEALTH_PATH,
+      env,
+    });
+    if (!authz.ok) {
+      return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+    }
+    const bodySnap = snapshotRefreshHealthBody(body);
+    if (!bodySnap) {
+      return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    }
+    try {
+      return await deps.withPgClient(async (pg) => {
+        const found = await pg.query(SQL_RESOLVE_REFRESH_HEALTH_BINDING, [
+          bodySnap.location_id,
+          bodySnap.endpoint_id,
+        ]);
+        const resolved = snapshotResolveQueryResult(found);
+        if (resolved.kind === 'empty') {
+          return deps.sendJSON(res, 404, { success: false, error: 'endpoint_not_found' });
+        }
+        if (resolved.kind !== 'one') {
+          return deps.sendJSON(res, 503, { success: false, error: REFRESH_HEALTH_ERROR });
+        }
+        const rowSnap = resolved.row;
+        if (rowSnap.endpoint_id !== bodySnap.endpoint_id) {
+          return deps.sendJSON(res, 503, { success: false, error: REFRESH_HEALTH_ERROR });
+        }
+        const service = buildRefreshHealthRuntime(env, pg);
+        const result = await service.runRefreshHealth(Object.freeze({
+          clientId: rowSnap.client_id,
+          endpointId: rowSnap.endpoint_id,
+        }));
+        const json = buildRefreshHealthSuccessJson(result);
+        if (!json
+            || Reflect.ownKeys(json).length !== REFRESH_HEALTH_SUCCESS_KEYS.length
+            || Reflect.ownKeys(json)[0] !== REFRESH_HEALTH_SUCCESS_KEYS[0]) {
+          return deps.sendJSON(res, 503, { success: false, error: REFRESH_HEALTH_ERROR });
+        }
+        return deps.sendJSON(res, 200, json);
+      });
+    } catch (_) {
+      return deps.sendJSON(res, 503, { success: false, error: REFRESH_HEALTH_ERROR });
+    }
+  }
+
   function terminal(res, statusCode, status) {
     const messages = {
       authorization_received: 'Authorization response received. You may close this window.',
@@ -763,28 +921,35 @@ function createStaffEmailOAuthRoutes(deps) {
     }
   }
 
-  return Object.freeze({ handleStart, handlePrepare, handleCallback });
+  return Object.freeze({ handleStart, handlePrepare, handleRefreshHealth, handleCallback });
 }
 
 module.exports = {
   OAUTH_START_PATH,
   OAUTH_PREPARE_PATH,
+  OAUTH_REFRESH_HEALTH_PATH,
   OAUTH_CALLBACK_PATH,
   SQL_RESOLVE_START_BINDING,
+  SQL_RESOLVE_REFRESH_HEALTH_BINDING,
   SQL_RESOLVE_SUNSET_CLIENT_FOR_PREPARE,
   START_BODY_KEYS,
   PREPARE_BODY_KEYS,
+  REFRESH_HEALTH_BODY_KEYS,
   PREPARE_SUCCESS_KEYS,
+  REFRESH_HEALTH_SUCCESS_KEYS,
   PREPARE_ERROR,
+  REFRESH_HEALTH_ERROR,
   RESOLVE_ROW_KEYS,
   PREPARE_CLIENT_ROW_KEYS,
   validBody,
   snapshotStartBody,
   snapshotPrepareBody,
+  snapshotRefreshHealthBody,
   snapshotPrepareClientResolve,
   snapshotResolveQueryResult,
   isPrepareEnabled,
   buildPrepareSuccessJson,
+  buildRefreshHealthSuccessJson,
   createStaffEmailOAuthRoutes,
   // Re-export production dependency key constant for offline verifiers (no secrets).
   RUNTIME_DEPENDENCY_KEYS: DEPENDENCY_KEYS,

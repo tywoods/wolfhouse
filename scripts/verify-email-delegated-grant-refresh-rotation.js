@@ -1,0 +1,516 @@
+'use strict';
+
+/**
+ * Hostile-path gate for delegated grant refresh-health rotation.
+ * Proves lease → open → MS classify → reseal → CAS, plus abort/reauth/uncertain
+ * paths, with zero token/envelope/planted-error leakage in public results.
+ */
+
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const {
+  createFakeEmailGrantEnvelopeProvider,
+  fakeSealRefreshToken,
+} = require('./lib/email-grant-envelope-fake-provider');
+const {
+  createDelegatedGrantRefreshRotationService,
+  FAILURE_CODE,
+  SUNSET_DEPLOYMENT,
+  STATUS_HEALTHY,
+  STATUS_REAUTH,
+  STATUS_UNCERTAIN,
+  STATUS_UNAVAILABLE,
+} = require('./lib/email-delegated-grant-refresh-rotation');
+
+const CLIENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const ENDPOINT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const APP_ID = '12345678-1234-4234-8234-123456789abc';
+const OLD_RT = 'rt-old-NEVER_LEAK';
+const NEW_RT = 'rt-new-NEVER_LEAK';
+const PLANTED = 'planted-NEVER_LEAK-secret';
+const SECRET = 'app-secret-NEVER_LEAK';
+
+function noLeak(value) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return !text.includes('NEVER_LEAK')
+    && !text.includes(OLD_RT)
+    && !text.includes(NEW_RT)
+    && !text.includes(SECRET)
+    && !text.includes(PLANTED);
+}
+
+function rows(row) {
+  return { rows: row == null ? [] : [row], rowCount: row == null ? 0 : 1 };
+}
+function empty() { return { rows: [], rowCount: 0 }; }
+
+function createMockPg(handlers) {
+  const client = {
+    async query(text, params) {
+      const t = String(text);
+      for (const h of handlers) {
+        if (h.match(t, params)) return h.run(t, params);
+      }
+      throw new Error(`unmatched_sql:${t.slice(0, 80)}`);
+    },
+  };
+  return client;
+}
+
+function frozenMethod(name, fn) { return Object.freeze({ [name]: fn }); }
+
+function successTransport(bodyPatch = {}) {
+  return frozenMethod('postTokenForm', async () => Object.freeze({
+    statusCode: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      token_type: 'Bearer',
+      expires_in: 3600,
+      access_token: 'at-NEVER_LEAK',
+      refresh_token: NEW_RT,
+      scope: 'openid profile User.Read Mail.ReadBasic',
+      ...bodyPatch,
+    }),
+  }));
+}
+
+function invalidGrantTransport() {
+  return frozenMethod('postTokenForm', async () => Object.freeze({
+    statusCode: 400,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      error: 'invalid_grant',
+      error_description: PLANTED,
+    }),
+  }));
+}
+
+function uncertainTransport() {
+  return frozenMethod('postTokenForm', async () => Object.freeze({
+    statusCode: 503,
+    contentType: 'text/plain',
+    body: PLANTED,
+  }));
+}
+
+async function main() {
+  const logged = [];
+  const log = console.log;
+  const error = console.error;
+  console.log = console.error = (...v) => logged.push(v);
+  try {
+    const fake = createFakeEmailGrantEnvelopeProvider();
+    const op1 = crypto.randomUUID();
+    const sealed1 = await fakeSealRefreshToken(fake, {
+      refreshToken: OLD_RT,
+      clientId: CLIENT,
+      endpointId: ENDPOINT,
+      grantGeneration: 1,
+      operationId: op1,
+    });
+
+    // ── happy path: lease → open → refresh → seal → CAS ─────────────
+    {
+      let leaseTok = null;
+      let committedGen = null;
+      const client = createMockPg([
+        {
+          match: (t) => /FROM tenant_email_delegated_grants/i.test(t)
+            && !/FOR UPDATE/i.test(t) && !/UPDATE/i.test(t) && !/INSERT/i.test(t),
+          run: () => rows({
+            client_id: CLIENT, endpoint_id: ENDPOINT,
+            grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
+            grant_lease_token: null,
+          }),
+        },
+        {
+          match: (t) => /FOR UPDATE OF g/i.test(t) || (/SELECT g\.\*/i.test(t) && /FOR UPDATE/i.test(t)),
+          run: () => rows({
+            client_id: CLIENT, endpoint_id: ENDPOINT,
+            grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
+            grant_lease_token: null, grant_lease_until: null,
+            last_operation_id: op1,
+            envelope_version: sealed1.envelope_version, aead_alg: sealed1.aead_alg,
+            kek_wrap_alg: sealed1.kek_wrap_alg, kek_key_name: sealed1.kek_key_name,
+            kek_key_version: sealed1.kek_key_version, nonce: sealed1.nonce,
+            ciphertext: sealed1.ciphertext, auth_tag: sealed1.auth_tag,
+            wrapped_dek: sealed1.wrapped_dek,
+            endpoint_binding_status: 'verified',
+          }),
+        },
+        {
+          match: (t) => /SET grant_status='lease_held'/i.test(t),
+          run: (_t, p) => {
+            leaseTok = p[3];
+            return rows({
+              client_id: CLIENT, endpoint_id: ENDPOINT,
+              grant_generation: 1, grant_status: 'lease_held',
+              grant_lease_token: leaseTok,
+              grant_lease_until: new Date(Date.now() + 60000).toISOString(),
+              last_operation_id: op1,
+            });
+          },
+        },
+        {
+          match: (t) => /grant_lease_token/i.test(t) && /FOR UPDATE/i.test(t)
+            && /envelope_version/i.test(t),
+          run: () => rows({
+            client_id: CLIENT, endpoint_id: ENDPOINT,
+            grant_generation: 1, grant_status: 'lease_held',
+            grant_lease_token: leaseTok,
+            grant_lease_until: new Date(Date.now() + 60000).toISOString(),
+            last_operation_id: op1,
+            envelope_version: sealed1.envelope_version, aead_alg: sealed1.aead_alg,
+            kek_wrap_alg: sealed1.kek_wrap_alg, kek_key_name: sealed1.kek_key_name,
+            kek_key_version: sealed1.kek_key_version, nonce: sealed1.nonce,
+            ciphertext: sealed1.ciphertext, auth_tag: sealed1.auth_tag,
+            wrapped_dek: sealed1.wrapped_dek,
+          }),
+        },
+        {
+          match: (t) => /SET grant_generation=/i.test(t) && /grant_status='active'/i.test(t),
+          run: (_t, p) => {
+            committedGen = Number(p[2]);
+            return rows({
+              client_id: CLIENT, endpoint_id: ENDPOINT,
+              grant_generation: committedGen, grant_status: 'active',
+              reconcile_state: 'clean',
+            });
+          },
+        },
+        { match: () => true, run: () => empty() },
+      ]);
+
+      const service = createDelegatedGrantRefreshRotationService(Object.freeze({
+        deployment: SUNSET_DEPLOYMENT,
+        applicationClientId: APP_ID,
+        client,
+        envelopeProvider: fake,
+        secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+        transport: successTransport(),
+      }));
+      const result = await service.runRefreshHealth(Object.freeze({
+        clientId: CLIENT,
+        endpointId: ENDPOINT,
+      }));
+      assert.equal(result.status, STATUS_HEALTHY);
+      assert.equal(result.grant_generation, 2);
+      assert.equal(result.grant_status, 'active');
+      assert.equal(result.reconcile_state, 'clean');
+      assert.equal(result.reauthorization_required, false);
+      assert.equal(noLeak(result), true);
+      assert.deepEqual(Reflect.ownKeys(result), [
+        'status', 'grant_generation', 'grant_status', 'reconcile_state', 'reauthorization_required',
+      ]);
+    }
+
+    // ── invalid_grant → reauthorization_required ────────────────────
+    {
+      const fake2 = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake2, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      let leaseTok = null;
+      let markedReauth = false;
+      const client = createMockPg([
+        {
+          match: (t) => /FROM tenant_email_delegated_grants/i.test(t)
+            && !/FOR UPDATE/i.test(t) && !/UPDATE/i.test(t),
+          run: () => rows({
+            client_id: CLIENT, endpoint_id: ENDPOINT,
+            grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
+            grant_lease_token: null,
+          }),
+        },
+        {
+          match: (t) => /FOR UPDATE OF g/i.test(t) || (/SELECT g\.\*/i.test(t) && /FOR UPDATE/i.test(t)),
+          run: () => rows({
+            client_id: CLIENT, endpoint_id: ENDPOINT,
+            grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
+            grant_lease_token: null, last_operation_id: op,
+            envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
+            kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
+            kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
+            ciphertext: sealed.ciphertext, auth_tag: sealed.auth_tag,
+            wrapped_dek: sealed.wrapped_dek, endpoint_binding_status: 'verified',
+          }),
+        },
+        {
+          match: (t) => /SET grant_status='lease_held'/i.test(t),
+          run: (_t, p) => {
+            leaseTok = p[3];
+            return rows({
+              client_id: CLIENT, endpoint_id: ENDPOINT,
+              grant_generation: 1, grant_status: 'lease_held',
+              grant_lease_token: leaseTok,
+              grant_lease_until: new Date(Date.now() + 60000).toISOString(),
+              last_operation_id: op,
+            });
+          },
+        },
+        {
+          match: (t) => /grant_lease_token/i.test(t) && /FOR UPDATE/i.test(t)
+            && /envelope_version/i.test(t),
+          run: () => rows({
+            client_id: CLIENT, endpoint_id: ENDPOINT,
+            grant_generation: 1, grant_status: 'lease_held',
+            grant_lease_token: leaseTok,
+            grant_lease_until: new Date(Date.now() + 60000).toISOString(),
+            last_operation_id: op,
+            envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
+            kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
+            kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
+            ciphertext: sealed.ciphertext, auth_tag: sealed.auth_tag,
+            wrapped_dek: sealed.wrapped_dek,
+          }),
+        },
+        {
+          match: (t) => /reauthorization_required/i.test(t) && /UPDATE tenant_email_delegated_grants/i.test(t),
+          run: () => {
+            markedReauth = true;
+            return rows({ grant_generation: 1, grant_status: 'reauthorization_required' });
+          },
+        },
+        {
+          match: (t) => /UPDATE tenant_channel_endpoints/i.test(t),
+          run: () => rows({ id: ENDPOINT }),
+        },
+        { match: () => true, run: () => empty() },
+      ]);
+      const result = await createDelegatedGrantRefreshRotationService(Object.freeze({
+        deployment: SUNSET_DEPLOYMENT,
+        applicationClientId: APP_ID,
+        client,
+        envelopeProvider: fake2,
+        secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+        transport: invalidGrantTransport(),
+      })).runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+      assert.equal(result.status, STATUS_REAUTH);
+      assert.equal(result.reauthorization_required, true);
+      assert.equal(result.grant_status, 'reauthorization_required');
+      assert.equal(markedReauth, true);
+      assert.equal(noLeak(result), true);
+    }
+
+    // ── uncertain MS response → reconcile + abort ───────────────────
+    {
+      const fake3 = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake3, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      let leaseTok = null;
+      let reconciled = false;
+      let aborted = false;
+      const client = createMockPg([
+        {
+          match: (t) => /FROM tenant_email_delegated_grants/i.test(t)
+            && !/FOR UPDATE/i.test(t) && !/UPDATE/i.test(t),
+          run: () => rows({
+            client_id: CLIENT, endpoint_id: ENDPOINT,
+            grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
+            grant_lease_token: null,
+          }),
+        },
+        {
+          match: (t) => /FOR UPDATE OF g/i.test(t) || (/SELECT g\.\*/i.test(t) && /FOR UPDATE/i.test(t)),
+          run: () => rows({
+            client_id: CLIENT, endpoint_id: ENDPOINT,
+            grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
+            grant_lease_token: null, last_operation_id: op,
+            envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
+            kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
+            kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
+            ciphertext: sealed.ciphertext, auth_tag: sealed.auth_tag,
+            wrapped_dek: sealed.wrapped_dek, endpoint_binding_status: 'verified',
+          }),
+        },
+        {
+          match: (t) => /SET grant_status='lease_held'/i.test(t),
+          run: (_t, p) => {
+            leaseTok = p[3];
+            return rows({
+              client_id: CLIENT, endpoint_id: ENDPOINT,
+              grant_generation: 1, grant_status: 'lease_held',
+              grant_lease_token: leaseTok,
+              grant_lease_until: new Date(Date.now() + 60000).toISOString(),
+              last_operation_id: op,
+            });
+          },
+        },
+        {
+          match: (t) => /grant_lease_token/i.test(t) && /FOR UPDATE/i.test(t)
+            && /envelope_version/i.test(t),
+          run: () => rows({
+            client_id: CLIENT, endpoint_id: ENDPOINT,
+            grant_generation: 1, grant_status: 'lease_held',
+            grant_lease_token: leaseTok,
+            grant_lease_until: new Date(Date.now() + 60000).toISOString(),
+            last_operation_id: op,
+            envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
+            kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
+            kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
+            ciphertext: sealed.ciphertext, auth_tag: sealed.auth_tag,
+            wrapped_dek: sealed.wrapped_dek,
+          }),
+        },
+        {
+          match: (t) => /SET reconcile_state=/i.test(t),
+          run: () => {
+            reconciled = true;
+            return rows({
+              client_id: CLIENT, endpoint_id: ENDPOINT,
+              grant_generation: 1, grant_status: 'lease_held',
+              reconcile_state: 'ms_response_uncertain',
+            });
+          },
+        },
+        {
+          match: (t) => /SET grant_status='active'/i.test(t)
+            && /grant_lease_owner=NULL/i.test(t),
+          run: () => {
+            aborted = true;
+            return rows({
+              client_id: CLIENT, endpoint_id: ENDPOINT,
+              grant_generation: 1, grant_status: 'active',
+              reconcile_state: 'ms_response_uncertain',
+            });
+          },
+        },
+        { match: () => true, run: () => empty() },
+      ]);
+      const result = await createDelegatedGrantRefreshRotationService(Object.freeze({
+        deployment: SUNSET_DEPLOYMENT,
+        applicationClientId: APP_ID,
+        client,
+        envelopeProvider: fake3,
+        secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+        transport: uncertainTransport(),
+      })).runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+      assert.equal(result.status, STATUS_UNCERTAIN);
+      assert.equal(result.reconcile_state, 'ms_response_uncertain');
+      assert.equal(result.reauthorization_required, false);
+      assert.equal(reconciled, true);
+      assert.equal(aborted, true);
+      assert.equal(noLeak(result), true);
+    }
+
+    // ── lease held by other → unavailable (no MS call) ──────────────
+    {
+      let msCalls = 0;
+      const client = createMockPg([
+        {
+          match: (t) => /FROM tenant_email_delegated_grants/i.test(t) && !/FOR UPDATE/i.test(t),
+          run: () => rows({
+            client_id: CLIENT, endpoint_id: ENDPOINT,
+            grant_generation: 3, grant_status: 'lease_held', reconcile_state: 'clean',
+            grant_lease_token: crypto.randomUUID(),
+          }),
+        },
+        {
+          match: (t) => /FOR UPDATE OF g/i.test(t) || (/SELECT g\.\*/i.test(t) && /FOR UPDATE/i.test(t)),
+          run: () => rows({
+            client_id: CLIENT, endpoint_id: ENDPOINT,
+            grant_generation: 3, grant_status: 'lease_held', reconcile_state: 'clean',
+            grant_lease_token: crypto.randomUUID(),
+            grant_lease_until: new Date(Date.now() + 60000).toISOString(),
+            last_operation_id: crypto.randomUUID(),
+            endpoint_binding_status: 'verified',
+          }),
+        },
+        {
+          match: (t) => /grant_lease_until IS NOT NULL/i.test(t),
+          run: () => rows({ expired: false }),
+        },
+        { match: () => true, run: () => empty() },
+      ]);
+      const result = await createDelegatedGrantRefreshRotationService(Object.freeze({
+        deployment: SUNSET_DEPLOYMENT,
+        applicationClientId: APP_ID,
+        client,
+        envelopeProvider: createFakeEmailGrantEnvelopeProvider(),
+        secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+        transport: frozenMethod('postTokenForm', async () => { msCalls += 1; return null; }),
+      })).runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+      assert.equal(result.status, STATUS_UNAVAILABLE);
+      assert.equal(msCalls, 0);
+      assert.equal(noLeak(result), true);
+    }
+
+    // ── already reauth → short-circuit ──────────────────────────────
+    {
+      let msCalls = 0;
+      const client = createMockPg([
+        {
+          match: (t) => /FROM tenant_email_delegated_grants/i.test(t),
+          run: () => rows({
+            client_id: CLIENT, endpoint_id: ENDPOINT,
+            grant_generation: 4, grant_status: 'reauthorization_required',
+            reconcile_state: 'needs_operator', grant_lease_token: null,
+          }),
+        },
+      ]);
+      const result = await createDelegatedGrantRefreshRotationService(Object.freeze({
+        deployment: SUNSET_DEPLOYMENT,
+        applicationClientId: APP_ID,
+        client,
+        envelopeProvider: createFakeEmailGrantEnvelopeProvider(),
+        secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+        transport: frozenMethod('postTokenForm', async () => { msCalls += 1; return null; }),
+      })).runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+      assert.equal(result.status, STATUS_REAUTH);
+      assert.equal(result.reauthorization_required, true);
+      assert.equal(msCalls, 0);
+      assert.equal(noLeak(result), true);
+    }
+
+    // ── hostile factory / single-use ────────────────────────────────
+    assert.throws(
+      () => createDelegatedGrantRefreshRotationService(null),
+      (e) => e.code === FAILURE_CODE && noLeak(e),
+    );
+    assert.throws(
+      () => createDelegatedGrantRefreshRotationService(Object.freeze({
+        deployment: 'production',
+        applicationClientId: APP_ID,
+        client: createMockPg([]),
+        envelopeProvider: createFakeEmailGrantEnvelopeProvider(),
+        secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+        transport: successTransport(),
+      })),
+      (e) => e.code === FAILURE_CODE,
+    );
+
+    const once = createDelegatedGrantRefreshRotationService(Object.freeze({
+      deployment: SUNSET_DEPLOYMENT,
+      applicationClientId: APP_ID,
+      client: createMockPg([{
+        match: () => true,
+        run: () => rows({
+          client_id: CLIENT, endpoint_id: ENDPOINT,
+          grant_generation: 1, grant_status: 'reauthorization_required',
+          reconcile_state: 'needs_operator', grant_lease_token: null,
+        }),
+      }]),
+      envelopeProvider: createFakeEmailGrantEnvelopeProvider(),
+      secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+      transport: successTransport(),
+    }));
+    await once.runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+    await assert.rejects(
+      () => once.runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT })),
+      (e) => e.code === FAILURE_CODE,
+    );
+
+    assert.deepEqual(logged, []);
+  } finally {
+    console.log = log;
+    console.error = error;
+  }
+  log('verify:email-delegated-grant-refresh-rotation: ok');
+}
+
+main().catch((e) => { console.error(e); process.exitCode = 1; });
