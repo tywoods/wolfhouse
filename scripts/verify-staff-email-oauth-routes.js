@@ -552,7 +552,7 @@ function routesWithQuery(queryImpl, extra = {}) {
       Object.freeze({ kind: 'invalid' }),
     );
 
-    // Root symbol / accessor / non-ordinary proto rejected.
+    // Root symbol / accessor / inherited-only rows rejected (own-data seam).
     const withSym = { rows: [goodRow()] };
     withSym[Symbol('x')] = 1;
     assert.strictEqual(snapshotResolveQueryResult(withSym).kind, 'invalid');
@@ -630,7 +630,6 @@ function routesWithQuery(queryImpl, extra = {}) {
       rowsOwnKeys: 0,
       lengthDesc: 0,
       indexDesc: 0,
-      rootProto: 0,
       rowsProto: 0,
     };
 
@@ -685,10 +684,8 @@ function routesWithQuery(queryImpl, extra = {}) {
       fields: [],
     };
     const rootProxy = new Proxy(rootTarget, {
-      getPrototypeOf() {
-        obs.rootProto += 1;
-        return Object.prototype;
-      },
+      // Root prototype is not a trust gate (node-pg Result.prototype is accepted).
+      getPrototypeOf() { return Object.prototype; },
       ownKeys() {
         obs.rootOwnKeys += 1;
         return ['command', 'rowCount', 'oid', 'rows', 'fields'];
@@ -724,7 +721,6 @@ function routesWithQuery(queryImpl, extra = {}) {
     assert.strictEqual(once.kind, 'one');
     assert.strictEqual(once.row.endpoint_id, ENDPOINT_ID);
     assert.strictEqual(obs.rootOwnKeys, 1, 'root ownKeys once');
-    assert.strictEqual(obs.rootProto, 1, 'root getPrototypeOf once');
     assert.strictEqual(obs.rootDesc.rows, 1, 'rows descriptor once');
     assert.strictEqual(obs.rootDesc.command, 1);
     assert.strictEqual(obs.rootDesc.rowCount, 1);
@@ -753,7 +749,6 @@ function routesWithQuery(queryImpl, extra = {}) {
     obs.rowsOwnKeys = 0;
     obs.lengthDesc = 0;
     obs.indexDesc = 0;
-    obs.rootProto = 0;
     obs.rowsProto = 0;
 
     // Rebuild proxies with fresh counters for handler path.
@@ -843,6 +838,290 @@ function routesWithQuery(queryImpl, extra = {}) {
     assert.strictEqual(hObs.rowsOwnKeys, 1);
     assert.strictEqual(hObs.lengthDesc, 1);
     assert.strictEqual(hObs.indexDesc, 1);
+  }
+
+  // ── snapshotResolveQueryResult: production node-pg Result seam ───────────
+  // Exercise exported production snapshot only (no test-local reimplementation).
+  // Real pg Result.prototype accepted; hostile shapes fail closed; start route
+  // reaches transaction insert only when resolve yields a trusted one-row binding.
+  {
+    /** Realistic node-postgres Result: Result.prototype + ordinary own metadata/rows. */
+    function realisticStartPgResult(rows) {
+      const result = new PgResult();
+      result.command = 'SELECT';
+      result.rowCount = rows.length;
+      result.oid = null;
+      result.rows = rows;
+      result.fields = [
+        { name: 'client_id' },
+        { name: 'location_id' },
+        { name: 'endpoint_id' },
+      ];
+      return result;
+    }
+
+    function isStartResolveSql(text) {
+      return text === SQL_RESOLVE_START_BINDING
+        || String(text).includes('FROM clients c');
+    }
+
+    // GREEN: actual pg/lib/result.js Result through exported production snapshot.
+    const goodResult = realisticStartPgResult([goodRow()]);
+    assert.strictEqual(Object.getPrototypeOf(goodResult), PgResult.prototype);
+    assert.notStrictEqual(Object.getPrototypeOf(goodResult), Object.prototype);
+    assert.ok(Object.prototype.hasOwnProperty.call(goodResult, 'rows'));
+    const goodSnap = snapshotResolveQueryResult(goodResult);
+    assert.strictEqual(
+      goodSnap.kind,
+      'one',
+      'realistic node-postgres Result must be accepted by production snapshotResolveQueryResult',
+    );
+    assert.strictEqual(goodSnap.row.client_id, CLIENT_ID);
+    assert.strictEqual(goodSnap.row.location_id, LOCATION_UUID);
+    assert.strictEqual(goodSnap.row.endpoint_id, ENDPOINT_ID);
+    assert.strictEqual(Object.isFrozen(goodSnap.row), true);
+
+    assert.deepStrictEqual(
+      snapshotResolveQueryResult(realisticStartPgResult([])),
+      Object.freeze({ kind: 'empty' }),
+    );
+    assert.strictEqual(
+      snapshotResolveQueryResult({ rows: [goodRow()] }).kind,
+      'one',
+    );
+    assert.strictEqual(
+      snapshotResolveQueryResult(Object.assign(Object.create(null), {
+        rows: [goodRow()],
+      })).kind,
+      'one',
+    );
+
+    // Hostile shapes → invalid (own-data seam only; never inherited rows).
+    const rowsAccessor = new PgResult();
+    Object.defineProperty(rowsAccessor, 'rows', {
+      enumerable: true,
+      get() { return [goodRow()]; },
+    });
+    const withSym = realisticStartPgResult([goodRow()]);
+    withSym[Symbol('x')] = 1;
+    const metaAccessor = realisticStartPgResult([goodRow()]);
+    Object.defineProperty(metaAccessor, 'rowCount', {
+      enumerable: true,
+      get() { return 1; },
+    });
+    const sparse = [];
+    sparse.length = 1;
+    const extraKeyRows = new Proxy([goodRow()], {
+      getPrototypeOf() { return Array.prototype; },
+      ownKeys() { return ['0', 'extra', 'length']; },
+      getOwnPropertyDescriptor(_t, prop) {
+        if (prop === 'length') {
+          return { configurable: false, enumerable: false, writable: true, value: 1 };
+        }
+        if (prop === '0') {
+          return {
+            configurable: true, enumerable: true, writable: true,
+            value: goodRow(),
+          };
+        }
+        if (prop === 'extra') {
+          return { configurable: true, enumerable: true, writable: true, value: 'evil' };
+        }
+        return undefined;
+      },
+    });
+    const rowAccessor = {};
+    for (const key of RESOLVE_ROW_KEYS) {
+      const base = goodRow()[key];
+      Object.defineProperty(rowAccessor, key, {
+        enumerable: true,
+        get() { return base; },
+      });
+    }
+    const throwingRoot = new Proxy(realisticStartPgResult([goodRow()]), {
+      ownKeys() { throw new Error('ownKeys must fail closed'); },
+    });
+    const throwingRows = new Proxy([goodRow()], {
+      getPrototypeOf() { return Array.prototype; },
+      ownKeys() { return ['0', 'length']; },
+      getOwnPropertyDescriptor() { throw new Error('rows desc must fail closed'); },
+    });
+
+    const failClosed = [
+      ['inherited-only', Object.create({ rows: [goodRow()] })],
+      ['result no own rows', Object.create(PgResult.prototype)],
+      ['rows accessor', rowsAccessor],
+      ['root symbol', withSym],
+      ['meta accessor', metaAccessor],
+      ['sparse', { rows: sparse }],
+      ['multi', { rows: [goodRow(), goodRow()] }],
+      ['extra row keys', { rows: extraKeyRows }],
+      ['row extra key', { rows: [{ ...goodRow(), extra: 1 }] }],
+      ['uppercase uuid', {
+        rows: [goodRow({
+          endpoint_id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'.toUpperCase(),
+        })],
+      }],
+      ['row accessor', { rows: [rowAccessor] }],
+      ['throwing ownKeys', throwingRoot],
+      ['throwing rows desc', { rows: throwingRows }],
+    ];
+    for (const [label, shape] of failClosed) {
+      assert.strictEqual(
+        snapshotResolveQueryResult(shape).kind,
+        'invalid',
+        `fail closed: ${label}`,
+      );
+    }
+
+    // Hostile one-read: capture descriptors once; never reread / never direct get.
+    {
+      const obs = {
+        rootOwnKeys: 0, rowsDesc: 0, rowsOwnKeys: 0, lengthDesc: 0, indexDesc: 0,
+      };
+      const realRow = goodRow();
+      const rowsProxy = new Proxy([realRow], {
+        getPrototypeOf() { return Array.prototype; },
+        ownKeys() { obs.rowsOwnKeys += 1; return ['0', 'length']; },
+        getOwnPropertyDescriptor(_t, prop) {
+          if (prop === 'length') {
+            obs.lengthDesc += 1;
+            return {
+              configurable: false, enumerable: false, writable: true,
+              value: obs.lengthDesc === 1 ? 1 : 99,
+            };
+          }
+          if (prop === '0') {
+            obs.indexDesc += 1;
+            return {
+              configurable: true, enumerable: true, writable: true,
+              value: obs.indexDesc === 1
+                ? realRow
+                : goodRow({ endpoint_id: OTHER_ENDPOINT }),
+            };
+          }
+          return undefined;
+        },
+        get(_t, prop) {
+          if (prop === 'then') return undefined;
+          throw new Error(`direct rows get must not be used: ${String(prop)}`);
+        },
+      });
+      const rootTarget = realisticStartPgResult([realRow]);
+      rootTarget.rows = rowsProxy;
+      const rootProxy = new Proxy(rootTarget, {
+        getPrototypeOf() { return PgResult.prototype; },
+        ownKeys() { obs.rootOwnKeys += 1; return Reflect.ownKeys(rootTarget); },
+        getOwnPropertyDescriptor(_t, prop) {
+          if (prop === 'rows') {
+            obs.rowsDesc += 1;
+            return {
+              configurable: true, enumerable: true, writable: true,
+              value: obs.rowsDesc === 1 ? rowsProxy : [],
+            };
+          }
+          return Object.getOwnPropertyDescriptor(rootTarget, prop);
+        },
+        get(_t, prop) {
+          if (prop === 'then') return undefined;
+          throw new Error(`direct root get must not be used: ${String(prop)}`);
+        },
+      });
+
+      const once = snapshotResolveQueryResult(rootProxy);
+      assert.strictEqual(once.kind, 'one', 'first-read only');
+      assert.strictEqual(once.row.endpoint_id, ENDPOINT_ID);
+      assert.strictEqual(obs.rootOwnKeys, 1);
+      assert.strictEqual(obs.rowsDesc, 1);
+      assert.strictEqual(obs.rowsOwnKeys, 1);
+      assert.strictEqual(obs.lengthDesc, 1);
+      assert.strictEqual(obs.indexDesc, 1);
+      const second = snapshotResolveQueryResult(rootProxy);
+      assert.notStrictEqual(second.kind, 'one', 'no reuse after flip');
+      assert.strictEqual(obs.rowsDesc, 2);
+      assert.strictEqual(obs.lengthDesc, 1);
+      assert.strictEqual(obs.indexDesc, 1);
+    }
+
+    // Full start route: real Result → 200 / authorization_url / one insert.
+    {
+      const queries = [];
+      let domainInsert = 0;
+      let insertEndpoint = null;
+      const pg = {
+        async query(sql, params) {
+          const text = String(sql);
+          const p = params || [];
+          queries.push({ text, params: p });
+          if (isStartResolveSql(text)) {
+            return realisticStartPgResult([goodRow()]);
+          }
+          domainInsert += 1;
+          insertEndpoint = p[4];
+          return { rows: [{ expires_at: new Date(Date.now() + 600000) }] };
+        },
+      };
+      const rr = res();
+      const routesStart = createStaffEmailOAuthRoutes({
+        runtimeEnv: env,
+        sendJSON,
+        assertStaffClientAccess() { return true; },
+        authorizeAuthenticatedStaffRoute() { return { ok: true }; },
+        withPgClient: (fn) => fn(pg),
+      });
+      await routesStart.handleStart(startBody(), null, rr, ids);
+      assert.strictEqual(rr.status, 200, 'Result resolve must not 503 before domain');
+      assert.strictEqual(typeof rr.body.authorization_url, 'string');
+      assert.strictEqual(domainInsert, 1, 'domain insert reached after Result resolve');
+      assert.strictEqual(insertEndpoint, ENDPOINT_ID);
+      assert.ok(queries.some((q) => isStartResolveSql(q.text)));
+      assert.deepStrictEqual(
+        queries.find((q) => isStartResolveSql(q.text)).params,
+        [LOCATION_SLUG, ENDPOINT_ID],
+      );
+    }
+
+    // Hostile resolve shapes on full start route: 503, zero inserts.
+    async function assertStartFailsClosed(label, resolveResult) {
+      let domainInsert = 0;
+      const pg = {
+        async query(sql) {
+          const text = String(sql);
+          if (isStartResolveSql(text)) return resolveResult;
+          domainInsert += 1;
+          return { rows: [{ expires_at: new Date() }] };
+        },
+      };
+      const rr = res();
+      const routesStart = createStaffEmailOAuthRoutes({
+        runtimeEnv: env,
+        sendJSON,
+        assertStaffClientAccess() { return true; },
+        authorizeAuthenticatedStaffRoute() { return { ok: true }; },
+        withPgClient: (fn) => fn(pg),
+      });
+      await routesStart.handleStart(startBody(), null, rr, ids);
+      assert.strictEqual(rr.status, 503, label);
+      assert.deepStrictEqual(
+        rr.body,
+        { success: false, error: 'oauth_start_unavailable' },
+        label,
+      );
+      assert.strictEqual(domainInsert, 0, `${label}: zero inserts`);
+    }
+
+    await assertStartFailsClosed('inherited-only', Object.create({
+      rows: [goodRow()],
+    }));
+    await assertStartFailsClosed('result no own rows', Object.create(PgResult.prototype));
+    await assertStartFailsClosed('rows accessor', rowsAccessor);
+    await assertStartFailsClosed('root symbol', withSym);
+    await assertStartFailsClosed('sparse', { rows: sparse });
+    await assertStartFailsClosed('multi', {
+      rows: [goodRow(), goodRow()],
+    });
+    await assertStartFailsClosed('extra row keys', { rows: extraKeyRows });
+    await assertStartFailsClosed('throwing ownKeys', throwingRoot);
   }
 
   // SQL must pin endpoint_id param $2

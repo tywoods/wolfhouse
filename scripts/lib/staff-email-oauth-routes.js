@@ -377,28 +377,31 @@ function snapshotExactResolveRow(row) {
 }
 
 /**
- * One-read descriptor snapshot of a pg-style resolve QueryResult.
+ * One-read descriptor snapshot of a pg-style resolve QueryResult for start.
  *
- * Root: ordinary Object.prototype or null only; reject symbols and any
- * accessor descriptors / reflection traps. Ordinary pg QueryResult metadata
- * (command, rowCount, oid, fields, …) may appear as own data properties, but
- * exactly one own data `rows` descriptor is captured once.
+ * Root: accept realistic node-postgres Result prototypes (Result.prototype)
+ * as well as ordinary Object.prototype / null-proto bags. Never trust
+ * inherited properties — inspect own data descriptors only. Ordinary pg
+ * Result metadata (command, rowCount, oid, fields, _parsers, …) may appear
+ * as own data properties; exactly one own data `rows` descriptor is
+ * captured once. Accessors/symbols on the root → invalid. Inherited-only
+ * rows (no own rows descriptor) → invalid.
  *
  * Rows: actual Array with Array.prototype; Reflect.ownKeys once; reject
  * symbols / extras / sparse forms. Length via own data descriptor read
  * exactly once (never a direct property get of length). Empty → exact keys
  * ['length']. One row → exact keys ['0','length'], index-0 descriptor once.
  * Multi/other → invalid. Every observation is copied once and never reread.
+ * Row contract is not loosened (see snapshotExactResolveRow).
  */
 function snapshotResolveQueryResult(result) {
   try {
     if (!result || typeof result !== 'object' || Array.isArray(result)) {
       return Object.freeze({ kind: 'invalid' });
     }
-    const rootProto = Object.getPrototypeOf(result);
-    if (rootProto !== Object.prototype && rootProto !== null) {
-      return Object.freeze({ kind: 'invalid' });
-    }
+    // Intentionally no Object.prototype|null-only rootProto gate: production
+    // node-postgres returns Result instances whose prototype is Result.prototype.
+    // Own-data inspection below is the sole trust boundary for rows/metadata.
 
     // Snapshot root own keys once; reject symbols.
     const rootKeys = Reflect.ownKeys(result);
@@ -421,7 +424,7 @@ function snapshotResolveQueryResult(result) {
         if (rowsDesc) return Object.freeze({ kind: 'invalid' });
         rowsDesc = desc;
       }
-      // Other own data keys: permitted as ordinary pg metadata (unused).
+      // Other own data keys: permitted as ordinary pg Result metadata (unused).
     }
     if (!rowsDesc) return Object.freeze({ kind: 'invalid' });
 
