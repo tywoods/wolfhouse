@@ -16,8 +16,24 @@
  * First call (even malformed) burns the surface; concurrent/reentrant/second
  * attempts fail sanitized with zero further SQL.
  *
+ * Domain input (exact frozen ordered): clientId, locationId, publicAddress,
+ * actorStaffUserId. Route resolves trusted Sunset client UUID and passes it;
+ * domain never trusts body client — validates canonical UUID and proves
+ * slug=sunset + id exact before any tenant-scoped write.
+ *
+ * Domain ack (exact frozen): { endpointId } only — no status/prepared.
+ *
  * Rollback/commit ambiguity: pre-COMMIT failure → ROLLBACK; after COMMIT is
  * sent, never ROLLBACK (installer discipline).
+ *
+ * TX lock order (deadlock-free, fixed):
+ *   BEGIN → prove Sunset clients row FOR UPDATE → active location FOR SHARE →
+ *   location advisory (clientId + ms-ep-prep-loc:) → existing-by-location →
+ *   address advisory (clientId + ms-ep-prep-addr:) → existing-by-address →
+ *   INSERT → COMMIT.
+ * Location advisory runs before the existing-by-location check so independent
+ * prepares for the same client/location serialize even with different addresses.
+ * Advisory locks use parameterized hashtext($1), hashtext($2) only.
  *
  * @module email-sunset-microsoft-endpoint-prepare
  */
@@ -31,13 +47,17 @@ const {
 const ERROR_CODE = 'SUNSET_MS_ENDPOINT_PREPARE_INVALID';
 const ERROR_MESSAGE = 'Sunset Microsoft endpoint prepare failed.';
 const PREPARE_METHOD = 'prepareDisabledDelegatedEndpoint';
-const PREPARE_ACK_STATUS = 'prepared';
 
 const DEPENDENCY_KEYS = Object.freeze(['client']);
-/** Exact ordered domain input keys (descriptor-safe snapshot). */
-const INPUT_KEYS = Object.freeze(['locationId', 'publicAddress', 'actorStaffUserId']);
-/** Exact ordered domain ack keys (no mailbox echo). */
-const ACK_KEYS = Object.freeze(['status', 'endpointId']);
+/** Exact ordered domain input keys (descriptor-safe snapshot). clientId first. */
+const INPUT_KEYS = Object.freeze([
+  'clientId',
+  'locationId',
+  'publicAddress',
+  'actorStaffUserId',
+]);
+/** Exact ordered domain ack keys (endpointId only; no status/mailbox). */
+const ACK_KEYS = Object.freeze(['endpointId']);
 
 const SUNSET_CLIENT_SLUG = 'sunset';
 const PROVIDER = 'microsoft_graph';
@@ -74,12 +94,19 @@ const SQL_BEGIN = 'BEGIN';
 const SQL_COMMIT = 'COMMIT';
 const SQL_ROLLBACK = 'ROLLBACK';
 
-/** Trusted Sunset client resolve — slug pinned in SQL text (no caller param). */
-const SQL_RESOLVE_SUNSET_CLIENT = `
+/**
+ * Prove trusted Sunset client: slug pinned + exact id param.
+ * FOR UPDATE pins the exact clients row so concurrent slug/id mutation
+ * that needs UPDATE is blocked until this TX commits or rolls back.
+ * Never trust caller client without this join. Params: [clientId].
+ */
+const SQL_PROVE_SUNSET_CLIENT = `
   SELECT id::text AS client_id
     FROM clients
    WHERE slug = 'sunset'
-   LIMIT 1`.replace(/\s+/g, ' ').trim();
+     AND id = $1::uuid
+   LIMIT 1
+   FOR UPDATE`.replace(/\s+/g, ' ').trim();
 
 /** Active exact location under trusted client; FOR SHARE. Params: [clientId, locationId]. */
 const SQL_LOCK_ACTIVE_LOCATION = `
@@ -90,6 +117,17 @@ const SQL_LOCK_ACTIVE_LOCATION = `
      AND active = true
    FOR SHARE`.replace(/\s+/g, ' ').trim();
 
+/**
+ * Transaction-scoped advisory lock (parameterized hashtext pair).
+ * Used twice in fixed order: location reservation first, address second.
+ * Params: [clientId, lockKey] — never interpolate identifiers into SQL.
+ */
+const SQL_ADVISORY_LOCK = 'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))';
+
+/** Canonical namespace prefixes for advisory lock key ($2). clientId is always $1. */
+const LOCK_NS_LOCATION = 'ms-ep-prep-loc:';
+const LOCK_NS_ADDRESS = 'ms-ep-prep-addr:';
+
 /** Existing endpoint for same client+location. Params: [clientId, locationId]. */
 const SQL_EXISTING_BY_LOCATION = `
   SELECT id
@@ -98,9 +136,6 @@ const SQL_EXISTING_BY_LOCATION = `
      AND location_id = $2
    LIMIT 1
    FOR UPDATE`.replace(/\s+/g, ' ').trim();
-
-/** Advisory lock for normalized public address reservation. Params: [clientId, lockKey]. */
-const SQL_ADVISORY_LOCK = 'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))';
 
 /** Existing endpoint for same tenant normalized address. Params: [clientId, address]. */
 const SQL_EXISTING_BY_ADDRESS = `
@@ -315,6 +350,7 @@ function canonicalizeMailbox(raw) {
 
 /**
  * Exact frozen ordered own-data snapshot of domain input.
+ * clientId first: canonical lowercase UUID (route-resolved Sunset; re-proved in TX).
  * locationId: canonical kebab location; publicAddress: raw string (canonicalized later);
  * actorStaffUserId: canonical lowercase UUID.
  */
@@ -340,6 +376,9 @@ function snapshotAndValidateInput(input) {
       }
       out[key] = descriptor.value;
     }
+    if (typeof out.clientId !== 'string' || !isCanonicalUuid(out.clientId)) {
+      return null;
+    }
     const location = validateCanonicalLocationId(out.locationId);
     if (!location.ok) return null;
     const mailbox = canonicalizeMailbox(out.publicAddress);
@@ -348,6 +387,7 @@ function snapshotAndValidateInput(input) {
       return null;
     }
     return Object.freeze({
+      clientId: out.clientId,
       locationId: location.value,
       publicAddress: mailbox,
       actorStaffUserId: out.actorStaffUserId,
@@ -403,7 +443,6 @@ async function rollbackQuiet(client) {
 
 function buildAck(endpointId) {
   return Object.freeze({
-    status: PREPARE_ACK_STATUS,
     endpointId,
   });
 }
@@ -419,8 +458,9 @@ async function prepareInTransaction(client, snap) {
     await client.query(SQL_BEGIN);
     began = true;
 
-    // 1) Trusted Sunset client UUID — slug fixed in SQL; expect exactly one row.
-    const clientRes = await client.query(SQL_RESOLVE_SUNSET_CLIENT);
+    // 1) Prove route-supplied clientId is the trusted Sunset slug+id exact.
+    //    Never trust body client; hostile wrong/cross-tenant client rejects.
+    const clientRes = await client.query(SQL_PROVE_SUNSET_CLIENT, [snap.clientId]);
     const clientRows = snapshotQueryRows(clientRes);
     if (!clientRows || clientRows.length !== 1) throw failure();
     const clientOwn = snapshotExactOwnDataRow(
@@ -430,9 +470,9 @@ async function prepareInTransaction(client, snap) {
     );
     if (!clientOwn || clientOwn.client_id == null) throw failure();
     const clientId = String(clientOwn.client_id).toLowerCase();
-    if (!isCanonicalUuid(clientId)) throw failure();
+    if (!isCanonicalUuid(clientId) || clientId !== snap.clientId) throw failure();
 
-    // 2) Active exact location under that client.
+    // 2) Active exact location under that proven client.
     const locRes = await client.query(SQL_LOCK_ACTIVE_LOCATION, [
       clientId,
       snap.locationId,
@@ -446,7 +486,14 @@ async function prepareInTransaction(client, snap) {
     );
     if (!locOwn || locOwn.location_id !== snap.locationId) throw failure();
 
-    // 3) Reject preexisting endpoint for same client+location.
+    // 3) Location reservation advisory lock BEFORE existing-by-location check.
+    //    Same client+location serializes even when addresses differ (closes the
+    //    same-location/different-address race). Parameterized hashtext only.
+    //    Order is fixed: location lock first, address lock second (no deadlock).
+    const locationLockKey = `${LOCK_NS_LOCATION}${snap.locationId}`;
+    await client.query(SQL_ADVISORY_LOCK, [clientId, locationLockKey]);
+
+    // 4) Reject preexisting endpoint for same client+location.
     const byLoc = await client.query(SQL_EXISTING_BY_LOCATION, [
       clientId,
       snap.locationId,
@@ -458,9 +505,9 @@ async function prepareInTransaction(client, snap) {
       throw failure();
     }
 
-    // 4) Race-safe address reservation (advisory xact lock + SELECT).
-    const lockKey = `ms-ep-prep-addr:${snap.publicAddress}`;
-    await client.query(SQL_ADVISORY_LOCK, [clientId, lockKey]);
+    // 5) Address reservation advisory lock (second; after location lock).
+    const addressLockKey = `${LOCK_NS_ADDRESS}${snap.publicAddress}`;
+    await client.query(SQL_ADVISORY_LOCK, [clientId, addressLockKey]);
 
     const byAddr = await client.query(SQL_EXISTING_BY_ADDRESS, [
       clientId,
@@ -470,7 +517,7 @@ async function prepareInTransaction(client, snap) {
     if (!byAddrRows) throw failure();
     if (byAddrRows.length > 0) throw failure();
 
-    // 5) Insert exactly one disabled delegated row; identity/secret null.
+    // 6) Insert exactly one disabled delegated row; identity/secret null.
     const inserted = await client.query(SQL_INSERT_ENDPOINT, [
       clientId,
       snap.locationId,
@@ -552,7 +599,6 @@ module.exports = Object.freeze({
   ERROR_CODE,
   ERROR_MESSAGE,
   PREPARE_METHOD,
-  PREPARE_ACK_STATUS,
   DEPENDENCY_KEYS,
   INPUT_KEYS,
   ACK_KEYS,
@@ -572,10 +618,12 @@ module.exports = Object.freeze({
   SQL_BEGIN,
   SQL_COMMIT,
   SQL_ROLLBACK,
-  SQL_RESOLVE_SUNSET_CLIENT,
+  SQL_PROVE_SUNSET_CLIENT,
   SQL_LOCK_ACTIVE_LOCATION,
-  SQL_EXISTING_BY_LOCATION,
   SQL_ADVISORY_LOCK,
+  LOCK_NS_LOCATION,
+  LOCK_NS_ADDRESS,
+  SQL_EXISTING_BY_LOCATION,
   SQL_EXISTING_BY_ADDRESS,
   SQL_INSERT_ENDPOINT,
   createSunsetMicrosoftEndpointPrepare,
