@@ -6,13 +6,20 @@ const {
   validBody,
   snapshotStartBody,
   snapshotResolveQueryResult,
+  snapshotPrepareClientResolve,
   createStaffEmailOAuthRoutes,
   OAUTH_START_PATH,
   OAUTH_CALLBACK_PATH,
+  OAUTH_PREPARE_PATH,
   SQL_RESOLVE_START_BINDING,
+  SQL_RESOLVE_SUNSET_CLIENT_FOR_PREPARE,
   START_BODY_KEYS,
+  PREPARE_BODY_KEYS,
+  PREPARE_CLIENT_ROW_KEYS,
+  PREPARE_ERROR,
   RESOLVE_ROW_KEYS,
 } = require('./lib/staff-email-oauth-routes');
+const PgResult = require('pg/lib/result.js');
 
 const LOCATION_SLUG = 'sunset-somo';
 const ENDPOINT_ID = '55555555-5555-5555-5555-555555555555';
@@ -892,6 +899,307 @@ function routesWithQuery(queryImpl, extra = {}) {
   assert.match(r.body, /could not be accepted/i);
   assert.ok(!r.body.includes('opaque-code'));
 
+  // ── snapshotPrepareClientResolve: production node-pg Result seam ─────────
+  // Exercise exported production snapshot only (no test-local reimplementation).
+  // Real pg Result.prototype accepted; hostile shapes fail closed; prepare route
+  // reaches domain insert only when resolve yields a trusted client UUID.
+  {
+    const MAILBOX = 'front-desk@sunset.example';
+    const PREPARE_LOCATION = 'sunset-somo';
+
+    function goodPrepareClientRow(overrides = {}) {
+      const row = {};
+      row.client_id = Object.prototype.hasOwnProperty.call(overrides, 'client_id')
+        ? overrides.client_id
+        : CLIENT_ID;
+      return row;
+    }
+
+    /** Realistic node-postgres Result: Result.prototype + ordinary own metadata/rows. */
+    function realisticPgResult(rows) {
+      const result = new PgResult();
+      result.command = 'SELECT';
+      result.rowCount = rows.length;
+      result.oid = null;
+      result.rows = rows;
+      result.fields = [{ name: 'client_id' }];
+      return result;
+    }
+
+    function isClientResolveSql(text) {
+      return text === SQL_RESOLVE_SUNSET_CLIENT_FOR_PREPARE
+        || (/FROM\s+clients/i.test(text)
+          && /slug\s*=\s*'sunset'/i.test(text)
+          && !/id\s*=\s*\$1/i.test(text)
+          && !/tenant_locations/i.test(text)
+          && !/tenant_channel_endpoints/i.test(text));
+    }
+
+    assert.strictEqual(OAUTH_PREPARE_PATH, '/staff/admin/email-settings/oauth/microsoft/endpoint');
+    assert.deepStrictEqual([...PREPARE_BODY_KEYS], ['location_id', 'public_address']);
+    assert.deepStrictEqual([...PREPARE_CLIENT_ROW_KEYS], ['client_id']);
+    assert.strictEqual(PREPARE_ERROR, 'endpoint_prepare_unavailable');
+
+    // GREEN: actual pg/lib/result.js Result through exported production snapshot.
+    const goodResult = realisticPgResult([goodPrepareClientRow()]);
+    assert.strictEqual(Object.getPrototypeOf(goodResult), PgResult.prototype);
+    assert.notStrictEqual(Object.getPrototypeOf(goodResult), Object.prototype);
+    assert.ok(Object.prototype.hasOwnProperty.call(goodResult, 'rows'));
+    assert.strictEqual(
+      snapshotPrepareClientResolve(goodResult),
+      CLIENT_ID,
+      'realistic node-postgres Result must be accepted by production snapshotPrepareClientResolve',
+    );
+    assert.strictEqual(
+      snapshotPrepareClientResolve({ rows: [goodPrepareClientRow()] }),
+      CLIENT_ID,
+    );
+    assert.strictEqual(
+      snapshotPrepareClientResolve(Object.assign(Object.create(null), {
+        rows: [goodPrepareClientRow()],
+      })),
+      CLIENT_ID,
+    );
+
+    // Hostile shapes → null (own-data seam only; never inherited rows).
+    const rowsAccessor = new PgResult();
+    Object.defineProperty(rowsAccessor, 'rows', {
+      enumerable: true,
+      get() { return [goodPrepareClientRow()]; },
+    });
+    const withSym = realisticPgResult([goodPrepareClientRow()]);
+    withSym[Symbol('x')] = 1;
+    const metaAccessor = realisticPgResult([goodPrepareClientRow()]);
+    Object.defineProperty(metaAccessor, 'rowCount', {
+      enumerable: true,
+      get() { return 1; },
+    });
+    const sparse = [];
+    sparse.length = 1;
+    const extraKeyRows = new Proxy([goodPrepareClientRow()], {
+      getPrototypeOf() { return Array.prototype; },
+      ownKeys() { return ['0', 'extra', 'length']; },
+      getOwnPropertyDescriptor(_t, prop) {
+        if (prop === 'length') {
+          return { configurable: false, enumerable: false, writable: true, value: 1 };
+        }
+        if (prop === '0') {
+          return {
+            configurable: true, enumerable: true, writable: true,
+            value: goodPrepareClientRow(),
+          };
+        }
+        if (prop === 'extra') {
+          return { configurable: true, enumerable: true, writable: true, value: 'evil' };
+        }
+        return undefined;
+      },
+    });
+    const rowAccessor = {};
+    Object.defineProperty(rowAccessor, 'client_id', {
+      enumerable: true,
+      get() { return CLIENT_ID; },
+    });
+    const throwingRoot = new Proxy(realisticPgResult([goodPrepareClientRow()]), {
+      ownKeys() { throw new Error('ownKeys must fail closed'); },
+    });
+    const throwingRows = new Proxy([goodPrepareClientRow()], {
+      getPrototypeOf() { return Array.prototype; },
+      ownKeys() { return ['0', 'length']; },
+      getOwnPropertyDescriptor() { throw new Error('rows desc must fail closed'); },
+    });
+
+    const failClosed = [
+      ['inherited-only', Object.create({ rows: [goodPrepareClientRow()] })],
+      ['result no own rows', Object.create(PgResult.prototype)],
+      ['rows accessor', rowsAccessor],
+      ['root symbol', withSym],
+      ['meta accessor', metaAccessor],
+      ['sparse', { rows: sparse }],
+      ['multi', { rows: [goodPrepareClientRow(), goodPrepareClientRow()] }],
+      ['extra row keys', { rows: extraKeyRows }],
+      ['row extra key', { rows: [{ client_id: CLIENT_ID, extra: 1 }] }],
+      ['uppercase uuid', {
+        rows: [{ client_id: 'aabbccdd-eeff-4123-8456-7890abcdef01'.toUpperCase() }],
+      }],
+      ['row accessor', { rows: [rowAccessor] }],
+      ['throwing ownKeys', throwingRoot],
+      ['throwing rows desc', { rows: throwingRows }],
+    ];
+    for (const [label, shape] of failClosed) {
+      assert.strictEqual(
+        snapshotPrepareClientResolve(shape),
+        null,
+        `fail closed: ${label}`,
+      );
+    }
+
+    // Hostile one-read: capture descriptors once; never reread / never direct get.
+    {
+      const obs = {
+        rootOwnKeys: 0, rowsDesc: 0, rowsOwnKeys: 0, lengthDesc: 0, indexDesc: 0,
+      };
+      const realRow = goodPrepareClientRow();
+      const rowsProxy = new Proxy([realRow], {
+        getPrototypeOf() { return Array.prototype; },
+        ownKeys() { obs.rowsOwnKeys += 1; return ['0', 'length']; },
+        getOwnPropertyDescriptor(_t, prop) {
+          if (prop === 'length') {
+            obs.lengthDesc += 1;
+            return {
+              configurable: false, enumerable: false, writable: true,
+              value: obs.lengthDesc === 1 ? 1 : 99,
+            };
+          }
+          if (prop === '0') {
+            obs.indexDesc += 1;
+            return {
+              configurable: true, enumerable: true, writable: true,
+              value: obs.indexDesc === 1
+                ? realRow
+                : goodPrepareClientRow({ client_id: '99999999-9999-9999-9999-999999999999' }),
+            };
+          }
+          return undefined;
+        },
+        get(_t, prop) {
+          if (prop === 'then') return undefined;
+          throw new Error(`direct rows get must not be used: ${String(prop)}`);
+        },
+      });
+      const rootTarget = realisticPgResult([realRow]);
+      rootTarget.rows = rowsProxy;
+      const rootProxy = new Proxy(rootTarget, {
+        getPrototypeOf() { return PgResult.prototype; },
+        ownKeys() { obs.rootOwnKeys += 1; return Reflect.ownKeys(rootTarget); },
+        getOwnPropertyDescriptor(_t, prop) {
+          if (prop === 'rows') {
+            obs.rowsDesc += 1;
+            return {
+              configurable: true, enumerable: true, writable: true,
+              value: obs.rowsDesc === 1 ? rowsProxy : [],
+            };
+          }
+          return Object.getOwnPropertyDescriptor(rootTarget, prop);
+        },
+        get(_t, prop) {
+          if (prop === 'then') return undefined;
+          throw new Error(`direct root get must not be used: ${String(prop)}`);
+        },
+      });
+
+      assert.strictEqual(snapshotPrepareClientResolve(rootProxy), CLIENT_ID, 'first-read only');
+      assert.strictEqual(obs.rootOwnKeys, 1);
+      assert.strictEqual(obs.rowsDesc, 1);
+      assert.strictEqual(obs.rowsOwnKeys, 1);
+      assert.strictEqual(obs.lengthDesc, 1);
+      assert.strictEqual(obs.indexDesc, 1);
+      assert.strictEqual(snapshotPrepareClientResolve(rootProxy), null, 'no reuse after flip');
+      assert.strictEqual(obs.rowsDesc, 2);
+      assert.strictEqual(obs.lengthDesc, 1);
+      assert.strictEqual(obs.indexDesc, 1);
+    }
+
+    // Full prepare route: real Result → 200 / canonical UUID / one insert.
+    {
+      const queries = [];
+      let domainInsert = 0;
+      const pg = {
+        async query(sql, params) {
+          const text = String(sql);
+          const p = params || [];
+          queries.push({ text, params: p });
+          if (isClientResolveSql(text)) {
+            return realisticPgResult([goodPrepareClientRow()]);
+          }
+          if (/^\s*BEGIN\b/i.test(text)) return { rows: [] };
+          if (/FROM\s+clients/i.test(text)
+              && /slug\s*=\s*'sunset'/i.test(text)
+              && /id\s*=\s*\$1/i.test(text)) {
+            if (p[0] !== CLIENT_ID) return { rows: [] };
+            return { rows: [{ client_id: CLIENT_ID }] };
+          }
+          if (/FROM\s+tenant_locations/i.test(text)) {
+            return { rows: [{ location_id: PREPARE_LOCATION }] };
+          }
+          if (/pg_advisory_xact_lock/i.test(text)) return { rows: [{}] };
+          if (/FROM\s+tenant_channel_endpoints/i.test(text) && /FOR\s+UPDATE/i.test(text)) {
+            return { rows: [] };
+          }
+          if (/INSERT\s+INTO\s+tenant_channel_endpoints/i.test(text)) {
+            domainInsert += 1;
+            return { rows: [{ id: ENDPOINT_ID }] };
+          }
+          if (/^\s*COMMIT\b/i.test(text) || /^\s*ROLLBACK\b/i.test(text)) return { rows: [] };
+          throw new Error(`unexpected prepare SQL: ${text.slice(0, 80)}`);
+        },
+      };
+      const rr = res();
+      const routesPrep = createStaffEmailOAuthRoutes({
+        runtimeEnv: env,
+        sendJSON,
+        assertStaffClientAccess() { return true; },
+        authorizeAuthenticatedStaffRoute() { return { ok: true }; },
+        withPgClient: (fn) => fn(pg),
+      });
+      await routesPrep.handlePrepare(
+        { location_id: PREPARE_LOCATION, public_address: MAILBOX },
+        null,
+        rr,
+        ids,
+      );
+      assert.strictEqual(rr.status, 200, 'Result resolve must not 503 before domain');
+      assert.strictEqual(rr.body && rr.body.success, true);
+      assert.strictEqual(rr.body && rr.body.endpoint_id, ENDPOINT_ID);
+      assert.ok(!JSON.stringify(rr.body).includes(MAILBOX));
+      assert.strictEqual(domainInsert, 1, 'domain insert reached after Result resolve');
+      assert.ok(queries.some((q) => isClientResolveSql(q.text)));
+    }
+
+    // Hostile resolve shapes on full prepare route: 503, zero inserts.
+    async function assertPrepareFailsClosed(label, resolveResult) {
+      let domainInsert = 0;
+      const pg = {
+        async query(sql) {
+          const text = String(sql);
+          if (isClientResolveSql(text)) return resolveResult;
+          if (/INSERT\s+INTO\s+tenant_channel_endpoints/i.test(text)) domainInsert += 1;
+          return { rows: [] };
+        },
+      };
+      const rr = res();
+      const routesPrep = createStaffEmailOAuthRoutes({
+        runtimeEnv: env,
+        sendJSON,
+        assertStaffClientAccess() { return true; },
+        authorizeAuthenticatedStaffRoute() { return { ok: true }; },
+        withPgClient: (fn) => fn(pg),
+      });
+      await routesPrep.handlePrepare(
+        { location_id: PREPARE_LOCATION, public_address: MAILBOX },
+        null,
+        rr,
+        ids,
+      );
+      assert.strictEqual(rr.status, 503, label);
+      assert.deepStrictEqual(rr.body, { success: false, error: PREPARE_ERROR }, label);
+      assert.strictEqual(domainInsert, 0, `${label}: zero inserts`);
+    }
+
+    await assertPrepareFailsClosed('inherited-only', Object.create({
+      rows: [goodPrepareClientRow()],
+    }));
+    await assertPrepareFailsClosed('result no own rows', Object.create(PgResult.prototype));
+    await assertPrepareFailsClosed('rows accessor', rowsAccessor);
+    await assertPrepareFailsClosed('root symbol', withSym);
+    await assertPrepareFailsClosed('sparse', { rows: sparse });
+    await assertPrepareFailsClosed('multi', {
+      rows: [goodPrepareClientRow(), goodPrepareClientRow()],
+    });
+    await assertPrepareFailsClosed('extra row keys', { rows: extraKeyRows });
+    await assertPrepareFailsClosed('throwing ownKeys', throwingRoot);
+  }
+
   // Routes must not accept oauth envelope substitution / native DI keys
   const routesSrc = fs.readFileSync(
     path.join(__dirname, 'lib/staff-email-oauth-routes.js'),
@@ -907,6 +1215,7 @@ function routesWithQuery(queryImpl, extra = {}) {
   assert.match(routesSrc, /snapshotStartBody/);
   assert.match(routesSrc, /productionNativeSurfaces/);
   assert.match(routesSrc, /snapshotResolveQueryResult/);
+  assert.match(routesSrc, /snapshotPrepareClientResolve/);
   assert.match(routesSrc, /PRODUCTION_HTTPS_REQUEST/);
   assert.match(routesSrc, /PRODUCTION_CRYPTO_CREATE_PUBLIC_KEY/);
   assert.match(routesSrc, /PRODUCTION_SET_TIMEOUT/);
@@ -917,6 +1226,8 @@ function routesWithQuery(queryImpl, extra = {}) {
   // Handler must call snapshot once — no validBody-then-reread / readStartBody path.
   assert.equal(routesSrc.includes('readStartBody'), false);
   assert.equal(/validBody\(body\)/.test(routesSrc.replace(/function validBody[\s\S]*?\n\}/, '')), false);
+  // Own-data rows descriptor remains the prepare resolve trust boundary.
+  assert.match(routesSrc, /getOwnPropertyDescriptor\(result,\s*key\)/);
 
   console.log('PASS staff email OAuth routes hostile gates');
 })().catch((e) => {
