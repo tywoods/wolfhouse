@@ -5,6 +5,7 @@
  * Single-use GET /v1.0/me/messages with fixed $top=5 and fixed $select.
  * Returns only a bounded count — never subjects, addresses, IDs, bodies, or links.
  * Validates native responses with the pinned IncomingMessage / isProxy pattern.
+ * May accept a standard @odata.nextLink on the list envelope (never followed).
  *
  * Not the app-only mailbox adapter. No pagination, delta, send, or persistence.
  *
@@ -38,9 +39,14 @@ const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const TOP_ALLOWED_EXACT = Object.freeze([
   Object.freeze(['value']),
   Object.freeze(['@odata.context', 'value']),
+  Object.freeze(['value', '@odata.nextLink']),
+  Object.freeze(['@odata.context', 'value', '@odata.nextLink']),
 ]);
 const FROM_KEYS = Object.freeze(['emailAddress']);
 const EMAIL_ADDRESS_KEYS = Object.freeze(['address', 'name']);
+const NEXT_LINK_KEY = '@odata.nextLink';
+const MESSAGES_PATH_ME = /^\/v1\.0\/me\/messages$/;
+const MESSAGES_PATH_USER = /^\/v1\.0\/users\/[^/]+\/messages$/;
 
 const PINNED_INCOMING_MESSAGE = http.IncomingMessage;
 const PINNED_INCOMING_MESSAGE_PROTOTYPE = http.IncomingMessage
@@ -388,8 +394,40 @@ function classifyRow(row) {
 }
 
 /**
+ * Validate Graph @odata.nextLink without following, persisting, returning, or logging it.
+ * HTTPS only; host exactly graph.microsoft.com; no credentials/fragment; messages collection path.
+ */
+function isValidGraphMessagesNextLink(value) {
+  try {
+    if (typeof value !== 'string'
+        || value.length < 1
+        || value.length > STRING_LIMIT
+        || hasUnpairedSurrogate(value)) {
+      return false;
+    }
+    let url;
+    try {
+      url = new URL(value);
+    } catch {
+      return false;
+    }
+    if (url.protocol !== 'https:') return false;
+    if (url.hostname !== HOST) return false;
+    if (url.username !== '' || url.password !== '') return false;
+    if (url.hash !== '') return false;
+    if (url.port !== '' && url.port !== '443') return false;
+    if (!MESSAGES_PATH_ME.test(url.pathname) && !MESSAGES_PATH_USER.test(url.pathname)) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Classify an already-parsed Graph list object.
- * Returns frozen { stage, count? } — never row contents.
+ * Returns frozen { stage, count? } — never row contents or nextLink.
  */
 function classifyParsedMessageEnvelopeList(parsed) {
   try {
@@ -426,6 +464,13 @@ function classifyParsedMessageEnvelopeList(parsed) {
           || hasUnpairedSurrogate(context)) {
         return Object.freeze({ stage: 'top_shape_invalid' });
       }
+    }
+    if (Object.prototype.hasOwnProperty.call(parsed, NEXT_LINK_KEY)) {
+      const nextLink = ownData(parsed, NEXT_LINK_KEY);
+      if (!isValidGraphMessagesNextLink(nextLink)) {
+        return Object.freeze({ stage: 'top_shape_invalid' });
+      }
+      // Discard immediately after validation — never retain, return, or follow.
     }
     const rows = ownData(parsed, 'value');
     if (!Array.isArray(rows) || rows.length > TOP_MAX) {
