@@ -221,6 +221,69 @@ function daysInMonth(year, month) {
 }
 
 /**
+ * Proleptic Gregorian day count since Unix epoch (1970-01-01).
+ * Howard Hinnant civil algorithms with trunc (C++ toward-zero) division.
+ * Avoids Date.UTC, which maps years 0-99 → 1900-1999.
+ */
+function daysFromCivil(year, month, day) {
+  let y = year - (month <= 2 ? 1 : 0);
+  const era = Math.trunc((y >= 0 ? y : y - 399) / 400);
+  const yoe = y - era * 400;
+  const doy = Math.trunc((153 * (month + (month > 2 ? -3 : 9)) + 2) / 5) + day - 1;
+  const doe = yoe * 365 + Math.trunc(yoe / 4) - Math.trunc(yoe / 100) + doy;
+  return era * 146097 + doe - 719468;
+}
+
+function civilFromDays(dayIndex) {
+  let z = dayIndex + 719468;
+  const era = Math.trunc((z >= 0 ? z : z - 146096) / 146097);
+  const doe = z - era * 146097;
+  const yoe = Math.trunc(
+    (doe - Math.trunc(doe / 1460) + Math.trunc(doe / 36524) - Math.trunc(doe / 146096)) / 365,
+  );
+  let year = yoe + era * 400;
+  const doy = doe - (365 * yoe + Math.trunc(yoe / 4) - Math.trunc(yoe / 100));
+  const mp = Math.trunc((5 * doy + 2) / 153);
+  const day = doy - Math.trunc((153 * mp + 2) / 5) + 1;
+  const month = mp < 10 ? mp + 3 : mp - 9;
+  year += month <= 2 ? 1 : 0;
+  return { year, month, day };
+}
+
+function utcMillisFromCivil(year, month, day, hour, minute, second, millis) {
+  return daysFromCivil(year, month, day) * 86400000
+    + hour * 3600000
+    + minute * 60000
+    + second * 1000
+    + millis;
+}
+
+function civilFromUtcMillis(utcMs) {
+  const dayLength = 86400000;
+  let days = Math.trunc(utcMs / dayLength);
+  let msOfDay = utcMs - days * dayLength;
+  if (msOfDay < 0) {
+    msOfDay += dayLength;
+    days -= 1;
+  }
+  const { year, month, day } = civilFromDays(days);
+  const hour = Math.trunc(msOfDay / 3600000);
+  msOfDay -= hour * 3600000;
+  const minute = Math.trunc(msOfDay / 60000);
+  msOfDay -= minute * 60000;
+  const second = Math.trunc(msOfDay / 1000);
+  const millis = msOfDay - second * 1000;
+  return { year, month, day, hour, minute, second, millis };
+}
+
+function formatCanonicalUtcInstant(parts) {
+  const pad = (n, width) => String(n).padStart(width, '0');
+  return `${pad(parts.year, 4)}-${pad(parts.month, 2)}-${pad(parts.day, 2)}`
+    + `T${pad(parts.hour, 2)}:${pad(parts.minute, 2)}:${pad(parts.second, 2)}`
+    + `.${pad(parts.millis, 3)}Z`;
+}
+
+/**
  * Snapshot own enumerable data properties only.
  * Rejects proxies, accessors, symbols, non-enumerable keys, dangerous keys.
  */
@@ -291,6 +354,11 @@ function validateOptionalBoundedString(value, field) {
  * Validate and canonicalize received_at to UTC ISO-8601 with millisecond Z.
  * Rejects impossible calendar dates (no Date.parse rollover of Feb 30 etc.).
  * Accepts Z and numeric offsets; equivalent instants canonicalize identically.
+ *
+ * Does not use Date.UTC (which maps years 0-99 → 1900-1999). Low four-digit
+ * years 0000-0099 are preserved. Any accepted offset instant whose canonical
+ * UTC year leaves 0000-9999 is rejected so validate(canonical) is a fixed point.
+ *
  * @param {unknown} value
  * @returns {{ok:true,value:string}|{ok:false,error:string,details?:object}}
  */
@@ -315,6 +383,7 @@ function validateReceivedAt(value) {
   const frac = match[7] || '';
   const offset = match[8];
 
+  // Input wall-clock year is always four digits by grammar (0000-9999).
   if (month < 1 || month > 12) {
     return fail('inbound_envelope_timestamp_invalid', { reason: 'impossible_calendar' });
   }
@@ -326,7 +395,7 @@ function validateReceivedAt(value) {
     return fail('inbound_envelope_timestamp_invalid', { reason: 'impossible_calendar' });
   }
 
-  // Build UTC ms from calendar components + offset (no rollover path).
+  // Build UTC ms from calendar components + offset (no Date.UTC / no rollover).
   let offsetMinutes = 0;
   if (offset !== 'Z') {
     const sign = offset.charAt(0) === '-' ? -1 : 1;
@@ -338,19 +407,44 @@ function validateReceivedAt(value) {
     offsetMinutes = sign * (oh * 60 + om);
   }
 
-  // Millisecond field: first 3 fractional digits (pad); extra sub-ms precision truncated
-  // to match Date#toISOString canonical form.
+  // Millisecond field: first 3 fractional digits (pad); extra sub-ms precision truncated.
   const millis = frac ? Number(frac.padEnd(3, '0').slice(0, 3)) : 0;
 
-  const utcMs = Date.UTC(year, month - 1, day, hour, minute, second, millis)
+  const utcMs = utcMillisFromCivil(year, month, day, hour, minute, second, millis)
     - (offsetMinutes * 60 * 1000);
   if (!Number.isFinite(utcMs)) {
     return fail('inbound_envelope_timestamp_invalid', { reason: 'unparseable' });
   }
 
-  const canonical = new Date(utcMs).toISOString();
-  // Round-trip: canonical must re-parse to the same instant.
-  if (Date.parse(canonical) !== utcMs) {
+  const parts = civilFromUtcMillis(utcMs);
+  // Canonical UTC year must remain four-digit 0000-9999 so the same validator
+  // accepts the output unchanged (no expanded ±YYYYY forms).
+  if (parts.year < 0 || parts.year > 9999) {
+    return fail('inbound_envelope_timestamp_invalid', { reason: 'canonical_year_out_of_range' });
+  }
+  if (parts.millis < 0 || parts.millis > 999
+      || parts.second < 0 || parts.second > 59
+      || parts.minute < 0 || parts.minute > 59
+      || parts.hour < 0 || parts.hour > 23) {
+    return fail('inbound_envelope_timestamp_invalid', { reason: 'canonical_mismatch' });
+  }
+
+  const canonical = formatCanonicalUtcInstant(parts);
+  // Fixed-point proof: re-parse canonical through the same pure path.
+  const re = ISO_INSTANT_RE.exec(canonical);
+  if (!re) {
+    return fail('inbound_envelope_timestamp_invalid', { reason: 'canonical_mismatch' });
+  }
+  const reMs = utcMillisFromCivil(
+    Number(re[1]),
+    Number(re[2]),
+    Number(re[3]),
+    Number(re[4]),
+    Number(re[5]),
+    Number(re[6]),
+    Number((re[7] || '0').padEnd(3, '0').slice(0, 3)),
+  );
+  if (reMs !== utcMs || formatCanonicalUtcInstant(civilFromUtcMillis(reMs)) !== canonical) {
     return fail('inbound_envelope_timestamp_invalid', { reason: 'canonical_mismatch' });
   }
 

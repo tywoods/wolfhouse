@@ -486,6 +486,111 @@ try {
       && offset.value.received_at === offsetMs.value.received_at, ser({ offset, offsetMs }));
   }
 
+  // ── Remaining blocker: Date.UTC 1900 low-year map + year-range round-trip ──
+  {
+    // Years 0000-0099 must stay four-digit low years (Date.UTC maps 0-99 → 1900-1999).
+    const low = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '0001-06-15T12:34:56.789Z',
+    }));
+    ok('validate-accepts-low-year-four-digit', low.ok === true
+      && low.value.received_at === '0001-06-15T12:34:56.789Z'
+      && !low.value.received_at.startsWith('19'), ser(low));
+
+    const y0 = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '0000-01-01T00:00:00Z',
+    }));
+    ok('validate-accepts-year-0000', y0.ok === true
+      && y0.value.received_at === '0000-01-01T00:00:00.000Z', ser(y0));
+
+    const y99 = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '0099-12-31T23:59:59.999Z',
+    }));
+    ok('validate-accepts-year-0099', y99.ok === true
+      && y99.value.received_at === '0099-12-31T23:59:59.999Z'
+      && !y99.value.received_at.startsWith('19'), ser(y99));
+
+    // Year 0000 is leap (divisible by 400) under proleptic Gregorian.
+    const leap0 = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '0000-02-29T00:00:00.000Z',
+    }));
+    ok('validate-accepts-year-0000-leap-feb29', leap0.ok === true
+      && leap0.value.received_at === '0000-02-29T00:00:00.000Z', ser(leap0));
+
+    const nonLeap1 = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '0001-02-29T00:00:00.000Z',
+    }));
+    ok('validate-rejects-year-0001-non-leap-feb29', nonLeap1.ok === false, ser(nonLeap1));
+
+    // High four-digit year preserved.
+    const high = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '9999-12-31T23:59:59.999Z',
+    }));
+    ok('validate-accepts-high-year-9999', high.ok === true
+      && high.value.received_at === '9999-12-31T23:59:59.999Z', ser(high));
+
+    // Positive offset that canonicalizes below year 0000 must be rejected.
+    const below = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '0000-01-01T00:00:00+00:01',
+    }));
+    ok('validate-rejects-positive-offset-canonical-year-below-0000',
+      below.ok === false, ser(below));
+
+    // Negative offset that canonicalizes above year 9999 must be rejected
+    // (would otherwise emit expanded +010000 year and break re-validation).
+    const above = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '9999-12-31T23:59:59.999-00:01',
+    }));
+    ok('validate-rejects-negative-offset-canonical-year-above-9999',
+      above.ok === false, ser(above));
+
+    // Offset boundaries that remain inside 0000-9999 must accept and canonicalize.
+    const posBoundary = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '0000-01-01T00:01:00+00:01',
+    }));
+    ok('validate-accepts-positive-offset-boundary-in-range', posBoundary.ok === true
+      && posBoundary.value.received_at === '0000-01-01T00:00:00.000Z', ser(posBoundary));
+
+    const negBoundary = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '9999-12-31T23:58:59.999-00:01',
+    }));
+    ok('validate-accepts-negative-offset-boundary-in-range', negBoundary.ok === true
+      && negBoundary.value.received_at === '9999-12-31T23:59:59.999Z', ser(negBoundary));
+
+    // Every accepted input must canonicalize to a form the same validator
+    // accepts unchanged (fixed point under validate).
+    const roundTripCases = [
+      '0000-01-01T00:00:00Z',
+      '0000-02-29T00:00:00.000Z',
+      '0001-06-15T12:34:56.789Z',
+      '0099-12-31T23:59:59.999Z',
+      '0100-01-01T00:00:00Z',
+      '1900-02-28T12:00:00Z',
+      '2024-02-29T23:59:59.123Z',
+      '2026-08-06T12:00:00+02:00',
+      '2026-08-06T10:00:00.000Z',
+      '0000-01-01T00:01:00+00:01',
+      '9999-12-31T23:58:59.999-00:01',
+      '9999-12-31T23:59:59.999Z',
+    ];
+    let allRoundTrip = true;
+    for (const ts of roundTripCases) {
+      const r1 = validateInboundEmailEnvelope(validEnvelope({ received_at: ts }));
+      if (!r1.ok) {
+        allRoundTrip = false;
+        ok(`validate-round-trip-accepts-${ts}`, false, ser(r1));
+        continue;
+      }
+      const r2 = validateInboundEmailEnvelope(validEnvelope({
+        received_at: r1.value.received_at,
+      }));
+      if (!r2.ok || r2.value.received_at !== r1.value.received_at) {
+        allRoundTrip = false;
+        ok(`validate-round-trip-stable-${ts}`, false, ser({ first: r1, second: r2 }));
+      }
+    }
+    ok('validate-canonical-round-trip-stable', allRoundTrip);
+  }
+
   // ── Blocker 4: reject non-enumerable contract fields consistently ────────
   {
     const nonEnumRequired = validEnvelope();
