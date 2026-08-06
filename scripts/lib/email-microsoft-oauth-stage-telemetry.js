@@ -4,24 +4,37 @@
  * Phase 1 sanitized Microsoft OAuth downstream stage telemetry.
  *
  * One request-correlated safe event surface for the completing OAuth callback
- * pipeline. Emits only allowlisted stage milestones with the existing Staff API
- * request UUID — never secrets, codes, tokens, provider status/body/claims,
- * email, tenant/DB ids, or exception messages/codes.
+ * pipeline. Emits only allowlisted stage milestones with a per-callback
+ * server-generated UUIDv4 — never secrets, codes, tokens, provider
+ * status/body/claims, email, tenant/DB ids, or exception messages/codes.
  *
  * Exact event schema:
  *   { event: 'email_oauth_stage', stage: <allowlisted>, request_id: <uuid> }
  *
  * Ownership:
- *   - Explicit factory injection only (requestId + logger).
- *   - No ambient mutable module logger, no ALS logger lookup.
+ *   - Explicit factory injection (requestId + logger) for tests / callers.
+ *   - Production callback path: createCallbackEmailOAuthStageTelemetry —
+ *     server-generated UUIDv4 via module-init pinned native crypto.randomUUID
+ *     (not ambient/substitutable; independent of HTTP/ALS x-request-id).
+ *   - No ambient mutable module logger, no ALS logger/id lookup.
  *   - Logging failures never throw and never alter OAuth control flow.
  *   - Invalid stage / invalid pin → silent no-op emit (or factory fail-closed
- *     for construction).
+ *     for construction). randomUUID failure → noop telemetry only.
  *
  * @module email-microsoft-oauth-stage-telemetry
  */
 
-/** Canonical UUIDv4 lowercase (matches staff-api-request-correlation). */
+const crypto = require('crypto');
+
+/**
+ * Module-init pin of native crypto.randomUUID. Capture the function reference
+ * and owner once so post-load ambient monkeypatches on crypto.randomUUID are
+ * irrelevant to callback telemetry correlation.
+ */
+const PINNED_CRYPTO = crypto;
+const PINNED_RANDOM_UUID = crypto.randomUUID;
+
+/** Canonical UUIDv4 lowercase (correlation id shape only — not HTTP ALS). */
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const EVENT_NAME = 'email_oauth_stage';
@@ -317,6 +330,44 @@ function createEmailOAuthStageTelemetry(dependencies) {
 }
 
 /**
+ * Production callback path: per-callback server-generated UUIDv4 correlation.
+ *
+ * Uses the module-init pinned native crypto.randomUUID wrapper only (not
+ * ambient crypto.randomUUID, not ALS/HTTP x-request-id). All stages for one
+ * returned surface share the same id. The id need not equal the public route
+ * request_id — it correlates telemetry stages internally.
+ *
+ * Generation failure / invalid UUID → noop telemetry; never throws, never
+ * affects OAuth control flow.
+ *
+ * @param {Function} [logger] optional logger; defaults to defaultEmailOAuthStageLogger
+ * @returns {{ emit: Function }} frozen single-method surface
+ */
+function createCallbackEmailOAuthStageTelemetry(logger) {
+  try {
+    const log = logger === undefined ? defaultEmailOAuthStageLogger : logger;
+    if (typeof log !== 'function') return createNoopEmailOAuthStageTelemetry();
+    let requestId;
+    try {
+      requestId = Reflect.apply(PINNED_RANDOM_UUID, PINNED_CRYPTO, []);
+    } catch {
+      return createNoopEmailOAuthStageTelemetry();
+    }
+    if (typeof requestId !== 'string'
+        || !UUID_V4_RE.test(requestId)
+        || requestId !== requestId.toLowerCase()) {
+      return createNoopEmailOAuthStageTelemetry();
+    }
+    return createEmailOAuthStageTelemetry(Object.freeze({
+      requestId,
+      logger: log,
+    }));
+  } catch {
+    return createNoopEmailOAuthStageTelemetry();
+  }
+}
+
+/**
  * Safe emit helper: never throws even if telemetry surface is hostile.
  * @param {{ emit?: Function }|null|undefined} telemetry
  * @param {string} stage
@@ -349,5 +400,6 @@ module.exports = Object.freeze({
   resolveOptionalStageTelemetry,
   createNoopEmailOAuthStageTelemetry,
   createEmailOAuthStageTelemetry,
+  createCallbackEmailOAuthStageTelemetry,
   safeEmitStage,
 });

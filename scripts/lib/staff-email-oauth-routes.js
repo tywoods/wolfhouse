@@ -18,9 +18,8 @@ const {
   INPUT_KEYS: PREPARE_DOMAIN_INPUT_KEYS,
   ERROR_CODE: PREPARE_ERROR_CODE,
 } = require('./email-sunset-microsoft-endpoint-prepare');
-const { requestId: getRequestId } = require('./staff-api-request-correlation');
 const {
-  createEmailOAuthStageTelemetry,
+  createCallbackEmailOAuthStageTelemetry,
   createNoopEmailOAuthStageTelemetry,
   defaultEmailOAuthStageLogger,
 } = require('./email-microsoft-oauth-stage-telemetry');
@@ -539,28 +538,20 @@ function productionNativeSurfaces() {
 }
 
 /**
- * Build request-correlated stage telemetry from the existing 16J request UUID.
- * Explicit pin only — no ambient mutable logger. Invalid/missing request id
- * → noop telemetry (OAuth path must not fail closed for logging).
+ * Build per-callback stage telemetry with a server-generated UUIDv4.
+ * Correlation is internal to telemetry stages (pinned native randomUUID) and
+ * independent of attacker-supplied / ALS HTTP x-request-id. Generation
+ * failure → noop telemetry (OAuth path must not fail closed for logging).
  */
 function buildCallbackStageTelemetry() {
-  try {
-    const rid = getRequestId();
-    if (typeof rid !== 'string') return createNoopEmailOAuthStageTelemetry();
-    return createEmailOAuthStageTelemetry(Object.freeze({
-      requestId: rid,
-      logger: defaultEmailOAuthStageLogger,
-    }));
-  } catch {
-    return createNoopEmailOAuthStageTelemetry();
-  }
+  return createCallbackEmailOAuthStageTelemetry(defaultEmailOAuthStageLogger);
 }
 
 function buildCallbackRuntime(env, pg, stageTelemetry) {
   const natives = productionNativeSurfaces();
   // Production-only dependency bag: always Azure KV Sunset staging envelope
   // from validated env. Route deps cannot substitute the envelope surface.
-  // stageTelemetry is request-correlated (existing UUID) and owner-preserving.
+  // stageTelemetry is server-generated per callback and owner-preserving.
   const tel = stageTelemetry || createNoopEmailOAuthStageTelemetry();
   return createSunsetStagingMicrosoftOAuthCallbackRuntime(Object.freeze({
     env,
@@ -746,8 +737,8 @@ function createStaffEmailOAuthRoutes(deps) {
         || !UUID_RE_CI.test(user.session_id || '')) {
       return terminal(res, 400, 'invalid_or_expired');
     }
-    // Snapshot request-correlated stage telemetry once at the HTTP boundary.
-    // Logger failures never affect OAuth; request UUID only (no ambient logger).
+    // Snapshot server-generated stage telemetry once per callback (shared by
+    // all stages). Logger failures never affect OAuth; no ALS/x-request-id.
     const stageTelemetry = buildCallbackStageTelemetry();
     try {
       const result = await deps.withPgClient(async (pg) => {

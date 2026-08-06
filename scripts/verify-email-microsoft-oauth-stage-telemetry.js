@@ -26,12 +26,14 @@ const {
   TELEMETRY_METHOD,
   ERROR_CODE,
   ERROR_MESSAGE,
+  UUID_V4_RE,
   defaultEmailOAuthStageLogger,
   buildEmailOAuthStageEvent,
   assertSafeEmailOAuthStageEvent,
   pinEmailOAuthStageTelemetry,
   createNoopEmailOAuthStageTelemetry,
   createEmailOAuthStageTelemetry,
+  createCallbackEmailOAuthStageTelemetry,
   safeEmitStage,
 } = require('./lib/email-microsoft-oauth-stage-telemetry');
 
@@ -864,17 +866,219 @@ test('end-to-end callback failure after consume surfaces last stage + callback_f
   void telemetry;
 });
 
+// ── Server-generated callback correlation (attacker/ALS independent) ───────
+
+/**
+ * Re-require stage-telemetry with a live crypto.randomUUID double installed
+ * before module-init pin. Restores crypto + require.cache on exit.
+ * @param {() => string} randomUUIDImpl
+ * @param {(mod: object) => Promise<void>|void} run
+ */
+async function withPinnedRandomUUID(randomUUIDImpl, run) {
+  const crypto = require('crypto');
+  const telPath = require.resolve('./lib/email-microsoft-oauth-stage-telemetry');
+  const origRandomUUID = crypto.randomUUID;
+  crypto.randomUUID = randomUUIDImpl;
+  delete require.cache[telPath];
+  try {
+    const mod = require('./lib/email-microsoft-oauth-stage-telemetry');
+    await run(mod);
+  } finally {
+    crypto.randomUUID = origRandomUUID;
+    delete require.cache[telPath];
+    // Restore the session-default module instance for any late requires.
+    require('./lib/email-microsoft-oauth-stage-telemetry');
+  }
+}
+
+test('createCallbackEmailOAuthStageTelemetry uses server-generated UUIDv4; stable across stages; randomUUID once', async function serverGeneratedStableOnce() {
+  const FIXED = 'c1c1c1c1-d2d2-4e3e-8f4f-a5a5a5a5a5a5';
+  let calls = 0;
+  await withPinnedRandomUUID(function countingUUID() {
+    calls += 1;
+    return FIXED;
+  }, async (mod) => {
+    const events = [];
+    const telemetry = mod.createCallbackEmailOAuthStageTelemetry((record) => {
+      events.push(record);
+    });
+    // Many stages share one correlation id; generator called only at construction.
+    for (const stage of [
+      'callback_consumed',
+      'token_request_started',
+      'token_response_received',
+      'installer_committed',
+    ]) {
+      telemetry.emit(stage);
+    }
+    assert.equal(calls, 1, 'randomUUID must be called once per callback telemetry');
+    assert.equal(events.length, 4);
+    for (const event of events) {
+      assertEventShape(event, event.stage, FIXED);
+      assert.equal(event.request_id, FIXED);
+      assertNoSensitive(event);
+    }
+    const ids = new Set(events.map((e) => e.request_id));
+    assert.equal(ids.size, 1);
+  });
+});
+
+test('attacker x-request-id / ALS request id is ignored; generated UUID used', async function attackerCorrelationIgnored() {
+  const ATTACKER = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const GENERATED = 'f1f1f1f1-f2f2-4f3f-8f4f-f5f5f5f5f5f5';
+  // Simulate polluted ALS / accepted attacker header correlation surface.
+  const correlation = require('./lib/staff-api-request-correlation');
+  const events = [];
+  await withPinnedRandomUUID(() => GENERATED, async (mod) => {
+    await new Promise((resolve, reject) => {
+      // runWithRequestContext shape may vary — prefer ALS-free proof:
+      // even if we *could* inject attacker id via explicit factory, the
+      // production createCallback surface does not accept requestId.
+      assert.equal(typeof mod.createCallbackEmailOAuthStageTelemetry, 'function');
+      assert.equal(mod.createCallbackEmailOAuthStageTelemetry.length <= 1, true);
+      // Call with only logger — no requestId channel for attacker UUID.
+      const telemetry = mod.createCallbackEmailOAuthStageTelemetry((record) => {
+        events.push(record);
+      });
+      telemetry.emit('callback_consumed');
+      telemetry.emit('callback_failed');
+      resolve();
+    });
+  });
+  assert.equal(events.length, 2);
+  assert.equal(events[0].request_id, GENERATED);
+  assert.equal(events[1].request_id, GENERATED);
+  assert.notEqual(events[0].request_id, ATTACKER);
+  // ALS/public correlation export remains available for HTTP boundary only.
+  assert.equal(typeof correlation.requestId, 'function');
+  // Explicit factory still accepts a pin (tests), but callback path never uses ALS.
+  const cap = capturingLogger();
+  const explicit = createEmailOAuthStageTelemetry(Object.freeze({
+    requestId: ATTACKER,
+    logger: cap.log,
+  }));
+  explicit.emit('callback_consumed');
+  assert.equal(cap.events[0].request_id, ATTACKER);
+  // Production callback factory ignores that path entirely.
+  void ATTACKER;
+});
+
+test('ambient crypto.randomUUID monkeypatch after module init is irrelevant', async function ambientMonkeypatchIrrelevant() {
+  const PINNED = 'd1d1d1d1-d2d2-4d3d-8d4d-d5d5d5d5d5d5';
+  const crypto = require('crypto');
+  await withPinnedRandomUUID(() => PINNED, async (mod) => {
+    // Post-init ambient substitution must not be observed.
+    crypto.randomUUID = function ambientEvil() {
+      throw new Error('ambient-randomUUID-must-not-run');
+    };
+    const events = [];
+    const telemetry = mod.createCallbackEmailOAuthStageTelemetry((r) => events.push(r));
+    telemetry.emit('oidc_verified');
+    telemetry.emit('envelope_sealed');
+    assert.equal(events.length, 2);
+    assert.equal(events[0].request_id, PINNED);
+    assert.equal(events[1].request_id, PINNED);
+    assertEventShape(events[0], 'oidc_verified', PINNED);
+    assertNoSensitive(events);
+  });
+});
+
+test('randomUUID throw or invalid return yields noop telemetry; never throws to OAuth', async function randomUuidFailureNoop() {
+  await withPinnedRandomUUID(() => {
+    throw new Error('rng-failure-NEVER-LEAK');
+  }, async (mod) => {
+    let threw = false;
+    let telemetry;
+    try {
+      telemetry = mod.createCallbackEmailOAuthStageTelemetry((r) => {
+        throw new Error(`unexpected log: ${JSON.stringify(r)}`);
+      });
+    } catch {
+      threw = true;
+    }
+    assert.equal(threw, false);
+    assert.equal(typeof telemetry.emit, 'function');
+    // Noop surface: emit is silent even for allowlisted stages.
+    assert.doesNotThrow(() => telemetry.emit('callback_consumed'));
+    assert.doesNotThrow(() => telemetry.emit('callback_failed'));
+  });
+
+  await withPinnedRandomUUID(() => 'not-a-uuid', async (mod) => {
+    const events = [];
+    const telemetry = mod.createCallbackEmailOAuthStageTelemetry((r) => events.push(r));
+    telemetry.emit('callback_consumed');
+    assert.equal(events.length, 0);
+  });
+
+  await withPinnedRandomUUID(() => 'A1A1A1A1-B2B2-4C3C-8D4D-E5E5E5E5E5E5', async (mod) => {
+    // Uppercase UUIDv4 is rejected (must be lowercase) → noop logging only.
+    const events = [];
+    const telemetry = mod.createCallbackEmailOAuthStageTelemetry((r) => events.push(r));
+    telemetry.emit('installer_committed');
+    assert.equal(events.length, 0);
+  });
+
+  // OAuth control flow with ordinary callback composition remains unchanged.
+  const { service } = callbackComposition();
+  const result = await service.accept(
+    { state: STATE, error: 'access_denied' },
+    { clientId: CLIENT_ID, authSessionId: AUTH_SESSION_ID },
+  );
+  assert.deepEqual(result, PUBLIC_STATUS_DECLINED);
+});
+
+test('callback server correlation never adds fields or secrets', async function serverCorrelationSchemaOnly() {
+  const FIXED = 'e1e1e1e1-e2e2-4e3e-8e4e-e5e5e5e5e5e5';
+  await withPinnedRandomUUID(() => FIXED, async (mod) => {
+    const events = [];
+    const telemetry = mod.createCallbackEmailOAuthStageTelemetry((r) => events.push(r));
+    telemetry.emit('callback_consumed');
+    telemetry.emit('token_request_started');
+    assert.equal(events.length, 2);
+    for (const event of events) {
+      assert.deepEqual(Reflect.ownKeys(event), ['event', 'stage', 'request_id']);
+      assertEventShape(event, event.stage, FIXED);
+      assertNoSensitive(event);
+      // No secret/ALS/header/extra correlation fields.
+      assert.equal(Object.prototype.hasOwnProperty.call(event, 'x-request-id'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(event, 'header'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(event, 'als'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(event, 'secret'), false);
+    }
+  });
+  // Live generator (unpinned path) also yields schema-only UUIDv4.
+  const liveEvents = [];
+  const live = createCallbackEmailOAuthStageTelemetry((r) => liveEvents.push(r));
+  live.emit('graph_identity_verified');
+  assert.equal(liveEvents.length, 1);
+  assert.equal(UUID_V4_RE.test(liveEvents[0].request_id), true);
+  assert.deepEqual(Reflect.ownKeys(liveEvents[0]), ['event', 'stage', 'request_id']);
+  assertNoSensitive(liveEvents[0]);
+});
+
 // ── Route wiring / no ambient mutable logger ───────────────────────────────
 
-test('production route wires stage telemetry from requestId; no ambient setLogger', async function routeWiringSource() {
+test('production route wires server-generated stage telemetry; no ALS correlation; no ambient setLogger', async function routeWiringSource() {
   const routesSrc = fs.readFileSync(path.join(ROOT, ROUTES_REL), 'utf8');
   const runtimeSrc = fs.readFileSync(path.join(ROOT, RUNTIME_REL), 'utf8');
   const callbackSrc = fs.readFileSync(path.join(ROOT, CALLBACK_REL), 'utf8');
   const telSrc = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8');
 
-  assert.match(routesSrc, /createEmailOAuthStageTelemetry/);
-  assert.match(routesSrc, /buildCallbackStageTelemetry|getRequestId|requestId/);
+  // Production callback path: server-generated correlation only.
+  assert.match(routesSrc, /createCallbackEmailOAuthStageTelemetry/);
+  assert.match(routesSrc, /buildCallbackStageTelemetry/);
   assert.match(routesSrc, /stageTelemetry/);
+  assert.match(telSrc, /createCallbackEmailOAuthStageTelemetry/);
+  assert.match(telSrc, /randomUUID/);
+  // Module-init pin of native randomUUID (not ambient-substitutable).
+  assert.match(telSrc, /PINNED_RANDOM_UUID|NATIVE_RANDOM_UUID|PRODUCTION_.*RANDOM_UUID/);
+  assert.match(telSrc, /Reflect\.apply/);
+
+  // Must NOT depend on staff-api ALS HTTP correlation / attacker x-request-id.
+  assert.equal(routesSrc.includes('staff-api-request-correlation'), false);
+  assert.equal(routesSrc.includes('getRequestId'), false);
+  assert.equal(/requestId\s*:\s*getRequestId|getRequestId\s*\(/.test(routesSrc), false);
+
   assert.match(runtimeSrc, /stageTelemetry/);
   assert.match(callbackSrc, /callback_consumed/);
   assert.match(callbackSrc, /callback_failed/);
