@@ -196,7 +196,7 @@ const downEntry = manifest && (manifest.entries || []).find((e) => e.filename ==
 ok('manifest-has-057-forward', Boolean(upEntry && upEntry.inForwardChain && upEntry.classification === 'canonical_forward'));
 ok('manifest-057-order-55', Boolean(upEntry && upEntry.order === 55), upEntry ? `order=${upEntry.order}` : 'missing');
 ok('manifest-has-057-down-rollback', Boolean(downEntry && downEntry.classification === 'rollback_down' && downEntry.inForwardChain === false));
-ok('forward-count-60', forward.length === 60, `forward=${forward.length}`);
+ok('forward-count-61', forward.length === 61, `forward=${forward.length}`);
 if (upEntry && fs.existsSync(UP_PATH)) {
   const sha = sha256CanonicalLfV1File(UP_PATH);
   ok('manifest-057-sha-matches-file', upEntry.sha256 === sha, `manifest=${upEntry.sha256} file=${sha}`);

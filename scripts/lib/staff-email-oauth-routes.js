@@ -13,8 +13,14 @@ const {
   createSunsetStagingMicrosoftOAuthCallbackRuntime,
   DEPENDENCY_KEYS,
 } = require('./email-microsoft-oauth-sunset-staging-runtime-composition');
+const {
+  createSunsetMicrosoftEndpointPrepare,
+  INPUT_KEYS: PREPARE_DOMAIN_INPUT_KEYS,
+  ERROR_CODE: PREPARE_ERROR_CODE,
+} = require('./email-sunset-microsoft-endpoint-prepare');
 
 const OAUTH_START_PATH = '/staff/admin/email-settings/oauth/microsoft/start';
+const OAUTH_PREPARE_PATH = '/staff/admin/email-settings/oauth/microsoft/prepare';
 const OAUTH_CALLBACK_PATH = '/staff/email/oauth/microsoft/callback';
 /** Canonical lowercase UUID (start body endpoint_id + ordinary SQL row ids). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -23,6 +29,11 @@ const UUID_RE_CI = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const LOCATION_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** Exact ordered own-data start body keys (location_id then endpoint_id). */
 const START_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
+/** Exact ordered own-data prepare body keys (location_id then public_address). */
+const PREPARE_BODY_KEYS = Object.freeze(['location_id', 'public_address']);
+/** Exact ordered prepare success JSON keys (no mailbox echo). */
+const PREPARE_SUCCESS_KEYS = Object.freeze(['success', 'endpoint_id']);
+const PREPARE_ERROR = 'endpoint_prepare_unavailable';
 /** Exact ordered own-data resolve SQL row keys (matches SELECT aliases / order). */
 const RESOLVE_ROW_KEYS = Object.freeze(['client_id', 'location_id', 'endpoint_id']);
 const RESOLVE_ROW_KEY_SET = new Set(RESOLVE_ROW_KEYS);
@@ -121,6 +132,62 @@ function snapshotStartBody(body) {
 /** Compatibility wrapper — never use for validate-then-reread in the handler. */
 function validBody(body) {
   return Boolean(snapshotStartBody(body));
+}
+
+/**
+ * Descriptor-safe prepare body snapshot: exact ordered own-data
+ * { location_id, public_address } only — no symbols/accessors/extras.
+ * Each descriptor value is read exactly once; returns frozen snapshot or null.
+ * Does not canonicalize the mailbox here (domain owns that); only type/shape.
+ */
+function snapshotPrepareBody(body) {
+  try {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+    const proto = Object.getPrototypeOf(body);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(body);
+    if (actual.length !== PREPARE_BODY_KEYS.length) return null;
+    for (let i = 0; i < PREPARE_BODY_KEYS.length; i += 1) {
+      if (actual[i] !== PREPARE_BODY_KEYS[i] || typeof actual[i] !== 'string') return null;
+    }
+    const out = Object.create(null);
+    for (const key of PREPARE_BODY_KEYS) {
+      const descriptor = Object.getOwnPropertyDescriptor(body, key);
+      if (!descriptor
+          || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+          || descriptor.get
+          || descriptor.set
+          || !descriptor.enumerable) {
+        return null;
+      }
+      out[key] = descriptor.value;
+    }
+    if (typeof out.location_id !== 'string' || !LOCATION_SLUG_RE.test(out.location_id)) {
+      return null;
+    }
+    if (typeof out.public_address !== 'string') return null;
+    return Object.freeze({
+      location_id: out.location_id,
+      public_address: out.public_address,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Exact ordered prepare success DTO — success then endpoint_id; no mailbox. */
+function buildPrepareSuccessJson(endpointId) {
+  const dto = {};
+  dto.success = true;
+  dto.endpoint_id = endpointId;
+  return Object.freeze(dto);
+}
+
+/** Prepare gate: exact START flag + Sunset deployment (callback may stay false). */
+function isPrepareEnabled(env) {
+  return !!env
+    && env.LUNA_EMAIL_OAUTH_START_ENABLED === 'true'
+    && env.LUNA_DEPLOYMENT === 'sunset-staging';
 }
 
 /**
@@ -343,6 +410,66 @@ function buildCallbackRuntime(env, pg) {
 function createStaffEmailOAuthRoutes(deps) {
   const env = deps.runtimeEnv || process.env;
 
+  /**
+   * POST prepare — create one disabled Sunset Microsoft delegated endpoint.
+   * Gate: START flag + sunset-staging. Auth: Sunset admin owner session.
+   * One fixed sanitized error; no mailbox echo; no raw SQL/error logs.
+   */
+  async function handlePrepare(body, req, res, user) {
+    if (!isPrepareEnabled(env)) {
+      return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    if (!user || user.client_slug !== 'sunset'
+        || !UUID_RE_CI.test(user.staff_user_id || '')
+        || !UUID_RE_CI.test(user.session_id || '')) {
+      return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    }
+    if (!deps.assertStaffClientAccess(user, 'sunset', res)) return;
+    const authz = deps.authorizeAuthenticatedStaffRoute({
+      clientSlug: 'sunset',
+      method: 'POST',
+      pathname: OAUTH_PREPARE_PATH,
+      env,
+    });
+    if (!authz.ok) {
+      return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+    }
+    const bodySnap = snapshotPrepareBody(body);
+    if (!bodySnap) {
+      return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    }
+    try {
+      return await deps.withPgClient(async (pg) => {
+        // Exact ordered domain input keys (locationId, publicAddress, actorStaffUserId).
+        const domainInput = {};
+        domainInput[PREPARE_DOMAIN_INPUT_KEYS[0]] = bodySnap.location_id;
+        domainInput[PREPARE_DOMAIN_INPUT_KEYS[1]] = bodySnap.public_address;
+        domainInput[PREPARE_DOMAIN_INPUT_KEYS[2]] = String(user.staff_user_id).toLowerCase();
+        const ordered = Object.freeze(domainInput);
+        const prepare = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: pg }));
+        const ack = await prepare.prepareDisabledDelegatedEndpoint(ordered);
+        if (!ack || ack.status !== 'prepared' || typeof ack.endpointId !== 'string'
+            || !UUID_RE.test(ack.endpointId)) {
+          return deps.sendJSON(res, 503, { success: false, error: PREPARE_ERROR });
+        }
+        const json = buildPrepareSuccessJson(ack.endpointId);
+        // Descriptor-safe order: success then endpoint_id only.
+        if (Reflect.ownKeys(json).length !== PREPARE_SUCCESS_KEYS.length
+            || Reflect.ownKeys(json)[0] !== PREPARE_SUCCESS_KEYS[0]
+            || Reflect.ownKeys(json)[1] !== PREPARE_SUCCESS_KEYS[1]) {
+          return deps.sendJSON(res, 503, { success: false, error: PREPARE_ERROR });
+        }
+        return deps.sendJSON(res, 200, json);
+      });
+    } catch (err) {
+      // One fixed sanitized error — never leak address, SQLSTATE, or domain text.
+      if (err && err.code === PREPARE_ERROR_CODE) {
+        return deps.sendJSON(res, 503, { success: false, error: PREPARE_ERROR });
+      }
+      return deps.sendJSON(res, 503, { success: false, error: PREPARE_ERROR });
+    }
+  }
+
   async function handleStart(body, req, res, user) {
     if (!isStartEnabled(env)) {
       return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
@@ -465,18 +592,25 @@ function createStaffEmailOAuthRoutes(deps) {
     }
   }
 
-  return Object.freeze({ handleStart, handleCallback });
+  return Object.freeze({ handleStart, handlePrepare, handleCallback });
 }
 
 module.exports = {
   OAUTH_START_PATH,
+  OAUTH_PREPARE_PATH,
   OAUTH_CALLBACK_PATH,
   SQL_RESOLVE_START_BINDING,
   START_BODY_KEYS,
+  PREPARE_BODY_KEYS,
+  PREPARE_SUCCESS_KEYS,
+  PREPARE_ERROR,
   RESOLVE_ROW_KEYS,
   validBody,
   snapshotStartBody,
+  snapshotPrepareBody,
   snapshotResolveQueryResult,
+  isPrepareEnabled,
+  buildPrepareSuccessJson,
   createStaffEmailOAuthRoutes,
   // Re-export production dependency key constant for offline verifiers (no secrets).
   RUNTIME_DEPENDENCY_KEYS: DEPENDENCY_KEYS,

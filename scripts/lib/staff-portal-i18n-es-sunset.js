@@ -278,6 +278,7 @@ module.exports = {
   'admin.email.automation': 'Automatización',
   'admin.email.off': 'Desactivado',
   'admin.email.actionsUnavailable': 'Conectar y desconectar no están disponibles en esta versión.',
+  'admin.email.mailboxLabel': 'Dirección de correo Microsoft',
   'admin.tabs.bookings': 'Reservas',
   'admin.tabs.pricing': 'Precios',
   'admin.tabs.lunaStaff': 'Luna Staff',

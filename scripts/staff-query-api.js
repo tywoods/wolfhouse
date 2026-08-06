@@ -206,6 +206,7 @@ const {
 const {
   createStaffEmailOAuthRoutes,
   OAUTH_START_PATH,
+  OAUTH_PREPARE_PATH,
   OAUTH_CALLBACK_PATH,
 } = require('./lib/staff-email-oauth-routes');
 
@@ -49157,6 +49158,14 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleEmailSettingsGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === OAUTH_PREPARE_PATH && method === 'POST') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); }
+    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    return emailOAuthRoutes.handlePrepare(body, req, res, auth.user);
   }
   if (pathname === OAUTH_START_PATH && method === 'POST') {
     const auth = await requireAuth(req, res, 'admin');
