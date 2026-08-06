@@ -14,6 +14,9 @@ const {
   ID_TOKEN_LIMIT_CHARS,
   MAX_EXPIRES_IN_SECONDS,
   PHASE_A_SCOPES,
+  TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES,
+  TOKEN_RESPONSE_ALLOWED_OIDC_SCOPES,
+  TOKEN_RESPONSE_SCOPE_ORDER,
   GRANT_GENERATION_INITIAL,
   SELECTED_KEYS,
   CONFIG_KEYS,
@@ -38,6 +41,9 @@ const {
   ID_TOKEN_LIMIT_CHARS: CUSTODY_ID_TOKEN_LIMIT,
   MAX_EXPIRES_IN_SECONDS: CUSTODY_MAX_EXPIRES,
   PHASE_A_SCOPES: CUSTODY_PHASE_A_SCOPES,
+  TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES: CUSTODY_TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES,
+  TOKEN_RESPONSE_ALLOWED_OIDC_SCOPES: CUSTODY_TOKEN_RESPONSE_ALLOWED_OIDC_SCOPES,
+  TOKEN_RESPONSE_SCOPE_ORDER: CUSTODY_TOKEN_RESPONSE_SCOPE_ORDER,
   createMicrosoftTokenResponseCustodyService,
 } = require('./lib/email-microsoft-response-custody-handoff');
 const { EventEmitter } = require('events');
@@ -246,6 +252,9 @@ test('exports frozen factory, fixed error constants, and custody-aligned bounds'
     'ID_TOKEN_LIMIT_CHARS',
     'MAX_EXPIRES_IN_SECONDS',
     'PHASE_A_SCOPES',
+    'TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES',
+    'TOKEN_RESPONSE_ALLOWED_OIDC_SCOPES',
+    'TOKEN_RESPONSE_SCOPE_ORDER',
     'GRANT_GENERATION_INITIAL',
     'SELECTED_KEYS',
     'CONFIG_KEYS',
@@ -261,6 +270,24 @@ test('exports frozen factory, fixed error constants, and custody-aligned bounds'
   assert.equal(ID_TOKEN_LIMIT_CHARS, CUSTODY_ID_TOKEN_LIMIT);
   assert.equal(MAX_EXPIRES_IN_SECONDS, CUSTODY_MAX_EXPIRES);
   assert.deepEqual([...PHASE_A_SCOPES], [...CUSTODY_PHASE_A_SCOPES]);
+  // Token-response scope semantics must stay coherent across response + grant custody.
+  assert.deepEqual(
+    [...TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES],
+    [...CUSTODY_TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES],
+  );
+  assert.deepEqual(
+    [...TOKEN_RESPONSE_ALLOWED_OIDC_SCOPES],
+    [...CUSTODY_TOKEN_RESPONSE_ALLOWED_OIDC_SCOPES],
+  );
+  assert.deepEqual(
+    [...TOKEN_RESPONSE_SCOPE_ORDER],
+    [...CUSTODY_TOKEN_RESPONSE_SCOPE_ORDER],
+  );
+  assert.deepEqual([...TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES], ['User.Read', 'Mail.ReadBasic']);
+  assert.deepEqual(
+    [...TOKEN_RESPONSE_ALLOWED_OIDC_SCOPES],
+    ['openid', 'profile', 'offline_access', 'email'],
+  );
   assert.equal(GRANT_GENERATION_INITIAL, 1);
   assert.deepEqual([...SELECTED_KEYS], [
     'accessToken', 'refreshToken', 'tokenType', 'expiresIn', 'scope', 'idToken',
@@ -764,6 +791,18 @@ test('rejects unfrozen or malformed selected input with zero dependency calls', 
     goodSelected({ expiresIn: MAX_EXPIRES_IN_SECONDS + 1 }),
     goodSelected({ scope: 'openid' }),
     goodSelected({ scope: 'openid profile offline_access User.Read Mail.Send' }),
+    // Hostile Microsoft token-response scope semantics (aligned with response custody).
+    goodSelected({ scope: 'openid profile User.Read' }), // missing Mail.ReadBasic
+    goodSelected({ scope: 'openid profile Mail.ReadBasic' }), // missing User.Read
+    goodSelected({ scope: 'User.Read Mail.ReadBasic Mail.Send' }),
+    goodSelected({ scope: 'User.Read Mail.ReadBasic Mail.Read' }),
+    goodSelected({ scope: 'User.Read.All Mail.ReadBasic' }),
+    goodSelected({ scope: 'User.Read Mail.ReadBasic.All' }),
+    goodSelected({ scope: 'openid profile User.Read Mail.ReadBasic evil' }),
+    goodSelected({ scope: 'openid openid User.Read Mail.ReadBasic' }),
+    goodSelected({ scope: 'User.Read User.Read Mail.ReadBasic' }),
+    goodSelected({ scope: 'openid  profile User.Read Mail.ReadBasic' }),
+    goodSelected({ scope: 'User.Read Mail.ReadBasic ' }),
     goodSelected({ idToken: '' }),
     goodSelected({ idToken: 'has space' }),
     goodSelected({ idToken: 'I'.repeat(ID_TOKEN_LIMIT_CHARS + 1) }),
@@ -1493,6 +1532,47 @@ test('rejects install and installInitialDelegatedGrant; exact installVerifiedGra
   assert.equal(atomicInstaller.installInitialDelegatedGrant, undefined);
 });
 
+// ── Token-response scope semantics (Microsoft v2 actual granted scopes) ────
+
+test('accepts realistic Microsoft token scopes omitting offline_access; no synthesis', async function realisticMsScopeNoOffline() {
+  // offline_access evidenced by required refresh_token; must not be invented in actual scope.
+  // Any order accepted; custody validates semantics (installer surface still scope-free).
+  const scopes = [
+    'openid profile User.Read Mail.ReadBasic',
+    'openid profile email User.Read Mail.ReadBasic',
+    'User.Read Mail.ReadBasic',
+    'Mail.ReadBasic email User.Read profile openid',
+  ];
+  for (const selectedScope of scopes) {
+    assert.equal(selectedScope.split(' ').includes('offline_access'), false);
+    const fresh = composition();
+    const result = await fresh.adapter.acceptValidatedTokens(goodSelected({ scope: selectedScope }));
+    assert.deepEqual(result, SEALED_ACK);
+    assert.equal(fresh.installer.calls.length, 1);
+    assert.equal(fresh.identity.calls.length, 1);
+    assert.equal(fresh.envelope.calls.some((c) => c.op === 'seal'), true);
+    // Installer payload remains identity+envelope only (no scope claim surface).
+    assert.equal(Object.hasOwn(fresh.installer.calls[0].request, 'scope'), false);
+    assert.equal(
+      JSON.stringify(fresh.installer.calls[0].request).includes('offline_access'),
+      false,
+    );
+  }
+});
+
+test('accepts classic five-scope and full OIDC metadata sets including offline_access echo', async function classicAndFullOidcScopes() {
+  for (const scope of [
+    GOOD_SCOPE,
+    'openid profile offline_access email User.Read Mail.ReadBasic',
+    'Mail.ReadBasic offline_access User.Read openid profile',
+  ]) {
+    const fresh = composition();
+    const result = await fresh.adapter.acceptValidatedTokens(goodSelected({ scope }));
+    assert.deepEqual(result, SEALED_ACK);
+    assert.equal(fresh.installer.calls.length, 1);
+  }
+});
+
 // ── Response-custody interoperability regression ───────────────────────────
 
 test('merged response-custody handoff with this adapter as custody returns only custodied', async function responseCustodyInterop() {
@@ -1613,6 +1693,99 @@ test('merged response-custody handoff with this adapter as custody returns only 
   // Adapter sealedAck is accepted; public surface above is custodied only.
   assert.deepEqual(SEALED_ACK, { status: 'accepted' });
   assert.notDeepEqual(publicResult, SEALED_ACK);
+});
+
+test('response-custody → grant custody → installer with realistic MS scopes (no offline_access, optional email)', async function realisticMsResponseCustodyInterop() {
+  // Fixtures model Microsoft v2 token JSON: offline_access omitted; email optional.
+  const fixtures = [
+    {
+      scope: 'openid profile User.Read Mail.ReadBasic',
+      expectedNormalized: 'openid profile User.Read Mail.ReadBasic',
+    },
+    {
+      scope: 'openid profile email User.Read Mail.ReadBasic',
+      expectedNormalized: 'openid profile email User.Read Mail.ReadBasic',
+    },
+    {
+      scope: 'Mail.ReadBasic User.Read openid profile email',
+      expectedNormalized: 'openid profile email User.Read Mail.ReadBasic',
+    },
+  ];
+
+  for (const fixture of fixtures) {
+    let observedSelected;
+    const identity = stubIdentity();
+    const clock = stubClock();
+    const installer = stubInstaller();
+    const envelope = stubEnvelope();
+    const grantCustody = createMicrosoftVerifiedGrantCustodyAdapter(
+      goodConfig(),
+      Object.freeze({
+        verifiedIdentity: identity.verifiedIdentity,
+        envelopeProvider: envelope.envelopeProvider,
+        clock: clock.clock,
+        installer: installer.installer,
+      }),
+    );
+    // Probe wrapper preserves grant custody while observing normalized selected scope.
+    const probingCustody = Object.freeze({
+      async acceptValidatedTokens(selected) {
+        observedSelected = selected;
+        return grantCustody.acceptValidatedTokens(selected);
+      },
+    });
+
+    const body = {
+      token_type: 'Bearer',
+      expires_in: 3600,
+      scope: fixture.scope,
+      access_token: ACCESS,
+      refresh_token: REFRESH,
+      id_token: ID_TOKEN,
+    };
+    const incoming = new EventEmitter();
+    incoming.statusCode = 200;
+    incoming.headers = { 'content-type': 'application/json; charset=utf-8' };
+    incoming.destroy = () => {};
+    const request = new EventEmitter();
+    let responseCallback;
+    request.end = () => {
+      queueMicrotask(() => {
+        responseCallback(incoming);
+        incoming.emit('data', JSON.stringify(body));
+        incoming.emit('end');
+      });
+    };
+    request.destroy = () => {};
+    const httpsImpl = {
+      request(_options, cb) {
+        responseCallback = cb;
+        return request;
+      },
+    };
+    const timers = { setTimeout() { return 1; }, clearTimeout() {} };
+
+    const handoff = createMicrosoftTokenResponseCustodyService({
+      transportDeps: { httpsImpl, timers },
+      custody: probingCustody,
+    });
+    const publicResult = await handoff.exchangeAndCustody({ body: 'trusted=already-encoded' });
+    assert.deepEqual(publicResult, { status: 'custodied' });
+    assert.ok(observedSelected);
+    assert.equal(Object.isFrozen(observedSelected), true);
+    assert.equal(observedSelected.scope, fixture.expectedNormalized);
+    assert.equal(observedSelected.scope.includes('offline_access'), false);
+    assert.equal(observedSelected.refreshToken, REFRESH);
+    assert.equal(observedSelected.idToken, ID_TOKEN);
+    assert.equal(installer.calls.length, 1);
+    assert.equal(Object.hasOwn(installer.calls[0].request, 'scope'), false);
+    assert.equal(
+      JSON.stringify(installer.calls[0].request).includes('offline_access'),
+      false,
+    );
+    assert.equal(identity.calls.length, 1);
+    assert.equal(envelope.calls.some((c) => c.op === 'seal'), true);
+  }
 });
 
 async function runTests() {
