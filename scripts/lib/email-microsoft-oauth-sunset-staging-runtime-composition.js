@@ -5,8 +5,9 @@
  *
  * Explicit factory only. Assembles the merged completing callback chain from
  * controlled dependencies and returns exact frozen { accept }. No Staff API
- * startup auto-wiring, no default-on flags, no network/Key Vault during
+ * startup auto-wiring, no default-on flags, no network/Key Vault wrap during
  * construction — only after a valid consumed code callback (via child factories).
+ * Azure SDK require remains lazy inside the envelope composition child.
  *
  * Per-callback operation-scoped chain (one pg client checked out; no BEGIN/lock
  * until installer final step):
@@ -17,21 +18,21 @@
  *   OIDC JWKS verifier + ID-token validator
  *   Graph /me transport/identity
  *   merged verified identity
- *   Azure KV Sunset staging envelope provider (or exact injected envelopeProvider)
+ *   Azure KV Sunset staging envelope provider (always from validated env)
  *   merged OAuth operation composition → completeAuthorization
  *   createMicrosoftOAuthCallbackCompletionService
  *
- * Exact frozen dependency bags (order required):
- *   production: env, pgClient, https, crypto, timers
- *   test injection: env, pgClient, https, crypto, timers, envelopeProvider
- *     (explicit DI only — not an env production bypass flag)
+ * Exact frozen dependency bag (order required):
+ *   env, pgClient, https, crypto, timers
+ * No injected envelope surface on the public factory bag; no route substitution.
+ * Offline tests intercept Module._load for @azure/* (Azure composition pattern).
  *
  * Readiness (fail closed, never log secrets):
  *   LUNA_DEPLOYMENT=sunset-staging
  *   LUNA_EMAIL_OAUTH_CALLBACK_ENABLED=true
  *   LUNA_EMAIL_OAUTH_CLIENT_ID (canonical UUID)
  *   LUNA_EMAIL_OAUTH_CLIENT_SECRET (via Sunset secret provider)
- *   Azure KV Sunset composition env when envelopeProvider is not injected
+ *   Azure KV Sunset composition env (exact pinned host + versioned key id)
  *
  * Reuses merged factories exactly; does not duplicate security logic.
  *
@@ -81,23 +82,13 @@ const ERROR_MESSAGE = 'Microsoft OAuth runtime composition failed.';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Production dependency order. */
+/** Production dependency order — exact frozen ordered only. */
 const DEPENDENCY_KEYS = Object.freeze([
   'env',
   'pgClient',
   'https',
   'crypto',
   'timers',
-]);
-
-/** Test-injection dependency order (explicit envelopeProvider; no env bypass). */
-const DEPENDENCY_KEYS_WITH_ENVELOPE = Object.freeze([
-  'env',
-  'pgClient',
-  'https',
-  'crypto',
-  'timers',
-  'envelopeProvider',
 ]);
 
 const HTTPS_KEYS = Object.freeze(['request']);
@@ -325,13 +316,11 @@ function snapshotEnvReadiness(env) {
   }
 }
 
-function resolveEnvelopeProvider(env, injected) {
-  if (injected !== undefined) {
-    const ok = validateEmailGrantEnvelopeProvider(injected);
-    if (!ok.ok || !ok.value) return null;
-    return ok.value;
-  }
-  // Production path: require exact Azure KV Sunset staging readiness + composition.
+/**
+ * Always construct Azure KV Sunset staging envelope from validated env.
+ * No injected envelopeProvider path.
+ */
+function resolveEnvelopeProvider(env) {
   const cfg = parseEmailGrantEnvelopeAzureKvSunsetStagingRuntimeConfig(env);
   if (!cfg.ok || !cfg.composition_enabled) return null;
   let composition;
@@ -352,10 +341,7 @@ function resolveEnvelopeProvider(env, injected) {
 }
 
 function pinDependencies(dependencies) {
-  let withEnvelope = false;
-  if (exactOrderedFrozenData(dependencies, DEPENDENCY_KEYS_WITH_ENVELOPE)) {
-    withEnvelope = true;
-  } else if (!exactOrderedFrozenData(dependencies, DEPENDENCY_KEYS)) {
+  if (!exactOrderedFrozenData(dependencies, DEPENDENCY_KEYS)) {
     return null;
   }
 
@@ -364,9 +350,6 @@ function pinDependencies(dependencies) {
   const httpsRaw = ownData(dependencies, 'https');
   const cryptoRaw = ownData(dependencies, 'crypto');
   const timersRaw = ownData(dependencies, 'timers');
-  const envelopeInjected = withEnvelope
-    ? ownData(dependencies, 'envelopeProvider')
-    : undefined;
 
   const envSnap = snapshotEnvReadiness(env);
   if (!envSnap) return null;
@@ -384,7 +367,7 @@ function pinDependencies(dependencies) {
   const natives = pinNativeSurfaces(httpsRaw, cryptoRaw, timersRaw);
   if (!natives) return null;
 
-  const envelopeProvider = resolveEnvelopeProvider(envSnap.env, envelopeInjected);
+  const envelopeProvider = resolveEnvelopeProvider(envSnap.env);
   if (!envelopeProvider) return null;
 
   let secretProvider;
@@ -413,9 +396,9 @@ function pinDependencies(dependencies) {
 
 /**
  * Build one operation-scoped completing callback service.
- * Construction only — no consume/token/Graph/KV/install network until accept.
+ * Construction only — no consume/token/Graph/KV wrap/install network until accept.
  *
- * @param {object} dependencies exact frozen DEPENDENCY_KEYS or DEPENDENCY_KEYS_WITH_ENVELOPE
+ * @param {object} dependencies exact frozen DEPENDENCY_KEYS
  * @returns {{ accept: Function }} frozen single-use callback completion surface
  */
 function createSunsetStagingMicrosoftOAuthCallbackRuntime(dependencies) {
@@ -528,7 +511,6 @@ module.exports = Object.freeze({
   ERROR_MESSAGE,
   SUNSET_DEPLOYMENT,
   DEPENDENCY_KEYS,
-  DEPENDENCY_KEYS_WITH_ENVELOPE,
   HTTPS_KEYS,
   CRYPTO_KEYS,
   TIMERS_KEYS,

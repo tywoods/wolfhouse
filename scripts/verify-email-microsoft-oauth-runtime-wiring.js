@@ -4,13 +4,17 @@
  * Hostile offline gate for Stage 6 Sunset-staging Microsoft OAuth runtime wiring.
  *
  * Proves exact DI/config shapes; full route E2E with fake HTTPS (token + OIDC
- * JWKS + Graph) and explicit envelopeProvider injection (merged fake — not an
- * env production bypass); stateful transaction+installer SQL; start endpoint
- * binding; callback consume→exchange→identity→seal→atomic install; public
+ * JWKS + Graph) and production Azure KV envelope path via Module._load SDK mocks
+ * (no envelopeProvider production DI / DEPENDENCY_KEYS_WITH_ENVELOPE bypass);
+ * stateful transaction+installer SQL; start body exact {location_id,endpoint_id};
+ * callback consume→exchange→identity→seal→atomic install; public
  * authorization_received only after commit. Failure matrix keeps fixed
  * terminal HTML, no false success, consumed semantics, no partial DB, no raw
  * token persistence/logs. Asserts network order and no DB BEGIN across external
  * I/O. Disabled routes construct zero completing runtime deps.
+ *
+ * Production path proof exercises the exact exported factory with a fake Azure
+ * SDK client and asserts Key Vault wrap is zero until valid callback seal.
  *
  * No Azure/Microsoft live network. No activation/deploy/migration apply.
  */
@@ -19,6 +23,7 @@ const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const Module = require('module');
 const { EventEmitter } = require('events');
 
 const {
@@ -26,7 +31,6 @@ const {
   ERROR_MESSAGE,
   SUNSET_DEPLOYMENT,
   DEPENDENCY_KEYS,
-  DEPENDENCY_KEYS_WITH_ENVELOPE,
   createSunsetStagingMicrosoftOAuthCallbackRuntime,
 } = require('./lib/email-microsoft-oauth-sunset-staging-runtime-composition');
 const {
@@ -34,11 +38,9 @@ const {
   OAUTH_START_PATH,
   OAUTH_CALLBACK_PATH,
   SQL_RESOLVE_START_BINDING,
+  START_BODY_KEYS,
   validBody,
 } = require('./lib/staff-email-oauth-routes');
-const {
-  createFakeEmailGrantEnvelopeProvider,
-} = require('./lib/email-grant-envelope-fake-provider');
 const {
   SQL_CREATE_TRANSACTION,
   SQL_CONSUME_TRANSACTION,
@@ -51,6 +53,16 @@ const {
   TOKEN_HOST,
   TOKEN_PATH,
 } = require('./lib/email-microsoft-token-http-transport');
+const {
+  SUNSET_STAGING_TRUSTED_HOST,
+  SUNSET_STAGING_VERSIONED_KEY_ID,
+  SUNSET_STAGING_MI_CLIENT_ID,
+  SUNSET_STAGING_KEK_KEY_NAME,
+  SUNSET_STAGING_KEK_KEY_VERSION,
+  ENV_COMPOSITION_ENABLED,
+  ENV_TRUSTED_HOST,
+  ENV_VERSIONED_KEY_ID,
+} = require('./lib/email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
 
 const ROOT = path.join(__dirname, '..');
 const PKG_PATH = path.join(ROOT, 'package.json');
@@ -61,6 +73,7 @@ const VERIFY_REL = 'scripts/verify-email-microsoft-oauth-runtime-wiring.js';
 const CLIENT_ID = '11111111-1111-1111-1111-111111111111';
 const LOCATION_UUID = '22222222-2222-2222-2222-222222222222';
 const ENDPOINT_ID = '55555555-5555-5555-5555-555555555555';
+const OTHER_ENDPOINT_ID = '66666666-6666-6666-6666-666666666666';
 const STAFF_ID = '33333333-3333-3333-3333-333333333333';
 const SESSION_ID = '44444444-4444-4444-4444-444444444444';
 const APP_CLIENT_ID = '55555555-5555-5555-5555-555555555555';
@@ -133,6 +146,14 @@ function goodTokenBody(patch = {}) {
   };
 }
 
+function azureEnvPatch() {
+  return {
+    [ENV_COMPOSITION_ENABLED]: 'true',
+    [ENV_TRUSTED_HOST]: SUNSET_STAGING_TRUSTED_HOST,
+    [ENV_VERSIONED_KEY_ID]: SUNSET_STAGING_VERSIONED_KEY_ID,
+  };
+}
+
 function goodEnv(patch = {}) {
   return {
     LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
@@ -140,8 +161,20 @@ function goodEnv(patch = {}) {
     LUNA_EMAIL_OAUTH_START_ENABLED: 'true',
     LUNA_EMAIL_OAUTH_CLIENT_ID: APP_CLIENT_ID,
     LUNA_EMAIL_OAUTH_CLIENT_SECRET: SECRET,
+    ...azureEnvPatch(),
     ...patch,
   };
+}
+
+function startBody(overrides = {}) {
+  const body = {};
+  body.location_id = Object.prototype.hasOwnProperty.call(overrides, 'location_id')
+    ? overrides.location_id
+    : LOCATION_SLUG;
+  body.endpoint_id = Object.prototype.hasOwnProperty.call(overrides, 'endpoint_id')
+    ? overrides.endpoint_id
+    : ENDPOINT_ID;
+  return body;
 }
 
 function user(patch = {}) {
@@ -176,10 +209,6 @@ function assertNoSensitive(blob) {
   const s = typeof blob === 'string' ? blob : (() => {
     try { return JSON.stringify(blob); } catch { return String(blob); }
   })();
-  for (const secret of [LEAK, SECRET, ACCESS, REFRESH, CODE, 'code_verifier', 'authorization_code']) {
-    // code_verifier / authorization_code as substrings of keys in HTML is fine;
-    // assert raw token material only when blob is structured error paths below.
-  }
   assert.equal(s.includes(LEAK), false);
   assert.equal(s.includes(SECRET), false);
   assert.equal(s.includes(ACCESS), false);
@@ -198,6 +227,119 @@ function failSanitized(error) {
 }
 
 /**
+ * Module._load intercept for @azure/* — same pattern as Azure envelope composition
+ * verifier. Production factory has no envelopeProvider DI.
+ */
+function installAzureSdkSpies() {
+  const counters = {
+    mic: 0,
+    cc: 0,
+    wrap: 0,
+    unwrap: 0,
+    idLoad: 0,
+    kvLoad: 0,
+    dac: 0,
+    keyClient: 0,
+    micClientId: null,
+    ccKeyId: null,
+    ccOptions: null,
+  };
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 3072 });
+  const wrapOpts = {
+    key: publicKey,
+    padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+    oaepHash: 'sha256',
+  };
+  const unwrapOpts = {
+    key: privateKey,
+    padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+    oaepHash: 'sha256',
+  };
+
+  function makeClient(keyId) {
+    class PrototypeCryptographyClient {
+      constructor() {
+        this.keyId = keyId;
+        this.marker = { keyId };
+      }
+
+      async wrapKey(algorithm, key) {
+        counters.wrap += 1;
+        if (this.marker.keyId !== keyId) throw new Error('wrap this lost');
+        return {
+          result: crypto.publicEncrypt(wrapOpts, Buffer.isBuffer(key) ? key : Buffer.from(key)),
+          algorithm,
+          keyID: keyId,
+        };
+      }
+
+      async unwrapKey(algorithm, encryptedKey) {
+        counters.unwrap += 1;
+        if (this.marker.keyId !== keyId) throw new Error('unwrap this lost');
+        return {
+          result: crypto.privateDecrypt(unwrapOpts, Buffer.isBuffer(encryptedKey)
+            ? encryptedKey
+            : Buffer.from(encryptedKey)),
+          algorithm,
+          keyID: keyId,
+        };
+      }
+    }
+    return new PrototypeCryptographyClient();
+  }
+
+  function ManagedIdentityCredential(clientId) {
+    counters.mic += 1;
+    counters.micClientId = clientId;
+    return Object.freeze({ kind: 'spy-mic', clientId });
+  }
+  function CryptographyClient(keyId, credential, options) {
+    counters.cc += 1;
+    counters.ccKeyId = keyId;
+    counters.ccOptions = options;
+    return makeClient(keyId);
+  }
+  function DefaultAzureCredential() {
+    counters.dac += 1;
+    throw new Error('DAC forbidden');
+  }
+  function KeyClient() {
+    counters.keyClient += 1;
+    throw new Error('KeyClient forbidden');
+  }
+
+  const realLoad = Module._load;
+  Module._load = function interceptAzure(request, parent, isMain) {
+    if (request === '@azure/identity') {
+      counters.idLoad += 1;
+      return { ManagedIdentityCredential, DefaultAzureCredential };
+    }
+    if (request === '@azure/keyvault-keys') {
+      counters.kvLoad += 1;
+      return { CryptographyClient, KeyClient };
+    }
+    if (typeof request === 'string' && request.startsWith('@azure/')) {
+      throw new Error(`unexpected ${request}`);
+    }
+    return realLoad(request, parent, isMain);
+  };
+
+  // Drop cached real Azure modules if any so intercept wins.
+  for (const key of Object.keys(require.cache)) {
+    if (key.includes(`${path.sep}@azure${path.sep}`) || key.includes('/@azure/')) {
+      delete require.cache[key];
+    }
+  }
+
+  return {
+    counters,
+    restore() {
+      Module._load = realLoad;
+    },
+  };
+}
+
+/**
  * Stateful SQL fake covering OAuth create/consume + installer TX.
  * Tracks BEGIN across external I/O via timeline.
  */
@@ -213,12 +355,18 @@ function createStatefulDb(spec = {}) {
     binding_status: spec.bindingStatus || 'unverified_offline',
     public_address: MAILBOX,
   }];
+  if (spec.extraEndpoint) {
+    endpoints.push(spec.extraEndpoint);
+  }
   const locations = [{
     id: LOCATION_UUID,
     client_id: CLIENT_ID,
     location_id: LOCATION_SLUG,
     active: true,
   }];
+  if (spec.extraLocation) {
+    locations.push(spec.extraLocation);
+  }
   const clients = [{ id: CLIENT_ID, slug: 'sunset' }];
   const txns = [];
   const grants = [];
@@ -248,6 +396,7 @@ function createStatefulDb(spec = {}) {
 
       if (n === norm(SQL_RESOLVE_START_BINDING)) {
         const slug = params[0];
+        const endpointId = params[1];
         const rows = [];
         for (const c of clients) {
           if (c.slug !== 'sunset') continue;
@@ -255,6 +404,7 @@ function createStatefulDb(spec = {}) {
             if (l.client_id !== c.id || l.location_id !== slug || !l.active) continue;
             for (const e of endpoints) {
               if (e.client_id !== c.id || e.location_id !== l.location_id) continue;
+              if (e.id !== endpointId) continue;
               if (e.provider !== 'microsoft_graph') continue;
               if (e.auth_mode !== 'delegated_authorization_code') continue;
               if (e.connector_mode !== 'microsoft_delegated_oauth') continue;
@@ -314,7 +464,6 @@ function createStatefulDb(spec = {}) {
           && r.expires_at > now);
         if (!hit) return { rows: [] };
         hit.consumed_at = now;
-        // Exact RETURNING key set / order for consume snapshot.
         return {
           rows: [{
             id: hit.id,
@@ -327,7 +476,6 @@ function createStatefulDb(spec = {}) {
         };
       }
 
-      // Installer lock
       if (n.includes('FOR UPDATE') && n.includes('tenant_channel_endpoints')) {
         const [clientId, endpointId] = params;
         const ep = endpoints.find((e) => e.id === endpointId && e.client_id === clientId);
@@ -356,7 +504,6 @@ function createStatefulDb(spec = {}) {
           reconcile_state: 'clean',
           last_operation_id: operationId,
           envelope_version: params[3],
-          // Never store raw refresh — only envelope columns.
           has_refresh_raw: false,
         });
         return {
@@ -426,9 +573,6 @@ function createMultiplexHttps(db, spec = {}) {
     incoming.headers = headers;
     incoming.destroy = () => {};
     queueMicrotask(() => {
-      if (spec.networkDelay) {
-        // still microtask; order preserved relative to awaits
-      }
       const payload = typeof body === 'string' ? body : JSON.stringify(body);
       incoming.emit('data', Buffer.from(payload));
       incoming.emit('end');
@@ -526,8 +670,7 @@ function createMultiplexHttps(db, spec = {}) {
   });
 
   const timers = frozenRecord({
-    setTimeout(fn) {
-      // Do not fire deadline on happy path.
+    setTimeout() {
       return 1;
     },
     clearTimeout() {},
@@ -555,10 +698,17 @@ function buildRoutes(env, db, httpsBundle, extraDeps = {}) {
     oauthHttps: httpsBundle.httpsImpl,
     oauthCrypto: httpsBundle.cryptoBag,
     oauthTimers: httpsBundle.timers,
-    oauthEnvelopeProvider: extraDeps.envelopeProvider !== undefined
-      ? extraDeps.envelopeProvider
-      : createFakeEmailGrantEnvelopeProvider(),
     ...extraDeps.routeDeps,
+  });
+}
+
+function factoryDeps(env, db, bundle) {
+  return Object.freeze({
+    env,
+    pgClient: db.client,
+    https: bundle.httpsImpl,
+    crypto: bundle.cryptoBag,
+    timers: bundle.timers,
   });
 }
 
@@ -569,7 +719,6 @@ test('exports frozen runtime factory surface and fixed error constants', async f
   assert.deepEqual(Object.keys(exported).sort(), [
     'CRYPTO_KEYS',
     'DEPENDENCY_KEYS',
-    'DEPENDENCY_KEYS_WITH_ENVELOPE',
     'ERROR_CODE',
     'ERROR_MESSAGE',
     'HTTPS_KEYS',
@@ -581,9 +730,7 @@ test('exports frozen runtime factory surface and fixed error constants', async f
   assert.equal(ERROR_CODE, 'MICROSOFT_OAUTH_RUNTIME_COMPOSITION_INVALID');
   assert.equal(SUNSET_DEPLOYMENT, 'sunset-staging');
   assert.deepEqual([...DEPENDENCY_KEYS], ['env', 'pgClient', 'https', 'crypto', 'timers']);
-  assert.deepEqual([...DEPENDENCY_KEYS_WITH_ENVELOPE], [
-    'env', 'pgClient', 'https', 'crypto', 'timers', 'envelopeProvider',
-  ]);
+  assert.equal(Object.prototype.hasOwnProperty.call(exported, 'DEPENDENCY_KEYS_WITH_ENVELOPE'), false);
 });
 
 test('package script registered; defaults remain off', async function packageAndDefaults() {
@@ -610,78 +757,115 @@ test('routes wire completing runtime behind callback flag; start binds endpoint'
   assert.match(routesSrc, /unverified_offline/);
   assert.match(routesSrc, /pending_manual_validation/);
   assert.match(routesSrc, /endpointId/);
+  assert.match(routesSrc, /e\.id = \$2::uuid/);
   assert.equal(routesSrc.includes('createMicrosoftOAuthCallbackService'), false);
+  assert.equal(routesSrc.includes('oauthEnvelopeProvider'), false);
+  assert.equal(routesSrc.includes('DEPENDENCY_KEYS_WITH_ENVELOPE'), false);
+  assert.equal(routesSrc.includes('envelopeProvider'), false);
   assert.match(routesSrc, /isStartEnabled/);
   assert.match(routesSrc, /isCallbackEnabled/);
-  // completeAuthorization lives in runtime module, not duplicated in routes.
   const libSrc = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8');
   assert.match(libSrc, /createMicrosoftOAuthCallbackCompletionService/);
   assert.match(libSrc, /createMicrosoftOAuthOperationComposition/);
   assert.match(libSrc, /createMicrosoftVerifiedGrantInstaller/);
   assert.match(libSrc, /createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition/);
+  assert.equal(libSrc.includes('DEPENDENCY_KEYS_WITH_ENVELOPE'), false);
+  // Production exports and pinDependencies accept only DEPENDENCY_KEYS — no
+  // injected envelope bag key on the public factory input surface.
+  assert.equal(libSrc.includes('DEPENDENCY_KEYS_WITH_ENVELOPE'), false);
+  assert.match(libSrc, /exactOrderedFrozenData\(dependencies, DEPENDENCY_KEYS\)/);
+  assert.equal(/ownData\(dependencies,\s*'envelopeProvider'\)/.test(libSrc), false);
 });
 
 // ── Factory readiness / DI ─────────────────────────────────────────────────
 
 test('factory rejects missing readiness env and wrong deployment (fail closed)', async function factoryReadiness() {
-  const db = createStatefulDb();
-  const bundle = createMultiplexHttps(db);
-  const base = {
-    pgClient: db.client,
-    https: bundle.httpsImpl,
-    crypto: bundle.cryptoBag,
-    timers: bundle.timers,
-    envelopeProvider: createFakeEmailGrantEnvelopeProvider(),
-  };
-  const badEnvs = [
-    {},
-    { LUNA_DEPLOYMENT: 'production', LUNA_EMAIL_OAUTH_CALLBACK_ENABLED: 'true', LUNA_EMAIL_OAUTH_CLIENT_ID: APP_CLIENT_ID, LUNA_EMAIL_OAUTH_CLIENT_SECRET: SECRET },
-    { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT, LUNA_EMAIL_OAUTH_CALLBACK_ENABLED: 'false', LUNA_EMAIL_OAUTH_CLIENT_ID: APP_CLIENT_ID, LUNA_EMAIL_OAUTH_CLIENT_SECRET: SECRET },
-    { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT, LUNA_EMAIL_OAUTH_CALLBACK_ENABLED: 'true', LUNA_EMAIL_OAUTH_CLIENT_ID: 'not-a-uuid', LUNA_EMAIL_OAUTH_CLIENT_SECRET: SECRET },
-    { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT, LUNA_EMAIL_OAUTH_CALLBACK_ENABLED: 'true', LUNA_EMAIL_OAUTH_CLIENT_ID: APP_CLIENT_ID }, // no secret
-  ];
-  for (const env of badEnvs) {
-    assert.throws(
-      () => createSunsetStagingMicrosoftOAuthCallbackRuntime(Object.freeze({
-        env,
-        ...base,
-      })),
-      failSanitized,
-    );
+  const azure = installAzureSdkSpies();
+  try {
+    const db = createStatefulDb();
+    const bundle = createMultiplexHttps(db);
+    const base = {
+      pgClient: db.client,
+      https: bundle.httpsImpl,
+      crypto: bundle.cryptoBag,
+      timers: bundle.timers,
+    };
+    const badEnvs = [
+      {},
+      { LUNA_DEPLOYMENT: 'production', LUNA_EMAIL_OAUTH_CALLBACK_ENABLED: 'true', LUNA_EMAIL_OAUTH_CLIENT_ID: APP_CLIENT_ID, LUNA_EMAIL_OAUTH_CLIENT_SECRET: SECRET, ...azureEnvPatch() },
+      { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT, LUNA_EMAIL_OAUTH_CALLBACK_ENABLED: 'false', LUNA_EMAIL_OAUTH_CLIENT_ID: APP_CLIENT_ID, LUNA_EMAIL_OAUTH_CLIENT_SECRET: SECRET, ...azureEnvPatch() },
+      { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT, LUNA_EMAIL_OAUTH_CALLBACK_ENABLED: 'true', LUNA_EMAIL_OAUTH_CLIENT_ID: 'not-a-uuid', LUNA_EMAIL_OAUTH_CLIENT_SECRET: SECRET, ...azureEnvPatch() },
+      { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT, LUNA_EMAIL_OAUTH_CALLBACK_ENABLED: 'true', LUNA_EMAIL_OAUTH_CLIENT_ID: APP_CLIENT_ID, ...azureEnvPatch() }, // no secret
+      goodEnv({ [ENV_COMPOSITION_ENABLED]: 'false' }), // Azure disabled
+      goodEnv({ [ENV_TRUSTED_HOST]: 'wh-staging-kv.vault.azure.net' }), // wrong host
+    ];
+    for (const env of badEnvs) {
+      assert.throws(
+        () => createSunsetStagingMicrosoftOAuthCallbackRuntime(Object.freeze({
+          env,
+          ...base,
+        })),
+        failSanitized,
+      );
+    }
+  } finally {
+    azure.restore();
   }
 });
 
-test('factory rejects wrong dependency key sets / unfrozen bags', async function factoryHostileDeps() {
-  const db = createStatefulDb();
-  const bundle = createMultiplexHttps(db);
-  const env = goodEnv();
-  const envelopeProvider = createFakeEmailGrantEnvelopeProvider();
-  assert.throws(() => createSunsetStagingMicrosoftOAuthCallbackRuntime(null), failSanitized);
-  assert.throws(() => createSunsetStagingMicrosoftOAuthCallbackRuntime({
-    env, pgClient: db.client, https: bundle.httpsImpl, crypto: bundle.cryptoBag, timers: bundle.timers, envelopeProvider,
-  }), failSanitized); // unfrozen
-  assert.throws(() => createSunsetStagingMicrosoftOAuthCallbackRuntime(Object.freeze({
-    env, pgClient: db.client, https: bundle.httpsImpl, crypto: bundle.cryptoBag, timers: bundle.timers, envelopeProvider, extra: 1,
-  })), failSanitized);
-  assert.throws(() => createSunsetStagingMicrosoftOAuthCallbackRuntime(Object.freeze({
-    env, pgClient: { connect() {}, query() {}, totalCount: 0, idleCount: 0, waitingCount: 0 },
-    https: bundle.httpsImpl, crypto: bundle.cryptoBag, timers: bundle.timers, envelopeProvider,
-  })), failSanitized);
+test('factory rejects wrong dependency key sets / unfrozen bags / envelope injection', async function factoryHostileDeps() {
+  const azure = installAzureSdkSpies();
+  try {
+    const db = createStatefulDb();
+    const bundle = createMultiplexHttps(db);
+    const env = goodEnv();
+    assert.throws(() => createSunsetStagingMicrosoftOAuthCallbackRuntime(null), failSanitized);
+    assert.throws(() => createSunsetStagingMicrosoftOAuthCallbackRuntime({
+      env, pgClient: db.client, https: bundle.httpsImpl, crypto: bundle.cryptoBag, timers: bundle.timers,
+    }), failSanitized); // unfrozen
+    assert.throws(() => createSunsetStagingMicrosoftOAuthCallbackRuntime(Object.freeze({
+      env, pgClient: db.client, https: bundle.httpsImpl, crypto: bundle.cryptoBag, timers: bundle.timers, extra: 1,
+    })), failSanitized);
+    // envelopeProvider injection rejected (not in DEPENDENCY_KEYS)
+    assert.throws(() => createSunsetStagingMicrosoftOAuthCallbackRuntime(Object.freeze({
+      env,
+      pgClient: db.client,
+      https: bundle.httpsImpl,
+      crypto: bundle.cryptoBag,
+      timers: bundle.timers,
+      envelopeProvider: { sealGrantPayload() {}, openGrantPayload() {}, rewrapGrantDek() {} },
+    })), failSanitized);
+    assert.throws(() => createSunsetStagingMicrosoftOAuthCallbackRuntime(Object.freeze({
+      env, pgClient: { connect() {}, query() {}, totalCount: 0, idleCount: 0, waitingCount: 0 },
+      https: bundle.httpsImpl, crypto: bundle.cryptoBag, timers: bundle.timers,
+    })), failSanitized);
+  } finally {
+    azure.restore();
+  }
 });
 
-test('construction performs zero SQL and zero HTTPS', async function constructionNoIo() {
-  const db = createStatefulDb();
-  const bundle = createMultiplexHttps(db);
-  createSunsetStagingMicrosoftOAuthCallbackRuntime(Object.freeze({
-    env: goodEnv(),
-    pgClient: db.client,
-    https: bundle.httpsImpl,
-    crypto: bundle.cryptoBag,
-    timers: bundle.timers,
-    envelopeProvider: createFakeEmailGrantEnvelopeProvider(),
-  }));
-  assert.equal(db.timeline.length, 0);
-  assert.equal(bundle.calls.length, 0);
+test('construction: Azure MIC/CC from validated env; zero wrap/SQL/HTTPS before accept', async function constructionNoIo() {
+  const azure = installAzureSdkSpies();
+  try {
+    const db = createStatefulDb();
+    const bundle = createMultiplexHttps(db);
+    createSunsetStagingMicrosoftOAuthCallbackRuntime(factoryDeps(goodEnv(), db, bundle));
+    assert.equal(db.timeline.length, 0);
+    assert.equal(bundle.calls.length, 0);
+    // Azure clients may construct at composition time; wrap/unwrap must stay lazy.
+    assert.ok(azure.counters.idLoad >= 1);
+    assert.ok(azure.counters.kvLoad >= 1);
+    assert.equal(azure.counters.mic, 1);
+    assert.equal(azure.counters.cc, 1);
+    assert.equal(azure.counters.micClientId, SUNSET_STAGING_MI_CLIENT_ID);
+    assert.equal(azure.counters.ccKeyId, SUNSET_STAGING_VERSIONED_KEY_ID);
+    assert.equal(azure.counters.wrap, 0);
+    assert.equal(azure.counters.unwrap, 0);
+    assert.equal(azure.counters.dac, 0);
+    assert.equal(azure.counters.keyClient, 0);
+  } finally {
+    azure.restore();
+  }
 });
 
 // ── Disabled routes: zero construction / effects ───────────────────────────
@@ -694,13 +878,8 @@ test('disabled start/callback: zero pg, zero runtime construction effects', asyn
     sendJSON,
     assertStaffClientAccess() { touched = true; },
     withPgClient() { touched = true; throw new Error('should not'); },
-    oauthEnvelopeProvider: {
-      sealGrantPayload() { touched = true; },
-      openGrantPayload() { touched = true; },
-      rewrapGrantDek() { touched = true; },
-    },
   });
-  await routes.handleStart({ location_id: LOCATION_SLUG }, null, r, user());
+  await routes.handleStart(startBody(), null, r, user());
   assert.equal(r.status, 404);
   assert.deepEqual(r.body, { success: false, error: 'not_found' });
   assert.equal(touched, false);
@@ -714,189 +893,308 @@ test('disabled start/callback: zero pg, zero runtime construction effects', asyn
 
 // ── Start endpoint binding ─────────────────────────────────────────────────
 
-test('start resolves exact Sunset tenant+location+eligible endpoint and starts', async function startHappyPath() {
-  const db = createStatefulDb();
-  const bundle = createMultiplexHttps(db);
-  const routes = buildRoutes(goodEnv(), db, bundle);
-  const r = resCapture();
-  await routes.handleStart({ location_id: LOCATION_SLUG }, null, r, user());
-  assert.equal(r.status, 200);
-  assert.equal(typeof r.body.authorization_url, 'string');
-  assert.match(r.body.authorization_url, /login\.microsoftonline\.com/);
-  assert.equal(typeof r.body.expires_at, 'string');
-  assert.equal(db.txns.length, 1);
-  assert.equal(db.txns[0].endpoint_id, ENDPOINT_ID);
-  assert.equal(db.txns[0].client_id, CLIENT_ID);
-  // Start body remains exact { location_id } only.
-  assert.equal(validBody({ location_id: LOCATION_SLUG }), true);
-  assert.equal(validBody({ location_id: LOCATION_SLUG, endpoint_id: ENDPOINT_ID }), false);
+test('start body exact ordered location_id+endpoint_id; rejects hostile shapes', async function startBodyContract() {
+  assert.deepEqual([...START_BODY_KEYS], ['location_id', 'endpoint_id']);
+  assert.equal(validBody(startBody()), true);
+  assert.equal(validBody({ location_id: LOCATION_SLUG }), false);
+  assert.equal(validBody({ endpoint_id: ENDPOINT_ID, location_id: LOCATION_SLUG }), false);
+  assert.equal(validBody({
+    location_id: LOCATION_SLUG,
+    endpoint_id: ENDPOINT_ID,
+    extra: 1,
+  }), false);
+  assert.equal(validBody({
+    location_id: LOCATION_SLUG,
+    endpoint_id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'.toUpperCase(),
+  }), false);
+
+  const accessor = {};
+  Object.defineProperty(accessor, 'location_id', {
+    enumerable: true, get() { return LOCATION_SLUG; },
+  });
+  Object.defineProperty(accessor, 'endpoint_id', {
+    enumerable: true, get() { return ENDPOINT_ID; },
+  });
+  assert.equal(validBody(accessor), false);
+
+  const withSymbol = startBody();
+  withSymbol[Symbol('x')] = true;
+  assert.equal(validBody(withSymbol), false);
+
+  assert.equal(validBody(Object.create(null)), false);
+  const nullProto = Object.create(null);
+  nullProto.location_id = LOCATION_SLUG;
+  nullProto.endpoint_id = ENDPOINT_ID;
+  // null proto is allowed by snapshotExactOrderedOwnData pattern — routes allow
+  // Object.prototype or null. Confirm both plain and null-proto ok if ordered.
+  assert.equal(validBody(nullProto), true);
 });
 
-test('start rejects missing location / wrong endpoint status / ambiguity / foreign tenant', async function startFailureMatrix() {
-  const env = goodEnv();
-
-  // Missing location
-  {
+test('start resolves exact Sunset tenant+location+endpoint and starts', async function startHappyPath() {
+  const azure = installAzureSdkSpies();
+  try {
     const db = createStatefulDb();
-    db.locations[0].location_id = 'other-place';
-    const routes = buildRoutes(env, db, createMultiplexHttps(db));
+    const bundle = createMultiplexHttps(db);
+    const routes = buildRoutes(goodEnv(), db, bundle);
     const r = resCapture();
-    await routes.handleStart({ location_id: LOCATION_SLUG }, null, r, user());
-    assert.equal(r.status, 404);
-    assert.deepEqual(r.body, { success: false, error: 'location_not_found' });
-    assert.equal(db.txns.length, 0);
+    await routes.handleStart(startBody(), null, r, user());
+    assert.equal(r.status, 200);
+    assert.equal(typeof r.body.authorization_url, 'string');
+    assert.match(r.body.authorization_url, /login\.microsoftonline\.com/);
+    assert.equal(typeof r.body.expires_at, 'string');
+    assert.equal(db.txns.length, 1);
+    assert.equal(db.txns[0].endpoint_id, ENDPOINT_ID);
+    assert.equal(db.txns[0].client_id, CLIENT_ID);
+    const resolve = db.timeline.find((t) => t.sql === normSql(SQL_RESOLVE_START_BINDING));
+    assert.ok(resolve);
+    assert.deepEqual(resolve.params, [LOCATION_SLUG, ENDPOINT_ID]);
+  } finally {
+    azure.restore();
   }
+});
 
-  // Wrong binding status
-  {
-    const db = createStatefulDb({ bindingStatus: 'verified' });
-    const routes = buildRoutes(env, db, createMultiplexHttps(db));
-    const r = resCapture();
-    await routes.handleStart({ location_id: LOCATION_SLUG }, null, r, user());
-    assert.equal(r.status, 404);
-    assert.equal(db.txns.length, 0);
-  }
+test('start rejects wrong/missing/extra body, cross-location, status, mode, duplicate', async function startFailureMatrix() {
+  const azure = installAzureSdkSpies();
+  try {
+    const env = goodEnv();
 
-  // Wrong connector
-  {
-    const db = createStatefulDb();
-    db.endpoints[0].connector_mode = 'microsoft_app_only_enterprise';
-    const routes = buildRoutes(env, db, createMultiplexHttps(db));
-    const r = resCapture();
-    await routes.handleStart({ location_id: LOCATION_SLUG }, null, r, user());
-    assert.equal(r.status, 404);
-    assert.equal(db.txns.length, 0);
-  }
+    // Missing location
+    {
+      const db = createStatefulDb();
+      db.locations[0].location_id = 'other-place';
+      const routes = buildRoutes(env, db, createMultiplexHttps(db));
+      const r = resCapture();
+      await routes.handleStart(startBody(), null, r, user());
+      assert.equal(r.status, 404);
+      assert.deepEqual(r.body, { success: false, error: 'location_not_found' });
+      assert.equal(db.txns.length, 0);
+    }
 
-  // Missing public address
-  {
-    const db = createStatefulDb();
-    db.endpoints[0].public_address = null;
-    const routes = buildRoutes(env, db, createMultiplexHttps(db));
-    const r = resCapture();
-    await routes.handleStart({ location_id: LOCATION_SLUG }, null, r, user());
-    assert.equal(r.status, 404);
-    assert.equal(db.txns.length, 0);
-  }
+    // Wrong binding status
+    {
+      const db = createStatefulDb({ bindingStatus: 'verified' });
+      const routes = buildRoutes(env, db, createMultiplexHttps(db));
+      const r = resCapture();
+      await routes.handleStart(startBody(), null, r, user());
+      assert.equal(r.status, 404);
+      assert.equal(db.txns.length, 0);
+    }
 
-  // Ambiguity (duplicate eligible rows)
-  {
-    const db = createStatefulDb({ duplicateStartRows: true });
-    const routes = buildRoutes(env, db, createMultiplexHttps(db));
-    const r = resCapture();
-    await routes.handleStart({ location_id: LOCATION_SLUG }, null, r, user());
-    assert.equal(r.status, 503);
-    assert.deepEqual(r.body, { success: false, error: 'oauth_start_unavailable' });
-    assert.equal(db.txns.length, 0);
-  }
+    // Wrong connector / mode
+    {
+      const db = createStatefulDb();
+      db.endpoints[0].connector_mode = 'microsoft_app_only_enterprise';
+      const routes = buildRoutes(env, db, createMultiplexHttps(db));
+      const r = resCapture();
+      await routes.handleStart(startBody(), null, r, user());
+      assert.equal(r.status, 404);
+      assert.equal(db.txns.length, 0);
+    }
 
-  // Foreign tenant user
-  {
-    const db = createStatefulDb();
-    const routes = buildRoutes(env, db, createMultiplexHttps(db));
-    const r = resCapture();
-    await routes.handleStart({ location_id: LOCATION_SLUG }, null, r, user({ client_slug: 'wolfhouse' }));
-    assert.equal(r.status, 403);
-    assert.equal(db.txns.length, 0);
-  }
+    // Wrong auth_mode
+    {
+      const db = createStatefulDb();
+      db.endpoints[0].auth_mode = 'client_credentials';
+      const routes = buildRoutes(env, db, createMultiplexHttps(db));
+      const r = resCapture();
+      await routes.handleStart(startBody(), null, r, user());
+      assert.equal(r.status, 404);
+      assert.equal(db.txns.length, 0);
+    }
 
-  // Hostile body
-  {
-    const db = createStatefulDb();
-    const routes = buildRoutes(env, db, createMultiplexHttps(db));
-    const r = resCapture();
-    await routes.handleStart({ location_id: LOCATION_SLUG, extra: 'evil' }, null, r, user());
-    assert.equal(r.status, 400);
-    assert.equal(db.txns.length, 0);
+    // Missing public address
+    {
+      const db = createStatefulDb();
+      db.endpoints[0].public_address = null;
+      const routes = buildRoutes(env, db, createMultiplexHttps(db));
+      const r = resCapture();
+      await routes.handleStart(startBody(), null, r, user());
+      assert.equal(r.status, 404);
+      assert.equal(db.txns.length, 0);
+    }
+
+    // Cross-location endpoint (endpoint exists only under other location slug)
+    {
+      const db = createStatefulDb({
+        extraLocation: {
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          client_id: CLIENT_ID,
+          location_id: 'sunset-sardinero',
+          active: true,
+        },
+        extraEndpoint: {
+          id: OTHER_ENDPOINT_ID,
+          client_id: CLIENT_ID,
+          location_id: 'sunset-sardinero',
+          provider: 'microsoft_graph',
+          auth_mode: 'delegated_authorization_code',
+          connector_mode: 'microsoft_delegated_oauth',
+          binding_status: 'unverified_offline',
+          public_address: MAILBOX,
+        },
+      });
+      const routes = buildRoutes(env, db, createMultiplexHttps(db));
+      const r = resCapture();
+      // Request somo location with sardinero endpoint → zero rows
+      await routes.handleStart(startBody({ endpoint_id: OTHER_ENDPOINT_ID }), null, r, user());
+      assert.equal(r.status, 404);
+      assert.equal(db.txns.length, 0);
+    }
+
+    // Ambiguity (duplicate eligible rows)
+    {
+      const db = createStatefulDb({ duplicateStartRows: true });
+      const routes = buildRoutes(env, db, createMultiplexHttps(db));
+      const r = resCapture();
+      await routes.handleStart(startBody(), null, r, user());
+      assert.equal(r.status, 503);
+      assert.deepEqual(r.body, { success: false, error: 'oauth_start_unavailable' });
+      assert.equal(db.txns.length, 0);
+    }
+
+    // Foreign tenant user
+    {
+      const db = createStatefulDb();
+      const routes = buildRoutes(env, db, createMultiplexHttps(db));
+      const r = resCapture();
+      await routes.handleStart(startBody(), null, r, user({ client_slug: 'wolfhouse' }));
+      assert.equal(r.status, 403);
+      assert.equal(db.txns.length, 0);
+    }
+
+    // Hostile bodies — zero pg / zero insert
+    {
+      const db = createStatefulDb();
+      let pg = 0;
+      const routes = createStaffEmailOAuthRoutes({
+        runtimeEnv: env,
+        sendJSON,
+        assertStaffClientAccess() { return true; },
+        authorizeAuthenticatedStaffRoute() { return { ok: true }; },
+        withPgClient: async (fn) => {
+          pg += 1;
+          return fn(db.client);
+        },
+      });
+      const cases = [
+        { location_id: LOCATION_SLUG, extra: 'evil' },
+        { location_id: LOCATION_SLUG },
+        { endpoint_id: ENDPOINT_ID, location_id: LOCATION_SLUG },
+        (() => {
+          const o = {};
+          Object.defineProperty(o, 'location_id', { enumerable: true, get() { return LOCATION_SLUG; } });
+          Object.defineProperty(o, 'endpoint_id', { enumerable: true, get() { return ENDPOINT_ID; } });
+          return o;
+        })(),
+        (() => {
+          const o = startBody();
+          o[Symbol('s')] = 1;
+          return o;
+        })(),
+        { location_id: LOCATION_SLUG, endpoint_id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'.toUpperCase() },
+        { location_id: LOCATION_SLUG, endpoint_id: 'not-a-uuid' },
+      ];
+      for (const body of cases) {
+        const r = resCapture();
+        await routes.handleStart(body, null, r, user());
+        assert.equal(r.status, 400, `body should 400: ${JSON.stringify(body && Object.keys(body))}`);
+        assert.equal(db.txns.length, 0);
+      }
+      assert.equal(pg, 0);
+    }
+  } finally {
+    azure.restore();
   }
 });
 
 // ── Full E2E happy path ────────────────────────────────────────────────────
 
-test('full route E2E: start + callback consume→exchange→identity→seal→install; received after commit', async function fullE2EHappyPath() {
-  const db = createStatefulDb();
-  const bundle = createMultiplexHttps(db);
-  const routes = buildRoutes(goodEnv(), db, bundle);
+test('full route E2E: start + callback via production Azure path; wrap only on seal', async function fullE2EHappyPath() {
+  const azure = installAzureSdkSpies();
+  try {
+    const db = createStatefulDb();
+    const bundle = createMultiplexHttps(db);
+    const routes = buildRoutes(goodEnv(), db, bundle);
 
-  // Start
-  const rStart = resCapture();
-  await routes.handleStart({ location_id: LOCATION_SLUG }, null, rStart, user());
-  assert.equal(rStart.status, 200);
-  const url = new URL(rStart.body.authorization_url);
-  const state = url.searchParams.get('state');
-  assert.ok(state && state.length >= 43);
-  assert.equal(db.txns.length, 1);
-  const txn = db.txns[0];
-  assert.equal(txn.consumed_at, null);
+    const rStart = resCapture();
+    await routes.handleStart(startBody(), null, rStart, user());
+    assert.equal(rStart.status, 200);
+    const url = new URL(rStart.body.authorization_url);
+    const state = url.searchParams.get('state');
+    assert.ok(state && state.length >= 43);
+    assert.equal(db.txns.length, 1);
+    const txn = db.txns[0];
+    assert.equal(txn.consumed_at, null);
 
-  // Capture nonce for id_token (must match transaction nonce)
-  const nonce = txn.nonce;
-  // Rebuild token body with matching nonce in id_token for this txn.
-  bundle.calls.length = 0; // reset after start (start has no network)
-  // Monkey-patch: recreate routes with token that uses txn nonce
-  const bundle2 = createMultiplexHttps(db, {
-    tokenBody: goodTokenBody({
-      id_token: createIdToken({ nonce, aud: APP_CLIENT_ID }),
-    }),
-  });
-  const routes2 = buildRoutes(goodEnv(), db, bundle2);
+    const nonce = txn.nonce;
+    const wrapBefore = azure.counters.wrap;
+    assert.equal(wrapBefore, 0, 'no Key Vault wrap before callback');
 
-  const rCb = resCapture();
-  await routes2.handleCallback(
-    { state, code: CODE },
-    null,
-    rCb,
-    user(),
-  );
+    const bundle2 = createMultiplexHttps(db, {
+      tokenBody: goodTokenBody({
+        id_token: createIdToken({ nonce, aud: APP_CLIENT_ID }),
+      }),
+    });
+    const routes2 = buildRoutes(goodEnv(), db, bundle2);
 
-  assert.equal(rCb.statusCode, 200);
-  assert.match(rCb.headers['Content-Type'], /^text\/html/);
-  assert.match(rCb.headers['Content-Security-Policy'], /default-src 'none'/);
-  assert.match(rCb.body, /Authorization response received/);
-  assert.ok(!rCb.body.includes(CODE));
-  assert.ok(!rCb.body.includes(ACCESS));
-  assert.ok(!rCb.body.includes(REFRESH));
-  assert.ok(!rCb.body.includes(SECRET));
-  assert.ok(!rCb.body.includes(nonce));
-  assert.ok(!rCb.body.includes(ENDPOINT_ID));
+    const rCb = resCapture();
+    await routes2.handleCallback(
+      { state, code: CODE },
+      null,
+      rCb,
+      user(),
+    );
 
-  // Consumed + grant installed + endpoint verified
-  assert.ok(txn.consumed_at != null);
-  assert.equal(db.grants.length, 1);
-  assert.equal(db.endpoints[0].binding_status, 'verified');
-  assert.equal(db.endpoints[0].provider_principal_oid, PRINCIPAL);
-  assert.equal(db.grants[0].has_refresh_raw, false);
+    assert.equal(rCb.statusCode, 200);
+    assert.match(rCb.headers['Content-Type'], /^text\/html/);
+    assert.match(rCb.headers['Content-Security-Policy'], /default-src 'none'/);
+    assert.match(rCb.body, /Authorization response received/);
+    assert.ok(!rCb.body.includes(CODE));
+    assert.ok(!rCb.body.includes(ACCESS));
+    assert.ok(!rCb.body.includes(REFRESH));
+    assert.ok(!rCb.body.includes(SECRET));
+    assert.ok(!rCb.body.includes(nonce));
+    assert.ok(!rCb.body.includes(ENDPOINT_ID));
 
-  // Network order: token → (custody internal: identity uses jwks then graph)
-  // Actual order from composition: token exchange first, then identity (OIDC JWKS then Graph), then seal (no HTTPS), then install SQL BEGIN.
-  const hosts = bundle2.calls.map((c) => `${c.method} ${c.host}${c.path || ''}`);
-  assert.ok(hosts.length >= 3, `expected network calls, got ${JSON.stringify(hosts)}`);
-  assert.equal(bundle2.calls[0].host, TOKEN_HOST);
-  assert.equal(bundle2.calls[0].method, 'POST');
-  // Token body must include grant_type + redirect + code + secret + verifier — but we assert no leak in logs via terminal only.
+    assert.ok(txn.consumed_at != null);
+    assert.equal(db.grants.length, 1);
+    assert.equal(db.endpoints[0].binding_status, 'verified');
+    assert.equal(db.endpoints[0].provider_principal_oid, PRINCIPAL);
+    assert.equal(db.grants[0].has_refresh_raw, false);
 
-  // No BEGIN during any network call
-  const beginDuringNet = bundle2.calls.filter((c) => c.error === 'BEGIN_DURING_NETWORK');
-  assert.equal(beginDuringNet.length, 0);
+    // Seal used Azure RSA wrap exactly once on happy path.
+    assert.ok(azure.counters.wrap >= 1, 'Key Vault wrap after valid callback seal');
+    assert.equal(azure.counters.micClientId, SUNSET_STAGING_MI_CLIENT_ID);
+    assert.equal(azure.counters.ccKeyId, SUNSET_STAGING_VERSIONED_KEY_ID);
+    assert.ok(azure.counters.ccOptions
+      && azure.counters.ccOptions.retryOptions
+      && azure.counters.ccOptions.retryOptions.maxRetries === 0);
 
-  // SQL timeline: consume UPDATE before any BEGIN; BEGIN only near install end
-  const sqlKinds = db.timeline.map((t) => t.sql.slice(0, 48));
-  const beginIdx = db.timeline.findIndex((t) => t.sql === 'BEGIN');
-  const consumeIdx = db.timeline.findIndex((t) => t.sql === normSql(SQL_CONSUME_TRANSACTION));
-  assert.ok(consumeIdx >= 0);
-  assert.ok(beginIdx > consumeIdx, 'BEGIN must be after consume, not across external I/O window start');
-  // Between consume and BEGIN there should be no BEGIN
-  for (let i = consumeIdx; i < beginIdx; i += 1) {
-    assert.notEqual(db.timeline[i].sql, 'BEGIN');
+    const hosts = bundle2.calls.map((c) => `${c.method} ${c.host}${c.path || ''}`);
+    assert.ok(hosts.length >= 3, `expected network calls, got ${JSON.stringify(hosts)}`);
+    assert.equal(bundle2.calls[0].host, TOKEN_HOST);
+    assert.equal(bundle2.calls[0].method, 'POST');
+
+    const beginDuringNet = bundle2.calls.filter((c) => c.error === 'BEGIN_DURING_NETWORK');
+    assert.equal(beginDuringNet.length, 0);
+
+    const beginIdx = db.timeline.findIndex((t) => t.sql === 'BEGIN');
+    const consumeIdx = db.timeline.findIndex((t) => t.sql === normSql(SQL_CONSUME_TRANSACTION));
+    assert.ok(consumeIdx >= 0);
+    assert.ok(beginIdx > consumeIdx, 'BEGIN must be after consume, not across external I/O window start');
+    for (let i = consumeIdx; i < beginIdx; i += 1) {
+      assert.notEqual(db.timeline[i].sql, 'BEGIN');
+    }
+    assert.ok(db.timeline.some((t) => t.sql === 'COMMIT'));
+
+    const rReplay = resCapture();
+    await routes2.handleCallback({ state, code: CODE }, null, rReplay, user());
+    assert.equal(rReplay.statusCode, 400);
+    assert.match(rReplay.body, /could not be accepted/i);
+    assert.equal(db.grants.length, 1);
+  } finally {
+    azure.restore();
   }
-  assert.ok(db.timeline.some((t) => t.sql === 'COMMIT'));
-
-  // Replay fails terminal invalid
-  const rReplay = resCapture();
-  await routes2.handleCallback({ state, code: CODE }, null, rReplay, user());
-  assert.equal(rReplay.statusCode, 400);
-  assert.match(rReplay.body, /could not be accepted/i);
-  assert.equal(db.grants.length, 1); // no second install
 });
 
 function normSql(sql) {
@@ -906,187 +1204,230 @@ function normSql(sql) {
 // ── Callback failure matrix ────────────────────────────────────────────────
 
 test('provider-declined consumes and returns declined HTML; no token/Graph/install', async function providerDeclined() {
-  const db = createStatefulDb();
-  const bundle = createMultiplexHttps(db);
-  const routes = buildRoutes(goodEnv(), db, bundle);
-  const rStart = resCapture();
-  await routes.handleStart({ location_id: LOCATION_SLUG }, null, rStart, user());
-  const state = new URL(rStart.body.authorization_url).searchParams.get('state');
-  assert.equal(db.txns[0].consumed_at, null);
+  const azure = installAzureSdkSpies();
+  try {
+    const db = createStatefulDb();
+    const bundle = createMultiplexHttps(db);
+    const routes = buildRoutes(goodEnv(), db, bundle);
+    const rStart = resCapture();
+    await routes.handleStart(startBody(), null, rStart, user());
+    const state = new URL(rStart.body.authorization_url).searchParams.get('state');
+    assert.equal(db.txns[0].consumed_at, null);
 
-  const netBefore = bundle.calls.length;
-  const rCb = resCapture();
-  await routes.handleCallback({ state, error: 'access_denied' }, null, rCb, user());
-  assert.equal(rCb.statusCode, 200);
-  assert.match(rCb.body, /Authorization was declined/);
-  assert.ok(db.txns[0].consumed_at != null);
-  assert.equal(bundle.calls.length, netBefore); // no external network
-  assert.equal(db.grants.length, 0);
-  assert.equal(db.endpoints[0].binding_status, 'unverified_offline');
-  assert.ok(!db.timeline.some((t) => t.sql === 'BEGIN'));
+    const netBefore = bundle.calls.length;
+    const wrapBefore = azure.counters.wrap;
+    const rCb = resCapture();
+    await routes.handleCallback({ state, error: 'access_denied' }, null, rCb, user());
+    assert.equal(rCb.statusCode, 200);
+    assert.match(rCb.body, /Authorization was declined/);
+    assert.ok(db.txns[0].consumed_at != null);
+    assert.equal(bundle.calls.length, netBefore);
+    assert.equal(db.grants.length, 0);
+    assert.equal(db.endpoints[0].binding_status, 'unverified_offline');
+    assert.ok(!db.timeline.some((t) => t.sql === 'BEGIN'));
+    assert.equal(azure.counters.wrap, wrapBefore);
+  } finally {
+    azure.restore();
+  }
 });
 
 test('invalid/replay callback: fixed terminal; no external I/O; no install', async function invalidReplay() {
-  const db = createStatefulDb();
-  const bundle = createMultiplexHttps(db);
-  const routes = buildRoutes(goodEnv(), db, bundle);
+  const azure = installAzureSdkSpies();
+  try {
+    const db = createStatefulDb();
+    const bundle = createMultiplexHttps(db);
+    const routes = buildRoutes(goodEnv(), db, bundle);
 
-  const r1 = resCapture();
-  await routes.handleCallback({
-    state: Buffer.alloc(32, 7).toString('base64url'),
-    code: CODE,
-  }, null, r1, user());
-  assert.equal(r1.statusCode, 400);
-  assert.match(r1.body, /could not be accepted/i);
-  assert.equal(bundle.calls.length, 0);
-  assert.equal(db.grants.length, 0);
+    const r1 = resCapture();
+    await routes.handleCallback({
+      state: Buffer.alloc(32, 7).toString('base64url'),
+      code: CODE,
+    }, null, r1, user());
+    assert.equal(r1.statusCode, 400);
+    assert.match(r1.body, /could not be accepted/i);
+    assert.equal(bundle.calls.length, 0);
+    assert.equal(db.grants.length, 0);
 
-  // Hostile extra query keys
-  const r2 = resCapture();
-  await routes.handleCallback({
-    state: Buffer.alloc(32, 7).toString('base64url'),
-    code: CODE,
-    extra: 'evil',
-  }, null, r2, user());
-  assert.equal(r2.statusCode, 400);
-  assert.ok(!String(r2.body).includes('evil'));
+    const r2 = resCapture();
+    await routes.handleCallback({
+      state: Buffer.alloc(32, 7).toString('base64url'),
+      code: CODE,
+      extra: 'evil',
+    }, null, r2, user());
+    assert.equal(r2.statusCode, 400);
+    assert.ok(!String(r2.body).includes('evil'));
+  } finally {
+    azure.restore();
+  }
 });
 
 test('token transport failure after consume: terminal invalid; no install; consumed stays', async function tokenFailureConsumed() {
-  const db = createStatefulDb();
-  const bundleStart = createMultiplexHttps(db);
-  const routesStart = buildRoutes(goodEnv(), db, bundleStart);
-  const rStart = resCapture();
-  await routesStart.handleStart({ location_id: LOCATION_SLUG }, null, rStart, user());
-  const state = new URL(rStart.body.authorization_url).searchParams.get('state');
+  const azure = installAzureSdkSpies();
+  try {
+    const db = createStatefulDb();
+    const bundleStart = createMultiplexHttps(db);
+    const routesStart = buildRoutes(goodEnv(), db, bundleStart);
+    const rStart = resCapture();
+    await routesStart.handleStart(startBody(), null, rStart, user());
+    const state = new URL(rStart.body.authorization_url).searchParams.get('state');
 
-  const bundle = createMultiplexHttps(db, { tokenError: true });
-  const routes = buildRoutes(goodEnv(), db, bundle);
-  const rCb = resCapture();
-  await routes.handleCallback({ state, code: CODE }, null, rCb, user());
-  assert.equal(rCb.statusCode, 400);
-  assert.match(rCb.body, /could not be accepted/i);
-  assert.ok(db.txns[0].consumed_at != null);
-  assert.equal(db.grants.length, 0);
-  assert.equal(db.endpoints[0].binding_status, 'unverified_offline');
-  assertNoSensitive(rCb.body);
+    const bundle = createMultiplexHttps(db, { tokenError: true });
+    const routes = buildRoutes(goodEnv(), db, bundle);
+    const rCb = resCapture();
+    await routes.handleCallback({ state, code: CODE }, null, rCb, user());
+    assert.equal(rCb.statusCode, 400);
+    assert.match(rCb.body, /could not be accepted/i);
+    assert.ok(db.txns[0].consumed_at != null);
+    assert.equal(db.grants.length, 0);
+    assert.equal(db.endpoints[0].binding_status, 'unverified_offline');
+    assertNoSensitive(rCb.body);
+  } finally {
+    azure.restore();
+  }
 });
 
 test('OIDC/JWKS failure after token: no install; fixed terminal', async function oidcFailure() {
-  const db = createStatefulDb();
-  const bundleStart = createMultiplexHttps(db);
-  const routesStart = buildRoutes(goodEnv(), db, bundleStart);
-  const rStart = resCapture();
-  await routesStart.handleStart({ location_id: LOCATION_SLUG }, null, rStart, user());
-  const state = new URL(rStart.body.authorization_url).searchParams.get('state');
-  const nonce = db.txns[0].nonce;
+  const azure = installAzureSdkSpies();
+  try {
+    const db = createStatefulDb();
+    const bundleStart = createMultiplexHttps(db);
+    const routesStart = buildRoutes(goodEnv(), db, bundleStart);
+    const rStart = resCapture();
+    await routesStart.handleStart(startBody(), null, rStart, user());
+    const state = new URL(rStart.body.authorization_url).searchParams.get('state');
+    const nonce = db.txns[0].nonce;
 
-  const bundle = createMultiplexHttps(db, {
-    tokenBody: goodTokenBody({ id_token: createIdToken({ nonce }) }),
-    jwksBody: JSON.stringify({ keys: [] }),
-  });
-  const routes = buildRoutes(goodEnv(), db, bundle);
-  const rCb = resCapture();
-  await routes.handleCallback({ state, code: CODE }, null, rCb, user());
-  assert.equal(rCb.statusCode, 400);
-  assert.equal(db.grants.length, 0);
-  assert.ok(db.txns[0].consumed_at != null);
+    const bundle = createMultiplexHttps(db, {
+      tokenBody: goodTokenBody({ id_token: createIdToken({ nonce }) }),
+      jwksBody: JSON.stringify({ keys: [] }),
+    });
+    const routes = buildRoutes(goodEnv(), db, bundle);
+    const rCb = resCapture();
+    await routes.handleCallback({ state, code: CODE }, null, rCb, user());
+    assert.equal(rCb.statusCode, 400);
+    assert.equal(db.grants.length, 0);
+    assert.ok(db.txns[0].consumed_at != null);
+  } finally {
+    azure.restore();
+  }
 });
 
 test('Graph failure after OIDC: no install; fixed terminal', async function graphFailure() {
-  const db = createStatefulDb();
-  const bundleStart = createMultiplexHttps(db);
-  const routesStart = buildRoutes(goodEnv(), db, bundleStart);
-  const rStart = resCapture();
-  await routesStart.handleStart({ location_id: LOCATION_SLUG }, null, rStart, user());
-  const state = new URL(rStart.body.authorization_url).searchParams.get('state');
-  const nonce = db.txns[0].nonce;
+  const azure = installAzureSdkSpies();
+  try {
+    const db = createStatefulDb();
+    const bundleStart = createMultiplexHttps(db);
+    const routesStart = buildRoutes(goodEnv(), db, bundleStart);
+    const rStart = resCapture();
+    await routesStart.handleStart(startBody(), null, rStart, user());
+    const state = new URL(rStart.body.authorization_url).searchParams.get('state');
+    const nonce = db.txns[0].nonce;
 
-  const bundle = createMultiplexHttps(db, {
-    tokenBody: goodTokenBody({ id_token: createIdToken({ nonce }) }),
-    graphHttpError: true,
-  });
-  const routes = buildRoutes(goodEnv(), db, bundle);
-  const rCb = resCapture();
-  await routes.handleCallback({ state, code: CODE }, null, rCb, user());
-  assert.equal(rCb.statusCode, 400);
-  assert.equal(db.grants.length, 0);
-  assert.ok(db.txns[0].consumed_at != null);
+    const bundle = createMultiplexHttps(db, {
+      tokenBody: goodTokenBody({ id_token: createIdToken({ nonce }) }),
+      graphHttpError: true,
+    });
+    const routes = buildRoutes(goodEnv(), db, bundle);
+    const rCb = resCapture();
+    await routes.handleCallback({ state, code: CODE }, null, rCb, user());
+    assert.equal(rCb.statusCode, 400);
+    assert.equal(db.grants.length, 0);
+    assert.ok(db.txns[0].consumed_at != null);
+  } finally {
+    azure.restore();
+  }
 });
 
 test('install insert failure rolls back; no verified endpoint; fixed terminal', async function insertFailureRollback() {
-  const db = createStatefulDb({ failInsert: true });
-  const bundleStart = createMultiplexHttps(db);
-  const routesStart = buildRoutes(goodEnv(), db, bundleStart);
-  const rStart = resCapture();
-  await routesStart.handleStart({ location_id: LOCATION_SLUG }, null, rStart, user());
-  const state = new URL(rStart.body.authorization_url).searchParams.get('state');
-  const nonce = db.txns[0].nonce;
+  const azure = installAzureSdkSpies();
+  try {
+    const db = createStatefulDb({ failInsert: true });
+    const bundleStart = createMultiplexHttps(db);
+    const routesStart = buildRoutes(goodEnv(), db, bundleStart);
+    const rStart = resCapture();
+    await routesStart.handleStart(startBody(), null, rStart, user());
+    const state = new URL(rStart.body.authorization_url).searchParams.get('state');
+    const nonce = db.txns[0].nonce;
 
-  const bundle = createMultiplexHttps(db, {
-    tokenBody: goodTokenBody({ id_token: createIdToken({ nonce }) }),
-  });
-  const routes = buildRoutes(goodEnv(), db, bundle);
-  const rCb = resCapture();
-  await routes.handleCallback({ state, code: CODE }, null, rCb, user());
-  assert.equal(rCb.statusCode, 400);
-  assert.equal(db.grants.length, 0);
-  assert.equal(db.endpoints[0].binding_status, 'unverified_offline');
-  assert.ok(db.timeline.some((t) => t.sql === 'ROLLBACK'));
-  assert.ok(!db.timeline.some((t) => t.sql === 'COMMIT'));
+    const bundle = createMultiplexHttps(db, {
+      tokenBody: goodTokenBody({ id_token: createIdToken({ nonce }) }),
+    });
+    const routes = buildRoutes(goodEnv(), db, bundle);
+    const rCb = resCapture();
+    await routes.handleCallback({ state, code: CODE }, null, rCb, user());
+    assert.equal(rCb.statusCode, 400);
+    assert.equal(db.grants.length, 0);
+    assert.equal(db.endpoints[0].binding_status, 'unverified_offline');
+    assert.ok(db.timeline.some((t) => t.sql === 'ROLLBACK'));
+    assert.ok(!db.timeline.some((t) => t.sql === 'COMMIT'));
+  } finally {
+    azure.restore();
+  }
 });
 
 test('callback without secret readiness fails closed with terminal HTML', async function callbackMissingSecret() {
-  const db = createStatefulDb();
-  const bundle = createMultiplexHttps(db);
-  const env = goodEnv();
-  delete env.LUNA_EMAIL_OAUTH_CLIENT_SECRET;
-  const routes = buildRoutes(env, db, bundle);
-  // still need a txn for a realistic path — start also needs secret? start does not need secret.
-  const envStart = goodEnv();
-  const routesStart = buildRoutes(envStart, db, createMultiplexHttps(db));
-  const rStart = resCapture();
-  await routesStart.handleStart({ location_id: LOCATION_SLUG }, null, rStart, user());
-  const state = new URL(rStart.body.authorization_url).searchParams.get('state');
+  const azure = installAzureSdkSpies();
+  try {
+    const db = createStatefulDb();
+    const bundle = createMultiplexHttps(db);
+    const env = goodEnv();
+    delete env.LUNA_EMAIL_OAUTH_CLIENT_SECRET;
+    const routes = buildRoutes(env, db, bundle);
+    const envStart = goodEnv();
+    const routesStart = buildRoutes(envStart, db, createMultiplexHttps(db));
+    const rStart = resCapture();
+    await routesStart.handleStart(startBody(), null, rStart, user());
+    const state = new URL(rStart.body.authorization_url).searchParams.get('state');
 
-  const rCb = resCapture();
-  await routes.handleCallback({ state, code: CODE }, null, rCb, user());
-  assert.equal(rCb.statusCode, 400);
-  assert.match(rCb.body, /could not be accepted/i);
-  assert.equal(bundle.calls.length, 0);
-  // consume may or may not run — construction fails before accept if runtime factory throws inside withPgClient.
-  assert.equal(db.grants.length, 0);
+    const rCb = resCapture();
+    await routes.handleCallback({ state, code: CODE }, null, rCb, user());
+    assert.equal(rCb.statusCode, 400);
+    assert.match(rCb.body, /could not be accepted/i);
+    assert.equal(bundle.calls.length, 0);
+    assert.equal(db.grants.length, 0);
+  } finally {
+    azure.restore();
+  }
 });
 
 test('wrong session owner cannot complete another session txn', async function wrongSessionOwner() {
-  const db = createStatefulDb();
-  const bundle = createMultiplexHttps(db);
-  const routes = buildRoutes(goodEnv(), db, bundle);
-  const rStart = resCapture();
-  await routes.handleStart({ location_id: LOCATION_SLUG }, null, rStart, user());
-  const state = new URL(rStart.body.authorization_url).searchParams.get('state');
-  const rCb = resCapture();
-  await routes.handleCallback(
-    { state, code: CODE },
-    null,
-    rCb,
-    user({ session_id: '99999999-9999-9999-9999-999999999999' }),
-  );
-  assert.equal(rCb.statusCode, 400);
-  assert.equal(db.txns[0].consumed_at, null);
-  assert.equal(db.grants.length, 0);
+  const azure = installAzureSdkSpies();
+  try {
+    const db = createStatefulDb();
+    const bundle = createMultiplexHttps(db);
+    const routes = buildRoutes(goodEnv(), db, bundle);
+    const rStart = resCapture();
+    await routes.handleStart(startBody(), null, rStart, user());
+    const state = new URL(rStart.body.authorization_url).searchParams.get('state');
+    const rCb = resCapture();
+    await routes.handleCallback(
+      { state, code: CODE },
+      null,
+      rCb,
+      user({ session_id: '99999999-9999-9999-9999-999999999999' }),
+    );
+    assert.equal(rCb.statusCode, 400);
+    assert.equal(db.txns[0].consumed_at, null);
+    assert.equal(db.grants.length, 0);
+  } finally {
+    azure.restore();
+  }
 });
 
-test('INPUT_KEYS endpointId remains third; SQL resolve constant exported', async function contractsPinned() {
+test('INPUT_KEYS endpointId remains third; SQL resolve pins endpoint $2', async function contractsPinned() {
   assert.deepEqual([...INPUT_KEYS], [
     'clientId', 'locationId', 'endpointId', 'staffUserId', 'authSessionId',
   ]);
   assert.equal(typeof SQL_RESOLVE_START_BINDING, 'string');
   assert.match(SQL_RESOLVE_START_BINDING, /microsoft_graph/);
   assert.match(SQL_RESOLVE_START_BINDING, /public_address/);
+  assert.match(SQL_RESOLVE_START_BINDING, /e\.id = \$2::uuid/);
+  assert.match(SQL_RESOLVE_START_BINDING, /l\.location_id = \$1/);
   assert.equal(OAUTH_START_PATH, '/staff/admin/email-settings/oauth/microsoft/start');
   assert.equal(OAUTH_CALLBACK_PATH, '/staff/email/oauth/microsoft/callback');
   assert.equal(REDIRECT_URI.includes('sunset-staging'), true);
+  assert.equal(SUNSET_STAGING_KEK_KEY_NAME, 'luna-email-grant-kek');
+  assert.equal(typeof SUNSET_STAGING_KEK_KEY_VERSION, 'string');
 });
 
 // ── Runner ─────────────────────────────────────────────────────────────────
