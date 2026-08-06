@@ -4,6 +4,11 @@ const {
   createMicrosoftTokenHttpTransport,
   RESPONSE_LIMIT_BYTES,
 } = require('./email-microsoft-token-http-transport');
+const {
+  pinEmailOAuthStageTelemetry,
+  createNoopEmailOAuthStageTelemetry,
+  safeEmitStage,
+} = require('./email-microsoft-oauth-stage-telemetry');
 
 const FAILURE_CODE = 'microsoft_token_custody_failed';
 // Custody JSON body bound equals transport response cap (do not weaken transport).
@@ -22,6 +27,17 @@ function failure() { const error = new Error(FAILURE_CODE); error.code = FAILURE
 function ownData(object, key) {
   const descriptor = Object.getOwnPropertyDescriptor(object, key);
   return descriptor && !descriptor.get && !descriptor.set ? descriptor.value : undefined;
+}
+function resolveStageTelemetry(deps) {
+  try {
+    if (!deps || typeof deps !== 'object') return createNoopEmailOAuthStageTelemetry();
+    const raw = ownData(deps, 'stageTelemetry');
+    if (raw === undefined) return createNoopEmailOAuthStageTelemetry();
+    const pinned = pinEmailOAuthStageTelemetry(raw);
+    return pinned || null;
+  } catch {
+    return null;
+  }
 }
 function printable(value, limit) {
   return typeof value === 'string' && value.length > 0 && value.length <= limit && /^[\x21-\x7e]+$/.test(value);
@@ -104,19 +120,27 @@ function createMicrosoftTokenResponseCustodyService(deps = {}) {
   let custody;
   let accept;
   let transport;
+  let stageTelemetry;
   try {
     custody = deps && Object.getPrototypeOf(deps) === Object.prototype ? ownData(deps, 'custody') : null;
     accept = custody && Object.getPrototypeOf(custody) === Object.prototype
       ? ownData(custody, 'acceptValidatedTokens') : null;
     if (typeof accept !== 'function') throw failure();
     transport = createMicrosoftTokenHttpTransport(ownData(deps, 'transportDeps') || {});
+    stageTelemetry = resolveStageTelemetry(deps);
+    if (!stageTelemetry) throw failure();
   } catch (_) { throw failure(); }
   let used = false;
   async function exchangeAndCustody(input) {
     if (used) throw failure();
     used = true;
     try {
-      const selected = validate(await transport.postTokenForm(input));
+      const rawResponse = await transport.postTokenForm(input);
+      // Milestone: transport returned a response object (not yet validated).
+      safeEmitStage(stageTelemetry, 'token_response_received');
+      const selected = validate(rawResponse);
+      // Milestone: selected token shape validated (no tokens logged).
+      safeEmitStage(stageTelemetry, 'token_response_validated');
       if (!sealedAck(await Reflect.apply(accept, custody, [selected]))) throw failure();
       return SUCCESS;
     } catch (_) { throw failure(); }

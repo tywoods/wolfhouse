@@ -75,6 +75,10 @@ const {
 const {
   validateEmailGrantEnvelopeProvider,
 } = require('./email-grant-envelope-provider-contract');
+const {
+  resolveOptionalStageTelemetry,
+  createNoopEmailOAuthStageTelemetry,
+} = require('./email-microsoft-oauth-stage-telemetry');
 
 const ERROR_CODE = 'MICROSOFT_OAUTH_RUNTIME_COMPOSITION_INVALID';
 const ERROR_MESSAGE = 'Microsoft OAuth runtime composition failed.';
@@ -341,9 +345,26 @@ function resolveEnvelopeProvider(env) {
 }
 
 function pinDependencies(dependencies) {
-  if (!exactOrderedFrozenData(dependencies, DEPENDENCY_KEYS)) {
-    return null;
+  // Core keys exact ordered; optional stageTelemetry last (route injects).
+  const resolved = resolveOptionalStageTelemetry(dependencies, DEPENDENCY_KEYS);
+  if (!resolved.ok || !resolved.stageTelemetry) return null;
+
+  const ordered = Reflect.ownKeys(dependencies);
+  const hasStage = ordered.includes('stageTelemetry');
+  const expectedLen = hasStage
+    ? DEPENDENCY_KEYS.length + 1
+    : DEPENDENCY_KEYS.length;
+  if (ordered.length !== expectedLen) return null;
+  let coreIdx = 0;
+  for (let i = 0; i < ordered.length; i += 1) {
+    const key = ordered[i];
+    if (key === 'stageTelemetry') continue;
+    if (coreIdx >= DEPENDENCY_KEYS.length || key !== DEPENDENCY_KEYS[coreIdx]) {
+      return null;
+    }
+    coreIdx += 1;
   }
+  if (coreIdx !== DEPENDENCY_KEYS.length) return null;
 
   const env = ownData(dependencies, 'env');
   const pgClient = ownData(dependencies, 'pgClient');
@@ -391,6 +412,7 @@ function pinDependencies(dependencies) {
     timers: natives.timers,
     envelopeProvider,
     secretProvider,
+    stageTelemetry: resolved.stageTelemetry,
   });
 }
 
@@ -439,10 +461,12 @@ function createSunsetStagingMicrosoftOAuthCallbackRuntime(dependencies) {
       },
     });
 
-    // ── Verified identity composition ──────────────────────────────────────
+    // ── Verified identity composition (same stage surface as callback) ─────
+    const stageTelemetry = pinned.stageTelemetry || createNoopEmailOAuthStageTelemetry();
     const verifiedIdentity = createMicrosoftVerifiedIdentityComposition(Object.freeze({
       oidcValidator,
       graphIdentity,
+      stageTelemetry,
     }));
 
     // ── Token transport bag for operation composition (httpsImpl object) ───
@@ -471,6 +495,7 @@ function createSunsetStagingMicrosoftOAuthCallbackRuntime(dependencies) {
       installer,
       transportDeps,
       secretProvider: pinned.secretProvider,
+      stageTelemetry,
     }));
 
     // ── Transaction repository on same pg client (consume = single UPDATE) ─
@@ -499,6 +524,7 @@ function createSunsetStagingMicrosoftOAuthCallbackRuntime(dependencies) {
       completion,
       env: pinned.env,
       clock: dateClock,
+      stageTelemetry,
     }));
   } catch (err) {
     if (err && err.code === ERROR_CODE) throw err;

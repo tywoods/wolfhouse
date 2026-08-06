@@ -13,6 +13,10 @@
  */
 
 const { timingSafeEqual } = require('crypto');
+const {
+  resolveOptionalStageTelemetry,
+  safeEmitStage,
+} = require('./email-microsoft-oauth-stage-telemetry');
 
 const ERROR_CODE = 'MICROSOFT_VERIFIED_IDENTITY_INVALID';
 const ERROR_MESSAGE = 'Microsoft verified identity validation failed.';
@@ -33,6 +37,7 @@ const INPUT_KEYS = Object.freeze([
   'expectedClientId',
   'nowEpochSeconds',
 ]);
+const DEPENDENCY_KEYS = Object.freeze(['oidcValidator', 'graphIdentity']);
 const OIDC_RESULT_KEYS = Object.freeze(['providerTenantId', 'providerPrincipalId']);
 const GRAPH_RESULT_KEYS = Object.freeze(['providerSubjectId', 'mailboxAddress', 'displayName']);
 const PRINTABLE_ASCII = /^[\x21-\x7e]+$/;
@@ -221,9 +226,12 @@ function createMicrosoftVerifiedIdentityComposition(dependencies) {
   let graphIdentity;
   let validate;
   let fetchIdentity;
+  let stageTelemetry;
   try {
-    // Outer dependencies bag must be exact frozen.
-    if (!exactFrozenData(dependencies, ['oidcValidator', 'graphIdentity'])) throw failure();
+    // Outer dependencies bag: core exact frozen, optional stageTelemetry.
+    const resolved = resolveOptionalStageTelemetry(dependencies, DEPENDENCY_KEYS);
+    if (!resolved.ok || !resolved.stageTelemetry) throw failure();
+    stageTelemetry = resolved.stageTelemetry;
     oidcValidator = ownData(dependencies, 'oidcValidator');
     graphIdentity = ownData(dependencies, 'graphIdentity');
     if (!exactFrozenService(oidcValidator, 'validate')
@@ -258,6 +266,8 @@ function createMicrosoftVerifiedIdentityComposition(dependencies) {
       }
       const oidcIdentity = readOidcIdentity(oidcRaw);
       if (!oidcIdentity) throw failure();
+      // Milestone: OIDC id_token validation + principal/tenant extract succeeded.
+      safeEmitStage(stageTelemetry, 'oidc_verified');
 
       let graphRaw;
       try {
@@ -273,6 +283,8 @@ function createMicrosoftVerifiedIdentityComposition(dependencies) {
       if (!safeEqualUtf8(oidcIdentity.providerPrincipalId, graphIdentityResult.providerSubjectId)) {
         throw failure();
       }
+      // Milestone: Graph /me identity + principal match succeeded.
+      safeEmitStage(stageTelemetry, 'graph_identity_verified');
 
       // Minimized frozen output in fixed key order only.
       return Object.freeze({
