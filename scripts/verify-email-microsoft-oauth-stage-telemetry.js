@@ -166,6 +166,13 @@ test('exports frozen surface and exact stage vocabulary', async function exportS
     'oidc_verified',
     'graph_request_started',
     'graph_response_received',
+    // Finer Graph response validation milestones (isolate live callback_failed
+    // after graph_response_received without logging status/body/headers/identity).
+    'graph_http_accepted',
+    'graph_headers_accepted',
+    'graph_body_collected',
+    'graph_json_validated',
+    'graph_mailbox_selected',
     'graph_response_validated',
     'graph_principal_matched',
     'graph_identity_verified',
@@ -1276,24 +1283,50 @@ function graphStageComposition(spec = {}) {
   return { composition, events: cap.events, telemetry, graph, input };
 }
 
-test('graph happy path emits request→received→validated→principal→verified with same request_id', async function graphHappyFinerStages() {
+/** Full Graph transport success chain (before principal match). */
+const GRAPH_TRANSPORT_SUCCESS_STAGES = Object.freeze([
+  'graph_request_started',
+  'graph_response_received',
+  'graph_http_accepted',
+  'graph_headers_accepted',
+  'graph_body_collected',
+  'graph_json_validated',
+  'graph_mailbox_selected',
+  'graph_response_validated',
+]);
+
+function assertNeutralStageEvents(events) {
+  for (const ev of events) {
+    assertEventShape(ev, ev.stage);
+    assertNoSensitive(ev);
+    // Never status/error/body/headers/identity/mail/URL/token fields.
+    assert.equal(Object.prototype.hasOwnProperty.call(ev, 'status'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(ev, 'error'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(ev, 'body'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(ev, 'headers'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(ev, 'content_type'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(ev, 'content_length'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(ev, 'mail'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(ev, 'url'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(ev, 'identity'), false);
+    assert.deepEqual(Reflect.ownKeys(ev), ['event', 'stage', 'request_id']);
+  }
+}
+
+test('graph happy path emits full response-validation chain then principal→verified', async function graphHappyFinerStages() {
   const { composition, events, input } = graphStageComposition();
   const result = await composition.verifyIdentity(input);
   assert.equal(result.providerPrincipalId, PRINCIPAL);
   assert.equal(result.mailboxAddress, MAILBOX);
   assert.deepEqual(events.map((e) => e.stage), [
     'oidc_verified',
-    'graph_request_started',
-    'graph_response_received',
-    'graph_response_validated',
+    ...GRAPH_TRANSPORT_SUCCESS_STAGES,
     'graph_principal_matched',
     'graph_identity_verified',
   ]);
+  assertNeutralStageEvents(events);
   for (const ev of events) {
-    assertEventShape(ev, ev.stage);
-    assertNoSensitive(ev);
     assert.equal(ev.request_id, REQUEST_ID);
-    assert.deepEqual(Reflect.ownKeys(ev), ['event', 'stage', 'request_id']);
   }
   const ids = new Set(events.map((e) => e.request_id));
   assert.equal(ids.size, 1);
@@ -1309,47 +1342,110 @@ test('graph transport error after start emits request_started only (no received/
     'graph_request_started',
   ]);
   assert.equal(events.some((e) => e.stage === 'graph_response_received'), false);
+  assert.equal(events.some((e) => e.stage === 'graph_http_accepted'), false);
   assert.equal(events.some((e) => e.stage === 'graph_response_validated'), false);
   assert.equal(events.some((e) => e.stage === 'graph_principal_matched'), false);
   assert.equal(events.some((e) => e.stage === 'graph_identity_verified'), false);
-  for (const ev of events) {
-    assertEventShape(ev, ev.stage);
-    assertNoSensitive(ev);
-  }
+  assertNeutralStageEvents(events);
 });
 
-test('graph HTTP/content validation failure emits received without validated', async function graphValidationHostile() {
-  for (const graph of [
-    { status: 401 },
-    { status: 500 },
-    { headers: { 'content-type': 'text/plain' } },
-    { body: '{' },
-    { body: JSON.stringify({ id: 'x' }) }, // missing mailbox fields
-    { body: JSON.stringify({ id: PRINCIPAL, mail: 'not-an-email', userPrincipalName: MAILBOX }) },
-  ]) {
-    const { composition, events, input } = graphStageComposition({ graph });
+test('graph non-200 stops after received (no http_accepted)', async function graphHttpStatusHostile() {
+  for (const status of [401, 403, 500]) {
+    const { composition, events, input } = graphStageComposition({ graph: { status } });
     await assert.rejects(() => composition.verifyIdentity(input));
     assert.deepEqual(events.map((e) => e.stage), [
       'oidc_verified',
       'graph_request_started',
       'graph_response_received',
-    ], `unexpected stages for ${JSON.stringify(graph)}`);
+    ], `unexpected stages for status ${status}`);
+    assert.equal(events.some((e) => e.stage === 'graph_http_accepted'), false);
+    assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
     assert.equal(events.some((e) => e.stage === 'graph_response_validated'), false);
-    assert.equal(events.some((e) => e.stage === 'graph_identity_verified'), false);
-    for (const ev of events) {
-      assertEventShape(ev, ev.stage);
-      assertNoSensitive(ev);
-      // Never status/error/body/identity/mail/URL/token fields.
-      assert.equal(Object.prototype.hasOwnProperty.call(ev, 'status'), false);
-      assert.equal(Object.prototype.hasOwnProperty.call(ev, 'error'), false);
-      assert.equal(Object.prototype.hasOwnProperty.call(ev, 'body'), false);
-      assert.equal(Object.prototype.hasOwnProperty.call(ev, 'mail'), false);
-      assert.equal(Object.prototype.hasOwnProperty.call(ev, 'url'), false);
-    }
+    assertNeutralStageEvents(events);
   }
 });
 
-test('graph principal mismatch emits through validated then stops before matched/verified', async function graphPrincipalMismatchStages() {
+test('graph bad content-type stops after http_accepted (no headers_accepted)', async function graphContentTypeHostile() {
+  const { composition, events, input } = graphStageComposition({
+    graph: { headers: { 'content-type': 'text/plain' } },
+  });
+  await assert.rejects(() => composition.verifyIdentity(input));
+  assert.deepEqual(events.map((e) => e.stage), [
+    'oidc_verified',
+    'graph_request_started',
+    'graph_response_received',
+    'graph_http_accepted',
+  ]);
+  assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
+  assert.equal(events.some((e) => e.stage === 'graph_body_collected'), false);
+  assert.equal(events.some((e) => e.stage === 'graph_response_validated'), false);
+  assertNeutralStageEvents(events);
+});
+
+test('graph oversized content-length stops after http_accepted (no headers_accepted)', async function graphContentLengthHostile() {
+  const { composition, events, input } = graphStageComposition({
+    graph: {
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(1_000_000),
+      },
+    },
+  });
+  await assert.rejects(() => composition.verifyIdentity(input));
+  assert.deepEqual(events.map((e) => e.stage), [
+    'oidc_verified',
+    'graph_request_started',
+    'graph_response_received',
+    'graph_http_accepted',
+  ]);
+  assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
+  assert.equal(events.some((e) => e.stage === 'graph_body_collected'), false);
+  assertNeutralStageEvents(events);
+});
+
+test('graph invalid JSON stops after body_collected (no json_validated)', async function graphJsonHostile() {
+  const { composition, events, input } = graphStageComposition({
+    graph: { body: '{' },
+  });
+  await assert.rejects(() => composition.verifyIdentity(input));
+  assert.deepEqual(events.map((e) => e.stage), [
+    'oidc_verified',
+    'graph_request_started',
+    'graph_response_received',
+    'graph_http_accepted',
+    'graph_headers_accepted',
+    'graph_body_collected',
+  ]);
+  assert.equal(events.some((e) => e.stage === 'graph_json_validated'), false);
+  assert.equal(events.some((e) => e.stage === 'graph_mailbox_selected'), false);
+  assert.equal(events.some((e) => e.stage === 'graph_response_validated'), false);
+  assertNeutralStageEvents(events);
+});
+
+test('graph identity select failure stops after json_validated (no mailbox_selected)', async function graphMailboxHostile() {
+  for (const body of [
+    JSON.stringify({ id: 'x' }), // missing mailbox fields
+    JSON.stringify({ id: PRINCIPAL, mail: 'not-an-email', userPrincipalName: MAILBOX }),
+  ]) {
+    const { composition, events, input } = graphStageComposition({ graph: { body } });
+    await assert.rejects(() => composition.verifyIdentity(input));
+    assert.deepEqual(events.map((e) => e.stage), [
+      'oidc_verified',
+      'graph_request_started',
+      'graph_response_received',
+      'graph_http_accepted',
+      'graph_headers_accepted',
+      'graph_body_collected',
+      'graph_json_validated',
+    ], `unexpected stages for body ${body}`);
+    assert.equal(events.some((e) => e.stage === 'graph_mailbox_selected'), false);
+    assert.equal(events.some((e) => e.stage === 'graph_response_validated'), false);
+    assert.equal(events.some((e) => e.stage === 'graph_identity_verified'), false);
+    assertNeutralStageEvents(events);
+  }
+});
+
+test('graph principal mismatch emits full transport chain then stops before matched/verified', async function graphPrincipalMismatchStages() {
   const { composition, events, input } = graphStageComposition({
     oidcPrincipal: PRINCIPAL,
     graph: {
@@ -1364,16 +1460,11 @@ test('graph principal mismatch emits through validated then stops before matched
   await assert.rejects(() => composition.verifyIdentity(input));
   assert.deepEqual(events.map((e) => e.stage), [
     'oidc_verified',
-    'graph_request_started',
-    'graph_response_received',
-    'graph_response_validated',
+    ...GRAPH_TRANSPORT_SUCCESS_STAGES,
   ]);
   assert.equal(events.some((e) => e.stage === 'graph_principal_matched'), false);
   assert.equal(events.some((e) => e.stage === 'graph_identity_verified'), false);
-  for (const ev of events) {
-    assertEventShape(ev, ev.stage);
-    assertNoSensitive(ev);
-  }
+  assertNeutralStageEvents(events);
 });
 
 test('graph standalone factory accepts optional telemetry without weakening core bags', async function graphFactoryOptionalTelemetry() {
@@ -1391,15 +1482,8 @@ test('graph standalone factory accepts optional telemetry without weakening core
   }));
   const withTel = graphTransportFake({ stageTelemetry: telemetry });
   await withTel.fetch({ accessToken: GRAPH_ACCESS });
-  assert.deepEqual(cap.events.map((e) => e.stage), [
-    'graph_request_started',
-    'graph_response_received',
-    'graph_response_validated',
-  ]);
-  for (const ev of cap.events) {
-    assertEventShape(ev, ev.stage);
-    assertNoSensitive(ev);
-  }
+  assert.deepEqual(cap.events.map((e) => e.stage), [...GRAPH_TRANSPORT_SUCCESS_STAGES]);
+  assertNeutralStageEvents(cap.events);
 
   // Invalid stageTelemetry surface fails closed at factory (no ambient fallback).
   assert.throws(
@@ -1414,10 +1498,25 @@ test('graph standalone factory accepts optional telemetry without weakening core
   assert.equal(graphSrc.includes('global.'), false);
   assert.match(graphSrc, /graph_request_started/);
   assert.match(graphSrc, /graph_response_received/);
+  assert.match(graphSrc, /graph_http_accepted/);
+  assert.match(graphSrc, /graph_headers_accepted/);
+  assert.match(graphSrc, /graph_body_collected/);
+  assert.match(graphSrc, /graph_json_validated/);
+  assert.match(graphSrc, /graph_mailbox_selected/);
   assert.match(graphSrc, /graph_response_validated/);
+  // Each success milestone must appear as a dedicated safeEmitStage call.
+  assert.match(graphSrc, /safeEmitStage\(\s*stageTelemetry\s*,\s*'graph_http_accepted'\s*\)/);
+  assert.match(graphSrc, /safeEmitStage\(\s*stageTelemetry\s*,\s*'graph_headers_accepted'\s*\)/);
+  assert.match(graphSrc, /safeEmitStage\(\s*stageTelemetry\s*,\s*'graph_body_collected'\s*\)/);
+  assert.match(graphSrc, /safeEmitStage\(\s*stageTelemetry\s*,\s*'graph_json_validated'\s*\)/);
+  assert.match(graphSrc, /safeEmitStage\(\s*stageTelemetry\s*,\s*'graph_mailbox_selected'\s*\)/);
+  assert.match(graphSrc, /safeEmitStage\(\s*stageTelemetry\s*,\s*'graph_response_validated'\s*\)/);
   const identitySrc = fs.readFileSync(path.join(ROOT, IDENTITY_REL), 'utf8');
   assert.match(identitySrc, /graph_principal_matched/);
   assert.match(identitySrc, /graph_identity_verified/);
+  // Response-validation stages belong to Graph transport only (not identity).
+  assert.equal(identitySrc.includes('graph_http_accepted'), false);
+  assert.equal(identitySrc.includes('graph_mailbox_selected'), false);
 });
 
 test('graph stage logger throw never affects Graph /me or identity control flow', async function graphLoggerNeverAffectsRequest() {
@@ -1540,18 +1639,15 @@ test('realistic production Graph composition correlates all finer stages on one 
     'token_response_received',
     'token_response_validated',
     'oidc_verified',
-    'graph_request_started',
-    'graph_response_received',
-    'graph_response_validated',
+    ...GRAPH_TRANSPORT_SUCCESS_STAGES,
     'graph_principal_matched',
     'graph_identity_verified',
     'envelope_sealed',
     'installer_started',
     'installer_committed',
   ]);
+  assertNeutralStageEvents(cap.events);
   for (const ev of cap.events) {
-    assertEventShape(ev, ev.stage);
-    assertNoSensitive(ev);
     assert.equal(ev.request_id, REQUEST_ID);
   }
   // Ownership surface for installer remains preferred SMTP mail.
