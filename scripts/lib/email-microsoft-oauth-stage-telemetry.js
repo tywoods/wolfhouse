@@ -52,6 +52,13 @@ const STAGES = Object.freeze([
   // Finer Graph /me milestones (diagnose live callback_failed after oidc_verified).
   'graph_request_started',
   'graph_response_received',
+  // Response-validation chain: isolate failures after graph_response_received
+  // without logging status/error/body/headers/identity (same 3-field events).
+  'graph_http_accepted',
+  'graph_headers_accepted',
+  'graph_body_collected',
+  'graph_json_validated',
+  'graph_mailbox_selected',
   'graph_response_validated',
   'graph_principal_matched',
   'graph_identity_verified',

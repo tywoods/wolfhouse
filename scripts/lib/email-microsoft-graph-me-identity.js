@@ -316,6 +316,8 @@ function createMicrosoftGraphMeIdentityTransport(dependencies = {}) {
             const contentType = headers && typeof headers === 'object' ? readOwnData(headers, 'content-type') : undefined;
             const contentLength = headers && typeof headers === 'object' ? readOwnData(headers, 'content-length') : undefined;
             if (status !== 200) { terminate(failure('HTTP_ERROR')); return; }
+            // Milestone: exact HTTP 200 only (no status/body logged).
+            safeEmitStage(stageTelemetry, 'graph_http_accepted');
             if (typeof contentType !== 'string' || !/^application\/json(?:\s*;|$)/i.test(contentType)) {
               terminate(failure('RESPONSE_INVALID')); return;
             }
@@ -324,6 +326,8 @@ function createMicrosoftGraphMeIdentityTransport(dependencies = {}) {
                 ? failure('RESPONSE_TOO_LARGE') : failure('RESPONSE_INVALID'));
               return;
             }
+            // Milestone: content-type + content-length checks passed (values not logged).
+            safeEmitStage(stageTelemetry, 'graph_headers_accepted');
             if (typeof response.on !== 'function' || typeof response.once !== 'function') {
               terminate(failure('REQUEST_FAILED')); return;
             }
@@ -344,8 +348,15 @@ function createMicrosoftGraphMeIdentityTransport(dependencies = {}) {
               if (settled) return;
               ended = true;
               try {
-                const identity = selectIdentity(parseStrictJson(Buffer.concat(chunks, bytes).toString('utf8')));
-                // Milestone: 200/content/body strict parse + selectIdentity succeeded.
+                // Milestone: bounded stream ended; body collected, not yet parsed.
+                safeEmitStage(stageTelemetry, 'graph_body_collected');
+                const parsed = parseStrictJson(Buffer.concat(chunks, bytes).toString('utf8'));
+                // Milestone: strict JSON parse succeeded (payload not logged).
+                safeEmitStage(stageTelemetry, 'graph_json_validated');
+                const identity = selectIdentity(parsed);
+                // Milestone: selectIdentity produced a frozen mailbox identity.
+                safeEmitStage(stageTelemetry, 'graph_mailbox_selected');
+                // Milestone: full Graph response validation chain complete.
                 safeEmitStage(stageTelemetry, 'graph_response_validated');
                 finish(null, identity);
               } catch (error) {

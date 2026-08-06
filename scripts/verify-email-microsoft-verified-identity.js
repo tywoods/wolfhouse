@@ -1131,6 +1131,11 @@ test('merged factories prefer Graph mail over differing valid UPN and emit graph
     'oidc_verified',
     'graph_request_started',
     'graph_response_received',
+    'graph_http_accepted',
+    'graph_headers_accepted',
+    'graph_body_collected',
+    'graph_json_validated',
+    'graph_mailbox_selected',
     'graph_response_validated',
     'graph_principal_matched',
     'graph_identity_verified',
@@ -1169,6 +1174,11 @@ test('merged factories use UPN when mail absent; still reach graph_identity_veri
     'oidc_verified',
     'graph_request_started',
     'graph_response_received',
+    'graph_http_accepted',
+    'graph_headers_accepted',
+    'graph_body_collected',
+    'graph_json_validated',
+    'graph_mailbox_selected',
     'graph_response_validated',
     'graph_principal_matched',
     'graph_identity_verified',
@@ -1199,12 +1209,17 @@ test('merged factories fail closed on malformed mail with valid UPN before graph
     stageTelemetry,
   }));
   await expectSanitizedFailure(() => composition.verifyIdentity(goodInput()));
-  // Transport received a response; identity select fails before validated/matched/verified.
+  // JSON parses; selectIdentity fails before mailbox_selected/validated/matched/verified.
   assert.deepEqual(stages, [
     'oidc_verified',
     'graph_request_started',
     'graph_response_received',
+    'graph_http_accepted',
+    'graph_headers_accepted',
+    'graph_body_collected',
+    'graph_json_validated',
   ]);
+  assert.equal(stages.includes('graph_mailbox_selected'), false);
   assert.equal(stages.includes('graph_response_validated'), false);
   assert.equal(stages.includes('graph_identity_verified'), false);
 });
@@ -1237,7 +1252,12 @@ test('merged factories fail closed on malformed UPN with valid mail before graph
     'oidc_verified',
     'graph_request_started',
     'graph_response_received',
+    'graph_http_accepted',
+    'graph_headers_accepted',
+    'graph_body_collected',
+    'graph_json_validated',
   ]);
+  assert.equal(stages.includes('graph_mailbox_selected'), false);
   assert.equal(stages.includes('graph_response_validated'), false);
   assert.equal(stages.includes('graph_identity_verified'), false);
 });
