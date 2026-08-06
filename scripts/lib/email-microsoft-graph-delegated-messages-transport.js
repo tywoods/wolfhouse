@@ -6,6 +6,7 @@
  * Returns only a bounded count — never subjects, addresses, IDs, bodies, or links.
  * Validates native responses with the pinned IncomingMessage / isProxy pattern.
  * May accept a standard @odata.nextLink on the list envelope (never followed).
+ * May accept optional per-message @odata.etag (validated then discarded; never used).
  *
  * Not the app-only mailbox adapter. No pagination, delta, send, or persistence.
  *
@@ -27,6 +28,8 @@ const SELECT_FIELDS = Object.freeze([
   'conversationId',
   'internetMessageId',
 ]);
+const ETAG_KEY = '@odata.etag';
+const ROW_FIELDS_WITH_ETAG = Object.freeze([...SELECT_FIELDS, ETAG_KEY]);
 const PATH = `/v1.0/me/messages?$top=${TOP_MAX}&$select=${SELECT_FIELDS.join(',')}`;
 const DEADLINE_MS = 10_000;
 const RESPONSE_CAP_BYTES = 65_536;
@@ -368,7 +371,7 @@ function acceptFrom(value) {
 }
 
 function rowKeysetValid(row) {
-  return exactPlainData(row, SELECT_FIELDS);
+  return exactPlainData(row, SELECT_FIELDS) || exactPlainData(row, ROW_FIELDS_WITH_ETAG);
 }
 
 function rowValuesValid(row) {
@@ -380,6 +383,11 @@ function rowValuesValid(row) {
   if (isRead !== true && isRead !== false) return false;
   if (!optionalBoundedString(ownData(row, 'conversationId'))) return false;
   if (!optionalBoundedString(ownData(row, 'internetMessageId'))) return false;
+  if (Object.prototype.hasOwnProperty.call(row, ETAG_KEY)) {
+    const etag = ownData(row, ETAG_KEY);
+    if (!requiredBoundedString(etag)) return false;
+    // Discard immediately — never return, persist, compare, log, or use.
+  }
   return true;
 }
 
