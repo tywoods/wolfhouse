@@ -31,6 +31,9 @@ const {
   createNoopEmailOAuthStageTelemetry,
   defaultEmailOAuthStageLogger,
 } = require('./email-microsoft-oauth-stage-telemetry');
+const {
+  GRAPH_STAGES,
+} = require('./email-microsoft-graph-delegated-messages-transport');
 
 const OAUTH_START_PATH = '/staff/admin/email-settings/oauth/microsoft/start';
 /** Exact prepare path — endpoint creation prerequisite for Microsoft OAuth. */
@@ -64,14 +67,16 @@ const REFRESH_HEALTH_SUCCESS_KEYS = Object.freeze([
   'reconcile_state',
   'reauthorization_required',
 ]);
-/** Exact ordered read-health success JSON keys (sanitized status only). */
+/** Exact ordered read-health success JSON keys (sanitized status + allowlisted stage). */
 const READ_HEALTH_SUCCESS_KEYS = Object.freeze([
   'success',
   'status',
   'grant_generation',
   'graph_reachable',
   'message_count_bounded',
+  'graph_stage',
 ]);
+const READ_HEALTH_GRAPH_STAGE_SET = new Set(GRAPH_STAGES);
 const PREPARE_ERROR = 'endpoint_prepare_unavailable';
 const REFRESH_HEALTH_ERROR = 'refresh_health_unavailable';
 const READ_HEALTH_ERROR = 'read_health_unavailable';
@@ -310,6 +315,7 @@ function buildReadHealthSuccessJson(result) {
     const grantGeneration = result.grant_generation;
     const graphReachable = result.graph_reachable;
     const messageCount = result.message_count_bounded;
+    const graphStage = result.graph_stage;
     if (typeof status !== 'string'
         || !['healthy', 'reauthorization_required', 'uncertain', 'unavailable'].includes(status)) {
       return null;
@@ -321,12 +327,17 @@ function buildReadHealthSuccessJson(result) {
     if (messageCount != null && (!Number.isInteger(messageCount) || messageCount < 0 || messageCount > 5)) {
       return null;
     }
+    if (graphStage != null
+        && (typeof graphStage !== 'string' || !READ_HEALTH_GRAPH_STAGE_SET.has(graphStage))) {
+      return null;
+    }
     const dto = {};
     dto.success = true;
     dto.status = status;
     dto.grant_generation = grantGeneration == null ? null : grantGeneration;
     dto.graph_reachable = graphReachable;
     dto.message_count_bounded = messageCount == null ? null : messageCount;
+    dto.graph_stage = graphStage == null ? null : graphStage;
     return Object.freeze(dto);
   } catch {
     return null;

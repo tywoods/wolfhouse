@@ -181,7 +181,7 @@ async function main() {
       capturedGraphInput = input;
       seenAccessDuringCall = input.accessToken;
       assert.equal(Object.isFrozen(input), false, 'graph input must remain mutable for cleanup');
-      return Object.freeze({ message_count_bounded: 2 });
+      return Object.freeze({ message_count_bounded: 2, graph_stage: 'success' });
     });
 
     const healthy = await createDelegatedGrantReadHealthService(Object.freeze({
@@ -198,16 +198,17 @@ async function main() {
     assert.equal(healthy.grant_generation, 2);
     assert.equal(healthy.graph_reachable, true);
     assert.equal(healthy.message_count_bounded, 2);
+    assert.equal(healthy.graph_stage, 'success');
     assert.equal(graphCalls, 1);
     assert.equal(seenAccessDuringCall, ACCESS);
     assert.ok(capturedGraphInput);
     assert.equal(capturedGraphInput.accessToken, null, 'access token cleared after Graph success');
     assert.equal(noLeak(healthy), true);
     assert.deepEqual(Reflect.ownKeys(healthy), [
-      'status', 'grant_generation', 'graph_reachable', 'message_count_bounded',
+      'status', 'grant_generation', 'graph_reachable', 'message_count_bounded', 'graph_stage',
     ]);
 
-    // Graph failure after CAS → uncertain, generation advanced, token cleared, no leak.
+    // Graph failure after CAS → uncertain, generation advanced, token cleared, stage propagated.
     const fake2 = createFakeEmailGrantEnvelopeProvider();
     const op2 = crypto.randomUUID();
     const sealed2 = await fakeSealRefreshToken(fake2, {
@@ -217,7 +218,9 @@ async function main() {
     let failInput = null;
     const graphFail = frozenMethod('listMessageEnvelopeCount', async (input) => {
       failInput = input;
-      throw new Error(PLANTED);
+      const err = new Error(PLANTED);
+      err.graph_stage = 'http_status_not_200';
+      throw err;
     });
     const uncertain = await createDelegatedGrantReadHealthService(Object.freeze({
       deployment: SUNSET_DEPLOYMENT,
@@ -232,11 +235,12 @@ async function main() {
     assert.equal(uncertain.grant_generation, 2);
     assert.equal(uncertain.graph_reachable, false);
     assert.equal(uncertain.message_count_bounded, null);
+    assert.equal(uncertain.graph_stage, 'http_status_not_200');
     assert.ok(failInput);
     assert.equal(failInput.accessToken, null, 'access token cleared after Graph throw');
     assert.equal(noLeak(uncertain), true);
 
-    // Graph soft-failure (bad shape) also clears token.
+    // Graph soft-failure (bad shape) also clears token; no invented stage.
     const fake2b = createFakeEmailGrantEnvelopeProvider();
     const op2b = crypto.randomUUID();
     const sealed2b = await fakeSealRefreshToken(fake2b, {
@@ -246,7 +250,7 @@ async function main() {
     let softInput = null;
     const graphSoft = frozenMethod('listMessageEnvelopeCount', async (input) => {
       softInput = input;
-      return Object.freeze({ message_count_bounded: 99 });
+      return Object.freeze({ message_count_bounded: 99, graph_stage: 'success' });
     });
     const soft = await createDelegatedGrantReadHealthService(Object.freeze({
       deployment: SUNSET_DEPLOYMENT,
@@ -259,9 +263,36 @@ async function main() {
     })).runReadHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
     assert.equal(soft.status, STATUS_UNCERTAIN);
     assert.equal(soft.graph_reachable, false);
+    assert.equal(soft.graph_stage, null);
     assert.ok(softInput);
     assert.equal(softInput.accessToken, null, 'access token cleared after Graph soft-failure');
     assert.equal(noLeak(soft), true);
+
+    // Hostile planted stage string on throw is dropped (not allowlisted).
+    const fake2c = createFakeEmailGrantEnvelopeProvider();
+    const op2c = crypto.randomUUID();
+    const sealed2c = await fakeSealRefreshToken(fake2c, {
+      refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+      grantGeneration: 1, operationId: op2c,
+    });
+    const graphHostileStage = frozenMethod('listMessageEnvelopeCount', async () => {
+      const err = new Error(PLANTED);
+      err.graph_stage = PLANTED;
+      throw err;
+    });
+    const hostileStage = await createDelegatedGrantReadHealthService(Object.freeze({
+      deployment: SUNSET_DEPLOYMENT,
+      applicationClientId: APP_ID,
+      client: mockLifecycle({ sealed: sealed2c, opId: op2c }),
+      envelopeProvider: fake2c,
+      secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+      transport: successTransport(),
+      graphMessages: graphHostileStage,
+    })).runReadHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+    assert.equal(hostileStage.status, STATUS_UNCERTAIN);
+    assert.equal(hostileStage.grant_generation, 2);
+    assert.equal(hostileStage.graph_stage, null);
+    assert.equal(noLeak(hostileStage), true);
 
     // invalid_grant → reauth, Graph never called.
     const fake3 = createFakeEmailGrantEnvelopeProvider();
@@ -284,11 +315,12 @@ async function main() {
       })),
       graphMessages: frozenMethod('listMessageEnvelopeCount', async () => {
         graphAfterReauth += 1;
-        return Object.freeze({ message_count_bounded: 0 });
+        return Object.freeze({ message_count_bounded: 0, graph_stage: 'success' });
       }),
     })).runReadHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
     assert.equal(reauth.status, STATUS_REAUTH);
     assert.equal(reauth.graph_reachable, false);
+    assert.equal(reauth.graph_stage, null);
     assert.equal(graphAfterReauth, 0);
     assert.equal(noLeak(reauth), true);
 
