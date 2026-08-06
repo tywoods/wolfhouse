@@ -27,9 +27,8 @@ _Started 2026-08-03. Last updated 2026-08-06 15:35 UTC. Owner brain-dump complet
 - **T1 — [UI][FEAT] Collapse to 4 top-level tabs: Schedule · Inbox · Bookings · Admin.** `M–L`
   - **Schedule** — unchanged.
   - **Inbox** — **merge Customers into Inbox** (Customers stops being its own tab; its content lives inside Inbox).
-  - **Bookings** — promote to its own top-level tab (currently lives under Admin).
-  - **Admin** — **remove billing/Finance**; keep Pricing + Luna Staff (rest as-is).
-  - **Billing/Finance destination:** → **Bookings tab** (natural finance/refund home). _(owner to confirm — only unspecified piece)_
+  - **Bookings** — promote to its own top-level tab (currently a sub-tab under Admin); this is the **only** thing that leaves Admin.
+  - **Admin** — **Finance stays in Admin** (unchanged), along with Pricing + Luna Staff; only Bookings is removed (promoted).
   - Gated by **R1** roles (Admin tab visibility). Depends on nothing else; mostly nav wiring + moving panel content.
 - **B1 — [BUG] Booking click: schedule 503 + no jump-to-day.** From Bookings/admin, clicking a recent booking opens the drawer but the schedule behind fails **"Could not load schedule. HTTP 503"**, and it should also navigate to the **day the booking starts** (drawer opened on the wrong day). Repro on `SUNSET-20260804-1497D`. Overlaps the shipped "clickable codes → Schedule day + drawer" (rev 0472) — investigate why it 503s / lands wrong. `M`
 
