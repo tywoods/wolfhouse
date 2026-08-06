@@ -15,8 +15,10 @@
 
 const assert = require('assert/strict');
 const fs = require('fs');
+const http = require('http');
 const path = require('path');
 const { EventEmitter } = require('events');
+const { Socket } = require('net');
 
 const {
   EVENT_NAME,
@@ -1205,10 +1207,25 @@ const GRAPH_GOOD_BODY = JSON.stringify({
   userPrincipalName: MAILBOX,
 });
 
+function nativeGraphResponse(spec = {}) {
+  const res = new http.IncomingMessage(new Socket());
+  res.statusCode = spec.status === undefined ? 200 : spec.status;
+  res.headers = spec.headers || { 'content-type': 'application/json; charset=utf-8' };
+  res.destroy = () => {};
+  // Production shape precondition: headers is a native prototype getter, not own data.
+  assert.equal(Object.prototype.hasOwnProperty.call(res, 'headers'), false);
+  return res;
+}
+
 function graphTransportFake(spec = {}) {
   const calls = [];
+  const timerHandles = [];
   const timers = {
-    setTimeout(callback) { return { callback }; },
+    setTimeout(callback) {
+      const handle = { callback };
+      timerHandles.push(handle);
+      return handle;
+    },
     clearTimeout() {},
   };
   const httpsImpl = (options, callback) => {
@@ -1218,16 +1235,33 @@ function graphTransportFake(spec = {}) {
     req.end = () => {
       const call = { options, req };
       calls.push(call);
-      if (spec.never) return;
+      // holdResponse: expose deliverResponse so tests can fire after deadline.
+      if (spec.never || spec.holdResponse) {
+        call.deliverResponse = (res) => {
+          call.res = res;
+          callback(res);
+        };
+        return;
+      }
       if (spec.requestError) {
         queueMicrotask(() => req.emit('error', new Error(`${LEAK} graph-transport`)));
         return;
       }
       queueMicrotask(() => {
-        const res = new EventEmitter();
-        res.statusCode = spec.status === undefined ? 200 : spec.status;
-        res.headers = spec.headers || { 'content-type': 'application/json; charset=utf-8' };
-        res.destroy = () => {};
+        let res;
+        if (spec.nativeResponse) {
+          res = nativeGraphResponse({
+            status: spec.status,
+            headers: spec.headers,
+          });
+        } else if (spec.responseFactory) {
+          res = spec.responseFactory({ status: spec.status, headers: spec.headers });
+        } else {
+          res = new EventEmitter();
+          res.statusCode = spec.status === undefined ? 200 : spec.status;
+          res.headers = spec.headers || { 'content-type': 'application/json; charset=utf-8' };
+          res.destroy = () => {};
+        }
         call.res = res;
         callback(res);
         if (spec.onResponse) {
@@ -1246,7 +1280,7 @@ function graphTransportFake(spec = {}) {
     deps.stageTelemetry = spec.stageTelemetry;
   }
   const service = createMicrosoftGraphMeIdentityTransport(deps);
-  return { service, calls, fetch: service.fetchIdentity };
+  return { service, calls, fetch: service.fetchIdentity, timerHandles };
 }
 
 function graphStageComposition(spec = {}) {
@@ -1661,6 +1695,386 @@ test('realistic production Graph composition correlates all finer stages on one 
     runtimeSrc,
     /createMicrosoftGraphMeIdentityTransport\(\{[\s\S]*?stageTelemetry[\s\S]*?\}\)/,
   );
+});
+
+// ── Native IncomingMessage headers (production Graph response shape) ───────
+// Live final trace was graph_response_received → graph_http_accepted →
+// callback_failed with no graph_headers_accepted. statusCode is own data so
+// HTTP 200 passed; headers is a non-own native getter so readOwnData returned
+// undefined and content-type validation failed closed.
+
+test('native IncomingMessage Graph response emits full chain including graph_headers_accepted', async function graphNativeHeadersFullChain() {
+  const { composition, events, input, graph } = graphStageComposition({
+    graph: { nativeResponse: true },
+  });
+  const result = await composition.verifyIdentity(input);
+  assert.equal(result.providerPrincipalId, PRINCIPAL);
+  assert.equal(result.mailboxAddress, MAILBOX);
+  assert.deepEqual(events.map((e) => e.stage), [
+    'oidc_verified',
+    ...GRAPH_TRANSPORT_SUCCESS_STAGES,
+    'graph_principal_matched',
+    'graph_identity_verified',
+  ]);
+  assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), true);
+  assertNeutralStageEvents(events);
+  // Response that produced the chain must be genuine non-own headers.
+  assert.equal(Object.prototype.hasOwnProperty.call(graph.calls[0].res, 'headers'), false);
+  assert.equal(graph.calls[0].res.constructor, http.IncomingMessage);
+});
+
+test('hostile prototype headers getter never reaches graph_headers_accepted', async function graphHostileHeadersGetterRejected() {
+  const HostileProto = {
+    get headers() {
+      return { 'content-type': 'application/json; charset=utf-8' };
+    },
+  };
+  const { composition, events, input } = graphStageComposition({
+    graph: {
+      responseFactory() {
+        const res = Object.create(HostileProto);
+        res.statusCode = 200;
+        res.destroy = () => {};
+        const ee = new EventEmitter();
+        res.on = ee.on.bind(ee);
+        res.once = ee.once.bind(ee);
+        res.emit = ee.emit.bind(ee);
+        return res;
+      },
+    },
+  });
+  await assert.rejects(() => composition.verifyIdentity(input));
+  assert.deepEqual(events.map((e) => e.stage), [
+    'oidc_verified',
+    'graph_request_started',
+    'graph_response_received',
+    'graph_http_accepted',
+  ]);
+  assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
+  assert.equal(events.some((e) => e.stage === 'graph_response_validated'), false);
+  assertNeutralStageEvents(events);
+});
+
+test('duplicate/array content-type on native response stops after graph_http_accepted', async function graphNativeDuplicateHeadersRejected() {
+  for (const headers of [
+    { 'content-type': ['application/json', 'text/plain'] },
+    { 'content-type': 'application/json, text/plain' },
+    { 'content-type': 'application/json', 'content-length': '1,2' },
+  ]) {
+    const { composition, events, input } = graphStageComposition({
+      graph: { nativeResponse: true, headers },
+    });
+    await assert.rejects(() => composition.verifyIdentity(input));
+    assert.deepEqual(events.map((e) => e.stage), [
+      'oidc_verified',
+      'graph_request_started',
+      'graph_response_received',
+      'graph_http_accepted',
+    ], `unexpected stages for headers ${JSON.stringify(headers)}`);
+    assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
+    assertNeutralStageEvents(events);
+  }
+});
+
+test('post-init ambient IncomingMessage rebind does not break pinned native headers path', async function graphNativeHeadersPinSurvivesMonkeypatch() {
+  const originalIM = http.IncomingMessage;
+  let redefineThrew = false;
+  try {
+    Object.defineProperty(http.IncomingMessage.prototype, 'headers', {
+      configurable: true,
+      enumerable: false,
+      get() { return { 'content-type': 'text/html' }; },
+    });
+  } catch {
+    redefineThrew = true;
+  }
+  assert.equal(redefineThrew, true);
+  http.IncomingMessage = function AmbientHostile() {
+    throw new Error(`${LEAK} ambient-im`);
+  };
+  try {
+    const { composition, events, input, graph } = graphStageComposition({
+      graph: {
+        responseFactory() {
+          // Construct with the real original class captured before rebind.
+          const res = new originalIM(new Socket());
+          res.statusCode = 200;
+          res.headers = { 'content-type': 'application/json; charset=utf-8' };
+          res.destroy = () => {};
+          assert.equal(Object.prototype.hasOwnProperty.call(res, 'headers'), false);
+          return res;
+        },
+      },
+    });
+    const result = await composition.verifyIdentity(input);
+    assert.equal(result.providerPrincipalId, PRINCIPAL);
+    assert.deepEqual(events.map((e) => e.stage), [
+      'oidc_verified',
+      ...GRAPH_TRANSPORT_SUCCESS_STAGES,
+      'graph_principal_matched',
+      'graph_identity_verified',
+    ]);
+    assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), true);
+    assert.equal(graph.calls[0].res.constructor, originalIM);
+    assertNeutralStageEvents(events);
+  } finally {
+    http.IncomingMessage = originalIM;
+  }
+});
+
+test('Graph source pins IncomingMessage headers getter and does not trust ambient accessors', async function graphSourceNativeHeadersContract() {
+  const graphSrc = fs.readFileSync(path.join(ROOT, GRAPH_REL), 'utf8');
+  // Module-init pin of constructor + prototype + exact native headers getter.
+  assert.match(graphSrc, /IncomingMessage/);
+  assert.match(graphSrc, /getOwnPropertyDescriptor/);
+  assert.match(graphSrc, /PINNED_.*HEADERS|HEADERS_GET|headersGet|pinnedHeaders/i);
+  assert.match(graphSrc, /Reflect\.apply/);
+  // Must not rely solely on readOwnData(response, 'headers') for production path.
+  // The pin/apply path must appear; own-data may remain for plain mocks.
+  assert.match(graphSrc, /readOwnData\(\s*response\s*,\s*['"]statusCode['"]\s*\)/);
+  // Hostile ambient: no global lookup for headers helpers.
+  assert.equal(graphSrc.includes('global.'), false);
+  assert.equal(graphSrc.includes('globalThis'), false);
+});
+
+test('transparent Proxy around genuine IncomingMessage is rejected with no Graph result', async function graphProxyWrappedIncomingMessageRejected() {
+  const util = require('util');
+  // BLOCK precondition: transparent proxy passes constructor/prototype checks.
+  {
+    const probe = new Proxy(nativeGraphResponse(), {});
+    assert.equal(util.types.isProxy(probe), true);
+    assert.equal(Object.getPrototypeOf(probe), http.IncomingMessage.prototype);
+    assert.equal(probe.constructor, http.IncomingMessage);
+  }
+
+  // Pre-settlement proxy: isProxy must run before graph_response_received emit.
+  // If production wrongly accepts the proxy, body emission yields full identity
+  // success (RED). When fixed: reject without response_received, no Graph result.
+  {
+    const { composition, events, input, graph } = graphStageComposition({
+      graph: {
+        responseFactory() {
+          return new Proxy(nativeGraphResponse(), {});
+        },
+      },
+    });
+    await assert.rejects(() => composition.verifyIdentity(input));
+    assert.deepEqual(events.map((e) => e.stage), [
+      'oidc_verified',
+      'graph_request_started',
+    ]);
+    assert.equal(events.some((e) => e.stage === 'graph_response_received'), false);
+    assert.equal(events.some((e) => e.stage === 'graph_http_accepted'), false);
+    assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
+    assert.equal(events.some((e) => e.stage === 'graph_response_validated'), false);
+    assert.equal(events.some((e) => e.stage === 'graph_identity_verified'), false);
+    assert.equal(util.types.isProxy(graph.calls[0].res), true);
+    assertNeutralStageEvents(events);
+  }
+
+  // Normal pre-settlement hostile proxy: zero traps beyond native isProxy detector.
+  {
+    const trapHits = [];
+    const target = nativeGraphResponse();
+    const proxy = new Proxy(target, {
+      get(t, p, r) {
+        trapHits.push(`get:${String(p)}`);
+        return Reflect.get(t, p, r);
+      },
+      getPrototypeOf(t) {
+        trapHits.push('getPrototypeOf');
+        return Reflect.getPrototypeOf(t);
+      },
+      getOwnPropertyDescriptor(t, p) {
+        trapHits.push(`gopd:${String(p)}`);
+        return Reflect.getOwnPropertyDescriptor(t, p);
+      },
+      set(t, p, v, r) {
+        trapHits.push(`set:${String(p)}`);
+        return Reflect.set(t, p, v, r);
+      },
+      has(t, p) {
+        trapHits.push(`has:${String(p)}`);
+        return Reflect.has(t, p);
+      },
+      ownKeys(t) {
+        trapHits.push('ownKeys');
+        return Reflect.ownKeys(t);
+      },
+    });
+    const { composition, events, input } = graphStageComposition({
+      graph: {
+        responseFactory() { return proxy; },
+        // Avoid harness emission through the proxy after reject.
+        onResponse() {},
+      },
+    });
+    const outcome = await Promise.race([
+      composition.verifyIdentity(input).then(
+        (result) => ({ type: 'fulfilled', result }),
+        (error) => ({ type: 'rejected', error }),
+      ),
+      new Promise((resolve) => {
+        setTimeout(() => resolve({ type: 'timeout' }), 200);
+      }),
+    ]);
+    assert.equal(outcome.type, 'rejected', 'proxy response must reject (not succeed or hang)');
+    assert.deepEqual(events.map((e) => e.stage), [
+      'oidc_verified',
+      'graph_request_started',
+    ]);
+    assert.equal(events.some((e) => e.stage === 'graph_response_received'), false);
+    assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
+    assertNeutralStageEvents(events);
+    assert.deepEqual(trapHits, []);
+  }
+});
+
+test('late-after-timeout Proxy response does not trap or disturb prior settlement', async function graphLateAfterTimeoutProxyZeroTraps() {
+  // Independent BLOCK: settled checked before isProxy assigns activeResponse and
+  // destroyResponse reads .destroy on a late Proxy-wrapped IncomingMessage.
+  const trapHits = [];
+  const target = nativeGraphResponse();
+  const proxy = new Proxy(target, {
+    get(t, p, r) {
+      trapHits.push(`get:${String(p)}`);
+      return Reflect.get(t, p, r);
+    },
+    getPrototypeOf(t) {
+      trapHits.push('getPrototypeOf');
+      return Reflect.getPrototypeOf(t);
+    },
+    getOwnPropertyDescriptor(t, p) {
+      trapHits.push(`gopd:${String(p)}`);
+      return Reflect.getOwnPropertyDescriptor(t, p);
+    },
+    set(t, p, v, r) {
+      trapHits.push(`set:${String(p)}`);
+      return Reflect.set(t, p, v, r);
+    },
+    has(t, p) {
+      trapHits.push(`has:${String(p)}`);
+      return Reflect.has(t, p);
+    },
+    ownKeys(t) {
+      trapHits.push('ownKeys');
+      return Reflect.ownKeys(t);
+    },
+  });
+
+  const { composition, events, input, graph } = graphStageComposition({
+    graph: { holdResponse: true },
+  });
+  const pending = composition.verifyIdentity(input);
+  // Allow request to start and arm deadline.
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(graph.timerHandles.length, 1, 'deadline must be armed');
+  assert.equal(graph.calls.length, 1);
+  assert.equal(typeof graph.calls[0].deliverResponse, 'function');
+
+  // Prior settlement via deadline — no response yet.
+  // Composition maps Graph transport failures to MICROSOFT_VERIFIED_IDENTITY_INVALID
+  // (transport-level DEADLINE_EXCEEDED is covered by the identity gate).
+  graph.timerHandles[0].callback();
+  await assert.rejects(() => pending, (error) => {
+    assert.equal(error && error.code, 'MICROSOFT_VERIFIED_IDENTITY_INVALID');
+    return true;
+  });
+  const stagesAfterDeadline = events.map((e) => e.stage).slice();
+  assert.equal(stagesAfterDeadline.includes('graph_response_received'), false);
+  assert.equal(stagesAfterDeadline.includes('graph_identity_verified'), false);
+  assertNeutralStageEvents(events);
+
+  // Late hostile Proxy after timeout.
+  graph.calls[0].deliverResponse(proxy);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(trapHits, [], 'late-after-timeout proxy must not fire hostile traps');
+  // No graph_response_received, no further stages; prior settlement stages stable.
+  assert.deepEqual(events.map((e) => e.stage), stagesAfterDeadline);
+  assert.equal(events.some((e) => e.stage === 'graph_response_received'), false);
+  assertNeutralStageEvents(events);
+  // Settlement outcome remains the composition rejection (stable re-read).
+  await assert.rejects(() => pending, (error) => {
+    assert.equal(error && error.code, 'MICROSOFT_VERIFIED_IDENTITY_INVALID');
+    return true;
+  });
+});
+
+test('post-init ambient util.types.isProxy monkeypatch does not accept proxies or reject natives', async function graphIsProxyPinSurvivesMonkeypatch() {
+  const util = require('util');
+  const originalIsProxy = util.types.isProxy;
+  try {
+    // Ambient claims nothing is a Proxy — pin must still reject wrappers.
+    util.types.isProxy = function ambientHideProxy() { return false; };
+    {
+      const { composition, events, input } = graphStageComposition({
+        graph: {
+          responseFactory() {
+            return new Proxy(nativeGraphResponse(), {});
+          },
+        },
+      });
+      await assert.rejects(() => composition.verifyIdentity(input));
+      assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
+      assert.equal(events.some((e) => e.stage === 'graph_identity_verified'), false);
+      assertNeutralStageEvents(events);
+    }
+    // Ambient claims everything is a Proxy — genuine native must still succeed.
+    util.types.isProxy = function ambientAlwaysProxy() { return true; };
+    {
+      const { composition, events, input, graph } = graphStageComposition({
+        graph: { nativeResponse: true },
+      });
+      const result = await composition.verifyIdentity(input);
+      assert.equal(result.providerPrincipalId, PRINCIPAL);
+      assert.equal(result.mailboxAddress, MAILBOX);
+      assert.deepEqual(events.map((e) => e.stage), [
+        'oidc_verified',
+        ...GRAPH_TRANSPORT_SUCCESS_STAGES,
+        'graph_principal_matched',
+        'graph_identity_verified',
+      ]);
+      assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), true);
+      assert.equal(graph.calls[0].res.constructor, http.IncomingMessage);
+      assert.equal(util.types.isProxy(graph.calls[0].res), true); // ambient lie
+      assertNeutralStageEvents(events);
+    }
+  } finally {
+    util.types.isProxy = originalIsProxy;
+  }
+});
+
+test('Graph source pins util.types.isProxy and rejects proxy responses before pin inspection', async function graphSourceIsProxyPinContract() {
+  const graphSrc = fs.readFileSync(path.join(ROOT, GRAPH_REL), 'utf8');
+  // Module-init pin of util.types owner + isProxy function, applied via Reflect.apply.
+  assert.match(graphSrc, /require\(['"]util['"]\)/);
+  assert.match(graphSrc, /types\.isProxy|isProxy/);
+  assert.match(graphSrc, /PINNED_.*IS_PROXY|PINNED_.*PROXY|IS_PROXY/i);
+  assert.match(graphSrc, /Reflect\.apply/);
+  // isProxy throw handled conservatively as reject (catch → failure).
+  assert.match(graphSrc, /catch\s*\{/);
+  // Must not trust ambient util.types after init (no live util.types.isProxy calls
+  // in the hot path beyond the pinned binding).
+  assert.equal(graphSrc.includes('global.'), false);
+  assert.equal(graphSrc.includes('globalThis'), false);
+  // Response callback: pinned isProxy rejection must be the first action — before
+  // graph_response_received emission, settled check, activeResponse assignment, or destroy.
+  const responseCbMatch = graphSrc.match(/\(response\)\s*=>\s*\{([\s\S]*?)\n\s*\}\)/);
+  assert.ok(responseCbMatch, 'response callback must be present');
+  const cbBody = responseCbMatch[1];
+  const isProxyIdx = cbBody.search(/isProxyResponseSurface\s*\(\s*response\s*\)/);
+  const emitReceivedIdx = cbBody.indexOf('graph_response_received');
+  const settledIdx = cbBody.search(/if\s*\(\s*settled\s*\)/);
+  const activeAssignIdx = cbBody.search(/activeResponse\s*=\s*response/);
+  assert.ok(isProxyIdx >= 0, 'response callback must call isProxyResponseSurface');
+  assert.ok(emitReceivedIdx >= 0, 'response callback must still emit graph_response_received for non-proxy');
+  assert.ok(settledIdx >= 0, 'response callback must still handle settled late responses');
+  assert.ok(activeAssignIdx >= 0, 'response callback must still assign activeResponse for non-proxy');
+  assert.ok(isProxyIdx < emitReceivedIdx, 'isProxy must precede graph_response_received emission');
+  assert.ok(isProxyIdx < settledIdx, 'isProxy must precede settled check');
+  assert.ok(isProxyIdx < activeAssignIdx, 'isProxy must precede activeResponse assignment');
 });
 
 // ── Runner ─────────────────────────────────────────────────────────────────

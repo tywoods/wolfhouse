@@ -1,11 +1,31 @@
 'use strict';
 
 const assert = require('assert/strict');
+const http = require('http');
 const { EventEmitter } = require('events');
+const { Socket } = require('net');
 const { createMicrosoftGraphMeIdentityTransport } = require('./lib/email-microsoft-graph-me-identity');
 
 const TOKEN = 'offline-token-DO-NOT-LOG-7f1a';
 const GOOD = { id: 'graph-id-1', displayName: 'Ada Lovelace', mail: 'Ada@Example.COM', userPrincipalName: 'ada@example.com' };
+
+/**
+ * Real Node http.IncomingMessage response shape: headers live on the prototype
+ * as a native getter (not own data). Production Graph /me responses look like this.
+ */
+function nativeIncomingMessageResponse(spec = {}) {
+  const res = new http.IncomingMessage(new Socket());
+  res.statusCode = spec.status === undefined ? 200 : spec.status;
+  // Setter populates internal state; getter remains the non-own prototype accessor.
+  res.headers = spec.headers || { 'content-type': 'application/json; charset=utf-8' };
+  res.destroyCount = 0;
+  res.destroy = () => { res.destroyCount += 1; };
+  // Precondition: headers must NOT be own data (the production bug surface).
+  assert.equal(Object.prototype.hasOwnProperty.call(res, 'headers'), false);
+  const ownHeadersDesc = Object.getOwnPropertyDescriptor(res, 'headers');
+  assert.equal(ownHeadersDesc, undefined);
+  return res;
+}
 
 function manualTimers({ synchronous = false, throws = false } = {}) {
   const state = { handles: [], clears: [] };
@@ -36,11 +56,21 @@ function fake(spec = {}) {
       if (spec.never) return;
       if (spec.requestError) { queueMicrotask(() => req.emit('error', new Error(TOKEN))); return; }
       const emitResponse = () => {
-        const res = new EventEmitter();
-        res.statusCode = spec.status === undefined ? 200 : spec.status;
-        res.headers = spec.headers || { 'content-type': 'application/json; charset=utf-8' };
-        res.destroyCount = 0;
-        res.destroy = () => { res.destroyCount += 1; };
+        let res;
+        if (spec.nativeResponse) {
+          res = nativeIncomingMessageResponse({
+            status: spec.status,
+            headers: spec.headers,
+          });
+        } else if (spec.responseFactory) {
+          res = spec.responseFactory({ status: spec.status, headers: spec.headers });
+        } else {
+          res = new EventEmitter();
+          res.statusCode = spec.status === undefined ? 200 : spec.status;
+          res.headers = spec.headers || { 'content-type': 'application/json; charset=utf-8' };
+          res.destroyCount = 0;
+          res.destroy = () => { res.destroyCount += 1; };
+        }
         call.res = res;
         callback(res);
         if (spec.onResponse) { spec.onResponse({ req, res, clock }); return; }
@@ -324,6 +354,367 @@ async function main() {
     }),
   })).promise;
   assert.equal(sameAfterCase.mailboxAddress, 'ada@example.com');
+
+  // ── Native IncomingMessage headers (production Graph response shape) ─────
+  // Live root cause: statusCode is own data (HTTP 200 accepted) but headers is a
+  // non-own native getter on http.IncomingMessage.prototype. readOwnData(response,
+  // 'headers') always returned undefined → content-type check failed as
+  // RESPONSE_INVALID → no graph_headers_accepted. Own-data EventEmitter mocks
+  // passed; production Node responses did not.
+  {
+    const nativeOk = await one({ nativeResponse: true });
+    const nativeResult = await nativeOk.promise;
+    assert.deepEqual(nativeResult, {
+      providerSubjectId: 'graph-id-1',
+      mailboxAddress: 'ada@example.com',
+      displayName: 'Ada Lovelace',
+    });
+    assert(Object.isFrozen(nativeResult));
+    // Confirm the response that succeeded was genuinely non-own headers.
+    assert.equal(Object.prototype.hasOwnProperty.call(nativeOk.transport.calls[0].res, 'headers'), false);
+  }
+
+  // Native path still enforces content-type / content-length gates.
+  await rejectsCode(
+    (await one({
+      nativeResponse: true,
+      headers: { 'content-type': 'text/plain' },
+    })).promise,
+    'RESPONSE_INVALID',
+  );
+  await rejectsCode(
+    (await one({
+      nativeResponse: true,
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(1_000_000),
+      },
+    })).promise,
+    'RESPONSE_TOO_LARGE',
+  );
+
+  // Array / obs-fold ambiguity: content-type must be a single string (not array).
+  await rejectsCode(
+    (await one({
+      nativeResponse: true,
+      headers: { 'content-type': ['application/json', 'text/plain'] },
+    })).promise,
+    'RESPONSE_INVALID',
+  );
+  await rejectsCode(
+    (await one({
+      headers: { 'content-type': ['application/json'] },
+    })).promise,
+    'RESPONSE_INVALID',
+  );
+  // Comma-joined duplicate content-type fails exact application/json gate.
+  await rejectsCode(
+    (await one({
+      nativeResponse: true,
+      headers: { 'content-type': 'application/json, text/plain' },
+    })).promise,
+    'RESPONSE_INVALID',
+  );
+  // Malformed content-length (non-digits / duplicates joined) rejected.
+  await rejectsCode(
+    (await one({
+      nativeResponse: true,
+      headers: {
+        'content-type': 'application/json',
+        'content-length': '12,34',
+      },
+    })).promise,
+    'RESPONSE_INVALID',
+  );
+
+  // Hostile custom prototype getter: must NOT be trusted (only pinned IM getter
+  // or own-data plain mocks). Attacker-shaped response with getter → fail closed.
+  {
+    const HostileProto = {
+      get headers() {
+        throw new Error('hostile headers getter ' + TOKEN);
+      },
+    };
+    await rejectsCode(
+      (await one({
+        responseFactory() {
+          const res = Object.create(HostileProto);
+          // statusCode own-data 200 so we reach header inspection.
+          res.statusCode = 200;
+          res.destroyCount = 0;
+          res.destroy = () => { res.destroyCount += 1; };
+          // Event surface for stream path (should not reach body on fail-closed headers).
+          const ee = new EventEmitter();
+          res.on = ee.on.bind(ee);
+          res.once = ee.once.bind(ee);
+          res.emit = ee.emit.bind(ee);
+          return res;
+        },
+      })).promise,
+      'RESPONSE_INVALID',
+    );
+  }
+
+  // Subclass / foreign prototype that shadows headers getter is rejected even if
+  // it claims to look like IncomingMessage.
+  {
+    function FakeIncomingMessage() {
+      EventEmitter.call(this);
+      this.statusCode = 200;
+      this.destroyCount = 0;
+      this.destroy = () => { this.destroyCount += 1; };
+    }
+    Object.setPrototypeOf(FakeIncomingMessage.prototype, http.IncomingMessage.prototype);
+    Object.defineProperty(FakeIncomingMessage.prototype, 'headers', {
+      configurable: true,
+      enumerable: false,
+      get() {
+        return { 'content-type': 'application/json; charset=utf-8' };
+      },
+    });
+    await rejectsCode(
+      (await one({
+        responseFactory() {
+          return new FakeIncomingMessage();
+        },
+      })).promise,
+      'RESPONSE_INVALID',
+    );
+  }
+
+  // Post-init ambient monkeypatch proof: rebinding require('http').IncomingMessage
+  // (or attempting to redefine the prototype getter) must not divert the pin.
+  // Node's native headers descriptor is non-configurable — redefine throws; pin
+  // still serves genuine IncomingMessage instances constructed from the real class.
+  {
+    const originalIM = http.IncomingMessage;
+    let redefineThrew = false;
+    try {
+      Object.defineProperty(http.IncomingMessage.prototype, 'headers', {
+        configurable: true,
+        enumerable: false,
+        get() {
+          return { 'content-type': 'text/html', 'x-hostile': TOKEN };
+        },
+      });
+    } catch {
+      redefineThrew = true;
+    }
+    assert.equal(redefineThrew, true, 'native headers getter must remain non-configurable');
+    // Ambient replacement of the http export binding must not divert the pin.
+    http.IncomingMessage = function HostileIncomingMessage() {
+      throw new Error('ambient IncomingMessage replacement ' + TOKEN);
+    };
+    try {
+      const patched = await one({
+        responseFactory() {
+          const r = new originalIM(new Socket());
+          r.statusCode = 200;
+          r.headers = { 'content-type': 'application/json; charset=utf-8' };
+          r.destroyCount = 0;
+          r.destroy = () => { r.destroyCount += 1; };
+          assert.equal(Object.prototype.hasOwnProperty.call(r, 'headers'), false);
+          assert.equal(r.constructor, originalIM);
+          return r;
+        },
+      });
+      const result = await patched.promise;
+      assert.equal(result.providerSubjectId, 'graph-id-1');
+      assert.equal(result.mailboxAddress, 'ada@example.com');
+    } finally {
+      http.IncomingMessage = originalIM;
+    }
+  }
+
+  // Transparent Proxy around genuine IncomingMessage must be rejected before any
+  // prototype/constructor/getter inspection. Without util.types.isProxy gate, a
+  // transparent proxy passes constructor/prototype checks and Reflect.apply of the
+  // pinned headers getter succeeds — false Graph success.
+  {
+    const util = require('util');
+    // BLOCK precondition: transparent proxy looks like pinned IncomingMessage.
+    {
+      const target = nativeIncomingMessageResponse({});
+      const proxy = new Proxy(target, {});
+      assert.equal(util.types.isProxy(target), false);
+      assert.equal(util.types.isProxy(proxy), true);
+      assert.equal(Object.getPrototypeOf(proxy), http.IncomingMessage.prototype);
+      assert.equal(proxy.constructor, http.IncomingMessage);
+      // If production wrongly accepts the proxy, default body emission yields a Graph
+      // result and rejectsCode fails (RED). When fixed, RESPONSE_INVALID (GREEN).
+      await rejectsCode(
+        (await one({
+          responseFactory() { return new Proxy(nativeIncomingMessageResponse({}), {}); },
+        })).promise,
+        'RESPONSE_INVALID',
+      );
+    }
+    // Hostile traps must not run beyond the unavoidable native isProxy detector.
+    // Skip harness body emission so post-reject emit does not trip traps.
+    {
+      const trapHits = [];
+      const target = nativeIncomingMessageResponse({});
+      const proxy = new Proxy(target, {
+        get(t, p, r) {
+          trapHits.push(`get:${String(p)}`);
+          return Reflect.get(t, p, r);
+        },
+        getPrototypeOf(t) {
+          trapHits.push('getPrototypeOf');
+          return Reflect.getPrototypeOf(t);
+        },
+        getOwnPropertyDescriptor(t, p) {
+          trapHits.push(`gopd:${String(p)}`);
+          return Reflect.getOwnPropertyDescriptor(t, p);
+        },
+        set(t, p, v, r) {
+          trapHits.push(`set:${String(p)}`);
+          return Reflect.set(t, p, v, r);
+        },
+        has(t, p) {
+          trapHits.push(`has:${String(p)}`);
+          return Reflect.has(t, p);
+        },
+        ownKeys(t) {
+          trapHits.push('ownKeys');
+          return Reflect.ownKeys(t);
+        },
+      });
+      const outcome = await Promise.race([
+        (await one({
+          responseFactory() { return proxy; },
+          onResponse() {},
+        })).promise.then(
+          (result) => ({ type: 'fulfilled', result }),
+          (error) => ({ type: 'rejected', error }),
+        ),
+        new Promise((resolve) => {
+          setTimeout(() => resolve({ type: 'timeout' }), 200);
+        }),
+      ]);
+      assert.equal(outcome.type, 'rejected', 'proxy response must reject (not succeed or hang)');
+      assert.equal(outcome.error && outcome.error.code, 'RESPONSE_INVALID');
+      assert.equal(outcome.error && outcome.error.name, 'MicrosoftGraphIdentityError');
+      assert(!String(outcome.error && outcome.error.stack || '').includes(TOKEN));
+      assert.deepEqual(trapHits, []);
+      assert.equal(target.destroyCount, 0, 'pre-settlement proxy must not be destroyed');
+    }
+
+    // Late Proxy-wrapped IncomingMessage AFTER deadline settlement must not re-enter
+    // cleanup: if settled is checked before isProxy, activeResponse is assigned and
+    // destroyResponse reads .destroy → hostile get trap. Pin isProxy first; if already
+    // settled simply return without emit/assign/destroy/property access.
+    {
+      const trapHits = [];
+      let responseCallback;
+      const clock = manualTimers();
+      const httpsImpl = (options, callback) => {
+        responseCallback = callback;
+        const req = new EventEmitter();
+        req.destroyCount = 0;
+        req.destroy = () => { req.destroyCount += 1; };
+        req.end = () => {};
+        return req;
+      };
+      const service = createMicrosoftGraphMeIdentityTransport({
+        httpsImpl,
+        timers: clock.timers,
+      });
+      const promise = service.fetchIdentity({ accessToken: TOKEN });
+      assert.equal(clock.state.handles.length, 1);
+      // Prior settlement: deadline fires with no response yet.
+      clock.state.handles[0].callback();
+      await rejectsCode(promise, 'DEADLINE_EXCEEDED');
+      const priorSettlement = await promise.then(
+        (result) => ({ type: 'fulfilled', result }),
+        (error) => ({ type: 'rejected', code: error && error.code, name: error && error.name }),
+      );
+      assert.deepEqual(priorSettlement, {
+        type: 'rejected',
+        code: 'DEADLINE_EXCEEDED',
+        name: 'MicrosoftGraphIdentityError',
+      });
+
+      const target = nativeIncomingMessageResponse({});
+      const proxy = new Proxy(target, {
+        get(t, p, r) {
+          trapHits.push(`get:${String(p)}`);
+          return Reflect.get(t, p, r);
+        },
+        getPrototypeOf(t) {
+          trapHits.push('getPrototypeOf');
+          return Reflect.getPrototypeOf(t);
+        },
+        getOwnPropertyDescriptor(t, p) {
+          trapHits.push(`gopd:${String(p)}`);
+          return Reflect.getOwnPropertyDescriptor(t, p);
+        },
+        set(t, p, v, r) {
+          trapHits.push(`set:${String(p)}`);
+          return Reflect.set(t, p, v, r);
+        },
+        has(t, p) {
+          trapHits.push(`has:${String(p)}`);
+          return Reflect.has(t, p);
+        },
+        ownKeys(t) {
+          trapHits.push('ownKeys');
+          return Reflect.ownKeys(t);
+        },
+      });
+      assert.equal(typeof responseCallback, 'function');
+      // Late hostile response after deadline (the BLOCK surface).
+      responseCallback(proxy);
+      await Promise.resolve();
+      await Promise.resolve();
+      assert.deepEqual(trapHits, [], 'late-after-timeout proxy must not fire hostile traps');
+      assert.equal(target.destroyCount, 0, 'late proxy must not be destroyed');
+      // Prior settlement remains stable (no second outcome).
+      const afterLate = await promise.then(
+        (result) => ({ type: 'fulfilled', result }),
+        (error) => ({ type: 'rejected', code: error && error.code, name: error && error.name }),
+      );
+      assert.deepEqual(afterLate, priorSettlement);
+    }
+  }
+
+  // Ambient util.types.isProxy monkeypatch after module init must not divert the pin:
+  // proxy still rejected; genuine native still full success.
+  {
+    const util = require('util');
+    const originalIsProxy = util.types.isProxy;
+    util.types.isProxy = function ambientIsProxy() {
+      // Hide proxies — pin must still reject wrappers.
+      return false;
+    };
+    try {
+      await rejectsCode(
+        (await one({
+          responseFactory() {
+            return new Proxy(nativeIncomingMessageResponse({}), {});
+          },
+        })).promise,
+        'RESPONSE_INVALID',
+      );
+      // Ambient always-true also must not break genuine native.
+      util.types.isProxy = function ambientAlwaysProxy() { return true; };
+      const genuine = await one({ nativeResponse: true });
+      const genuineResult = await genuine.promise;
+      assert.equal(genuineResult.providerSubjectId, 'graph-id-1');
+      assert.equal(genuineResult.mailboxAddress, 'ada@example.com');
+      assert.equal(util.types.isProxy(genuine.transport.calls[0].res), true); // ambient lie
+      assert.equal(Object.prototype.hasOwnProperty.call(genuine.transport.calls[0].res, 'headers'), false);
+    } finally {
+      util.types.isProxy = originalIsProxy;
+    }
+  }
+
+  // Own-data plain mock path remains accepted (regression guard for unit tests).
+  {
+    const plain = await one({});
+    assert.equal((await plain.promise).providerSubjectId, 'graph-id-1');
+    assert.equal(Object.prototype.hasOwnProperty.call(plain.transport.calls[0].res, 'headers'), true);
+  }
 
   console.log('PASS verify:email-microsoft-graph-me-identity (offline hostile single-use transport/validator gate)');
 }

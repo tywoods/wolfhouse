@@ -1,6 +1,8 @@
 'use strict';
 
+const http = require('http');
 const https = require('https');
+const util = require('util');
 const {
   pinEmailOAuthStageTelemetry,
   createNoopEmailOAuthStageTelemetry,
@@ -23,6 +25,36 @@ const ERROR_MESSAGES = Object.freeze({
 });
 // Optional stageTelemetry is an allowed extra only — core bag keys unchanged.
 const DEPENDENCY_KEYS = Object.freeze(['httpsImpl', 'timers', 'stageTelemetry']);
+
+// Module-init pin: real Node http.IncomingMessage defines `headers` as a native
+// prototype getter (not own data). readOwnData(response, 'headers') always yields
+// undefined on production responses while EventEmitter own-data mocks pass.
+// Pin the exact constructor, prototype, and headers getter once; only Reflect.apply
+// that pinned getter for genuine IncomingMessage instances. Ambient rebinds of
+// http.IncomingMessage / custom prototype getters are never trusted.
+const PINNED_INCOMING_MESSAGE = http.IncomingMessage;
+const PINNED_INCOMING_MESSAGE_PROTOTYPE = http.IncomingMessage
+  && http.IncomingMessage.prototype
+  ? http.IncomingMessage.prototype
+  : null;
+const PINNED_HEADERS_DESCRIPTOR = PINNED_INCOMING_MESSAGE_PROTOTYPE
+  ? Object.getOwnPropertyDescriptor(PINNED_INCOMING_MESSAGE_PROTOTYPE, 'headers')
+  : null;
+const PINNED_HEADERS_GET = PINNED_HEADERS_DESCRIPTOR
+  && typeof PINNED_HEADERS_DESCRIPTOR.get === 'function'
+  && !Object.prototype.hasOwnProperty.call(PINNED_HEADERS_DESCRIPTOR, 'value')
+  ? PINNED_HEADERS_DESCRIPTOR.get
+  : null;
+
+// Module-init pin: transparent Proxy around a genuine IncomingMessage passes
+// constructor/prototype checks and Reflect.apply of the pinned headers getter.
+// Detect proxies via native util.types.isProxy before any prototype/constructor/
+// getter inspection. Pin owner + function once; only Reflect.apply the pin so
+// ambient util.types.isProxy monkeypatches after init are irrelevant.
+const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
+const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
+  ? PINNED_UTIL_TYPES.isProxy
+  : null;
 
 function failure(code) {
   const error = new Error(ERROR_MESSAGES[code]);
@@ -54,6 +86,70 @@ function readOwnData(value, key) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     return descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'value')
       ? descriptor.value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * True when value is a Proxy (or proxy detection fails closed).
+ * Uses only the module-init pinned util.types.isProxy via Reflect.apply.
+ * isProxy throw → conservatively treat as proxy (caller rejects).
+ * Missing pin → fail closed (treat as proxy).
+ */
+function isProxyResponseSurface(value) {
+  try {
+    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) {
+      return true;
+    }
+    return Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * True only for exact native IncomingMessage instances whose live headers getter
+ * is still the module-init pin. Subclasses, foreign prototypes, ambient
+ * redefinitions, and Proxy wrappers are rejected.
+ */
+function isPinnedIncomingMessage(response) {
+  try {
+    // Reject Proxy before any prototype/constructor/getter inspection so hostile
+    // traps are not invoked beyond the native isProxy detector.
+    if (isProxyResponseSurface(response)) return false;
+    if (!PINNED_HEADERS_GET || !PINNED_INCOMING_MESSAGE || !PINNED_INCOMING_MESSAGE_PROTOTYPE) {
+      return false;
+    }
+    if (response === null || typeof response !== 'object') return false;
+    if (Object.getPrototypeOf(response) !== PINNED_INCOMING_MESSAGE_PROTOTYPE) return false;
+    if (response.constructor !== PINNED_INCOMING_MESSAGE) return false;
+    const live = Object.getOwnPropertyDescriptor(PINNED_INCOMING_MESSAGE_PROTOTYPE, 'headers');
+    if (!live || live.get !== PINNED_HEADERS_GET) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Secure response headers access:
+ * 1) Proxy surfaces rejected (undefined → RESPONSE_INVALID upstream).
+ * 2) Genuine pinned IncomingMessage → Reflect.apply only the module-init native getter.
+ * 3) Own-data plain/mock path (EventEmitter unit tests) → readOwnData only.
+ * Never walks attacker/custom prototype getters.
+ */
+function readResponseHeaders(response) {
+  try {
+    if (isProxyResponseSurface(response)) return undefined;
+    if (isPinnedIncomingMessage(response)) {
+      const headers = Reflect.apply(PINNED_HEADERS_GET, response, []);
+      if (headers === null || typeof headers !== 'object' || Array.isArray(headers)) {
+        return undefined;
+      }
+      return headers;
+    }
+    return readOwnData(response, 'headers');
   } catch {
     return undefined;
   }
@@ -302,6 +398,18 @@ function createMicrosoftGraphMeIdentityTransport(dependencies = {}) {
           method: 'GET', path: PATH, agent: false,
           headers: Object.freeze({ Accept: 'application/json', Authorization: ['Bearer', accessToken].join(' ') }),
         }), (response) => {
+          // Reject Proxy wrappers as the very first callback action — before
+          // received-stage emission, settled check, activeResponse assignment,
+          // destroy, or any property access. Native isProxy does not consult
+          // traps. Late settled proxies simply return (do not re-enter cleanup).
+          // Pre-settlement proxies fail closed without assigning activeResponse
+          // so destroy never walks hostile traps.
+          if (isProxyResponseSurface(response)) {
+            if (settled) return;
+            destroyRequest();
+            finish(failure('RESPONSE_INVALID'));
+            return;
+          }
           // Milestone: HTTPS response callback fired (status/body not yet trusted).
           safeEmitStage(stageTelemetry, 'graph_response_received');
           if (settled) {
@@ -312,12 +420,16 @@ function createMicrosoftGraphMeIdentityTransport(dependencies = {}) {
           activeResponse = response;
           try {
             const status = readOwnData(response, 'statusCode');
-            const headers = readOwnData(response, 'headers');
+            // Native IncomingMessage: headers via pinned prototype getter only.
+            // Own-data plain mocks: readOwnData. Never custom prototype getters.
+            const headers = readResponseHeaders(response);
             const contentType = headers && typeof headers === 'object' ? readOwnData(headers, 'content-type') : undefined;
             const contentLength = headers && typeof headers === 'object' ? readOwnData(headers, 'content-length') : undefined;
             if (status !== 200) { terminate(failure('HTTP_ERROR')); return; }
             // Milestone: exact HTTP 200 only (no status/body logged).
             safeEmitStage(stageTelemetry, 'graph_http_accepted');
+            // content-type / content-length must be single own-data strings (reject
+            // arrays, comma-joined duplicates, and non-digit lengths).
             if (typeof contentType !== 'string' || !/^application\/json(?:\s*;|$)/i.test(contentType)) {
               terminate(failure('RESPONSE_INVALID')); return;
             }
