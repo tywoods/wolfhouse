@@ -31,9 +31,11 @@ function postMicrosoftOAuthStart(locationId, endpointId){
 /**
  * POST prepare with exact ordered body { location_id, public_address }.
  * Returns endpoint_id only (no mailbox echo expected).
+ * Exact path: /staff/admin/email-settings/microsoft/endpoint/prepare
+ * (not under /oauth/ — prepare creates the disabled endpoint before OAuth).
  */
 function postMicrosoftEndpointPrepare(locationId, publicAddress){
-  return fetch('/staff/admin/email-settings/oauth/microsoft/prepare', {
+  return fetch('/staff/admin/email-settings/microsoft/endpoint/prepare', {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ location_id: locationId, public_address: publicAddress })
@@ -102,26 +104,45 @@ function renderAdminEmailSettingsState(state, data){
   var body = el('admin-email-settings-body');
   if (!body) return;
   var key = adminEmailStateKey(state);
+  var actions = data && data.actions ? data.actions : null;
+  var hasPrepare = !!(actions && actions.prepare === true && data.location_id);
+  var hasConnect = !!(actions && actions.connect === true && data.location_id && data.endpoint_id);
+  var hasDisconnect = !!(actions && actions.disconnect === true);
+  var hasAnyAction = hasPrepare || hasConnect || hasDisconnect;
   var html = '<section class="portal-admin-email-settings" data-email-state="' + escHtml(key) + '">' +
     '<h2>' + escHtml(portalT('admin.email.title')) + '</h2>' +
     '<p role="status">' + escHtml(portalT('admin.email.state.' + key)) + '</p>';
   if (data && data.public_address) html += '<p class="portal-admin-email-address">' + escHtml(data.public_address) + '</p>';
-  // Prepare path: no endpoint yet — compact email input + Connect.
-  if (data && data.actions && data.actions.prepare === true && data.location_id) {
-    html += '<label class="portal-admin-email-prepare">' +
+  // Prepare controls grouped before capability list; deterministic selectors + a11y label.
+  if (hasPrepare) {
+    html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group" aria-label="' + escHtml(portalT('admin.email.mailboxLabel')) + '">' +
+      '<label class="portal-admin-email-prepare">' +
       '<span>' + escHtml(portalT('admin.email.mailboxLabel')) + '</span>' +
       '<input type="email" autocomplete="off" data-email-prepare-address maxlength="320" />' +
       '</label>' +
-      '<button type="button" data-email-connect="prepare" data-email-location-id="' + escHtml(data.location_id) + '">Connect Microsoft email</button>';
-  } else if (data && data.actions && data.actions.connect === true && data.location_id && data.endpoint_id) {
+      '<button type="button" data-email-connect="prepare" data-email-location-id="' + escHtml(data.location_id) + '">Connect Microsoft email</button>' +
+      '</div>';
+  } else if (hasConnect) {
     // Existing eligible unverified endpoint — Connect starts OAuth only.
-    html += '<button type="button" data-email-connect="connect" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '">Connect Microsoft email</button>';
+    html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group" aria-label="' + escHtml(portalT('admin.email.mailboxLabel')) + '">' +
+      '<button type="button" data-email-connect="connect" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '">Connect Microsoft email</button>' +
+      '</div>';
   }
+  // Safety note when prepare or connect is available (identity only; capabilities stay off).
+  if (hasPrepare || hasConnect) {
+    html += '<p class="portal-admin-email-connect-safety" data-email-connect-safety role="note">' +
+      escHtml(portalT('admin.email.connectSafetyNote')) + '</p>';
+  }
+  // Off capability list always preserved.
   html += '<dl><dt>' + escHtml(portalT('admin.email.endpointActive')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
     '<dt>' + escHtml(portalT('admin.email.inbound')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
     '<dt>' + escHtml(portalT('admin.email.outbound')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
-    '<dt>' + escHtml(portalT('admin.email.automation')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd></dl>' +
-    '<p>' + escHtml(portalT('admin.email.actionsUnavailable')) + '</p></section>';
+    '<dt>' + escHtml(portalT('admin.email.automation')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd></dl>';
+  // actionsUnavailable ONLY when neither prepare nor connect nor disconnect is true.
+  if (!hasAnyAction) {
+    html += '<p data-email-actions-unavailable>' + escHtml(portalT('admin.email.actionsUnavailable')) + '</p>';
+  }
+  html += '</section>';
   body.innerHTML = html;
   wireConnectHandlers(body, data);
 }

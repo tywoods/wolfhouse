@@ -278,6 +278,7 @@ module.exports = {
   'admin.email.automation': 'Automatización',
   'admin.email.off': 'Desactivado',
   'admin.email.actionsUnavailable': 'Conectar y desconectar no están disponibles en esta versión.',
+  'admin.email.connectSafetyNote': 'La conexión solo verifica la identidad; el endpoint, la entrada, la salida y la automatización siguen desactivados.',
   'admin.email.mailboxLabel': 'Dirección de correo Microsoft',
   'admin.tabs.bookings': 'Reservas',
   'admin.tabs.pricing': 'Precios',
