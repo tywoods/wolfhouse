@@ -70,19 +70,49 @@ async function main() {
     grant_generation: 2,
     graph_reachable: true,
     message_count_bounded: 3,
+    graph_stage: 'success',
   });
   assert.deepEqual(Reflect.ownKeys(good), [...READ_HEALTH_SUCCESS_KEYS]);
   assert.equal(good.success, true);
+  assert.equal(good.graph_stage, 'success');
   assert.equal(JSON.stringify(good).includes('subject'), false);
   assert.equal(JSON.stringify(good).includes('token'), false);
   assert.equal(JSON.stringify(good).includes('address'), false);
+
+  const uncertainDto = buildReadHealthSuccessJson({
+    status: 'uncertain',
+    grant_generation: 2,
+    graph_reachable: false,
+    message_count_bounded: null,
+    graph_stage: 'json_invalid',
+  });
+  assert.equal(uncertainDto.graph_stage, 'json_invalid');
+  assert.equal(uncertainDto.message_count_bounded, null);
 
   assert.equal(buildReadHealthSuccessJson({
     status: 'healthy',
     grant_generation: 2,
     graph_reachable: true,
     message_count_bounded: 6,
+    graph_stage: 'success',
   }), null, 'count above hard max rejected');
+
+  assert.equal(buildReadHealthSuccessJson({
+    status: 'uncertain',
+    grant_generation: 2,
+    graph_reachable: false,
+    message_count_bounded: null,
+    graph_stage: 'planted-not-allowlisted',
+  }), null, 'non-allowlisted graph_stage rejected');
+
+  const earlyNull = buildReadHealthSuccessJson({
+    status: 'unavailable',
+    grant_generation: null,
+    graph_reachable: false,
+    message_count_bounded: null,
+    graph_stage: null,
+  });
+  assert.equal(earlyNull.graph_stage, null);
 
   const send = captureSend();
   const routes = createStaffEmailOAuthRoutes({

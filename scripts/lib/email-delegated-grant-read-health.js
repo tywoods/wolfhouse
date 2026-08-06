@@ -33,6 +33,10 @@ const {
   createMicrosoftRefreshTokenRequestService,
   SUNSET_DEPLOYMENT: REQUEST_SUNSET,
 } = require('./email-microsoft-refresh-token-request');
+const {
+  GRAPH_STAGES,
+  readTrustedGraphStage,
+} = require('./email-microsoft-graph-delegated-messages-transport');
 
 const FAILURE_CODE = 'delegated_grant_read_health_failed';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
@@ -47,6 +51,7 @@ const DEPENDENCY_KEYS = Object.freeze([
   'transport',
   'graphMessages',
 ]);
+const GRAPH_STAGE_SET = new Set(GRAPH_STAGES);
 
 const STATUS_HEALTHY = 'healthy';
 const STATUS_REAUTH = 'reauthorization_required';
@@ -117,17 +122,25 @@ function snapshotIds(input) {
   });
 }
 
+function sanitizeGraphStage(stage) {
+  if (stage == null) return null;
+  if (typeof stage === 'string' && GRAPH_STAGE_SET.has(stage)) return stage;
+  return null;
+}
+
 function publicResult({
   status,
   grantGeneration,
   graphReachable,
   messageCountBounded,
+  graphStage,
 }) {
   return Object.freeze({
     status: String(status),
     grant_generation: grantGeneration == null ? null : Number(grantGeneration),
     graph_reachable: graphReachable === true,
     message_count_bounded: messageCountBounded == null ? null : Number(messageCountBounded),
+    graph_stage: sanitizeGraphStage(graphStage),
   });
 }
 
@@ -137,6 +150,7 @@ function early(status, grantGeneration) {
     grantGeneration,
     graphReachable: false,
     messageCountBounded: null,
+    graphStage: null,
   });
 }
 
@@ -441,16 +455,18 @@ function createDelegatedGrantReadHealthService(deps) {
         );
         if (!graphResult || !Object.isFrozen(graphResult)
             || Object.getPrototypeOf(graphResult) !== Object.prototype
-            || Reflect.ownKeys(graphResult).length !== 1
+            || Reflect.ownKeys(graphResult).length !== 2
             || typeof ownData(graphResult, 'message_count_bounded') !== 'number'
             || !Number.isInteger(graphResult.message_count_bounded)
             || graphResult.message_count_bounded < 0
-            || graphResult.message_count_bounded > 5) {
+            || graphResult.message_count_bounded > 5
+            || ownData(graphResult, 'graph_stage') !== 'success') {
           return publicResult({
             status: STATUS_UNCERTAIN,
             grantGeneration,
             graphReachable: false,
             messageCountBounded: null,
+            graphStage: null,
           });
         }
         return publicResult({
@@ -458,13 +474,15 @@ function createDelegatedGrantReadHealthService(deps) {
           grantGeneration,
           graphReachable: true,
           messageCountBounded: graphResult.message_count_bounded,
+          graphStage: 'success',
         });
-      } catch (_) {
+      } catch (graphErr) {
         return publicResult({
           status: STATUS_UNCERTAIN,
           grantGeneration,
           graphReachable: false,
           messageCountBounded: null,
+          graphStage: readTrustedGraphStage(graphErr),
         });
       } finally {
         if (graphInput) {
@@ -492,5 +510,6 @@ module.exports = Object.freeze({
   STATUS_REAUTH,
   STATUS_UNCERTAIN,
   STATUS_UNAVAILABLE,
+  GRAPH_STAGES,
   createDelegatedGrantReadHealthService,
 });

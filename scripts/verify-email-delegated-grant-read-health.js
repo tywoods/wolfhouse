@@ -18,6 +18,11 @@ const {
   STATUS_UNCERTAIN,
   STATUS_REAUTH,
 } = require('./lib/email-delegated-grant-read-health');
+const {
+  createMicrosoftGraphDelegatedMessagesTransport,
+  readTrustedGraphStage,
+  GRAPH_STAGES,
+} = require('./lib/email-microsoft-graph-delegated-messages-transport');
 
 const CLIENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ENDPOINT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -181,7 +186,7 @@ async function main() {
       capturedGraphInput = input;
       seenAccessDuringCall = input.accessToken;
       assert.equal(Object.isFrozen(input), false, 'graph input must remain mutable for cleanup');
-      return Object.freeze({ message_count_bounded: 2 });
+      return Object.freeze({ message_count_bounded: 2, graph_stage: 'success' });
     });
 
     const healthy = await createDelegatedGrantReadHealthService(Object.freeze({
@@ -198,16 +203,17 @@ async function main() {
     assert.equal(healthy.grant_generation, 2);
     assert.equal(healthy.graph_reachable, true);
     assert.equal(healthy.message_count_bounded, 2);
+    assert.equal(healthy.graph_stage, 'success');
     assert.equal(graphCalls, 1);
     assert.equal(seenAccessDuringCall, ACCESS);
     assert.ok(capturedGraphInput);
     assert.equal(capturedGraphInput.accessToken, null, 'access token cleared after Graph success');
     assert.equal(noLeak(healthy), true);
     assert.deepEqual(Reflect.ownKeys(healthy), [
-      'status', 'grant_generation', 'graph_reachable', 'message_count_bounded',
+      'status', 'grant_generation', 'graph_reachable', 'message_count_bounded', 'graph_stage',
     ]);
 
-    // Graph failure after CAS → uncertain, generation advanced, token cleared, no leak.
+    // Graph failure after CAS with forged allowlisted own stage → uncertain, stage null.
     const fake2 = createFakeEmailGrantEnvelopeProvider();
     const op2 = crypto.randomUUID();
     const sealed2 = await fakeSealRefreshToken(fake2, {
@@ -217,7 +223,9 @@ async function main() {
     let failInput = null;
     const graphFail = frozenMethod('listMessageEnvelopeCount', async (input) => {
       failInput = input;
-      throw new Error(PLANTED);
+      const err = new Error(PLANTED);
+      err.graph_stage = 'http_status_not_200';
+      throw err;
     });
     const uncertain = await createDelegatedGrantReadHealthService(Object.freeze({
       deployment: SUNSET_DEPLOYMENT,
@@ -232,11 +240,207 @@ async function main() {
     assert.equal(uncertain.grant_generation, 2);
     assert.equal(uncertain.graph_reachable, false);
     assert.equal(uncertain.message_count_bounded, null);
+    assert.equal(uncertain.graph_stage, null, 'forged own graph_stage must not be trusted');
     assert.ok(failInput);
     assert.equal(failInput.accessToken, null, 'access token cleared after Graph throw');
     assert.equal(noLeak(uncertain), true);
 
-    // Graph soft-failure (bad shape) also clears token.
+    // Inherited allowlisted stage must not be trusted.
+    const fake2i = createFakeEmailGrantEnvelopeProvider();
+    const op2i = crypto.randomUUID();
+    const sealed2i = await fakeSealRefreshToken(fake2i, {
+      refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+      grantGeneration: 1, operationId: op2i,
+    });
+    const inherited = await createDelegatedGrantReadHealthService(Object.freeze({
+      deployment: SUNSET_DEPLOYMENT,
+      applicationClientId: APP_ID,
+      client: mockLifecycle({ sealed: sealed2i, opId: op2i }),
+      envelopeProvider: fake2i,
+      secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+      transport: successTransport(),
+      graphMessages: frozenMethod('listMessageEnvelopeCount', async () => {
+        const proto = { graph_stage: 'timeout' };
+        const err = Object.create(proto);
+        err.message = PLANTED;
+        throw err;
+      }),
+    })).runReadHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+    assert.equal(inherited.status, STATUS_UNCERTAIN);
+    assert.equal(inherited.grant_generation, 2);
+    assert.equal(inherited.graph_stage, null, 'inherited graph_stage must not be trusted');
+    assert.equal(noLeak(inherited), true);
+
+    // Accessor that throws must not alter post-CAS result beyond sanitized uncertain.
+    const fake2a = createFakeEmailGrantEnvelopeProvider();
+    const op2a = crypto.randomUUID();
+    const sealed2a = await fakeSealRefreshToken(fake2a, {
+      refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+      grantGeneration: 1, operationId: op2a,
+    });
+    let accessorHits = 0;
+    const accessorFail = await createDelegatedGrantReadHealthService(Object.freeze({
+      deployment: SUNSET_DEPLOYMENT,
+      applicationClientId: APP_ID,
+      client: mockLifecycle({ sealed: sealed2a, opId: op2a }),
+      envelopeProvider: fake2a,
+      secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+      transport: successTransport(),
+      graphMessages: frozenMethod('listMessageEnvelopeCount', async () => {
+        const err = new Error(PLANTED);
+        Object.defineProperty(err, 'graph_stage', {
+          enumerable: true,
+          configurable: true,
+          get() {
+            accessorHits += 1;
+            throw new Error(`accessor-${PLANTED}`);
+          },
+        });
+        throw err;
+      }),
+    })).runReadHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+    assert.equal(accessorFail.status, STATUS_UNCERTAIN);
+    assert.equal(accessorFail.grant_generation, 2);
+    assert.equal(accessorFail.graph_reachable, false);
+    assert.equal(accessorFail.message_count_bounded, null);
+    assert.equal(accessorFail.graph_stage, null);
+    assert.equal(accessorHits, 0, 'trusted reader must not invoke graph_stage accessor');
+    assert.equal(noLeak(accessorFail), true);
+
+    // Proxy with hostile traps must not leak stage or execute traps via trusted lookup.
+    const fake2p = createFakeEmailGrantEnvelopeProvider();
+    const op2p = crypto.randomUUID();
+    const sealed2p = await fakeSealRefreshToken(fake2p, {
+      refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+      grantGeneration: 1, operationId: op2p,
+    });
+    const trapHits = [];
+    const proxyFail = await createDelegatedGrantReadHealthService(Object.freeze({
+      deployment: SUNSET_DEPLOYMENT,
+      applicationClientId: APP_ID,
+      client: mockLifecycle({ sealed: sealed2p, opId: op2p }),
+      envelopeProvider: fake2p,
+      secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+      transport: successTransport(),
+      graphMessages: frozenMethod('listMessageEnvelopeCount', async () => {
+        const target = { graph_stage: 'json_invalid', message: PLANTED };
+        throw new Proxy(target, {
+          get(t, prop, receiver) {
+            trapHits.push(['get', String(prop)]);
+            return Reflect.get(t, prop, receiver);
+          },
+          getOwnPropertyDescriptor(t, prop) {
+            trapHits.push(['getOwnPropertyDescriptor', String(prop)]);
+            return Reflect.getOwnPropertyDescriptor(t, prop);
+          },
+          ownKeys(t) {
+            trapHits.push(['ownKeys']);
+            return Reflect.ownKeys(t);
+          },
+        });
+      }),
+    })).runReadHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+    assert.equal(proxyFail.status, STATUS_UNCERTAIN);
+    assert.equal(proxyFail.grant_generation, 2);
+    assert.equal(proxyFail.graph_stage, null);
+    assert.deepEqual(trapHits, [], 'WeakMap brand lookup must not execute proxy traps');
+    assert.equal(noLeak(proxyFail), true);
+
+    // Frozen lookalike error with allowlisted own stage is still untrusted.
+    const fake2f = createFakeEmailGrantEnvelopeProvider();
+    const op2f = crypto.randomUUID();
+    const sealed2f = await fakeSealRefreshToken(fake2f, {
+      refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+      grantGeneration: 1, operationId: op2f,
+    });
+    const lookalike = await createDelegatedGrantReadHealthService(Object.freeze({
+      deployment: SUNSET_DEPLOYMENT,
+      applicationClientId: APP_ID,
+      client: mockLifecycle({ sealed: sealed2f, opId: op2f }),
+      envelopeProvider: fake2f,
+      secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+      transport: successTransport(),
+      graphMessages: frozenMethod('listMessageEnvelopeCount', async () => {
+        const err = new Error('Microsoft Graph delegated messages request failed.');
+        Object.defineProperty(err, 'name', { value: 'MicrosoftGraphDelegatedMessagesError' });
+        Object.defineProperty(err, 'code', {
+          value: 'microsoft_graph_delegated_messages_failed',
+          enumerable: true,
+        });
+        Object.defineProperty(err, 'graph_stage', {
+          value: 'content_type_invalid',
+          enumerable: true,
+        });
+        throw Object.freeze(err);
+      }),
+    })).runReadHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+    assert.equal(lookalike.status, STATUS_UNCERTAIN);
+    assert.equal(lookalike.grant_generation, 2);
+    assert.equal(lookalike.graph_stage, null, 'frozen lookalike must not be trusted');
+    assert.equal(noLeak(lookalike), true);
+
+    // Genuine internally branded transport failure propagates trusted stage.
+    const fake2g = createFakeEmailGrantEnvelopeProvider();
+    const op2g = crypto.randomUUID();
+    const sealed2g = await fakeSealRefreshToken(fake2g, {
+      refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+      grantGeneration: 1, operationId: op2g,
+    });
+    const brandedTransport = createMicrosoftGraphDelegatedMessagesTransport({
+      httpsImpl: function request(_opts, onResponse) {
+        const response = new (require('node:events').EventEmitter)();
+        response.statusCode = 401;
+        Object.defineProperty(response, 'headers', {
+          value: { 'content-type': 'application/json' },
+          enumerable: true,
+          configurable: true,
+        });
+        const req = new (require('node:events').EventEmitter)();
+        req.destroy = () => {};
+        response.destroy = () => {};
+        req.end = () => {
+          queueMicrotask(() => {
+            onResponse(response);
+            response.emit('data', Buffer.from(JSON.stringify({ error: { message: PLANTED } })));
+            response.emit('end');
+          });
+        };
+        return req;
+      },
+      timers: { setTimeout, clearTimeout },
+    });
+    const genuine = await createDelegatedGrantReadHealthService(Object.freeze({
+      deployment: SUNSET_DEPLOYMENT,
+      applicationClientId: APP_ID,
+      client: mockLifecycle({ sealed: sealed2g, opId: op2g }),
+      envelopeProvider: fake2g,
+      secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+      transport: successTransport(),
+      graphMessages: brandedTransport,
+    })).runReadHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+    assert.equal(genuine.status, STATUS_UNCERTAIN);
+    assert.equal(genuine.grant_generation, 2);
+    assert.equal(genuine.graph_reachable, false);
+    assert.equal(genuine.message_count_bounded, null);
+    assert.equal(genuine.graph_stage, 'http_status_not_200');
+    assert.equal(noLeak(genuine), true);
+    assert.equal(
+      readTrustedGraphStage({ graph_stage: 'http_status_not_200' }),
+      null,
+      'reader rejects arbitrary objects',
+    );
+    assert.equal(readTrustedGraphStage(null), null);
+    assert.equal(readTrustedGraphStage('timeout'), null);
+    assert.ok(Object.isFrozen(GRAPH_STAGES));
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(
+        require('./lib/email-microsoft-graph-delegated-messages-transport'),
+        'STAGED_FAILURES',
+      ),
+      false,
+    );
+
+    // Graph soft-failure (bad shape) also clears token; no invented stage.
     const fake2b = createFakeEmailGrantEnvelopeProvider();
     const op2b = crypto.randomUUID();
     const sealed2b = await fakeSealRefreshToken(fake2b, {
@@ -246,7 +450,7 @@ async function main() {
     let softInput = null;
     const graphSoft = frozenMethod('listMessageEnvelopeCount', async (input) => {
       softInput = input;
-      return Object.freeze({ message_count_bounded: 99 });
+      return Object.freeze({ message_count_bounded: 99, graph_stage: 'success' });
     });
     const soft = await createDelegatedGrantReadHealthService(Object.freeze({
       deployment: SUNSET_DEPLOYMENT,
@@ -259,9 +463,36 @@ async function main() {
     })).runReadHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
     assert.equal(soft.status, STATUS_UNCERTAIN);
     assert.equal(soft.graph_reachable, false);
+    assert.equal(soft.graph_stage, null);
     assert.ok(softInput);
     assert.equal(softInput.accessToken, null, 'access token cleared after Graph soft-failure');
     assert.equal(noLeak(soft), true);
+
+    // Hostile planted stage string on throw is dropped.
+    const fake2c = createFakeEmailGrantEnvelopeProvider();
+    const op2c = crypto.randomUUID();
+    const sealed2c = await fakeSealRefreshToken(fake2c, {
+      refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+      grantGeneration: 1, operationId: op2c,
+    });
+    const graphHostileStage = frozenMethod('listMessageEnvelopeCount', async () => {
+      const err = new Error(PLANTED);
+      err.graph_stage = PLANTED;
+      throw err;
+    });
+    const hostileStage = await createDelegatedGrantReadHealthService(Object.freeze({
+      deployment: SUNSET_DEPLOYMENT,
+      applicationClientId: APP_ID,
+      client: mockLifecycle({ sealed: sealed2c, opId: op2c }),
+      envelopeProvider: fake2c,
+      secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+      transport: successTransport(),
+      graphMessages: graphHostileStage,
+    })).runReadHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+    assert.equal(hostileStage.status, STATUS_UNCERTAIN);
+    assert.equal(hostileStage.grant_generation, 2);
+    assert.equal(hostileStage.graph_stage, null);
+    assert.equal(noLeak(hostileStage), true);
 
     // invalid_grant → reauth, Graph never called.
     const fake3 = createFakeEmailGrantEnvelopeProvider();
@@ -284,11 +515,12 @@ async function main() {
       })),
       graphMessages: frozenMethod('listMessageEnvelopeCount', async () => {
         graphAfterReauth += 1;
-        return Object.freeze({ message_count_bounded: 0 });
+        return Object.freeze({ message_count_bounded: 0, graph_stage: 'success' });
       }),
     })).runReadHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
     assert.equal(reauth.status, STATUS_REAUTH);
     assert.equal(reauth.graph_reachable, false);
+    assert.equal(reauth.graph_stage, null);
     assert.equal(graphAfterReauth, 0);
     assert.equal(noLeak(reauth), true);
 

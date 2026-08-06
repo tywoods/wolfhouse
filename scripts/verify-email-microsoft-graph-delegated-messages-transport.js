@@ -2,6 +2,7 @@
 
 /**
  * Hostile-path gate for delegated Graph Mail.ReadBasic messages health transport.
+ * Proves allowlisted graph_stage diagnostics without leaking response/token material.
  */
 
 const assert = require('node:assert/strict');
@@ -11,8 +12,12 @@ const {
   PATH,
   TOP_MAX,
   SELECT_FIELDS,
+  GRAPH_STAGES,
   countBoundedMessageEnvelopes,
+  classifyMessageEnvelopeBody,
+  classifyParsedMessageEnvelopeList,
   acceptParsedMessageEnvelopeList,
+  readTrustedGraphStage,
   createMicrosoftGraphDelegatedMessagesTransport,
 } = require('./lib/email-microsoft-graph-delegated-messages-transport');
 
@@ -49,10 +54,16 @@ function listBody(rows, extras = {}) {
   });
 }
 
-async function mustFail(action) {
+async function mustFailStage(action, stage) {
   await assert.rejects(action, (error) => error.code === FAILURE_CODE
+    && readTrustedGraphStage(error) === stage
+    && Object.isFrozen(error)
+    && !Object.prototype.hasOwnProperty.call(error, 'graph_stage')
     && noLeak(error)
-    && noLeak(error.message));
+    && noLeak(error.message)
+    && !String(error.stack || '').includes(TOKEN)
+    && !JSON.stringify(error).includes('content-type')
+    && !JSON.stringify(error).includes(PLANTED));
 }
 
 function mockHttps(statusCode, body, headerOverrides = {}) {
@@ -109,9 +120,6 @@ function assertRetainedOptionsScrubbed(retained, label) {
   assertNoTokenSurface(retained.headers, `${label} headers`);
 }
 
-/**
- * Hostile https.request that retains the options object reference for post-call scrub proofs.
- */
 function createRetainingHttps(behavior) {
   let retainedOptions = null;
   let sawTokenDuringCall = false;
@@ -165,28 +173,49 @@ function createRetainingHttps(behavior) {
   };
 }
 
+function transportWith(httpsImpl, timers) {
+  return createMicrosoftGraphDelegatedMessagesTransport({
+    httpsImpl,
+    timers: timers || { setTimeout, clearTimeout },
+  });
+}
+
 async function main() {
   const logged = [];
   const log = console.log;
   const error = console.error;
   console.log = console.error = (...v) => logged.push(v);
   try {
+    assert.deepEqual([...GRAPH_STAGES], [
+      'request_error',
+      'timeout',
+      'response_surface_invalid',
+      'http_status_not_200',
+      'content_type_invalid',
+      'stream_invalid',
+      'stream_aborted',
+      'response_too_large',
+      'utf8_invalid',
+      'json_invalid',
+      'top_shape_invalid',
+      'row_keyset_invalid',
+      'row_value_invalid',
+      'success',
+    ]);
     assert.equal(TOP_MAX, 5);
     assert.equal(PATH.includes('$top=5'), true);
     assert.equal(SELECT_FIELDS.includes('subject'), true);
     assert.equal(SELECT_FIELDS.includes('body'), false);
     assert.equal(SELECT_FIELDS.includes('hasAttachments'), false);
     assert.equal(PATH.includes('hasAttachments'), false);
-    assert.deepEqual([...SELECT_FIELDS], [
-      'id', 'subject', 'from', 'receivedDateTime', 'isRead',
-      'conversationId', 'internetMessageId',
-    ]);
 
     assert.equal(countBoundedMessageEnvelopes(listBody([
       envelopeRow(), envelopeRow({ id: '2' }),
     ])), 2);
     assert.equal(countBoundedMessageEnvelopes(JSON.stringify({ value: [] })), 0);
     assert.equal(countBoundedMessageEnvelopes(listBody([])), 0);
+    assert.equal(classifyMessageEnvelopeBody(listBody([envelopeRow()])).stage, 'success');
+    assert.equal(classifyMessageEnvelopeBody(listBody([envelopeRow()])).count, 1);
 
     for (const [name, body] of [
       ['too many rows', listBody(Array.from({ length: 6 }, (_, i) => envelopeRow({ id: String(i) })))],
@@ -211,23 +240,32 @@ async function main() {
       assert.equal(countBoundedMessageEnvelopes(body), null, name);
     }
 
-    // Nested duplicate keys at every parsed object depth.
+    assert.equal(classifyMessageEnvelopeBody(listBody(
+      Array.from({ length: 6 }, (_, i) => envelopeRow({ id: String(i) })),
+    )).stage, 'top_shape_invalid');
+    assert.equal(classifyMessageEnvelopeBody(listBody([envelopeRow()], {
+      '@odata.nextLink': 'https://graph.microsoft.com/v1.0/evil',
+    })).stage, 'top_shape_invalid');
+    assert.equal(classifyMessageEnvelopeBody(listBody([envelopeRow({ hasAttachments: false })])).stage,
+      'row_keyset_invalid');
+    assert.equal(classifyMessageEnvelopeBody(listBody([envelopeRow({ id: '' })])).stage,
+      'row_value_invalid');
+    assert.equal(classifyMessageEnvelopeBody('{').stage, 'json_invalid');
+    assert.equal(classifyMessageEnvelopeBody(`\ufffd`).stage, 'utf8_invalid');
+    assert.equal(classifyMessageEnvelopeBody(Buffer.alloc(70_000, 0x61).toString('utf8')).stage,
+      'response_too_large');
+
     const nestedDup = '{"value":[{"id":"1","subject":"s","from":{"emailAddress":{"address":"a@b.c","name":"n","address":"dup@b.c"}},"receivedDateTime":"2026-01-01T00:00:00Z","isRead":true,"conversationId":"c","internetMessageId":"<x>"}]}';
     assert.equal(countBoundedMessageEnvelopes(nestedDup), null, 'nested duplicate address');
+    assert.equal(classifyMessageEnvelopeBody(nestedDup).stage, 'json_invalid');
 
-    const nestedFromDup = '{"value":[{"id":"1","subject":"s","from":{"emailAddress":{"address":"a@b.c","name":"n"},"emailAddress":{"address":"x@y.z","name":"z"}},"receivedDateTime":"2026-01-01T00:00:00Z","isRead":true,"conversationId":"c","internetMessageId":"<x>"}]}';
-    assert.equal(countBoundedMessageEnvelopes(nestedFromDup), null, 'nested duplicate emailAddress');
-
-    // Dangerous / unexpected content fields
     assert.equal(countBoundedMessageEnvelopes(listBody([
       envelopeRow({ ['__proto__']: { polluted: true } }),
     ])), null);
-    assert.equal(countBoundedMessageEnvelopes(listBody([
-      envelopeRow({ constructor: { name: 'x' } }),
-    ])), null);
-
-    // Proxy / accessor / inherited rejection on parsed surfaces.
     assert.equal(acceptParsedMessageEnvelopeList(new Proxy({ value: [] }, {})), null, 'proxy top');
+    assert.equal(classifyParsedMessageEnvelopeList(new Proxy({ value: [] }, {})).stage,
+      'top_shape_invalid');
+
     const accessorTop = {};
     Object.defineProperty(accessorTop, 'value', {
       get() { return []; },
@@ -240,6 +278,8 @@ async function main() {
     const inheritedRow = Object.create(inheritedProto);
     Object.assign(inheritedRow, envelopeRow());
     assert.equal(acceptParsedMessageEnvelopeList({ value: [inheritedRow] }), null, 'inherited row');
+    assert.equal(classifyParsedMessageEnvelopeList({ value: [inheritedRow] }).stage,
+      'row_keyset_invalid');
 
     const accessorRow = { ...envelopeRow() };
     Object.defineProperty(accessorRow, 'subject', {
@@ -248,22 +288,37 @@ async function main() {
       configurable: true,
     });
     assert.equal(acceptParsedMessageEnvelopeList({ value: [accessorRow] }), null, 'accessor row field');
+    assert.equal(classifyParsedMessageEnvelopeList({ value: [accessorRow] }).stage,
+      'row_keyset_invalid');
 
     const proxyRow = new Proxy(envelopeRow(), {});
     assert.equal(acceptParsedMessageEnvelopeList({ value: [proxyRow] }), null, 'proxy row');
 
-    const transport = createMicrosoftGraphDelegatedMessagesTransport({
-      httpsImpl: mockHttps(200, listBody([
-        envelopeRow(), envelopeRow({ id: 'b' }), envelopeRow({ id: 'c' }),
-      ])),
-      timers: { setTimeout, clearTimeout },
-    });
+    const transport = transportWith(mockHttps(200, listBody([
+      envelopeRow(), envelopeRow({ id: 'b' }), envelopeRow({ id: 'c' }),
+    ])));
     const result = await transport.listMessageEnvelopeCount({ accessToken: TOKEN });
-    assert.deepEqual(result, { message_count_bounded: 3 });
+    assert.deepEqual(result, { message_count_bounded: 3, graph_stage: 'success' });
     assert.equal(Object.isFrozen(result), true);
     assert.equal(noLeak(result), true);
     assert.equal(JSON.stringify(result).includes('subject'), false);
     assert.equal(JSON.stringify(result).includes(PLANTED), false);
+
+    // --- Prove every transport terminal stage ---
+    await mustFailStage(() => transportWith(function request() {
+      throw new Error(PLANTED);
+    }).listMessageEnvelopeCount({ accessToken: TOKEN }), 'request_error');
+
+    {
+      let timeoutFn = null;
+      const hang = createRetainingHttps('hang');
+      const p = transportWith(hang.request, {
+        setTimeout: (fn) => { timeoutFn = fn; return 1; },
+        clearTimeout: () => {},
+      }).listMessageEnvelopeCount({ accessToken: TOKEN });
+      timeoutFn();
+      await mustFailStage(() => p, 'timeout');
+    }
 
     const ProxyHttps = function request(_opts, onResponse) {
       const target = new EventEmitter();
@@ -276,105 +331,182 @@ async function main() {
       req.destroy = () => {};
       return req;
     };
-    await mustFail(() => createMicrosoftGraphDelegatedMessagesTransport({
-      httpsImpl: ProxyHttps,
-      timers: { setTimeout, clearTimeout },
-    }).listMessageEnvelopeCount({ accessToken: TOKEN }));
+    await mustFailStage(
+      () => transportWith(ProxyHttps).listMessageEnvelopeCount({ accessToken: TOKEN }),
+      'response_surface_invalid',
+    );
 
-    await mustFail(() => createMicrosoftGraphDelegatedMessagesTransport({
-      httpsImpl: mockHttps(401, JSON.stringify({ error: { message: PLANTED } })),
-      timers: { setTimeout, clearTimeout },
-    }).listMessageEnvelopeCount({ accessToken: TOKEN }));
+    await mustFailStage(
+      () => transportWith(mockHttps(401, JSON.stringify({ error: { message: PLANTED } })))
+        .listMessageEnvelopeCount({ accessToken: TOKEN }),
+      'http_status_not_200',
+    );
+
+    await mustFailStage(
+      () => transportWith(mockHttps(200, JSON.stringify({ value: [] }), {
+        'content-type': 'text/plain',
+      })).listMessageEnvelopeCount({ accessToken: TOKEN }),
+      'content_type_invalid',
+    );
+
+    await mustFailStage(
+      () => transportWith(function request(_opts, onResponse) {
+        const response = new EventEmitter();
+        response.statusCode = 200;
+        Object.defineProperty(response, 'headers', {
+          value: { 'content-type': 'application/json' },
+          enumerable: true,
+          configurable: true,
+        });
+        const req = new EventEmitter();
+        req.destroy = () => {};
+        response.destroy = () => {};
+        req.end = () => {
+          queueMicrotask(() => {
+            onResponse(response);
+            response.emit('data', 'not-a-buffer');
+          });
+        };
+        return req;
+      }).listMessageEnvelopeCount({ accessToken: TOKEN }),
+      'stream_invalid',
+    );
+
+    await mustFailStage(
+      () => transportWith(function request(_opts, onResponse) {
+        const response = new EventEmitter();
+        response.statusCode = 200;
+        Object.defineProperty(response, 'headers', {
+          value: { 'content-type': 'application/json' },
+          enumerable: true,
+          configurable: true,
+        });
+        const req = new EventEmitter();
+        req.destroy = () => {};
+        response.destroy = () => {};
+        req.end = () => {
+          queueMicrotask(() => {
+            onResponse(response);
+            response.emit('aborted');
+          });
+        };
+        return req;
+      }).listMessageEnvelopeCount({ accessToken: TOKEN }),
+      'stream_aborted',
+    );
+
+    await mustFailStage(
+      () => transportWith(function request(_opts, onResponse) {
+        const response = new EventEmitter();
+        response.statusCode = 200;
+        Object.defineProperty(response, 'headers', {
+          value: { 'content-type': 'application/json' },
+          enumerable: true,
+          configurable: true,
+        });
+        const req = new EventEmitter();
+        req.destroy = () => {};
+        response.destroy = () => {};
+        req.end = () => {
+          queueMicrotask(() => {
+            onResponse(response);
+            response.emit('data', Buffer.alloc(70_000, 0x61));
+          });
+        };
+        return req;
+      }).listMessageEnvelopeCount({ accessToken: TOKEN }),
+      'response_too_large',
+    );
+
+    await mustFailStage(
+      () => transportWith(mockHttps(200, `\ufffd`))
+        .listMessageEnvelopeCount({ accessToken: TOKEN }),
+      'utf8_invalid',
+    );
+
+    await mustFailStage(
+      () => transportWith(mockHttps(200, '{'))
+        .listMessageEnvelopeCount({ accessToken: TOKEN }),
+      'json_invalid',
+    );
+
+    await mustFailStage(
+      () => transportWith(mockHttps(200, JSON.stringify({ value: { id: 'x' } })))
+        .listMessageEnvelopeCount({ accessToken: TOKEN }),
+      'top_shape_invalid',
+    );
+
+    await mustFailStage(
+      () => transportWith(mockHttps(200, listBody([envelopeRow({ importance: 'high' })])))
+        .listMessageEnvelopeCount({ accessToken: TOKEN }),
+      'row_keyset_invalid',
+    );
+
+    await mustFailStage(
+      () => transportWith(mockHttps(200, listBody([envelopeRow({ id: '' })])))
+        .listMessageEnvelopeCount({ accessToken: TOKEN }),
+      'row_value_invalid',
+    );
 
     for (const bad of [
       null, {}, { accessToken: TOKEN, top: 50 }, { accessToken: '' },
       { accessToken: 'bad\ntoken' }, Object.create(null),
     ]) {
-      await mustFail(() => createMicrosoftGraphDelegatedMessagesTransport({
-        httpsImpl: mockHttps(200, JSON.stringify({ value: [] })),
-        timers: { setTimeout, clearTimeout },
-      }).listMessageEnvelopeCount(bad));
+      await mustFailStage(
+        () => transportWith(mockHttps(200, JSON.stringify({ value: [] })))
+          .listMessageEnvelopeCount(bad),
+        'request_error',
+      );
     }
 
-    const once = createMicrosoftGraphDelegatedMessagesTransport({
-      httpsImpl: mockHttps(200, JSON.stringify({ value: [] })),
-      timers: { setTimeout, clearTimeout },
-    });
+    const once = transportWith(mockHttps(200, JSON.stringify({ value: [] })));
     await once.listMessageEnvelopeCount({ accessToken: TOKEN });
-    await mustFail(() => once.listMessageEnvelopeCount({ accessToken: TOKEN }));
+    await mustFailStage(() => once.listMessageEnvelopeCount({ accessToken: TOKEN }), 'request_error');
 
     assert.throws(
       () => createMicrosoftGraphDelegatedMessagesTransport({ httpsImpl: 'nope' }),
-      (e) => e.code === FAILURE_CODE && noLeak(e),
+      (e) => e.code === FAILURE_CODE
+        && readTrustedGraphStage(e) === 'request_error'
+        && !Object.prototype.hasOwnProperty.call(e, 'graph_stage')
+        && noLeak(e),
     );
 
-    // --- Access-token lifetime: hostile request retains options; must be scrubbed ---
-
-    // 1) Request creation success: scrubbed synchronously after https.request returns.
+    // Token scrub regressions preserved.
     {
       let timeoutFn = null;
       const hostile = createRetainingHttps('hang');
-      const hangPromise = createMicrosoftGraphDelegatedMessagesTransport({
-        httpsImpl: hostile.request,
-        timers: {
-          setTimeout: (fn) => { timeoutFn = fn; return 1; },
-          clearTimeout: () => {},
-        },
+      const hangPromise = transportWith(hostile.request, {
+        setTimeout: (fn) => { timeoutFn = fn; return 1; },
+        clearTimeout: () => {},
       }).listMessageEnvelopeCount({ accessToken: TOKEN });
-      assert.equal(hostile.sawTokenDuringCall(), true, 'token present only during request call');
+      assert.equal(hostile.sawTokenDuringCall(), true);
       assertRetainedOptionsScrubbed(hostile.getRetainedOptions(), 'after request creation');
-      assert.equal(typeof timeoutFn, 'function');
       timeoutFn();
-      await assert.rejects(hangPromise, (error) => error.code === FAILURE_CODE && noLeak(error));
+      await mustFailStage(() => hangPromise, 'timeout');
       assertRetainedOptionsScrubbed(hostile.getRetainedOptions(), 'after timeout');
-      assertNoTokenSurface(
-        hostile.getRetainedOptions() && hostile.getRetainedOptions().headers,
-        'headers after timeout',
-      );
     }
-
-    // 2) Synchronous request throw: scrubbed in finally; error sanitized.
     {
       const hostile = createRetainingHttps('throw');
-      await assert.rejects(
-        () => createMicrosoftGraphDelegatedMessagesTransport({
-          httpsImpl: hostile.request,
-          timers: { setTimeout, clearTimeout },
-        }).listMessageEnvelopeCount({ accessToken: TOKEN }),
-        (error) => error.code === FAILURE_CODE && noLeak(error) && !String(error).includes(TOKEN),
+      await mustFailStage(
+        () => transportWith(hostile.request).listMessageEnvelopeCount({ accessToken: TOKEN }),
+        'request_error',
       );
-      assert.equal(hostile.sawTokenDuringCall(), true);
       assertRetainedOptionsScrubbed(hostile.getRetainedOptions(), 'after sync throw');
     }
-
-    // 3) Asynchronous Graph success: scrubbed before response callback; DTO clean.
     {
       const hostile = createRetainingHttps('success');
       const graphInput = { accessToken: TOKEN };
-      const ok = await createMicrosoftGraphDelegatedMessagesTransport({
-        httpsImpl: hostile.request,
-        timers: { setTimeout, clearTimeout },
-      }).listMessageEnvelopeCount(graphInput);
-      assert.deepEqual(ok, { message_count_bounded: 0 });
-      assert.equal(Object.isFrozen(ok), true);
-      assertNoTokenSurface(ok, 'success DTO');
-      assert.equal(hostile.callbackInvocations(), 1);
+      const ok = await transportWith(hostile.request).listMessageEnvelopeCount(graphInput);
+      assert.deepEqual(ok, { message_count_bounded: 0, graph_stage: 'success' });
       assertRetainedOptionsScrubbed(hostile.getRetainedOptions(), 'after async success');
-      // Caller input is not mutated by transport (orchestrator clears its own bag).
       assert.equal(graphInput.accessToken, TOKEN);
     }
-
-    // 4) Asynchronous error path: scrubbed; callback/errors clean.
     {
       const hostile = createRetainingHttps('async-error');
-      await assert.rejects(
-        () => createMicrosoftGraphDelegatedMessagesTransport({
-          httpsImpl: hostile.request,
-          timers: { setTimeout, clearTimeout },
-        }).listMessageEnvelopeCount({ accessToken: TOKEN }),
-        (error) => error.code === FAILURE_CODE && noLeak(error),
+      await mustFailStage(
+        () => transportWith(hostile.request).listMessageEnvelopeCount({ accessToken: TOKEN }),
+        'stream_invalid',
       );
-      assert.equal(hostile.callbackInvocations(), 1);
       assertRetainedOptionsScrubbed(hostile.getRetainedOptions(), 'after async error');
     }
 

@@ -72,11 +72,59 @@ const GRAPH_REQUEST_CONSTANTS = Object.freeze({
 });
 const ACCEPT_HEADER = 'application/json';
 
-function failure() {
+/** Exact allowlisted terminal Graph read-health diagnostic stages. */
+const GRAPH_STAGES = Object.freeze([
+  'request_error',
+  'timeout',
+  'response_surface_invalid',
+  'http_status_not_200',
+  'content_type_invalid',
+  'stream_invalid',
+  'stream_aborted',
+  'response_too_large',
+  'utf8_invalid',
+  'json_invalid',
+  'top_shape_invalid',
+  'row_keyset_invalid',
+  'row_value_invalid',
+  'success',
+]);
+const GRAPH_STAGE_SET = new Set(GRAPH_STAGES);
+
+/** Module-private brand: only transport-created failure objects may map to a stage. */
+const STAGED_FAILURES = new WeakMap();
+
+function failure(stage) {
+  let graphStage = 'request_error';
+  if (typeof stage === 'string' && GRAPH_STAGE_SET.has(stage) && stage !== 'success') {
+    graphStage = stage;
+  }
   const error = new Error(FAILURE_MESSAGE);
   Object.defineProperty(error, 'name', { value: 'MicrosoftGraphDelegatedMessagesError' });
   Object.defineProperty(error, 'code', { value: FAILURE_CODE, enumerable: true });
+  // Stage lives only in the private brand — never as a readable error property.
+  STAGED_FAILURES.set(error, graphStage);
   return Object.freeze(error);
+}
+
+/**
+ * Safe reader for transport-branded failure stages.
+ * Never reads error.graph_stage or any provider-controlled property.
+ * Returns null for arbitrary objects, proxies, inherited/accessor surfaces, and primitives.
+ */
+function readTrustedGraphStage(error) {
+  try {
+    if (error === null || (typeof error !== 'object' && typeof error !== 'function')) {
+      return null;
+    }
+    const stage = STAGED_FAILURES.get(error);
+    if (typeof stage !== 'string' || !GRAPH_STAGE_SET.has(stage) || stage === 'success') {
+      return null;
+    }
+    return stage;
+  } catch {
+    return null;
+  }
 }
 
 function ownData(value, key) {
@@ -313,8 +361,11 @@ function acceptFrom(value) {
   return acceptEmailAddress(ownData(value, 'emailAddress'));
 }
 
-function acceptRow(row) {
-  if (!exactPlainData(row, SELECT_FIELDS)) return false;
+function rowKeysetValid(row) {
+  return exactPlainData(row, SELECT_FIELDS);
+}
+
+function rowValuesValid(row) {
   if (!requiredBoundedString(ownData(row, 'id'))) return false;
   if (!optionalBoundedString(ownData(row, 'subject'))) return false;
   if (!acceptFrom(ownData(row, 'from'))) return false;
@@ -326,16 +377,29 @@ function acceptRow(row) {
   return true;
 }
 
+function acceptRow(row) {
+  return rowKeysetValid(row) && rowValuesValid(row);
+}
+
+function classifyRow(row) {
+  if (!isPlainOwnDataObject(row) || !rowKeysetValid(row)) return 'row_keyset_invalid';
+  if (!rowValuesValid(row)) return 'row_value_invalid';
+  return null;
+}
+
 /**
- * Accept an already-parsed Graph list object. Returns bounded count or null.
- * Rejects proxies, accessors, inherited prototypes, unexpected keys, and
- * all body/content/attachment fields (not in SELECT_FIELDS).
+ * Classify an already-parsed Graph list object.
+ * Returns frozen { stage, count? } — never row contents.
  */
-function acceptParsedMessageEnvelopeList(parsed) {
+function classifyParsedMessageEnvelopeList(parsed) {
   try {
-    if (!isPlainOwnDataObject(parsed)) return null;
+    if (!isPlainOwnDataObject(parsed)) {
+      return Object.freeze({ stage: 'top_shape_invalid' });
+    }
     const keys = Reflect.ownKeys(parsed);
-    if (keys.some((key) => typeof key !== 'string' || DANGEROUS_KEYS.has(key))) return null;
+    if (keys.some((key) => typeof key !== 'string' || DANGEROUS_KEYS.has(key))) {
+      return Object.freeze({ stage: 'top_shape_invalid' });
+    }
     let allowed = false;
     for (const candidate of TOP_ALLOWED_EXACT) {
       if (keysMatchExactSet(keys, candidate)) {
@@ -343,7 +407,7 @@ function acceptParsedMessageEnvelopeList(parsed) {
         break;
       }
     }
-    if (!allowed) return null;
+    if (!allowed) return Object.freeze({ stage: 'top_shape_invalid' });
     if (!keys.every((key) => {
       const descriptor = Object.getOwnPropertyDescriptor(parsed, key);
       return Boolean(
@@ -354,24 +418,60 @@ function acceptParsedMessageEnvelopeList(parsed) {
         && !descriptor.set,
       );
     })) {
-      return null;
+      return Object.freeze({ stage: 'top_shape_invalid' });
     }
     if (Object.prototype.hasOwnProperty.call(parsed, '@odata.context')) {
       const context = ownData(parsed, '@odata.context');
       if (typeof context !== 'string' || context.length < 1 || context.length > STRING_LIMIT
           || hasUnpairedSurrogate(context)) {
-        return null;
+        return Object.freeze({ stage: 'top_shape_invalid' });
       }
     }
     const rows = ownData(parsed, 'value');
-    if (!Array.isArray(rows) || rows.length > TOP_MAX) return null;
-    for (const row of rows) {
-      if (!acceptRow(row)) return null;
+    if (!Array.isArray(rows) || rows.length > TOP_MAX) {
+      return Object.freeze({ stage: 'top_shape_invalid' });
     }
-    return rows.length;
+    for (const row of rows) {
+      const rowStage = classifyRow(row);
+      if (rowStage) return Object.freeze({ stage: rowStage });
+    }
+    return Object.freeze({ stage: 'success', count: rows.length });
   } catch {
-    return null;
+    return Object.freeze({ stage: 'top_shape_invalid' });
   }
+}
+
+/**
+ * Accept an already-parsed Graph list object. Returns bounded count or null.
+ * Rejects proxies, accessors, inherited prototypes, unexpected keys, and
+ * all body/content/attachment fields (not in SELECT_FIELDS).
+ */
+function acceptParsedMessageEnvelopeList(parsed) {
+  const classified = classifyParsedMessageEnvelopeList(parsed);
+  return classified.stage === 'success' ? classified.count : null;
+}
+
+/**
+ * Classify Graph list JSON body into exactly one allowlisted stage.
+ * Never returns row contents.
+ */
+function classifyMessageEnvelopeBody(bodyText) {
+  if (typeof bodyText !== 'string') {
+    return Object.freeze({ stage: 'utf8_invalid' });
+  }
+  if (Buffer.byteLength(bodyText, 'utf8') > RESPONSE_CAP_BYTES) {
+    return Object.freeze({ stage: 'response_too_large' });
+  }
+  if (bodyText.includes('\ufffd')) {
+    return Object.freeze({ stage: 'utf8_invalid' });
+  }
+  let parsed;
+  try {
+    parsed = parseStrictJson(bodyText);
+  } catch {
+    return Object.freeze({ stage: 'json_invalid' });
+  }
+  return classifyParsedMessageEnvelopeList(parsed);
 }
 
 /**
@@ -379,18 +479,8 @@ function acceptParsedMessageEnvelopeList(parsed) {
  * Never returns row contents. Rejects pagination/delta links and body fields.
  */
 function countBoundedMessageEnvelopes(bodyText) {
-  if (typeof bodyText !== 'string'
-      || Buffer.byteLength(bodyText, 'utf8') > RESPONSE_CAP_BYTES
-      || bodyText.includes('\ufffd')) {
-    return null;
-  }
-  let parsed;
-  try {
-    parsed = parseStrictJson(bodyText);
-  } catch {
-    return null;
-  }
-  return acceptParsedMessageEnvelopeList(parsed);
+  const classified = classifyMessageEnvelopeBody(bodyText);
+  return classified.stage === 'success' ? classified.count : null;
 }
 
 function createMicrosoftGraphDelegatedMessagesTransport(dependencies = {}) {
@@ -480,7 +570,7 @@ function createMicrosoftGraphDelegatedMessagesTransport(dependencies = {}) {
         if (isProxySurface(response)) {
           if (settled) return;
           destroyRequest();
-          finish(failure());
+          finish(failure('response_surface_invalid'));
           return;
         }
         if (settled) {
@@ -494,14 +584,14 @@ function createMicrosoftGraphDelegatedMessagesTransport(dependencies = {}) {
           const headers = readResponseHeaders(response);
           const contentType = headers && typeof headers === 'object'
             ? ownData(headers, 'content-type') : undefined;
-          if (status !== 200) { terminate(failure()); return; }
+          if (status !== 200) { terminate(failure('http_status_not_200')); return; }
           if (typeof contentType !== 'string'
               || !/^application\/json(?:\s*;|$)/i.test(contentType)) {
-            terminate(failure());
+            terminate(failure('content_type_invalid'));
             return;
           }
           if (typeof response.on !== 'function' || typeof response.once !== 'function') {
-            terminate(failure());
+            terminate(failure('response_surface_invalid'));
             return;
           }
           const chunks = [];
@@ -509,39 +599,55 @@ function createMicrosoftGraphDelegatedMessagesTransport(dependencies = {}) {
           let ended = false;
           response.on('data', (chunk) => {
             if (settled) return;
-            if (!Buffer.isBuffer(chunk)) { terminate(failure()); return; }
-            if (chunk.length > RESPONSE_CAP_BYTES - bytes) { terminate(failure()); return; }
+            if (!Buffer.isBuffer(chunk)) { terminate(failure('stream_invalid')); return; }
+            if (chunk.length > RESPONSE_CAP_BYTES - bytes) {
+              terminate(failure('response_too_large'));
+              return;
+            }
             bytes += chunk.length;
             chunks.push(chunk);
           });
-          response.once('error', () => terminate(failure()));
-          response.once('aborted', () => terminate(failure()));
-          response.once('close', () => { if (!ended) terminate(failure()); });
+          response.once('error', () => terminate(failure('stream_invalid')));
+          response.once('aborted', () => terminate(failure('stream_aborted')));
+          response.once('close', () => {
+            if (!ended) terminate(failure('stream_aborted'));
+          });
           response.once('end', () => {
             if (settled) return;
             ended = true;
             try {
-              const count = countBoundedMessageEnvelopes(
+              const classified = classifyMessageEnvelopeBody(
                 Buffer.concat(chunks, bytes).toString('utf8'),
               );
-              if (count === null) { finish(failure()); return; }
-              finish(null, Object.freeze({ message_count_bounded: count }));
+              if (!classified || classified.stage !== 'success'
+                  || typeof classified.count !== 'number') {
+                finish(failure(
+                  classified && typeof classified.stage === 'string'
+                    ? classified.stage
+                    : 'json_invalid',
+                ));
+                return;
+              }
+              finish(null, Object.freeze({
+                message_count_bounded: classified.count,
+                graph_stage: 'success',
+              }));
             } catch {
-              finish(failure());
+              finish(failure('json_invalid'));
             }
           });
         } catch {
-          terminate(failure());
+          terminate(failure('response_surface_invalid'));
         }
       };
 
       try {
-        timerHandle = setTimer(() => terminate(failure()), DEADLINE_MS);
+        timerHandle = setTimer(() => terminate(failure('timeout')), DEADLINE_MS);
         timerAcquired = true;
         if (settled) clearDeadline();
       } catch {
         tokenOwner = null;
-        finish(failure());
+        finish(failure('request_error'));
         return;
       }
       if (settled) {
@@ -587,16 +693,16 @@ function createMicrosoftGraphDelegatedMessagesTransport(dependencies = {}) {
         tokenOwner = null;
       } catch {
         tokenOwner = null;
-        terminate(failure());
+        terminate(failure('request_error'));
         return;
       }
 
       if (!requestObject || typeof requestObject.once !== 'function'
           || typeof requestObject.end !== 'function') {
-        terminate(failure());
+        terminate(failure('request_error'));
         return;
       }
-      requestObject.once('error', () => terminate(failure()));
+      requestObject.once('error', () => terminate(failure('request_error')));
       requestObject.end();
     });
   }
@@ -612,7 +718,11 @@ module.exports = Object.freeze({
   TOP_MAX,
   SELECT_FIELDS,
   RESPONSE_CAP_BYTES,
+  GRAPH_STAGES,
   countBoundedMessageEnvelopes,
+  classifyMessageEnvelopeBody,
+  classifyParsedMessageEnvelopeList,
   acceptParsedMessageEnvelopeList,
+  readTrustedGraphStage,
   createMicrosoftGraphDelegatedMessagesTransport,
 });
