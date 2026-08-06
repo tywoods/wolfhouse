@@ -230,7 +230,7 @@ function createDelegatedGrantReadHealthService(deps) {
         lease = null;
         return early(STATUS_UNAVAILABLE, priorDto.grant_generation);
       }
-      const refreshToken = opened.value.refresh_token;
+      let refreshToken = opened.value.refresh_token;
 
       const exchange = createMicrosoftRefreshTokenRequestService(Object.freeze({
         deployment: SUNSET_DEPLOYMENT,
@@ -272,6 +272,7 @@ function createDelegatedGrantReadHealthService(deps) {
       }
 
       if (classified.kind !== 'success' || !classified.selected) {
+        classified = null;
         await markDelegatedGrantReconciliation({
           clientId: ids.clientId,
           endpointId: ids.endpointId,
@@ -286,26 +287,14 @@ function createDelegatedGrantReadHealthService(deps) {
         return early(STATUS_UNCERTAIN, gen);
       }
 
-      let tokenToSeal = null;
-      const selected = classified.selected;
-      const accessToken = selected.accessToken;
-      if (typeof accessToken !== 'string' || !accessToken) {
-        await markDelegatedGrantReconciliation({
-          clientId: ids.clientId,
-          endpointId: ids.endpointId,
-          leaseToken: lease.lease_token,
-          expectedGeneration: lease.grant_generation,
-          reconcileState: 'ms_response_uncertain',
-          reconcileDetailCode: 'ms_refresh_uncertain',
-        }, { client });
-        const gen = lease.grant_generation;
-        await safeAbort(client, ids, lease);
-        lease = null;
-        return early(STATUS_UNCERTAIN, gen);
-      }
-
-      if (selected.refreshTokenOmitted === true) {
-        if (typeof refreshToken !== 'string' || !refreshToken) {
+      // Narrow token owners: extract minimum locals, then drop classified/selected.
+      let accessTokenOwner = null;
+      let refreshToSeal = null;
+      try {
+        const selected = classified.selected;
+        const accessCandidate = selected && selected.accessToken;
+        if (typeof accessCandidate !== 'string' || !accessCandidate) {
+          classified = null;
           await markDelegatedGrantReconciliation({
             clientId: ids.clientId,
             endpointId: ids.endpointId,
@@ -319,25 +308,51 @@ function createDelegatedGrantReadHealthService(deps) {
           lease = null;
           return early(STATUS_UNCERTAIN, gen);
         }
-        tokenToSeal = refreshToken;
-      } else if (selected.refreshTokenOmitted === false
-          && typeof selected.refreshToken === 'string'
-          && selected.refreshToken) {
-        tokenToSeal = selected.refreshToken;
-      } else {
-        await markDelegatedGrantReconciliation({
-          clientId: ids.clientId,
-          endpointId: ids.endpointId,
-          leaseToken: lease.lease_token,
-          expectedGeneration: lease.grant_generation,
-          reconcileState: 'ms_response_uncertain',
-          reconcileDetailCode: 'ms_refresh_uncertain',
-        }, { client });
-        const gen = lease.grant_generation;
-        await safeAbort(client, ids, lease);
-        lease = null;
-        return early(STATUS_UNCERTAIN, gen);
+        accessTokenOwner = accessCandidate;
+
+        if (selected.refreshTokenOmitted === true) {
+          if (typeof refreshToken !== 'string' || !refreshToken) {
+            accessTokenOwner = null;
+            classified = null;
+            await markDelegatedGrantReconciliation({
+              clientId: ids.clientId,
+              endpointId: ids.endpointId,
+              leaseToken: lease.lease_token,
+              expectedGeneration: lease.grant_generation,
+              reconcileState: 'ms_response_uncertain',
+              reconcileDetailCode: 'ms_refresh_uncertain',
+            }, { client });
+            const gen = lease.grant_generation;
+            await safeAbort(client, ids, lease);
+            lease = null;
+            return early(STATUS_UNCERTAIN, gen);
+          }
+          refreshToSeal = refreshToken;
+        } else if (selected.refreshTokenOmitted === false
+            && typeof selected.refreshToken === 'string'
+            && selected.refreshToken) {
+          refreshToSeal = selected.refreshToken;
+        } else {
+          accessTokenOwner = null;
+          classified = null;
+          await markDelegatedGrantReconciliation({
+            clientId: ids.clientId,
+            endpointId: ids.endpointId,
+            leaseToken: lease.lease_token,
+            expectedGeneration: lease.grant_generation,
+            reconcileState: 'ms_response_uncertain',
+            reconcileDetailCode: 'ms_refresh_uncertain',
+          }, { client });
+          const gen = lease.grant_generation;
+          await safeAbort(client, ids, lease);
+          lease = null;
+          return early(STATUS_UNCERTAIN, gen);
+        }
+      } finally {
+        classified = null;
       }
+      // Drop the one-time-opened refresh local once seal material is chosen.
+      refreshToken = null;
 
       const nextOperationId = crypto.randomUUID();
       const nextGeneration = lease.grant_generation + 1;
@@ -350,6 +365,8 @@ function createDelegatedGrantReadHealthService(deps) {
           operationId: nextOperationId,
         });
       } catch (_) {
+        accessTokenOwner = null;
+        refreshToSeal = null;
         await safeAbort(client, ids, lease);
         lease = null;
         throw failure();
@@ -358,11 +375,12 @@ function createDelegatedGrantReadHealthService(deps) {
       let sealed;
       try {
         sealed = await envelopeProvider.sealGrantPayload({
-          refresh_token: tokenToSeal,
+          refresh_token: refreshToSeal,
           aad,
           operation_id: nextOperationId,
         });
       } catch (_) {
+        accessTokenOwner = null;
         await markDelegatedGrantReconciliation({
           clientId: ids.clientId,
           endpointId: ids.endpointId,
@@ -375,10 +393,13 @@ function createDelegatedGrantReadHealthService(deps) {
         await safeAbort(client, ids, lease);
         lease = null;
         return early(STATUS_UNCERTAIN, gen);
+      } finally {
+        refreshToSeal = null;
       }
 
       const envCheck = validateGrantEnvelopeRecordV1(sealed);
       if (!envCheck.ok) {
+        accessTokenOwner = null;
         await markDelegatedGrantReconciliation({
           clientId: ids.clientId,
           endpointId: ids.endpointId,
@@ -403,15 +424,21 @@ function createDelegatedGrantReadHealthService(deps) {
       }, { client });
       lease = null;
       if (!committed.ok) {
+        accessTokenOwner = null;
         return early(STATUS_UNCERTAIN, priorDto.grant_generation);
       }
 
       const grantGeneration = committed.value.grant_generation;
-      // Access token used only for this bounded Graph call; never returned/logged.
+      // Single Graph consumption: mutable input owns the token until finally clears it.
+      let graphInput = null;
       try {
-        const graphResult = await Reflect.apply(listMessageEnvelopeCount, graphMessages, [
-          Object.freeze({ accessToken }),
-        ]);
+        graphInput = { accessToken: accessTokenOwner };
+        accessTokenOwner = null;
+        const graphResult = await Reflect.apply(
+          listMessageEnvelopeCount,
+          graphMessages,
+          [graphInput],
+        );
         if (!graphResult || !Object.isFrozen(graphResult)
             || Object.getPrototypeOf(graphResult) !== Object.prototype
             || Reflect.ownKeys(graphResult).length !== 1
@@ -439,6 +466,12 @@ function createDelegatedGrantReadHealthService(deps) {
           graphReachable: false,
           messageCountBounded: null,
         });
+      } finally {
+        if (graphInput) {
+          try { graphInput.accessToken = null; } catch { /* */ }
+          graphInput = null;
+        }
+        accessTokenOwner = null;
       }
     } catch (err) {
       await safeAbort(client, ids, lease);

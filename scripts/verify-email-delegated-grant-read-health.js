@@ -174,10 +174,13 @@ async function main() {
     });
 
     let graphCalls = 0;
-    let seenAccess = null;
+    let seenAccessDuringCall = null;
+    let capturedGraphInput = null;
     const graphOk = frozenMethod('listMessageEnvelopeCount', async (input) => {
       graphCalls += 1;
-      seenAccess = input.accessToken;
+      capturedGraphInput = input;
+      seenAccessDuringCall = input.accessToken;
+      assert.equal(Object.isFrozen(input), false, 'graph input must remain mutable for cleanup');
       return Object.freeze({ message_count_bounded: 2 });
     });
 
@@ -196,20 +199,24 @@ async function main() {
     assert.equal(healthy.graph_reachable, true);
     assert.equal(healthy.message_count_bounded, 2);
     assert.equal(graphCalls, 1);
-    assert.equal(seenAccess, ACCESS);
+    assert.equal(seenAccessDuringCall, ACCESS);
+    assert.ok(capturedGraphInput);
+    assert.equal(capturedGraphInput.accessToken, null, 'access token cleared after Graph success');
     assert.equal(noLeak(healthy), true);
     assert.deepEqual(Reflect.ownKeys(healthy), [
       'status', 'grant_generation', 'graph_reachable', 'message_count_bounded',
     ]);
 
-    // Graph failure after CAS → uncertain, generation advanced, no leak.
+    // Graph failure after CAS → uncertain, generation advanced, token cleared, no leak.
     const fake2 = createFakeEmailGrantEnvelopeProvider();
     const op2 = crypto.randomUUID();
     const sealed2 = await fakeSealRefreshToken(fake2, {
       refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
       grantGeneration: 1, operationId: op2,
     });
-    const graphFail = frozenMethod('listMessageEnvelopeCount', async () => {
+    let failInput = null;
+    const graphFail = frozenMethod('listMessageEnvelopeCount', async (input) => {
+      failInput = input;
       throw new Error(PLANTED);
     });
     const uncertain = await createDelegatedGrantReadHealthService(Object.freeze({
@@ -225,7 +232,36 @@ async function main() {
     assert.equal(uncertain.grant_generation, 2);
     assert.equal(uncertain.graph_reachable, false);
     assert.equal(uncertain.message_count_bounded, null);
+    assert.ok(failInput);
+    assert.equal(failInput.accessToken, null, 'access token cleared after Graph throw');
     assert.equal(noLeak(uncertain), true);
+
+    // Graph soft-failure (bad shape) also clears token.
+    const fake2b = createFakeEmailGrantEnvelopeProvider();
+    const op2b = crypto.randomUUID();
+    const sealed2b = await fakeSealRefreshToken(fake2b, {
+      refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+      grantGeneration: 1, operationId: op2b,
+    });
+    let softInput = null;
+    const graphSoft = frozenMethod('listMessageEnvelopeCount', async (input) => {
+      softInput = input;
+      return Object.freeze({ message_count_bounded: 99 });
+    });
+    const soft = await createDelegatedGrantReadHealthService(Object.freeze({
+      deployment: SUNSET_DEPLOYMENT,
+      applicationClientId: APP_ID,
+      client: mockLifecycle({ sealed: sealed2b, opId: op2b }),
+      envelopeProvider: fake2b,
+      secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+      transport: successTransport(),
+      graphMessages: graphSoft,
+    })).runReadHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+    assert.equal(soft.status, STATUS_UNCERTAIN);
+    assert.equal(soft.graph_reachable, false);
+    assert.ok(softInput);
+    assert.equal(softInput.accessToken, null, 'access token cleared after Graph soft-failure');
+    assert.equal(noLeak(soft), true);
 
     // invalid_grant → reauth, Graph never called.
     const fake3 = createFakeEmailGrantEnvelopeProvider();

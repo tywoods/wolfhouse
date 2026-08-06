@@ -24,24 +24,23 @@ const SELECT_FIELDS = Object.freeze([
   'receivedDateTime',
   'isRead',
   'conversationId',
-  'hasAttachments',
   'internetMessageId',
 ]);
 const PATH = `/v1.0/me/messages?$top=${TOP_MAX}&$select=${SELECT_FIELDS.join(',')}`;
 const DEADLINE_MS = 10_000;
 const RESPONSE_CAP_BYTES = 65_536;
 const TOKEN_LIMIT = 16_384;
+const STRING_LIMIT = 2048;
 const DEPENDENCY_KEYS = Object.freeze(['httpsImpl', 'timers']);
 const FAILURE_CODE = 'microsoft_graph_delegated_messages_failed';
 const FAILURE_MESSAGE = 'Microsoft Graph delegated messages request failed.';
-
-const FORBIDDEN_BODY_KEYS = new Set([
-  'body', 'bodyPreview', 'uniqueBody', 'internetMessageHeaders',
-  'toRecipients', 'ccRecipients', 'bccRecipients', 'replyTo',
+const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+const TOP_ALLOWED_EXACT = Object.freeze([
+  Object.freeze(['value']),
+  Object.freeze(['@odata.context', 'value']),
 ]);
-const FORBIDDEN_ODATA = new Set([
-  '@odata.nextLink', '@odata.deltaLink',
-]);
+const FROM_KEYS = Object.freeze(['emailAddress']);
+const EMAIL_ADDRESS_KEYS = Object.freeze(['address', 'name']);
 
 const PINNED_INCOMING_MESSAGE = http.IncomingMessage;
 const PINNED_INCOMING_MESSAGE_PROTOTYPE = http.IncomingMessage
@@ -78,12 +77,34 @@ function ownData(value, key) {
   }
 }
 
+function isProxySurface(value) {
+  try {
+    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) return true;
+    return Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
+  } catch {
+    return true;
+  }
+}
+
+function isPlainOwnDataObject(object) {
+  try {
+    if (object === null || typeof object !== 'object' || Array.isArray(object)) return false;
+    if (isProxySurface(object)) return false;
+    const proto = Object.getPrototypeOf(object);
+    return proto === Object.prototype || proto === null;
+  } catch {
+    return false;
+  }
+}
+
 function exactPlainData(object, keys) {
   try {
-    if (!object || Object.getPrototypeOf(object) !== Object.prototype) return false;
+    if (!isPlainOwnDataObject(object)) return false;
     const actual = Reflect.ownKeys(object);
     if (actual.length !== keys.length
-        || actual.some((key) => typeof key !== 'string' || !keys.includes(key))) {
+        || actual.some((key) => typeof key !== 'string'
+          || DANGEROUS_KEYS.has(key)
+          || !keys.includes(key))) {
       return false;
     }
     return keys.every((key) => {
@@ -101,18 +122,19 @@ function exactPlainData(object, keys) {
   }
 }
 
-function isProxyResponseSurface(value) {
-  try {
-    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) return true;
-    return Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
-  } catch {
-    return true;
+function keysMatchExactSet(actual, allowed) {
+  if (actual.length !== allowed.length) return false;
+  const remaining = new Set(allowed);
+  for (const key of actual) {
+    if (typeof key !== 'string' || !remaining.has(key)) return false;
+    remaining.delete(key);
   }
+  return remaining.size === 0;
 }
 
 function isPinnedIncomingMessage(response) {
   try {
-    if (isProxyResponseSurface(response)) return false;
+    if (isProxySurface(response)) return false;
     if (!PINNED_HEADERS_GET || !PINNED_INCOMING_MESSAGE || !PINNED_INCOMING_MESSAGE_PROTOTYPE) {
       return false;
     }
@@ -129,7 +151,7 @@ function isPinnedIncomingMessage(response) {
 
 function readResponseHeaders(response) {
   try {
-    if (isProxyResponseSurface(response)) return undefined;
+    if (isProxySurface(response)) return undefined;
     if (isPinnedIncomingMessage(response)) {
       const headers = Reflect.apply(PINNED_HEADERS_GET, response, []);
       if (headers === null || typeof headers !== 'object' || Array.isArray(headers)) {
@@ -153,44 +175,191 @@ function readAccessToken(input) {
   return token;
 }
 
-function assertUniqueTopLevelKeys(body) {
-  const seen = new Set();
-  let depth = 0;
-  let expectingKey = false;
-  let inString = false;
-  let escaped = false;
-  let keyStart = -1;
-  for (let index = 0; index < body.length; index += 1) {
-    const char = body[index];
-    if (inString) {
-      if (escaped) { escaped = false; continue; }
-      if (char === '\\') { escaped = true; continue; }
-      if (char !== '"') continue;
-      inString = false;
-      if (keyStart >= 0) {
-        let key;
-        try { key = JSON.parse(body.slice(keyStart, index + 1)); } catch (_) { return false; }
-        if (seen.has(key)) return false;
-        seen.add(key);
-        keyStart = -1;
-        expectingKey = false;
-      }
-      continue;
-    }
-    if (char === '"') {
-      inString = true;
-      if (depth === 1 && expectingKey) keyStart = index;
-      continue;
-    }
-    if (char === '{' || char === '[') {
-      depth += 1;
-      if (depth === 1 && char === '{') expectingKey = true;
-      continue;
-    }
-    if (char === '}' || char === ']') { depth -= 1; continue; }
-    if (depth === 1 && char === ',') expectingKey = true;
+function hasUnpairedSurrogate(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+      index += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) return true;
   }
+  return false;
+}
+
+/**
+ * Strict JSON parser: rejects duplicate keys at every object depth, dangerous
+ * names, unpaired surrogates, and oversized strings. Builds null-prototype objects.
+ */
+function parseStrictJson(text) {
+  let at = 0;
+  const fail = () => { throw new Error('strict_json_fail'); };
+  const ws = () => { while (at < text.length && /[\x20\x09\x0a\x0d]/.test(text[at])) at += 1; };
+  function value(depth) {
+    if (depth > 8) fail();
+    ws();
+    if (text[at] === '{') return object(depth + 1);
+    if (text[at] === '[') return array(depth + 1);
+    if (text[at] === '"') return string();
+    const rest = text.slice(at);
+    if (rest.startsWith('true')) { at += 4; return true; }
+    if (rest.startsWith('false')) { at += 5; return false; }
+    if (rest.startsWith('null')) { at += 4; return null; }
+    const match = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(rest);
+    if (!match) fail();
+    at += match[0].length;
+    const number = Number(match[0]);
+    if (!Number.isFinite(number)) fail();
+    return number;
+  }
+  function string() {
+    const start = at;
+    at += 1;
+    let escaped = false;
+    while (at < text.length) {
+      const code = text.charCodeAt(at);
+      if (!escaped && code === 34) {
+        at += 1;
+        let result;
+        try { result = JSON.parse(text.slice(start, at)); } catch { fail(); }
+        if (result.length > STRING_LIMIT || hasUnpairedSurrogate(result)) fail();
+        return result;
+      }
+      if (!escaped && code < 0x20) fail();
+      if (!escaped && code === 92) escaped = true;
+      else escaped = false;
+      at += 1;
+    }
+    fail();
+  }
+  function object(depth) {
+    at += 1;
+    const result = Object.create(null);
+    const names = new Set();
+    ws();
+    if (text[at] === '}') { at += 1; return result; }
+    for (;;) {
+      ws();
+      if (text[at] !== '"') fail();
+      const key = string();
+      if (names.has(key) || DANGEROUS_KEYS.has(key) || names.size >= 64) fail();
+      names.add(key);
+      ws();
+      if (text[at] !== ':') fail();
+      at += 1;
+      result[key] = value(depth);
+      ws();
+      if (text[at] === '}') { at += 1; return result; }
+      if (text[at] !== ',') fail();
+      at += 1;
+    }
+  }
+  function array(depth) {
+    at += 1;
+    const result = [];
+    ws();
+    if (text[at] === ']') { at += 1; return result; }
+    for (;;) {
+      if (result.length > TOP_MAX) fail();
+      result.push(value(depth));
+      ws();
+      if (text[at] === ']') { at += 1; return result; }
+      if (text[at] !== ',') fail();
+      at += 1;
+    }
+  }
+  const result = value(0);
+  ws();
+  if (at !== text.length) fail();
+  return result;
+}
+
+function optionalBoundedString(value) {
+  return value === null
+    || (typeof value === 'string'
+      && value.length <= STRING_LIMIT
+      && !hasUnpairedSurrogate(value));
+}
+
+function requiredBoundedString(value) {
+  return typeof value === 'string'
+    && value.length >= 1
+    && value.length <= STRING_LIMIT
+    && !hasUnpairedSurrogate(value);
+}
+
+function acceptEmailAddress(value) {
+  if (value === null) return true;
+  if (!exactPlainData(value, EMAIL_ADDRESS_KEYS)) return false;
+  return optionalBoundedString(ownData(value, 'address'))
+    && optionalBoundedString(ownData(value, 'name'));
+}
+
+function acceptFrom(value) {
+  if (value === null) return true;
+  if (!exactPlainData(value, FROM_KEYS)) return false;
+  return acceptEmailAddress(ownData(value, 'emailAddress'));
+}
+
+function acceptRow(row) {
+  if (!exactPlainData(row, SELECT_FIELDS)) return false;
+  if (!requiredBoundedString(ownData(row, 'id'))) return false;
+  if (!optionalBoundedString(ownData(row, 'subject'))) return false;
+  if (!acceptFrom(ownData(row, 'from'))) return false;
+  if (!requiredBoundedString(ownData(row, 'receivedDateTime'))) return false;
+  const isRead = ownData(row, 'isRead');
+  if (isRead !== true && isRead !== false) return false;
+  if (!optionalBoundedString(ownData(row, 'conversationId'))) return false;
+  if (!optionalBoundedString(ownData(row, 'internetMessageId'))) return false;
   return true;
+}
+
+/**
+ * Accept an already-parsed Graph list object. Returns bounded count or null.
+ * Rejects proxies, accessors, inherited prototypes, unexpected keys, and
+ * all body/content/attachment fields (not in SELECT_FIELDS).
+ */
+function acceptParsedMessageEnvelopeList(parsed) {
+  try {
+    if (!isPlainOwnDataObject(parsed)) return null;
+    const keys = Reflect.ownKeys(parsed);
+    if (keys.some((key) => typeof key !== 'string' || DANGEROUS_KEYS.has(key))) return null;
+    let allowed = false;
+    for (const candidate of TOP_ALLOWED_EXACT) {
+      if (keysMatchExactSet(keys, candidate)) {
+        allowed = true;
+        break;
+      }
+    }
+    if (!allowed) return null;
+    if (!keys.every((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(parsed, key);
+      return Boolean(
+        descriptor
+        && Object.prototype.hasOwnProperty.call(descriptor, 'value')
+        && descriptor.enumerable
+        && !descriptor.get
+        && !descriptor.set,
+      );
+    })) {
+      return null;
+    }
+    if (Object.prototype.hasOwnProperty.call(parsed, '@odata.context')) {
+      const context = ownData(parsed, '@odata.context');
+      if (typeof context !== 'string' || context.length < 1 || context.length > STRING_LIMIT
+          || hasUnpairedSurrogate(context)) {
+        return null;
+      }
+    }
+    const rows = ownData(parsed, 'value');
+    if (!Array.isArray(rows) || rows.length > TOP_MAX) return null;
+    for (const row of rows) {
+      if (!acceptRow(row)) return null;
+    }
+    return rows.length;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -203,33 +372,13 @@ function countBoundedMessageEnvelopes(bodyText) {
       || bodyText.includes('\ufffd')) {
     return null;
   }
-  if (!assertUniqueTopLevelKeys(bodyText)) return null;
   let parsed;
-  try { parsed = JSON.parse(bodyText); } catch (_) { return null; }
-  if (!parsed || Object.getPrototypeOf(parsed) !== Object.prototype) return null;
-  const keys = Reflect.ownKeys(parsed);
-  if (keys.some((k) => typeof k !== 'string')) return null;
-  for (const key of keys) {
-    if (FORBIDDEN_ODATA.has(key)) return null;
-    if (key === 'error') return null;
-  }
-  if (!Object.prototype.hasOwnProperty.call(parsed, 'value')) return null;
-  const valueDesc = Object.getOwnPropertyDescriptor(parsed, 'value');
-  if (!valueDesc || valueDesc.get || valueDesc.set || !Array.isArray(valueDesc.value)) {
+  try {
+    parsed = parseStrictJson(bodyText);
+  } catch {
     return null;
   }
-  const rows = valueDesc.value;
-  if (rows.length > TOP_MAX) return null;
-  for (const row of rows) {
-    if (!row || Object.getPrototypeOf(row) !== Object.prototype) return null;
-    const rowKeys = Reflect.ownKeys(row);
-    if (rowKeys.some((k) => typeof k !== 'string')) return null;
-    for (const key of rowKeys) {
-      if (FORBIDDEN_BODY_KEYS.has(key)) return null;
-      if (key.startsWith('@odata.')) return null;
-    }
-  }
-  return rows.length;
+  return acceptParsedMessageEnvelopeList(parsed);
 }
 
 function createMicrosoftGraphDelegatedMessagesTransport(dependencies = {}) {
@@ -338,7 +487,7 @@ function createMicrosoftGraphDelegatedMessagesTransport(dependencies = {}) {
             Authorization: ['Bearer', accessToken].join(' '),
           }),
         }), (response) => {
-          if (isProxyResponseSurface(response)) {
+          if (isProxySurface(response)) {
             if (settled) return;
             destroyRequest();
             finish(failure());
@@ -420,5 +569,6 @@ module.exports = Object.freeze({
   SELECT_FIELDS,
   RESPONSE_CAP_BYTES,
   countBoundedMessageEnvelopes,
+  acceptParsedMessageEnvelopeList,
   createMicrosoftGraphDelegatedMessagesTransport,
 });
