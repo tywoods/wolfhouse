@@ -185,9 +185,13 @@ function selectIdentity(parsed) {
     if (!boundedText(rawDisplayName, 1, 256)) throw failure('IDENTITY_INVALID');
     displayName = rawDisplayName;
   }
+  // Microsoft Graph /me may return distinct valid mail and userPrincipalName
+  // (GoDaddy/M365 aliases, primary SMTP vs login UPN). Validate each present
+  // nonempty field independently; prefer canonical mail when present, else UPN.
+  // Do not require equality. Malformed present fields fail closed (no skip).
   const mail = normalizeMailbox(parsed.mail);
   const upn = normalizeMailbox(parsed.userPrincipalName);
-  if (mail === false || upn === false || (!mail && !upn) || (mail && upn && mail !== upn)) throw failure('IDENTITY_INVALID');
+  if (mail === false || upn === false || (!mail && !upn)) throw failure('IDENTITY_INVALID');
   return Object.freeze({ providerSubjectId: id, mailboxAddress: mail || upn, displayName });
 }
 

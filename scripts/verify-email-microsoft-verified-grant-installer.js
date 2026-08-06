@@ -634,6 +634,46 @@ test('rejects public_address !== verified mailbox with rollback', async function
   assert.equal(fake.grantInserted, false);
 });
 
+test('Graph-preferred SMTP mailbox binds only when public_address exact-equals; UPN cannot substitute', async function preferredMailOwnershipBinding() {
+  // Downstream of Graph mail-preference: mailboxAddress is the sole ownership key.
+  // Endpoint prepared for support@… must match Graph-selected mail; a different
+  // valid UPN on the Graph identity cannot satisfy public_address binding.
+  const preferredMail = 'support@lunafrontdesk.com';
+  const differentUpn = 'support@lunafrontdesk.onmicrosoft.com';
+  assert.notEqual(preferredMail, differentUpn);
+
+  const okFake = createFakePinnedClient({ endpoint: { public_address: preferredMail } });
+  const okInstaller = installerFromFake(okFake);
+  const ack = await okInstaller.installVerifiedGrant(goodInstall({
+    identity: Object.freeze({
+      providerTenantId: TID,
+      providerPrincipalId: PRINCIPAL,
+      mailboxAddress: preferredMail,
+      displayName: 'Luna Support',
+    }),
+  }));
+  assert.deepEqual(ack, { status: 'installed' });
+  assert.equal(okFake.endpointState.public_address, preferredMail);
+  assert.equal(okFake.endpointState.binding_status, 'verified');
+
+  const mismatchFake = createFakePinnedClient({ endpoint: { public_address: preferredMail } });
+  const mismatchInstaller = installerFromFake(mismatchFake);
+  await assert.rejects(
+    () => mismatchInstaller.installVerifiedGrant(goodInstall({
+      identity: Object.freeze({
+        providerTenantId: TID,
+        providerPrincipalId: PRINCIPAL,
+        mailboxAddress: differentUpn,
+        displayName: 'Luna Support',
+      }),
+    })),
+    failSanitized,
+  );
+  assert.deepEqual(sqlKinds(mismatchFake.queries), ['BEGIN', 'SELECT_LOCK', 'ROLLBACK']);
+  assert.equal(mismatchFake.grantInserted, false);
+  assert.equal(mismatchFake.endpointState.binding_status, 'unverified_offline');
+});
+
 test('missing endpoint row rolls back; duplicate select rows roll back', async function rowCount() {
   {
     const fake = createFakePinnedClient({ selectRows: [] });

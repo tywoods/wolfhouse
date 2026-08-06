@@ -17,6 +17,9 @@ const {
 const { createMicrosoftOidcIdTokenValidator } = require('./lib/email-microsoft-oidc-id-token');
 const { createMicrosoftOidcJwksSignatureVerifier } = require('./lib/email-microsoft-oidc-jwks-verifier');
 const { createMicrosoftGraphMeIdentityTransport } = require('./lib/email-microsoft-graph-me-identity');
+const {
+  createEmailOAuthStageTelemetry,
+} = require('./lib/email-microsoft-oauth-stage-telemetry');
 
 const NOW = 1900000000;
 const TID = '01234567-89ab-4def-8123-456789abcdef';
@@ -1078,6 +1081,132 @@ test('accepts valid surrogate-pair and emoji principals when both children agree
     { result: graphResult(emoji) },
   );
   await expectSanitizedFailure(() => mismatch.composition.verifyIdentity(stubInput()));
+});
+
+// ── Graph mail ≠ UPN: prefer mail; stage graph_identity_verified ───────────
+
+const REALISTIC_SMTP = 'support@lunafrontdesk.com';
+const REALISTIC_UPN = 'support@lunafrontdesk.onmicrosoft.com';
+
+test('merged factories prefer Graph mail over differing valid UPN and emit graph_identity_verified', async function mailDiffersFromUpnReachesVerified() {
+  // Live GoDaddy/M365 shape: primary SMTP (mail) and login UPN both valid, not equal.
+  // Identity selection must prefer mail; OIDC oid == Graph id still binds principal.
+  assert.notEqual(REALISTIC_SMTP, REALISTIC_UPN);
+  const stages = [];
+  const stageTelemetry = createEmailOAuthStageTelemetry(Object.freeze({
+    requestId: 'a1a1a1a1-b2b2-4c3c-8d4d-e5e5e5e5e5e5',
+    logger(event) { stages.push(event.stage); },
+  }));
+  const harness = jwksHarness();
+  const signatureVerifier = createMicrosoftOidcJwksSignatureVerifier(harness.dependencies);
+  const oidcValidator = createMicrosoftOidcIdTokenValidator({ signatureVerifier });
+  const graph = graphFake({
+    body: JSON.stringify({
+      id: PRINCIPAL,
+      displayName: 'Luna Support',
+      mail: 'Support@LunaFrontDesk.COM',
+      userPrincipalName: REALISTIC_UPN,
+    }),
+  });
+  const composition = createMicrosoftVerifiedIdentityComposition(Object.freeze({
+    oidcValidator,
+    graphIdentity: graph.service,
+    stageTelemetry,
+  }));
+  const result = await composition.verifyIdentity(goodInput());
+  assert.deepEqual(result, {
+    providerTenantId: TID,
+    providerPrincipalId: PRINCIPAL,
+    mailboxAddress: REALISTIC_SMTP,
+    displayName: 'Luna Support',
+  });
+  assert.equal(Object.isFrozen(result), true);
+  assert.equal(graph.calls.length, 1);
+  assert.deepEqual(stages, ['oidc_verified', 'graph_identity_verified']);
+  // Downstream installer ownership: only this mailboxAddress binds public_address.
+  assert.equal(result.mailboxAddress, REALISTIC_SMTP);
+  assert.notEqual(result.mailboxAddress, REALISTIC_UPN);
+});
+
+test('merged factories use UPN when mail absent; still reach graph_identity_verified', async function mailAbsentUsesUpn() {
+  const stages = [];
+  const stageTelemetry = createEmailOAuthStageTelemetry(Object.freeze({
+    requestId: 'a1a1a1a1-b2b2-4c3c-8d4d-e5e5e5e5e5e5',
+    logger(event) { stages.push(event.stage); },
+  }));
+  const harness = jwksHarness();
+  const signatureVerifier = createMicrosoftOidcJwksSignatureVerifier(harness.dependencies);
+  const oidcValidator = createMicrosoftOidcIdTokenValidator({ signatureVerifier });
+  const graph = graphFake({
+    body: JSON.stringify({
+      id: PRINCIPAL,
+      displayName: 'Luna Support',
+      mail: null,
+      userPrincipalName: REALISTIC_UPN,
+    }),
+  });
+  const composition = createMicrosoftVerifiedIdentityComposition(Object.freeze({
+    oidcValidator,
+    graphIdentity: graph.service,
+    stageTelemetry,
+  }));
+  const result = await composition.verifyIdentity(goodInput());
+  assert.equal(result.mailboxAddress, REALISTIC_UPN);
+  assert.deepEqual(stages, ['oidc_verified', 'graph_identity_verified']);
+});
+
+test('merged factories fail closed on malformed mail with valid UPN before graph_identity_verified', async function malformedMailBlocksVerified() {
+  const stages = [];
+  const stageTelemetry = createEmailOAuthStageTelemetry(Object.freeze({
+    requestId: 'a1a1a1a1-b2b2-4c3c-8d4d-e5e5e5e5e5e5',
+    logger(event) { stages.push(event.stage); },
+  }));
+  const harness = jwksHarness();
+  const signatureVerifier = createMicrosoftOidcJwksSignatureVerifier(harness.dependencies);
+  const oidcValidator = createMicrosoftOidcIdTokenValidator({ signatureVerifier });
+  const graph = graphFake({
+    body: JSON.stringify({
+      id: PRINCIPAL,
+      displayName: 'Luna Support',
+      mail: 'not-an-email',
+      userPrincipalName: REALISTIC_UPN,
+    }),
+  });
+  const composition = createMicrosoftVerifiedIdentityComposition(Object.freeze({
+    oidcValidator,
+    graphIdentity: graph.service,
+    stageTelemetry,
+  }));
+  await expectSanitizedFailure(() => composition.verifyIdentity(goodInput()));
+  assert.deepEqual(stages, ['oidc_verified']);
+  assert.equal(stages.includes('graph_identity_verified'), false);
+});
+
+test('merged factories fail closed on malformed UPN with valid mail before graph_identity_verified', async function malformedUpnBlocksVerified() {
+  const stages = [];
+  const stageTelemetry = createEmailOAuthStageTelemetry(Object.freeze({
+    requestId: 'a1a1a1a1-b2b2-4c3c-8d4d-e5e5e5e5e5e5',
+    logger(event) { stages.push(event.stage); },
+  }));
+  const harness = jwksHarness();
+  const signatureVerifier = createMicrosoftOidcJwksSignatureVerifier(harness.dependencies);
+  const oidcValidator = createMicrosoftOidcIdTokenValidator({ signatureVerifier });
+  const graph = graphFake({
+    body: JSON.stringify({
+      id: PRINCIPAL,
+      displayName: 'Luna Support',
+      mail: REALISTIC_SMTP,
+      userPrincipalName: 'not-an-email',
+    }),
+  });
+  const composition = createMicrosoftVerifiedIdentityComposition(Object.freeze({
+    oidcValidator,
+    graphIdentity: graph.service,
+    stageTelemetry,
+  }));
+  await expectSanitizedFailure(() => composition.verifyIdentity(goodInput()));
+  assert.deepEqual(stages, ['oidc_verified']);
+  assert.equal(stages.includes('graph_identity_verified'), false);
 });
 
 async function runTests() {
