@@ -20,7 +20,8 @@ const {
 } = require('./email-sunset-microsoft-endpoint-prepare');
 
 const OAUTH_START_PATH = '/staff/admin/email-settings/oauth/microsoft/start';
-const OAUTH_PREPARE_PATH = '/staff/admin/email-settings/oauth/microsoft/prepare';
+/** Exact prepare path — endpoint creation prerequisite for Microsoft OAuth. */
+const OAUTH_PREPARE_PATH = '/staff/admin/email-settings/oauth/microsoft/endpoint';
 const OAUTH_CALLBACK_PATH = '/staff/email/oauth/microsoft/callback';
 /** Canonical lowercase UUID (start body endpoint_id + ordinary SQL row ids). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
