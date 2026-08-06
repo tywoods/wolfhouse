@@ -26,6 +26,12 @@ const {
   resolveOptionalStageTelemetry,
   safeEmitStage,
 } = require('./email-microsoft-oauth-stage-telemetry');
+const {
+  TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES,
+  TOKEN_RESPONSE_ALLOWED_OIDC_SCOPES,
+  TOKEN_RESPONSE_SCOPE_ORDER,
+  validateAndNormalizeTokenResponseScope,
+} = require('./email-microsoft-token-response-scope');
 
 const ERROR_CODE = 'MICROSOFT_VERIFIED_GRANT_CUSTODY_INVALID';
 const ERROR_MESSAGE = 'Microsoft verified grant custody failed.';
@@ -38,10 +44,10 @@ const CLIENT_ID_LIMIT = 256;
 const PRINCIPAL_LIMIT = 256;
 const MAILBOX_MIN = 3;
 const MAILBOX_MAX = 254;
+// Authorize/request Phase A set (offline_access requested; may be omitted in token response).
 const PHASE_A_SCOPES = Object.freeze([
   'openid', 'profile', 'offline_access', 'User.Read', 'Mail.ReadBasic',
 ]);
-const ALLOWED_SCOPES = new Set(PHASE_A_SCOPES);
 const PRINTABLE_ASCII = /^[\x21-\x7e]+$/;
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const CANONICAL_MAILBOX_RE = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
@@ -200,18 +206,11 @@ function isCanonicalGraphMailbox(value) {
   return true;
 }
 
-function exactPhaseAScope(scope) {
-  if (typeof scope !== 'string' || scope.length < 1 || scope.length > 512) return false;
-  const scopes = scope.split(' ');
-  const scopeSet = new Set(scopes);
-  return !scopes.some((item) => !item || !ALLOWED_SCOPES.has(item))
-    && scopeSet.size === scopes.length
-    && scopeSet.size === PHASE_A_SCOPES.length
-    && PHASE_A_SCOPES.every((item) => scopeSet.has(item));
-}
-
 /**
  * Snapshot exact frozen selected tokens (response-custody shape) before awaits.
+ * Scope uses Microsoft v2 token-response semantics (shared with response custody):
+ * exact resource scopes required; OIDC metadata allowlisted; actual normalized
+ * scope persisted without synthesizing offline_access/email.
  */
 function snapshotAndValidateSelected(input) {
   if (!exactFrozenData(input, SELECTED_KEYS)) return null;
@@ -229,7 +228,8 @@ function snapshotAndValidateSelected(input) {
   if (!Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > MAX_EXPIRES_IN_SECONDS) {
     return null;
   }
-  if (!exactPhaseAScope(scope)) return null;
+  const normalizedScope = validateAndNormalizeTokenResponseScope(scope);
+  if (normalizedScope === null) return null;
   if (!printable(idToken, ID_TOKEN_LIMIT_CHARS)) return null;
 
   return Object.freeze({
@@ -237,7 +237,7 @@ function snapshotAndValidateSelected(input) {
     refreshToken,
     tokenType,
     expiresIn,
-    scope,
+    scope: normalizedScope,
     idToken,
   });
 }
@@ -515,6 +515,9 @@ module.exports = Object.freeze({
   ID_TOKEN_LIMIT_CHARS,
   MAX_EXPIRES_IN_SECONDS,
   PHASE_A_SCOPES,
+  TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES,
+  TOKEN_RESPONSE_ALLOWED_OIDC_SCOPES,
+  TOKEN_RESPONSE_SCOPE_ORDER,
   GRANT_GENERATION_INITIAL,
   SELECTED_KEYS,
   CONFIG_KEYS,

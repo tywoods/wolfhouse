@@ -664,6 +664,53 @@ test('token transport failure stops before response stages', async function toke
   assert.deepEqual(events.map((e) => e.stage), ['token_request_started']);
 });
 
+test('realistic MS token scope omitting offline_access reaches token_response_validated', async function msScopeOmitsOfflineAccessStages() {
+  // Live root cause: exact five-item scope check rejected Microsoft v2 responses
+  // that omit offline_access (evidenced by refresh_token), so telemetry stopped at
+  // token_response_received → callback_failed with no token_response_validated.
+  for (const scope of [
+    'openid profile User.Read Mail.ReadBasic',
+    'openid profile email User.Read Mail.ReadBasic',
+    'User.Read Mail.ReadBasic',
+  ]) {
+    const { service, events, completionInput } = pipelineComposition({
+      useRealIdentity: true,
+      tokenPatch: { scope },
+    });
+    const ack = await service.completeAuthorization(completionInput);
+    assert.deepEqual(ack, { status: 'completed' });
+    assert.deepEqual(events.map((e) => e.stage), [
+      'token_request_started',
+      'token_response_received',
+      'token_response_validated',
+      'oidc_verified',
+      'graph_identity_verified',
+      'envelope_sealed',
+      'installer_started',
+      'installer_committed',
+    ]);
+    assert.equal(events.some((e) => e.stage === 'token_response_validated'), true);
+    for (const ev of events) {
+      assertEventShape(ev, ev.stage);
+      assertNoSensitive(ev);
+      assert.equal(JSON.stringify(ev).includes('offline_access'), false);
+    }
+  }
+});
+
+test('hostile higher-privilege token scope fails after received without validated', async function hostileScopeNoValidated() {
+  const { service, events, completionInput } = pipelineComposition({
+    useRealIdentity: true,
+    tokenPatch: { scope: 'openid profile User.Read Mail.Read' },
+  });
+  await assert.rejects(() => service.completeAuthorization(completionInput));
+  assert.deepEqual(events.map((e) => e.stage), [
+    'token_request_started',
+    'token_response_received',
+  ]);
+  assert.equal(events.some((e) => e.stage === 'token_response_validated'), false);
+});
+
 test('invalid token body emits received but not validated', async function tokenValidateFail() {
   const { service, events, completionInput } = pipelineComposition({
     useRealIdentity: true,

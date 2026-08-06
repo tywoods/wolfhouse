@@ -9,6 +9,12 @@ const {
   createNoopEmailOAuthStageTelemetry,
   safeEmitStage,
 } = require('./email-microsoft-oauth-stage-telemetry');
+const {
+  TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES,
+  TOKEN_RESPONSE_ALLOWED_OIDC_SCOPES,
+  TOKEN_RESPONSE_SCOPE_ORDER,
+  validateAndNormalizeTokenResponseScope,
+} = require('./email-microsoft-token-response-scope');
 
 const FAILURE_CODE = 'microsoft_token_custody_failed';
 // Custody JSON body bound equals transport response cap (do not weaken transport).
@@ -18,8 +24,8 @@ const TOKEN_LIMIT_CHARS = 8192;
 // Own required id_token bound — aligned with merged OIDC LIMITS.token (32768).
 const ID_TOKEN_LIMIT_CHARS = 32768;
 const MAX_EXPIRES_IN_SECONDS = 86_400;
+// Authorize/request Phase A set (offline_access requested; may be omitted in token response).
 const PHASE_A_SCOPES = Object.freeze(['openid', 'profile', 'offline_access', 'User.Read', 'Mail.ReadBasic']);
-const ALLOWED_SCOPES = new Set(PHASE_A_SCOPES);
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const SUCCESS = Object.freeze({ status: 'custodied' });
 
@@ -99,18 +105,24 @@ function validate(response) {
   const scope = ownData(value, 'scope');
   if (tokenType !== 'Bearer' || !Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > MAX_EXPIRES_IN_SECONDS
       || !printable(accessToken, TOKEN_LIMIT_CHARS) || !printable(refreshToken, TOKEN_LIMIT_CHARS)
-      || !printable(idToken, ID_TOKEN_LIMIT_CHARS)
-      || typeof scope !== 'string' || scope.length < 1 || scope.length > 512) throw failure();
+      || !printable(idToken, ID_TOKEN_LIMIT_CHARS)) throw failure();
   if (Object.hasOwn(value, 'ext_expires_in')) {
     const ext = ownData(value, 'ext_expires_in');
     if (!Number.isInteger(ext) || ext < 1 || ext > MAX_EXPIRES_IN_SECONDS) throw failure();
   }
-  const scopes = scope.split(' ');
-  const scopeSet = new Set(scopes);
-  if (scopes.some((item) => !item || !ALLOWED_SCOPES.has(item)) || scopeSet.size !== scopes.length
-      || scopeSet.size !== PHASE_A_SCOPES.length || PHASE_A_SCOPES.some((item) => !scopeSet.has(item))) throw failure();
+  // Microsoft v2: effective access-token scopes; offline_access need not be echoed.
+  const normalizedScope = validateAndNormalizeTokenResponseScope(scope);
+  if (normalizedScope === null) throw failure();
   // Exact minimized selected shape for custody only (camelCase; fixed key order).
-  return Object.freeze({ accessToken, refreshToken, tokenType, expiresIn, scope, idToken });
+  // Persist actual normalized scope only — never synthesize offline_access/email.
+  return Object.freeze({
+    accessToken,
+    refreshToken,
+    tokenType,
+    expiresIn,
+    scope: normalizedScope,
+    idToken,
+  });
 }
 function sealedAck(value) {
   return value && Object.isFrozen(value) && Object.getPrototypeOf(value) === Object.prototype
@@ -149,6 +161,14 @@ function createMicrosoftTokenResponseCustodyService(deps = {}) {
 }
 
 module.exports = Object.freeze({
-  FAILURE_CODE, JSON_LIMIT_BYTES, TOKEN_LIMIT_CHARS, ID_TOKEN_LIMIT_CHARS, MAX_EXPIRES_IN_SECONDS, PHASE_A_SCOPES,
+  FAILURE_CODE,
+  JSON_LIMIT_BYTES,
+  TOKEN_LIMIT_CHARS,
+  ID_TOKEN_LIMIT_CHARS,
+  MAX_EXPIRES_IN_SECONDS,
+  PHASE_A_SCOPES,
+  TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES,
+  TOKEN_RESPONSE_ALLOWED_OIDC_SCOPES,
+  TOKEN_RESPONSE_SCOPE_ORDER,
   createMicrosoftTokenResponseCustodyService,
 });
