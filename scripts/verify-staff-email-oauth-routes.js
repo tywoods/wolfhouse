@@ -899,10 +899,10 @@ function routesWithQuery(queryImpl, extra = {}) {
   assert.match(r.body, /could not be accepted/i);
   assert.ok(!r.body.includes('opaque-code'));
 
-  // ── snapshotPrepareClientResolve: realistic node-postgres Result ─────────
-  // Production pg returns Result instances (Result.prototype), not plain
-  // Object.prototype bags. Own-data metadata + own rows must be accepted;
-  // inherited rows/metadata must never be trusted. Strict row contract unchanged.
+  // ── snapshotPrepareClientResolve: production node-pg Result seam ─────────
+  // Exercise exported production snapshot only (no test-local reimplementation).
+  // Real pg Result.prototype accepted; hostile shapes fail closed; prepare route
+  // reaches domain insert only when resolve yields a trusted client UUID.
   {
     const MAILBOX = 'front-desk@sunset.example';
     const PREPARE_LOCATION = 'sunset-somo';
@@ -926,31 +926,34 @@ function routesWithQuery(queryImpl, extra = {}) {
       return result;
     }
 
+    function isClientResolveSql(text) {
+      return text === SQL_RESOLVE_SUNSET_CLIENT_FOR_PREPARE
+        || (/FROM\s+clients/i.test(text)
+          && /slug\s*=\s*'sunset'/i.test(text)
+          && !/id\s*=\s*\$1/i.test(text)
+          && !/tenant_locations/i.test(text)
+          && !/tenant_channel_endpoints/i.test(text));
+    }
+
     assert.strictEqual(OAUTH_PREPARE_PATH, '/staff/admin/email-settings/oauth/microsoft/endpoint');
     assert.deepStrictEqual([...PREPARE_BODY_KEYS], ['location_id', 'public_address']);
     assert.deepStrictEqual([...PREPARE_CLIENT_ROW_KEYS], ['client_id']);
     assert.strictEqual(PREPARE_ERROR, 'endpoint_prepare_unavailable');
 
-    // Prove the instance is a real Result prototype (the production incompatibility).
+    // GREEN: actual pg/lib/result.js Result through exported production snapshot.
     const goodResult = realisticPgResult([goodPrepareClientRow()]);
     assert.strictEqual(Object.getPrototypeOf(goodResult), PgResult.prototype);
     assert.notStrictEqual(Object.getPrototypeOf(goodResult), Object.prototype);
     assert.ok(Object.prototype.hasOwnProperty.call(goodResult, 'rows'));
-    assert.ok(Object.prototype.hasOwnProperty.call(goodResult, 'command'));
-    assert.ok(Object.prototype.hasOwnProperty.call(goodResult, 'rowCount'));
-
-    // GREEN: realistic Result accepted; own-data client_id snapped once.
     assert.strictEqual(
       snapshotPrepareClientResolve(goodResult),
       CLIENT_ID,
-      'realistic node-postgres Result must be accepted by snapshotPrepareClientResolve',
+      'realistic node-postgres Result must be accepted by production snapshotPrepareClientResolve',
     );
-    // Plain Object.prototype still accepted (mock shape).
     assert.strictEqual(
       snapshotPrepareClientResolve({ rows: [goodPrepareClientRow()] }),
       CLIENT_ID,
     );
-    // Null-proto root with own rows accepted.
     assert.strictEqual(
       snapshotPrepareClientResolve(Object.assign(Object.create(null), {
         rows: [goodPrepareClientRow()],
@@ -958,57 +961,27 @@ function routesWithQuery(queryImpl, extra = {}) {
       CLIENT_ID,
     );
 
-    // Never trust inherited rows/metadata (no own rows descriptor).
-    assert.strictEqual(
-      snapshotPrepareClientResolve(Object.create({ rows: [goodPrepareClientRow()] })),
-      null,
-      'inherited-only rows must be rejected',
-    );
-    // Result.prototype child without own rows → null.
-    assert.strictEqual(
-      snapshotPrepareClientResolve(Object.create(PgResult.prototype)),
-      null,
-    );
-
-    // Accessors / symbols / malformed / sparse / multi / extra row keys → null.
+    // Hostile shapes → null (own-data seam only; never inherited rows).
     const rowsAccessor = new PgResult();
     Object.defineProperty(rowsAccessor, 'rows', {
       enumerable: true,
       get() { return [goodPrepareClientRow()]; },
     });
-    assert.strictEqual(snapshotPrepareClientResolve(rowsAccessor), null);
-
     const withSym = realisticPgResult([goodPrepareClientRow()]);
     withSym[Symbol('x')] = 1;
-    assert.strictEqual(snapshotPrepareClientResolve(withSym), null);
-
     const metaAccessor = realisticPgResult([goodPrepareClientRow()]);
     Object.defineProperty(metaAccessor, 'rowCount', {
       enumerable: true,
       get() { return 1; },
     });
-    assert.strictEqual(snapshotPrepareClientResolve(metaAccessor), null);
-
     const sparse = [];
-    sparse.length = 1; // no index-0 own key
-    assert.strictEqual(snapshotPrepareClientResolve({ rows: sparse }), null);
-
-    assert.strictEqual(
-      snapshotPrepareClientResolve({
-        rows: [goodPrepareClientRow(), goodPrepareClientRow()],
-      }),
-      null,
-      'multi-row must be rejected',
-    );
-
+    sparse.length = 1;
     const extraKeyRows = new Proxy([goodPrepareClientRow()], {
       getPrototypeOf() { return Array.prototype; },
       ownKeys() { return ['0', 'extra', 'length']; },
       getOwnPropertyDescriptor(_t, prop) {
         if (prop === 'length') {
-          return {
-            configurable: false, enumerable: false, writable: true, value: 1,
-          };
+          return { configurable: false, enumerable: false, writable: true, value: 1 };
         }
         if (prop === '0') {
           return {
@@ -1017,49 +990,59 @@ function routesWithQuery(queryImpl, extra = {}) {
           };
         }
         if (prop === 'extra') {
-          return {
-            configurable: true, enumerable: true, writable: true, value: 'evil',
-          };
+          return { configurable: true, enumerable: true, writable: true, value: 'evil' };
         }
         return undefined;
       },
     });
-    assert.strictEqual(snapshotPrepareClientResolve({ rows: extraKeyRows }), null);
-
-    // Row contract not loosened: wrong/extra row keys, accessors, uppercase UUID.
-    assert.strictEqual(
-      snapshotPrepareClientResolve({ rows: [{ client_id: CLIENT_ID, extra: 1 }] }),
-      null,
-    );
-    assert.strictEqual(
-      snapshotPrepareClientResolve({
-        rows: [{ client_id: 'aabbccdd-eeff-4123-8456-7890abcdef01'.toUpperCase() }],
-      }),
-      null,
-    );
     const rowAccessor = {};
     Object.defineProperty(rowAccessor, 'client_id', {
       enumerable: true,
       get() { return CLIENT_ID; },
     });
-    assert.strictEqual(snapshotPrepareClientResolve({ rows: [rowAccessor] }), null);
+    const throwingRoot = new Proxy(realisticPgResult([goodPrepareClientRow()]), {
+      ownKeys() { throw new Error('ownKeys must fail closed'); },
+    });
+    const throwingRows = new Proxy([goodPrepareClientRow()], {
+      getPrototypeOf() { return Array.prototype; },
+      ownKeys() { return ['0', 'length']; },
+      getOwnPropertyDescriptor() { throw new Error('rows desc must fail closed'); },
+    });
 
-    // Hostile one-read: capture rows descriptor once; never reread / never direct get.
+    const failClosed = [
+      ['inherited-only', Object.create({ rows: [goodPrepareClientRow()] })],
+      ['result no own rows', Object.create(PgResult.prototype)],
+      ['rows accessor', rowsAccessor],
+      ['root symbol', withSym],
+      ['meta accessor', metaAccessor],
+      ['sparse', { rows: sparse }],
+      ['multi', { rows: [goodPrepareClientRow(), goodPrepareClientRow()] }],
+      ['extra row keys', { rows: extraKeyRows }],
+      ['row extra key', { rows: [{ client_id: CLIENT_ID, extra: 1 }] }],
+      ['uppercase uuid', {
+        rows: [{ client_id: 'aabbccdd-eeff-4123-8456-7890abcdef01'.toUpperCase() }],
+      }],
+      ['row accessor', { rows: [rowAccessor] }],
+      ['throwing ownKeys', throwingRoot],
+      ['throwing rows desc', { rows: throwingRows }],
+    ];
+    for (const [label, shape] of failClosed) {
+      assert.strictEqual(
+        snapshotPrepareClientResolve(shape),
+        null,
+        `fail closed: ${label}`,
+      );
+    }
+
+    // Hostile one-read: capture descriptors once; never reread / never direct get.
     {
       const obs = {
-        rootOwnKeys: 0,
-        rowsDesc: 0,
-        rowsOwnKeys: 0,
-        lengthDesc: 0,
-        indexDesc: 0,
+        rootOwnKeys: 0, rowsDesc: 0, rowsOwnKeys: 0, lengthDesc: 0, indexDesc: 0,
       };
       const realRow = goodPrepareClientRow();
       const rowsProxy = new Proxy([realRow], {
         getPrototypeOf() { return Array.prototype; },
-        ownKeys() {
-          obs.rowsOwnKeys += 1;
-          return ['0', 'length'];
-        },
+        ownKeys() { obs.rowsOwnKeys += 1; return ['0', 'length']; },
         getOwnPropertyDescriptor(_t, prop) {
           if (prop === 'length') {
             obs.lengthDesc += 1;
@@ -1084,15 +1067,11 @@ function routesWithQuery(queryImpl, extra = {}) {
           throw new Error(`direct rows get must not be used: ${String(prop)}`);
         },
       });
-      // Root with Result-like prototype + ordinary own metadata, hostile rows.
       const rootTarget = realisticPgResult([realRow]);
       rootTarget.rows = rowsProxy;
       const rootProxy = new Proxy(rootTarget, {
         getPrototypeOf() { return PgResult.prototype; },
-        ownKeys() {
-          obs.rootOwnKeys += 1;
-          return Reflect.ownKeys(rootTarget);
-        },
+        ownKeys() { obs.rootOwnKeys += 1; return Reflect.ownKeys(rootTarget); },
         getOwnPropertyDescriptor(_t, prop) {
           if (prop === 'rows') {
             obs.rowsDesc += 1;
@@ -1109,23 +1088,19 @@ function routesWithQuery(queryImpl, extra = {}) {
         },
       });
 
-      const snapped = snapshotPrepareClientResolve(rootProxy);
-      assert.strictEqual(snapped, CLIENT_ID, 'first-read Result rows only');
+      assert.strictEqual(snapshotPrepareClientResolve(rootProxy), CLIENT_ID, 'first-read only');
       assert.strictEqual(obs.rootOwnKeys, 1);
-      assert.strictEqual(obs.rowsDesc, 1, 'rows descriptor once');
+      assert.strictEqual(obs.rowsDesc, 1);
       assert.strictEqual(obs.rowsOwnKeys, 1);
       assert.strictEqual(obs.lengthDesc, 1);
       assert.strictEqual(obs.indexDesc, 1);
-
-      // Second call sees flipped descriptor — must not reuse first snapshot values.
-      const second = snapshotPrepareClientResolve(rootProxy);
-      assert.strictEqual(second, null, 'must not reuse first one-row snapshot');
+      assert.strictEqual(snapshotPrepareClientResolve(rootProxy), null, 'no reuse after flip');
       assert.strictEqual(obs.rowsDesc, 2);
-      assert.strictEqual(obs.lengthDesc, 1, 'length not re-read after empty substitute');
-      assert.strictEqual(obs.indexDesc, 1, 'index not re-read after empty substitute');
+      assert.strictEqual(obs.lengthDesc, 1);
+      assert.strictEqual(obs.indexDesc, 1);
     }
 
-    // Route: realistic Result → not 503 before domain; prepare proceeds to insert.
+    // Full prepare route: real Result → 200 / canonical UUID / one insert.
     {
       const queries = [];
       let domainInsert = 0;
@@ -1134,13 +1109,7 @@ function routesWithQuery(queryImpl, extra = {}) {
           const text = String(sql);
           const p = params || [];
           queries.push({ text, params: p });
-          // Route-level trusted Sunset resolve → realistic node-pg Result.
-          if (text === SQL_RESOLVE_SUNSET_CLIENT_FOR_PREPARE
-              || (/FROM\s+clients/i.test(text)
-                && /slug\s*=\s*'sunset'/i.test(text)
-                && !/id\s*=\s*\$1/i.test(text)
-                && !/tenant_locations/i.test(text)
-                && !/tenant_channel_endpoints/i.test(text))) {
+          if (isClientResolveSql(text)) {
             return realisticPgResult([goodPrepareClientRow()]);
           }
           if (/^\s*BEGIN\b/i.test(text)) return { rows: [] };
@@ -1161,8 +1130,7 @@ function routesWithQuery(queryImpl, extra = {}) {
             domainInsert += 1;
             return { rows: [{ id: ENDPOINT_ID }] };
           }
-          if (/^\s*COMMIT\b/i.test(text)) return { rows: [] };
-          if (/^\s*ROLLBACK\b/i.test(text)) return { rows: [] };
+          if (/^\s*COMMIT\b/i.test(text) || /^\s*ROLLBACK\b/i.test(text)) return { rows: [] };
           throw new Error(`unexpected prepare SQL: ${text.slice(0, 80)}`);
         },
       };
@@ -1185,26 +1153,17 @@ function routesWithQuery(queryImpl, extra = {}) {
       assert.strictEqual(rr.body && rr.body.endpoint_id, ENDPOINT_ID);
       assert.ok(!JSON.stringify(rr.body).includes(MAILBOX));
       assert.strictEqual(domainInsert, 1, 'domain insert reached after Result resolve');
-      assert.ok(queries.some((q) => q.text === SQL_RESOLVE_SUNSET_CLIENT_FOR_PREPARE
-        || (/FROM\s+clients/i.test(q.text) && !/id\s*=\s*\$1/i.test(q.text))));
+      assert.ok(queries.some((q) => isClientResolveSql(q.text)));
     }
 
-    // Route RED shape preserved when resolve is unusable: 503 before domain, zero insert.
-    {
+    // Hostile resolve shapes on full prepare route: 503, zero inserts.
+    async function assertPrepareFailsClosed(label, resolveResult) {
       let domainInsert = 0;
-      const badResult = Object.create(PgResult.prototype); // no own rows
       const pg = {
         async query(sql) {
           const text = String(sql);
-          if (text === SQL_RESOLVE_SUNSET_CLIENT_FOR_PREPARE
-              || (/FROM\s+clients/i.test(text)
-                && /slug\s*=\s*'sunset'/i.test(text)
-                && !/id\s*=\s*\$1/i.test(text))) {
-            return badResult;
-          }
-          if (/INSERT\s+INTO\s+tenant_channel_endpoints/i.test(text)) {
-            domainInsert += 1;
-          }
+          if (isClientResolveSql(text)) return resolveResult;
+          if (/INSERT\s+INTO\s+tenant_channel_endpoints/i.test(text)) domainInsert += 1;
           return { rows: [] };
         },
       };
@@ -1222,90 +1181,23 @@ function routesWithQuery(queryImpl, extra = {}) {
         rr,
         ids,
       );
-      assert.strictEqual(rr.status, 503);
-      assert.deepStrictEqual(rr.body, { success: false, error: PREPARE_ERROR });
-      assert.strictEqual(domainInsert, 0, 'domain never reached on invalid resolve');
+      assert.strictEqual(rr.status, 503, label);
+      assert.deepStrictEqual(rr.body, { success: false, error: PREPARE_ERROR }, label);
+      assert.strictEqual(domainInsert, 0, `${label}: zero inserts`);
     }
 
-    // Mutation-negative: restoring Object.prototype-only root gate rejects Result.
-    // Proves removal of the fix fails closed on production node-pg Result shape.
-    {
-      function snapshotPrepareClientResolveBroken(result) {
-        try {
-          if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
-          // ── mutation: reintroduce the pre-fix rootProto gate ──
-          const rootProto = Object.getPrototypeOf(result);
-          if (rootProto !== Object.prototype && rootProto !== null) return null;
-          const rootKeys = Reflect.ownKeys(result);
-          let rowsDesc = null;
-          for (let i = 0; i < rootKeys.length; i += 1) {
-            const key = rootKeys[i];
-            if (typeof key === 'symbol') return null;
-            const desc = Object.getOwnPropertyDescriptor(result, key);
-            if (!desc
-                || !Object.prototype.hasOwnProperty.call(desc, 'value')
-                || desc.get
-                || desc.set) {
-              return null;
-            }
-            if (key === 'rows') {
-              if (rowsDesc) return null;
-              rowsDesc = desc;
-            }
-          }
-          if (!rowsDesc) return null;
-          const rows = rowsDesc.value;
-          if (!Array.isArray(rows)) return null;
-          if (Object.getPrototypeOf(rows) !== Array.prototype) return null;
-          const rowKeys = Reflect.ownKeys(rows);
-          for (let i = 0; i < rowKeys.length; i += 1) {
-            if (typeof rowKeys[i] === 'symbol') return null;
-          }
-          const lengthDesc = Object.getOwnPropertyDescriptor(rows, 'length');
-          if (!lengthDesc
-              || !Object.prototype.hasOwnProperty.call(lengthDesc, 'value')
-              || lengthDesc.get
-              || lengthDesc.set
-              || typeof lengthDesc.value !== 'number'
-              || !Number.isInteger(lengthDesc.value)
-              || lengthDesc.value < 0) {
-            return null;
-          }
-          if (lengthDesc.value !== 1) return null;
-          if (rowKeys.length !== 2 || rowKeys[0] !== '0' || rowKeys[1] !== 'length') {
-            return null;
-          }
-          const indexDesc = Object.getOwnPropertyDescriptor(rows, '0');
-          if (!indexDesc
-              || !Object.prototype.hasOwnProperty.call(indexDesc, 'value')
-              || indexDesc.get
-              || indexDesc.set) {
-            return null;
-          }
-          // Delegate row contract to production (row surface unchanged).
-          return snapshotPrepareClientResolve({ rows: [indexDesc.value] });
-        } catch {
-          return null;
-        }
-      }
-
-      const productionResult = realisticPgResult([goodPrepareClientRow()]);
-      assert.strictEqual(
-        snapshotPrepareClientResolveBroken(productionResult),
-        null,
-        'mutation-negative: Object.prototype-only root gate rejects node-pg Result',
-      );
-      assert.strictEqual(
-        snapshotPrepareClientResolve(productionResult),
-        CLIENT_ID,
-        'production fix must still accept the same Result',
-      );
-      // Plain object still works under the broken gate (not the production bug).
-      assert.strictEqual(
-        snapshotPrepareClientResolveBroken({ rows: [goodPrepareClientRow()] }),
-        CLIENT_ID,
-      );
-    }
+    await assertPrepareFailsClosed('inherited-only', Object.create({
+      rows: [goodPrepareClientRow()],
+    }));
+    await assertPrepareFailsClosed('result no own rows', Object.create(PgResult.prototype));
+    await assertPrepareFailsClosed('rows accessor', rowsAccessor);
+    await assertPrepareFailsClosed('root symbol', withSym);
+    await assertPrepareFailsClosed('sparse', { rows: sparse });
+    await assertPrepareFailsClosed('multi', {
+      rows: [goodPrepareClientRow(), goodPrepareClientRow()],
+    });
+    await assertPrepareFailsClosed('extra row keys', { rows: extraKeyRows });
+    await assertPrepareFailsClosed('throwing ownKeys', throwingRoot);
   }
 
   // Routes must not accept oauth envelope substitution / native DI keys
@@ -1334,24 +1226,8 @@ function routesWithQuery(queryImpl, extra = {}) {
   // Handler must call snapshot once — no validBody-then-reread / readStartBody path.
   assert.equal(routesSrc.includes('readStartBody'), false);
   assert.equal(/validBody\(body\)/.test(routesSrc.replace(/function validBody[\s\S]*?\n\}/, '')), false);
-
-  // Prepare resolve must not reintroduce Object.prototype-only root gate
-  // (that gate is the proven production node-pg Result incompatibility).
-  {
-    const fnMatch = routesSrc.match(
-      /function snapshotPrepareClientResolve\(result\) \{[\s\S]*?\n\}/,
-    );
-    assert.ok(fnMatch, 'snapshotPrepareClientResolve source extractable');
-    const fnSrc = fnMatch[0];
-    assert.equal(
-      /rootProto\s*!==\s*Object\.prototype\s*&&\s*rootProto\s*!==\s*null/.test(fnSrc),
-      false,
-      'mutation-negative static: prepare must not gate root on Object.prototype|null only',
-    );
-    // Still must use own-data rows descriptor (never inherited rows via direct get).
-    assert.match(fnSrc, /getOwnPropertyDescriptor\(result,\s*key\)/);
-    assert.match(fnSrc, /key === 'rows'/);
-  }
+  // Own-data rows descriptor remains the prepare resolve trust boundary.
+  assert.match(routesSrc, /getOwnPropertyDescriptor\(result,\s*key\)/);
 
   console.log('PASS staff email OAuth routes hostile gates');
 })().catch((e) => {
