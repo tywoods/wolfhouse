@@ -15,8 +15,10 @@
 
 const assert = require('assert/strict');
 const fs = require('fs');
+const http = require('http');
 const path = require('path');
 const { EventEmitter } = require('events');
+const { Socket } = require('net');
 
 const {
   EVENT_NAME,
@@ -1205,6 +1207,16 @@ const GRAPH_GOOD_BODY = JSON.stringify({
   userPrincipalName: MAILBOX,
 });
 
+function nativeGraphResponse(spec = {}) {
+  const res = new http.IncomingMessage(new Socket());
+  res.statusCode = spec.status === undefined ? 200 : spec.status;
+  res.headers = spec.headers || { 'content-type': 'application/json; charset=utf-8' };
+  res.destroy = () => {};
+  // Production shape precondition: headers is a native prototype getter, not own data.
+  assert.equal(Object.prototype.hasOwnProperty.call(res, 'headers'), false);
+  return res;
+}
+
 function graphTransportFake(spec = {}) {
   const calls = [];
   const timers = {
@@ -1224,10 +1236,20 @@ function graphTransportFake(spec = {}) {
         return;
       }
       queueMicrotask(() => {
-        const res = new EventEmitter();
-        res.statusCode = spec.status === undefined ? 200 : spec.status;
-        res.headers = spec.headers || { 'content-type': 'application/json; charset=utf-8' };
-        res.destroy = () => {};
+        let res;
+        if (spec.nativeResponse) {
+          res = nativeGraphResponse({
+            status: spec.status,
+            headers: spec.headers,
+          });
+        } else if (spec.responseFactory) {
+          res = spec.responseFactory({ status: spec.status, headers: spec.headers });
+        } else {
+          res = new EventEmitter();
+          res.statusCode = spec.status === undefined ? 200 : spec.status;
+          res.headers = spec.headers || { 'content-type': 'application/json; charset=utf-8' };
+          res.destroy = () => {};
+        }
         call.res = res;
         callback(res);
         if (spec.onResponse) {
@@ -1661,6 +1683,146 @@ test('realistic production Graph composition correlates all finer stages on one 
     runtimeSrc,
     /createMicrosoftGraphMeIdentityTransport\(\{[\s\S]*?stageTelemetry[\s\S]*?\}\)/,
   );
+});
+
+// ── Native IncomingMessage headers (production Graph response shape) ───────
+// Live final trace was graph_response_received → graph_http_accepted →
+// callback_failed with no graph_headers_accepted. statusCode is own data so
+// HTTP 200 passed; headers is a non-own native getter so readOwnData returned
+// undefined and content-type validation failed closed.
+
+test('native IncomingMessage Graph response emits full chain including graph_headers_accepted', async function graphNativeHeadersFullChain() {
+  const { composition, events, input, graph } = graphStageComposition({
+    graph: { nativeResponse: true },
+  });
+  const result = await composition.verifyIdentity(input);
+  assert.equal(result.providerPrincipalId, PRINCIPAL);
+  assert.equal(result.mailboxAddress, MAILBOX);
+  assert.deepEqual(events.map((e) => e.stage), [
+    'oidc_verified',
+    ...GRAPH_TRANSPORT_SUCCESS_STAGES,
+    'graph_principal_matched',
+    'graph_identity_verified',
+  ]);
+  assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), true);
+  assertNeutralStageEvents(events);
+  // Response that produced the chain must be genuine non-own headers.
+  assert.equal(Object.prototype.hasOwnProperty.call(graph.calls[0].res, 'headers'), false);
+  assert.equal(graph.calls[0].res.constructor, http.IncomingMessage);
+});
+
+test('hostile prototype headers getter never reaches graph_headers_accepted', async function graphHostileHeadersGetterRejected() {
+  const HostileProto = {
+    get headers() {
+      return { 'content-type': 'application/json; charset=utf-8' };
+    },
+  };
+  const { composition, events, input } = graphStageComposition({
+    graph: {
+      responseFactory() {
+        const res = Object.create(HostileProto);
+        res.statusCode = 200;
+        res.destroy = () => {};
+        const ee = new EventEmitter();
+        res.on = ee.on.bind(ee);
+        res.once = ee.once.bind(ee);
+        res.emit = ee.emit.bind(ee);
+        return res;
+      },
+    },
+  });
+  await assert.rejects(() => composition.verifyIdentity(input));
+  assert.deepEqual(events.map((e) => e.stage), [
+    'oidc_verified',
+    'graph_request_started',
+    'graph_response_received',
+    'graph_http_accepted',
+  ]);
+  assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
+  assert.equal(events.some((e) => e.stage === 'graph_response_validated'), false);
+  assertNeutralStageEvents(events);
+});
+
+test('duplicate/array content-type on native response stops after graph_http_accepted', async function graphNativeDuplicateHeadersRejected() {
+  for (const headers of [
+    { 'content-type': ['application/json', 'text/plain'] },
+    { 'content-type': 'application/json, text/plain' },
+    { 'content-type': 'application/json', 'content-length': '1,2' },
+  ]) {
+    const { composition, events, input } = graphStageComposition({
+      graph: { nativeResponse: true, headers },
+    });
+    await assert.rejects(() => composition.verifyIdentity(input));
+    assert.deepEqual(events.map((e) => e.stage), [
+      'oidc_verified',
+      'graph_request_started',
+      'graph_response_received',
+      'graph_http_accepted',
+    ], `unexpected stages for headers ${JSON.stringify(headers)}`);
+    assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
+    assertNeutralStageEvents(events);
+  }
+});
+
+test('post-init ambient IncomingMessage rebind does not break pinned native headers path', async function graphNativeHeadersPinSurvivesMonkeypatch() {
+  const originalIM = http.IncomingMessage;
+  let redefineThrew = false;
+  try {
+    Object.defineProperty(http.IncomingMessage.prototype, 'headers', {
+      configurable: true,
+      enumerable: false,
+      get() { return { 'content-type': 'text/html' }; },
+    });
+  } catch {
+    redefineThrew = true;
+  }
+  assert.equal(redefineThrew, true);
+  http.IncomingMessage = function AmbientHostile() {
+    throw new Error(`${LEAK} ambient-im`);
+  };
+  try {
+    const { composition, events, input, graph } = graphStageComposition({
+      graph: {
+        responseFactory() {
+          // Construct with the real original class captured before rebind.
+          const res = new originalIM(new Socket());
+          res.statusCode = 200;
+          res.headers = { 'content-type': 'application/json; charset=utf-8' };
+          res.destroy = () => {};
+          assert.equal(Object.prototype.hasOwnProperty.call(res, 'headers'), false);
+          return res;
+        },
+      },
+    });
+    const result = await composition.verifyIdentity(input);
+    assert.equal(result.providerPrincipalId, PRINCIPAL);
+    assert.deepEqual(events.map((e) => e.stage), [
+      'oidc_verified',
+      ...GRAPH_TRANSPORT_SUCCESS_STAGES,
+      'graph_principal_matched',
+      'graph_identity_verified',
+    ]);
+    assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), true);
+    assert.equal(graph.calls[0].res.constructor, originalIM);
+    assertNeutralStageEvents(events);
+  } finally {
+    http.IncomingMessage = originalIM;
+  }
+});
+
+test('Graph source pins IncomingMessage headers getter and does not trust ambient accessors', async function graphSourceNativeHeadersContract() {
+  const graphSrc = fs.readFileSync(path.join(ROOT, GRAPH_REL), 'utf8');
+  // Module-init pin of constructor + prototype + exact native headers getter.
+  assert.match(graphSrc, /IncomingMessage/);
+  assert.match(graphSrc, /getOwnPropertyDescriptor/);
+  assert.match(graphSrc, /PINNED_.*HEADERS|HEADERS_GET|headersGet|pinnedHeaders/i);
+  assert.match(graphSrc, /Reflect\.apply/);
+  // Must not rely solely on readOwnData(response, 'headers') for production path.
+  // The pin/apply path must appear; own-data may remain for plain mocks.
+  assert.match(graphSrc, /readOwnData\(\s*response\s*,\s*['"]statusCode['"]\s*\)/);
+  // Hostile ambient: no global lookup for headers helpers.
+  assert.equal(graphSrc.includes('global.'), false);
+  assert.equal(graphSrc.includes('globalThis'), false);
 });
 
 // ── Runner ─────────────────────────────────────────────────────────────────

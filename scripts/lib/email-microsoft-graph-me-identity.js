@@ -1,5 +1,6 @@
 'use strict';
 
+const http = require('http');
 const https = require('https');
 const {
   pinEmailOAuthStageTelemetry,
@@ -23,6 +24,26 @@ const ERROR_MESSAGES = Object.freeze({
 });
 // Optional stageTelemetry is an allowed extra only — core bag keys unchanged.
 const DEPENDENCY_KEYS = Object.freeze(['httpsImpl', 'timers', 'stageTelemetry']);
+
+// Module-init pin: real Node http.IncomingMessage defines `headers` as a native
+// prototype getter (not own data). readOwnData(response, 'headers') always yields
+// undefined on production responses while EventEmitter own-data mocks pass.
+// Pin the exact constructor, prototype, and headers getter once; only Reflect.apply
+// that pinned getter for genuine IncomingMessage instances. Ambient rebinds of
+// http.IncomingMessage / custom prototype getters are never trusted.
+const PINNED_INCOMING_MESSAGE = http.IncomingMessage;
+const PINNED_INCOMING_MESSAGE_PROTOTYPE = http.IncomingMessage
+  && http.IncomingMessage.prototype
+  ? http.IncomingMessage.prototype
+  : null;
+const PINNED_HEADERS_DESCRIPTOR = PINNED_INCOMING_MESSAGE_PROTOTYPE
+  ? Object.getOwnPropertyDescriptor(PINNED_INCOMING_MESSAGE_PROTOTYPE, 'headers')
+  : null;
+const PINNED_HEADERS_GET = PINNED_HEADERS_DESCRIPTOR
+  && typeof PINNED_HEADERS_DESCRIPTOR.get === 'function'
+  && !Object.prototype.hasOwnProperty.call(PINNED_HEADERS_DESCRIPTOR, 'value')
+  ? PINNED_HEADERS_DESCRIPTOR.get
+  : null;
 
 function failure(code) {
   const error = new Error(ERROR_MESSAGES[code]);
@@ -54,6 +75,48 @@ function readOwnData(value, key) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     return descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'value')
       ? descriptor.value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * True only for exact native IncomingMessage instances whose live headers getter
+ * is still the module-init pin. Subclasses, foreign prototypes, and ambient
+ * redefinitions are rejected.
+ */
+function isPinnedIncomingMessage(response) {
+  try {
+    if (!PINNED_HEADERS_GET || !PINNED_INCOMING_MESSAGE || !PINNED_INCOMING_MESSAGE_PROTOTYPE) {
+      return false;
+    }
+    if (response === null || typeof response !== 'object') return false;
+    if (Object.getPrototypeOf(response) !== PINNED_INCOMING_MESSAGE_PROTOTYPE) return false;
+    if (response.constructor !== PINNED_INCOMING_MESSAGE) return false;
+    const live = Object.getOwnPropertyDescriptor(PINNED_INCOMING_MESSAGE_PROTOTYPE, 'headers');
+    if (!live || live.get !== PINNED_HEADERS_GET) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Secure response headers access:
+ * 1) Genuine pinned IncomingMessage → Reflect.apply only the module-init native getter.
+ * 2) Own-data plain/mock path (EventEmitter unit tests) → readOwnData only.
+ * Never walks attacker/custom prototype getters.
+ */
+function readResponseHeaders(response) {
+  try {
+    if (isPinnedIncomingMessage(response)) {
+      const headers = Reflect.apply(PINNED_HEADERS_GET, response, []);
+      if (headers === null || typeof headers !== 'object' || Array.isArray(headers)) {
+        return undefined;
+      }
+      return headers;
+    }
+    return readOwnData(response, 'headers');
   } catch {
     return undefined;
   }
@@ -312,12 +375,16 @@ function createMicrosoftGraphMeIdentityTransport(dependencies = {}) {
           activeResponse = response;
           try {
             const status = readOwnData(response, 'statusCode');
-            const headers = readOwnData(response, 'headers');
+            // Native IncomingMessage: headers via pinned prototype getter only.
+            // Own-data plain mocks: readOwnData. Never custom prototype getters.
+            const headers = readResponseHeaders(response);
             const contentType = headers && typeof headers === 'object' ? readOwnData(headers, 'content-type') : undefined;
             const contentLength = headers && typeof headers === 'object' ? readOwnData(headers, 'content-length') : undefined;
             if (status !== 200) { terminate(failure('HTTP_ERROR')); return; }
             // Milestone: exact HTTP 200 only (no status/body logged).
             safeEmitStage(stageTelemetry, 'graph_http_accepted');
+            // content-type / content-length must be single own-data strings (reject
+            // arrays, comma-joined duplicates, and non-digit lengths).
             if (typeof contentType !== 'string' || !/^application\/json(?:\s*;|$)/i.test(contentType)) {
               terminate(failure('RESPONSE_INVALID')); return;
             }
