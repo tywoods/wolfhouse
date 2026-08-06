@@ -217,10 +217,53 @@ async function main() {
     assert.equal(classifyMessageEnvelopeBody(listBody([envelopeRow()])).stage, 'success');
     assert.equal(classifyMessageEnvelopeBody(listBody([envelopeRow()])).count, 1);
 
+    const VALID_NEXT = 'https://graph.microsoft.com/v1.0/me/messages?$top=5&$skiptoken=opaque';
+    const VALID_NEXT_USERS = 'https://graph.microsoft.com/v1.0/users/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/messages?$skip=5';
+    const ODATA_CONTEXT = 'https://graph.microsoft.com/v1.0/$metadata#users(\'x\')/messages';
+
+    // Documented Graph collection: context + value + nextLink (must accept; never follow).
+    assert.equal(classifyMessageEnvelopeBody(listBody([envelopeRow()], {
+      '@odata.nextLink': VALID_NEXT,
+    })).stage, 'success');
+    assert.equal(countBoundedMessageEnvelopes(listBody([envelopeRow()], {
+      '@odata.nextLink': VALID_NEXT,
+    })), 1);
+
+    // value + nextLink without context.
+    assert.equal(classifyMessageEnvelopeBody(JSON.stringify({
+      value: [envelopeRow()],
+      '@odata.nextLink': VALID_NEXT,
+    })).stage, 'success');
+    assert.equal(countBoundedMessageEnvelopes(JSON.stringify({
+      value: [],
+      '@odata.nextLink': VALID_NEXT,
+    })), 0);
+
+    // Semantic key-order variants (JSON object key order must not matter).
+    const orderVariants = [
+      `{"@odata.context":${JSON.stringify(ODATA_CONTEXT)},"value":[],"@odata.nextLink":${JSON.stringify(VALID_NEXT)}}`,
+      `{"value":[],"@odata.nextLink":${JSON.stringify(VALID_NEXT)},"@odata.context":${JSON.stringify(ODATA_CONTEXT)}}`,
+      `{"@odata.nextLink":${JSON.stringify(VALID_NEXT)},"@odata.context":${JSON.stringify(ODATA_CONTEXT)},"value":[]}`,
+      `{"@odata.nextLink":${JSON.stringify(VALID_NEXT)},"value":[]}`,
+      `{"value":[],"@odata.nextLink":${JSON.stringify(VALID_NEXT)}}`,
+    ];
+    for (const body of orderVariants) {
+      assert.equal(classifyMessageEnvelopeBody(body).stage, 'success', body.slice(0, 40));
+      assert.equal(countBoundedMessageEnvelopes(body), 0);
+    }
+
+    // nextLink present with 0–5 rows.
+    for (let n = 0; n <= 5; n += 1) {
+      const rows = Array.from({ length: n }, (_, i) => envelopeRow({ id: String(i + 1) }));
+      assert.equal(countBoundedMessageEnvelopes(listBody(rows, {
+        '@odata.nextLink': VALID_NEXT_USERS,
+      })), n);
+    }
+
     for (const [name, body] of [
       ['too many rows', listBody(Array.from({ length: 6 }, (_, i) => envelopeRow({ id: String(i) })))],
-      ['nextLink', listBody([envelopeRow()], { '@odata.nextLink': 'https://graph.microsoft.com/v1.0/evil' })],
-      ['deltaLink', listBody([envelopeRow()], { '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/evil' })],
+      ['evil nextLink path', listBody([envelopeRow()], { '@odata.nextLink': 'https://graph.microsoft.com/v1.0/evil' })],
+      ['deltaLink', listBody([envelopeRow()], { '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/messages' })],
       ['unexpected top key', listBody([envelopeRow()], { '@odata.count': 1 })],
       ['error object', JSON.stringify({ error: { code: 'Invalid', message: PLANTED } })],
       ['body field', listBody([envelopeRow({ body: { content: PLANTED } })])],
@@ -236,6 +279,18 @@ async function main() {
       ['not array', JSON.stringify({ value: { id: 'x' } })],
       ['malformed', '{'],
       ['top-level duplicate value', '{"value":[],"value":[]}'],
+      ['http scheme', listBody([], { '@odata.nextLink': 'http://graph.microsoft.com/v1.0/me/messages' })],
+      ['wrong host', listBody([], { '@odata.nextLink': 'https://login.microsoftonline.com/v1.0/me/messages' })],
+      ['credentials', listBody([], {
+        '@odata.nextLink': 'https://user:pass@graph.microsoft.com/v1.0/me/messages',
+      })],
+      ['fragment', listBody([], {
+        '@odata.nextLink': 'https://graph.microsoft.com/v1.0/me/messages#frag',
+      })],
+      ['empty nextLink', listBody([], { '@odata.nextLink': '' })],
+      ['oversized nextLink', listBody([], {
+        '@odata.nextLink': `https://graph.microsoft.com/v1.0/me/messages?q=${'a'.repeat(3000)}`,
+      })],
     ]) {
       assert.equal(countBoundedMessageEnvelopes(body), null, name);
     }
@@ -246,6 +301,9 @@ async function main() {
     assert.equal(classifyMessageEnvelopeBody(listBody([envelopeRow()], {
       '@odata.nextLink': 'https://graph.microsoft.com/v1.0/evil',
     })).stage, 'top_shape_invalid');
+    assert.equal(classifyMessageEnvelopeBody(listBody([], {
+      '@odata.nextLink': 'https://evil.example/v1.0/me/messages',
+    })).stage, 'top_shape_invalid');
     assert.equal(classifyMessageEnvelopeBody(listBody([envelopeRow({ hasAttachments: false })])).stage,
       'row_keyset_invalid');
     assert.equal(classifyMessageEnvelopeBody(listBody([envelopeRow({ id: '' })])).stage,
@@ -254,6 +312,38 @@ async function main() {
     assert.equal(classifyMessageEnvelopeBody(`\ufffd`).stage, 'utf8_invalid');
     assert.equal(classifyMessageEnvelopeBody(Buffer.alloc(70_000, 0x61).toString('utf8')).stage,
       'response_too_large');
+
+    // Duplicate nextLink key rejected by strict JSON.
+    const dupNext = `{"value":[],"@odata.nextLink":${JSON.stringify(VALID_NEXT)},"@odata.nextLink":${JSON.stringify(VALID_NEXT)}}`;
+    assert.equal(classifyMessageEnvelopeBody(dupNext).stage, 'json_invalid');
+
+    // Accessor / proxy / inherited nextLink surfaces rejected.
+    const accessorNext = { value: [] };
+    Object.defineProperty(accessorNext, '@odata.nextLink', {
+      get() { return VALID_NEXT; },
+      enumerable: true,
+      configurable: true,
+    });
+    assert.equal(classifyParsedMessageEnvelopeList(accessorNext).stage, 'top_shape_invalid');
+
+    const inheritedNext = Object.create({ '@odata.nextLink': VALID_NEXT });
+    Object.assign(inheritedNext, { value: [] });
+    // Non-Object.prototype surface rejected (inherited nextLink never treated as own data).
+    assert.equal(classifyParsedMessageEnvelopeList(inheritedNext).stage, 'top_shape_invalid');
+    const inheritedOwn = Object.create({ '@odata.nextLink': VALID_NEXT });
+    inheritedOwn.value = [];
+    Object.defineProperty(inheritedOwn, '@odata.nextLink', {
+      value: VALID_NEXT,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    assert.equal(classifyParsedMessageEnvelopeList(inheritedOwn).stage, 'top_shape_invalid');
+
+    assert.equal(classifyParsedMessageEnvelopeList(new Proxy({
+      value: [],
+      '@odata.nextLink': VALID_NEXT,
+    }, {})).stage, 'top_shape_invalid');
 
     const nestedDup = '{"value":[{"id":"1","subject":"s","from":{"emailAddress":{"address":"a@b.c","name":"n","address":"dup@b.c"}},"receivedDateTime":"2026-01-01T00:00:00Z","isRead":true,"conversationId":"c","internetMessageId":"<x>"}]}';
     assert.equal(countBoundedMessageEnvelopes(nestedDup), null, 'nested duplicate address');
@@ -293,6 +383,44 @@ async function main() {
 
     const proxyRow = new Proxy(envelopeRow(), {});
     assert.equal(acceptParsedMessageEnvelopeList({ value: [proxyRow] }), null, 'proxy row');
+
+    // No second request when nextLink present; nextLink never escapes DTO/logs.
+    {
+      let requestCount = 0;
+      const bodyWithNext = listBody([
+        envelopeRow(), envelopeRow({ id: 'b' }),
+      ], { '@odata.nextLink': VALID_NEXT });
+      assert.equal(bodyWithNext.includes('@odata.nextLink'), true);
+      const result = await transportWith(function request(options, onResponse) {
+        requestCount += 1;
+        assert.equal(options.path, PATH);
+        assert.equal(options.path.includes('skiptoken'), false);
+        const response = new EventEmitter();
+        response.statusCode = 200;
+        Object.defineProperty(response, 'headers', {
+          value: { 'content-type': 'application/json' },
+          enumerable: true,
+          configurable: true,
+        });
+        const req = new EventEmitter();
+        req.destroy = () => {};
+        response.destroy = () => {};
+        req.end = () => {
+          queueMicrotask(() => {
+            onResponse(response);
+            response.emit('data', Buffer.from(bodyWithNext, 'utf8'));
+            response.emit('end');
+          });
+        };
+        return req;
+      }).listMessageEnvelopeCount({ accessToken: TOKEN });
+      assert.equal(requestCount, 1, 'must never follow nextLink');
+      assert.deepEqual(result, { message_count_bounded: 2, graph_stage: 'success' });
+      assert.equal(JSON.stringify(result).includes('nextLink'), false);
+      assert.equal(JSON.stringify(result).includes('skiptoken'), false);
+      assert.equal(JSON.stringify(result).includes(VALID_NEXT), false);
+      assert.equal(noLeak(result), true);
+    }
 
     const transport = transportWith(mockHttps(200, listBody([
       envelopeRow(), envelopeRow({ id: 'b' }), envelopeRow({ id: 'c' }),
