@@ -18,6 +18,10 @@ const {
   isRefreshHealthEnabled,
 } = require('./email-microsoft-delegated-refresh-sunset-staging-runtime-composition');
 const {
+  createSunsetStagingMicrosoftDelegatedReadRuntime,
+  isReadHealthEnabled,
+} = require('./email-microsoft-delegated-read-sunset-staging-runtime-composition');
+const {
   createSunsetMicrosoftEndpointPrepare,
   INPUT_KEYS: PREPARE_DOMAIN_INPUT_KEYS,
   ERROR_CODE: PREPARE_ERROR_CODE,
@@ -33,6 +37,8 @@ const OAUTH_START_PATH = '/staff/admin/email-settings/oauth/microsoft/start';
 const OAUTH_PREPARE_PATH = '/staff/admin/email-settings/oauth/microsoft/endpoint';
 /** Admin-only delegated refresh-health (rotation proof); default-off. */
 const OAUTH_REFRESH_HEALTH_PATH = '/staff/admin/email-settings/oauth/microsoft/refresh-health';
+/** Admin-only delegated read-health (refresh + bounded Graph envelopes); default-off. */
+const OAUTH_READ_HEALTH_PATH = '/staff/admin/email-settings/oauth/microsoft/read-health';
 const OAUTH_CALLBACK_PATH = '/staff/email/oauth/microsoft/callback';
 /** Canonical lowercase UUID (start body endpoint_id + ordinary SQL row ids). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -45,6 +51,8 @@ const START_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 const PREPARE_BODY_KEYS = Object.freeze(['location_id', 'public_address']);
 /** Exact ordered own-data refresh-health body keys (location_id then endpoint_id). */
 const REFRESH_HEALTH_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
+/** Exact ordered own-data read-health body keys (location_id then endpoint_id). */
+const READ_HEALTH_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 /** Exact ordered prepare success JSON keys (no mailbox echo). */
 const PREPARE_SUCCESS_KEYS = Object.freeze(['success', 'endpoint_id']);
 /** Exact ordered refresh-health success JSON keys (sanitized status only). */
@@ -56,8 +64,17 @@ const REFRESH_HEALTH_SUCCESS_KEYS = Object.freeze([
   'reconcile_state',
   'reauthorization_required',
 ]);
+/** Exact ordered read-health success JSON keys (sanitized status only). */
+const READ_HEALTH_SUCCESS_KEYS = Object.freeze([
+  'success',
+  'status',
+  'grant_generation',
+  'graph_reachable',
+  'message_count_bounded',
+]);
 const PREPARE_ERROR = 'endpoint_prepare_unavailable';
 const REFRESH_HEALTH_ERROR = 'refresh_health_unavailable';
+const READ_HEALTH_ERROR = 'read_health_unavailable';
 /** Exact ordered own-data resolve SQL row keys (matches SELECT aliases / order). */
 const RESOLVE_ROW_KEYS = Object.freeze(['client_id', 'location_id', 'endpoint_id']);
 const RESOLVE_ROW_KEY_SET = new Set(RESOLVE_ROW_KEYS);
@@ -121,9 +138,9 @@ SELECT c.id::text AS client_id,
    AND btrim(e.public_address) <> ''`.replace(/\s+/g, ' ').trim();
 
 /**
- * Trusted resolve for refresh-health: Sunset + active location + verified-or-
- * reauth Microsoft delegated endpoint that already holds a grant. Params:
- * [location_id, endpoint_id]. Never trust body client_id.
+ * Trusted resolve for refresh-health / read-health: Sunset + active location +
+ * verified-or-reauth Microsoft delegated endpoint that already holds a grant.
+ * Params: [location_id, endpoint_id]. Never trust body client_id.
  */
 const SQL_RESOLVE_REFRESH_HEALTH_BINDING = `
 SELECT c.id::text AS client_id,
@@ -148,6 +165,9 @@ SELECT c.id::text AS client_id,
    AND e.binding_status IN ('verified', 'reauthorization_required')
    AND e.public_address IS NOT NULL
    AND btrim(e.public_address) <> ''`.replace(/\s+/g, ' ').trim();
+
+/** Same trusted binding resolve as refresh-health (grant present). */
+const SQL_RESOLVE_READ_HEALTH_BINDING = SQL_RESOLVE_REFRESH_HEALTH_BINDING;
 
 /**
  * Descriptor-safe start body snapshot: all reflection once.
@@ -282,8 +302,44 @@ function buildRefreshHealthSuccessJson(result) {
   }
 }
 
+/** Exact ordered read-health success DTO — no message/content fields. */
+function buildReadHealthSuccessJson(result) {
+  try {
+    if (!result || typeof result !== 'object') return null;
+    const status = result.status;
+    const grantGeneration = result.grant_generation;
+    const graphReachable = result.graph_reachable;
+    const messageCount = result.message_count_bounded;
+    if (typeof status !== 'string'
+        || !['healthy', 'reauthorization_required', 'uncertain', 'unavailable'].includes(status)) {
+      return null;
+    }
+    if (grantGeneration != null && (!Number.isInteger(grantGeneration) || grantGeneration < 1)) {
+      return null;
+    }
+    if (typeof graphReachable !== 'boolean') return null;
+    if (messageCount != null && (!Number.isInteger(messageCount) || messageCount < 0 || messageCount > 5)) {
+      return null;
+    }
+    const dto = {};
+    dto.success = true;
+    dto.status = status;
+    dto.grant_generation = grantGeneration == null ? null : grantGeneration;
+    dto.graph_reachable = graphReachable;
+    dto.message_count_bounded = messageCount == null ? null : messageCount;
+    return Object.freeze(dto);
+  } catch {
+    return null;
+  }
+}
+
 /** Refresh-health body shares start shape: exact ordered location_id + endpoint_id. */
 function snapshotRefreshHealthBody(body) {
+  return snapshotStartBody(body);
+}
+
+/** Read-health body shares start shape: exact ordered location_id + endpoint_id. */
+function snapshotReadHealthBody(body) {
   return snapshotStartBody(body);
 }
 
@@ -657,6 +713,16 @@ function buildRefreshHealthRuntime(env, pg) {
   }));
 }
 
+function buildReadHealthRuntime(env, pg) {
+  const natives = productionNativeSurfaces();
+  return createSunsetStagingMicrosoftDelegatedReadRuntime(Object.freeze({
+    env,
+    pgClient: pg,
+    https: natives.https,
+    timers: natives.timers,
+  }));
+}
+
 function createStaffEmailOAuthRoutes(deps) {
   const env = deps.runtimeEnv || process.env;
 
@@ -865,6 +931,69 @@ function createStaffEmailOAuthRoutes(deps) {
     }
   }
 
+  /**
+   * POST read-health — refresh/CAS then one bounded Graph Mail.ReadBasic list.
+   * Gate: LUNA_EMAIL_OAUTH_READ_HEALTH_ENABLED + sunset-staging composition.
+   * Auth: Sunset admin. Sanitized count/status only; never message content.
+   */
+  async function handleReadHealth(body, req, res, user) {
+    if (!isReadHealthEnabled(env)) {
+      return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    if (!user || user.client_slug !== 'sunset'
+        || !UUID_RE_CI.test(user.staff_user_id || '')
+        || !UUID_RE_CI.test(user.session_id || '')) {
+      return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    }
+    if (!deps.assertStaffClientAccess(user, 'sunset', res)) return;
+    const authz = deps.authorizeAuthenticatedStaffRoute({
+      clientSlug: 'sunset',
+      method: 'POST',
+      pathname: OAUTH_READ_HEALTH_PATH,
+      env,
+    });
+    if (!authz.ok) {
+      return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+    }
+    const bodySnap = snapshotReadHealthBody(body);
+    if (!bodySnap) {
+      return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    }
+    try {
+      return await deps.withPgClient(async (pg) => {
+        const found = await pg.query(SQL_RESOLVE_READ_HEALTH_BINDING, [
+          bodySnap.location_id,
+          bodySnap.endpoint_id,
+        ]);
+        const resolved = snapshotResolveQueryResult(found);
+        if (resolved.kind === 'empty') {
+          return deps.sendJSON(res, 404, { success: false, error: 'endpoint_not_found' });
+        }
+        if (resolved.kind !== 'one') {
+          return deps.sendJSON(res, 503, { success: false, error: READ_HEALTH_ERROR });
+        }
+        const rowSnap = resolved.row;
+        if (rowSnap.endpoint_id !== bodySnap.endpoint_id) {
+          return deps.sendJSON(res, 503, { success: false, error: READ_HEALTH_ERROR });
+        }
+        const service = buildReadHealthRuntime(env, pg);
+        const result = await service.runReadHealth(Object.freeze({
+          clientId: rowSnap.client_id,
+          endpointId: rowSnap.endpoint_id,
+        }));
+        const json = buildReadHealthSuccessJson(result);
+        if (!json
+            || Reflect.ownKeys(json).length !== READ_HEALTH_SUCCESS_KEYS.length
+            || Reflect.ownKeys(json)[0] !== READ_HEALTH_SUCCESS_KEYS[0]) {
+          return deps.sendJSON(res, 503, { success: false, error: READ_HEALTH_ERROR });
+        }
+        return deps.sendJSON(res, 200, json);
+      });
+    } catch (_) {
+      return deps.sendJSON(res, 503, { success: false, error: READ_HEALTH_ERROR });
+    }
+  }
+
   function terminal(res, statusCode, status) {
     const messages = {
       authorization_received: 'Authorization response received. You may close this window.',
@@ -921,35 +1050,48 @@ function createStaffEmailOAuthRoutes(deps) {
     }
   }
 
-  return Object.freeze({ handleStart, handlePrepare, handleRefreshHealth, handleCallback });
+  return Object.freeze({
+    handleStart,
+    handlePrepare,
+    handleRefreshHealth,
+    handleReadHealth,
+    handleCallback,
+  });
 }
 
 module.exports = {
   OAUTH_START_PATH,
   OAUTH_PREPARE_PATH,
   OAUTH_REFRESH_HEALTH_PATH,
+  OAUTH_READ_HEALTH_PATH,
   OAUTH_CALLBACK_PATH,
   SQL_RESOLVE_START_BINDING,
   SQL_RESOLVE_REFRESH_HEALTH_BINDING,
+  SQL_RESOLVE_READ_HEALTH_BINDING,
   SQL_RESOLVE_SUNSET_CLIENT_FOR_PREPARE,
   START_BODY_KEYS,
   PREPARE_BODY_KEYS,
   REFRESH_HEALTH_BODY_KEYS,
+  READ_HEALTH_BODY_KEYS,
   PREPARE_SUCCESS_KEYS,
   REFRESH_HEALTH_SUCCESS_KEYS,
+  READ_HEALTH_SUCCESS_KEYS,
   PREPARE_ERROR,
   REFRESH_HEALTH_ERROR,
+  READ_HEALTH_ERROR,
   RESOLVE_ROW_KEYS,
   PREPARE_CLIENT_ROW_KEYS,
   validBody,
   snapshotStartBody,
   snapshotPrepareBody,
   snapshotRefreshHealthBody,
+  snapshotReadHealthBody,
   snapshotPrepareClientResolve,
   snapshotResolveQueryResult,
   isPrepareEnabled,
   buildPrepareSuccessJson,
   buildRefreshHealthSuccessJson,
+  buildReadHealthSuccessJson,
   createStaffEmailOAuthRoutes,
   // Re-export production dependency key constant for offline verifiers (no secrets).
   RUNTIME_DEPENDENCY_KEYS: DEPENDENCY_KEYS,
