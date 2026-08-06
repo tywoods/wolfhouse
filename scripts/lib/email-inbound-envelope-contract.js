@@ -3,11 +3,27 @@
 /**
  * Provider-neutral inbound email envelope contract.
  *
- * Immutable normalized DTO for identity, ordering, deduplication, and
- * staff-visible triage. Suitable for later Gmail and IMAP adapters.
+ * Canonical normalized domain envelope (immutable DTO) for identity, ordering,
+ * deduplication, and staff-visible triage. Suitable for later Gmail and IMAP
+ * adapters. This is the single public domain meaning of an inbound envelope.
  *
- * Exact own-data schemas only. Rejects proxies, accessors, inherited values,
- * symbol keys, dangerous keys, and unknown keys. No Graph/OData field names.
+ * Competing Graph adapter DTO (`id` / `from_address` / `has_attachments` …) is a
+ * legacy provider/transport-row compatibility surface only — convert through
+ * convertLegacyGraphTransportEnvelopeToInbound; do not treat it as a second
+ * domain envelope.
+ *
+ * Exact own enumerable data schemas only. Rejects proxies, accessors, inherited
+ * values, symbol keys, non-enumerable keys, dangerous keys, and unknown keys.
+ * No Graph/OData field names on the domain DTO.
+ *
+ * Identity tuple (dedup key): (provider, provider_mailbox_id, provider_message_id).
+ * Ordering: received_at descending (newest first); deterministic tie-break on the
+ * identity tuple ascending. internet_message_id is metadata only — never part of
+ * identity/dedup; null and duplicate values across distinct identities are allowed.
+ *
+ * Microsoft durable identity: future persistence of provider_message_id requires
+ * Graph ImmutableId semantics (Prefer: IdType="ImmutableId"). This offline contract
+ * and mapper do not claim ImmutableId provenance and are not runtime-wired.
  *
  * PII fields (see EMAIL_INBOUND_ENVELOPE_PII_KEYS): subject, sender display /
  * address, internet message identity (plus sensitive ids listed there).
@@ -29,6 +45,7 @@ const EMAIL_INBOUND_ENVELOPE_PROVIDERS = Object.freeze([
   'imap_smtp',
 ]);
 
+/** Canonical normalized domain envelope keys (exact own enumerable data). */
 const EMAIL_INBOUND_ENVELOPE_KEYS = Object.freeze([
   'provider',
   'provider_mailbox_id',
@@ -39,6 +56,22 @@ const EMAIL_INBOUND_ENVELOPE_KEYS = Object.freeze([
   'sender_address',
   'is_read',
   'conversation_id',
+  'internet_message_id',
+]);
+
+/**
+ * Legacy Graph adapter transport-row DTO keys (email-microsoft-graph-adapter.js
+ * ENVELOPE_DTO_KEYS). Compatibility surface only — not the domain envelope.
+ */
+const EMAIL_INBOUND_LEGACY_GRAPH_TRANSPORT_ENVELOPE_KEYS = Object.freeze([
+  'id',
+  'subject',
+  'from_address',
+  'from_name',
+  'received_at',
+  'is_read',
+  'conversation_id',
+  'has_attachments',
   'internet_message_id',
 ]);
 
@@ -53,6 +86,46 @@ const EMAIL_INBOUND_ENVELOPE_PII_KEYS = Object.freeze([
   'provider_mailbox_id',
 ]);
 
+/**
+ * Normative identity tuple for identity and deduplication.
+ * internet_message_id is intentionally excluded (metadata only).
+ */
+const EMAIL_INBOUND_ENVELOPE_IDENTITY_KEYS = Object.freeze([
+  'provider',
+  'provider_mailbox_id',
+  'provider_message_id',
+]);
+
+/** Ordering direction for staff/inbox lists: newest received_at first. */
+const EMAIL_INBOUND_ENVELOPE_ORDER_DIRECTION = 'received_at_desc';
+
+/**
+ * Deterministic tie-break when received_at is equal: identity tuple ascending
+ * (provider, provider_mailbox_id, provider_message_id).
+ */
+const EMAIL_INBOUND_ENVELOPE_TIE_BREAK_KEYS = Object.freeze([
+  'provider',
+  'provider_mailbox_id',
+  'provider_message_id',
+]);
+
+/**
+ * Before any future persistence of Microsoft provider_message_id, the Graph
+ * request must use ImmutableId semantics (Prefer: IdType="ImmutableId").
+ * Rest IDs are not durable across moves/mailbox changes.
+ */
+const EMAIL_INBOUND_MICROSOFT_DURABLE_IDENTITY_REQUIRES_IMMUTABLE_ID = true;
+
+/**
+ * Offline mapper / contract never claim that provider_message_id is an
+ * ImmutableId — provenance is unknown until a later persistence-ready slice
+ * enforces Prefer: IdType="ImmutableId".
+ */
+const EMAIL_INBOUND_MICROSOFT_MAPPER_CLAIMS_IMMUTABLE_ID_PROVENANCE = false;
+
+/** This contract slice is not runtime-wired (no polling/routes/DB/activation). */
+const EMAIL_INBOUND_ENVELOPE_RUNTIME_WIRED = false;
+
 const EMAIL_INBOUND_ENVELOPE_PERSISTENCE_FORBIDDEN = true;
 const EMAIL_INBOUND_ENVELOPE_LOGGING_FORBIDDEN = true;
 
@@ -61,6 +134,7 @@ const EMAIL_INBOUND_ENVELOPE_STRING_MAX = 2048;
 
 const PROVIDER_SET = new Set(EMAIL_INBOUND_ENVELOPE_PROVIDERS);
 const KEY_SET = new Set(EMAIL_INBOUND_ENVELOPE_KEYS);
+const LEGACY_KEY_SET = new Set(EMAIL_INBOUND_LEGACY_GRAPH_TRANSPORT_ENVELOPE_KEYS);
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
 const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
@@ -69,10 +143,11 @@ const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy ==
   : null;
 
 /**
- * Strict UTC/offset ISO-8601 instant. Canonicalized to UTC with millisecond Z.
+ * Strict UTC/offset ISO-8601 instant grammar. Canonicalized to UTC with millisecond Z.
  * Rejects date-only, space separators, and non-instant forms.
+ * Calendar component validity is enforced separately (no Date.parse rollover).
  */
-const ISO_INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+const ISO_INSTANT_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/;
 
 function deepFreezeFresh(value) {
   if (value === null || typeof value !== 'object') return value;
@@ -128,9 +203,26 @@ function hasUnpairedSurrogate(value) {
   return false;
 }
 
+function isLeapYear(year) {
+  return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+}
+
+function daysInMonth(year, month) {
+  switch (month) {
+    case 1: case 3: case 5: case 7: case 8: case 10: case 12:
+      return 31;
+    case 4: case 6: case 9: case 11:
+      return 30;
+    case 2:
+      return isLeapYear(year) ? 29 : 28;
+    default:
+      return 0;
+  }
+}
+
 /**
  * Snapshot own enumerable data properties only.
- * Rejects proxies, accessors, symbols, dangerous keys.
+ * Rejects proxies, accessors, symbols, non-enumerable keys, dangerous keys.
  */
 function snapshotOwnDataProps(obj) {
   try {
@@ -148,6 +240,9 @@ function snapshotOwnDataProps(obj) {
       if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
       const desc = Object.getOwnPropertyDescriptor(obj, key);
       if (!desc) continue;
+      if (desc.enumerable !== true) {
+        return { ok: false, reason: 'non_enumerable', key };
+      }
       if (typeof desc.get === 'function' || typeof desc.set === 'function') {
         return { ok: false, reason: 'accessor', key };
       }
@@ -194,6 +289,8 @@ function validateOptionalBoundedString(value, field) {
 
 /**
  * Validate and canonicalize received_at to UTC ISO-8601 with millisecond Z.
+ * Rejects impossible calendar dates (no Date.parse rollover of Feb 30 etc.).
+ * Accepts Z and numeric offsets; equivalent instants canonicalize identically.
  * @param {unknown} value
  * @returns {{ok:true,value:string}|{ok:false,error:string,details?:object}}
  */
@@ -204,14 +301,60 @@ function validateReceivedAt(value) {
   if (value.length < 1 || value.length > EMAIL_INBOUND_ENVELOPE_STRING_MAX) {
     return fail('inbound_envelope_timestamp_invalid', { reason: 'length' });
   }
-  if (!ISO_INSTANT_RE.test(value)) {
+  const match = ISO_INSTANT_RE.exec(value);
+  if (!match) {
     return fail('inbound_envelope_timestamp_invalid', { reason: 'not_iso_instant' });
   }
-  const ms = Date.parse(value);
-  if (!Number.isFinite(ms)) {
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const frac = match[7] || '';
+  const offset = match[8];
+
+  if (month < 1 || month > 12) {
+    return fail('inbound_envelope_timestamp_invalid', { reason: 'impossible_calendar' });
+  }
+  const dim = daysInMonth(year, month);
+  if (day < 1 || day > dim) {
+    return fail('inbound_envelope_timestamp_invalid', { reason: 'impossible_calendar' });
+  }
+  if (hour > 23 || minute > 59 || second > 59) {
+    return fail('inbound_envelope_timestamp_invalid', { reason: 'impossible_calendar' });
+  }
+
+  // Build UTC ms from calendar components + offset (no rollover path).
+  let offsetMinutes = 0;
+  if (offset !== 'Z') {
+    const sign = offset.charAt(0) === '-' ? -1 : 1;
+    const oh = Number(offset.slice(1, 3));
+    const om = Number(offset.slice(4, 6));
+    if (oh > 23 || om > 59) {
+      return fail('inbound_envelope_timestamp_invalid', { reason: 'impossible_calendar' });
+    }
+    offsetMinutes = sign * (oh * 60 + om);
+  }
+
+  // Millisecond field: first 3 fractional digits (pad); extra sub-ms precision truncated
+  // to match Date#toISOString canonical form.
+  const millis = frac ? Number(frac.padEnd(3, '0').slice(0, 3)) : 0;
+
+  const utcMs = Date.UTC(year, month - 1, day, hour, minute, second, millis)
+    - (offsetMinutes * 60 * 1000);
+  if (!Number.isFinite(utcMs)) {
     return fail('inbound_envelope_timestamp_invalid', { reason: 'unparseable' });
   }
-  return ok(new Date(ms).toISOString());
+
+  const canonical = new Date(utcMs).toISOString();
+  // Round-trip: canonical must re-parse to the same instant.
+  if (Date.parse(canonical) !== utcMs) {
+    return fail('inbound_envelope_timestamp_invalid', { reason: 'canonical_mismatch' });
+  }
+
+  return ok(canonical);
 }
 
 /**
@@ -273,13 +416,158 @@ function validateInboundEmailEnvelope(input) {
   });
 }
 
+/**
+ * Extract the normative identity tuple used for identity and dedup.
+ * internet_message_id is metadata only and is never included.
+ *
+ * @param {unknown} envelope validated or raw own-data envelope
+ * @returns {{ok:true,value:object}|{ok:false,error:string,details?:object}}
+ */
+function inboundEmailEnvelopeIdentityTuple(envelope) {
+  const validated = validateInboundEmailEnvelope(envelope);
+  if (!validated.ok) return validated;
+  const v = validated.value;
+  return ok({
+    provider: v.provider,
+    provider_mailbox_id: v.provider_mailbox_id,
+    provider_message_id: v.provider_message_id,
+  });
+}
+
+/**
+ * True iff both envelopes share the same identity tuple.
+ * internet_message_id (including null / differing values) does not affect dedup.
+ * Two null internet_message_id values do not create a cross-identity collision.
+ *
+ * @param {unknown} a
+ * @param {unknown} b
+ * @returns {boolean}
+ */
+function areInboundEmailEnvelopesDuplicate(a, b) {
+  const idA = inboundEmailEnvelopeIdentityTuple(a);
+  const idB = inboundEmailEnvelopeIdentityTuple(b);
+  if (!idA.ok || !idB.ok) return false;
+  return idA.value.provider === idB.value.provider
+    && idA.value.provider_mailbox_id === idB.value.provider_mailbox_id
+    && idA.value.provider_message_id === idB.value.provider_message_id;
+}
+
+/**
+ * Compare for ordering: received_at DESC (newest first), then identity tuple ASC.
+ * Returns negative if a should appear before b.
+ *
+ * @param {unknown} a
+ * @param {unknown} b
+ * @returns {number}
+ */
+function compareInboundEmailEnvelopesForOrder(a, b) {
+  const va = validateInboundEmailEnvelope(a);
+  const vb = validateInboundEmailEnvelope(b);
+  if (!va.ok && !vb.ok) return 0;
+  if (!va.ok) return 1;
+  if (!vb.ok) return -1;
+
+  const msA = Date.parse(va.value.received_at);
+  const msB = Date.parse(vb.value.received_at);
+  if (msA !== msB) {
+    // Newest first.
+    return msB - msA;
+  }
+
+  for (const key of EMAIL_INBOUND_ENVELOPE_TIE_BREAK_KEYS) {
+    const sa = String(va.value[key]);
+    const sb = String(vb.value[key]);
+    if (sa < sb) return -1;
+    if (sa > sb) return 1;
+  }
+  return 0;
+}
+
+/**
+ * One conversion point: legacy Graph adapter transport-row DTO → canonical
+ * domain inbound envelope. Requires explicit provider + mailbox identity.
+ * Transport-only `has_attachments` is validated then discarded (not domain).
+ *
+ * @param {unknown} input `{ provider, provider_mailbox_id, legacy }`
+ * @returns {{ok:true,value:object}|{ok:false,error:string,details?:object}}
+ */
+function convertLegacyGraphTransportEnvelopeToInbound(input) {
+  const snap = snapshotOwnDataProps(input);
+  if (!snap.ok) {
+    return fail('legacy_transport_conversion_invalid', { reason: snap.reason, key: snap.key });
+  }
+  const o = snap.value;
+  const inputKeys = Object.keys(o);
+  if (inputKeys.length !== 3
+      || !Object.prototype.hasOwnProperty.call(o, 'provider')
+      || !Object.prototype.hasOwnProperty.call(o, 'provider_mailbox_id')
+      || !Object.prototype.hasOwnProperty.call(o, 'legacy')) {
+    return fail('legacy_transport_conversion_invalid', { reason: 'input_keyset' });
+  }
+
+  if (typeof o.provider !== 'string' || !PROVIDER_SET.has(o.provider)) {
+    return fail('legacy_transport_conversion_invalid', { reason: 'provider_invalid' });
+  }
+  const mailboxErr = validateRequiredBoundedString(o.provider_mailbox_id, 'provider_mailbox_id');
+  if (mailboxErr) {
+    return fail('legacy_transport_conversion_invalid', { reason: 'mailbox_invalid' });
+  }
+
+  const legacySnap = snapshotOwnDataProps(o.legacy);
+  if (!legacySnap.ok) {
+    return fail('legacy_transport_conversion_invalid', {
+      reason: legacySnap.reason,
+      key: legacySnap.key,
+    });
+  }
+  const legacy = legacySnap.value;
+  if (!requireExactKeys(
+    legacy,
+    EMAIL_INBOUND_LEGACY_GRAPH_TRANSPORT_ENVELOPE_KEYS,
+    LEGACY_KEY_SET,
+  )) {
+    return fail('legacy_transport_conversion_invalid', { reason: 'legacy_keyset' });
+  }
+
+  if (legacy.has_attachments !== true && legacy.has_attachments !== false) {
+    return fail('legacy_transport_conversion_invalid', { reason: 'has_attachments_invalid' });
+  }
+  // has_attachments is transport-only — validated above, never mapped to domain.
+
+  const candidate = {
+    provider: o.provider,
+    provider_mailbox_id: o.provider_mailbox_id,
+    provider_message_id: legacy.id,
+    received_at: legacy.received_at,
+    subject: legacy.subject,
+    sender_display_name: legacy.from_name,
+    sender_address: legacy.from_address,
+    is_read: legacy.is_read === true,
+    conversation_id: legacy.conversation_id,
+    internet_message_id: legacy.internet_message_id,
+  };
+
+  return validateInboundEmailEnvelope(candidate);
+}
+
 module.exports = {
   EMAIL_INBOUND_ENVELOPE_PROVIDERS,
   EMAIL_INBOUND_ENVELOPE_KEYS,
+  EMAIL_INBOUND_LEGACY_GRAPH_TRANSPORT_ENVELOPE_KEYS,
   EMAIL_INBOUND_ENVELOPE_PII_KEYS,
+  EMAIL_INBOUND_ENVELOPE_IDENTITY_KEYS,
+  EMAIL_INBOUND_ENVELOPE_ORDER_DIRECTION,
+  EMAIL_INBOUND_ENVELOPE_TIE_BREAK_KEYS,
+  EMAIL_INBOUND_MICROSOFT_DURABLE_IDENTITY_REQUIRES_IMMUTABLE_ID,
+  EMAIL_INBOUND_MICROSOFT_MAPPER_CLAIMS_IMMUTABLE_ID_PROVENANCE,
+  EMAIL_INBOUND_ENVELOPE_RUNTIME_WIRED,
   EMAIL_INBOUND_ENVELOPE_PERSISTENCE_FORBIDDEN,
   EMAIL_INBOUND_ENVELOPE_LOGGING_FORBIDDEN,
   EMAIL_INBOUND_ENVELOPE_STRING_MAX,
   validateInboundEmailEnvelope,
   validateReceivedAt,
+  inboundEmailEnvelopeIdentityTuple,
+  areInboundEmailEnvelopesDuplicate,
+  compareInboundEmailEnvelopesForOrder,
+  convertLegacyGraphTransportEnvelopeToInbound,
 };

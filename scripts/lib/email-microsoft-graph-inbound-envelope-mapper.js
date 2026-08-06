@@ -8,6 +8,15 @@
  * validated-then-discarded `@odata.etag`. Provider and mailbox identity are
  * required explicit inputs — never inferred from the row.
  *
+ * Output is the canonical normalized domain envelope
+ * (email-inbound-envelope-contract). The Graph adapter list DTO
+ * (`id` / `from_address` / `has_attachments`) is a separate legacy transport
+ * compatibility surface — convert via convertLegacyGraphTransportEnvelopeToInbound.
+ *
+ * Does not claim Graph ImmutableId provenance for `provider_message_id`.
+ * Future persistence must require Prefer: IdType="ImmutableId" first.
+ * Not runtime-wired (no network, DB, OAuth, polling, routes, or activation).
+ *
  * No network, DB, OAuth, bodies, attachments, drafts, sends, or persistence.
  *
  * @module email-microsoft-graph-inbound-envelope-mapper
@@ -132,6 +141,9 @@ function snapshotOwnDataProps(obj) {
       if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
       const desc = Object.getOwnPropertyDescriptor(obj, key);
       if (!desc) continue;
+      if (desc.enumerable !== true) {
+        return { ok: false, reason: 'non_enumerable', key };
+      }
       if (typeof desc.get === 'function' || typeof desc.set === 'function') {
         return { ok: false, reason: 'accessor', key };
       }

@@ -168,13 +168,31 @@ try {
     EMAIL_INBOUND_ENVELOPE_PERSISTENCE_FORBIDDEN,
     EMAIL_INBOUND_ENVELOPE_LOGGING_FORBIDDEN,
     EMAIL_INBOUND_ENVELOPE_STRING_MAX,
+    EMAIL_INBOUND_ENVELOPE_IDENTITY_KEYS,
+    EMAIL_INBOUND_ENVELOPE_ORDER_DIRECTION,
+    EMAIL_INBOUND_ENVELOPE_TIE_BREAK_KEYS,
+    EMAIL_INBOUND_MICROSOFT_DURABLE_IDENTITY_REQUIRES_IMMUTABLE_ID,
+    EMAIL_INBOUND_MICROSOFT_MAPPER_CLAIMS_IMMUTABLE_ID_PROVENANCE,
+    EMAIL_INBOUND_ENVELOPE_RUNTIME_WIRED,
+    EMAIL_INBOUND_LEGACY_GRAPH_TRANSPORT_ENVELOPE_KEYS,
     validateInboundEmailEnvelope,
+    inboundEmailEnvelopeIdentityTuple,
+    areInboundEmailEnvelopesDuplicate,
+    compareInboundEmailEnvelopesForOrder,
+    convertLegacyGraphTransportEnvelopeToInbound,
   } = contract;
 
   const {
     MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS,
     mapMicrosoftGraphMailReadBasicRowToInboundEnvelope,
   } = mapper;
+
+  // Adapter transport surface (legacy) — classify, do not import runtime wiring.
+  const graphAdapter = require('./lib/email-microsoft-graph-adapter');
+  const {
+    ENVELOPE_DTO_KEYS: GRAPH_ADAPTER_ENVELOPE_DTO_KEYS,
+    GRAPH_TRANSPORT_ENVELOPE_SURFACE,
+  } = graphAdapter;
 
   ok('providers-include-future-adapters', Array.isArray(EMAIL_INBOUND_ENVELOPE_PROVIDERS)
     && EMAIL_INBOUND_ENVELOPE_PROVIDERS.includes('microsoft_graph')
@@ -420,6 +438,92 @@ try {
     const badTs = validateInboundEmailEnvelope(validEnvelope({ received_at: 'not-a-timestamp' }));
     ok('validate-rejects-bad-timestamp', badTs.ok === false, ser(badTs));
   }
+
+  // ── Blocker 1: reject impossible calendar timestamps (no Date.parse rollover) ──
+  {
+    const impossible = [
+      '2026-02-30T12:00:00Z',       // Feb 30 rolls to Mar 2 via Date.parse
+      '2026-04-31T00:00:00Z',       // Apr 31 rolls to May 1
+      '2025-02-29T00:00:00Z',       // non-leap Feb 29 rolls to Mar 1
+      '2026-00-10T00:00:00Z',       // month 0
+      '2026-13-01T00:00:00Z',       // month 13
+      '2026-01-32T00:00:00Z',       // day 32
+      '2026-01-15T24:00:00Z',       // hour 24
+      '2026-01-15T12:60:00Z',       // minute 60
+      '2026-01-15T12:00:60Z',       // second 60
+    ];
+    let allReject = true;
+    for (const ts of impossible) {
+      const r = validateInboundEmailEnvelope(validEnvelope({ received_at: ts }));
+      if (r.ok !== false) {
+        allReject = false;
+        ok(`validate-rejects-impossible-calendar-${ts}`, false, ser(r));
+      }
+    }
+    ok('validate-rejects-impossible-calendar-timestamps', allReject);
+  }
+  {
+    // Valid leap day + month boundary + offset canonical equivalence
+    const leap = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '2024-02-29T23:59:59.123Z',
+    }));
+    ok('validate-accepts-leap-year-feb29', leap.ok === true
+      && leap.value.received_at === '2024-02-29T23:59:59.123Z', ser(leap));
+    const monthEnd = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '2026-01-31T00:00:00Z',
+    }));
+    ok('validate-accepts-month-day-boundary', monthEnd.ok === true
+      && monthEnd.value.received_at === '2026-01-31T00:00:00.000Z', ser(monthEnd));
+    const offset = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '2026-08-06T12:00:00+02:00',
+    }));
+    ok('validate-offset-canonical-equivalence', offset.ok === true
+      && offset.value.received_at === '2026-08-06T10:00:00.000Z', ser(offset));
+    const offsetMs = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '2026-08-06T10:00:00.000Z',
+    }));
+    ok('validate-offset-and-zulu-same-instant', offset.ok && offsetMs.ok
+      && offset.value.received_at === offsetMs.value.received_at, ser({ offset, offsetMs }));
+  }
+
+  // ── Blocker 4: reject non-enumerable contract fields consistently ────────
+  {
+    const nonEnumRequired = validEnvelope();
+    Object.defineProperty(nonEnumRequired, 'subject', {
+      value: 'Surf weekend',
+      enumerable: false,
+      writable: true,
+      configurable: true,
+    });
+    const r = validateInboundEmailEnvelope(nonEnumRequired);
+    ok('validate-rejects-non-enumerable-required-field', r.ok === false, ser(r));
+  }
+  {
+    const nonEnumExtra = validEnvelope();
+    Object.defineProperty(nonEnumExtra, 'hidden_preview', {
+      value: PLANTED_BODY,
+      enumerable: false,
+      writable: true,
+      configurable: true,
+    });
+    const r = validateInboundEmailEnvelope(nonEnumExtra);
+    ok('validate-rejects-non-enumerable-extra-field', r.ok === false && noLeak(r), ser(r));
+  }
+  {
+    const nonEnumInput = {
+      provider: 'microsoft_graph',
+      provider_mailbox_id: MAILBOX_ID,
+      row: graphRow(),
+    };
+    Object.defineProperty(nonEnumInput, 'provider', {
+      value: 'microsoft_graph',
+      enumerable: false,
+      writable: true,
+      configurable: true,
+    });
+    const r = mapMicrosoftGraphMailReadBasicRowToInboundEnvelope(nonEnumInput);
+    ok('mapper-rejects-non-enumerable-input-field', r.ok === false, ser(r));
+  }
   {
     const inferred = mapMicrosoftGraphMailReadBasicRowToInboundEnvelope({
       provider: 'microsoft_graph',
@@ -522,6 +626,175 @@ try {
     ok('envelope-immutable', r.value.subject === 'Surf weekend' && noLeak(r.value));
   }
 
+  // ── Blocker 2: one canonical domain envelope + legacy transport conversion ──
+  {
+    ok(
+      'canonical-envelope-keys-frozen',
+      Array.isArray(EMAIL_INBOUND_ENVELOPE_KEYS)
+        && Object.isFrozen(EMAIL_INBOUND_ENVELOPE_KEYS),
+    );
+    ok(
+      'legacy-graph-transport-keys-classified',
+      Array.isArray(EMAIL_INBOUND_LEGACY_GRAPH_TRANSPORT_ENVELOPE_KEYS)
+        && EMAIL_INBOUND_LEGACY_GRAPH_TRANSPORT_ENVELOPE_KEYS.join(',')
+          === [
+            'id',
+            'subject',
+            'from_address',
+            'from_name',
+            'received_at',
+            'is_read',
+            'conversation_id',
+            'has_attachments',
+            'internet_message_id',
+          ].join(','),
+    );
+    ok(
+      'adapter-envelope-is-legacy-transport-surface',
+      GRAPH_TRANSPORT_ENVELOPE_SURFACE === 'legacy_provider_transport_row_compatibility'
+        && Array.isArray(GRAPH_ADAPTER_ENVELOPE_DTO_KEYS)
+        && GRAPH_ADAPTER_ENVELOPE_DTO_KEYS.join(',')
+          === EMAIL_INBOUND_LEGACY_GRAPH_TRANSPORT_ENVELOPE_KEYS.join(','),
+    );
+    // Adapter consumers keep has_attachments / from_* — domain envelope does not.
+    ok(
+      'canonical-domain-excludes-has-attachments-and-from-aliases',
+      !EMAIL_INBOUND_ENVELOPE_KEYS.includes('has_attachments')
+        && !EMAIL_INBOUND_ENVELOPE_KEYS.includes('from_address')
+        && !EMAIL_INBOUND_ENVELOPE_KEYS.includes('from_name')
+        && !EMAIL_INBOUND_ENVELOPE_KEYS.includes('id')
+        && EMAIL_INBOUND_ENVELOPE_KEYS.includes('provider_message_id')
+        && EMAIL_INBOUND_ENVELOPE_KEYS.includes('sender_address'),
+    );
+    const legacyRow = {
+      id: MSG_ID,
+      subject: 'Surf weekend',
+      from_address: 'guest@example.com',
+      from_name: 'Guest',
+      received_at: '2026-08-06T12:00:00Z',
+      is_read: false,
+      conversation_id: 'AAQkAGConv=',
+      has_attachments: true,
+      internet_message_id: '<msg.1@example.com>',
+    };
+    const converted = convertLegacyGraphTransportEnvelopeToInbound({
+      provider: 'microsoft_graph',
+      provider_mailbox_id: MAILBOX_ID,
+      legacy: legacyRow,
+    });
+    ok('legacy-transport-conversion-ok', converted.ok === true, ser(converted));
+    ok('legacy-transport-conversion-canonical-keys', converted.ok
+      && Object.keys(converted.value).sort().join(',')
+        === [...EMAIL_INBOUND_ENVELOPE_KEYS].sort().join(','));
+    ok('legacy-transport-conversion-maps-identity-and-sender', converted.ok
+      && converted.value.provider === 'microsoft_graph'
+      && converted.value.provider_mailbox_id === MAILBOX_ID
+      && converted.value.provider_message_id === MSG_ID
+      && converted.value.sender_address === 'guest@example.com'
+      && converted.value.sender_display_name === 'Guest'
+      && converted.value.has_attachments === undefined
+      && converted.value.from_address === undefined
+      && converted.value.id === undefined, ser(converted));
+    const revalidated = validateInboundEmailEnvelope(converted.value);
+    ok('legacy-transport-conversion-revalidates', revalidated.ok === true, ser(revalidated));
+    // has_attachments is transport-only metadata and is not a domain field.
+    ok('legacy-transport-conversion-discards-has-attachments', converted.ok
+      && !Object.prototype.hasOwnProperty.call(converted.value, 'has_attachments'));
+  }
+
+  // ── Blocker 3: identity / dedup / order / tie-break / ImmutableId semantics ──
+  {
+    ok(
+      'identity-tuple-keys-normative',
+      Array.isArray(EMAIL_INBOUND_ENVELOPE_IDENTITY_KEYS)
+        && EMAIL_INBOUND_ENVELOPE_IDENTITY_KEYS.join(',')
+          === 'provider,provider_mailbox_id,provider_message_id',
+    );
+    ok(
+      'order-direction-newest-first',
+      EMAIL_INBOUND_ENVELOPE_ORDER_DIRECTION === 'received_at_desc',
+    );
+    ok(
+      'tie-break-keys-deterministic',
+      Array.isArray(EMAIL_INBOUND_ENVELOPE_TIE_BREAK_KEYS)
+        && EMAIL_INBOUND_ENVELOPE_TIE_BREAK_KEYS.join(',')
+          === 'provider,provider_mailbox_id,provider_message_id',
+    );
+    ok(
+      'microsoft-durable-identity-requires-immutable-id',
+      EMAIL_INBOUND_MICROSOFT_DURABLE_IDENTITY_REQUIRES_IMMUTABLE_ID === true,
+    );
+    ok(
+      'mapper-does-not-claim-immutable-id-provenance',
+      EMAIL_INBOUND_MICROSOFT_MAPPER_CLAIMS_IMMUTABLE_ID_PROVENANCE === false,
+    );
+    ok(
+      'inbound-envelope-not-runtime-wired',
+      EMAIL_INBOUND_ENVELOPE_RUNTIME_WIRED === false,
+    );
+
+    const a = validateInboundEmailEnvelope(validEnvelope({
+      internet_message_id: '<same@example.com>',
+    })).value;
+    const b = validateInboundEmailEnvelope(validEnvelope({
+      internet_message_id: '<other@example.com>',
+    })).value;
+    const c = validateInboundEmailEnvelope(validEnvelope({
+      provider_message_id: 'OTHER-ID',
+      internet_message_id: '<same@example.com>',
+    })).value;
+    const dNull = validateInboundEmailEnvelope(validEnvelope({
+      internet_message_id: null,
+    })).value;
+    const eNull = validateInboundEmailEnvelope(validEnvelope({
+      internet_message_id: null,
+    })).value;
+
+    const idA = inboundEmailEnvelopeIdentityTuple(a);
+    ok('identity-tuple-excludes-internet-message-id', idA.ok
+      && idA.value.provider === 'microsoft_graph'
+      && idA.value.provider_mailbox_id === MAILBOX_ID
+      && idA.value.provider_message_id === MSG_ID
+      && idA.value.internet_message_id === undefined
+      && Object.keys(idA.value).join(',') === EMAIL_INBOUND_ENVELOPE_IDENTITY_KEYS.join(','),
+    ser(idA));
+
+    ok('dedup-same-identity-different-internet-message-id',
+      areInboundEmailEnvelopesDuplicate(a, b) === true);
+    ok('dedup-different-identity-same-internet-message-id',
+      areInboundEmailEnvelopesDuplicate(a, c) === false);
+    ok('dedup-null-internet-message-id-same-identity',
+      areInboundEmailEnvelopesDuplicate(dNull, eNull) === true);
+    ok('dedup-null-internet-message-id-not-cross-identity',
+      areInboundEmailEnvelopesDuplicate(dNull, c) === false);
+
+    // Ordering: newer received_at first; equal received_at → identity tuple ASC tie-break.
+    const older = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '2026-08-01T00:00:00.000Z',
+      provider_message_id: 'ZZZ',
+    })).value;
+    const newer = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '2026-08-10T00:00:00.000Z',
+      provider_message_id: 'AAA',
+    })).value;
+    const sameTsLow = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '2026-08-05T00:00:00.000Z',
+      provider_message_id: 'AAA',
+    })).value;
+    const sameTsHigh = validateInboundEmailEnvelope(validEnvelope({
+      received_at: '2026-08-05T00:00:00.000Z',
+      provider_message_id: 'BBB',
+    })).value;
+    ok('order-newer-before-older',
+      compareInboundEmailEnvelopesForOrder(newer, older) < 0
+        && compareInboundEmailEnvelopesForOrder(older, newer) > 0);
+    ok('order-tie-break-by-identity-asc',
+      compareInboundEmailEnvelopesForOrder(sameTsLow, sameTsHigh) < 0
+        && compareInboundEmailEnvelopesForOrder(sameTsHigh, sameTsLow) > 0);
+    ok('order-equal-when-identity-and-time-equal',
+      compareInboundEmailEnvelopesForOrder(a, b) === 0);
+  }
+
   // ── Source static checks: no Graph names in contract module ──────────────
   {
     const contractSrc = fs.readFileSync(CONTRACT_PATH, 'utf8');
@@ -532,6 +805,15 @@ try {
       && !/\bisRead\b/.test(contractSrc));
     ok('contract-no-network', !/\bhttps?\.(request|get)\b/.test(contractSrc)
       && !contractSrc.includes('graph.microsoft.com'));
+    ok('contract-documents-immutable-id-requirement',
+      /ImmutableId/i.test(contractSrc)
+        && /durable/i.test(contractSrc)
+        && /persist/i.test(contractSrc));
+    ok('contract-documents-identity-dedup-order',
+      /identity/i.test(contractSrc)
+        && /dedup/i.test(contractSrc)
+        && /tie-?break/i.test(contractSrc)
+        && /received_at_desc|newest/i.test(contractSrc));
     const mapperSrc = fs.readFileSync(MAPPER_PATH, 'utf8');
     ok('mapper-no-network', !/\bhttps?\.(request|get)\b/.test(mapperSrc)
       && !mapperSrc.includes('login.microsoftonline.com'));
@@ -540,6 +822,22 @@ try {
       && !/\bpostgres\b/i.test(mapperSrc)
       && !/\bINSERT\s+INTO\b/i.test(mapperSrc)
       && !/\bFROM\s+tenant_/i.test(mapperSrc));
+    ok('mapper-no-immutable-id-provenance-claim',
+      !/claims?\s+.*ImmutableId|ImmutableId.*proven/i.test(mapperSrc)
+        || /does not claim|no.*ImmutableId provenance|not.*ImmutableId/i.test(mapperSrc));
+    const adapterSrc = fs.readFileSync(
+      path.join(ROOT, 'scripts/lib/email-microsoft-graph-adapter.js'),
+      'utf8',
+    );
+    ok('adapter-classifies-legacy-transport-surface',
+      /legacy_provider_transport_row_compatibility/.test(adapterSrc)
+        && /canonical|inbound-envelope-contract/i.test(adapterSrc));
+    ok('doc-classifies-canonical-vs-legacy-transport',
+      /canonical/i.test(doc)
+        && /legacy|transport.?row|compatibility/i.test(doc)
+        && /ImmutableId/i.test(doc)
+        && /identity/i.test(doc)
+        && /dedup/i.test(doc));
   }
 
   ok('no-network-hits', networkHits === 0, `hits=${networkHits}`);
