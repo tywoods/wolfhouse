@@ -283,7 +283,9 @@ function createMicrosoftVerifiedIdentityComposition(dependencies) {
       if (!safeEqualUtf8(oidcIdentity.providerPrincipalId, graphIdentityResult.providerSubjectId)) {
         throw failure();
       }
-      // Milestone: Graph /me identity + principal match succeeded.
+      // Milestone: OIDC oid constant-time equals Graph id.
+      safeEmitStage(stageTelemetry, 'graph_principal_matched');
+      // Milestone: complete Graph identity (principal + mailbox) verified.
       safeEmitStage(stageTelemetry, 'graph_identity_verified');
 
       // Minimized frozen output in fixed key order only.
