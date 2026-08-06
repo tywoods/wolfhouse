@@ -260,6 +260,46 @@ async function main() {
       })), n);
     }
 
+    const VALID_ETAG = 'W/"CQAAABYAAAAmPR6qSvWSRpm4Mb1K4g9xAAAoRBC5"';
+
+    // Documented optional per-message @odata.etag (accept; never expose/use).
+    assert.equal(classifyMessageEnvelopeBody(listBody([
+      envelopeRow({ '@odata.etag': VALID_ETAG }),
+    ])).stage, 'success');
+    assert.equal(countBoundedMessageEnvelopes(listBody([
+      envelopeRow({ '@odata.etag': VALID_ETAG }),
+    ])), 1);
+
+    // Row without ETag still accepted.
+    assert.equal(countBoundedMessageEnvelopes(listBody([envelopeRow()])), 1);
+
+    // Key-order variants for row fields + etag.
+    const rowBase = {
+      id: '1',
+      subject: 's',
+      from: { emailAddress: { address: 'a@b.c', name: 'n' } },
+      receivedDateTime: '2026-01-01T00:00:00Z',
+      isRead: false,
+      conversationId: 'c',
+      internetMessageId: '<x>',
+    };
+    const etagOrders = [
+      JSON.stringify({ value: [{ '@odata.etag': VALID_ETAG, ...rowBase }] }),
+      JSON.stringify({ value: [{ ...rowBase, '@odata.etag': VALID_ETAG }] }),
+      `{"value":[{"id":"1","@odata.etag":${JSON.stringify(VALID_ETAG)},"subject":"s","from":{"emailAddress":{"address":"a@b.c","name":"n"}},"receivedDateTime":"2026-01-01T00:00:00Z","isRead":false,"conversationId":"c","internetMessageId":"<x>"}]}`,
+    ];
+    for (const body of etagOrders) {
+      assert.equal(classifyMessageEnvelopeBody(body).stage, 'success', body.slice(0, 48));
+      assert.equal(countBoundedMessageEnvelopes(body), 1);
+    }
+
+    // Multiple rows mixing present/absent ETag.
+    assert.equal(countBoundedMessageEnvelopes(listBody([
+      envelopeRow({ id: '1', '@odata.etag': VALID_ETAG }),
+      envelopeRow({ id: '2' }),
+      envelopeRow({ id: '3', '@odata.etag': 'W/"other"' }),
+    ])), 3);
+
     for (const [name, body] of [
       ['too many rows', listBody(Array.from({ length: 6 }, (_, i) => envelopeRow({ id: String(i) })))],
       ['evil nextLink path', listBody([envelopeRow()], { '@odata.nextLink': 'https://graph.microsoft.com/v1.0/evil' })],
@@ -276,6 +316,10 @@ async function main() {
         receivedDateTime: '2026-01-01T00:00:00Z', isRead: true, conversationId: 'c',
       }])],
       ['extra row field', listBody([envelopeRow({ importance: 'high' })])],
+      ['unknown odata annotation', listBody([envelopeRow({ '@odata.type': '#microsoft.graph.message' })])],
+      ['empty etag', listBody([envelopeRow({ '@odata.etag': '' })])],
+      ['non-string etag', listBody([envelopeRow({ '@odata.etag': 1 })])],
+      ['oversized etag', listBody([envelopeRow({ '@odata.etag': `W/"${'a'.repeat(3000)}"` })])],
       ['not array', JSON.stringify({ value: { id: 'x' } })],
       ['malformed', '{'],
       ['top-level duplicate value', '{"value":[],"value":[]}'],
@@ -308,10 +352,43 @@ async function main() {
       'row_keyset_invalid');
     assert.equal(classifyMessageEnvelopeBody(listBody([envelopeRow({ id: '' })])).stage,
       'row_value_invalid');
+    assert.equal(classifyMessageEnvelopeBody(listBody([
+      envelopeRow({ '@odata.etag': '' }),
+    ])).stage, 'row_value_invalid');
+    assert.equal(classifyMessageEnvelopeBody(listBody([
+      envelopeRow({ '@odata.type': '#microsoft.graph.message' }),
+    ])).stage, 'row_keyset_invalid');
     assert.equal(classifyMessageEnvelopeBody('{').stage, 'json_invalid');
     assert.equal(classifyMessageEnvelopeBody(`\ufffd`).stage, 'utf8_invalid');
     assert.equal(classifyMessageEnvelopeBody(Buffer.alloc(70_000, 0x61).toString('utf8')).stage,
       'response_too_large');
+
+    // Unpaired surrogate in etag → row_value_invalid (after parse) or utf8/json depending on path.
+    const badSurrogateEtag = envelopeRow({ id: 'sur' });
+    badSurrogateEtag['@odata.etag'] = `W/"\uD800"`;
+    assert.equal(classifyParsedMessageEnvelopeList({ value: [badSurrogateEtag] }).stage,
+      'row_value_invalid');
+
+    // Duplicate etag key rejected by strict JSON.
+    const dupEtag = `{"value":[{"id":"1","subject":"s","from":{"emailAddress":{"address":"a@b.c","name":"n"}},"receivedDateTime":"2026-01-01T00:00:00Z","isRead":true,"conversationId":"c","internetMessageId":"<x>","@odata.etag":"W/\\"a\\"","@odata.etag":"W/\\"b\\""}]}`;
+    assert.equal(classifyMessageEnvelopeBody(dupEtag).stage, 'json_invalid');
+
+    // Accessor / proxy / inherited etag rejected.
+    const accessorEtag = { ...envelopeRow() };
+    Object.defineProperty(accessorEtag, '@odata.etag', {
+      get() { return VALID_ETAG; },
+      enumerable: true,
+      configurable: true,
+    });
+    assert.equal(classifyParsedMessageEnvelopeList({ value: [accessorEtag] }).stage,
+      'row_keyset_invalid');
+    assert.equal(classifyParsedMessageEnvelopeList({
+      value: [new Proxy(envelopeRow({ '@odata.etag': VALID_ETAG }), {})],
+    }).stage, 'row_keyset_invalid');
+    const inheritedEtag = Object.create({ '@odata.etag': VALID_ETAG });
+    Object.assign(inheritedEtag, envelopeRow());
+    assert.equal(classifyParsedMessageEnvelopeList({ value: [inheritedEtag] }).stage,
+      'row_keyset_invalid');
 
     // Duplicate nextLink key rejected by strict JSON.
     const dupNext = `{"value":[],"@odata.nextLink":${JSON.stringify(VALID_NEXT)},"@odata.nextLink":${JSON.stringify(VALID_NEXT)}}`;
@@ -419,6 +496,44 @@ async function main() {
       assert.equal(JSON.stringify(result).includes('nextLink'), false);
       assert.equal(JSON.stringify(result).includes('skiptoken'), false);
       assert.equal(JSON.stringify(result).includes(VALID_NEXT), false);
+      assert.equal(noLeak(result), true);
+    }
+
+    // ETag present: still exactly one Graph request; ETag never escapes.
+    {
+      let requestCount = 0;
+      const bodyWithEtag = listBody([
+        envelopeRow({ id: 'e1', '@odata.etag': VALID_ETAG }),
+        envelopeRow({ id: 'e2' }),
+      ]);
+      assert.equal(bodyWithEtag.includes('@odata.etag'), true);
+      const result = await transportWith(function request(options, onResponse) {
+        requestCount += 1;
+        assert.equal(options.path, PATH);
+        const response = new EventEmitter();
+        response.statusCode = 200;
+        Object.defineProperty(response, 'headers', {
+          value: { 'content-type': 'application/json' },
+          enumerable: true,
+          configurable: true,
+        });
+        const req = new EventEmitter();
+        req.destroy = () => {};
+        response.destroy = () => {};
+        req.end = () => {
+          queueMicrotask(() => {
+            onResponse(response);
+            response.emit('data', Buffer.from(bodyWithEtag, 'utf8'));
+            response.emit('end');
+          });
+        };
+        return req;
+      }).listMessageEnvelopeCount({ accessToken: TOKEN });
+      assert.equal(requestCount, 1, 'etag must not trigger a second request');
+      assert.deepEqual(result, { message_count_bounded: 2, graph_stage: 'success' });
+      assert.equal(JSON.stringify(result).includes('etag'), false);
+      assert.equal(JSON.stringify(result).includes(VALID_ETAG), false);
+      assert.equal(JSON.stringify(logged).includes(VALID_ETAG), false);
       assert.equal(noLeak(result), true);
     }
 
