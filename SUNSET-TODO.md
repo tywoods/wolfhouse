@@ -4,24 +4,37 @@ Running Sunset product TODO (formerly `UI-BACKLOG.md`): UI/UX, functional work, 
 
 **Tags:** `[UI]` layout/visual · `[BUG]` broken behavior · `[FEAT]` new capability · `[LUNA]` chatbot brain/wiring · `[I18N]` translation.
 **Size:** S / M / L. **Sketch?** = wants a concept mock before build. **@Earthling** = needs Earthling's call.
-_Started 2026-08-03. Last updated 2026-08-05 03:40 UTC. Owner brain-dump complete; refine + resequence as we go._
+_Started 2026-08-03. Last updated 2026-08-06 15:35 UTC. Owner brain-dump complete; refine + resequence as we go._
 
 ---
 
 ## ❓ Open questions (answered)
 - **"− N +" control** → the **quantity stepper**.
-- **Historical booking log placement/name** → new **Admin tab**, recommended name **"Bookings"** (Schedule stays the calendar view; Bookings = searchable master list). Alts: "Records" / "Booking Log". Feeds both ops (find any booking) and Finance (refund home).
+- **Historical booking log placement/name** → recommended name **"Bookings"** (Schedule stays the calendar view; Bookings = searchable master list). Alts: "Records" / "Booking Log". Feeds both ops (find any booking) and Finance (refund home). **(Update 08-06: Bookings promoted to a top-level tab — see T1.)**
 - **Moving a tab** → easy (nav entry + panel); real work is the panel content.
 
 ## ▶️ Recommended next (sequencing)
 1. ✅ **SHIPPED (revs 0458–0473):** Bookings/Cockpit polish, Finance S2, D4, Inbox toggle, F2, A1, F1, F3, Finance-UI cleanup/revisions/polish v2, cancel/hide v2 (+ migration 060), Bookings tab v2, rental-editor v1+v5, **A2 course-cards** (revs 0469–0470), **Bookings tab edits + Restore** (0471), **finance fail-soft + clickable codes + cancelled-Type + shared item-name resolver** (0472), **schedule guest-collapse rule** (0473). Email **2F-C2** runtime-composition factory integrated to master (`1b6fa65b`, default-off, **not deployed**).
-2. **Remaining:** **A3** (beaches de-hardcode + Luna wire — *important*), Cockpit **C1** (selector placement — needs design), **L2** (Luna offers disabled rentals — @Earthling), Luna wiring **W1–W4** (@Earthling), then **Mobile** last.
+2. **Remaining:** **T1** tab restructure (4 tabs: Schedule·Inbox·Bookings·Admin) + **R1** roles, **A3** (beaches de-hardcode + Luna wire — *important*), Cockpit **C1** (selector placement — needs design), **B1** (booking-click 503 + jump-to-day), **L2** (Luna offers disabled rentals — @Earthling), Luna wiring **W1–W4** (@Earthling), then **Mobile** last.
 3. **OPEN — finance money-truth:** booking `c713c1d7` (€35 total / €20 balance / no captured payment) needs correcting once owner says whether €15 was paid or €35 owed.
 3. **Mobile — LAST.**
 4. **L3 email 2F-C** resumes only when Earthling has Azure access; parked with runtime OFF.
 5. **Mobile LAST** — after the main-site UI settles (we're still adding/removing buttons; no point chasing a moving target).
 
 ---
+
+## 🗂️ Tabs & navigation (restructure) — owner 2026-08-06
+- **T1 — [UI][FEAT] Collapse to 4 top-level tabs: Schedule · Inbox · Bookings · Admin.** `M–L`
+  - **Schedule** — unchanged.
+  - **Inbox** — **merge Customers into Inbox** (Customers stops being its own tab; its content lives inside Inbox).
+  - **Bookings** — promote to its own top-level tab (currently lives under Admin).
+  - **Admin** — **remove billing/Finance**; keep Pricing + Luna Staff (rest as-is).
+  - **Billing/Finance destination:** → **Bookings tab** (natural finance/refund home). _(owner to confirm — only unspecified piece)_
+  - Gated by **R1** roles (Admin tab visibility). Depends on nothing else; mostly nav wiring + moving panel content.
+- **B1 — [BUG] Booking click: schedule 503 + no jump-to-day.** From Bookings/admin, clicking a recent booking opens the drawer but the schedule behind fails **"Could not load schedule. HTTP 503"**, and it should also navigate to the **day the booking starts** (drawer opened on the wrong day). Repro on `SUNSET-20260804-1497D`. Overlaps the shipped "clickable codes → Schedule day + drawer" (rev 0472) — investigate why it 503s / lands wrong. `M`
+
+## 🔐 Access & roles
+- **R1 — [FEAT] Two user classes: Staff vs Admin/Owner.** Only **Admin/Owner** sees the **Admin** tab (Staff can't). User/credential creation is managed in **Crowsnest** (not in the portal). Gates T1's Admin tab. **@Earthling** (Crowsnest side). `L`
 
 ## 🧠 Luna (brain / behavior)
 - **L1 — Personality/voice.** Luna needs a defined personality. **@Earthling.** `L`
