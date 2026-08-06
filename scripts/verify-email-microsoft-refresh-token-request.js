@@ -67,6 +67,7 @@ async function main() {
       .exchangeRefreshToken(input());
     assert.equal(result.kind, 'success');
     assert.equal(result.selected.refreshToken, 'rt-rotated-NEVER_LEAK');
+    assert.equal(result.selected.refreshTokenOmitted, false);
     assert.deepEqual(Reflect.ownKeys(captured), ['body']);
     assert.deepEqual([...new URLSearchParams(captured.body)], [
       ['client_id', CLIENT_ID],

@@ -310,6 +310,58 @@ function createDelegatedGrantRefreshRotationService(deps) {
         });
       }
 
+      // Explicit omission → reseal the one-time-opened prior token.
+      // Present valid rotation → reseal the new token.
+      // Anything else (missing flag, hostile shape) → fail closed; never silent fallback.
+      let tokenToSeal = null;
+      const selected = classified.selected;
+      if (selected.refreshTokenOmitted === true) {
+        if (typeof refreshToken !== 'string' || !refreshToken) {
+          await markDelegatedGrantReconciliation({
+            clientId: ids.clientId,
+            endpointId: ids.endpointId,
+            leaseToken: lease.lease_token,
+            expectedGeneration: lease.grant_generation,
+            reconcileState: 'ms_response_uncertain',
+            reconcileDetailCode: 'ms_refresh_uncertain',
+          }, { client });
+          const gen = lease.grant_generation;
+          await safeAbort(client, ids, lease);
+          lease = null;
+          return publicResult({
+            status: STATUS_UNCERTAIN,
+            grantGeneration: gen,
+            grantStatus: 'active',
+            reconcileState: 'ms_response_uncertain',
+            reauthorizationRequired: false,
+          });
+        }
+        tokenToSeal = refreshToken;
+      } else if (selected.refreshTokenOmitted === false
+          && typeof selected.refreshToken === 'string'
+          && selected.refreshToken) {
+        tokenToSeal = selected.refreshToken;
+      } else {
+        await markDelegatedGrantReconciliation({
+          clientId: ids.clientId,
+          endpointId: ids.endpointId,
+          leaseToken: lease.lease_token,
+          expectedGeneration: lease.grant_generation,
+          reconcileState: 'ms_response_uncertain',
+          reconcileDetailCode: 'ms_refresh_uncertain',
+        }, { client });
+        const gen = lease.grant_generation;
+        await safeAbort(client, ids, lease);
+        lease = null;
+        return publicResult({
+          status: STATUS_UNCERTAIN,
+          grantGeneration: gen,
+          grantStatus: 'active',
+          reconcileState: 'ms_response_uncertain',
+          reauthorizationRequired: false,
+        });
+      }
+
       const nextOperationId = crypto.randomUUID();
       const nextGeneration = lease.grant_generation + 1;
       let aad;
@@ -329,7 +381,7 @@ function createDelegatedGrantRefreshRotationService(deps) {
       let sealed;
       try {
         sealed = await envelopeProvider.sealGrantPayload({
-          refresh_token: classified.selected.refreshToken,
+          refresh_token: tokenToSeal,
           aad,
           operation_id: nextOperationId,
         });

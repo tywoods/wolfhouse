@@ -4,7 +4,12 @@
  * Microsoft refresh-token response classification (health / rotation only).
  * Never logs or returns tokens, error_description, correlation ids, or raw bodies.
  *
- * Success: HTTP 200 Bearer + access + refresh + Phase A resource scopes.
+ * Success: HTTP 200 Bearer + access + Phase A resource scopes.
+ * refresh_token:
+ *   - absent → valid omission; selected.refreshTokenOmitted=true (caller reseals
+ *     the one-time-opened prior token). selected never carries the prior token.
+ *   - present and printable → rotated token on selected.refreshToken.
+ *   - present but empty/malformed/hostile → uncertain (never silent fallback).
  * id_token is ignored when present (refresh path does not rebind identity).
  * Terminal: OAuth error invalid_grant.
  * Everything else (transport gaps, malformed, other OAuth errors, scope fail):
@@ -140,14 +145,12 @@ function classifyMicrosoftRefreshTokenResponse(response) {
     const tokenType = ownData(value, 'token_type');
     const expiresIn = ownData(value, 'expires_in');
     const accessToken = ownData(value, 'access_token');
-    const refreshToken = ownData(value, 'refresh_token');
     const scope = ownData(value, 'scope');
     if (tokenType !== 'Bearer'
         || !Number.isInteger(expiresIn)
         || expiresIn < 1
         || expiresIn > MAX_EXPIRES_IN_SECONDS
-        || !printable(accessToken, TOKEN_LIMIT_CHARS)
-        || !printable(refreshToken, TOKEN_LIMIT_CHARS)) {
+        || !printable(accessToken, TOKEN_LIMIT_CHARS)) {
       return uncertain();
     }
     if (Object.hasOwn(value, 'ext_expires_in')) {
@@ -157,6 +160,37 @@ function classifyMicrosoftRefreshTokenResponse(response) {
     const normalizedScope = validateAndNormalizeTokenResponseScope(scope);
     if (normalizedScope === null) return uncertain();
 
+    // Distinguish absent (valid carry-forward) from present-but-hostile.
+    // Use own-data descriptor reflection — never treat accessors as omission.
+    let refreshTokenOmitted = false;
+    let refreshToken;
+    try {
+      if (!Object.prototype.hasOwnProperty.call(value, 'refresh_token')) {
+        refreshTokenOmitted = true;
+      } else {
+        const desc = Object.getOwnPropertyDescriptor(value, 'refresh_token');
+        if (!desc || desc.get || desc.set || !Object.prototype.hasOwnProperty.call(desc, 'value')) {
+          return uncertain();
+        }
+        if (!printable(desc.value, TOKEN_LIMIT_CHARS)) return uncertain();
+        refreshToken = desc.value;
+      }
+    } catch (_) {
+      return uncertain();
+    }
+
+    if (refreshTokenOmitted) {
+      return Object.freeze({
+        kind: 'success',
+        selected: Object.freeze({
+          accessToken,
+          tokenType,
+          expiresIn,
+          scope: normalizedScope,
+          refreshTokenOmitted: true,
+        }),
+      });
+    }
     return Object.freeze({
       kind: 'success',
       selected: Object.freeze({
@@ -165,6 +199,7 @@ function classifyMicrosoftRefreshTokenResponse(response) {
         tokenType,
         expiresIn,
         scope: normalizedScope,
+        refreshTokenOmitted: false,
       }),
     });
   } catch (_) {

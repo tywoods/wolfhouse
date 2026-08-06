@@ -47,17 +47,34 @@ async function main() {
     const ok = classifyMicrosoftRefreshTokenResponse(response(200, successBody()));
     assert.equal(ok.kind, 'success');
     assert.equal(ok.selected.refreshToken, PLANTED_RT);
+    assert.equal(ok.selected.refreshTokenOmitted, false);
     assert.equal(ok.selected.accessToken, PLANTED_AT);
     assert.equal(ok.selected.tokenType, 'Bearer');
     assert.equal(ok.selected.scope.includes('User.Read'), true);
     assert.equal(Object.isFrozen(ok), true);
     assert.equal(Object.isFrozen(ok.selected), true);
 
+    // Microsoft may omit refresh_token on success — carry-forward signal only.
+    const omittedBody = JSON.stringify({
+      token_type: 'Bearer',
+      expires_in: 3600,
+      access_token: PLANTED_AT,
+      scope: 'User.Read Mail.ReadBasic openid profile',
+    });
+    const omitted = classifyMicrosoftRefreshTokenResponse(response(200, omittedBody));
+    assert.equal(omitted.kind, 'success', 'absent refresh_token must be valid omission');
+    assert.equal(omitted.selected.refreshTokenOmitted, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(omitted.selected, 'refreshToken'), false);
+    // Carry-forward signal must not embed any refresh material (access stays internal-only).
+    assert.equal(JSON.stringify(omitted).includes(PLANTED_RT), false);
+    assert.equal(JSON.stringify(omitted).includes('refresh_token'), false);
+
     const withId = classifyMicrosoftRefreshTokenResponse(response(200, successBody({
       id_token: 'x'.repeat(40),
     })));
     assert.equal(withId.kind, 'success');
     assert.equal(withId.selected.idToken, undefined);
+    assert.equal(withId.selected.refreshTokenOmitted, false);
 
     const invalidGrant = classifyMicrosoftRefreshTokenResponse(response(400, JSON.stringify({
       error: 'invalid_grant',
@@ -68,14 +85,35 @@ async function main() {
     assert.equal(invalidGrant.selected, undefined);
     assert.equal(noLeak(invalidGrant), true);
 
+    // Present but empty/malformed/hostile refresh_token → uncertain (never carry-forward).
+    const hostilePresentCases = [
+      ['empty refresh', response(200, successBody({ refresh_token: '' }))],
+      ['null refresh', response(200, JSON.stringify({
+        token_type: 'Bearer', expires_in: 3600, access_token: PLANTED_AT,
+        refresh_token: null, scope: 'User.Read Mail.ReadBasic',
+      }))],
+      ['number refresh', response(200, JSON.stringify({
+        token_type: 'Bearer', expires_in: 3600, access_token: PLANTED_AT,
+        refresh_token: 12345, scope: 'User.Read Mail.ReadBasic',
+      }))],
+      ['object refresh', response(200, JSON.stringify({
+        token_type: 'Bearer', expires_in: 3600, access_token: PLANTED_AT,
+        refresh_token: { nested: PLANTED_RT }, scope: 'User.Read Mail.ReadBasic',
+      }))],
+      ['newline refresh', response(200, successBody({ refresh_token: 'bad\n' + PLANTED_RT }))],
+      ['oversized refresh', response(200, successBody({ refresh_token: 'x'.repeat(8193) }))],
+    ];
+    for (const [name, resp] of hostilePresentCases) {
+      const classified = classifyMicrosoftRefreshTokenResponse(resp);
+      assert.equal(classified.kind, 'uncertain', name);
+      assert.equal(classified.selected, undefined, name);
+      assert.equal(noLeak(classified), true, name);
+    }
+
     const uncertainCases = [
       ['transport null', null],
       ['non-200 without body', response(500, '')],
       ['malformed json', response(200, '{')],
-      ['missing refresh', response(200, JSON.stringify({
-        token_type: 'Bearer', expires_in: 3600, access_token: PLANTED_AT,
-        scope: 'User.Read Mail.ReadBasic',
-      }))],
       ['missing access', response(200, JSON.stringify({
         token_type: 'Bearer', expires_in: 3600, refresh_token: PLANTED_RT,
         scope: 'User.Read Mail.ReadBasic',

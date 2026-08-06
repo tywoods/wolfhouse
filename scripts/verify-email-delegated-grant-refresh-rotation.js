@@ -74,6 +74,137 @@ function successTransport(bodyPatch = {}) {
   }));
 }
 
+function omitRefreshTransport() {
+  return frozenMethod('postTokenForm', async () => Object.freeze({
+    statusCode: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      token_type: 'Bearer',
+      expires_in: 3600,
+      access_token: 'at-NEVER_LEAK',
+      scope: 'openid profile User.Read Mail.ReadBasic',
+    }),
+  }));
+}
+
+function emptyRefreshTransport() {
+  return frozenMethod('postTokenForm', async () => Object.freeze({
+    statusCode: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      token_type: 'Bearer',
+      expires_in: 3600,
+      access_token: 'at-NEVER_LEAK',
+      refresh_token: '',
+      scope: 'openid profile User.Read Mail.ReadBasic',
+    }),
+  }));
+}
+
+/** Mock PG that supports status → acquire → open → commit (+ optional reconcile/abort). */
+function mockGrantLifecycle({ sealed, opId, onCommit, failCommit }) {
+  let leaseTok = null;
+  return createMockPg([
+    {
+      match: (t) => /FROM tenant_email_delegated_grants/i.test(t)
+        && !/FOR UPDATE/i.test(t) && !/UPDATE/i.test(t) && !/INSERT/i.test(t),
+      run: () => rows({
+        client_id: CLIENT, endpoint_id: ENDPOINT,
+        grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
+        grant_lease_token: null,
+      }),
+    },
+    {
+      match: (t) => /FOR UPDATE OF g/i.test(t) || (/SELECT g\.\*/i.test(t) && /FOR UPDATE/i.test(t)),
+      run: () => rows({
+        client_id: CLIENT, endpoint_id: ENDPOINT,
+        grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
+        grant_lease_token: null, grant_lease_until: null,
+        last_operation_id: opId,
+        envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
+        kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
+        kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
+        ciphertext: sealed.ciphertext, auth_tag: sealed.auth_tag,
+        wrapped_dek: sealed.wrapped_dek,
+        endpoint_binding_status: 'verified',
+      }),
+    },
+    {
+      match: (t) => /SET grant_status='lease_held'/i.test(t),
+      run: (_t, p) => {
+        leaseTok = p[3];
+        return rows({
+          client_id: CLIENT, endpoint_id: ENDPOINT,
+          grant_generation: 1, grant_status: 'lease_held',
+          grant_lease_token: leaseTok,
+          grant_lease_until: new Date(Date.now() + 60000).toISOString(),
+          last_operation_id: opId,
+        });
+      },
+    },
+    {
+      match: (t) => /grant_lease_token/i.test(t) && /FOR UPDATE/i.test(t)
+        && /envelope_version/i.test(t),
+      run: () => rows({
+        client_id: CLIENT, endpoint_id: ENDPOINT,
+        grant_generation: 1, grant_status: 'lease_held',
+        grant_lease_token: leaseTok,
+        grant_lease_until: new Date(Date.now() + 60000).toISOString(),
+        last_operation_id: opId,
+        envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
+        kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
+        kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
+        ciphertext: sealed.ciphertext, auth_tag: sealed.auth_tag,
+        wrapped_dek: sealed.wrapped_dek,
+      }),
+    },
+    {
+      match: (t) => /SET grant_generation=/i.test(t) && /grant_status='active'/i.test(t),
+      run: (_t, p) => {
+        if (failCommit) return empty();
+        if (typeof onCommit === 'function') onCommit(Number(p[2]));
+        return rows({
+          client_id: CLIENT, endpoint_id: ENDPOINT,
+          grant_generation: Number(p[2]), grant_status: 'active',
+          reconcile_state: 'clean',
+        });
+      },
+    },
+    {
+      match: (t) => /SET reconcile_state=/i.test(t),
+      run: () => rows({
+        client_id: CLIENT, endpoint_id: ENDPOINT,
+        grant_generation: 1, grant_status: 'lease_held',
+        reconcile_state: 'ms_response_uncertain',
+      }),
+    },
+    {
+      match: (t) => /SET grant_status='active'/i.test(t) && /grant_lease_owner=NULL/i.test(t),
+      run: () => rows({
+        client_id: CLIENT, endpoint_id: ENDPOINT,
+        grant_generation: 1, grant_status: 'active',
+        reconcile_state: 'ms_response_uncertain',
+      }),
+    },
+    { match: () => true, run: () => empty() },
+  ]);
+}
+
+function wrapSealSpy(provider) {
+  const sealedTokens = [];
+  return {
+    provider: Object.freeze({
+      sealGrantPayload: async (input) => {
+        sealedTokens.push(input && input.refresh_token);
+        return provider.sealGrantPayload(input);
+      },
+      openGrantPayload: (...a) => provider.openGrantPayload(...a),
+      rewrapGrantDek: (...a) => provider.rewrapGrantDek(...a),
+    }),
+    sealedTokens,
+  };
+}
+
 function invalidGrantTransport() {
   return frozenMethod('postTokenForm', async () => Object.freeze({
     statusCode: 400,
@@ -202,6 +333,147 @@ async function main() {
       assert.deepEqual(Reflect.ownKeys(result), [
         'status', 'grant_generation', 'grant_status', 'reconcile_state', 'reauthorization_required',
       ]);
+    }
+
+    // ── omission: 200 without refresh_token reseals opened token + CAS ─
+    {
+      const fakeOmit = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fakeOmit, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const spy = wrapSealSpy(fakeOmit);
+      let committedGen = null;
+      const result = await createDelegatedGrantRefreshRotationService(Object.freeze({
+        deployment: SUNSET_DEPLOYMENT,
+        applicationClientId: APP_ID,
+        client: mockGrantLifecycle({
+          sealed, opId: op, onCommit: (g) => { committedGen = g; },
+        }),
+        envelopeProvider: spy.provider,
+        secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+        transport: omitRefreshTransport(),
+      })).runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+      assert.equal(result.status, STATUS_HEALTHY);
+      assert.equal(result.grant_generation, 2);
+      assert.equal(committedGen, 2);
+      assert.equal(spy.sealedTokens.length, 1);
+      assert.equal(spy.sealedTokens[0], OLD_RT, 'omission must reseal the opened prior token');
+      assert.equal(noLeak(result), true);
+    }
+
+    // ── present rotation uses the new token (not the opened prior) ───
+    {
+      const fakeRot = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fakeRot, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const spy = wrapSealSpy(fakeRot);
+      const result = await createDelegatedGrantRefreshRotationService(Object.freeze({
+        deployment: SUNSET_DEPLOYMENT,
+        applicationClientId: APP_ID,
+        client: mockGrantLifecycle({ sealed, opId: op }),
+        envelopeProvider: spy.provider,
+        secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+        transport: successTransport(),
+      })).runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+      assert.equal(result.status, STATUS_HEALTHY);
+      assert.equal(spy.sealedTokens.length, 1);
+      assert.equal(spy.sealedTokens[0], NEW_RT, 'rotated response must reseal the new token');
+      assert.notEqual(spy.sealedTokens[0], OLD_RT);
+      assert.equal(noLeak(result), true);
+    }
+
+    // ── present empty/malformed refresh_token never falls back ───────
+    {
+      const fakeBad = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fakeBad, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const spy = wrapSealSpy(fakeBad);
+      let aborted = false;
+      const client = mockGrantLifecycle({ sealed, opId: op });
+      // Intercept abort to prove release after uncertain.
+      const origQuery = client.query.bind(client);
+      client.query = async (text, params) => {
+        if (/SET grant_status='active'/i.test(String(text)) && /grant_lease_owner=NULL/i.test(String(text))) {
+          aborted = true;
+        }
+        return origQuery(text, params);
+      };
+      const result = await createDelegatedGrantRefreshRotationService(Object.freeze({
+        deployment: SUNSET_DEPLOYMENT,
+        applicationClientId: APP_ID,
+        client,
+        envelopeProvider: spy.provider,
+        secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+        transport: emptyRefreshTransport(),
+      })).runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+      assert.equal(result.status, STATUS_UNCERTAIN);
+      assert.equal(result.reconcile_state, 'ms_response_uncertain');
+      assert.equal(spy.sealedTokens.length, 0, 'hostile present refresh must never reseal/fallback');
+      assert.equal(aborted, true);
+      assert.equal(noLeak(result), true);
+    }
+
+    // ── omission reseal failure → uncertain + abort (no CAS advance) ─
+    {
+      const fakeFail = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fakeFail, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const failingProvider = Object.freeze({
+        sealGrantPayload: async () => { throw new Error(PLANTED); },
+        openGrantPayload: (...a) => fakeFail.openGrantPayload(...a),
+        rewrapGrantDek: (...a) => fakeFail.rewrapGrantDek(...a),
+      });
+      let commitSeen = false;
+      const client = mockGrantLifecycle({
+        sealed,
+        opId: op,
+        onCommit: () => { commitSeen = true; },
+      });
+      const result = await createDelegatedGrantRefreshRotationService(Object.freeze({
+        deployment: SUNSET_DEPLOYMENT,
+        applicationClientId: APP_ID,
+        client,
+        envelopeProvider: failingProvider,
+        secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+        transport: omitRefreshTransport(),
+      })).runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+      assert.equal(result.status, STATUS_UNCERTAIN);
+      assert.equal(result.grant_generation, 1);
+      assert.equal(commitSeen, false, 'seal failure must not CAS-advance');
+      assert.equal(noLeak(result), true);
+      assert.equal(JSON.stringify(result).includes(PLANTED), false);
+    }
+
+    // ── omission CAS loser → uncertain (generation conflict) ─────────
+    {
+      const fakeCas = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fakeCas, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const result = await createDelegatedGrantRefreshRotationService(Object.freeze({
+        deployment: SUNSET_DEPLOYMENT,
+        applicationClientId: APP_ID,
+        client: mockGrantLifecycle({ sealed, opId: op, failCommit: true }),
+        envelopeProvider: fakeCas,
+        secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+        transport: omitRefreshTransport(),
+      })).runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+      assert.equal(result.status, STATUS_UNCERTAIN);
+      assert.equal(result.reauthorization_required, false);
+      assert.equal(noLeak(result), true);
     }
 
     // ── invalid_grant → reauthorization_required ────────────────────
