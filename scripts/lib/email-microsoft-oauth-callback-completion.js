@@ -23,7 +23,9 @@
  *
  * Flow:
  *   1) burn
- *   2) snapshot owner + callback input (strict ordered own-data)
+ *   2) snapshot owner (strict ordered) + callback input (code: allowlisted
+ *      state/code + optional session_state any order; error: exact ordered
+ *      state/error; session_state never forwarded)
  *   3) hash state; clock once; consume once with owner/time
  *   4) no row → { status: 'invalid_or_expired' }
  *   5) snapshot/validate RETURNING row (exact own-data keys, SQL order set,
@@ -101,7 +103,14 @@ const COMPLETION_KEYS = Object.freeze([
   'applicationClientId',
 ]);
 
-const CALLBACK_KEY_SHAPES = Object.freeze([CALLBACK_CODE_KEYS, CALLBACK_ERROR_KEYS]);
+/**
+ * Optional Entra success key: validated if present, never returned/persisted/logged.
+ * Required success keys stay CALLBACK_CODE_KEYS; order is not semantic.
+ */
+const CALLBACK_CODE_OPTIONAL_KEYS = Object.freeze(['session_state']);
+const CALLBACK_CODE_ALLOWED = Object.freeze(
+  new Set([...CALLBACK_CODE_KEYS, ...CALLBACK_CODE_OPTIONAL_KEYS]),
+);
 
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 /** Canonical lowercase hyphenated UUID (same grammar as migration shapes). */
@@ -114,6 +123,8 @@ const PKCE_VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/;
 const NONCE_RE = /^[A-Za-z0-9_-]{43,128}$/;
 const PROVIDER_CODE_RE = /^[\x21-\x7e]{1,4096}$/;
 const PROVIDER_ERROR_RE = /^[a-z][a-z0-9_]{0,63}$/;
+/** session_state: bounded provider opaque (UUID is a subset); never forwarded. */
+const PROVIDER_SESSION_STATE_RE = /^[\x21-\x7e]{1,256}$/;
 
 function failure() {
   const error = new Error(ERROR_MESSAGE);
@@ -214,19 +225,85 @@ function snapshotExactOrderedUuids(input, keys) {
   return Object.freeze(out);
 }
 
-function snapshotCallbackInput(input) {
-  for (const keys of CALLBACK_KEY_SHAPES) {
-    const raw = snapshotExactOrderedOwnData(input, keys);
-    if (!raw) continue;
-    if (typeof raw.state !== 'string' || !B64URL_32_RE.test(raw.state)) continue;
-    if (keys[1] === 'code') {
-      if (typeof raw.code !== 'string' || !PROVIDER_CODE_RE.test(raw.code)) continue;
-      return Object.freeze({ kind: 'code', state: raw.state, code: raw.code });
-    }
-    if (typeof raw.error !== 'string' || !PROVIDER_ERROR_RE.test(raw.error)) continue;
-    return Object.freeze({ kind: 'error', state: raw.state, error: raw.error });
+/**
+ * Read one own enumerable data descriptor value exactly once.
+ * Accessors / missing / non-enumerable / traps → null.
+ */
+function readOwnEnumerableDataOnce(object, key) {
+  const descriptor = Object.getOwnPropertyDescriptor(object, key);
+  if (!descriptor
+      || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+      || descriptor.get
+      || descriptor.set
+      || !descriptor.enumerable) {
+    return null;
   }
-  return null;
+  return { value: descriptor.value };
+}
+
+/**
+ * Code success: allowlisted own keys state+code plus optional session_state,
+ * any order (OAuth query order is not semantic). Validates and copies state
+ * and code once; validates session_state if present but never returns it.
+ * Rejects symbols, duplicates, extras, accessors, inherited-only, traps.
+ */
+function snapshotCallbackCodeInput(input) {
+  try {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+    const proto = Object.getPrototypeOf(input);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(input);
+    if (actual.length < CALLBACK_CODE_KEYS.length
+        || actual.length > CALLBACK_CODE_ALLOWED.size) {
+      return null;
+    }
+    const seen = new Set();
+    for (const key of actual) {
+      if (typeof key !== 'string' || !CALLBACK_CODE_ALLOWED.has(key) || seen.has(key)) {
+        return null;
+      }
+      seen.add(key);
+    }
+    for (const required of CALLBACK_CODE_KEYS) {
+      if (!seen.has(required)) return null;
+    }
+
+    const stateRead = readOwnEnumerableDataOnce(input, 'state');
+    if (!stateRead) return null;
+    const codeRead = readOwnEnumerableDataOnce(input, 'code');
+    if (!codeRead) return null;
+    if (typeof stateRead.value !== 'string' || !B64URL_32_RE.test(stateRead.value)) return null;
+    if (typeof codeRead.value !== 'string' || !PROVIDER_CODE_RE.test(codeRead.value)) return null;
+
+    if (seen.has('session_state')) {
+      const sessionRead = readOwnEnumerableDataOnce(input, 'session_state');
+      if (!sessionRead) return null;
+      if (typeof sessionRead.value !== 'string'
+          || !PROVIDER_SESSION_STATE_RE.test(sessionRead.value)) {
+        return null;
+      }
+      // Validated and discarded — never pass, persist, or log.
+    }
+
+    return Object.freeze({
+      kind: 'code',
+      state: stateRead.value,
+      code: codeRead.value,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function snapshotCallbackInput(input) {
+  const codeSnap = snapshotCallbackCodeInput(input);
+  if (codeSnap) return codeSnap;
+  // Error path: preserve exact ordered own-data ['state','error'] only.
+  const raw = snapshotExactOrderedOwnData(input, CALLBACK_ERROR_KEYS);
+  if (!raw) return null;
+  if (typeof raw.state !== 'string' || !B64URL_32_RE.test(raw.state)) return null;
+  if (typeof raw.error !== 'string' || !PROVIDER_ERROR_RE.test(raw.error)) return null;
+  return Object.freeze({ kind: 'error', state: raw.state, error: raw.error });
 }
 
 /**

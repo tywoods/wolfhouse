@@ -969,13 +969,89 @@ function startInput(overrides = {}) {
     );
   }
 
-  // Callback wrong key order
-  await rejectCallback(
-    { code: 'provider-code', state },
-    goodOwner,
-    /^oauth_callback_invalid_request$/,
-    'callback wrong key order',
-  );
+  // Code success: key order is not semantic (Entra may return code before state).
+  {
+    const orderCb = svc.createMicrosoftOAuthCallbackService({
+      repository: { consume: async () => null },
+      env: callbackEnv,
+    });
+    assert.deepStrictEqual(
+      await orderCb.accept(
+        { code: 'provider-code', state },
+        goodOwner,
+      ),
+      { status: 'invalid_or_expired' },
+      'code-before-state accepted; consume miss → invalid_or_expired',
+    );
+  }
+
+  // Real Entra authorization-code query shape: code,state,session_state
+  // (url.parse null-prototype). session_state validated, never forwarded.
+  {
+    const SESSION_STATE = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const entraQs = [
+      `code=${encodeURIComponent('provider-code')}`,
+      `state=${encodeURIComponent(state)}`,
+      `session_state=${encodeURIComponent(SESSION_STATE)}`,
+    ].join('&');
+    const entraQuery = require('url').parse(
+      `/staff/email/oauth/microsoft/callback?${entraQs}`,
+      true,
+    ).query;
+    assert.strictEqual(Object.getPrototypeOf(entraQuery), null);
+    assert.deepStrictEqual(Reflect.ownKeys(entraQuery), ['code', 'state', 'session_state']);
+    let entraConsume = 0;
+    let entraConsumeArg = null;
+    const entraCb = svc.createMicrosoftOAuthCallbackService({
+      repository: {
+        consume: async (arg) => {
+          entraConsume += 1;
+          entraConsumeArg = arg;
+          return null;
+        },
+      },
+      env: callbackEnv,
+    });
+    const entraResult = await entraCb.accept(entraQuery, goodOwner);
+    assert.deepStrictEqual(entraResult, { status: 'invalid_or_expired' });
+    assert.strictEqual(entraConsume, 1, 'Entra query reaches consume');
+    assert.ok(
+      entraConsumeArg
+        && entraConsumeArg.stateHash.equals(
+          crypto.createHash('sha256').update(state, 'ascii').digest(),
+        ),
+      'consume uses snapshotted state hash only',
+    );
+    const entraJson = JSON.stringify(entraResult);
+    assert.ok(!entraJson.includes(SESSION_STATE), 'session_state never public');
+    assert.ok(!entraJson.includes('session_state'), 'session_state key never public');
+
+    await rejectCallback(
+      { state, code: 'provider-code', session_state: '' },
+      goodOwner,
+      /^oauth_callback_invalid_request$/,
+      'empty session_state rejected pre-consume',
+    );
+    await rejectCallback(
+      { state, code: 'provider-code', session_state: SESSION_STATE, scope: 'evil' },
+      goodOwner,
+      /^oauth_callback_invalid_request$/,
+      'session_state with extra key rejected',
+    );
+    // Error path still exact ordered; reverse order / extras rejected.
+    await rejectCallback(
+      { error: 'access_denied', state },
+      goodOwner,
+      /^oauth_callback_invalid_request$/,
+      'error wrong key order',
+    );
+    await rejectCallback(
+      { state, error: 'access_denied', session_state: SESSION_STATE },
+      goodOwner,
+      /^oauth_callback_invalid_request$/,
+      'error with session_state rejected',
+    );
+  }
 
   // Owner: symbols / accessors / wrong order / wrong proto / proxy throw
   const ownerSym = { clientId: ids.clientId, authSessionId: ids.authSessionId };

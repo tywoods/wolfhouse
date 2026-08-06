@@ -25,9 +25,18 @@ if (INPUT_KEYS[START_ENDPOINT_ID_KEY_INDEX] !== 'endpointId') {
   throw new Error('oauth_start_input_keys_endpoint_id_not_third');
 }
 const OWNER_KEYS = Object.freeze(['clientId', 'authSessionId']);
+/** Required success keys (order not semantic for provider query). */
 const CALLBACK_CODE_KEYS = Object.freeze(['state', 'code']);
+/**
+ * Optional Entra success key: validated if present, never returned/persisted/logged.
+ * Microsoft documents session_state as a GUID treated as opaque.
+ */
+const CALLBACK_CODE_OPTIONAL_KEYS = Object.freeze(['session_state']);
+const CALLBACK_CODE_ALLOWED = Object.freeze(
+  new Set([...CALLBACK_CODE_KEYS, ...CALLBACK_CODE_OPTIONAL_KEYS]),
+);
+/** Error path remains exact ordered own-data ['state','error'] only. */
 const CALLBACK_ERROR_KEYS = Object.freeze(['state', 'error']);
-const CALLBACK_KEY_SHAPES = Object.freeze([CALLBACK_CODE_KEYS, CALLBACK_ERROR_KEYS]);
 
 const SQL_CREATE_TRANSACTION = `
 INSERT INTO tenant_email_oauth_transactions
@@ -209,20 +218,88 @@ function createMicrosoftOAuthTransactionService({ repository, env = process.env,
 
 const PROVIDER_CODE_RE = /^[\x21-\x7e]{1,4096}$/;
 const PROVIDER_ERROR_RE = /^[a-z][a-z0-9_]{0,63}$/;
+/** session_state: bounded provider opaque (UUID is a subset); never forwarded. */
+const PROVIDER_SESSION_STATE_RE = /^[\x21-\x7e]{1,256}$/;
+
+/**
+ * Read one own enumerable data descriptor value exactly once.
+ * Accessors / missing / non-enumerable / traps → null.
+ */
+function readOwnEnumerableDataOnce(object, key) {
+  const descriptor = Object.getOwnPropertyDescriptor(object, key);
+  if (!descriptor
+      || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+      || descriptor.get
+      || descriptor.set
+      || !descriptor.enumerable) {
+    return null;
+  }
+  return { value: descriptor.value };
+}
+
+/**
+ * Code success: allowlisted own keys state+code plus optional session_state,
+ * any order (OAuth query order is not semantic). Validates and copies state
+ * and code once; validates session_state if present but never returns it.
+ * Rejects symbols, duplicates, extras, accessors, inherited-only, traps.
+ */
+function snapshotCallbackCodeInput(input) {
+  try {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+    const proto = Object.getPrototypeOf(input);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(input);
+    if (actual.length < CALLBACK_CODE_KEYS.length
+        || actual.length > CALLBACK_CODE_ALLOWED.size) {
+      return null;
+    }
+    const seen = new Set();
+    for (const key of actual) {
+      if (typeof key !== 'string' || !CALLBACK_CODE_ALLOWED.has(key) || seen.has(key)) {
+        return null;
+      }
+      seen.add(key);
+    }
+    for (const required of CALLBACK_CODE_KEYS) {
+      if (!seen.has(required)) return null;
+    }
+
+    const stateRead = readOwnEnumerableDataOnce(input, 'state');
+    if (!stateRead) return null;
+    const codeRead = readOwnEnumerableDataOnce(input, 'code');
+    if (!codeRead) return null;
+    if (typeof stateRead.value !== 'string' || !B64URL_32_RE.test(stateRead.value)) return null;
+    if (typeof codeRead.value !== 'string' || !PROVIDER_CODE_RE.test(codeRead.value)) return null;
+
+    if (seen.has('session_state')) {
+      const sessionRead = readOwnEnumerableDataOnce(input, 'session_state');
+      if (!sessionRead) return null;
+      if (typeof sessionRead.value !== 'string'
+          || !PROVIDER_SESSION_STATE_RE.test(sessionRead.value)) {
+        return null;
+      }
+      // Validated and discarded — never pass, persist, or log.
+    }
+
+    return Object.freeze({
+      kind: 'code',
+      state: stateRead.value,
+      code: codeRead.value,
+    });
+  } catch {
+    return null;
+  }
+}
 
 function snapshotCallbackInput(input) {
-  for (const keys of CALLBACK_KEY_SHAPES) {
-    const raw = snapshotExactOrderedOwnData(input, keys);
-    if (!raw) continue;
-    if (typeof raw.state !== 'string' || !B64URL_32_RE.test(raw.state)) continue;
-    if (keys[1] === 'code') {
-      if (typeof raw.code !== 'string' || !PROVIDER_CODE_RE.test(raw.code)) continue;
-      return Object.freeze({ kind: 'code', state: raw.state, code: raw.code });
-    }
-    if (typeof raw.error !== 'string' || !PROVIDER_ERROR_RE.test(raw.error)) continue;
-    return Object.freeze({ kind: 'error', state: raw.state, error: raw.error });
-  }
-  return null;
+  const codeSnap = snapshotCallbackCodeInput(input);
+  if (codeSnap) return codeSnap;
+  // Error path: preserve exact ordered own-data ['state','error'] only.
+  const raw = snapshotExactOrderedOwnData(input, CALLBACK_ERROR_KEYS);
+  if (!raw) return null;
+  if (typeof raw.state !== 'string' || !B64URL_32_RE.test(raw.state)) return null;
+  if (typeof raw.error !== 'string' || !PROVIDER_ERROR_RE.test(raw.error)) return null;
+  return Object.freeze({ kind: 'error', state: raw.state, error: raw.error });
 }
 
 function createMicrosoftOAuthCallbackService({ repository, env = process.env, now = () => new Date() }) {
