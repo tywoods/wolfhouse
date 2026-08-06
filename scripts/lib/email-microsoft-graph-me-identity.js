@@ -2,6 +2,7 @@
 
 const http = require('http');
 const https = require('https');
+const util = require('util');
 const {
   pinEmailOAuthStageTelemetry,
   createNoopEmailOAuthStageTelemetry,
@@ -45,6 +46,16 @@ const PINNED_HEADERS_GET = PINNED_HEADERS_DESCRIPTOR
   ? PINNED_HEADERS_DESCRIPTOR.get
   : null;
 
+// Module-init pin: transparent Proxy around a genuine IncomingMessage passes
+// constructor/prototype checks and Reflect.apply of the pinned headers getter.
+// Detect proxies via native util.types.isProxy before any prototype/constructor/
+// getter inspection. Pin owner + function once; only Reflect.apply the pin so
+// ambient util.types.isProxy monkeypatches after init are irrelevant.
+const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
+const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
+  ? PINNED_UTIL_TYPES.isProxy
+  : null;
+
 function failure(code) {
   const error = new Error(ERROR_MESSAGES[code]);
   Object.defineProperty(error, 'name', { value: 'MicrosoftGraphIdentityError' });
@@ -81,12 +92,32 @@ function readOwnData(value, key) {
 }
 
 /**
+ * True when value is a Proxy (or proxy detection fails closed).
+ * Uses only the module-init pinned util.types.isProxy via Reflect.apply.
+ * isProxy throw → conservatively treat as proxy (caller rejects).
+ * Missing pin → fail closed (treat as proxy).
+ */
+function isProxyResponseSurface(value) {
+  try {
+    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) {
+      return true;
+    }
+    return Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
+  } catch {
+    return true;
+  }
+}
+
+/**
  * True only for exact native IncomingMessage instances whose live headers getter
- * is still the module-init pin. Subclasses, foreign prototypes, and ambient
- * redefinitions are rejected.
+ * is still the module-init pin. Subclasses, foreign prototypes, ambient
+ * redefinitions, and Proxy wrappers are rejected.
  */
 function isPinnedIncomingMessage(response) {
   try {
+    // Reject Proxy before any prototype/constructor/getter inspection so hostile
+    // traps are not invoked beyond the native isProxy detector.
+    if (isProxyResponseSurface(response)) return false;
     if (!PINNED_HEADERS_GET || !PINNED_INCOMING_MESSAGE || !PINNED_INCOMING_MESSAGE_PROTOTYPE) {
       return false;
     }
@@ -103,12 +134,14 @@ function isPinnedIncomingMessage(response) {
 
 /**
  * Secure response headers access:
- * 1) Genuine pinned IncomingMessage → Reflect.apply only the module-init native getter.
- * 2) Own-data plain/mock path (EventEmitter unit tests) → readOwnData only.
+ * 1) Proxy surfaces rejected (undefined → RESPONSE_INVALID upstream).
+ * 2) Genuine pinned IncomingMessage → Reflect.apply only the module-init native getter.
+ * 3) Own-data plain/mock path (EventEmitter unit tests) → readOwnData only.
  * Never walks attacker/custom prototype getters.
  */
 function readResponseHeaders(response) {
   try {
+    if (isProxyResponseSurface(response)) return undefined;
     if (isPinnedIncomingMessage(response)) {
       const headers = Reflect.apply(PINNED_HEADERS_GET, response, []);
       if (headers === null || typeof headers !== 'object' || Array.isArray(headers)) {
@@ -370,6 +403,14 @@ function createMicrosoftGraphMeIdentityTransport(dependencies = {}) {
           if (settled) {
             activeResponse = response;
             destroyResponse();
+            return;
+          }
+          // Reject Proxy wrappers before any prototype/constructor/getter inspection
+          // or trap invocation (native isProxy does not consult traps). Do not assign
+          // activeResponse so destroy cleanup never walks hostile proxy traps.
+          if (isProxyResponseSurface(response)) {
+            destroyRequest();
+            finish(failure('RESPONSE_INVALID'));
             return;
           }
           activeResponse = response;

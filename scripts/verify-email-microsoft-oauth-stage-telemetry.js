@@ -1825,6 +1825,157 @@ test('Graph source pins IncomingMessage headers getter and does not trust ambien
   assert.equal(graphSrc.includes('globalThis'), false);
 });
 
+test('transparent Proxy around genuine IncomingMessage is rejected with no Graph result', async function graphProxyWrappedIncomingMessageRejected() {
+  const util = require('util');
+  // BLOCK precondition: transparent proxy passes constructor/prototype checks.
+  {
+    const probe = new Proxy(nativeGraphResponse(), {});
+    assert.equal(util.types.isProxy(probe), true);
+    assert.equal(Object.getPrototypeOf(probe), http.IncomingMessage.prototype);
+    assert.equal(probe.constructor, http.IncomingMessage);
+  }
+
+  // If production wrongly accepts the proxy, body emission yields full identity
+  // success (RED). When fixed: reject, no Graph result, stop after received.
+  {
+    const { composition, events, input, graph } = graphStageComposition({
+      graph: {
+        responseFactory() {
+          return new Proxy(nativeGraphResponse(), {});
+        },
+      },
+    });
+    await assert.rejects(() => composition.verifyIdentity(input));
+    assert.deepEqual(events.map((e) => e.stage), [
+      'oidc_verified',
+      'graph_request_started',
+      'graph_response_received',
+    ]);
+    assert.equal(events.some((e) => e.stage === 'graph_http_accepted'), false);
+    assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
+    assert.equal(events.some((e) => e.stage === 'graph_response_validated'), false);
+    assert.equal(events.some((e) => e.stage === 'graph_identity_verified'), false);
+    assert.equal(util.types.isProxy(graph.calls[0].res), true);
+    assertNeutralStageEvents(events);
+  }
+
+  // Hostile traps not invoked beyond unavoidable native isProxy detector.
+  {
+    const trapHits = [];
+    const target = nativeGraphResponse();
+    const proxy = new Proxy(target, {
+      get(t, p, r) {
+        trapHits.push(`get:${String(p)}`);
+        return Reflect.get(t, p, r);
+      },
+      getPrototypeOf(t) {
+        trapHits.push('getPrototypeOf');
+        return Reflect.getPrototypeOf(t);
+      },
+      getOwnPropertyDescriptor(t, p) {
+        trapHits.push(`gopd:${String(p)}`);
+        return Reflect.getOwnPropertyDescriptor(t, p);
+      },
+      set(t, p, v, r) {
+        trapHits.push(`set:${String(p)}`);
+        return Reflect.set(t, p, v, r);
+      },
+      has(t, p) {
+        trapHits.push(`has:${String(p)}`);
+        return Reflect.has(t, p);
+      },
+      ownKeys(t) {
+        trapHits.push('ownKeys');
+        return Reflect.ownKeys(t);
+      },
+    });
+    const { composition, events, input } = graphStageComposition({
+      graph: {
+        responseFactory() { return proxy; },
+        // Avoid harness emission through the proxy after reject.
+        onResponse() {},
+      },
+    });
+    const outcome = await Promise.race([
+      composition.verifyIdentity(input).then(
+        (result) => ({ type: 'fulfilled', result }),
+        (error) => ({ type: 'rejected', error }),
+      ),
+      new Promise((resolve) => {
+        setTimeout(() => resolve({ type: 'timeout' }), 200);
+      }),
+    ]);
+    assert.equal(outcome.type, 'rejected', 'proxy response must reject (not succeed or hang)');
+    assert.deepEqual(events.map((e) => e.stage), [
+      'oidc_verified',
+      'graph_request_started',
+      'graph_response_received',
+    ]);
+    assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
+    assertNeutralStageEvents(events);
+    assert.deepEqual(trapHits, []);
+  }
+});
+
+test('post-init ambient util.types.isProxy monkeypatch does not accept proxies or reject natives', async function graphIsProxyPinSurvivesMonkeypatch() {
+  const util = require('util');
+  const originalIsProxy = util.types.isProxy;
+  try {
+    // Ambient claims nothing is a Proxy — pin must still reject wrappers.
+    util.types.isProxy = function ambientHideProxy() { return false; };
+    {
+      const { composition, events, input } = graphStageComposition({
+        graph: {
+          responseFactory() {
+            return new Proxy(nativeGraphResponse(), {});
+          },
+        },
+      });
+      await assert.rejects(() => composition.verifyIdentity(input));
+      assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
+      assert.equal(events.some((e) => e.stage === 'graph_identity_verified'), false);
+      assertNeutralStageEvents(events);
+    }
+    // Ambient claims everything is a Proxy — genuine native must still succeed.
+    util.types.isProxy = function ambientAlwaysProxy() { return true; };
+    {
+      const { composition, events, input, graph } = graphStageComposition({
+        graph: { nativeResponse: true },
+      });
+      const result = await composition.verifyIdentity(input);
+      assert.equal(result.providerPrincipalId, PRINCIPAL);
+      assert.equal(result.mailboxAddress, MAILBOX);
+      assert.deepEqual(events.map((e) => e.stage), [
+        'oidc_verified',
+        ...GRAPH_TRANSPORT_SUCCESS_STAGES,
+        'graph_principal_matched',
+        'graph_identity_verified',
+      ]);
+      assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), true);
+      assert.equal(graph.calls[0].res.constructor, http.IncomingMessage);
+      assert.equal(util.types.isProxy(graph.calls[0].res), true); // ambient lie
+      assertNeutralStageEvents(events);
+    }
+  } finally {
+    util.types.isProxy = originalIsProxy;
+  }
+});
+
+test('Graph source pins util.types.isProxy and rejects proxy responses before pin inspection', async function graphSourceIsProxyPinContract() {
+  const graphSrc = fs.readFileSync(path.join(ROOT, GRAPH_REL), 'utf8');
+  // Module-init pin of util.types owner + isProxy function, applied via Reflect.apply.
+  assert.match(graphSrc, /require\(['"]util['"]\)/);
+  assert.match(graphSrc, /types\.isProxy|isProxy/);
+  assert.match(graphSrc, /PINNED_.*IS_PROXY|PINNED_.*PROXY|IS_PROXY/i);
+  assert.match(graphSrc, /Reflect\.apply/);
+  // isProxy throw handled conservatively as reject (catch → failure).
+  assert.match(graphSrc, /catch\s*\{/);
+  // Must not trust ambient util.types after init (no live util.types.isProxy calls
+  // in the hot path beyond the pinned binding).
+  assert.equal(graphSrc.includes('global.'), false);
+  assert.equal(graphSrc.includes('globalThis'), false);
+});
+
 // ── Runner ─────────────────────────────────────────────────────────────────
 
 (async function main() {

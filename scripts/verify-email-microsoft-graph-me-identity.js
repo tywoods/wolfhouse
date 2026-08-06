@@ -526,6 +526,111 @@ async function main() {
     }
   }
 
+  // Transparent Proxy around genuine IncomingMessage must be rejected before any
+  // prototype/constructor/getter inspection. Without util.types.isProxy gate, a
+  // transparent proxy passes constructor/prototype checks and Reflect.apply of the
+  // pinned headers getter succeeds — false Graph success.
+  {
+    const util = require('util');
+    // BLOCK precondition: transparent proxy looks like pinned IncomingMessage.
+    {
+      const target = nativeIncomingMessageResponse({});
+      const proxy = new Proxy(target, {});
+      assert.equal(util.types.isProxy(target), false);
+      assert.equal(util.types.isProxy(proxy), true);
+      assert.equal(Object.getPrototypeOf(proxy), http.IncomingMessage.prototype);
+      assert.equal(proxy.constructor, http.IncomingMessage);
+      // If production wrongly accepts the proxy, default body emission yields a Graph
+      // result and rejectsCode fails (RED). When fixed, RESPONSE_INVALID (GREEN).
+      await rejectsCode(
+        (await one({
+          responseFactory() { return new Proxy(nativeIncomingMessageResponse({}), {}); },
+        })).promise,
+        'RESPONSE_INVALID',
+      );
+    }
+    // Hostile traps must not run beyond the unavoidable native isProxy detector.
+    // Skip harness body emission so post-reject emit does not trip traps.
+    {
+      const trapHits = [];
+      const target = nativeIncomingMessageResponse({});
+      const proxy = new Proxy(target, {
+        get(t, p, r) {
+          trapHits.push(`get:${String(p)}`);
+          return Reflect.get(t, p, r);
+        },
+        getPrototypeOf(t) {
+          trapHits.push('getPrototypeOf');
+          return Reflect.getPrototypeOf(t);
+        },
+        getOwnPropertyDescriptor(t, p) {
+          trapHits.push(`gopd:${String(p)}`);
+          return Reflect.getOwnPropertyDescriptor(t, p);
+        },
+        set(t, p, v, r) {
+          trapHits.push(`set:${String(p)}`);
+          return Reflect.set(t, p, v, r);
+        },
+        has(t, p) {
+          trapHits.push(`has:${String(p)}`);
+          return Reflect.has(t, p);
+        },
+        ownKeys(t) {
+          trapHits.push('ownKeys');
+          return Reflect.ownKeys(t);
+        },
+      });
+      const outcome = await Promise.race([
+        (await one({
+          responseFactory() { return proxy; },
+          onResponse() {},
+        })).promise.then(
+          (result) => ({ type: 'fulfilled', result }),
+          (error) => ({ type: 'rejected', error }),
+        ),
+        new Promise((resolve) => {
+          setTimeout(() => resolve({ type: 'timeout' }), 200);
+        }),
+      ]);
+      assert.equal(outcome.type, 'rejected', 'proxy response must reject (not succeed or hang)');
+      assert.equal(outcome.error && outcome.error.code, 'RESPONSE_INVALID');
+      assert.equal(outcome.error && outcome.error.name, 'MicrosoftGraphIdentityError');
+      assert(!String(outcome.error && outcome.error.stack || '').includes(TOKEN));
+      assert.deepEqual(trapHits, []);
+    }
+  }
+
+  // Ambient util.types.isProxy monkeypatch after module init must not divert the pin:
+  // proxy still rejected; genuine native still full success.
+  {
+    const util = require('util');
+    const originalIsProxy = util.types.isProxy;
+    util.types.isProxy = function ambientIsProxy() {
+      // Hide proxies — pin must still reject wrappers.
+      return false;
+    };
+    try {
+      await rejectsCode(
+        (await one({
+          responseFactory() {
+            return new Proxy(nativeIncomingMessageResponse({}), {});
+          },
+        })).promise,
+        'RESPONSE_INVALID',
+      );
+      // Ambient always-true also must not break genuine native.
+      util.types.isProxy = function ambientAlwaysProxy() { return true; };
+      const genuine = await one({ nativeResponse: true });
+      const genuineResult = await genuine.promise;
+      assert.equal(genuineResult.providerSubjectId, 'graph-id-1');
+      assert.equal(genuineResult.mailboxAddress, 'ada@example.com');
+      assert.equal(util.types.isProxy(genuine.transport.calls[0].res), true); // ambient lie
+      assert.equal(Object.prototype.hasOwnProperty.call(genuine.transport.calls[0].res, 'headers'), false);
+    } finally {
+      util.types.isProxy = originalIsProxy;
+    }
+  }
+
   // Own-data plain mock path remains accepted (regression guard for unit tests).
   {
     const plain = await one({});
