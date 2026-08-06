@@ -31,11 +31,11 @@ function postMicrosoftOAuthStart(locationId, endpointId){
 /**
  * POST prepare with exact ordered body { location_id, public_address }.
  * Returns endpoint_id only (no mailbox echo expected).
- * Exact path: /staff/admin/email-settings/microsoft/endpoint/prepare
+ * Exact path: /staff/admin/email-settings/microsoft/prepare
  * (not under /oauth/ — prepare creates the disabled endpoint before OAuth).
  */
 function postMicrosoftEndpointPrepare(locationId, publicAddress){
-  return fetch('/staff/admin/email-settings/microsoft/endpoint/prepare', {
+  return fetch('/staff/admin/email-settings/microsoft/prepare', {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ location_id: locationId, public_address: publicAddress })

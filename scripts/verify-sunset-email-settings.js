@@ -174,12 +174,16 @@ function eligibleRow(patch = {}) {
 
   await test('prepare path exact; start requires endpoint_id; no location-only start body', () => {
     // Exact originally specified prepare path (not under /oauth/ — prepare is endpoint create).
-    assert.strictEqual(OAUTH_PREPARE_PATH, '/staff/admin/email-settings/microsoft/endpoint/prepare');
+    assert.strictEqual(OAUTH_PREPARE_PATH, '/staff/admin/email-settings/microsoft/prepare');
     assert.strictEqual(OAUTH_START_PATH, '/staff/admin/email-settings/oauth/microsoft/start');
-    // Drifted oauth prepare path must not be the live contract.
+    // Both wrong prepare paths must not be the live contract (no aliases).
     assert.notStrictEqual(
       OAUTH_PREPARE_PATH,
       '/staff/admin/email-settings/oauth/microsoft/prepare',
+    );
+    assert.notStrictEqual(
+      OAUTH_PREPARE_PATH,
+      '/staff/admin/email-settings/microsoft/endpoint/prepare',
     );
     assert.deepStrictEqual([...PREPARE_BODY_KEYS], ['location_id', 'public_address']);
     assert.deepStrictEqual([...START_BODY_KEYS], ['location_id', 'endpoint_id']);
@@ -314,8 +318,9 @@ function eligibleRow(patch = {}) {
     assert.ok(/data-email-connect=["']prepare["']/.test(src));
     assert.ok(/data-email-connect=["']connect["']/.test(src));
     assert.ok(/data-email-prepare-address/.test(src));
-    assert.ok(src.includes('/staff/admin/email-settings/microsoft/endpoint/prepare'));
+    assert.ok(src.includes('/staff/admin/email-settings/microsoft/prepare'));
     assert.ok(!src.includes('/staff/admin/email-settings/oauth/microsoft/prepare'));
+    assert.ok(!src.includes('/staff/admin/email-settings/microsoft/endpoint/prepare'));
     assert.ok(src.includes('/staff/admin/email-settings/oauth/microsoft/start'));
     assert.ok(src.includes('location_id'));
     assert.ok(src.includes('endpoint_id'));
@@ -348,7 +353,7 @@ function eligibleRow(patch = {}) {
       window: { location: { assign(url) { sandbox._assigned = url; } } },
       fetch(url, opts) {
         calls.push({ url, body: opts && opts.body, method: opts && opts.method });
-        if (String(url).includes('/microsoft/endpoint/prepare')) {
+        if (String(url) === '/staff/admin/email-settings/microsoft/prepare') {
           return Promise.resolve({
             ok: true,
             json: async () => ({ success: true, endpoint_id: ENDPOINT_ID }),
@@ -375,7 +380,7 @@ function eligibleRow(patch = {}) {
     return sandbox.postMicrosoftEndpointPrepare(LOCATION, MAILBOX)
       .then((id) => {
         assert.strictEqual(id, ENDPOINT_ID);
-        assert.strictEqual(calls[0].url, '/staff/admin/email-settings/microsoft/endpoint/prepare');
+        assert.strictEqual(calls[0].url, '/staff/admin/email-settings/microsoft/prepare');
         assert.strictEqual(calls[0].body, JSON.stringify({ location_id: LOCATION, public_address: MAILBOX }));
         return sandbox.postMicrosoftOAuthStart(LOCATION, id);
       })
@@ -420,46 +425,49 @@ function eligibleRow(patch = {}) {
     const startIdx = src.indexOf('pathname === OAUTH_START_PATH');
     assert.ok(prepIdx > 0 && startIdx > prepIdx);
     assert.ok(src.includes('handlePrepare'));
-    // No alias / no drifted oauth prepare path hardcoded in wiring source
+    // No alias / no wrong prepare paths hardcoded in wiring source
     assert.ok(!src.includes('/staff/admin/email-settings/oauth/microsoft/prepare'));
+    assert.ok(!src.includes('/staff/admin/email-settings/microsoft/endpoint/prepare'));
   });
 
-  await test('old oauth prepare path is not posted by any source fixture', () => {
-    const files = [
+  await test('both wrong prepare paths absent from production source; exact path present', () => {
+    const prodFiles = [
       require.resolve('./browser/sunset-admin-email-settings-ui.js'),
       require.resolve('./lib/staff-email-oauth-routes.js'),
       require.resolve('./staff-query-api.js'),
-      require.resolve('./verify-sunset-email-settings.js'),
     ];
-    const drifted = '/staff/admin/email-settings/oauth/microsoft/prepare';
-    const exact = '/staff/admin/email-settings/microsoft/endpoint/prepare';
-    for (const file of files) {
+    const wrongOauth = '/staff/admin/email-settings/oauth/microsoft/prepare';
+    const wrongEndpoint = '/staff/admin/email-settings/microsoft/endpoint/prepare';
+    const exact = '/staff/admin/email-settings/microsoft/prepare';
+    for (const file of prodFiles) {
       const src = fs.readFileSync(file, 'utf8');
-      // Production/browser sources must not POST the drifted path.
-      if (file.endsWith('sunset-admin-email-settings-ui.js')
-          || file.endsWith('staff-email-oauth-routes.js')
-          || file.endsWith('staff-query-api.js')) {
-        assert.ok(!src.includes(drifted), file);
-        if (file.endsWith('staff-email-oauth-routes.js')
-            || file.endsWith('sunset-admin-email-settings-ui.js')) {
-          assert.ok(src.includes(exact), file);
-        }
-      }
+      assert.ok(!src.includes(wrongOauth), `wrong oauth path in ${file}`);
+      assert.ok(!src.includes(wrongEndpoint), `wrong endpoint path in ${file}`);
     }
-    // Verifier may mention drifted path only as a forbidden/negative assertion.
+    const routeSrc = fs.readFileSync(require.resolve('./lib/staff-email-oauth-routes.js'), 'utf8');
+    const browserSrc = fs.readFileSync(require.resolve('./browser/sunset-admin-email-settings-ui.js'), 'utf8');
+    assert.ok(routeSrc.includes(exact));
+    assert.ok(browserSrc.includes(exact));
+    assert.strictEqual(OAUTH_PREPARE_PATH, exact);
+    // Verifier may mention wrong paths only as forbidden/negative assertions.
     const verifySrc = fs.readFileSync(require.resolve('./verify-sunset-email-settings.js'), 'utf8');
     assert.ok(verifySrc.includes(exact));
-    assert.ok(verifySrc.includes(`notStrictEqual`) || verifySrc.includes(`!src.includes('${drifted}')`) || verifySrc.includes(`!src.includes("${drifted}")`) || verifySrc.includes(drifted));
+    assert.ok(verifySrc.includes(wrongOauth));
+    assert.ok(verifySrc.includes(wrongEndpoint));
   });
 
-  await test('old oauth prepare path returns 404 / default-off with zero effects', async () => {
-    const drifted = '/staff/admin/email-settings/oauth/microsoft/prepare';
-    assert.notStrictEqual(OAUTH_PREPARE_PATH, drifted);
-    assert.strictEqual(OAUTH_PREPARE_PATH, '/staff/admin/email-settings/microsoft/endpoint/prepare');
-    // Drifted path is not the registered constant — staff-query-api dispatches only OAUTH_PREPARE_PATH.
+  await test('both wrong prepare paths unregistered/404 with zero effects', async () => {
+    const wrongOauth = '/staff/admin/email-settings/oauth/microsoft/prepare';
+    const wrongEndpoint = '/staff/admin/email-settings/microsoft/endpoint/prepare';
+    const exact = '/staff/admin/email-settings/microsoft/prepare';
+    assert.notStrictEqual(OAUTH_PREPARE_PATH, wrongOauth);
+    assert.notStrictEqual(OAUTH_PREPARE_PATH, wrongEndpoint);
+    assert.strictEqual(OAUTH_PREPARE_PATH, exact);
+    // Wrong paths are not the registered constant — staff-query-api dispatches only OAUTH_PREPARE_PATH.
     const apiSrc = fs.readFileSync(require.resolve('./staff-query-api.js'), 'utf8');
     assert.ok(apiSrc.includes('pathname === OAUTH_PREPARE_PATH'));
-    assert.ok(!apiSrc.includes(drifted));
+    assert.ok(!apiSrc.includes(wrongOauth));
+    assert.ok(!apiSrc.includes(wrongEndpoint));
     // Default-off: prepare handler itself still 404s with zero effects when flags off.
     let touched = false;
     const res = response();
@@ -478,11 +486,13 @@ function eligibleRow(patch = {}) {
     );
     assert.strictEqual(res.status, 404);
     assert.strictEqual(touched, false);
-    // Source-level: no production file POSTs drifted path (no alias).
+    // Source-level: no production file POSTs either wrong path (no aliases).
     const browserSrc = fs.readFileSync(require.resolve('./browser/sunset-admin-email-settings-ui.js'), 'utf8');
-    assert.ok(!browserSrc.includes(drifted));
+    assert.ok(!browserSrc.includes(wrongOauth));
+    assert.ok(!browserSrc.includes(wrongEndpoint));
     const routeSrc = fs.readFileSync(require.resolve('./lib/staff-email-oauth-routes.js'), 'utf8');
-    assert.ok(!routeSrc.includes(drifted));
+    assert.ok(!routeSrc.includes(wrongOauth));
+    assert.ok(!routeSrc.includes(wrongEndpoint));
     assert.ok(routeSrc.includes(OAUTH_PREPARE_PATH));
   });
 
@@ -539,20 +549,29 @@ function eligibleRow(patch = {}) {
     };
     vm.runInNewContext(src, sandbox);
 
-    // Correct Admin nav + Email tab selectors (headed automation previously clicked panel #tab-admin).
-    const ADMIN_NAV_SEL = 'button[data-tab="admin"]';
+    // Exact Admin nav selector (not loose button[data-tab], not panel #tab-admin) + Email tab.
+    const ADMIN_NAV_SEL = 'button.tab-btn[data-tab="admin"]';
     const EMAIL_TAB_SEL = '#admin-tab-email';
-    assert.strictEqual(ADMIN_NAV_SEL, 'button[data-tab="admin"]');
+    assert.strictEqual(ADMIN_NAV_SEL, 'button.tab-btn[data-tab="admin"]');
     assert.strictEqual(EMAIL_TAB_SEL, '#admin-tab-email');
+    // Looser selector must not be the contract.
+    assert.notStrictEqual(ADMIN_NAV_SEL, 'button[data-tab="admin"]');
     process.env.SUNSET_EMAIL_SETTINGS_UI_ENABLED = 'true';
     const html = require('./staff-query-api').buildUiHtmlForOfflineTest(3036, 'sunset');
     assert.ok(html.includes('data-tab="admin"'));
+    assert.ok(html.includes('class="tab-btn"') || html.includes("class='tab-btn'") || /class="[^"]*tab-btn[^"]*"/.test(html));
     assert.ok(html.includes('id="admin-tab-email"'));
     assert.ok(html.includes('id="tab-admin"')); // panel exists but is not the nav click target
+    // Production HTML has the exact nav button shape used by the selector.
+    assert.ok(/<button[^>]*class="[^"]*tab-btn[^"]*"[^>]*data-tab="admin"/i.test(html)
+      || /<button[^>]*data-tab="admin"[^>]*class="[^"]*tab-btn[^"]*"/i.test(html));
     const verifySrc = fs.readFileSync(__filename, 'utf8');
-    assert.ok(verifySrc.includes('button[data-tab="admin"]'));
+    assert.ok(verifySrc.includes('button.tab-btn[data-tab="admin"]'));
     assert.ok(verifySrc.includes('#admin-tab-email'));
     assert.ok(!/click\(['"]#tab-admin['"]\)|locator\(['"]#tab-admin['"]\)\.click/.test(verifySrc));
+    // Do not treat the loose selector as the required contract.
+    assert.ok(!verifySrc.includes("ADMIN_NAV_SEL = 'button[data-tab=\"admin\"]'"));
+    assert.ok(!verifySrc.includes('ADMIN_NAV_SEL = "button[data-tab=\\"admin\\"]"'));
 
     // actions.prepare=true → exactly one mailbox input + Connect; safety note; no unavailable; no auto POST
     calls.length = 0;
@@ -619,8 +638,9 @@ function eligibleRow(patch = {}) {
     const source = require('./lib/sunset-admin-browser-source').getSunsetAdminUiBrowserSource();
     assert.ok(source.includes('loadAdminEmailSettings'));
     assert.ok(source.includes('postMicrosoftEndpointPrepare') || source.includes('data-email-connect'));
-    assert.ok(source.includes('/staff/admin/email-settings/microsoft/endpoint/prepare'));
+    assert.ok(source.includes('/staff/admin/email-settings/microsoft/prepare'));
     assert.ok(!source.includes('/staff/admin/email-settings/oauth/microsoft/prepare'));
+    assert.ok(!source.includes('/staff/admin/email-settings/microsoft/endpoint/prepare'));
     require('./lib/staff-portal-i18n');
     require('./lib/staff-portal-i18n-es-sunset');
   });
