@@ -28,6 +28,22 @@ const RESOLVE_ROW_KEYS = Object.freeze(['client_id', 'location_id', 'endpoint_id
 const RESOLVE_ROW_KEY_SET = new Set(RESOLVE_ROW_KEYS);
 
 /**
+ * Production native surfaces: capture node:https.request, node:crypto
+ * createPublicKey/verify, and global setTimeout/clearTimeout exactly once at
+ * module initialization. Module._load test doubles for https must be installed
+ * before re-require so this capture binds the test module. Post-route method
+ * replacement on modules/globals must not be observed by wrappers.
+ */
+const PRODUCTION_HTTPS = https;
+const PRODUCTION_HTTPS_REQUEST = https.request;
+const PRODUCTION_CRYPTO = crypto;
+const PRODUCTION_CRYPTO_CREATE_PUBLIC_KEY = crypto.createPublicKey;
+const PRODUCTION_CRYPTO_VERIFY = crypto.verify;
+const PRODUCTION_TIMERS_OWNER = globalThis;
+const PRODUCTION_SET_TIMEOUT = globalThis.setTimeout;
+const PRODUCTION_CLEAR_TIMEOUT = globalThis.clearTimeout;
+
+/**
  * One tenant-safe resolve: Sunset client + active location + exact eligible
  * Microsoft delegated endpoint by explicit endpoint_id. Zero rows on miss;
  * multi-row must not occur under PK but is still fail-closed.
@@ -159,81 +175,153 @@ function snapshotExactResolveRow(row) {
 }
 
 /**
- * Snapshot resolver query result before use.
- * - result.rows must be an ordinary Array (Array.prototype), no symbol/extra keys
- * - empty ordinary array → { kind: 'empty' } (404 path)
- * - exact one-element ordinary array → snapshot row or { kind: 'invalid' }
- * - multi-row / proxy / hostile → { kind: 'invalid' } (503, no insert)
- * Never re-reads result.rows or the row after return.
+ * One-read descriptor snapshot of a pg-style resolve QueryResult.
+ *
+ * Root: ordinary Object.prototype or null only; reject symbols and any
+ * accessor descriptors / reflection traps. Ordinary pg QueryResult metadata
+ * (command, rowCount, oid, fields, …) may appear as own data properties, but
+ * exactly one own data `rows` descriptor is captured once.
+ *
+ * Rows: actual Array with Array.prototype; Reflect.ownKeys once; reject
+ * symbols / extras / sparse forms. Length via own data descriptor read
+ * exactly once (never a direct property get of length). Empty → exact keys
+ * ['length']. One row → exact keys ['0','length'], index-0 descriptor once.
+ * Multi/other → invalid. Every observation is copied once and never reread.
  */
 function snapshotResolveQueryResult(result) {
   try {
     if (!result || typeof result !== 'object' || Array.isArray(result)) {
       return Object.freeze({ kind: 'invalid' });
     }
-    const rowsDesc = Object.getOwnPropertyDescriptor(result, 'rows');
-    if (!rowsDesc
-        || !Object.prototype.hasOwnProperty.call(rowsDesc, 'value')
-        || rowsDesc.get
-        || rowsDesc.set) {
+    const rootProto = Object.getPrototypeOf(result);
+    if (rootProto !== Object.prototype && rootProto !== null) {
       return Object.freeze({ kind: 'invalid' });
     }
+
+    // Snapshot root own keys once; reject symbols.
+    const rootKeys = Reflect.ownKeys(result);
+    let rowsDesc = null;
+    for (let i = 0; i < rootKeys.length; i += 1) {
+      const key = rootKeys[i];
+      if (typeof key === 'symbol') {
+        return Object.freeze({ kind: 'invalid' });
+      }
+      // One descriptor read per key; reject any accessor / trap throw.
+      const desc = Object.getOwnPropertyDescriptor(result, key);
+      if (!desc
+          || !Object.prototype.hasOwnProperty.call(desc, 'value')
+          || desc.get
+          || desc.set) {
+        return Object.freeze({ kind: 'invalid' });
+      }
+      if (key === 'rows') {
+        // Capture the single own data rows descriptor exactly once.
+        if (rowsDesc) return Object.freeze({ kind: 'invalid' });
+        rowsDesc = desc;
+      }
+      // Other own data keys: permitted as ordinary pg metadata (unused).
+    }
+    if (!rowsDesc) return Object.freeze({ kind: 'invalid' });
+
     const rows = rowsDesc.value;
     if (!Array.isArray(rows)) return Object.freeze({ kind: 'invalid' });
     const rowsProto = Object.getPrototypeOf(rows);
     if (rowsProto !== Array.prototype) return Object.freeze({ kind: 'invalid' });
-    for (const key of Reflect.ownKeys(rows)) {
-      if (typeof key === 'symbol') return Object.freeze({ kind: 'invalid' });
-      if (key === 'length') continue;
-      if (!/^(0|[1-9][0-9]*)$/.test(key)) return Object.freeze({ kind: 'invalid' });
-    }
-    if (typeof rows.length !== 'number' || rows.length < 0) {
-      return Object.freeze({ kind: 'invalid' });
-    }
-    if (rows.length === 0) return Object.freeze({ kind: 'empty' });
-    if (rows.length !== 1) return Object.freeze({ kind: 'invalid' });
 
-    const indexDesc = Object.getOwnPropertyDescriptor(rows, '0');
-    if (!indexDesc
-        || !Object.prototype.hasOwnProperty.call(indexDesc, 'value')
-        || indexDesc.get
-        || indexDesc.set) {
+    // Snapshot array own keys once.
+    const rowKeys = Reflect.ownKeys(rows);
+    for (let i = 0; i < rowKeys.length; i += 1) {
+      if (typeof rowKeys[i] === 'symbol') {
+        return Object.freeze({ kind: 'invalid' });
+      }
+    }
+
+    // Length: exact own data descriptor once — never a direct property get.
+    const lengthDesc = Object.getOwnPropertyDescriptor(rows, 'length');
+    if (!lengthDesc
+        || !Object.prototype.hasOwnProperty.call(lengthDesc, 'value')
+        || lengthDesc.get
+        || lengthDesc.set
+        || typeof lengthDesc.value !== 'number'
+        || !Number.isInteger(lengthDesc.value)
+        || lengthDesc.value < 0) {
       return Object.freeze({ kind: 'invalid' });
     }
-    const rowSnap = snapshotExactResolveRow(indexDesc.value);
-    if (!rowSnap) return Object.freeze({ kind: 'invalid' });
-    return Object.freeze({ kind: 'one', row: rowSnap });
+    const n = lengthDesc.value;
+
+    if (n === 0) {
+      // Empty ordinary array: exact own keys must be only 'length'.
+      if (rowKeys.length !== 1 || rowKeys[0] !== 'length') {
+        return Object.freeze({ kind: 'invalid' });
+      }
+      return Object.freeze({ kind: 'empty' });
+    }
+
+    if (n === 1) {
+      // One-element ordinary array: exact own keys '0' then 'length'.
+      if (rowKeys.length !== 2
+          || rowKeys[0] !== '0'
+          || rowKeys[1] !== 'length') {
+        return Object.freeze({ kind: 'invalid' });
+      }
+      const indexDesc = Object.getOwnPropertyDescriptor(rows, '0');
+      if (!indexDesc
+          || !Object.prototype.hasOwnProperty.call(indexDesc, 'value')
+          || indexDesc.get
+          || indexDesc.set) {
+        return Object.freeze({ kind: 'invalid' });
+      }
+      const rowSnap = snapshotExactResolveRow(indexDesc.value);
+      if (!rowSnap) return Object.freeze({ kind: 'invalid' });
+      return Object.freeze({ kind: 'one', row: rowSnap });
+    }
+
+    // Multi-row / other lengths are fail-closed (no insert).
+    return Object.freeze({ kind: 'invalid' });
   } catch {
     return Object.freeze({ kind: 'invalid' });
   }
 }
 
 /**
- * Production native surfaces only: always wrap node:https, node:crypto, and
- * global timers captured at module load / call. Route deps cannot substitute
- * Microsoft network or crypto (no injectable native dependency keys).
+ * Production native surfaces only: frozen wrappers that Reflect.apply the
+ * module-init-captured functions to their captured original owners. Never
+ * dynamically dereference https.request, crypto methods, or globals during
+ * callback. Route deps cannot substitute Microsoft network/crypto.
  */
 function productionNativeSurfaces() {
   return Object.freeze({
     https: Object.freeze({
       request(...args) {
-        return Reflect.apply(https.request, https, args);
+        return Reflect.apply(PRODUCTION_HTTPS_REQUEST, PRODUCTION_HTTPS, args);
       },
     }),
     crypto: Object.freeze({
       createPublicKey(...args) {
-        return Reflect.apply(crypto.createPublicKey, crypto, args);
+        return Reflect.apply(
+          PRODUCTION_CRYPTO_CREATE_PUBLIC_KEY,
+          PRODUCTION_CRYPTO,
+          args,
+        );
       },
       verify(...args) {
-        return Reflect.apply(crypto.verify, crypto, args);
+        return Reflect.apply(PRODUCTION_CRYPTO_VERIFY, PRODUCTION_CRYPTO, args);
       },
     }),
     timers: Object.freeze({
       setTimeout(...args) {
-        return Reflect.apply(setTimeout, globalThis, args);
+        return Reflect.apply(
+          PRODUCTION_SET_TIMEOUT,
+          PRODUCTION_TIMERS_OWNER,
+          args,
+        );
       },
       clearTimeout(...args) {
-        return Reflect.apply(clearTimeout, globalThis, args);
+        return Reflect.apply(
+          PRODUCTION_CLEAR_TIMEOUT,
+          PRODUCTION_TIMERS_OWNER,
+          args,
+        );
       },
     }),
   });
@@ -388,6 +476,7 @@ module.exports = {
   RESOLVE_ROW_KEYS,
   validBody,
   snapshotStartBody,
+  snapshotResolveQueryResult,
   createStaffEmailOAuthRoutes,
   // Re-export production dependency key constant for offline verifiers (no secrets).
   RUNTIME_DEPENDENCY_KEYS: DEPENDENCY_KEYS,

@@ -5,6 +5,7 @@ const path = require('path');
 const {
   validBody,
   snapshotStartBody,
+  snapshotResolveQueryResult,
   createStaffEmailOAuthRoutes,
   OAUTH_START_PATH,
   OAUTH_CALLBACK_PATH,
@@ -419,7 +420,7 @@ function routesWithQuery(queryImpl, extra = {}) {
     assert.strictEqual(reads.endpoint_id, 1);
   }
 
-  // Proxy rows array
+  // Proxy rows array with wrong endpoint → 503, zero insert
   {
     const rowsProxy = new Proxy([goodRow()], {
       getPrototypeOf() { return Array.prototype; },
@@ -429,7 +430,14 @@ function routesWithQuery(queryImpl, extra = {}) {
         return t[p];
       },
       getOwnPropertyDescriptor(t, p) {
-        if (p === 'length') return Object.getOwnPropertyDescriptor(t, 'length');
+        if (p === 'length') {
+          return {
+            configurable: false,
+            enumerable: false,
+            writable: true,
+            value: 1,
+          };
+        }
         if (p === '0') {
           return {
             configurable: true,
@@ -442,7 +450,6 @@ function routesWithQuery(queryImpl, extra = {}) {
       },
       ownKeys() { return ['0', 'length']; },
     });
-    // mismatched endpoint via proxy → 503
     await assertRejectResolve('proxy rows wrong endpoint', { rows: rowsProxy });
   }
 
@@ -506,6 +513,329 @@ function routesWithQuery(queryImpl, extra = {}) {
     assert.strictEqual(rr.status, 200);
     assert.strictEqual(insertEndpoint, ENDPOINT_ID);
     assert.strictEqual(ins, 1);
+  }
+
+  // ── snapshotResolveQueryResult: one-read descriptors + pg metadata ───────
+  {
+    // Ordinary realistic pg QueryResult metadata accepted (empty + one row).
+    const emptyPg = {
+      command: 'SELECT',
+      rowCount: 0,
+      oid: null,
+      rows: [],
+      fields: [],
+    };
+    assert.deepStrictEqual(snapshotResolveQueryResult(emptyPg), Object.freeze({ kind: 'empty' }));
+
+    const onePg = {
+      command: 'SELECT',
+      rowCount: 1,
+      oid: null,
+      rows: [goodRow()],
+      fields: [{ name: 'client_id' }],
+    };
+    const oneSnap = snapshotResolveQueryResult(onePg);
+    assert.strictEqual(oneSnap.kind, 'one');
+    assert.strictEqual(oneSnap.row.endpoint_id, ENDPOINT_ID);
+    assert.strictEqual(Object.isFrozen(oneSnap.row), true);
+
+    // Multi-row invalid.
+    assert.deepStrictEqual(
+      snapshotResolveQueryResult({ rows: [goodRow(), goodRow()] }),
+      Object.freeze({ kind: 'invalid' }),
+    );
+
+    // Root symbol / accessor / non-ordinary proto rejected.
+    const withSym = { rows: [goodRow()] };
+    withSym[Symbol('x')] = 1;
+    assert.strictEqual(snapshotResolveQueryResult(withSym).kind, 'invalid');
+
+    const rootAccessor = {};
+    Object.defineProperty(rootAccessor, 'rows', {
+      enumerable: true,
+      get() { return [goodRow()]; },
+    });
+    assert.strictEqual(snapshotResolveQueryResult(rootAccessor).kind, 'invalid');
+
+    const metaAccessor = { rows: [goodRow()] };
+    Object.defineProperty(metaAccessor, 'rowCount', {
+      enumerable: true,
+      get() { return 1; },
+    });
+    assert.strictEqual(snapshotResolveQueryResult(metaAccessor).kind, 'invalid');
+
+    assert.strictEqual(
+      snapshotResolveQueryResult(Object.create({ rows: [goodRow()] })).kind,
+      'invalid',
+    );
+
+    // Sparse / wrong ownKeys forms rejected (never direct length read).
+    const sparse = [];
+    sparse.length = 1; // no index 0 own key
+    assert.strictEqual(snapshotResolveQueryResult({ rows: sparse }).kind, 'invalid');
+
+    // length-1 array whose ownKeys report an extra non-index key → invalid
+    const extraKeyRows = new Proxy([goodRow()], {
+      getPrototypeOf() { return Array.prototype; },
+      ownKeys() { return ['0', 'extra', 'length']; },
+      getOwnPropertyDescriptor(t, prop) {
+        if (prop === 'length') {
+          return {
+            configurable: false,
+            enumerable: false,
+            writable: true,
+            value: 1,
+          };
+        }
+        if (prop === '0') {
+          return {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: goodRow(),
+          };
+        }
+        if (prop === 'extra') {
+          return {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: 'evil',
+          };
+        }
+        return undefined;
+      },
+    });
+    assert.strictEqual(snapshotResolveQueryResult({ rows: extraKeyRows }).kind, 'invalid');
+
+    // Empty with extra own key rejected.
+    const emptyExtra = [];
+    emptyExtra.extra = true;
+    assert.strictEqual(snapshotResolveQueryResult({ rows: emptyExtra }).kind, 'invalid');
+  }
+
+  // Proxy flipping root/rows length/index descriptors: exact observation counts,
+  // first-read values only, no substitution/insert on second flip.
+  {
+    const obs = {
+      rootOwnKeys: 0,
+      rootDesc: Object.create(null),
+      rowsOwnKeys: 0,
+      lengthDesc: 0,
+      indexDesc: 0,
+      rootProto: 0,
+      rowsProto: 0,
+    };
+
+    const realRow = goodRow();
+    const realRows = [realRow];
+
+    const rowsProxy = new Proxy(realRows, {
+      getPrototypeOf() {
+        obs.rowsProto += 1;
+        return Array.prototype;
+      },
+      ownKeys() {
+        obs.rowsOwnKeys += 1;
+        return ['0', 'length'];
+      },
+      getOwnPropertyDescriptor(_t, prop) {
+        if (prop === 'length') {
+          obs.lengthDesc += 1;
+          return {
+            configurable: false,
+            enumerable: false,
+            writable: true,
+            // First observation: length 1; subsequent would claim multi-row.
+            value: obs.lengthDesc === 1 ? 1 : 99,
+          };
+        }
+        if (prop === '0') {
+          obs.indexDesc += 1;
+          return {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: obs.indexDesc === 1
+              ? realRow
+              : goodRow({ endpoint_id: OTHER_ENDPOINT }),
+          };
+        }
+        return undefined;
+      },
+      get(_t, prop) {
+        // Promise thenable probe only; snapshot must not direct-get data props.
+        if (prop === 'then') return undefined;
+        throw new Error(`direct rows get must not be used: ${String(prop)}`);
+      },
+    });
+
+    const rootTarget = {
+      command: 'SELECT',
+      rowCount: 1,
+      oid: null,
+      rows: rowsProxy,
+      fields: [],
+    };
+    const rootProxy = new Proxy(rootTarget, {
+      getPrototypeOf() {
+        obs.rootProto += 1;
+        return Object.prototype;
+      },
+      ownKeys() {
+        obs.rootOwnKeys += 1;
+        return ['command', 'rowCount', 'oid', 'rows', 'fields'];
+      },
+      getOwnPropertyDescriptor(_t, prop) {
+        obs.rootDesc[prop] = (obs.rootDesc[prop] || 0) + 1;
+        if (prop === 'rows') {
+          return {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            // Second rows descriptor would substitute empty — must not be reread.
+            value: obs.rootDesc.rows === 1 ? rowsProxy : [],
+          };
+        }
+        if (prop === 'command' || prop === 'rowCount' || prop === 'oid' || prop === 'fields') {
+          return {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: rootTarget[prop],
+          };
+        }
+        return undefined;
+      },
+      get(_t, prop) {
+        if (prop === 'then') return undefined;
+        throw new Error(`direct root get must not be used: ${String(prop)}`);
+      },
+    });
+
+    const once = snapshotResolveQueryResult(rootProxy);
+    assert.strictEqual(once.kind, 'one');
+    assert.strictEqual(once.row.endpoint_id, ENDPOINT_ID);
+    assert.strictEqual(obs.rootOwnKeys, 1, 'root ownKeys once');
+    assert.strictEqual(obs.rootProto, 1, 'root getPrototypeOf once');
+    assert.strictEqual(obs.rootDesc.rows, 1, 'rows descriptor once');
+    assert.strictEqual(obs.rootDesc.command, 1);
+    assert.strictEqual(obs.rootDesc.rowCount, 1);
+    assert.strictEqual(obs.rootDesc.oid, 1);
+    assert.strictEqual(obs.rootDesc.fields, 1);
+    assert.strictEqual(obs.rowsOwnKeys, 1, 'rows ownKeys once');
+    assert.strictEqual(obs.rowsProto, 1, 'rows getPrototypeOf once');
+    assert.strictEqual(obs.lengthDesc, 1, 'length descriptor once');
+    assert.strictEqual(obs.indexDesc, 1, 'index 0 descriptor once');
+
+    // Second full snapshot sees flipped descriptors — must not reuse first values
+    // as if reread without a fresh observation. Flipped rows descriptor yields
+    // empty array → empty (not a silent reuse of the first one-row snapshot).
+    const second = snapshotResolveQueryResult(rootProxy);
+    assert.notStrictEqual(second.kind, 'one', 'must not reuse first one-row snapshot');
+    assert.ok(second.kind === 'empty' || second.kind === 'invalid');
+    assert.strictEqual(obs.rootOwnKeys, 2);
+    assert.strictEqual(obs.rootDesc.rows, 2);
+    // Second call short-circuits on empty rows; length/index not re-observed beyond first call.
+    assert.strictEqual(obs.lengthDesc, 1, 'length not re-read after rows substituted empty');
+    assert.strictEqual(obs.indexDesc, 1, 'index not re-read after rows substituted empty');
+
+    // Handler path: one snapshot; insert uses first-read endpoint only.
+    Object.keys(obs.rootDesc).forEach((k) => { obs.rootDesc[k] = 0; });
+    obs.rootOwnKeys = 0;
+    obs.rowsOwnKeys = 0;
+    obs.lengthDesc = 0;
+    obs.indexDesc = 0;
+    obs.rootProto = 0;
+    obs.rowsProto = 0;
+
+    // Rebuild proxies with fresh counters for handler path.
+    const hObs = {
+      rootOwnKeys: 0,
+      rowsDesc: 0,
+      rowsOwnKeys: 0,
+      lengthDesc: 0,
+      indexDesc: 0,
+    };
+    const hRows = new Proxy([realRow], {
+      getPrototypeOf() { return Array.prototype; },
+      ownKeys() {
+        hObs.rowsOwnKeys += 1;
+        return ['0', 'length'];
+      },
+      getOwnPropertyDescriptor(_t, prop) {
+        if (prop === 'length') {
+          hObs.lengthDesc += 1;
+          return {
+            configurable: false,
+            enumerable: false,
+            writable: true,
+            value: hObs.lengthDesc === 1 ? 1 : 2,
+          };
+        }
+        if (prop === '0') {
+          hObs.indexDesc += 1;
+          return {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: hObs.indexDesc === 1
+              ? realRow
+              : goodRow({ endpoint_id: OTHER_ENDPOINT }),
+          };
+        }
+        return undefined;
+      },
+      get(_t, prop) {
+        if (prop === 'then') return undefined;
+        throw new Error(`direct rows get: ${String(prop)}`);
+      },
+    });
+    const hRoot = new Proxy({ rows: hRows }, {
+      getPrototypeOf() { return Object.prototype; },
+      ownKeys() {
+        hObs.rootOwnKeys += 1;
+        return ['rows'];
+      },
+      getOwnPropertyDescriptor(_t, prop) {
+        if (prop === 'rows') {
+          hObs.rowsDesc += 1;
+          return {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: hObs.rowsDesc === 1 ? hRows : [],
+          };
+        }
+        return undefined;
+      },
+      get(_t, prop) {
+        // async query result thenable probe — not a snapshot observation.
+        if (prop === 'then') return undefined;
+        throw new Error(`direct root get: ${String(prop)}`);
+      },
+    });
+
+    let insertEndpoint = null;
+    let ins = 0;
+    const rr = res();
+    const routesH = routesWithQuery(async (sql, params) => {
+      if (String(sql).includes('FROM clients c') || String(sql) === SQL_RESOLVE_START_BINDING) {
+        return hRoot;
+      }
+      ins += 1;
+      insertEndpoint = params[4];
+      return { rows: [{ expires_at: new Date(Date.now() + 600000) }] };
+    });
+    await routesH.handleStart(startBody(), null, rr, ids);
+    assert.strictEqual(rr.status, 200, 'first descriptor values accepted once');
+    assert.strictEqual(insertEndpoint, ENDPOINT_ID, 'no endpoint substitution');
+    assert.strictEqual(ins, 1, 'exactly one insert');
+    assert.strictEqual(hObs.rootOwnKeys, 1);
+    assert.strictEqual(hObs.rowsDesc, 1);
+    assert.strictEqual(hObs.rowsOwnKeys, 1);
+    assert.strictEqual(hObs.lengthDesc, 1);
+    assert.strictEqual(hObs.indexDesc, 1);
   }
 
   // SQL must pin endpoint_id param $2
@@ -577,6 +907,13 @@ function routesWithQuery(queryImpl, extra = {}) {
   assert.match(routesSrc, /snapshotStartBody/);
   assert.match(routesSrc, /productionNativeSurfaces/);
   assert.match(routesSrc, /snapshotResolveQueryResult/);
+  assert.match(routesSrc, /PRODUCTION_HTTPS_REQUEST/);
+  assert.match(routesSrc, /PRODUCTION_CRYPTO_CREATE_PUBLIC_KEY/);
+  assert.match(routesSrc, /PRODUCTION_SET_TIMEOUT/);
+  assert.match(routesSrc, /Reflect\.apply\(\s*PRODUCTION_HTTPS_REQUEST/);
+  assert.equal(/Reflect\.apply\(\s*https\.request/.test(routesSrc), false);
+  assert.equal(/rows\.length/.test(routesSrc), false);
+  assert.match(routesSrc, /getOwnPropertyDescriptor\(rows,\s*'length'\)/);
   // Handler must call snapshot once — no validBody-then-reread / readStartBody path.
   assert.equal(routesSrc.includes('readStartBody'), false);
   assert.equal(/validBody\(body\)/.test(routesSrc.replace(/function validBody[\s\S]*?\n\}/, '')), false);

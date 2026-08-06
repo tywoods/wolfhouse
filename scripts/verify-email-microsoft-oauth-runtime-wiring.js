@@ -792,6 +792,26 @@ test('routes wire completing runtime behind callback flag; start binds endpoint'
   assert.match(routesSrc, /snapshotStartBody/);
   assert.match(routesSrc, /snapshotResolveQueryResult/);
   assert.match(routesSrc, /productionNativeSurfaces/);
+  // Module-init capture of natives; wrappers must not dynamically re-read
+  // https.request / crypto methods / bare globals during callback.
+  assert.match(routesSrc, /PRODUCTION_HTTPS_REQUEST/);
+  assert.match(routesSrc, /PRODUCTION_CRYPTO_CREATE_PUBLIC_KEY/);
+  assert.match(routesSrc, /PRODUCTION_CRYPTO_VERIFY/);
+  assert.match(routesSrc, /PRODUCTION_SET_TIMEOUT/);
+  assert.match(routesSrc, /PRODUCTION_CLEAR_TIMEOUT/);
+  assert.match(routesSrc, /Reflect\.apply\(\s*PRODUCTION_HTTPS_REQUEST/);
+  assert.match(routesSrc, /Reflect\.apply\(\s*PRODUCTION_CRYPTO_CREATE_PUBLIC_KEY/);
+  assert.match(routesSrc, /Reflect\.apply\(\s*PRODUCTION_CRYPTO_VERIFY/);
+  assert.match(routesSrc, /Reflect\.apply\(\s*PRODUCTION_SET_TIMEOUT/);
+  assert.match(routesSrc, /Reflect\.apply\(\s*PRODUCTION_CLEAR_TIMEOUT/);
+  assert.equal(/Reflect\.apply\(\s*https\.request/.test(routesSrc), false);
+  assert.equal(/Reflect\.apply\(\s*crypto\.createPublicKey/.test(routesSrc), false);
+  assert.equal(/Reflect\.apply\(\s*crypto\.verify/.test(routesSrc), false);
+  assert.equal(/Reflect\.apply\(\s*setTimeout\s*,/.test(routesSrc), false);
+  assert.equal(/Reflect\.apply\(\s*clearTimeout\s*,/.test(routesSrc), false);
+  // Length must be descriptor-snapshotted, never direct-read on rows.
+  assert.equal(/rows\.length/.test(routesSrc), false);
+  assert.match(routesSrc, /getOwnPropertyDescriptor\(rows,\s*'length'\)/);
   assert.equal(routesSrc.includes('createMicrosoftOAuthCallbackService'), false);
   assert.equal(routesSrc.includes('oauthEnvelopeProvider'), false);
   assert.equal(routesSrc.includes('DEPENDENCY_KEYS_WITH_ENVELOPE'), false);
@@ -1150,6 +1170,122 @@ test('start rejects wrong/missing/extra body, cross-location, status, mode, dupl
       assert.equal(pg, 0);
     }
   } finally {
+    azure.restore();
+  }
+});
+
+// ── Post-route native pin (module-init capture) ─────────────────────────────
+
+test('post-route-construction native replacement uses module-init captured originals only', async function postRouteNativePin() {
+  const azure = installAzureSdkSpies();
+  const origCreatePublicKey = crypto.createPublicKey;
+  const origVerify = crypto.verify;
+  const origSetTimeout = globalThis.setTimeout;
+  const origClearTimeout = globalThis.clearTimeout;
+  const routePath = require.resolve('./lib/staff-email-oauth-routes');
+
+  try {
+    const db = createStatefulDb();
+    const bundleStart = createMultiplexHttps(db);
+    const routesStart = buildRoutes(goodEnv(), db, bundleStart);
+    const rStart = resCapture();
+    await routesStart.handleStart(startBody(), null, rStart, user());
+    assert.equal(rStart.status, 200);
+    const url = new URL(rStart.body.authorization_url);
+    const state = url.searchParams.get('state');
+    assert.ok(state);
+    const nonce = db.txns[0].nonce;
+
+    const bundle = createMultiplexHttps(db, {
+      tokenBody: goodTokenBody({
+        id_token: createIdToken({ nonce, aud: APP_CLIENT_ID }),
+      }),
+    });
+
+    // Mutable https module surface so post-construction replacement is possible.
+    // Capture the impl request once so the Module._load bag does not dynamically
+    // re-read httpsImpl.request after production has pinned the bag method.
+    const capturedImplRequest = bundle.httpsImpl.request;
+    const mockHttps = {
+      request(...args) {
+        return Reflect.apply(capturedImplRequest, bundle.httpsImpl, args);
+      },
+    };
+    const realLoad = Module._load;
+    Module._load = function interceptHttps(request, parent, isMain) {
+      if (request === 'https' || request === 'node:https') {
+        return mockHttps;
+      }
+      return realLoad(request, parent, isMain);
+    };
+    delete require.cache[routePath];
+    let routesMod;
+    try {
+      routesMod = require('./lib/staff-email-oauth-routes');
+    } finally {
+      Module._load = realLoad;
+    }
+
+    const routes = routesMod.createStaffEmailOAuthRoutes({
+      runtimeEnv: goodEnv(),
+      sendJSON,
+      assertStaffClientAccess() { return true; },
+      authorizeAuthenticatedStaffRoute() { return { ok: true }; },
+      withPgClient: async (fn) => fn(db.client),
+    });
+
+    // After route construction: replace every module/global method.
+    let hostileHttps = 0;
+    let hostileCreateKey = 0;
+    let hostileVerify = 0;
+    let hostileSet = 0;
+    let hostileClear = 0;
+    mockHttps.request = function hostileRequest() {
+      hostileHttps += 1;
+      throw new Error(`${LEAK} hostile https.request`);
+    };
+    crypto.createPublicKey = function hostileCreatePublicKey() {
+      hostileCreateKey += 1;
+      throw new Error(`${LEAK} hostile createPublicKey`);
+    };
+    crypto.verify = function hostileVerifyFn() {
+      hostileVerify += 1;
+      throw new Error(`${LEAK} hostile verify`);
+    };
+    globalThis.setTimeout = function hostileSetTimeout() {
+      hostileSet += 1;
+      throw new Error(`${LEAK} hostile setTimeout`);
+    };
+    globalThis.clearTimeout = function hostileClearTimeout() {
+      hostileClear += 1;
+      throw new Error(`${LEAK} hostile clearTimeout`);
+    };
+
+    const rCb = resCapture();
+    await routes.handleCallback(
+      { state, code: CODE },
+      null,
+      rCb,
+      user(),
+    );
+
+    assert.equal(rCb.statusCode, 200, 'valid callback still succeeds with replacements installed');
+    assert.match(rCb.body, /Authorization response received/);
+    assert.equal(hostileHttps, 0, 'replacement https.request zero calls');
+    assert.equal(hostileCreateKey, 0, 'replacement createPublicKey zero calls');
+    assert.equal(hostileVerify, 0, 'replacement verify zero calls');
+    assert.equal(hostileSet, 0, 'replacement setTimeout zero calls');
+    assert.equal(hostileClear, 0, 'replacement clearTimeout zero calls');
+    // Captured originals ran with original owners (https impl thisValue).
+    assert.ok(bundle.calls.length >= 1, 'captured https request invoked');
+    assert.equal(bundle.calls[0].thisValue, bundle.httpsImpl);
+    assert.equal(db.grants.length, 1);
+  } finally {
+    crypto.createPublicKey = origCreatePublicKey;
+    crypto.verify = origVerify;
+    globalThis.setTimeout = origSetTimeout;
+    globalThis.clearTimeout = origClearTimeout;
+    delete require.cache[routePath];
     azure.restore();
   }
 });
