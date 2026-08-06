@@ -448,6 +448,11 @@ function createSunsetStagingMicrosoftOAuthCallbackRuntime(dependencies) {
       signatureVerifier,
     });
 
+    // ── Verified identity composition (same stage surface as callback) ─────
+    // Pin once so Graph /me transport and identity composition share the same
+    // server-owned request_id for finer Graph stage correlation.
+    const stageTelemetry = pinned.stageTelemetry || createNoopEmailOAuthStageTelemetry();
+
     // ── Graph /me: httpsImpl is the request function ───────────────────────
     const graphRequest = ownData(pinned.https, 'request');
     if (typeof graphRequest !== 'function') throw failure();
@@ -459,10 +464,9 @@ function createSunsetStagingMicrosoftOAuthCallbackRuntime(dependencies) {
         setTimeout: ownData(pinned.timers, 'setTimeout'),
         clearTimeout: ownData(pinned.timers, 'clearTimeout'),
       },
+      stageTelemetry,
     });
 
-    // ── Verified identity composition (same stage surface as callback) ─────
-    const stageTelemetry = pinned.stageTelemetry || createNoopEmailOAuthStageTelemetry();
     const verifiedIdentity = createMicrosoftVerifiedIdentityComposition(Object.freeze({
       oidcValidator,
       graphIdentity,

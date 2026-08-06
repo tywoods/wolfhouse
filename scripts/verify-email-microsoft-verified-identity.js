@@ -174,7 +174,11 @@ function graphFake(spec = {}) {
     };
     return req;
   };
-  const service = createMicrosoftGraphMeIdentityTransport({ httpsImpl, timers });
+  const deps = { httpsImpl, timers };
+  if (Object.prototype.hasOwnProperty.call(spec, 'stageTelemetry')) {
+    deps.stageTelemetry = spec.stageTelemetry;
+  }
+  const service = createMicrosoftGraphMeIdentityTransport(deps);
   return { service, calls, fetch: service.fetchIdentity };
 }
 
@@ -1101,6 +1105,7 @@ test('merged factories prefer Graph mail over differing valid UPN and emit graph
   const signatureVerifier = createMicrosoftOidcJwksSignatureVerifier(harness.dependencies);
   const oidcValidator = createMicrosoftOidcIdTokenValidator({ signatureVerifier });
   const graph = graphFake({
+    stageTelemetry,
     body: JSON.stringify({
       id: PRINCIPAL,
       displayName: 'Luna Support',
@@ -1122,7 +1127,14 @@ test('merged factories prefer Graph mail over differing valid UPN and emit graph
   });
   assert.equal(Object.isFrozen(result), true);
   assert.equal(graph.calls.length, 1);
-  assert.deepEqual(stages, ['oidc_verified', 'graph_identity_verified']);
+  assert.deepEqual(stages, [
+    'oidc_verified',
+    'graph_request_started',
+    'graph_response_received',
+    'graph_response_validated',
+    'graph_principal_matched',
+    'graph_identity_verified',
+  ]);
   // Downstream installer ownership: only this mailboxAddress binds public_address.
   assert.equal(result.mailboxAddress, REALISTIC_SMTP);
   assert.notEqual(result.mailboxAddress, REALISTIC_UPN);
@@ -1138,6 +1150,7 @@ test('merged factories use UPN when mail absent; still reach graph_identity_veri
   const signatureVerifier = createMicrosoftOidcJwksSignatureVerifier(harness.dependencies);
   const oidcValidator = createMicrosoftOidcIdTokenValidator({ signatureVerifier });
   const graph = graphFake({
+    stageTelemetry,
     body: JSON.stringify({
       id: PRINCIPAL,
       displayName: 'Luna Support',
@@ -1152,7 +1165,14 @@ test('merged factories use UPN when mail absent; still reach graph_identity_veri
   }));
   const result = await composition.verifyIdentity(goodInput());
   assert.equal(result.mailboxAddress, REALISTIC_UPN);
-  assert.deepEqual(stages, ['oidc_verified', 'graph_identity_verified']);
+  assert.deepEqual(stages, [
+    'oidc_verified',
+    'graph_request_started',
+    'graph_response_received',
+    'graph_response_validated',
+    'graph_principal_matched',
+    'graph_identity_verified',
+  ]);
 });
 
 test('merged factories fail closed on malformed mail with valid UPN before graph_identity_verified', async function malformedMailBlocksVerified() {
@@ -1165,6 +1185,7 @@ test('merged factories fail closed on malformed mail with valid UPN before graph
   const signatureVerifier = createMicrosoftOidcJwksSignatureVerifier(harness.dependencies);
   const oidcValidator = createMicrosoftOidcIdTokenValidator({ signatureVerifier });
   const graph = graphFake({
+    stageTelemetry,
     body: JSON.stringify({
       id: PRINCIPAL,
       displayName: 'Luna Support',
@@ -1178,7 +1199,13 @@ test('merged factories fail closed on malformed mail with valid UPN before graph
     stageTelemetry,
   }));
   await expectSanitizedFailure(() => composition.verifyIdentity(goodInput()));
-  assert.deepEqual(stages, ['oidc_verified']);
+  // Transport received a response; identity select fails before validated/matched/verified.
+  assert.deepEqual(stages, [
+    'oidc_verified',
+    'graph_request_started',
+    'graph_response_received',
+  ]);
+  assert.equal(stages.includes('graph_response_validated'), false);
   assert.equal(stages.includes('graph_identity_verified'), false);
 });
 
@@ -1192,6 +1219,7 @@ test('merged factories fail closed on malformed UPN with valid mail before graph
   const signatureVerifier = createMicrosoftOidcJwksSignatureVerifier(harness.dependencies);
   const oidcValidator = createMicrosoftOidcIdTokenValidator({ signatureVerifier });
   const graph = graphFake({
+    stageTelemetry,
     body: JSON.stringify({
       id: PRINCIPAL,
       displayName: 'Luna Support',
@@ -1205,7 +1233,12 @@ test('merged factories fail closed on malformed UPN with valid mail before graph
     stageTelemetry,
   }));
   await expectSanitizedFailure(() => composition.verifyIdentity(goodInput()));
-  assert.deepEqual(stages, ['oidc_verified']);
+  assert.deepEqual(stages, [
+    'oidc_verified',
+    'graph_request_started',
+    'graph_response_received',
+  ]);
+  assert.equal(stages.includes('graph_response_validated'), false);
   assert.equal(stages.includes('graph_identity_verified'), false);
 });
 

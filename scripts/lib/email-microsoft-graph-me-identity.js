@@ -1,6 +1,11 @@
 'use strict';
 
 const https = require('https');
+const {
+  pinEmailOAuthStageTelemetry,
+  createNoopEmailOAuthStageTelemetry,
+  safeEmitStage,
+} = require('./email-microsoft-oauth-stage-telemetry');
 
 const HOST = 'graph.microsoft.com';
 const PATH = '/v1.0/me?$select=id,displayName,mail,userPrincipalName';
@@ -16,6 +21,8 @@ const ERROR_MESSAGES = Object.freeze({
   RESPONSE_INVALID: 'Microsoft Graph identity response was invalid.',
   IDENTITY_INVALID: 'Microsoft Graph identity was invalid.',
 });
+// Optional stageTelemetry is an allowed extra only — core bag keys unchanged.
+const DEPENDENCY_KEYS = Object.freeze(['httpsImpl', 'timers', 'stageTelemetry']);
 
 function failure(code) {
   const error = new Error(ERROR_MESSAGES[code]);
@@ -195,9 +202,32 @@ function selectIdentity(parsed) {
   return Object.freeze({ providerSubjectId: id, mailboxAddress: mail || upn, displayName });
 }
 
+/**
+ * Optional stageTelemetry on the Graph factory dependency bag.
+ * Absent → noop (standalone factory remains usable without telemetry).
+ * Present but unpinned/hostile → fail closed (INPUT_INVALID). Never ambient.
+ * @param {object|null} deps
+ * @returns {{ emit: Function }|null}
+ */
+function resolveGraphStageTelemetry(deps) {
+  try {
+    if (!deps) return createNoopEmailOAuthStageTelemetry();
+    const raw = Object.prototype.hasOwnProperty.call(deps, 'stageTelemetry')
+      ? deps.stageTelemetry
+      : undefined;
+    if (raw === undefined) return createNoopEmailOAuthStageTelemetry();
+    const pinned = pinEmailOAuthStageTelemetry(raw);
+    return pinned || null;
+  } catch {
+    return null;
+  }
+}
+
 function createMicrosoftGraphMeIdentityTransport(dependencies = {}) {
-  const deps = inspectPlainDataObject(dependencies, ['httpsImpl', 'timers'], []);
+  const deps = inspectPlainDataObject(dependencies, DEPENDENCY_KEYS, []);
   if (!deps) throw failure('INPUT_INVALID');
+  const stageTelemetry = resolveGraphStageTelemetry(deps);
+  if (!stageTelemetry) throw failure('INPUT_INVALID');
   const request = deps.httpsImpl === undefined ? https.request : deps.httpsImpl;
   if (typeof request !== 'function') throw failure('INPUT_INVALID');
   let setTimer = setTimeout;
@@ -265,11 +295,15 @@ function createMicrosoftGraphMeIdentityTransport(dependencies = {}) {
       if (settled) return;
 
       try {
+        // Milestone: immediately before the actual HTTPS /me request.
+        safeEmitStage(stageTelemetry, 'graph_request_started');
         requestObject = request(Object.freeze({
           protocol: 'https:', hostname: HOST, host: HOST, port: 443,
           method: 'GET', path: PATH, agent: false,
           headers: Object.freeze({ Accept: 'application/json', Authorization: ['Bearer', accessToken].join(' ') }),
         }), (response) => {
+          // Milestone: HTTPS response callback fired (status/body not yet trusted).
+          safeEmitStage(stageTelemetry, 'graph_response_received');
           if (settled) {
             activeResponse = response;
             destroyResponse();
@@ -309,8 +343,14 @@ function createMicrosoftGraphMeIdentityTransport(dependencies = {}) {
             response.once('end', () => {
               if (settled) return;
               ended = true;
-              try { finish(null, selectIdentity(parseStrictJson(Buffer.concat(chunks, bytes).toString('utf8')))); }
-              catch (error) { finish(error && ERROR_MESSAGES[error.code] ? error : failure('RESPONSE_INVALID')); }
+              try {
+                const identity = selectIdentity(parseStrictJson(Buffer.concat(chunks, bytes).toString('utf8')));
+                // Milestone: 200/content/body strict parse + selectIdentity succeeded.
+                safeEmitStage(stageTelemetry, 'graph_response_validated');
+                finish(null, identity);
+              } catch (error) {
+                finish(error && ERROR_MESSAGES[error.code] ? error : failure('RESPONSE_INVALID'));
+              }
             });
           } catch {
             terminate(failure('REQUEST_FAILED'));

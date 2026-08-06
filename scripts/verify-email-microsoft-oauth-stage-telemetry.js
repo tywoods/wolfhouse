@@ -58,9 +58,15 @@ const {
   createMicrosoftVerifiedIdentityComposition,
 } = require('./lib/email-microsoft-verified-identity');
 
+const {
+  createMicrosoftGraphMeIdentityTransport,
+} = require('./lib/email-microsoft-graph-me-identity');
+
 const ROOT = path.join(__dirname, '..');
 const LIB_REL = 'scripts/lib/email-microsoft-oauth-stage-telemetry.js';
 const VERIFY_REL = 'scripts/verify-email-microsoft-oauth-stage-telemetry.js';
+const GRAPH_REL = 'scripts/lib/email-microsoft-graph-me-identity.js';
+const IDENTITY_REL = 'scripts/lib/email-microsoft-verified-identity.js';
 const ROUTES_REL = 'scripts/lib/staff-email-oauth-routes.js';
 const RUNTIME_REL = 'scripts/lib/email-microsoft-oauth-sunset-staging-runtime-composition.js';
 const CALLBACK_REL = 'scripts/lib/email-microsoft-oauth-callback-completion.js';
@@ -150,12 +156,18 @@ test('exports frozen surface and exact stage vocabulary', async function exportS
   const exported = require('./lib/email-microsoft-oauth-stage-telemetry');
   assert.equal(Object.isFrozen(exported), true);
   assert.equal(EVENT_NAME, 'email_oauth_stage');
+  // Finer Graph /me milestones sit between oidc_verified and the retained
+  // graph_identity_verified terminal Graph success stage.
   assert.deepEqual([...STAGES], [
     'callback_consumed',
     'token_request_started',
     'token_response_received',
     'token_response_validated',
     'oidc_verified',
+    'graph_request_started',
+    'graph_response_received',
+    'graph_response_validated',
+    'graph_principal_matched',
     'graph_identity_verified',
     'envelope_sealed',
     'installer_started',
@@ -639,11 +651,14 @@ test('operation happy path emits token→identity→envelope→installer stages 
   const ack = await service.completeAuthorization(completionInput);
   assert.deepEqual(ack, { status: 'completed' });
   const stages = events.map((e) => e.stage);
+  // Stub Graph surface does not emit transport milestones; principal match +
+  // retained verified stages still fire from verified-identity composition.
   assert.deepEqual(stages, [
     'token_request_started',
     'token_response_received',
     'token_response_validated',
     'oidc_verified',
+    'graph_principal_matched',
     'graph_identity_verified',
     'envelope_sealed',
     'installer_started',
@@ -684,6 +699,7 @@ test('realistic MS token scope omitting offline_access reaches token_response_va
       'token_response_received',
       'token_response_validated',
       'oidc_verified',
+      'graph_principal_matched',
       'graph_identity_verified',
       'envelope_sealed',
       'installer_started',
@@ -762,6 +778,7 @@ test('seal failure emits through graph then stops before installer', async funct
     'token_response_received',
     'token_response_validated',
     'oidc_verified',
+    'graph_principal_matched',
     'graph_identity_verified',
   ]);
 });
@@ -777,6 +794,7 @@ test('install failure emits installer_started then stops (no committed)', async 
     'token_response_received',
     'token_response_validated',
     'oidc_verified',
+    'graph_principal_matched',
     'graph_identity_verified',
     'envelope_sealed',
     'installer_started',
@@ -1167,6 +1185,385 @@ test('package.json registers stage telemetry verifier', async function packageSc
   assert.equal(
     pkg.scripts['verify:email-microsoft-oauth-stage-telemetry'],
     'node scripts/verify-email-microsoft-oauth-stage-telemetry.js',
+  );
+});
+
+// ── Finer Graph /me stage boundaries (transport + principal match) ─────────
+
+const GRAPH_ACCESS = 'graph-access-token-NEVER-LEAK';
+const GRAPH_GOOD_BODY = JSON.stringify({
+  id: PRINCIPAL,
+  displayName: DISPLAY,
+  mail: MAILBOX,
+  userPrincipalName: MAILBOX,
+});
+
+function graphTransportFake(spec = {}) {
+  const calls = [];
+  const timers = {
+    setTimeout(callback) { return { callback }; },
+    clearTimeout() {},
+  };
+  const httpsImpl = (options, callback) => {
+    if (spec.requestThrows) throw new Error(`${LEAK} graph-request`);
+    const req = new EventEmitter();
+    req.destroy = () => {};
+    req.end = () => {
+      const call = { options, req };
+      calls.push(call);
+      if (spec.never) return;
+      if (spec.requestError) {
+        queueMicrotask(() => req.emit('error', new Error(`${LEAK} graph-transport`)));
+        return;
+      }
+      queueMicrotask(() => {
+        const res = new EventEmitter();
+        res.statusCode = spec.status === undefined ? 200 : spec.status;
+        res.headers = spec.headers || { 'content-type': 'application/json; charset=utf-8' };
+        res.destroy = () => {};
+        call.res = res;
+        callback(res);
+        if (spec.onResponse) {
+          spec.onResponse({ req, res });
+          return;
+        }
+        const body = spec.body === undefined ? GRAPH_GOOD_BODY : spec.body;
+        res.emit('data', Buffer.from(body));
+        if (!spec.noEnd) res.emit('end');
+      });
+    };
+    return req;
+  };
+  const deps = { httpsImpl, timers };
+  if (Object.prototype.hasOwnProperty.call(spec, 'stageTelemetry')) {
+    deps.stageTelemetry = spec.stageTelemetry;
+  }
+  const service = createMicrosoftGraphMeIdentityTransport(deps);
+  return { service, calls, fetch: service.fetchIdentity };
+}
+
+function graphStageComposition(spec = {}) {
+  const cap = capturingLogger();
+  const telemetry = createEmailOAuthStageTelemetry(Object.freeze({
+    requestId: REQUEST_ID,
+    logger: typeof spec.logger === 'function' ? spec.logger : cap.log,
+  }));
+  const oidcValidator = Object.freeze({
+    async validate() {
+      if (spec.failAt === 'oidc') throw new Error(`${LEAK} oidc`);
+      return Object.freeze({
+        providerTenantId: TID,
+        providerPrincipalId: spec.oidcPrincipal || PRINCIPAL,
+      });
+    },
+  });
+  const graph = graphTransportFake({
+    ...spec.graph,
+    stageTelemetry: telemetry,
+  });
+  const composition = createMicrosoftVerifiedIdentityComposition(Object.freeze({
+    oidcValidator,
+    graphIdentity: graph.service,
+    stageTelemetry: telemetry,
+  }));
+  const input = Object.freeze({
+    idToken: ID_TOKEN,
+    accessToken: GRAPH_ACCESS,
+    expectedNonce: NONCE,
+    expectedClientId: APP_CLIENT_ID,
+    nowEpochSeconds: Math.floor(NOW.getTime() / 1000),
+  });
+  return { composition, events: cap.events, telemetry, graph, input };
+}
+
+test('graph happy path emits request→received→validated→principal→verified with same request_id', async function graphHappyFinerStages() {
+  const { composition, events, input } = graphStageComposition();
+  const result = await composition.verifyIdentity(input);
+  assert.equal(result.providerPrincipalId, PRINCIPAL);
+  assert.equal(result.mailboxAddress, MAILBOX);
+  assert.deepEqual(events.map((e) => e.stage), [
+    'oidc_verified',
+    'graph_request_started',
+    'graph_response_received',
+    'graph_response_validated',
+    'graph_principal_matched',
+    'graph_identity_verified',
+  ]);
+  for (const ev of events) {
+    assertEventShape(ev, ev.stage);
+    assertNoSensitive(ev);
+    assert.equal(ev.request_id, REQUEST_ID);
+    assert.deepEqual(Reflect.ownKeys(ev), ['event', 'stage', 'request_id']);
+  }
+  const ids = new Set(events.map((e) => e.request_id));
+  assert.equal(ids.size, 1);
+});
+
+test('graph transport error after start emits request_started only (no received/validated)', async function graphTransportHostile() {
+  const { composition, events, input } = graphStageComposition({
+    graph: { requestError: true },
+  });
+  await assert.rejects(() => composition.verifyIdentity(input));
+  assert.deepEqual(events.map((e) => e.stage), [
+    'oidc_verified',
+    'graph_request_started',
+  ]);
+  assert.equal(events.some((e) => e.stage === 'graph_response_received'), false);
+  assert.equal(events.some((e) => e.stage === 'graph_response_validated'), false);
+  assert.equal(events.some((e) => e.stage === 'graph_principal_matched'), false);
+  assert.equal(events.some((e) => e.stage === 'graph_identity_verified'), false);
+  for (const ev of events) {
+    assertEventShape(ev, ev.stage);
+    assertNoSensitive(ev);
+  }
+});
+
+test('graph HTTP/content validation failure emits received without validated', async function graphValidationHostile() {
+  for (const graph of [
+    { status: 401 },
+    { status: 500 },
+    { headers: { 'content-type': 'text/plain' } },
+    { body: '{' },
+    { body: JSON.stringify({ id: 'x' }) }, // missing mailbox fields
+    { body: JSON.stringify({ id: PRINCIPAL, mail: 'not-an-email', userPrincipalName: MAILBOX }) },
+  ]) {
+    const { composition, events, input } = graphStageComposition({ graph });
+    await assert.rejects(() => composition.verifyIdentity(input));
+    assert.deepEqual(events.map((e) => e.stage), [
+      'oidc_verified',
+      'graph_request_started',
+      'graph_response_received',
+    ], `unexpected stages for ${JSON.stringify(graph)}`);
+    assert.equal(events.some((e) => e.stage === 'graph_response_validated'), false);
+    assert.equal(events.some((e) => e.stage === 'graph_identity_verified'), false);
+    for (const ev of events) {
+      assertEventShape(ev, ev.stage);
+      assertNoSensitive(ev);
+      // Never status/error/body/identity/mail/URL/token fields.
+      assert.equal(Object.prototype.hasOwnProperty.call(ev, 'status'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(ev, 'error'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(ev, 'body'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(ev, 'mail'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(ev, 'url'), false);
+    }
+  }
+});
+
+test('graph principal mismatch emits through validated then stops before matched/verified', async function graphPrincipalMismatchStages() {
+  const { composition, events, input } = graphStageComposition({
+    oidcPrincipal: PRINCIPAL,
+    graph: {
+      body: JSON.stringify({
+        id: 'different-graph-subject-id',
+        displayName: DISPLAY,
+        mail: MAILBOX,
+        userPrincipalName: MAILBOX,
+      }),
+    },
+  });
+  await assert.rejects(() => composition.verifyIdentity(input));
+  assert.deepEqual(events.map((e) => e.stage), [
+    'oidc_verified',
+    'graph_request_started',
+    'graph_response_received',
+    'graph_response_validated',
+  ]);
+  assert.equal(events.some((e) => e.stage === 'graph_principal_matched'), false);
+  assert.equal(events.some((e) => e.stage === 'graph_identity_verified'), false);
+  for (const ev of events) {
+    assertEventShape(ev, ev.stage);
+    assertNoSensitive(ev);
+  }
+});
+
+test('graph standalone factory accepts optional telemetry without weakening core bags', async function graphFactoryOptionalTelemetry() {
+  // Core bag without stageTelemetry still constructs and succeeds (noop).
+  const bare = graphTransportFake({});
+  const result = await bare.fetch({ accessToken: GRAPH_ACCESS });
+  assert.equal(result.providerSubjectId, PRINCIPAL);
+  assert.equal(result.mailboxAddress, MAILBOX);
+
+  // Optional stageTelemetry pins same request_id; three-field events only.
+  const cap = capturingLogger();
+  const telemetry = createEmailOAuthStageTelemetry(Object.freeze({
+    requestId: REQUEST_ID,
+    logger: cap.log,
+  }));
+  const withTel = graphTransportFake({ stageTelemetry: telemetry });
+  await withTel.fetch({ accessToken: GRAPH_ACCESS });
+  assert.deepEqual(cap.events.map((e) => e.stage), [
+    'graph_request_started',
+    'graph_response_received',
+    'graph_response_validated',
+  ]);
+  for (const ev of cap.events) {
+    assertEventShape(ev, ev.stage);
+    assertNoSensitive(ev);
+  }
+
+  // Invalid stageTelemetry surface fails closed at factory (no ambient fallback).
+  assert.throws(
+    () => createMicrosoftGraphMeIdentityTransport({
+      httpsImpl: () => {},
+      stageTelemetry: Object.freeze({ emit: 'not-a-function' }),
+    }),
+  );
+  // No ambient logger / setStageLogger on Graph module.
+  const graphSrc = fs.readFileSync(path.join(ROOT, GRAPH_REL), 'utf8');
+  assert.equal(graphSrc.includes('setStageLogger'), false);
+  assert.equal(graphSrc.includes('global.'), false);
+  assert.match(graphSrc, /graph_request_started/);
+  assert.match(graphSrc, /graph_response_received/);
+  assert.match(graphSrc, /graph_response_validated/);
+  const identitySrc = fs.readFileSync(path.join(ROOT, IDENTITY_REL), 'utf8');
+  assert.match(identitySrc, /graph_principal_matched/);
+  assert.match(identitySrc, /graph_identity_verified/);
+});
+
+test('graph stage logger throw never affects Graph /me or identity control flow', async function graphLoggerNeverAffectsRequest() {
+  const boom = createEmailOAuthStageTelemetry(Object.freeze({
+    requestId: REQUEST_ID,
+    logger() { throw new Error(`${LEAK} graph-logger`); },
+  }));
+  const graph = graphTransportFake({ stageTelemetry: boom });
+  const ok = await graph.fetch({ accessToken: GRAPH_ACCESS });
+  assert.equal(ok.providerSubjectId, PRINCIPAL);
+
+  const oidcValidator = Object.freeze({
+    async validate() {
+      return Object.freeze({
+        providerTenantId: TID,
+        providerPrincipalId: PRINCIPAL,
+      });
+    },
+  });
+  const composition = createMicrosoftVerifiedIdentityComposition(Object.freeze({
+    oidcValidator,
+    graphIdentity: graphTransportFake({ stageTelemetry: boom }).service,
+    stageTelemetry: boom,
+  }));
+  const result = await composition.verifyIdentity(Object.freeze({
+    idToken: ID_TOKEN,
+    accessToken: GRAPH_ACCESS,
+    expectedNonce: NONCE,
+    expectedClientId: APP_CLIENT_ID,
+    nowEpochSeconds: Math.floor(NOW.getTime() / 1000),
+  }));
+  assert.equal(result.providerPrincipalId, PRINCIPAL);
+  assert.equal(result.mailboxAddress, MAILBOX);
+});
+
+test('realistic production Graph composition correlates all finer stages on one request_id', async function realisticProductionGraphStages() {
+  // Mirrors sunset-staging runtime: same stageTelemetry surface to Graph transport
+  // and verified-identity composition (server-owned callback request_id).
+  const cap = capturingLogger();
+  const telemetry = createEmailOAuthStageTelemetry(Object.freeze({
+    requestId: REQUEST_ID,
+    logger: cap.log,
+  }));
+  const oidcValidator = Object.freeze({
+    async validate() {
+      return Object.freeze({
+        providerTenantId: TID,
+        providerPrincipalId: PRINCIPAL,
+      });
+    },
+  });
+  // Realistic GoDaddy/M365 mail ≠ UPN body still reaches full Graph milestones.
+  const REALISTIC_SMTP = 'support@lunafrontdesk.com';
+  const REALISTIC_UPN = 'support@lunafrontdesk.onmicrosoft.com';
+  const graph = graphTransportFake({
+    stageTelemetry: telemetry,
+    body: JSON.stringify({
+      id: PRINCIPAL,
+      displayName: 'Luna Support',
+      mail: 'Support@LunaFrontDesk.COM',
+      userPrincipalName: REALISTIC_UPN,
+    }),
+  });
+  const verifiedIdentity = createMicrosoftVerifiedIdentityComposition(Object.freeze({
+    oidcValidator,
+    graphIdentity: graph.service,
+    stageTelemetry: telemetry,
+  }));
+  // Full operation composition still seals/installs after finer Graph stages.
+  const envelope = createFakeEmailGrantEnvelopeProvider();
+  const installer = Object.freeze({
+    async installVerifiedGrant() {
+      return Object.freeze({ status: 'installed' });
+    },
+  });
+  const incoming = new EventEmitter();
+  incoming.statusCode = 200;
+  incoming.headers = { 'content-type': 'application/json; charset=utf-8' };
+  incoming.destroy = () => {};
+  const request = new EventEmitter();
+  let responseCb;
+  request.end = () => {
+    queueMicrotask(() => {
+      responseCb(incoming);
+      incoming.emit('data', JSON.stringify(goodTokenBody()));
+      incoming.emit('end');
+    });
+  };
+  request.destroy = () => {};
+  const httpsImpl = {
+    request(_o, cb) { responseCb = cb; return request; },
+  };
+  const transportDeps = Object.freeze({
+    httpsImpl,
+    timers: { setTimeout() { return 1; }, clearTimeout() {} },
+  });
+  const service = createMicrosoftOAuthOperationComposition(Object.freeze({
+    verifiedIdentity,
+    envelopeProvider: envelope,
+    clock: Object.freeze({ nowEpochSeconds() { return Math.floor(NOW.getTime() / 1000); } }),
+    installer,
+    transportDeps,
+    secretProvider: { async getClientSecret() { return SECRET; } },
+    stageTelemetry: telemetry,
+  }));
+  const ack = await service.completeAuthorization(Object.freeze({
+    authorizationCode: CODE,
+    transactionId: OPERATION_ID,
+    clientId: CLIENT_ID,
+    locationId: LOCATION_ID,
+    endpointId: ENDPOINT_ID,
+    staffUserId: STAFF_ID,
+    codeVerifier: VERIFIER,
+    nonce: NONCE,
+    applicationClientId: APP_CLIENT_ID,
+  }));
+  assert.deepEqual(ack, { status: 'completed' });
+  assert.deepEqual(cap.events.map((e) => e.stage), [
+    'token_request_started',
+    'token_response_received',
+    'token_response_validated',
+    'oidc_verified',
+    'graph_request_started',
+    'graph_response_received',
+    'graph_response_validated',
+    'graph_principal_matched',
+    'graph_identity_verified',
+    'envelope_sealed',
+    'installer_started',
+    'installer_committed',
+  ]);
+  for (const ev of cap.events) {
+    assertEventShape(ev, ev.stage);
+    assertNoSensitive(ev);
+    assert.equal(ev.request_id, REQUEST_ID);
+  }
+  // Ownership surface for installer remains preferred SMTP mail.
+  assert.equal(REALISTIC_SMTP !== REALISTIC_UPN, true);
+  // Runtime source must inject stageTelemetry into Graph factory.
+  const runtimeSrc = fs.readFileSync(path.join(ROOT, RUNTIME_REL), 'utf8');
+  assert.match(runtimeSrc, /createMicrosoftGraphMeIdentityTransport/);
+  assert.match(runtimeSrc, /stageTelemetry/);
+  // Graph factory call site must pass stageTelemetry (not identity-only).
+  assert.match(
+    runtimeSrc,
+    /createMicrosoftGraphMeIdentityTransport\(\{[\s\S]*?stageTelemetry[\s\S]*?\}\)/,
   );
 });
 

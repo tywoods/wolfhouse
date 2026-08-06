@@ -49,6 +49,11 @@ const STAGES = Object.freeze([
   'token_response_received',
   'token_response_validated',
   'oidc_verified',
+  // Finer Graph /me milestones (diagnose live callback_failed after oidc_verified).
+  'graph_request_started',
+  'graph_response_received',
+  'graph_response_validated',
+  'graph_principal_matched',
   'graph_identity_verified',
   'envelope_sealed',
   'installer_started',
