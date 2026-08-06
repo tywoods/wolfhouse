@@ -22,6 +22,10 @@ const {
   validateGrantEnvelopeRecordV1,
   validateEmailGrantEnvelopeProvider,
 } = require('./email-grant-envelope-provider-contract');
+const {
+  resolveOptionalStageTelemetry,
+  safeEmitStage,
+} = require('./email-microsoft-oauth-stage-telemetry');
 
 const ERROR_CODE = 'MICROSOFT_VERIFIED_GRANT_CUSTODY_INVALID';
 const ERROR_MESSAGE = 'Microsoft verified grant custody failed.';
@@ -343,12 +347,16 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
   let nowEpochSecondsFn;
   let installer;
   let installVerifiedGrant;
+  let stageTelemetry;
 
   try {
     frozenConfig = snapshotAndValidateConfig(config);
     if (!frozenConfig) throw failure();
 
-    if (!exactFrozenData(dependencies, DEPENDENCY_KEYS)) throw failure();
+    const resolved = resolveOptionalStageTelemetry(dependencies, DEPENDENCY_KEYS);
+    if (!resolved.ok || !resolved.stageTelemetry) throw failure();
+    stageTelemetry = resolved.stageTelemetry;
+
     verifiedIdentity = ownData(dependencies, 'verifiedIdentity');
     const rawEnvelopeProvider = ownData(dependencies, 'envelopeProvider');
     clock = ownData(dependencies, 'clock');
@@ -453,6 +461,8 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
       } catch {
         throw failure();
       }
+      // Milestone: envelope sealed and record validated (no ciphertext/AAD logged).
+      safeEmitStage(stageTelemetry, 'envelope_sealed');
 
       // Exact key order: identity before envelope (no tokens/AAD/raw providers).
       const installInput = Object.freeze({
@@ -474,6 +484,9 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
         throw failure();
       }
 
+      // Milestone: installer about to run (no row ids logged).
+      safeEmitStage(stageTelemetry, 'installer_started');
+
       let ack;
       try {
         ack = await Reflect.apply(installVerifiedGrant, installer, [installInput]);
@@ -482,6 +495,8 @@ function createMicrosoftVerifiedGrantCustodyAdapter(config, dependencies) {
       }
       // Installer must return exact frozen { status: 'installed' } only.
       if (!sealedInstallerAck(ack)) throw failure();
+      // Milestone: installer committed successfully.
+      safeEmitStage(stageTelemetry, 'installer_committed');
 
       // Independently return response-custody sealedAck (not installer ack).
       return SEALED_ACK;

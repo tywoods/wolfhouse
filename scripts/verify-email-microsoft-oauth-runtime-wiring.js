@@ -830,11 +830,16 @@ test('routes wire completing runtime behind callback flag; start binds endpoint'
   assert.match(libSrc, /createMicrosoftVerifiedGrantInstaller/);
   assert.match(libSrc, /createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition/);
   assert.equal(libSrc.includes('DEPENDENCY_KEYS_WITH_ENVELOPE'), false);
-  // Production exports and pinDependencies accept only DEPENDENCY_KEYS — no
-  // injected envelope bag key on the public factory input surface.
+  // Production exports and pinDependencies accept only DEPENDENCY_KEYS core
+  // (plus optional stageTelemetry) — no injected envelope bag key on the
+  // public factory input surface.
   assert.equal(libSrc.includes('DEPENDENCY_KEYS_WITH_ENVELOPE'), false);
-  assert.match(libSrc, /exactOrderedFrozenData\(dependencies, DEPENDENCY_KEYS\)/);
+  assert.match(libSrc, /resolveOptionalStageTelemetry\(dependencies, DEPENDENCY_KEYS\)/);
+  assert.match(libSrc, /stageTelemetry/);
   assert.equal(/ownData\(dependencies,\s*'envelopeProvider'\)/.test(libSrc), false);
+  // Route injects request-correlated stage telemetry; never ambient mutable logger.
+  assert.match(routesSrc, /createEmailOAuthStageTelemetry|buildCallbackStageTelemetry/);
+  assert.equal(routesSrc.includes('setStageLogger'), false);
   // Offline verifier uses Module._load for https — not route DI keys.
   const verifySrc = fs.readFileSync(path.join(ROOT, VERIFY_REL), 'utf8');
   assert.match(verifySrc, /function loadStaffRoutesWithHttpsMock/);

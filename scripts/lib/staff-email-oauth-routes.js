@@ -18,6 +18,11 @@ const {
   INPUT_KEYS: PREPARE_DOMAIN_INPUT_KEYS,
   ERROR_CODE: PREPARE_ERROR_CODE,
 } = require('./email-sunset-microsoft-endpoint-prepare');
+const {
+  createCallbackEmailOAuthStageTelemetry,
+  createNoopEmailOAuthStageTelemetry,
+  defaultEmailOAuthStageLogger,
+} = require('./email-microsoft-oauth-stage-telemetry');
 
 const OAUTH_START_PATH = '/staff/admin/email-settings/oauth/microsoft/start';
 /** Exact prepare path — endpoint creation prerequisite for Microsoft OAuth. */
@@ -532,16 +537,29 @@ function productionNativeSurfaces() {
   });
 }
 
-function buildCallbackRuntime(env, pg) {
+/**
+ * Build per-callback stage telemetry with a server-generated UUIDv4.
+ * Correlation is internal to telemetry stages (pinned native randomUUID) and
+ * independent of attacker-supplied / ALS HTTP x-request-id. Generation
+ * failure → noop telemetry (OAuth path must not fail closed for logging).
+ */
+function buildCallbackStageTelemetry() {
+  return createCallbackEmailOAuthStageTelemetry(defaultEmailOAuthStageLogger);
+}
+
+function buildCallbackRuntime(env, pg, stageTelemetry) {
   const natives = productionNativeSurfaces();
   // Production-only dependency bag: always Azure KV Sunset staging envelope
   // from validated env. Route deps cannot substitute the envelope surface.
+  // stageTelemetry is server-generated per callback and owner-preserving.
+  const tel = stageTelemetry || createNoopEmailOAuthStageTelemetry();
   return createSunsetStagingMicrosoftOAuthCallbackRuntime(Object.freeze({
     env,
     pgClient: pg,
     https: natives.https,
     crypto: natives.crypto,
     timers: natives.timers,
+    stageTelemetry: tel,
   }));
 }
 
@@ -719,6 +737,9 @@ function createStaffEmailOAuthRoutes(deps) {
         || !UUID_RE_CI.test(user.session_id || '')) {
       return terminal(res, 400, 'invalid_or_expired');
     }
+    // Snapshot server-generated stage telemetry once per callback (shared by
+    // all stages). Logger failures never affect OAuth; no ALS/x-request-id.
+    const stageTelemetry = buildCallbackStageTelemetry();
     try {
       const result = await deps.withPgClient(async (pg) => {
         // Completing callback only when flag true (gate above). Concrete
@@ -726,7 +747,7 @@ function createStaffEmailOAuthRoutes(deps) {
         // service. Construction fails closed if readiness missing.
         // Natives always from production wrap of node:https / node:crypto /
         // global timers — never route DI substitution.
-        const service = buildCallbackRuntime(env, pg);
+        const service = buildCallbackRuntime(env, pg, stageTelemetry);
         return service.accept(query, {
           clientId: user.client_id,
           authSessionId: user.session_id,

@@ -2,6 +2,11 @@
 
 const { REDIRECT_URI } = require('./email-microsoft-oauth-transaction-service');
 const { REQUEST_LIMIT_BYTES } = require('./email-microsoft-token-http-transport');
+const {
+  pinEmailOAuthStageTelemetry,
+  createNoopEmailOAuthStageTelemetry,
+  safeEmitStage,
+} = require('./email-microsoft-oauth-stage-telemetry');
 
 const FAILURE_CODE = 'microsoft_authorization_code_exchange_failed';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
@@ -10,6 +15,12 @@ const PKCE_VERIFIER_RE = /^[A-Za-z0-9\-._~]{43,128}$/;
 const AUTHORIZATION_CODE_LIMIT_CHARS = 8192;
 const CLIENT_SECRET_LIMIT_CHARS = 4096;
 const SUCCESS = Object.freeze({ status: 'custodied' });
+const CORE_DEPS_KEYS = Object.freeze([
+  'deployment',
+  'applicationClientId',
+  'secretProvider',
+  'responseCustody',
+]);
 
 function failure() {
   const error = new Error(FAILURE_CODE);
@@ -50,15 +61,29 @@ function snapshotInput(input, applicationClientId) {
   return Object.freeze({ authorizationCode, codeVerifier });
 }
 
+function resolveStageTelemetry(deps) {
+  const withStage = Object.freeze([...CORE_DEPS_KEYS, 'stageTelemetry']);
+  if (exactPlainData(deps, withStage)) {
+    const pinned = pinEmailOAuthStageTelemetry(ownData(deps, 'stageTelemetry'));
+    if (!pinned) return null;
+    return pinned;
+  }
+  if (exactPlainData(deps, CORE_DEPS_KEYS)) {
+    return createNoopEmailOAuthStageTelemetry();
+  }
+  return null;
+}
+
 function createMicrosoftAuthorizationCodeRequestService(deps) {
   let secretProvider;
   let responseCustody;
   let getClientSecret;
   let exchangeAndCustody;
   let applicationClientId;
+  let stageTelemetry;
   try {
-    if (!exactPlainData(deps, ['deployment', 'applicationClientId', 'secretProvider', 'responseCustody'])
-        || ownData(deps, 'deployment') !== SUNSET_DEPLOYMENT) throw failure();
+    stageTelemetry = resolveStageTelemetry(deps);
+    if (!stageTelemetry || ownData(deps, 'deployment') !== SUNSET_DEPLOYMENT) throw failure();
     applicationClientId = ownData(deps, 'applicationClientId');
     secretProvider = ownData(deps, 'secretProvider');
     responseCustody = ownData(deps, 'responseCustody');
@@ -87,6 +112,8 @@ function createMicrosoftAuthorizationCodeRequestService(deps) {
         ['code_verifier', inputSnapshot.codeVerifier],
       ]).toString();
       if (Buffer.byteLength(body, 'utf8') > REQUEST_LIMIT_BYTES) throw failure();
+      // Milestone: token HTTP request about to start (body prepared, no response yet).
+      safeEmitStage(stageTelemetry, 'token_request_started');
       const result = await Reflect.apply(exchangeAndCustody, responseCustody, [{ body }]);
       if (result !== SUCCESS && !(result && Object.isFrozen(result) && Object.getPrototypeOf(result) === Object.prototype
           && Reflect.ownKeys(result).length === 1 && ownData(result, 'status') === 'custodied')) throw failure();

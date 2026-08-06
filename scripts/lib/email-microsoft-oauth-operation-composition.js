@@ -52,6 +52,9 @@ const {
 const {
   validateEmailGrantEnvelopeProvider,
 } = require('./email-grant-envelope-provider-contract');
+const {
+  resolveOptionalStageTelemetry,
+} = require('./email-microsoft-oauth-stage-telemetry');
 
 /** Exact custody dependency order — must match verified-grant custody DEPENDENCY_KEYS. */
 const CUSTODY_DEPENDENCY_KEYS = Object.freeze([
@@ -425,14 +428,29 @@ function sealedCustodySuccess(value) {
 }
 
 function pinDependencies(dependencies) {
-  if (!exactFrozenData(dependencies, DEPENDENCY_KEYS)) return null;
+  const resolved = resolveOptionalStageTelemetry(dependencies, DEPENDENCY_KEYS);
+  if (!resolved.ok || !resolved.stageTelemetry) return null;
 
-  // Exact order (construction-aligned) — set membership alone is insufficient.
+  // Exact order for core keys (construction-aligned). stageTelemetry may be
+  // absent (noop) or present as an additional own-data key (any position after
+  // set-membership validation in resolveOptionalStageTelemetry).
   const ordered = Reflect.ownKeys(dependencies);
-  if (ordered.length !== DEPENDENCY_KEYS.length) return null;
-  for (let i = 0; i < DEPENDENCY_KEYS.length; i += 1) {
-    if (ordered[i] !== DEPENDENCY_KEYS[i]) return null;
+  const hasStage = ordered.includes('stageTelemetry');
+  const expectedLen = hasStage
+    ? DEPENDENCY_KEYS.length + 1
+    : DEPENDENCY_KEYS.length;
+  if (ordered.length !== expectedLen) return null;
+  // Core keys must appear in DEPENDENCY_KEYS order among non-telemetry keys.
+  let coreIdx = 0;
+  for (let i = 0; i < ordered.length; i += 1) {
+    const key = ordered[i];
+    if (key === 'stageTelemetry') continue;
+    if (coreIdx >= DEPENDENCY_KEYS.length || key !== DEPENDENCY_KEYS[coreIdx]) {
+      return null;
+    }
+    coreIdx += 1;
   }
+  if (coreIdx !== DEPENDENCY_KEYS.length) return null;
 
   // Preserve already-frozen verifiedIdentity / clock / installer receivers.
   const verifiedIdentity = ownData(dependencies, 'verifiedIdentity');
@@ -466,6 +484,7 @@ function pinDependencies(dependencies) {
     installer,
     transportDeps,
     secretProvider,
+    stageTelemetry: resolved.stageTelemetry,
   });
 }
 
@@ -514,13 +533,18 @@ function createMicrosoftOAuthOperationComposition(dependencies) {
       const custodyConfig = buildCustodyConfig(snap);
       if (!custodyConfig) throw failure();
 
+      // Pass stageTelemetry last so child dual-accept pins the same surface.
       const custodyDeps = Object.freeze({
         verifiedIdentity: pinned.verifiedIdentity,
         envelopeProvider: pinned.envelopeProvider,
         clock: pinned.clock,
         installer: pinned.installer,
+        stageTelemetry: pinned.stageTelemetry,
       });
-      if (!exactFrozenData(custodyDeps, CUSTODY_DEPENDENCY_KEYS)) throw failure();
+      // Core custody keys remain exact; stageTelemetry is optional extra.
+      if (!exactFrozenData(custodyDeps, [...CUSTODY_DEPENDENCY_KEYS, 'stageTelemetry'])) {
+        throw failure();
+      }
 
       let grantCustody;
       try {
@@ -539,6 +563,7 @@ function createMicrosoftOAuthOperationComposition(dependencies) {
         responseCustody = createMicrosoftTokenResponseCustodyService({
           transportDeps: pinned.transportDeps,
           custody: grantCustody,
+          stageTelemetry: pinned.stageTelemetry,
         });
       } catch {
         throw failure();
@@ -552,6 +577,7 @@ function createMicrosoftOAuthOperationComposition(dependencies) {
           applicationClientId: snap.applicationClientId,
           secretProvider: pinned.secretProvider,
           responseCustody,
+          stageTelemetry: pinned.stageTelemetry,
         });
       } catch {
         throw failure();

@@ -50,6 +50,10 @@ const {
   CALLBACK_ERROR_KEYS,
   SQL_CONSUME_TRANSACTION,
 } = require('./email-microsoft-oauth-transaction-service');
+const {
+  resolveOptionalStageTelemetry,
+  safeEmitStage,
+} = require('./email-microsoft-oauth-stage-telemetry');
 
 const ERROR_CODE = 'MICROSOFT_OAUTH_CALLBACK_COMPLETION_INVALID';
 const ERROR_MESSAGE = 'Microsoft OAuth callback completion failed.';
@@ -63,6 +67,7 @@ const PUBLIC_STATUS_INVALID = Object.freeze({ status: 'invalid_or_expired' });
 const PUBLIC_STATUS_DECLINED = Object.freeze({ status: 'authorization_declined' });
 const PUBLIC_STATUS_RECEIVED = Object.freeze({ status: 'authorization_received' });
 
+/** Core factory keys (telemetry optional as last key via resolveOptionalStageTelemetry). */
 const DEPENDENCY_KEYS = Object.freeze([
   'repository',
   'completion',
@@ -404,7 +409,8 @@ function snapshotEnv(env) {
 }
 
 function pinDependencies(dependencies) {
-  if (!exactFrozenData(dependencies, DEPENDENCY_KEYS)) return null;
+  const resolved = resolveOptionalStageTelemetry(dependencies, DEPENDENCY_KEYS);
+  if (!resolved.ok || !resolved.stageTelemetry) return null;
 
   const repository = ownData(dependencies, 'repository');
   const completion = ownData(dependencies, 'completion');
@@ -426,6 +432,7 @@ function pinDependencies(dependencies) {
     applicationClientId: envSnap.applicationClientId,
     clock,
     now: ownData(clock, 'now'),
+    stageTelemetry: resolved.stageTelemetry,
   });
 }
 
@@ -447,6 +454,8 @@ function createMicrosoftOAuthCallbackCompletionService(dependencies) {
     if (used) throw failure();
     used = true; // Atomic burn before input reflection, await, consume, or completion.
 
+    /** True only after a successful consume row snapshot (milestone boundary). */
+    let consumed = false;
     try {
       const ownerSnap = snapshotExactOrderedUuids(owner, OWNER_KEYS);
       if (!ownerSnap) throw failure();
@@ -485,6 +494,10 @@ function createMicrosoftOAuthCallbackCompletionService(dependencies) {
       // Snapshot once: never reread mutable driver row for completion material.
       const rowSnap = snapshotAndValidateConsumeRow(rawRow);
       if (!rowSnap) throw failure();
+
+      // Milestone: transaction consume succeeded and row validated.
+      consumed = true;
+      safeEmitStage(pinned.stageTelemetry, 'callback_consumed');
 
       if (inputSnap.kind === 'error') {
         return PUBLIC_STATUS_DECLINED;
@@ -539,6 +552,11 @@ function createMicrosoftOAuthCallbackCompletionService(dependencies) {
 
       return PUBLIC_STATUS_RECEIVED;
     } catch (err) {
+      // After consume, emit terminal failure so last success stage remains
+      // observable from the prior event stream (no extra fields on event).
+      if (consumed) {
+        safeEmitStage(pinned.stageTelemetry, 'callback_failed');
+      }
       if (err && err.code === ERROR_CODE) throw err;
       throw failure();
     }
