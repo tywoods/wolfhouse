@@ -398,19 +398,23 @@ function createMicrosoftGraphMeIdentityTransport(dependencies = {}) {
           method: 'GET', path: PATH, agent: false,
           headers: Object.freeze({ Accept: 'application/json', Authorization: ['Bearer', accessToken].join(' ') }),
         }), (response) => {
+          // Reject Proxy wrappers as the very first callback action — before
+          // received-stage emission, settled check, activeResponse assignment,
+          // destroy, or any property access. Native isProxy does not consult
+          // traps. Late settled proxies simply return (do not re-enter cleanup).
+          // Pre-settlement proxies fail closed without assigning activeResponse
+          // so destroy never walks hostile traps.
+          if (isProxyResponseSurface(response)) {
+            if (settled) return;
+            destroyRequest();
+            finish(failure('RESPONSE_INVALID'));
+            return;
+          }
           // Milestone: HTTPS response callback fired (status/body not yet trusted).
           safeEmitStage(stageTelemetry, 'graph_response_received');
           if (settled) {
             activeResponse = response;
             destroyResponse();
-            return;
-          }
-          // Reject Proxy wrappers before any prototype/constructor/getter inspection
-          // or trap invocation (native isProxy does not consult traps). Do not assign
-          // activeResponse so destroy cleanup never walks hostile proxy traps.
-          if (isProxyResponseSurface(response)) {
-            destroyRequest();
-            finish(failure('RESPONSE_INVALID'));
             return;
           }
           activeResponse = response;

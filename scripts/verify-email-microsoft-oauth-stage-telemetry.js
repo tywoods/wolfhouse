@@ -1219,8 +1219,13 @@ function nativeGraphResponse(spec = {}) {
 
 function graphTransportFake(spec = {}) {
   const calls = [];
+  const timerHandles = [];
   const timers = {
-    setTimeout(callback) { return { callback }; },
+    setTimeout(callback) {
+      const handle = { callback };
+      timerHandles.push(handle);
+      return handle;
+    },
     clearTimeout() {},
   };
   const httpsImpl = (options, callback) => {
@@ -1230,7 +1235,14 @@ function graphTransportFake(spec = {}) {
     req.end = () => {
       const call = { options, req };
       calls.push(call);
-      if (spec.never) return;
+      // holdResponse: expose deliverResponse so tests can fire after deadline.
+      if (spec.never || spec.holdResponse) {
+        call.deliverResponse = (res) => {
+          call.res = res;
+          callback(res);
+        };
+        return;
+      }
       if (spec.requestError) {
         queueMicrotask(() => req.emit('error', new Error(`${LEAK} graph-transport`)));
         return;
@@ -1268,7 +1280,7 @@ function graphTransportFake(spec = {}) {
     deps.stageTelemetry = spec.stageTelemetry;
   }
   const service = createMicrosoftGraphMeIdentityTransport(deps);
-  return { service, calls, fetch: service.fetchIdentity };
+  return { service, calls, fetch: service.fetchIdentity, timerHandles };
 }
 
 function graphStageComposition(spec = {}) {
@@ -1835,8 +1847,9 @@ test('transparent Proxy around genuine IncomingMessage is rejected with no Graph
     assert.equal(probe.constructor, http.IncomingMessage);
   }
 
+  // Pre-settlement proxy: isProxy must run before graph_response_received emit.
   // If production wrongly accepts the proxy, body emission yields full identity
-  // success (RED). When fixed: reject, no Graph result, stop after received.
+  // success (RED). When fixed: reject without response_received, no Graph result.
   {
     const { composition, events, input, graph } = graphStageComposition({
       graph: {
@@ -1849,8 +1862,8 @@ test('transparent Proxy around genuine IncomingMessage is rejected with no Graph
     assert.deepEqual(events.map((e) => e.stage), [
       'oidc_verified',
       'graph_request_started',
-      'graph_response_received',
     ]);
+    assert.equal(events.some((e) => e.stage === 'graph_response_received'), false);
     assert.equal(events.some((e) => e.stage === 'graph_http_accepted'), false);
     assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
     assert.equal(events.some((e) => e.stage === 'graph_response_validated'), false);
@@ -1859,7 +1872,7 @@ test('transparent Proxy around genuine IncomingMessage is rejected with no Graph
     assertNeutralStageEvents(events);
   }
 
-  // Hostile traps not invoked beyond unavoidable native isProxy detector.
+  // Normal pre-settlement hostile proxy: zero traps beyond native isProxy detector.
   {
     const trapHits = [];
     const target = nativeGraphResponse();
@@ -1909,12 +1922,84 @@ test('transparent Proxy around genuine IncomingMessage is rejected with no Graph
     assert.deepEqual(events.map((e) => e.stage), [
       'oidc_verified',
       'graph_request_started',
-      'graph_response_received',
     ]);
+    assert.equal(events.some((e) => e.stage === 'graph_response_received'), false);
     assert.equal(events.some((e) => e.stage === 'graph_headers_accepted'), false);
     assertNeutralStageEvents(events);
     assert.deepEqual(trapHits, []);
   }
+});
+
+test('late-after-timeout Proxy response does not trap or disturb prior settlement', async function graphLateAfterTimeoutProxyZeroTraps() {
+  // Independent BLOCK: settled checked before isProxy assigns activeResponse and
+  // destroyResponse reads .destroy on a late Proxy-wrapped IncomingMessage.
+  const trapHits = [];
+  const target = nativeGraphResponse();
+  const proxy = new Proxy(target, {
+    get(t, p, r) {
+      trapHits.push(`get:${String(p)}`);
+      return Reflect.get(t, p, r);
+    },
+    getPrototypeOf(t) {
+      trapHits.push('getPrototypeOf');
+      return Reflect.getPrototypeOf(t);
+    },
+    getOwnPropertyDescriptor(t, p) {
+      trapHits.push(`gopd:${String(p)}`);
+      return Reflect.getOwnPropertyDescriptor(t, p);
+    },
+    set(t, p, v, r) {
+      trapHits.push(`set:${String(p)}`);
+      return Reflect.set(t, p, v, r);
+    },
+    has(t, p) {
+      trapHits.push(`has:${String(p)}`);
+      return Reflect.has(t, p);
+    },
+    ownKeys(t) {
+      trapHits.push('ownKeys');
+      return Reflect.ownKeys(t);
+    },
+  });
+
+  const { composition, events, input, graph } = graphStageComposition({
+    graph: { holdResponse: true },
+  });
+  const pending = composition.verifyIdentity(input);
+  // Allow request to start and arm deadline.
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(graph.timerHandles.length, 1, 'deadline must be armed');
+  assert.equal(graph.calls.length, 1);
+  assert.equal(typeof graph.calls[0].deliverResponse, 'function');
+
+  // Prior settlement via deadline — no response yet.
+  // Composition maps Graph transport failures to MICROSOFT_VERIFIED_IDENTITY_INVALID
+  // (transport-level DEADLINE_EXCEEDED is covered by the identity gate).
+  graph.timerHandles[0].callback();
+  await assert.rejects(() => pending, (error) => {
+    assert.equal(error && error.code, 'MICROSOFT_VERIFIED_IDENTITY_INVALID');
+    return true;
+  });
+  const stagesAfterDeadline = events.map((e) => e.stage).slice();
+  assert.equal(stagesAfterDeadline.includes('graph_response_received'), false);
+  assert.equal(stagesAfterDeadline.includes('graph_identity_verified'), false);
+  assertNeutralStageEvents(events);
+
+  // Late hostile Proxy after timeout.
+  graph.calls[0].deliverResponse(proxy);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(trapHits, [], 'late-after-timeout proxy must not fire hostile traps');
+  // No graph_response_received, no further stages; prior settlement stages stable.
+  assert.deepEqual(events.map((e) => e.stage), stagesAfterDeadline);
+  assert.equal(events.some((e) => e.stage === 'graph_response_received'), false);
+  assertNeutralStageEvents(events);
+  // Settlement outcome remains the composition rejection (stable re-read).
+  await assert.rejects(() => pending, (error) => {
+    assert.equal(error && error.code, 'MICROSOFT_VERIFIED_IDENTITY_INVALID');
+    return true;
+  });
 });
 
 test('post-init ambient util.types.isProxy monkeypatch does not accept proxies or reject natives', async function graphIsProxyPinSurvivesMonkeypatch() {
@@ -1974,6 +2059,22 @@ test('Graph source pins util.types.isProxy and rejects proxy responses before pi
   // in the hot path beyond the pinned binding).
   assert.equal(graphSrc.includes('global.'), false);
   assert.equal(graphSrc.includes('globalThis'), false);
+  // Response callback: pinned isProxy rejection must be the first action — before
+  // graph_response_received emission, settled check, activeResponse assignment, or destroy.
+  const responseCbMatch = graphSrc.match(/\(response\)\s*=>\s*\{([\s\S]*?)\n\s*\}\)/);
+  assert.ok(responseCbMatch, 'response callback must be present');
+  const cbBody = responseCbMatch[1];
+  const isProxyIdx = cbBody.search(/isProxyResponseSurface\s*\(\s*response\s*\)/);
+  const emitReceivedIdx = cbBody.indexOf('graph_response_received');
+  const settledIdx = cbBody.search(/if\s*\(\s*settled\s*\)/);
+  const activeAssignIdx = cbBody.search(/activeResponse\s*=\s*response/);
+  assert.ok(isProxyIdx >= 0, 'response callback must call isProxyResponseSurface');
+  assert.ok(emitReceivedIdx >= 0, 'response callback must still emit graph_response_received for non-proxy');
+  assert.ok(settledIdx >= 0, 'response callback must still handle settled late responses');
+  assert.ok(activeAssignIdx >= 0, 'response callback must still assign activeResponse for non-proxy');
+  assert.ok(isProxyIdx < emitReceivedIdx, 'isProxy must precede graph_response_received emission');
+  assert.ok(isProxyIdx < settledIdx, 'isProxy must precede settled check');
+  assert.ok(isProxyIdx < activeAssignIdx, 'isProxy must precede activeResponse assignment');
 });
 
 // ── Runner ─────────────────────────────────────────────────────────────────

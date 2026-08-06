@@ -597,6 +597,84 @@ async function main() {
       assert.equal(outcome.error && outcome.error.name, 'MicrosoftGraphIdentityError');
       assert(!String(outcome.error && outcome.error.stack || '').includes(TOKEN));
       assert.deepEqual(trapHits, []);
+      assert.equal(target.destroyCount, 0, 'pre-settlement proxy must not be destroyed');
+    }
+
+    // Late Proxy-wrapped IncomingMessage AFTER deadline settlement must not re-enter
+    // cleanup: if settled is checked before isProxy, activeResponse is assigned and
+    // destroyResponse reads .destroy → hostile get trap. Pin isProxy first; if already
+    // settled simply return without emit/assign/destroy/property access.
+    {
+      const trapHits = [];
+      let responseCallback;
+      const clock = manualTimers();
+      const httpsImpl = (options, callback) => {
+        responseCallback = callback;
+        const req = new EventEmitter();
+        req.destroyCount = 0;
+        req.destroy = () => { req.destroyCount += 1; };
+        req.end = () => {};
+        return req;
+      };
+      const service = createMicrosoftGraphMeIdentityTransport({
+        httpsImpl,
+        timers: clock.timers,
+      });
+      const promise = service.fetchIdentity({ accessToken: TOKEN });
+      assert.equal(clock.state.handles.length, 1);
+      // Prior settlement: deadline fires with no response yet.
+      clock.state.handles[0].callback();
+      await rejectsCode(promise, 'DEADLINE_EXCEEDED');
+      const priorSettlement = await promise.then(
+        (result) => ({ type: 'fulfilled', result }),
+        (error) => ({ type: 'rejected', code: error && error.code, name: error && error.name }),
+      );
+      assert.deepEqual(priorSettlement, {
+        type: 'rejected',
+        code: 'DEADLINE_EXCEEDED',
+        name: 'MicrosoftGraphIdentityError',
+      });
+
+      const target = nativeIncomingMessageResponse({});
+      const proxy = new Proxy(target, {
+        get(t, p, r) {
+          trapHits.push(`get:${String(p)}`);
+          return Reflect.get(t, p, r);
+        },
+        getPrototypeOf(t) {
+          trapHits.push('getPrototypeOf');
+          return Reflect.getPrototypeOf(t);
+        },
+        getOwnPropertyDescriptor(t, p) {
+          trapHits.push(`gopd:${String(p)}`);
+          return Reflect.getOwnPropertyDescriptor(t, p);
+        },
+        set(t, p, v, r) {
+          trapHits.push(`set:${String(p)}`);
+          return Reflect.set(t, p, v, r);
+        },
+        has(t, p) {
+          trapHits.push(`has:${String(p)}`);
+          return Reflect.has(t, p);
+        },
+        ownKeys(t) {
+          trapHits.push('ownKeys');
+          return Reflect.ownKeys(t);
+        },
+      });
+      assert.equal(typeof responseCallback, 'function');
+      // Late hostile response after deadline (the BLOCK surface).
+      responseCallback(proxy);
+      await Promise.resolve();
+      await Promise.resolve();
+      assert.deepEqual(trapHits, [], 'late-after-timeout proxy must not fire hostile traps');
+      assert.equal(target.destroyCount, 0, 'late proxy must not be destroyed');
+      // Prior settlement remains stable (no second outcome).
+      const afterLate = await promise.then(
+        (result) => ({ type: 'fulfilled', result }),
+        (error) => ({ type: 'rejected', code: error && error.code, name: error && error.name }),
+      );
+      assert.deepEqual(afterLate, priorSettlement);
     }
   }
 
