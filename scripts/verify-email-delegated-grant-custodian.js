@@ -194,10 +194,10 @@ async function main() {
     && typeof createFakeEmailGrantEnvelopeProvider === 'function');
 
   const c = OAUTH.EMAIL_MS_DELEGATED_REFRESH_TOKEN_CUSTODY;
-  ok('2C: module present, exchange blocked, no activation',
+  ok('2C: module present, exchange adapter allowed, no activation',
     c.durable_grant_custodian_module_present === true
     && c.custody_deferred === false && c.cas_deferred === false
-    && c.refresh_exchange_adapter_allowed === false
+    && c.refresh_exchange_adapter_allowed === true
     && c.durable_grant_custodian_injected === false
     && c.envelope_ciphertext_in_postgres_owner_approved === true
     && c.raw_refresh_token_in_postgres_forbidden === true

@@ -262,7 +262,7 @@ function main() {
           && b && b.live_graph_path === '/me' && b.require_me_id_equals_provider_principal_oid
           && b.persist_me_id_as_provider_resource_id && b.performs_graph === false
           && b.mail_upn_email_not_ownership_keys
-          && c && c.refresh_exchange_adapter_allowed === false
+          && c && c.refresh_exchange_adapter_allowed === true
           && c.durable_grant_custodian_injected === false
           && c.custody_deferred === false
           && c.cas_deferred === false
@@ -347,7 +347,7 @@ function main() {
             && v.own_user_live_binding.persist_me_id_as_provider_resource_id === true
             && v.own_user_live_binding.performs_graph === false
             && v.refresh_rotation_policy.refresh_token_custody
-            && v.refresh_rotation_policy.refresh_token_custody.refresh_exchange_adapter_allowed === false
+            && v.refresh_rotation_policy.refresh_token_custody.refresh_exchange_adapter_allowed === true
             && v.activation_invariants.schema_enforces_invariants === false
             && Object.isFrozen(result) && Object.isFrozen(v)
             && isComplete(input) === true
@@ -589,7 +589,7 @@ function main() {
           good.value.terminal_reauthorization_reasons.includes(r))
         && good.value.app_wide_refresh_token === false
         && good.value.refresh_token_custody
-        && good.value.refresh_token_custody.refresh_exchange_adapter_allowed === false
+        && good.value.refresh_token_custody.refresh_exchange_adapter_allowed === true
         && good.value.refresh_token_custody.durable_grant_custodian_injected === false
         && good.value.refresh_token_custody.durable_grant_custodian_module_present === true
         && good.value.refresh_token_custody.custody_deferred === false
@@ -598,14 +598,17 @@ function main() {
           retain_old_until_durable_replacement: true, app_wide_refresh_token: true,
         }).ok, ser(good));
       const gate = mod.evaluateMicrosoftDelegatedRefreshExchangeGate({});
-      ok('refresh exchange gate: module present, exchange still blocked',
-        gate.ok && gate.value.refresh_exchange_adapter_allowed === false
+      ok('refresh exchange gate: module present, exchange adapter allowed',
+        gate.ok && gate.value.refresh_exchange_adapter_allowed === true
         && gate.value.custody_deferred === false
         && gate.value.cas_deferred === false
         && gate.value.durable_grant_custodian_module_present === true
         && gate.value.durable_grant_custodian_injected === false
-        && !mod.evaluateMicrosoftDelegatedRefreshExchangeGate({
+        && mod.evaluateMicrosoftDelegatedRefreshExchangeGate({
           claim_refresh_exchange_allowed: true,
+        }).ok
+        && !mod.evaluateMicrosoftDelegatedRefreshExchangeGate({
+          claim_refresh_exchange_allowed: false,
         }).ok
         && !mod.evaluateMicrosoftDelegatedRefreshExchangeGate({
           claim_grant_custodian_injected: true,

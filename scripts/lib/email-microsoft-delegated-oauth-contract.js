@@ -53,15 +53,16 @@ const EMAIL_MS_DELEGATED_REFRESH_ROTATION_POLICY = Object.freeze({
   app_wide_refresh_token: false,
 });
 // Slice 2F-A: custody schema/module present (dedicated grant table + envelope contracts).
-// Runtime injection remains false offline; refresh-exchange adapter still blocked (2F-B+/later).
+// Refresh-exchange adapter present for admin refresh-health (still no automation/activation).
+// Runtime injection remains composition-time only (durable_grant_custodian_injected=false offline).
 // Owner-approved: AEAD ciphertext + wrapped DEK may persist in Postgres (raw tokens forbidden).
 const EMAIL_MS_DELEGATED_REFRESH_TOKEN_CUSTODY = Object.freeze({
   custody_deferred: false,
   cas_deferred: false,
   durable_grant_custodian_module_present: true,
   durable_grant_custodian_injected: false,
-  refresh_exchange_adapter_allowed: false,
-  block_reason: 'refresh_exchange_adapter_required',
+  refresh_exchange_adapter_allowed: true,
+  block_reason: null,
   envelope_ciphertext_in_postgres_owner_approved: true,
   raw_refresh_token_in_postgres_forbidden: true,
 });
@@ -523,11 +524,9 @@ function evaluateRefreshExchangeAdapterGateImpl(raw) {
   if (g.claim_grant_custodian_injected === true) {
     return fail('refresh_exchange_gate_invalid', { reason: 'grant_custodian_injection_is_runtime' });
   }
-  // Exchange adapter remains a separate later slice — still blocked.
-  if (g.claim_refresh_exchange_allowed === true) {
-    return fail('refresh_exchange_gate_invalid', {
-      reason: EMAIL_MS_DELEGATED_REFRESH_TOKEN_CUSTODY.block_reason,
-    });
+  // Refresh-exchange adapter is present for admin refresh-health (automation still off).
+  if (g.claim_refresh_exchange_allowed === false) {
+    return fail('refresh_exchange_gate_invalid', { reason: 'refresh_exchange_adapter_present' });
   }
   return ok({ ...EMAIL_MS_DELEGATED_REFRESH_TOKEN_CUSTODY });
 }
