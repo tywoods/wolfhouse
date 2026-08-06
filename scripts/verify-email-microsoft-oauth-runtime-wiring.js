@@ -1385,6 +1385,54 @@ test('full route E2E: start + callback via production Azure path; wrap only on s
   }
 });
 
+test('full route E2E: Graph mail≠UPN prefers SMTP and binds endpoint public_address', async function fullE2EMailDiffersFromUpn() {
+  // Live GoDaddy/M365: primary SMTP (mail) differs from login UPN. Graph
+  // identity must prefer mail so installer exact-equals public_address=MAILBOX.
+  // Choosing mail cannot bypass ownership — public_address must still match.
+  const realisticUpn = 'support@lunafrontdesk.onmicrosoft.com';
+  assert.notEqual(MAILBOX, realisticUpn);
+  const azure = installAzureSdkSpies();
+  try {
+    const db = createStatefulDb();
+    const bundle = createMultiplexHttps(db);
+    const routes = buildRoutes(goodEnv(), db, bundle);
+
+    const rStart = resCapture();
+    await routes.handleStart(startBody(), null, rStart, user());
+    assert.equal(rStart.status, 200);
+    const state = new URL(rStart.body.authorization_url).searchParams.get('state');
+    const txn = db.txns[0];
+    const nonce = txn.nonce;
+
+    const bundle2 = createMultiplexHttps(db, {
+      tokenBody: goodTokenBody({
+        id_token: createIdToken({ nonce, aud: APP_CLIENT_ID }),
+      }),
+      graphBody: {
+        id: PRINCIPAL,
+        displayName: DISPLAY,
+        mail: 'Ada@Example.COM',
+        userPrincipalName: realisticUpn,
+      },
+    });
+    const routes2 = buildRoutes(goodEnv(), db, bundle2);
+    const rCb = resCapture();
+    await routes2.handleCallback({ state, code: CODE }, null, rCb, user());
+
+    assert.equal(rCb.statusCode, 200);
+    assert.match(rCb.body, /Authorization response received/);
+    assert.ok(txn.consumed_at != null);
+    assert.equal(db.grants.length, 1);
+    assert.equal(db.endpoints[0].binding_status, 'verified');
+    assert.equal(db.endpoints[0].provider_principal_oid, PRINCIPAL);
+    // Endpoint ownership remains the prepared public_address (canonical mail).
+    assert.equal(db.endpoints[0].public_address, MAILBOX);
+    assert.notEqual(db.endpoints[0].public_address, realisticUpn);
+  } finally {
+    azure.restore();
+  }
+});
+
 function normSql(sql) {
   return String(sql).replace(/\s+/g, ' ').trim();
 }

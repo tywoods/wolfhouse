@@ -202,6 +202,129 @@ async function main() {
     await rejectsCode((await one({ body: JSON.stringify({ id: 'x', mail: 'x@example.com', displayName }) })).promise, 'IDENTITY_INVALID');
   }
 
+  // ── Mail / UPN selection (Microsoft allows these to differ) ──────────────
+  // Live root cause after scope fix: Graph /me returns distinct valid mail and
+  // userPrincipalName (GoDaddy/M365 aliases). Equality gate rejected identity
+  // so the pipeline never emitted graph_identity_verified.
+  // Prefer canonical mail when present; otherwise canonical UPN. Validate each
+  // present nonempty field independently; never silently skip hostile mail.
+  // Selected mailboxAddress is the sole ownership key matched to endpoint
+  // public_address at install time (exact equals — no alias lists).
+  const REALISTIC_MAIL = 'support@lunafrontdesk.com';
+  const REALISTIC_UPN = 'support@lunafrontdesk.onmicrosoft.com';
+  const REALISTIC_ME = {
+    id: 'graph-id-godaddy-1',
+    displayName: 'Luna Support',
+    mail: 'Support@LunaFrontDesk.COM',
+    userPrincipalName: REALISTIC_UPN,
+  };
+  assert.notEqual(REALISTIC_MAIL, REALISTIC_UPN, 'fixture precondition: mail and UPN differ');
+
+  const preferMail = await (await one({ body: JSON.stringify(REALISTIC_ME) })).promise;
+  assert.deepEqual(preferMail, {
+    providerSubjectId: 'graph-id-godaddy-1',
+    mailboxAddress: REALISTIC_MAIL,
+    displayName: 'Luna Support',
+  });
+  assert.deepEqual(Object.keys(preferMail), ['providerSubjectId', 'mailboxAddress', 'displayName']);
+  assert(Object.isFrozen(preferMail));
+  // Ownership binding surface: installer compares public_address to this field only.
+  assert.equal(preferMail.mailboxAddress, REALISTIC_MAIL);
+  assert.notEqual(preferMail.mailboxAddress, REALISTIC_UPN);
+
+  // mail null / omitted / empty → use canonical UPN when present and valid.
+  for (const mail of [null, undefined, '']) {
+    const body = { id: 'upn-only-1', userPrincipalName: 'Ada@Example.COM', displayName: 'Ada' };
+    if (mail !== undefined) body.mail = mail;
+    const result = await (await one({ body: JSON.stringify(body) })).promise;
+    assert.deepEqual(result, {
+      providerSubjectId: 'upn-only-1',
+      mailboxAddress: 'ada@example.com',
+      displayName: 'Ada',
+    });
+  }
+
+  // UPN null / omitted / empty → use canonical mail when present and valid.
+  for (const upn of [null, undefined, '']) {
+    const body = { id: 'mail-only-1', mail: 'Support@LunaFrontDesk.COM', displayName: 'Support' };
+    if (upn !== undefined) body.userPrincipalName = upn;
+    const result = await (await one({ body: JSON.stringify(body) })).promise;
+    assert.deepEqual(result, {
+      providerSubjectId: 'mail-only-1',
+      mailboxAddress: REALISTIC_MAIL,
+      displayName: 'Support',
+    });
+  }
+
+  // Require at least one present valid mailbox field.
+  for (const body of [
+    { id: 'none-1' },
+    { id: 'none-2', mail: null, userPrincipalName: null },
+    { id: 'none-3', mail: '', userPrincipalName: '' },
+    { id: 'none-4', mail: null },
+    { id: 'none-5', userPrincipalName: null },
+  ]) {
+    await rejectsCode((await one({ body: JSON.stringify(body) })).promise, 'IDENTITY_INVALID');
+  }
+
+  // Fail-closed: malformed present mail must not fall through to a valid UPN.
+  for (const mail of [
+    'not-an-email',
+    'support@',
+    'support@localhost',
+    ' support@lunafrontdesk.com',
+    'support@lunafrontdesk.com ',
+    'a@b',
+    'support@@lunafrontdesk.com',
+    'support@luna..frontdesk.com',
+  ]) {
+    await rejectsCode(
+      (await one({
+        body: JSON.stringify({
+          id: 'hostile-mail-1',
+          mail,
+          userPrincipalName: REALISTIC_UPN,
+          displayName: 'X',
+        }),
+      })).promise,
+      'IDENTITY_INVALID',
+    );
+  }
+
+  // Fail-closed: malformed present UPN must not be ignored when mail is valid.
+  for (const upn of [
+    'not-an-email',
+    'support@',
+    'support@localhost',
+    ' support@lunafrontdesk.com',
+    'support@lunafrontdesk.com ',
+    'a@b',
+    'support@@lunafrontdesk.com',
+  ]) {
+    await rejectsCode(
+      (await one({
+        body: JSON.stringify({
+          id: 'hostile-upn-1',
+          mail: REALISTIC_MAIL,
+          userPrincipalName: upn,
+          displayName: 'X',
+        }),
+      })).promise,
+      'IDENTITY_INVALID',
+    );
+  }
+
+  // Equal after lowercasing remains accepted (case-insensitive identity of same address).
+  const sameAfterCase = await (await one({
+    body: JSON.stringify({
+      id: 'same-case-1',
+      mail: 'Ada@Example.COM',
+      userPrincipalName: 'ada@example.com',
+      displayName: 'Ada',
+    }),
+  })).promise;
+  assert.equal(sameAfterCase.mailboxAddress, 'ada@example.com');
+
   console.log('PASS verify:email-microsoft-graph-me-identity (offline hostile single-use transport/validator gate)');
 }
 
