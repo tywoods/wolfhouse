@@ -239,15 +239,28 @@ function snapshotPrepareClientRow(row) {
 
 /**
  * Snapshot one-row Sunset client resolve result for prepare.
- * Descriptor-safe: length via own data descriptor only (never a direct
- * property get of length on the rows array).
- * Exactly one row required; multi/empty/malformed → null.
+ *
+ * Root: accept realistic node-postgres Result prototypes (Result.prototype)
+ * as well as ordinary Object.prototype / null-proto bags. Never trust
+ * inherited properties — inspect own data descriptors only. Ordinary pg
+ * Result metadata (command, rowCount, oid, fields, _parsers, …) may appear
+ * as own data properties; exactly one own data `rows` descriptor is
+ * captured once. Accessors/symbols on the root → null. Inherited-only
+ * rows (no own rows descriptor) → null.
+ *
+ * Rows: actual Array with Array.prototype; Reflect.ownKeys once; reject
+ * symbols / extras / sparse forms. Length via own data descriptor read
+ * exactly once (never a direct property get of length). Exactly one row
+ * required: own keys ['0','length'], index-0 descriptor once; multi/empty/
+ * malformed → null. Row contract is not loosened (see snapshotPrepareClientRow).
+ * Every observation is copied once and never reread.
  */
 function snapshotPrepareClientResolve(result) {
   try {
     if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
-    const rootProto = Object.getPrototypeOf(result);
-    if (rootProto !== Object.prototype && rootProto !== null) return null;
+    // Intentionally no Object.prototype|null-only rootProto gate: production
+    // node-postgres returns Result instances whose prototype is Result.prototype.
+    // Own-data inspection below is the sole trust boundary for rows/metadata.
 
     const rootKeys = Reflect.ownKeys(result);
     let rowsDesc = null;
@@ -262,9 +275,11 @@ function snapshotPrepareClientResolve(result) {
         return null;
       }
       if (key === 'rows') {
+        // Capture the single own data rows descriptor exactly once.
         if (rowsDesc) return null;
         rowsDesc = desc;
       }
+      // Other own data keys: permitted as ordinary pg Result metadata (unused).
     }
     if (!rowsDesc) return null;
 
