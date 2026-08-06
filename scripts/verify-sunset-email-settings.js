@@ -215,9 +215,22 @@ function eligibleRow(patch = {}) {
       const pg = {
         async query(sql, params) {
           const text = String(sql);
-          queries.push({ text, params: params || [] });
+          const p = params || [];
+          queries.push({ text, params: p });
+          // Route-level trusted Sunset resolve (slug only, no id param).
+          if (/FROM\s+clients/i.test(text)
+              && /slug\s*=\s*'sunset'/i.test(text)
+              && !/id\s*=\s*\$1/i.test(text)) {
+            return { rows: [{ client_id: CLIENT_ID }] };
+          }
           if (/^\s*BEGIN\b/i.test(text)) return { rows: [] };
-          if (/FROM\s+clients/i.test(text)) return { rows: [{ client_id: CLIENT_ID }] };
+          // Domain prove: slug + id = $1
+          if (/FROM\s+clients/i.test(text)
+              && /slug\s*=\s*'sunset'/i.test(text)
+              && /id\s*=\s*\$1/i.test(text)) {
+            if (p[0] !== CLIENT_ID) return { rows: [] };
+            return { rows: [{ client_id: CLIENT_ID }] };
+          }
           if (/FROM\s+tenant_locations/i.test(text)) return { rows: [{ location_id: LOCATION }] };
           if (/FROM\s+tenant_channel_endpoints/i.test(text) && /FOR\s+UPDATE/i.test(text)) {
             return { rows: [] };
@@ -250,6 +263,13 @@ function eligibleRow(patch = {}) {
       assert.strictEqual(res.body.endpoint_id, ENDPOINT_ID);
       assert.ok(!JSON.stringify(res.body).includes(MAILBOX));
       assert.ok(queries.some((q) => /INSERT\s+INTO\s+tenant_channel_endpoints/i.test(q.text)));
+      // Route resolved trusted client before domain prove+insert.
+      assert.ok(queries.some((q) => /FROM\s+clients/i.test(q.text)
+        && /slug\s*=\s*'sunset'/i.test(q.text)
+        && !/id\s*=\s*\$1/i.test(q.text)));
+      assert.ok(queries.some((q) => /FROM\s+clients/i.test(q.text)
+        && /id\s*=\s*\$1/i.test(q.text)
+        && q.params[0] === CLIENT_ID));
     }
     // domain failure → fixed sanitized error
     {

@@ -749,21 +749,21 @@
     {
       "id": "062_tenant_channel_endpoint_secret_ref_nullable",
       "filename": "062_tenant_channel_endpoint_secret_ref_nullable.sql",
-      "sha256": "88c53ca34ce95c92877dd40116b7416c759dc205c8d35e6f91f5ccd420fc2032",
+      "sha256": "9fd592ba373265c22da62edb36207b6fc97adf260e13f782c428098f28bdd9e7",
       "order": 61,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Stage 6 prerequisite: allow NULL secret_ref on tenant_channel_endpoints for pre-OAuth Microsoft delegated prepare rows. No token/grant/activation; grant custody remains on 059.",
+      "rationale": "Stage 6 prerequisite: DROP NOT NULL secret_ref only with named CHECK tenant_channel_endpoints_secret_ref_null_policy — (secret_ref IS NULL) equals microsoft_graph+delegated_authorization_code+microsoft_delegated_oauth via IS NOT DISTINCT FROM (all lifecycle statuses; closes NULL three-valued holes); NON-NULL required for every other provider/mode. Preflight fails closed on invalid existing rows. No token/grant/activation; grant custody remains on 059.",
       "downFilename": "062_tenant_channel_endpoint_secret_ref_nullable_down.sql"
     },
     {
       "id": "062_tenant_channel_endpoint_secret_ref_nullable_down",
       "filename": "062_tenant_channel_endpoint_secret_ref_nullable_down.sql",
-      "sha256": "e19f37266e6aaed87b50d09bd2200af8189689d021b826fc6ca35887fdc187e1",
+      "sha256": "3dd6a5d3772d9115b26ca0505875a3747d3c6b71690b22eb812012f5a1e22c27",
       "order": null,
       "classification": "rollback_down",
       "inForwardChain": false,
-      "rationale": "Explicit down for 062: restore secret_ref NOT NULL only when no NULL rows exist; refuse invent/backfill.",
+      "rationale": "Explicit down for 062: fail if any NULL secret_ref remains, drop named secret_ref_null_policy CHECK, then SET NOT NULL; refuse invent/backfill.",
       "pairsWith": "062_tenant_channel_endpoint_secret_ref_nullable.sql"
     }
   ]

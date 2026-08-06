@@ -1,5 +1,6 @@
 -- 062_tenant_channel_endpoint_secret_ref_nullable_down.sql
--- Restore NOT NULL secret_ref only when no NULL rows exist. Never invent refs.
+-- Restore NOT NULL secret_ref only when no NULL rows exist. Drop named
+-- null-policy CHECK first, then SET NOT NULL. Never invent refs.
 
 BEGIN;
 
@@ -13,6 +14,9 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
 END $$;
+
+ALTER TABLE tenant_channel_endpoints
+  DROP CONSTRAINT IF EXISTS tenant_channel_endpoints_secret_ref_null_policy;
 
 ALTER TABLE tenant_channel_endpoints
   ALTER COLUMN secret_ref SET NOT NULL;

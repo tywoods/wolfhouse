@@ -37,6 +37,9 @@ const PREPARE_ERROR = 'endpoint_prepare_unavailable';
 /** Exact ordered own-data resolve SQL row keys (matches SELECT aliases / order). */
 const RESOLVE_ROW_KEYS = Object.freeze(['client_id', 'location_id', 'endpoint_id']);
 const RESOLVE_ROW_KEY_SET = new Set(RESOLVE_ROW_KEYS);
+/** Exact ordered own-data Sunset client row keys for prepare resolve. */
+const PREPARE_CLIENT_ROW_KEYS = Object.freeze(['client_id']);
+const PREPARE_CLIENT_ROW_KEY_SET = new Set(PREPARE_CLIENT_ROW_KEYS);
 
 /**
  * Production native surfaces: capture node:https.request, node:crypto
@@ -53,6 +56,17 @@ const PRODUCTION_CRYPTO_VERIFY = crypto.verify;
 const PRODUCTION_TIMERS_OWNER = globalThis;
 const PRODUCTION_SET_TIMEOUT = globalThis.setTimeout;
 const PRODUCTION_CLEAR_TIMEOUT = globalThis.clearTimeout;
+
+/**
+ * Trusted Sunset client resolve for prepare — slug pinned in SQL text.
+ * Route snapshots the exact row once and passes clientId into domain input;
+ * body never supplies client. Domain re-proves slug+id before insert.
+ */
+const SQL_RESOLVE_SUNSET_CLIENT_FOR_PREPARE = `
+SELECT id::text AS client_id
+  FROM clients
+ WHERE slug = 'sunset'
+ LIMIT 1`.replace(/\s+/g, ' ').trim();
 
 /**
  * One tenant-safe resolve: Sunset client + active location + exact eligible
@@ -181,6 +195,111 @@ function buildPrepareSuccessJson(endpointId) {
   dto.success = true;
   dto.endpoint_id = endpointId;
   return Object.freeze(dto);
+}
+
+/**
+ * Exact own-data Sunset client row for prepare: { client_id } only.
+ * Descriptor-safe; returns canonical lowercase UUID string or null.
+ */
+function snapshotPrepareClientRow(row) {
+  try {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+    const proto = Object.getPrototypeOf(row);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(row);
+    if (actual.length !== PREPARE_CLIENT_ROW_KEYS.length) return null;
+    for (let i = 0; i < PREPARE_CLIENT_ROW_KEYS.length; i += 1) {
+      if (actual[i] !== PREPARE_CLIENT_ROW_KEYS[i] || typeof actual[i] !== 'string') {
+        return null;
+      }
+      if (!PREPARE_CLIENT_ROW_KEY_SET.has(actual[i])) return null;
+    }
+    const out = Object.create(null);
+    for (const key of PREPARE_CLIENT_ROW_KEYS) {
+      const descriptor = Object.getOwnPropertyDescriptor(row, key);
+      if (!descriptor
+          || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+          || descriptor.get
+          || descriptor.set
+          || !descriptor.enumerable) {
+        return null;
+      }
+      out[key] = descriptor.value;
+    }
+    if (typeof out.client_id !== 'string' || !UUID_RE.test(out.client_id)
+        || out.client_id !== out.client_id.toLowerCase()) {
+      return null;
+    }
+    return out.client_id;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Snapshot one-row Sunset client resolve result for prepare.
+ * Descriptor-safe: length via own data descriptor only (never a direct
+ * property get of length on the rows array).
+ * Exactly one row required; multi/empty/malformed → null.
+ */
+function snapshotPrepareClientResolve(result) {
+  try {
+    if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
+    const rootProto = Object.getPrototypeOf(result);
+    if (rootProto !== Object.prototype && rootProto !== null) return null;
+
+    const rootKeys = Reflect.ownKeys(result);
+    let rowsDesc = null;
+    for (let i = 0; i < rootKeys.length; i += 1) {
+      const key = rootKeys[i];
+      if (typeof key === 'symbol') return null;
+      const desc = Object.getOwnPropertyDescriptor(result, key);
+      if (!desc
+          || !Object.prototype.hasOwnProperty.call(desc, 'value')
+          || desc.get
+          || desc.set) {
+        return null;
+      }
+      if (key === 'rows') {
+        if (rowsDesc) return null;
+        rowsDesc = desc;
+      }
+    }
+    if (!rowsDesc) return null;
+
+    const rows = rowsDesc.value;
+    if (!Array.isArray(rows)) return null;
+    if (Object.getPrototypeOf(rows) !== Array.prototype) return null;
+
+    const rowKeys = Reflect.ownKeys(rows);
+    for (let i = 0; i < rowKeys.length; i += 1) {
+      if (typeof rowKeys[i] === 'symbol') return null;
+    }
+    const lengthDesc = Object.getOwnPropertyDescriptor(rows, 'length');
+    if (!lengthDesc
+        || !Object.prototype.hasOwnProperty.call(lengthDesc, 'value')
+        || lengthDesc.get
+        || lengthDesc.set
+        || typeof lengthDesc.value !== 'number'
+        || !Number.isInteger(lengthDesc.value)
+        || lengthDesc.value < 0) {
+      return null;
+    }
+    if (lengthDesc.value !== 1) return null;
+    if (rowKeys.length !== 2 || rowKeys[0] !== '0' || rowKeys[1] !== 'length') {
+      return null;
+    }
+    const indexDesc = Object.getOwnPropertyDescriptor(rows, '0');
+    if (!indexDesc
+        || !Object.prototype.hasOwnProperty.call(indexDesc, 'value')
+        || indexDesc.get
+        || indexDesc.set) {
+      return null;
+    }
+    return snapshotPrepareClientRow(indexDesc.value);
+  } catch {
+    return null;
+  }
 }
 
 /** Prepare gate: exact START flag + Sunset deployment (callback may stay false). */
@@ -440,15 +559,27 @@ function createStaffEmailOAuthRoutes(deps) {
     }
     try {
       return await deps.withPgClient(async (pg) => {
-        // Exact ordered domain input keys (locationId, publicAddress, actorStaffUserId).
+        // Resolve trusted Sunset client UUID once; snapshot exact row; pass it.
+        // Never trust body client — prepare body has no client field.
+        const clientRes = await pg.query(SQL_RESOLVE_SUNSET_CLIENT_FOR_PREPARE);
+        const trustedClientId = snapshotPrepareClientResolve(clientRes);
+        if (!trustedClientId) {
+          return deps.sendJSON(res, 503, { success: false, error: PREPARE_ERROR });
+        }
+        // Exact ordered domain input: clientId first, then location/public/actor.
         const domainInput = {};
-        domainInput[PREPARE_DOMAIN_INPUT_KEYS[0]] = bodySnap.location_id;
-        domainInput[PREPARE_DOMAIN_INPUT_KEYS[1]] = bodySnap.public_address;
-        domainInput[PREPARE_DOMAIN_INPUT_KEYS[2]] = String(user.staff_user_id).toLowerCase();
+        domainInput[PREPARE_DOMAIN_INPUT_KEYS[0]] = trustedClientId;
+        domainInput[PREPARE_DOMAIN_INPUT_KEYS[1]] = bodySnap.location_id;
+        domainInput[PREPARE_DOMAIN_INPUT_KEYS[2]] = bodySnap.public_address;
+        domainInput[PREPARE_DOMAIN_INPUT_KEYS[3]] = String(user.staff_user_id).toLowerCase();
         const ordered = Object.freeze(domainInput);
         const prepare = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: pg }));
         const ack = await prepare.prepareDisabledDelegatedEndpoint(ordered);
-        if (!ack || ack.status !== 'prepared' || typeof ack.endpointId !== 'string'
+        // Domain ack is exact frozen { endpointId } only (no status/prepared).
+        if (!ack || typeof ack !== 'object'
+            || Reflect.ownKeys(ack).length !== 1
+            || Reflect.ownKeys(ack)[0] !== 'endpointId'
+            || typeof ack.endpointId !== 'string'
             || !UUID_RE.test(ack.endpointId)) {
           return deps.sendJSON(res, 503, { success: false, error: PREPARE_ERROR });
         }
@@ -600,14 +731,17 @@ module.exports = {
   OAUTH_PREPARE_PATH,
   OAUTH_CALLBACK_PATH,
   SQL_RESOLVE_START_BINDING,
+  SQL_RESOLVE_SUNSET_CLIENT_FOR_PREPARE,
   START_BODY_KEYS,
   PREPARE_BODY_KEYS,
   PREPARE_SUCCESS_KEYS,
   PREPARE_ERROR,
   RESOLVE_ROW_KEYS,
+  PREPARE_CLIENT_ROW_KEYS,
   validBody,
   snapshotStartBody,
   snapshotPrepareBody,
+  snapshotPrepareClientResolve,
   snapshotResolveQueryResult,
   isPrepareEnabled,
   buildPrepareSuccessJson,

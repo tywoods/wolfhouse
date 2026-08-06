@@ -5,9 +5,12 @@
  *
  * RED/GREEN evidence for exact shapes/order/freeze, accessors/symbols/proxies/
  * prototypes/descriptors, mailbox Unicode/case/length, exact SQL/params/order,
- * wrong tenant/location/status, duplicate/preexisting, insert counts,
- * rollback/commit ambiguity, invalid-first/concurrent/reentrant/single-use,
+ * wrong tenant/location/status, hostile clientId, duplicate/preexisting, insert
+ * counts, rollback/commit ambiguity, invalid-first/concurrent/reentrant/single-use,
  * no partial endpoint on failure, no raw address/error logs.
+ *
+ * Also static migration 062 gates: named null-policy CHECK, preflight, down
+ * safety (no silent global nullable).
  *
  * Does not exercise live OAuth, Azure, deploy, seed, sync, or send.
  */
@@ -21,7 +24,6 @@ const {
   ERROR_CODE,
   ERROR_MESSAGE,
   PREPARE_METHOD,
-  PREPARE_ACK_STATUS,
   DEPENDENCY_KEYS,
   INPUT_KEYS,
   ACK_KEYS,
@@ -40,7 +42,7 @@ const {
   SQL_BEGIN,
   SQL_COMMIT,
   SQL_ROLLBACK,
-  SQL_RESOLVE_SUNSET_CLIENT,
+  SQL_PROVE_SUNSET_CLIENT,
   SQL_LOCK_ACTIVE_LOCATION,
   SQL_EXISTING_BY_LOCATION,
   SQL_ADVISORY_LOCK,
@@ -53,10 +55,14 @@ const ROOT = path.join(__dirname, '..');
 const LIB_REL = 'scripts/lib/email-sunset-microsoft-endpoint-prepare.js';
 const VERIFY_REL = 'scripts/verify-email-sunset-microsoft-endpoint-prepare.js';
 const REGISTRY_REL = 'scripts/lib/email-tenant-channel-registry.js';
+const MIG_UP_REL = 'database/migrations/062_tenant_channel_endpoint_secret_ref_nullable.sql';
+const MIG_DOWN_REL = 'database/migrations/062_tenant_channel_endpoint_secret_ref_nullable_down.sql';
+const MANIFEST_REL = 'database/migrations/canonical-manifest.json';
 
 const LOCATION_ID = 'sunset-somo';
 const ACTOR_ID = 'abcdef01-2345-4678-89ab-cdef01234567';
 const CLIENT_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+const HOSTILE_CLIENT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const ENDPOINT_ID = '11111111-2222-4333-8444-555555555555';
 const MAILBOX = 'front.desk@sunset.example';
 const MAILBOX_UPPER = 'Front.Desk@Sunset.Example';
@@ -89,6 +95,7 @@ function assertNoSensitive(blob) {
 
 function goodInput(patch = {}) {
   const base = {
+    clientId: CLIENT_ID,
     locationId: LOCATION_ID,
     publicAddress: MAILBOX,
     actorStaffUserId: ACTOR_ID,
@@ -98,7 +105,8 @@ function goodInput(patch = {}) {
 
 /**
  * Stateful fake pinned client: exact SQL order/params, commit/rollback,
- * preexisting location/address, insert counts, 23505, commit ambiguity.
+ * preexisting location/address, insert counts, 23505, commit ambiguity,
+ * hostile client prove (slug+id).
  */
 function createFakePinnedClient(spec = {}) {
   const queries = [];
@@ -130,13 +138,17 @@ function createFakePinnedClient(spec = {}) {
     clientThrow: spec.clientThrow || null,
     locationThrow: spec.locationThrow || null,
     insertId: spec.insertId || ENDPOINT_ID,
+    /** When true, prove only matches when param clientId === committed.clientId. */
+    proveOnlyExactClient: spec.proveOnlyExactClient !== false,
   };
 
   function isBegin(t) { return /^\s*BEGIN\b/i.test(t); }
   function isCommit(t) { return /^\s*COMMIT\b/i.test(t); }
   function isRollback(t) { return /^\s*ROLLBACK\b/i.test(t); }
-  function isResolveClient(t) {
-    return /FROM\s+clients/i.test(t) && /slug\s*=\s*'sunset'/i.test(t);
+  function isProveClient(t) {
+    return /FROM\s+clients/i.test(t)
+      && /slug\s*=\s*'sunset'/i.test(t)
+      && /id\s*=\s*\$1::uuid/i.test(t);
   }
   function isLockLocation(t) {
     return /FROM\s+tenant_locations/i.test(t) && /FOR\s+SHARE/i.test(t);
@@ -236,12 +248,16 @@ function createFakePinnedClient(spec = {}) {
         return { rows: [], rowCount: 0 };
       }
 
-      if (isResolveClient(text)) {
+      if (isProveClient(text)) {
         if (modes.clientThrow) {
           throw Object.assign(new Error(`${LEAK} client`), { code: 'XX000' });
         }
         if (Array.isArray(modes.clientRows)) {
           return { rows: modes.clientRows, rowCount: modes.clientRows.length };
+        }
+        const want = String(p[0] || '').toLowerCase();
+        if (modes.proveOnlyExactClient && want !== String(view().clientId).toLowerCase()) {
+          return { rows: [], rowCount: 0 };
         }
         return {
           rows: [{ client_id: view().clientId }],
@@ -352,10 +368,15 @@ test('exports exact frozen contract symbols and SQL constants', () => {
   assert.equal(ERROR_CODE, 'SUNSET_MS_ENDPOINT_PREPARE_INVALID');
   assert.equal(ERROR_MESSAGE, 'Sunset Microsoft endpoint prepare failed.');
   assert.equal(PREPARE_METHOD, 'prepareDisabledDelegatedEndpoint');
-  assert.equal(PREPARE_ACK_STATUS, 'prepared');
   assert.deepEqual([...DEPENDENCY_KEYS], ['client']);
-  assert.deepEqual([...INPUT_KEYS], ['locationId', 'publicAddress', 'actorStaffUserId']);
-  assert.deepEqual([...ACK_KEYS], ['status', 'endpointId']);
+  assert.deepEqual([...INPUT_KEYS], [
+    'clientId',
+    'locationId',
+    'publicAddress',
+    'actorStaffUserId',
+  ]);
+  assert.equal(INPUT_KEYS[0], 'clientId');
+  assert.deepEqual([...ACK_KEYS], ['endpointId']);
   assert.equal(SUNSET_CLIENT_SLUG, 'sunset');
   assert.equal(PROVIDER, 'microsoft_graph');
   assert.equal(AUTH_MODE, 'delegated_authorization_code');
@@ -369,7 +390,8 @@ test('exports exact frozen contract symbols and SQL constants', () => {
   assert.equal(SQL_BEGIN, 'BEGIN');
   assert.equal(SQL_COMMIT, 'COMMIT');
   assert.equal(SQL_ROLLBACK, 'ROLLBACK');
-  assert.match(SQL_RESOLVE_SUNSET_CLIENT, /slug = 'sunset'/);
+  assert.match(SQL_PROVE_SUNSET_CLIENT, /slug = 'sunset'/);
+  assert.match(SQL_PROVE_SUNSET_CLIENT, /id = \$1::uuid/);
   assert.match(SQL_INSERT_ENDPOINT, /auth_mode/);
   assert.match(SQL_INSERT_ENDPOINT, /delegated_authorization_code/);
   assert.match(SQL_INSERT_ENDPOINT, /microsoft_delegated_oauth/);
@@ -380,6 +402,10 @@ test('exports exact frozen contract symbols and SQL constants', () => {
   assert.equal(Object.keys(FORCED_CAPABILITIES).length, 8);
   for (const v of Object.values(FORCED_CAPABILITIES)) assert.equal(v, false);
   assert.equal(JSON.parse(FORCED_CAPABILITIES_JSON).reply, false);
+  // No status/prepared ACK surface.
+  const mod = require('./lib/email-sunset-microsoft-endpoint-prepare');
+  assert.equal('PREPARE_ACK_STATUS' in mod, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(mod, 'PREPARE_ACK_STATUS'), false);
 });
 
 test('does not reuse or export generic registry creator', () => {
@@ -398,6 +424,9 @@ test('does not reuse or export generic registry creator', () => {
   assert.equal(/auth_mode/.test(insertBlock), false);
   assert.equal(/connector_mode/.test(insertBlock), false);
   assert.equal(/binding_status/.test(insertBlock), false);
+  // Generic registry still requires secret_ref (not weakened by 062).
+  assert.match(regSrc, /secret_ref|secretRef/);
+  assert.equal(/secret_ref\s*:\s*null/.test(regSrc), false);
 });
 
 // ── Happy path ──────────────────────────────────────────────────────────────
@@ -409,16 +438,17 @@ test('happy path: exact SQL order/params, forced flags, ack shape, no mailbox ec
     publicAddress: MAILBOX_UPPER,
   }));
   assert.equal(Object.isFrozen(ack), true);
-  assert.deepEqual(Reflect.ownKeys(ack), ['status', 'endpointId']);
-  assert.equal(ack.status, 'prepared');
+  assert.deepEqual(Reflect.ownKeys(ack), ['endpointId']);
   assert.equal(ack.endpointId, ENDPOINT_ID);
+  assert.equal('status' in ack, false);
   assertNoSensitive(ack);
   assert.equal(JSON.stringify(ack).includes(MAILBOX), false);
   assert.equal(JSON.stringify(ack).includes(MAILBOX_UPPER), false);
 
   const texts = fake.queries.map((q) => q.text);
   assert.equal(texts[0], SQL_BEGIN);
-  assert.equal(texts[1], SQL_RESOLVE_SUNSET_CLIENT);
+  assert.equal(texts[1], SQL_PROVE_SUNSET_CLIENT);
+  assert.deepEqual(fake.queries[1].params, [CLIENT_ID]);
   assert.equal(texts[2], SQL_LOCK_ACTIVE_LOCATION);
   assert.deepEqual(fake.queries[2].params, [CLIENT_ID, LOCATION_ID]);
   assert.equal(texts[3], SQL_EXISTING_BY_LOCATION);
@@ -439,28 +469,51 @@ test('happy path: exact SQL order/params, forced flags, ack shape, no mailbox ec
   assert.equal(fake.getTx(), 'committed');
   assert.equal(fake.getCommitted().inserted.public_address, MAILBOX);
   assert.equal(fake.getCommitted().inserted.capabilities, FORCED_CAPABILITIES_JSON);
+  assert.equal(fake.getCommitted().inserted.client_id, CLIENT_ID);
 });
 
 // ── Input hostility ─────────────────────────────────────────────────────────
 
-test('rejects hostile input shapes (order, extras, accessors, symbols, prototypes)', async () => {
+test('rejects hostile input shapes (order, extras, accessors, symbols, prototypes, clientId)', async () => {
   const cases = [
     null,
     undefined,
     [],
     'string',
     Object.create(null),
-    { publicAddress: MAILBOX, locationId: LOCATION_ID, actorStaffUserId: ACTOR_ID }, // wrong order
-    { locationId: LOCATION_ID, publicAddress: MAILBOX, actorStaffUserId: ACTOR_ID, extra: 1 },
+    // missing clientId
+    { locationId: LOCATION_ID, publicAddress: MAILBOX, actorStaffUserId: ACTOR_ID },
+    // wrong order (clientId not first)
+    {
+      locationId: LOCATION_ID,
+      publicAddress: MAILBOX,
+      actorStaffUserId: ACTOR_ID,
+      clientId: CLIENT_ID,
+    },
+    {
+      clientId: CLIENT_ID,
+      publicAddress: MAILBOX,
+      locationId: LOCATION_ID,
+      actorStaffUserId: ACTOR_ID,
+    },
+    {
+      clientId: CLIENT_ID,
+      locationId: LOCATION_ID,
+      publicAddress: MAILBOX,
+      actorStaffUserId: ACTOR_ID,
+      extra: 1,
+    },
     (() => {
       const o = {};
-      Object.defineProperty(o, 'locationId', { get() { return LOCATION_ID; }, enumerable: true });
+      Object.defineProperty(o, 'clientId', { get() { return CLIENT_ID; }, enumerable: true });
+      o.locationId = LOCATION_ID;
       o.publicAddress = MAILBOX;
       o.actorStaffUserId = ACTOR_ID;
       return Object.freeze(o);
     })(),
     (() => {
       const o = {
+        clientId: CLIENT_ID,
         locationId: LOCATION_ID,
         publicAddress: MAILBOX,
         actorStaffUserId: ACTOR_ID,
@@ -469,17 +522,32 @@ test('rejects hostile input shapes (order, extras, accessors, symbols, prototype
       return Object.freeze(o);
     })(),
     Object.freeze(Object.assign(Object.create({ x: 1 }), {
+      clientId: CLIENT_ID,
       locationId: LOCATION_ID,
       publicAddress: MAILBOX,
       actorStaffUserId: ACTOR_ID,
     })),
     Object.freeze({
+      clientId: CLIENT_ID,
       locationId: LOCATION_ID,
       publicAddress: MAILBOX,
       actorStaffUserId: ACTOR_ID.toUpperCase(),
     }),
     Object.freeze({
+      clientId: CLIENT_ID.toUpperCase(),
+      locationId: LOCATION_ID,
+      publicAddress: MAILBOX,
+      actorStaffUserId: ACTOR_ID,
+    }),
+    Object.freeze({
+      clientId: CLIENT_ID,
       locationId: 'Sunset-Somo',
+      publicAddress: MAILBOX,
+      actorStaffUserId: ACTOR_ID,
+    }),
+    Object.freeze({
+      clientId: 'not-a-uuid',
+      locationId: LOCATION_ID,
       publicAddress: MAILBOX,
       actorStaffUserId: ACTOR_ID,
     }),
@@ -499,7 +567,7 @@ test('mailbox Unicode/case/length hostility', async () => {
   const badMailboxes = [
     '',
     '   ',
-    'a@b', // too short after normalize? a@b.c needs domain with dot - 'a@b.c' is 5 ok
+    'a@b',
     'no-at-sign.example',
     'a@',
     '@b.com',
@@ -508,10 +576,9 @@ test('mailbox Unicode/case/length hostility', async () => {
     'a@b.com\u007f',
     `a@${'b'.repeat(320)}.com`,
     `${'x'.repeat(330)}@e.com`,
-    'front\uD800desk@sunset.example', // unpaired high surrogate
-    'front\uDC00desk@sunset.example', // unpaired low surrogate
+    'front\uD800desk@sunset.example',
+    'front\uDC00desk@sunset.example',
   ];
-  // Overlong after normalize ( > 320 )
   badMailboxes.push(`${'a'.repeat(300)}@${'b'.repeat(30)}.com`);
 
   for (const publicAddress of badMailboxes) {
@@ -524,13 +591,12 @@ test('mailbox Unicode/case/length hostility', async () => {
     assert.equal(fake.queries.length, 0);
   }
 
-  // Valid mixed-case canonicalizes (already covered in happy path).
   const fake = createFakePinnedClient();
   const prep = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: fake.client }));
   const ack = await prep.prepareDisabledDelegatedEndpoint(goodInput({
     publicAddress: '  Ada.Lovelace@Example.COM  ',
   }));
-  assert.equal(ack.status, 'prepared');
+  assert.equal(ack.endpointId, ENDPOINT_ID);
   assert.equal(fake.getCommitted().inserted.public_address, 'ada.lovelace@example.com');
 });
 
@@ -557,7 +623,6 @@ test('rejects pool-like and non-frozen deps; factory throws sanitized', () => {
 });
 
 test('single-use atomic burn: invalid-first, sequential second, concurrent, reentrant', async () => {
-  // invalid-first burns; second good input still fails with zero SQL on second
   {
     const fake = createFakePinnedClient();
     const prep = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: fake.client }));
@@ -570,7 +635,6 @@ test('single-use atomic burn: invalid-first, sequential second, concurrent, reen
     assert.equal(fake.queries.length, 0);
   }
 
-  // sequential second after success
   {
     const fake = createFakePinnedClient();
     const prep = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: fake.client }));
@@ -583,7 +647,6 @@ test('single-use atomic burn: invalid-first, sequential second, concurrent, reen
     assert.equal(fake.queries.length, n);
   }
 
-  // concurrent: both scheduled; only one succeeds
   {
     const fake = createFakePinnedClient();
     const prep = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: fake.client }));
@@ -597,7 +660,6 @@ test('single-use atomic burn: invalid-first, sequential second, concurrent, reen
     assert.equal(failSanitized(rejected[0].reason), true);
   }
 
-  // reentrant: second call from inside query after burn of method
   {
     let reentered = false;
     let prep;
@@ -616,12 +678,31 @@ test('single-use atomic burn: invalid-first, sequential second, concurrent, reen
     };
     prep = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: wrapped }));
     const ack = await prep.prepareDisabledDelegatedEndpoint(goodInput());
-    assert.equal(ack.status, 'prepared');
+    assert.equal(ack.endpointId, ENDPOINT_ID);
     assert.equal(reentered, true);
   }
 });
 
-// ── Location / tenant / preexisting ─────────────────────────────────────────
+// ── Location / tenant / preexisting / hostile client ────────────────────────
+
+test('rejects hostile wrong/cross-tenant clientId (prove fails, rollback, no insert)', async () => {
+  const fake = createFakePinnedClient();
+  const prep = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: fake.client }));
+  await assert.rejects(
+    () => prep.prepareDisabledDelegatedEndpoint(goodInput({ clientId: HOSTILE_CLIENT_ID })),
+    failSanitized,
+  );
+  assert.equal(fake.getTx(), 'rolled_back');
+  assert.equal(fake.getCommitted().inserted, null);
+  assert.equal(fake.queries.some((q) => /INSERT/i.test(q.text)), false);
+  // Prove SQL received hostile id as $1 (never trusted without slug match).
+  const prove = fake.queries.find((q) => isProve(q.text));
+  assert.ok(prove);
+  assert.deepEqual(prove.params, [HOSTILE_CLIENT_ID]);
+  function isProve(t) {
+    return /FROM\s+clients/i.test(t) && /slug\s*=\s*'sunset'/i.test(t) && /id\s*=\s*\$1::uuid/i.test(t);
+  }
+});
 
 test('rejects unknown/inactive location and missing sunset client (rollback, no insert)', async () => {
   {
@@ -649,7 +730,7 @@ test('rejects unknown/inactive location and missing sunset client (rollback, no 
     const fake = createFakePinnedClient({
       clientRows: [
         { client_id: CLIENT_ID },
-        { client_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+        { client_id: HOSTILE_CLIENT_ID },
       ],
     });
     const prep = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: fake.client }));
@@ -702,7 +783,6 @@ test('SQLSTATE 23505 on insert → sanitized failure + rollback; no partial comm
   assert.equal(fake.getTx(), 'rolled_back');
   assert.equal(fake.getCommitted().inserted, null);
   const err = await prep.prepareDisabledDelegatedEndpoint(goodInput()).catch((e) => e);
-  // already burned
   assert.equal(failSanitized(err), true);
 });
 
@@ -753,7 +833,6 @@ test('commit ambiguity: never ROLLBACK after COMMIT attempt', async () => {
   );
   const rollbacks = fake.queries.filter((q) => /^\s*ROLLBACK\b/i.test(q.text));
   assert.equal(rollbacks.length, 0);
-  // COMMIT was attempted
   assert.equal(fake.queries.some((q) => /^\s*COMMIT\b/i.test(q.text)), true);
 });
 
@@ -774,7 +853,6 @@ test('SQL text forces delegated modes and null identity/secret; no registry requ
   assert.match(SQL_INSERT_ENDPOINT, /'microsoft_graph'/);
   assert.match(SQL_INSERT_ENDPOINT, /'email'/);
   assert.match(SQL_INSERT_ENDPOINT, /false,\s*false,\s*'off',\s*false/);
-  // No secret_ref bound param — NULL literal in column list position.
   const insertIdx = SQL_INSERT_ENDPOINT.indexOf('VALUES');
   const values = SQL_INSERT_ENDPOINT.slice(insertIdx);
   assert.match(values, /NULL,\s*NULL,\s*\$4::jsonb/);
@@ -793,6 +871,74 @@ test('error messages never include mailbox or raw SQL state text', async () => {
   assertNoSensitive(err.stack || '');
 });
 
+// ── Migration 062 static gates ──────────────────────────────────────────────
+
+test('migration 062: named CHECK + preflight + down safety (static)', () => {
+  const up = fs.readFileSync(path.join(ROOT, MIG_UP_REL), 'utf8');
+  const down = fs.readFileSync(path.join(ROOT, MIG_DOWN_REL), 'utf8');
+
+  // DROP NOT NULL only together with named fail-closed CHECK.
+  assert.match(up, /ALTER COLUMN secret_ref DROP NOT NULL/);
+  assert.match(up, /ADD CONSTRAINT tenant_channel_endpoints_secret_ref_null_policy/);
+  assert.match(up, /tenant_channel_endpoints_secret_ref_null_policy/);
+
+  // Delegated triple requires NULL secret_ref (all lifecycle — no binding_status filter).
+  // IS NOT DISTINCT FROM closes NULL three-valued CHECK holes for legacy modes.
+  assert.match(up, /provider = 'microsoft_graph'/);
+  assert.match(up, /auth_mode IS NOT DISTINCT FROM 'delegated_authorization_code'/);
+  assert.match(up, /connector_mode IS NOT DISTINCT FROM 'microsoft_delegated_oauth'/);
+  assert.match(up, /\(secret_ref IS NULL\) = \(/);
+  assert.equal(/binding_status/.test(up), false);
+
+  // Preflight fails rather than silently permits invalid rows.
+  assert.match(up, /RAISE EXCEPTION/);
+  assert.match(up, /refuse silent permit|violate secret_ref nullability/i);
+  assert.match(up, /IF EXISTS/);
+
+  // Down: fail if null remains, drop named check, then SET NOT NULL.
+  assert.match(down, /secret_ref IS NULL/);
+  assert.match(down, /RAISE EXCEPTION/);
+  assert.match(down, /DROP CONSTRAINT IF EXISTS tenant_channel_endpoints_secret_ref_null_policy/);
+  assert.match(down, /ALTER COLUMN secret_ref SET NOT NULL/);
+  // Order: null preflight before SET NOT NULL; constraint drop before SET NOT NULL.
+  const downNullIdx = down.indexOf('secret_ref IS NULL');
+  const downDropIdx = down.indexOf('DROP CONSTRAINT IF EXISTS tenant_channel_endpoints_secret_ref_null_policy');
+  const downNotNullIdx = down.indexOf('ALTER COLUMN secret_ref SET NOT NULL');
+  assert.ok(downNullIdx > 0 && downDropIdx > downNullIdx && downNotNullIdx > downDropIdx);
+
+  // Not a global nullable free-for-all: CHECK encodes both sides of policy.
+  assert.ok(up.includes('DROP NOT NULL'));
+  assert.ok(up.includes('ADD CONSTRAINT'));
+  // Up must not merely drop NOT NULL without the policy constraint.
+  const dropIdx = up.indexOf('DROP NOT NULL');
+  const checkIdx = up.indexOf('tenant_channel_endpoints_secret_ref_null_policy');
+  assert.ok(checkIdx > 0);
+  // Constraint definition appears after DROP (paired in same migration).
+  assert.ok(up.indexOf('ADD CONSTRAINT tenant_channel_endpoints_secret_ref_null_policy') > dropIdx);
+
+  // Manifest checksums match live files.
+  const {
+    checksumMigrationFile,
+    CHECKSUM_MODE_CANONICAL_LF_V1,
+    loadManifest,
+    forwardEntries,
+  } = require('./lib/migration-integrity');
+  const manifest = loadManifest();
+  const upEntry = manifest.entries.find((e) => e.id === '062_tenant_channel_endpoint_secret_ref_nullable');
+  const downEntry = manifest.entries.find((e) => e.id === '062_tenant_channel_endpoint_secret_ref_nullable_down');
+  assert.ok(upEntry && downEntry);
+  const upHash = checksumMigrationFile(path.join(ROOT, MIG_UP_REL), CHECKSUM_MODE_CANONICAL_LF_V1);
+  const downHash = checksumMigrationFile(path.join(ROOT, MIG_DOWN_REL), CHECKSUM_MODE_CANONICAL_LF_V1);
+  assert.equal(upEntry.sha256, upHash.sha256);
+  assert.equal(downEntry.sha256, downHash.sha256);
+  assert.equal(upEntry.inForwardChain, true);
+  assert.equal(downEntry.inForwardChain, false);
+  const fwd = forwardEntries(manifest);
+  assert.ok(fwd.some((e) => e.id === '062_tenant_channel_endpoint_secret_ref_nullable'));
+  // Rationale mentions named CHECK / fail-closed.
+  assert.match(upEntry.rationale, /CHECK|null_policy|fail/i);
+});
+
 // ── Source hygiene ──────────────────────────────────────────────────────────
 
 test('source does not log addresses or raw errors', () => {
@@ -800,6 +946,10 @@ test('source does not log addresses or raw errors', () => {
   assert.equal(/\bconsole\.(log|error|info|warn|debug)\b/.test(src), false);
   assert.equal(/err\.message/.test(src), false);
   assert.equal(/publicAddress/.test(src) && /console/.test(src), false);
+  // No status/prepared ack surface in source.
+  assert.equal(/PREPARE_ACK_STATUS/.test(src), false);
+  assert.equal(/status:\s*PREPARE_ACK_STATUS|'prepared'/.test(src), false);
+  assert.equal(/ACK_KEYS\s*=\s*Object\.freeze\(\[\s*['"]status['"]/.test(src), false);
 });
 
 test('package verify script is registered', () => {
