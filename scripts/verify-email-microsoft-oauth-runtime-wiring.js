@@ -4,17 +4,19 @@
  * Hostile offline gate for Stage 6 Sunset-staging Microsoft OAuth runtime wiring.
  *
  * Proves exact DI/config shapes; full route E2E with fake HTTPS (token + OIDC
- * JWKS + Graph) and production Azure KV envelope path via Module._load SDK mocks
- * (no envelopeProvider production DI / DEPENDENCY_KEYS_WITH_ENVELOPE bypass);
- * stateful transaction+installer SQL; start body exact {location_id,endpoint_id};
- * callback consume→exchange→identity→seal→atomic install; public
- * authorization_received only after commit. Failure matrix keeps fixed
- * terminal HTML, no false success, consumed semantics, no partial DB, no raw
- * token persistence/logs. Asserts network order and no DB BEGIN across external
- * I/O. Disabled routes construct zero completing runtime deps.
+ * JWKS + Graph) via Module._load intercept of node:https before re-requiring the
+ * production staff route (no injectable native route dependency substitution) and
+ * production Azure KV envelope path via Module._load SDK mocks (no
+ * envelopeProvider production DI / DEPENDENCY_KEYS_WITH_ENVELOPE bypass);
+ * stateful transaction+installer SQL; start body exact {location_id,endpoint_id}
+ * via snapshotStartBody once; callback consume→exchange→identity→seal→atomic
+ * install; public authorization_received only after commit. Failure matrix keeps
+ * fixed terminal HTML, no false success, consumed semantics, no partial DB, no
+ * raw token persistence/logs. Asserts network order and no DB BEGIN across
+ * external I/O. Disabled routes construct zero completing runtime deps.
  *
- * Production path proof exercises the exact exported factory with a fake Azure
- * SDK client and asserts Key Vault wrap is zero until valid callback seal.
+ * Standalone runtime factory retains exact controlled native deps as its
+ * composition contract; production route always wraps node natives itself.
  *
  * No Azure/Microsoft live network. No activation/deploy/migration apply.
  */
@@ -688,16 +690,45 @@ function createMultiplexHttps(db, spec = {}) {
   return { httpsImpl, timers, cryptoBag, calls };
 }
 
+/**
+ * Load production staff OAuth routes with Module._load intercept for https
+ * (and node:https) BEFORE require — same offline pattern as Azure SDK mocks.
+ * Production route has no injectable native dependency keys; it always wraps
+ * the module-level require('https') / require('crypto') / global timers.
+ * After the route module captures the mock, Module._load is restored.
+ */
+function loadStaffRoutesWithHttpsMock(httpsImpl) {
+  const realLoad = Module._load;
+  const routePath = require.resolve('./lib/staff-email-oauth-routes');
+  const mockHttps = Object.freeze({
+    request(...args) {
+      return Reflect.apply(httpsImpl.request, httpsImpl, args);
+    },
+  });
+  Module._load = function interceptHttps(request, parent, isMain) {
+    if (request === 'https' || request === 'node:https') {
+      return mockHttps;
+    }
+    return realLoad(request, parent, isMain);
+  };
+  delete require.cache[routePath];
+  try {
+    return require('./lib/staff-email-oauth-routes');
+  } finally {
+    Module._load = realLoad;
+  }
+}
+
 function buildRoutes(env, db, httpsBundle, extraDeps = {}) {
-  return createStaffEmailOAuthRoutes({
+  // Route tests that need Microsoft network mock the https module via
+  // Module._load — never via production route dependency substitution.
+  const routesMod = loadStaffRoutesWithHttpsMock(httpsBundle.httpsImpl);
+  return routesMod.createStaffEmailOAuthRoutes({
     runtimeEnv: env,
     sendJSON,
     assertStaffClientAccess() { return true; },
     authorizeAuthenticatedStaffRoute() { return { ok: true }; },
     withPgClient: async (fn) => fn(db.client),
-    oauthHttps: httpsBundle.httpsImpl,
-    oauthCrypto: httpsBundle.cryptoBag,
-    oauthTimers: httpsBundle.timers,
     ...extraDeps.routeDeps,
   });
 }
@@ -758,10 +789,19 @@ test('routes wire completing runtime behind callback flag; start binds endpoint'
   assert.match(routesSrc, /pending_manual_validation/);
   assert.match(routesSrc, /endpointId/);
   assert.match(routesSrc, /e\.id = \$2::uuid/);
+  assert.match(routesSrc, /snapshotStartBody/);
+  assert.match(routesSrc, /snapshotResolveQueryResult/);
+  assert.match(routesSrc, /productionNativeSurfaces/);
   assert.equal(routesSrc.includes('createMicrosoftOAuthCallbackService'), false);
   assert.equal(routesSrc.includes('oauthEnvelopeProvider'), false);
   assert.equal(routesSrc.includes('DEPENDENCY_KEYS_WITH_ENVELOPE'), false);
   assert.equal(routesSrc.includes('envelopeProvider'), false);
+  // Production route must not accept native network DI substitution.
+  assert.equal(routesSrc.includes('oauthHttps'), false);
+  assert.equal(routesSrc.includes('oauthCrypto'), false);
+  assert.equal(routesSrc.includes('oauthTimers'), false);
+  assert.equal(routesSrc.includes('nativeRuntimeSurfaces'), false);
+  assert.equal(routesSrc.includes('readStartBody'), false);
   assert.match(routesSrc, /isStartEnabled/);
   assert.match(routesSrc, /isCallbackEnabled/);
   const libSrc = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8');
@@ -775,6 +815,13 @@ test('routes wire completing runtime behind callback flag; start binds endpoint'
   assert.equal(libSrc.includes('DEPENDENCY_KEYS_WITH_ENVELOPE'), false);
   assert.match(libSrc, /exactOrderedFrozenData\(dependencies, DEPENDENCY_KEYS\)/);
   assert.equal(/ownData\(dependencies,\s*'envelopeProvider'\)/.test(libSrc), false);
+  // Offline verifier uses Module._load for https — not route DI keys.
+  const verifySrc = fs.readFileSync(path.join(ROOT, VERIFY_REL), 'utf8');
+  assert.match(verifySrc, /function loadStaffRoutesWithHttpsMock/);
+  assert.match(verifySrc, /loadStaffRoutesWithHttpsMock\(httpsBundle\.httpsImpl\)/);
+  assert.equal(/oauthHttps\s*:\s*httpsBundle/.test(verifySrc), false);
+  assert.equal(/oauthCrypto\s*:\s*httpsBundle/.test(verifySrc), false);
+  assert.equal(/oauthTimers\s*:\s*httpsBundle/.test(verifySrc), false);
 });
 
 // ── Factory readiness / DI ─────────────────────────────────────────────────

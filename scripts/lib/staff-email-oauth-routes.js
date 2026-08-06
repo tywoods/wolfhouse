@@ -23,6 +23,9 @@ const UUID_RE_CI = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const LOCATION_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** Exact ordered own-data start body keys (location_id then endpoint_id). */
 const START_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
+/** Exact ordered own-data resolve SQL row keys (matches SELECT aliases / order). */
+const RESOLVE_ROW_KEYS = Object.freeze(['client_id', 'location_id', 'endpoint_id']);
+const RESOLVE_ROW_KEY_SET = new Set(RESOLVE_ROW_KEYS);
 
 /**
  * One tenant-safe resolve: Sunset client + active location + exact eligible
@@ -53,19 +56,21 @@ SELECT c.id::text AS client_id,
    AND btrim(e.public_address) <> ''`.replace(/\s+/g, ' ').trim();
 
 /**
- * Descriptor-safe exact ordered own-data start body:
- * { location_id, endpoint_id } only — no symbols/accessors/extras/unsafe protos.
- * location_id: canonical slug; endpoint_id: canonical lowercase UUID.
+ * Descriptor-safe start body snapshot: all reflection once.
+ * Exact ordered own-data { location_id, endpoint_id } only —
+ * no symbols/accessors/extras/unsafe protos. Each descriptor value is read
+ * exactly once; returns a fresh frozen snapshot or null.
+ * Never re-reads the caller after return (handler must not validate-then-reread).
  */
-function validBody(body) {
+function snapshotStartBody(body) {
   try {
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
     const proto = Object.getPrototypeOf(body);
-    if (proto !== Object.prototype && proto !== null) return false;
+    if (proto !== Object.prototype && proto !== null) return null;
     const actual = Reflect.ownKeys(body);
-    if (actual.length !== START_BODY_KEYS.length) return false;
+    if (actual.length !== START_BODY_KEYS.length) return null;
     for (let i = 0; i < START_BODY_KEYS.length; i += 1) {
-      if (actual[i] !== START_BODY_KEYS[i] || typeof actual[i] !== 'string') return false;
+      if (actual[i] !== START_BODY_KEYS[i] || typeof actual[i] !== 'string') return null;
     }
     const out = Object.create(null);
     for (const key of START_BODY_KEYS) {
@@ -75,79 +80,167 @@ function validBody(body) {
           || descriptor.get
           || descriptor.set
           || !descriptor.enumerable) {
-        return false;
+        return null;
       }
+      // Read descriptor.value exactly once per key.
       out[key] = descriptor.value;
     }
     if (typeof out.location_id !== 'string' || !LOCATION_SLUG_RE.test(out.location_id)) {
-      return false;
+      return null;
     }
     if (typeof out.endpoint_id !== 'string' || !UUID_RE.test(out.endpoint_id)) {
-      return false;
+      return null;
     }
     // Canonical lowercase UUID only (reject uppercase mixed forms).
-    if (out.endpoint_id !== out.endpoint_id.toLowerCase()) return false;
-    return true;
+    if (out.endpoint_id !== out.endpoint_id.toLowerCase()) return null;
+    return Object.freeze({
+      location_id: out.location_id,
+      endpoint_id: out.endpoint_id,
+    });
   } catch {
-    return false;
+    return null;
   }
 }
 
-function readStartBody(body) {
-  if (!validBody(body)) return null;
-  // Re-read only after validBody confirmed own-data descriptors; values stable.
-  return Object.freeze({
-    location_id: Object.getOwnPropertyDescriptor(body, 'location_id').value,
-    endpoint_id: Object.getOwnPropertyDescriptor(body, 'endpoint_id').value,
-  });
+/** Compatibility wrapper — never use for validate-then-reread in the handler. */
+function validBody(body) {
+  return Boolean(snapshotStartBody(body));
 }
 
-function ordinaryRow(row) {
+/**
+ * Exact own-data resolve row surface: Object.prototype or null only;
+ * exact ordered keys client_id, location_id, endpoint_id; enumerable data
+ * descriptors only; each value read once. Returns fresh frozen null-proto
+ * record or null.
+ */
+function snapshotExactResolveRow(row) {
   try {
-    if (!row || typeof row !== 'object' || Array.isArray(row)) return false;
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
     const proto = Object.getPrototypeOf(row);
-    if (proto !== Object.prototype && proto !== null) return false;
-    return true;
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(row);
+    if (actual.length !== RESOLVE_ROW_KEYS.length) return null;
+    for (let i = 0; i < RESOLVE_ROW_KEYS.length; i += 1) {
+      if (actual[i] !== RESOLVE_ROW_KEYS[i] || typeof actual[i] !== 'string') return null;
+      if (!RESOLVE_ROW_KEY_SET.has(actual[i])) return null;
+    }
+    const out = Object.create(null);
+    for (const key of RESOLVE_ROW_KEYS) {
+      const descriptor = Object.getOwnPropertyDescriptor(row, key);
+      if (!descriptor
+          || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+          || descriptor.get
+          || descriptor.set
+          || !descriptor.enumerable) {
+        return null;
+      }
+      out[key] = descriptor.value;
+    }
+    if (typeof out.client_id !== 'string' || !UUID_RE.test(out.client_id)
+        || out.client_id !== out.client_id.toLowerCase()) {
+      return null;
+    }
+    if (typeof out.location_id !== 'string' || !UUID_RE.test(out.location_id)
+        || out.location_id !== out.location_id.toLowerCase()) {
+      return null;
+    }
+    if (typeof out.endpoint_id !== 'string' || !UUID_RE.test(out.endpoint_id)
+        || out.endpoint_id !== out.endpoint_id.toLowerCase()) {
+      return null;
+    }
+    return Object.freeze({
+      client_id: out.client_id,
+      location_id: out.location_id,
+      endpoint_id: out.endpoint_id,
+    });
   } catch {
-    return false;
+    return null;
   }
 }
 
-function nativeRuntimeSurfaces(deps) {
-  // Optional test injection of native surfaces only (no envelope substitution).
-  const injectedHttps = deps && deps.oauthHttps;
-  const injectedCrypto = deps && deps.oauthCrypto;
-  const injectedTimers = deps && deps.oauthTimers;
-  const httpsSurface = injectedHttps || Object.freeze({
-    request(...args) {
-      return Reflect.apply(https.request, https, args);
-    },
-  });
-  const cryptoSurface = injectedCrypto || Object.freeze({
-    createPublicKey(...args) {
-      return Reflect.apply(crypto.createPublicKey, crypto, args);
-    },
-    verify(...args) {
-      return Reflect.apply(crypto.verify, crypto, args);
-    },
-  });
-  const timersSurface = injectedTimers || Object.freeze({
-    setTimeout(...args) {
-      return Reflect.apply(setTimeout, globalThis, args);
-    },
-    clearTimeout(...args) {
-      return Reflect.apply(clearTimeout, globalThis, args);
-    },
-  });
+/**
+ * Snapshot resolver query result before use.
+ * - result.rows must be an ordinary Array (Array.prototype), no symbol/extra keys
+ * - empty ordinary array → { kind: 'empty' } (404 path)
+ * - exact one-element ordinary array → snapshot row or { kind: 'invalid' }
+ * - multi-row / proxy / hostile → { kind: 'invalid' } (503, no insert)
+ * Never re-reads result.rows or the row after return.
+ */
+function snapshotResolveQueryResult(result) {
+  try {
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+      return Object.freeze({ kind: 'invalid' });
+    }
+    const rowsDesc = Object.getOwnPropertyDescriptor(result, 'rows');
+    if (!rowsDesc
+        || !Object.prototype.hasOwnProperty.call(rowsDesc, 'value')
+        || rowsDesc.get
+        || rowsDesc.set) {
+      return Object.freeze({ kind: 'invalid' });
+    }
+    const rows = rowsDesc.value;
+    if (!Array.isArray(rows)) return Object.freeze({ kind: 'invalid' });
+    const rowsProto = Object.getPrototypeOf(rows);
+    if (rowsProto !== Array.prototype) return Object.freeze({ kind: 'invalid' });
+    for (const key of Reflect.ownKeys(rows)) {
+      if (typeof key === 'symbol') return Object.freeze({ kind: 'invalid' });
+      if (key === 'length') continue;
+      if (!/^(0|[1-9][0-9]*)$/.test(key)) return Object.freeze({ kind: 'invalid' });
+    }
+    if (typeof rows.length !== 'number' || rows.length < 0) {
+      return Object.freeze({ kind: 'invalid' });
+    }
+    if (rows.length === 0) return Object.freeze({ kind: 'empty' });
+    if (rows.length !== 1) return Object.freeze({ kind: 'invalid' });
+
+    const indexDesc = Object.getOwnPropertyDescriptor(rows, '0');
+    if (!indexDesc
+        || !Object.prototype.hasOwnProperty.call(indexDesc, 'value')
+        || indexDesc.get
+        || indexDesc.set) {
+      return Object.freeze({ kind: 'invalid' });
+    }
+    const rowSnap = snapshotExactResolveRow(indexDesc.value);
+    if (!rowSnap) return Object.freeze({ kind: 'invalid' });
+    return Object.freeze({ kind: 'one', row: rowSnap });
+  } catch {
+    return Object.freeze({ kind: 'invalid' });
+  }
+}
+
+/**
+ * Production native surfaces only: always wrap node:https, node:crypto, and
+ * global timers captured at module load / call. Route deps cannot substitute
+ * Microsoft network or crypto (no injectable native dependency keys).
+ */
+function productionNativeSurfaces() {
   return Object.freeze({
-    https: httpsSurface,
-    crypto: cryptoSurface,
-    timers: timersSurface,
+    https: Object.freeze({
+      request(...args) {
+        return Reflect.apply(https.request, https, args);
+      },
+    }),
+    crypto: Object.freeze({
+      createPublicKey(...args) {
+        return Reflect.apply(crypto.createPublicKey, crypto, args);
+      },
+      verify(...args) {
+        return Reflect.apply(crypto.verify, crypto, args);
+      },
+    }),
+    timers: Object.freeze({
+      setTimeout(...args) {
+        return Reflect.apply(setTimeout, globalThis, args);
+      },
+      clearTimeout(...args) {
+        return Reflect.apply(clearTimeout, globalThis, args);
+      },
+    }),
   });
 }
 
-function buildCallbackRuntime(env, pg, deps) {
-  const natives = nativeRuntimeSurfaces(deps);
+function buildCallbackRuntime(env, pg) {
+  const natives = productionNativeSurfaces();
   // Production-only dependency bag: always Azure KV Sunset staging envelope
   // from validated env. Route deps cannot substitute the envelope surface.
   return createSunsetStagingMicrosoftOAuthCallbackRuntime(Object.freeze({
@@ -181,43 +274,38 @@ function createStaffEmailOAuthRoutes(deps) {
     if (!authz.ok) {
       return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
     }
-    const parsed = readStartBody(body);
-    if (!parsed) {
+    // Exactly one descriptor-safe snapshot; never validate then reread body.
+    const bodySnap = snapshotStartBody(body);
+    if (!bodySnap) {
       return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
     }
     try {
       return await deps.withPgClient(async (pg) => {
         const found = await pg.query(SQL_RESOLVE_START_BINDING, [
-          parsed.location_id,
-          parsed.endpoint_id,
+          bodySnap.location_id,
+          bodySnap.endpoint_id,
         ]);
-        const rows = found && found.rows;
-        if (!rows || rows.length === 0) {
+        // Snapshot query result once; never re-read found.rows / row fields.
+        const resolved = snapshotResolveQueryResult(found);
+        if (resolved.kind === 'empty') {
           return deps.sendJSON(res, 404, { success: false, error: 'location_not_found' });
         }
-        if (rows.length !== 1) {
-          // Ambiguous / multi-row — fail closed, no transaction insert.
+        if (resolved.kind !== 'one') {
+          // Ambiguous / multi-row / proxy / hostile row — fail closed, no insert.
           return deps.sendJSON(res, 503, { success: false, error: 'oauth_start_unavailable' });
         }
-        const row = rows[0];
-        if (!ordinaryRow(row)
-            || typeof row.client_id !== 'string'
-            || typeof row.location_id !== 'string'
-            || typeof row.endpoint_id !== 'string'
-            || !UUID_RE.test(row.client_id)
-            || !UUID_RE.test(row.location_id)
-            || !UUID_RE.test(row.endpoint_id)
-            || row.client_id !== row.client_id.toLowerCase()
-            || row.location_id !== row.location_id.toLowerCase()
-            || row.endpoint_id !== row.endpoint_id.toLowerCase()
-            || row.endpoint_id !== parsed.endpoint_id) {
+        const rowSnap = resolved.row;
+        // Endpoint must equal body snapshot; location consistency is via SQL
+        // params (slug $1 + endpoint $2) plus row UUIDs from that join.
+        if (rowSnap.endpoint_id !== bodySnap.endpoint_id) {
           return deps.sendJSON(res, 503, { success: false, error: 'oauth_start_unavailable' });
         }
         // Exact ordered transaction start INPUT_KEYS (endpointId third).
+        // Use only frozen row + body snapshots — never re-read driver row.
         const startInput = {
-          clientId: row.client_id,
-          locationId: row.location_id,
-          endpointId: row.endpoint_id,
+          clientId: rowSnap.client_id,
+          locationId: rowSnap.location_id,
+          endpointId: rowSnap.endpoint_id,
           staffUserId: user.staff_user_id,
           authSessionId: user.session_id,
         };
@@ -271,7 +359,9 @@ function createStaffEmailOAuthRoutes(deps) {
         // Completing callback only when flag true (gate above). Concrete
         // merged completion chain via runtime factory — not legacy receive-only
         // service. Construction fails closed if readiness missing.
-        const service = buildCallbackRuntime(env, pg, deps);
+        // Natives always from production wrap of node:https / node:crypto /
+        // global timers — never route DI substitution.
+        const service = buildCallbackRuntime(env, pg);
         return service.accept(query, {
           clientId: user.client_id,
           authSessionId: user.session_id,
@@ -295,7 +385,9 @@ module.exports = {
   OAUTH_CALLBACK_PATH,
   SQL_RESOLVE_START_BINDING,
   START_BODY_KEYS,
+  RESOLVE_ROW_KEYS,
   validBody,
+  snapshotStartBody,
   createStaffEmailOAuthRoutes,
   // Re-export production dependency key constant for offline verifiers (no secrets).
   RUNTIME_DEPENDENCY_KEYS: DEPENDENCY_KEYS,
