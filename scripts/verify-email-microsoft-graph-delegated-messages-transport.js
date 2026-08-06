@@ -88,6 +88,83 @@ function mockHttps(statusCode, body, headerOverrides = {}) {
   };
 }
 
+function assertNoTokenSurface(value, label) {
+  const text = typeof value === 'string'
+    ? value
+    : (() => {
+      try { return JSON.stringify(value); } catch { return String(value); }
+    })();
+  assert.equal(text.includes(TOKEN), false, `${label}: must not contain token`);
+  assert.equal(text.includes('Bearer'), false, `${label}: must not contain Bearer`);
+  assert.equal(text.includes('NEVER_LEAK'), false, `${label}: must not contain planted secret`);
+}
+
+function assertRetainedOptionsScrubbed(retained, label) {
+  assert.ok(retained, `${label}: options must have been retained by hostile request`);
+  assert.equal(Object.isFrozen(retained), false, `${label}: retained options must not be frozen`);
+  assert.ok(retained.headers, `${label}: headers object still reachable`);
+  assert.equal(Object.isFrozen(retained.headers), false, `${label}: retained headers must not be frozen`);
+  assert.equal(retained.headers.Authorization, null, `${label}: Authorization cleared`);
+  assertNoTokenSurface(retained, label);
+  assertNoTokenSurface(retained.headers, `${label} headers`);
+}
+
+/**
+ * Hostile https.request that retains the options object reference for post-call scrub proofs.
+ */
+function createRetainingHttps(behavior) {
+  let retainedOptions = null;
+  let sawTokenDuringCall = false;
+  let callbackInvocations = 0;
+
+  function request(options, onResponse) {
+    retainedOptions = options;
+    sawTokenDuringCall = Boolean(
+      options
+      && options.headers
+      && typeof options.headers.Authorization === 'string'
+      && options.headers.Authorization.includes(TOKEN),
+    );
+    if (behavior === 'throw') {
+      throw new Error(`planted-request-throw-${PLANTED}`);
+    }
+    const req = new EventEmitter();
+    req.destroy = () => {};
+    if (behavior === 'hang') {
+      req.end = () => {};
+      return req;
+    }
+    const response = new EventEmitter();
+    response.statusCode = 200;
+    Object.defineProperty(response, 'headers', {
+      value: { 'content-type': 'application/json' },
+      enumerable: true,
+      configurable: true,
+    });
+    response.destroy = () => {};
+    req.end = () => {
+      queueMicrotask(() => {
+        callbackInvocations += 1;
+        onResponse(response);
+        if (behavior === 'async-error') {
+          response.emit('error', new Error(`planted-async-${PLANTED}`));
+          return;
+        }
+        response.emit('data', Buffer.from(JSON.stringify({ value: [] }), 'utf8'));
+        response.emit('end');
+      });
+    };
+    return req;
+  }
+
+  return {
+    request,
+    getRetainedOptions: () => retainedOptions,
+    sawTokenDuringCall: () => sawTokenDuringCall,
+    callbackInvocations: () => callbackInvocations,
+  };
+}
+
 async function main() {
   const logged = [];
   const log = console.log;
@@ -230,6 +307,77 @@ async function main() {
       () => createMicrosoftGraphDelegatedMessagesTransport({ httpsImpl: 'nope' }),
       (e) => e.code === FAILURE_CODE && noLeak(e),
     );
+
+    // --- Access-token lifetime: hostile request retains options; must be scrubbed ---
+
+    // 1) Request creation success: scrubbed synchronously after https.request returns.
+    {
+      let timeoutFn = null;
+      const hostile = createRetainingHttps('hang');
+      const hangPromise = createMicrosoftGraphDelegatedMessagesTransport({
+        httpsImpl: hostile.request,
+        timers: {
+          setTimeout: (fn) => { timeoutFn = fn; return 1; },
+          clearTimeout: () => {},
+        },
+      }).listMessageEnvelopeCount({ accessToken: TOKEN });
+      assert.equal(hostile.sawTokenDuringCall(), true, 'token present only during request call');
+      assertRetainedOptionsScrubbed(hostile.getRetainedOptions(), 'after request creation');
+      assert.equal(typeof timeoutFn, 'function');
+      timeoutFn();
+      await assert.rejects(hangPromise, (error) => error.code === FAILURE_CODE && noLeak(error));
+      assertRetainedOptionsScrubbed(hostile.getRetainedOptions(), 'after timeout');
+      assertNoTokenSurface(
+        hostile.getRetainedOptions() && hostile.getRetainedOptions().headers,
+        'headers after timeout',
+      );
+    }
+
+    // 2) Synchronous request throw: scrubbed in finally; error sanitized.
+    {
+      const hostile = createRetainingHttps('throw');
+      await assert.rejects(
+        () => createMicrosoftGraphDelegatedMessagesTransport({
+          httpsImpl: hostile.request,
+          timers: { setTimeout, clearTimeout },
+        }).listMessageEnvelopeCount({ accessToken: TOKEN }),
+        (error) => error.code === FAILURE_CODE && noLeak(error) && !String(error).includes(TOKEN),
+      );
+      assert.equal(hostile.sawTokenDuringCall(), true);
+      assertRetainedOptionsScrubbed(hostile.getRetainedOptions(), 'after sync throw');
+    }
+
+    // 3) Asynchronous Graph success: scrubbed before response callback; DTO clean.
+    {
+      const hostile = createRetainingHttps('success');
+      const graphInput = { accessToken: TOKEN };
+      const ok = await createMicrosoftGraphDelegatedMessagesTransport({
+        httpsImpl: hostile.request,
+        timers: { setTimeout, clearTimeout },
+      }).listMessageEnvelopeCount(graphInput);
+      assert.deepEqual(ok, { message_count_bounded: 0 });
+      assert.equal(Object.isFrozen(ok), true);
+      assertNoTokenSurface(ok, 'success DTO');
+      assert.equal(hostile.callbackInvocations(), 1);
+      assertRetainedOptionsScrubbed(hostile.getRetainedOptions(), 'after async success');
+      // Caller input is not mutated by transport (orchestrator clears its own bag).
+      assert.equal(graphInput.accessToken, TOKEN);
+    }
+
+    // 4) Asynchronous error path: scrubbed; callback/errors clean.
+    {
+      const hostile = createRetainingHttps('async-error');
+      await assert.rejects(
+        () => createMicrosoftGraphDelegatedMessagesTransport({
+          httpsImpl: hostile.request,
+          timers: { setTimeout, clearTimeout },
+        }).listMessageEnvelopeCount({ accessToken: TOKEN }),
+        (error) => error.code === FAILURE_CODE && noLeak(error),
+      );
+      assert.equal(hostile.callbackInvocations(), 1);
+      assertRetainedOptionsScrubbed(hostile.getRetainedOptions(), 'after async error');
+    }
+
     assert.deepEqual(logged, []);
   } finally {
     console.log = log;

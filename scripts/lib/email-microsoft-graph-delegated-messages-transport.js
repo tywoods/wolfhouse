@@ -60,6 +60,18 @@ const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy ==
   ? PINNED_UTIL_TYPES.isProxy
   : null;
 
+/** Frozen non-secret Graph request constants (never includes Authorization). */
+const GRAPH_REQUEST_CONSTANTS = Object.freeze({
+  protocol: 'https:',
+  hostname: HOST,
+  host: HOST,
+  port: 443,
+  method: 'GET',
+  path: PATH,
+  agent: false,
+});
+const ACCEPT_HEADER = 'application/json';
+
 function failure() {
   const error = new Error(FAILURE_MESSAGE);
   Object.defineProperty(error, 'name', { value: 'MicrosoftGraphDelegatedMessagesError' });
@@ -424,8 +436,8 @@ function createMicrosoftGraphDelegatedMessagesTransport(dependencies = {}) {
   function listMessageEnvelopeCount(input) {
     if (used) return Promise.reject(failure());
     used = true;
-    const accessToken = readAccessToken(input);
-    if (accessToken === null) return Promise.reject(failure());
+    let tokenOwner = readAccessToken(input);
+    if (tokenOwner === null) return Promise.reject(failure());
 
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -463,97 +475,129 @@ function createMicrosoftGraphDelegatedMessagesTransport(dependencies = {}) {
         finish(error);
       };
 
+      // Response path must not close over token / Authorization / token-bearing options.
+      const onResponse = (response) => {
+        if (isProxySurface(response)) {
+          if (settled) return;
+          destroyRequest();
+          finish(failure());
+          return;
+        }
+        if (settled) {
+          activeResponse = response;
+          destroyResponse();
+          return;
+        }
+        activeResponse = response;
+        try {
+          const status = ownData(response, 'statusCode');
+          const headers = readResponseHeaders(response);
+          const contentType = headers && typeof headers === 'object'
+            ? ownData(headers, 'content-type') : undefined;
+          if (status !== 200) { terminate(failure()); return; }
+          if (typeof contentType !== 'string'
+              || !/^application\/json(?:\s*;|$)/i.test(contentType)) {
+            terminate(failure());
+            return;
+          }
+          if (typeof response.on !== 'function' || typeof response.once !== 'function') {
+            terminate(failure());
+            return;
+          }
+          const chunks = [];
+          let bytes = 0;
+          let ended = false;
+          response.on('data', (chunk) => {
+            if (settled) return;
+            if (!Buffer.isBuffer(chunk)) { terminate(failure()); return; }
+            if (chunk.length > RESPONSE_CAP_BYTES - bytes) { terminate(failure()); return; }
+            bytes += chunk.length;
+            chunks.push(chunk);
+          });
+          response.once('error', () => terminate(failure()));
+          response.once('aborted', () => terminate(failure()));
+          response.once('close', () => { if (!ended) terminate(failure()); });
+          response.once('end', () => {
+            if (settled) return;
+            ended = true;
+            try {
+              const count = countBoundedMessageEnvelopes(
+                Buffer.concat(chunks, bytes).toString('utf8'),
+              );
+              if (count === null) { finish(failure()); return; }
+              finish(null, Object.freeze({ message_count_bounded: count }));
+            } catch {
+              finish(failure());
+            }
+          });
+        } catch {
+          terminate(failure());
+        }
+      };
+
       try {
         timerHandle = setTimer(() => terminate(failure()), DEADLINE_MS);
         timerAcquired = true;
         if (settled) clearDeadline();
       } catch {
+        tokenOwner = null;
         finish(failure());
         return;
       }
-      if (settled) return;
+      if (settled) {
+        tokenOwner = null;
+        return;
+      }
 
       try {
-        requestObject = requestFn(Object.freeze({
-          protocol: 'https:',
-          hostname: HOST,
-          host: HOST,
-          port: 443,
-          method: 'GET',
-          path: PATH,
-          agent: false,
-          headers: Object.freeze({
-            Accept: 'application/json',
-            Authorization: ['Bearer', accessToken].join(' '),
-          }),
-        }), (response) => {
-          if (isProxySurface(response)) {
-            if (settled) return;
-            destroyRequest();
-            finish(failure());
-            return;
-          }
-          if (settled) {
-            activeResponse = response;
-            destroyResponse();
-            return;
-          }
-          activeResponse = response;
+        // Isolate token/Authorization to this call site; scrub immediately after
+        // https.request returns or throws (Node reads options synchronously).
+        (function issueRequest(tokenForRequest) {
+          let requestHeaders = {
+            Accept: ACCEPT_HEADER,
+            Authorization: null,
+          };
+          let authorization = null;
+          let requestOptions = null;
           try {
-            const status = ownData(response, 'statusCode');
-            const headers = readResponseHeaders(response);
-            const contentType = headers && typeof headers === 'object'
-              ? ownData(headers, 'content-type') : undefined;
-            if (status !== 200) { terminate(failure()); return; }
-            if (typeof contentType !== 'string'
-                || !/^application\/json(?:\s*;|$)/i.test(contentType)) {
-              terminate(failure());
-              return;
-            }
-            if (typeof response.on !== 'function' || typeof response.once !== 'function') {
-              terminate(failure());
-              return;
-            }
-            const chunks = [];
-            let bytes = 0;
-            let ended = false;
-            response.on('data', (chunk) => {
-              if (settled) return;
-              if (!Buffer.isBuffer(chunk)) { terminate(failure()); return; }
-              if (chunk.length > RESPONSE_CAP_BYTES - bytes) { terminate(failure()); return; }
-              bytes += chunk.length;
-              chunks.push(chunk);
-            });
-            response.once('error', () => terminate(failure()));
-            response.once('aborted', () => terminate(failure()));
-            response.once('close', () => { if (!ended) terminate(failure()); });
-            response.once('end', () => {
-              if (settled) return;
-              ended = true;
-              try {
-                const count = countBoundedMessageEnvelopes(
-                  Buffer.concat(chunks, bytes).toString('utf8'),
-                );
-                if (count === null) { finish(failure()); return; }
-                finish(null, Object.freeze({ message_count_bounded: count }));
-              } catch {
-                finish(failure());
-              }
-            });
-          } catch {
-            terminate(failure());
+            authorization = ['Bearer', tokenForRequest].join(' ');
+            tokenForRequest = null;
+            requestHeaders.Authorization = authorization;
+            requestOptions = {
+              protocol: GRAPH_REQUEST_CONSTANTS.protocol,
+              hostname: GRAPH_REQUEST_CONSTANTS.hostname,
+              host: GRAPH_REQUEST_CONSTANTS.host,
+              port: GRAPH_REQUEST_CONSTANTS.port,
+              method: GRAPH_REQUEST_CONSTANTS.method,
+              path: GRAPH_REQUEST_CONSTANTS.path,
+              agent: GRAPH_REQUEST_CONSTANTS.agent,
+              headers: requestHeaders,
+            };
+            requestObject = requestFn(requestOptions, onResponse);
+          } finally {
+            try {
+              if (requestHeaders) requestHeaders.Authorization = null;
+            } catch { /* */ }
+            requestHeaders = null;
+            authorization = null;
+            requestOptions = null;
+            tokenForRequest = null;
           }
-        });
-        if (!requestObject || typeof requestObject.once !== 'function'
-            || typeof requestObject.end !== 'function') {
-          terminate(failure());
-          return;
-        }
-        requestObject.once('error', () => terminate(failure()));
-        requestObject.end();
+        }(tokenOwner));
+        tokenOwner = null;
       } catch {
+        tokenOwner = null;
         terminate(failure());
+        return;
       }
+
+      if (!requestObject || typeof requestObject.once !== 'function'
+          || typeof requestObject.end !== 'function') {
+        terminate(failure());
+        return;
+      }
+      requestObject.once('error', () => terminate(failure()));
+      requestObject.end();
     });
   }
 
