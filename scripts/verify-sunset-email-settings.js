@@ -173,8 +173,8 @@ function eligibleRow(patch = {}) {
   });
 
   await test('prepare path exact; start requires endpoint_id; no location-only start body', () => {
-    // Exact originally specified prepare path (not under /oauth/ — prepare is endpoint create).
-    assert.strictEqual(OAUTH_PREPARE_PATH, '/staff/admin/email-settings/microsoft/prepare');
+    // Exact originally specified prepare path.
+    assert.strictEqual(OAUTH_PREPARE_PATH, '/staff/admin/email-settings/oauth/microsoft/endpoint');
     assert.strictEqual(OAUTH_START_PATH, '/staff/admin/email-settings/oauth/microsoft/start');
     // Both wrong prepare paths must not be the live contract (no aliases).
     assert.notStrictEqual(
@@ -318,7 +318,7 @@ function eligibleRow(patch = {}) {
     assert.ok(/data-email-connect=["']prepare["']/.test(src));
     assert.ok(/data-email-connect=["']connect["']/.test(src));
     assert.ok(/data-email-prepare-address/.test(src));
-    assert.ok(src.includes('/staff/admin/email-settings/microsoft/prepare'));
+    assert.ok(src.includes('/staff/admin/email-settings/oauth/microsoft/endpoint'));
     assert.ok(!src.includes('/staff/admin/email-settings/oauth/microsoft/prepare'));
     assert.ok(!src.includes('/staff/admin/email-settings/microsoft/endpoint/prepare'));
     assert.ok(src.includes('/staff/admin/email-settings/oauth/microsoft/start'));
@@ -353,7 +353,7 @@ function eligibleRow(patch = {}) {
       window: { location: { assign(url) { sandbox._assigned = url; } } },
       fetch(url, opts) {
         calls.push({ url, body: opts && opts.body, method: opts && opts.method });
-        if (String(url) === '/staff/admin/email-settings/microsoft/prepare') {
+        if (String(url) === '/staff/admin/email-settings/oauth/microsoft/endpoint') {
           return Promise.resolve({
             ok: true,
             json: async () => ({ success: true, endpoint_id: ENDPOINT_ID }),
@@ -380,7 +380,7 @@ function eligibleRow(patch = {}) {
     return sandbox.postMicrosoftEndpointPrepare(LOCATION, MAILBOX)
       .then((id) => {
         assert.strictEqual(id, ENDPOINT_ID);
-        assert.strictEqual(calls[0].url, '/staff/admin/email-settings/microsoft/prepare');
+        assert.strictEqual(calls[0].url, '/staff/admin/email-settings/oauth/microsoft/endpoint');
         assert.strictEqual(calls[0].body, JSON.stringify({ location_id: LOCATION, public_address: MAILBOX }));
         return sandbox.postMicrosoftOAuthStart(LOCATION, id);
       })
@@ -438,7 +438,7 @@ function eligibleRow(patch = {}) {
     ];
     const wrongOauth = '/staff/admin/email-settings/oauth/microsoft/prepare';
     const wrongEndpoint = '/staff/admin/email-settings/microsoft/endpoint/prepare';
-    const exact = '/staff/admin/email-settings/microsoft/prepare';
+    const exact = '/staff/admin/email-settings/oauth/microsoft/endpoint';
     for (const file of prodFiles) {
       const src = fs.readFileSync(file, 'utf8');
       assert.ok(!src.includes(wrongOauth), `wrong oauth path in ${file}`);
@@ -459,7 +459,7 @@ function eligibleRow(patch = {}) {
   await test('both wrong prepare paths unregistered/404 with zero effects', async () => {
     const wrongOauth = '/staff/admin/email-settings/oauth/microsoft/prepare';
     const wrongEndpoint = '/staff/admin/email-settings/microsoft/endpoint/prepare';
-    const exact = '/staff/admin/email-settings/microsoft/prepare';
+    const exact = '/staff/admin/email-settings/oauth/microsoft/endpoint';
     assert.notStrictEqual(OAUTH_PREPARE_PATH, wrongOauth);
     assert.notStrictEqual(OAUTH_PREPARE_PATH, wrongEndpoint);
     assert.strictEqual(OAUTH_PREPARE_PATH, exact);
@@ -638,7 +638,7 @@ function eligibleRow(patch = {}) {
     const source = require('./lib/sunset-admin-browser-source').getSunsetAdminUiBrowserSource();
     assert.ok(source.includes('loadAdminEmailSettings'));
     assert.ok(source.includes('postMicrosoftEndpointPrepare') || source.includes('data-email-connect'));
-    assert.ok(source.includes('/staff/admin/email-settings/microsoft/prepare'));
+    assert.ok(source.includes('/staff/admin/email-settings/oauth/microsoft/endpoint'));
     assert.ok(!source.includes('/staff/admin/email-settings/oauth/microsoft/prepare'));
     assert.ok(!source.includes('/staff/admin/email-settings/microsoft/endpoint/prepare'));
     require('./lib/staff-portal-i18n');
