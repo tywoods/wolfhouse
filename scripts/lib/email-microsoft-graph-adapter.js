@@ -117,7 +117,15 @@ const GRAPH_MESSAGE_SELECT = Object.freeze([
   'internetMessageId',
 ]);
 
-/** Mapped envelope DTO keys (fresh object per row). */
+/**
+ * Mapped envelope DTO keys (fresh object per row).
+ *
+ * LEGACY PROVIDER/TRANSPORT-ROW COMPATIBILITY SURFACE only.
+ * Canonical normalized domain envelope lives in
+ * `email-inbound-envelope-contract` (EMAIL_INBOUND_ENVELOPE_KEYS). Convert with
+ * `convertLegacyGraphTransportEnvelopeToInbound` — do not treat this DTO as a
+ * second domain meaning. Existing listMessageEnvelopes consumers keep this shape.
+ */
 const ENVELOPE_DTO_KEYS = Object.freeze([
   'id',
   'subject',
@@ -129,6 +137,9 @@ const ENVELOPE_DTO_KEYS = Object.freeze([
   'has_attachments',
   'internet_message_id',
 ]);
+
+/** Classifier: adapter list DTO is not the canonical inbound domain envelope. */
+const GRAPH_TRANSPORT_ENVELOPE_SURFACE = 'legacy_provider_transport_row_compatibility';
 
 /**
  * Exact own-data keys allowed on a transport.response object.
@@ -1140,6 +1151,7 @@ module.exports = {
   readTransportResponse,
   GRAPH_MESSAGE_SELECT,
   ENVELOPE_DTO_KEYS,
+  GRAPH_TRANSPORT_ENVELOPE_SURFACE,
   SECRET_MATERIAL_KEYS,
   ENDPOINT_REQUIRED_KEYS,
   TOKEN_SCOPE,

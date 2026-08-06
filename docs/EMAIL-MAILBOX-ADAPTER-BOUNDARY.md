@@ -1,6 +1,7 @@
-# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A + 2B + 2C + 2D + 2F-A + 2F-B + 2F-C2)
+# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A + 2B + 2C + 2D + 2F-A + 2F-B + 2F-C2 + inbound-envelope)
 
 **Status:**
+- **inbound-envelope (contract only):** provider-neutral immutable inbound email-envelope DTO + offline Microsoft Graph Mail.ReadBasic row mapper. Identity / ordering / dedup / staff-visible triage fields only. **PII fields must not be persisted or logged** until a later reviewed custody slice. No DB, runtime wiring, polling, Graph calls, OAuth scope changes, bodies, attachments, drafts, sends, deploy, or activation.
 - **1A:** provider-neutral adapter/validation contract, fake adapter, focused tests.
 - **1B:** canonical Postgres registry for tenant locations + email channel endpoints (**empty tables** on migrate; no backfill).
 - **1C-alpha:** pure domain/repository layer over those tables for future Staff API routes (**no HTTP routes**, no auth role policy, no activation, no provider connectivity, no live data or deploy).
@@ -102,6 +103,8 @@ Down: `057_tenant_locations_and_channel_endpoints_down.sql`
 
 | Layer | Owns | Must not |
 |-------|------|----------|
+| `scripts/lib/email-inbound-envelope-contract.js` | **Canonical** provider-neutral immutable inbound domain envelope (exact own enumerable data keys; calendar-safe timestamps; identity/dedup/order/tie-break; legacy Graph transport conversion); documents PII keys; **persistence/logging forbidden** until custody slice; ImmutableId required before future MS persistence | Bodies, previews, recipients, headers, attachments, links, tokens, raw provider objects; Graph/OData field names; DB/network; runtime wiring; false ImmutableId provenance |
+| `scripts/lib/email-microsoft-graph-inbound-envelope-mapper.js` | Offline mapper: approved Mail.ReadBasic row (+ optional validated/discarded `@odata.etag`) → **canonical** domain envelope; **provider + mailbox identity are explicit inputs** | Infer mailbox from row; network/Graph calls; retain etag/raw row; hasAttachments/body/uniqueBody/headers; claim ImmutableId provenance; runtime wiring |
 | `scripts/lib/email-mailbox-adapter-contract.js` | Provider id allowlist, exact eight boolean capability keys, secret-ref scheme allowlist (`kv:`, `secret-ref:`) with body secret-shape checks, public-address normalization, endpoint **write validation** requiring trusted **synchronous** out-of-band `locationAuthority` callback | Import provider SDKs; store credentials; hardcode tenant locations; invent default locations; honor authority from untrusted input; accept async/`Promise` authority |
 | `scripts/lib/email-mailbox-fake-adapter.js` | Deterministic in-memory adapter for tests (Graph/Gmail/IMAP capability *combinations* as data); `supports(unknown)` fails closed | Network I/O; production use; resolve secret values |
 | `scripts/lib/email-tenant-channel-registry.js` (1C-alpha) | Tenant-scoped list/create for `tenant_locations`; list endpoints; `createDisabledTenantChannelEndpoint`; pure `buildPreloadedLocationAuthority`; reads via `{ db }`; writes via pinned `{ client }` transaction (BEGIN guarded; no Pool); stable structured errors (`location_already_exists`, `endpoint_already_exists`, `location_not_authorized`, `transaction_client_required`, `db_error`) | HTTP routes; auth roles; enable active/inbound/outbound/automation; resolve `secret_ref`; provider SDK/network; global PG pool; Pool as write executor; upsert; leak raw PG messages |
@@ -620,6 +623,52 @@ Do **not** re-introduce unscoped Entra mail application permissions as a “roll
 
 **Coexistence warning (Microsoft Learn FAQ):** EXO Application RBAC permissions act **in addition to** Entra grants (union). Microsoft Entra permissions can only be constrained with legacy Application Access Policies. Resource-scoped access must be granted with RBAC for Applications **and** unscoped Entra organization-wide mail permissions must be removed, or effective scoping fails.
 
+## Inbound email envelope (contract slice)
+
+Modules: `scripts/lib/email-inbound-envelope-contract.js`, `scripts/lib/email-microsoft-graph-inbound-envelope-mapper.js`.
+Gate: `npm run verify:email-inbound-envelope-contract`.
+
+**Canonical normalized domain envelope** (provider-neutral, immutable) for identity, ordering, deduplication, and staff-visible triage (later Gmail/IMAP adapters reuse the same shape). This is the **single public domain meaning** of an inbound envelope.
+
+| Normalized field | Role |
+|------------------|------|
+| `provider` | `microsoft_graph` \| `gmail_api` \| `imap_smtp` |
+| `provider_mailbox_id` | Explicit mailbox identity (never inferred by the Microsoft mapper) |
+| `provider_message_id` | Provider message identity (identity tuple member) |
+| `received_at` | Canonical UTC ISO-8601 instant (impossible calendar dates rejected; no `Date.parse` rollover) |
+| `subject` | Bounded optional subject |
+| `sender_display_name` / `sender_address` | Bounded optional sender triage |
+| `is_read` | Read state |
+| `conversation_id` | Conversation/thread identity |
+| `internet_message_id` | Internet Message-ID (**metadata only** — not identity/dedup) |
+
+### Identity, dedup, order, tie-break (normative)
+
+| Rule | Definition |
+|------|------------|
+| **Identity tuple** | `(provider, provider_mailbox_id, provider_message_id)` exactly (`EMAIL_INBOUND_ENVELOPE_IDENTITY_KEYS`) |
+| **Dedup** | Two envelopes are duplicates iff identity tuples are equal. `internet_message_id` never participates. |
+| **`internet_message_id` null** | Allowed. Null does not create identity. Two nulls on the same identity tuple are still the same message; nulls on different identities do not collide. |
+| **`internet_message_id` duplicate** | The same Message-ID string may appear on distinct provider message identities (metadata only; not a dedup key). |
+| **Ordering** | `received_at` **descending** (newest first) — `EMAIL_INBOUND_ENVELOPE_ORDER_DIRECTION = received_at_desc` |
+| **Tie-break** | When `received_at` is equal: identity tuple ascending (`provider`, `provider_mailbox_id`, `provider_message_id`) |
+
+### Microsoft durable identity (ImmutableId) — future persistence gate
+
+- **Before any future persistence** of Microsoft `provider_message_id`, Graph requests must use **ImmutableId** semantics (`Prefer: IdType="ImmutableId"`). Rest IDs are not durable across moves/mailbox changes.
+- Flags: `EMAIL_INBOUND_MICROSOFT_DURABLE_IDENTITY_REQUIRES_IMMUTABLE_ID = true`; offline mapper **does not claim** ImmutableId provenance (`EMAIL_INBOUND_MICROSOFT_MAPPER_CLAIMS_IMMUTABLE_ID_PROVENANCE = false`).
+- This slice is **not runtime-wired** (`EMAIL_INBOUND_ENVELOPE_RUNTIME_WIRED = false`): no polling, routes, DB, OAuth, or activation.
+
+### Legacy Graph transport-row compatibility surface
+
+`email-microsoft-graph-adapter.js` `listMessageEnvelopes` / `ENVELOPE_DTO_KEYS` (`id`, `subject`, `from_address`, `from_name`, `received_at`, `is_read`, `conversation_id`, `has_attachments`, `internet_message_id`) is a **legacy provider/transport-row compatibility surface** (`GRAPH_TRANSPORT_ENVELOPE_SURFACE = legacy_provider_transport_row_compatibility`). It is **not** a second domain envelope. Existing adapter consumers keep that shape unchanged.
+
+**One conversion point:** `convertLegacyGraphTransportEnvelopeToInbound({ provider, provider_mailbox_id, legacy })` maps transport → canonical domain (maps `id`→`provider_message_id`, `from_*`→`sender_*`; validates then **discards** transport-only `has_attachments`).
+
+**PII keys** (`EMAIL_INBOUND_ENVELOPE_PII_KEYS`): `subject`, `sender_display_name`, `sender_address`, `internet_message_id`, `provider_message_id`, `conversation_id`, `provider_mailbox_id`. **Persistence and logging of envelope field values are forbidden** until a later reviewed custody slice (`EMAIL_INBOUND_ENVELOPE_PERSISTENCE_FORBIDDEN` / `EMAIL_INBOUND_ENVELOPE_LOGGING_FORBIDDEN`).
+
+**Excluded:** bodies, previews, recipients, headers, attachments, links, tokens, raw provider objects. Microsoft mapper accepts only the approved Mail.ReadBasic row keyset plus optional `@odata.etag` (validated then discarded). No Graph/OData names on the normalized DTO. Contract fields must be **own enumerable data** (non-enumerable keys rejected).
+
 ## Verifiers
 
 ```bash
@@ -630,6 +679,7 @@ npm run verify:email-tenant-channel-registry
 npm run prove:email-tenant-channel-registry-pg
 npm run verify:staff-email-registry-routes
 npm run verify:email-microsoft-graph-adapter
+npm run verify:email-inbound-envelope-contract
 npm run verify:email-graph-app-only-readiness
 npm run verify:email-microsoft-delegated-oauth-contract
 npm run verify:email-channel-endpoint-identity
