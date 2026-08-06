@@ -46,6 +46,8 @@ const {
   SQL_LOCK_ACTIVE_LOCATION,
   SQL_EXISTING_BY_LOCATION,
   SQL_ADVISORY_LOCK,
+  LOCK_NS_LOCATION,
+  LOCK_NS_ADDRESS,
   SQL_EXISTING_BY_ADDRESS,
   SQL_INSERT_ENDPOINT,
   createSunsetMicrosoftEndpointPrepare,
@@ -148,7 +150,8 @@ function createFakePinnedClient(spec = {}) {
   function isProveClient(t) {
     return /FROM\s+clients/i.test(t)
       && /slug\s*=\s*'sunset'/i.test(t)
-      && /id\s*=\s*\$1::uuid/i.test(t);
+      && /id\s*=\s*\$1::uuid/i.test(t)
+      && /FOR\s+UPDATE/i.test(t);
   }
   function isLockLocation(t) {
     return /FROM\s+tenant_locations/i.test(t) && /FOR\s+SHARE/i.test(t);
@@ -160,7 +163,9 @@ function createFakePinnedClient(spec = {}) {
       && !/public_address/i.test(t);
   }
   function isAdvisory(t) {
-    return /pg_advisory_xact_lock/i.test(t);
+    return /pg_advisory_xact_lock/i.test(t)
+      && /hashtext\(\$1\)/i.test(t)
+      && /hashtext\(\$2\)/i.test(t);
   }
   function isExistingAddress(t) {
     return /FROM\s+tenant_channel_endpoints/i.test(t)
@@ -185,6 +190,34 @@ function createFakePinnedClient(spec = {}) {
       };
     }
     return draft;
+  }
+
+  /** Optional shared multi-TX scheduler (location/address advisory + client row pin). */
+  const scheduler = spec.scheduler || null;
+  const heldLocks = new Set();
+  let clientRowHeld = false;
+
+  async function acquireAdvisory(lockKey) {
+    if (!scheduler) return;
+    await scheduler.acquire(lockKey, heldLocks);
+  }
+
+  function releaseAllAdvisory() {
+    if (!scheduler) return;
+    for (const key of heldLocks) scheduler.release(key);
+    heldLocks.clear();
+  }
+
+  async function pinClientRow() {
+    if (!scheduler || !scheduler.pinClientRow) return;
+    await scheduler.pinClientRow();
+    clientRowHeld = true;
+  }
+
+  function unpinClientRow() {
+    if (!scheduler || !scheduler.unpinClientRow || !clientRowHeld) return;
+    scheduler.unpinClientRow();
+    clientRowHeld = false;
   }
 
   const client = {
@@ -237,14 +270,22 @@ function createFakePinnedClient(spec = {}) {
             endpointsByAddress: draft.endpointsByAddress.slice(),
             inserted: draft.inserted ? { ...draft.inserted } : null,
           };
+          // Shared committed catalog for multi-factory proofs.
+          if (scheduler && typeof scheduler.onCommit === 'function') {
+            scheduler.onCommit(committed);
+          }
         }
         draft = null;
         tx = 'committed';
+        releaseAllAdvisory();
+        unpinClientRow();
         return { rows: [], rowCount: 0 };
       }
       if (isRollback(text)) {
         draft = null;
         tx = 'rolled_back';
+        releaseAllAdvisory();
+        unpinClientRow();
         return { rows: [], rowCount: 0 };
       }
 
@@ -252,6 +293,7 @@ function createFakePinnedClient(spec = {}) {
         if (modes.clientThrow) {
           throw Object.assign(new Error(`${LEAK} client`), { code: 'XX000' });
         }
+        await pinClientRow();
         if (Array.isArray(modes.clientRows)) {
           return { rows: modes.clientRows, rowCount: modes.clientRows.length };
         }
@@ -272,6 +314,13 @@ function createFakePinnedClient(spec = {}) {
         if (Array.isArray(modes.locationRows)) {
           return { rows: modes.locationRows, rowCount: modes.locationRows.length };
         }
+        // Multi-location shared state: accept any active location listed on scheduler.
+        if (scheduler && scheduler.isActiveLocation) {
+          if (!scheduler.isActiveLocation(p[0], p[1])) {
+            return { rows: [], rowCount: 0 };
+          }
+          return { rows: [{ location_id: p[1] }], rowCount: 1 };
+        }
         const state = view();
         if (!state.locationActive || p[1] !== state.locationId || p[0] !== state.clientId) {
           return { rows: [], rowCount: 0 };
@@ -279,9 +328,25 @@ function createFakePinnedClient(spec = {}) {
         return { rows: [{ location_id: state.locationId }], rowCount: 1 };
       }
 
+      if (isAdvisory(text)) {
+        const lockKey = String(p[1] || '');
+        await acquireAdvisory(lockKey);
+        return { rows: [{ pg_advisory_xact_lock: '' }], rowCount: 1 };
+      }
+
       if (isExistingLocation(text)) {
         if (Array.isArray(modes.byLocationRows)) {
           return { rows: modes.byLocationRows, rowCount: modes.byLocationRows.length };
+        }
+        // Read shared catalog after location lock so concurrent loser observes winner.
+        if (scheduler && scheduler.endpointsByLocation) {
+          const hits = scheduler.endpointsByLocation.filter(
+            (e) => e.client_id === p[0] && e.location_id === p[1],
+          );
+          return {
+            rows: hits.map((e) => ({ id: e.id })),
+            rowCount: hits.length,
+          };
         }
         const state = view();
         const hits = state.endpointsByLocation.filter(
@@ -293,13 +358,20 @@ function createFakePinnedClient(spec = {}) {
         };
       }
 
-      if (isAdvisory(text)) {
-        return { rows: [{ pg_advisory_xact_lock: '' }], rowCount: 1 };
-      }
-
       if (isExistingAddress(text)) {
         if (Array.isArray(modes.byAddressRows)) {
           return { rows: modes.byAddressRows, rowCount: modes.byAddressRows.length };
+        }
+        if (scheduler && scheduler.endpointsByAddress) {
+          const addr = String(p[1] || '').toLowerCase();
+          const hits = scheduler.endpointsByAddress.filter(
+            (e) => e.client_id === p[0]
+              && String(e.public_address || '').toLowerCase() === addr,
+          );
+          return {
+            rows: hits.map((e) => ({ id: e.id })),
+            rowCount: hits.length,
+          };
         }
         const state = view();
         const addr = String(p[1] || '').toLowerCase();
@@ -331,6 +403,21 @@ function createFakePinnedClient(spec = {}) {
           err.code = '23505';
           throw err;
         }
+        // Shared catalog: reject if another factory already reserved location/address.
+        if (scheduler) {
+          const locHit = (scheduler.endpointsByLocation || []).some(
+            (e) => e.client_id === p[0] && e.location_id === p[1],
+          );
+          const addrHit = (scheduler.endpointsByAddress || []).some(
+            (e) => e.client_id === p[0]
+              && String(e.public_address || '').toLowerCase() === String(p[2] || '').toLowerCase(),
+          );
+          if (locHit || addrHit) {
+            const err = new Error(`duplicate key ${LEAK_ADDR}`);
+            err.code = '23505';
+            throw err;
+          }
+        }
         state.inserted = {
           id: modes.insertId,
           client_id: p[0],
@@ -342,10 +429,12 @@ function createFakePinnedClient(spec = {}) {
         state.endpointsByLocation.push({
           id: modes.insertId,
           location_id: p[1],
+          client_id: p[0],
         });
         state.endpointsByAddress.push({
           id: modes.insertId,
           public_address: p[2],
+          client_id: p[0],
         });
         return { rows: [{ id: modes.insertId }], rowCount: 1 };
       }
@@ -359,6 +448,126 @@ function createFakePinnedClient(spec = {}) {
     queries,
     getCommitted: () => committed,
     getTx: () => tx,
+    heldLocks,
+  };
+}
+
+/**
+ * Shared advisory-lock scheduler for multi-factory concurrency proofs.
+ * Models transaction-scoped locks: acquire blocks until free; release on
+ * commit/rollback. Optional client-row pin for FOR UPDATE slug-writer tests.
+ */
+function createSharedLockScheduler(options = {}) {
+  const holders = new Map(); // lockKey -> owner token or true
+  const waiters = new Map(); // lockKey -> [{ resolve }]
+  const endpointsByLocation = [];
+  const endpointsByAddress = [];
+  const activeLocations = new Set(
+    Array.isArray(options.activeLocations)
+      ? options.activeLocations
+      : [`${CLIENT_ID}::${LOCATION_ID}`],
+  );
+  let clientRowOwner = null;
+  const clientRowWaiters = [];
+  const events = [];
+
+  function keyPair(clientId, locationId) {
+    return `${clientId}::${locationId}`;
+  }
+
+  function acquire(lockKey, heldSet) {
+    return new Promise((resolve) => {
+      if (!holders.has(lockKey)) {
+        holders.set(lockKey, true);
+        heldSet.add(lockKey);
+        events.push({ type: 'acquire', lockKey });
+        resolve();
+        return;
+      }
+      events.push({ type: 'wait', lockKey });
+      if (!waiters.has(lockKey)) waiters.set(lockKey, []);
+      waiters.get(lockKey).push({
+        resolve: () => {
+          holders.set(lockKey, true);
+          heldSet.add(lockKey);
+          events.push({ type: 'acquire', lockKey });
+          resolve();
+        },
+      });
+    });
+  }
+
+  function release(lockKey) {
+    if (!holders.has(lockKey)) return;
+    holders.delete(lockKey);
+    events.push({ type: 'release', lockKey });
+    const q = waiters.get(lockKey) || [];
+    if (q.length > 0) {
+      const next = q.shift();
+      next.resolve();
+    }
+  }
+
+  function pinClientRow() {
+    return new Promise((resolve) => {
+      if (!clientRowOwner) {
+        clientRowOwner = true;
+        events.push({ type: 'client_row_pin' });
+        resolve();
+        return;
+      }
+      events.push({ type: 'client_row_wait' });
+      clientRowWaiters.push({
+        resolve: () => {
+          clientRowOwner = true;
+          events.push({ type: 'client_row_pin' });
+          resolve();
+        },
+      });
+    });
+  }
+
+  function unpinClientRow() {
+    if (!clientRowOwner) return;
+    clientRowOwner = null;
+    events.push({ type: 'client_row_unpin' });
+    if (clientRowWaiters.length > 0) {
+      const next = clientRowWaiters.shift();
+      next.resolve();
+    }
+  }
+
+  function onCommit(committed) {
+    if (committed && committed.inserted) {
+      const row = committed.inserted;
+      endpointsByLocation.push({
+        id: row.id,
+        client_id: row.client_id,
+        location_id: row.location_id,
+      });
+      endpointsByAddress.push({
+        id: row.id,
+        client_id: row.client_id,
+        public_address: row.public_address,
+      });
+      events.push({ type: 'commit_insert', id: row.id, location_id: row.location_id });
+    }
+  }
+
+  return {
+    acquire,
+    release,
+    pinClientRow,
+    unpinClientRow,
+    onCommit,
+    endpointsByLocation,
+    endpointsByAddress,
+    events,
+    isActiveLocation(clientId, locationId) {
+      return activeLocations.has(keyPair(clientId, locationId));
+    },
+    holders,
+    isClientRowHeld: () => Boolean(clientRowOwner),
   };
 }
 
@@ -392,6 +601,14 @@ test('exports exact frozen contract symbols and SQL constants', () => {
   assert.equal(SQL_ROLLBACK, 'ROLLBACK');
   assert.match(SQL_PROVE_SUNSET_CLIENT, /slug = 'sunset'/);
   assert.match(SQL_PROVE_SUNSET_CLIENT, /id = \$1::uuid/);
+  // Trusted tenant pin: exact clients row FOR UPDATE through commit/rollback.
+  assert.match(SQL_PROVE_SUNSET_CLIENT, /FOR UPDATE/);
+  assert.equal(SQL_ADVISORY_LOCK, 'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))');
+  assert.equal(LOCK_NS_LOCATION, 'ms-ep-prep-loc:');
+  assert.equal(LOCK_NS_ADDRESS, 'ms-ep-prep-addr:');
+  // No interpolated identifiers in advisory SQL (parameterized hashtext only).
+  assert.equal(/ms-ep-prep/.test(SQL_ADVISORY_LOCK), false);
+  assert.equal(/hashtext\s*\(\s*'/.test(SQL_ADVISORY_LOCK), false);
   assert.match(SQL_INSERT_ENDPOINT, /auth_mode/);
   assert.match(SQL_INSERT_ENDPOINT, /delegated_authorization_code/);
   assert.match(SQL_INSERT_ENDPOINT, /microsoft_delegated_oauth/);
@@ -449,23 +666,28 @@ test('happy path: exact SQL order/params, forced flags, ack shape, no mailbox ec
   assert.equal(texts[0], SQL_BEGIN);
   assert.equal(texts[1], SQL_PROVE_SUNSET_CLIENT);
   assert.deepEqual(fake.queries[1].params, [CLIENT_ID]);
+  assert.match(texts[1], /FOR UPDATE/);
   assert.equal(texts[2], SQL_LOCK_ACTIVE_LOCATION);
   assert.deepEqual(fake.queries[2].params, [CLIENT_ID, LOCATION_ID]);
-  assert.equal(texts[3], SQL_EXISTING_BY_LOCATION);
-  assert.deepEqual(fake.queries[3].params, [CLIENT_ID, LOCATION_ID]);
-  assert.equal(texts[4], SQL_ADVISORY_LOCK);
-  assert.deepEqual(fake.queries[4].params, [CLIENT_ID, `ms-ep-prep-addr:${MAILBOX}`]);
-  assert.equal(texts[5], SQL_EXISTING_BY_ADDRESS);
-  assert.deepEqual(fake.queries[5].params, [CLIENT_ID, MAILBOX]);
-  assert.equal(texts[6], SQL_INSERT_ENDPOINT);
-  assert.deepEqual(fake.queries[6].params, [
+  // Location advisory BEFORE existing-by-location (closes same-loc/diff-addr race).
+  assert.equal(texts[3], SQL_ADVISORY_LOCK);
+  assert.deepEqual(fake.queries[3].params, [CLIENT_ID, `${LOCK_NS_LOCATION}${LOCATION_ID}`]);
+  assert.equal(texts[4], SQL_EXISTING_BY_LOCATION);
+  assert.deepEqual(fake.queries[4].params, [CLIENT_ID, LOCATION_ID]);
+  // Address advisory second (deterministic order: location then address).
+  assert.equal(texts[5], SQL_ADVISORY_LOCK);
+  assert.deepEqual(fake.queries[5].params, [CLIENT_ID, `${LOCK_NS_ADDRESS}${MAILBOX}`]);
+  assert.equal(texts[6], SQL_EXISTING_BY_ADDRESS);
+  assert.deepEqual(fake.queries[6].params, [CLIENT_ID, MAILBOX]);
+  assert.equal(texts[7], SQL_INSERT_ENDPOINT);
+  assert.deepEqual(fake.queries[7].params, [
     CLIENT_ID,
     LOCATION_ID,
     MAILBOX,
     FORCED_CAPABILITIES_JSON,
     ACTOR_ID,
   ]);
-  assert.equal(texts[7], SQL_COMMIT);
+  assert.equal(texts[8], SQL_COMMIT);
   assert.equal(fake.getTx(), 'committed');
   assert.equal(fake.getCommitted().inserted.public_address, MAILBOX);
   assert.equal(fake.getCommitted().inserted.capabilities, FORCED_CAPABILITIES_JSON);
@@ -871,6 +1093,244 @@ test('error messages never include mailbox or raw SQL state text', async () => {
   assertNoSensitive(err.stack || '');
 });
 
+// ── Location/address advisory lock order + multi-factory concurrency ────────
+
+test('advisory SQL is parameterized hashtext; location lock before existing-by-location', () => {
+  assert.equal(SQL_ADVISORY_LOCK, 'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))');
+  // No string-literal or identifier interpolation into advisory SQL.
+  assert.equal(/hashtext\s*\(\s*'/.test(SQL_ADVISORY_LOCK), false);
+  assert.equal(/ms-ep-prep/.test(SQL_ADVISORY_LOCK), false);
+  const src = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8');
+  // Location lock key construction uses LOCK_NS_LOCATION + locationId as $2 param.
+  assert.match(src, /LOCK_NS_LOCATION/);
+  assert.match(src, /LOCK_NS_ADDRESS/);
+  // Order inside prepareInTransaction body only (const decls appear earlier).
+  const fnStart = src.indexOf('async function prepareInTransaction');
+  assert.ok(fnStart > 0);
+  const body = src.slice(fnStart);
+  const locLockIdx = body.indexOf('locationLockKey');
+  const existLocCallIdx = body.indexOf('SQL_EXISTING_BY_LOCATION');
+  const addrLockIdx = body.indexOf('addressLockKey');
+  assert.ok(locLockIdx > 0, 'locationLockKey in prepareInTransaction');
+  assert.ok(existLocCallIdx > locLockIdx, 'existing-by-location after location lock');
+  assert.ok(addrLockIdx > existLocCallIdx, 'address lock after existing-by-location');
+});
+
+test('two independent factories, same location different addresses: only one commit', async () => {
+  const scheduler = createSharedLockScheduler({
+    activeLocations: [`${CLIENT_ID}::${LOCATION_ID}`],
+  });
+  const idA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const idB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const addrA = 'desk.a@sunset.example';
+  const addrB = 'desk.b@sunset.example';
+
+  const fakeA = createFakePinnedClient({ scheduler, insertId: idA });
+  const fakeB = createFakePinnedClient({ scheduler, insertId: idB });
+  const prepA = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: fakeA.client }));
+  const prepB = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: fakeB.client }));
+
+  // Interleave: start both; location lock serializes even with different addresses.
+  const pA = prepA.prepareDisabledDelegatedEndpoint(goodInput({ publicAddress: addrA }));
+  // Yield so A can take the location lock before B starts.
+  await Promise.resolve();
+  const pB = prepB.prepareDisabledDelegatedEndpoint(goodInput({ publicAddress: addrB }));
+  const results = await Promise.allSettled([pA, pB]);
+
+  const fulfilled = results.filter((r) => r.status === 'fulfilled');
+  const rejected = results.filter((r) => r.status === 'rejected');
+  assert.equal(fulfilled.length, 1, 'exactly one prepare commits');
+  assert.equal(rejected.length, 1, 'loser rejects');
+  assert.equal(failSanitized(rejected[0].reason), true);
+  assert.equal(scheduler.endpointsByLocation.length, 1);
+  assert.equal(scheduler.endpointsByLocation[0].location_id, LOCATION_ID);
+
+  // Winner and loser both requested the same location lock key.
+  const locKey = `${LOCK_NS_LOCATION}${LOCATION_ID}`;
+  const waits = scheduler.events.filter((e) => e.type === 'wait' && e.lockKey === locKey);
+  const acquires = scheduler.events.filter((e) => e.type === 'acquire' && e.lockKey === locKey);
+  assert.ok(acquires.length >= 1);
+  // Loser either waited on location lock or saw existing after winner committed.
+  assert.ok(
+    waits.length >= 1 || scheduler.events.some((e) => e.type === 'commit_insert'),
+    'serialization via location lock or post-commit existing check',
+  );
+
+  // Loser rolled back (no second insert in shared catalog).
+  const loserTx = [fakeA.getTx(), fakeB.getTx()].filter((t) => t === 'rolled_back');
+  assert.equal(loserTx.length, 1);
+  const winnerTx = [fakeA.getTx(), fakeB.getTx()].filter((t) => t === 'committed');
+  assert.equal(winnerTx.length, 1);
+});
+
+test('different locations do not share location lock; both can commit', async () => {
+  const locA = 'sunset-somo';
+  const locB = 'sunset-other';
+  const scheduler = createSharedLockScheduler({
+    activeLocations: [`${CLIENT_ID}::${locA}`, `${CLIENT_ID}::${locB}`],
+  });
+  const idA = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const idB = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const fakeA = createFakePinnedClient({
+    scheduler,
+    insertId: idA,
+    // per-client location id for non-scheduler path fallback
+  });
+  // Override committed location for single-location fallback is unused when scheduler is set.
+  const fakeB = createFakePinnedClient({ scheduler, insertId: idB });
+  const prepA = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: fakeA.client }));
+  const prepB = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: fakeB.client }));
+
+  const [rA, rB] = await Promise.all([
+    prepA.prepareDisabledDelegatedEndpoint(goodInput({
+      locationId: locA,
+      publicAddress: 'a@sunset.example',
+    })),
+    prepB.prepareDisabledDelegatedEndpoint(goodInput({
+      locationId: locB,
+      publicAddress: 'b@sunset.example',
+    })),
+  ]);
+  assert.equal(rA.endpointId, idA);
+  assert.equal(rB.endpointId, idB);
+  assert.equal(scheduler.endpointsByLocation.length, 2);
+
+  const keyA = `${LOCK_NS_LOCATION}${locA}`;
+  const keyB = `${LOCK_NS_LOCATION}${locB}`;
+  assert.notEqual(keyA, keyB);
+  // No wait on the other's location lock.
+  const crossWaits = scheduler.events.filter(
+    (e) => e.type === 'wait' && (e.lockKey === keyA || e.lockKey === keyB),
+  );
+  assert.equal(crossWaits.length, 0, 'distinct location locks never block each other');
+});
+
+test('same address across locations serializes on address lock and rejects loser', async () => {
+  const locA = 'sunset-somo';
+  const locB = 'sunset-other';
+  const sharedAddr = 'shared.desk@sunset.example';
+  const scheduler = createSharedLockScheduler({
+    activeLocations: [`${CLIENT_ID}::${locA}`, `${CLIENT_ID}::${locB}`],
+  });
+  const idA = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  const idB = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+  const fakeA = createFakePinnedClient({ scheduler, insertId: idA });
+  const fakeB = createFakePinnedClient({ scheduler, insertId: idB });
+  const prepA = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: fakeA.client }));
+  const prepB = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: fakeB.client }));
+
+  const pA = prepA.prepareDisabledDelegatedEndpoint(goodInput({
+    locationId: locA,
+    publicAddress: sharedAddr,
+  }));
+  await Promise.resolve();
+  const pB = prepB.prepareDisabledDelegatedEndpoint(goodInput({
+    locationId: locB,
+    publicAddress: sharedAddr,
+  }));
+  const results = await Promise.allSettled([pA, pB]);
+  const fulfilled = results.filter((r) => r.status === 'fulfilled');
+  const rejected = results.filter((r) => r.status === 'rejected');
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.equal(failSanitized(rejected[0].reason), true);
+  assert.equal(scheduler.endpointsByAddress.length, 1);
+  assert.equal(
+    String(scheduler.endpointsByAddress[0].public_address).toLowerCase(),
+    sharedAddr,
+  );
+
+  const addrKey = `${LOCK_NS_ADDRESS}${sharedAddr}`;
+  // Address lock key is shared; at least one waiter or post-commit reject path.
+  assert.ok(
+    scheduler.events.some((e) => e.lockKey === addrKey)
+    || scheduler.events.some((e) => e.type === 'commit_insert'),
+  );
+});
+
+test('optional real-PG concurrency proof is absent/unexecuted (do not claim stock PG ran)', () => {
+  // Stock PostgreSQL concurrent prepare is not executed in this offline gate.
+  // Shared-lock scheduler + exact SQL/order tests above are the CI evidence.
+  // If a future prove-*-pg.js is added, it must report UNEXECUTED when PG is missing.
+  const src = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8');
+  // Domain module never opens a live PG pool/connection for concurrency proof.
+  assert.equal(/\bnew\s+Pool\b/.test(src), false);
+  assert.equal(/require\(['"]pg['"]\)/.test(src), false);
+  assert.equal(/DATABASE_URL/.test(src), false);
+  assert.equal(/postgres:\/\//.test(src), false);
+  // This offline gate never connects; mark status without claiming stock PG ran.
+  const realPgConcurrencyStatus = 'UNEXECUTED';
+  assert.equal(realPgConcurrencyStatus, 'UNEXECUTED');
+});
+
+// ── Trusted tenant pin (FOR UPDATE clients row) ─────────────────────────────
+
+test('SQL_PROVE_SUNSET_CLIENT locks exact clients row; concurrent slug writer blocked until end', async () => {
+  assert.match(SQL_PROVE_SUNSET_CLIENT, /FROM\s+clients/i);
+  assert.match(SQL_PROVE_SUNSET_CLIENT, /slug = 'sunset'/);
+  assert.match(SQL_PROVE_SUNSET_CLIENT, /id = \$1::uuid/);
+  assert.match(SQL_PROVE_SUNSET_CLIENT, /FOR UPDATE/);
+  // FOR UPDATE appears after the WHERE predicates (row pin on matched row).
+  const forUpdIdx = SQL_PROVE_SUNSET_CLIENT.indexOf('FOR UPDATE');
+  const whereIdx = SQL_PROVE_SUNSET_CLIENT.indexOf('WHERE');
+  assert.ok(forUpdIdx > whereIdx);
+
+  const scheduler = createSharedLockScheduler();
+  const fake = createFakePinnedClient({ scheduler });
+  const prep = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: fake.client }));
+
+  let slugWriterPassedDuringPrepare = false;
+  let slugWriterResolvedAfter = false;
+  let prepareReachedInsert = false;
+
+  // Wrap client so we can inject a concurrent slug writer while prepare holds the pin.
+  const baseQuery = fake.client.query.bind(fake.client);
+  const wrapped = {
+    async query(sql, params) {
+      const text = String(sql || '');
+      if (/INSERT\s+INTO\s+tenant_channel_endpoints/i.test(text) && !prepareReachedInsert) {
+        prepareReachedInsert = true;
+        assert.equal(scheduler.isClientRowHeld(), true, 'client row held at insert');
+        // Concurrent slug writer tries UPDATE while prepare holds FOR UPDATE pin.
+        let writerFinished = false;
+        const writer = (async () => {
+          await scheduler.pinClientRow(); // blocks until prepare unpins
+          writerFinished = true;
+          slugWriterResolvedAfter = true;
+          scheduler.unpinClientRow();
+        })();
+        // Writer must not pass while prepare still holds the row.
+        await Promise.resolve();
+        await Promise.resolve();
+        if (writerFinished) slugWriterPassedDuringPrepare = true;
+        assert.equal(scheduler.isClientRowHeld(), true);
+        assert.equal(writerFinished, false, 'slug writer blocked while prepare holds pin');
+        const result = await baseQuery(sql, params);
+        // Prepare still holds until COMMIT; writer still blocked.
+        await Promise.resolve();
+        assert.equal(writerFinished, false);
+        // Stash writer so COMMIT can release and we can await it after prepare.
+        wrapped._writer = writer;
+        return result;
+      }
+      return baseQuery(sql, params);
+    },
+  };
+
+  const surface = createSunsetMicrosoftEndpointPrepare(Object.freeze({ client: wrapped }));
+  const ack = await surface.prepareDisabledDelegatedEndpoint(goodInput());
+  assert.equal(ack.endpointId, ENDPOINT_ID);
+  assert.equal(slugWriterPassedDuringPrepare, false);
+  // After prepare commit, pin released; writer proceeds.
+  if (wrapped._writer) await wrapped._writer;
+  assert.equal(slugWriterResolvedAfter, true);
+  assert.equal(scheduler.isClientRowHeld(), false);
+  // Exact order: BEGIN → prove (FOR UPDATE) → …
+  assert.equal(fake.queries[0].text, SQL_BEGIN);
+  assert.equal(fake.queries[1].text, SQL_PROVE_SUNSET_CLIENT);
+  assert.match(fake.queries[1].text, /FOR UPDATE/);
+});
+
 // ── Migration 062 static gates ──────────────────────────────────────────────
 
 test('migration 062: named CHECK + preflight + down safety (static)', () => {
@@ -895,14 +1355,16 @@ test('migration 062: named CHECK + preflight + down safety (static)', () => {
   assert.match(up, /refuse silent permit|violate secret_ref nullability/i);
   assert.match(up, /IF EXISTS/);
 
-  // Down: fail if null remains, drop named check, then SET NOT NULL.
+  // Down: fail if null remains; DROP CONSTRAINT without IF EXISTS (drift fails);
+  // then SET NOT NULL.
   assert.match(down, /secret_ref IS NULL/);
   assert.match(down, /RAISE EXCEPTION/);
-  assert.match(down, /DROP CONSTRAINT IF EXISTS tenant_channel_endpoints_secret_ref_null_policy/);
+  assert.match(down, /DROP CONSTRAINT\s+tenant_channel_endpoints_secret_ref_null_policy/);
+  assert.equal(/DROP CONSTRAINT IF EXISTS/i.test(down), false);
   assert.match(down, /ALTER COLUMN secret_ref SET NOT NULL/);
   // Order: null preflight before SET NOT NULL; constraint drop before SET NOT NULL.
   const downNullIdx = down.indexOf('secret_ref IS NULL');
-  const downDropIdx = down.indexOf('DROP CONSTRAINT IF EXISTS tenant_channel_endpoints_secret_ref_null_policy');
+  const downDropIdx = down.indexOf('DROP CONSTRAINT tenant_channel_endpoints_secret_ref_null_policy');
   const downNotNullIdx = down.indexOf('ALTER COLUMN secret_ref SET NOT NULL');
   assert.ok(downNullIdx > 0 && downDropIdx > downNullIdx && downNotNullIdx > downDropIdx);
 
@@ -937,6 +1399,97 @@ test('migration 062: named CHECK + preflight + down safety (static)', () => {
   assert.ok(fwd.some((e) => e.id === '062_tenant_channel_endpoint_secret_ref_nullable'));
   // Rationale mentions named CHECK / fail-closed.
   assert.match(upEntry.rationale, /CHECK|null_policy|fail/i);
+});
+
+test('migration 062 down: fails when expected constraint absent; succeeds only with constraint + no nulls', async () => {
+  // Static contract: down has no IF EXISTS on DROP CONSTRAINT.
+  const down = fs.readFileSync(path.join(ROOT, MIG_DOWN_REL), 'utf8');
+  assert.equal(/DROP CONSTRAINT IF EXISTS/i.test(down), false);
+  assert.match(down, /DROP CONSTRAINT\s+tenant_channel_endpoints_secret_ref_null_policy/);
+
+  // Simulated proof (no claim of stock PG): missing constraint name → failure path.
+  // Prefer PGlite when available; otherwise assert SQL shape only.
+  let PGlite = null;
+  try {
+    PGlite = require('@electric-sql/pglite').PGlite;
+  } catch {
+    PGlite = null;
+  }
+
+  if (!PGlite) {
+    // Exact SQL/order static only — do not claim real PG executed.
+    assert.match(down, /RAISE EXCEPTION/);
+    assert.match(down, /SET NOT NULL/);
+    console.log('note - PGlite unavailable; down constraint-absent proof static only (not real PG)');
+    return;
+  }
+
+  const db = new PGlite();
+  await db.exec(`
+    CREATE TABLE tenant_channel_endpoints (
+      id uuid PRIMARY KEY,
+      client_id uuid NOT NULL,
+      location_id text NOT NULL,
+      channel text NOT NULL DEFAULT 'email',
+      provider text NOT NULL,
+      public_address text,
+      secret_ref text,
+      provider_resource_id text,
+      capabilities jsonb NOT NULL DEFAULT '{}'::jsonb,
+      inbound_enabled boolean NOT NULL DEFAULT false,
+      outbound_enabled boolean NOT NULL DEFAULT false,
+      default_automation_mode text NOT NULL DEFAULT 'off',
+      active boolean NOT NULL DEFAULT false,
+      auth_mode text,
+      connector_mode text,
+      binding_status text
+    );
+  `);
+  // No null rows, but constraint missing/renamed → DROP must fail (no IF EXISTS).
+  let missingFailed = false;
+  try {
+    await db.exec(down);
+  } catch (err) {
+    missingFailed = true;
+    const msg = String(err && err.message || err);
+    assert.ok(
+      /does not exist|constraint|tenant_channel_endpoints_secret_ref_null_policy/i.test(msg),
+      `unexpected missing-constraint error: ${msg}`,
+    );
+  }
+  assert.equal(missingFailed, true, 'down must fail when expected constraint is absent');
+  try { await db.exec('ROLLBACK'); } catch { /* idle */ }
+
+  // Present constraint + no null rows → down succeeds.
+  await db.exec(`
+    ALTER TABLE tenant_channel_endpoints
+      ADD CONSTRAINT tenant_channel_endpoints_secret_ref_null_policy
+      CHECK (
+        (secret_ref IS NULL) = (
+          provider = 'microsoft_graph'
+          AND auth_mode IS NOT DISTINCT FROM 'delegated_authorization_code'
+          AND connector_mode IS NOT DISTINCT FROM 'microsoft_delegated_oauth'
+        )
+      );
+  `);
+  await db.exec(down);
+  // After down, NULL insert fails via NOT NULL.
+  let nullRejected = false;
+  try {
+    await db.exec(`
+      INSERT INTO tenant_channel_endpoints (
+        id, client_id, location_id, provider, public_address, secret_ref
+      ) VALUES (
+        '11111111-1111-4111-8111-000000000001'::uuid,
+        'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'::uuid,
+        'loc-a', 'gmail_api', 'a@example.test', NULL
+      )
+    `);
+  } catch {
+    nullRejected = true;
+  }
+  assert.equal(nullRejected, true, 'post-down NOT NULL restored');
+  await db.close();
 });
 
 // ── Source hygiene ──────────────────────────────────────────────────────────

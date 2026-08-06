@@ -759,11 +759,11 @@
     {
       "id": "062_tenant_channel_endpoint_secret_ref_nullable_down",
       "filename": "062_tenant_channel_endpoint_secret_ref_nullable_down.sql",
-      "sha256": "3dd6a5d3772d9115b26ca0505875a3747d3c6b71690b22eb812012f5a1e22c27",
+      "sha256": "52f1fa8b181900d74a56a308347bf2ca644e445f92a693c12c0edbac1e5cff1b",
       "order": null,
       "classification": "rollback_down",
       "inForwardChain": false,
-      "rationale": "Explicit down for 062: fail if any NULL secret_ref remains, drop named secret_ref_null_policy CHECK, then SET NOT NULL; refuse invent/backfill.",
+      "rationale": "Explicit down for 062: fail if any NULL secret_ref remains; DROP CONSTRAINT tenant_channel_endpoints_secret_ref_null_policy without IF EXISTS (missing/renamed drift fails); then SET NOT NULL; refuse invent/backfill.",
       "pairsWith": "062_tenant_channel_endpoint_secret_ref_nullable.sql"
     }
   ]

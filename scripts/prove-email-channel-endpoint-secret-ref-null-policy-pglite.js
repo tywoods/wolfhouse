@@ -45,7 +45,9 @@ function assertStaticContract() {
   assert.match(UP, /\(secret_ref IS NULL\) = \(/);
   assert.match(UP, /RAISE EXCEPTION/);
   assert.equal(/binding_status/.test(UP), false);
-  assert.match(DOWN, /DROP CONSTRAINT IF EXISTS tenant_channel_endpoints_secret_ref_null_policy/);
+  // No IF EXISTS: missing/renamed constraint is schema drift and must fail closed.
+  assert.match(DOWN, /DROP CONSTRAINT\s+tenant_channel_endpoints_secret_ref_null_policy/);
+  assert.equal(/DROP CONSTRAINT IF EXISTS/i.test(DOWN), false);
   assert.match(DOWN, /SET NOT NULL/);
   assert.match(DOWN, /RAISE EXCEPTION/);
   console.log('ok - static 062 null-policy contract');
@@ -225,10 +227,41 @@ async function proveWithPglite(PGlite) {
   try { await db.exec('ROLLBACK'); } catch { /* idle is fine */ }
   console.log('ok - down fails closed while null remains');
 
-  // Clear null rows → down succeeds → NOT NULL restored.
+  // Clear null rows but drop/rename constraint → down fails (no IF EXISTS).
   await db.exec(`DELETE FROM tenant_channel_endpoints WHERE secret_ref IS NULL`);
+  await db.exec(`
+    ALTER TABLE tenant_channel_endpoints
+      DROP CONSTRAINT tenant_channel_endpoints_secret_ref_null_policy
+  `);
+  let missingConstraintBlocked = false;
+  try {
+    await db.exec(DOWN);
+  } catch (err) {
+    missingConstraintBlocked = true;
+    const msg = String(err.message || err);
+    assert.ok(
+      /does not exist|constraint|tenant_channel_endpoints_secret_ref_null_policy/i.test(msg),
+      `unexpected missing-constraint error: ${msg}`,
+    );
+  }
+  assert.equal(missingConstraintBlocked, true, 'down must fail when expected constraint is absent');
+  try { await db.exec('ROLLBACK'); } catch { /* idle is fine */ }
+  console.log('ok - down fails when expected constraint is absent (no IF EXISTS)');
+
+  // Re-add constraint + no null rows → down succeeds → NOT NULL restored.
+  await db.exec(`
+    ALTER TABLE tenant_channel_endpoints
+      ADD CONSTRAINT tenant_channel_endpoints_secret_ref_null_policy
+      CHECK (
+        (secret_ref IS NULL) = (
+          provider = 'microsoft_graph'
+          AND auth_mode IS NOT DISTINCT FROM 'delegated_authorization_code'
+          AND connector_mode IS NOT DISTINCT FROM 'microsoft_delegated_oauth'
+        )
+      )
+  `);
   await db.exec(DOWN);
-  console.log('ok - down after clearing nulls');
+  console.log('ok - down after clearing nulls with constraint present');
 
   // After down, NULL insert fails via NOT NULL (constraint dropped).
   await expectReject(db, insertSql({

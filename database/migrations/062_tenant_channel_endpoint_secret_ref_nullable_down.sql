@@ -15,8 +15,9 @@ BEGIN
   END IF;
 END $$;
 
+-- No IF EXISTS: missing/renamed constraint is schema drift and must fail.
 ALTER TABLE tenant_channel_endpoints
-  DROP CONSTRAINT IF EXISTS tenant_channel_endpoints_secret_ref_null_policy;
+  DROP CONSTRAINT tenant_channel_endpoints_secret_ref_null_policy;
 
 ALTER TABLE tenant_channel_endpoints
   ALTER COLUMN secret_ref SET NOT NULL;
