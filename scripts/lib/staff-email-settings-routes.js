@@ -16,6 +16,23 @@ function isSunsetEmailOAuthStartEnabled(env) {
   return src.LUNA_EMAIL_OAUTH_START_ENABLED === 'true' && src.LUNA_DEPLOYMENT === 'sunset-staging';
 }
 
+/**
+ * Eligible for OAuth start (existing prepare product): Microsoft delegated modes
+ * + pre-verified binding + non-empty public_address. Matches start resolve SQL.
+ */
+function isEligibleUnverifiedDelegatedEndpoint(row) {
+  if (!row || typeof row !== 'object') return false;
+  if (row.provider !== 'microsoft_graph') return false;
+  if (row.auth_mode !== 'delegated_authorization_code') return false;
+  if (row.connector_mode !== 'microsoft_delegated_oauth') return false;
+  if (row.binding_status !== 'unverified_offline'
+      && row.binding_status !== 'pending_manual_validation') {
+    return false;
+  }
+  const addr = row.public_address;
+  return typeof addr === 'string' && addr.trim() !== '';
+}
+
 function publicState(endpoint, grant) {
   if (!endpoint) return 'disconnected';
   if (!grant || grant.grant_present !== true) return 'registered_not_connected';
@@ -38,6 +55,31 @@ function endpointDto(row, grant) {
     inbound_enabled: false,
     outbound_enabled: false,
     automation_enabled: false,
+    start_eligible: isEligibleUnverifiedDelegatedEndpoint(row) === true,
+  });
+}
+
+/**
+ * Compute prepare vs connect actions (never both true for the same location).
+ * - prepare: start gate on + active location with no endpoint
+ * - connect: start gate on + existing eligible unverified delegated endpoint
+ * Never auto-creates endpoints.
+ */
+function computeEmailSettingsActions(runtimeEnv, locations, endpoints) {
+  const startOn = isSunsetEmailOAuthStartEnabled(runtimeEnv);
+  if (!startOn) {
+    return Object.freeze({ prepare: false, connect: false, disconnect: false });
+  }
+  const eps = Array.isArray(endpoints) ? endpoints : [];
+  const locs = Array.isArray(locations) ? locations : [];
+  const hasEligible = eps.some((endpoint) => endpoint.start_eligible === true);
+  const hasActiveLocationWithoutEndpoint = locs.some((location) =>
+    location.active === true
+    && !eps.some((endpoint) => endpoint.location_id === location.location_id));
+  return Object.freeze({
+    prepare: hasActiveLocationWithoutEndpoint && !hasEligible,
+    connect: hasEligible,
+    disconnect: false,
   });
 }
 
@@ -73,13 +115,12 @@ function createEmailSettingsRoutes(deps) {
         const locations = locationsResult.value.map((row) => Object.freeze({
           location_id: row.location_id, display_name: row.display_name, active: row.active === true,
         }));
-        const connect = isSunsetEmailOAuthStartEnabled(runtimeEnv) && locations.some((location) =>
-          location.active && !endpoints.some((endpoint) => endpoint.location_id === location.location_id));
+        const actions = computeEmailSettingsActions(runtimeEnv, locations, endpoints);
         return deps.sendJSON(res, 200, {
           success: true,
           client: SUNSET_CLIENT_SLUG,
           read_only: true,
-          actions: { connect, disconnect: false },
+          actions,
           locations,
           endpoints,
         });
@@ -91,4 +132,14 @@ function createEmailSettingsRoutes(deps) {
   return { handleGet };
 }
 
-module.exports = { EMAIL_SETTINGS_PATH, SUNSET_CLIENT_SLUG, isSunsetEmailSettingsUiEnabled, isSunsetEmailOAuthStartEnabled, publicState, endpointDto, createEmailSettingsRoutes };
+module.exports = {
+  EMAIL_SETTINGS_PATH,
+  SUNSET_CLIENT_SLUG,
+  isSunsetEmailSettingsUiEnabled,
+  isSunsetEmailOAuthStartEnabled,
+  isEligibleUnverifiedDelegatedEndpoint,
+  computeEmailSettingsActions,
+  publicState,
+  endpointDto,
+  createEmailSettingsRoutes,
+};
