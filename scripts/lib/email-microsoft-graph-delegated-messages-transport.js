@@ -91,6 +91,9 @@ const GRAPH_STAGES = Object.freeze([
 ]);
 const GRAPH_STAGE_SET = new Set(GRAPH_STAGES);
 
+/** Module-private brand: only transport-created failure objects may map to a stage. */
+const STAGED_FAILURES = new WeakMap();
+
 function failure(stage) {
   let graphStage = 'request_error';
   if (typeof stage === 'string' && GRAPH_STAGE_SET.has(stage) && stage !== 'success') {
@@ -99,8 +102,29 @@ function failure(stage) {
   const error = new Error(FAILURE_MESSAGE);
   Object.defineProperty(error, 'name', { value: 'MicrosoftGraphDelegatedMessagesError' });
   Object.defineProperty(error, 'code', { value: FAILURE_CODE, enumerable: true });
-  Object.defineProperty(error, 'graph_stage', { value: graphStage, enumerable: true });
+  // Stage lives only in the private brand — never as a readable error property.
+  STAGED_FAILURES.set(error, graphStage);
   return Object.freeze(error);
+}
+
+/**
+ * Safe reader for transport-branded failure stages.
+ * Never reads error.graph_stage or any provider-controlled property.
+ * Returns null for arbitrary objects, proxies, inherited/accessor surfaces, and primitives.
+ */
+function readTrustedGraphStage(error) {
+  try {
+    if (error === null || (typeof error !== 'object' && typeof error !== 'function')) {
+      return null;
+    }
+    const stage = STAGED_FAILURES.get(error);
+    if (typeof stage !== 'string' || !GRAPH_STAGE_SET.has(stage) || stage === 'success') {
+      return null;
+    }
+    return stage;
+  } catch {
+    return null;
+  }
 }
 
 function ownData(value, key) {
@@ -699,5 +723,6 @@ module.exports = Object.freeze({
   classifyMessageEnvelopeBody,
   classifyParsedMessageEnvelopeList,
   acceptParsedMessageEnvelopeList,
+  readTrustedGraphStage,
   createMicrosoftGraphDelegatedMessagesTransport,
 });

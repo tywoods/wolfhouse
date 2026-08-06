@@ -17,6 +17,7 @@ const {
   classifyMessageEnvelopeBody,
   classifyParsedMessageEnvelopeList,
   acceptParsedMessageEnvelopeList,
+  readTrustedGraphStage,
   createMicrosoftGraphDelegatedMessagesTransport,
 } = require('./lib/email-microsoft-graph-delegated-messages-transport');
 
@@ -55,8 +56,9 @@ function listBody(rows, extras = {}) {
 
 async function mustFailStage(action, stage) {
   await assert.rejects(action, (error) => error.code === FAILURE_CODE
-    && error.graph_stage === stage
+    && readTrustedGraphStage(error) === stage
     && Object.isFrozen(error)
+    && !Object.prototype.hasOwnProperty.call(error, 'graph_stage')
     && noLeak(error)
     && noLeak(error.message)
     && !String(error.stack || '').includes(TOKEN)
@@ -463,7 +465,10 @@ async function main() {
 
     assert.throws(
       () => createMicrosoftGraphDelegatedMessagesTransport({ httpsImpl: 'nope' }),
-      (e) => e.code === FAILURE_CODE && e.graph_stage === 'request_error' && noLeak(e),
+      (e) => e.code === FAILURE_CODE
+        && readTrustedGraphStage(e) === 'request_error'
+        && !Object.prototype.hasOwnProperty.call(e, 'graph_stage')
+        && noLeak(e),
     );
 
     // Token scrub regressions preserved.

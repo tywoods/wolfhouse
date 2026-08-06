@@ -35,6 +35,7 @@ const {
 } = require('./email-microsoft-refresh-token-request');
 const {
   GRAPH_STAGES,
+  readTrustedGraphStage,
 } = require('./email-microsoft-graph-delegated-messages-transport');
 
 const FAILURE_CODE = 'delegated_grant_read_health_failed';
@@ -481,7 +482,7 @@ function createDelegatedGrantReadHealthService(deps) {
           grantGeneration,
           graphReachable: false,
           messageCountBounded: null,
-          graphStage: sanitizeGraphStage(graphErr && graphErr.graph_stage),
+          graphStage: readTrustedGraphStage(graphErr),
         });
       } finally {
         if (graphInput) {
