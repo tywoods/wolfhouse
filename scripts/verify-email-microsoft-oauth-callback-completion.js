@@ -782,7 +782,10 @@ test('hostile callback/owner shapes fail pre-consume', async function hostileInp
     [{ state: STATE, code: '' }, goodOwner(), 'empty code'],
     [{ state: STATE, error: 'bad error' }, goodOwner(), 'bad error token'],
     [{ state: STATE, code: CODE, scope: 'evil' }, goodOwner(), 'extra key'],
-    [{ code: CODE, state: STATE }, goodOwner(), 'wrong key order'],
+    // Error path remains exact ordered ['state','error'] — reverse order rejected.
+    [{ error: 'access_denied', state: STATE }, goodOwner(), 'error wrong key order'],
+    [{ state: STATE, error: 'access_denied', session_state: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' }, goodOwner(), 'error with session_state'],
+    [{ state: STATE, error: 'access_denied', error_description: 'nope' }, goodOwner(), 'error with description'],
     [Object.create({ state: STATE, code: CODE }), goodOwner(), 'inherited'],
     [null, goodOwner(), 'null input'],
     [goodCodeInput(), { authSessionId: AUTH_SESSION_ID, clientId: CLIENT_ID }, 'owner wrong order'],
@@ -1186,6 +1189,91 @@ test('null-prototype parsed query accepted (real callback query shape)', async f
   const { service, completion } = composition();
   assert.deepEqual(await service.accept(parsed, goodOwner()), PUBLIC_STATUS_RECEIVED);
   assert.equal(completion.calls[0].request.authorizationCode, CODE);
+});
+
+/**
+ * Live Entra authorization-code response commonly returns query keys in
+ * code,state,session_state order (url.parse null-prototype). OAuth query
+ * order is not semantic. Production callback must accept allowlisted keys
+ * in any order, validate session_state if present, and never pass/persist/log it.
+ * Current exact ordered ['state','code'] must fail before repository.consume.
+ */
+test('Entra code,state,session_state (url.parse order) completes; session_state never forwarded', async function entraQueryShape() {
+  const url = require('url');
+  // Distinct from all fixture UUIDs so leak checks are real (not endpoint/op collision).
+  const SESSION_STATE = 'feedface-0000-4000-8000-cafebabef00d';
+  const qs = [
+    `code=${encodeURIComponent(CODE)}`,
+    `state=${encodeURIComponent(STATE)}`,
+    `session_state=${encodeURIComponent(SESSION_STATE)}`,
+  ].join('&');
+  const parsed = url.parse(
+    `/staff/email/oauth/microsoft/callback?${qs}`,
+    true,
+  ).query;
+  assert.equal(Object.getPrototypeOf(parsed), null);
+  assert.deepEqual(Reflect.ownKeys(parsed), ['code', 'state', 'session_state']);
+  assert.equal(parsed.code, CODE);
+  assert.equal(parsed.state, STATE);
+  assert.equal(parsed.session_state, SESSION_STATE);
+
+  let consumeCalls = 0;
+  const { service, completion, repository } = composition({
+    repository: {
+      rowFn() {
+        consumeCalls += 1;
+        return goodRow();
+      },
+    },
+  });
+  assert.deepEqual(await service.accept(parsed, goodOwner()), PUBLIC_STATUS_RECEIVED);
+  assert.equal(consumeCalls, 1, 'consume once after valid Entra query');
+  assert.equal(repository.calls.length, 1);
+  assert.equal(completion.calls.length, 1);
+  assert.equal(completion.calls[0].request.authorizationCode, CODE);
+  assert.equal('session_state' in completion.calls[0].request, false);
+  assert.equal('sessionState' in completion.calls[0].request, false);
+  const reqJson = JSON.stringify(completion.calls[0].request);
+  assert.equal(reqJson.includes(SESSION_STATE), false);
+  assert.equal(reqJson.includes('session_state'), false);
+  assert.equal(reqJson.includes('sessionState'), false);
+  const publicJson = JSON.stringify(PUBLIC_STATUS_RECEIVED);
+  assert.equal(publicJson.includes(SESSION_STATE), false);
+});
+
+test('code success allowlist: any key order; optional session_state only; rejects bad session_state pre-consume', async function codeAllowlistOrders() {
+  const SESSION_STATE = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const orders = [
+    { code: CODE, state: STATE },
+    { state: STATE, code: CODE, session_state: SESSION_STATE },
+    { session_state: SESSION_STATE, code: CODE, state: STATE },
+    { code: CODE, session_state: SESSION_STATE, state: STATE },
+    Object.assign(Object.create(null), {
+      code: CODE, state: STATE, session_state: SESSION_STATE,
+    }),
+  ];
+  for (const input of orders) {
+    const { service, completion } = composition();
+    assert.deepEqual(await service.accept(input, goodOwner()), PUBLIC_STATUS_RECEIVED);
+    assert.equal(completion.calls[0].request.authorizationCode, CODE);
+    assert.equal('session_state' in completion.calls[0].request, false);
+  }
+
+  for (const [input, label] of [
+    [{ state: STATE, code: CODE, session_state: '' }, 'empty session_state'],
+    [{ state: STATE, code: CODE, session_state: 'a'.repeat(257) }, 'overlong session_state'],
+    [{ state: STATE, code: CODE, session_state: 'has space' }, 'whitespace session_state'],
+    [{ state: STATE, code: CODE, session_state: 'x\ny' }, 'control in session_state'],
+    [{ state: STATE, code: CODE, session_state: 1 }, 'non-string session_state'],
+    [{ state: STATE, code: CODE, session_state: SESSION_STATE, scope: 'evil' }, 'extra with session_state'],
+  ]) {
+    let consumes = 0;
+    const { service } = composition({
+      repository: { rowFn() { consumes += 1; return goodRow(); } },
+    });
+    await expectSanitizedFailure(() => service.accept(input, goodOwner()));
+    assert.equal(consumes, 0, label);
+  }
 });
 
 // ── Public surface / logs ──────────────────────────────────────────────────
