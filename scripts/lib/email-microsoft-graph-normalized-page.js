@@ -20,9 +20,10 @@
  * Input must explicitly include provider mailbox identity and Graph ImmutableId
  * provenance. Caller boolean/string/"proven" objects are rejected. Offline
  * success uses only the module-owned unauthenticated provenance token
- * (reference equality). Authenticated provenance requires an unforgeable
- * private brand (WeakMap) that only a future Prefer: IdType="ImmutableId"
- * transport boundary may mint — this slice exports no public mint.
+ * (reference equality). This module does **not** export any capability, factory,
+ * or mint that can produce authenticated provenance. Prefer: IdType="ImmutableId"
+ * mapping is owned exclusively by the pinned HTTP execution path in the
+ * delegated messages transport (private success→envelope path).
  *
  * This slice is explicitly non-persistence-ready and does not claim ImmutableId
  * provenance. Output is a fresh frozen array of at most TOP_MAX (5) canonical
@@ -52,8 +53,8 @@ const PROVIDER_ID = 'microsoft_graph';
 
 /**
  * Explicit non-persistence-ready offline slice. Future persistence requires
- * Prefer: IdType="ImmutableId" provenance authenticated by an unforgeable
- * private transport boundary — not a caller boolean/string.
+ * Prefer: IdType="ImmutableId" provenance authenticated by the pinned HTTP
+ * transport path — not a caller boolean/string or public mint.
  */
 const EMAIL_MS_GRAPH_NORMALIZED_PAGE_PERSISTENCE_READY = false;
 const EMAIL_MS_GRAPH_NORMALIZED_PAGE_CLAIMS_IMMUTABLE_ID_PROVENANCE = false;
@@ -73,12 +74,6 @@ const EMAIL_MS_GRAPH_NORMALIZED_PAGE_SHARED_VALIDATOR_EXTRACTED = false;
  * Acknowledges unknown ImmutableId provenance; keeps the slice non-persistence-ready.
  */
 const GRAPH_IMMUTABLE_ID_PROVENANCE_UNAUTHENTICATED = Object.freeze(Object.create(null));
-
-/**
- * Unforgeable brand for future Prefer: IdType="ImmutableId" transport boundaries.
- * No public mint in this offline slice — caller cannot forge authentication.
- */
-const AUTHENTICATED_IMMUTABLE_ID_PROVENANCE = new WeakMap();
 
 const INPUT_KEYS = Object.freeze([
   'provider',
@@ -193,23 +188,13 @@ function ownData(value, key) {
 }
 
 /**
- * Accept provenance only when:
- * 1. Exact reference to module-owned unauthenticated token (non-persistence-ready), or
- * 2. WeakMap-branded object from a private unforgeable boundary (future transport).
- * Never trust caller booleans, strings, or plain "proven" objects.
+ * Accept provenance only when exact reference to module-owned unauthenticated
+ * token (non-persistence-ready). Never trust caller booleans, strings, plain
+ * "proven" objects, or any forgeable authenticated lookalike. No public mint.
  */
 function acceptGraphImmutableIdProvenance(value) {
   if (value === GRAPH_IMMUTABLE_ID_PROVENANCE_UNAUTHENTICATED) {
     return { ok: true, authenticated: false };
-  }
-  try {
-    if (value !== null && (typeof value === 'object' || typeof value === 'function')) {
-      if (AUTHENTICATED_IMMUTABLE_ID_PROVENANCE.get(value) === true) {
-        return { ok: true, authenticated: true };
-      }
-    }
-  } catch {
-    // fall through to reject
   }
   return { ok: false };
 }
@@ -257,14 +242,6 @@ function mapMicrosoftGraphPageToInboundEnvelopes(input) {
   const provenance = acceptGraphImmutableIdProvenance(o.graph_immutable_id_provenance);
   if (!provenance.ok) {
     return fail('graph_normalized_page_provenance_invalid');
-  }
-  // Authenticated brand is reserved for a future unforgeable transport boundary.
-  // This offline slice remains non-persistence-ready and never claims ImmutableId
-  // provenance on output even if a brand is present.
-  if (provenance.authenticated
-      && EMAIL_MS_GRAPH_NORMALIZED_PAGE_CLAIMS_IMMUTABLE_ID_PROVENANCE !== true) {
-    // Still allow mapping for composition tests of branded tokens if ever minted
-    // privately, but do not flip persistence-ready claims (module constants fixed).
   }
 
   // Reuse delegated transport page/row semantics — validate then discard
