@@ -229,7 +229,7 @@ function installAzureLoadIntercept() {
 function enabledEnv(patch = {}) {
   return {
     LUNA_DEPLOYMENT: 'sunset-staging',
-    LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED: 'true',
+    LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED: 'true',
     LUNA_EMAIL_OAUTH_CLIENT_ID: APP_ID,
     LUNA_EMAIL_OAUTH_CLIENT_SECRET: SECRET,
     EMAIL_GRANT_ENVELOPE_AZURE_KV_COMPOSITION_ENABLED: 'true',
@@ -237,6 +237,64 @@ function enabledEnv(patch = {}) {
     EMAIL_GRANT_ENVELOPE_AZURE_KV_VERSIONED_KEY_ID: KEY_ID,
     ...patch,
   };
+}
+
+function trapCounters() {
+  return {
+    apply: 0,
+    get: 0,
+    then: 0,
+    getPrototypeOf: 0,
+    getOwnPropertyDescriptor: 0,
+    ownKeys: 0,
+    set: 0,
+    has: 0,
+  };
+}
+
+function countingProxy(target, traps) {
+  return new Proxy(target, {
+    apply(t, thisArg, args) {
+      traps.apply += 1;
+      return Reflect.apply(t, thisArg, args);
+    },
+    get(t, prop, receiver) {
+      traps.get += 1;
+      if (prop === 'then') traps.then += 1;
+      return Reflect.get(t, prop, receiver);
+    },
+    getPrototypeOf(t) {
+      traps.getPrototypeOf += 1;
+      return Reflect.getPrototypeOf(t);
+    },
+    getOwnPropertyDescriptor(t, prop) {
+      traps.getOwnPropertyDescriptor += 1;
+      return Reflect.getOwnPropertyDescriptor(t, prop);
+    },
+    ownKeys(t) {
+      traps.ownKeys += 1;
+      return Reflect.ownKeys(t);
+    },
+    set(t, prop, value, receiver) {
+      traps.set += 1;
+      return Reflect.set(t, prop, value, receiver);
+    },
+    has(t, prop) {
+      traps.has += 1;
+      return Reflect.has(t, prop);
+    },
+  });
+}
+
+function zeroTraps(traps) {
+  return traps.apply === 0
+    && traps.get === 0
+    && traps.then === 0
+    && traps.getPrototypeOf === 0
+    && traps.getOwnPropertyDescriptor === 0
+    && traps.ownKeys === 0
+    && traps.set === 0
+    && traps.has === 0;
 }
 
 async function main() {
@@ -528,7 +586,7 @@ async function main() {
     delete require.cache[compAbs];
     const comp = require('./lib/email-microsoft-delegated-inbound-event-store-sunset-staging-runtime-composition');
     const {
-      ENV_INBOUND_EVENT_STORE_ENABLED,
+      ENV_DURABLE_INBOUND_CAPTURE_ENABLED,
       SUNSET_DEPLOYMENT,
       WORKER_ID,
       INTERNAL_DURABLY_PROCESSED,
@@ -539,7 +597,7 @@ async function main() {
       ERROR_CODE,
     } = comp;
 
-    assert.equal(ENV_INBOUND_EVENT_STORE_ENABLED, 'LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED');
+    assert.equal(ENV_DURABLE_INBOUND_CAPTURE_ENABLED, 'LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED');
     assert.equal(SUNSET_DEPLOYMENT, 'sunset-staging');
     assert.equal(WORKER_ID, 'sunset-email-inbound-event-store');
     assert.equal(INTERNAL_DURABLY_PROCESSED, true);
@@ -551,16 +609,21 @@ async function main() {
     assert.equal(isInboundEventStoreEnabled({}), false);
     assert.equal(isInboundEventStoreEnabled({
       LUNA_DEPLOYMENT: 'sunset-staging',
-      LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED: 'TRUE',
+      LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED: 'TRUE',
     }), false);
     assert.equal(isInboundEventStoreEnabled({
       LUNA_DEPLOYMENT: 'production',
-      LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED: 'true',
+      LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED: 'true',
     }), false);
     assert.equal(isInboundEventStoreEnabled({
       LUNA_DEPLOYMENT: 'sunset-staging',
-      LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED: 'true',
+      LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED: 'true',
     }), true);
+    // Old flag name must never enable.
+    assert.equal(isInboundEventStoreEnabled({
+      LUNA_DEPLOYMENT: 'sunset-staging',
+      LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED: 'true',
+    }), false);
 
     // Disabled → zero construction (throws before azure).
     let constructed = false;
@@ -586,6 +649,79 @@ async function main() {
       assert.equal(constructed, false, 'disabled zero construction');
     } finally {
       restore();
+    }
+
+    // ── Composition Proxy deps: zero traps via module-init pinned isProxy ──
+    {
+      const util = require('util');
+      assert.equal(typeof util.types.isProxy, 'function');
+
+      const baseDeps = () => ({
+        env: enabledEnv(),
+        pgClient: { query() {} },
+        withTransactionClient: async (work) => work({ query() {} }),
+        https: { request() {} },
+        timers: { setTimeout() {}, clearTimeout() {} },
+      });
+
+      {
+        const traps = trapCounters();
+        const proxyDeps = countingProxy(baseDeps(), traps);
+        assert.throws(
+          () => createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(proxyDeps),
+          (err) => err && err.code === ERROR_CODE && noLeak(err),
+        );
+        assert.equal(zeroTraps(traps), true, `proxy-deps zero traps: ${JSON.stringify(traps)}`);
+      }
+
+      // Nested dependency value proxy (plain deps bag, proxied pgClient).
+      {
+        const traps = trapCounters();
+        const proxyPg = countingProxy({ query() {} }, traps);
+        assert.throws(
+          () => createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime({
+            env: enabledEnv(),
+            pgClient: proxyPg,
+            withTransactionClient: async (work) => work({ query() {} }),
+            https: { request() {} },
+            timers: { setTimeout() {}, clearTimeout() {} },
+          }),
+          (err) => err && err.code === ERROR_CODE && noLeak(err),
+        );
+        assert.equal(zeroTraps(traps), true, `proxy-pgClient zero traps: ${JSON.stringify(traps)}`);
+      }
+
+      // Ambient util.types.isProxy monkeypatch after load must not hide proxies.
+      {
+        const realIsProxy = util.types.isProxy;
+        util.types.isProxy = () => false;
+        try {
+          const traps = trapCounters();
+          const proxyDeps = countingProxy(baseDeps(), traps);
+          assert.throws(
+            () => createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(proxyDeps),
+            (err) => err && err.code === ERROR_CODE && noLeak(err),
+          );
+          assert.equal(
+            zeroTraps(traps),
+            true,
+            `ambient isProxy monkeypatch resistant: ${JSON.stringify(traps)}`,
+          );
+        } finally {
+          util.types.isProxy = realIsProxy;
+        }
+      }
+
+      // Source pin contract: module-init PINNED_IS_PROXY + pre-descriptor isProxySurface.
+      const compSrc = fs.readFileSync(compAbs, 'utf8');
+      assert.match(compSrc, /PINNED_IS_PROXY/);
+      assert.match(compSrc, /isProxySurface/);
+      assert.match(compSrc, /LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED/);
+      assert.equal(
+        compSrc.includes('LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED'),
+        false,
+        'old flag string must not remain in composition source',
+      );
     }
   }
 
@@ -743,9 +879,15 @@ async function main() {
   assert.ok(pkg.scripts['prove:email-inbound-event-store-pglite']);
   const doc = fs.readFileSync(DOC, 'utf8');
   assert.match(doc, /inbound-event-store|tenant_email_inbound_events/);
-  assert.match(doc, /LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED/);
+  assert.match(doc, /LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED/);
+  assert.equal(
+    doc.includes('LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED'),
+    false,
+    'old flag string must not remain in docs',
+  );
   assert.match(doc, /withTransactionClient/);
   const defaultsHit = fs.readFileSync(path.join(ROOT, 'config/clients/sunset.baseline.json'), 'utf8');
+  assert.equal(defaultsHit.includes('LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED'), false);
   assert.equal(defaultsHit.includes('LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED'), false);
 
   // Source must not log envelope fields; must use exclusive loaner not shared db.

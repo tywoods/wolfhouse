@@ -3,7 +3,7 @@
 /**
  * Sunset-staging Microsoft delegated inbound event-store runtime composition.
  *
- * Default-off via exact `LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED=true` and
+ * Default-off via exact `LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED=true` and
  * `LUNA_DEPLOYMENT=sunset-staging`. Explicit factory only — never Staff API
  * startup, cron, poller, route, or diagnostic path. Flag not in manifests/defaults.
  *
@@ -17,8 +17,14 @@
  * Import-inert: zero credential/session/transport construction at require time.
  * Disabled env → factory throws before any Azure/session/network construction.
  *
+ * Dependency surfaces: module-init pinned `util.types.isProxy` rejects Proxy
+ * deps before any prototype/key/descriptor operations (ambient isProxy
+ * monkeypatch after load must not weaken detection).
+ *
  * @module email-microsoft-delegated-inbound-event-store-sunset-staging-runtime-composition
  */
+
+const util = require('util');
 
 const {
   createSunsetMicrosoftOAuthClientSecretProvider,
@@ -59,7 +65,7 @@ const WORKER_ID = 'sunset-email-inbound-event-store';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Exact env flag — absent/other/false never enable. Not present in manifests/defaults. */
-const ENV_INBOUND_EVENT_STORE_ENABLED = 'LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED';
+const ENV_DURABLE_INBOUND_CAPTURE_ENABLED = 'LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED';
 
 const DEPENDENCY_KEYS = Object.freeze([
   'env',
@@ -72,6 +78,7 @@ const DEPENDENCY_KEYS = Object.freeze([
 const HTTPS_KEYS = Object.freeze(['request']);
 const TIMERS_KEYS = Object.freeze(['setTimeout', 'clearTimeout']);
 const INPUT_KEYS = Object.freeze(['clientId', 'locationId', 'endpointId']);
+const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
 /** Exact ordered internal composition result keys (identity-free). */
 const INTERNAL_RESULT_KEYS = Object.freeze([
@@ -86,6 +93,12 @@ const INTERNAL_STATUS_SUCCESS = 'success';
 /** Event-store success path claims durability after consumer commit+ack. */
 const INTERNAL_DURABLY_PROCESSED = true;
 const MAX_COUNT = 5;
+
+// Module-init pins: ambient isProxy monkeypatches after load must not weaken detection.
+const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
+const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
+  ? PINNED_UTIL_TYPES.isProxy
+  : null;
 
 if (SECRET_SUNSET !== SUNSET_DEPLOYMENT || SESSION_SUNSET !== SUNSET_DEPLOYMENT) {
   throw new Error('inbound_event_store_runtime_composition_sunset_deployment_mismatch');
@@ -103,8 +116,22 @@ function failure() {
   return Object.freeze(error);
 }
 
+/**
+ * Module-init pinned native util.types.isProxy via Reflect.apply.
+ * isProxy throw / missing pin → conservatively treat as proxy (caller rejects).
+ */
+function isProxySurface(value) {
+  try {
+    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) return true;
+    return Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
+  } catch {
+    return true;
+  }
+}
+
 function ownData(object, key) {
   try {
+    if (object == null || isProxySurface(object)) return undefined;
     const descriptor = Object.getOwnPropertyDescriptor(object, key);
     return descriptor
       && Object.prototype.hasOwnProperty.call(descriptor, 'value')
@@ -122,6 +149,7 @@ function ownDataFunction(object, key) {
     if (object == null || (typeof object !== 'object' && typeof object !== 'function')) {
       return null;
     }
+    if (isProxySurface(object)) return null;
     const descriptor = Object.getOwnPropertyDescriptor(object, key);
     if (!descriptor
         || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
@@ -143,10 +171,15 @@ function ownDataFunction(object, key) {
 
 function exactPlainData(object, keys) {
   try {
-    if (!object || Object.getPrototypeOf(object) !== Object.prototype) return false;
+    if (!object || typeof object !== 'object' || Array.isArray(object)) return false;
+    // Reject Proxy before any prototype / ownKeys / descriptor operations.
+    if (isProxySurface(object)) return false;
+    if (Object.getPrototypeOf(object) !== Object.prototype) return false;
     const actual = Reflect.ownKeys(object);
     if (actual.length !== keys.length
-        || actual.some((key) => typeof key !== 'string' || !keys.includes(key))) {
+        || actual.some((key) => typeof key !== 'string'
+          || DANGEROUS_KEYS.has(key)
+          || !keys.includes(key))) {
       return false;
     }
     return keys.every((key) => {
@@ -171,6 +204,7 @@ function exactFrozenData(object, keys) {
 function snapshotNativeMethodBag(raw, keys) {
   try {
     if (!raw || (typeof raw !== 'object' && typeof raw !== 'function')) return null;
+    if (isProxySurface(raw)) return null;
     if (Array.isArray(raw)) return null;
     const captured = Object.create(null);
     for (const key of keys) {
@@ -193,6 +227,7 @@ function snapshotNativeMethodBag(raw, keys) {
 }
 
 function pinNativeSurfaces(httpsRaw, timersRaw) {
+  if (isProxySurface(httpsRaw) || isProxySurface(timersRaw)) return null;
   let httpsPinned;
   if (exactFrozenData(httpsRaw, HTTPS_KEYS)) {
     const request = ownDataFunction(httpsRaw, 'request');
@@ -226,9 +261,9 @@ function pinNativeSurfaces(httpsRaw, timersRaw) {
  */
 function isInboundEventStoreEnabled(env) {
   try {
-    return !!env
-      && env.LUNA_DEPLOYMENT === SUNSET_DEPLOYMENT
-      && env[ENV_INBOUND_EVENT_STORE_ENABLED] === 'true';
+    if (!env || isProxySurface(env)) return false;
+    return env.LUNA_DEPLOYMENT === SUNSET_DEPLOYMENT
+      && env[ENV_DURABLE_INBOUND_CAPTURE_ENABLED] === 'true';
   } catch {
     return false;
   }
@@ -316,12 +351,24 @@ function mapInternalEventStoreResult(internal) {
  */
 function createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(deps) {
   try {
-    if (!exactPlainData(deps, DEPENDENCY_KEYS)) throw failure();
+    // Reject dependency Proxy before any prototype/key/descriptor operations.
+    if (deps == null || isProxySurface(deps) || !exactPlainData(deps, DEPENDENCY_KEYS)) {
+      throw failure();
+    }
     const env = ownData(deps, 'env');
     const pgClient = ownData(deps, 'pgClient');
     const withTxnRaw = ownData(deps, 'withTransactionClient');
     const httpsRaw = ownData(deps, 'https');
     const timersRaw = ownData(deps, 'timers');
+
+    // Individual dependency values: reject proxies before further ops.
+    if (isProxySurface(env)
+        || isProxySurface(pgClient)
+        || isProxySurface(withTxnRaw)
+        || isProxySurface(httpsRaw)
+        || isProxySurface(timersRaw)) {
+      throw failure();
+    }
 
     // Disabled → zero construction of credentials/session/transport.
     const ready = snapshotEnvReadiness(env);
@@ -429,7 +476,7 @@ module.exports = Object.freeze({
   ERROR_MESSAGE,
   SUNSET_DEPLOYMENT,
   WORKER_ID,
-  ENV_INBOUND_EVENT_STORE_ENABLED,
+  ENV_DURABLE_INBOUND_CAPTURE_ENABLED,
   DEPENDENCY_KEYS,
   INTERNAL_RESULT_KEYS,
   INTERNAL_STATUS_SUCCESS,
