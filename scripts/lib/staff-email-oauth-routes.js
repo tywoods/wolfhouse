@@ -22,6 +22,13 @@ const {
   isReadHealthEnabled,
 } = require('./email-microsoft-delegated-read-sunset-staging-runtime-composition');
 const {
+  createSunsetStagingMicrosoftDelegatedInboundDiagnosticRuntime,
+  isInboundDiagnosticEnabled,
+  INTERNAL_STATUS_SUCCESS: INBOUND_DIAGNOSTIC_INTERNAL_STATUS_SUCCESS,
+  INTERNAL_DURABLY_PROCESSED: INBOUND_DIAGNOSTIC_INTERNAL_DURABLY_PROCESSED,
+  MAX_COUNT: INBOUND_DIAGNOSTIC_MAX_COUNT,
+} = require('./email-microsoft-delegated-inbound-diagnostic-sunset-staging-runtime-composition');
+const {
   createSunsetMicrosoftEndpointPrepare,
   INPUT_KEYS: PREPARE_DOMAIN_INPUT_KEYS,
   ERROR_CODE: PREPARE_ERROR_CODE,
@@ -42,6 +49,11 @@ const OAUTH_PREPARE_PATH = '/staff/admin/email-settings/oauth/microsoft/endpoint
 const OAUTH_REFRESH_HEALTH_PATH = '/staff/admin/email-settings/oauth/microsoft/refresh-health';
 /** Admin-only delegated read-health (refresh + bounded Graph envelopes); default-off. */
 const OAUTH_READ_HEALTH_PATH = '/staff/admin/email-settings/oauth/microsoft/read-health';
+/**
+ * Admin-only delegated inbound diagnostic (authority-bound ImmutableId page +
+ * batch handoff; default-off). Separate path/flag from read-health.
+ */
+const OAUTH_INBOUND_DIAGNOSTIC_PATH = '/staff/admin/email-settings/oauth/microsoft/inbound-diagnostic';
 const OAUTH_CALLBACK_PATH = '/staff/email/oauth/microsoft/callback';
 /** Canonical lowercase UUID (start body endpoint_id + ordinary SQL row ids). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -56,6 +68,8 @@ const PREPARE_BODY_KEYS = Object.freeze(['location_id', 'public_address']);
 const REFRESH_HEALTH_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 /** Exact ordered own-data read-health body keys (location_id then endpoint_id). */
 const READ_HEALTH_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
+/** Exact ordered own-data inbound-diagnostic body keys (location_id then endpoint_id). */
+const INBOUND_DIAGNOSTIC_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 /** Exact ordered prepare success JSON keys (no mailbox echo). */
 const PREPARE_SUCCESS_KEYS = Object.freeze(['success', 'endpoint_id']);
 /** Exact ordered refresh-health success JSON keys (sanitized status only). */
@@ -76,10 +90,26 @@ const READ_HEALTH_SUCCESS_KEYS = Object.freeze([
   'message_count_bounded',
   'graph_stage',
 ]);
+/**
+ * Exact ordered inbound-diagnostic success JSON keys.
+ * Public diagnostic vocabulary is deliberately observation-only and explicitly
+ * non-durable. Never expose internal processed/delivered vocabulary, IDs, PII,
+ * stage, or generation.
+ */
+const INBOUND_DIAGNOSTIC_SUCCESS_KEYS = Object.freeze([
+  'success',
+  'status',
+  'observed_count',
+  'unique_in_batch_count',
+  'duplicate_in_batch_count',
+  'durably_processed',
+]);
+const INBOUND_DIAGNOSTIC_PUBLIC_STATUS = 'diagnostic_observed';
 const READ_HEALTH_GRAPH_STAGE_SET = new Set(GRAPH_STAGES);
 const PREPARE_ERROR = 'endpoint_prepare_unavailable';
 const REFRESH_HEALTH_ERROR = 'refresh_health_unavailable';
 const READ_HEALTH_ERROR = 'read_health_unavailable';
+const INBOUND_DIAGNOSTIC_ERROR = 'inbound_diagnostic_unavailable';
 /** Exact ordered own-data resolve SQL row keys (matches SELECT aliases / order). */
 const RESOLVE_ROW_KEYS = Object.freeze(['client_id', 'location_id', 'endpoint_id']);
 const RESOLVE_ROW_KEY_SET = new Set(RESOLVE_ROW_KEYS);
@@ -173,6 +203,12 @@ SELECT c.id::text AS client_id,
 
 /** Same trusted binding resolve as refresh-health (grant present). */
 const SQL_RESOLVE_READ_HEALTH_BINDING = SQL_RESOLVE_REFRESH_HEALTH_BINDING;
+
+/**
+ * Same trusted binding resolve as read-health / refresh-health (grant present).
+ * Inbound diagnostic uses resolved DB UUIDs — never caller slug identity.
+ */
+const SQL_RESOLVE_INBOUND_DIAGNOSTIC_BINDING = SQL_RESOLVE_REFRESH_HEALTH_BINDING;
 
 /**
  * Descriptor-safe start body snapshot: all reflection once.
@@ -352,6 +388,64 @@ function snapshotRefreshHealthBody(body) {
 /** Read-health body shares start shape: exact ordered location_id + endpoint_id. */
 function snapshotReadHealthBody(body) {
   return snapshotStartBody(body);
+}
+
+/** Inbound-diagnostic body shares start shape: exact ordered location_id + endpoint_id. */
+function snapshotInboundDiagnosticBody(body) {
+  return snapshotStartBody(body);
+}
+
+/**
+ * Exact ordered inbound-diagnostic success DTO.
+ * Accepts the runtime result or authority-bound internal DTO and emits the exact
+ * observation-only public contract. Max-5; observed = unique + duplicate.
+ */
+function buildInboundDiagnosticSuccessJson(result) {
+  try {
+    if (!result || typeof result !== 'object') return null;
+    const status = result.status;
+    let inputCount;
+    let deliveredCount;
+    let duplicateCount;
+    if (status === INBOUND_DIAGNOSTIC_INTERNAL_STATUS_SUCCESS
+        && result.durably_processed === INBOUND_DIAGNOSTIC_INTERNAL_DURABLY_PROCESSED
+        && Number.isInteger(result.input_count)) {
+      // Internal runtime-composition vocabulary.
+      inputCount = result.input_count;
+      deliveredCount = result.delivered_count;
+      duplicateCount = result.duplicate_count;
+    } else if (status === 'processed' && Number.isInteger(result.input_count)) {
+      // Authority-bound internal DTO — map at route boundary (same count names).
+      inputCount = result.input_count;
+      deliveredCount = result.delivered_count;
+      duplicateCount = result.duplicate_count;
+    } else {
+      return null;
+    }
+    if (!Number.isInteger(inputCount) || inputCount < 0
+        || inputCount > INBOUND_DIAGNOSTIC_MAX_COUNT) {
+      return null;
+    }
+    if (!Number.isInteger(deliveredCount) || deliveredCount < 0
+        || deliveredCount > inputCount) {
+      return null;
+    }
+    // observed = unique + duplicate  (input = delivered + duplicate)
+    if (!Number.isInteger(duplicateCount) || duplicateCount < 0
+        || duplicateCount !== inputCount - deliveredCount) {
+      return null;
+    }
+    const dto = {};
+    dto.success = true;
+    dto.status = INBOUND_DIAGNOSTIC_PUBLIC_STATUS;
+    dto.observed_count = inputCount;
+    dto.unique_in_batch_count = deliveredCount;
+    dto.duplicate_in_batch_count = duplicateCount;
+    dto.durably_processed = false;
+    return Object.freeze(dto);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -734,6 +828,16 @@ function buildReadHealthRuntime(env, pg) {
   }));
 }
 
+function buildInboundDiagnosticRuntime(env, pg) {
+  const natives = productionNativeSurfaces();
+  return createSunsetStagingMicrosoftDelegatedInboundDiagnosticRuntime(Object.freeze({
+    env,
+    pgClient: pg,
+    https: natives.https,
+    timers: natives.timers,
+  }));
+}
+
 function createStaffEmailOAuthRoutes(deps) {
   const env = deps.runtimeEnv || process.env;
 
@@ -1005,6 +1109,81 @@ function createStaffEmailOAuthRoutes(deps) {
     }
   }
 
+  /**
+   * POST inbound-diagnostic — authority-bound ImmutableId page + batch handoff.
+   * Gate: LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED + sunset-staging only.
+   * Auth: Sunset admin (same ACL/authz pattern as read-health). Body/binding
+   * resolver reused; operation input uses resolved DB UUIDs only (never caller
+   * slug identity). Sanitized identity-free observation DTO only; never message
+   * content, IDs, PII, stage, generation, or durability claims.
+   * Failures: 404 disabled/unresolved, 400 malformed body, 503 operation fail.
+   * No cron/poller/startup; flag never in manifests/defaults.
+   */
+  async function handleInboundDiagnostic(body, req, res, user, gateEnv = env) {
+    // Concealed 404 before DB/runtime/network when flag absent/other or non-sunset.
+    // The top-level router passes its frozen pre-auth snapshot. The default keeps
+    // direct unit invocation fail-closed without creating a second predicate.
+    if (!isInboundDiagnosticEnabled(gateEnv)) {
+      return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    if (!user || user.client_slug !== 'sunset'
+        || !UUID_RE_CI.test(user.staff_user_id || '')
+        || !UUID_RE_CI.test(user.session_id || '')) {
+      return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    }
+    if (!deps.assertStaffClientAccess(user, 'sunset', res)) return;
+    const authz = deps.authorizeAuthenticatedStaffRoute({
+      clientSlug: 'sunset',
+      method: 'POST',
+      pathname: OAUTH_INBOUND_DIAGNOSTIC_PATH,
+      env,
+    });
+    if (!authz.ok) {
+      return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+    }
+    const bodySnap = snapshotInboundDiagnosticBody(body);
+    if (!bodySnap) {
+      return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    }
+    try {
+      return await deps.withPgClient(async (pg) => {
+        const found = await pg.query(SQL_RESOLVE_INBOUND_DIAGNOSTIC_BINDING, [
+          bodySnap.location_id,
+          bodySnap.endpoint_id,
+        ]);
+        const resolved = snapshotResolveQueryResult(found);
+        if (resolved.kind === 'empty') {
+          return deps.sendJSON(res, 404, { success: false, error: 'endpoint_not_found' });
+        }
+        if (resolved.kind !== 'one') {
+          return deps.sendJSON(res, 503, { success: false, error: INBOUND_DIAGNOSTIC_ERROR });
+        }
+        const rowSnap = resolved.row;
+        if (rowSnap.endpoint_id !== bodySnap.endpoint_id) {
+          return deps.sendJSON(res, 503, { success: false, error: INBOUND_DIAGNOSTIC_ERROR });
+        }
+        // Operation input: exact resolved DB UUIDs (client/location/endpoint).
+        // Never caller client_slug or body client_id.
+        const service = buildInboundDiagnosticRuntime(env, pg);
+        const result = await service.runInboundDiagnostic(Object.freeze({
+          clientId: rowSnap.client_id,
+          locationId: rowSnap.location_id,
+          endpointId: rowSnap.endpoint_id,
+        }));
+        const json = buildInboundDiagnosticSuccessJson(result);
+        if (!json
+            || Reflect.ownKeys(json).length !== INBOUND_DIAGNOSTIC_SUCCESS_KEYS.length
+            || Reflect.ownKeys(json)[0] !== INBOUND_DIAGNOSTIC_SUCCESS_KEYS[0]
+            || Reflect.ownKeys(json).join(',') !== INBOUND_DIAGNOSTIC_SUCCESS_KEYS.join(',')) {
+          return deps.sendJSON(res, 503, { success: false, error: INBOUND_DIAGNOSTIC_ERROR });
+        }
+        return deps.sendJSON(res, 200, json);
+      });
+    } catch (_) {
+      return deps.sendJSON(res, 503, { success: false, error: INBOUND_DIAGNOSTIC_ERROR });
+    }
+  }
+
   function terminal(res, statusCode, status) {
     const messages = {
       authorization_received: 'Authorization response received. You may close this window.',
@@ -1066,6 +1245,7 @@ function createStaffEmailOAuthRoutes(deps) {
     handlePrepare,
     handleRefreshHealth,
     handleReadHealth,
+    handleInboundDiagnostic,
     handleCallback,
   });
 }
@@ -1075,21 +1255,26 @@ module.exports = {
   OAUTH_PREPARE_PATH,
   OAUTH_REFRESH_HEALTH_PATH,
   OAUTH_READ_HEALTH_PATH,
+  OAUTH_INBOUND_DIAGNOSTIC_PATH,
   OAUTH_CALLBACK_PATH,
   SQL_RESOLVE_START_BINDING,
   SQL_RESOLVE_REFRESH_HEALTH_BINDING,
   SQL_RESOLVE_READ_HEALTH_BINDING,
+  SQL_RESOLVE_INBOUND_DIAGNOSTIC_BINDING,
   SQL_RESOLVE_SUNSET_CLIENT_FOR_PREPARE,
   START_BODY_KEYS,
   PREPARE_BODY_KEYS,
   REFRESH_HEALTH_BODY_KEYS,
   READ_HEALTH_BODY_KEYS,
+  INBOUND_DIAGNOSTIC_BODY_KEYS,
   PREPARE_SUCCESS_KEYS,
   REFRESH_HEALTH_SUCCESS_KEYS,
   READ_HEALTH_SUCCESS_KEYS,
+  INBOUND_DIAGNOSTIC_SUCCESS_KEYS,
   PREPARE_ERROR,
   REFRESH_HEALTH_ERROR,
   READ_HEALTH_ERROR,
+  INBOUND_DIAGNOSTIC_ERROR,
   RESOLVE_ROW_KEYS,
   PREPARE_CLIENT_ROW_KEYS,
   validBody,
@@ -1097,12 +1282,14 @@ module.exports = {
   snapshotPrepareBody,
   snapshotRefreshHealthBody,
   snapshotReadHealthBody,
+  snapshotInboundDiagnosticBody,
   snapshotPrepareClientResolve,
   snapshotResolveQueryResult,
   isPrepareEnabled,
   buildPrepareSuccessJson,
   buildRefreshHealthSuccessJson,
   buildReadHealthSuccessJson,
+  buildInboundDiagnosticSuccessJson,
   createStaffEmailOAuthRoutes,
   // Re-export production dependency key constant for offline verifiers (no secrets).
   RUNTIME_DEPENDENCY_KEYS: DEPENDENCY_KEYS,
