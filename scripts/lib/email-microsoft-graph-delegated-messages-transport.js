@@ -1,14 +1,25 @@
 'use strict';
 
 /**
- * Delegated Microsoft Graph Mail.ReadBasic message-envelope health transport.
- * Single-use GET /v1.0/me/messages with fixed $top=5 and fixed $select.
+ * Delegated Microsoft Graph Mail.ReadBasic messages transport — single network owner.
+ *
+ * Health path: single-use GET /v1.0/me/messages with fixed $top=5 and fixed $select.
  * Returns only a bounded count — never subjects, addresses, IDs, bodies, or links.
+ *
+ * ImmutableId page path (UNWIRED factory): same one-shot HTTP lifecycle with pinned
+ * Prefer: IdType="ImmutableId", private success→canonical-envelope mapping. Raw page
+ * never escapes; no public provenance mint/capability. Callers cannot inject Prefer
+ * or provenance.
+ *
  * Validates native responses with the pinned IncomingMessage / isProxy pattern.
+ * Lifecycle methods (on/once/end/destroy) use own-data descriptors or pinned native
+ * prototype functions only — never `typeof obj.method` / [[Get]] that run hostile
+ * accessors or proxy traps.
  * May accept a standard @odata.nextLink on the list envelope (never followed).
  * May accept optional per-message @odata.etag (validated then discarded; never used).
  *
  * Not the app-only mailbox adapter. No pagination, delta, send, or persistence.
+ * ImmutableId factory is not route/runtime/DB/OAuth wired.
  *
  * @module email-microsoft-graph-delegated-messages-transport
  */
@@ -16,6 +27,16 @@
 const http = require('http');
 const https = require('https');
 const util = require('util');
+const { EventEmitter } = require('events');
+const stream = require('stream');
+
+const {
+  mapMicrosoftGraphMailReadBasicRowToInboundEnvelope,
+} = require('./email-microsoft-graph-inbound-envelope-mapper');
+const {
+  compareInboundEmailEnvelopesForOrder,
+  EMAIL_INBOUND_ENVELOPE_STRING_MAX,
+} = require('./email-inbound-envelope-contract');
 
 const HOST = 'graph.microsoft.com';
 const TOP_MAX = 5;
@@ -38,6 +59,13 @@ const STRING_LIMIT = 2048;
 const DEPENDENCY_KEYS = Object.freeze(['httpsImpl', 'timers']);
 const FAILURE_CODE = 'microsoft_graph_delegated_messages_failed';
 const FAILURE_MESSAGE = 'Microsoft Graph delegated messages request failed.';
+/** Exact Prefer header value for Graph ImmutableId semantics (pinned; transport-owned). */
+const PREFER_IMMUTABLE_ID = 'IdType="ImmutableId"';
+const IMMUTABLEID_PAGE_FAILURE_CODE = 'microsoft_graph_immutableid_page_failed';
+const IMMUTABLEID_PAGE_FAILURE_MESSAGE = 'Microsoft Graph ImmutableId page request failed.';
+const IMMUTABLEID_PAGE_ERROR_NAME = 'MicrosoftGraphImmutableIdPageError';
+const COUNT_ERROR_NAME = 'MicrosoftGraphDelegatedMessagesError';
+const PROVIDER_ID = 'microsoft_graph';
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const TOP_ALLOWED_EXACT = Object.freeze([
   Object.freeze(['value']),
@@ -68,6 +96,60 @@ const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.ty
 const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
   ? PINNED_UTIL_TYPES.isProxy
   : null;
+
+// Pinned native lifecycle functions (descriptor values only). Used via Reflect.apply
+// so hostile instance accessors / proxy get traps are never executed.
+const PINNED_EE_PROTOTYPE = EventEmitter && EventEmitter.prototype ? EventEmitter.prototype : null;
+const PINNED_READABLE_PROTOTYPE = stream.Readable && stream.Readable.prototype
+  ? stream.Readable.prototype
+  : null;
+const PINNED_OUTGOING_MESSAGE = http.OutgoingMessage || null;
+const PINNED_OUTGOING_MESSAGE_PROTOTYPE = PINNED_OUTGOING_MESSAGE
+  && PINNED_OUTGOING_MESSAGE.prototype
+  ? PINNED_OUTGOING_MESSAGE.prototype
+  : null;
+const PINNED_CLIENT_REQUEST = http.ClientRequest || null;
+const PINNED_CLIENT_REQUEST_PROTOTYPE = PINNED_CLIENT_REQUEST
+  && PINNED_CLIENT_REQUEST.prototype
+  ? PINNED_CLIENT_REQUEST.prototype
+  : null;
+
+function pinProtoMethod(proto, name) {
+  try {
+    if (!proto) return null;
+    const descriptor = Object.getOwnPropertyDescriptor(proto, name);
+    if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return null;
+    if (typeof descriptor.value !== 'function') return null;
+    if (descriptor.get || descriptor.set) return null;
+    return descriptor.value;
+  } catch {
+    return null;
+  }
+}
+
+const PINNED_EE_ON = pinProtoMethod(PINNED_EE_PROTOTYPE, 'on');
+const PINNED_EE_ONCE = pinProtoMethod(PINNED_EE_PROTOTYPE, 'once');
+const PINNED_EE_EMIT = pinProtoMethod(PINNED_EE_PROTOTYPE, 'emit');
+const PINNED_READABLE_ON = pinProtoMethod(PINNED_READABLE_PROTOTYPE, 'on');
+const PINNED_READABLE_DESTROY = pinProtoMethod(PINNED_READABLE_PROTOTYPE, 'destroy');
+const PINNED_OUTGOING_END = pinProtoMethod(PINNED_OUTGOING_MESSAGE_PROTOTYPE, 'end');
+const PINNED_CLIENT_REQUEST_DESTROY = pinProtoMethod(PINNED_CLIENT_REQUEST_PROTOTYPE, 'destroy');
+const PINNED_CLIENT_REQUEST_ONCE = pinProtoMethod(PINNED_CLIENT_REQUEST_PROTOTYPE, 'once')
+  || PINNED_EE_ONCE;
+
+/** Allowlist of native functions safe to inherit via prototype descriptor walk. */
+const PINNED_SAFE_LIFECYCLE_FNS = new Set(
+  [
+    PINNED_EE_ON,
+    PINNED_EE_ONCE,
+    PINNED_EE_EMIT,
+    PINNED_READABLE_ON,
+    PINNED_READABLE_DESTROY,
+    PINNED_OUTGOING_END,
+    PINNED_CLIENT_REQUEST_DESTROY,
+    PINNED_CLIENT_REQUEST_ONCE,
+  ].filter((fn) => typeof fn === 'function'),
+);
 
 /** Frozen non-secret Graph request constants (never includes Authorization). */
 const GRAPH_REQUEST_CONSTANTS = Object.freeze({
@@ -103,18 +185,37 @@ const GRAPH_STAGE_SET = new Set(GRAPH_STAGES);
 /** Module-private brand: only transport-created failure objects may map to a stage. */
 const STAGED_FAILURES = new WeakMap();
 
-function failure(stage) {
+/**
+ * @param {string} [stage]
+ * @param {{ failureMessage: string, failureCode: string, errorName: string }} brand
+ */
+function failure(stage, brand = {
+  failureMessage: FAILURE_MESSAGE,
+  failureCode: FAILURE_CODE,
+  errorName: COUNT_ERROR_NAME,
+}) {
   let graphStage = 'request_error';
   if (typeof stage === 'string' && GRAPH_STAGE_SET.has(stage) && stage !== 'success') {
     graphStage = stage;
   }
-  const error = new Error(FAILURE_MESSAGE);
-  Object.defineProperty(error, 'name', { value: 'MicrosoftGraphDelegatedMessagesError' });
-  Object.defineProperty(error, 'code', { value: FAILURE_CODE, enumerable: true });
+  const error = new Error(brand.failureMessage);
+  Object.defineProperty(error, 'name', { value: brand.errorName });
+  Object.defineProperty(error, 'code', { value: brand.failureCode, enumerable: true });
   // Stage lives only in the private brand — never as a readable error property.
   STAGED_FAILURES.set(error, graphStage);
   return Object.freeze(error);
 }
+
+const COUNT_FAILURE_BRAND = Object.freeze({
+  failureMessage: FAILURE_MESSAGE,
+  failureCode: FAILURE_CODE,
+  errorName: COUNT_ERROR_NAME,
+});
+const IMMUTABLEID_FAILURE_BRAND = Object.freeze({
+  failureMessage: IMMUTABLEID_PAGE_FAILURE_MESSAGE,
+  failureCode: IMMUTABLEID_PAGE_FAILURE_CODE,
+  errorName: IMMUTABLEID_PAGE_ERROR_NAME,
+});
 
 /**
  * Safe reader for transport-branded failure stages.
@@ -232,6 +333,87 @@ function readResponseHeaders(response) {
   } catch {
     return undefined;
   }
+}
+
+const LIFECYCLE_METHOD_NAMES = Object.freeze(['on', 'once', 'end', 'destroy', 'headers']);
+
+/**
+ * True when the surface defines own accessors (or non-value descriptors) on
+ * lifecycle names. Native EventEmitter.once/on read `this.on` via [[Get]]; own
+ * hostile getters must be rejected before any native method is applied.
+ * Uses getOwnPropertyDescriptor only — never invokes getters.
+ */
+function surfaceHasHostileLifecycleAccessors(surface) {
+  try {
+    if (surface === null || (typeof surface !== 'object' && typeof surface !== 'function')) {
+      return true;
+    }
+    for (const name of LIFECYCLE_METHOD_NAMES) {
+      const descriptor = Object.getOwnPropertyDescriptor(surface, name);
+      if (!descriptor) continue;
+      if (descriptor.get || descriptor.set
+          || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Resolve a lifecycle method without executing hostile accessors or proxy traps.
+ * Order: reject proxy → reject own hostile accessors on lifecycle names →
+ * own-data function descriptor → safe pinned native via prototype descriptor
+ * walk (never instance [[Get]]).
+ */
+function resolveLifecycleMethod(surface, name) {
+  try {
+    if (surface === null || (typeof surface !== 'object' && typeof surface !== 'function')) {
+      return null;
+    }
+    if (isProxySurface(surface)) return null;
+    if (surfaceHasHostileLifecycleAccessors(surface)) return null;
+    const ownDescriptor = Object.getOwnPropertyDescriptor(surface, name);
+    if (ownDescriptor) {
+      if (Object.prototype.hasOwnProperty.call(ownDescriptor, 'value')
+          && typeof ownDescriptor.value === 'function'
+          && !ownDescriptor.get
+          && !ownDescriptor.set) {
+        return ownDescriptor.value;
+      }
+      // Own non-function data — do not use.
+      return null;
+    }
+    let proto = Object.getPrototypeOf(surface);
+    while (proto && proto !== Object.prototype) {
+      const descriptor = Object.getOwnPropertyDescriptor(proto, name);
+      if (descriptor) {
+        if (!Object.prototype.hasOwnProperty.call(descriptor, 'value')
+            || typeof descriptor.value !== 'function'
+            || descriptor.get
+            || descriptor.set) {
+          return null;
+        }
+        if (PINNED_SAFE_LIFECYCLE_FNS.has(descriptor.value)) {
+          return descriptor.value;
+        }
+        return null;
+      }
+      proto = Object.getPrototypeOf(proto);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function applyLifecycleMethod(surface, name, args) {
+  const fn = resolveLifecycleMethod(surface, name);
+  if (typeof fn !== 'function') return false;
+  Reflect.apply(fn, surface, args);
+  return true;
 }
 
 function readAccessToken(input) {
@@ -517,10 +699,9 @@ function classifyMessageEnvelopeBody(bodyText) {
 }
 
 /**
- * Parse + classify Graph list JSON for page-transport composition.
- * On success includes the strict-parsed page object (null-prototype).
- * Failure stages never include page/rows. Callers must not re-export page
- * or log raw Graph content — ImmutableId page transport maps then discards.
+ * Module-private parse + classify for the single network owner.
+ * On success includes the strict-parsed page object for immediate internal map.
+ * Never exported — raw validated pages must not escape this module.
  *
  * @returns {{stage:string, count?:number, page?:object}}
  */
@@ -556,6 +737,61 @@ function loadClassifiedMessageEnvelopePage(bodyText) {
 }
 
 /**
+ * Private Prefer-ImmutableId success path: map a validated page body to fresh
+ * frozen canonical envelopes. Authenticated provenance is implied only by this
+ * pinned HTTP path — no public mint/capability. Page is not returned.
+ *
+ * @returns {{ok:true, envelopes:object[]}|{ok:false, stage:string}}
+ */
+function mapSuccessBodyToImmutableIdEnvelopes(bodyText, providerMailboxId) {
+  const loaded = loadClassifiedMessageEnvelopePage(bodyText);
+  if (!loaded || loaded.stage !== 'success' || typeof loaded.count !== 'number' || !loaded.page) {
+    return Object.freeze({
+      ok: false,
+      stage: loaded && typeof loaded.stage === 'string' ? loaded.stage : 'json_invalid',
+    });
+  }
+  if (loaded.count > TOP_MAX) {
+    return Object.freeze({ ok: false, stage: 'top_shape_invalid' });
+  }
+  const rows = ownData(loaded.page, 'value');
+  if (!Array.isArray(rows) || rows.length !== loaded.count) {
+    return Object.freeze({ ok: false, stage: 'top_shape_invalid' });
+  }
+  const envelopes = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    const mapped = mapMicrosoftGraphMailReadBasicRowToInboundEnvelope({
+      provider: PROVIDER_ID,
+      provider_mailbox_id: providerMailboxId,
+      row: rows[i],
+    });
+    if (!mapped || mapped.ok !== true) {
+      return Object.freeze({ ok: false, stage: 'row_value_invalid' });
+    }
+    envelopes.push(mapped.value);
+  }
+  envelopes.sort(compareInboundEmailEnvelopesForOrder);
+  return Object.freeze({ ok: true, envelopes: Object.freeze(envelopes) });
+}
+
+function readImmutableIdPageInput(input) {
+  if (!exactPlainData(input, ['accessToken', 'provider_mailbox_id'])) return null;
+  const token = ownData(input, 'accessToken');
+  if (typeof token !== 'string' || token.length < 1 || token.length > TOKEN_LIMIT
+      || !/^[\x21-\x7e]+$/.test(token)) {
+    return null;
+  }
+  const mailbox = ownData(input, 'provider_mailbox_id');
+  if (typeof mailbox !== 'string'
+      || mailbox.length < 1
+      || mailbox.length > EMAIL_INBOUND_ENVELOPE_STRING_MAX
+      || hasUnpairedSurrogate(mailbox)) {
+    return null;
+  }
+  return { accessToken: token, provider_mailbox_id: mailbox };
+}
+
+/**
  * Validate Graph list JSON and return only a bounded count.
  * Never returns row contents. Rejects pagination/delta links and body fields.
  */
@@ -564,236 +800,337 @@ function countBoundedMessageEnvelopes(bodyText) {
   return classified.stage === 'success' ? classified.count : null;
 }
 
-function createMicrosoftGraphDelegatedMessagesTransport(dependencies = {}) {
+/**
+ * Resolve https/timers deps. Brand selects failure surface (count vs ImmutableId).
+ */
+function resolveTransportDependencies(dependencies, brand) {
   let requestFn;
   let setTimer;
   let clearTimer;
-  try {
-    if (!dependencies || Object.getPrototypeOf(dependencies) !== Object.prototype) {
-      throw failure();
+  if (!dependencies || Object.getPrototypeOf(dependencies) !== Object.prototype) {
+    throw failure('request_error', brand);
+  }
+  const keys = Reflect.ownKeys(dependencies);
+  if (keys.some((k) => typeof k !== 'string' || !DEPENDENCY_KEYS.includes(k))) {
+    throw failure('request_error', brand);
+  }
+  const httpsImpl = ownData(dependencies, 'httpsImpl');
+  if (httpsImpl === undefined) {
+    requestFn = https.request;
+  } else if (typeof httpsImpl === 'function') {
+    requestFn = httpsImpl;
+  } else if (httpsImpl && typeof ownData(httpsImpl, 'request') === 'function') {
+    const owner = httpsImpl;
+    const fn = ownData(httpsImpl, 'request');
+    requestFn = (...args) => Reflect.apply(fn, owner, args);
+  } else {
+    throw failure('request_error', brand);
+  }
+  setTimer = setTimeout;
+  clearTimer = clearTimeout;
+  if (Object.prototype.hasOwnProperty.call(dependencies, 'timers')) {
+    const timers = ownData(dependencies, 'timers');
+    if (!timers || typeof ownData(timers, 'setTimeout') !== 'function'
+        || typeof ownData(timers, 'clearTimeout') !== 'function') {
+      throw failure('request_error', brand);
     }
-    const keys = Reflect.ownKeys(dependencies);
-    if (keys.some((k) => typeof k !== 'string' || !DEPENDENCY_KEYS.includes(k))) {
-      throw failure();
-    }
-    const httpsImpl = ownData(dependencies, 'httpsImpl');
-    if (httpsImpl === undefined) {
-      requestFn = https.request;
-    } else if (typeof httpsImpl === 'function') {
-      requestFn = httpsImpl;
-    } else if (httpsImpl && typeof ownData(httpsImpl, 'request') === 'function') {
-      const owner = httpsImpl;
-      const fn = ownData(httpsImpl, 'request');
-      requestFn = (...args) => Reflect.apply(fn, owner, args);
-    } else {
-      throw failure();
-    }
-    setTimer = setTimeout;
-    clearTimer = clearTimeout;
-    if (Object.prototype.hasOwnProperty.call(dependencies, 'timers')) {
-      const timers = ownData(dependencies, 'timers');
-      if (!timers || typeof ownData(timers, 'setTimeout') !== 'function'
-          || typeof ownData(timers, 'clearTimeout') !== 'function') {
-        throw failure();
+    setTimer = ownData(timers, 'setTimeout');
+    clearTimer = ownData(timers, 'clearTimeout');
+  }
+  return { requestFn, setTimer, clearTimer };
+}
+
+/**
+ * Single network owner: one-shot GET /me/messages.
+ * mode 'count' → bounded count health result (no Prefer).
+ * mode 'immutableid_envelopes' → pinned Prefer + private canonical envelopes.
+ * No generic success callback; modes are closed over module-private paths only.
+ */
+function runDelegatedMessagesRequest(session, input) {
+  const {
+    requestFn,
+    setTimer,
+    clearTimer,
+    brand,
+    mode,
+    preferHeader,
+  } = session;
+
+  let tokenOwner = null;
+  let mailboxId = null;
+  if (mode === 'immutableid_envelopes') {
+    const parsed = readImmutableIdPageInput(input);
+    if (parsed === null) return Promise.reject(failure('request_error', brand));
+    tokenOwner = parsed.accessToken;
+    mailboxId = parsed.provider_mailbox_id;
+  } else {
+    tokenOwner = readAccessToken(input);
+    if (tokenOwner === null) return Promise.reject(failure('request_error', brand));
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let requestObject;
+    let activeResponse;
+    let timerHandle;
+    let timerAcquired = false;
+    let timerCleared = false;
+
+    const fail = (stage) => failure(stage, brand);
+
+    const clearDeadline = () => {
+      if (!timerAcquired || timerCleared) return;
+      timerCleared = true;
+      try { clearTimer(timerHandle); } catch { /* */ }
+    };
+    const destroyRequest = () => {
+      try {
+        if (requestObject) applyLifecycleMethod(requestObject, 'destroy', []);
+      } catch { /* */ }
+    };
+    const destroyResponse = () => {
+      try {
+        if (activeResponse) applyLifecycleMethod(activeResponse, 'destroy', []);
+      } catch { /* */ }
+    };
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      clearDeadline();
+      if (error) reject(error);
+      else resolve(result);
+    };
+    const terminate = (error) => {
+      destroyResponse();
+      destroyRequest();
+      finish(error);
+    };
+
+    // Response path must not close over token / Authorization / token-bearing options.
+    const onResponse = (response) => {
+      if (isProxySurface(response)) {
+        if (settled) return;
+        destroyRequest();
+        finish(fail('response_surface_invalid'));
+        return;
       }
-      setTimer = ownData(timers, 'setTimeout');
-      clearTimer = ownData(timers, 'clearTimeout');
+      if (settled) {
+        activeResponse = response;
+        destroyResponse();
+        return;
+      }
+      activeResponse = response;
+      try {
+        const status = ownData(response, 'statusCode');
+        const headers = readResponseHeaders(response);
+        const contentType = headers && typeof headers === 'object'
+          ? ownData(headers, 'content-type') : undefined;
+        if (status !== 200) { terminate(fail('http_status_not_200')); return; }
+        if (typeof contentType !== 'string'
+            || !/^application\/json(?:\s*;|$)/i.test(contentType)) {
+          terminate(fail('content_type_invalid'));
+          return;
+        }
+        const onFn = resolveLifecycleMethod(response, 'on');
+        const onceFn = resolveLifecycleMethod(response, 'once');
+        if (typeof onFn !== 'function' || typeof onceFn !== 'function') {
+          terminate(fail('response_surface_invalid'));
+          return;
+        }
+        const chunks = [];
+        let bytes = 0;
+        let ended = false;
+        Reflect.apply(onFn, response, ['data', (chunk) => {
+          if (settled) return;
+          if (!Buffer.isBuffer(chunk)) { terminate(fail('stream_invalid')); return; }
+          if (chunk.length > RESPONSE_CAP_BYTES - bytes) {
+            terminate(fail('response_too_large'));
+            return;
+          }
+          bytes += chunk.length;
+          chunks.push(chunk);
+        }]);
+        Reflect.apply(onceFn, response, ['error', () => terminate(fail('stream_invalid'))]);
+        Reflect.apply(onceFn, response, ['aborted', () => terminate(fail('stream_aborted'))]);
+        Reflect.apply(onceFn, response, ['close', () => {
+          if (!ended) terminate(fail('stream_aborted'));
+        }]);
+        Reflect.apply(onceFn, response, ['end', () => {
+          if (settled) return;
+          ended = true;
+          try {
+            const bodyText = Buffer.concat(chunks, bytes).toString('utf8');
+            if (mode === 'immutableid_envelopes') {
+              const mapped = mapSuccessBodyToImmutableIdEnvelopes(bodyText, mailboxId);
+              if (!mapped || mapped.ok !== true || !Array.isArray(mapped.envelopes)) {
+                finish(fail(
+                  mapped && typeof mapped.stage === 'string' ? mapped.stage : 'json_invalid',
+                ));
+                return;
+              }
+              if (mapped.envelopes.length > TOP_MAX) {
+                finish(fail('row_value_invalid'));
+                return;
+              }
+              finish(null, mapped.envelopes);
+              return;
+            }
+            const classified = classifyMessageEnvelopeBody(bodyText);
+            if (!classified || classified.stage !== 'success'
+                || typeof classified.count !== 'number') {
+              finish(fail(
+                classified && typeof classified.stage === 'string'
+                  ? classified.stage
+                  : 'json_invalid',
+              ));
+              return;
+            }
+            finish(null, Object.freeze({
+              message_count_bounded: classified.count,
+              graph_stage: 'success',
+            }));
+          } catch {
+            finish(fail('json_invalid'));
+          }
+        }]);
+      } catch {
+        terminate(fail('response_surface_invalid'));
+      }
+    };
+
+    try {
+      timerHandle = setTimer(() => terminate(fail('timeout')), DEADLINE_MS);
+      timerAcquired = true;
+      if (settled) clearDeadline();
+    } catch {
+      tokenOwner = null;
+      finish(fail('request_error'));
+      return;
     }
-  } catch (_) {
-    throw failure();
+    if (settled) {
+      tokenOwner = null;
+      return;
+    }
+
+    try {
+      // Isolate token/Authorization to this call site; scrub immediately after
+      // https.request returns or throws (Node reads options synchronously).
+      // Prefer is transport-owned when mode is immutableid_envelopes — never from input.
+      (function issueRequest(tokenForRequest) {
+        let requestHeaders = {
+          Accept: ACCEPT_HEADER,
+          Authorization: null,
+        };
+        if (typeof preferHeader === 'string') {
+          requestHeaders.Prefer = preferHeader;
+        }
+        let authorization = null;
+        let requestOptions = null;
+        try {
+          authorization = ['Bearer', tokenForRequest].join(' ');
+          tokenForRequest = null;
+          requestHeaders.Authorization = authorization;
+          requestOptions = {
+            protocol: GRAPH_REQUEST_CONSTANTS.protocol,
+            hostname: GRAPH_REQUEST_CONSTANTS.hostname,
+            host: GRAPH_REQUEST_CONSTANTS.host,
+            port: GRAPH_REQUEST_CONSTANTS.port,
+            method: GRAPH_REQUEST_CONSTANTS.method,
+            path: GRAPH_REQUEST_CONSTANTS.path,
+            agent: GRAPH_REQUEST_CONSTANTS.agent,
+            headers: requestHeaders,
+          };
+          requestObject = requestFn(requestOptions, onResponse);
+        } finally {
+          try {
+            if (requestHeaders) requestHeaders.Authorization = null;
+          } catch { /* */ }
+          requestHeaders = null;
+          authorization = null;
+          requestOptions = null;
+          tokenForRequest = null;
+        }
+      }(tokenOwner));
+      tokenOwner = null;
+    } catch {
+      tokenOwner = null;
+      terminate(fail('request_error'));
+      return;
+    }
+
+    const onceReq = resolveLifecycleMethod(requestObject, 'once');
+    const endReq = resolveLifecycleMethod(requestObject, 'end');
+    if (!requestObject || typeof onceReq !== 'function' || typeof endReq !== 'function') {
+      terminate(fail('request_error'));
+      return;
+    }
+    Reflect.apply(onceReq, requestObject, ['error', () => terminate(fail('request_error'))]);
+    Reflect.apply(endReq, requestObject, []);
+  });
+}
+
+function createMicrosoftGraphDelegatedMessagesTransport(dependencies = {}) {
+  let resolved;
+  try {
+    resolved = resolveTransportDependencies(dependencies, COUNT_FAILURE_BRAND);
+  } catch (err) {
+    if (err && err.code === FAILURE_CODE) throw err;
+    throw failure('request_error', COUNT_FAILURE_BRAND);
   }
 
   let used = false;
   function listMessageEnvelopeCount(input) {
-    if (used) return Promise.reject(failure());
+    if (used) return Promise.reject(failure('request_error', COUNT_FAILURE_BRAND));
     used = true;
-    let tokenOwner = readAccessToken(input);
-    if (tokenOwner === null) return Promise.reject(failure());
-
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      let requestObject;
-      let activeResponse;
-      let timerHandle;
-      let timerAcquired = false;
-      let timerCleared = false;
-
-      const clearDeadline = () => {
-        if (!timerAcquired || timerCleared) return;
-        timerCleared = true;
-        try { clearTimer(timerHandle); } catch { /* */ }
-      };
-      const destroyRequest = () => {
-        try {
-          if (requestObject && typeof requestObject.destroy === 'function') requestObject.destroy();
-        } catch { /* */ }
-      };
-      const destroyResponse = () => {
-        try {
-          if (activeResponse && typeof activeResponse.destroy === 'function') activeResponse.destroy();
-        } catch { /* */ }
-      };
-      const finish = (error, result) => {
-        if (settled) return;
-        settled = true;
-        clearDeadline();
-        if (error) reject(error);
-        else resolve(result);
-      };
-      const terminate = (error) => {
-        destroyResponse();
-        destroyRequest();
-        finish(error);
-      };
-
-      // Response path must not close over token / Authorization / token-bearing options.
-      const onResponse = (response) => {
-        if (isProxySurface(response)) {
-          if (settled) return;
-          destroyRequest();
-          finish(failure('response_surface_invalid'));
-          return;
-        }
-        if (settled) {
-          activeResponse = response;
-          destroyResponse();
-          return;
-        }
-        activeResponse = response;
-        try {
-          const status = ownData(response, 'statusCode');
-          const headers = readResponseHeaders(response);
-          const contentType = headers && typeof headers === 'object'
-            ? ownData(headers, 'content-type') : undefined;
-          if (status !== 200) { terminate(failure('http_status_not_200')); return; }
-          if (typeof contentType !== 'string'
-              || !/^application\/json(?:\s*;|$)/i.test(contentType)) {
-            terminate(failure('content_type_invalid'));
-            return;
-          }
-          if (typeof response.on !== 'function' || typeof response.once !== 'function') {
-            terminate(failure('response_surface_invalid'));
-            return;
-          }
-          const chunks = [];
-          let bytes = 0;
-          let ended = false;
-          response.on('data', (chunk) => {
-            if (settled) return;
-            if (!Buffer.isBuffer(chunk)) { terminate(failure('stream_invalid')); return; }
-            if (chunk.length > RESPONSE_CAP_BYTES - bytes) {
-              terminate(failure('response_too_large'));
-              return;
-            }
-            bytes += chunk.length;
-            chunks.push(chunk);
-          });
-          response.once('error', () => terminate(failure('stream_invalid')));
-          response.once('aborted', () => terminate(failure('stream_aborted')));
-          response.once('close', () => {
-            if (!ended) terminate(failure('stream_aborted'));
-          });
-          response.once('end', () => {
-            if (settled) return;
-            ended = true;
-            try {
-              const classified = classifyMessageEnvelopeBody(
-                Buffer.concat(chunks, bytes).toString('utf8'),
-              );
-              if (!classified || classified.stage !== 'success'
-                  || typeof classified.count !== 'number') {
-                finish(failure(
-                  classified && typeof classified.stage === 'string'
-                    ? classified.stage
-                    : 'json_invalid',
-                ));
-                return;
-              }
-              finish(null, Object.freeze({
-                message_count_bounded: classified.count,
-                graph_stage: 'success',
-              }));
-            } catch {
-              finish(failure('json_invalid'));
-            }
-          });
-        } catch {
-          terminate(failure('response_surface_invalid'));
-        }
-      };
-
-      try {
-        timerHandle = setTimer(() => terminate(failure('timeout')), DEADLINE_MS);
-        timerAcquired = true;
-        if (settled) clearDeadline();
-      } catch {
-        tokenOwner = null;
-        finish(failure('request_error'));
-        return;
-      }
-      if (settled) {
-        tokenOwner = null;
-        return;
-      }
-
-      try {
-        // Isolate token/Authorization to this call site; scrub immediately after
-        // https.request returns or throws (Node reads options synchronously).
-        (function issueRequest(tokenForRequest) {
-          let requestHeaders = {
-            Accept: ACCEPT_HEADER,
-            Authorization: null,
-          };
-          let authorization = null;
-          let requestOptions = null;
-          try {
-            authorization = ['Bearer', tokenForRequest].join(' ');
-            tokenForRequest = null;
-            requestHeaders.Authorization = authorization;
-            requestOptions = {
-              protocol: GRAPH_REQUEST_CONSTANTS.protocol,
-              hostname: GRAPH_REQUEST_CONSTANTS.hostname,
-              host: GRAPH_REQUEST_CONSTANTS.host,
-              port: GRAPH_REQUEST_CONSTANTS.port,
-              method: GRAPH_REQUEST_CONSTANTS.method,
-              path: GRAPH_REQUEST_CONSTANTS.path,
-              agent: GRAPH_REQUEST_CONSTANTS.agent,
-              headers: requestHeaders,
-            };
-            requestObject = requestFn(requestOptions, onResponse);
-          } finally {
-            try {
-              if (requestHeaders) requestHeaders.Authorization = null;
-            } catch { /* */ }
-            requestHeaders = null;
-            authorization = null;
-            requestOptions = null;
-            tokenForRequest = null;
-          }
-        }(tokenOwner));
-        tokenOwner = null;
-      } catch {
-        tokenOwner = null;
-        terminate(failure('request_error'));
-        return;
-      }
-
-      if (!requestObject || typeof requestObject.once !== 'function'
-          || typeof requestObject.end !== 'function') {
-        terminate(failure('request_error'));
-        return;
-      }
-      requestObject.once('error', () => terminate(failure('request_error')));
-      requestObject.end();
-    });
+    return runDelegatedMessagesRequest({
+      requestFn: resolved.requestFn,
+      setTimer: resolved.setTimer,
+      clearTimer: resolved.clearTimer,
+      brand: COUNT_FAILURE_BRAND,
+      mode: 'count',
+      preferHeader: null,
+    }, input);
   }
 
   return Object.freeze({ listMessageEnvelopeCount });
 }
 
+/**
+ * UNWIRED ImmutableId page factory. Same network owner as count health transport.
+ * Pins Prefer: IdType="ImmutableId"; returns only fresh frozen max-5 envelopes.
+ */
+function createMicrosoftGraphImmutableIdPageTransport(dependencies = {}) {
+  let resolved;
+  try {
+    resolved = resolveTransportDependencies(dependencies, IMMUTABLEID_FAILURE_BRAND);
+  } catch (err) {
+    if (err && err.code === IMMUTABLEID_PAGE_FAILURE_CODE) throw err;
+    throw failure('request_error', IMMUTABLEID_FAILURE_BRAND);
+  }
+
+  let used = false;
+  function listNormalizedInboundEnvelopes(input) {
+    if (used) return Promise.reject(failure('request_error', IMMUTABLEID_FAILURE_BRAND));
+    used = true;
+    return runDelegatedMessagesRequest({
+      requestFn: resolved.requestFn,
+      setTimer: resolved.setTimer,
+      clearTimer: resolved.clearTimer,
+      brand: IMMUTABLEID_FAILURE_BRAND,
+      mode: 'immutableid_envelopes',
+      preferHeader: PREFER_IMMUTABLE_ID,
+    }, input);
+  }
+
+  return Object.freeze({ listNormalizedInboundEnvelopes });
+}
+
 module.exports = Object.freeze({
   FAILURE_CODE,
   FAILURE_MESSAGE,
+  PREFER_IMMUTABLE_ID,
+  IMMUTABLEID_PAGE_FAILURE_CODE,
+  IMMUTABLEID_PAGE_FAILURE_MESSAGE,
   HOST,
   PATH,
   TOP_MAX,
@@ -802,9 +1139,9 @@ module.exports = Object.freeze({
   GRAPH_STAGES,
   countBoundedMessageEnvelopes,
   classifyMessageEnvelopeBody,
-  loadClassifiedMessageEnvelopePage,
   classifyParsedMessageEnvelopeList,
   acceptParsedMessageEnvelopeList,
   readTrustedGraphStage,
   createMicrosoftGraphDelegatedMessagesTransport,
+  createMicrosoftGraphImmutableIdPageTransport,
 });

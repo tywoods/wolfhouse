@@ -4,9 +4,10 @@
  * Hostile-path gate for Microsoft Graph ImmutableId page transport.
  *
  * Runtime-capable, UNWIRED. Pins Prefer: IdType="ImmutableId". Returns only
- * fresh frozen max-5 canonical envelopes. Mints authenticated provenance
- * privately for the normalized-page bridge. No mint/brand export. No raw
- * page/context/nextLink/etag/token/PII console leakage.
+ * fresh frozen max-5 canonical envelopes via the single messages-transport
+ * network owner (no duplicated HTTP lifecycle; no public provenance mint).
+ * Lifecycle methods use owner/descriptor/native-surface checks only.
+ * No raw page/context/nextLink/etag/token/PII console leakage.
  */
 
 const assert = require('node:assert/strict');
@@ -28,7 +29,6 @@ const PKG_PATH = path.join(ROOT, 'package.json');
 const PLANTED = 'NEVER_LEAK_subject_addr_token';
 const TOKEN = 'atok-NEVER_LEAK-abcdefghijklmnopqrstuvwxyz012345';
 const PLANTED_BODY = 'BODY_MUST_NEVER_APPEAR_IMMUTABLEID_PAGE';
-const PLANTED_NEXT = 'https://graph.microsoft.com/v1.0/me/messages?$skiptoken=EVIL_NEXT';
 const MAILBOX_ID = 'support@lunafrontdesk.com';
 const MSG_A = 'AAMkAGI2-AAA';
 const MSG_B = 'AAMkAGI2-BBB';
@@ -237,9 +237,6 @@ function createRetainingHttps(behavior) {
           response.emit('error', new Error(`planted-async-${PLANTED}`));
           return;
         }
-        if (behavior === 'proxy-response') {
-          // replaced below by caller sometimes
-        }
         response.emit('data', Buffer.from(JSON.stringify({ value: [] }), 'utf8'));
         response.emit('end');
       });
@@ -263,12 +260,34 @@ function transportWith(httpsImpl, timers) {
   });
 }
 
+/**
+ * Hostile surface: own-data accessors / proxy traps on lifecycle names.
+ * Counters must stay zero — transport must not [[Get]] these properties.
+ */
+function createTrapCountingSurface(baseEmitter, trapHits) {
+  const names = ['on', 'once', 'end', 'destroy', 'headers'];
+  // Install own-data accessors that count if invoked; values never useful.
+  for (const name of names) {
+    Object.defineProperty(baseEmitter, name, {
+      configurable: true,
+      enumerable: false,
+      get() {
+        trapHits[name] = (trapHits[name] || 0) + 1;
+        throw new Error(`hostile-getter-${name}-${PLANTED}`);
+      },
+      set() {
+        trapHits[name] = (trapHits[name] || 0) + 1;
+      },
+    });
+  }
+  return baseEmitter;
+}
+
 async function main() {
   const logged = [];
   const log = console.log;
   const error = console.error;
   console.log = (...v) => {
-    // allow verifier PASS/FAIL lines only through original after capture filter
     logged.push(['log', ...v]);
     log(...v);
   };
@@ -354,6 +373,41 @@ async function main() {
       transportModule.listNormalizedInboundEnvelopes === undefined,
     );
 
+    // ── RED: public authenticated-provenance mint bypass gone ─────────────
+    {
+      ok(
+        'public-mint-capability-not-exported-from-normalized-page',
+        pageBridge.createAuthenticatedGraphImmutableIdProvenanceCapability === undefined
+          && pageBridge.mintAuthenticatedGraphImmutableIdProvenance === undefined
+          && pageBridge.AUTHENTICATED_IMMUTABLE_ID_PROVENANCE === undefined,
+      );
+      const pageKeys = Object.keys(pageBridge);
+      ok(
+        'normalized-page-export-keys-have-no-mint-capability',
+        !pageKeys.some((k) => /mint|capability|createAuthenticated|brand/i.test(k)
+          || (/AUTHENTICATED/i.test(k) && !/UNAUTHENTICATED/i.test(k))),
+        pageKeys.join(','),
+      );
+      // Forged lookalikes still fail offline bridge.
+      const forged = Object.freeze({ proven: true, kind: 'ImmutableId' });
+      const offline = pageBridge.mapMicrosoftGraphPageToInboundEnvelopes({
+        provider: 'microsoft_graph',
+        provider_mailbox_id: MAILBOX_ID,
+        page: { value: [envelopeRow()] },
+        graph_immutable_id_provenance: forged,
+      });
+      ok('forged-provenance-offline-bridge-fail', offline.ok === false && noLeak(offline), ser(offline));
+      ok(
+        'unauthenticated-token-still-works-offline',
+        pageBridge.mapMicrosoftGraphPageToInboundEnvelopes({
+          provider: 'microsoft_graph',
+          provider_mailbox_id: MAILBOX_ID,
+          page: { value: [envelopeRow()] },
+          graph_immutable_id_provenance: pageBridge.GRAPH_IMMUTABLE_ID_PROVENANCE_UNAUTHENTICATED,
+        }).ok === true,
+      );
+    }
+
     // ── Exact Prefer header on request ────────────────────────────────────
     {
       let captured = null;
@@ -362,7 +416,6 @@ async function main() {
       let acceptDuringRequest = null;
       const t = transportWith(mockHttps(200, listBody([envelopeRow()]), {}, (opts) => {
         captured = opts;
-        // Snapshot Authorization before transport finally-scrub (same object).
         authDuringRequest = opts && opts.headers ? opts.headers.Authorization : null;
         preferDuringRequest = opts && opts.headers ? opts.headers.Prefer : null;
         acceptDuringRequest = opts && opts.headers ? opts.headers.Accept : null;
@@ -415,8 +468,6 @@ async function main() {
 
     // ── Header injection / override resistance ────────────────────────────
     {
-      // Extra keys must fail closed (exact keyset). Prefer/headers/provenance
-      // cannot be smuggled; transport owns Prefer exclusively.
       for (const [label, input] of [
         ['prefer-key', {
           accessToken: TOKEN,
@@ -455,7 +506,7 @@ async function main() {
       }
     }
 
-    // ── Forged provenance cannot be supplied; transport mints privately ───
+    // ── Forged provenance cannot be supplied via transport input ──────────
     {
       const forged = Object.freeze({ proven: true, kind: 'ImmutableId' });
       const t = transportWith(mockHttps(200, listBody([envelopeRow()])));
@@ -468,30 +519,16 @@ async function main() {
         'request_error',
       );
       ok('forged-provenance-input-rejected', true);
-
-      // Offline bridge still rejects forgeries (capability mint not public on transport).
-      const offline = pageBridge.mapMicrosoftGraphPageToInboundEnvelopes({
-        provider: 'microsoft_graph',
-        provider_mailbox_id: MAILBOX_ID,
-        page: { value: [envelopeRow()] },
-        graph_immutable_id_provenance: forged,
-      });
-      ok('forged-provenance-offline-bridge-fail', offline.ok === false && noLeak(offline), ser(offline));
-
-      // Authenticated mint works only via capability (used privately by transport).
-      const cap = pageBridge.createAuthenticatedGraphImmutableIdProvenanceCapability();
-      const minted = cap.mintAuthenticatedGraphImmutableIdProvenance();
-      const authed = pageBridge.mapMicrosoftGraphPageToInboundEnvelopes({
-        provider: 'microsoft_graph',
-        provider_mailbox_id: MAILBOX_ID,
-        page: { value: [envelopeRow()] },
-        graph_immutable_id_provenance: minted,
-      });
-      ok('capability-minted-provenance-accepted-by-bridge', authed.ok === true, ser(authed));
       ok(
         'capability-mint-not-on-transport-exports',
         transportModule.mintAuthenticatedGraphImmutableIdProvenance === undefined
           && transportModule.createAuthenticatedGraphImmutableIdProvenanceCapability === undefined,
+      );
+      ok(
+        'capability-mint-not-on-messages-exports',
+        messagesTransport.createAuthenticatedGraphImmutableIdProvenanceCapability === undefined
+          && messagesTransport.mintAuthenticatedGraphImmutableIdProvenance === undefined
+          && messagesTransport.loadClassifiedMessageEnvelopePage === undefined,
       );
     }
 
@@ -518,7 +555,6 @@ async function main() {
       const envelopes = await t.listNormalizedInboundEnvelopes(goodInput());
       ok('one-request-count', requestCount === 1, `count=${requestCount}`);
       ok('multi-row-envelopes', envelopes.length === 2, ser(envelopes.map((e) => e.provider_message_id)));
-      // Contract order: received_at desc
       ok(
         'contract-order-desc',
         envelopes[0].provider_message_id === MSG_A
@@ -566,9 +602,9 @@ async function main() {
       const t = transportWith(mockHttps(200, poison));
       await assert.rejects(
         () => t.listNormalizedInboundEnvelopes(goodInput()),
-        (error) => error.code === FAILURE_CODE
-          && noLeak(error)
-          && !ser(error).includes(PLANTED_BODY),
+        (err) => err.code === FAILURE_CODE
+          && noLeak(err)
+          && !ser(err).includes(PLANTED_BODY),
       );
       ok('partial-poison-fail-closed', true);
     }
@@ -591,8 +627,67 @@ async function main() {
       ok('fresh-deep-equal-shape', ser(a) === ser(b));
     }
 
-    // ── Proxy response rejected ───────────────────────────────────────────
+    // ── RED: no getter/proxy trap hits on on/once/end/destroy/headers ─────
+    {
+      const trapHits = Object.create(null);
+      const httpsImpl = function request(options, onResponse) {
+        assert.equal(options.headers.Prefer, PREFER_IMMUTABLE_ID);
+        const response = createTrapCountingSurface(new EventEmitter(), trapHits);
+        // statusCode as own data (safe)
+        Object.defineProperty(response, 'statusCode', {
+          value: 200,
+          enumerable: true,
+          configurable: true,
+        });
+        const req = createTrapCountingSurface(new EventEmitter(), trapHits);
+        // end as own-data function (not accessor) so request can complete path
+        // after trap surface is rejected — actually accessors on end will block
+        // and fail closed without invoking if resolveLifecycleMethod uses descriptors.
+        // Replace end with own-data function after traps installed would overwrite.
+        // Keep hostile accessors; expect fail-closed + zero trap hits.
+        queueMicrotask(() => {
+          // if transport somehow called onResponse before end, still trap
+        });
+        // Own-data end that never calls onResponse — transport may still attach once.
+        // Use a separate path: own-data end that delivers a trap-counting response.
+        Object.defineProperty(req, 'end', {
+          value: () => {
+            queueMicrotask(() => onResponse(response));
+          },
+          writable: true,
+          configurable: true,
+          enumerable: false,
+        });
+        Object.defineProperty(req, 'once', {
+          value: EventEmitter.prototype.once,
+          writable: true,
+          configurable: true,
+          enumerable: false,
+        });
+        Object.defineProperty(req, 'destroy', {
+          value: () => {},
+          writable: true,
+          configurable: true,
+          enumerable: false,
+        });
+        return req;
+      };
+      const t = transportWith(httpsImpl);
+      await assert.rejects(
+        () => t.listNormalizedInboundEnvelopes(goodInput()),
+        (err) => err.code === FAILURE_CODE && noLeak(err),
+      );
+      const hitNames = Object.keys(trapHits).filter((k) => trapHits[k] > 0);
+      ok(
+        'no-lifecycle-getter-trap-hits-on-once-end-destroy-headers',
+        hitNames.length === 0,
+        ser(trapHits),
+      );
+    }
+
+    // Proxy response: isProxy reject before traps
     if (typeof util.types.isProxy === 'function') {
+      let proxyGetHits = 0;
       const httpsImpl = function request(options, onResponse) {
         assert.equal(options.headers.Prefer, PREFER_IMMUTABLE_ID);
         const raw = new EventEmitter();
@@ -603,7 +698,10 @@ async function main() {
         });
         raw.destroy = () => {};
         const proxied = new Proxy(raw, {
-          get(t, p) { return Reflect.get(t, p); },
+          get(t, p, r) {
+            proxyGetHits += 1;
+            return Reflect.get(t, p, r);
+          },
         });
         const req = new EventEmitter();
         req.destroy = () => {};
@@ -617,8 +715,10 @@ async function main() {
       const t = transportWith(httpsImpl);
       await mustFailStage(() => t.listNormalizedInboundEnvelopes(goodInput()), 'response_surface_invalid');
       ok('proxy-response-rejected', true);
+      ok('proxy-get-traps-not-required-for-reject', proxyGetHits === 0, `hits=${proxyGetHits}`);
     } else {
       ok('proxy-response-skipped-no-isProxy', true);
+      ok('proxy-get-traps-skipped-no-isProxy', true);
     }
 
     // ── Accessor-hostile headers surface ──────────────────────────────────
@@ -633,10 +733,6 @@ async function main() {
           enumerable: true,
           configurable: true,
         });
-        // ownData cannot read accessor — should fail status/content-type path
-        // Depending on pin path: non-IncomingMessage uses ownData → undefined headers
-        response.on = response.on.bind(response);
-        response.once = response.once.bind(response);
         response.destroy = () => {};
         const req = new EventEmitter();
         req.destroy = () => {};
@@ -648,7 +744,7 @@ async function main() {
       const t = transportWith(httpsImpl);
       await assert.rejects(
         () => t.listNormalizedInboundEnvelopes(goodInput()),
-        (error) => error.code === FAILURE_CODE && noLeak(error),
+        (err) => err.code === FAILURE_CODE && noLeak(err),
       );
       ok('accessor-headers-fail-closed', true);
     }
@@ -734,38 +830,37 @@ async function main() {
       }
     }
 
-    // ── Source static checks ──────────────────────────────────────────────
+    // ── Source static checks (architecture) ───────────────────────────────
     {
       const src = fs.readFileSync(path.join(ROOT, TRANSPORT_REL), 'utf8');
       const pageSrc = fs.readFileSync(path.join(ROOT, PAGE_REL), 'utf8');
       const messagesSrc = fs.readFileSync(path.join(ROOT, MESSAGES_REL), 'utf8');
 
       ok(
-        'src-requires-messages-transport-and-page-bridge',
-        /email-microsoft-graph-delegated-messages-transport/.test(src)
-          && /email-microsoft-graph-normalized-page/.test(src),
+        'src-thin-immutableid-no-duplicated-http-lifecycle',
+        src.split('\n').length < 120
+          && !/https\.request|function onResponse|requestObject\.end/.test(src)
+          && /email-microsoft-graph-delegated-messages-transport/.test(src)
+          && /createMicrosoftGraphImmutableIdPageTransport/.test(src),
+        `lines=${src.split('\n').length}`,
       );
       ok(
-        'src-reuses-loadClassified-or-classify',
-        /loadClassifiedMessageEnvelopePage/.test(src),
+        'src-messages-is-single-network-owner',
+        /createMicrosoftGraphImmutableIdPageTransport/.test(messagesSrc)
+          && /PREFER_IMMUTABLE_ID|IdType="ImmutableId"/.test(messagesSrc)
+          && /mapSuccessBodyToImmutableIdEnvelopes|immutableid_envelopes/.test(messagesSrc)
+          && /resolveLifecycleMethod/.test(messagesSrc),
       );
       ok(
-        'src-reuses-mapMicrosoftGraphPageToInboundEnvelopes',
-        /mapMicrosoftGraphPageToInboundEnvelopes/.test(src),
+        'src-no-public-mint-on-normalized-page',
+        !/createAuthenticatedGraphImmutableIdProvenanceCapability/.test(pageSrc)
+          && !/mintAuthenticatedGraphImmutableIdProvenance/.test(pageSrc)
+          && !/AUTHENTICATED_IMMUTABLE_ID_PROVENANCE/.test(pageSrc)
+          && !/function\s+createAuthenticated/.test(pageSrc),
       );
       ok(
         'src-pins-prefer-immutableid',
-        /IdType="ImmutableId"/.test(src) && /PREFER_IMMUTABLE_ID/.test(src),
-      );
-      ok(
-        'src-mints-via-capability-privately',
-        /createAuthenticatedGraphImmutableIdProvenanceCapability/.test(src)
-          && /mintAuthenticatedGraphImmutableIdProvenance/.test(src),
-      );
-      ok(
-        'src-does-not-export-mint',
-        !/module\.exports[\s\S]*mintAuthenticated/.test(src)
-          && /module\.exports\s*=\s*Object\.freeze/.test(src),
+        /IdType="ImmutableId"/.test(src) || /PREFER_IMMUTABLE_ID/.test(src),
       );
       ok(
         'src-runtime-wired-false',
@@ -789,43 +884,35 @@ async function main() {
         !/Mail\.Read\b|offline_access|scope\s*[:=]/.test(src),
       );
       ok(
-        'messages-exports-loadClassified',
-        /loadClassifiedMessageEnvelopePage/.test(messagesSrc)
-          && typeof messagesTransport.loadClassifiedMessageEnvelopePage === 'function',
-      );
-      ok(
-        'page-exports-capability-not-raw-weakmap',
-        typeof pageBridge.createAuthenticatedGraphImmutableIdProvenanceCapability === 'function'
-          && pageBridge.AUTHENTICATED_IMMUTABLE_ID_PROVENANCE === undefined,
+        'messages-does-not-export-raw-page-loader',
+        messagesTransport.loadClassifiedMessageEnvelopePage === undefined
+          && !/^\s*loadClassifiedMessageEnvelopePage,/m.test(
+            messagesSrc.split('module.exports')[1] || '',
+          ),
       );
       ok(
         'page-still-rejects-boolean-provenance',
-        /boolean|string|forge|reference|unforgeable|WeakMap|UNAUTHENTICATED/i.test(pageSrc),
+        /boolean|string|forge|reference|UNAUTHENTICATED/i.test(pageSrc),
       );
-
-      // No competing page/envelope DTO in transport.
       ok(
         'src-no-competing-envelope-dto',
         !/ENVELOPE_DTO_KEYS\s*=/.test(src)
           && !/from_address/.test(src)
           && !/has_attachments/.test(src),
       );
-
-      // PATH reused not redefined as a different messages path.
       ok(
-        'src-uses-imported-PATH',
-        /PATH/.test(src) && /\$top=\$\{TOP_MAX\}/.test(messagesSrc),
+        'src-no-typeof-lifecycle-get-pattern',
+        !/typeof\s+response\.on/.test(messagesSrc)
+          && !/typeof\s+requestObject\.once/.test(messagesSrc)
+          && !/typeof\s+requestObject\.end/.test(messagesSrc)
+          && !/typeof\s+activeResponse\.destroy/.test(messagesSrc),
       );
     }
 
-    // ── No raw/PII console leakage from transport during success/fail ─────
+    // ── No raw/PII console leakage ────────────────────────────────────────
     {
-      // Filter verifier's own PASS lines; ensure transport itself did not log secrets.
-      // Transport has no console — verify via source already. Also check logged
-      // content from this gate's own console does not include TOKEN from errors.
       const leaky = logged.some((entry) => {
         const text = entry.map((x) => (typeof x === 'string' ? x : ser(x))).join(' ');
-        // PASS lines may include test names only; fail if TOKEN or planted body appears
         return text.includes(TOKEN)
           || text.includes(PLANTED_BODY)
           || text.includes('Bearer atok');
@@ -833,26 +920,54 @@ async function main() {
       ok('no-token-or-body-console-leakage', leaky === false);
     }
 
-    // ── loadClassifiedMessageEnvelopePage owner behavior ──────────────────
+    // ── classify still never returns page; count API still present ────────
     {
-      const loaded = messagesTransport.loadClassifiedMessageEnvelopePage(
-        listBody([envelopeRow({ subject: PLANTED })]),
-      );
-      ok(
-        'load-classified-success-has-page',
-        loaded.stage === 'success' && loaded.count === 1 && loaded.page && Array.isArray(loaded.page.value),
-      );
-      const failed = messagesTransport.loadClassifiedMessageEnvelopePage('{');
-      ok(
-        'load-classified-fail-no-page',
-        failed.stage === 'json_invalid' && failed.page === undefined,
-      );
-      // classifyMessageEnvelopeBody still never returns page
       const classified = messagesTransport.classifyMessageEnvelopeBody(listBody([envelopeRow()]));
       ok(
         'classify-body-still-no-page',
         classified.stage === 'success' && classified.page === undefined && classified.count === 1,
       );
+      const countTransport = messagesTransport.createMicrosoftGraphDelegatedMessagesTransport({
+        httpsImpl: function request(options, onResponse) {
+          // count path must NOT send Prefer
+          assert.equal(options.headers.Prefer, undefined);
+          return mockHttps(200, JSON.stringify({ value: [] }))(options, onResponse);
+        },
+      });
+      // mockHttps asserts Prefer — use a dedicated count mock
+      const countOnly = messagesTransport.createMicrosoftGraphDelegatedMessagesTransport({
+        httpsImpl: function request(options, onResponse) {
+          assert.equal(options.headers.Prefer, undefined);
+          assert.match(options.headers.Authorization, /^Bearer /);
+          const response = new EventEmitter();
+          response.statusCode = 200;
+          Object.defineProperty(response, 'headers', {
+            value: { 'content-type': 'application/json' },
+            enumerable: true,
+          });
+          response.destroy = () => {};
+          const req = new EventEmitter();
+          req.destroy = () => {};
+          req.end = () => {
+            queueMicrotask(() => {
+              onResponse(response);
+              response.emit('data', Buffer.from(JSON.stringify({ value: [] }), 'utf8'));
+              response.emit('end');
+            });
+          };
+          return req;
+        },
+      });
+      const countResult = await countOnly.listMessageEnvelopeCount({ accessToken: TOKEN });
+      ok(
+        'count-api-behavior-compatible',
+        countResult
+          && countResult.message_count_bounded === 0
+          && countResult.graph_stage === 'success',
+        ser(countResult),
+      );
+      // silence unused
+      ok('count-transport-factory-ok', typeof countTransport.listMessageEnvelopeCount === 'function');
     }
 
     // ── Mapper/contract files still present (reuse owners) ────────────────
