@@ -97,7 +97,7 @@ async function main() {
   );
   assert.deepEqual(
     [...INBOUND_DIAGNOSTIC_SUCCESS_KEYS],
-    ['success', 'status', 'durably_processed', 'input_count', 'delivered_count', 'duplicate_count'],
+    ['success', 'status', 'observed_count', 'unique_in_batch_count', 'duplicate_in_batch_count', 'durably_processed'],
   );
   assert.deepEqual(
     [...PUBLIC_RESULT_KEYS],
@@ -171,15 +171,15 @@ async function main() {
   });
   assert.deepEqual(Reflect.ownKeys(good), [...INBOUND_DIAGNOSTIC_SUCCESS_KEYS]);
   assert.equal(good.success, true);
-  assert.equal(good.status, 'success');
+  assert.equal(good.status, 'diagnostic_observed');
+  assert.equal(good.observed_count, 3);
+  assert.equal(good.unique_in_batch_count, 2);
+  assert.equal(good.duplicate_in_batch_count, 1);
   assert.equal(good.durably_processed, false);
-  assert.equal(good.input_count, 3);
-  assert.equal(good.delivered_count, 2);
-  assert.equal(good.duplicate_count, 1);
   const goodJson = JSON.stringify(good);
   assert.equal(
     goodJson,
-    '{"success":true,"status":"success","durably_processed":false,"input_count":3,"delivered_count":2,"duplicate_count":1}',
+    '{"success":true,"status":"diagnostic_observed","observed_count":3,"unique_in_batch_count":2,"duplicate_in_batch_count":1,"durably_processed":false}',
   );
   assert.equal(goodJson.includes('"processed"'), false);
   assert.equal(goodJson.includes('received_count'), false);
@@ -203,14 +203,14 @@ async function main() {
   });
   assert.ok(fromInternal);
   assert.deepEqual(Reflect.ownKeys(fromInternal), [...INBOUND_DIAGNOSTIC_SUCCESS_KEYS]);
-  assert.equal(fromInternal.status, 'success');
+  assert.equal(fromInternal.status, 'diagnostic_observed');
+  assert.equal(fromInternal.observed_count, 2);
+  assert.equal(fromInternal.unique_in_batch_count, 1);
+  assert.equal(fromInternal.duplicate_in_batch_count, 1);
   assert.equal(fromInternal.durably_processed, false);
-  assert.equal(fromInternal.input_count, 2);
-  assert.equal(fromInternal.delivered_count, 1);
-  assert.equal(fromInternal.duplicate_count, 1);
   assert.equal(
     JSON.stringify(fromInternal),
-    '{"success":true,"status":"success","durably_processed":false,"input_count":2,"delivered_count":1,"duplicate_count":1}',
+    '{"success":true,"status":"diagnostic_observed","observed_count":2,"unique_in_batch_count":1,"duplicate_in_batch_count":1,"durably_processed":false}',
   );
   assert.equal(JSON.stringify(fromInternal).includes('"processed"'), false);
 
@@ -271,7 +271,7 @@ async function main() {
   assert.deepEqual(Reflect.ownKeys(withExtraInput), [...INBOUND_DIAGNOSTIC_SUCCESS_KEYS]);
   assert.equal(
     JSON.stringify(withExtraInput),
-    '{"success":true,"status":"success","durably_processed":false,"input_count":1,"delivered_count":1,"duplicate_count":0}',
+    '{"success":true,"status":"diagnostic_observed","observed_count":1,"unique_in_batch_count":1,"duplicate_in_batch_count":0,"durably_processed":false}',
   );
   assert.equal(JSON.stringify(withExtraInput).includes(PLANTED_SUBJECT), false);
   assert.equal(JSON.stringify(withExtraInput).includes('grant_generation'), false);
@@ -525,7 +525,9 @@ async function main() {
     "pathname === OAUTH_INBOUND_DIAGNOSTIC_PATH && method === 'POST'",
   );
   assert.ok(blockStart > 0);
-  const block = apiSrc.slice(blockStart, blockStart + 700);
+  const block = apiSrc.slice(blockStart, blockStart + 1400);
+  assert.match(block, /const inboundDiagnosticGateEnv = Object\.freeze/);
+  assert.match(block, /handleInboundDiagnostic\([\s\S]*inboundDiagnosticGateEnv/);
   const iGate = block.indexOf('isInboundDiagnosticEnabled');
   const iAuth = block.indexOf('requireAuth');
   const iBody = block.indexOf('readBody');

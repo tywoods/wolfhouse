@@ -49204,7 +49204,14 @@ async function router(req, res) {
   // requireAuth, session lookup, readBody/JSON parse, DB, runtime, or network.
   // Absent/other/production/wolfhouse → exact concealed 404 not_found.
   if (pathname === OAUTH_INBOUND_DIAGNOSTIC_PATH && method === 'POST') {
-    if (!isInboundDiagnosticEnabled(process.env)) {
+    // Snapshot the two gate values once so mutable process.env cannot change the
+    // decision between router concealment and handler entry.
+    const inboundDiagnosticGateEnv = Object.freeze({
+      LUNA_DEPLOYMENT: process.env.LUNA_DEPLOYMENT,
+      LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED:
+        process.env.LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED,
+    });
+    if (!isInboundDiagnosticEnabled(inboundDiagnosticGateEnv)) {
       return sendJSON(res, 404, { success: false, error: 'not_found' });
     }
     const auth = await requireAuth(req, res, 'admin');
@@ -49212,7 +49219,13 @@ async function router(req, res) {
     let body;
     try { body = JSON.parse((await readBody(req)) || '{}'); }
     catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
-    return emailOAuthRoutes.handleInboundDiagnostic(body, req, res, auth.user);
+    return emailOAuthRoutes.handleInboundDiagnostic(
+      body,
+      req,
+      res,
+      auth.user,
+      inboundDiagnosticGateEnv,
+    );
   }
   // Microsoft returns by top-level GET. SameSite=Lax plus Path=/staff allows
   // this server to resolve the live initiating session. Provider parameters

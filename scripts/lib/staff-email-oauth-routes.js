@@ -92,18 +92,19 @@ const READ_HEALTH_SUCCESS_KEYS = Object.freeze([
 ]);
 /**
  * Exact ordered inbound-diagnostic success JSON keys.
- * Public: success + status:'success' + durably_processed:false + authority
- * count names (input/delivered/duplicate). Never status ok, received/accepted/
- * discarded synonyms, IDs, PII, stage, or generation.
+ * Public diagnostic vocabulary is deliberately observation-only and explicitly
+ * non-durable. Never expose internal processed/delivered vocabulary, IDs, PII,
+ * stage, or generation.
  */
 const INBOUND_DIAGNOSTIC_SUCCESS_KEYS = Object.freeze([
   'success',
   'status',
+  'observed_count',
+  'unique_in_batch_count',
+  'duplicate_in_batch_count',
   'durably_processed',
-  'input_count',
-  'delivered_count',
-  'duplicate_count',
 ]);
+const INBOUND_DIAGNOSTIC_PUBLIC_STATUS = 'diagnostic_observed';
 const READ_HEALTH_GRAPH_STAGE_SET = new Set(GRAPH_STAGES);
 const PREPARE_ERROR = 'endpoint_prepare_unavailable';
 const REFRESH_HEALTH_ERROR = 'refresh_health_unavailable';
@@ -396,13 +397,8 @@ function snapshotInboundDiagnosticBody(body) {
 
 /**
  * Exact ordered inbound-diagnostic success DTO.
- * Accepts runtime public result (`status:'success'`, `durably_processed:false`,
- * authority count names) or maps authority-bound internal DTO
- * (`status:'processed'`, same count names). Always emits ordered
- * `{ success, status:'success', durably_processed:false, input_count,
- * delivered_count, duplicate_count }`. Max-5; observed=unique+duplicate
- * (input = delivered + duplicate). Never status ok / received / accepted /
- * discarded. No stage/generation/IDs/PII.
+ * Accepts the runtime result or authority-bound internal DTO and emits the exact
+ * observation-only public contract. Max-5; observed = unique + duplicate.
  */
 function buildInboundDiagnosticSuccessJson(result) {
   try {
@@ -441,11 +437,11 @@ function buildInboundDiagnosticSuccessJson(result) {
     }
     const dto = {};
     dto.success = true;
-    dto.status = INBOUND_DIAGNOSTIC_PUBLIC_STATUS_SUCCESS;
-    dto.durably_processed = INBOUND_DIAGNOSTIC_PUBLIC_DURABLY_PROCESSED;
-    dto.input_count = inputCount;
-    dto.delivered_count = deliveredCount;
-    dto.duplicate_count = duplicateCount;
+    dto.status = INBOUND_DIAGNOSTIC_PUBLIC_STATUS;
+    dto.observed_count = inputCount;
+    dto.unique_in_batch_count = deliveredCount;
+    dto.duplicate_in_batch_count = duplicateCount;
+    dto.durably_processed = false;
     return Object.freeze(dto);
   } catch {
     return null;
@@ -1118,16 +1114,16 @@ function createStaffEmailOAuthRoutes(deps) {
    * Gate: LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED + sunset-staging only.
    * Auth: Sunset admin (same ACL/authz pattern as read-health). Body/binding
    * resolver reused; operation input uses resolved DB UUIDs only (never caller
-   * slug identity). Sanitized identity-free public DTO only
-   * (`success`/`status:'success'`/`durably_processed:false` + authority count
-   * names); never message content, IDs, PII, stage, generation, or status ok /
-   * received/accepted/discarded synonyms.
+   * slug identity). Sanitized identity-free observation DTO only; never message
+   * content, IDs, PII, stage, generation, or durability claims.
    * Failures: 404 disabled/unresolved, 400 malformed body, 503 operation fail.
    * No cron/poller/startup; flag never in manifests/defaults.
    */
-  async function handleInboundDiagnostic(body, req, res, user) {
+  async function handleInboundDiagnostic(body, req, res, user, gateEnv = env) {
     // Concealed 404 before DB/runtime/network when flag absent/other or non-sunset.
-    if (!isInboundDiagnosticEnabled(env)) {
+    // The top-level router passes its frozen pre-auth snapshot. The default keeps
+    // direct unit invocation fail-closed without creating a second predicate.
+    if (!isInboundDiagnosticEnabled(gateEnv)) {
       return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
     }
     if (!user || user.client_slug !== 'sunset'
