@@ -222,6 +222,16 @@ const {
 const {
   isInboundEventStoreEnabled,
 } = require('./lib/email-microsoft-delegated-inbound-event-store-sunset-staging-runtime-composition');
+// Email-delta runtime composition (default-off / inert). Side-effect-free
+// readiness snapshot only — no DB/KV SDK/Graph/timer/lease/migration, no
+// scheduler, no admin route, no worker activation. Worker/admin true rejected
+// by composition config (activation-impossible).
+const {
+  resolveEmailDeltaSunsetStagingRuntimeReadiness,
+} = require('./lib/email-delta-sunset-staging-runtime-composition');
+/** Frozen inert readiness only (default-off; never scheduler/admin/worker run). */
+const EMAIL_DELTA_RUNTIME_READINESS =
+  resolveEmailDeltaSunsetStagingRuntimeReadiness(process.env);
 
 const {
   listStaffAutomatedNotifications,
