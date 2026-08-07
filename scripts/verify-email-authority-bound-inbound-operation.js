@@ -353,16 +353,21 @@ async function main() {
         && !/const\s+accessTokenOwner\s*=/.test(src),
     );
     {
-      // Find the authorityBoundSessionConsumer finally: graphInput scrub then owner=null.
-      const consumerIdx = src.indexOf('authorityBoundSessionConsumer');
-      const consumerSlice = consumerIdx >= 0 ? src.slice(consumerIdx, consumerIdx + 3500) : '';
-      const finIdx = consumerSlice.lastIndexOf('} finally {');
-      const finBody = finIdx >= 0 ? consumerSlice.slice(finIdx, finIdx + 500) : '';
+      // Token scrub lives in the shared private helper used by both single-page
+      // and bounded-catchup session consumers (no grant/refresh duplication).
+      const sharedIdx = src.indexOf('function runTokenScopedTransportAndProcess');
+      const sharedSlice = sharedIdx >= 0 ? src.slice(sharedIdx, sharedIdx + 2500) : '';
+      const finIdx = sharedSlice.lastIndexOf('} finally {');
+      const finBody = finIdx >= 0 ? sharedSlice.slice(finIdx, finIdx + 500) : '';
       const graphScrubIdx = finBody.search(/graphInput\.accessToken\s*=\s*null/);
       const ownerNullIdx = finBody.search(/accessTokenOwner\s*=\s*null/);
       ok(
         'callback-finally-owner-after-graphInput-scrub',
-        graphScrubIdx >= 0 && ownerNullIdx >= 0 && graphScrubIdx < ownerNullIdx,
+        sharedIdx >= 0
+          && /authorityBoundSessionConsumer/.test(src)
+          && graphScrubIdx >= 0
+          && ownerNullIdx >= 0
+          && graphScrubIdx < ownerNullIdx,
         `graphScrub=${graphScrubIdx} ownerNull=${ownerNullIdx}`,
       );
       ok(
