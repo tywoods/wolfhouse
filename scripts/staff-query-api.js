@@ -209,6 +209,7 @@ const {
   OAUTH_PREPARE_PATH,
   OAUTH_REFRESH_HEALTH_PATH,
   OAUTH_READ_HEALTH_PATH,
+  OAUTH_INBOUND_DIAGNOSTIC_PATH,
   OAUTH_CALLBACK_PATH,
 } = require('./lib/staff-email-oauth-routes');
 
@@ -49192,6 +49193,15 @@ async function router(req, res) {
     try { body = JSON.parse((await readBody(req)) || '{}'); }
     catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
     return emailOAuthRoutes.handleReadHealth(body, req, res, auth.user);
+  }
+  // Admin-only inbound diagnostic (default-off; separate flag/path from read-health).
+  if (pathname === OAUTH_INBOUND_DIAGNOSTIC_PATH && method === 'POST') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); }
+    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    return emailOAuthRoutes.handleInboundDiagnostic(body, req, res, auth.user);
   }
   // Microsoft returns by top-level GET. SameSite=Lax plus Path=/staff allows
   // this server to resolve the live initiating session. Provider parameters
