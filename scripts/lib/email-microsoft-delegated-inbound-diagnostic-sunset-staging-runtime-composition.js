@@ -73,7 +73,7 @@ const DEPENDENCY_KEYS = Object.freeze([
 const HTTPS_KEYS = Object.freeze(['request']);
 const TIMERS_KEYS = Object.freeze(['setTimeout', 'clearTimeout']);
 
-/** Exact ordered public runtime result keys (identity-free; no stage/generation). */
+/** Exact ordered internal composition result keys (identity-free; no stage/generation). */
 const PUBLIC_RESULT_KEYS = Object.freeze([
   'status',
   'durably_processed',
@@ -82,7 +82,7 @@ const PUBLIC_RESULT_KEYS = Object.freeze([
   'duplicate_count',
 ]);
 
-/** Public success status literal — never internal `processed` or former `ok`. */
+/** Internal composition success status literal; the HTTP route remaps it. */
 const PUBLIC_STATUS_SUCCESS = 'success';
 /** Diagnostic never claims durable processing; always literal false. */
 const PUBLIC_DURABLY_PROCESSED = false;
