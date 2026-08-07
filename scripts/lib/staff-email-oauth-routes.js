@@ -29,6 +29,13 @@ const {
   MAX_COUNT: INBOUND_DIAGNOSTIC_MAX_COUNT,
 } = require('./email-microsoft-delegated-inbound-diagnostic-sunset-staging-runtime-composition');
 const {
+  createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime,
+  isInboundEventStoreEnabled,
+  INTERNAL_STATUS_SUCCESS: INBOUND_CAPTURE_INTERNAL_STATUS_SUCCESS,
+  INTERNAL_DURABLY_PROCESSED: INBOUND_CAPTURE_INTERNAL_DURABLY_PROCESSED,
+  MAX_COUNT: INBOUND_CAPTURE_MAX_COUNT,
+} = require('./email-microsoft-delegated-inbound-event-store-sunset-staging-runtime-composition');
+const {
   createSunsetMicrosoftEndpointPrepare,
   INPUT_KEYS: PREPARE_DOMAIN_INPUT_KEYS,
   ERROR_CODE: PREPARE_ERROR_CODE,
@@ -54,6 +61,12 @@ const OAUTH_READ_HEALTH_PATH = '/staff/admin/email-settings/oauth/microsoft/read
  * batch handoff; default-off). Separate path/flag from read-health.
  */
 const OAUTH_INBOUND_DIAGNOSTIC_PATH = '/staff/admin/email-settings/oauth/microsoft/inbound-diagnostic';
+/**
+ * Admin-only delegated durable inbound capture (authority-bound ImmutableId page
+ * + event-store consumer; default-off). Separate path/flag from diagnostic and
+ * read-health. Offline route only — no cron/poller/startup.
+ */
+const OAUTH_INBOUND_CAPTURE_PATH = '/staff/admin/email-settings/oauth/microsoft/inbound-capture';
 const OAUTH_CALLBACK_PATH = '/staff/email/oauth/microsoft/callback';
 /** Canonical lowercase UUID (start body endpoint_id + ordinary SQL row ids). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -70,6 +83,8 @@ const REFRESH_HEALTH_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 const READ_HEALTH_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 /** Exact ordered own-data inbound-diagnostic body keys (location_id then endpoint_id). */
 const INBOUND_DIAGNOSTIC_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
+/** Exact ordered own-data inbound-capture body keys (location_id then endpoint_id). */
+const INBOUND_CAPTURE_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 /** Exact ordered prepare success JSON keys (no mailbox echo). */
 const PREPARE_SUCCESS_KEYS = Object.freeze(['success', 'endpoint_id']);
 /** Exact ordered refresh-health success JSON keys (sanitized status only). */
@@ -104,12 +119,28 @@ const INBOUND_DIAGNOSTIC_SUCCESS_KEYS = Object.freeze([
   'duplicate_in_batch_count',
   'durably_processed',
 ]);
+/**
+ * Exact ordered inbound-capture success JSON keys.
+ * Claims durability only after event-store insert-or-no-op commit. Never expose
+ * IDs, PII, stage, generation, processing/delivery/handling/drafting/classification/
+ * automation vocabulary, or newly-inserted row counts.
+ */
+const INBOUND_CAPTURE_SUCCESS_KEYS = Object.freeze([
+  'success',
+  'status',
+  'observed_count',
+  'durable_identity_count',
+  'duplicate_in_batch_count',
+  'durably_captured',
+]);
 const INBOUND_DIAGNOSTIC_PUBLIC_STATUS = 'diagnostic_observed';
+const INBOUND_CAPTURE_PUBLIC_STATUS = 'durable_capture_completed';
 const READ_HEALTH_GRAPH_STAGE_SET = new Set(GRAPH_STAGES);
 const PREPARE_ERROR = 'endpoint_prepare_unavailable';
 const REFRESH_HEALTH_ERROR = 'refresh_health_unavailable';
 const READ_HEALTH_ERROR = 'read_health_unavailable';
 const INBOUND_DIAGNOSTIC_ERROR = 'inbound_diagnostic_unavailable';
+const INBOUND_CAPTURE_ERROR = 'inbound_capture_unavailable';
 /** Exact ordered own-data resolve SQL row keys (matches SELECT aliases / order). */
 const RESOLVE_ROW_KEYS = Object.freeze(['client_id', 'location_id', 'endpoint_id']);
 const RESOLVE_ROW_KEY_SET = new Set(RESOLVE_ROW_KEYS);
@@ -209,6 +240,12 @@ const SQL_RESOLVE_READ_HEALTH_BINDING = SQL_RESOLVE_REFRESH_HEALTH_BINDING;
  * Inbound diagnostic uses resolved DB UUIDs — never caller slug identity.
  */
 const SQL_RESOLVE_INBOUND_DIAGNOSTIC_BINDING = SQL_RESOLVE_REFRESH_HEALTH_BINDING;
+
+/**
+ * Same trusted binding resolve as diagnostic / read-health / refresh-health.
+ * Inbound capture uses resolved DB UUIDs — never caller slug identity.
+ */
+const SQL_RESOLVE_INBOUND_CAPTURE_BINDING = SQL_RESOLVE_REFRESH_HEALTH_BINDING;
 
 /**
  * Descriptor-safe start body snapshot: all reflection once.
@@ -395,6 +432,11 @@ function snapshotInboundDiagnosticBody(body) {
   return snapshotStartBody(body);
 }
 
+/** Inbound-capture body shares start shape: exact ordered location_id + endpoint_id. */
+function snapshotInboundCaptureBody(body) {
+  return snapshotStartBody(body);
+}
+
 /**
  * Exact ordered inbound-diagnostic success DTO.
  * Accepts the runtime result or authority-bound internal DTO and emits the exact
@@ -442,6 +484,54 @@ function buildInboundDiagnosticSuccessJson(result) {
     dto.unique_in_batch_count = deliveredCount;
     dto.duplicate_in_batch_count = duplicateCount;
     dto.durably_processed = false;
+    return Object.freeze(dto);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Exact ordered inbound-capture success DTO.
+ * Maps event-store composition internal identity-free counts only.
+ * durable_identity_count = distinct page identities durably represented after
+ * conclusive insert-or-no-op commit (maps delivered_count — never newly inserted).
+ * Max-5; observed = durable_identity + duplicate_in_batch.
+ */
+function buildInboundCaptureSuccessJson(result) {
+  try {
+    if (!result || typeof result !== 'object') return null;
+    // Capture claims durability — require event-store composition success shape
+    // with literal durably_processed true. Never accept non-durable diagnostic /
+    // authority-bound "processed" vocabulary as a durable capture completion.
+    if (result.status !== INBOUND_CAPTURE_INTERNAL_STATUS_SUCCESS
+        || result.durably_processed !== INBOUND_CAPTURE_INTERNAL_DURABLY_PROCESSED) {
+      return null;
+    }
+    const inputCount = result.input_count;
+    const deliveredCount = result.delivered_count;
+    const duplicateCount = result.duplicate_count;
+    if (!Number.isInteger(inputCount) || inputCount < 0
+        || inputCount > INBOUND_CAPTURE_MAX_COUNT) {
+      return null;
+    }
+    if (!Number.isInteger(deliveredCount) || deliveredCount < 0
+        || deliveredCount > inputCount) {
+      return null;
+    }
+    // observed = durable_identity + duplicate  (input = delivered + duplicate)
+    if (!Number.isInteger(duplicateCount) || duplicateCount < 0
+        || duplicateCount !== inputCount - deliveredCount) {
+      return null;
+    }
+    const dto = {};
+    dto.success = true;
+    dto.status = INBOUND_CAPTURE_PUBLIC_STATUS;
+    dto.observed_count = inputCount;
+    // Distinct identities presented to durable consumer after within-batch dedup
+    // and represented by insert-or-no-op commit — not a newly-inserted row count.
+    dto.durable_identity_count = deliveredCount;
+    dto.duplicate_in_batch_count = duplicateCount;
+    dto.durably_captured = true;
     return Object.freeze(dto);
   } catch {
     return null;
@@ -838,8 +928,31 @@ function buildInboundDiagnosticRuntime(env, pg) {
   }));
 }
 
+/**
+ * Event-store runtime: outer route loan is pgClient (resolve + grant session);
+ * withTransactionClient must be a separate exclusive-client loaner from the
+ * existing Staff API singleton pool (same withPgClient capability — no new
+ * pool/release/close owner).
+ */
+function buildInboundCaptureRuntime(env, pg, withTransactionClient) {
+  const natives = productionNativeSurfaces();
+  return createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(Object.freeze({
+    env,
+    pgClient: pg,
+    withTransactionClient,
+    https: natives.https,
+    timers: natives.timers,
+  }));
+}
+
 function createStaffEmailOAuthRoutes(deps) {
   const env = deps.runtimeEnv || process.env;
+  // Persistence exclusive loaner: prefer explicit withTransactionClient; fall
+  // back to withPgClient so unit tests that only inject one still work. Staff
+  // API production wiring injects the same withPgClient as withTransactionClient.
+  const withTransactionClient = typeof deps.withTransactionClient === 'function'
+    ? deps.withTransactionClient
+    : deps.withPgClient;
 
   /**
    * POST prepare — create one disabled Sunset Microsoft delegated endpoint.
@@ -1184,6 +1297,90 @@ function createStaffEmailOAuthRoutes(deps) {
     }
   }
 
+  /**
+   * POST inbound-capture — authority-bound ImmutableId page + durable event store.
+   * Gate: LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED + sunset-staging only
+   * (composition canonical isInboundEventStoreEnabled). Auth: Sunset admin
+   * (same ACL/authz pattern as inbound-diagnostic). Body/binding resolver
+   * reused; operation input uses resolved DB UUIDs only (never caller slug
+   * identity). Outer withPgClient loan is pgClient; inject Staff API
+   * withPgClient as withTransactionClient for a separate exclusive persist
+   * client from the singleton pool (no new pool owner).
+   * Public success: exact ordered identity-free durable DTO only.
+   * Failures: 404 disabled/unresolved, 400 malformed body, 503 sanitized.
+   * No cron/poller/startup; flag never in manifests/defaults.
+   * Activation precondition (operator, not this route): migration 063 ledger +
+   * schema applied for tenant_email_inbound_events.
+   */
+  async function handleInboundCapture(body, req, res, user, gateEnv = env) {
+    // Concealed 404 before DB/runtime/network when flag absent/other or non-sunset.
+    // The top-level router passes its frozen pre-auth snapshot. The default keeps
+    // direct unit invocation fail-closed without creating a second predicate.
+    if (!isInboundEventStoreEnabled(gateEnv)) {
+      return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    if (!user || user.client_slug !== 'sunset'
+        || !UUID_RE_CI.test(user.staff_user_id || '')
+        || !UUID_RE_CI.test(user.session_id || '')) {
+      return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    }
+    if (!deps.assertStaffClientAccess(user, 'sunset', res)) return;
+    const authz = deps.authorizeAuthenticatedStaffRoute({
+      clientSlug: 'sunset',
+      method: 'POST',
+      pathname: OAUTH_INBOUND_CAPTURE_PATH,
+      env,
+    });
+    if (!authz.ok) {
+      return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+    }
+    const bodySnap = snapshotInboundCaptureBody(body);
+    if (!bodySnap) {
+      return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    }
+    if (typeof withTransactionClient !== 'function') {
+      return deps.sendJSON(res, 503, { success: false, error: INBOUND_CAPTURE_ERROR });
+    }
+    try {
+      return await deps.withPgClient(async (pg) => {
+        const found = await pg.query(SQL_RESOLVE_INBOUND_CAPTURE_BINDING, [
+          bodySnap.location_id,
+          bodySnap.endpoint_id,
+        ]);
+        const resolved = snapshotResolveQueryResult(found);
+        if (resolved.kind === 'empty') {
+          return deps.sendJSON(res, 404, { success: false, error: 'endpoint_not_found' });
+        }
+        if (resolved.kind !== 'one') {
+          return deps.sendJSON(res, 503, { success: false, error: INBOUND_CAPTURE_ERROR });
+        }
+        const rowSnap = resolved.row;
+        if (rowSnap.endpoint_id !== bodySnap.endpoint_id) {
+          return deps.sendJSON(res, 503, { success: false, error: INBOUND_CAPTURE_ERROR });
+        }
+        // Operation input: exact resolved DB UUIDs (client/location/endpoint).
+        // Never caller client_slug or body client_id.
+        // withTransactionClient is a separate exclusive loaner (not this pg).
+        const service = buildInboundCaptureRuntime(env, pg, withTransactionClient);
+        const result = await service.runInboundEventStore(Object.freeze({
+          clientId: rowSnap.client_id,
+          locationId: rowSnap.location_id,
+          endpointId: rowSnap.endpoint_id,
+        }));
+        const json = buildInboundCaptureSuccessJson(result);
+        if (!json
+            || Reflect.ownKeys(json).length !== INBOUND_CAPTURE_SUCCESS_KEYS.length
+            || Reflect.ownKeys(json)[0] !== INBOUND_CAPTURE_SUCCESS_KEYS[0]
+            || Reflect.ownKeys(json).join(',') !== INBOUND_CAPTURE_SUCCESS_KEYS.join(',')) {
+          return deps.sendJSON(res, 503, { success: false, error: INBOUND_CAPTURE_ERROR });
+        }
+        return deps.sendJSON(res, 200, json);
+      });
+    } catch (_) {
+      return deps.sendJSON(res, 503, { success: false, error: INBOUND_CAPTURE_ERROR });
+    }
+  }
+
   function terminal(res, statusCode, status) {
     const messages = {
       authorization_received: 'Authorization response received. You may close this window.',
@@ -1246,6 +1443,7 @@ function createStaffEmailOAuthRoutes(deps) {
     handleRefreshHealth,
     handleReadHealth,
     handleInboundDiagnostic,
+    handleInboundCapture,
     handleCallback,
   });
 }
@@ -1256,25 +1454,30 @@ module.exports = {
   OAUTH_REFRESH_HEALTH_PATH,
   OAUTH_READ_HEALTH_PATH,
   OAUTH_INBOUND_DIAGNOSTIC_PATH,
+  OAUTH_INBOUND_CAPTURE_PATH,
   OAUTH_CALLBACK_PATH,
   SQL_RESOLVE_START_BINDING,
   SQL_RESOLVE_REFRESH_HEALTH_BINDING,
   SQL_RESOLVE_READ_HEALTH_BINDING,
   SQL_RESOLVE_INBOUND_DIAGNOSTIC_BINDING,
+  SQL_RESOLVE_INBOUND_CAPTURE_BINDING,
   SQL_RESOLVE_SUNSET_CLIENT_FOR_PREPARE,
   START_BODY_KEYS,
   PREPARE_BODY_KEYS,
   REFRESH_HEALTH_BODY_KEYS,
   READ_HEALTH_BODY_KEYS,
   INBOUND_DIAGNOSTIC_BODY_KEYS,
+  INBOUND_CAPTURE_BODY_KEYS,
   PREPARE_SUCCESS_KEYS,
   REFRESH_HEALTH_SUCCESS_KEYS,
   READ_HEALTH_SUCCESS_KEYS,
   INBOUND_DIAGNOSTIC_SUCCESS_KEYS,
+  INBOUND_CAPTURE_SUCCESS_KEYS,
   PREPARE_ERROR,
   REFRESH_HEALTH_ERROR,
   READ_HEALTH_ERROR,
   INBOUND_DIAGNOSTIC_ERROR,
+  INBOUND_CAPTURE_ERROR,
   RESOLVE_ROW_KEYS,
   PREPARE_CLIENT_ROW_KEYS,
   validBody,
@@ -1283,6 +1486,7 @@ module.exports = {
   snapshotRefreshHealthBody,
   snapshotReadHealthBody,
   snapshotInboundDiagnosticBody,
+  snapshotInboundCaptureBody,
   snapshotPrepareClientResolve,
   snapshotResolveQueryResult,
   isPrepareEnabled,
@@ -1290,6 +1494,7 @@ module.exports = {
   buildRefreshHealthSuccessJson,
   buildReadHealthSuccessJson,
   buildInboundDiagnosticSuccessJson,
+  buildInboundCaptureSuccessJson,
   createStaffEmailOAuthRoutes,
   // Re-export production dependency key constant for offline verifiers (no secrets).
   RUNTIME_DEPENDENCY_KEYS: DEPENDENCY_KEYS,
