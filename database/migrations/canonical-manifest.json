@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "canonical-migration-manifest",
   "checksumMode": "canonical_lf_v1",
-  "checksumModeNote": "Slice 13A.1: SHA-256 over UTF-8 bytes after CRLF/lone-CR\u2192LF normalization. Rejects NUL/binary. legacySha256 retains exact pre-transition hashes for narrow ledger acceptance only.",
+  "checksumModeNote": "Slice 13A.1: SHA-256 over UTF-8 bytes after CRLF/lone-CR→LF normalization. Rejects NUL/binary. legacySha256 retains exact pre-transition hashes for narrow ledger acceptance only.",
   "generatedForMaster": "235aca35d0c784e4a4c2388f075b5aa0ada85766",
   "slice13a1Transition": {
     "fromMaster": "235aca35d0c784e4a4c2388f075b5aa0ada85766",
@@ -12,7 +12,7 @@
   "intentionalGaps": [
     {
       "number": "015",
-      "note": "Intentionally unused \u2014 see 015_INTENTIONALLY_UNUSED.md and README. Phase 25 shipped as 016."
+      "note": "Intentionally unused — see 015_INTENTIONALLY_UNUSED.md and README. Phase 25 shipped as 016."
     }
   ],
   "duplicateNumberDecisions": [
@@ -68,7 +68,7 @@
       "order": 2,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Must precede 002: renames hostels\u2192clients (README).",
+      "rationale": "Must precede 002: renames hostels→clients (README).",
       "legacySha256": "3aaba830bad279e5107947fc6602ed5d3c16de38c79c49f14a574b73bc1ebc94"
     },
     {
@@ -630,7 +630,7 @@
       "order": 54,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Additive booking_refund_records manual refund ledger (N1/Finance Slice 2). Composite FK (booking_id,client_id)\u2192bookings(id,client_id) with RESTRICT retention; append-only UPDATE/DELETE triggers (DELETE only with wh.allow_booking_refund_mutation=on); unique (client_id,idempotency_key); integer cents; no Stripe refunds."
+      "rationale": "Additive booking_refund_records manual refund ledger (N1/Finance Slice 2). Composite FK (booking_id,client_id)→bookings(id,client_id) with RESTRICT retention; append-only UPDATE/DELETE triggers (DELETE only with wh.allow_booking_refund_mutation=on); unique (client_id,idempotency_key); integer cents; no Stripe refunds."
     },
     {
       "id": "057_tenant_locations_and_channel_endpoints",
@@ -684,7 +684,7 @@
       "order": null,
       "classification": "rollback_down",
       "inForwardChain": false,
-      "rationale": "Explicit down for 059. Structurally reversible; operationally irreversible after use (sealed grants destroyed \u2192 reauth). Leaves 057/058 intact; does not touch Key Vault KEKs."
+      "rationale": "Explicit down for 059. Structurally reversible; operationally irreversible after use (sealed grants destroyed → reauth). Leaves 057/058 intact; does not touch Key Vault KEKs."
     },
     {
       "id": "060_bookings_hidden",
@@ -753,7 +753,7 @@
       "order": 61,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Stage 6 prerequisite: DROP NOT NULL secret_ref only with named CHECK tenant_channel_endpoints_secret_ref_null_policy \u2014 (secret_ref IS NULL) equals microsoft_graph+delegated_authorization_code+microsoft_delegated_oauth via IS NOT DISTINCT FROM (all lifecycle statuses; closes NULL three-valued holes); NON-NULL required for every other provider/mode. Preflight fails closed on invalid existing rows. No token/grant/activation; grant custody remains on 059.",
+      "rationale": "Stage 6 prerequisite: DROP NOT NULL secret_ref only with named CHECK tenant_channel_endpoints_secret_ref_null_policy — (secret_ref IS NULL) equals microsoft_graph+delegated_authorization_code+microsoft_delegated_oauth via IS NOT DISTINCT FROM (all lifecycle statuses; closes NULL three-valued holes); NON-NULL required for every other provider/mode. Preflight fails closed on invalid existing rows. No token/grant/activation; grant custody remains on 059.",
       "downFilename": "062_tenant_channel_endpoint_secret_ref_nullable_down.sql"
     },
     {
@@ -773,7 +773,7 @@
       "order": 62,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Empty tenant_email_inbound_events store for durable canonical inbound envelopes. location_id UUID FK \u2192 tenant_locations (client_id, id) matching delegated-read authority DTO / OAuth transactions (not text kebab location_id). endpoint FK \u2192 tenant_channel_endpoints (client_id, id). Unique identity (provider, provider_mailbox_id, provider_message_id); internet_message_id metadata only. No seed/backfill/route/activation.",
+      "rationale": "Empty tenant_email_inbound_events store for durable canonical inbound envelopes. location_id UUID FK → tenant_locations (client_id, id) matching delegated-read authority DTO / OAuth transactions (not text kebab location_id). endpoint FK → tenant_channel_endpoints (client_id, id). Unique identity (provider, provider_mailbox_id, provider_message_id); internet_message_id metadata only. No seed/backfill/route/activation.",
       "downFilename": "063_tenant_email_inbound_events_down.sql"
     },
     {
@@ -785,6 +785,26 @@
       "inForwardChain": false,
       "rationale": "Explicit down for 063: DROP TABLE tenant_email_inbound_events only; leaves 057-062 registry/grants/oauth intact.",
       "pairsWith": "063_tenant_email_inbound_events.sql"
+    },
+    {
+      "id": "064_tenant_email_inbound_delta_states",
+      "filename": "064_tenant_email_inbound_delta_states.sql",
+      "order": 63,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Empty tenant_email_inbound_delta_states for durable Microsoft Graph messages-delta state. Composite FKs to tenant_locations/tenant_channel_endpoints. ingestion_generation independent of OAuth grant_generation, bounded to JS MAX_SAFE_INTEGER. query_version exact production constant ms_messages_delta_v1 (migration CHECK + store pin; not caller-chosen shape-regex; future contract changes require deliberate code+migration version bump). Partial unique current generation (at-most-one). Sealed nextLink/deltaLink cursor envelope only (never plaintext). No seed/route/activation.",
+      "downFilename": "064_tenant_email_inbound_delta_states_down.sql",
+      "sha256": "a17eafe2c5960f9fcfd8e6a81047ac123df2a3ada675110a9b21bef37af3a4f9"
+    },
+    {
+      "id": "064_tenant_email_inbound_delta_states_down",
+      "filename": "064_tenant_email_inbound_delta_states_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit down for 064: DROP TABLE tenant_email_inbound_delta_states only; leaves 057-063 registry/grants/oauth/events intact.",
+      "pairsWith": "064_tenant_email_inbound_delta_states.sql",
+      "sha256": "80605b62c5b3d103a9fd4fe63c7454139a407250b1d1af8e62f1e4a0d1d8caf2"
     }
   ]
 }

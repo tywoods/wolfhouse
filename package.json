@@ -377,6 +377,8 @@
     "verify:staff-email-oauth-inbound-capture-routes": "node scripts/verify-staff-email-oauth-inbound-capture-routes.js",
     "verify:email-inbound-event-store": "node scripts/verify-email-inbound-event-store.js",
     "prove:email-inbound-event-store-pglite": "node scripts/prove-email-inbound-event-store-pglite.js",
+    "verify:email-inbound-delta-state-store": "node scripts/verify-email-inbound-delta-state-store.js",
+    "prove:email-inbound-delta-state-store-pglite": "node scripts/prove-email-inbound-delta-state-store-pglite.js",
     "prove:email-microsoft-oauth-transactions-pglite": "node scripts/prove-email-microsoft-oauth-transactions-pglite.js",
     "prove:email-channel-endpoint-secret-ref-null-policy-pglite": "node scripts/prove-email-channel-endpoint-secret-ref-null-policy-pglite.js",
     "verify:staff-email-oauth-routes": "node scripts/verify-staff-email-oauth-routes.js",
