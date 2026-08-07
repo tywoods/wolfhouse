@@ -21,7 +21,12 @@
  *      one mutable cursor capability owner; scrub plaintext URL/path/callback
  *      aliases; return only envelopes, tombstones, sealed successor
  *  10) Trusted continuation-only PR409 cursor_gone → markResetRequired
- *      reason graph_delta_cursor_gone CAS; no release after successful reset;
+ *      reason graph_delta_cursor_gone CAS; classify exact PR408 result shapes:
+ *        - success → reset_required public status; no release (PR408 cleared lease)
+ *        - inbound_delta_state_commit_outcome_unknown → sanitized uncertain;
+ *          ZERO release / retry / reset / rollover / success actions
+ *        - conclusive pre-COMMIT failure / reset_cas_conflict → best-effort
+ *          release with known lease version only
  *      never initial 410 / forged error; never auto beginNextGeneration
  *  11) Otherwise commitPageEvents exactly once with exact authority /
  *      generation / lease / version / query values (PR408 owns pre-TX successor
@@ -31,8 +36,15 @@
  *  13) Precommit failure: best-effort release with known lease version
  *  14) commit_outcome_unknown: exact sanitized uncertain — NO retry / refetch /
  *      reseal / release guess / reset / new generation / success claim
- *  15) Release failure after conclusive commit: no page retry; sanitized
+ *  15) Release failure after conclusive commit (lease_fenced / conflict /
+ *      commit_outcome_unknown): no page retry; sanitized
  *      committed_but_lease_release_uncertain
+ *
+ * Phase consistency (strict equality, no OR loophole):
+ *   publicStatus.phase → leaseHandle.phase → openCursor.phase must all match.
+ *   No-cursor valid only when that phase is exactly 'initial'.
+ *   Cursor kind/phase pins: initial → none|nextLink; tracking → nextLink|deltaLink.
+ *   Reject mismatches before grant token / network / commit.
  *
  * Public input: exact own-data `{ clientId, locationId, endpointId }` only.
  * Public result: frozen identity-free / cursor-free sanitized status only.
@@ -718,8 +730,14 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
       phase: leaseRes.value.phase,
       query_version: String(leaseRes.value.query_version || QUERY_VERSION),
     });
-    if (leaseHandle.ingestion_generation !== generation) return failResult(FAILURE_CODE);
-    if (leaseHandle.query_version !== QUERY_VERSION) return failResult(FAILURE_CODE);
+    if (leaseHandle.ingestion_generation !== generation
+        || leaseHandle.query_version !== QUERY_VERSION
+        || leaseHandle.phase !== publicStatus.phase
+        || (leaseHandle.phase !== 'initial' && leaseHandle.phase !== 'tracking')) {
+      // Hold lease but status/lease phase or generation drifted — release only.
+      await bestEffortRelease(ids, leaseHandle);
+      return failResult(FAILURE_CODE);
+    }
 
     // ── 6) Open cursor using acquired lease returned version ─────────────
     let openRes;
@@ -740,26 +758,58 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
       return failResult(FAILURE_CODE);
     }
 
+    // Strict phase equality across publicStatus → leaseHandle → openCursor.
+    // No OR loophole: every authoritative observed phase must match exactly.
+    const openPhase = openRes.value.phase;
+    if (openPhase !== publicStatus.phase
+        || openPhase !== leaseHandle.phase
+        || (openPhase !== 'initial' && openPhase !== 'tracking')) {
+      if (openRes.value.cursor_present === true
+          && typeof openRes.value.cursor_url === 'string') {
+        try { openRes.value.cursor_url = null; } catch { /* frozen */ }
+      }
+      openRes = null;
+      await bestEffortRelease(ids, leaseHandle);
+      return failResult(FAILURE_CODE);
+    }
+    const observedPhase = openPhase;
+
     // One mutable cursor capability owner for continuation plaintext URL.
-    // Initial path: null owner (no cursor valid only initial).
+    // No-cursor valid only when observed phase is exactly 'initial'.
+    // Kind/phase pins: initial → none|nextLink; tracking → nextLink|deltaLink.
     let cursorCapability = null;
     if (openRes.value.cursor_present === true) {
       const kind = openRes.value.cursor_kind;
       const url = openRes.value.cursor_url;
       if ((kind !== 'nextLink' && kind !== 'deltaLink')
           || typeof url !== 'string' || url.length < 1) {
+        openRes = null;
+        await bestEffortRelease(ids, leaseHandle);
+        return failResult(FAILURE_CODE);
+      }
+      if (observedPhase === 'initial' && kind !== 'nextLink') {
+        // initial must not carry deltaLink; reject before token/network/commit.
+        openRes = null;
+        await bestEffortRelease(ids, leaseHandle);
+        return failResult(FAILURE_CODE);
+      }
+      if (observedPhase === 'tracking'
+          && kind !== 'nextLink' && kind !== 'deltaLink') {
+        openRes = null;
         await bestEffortRelease(ids, leaseHandle);
         return failResult(FAILURE_CODE);
       }
       cursorCapability = { kind, url };
     } else if (openRes.value.cursor_present === false) {
-      if (leaseHandle.phase !== 'initial' && publicStatus.phase !== 'initial') {
-        // No cursor outside initial is invalid — never invent initial fetch.
+      if (observedPhase !== 'initial') {
+        // Tracking (or any non-initial) missing cursor fails before grant/network.
+        openRes = null;
         await bestEffortRelease(ids, leaseHandle);
         return failResult(FAILURE_CODE);
       }
       cursorCapability = null;
     } else {
+      openRes = null;
       await bestEffortRelease(ids, leaseHandle);
       return failResult(FAILURE_CODE);
     }
@@ -952,7 +1002,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
     const pageResult = sessionOut.value;
     sessionOut = null;
 
-    // ── 10) Trusted cursor_gone → mark reset_required; no release ────────
+    // ── 10) Trusted cursor_gone → markResetRequired; classify PR408 shapes ─
     if (pageResult && pageResult.kind === 'cursor_gone') {
       if (!wasContinuation) {
         // Never treat initial 410 / forged error as cursor_gone.
@@ -969,12 +1019,21 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
           reason: RESET_REASON_CURSOR_GONE,
         }));
       } catch {
-        // Reset attempt failed — best-effort release (reset may not have cleared).
+        // Thrown path is not a PR408 result shape; treat as pre-COMMIT failure.
         await bestEffortRelease(ids, leaseHandle);
         return failResult(FAILURE_CODE);
       }
+      // Exact PR408 commit-unknown: sanitized uncertain — ZERO release/retry/
+      // reset/rollover/success actions (may or may not have cleared lease).
+      if (resetRes
+          && resetRes.ok === false
+          && resetRes.error === 'inbound_delta_state_commit_outcome_unknown') {
+        const uncertain = buildPublicResult('uncertain', null, null, null);
+        return uncertain ? okResult(uncertain) : failResult(FAILURE_CODE);
+      }
+      // Conclusive pre-COMMIT failure / reset_cas_conflict only may best-effort
+      // release using the known post-acquire lease version. Never auto rollover.
       if (!resetRes || resetRes.ok !== true) {
-        // CAS conflict / failure — no auto begin generation; best-effort release.
         await bestEffortRelease(ids, leaseHandle);
         return failResult(FAILURE_CODE);
       }
@@ -1041,6 +1100,8 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
     const releaseVersion = committed.state_version;
 
     // ── 12) Release with returned generation/state_version ───────────────
+    // After conclusive commit: release conflict, release commit-unknown, or
+    // throw all map to committed_but_lease_release_uncertain — no page retry.
     let releaseRes;
     try {
       releaseRes = await deltaStore.releaseLease(Object.freeze({
@@ -1051,7 +1112,6 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
         expectedStateVersion: releaseVersion,
       }));
     } catch {
-      // ── 15) Release failure after conclusive commit ────────────────────
       const busy = buildPublicResult(
         'committed_but_lease_release_uncertain',
         committedPhase,
@@ -1061,6 +1121,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
       return busy ? okResult(busy) : failResult(FAILURE_CODE);
     }
     if (!releaseRes || releaseRes.ok !== true) {
+      // Covers lease_fenced / conflict and inbound_delta_state_commit_outcome_unknown.
       const busy = buildPublicResult(
         'committed_but_lease_release_uncertain',
         committedPhase,

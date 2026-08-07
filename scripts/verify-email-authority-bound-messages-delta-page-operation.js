@@ -11,14 +11,19 @@
  *   seal outside TX / scrub cursor → commitPageEvents once OR trusted
  *   cursor_gone → markResetRequired → release with returned version.
  *
- * Hostile: authority mismatch zero downstream; first run + init race; phase
- * consistency; status/acquire/open/commit/release exact version order; fresh
- * grant session + token scrub; initial/next/delta routes; mutable cursor
- * owner scrub; seal before commit / plaintext never commit input; empty/
- * tombstone pages; trusted vs forged 410; reset conflicts/unknown; lease
- * takeover/expiry; CAS conflicts; commit unknown no actions; commit success
- * release uses returned version; transaction-client same loan; authority
- * rebind fail; frozen results no IDs/secrets/envelopes; import inert/unwired.
+ * Hostile (executable, not source claims): authority mismatch zero downstream;
+ * first run + init race; strict phase equality status/lease/open; cursor
+ * kind/phase pins; tracking no-cursor before grant; status/acquire/open/
+ * commit/release exact version order + call counts; fresh grant session +
+ * token scrub; initial nextLink preserves initial phase; mutable cursor
+ * owner/transport alias scrub; seal before commit / seal failure zero commit;
+ * empty/tombstone pages; trusted vs forged 410; reset success / unknown /
+ * precommit / CAS conflict exact PR408 shapes + call order; lease takeover/
+ * expiry during open two-stage fence no plaintext; release conflict vs
+ * release commit-unknown after conclusive commit (no page retry); commit
+ * pre-CAS vs CAS conflict; commit unknown zero release/actions; authority
+ * rebind between resolve and state/Graph; frozen identity-free results;
+ * import inert/unwired.
  *
  * No network, routes, OAuth scope, DB migration, deploy, live Graph, or
  * grant/refresh/SQL duplication. Preserves PR408/409 + authority/grant siblings.
@@ -983,6 +988,139 @@ async function buildOperation(opts = {}) {
   };
 }
 
+/**
+ * Install a PR408 store factory spy via require.cache so the operation's
+ * internal createInboundEmailDeltaStateStore is wrapped. Supports planted
+ * exact PR408 result shapes and ordered method call logs.
+ *
+ * @param {object} [handlers] per-method async (input, realStore, callLog) =>
+ *   undefined to delegate, or exact PR408 result to plant
+ */
+function installStoreSpy(handlers = {}) {
+  const storePath = require.resolve('./lib/email-inbound-delta-state-store');
+  const opPath = require.resolve('./lib/email-authority-bound-messages-delta-page-operation');
+  const offlinePath = require.resolve('./lib/email-authority-bound-messages-delta-offline-composition');
+  const realStoreMod = require(storePath);
+  const callLog = [];
+  const STORE_METHODS = [
+    'getPublicStatus',
+    'initializeState',
+    'acquireLease',
+    'openCursor',
+    'sealDeltaCursor',
+    'commitPageEvents',
+    'markResetRequired',
+    'releaseLease',
+    'beginNextGeneration',
+    'renewLease',
+  ];
+
+  function wrapStore(store) {
+    const wrapped = {};
+    for (const name of STORE_METHODS) {
+      const realFn = store[name];
+      if (typeof realFn !== 'function') continue;
+      wrapped[name] = async function spyMethod(input) {
+        callLog.push({ method: name, stage: 'enter' });
+        if (typeof handlers[name] === 'function') {
+          const planted = await handlers[name](input, store, callLog);
+          if (planted !== undefined) {
+            callLog.push({
+              method: name,
+              stage: 'exit',
+              ok: planted && planted.ok,
+              error: planted && planted.error,
+              planted: true,
+            });
+            return planted;
+          }
+        }
+        const res = await realFn.call(store, input);
+        callLog.push({
+          method: name,
+          stage: 'exit',
+          ok: res && res.ok,
+          error: res && res.error,
+          planted: false,
+        });
+        return res;
+      };
+    }
+    return Object.freeze(wrapped);
+  }
+
+  require.cache[storePath].exports = Object.freeze({
+    ...realStoreMod,
+    createInboundEmailDeltaStateStore(deps) {
+      return wrapStore(realStoreMod.createInboundEmailDeltaStateStore(deps));
+    },
+  });
+  delete require.cache[opPath];
+  delete require.cache[offlinePath];
+
+  return {
+    callLog,
+    methodNames() {
+      return callLog.filter((e) => e.stage === 'enter').map((e) => e.method);
+    },
+    count(method) {
+      return callLog.filter((e) => e.stage === 'enter' && e.method === method).length;
+    },
+    exits(method) {
+      return callLog.filter((e) => e.stage === 'exit' && e.method === method);
+    },
+    loadOp() {
+      return require('./lib/email-authority-bound-messages-delta-page-operation');
+    },
+    restore() {
+      require.cache[storePath].exports = realStoreMod;
+      delete require.cache[opPath];
+      delete require.cache[offlinePath];
+      // re-warm default modules
+      require('./lib/email-inbound-delta-state-store');
+      require('./lib/email-authority-bound-messages-delta-page-operation');
+    },
+  };
+}
+
+async function buildSpiedOperation(opts = {}) {
+  const spy = installStoreSpy(opts.handlers || {});
+  try {
+    const {
+      createAuthorityBoundMessagesDeltaPageOperation,
+    } = spy.loadOp();
+    const {
+      createFakeEmailGrantEnvelopeProvider,
+    } = require('./lib/email-grant-envelope-fake-provider');
+    const auth = makeAuthorityDb(opts.authority || {});
+    const harness = createFakeDeltaHarness(opts.harnessOptions || {});
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    const grant = makeGrantSessionFactory(opts.grant || {});
+    const transportBag = makeTransport(opts.transport || {});
+    const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+      db: auth.db,
+      createGrantSession: grant.createGrantSession,
+      messagesDeltaPageTransport: transportBag.transport,
+      withTransactionClient: harness.withTransactionClient,
+      envelopeProvider: envProvider,
+    }));
+    return {
+      op,
+      auth,
+      harness,
+      grant,
+      transportBag,
+      envProvider,
+      spy,
+      run: (input) => op.runAuthorityBoundMessagesDeltaPage(input || baseInput()),
+      restore: () => spy.restore(),
+    };
+  } catch (err) {
+    spy.restore();
+    throw err;
+  }
+}
+
 /** Seed a tracking state with sealed deltaLink cursor under harness. */
 async function seedTrackingState(harness, envProvider) {
   const {
@@ -1846,6 +1984,899 @@ async function main() {
       if (res && res.ok === false) rejected += 1;
     }
     ok('hostile-inputs-rejected', rejected === badInputs.length, `rejected=${rejected}`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // State-machine probes (executable call-count/order + PR408 result shapes)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // ── Reset unknown: PR408 commit_outcome_unknown → uncertain; ZERO actions ─
+  {
+    // Seed first, then install spy with planted markResetRequired unknown shape.
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    await seedTrackingState(harness, envProvider);
+    const cursorGoneErr = await captureTrustedCursorGoneError();
+    const spy = installStoreSpy({
+      async markResetRequired() {
+        return Object.freeze({
+          ok: false,
+          error: 'inbound_delta_state_commit_outcome_unknown',
+        });
+      },
+    });
+    try {
+      const {
+        createAuthorityBoundMessagesDeltaPageOperation,
+      } = spy.loadOp();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({ continuationThrow: cursorGoneErr });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+      ok('reset-unknown-uncertain',
+        res.ok === true && res.value.status === 'uncertain', ser(res));
+      ok('reset-unknown-null-phase-counts',
+        res.ok
+        && res.value.phase === null
+        && res.value.envelopes_presented === null
+        && res.value.tombstones_presented === null);
+      ok('reset-unknown-mark-once', spy.count('markResetRequired') === 1, ser(spy.methodNames()));
+      ok('reset-unknown-zero-release', spy.count('releaseLease') === 0, ser(spy.methodNames()));
+      ok('reset-unknown-zero-retry-commit', spy.count('commitPageEvents') === 0);
+      ok('reset-unknown-zero-begin-gen', spy.count('beginNextGeneration') === 0);
+      ok('reset-unknown-zero-second-mark', spy.count('markResetRequired') === 1);
+      ok('reset-unknown-single-continuation', transportBag.getContinuationCount() === 1);
+      ok('reset-unknown-call-order', (() => {
+        const m = spy.methodNames();
+        const iAcq = m.indexOf('acquireLease');
+        const iOpen = m.indexOf('openCursor');
+        const iMark = m.indexOf('markResetRequired');
+        return iAcq >= 0 && iOpen > iAcq && iMark > iOpen
+          && !m.includes('releaseLease')
+          && !m.includes('commitPageEvents')
+          && !m.includes('beginNextGeneration');
+      })(), ser(spy.methodNames()));
+      ok('reset-unknown-no-leak', noLeak(res));
+    } finally {
+      spy.restore();
+    }
+  }
+
+  // ── Reset pre-COMMIT failure → best-effort release; fail ───────────────
+  {
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    await seedTrackingState(harness, envProvider);
+    const cursorGoneErr = await captureTrustedCursorGoneError();
+    const spy = installStoreSpy({
+      async markResetRequired() {
+        return Object.freeze({
+          ok: false,
+          error: 'inbound_delta_state_write_failed',
+        });
+      },
+    });
+    try {
+      const {
+        createAuthorityBoundMessagesDeltaPageOperation,
+      } = spy.loadOp();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({ continuationThrow: cursorGoneErr });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+      ok('reset-precommit-fails', res.ok === false, ser(res));
+      ok('reset-precommit-mark-once', spy.count('markResetRequired') === 1);
+      ok('reset-precommit-release-once', spy.count('releaseLease') === 1, ser(spy.methodNames()));
+      ok('reset-precommit-zero-commit', spy.count('commitPageEvents') === 0);
+      ok('reset-precommit-zero-begin-gen', spy.count('beginNextGeneration') === 0);
+      ok('reset-precommit-order', (() => {
+        const m = spy.methodNames();
+        return m.indexOf('markResetRequired') < m.indexOf('releaseLease')
+          && m.indexOf('releaseLease') === m.lastIndexOf('releaseLease');
+      })(), ser(spy.methodNames()));
+    } finally {
+      spy.restore();
+    }
+  }
+
+  // ── Reset CAS conflict → best-effort release; fail ─────────────────────
+  {
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    await seedTrackingState(harness, envProvider);
+    const cursorGoneErr = await captureTrustedCursorGoneError();
+    const spy = installStoreSpy({
+      async markResetRequired() {
+        return Object.freeze({
+          ok: false,
+          error: 'reset_cas_conflict',
+        });
+      },
+    });
+    try {
+      const {
+        createAuthorityBoundMessagesDeltaPageOperation,
+      } = spy.loadOp();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({ continuationThrow: cursorGoneErr });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+      ok('reset-cas-conflict-fails', res.ok === false, ser(res));
+      ok('reset-cas-mark-once', spy.count('markResetRequired') === 1);
+      ok('reset-cas-release-once', spy.count('releaseLease') === 1, ser(spy.methodNames()));
+      ok('reset-cas-zero-commit-actions',
+        spy.count('commitPageEvents') === 0
+        && spy.count('beginNextGeneration') === 0);
+      ok('reset-cas-order-mark-then-release', (() => {
+        const m = spy.methodNames();
+        return m.indexOf('markResetRequired') >= 0
+          && m.indexOf('releaseLease') > m.indexOf('markResetRequired');
+      })(), ser(spy.methodNames()));
+    } finally {
+      spy.restore();
+    }
+  }
+
+  // ── Reset success call order: mark once, zero release ──────────────────
+  {
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    await seedTrackingState(harness, envProvider);
+    const cursorGoneErr = await captureTrustedCursorGoneError();
+    const spy = installStoreSpy();
+    try {
+      const {
+        createAuthorityBoundMessagesDeltaPageOperation,
+      } = spy.loadOp();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({ continuationThrow: cursorGoneErr });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+      ok('reset-success-status',
+        res.ok === true && res.value.status === 'reset_required', ser(res));
+      ok('reset-success-mark-once', spy.count('markResetRequired') === 1);
+      ok('reset-success-zero-release', spy.count('releaseLease') === 0, ser(spy.methodNames()));
+      ok('reset-success-zero-begin', spy.count('beginNextGeneration') === 0);
+      ok('reset-success-order', (() => {
+        const m = spy.methodNames();
+        const iStatus = m.indexOf('getPublicStatus');
+        const iAcq = m.indexOf('acquireLease');
+        const iOpen = m.indexOf('openCursor');
+        const iMark = m.indexOf('markResetRequired');
+        return iStatus >= 0 && iAcq > iStatus && iOpen > iAcq && iMark > iOpen
+          && !m.includes('releaseLease')
+          && !m.includes('commitPageEvents');
+      })(), ser(spy.methodNames()));
+    } finally {
+      spy.restore();
+    }
+  }
+
+  // ── Release conflict after conclusive commit: no page retry ────────────
+  {
+    let sawCommitOk = false;
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    const spy = installStoreSpy({
+      async releaseLease(input, realStore, callLog) {
+        const commitOk = callLog.some(
+          (e) => e.method === 'commitPageEvents' && e.stage === 'exit' && e.ok === true,
+        );
+        if (commitOk) {
+          sawCommitOk = true;
+          return Object.freeze({ ok: false, error: 'lease_fenced' });
+        }
+        return undefined;
+      },
+    });
+    try {
+      const {
+        createAuthorityBoundMessagesDeltaPageOperation,
+      } = spy.loadOp();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({
+        initialPage: makeTransportPage({
+          envelopes: [makeEnvelope('rel-conflict-1')],
+          cursor_kind: 'deltaLink',
+          cursor_url: PLANTED_DELTA,
+        }),
+      });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+      ok('release-conflict-after-commit',
+        res.ok === true
+        && res.value.status === 'committed_but_lease_release_uncertain',
+        ser(res));
+      ok('release-conflict-saw-commit', sawCommitOk === true);
+      ok('release-conflict-no-page-retry',
+        transportBag.getInitialCount() === 1
+        && transportBag.getContinuationCount() === 0);
+      ok('release-conflict-single-session', grant.getSessionCreates() === 1);
+      ok('release-conflict-commit-once', spy.count('commitPageEvents') === 1);
+      ok('release-conflict-release-once', spy.count('releaseLease') === 1);
+      ok('release-conflict-counts-preserved',
+        res.ok
+        && res.value.envelopes_presented === 1
+        && res.value.tombstones_presented === 0);
+    } finally {
+      spy.restore();
+    }
+  }
+
+  // ── Release commit-unknown after conclusive commit: no page retry ──────
+  {
+    let sawCommitOk = false;
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    const spy = installStoreSpy({
+      async releaseLease(input, realStore, callLog) {
+        const commitOk = callLog.some(
+          (e) => e.method === 'commitPageEvents' && e.stage === 'exit' && e.ok === true,
+        );
+        if (commitOk) {
+          sawCommitOk = true;
+          return Object.freeze({
+            ok: false,
+            error: 'inbound_delta_state_commit_outcome_unknown',
+          });
+        }
+        return undefined;
+      },
+    });
+    try {
+      const {
+        createAuthorityBoundMessagesDeltaPageOperation,
+      } = spy.loadOp();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({
+        initialPage: makeTransportPage({
+          envelopes: [makeEnvelope('rel-unk-1')],
+          cursor_kind: 'deltaLink',
+          cursor_url: PLANTED_DELTA,
+        }),
+      });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+      ok('release-unknown-after-commit',
+        res.ok === true
+        && res.value.status === 'committed_but_lease_release_uncertain',
+        ser(res));
+      ok('release-unknown-saw-commit', sawCommitOk === true);
+      ok('release-unknown-no-page-retry',
+        transportBag.getInitialCount() === 1
+        && grant.getSessionCreates() === 1
+        && spy.count('commitPageEvents') === 1);
+      ok('release-unknown-not-uncertain-status',
+        res.ok && res.value.status !== 'uncertain');
+    } finally {
+      spy.restore();
+    }
+  }
+
+  // ── Seal failure: zero commit + correct release ────────────────────────
+  {
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    const spy = installStoreSpy({
+      async sealDeltaCursor() {
+        return Object.freeze({ ok: false, error: 'cursor_seal_failed' });
+      },
+    });
+    try {
+      const {
+        createAuthorityBoundMessagesDeltaPageOperation,
+      } = spy.loadOp();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({
+        initialPage: makeTransportPage({
+          envelopes: [makeEnvelope('seal-fail-1')],
+          cursor_kind: 'deltaLink',
+          cursor_url: PLANTED_DELTA,
+        }),
+      });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+      ok('seal-fail-fails', res.ok === false, ser(res));
+      ok('seal-fail-zero-commit', spy.count('commitPageEvents') === 0);
+      ok('seal-fail-release-once', spy.count('releaseLease') === 1, ser(spy.methodNames()));
+      ok('seal-fail-transport-once', transportBag.getInitialCount() === 1);
+      ok('seal-fail-order-seal-before-release', (() => {
+        const m = spy.methodNames();
+        return m.includes('sealDeltaCursor')
+          && m.indexOf('sealDeltaCursor') < m.indexOf('releaseLease');
+      })(), ser(spy.methodNames()));
+    } finally {
+      spy.restore();
+    }
+  }
+
+  // ── Tracking no cursor: fail before grant/network ──────────────────────
+  {
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    await seedTrackingState(harness, envProvider);
+    // Clear sealed cursor while leaving phase=tracking (invalid durable state).
+    harness.mutateCurrent(CLIENT, ENDPOINT, (row) => {
+      row.cursor_kind = null;
+      row.nonce = null;
+      row.ciphertext = null;
+      row.auth_tag = null;
+      row.wrapped_dek = null;
+      row.cursor_operation_id = null;
+      row.envelope_version = null;
+      row.aead_alg = null;
+      row.kek_wrap_alg = null;
+      row.kek_key_name = null;
+      row.kek_key_version = null;
+      // Force phase tracking without cursor (OR loophole regression target).
+      row.phase = 'tracking';
+    });
+    const auth = makeAuthorityDb();
+    const grant = makeGrantSessionFactory();
+    const transportBag = makeTransport();
+    const {
+      createAuthorityBoundMessagesDeltaPageOperation,
+    } = require('./lib/email-authority-bound-messages-delta-page-operation');
+    const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+      db: auth.db,
+      createGrantSession: grant.createGrantSession,
+      messagesDeltaPageTransport: transportBag.transport,
+      withTransactionClient: harness.withTransactionClient,
+      envelopeProvider: envProvider,
+    }));
+    const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+    ok('tracking-no-cursor-fails', res.ok === false, ser(res));
+    ok('tracking-no-cursor-zero-grant', grant.getSessionCreates() === 0);
+    ok('tracking-no-cursor-zero-transport',
+      transportBag.getInitialCount() === 0
+      && transportBag.getContinuationCount() === 0);
+    // Best-effort release after open rejection
+    const releaseLogs = harness.log.filter((e) => isReleaseSql(e.sql));
+    ok('tracking-no-cursor-released', releaseLogs.length >= 1, ser(releaseLogs.length));
+  }
+
+  // ── Lease takeover during open two-stage fence: no plaintext to transport ─
+  {
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    await seedTrackingState(harness, envProvider);
+    // Operation loans after seed: (1) getPublicStatus (2) acquireLease
+    // (3) openCursor first fence (4) openCursor post-crypto revalidate.
+    // Take over at start of loan 4 so revalidate fails closed (no plaintext).
+    let opLoans = 0;
+    harness.setOnLoanStart(async () => {
+      opLoans += 1;
+      if (opLoans === 4) {
+        harness.mutateCurrent(CLIENT, ENDPOINT, (row) => {
+          row.lease_token = crypto.randomUUID();
+          row.lease_owner = 'hostile-takeover-worker';
+          row.lease_until = new Date(harness.getClockMs() + 120_000).toISOString();
+          row.state_version = Number(row.state_version) + 1;
+        });
+      }
+    });
+    const auth = makeAuthorityDb();
+    const grant = makeGrantSessionFactory();
+    const transportBag = makeTransport();
+    const {
+      createAuthorityBoundMessagesDeltaPageOperation,
+    } = require('./lib/email-authority-bound-messages-delta-page-operation');
+    const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+      db: auth.db,
+      createGrantSession: grant.createGrantSession,
+      messagesDeltaPageTransport: transportBag.transport,
+      withTransactionClient: harness.withTransactionClient,
+      envelopeProvider: envProvider,
+    }));
+    const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+    ok('open-takeover-fails', res.ok === false, ser(res));
+    ok('open-takeover-zero-transport',
+      transportBag.getInitialCount() === 0
+      && transportBag.getContinuationCount() === 0);
+    ok('open-takeover-zero-grant', grant.getSessionCreates() === 0);
+    ok('open-takeover-no-cursor-secret', noCursorSecret(harness.log));
+  }
+
+  // ── Lease expiry during open two-stage fence ───────────────────────────
+  {
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    await seedTrackingState(harness, envProvider);
+    let opLoans = 0;
+    harness.setOnLoanStart(async () => {
+      opLoans += 1;
+      if (opLoans === 4) {
+        // Expire the lease before second fence.
+        harness.mutateCurrent(CLIENT, ENDPOINT, (row) => {
+          row.lease_until = new Date(harness.getClockMs() - 1).toISOString();
+        });
+      }
+    });
+    const auth = makeAuthorityDb();
+    const grant = makeGrantSessionFactory();
+    const transportBag = makeTransport();
+    const {
+      createAuthorityBoundMessagesDeltaPageOperation,
+    } = require('./lib/email-authority-bound-messages-delta-page-operation');
+    const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+      db: auth.db,
+      createGrantSession: grant.createGrantSession,
+      messagesDeltaPageTransport: transportBag.transport,
+      withTransactionClient: harness.withTransactionClient,
+      envelopeProvider: envProvider,
+    }));
+    const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+    ok('open-expiry-fails', res.ok === false, ser(res));
+    ok('open-expiry-zero-transport',
+      transportBag.getInitialCount() === 0
+      && transportBag.getContinuationCount() === 0
+      && grant.getSessionCreates() === 0);
+  }
+
+  // ── Phase mismatch at status/lease ─────────────────────────────────────
+  {
+    // seedTrackingState commits nextLink → phase remains 'initial'.
+    // Plant acquire phase as 'tracking' so status≠lease (strict equality).
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    await seedTrackingState(harness, envProvider);
+    const spy = installStoreSpy({
+      async acquireLease(input, realStore) {
+        const real = await realStore.acquireLease(input);
+        if (!real || real.ok !== true) return real;
+        return Object.freeze({
+          ok: true,
+          value: Object.freeze({
+            ...real.value,
+            phase: 'tracking',
+          }),
+        });
+      },
+    });
+    try {
+      const {
+        createAuthorityBoundMessagesDeltaPageOperation,
+      } = spy.loadOp();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport();
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+      ok('phase-mismatch-status-lease-fails', res.ok === false, ser(res));
+      ok('phase-mismatch-status-lease-zero-open',
+        spy.count('openCursor') === 0, ser(spy.methodNames()));
+      ok('phase-mismatch-status-lease-zero-grant', grant.getSessionCreates() === 0);
+      ok('phase-mismatch-status-lease-released',
+        spy.count('releaseLease') === 1, ser(spy.methodNames()));
+    } finally {
+      spy.restore();
+    }
+  }
+
+  // ── Phase mismatch at lease/open ───────────────────────────────────────
+  {
+    // status+lease stay 'initial'; plant openCursor.phase as 'tracking'.
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    await seedTrackingState(harness, envProvider);
+    const spy = installStoreSpy({
+      async openCursor(input, realStore) {
+        const real = await realStore.openCursor(input);
+        if (!real || real.ok !== true) return real;
+        return Object.freeze({
+          ok: true,
+          value: Object.freeze({
+            ...real.value,
+            phase: 'tracking',
+          }),
+        });
+      },
+    });
+    try {
+      const {
+        createAuthorityBoundMessagesDeltaPageOperation,
+      } = spy.loadOp();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport();
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+      ok('phase-mismatch-lease-open-fails', res.ok === false, ser(res));
+      ok('phase-mismatch-lease-open-zero-grant',
+        grant.getSessionCreates() === 0
+        && transportBag.getContinuationCount() === 0);
+      ok('phase-mismatch-lease-open-released', spy.count('releaseLease') === 1);
+    } finally {
+      spy.restore();
+    }
+  }
+
+  // ── Initial phase + deltaLink cursor rejected before grant ─────────────
+  {
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    // Seed initial state with a nextLink sealed cursor via store, then force kind
+    const {
+      createInboundEmailDeltaStateStore,
+    } = require('./lib/email-inbound-delta-state-store');
+    const seedStore = createInboundEmailDeltaStateStore(Object.freeze({
+      withTransactionClient: harness.withTransactionClient,
+      envelopeProvider: envProvider,
+    }));
+    const init = await seedStore.initializeState(Object.freeze({
+      clientId: CLIENT,
+      locationId: LOCATION,
+      endpointId: ENDPOINT,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+      queryVersion: QV1,
+    }));
+    assert.equal(init.ok, true);
+    const lease = await seedStore.acquireLease(Object.freeze({
+      clientId: CLIENT,
+      endpointId: ENDPOINT,
+      workerId: 'seed-initial-delta',
+      ttlSeconds: 60,
+      expectedGeneration: 1,
+      expectedStateVersion: 1,
+    }));
+    assert.equal(lease.ok, true);
+    const sealed = await seedStore.sealDeltaCursor(Object.freeze({
+      clientId: CLIENT,
+      endpointId: ENDPOINT,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+      ingestionGeneration: 1,
+      queryVersion: QV1,
+      cursorKind: 'deltaLink',
+      cursorUrl: PLANTED_DELTA,
+      operationId: crypto.randomUUID(),
+    }));
+    assert.equal(sealed.ok, true);
+    // Install sealed cursor material directly while keeping phase initial
+    // (bypass commit which would flip phase to tracking for deltaLink).
+    harness.mutateCurrent(CLIENT, ENDPOINT, (row) => {
+      row.phase = 'initial';
+      row.cursor_kind = 'deltaLink';
+      row.envelope_version = sealed.value.envelope.envelope_version;
+      row.aead_alg = sealed.value.envelope.aead_alg;
+      row.kek_wrap_alg = sealed.value.envelope.kek_wrap_alg;
+      row.kek_key_name = sealed.value.envelope.kek_key_name;
+      row.kek_key_version = sealed.value.envelope.kek_key_version;
+      row.nonce = Buffer.from(sealed.value.envelope.nonce);
+      row.ciphertext = Buffer.from(sealed.value.envelope.ciphertext);
+      row.auth_tag = Buffer.from(sealed.value.envelope.auth_tag);
+      row.wrapped_dek = Buffer.from(sealed.value.envelope.wrapped_dek);
+      row.cursor_operation_id = sealed.value.envelope.operation_id;
+      row.lease_owner = null;
+      row.lease_token = null;
+      row.lease_until = null;
+    });
+    const auth = makeAuthorityDb();
+    const grant = makeGrantSessionFactory();
+    const transportBag = makeTransport();
+    const {
+      createAuthorityBoundMessagesDeltaPageOperation,
+    } = require('./lib/email-authority-bound-messages-delta-page-operation');
+    const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+      db: auth.db,
+      createGrantSession: grant.createGrantSession,
+      messagesDeltaPageTransport: transportBag.transport,
+      withTransactionClient: harness.withTransactionClient,
+      envelopeProvider: envProvider,
+    }));
+    const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+    ok('initial-deltaLink-rejected', res.ok === false, ser(res));
+    ok('initial-deltaLink-zero-grant-network',
+      grant.getSessionCreates() === 0
+      && transportBag.getInitialCount() === 0
+      && transportBag.getContinuationCount() === 0);
+  }
+
+  // ── Initial page returning nextLink preserves initial phase ────────────
+  {
+    const ctx = await buildOperation({
+      transport: {
+        initialPage: makeTransportPage({
+          envelopes: [makeEnvelope('init-next-1')],
+          cursor_kind: 'nextLink',
+          cursor_url: PLANTED_NEXT,
+        }),
+      },
+    });
+    const res = await ctx.run();
+    ok('initial-nextLink-committed',
+      res.ok === true && res.value.status === 'committed', ser(res));
+    ok('initial-nextLink-preserves-initial-phase',
+      res.ok && res.value.phase === 'initial', ser(res));
+    ok('initial-nextLink-used-initial-fetch',
+      ctx.transportBag.getInitialCount() === 1
+      && ctx.transportBag.getContinuationCount() === 0);
+  }
+
+  // ── Operation-boundary cursor owner / transport aliases scrubbed ────────
+  {
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    await seedTrackingState(harness, envProvider);
+    let capturedRef = null;
+    const auth = makeAuthorityDb();
+    const grant = makeGrantSessionFactory();
+    const transportBag = makeTransport({
+      continuationImpl: async (input) => {
+        capturedRef = input;
+        return makeTransportPage({
+          envelopes: [makeEnvelope('scrub-1')],
+          cursor_kind: 'deltaLink',
+          cursor_url: PLANTED_DELTA,
+        });
+      },
+    });
+    const {
+      createAuthorityBoundMessagesDeltaPageOperation,
+    } = require('./lib/email-authority-bound-messages-delta-page-operation');
+    const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+      db: auth.db,
+      createGrantSession: grant.createGrantSession,
+      messagesDeltaPageTransport: transportBag.transport,
+      withTransactionClient: harness.withTransactionClient,
+      envelopeProvider: envProvider,
+    }));
+    const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+    ok('boundary-scrub-committed', res.ok === true && res.value.status === 'committed', ser(res));
+    ok('boundary-scrub-transport-alias',
+      capturedRef != null
+      && (capturedRef.cursor_url == null || capturedRef.cursor_url === null)
+      && (capturedRef.cursor_kind == null || capturedRef.cursor_kind === null)
+      && (capturedRef.accessToken == null || capturedRef.accessToken === null),
+      ser({
+        url: capturedRef && capturedRef.cursor_url,
+        kind: capturedRef && capturedRef.cursor_kind,
+        token: capturedRef && capturedRef.accessToken,
+      }));
+    ok('boundary-scrub-loan',
+      grant.getLastLoan() && grant.getLastLoan().accessToken == null);
+    ok('boundary-scrub-no-secret-in-log', noCursorSecret(harness.log));
+  }
+
+  // ── Authority rebind between resolution and state/Graph stages ─────────
+  {
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    await seedTrackingState(harness, envProvider);
+    // After seed, rebind durable state to foreign mailbox/tenant while
+    // authority resolution still returns the original binding.
+    harness.mutateCurrent(CLIENT, ENDPOINT, (row) => {
+      row.provider_tenant_id = FOREIGN_TENANT;
+      row.provider_mailbox_id = FOREIGN_MAILBOX;
+    });
+    // Cursor AAD was sealed under TENANT/MAILBOX — open will fail AAD, OR
+    // if we clear cursor and use initial... tracking with foreign ids:
+    // open may fail cursor_open_failed. Either way: zero durable commit of
+    // foreign-bound events and no success.
+    const auth = makeAuthorityDb();
+    const grant = makeGrantSessionFactory();
+    const transportBag = makeTransport({
+      continuationPage: makeTransportPage({
+        envelopes: [makeEnvelope('rebind-1')],
+        cursor_kind: 'deltaLink',
+        cursor_url: PLANTED_DELTA,
+      }),
+    });
+    const eventsBefore = harness.events.size;
+    const {
+      createAuthorityBoundMessagesDeltaPageOperation,
+    } = require('./lib/email-authority-bound-messages-delta-page-operation');
+    const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+      db: auth.db,
+      createGrantSession: grant.createGrantSession,
+      messagesDeltaPageTransport: transportBag.transport,
+      withTransactionClient: harness.withTransactionClient,
+      envelopeProvider: envProvider,
+    }));
+    const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+    ok('authority-rebind-state-fails', res.ok === false, ser(res));
+    ok('authority-rebind-no-new-events', harness.events.size === eventsBefore);
+    ok('authority-rebind-not-committed',
+      !(res.ok && res.value && res.value.status === 'committed'));
+  }
+
+  // ── Commit pre-CAS failure vs CAS conflict ─────────────────────────────
+  {
+    // Pre-CAS: successor rejected before TX → best-effort release, zero events advance
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    const spy = installStoreSpy({
+      async commitPageEvents() {
+        return Object.freeze({ ok: false, error: 'successor_cursor_rejected' });
+      },
+    });
+    try {
+      const {
+        createAuthorityBoundMessagesDeltaPageOperation,
+      } = spy.loadOp();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({
+        initialPage: makeTransportPage({
+          envelopes: [makeEnvelope('precas-1')],
+          cursor_kind: 'deltaLink',
+          cursor_url: PLANTED_DELTA,
+        }),
+      });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+      ok('commit-precas-fails', res.ok === false, ser(res));
+      ok('commit-precas-release-once', spy.count('releaseLease') === 1, ser(spy.methodNames()));
+      ok('commit-precas-not-uncertain',
+        !(res.ok && res.value && res.value.status === 'uncertain'));
+      ok('commit-precas-order', (() => {
+        const m = spy.methodNames();
+        return m.indexOf('commitPageEvents') >= 0
+          && m.indexOf('releaseLease') > m.indexOf('commitPageEvents');
+      })(), ser(spy.methodNames()));
+    } finally {
+      spy.restore();
+    }
+  }
+  {
+    // CAS conflict after TX attempt: same release path, not uncertain
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    const spy = installStoreSpy({
+      async commitPageEvents() {
+        return Object.freeze({ ok: false, error: 'commit_cas_conflict' });
+      },
+    });
+    try {
+      const {
+        createAuthorityBoundMessagesDeltaPageOperation,
+      } = spy.loadOp();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({
+        initialPage: makeTransportPage({
+          envelopes: [makeEnvelope('cas-1')],
+          cursor_kind: 'deltaLink',
+          cursor_url: PLANTED_DELTA,
+        }),
+      });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+      ok('commit-cas-conflict-fails', res.ok === false, ser(res));
+      ok('commit-cas-conflict-release-once', spy.count('releaseLease') === 1);
+      ok('commit-cas-conflict-not-uncertain',
+        !(res.ok && res.value && res.value.status === 'uncertain'));
+      ok('commit-cas-vs-precas-same-action-shape',
+        spy.count('commitPageEvents') === 1
+        && spy.count('beginNextGeneration') === 0
+        && transportBag.getInitialCount() === 1);
+    } finally {
+      spy.restore();
+    }
+  }
+
+  // ── Commit unknown stays zero release (call-count) ─────────────────────
+  {
+    const harness = createFakeDeltaHarness();
+    const envProvider = createFakeEmailGrantEnvelopeProvider();
+    await seedTrackingState(harness, envProvider);
+    const spy = installStoreSpy({
+      async commitPageEvents() {
+        return Object.freeze({
+          ok: false,
+          error: 'inbound_delta_state_commit_outcome_unknown',
+        });
+      },
+    });
+    try {
+      const {
+        createAuthorityBoundMessagesDeltaPageOperation,
+      } = spy.loadOp();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({
+        continuationPage: makeTransportPage({
+          envelopes: [makeEnvelope('unk-count-1')],
+          cursor_kind: 'deltaLink',
+          cursor_url: PLANTED_DELTA,
+        }),
+      });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const res = await op.runAuthorityBoundMessagesDeltaPage(baseInput());
+      ok('commit-unknown-spy-uncertain',
+        res.ok === true && res.value.status === 'uncertain', ser(res));
+      ok('commit-unknown-spy-zero-release',
+        spy.count('releaseLease') === 0, ser(spy.methodNames()));
+      ok('commit-unknown-spy-zero-reset',
+        spy.count('markResetRequired') === 0
+        && spy.count('beginNextGeneration') === 0);
+      ok('commit-unknown-spy-commit-once', spy.count('commitPageEvents') === 1);
+      ok('commit-unknown-spy-single-transport',
+        transportBag.getContinuationCount() === 1
+        && grant.getSessionCreates() === 1);
+    } finally {
+      spy.restore();
+    }
   }
 
   // ── Network never hit ──────────────────────────────────────────────────
