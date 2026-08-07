@@ -154,6 +154,9 @@ function createFakeDeltaHarness(options = {}) {
     return new Date(clockMs);
   }
 
+  /** @type {Map<string, object>} durable page_commit journal by operation_id */
+  const durableJournal = new Map();
+
   async function withTransactionClient(work) {
     const loanId = (loanSeq += 1);
     if (typeof onLoanStart === 'function') {
@@ -164,6 +167,8 @@ function createFakeDeltaHarness(options = {}) {
     const stagedStates = new Map();
     /** @type {Map<string, object>} */
     const stagedEvents = new Map();
+    /** @type {Map<string, object>} */
+    const stagedJournal = new Map();
     /** @type {Set<string>} */
     const deletedStateKeys = new Set();
 
@@ -193,6 +198,15 @@ function createFakeDeltaHarness(options = {}) {
       deletedStateKeys.delete(k);
       stagedStates.set(k, row);
     }
+    function readJournal(opId) {
+      const k = String(opId).toLowerCase();
+      if (stagedJournal.has(k)) return stagedJournal.get(k);
+      if (durableJournal.has(k)) return cloneRow(durableJournal.get(k));
+      return null;
+    }
+    function writeJournal(row) {
+      stagedJournal.set(String(row.operation_id).toLowerCase(), row);
+    }
 
     const client = {
       async query(sql, params) {
@@ -206,6 +220,7 @@ function createFakeDeltaHarness(options = {}) {
           inTx = true;
           stagedStates.clear();
           stagedEvents.clear();
+          stagedJournal.clear();
           deletedStateKeys.clear();
           return { rows: [], rowCount: 0 };
         }
@@ -217,8 +232,10 @@ function createFakeDeltaHarness(options = {}) {
           for (const [k, row] of stagedEvents) {
             if (!durableEvents.has(k)) durableEvents.set(k, { ...row });
           }
+          for (const [k, row] of stagedJournal) durableJournal.set(k, cloneRow(row));
           stagedStates.clear();
           stagedEvents.clear();
+          stagedJournal.clear();
           deletedStateKeys.clear();
           inTx = false;
           return { rows: [], rowCount: 0 };
@@ -226,9 +243,75 @@ function createFakeDeltaHarness(options = {}) {
         if (norm === 'ROLLBACK') {
           stagedStates.clear();
           stagedEvents.clear();
+          stagedJournal.clear();
           deletedStateKeys.clear();
           inTx = false;
           return { rows: [], rowCount: 0 };
+        }
+
+        // page_commit journal SELECT FOR UPDATE
+        if (/FROM tenant_email_delta_recovery_operations/.test(norm)
+            && /FOR UPDATE/.test(norm)
+            && /operation_id = \$1::uuid/.test(norm)
+            && /^SELECT\b/.test(norm)) {
+          const row = readJournal(params[0]);
+          return { rows: row ? [cloneRow(row)] : [], rowCount: row ? 1 : 0 };
+        }
+
+        // page_commit journal INSERT claimed (worker)
+        if (/INSERT INTO tenant_email_delta_recovery_operations/.test(norm)
+            && /'page_commit'/.test(norm)
+            && /'worker'/.test(norm)) {
+          const opId = String(params[0]).toLowerCase();
+          if (readJournal(opId)) {
+            return { rows: [], rowCount: 0 };
+          }
+          const row = {
+            operation_id: opId,
+            client_id: params[1],
+            location_id: params[2],
+            endpoint_id: params[3],
+            actor_staff_user_id: null,
+            actor_kind: 'worker',
+            worker_id: params[4],
+            operation_kind: 'page_commit',
+            requested_generation: Number(params[5]),
+            requested_state_version: Number(params[6]),
+            target_operation_id: null,
+            outcome: 'claimed',
+            result_generation: null,
+            result_state_version: null,
+            result_phase: null,
+          };
+          writeJournal(row);
+          return { rows: [{ operation_id: opId }], rowCount: 1 };
+        }
+
+        // page_commit journal complete committed
+        if (/UPDATE tenant_email_delta_recovery_operations/.test(norm)
+            && /outcome = 'committed'/.test(norm)
+            && /operation_kind = 'page_commit'/.test(norm)) {
+          const opId = String(params[0]).toLowerCase();
+          const row = readJournal(opId);
+          if (!row || row.outcome !== 'claimed' || row.operation_kind !== 'page_commit') {
+            return { rows: [], rowCount: 0 };
+          }
+          row.outcome = 'committed';
+          row.result_generation = Number(params[1]);
+          row.result_state_version = Number(params[2]);
+          row.result_phase = params[3];
+          writeJournal(row);
+          return {
+            rows: [{
+              operation_id: row.operation_id,
+              operation_kind: row.operation_kind,
+              outcome: row.outcome,
+              result_generation: row.result_generation,
+              result_state_version: row.result_state_version,
+              result_phase: row.result_phase,
+            }],
+            rowCount: 1,
+          };
         }
 
         // public status
@@ -614,6 +697,7 @@ function createFakeDeltaHarness(options = {}) {
     } finally {
       stagedStates.clear();
       stagedEvents.clear();
+      stagedJournal.clear();
       deletedStateKeys.clear();
       inTx = false;
     }
@@ -623,6 +707,7 @@ function createFakeDeltaHarness(options = {}) {
     withTransactionClient,
     states: durableStates,
     events: durableEvents,
+    journal: durableJournal,
     log,
     advanceClock(ms) { clockMs += ms; },
     getClockMs() { return clockMs; },
@@ -667,6 +752,7 @@ async function main() {
     sealDeltaCursorCompatible,
     openSealedDeltaCursor,
     createInboundEmailDeltaStateStore,
+    PAGE_COMMIT_WORKER_ID,
     prepareCanonicalBatch,
     prepareTombstones,
     parseQueryVersion,
@@ -686,6 +772,7 @@ async function main() {
   assert.equal(PROVIDER, 'microsoft_graph');
   assert.equal(DEFAULT_QUERY_VERSION, 'ms_messages_delta_v1');
   assert.equal(MAX_SAFE_GENERATION, Number.MAX_SAFE_INTEGER);
+  assert.equal(PAGE_COMMIT_WORKER_ID, 'sunset-email-delta-worker');
   assert.match(SQL_INSERT_EVENT, /ON CONFLICT \(provider, provider_mailbox_id, provider_message_id\) DO NOTHING/);
   assert.match(SQL_LOCK_CURRENT, /is_current = true/);
   assert.match(SQL_LOCK_CURRENT, /FOR UPDATE/);
@@ -1064,7 +1151,80 @@ async function main() {
   assert.equal(page1.value.phase, 'initial');
   assert.equal(page1.value.envelopes_presented, 2);
   assert.equal(harness.events.size, 2);
+  // Public result never surfaces operation_id / worker / journal fields.
+  assert.equal('operation_id' in page1.value, false);
+  assert.equal('worker_id' in page1.value, false);
+  assert.equal('cursor_operation_id' in page1.value, false);
+  const page1OpId = String(sealedNext.value.envelope.operation_id).toLowerCase();
+  const page1RequestedSv = sv; // fence used at claim (pre-commit)
+  assert.equal(harness.journal.has(page1OpId), true, 'page_commit journal durable');
+  const j1 = harness.journal.get(page1OpId);
+  assert.equal(j1.outcome, 'committed');
+  assert.equal(j1.operation_kind, 'page_commit');
+  assert.equal(j1.actor_kind, 'worker');
+  assert.equal(j1.worker_id, PAGE_COMMIT_WORKER_ID);
+  assert.equal(j1.actor_staff_user_id, null);
+  assert.equal(Number(j1.result_generation), 1);
+  assert.equal(Number(j1.result_state_version), page1.value.state_version);
+  assert.equal(j1.result_phase, 'initial');
+  // cursor CAS uses same operation id
+  const cur1 = [...harness.states.values()].find((r) => r.is_current);
+  assert.equal(String(cur1.cursor_operation_id).toLowerCase(), page1OpId);
   sv = page1.value.state_version;
+
+  // Same-ID exact retry (original fences) replays committed; zero event/state mutation
+  const eventsBeforeReplay = harness.events.size;
+  const sameIdReplay = await deltaStore.commitPageEvents(Object.freeze({
+    clientId: CLIENT,
+    locationId: LOCATION,
+    endpointId: ENDPOINT,
+    leaseToken: token,
+    expectedGeneration: 1,
+    expectedStateVersion: page1RequestedSv,
+    providerTenantId: TENANT,
+    providerMailboxId: MAILBOX,
+    queryVersion: QV1,
+    envelopes: Object.freeze([
+      envelope({ provider_message_id: 'msg-001' }),
+      envelope({ provider_message_id: 'msg-002' }),
+    ]),
+    tombstones: Object.freeze([]),
+    successorCursor: Object.freeze({
+      cursor_kind: 'nextLink',
+      envelope: sealedNext.value.envelope,
+    }),
+  }));
+  assert.equal(sameIdReplay.ok, true, JSON.stringify(sameIdReplay));
+  assert.equal(sameIdReplay.value.state_version, sv);
+  assert.equal(sameIdReplay.value.phase, 'initial');
+  assert.equal(harness.events.size, eventsBeforeReplay, 'zero event mutation on same-ID replay');
+  assert.equal(
+    [...harness.states.values()].find((r) => r.is_current).state_version,
+    sv,
+    'zero state mutation on same-ID replay',
+  );
+  assert.equal('operation_id' in sameIdReplay.value, false);
+
+  // Mismatch fences on same operation id → conflict
+  const badFence = await deltaStore.commitPageEvents(Object.freeze({
+    clientId: CLIENT,
+    locationId: LOCATION,
+    endpointId: ENDPOINT,
+    leaseToken: token,
+    expectedGeneration: 1,
+    expectedStateVersion: 99999,
+    providerTenantId: TENANT,
+    providerMailboxId: MAILBOX,
+    queryVersion: QV1,
+    envelopes: Object.freeze([]),
+    tombstones: Object.freeze([]),
+    successorCursor: Object.freeze({
+      cursor_kind: 'nextLink',
+      envelope: sealedNext.value.envelope,
+    }),
+  }));
+  assert.equal(badFence.ok, false);
+  assert.equal(badFence.error, 'operation_id_conflict');
 
   // Duplicate-only page still advances
   const sealedNext2 = await deltaStore.sealDeltaCursor(Object.freeze({

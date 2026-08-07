@@ -22,6 +22,8 @@ const STORE_ABS = path.join(ROOT, STORE_REL);
 const DELTA_ABS = path.join(ROOT, 'scripts/lib/email-inbound-delta-state-store.js');
 const UP_065 = path.join(ROOT, 'database/migrations/065_tenant_email_delta_recovery_operations.sql');
 const DOWN_065 = path.join(ROOT, 'database/migrations/065_tenant_email_delta_recovery_operations_down.sql');
+const UP_066 = path.join(ROOT, 'database/migrations/066_tenant_email_delta_page_commit_journal.sql');
+const DOWN_066 = path.join(ROOT, 'database/migrations/066_tenant_email_delta_page_commit_journal_down.sql');
 const MANIFEST = path.join(ROOT, 'database/migrations/canonical-manifest.json');
 const PKG = path.join(ROOT, 'package.json');
 const DOC = path.join(ROOT, 'docs/EMAIL-MAILBOX-ADAPTER-BOUNDARY.md');
@@ -40,6 +42,8 @@ const {
   EMAIL_DELTA_RECOVERY_OPERATION_RUNTIME_WIRED,
   EMAIL_DELTA_RECOVERY_OPERATION_LOGGING_FORBIDDEN,
   OPERATION_KINDS,
+  ACTOR_KINDS,
+  PAGE_COMMIT_WORKER_ID,
   OUTCOMES,
   STORE_DEPENDENCY_KEYS,
   RECOVERY_STATUS_KEYS,
@@ -292,39 +296,38 @@ function createHarness(opts) {
       return { rows: [{ ...row }] };
     }
 
-    // SELECT target journal (no FOR UPDATE)
-    if (/SELECT operation_id, operation_kind, outcome/.test(norm)
-        && /tenant_email_delta_recovery_operations/.test(norm)
+    // SELECT target journal (no FOR UPDATE) — full row for page_commit classify
+    if (/FROM tenant_email_delta_recovery_operations/.test(norm)
         && !/FOR UPDATE/.test(norm)
         && !/INSERT/.test(norm)
-        && !/UPDATE/.test(norm)) {
+        && !/UPDATE/.test(norm)
+        && /operation_kind/.test(norm)
+        && /outcome/.test(norm)) {
       const op = String(params[0]).toLowerCase();
       const row = liveJournal().get(op);
       if (!row) return { rows: [] };
-      return {
-        rows: [{
-          operation_id: row.operation_id,
-          operation_kind: row.operation_kind,
-          outcome: row.outcome,
-        }],
-      };
+      return { rows: [{ ...row }] };
     }
 
-    // INSERT claim
+    // INSERT claim (staff or worker; params include actor_kind + worker_id)
     if (/INSERT INTO tenant_email_delta_recovery_operations/.test(norm)
         && /ON CONFLICT \(operation_id\) DO NOTHING/.test(norm)) {
       const op = String(params[0]).toLowerCase();
       if (liveJournal().has(op)) return { rows: [] };
+      // $1 op $2 client $3 loc $4 ep $5 staff $6 actor_kind $7 worker $8 kind $9 gen $10 sv $11 target
+      const staffRaw = params[4];
       const row = {
         operation_id: op,
         client_id: String(params[1]).toLowerCase(),
         location_id: String(params[2]).toLowerCase(),
         endpoint_id: String(params[3]).toLowerCase(),
-        actor_staff_user_id: String(params[4]).toLowerCase(),
-        operation_kind: params[5],
-        requested_generation: Number(params[6]),
-        requested_state_version: Number(params[7]),
-        target_operation_id: params[8] == null ? null : String(params[8]).toLowerCase(),
+        actor_staff_user_id: staffRaw == null ? null : String(staffRaw).toLowerCase(),
+        actor_kind: params[5] == null ? 'staff' : String(params[5]),
+        worker_id: params[6] == null ? null : String(params[6]),
+        operation_kind: params[7],
+        requested_generation: Number(params[8]),
+        requested_state_version: Number(params[9]),
+        target_operation_id: params[10] == null ? null : String(params[10]).toLowerCase(),
         outcome: 'claimed',
         result_generation: null,
         result_state_version: null,
@@ -409,6 +412,8 @@ async function main() {
   const deltaSrc = fs.readFileSync(DELTA_ABS, 'utf8');
   const up = fs.readFileSync(UP_065, 'utf8');
   const down = fs.readFileSync(DOWN_065, 'utf8');
+  const up066 = fs.readFileSync(UP_066, 'utf8');
+  const down066 = fs.readFileSync(DOWN_066, 'utf8');
   const manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
   const pkg = JSON.parse(fs.readFileSync(PKG, 'utf8'));
   const doc = fs.readFileSync(DOC, 'utf8');
@@ -424,9 +429,13 @@ async function main() {
     && STORE_DEPENDENCY_KEYS.includes('withTransactionClient')
     && STORE_DEPENDENCY_KEYS.includes('authorityVerifier')
     && STORE_DEPENDENCY_KEYS.includes('inboundDeltaStateStore'));
-  ok('kinds/outcomes frozen',
+  ok('kinds/outcomes/actors frozen',
     OPERATION_KINDS.includes('restart_generation')
     && OPERATION_KINDS.includes('reconcile_page_commit')
+    && OPERATION_KINDS.includes('page_commit')
+    && ACTOR_KINDS.includes('staff')
+    && ACTOR_KINDS.includes('worker')
+    && PAGE_COMMIT_WORKER_ID === 'sunset-email-delta-worker'
     && OUTCOMES.includes('claimed')
     && OUTCOMES.includes('committed')
     && OUTCOMES.includes('evidence_unavailable')
@@ -471,6 +480,39 @@ async function main() {
     && manifest.entries.some((e) => e.id === '065_tenant_email_delta_recovery_operations_down'
       && e.inForwardChain === false));
 
+  ok('migration 066 page_commit actor coupling',
+    /actor_kind/.test(up066)
+    && /worker_id/.test(up066)
+    && /page_commit/.test(up066)
+    && /sunset-email-delta-worker/.test(up066)
+    && /actor_staff_user_id DROP NOT NULL/.test(up066)
+    && /tenant_email_delta_recovery_operations_actor_coupling/.test(up066)
+    && !/INSERT INTO tenant_email_delta_recovery_operations/.test(up066));
+  const up066Ddl = up066
+    .replace(/--[^\n]*/g, '')
+    .replace(/COMMENT\s+ON[\s\S]*?;/gi, '');
+  ok('migration 066 forbids mailbox/provider/cursor/JSON/PII columns',
+    !/\bmailbox\b/i.test(up066Ddl)
+    && !/\bprovider\b/i.test(up066Ddl)
+    && !/\bcursor\b/i.test(up066Ddl)
+    && !/\bJSONB\b/i.test(up066Ddl)
+    && !/\bsubject\b/i.test(up066Ddl)
+    && !/\btoken\b/i.test(up066Ddl)
+    && !/\bmessage_id\b/i.test(up066Ddl)
+    && !/\bpublic_address\b/i.test(up066Ddl)
+    && !/\bemail_address\b/i.test(up066Ddl));
+  ok('066 down fails closed on page_commit/worker rows',
+    /066_down_refused/.test(down066)
+    && /page_commit or worker journal rows present/.test(down066)
+    && /DROP COLUMN worker_id/.test(down066)
+    && /DROP COLUMN actor_kind/.test(down066)
+    && /SET NOT NULL/.test(down066));
+  ok('manifest entries 066 present with checksums',
+    manifest.entries.some((e) => e.id === '066_tenant_email_delta_page_commit_journal'
+      && e.inForwardChain === true && e.sha256 && e.sha256.length === 64)
+    && manifest.entries.some((e) => e.id === '066_tenant_email_delta_page_commit_journal_down'
+      && e.inForwardChain === false));
+
   {
     const exportsBlock = deltaSrc.slice(deltaSrc.lastIndexOf('module.exports'));
     ok('raw advanceGenerationOnExclusiveClient NOT module.exports',
@@ -504,13 +546,13 @@ async function main() {
     // May appear only in forbid/documentation comments — never as a SQL/column touch.
     !/SELECT[\s\S]{0,80}cursor_operation_id|cursor_operation_id\s*=/.test(storeSrc)
     && /evidence_unavailable/.test(storeSrc)
-    && /never consult 064 cursor_operation_id|Never infers not_committed from 064 cursor_operation_id/i.test(storeSrc));
+    && /Never consults 064 cursor_operation_id|never consult 064 cursor|Never infers not_committed from 064 cursor_operation_id/i.test(storeSrc));
   ok('import-inert: no routes/staff-query/network',
     !/staff-query-api|staff-email-.*routes|require\(['"]\.\/staff-/.test(storeSrc)
     && !/\bfetch\(|axios|https?\.request|net\.connect/.test(storeSrc)
     && /EMAIL_DELTA_RECOVERY_OPERATION_RUNTIME_WIRED = false/.test(storeSrc));
   ok('docs mention recovery journal',
-    /recovery-operation|recovery journal|065_tenant_email_delta_recovery/.test(doc));
+    /recovery-operation|recovery journal|065_tenant_email_delta_recovery|page_commit/.test(doc));
 
   // ── Factory hostility ───────────────────────────────────────────────────
   assert.throws(() => createEmailDeltaRecoveryOperationStore(null), (e) => e.code === FAILURE_CODE);
@@ -817,7 +859,7 @@ async function main() {
       harness.states.get(`${CLIENT}|${ENDPOINT}`).ingestion_generation === genBefore);
   }
 
-  // reconcilePageCommit → evidence_unavailable (page commits not journaled)
+  // reconcilePageCommit → evidence_unavailable for unjournaled (no 064 inference)
   const reconOp = crypto.randomUUID();
   const targetOp = crypto.randomUUID();
   // plant a cursor_operation_id on current state to prove we never infer from it
@@ -860,6 +902,150 @@ async function main() {
   ok('reconcile replay identical',
     reconReplay.ok && reconReplay.value.replayed === true
     && reconReplay.value.outcome === 'evidence_unavailable');
+
+  // Plant durable page_commit committed → reconcile classifies committed
+  const pageOpCommitted = crypto.randomUUID();
+  harness.journal.set(pageOpCommitted, {
+    operation_id: pageOpCommitted,
+    client_id: CLIENT,
+    location_id: LOCATION,
+    endpoint_id: ENDPOINT,
+    actor_staff_user_id: null,
+    actor_kind: 'worker',
+    worker_id: PAGE_COMMIT_WORKER_ID,
+    operation_kind: 'page_commit',
+    requested_generation: cur.ingestion_generation,
+    requested_state_version: cur.state_version,
+    target_operation_id: null,
+    outcome: 'committed',
+    result_generation: cur.ingestion_generation,
+    result_state_version: cur.state_version + 1,
+    result_phase: 'tracking',
+  });
+  const reconCommittedOp = crypto.randomUUID();
+  const reconCommitted = await store.reconcilePageCommit(Object.freeze({
+    operationId: reconCommittedOp,
+    targetOperationId: pageOpCommitted,
+    clientId: CLIENT,
+    locationId: LOCATION,
+    endpointId: ENDPOINT,
+    actorStaffUserId: ACTOR,
+    expectedGeneration: cur.ingestion_generation,
+    expectedStateVersion: cur.state_version,
+    providerTenantId: TENANT,
+    providerMailboxId: MAILBOX,
+  }));
+  ok('reconcile durable page_commit committed → committed',
+    reconCommitted.ok && reconCommitted.value.outcome === 'committed'
+    && reconCommitted.value.target_operation_id === pageOpCommitted
+    && reconCommitted.value.result_generation === null);
+
+  // claimed page_commit → evidence_unavailable (never guess)
+  const pageOpClaimed = crypto.randomUUID();
+  harness.journal.set(pageOpClaimed, {
+    operation_id: pageOpClaimed,
+    client_id: CLIENT,
+    location_id: LOCATION,
+    endpoint_id: ENDPOINT,
+    actor_staff_user_id: null,
+    actor_kind: 'worker',
+    worker_id: PAGE_COMMIT_WORKER_ID,
+    operation_kind: 'page_commit',
+    requested_generation: 1,
+    requested_state_version: 1,
+    target_operation_id: null,
+    outcome: 'claimed',
+    result_generation: null,
+    result_state_version: null,
+    result_phase: null,
+  });
+  const reconClaimed = await store.reconcilePageCommit(Object.freeze({
+    operationId: crypto.randomUUID(),
+    targetOperationId: pageOpClaimed,
+    clientId: CLIENT,
+    locationId: LOCATION,
+    endpointId: ENDPOINT,
+    actorStaffUserId: ACTOR,
+    expectedGeneration: cur.ingestion_generation,
+    expectedStateVersion: cur.state_version,
+    providerTenantId: TENANT,
+    providerMailboxId: MAILBOX,
+  }));
+  ok('reconcile claimed page_commit → evidence_unavailable',
+    reconClaimed.ok && reconClaimed.value.outcome === 'evidence_unavailable');
+
+  // restart_generation target is not page evidence
+  const restartAsTarget = crypto.randomUUID();
+  harness.journal.set(restartAsTarget, {
+    operation_id: restartAsTarget,
+    client_id: CLIENT,
+    location_id: LOCATION,
+    endpoint_id: ENDPOINT,
+    actor_staff_user_id: ACTOR,
+    actor_kind: 'staff',
+    worker_id: null,
+    operation_kind: 'restart_generation',
+    requested_generation: 1,
+    requested_state_version: 1,
+    target_operation_id: null,
+    outcome: 'committed',
+    result_generation: 2,
+    result_state_version: 1,
+    result_phase: 'initial',
+  });
+  const reconRestart = await store.reconcilePageCommit(Object.freeze({
+    operationId: crypto.randomUUID(),
+    targetOperationId: restartAsTarget,
+    clientId: CLIENT,
+    locationId: LOCATION,
+    endpointId: ENDPOINT,
+    actorStaffUserId: ACTOR,
+    expectedGeneration: cur.ingestion_generation,
+    expectedStateVersion: cur.state_version,
+    providerTenantId: TENANT,
+    providerMailboxId: MAILBOX,
+  }));
+  ok('reconcile restart target → evidence_unavailable (not page_commit)',
+    reconRestart.ok && reconRestart.value.outcome === 'evidence_unavailable');
+
+  // cross-tenant durable page_commit → conflict
+  const pageOpXTenant = crypto.randomUUID();
+  harness.journal.set(pageOpXTenant, {
+    operation_id: pageOpXTenant,
+    client_id: '99999999-9999-4999-8999-999999999999',
+    location_id: LOCATION,
+    endpoint_id: ENDPOINT,
+    actor_staff_user_id: null,
+    actor_kind: 'worker',
+    worker_id: PAGE_COMMIT_WORKER_ID,
+    operation_kind: 'page_commit',
+    requested_generation: 1,
+    requested_state_version: 1,
+    target_operation_id: null,
+    outcome: 'committed',
+    result_generation: 1,
+    result_state_version: 2,
+    result_phase: 'tracking',
+  });
+  const reconX = await store.reconcilePageCommit(Object.freeze({
+    operationId: crypto.randomUUID(),
+    targetOperationId: pageOpXTenant,
+    clientId: CLIENT,
+    locationId: LOCATION,
+    endpointId: ENDPOINT,
+    actorStaffUserId: ACTOR,
+    expectedGeneration: cur.ingestion_generation,
+    expectedStateVersion: cur.state_version,
+    providerTenantId: TENANT,
+    providerMailboxId: MAILBOX,
+  }));
+  ok('reconcile cross-tenant page_commit → conflict',
+    reconX.ok && reconX.value.outcome === 'conflict');
+
+  // cursor still unchanged after classification
+  ok('reconcile page_commit classification is read-only for cursor/generation',
+    harness.states.get(`${CLIENT}|${ENDPOINT}`).cursor_operation_id === targetOp
+    && harness.states.get(`${CLIENT}|${ENDPOINT}`).ingestion_generation === cur.ingestion_generation);
 
   // COMMIT ambiguity
   harness.seedCurrent({

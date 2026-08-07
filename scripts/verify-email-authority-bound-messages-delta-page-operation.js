@@ -384,6 +384,8 @@ function createFakeDeltaHarness(options = {}) {
   const durableStates = options.states || new Map();
   /** @type {Map<string, object>} event identity */
   const durableEvents = options.events || new Map();
+  /** @type {Map<string, object>} page_commit journal by operation_id */
+  const durableJournal = options.journal || new Map();
   const log = [];
   let clockMs = options.clockMs != null ? options.clockMs : Date.now();
   let loanSeq = 0;
@@ -427,6 +429,8 @@ function createFakeDeltaHarness(options = {}) {
     const stagedStates = new Map();
     /** @type {Map<string, object>} */
     const stagedEvents = new Map();
+    /** @type {Map<string, object>} */
+    const stagedJournal = new Map();
     /** @type {Set<string>} */
     const deletedStateKeys = new Set();
 
@@ -456,6 +460,15 @@ function createFakeDeltaHarness(options = {}) {
       deletedStateKeys.delete(k);
       stagedStates.set(k, row);
     }
+    function readJournal(opId) {
+      const k = String(opId).toLowerCase();
+      if (stagedJournal.has(k)) return stagedJournal.get(k);
+      if (durableJournal.has(k)) return cloneRow(durableJournal.get(k));
+      return null;
+    }
+    function writeJournal(row) {
+      stagedJournal.set(String(row.operation_id).toLowerCase(), row);
+    }
 
     const client = {
       async query(sql, params) {
@@ -469,6 +482,7 @@ function createFakeDeltaHarness(options = {}) {
           inTx = true;
           stagedStates.clear();
           stagedEvents.clear();
+          stagedJournal.clear();
           deletedStateKeys.clear();
           return { rows: [], rowCount: 0 };
         }
@@ -480,8 +494,10 @@ function createFakeDeltaHarness(options = {}) {
           for (const [k, row] of stagedEvents) {
             if (!durableEvents.has(k)) durableEvents.set(k, { ...row });
           }
+          for (const [k, row] of stagedJournal) durableJournal.set(k, cloneRow(row));
           stagedStates.clear();
           stagedEvents.clear();
+          stagedJournal.clear();
           deletedStateKeys.clear();
           inTx = false;
           return { rows: [], rowCount: 0 };
@@ -489,9 +505,75 @@ function createFakeDeltaHarness(options = {}) {
         if (norm === 'ROLLBACK') {
           stagedStates.clear();
           stagedEvents.clear();
+          stagedJournal.clear();
           deletedStateKeys.clear();
           inTx = false;
           return { rows: [], rowCount: 0 };
+        }
+
+        // page_commit journal SELECT FOR UPDATE
+        if (/FROM tenant_email_delta_recovery_operations/.test(norm)
+            && /FOR UPDATE/.test(norm)
+            && /operation_id = \$1::uuid/.test(norm)
+            && /^SELECT\b/.test(norm)) {
+          const row = readJournal(params[0]);
+          return { rows: row ? [cloneRow(row)] : [], rowCount: row ? 1 : 0 };
+        }
+
+        // page_commit journal INSERT claimed (worker)
+        if (/INSERT INTO tenant_email_delta_recovery_operations/.test(norm)
+            && /'page_commit'/.test(norm)
+            && /'worker'/.test(norm)) {
+          const opId = String(params[0]).toLowerCase();
+          if (readJournal(opId)) {
+            return { rows: [], rowCount: 0 };
+          }
+          const row = {
+            operation_id: opId,
+            client_id: params[1],
+            location_id: params[2],
+            endpoint_id: params[3],
+            actor_staff_user_id: null,
+            actor_kind: 'worker',
+            worker_id: params[4],
+            operation_kind: 'page_commit',
+            requested_generation: Number(params[5]),
+            requested_state_version: Number(params[6]),
+            target_operation_id: null,
+            outcome: 'claimed',
+            result_generation: null,
+            result_state_version: null,
+            result_phase: null,
+          };
+          writeJournal(row);
+          return { rows: [{ operation_id: opId }], rowCount: 1 };
+        }
+
+        // page_commit journal complete committed
+        if (/UPDATE tenant_email_delta_recovery_operations/.test(norm)
+            && /outcome = 'committed'/.test(norm)
+            && /operation_kind = 'page_commit'/.test(norm)) {
+          const opId = String(params[0]).toLowerCase();
+          const row = readJournal(opId);
+          if (!row || row.outcome !== 'claimed' || row.operation_kind !== 'page_commit') {
+            return { rows: [], rowCount: 0 };
+          }
+          row.outcome = 'committed';
+          row.result_generation = Number(params[1]);
+          row.result_state_version = Number(params[2]);
+          row.result_phase = params[3];
+          writeJournal(row);
+          return {
+            rows: [{
+              operation_id: row.operation_id,
+              operation_kind: row.operation_kind,
+              outcome: row.outcome,
+              result_generation: row.result_generation,
+              result_state_version: row.result_state_version,
+              result_phase: row.result_phase,
+            }],
+            rowCount: 1,
+          };
         }
 
         // public status
@@ -877,6 +959,7 @@ function createFakeDeltaHarness(options = {}) {
     } finally {
       stagedStates.clear();
       stagedEvents.clear();
+      stagedJournal.clear();
       deletedStateKeys.clear();
       inTx = false;
     }
@@ -886,6 +969,7 @@ function createFakeDeltaHarness(options = {}) {
     withTransactionClient,
     states: durableStates,
     events: durableEvents,
+    journal: durableJournal,
     log,
     advanceClock(ms) { clockMs += ms; },
     getClockMs() { return clockMs; },
