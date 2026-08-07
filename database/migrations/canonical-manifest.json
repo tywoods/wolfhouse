@@ -805,6 +805,26 @@
       "rationale": "Explicit down for 064: DROP TABLE tenant_email_inbound_delta_states only; leaves 057-063 registry/grants/oauth/events intact.",
       "pairsWith": "064_tenant_email_inbound_delta_states.sql",
       "sha256": "80605b62c5b3d103a9fd4fe63c7454139a407250b1d1af8e62f1e4a0d1d8caf2"
+    },
+    {
+      "id": "065_tenant_email_delta_recovery_operations",
+      "filename": "065_tenant_email_delta_recovery_operations.sql",
+      "order": 64,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Empty tenant_email_delta_recovery_operations recovery journal for offline restart_generation / reconcile_page_commit. Composite FKs to tenant_locations/tenant_channel_endpoints; tenant-safe actor FK (client_id, actor_staff_user_id)→staff_users(client_id, id) via 060 unique. No mailbox/provider/cursor/message/email/subject/token/free-text/JSON. No seed/route/activation.",
+      "downFilename": "065_tenant_email_delta_recovery_operations_down.sql",
+      "sha256": "11fe434a0042980bae5f2016d4c9268f26f9aad805d0ce1c33f75d72a3b57d16"
+    },
+    {
+      "id": "065_tenant_email_delta_recovery_operations_down",
+      "filename": "065_tenant_email_delta_recovery_operations_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit down for 065: DROP TABLE tenant_email_delta_recovery_operations only; leaves 057-064 registry/grants/oauth/events/delta states intact.",
+      "pairsWith": "065_tenant_email_delta_recovery_operations.sql",
+      "sha256": "1665b1c0da6f7ad928892d23e130f290f00e5fa2628fb30f7fa22e0195c65e2e"
     }
   ]
 }

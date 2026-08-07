@@ -45,6 +45,7 @@ const {
   SUNSET_DEPLOYMENT,
   SUNSET_TENANT,
   WORKER_ID,
+  MIGRATION_065_ID,
   MIGRATION_064_ID,
   QUERY_VERSION,
   READINESS_KEYS,
@@ -337,6 +338,7 @@ function main() {
     SUNSET_DEPLOYMENT === 'sunset-staging'
     && SUNSET_TENANT === 'sunset'
     && WORKER_ID === 'sunset-email-delta-worker'
+    && MIGRATION_065_ID === '065_tenant_email_delta_recovery_operations'
     && MIGRATION_064_ID === '064_tenant_email_inbound_delta_states'
     && QUERY_VERSION === 'ms_messages_delta_v1');
   ok('dependency keys exact env only',
@@ -473,7 +475,7 @@ function main() {
       && r.kv_pins_valid === true
       && r.tenant_bound === true
       && r.worker_id === WORKER_ID
-      && r.migration_064_id === MIGRATION_064_ID
+      && r.migration_065_id === MIGRATION_065_ID
       && r.query_version === QUERY_VERSION
       && noPlanted(r));
     ok('composition-only lifecycle inert',

@@ -10,7 +10,7 @@
  *
  * Semantics for this PR:
  *   - All absent/false → disabled (ok, inert).
- *   - Composition alone (`true`) + exact deployment/tenant/worker/migration064/KV pins
+ *   - Composition alone (`true`) + exact deployment/tenant/worker/migration065/KV pins
  *     → composition_inert (structurally ready; no scheduler/admin/run).
  *   - Worker or admin `'true'` → fail closed (`activation_rejected`) — activation
  *     impossible; no runnable worker/admin surface may be produced.
@@ -21,7 +21,8 @@
  *   LUNA_DEPLOYMENT=sunset-staging
  *   DEFAULT_CLIENT_SLUG=sunset
  *   Canonical bounded worker id (module pin)
- *   Migration 064 readiness contract (ledger id + query_version pin)
+ *   Migration 065 readiness contract (ledger id + query_version pin; supersedes
+ *   064 pin for readiness while 064 remains a required prior sibling)
  *   Existing Sunset Azure KV grant-envelope env pins (parse only; no SDK)
  *
  * Self-contained: does NOT require/load #410 durable-operation owners, Graph
@@ -61,7 +62,11 @@ const WORKER_ID = 'sunset-email-delta-worker';
 const WORKER_ID_MIN_LEN = 1;
 const WORKER_ID_MAX_LEN = 128;
 
-/** Migration 064 readiness contract (ledger + store pin; not applied by this module). */
+/** Migration 065 readiness contract (ledger + recovery journal pin; not applied by this module). */
+const MIGRATION_065_ID = '065_tenant_email_delta_recovery_operations';
+const MIGRATION_065_FILENAME = '065_tenant_email_delta_recovery_operations.sql';
+const MIGRATION_065_TABLE = 'tenant_email_delta_recovery_operations';
+/** Prior sibling delta-state migration (required before 065; not the readiness tip). */
 const MIGRATION_064_ID = '064_tenant_email_inbound_delta_states';
 const MIGRATION_064_FILENAME = '064_tenant_email_inbound_delta_states.sql';
 const MIGRATION_064_TABLE = 'tenant_email_inbound_delta_states';
@@ -163,7 +168,7 @@ const READINESS_KEYS = pinnedFreeze([
   'deployment_boundary',
   'tenant_bound',
   'worker_id',
-  'migration_064_id',
+  'migration_065_id',
   'query_version',
   'kv_pins_valid',
   'code',
@@ -192,6 +197,17 @@ const FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT = pinnedFreeze({
   document_only: true,
 });
 
+const MIGRATION_065_READINESS_CONTRACT = pinnedFreeze({
+  id: MIGRATION_065_ID,
+  filename: MIGRATION_065_FILENAME,
+  table: MIGRATION_065_TABLE,
+  query_version: QUERY_VERSION,
+  prior_sibling_id: MIGRATION_064_ID,
+  applied_by_this_module: false,
+  ddl_allowed: false,
+});
+
+/** @deprecated retained name alias for sibling docs only — readiness tip is 065. */
 const MIGRATION_064_READINESS_CONTRACT = pinnedFreeze({
   id: MIGRATION_064_ID,
   filename: MIGRATION_064_FILENAME,
@@ -199,6 +215,7 @@ const MIGRATION_064_READINESS_CONTRACT = pinnedFreeze({
   query_version: QUERY_VERSION,
   applied_by_this_module: false,
   ddl_allowed: false,
+  readiness_tip: false,
 });
 
 const CANONICAL_WORKER_CONFIG = pinnedFreeze({
@@ -347,7 +364,7 @@ function disabledReadiness() {
     deployment_boundary: SUNSET_DEPLOYMENT,
     tenant_bound: false,
     worker_id: WORKER_ID,
-    migration_064_id: MIGRATION_064_ID,
+    migration_065_id: MIGRATION_065_ID,
     query_version: QUERY_VERSION,
     kv_pins_valid: false,
     code: 'email_delta_runtime_disabled',
@@ -369,7 +386,7 @@ function rejectedReadiness(flags) {
     deployment_boundary: SUNSET_DEPLOYMENT,
     tenant_bound: false,
     worker_id: WORKER_ID,
-    migration_064_id: MIGRATION_064_ID,
+    migration_065_id: MIGRATION_065_ID,
     query_version: QUERY_VERSION,
     kv_pins_valid: false,
     code: 'email_delta_activation_rejected',
@@ -391,7 +408,7 @@ function invalidReadiness(flags, code) {
     deployment_boundary: SUNSET_DEPLOYMENT,
     tenant_bound: false,
     worker_id: WORKER_ID,
-    migration_064_id: MIGRATION_064_ID,
+    migration_065_id: MIGRATION_065_ID,
     query_version: QUERY_VERSION,
     kv_pins_valid: false,
     code: code || 'email_delta_runtime_config_invalid',
@@ -413,7 +430,7 @@ function compositionInertReadiness() {
     deployment_boundary: SUNSET_DEPLOYMENT,
     tenant_bound: true,
     worker_id: WORKER_ID,
-    migration_064_id: MIGRATION_064_ID,
+    migration_065_id: MIGRATION_065_ID,
     query_version: QUERY_VERSION,
     kv_pins_valid: true,
     code: 'email_delta_composition_inert',
@@ -421,17 +438,20 @@ function compositionInertReadiness() {
 }
 
 /**
- * Validate migration 064 readiness contract pins (no DDL / no DB).
+ * Validate migration 065 readiness contract pins (no DDL / no DB).
+ * Prior sibling 064 identity is also pinned for chain integrity.
  * @returns {boolean}
  */
-function migration064ContractValid() {
+function migration065ContractValid() {
   try {
+    if (MIGRATION_065_ID !== '065_tenant_email_delta_recovery_operations') return false;
+    if (MIGRATION_065_FILENAME !== '065_tenant_email_delta_recovery_operations.sql') return false;
+    if (MIGRATION_065_TABLE !== 'tenant_email_delta_recovery_operations') return false;
     if (MIGRATION_064_ID !== '064_tenant_email_inbound_delta_states') return false;
-    if (MIGRATION_064_FILENAME !== '064_tenant_email_inbound_delta_states.sql') return false;
-    if (MIGRATION_064_TABLE !== 'tenant_email_inbound_delta_states') return false;
     if (QUERY_VERSION !== 'ms_messages_delta_v1') return false;
-    if (MIGRATION_064_READINESS_CONTRACT.applied_by_this_module !== false) return false;
-    if (MIGRATION_064_READINESS_CONTRACT.ddl_allowed !== false) return false;
+    if (MIGRATION_065_READINESS_CONTRACT.applied_by_this_module !== false) return false;
+    if (MIGRATION_065_READINESS_CONTRACT.ddl_allowed !== false) return false;
+    if (MIGRATION_065_READINESS_CONTRACT.prior_sibling_id !== MIGRATION_064_ID) return false;
     return true;
   } catch {
     return false;
@@ -550,7 +570,7 @@ function parseEmailDeltaRuntimeConfig(env) {
     }
 
     // Composition-enabled path: exact deployment + tenant + contract pins.
-    if (!migration064ContractValid() || !workerIdentityValid()) {
+    if (!migration065ContractValid() || !workerIdentityValid()) {
       return invalidReadiness(flags, 'email_delta_runtime_config_invalid');
     }
 
@@ -610,6 +630,9 @@ module.exports = pinnedFreeze({
   WORKER_ID,
   WORKER_ID_MIN_LEN,
   WORKER_ID_MAX_LEN,
+  MIGRATION_065_ID,
+  MIGRATION_065_FILENAME,
+  MIGRATION_065_TABLE,
   MIGRATION_064_ID,
   MIGRATION_064_FILENAME,
   MIGRATION_064_TABLE,
@@ -630,6 +653,7 @@ module.exports = pinnedFreeze({
   SUNSET_STAGING_MI_CLIENT_ID,
   CONFIG_STATUS,
   READINESS_KEYS,
+  MIGRATION_065_READINESS_CONTRACT,
   MIGRATION_064_READINESS_CONTRACT,
   CANONICAL_WORKER_CONFIG,
   FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT,

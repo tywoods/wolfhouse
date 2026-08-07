@@ -28,6 +28,13 @@
  * - beginNextGeneration consumes a factory-fixed authority-verifier capability
  *   (caller cannot self-assert with a boolean). Injected adapter reuses existing
  *   authority resolver without importing/wiring runtime.
+ * - Generation advance primitive `advanceGenerationOnExclusiveClient` demotes the
+ *   current generation and inserts generation+1 **on an already-loaned exclusive
+ *   client inside the caller's open transaction** — no nested BEGIN/COMMIT,
+ *   checkout, or release. Public `beginNextGeneration` remains behavior-compatible
+ *   (authority verify outside + exclusive withTxn wrapping the same primitive).
+ *   Recovery journal (065) reuses the primitive so claim + demote/insert +
+ *   journal completion share ONE outer transaction/client.
  * - One-current invariant: partial unique is at-most-one; owner demote+insert never
  *   leaves zero current; no public delete API. (DB trigger not required solely for
  *   unauthorized direct SQL.)
@@ -1493,6 +1500,111 @@ async function openSealedDeltaCursor(envelopeProvider, input) {
   }
 }
 
+/**
+ * Tightly capability-bound generation-advance primitive for an exclusive
+ * transaction client already inside the caller's open transaction.
+ *
+ * - No BEGIN / COMMIT / ROLLBACK
+ * - No pool checkout / release
+ * - Demote current + insert generation+1 (one-current invariant)
+ * - Preserves old generation; no cursor copy onto the new generation
+ *
+ * Caller must have already authority-verified and supplied exact own-data
+ * canonical UUID / safe-int fields (this primitive does not re-parse input
+ * surfaces beyond exclusive-client binding).
+ *
+ * @param {{query: Function}} client exclusive loan client (proxy-rejected)
+ * @param {object} params exact frozen fence + identity fields
+ * @returns {Promise<{ok:true,value:object}|{ok:false,error:string}>}
+ */
+async function advanceGenerationOnExclusiveClient(client, params) {
+  try {
+    const exclusive = resolveExclusiveClient(client);
+    if (!exclusive) return fail('inbound_delta_state_write_failed');
+    if (params == null || typeof params !== 'object' || Array.isArray(params)) {
+      return fail('input_invalid');
+    }
+    if (isProxySurface(params)) return fail('input_invalid');
+
+    const clientId = params.clientId;
+    const locationId = params.locationId;
+    const endpointId = params.endpointId;
+    const expectedGeneration = params.expectedGeneration;
+    const expectedStateVersion = params.expectedStateVersion;
+    const providerTenantId = params.providerTenantId;
+    const providerMailboxId = params.providerMailboxId;
+    const queryVersion = params.queryVersion;
+
+    if (typeof clientId !== 'string' || !UUID_CANON.test(clientId)) {
+      return fail('client_id_invalid');
+    }
+    if (typeof locationId !== 'string' || !UUID_CANON.test(locationId)) {
+      return fail('location_id_invalid');
+    }
+    if (typeof endpointId !== 'string' || !UUID_CANON.test(endpointId)) {
+      return fail('endpoint_id_invalid');
+    }
+    if (typeof providerTenantId !== 'string' || !UUID_CANON.test(providerTenantId)) {
+      return fail('provider_tenant_id_invalid');
+    }
+    if (typeof providerMailboxId !== 'string' || !UUID_CANON.test(providerMailboxId)) {
+      return fail('provider_mailbox_id_invalid');
+    }
+    if (typeof queryVersion !== 'string' || queryVersion !== DEFAULT_QUERY_VERSION) {
+      return fail('query_version_invalid');
+    }
+    if (!Number.isInteger(expectedGeneration)
+        || expectedGeneration < 1
+        || expectedGeneration > MAX_SAFE_GENERATION) {
+      return fail('ingestion_generation_invalid');
+    }
+    if (!Number.isInteger(expectedStateVersion)
+        || expectedStateVersion < 1
+        || expectedStateVersion > MAX_SAFE_GENERATION) {
+      return fail('state_version_invalid');
+    }
+
+    const demoted = await exclusive.query(SQL_DEMOTE_CURRENT, [
+      clientId,
+      endpointId,
+      String(expectedGeneration),
+      String(expectedStateVersion),
+    ]);
+    if (!demoted.rows || demoted.rows.length !== 1) return fail('generation_cas_conflict');
+    const prevGen = coerceSafeIntField(demoted.rows[0].ingestion_generation);
+    if (prevGen == null || prevGen >= MAX_SAFE_GENERATION) {
+      return fail('ingestion_generation_invalid');
+    }
+    const nextGen = prevGen + 1;
+    const ins = await exclusive.query(SQL_INSERT_NEXT_GENERATION, [
+      clientId,
+      locationId,
+      endpointId,
+      PROVIDER,
+      providerTenantId,
+      providerMailboxId,
+      String(nextGen),
+      queryVersion,
+    ]);
+    if (!ins.rows || ins.rows.length !== 1) return fail('inbound_delta_state_write_failed');
+    const row = ins.rows[0];
+    const gen = coerceSafeIntField(row.ingestion_generation);
+    const sv = coerceSafeIntField(row.state_version);
+    if (gen == null || sv == null) return fail('inbound_delta_state_write_failed');
+    return ok(Object.freeze({
+      client_id: String(row.client_id),
+      endpoint_id: String(row.endpoint_id),
+      ingestion_generation: gen,
+      query_version: String(row.query_version),
+      phase: row.phase,
+      state_version: sv,
+      previous_generation: prevGen,
+    }));
+  } catch {
+    return fail('inbound_delta_state_write_failed');
+  }
+}
+
 function createInboundEmailDeltaStateStore(deps) {
   let withTransactionClient;
   let envelopeProvider = null;
@@ -2015,44 +2127,18 @@ function createInboundEmailDeltaStateStore(deps) {
       }
     }
 
-    return runExclusive(async (client) => withTxn(client, async () => {
-      const demoted = await client.query(SQL_DEMOTE_CURRENT, [
-        ids.clientId.value,
-        ids.endpointId.value,
-        String(ids.expectedGeneration.value),
-        String(ids.expectedStateVersion.value),
-      ]);
-      if (!demoted.rows || demoted.rows.length !== 1) return fail('generation_cas_conflict');
-      const prevGen = coerceSafeIntField(demoted.rows[0].ingestion_generation);
-      if (prevGen == null || prevGen >= MAX_SAFE_GENERATION) {
-        return fail('ingestion_generation_invalid');
-      }
-      const nextGen = prevGen + 1;
-      const ins = await client.query(SQL_INSERT_NEXT_GENERATION, [
-        ids.clientId.value,
-        ids.locationId.value,
-        ids.endpointId.value,
-        PROVIDER,
-        tenant.value,
-        mailbox.value,
-        String(nextGen),
-        qv.value,
-      ]);
-      if (!ins.rows || ins.rows.length !== 1) return fail('inbound_delta_state_write_failed');
-      const row = ins.rows[0];
-      const gen = coerceSafeIntField(row.ingestion_generation);
-      const sv = coerceSafeIntField(row.state_version);
-      if (gen == null || sv == null) return fail('inbound_delta_state_write_failed');
-      return ok(Object.freeze({
-        client_id: String(row.client_id),
-        endpoint_id: String(row.endpoint_id),
-        ingestion_generation: gen,
-        query_version: String(row.query_version),
-        phase: row.phase,
-        state_version: sv,
-        previous_generation: prevGen,
-      }));
-    }));
+    return runExclusive(async (client) => withTxn(client, async () => (
+      advanceGenerationOnExclusiveClient(client, Object.freeze({
+        clientId: ids.clientId.value,
+        locationId: ids.locationId.value,
+        endpointId: ids.endpointId.value,
+        expectedGeneration: ids.expectedGeneration.value,
+        expectedStateVersion: ids.expectedStateVersion.value,
+        providerTenantId: tenant.value,
+        providerMailboxId: mailbox.value,
+        queryVersion: qv.value,
+      }))
+    )));
   }
 
   async function getPublicStatus(input) {
@@ -2107,6 +2193,7 @@ module.exports = Object.freeze({
   ENVELOPE_RECORD_KEYS,
   SQL_INSERT_EVENT,
   SQL_LOCK_CURRENT,
+  SQL_PUBLIC_STATUS,
   SQL_REVALIDATE_LEASE,
   buildDeltaCursorEnvelopeAadV1,
   parseDeltaCursorEnvelopeAadV1,
@@ -2117,6 +2204,13 @@ module.exports = Object.freeze({
   sealDeltaCursorCompatible,
   openSealedDeltaCursor,
   createInboundEmailDeltaStateStore,
+  /**
+   * Transaction-client generation primitive (no nested BEGIN/COMMIT).
+   * Recovery journal reuses this so claim + demote/insert + complete share one TX.
+   */
+  advanceGenerationOnExclusiveClient,
+  SQL_DEMOTE_CURRENT,
+  SQL_INSERT_NEXT_GENERATION,
   // test helpers
   resolveWithTransactionClient,
   resolveExclusiveClient,
