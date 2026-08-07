@@ -18,6 +18,7 @@
  */
 
 const crypto = require('crypto');
+const util = require('util');
 const {
   validateGrantEnvelopeRecordV1,
   validateEmailGrantEnvelopeProvider,
@@ -44,6 +45,15 @@ const DEFAULT_TTL = 60;
  * routes / transport / runtime composition.
  */
 const EMAIL_DELEGATED_READ_AUTHORITY_RUNTIME_WIRED = false;
+
+// Module-init pins for delegated read-authority hostile surfaces.
+// Ambient util.types.isProxy monkeypatches after load must not weaken detection.
+const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
+const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
+  ? PINNED_UTIL_TYPES.isProxy
+  : null;
+/** Expected intrinsic Array.prototype for driver rows arrays (this realm at init). */
+const PINNED_ARRAY_PROTOTYPE = Array.prototype;
 
 /** Exact ordered own-data input keys for resolveDelegatedReadAuthority. */
 const DELEGATED_READ_AUTHORITY_INPUT_KEYS = Object.freeze([
@@ -713,18 +723,33 @@ async function getDelegatedGrantPublicStatus(input, deps) {
 }
 
 function failReadAuthority(error) {
-  // Sanitized only — never embed row values, addresses, principals, secrets.
+  // Sanitized only — never embed row values, addresses, principals, secrets,
+  // dependency exception messages, or attacker-controlled strings.
   return Object.freeze({ ok: false, error: String(error) });
 }
 
 /**
- * Exact ordered own-data snapshot of resolve input. Rejects proxies (via trap),
- * symbols, extras, missing keys, wrong order, accessors, non-enumerable,
- * unsafe prototypes. Values read once; never reread caller.
+ * Module-init pinned native util.types.isProxy via Reflect.apply.
+ * Missing pin / throw → fail closed (treat as proxy). Zero proxy traps.
+ */
+function isProxySurface(value) {
+  try {
+    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) return true;
+    return Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Exact ordered own-data snapshot of resolve input.
+ * Order: type checks → pinned proxy rejection → prototype → ownKeys →
+ * enumerable own data descriptors once. Never reread caller.
  */
 function snapshotExactReadAuthorityInput(input) {
   try {
     if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+    if (isProxySurface(input)) return null;
     const proto = Object.getPrototypeOf(input);
     if (proto !== Object.prototype && proto !== null) return null;
     const actual = Reflect.ownKeys(input);
@@ -758,14 +783,128 @@ function parseCanonicalUuid(raw) {
 }
 
 /**
+ * Resolve query without instance [[Get]] (avoids hostile own accessors).
+ * Own data function descriptor wins; else prototype-chain data function
+ * (genuine node-postgres Client/Pool put query on the prototype, often
+ * non-enumerable). Own accessor / non-function → reject. Proxies rejected
+ * before any prototype/descriptor walk.
+ */
+function resolveReadAuthorityQueryMethod(surface) {
+  try {
+    if (!surface || (typeof surface !== 'object' && typeof surface !== 'function')) {
+      return null;
+    }
+    if (isProxySurface(surface)) return null;
+    const own = Object.getOwnPropertyDescriptor(surface, 'query');
+    if (own) {
+      if (Object.prototype.hasOwnProperty.call(own, 'value')
+          && typeof own.value === 'function'
+          && !own.get
+          && !own.set) {
+        return own.value;
+      }
+      return null;
+    }
+    let proto = Object.getPrototypeOf(surface);
+    let depth = 0;
+    while (proto && proto !== Object.prototype && depth < 8) {
+      if (isProxySurface(proto)) return null;
+      const descriptor = Object.getOwnPropertyDescriptor(proto, 'query');
+      if (descriptor) {
+        if (Object.prototype.hasOwnProperty.call(descriptor, 'value')
+            && typeof descriptor.value === 'function'
+            && !descriptor.get
+            && !descriptor.set) {
+          return descriptor.value;
+        }
+        return null;
+      }
+      proto = Object.getPrototypeOf(proto);
+      depth += 1;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Sanitized dependency resolution for read-authority.
+ * Reads deps.db / deps.client via own data descriptors only (never [[Get]]).
+ * Prefer db when own data and non-null; else client. Rejects proxies on deps
+ * and on the db/client surface before any method resolution.
+ *
+ * @returns {{ok:true,surface:object,query:Function}|{ok:false,error:string}}
+ */
+function resolveReadAuthorityDb(deps) {
+  try {
+    if (deps == null || typeof deps !== 'object') {
+      return { ok: false, error: 'db_required' };
+    }
+    if (isProxySurface(deps)) {
+      return { ok: false, error: 'db_required' };
+    }
+
+    let dbValue;
+    let hasDb = false;
+    const dbDesc = Object.getOwnPropertyDescriptor(deps, 'db');
+    if (dbDesc) {
+      if (!Object.prototype.hasOwnProperty.call(dbDesc, 'value')
+          || dbDesc.get
+          || dbDesc.set) {
+        return { ok: false, error: 'db_required' };
+      }
+      hasDb = true;
+      dbValue = dbDesc.value;
+    }
+
+    let clientValue;
+    let hasClient = false;
+    const clientDesc = Object.getOwnPropertyDescriptor(deps, 'client');
+    if (clientDesc) {
+      if (!Object.prototype.hasOwnProperty.call(clientDesc, 'value')
+          || clientDesc.get
+          || clientDesc.set) {
+        return { ok: false, error: 'db_required' };
+      }
+      hasClient = true;
+      clientValue = clientDesc.value;
+    }
+
+    // Match prior requireDb preference: db when present and non-null, else client.
+    const surface = (hasDb && dbValue != null)
+      ? dbValue
+      : (hasClient ? clientValue : null);
+    if (!surface || typeof surface !== 'object') {
+      return { ok: false, error: 'db_required' };
+    }
+    if (isProxySurface(surface)) {
+      return { ok: false, error: 'db_required' };
+    }
+
+    const query = resolveReadAuthorityQueryMethod(surface);
+    if (typeof query !== 'function') {
+      return { ok: false, error: 'db_required' };
+    }
+    return { ok: true, surface, query };
+  } catch {
+    return { ok: false, error: 'db_required' };
+  }
+}
+
+/**
  * Snapshot + validate exact own-data driver row (SQL textual key set).
  * Re-validates ownership/modes/status/resource after SQL; never trusts SQL alone.
  * public_address and provider_principal_oid are observed once and discarded —
  * never mapped into the internal DTO. providerMailboxId always uses resource_id.
+ *
+ * Order: type → pinned proxy → prototype → ownKeys → enumerable own data
+ * descriptors once. Rejects nonenumerable/accessor/symbol/extra/inherited/proxy.
  */
 function snapshotAndValidateReadAuthorityRow(row, expected) {
   try {
     if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+    if (isProxySurface(row)) return null;
     const proto = Object.getPrototypeOf(row);
     if (proto !== Object.prototype && proto !== null) return null;
     const actual = Reflect.ownKeys(row);
@@ -781,7 +920,8 @@ function snapshotAndValidateReadAuthorityRow(row, expected) {
       if (!descriptor
           || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
           || descriptor.get
-          || descriptor.set) {
+          || descriptor.set
+          || !descriptor.enumerable) {
         return null;
       }
       own[key] = descriptor.value;
@@ -838,59 +978,205 @@ function snapshotAndValidateReadAuthorityRow(row, expected) {
 }
 
 /**
+ * One-read descriptor snapshot of a pg-style QueryResult for read-authority.
+ *
+ * Root: accept realistic node-postgres Result prototypes (Result.prototype)
+ * as well as ordinary Object.prototype / null-proto bags. Never trust
+ * inherited properties — inspect own data descriptors only. Ordinary pg
+ * Result metadata (command, rowCount, oid, fields, …) may appear as own
+ * data; exactly one own data `rows` descriptor is captured once.
+ * Accessors/symbols on the root → invalid. Proxies rejected first.
+ *
+ * Rows: actual Array with module-init intrinsic Array.prototype; dense exact
+ * shape (indices 0..n-1 then length); length via own data descriptor once;
+ * each index enumerable own data once. Empty / one / multi / invalid kinds.
+ *
+ * @returns {{kind:'empty'}|{kind:'one',row:unknown}|{kind:'multi'}|{kind:'invalid'}}
+ */
+function snapshotReadAuthorityQueryResult(result) {
+  try {
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+      return Object.freeze({ kind: 'invalid' });
+    }
+    if (isProxySurface(result)) {
+      return Object.freeze({ kind: 'invalid' });
+    }
+    // Intentionally no Object.prototype|null-only rootProto gate: production
+    // node-postgres returns Result instances whose prototype is Result.prototype.
+    // Own-data inspection below is the sole trust boundary for rows/metadata.
+
+    const rootKeys = Reflect.ownKeys(result);
+    let rowsDesc = null;
+    for (let i = 0; i < rootKeys.length; i += 1) {
+      const key = rootKeys[i];
+      if (typeof key === 'symbol') {
+        return Object.freeze({ kind: 'invalid' });
+      }
+      const desc = Object.getOwnPropertyDescriptor(result, key);
+      if (!desc
+          || !Object.prototype.hasOwnProperty.call(desc, 'value')
+          || desc.get
+          || desc.set) {
+        return Object.freeze({ kind: 'invalid' });
+      }
+      if (key === 'rows') {
+        if (rowsDesc) return Object.freeze({ kind: 'invalid' });
+        rowsDesc = desc;
+      }
+      // Other own data keys: permitted as ordinary pg Result metadata (unused).
+    }
+    if (!rowsDesc) return Object.freeze({ kind: 'invalid' });
+
+    const rows = rowsDesc.value;
+    if (!Array.isArray(rows)) return Object.freeze({ kind: 'invalid' });
+    if (isProxySurface(rows)) return Object.freeze({ kind: 'invalid' });
+    // After pinned proxy rejection and before any element/property use:
+    // require the expected intrinsic Array.prototype exactly.
+    let rowsProto;
+    try {
+      rowsProto = Object.getPrototypeOf(rows);
+    } catch {
+      return Object.freeze({ kind: 'invalid' });
+    }
+    if (rowsProto !== PINNED_ARRAY_PROTOTYPE) {
+      return Object.freeze({ kind: 'invalid' });
+    }
+
+    const rowKeys = Reflect.ownKeys(rows);
+    for (let i = 0; i < rowKeys.length; i += 1) {
+      if (typeof rowKeys[i] === 'symbol') {
+        return Object.freeze({ kind: 'invalid' });
+      }
+    }
+
+    // Length: exact own data descriptor once — never a direct property get.
+    // Array length is non-enumerable by design; do not require enumerable.
+    const lengthDesc = Object.getOwnPropertyDescriptor(rows, 'length');
+    if (!lengthDesc
+        || !Object.prototype.hasOwnProperty.call(lengthDesc, 'value')
+        || lengthDesc.get
+        || lengthDesc.set
+        || typeof lengthDesc.value !== 'number'
+        || !Number.isInteger(lengthDesc.value)
+        || lengthDesc.value < 0) {
+      return Object.freeze({ kind: 'invalid' });
+    }
+    const n = lengthDesc.value;
+
+    // Dense exact shape: indices '0'..'n-1' then 'length' (ordinary arrays).
+    if (rowKeys.length !== n + 1) {
+      return Object.freeze({ kind: 'invalid' });
+    }
+    for (let i = 0; i < n; i += 1) {
+      if (rowKeys[i] !== String(i)) {
+        return Object.freeze({ kind: 'invalid' });
+      }
+    }
+    if (rowKeys[n] !== 'length') {
+      return Object.freeze({ kind: 'invalid' });
+    }
+
+    if (n === 0) {
+      return Object.freeze({ kind: 'empty' });
+    }
+
+    if (n === 1) {
+      const indexDesc = Object.getOwnPropertyDescriptor(rows, '0');
+      if (!indexDesc
+          || !Object.prototype.hasOwnProperty.call(indexDesc, 'value')
+          || indexDesc.get
+          || indexDesc.set
+          || !indexDesc.enumerable) {
+        return Object.freeze({ kind: 'invalid' });
+      }
+      return Object.freeze({ kind: 'one', row: indexDesc.value });
+    }
+
+    // Multi-row: confirm each index is enumerable own data once (no element use).
+    for (let i = 0; i < n; i += 1) {
+      const indexDesc = Object.getOwnPropertyDescriptor(rows, String(i));
+      if (!indexDesc
+          || !Object.prototype.hasOwnProperty.call(indexDesc, 'value')
+          || indexDesc.get
+          || indexDesc.set
+          || !indexDesc.enumerable) {
+        return Object.freeze({ kind: 'invalid' });
+      }
+    }
+    return Object.freeze({ kind: 'multi' });
+  } catch {
+    return Object.freeze({ kind: 'invalid' });
+  }
+}
+
+/**
  * UNWIRED repository resolve of delegated email read authority.
  *
  * Exact own-data input `{ clientId, locationId, endpointId }` only (UUID strings).
  * One parameterized SELECT/join of locations + endpoints + grants. Returns one
  * frozen internal DTO; never public_address / provider_principal_oid / secrets.
- * Sanitized failures only; no logging.
+ * Sanitized failures only; no logging. Hostile boundary: module-init pinned
+ * isProxy before prototype/key/descriptor ops on input, deps, db/client,
+ * result, rows array, and driver rows; dependency resolution and every
+ * result/rows read inside sanitized handling; dense intrinsic Array rows;
+ * enumerable own-data driver descriptors only.
  *
  * Not exposed via getDelegatedGrantPublicStatus, read-health, routes, transport,
  * or runtime composition (`EMAIL_DELEGATED_READ_AUTHORITY_RUNTIME_WIRED = false`).
  *
  * @param {{ clientId: string, locationId: string, endpointId: string }} input
- * @param {{ db: { query: Function } }} deps
+ * @param {{ db?: object, client?: object }} deps
  * @returns {Promise<{ok:true,value:object}|{ok:false,error:string}>}
  */
 async function resolveDelegatedReadAuthority(input, deps) {
-  const snap = snapshotExactReadAuthorityInput(input);
-  if (!snap) return failReadAuthority('input_invalid');
-
-  const clientId = parseCanonicalUuid(snap.clientId);
-  const locationId = parseCanonicalUuid(snap.locationId);
-  const endpointId = parseCanonicalUuid(snap.endpointId);
-  if (!clientId || !locationId || !endpointId) {
-    return failReadAuthority('input_invalid');
-  }
-
-  const dbc = requireDb(deps);
-  if (!dbc.ok) return failReadAuthority(dbc.error || 'db_required');
-
-  let res;
   try {
-    res = await dbc.value.query(
-      SQL_RESOLVE_DELEGATED_READ_AUTHORITY,
-      [clientId, locationId, endpointId],
-    );
+    const snap = snapshotExactReadAuthorityInput(input);
+    if (!snap) return failReadAuthority('input_invalid');
+
+    const clientId = parseCanonicalUuid(snap.clientId);
+    const locationId = parseCanonicalUuid(snap.locationId);
+    const endpointId = parseCanonicalUuid(snap.endpointId);
+    if (!clientId || !locationId || !endpointId) {
+      return failReadAuthority('input_invalid');
+    }
+
+    const dbc = resolveReadAuthorityDb(deps);
+    if (!dbc.ok) return failReadAuthority(dbc.error || 'db_required');
+
+    let res;
+    try {
+      res = await Reflect.apply(
+        dbc.query,
+        dbc.surface,
+        [SQL_RESOLVE_DELEGATED_READ_AUTHORITY, [clientId, locationId, endpointId]],
+      );
+    } catch (_) {
+      return failReadAuthority('db_error');
+    }
+
+    const shaped = snapshotReadAuthorityQueryResult(res);
+    if (shaped.kind === 'empty') {
+      return failReadAuthority('delegated_read_authority_unresolved');
+    }
+    if (shaped.kind === 'multi') {
+      return failReadAuthority('delegated_read_authority_ambiguous');
+    }
+    if (shaped.kind !== 'one') {
+      // Invalid result/rows shape (accessor, proxy, sparse, wrong prototype, …).
+      return failReadAuthority('db_error');
+    }
+
+    const dto = snapshotAndValidateReadAuthorityRow(shaped.row, {
+      clientId,
+      locationId,
+      endpointId,
+    });
+    if (!dto) return failReadAuthority('delegated_read_authority_unresolved');
+    return ok(dto);
   } catch (_) {
+    // Any unexpected reflection/driver throw → sanitized only; never rethrow.
     return failReadAuthority('db_error');
   }
-
-  const rows = res && Array.isArray(res.rows) ? res.rows : null;
-  if (!rows || rows.length === 0) {
-    return failReadAuthority('delegated_read_authority_unresolved');
-  }
-  if (rows.length !== 1) {
-    return failReadAuthority('delegated_read_authority_ambiguous');
-  }
-
-  const dto = snapshotAndValidateReadAuthorityRow(rows[0], {
-    clientId,
-    locationId,
-    endpointId,
-  });
-  if (!dto) return failReadAuthority('delegated_read_authority_unresolved');
-  return ok(dto);
 }
 
 module.exports = {

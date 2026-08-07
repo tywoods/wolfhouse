@@ -15,6 +15,7 @@ const dns = require('dns');
 const net = require('net');
 const http = require('http');
 const https = require('https');
+const util = require('util');
 
 const ROOT = path.join(__dirname, '..');
 const CUST_REL = 'scripts/lib/email-delegated-grant-custodian.js';
@@ -637,6 +638,337 @@ async function main() {
         && Object.keys(res).sort().join(',') === 'error,ok'
         && noLeak(res),
     );
+  }
+
+  // ── Hostile-boundary family (strict RED-GREEN) ─────────────────────────
+  // Attacker-controlled errors/PII must never escape from deps/db/client/
+  // query/result/rows/input/driver surfaces. Module-init pinned isProxy;
+  // zero traps; dense Array.prototype rows; enumerable own-data row fields.
+
+  function sanitizedFail(res) {
+    return Boolean(
+      res
+      && res.ok === false
+      && typeof res.error === 'string'
+      && res.details === undefined
+      && Object.keys(res).sort().join(',') === 'error,ok'
+      && Object.isFrozen(res)
+      && noLeak(res)
+      && !ser(res).includes('boom')
+      && !ser(res).includes(PLANTED_ADDRESS)
+      && !ser(res).includes(PLANTED_SECRET),
+    );
+  }
+
+  function trapCounters() {
+    return {
+      apply: 0,
+      get: 0,
+      getPrototypeOf: 0,
+      getOwnPropertyDescriptor: 0,
+      ownKeys: 0,
+      set: 0,
+      has: 0,
+    };
+  }
+
+  function countingProxy(target, traps) {
+    return new Proxy(target, {
+      apply(t, thisArg, args) {
+        traps.apply += 1;
+        return Reflect.apply(t, thisArg, args);
+      },
+      get(t, prop, receiver) {
+        // Promise resolve may probe [[Get]] 'then' when an async query returns
+        // a proxy. That is language thenable-check noise, not production
+        // reflection. Claim non-thenable and do not count it; every other get
+        // is a production trap.
+        if (prop === 'then') return undefined;
+        traps.get += 1;
+        return Reflect.get(t, prop, receiver);
+      },
+      getPrototypeOf(t) {
+        traps.getPrototypeOf += 1;
+        return Reflect.getPrototypeOf(t);
+      },
+      getOwnPropertyDescriptor(t, prop) {
+        traps.getOwnPropertyDescriptor += 1;
+        return Reflect.getOwnPropertyDescriptor(t, prop);
+      },
+      ownKeys(t) {
+        traps.ownKeys += 1;
+        return Reflect.ownKeys(t);
+      },
+      set(t, prop, value, receiver) {
+        traps.set += 1;
+        return Reflect.set(t, prop, value, receiver);
+      },
+      has(t, prop) {
+        traps.has += 1;
+        return Reflect.has(t, prop);
+      },
+    });
+  }
+
+  function zeroTraps(traps) {
+    return traps.apply === 0
+      && traps.get === 0
+      && traps.getPrototypeOf === 0
+      && traps.getOwnPropertyDescriptor === 0
+      && traps.ownKeys === 0
+      && traps.set === 0
+      && traps.has === 0;
+  }
+
+  /**
+   * Realistic node-postgres Result (Result.prototype, ordinary metadata).
+   * Assigns rows by value without reading rows.length via [[Get]] so proxied
+   * rows arrays can be tested for zero production traps.
+   */
+  function RealisticResult(rows, rowCount) {
+    this.command = 'SELECT';
+    this.rowCount = typeof rowCount === 'number'
+      ? rowCount
+      : (Array.isArray(rows) ? rows.length : 0);
+    this.oid = null;
+    this.rows = rows;
+    this.fields = [];
+  }
+
+  // Throwing deps.db accessor — must not escape planted secret/PII
+  {
+    const deps = {};
+    Object.defineProperty(deps, 'db', {
+      get() {
+        throw new Error(`boom deps.db ${PLANTED_SECRET} ${PLANTED_ADDRESS}`);
+      },
+      enumerable: true,
+      configurable: true,
+    });
+    const res = await cust.resolveDelegatedReadAuthority(baseInput(), deps);
+    ok('throwing deps.db accessor sanitized', sanitizedFail(res), ser(res));
+  }
+
+  // Throwing deps.client accessor
+  {
+    const deps = {};
+    Object.defineProperty(deps, 'client', {
+      get() {
+        throw new Error(`boom deps.client ${PLANTED_SECRET} ${PLANTED_ADDRESS}`);
+      },
+      enumerable: true,
+      configurable: true,
+    });
+    const res = await cust.resolveDelegatedReadAuthority(baseInput(), deps);
+    ok('throwing deps.client accessor sanitized', sanitizedFail(res), ser(res));
+  }
+
+  // Throwing db.query accessor (own data query is accessor)
+  {
+    const db = {};
+    Object.defineProperty(db, 'query', {
+      get() {
+        throw new Error(`boom db.query ${PLANTED_SECRET} ${PLANTED_ADDRESS}`);
+      },
+      enumerable: true,
+      configurable: true,
+    });
+    const res = await cust.resolveDelegatedReadAuthority(baseInput(), { db });
+    ok('throwing db.query accessor sanitized', sanitizedFail(res), ser(res));
+  }
+
+  // Throwing result.rows accessor after successful query settlement
+  {
+    const db = {
+      async query() {
+        const result = {};
+        Object.defineProperty(result, 'rows', {
+          get() {
+            throw new Error(`boom result.rows ${PLANTED_SECRET} ${PLANTED_ADDRESS}`);
+          },
+          enumerable: true,
+          configurable: true,
+        });
+        return result;
+      },
+    };
+    const res = await cust.resolveDelegatedReadAuthority(baseInput(), { db });
+    ok('throwing result.rows accessor sanitized', sanitizedFail(res), ser(res));
+  }
+
+  // Proxies at every surface — zero traps via module-init pinned isProxy
+  {
+    const trapsInput = trapCounters();
+    const proxyInput = countingProxy(baseInput(), trapsInput);
+    const resIn = await cust.resolveDelegatedReadAuthority(proxyInput, { db: mockDb([baseRow()]) });
+    ok('proxy input fail-closed', sanitizedFail(resIn), ser(resIn));
+    ok('proxy input zero traps', zeroTraps(trapsInput), ser(trapsInput));
+  }
+  {
+    const trapsDeps = trapCounters();
+    const plainDb = mockDb([baseRow()]);
+    const proxyDeps = countingProxy({ db: plainDb }, trapsDeps);
+    const resDeps = await cust.resolveDelegatedReadAuthority(baseInput(), proxyDeps);
+    ok('proxy deps fail-closed', sanitizedFail(resDeps), ser(resDeps));
+    ok('proxy deps zero traps', zeroTraps(trapsDeps), ser(trapsDeps));
+  }
+  {
+    const trapsDb = trapCounters();
+    const plainDb = mockDb([baseRow()]);
+    const proxyDb = countingProxy(plainDb, trapsDb);
+    const resDb = await cust.resolveDelegatedReadAuthority(baseInput(), { db: proxyDb });
+    ok('proxy db fail-closed', sanitizedFail(resDb), ser(resDb));
+    ok('proxy db zero traps', zeroTraps(trapsDb), ser(trapsDb));
+  }
+  {
+    const trapsResult = trapCounters();
+    const db = {
+      async query() {
+        return countingProxy(new RealisticResult([baseRow()]), trapsResult);
+      },
+    };
+    const resR = await cust.resolveDelegatedReadAuthority(baseInput(), { db });
+    ok('proxy result fail-closed', sanitizedFail(resR), ser(resR));
+    ok('proxy result zero traps', zeroTraps(trapsResult), ser(trapsResult));
+  }
+  {
+    const trapsRows = trapCounters();
+    const db = {
+      async query() {
+        const rows = countingProxy([baseRow()], trapsRows);
+        // Pre-supply rowCount so the Result helper never [[Get]]s rows.length.
+        return new RealisticResult(rows, 1);
+      },
+    };
+    const resRows = await cust.resolveDelegatedReadAuthority(baseInput(), { db });
+    ok('proxy rows fail-closed', sanitizedFail(resRows), ser(resRows));
+    ok('proxy rows zero traps', zeroTraps(trapsRows), ser(trapsRows));
+  }
+  {
+    const trapsRow = trapCounters();
+    const db = {
+      async query() {
+        return new RealisticResult([countingProxy(baseRow(), trapsRow)]);
+      },
+    };
+    const resRow = await cust.resolveDelegatedReadAuthority(baseInput(), { db });
+    ok('proxy driver row fail-closed', sanitizedFail(resRow), ser(resRow));
+    ok('proxy driver row zero traps', zeroTraps(trapsRow), ser(trapsRow));
+  }
+
+  // Nonenumerable public_address / fields — reject (enumerable own-data only)
+  {
+    const row = {};
+    for (const k of cust.DELEGATED_READ_AUTHORITY_ROW_KEYS) {
+      Object.defineProperty(row, k, {
+        value: baseRow()[k],
+        enumerable: k !== 'public_address',
+        writable: true,
+        configurable: true,
+      });
+    }
+    const db = mockDb([row]);
+    const res = await cust.resolveDelegatedReadAuthority(baseInput(), { db });
+    ok(
+      'nonenumerable public_address unresolved',
+      res && res.ok === false
+        && res.error === 'delegated_read_authority_unresolved'
+        && sanitizedFail(res),
+      ser(res),
+    );
+  }
+  {
+    const row = {};
+    for (const k of cust.DELEGATED_READ_AUTHORITY_ROW_KEYS) {
+      Object.defineProperty(row, k, {
+        value: baseRow()[k],
+        enumerable: k !== 'provider_resource_id',
+        writable: true,
+        configurable: true,
+      });
+    }
+    const db = mockDb([row]);
+    const res = await cust.resolveDelegatedReadAuthority(baseInput(), { db });
+    ok(
+      'nonenumerable provider_resource_id unresolved',
+      res && res.ok === false
+        && res.error === 'delegated_read_authority_unresolved'
+        && sanitizedFail(res),
+      ser(res),
+    );
+  }
+
+  // Ambient util.types.isProxy monkeypatch after load must not hide proxies
+  {
+    if (typeof util.types.isProxy === 'function') {
+      const origIsProxy = util.types.isProxy;
+      let monkeyInvocations = 0;
+      util.types.isProxy = function patchedIsProxy() {
+        monkeyInvocations += 1;
+        return false;
+      };
+      try {
+        const traps = trapCounters();
+        const proxyInput = countingProxy(baseInput(), traps);
+        const res = await cust.resolveDelegatedReadAuthority(
+          proxyInput,
+          { db: mockDb([baseRow()]) },
+        );
+        ok(
+          'ambient isProxy monkeypatch resistant',
+          sanitizedFail(res) && zeroTraps(traps),
+          ser({ res, traps, monkeyInvocations }),
+        );
+      } finally {
+        util.types.isProxy = origIsProxy;
+      }
+    } else {
+      ok('ambient isProxy monkeypatch resistant', false, 'util.types.isProxy unavailable');
+    }
+  }
+
+  // Ordinary success still works (plain bag)
+  {
+    const db = mockDb([baseRow()]);
+    const res = await cust.resolveDelegatedReadAuthority(baseInput(), { db });
+    ok('ordinary success still ok', res && res.ok === true && isFrozenDto(res.value), ser(res));
+    ok('ordinary success no leak', noLeak(res));
+  }
+
+  // Realistic node-postgres Result.prototype shape accepted (narrow adapter)
+  {
+    const db = {
+      queries: [],
+      async query(sql, params) {
+        this.queries.push({ text: String(sql || ''), params: Array.isArray(params) ? params.slice() : [] });
+        return new RealisticResult([baseRow()]);
+      },
+    };
+    const res = await cust.resolveDelegatedReadAuthority(baseInput(), { db });
+    ok(
+      'realistic pg Result success',
+      res && res.ok === true && isFrozenDto(res.value),
+      ser(res),
+    );
+    ok('realistic Result no leak', noLeak(res));
+  }
+
+  // Realistic Client.prototype.query (non-enumerable prototype method)
+  {
+    function RealisticClient(rows) {
+      this._rows = rows;
+    }
+    RealisticClient.prototype.query = async function query() {
+      return new RealisticResult(this._rows);
+    };
+    const client = new RealisticClient([baseRow()]);
+    const res = await cust.resolveDelegatedReadAuthority(baseInput(), { client });
+    ok(
+      'realistic pg Client.prototype.query success',
+      res && res.ok === true && isFrozenDto(res.value),
+      ser(res),
+    );
+    ok('realistic Client no leak', noLeak(res));
   }
 
   // network never touched
