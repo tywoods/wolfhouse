@@ -6,7 +6,7 @@
 -- microsoft_graph + provider_tenant_id UUID + authoritative mailbox UUID.
 -- ingestion_generation is independent of OAuth grant_generation.
 -- query_version is the production-exact text query-contract id (not BIGINT):
---   CHECK + store constant pin microsoft_graph_messages_delta_v1 only. Future contract changes
+--   CHECK + store constant pin ms_messages_delta_v1 only. Future contract changes
 --   require a deliberate code+migration version bump (not caller-chosen strings).
 -- phase: initial | tracking | reset_required | paused.
 -- state_version is monotonic CAS fencing.
@@ -104,7 +104,7 @@ CREATE TABLE tenant_email_inbound_delta_states (
 
   -- Exact production constant only; shape-regex would allow caller-chosen ids.
   CONSTRAINT tenant_email_inbound_delta_states_query_version_exact
-    CHECK (query_version = 'microsoft_graph_messages_delta_v1'),
+    CHECK (query_version = 'ms_messages_delta_v1'),
 
   CONSTRAINT tenant_email_inbound_delta_states_state_version_bounds
     CHECK (
@@ -203,7 +203,7 @@ CREATE TABLE tenant_email_inbound_delta_states (
 );
 
 COMMENT ON TABLE tenant_email_inbound_delta_states IS
-  'Durable Microsoft Graph messages-delta state per endpoint generation. Empty on migrate. Sealed nextLink/deltaLink only (never plaintext). ingestion_generation independent of OAuth grant_generation. query_version exact production constant microsoft_graph_messages_delta_v1 (code+migration pin; not caller-chosen). Partial unique is_current = at-most-one current; owner ops never leave zero current (no delete API).';
+  'Durable Microsoft Graph messages-delta state per endpoint generation. Empty on migrate. Sealed nextLink/deltaLink only (never plaintext). ingestion_generation independent of OAuth grant_generation. query_version exact production constant ms_messages_delta_v1 (code+migration pin; not caller-chosen). Partial unique is_current = at-most-one current; owner ops never leave zero current (no delete API).';
 
 COMMENT ON COLUMN tenant_email_inbound_delta_states.location_id IS
   'tenant_locations.id UUID (authority DTO), not text kebab location_id.';
@@ -212,7 +212,7 @@ COMMENT ON COLUMN tenant_email_inbound_delta_states.ingestion_generation IS
   'Independent of tenant_email_delegated_grants.grant_generation. Grant refresh/rotation must not advance this. Bounded to JS MAX_SAFE_INTEGER.';
 
 COMMENT ON COLUMN tenant_email_inbound_delta_states.query_version IS
-  'Production-exact text identifier of the messages-delta query contract: microsoft_graph_messages_delta_v1 only. Not a BIGINT counter. Future contract changes require deliberate code+migration version bump together (not caller-chosen strings).';
+  'Production-exact text identifier of the messages-delta query contract: ms_messages_delta_v1 only. Not a BIGINT counter. Future contract changes require deliberate code+migration version bump together (not caller-chosen strings).';
 
 COMMENT ON COLUMN tenant_email_inbound_delta_states.ciphertext IS
   'AEAD ciphertext of sealed Graph cursor capability only. Never a plaintext nextLink/deltaLink.';

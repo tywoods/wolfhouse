@@ -37,7 +37,7 @@ const OTHER_TENANT = '11111111-1111-4111-8111-111111111112';
 const OTHER_MAILBOX = '22222222-2222-4222-8222-2222222222ac';
 const PLANTED_SUBJECT = 'SUBJECT_PII_MUST_NOT_APPEAR_DELTA_STATE';
 const PLANTED_ADDRESS = 'pii-delta-state@example.com';
-const QV1 = 'microsoft_graph_messages_delta_v1';
+const QV1 = 'ms_messages_delta_v1';
 /** Shape-valid but non-production; must be rejected by parser + migration CHECK. */
 const QV_OTHER = 'messages_delta_v2';
 const PLANTED_CURSOR =
@@ -684,7 +684,7 @@ async function main() {
   assert.deepEqual([...PHASES], ['initial', 'tracking', 'reset_required', 'paused']);
   assert.deepEqual([...CURSOR_KINDS], ['nextLink', 'deltaLink']);
   assert.equal(PROVIDER, 'microsoft_graph');
-  assert.equal(DEFAULT_QUERY_VERSION, 'microsoft_graph_messages_delta_v1');
+  assert.equal(DEFAULT_QUERY_VERSION, 'ms_messages_delta_v1');
   assert.equal(MAX_SAFE_GENERATION, Number.MAX_SAFE_INTEGER);
   assert.match(SQL_INSERT_EVENT, /ON CONFLICT \(provider, provider_mailbox_id, provider_message_id\) DO NOTHING/);
   assert.match(SQL_LOCK_CURRENT, /is_current = true/);
@@ -709,7 +709,7 @@ async function main() {
   assert.match(up, /query_version\s+TEXT NOT NULL/);
   assert.match(up, /9007199254740991/);
   assert.match(up, /tenant_email_inbound_delta_states_query_version_exact/);
-  assert.match(up, /query_version = 'microsoft_graph_messages_delta_v1'/);
+  assert.match(up, /query_version = 'ms_messages_delta_v1'/);
   assert.equal(/query_version ~ /.test(up), false, 'no shape-regex on query_version');
   assert.match(up, /Independent of tenant_email_delegated_grants\.grant_generation/);
   assert.match(up, /at-most-one/i);
@@ -744,8 +744,8 @@ async function main() {
   assert.equal(parseQueryVersion(1).ok, false);
   assert.equal(parseQueryVersion('Messages_Delta').ok, false);
   assert.equal(parseQueryVersion(QV_OTHER).ok, false, 'shape-valid alternate rejected');
-  assert.equal(parseQueryVersion('microsoft_graph_messages_delta_v1 ').ok, false, 'trailing space rejected');
-  assert.equal(parseQueryVersion(' microsoft_graph_messages_delta_v1').ok, false, 'leading space rejected');
+  assert.equal(parseQueryVersion('ms_messages_delta_v1 ').ok, false, 'trailing space rejected');
+  assert.equal(parseQueryVersion(' ms_messages_delta_v1').ok, false, 'leading space rejected');
   assert.equal(parseQueryVersion('MICROSOFT_GRAPH_MESSAGES_DELTA_V1').ok, false, 'case variant rejected');
   assert.equal(parseQueryVersion('').ok, false);
   assert.equal(parsePositiveSafeInt(1, 'g').ok, true);

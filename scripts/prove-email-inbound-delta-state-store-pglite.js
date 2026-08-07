@@ -39,7 +39,7 @@ const ids = {
   tenant: '55555555-5555-4555-8555-555555555555',
   mailbox: '44444444-4444-4444-8444-444444444444',
 };
-const QV1 = 'microsoft_graph_messages_delta_v1';
+const QV1 = 'ms_messages_delta_v1';
 /** Shape-valid but non-production; migration CHECK + store must reject. */
 const QV_OTHER = 'messages_delta_v2';
 const OTHER_CLIENT = '11111111-1111-4111-8111-111111111112';
@@ -114,7 +114,7 @@ function assertStaticContract() {
   assert.match(UP, /query_version\s+TEXT NOT NULL/);
   assert.match(UP, /9007199254740991/);
   assert.match(UP, /tenant_email_inbound_delta_states_query_version_exact/);
-  assert.match(UP, /query_version = 'microsoft_graph_messages_delta_v1'/);
+  assert.match(UP, /query_version = 'ms_messages_delta_v1'/);
   assert.equal(/query_version ~ /.test(UP), false, 'no shape-regex on query_version');
   assert.match(UP, /tenant_email_inbound_delta_states_cursor_coherence/);
   assert.equal(/INSERT INTO tenant_email_inbound_delta_states/.test(UP), false);
