@@ -13,6 +13,8 @@
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
+const { Socket } = require('net');
 const EventEmitter = require('node:events');
 const util = require('util');
 
@@ -747,6 +749,232 @@ async function main() {
         (err) => err.code === FAILURE_CODE && noLeak(err),
       );
       ok('accessor-headers-fail-closed', true);
+    }
+
+    // ── RED/GREEN: own-data headers value is itself a Proxy ────────────────
+    // readResponseHeaders must reject proxy-backed headers via pinned isProxy
+    // BEFORE any ownData/getOwnPropertyDescriptor/key op on the headers object.
+    // get / getOwnPropertyDescriptor / ownKeys traps must all remain zero.
+    if (typeof util.types.isProxy === 'function') {
+      const trapHits = { get: 0, getOwnPropertyDescriptor: 0, ownKeys: 0 };
+      const plainHeaders = { 'content-type': 'application/json' };
+      const proxyHeaders = new Proxy(plainHeaders, {
+        get(target, prop, receiver) {
+          trapHits.get += 1;
+          return Reflect.get(target, prop, receiver);
+        },
+        getOwnPropertyDescriptor(target, prop) {
+          trapHits.getOwnPropertyDescriptor += 1;
+          return Reflect.getOwnPropertyDescriptor(target, prop);
+        },
+        ownKeys(target) {
+          trapHits.ownKeys += 1;
+          return Reflect.ownKeys(target);
+        },
+      });
+      assert.equal(util.types.isProxy(proxyHeaders), true);
+      // Precondition: gOPD on the proxy would fire the trap (the production hole).
+      Object.getOwnPropertyDescriptor(proxyHeaders, 'content-type');
+      assert.equal(
+        trapHits.getOwnPropertyDescriptor >= 1,
+        true,
+        'precondition: gOPD on proxy headers must invoke trap',
+      );
+      trapHits.get = 0;
+      trapHits.getOwnPropertyDescriptor = 0;
+      trapHits.ownKeys = 0;
+
+      const httpsImpl = function request(options, onResponse) {
+        assert.equal(options.headers.Prefer, PREFER_IMMUTABLE_ID);
+        const response = new EventEmitter();
+        response.statusCode = 200;
+        Object.defineProperty(response, 'headers', {
+          value: proxyHeaders,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+        // Own-data lifecycle so surface is otherwise valid if headers were trusted.
+        response.on = EventEmitter.prototype.on;
+        response.once = EventEmitter.prototype.once;
+        response.destroy = () => {};
+        const req = new EventEmitter();
+        req.destroy = () => {};
+        req.once = EventEmitter.prototype.once;
+        req.end = () => {
+          queueMicrotask(() => onResponse(response));
+        };
+        return req;
+      };
+      const t = transportWith(httpsImpl);
+      await assert.rejects(
+        () => t.listNormalizedInboundEnvelopes(goodInput()),
+        (err) => err.code === FAILURE_CODE
+          && noLeak(err)
+          && Object.isFrozen(err),
+      );
+      ok(
+        'own-headers-proxy-get-traps-zero',
+        trapHits.get === 0,
+        ser(trapHits),
+      );
+      ok(
+        'own-headers-proxy-gopd-traps-zero',
+        trapHits.getOwnPropertyDescriptor === 0,
+        ser(trapHits),
+      );
+      ok(
+        'own-headers-proxy-ownKeys-traps-zero',
+        trapHits.ownKeys === 0,
+        ser(trapHits),
+      );
+      ok('own-headers-proxy-fail-closed', true);
+    } else {
+      ok('own-headers-proxy-get-traps-zero-skipped-no-isProxy', true);
+      ok('own-headers-proxy-gopd-traps-zero-skipped-no-isProxy', true);
+      ok('own-headers-proxy-ownKeys-traps-zero-skipped-no-isProxy', true);
+      ok('own-headers-proxy-fail-closed-skipped-no-isProxy', true);
+    }
+
+    // Ambient util.types.isProxy monkeypatch after module init must not divert
+    // the pin: proxy headers still rejected with zero traps; genuine native ok.
+    if (typeof util.types.isProxy === 'function') {
+      const originalIsProxy = util.types.isProxy;
+      try {
+        util.types.isProxy = function ambientIsProxyHide() {
+          return false;
+        };
+        const trapHits = { get: 0, getOwnPropertyDescriptor: 0, ownKeys: 0 };
+        const proxyHeaders = new Proxy({ 'content-type': 'application/json' }, {
+          get(t, p, r) {
+            trapHits.get += 1;
+            return Reflect.get(t, p, r);
+          },
+          getOwnPropertyDescriptor(t, p) {
+            trapHits.getOwnPropertyDescriptor += 1;
+            return Reflect.getOwnPropertyDescriptor(t, p);
+          },
+          ownKeys(t) {
+            trapHits.ownKeys += 1;
+            return Reflect.ownKeys(t);
+          },
+        });
+        const httpsImpl = function request(options, onResponse) {
+          const response = new EventEmitter();
+          response.statusCode = 200;
+          Object.defineProperty(response, 'headers', {
+            value: proxyHeaders,
+            enumerable: true,
+            configurable: true,
+          });
+          response.on = EventEmitter.prototype.on;
+          response.once = EventEmitter.prototype.once;
+          response.destroy = () => {};
+          const req = new EventEmitter();
+          req.destroy = () => {};
+          req.once = EventEmitter.prototype.once;
+          req.end = () => {
+            queueMicrotask(() => onResponse(response));
+          };
+          return req;
+        };
+        const t = transportWith(httpsImpl);
+        await assert.rejects(
+          () => t.listNormalizedInboundEnvelopes(goodInput()),
+          (err) => err.code === FAILURE_CODE && noLeak(err),
+        );
+        ok(
+          'own-headers-proxy-ambient-monkeypatch-still-rejects',
+          trapHits.get === 0
+            && trapHits.getOwnPropertyDescriptor === 0
+            && trapHits.ownKeys === 0,
+          ser(trapHits),
+        );
+
+        // Ambient always-true must not break genuine native IncomingMessage success.
+        util.types.isProxy = function ambientAlwaysProxy() {
+          return true;
+        };
+        const body = listBody([envelopeRow()]);
+        let nativeHadOwnHeaders = null;
+        const nativeHttps = function request(options, onResponse) {
+          assert.equal(options.headers.Prefer, PREFER_IMMUTABLE_ID);
+          const response = new http.IncomingMessage(new Socket());
+          response.statusCode = 200;
+          response.headers = { 'content-type': 'application/json' };
+          response.destroy = () => {};
+          nativeHadOwnHeaders = Object.prototype.hasOwnProperty.call(response, 'headers');
+          const req = new EventEmitter();
+          req.destroy = () => {};
+          req.once = EventEmitter.prototype.once;
+          req.end = () => {
+            queueMicrotask(() => {
+              onResponse(response);
+              response.emit('data', Buffer.from(body, 'utf8'));
+              response.emit('end');
+            });
+          };
+          return req;
+        };
+        const nativeTransport = transportWith(nativeHttps);
+        const envelopes = await nativeTransport.listNormalizedInboundEnvelopes(goodInput());
+        ok(
+          'genuine-native-response-success-under-ambient-isProxy-lie',
+          Array.isArray(envelopes)
+            && envelopes.length === 1
+            && Object.isFrozen(envelopes)
+            && envelopes[0].provider_message_id === MSG_A
+            && nativeHadOwnHeaders === false,
+          ser({ len: envelopes && envelopes.length, nativeHadOwnHeaders }),
+        );
+      } finally {
+        util.types.isProxy = originalIsProxy;
+      }
+    } else {
+      ok('own-headers-proxy-ambient-monkeypatch-skipped-no-isProxy', true);
+      ok('genuine-native-response-success-under-ambient-skipped-no-isProxy', true);
+    }
+
+    // Genuine native IncomingMessage (non-own headers getter) full success path.
+    {
+      const body = listBody([envelopeRow({ id: MSG_B })]);
+      let sawNonOwnHeaders = false;
+      const nativeHttps = function request(options, onResponse) {
+        assert.equal(options.headers.Prefer, PREFER_IMMUTABLE_ID);
+        const response = new http.IncomingMessage(new Socket());
+        response.statusCode = 200;
+        response.headers = { 'content-type': 'application/json' };
+        response.destroy = () => {};
+        assert.equal(
+          Object.prototype.hasOwnProperty.call(response, 'headers'),
+          false,
+          'native headers must not be own data',
+        );
+        sawNonOwnHeaders = true;
+        const req = new EventEmitter();
+        req.destroy = () => {};
+        req.once = EventEmitter.prototype.once;
+        req.end = () => {
+          queueMicrotask(() => {
+            onResponse(response);
+            response.emit('data', Buffer.from(body, 'utf8'));
+            response.emit('end');
+          });
+        };
+        return req;
+      };
+      const t = transportWith(nativeHttps);
+      const envelopes = await t.listNormalizedInboundEnvelopes(goodInput());
+      ok(
+        'genuine-native-IncomingMessage-response-success',
+        sawNonOwnHeaders
+          && Array.isArray(envelopes)
+          && envelopes.length === 1
+          && Object.isFrozen(envelopes)
+          && envelopes[0].provider_message_id === MSG_B
+          && envelopes[0].provider_mailbox_id === MAILBOX_ID,
+        ser(envelopes && envelopes[0]),
+      );
     }
 
     // ── Token scrub after request (success path) ──────────────────────────

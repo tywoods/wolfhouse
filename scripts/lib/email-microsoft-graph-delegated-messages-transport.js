@@ -319,17 +319,31 @@ function isPinnedIncomingMessage(response) {
   }
 }
 
+/**
+ * Secure response headers access:
+ * 1) Proxy response surfaces rejected (undefined → content-type fail upstream).
+ * 2) Genuine pinned IncomingMessage → Reflect.apply only the module-init native getter.
+ * 3) Own-data plain/mock path → ownData only.
+ * 4) Proxy-backed headers values rejected via pinned isProxy BEFORE any
+ *    descriptor/key/property operation on the headers object (ownData/gOPD/ownKeys
+ *    on a Proxy would execute traps). isProxy throw / missing pin fail closed.
+ * Never walks attacker/custom prototype getters for headers.
+ */
 function readResponseHeaders(response) {
   try {
     if (isProxySurface(response)) return undefined;
+    let headers;
     if (isPinnedIncomingMessage(response)) {
-      const headers = Reflect.apply(PINNED_HEADERS_GET, response, []);
-      if (headers === null || typeof headers !== 'object' || Array.isArray(headers)) {
-        return undefined;
-      }
-      return headers;
+      headers = Reflect.apply(PINNED_HEADERS_GET, response, []);
+    } else {
+      headers = ownData(response, 'headers');
     }
-    return ownData(response, 'headers');
+    if (headers === null || typeof headers !== 'object' || Array.isArray(headers)) {
+      return undefined;
+    }
+    // Reject proxy-backed headers before any later ownData/gOPD/key op on them.
+    if (isProxySurface(headers)) return undefined;
+    return headers;
   } catch {
     return undefined;
   }
