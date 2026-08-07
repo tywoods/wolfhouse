@@ -242,6 +242,9 @@ const {
   RECOVERY_RECONCILE_PATH,
   snapshotOperatorRecoveryGateEnv,
   isEmailDeltaOperatorRecoveryEnabled,
+  validateOperatorRecoveryJsonContentType,
+  readOperatorRecoveryStrictJsonBody,
+  parseOperatorRecoveryStatusQueryFromRequest,
 } = require('./lib/staff-email-delta-operator-recovery-routes');
 
 const {
@@ -49297,9 +49300,12 @@ async function router(req, res) {
   // Admin-only email-delta operator recovery (default-off). Full gate
   // (operator recovery + composition + admin + worker not true + sunset
   // deployment/tenant + exact KV/migration064/065 pins) evaluated before
-  // requireAuth / session / readBody / DB / owner load / network.
+  // requireAuth / session / body / DB / owner load / network.
   // Disabled/malformed/wrong tenant/deployment → concealed 404 not_found.
   // Composition alone / admin alone remain inert. Worker true impossible.
+  // POST: exact JSON content-type before body read; strict JSON (no duplicate
+  // keys) at raw-body boundary; never whole-body JSON.parse; never log body.
+  // GET status: raw URLSearchParams — exactly one location_id + endpoint_id.
   if (pathname === RECOVERY_STATUS_PATH && method === 'GET') {
     const operatorRecoveryGateEnv = snapshotOperatorRecoveryGateEnv(process.env);
     if (!isEmailDeltaOperatorRecoveryEnabled(operatorRecoveryGateEnv)) {
@@ -49307,8 +49313,12 @@ async function router(req, res) {
     }
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
+    const qParsed = parseOperatorRecoveryStatusQueryFromRequest(req);
+    if (!qParsed.ok) {
+      return sendJSON(res, qParsed.status, qParsed.body);
+    }
     return emailDeltaOperatorRecoveryRoutes.handleStatus(
-      parsed.query,
+      qParsed.query,
       req,
       res,
       auth.user,
@@ -49322,11 +49332,16 @@ async function router(req, res) {
     }
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
-    let body;
-    try { body = JSON.parse((await readBody(req)) || '{}'); }
-    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    const ct = validateOperatorRecoveryJsonContentType(req);
+    if (!ct.ok) {
+      return sendJSON(res, ct.status, ct.body);
+    }
+    const bodyParsed = await readOperatorRecoveryStrictJsonBody(req);
+    if (!bodyParsed.ok) {
+      return sendJSON(res, bodyParsed.status, bodyParsed.body);
+    }
     return emailDeltaOperatorRecoveryRoutes.handleRestartGeneration(
-      body,
+      bodyParsed.body,
       req,
       res,
       auth.user,
@@ -49340,11 +49355,16 @@ async function router(req, res) {
     }
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
-    let body;
-    try { body = JSON.parse((await readBody(req)) || '{}'); }
-    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    const ct = validateOperatorRecoveryJsonContentType(req);
+    if (!ct.ok) {
+      return sendJSON(res, ct.status, ct.body);
+    }
+    const bodyParsed = await readOperatorRecoveryStrictJsonBody(req);
+    if (!bodyParsed.ok) {
+      return sendJSON(res, bodyParsed.status, bodyParsed.body);
+    }
     return emailDeltaOperatorRecoveryRoutes.handleReconcile(
-      body,
+      bodyParsed.body,
       req,
       res,
       auth.user,
