@@ -103,6 +103,13 @@ const MESSAGES_DELTA_PAGE_FAILURE_CODE = 'microsoft_graph_messages_delta_page_fa
 const MESSAGES_DELTA_PAGE_FAILURE_MESSAGE =
   'Microsoft Graph messages delta page request failed.';
 const MESSAGES_DELTA_PAGE_ERROR_NAME = 'MicrosoftGraphMessagesDeltaPageError';
+/**
+ * Non-enumerable options probe key for messages-delta continuation path owner.
+ * Attached only for the duration of issueRequest so retained options holders can
+ * prove owner.value is nulled after scrub; never enumerable / JSON-visible.
+ */
+const CONTINUATION_PATH_OWNER_PROBE = '_msDeltaContinuationPathOwner';
+
 /** Unforgeable private continuation-410 outcome (WeakMap brand only). */
 const MESSAGES_DELTA_OUTCOME_CURSOR_GONE = 'cursor_gone';
 const MESSAGES_DELTA_OUTCOMES_ALLOWED = Object.freeze([MESSAGES_DELTA_OUTCOME_CURSOR_GONE]);
@@ -1402,7 +1409,10 @@ function readMessagesDeltaInitialInput(input) {
 /**
  * Exact own-data input for messages-delta continuation page.
  * Validates cursor via PR408 `validateMessagesDeltaCursorUrl` before any network.
- * Returns requestPath = validated provider URL path+query (append nothing).
+ * Immediately after strict validation, returns one mutable path owner
+ * `{ value: path+query }` (validated provider URL path+query; append nothing).
+ * No immutable requestPath/cursor_url string fields on the result — caller input
+ * may still own its primitive cursor_url; transport holds only the owner object.
  */
 function readMessagesDeltaContinuationInput(input) {
   if (!exactPlainData(input, [
@@ -1442,12 +1452,12 @@ function readMessagesDeltaContinuationInput(input) {
   if (requestPath === null) {
     return null;
   }
+  // Single mutable continuation-path owner created immediately after validation.
+  // No parallel immutable string aliases (requestPath/cursor_url) on this object.
   return {
     accessToken: token,
     provider_mailbox_id: mailbox,
-    cursor_kind: cursorKind,
-    cursor_url: validated.value,
-    requestPath,
+    continuationPathOwner: { value: requestPath },
   };
 }
 
@@ -1724,11 +1734,16 @@ function resolveTransportDependencies(dependencies, brand) {
  * `{ envelopes, tombstones, successor_cursor, observed_count }`. When
  * `session.cursorGoneOn410` is true (continuation only), HTTP 410 brands
  * unforgeable `cursor_gone` via `readTrustedMessagesDeltaOutcome`.
- * Optional session.requestPathOverride: full path+query for a validated nextLink follow
- * (still Prefer-pinned; never caller-supplied without prior strict validation).
+ * Optional session.requestPathOverride: full path+query string for ImmutableId
+ * bounded-catchup nextLink follow only (still Prefer-pinned; never caller-supplied
+ * without prior strict validation). Messages-delta continuation never uses a
+ * string override: pass session.continuationPathOwner = `{ value }` only (single
+ * mutable capability owner; no destructured/const string path alias).
  * No generic success callback; modes are closed over module-private paths only.
  */
 function runDelegatedMessagesRequest(session, input) {
+  // Do not destructure requestPathOverride / continuationPathOwner.value —
+  // continuation capability must not become an immutable string const alias.
   const {
     requestFn,
     setTimer,
@@ -1736,7 +1751,6 @@ function runDelegatedMessagesRequest(session, input) {
     brand,
     mode,
     preferHeader,
-    requestPathOverride,
     cursorGoneOn410,
   } = session;
 
@@ -1749,6 +1763,11 @@ function runDelegatedMessagesRequest(session, input) {
   // delta path has no cursor capability; count/ImmutableId/bounded paths must
   // keep observable retained path for sibling verifiers.
   const scrubDeltaContinuationPath = deltaMode === true && cursorGoneOn410 === true;
+  // Mutable owner ref only for delta continuation — never copy .value into a
+  // long-lived string alias that outlives synchronous issueRequest.
+  let continuationPathOwner = scrubDeltaContinuationPath
+    ? session.continuationPathOwner
+    : null;
   if (immutableModes) {
     const parsed = readImmutableIdPageInput(input);
     if (parsed === null) return Promise.reject(failure('request_error', brand));
@@ -1756,8 +1775,11 @@ function runDelegatedMessagesRequest(session, input) {
     tokenOwner = parsed.accessToken;
     mailboxId = parsed.provider_mailbox_id;
     try { parsed.accessToken = null; } catch { /* */ }
-    if (typeof requestPathOverride === 'string' && requestPathOverride.length > 0) {
-      requestPath = requestPathOverride;
+    // Catch-up nextLink follow: session.requestPathOverride is a plain string
+    // (not delta cursor capability custody; path retention unchanged).
+    const catchupPathOverride = session.requestPathOverride;
+    if (typeof catchupPathOverride === 'string' && catchupPathOverride.length > 0) {
+      requestPath = catchupPathOverride;
     } else {
       requestPath = buildImmutableIdUserMessagesPath(mailboxId);
       if (requestPath === null) {
@@ -1767,7 +1789,8 @@ function runDelegatedMessagesRequest(session, input) {
     }
   } else if (deltaMode) {
     // Token + mailbox already validated by caller factory; input is pre-scrubbed
-    // plain data with accessToken + provider_mailbox_id (+ optional path override).
+    // plain data with accessToken + provider_mailbox_id. Continuation path is
+    // held only on session.continuationPathOwner (mutable); initial builds path.
     if (!exactPlainData(input, ['accessToken', 'provider_mailbox_id'])) {
       return Promise.reject(failure('request_error', brand));
     }
@@ -1782,8 +1805,16 @@ function runDelegatedMessagesRequest(session, input) {
     tokenOwner = token;
     mailboxId = mailbox;
     try { input.accessToken = null; } catch { /* */ }
-    if (typeof requestPathOverride === 'string' && requestPathOverride.length > 0) {
-      requestPath = requestPathOverride;
+    if (scrubDeltaContinuationPath) {
+      // Validate owner presence only — do not copy owner.value into requestPath.
+      // issueRequest consumes owner.value synchronously at request construction.
+      if (!continuationPathOwner
+          || typeof continuationPathOwner.value !== 'string'
+          || continuationPathOwner.value.length < 1) {
+        tokenOwner = null;
+        continuationPathOwner = null;
+        return Promise.reject(failure('request_error', brand));
+      }
     } else {
       requestPath = buildMessagesDeltaInitialPath(mailboxId);
       if (requestPath === null) {
@@ -1976,10 +2007,10 @@ function runDelegatedMessagesRequest(session, input) {
       // Isolate token/Authorization to this call site; scrub immediately after
       // https.request returns or throws (Node reads options synchronously).
       // Prefer is transport-owned when mode is immutableid_envelopes — never from input.
-      // Delta continuation: after requestFn sync-consumes options, scrub the
-      // cursor-bearing path on the same retained options object (and local path
-      // owners) so injected https.request cannot keep $skiptoken/$deltatoken.
-      (function issueRequest(tokenForRequest, pathForRequest) {
+      // Delta continuation: consume single mutable owner.value into options.path
+      // synchronously, then scrub retained options.path + owner.value + local refs
+      // so injected https.request cannot keep $skiptoken/$deltatoken.
+      (function issueRequest(tokenForRequest) {
         let requestHeaders = {
           Accept: ACCEPT_HEADER,
           Authorization: null,
@@ -1989,10 +2020,18 @@ function runDelegatedMessagesRequest(session, input) {
         }
         let authorization = null;
         let requestOptions = null;
+        let pathForRequest = null;
         try {
           authorization = ['Bearer', tokenForRequest].join(' ');
           tokenForRequest = null;
           requestHeaders.Authorization = authorization;
+          if (scrubDeltaContinuationPath) {
+            // Synchronous consume from the single mutable owner — no prior
+            // const/let string alias of the capability outside this scope.
+            pathForRequest = continuationPathOwner.value;
+          } else {
+            pathForRequest = requestPath;
+          }
           requestOptions = {
             protocol: GRAPH_REQUEST_CONSTANTS.protocol,
             hostname: GRAPH_REQUEST_CONSTANTS.hostname,
@@ -2003,6 +2042,18 @@ function runDelegatedMessagesRequest(session, input) {
             agent: GRAPH_REQUEST_CONSTANTS.agent,
             headers: requestHeaders,
           };
+          // Non-enumerable owner probe for retained-options custody proofs only.
+          // Not JSON-visible; value nulled in the same finally as options.path.
+          if (scrubDeltaContinuationPath && continuationPathOwner) {
+            try {
+              Object.defineProperty(requestOptions, CONTINUATION_PATH_OWNER_PROBE, {
+                value: continuationPathOwner,
+                enumerable: false,
+                writable: true,
+                configurable: true,
+              });
+            } catch { /* */ }
+          }
           requestObject = requestFn(requestOptions, onResponse);
         } finally {
           try {
@@ -2012,6 +2063,18 @@ function runDelegatedMessagesRequest(session, input) {
             try {
               if (requestOptions) requestOptions.path = null;
             } catch { /* */ }
+            try {
+              if (continuationPathOwner) continuationPathOwner.value = null;
+            } catch { /* */ }
+            try {
+              if (requestOptions
+                  && Object.prototype.hasOwnProperty.call(
+                    requestOptions,
+                    CONTINUATION_PATH_OWNER_PROBE,
+                  )) {
+                requestOptions[CONTINUATION_PATH_OWNER_PROBE] = null;
+              }
+            } catch { /* */ }
           }
           requestHeaders = null;
           authorization = null;
@@ -2019,15 +2082,22 @@ function runDelegatedMessagesRequest(session, input) {
           tokenForRequest = null;
           pathForRequest = null;
         }
-      }(tokenOwner, requestPath));
+      }(tokenOwner));
       tokenOwner = null;
       if (scrubDeltaContinuationPath) {
         requestPath = null;
+        continuationPathOwner = null;
+        try { session.continuationPathOwner = null; } catch { /* */ }
       }
     } catch {
       tokenOwner = null;
       if (scrubDeltaContinuationPath) {
+        try {
+          if (continuationPathOwner) continuationPathOwner.value = null;
+        } catch { /* */ }
         requestPath = null;
+        continuationPathOwner = null;
+        try { session.continuationPathOwner = null; } catch { /* */ }
       }
       terminate(fail('request_error'));
       return;
@@ -2317,6 +2387,7 @@ function createMicrosoftGraphMessagesDeltaPageTransport(dependencies = {}) {
       provider_mailbox_id: parsed.provider_mailbox_id,
     };
     try { parsed.accessToken = null; } catch { /* */ }
+    // Initial delta: no cursor capability owner; path built inside run.
     return runDelegatedMessagesRequest({
       requestFn: resolved.requestFn,
       setTimer: resolved.setTimer,
@@ -2324,7 +2395,6 @@ function createMicrosoftGraphMessagesDeltaPageTransport(dependencies = {}) {
       brand: MESSAGES_DELTA_FAILURE_BRAND,
       mode: 'messages_delta_page',
       preferHeader: PREFER_IMMUTABLE_ID,
-      requestPathOverride: null,
       cursorGoneOn410: false,
     }, pageInput).finally(() => {
       try { pageInput.accessToken = null; } catch { /* */ }
@@ -2332,7 +2402,7 @@ function createMicrosoftGraphMessagesDeltaPageTransport(dependencies = {}) {
   }
 
   function fetchContinuationPage(input) {
-    const parsed = readMessagesDeltaContinuationInput(input);
+    let parsed = readMessagesDeltaContinuationInput(input);
     if (parsed === null) {
       return Promise.reject(failure('request_error', MESSAGES_DELTA_FAILURE_BRAND));
     }
@@ -2340,19 +2410,29 @@ function createMicrosoftGraphMessagesDeltaPageTransport(dependencies = {}) {
       accessToken: parsed.accessToken,
       provider_mailbox_id: parsed.provider_mailbox_id,
     };
-    const requestPath = parsed.requestPath;
+    // Take the single mutable path owner created after strict validation.
+    // No const string requestPath / requestPathOverride alias across the boundary.
+    let continuationPathOwner = parsed.continuationPathOwner;
     try { parsed.accessToken = null; } catch { /* */ }
-    return runDelegatedMessagesRequest({
+    try { parsed.continuationPathOwner = null; } catch { /* */ }
+    parsed = null;
+    const session = {
       requestFn: resolved.requestFn,
       setTimer: resolved.setTimer,
       clearTimer: resolved.clearTimer,
       brand: MESSAGES_DELTA_FAILURE_BRAND,
       mode: 'messages_delta_page',
       preferHeader: PREFER_IMMUTABLE_ID,
-      requestPathOverride: requestPath,
+      continuationPathOwner,
       cursorGoneOn410: true,
-    }, pageInput).finally(() => {
+    };
+    return runDelegatedMessagesRequest(session, pageInput).finally(() => {
       try { pageInput.accessToken = null; } catch { /* */ }
+      try {
+        if (continuationPathOwner) continuationPathOwner.value = null;
+      } catch { /* */ }
+      continuationPathOwner = null;
+      try { session.continuationPathOwner = null; } catch { /* */ }
     });
   }
 

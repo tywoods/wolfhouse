@@ -243,8 +243,13 @@ function transportWith(httpsImpl, timers) {
  * Hostile https.request that retains the options object reference.
  * Asserts exact validated path + Authorization during the synchronous call
  * (must not weaken), then lets the transport scrub after return.
+ *
+ * Optional custodyProbe: plain object the transport-facing test can pre-plant
+ * so runtime proof can retain session/owner refs when the factory cooperates
+ * via the same mutable owner object (probe.owner set by test harness when
+ * intercepting). Always retains options.
  */
-function createContinuationRetainingHttps(behavior, expectedPath) {
+function createContinuationRetainingHttps(behavior, expectedPath, custodyProbe = null) {
   let retainedOptions = null;
   let pathDuringCall = null;
   let sawTokenDuringCall = false;
@@ -265,6 +270,22 @@ function createContinuationRetainingHttps(behavior, expectedPath) {
     assert.match(options.headers.Authorization, /^Bearer /);
     assert.equal(options.headers.Authorization.includes(TOKEN), true);
     assert.equal(options.headers.Prefer, PREFER_IMMUTABLE_ID);
+    if (custodyProbe) {
+      custodyProbe.options = options;
+      custodyProbe.pathDuring = options.path;
+      // Capture mutable continuation path owner during the sync call (non-enumerable
+      // probe on options). After issueRequest finally, owner.value must be null.
+      try {
+        const desc = Object.getOwnPropertyDescriptor(
+          options,
+          '_msDeltaContinuationPathOwner',
+        );
+        if (desc && desc.value && typeof desc.value === 'object') {
+          custodyProbe.owner = desc.value;
+          custodyProbe.ownerValueDuring = desc.value.value;
+        }
+      } catch { /* */ }
+    }
 
     if (behavior === 'throw') {
       throw new Error(`planted-continuation-request-throw-${PLANTED}`);
@@ -317,7 +338,7 @@ function createContinuationRetainingHttps(behavior, expectedPath) {
   };
 }
 
-function assertContinuationRetainedScrubbed(retained, label) {
+function assertContinuationRetainedScrubbed(retained, label, custodyProbe = null) {
   assert.ok(retained, `${label}: options must have been retained by hostile request`);
   assert.equal(Object.isFrozen(retained), false, `${label}: retained options must not be frozen`);
   assert.ok(retained.headers, `${label}: headers object still reachable`);
@@ -337,6 +358,41 @@ function assertContinuationRetainedScrubbed(retained, label) {
   assert.equal(text.includes('deltatoken'), false, `${label}: must not contain deltatoken key`);
   assert.equal(text.includes('NEVER_LEAK'), false, `${label}: must not contain planted secret`);
   assert.equal(noLeak(retained), true, `${label}: noLeak retained options`);
+  // When the harness retained the mutable owner during requestFn, prove:
+  // exact path was on owner.value during the call, and owner.value is null after.
+  if (custodyProbe) {
+    if (Object.prototype.hasOwnProperty.call(custodyProbe, 'pathDuring')) {
+      assert.equal(
+        custodyProbe.pathDuring,
+        expectedContinuationPath(),
+        `${label}: exact path was visible during request`,
+      );
+    }
+    assert.ok(
+      custodyProbe.owner && typeof custodyProbe.owner === 'object',
+      `${label}: owner ref must be retained during request via non-enumerable probe`,
+    );
+    assert.equal(
+      custodyProbe.ownerValueDuring,
+      expectedContinuationPath(),
+      `${label}: owner.value exact path during request`,
+    );
+    assert.equal(
+      custodyProbe.owner.value,
+      null,
+      `${label}: owner.value null after issue (got ${ser(custodyProbe.owner.value)})`,
+    );
+    // Probe slot on retained options must not keep the owner object after scrub.
+    const afterDesc = Object.getOwnPropertyDescriptor(
+      retained,
+      '_msDeltaContinuationPathOwner',
+    );
+    assert.equal(
+      afterDesc && afterDesc.value,
+      null,
+      `${label}: options owner-probe slot nulled after issue`,
+    );
+  }
 }
 
 function createTrapCountingSurface(baseEmitter, trapHits) {
@@ -527,6 +583,71 @@ async function main() {
       );
       // Import inert: requiring modules must not open sockets.
       ok('import-inert-already-required', true);
+
+      // Continuation capability custody: single mutable owner; no const string aliases.
+      {
+        const runIdx = messagesSrc.indexOf('function runDelegatedMessagesRequest');
+        const runEnd = messagesSrc.indexOf('\nfunction createMicrosoftGraphDelegatedMessagesTransport');
+        const runBody = runIdx >= 0 && runEnd > runIdx
+          ? messagesSrc.slice(runIdx, runEnd)
+          : '';
+        const factoryIdx = messagesSrc.indexOf('function createMicrosoftGraphMessagesDeltaPageTransport');
+        const factoryBody = factoryIdx >= 0
+          ? messagesSrc.slice(factoryIdx, messagesSrc.indexOf('module.exports', factoryIdx))
+          : '';
+        const readerIdx = messagesSrc.indexOf('function readMessagesDeltaContinuationInput');
+        const readerEnd = messagesSrc.indexOf('\nfunction classifyMessagesDeltaDeletedRow');
+        const readerBody = readerIdx >= 0 && readerEnd > readerIdx
+          ? messagesSrc.slice(readerIdx, readerEnd)
+          : '';
+        const contFetchIdx = factoryBody.indexOf('function fetchContinuationPage');
+        const contFetchBody = contFetchIdx >= 0
+          ? factoryBody.slice(contFetchIdx)
+          : '';
+
+        // runDelegatedMessagesRequest must not destructure requestPathOverride into a const alias.
+        const runDestructure = runBody.match(/const\s*\{[\s\S]*?\}\s*=\s*session/);
+        ok(
+          'src-run-no-destructured-requestPathOverride',
+          runBody.length > 0
+            && runDestructure
+            && !/requestPathOverride/.test(runDestructure[0])
+            && !/continuationPathOwner/.test(runDestructure[0]),
+          runDestructure ? runDestructure[0].slice(0, 200) : 'missing destructure',
+        );
+        ok(
+          'src-continuation-mutable-path-owner',
+          /continuationPathOwner\s*:\s*\{\s*value:\s*requestPath\s*\}/.test(readerBody)
+            && /continuationPathOwner/.test(contFetchBody)
+            && /continuationPathOwner\.value\s*=\s*null/.test(runBody)
+            && /session\.continuationPathOwner\s*=\s*null/.test(runBody),
+        );
+        ok(
+          'src-no-continuation-const-requestPath-alias',
+          contFetchBody.length > 0
+            && !/const\s+requestPath\s*=\s*parsed\.requestPath/.test(contFetchBody)
+            && !/requestPathOverride\s*:\s*requestPath/.test(contFetchBody)
+            && !/requestPathOverride\s*:\s*parsed/.test(contFetchBody),
+        );
+        ok(
+          'src-reader-no-immutable-path-string-fields',
+          readerBody.length > 0
+            && !/requestPath\s*,/.test(readerBody.split('return')[1] || '')
+            && !/cursor_url\s*:\s*validated/.test(readerBody)
+            && /continuationPathOwner\s*:\s*\{\s*value:\s*requestPath\s*\}/.test(readerBody),
+        );
+        ok(
+          'src-issueRequest-consumes-owner-value-sync',
+          /scrubDeltaContinuationPath[\s\S]*?pathForRequest\s*=\s*continuationPathOwner\.value/.test(runBody)
+            && /if\s*\(requestOptions\)\s*requestOptions\.path\s*=\s*null/.test(runBody),
+        );
+        ok(
+          'src-fetchContinuation-nulls-parsed-and-owner',
+          /parsed\s*=\s*null/.test(contFetchBody)
+            && /continuationPathOwner\.value\s*=\s*null/.test(contFetchBody)
+            && /session\.continuationPathOwner\s*=\s*null/.test(contFetchBody),
+        );
+      }
     }
 
     // ── Happy initial: envelopes + successor deltaLink ────────────────────
@@ -828,86 +949,110 @@ async function main() {
         && dto.successor_cursor.cursor_kind === 'deltaLink');
     }
 
-    // ── Hostile retained options: scrub Authorization + continuation path ──
+    // ── Hostile retained options + continuation path owner custody ───────
     // After requestFn sync-consumes options, retained holders must not keep
-    // Bearer or $skiptoken/$deltatoken. Synchronous request still sees exact
-    // validated path + token (asserted inside retaining request). Covers
-    // success / failure / throw / timeout / 410.
+    // Bearer or $skiptoken/$deltatoken. Exact validated path still visible
+    // during the synchronous call. Public caller input may keep its primitive
+    // cursor_url; transport must not retain extra internal path copies after
+    // the boundary. Covers success / async error / http / throw / timeout / 410.
     {
       const contPath = expectedContinuationPath();
 
+      async function runRetainedContinuationCase(behavior, label, run) {
+        const probe = {};
+        const hostile = createContinuationRetainingHttps(behavior, contPath, probe);
+        const callerInput = goodContinuation();
+        const callerCursorUrl = callerInput.cursor_url;
+        await run(hostile, callerInput);
+        ok(
+          `${label}-saw-exact-path-during`,
+          hostile.sawTokenDuringCall() === true
+            && hostile.sawExactPathDuringCall() === true
+            && hostile.pathDuringCall() === contPath
+            && probe.pathDuring === contPath,
+        );
+        try {
+          assertContinuationRetainedScrubbed(
+            hostile.getRetainedOptions(),
+            label,
+            probe,
+          );
+          ok(`${label}-options-scrubbed`, true);
+        } catch (err) {
+          ok(`${label}-options-scrubbed`, false, err && err.message);
+        }
+        // Caller-owned primitive cursor_url may remain; transport responsibility
+        // is no additional retained internal copy (options.path null above).
+        ok(
+          `${label}-caller-still-owns-cursorUrl`,
+          callerInput.cursor_url === callerCursorUrl
+            && typeof callerInput.cursor_url === 'string'
+            && callerInput.cursor_url.includes(SKIP_TOKEN),
+        );
+        return { hostile, probe, callerInput };
+      }
+
       // Success
       {
-        const hostile = createContinuationRetainingHttps('success', contPath);
-        const dto = await transportWith(hostile.request)
-          .fetchContinuationPage(goodContinuation());
-        ok('retained-cont-success-saw-token-during', hostile.sawTokenDuringCall() === true);
-        ok('retained-cont-success-saw-path-during', hostile.sawExactPathDuringCall() === true
-          && hostile.pathDuringCall() === contPath);
-        try {
-          assertContinuationRetainedScrubbed(hostile.getRetainedOptions(), 'cont-success');
-          ok('retained-cont-success-scrubbed', true);
-        } catch (err) {
-          ok('retained-cont-success-scrubbed', false, err && err.message);
-        }
+        let dto;
+        await runRetainedContinuationCase(
+          'success',
+          'retained-cont-success',
+          async (hostile, input) => {
+            dto = await transportWith(hostile.request).fetchContinuationPage(input);
+          },
+        );
         ok('retained-cont-success-dto', dto && dto.successor_cursor
           && dto.successor_cursor.cursor_kind === 'deltaLink');
       }
 
       // Async stream failure
       {
-        const hostile = createContinuationRetainingHttps('async-error', contPath);
-        await mustFailStage(
-          () => transportWith(hostile.request).fetchContinuationPage(goodContinuation()),
-          'stream_invalid',
+        await runRetainedContinuationCase(
+          'async-error',
+          'retained-cont-async-error',
+          async (hostile, input) => {
+            await mustFailStage(
+              () => transportWith(hostile.request).fetchContinuationPage(input),
+              'stream_invalid',
+            );
+          },
         );
-        ok('retained-cont-async-error-saw-during', hostile.sawTokenDuringCall() === true
-          && hostile.sawExactPathDuringCall() === true);
-        try {
-          assertContinuationRetainedScrubbed(hostile.getRetainedOptions(), 'cont-async-error');
-          ok('retained-cont-async-error-scrubbed', true);
-        } catch (err) {
-          ok('retained-cont-async-error-scrubbed', false, err && err.message);
-        }
       }
 
       // HTTP non-200 failure (not 410)
       {
-        const hostile = createContinuationRetainingHttps('http-fail', contPath);
-        await mustFailStage(
-          () => transportWith(hostile.request).fetchContinuationPage(goodContinuation()),
-          'http_status_not_200',
+        await runRetainedContinuationCase(
+          'http-fail',
+          'retained-cont-http-fail',
+          async (hostile, input) => {
+            await mustFailStage(
+              () => transportWith(hostile.request).fetchContinuationPage(input),
+              'http_status_not_200',
+            );
+          },
         );
-        ok('retained-cont-http-fail-saw-during', hostile.sawTokenDuringCall() === true
-          && hostile.sawExactPathDuringCall() === true);
-        try {
-          assertContinuationRetainedScrubbed(hostile.getRetainedOptions(), 'cont-http-fail');
-          ok('retained-cont-http-fail-scrubbed', true);
-        } catch (err) {
-          ok('retained-cont-http-fail-scrubbed', false, err && err.message);
-        }
       }
 
       // Sync throw from requestFn
       {
-        const hostile = createContinuationRetainingHttps('throw', contPath);
-        await mustFailStage(
-          () => transportWith(hostile.request).fetchContinuationPage(goodContinuation()),
-          'request_error',
+        await runRetainedContinuationCase(
+          'throw',
+          'retained-cont-throw',
+          async (hostile, input) => {
+            await mustFailStage(
+              () => transportWith(hostile.request).fetchContinuationPage(input),
+              'request_error',
+            );
+          },
         );
-        ok('retained-cont-throw-saw-during', hostile.sawTokenDuringCall() === true
-          && hostile.sawExactPathDuringCall() === true);
-        try {
-          assertContinuationRetainedScrubbed(hostile.getRetainedOptions(), 'cont-throw');
-          ok('retained-cont-throw-scrubbed', true);
-        } catch (err) {
-          ok('retained-cont-throw-scrubbed', false, err && err.message);
-        }
       }
 
       // Timeout (hang request; deadline fires). Scrub is sync after request create.
       {
-        const hostile = createContinuationRetainingHttps('hang', contPath);
+        const probe = {};
+        const hostile = createContinuationRetainingHttps('hang', contPath, probe);
+        const callerInput = goodContinuation();
         let cleared = false;
         const timers = {
           setTimeout: (fn) => {
@@ -917,13 +1062,15 @@ async function main() {
           clearTimeout: () => { cleared = true; },
         };
         const hangPromise = transportWith(hostile.request, timers)
-          .fetchContinuationPage(goodContinuation());
+          .fetchContinuationPage(callerInput);
         ok('retained-cont-timeout-saw-during', hostile.sawTokenDuringCall() === true
-          && hostile.sawExactPathDuringCall() === true);
+          && hostile.sawExactPathDuringCall() === true
+          && probe.pathDuring === contPath);
         try {
           assertContinuationRetainedScrubbed(
             hostile.getRetainedOptions(),
             'cont-timeout-after-create',
+            probe,
           );
           ok('retained-cont-timeout-scrubbed-after-create', true);
         } catch (err) {
@@ -931,32 +1078,37 @@ async function main() {
         }
         await mustFailStage(() => hangPromise, 'timeout');
         try {
-          assertContinuationRetainedScrubbed(hostile.getRetainedOptions(), 'cont-timeout-after');
+          assertContinuationRetainedScrubbed(
+            hostile.getRetainedOptions(),
+            'cont-timeout-after',
+            probe,
+          );
           ok('retained-cont-timeout-scrubbed-after', true);
         } catch (err) {
           ok('retained-cont-timeout-scrubbed-after', false, err && err.message);
         }
+        ok(
+          'retained-cont-timeout-caller-owns-cursorUrl',
+          callerInput.cursor_url.includes(SKIP_TOKEN),
+        );
         ok('retained-cont-timeout-cleared-flag', typeof cleared === 'boolean');
       }
 
       // Continuation 410 → cursor_gone; retained path/auth still scrubbed
       {
-        const hostile = createContinuationRetainingHttps('410', contPath);
-        await assert.rejects(
-          () => transportWith(hostile.request).fetchContinuationPage(goodContinuation()),
-          (err) => err.code === FAILURE_CODE
-            && readTrustedMessagesDeltaOutcome(err) === 'cursor_gone'
-            && readTrustedGraphStage(err) === 'http_status_not_200'
-            && noLeak(err),
+        await runRetainedContinuationCase(
+          '410',
+          'retained-cont-410',
+          async (hostile, input) => {
+            await assert.rejects(
+              () => transportWith(hostile.request).fetchContinuationPage(input),
+              (err) => err.code === FAILURE_CODE
+                && readTrustedMessagesDeltaOutcome(err) === 'cursor_gone'
+                && readTrustedGraphStage(err) === 'http_status_not_200'
+                && noLeak(err),
+            );
+          },
         );
-        ok('retained-cont-410-saw-during', hostile.sawTokenDuringCall() === true
-          && hostile.sawExactPathDuringCall() === true);
-        try {
-          assertContinuationRetainedScrubbed(hostile.getRetainedOptions(), 'cont-410');
-          ok('retained-cont-410-scrubbed', true);
-        } catch (err) {
-          ok('retained-cont-410-scrubbed', false, err && err.message);
-        }
       }
 
       // Initial delta path has no cursor capability — retained path may remain.
