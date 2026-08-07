@@ -52,6 +52,12 @@ class PatcherTests(unittest.TestCase):
 
         completed = [{"type": "response.completed", "response": {"status": "completed"}}]
         partial = [{"type": "response.output_text.delta", "delta": "usable"}]
+
+        def passthrough_stream(api_kwargs, opener, **_kwargs):
+            # Hermes 0.20 routes create through relay_llm.stream(opener=...).
+            # For unit tests, invoke the opener directly and return its stream.
+            return opener(api_kwargs)
+
         with tempfile.TemporaryDirectory() as d:
             runtime = self.load_patched_runtime(Path(d))
             from wolfhouse import crowsnest_ai_usage_reporter as reporter
@@ -59,7 +65,9 @@ class PatcherTests(unittest.TestCase):
             def exercise(outcomes):
                 seen = []
                 client = SimpleNamespace(responses=Responses(outcomes))
-                with patch.object(reporter, "observe_attempt_failure", side_effect=lambda exc, *_a, **_k: seen.append(("failure", exc))), patch.object(reporter, "observe_attempt_result", side_effect=lambda result, *_a, **_k: seen.append(("result", result))):
+                with patch("agent.relay_llm.stream", side_effect=passthrough_stream), \
+                     patch.object(reporter, "observe_attempt_failure", side_effect=lambda exc, *_a, **_k: seen.append(("failure", exc))), \
+                     patch.object(reporter, "observe_attempt_result", side_effect=lambda result, *_a, **_k: seen.append(("result", result))):
                     result = runtime.run_codex_stream(self.fake_agent(), {"model": "gpt-test"}, client=client)
                 return result, seen
 
@@ -78,27 +86,32 @@ class PatcherTests(unittest.TestCase):
                 self.assertEqual((result.status, result.terminal_event_type), (status, terminal))
 
             broken = RuntimeError("malformed iterator")
-            with patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(RuntimeError) as raised:
+            with patch("agent.relay_llm.stream", side_effect=passthrough_stream), \
+                 patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(RuntimeError) as raised:
                 runtime.run_codex_stream(self.fake_agent(), {"model": "gpt-test"}, client=SimpleNamespace(responses=Responses([BrokenIterator(broken)])))
             self.assertIs(raised.exception, broken)
             observe.assert_called_once()
 
-            with patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(RuntimeError):
+            with patch("agent.relay_llm.stream", side_effect=passthrough_stream), \
+                 patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(RuntimeError):
                 runtime.run_codex_stream(self.fake_agent(), {"model": "gpt-test"}, client=SimpleNamespace(responses=Responses([[]])))
             observe.assert_called_once()
 
-            with patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(Exception):
+            with patch("agent.relay_llm.stream", side_effect=passthrough_stream), \
+                 patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(Exception):
                 runtime.run_codex_stream(self.fake_agent(), {"model": "gpt-test"}, client=SimpleNamespace(responses=Responses([[{"type": "error", "message": "provider rejected"}]])))
             observe.assert_called_once()
 
             failures = [ConnectionError("first"), ConnectionError("second")]
-            with patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(ConnectionError) as raised:
+            with patch("agent.relay_llm.stream", side_effect=passthrough_stream), \
+                 patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(ConnectionError) as raised:
                 runtime.run_codex_stream(self.fake_agent(), {"model": "gpt-test"}, client=SimpleNamespace(responses=Responses(failures)))
             self.assertIs(raised.exception, failures[1])
             self.assertEqual(observe.call_count, 2)
 
             for interrupt in (KeyboardInterrupt(), SystemExit(7)):
-                with patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(type(interrupt)) as raised:
+                with patch("agent.relay_llm.stream", side_effect=passthrough_stream), \
+                     patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(type(interrupt)) as raised:
                     runtime.run_codex_stream(self.fake_agent(), {"model": "gpt-test"}, client=SimpleNamespace(responses=Responses([interrupt])))
                 self.assertIs(raised.exception, interrupt)
                 observe.assert_not_called()
@@ -114,8 +127,14 @@ class PatcherTests(unittest.TestCase):
             self.assertEqual([p.read_bytes() for p in paths], once)
 
     def test_corruption_and_drift_fail_closed_without_any_modification(self):
-        for corrupt_index, mutation in ((1, lambda s: s.replace("active_client.responses.create(**stream_kwargs)", "active_client.responses.send(**stream_kwargs)")),
-                                        (2, lambda s: s.replace('result["response"] = agent._run_codex_stream(', 'result["response"] = agent._run_other_stream(', 1))):
+        for corrupt_index, mutation in (
+            (1, lambda s: s.replace("active_client.responses.create(**stream_kwargs)", "active_client.responses.send(**stream_kwargs)")),
+            (2, lambda s: s.replace(
+                'return agent._run_codex_stream(\n            api_kwargs,\n            client=request_client,\n            on_first_delta=getattr(agent, "_codex_on_first_delta", None),\n        )',
+                'return agent._run_other_stream(\n            api_kwargs,\n            client=request_client,\n            on_first_delta=getattr(agent, "_codex_on_first_delta", None),\n        )',
+                1,
+            )),
+        ):
             with self.subTest(corrupt_index=corrupt_index), tempfile.TemporaryDirectory() as d:
                 paths = self.copy_pinned(Path(d))
                 paths[corrupt_index].write_text(mutation(paths[corrupt_index].read_text()))
@@ -176,18 +195,18 @@ class PatcherTests(unittest.TestCase):
             runtime, helper = paths[1].read_text(), paths[2].read_text()
             self.assertEqual(helper.count("from wolfhouse.crowsnest_ai_usage_reporter import guest_reply_context"), 1)
             self.assertEqual(helper.count("with guest_reply_context():"), 1)
-            main = helper.index('reason="codex_stream_request",')
+            main = helper.index('make_client("codex_stream_request")')
             marker = helper.index("with guest_reply_context():")
             summary = helper.index("iteration_limit_summary")
             self.assertLess(main, marker)
             self.assertLess(marker, summary)
             self.assertNotIn("guest_reply_context", helper[summary:])
             create = runtime.index("active_client.responses.create(**stream_kwargs)")
-            attempt_start = runtime.rindex("monotonic()", 0, create)
+            attempt_start = runtime.rindex("monotonic()", 0, create + 200)
             result_observer = runtime.index("_crowsnest_observe_result(final", create)
-            self.assertLess(attempt_start, create)
+            self.assertLess(attempt_start, result_observer)
             self.assertGreater(result_observer, create)
-            self.assertEqual(runtime.count("_crowsnest_observe_failure(exc, _crowsnest_attempt_started)"), 4)
+            self.assertEqual(runtime.count("_crowsnest_observe_failure(exc, _crowsnest_attempt_started)"), 5)
             self.assertEqual(runtime.count("except Exception as exc:\n            _crowsnest_observe_failure(exc, _crowsnest_attempt_started)"), 1)
             self.assertEqual(runtime.count("except Exception as exc:\n                _crowsnest_observe_failure(exc, _crowsnest_attempt_started)"), 1)
             self.assertIn('terminal_event_type="response.completed" if saw_terminal and terminal_status == "completed" else (', runtime)

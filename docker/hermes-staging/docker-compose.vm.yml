@@ -8,8 +8,12 @@ services:
       - "8642:8642"
     volumes:
       - /var/lib/hermes-orchestrator:/opt/data
-      - /var/lib/hermes-shared:/opt/data/.auth-shared
+      # OpenAI clone source only — do NOT mount as HERMES_HOME/.auth-shared.
+      # That path lets Hermes rediscover Anthropic OAuth from the shared pool
+      # and puke Claude "extra usage" 400s into Discord while main chat is Codex.
+      - /var/lib/hermes-shared:/var/lib/hermes-shared:ro
       - /opt/wolfhouse/WH:/opt/wolfhouse/WH:ro
+      - /opt/wolfhouse/WH/docker/hermes-staging/bootstrap.sh:/etc/cont-init.d/99-wh-staging-bootstrap:ro
       - /opt/wolfhouse/WH/docker/hermes-staging/99z-wh-vm-post-bootstrap.sh:/etc/cont-init.d/99z-wh-vm-post-bootstrap:ro
     environment:
       HERMES_HOME: /opt/data

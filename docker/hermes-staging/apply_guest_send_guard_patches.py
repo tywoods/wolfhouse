@@ -60,7 +60,13 @@ WHATSAPP_SEND_GUARD = """
             pass
 """
 
-WHATSAPP_EXEC_APPROVAL_ANCHOR = '        if self._http_client is None:\n            return SendResult(success=False, error="Not connected")\n\n        # WhatsApp body caps at 1024 chars'
+WHATSAPP_EXEC_APPROVAL_ANCHOR = (
+    '        if self._http_client is None:\n'
+    '            return SendResult(success=False, error="Not connected")\n\n'
+    '        del allow_permanent, allow_session  # This adapter already offers one-shot Approve / Deny only.\n'
+    '        # WhatsApp body caps at 1024 chars; reserve room for the\n'
+    '        # framing prose around the command.'
+)
 WHATSAPP_EXEC_APPROVAL_PATCH = """        if self._http_client is None:
             return SendResult(success=False, error="Not connected")
         try:
@@ -70,7 +76,9 @@ WHATSAPP_EXEC_APPROVAL_PATCH = """        if self._http_client is None:
         except Exception:
             pass
 
-        # WhatsApp body caps at 1024 chars"""
+        del allow_permanent, allow_session  # This adapter already offers one-shot Approve / Deny only.
+        # WhatsApp body caps at 1024 chars; reserve room for the
+        # framing prose around the command."""
 
 WHATSAPP_SLASH_CONFIRM_ANCHOR = '        if self._http_client is None:\n            return SendResult(success=False, error="Not connected")\n\n        body_text = self._truncate_body(f"*{title}*'
 WHATSAPP_SLASH_CONFIRM_PATCH = """        if self._http_client is None:
@@ -84,8 +92,8 @@ WHATSAPP_SLASH_CONFIRM_PATCH = """        if self._http_client is None:
 
         body_text = self._truncate_body(f"*{title}*"""
 
-STT_ECHO_BLOCK_OLD = """                if _successful_transcripts:
-                    _echo_adapter = self.adapters.get(source.platform)
+STT_ECHO_BLOCK_OLD = """                if _successful_transcripts and self._should_echo_stt_transcripts():
+                    _echo_adapter = self._adapter_for_source(source)
                     _echo_meta = self._thread_metadata_for_source(source, self._reply_anchor_for_event(event))
                     if _echo_adapter:
                         for _tx in _successful_transcripts:
@@ -100,14 +108,14 @@ STT_ECHO_BLOCK_OLD = """                if _successful_transcripts:
                                     "Transcript echo failed (non-fatal): %s", _echo_exc,
                                 )"""
 
-STT_ECHO_BLOCK_NEW = """                if _successful_transcripts:
+STT_ECHO_BLOCK_NEW = """                if _successful_transcripts and self._should_echo_stt_transcripts():
                     try:
                         from wolfhouse.guest_send_guard import guest_stt_echo_enabled
                         _wh_echo = guest_stt_echo_enabled(source=source)
                     except Exception:
                         _wh_echo = False
                     if _wh_echo:
-                        _echo_adapter = self.adapters.get(source.platform)
+                        _echo_adapter = self._adapter_for_source(source)
                         _echo_meta = self._thread_metadata_for_source(source, self._reply_anchor_for_event(event))
                         if _echo_adapter:
                             for _tx in _successful_transcripts:
@@ -122,6 +130,9 @@ STT_ECHO_BLOCK_NEW = """                if _successful_transcripts:
                                         "Transcript echo failed (non-fatal): %s", _echo_exc,
                                     )"""
 
+# Upstream Hermes >=0.20 removed the hardcoded STT-unavailable guest notice
+# (it was producing double replies / wrong-language TTS). Keep these strings
+# for older bases; apply_run_patch treats them as optional when missing.
 STT_FAIL_SEND_BLOCK_OLD = r"""                if any(marker in message_text for marker in _stt_fail_markers):
                     _stt_adapter = self.adapters.get(source.platform)
                     _stt_meta = self._thread_metadata_for_source(source, self._reply_anchor_for_event(event))
@@ -211,7 +222,7 @@ FOOTER_APPEND_NEW = (
 
 FOOTER_TRAILING_OLD = """                if _footer_line:
                     try:
-                        _foot_adapter = self.adapters.get(source.platform)
+                        _foot_adapter = self._adapter_for_source(source)
                         if _foot_adapter:
                             await _foot_adapter.send(
                                 source.chat_id,
@@ -230,7 +241,7 @@ FOOTER_TRAILING_NEW = """                if _footer_line:
                         pass
                     if _footer_line:
                         try:
-                            _foot_adapter = self.adapters.get(source.platform)
+                            _foot_adapter = self._adapter_for_source(source)
                             if _foot_adapter:
                                 await _foot_adapter.send(
                                     source.chat_id,
@@ -240,42 +251,42 @@ FOOTER_TRAILING_NEW = """                if _footer_line:
                         except Exception as _e:
                             logger.debug("trailing footer send failed: %s", _e)"""
 
-APPROVAL_GUARD_OLD = """                cmd = approval_data.get("command", "")
-                desc = approval_data.get("description", "dangerous command")
+APPROVAL_GUARD_OLD = """            cmd = approval_data.get("command", "")
+            desc = approval_data.get("description", "dangerous command")
 
-                # Redact credentials from the command before displaying it in
-                # the approval prompt — Tirith's findings are already redacted,
-                # but the raw command string still leaks secrets to the chat
-                # platform (#48456). Applied here so BOTH the button-based
-                # (send_exec_approval) and plain-text fallback paths below use
-                # the redacted value.
-                cmd = _redact_approval_command(cmd)
+            # Redact credentials from the command before displaying it in
+            # the approval prompt — Tirith's findings are already redacted,
+            # but the raw command string still leaks secrets to the chat
+            # platform (#48456). Applied here so BOTH the button-based
+            # (send_exec_approval) and plain-text fallback paths below use
+            # the redacted value.
+            cmd = _redact_approval_command(cmd)
 
-                # Prefer button-based approval when the adapter supports it."""
+            # Prefer button-based approval when the adapter supports it."""
 
-APPROVAL_GUARD_NEW = """                cmd = approval_data.get("command", "")
-                desc = approval_data.get("description", "dangerous command")
+APPROVAL_GUARD_NEW = """            cmd = approval_data.get("command", "")
+            desc = approval_data.get("description", "dangerous command")
 
-                # Redact credentials from the command before displaying it in
-                # the approval prompt — Tirith's findings are already redacted,
-                # but the raw command string still leaks secrets to the chat
-                # platform (#48456). Applied here so BOTH the button-based
-                # (send_exec_approval) and plain-text fallback paths below use
-                # the redacted value.
-                cmd = _redact_approval_command(cmd)
+            # Redact credentials from the command before displaying it in
+            # the approval prompt — Tirith's findings are already redacted,
+            # but the raw command string still leaks secrets to the chat
+            # platform (#48456). Applied here so BOTH the button-based
+            # (send_exec_approval) and plain-text fallback paths below use
+            # the redacted value.
+            cmd = _redact_approval_command(cmd)
 
-                try:
-                    from wolfhouse.guest_send_guard import is_luna_guest_whatsapp
-                    if is_luna_guest_whatsapp(adapter=_status_adapter):
-                        logger.info(
-                            "Wolfhouse: suppressed exec approval prompt for guest WhatsApp (cmd=%s)",
-                            (cmd or "")[:120],
-                        )
-                        return
-                except Exception:
-                    pass
+            try:
+                from wolfhouse.guest_send_guard import is_luna_guest_whatsapp
+                if is_luna_guest_whatsapp(adapter=ctx._status_adapter):
+                    logger.info(
+                        "Wolfhouse: suppressed exec approval prompt for guest WhatsApp (cmd=%s)",
+                        (cmd or "")[:120],
+                    )
+                    return
+            except Exception:
+                pass
 
-                # Prefer button-based approval when the adapter supports it."""
+            # Prefer button-based approval when the adapter supports it."""
 
 
 def _compile_check(path: Path) -> None:
@@ -296,6 +307,18 @@ def _patch_once(text: str, old: str, new: str, label: str) -> tuple[str, bool]:
         raise RuntimeError(f"{label}: anchor not found")
     patched = text_n.replace(old_n, new_n, 1)
     return patched, True
+
+
+def _patch_optional(text: str, old: str, new: str) -> tuple[str, bool, str]:
+    """Like _patch_once, but missing anchors are treated as already-upstream."""
+    text_n = _norm_lines(text)
+    old_n = _norm_lines(old)
+    new_n = _norm_lines(new)
+    if new_n in text_n:
+        return text_n, False, "already"
+    if old_n not in text_n:
+        return text_n, False, "upstream_absent"
+    return text_n.replace(old_n, new_n, 1), True, "patched"
 
 
 def _inject_whatsapp_send_guard(text: str) -> tuple[str, bool]:
@@ -349,16 +372,23 @@ def apply_whatsapp_cloud_patch(path: Path) -> dict:
 def apply_run_patch(path: Path) -> dict:
     text = _norm_lines(path.read_text(encoding="utf-8"))
     results = {}
-    for key, old, new in (
+    required = (
         ("stt_echo", STT_ECHO_BLOCK_OLD, STT_ECHO_BLOCK_NEW),
-        ("stt_fail_send", STT_FAIL_SEND_BLOCK_OLD, STT_FAIL_SEND_BLOCK_NEW),
-        ("stt_agent_note", STT_AGENT_NOTE_OLD, STT_AGENT_NOTE_NEW),
         ("footer_append", FOOTER_APPEND_OLD, FOOTER_APPEND_NEW),
         ("footer_trailing", FOOTER_TRAILING_OLD, FOOTER_TRAILING_NEW),
         ("approval_guard", APPROVAL_GUARD_OLD, APPROVAL_GUARD_NEW),
-    ):
+    )
+    optional = (
+        ("stt_fail_send", STT_FAIL_SEND_BLOCK_OLD, STT_FAIL_SEND_BLOCK_NEW),
+        ("stt_agent_note", STT_AGENT_NOTE_OLD, STT_AGENT_NOTE_NEW),
+    )
+    for key, old, new in required:
         text, changed = _patch_once(text, old, new, f"run.{key}")
         results[key] = changed or (new in text)
+    for key, old, new in optional:
+        text, changed, status = _patch_optional(text, old, new)
+        results[key] = changed or status in ("already", "upstream_absent")
+        results[f"{key}_status"] = status
     path.write_text(text, encoding="utf-8")
     _compile_check(path)
     results["path"] = str(path)

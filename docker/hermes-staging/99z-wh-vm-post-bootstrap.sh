@@ -1,10 +1,9 @@
 #!/bin/sh
 # VM overlay: shared auth.json symlink + orchestrator (Skipper) model override.
 #
-# Luna's model config (Codex gpt-5.5 primary, Anthropic Claude fallback) is baked
-# into the image by 99-wh-staging-bootstrap (bootstrap.sh). Orchestrator (Discord
-# "Skipper") is overridden here until the image ships the same primary — so
-# restarts don't snap back to Claude Opus.
+# Luna's model config (Codex primary, Anthropic Claude fallback) is baked into
+# the image by 99-wh-staging-bootstrap (bootstrap.sh). Orchestrator (Discord
+# "Skipper") is OpenAI-only here (openai-codex, no Anthropic fallback).
 set -eu
 
 if [ -d /run/s6/container_environment ]; then
@@ -27,9 +26,31 @@ agent:
   reasoning_effort: low
 compression:
   codex_gpt55_autoraise: false
-fallback_providers:
-  - provider: anthropic
-    model: anthropic/claude-sonnet-4-6
+# OpenAI only — no Anthropic fallback (Claude Max third-party extra-usage 400).
+fallback_providers: []
+# Pin aux tasks to Codex so provider:auto cannot discover Anthropic OAuth
+# from the shared pool / built-in payment-fallback chain.
+auxiliary:
+  vision:
+    provider: openai-codex
+  web_extract:
+    provider: openai-codex
+  compression:
+    provider: openai-codex
+  skills_hub:
+    provider: openai-codex
+  approval:
+    provider: openai-codex
+  mcp:
+    provider: openai-codex
+  title_generation:
+    provider: openai-codex
+  background_review:
+    provider: openai-codex
+  curator:
+    provider: openai-codex
+  session_search:
+    provider: openai-codex
 curator:
   enabled: false
 terminal:
@@ -38,10 +59,65 @@ gateway:
   platforms:
     discord:
       require_mention: false
+      thread_require_mention: false
 EOF
+  # Skipper must NOT share the multi-provider auth pool. Shared auth.json also
+  # holds Anthropic + xAI; Hermes still probes exhausted Anthropic OAuth and
+  # posts the "extra usage" 400 into Discord. Clone openai-codex only into a
+  # real local auth.json — never symlink back to the shared pool, and never
+  # copy this openai-only file over shared (would wipe Luna/Deckhand creds).
+  # Shared file is mounted at /var/lib/hermes-shared (NOT $HERMES_HOME/.auth-shared).
+  _SHARED_AUTH=""
+  if [ -f /var/lib/hermes-shared/auth.json ]; then
+    _SHARED_AUTH=/var/lib/hermes-shared/auth.json
+  elif [ -f "$HERMES_HOME/.auth-shared/auth.json" ]; then
+    _SHARED_AUTH="$HERMES_HOME/.auth-shared/auth.json"
+  fi
+  if [ -n "$_SHARED_AUTH" ]; then
+    HERMES_HOME="$HERMES_HOME" SHARED_AUTH="$_SHARED_AUTH" python3 - <<'PY'
+import json, os
+from datetime import datetime, timezone
+from pathlib import Path
+home = Path(os.environ["HERMES_HOME"])
+shared = json.loads(Path(os.environ["SHARED_AUTH"]).read_text())
+creds = (shared.get("credential_pool") or {}).get("openai-codex")
+if not creds:
+    raise SystemExit("orchestrator auth isolate: shared auth missing openai-codex")
+local = home / "auth.json"
+if local.is_symlink() or local.exists():
+    local.unlink()
+local.write_text(json.dumps({
+    "version": shared.get("version", 1),
+    "updated_at": datetime.now(timezone.utc).isoformat(),
+    "active_provider": "openai-codex",
+    "credential_pool": {"openai-codex": creds},
+    "providers": {},
+    "suppressed_sources": {
+        "anthropic": ["env:ANTHROPIC_TOKEN", "oauth", "hermes_pkce", "claude_code", "api_key"],
+        "xai-oauth": ["oauth", "loopback_pkce"],
+    },
+}, indent=2) + "\n")
+local.chmod(0o600)
+# Remove stale .auth-shared symlink/dir content pointers inside HERMES_HOME so
+# runtime cannot rediscover Anthropic from the multi-provider pool.
+auth_shared = home / ".auth-shared"
+if auth_shared.is_symlink():
+    auth_shared.unlink()
+elif auth_shared.is_dir():
+    stale = auth_shared / "auth.json"
+    if stale.is_symlink():
+        stale.unlink()
+    elif stale.exists() and not stale.samefile(Path(os.environ["SHARED_AUTH"])):
+        # local leftover only
+        pass
+print("orchestrator: wrote openai-only auth.json")
+PY
+    chown hermes:hermes "$HERMES_HOME/auth.json" 2>/dev/null || true
+  fi
 fi
 
-if [ -f "$HERMES_HOME/.auth-shared/auth.json" ]; then
+# Luna / Deckhand / Seadog: keep shared multi-provider auth symlink.
+if [ "$HERMES_ROLE" != "orchestrator" ] && [ -f "$HERMES_HOME/.auth-shared/auth.json" ]; then
   # Preserve a refreshed OAuth token (real local file from an atomic rename) back
   # to the shared pool before re-linking, so it isn't lost on restart.
   if [ -f "$HERMES_HOME/auth.json" ] && [ ! -L "$HERMES_HOME/auth.json" ] \

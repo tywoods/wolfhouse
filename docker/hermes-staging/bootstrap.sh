@@ -82,16 +82,13 @@ EOF
 write_orchestrator_config() {
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: gpt-5.5
+  default: gpt-5.6-sol
   provider: openai-codex
 agent:
   reasoning_effort: low
 compression:
   codex_gpt55_autoraise: false
-# Primary: ChatGPT (Codex OAuth). Fallback: Anthropic Claude OAuth.
-fallback_providers:
-  - provider: anthropic
-    model: anthropic/claude-sonnet-4-6
+# OpenAI only — no Anthropic fallback (Claude Max third-party extra-usage 400).
 # Operator profile — no guest booking tools; Luna owns WhatsApp booking.
 curator:
   enabled: false
@@ -101,6 +98,7 @@ gateway:
   platforms:
     discord:
       require_mention: false
+      thread_require_mention: false
 EOF
 }
 
@@ -161,7 +159,7 @@ write_luna_env() {
     [ -n "${SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID:-}" ]    && printf 'SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID=%s\n' "$SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID"
     [ -n "${SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID:-}" ] && printf 'SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID=%s\n' "$SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID"
     # Anthropic OAuth (Claude Max) for Luna's fallback provider — claude setup-token.
-    [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=*** "$ANTHROPIC_TOKEN" || true
+    [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=%s\n' "$ANTHROPIC_TOKEN" || true
   } > "$HERMES_HOME/.env"
 }
 
@@ -175,8 +173,7 @@ write_orchestrator_env() {
     printf 'API_SERVER_HOST=0.0.0.0\n'
     printf 'API_SERVER_PORT=8642\n'
     [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ]            && printf 'WOLFHOUSE_STAFF_API_BASE_URL=%s\n' "$WOLFHOUSE_STAFF_API_BASE_URL"
-    # Anthropic OAuth (Claude Max) for Opus 4.8 — claude setup-token output.
-    [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=*** "$ANTHROPIC_TOKEN" || true
+    # Skipper is OpenAI-only (openai-codex) — do not inject Anthropic tokens.
   } > "$HERMES_HOME/.env"
 }
 
@@ -312,7 +309,8 @@ if [ "$HERMES_ROLE" = "orchestrator" ]; then
     cp "$STAGING_ORCH_SOUL" "$HERMES_HOME/SOUL.md"
   fi
   write_orchestrator_env
-  link_shared_auth
+  # Auth isolation for Skipper is applied by 99z (openai-codex only). Do not
+  # symlink the shared multi-provider pool here — that reintroduces Anthropic.
 elif [ "$HERMES_ROLE" = "deckhand" ]; then
   # Discord engineering worker — never Luna guest bootstrap (no SOUL/plugins/WhatsApp
   # patches/env). Model is xAI grok-4.5 via xai-oauth (shared auth.json).

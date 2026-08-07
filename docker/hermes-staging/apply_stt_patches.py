@@ -33,11 +33,14 @@ STT_DOC_NEW = """    Provider resolution order: ``STT_PROVIDER`` env var, then
     honoured — no silent cloud fallback.  When no provider is configured,
     auto-detect tries: local > groq (free) > openai (paid)."""
 
-KNOWN_ROOT_KEYS_OLD = """    "sessions", "streaming", "updates", "mcp_servers",
+# Hermes >=0.20 moved optional roots into `_EXTRA_KNOWN_ROOT_KEYS` (merged with
+# DEFAULT_CONFIG.keys()). Bootstrap still writes top-level stt/tts/voice blocks.
+KNOWN_ROOT_KEYS_OLD = """    "signal",            # Signal settings bridged to env vars by gateway/config.py
 }"""
 
-KNOWN_ROOT_KEYS_NEW = """    "sessions", "streaming", "updates", "mcp_servers",
-    "stt", "tts", "voice", "human_delay", "plugins", "skills", "curator",
+KNOWN_ROOT_KEYS_NEW = """    "signal",            # Signal settings bridged to env vars by gateway/config.py
+    # Wolfhouse: top-level voice/ops blocks written by bootstrap configs
+    "stt", "tts", "voice", "human_delay", "skills", "curator",
     "timezone", "model_catalog", "hooks", "security", "kanban", "cron",
 }"""
 
