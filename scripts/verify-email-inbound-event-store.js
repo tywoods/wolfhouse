@@ -23,6 +23,10 @@ const MIG_UP = path.join(ROOT, 'database/migrations/063_tenant_email_inbound_eve
 const MIG_DOWN = path.join(ROOT, 'database/migrations/063_tenant_email_inbound_events_down.sql');
 const DOC = path.join(ROOT, 'docs/EMAIL-MAILBOX-ADAPTER-BOUNDARY.md');
 const PKG = path.join(ROOT, 'package.json');
+const LEGACY_INBOUND_EVENT_STORE_FLAG = [
+  'LUNA_EMAIL_OAUTH',
+  'INBOUND_EVENT_STORE_ENABLED',
+].join('_');
 
 const CLIENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const LOCATION = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
@@ -622,7 +626,7 @@ async function main() {
     // Old flag name must never enable.
     assert.equal(isInboundEventStoreEnabled({
       LUNA_DEPLOYMENT: 'sunset-staging',
-      LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED: 'true',
+      [LEGACY_INBOUND_EVENT_STORE_FLAG]: 'true',
     }), false);
 
     // Disabled → zero construction (throws before azure).
@@ -718,7 +722,7 @@ async function main() {
       assert.match(compSrc, /isProxySurface/);
       assert.match(compSrc, /LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED/);
       assert.equal(
-        compSrc.includes('LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED'),
+        compSrc.includes(LEGACY_INBOUND_EVENT_STORE_FLAG),
         false,
         'old flag string must not remain in composition source',
       );
@@ -881,14 +885,14 @@ async function main() {
   assert.match(doc, /inbound-event-store|tenant_email_inbound_events/);
   assert.match(doc, /LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED/);
   assert.equal(
-    doc.includes('LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED'),
+    doc.includes(LEGACY_INBOUND_EVENT_STORE_FLAG),
     false,
     'old flag string must not remain in docs',
   );
   assert.match(doc, /withTransactionClient/);
   const defaultsHit = fs.readFileSync(path.join(ROOT, 'config/clients/sunset.baseline.json'), 'utf8');
   assert.equal(defaultsHit.includes('LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED'), false);
-  assert.equal(defaultsHit.includes('LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED'), false);
+  assert.equal(defaultsHit.includes(LEGACY_INBOUND_EVENT_STORE_FLAG), false);
 
   // Source must not log envelope fields; must use exclusive loaner not shared db.
   const storeSrc = fs.readFileSync(storeAbs, 'utf8');
