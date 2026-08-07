@@ -410,7 +410,7 @@ function buildInboundDiagnosticSuccessJson(result) {
     if (status === INBOUND_DIAGNOSTIC_INTERNAL_STATUS_SUCCESS
         && result.durably_processed === INBOUND_DIAGNOSTIC_INTERNAL_DURABLY_PROCESSED
         && Number.isInteger(result.input_count)) {
-      // Runtime public vocabulary (preferred).
+      // Internal runtime-composition vocabulary.
       inputCount = result.input_count;
       deliveredCount = result.delivered_count;
       duplicateCount = result.duplicate_count;

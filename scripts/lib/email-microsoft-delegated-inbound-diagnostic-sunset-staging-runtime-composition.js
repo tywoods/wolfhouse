@@ -266,7 +266,7 @@ function snapshotEnvReadiness(env) {
 /**
  * Map authority-bound internal identity-free result → internal composition DTO.
  * Internal `{ status:'processed', input_count, delivered_count, duplicate_count }`
- * maps to public `{ status:'success', durably_processed:false, input_count,
+ * maps to internal `{ status:'success', durably_processed:false, input_count,
  * delivered_count, duplicate_count }` — same count names, no synonyms.
  * Max-5; observed (input) = unique (delivered) + duplicate.
  * Never expose internal `processed` status, stage, generation, IDs, or PII.
