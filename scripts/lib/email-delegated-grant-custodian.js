@@ -7,6 +7,13 @@
  * Lease TTL via SQL clock_timestamp(). Public DTOs omit secrets/envelope/lease tokens.
  * openDelegatedGrantUnderLease re-reads under short pinned TX then opens AFTER COMMIT.
  * withTxn: pre-COMMIT → ROLLBACK; COMMIT sent then reject → commit_outcome_unknown.
+ *
+ * Unwired delegated read-authority resolve (repository only): one SELECT join of
+ * tenant_locations + tenant_channel_endpoints + tenant_email_delegated_grants for
+ * exact client/location/endpoint with verified Microsoft delegated own-user binding.
+ * Returns a frozen internal DTO (providerMailboxId from endpoint.provider_resource_id).
+ * Not wired into public status, read-health, routes, transport, or runtime composition.
+ *
  * @module email-delegated-grant-custodian
  */
 
@@ -19,6 +26,8 @@ const {
 } = require('./email-grant-envelope-provider-contract');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Canonical lowercase hyphenated UUID (migration 058 provider_*_shape). */
+const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const TERMINAL_REAUTH_REASONS = Object.freeze([
   'invalid_grant', 'revocation', 'policy', 'consent_loss',
 ]);
@@ -29,6 +38,53 @@ const RECONCILE_DETAIL_RE = /^[a-z][a-z0-9_]{0,63}$/;
 const MIN_TTL = 5;
 const MAX_TTL = 3600;
 const DEFAULT_TTL = 60;
+
+/**
+ * Unwired internal read-authority resolve. Not public status / read-health /
+ * routes / transport / runtime composition.
+ */
+const EMAIL_DELEGATED_READ_AUTHORITY_RUNTIME_WIRED = false;
+
+/** Exact ordered own-data input keys for resolveDelegatedReadAuthority. */
+const DELEGATED_READ_AUTHORITY_INPUT_KEYS = Object.freeze([
+  'clientId',
+  'locationId',
+  'endpointId',
+]);
+
+/**
+ * Frozen internal DTO keys only. Never public_address or provider_principal_oid.
+ * providerMailboxId is always endpoint.provider_resource_id (resource id wins).
+ */
+const DELEGATED_READ_AUTHORITY_DTO_KEYS = Object.freeze([
+  'clientId',
+  'locationId',
+  'endpointId',
+  'provider',
+  'providerMailboxId',
+  'bindingStatus',
+]);
+
+/** Driver-row own-data key set (SQL textual order). */
+const DELEGATED_READ_AUTHORITY_ROW_KEYS = Object.freeze([
+  'client_id',
+  'location_id',
+  'endpoint_id',
+  'provider',
+  'channel',
+  'auth_mode',
+  'connector_mode',
+  'binding_status',
+  'provider_tenant_id',
+  'provider_resource_id',
+  'provider_principal_oid',
+  'mailbox_kind',
+  'mailbox_access_kind',
+  'public_address',
+  'grant_client_id',
+  'grant_endpoint_id',
+]);
+const DELEGATED_READ_AUTHORITY_ROW_KEY_SET = new Set(DELEGATED_READ_AUTHORITY_ROW_KEYS);
 
 const ENVELOPE_COLS = 'envelope_version, aead_alg, kek_wrap_alg, kek_key_name, kek_key_version, nonce, ciphertext, auth_tag, wrapped_dek';
 const SQL_LOCK_GRANT = `
@@ -54,6 +110,53 @@ const SQL_COMMIT_ENVELOPE = `
      AND grant_lease_token=$15::uuid AND grant_status='lease_held'
      AND grant_lease_until > clock_timestamp()
    RETURNING client_id, endpoint_id, grant_generation, grant_status, reconcile_state`;
+
+/**
+ * One parameterized SELECT/join: tenant_locations + tenant_channel_endpoints +
+ * tenant_email_delegated_grants on exact client/location/endpoint. Requires
+ * channel=email, microsoft_graph + delegated_authorization_code +
+ * microsoft_delegated_oauth, binding_status=verified, nonnull tid/resource,
+ * mailbox_kind=user, mailbox_access_kind=own_user, exact grant ownership.
+ * Params: $1 client_id, $2 location_id (tenant_locations.id UUID), $3 endpoint_id.
+ */
+const SQL_RESOLVE_DELEGATED_READ_AUTHORITY = `
+  SELECT e.client_id::text AS client_id,
+         tl.id::text AS location_id,
+         e.id::text AS endpoint_id,
+         e.provider,
+         e.channel,
+         e.auth_mode,
+         e.connector_mode,
+         e.binding_status,
+         e.provider_tenant_id,
+         e.provider_resource_id,
+         e.provider_principal_oid,
+         e.mailbox_kind,
+         e.mailbox_access_kind,
+         e.public_address,
+         g.client_id::text AS grant_client_id,
+         g.endpoint_id::text AS grant_endpoint_id
+    FROM tenant_channel_endpoints e
+   INNER JOIN tenant_locations tl
+      ON tl.client_id = e.client_id
+     AND tl.location_id = e.location_id
+   INNER JOIN tenant_email_delegated_grants g
+      ON g.client_id = e.client_id
+     AND g.endpoint_id = e.id
+   WHERE e.client_id = $1::uuid
+     AND tl.id = $2::uuid
+     AND e.id = $3::uuid
+     AND e.channel = 'email'
+     AND e.provider = 'microsoft_graph'
+     AND e.auth_mode = 'delegated_authorization_code'
+     AND e.connector_mode = 'microsoft_delegated_oauth'
+     AND e.binding_status = 'verified'
+     AND e.provider_tenant_id IS NOT NULL
+     AND e.provider_resource_id IS NOT NULL
+     AND e.mailbox_kind = 'user'
+     AND e.mailbox_access_kind = 'own_user'
+     AND g.client_id = e.client_id
+     AND g.endpoint_id = e.id`.replace(/\s+/g, ' ').trim();
 
 function fail(error, details) {
   const out = { ok: false, error: String(error) };
@@ -609,6 +712,187 @@ async function getDelegatedGrantPublicStatus(input, deps) {
   } catch (_) { return dbErr(); }
 }
 
+function failReadAuthority(error) {
+  // Sanitized only — never embed row values, addresses, principals, secrets.
+  return Object.freeze({ ok: false, error: String(error) });
+}
+
+/**
+ * Exact ordered own-data snapshot of resolve input. Rejects proxies (via trap),
+ * symbols, extras, missing keys, wrong order, accessors, non-enumerable,
+ * unsafe prototypes. Values read once; never reread caller.
+ */
+function snapshotExactReadAuthorityInput(input) {
+  try {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+    const proto = Object.getPrototypeOf(input);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(input);
+    if (actual.length !== DELEGATED_READ_AUTHORITY_INPUT_KEYS.length) return null;
+    for (let i = 0; i < DELEGATED_READ_AUTHORITY_INPUT_KEYS.length; i += 1) {
+      if (actual[i] !== DELEGATED_READ_AUTHORITY_INPUT_KEYS[i]) return null;
+    }
+    const out = Object.create(null);
+    for (const key of DELEGATED_READ_AUTHORITY_INPUT_KEYS) {
+      const descriptor = Object.getOwnPropertyDescriptor(input, key);
+      if (!descriptor
+          || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+          || descriptor.get
+          || descriptor.set
+          || !descriptor.enumerable) {
+        return null;
+      }
+      out[key] = descriptor.value;
+    }
+    return Object.freeze(out);
+  } catch {
+    return null;
+  }
+}
+
+function parseCanonicalUuid(raw) {
+  if (typeof raw !== 'string') return null;
+  const v = raw.trim().toLowerCase();
+  if (!v || !UUID_CANON.test(v)) return null;
+  return v;
+}
+
+/**
+ * Snapshot + validate exact own-data driver row (SQL textual key set).
+ * Re-validates ownership/modes/status/resource after SQL; never trusts SQL alone.
+ * public_address and provider_principal_oid are observed once and discarded —
+ * never mapped into the internal DTO. providerMailboxId always uses resource_id.
+ */
+function snapshotAndValidateReadAuthorityRow(row, expected) {
+  try {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+    const proto = Object.getPrototypeOf(row);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(row);
+    if (actual.length !== DELEGATED_READ_AUTHORITY_ROW_KEYS.length) return null;
+    for (const key of actual) {
+      if (typeof key !== 'string' || !DELEGATED_READ_AUTHORITY_ROW_KEY_SET.has(key)) {
+        return null;
+      }
+    }
+    const own = Object.create(null);
+    for (const key of DELEGATED_READ_AUTHORITY_ROW_KEYS) {
+      const descriptor = Object.getOwnPropertyDescriptor(row, key);
+      if (!descriptor
+          || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+          || descriptor.get
+          || descriptor.set) {
+        return null;
+      }
+      own[key] = descriptor.value;
+    }
+
+    if (own.client_id !== expected.clientId
+        || own.location_id !== expected.locationId
+        || own.endpoint_id !== expected.endpointId) {
+      return null;
+    }
+    if (own.grant_client_id !== expected.clientId
+        || own.grant_endpoint_id !== expected.endpointId) {
+      return null;
+    }
+    if (own.channel !== 'email'
+        || own.provider !== 'microsoft_graph'
+        || own.auth_mode !== 'delegated_authorization_code'
+        || own.connector_mode !== 'microsoft_delegated_oauth'
+        || own.binding_status !== 'verified'
+        || own.mailbox_kind !== 'user'
+        || own.mailbox_access_kind !== 'own_user') {
+      return null;
+    }
+    if (typeof own.provider_tenant_id !== 'string'
+        || !UUID_CANON.test(own.provider_tenant_id)) {
+      return null;
+    }
+    if (typeof own.provider_resource_id !== 'string'
+        || !UUID_CANON.test(own.provider_resource_id)) {
+      return null;
+    }
+    // principal / address may differ from resource_id; resource_id always wins.
+    // They must not be non-string when non-null (malformed driver defense only).
+    if (own.provider_principal_oid != null
+        && typeof own.provider_principal_oid !== 'string') {
+      return null;
+    }
+    if (own.public_address != null && typeof own.public_address !== 'string') {
+      return null;
+    }
+
+    // Fresh frozen internal DTO — only allowlisted keys; never principal/address.
+    return Object.freeze({
+      clientId: expected.clientId,
+      locationId: expected.locationId,
+      endpointId: expected.endpointId,
+      provider: 'microsoft_graph',
+      providerMailboxId: own.provider_resource_id,
+      bindingStatus: 'verified',
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * UNWIRED repository resolve of delegated email read authority.
+ *
+ * Exact own-data input `{ clientId, locationId, endpointId }` only (UUID strings).
+ * One parameterized SELECT/join of locations + endpoints + grants. Returns one
+ * frozen internal DTO; never public_address / provider_principal_oid / secrets.
+ * Sanitized failures only; no logging.
+ *
+ * Not exposed via getDelegatedGrantPublicStatus, read-health, routes, transport,
+ * or runtime composition (`EMAIL_DELEGATED_READ_AUTHORITY_RUNTIME_WIRED = false`).
+ *
+ * @param {{ clientId: string, locationId: string, endpointId: string }} input
+ * @param {{ db: { query: Function } }} deps
+ * @returns {Promise<{ok:true,value:object}|{ok:false,error:string}>}
+ */
+async function resolveDelegatedReadAuthority(input, deps) {
+  const snap = snapshotExactReadAuthorityInput(input);
+  if (!snap) return failReadAuthority('input_invalid');
+
+  const clientId = parseCanonicalUuid(snap.clientId);
+  const locationId = parseCanonicalUuid(snap.locationId);
+  const endpointId = parseCanonicalUuid(snap.endpointId);
+  if (!clientId || !locationId || !endpointId) {
+    return failReadAuthority('input_invalid');
+  }
+
+  const dbc = requireDb(deps);
+  if (!dbc.ok) return failReadAuthority(dbc.error || 'db_required');
+
+  let res;
+  try {
+    res = await dbc.value.query(
+      SQL_RESOLVE_DELEGATED_READ_AUTHORITY,
+      [clientId, locationId, endpointId],
+    );
+  } catch (_) {
+    return failReadAuthority('db_error');
+  }
+
+  const rows = res && Array.isArray(res.rows) ? res.rows : null;
+  if (!rows || rows.length === 0) {
+    return failReadAuthority('delegated_read_authority_unresolved');
+  }
+  if (rows.length !== 1) {
+    return failReadAuthority('delegated_read_authority_ambiguous');
+  }
+
+  const dto = snapshotAndValidateReadAuthorityRow(rows[0], {
+    clientId,
+    locationId,
+    endpointId,
+  });
+  if (!dto) return failReadAuthority('delegated_read_authority_unresolved');
+  return ok(dto);
+}
+
 module.exports = {
   installInitialDelegatedGrant,
   tryAcquireDelegatedGrantLease,
@@ -621,9 +905,15 @@ module.exports = {
   listDelegatedGrantsNeedingReconciliation,
   commitDelegatedGrantRewrap,
   getDelegatedGrantPublicStatus,
+  resolveDelegatedReadAuthority,
   toPublicGrantStatusDto,
   toPrivateLeaseHandle,
   withTxn,
   TERMINAL_REAUTH_REASONS,
   RECONCILE_STATES,
+  EMAIL_DELEGATED_READ_AUTHORITY_RUNTIME_WIRED,
+  DELEGATED_READ_AUTHORITY_INPUT_KEYS,
+  DELEGATED_READ_AUTHORITY_DTO_KEYS,
+  DELEGATED_READ_AUTHORITY_ROW_KEYS,
+  SQL_RESOLVE_DELEGATED_READ_AUTHORITY,
 };
