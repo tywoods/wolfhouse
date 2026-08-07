@@ -665,13 +665,54 @@ async function main() {
   const decoded = decodeDeltaCursorPackageV1(pkgOk.value);
   assert.equal(decoded.ok, true);
   assert.equal(decoded.value.cursor_url, PLANTED_CURSOR);
+  // encode/decode own URL boundary (RED: http://evil must fail at package edge)
   assert.equal(encodeDeltaCursorPackageV1('deltaLink', 'http://evil/x').ok, false);
+  assert.equal(encodeDeltaCursorPackageV1('nextLink', 'https://evil.com/v1.0/x').ok, false);
   assert.equal(validateGraphCursorUrlBoundary(PLANTED_CURSOR).ok, true);
   assert.equal(validateGraphCursorUrlBoundary('http://graph.microsoft.com/v1.0/x').ok, false);
   assert.equal(validateGraphCursorUrlBoundary('https://evil.com/v1.0/x').ok, false);
   assert.equal(validateGraphCursorUrlBoundary(
     'https://user:pass@graph.microsoft.com/v1.0/me/messages/delta',
   ).ok, false);
+  assert.equal(validateGraphCursorUrlBoundary(
+    'https://graph.microsoft.com/beta/me/messages/delta',
+  ).ok, false);
+  assert.equal(validateGraphCursorUrlBoundary(
+    'https://graph.microsoft.com/v1.0/me/messages/delta#frag',
+  ).ok, false);
+
+  // Module-init-pinned URL: ambient global / prototype monkeypatches must not
+  // flip accept/reject (no live property reads; node:url pin only).
+  const storeSrcEarly = fs.readFileSync(storeAbs, 'utf8');
+  assert.match(storeSrcEarly, /require\(['"]node:url['"]\)/);
+  assert.match(storeSrcEarly, /PINNED_URL_INTRINSICS_READY/);
+  assert.match(storeSrcEarly, /Reflect\.construct\(PINNED_URL/);
+  assert.equal(/\bnew URL\s*\(/.test(storeSrcEarly), false, 'no ambient new URL()');
+  const savedGlobalUrl = globalThis.URL;
+  const protoDesc = Object.getOwnPropertyDescriptor(require('node:url').URL.prototype, 'hostname');
+  let ambientCtorHits = 0;
+  try {
+    globalThis.URL = function HostileURL() {
+      ambientCtorHits += 1;
+      throw new Error('ambient_url_must_not_run');
+    };
+    Object.defineProperty(require('node:url').URL.prototype, 'hostname', {
+      configurable: true,
+      get() { return 'evil.example'; },
+    });
+    assert.equal(validateGraphCursorUrlBoundary(PLANTED_CURSOR).ok, true,
+      'pinned validation still accepts good cursor under monkeypatch');
+    assert.equal(validateGraphCursorUrlBoundary('https://evil.com/v1.0/x').ok, false,
+      'pinned validation still rejects hostile host under monkeypatch');
+    assert.equal(encodeDeltaCursorPackageV1('deltaLink', PLANTED_CURSOR).ok, true);
+    assert.equal(encodeDeltaCursorPackageV1('deltaLink', 'http://evil/x').ok, false);
+    assert.equal(ambientCtorHits, 0, 'ambient global URL constructor never invoked');
+  } finally {
+    globalThis.URL = savedGlobalUrl;
+    if (protoDesc) {
+      Object.defineProperty(require('node:url').URL.prototype, 'hostname', protoDesc);
+    }
+  }
 
   // ── Seal / open roundtrip + AAD cross-scope failure ─────────────────────
   const envProvider = createFakeEmailGrantEnvelopeProvider();
@@ -1143,22 +1184,62 @@ async function main() {
   // grant generation independence: no grant table/column SQL owners in this module
   const storeSrc = fs.readFileSync(storeAbs, 'utf8');
   assert.equal(/tenant_email_delegated_grants/.test(storeSrc), false);
-  assert.equal(/\bgrant_generation\b/.test(storeSrc.replace(/OAuth grant generation/g, '')), false);
+  // Do not couple delta ingestion_generation to OAuth grant_generation identifiers.
+  assert.equal(/\bgrant_generation\b/.test(storeSrc), false);
   assert.match(storeSrc, /EMAIL_INBOUND_DELTA_STATE_RUNTIME_WIRED = false/);
   assert.equal(/require\(['"]\.\/staff-/.test(storeSrc), false);
   assert.equal(/fetch\(|axios|http\.request/.test(storeSrc), false);
+  assert.equal(/\bnet\.connect\b|\bhttps?\.request\b|\baxios\b|\bnode-fetch\b/.test(storeSrc), false);
 
-  // ── hostile inputs ──────────────────────────────────────────────────────
+  // ── hostile inputs (runtime results, not regex self-reference) ──────────
   assert.equal(prepareCanonicalBatch(null, MAILBOX).ok, true);
   assert.equal(prepareCanonicalBatch([envelope({ provider_mailbox_id: 'other' })], MAILBOX).ok, false);
   assert.equal(prepareTombstones([tombstone('x')], MAILBOX).ok, true);
   assert.equal(prepareTombstones([{ provider: 'gmail_api', provider_mailbox_id: MAILBOX, provider_message_id: 'x' }], MAILBOX).ok, false);
 
+  // Proxy array rejected before any get/ownKeys traps (zero-touch).
+  const proxyTrapHits = { get: 0, ownKeys: 0, getOwnPropertyDescriptor: 0, getPrototypeOf: 0 };
   const proxyEnv = new Proxy([envelope()], {
-    get(t, p) { return t[p]; },
+    get(t, p, r) { proxyTrapHits.get += 1; return Reflect.get(t, p, r); },
+    ownKeys(t) { proxyTrapHits.ownKeys += 1; return Reflect.ownKeys(t); },
+    getOwnPropertyDescriptor(t, p) {
+      proxyTrapHits.getOwnPropertyDescriptor += 1;
+      return Reflect.getOwnPropertyDescriptor(t, p);
+    },
+    getPrototypeOf(t) { proxyTrapHits.getPrototypeOf += 1; return Reflect.getPrototypeOf(t); },
   });
-  // acceptEnvelopeArray rejects proxy arrays → prepare ok false
-  assert.equal(prepareCanonicalBatch(proxyEnv, MAILBOX).ok, false);
+  const proxyBatch = prepareCanonicalBatch(proxyEnv, MAILBOX);
+  assert.equal(proxyBatch.ok, false, 'proxy envelope array must fail closed');
+  assert.equal(proxyTrapHits.get, 0, 'proxy get trap must not run');
+  assert.equal(proxyTrapHits.ownKeys, 0, 'proxy ownKeys trap must not run');
+  assert.equal(proxyTrapHits.getOwnPropertyDescriptor, 0, 'proxy descriptor trap must not run');
+  assert.equal(proxyTrapHits.getPrototypeOf, 0, 'proxy getPrototypeOf trap must not run');
+
+  // Accessor-owned envelope fields fail closed (no silent [[Get]] acceptance).
+  const accessorEnv = {};
+  Object.defineProperty(accessorEnv, 'provider', {
+    enumerable: true,
+    get() { return 'microsoft_graph'; },
+  });
+  Object.defineProperty(accessorEnv, 'provider_mailbox_id', {
+    enumerable: true,
+    value: MAILBOX,
+  });
+  Object.defineProperty(accessorEnv, 'provider_message_id', {
+    enumerable: true,
+    value: 'acc-1',
+  });
+  Object.defineProperty(accessorEnv, 'received_at', {
+    enumerable: true,
+    value: '2026-08-01T12:00:00.000Z',
+  });
+  Object.defineProperty(accessorEnv, 'subject', { enumerable: true, value: 'x' });
+  Object.defineProperty(accessorEnv, 'sender_display_name', { enumerable: true, value: 'x' });
+  Object.defineProperty(accessorEnv, 'sender_address', { enumerable: true, value: 'a@b.c' });
+  Object.defineProperty(accessorEnv, 'is_read', { enumerable: true, value: false });
+  Object.defineProperty(accessorEnv, 'conversation_id', { enumerable: true, value: null });
+  Object.defineProperty(accessorEnv, 'internet_message_id', { enumerable: true, value: null });
+  assert.equal(prepareCanonicalBatch([accessorEnv], MAILBOX).ok, false);
 
   const symbolTomb = Object.create(null);
   Object.defineProperty(symbolTomb, 'provider', { value: 'microsoft_graph', enumerable: true });

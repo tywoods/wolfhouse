@@ -22,6 +22,7 @@
 
 const util = require('util');
 const crypto = require('crypto');
+const { URL: NODE_URL } = require('node:url');
 
 const {
   validateInboundEmailEnvelope,
@@ -84,6 +85,103 @@ const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy ==
   ? PINNED_UTIL_TYPES.isProxy
   : null;
 const PINNED_ARRAY_PROTOTYPE = Array.prototype;
+
+/**
+ * Module-init pins for Graph cursor URL boundary validation.
+ * Ambient global URL / post-load prototype monkeypatches must not weaken checks.
+ * Never live property reads; only Reflect.construct + pinned prototype getters.
+ */
+const PINNED_URL = typeof NODE_URL === 'function' ? NODE_URL : null;
+const PINNED_URL_PROTOTYPE = PINNED_URL && PINNED_URL.prototype
+  ? PINNED_URL.prototype
+  : null;
+
+function pinUrlGetter(name) {
+  try {
+    if (!PINNED_URL_PROTOTYPE) return null;
+    const descriptor = Object.getOwnPropertyDescriptor(PINNED_URL_PROTOTYPE, name);
+    if (!descriptor
+        || typeof descriptor.get !== 'function'
+        || Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+      return null;
+    }
+    return descriptor.get;
+  } catch {
+    return null;
+  }
+}
+
+const PINNED_URL_GET_PROTOCOL = pinUrlGetter('protocol');
+const PINNED_URL_GET_USERNAME = pinUrlGetter('username');
+const PINNED_URL_GET_PASSWORD = pinUrlGetter('password');
+const PINNED_URL_GET_HOSTNAME = pinUrlGetter('hostname');
+const PINNED_URL_GET_PORT = pinUrlGetter('port');
+const PINNED_URL_GET_PATHNAME = pinUrlGetter('pathname');
+const PINNED_URL_GET_HASH = pinUrlGetter('hash');
+
+const PINNED_URL_INTRINSICS_READY = Boolean(
+  PINNED_URL
+  && PINNED_URL_PROTOTYPE
+  && PINNED_URL_GET_PROTOCOL
+  && PINNED_URL_GET_USERNAME
+  && PINNED_URL_GET_PASSWORD
+  && PINNED_URL_GET_HOSTNAME
+  && PINNED_URL_GET_PORT
+  && PINNED_URL_GET_PATHNAME
+  && PINNED_URL_GET_HASH,
+);
+
+function applyPinnedUrlGetter(url, getter) {
+  if (typeof getter !== 'function') return undefined;
+  try {
+    return Reflect.apply(getter, url, []);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Construct URL via module-init-pinned node:url constructor only.
+ * Rejects proxy constructor/input before construction (zero trap hits).
+ */
+function constructPinnedUrl(value) {
+  try {
+    if (!PINNED_URL_INTRINSICS_READY) return null;
+    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) return null;
+    try {
+      if (Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [PINNED_URL]) === true) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+    if (value !== null && (typeof value === 'object' || typeof value === 'function')) {
+      try {
+        if (Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true) {
+          return null;
+        }
+      } catch {
+        return null;
+      }
+    }
+    let url;
+    try {
+      url = Reflect.construct(PINNED_URL, [value]);
+    } catch {
+      return null;
+    }
+    try {
+      if (Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [url]) === true) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+    return url;
+  } catch {
+    return null;
+  }
+}
 
 const SQL_LOCK_CURRENT = `
 SELECT *
@@ -537,24 +635,42 @@ function decodeDeltaCursorPackageV1(plaintext) {
 /**
  * Strict Graph continuation URL shape check (boundary only; not a full nextLink owner).
  * Fail closed on non-https, wrong host, userinfo/hash, oversized, non-string.
+ * Uses module-init-pinned node:url constructor + prototype getters only — never ambient
+ * global URL and never live property reads (post-load monkeypatch resistant).
  */
 function validateGraphCursorUrlBoundary(cursorUrl) {
   try {
     if (typeof cursorUrl !== 'string' || cursorUrl.length < 1 || cursorUrl.length > MAX_CURSOR_URL_BYTES) {
       return fail('cursor_url_invalid');
     }
-    if (isProxySurface(cursorUrl)) return fail('cursor_url_invalid');
-    let u;
-    try {
-      u = new URL(cursorUrl);
-    } catch {
+    // Primitives are never proxies; isProxySurface fail-closed only if pin missing.
+    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) {
       return fail('cursor_url_invalid');
     }
-    if (u.protocol !== 'https:') return fail('cursor_url_invalid');
-    if (u.username || u.password || u.hash) return fail('cursor_url_invalid');
-    if (u.hostname !== 'graph.microsoft.com') return fail('cursor_url_invalid');
-    if (u.port && u.port !== '443') return fail('cursor_url_invalid');
-    if (!u.pathname.startsWith('/v1.0/')) return fail('cursor_url_invalid');
+    if (!PINNED_URL_INTRINSICS_READY) return fail('cursor_url_invalid');
+    const u = constructPinnedUrl(cursorUrl);
+    if (!u) return fail('cursor_url_invalid');
+    const protocol = applyPinnedUrlGetter(u, PINNED_URL_GET_PROTOCOL);
+    const username = applyPinnedUrlGetter(u, PINNED_URL_GET_USERNAME);
+    const password = applyPinnedUrlGetter(u, PINNED_URL_GET_PASSWORD);
+    const hostname = applyPinnedUrlGetter(u, PINNED_URL_GET_HOSTNAME);
+    const port = applyPinnedUrlGetter(u, PINNED_URL_GET_PORT);
+    const pathname = applyPinnedUrlGetter(u, PINNED_URL_GET_PATHNAME);
+    const hash = applyPinnedUrlGetter(u, PINNED_URL_GET_HASH);
+    if (typeof protocol !== 'string'
+        || typeof username !== 'string'
+        || typeof password !== 'string'
+        || typeof hostname !== 'string'
+        || typeof port !== 'string'
+        || typeof pathname !== 'string'
+        || typeof hash !== 'string') {
+      return fail('cursor_url_invalid');
+    }
+    if (protocol !== 'https:') return fail('cursor_url_invalid');
+    if (username || password || hash) return fail('cursor_url_invalid');
+    if (hostname !== 'graph.microsoft.com') return fail('cursor_url_invalid');
+    if (port && port !== '443') return fail('cursor_url_invalid');
+    if (!pathname.startsWith('/v1.0/')) return fail('cursor_url_invalid');
     return ok(cursorUrl);
   } catch {
     return fail('cursor_url_invalid');
