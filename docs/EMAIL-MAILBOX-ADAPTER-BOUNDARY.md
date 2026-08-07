@@ -1,6 +1,7 @@
-# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A + 2B + 2C + 2D + 2F-A + 2F-B + 2F-C2 + inbound-envelope + ms-normalized-page + ms-immutableid-page-transport)
+# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A + 2B + 2C + 2D + 2F-A + 2F-B + 2F-C2 + inbound-envelope + ms-normalized-page + ms-immutableid-page-transport + inbound-batch-processor)
 
 **Status:**
+- **inbound-batch-processor (offline, UNWIRED):** Provider-neutral batch processor over **canonical** inbound envelopes only. Imports contract validation / identity / order — defines **no** envelope schema/key list and **no** Graph/provider imports. Validates the **entire** batch first (all-or-nothing); requires exact single `(provider, provider_mailbox_id)` prefix; rejects mixed/malformed/proxy/accessor/inherited/symbol/nonenumerable inputs; envelope arrays must use exact intrinsic `Array.prototype` (null/custom/subclass/cross-surface prototypes fail closed); deterministic canonical sort; **within-this-batch-only** dedup by identity tuple (**not** a durable idempotency claim). After full validation only: exactly one explicitly-awaited injected consumer with a fresh frozen envelope array; proxied callables rejected before invocation via module-init pinned `util.types.isProxy`. Consumer loan is a **trusted-consumer policy contract** (not enforcement / not a durable acknowledgement of non-retention). Consumer result must be exact sanitized own-data `{ acknowledged: true }` or fail closed. Processor returns only frozen **identity-free** counts/status — never PII/IDs/envelopes. **No** consumer callback on invalid batch. No network, DB, routes, OAuth, logging, runtime flags, persistence, deploy, or live I/O.
 - **ms-immutableid-page-transport (runtime-capable, UNWIRED):** Thin surface over the **single** delegated-messages network owner. Pins `Prefer: IdType="ImmutableId"` on the same one-shot path/`$top=5`/`$select`/caps/cleanup/failure sanitization; private success→canonical-envelope mapping only (no public provenance mint/capability/factory; no raw validated page export; no generic success callback). Success returns only a fresh frozen max-5 **canonical** envelope array. Caller booleans/strings/tokens/headers never set provenance or Prefer. Lifecycle methods use owner/descriptor/native-surface checks (no hostile getter/proxy traps on on/once/end/destroy/headers). **No** route/runtime composition activation, DB/persistence/dedup, OAuth scope change, deploy, Azure, or live call.
 - **ms-normalized-page (offline page bridge):** Microsoft Graph list-page → max-5 **canonical** inbound envelopes. Reuses delegated Mail.ReadBasic page/row semantics (`classifyParsedMessageEnvelopeList`) + row mapper + contract order. Explicit provider mailbox identity + Graph ImmutableId provenance required; **non-persistence-ready**; never trusts caller boolean/string provenance (module-owned unauthenticated token or unforgeable private brand via transport-only capability). Validates/discards `@odata.context` / `@odata.nextLink` / `@odata.etag`; retains no raw page/rows; no logging. **No** shared-validator extraction (composition without broad refactor). No network, routes, DB, OAuth, persistence, or activation.
 - **inbound-envelope (contract only):** provider-neutral immutable inbound email-envelope DTO + offline Microsoft Graph Mail.ReadBasic row mapper. Identity / ordering / dedup / staff-visible triage fields only. **PII fields must not be persisted or logged** until a later reviewed custody slice. No DB, runtime wiring, polling, Graph calls, OAuth scope changes, bodies, attachments, drafts, sends, deploy, or activation.
@@ -106,6 +107,7 @@ Down: `057_tenant_locations_and_channel_endpoints_down.sql`
 | Layer | Owns | Must not |
 |-------|------|----------|
 | `scripts/lib/email-inbound-envelope-contract.js` | **Canonical** provider-neutral immutable inbound domain envelope (exact own enumerable data keys; calendar-safe timestamps; identity/dedup/order/tie-break; legacy Graph transport conversion); documents PII keys; **persistence/logging forbidden** until custody slice; ImmutableId required before future MS persistence | Bodies, previews, recipients, headers, attachments, links, tokens, raw provider objects; Graph/OData field names; DB/network; runtime wiring; false ImmutableId provenance |
+| `scripts/lib/email-inbound-batch-processor.js` | Offline **provider-neutral** batch processor over bounded **canonical** envelopes only; imports contract validation/identity/order; all-or-nothing validate-then-single-awaited-consumer; within-batch identity dedup; identity-free counts/status | Envelope schema/key list; Graph/provider imports; mixed mailbox batches; consumer on invalid batch; durable idempotency; return PII/IDs/envelopes; network/DB/routes/OAuth/log/persist/activation |
 | `scripts/lib/email-microsoft-graph-inbound-envelope-mapper.js` | Offline mapper: approved Mail.ReadBasic row (+ optional validated/discarded `@odata.etag`) → **canonical** domain envelope; **provider + mailbox identity are explicit inputs** | Infer mailbox from row; network/Graph calls; retain etag/raw row; hasAttachments/body/uniqueBody/headers; claim ImmutableId provenance; runtime wiring |
 | `scripts/lib/email-microsoft-graph-normalized-page.js` | Offline **page → max-5 canonical envelopes** bridge: composes transport `classifyParsedMessageEnvelopeList` + inbound mapper + contract order; explicit mailbox + **only** module-owned unauthenticated provenance token (reference equality); **no** public authenticated mint/capability/factory; **non-persistence-ready**; no shared-validator extraction | New page parser / envelope DTO; trust caller boolean/string provenance; export mint/capability; retain context/nextLink/etag/raw rows; log; network/DB/routes/OAuth/activation |
 | `scripts/lib/email-microsoft-graph-immutableid-page-transport.js` | Thin **UNWIRED** surface: re-exports ImmutableId factory from delegated messages transport (single network owner); pinned Prefer; private success→envelopes; max-5 canonical only | Duplicate HTTP lifecycle; export mint/brand/raw page; accept caller provenance/Prefer; routes/runtime composition; DB/persistence; live activation |
@@ -720,6 +722,29 @@ Gate: `npm run verify:email-microsoft-graph-immutableid-page-transport`.
 
 **Non-goals:** route/runtime composition activation, DB/persistence/dedup, OAuth scope change, deploy, Azure, live Graph from verifiers, mint/brand/capability export, raw page escape, duplicated HTTP lifecycle.
 
+## Inbound email batch processor (offline)
+
+Module: `scripts/lib/email-inbound-batch-processor.js`.
+Gate: `npm run verify:email-inbound-batch-processor`.
+
+**Purpose:** process one offline batch of already-canonical inbound envelopes with all-or-nothing validation and a single injected consumer handoff. Provider-neutral: sits **above** page bridges / mappers and never imports Graph or provider transports.
+
+| Concern | Rule |
+|---------|------|
+| Input | Exact own-data `{ envelopes, consumer }` only — reject proxies, accessors, inherited values, symbol keys, non-enumerable keys, unknown keys |
+| Envelopes | Plain dense array (max `EMAIL_INBOUND_BATCH_MAX`) with **exact** module-init intrinsic `Array.prototype` after pinned proxy rejection and before any element/property use; null/custom/subclass/cross-surface prototypes fail closed; each element must pass `validateInboundEmailEnvelope` (canonical contract) — **no** local envelope schema/key list |
+| Prefix | Entire batch must share exact single `(provider, provider_mailbox_id)`; mixed provider or mailbox → fail closed |
+| Order | `compareInboundEmailEnvelopesForOrder` (received_at desc, identity tuple ASC) |
+| Dedup | **Within this batch only** by `inboundEmailEnvelopeIdentityTuple` — first after sort kept; `internet_message_id` never a dedup key; **not** durable cross-batch idempotency (`EMAIL_INBOUND_BATCH_PROCESSOR_DURABLE_IDEMPOTENCY_CLAIM = false`) |
+| Consumer | Invoked **exactly once**, **explicitly awaited**, **only after** full validation succeeds; receives a fresh frozen array of frozen envelopes. Proxied callables rejected **before** invocation via module-init pinned native `util.types.isProxy` (zero apply/get/getPrototypeOf/getOwnPropertyDescriptor/ownKeys traps; resistant to ambient `util.types.isProxy` monkeypatching). Normal sync/async/bound callables accepted where safe |
+| Consumer loan | **Trusted-consumer policy contract** (not enforcement): documented non-retention / no-log / no-persist expectation for this call (`EMAIL_INBOUND_BATCH_CONSUMER_*`). Processor itself does not log or persist envelopes and does **not** enforce or durably acknowledge consumer non-retention |
+| Consumer result | Exact sanitized own-data acknowledgement `{ acknowledged: true }` only — extras/accessors/proxies/throws → fail closed |
+| Processor result | Frozen identity-free `{ status: 'processed', input_count, delivered_count, duplicate_count }` only — never PII, provider/message/mailbox ids, or envelopes |
+| Invalid batch | **No** consumer callback; all-or-nothing (no partial delivery) |
+| Flags | `EMAIL_INBOUND_BATCH_PROCESSOR_RUNTIME_WIRED = false`; persistence/logging forbidden |
+
+**Non-goals:** network/Graph calls, OAuth, routes, DB, durable idempotency store, logging, runtime activation, deploy, provider adapters, redefining the envelope DTO.
+
 ## Verifiers
 
 ```bash
@@ -731,6 +756,7 @@ npm run prove:email-tenant-channel-registry-pg
 npm run verify:staff-email-registry-routes
 npm run verify:email-microsoft-graph-adapter
 npm run verify:email-inbound-envelope-contract
+npm run verify:email-inbound-batch-processor
 npm run verify:email-microsoft-graph-normalized-page
 npm run verify:email-microsoft-graph-immutableid-page-transport
 npm run verify:email-microsoft-graph-delegated-messages-transport
