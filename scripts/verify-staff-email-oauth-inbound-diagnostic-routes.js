@@ -30,7 +30,9 @@ const {
 const {
   isInboundDiagnosticEnabled,
   ENV_INBOUND_DIAGNOSTIC_ENABLED,
-  PUBLIC_STATUS_OK,
+  PUBLIC_STATUS_SUCCESS,
+  PUBLIC_DURABLY_PROCESSED,
+  PUBLIC_RESULT_KEYS,
 } = require('./lib/email-microsoft-delegated-inbound-diagnostic-sunset-staging-runtime-composition');
 const {
   isReadHealthEnabled,
@@ -95,15 +97,21 @@ async function main() {
   );
   assert.deepEqual(
     [...INBOUND_DIAGNOSTIC_SUCCESS_KEYS],
-    ['success', 'status', 'received_count', 'accepted_count', 'discarded_count'],
+    ['success', 'status', 'durably_processed', 'input_count', 'delivered_count', 'duplicate_count'],
+  );
+  assert.deepEqual(
+    [...PUBLIC_RESULT_KEYS],
+    ['status', 'durably_processed', 'input_count', 'delivered_count', 'duplicate_count'],
   );
   assert.deepEqual([...INBOUND_DIAGNOSTIC_BODY_KEYS], ['location_id', 'endpoint_id']);
   assert.equal(INBOUND_DIAGNOSTIC_ERROR, 'inbound_diagnostic_unavailable');
   assert.equal(ENV_INBOUND_DIAGNOSTIC_ENABLED, 'LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED');
-  assert.equal(PUBLIC_STATUS_OK, 'ok');
-  // Public contract forbids internal / prior wrong public count names.
-  for (const forbidden of ['input_count', 'unique_count', 'duplicate_count', 'delivered_count']) {
+  assert.equal(PUBLIC_STATUS_SUCCESS, 'success');
+  assert.equal(PUBLIC_DURABLY_PROCESSED, false);
+  // Forbidden synonyms / former wrong public names.
+  for (const forbidden of ['received_count', 'accepted_count', 'discarded_count', 'unique_count', 'ok']) {
     assert.equal(INBOUND_DIAGNOSTIC_SUCCESS_KEYS.includes(forbidden), false, forbidden);
+    assert.equal(PUBLIC_RESULT_KEYS.includes(forbidden), false, `runtime:${forbidden}`);
   }
 
   // ── Flag isolation ──────────────────────────────────────────────────────
@@ -153,25 +161,32 @@ async function main() {
   }), null);
   assert.equal(snapshotInboundDiagnosticBody(null), null);
 
-  // ── Success DTO (exact public vocabulary) ───────────────────────────────
+  // ── Success DTO (exact public vocabulary + key order + JSON) ────────────
   const good = buildInboundDiagnosticSuccessJson({
-    status: 'ok',
-    received_count: 3,
-    accepted_count: 2,
-    discarded_count: 1,
+    status: 'success',
+    durably_processed: false,
+    input_count: 3,
+    delivered_count: 2,
+    duplicate_count: 1,
   });
   assert.deepEqual(Reflect.ownKeys(good), [...INBOUND_DIAGNOSTIC_SUCCESS_KEYS]);
   assert.equal(good.success, true);
-  assert.equal(good.status, 'ok');
-  assert.equal(good.received_count, 3);
-  assert.equal(good.accepted_count, 2);
-  assert.equal(good.discarded_count, 1);
+  assert.equal(good.status, 'success');
+  assert.equal(good.durably_processed, false);
+  assert.equal(good.input_count, 3);
+  assert.equal(good.delivered_count, 2);
+  assert.equal(good.duplicate_count, 1);
   const goodJson = JSON.stringify(good);
-  assert.equal(goodJson.includes('processed'), false);
-  assert.equal(goodJson.includes('delivered'), false);
-  assert.equal(goodJson.includes('input_count'), false);
+  assert.equal(
+    goodJson,
+    '{"success":true,"status":"success","durably_processed":false,"input_count":3,"delivered_count":2,"duplicate_count":1}',
+  );
+  assert.equal(goodJson.includes('"processed"'), false);
+  assert.equal(goodJson.includes('received_count'), false);
+  assert.equal(goodJson.includes('accepted_count'), false);
+  assert.equal(goodJson.includes('discarded_count'), false);
   assert.equal(goodJson.includes('unique_count'), false);
-  assert.equal(goodJson.includes('duplicate_count'), false);
+  assert.equal(goodJson.includes('"ok"'), false);
   assert.equal(goodJson.includes('subject'), false);
   assert.equal(goodJson.includes('token'), false);
   assert.equal(goodJson.includes(PLANTED_SUBJECT), false);
@@ -179,7 +194,7 @@ async function main() {
   assert.equal(goodJson.includes('grant_generation'), false);
   assert.equal(goodJson.includes('graph_stage'), false);
 
-  // Route maps authority-bound internal DTO safely → public vocabulary only.
+  // Route maps authority-bound internal DTO → public (status success + durably_processed false).
   const fromInternal = buildInboundDiagnosticSuccessJson({
     status: 'processed',
     input_count: 2,
@@ -188,45 +203,76 @@ async function main() {
   });
   assert.ok(fromInternal);
   assert.deepEqual(Reflect.ownKeys(fromInternal), [...INBOUND_DIAGNOSTIC_SUCCESS_KEYS]);
-  assert.equal(fromInternal.status, 'ok');
-  assert.equal(fromInternal.received_count, 2);
-  assert.equal(fromInternal.accepted_count, 1);
-  assert.equal(fromInternal.discarded_count, 1);
-  assert.equal(JSON.stringify(fromInternal).includes('input_count'), false);
-  assert.equal(JSON.stringify(fromInternal).includes('delivered'), false);
+  assert.equal(fromInternal.status, 'success');
+  assert.equal(fromInternal.durably_processed, false);
+  assert.equal(fromInternal.input_count, 2);
+  assert.equal(fromInternal.delivered_count, 1);
+  assert.equal(fromInternal.duplicate_count, 1);
+  assert.equal(
+    JSON.stringify(fromInternal),
+    '{"success":true,"status":"success","durably_processed":false,"input_count":2,"delivered_count":1,"duplicate_count":1}',
+  );
+  assert.equal(JSON.stringify(fromInternal).includes('"processed"'), false);
 
-  // Prior wrong public names alone must not pass as public runtime result.
+  // Former wrong public names (status ok / received/accepted/discarded / unique) rejected.
+  assert.equal(buildInboundDiagnosticSuccessJson({
+    status: 'ok',
+    received_count: 1,
+    accepted_count: 1,
+    discarded_count: 0,
+  }), null, 'status ok + received/accepted/discarded rejected');
   assert.equal(buildInboundDiagnosticSuccessJson({
     status: 'ok',
     input_count: 1,
     unique_count: 1,
     duplicate_count: 0,
-  }), null, 'old public count names rejected');
+  }), null, 'status ok + unique_count rejected');
   assert.equal(buildInboundDiagnosticSuccessJson({
-    status: 'ok',
-    received_count: 6,
-    accepted_count: 6,
-    discarded_count: 0,
+    status: 'success',
+    durably_processed: true,
+    input_count: 1,
+    delivered_count: 1,
+    duplicate_count: 0,
+  }), null, 'durably_processed must be literal false');
+  assert.equal(buildInboundDiagnosticSuccessJson({
+    status: 'success',
+    // missing durably_processed
+    input_count: 1,
+    delivered_count: 1,
+    duplicate_count: 0,
+  }), null, 'durably_processed required on public runtime input');
+  assert.equal(buildInboundDiagnosticSuccessJson({
+    status: 'success',
+    durably_processed: false,
+    input_count: 6,
+    delivered_count: 6,
+    duplicate_count: 0,
   }), null, 'max5');
   assert.equal(buildInboundDiagnosticSuccessJson({
-    status: 'ok',
-    received_count: 2,
-    accepted_count: 1,
-    discarded_count: 0,
-  }), null, 'count invariant');
+    status: 'success',
+    durably_processed: false,
+    input_count: 2,
+    delivered_count: 1,
+    duplicate_count: 0,
+  }), null, 'count invariant observed=unique+duplicate');
   // Builder reads only known fields from result object (extras on input ignored).
   // Public output keys are exact ordered only — never stage/generation/PII.
   const withExtraInput = buildInboundDiagnosticSuccessJson({
-    status: 'ok',
-    received_count: 1,
-    accepted_count: 1,
-    discarded_count: 0,
+    status: 'success',
+    durably_processed: false,
+    input_count: 1,
+    delivered_count: 1,
+    duplicate_count: 0,
     grant_generation: 2,
     graph_stage: 'success',
     subject: PLANTED_SUBJECT,
   });
   assert.ok(withExtraInput);
   assert.deepEqual(Reflect.ownKeys(withExtraInput), [...INBOUND_DIAGNOSTIC_SUCCESS_KEYS]);
+  assert.equal(
+    JSON.stringify(withExtraInput),
+    '{"success":true,"status":"success","durably_processed":false,"input_count":1,"delivered_count":1,"duplicate_count":0}',
+  );
   assert.equal(JSON.stringify(withExtraInput).includes(PLANTED_SUBJECT), false);
   assert.equal(JSON.stringify(withExtraInput).includes('grant_generation'), false);
 
@@ -457,8 +503,8 @@ async function main() {
     error: INBOUND_DIAGNOSTIC_ERROR,
   });
   assert.equal(JSON.stringify(sendFail.calls[0].body).includes(PLANTED_TOKEN), false);
-  assert.equal(JSON.stringify(sendFail.calls[0].body).includes('processed'), false);
-  assert.equal(JSON.stringify(sendFail.calls[0].body).includes('delivered'), false);
+  assert.equal(JSON.stringify(sendFail.calls[0].body).includes('"processed"'), false);
+  assert.equal(JSON.stringify(sendFail.calls[0].body).includes('received_count'), false);
 
   // ── staff-query-api wiring (admin route only; no cron/poller) ───────────
   const apiSrc = fs.readFileSync(require.resolve('./staff-query-api.js'), 'utf8');
@@ -495,9 +541,13 @@ async function main() {
   );
   assert.match(routesSrc, /createSunsetStagingMicrosoftDelegatedInboundDiagnosticRuntime/);
   assert.match(routesSrc, /handleInboundDiagnostic/);
-  assert.match(routesSrc, /received_count/);
-  assert.match(routesSrc, /accepted_count/);
-  assert.match(routesSrc, /discarded_count/);
+  assert.match(routesSrc, /durably_processed/);
+  assert.match(routesSrc, /input_count/);
+  assert.match(routesSrc, /delivered_count/);
+  assert.match(routesSrc, /duplicate_count/);
+  // Removed wrong public vocabulary must not remain as public DTO keys.
+  assert.equal(/received_count|accepted_count|discarded_count|PUBLIC_STATUS_OK|status:\s*['"]ok['"]/.test(routesSrc), false,
+    'routes must not keep status ok / received/accepted/discarded public DTO');
   // Read-health path/flag untouched in semantics.
   assert.match(routesSrc, /LUNA_EMAIL_OAUTH_READ_HEALTH_ENABLED|isReadHealthEnabled/);
   assert.match(routesSrc, /OAUTH_READ_HEALTH_PATH = '\/staff\/admin\/email-settings\/oauth\/microsoft\/read-health'/);

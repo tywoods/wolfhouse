@@ -17,10 +17,12 @@
  *      iterates, copies, logs, retains, or persists envelopes and returns only
  *      exact synchronous `{ acknowledged: true }` (never durability)
  *
- * Public runtime result is identity-free counts with public vocabulary only
- * (`status: 'ok'`, `received_count`, `accepted_count`, `discarded_count`) —
- * never internal `processed`/`delivered`/`input_count`/`unique_count`/
- * `duplicate_count` terms, IDs, PII, stage, or generation.
+ * Public runtime result is identity-free with exact ordered keys only
+ * (`status: 'success'`, `durably_processed: false`, `input_count`,
+ * `delivered_count`, `duplicate_count`) — maps authority-bound internal
+ * counts by the same names (no received/accepted/discarded synonyms).
+ * Never internal `processed` status, IDs, PII, stage, or generation.
+ * `durably_processed` is always literal false (diagnostic never claims durability).
  *
  * @module email-microsoft-delegated-inbound-diagnostic-sunset-staging-runtime-composition
  */
@@ -73,12 +75,16 @@ const TIMERS_KEYS = Object.freeze(['setTimeout', 'clearTimeout']);
 /** Exact ordered public runtime result keys (identity-free; no stage/generation). */
 const PUBLIC_RESULT_KEYS = Object.freeze([
   'status',
-  'received_count',
-  'accepted_count',
-  'discarded_count',
+  'durably_processed',
+  'input_count',
+  'delivered_count',
+  'duplicate_count',
 ]);
 
-const PUBLIC_STATUS_OK = 'ok';
+/** Public success status literal — never internal `processed` or former `ok`. */
+const PUBLIC_STATUS_SUCCESS = 'success';
+/** Diagnostic never claims durable processing; always literal false. */
+const PUBLIC_DURABLY_PROCESSED = false;
 const MAX_COUNT = 5;
 
 /**
@@ -259,9 +265,10 @@ function snapshotEnvReadiness(env) {
 /**
  * Map authority-bound internal identity-free result → public diagnostic DTO.
  * Internal `{ status:'processed', input_count, delivered_count, duplicate_count }`
- * maps to public `{ status:'ok', received_count, accepted_count, discarded_count }`.
- * Never expose `processed` / `delivered_*` / `input_count` / `unique_count` /
- * `duplicate_count` / stage / generation / IDs / PII.
+ * maps to public `{ status:'success', durably_processed:false, input_count,
+ * delivered_count, duplicate_count }` — same count names, no synonyms.
+ * Max-5; observed (input) = unique (delivered) + duplicate.
+ * Never expose internal `processed` status, stage, generation, IDs, or PII.
  *
  * @param {object} internal frozen authority-bound result keys
  * @returns {object|null}
@@ -279,16 +286,18 @@ function mapPublicDiagnosticResult(internal) {
     if (!Number.isInteger(deliveredCount) || deliveredCount < 0 || deliveredCount > inputCount) {
       return null;
     }
+    // observed = unique + duplicate  (input = delivered + duplicate)
     if (!Number.isInteger(duplicateCount) || duplicateCount < 0
         || duplicateCount !== inputCount - deliveredCount) {
       return null;
     }
     // Build with explicit assignment order (exact PUBLIC_RESULT_KEYS).
     const out = {};
-    out.status = PUBLIC_STATUS_OK;
-    out.received_count = inputCount;
-    out.accepted_count = deliveredCount;
-    out.discarded_count = duplicateCount;
+    out.status = PUBLIC_STATUS_SUCCESS;
+    out.durably_processed = PUBLIC_DURABLY_PROCESSED;
+    out.input_count = inputCount;
+    out.delivered_count = deliveredCount;
+    out.duplicate_count = duplicateCount;
     return Object.freeze(out);
   } catch {
     return null;
@@ -377,7 +386,8 @@ function createSunsetStagingMicrosoftDelegatedInboundDiagnosticRuntime(deps) {
       const publicResult = mapPublicDiagnosticResult(out.value);
       if (!publicResult
           || !exactFrozenData(publicResult, PUBLIC_RESULT_KEYS)
-          || ownData(publicResult, 'status') !== PUBLIC_STATUS_OK) {
+          || ownData(publicResult, 'status') !== PUBLIC_STATUS_SUCCESS
+          || ownData(publicResult, 'durably_processed') !== PUBLIC_DURABLY_PROCESSED) {
         throw failure();
       }
       return publicResult;
@@ -398,7 +408,8 @@ module.exports = Object.freeze({
   ENV_INBOUND_DIAGNOSTIC_ENABLED,
   DEPENDENCY_KEYS,
   PUBLIC_RESULT_KEYS,
-  PUBLIC_STATUS_OK,
+  PUBLIC_STATUS_SUCCESS,
+  PUBLIC_DURABLY_PROCESSED,
   MAX_COUNT,
   DIAGNOSTIC_INBOUND_CONSUMER,
   isInboundDiagnosticEnabled,

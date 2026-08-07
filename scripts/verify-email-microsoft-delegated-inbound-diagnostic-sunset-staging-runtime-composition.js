@@ -74,13 +74,13 @@ function noLeak(v) {
   const s = typeof v === 'string' ? v : (() => {
     try { return JSON.stringify(v); } catch { return String(v); }
   })();
+  // Public DTO may include delivered_count; forbid internal status + secrets/PII.
   return !s.includes(PLANTED_TOKEN)
     && !s.includes(PLANTED_SUBJECT)
     && !s.includes(PLANTED_ADDRESS)
     && !s.includes(SECRET)
     && !s.includes('NEVER_LEAK')
-    && !s.includes('processed')
-    && !s.includes('delivered')
+    && !s.includes('"processed"')
     && !s.includes('refresh_token')
     && !s.includes('Authorization');
 }
@@ -96,7 +96,8 @@ async function main() {
       SUNSET_DEPLOYMENT,
       WORKER_ID,
       PUBLIC_RESULT_KEYS,
-      PUBLIC_STATUS_OK,
+      PUBLIC_STATUS_SUCCESS,
+      PUBLIC_DURABLY_PROCESSED,
       MAX_COUNT,
       DIAGNOSTIC_INBOUND_CONSUMER,
       isInboundDiagnosticEnabled,
@@ -108,15 +109,21 @@ async function main() {
     assert.equal(ENV_INBOUND_DIAGNOSTIC_ENABLED, 'LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED');
     assert.equal(SUNSET_DEPLOYMENT, 'sunset-staging');
     assert.equal(WORKER_ID, 'sunset-email-inbound-diagnostic');
-    assert.equal(PUBLIC_STATUS_OK, 'ok');
+    assert.equal(PUBLIC_STATUS_SUCCESS, 'success');
+    assert.equal(PUBLIC_DURABLY_PROCESSED, false);
     assert.equal(MAX_COUNT, 5);
     assert.deepEqual(
       [...PUBLIC_RESULT_KEYS],
-      ['status', 'received_count', 'accepted_count', 'discarded_count'],
+      ['status', 'durably_processed', 'input_count', 'delivered_count', 'duplicate_count'],
     );
-    for (const forbidden of ['input_count', 'unique_count', 'duplicate_count', 'delivered_count']) {
+    // Forbidden synonyms / former wrong public names / internal status.
+    for (const forbidden of [
+      'received_count', 'accepted_count', 'discarded_count', 'unique_count', 'ok', 'processed',
+    ]) {
       assert.equal(PUBLIC_RESULT_KEYS.includes(forbidden), false, forbidden);
     }
+    // Exports must not reintroduce removed PUBLIC_STATUS_OK.
+    assert.equal(Object.prototype.hasOwnProperty.call(mod, 'PUBLIC_STATUS_OK'), false);
 
     assert.equal(isInboundDiagnosticEnabled({}), false);
     assert.equal(isInboundDiagnosticEnabled(null), false);
@@ -254,7 +261,7 @@ async function main() {
       );
     }
 
-    // ── Public result mapping (internal → public vocabulary) ──────────────
+    // ── Public result mapping (internal → public; exact keys + order + JSON) ─
     const mapped = mapPublicDiagnosticResult(Object.freeze({
       status: 'processed',
       input_count: 3,
@@ -262,16 +269,35 @@ async function main() {
       duplicate_count: 1,
     }));
     assert.deepEqual(Reflect.ownKeys(mapped), [...PUBLIC_RESULT_KEYS]);
-    assert.equal(mapped.status, 'ok');
-    assert.equal(mapped.received_count, 3);
-    assert.equal(mapped.accepted_count, 2);
-    assert.equal(mapped.discarded_count, 1);
+    assert.equal(mapped.status, 'success');
+    assert.equal(mapped.durably_processed, false);
+    assert.equal(mapped.input_count, 3);
+    assert.equal(mapped.delivered_count, 2);
+    assert.equal(mapped.duplicate_count, 1);
+    // Exact JSON text + key order (no synonyms, literal false, status success).
+    assert.equal(
+      JSON.stringify(mapped),
+      '{"status":"success","durably_processed":false,"input_count":3,"delivered_count":2,"duplicate_count":1}',
+    );
     assert.ok(noLeak(mapped));
-    assert.equal(JSON.stringify(mapped).includes('processed'), false);
-    assert.equal(JSON.stringify(mapped).includes('delivered'), false);
-    assert.equal(JSON.stringify(mapped).includes('input_count'), false);
+    assert.equal(JSON.stringify(mapped).includes('"processed"'), false);
+    assert.equal(JSON.stringify(mapped).includes('received_count'), false);
+    assert.equal(JSON.stringify(mapped).includes('accepted_count'), false);
+    assert.equal(JSON.stringify(mapped).includes('discarded_count'), false);
     assert.equal(JSON.stringify(mapped).includes('unique_count'), false);
-    assert.equal(JSON.stringify(mapped).includes('duplicate_count'), false);
+    assert.equal(JSON.stringify(mapped).includes('"ok"'), false);
+
+    // Zero-count exact JSON order.
+    const mappedZero = mapPublicDiagnosticResult(Object.freeze({
+      status: 'processed',
+      input_count: 0,
+      delivered_count: 0,
+      duplicate_count: 0,
+    }));
+    assert.equal(
+      JSON.stringify(mappedZero),
+      '{"status":"success","durably_processed":false,"input_count":0,"delivered_count":0,"duplicate_count":0}',
+    );
 
     assert.equal(mapPublicDiagnosticResult(Object.freeze({
       status: 'processed',
@@ -286,11 +312,17 @@ async function main() {
       duplicate_count: 0,
     })), null, 'internal status must be processed');
     assert.equal(mapPublicDiagnosticResult(Object.freeze({
+      status: 'success',
+      input_count: 1,
+      delivered_count: 1,
+      duplicate_count: 0,
+    })), null, 'public status is not accepted as internal input');
+    assert.equal(mapPublicDiagnosticResult(Object.freeze({
       status: 'processed',
       input_count: 2,
       delivered_count: 1,
       duplicate_count: 0,
-    })), null, 'count invariant delivered+dup=input');
+    })), null, 'count invariant observed=unique+duplicate');
 
     // ── Factory hostile / readiness ───────────────────────────────────────
     assert.throws(

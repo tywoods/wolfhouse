@@ -24,7 +24,8 @@ const {
 const {
   createSunsetStagingMicrosoftDelegatedInboundDiagnosticRuntime,
   isInboundDiagnosticEnabled,
-  PUBLIC_STATUS_OK: INBOUND_DIAGNOSTIC_PUBLIC_STATUS_OK,
+  PUBLIC_STATUS_SUCCESS: INBOUND_DIAGNOSTIC_PUBLIC_STATUS_SUCCESS,
+  PUBLIC_DURABLY_PROCESSED: INBOUND_DIAGNOSTIC_PUBLIC_DURABLY_PROCESSED,
   MAX_COUNT: INBOUND_DIAGNOSTIC_MAX_COUNT,
 } = require('./email-microsoft-delegated-inbound-diagnostic-sunset-staging-runtime-composition');
 const {
@@ -91,15 +92,17 @@ const READ_HEALTH_SUCCESS_KEYS = Object.freeze([
 ]);
 /**
  * Exact ordered inbound-diagnostic success JSON keys.
- * Public vocabulary only — never `processed`/`delivered`/`input_count`/
- * `unique_count`/`duplicate_count`/IDs/PII/stage/generation.
+ * Public: success + status:'success' + durably_processed:false + authority
+ * count names (input/delivered/duplicate). Never status ok, received/accepted/
+ * discarded synonyms, IDs, PII, stage, or generation.
  */
 const INBOUND_DIAGNOSTIC_SUCCESS_KEYS = Object.freeze([
   'success',
   'status',
-  'received_count',
-  'accepted_count',
-  'discarded_count',
+  'durably_processed',
+  'input_count',
+  'delivered_count',
+  'duplicate_count',
 ]);
 const READ_HEALTH_GRAPH_STAGE_SET = new Set(GRAPH_STAGES);
 const PREPARE_ERROR = 'endpoint_prepare_unavailable';
@@ -393,50 +396,56 @@ function snapshotInboundDiagnosticBody(body) {
 
 /**
  * Exact ordered inbound-diagnostic success DTO.
- * Maps runtime public counts (received/accepted/discarded), or authority-bound
- * internal counts when runtime returns internal DTO only. Never exposes
- * processed/delivered/input_count/unique_count/duplicate_count on the public
- * wire. Validates max-5 + count invariant. No stage/generation/IDs/PII.
+ * Accepts runtime public result (`status:'success'`, `durably_processed:false`,
+ * authority count names) or maps authority-bound internal DTO
+ * (`status:'processed'`, same count names). Always emits ordered
+ * `{ success, status:'success', durably_processed:false, input_count,
+ * delivered_count, duplicate_count }`. Max-5; observed=unique+duplicate
+ * (input = delivered + duplicate). Never status ok / received / accepted /
+ * discarded. No stage/generation/IDs/PII.
  */
 function buildInboundDiagnosticSuccessJson(result) {
   try {
     if (!result || typeof result !== 'object') return null;
     const status = result.status;
-    let receivedCount;
-    let acceptedCount;
-    let discardedCount;
-    if (status === INBOUND_DIAGNOSTIC_PUBLIC_STATUS_OK
-        && Number.isInteger(result.received_count)) {
+    let inputCount;
+    let deliveredCount;
+    let duplicateCount;
+    if (status === INBOUND_DIAGNOSTIC_PUBLIC_STATUS_SUCCESS
+        && result.durably_processed === INBOUND_DIAGNOSTIC_PUBLIC_DURABLY_PROCESSED
+        && Number.isInteger(result.input_count)) {
       // Runtime public vocabulary (preferred).
-      receivedCount = result.received_count;
-      acceptedCount = result.accepted_count;
-      discardedCount = result.discarded_count;
+      inputCount = result.input_count;
+      deliveredCount = result.delivered_count;
+      duplicateCount = result.duplicate_count;
     } else if (status === 'processed' && Number.isInteger(result.input_count)) {
-      // Authority-bound internal DTO — map safely at the route boundary.
-      receivedCount = result.input_count;
-      acceptedCount = result.delivered_count;
-      discardedCount = result.duplicate_count;
+      // Authority-bound internal DTO — map at route boundary (same count names).
+      inputCount = result.input_count;
+      deliveredCount = result.delivered_count;
+      duplicateCount = result.duplicate_count;
     } else {
       return null;
     }
-    if (!Number.isInteger(receivedCount) || receivedCount < 0
-        || receivedCount > INBOUND_DIAGNOSTIC_MAX_COUNT) {
+    if (!Number.isInteger(inputCount) || inputCount < 0
+        || inputCount > INBOUND_DIAGNOSTIC_MAX_COUNT) {
       return null;
     }
-    if (!Number.isInteger(acceptedCount) || acceptedCount < 0
-        || acceptedCount > receivedCount) {
+    if (!Number.isInteger(deliveredCount) || deliveredCount < 0
+        || deliveredCount > inputCount) {
       return null;
     }
-    if (!Number.isInteger(discardedCount) || discardedCount < 0
-        || discardedCount !== receivedCount - acceptedCount) {
+    // observed = unique + duplicate  (input = delivered + duplicate)
+    if (!Number.isInteger(duplicateCount) || duplicateCount < 0
+        || duplicateCount !== inputCount - deliveredCount) {
       return null;
     }
     const dto = {};
     dto.success = true;
-    dto.status = INBOUND_DIAGNOSTIC_PUBLIC_STATUS_OK;
-    dto.received_count = receivedCount;
-    dto.accepted_count = acceptedCount;
-    dto.discarded_count = discardedCount;
+    dto.status = INBOUND_DIAGNOSTIC_PUBLIC_STATUS_SUCCESS;
+    dto.durably_processed = INBOUND_DIAGNOSTIC_PUBLIC_DURABLY_PROCESSED;
+    dto.input_count = inputCount;
+    dto.delivered_count = deliveredCount;
+    dto.duplicate_count = duplicateCount;
     return Object.freeze(dto);
   } catch {
     return null;
@@ -1109,8 +1118,10 @@ function createStaffEmailOAuthRoutes(deps) {
    * Gate: LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED + sunset-staging only.
    * Auth: Sunset admin (same ACL/authz pattern as read-health). Body/binding
    * resolver reused; operation input uses resolved DB UUIDs only (never caller
-   * slug identity). Sanitized identity-free counts only; never message content,
-   * IDs, PII, stage, generation, or internal processed/delivered terms.
+   * slug identity). Sanitized identity-free public DTO only
+   * (`success`/`status:'success'`/`durably_processed:false` + authority count
+   * names); never message content, IDs, PII, stage, generation, or status ok /
+   * received/accepted/discarded synonyms.
    * Failures: 404 disabled/unresolved, 400 malformed body, 503 operation fail.
    * No cron/poller/startup; flag never in manifests/defaults.
    */
