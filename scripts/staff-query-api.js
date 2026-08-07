@@ -2560,10 +2560,10 @@ const emailOAuthRoutes = createStaffEmailOAuthRoutes({
   sendJSON,
   assertStaffClientAccess,
   authorizeAuthenticatedStaffRoute,
+  // Single Staff API withPgClient loan owns the full inbound-capture route
+  // operation (resolve + grant session + durable persist). Route factory-fixes
+  // withTransactionClient over that outer client — no second checkout.
   withPgClient,
-  // Event-store persistence: same Staff API withPgClient capability as a
-  // separate exclusive-client loaner (singleton pool; no new pool/release owner).
-  withTransactionClient: withPgClient,
 });
 
 // Staff Inbox routes (extracted module). Auth stays in the router with

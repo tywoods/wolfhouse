@@ -929,13 +929,23 @@ function buildInboundDiagnosticRuntime(env, pg) {
 }
 
 /**
- * Event-store runtime: outer route loan is pgClient (resolve + grant session);
- * withTransactionClient must be a separate exclusive-client loaner from the
- * existing Staff API singleton pool (same withPgClient capability — no new
- * pool/release/close owner).
+ * Event-store runtime: outer route withPgClient loan is the sole dedicated
+ * route-operation client (binding resolve + grant session + authority SQL +
+ * durable persist). Inject a factory-fixed withTransactionClient that
+ * invoke/awaits store work on that same captured outer pgClient — no second
+ * pool checkout, no release/close ownership (outer withPgClient remains owner).
+ * Safe because grant-session/authority lifecycle is sequential and settles
+ * short TX (CAS COMMIT) before the durable consumer starts; post-callback
+ * batch + event-store work is also sequential on the same loan.
  */
-function buildInboundCaptureRuntime(env, pg, withTransactionClient) {
+function buildInboundCaptureRuntime(env, pg) {
   const natives = productionNativeSurfaces();
+  // Capture outer exclusive loan once. Store capability signature matches
+  // resolveWithTransactionClient: async (work) => work(exclusiveClient).
+  // Never checkout, release, or close — owner is the route withPgClient loan.
+  async function withTransactionClient(work) {
+    return work(pg);
+  }
   return createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(Object.freeze({
     env,
     pgClient: pg,
@@ -947,12 +957,6 @@ function buildInboundCaptureRuntime(env, pg, withTransactionClient) {
 
 function createStaffEmailOAuthRoutes(deps) {
   const env = deps.runtimeEnv || process.env;
-  // Persistence exclusive loaner: prefer explicit withTransactionClient; fall
-  // back to withPgClient so unit tests that only inject one still work. Staff
-  // API production wiring injects the same withPgClient as withTransactionClient.
-  const withTransactionClient = typeof deps.withTransactionClient === 'function'
-    ? deps.withTransactionClient
-    : deps.withPgClient;
 
   /**
    * POST prepare — create one disabled Sunset Microsoft delegated endpoint.
@@ -1303,9 +1307,9 @@ function createStaffEmailOAuthRoutes(deps) {
    * (composition canonical isInboundEventStoreEnabled). Auth: Sunset admin
    * (same ACL/authz pattern as inbound-diagnostic). Body/binding resolver
    * reused; operation input uses resolved DB UUIDs only (never caller slug
-   * identity). Outer withPgClient loan is pgClient; inject Staff API
-   * withPgClient as withTransactionClient for a separate exclusive persist
-   * client from the singleton pool (no new pool owner).
+   * identity). Outer withPgClient loan is the sole dedicated route-operation
+   * client; buildInboundCaptureRuntime factory-fixes withTransactionClient to
+   * that same captured loan (no second pool checkout; no route release/close).
    * Public success: exact ordered identity-free durable DTO only.
    * Failures: 404 disabled/unresolved, 400 malformed body, 503 sanitized.
    * No cron/poller/startup; flag never in manifests/defaults.
@@ -1338,9 +1342,6 @@ function createStaffEmailOAuthRoutes(deps) {
     if (!bodySnap) {
       return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
     }
-    if (typeof withTransactionClient !== 'function') {
-      return deps.sendJSON(res, 503, { success: false, error: INBOUND_CAPTURE_ERROR });
-    }
     try {
       return await deps.withPgClient(async (pg) => {
         const found = await pg.query(SQL_RESOLVE_INBOUND_CAPTURE_BINDING, [
@@ -1360,8 +1361,8 @@ function createStaffEmailOAuthRoutes(deps) {
         }
         // Operation input: exact resolved DB UUIDs (client/location/endpoint).
         // Never caller client_slug or body client_id.
-        // withTransactionClient is a separate exclusive loaner (not this pg).
-        const service = buildInboundCaptureRuntime(env, pg, withTransactionClient);
+        // withTransactionClient is factory-fixed over this outer pg loan.
+        const service = buildInboundCaptureRuntime(env, pg);
         const result = await service.runInboundEventStore(Object.freeze({
           clientId: rowSnap.client_id,
           locationId: rowSnap.location_id,

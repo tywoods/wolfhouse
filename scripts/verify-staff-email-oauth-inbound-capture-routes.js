@@ -11,7 +11,9 @@
  *   - exact JSON / key order / count / max-5 invariant
  *   - durable_identity_count is not newly-inserted vocabulary
  *   - sanitized failures / no PII
- *   - nested transaction capability plumbing (withTransactionClient ≠ outer pg)
+ *   - single-loan adversarial: max-1 Staff API checkout; withTransactionClient
+ *     reuses outer pg for BEGIN/INSERT/COMMIT; release only after settlement;
+ *     failures still release via existing owner; route never release/close
  *   - diagnostic / read-health sibling regressions
  *
  * Activation precondition (documented; not applied here): migration 063 ledger
@@ -370,7 +372,6 @@ async function main() {
 
   // ── Flag off: concealed 404 before DB ───────────────────────────────────
   let dbHits = 0;
-  let txnHits = 0;
   const sendOff = captureSend();
   const routesOff = createStaffEmailOAuthRoutes({
     runtimeEnv: offEnv,
@@ -380,10 +381,6 @@ async function main() {
     withPgClient: async () => {
       dbHits += 1;
       throw new Error('should_not_run_db');
-    },
-    withTransactionClient: async () => {
-      txnHits += 1;
-      throw new Error('should_not_run_txn');
     },
   });
   await routesOff.handleInboundCapture(
@@ -396,7 +393,6 @@ async function main() {
   assert.equal(sendOff.calls[0].status, 404);
   assert.deepEqual(sendOff.calls[0].body, { success: false, error: 'not_found' });
   assert.equal(dbHits, 0, 'disabled → no DB');
-  assert.equal(txnHits, 0, 'disabled → no txn');
 
   // Production / wolfhouse / other deployment: concealed 404 before DB.
   for (const deployment of ['production', 'wolfhouse', 'other']) {
@@ -465,7 +461,6 @@ async function main() {
   // gateEnv on + runtimeEnv off: gate allows past concealment; operation fails
   // closed (503) without claiming success — still no open network claim.
   dbHits = 0;
-  txnHits = 0;
   const sendToctouOn = captureSend();
   const routesToctouOn = createStaffEmailOAuthRoutes({
     runtimeEnv: { LUNA_DEPLOYMENT: 'sunset-staging' },
@@ -477,10 +472,6 @@ async function main() {
       return fn({
         query: async () => resolveRowResult(),
       });
-    },
-    withTransactionClient: async () => {
-      txnHits += 1;
-      throw new Error('toctou_on_must_not_persist');
     },
   });
   await routesToctouOn.handleInboundCapture(
@@ -496,7 +487,6 @@ async function main() {
     error: INBOUND_CAPTURE_ERROR,
   });
   assert.ok(dbHits >= 1, 'gate snapshot on proceeds past concealment');
-  assert.equal(txnHits, 0, 'failed composition readiness → no persist txn');
 
   // ── Auth: Sunset admin before DB ────────────────────────────────────────
   dbHits = 0;
@@ -638,9 +628,6 @@ async function main() {
         return { rows: [] };
       },
     }),
-    withTransactionClient: async () => {
-      throw new Error('empty_binding_must_not_txn');
-    },
   });
   await routesEmpty.handleInboundCapture(
     { location_id: LOCATION, endpoint_id: ENDPOINT },
@@ -653,18 +640,21 @@ async function main() {
   assert.deepEqual(queryParams, [LOCATION, ENDPOINT]);
 
   // ── Operation failure: 503 sanitized (no PII / internal vocab) ──────────
+  // Composition readiness fails closed (no Azure/KV readiness in unit env);
+  // planted failure strings must never leak into the public body.
   const sendFail = captureSend();
   const routesFail = createStaffEmailOAuthRoutes({
-    runtimeEnv: enabledCaptureEnv(),
+    runtimeEnv: {
+      ...enabledCaptureEnv(),
+      // Incomplete readiness → factory throws before network/persist.
+      LUNA_EMAIL_OAUTH_CLIENT_ID: `planted-${PLANTED_TOKEN}`,
+    },
     sendJSON: sendFail.sendJSON,
     assertStaffClientAccess: () => true,
     authorizeAuthenticatedStaffRoute: () => ({ ok: true }),
     withPgClient: async (fn) => fn({
       query: async () => resolveRowResult(),
     }),
-    withTransactionClient: async () => {
-      throw new Error(`planted ${PLANTED_TOKEN} ${PLANTED_SUBJECT} ${PLANTED_ADDRESS}`);
-    },
   });
   await routesFail.handleInboundCapture(
     { location_id: LOCATION, endpoint_id: ENDPOINT },
@@ -685,9 +675,11 @@ async function main() {
   assert.equal(failJson.includes('received_count'), false);
   assert.equal(failJson.includes('stack'), false);
 
-  // ── Nested transaction capability plumbing ──────────────────────────────
-  // Prove route factory receives distinct withTransactionClient capability
-  // (not the outer resolve pgClient) via Module._load intercept of composition.
+  // ── Adversarial single-loan (max-1 checkout; outer client for store TX) ──
+  // Prove factory-fixed withTransactionClient reuses the outer exclusive loan
+  // (no second Staff API checkout), event-store BEGIN/INSERT/COMMIT hit that
+  // same client, outer release only after complete runtime settlement, failures
+  // still release via existing withPgClient owner, and route never release/close.
   {
     const Module = require('node:module');
     const routesAbs = require.resolve('./lib/staff-email-oauth-routes');
@@ -714,12 +706,23 @@ async function main() {
               capturedDeps = deps;
               return Object.freeze({
                 async runInboundEventStore() {
-                  // Invoke exclusive loaner once to prove separate client path.
+                  assert.equal(
+                    typeof deps.withTransactionClient,
+                    'function',
+                    'factory-fixed withTransactionClient present',
+                  );
+                  assert.equal(deps.pgClient, outerClient, 'pgClient is outer loan');
+                  // Event-store path: BEGIN → INSERT → COMMIT on same outer client.
                   await deps.withTransactionClient(async (client) => {
-                    assert.ok(client);
-                    assert.notEqual(client, deps.pgClient, 'persist client ≠ outer pgClient');
-                    assert.equal(client.id, 'exclusive-persist-client');
-                    return Object.freeze({ ok: true });
+                    assert.equal(client, outerClient, 'store client is outer loan');
+                    assert.equal(client, deps.pgClient, 'store client === pgClient');
+                    assert.equal(client.id, 'outer-route-loan');
+                    await client.query('BEGIN');
+                    await client.query(
+                      'INSERT INTO tenant_email_inbound_events (client_id) VALUES ($1)',
+                      [CLIENT_UUID],
+                    );
+                    await client.query('COMMIT');
                   });
                   return Object.freeze({
                     status: 'success',
@@ -736,69 +739,123 @@ async function main() {
       } catch (_) { /* fall through */ }
       return loaded;
     };
+    let outerClient;
     try {
       delete require.cache[routesAbs];
-      // Also clear sibling composition caches so re-require binds patched factory.
       delete require.cache[compAbs];
       const {
         createStaffEmailOAuthRoutes: createRoutesPatched,
         buildInboundCaptureSuccessJson: buildCaptureJsonPatched,
         INBOUND_CAPTURE_SUCCESS_KEYS: captureKeysPatched,
       } = require('./lib/staff-email-oauth-routes');
-      const outerClient = {
-        id: 'outer-resolve-client',
-        query: async () => resolveRowResult(),
+
+      const sqlLog = [];
+      outerClient = {
+        id: 'outer-route-loan',
+        release() { throw new Error('route_must_not_release'); },
+        close() { throw new Error('route_must_not_close'); },
+        end() { throw new Error('route_must_not_end'); },
+        async query(sql, params) {
+          const text = String(sql || '');
+          sqlLog.push(text);
+          if (/^\s*BEGIN\s*$/i.test(text)
+              || /^\s*COMMIT\s*$/i.test(text)
+              || /^\s*ROLLBACK\s*$/i.test(text)) {
+            return { rows: [] };
+          }
+          if (/INSERT\s+INTO\s+tenant_email_inbound_events/i.test(text)) {
+            return { rows: [], rowCount: 1 };
+          }
+          // Binding resolve for the route handler.
+          return resolveRowResult();
+        },
       };
-      const exclusiveLoaner = async (work) => {
-        const exclusive = {
-          id: 'exclusive-persist-client',
-          query: async () => ({ rows: [] }),
-        };
-        assert.notEqual(exclusive, outerClient);
-        return work(exclusive);
-      };
-      assert.notEqual(exclusiveLoaner, outerClient);
-      const sendTxn = captureSend();
-      let outerHits = 0;
-      const routesTxn = createRoutesPatched({
+
+      let checkoutCount = 0;
+      let activeLoans = 0;
+      let outerReleased = false;
+      let settlementComplete = false;
+      let releaseAfterSettlement = false;
+
+      async function singleLoanWithPgClient(work) {
+        checkoutCount += 1;
+        if (checkoutCount > 1) {
+          throw new Error('second_checkout_forbidden_max1');
+        }
+        if (activeLoans > 0) {
+          throw new Error('concurrent_loan_forbidden');
+        }
+        activeLoans += 1;
+        outerReleased = false;
+        try {
+          return await work(outerClient);
+        } finally {
+          activeLoans -= 1;
+          outerReleased = true;
+          // Outer release only after complete runtime settlement (runInboundEventStore
+          // + success DTO mapping + sendJSON complete inside the loan callback).
+          releaseAfterSettlement = settlementComplete === true;
+        }
+      }
+
+      const sendOk = captureSend();
+      const routesOk = createRoutesPatched({
         runtimeEnv: enabledCaptureEnv(),
-        sendJSON: sendTxn.sendJSON,
+        sendJSON: (res, status, body) => {
+          // Mark settlement just before response leaves the outer loan callback.
+          // runInboundEventStore has already completed when buildSuccessJson runs;
+          // sendJSON is the last step before withPgClient finally releases.
+          settlementComplete = true;
+          return sendOk.sendJSON(res, status, body);
+        },
         assertStaffClientAccess: () => true,
         authorizeAuthenticatedStaffRoute: () => ({ ok: true }),
-        withPgClient: async (fn) => {
-          outerHits += 1;
-          return fn(outerClient);
-        },
-        withTransactionClient: exclusiveLoaner,
+        withPgClient: singleLoanWithPgClient,
       });
-      await routesTxn.handleInboundCapture(
+      await routesOk.handleInboundCapture(
         { location_id: LOCATION, endpoint_id: ENDPOINT },
         {},
         {},
         { client_slug: 'sunset', staff_user_id: STAFF, session_id: SESSION },
       );
+
       assert.equal(factoryCalls, 1, 'composition factory invoked once');
       assert.ok(capturedDeps, 'composition deps captured');
       assert.equal(capturedDeps.pgClient, outerClient, 'outer loan is pgClient');
-      assert.equal(
+      assert.equal(typeof capturedDeps.withTransactionClient, 'function');
+      // Capability is factory-fixed over the outer loan — not a second pool API.
+      assert.notEqual(
         capturedDeps.withTransactionClient,
-        exclusiveLoaner,
-        'withTransactionClient is injected exclusive loaner',
+        singleLoanWithPgClient,
+        'withTransactionClient is not the Staff API withPgClient loaner',
       );
-      assert.notEqual(capturedDeps.withTransactionClient, capturedDeps.pgClient);
-      assert.ok(outerHits >= 1, 'outer withPgClient used for resolve');
-      assert.equal(sendTxn.calls[0].status, 200);
-      assert.deepEqual(Reflect.ownKeys(sendTxn.calls[0].body), [...captureKeysPatched]);
-      assert.equal(sendTxn.calls[0].body.status, 'durable_capture_completed');
-      assert.equal(sendTxn.calls[0].body.observed_count, 2);
-      assert.equal(sendTxn.calls[0].body.durable_identity_count, 1);
-      assert.equal(sendTxn.calls[0].body.duplicate_in_batch_count, 1);
-      assert.equal(sendTxn.calls[0].body.durably_captured, true);
+      assert.equal(checkoutCount, 1, 'exactly one Staff API checkout total');
+      assert.equal(activeLoans, 0, 'loan returned');
+      assert.equal(outerReleased, true, 'outer release occurred');
       assert.equal(
-        JSON.stringify(sendTxn.calls[0].body),
+        releaseAfterSettlement,
+        true,
+        'outer release only after complete runtime settlement',
+      );
+      // BEGIN / INSERT / COMMIT all hit the outer client query log.
+      assert.ok(sqlLog.some((s) => /^\s*BEGIN\s*$/i.test(s)), 'BEGIN on outer client');
+      assert.ok(
+        sqlLog.some((s) => /INSERT\s+INTO\s+tenant_email_inbound_events/i.test(s)),
+        'INSERT on outer client',
+      );
+      assert.ok(sqlLog.some((s) => /^\s*COMMIT\s*$/i.test(s)), 'COMMIT on outer client');
+
+      assert.equal(sendOk.calls[0].status, 200);
+      assert.deepEqual(Reflect.ownKeys(sendOk.calls[0].body), [...captureKeysPatched]);
+      assert.equal(sendOk.calls[0].body.status, 'durable_capture_completed');
+      assert.equal(sendOk.calls[0].body.observed_count, 2);
+      assert.equal(sendOk.calls[0].body.durable_identity_count, 1);
+      assert.equal(sendOk.calls[0].body.duplicate_in_batch_count, 1);
+      assert.equal(sendOk.calls[0].body.durably_captured, true);
+      assert.equal(
+        JSON.stringify(sendOk.calls[0].body),
         '{"success":true,"status":"durable_capture_completed","observed_count":2,"durable_identity_count":1,"duplicate_in_batch_count":1,"durably_captured":true}',
       );
-      // Sanity: patched builder still maps durable_identity (not newly inserted).
       const mapped = buildCaptureJsonPatched({
         status: 'success',
         durably_processed: true,
@@ -807,36 +864,116 @@ async function main() {
         duplicate_count: 1,
       });
       assert.equal(mapped.durable_identity_count, 1);
+
+      // Failure still releases via existing withPgClient owner (no second checkout).
+      checkoutCount = 0;
+      activeLoans = 0;
+      outerReleased = false;
+      settlementComplete = false;
+      releaseAfterSettlement = false;
+      factoryCalls = 0;
+      capturedDeps = null;
+      const sendFailLoan = captureSend();
+      // Re-patch composition to throw after store path starts.
+      Module._load = function patchedLoadFail(request, parent, isMain) {
+        const loaded = realLoad.apply(this, arguments);
+        try {
+          if (parent && parent.filename === routesAbs
+              && (request === compRel
+                || request === compAbs
+                || String(request).endsWith(
+                  'email-microsoft-delegated-inbound-event-store-sunset-staging-runtime-composition',
+                ))) {
+            return {
+              ...loaded,
+              createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(deps) {
+                factoryCalls += 1;
+                capturedDeps = deps;
+                return Object.freeze({
+                  async runInboundEventStore() {
+                    await deps.withTransactionClient(async (client) => {
+                      assert.equal(client, outerClient);
+                      await client.query('BEGIN');
+                      throw new Error(`planted ${PLANTED_TOKEN} ${PLANTED_SUBJECT}`);
+                    });
+                    return Object.freeze({
+                      status: 'success',
+                      durably_processed: true,
+                      input_count: 1,
+                      delivered_count: 1,
+                      duplicate_count: 0,
+                    });
+                  },
+                });
+              },
+            };
+          }
+        } catch (_) { /* fall through */ }
+        return loaded;
+      };
+      delete require.cache[routesAbs];
+      delete require.cache[compAbs];
+      const {
+        createStaffEmailOAuthRoutes: createRoutesFail,
+      } = require('./lib/staff-email-oauth-routes');
+      const routesFailLoan = createRoutesFail({
+        runtimeEnv: enabledCaptureEnv(),
+        sendJSON: sendFailLoan.sendJSON,
+        assertStaffClientAccess: () => true,
+        authorizeAuthenticatedStaffRoute: () => ({ ok: true }),
+        withPgClient: singleLoanWithPgClient,
+      });
+      await routesFailLoan.handleInboundCapture(
+        { location_id: LOCATION, endpoint_id: ENDPOINT },
+        {},
+        {},
+        { client_slug: 'sunset', staff_user_id: STAFF, session_id: SESSION },
+      );
+      assert.equal(sendFailLoan.calls[0].status, 503);
+      assert.deepEqual(sendFailLoan.calls[0].body, {
+        success: false,
+        error: INBOUND_CAPTURE_ERROR,
+      });
+      assert.equal(
+        JSON.stringify(sendFailLoan.calls[0].body).includes(PLANTED_TOKEN),
+        false,
+      );
+      assert.equal(checkoutCount, 1, 'failure path: still exactly one checkout');
+      assert.equal(activeLoans, 0, 'failure path: loan released');
+      assert.equal(outerReleased, true, 'failure path: existing owner released');
     } finally {
       Module._load = realLoad;
       delete require.cache[routesAbs];
       delete require.cache[compAbs];
-      // Restore production module bindings for any subsequent requires.
       require('./lib/staff-email-oauth-routes');
     }
   }
 
-  // Source-level: buildInboundCaptureRuntime receives withTransactionClient;
-  // handleInboundCapture uses deps.withTransactionClient / withPgClient pair.
+  // Source-level: single-loan factory-fixed withTransactionClient over outer pg.
   const routesSrc = fs.readFileSync(
     path.join(ROOT, 'scripts/lib/staff-email-oauth-routes.js'),
     'utf8',
   );
   assert.match(routesSrc, /createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime/);
   assert.match(routesSrc, /handleInboundCapture/);
-  assert.match(routesSrc, /withTransactionClient/);
   assert.match(routesSrc, /buildInboundCaptureRuntime/);
   assert.match(routesSrc, /runInboundEventStore/);
   assert.match(routesSrc, /durable_identity_count/);
   assert.match(routesSrc, /durably_captured/);
   assert.match(routesSrc, /durable_capture_completed/);
   assert.match(routesSrc, /inbound_capture_unavailable/);
-  // Must not claim newly-inserted counts or processing/drafting vocabulary.
-  assert.equal(/newly_inserted|inserted_count/.test(routesSrc), false);
+  // Factory-fixed capability reuses captured outer pg (no second checkout).
+  assert.match(routesSrc, /async function withTransactionClient\(work\)/);
+  assert.match(routesSrc, /return work\(pg\)/);
+  assert.match(routesSrc, /buildInboundCaptureRuntime\(env, pg\)/);
+  // Route never takes release/close ownership of the loaned pg client.
   assert.equal(
-    /status:\s*['"]ok['"]|received_count|accepted_count|discarded_count/.test(routesSrc),
+    /\b(pg|client)\s*\.\s*(release|close)\s*\(/.test(routesSrc),
     false,
+    'route must not release/close loaned client',
   );
+  // Must not claim newly-inserted counts or processing vocabulary.
+  assert.equal(/newly_inserted|inserted_count/.test(routesSrc), false);
   // Diagnostic path/flag untouched.
   assert.match(routesSrc, /OAUTH_INBOUND_DIAGNOSTIC_PATH = '\/staff\/admin\/email-settings\/oauth\/microsoft\/inbound-diagnostic'/);
   assert.match(routesSrc, /isInboundDiagnosticEnabled/);
@@ -856,7 +993,12 @@ async function main() {
     apiSrc,
     /require\('\.\/lib\/email-microsoft-delegated-inbound-event-store-sunset-staging-runtime-composition'\)/,
   );
-  assert.match(apiSrc, /withTransactionClient:\s*withPgClient/);
+  // No dual-injection of withPgClient as withTransactionClient (deadlock under max=1).
+  assert.equal(
+    /withTransactionClient\s*:\s*withPgClient/.test(apiSrc),
+    false,
+    'staff-query-api must not inject withPgClient as withTransactionClient',
+  );
   // Capture block: gate before requireAuth / readBody.
   const blockStart = apiSrc.indexOf(
     "pathname === OAUTH_INBOUND_CAPTURE_PATH && method === 'POST'",
