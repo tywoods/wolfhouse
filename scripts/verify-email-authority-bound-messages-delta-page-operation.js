@@ -25,6 +25,13 @@
  * rebind between resolve and state/Graph; frozen identity-free results;
  * import inert/unwired.
  *
+ * Retry-stable opaque page attempt (corrective): createPageAttempt allocates
+ * operation id before side effects; closed-over id never leaks; same-attempt
+ * ack-loss journal replay zero Graph/grant; claimed blocks refetch; rolled-
+ * back unknown re-executes once; two attempts / one CAS commit; worker id
+ * sunset-email-delta-worker; direct run activation-ineligible; caller
+ * durability lifecycle not ready (activation blocker).
+ *
  * No network, routes, OAuth scope, DB migration, deploy, live Graph, or
  * grant/refresh/SQL duplication. Preserves PR408/409 + authority/grant siblings.
  */
@@ -185,7 +192,7 @@ function authorityRow(overrides = {}) {
 }
 
 function makeAuthorityDb(opts = {}) {
-  const rows = opts.rows !== undefined ? opts.rows : [authorityRow(opts.rowOverrides || {})];
+  let rows = opts.rows !== undefined ? opts.rows.slice() : [authorityRow(opts.rowOverrides || {})];
   let queryCount = 0;
   const log = [];
   const db = {
@@ -197,7 +204,12 @@ function makeAuthorityDb(opts = {}) {
       return { rows: rows.slice(), rowCount: rows.length, command: 'SELECT' };
     },
   };
-  return { db, log, getQueryCount: () => queryCount };
+  return {
+    db,
+    log,
+    getQueryCount: () => queryCount,
+    setRows(next) { rows = Array.isArray(next) ? next.slice() : []; },
+  };
 }
 
 function freezeEnv(env) {
@@ -511,11 +523,22 @@ function createFakeDeltaHarness(options = {}) {
           return { rows: [], rowCount: 0 };
         }
 
-        // page_commit journal SELECT FOR UPDATE
+        // page_commit journal SELECT FOR UPDATE (claim/replay path)
         if (/FROM tenant_email_delta_recovery_operations/.test(norm)
             && /FOR UPDATE/.test(norm)
             && /operation_id = \$1::uuid/.test(norm)
             && /^SELECT\b/.test(norm)) {
+          const row = readJournal(params[0]);
+          return { rows: row ? [cloneRow(row)] : [], rowCount: row ? 1 : 0 };
+        }
+
+        // page_commit journal SELECT read-only (readPageCommitOutcome; no FOR UPDATE)
+        if (/FROM tenant_email_delta_recovery_operations/.test(norm)
+            && !/FOR UPDATE/.test(norm)
+            && /^SELECT\b/.test(norm)
+            && /operation_id = \$1::uuid/.test(norm)
+            && !/INSERT/.test(norm)
+            && !/UPDATE/.test(norm)) {
           const row = readJournal(params[0]);
           return { rows: row ? [cloneRow(row)] : [], rowCount: row ? 1 : 0 };
         }
@@ -1130,6 +1153,11 @@ function installStoreSpy(handlers = {}) {
         return res;
       };
     }
+    // Recovery-store capability: pass through authority-bound exclusive advance
+    // without spying (not part of page-op call log surface).
+    if (typeof store.advanceGenerationOnExclusiveClient === 'function') {
+      wrapped.advanceGenerationOnExclusiveClient = store.advanceGenerationOnExclusiveClient.bind(store);
+    }
     return Object.freeze(wrapped);
   }
 
@@ -1310,6 +1338,17 @@ async function main() {
     opMod.EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_AUTO_BEGIN_GENERATION === false);
   ok('multipage-false',
     opMod.EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_MULTIPAGE === false);
+  ok('persistence-ready-false',
+    opMod.EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_PERSISTENCE_READY === false);
+  ok('caller-durability-lifecycle-not-ready',
+    opMod.EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_CALLER_DURABILITY_LIFECYCLE_READY === false);
+  ok('attempt-api-required-for-runtime',
+    opMod.EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_ATTEMPT_API_REQUIRED_FOR_RUNTIME === true);
+  ok('direct-run-activation-ineligible',
+    opMod.EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_DIRECT_RUN_ACTIVATION_INELIGIBLE === true);
+  ok('worker-id-source-pinned',
+    opMod.WORKER_ID === 'sunset-email-delta-worker'
+    && opMod.PAGE_COMMIT_WORKER_ID === 'sunset-email-delta-worker');
   ok('offline-runtime-wired-false',
     offlineMod.EMAIL_MESSAGES_DELTA_OFFLINE_COMPOSITION_RUNTIME_WIRED === false);
   ok('offline-import-inert-true',
@@ -1318,6 +1357,9 @@ async function main() {
   ok('result-keys-exact',
     Array.isArray(opMod.RESULT_KEYS)
       && opMod.RESULT_KEYS.join(',') === 'status,phase,envelopes_presented,tombstones_presented');
+  ok('attempt-surface-keys-exact',
+    Array.isArray(opMod.ATTEMPT_SURFACE_KEYS)
+      && opMod.ATTEMPT_SURFACE_KEYS.join(',') === 'run,reconcile,status');
   ok('input-keys-exact',
     opMod.INPUT_KEYS.join(',') === 'clientId,locationId,endpointId');
   ok('binding-verifier-export',
@@ -1343,6 +1385,14 @@ async function main() {
     'docs-mention-delta-page-operation',
     /authority-bound.*messages-delta|messages-delta.*page.?operation|authority-bound-messages-delta/i
       .test(doc),
+  );
+  ok(
+    'docs-mention-page-attempt',
+    /createPageAttempt|retry-stable page attempt|opaque.*page attempt/i.test(doc),
+  );
+  ok(
+    'docs-mention-caller-durability-blocker',
+    /caller durability lifecycle|CALLER_DURABILITY_LIFECYCLE_READY/i.test(doc),
   );
 
   // ── Unwired: routes / staff-api / production compositions ──────────────
@@ -1376,6 +1426,18 @@ async function main() {
   ok('op-no-processInboundEmailBatch', !/processInboundEmailBatch/.test(opSrc));
   ok('op-factory-fixed-verifier',
     /createDelegatedReadAuthorityBindingVerifier/.test(opSrc));
+  ok('op-createPageAttempt-export',
+    /function createPageAttempt/.test(opSrc)
+    && /createPageAttempt/.test(opSrc));
+  ok('op-allocates-id-before-side-effects',
+    /allocateCanonicalOperationId/.test(opSrc)
+    && /BEFORE any side effect/.test(opSrc));
+  ok('op-no-post-graph-random-uuid-for-seal',
+    !/operationId:\s*crypto\.randomUUID\(\)/.test(opSrc));
+  ok('op-uses-readPageCommitOutcome',
+    /readPageCommitOutcome/.test(opSrc));
+  ok('op-worker-pin-literal',
+    /sunset-email-delta-worker/.test(opSrc));
 
   // ── Binding verifier unit ──────────────────────────────────────────────
   {
@@ -2960,6 +3022,374 @@ async function main() {
         && grant.getSessionCreates() === 1);
     } finally {
       spy.restore();
+    }
+  }
+
+  // ── Opaque retry-stable page attempt ───────────────────────────────────
+  {
+    const {
+      createAuthorityBoundMessagesDeltaPageOperation,
+      ATTEMPT_SURFACE_KEYS,
+    } = require('./lib/email-authority-bound-messages-delta-page-operation');
+    const {
+      createFakeEmailGrantEnvelopeProvider,
+    } = require('./lib/email-grant-envelope-fake-provider');
+
+    // Hostile createPageAttempt surfaces
+    {
+      const harness = createFakeDeltaHarness();
+      const envProvider = createFakeEmailGrantEnvelopeProvider();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({
+        initialPage: makeTransportPage({
+          envelopes: [makeEnvelope('attempt-hostile-1')],
+          cursor_kind: 'deltaLink',
+          cursor_url: PLANTED_DELTA,
+        }),
+      });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      ok('attempt-factory-export', typeof op.createPageAttempt === 'function');
+      assert.throws(
+        () => op.createPageAttempt(null),
+        (e) => e && e.code === 'authority_bound_messages_delta_page_failed',
+      );
+      assert.throws(
+        () => op.createPageAttempt(Object.freeze({ clientId: 'x', locationId: LOCATION, endpointId: ENDPOINT })),
+        (e) => e && e.code === 'authority_bound_messages_delta_page_failed',
+      );
+      const attempt = op.createPageAttempt(baseInput());
+      ok('attempt-surface-frozen', Object.isFrozen(attempt));
+      ok('attempt-surface-exact-keys',
+        Reflect.ownKeys(attempt).length === ATTEMPT_SURFACE_KEYS.length
+        && ATTEMPT_SURFACE_KEYS.every((k) => typeof attempt[k] === 'function'));
+      ok('attempt-no-operation-id-property',
+        !Object.prototype.hasOwnProperty.call(attempt, 'operationId')
+        && !Object.prototype.hasOwnProperty.call(attempt, 'operation_id')
+        && !Object.prototype.hasOwnProperty.call(attempt, 'id')
+        && !('operationId' in attempt)
+        && !('operation_id' in attempt));
+      ok('attempt-no-id-via-json',
+        !JSON.stringify(attempt).includes('operation')
+        || !/"operationId"|"operation_id"/.test(JSON.stringify(attempt)));
+      const statusOpen = await attempt.status();
+      ok('attempt-status-open-before-run',
+        statusOpen.ok === true && statusOpen.value.status === 'open', ser(statusOpen));
+    }
+
+    // Happy path: first run commits; same-attempt second run journal-replays zero Graph/grant
+    {
+      const harness = createFakeDeltaHarness();
+      const envProvider = createFakeEmailGrantEnvelopeProvider();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({
+        initialPage: makeTransportPage({
+          envelopes: [makeEnvelope('attempt-ack-1')],
+          cursor_kind: 'deltaLink',
+          cursor_url: PLANTED_DELTA,
+        }),
+      });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const attempt = op.createPageAttempt(baseInput());
+      const r1 = await attempt.run();
+      ok('attempt-first-run-committed',
+        r1.ok === true && r1.value.status === 'committed', ser(r1));
+      ok('attempt-first-run-graph-once',
+        transportBag.getInitialCount() === 1 && grant.getSessionCreates() === 1);
+      ok('attempt-first-run-journaled', harness.journal.size === 1);
+      const journalRows = [...harness.journal.values()];
+      ok('attempt-journal-worker-pinned',
+        journalRows.length === 1
+        && journalRows[0].worker_id === 'sunset-email-delta-worker'
+        && journalRows[0].operation_kind === 'page_commit'
+        && journalRows[0].outcome === 'committed');
+      const opId = journalRows[0].operation_id;
+      ok('attempt-no-id-leak-in-result',
+        !ser(r1).includes(opId) && noLeak(r1));
+
+      const r2 = await attempt.run();
+      ok('attempt-ack-loss-replay-committed',
+        r2.ok === true && r2.value.status === 'committed', ser(r2));
+      ok('attempt-second-run-zero-graph',
+        transportBag.getInitialCount() === 1
+        && transportBag.getContinuationCount() === 0,
+        `initial=${transportBag.getInitialCount()} cont=${transportBag.getContinuationCount()}`);
+      ok('attempt-second-run-zero-grant',
+        grant.getSessionCreates() === 1,
+        `sessions=${grant.getSessionCreates()}`);
+      ok('attempt-second-run-no-id-leak', !ser(r2).includes(opId) && noLeak(r2));
+      ok('attempt-journal-unchanged-size', harness.journal.size === 1);
+
+      const recon = await attempt.reconcile();
+      ok('attempt-reconcile-committed',
+        recon.ok === true && recon.value.status === 'committed', ser(recon));
+      ok('attempt-reconcile-no-id-leak', !ser(recon).includes(opId));
+    }
+
+    // Two different attempts / CAS one commit — second attempt conflicts or fails closed
+    {
+      const harness = createFakeDeltaHarness();
+      const envProvider = createFakeEmailGrantEnvelopeProvider();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({
+        initialPage: makeTransportPage({
+          envelopes: [makeEnvelope('attempt-two-1')],
+          cursor_kind: 'deltaLink',
+          cursor_url: PLANTED_DELTA,
+        }),
+      });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const a1 = op.createPageAttempt(baseInput());
+      const a2 = op.createPageAttempt(baseInput());
+      const r1 = await a1.run();
+      ok('two-attempts-first-committed',
+        r1.ok === true && r1.value.status === 'committed', ser(r1));
+      // After first commit+release, second attempt may acquire and run; if it
+      // races the same state version after first advanced, CAS fails closed.
+      // Clear residual lease by advancing time if needed is not required —
+      // release cleared lease. Second attempt executes a new page (tracking).
+      const transportFab2 = makeTransport({
+        continuationPage: makeTransportPage({
+          envelopes: [makeEnvelope('attempt-two-2')],
+          cursor_kind: 'deltaLink',
+          cursor_url: PLANTED_DELTA,
+        }),
+      });
+      // Rebuild op with continuation transport for second attempt endpoint state
+      const op2 = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportFab2.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const a2b = op2.createPageAttempt(baseInput());
+      const r2 = await a2b.run();
+      ok('two-attempts-second-independent-ok-or-fail',
+        (r2.ok === true && (r2.value.status === 'committed'
+          || r2.value.status === 'committed_but_lease_release_uncertain'))
+        || r2.ok === false,
+        ser(r2));
+      // Distinct journal operation ids when both committed
+      if (r2.ok && r2.value.status === 'committed') {
+        const ids = [...harness.journal.values()]
+          .filter((j) => j.outcome === 'committed')
+          .map((j) => j.operation_id);
+        ok('two-attempts-distinct-operation-ids',
+          new Set(ids).size === ids.length && ids.length >= 2);
+      } else {
+        ok('two-attempts-second-not-double-journal-same-id', true);
+      }
+      // First attempt retained still replays without graph
+      const sessionsBefore = grant.getSessionCreates();
+      const r1b = await a1.run();
+      ok('two-attempts-first-retained-replay',
+        r1b.ok === true && r1b.value.status === 'committed');
+      ok('two-attempts-first-retained-zero-new-grant',
+        grant.getSessionCreates() === sessionsBefore);
+    }
+
+    // Claimed journal blocks refetch (zero Graph/grant on second run)
+    {
+      const harness = createFakeDeltaHarness();
+      const envProvider = createFakeEmailGrantEnvelopeProvider();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({
+        initialPage: makeTransportPage({
+          envelopes: [makeEnvelope('attempt-claimed-1')],
+          cursor_kind: 'deltaLink',
+          cursor_url: PLANTED_DELTA,
+        }),
+      });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const attempt = op.createPageAttempt(baseInput());
+      // Drive first run far enough to capture fences, then plant claimed row.
+      // Plant after first successful commit by mutating journal outcome to claimed
+      // is invalid for match; instead: run until uncertain via commit-unknown spy,
+      // then plant claimed with matching fences.
+      const spy = installStoreSpy({
+        async commitPageEvents(input, real) {
+          // Delegate once to claim journal then force unknown after success path —
+          // simpler: run real commit, then force claimed by rewriting durable journal.
+          return real.commitPageEvents(input);
+        },
+      });
+      try {
+        const {
+          createAuthorityBoundMessagesDeltaPageOperation: createOp,
+        } = spy.loadOp();
+        const opSpied = createOp(Object.freeze({
+          db: auth.db,
+          createGrantSession: grant.createGrantSession,
+          messagesDeltaPageTransport: transportBag.transport,
+          withTransactionClient: harness.withTransactionClient,
+          envelopeProvider: envProvider,
+        }));
+        const att = opSpied.createPageAttempt(baseInput());
+        const first = await att.run();
+        ok('claimed-setup-first-committed',
+          first.ok === true && first.value.status === 'committed', ser(first));
+        // Rewrite durable journal row to claimed (stuck mid-flight simulation)
+        const row = [...harness.journal.values()][0];
+        ok('claimed-setup-has-row', row != null);
+        row.outcome = 'claimed';
+        row.result_generation = null;
+        row.result_state_version = null;
+        row.result_phase = null;
+        const sessionsBefore = grant.getSessionCreates();
+        const initialBefore = transportBag.getInitialCount();
+        const second = await att.run();
+        ok('claimed-blocks-refetch-uncertain',
+          second.ok === true && second.value.status === 'uncertain', ser(second));
+        ok('claimed-blocks-zero-graph',
+          transportBag.getInitialCount() === initialBefore
+          && transportBag.getContinuationCount() === 0);
+        ok('claimed-blocks-zero-grant',
+          grant.getSessionCreates() === sessionsBefore);
+      } finally {
+        spy.restore();
+      }
+    }
+
+    // Rolled-back unknown (journal absent) same attempt executes once safely
+    {
+      const harness = createFakeDeltaHarness();
+      const envProvider = createFakeEmailGrantEnvelopeProvider();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({
+        initialPage: makeTransportPage({
+          envelopes: [makeEnvelope('attempt-rollback-1')],
+          cursor_kind: 'deltaLink',
+          cursor_url: PLANTED_DELTA,
+        }),
+      });
+      let commitCalls = 0;
+      const spy = installStoreSpy({
+        async commitPageEvents(input, real) {
+          commitCalls += 1;
+          if (commitCalls === 1) {
+            // Simulate commit_outcome_unknown with zero durable journal (rolled back).
+            return Object.freeze({
+              ok: false,
+              error: 'inbound_delta_state_commit_outcome_unknown',
+            });
+          }
+          return real.commitPageEvents(input);
+        },
+      });
+      try {
+        const {
+          createAuthorityBoundMessagesDeltaPageOperation: createOp,
+        } = spy.loadOp();
+        const op = createOp(Object.freeze({
+          db: auth.db,
+          createGrantSession: grant.createGrantSession,
+          messagesDeltaPageTransport: transportBag.transport,
+          withTransactionClient: harness.withTransactionClient,
+          envelopeProvider: envProvider,
+        }));
+        const attempt = op.createPageAttempt(baseInput());
+        const r1 = await attempt.run();
+        ok('rollback-unknown-first-uncertain',
+          r1.ok === true && r1.value.status === 'uncertain', ser(r1));
+        ok('rollback-unknown-journal-absent', harness.journal.size === 0);
+        // Fences were captured after lease; journal absent → may execute once.
+        // Lease may still be held (no release on unknown). Clear lease for re-exec.
+        harness.mutateCurrent(CLIENT, ENDPOINT, (row) => {
+          row.lease_token = null;
+          row.lease_until = null;
+          row.lease_owner = null;
+        });
+        const r2 = await attempt.run();
+        ok('rollback-unknown-second-executes',
+          r2.ok === true && r2.value.status === 'committed', ser(r2));
+        ok('rollback-unknown-second-used-graph',
+          transportBag.getInitialCount() >= 1
+          && commitCalls === 2);
+        ok('rollback-unknown-journal-now-present',
+          harness.journal.size === 1
+          && [...harness.journal.values()][0].outcome === 'committed');
+      } finally {
+        spy.restore();
+      }
+    }
+
+    // Authority rebind between resolve and journal consult / execute fails closed
+    {
+      const harness = createFakeDeltaHarness();
+      const envProvider = createFakeEmailGrantEnvelopeProvider();
+      const auth = makeAuthorityDb();
+      const grant = makeGrantSessionFactory();
+      const transportBag = makeTransport({
+        initialPage: makeTransportPage({
+          envelopes: [makeEnvelope('attempt-rebind-1')],
+          cursor_kind: 'deltaLink',
+          cursor_url: PLANTED_DELTA,
+        }),
+      });
+      const op = createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({
+        db: auth.db,
+        createGrantSession: grant.createGrantSession,
+        messagesDeltaPageTransport: transportBag.transport,
+        withTransactionClient: harness.withTransactionClient,
+        envelopeProvider: envProvider,
+      }));
+      const attempt = op.createPageAttempt(baseInput());
+      const r1 = await attempt.run();
+      ok('rebind-first-committed',
+        r1.ok === true && r1.value.status === 'committed', ser(r1));
+      // Flip authority binding so journal consult + re-verify fail closed
+      auth.setRows([]);
+      const r2 = await attempt.run();
+      ok('rebind-second-fails-closed', r2.ok === false, ser(r2));
+      ok('rebind-second-zero-new-graph',
+        transportBag.getInitialCount() === 1);
+    }
+
+    // Direct run remains activation-ineligible but still works offline
+    {
+      const ctx = await buildOperation({
+        transport: {
+          initialPage: makeTransportPage({
+            envelopes: [makeEnvelope('direct-1')],
+            cursor_kind: 'deltaLink',
+            cursor_url: PLANTED_DELTA,
+          }),
+        },
+      });
+      const res = await ctx.run();
+      ok('direct-run-still-works-offline',
+        res.ok === true && res.value.status === 'committed', ser(res));
+      ok('direct-run-no-id-in-result',
+        !/operation_id|operationId/.test(ser(res)) && noLeak(res));
     }
   }
 

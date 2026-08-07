@@ -2,24 +2,50 @@
 
 /**
  * Authority-bound Microsoft Graph messages-delta one-page durable operation
- * (OFFLINE / UNWIRED composition).
+ * (OFFLINE / UNWIRED composition) with opaque retry-stable page attempts.
  *
- * Exact state machine (one page per run):
+ * Corrective capability (retry-stable page attempt):
+ *   createPageAttempt({clientId,locationId,endpointId}) allocates a canonical
+ *   page-commit operation UUID BEFORE any Graph / grant / KV / lease / DB side
+ *   effect, closes over it privately (no id property, enumeration, log, result,
+ *   or error leakage), and returns a frozen exact surface {run,reconcile,status}.
+ *
+ *   Repeated run on the same attempt after commit_outcome_unknown first queries
+ *   durable migration-066 journal by exact enclosed id + tenant/endpoint/fences:
+ *     committed → sanitized committed replay; zero Graph/KV/grant/lease/event/
+ *       cursor mutation
+ *     claimed / ambiguous → uncertain / evidence unavailable; zero refetch
+ *     absent after confirmed rollback → may execute once safely
+ *
+ *   Requested generation/stateVersion fences may be unknown before lease: the
+ *   attempt is allocated before Graph; fences are captured after authoritative
+ *   lease/status without changing the operation id; journal uses exact fences.
+ *   Reconcile classification is journal-only via recovery-store
+ *   readPageCommitOutcome. Worker id is source-pinned sunset-email-delta-worker.
+ *
+ *   Direct runAuthorityBoundMessagesDeltaPage remains offline-only and explicitly
+ *   activation-ineligible (ephemeral attempt; no durable caller handle). Runtime
+ *   composition must eventually require the attempt API. Worker activation is
+ *   blocked until a caller durability lifecycle exists (process-crash recovery
+ *   of opaque attempt handles is not invented here without scheduler control).
+ *
+ * Exact state machine (one page per execute):
  *   1) resolve verified microsoft authority first
  *      (trusted providerTenantId + providerMailboxId local only)
  *   2) getPublicStatus
  *   3) absent → initialize generation 1 / phase initial /
  *      query_version ms_messages_delta_v1; already-exists race → reread once
  *   4) paused / reset_required → stop (sanitized)
- *   5) acquireLease using current generation/version
+ *   5) acquireLease using current generation/version; capture fences
  *   6) openCursor using acquired lease returned version (PR408 post-crypto fence)
  *   7) no cursor valid only initial → fetchInitialPage;
  *      else fetchContinuationPage with kind/url
  *   8) fresh one-shot grant-session factory per run; token callback exactly once;
  *      exactly one Graph request
- *   9) Inside callback: fetch then seal successor via PR408 outside TX;
- *      one mutable cursor capability owner; scrub plaintext URL/path/callback
- *      aliases; return only envelopes, tombstones, sealed successor
+ *   9) Inside callback: fetch then seal successor via PR408 outside TX using the
+ *      attempt-closed operation id (never post-Graph randomUUID); one mutable
+ *      cursor capability owner; scrub plaintext URL/path/callback aliases;
+ *      return only envelopes, tombstones, sealed successor
  *  10) Trusted continuation-only PR409 cursor_gone → markResetRequired
  *      reason graph_delta_cursor_gone CAS; classify exact PR408 result shapes:
  *        - success → reset_required public status; no release (PR408 cleared lease)
@@ -59,6 +85,7 @@
  *   - PR409 createMicrosoftGraphMessagesDeltaPageTransport surface
  *   - PR408 createInboundEmailDeltaStateStore / envelopeProvider /
  *     withTransactionClient
+ *   - email-delta-recovery-operation-store.readPageCommitOutcome (journal-only)
  *
  * Transaction loan is exclusively PR408 withTransactionClient.
  * Operation has no SQL / BEGIN / network / crypto / refresh / URL parser.
@@ -88,6 +115,12 @@ const {
   MESSAGES_DELTA_PAGE_RESULT_KEYS,
   EMAIL_MS_GRAPH_MESSAGES_DELTA_PAGE_TRANSPORT_RUNTIME_WIRED,
 } = require('./email-microsoft-graph-messages-delta-page-transport');
+const {
+  createEmailDeltaRecoveryOperationStore,
+  PAGE_COMMIT_WORKER_ID,
+  PAGE_COMMIT_OUTCOME_KEYS,
+  EMAIL_DELTA_RECOVERY_OPERATION_RUNTIME_WIRED,
+} = require('./email-delta-recovery-operation-store');
 
 const FAILURE_CODE = 'authority_bound_messages_delta_page_failed';
 const FAILURE_MESSAGE = 'Authority-bound messages-delta page operation failed.';
@@ -98,6 +131,18 @@ const EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_LOGGING_FORBIDDEN = true;
 const EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_SAFE_FOR_RUNTIME_ROUTE_CRON = false;
 const EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_AUTO_BEGIN_GENERATION = false;
 const EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_MULTIPAGE = false;
+/**
+ * Caller durability lifecycle (retain opaque attempt across process crash /
+ * scheduler control) is not present. Worker must not activate until it exists.
+ */
+const EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_CALLER_DURABILITY_LIFECYCLE_READY = false;
+/** Runtime composition must require createPageAttempt (not direct single-shot). */
+const EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_ATTEMPT_API_REQUIRED_FOR_RUNTIME = true;
+/**
+ * Direct runAuthorityBoundMessagesDeltaPage is offline-only and activation-
+ * ineligible (ephemeral attempt; no durable same-ID caller handle).
+ */
+const EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_DIRECT_RUN_ACTIVATION_INELIGIBLE = true;
 
 /** Exact ordered own-data caller input keys. */
 const INPUT_KEYS = DELEGATED_READ_AUTHORITY_INPUT_KEYS;
@@ -109,6 +154,13 @@ const DEPENDENCY_KEYS = Object.freeze([
   'messagesDeltaPageTransport',
   'withTransactionClient',
   'envelopeProvider',
+]);
+
+/** Exact frozen attempt surface keys (no operation id). */
+const ATTEMPT_SURFACE_KEYS = Object.freeze([
+  'run',
+  'reconcile',
+  'status',
 ]);
 
 const GRANT_SESSION_KEYS = Object.freeze(['runWithAccessTokenOnce']);
@@ -127,8 +179,11 @@ const RESULT_KEYS = Object.freeze([
   'tombstones_presented',
 ]);
 
-/** Factory-fixed ingestion lease worker id (not caller-supplied). */
-const WORKER_ID = 'authority-bound-messages-delta-page';
+/**
+ * Factory-fixed worker id for lease + page_commit journal attribution.
+ * Source-pinned to migration 066 PAGE_COMMIT_WORKER_ID (never caller-supplied).
+ */
+const WORKER_ID = PAGE_COMMIT_WORKER_ID;
 const LEASE_TTL_SECONDS = 60;
 const RESET_REASON_CURSOR_GONE = 'graph_delta_cursor_gone';
 const QUERY_VERSION = DEFAULT_QUERY_VERSION;
@@ -157,8 +212,29 @@ if (EMAIL_INBOUND_DELTA_STATE_PAGE_COMMIT_OWNER !== true) {
 if (EMAIL_MS_GRAPH_MESSAGES_DELTA_PAGE_TRANSPORT_RUNTIME_WIRED !== false) {
   throw new Error('authority_bound_delta_page_transport_runtime_wired');
 }
+if (EMAIL_DELTA_RECOVERY_OPERATION_RUNTIME_WIRED !== false) {
+  throw new Error('authority_bound_delta_page_recovery_runtime_wired');
+}
 if (typeof QUERY_VERSION !== 'string' || QUERY_VERSION !== 'ms_messages_delta_v1') {
   throw new Error('authority_bound_delta_page_query_version_unexpected');
+}
+if (WORKER_ID !== 'sunset-email-delta-worker') {
+  throw new Error('authority_bound_delta_page_worker_id_unexpected');
+}
+if (EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_CALLER_DURABILITY_LIFECYCLE_READY !== false) {
+  throw new Error('authority_bound_delta_page_caller_durability_ready_unexpected');
+}
+if (EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_ATTEMPT_API_REQUIRED_FOR_RUNTIME !== true) {
+  throw new Error('authority_bound_delta_page_attempt_api_required_unexpected');
+}
+if (EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_DIRECT_RUN_ACTIVATION_INELIGIBLE !== true) {
+  throw new Error('authority_bound_delta_page_direct_run_ineligible_unexpected');
+}
+if (EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_SAFE_FOR_RUNTIME_ROUTE_CRON !== false) {
+  throw new Error('authority_bound_delta_page_runtime_safe_unexpected');
+}
+if (EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_PERSISTENCE_READY !== false) {
+  throw new Error('authority_bound_delta_page_persistence_ready_unexpected');
 }
 
 function failure(code, message) {
@@ -520,18 +596,38 @@ function buildPublicResult(status, phase, envelopesPresented, tombstonesPresente
 }
 
 /**
- * Factory: pin trusted deps; factory-fixed authority verifier + PR408 store.
- * No caller verifiedAuthority / provider / tenant / mailbox / generation /
- * query / token / lease / consumer.
+ * Allocate a canonical lowercase UUID. Used only before side effects so the
+ * attempt id is stable for seal/journal/same-ID replay.
+ */
+function allocateCanonicalOperationId() {
+  try {
+    const raw = crypto.randomUUID();
+    if (typeof raw !== 'string') return null;
+    const id = raw.trim().toLowerCase();
+    if (!UUID_CANON.test(id)) return null;
+    return id;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Factory: pin trusted deps; factory-fixed authority verifier + PR408 store +
+ * recovery journal reader. No caller verifiedAuthority / provider / tenant /
+ * mailbox / generation / query / token / lease / consumer / worker id.
  *
  * @param {object} deps exact DEPENDENCY_KEYS bag
- * @returns {Readonly<{ runAuthorityBoundMessagesDeltaPage: Function }>}
+ * @returns {Readonly<{
+ *   createPageAttempt: Function,
+ *   runAuthorityBoundMessagesDeltaPage: Function,
+ * }>}
  */
 function createAuthorityBoundMessagesDeltaPageOperation(deps) {
   let db;
   let createGrantSession;
   let transport;
   let deltaStore;
+  let recoveryStore;
   try {
     if (deps == null || isProxySurface(deps)
         || (!exactPlainData(deps, DEPENDENCY_KEYS)
@@ -561,10 +657,16 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
       envelopeProvider,
       authorityVerifier,
     }));
+    recoveryStore = createEmailDeltaRecoveryOperationStore(Object.freeze({
+      withTransactionClient,
+      authorityVerifier,
+      inboundDeltaStateStore: deltaStore,
+    }));
   } catch (err) {
     if (err && err.code === FAILURE_CODE) throw err;
     if (err && err.code === 'authority_binding_verifier_invalid') throw failure();
     if (err && err.code === 'inbound_delta_state_failed') throw failure();
+    if (err && err.code === 'email_delta_recovery_failed') throw failure();
     throw failure();
   }
 
@@ -586,30 +688,96 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
     }
   }
 
-  /**
-   * @param {object} input exact { clientId, locationId, endpointId }
-   * @returns {Promise<{ok:true,value:object}|{ok:false,error:string}>}
-   */
-  async function runAuthorityBoundMessagesDeltaPage(input) {
-    const ids = snapshotInput(input);
-    if (!ids) return failResult(FAILURE_CODE);
-
-    // ── 1) Resolve verified microsoft authority (tenant+mailbox local only) ─
+  async function resolveAuthority(ids) {
     let authorityRaw;
     try {
       authorityRaw = await resolveDelegatedReadAuthorityBinding(ids, { db });
     } catch {
-      return failResult(FAILURE_CODE);
+      return null;
     }
-    if (!authorityRaw || authorityRaw.ok !== true) return failResult(FAILURE_CODE);
+    if (!authorityRaw || authorityRaw.ok !== true) return null;
     const authority = acceptBindingDto(authorityRaw.value);
-    authorityRaw = null;
-    if (!authority) return failResult(FAILURE_CODE);
+    if (!authority) return null;
     if (authority.clientId !== ids.clientId
         || authority.locationId !== ids.locationId
         || authority.endpointId !== ids.endpointId) {
+      return null;
+    }
+    return authority;
+  }
+
+  /**
+   * Journal-only consult for a retained attempt. Never mutates.
+   * Returns { kind:'absent'|'committed'|'uncertain'|'conflict'|'error' }.
+   */
+  async function consultPageCommitJournal(ids, authority, operationId, fences) {
+    try {
+      const read = await recoveryStore.readPageCommitOutcome(Object.freeze({
+        operationId,
+        clientId: ids.clientId,
+        locationId: ids.locationId,
+        endpointId: ids.endpointId,
+        expectedGeneration: fences.requestedGeneration,
+        expectedStateVersion: fences.requestedStateVersion,
+        providerTenantId: authority.providerTenantId,
+        providerMailboxId: authority.providerMailboxId,
+      }));
+      if (!read || read.ok !== true || !read.value) {
+        if (read && read.error === 'operation_id_conflict') {
+          return Object.freeze({ kind: 'conflict' });
+        }
+        if (read && read.error === 'authority_not_verified') {
+          return Object.freeze({ kind: 'error' });
+        }
+        return Object.freeze({ kind: 'error' });
+      }
+      const v = read.value;
+      if (v.presence === 'absent') {
+        return Object.freeze({ kind: 'absent' });
+      }
+      if (v.presence !== 'present' || typeof v.outcome !== 'string') {
+        return Object.freeze({ kind: 'error' });
+      }
+      if (v.outcome === 'committed') {
+        return Object.freeze({
+          kind: 'committed',
+          phase: v.result_phase,
+          result_generation: v.result_generation,
+          result_state_version: v.result_state_version,
+        });
+      }
+      // claimed / commit_outcome_unknown / ambiguous → zero refetch
+      if (v.outcome === 'claimed'
+          || v.outcome === 'commit_outcome_unknown'
+          || v.outcome === 'evidence_unavailable') {
+        return Object.freeze({ kind: 'uncertain' });
+      }
+      if (v.outcome === 'not_committed' || v.outcome === 'conflict') {
+        return Object.freeze({ kind: 'conflict' });
+      }
+      return Object.freeze({ kind: 'uncertain' });
+    } catch {
+      return Object.freeze({ kind: 'error' });
+    }
+  }
+
+  /**
+   * Execute one page with a pre-allocated operation id (attempt-closed).
+   * Captures requested generation/stateVersion into fenceHolder after lease
+   * without changing the operation id.
+   *
+   * @param {object} ids frozen {clientId,locationId,endpointId}
+   * @param {string} operationId canonical UUID (private)
+   * @param {{ requestedGeneration: number|null, requestedStateVersion: number|null }} fenceHolder
+   */
+  async function executePageWithOperationId(ids, operationId, fenceHolder) {
+    if (typeof operationId !== 'string' || !UUID_CANON.test(operationId)) {
       return failResult(FAILURE_CODE);
     }
+
+    // ── 1) Resolve verified microsoft authority (tenant+mailbox local only) ─
+    const authority = await resolveAuthority(ids);
+    if (!authority) return failResult(FAILURE_CODE);
     // Local-only trusted identities — never escape into public result.
     const providerTenantId = authority.providerTenantId;
     const providerMailboxId = authority.providerMailboxId;
@@ -739,6 +907,14 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
       return failResult(FAILURE_CODE);
     }
 
+    // Capture journal fences after authoritative lease without changing the
+    // pre-allocated operation id. Journal requested_* match commitPageEvents
+    // expected generation + post-acquire lease state_version (not pre-lease).
+    if (fenceHolder && typeof fenceHolder === 'object') {
+      fenceHolder.requestedGeneration = leaseHandle.ingestion_generation;
+      fenceHolder.requestedStateVersion = leaseHandle.state_version;
+    }
+
     // ── 6) Open cursor using acquired lease returned version ─────────────
     let openRes;
     try {
@@ -843,6 +1019,9 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
     // Capture mode for cursor_gone trust (continuation only).
     const wasContinuation = cursorCapability !== null;
 
+    // Close over attempt operation id for seal — never allocate post-Graph.
+    const sealedOperationId = operationId;
+
     let sessionOut;
     try {
       sessionOut = await Reflect.apply(
@@ -916,7 +1095,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
                 throw failure();
               }
 
-              // Seal successor via PR408 outside TX — one mutable URL owner.
+              // Seal successor via PR408 outside TX — attempt-stable operation id.
               const successorOwner = pageDto.successorOwner;
               pageDto = Object.freeze({
                 envelopes: pageDto.envelopes,
@@ -934,7 +1113,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
                   queryVersion: QUERY_VERSION,
                   cursorKind: successorOwner.kind,
                   cursorUrl: successorOwner.url,
-                  operationId: crypto.randomUUID(),
+                  operationId: sealedOperationId,
                 }));
               } finally {
                 try { successorOwner.url = null; } catch { /* */ }
@@ -1081,7 +1260,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
     if (commitRes && commitRes.ok === false
         && commitRes.error === 'inbound_delta_state_commit_outcome_unknown') {
       // NO retry / refetch / reseal / release guess / reset / new generation /
-      // success claim.
+      // success claim. Attempt retains operation id + fences for journal consult.
       const uncertain = buildPublicResult('uncertain', null, null, null);
       return uncertain ? okResult(uncertain) : failResult(FAILURE_CODE);
     }
@@ -1141,7 +1320,202 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
     return success ? okResult(success) : failResult(FAILURE_CODE);
   }
 
-  return Object.freeze({ runAuthorityBoundMessagesDeltaPage });
+  /**
+   * Opaque retry-stable page attempt.
+   * Allocates canonical operation UUID before any Graph/grant/KV/lease/DB
+   * side effect; closes over it privately (no id property/enumeration/log).
+   * Frozen surface: run / reconcile / status only.
+   *
+   * @param {object} input exact { clientId, locationId, endpointId }
+   * @returns {Readonly<{run:Function,reconcile:Function,status:Function}>}
+   */
+  function createPageAttempt(input) {
+    const ids = snapshotInput(input);
+    if (!ids) throw failure();
+
+    // Allocate BEFORE any side effect (no Graph/grant/KV/lease/DB/journal).
+    const operationId = allocateCanonicalOperationId();
+    if (!operationId) throw failure();
+
+    // Process-local fence capture after authoritative lease/status.
+    const fenceHolder = {
+      requestedGeneration: null,
+      requestedStateVersion: null,
+    };
+    // Process-local last public result for status() without re-execution.
+    let lastPublicResult = null;
+
+    function remember(result) {
+      if (result && result.ok === true && result.value) {
+        lastPublicResult = result.value;
+      }
+      return result;
+    }
+
+    function noIdLeak(value) {
+      try {
+        const s = typeof value === 'string' ? value : JSON.stringify(value);
+        // Enclosed operation id must never appear in public results/errors.
+        return typeof s !== 'string' || !s.includes(operationId);
+      } catch {
+        return true;
+      }
+    }
+
+    /**
+     * Execute or journal-replay this attempt.
+     * After commit_outcome_unknown, consults migration-066 journal first.
+     */
+    async function run() {
+      // Resolve authority once for journal consult path (read-only SQL, not Graph).
+      const authority = await resolveAuthority(ids);
+      if (!authority) return remember(failResult(FAILURE_CODE));
+
+      const fencesReady = Number.isInteger(fenceHolder.requestedGeneration)
+        && fenceHolder.requestedGeneration >= 1
+        && Number.isInteger(fenceHolder.requestedStateVersion)
+        && fenceHolder.requestedStateVersion >= 1;
+
+      if (fencesReady) {
+        const consult = await consultPageCommitJournal(
+          ids,
+          authority,
+          operationId,
+          Object.freeze({
+            requestedGeneration: fenceHolder.requestedGeneration,
+            requestedStateVersion: fenceHolder.requestedStateVersion,
+          }),
+        );
+        if (consult.kind === 'committed') {
+          // Sanitized committed replay — zero Graph/KV/grant/lease/event/cursor.
+          const phase = consult.phase == null ? null : String(consult.phase);
+          const replay = buildPublicResult('committed', phase, null, null);
+          if (!replay || !noIdLeak(replay)) return remember(failResult(FAILURE_CODE));
+          return remember(okResult(replay));
+        }
+        if (consult.kind === 'uncertain') {
+          // claimed / ambiguous — zero refetch.
+          const uncertain = buildPublicResult('uncertain', null, null, null);
+          if (!uncertain || !noIdLeak(uncertain)) return remember(failResult(FAILURE_CODE));
+          return remember(okResult(uncertain));
+        }
+        if (consult.kind === 'conflict' || consult.kind === 'error') {
+          return remember(failResult(FAILURE_CODE));
+        }
+        // absent after confirmed rollback → fall through and execute once safely.
+      }
+
+      const executed = await executePageWithOperationId(ids, operationId, fenceHolder);
+      if (!noIdLeak(executed)) return remember(failResult(FAILURE_CODE));
+      return remember(executed);
+    }
+
+    /**
+     * Journal-only classification for the enclosed attempt id.
+     * Zero Graph/grant/lease/event/cursor mutation. Never returns operation id.
+     */
+    async function reconcile() {
+      const authority = await resolveAuthority(ids);
+      if (!authority) return failResult(FAILURE_CODE);
+
+      const fencesReady = Number.isInteger(fenceHolder.requestedGeneration)
+        && fenceHolder.requestedGeneration >= 1
+        && Number.isInteger(fenceHolder.requestedStateVersion)
+        && fenceHolder.requestedStateVersion >= 1;
+      if (!fencesReady) {
+        // Fences unknown — cannot classify; honest evidence unavailable.
+        const out = buildPublicResult('evidence_unavailable', null, null, null);
+        return out && noIdLeak(out) ? okResult(out) : failResult(FAILURE_CODE);
+      }
+
+      const consult = await consultPageCommitJournal(
+        ids,
+        authority,
+        operationId,
+        Object.freeze({
+          requestedGeneration: fenceHolder.requestedGeneration,
+          requestedStateVersion: fenceHolder.requestedStateVersion,
+        }),
+      );
+      if (consult.kind === 'committed') {
+        const phase = consult.phase == null ? null : String(consult.phase);
+        const out = buildPublicResult('committed', phase, null, null);
+        return out && noIdLeak(out) ? okResult(out) : failResult(FAILURE_CODE);
+      }
+      if (consult.kind === 'absent') {
+        const out = buildPublicResult('evidence_unavailable', null, null, null);
+        return out && noIdLeak(out) ? okResult(out) : failResult(FAILURE_CODE);
+      }
+      if (consult.kind === 'uncertain') {
+        const out = buildPublicResult('uncertain', null, null, null);
+        return out && noIdLeak(out) ? okResult(out) : failResult(FAILURE_CODE);
+      }
+      return failResult(FAILURE_CODE);
+    }
+
+    /**
+     * Process-local attempt status: last public result when available;
+     * otherwise journal reconcile when fences known; otherwise open.
+     */
+    async function status() {
+      if (lastPublicResult && exactFrozenData(lastPublicResult, RESULT_KEYS)) {
+        if (!noIdLeak(lastPublicResult)) return failResult(FAILURE_CODE);
+        return okResult(lastPublicResult);
+      }
+      const authority = await resolveAuthority(ids);
+      if (!authority) return failResult(FAILURE_CODE);
+      const fencesReady = Number.isInteger(fenceHolder.requestedGeneration)
+        && fenceHolder.requestedGeneration >= 1
+        && Number.isInteger(fenceHolder.requestedStateVersion)
+        && fenceHolder.requestedStateVersion >= 1;
+      if (!fencesReady) {
+        const open = buildPublicResult('open', null, null, null);
+        return open && noIdLeak(open) ? okResult(open) : failResult(FAILURE_CODE);
+      }
+      return reconcile();
+    }
+
+    const surface = Object.freeze({
+      run,
+      reconcile,
+      status,
+    });
+    // Hostile: no operation id property, no non-enumerable leak, exact keys only.
+    if (!exactFrozenData(surface, ATTEMPT_SURFACE_KEYS)) throw failure();
+    try {
+      const keys = Reflect.ownKeys(surface);
+      if (keys.length !== ATTEMPT_SURFACE_KEYS.length) throw failure();
+      if (keys.some((k) => typeof k !== 'string' || !ATTEMPT_SURFACE_KEYS.includes(k))) {
+        throw failure();
+      }
+    } catch {
+      throw failure();
+    }
+    return surface;
+  }
+
+  /**
+   * Direct single-shot offline API — explicitly activation-ineligible.
+   * Uses an ephemeral attempt (operation id allocated pre-Graph) but the
+   * caller cannot retain the handle for same-ID replay. Prefer createPageAttempt.
+   *
+   * @param {object} input exact { clientId, locationId, endpointId }
+   * @returns {Promise<{ok:true,value:object}|{ok:false,error:string}>}
+   */
+  async function runAuthorityBoundMessagesDeltaPage(input) {
+    let attempt;
+    try {
+      attempt = createPageAttempt(input);
+    } catch {
+      return failResult(FAILURE_CODE);
+    }
+    return attempt.run();
+  }
+
+  return Object.freeze({
+    createPageAttempt,
+    runAuthorityBoundMessagesDeltaPage,
+  });
 }
 
 module.exports = Object.freeze({
@@ -1149,8 +1523,11 @@ module.exports = Object.freeze({
   FAILURE_MESSAGE,
   INPUT_KEYS,
   DEPENDENCY_KEYS,
+  ATTEMPT_SURFACE_KEYS,
   RESULT_KEYS,
   WORKER_ID,
+  PAGE_COMMIT_WORKER_ID,
+  PAGE_COMMIT_OUTCOME_KEYS,
   LEASE_TTL_SECONDS,
   RESET_REASON_CURSOR_GONE,
   QUERY_VERSION,
@@ -1160,5 +1537,8 @@ module.exports = Object.freeze({
   EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_SAFE_FOR_RUNTIME_ROUTE_CRON,
   EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_AUTO_BEGIN_GENERATION,
   EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_MULTIPAGE,
+  EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_CALLER_DURABILITY_LIFECYCLE_READY,
+  EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_ATTEMPT_API_REQUIRED_FOR_RUNTIME,
+  EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_DIRECT_RUN_ACTIVATION_INELIGIBLE,
   createAuthorityBoundMessagesDeltaPageOperation,
 });

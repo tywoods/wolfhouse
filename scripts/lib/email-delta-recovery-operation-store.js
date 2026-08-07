@@ -27,6 +27,11 @@
  *     evidence_unavailable / commit_outcome_unknown. Never infers from migration
  *     064 cursor_operation_id / generation / version / lease; never mutates
  *     events/cursor/generation/lease. Does not reimplement event/state SQL.
+ *   - readPageCommitOutcome — authority-bound read-only exact page_commit
+ *     journal outcome by operation id + tenant/endpoint/fences. Worker id is
+ *     source-pinned (sunset-email-delta-worker); never caller-supplied actor
+ *     or worker id. Never infers from cursor/current state. Zero journal
+ *     mutation. Used by opaque retry-stable page attempts for same-ID replay.
  *
  * Idempotency:
  *   - same operationId + identical inputs → persisted exact result, zero mutation
@@ -116,6 +121,21 @@ const RECOVERY_RESULT_KEYS = Object.freeze([
   'result_phase',
   'target_operation_id',
   'replayed',
+]);
+
+/**
+ * Exact ordered keys for read-only page_commit journal outcome.
+ * Presence-first: absent rows do not invent outcomes from cursor/state.
+ * No actor/worker/operation id fields — caller already holds the id privately.
+ */
+const PAGE_COMMIT_OUTCOME_KEYS = Object.freeze([
+  'presence',
+  'outcome',
+  'requested_generation',
+  'requested_state_version',
+  'result_generation',
+  'result_state_version',
+  'result_phase',
 ]);
 
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -220,6 +240,17 @@ const SQL_SELECT_TARGET_JOURNAL = `
 SELECT operation_id, client_id, location_id, endpoint_id,
        actor_staff_user_id, actor_kind, worker_id,
        operation_kind, outcome,
+       result_generation, result_state_version, result_phase
+  FROM tenant_email_delta_recovery_operations
+ WHERE operation_id = $1::uuid
+`.replace(/\s+/g, ' ').trim();
+
+/** Read-only page_commit journal row (no FOR UPDATE; includes fence columns). */
+const SQL_SELECT_PAGE_COMMIT_OUTCOME = `
+SELECT operation_id, client_id, location_id, endpoint_id,
+       actor_staff_user_id, actor_kind, worker_id,
+       operation_kind, requested_generation, requested_state_version,
+       target_operation_id, outcome,
        result_generation, result_state_version, result_phase
   FROM tenant_email_delta_recovery_operations
  WHERE operation_id = $1::uuid
@@ -905,10 +936,125 @@ function createEmailDeltaRecoveryOperationStore(deps) {
     }));
   }
 
+  /**
+   * Authority-bound read-only exact page_commit journal outcome.
+   *
+   * Classifies durable migration-066 journal evidence only for the exact
+   * operation id + tenant/endpoint/fences. Worker actor is source-pinned
+   * (PAGE_COMMIT_WORKER_ID); callers must never supply actorStaffUserId or
+   * workerId. Never consults 064 cursor_operation_id / generation / lease /
+   * current state. Never mutates journal/events/cursor/generation/lease.
+   *
+   * Results:
+   *   presence=absent — no durable row (confirmed rollback or never claimed)
+   *   presence=present + outcome — exact journal outcome when fences/actor match
+   *   mismatch kind/actor/fences/tenant → operation_id_conflict
+   */
+  async function readPageCommitOutcome(input) {
+    const ids = snapshotRequired(input, [
+      'operationId',
+      'clientId', 'locationId', 'endpointId',
+      'expectedGeneration', 'expectedStateVersion',
+    ]);
+    if (ids.ok === false) return ids;
+
+    // Reject caller-supplied actor/worker — source-pin only.
+    if (Object.prototype.hasOwnProperty.call(ids.snap, 'actorStaffUserId')
+        || Object.prototype.hasOwnProperty.call(ids.snap, 'workerId')
+        || Object.prototype.hasOwnProperty.call(ids.snap, 'actorKind')
+        || Object.prototype.hasOwnProperty.call(ids.snap, 'verifiedAuthority')) {
+      return fail('input_invalid');
+    }
+
+    const tenant = parseUuid(ids.snap.providerTenantId, 'provider_tenant_id');
+    if (!tenant.ok) return tenant;
+    const mailbox = parseUuid(ids.snap.providerMailboxId, 'provider_mailbox_id');
+    if (!mailbox.ok) return mailbox;
+
+    const binding = pinnedFreeze({
+      clientId: ids.clientId.value,
+      locationId: ids.locationId.value,
+      endpointId: ids.endpointId.value,
+      providerTenantId: tenant.value,
+      providerMailboxId: mailbox.value,
+    });
+    const auth = await verifyAuthority(authorityVerifier, binding);
+    if (!auth.ok) return auth;
+
+    return runExclusive(async (client) => {
+      try {
+        const exclusive = resolveExclusiveClient(client);
+        if (!exclusive) return fail('email_delta_recovery_write_failed');
+
+        // Read-only — no BEGIN/FOR UPDATE/mutation.
+        const found = await exclusive.query(SQL_SELECT_PAGE_COMMIT_OUTCOME, [
+          ids.operationId.value,
+        ]);
+        if (!found || !found.rows || found.rows.length === 0) {
+          return ok(pinnedFreeze({
+            presence: 'absent',
+            outcome: null,
+            requested_generation: ids.expectedGeneration.value,
+            requested_state_version: ids.expectedStateVersion.value,
+            result_generation: null,
+            result_state_version: null,
+            result_phase: null,
+          }));
+        }
+        if (found.rows.length !== 1) {
+          return fail('email_delta_recovery_write_failed');
+        }
+        const row = found.rows[0];
+
+        // Exact page_commit worker attribution + tenant/endpoint/fences.
+        const expected = pinnedFreeze({
+          clientId: ids.clientId.value,
+          locationId: ids.locationId.value,
+          endpointId: ids.endpointId.value,
+          actorStaffUserId: null,
+          actorKind: 'worker',
+          workerId: PAGE_COMMIT_WORKER_ID,
+          operationKind: 'page_commit',
+          requestedGeneration: ids.expectedGeneration.value,
+          requestedStateVersion: ids.expectedStateVersion.value,
+          targetOperationId: null,
+        });
+        if (!inputsMatchRow(row, expected)) {
+          return fail('operation_id_conflict');
+        }
+
+        const reqGen = coerceSafeIntField(row.requested_generation);
+        const reqSv = coerceSafeIntField(row.requested_state_version);
+        const resGen = row.result_generation == null
+          ? null
+          : coerceSafeIntField(row.result_generation);
+        const resSv = row.result_state_version == null
+          ? null
+          : coerceSafeIntField(row.result_state_version);
+        if (reqGen == null || reqSv == null) {
+          return fail('email_delta_recovery_write_failed');
+        }
+
+        return ok(pinnedFreeze({
+          presence: 'present',
+          outcome: String(row.outcome),
+          requested_generation: reqGen,
+          requested_state_version: reqSv,
+          result_generation: resGen,
+          result_state_version: resSv,
+          result_phase: row.result_phase == null ? null : String(row.result_phase),
+        }));
+      } catch {
+        return fail('email_delta_recovery_write_failed');
+      }
+    });
+  }
+
   return pinnedFreeze({
     getRecoveryStatus,
     restartGeneration,
     reconcilePageCommit,
+    readPageCommitOutcome,
   });
 }
 
@@ -925,5 +1071,6 @@ module.exports = pinnedFreeze({
   AUTHORITY_VERIFIER_KEYS,
   RECOVERY_STATUS_KEYS,
   RECOVERY_RESULT_KEYS,
+  PAGE_COMMIT_OUTCOME_KEYS,
   createEmailDeltaRecoveryOperationStore,
 });

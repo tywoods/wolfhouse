@@ -849,6 +849,103 @@ async function proveWithPglite(PGlite) {
   assert.equal(pub.ok, true, JSON.stringify(pub));
   assert.equal(pub.value.ingestion_generation, Number(cur5.rows[0].ingestion_generation) + 1);
 
+  // readPageCommitOutcome: authority-bound journal-only; never cursor inference
+  {
+    const {
+      createEmailDeltaRecoveryOperationStore,
+      PAGE_COMMIT_WORKER_ID: W,
+    } = require('../scripts/lib/email-delta-recovery-operation-store');
+    const {
+      createInboundEmailDeltaStateStore,
+    } = require('../scripts/lib/email-inbound-delta-state-store');
+    const verifier = Object.freeze({
+      async verifyBinding(b) {
+        if (String(b.clientId).toLowerCase() !== ids.client
+            || String(b.locationId).toLowerCase() !== ids.location
+            || String(b.endpointId).toLowerCase() !== ids.endpoint
+            || String(b.providerTenantId).toLowerCase() !== ids.tenant
+            || String(b.providerMailboxId).toLowerCase() !== ids.mailbox) {
+          return Object.freeze({ ok: false });
+        }
+        return Object.freeze({ ok: true, value: Object.freeze({ ...b }) });
+      },
+    });
+    async function withTxnClient(work) {
+      // Single exclusive client loan (PGlite is single-connection).
+      return work(db);
+    }
+    const delta = createInboundEmailDeltaStateStore(Object.freeze({
+      withTransactionClient: withTxnClient,
+      authorityVerifier: verifier,
+    }));
+    const rec = createEmailDeltaRecoveryOperationStore(Object.freeze({
+      withTransactionClient: withTxnClient,
+      authorityVerifier: verifier,
+      inboundDeltaStateStore: delta,
+    }));
+    const readOp = crypto.randomUUID();
+    const absent = await rec.readPageCommitOutcome(Object.freeze({
+      operationId: readOp,
+      clientId: ids.client,
+      locationId: ids.location,
+      endpointId: ids.endpoint,
+      expectedGeneration: 1,
+      expectedStateVersion: 1,
+      providerTenantId: ids.tenant,
+      providerMailboxId: ids.mailbox,
+    }));
+    assert.equal(absent.ok, true);
+    assert.equal(absent.value.presence, 'absent');
+    assert.equal(absent.value.outcome, null);
+
+    await db.query(
+      `INSERT INTO tenant_email_delta_recovery_operations (
+         operation_id, client_id, location_id, endpoint_id,
+         actor_staff_user_id, actor_kind, worker_id,
+         operation_kind, requested_generation, requested_state_version,
+         target_operation_id, outcome,
+         result_generation, result_state_version, result_phase
+       ) VALUES (
+         $1::uuid, $2::uuid, $3::uuid, $4::uuid,
+         NULL, 'worker', $5,
+         'page_commit', 1, 1,
+         NULL, 'committed',
+         1, 2, 'tracking'
+       )`,
+      [readOp, ids.client, ids.location, ids.endpoint, W],
+    );
+    const committed = await rec.readPageCommitOutcome(Object.freeze({
+      operationId: readOp,
+      clientId: ids.client,
+      locationId: ids.location,
+      endpointId: ids.endpoint,
+      expectedGeneration: 1,
+      expectedStateVersion: 1,
+      providerTenantId: ids.tenant,
+      providerMailboxId: ids.mailbox,
+    }));
+    assert.equal(committed.ok, true);
+    assert.equal(committed.value.presence, 'present');
+    assert.equal(committed.value.outcome, 'committed');
+    assert.equal(committed.value.result_phase, 'tracking');
+    assert.equal(Object.prototype.hasOwnProperty.call(committed.value, 'operation_id'), false);
+
+    // Reject caller-supplied worker id
+    const badWorker = await rec.readPageCommitOutcome(Object.freeze({
+      operationId: readOp,
+      clientId: ids.client,
+      locationId: ids.location,
+      endpointId: ids.endpoint,
+      expectedGeneration: 1,
+      expectedStateVersion: 1,
+      providerTenantId: ids.tenant,
+      providerMailboxId: ids.mailbox,
+      workerId: W,
+    }));
+    assert.equal(badWorker.ok, false);
+    assert.equal(badWorker.error, 'input_invalid');
+  }
+
   // 066 down fails closed while page_commit/worker rows exist
   let downRefused = false;
   try {

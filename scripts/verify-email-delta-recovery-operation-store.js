@@ -4,7 +4,8 @@
  * verify:email-delta-recovery-operation-store — offline hostile + behavioral gate.
  *
  * Migration 065 recovery journal + import-inert store:
- *   getRecoveryStatus / restartGeneration / reconcilePageCommit
+ *   getRecoveryStatus / restartGeneration / reconcilePageCommit /
+ *   readPageCommitOutcome (authority-bound read-only page_commit journal)
  * Authority-bearing createInboundEmailDeltaStateStore factory method
  * advanceGenerationOnExclusiveClient (raw primitive not exported) shared outer TX.
  * No routes / staff-query / runtime activation.
@@ -48,6 +49,7 @@ const {
   STORE_DEPENDENCY_KEYS,
   RECOVERY_STATUS_KEYS,
   RECOVERY_RESULT_KEYS,
+  PAGE_COMMIT_OUTCOME_KEYS,
 } = require('./lib/email-delta-recovery-operation-store');
 const deltaStateMod = require('./lib/email-inbound-delta-state-store');
 const {
@@ -1181,6 +1183,211 @@ async function main() {
   const staffSrc = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
   ok('staff-query-api does not load recovery store',
     !/email-delta-recovery-operation-store/.test(staffSrc));
+
+  // ── readPageCommitOutcome (authority-bound journal-only; no actor/worker caller) ─
+  ok('PAGE_COMMIT_OUTCOME_KEYS exact',
+    Array.isArray(PAGE_COMMIT_OUTCOME_KEYS)
+    && PAGE_COMMIT_OUTCOME_KEYS.join(',')
+      === 'presence,outcome,requested_generation,requested_state_version,result_generation,result_state_version,result_phase');
+
+  {
+    const readHarness = createHarness();
+    function makeLocalDeltaStore(verifier) {
+      return createInboundEmailDeltaStateStore(Object.freeze({
+        withTransactionClient: readHarness.withTransactionClient,
+        authorityVerifier: verifier || makeAuthorityVerifier(),
+      }));
+    }
+    function makeLocalRecoveryStore(verifier) {
+      const v = verifier || makeAuthorityVerifier();
+      return createEmailDeltaRecoveryOperationStore(Object.freeze({
+        withTransactionClient: readHarness.withTransactionClient,
+        authorityVerifier: v,
+        inboundDeltaStateStore: makeLocalDeltaStore(v),
+      }));
+    }
+    const store = makeLocalRecoveryStore();
+    const targetOp = crypto.randomUUID();
+
+    // Absent
+    const absent = await store.readPageCommitOutcome(Object.freeze({
+      operationId: targetOp,
+      clientId: CLIENT,
+      locationId: LOCATION,
+      endpointId: ENDPOINT,
+      expectedGeneration: 1,
+      expectedStateVersion: 2,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+    }));
+    ok('readPageCommitOutcome absent',
+      absent.ok && absent.value.presence === 'absent' && absent.value.outcome === null,
+      JSON.stringify(absent));
+    ok('readPageCommitOutcome absent no operation_id field',
+      !Object.prototype.hasOwnProperty.call(absent.value, 'operation_id')
+      && !Object.prototype.hasOwnProperty.call(absent.value, 'worker_id'));
+
+    // Reject caller-supplied worker/actor
+    const rejectWorker = await store.readPageCommitOutcome(Object.freeze({
+      operationId: targetOp,
+      clientId: CLIENT,
+      locationId: LOCATION,
+      endpointId: ENDPOINT,
+      expectedGeneration: 1,
+      expectedStateVersion: 2,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+      workerId: PAGE_COMMIT_WORKER_ID,
+    }));
+    ok('readPageCommitOutcome rejects caller workerId',
+      rejectWorker.ok === false && rejectWorker.error === 'input_invalid',
+      JSON.stringify(rejectWorker));
+
+    const rejectActor = await store.readPageCommitOutcome(Object.freeze({
+      operationId: targetOp,
+      clientId: CLIENT,
+      locationId: LOCATION,
+      endpointId: ENDPOINT,
+      expectedGeneration: 1,
+      expectedStateVersion: 2,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+      actorStaffUserId: ACTOR,
+    }));
+    ok('readPageCommitOutcome rejects caller actorStaffUserId',
+      rejectActor.ok === false && rejectActor.error === 'input_invalid',
+      JSON.stringify(rejectActor));
+
+    // Seed committed page_commit row
+    readHarness.journal.set(targetOp, {
+      operation_id: targetOp,
+      client_id: CLIENT,
+      location_id: LOCATION,
+      endpoint_id: ENDPOINT,
+      actor_staff_user_id: null,
+      actor_kind: 'worker',
+      worker_id: PAGE_COMMIT_WORKER_ID,
+      operation_kind: 'page_commit',
+      requested_generation: 1,
+      requested_state_version: 2,
+      target_operation_id: null,
+      outcome: 'committed',
+      result_generation: 1,
+      result_state_version: 3,
+      result_phase: 'tracking',
+    });
+    const committed = await store.readPageCommitOutcome(Object.freeze({
+      operationId: targetOp,
+      clientId: CLIENT,
+      locationId: LOCATION,
+      endpointId: ENDPOINT,
+      expectedGeneration: 1,
+      expectedStateVersion: 2,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+    }));
+    ok('readPageCommitOutcome committed',
+      committed.ok
+      && committed.value.presence === 'present'
+      && committed.value.outcome === 'committed'
+      && committed.value.result_phase === 'tracking'
+      && committed.value.result_generation === 1
+      && committed.value.result_state_version === 3,
+      JSON.stringify(committed));
+
+    // Fence mismatch → conflict
+    const fenceMismatch = await store.readPageCommitOutcome(Object.freeze({
+      operationId: targetOp,
+      clientId: CLIENT,
+      locationId: LOCATION,
+      endpointId: ENDPOINT,
+      expectedGeneration: 1,
+      expectedStateVersion: 99,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+    }));
+    ok('readPageCommitOutcome fence mismatch conflict',
+      fenceMismatch.ok === false && fenceMismatch.error === 'operation_id_conflict',
+      JSON.stringify(fenceMismatch));
+
+    // Claimed
+    const claimedOp = crypto.randomUUID();
+    readHarness.journal.set(claimedOp, {
+      operation_id: claimedOp,
+      client_id: CLIENT,
+      location_id: LOCATION,
+      endpoint_id: ENDPOINT,
+      actor_staff_user_id: null,
+      actor_kind: 'worker',
+      worker_id: PAGE_COMMIT_WORKER_ID,
+      operation_kind: 'page_commit',
+      requested_generation: 2,
+      requested_state_version: 4,
+      target_operation_id: null,
+      outcome: 'claimed',
+      result_generation: null,
+      result_state_version: null,
+      result_phase: null,
+    });
+    const claimed = await store.readPageCommitOutcome(Object.freeze({
+      operationId: claimedOp,
+      clientId: CLIENT,
+      locationId: LOCATION,
+      endpointId: ENDPOINT,
+      expectedGeneration: 2,
+      expectedStateVersion: 4,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+    }));
+    ok('readPageCommitOutcome claimed',
+      claimed.ok
+      && claimed.value.presence === 'present'
+      && claimed.value.outcome === 'claimed',
+      JSON.stringify(claimed));
+
+    // Never infers from cursor_operation_id (no 064 consult)
+    readHarness.seedCurrent({
+      client_id: CLIENT,
+      location_id: LOCATION,
+      endpoint_id: ENDPOINT,
+      provider_tenant_id: TENANT,
+      provider_mailbox_id: MAILBOX,
+      ingestion_generation: 1,
+      state_version: 9,
+      phase: 'tracking',
+      cursor_operation_id: crypto.randomUUID(),
+    });
+    const stillCommitted = await store.readPageCommitOutcome(Object.freeze({
+      operationId: targetOp,
+      clientId: CLIENT,
+      locationId: LOCATION,
+      endpointId: ENDPOINT,
+      expectedGeneration: 1,
+      expectedStateVersion: 2,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+    }));
+    ok('readPageCommitOutcome ignores cursor state',
+      stillCommitted.ok
+      && stillCommitted.value.outcome === 'committed',
+      JSON.stringify(stillCommitted));
+
+    // Authority rebind fail closed
+    const storeRebind = makeLocalRecoveryStore(makeAuthorityVerifier({ allow: false }));
+    const rebind = await storeRebind.readPageCommitOutcome(Object.freeze({
+      operationId: targetOp,
+      clientId: CLIENT,
+      locationId: LOCATION,
+      endpointId: ENDPOINT,
+      expectedGeneration: 1,
+      expectedStateVersion: 2,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+    }));
+    ok('readPageCommitOutcome authority rebind fails',
+      rebind.ok === false && rebind.error === 'authority_not_verified',
+      JSON.stringify(rebind));
+  }
 
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
