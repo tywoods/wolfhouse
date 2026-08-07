@@ -1745,6 +1745,10 @@ function runDelegatedMessagesRequest(session, input) {
   let requestPath = GRAPH_REQUEST_CONSTANTS.path;
   const immutableModes = mode === 'immutableid_envelopes' || mode === 'immutableid_envelopes_page';
   const deltaMode = mode === 'messages_delta_page';
+  // Continuation-only: path carries $skiptoken/$deltatoken capability. Initial
+  // delta path has no cursor capability; count/ImmutableId/bounded paths must
+  // keep observable retained path for sibling verifiers.
+  const scrubDeltaContinuationPath = deltaMode === true && cursorGoneOn410 === true;
   if (immutableModes) {
     const parsed = readImmutableIdPageInput(input);
     if (parsed === null) return Promise.reject(failure('request_error', brand));
@@ -1972,6 +1976,9 @@ function runDelegatedMessagesRequest(session, input) {
       // Isolate token/Authorization to this call site; scrub immediately after
       // https.request returns or throws (Node reads options synchronously).
       // Prefer is transport-owned when mode is immutableid_envelopes — never from input.
+      // Delta continuation: after requestFn sync-consumes options, scrub the
+      // cursor-bearing path on the same retained options object (and local path
+      // owners) so injected https.request cannot keep $skiptoken/$deltatoken.
       (function issueRequest(tokenForRequest, pathForRequest) {
         let requestHeaders = {
           Accept: ACCEPT_HEADER,
@@ -2001,15 +2008,27 @@ function runDelegatedMessagesRequest(session, input) {
           try {
             if (requestHeaders) requestHeaders.Authorization = null;
           } catch { /* */ }
+          if (scrubDeltaContinuationPath) {
+            try {
+              if (requestOptions) requestOptions.path = null;
+            } catch { /* */ }
+          }
           requestHeaders = null;
           authorization = null;
           requestOptions = null;
           tokenForRequest = null;
+          pathForRequest = null;
         }
       }(tokenOwner, requestPath));
       tokenOwner = null;
+      if (scrubDeltaContinuationPath) {
+        requestPath = null;
+      }
     } catch {
       tokenOwner = null;
+      if (scrubDeltaContinuationPath) {
+        requestPath = null;
+      }
       terminate(fail('request_error'));
       return;
     }
