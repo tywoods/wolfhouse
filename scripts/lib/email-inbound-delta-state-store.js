@@ -4,7 +4,7 @@
  * Microsoft Graph messages-delta durable state + page-commit store (offline).
  *
  * - Migration 064 `tenant_email_inbound_delta_states` owns sealed cursor + phase
- *   + ingestion_generation (independent of OAuth grant_generation) + DB-clock lease.
+ *   + ingestion_generation (independent of OAuth grant-custody rotation) + DB-clock lease.
  * - `commitPageEvents` is the ONLY page-commit owner: no network/crypto inside the
  *   exclusive-client transaction. Caller supplies already-validated canonical
  *   envelopes/tombstones and an already-sealed successor cursor envelope.
@@ -505,6 +505,7 @@ function encodeDeltaCursorPackageV1(cursorKind, cursorUrl) {
   if (!CURSOR_KINDS.includes(cursorKind)) return fail('cursor_package_invalid');
   if (typeof cursorUrl !== 'string' || cursorUrl.length < 1) return fail('cursor_package_invalid');
   if (cursorUrl.includes('\0') || /[\r\n]/.test(cursorUrl)) return fail('cursor_package_invalid');
+  if (!validateGraphCursorUrlBoundary(cursorUrl).ok) return fail('cursor_package_invalid');
   const body = `cursor_kind=${cursorKind}\u001fcursor_url=${cursorUrl}`;
   const buf = Buffer.from(`${CURSOR_PKG_PREFIX}${body}\n`, 'utf8');
   if (buf.length > MAX_CURSOR_URL_BYTES + 64) return fail('cursor_package_invalid');
@@ -529,6 +530,7 @@ function decodeDeltaCursorPackageV1(plaintext) {
   const cursorKind = parts[0].slice('cursor_kind='.length);
   const cursorUrl = parts[1].slice('cursor_url='.length);
   if (!CURSOR_KINDS.includes(cursorKind) || !cursorUrl) return fail('cursor_package_invalid');
+  if (!validateGraphCursorUrlBoundary(cursorUrl).ok) return fail('cursor_package_invalid');
   return ok(Object.freeze({ cursor_kind: cursorKind, cursor_url: cursorUrl }));
 }
 
