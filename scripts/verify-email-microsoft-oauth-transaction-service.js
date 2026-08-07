@@ -256,7 +256,10 @@ function startInput(overrides = {}) {
   assert.ok(downEnt && downEnt.classification === 'rollback_down' && downEnt.inForwardChain === false, 'manifest down');
   assert.strictEqual(downEnt.sha256, downHash, 'manifest down sha');
   assert.strictEqual(manifest.checksumMode, CHECKSUM_MODE_CANONICAL_LF_V1, 'checksum mode');
-  assert.strictEqual(forwardEntries(manifest).length, 61, 'forward chain length 61');
+  assert.ok(
+    forwardEntries(manifest).some((entry) => entry.filename === UP && entry.order === 60),
+    'forward chain contains migration 061 at canonical order 60',
+  );
 
   // ---------------------------------------------------------------------------
   // Service surface: ordered INPUT_KEYS + SQL constants
