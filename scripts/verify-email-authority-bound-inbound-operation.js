@@ -344,6 +344,36 @@ async function main() {
       'no-token-from-caller-fields',
       !/input\.accessToken|input\.token|ownData\(input,\s*'accessToken'\)/.test(src),
     );
+    // Lifetime: callback local accessTokenOwner is a nullable let released in
+    // finally after graphInput scrub (reference nulling only, not string overwrite).
+    ok(
+      'callback-accessTokenOwner-nullable-let',
+      /let\s+accessTokenOwner\s*=\s*null/.test(src)
+        && /accessTokenOwner\s*=\s*null/.test(src)
+        && !/const\s+accessTokenOwner\s*=/.test(src),
+    );
+    {
+      // Find the authorityBoundSessionConsumer finally: graphInput scrub then owner=null.
+      const consumerIdx = src.indexOf('authorityBoundSessionConsumer');
+      const consumerSlice = consumerIdx >= 0 ? src.slice(consumerIdx, consumerIdx + 3500) : '';
+      const finIdx = consumerSlice.lastIndexOf('} finally {');
+      const finBody = finIdx >= 0 ? consumerSlice.slice(finIdx, finIdx + 500) : '';
+      const graphScrubIdx = finBody.search(/graphInput\.accessToken\s*=\s*null/);
+      const ownerNullIdx = finBody.search(/accessTokenOwner\s*=\s*null/);
+      ok(
+        'callback-finally-owner-after-graphInput-scrub',
+        graphScrubIdx >= 0 && ownerNullIdx >= 0 && graphScrubIdx < ownerNullIdx,
+        `graphScrub=${graphScrubIdx} ownerNull=${ownerNullIdx}`,
+      );
+      ok(
+        'callback-finally-loan-independent-scrub',
+        /loan\.accessToken\s*=\s*null/.test(finBody),
+      );
+    }
+    ok(
+      'no-string-mutation-patterns',
+      !/zero[\s-]?fill|fill\(0\)|\.fill\(|string\.length\s*=\s*0/i.test(src),
+    );
 
     // Unreferenced by routes / staff API / read-health.
     for (const [label, rel] of [

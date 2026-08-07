@@ -6,6 +6,8 @@
 
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   createFakeEmailGrantEnvelopeProvider,
   fakeSealRefreshToken,
@@ -23,6 +25,9 @@ const {
   readTrustedGraphStage,
   GRAPH_STAGES,
 } = require('./lib/email-microsoft-graph-delegated-messages-transport');
+
+const ROOT = path.join(__dirname, '..');
+const RH_SRC = path.join(ROOT, 'scripts/lib/email-delegated-grant-read-health.js');
 
 const CLIENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ENDPOINT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -528,6 +533,28 @@ async function main() {
       () => createDelegatedGrantReadHealthService(null),
       (e) => e.code === FAILURE_CODE && noLeak(e),
     );
+
+    // Lifetime/source: session callback holds accessTokenOwner as nullable let
+    // and releases it in finally after graphInput scrub (reference nulling only).
+    // Pre-input soft-fail still hits finally and nulls the local owner.
+    {
+      const src = fs.readFileSync(RH_SRC, 'utf8');
+      assert.match(src, /let\s+accessTokenOwner\s*=\s*null/);
+      assert.match(src, /accessTokenOwner\s*=\s*null/);
+      assert.doesNotMatch(src, /const\s+accessToken\s*=\s*loan/);
+      const finIdx = src.lastIndexOf('} finally {');
+      assert.ok(finIdx > 0, 'callback finally present');
+      const finBody = src.slice(finIdx, finIdx + 450);
+      const graphScrubIdx = finBody.search(/graphInput\.accessToken\s*=\s*null/);
+      const ownerNullIdx = finBody.search(/accessTokenOwner\s*=\s*null/);
+      const loanScrubIdx = finBody.search(/loan\.accessToken\s*=\s*null/);
+      assert.ok(graphScrubIdx >= 0, 'graphInput scrub in finally');
+      assert.ok(ownerNullIdx >= 0, 'accessTokenOwner null in finally');
+      assert.ok(loanScrubIdx >= 0, 'loan scrub independent in finally');
+      assert.ok(graphScrubIdx < ownerNullIdx, 'owner released after graphInput scrub');
+      assert.doesNotMatch(src, /zero[\s-]?fill|fill\(0\)|\.fill\(|string\.length\s*=\s*0/i);
+    }
+
     assert.deepEqual(logged, []);
   } finally {
     console.log = log;

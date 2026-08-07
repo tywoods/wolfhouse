@@ -497,14 +497,17 @@ function createAuthorityBoundInboundOperation(deps) {
             sessionInput,
             async function authorityBoundSessionConsumer(loan) {
               // Private callback: ImmutableId transport then batch. No second
-              // lease/SQL/refresh owner here.
-              const accessTokenOwner = acceptLoanAccessToken(loan);
-              if (accessTokenOwner === null) {
-                throw failure();
-              }
-
+              // lease/SQL/refresh owner here. Nullable local owner released in
+              // finally (reference nulling only) after graphInput scrub — also
+              // on pre-input failures before graphInput is created.
+              let accessTokenOwner = null;
               let graphInput = null;
               try {
+                accessTokenOwner = acceptLoanAccessToken(loan);
+                if (accessTokenOwner === null) {
+                  throw failure();
+                }
+
                 graphInput = {
                   accessToken: accessTokenOwner,
                   provider_mailbox_id: authority.providerMailboxId,
@@ -548,10 +551,12 @@ function createAuthorityBoundInboundOperation(deps) {
                 if (!publicCounts) throw failure();
                 return publicCounts;
               } finally {
+                // Independent scrubs: graphInput first, then local owner, then loan.
                 if (graphInput) {
                   try { graphInput.accessToken = null; } catch { /* */ }
                   graphInput = null;
                 }
+                accessTokenOwner = null;
                 if (loan) {
                   try { loan.accessToken = null; } catch { /* */ }
                 }

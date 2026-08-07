@@ -182,17 +182,20 @@ function createDelegatedGrantReadHealthService(deps) {
         ids,
         async (loan) => {
           // Unchanged count transport: mutable input owns the token until finally.
+          // Nullable local owner released by reference nulling in finally (also
+          // on pre-input soft-fail before graphInput is created).
           let graphInput = null;
+          let accessTokenOwner = null;
           try {
-            const accessToken = loan && typeof loan.accessToken === 'string'
+            accessTokenOwner = loan && typeof loan.accessToken === 'string'
               ? loan.accessToken
               : null;
-            if (typeof accessToken !== 'string' || !accessToken) {
+            if (typeof accessTokenOwner !== 'string' || !accessTokenOwner) {
               return Object.freeze({
                 kind: 'soft_fail',
               });
             }
-            graphInput = { accessToken };
+            graphInput = { accessToken: accessTokenOwner };
             try { loan.accessToken = null; } catch { /* */ }
 
             const graphResult = await Reflect.apply(
@@ -220,10 +223,12 @@ function createDelegatedGrantReadHealthService(deps) {
               graph_stage: readTrustedGraphStage(graphErr),
             });
           } finally {
+            // Independent scrubs: graphInput first, then local owner, then loan.
             if (graphInput) {
               try { graphInput.accessToken = null; } catch { /* */ }
               graphInput = null;
             }
+            accessTokenOwner = null;
             if (loan) {
               try { loan.accessToken = null; } catch { /* */ }
             }

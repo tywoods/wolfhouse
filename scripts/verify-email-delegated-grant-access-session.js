@@ -293,6 +293,36 @@ async function main() {
     assert.doesNotMatch(src, /getAccessToken\b/);
     assert.doesNotMatch(src, /return\s*\{\s*accessToken/);
 
+    // Lifetime: nullable token-owner lets released by reference nulling in outer
+    // finally. Opened result is a let owner; sealed/selected/refresh/access too.
+    // Do not claim immutable JS strings are overwritten — only references released.
+    assert.match(src, /let\s+openedOwner\s*=\s*null/);
+    assert.match(src, /let\s+accessTokenOwner\s*=\s*null/);
+    assert.match(src, /let\s+refreshToken\s*=\s*null/);
+    assert.match(src, /let\s+refreshToSeal\s*=\s*null/);
+    assert.match(src, /let\s+selectedOwner\s*=\s*null/);
+    assert.match(src, /let\s+sealedOwner\s*=\s*null/);
+    assert.match(src, /let\s+classified\s*=\s*null/);
+    assert.match(src, /openedOwner\s*=\s*null/);
+    assert.match(src, /sealedOwner\s*=\s*null/);
+    assert.match(src, /selectedOwner\s*=\s*null/);
+    assert.match(src, /accessTokenOwner\s*=\s*null/);
+    // Outer finally must release opened + sealed owners (not only mid-path).
+    {
+      const finallyIdx = src.lastIndexOf('} finally {');
+      assert.ok(finallyIdx > 0, 'outer finally present');
+      const finallyBody = src.slice(finallyIdx, finallyIdx + 900);
+      assert.match(finallyBody, /openedOwner\s*=\s*null/);
+      assert.match(finallyBody, /sealedOwner\s*=\s*null/);
+      assert.match(finallyBody, /selectedOwner\s*=\s*null/);
+      assert.match(finallyBody, /accessTokenOwner\s*=\s*null/);
+      assert.match(finallyBody, /refreshToken\s*=\s*null/);
+      assert.match(finallyBody, /refreshToSeal\s*=\s*null/);
+      assert.match(finallyBody, /classified\s*=\s*null/);
+    }
+    // No string-mutation / zero-fill patterns (reference nulling only).
+    assert.doesNotMatch(src, /zero[\s-]?fill|fill\(0\)|\.fill\(|string\.length\s*=\s*0|Buffer\.from\([^)]*\)\.fill/i);
+
     const pkg = JSON.parse(fs.readFileSync(PKG_PATH, 'utf8'));
     assert.equal(
       pkg.scripts['verify:email-delegated-grant-access-session'],

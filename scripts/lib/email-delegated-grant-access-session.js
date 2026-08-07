@@ -13,7 +13,9 @@
  * CAS conflict / zero-row / commit_outcome_unknown → **zero** callback.
  *
  * Backed only by existing custodian functions (+ existing MS refresh + envelope
- * seal helpers). Scrubs loan.accessToken and all local token owners in finally.
+ * seal helpers). Scrubs loan.accessToken and releases all local token-owner
+ * references (opened/refresh/access/selected/classified/sealed) in finally —
+ * reference release only (nullable lets set to null).
  * Default-off / not runtime-wired. No routes, flags, migration, OAuth scope,
  * deploy, live I/O, or second lease/SQL/refresh owner.
  *
@@ -212,11 +214,16 @@ function createDelegatedGrantAccessSession(deps) {
     const ids = snapshotIds(input);
     if (!ids) throw failure();
 
+    // Nullable local token-owner references. Outer finally releases all of them
+    // via reference nulling only.
     let lease = null;
+    let openedOwner = null;
     let refreshToken = null;
     let accessTokenOwner = null;
     let refreshToSeal = null;
     let classified = null;
+    let selectedOwner = null;
+    let sealedOwner = null;
     let loan = null;
 
     try {
@@ -244,16 +251,20 @@ function createDelegatedGrantAccessSession(deps) {
       }
       lease = acquired.value;
 
-      const opened = await openDelegatedGrantUnderLease(lease, {
+      openedOwner = await openDelegatedGrantUnderLease(lease, {
         client,
         envelopeProvider,
       });
-      if (!opened.ok || typeof opened.value.refresh_token !== 'string') {
+      if (!openedOwner.ok
+          || !openedOwner.value
+          || typeof openedOwner.value.refresh_token !== 'string') {
         await safeAbort(client, ids, lease);
         lease = null;
         return sessionFail(STATUS_UNAVAILABLE, priorDto.grant_generation);
       }
-      refreshToken = opened.value.refresh_token;
+      // Extract only the needed refresh string, then drop opened result owner.
+      refreshToken = openedOwner.value.refresh_token;
+      openedOwner = null;
 
       const exchange = createMicrosoftRefreshTokenRequestService(Object.freeze({
         deployment: SUNSET_DEPLOYMENT,
@@ -311,10 +322,10 @@ function createDelegatedGrantAccessSession(deps) {
 
       // Narrow token owners: extract minimum locals, then drop classified/selected.
       try {
-        const selected = classified.selected;
-        const accessCandidate = selected && selected.accessToken;
+        selectedOwner = classified.selected;
+        classified = null;
+        const accessCandidate = selectedOwner && selectedOwner.accessToken;
         if (typeof accessCandidate !== 'string' || !accessCandidate) {
-          classified = null;
           await markDelegatedGrantReconciliation({
             clientId: ids.clientId,
             endpointId: ids.endpointId,
@@ -330,10 +341,9 @@ function createDelegatedGrantAccessSession(deps) {
         }
         accessTokenOwner = accessCandidate;
 
-        if (selected.refreshTokenOmitted === true) {
+        if (selectedOwner.refreshTokenOmitted === true) {
           if (typeof refreshToken !== 'string' || !refreshToken) {
             accessTokenOwner = null;
-            classified = null;
             await markDelegatedGrantReconciliation({
               clientId: ids.clientId,
               endpointId: ids.endpointId,
@@ -348,13 +358,12 @@ function createDelegatedGrantAccessSession(deps) {
             return sessionFail(STATUS_UNCERTAIN, gen);
           }
           refreshToSeal = refreshToken;
-        } else if (selected.refreshTokenOmitted === false
-            && typeof selected.refreshToken === 'string'
-            && selected.refreshToken) {
-          refreshToSeal = selected.refreshToken;
+        } else if (selectedOwner.refreshTokenOmitted === false
+            && typeof selectedOwner.refreshToken === 'string'
+            && selectedOwner.refreshToken) {
+          refreshToSeal = selectedOwner.refreshToken;
         } else {
           accessTokenOwner = null;
-          classified = null;
           await markDelegatedGrantReconciliation({
             clientId: ids.clientId,
             endpointId: ids.endpointId,
@@ -370,6 +379,7 @@ function createDelegatedGrantAccessSession(deps) {
         }
       } finally {
         classified = null;
+        selectedOwner = null;
       }
       // Drop the one-time-opened refresh local once seal material is chosen.
       refreshToken = null;
@@ -392,9 +402,8 @@ function createDelegatedGrantAccessSession(deps) {
         throw failure();
       }
 
-      let sealed;
       try {
-        sealed = await envelopeProvider.sealGrantPayload({
+        sealedOwner = await envelopeProvider.sealGrantPayload({
           refresh_token: refreshToSeal,
           aad,
           operation_id: nextOperationId,
@@ -417,7 +426,9 @@ function createDelegatedGrantAccessSession(deps) {
         refreshToSeal = null;
       }
 
-      const envCheck = validateGrantEnvelopeRecordV1(sealed);
+      const envCheck = validateGrantEnvelopeRecordV1(sealedOwner);
+      // Release sealed working owner after envelope validation extracts value.
+      sealedOwner = null;
       if (!envCheck.ok) {
         accessTokenOwner = null;
         await markDelegatedGrantReconciliation({
@@ -471,7 +482,8 @@ function createDelegatedGrantAccessSession(deps) {
       if (err && err.code === FAILURE_CODE) throw err;
       throw failure();
     } finally {
-      // Scrub every local token owner regardless of path.
+      // Release every local token-owner reference regardless of path.
+      // Reference nulling only.
       if (loan) {
         try { loan.accessToken = null; } catch { /* */ }
         loan = null;
@@ -480,6 +492,9 @@ function createDelegatedGrantAccessSession(deps) {
       refreshToken = null;
       refreshToSeal = null;
       classified = null;
+      selectedOwner = null;
+      sealedOwner = null;
+      openedOwner = null;
     }
   }
 
