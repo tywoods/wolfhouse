@@ -17,7 +17,8 @@
  *      iterates, copies, logs, retains, or persists envelopes and returns only
  *      exact synchronous `{ acknowledged: true }` (never durability)
  *
- * Public runtime result is identity-free with exact ordered keys only
+ * Internal composition result is identity-free with exact ordered keys only;
+ * the Staff HTTP route remaps it to the separately documented public DTO.
  * (`status: 'success'`, `durably_processed: false`, `input_count`,
  * `delivered_count`, `duplicate_count`) — maps authority-bound internal
  * counts by the same names (no received/accepted/discarded synonyms).
