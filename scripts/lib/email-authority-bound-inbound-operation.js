@@ -321,17 +321,37 @@ function acceptEnvelopeArray(value, maxLen) {
     if (!Array.isArray(value)) return null;
     if (Object.getPrototypeOf(value) !== PINNED_ARRAY_PROTOTYPE) return null;
     if (!Object.isFrozen(value)) return null;
-    const len = value.length;
-    if (typeof len !== 'number' || !Number.isInteger(len) || len < 0 || len > maxLen) {
+
+    const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+    if (!lengthDescriptor
+        || Object.prototype.hasOwnProperty.call(lengthDescriptor, 'get')
+        || Object.prototype.hasOwnProperty.call(lengthDescriptor, 'set')
+        || typeof lengthDescriptor.value !== 'number') {
       return null;
     }
+    const len = lengthDescriptor.value;
+    if (!Number.isInteger(len) || len < 0 || len > maxLen) return null;
+
+    // A canonical array has exactly `length` plus every dense numeric index.
+    // Inspect descriptors before values so hostile accessors never execute.
+    if (Reflect.ownKeys(value).length !== len + 1) return null;
+    const accepted = [];
     for (let i = 0; i < len; i += 1) {
-      const env = value[i];
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
+      if (!descriptor
+          || descriptor.enumerable !== true
+          || Object.prototype.hasOwnProperty.call(descriptor, 'get')
+          || Object.prototype.hasOwnProperty.call(descriptor, 'set')
+          || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+        return null;
+      }
+      const env = descriptor.value;
       if (!env || typeof env !== 'object' || isProxySurface(env) || !Object.isFrozen(env)) {
         return null;
       }
+      accepted.push(env);
     }
-    return value;
+    return Object.freeze(accepted);
   } catch {
     return null;
   }

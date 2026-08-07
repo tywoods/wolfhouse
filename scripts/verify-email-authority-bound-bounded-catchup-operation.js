@@ -1063,6 +1063,42 @@ async function main() {
           ser({ res, consumer: state.consumerCalls }),
         );
       }
+
+      // A frozen array may still contain an accessor index. Reject from the
+      // descriptor without executing attacker code or reaching the consumer.
+      {
+        let getterHits = 0;
+        const hostileEnvelopes = [];
+        Object.defineProperty(hostileEnvelopes, '0', {
+          get() {
+            getterHits += 1;
+            return envelope();
+          },
+          enumerable: true,
+          configurable: true,
+        });
+        Object.freeze(hostileEnvelopes);
+        const dto = catchupDto({
+          envelopes: hostileEnvelopes,
+          pages_fetched: 1,
+          observed_count: 1,
+          unique_count: 1,
+          duplicate_count: 0,
+          truncated: false,
+        });
+        const state = freshState();
+        const service = buildCatchupOp(op, state, { transport: { dto } });
+        const res = await service.runAuthorityBoundBoundedCatchup(baseInput());
+        ok(
+          'malformed-envelope-index-accessor-zero-hits-zero-consumer',
+          res.ok === false
+            && res.error === BOUNDED_CATCHUP_FAILURE_CODE
+            && getterHits === 0
+            && state.consumerCalls === 0
+            && noLeak(res),
+          ser({ res, getterHits, consumer: state.consumerCalls }),
+        );
+      }
     }
 
     // ── RED: foreign provider / mailbox ───────────────────────────────────
