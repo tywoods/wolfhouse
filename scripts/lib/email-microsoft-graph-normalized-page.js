@@ -21,8 +21,10 @@
  * provenance. Caller boolean/string/"proven" objects are rejected. Offline
  * success uses only the module-owned unauthenticated provenance token
  * (reference equality). Authenticated provenance requires an unforgeable
- * private brand (WeakMap) that only a future Prefer: IdType="ImmutableId"
- * transport boundary may mint — this slice exports no public mint.
+ * private brand (WeakMap) minted only via
+ * createAuthenticatedGraphImmutableIdProvenanceCapability() — intended for
+ * Prefer: IdType="ImmutableId" page-transport closure composition. Capability
+ * holders must not re-export mint/brand on product surfaces.
  *
  * This slice is explicitly non-persistence-ready and does not claim ImmutableId
  * provenance. Output is a fresh frozen array of at most TOP_MAX (5) canonical
@@ -75,8 +77,11 @@ const EMAIL_MS_GRAPH_NORMALIZED_PAGE_SHARED_VALIDATOR_EXTRACTED = false;
 const GRAPH_IMMUTABLE_ID_PROVENANCE_UNAUTHENTICATED = Object.freeze(Object.create(null));
 
 /**
- * Unforgeable brand for future Prefer: IdType="ImmutableId" transport boundaries.
- * No public mint in this offline slice — caller cannot forge authentication.
+ * Unforgeable brand for Prefer: IdType="ImmutableId" transport boundaries.
+ * Only createAuthenticatedGraphImmutableIdProvenanceCapability() can mint.
+ * Offline mapMicrosoftGraphPageToInboundEnvelopes still rejects caller
+ * boolean/string/object forgeries; authenticated tokens require the capability.
+ * Capability holders must keep mint private and never re-export it.
  */
 const AUTHENTICATED_IMMUTABLE_ID_PROVENANCE = new WeakMap();
 
@@ -311,8 +316,35 @@ function mapMicrosoftGraphPageToInboundEnvelopes(input) {
   return ok(envelopes);
 }
 
+/**
+ * Transport-only composition: mint authenticated ImmutableId provenance tokens
+ * accepted by mapMicrosoftGraphPageToInboundEnvelopes via private WeakMap brand.
+ *
+ * Holding modules (Prefer: IdType="ImmutableId" page transport) must keep the
+ * returned capability/mint inside module-private closure and never re-export
+ * mint, brand, or the capability object. This is not a public mint API for
+ * callers of the offline bridge — offline success still uses only
+ * GRAPH_IMMUTABLE_ID_PROVENANCE_UNAUTHENTICATED (reference equality).
+ *
+ * No ambient mutable registry: each call returns a fresh capability object
+ * whose mint closes over the module-private WeakMap.
+ *
+ * @returns {{ mintAuthenticatedGraphImmutableIdProvenance: function(): object }}
+ */
+function createAuthenticatedGraphImmutableIdProvenanceCapability() {
+  function mintAuthenticatedGraphImmutableIdProvenance() {
+    const token = Object.freeze(Object.create(null));
+    AUTHENTICATED_IMMUTABLE_ID_PROVENANCE.set(token, true);
+    return token;
+  }
+  return Object.freeze({
+    mintAuthenticatedGraphImmutableIdProvenance,
+  });
+}
+
 module.exports = {
   mapMicrosoftGraphPageToInboundEnvelopes,
+  createAuthenticatedGraphImmutableIdProvenanceCapability,
   GRAPH_IMMUTABLE_ID_PROVENANCE_UNAUTHENTICATED,
   EMAIL_MS_GRAPH_NORMALIZED_PAGE_PERSISTENCE_READY,
   EMAIL_MS_GRAPH_NORMALIZED_PAGE_CLAIMS_IMMUTABLE_ID_PROVENANCE,

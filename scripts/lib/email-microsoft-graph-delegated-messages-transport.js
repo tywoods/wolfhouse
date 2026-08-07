@@ -509,6 +509,22 @@ function acceptParsedMessageEnvelopeList(parsed) {
  * Never returns row contents.
  */
 function classifyMessageEnvelopeBody(bodyText) {
+  const loaded = loadClassifiedMessageEnvelopePage(bodyText);
+  if (loaded.stage === 'success') {
+    return Object.freeze({ stage: 'success', count: loaded.count });
+  }
+  return Object.freeze({ stage: loaded.stage });
+}
+
+/**
+ * Parse + classify Graph list JSON for page-transport composition.
+ * On success includes the strict-parsed page object (null-prototype).
+ * Failure stages never include page/rows. Callers must not re-export page
+ * or log raw Graph content — ImmutableId page transport maps then discards.
+ *
+ * @returns {{stage:string, count?:number, page?:object}}
+ */
+function loadClassifiedMessageEnvelopePage(bodyText) {
   if (typeof bodyText !== 'string') {
     return Object.freeze({ stage: 'utf8_invalid' });
   }
@@ -524,7 +540,19 @@ function classifyMessageEnvelopeBody(bodyText) {
   } catch {
     return Object.freeze({ stage: 'json_invalid' });
   }
-  return classifyParsedMessageEnvelopeList(parsed);
+  const classified = classifyParsedMessageEnvelopeList(parsed);
+  if (!classified || classified.stage !== 'success' || typeof classified.count !== 'number') {
+    return Object.freeze({
+      stage: classified && typeof classified.stage === 'string'
+        ? classified.stage
+        : 'json_invalid',
+    });
+  }
+  return Object.freeze({
+    stage: 'success',
+    count: classified.count,
+    page: parsed,
+  });
 }
 
 /**
@@ -774,6 +802,7 @@ module.exports = Object.freeze({
   GRAPH_STAGES,
   countBoundedMessageEnvelopes,
   classifyMessageEnvelopeBody,
+  loadClassifiedMessageEnvelopePage,
   classifyParsedMessageEnvelopeList,
   acceptParsedMessageEnvelopeList,
   readTrustedGraphStage,
