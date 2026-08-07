@@ -169,6 +169,12 @@ installNetworkGuards();
         && /all-or-nothing|validate entire batch|within.?batch/i.test(doc),
     );
     ok(
+      'doc-trusted-consumer-policy-not-enforcement',
+      /trusted-?consumer\s+policy\s+contract/i.test(doc)
+        && /not\s+enforcement/i.test(doc)
+        && !/enforces?\s+(consumer\s+)?non-?retention/i.test(doc),
+    );
+    ok(
       'doc-no-durable-idempotency-claim',
       /not.*durable|no durable|idempotency.?claim.*false|within this batch only/i.test(doc),
     );
@@ -721,6 +727,231 @@ installNetworkGuards();
         consumer: () => ({ acknowledged: true }),
       });
       ok('sync-consumer-ok', r.ok === true, ser(r));
+    }
+
+    // ── Adversarial: custom / hostile envelope-array prototypes ───────────
+    // After pinned proxy rejection, require exact intrinsic Array.prototype
+    // before any element/property use. Null/custom/subclass/cross-surface → fail.
+    {
+      const { consumer, state } = trackingConsumer();
+
+      // Subclass instance (Array.isArray true, but prototype !== Array.prototype).
+      class HostileArray extends Array {}
+      const subclassArr = new HostileArray();
+      subclassArr.push(validEnvelope({ provider_message_id: MSG_A }));
+      state.calls = 0;
+      const subR = await processInboundEmailBatch({
+        envelopes: subclassArr,
+        consumer,
+      });
+      ok(
+        'envelopes-subclass-array-fail-no-consumer',
+        subR.ok === false && state.calls === 0 && noLeak(subR),
+        ser(subR),
+      );
+
+      // Null prototype (still Array.isArray after setPrototypeOf).
+      const nullProtoArr = [validEnvelope({ provider_message_id: MSG_B })];
+      Object.setPrototypeOf(nullProtoArr, null);
+      state.calls = 0;
+      const nullR = await processInboundEmailBatch({
+        envelopes: nullProtoArr,
+        consumer,
+      });
+      ok(
+        'envelopes-null-prototype-array-fail-no-consumer',
+        nullR.ok === false && state.calls === 0 && noLeak(nullR),
+        ser(nullR),
+      );
+
+      // Custom intermediate prototype (inherits Array.prototype but is not exact).
+      const customProto = Object.create(Array.prototype);
+      customProto.hostile = function hostile() { return PLANTED_TOKEN; };
+      const customArr = [validEnvelope({ provider_message_id: MSG_C })];
+      Object.setPrototypeOf(customArr, customProto);
+      state.calls = 0;
+      const customR = await processInboundEmailBatch({
+        envelopes: customArr,
+        consumer,
+      });
+      ok(
+        'envelopes-custom-prototype-array-fail-no-consumer',
+        customR.ok === false && state.calls === 0 && noLeak(customR),
+        ser(customR),
+      );
+
+      // Cross-surface Array from another realm (different Array.prototype).
+      const vm = require('node:vm');
+      const foreignArr = vm.runInNewContext(
+        '([{provider:"microsoft_graph",provider_mailbox_id:"support@lunafrontdesk.com",'
+        + 'provider_message_id:"AAMkAGI2-FOREIGN",received_at:"2026-08-06T12:00:00.000Z",'
+        + 'subject:"x",sender_display_name:"G",sender_address:"g@example.com",is_read:false,'
+        + 'conversation_id:"c",internet_message_id:"<f@example.com>"}])',
+      );
+      state.calls = 0;
+      const foreignR = await processInboundEmailBatch({
+        envelopes: foreignArr,
+        consumer,
+      });
+      ok(
+        'envelopes-cross-surface-array-fail-no-consumer',
+        foreignR.ok === false && state.calls === 0 && noLeak(foreignR),
+        ser(foreignR),
+      );
+
+      // Control: plain dense Array with exact Array.prototype still accepted.
+      state.calls = 0;
+      const plainR = await processInboundEmailBatch({
+        envelopes: [validEnvelope({ provider_message_id: MSG_D })],
+        consumer,
+      });
+      ok(
+        'envelopes-plain-array-prototype-ok',
+        plainR.ok === true && state.calls === 1,
+        ser(plainR),
+      );
+    }
+
+    // ── Adversarial: proxied callable consumer rejected before invocation ─
+    // Module-init pinned isProxy; zero apply/get/getPrototypeOf/
+    // getOwnPropertyDescriptor/ownKeys traps; ambient util.types.isProxy
+    // monkeypatch must not hide proxies. Normal sync/async/bound remain ok.
+    {
+      if (typeof util.types.isProxy === 'function') {
+        const traps = {
+          apply: 0,
+          get: 0,
+          getPrototypeOf: 0,
+          getOwnPropertyDescriptor: 0,
+          ownKeys: 0,
+        };
+        const realConsumer = async function realConsumer() {
+          traps.apply += 1000; // should never run via direct call either
+          return { acknowledged: true };
+        };
+        const proxyConsumer = new Proxy(realConsumer, {
+          apply(target, thisArg, args) {
+            traps.apply += 1;
+            return Reflect.apply(target, thisArg, args);
+          },
+          get(target, prop, receiver) {
+            traps.get += 1;
+            return Reflect.get(target, prop, receiver);
+          },
+          getPrototypeOf(target) {
+            traps.getPrototypeOf += 1;
+            return Reflect.getPrototypeOf(target);
+          },
+          getOwnPropertyDescriptor(target, prop) {
+            traps.getOwnPropertyDescriptor += 1;
+            return Reflect.getOwnPropertyDescriptor(target, prop);
+          },
+          ownKeys(target) {
+            traps.ownKeys += 1;
+            return Reflect.ownKeys(target);
+          },
+        });
+
+        const r = await processInboundEmailBatch({
+          envelopes: [validEnvelope({ subject: PLANTED_SUBJECT })],
+          consumer: proxyConsumer,
+        });
+        ok(
+          'proxy-consumer-fail-closed',
+          r.ok === false && noLeak(r),
+          ser(r),
+        );
+        ok(
+          'proxy-consumer-zero-apply-trap',
+          traps.apply === 0,
+          ser(traps),
+        );
+        ok(
+          'proxy-consumer-zero-get-trap',
+          traps.get === 0,
+          ser(traps),
+        );
+        ok(
+          'proxy-consumer-zero-getPrototypeOf-trap',
+          traps.getPrototypeOf === 0,
+          ser(traps),
+        );
+        ok(
+          'proxy-consumer-zero-getOwnPropertyDescriptor-trap',
+          traps.getOwnPropertyDescriptor === 0,
+          ser(traps),
+        );
+        ok(
+          'proxy-consumer-zero-ownKeys-trap',
+          traps.ownKeys === 0,
+          ser(traps),
+        );
+
+        // Ambient util.types.isProxy monkeypatch after module load must not
+        // hide a real Proxy consumer (pinned detector at module init).
+        const origIsProxy = util.types.isProxy;
+        let monkeyInvocations = 0;
+        util.types.isProxy = function patchedIsProxy() {
+          monkeyInvocations += 1;
+          return false; // try to claim nothing is a proxy
+        };
+        try {
+          const traps2 = { apply: 0 };
+          const proxy2 = new Proxy(async () => {
+            traps2.apply += 1;
+            return { acknowledged: true };
+          }, {
+            apply(target, thisArg, args) {
+              traps2.apply += 1;
+              return Reflect.apply(target, thisArg, args);
+            },
+          });
+          const r2 = await processInboundEmailBatch({
+            envelopes: [validEnvelope()],
+            consumer: proxy2,
+          });
+          ok(
+            'proxy-consumer-resistant-to-isProxy-monkeypatch',
+            r2.ok === false && traps2.apply === 0 && noLeak(r2),
+            ser({ r2, traps2, monkeyInvocations }),
+          );
+        } finally {
+          util.types.isProxy = origIsProxy;
+        }
+      } else {
+        ok('proxy-consumer-fail-closed', false, 'util.types.isProxy unavailable');
+        ok('proxy-consumer-zero-apply-trap', false, 'util.types.isProxy unavailable');
+        ok('proxy-consumer-zero-get-trap', false, 'util.types.isProxy unavailable');
+        ok('proxy-consumer-zero-getPrototypeOf-trap', false, 'util.types.isProxy unavailable');
+        ok('proxy-consumer-zero-getOwnPropertyDescriptor-trap', false, 'util.types.isProxy unavailable');
+        ok('proxy-consumer-zero-ownKeys-trap', false, 'util.types.isProxy unavailable');
+        ok('proxy-consumer-resistant-to-isProxy-monkeypatch', false, 'util.types.isProxy unavailable');
+      }
+
+      // Normal sync / async / bound callables remain accepted where safe.
+      {
+        const syncR = await processInboundEmailBatch({
+          envelopes: [validEnvelope({ provider_message_id: MSG_A })],
+          consumer: function syncConsumer() { return { acknowledged: true }; },
+        });
+        ok('normal-sync-consumer-ok', syncR.ok === true, ser(syncR));
+
+        const asyncR = await processInboundEmailBatch({
+          envelopes: [validEnvelope({ provider_message_id: MSG_B })],
+          consumer: async function asyncConsumer() { return { acknowledged: true }; },
+        });
+        ok('normal-async-consumer-ok', asyncR.ok === true, ser(asyncR));
+
+        const boundTarget = async function boundTarget() {
+          return { acknowledged: true };
+        };
+        const bound = boundTarget.bind(null);
+        const boundR = await processInboundEmailBatch({
+          envelopes: [validEnvelope({ provider_message_id: MSG_C })],
+          consumer: bound,
+        });
+        ok('normal-bound-consumer-ok', boundR.ok === true, ser(boundR));
+      }
     }
 
     // ── Gmail envelope accepted (provider-neutral; no Graph import) ───────

@@ -15,6 +15,9 @@
  *   batch (reject mixed mailboxes/providers).
  * - Reject proxies, accessors, inherited values, symbol keys, non-enumerable
  *   keys, and malformed envelopes (via canonical validation).
+ * - Envelope arrays: after pinned proxy rejection and before any element or
+ *   property use, require the module-init intrinsic `Array.prototype` exactly
+ *   (null / custom / subclass / cross-surface prototypes fail closed).
  * - Deterministic canonical sort (`compareInboundEmailEnvelopesForOrder`).
  * - Deduplicate **within this batch only** by the canonical identity tuple
  *   `(provider, provider_mailbox_id, provider_message_id)`. After sort
@@ -22,8 +25,16 @@
  *   cross-batch idempotency (`EMAIL_INBOUND_BATCH_PROCESSOR_DURABLE_IDEMPOTENCY_CLAIM = false`).
  * - After full validation only: invoke **exactly one** explicitly-awaited
  *   injected `consumer` with a fresh frozen array of fresh frozen envelopes.
- * - Consumer loan contract: non-retention / no-log / no-persist of envelope
- *   field values for this call. Processor does not log or persist envelopes.
+ * - Proxied callable consumers are rejected **before** invocation via the
+ *   module-init pinned native `util.types.isProxy` detector (zero apply / get /
+ *   getPrototypeOf / getOwnPropertyDescriptor / ownKeys traps; resistant to
+ *   ambient `util.types.isProxy` monkeypatching after load). Normal sync /
+ *   async / bound callables remain accepted where safe.
+ * - Consumer loan: **trusted-consumer policy contract** (not enforcement).
+ *   Caller-supplied consumers are trusted not to retain, log, or persist
+ *   envelope field values for this call. The processor itself does not log or
+ *   persist envelopes and does **not** police post-handoff consumer behavior
+ *   or issue a durable acknowledgement of non-retention.
  * - Consumer result must be an exact sanitized own-data acknowledgement
  *   `{ acknowledged: true }` or the processor fails closed.
  * - Processor success returns only frozen **identity-free** counts/status —
@@ -66,8 +77,11 @@ const EMAIL_INBOUND_BATCH_PROCESSOR_LOGGING_FORBIDDEN =
 const EMAIL_INBOUND_BATCH_PROCESSOR_DURABLE_IDEMPOTENCY_CLAIM = false;
 
 /**
- * Documented consumer loan: envelopes are provided for this single await only.
- * Consumer must not retain, log, or persist envelope field values.
+ * Trusted-consumer policy contract (documentation only — **not** enforcement).
+ * Caller-supplied consumers are expected not to retain, log, or persist envelope
+ * field values from this single await. These flags document the policy; the
+ * processor does not enforce non-retention and does not issue a durable
+ * acknowledgement of consumer behavior.
  */
 const EMAIL_INBOUND_BATCH_CONSUMER_NON_RETENTION = true;
 const EMAIL_INBOUND_BATCH_CONSUMER_NO_LOG = true;
@@ -85,10 +99,13 @@ const RESULT_KEYS = Object.freeze([
 ]);
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
+// Module-init pins: ambient monkeypatches after load must not weaken detection.
 const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
 const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
   ? PINNED_UTIL_TYPES.isProxy
   : null;
+/** Expected intrinsic Array.prototype for envelope arrays (this realm at init). */
+const PINNED_ARRAY_PROTOTYPE = Array.prototype;
 
 function deepFreezeFresh(value) {
   if (value === null || typeof value !== 'object') return value;
@@ -175,6 +192,10 @@ function identityKey(tuple) {
  * Accept only a plain Array (not proxy, not array-like object). Sparse holes
  * and non-index own props beyond length are rejected.
  *
+ * Order (fail-closed): type/array checks → pinned proxy rejection → exact
+ * intrinsic Array.prototype (reject null/custom/subclass/cross-surface) →
+ * only then length / own-keys / element descriptor use.
+ *
  * @param {unknown} value
  * @returns {{ok:true,value:unknown[]}|{ok:false,reason:string}}
  */
@@ -188,6 +209,17 @@ function acceptEnvelopeArray(value) {
     }
     if (isProxySurface(value)) {
       return { ok: false, reason: 'proxy' };
+    }
+    // After pinned proxy rejection and before any element/property use:
+    // require the expected intrinsic Array.prototype exactly.
+    let proto;
+    try {
+      proto = Object.getPrototypeOf(value);
+    } catch {
+      return { ok: false, reason: 'array_prototype' };
+    }
+    if (proto !== PINNED_ARRAY_PROTOTYPE) {
+      return { ok: false, reason: 'array_prototype' };
     }
     const len = value.length;
     if (typeof len !== 'number' || !Number.isInteger(len) || len < 0) {
@@ -298,6 +330,13 @@ async function processInboundEmailBatch(input) {
 
   if (typeof o.consumer !== 'function') {
     return fail('inbound_batch_consumer_invalid', { reason: 'not_function' });
+  }
+  // Reject proxied callables before any invocation. Native isProxy via the
+  // module-init pin does not run apply/get/getPrototypeOf/
+  // getOwnPropertyDescriptor/ownKeys traps; ambient util.types.isProxy
+  // monkeypatches after load cannot hide a real Proxy.
+  if (isProxySurface(o.consumer)) {
+    return fail('inbound_batch_consumer_invalid', { reason: 'proxy' });
   }
   const consumer = o.consumer;
 
