@@ -18,7 +18,7 @@
  *   exact continuation token for cursorKind (nextLink→$skiptoken, deltaLink→$deltatoken).
  * - AAD binds client+endpoint+provider+tenant+mailbox+generation+query_version+
  *   cursor_kind so rebind/generation/query-version change fails closed.
- * - query_version is the production-exact text constant messages_delta_v1
+ * - query_version is the production-exact text constant microsoft_graph_messages_delta_v1
  *   (not BIGINT; not caller-chosen). Parser accepts omitted or that exact value
  *   only; migration CHECK pins the same constant. Future contract changes require
  *   a deliberate code+migration version bump together.
@@ -81,7 +81,7 @@ const GRAPH_API_VERSION = 'v1.0';
  * Future contract changes require deliberate code+migration version bump —
  * never accept caller-chosen strings.
  */
-const DEFAULT_QUERY_VERSION = 'messages_delta_v1';
+const DEFAULT_QUERY_VERSION = 'microsoft_graph_messages_delta_v1';
 /** JS Number.MAX_SAFE_INTEGER — generations never fence beyond this. */
 const MAX_SAFE_GENERATION = Number.MAX_SAFE_INTEGER;
 
@@ -771,7 +771,7 @@ function validateGraphCursorUrlBoundary(cursorUrl, binding) {
 /**
  * Canonical AAD for sealed Graph cursor capabilities.
  * Binds ciphertext to trusted state identity + cursor_kind.
- * query_version is the production-exact constant (omitted or messages_delta_v1).
+ * query_version is the production-exact constant (omitted or microsoft_graph_messages_delta_v1).
  */
 function buildDeltaCursorEnvelopeAadV1({
   clientId,
