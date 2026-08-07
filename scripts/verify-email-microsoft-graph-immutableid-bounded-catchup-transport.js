@@ -778,6 +778,8 @@ async function main() {
       ['no-opaque', nextLinkWithRawQuery('$top=5&$select=' + encodeURIComponent(SELECT_JOINED))],
       // Exact keyset: reject absence of required base keys / sole opaque / case variants / encoded key confusion.
       ['sole-opaque', nextLinkWithRawQuery('$skiptoken=only')],
+      ['skiptoken-substituted-deltatoken', nextLinkWithRawQuery('$top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$deltatoken=x')],
+      ['skiptoken-substituted-filter', nextLinkWithRawQuery('$top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$filter=x')],
       ['missing-top', nextLinkWithRawQuery('$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x')],
       ['missing-select', nextLinkWithRawQuery('$top=5&$skiptoken=x')],
       ['case-top', nextLinkWithRawQuery('$Top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x')],
@@ -1298,7 +1300,8 @@ async function main() {
         const messagesSrc = fs.readFileSync(path.join(ROOT, MESSAGES_REL), 'utf8');
         ok(
           'src-url-module-init-pin',
-          /const\s+PINNED_URL\s*=/.test(messagesSrc)
+          /require\(['"]node:url['"]\)/.test(messagesSrc)
+            && /const\s+PINNED_URL\s*=\s*typeof\s+NODE_URL/.test(messagesSrc)
             && /PINNED_URL_GET_PROTOCOL/.test(messagesSrc)
             && /PINNED_URL_GET_HOSTNAME/.test(messagesSrc)
             && /PINNED_URL_GET_PATHNAME/.test(messagesSrc)

@@ -38,6 +38,7 @@
 const http = require('http');
 const https = require('https');
 const util = require('util');
+const { URL: NODE_URL } = require('node:url');
 const { EventEmitter } = require('events');
 const stream = require('stream');
 
@@ -111,8 +112,8 @@ const MESSAGES_PATH_ME = /^\/v1\.0\/me\/messages$/;
 const MESSAGES_PATH_USER = /^\/v1\.0\/users\/[^/]+\/messages$/;
 
 /** Module-init pins: ambient monkeypatches after load must not weaken detection. */
-// Capture the ambient URL constructor once at load — never re-read global URL later.
-const PINNED_URL = typeof URL === 'function' ? URL : null;
+// Pin the core node:url constructor, never the ambient global URL.
+const PINNED_URL = typeof NODE_URL === 'function' ? NODE_URL : null;
 const PINNED_URL_PROTOTYPE = PINNED_URL && PINNED_URL.prototype
   ? PINNED_URL.prototype
   : null;
@@ -936,34 +937,25 @@ function validateCatchupFollowNextLink(value, providerMailboxId) {
     if (!parsed.ok) return { ok: false };
     const params = parsed.params;
 
-    // Exact required keyset: $top + $select + exactly one opaque continuation.
-    // Every canonical key exactly once; no absence, extras, or sole opaque.
+    // Exact required keyset: $top + $select + exactly one literal $skiptoken.
+    // Every canonical key exactly once; no absence, substitutions, or extras.
     if (params.size !== 3) return { ok: false };
-    if (!params.has('$top') || !params.has('$select')) return { ok: false };
+    if (!params.has('$top') || !params.has('$select') || !params.has('$skiptoken')) {
+      return { ok: false };
+    }
     const topVal = params.get('$top');
     const selectVal = params.get('$select');
     if (topVal !== CATCHUP_ORIGINAL_TOP) return { ok: false };
     if (selectVal !== CATCHUP_ORIGINAL_SELECT) return { ok: false };
 
-    let opaqueKey = null;
-    let opaqueVal = null;
-    for (const [key, val] of params) {
-      if (key === '$top' || key === '$select') continue;
-      // Exactly one opaque bounded nonempty continuation token (e.g. $skiptoken).
-      if (opaqueKey !== null) return { ok: false };
-      if (typeof val !== 'string' || val.length < 1 || val.length > STRING_LIMIT) {
-        return { ok: false };
-      }
-      if (hasUnpairedSurrogate(val)) return { ok: false };
-      // Continuation key must be a nonempty primitive string (already checked);
-      // reject empty / dangerous keys.
-      if (typeof key !== 'string' || key.length < 1 || DANGEROUS_KEYS.has(key)) {
-        return { ok: false };
-      }
-      opaqueKey = key;
-      opaqueVal = val;
+    const opaqueKey = '$skiptoken';
+    const opaqueVal = params.get(opaqueKey);
+    if (typeof opaqueVal !== 'string'
+        || opaqueVal.length < 1
+        || opaqueVal.length > STRING_LIMIT
+        || hasUnpairedSurrogate(opaqueVal)) {
+      return { ok: false };
     }
-    if (opaqueKey === null || opaqueVal === null) return { ok: false };
 
     const requestPath = `${parts.pathname}${parts.search}`;
     if (typeof requestPath !== 'string'
