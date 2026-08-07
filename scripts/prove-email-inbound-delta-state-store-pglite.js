@@ -6,10 +6,12 @@
  * When PGlite is available:
  *   - minimal parent shell + 063 events + 064 delta state
  *   - initialize / lease / seal / commit nextLink / terminal deltaLink
+ *   - pre-TX crypto open rejects cross-AAD sealed successors (zero inserts)
  *   - event+cursor atomic advancement
  *   - insert/CAS rollback (wrong state_version)
  *   - replay converges
- *   - generation rebind preserves old state/events
+ *   - generation rebind via authority verifier preserves old state/events
+ *   - post-crypto lease fencing on openCursor (takeover)
  *   - down drops table
  *
  * When PGlite is unavailable: static migration contract only.
@@ -37,6 +39,16 @@ const ids = {
   tenant: '55555555-5555-4555-8555-555555555555',
   mailbox: '44444444-4444-4444-8444-444444444444',
 };
+const QV1 = 'messages_delta_v1';
+const QV2 = 'messages_delta_v2';
+const OTHER_CLIENT = '11111111-1111-4111-8111-111111111112';
+
+function cursorUrl(kind, token) {
+  const base =
+    `https://graph.microsoft.com/v1.0/users/${ids.mailbox}/messages/delta`;
+  if (kind === 'nextLink') return `${base}?$skiptoken=${token}`;
+  return `${base}?$deltatoken=${token}`;
+}
 
 function tryLoadPglite() {
   try {
@@ -98,6 +110,8 @@ function assertStaticContract() {
   assert.match(UP, /REFERENCES tenant_channel_endpoints \(client_id, id\)/);
   assert.match(UP, /provider = 'microsoft_graph'/);
   assert.match(UP, /cursor_kind IN \('nextLink', 'deltaLink'\)/);
+  assert.match(UP, /query_version\s+TEXT NOT NULL/);
+  assert.match(UP, /9007199254740991/);
   assert.match(UP, /tenant_email_inbound_delta_states_cursor_coherence/);
   assert.equal(/INSERT INTO tenant_email_inbound_delta_states/.test(UP), false);
   assert.equal(/\bnext_link\b/i.test(UP), false);
@@ -107,8 +121,14 @@ function assertStaticContract() {
 
 function createPgliteExclusiveLoaner(db) {
   let chain = Promise.resolve();
+  let loanSeq = 0;
+  let onLoanStart = null;
   async function withTransactionClient(work) {
     const run = chain.then(async () => {
+      loanSeq += 1;
+      if (typeof onLoanStart === 'function') {
+        await onLoanStart({ loanId: loanSeq });
+      }
       const client = {
         async query(sql, params) {
           return db.query(sql, params || []);
@@ -119,7 +139,11 @@ function createPgliteExclusiveLoaner(db) {
     chain = run.then(() => undefined, () => undefined);
     return run;
   }
-  return Object.freeze({ withTransactionClient });
+  return Object.freeze({
+    withTransactionClient,
+    setOnLoanStart(fn) { onLoanStart = fn; },
+    resetLoanSeq() { loanSeq = 0; },
+  });
 }
 
 function makeEnvelope(messageId) {
@@ -137,9 +161,29 @@ function makeEnvelope(messageId) {
   });
 }
 
+function makeAuthorityVerifier() {
+  return Object.freeze({
+    async verifyBinding(binding) {
+      if (!binding
+          || binding.clientId !== ids.client
+          || binding.locationId !== ids.location
+          || binding.endpointId !== ids.endpoint
+          || binding.providerTenantId !== ids.tenant
+          || binding.providerMailboxId !== ids.mailbox) {
+        return Object.freeze({ ok: false });
+      }
+      return Object.freeze({
+        ok: true,
+        value: Object.freeze({ ...binding }),
+      });
+    },
+  });
+}
+
 async function proveWithPglite(PGlite) {
   const {
     createInboundEmailDeltaStateStore,
+    sealDeltaCursorCompatible,
   } = require('./lib/email-inbound-delta-state-store');
   const {
     createFakeEmailGrantEnvelopeProvider,
@@ -159,8 +203,8 @@ async function proveWithPglite(PGlite) {
          provider, provider_tenant_id, provider_mailbox_id,
          ingestion_generation, query_version, is_current,
          phase, state_version, cursor_kind, envelope_version
-       ) VALUES ($1,$2,$3,'microsoft_graph',$4,$5,1,1,true,'initial',1,'nextLink','v1')`,
-      [ids.client, ids.location, ids.endpoint, ids.tenant, ids.mailbox],
+       ) VALUES ($1,$2,$3,'microsoft_graph',$4,$5,1,$6,true,'initial',1,'nextLink','v1')`,
+      [ids.client, ids.location, ids.endpoint, ids.tenant, ids.mailbox, QV1],
     );
   } catch {
     redFailed = true;
@@ -174,8 +218,8 @@ async function proveWithPglite(PGlite) {
        provider, provider_tenant_id, provider_mailbox_id,
        ingestion_generation, query_version, is_current,
        phase, state_version
-     ) VALUES ($1,$2,$3,'microsoft_graph',$4,$5,1,1,true,'initial',1)`,
-    [ids.client, ids.location, ids.endpoint, ids.tenant, ids.mailbox],
+     ) VALUES ($1,$2,$3,'microsoft_graph',$4,$5,1,$6,true,'initial',1)`,
+    [ids.client, ids.location, ids.endpoint, ids.tenant, ids.mailbox, QV1],
   );
   let secondCurrentFailed = false;
   try {
@@ -185,13 +229,48 @@ async function proveWithPglite(PGlite) {
          provider, provider_tenant_id, provider_mailbox_id,
          ingestion_generation, query_version, is_current,
          phase, state_version
-       ) VALUES ($1,$2,$3,'microsoft_graph',$4,$5,2,1,true,'initial',1)`,
-      [ids.client, ids.location, ids.endpoint, ids.tenant, ids.mailbox],
+       ) VALUES ($1,$2,$3,'microsoft_graph',$4,$5,2,$6,true,'initial',1)`,
+      [ids.client, ids.location, ids.endpoint, ids.tenant, ids.mailbox, QV1],
     );
   } catch {
     secondCurrentFailed = true;
   }
   assert.equal(secondCurrentFailed, true, 'ambiguous current generation blocked');
+
+  // RED: query_version must be text shape, not bare integer column type
+  let badQv = false;
+  try {
+    await db.query(
+      `INSERT INTO tenant_email_inbound_delta_states (
+         client_id, location_id, endpoint_id,
+         provider, provider_tenant_id, provider_mailbox_id,
+         ingestion_generation, query_version, is_current,
+         phase, state_version
+       ) VALUES ($1,$2,$3,'microsoft_graph',$4,$5,3,'BAD-QV',true,'initial',1)`,
+      [ids.client, ids.location, ids.endpoint, ids.tenant, ids.mailbox],
+    );
+  } catch {
+    badQv = true;
+  }
+  assert.equal(badQv, true, 'invalid query_version text rejected');
+
+  // RED: generation beyond MAX_SAFE_INTEGER rejected
+  let badGen = false;
+  try {
+    await db.query(
+      `INSERT INTO tenant_email_inbound_delta_states (
+         client_id, location_id, endpoint_id,
+         provider, provider_tenant_id, provider_mailbox_id,
+         ingestion_generation, query_version, is_current,
+         phase, state_version
+       ) VALUES ($1,$2,$3,'microsoft_graph',$4,$5,9007199254740992,$6,false,'initial',1)`,
+      [ids.client, ids.location, ids.endpoint, ids.tenant, ids.mailbox, QV1],
+    );
+  } catch {
+    badGen = true;
+  }
+  assert.equal(badGen, true, 'generation above MAX_SAFE_INTEGER rejected');
+
   await db.query('DELETE FROM tenant_email_inbound_delta_states');
 
   const provider = createFakeEmailGrantEnvelopeProvider();
@@ -199,6 +278,7 @@ async function proveWithPglite(PGlite) {
   const store = createInboundEmailDeltaStateStore(Object.freeze({
     withTransactionClient: loaner.withTransactionClient,
     envelopeProvider: provider,
+    authorityVerifier: makeAuthorityVerifier(),
   }));
 
   const init = await store.initializeState(Object.freeze({
@@ -207,10 +287,11 @@ async function proveWithPglite(PGlite) {
     endpointId: ids.endpoint,
     providerTenantId: ids.tenant,
     providerMailboxId: ids.mailbox,
-    queryVersion: 1,
+    queryVersion: QV1,
   }));
   assert.equal(init.ok, true);
   assert.equal(init.value.ingestion_generation, 1);
+  assert.equal(init.value.query_version, QV1);
   assert.equal(init.value.phase, 'initial');
 
   const lease = await store.acquireLease(Object.freeze({
@@ -231,9 +312,9 @@ async function proveWithPglite(PGlite) {
     providerTenantId: ids.tenant,
     providerMailboxId: ids.mailbox,
     ingestionGeneration: 1,
-    queryVersion: 1,
+    queryVersion: QV1,
     cursorKind: 'nextLink',
-    cursorUrl: 'https://graph.microsoft.com/v1.0/users/44444444-4444-4444-8444-444444444444/messages?$skiptoken=page1',
+    cursorUrl: cursorUrl('nextLink', 'page1'),
     operationId: crypto.randomUUID(),
   }));
   assert.equal(sealedNext.ok, true, JSON.stringify(sealedNext));
@@ -246,8 +327,9 @@ async function proveWithPglite(PGlite) {
     leaseToken: token,
     expectedGeneration: 1,
     expectedStateVersion: sv,
+    providerTenantId: ids.tenant,
     providerMailboxId: ids.mailbox,
-    queryVersion: 1,
+    queryVersion: QV1,
     envelopes: Object.freeze([makeEnvelope('msg-1'), makeEnvelope('msg-2')]),
     tombstones: Object.freeze([]),
     successorCursor: sealedNext.value,
@@ -258,17 +340,60 @@ async function proveWithPglite(PGlite) {
   let count = await db.query('SELECT count(*)::int AS n FROM tenant_email_inbound_events');
   assert.equal(count.rows[0].n, 2);
   let st = await db.query(
-    `SELECT phase, cursor_kind, state_version, ciphertext IS NOT NULL AS sealed
+    `SELECT phase, cursor_kind, state_version, query_version, ciphertext IS NOT NULL AS sealed
        FROM tenant_email_inbound_delta_states WHERE is_current = true`,
   );
   assert.equal(st.rows[0].phase, 'initial');
   assert.equal(st.rows[0].cursor_kind, 'nextLink');
+  assert.equal(st.rows[0].query_version, QV1);
   assert.equal(st.rows[0].sealed, true);
-  // plaintext never stored
   const plain = await db.query(
     `SELECT cursor_kind, envelope_version FROM tenant_email_inbound_delta_states`,
   );
   assert.equal(JSON.stringify(plain.rows).includes('skiptoken'), false);
+
+  // Cross-AAD sealed successor rejected before TX (zero inserts)
+  const sealedCross = await sealDeltaCursorCompatible(provider, Object.freeze({
+    clientId: OTHER_CLIENT,
+    endpointId: ids.endpoint,
+    providerTenantId: ids.tenant,
+    providerMailboxId: ids.mailbox,
+    ingestionGeneration: 1,
+    queryVersion: QV1,
+    cursorKind: 'nextLink',
+    cursorUrl: cursorUrl('nextLink', 'hostile-cross-client'),
+    operationId: crypto.randomUUID(),
+  }));
+  assert.equal(sealedCross.ok, true);
+  const crossCommit = await store.commitPageEvents(Object.freeze({
+    clientId: ids.client,
+    locationId: ids.location,
+    endpointId: ids.endpoint,
+    leaseToken: token,
+    expectedGeneration: 1,
+    expectedStateVersion: sv,
+    providerTenantId: ids.tenant,
+    providerMailboxId: ids.mailbox,
+    queryVersion: QV1,
+    envelopes: Object.freeze([makeEnvelope('msg-hostile-cross')]),
+    tombstones: Object.freeze([]),
+    successorCursor: Object.freeze({
+      cursor_kind: 'nextLink',
+      envelope: sealedCross.value.envelope,
+    }),
+  }));
+  assert.equal(crossCommit.ok, false, 'cross-client AAD must reject');
+  count = await db.query('SELECT count(*)::int AS n FROM tenant_email_inbound_events');
+  assert.equal(count.rows[0].n, 2, 'zero inserts on cross-AAD reject');
+  const missingHostile = await db.query(
+    `SELECT count(*)::int AS n FROM tenant_email_inbound_events
+      WHERE provider_message_id = 'msg-hostile-cross'`,
+  );
+  assert.equal(missingHostile.rows[0].n, 0);
+  st = await db.query(
+    `SELECT state_version, cursor_kind FROM tenant_email_inbound_delta_states WHERE is_current = true`,
+  );
+  assert.equal(Number(st.rows[0].state_version), sv, 'zero cursor advance on cross-AAD');
 
   // CAS failure rolls back inserts (wrong state_version)
   const sealedBad = await store.sealDeltaCursor(Object.freeze({
@@ -277,11 +402,12 @@ async function proveWithPglite(PGlite) {
     providerTenantId: ids.tenant,
     providerMailboxId: ids.mailbox,
     ingestionGeneration: 1,
-    queryVersion: 1,
+    queryVersion: QV1,
     cursorKind: 'nextLink',
-    cursorUrl: 'https://graph.microsoft.com/v1.0/users/x/messages?$skiptoken=bad',
+    cursorUrl: cursorUrl('nextLink', 'bad-cas'),
     operationId: crypto.randomUUID(),
   }));
+  assert.equal(sealedBad.ok, true);
   const badCas = await store.commitPageEvents(Object.freeze({
     clientId: ids.client,
     locationId: ids.location,
@@ -289,8 +415,9 @@ async function proveWithPglite(PGlite) {
     leaseToken: token,
     expectedGeneration: 1,
     expectedStateVersion: 99999,
+    providerTenantId: ids.tenant,
     providerMailboxId: ids.mailbox,
-    queryVersion: 1,
+    queryVersion: QV1,
     envelopes: Object.freeze([makeEnvelope('msg-should-rollback')]),
     tombstones: Object.freeze([]),
     successorCursor: sealedBad.value,
@@ -311,9 +438,9 @@ async function proveWithPglite(PGlite) {
     providerTenantId: ids.tenant,
     providerMailboxId: ids.mailbox,
     ingestionGeneration: 1,
-    queryVersion: 1,
+    queryVersion: QV1,
     cursorKind: 'nextLink',
-    cursorUrl: 'https://graph.microsoft.com/v1.0/users/x/messages?$skiptoken=page2',
+    cursorUrl: cursorUrl('nextLink', 'page2'),
     operationId: crypto.randomUUID(),
   }));
   const replay = await store.commitPageEvents(Object.freeze({
@@ -323,8 +450,9 @@ async function proveWithPglite(PGlite) {
     leaseToken: token,
     expectedGeneration: 1,
     expectedStateVersion: sv,
+    providerTenantId: ids.tenant,
     providerMailboxId: ids.mailbox,
-    queryVersion: 1,
+    queryVersion: QV1,
     envelopes: Object.freeze([
       makeEnvelope('msg-1'),
       makeEnvelope('msg-2'),
@@ -345,9 +473,9 @@ async function proveWithPglite(PGlite) {
     providerTenantId: ids.tenant,
     providerMailboxId: ids.mailbox,
     ingestionGeneration: 1,
-    queryVersion: 1,
+    queryVersion: QV1,
     cursorKind: 'deltaLink',
-    cursorUrl: 'https://graph.microsoft.com/v1.0/users/x/messages/delta?$deltatoken=final',
+    cursorUrl: cursorUrl('deltaLink', 'final'),
     operationId: crypto.randomUUID(),
   }));
   const terminal = await store.commitPageEvents(Object.freeze({
@@ -357,8 +485,9 @@ async function proveWithPglite(PGlite) {
     leaseToken: token,
     expectedGeneration: 1,
     expectedStateVersion: sv,
+    providerTenantId: ids.tenant,
     providerMailboxId: ids.mailbox,
-    queryVersion: 1,
+    queryVersion: QV1,
     envelopes: Object.freeze([]),
     tombstones: Object.freeze([Object.freeze({
       provider: 'microsoft_graph',
@@ -385,7 +514,49 @@ async function proveWithPglite(PGlite) {
   assert.equal(opened.value.cursor_kind, 'deltaLink');
   assert.match(opened.value.cursor_url, /deltatoken=final/);
 
-  // reset + next generation preserves events + old row
+  // Post-crypto lease fencing: takeover between read and revalidate
+  loaner.resetLoanSeq();
+  let openLoans = 0;
+  loaner.setOnLoanStart(async ({ loanId }) => {
+    openLoans += 1;
+    if (openLoans === 2) {
+      // Steal lease under DB clock after crypto, before plaintext release.
+      await db.query(
+        `UPDATE tenant_email_inbound_delta_states
+            SET lease_owner = 'takeover',
+                lease_token = $1::uuid,
+                lease_until = clock_timestamp() + interval '120 seconds',
+                state_version = state_version + 1
+          WHERE client_id = $2::uuid AND endpoint_id = $3::uuid AND is_current = true`,
+        [crypto.randomUUID(), ids.client, ids.endpoint],
+      );
+    }
+  });
+  const fenced = await store.openCursor(Object.freeze({
+    clientId: ids.client,
+    endpointId: ids.endpoint,
+    leaseToken: token,
+    expectedGeneration: 1,
+    expectedStateVersion: sv,
+  }));
+  loaner.setOnLoanStart(null);
+  assert.equal(fenced.ok, false, 'post-crypto lease takeover must not release cursor');
+
+  // Restore lease for rebind path
+  const curRow = await db.query(
+    `SELECT state_version FROM tenant_email_inbound_delta_states WHERE is_current = true`,
+  );
+  sv = Number(curRow.rows[0].state_version);
+  await db.query(
+    `UPDATE tenant_email_inbound_delta_states
+        SET lease_owner = 'pglite-runner',
+            lease_token = $1::uuid,
+            lease_until = clock_timestamp() + interval '120 seconds'
+      WHERE client_id = $2::uuid AND endpoint_id = $3::uuid AND is_current = true`,
+    [token, ids.client, ids.endpoint],
+  );
+
+  // reset + next generation preserves events + old row (authority verifier)
   const reset = await store.markResetRequired(Object.freeze({
     clientId: ids.client,
     endpointId: ids.endpoint,
@@ -402,19 +573,19 @@ async function proveWithPglite(PGlite) {
     expectedStateVersion: reset.value.state_version,
     providerTenantId: ids.tenant,
     providerMailboxId: ids.mailbox,
-    queryVersion: 2,
-    verifiedAuthority: true,
+    queryVersion: QV2,
   }));
-  assert.equal(next.ok, true);
+  assert.equal(next.ok, true, JSON.stringify(next));
   assert.equal(next.value.ingestion_generation, 2);
-  assert.equal(next.value.query_version, 2);
+  assert.equal(next.value.query_version, QV2);
   const gens = await db.query(
-    `SELECT ingestion_generation, is_current FROM tenant_email_inbound_delta_states
+    `SELECT ingestion_generation, is_current, query_version FROM tenant_email_inbound_delta_states
       ORDER BY ingestion_generation`,
   );
   assert.equal(gens.rows.length, 2);
   assert.equal(gens.rows[0].is_current, false);
   assert.equal(gens.rows[1].is_current, true);
+  assert.equal(gens.rows[1].query_version, QV2);
   count = await db.query('SELECT count(*)::int AS n FROM tenant_email_inbound_events');
   assert.equal(count.rows[0].n, 3, 'events preserved across generation rebind');
 
@@ -426,6 +597,7 @@ async function proveWithPglite(PGlite) {
   assert.equal(pub.ok, true);
   assert.equal(pub.value.state_present, true);
   assert.equal(pub.value.ingestion_generation, 2);
+  assert.equal(pub.value.query_version, QV2);
   assert.equal('provider_mailbox_id' in pub.value, false);
   assert.equal('lease_token' in pub.value, false);
   assert.equal('cursor_url' in pub.value, false);
@@ -437,7 +609,7 @@ async function proveWithPglite(PGlite) {
   );
   assert.equal(gone.rows[0].t, null);
 
-  console.log('ok - pglite atomic page commit / rollback / replay / generation');
+  console.log('ok - pglite atomic page commit / cross-AAD / lease fence / generation');
   console.log('PASS prove-email-inbound-delta-state-store-pglite');
 }
 

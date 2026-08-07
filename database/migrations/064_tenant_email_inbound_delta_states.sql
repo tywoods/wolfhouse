@@ -5,7 +5,8 @@
 -- State identity binds trusted client/location/endpoint + provider
 -- microsoft_graph + provider_tenant_id UUID + authoritative mailbox UUID.
 -- ingestion_generation is independent of OAuth grant_generation.
--- query_version advances on rebind/query change (fail-closed for old cursors).
+-- query_version is an exact text query-shape identifier (not BIGINT):
+--   advances/changes on rebind or messages-delta query contract change.
 -- phase: initial | tracking | reset_required | paused.
 -- state_version is monotonic CAS fencing.
 -- Lease owner/token/until use DB clock_timestamp() only (separate from grant lease).
@@ -15,8 +16,13 @@
 -- is all-null OR all-present; cursor_kind pairs with envelope.
 --
 -- Current-generation invariant: partial unique (client_id, endpoint_id)
--- WHERE is_current — preserves old generations auditably.
+-- WHERE is_current — at-most-one current row per endpoint. Owner operations
+-- demote-then-insert so one current remains (never leave zero current except
+-- that there is no public delete API). Old generations remain for audit.
 -- Composite FKs match 063 authority: tenant_locations / tenant_channel_endpoints.
+--
+-- Generations/state_version are bounded to JS Number.MAX_SAFE_INTEGER so app
+-- fencing never relies on bigint-beyond-safe-integer precision.
 --
 -- No routes/activation/poller/network in this migration.
 -- Rollback: 064_tenant_email_inbound_delta_states_down.sql
@@ -34,7 +40,7 @@ CREATE TABLE tenant_email_inbound_delta_states (
   provider_mailbox_id        TEXT NOT NULL,
 
   ingestion_generation       BIGINT NOT NULL,
-  query_version              BIGINT NOT NULL,
+  query_version              TEXT NOT NULL,
   is_current                 BOOLEAN NOT NULL DEFAULT true,
 
   phase                      TEXT NOT NULL,
@@ -88,14 +94,25 @@ CREATE TABLE tenant_email_inbound_delta_states (
       AND provider_mailbox_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
     ),
 
-  CONSTRAINT tenant_email_inbound_delta_states_generation_min
-    CHECK (ingestion_generation >= 1),
+  -- JS Number.MAX_SAFE_INTEGER (9007199254740991) upper bound — no bigint fencing risk.
+  CONSTRAINT tenant_email_inbound_delta_states_generation_bounds
+    CHECK (
+      ingestion_generation >= 1
+      AND ingestion_generation <= 9007199254740991
+    ),
 
-  CONSTRAINT tenant_email_inbound_delta_states_query_version_min
-    CHECK (query_version >= 1),
+  CONSTRAINT tenant_email_inbound_delta_states_query_version_shape
+    CHECK (
+      query_version = btrim(query_version)
+      AND char_length(query_version) BETWEEN 1 AND 64
+      AND query_version ~ '^[a-z][a-z0-9_]*$'
+    ),
 
-  CONSTRAINT tenant_email_inbound_delta_states_state_version_min
-    CHECK (state_version >= 1),
+  CONSTRAINT tenant_email_inbound_delta_states_state_version_bounds
+    CHECK (
+      state_version >= 1
+      AND state_version <= 9007199254740991
+    ),
 
   CONSTRAINT tenant_email_inbound_delta_states_phase_values
     CHECK (phase IN ('initial', 'tracking', 'reset_required', 'paused')),
@@ -188,21 +205,24 @@ CREATE TABLE tenant_email_inbound_delta_states (
 );
 
 COMMENT ON TABLE tenant_email_inbound_delta_states IS
-  'Durable Microsoft Graph messages-delta state per endpoint generation. Empty on migrate. Sealed nextLink/deltaLink only (never plaintext). ingestion_generation independent of OAuth grant_generation. Current gen via partial unique is_current.';
+  'Durable Microsoft Graph messages-delta state per endpoint generation. Empty on migrate. Sealed nextLink/deltaLink only (never plaintext). ingestion_generation independent of OAuth grant_generation. query_version is exact text query-shape id. Partial unique is_current = at-most-one current; owner ops never leave zero current (no delete API).';
 
 COMMENT ON COLUMN tenant_email_inbound_delta_states.location_id IS
   'tenant_locations.id UUID (authority DTO), not text kebab location_id.';
 
 COMMENT ON COLUMN tenant_email_inbound_delta_states.ingestion_generation IS
-  'Independent of tenant_email_delegated_grants.grant_generation. Grant refresh/rotation must not advance this.';
+  'Independent of tenant_email_delegated_grants.grant_generation. Grant refresh/rotation must not advance this. Bounded to JS MAX_SAFE_INTEGER.';
+
+COMMENT ON COLUMN tenant_email_inbound_delta_states.query_version IS
+  'Exact text identifier of the messages-delta query contract (e.g. messages_delta_v1). Not a BIGINT counter. Exact string match for fencing.';
 
 COMMENT ON COLUMN tenant_email_inbound_delta_states.ciphertext IS
   'AEAD ciphertext of sealed Graph cursor capability only. Never a plaintext nextLink/deltaLink.';
 
 COMMENT ON COLUMN tenant_email_inbound_delta_states.is_current IS
-  'Exactly one true row per (client_id, endpoint_id) via partial unique. Old generations remain for audit.';
+  'At-most-one true row per (client_id, endpoint_id) via partial unique. Owner demote+insert preserves exactly one current. Old generations remain for audit. No public delete API.';
 
--- Exactly one current generation per endpoint (ambiguous-current prevention).
+-- At-most-one current generation per endpoint (ambiguous-current prevention).
 CREATE UNIQUE INDEX tenant_email_inbound_delta_states_current_uq
   ON tenant_email_inbound_delta_states (client_id, endpoint_id)
   WHERE is_current = true;

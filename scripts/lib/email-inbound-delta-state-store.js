@@ -5,15 +5,29 @@
  *
  * - Migration 064 `tenant_email_inbound_delta_states` owns sealed cursor + phase
  *   + ingestion_generation (independent of OAuth grant-custody rotation) + DB-clock lease.
- * - `commitPageEvents` is the ONLY page-commit owner: no network/crypto inside the
- *   exclusive-client transaction. Caller supplies already-validated canonical
+ * - `commitPageEvents` is the ONLY page-commit owner: cryptographically opens and
+ *   validates the successor envelope **before** the short exclusive-client TX
+ *   (no network/crypto inside TX). Caller supplies already-validated canonical
  *   envelopes/tombstones and an already-sealed successor cursor envelope.
  * - Inserts reuse migration-063 event identity via `SQL_INSERT_EVENT` from
  *   `email-inbound-event-store` (ON CONFLICT DO NOTHING; arrival-capture only).
  * - Seal/open reuse injected envelope provider (AES-256-GCM + wrapped DEK).
  *   Cursor package is sealed as opaque grant-package body (never plaintext in DB).
+ * - Strict authority-bound messages-delta URL validation: https graph.microsoft.com
+ *   default/443, no userinfo/hash, exact v1.0 users/{mailbox}/messages/delta path,
+ *   exact continuation token for cursorKind (nextLink→$skiptoken, deltaLink→$deltatoken).
  * - AAD binds client+endpoint+provider+tenant+mailbox+generation+query_version+
  *   cursor_kind so rebind/generation/query-version change fails closed.
+ * - query_version is an exact text query-shape identifier (not BIGINT).
+ * - ingestion_generation / state_version bounded to JS MAX_SAFE_INTEGER.
+ * - openCursor: lease read → crypto outside TX → second DB-clock lease/token/
+ *   generation/state_version revalidation immediately before releasing plaintext.
+ * - beginNextGeneration consumes a factory-fixed authority-verifier capability
+ *   (caller cannot self-assert with a boolean). Injected adapter reuses existing
+ *   authority resolver without importing/wiring runtime.
+ * - One-current invariant: partial unique is at-most-one; owner demote+insert never
+ *   leaves zero current; no public delete API. (DB trigger not required solely for
+ *   unauthorized direct SQL.)
  * - Public status omits cursor, lease token, mailbox/tenant identities, envelopes/PII.
  * - Import-inert: no routes/runtime/cron/network/send/draft.
  *
@@ -55,9 +69,21 @@ const EMAIL_INBOUND_DELTA_STATE_LOGGING_FORBIDDEN =
 const PHASES = Object.freeze(['initial', 'tracking', 'reset_required', 'paused']);
 const CURSOR_KINDS = Object.freeze(['nextLink', 'deltaLink']);
 const PROVIDER = 'microsoft_graph';
+const GRAPH_HOST = 'graph.microsoft.com';
+const GRAPH_API_VERSION = 'v1.0';
+/** Exact text identifier of the default messages-delta query contract. */
+const DEFAULT_QUERY_VERSION = 'messages_delta_v1';
+const QUERY_VERSION_SHAPE = /^[a-z][a-z0-9_]{0,63}$/;
+/** JS Number.MAX_SAFE_INTEGER — generations never fence beyond this. */
+const MAX_SAFE_GENERATION = Number.MAX_SAFE_INTEGER;
 
 const STORE_DEPENDENCY_KEYS = Object.freeze(['withTransactionClient']);
-const STORE_WITH_PROVIDER_KEYS = Object.freeze(['withTransactionClient', 'envelopeProvider']);
+const STORE_WITH_PROVIDER_KEYS = Object.freeze([
+  'withTransactionClient',
+  'envelopeProvider',
+  'authorityVerifier',
+]);
+const AUTHORITY_VERIFIER_KEYS = Object.freeze(['verifyBinding']);
 const PUBLIC_STATUS_KEYS = Object.freeze([
   'state_present',
   'phase',
@@ -74,23 +100,38 @@ const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const MAX_BATCH = 50;
 const MAX_CURSOR_URL_BYTES = 8192;
+const MAX_TOKEN_BYTES = 4096;
 const MIN_TTL = 5;
 const MAX_TTL = 3600;
 const DEFAULT_TTL = 60;
 const CURSOR_PKG_PREFIX = 'EMAIL_DELTA_CURSOR_PKG_V1\n';
 const AAD_VERSION = 'v1';
+const SKIPTOKEN_KEY = '$skiptoken';
+const DELTATOKEN_KEY = '$deltatoken';
 
+/* ── Module-init pins (URL + security/reflection intrinsics) ───────────────
+ * Ambient global/prototype/monkeypatches after load must not weaken hostile
+ * boundary checks. Never live property reads on untrusted surfaces when a pin
+ * exists; only Reflect.construct / Reflect.apply + pinned prototype getters.
+ */
 const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
 const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
   ? PINNED_UTIL_TYPES.isProxy
   : null;
 const PINNED_ARRAY_PROTOTYPE = Array.prototype;
+const PINNED_OBJECT_PROTOTYPE = Object.prototype;
+const PINNED_REFLECT_APPLY = typeof Reflect.apply === 'function' ? Reflect.apply : null;
+const PINNED_REFLECT_CONSTRUCT = typeof Reflect.construct === 'function' ? Reflect.construct : null;
+const PINNED_REFLECT_OWN_KEYS = typeof Reflect.ownKeys === 'function' ? Reflect.ownKeys : null;
+const PINNED_GET_OWN_PROPERTY_DESCRIPTOR =
+  typeof Object.getOwnPropertyDescriptor === 'function' ? Object.getOwnPropertyDescriptor : null;
+const PINNED_GET_PROTOTYPE_OF =
+  typeof Object.getPrototypeOf === 'function' ? Object.getPrototypeOf : null;
+const PINNED_HAS_OWN =
+  typeof Object.prototype.hasOwnProperty === 'function'
+    ? Object.prototype.hasOwnProperty
+    : null;
 
-/**
- * Module-init pins for Graph cursor URL boundary validation.
- * Ambient global URL / post-load prototype monkeypatches must not weaken checks.
- * Never live property reads; only Reflect.construct + pinned prototype getters.
- */
 const PINNED_URL = typeof NODE_URL === 'function' ? NODE_URL : null;
 const PINNED_URL_PROTOTYPE = PINNED_URL && PINNED_URL.prototype
   ? PINNED_URL.prototype
@@ -98,8 +139,8 @@ const PINNED_URL_PROTOTYPE = PINNED_URL && PINNED_URL.prototype
 
 function pinUrlGetter(name) {
   try {
-    if (!PINNED_URL_PROTOTYPE) return null;
-    const descriptor = Object.getOwnPropertyDescriptor(PINNED_URL_PROTOTYPE, name);
+    if (!PINNED_URL_PROTOTYPE || !PINNED_GET_OWN_PROPERTY_DESCRIPTOR) return null;
+    const descriptor = PINNED_GET_OWN_PROPERTY_DESCRIPTOR.call(Object, PINNED_URL_PROTOTYPE, name);
     if (!descriptor
         || typeof descriptor.get !== 'function'
         || Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
@@ -115,8 +156,10 @@ const PINNED_URL_GET_PROTOCOL = pinUrlGetter('protocol');
 const PINNED_URL_GET_USERNAME = pinUrlGetter('username');
 const PINNED_URL_GET_PASSWORD = pinUrlGetter('password');
 const PINNED_URL_GET_HOSTNAME = pinUrlGetter('hostname');
+const PINNED_URL_GET_HOST = pinUrlGetter('host');
 const PINNED_URL_GET_PORT = pinUrlGetter('port');
 const PINNED_URL_GET_PATHNAME = pinUrlGetter('pathname');
+const PINNED_URL_GET_SEARCH = pinUrlGetter('search');
 const PINNED_URL_GET_HASH = pinUrlGetter('hash');
 
 const PINNED_URL_INTRINSICS_READY = Boolean(
@@ -126,15 +169,25 @@ const PINNED_URL_INTRINSICS_READY = Boolean(
   && PINNED_URL_GET_USERNAME
   && PINNED_URL_GET_PASSWORD
   && PINNED_URL_GET_HOSTNAME
+  && PINNED_URL_GET_HOST
   && PINNED_URL_GET_PORT
   && PINNED_URL_GET_PATHNAME
-  && PINNED_URL_GET_HASH,
+  && PINNED_URL_GET_SEARCH
+  && PINNED_URL_GET_HASH
+  && PINNED_REFLECT_APPLY
+  && PINNED_REFLECT_CONSTRUCT
+  && PINNED_IS_PROXY
+  && PINNED_UTIL_TYPES
+  && PINNED_GET_OWN_PROPERTY_DESCRIPTOR
+  && PINNED_GET_PROTOTYPE_OF
+  && PINNED_REFLECT_OWN_KEYS
+  && PINNED_HAS_OWN,
 );
 
 function applyPinnedUrlGetter(url, getter) {
-  if (typeof getter !== 'function') return undefined;
+  if (typeof getter !== 'function' || !PINNED_REFLECT_APPLY) return undefined;
   try {
-    return Reflect.apply(getter, url, []);
+    return PINNED_REFLECT_APPLY.call(Reflect, getter, url, []);
   } catch {
     return undefined;
   }
@@ -147,9 +200,8 @@ function applyPinnedUrlGetter(url, getter) {
 function constructPinnedUrl(value) {
   try {
     if (!PINNED_URL_INTRINSICS_READY) return null;
-    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) return null;
     try {
-      if (Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [PINNED_URL]) === true) {
+      if (PINNED_REFLECT_APPLY.call(Reflect, PINNED_IS_PROXY, PINNED_UTIL_TYPES, [PINNED_URL]) === true) {
         return null;
       }
     } catch {
@@ -157,7 +209,7 @@ function constructPinnedUrl(value) {
     }
     if (value !== null && (typeof value === 'object' || typeof value === 'function')) {
       try {
-        if (Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true) {
+        if (PINNED_REFLECT_APPLY.call(Reflect, PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true) {
           return null;
         }
       } catch {
@@ -166,18 +218,48 @@ function constructPinnedUrl(value) {
     }
     let url;
     try {
-      url = Reflect.construct(PINNED_URL, [value]);
+      url = PINNED_REFLECT_CONSTRUCT.call(Reflect, PINNED_URL, [value]);
     } catch {
       return null;
     }
     try {
-      if (Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [url]) === true) {
+      if (PINNED_REFLECT_APPLY.call(Reflect, PINNED_IS_PROXY, PINNED_UTIL_TYPES, [url]) === true) {
         return null;
       }
     } catch {
       return null;
     }
     return url;
+  } catch {
+    return null;
+  }
+}
+
+function readPinnedUrlComponents(url) {
+  try {
+    const protocol = applyPinnedUrlGetter(url, PINNED_URL_GET_PROTOCOL);
+    const username = applyPinnedUrlGetter(url, PINNED_URL_GET_USERNAME);
+    const password = applyPinnedUrlGetter(url, PINNED_URL_GET_PASSWORD);
+    const hostname = applyPinnedUrlGetter(url, PINNED_URL_GET_HOSTNAME);
+    const host = applyPinnedUrlGetter(url, PINNED_URL_GET_HOST);
+    const port = applyPinnedUrlGetter(url, PINNED_URL_GET_PORT);
+    const pathname = applyPinnedUrlGetter(url, PINNED_URL_GET_PATHNAME);
+    const search = applyPinnedUrlGetter(url, PINNED_URL_GET_SEARCH);
+    const hash = applyPinnedUrlGetter(url, PINNED_URL_GET_HASH);
+    if (typeof protocol !== 'string'
+        || typeof username !== 'string'
+        || typeof password !== 'string'
+        || typeof hostname !== 'string'
+        || typeof host !== 'string'
+        || typeof port !== 'string'
+        || typeof pathname !== 'string'
+        || typeof search !== 'string'
+        || typeof hash !== 'string') {
+      return null;
+    }
+    return Object.freeze({
+      protocol, username, password, hostname, host, port, pathname, search, hash,
+    });
   } catch {
     return null;
   }
@@ -201,7 +283,7 @@ INSERT INTO tenant_email_inbound_delta_states (
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid,
   $4, $5, $6,
-  1, $7::bigint, true,
+  1, $7, true,
   'initial', 1
 )
 RETURNING client_id, endpoint_id, ingestion_generation, query_version, phase, state_version
@@ -262,18 +344,18 @@ UPDATE tenant_email_inbound_delta_states
 
 const SQL_CAS_COMMIT_CURSOR = `
 UPDATE tenant_email_inbound_delta_states
-   SET cursor_kind = $8,
-       envelope_version = $9,
-       aead_alg = $10,
-       kek_wrap_alg = $11,
-       kek_key_name = $12,
-       kek_key_version = $13,
-       nonce = $14,
-       ciphertext = $15,
-       auth_tag = $16,
-       wrapped_dek = $17,
-       cursor_operation_id = $18::uuid,
-       phase = $19,
+   SET cursor_kind = $9,
+       envelope_version = $10,
+       aead_alg = $11,
+       kek_wrap_alg = $12,
+       kek_key_name = $13,
+       kek_key_version = $14,
+       nonce = $15,
+       ciphertext = $16,
+       auth_tag = $17,
+       wrapped_dek = $18,
+       cursor_operation_id = $19::uuid,
+       phase = $20,
        state_version = state_version + 1,
        reset_reason = NULL,
        updated_at = NOW()
@@ -284,8 +366,9 @@ UPDATE tenant_email_inbound_delta_states
    AND state_version = $4::bigint
    AND lease_token = $5::uuid
    AND lease_until > clock_timestamp()
-   AND provider_mailbox_id = $6
-   AND query_version = $7::bigint
+   AND provider_tenant_id = $6
+   AND provider_mailbox_id = $7
+   AND query_version = $8
    AND phase IN ('initial', 'tracking')
  RETURNING client_id, endpoint_id, ingestion_generation, state_version,
            phase, query_version, cursor_kind
@@ -333,7 +416,7 @@ INSERT INTO tenant_email_inbound_delta_states (
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid,
   $4, $5, $6,
-  $7::bigint, $8::bigint, true,
+  $7::bigint, $8, true,
   'initial', 1
 )
 RETURNING client_id, endpoint_id, ingestion_generation, query_version, phase, state_version
@@ -344,6 +427,20 @@ SELECT phase, ingestion_generation, query_version, state_version,
        (lease_token IS NOT NULL AND lease_until > clock_timestamp()) AS has_active_lease,
        (cursor_kind IS NOT NULL) AS has_sealed_cursor,
        cursor_kind, reset_reason
+  FROM tenant_email_inbound_delta_states
+ WHERE client_id = $1::uuid
+   AND endpoint_id = $2::uuid
+   AND is_current = true
+`.replace(/\s+/g, ' ').trim();
+
+/** Post-crypto lease fence: same token + gen + state_version still unexpired. */
+const SQL_REVALIDATE_LEASE = `
+SELECT (lease_token IS NOT NULL
+        AND lease_token = $3::uuid
+        AND lease_until IS NOT NULL
+        AND lease_until > clock_timestamp()
+        AND ingestion_generation = $4::bigint
+        AND state_version = $5::bigint) AS ok
   FROM tenant_email_inbound_delta_states
  WHERE client_id = $1::uuid
    AND endpoint_id = $2::uuid
@@ -375,8 +472,10 @@ function ok(value) {
 
 function isProxySurface(value) {
   try {
-    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) return true;
-    return Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
+    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES || !PINNED_REFLECT_APPLY) {
+      return true;
+    }
+    return PINNED_REFLECT_APPLY.call(Reflect, PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
   } catch {
     return true;
   }
@@ -384,9 +483,10 @@ function isProxySurface(value) {
 
 function ownData(object, key) {
   try {
-    const descriptor = Object.getOwnPropertyDescriptor(object, key);
+    if (!PINNED_GET_OWN_PROPERTY_DESCRIPTOR || !PINNED_HAS_OWN) return undefined;
+    const descriptor = PINNED_GET_OWN_PROPERTY_DESCRIPTOR.call(Object, object, key);
     return descriptor
-      && Object.prototype.hasOwnProperty.call(descriptor, 'value')
+      && PINNED_HAS_OWN.call(descriptor, 'value')
       && !descriptor.get
       && !descriptor.set
       ? descriptor.value
@@ -400,8 +500,11 @@ function exactPlainData(object, keys) {
   try {
     if (!object || typeof object !== 'object' || Array.isArray(object)) return false;
     if (isProxySurface(object)) return false;
-    if (Object.getPrototypeOf(object) !== Object.prototype) return false;
-    const actual = Reflect.ownKeys(object);
+    if (!PINNED_GET_PROTOTYPE_OF || !PINNED_REFLECT_OWN_KEYS || !PINNED_GET_OWN_PROPERTY_DESCRIPTOR) {
+      return false;
+    }
+    if (PINNED_GET_PROTOTYPE_OF.call(Object, object) !== PINNED_OBJECT_PROTOTYPE) return false;
+    const actual = PINNED_REFLECT_OWN_KEYS.call(Reflect, object);
     if (actual.length !== keys.length
         || actual.some((key) => typeof key !== 'string'
           || DANGEROUS_KEYS.has(key)
@@ -409,10 +512,10 @@ function exactPlainData(object, keys) {
       return false;
     }
     return keys.every((key) => {
-      const descriptor = Object.getOwnPropertyDescriptor(object, key);
+      const descriptor = PINNED_GET_OWN_PROPERTY_DESCRIPTOR.call(Object, object, key);
       return Boolean(
         descriptor
-        && Object.prototype.hasOwnProperty.call(descriptor, 'value')
+        && PINNED_HAS_OWN.call(descriptor, 'value')
         && descriptor.enumerable
         && !descriptor.get
         && !descriptor.set,
@@ -445,27 +548,41 @@ function parseTtl(raw) {
   return ok(n);
 }
 
-function parsePositiveBigIntish(raw, field) {
-  if (typeof raw === 'bigint') {
-    if (raw < 1n) return fail(`${field}_invalid`);
+/**
+ * Parse positive integer bounded to JS MAX_SAFE_INTEGER (no bigint precision risk).
+ * Accepts number or canonical decimal string only.
+ */
+function parsePositiveSafeInt(raw, field) {
+  if (typeof raw === 'number') {
+    if (!Number.isInteger(raw) || raw < 1 || raw > MAX_SAFE_GENERATION) {
+      return fail(`${field}_invalid`);
+    }
     return ok(raw);
   }
-  if (typeof raw === 'number') {
-    if (!Number.isInteger(raw) || raw < 1 || raw > Number.MAX_SAFE_INTEGER) {
-      return fail(`${field}_invalid`);
-    }
-    return ok(BigInt(raw));
-  }
   if (typeof raw === 'string' && /^[1-9][0-9]*$/.test(raw)) {
-    try {
-      const n = BigInt(raw);
-      if (n < 1n) return fail(`${field}_invalid`);
-      return ok(n);
-    } catch {
+    if (raw.length > 16) return fail(`${field}_invalid`);
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n) || n < 1 || n > MAX_SAFE_GENERATION) {
       return fail(`${field}_invalid`);
     }
+    if (String(n) !== raw) return fail(`${field}_invalid`);
+    return ok(n);
+  }
+  // Explicit bigint only when within safe range (no silent Number truncation).
+  if (typeof raw === 'bigint') {
+    if (raw < 1n || raw > BigInt(MAX_SAFE_GENERATION)) return fail(`${field}_invalid`);
+    return ok(Number(raw));
   }
   return fail(`${field}_invalid`);
+}
+
+/** Exact text query-shape identifier (not BIGINT). */
+function parseQueryVersion(raw) {
+  if (raw == null) return ok(DEFAULT_QUERY_VERSION);
+  if (typeof raw !== 'string') return fail('query_version_invalid');
+  const v = raw.trim();
+  if (v !== raw || !QUERY_VERSION_SHAPE.test(v)) return fail('query_version_invalid');
+  return ok(v);
 }
 
 function parsePhase(raw) {
@@ -487,9 +604,163 @@ function parseResetReason(raw) {
   return ok(v);
 }
 
+function hasUnpairedSurrogate(s) {
+  try {
+    if (typeof s !== 'string') return true;
+    for (let i = 0; i < s.length; i += 1) {
+      const c = s.charCodeAt(i);
+      if (c >= 0xD800 && c <= 0xDBFF) {
+        if (i + 1 >= s.length) return true;
+        const low = s.charCodeAt(i + 1);
+        if (low < 0xDC00 || low > 0xDFFF) return true;
+        i += 1;
+      } else if (c >= 0xDC00 && c <= 0xDFFF) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Parse messages-delta continuation query on raw + decoded surfaces.
+ * Rejects duplicates, encoded-key confusion, empty segments, unpaired surrogates.
+ */
+function parseDeltaQueryParamsStrict(search) {
+  try {
+    if (typeof search !== 'string') return { ok: false };
+    const raw = search.startsWith('?') ? search.slice(1) : search;
+    const params = new Map();
+    if (raw.length === 0) return { ok: true, params };
+    const parts = raw.split('&');
+    for (let i = 0; i < parts.length; i += 1) {
+      const part = parts[i];
+      if (part.length < 1) return { ok: false };
+      const eq = part.indexOf('=');
+      const keyEnc = eq === -1 ? part : part.slice(0, eq);
+      const valEnc = eq === -1 ? '' : part.slice(eq + 1);
+      if (keyEnc.length < 1) return { ok: false };
+      let key;
+      let val;
+      try {
+        key = decodeURIComponent(keyEnc.replace(/\+/g, ' '));
+        val = decodeURIComponent(valEnc.replace(/\+/g, ' '));
+      } catch {
+        return { ok: false };
+      }
+      if (typeof key !== 'string' || key.length < 1 || hasUnpairedSurrogate(key)) {
+        return { ok: false };
+      }
+      if (typeof val !== 'string' || hasUnpairedSurrogate(val)) {
+        return { ok: false };
+      }
+      // Required token keys must appear as exact raw literals (no %24skiptoken).
+      if (key === SKIPTOKEN_KEY || key === DELTATOKEN_KEY) {
+        if (keyEnc !== key) return { ok: false };
+      } else if (keyEnc !== key) {
+        return { ok: false };
+      }
+      if (params.has(key)) return { ok: false };
+      params.set(key, val);
+    }
+    return { ok: true, params };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/**
+ * Strict authority-bound Graph messages-delta continuation URL validation.
+ *
+ * - bounded primitive string only
+ * - module-init-pinned node:url construct + prototype getters
+ * - https; graph.microsoft.com default/443; no userinfo/hash
+ * - exact API version v1.0
+ * - exact path /v1.0/users/{canonicalMailboxUuid}/messages/delta
+ * - exact continuation query allowlist: one token of the correct form for
+ *   cursorKind (nextLink→$skiptoken, deltaLink→$deltatoken)
+ * - reject missing/duplicate/mixed tokens, wrong mailbox/path/resource,
+ *   $filter/unknown query, token-kind mismatch
+ */
+function validateMessagesDeltaCursorUrl(cursorUrl, binding) {
+  try {
+    if (typeof cursorUrl !== 'string'
+        || cursorUrl.length < 1
+        || cursorUrl.length > MAX_CURSOR_URL_BYTES
+        || hasUnpairedSurrogate(cursorUrl)) {
+      return fail('cursor_url_invalid');
+    }
+    if (!PINNED_URL_INTRINSICS_READY) return fail('cursor_url_invalid');
+    if (!binding || typeof binding !== 'object') return fail('cursor_url_invalid');
+    const mailbox = typeof binding.providerMailboxId === 'string'
+      ? binding.providerMailboxId.trim().toLowerCase()
+      : '';
+    const cursorKind = binding.cursorKind;
+    if (!UUID_CANON.test(mailbox) || !CURSOR_KINDS.includes(cursorKind)) {
+      return fail('cursor_url_invalid');
+    }
+    // Reject path-confusion encodings before URL normalization collapses them.
+    if (/\.\.|%2e|%2f|%5c|\\/i.test(cursorUrl)) {
+      return fail('cursor_url_invalid');
+    }
+    const u = constructPinnedUrl(cursorUrl);
+    if (!u) return fail('cursor_url_invalid');
+    const parts = readPinnedUrlComponents(u);
+    if (!parts) return fail('cursor_url_invalid');
+    if (parts.protocol !== 'https:') return fail('cursor_url_invalid');
+    if (parts.hostname !== GRAPH_HOST) return fail('cursor_url_invalid');
+    if (parts.host !== GRAPH_HOST && parts.host !== `${GRAPH_HOST}:443`) {
+      return fail('cursor_url_invalid');
+    }
+    if (parts.username || parts.password || parts.hash) return fail('cursor_url_invalid');
+    if (parts.port && parts.port !== '443') return fail('cursor_url_invalid');
+    const expectedPath = `/${GRAPH_API_VERSION}/users/${mailbox}/messages/delta`;
+    if (parts.pathname !== expectedPath) return fail('cursor_url_invalid');
+    // Exact path must appear as contiguous substring of the raw URL.
+    if (!cursorUrl.includes(expectedPath)) return fail('cursor_url_invalid');
+    // Reject /me or other resources.
+    if (/\/me(\/|$)/i.test(parts.pathname)) return fail('cursor_url_invalid');
+
+    const parsed = parseDeltaQueryParamsStrict(parts.search);
+    if (!parsed.ok) return fail('cursor_url_invalid');
+    const params = parsed.params;
+    if (params.size !== 1) return fail('cursor_url_invalid');
+    const expectedKey = cursorKind === 'nextLink' ? SKIPTOKEN_KEY : DELTATOKEN_KEY;
+    const forbiddenKey = cursorKind === 'nextLink' ? DELTATOKEN_KEY : SKIPTOKEN_KEY;
+    if (!params.has(expectedKey) || params.has(forbiddenKey)) {
+      return fail('cursor_url_invalid');
+    }
+    // Reject filter / unknown query keys (size===1 + expectedKey already enforces).
+    if (params.has('$filter') || params.has('$select') || params.has('$top') || params.has('$orderby')) {
+      return fail('cursor_url_invalid');
+    }
+    const token = params.get(expectedKey);
+    if (typeof token !== 'string'
+        || token.length < 1
+        || token.length > MAX_TOKEN_BYTES
+        || hasUnpairedSurrogate(token)) {
+      return fail('cursor_url_invalid');
+    }
+    return ok(cursorUrl);
+  } catch {
+    return fail('cursor_url_invalid');
+  }
+}
+
+/**
+ * @deprecated name retained for export compatibility; requires mailbox+kind binding.
+ * Prefer validateMessagesDeltaCursorUrl.
+ */
+function validateGraphCursorUrlBoundary(cursorUrl, binding) {
+  return validateMessagesDeltaCursorUrl(cursorUrl, binding);
+}
+
 /**
  * Canonical AAD for sealed Graph cursor capabilities.
  * Binds ciphertext to trusted state identity + cursor_kind.
+ * query_version is exact text identifier.
  */
 function buildDeltaCursorEnvelopeAadV1({
   clientId,
@@ -515,11 +786,10 @@ function buildDeltaCursorEnvelopeAadV1({
     throw new Error('aad_mailbox_invalid');
   }
   if (!CURSOR_KINDS.includes(cursorKind)) throw new Error('aad_cursor_kind_invalid');
-  const gen = typeof ingestionGeneration === 'bigint'
-    ? ingestionGeneration
-    : BigInt(ingestionGeneration);
-  const qv = typeof queryVersion === 'bigint' ? queryVersion : BigInt(queryVersion);
-  if (gen < 1n || qv < 1n) throw new Error('aad_generation_invalid');
+  const genParsed = parsePositiveSafeInt(ingestionGeneration, 'ingestion_generation');
+  if (!genParsed.ok) throw new Error('aad_generation_invalid');
+  const qvParsed = parseQueryVersion(queryVersion);
+  if (!qvParsed.ok) throw new Error('aad_query_version_invalid');
   return Buffer.from([
     AAD_VERSION,
     'delta_cursor_aad_v1',
@@ -528,8 +798,8 @@ function buildDeltaCursorEnvelopeAadV1({
     `provider=${PROVIDER}`,
     `provider_tenant_id=${String(providerTenantId).trim().toLowerCase()}`,
     `provider_mailbox_id=${String(providerMailboxId).trim().toLowerCase()}`,
-    `ingestion_generation=${gen.toString(10)}`,
-    `query_version=${qv.toString(10)}`,
+    `ingestion_generation=${String(genParsed.value)}`,
+    `query_version=${qvParsed.value}`,
     `cursor_kind=${cursorKind}`,
   ].join('\n'), 'utf8');
 }
@@ -566,17 +836,19 @@ function parseDeltaCursorEnvelopeAadV1(aad) {
         || !UUID_CANON.test(clientId) || !UUID_CANON.test(endpointId)
         || !UUID_CANON.test(providerTenantId) || !UUID_CANON.test(providerMailboxId)
         || provider !== PROVIDER || !CURSOR_KINDS.includes(cursorKind)
-        || !/^[1-9][0-9]*$/.test(genStr) || !/^[1-9][0-9]*$/.test(qvStr)) {
+        || !/^[1-9][0-9]*$/.test(genStr) || !QUERY_VERSION_SHAPE.test(qvStr)) {
       return fail('aad_invalid');
     }
+    const gen = parsePositiveSafeInt(genStr, 'ingestion_generation');
+    if (!gen.ok) return fail('aad_invalid');
     const rebuilt = buildDeltaCursorEnvelopeAadV1({
       clientId,
       endpointId,
       provider,
       providerTenantId,
       providerMailboxId,
-      ingestionGeneration: BigInt(genStr),
-      queryVersion: BigInt(qvStr),
+      ingestionGeneration: gen.value,
+      queryVersion: qvStr,
       cursorKind,
     });
     if (!rebuilt.equals(aad)) return fail('aad_invalid');
@@ -586,8 +858,8 @@ function parseDeltaCursorEnvelopeAadV1(aad) {
       provider,
       provider_tenant_id: providerTenantId,
       provider_mailbox_id: providerMailboxId,
-      ingestion_generation: BigInt(genStr),
-      query_version: BigInt(qvStr),
+      ingestion_generation: gen.value,
+      query_version: qvStr,
       cursor_kind: cursorKind,
     }));
   } catch {
@@ -596,24 +868,33 @@ function parseDeltaCursorEnvelopeAadV1(aad) {
 }
 
 /**
- * Encode sealed-cursor package body (single grant-package string; no newlines in body).
- * Kind and URL separated by ASCII unit separator so URL may contain '='.
+ * Encode sealed-cursor package body. Kind+URL separated by ASCII unit separator.
+ * Validates with mailbox+kind (not a generic host check).
  */
-function encodeDeltaCursorPackageV1(cursorKind, cursorUrl) {
+function encodeDeltaCursorPackageV1(cursorKind, cursorUrl, providerMailboxId) {
   if (!CURSOR_KINDS.includes(cursorKind)) return fail('cursor_package_invalid');
   if (typeof cursorUrl !== 'string' || cursorUrl.length < 1) return fail('cursor_package_invalid');
   if (cursorUrl.includes('\0') || /[\r\n]/.test(cursorUrl)) return fail('cursor_package_invalid');
-  if (!validateGraphCursorUrlBoundary(cursorUrl).ok) return fail('cursor_package_invalid');
+  const mailbox = parseUuid(providerMailboxId, 'provider_mailbox_id');
+  if (!mailbox.ok) return fail('cursor_package_invalid');
+  if (!validateMessagesDeltaCursorUrl(cursorUrl, {
+    providerMailboxId: mailbox.value,
+    cursorKind,
+  }).ok) {
+    return fail('cursor_package_invalid');
+  }
   const body = `cursor_kind=${cursorKind}\u001fcursor_url=${cursorUrl}`;
   const buf = Buffer.from(`${CURSOR_PKG_PREFIX}${body}\n`, 'utf8');
   if (buf.length > MAX_CURSOR_URL_BYTES + 64) return fail('cursor_package_invalid');
   return ok(buf);
 }
 
-function decodeDeltaCursorPackageV1(plaintext) {
+function decodeDeltaCursorPackageV1(plaintext, providerMailboxId) {
   if (!Buffer.isBuffer(plaintext) || plaintext.length < 1 || plaintext.length > MAX_CURSOR_URL_BYTES + 64) {
     return fail('cursor_package_invalid');
   }
+  const mailbox = parseUuid(providerMailboxId, 'provider_mailbox_id');
+  if (!mailbox.ok) return fail('cursor_package_invalid');
   const text = plaintext.toString('utf8');
   if (!text.startsWith(CURSOR_PKG_PREFIX) || !text.endsWith('\n')) {
     return fail('cursor_package_invalid');
@@ -628,53 +909,13 @@ function decodeDeltaCursorPackageV1(plaintext) {
   const cursorKind = parts[0].slice('cursor_kind='.length);
   const cursorUrl = parts[1].slice('cursor_url='.length);
   if (!CURSOR_KINDS.includes(cursorKind) || !cursorUrl) return fail('cursor_package_invalid');
-  if (!validateGraphCursorUrlBoundary(cursorUrl).ok) return fail('cursor_package_invalid');
-  return ok(Object.freeze({ cursor_kind: cursorKind, cursor_url: cursorUrl }));
-}
-
-/**
- * Strict Graph continuation URL shape check (boundary only; not a full nextLink owner).
- * Fail closed on non-https, wrong host, userinfo/hash, oversized, non-string.
- * Uses module-init-pinned node:url constructor + prototype getters only — never ambient
- * global URL and never live property reads (post-load monkeypatch resistant).
- */
-function validateGraphCursorUrlBoundary(cursorUrl) {
-  try {
-    if (typeof cursorUrl !== 'string' || cursorUrl.length < 1 || cursorUrl.length > MAX_CURSOR_URL_BYTES) {
-      return fail('cursor_url_invalid');
-    }
-    // Primitives are never proxies; isProxySurface fail-closed only if pin missing.
-    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) {
-      return fail('cursor_url_invalid');
-    }
-    if (!PINNED_URL_INTRINSICS_READY) return fail('cursor_url_invalid');
-    const u = constructPinnedUrl(cursorUrl);
-    if (!u) return fail('cursor_url_invalid');
-    const protocol = applyPinnedUrlGetter(u, PINNED_URL_GET_PROTOCOL);
-    const username = applyPinnedUrlGetter(u, PINNED_URL_GET_USERNAME);
-    const password = applyPinnedUrlGetter(u, PINNED_URL_GET_PASSWORD);
-    const hostname = applyPinnedUrlGetter(u, PINNED_URL_GET_HOSTNAME);
-    const port = applyPinnedUrlGetter(u, PINNED_URL_GET_PORT);
-    const pathname = applyPinnedUrlGetter(u, PINNED_URL_GET_PATHNAME);
-    const hash = applyPinnedUrlGetter(u, PINNED_URL_GET_HASH);
-    if (typeof protocol !== 'string'
-        || typeof username !== 'string'
-        || typeof password !== 'string'
-        || typeof hostname !== 'string'
-        || typeof port !== 'string'
-        || typeof pathname !== 'string'
-        || typeof hash !== 'string') {
-      return fail('cursor_url_invalid');
-    }
-    if (protocol !== 'https:') return fail('cursor_url_invalid');
-    if (username || password || hash) return fail('cursor_url_invalid');
-    if (hostname !== 'graph.microsoft.com') return fail('cursor_url_invalid');
-    if (port && port !== '443') return fail('cursor_url_invalid');
-    if (!pathname.startsWith('/v1.0/')) return fail('cursor_url_invalid');
-    return ok(cursorUrl);
-  } catch {
-    return fail('cursor_url_invalid');
+  if (!validateMessagesDeltaCursorUrl(cursorUrl, {
+    providerMailboxId: mailbox.value,
+    cursorKind,
+  }).ok) {
+    return fail('cursor_package_invalid');
   }
+  return ok(Object.freeze({ cursor_kind: cursorKind, cursor_url: cursorUrl }));
 }
 
 function resolvePgLikeQueryMethod(surface) {
@@ -683,9 +924,12 @@ function resolvePgLikeQueryMethod(surface) {
       return null;
     }
     if (isProxySurface(surface)) return null;
-    const own = Object.getOwnPropertyDescriptor(surface, 'query');
+    if (!PINNED_GET_OWN_PROPERTY_DESCRIPTOR || !PINNED_GET_PROTOTYPE_OF || !PINNED_HAS_OWN) {
+      return null;
+    }
+    const own = PINNED_GET_OWN_PROPERTY_DESCRIPTOR.call(Object, surface, 'query');
     if (own) {
-      if (Object.prototype.hasOwnProperty.call(own, 'value')
+      if (PINNED_HAS_OWN.call(own, 'value')
           && typeof own.value === 'function'
           && !own.get
           && !own.set) {
@@ -693,13 +937,13 @@ function resolvePgLikeQueryMethod(surface) {
       }
       return null;
     }
-    let proto = Object.getPrototypeOf(surface);
+    let proto = PINNED_GET_PROTOTYPE_OF.call(Object, surface);
     let depth = 0;
-    while (proto && proto !== Object.prototype && depth < 8) {
+    while (proto && proto !== PINNED_OBJECT_PROTOTYPE && depth < 8) {
       if (isProxySurface(proto)) return null;
-      const descriptor = Object.getOwnPropertyDescriptor(proto, 'query');
+      const descriptor = PINNED_GET_OWN_PROPERTY_DESCRIPTOR.call(Object, proto, 'query');
       if (descriptor) {
-        if (Object.prototype.hasOwnProperty.call(descriptor, 'value')
+        if (PINNED_HAS_OWN.call(descriptor, 'value')
             && typeof descriptor.value === 'function'
             && !descriptor.get
             && !descriptor.set) {
@@ -707,7 +951,7 @@ function resolvePgLikeQueryMethod(surface) {
         }
         return null;
       }
-      proto = Object.getPrototypeOf(proto);
+      proto = PINNED_GET_PROTOTYPE_OF.call(Object, proto);
       depth += 1;
     }
     return null;
@@ -727,7 +971,7 @@ function resolveExclusiveClient(client) {
     const trustedReceiver = client;
     return Object.freeze({
       query(...args) {
-        return Reflect.apply(capturedQuery, trustedReceiver, args);
+        return PINNED_REFLECT_APPLY.call(Reflect, capturedQuery, trustedReceiver, args);
       },
     });
   } catch {
@@ -743,7 +987,7 @@ function resolveWithTransactionClient(raw) {
       if (typeof work !== 'function' || isProxySurface(work)) {
         throw failure();
       }
-      return Reflect.apply(captured, undefined, [
+      return PINNED_REFLECT_APPLY.call(Reflect, captured, undefined, [
         async function exclusiveLoan(client) {
           const exclusive = resolveExclusiveClient(client);
           if (!exclusive) throw failure();
@@ -751,6 +995,46 @@ function resolveWithTransactionClient(raw) {
         },
       ]);
     };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Factory-fixed trusted authority-verifier capability.
+ * Exact/proxy-safe/snapshotted — caller cannot self-assert authority.
+ * Reuses existing authority resolver via injected adapter (no runtime import).
+ */
+function resolveAuthorityVerifier(raw) {
+  try {
+    if (raw == null) return null;
+    if (typeof raw !== 'object' || Array.isArray(raw) || isProxySurface(raw)) return null;
+    if (!exactPlainData(raw, AUTHORITY_VERIFIER_KEYS)
+        && !(Object.isFrozen(raw) && exactPlainData(raw, AUTHORITY_VERIFIER_KEYS))) {
+      // allow frozen own-data exact keys
+      const snap = snapshotOwnDataProps(raw);
+      if (!snap.ok) return null;
+      const keys = Object.keys(snap.value);
+      if (keys.length !== 1 || keys[0] !== 'verifyBinding') return null;
+      if (typeof snap.value.verifyBinding !== 'function'
+          || isProxySurface(snap.value.verifyBinding)) {
+        return null;
+      }
+      const captured = snap.value.verifyBinding;
+      return Object.freeze({
+        async verifyBinding(input) {
+          return PINNED_REFLECT_APPLY.call(Reflect, captured, undefined, [input]);
+        },
+      });
+    }
+    const fn = ownData(raw, 'verifyBinding');
+    if (typeof fn !== 'function' || isProxySurface(fn)) return null;
+    const captured = fn;
+    return Object.freeze({
+      async verifyBinding(input) {
+        return PINNED_REFLECT_APPLY.call(Reflect, captured, undefined, [input]);
+      },
+    });
   } catch {
     return null;
   }
@@ -812,12 +1096,12 @@ function snapshotIds(input, fields) {
       out.leaseToken = parseUuid(snap.value.leaseToken, 'lease_token');
       if (!out.leaseToken.ok) return out.leaseToken;
     } else if (f === 'expectedGeneration') {
-      out.expectedGeneration = parsePositiveBigIntish(
+      out.expectedGeneration = parsePositiveSafeInt(
         snap.value.expectedGeneration, 'ingestion_generation',
       );
       if (!out.expectedGeneration.ok) return out.expectedGeneration;
     } else if (f === 'expectedStateVersion') {
-      out.expectedStateVersion = parsePositiveBigIntish(
+      out.expectedStateVersion = parsePositiveSafeInt(
         snap.value.expectedStateVersion, 'state_version',
       );
       if (!out.expectedStateVersion.ok) return out.expectedStateVersion;
@@ -830,7 +1114,7 @@ function acceptEnvelopeArray(value) {
   try {
     if (value == null) return Object.freeze([]);
     if (typeof value !== 'object' || isProxySurface(value) || !Array.isArray(value)) return null;
-    if (Object.getPrototypeOf(value) !== PINNED_ARRAY_PROTOTYPE) return null;
+    if (PINNED_GET_PROTOTYPE_OF.call(Object, value) !== PINNED_ARRAY_PROTOTYPE) return null;
     const len = value.length;
     if (typeof len !== 'number' || !Number.isInteger(len) || len < 0 || len > MAX_BATCH) {
       return null;
@@ -869,7 +1153,6 @@ function prepareTombstones(raw, expectedMailbox) {
   const idKeys = Object.freeze(['provider', 'provider_mailbox_id', 'provider_message_id']);
   for (let i = 0; i < arr.length; i += 1) {
     if (!exactPlainData(arr[i], idKeys) && !(Object.isFrozen(arr[i]) && exactPlainData(arr[i], idKeys))) {
-      // allow frozen or plain exact
       const snap = snapshotOwnDataProps(arr[i]);
       if (!snap.ok) return { ok: false };
       const keys = Object.keys(snap.value);
@@ -937,16 +1220,29 @@ function buildInsertParams(authority, envelope) {
   ];
 }
 
+function coerceSafeIntField(raw) {
+  const p = parsePositiveSafeInt(
+    typeof raw === 'bigint' ? raw : (typeof raw === 'number' ? raw : String(raw)),
+    'field',
+  );
+  return p.ok ? p.value : null;
+}
+
 function toPrivateLeaseHandle(row) {
+  const gen = coerceSafeIntField(row.ingestion_generation);
+  const sv = coerceSafeIntField(row.state_version);
+  if (gen == null || sv == null) {
+    throw failure();
+  }
   return Object.freeze({
     client_id: String(row.client_id),
     endpoint_id: String(row.endpoint_id),
-    ingestion_generation: Number(row.ingestion_generation),
-    state_version: Number(row.state_version),
+    ingestion_generation: gen,
+    state_version: sv,
     lease_token: String(row.lease_token),
     lease_until: row.lease_until,
     phase: row.phase,
-    query_version: Number(row.query_version),
+    query_version: String(row.query_version),
   });
 }
 
@@ -964,12 +1260,14 @@ function toPublicStatus(row) {
       reset_reason: null,
     });
   }
+  const gen = coerceSafeIntField(row.ingestion_generation);
+  const sv = coerceSafeIntField(row.state_version);
   return Object.freeze({
     state_present: true,
     phase: row.phase,
-    ingestion_generation: Number(row.ingestion_generation),
-    query_version: Number(row.query_version),
-    state_version: Number(row.state_version),
+    ingestion_generation: gen,
+    query_version: row.query_version == null ? null : String(row.query_version),
+    state_version: sv,
     has_active_lease: row.has_active_lease === true,
     has_sealed_cursor: row.has_sealed_cursor === true,
     cursor_kind: row.cursor_kind == null ? null : String(row.cursor_kind),
@@ -1043,9 +1341,7 @@ function normalizeSealedEnvelopeRecord(raw) {
 
 /**
  * Seal Graph nextLink/deltaLink via existing envelope provider (OUTSIDE txn).
- * Cursor package is base64url-wrapped as the grant-package refresh_token body so
- * both fake and Azure KV openGrantPayload reverse it without a second crypto owner.
- * Strict URL validation at this boundary; DB only stores sealed envelope.
+ * Strict authority-bound URL validation at this boundary with mailbox+kind.
  */
 async function sealDeltaCursorCompatible(envelopeProvider, input) {
   try {
@@ -1060,13 +1356,16 @@ async function sealDeltaCursorCompatible(envelopeProvider, input) {
     if (!providerTenantId.ok) return providerTenantId;
     const providerMailboxId = parseUuid(s.providerMailboxId, 'provider_mailbox_id');
     if (!providerMailboxId.ok) return providerMailboxId;
-    const gen = parsePositiveBigIntish(s.ingestionGeneration, 'ingestion_generation');
+    const gen = parsePositiveSafeInt(s.ingestionGeneration, 'ingestion_generation');
     if (!gen.ok) return gen;
-    const qv = parsePositiveBigIntish(s.queryVersion, 'query_version');
+    const qv = parseQueryVersion(s.queryVersion);
     if (!qv.ok) return qv;
     const kind = parseCursorKind(s.cursorKind);
     if (!kind.ok) return kind;
-    const urlCheck = validateGraphCursorUrlBoundary(s.cursorUrl);
+    const urlCheck = validateMessagesDeltaCursorUrl(s.cursorUrl, {
+      providerMailboxId: providerMailboxId.value,
+      cursorKind: kind.value,
+    });
     if (!urlCheck.ok) return urlCheck;
     const operationId = parseUuid(s.operationId, 'operation_id');
     if (!operationId.ok) return operationId;
@@ -1081,7 +1380,7 @@ async function sealDeltaCursorCompatible(envelopeProvider, input) {
       queryVersion: qv.value,
       cursorKind: kind.value,
     });
-    const pkg = encodeDeltaCursorPackageV1(kind.value, urlCheck.value);
+    const pkg = encodeDeltaCursorPackageV1(kind.value, urlCheck.value, providerMailboxId.value);
     if (!pkg.ok) return pkg;
     const asRefreshBody = pkg.value.toString('base64url');
     let envelope;
@@ -1110,8 +1409,9 @@ async function sealDeltaCursorCompatible(envelopeProvider, input) {
 const sealDeltaCursor = sealDeltaCursorCompatible;
 
 /**
- * Open sealed cursor under AAD identity (OUTSIDE short DB txn after lease re-check).
- * Wrong AAD (tenant/mailbox/generation/query_version/cursor_kind) fails closed.
+ * Open sealed cursor under AAD identity (OUTSIDE short DB txn).
+ * Wrong AAD (client/endpoint/tenant/mailbox/generation/query_version/cursor_kind)
+ * fails closed. URL revalidated with mailbox+kind.
  */
 async function openSealedDeltaCursor(envelopeProvider, input) {
   try {
@@ -1126,9 +1426,9 @@ async function openSealedDeltaCursor(envelopeProvider, input) {
     if (!providerTenantId.ok) return providerTenantId;
     const providerMailboxId = parseUuid(s.providerMailboxId, 'provider_mailbox_id');
     if (!providerMailboxId.ok) return providerMailboxId;
-    const gen = parsePositiveBigIntish(s.ingestionGeneration, 'ingestion_generation');
+    const gen = parsePositiveSafeInt(s.ingestionGeneration, 'ingestion_generation');
     if (!gen.ok) return gen;
-    const qv = parsePositiveBigIntish(s.queryVersion, 'query_version');
+    const qv = parseQueryVersion(s.queryVersion);
     if (!qv.ok) return qv;
     const kind = parseCursorKind(s.cursorKind);
     if (!kind.ok) return kind;
@@ -1164,11 +1464,14 @@ async function openSealedDeltaCursor(envelopeProvider, input) {
     } catch {
       return fail('cursor_open_failed');
     }
-    const decoded = decodeDeltaCursorPackageV1(raw);
+    const decoded = decodeDeltaCursorPackageV1(raw, providerMailboxId.value);
     zeroizeBuffer(raw);
     if (!decoded.ok) return fail('cursor_open_failed');
     if (decoded.value.cursor_kind !== kind.value) return fail('cursor_open_failed');
-    const urlCheck = validateGraphCursorUrlBoundary(decoded.value.cursor_url);
+    const urlCheck = validateMessagesDeltaCursorUrl(decoded.value.cursor_url, {
+      providerMailboxId: providerMailboxId.value,
+      cursorKind: kind.value,
+    });
     if (!urlCheck.ok) return fail('cursor_open_failed');
     return ok(Object.freeze({
       cursor_kind: kind.value,
@@ -1182,6 +1485,7 @@ async function openSealedDeltaCursor(envelopeProvider, input) {
 function createInboundEmailDeltaStateStore(deps) {
   let withTransactionClient;
   let envelopeProvider = null;
+  let authorityVerifier = null;
   try {
     if (deps == null || typeof deps !== 'object' || Array.isArray(deps)) throw failure();
     if (isProxySurface(deps)) throw failure();
@@ -1190,7 +1494,11 @@ function createInboundEmailDeltaStateStore(deps) {
     const keySet = new Set(Object.keys(snap.value));
     if (!keySet.has('withTransactionClient')) throw failure();
     for (const k of keySet) {
-      if (k !== 'withTransactionClient' && k !== 'envelopeProvider') throw failure();
+      if (k !== 'withTransactionClient'
+          && k !== 'envelopeProvider'
+          && k !== 'authorityVerifier') {
+        throw failure();
+      }
     }
     withTransactionClient = resolveWithTransactionClient(snap.value.withTransactionClient);
     if (!withTransactionClient) throw failure();
@@ -1199,6 +1507,10 @@ function createInboundEmailDeltaStateStore(deps) {
       const vp = validateEmailGrantEnvelopeProvider(snap.value.envelopeProvider);
       if (!vp.ok) throw failure();
       envelopeProvider = vp.value;
+    }
+    if (keySet.has('authorityVerifier')) {
+      authorityVerifier = resolveAuthorityVerifier(snap.value.authorityVerifier);
+      if (!authorityVerifier) throw failure();
     }
   } catch (err) {
     if (err && err.code === FAILURE_CODE) throw err;
@@ -1223,9 +1535,8 @@ function createInboundEmailDeltaStateStore(deps) {
     if (!tenant.ok) return tenant;
     const mailbox = parseUuid(ids.snap.providerMailboxId, 'provider_mailbox_id');
     if (!mailbox.ok) return mailbox;
-    const qv = parsePositiveBigIntish(
-      ids.snap.queryVersion == null ? 1 : ids.snap.queryVersion,
-      'query_version',
+    const qv = parseQueryVersion(
+      ids.snap.queryVersion == null ? DEFAULT_QUERY_VERSION : ids.snap.queryVersion,
     );
     if (!qv.ok) return qv;
 
@@ -1243,17 +1554,20 @@ function createInboundEmailDeltaStateStore(deps) {
         PROVIDER,
         tenant.value,
         mailbox.value,
-        qv.value.toString(10),
+        qv.value,
       ]);
       if (!ins.rows || ins.rows.length !== 1) return fail('inbound_delta_state_write_failed');
       const row = ins.rows[0];
+      const gen = coerceSafeIntField(row.ingestion_generation);
+      const sv = coerceSafeIntField(row.state_version);
+      if (gen == null || sv == null) return fail('inbound_delta_state_write_failed');
       return ok(Object.freeze({
         client_id: String(row.client_id),
         endpoint_id: String(row.endpoint_id),
-        ingestion_generation: Number(row.ingestion_generation),
-        query_version: Number(row.query_version),
+        ingestion_generation: gen,
+        query_version: String(row.query_version),
         phase: row.phase,
-        state_version: Number(row.state_version),
+        state_version: sv,
       }));
     }));
   }
@@ -1265,9 +1579,9 @@ function createInboundEmailDeltaStateStore(deps) {
     if (!workerId.ok) return workerId;
     const ttl = parseTtl(ids.snap.ttlSeconds);
     if (!ttl.ok) return ttl;
-    const gen = parsePositiveBigIntish(ids.snap.expectedGeneration, 'ingestion_generation');
+    const gen = parsePositiveSafeInt(ids.snap.expectedGeneration, 'ingestion_generation');
     if (!gen.ok) return gen;
-    const sv = parsePositiveBigIntish(ids.snap.expectedStateVersion, 'state_version');
+    const sv = parsePositiveSafeInt(ids.snap.expectedStateVersion, 'state_version');
     if (!sv.ok) return sv;
     const leaseToken = crypto.randomUUID();
 
@@ -1277,12 +1591,11 @@ function createInboundEmailDeltaStateStore(deps) {
       ]);
       if (!locked.rows || locked.rows.length !== 1) return fail('delta_state_not_found');
       const row = locked.rows[0];
-      if (Number(row.ingestion_generation) !== Number(gen.value)) {
-        return fail('generation_mismatch');
-      }
-      if (Number(row.state_version) !== Number(sv.value)) {
-        return fail('state_version_mismatch');
-      }
+      const rowGen = coerceSafeIntField(row.ingestion_generation);
+      const rowSv = coerceSafeIntField(row.state_version);
+      if (rowGen == null || rowSv == null) return fail('inbound_delta_state_write_failed');
+      if (rowGen !== gen.value) return fail('generation_mismatch');
+      if (rowSv !== sv.value) return fail('state_version_mismatch');
       if (row.phase === 'reset_required') return fail('reset_required');
       const upd = await client.query(SQL_CAS_LEASE_ACQUIRE, [
         ids.clientId.value,
@@ -1290,8 +1603,8 @@ function createInboundEmailDeltaStateStore(deps) {
         workerId.value,
         leaseToken,
         String(ttl.value),
-        gen.value.toString(10),
-        sv.value.toString(10),
+        String(gen.value),
+        String(sv.value),
       ]);
       if (!upd.rows || upd.rows.length !== 1) return fail('lease_acquire_conflict');
       return ok(toPrivateLeaseHandle(upd.rows[0]));
@@ -1310,8 +1623,8 @@ function createInboundEmailDeltaStateStore(deps) {
       const upd = await client.query(SQL_CAS_LEASE_RENEW, [
         ids.clientId.value,
         ids.endpointId.value,
-        ids.expectedGeneration.value.toString(10),
-        ids.expectedStateVersion.value.toString(10),
+        String(ids.expectedGeneration.value),
+        String(ids.expectedStateVersion.value),
         String(ttl.value),
         ids.leaseToken.value,
       ]);
@@ -1330,24 +1643,31 @@ function createInboundEmailDeltaStateStore(deps) {
       const upd = await client.query(SQL_CAS_LEASE_RELEASE, [
         ids.clientId.value,
         ids.endpointId.value,
-        ids.expectedGeneration.value.toString(10),
-        ids.expectedStateVersion.value.toString(10),
+        String(ids.expectedGeneration.value),
+        String(ids.expectedStateVersion.value),
         ids.leaseToken.value,
       ]);
       if (!upd.rows || upd.rows.length !== 1) return fail('lease_fenced');
+      const gen = coerceSafeIntField(upd.rows[0].ingestion_generation);
+      const sv = coerceSafeIntField(upd.rows[0].state_version);
+      if (gen == null || sv == null) return fail('inbound_delta_state_write_failed');
       return ok(Object.freeze({
         client_id: String(upd.rows[0].client_id),
         endpoint_id: String(upd.rows[0].endpoint_id),
-        ingestion_generation: Number(upd.rows[0].ingestion_generation),
-        state_version: Number(upd.rows[0].state_version),
+        ingestion_generation: gen,
+        state_version: sv,
         phase: upd.rows[0].phase,
       }));
     }));
   }
 
   /**
-   * Open cursor under a valid unexpired lease. Short TX re-checks lease + identity,
-   * then opens sealed envelope AFTER COMMIT (no crypto inside txn).
+   * Open cursor under a valid unexpired lease.
+   * 1) First TX: lease/CAS state read (copy sealed material).
+   * 2) Crypto open OUTSIDE TX.
+   * 3) Second TX: revalidate lease token + DB-clock expiry + generation +
+   *    state_version immediately before releasing plaintext.
+   * Stale/expired/reacquired lease → no cursor.
    */
   async function openCursor(input) {
     if (!envelopeProvider) return fail('envelope_provider_required');
@@ -1362,14 +1682,12 @@ function createInboundEmailDeltaStateStore(deps) {
       ]);
       if (!locked.rows || locked.rows.length !== 1) return fail('delta_state_not_found');
       const row = locked.rows[0];
-      if (Number(row.ingestion_generation) !== Number(ids.expectedGeneration.value)) {
-        return fail('generation_mismatch');
-      }
-      if (Number(row.state_version) !== Number(ids.expectedStateVersion.value)) {
-        return fail('state_version_mismatch');
-      }
+      const rowGen = coerceSafeIntField(row.ingestion_generation);
+      const rowSv = coerceSafeIntField(row.state_version);
+      if (rowGen == null || rowSv == null) return fail('inbound_delta_state_write_failed');
+      if (rowGen !== ids.expectedGeneration.value) return fail('generation_mismatch');
+      if (rowSv !== ids.expectedStateVersion.value) return fail('state_version_mismatch');
       if (String(row.lease_token) !== ids.leaseToken.value) return fail('lease_fenced');
-      // re-check unexpired via SQL
       const live = await client.query(
         `SELECT (lease_until IS NOT NULL AND lease_until > clock_timestamp()) AS ok
            FROM tenant_email_inbound_delta_states
@@ -1383,14 +1701,8 @@ function createInboundEmailDeltaStateStore(deps) {
         return ok(Object.freeze({
           kind: 'none',
           phase: row.phase,
-          provider_tenant_id: String(row.provider_tenant_id),
-          provider_mailbox_id: String(row.provider_mailbox_id),
-          query_version: Number(row.query_version),
-          ingestion_generation: Number(row.ingestion_generation),
         }));
       }
-      // Copy sealed material for post-commit open (no plaintext URL yet).
-      // Coerce driver bytea so open path never depends on Buffer vs Uint8Array.
       const nonce = asOwnedBuffer(row.nonce);
       const ciphertext = asOwnedBuffer(row.ciphertext);
       const authTag = asOwnedBuffer(row.auth_tag);
@@ -1404,8 +1716,9 @@ function createInboundEmailDeltaStateStore(deps) {
         cursor_kind: String(row.cursor_kind),
         provider_tenant_id: String(row.provider_tenant_id).toLowerCase(),
         provider_mailbox_id: String(row.provider_mailbox_id).toLowerCase(),
-        query_version: Number(row.query_version),
-        ingestion_generation: Number(row.ingestion_generation),
+        query_version: String(row.query_version),
+        ingestion_generation: rowGen,
+        state_version: rowSv,
         envelope: Object.freeze({
           envelope_version: row.envelope_version,
           aead_alg: row.aead_alg,
@@ -1427,11 +1740,11 @@ function createInboundEmailDeltaStateStore(deps) {
         cursor_present: false,
         phase: loaded.value.phase,
         cursor_kind: null,
-        // never return mailbox/tenant on public surfaces — this is private open handle
         cursor_url: null,
       }));
     }
 
+    // Crypto OUTSIDE any transaction.
     const opened = await openSealedDeltaCursor(envelopeProvider, Object.freeze({
       clientId: ids.clientId.value,
       endpointId: ids.endpointId.value,
@@ -1443,6 +1756,26 @@ function createInboundEmailDeltaStateStore(deps) {
       envelope: loaded.value.envelope,
     }));
     if (!opened.ok) return opened;
+
+    // Second DB-clock lease fence immediately before releasing plaintext.
+    const revalidated = await runExclusive(async (client) => withTxn(client, async () => {
+      const r = await client.query(SQL_REVALIDATE_LEASE, [
+        ids.clientId.value,
+        ids.endpointId.value,
+        ids.leaseToken.value,
+        String(ids.expectedGeneration.value),
+        String(ids.expectedStateVersion.value),
+      ]);
+      if (!r.rows || r.rows.length !== 1 || r.rows[0].ok !== true) {
+        return fail('lease_fenced');
+      }
+      return ok(true);
+    }));
+    if (!revalidated.ok) {
+      // Scrub plaintext; never release cursor after stale/expired/reacquired lease.
+      return fail(revalidated.error === 'lease_fenced' ? 'lease_fenced' : revalidated.error);
+    }
+
     return ok(Object.freeze({
       cursor_present: true,
       phase: loaded.value.phase,
@@ -1452,19 +1785,25 @@ function createInboundEmailDeltaStateStore(deps) {
   }
 
   /**
-   * ONLY page-commit owner. No network/crypto inside transaction.
-   * Caller supplies validated envelopes/tombstones + sealed successor cursor.
-   * Duplicate-only / tombstone-only pages still advance cursor + state_version.
+   * ONLY page-commit owner.
+   * BEFORE TX: cryptographically open + validate successor against exact AAD
+   * (client+endpoint+provider tenant+mailbox+ingestion generation+query version+
+   * cursor kind) and strict messages-delta URL; scrub plaintext.
+   * THEN short atomic event+cursor TX (no crypto/network inside).
+   * Hostile sealed successors → zero inserts / zero cursor advance.
    */
   async function commitPageEvents(input) {
+    if (!envelopeProvider) return fail('envelope_provider_required');
     const ids = snapshotIds(input, [
       'clientId', 'locationId', 'endpointId', 'leaseToken',
       'expectedGeneration', 'expectedStateVersion',
     ]);
     if (ids.ok === false) return ids;
+    const tenant = parseUuid(ids.snap.providerTenantId, 'provider_tenant_id');
+    if (!tenant.ok) return tenant;
     const mailbox = parseUuid(ids.snap.providerMailboxId, 'provider_mailbox_id');
     if (!mailbox.ok) return mailbox;
-    const qv = parsePositiveBigIntish(ids.snap.queryVersion, 'query_version');
+    const qv = parseQueryVersion(ids.snap.queryVersion);
     if (!qv.ok) return qv;
 
     const prepared = prepareCanonicalBatch(ids.snap.envelopes, mailbox.value);
@@ -1477,24 +1816,52 @@ function createInboundEmailDeltaStateStore(deps) {
     const successor = validateSealedSuccessor(ids.snap.successorCursor);
     if (!successor.ok) return successor;
 
+    // Cryptographic open + strict URL validate BEFORE any durable write TX.
+    const opened = await openSealedDeltaCursor(envelopeProvider, Object.freeze({
+      clientId: ids.clientId.value,
+      endpointId: ids.endpointId.value,
+      providerTenantId: tenant.value,
+      providerMailboxId: mailbox.value,
+      ingestionGeneration: ids.expectedGeneration.value,
+      queryVersion: qv.value,
+      cursorKind: successor.value.cursor_kind,
+      envelope: successor.value.envelope,
+    }));
+    if (!opened.ok) {
+      // Zero inserts / zero cursor advance — never enter TX with hostile seal.
+      return fail('successor_cursor_rejected');
+    }
+    // Plaintext was validated then discarded — TX installs sealed envelope only.
+    // (cursor_url from open is intentionally not retained past this point.)
+
     return runExclusive(async (client) => withTxn(client, async () => {
       const locked = await client.query(SQL_LOCK_CURRENT, [
         ids.clientId.value, ids.endpointId.value,
       ]);
       if (!locked.rows || locked.rows.length !== 1) return fail('delta_state_not_found');
       const row = locked.rows[0];
-      if (String(row.client_id) !== ids.clientId.value) return fail('authority_mismatch');
-      if (String(row.endpoint_id) !== ids.endpointId.value) return fail('authority_mismatch');
-      if (String(row.location_id) !== ids.locationId.value) return fail('authority_mismatch');
-      if (Number(row.ingestion_generation) !== Number(ids.expectedGeneration.value)) {
-        return fail('generation_mismatch');
+      if (String(row.client_id).toLowerCase() !== ids.clientId.value) {
+        return fail('authority_mismatch');
       }
-      if (Number(row.state_version) !== Number(ids.expectedStateVersion.value)) {
-        return fail('state_version_mismatch');
+      if (String(row.endpoint_id).toLowerCase() !== ids.endpointId.value) {
+        return fail('authority_mismatch');
       }
+      if (String(row.location_id).toLowerCase() !== ids.locationId.value) {
+        return fail('authority_mismatch');
+      }
+      const rowGen = coerceSafeIntField(row.ingestion_generation);
+      const rowSv = coerceSafeIntField(row.state_version);
+      if (rowGen == null || rowSv == null) return fail('inbound_delta_state_write_failed');
+      if (rowGen !== ids.expectedGeneration.value) return fail('generation_mismatch');
+      if (rowSv !== ids.expectedStateVersion.value) return fail('state_version_mismatch');
       if (String(row.lease_token) !== ids.leaseToken.value) return fail('lease_fenced');
-      if (String(row.provider_mailbox_id) !== mailbox.value) return fail('mailbox_mismatch');
-      if (Number(row.query_version) !== Number(qv.value)) return fail('query_version_mismatch');
+      if (String(row.provider_tenant_id).toLowerCase() !== tenant.value) {
+        return fail('tenant_mismatch');
+      }
+      if (String(row.provider_mailbox_id).toLowerCase() !== mailbox.value) {
+        return fail('mailbox_mismatch');
+      }
+      if (String(row.query_version) !== qv.value) return fail('query_version_mismatch');
       if (row.phase === 'reset_required' || row.phase === 'paused') {
         return fail(row.phase === 'reset_required' ? 'reset_required' : 'phase_paused');
       }
@@ -1512,7 +1879,6 @@ function createInboundEmailDeltaStateStore(deps) {
           buildInsertParams(authority, prepared.envelopes[i]),
         );
       }
-      // tombstones intentionally not inserted
 
       // nextLink during bootstrap stays initial; deltaLink always tracking.
       const finalPhase = successor.value.cursor_kind === 'deltaLink'
@@ -1524,27 +1890,30 @@ function createInboundEmailDeltaStateStore(deps) {
       const upd = await client.query(SQL_CAS_COMMIT_CURSOR, [
         ids.clientId.value,
         ids.endpointId.value,
-        ids.expectedGeneration.value.toString(10),
-        ids.expectedStateVersion.value.toString(10),
+        String(ids.expectedGeneration.value),
+        String(ids.expectedStateVersion.value),
         ids.leaseToken.value,
+        tenant.value,
         mailbox.value,
-        qv.value.toString(10),
+        qv.value,
         successor.value.cursor_kind,
         cols[0], cols[1], cols[2], cols[3], cols[4],
         cols[5], cols[6], cols[7], cols[8], cols[9],
         finalPhase,
       ]);
       if (!upd.rows || upd.rows.length !== 1) {
-        // CAS failure must roll back inserts too (withTxn rolls back on ok:false).
         return fail('commit_cas_conflict');
       }
+      const outGen = coerceSafeIntField(upd.rows[0].ingestion_generation);
+      const outSv = coerceSafeIntField(upd.rows[0].state_version);
+      if (outGen == null || outSv == null) return fail('inbound_delta_state_write_failed');
       return ok(Object.freeze({
         client_id: String(upd.rows[0].client_id),
         endpoint_id: String(upd.rows[0].endpoint_id),
-        ingestion_generation: Number(upd.rows[0].ingestion_generation),
-        state_version: Number(upd.rows[0].state_version),
+        ingestion_generation: outGen,
+        state_version: outSv,
         phase: upd.rows[0].phase,
-        query_version: Number(upd.rows[0].query_version),
+        query_version: String(upd.rows[0].query_version),
         cursor_kind: upd.rows[0].cursor_kind,
         envelopes_presented: prepared.envelopes.length,
         tombstones_presented: tombs.tombstones.length,
@@ -1564,16 +1933,19 @@ function createInboundEmailDeltaStateStore(deps) {
       const upd = await client.query(SQL_CAS_RESET_REQUIRED, [
         ids.clientId.value,
         ids.endpointId.value,
-        ids.expectedGeneration.value.toString(10),
-        ids.expectedStateVersion.value.toString(10),
+        String(ids.expectedGeneration.value),
+        String(ids.expectedStateVersion.value),
         reason.value,
       ]);
       if (!upd.rows || upd.rows.length !== 1) return fail('reset_cas_conflict');
+      const gen = coerceSafeIntField(upd.rows[0].ingestion_generation);
+      const sv = coerceSafeIntField(upd.rows[0].state_version);
+      if (gen == null || sv == null) return fail('inbound_delta_state_write_failed');
       return ok(Object.freeze({
         client_id: String(upd.rows[0].client_id),
         endpoint_id: String(upd.rows[0].endpoint_id),
-        ingestion_generation: Number(upd.rows[0].ingestion_generation),
-        state_version: Number(upd.rows[0].state_version),
+        ingestion_generation: gen,
+        state_version: sv,
         phase: upd.rows[0].phase,
         reset_reason: upd.rows[0].reset_reason,
       }));
@@ -1582,10 +1954,13 @@ function createInboundEmailDeltaStateStore(deps) {
 
   /**
    * Explicit reset/rebind: demote current generation, insert generation+1 as current.
-   * Preserves old state/events. Only verified authority snapshot may become current.
-   * Grant refresh must not call this.
+   * Preserves old state/events. Factory-fixed authority-verifier validates
+   * client/location/endpoint/provider tenant/mailbox binding BEFORE TX.
+   * Caller boolean self-assert is not accepted. Grant refresh must not call this.
+   * Maintains one-current invariant (demote then insert; never zero current).
    */
   async function beginNextGeneration(input) {
+    if (!authorityVerifier) return fail('authority_verifier_required');
     const ids = snapshotIds(input, [
       'clientId', 'locationId', 'endpointId',
       'expectedGeneration', 'expectedStateVersion',
@@ -1595,20 +1970,53 @@ function createInboundEmailDeltaStateStore(deps) {
     if (!tenant.ok) return tenant;
     const mailbox = parseUuid(ids.snap.providerMailboxId, 'provider_mailbox_id');
     if (!mailbox.ok) return mailbox;
-    const qv = parsePositiveBigIntish(ids.snap.queryVersion, 'query_version');
+    const qv = parseQueryVersion(ids.snap.queryVersion);
     if (!qv.ok) return qv;
-    // verifiedAuthority must be exact own-data true
-    if (ids.snap.verifiedAuthority !== true) return fail('authority_not_verified');
+
+    // Reject any caller self-assert boolean — verifier capability is authority.
+    if (Object.prototype.hasOwnProperty.call(ids.snap, 'verifiedAuthority')) {
+      return fail('authority_not_verified');
+    }
+
+    const binding = Object.freeze({
+      clientId: ids.clientId.value,
+      locationId: ids.locationId.value,
+      endpointId: ids.endpointId.value,
+      providerTenantId: tenant.value,
+      providerMailboxId: mailbox.value,
+    });
+    let verified;
+    try {
+      verified = await authorityVerifier.verifyBinding(binding);
+    } catch {
+      return fail('authority_not_verified');
+    }
+    if (!verified || verified.ok !== true) return fail('authority_not_verified');
+    // Optional exact re-bind check if verifier returns a value DTO.
+    if (verified.value && typeof verified.value === 'object') {
+      const v = verified.value;
+      if (String(v.clientId || '').toLowerCase() !== binding.clientId
+          || String(v.locationId || '').toLowerCase() !== binding.locationId
+          || String(v.endpointId || '').toLowerCase() !== binding.endpointId
+          || String(v.providerTenantId || '').toLowerCase() !== binding.providerTenantId
+          || String(v.providerMailboxId || '').toLowerCase() !== binding.providerMailboxId) {
+        return fail('authority_not_verified');
+      }
+    }
 
     return runExclusive(async (client) => withTxn(client, async () => {
       const demoted = await client.query(SQL_DEMOTE_CURRENT, [
         ids.clientId.value,
         ids.endpointId.value,
-        ids.expectedGeneration.value.toString(10),
-        ids.expectedStateVersion.value.toString(10),
+        String(ids.expectedGeneration.value),
+        String(ids.expectedStateVersion.value),
       ]);
       if (!demoted.rows || demoted.rows.length !== 1) return fail('generation_cas_conflict');
-      const nextGen = Number(demoted.rows[0].ingestion_generation) + 1;
+      const prevGen = coerceSafeIntField(demoted.rows[0].ingestion_generation);
+      if (prevGen == null || prevGen >= MAX_SAFE_GENERATION) {
+        return fail('ingestion_generation_invalid');
+      }
+      const nextGen = prevGen + 1;
       const ins = await client.query(SQL_INSERT_NEXT_GENERATION, [
         ids.clientId.value,
         ids.locationId.value,
@@ -1617,18 +2025,21 @@ function createInboundEmailDeltaStateStore(deps) {
         tenant.value,
         mailbox.value,
         String(nextGen),
-        qv.value.toString(10),
+        qv.value,
       ]);
       if (!ins.rows || ins.rows.length !== 1) return fail('inbound_delta_state_write_failed');
       const row = ins.rows[0];
+      const gen = coerceSafeIntField(row.ingestion_generation);
+      const sv = coerceSafeIntField(row.state_version);
+      if (gen == null || sv == null) return fail('inbound_delta_state_write_failed');
       return ok(Object.freeze({
         client_id: String(row.client_id),
         endpoint_id: String(row.endpoint_id),
-        ingestion_generation: Number(row.ingestion_generation),
-        query_version: Number(row.query_version),
+        ingestion_generation: gen,
+        query_version: String(row.query_version),
         phase: row.phase,
-        state_version: Number(row.state_version),
-        previous_generation: Number(demoted.rows[0].ingestion_generation),
+        state_version: sv,
+        previous_generation: prevGen,
       }));
     }));
   }
@@ -1674,16 +2085,23 @@ module.exports = Object.freeze({
   PHASES,
   CURSOR_KINDS,
   PROVIDER,
+  GRAPH_HOST,
+  GRAPH_API_VERSION,
+  DEFAULT_QUERY_VERSION,
+  MAX_SAFE_GENERATION,
   PUBLIC_STATUS_KEYS,
   STORE_DEPENDENCY_KEYS,
   STORE_WITH_PROVIDER_KEYS,
+  AUTHORITY_VERIFIER_KEYS,
   ENVELOPE_RECORD_KEYS,
   SQL_INSERT_EVENT,
   SQL_LOCK_CURRENT,
+  SQL_REVALIDATE_LEASE,
   buildDeltaCursorEnvelopeAadV1,
   parseDeltaCursorEnvelopeAadV1,
   encodeDeltaCursorPackageV1,
   decodeDeltaCursorPackageV1,
+  validateMessagesDeltaCursorUrl,
   validateGraphCursorUrlBoundary,
   sealDeltaCursorCompatible,
   openSealedDeltaCursor,
@@ -1691,7 +2109,10 @@ module.exports = Object.freeze({
   // test helpers
   resolveWithTransactionClient,
   resolveExclusiveClient,
+  resolveAuthorityVerifier,
   prepareCanonicalBatch,
   prepareTombstones,
   validateSealedSuccessor,
+  parseQueryVersion,
+  parsePositiveSafeInt,
 });

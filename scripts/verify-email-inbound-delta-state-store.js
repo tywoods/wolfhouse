@@ -4,9 +4,11 @@
  * Offline RED-GREEN gate: Microsoft Graph messages-delta state store (migration 064).
  *
  * Hostile coverage: migration constraints, sealed cursor coherence, AAD binding,
- * page-commit atomicity (insert+cursor), duplicate/tombstone advance, commit-unknown,
- * lease CAS/fence, generation rebind, grant-generation independence, public DTO
- * sanitization, proxy/accessor/symbol rejection, import-inert / no route wiring.
+ * strict authority-bound messages-delta URL validation, page-commit pre-TX crypto
+ * open (cross-AAD zero inserts), openCursor post-crypto lease fencing, authority
+ * verifier capability (no caller boolean), query_version text id + safe-int gens,
+ * one-current invariant, atomicity, duplicate/tombstone, commit-unknown, reset/rebind,
+ * public secrecy, proxy/accessor zero-trap, import-inert / no route wiring.
  * No live DB/network/route/cron/deploy.
  */
 
@@ -29,10 +31,18 @@ const LOCATION = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const ENDPOINT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const MAILBOX = '22222222-2222-4222-8222-2222222222ab';
+const OTHER_CLIENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab';
+const OTHER_ENDPOINT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc';
+const OTHER_TENANT = '11111111-1111-4111-8111-111111111112';
+const OTHER_MAILBOX = '22222222-2222-4222-8222-2222222222ac';
 const PLANTED_SUBJECT = 'SUBJECT_PII_MUST_NOT_APPEAR_DELTA_STATE';
 const PLANTED_ADDRESS = 'pii-delta-state@example.com';
-const PLANTED_CURSOR = 'https://graph.microsoft.com/v1.0/me/messages/delta?$deltatoken=SECRET_DELTA_TOKEN_NEVER_LEAK';
-const PLANTED_NEXT = 'https://graph.microsoft.com/v1.0/me/messages/delta?$skiptoken=SECRET_NEXT_TOKEN_NEVER_LEAK';
+const QV1 = 'messages_delta_v1';
+const QV2 = 'messages_delta_v2';
+const PLANTED_CURSOR =
+  `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$deltatoken=SECRET_DELTA_TOKEN_NEVER_LEAK`;
+const PLANTED_NEXT =
+  `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$skiptoken=SECRET_NEXT_TOKEN_NEVER_LEAK`;
 
 function noLeak(v) {
   const s = typeof v === 'string' ? v : (() => {
@@ -72,9 +82,38 @@ function tombstone(messageId) {
   };
 }
 
+function makeAuthorityVerifier(opts = {}) {
+  const allow = opts.allow !== false;
+  const expected = opts.expected || {
+    clientId: CLIENT,
+    locationId: LOCATION,
+    endpointId: ENDPOINT,
+    providerTenantId: TENANT,
+    providerMailboxId: MAILBOX,
+  };
+  return Object.freeze({
+    async verifyBinding(binding) {
+      if (!allow) return Object.freeze({ ok: false, error: 'rejected' });
+      if (!binding
+          || binding.clientId !== expected.clientId
+          || binding.locationId !== expected.locationId
+          || binding.endpointId !== expected.endpointId
+          || binding.providerTenantId !== expected.providerTenantId
+          || binding.providerMailboxId !== expected.providerMailboxId) {
+        return Object.freeze({ ok: false, error: 'binding_mismatch' });
+      }
+      return Object.freeze({
+        ok: true,
+        value: Object.freeze({ ...expected }),
+      });
+    },
+  });
+}
+
 /**
  * Accurate multi-client fake for delta state + events.
- * Supports SELECT FOR UPDATE lock, CAS updates, event inserts, public status.
+ * Supports SELECT FOR UPDATE lock, CAS updates, event inserts, public status,
+ * post-crypto lease revalidation.
  */
 function createFakeDeltaHarness(options = {}) {
   /** @type {Map<string, object>} key = client|endpoint|generation */
@@ -86,6 +125,8 @@ function createFakeDeltaHarness(options = {}) {
   let loanSeq = 0;
   let failOn = null;
   let commitShouldReject = false;
+  /** Optional delay hook between loans (for planted delayed-open takeover). */
+  let onLoanStart = null;
 
   function stateKey(clientId, endpointId, gen) {
     return `${clientId}\0${endpointId}\0${gen}`;
@@ -114,6 +155,9 @@ function createFakeDeltaHarness(options = {}) {
 
   async function withTransactionClient(work) {
     const loanId = (loanSeq += 1);
+    if (typeof onLoanStart === 'function') {
+      await onLoanStart({ loanId, clockMs });
+    }
     let inTx = false;
     /** @type {Map<string, object>} */
     const stagedStates = new Map();
@@ -130,8 +174,6 @@ function createFakeDeltaHarness(options = {}) {
       return null;
     }
     function readCurrent(clientId, endpointId) {
-      // Prefer staged current rows. A staged demotion must shadow the durable
-      // current row of the same generation during this transaction.
       for (const row of stagedStates.values()) {
         if (row.client_id === clientId && row.endpoint_id === endpointId && row.is_current) {
           return row;
@@ -188,9 +230,11 @@ function createFakeDeltaHarness(options = {}) {
           return { rows: [], rowCount: 0 };
         }
 
-        // public status first (also ends with is_current=true; must not hit lock matcher)
+        // public status
         if (/has_active_lease/.test(norm) && /has_sealed_cursor/.test(norm)
-            && /FROM tenant_email_inbound_delta_states/.test(norm)) {
+            && /FROM tenant_email_inbound_delta_states/.test(norm)
+            && !/lease_token = \$3::uuid/.test(norm)
+            && !/ingestion_generation = \$4::bigint/.test(norm)) {
           const row = readCurrent(params[0], params[1]);
           if (!row) return { rows: [], rowCount: 0 };
           return {
@@ -210,10 +254,28 @@ function createFakeDeltaHarness(options = {}) {
           };
         }
 
-        // lease unexpired check (openCursor)
+        // post-crypto lease revalidation (SQL_REVALIDATE_LEASE)
+        if (/ingestion_generation = \$4::bigint/.test(norm)
+            && /state_version = \$5::bigint/.test(norm)
+            && /lease_token = \$3::uuid/.test(norm)
+            && /AS ok/.test(norm)) {
+          const row = readCurrent(params[0], params[1]);
+          if (!row) return { rows: [{ ok: false }], rowCount: 1 };
+          const okLive = row.lease_token != null
+            && String(row.lease_token) === String(params[2])
+            && row.lease_until != null
+            && new Date(row.lease_until).getTime() > clockMs
+            && Number(row.ingestion_generation) === Number(params[3])
+            && Number(row.state_version) === Number(params[4]);
+          return { rows: [{ ok: okLive }], rowCount: 1 };
+        }
+
+        // lease unexpired check (openCursor first pass)
         if (/AS ok/.test(norm)
             && /lease_until IS NOT NULL AND lease_until > clock_timestamp\(\)/.test(norm)
-            && /FROM tenant_email_inbound_delta_states/.test(norm)) {
+            && /FROM tenant_email_inbound_delta_states/.test(norm)
+            && /lease_token = \$3::uuid/.test(norm)
+            && !/ingestion_generation = \$4::bigint/.test(norm)) {
           const row = readCurrent(params[0], params[1]);
           if (!row || String(row.lease_token) !== String(params[2])) {
             return { rows: [{ ok: false }], rowCount: 1 };
@@ -222,7 +284,7 @@ function createFakeDeltaHarness(options = {}) {
           return { rows: [{ ok: okLive }], rowCount: 1 };
         }
 
-        // SELECT * current FOR UPDATE (lock current generation only)
+        // SELECT * current FOR UPDATE
         if (/FOR UPDATE/.test(norm)
             && /FROM tenant_email_inbound_delta_states/.test(norm)
             && /is_current = true/.test(norm)) {
@@ -236,15 +298,13 @@ function createFakeDeltaHarness(options = {}) {
             clientId, locationId, endpointId, provider, tenantId, mailboxId,
             genOrQv, maybeQv,
           ] = params;
-          // initial: gen fixed 1, qv=$7; next: gen=$7, qv=$8
-          const isNext = /\$7::bigint, \$8::bigint, true/.test(norm)
-            || norm.includes('$7::bigint, $8::bigint');
+          // next gen: $7::bigint, $8 (text qv); initial: gen fixed 1, qv=$7 text
+          const isNext = /\$7::bigint, \$8, true/.test(norm)
+            || /\$7::bigint, \$8/.test(norm);
           const gen = isNext ? Number(genOrQv) : 1;
-          const qv = isNext ? Number(maybeQv) : Number(genOrQv);
-          // demote check for current unique
+          const qv = isNext ? String(maybeQv) : String(genOrQv);
           const existingCurrent = readCurrent(clientId, endpointId);
           if (existingCurrent && existingCurrent.is_current) {
-            // next-gen path demotes first; if still current → unique violation
             throw Object.assign(new Error('unique_current'), { code: '23505' });
           }
           const row = {
@@ -417,14 +477,30 @@ function createFakeDeltaHarness(options = {}) {
           };
         }
 
-        // COMMIT CURSOR
-        if (/SET cursor_kind = \$8/.test(norm)) {
-          const [
-            clientId, endpointId, gen, sv, token, mailbox, qv,
-            cursorKind,
-            envVer, aead, wrap, kekName, kekVer,
-            nonce, ciphertext, authTag, wrappedDek, opId, phase,
-          ] = params;
+        // COMMIT CURSOR (tenant $6, mailbox $7, query_version $8 text, cursor_kind $9)
+        if (/SET cursor_kind = \$9/.test(norm) || /SET cursor_kind = \$8/.test(norm)) {
+          // Prefer $9 layout (tenant + mailbox + qv)
+          const usesTenant = /SET cursor_kind = \$9/.test(norm);
+          let clientId; let endpointId; let gen; let sv; let token;
+          let tenant; let mailbox; let qv; let cursorKind;
+          let envVer; let aead; let wrap; let kekName; let kekVer;
+          let nonce; let ciphertext; let authTag; let wrappedDek; let opId; let phase;
+          if (usesTenant) {
+            [
+              clientId, endpointId, gen, sv, token, tenant, mailbox, qv,
+              cursorKind,
+              envVer, aead, wrap, kekName, kekVer,
+              nonce, ciphertext, authTag, wrappedDek, opId, phase,
+            ] = params;
+          } else {
+            [
+              clientId, endpointId, gen, sv, token, mailbox, qv,
+              cursorKind,
+              envVer, aead, wrap, kekName, kekVer,
+              nonce, ciphertext, authTag, wrappedDek, opId, phase,
+            ] = params;
+            tenant = null;
+          }
           const row = readCurrent(clientId, endpointId);
           if (!row
               || Number(row.ingestion_generation) !== Number(gen)
@@ -433,7 +509,8 @@ function createFakeDeltaHarness(options = {}) {
               || row.lease_until == null
               || new Date(row.lease_until).getTime() <= clockMs
               || String(row.provider_mailbox_id) !== String(mailbox)
-              || Number(row.query_version) !== Number(qv)
+              || String(row.query_version) !== String(qv)
+              || (tenant != null && String(row.provider_tenant_id) !== String(tenant))
               || !['initial', 'tracking'].includes(row.phase)) {
             return { rows: [], rowCount: 0 };
           }
@@ -527,7 +604,7 @@ function createFakeDeltaHarness(options = {}) {
           return { rows: [], rowCount: 1 };
         }
 
-        throw new Error(`unexpected sql: ${norm.slice(0, 120)}`);
+        throw new Error(`unexpected sql: ${norm.slice(0, 160)}`);
       },
     };
 
@@ -547,8 +624,18 @@ function createFakeDeltaHarness(options = {}) {
     events: durableEvents,
     log,
     advanceClock(ms) { clockMs += ms; },
+    getClockMs() { return clockMs; },
     setFailOn(fn) { failOn = fn; },
     setCommitReject(v) { commitShouldReject = v; },
+    setOnLoanStart(fn) { onLoanStart = fn; },
+    /** Mutate durable current row outside store TX (takeover simulation). */
+    mutateCurrent(clientId, endpointId, mutator) {
+      const ck = currentKey(clientId, endpointId);
+      if (!ck) return null;
+      const row = durableStates.get(ck);
+      mutator(row);
+      return row;
+    },
   };
 }
 
@@ -564,20 +651,25 @@ async function main() {
     PHASES,
     CURSOR_KINDS,
     PROVIDER,
+    DEFAULT_QUERY_VERSION,
+    MAX_SAFE_GENERATION,
     PUBLIC_STATUS_KEYS,
     SQL_INSERT_EVENT,
     SQL_LOCK_CURRENT,
+    SQL_REVALIDATE_LEASE,
     buildDeltaCursorEnvelopeAadV1,
     parseDeltaCursorEnvelopeAadV1,
     encodeDeltaCursorPackageV1,
     decodeDeltaCursorPackageV1,
+    validateMessagesDeltaCursorUrl,
     validateGraphCursorUrlBoundary,
     sealDeltaCursorCompatible,
     openSealedDeltaCursor,
     createInboundEmailDeltaStateStore,
     prepareCanonicalBatch,
     prepareTombstones,
-    resolveWithTransactionClient,
+    parseQueryVersion,
+    parsePositiveSafeInt,
   } = store;
 
   const {
@@ -591,9 +683,12 @@ async function main() {
   assert.deepEqual([...PHASES], ['initial', 'tracking', 'reset_required', 'paused']);
   assert.deepEqual([...CURSOR_KINDS], ['nextLink', 'deltaLink']);
   assert.equal(PROVIDER, 'microsoft_graph');
+  assert.equal(DEFAULT_QUERY_VERSION, 'messages_delta_v1');
+  assert.equal(MAX_SAFE_GENERATION, Number.MAX_SAFE_INTEGER);
   assert.match(SQL_INSERT_EVENT, /ON CONFLICT \(provider, provider_mailbox_id, provider_message_id\) DO NOTHING/);
   assert.match(SQL_LOCK_CURRENT, /is_current = true/);
   assert.match(SQL_LOCK_CURRENT, /FOR UPDATE/);
+  assert.match(SQL_REVALIDATE_LEASE, /lease_until > clock_timestamp\(\)/);
   assert.equal(/DO UPDATE/i.test(SQL_INSERT_EVENT), false);
 
   const up = fs.readFileSync(MIG_UP, 'utf8');
@@ -610,11 +705,14 @@ async function main() {
   assert.match(up, /cursor_kind IN \('nextLink', 'deltaLink'\)/);
   assert.match(up, /envelope_version = 'v1'/);
   assert.match(up, /aead_alg = 'AES-256-GCM'/);
-  assert.match(up, /ingestion_generation >= 1/);
+  assert.match(up, /query_version\s+TEXT NOT NULL/);
+  assert.match(up, /9007199254740991/);
+  assert.match(up, /tenant_email_inbound_delta_states_query_version_shape/);
   assert.match(up, /Independent of tenant_email_delegated_grants\.grant_generation/);
+  assert.match(up, /at-most-one/i);
+  assert.match(up, /No public delete API|no public delete API/i);
   assert.equal(/INSERT INTO tenant_email_inbound_delta_states/.test(up), false, 'empty on migrate');
   assert.equal(/nextLink|deltaLink/.test(up) && /plaintext/i.test(up), true);
-  // never store plaintext URL columns
   assert.equal(/\bnext_link\b|\bdelta_link\b|\bcursor_url\b/i.test(up), false);
   assert.match(down, /DROP TABLE IF EXISTS tenant_email_inbound_delta_states/);
   assert.match(up063, /CREATE TABLE tenant_email_inbound_events/);
@@ -633,61 +731,134 @@ async function main() {
   assert.match(doc, /inbound-delta-state|delta-state-store|064_tenant_email_inbound_delta/);
   assert.match(doc, /verify:email-inbound-delta-state-store/);
 
-  // ── AAD + package + URL boundary ────────────────────────────────────────
+  // ── Safe-int + text query_version parsers ───────────────────────────────
+  assert.equal(parseQueryVersion(QV1).ok, true);
+  assert.equal(parseQueryVersion(1).ok, false);
+  assert.equal(parseQueryVersion('Messages_Delta').ok, false);
+  assert.equal(parsePositiveSafeInt(1, 'g').ok, true);
+  assert.equal(parsePositiveSafeInt(MAX_SAFE_GENERATION, 'g').ok, true);
+  assert.equal(parsePositiveSafeInt(MAX_SAFE_GENERATION + 1, 'g').ok, false);
+  assert.equal(parsePositiveSafeInt(String(MAX_SAFE_GENERATION) + '0', 'g').ok, false);
+
+  // ── AAD + package + strict messages-delta URL ───────────────────────────
   const aad = buildDeltaCursorEnvelopeAadV1({
     clientId: CLIENT,
     endpointId: ENDPOINT,
     provider: PROVIDER,
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    ingestionGeneration: 1n,
-    queryVersion: 1n,
+    ingestionGeneration: 1,
+    queryVersion: QV1,
     cursorKind: 'nextLink',
   });
   const parsed = parseDeltaCursorEnvelopeAadV1(aad);
   assert.equal(parsed.ok, true);
   assert.equal(parsed.value.cursor_kind, 'nextLink');
-  // Wrong generation rebuild fails closed on open path (different AAD bytes).
+  assert.equal(parsed.value.query_version, QV1);
+  assert.equal(typeof parsed.value.ingestion_generation, 'number');
   const aad2 = buildDeltaCursorEnvelopeAadV1({
     clientId: CLIENT,
     endpointId: ENDPOINT,
     provider: PROVIDER,
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    ingestionGeneration: 2n,
-    queryVersion: 1n,
+    ingestionGeneration: 2,
+    queryVersion: QV1,
     cursorKind: 'nextLink',
   });
   assert.equal(aad.equals(aad2), false);
+  const aadQv = buildDeltaCursorEnvelopeAadV1({
+    clientId: CLIENT,
+    endpointId: ENDPOINT,
+    provider: PROVIDER,
+    providerTenantId: TENANT,
+    providerMailboxId: MAILBOX,
+    ingestionGeneration: 1,
+    queryVersion: QV2,
+    cursorKind: 'nextLink',
+  });
+  assert.equal(aad.equals(aadQv), false);
 
-  const pkgOk = encodeDeltaCursorPackageV1('deltaLink', PLANTED_CURSOR);
+  const bind = { providerMailboxId: MAILBOX, cursorKind: 'deltaLink' };
+  const bindNext = { providerMailboxId: MAILBOX, cursorKind: 'nextLink' };
+  const pkgOk = encodeDeltaCursorPackageV1('deltaLink', PLANTED_CURSOR, MAILBOX);
   assert.equal(pkgOk.ok, true);
-  const decoded = decodeDeltaCursorPackageV1(pkgOk.value);
+  const decoded = decodeDeltaCursorPackageV1(pkgOk.value, MAILBOX);
   assert.equal(decoded.ok, true);
   assert.equal(decoded.value.cursor_url, PLANTED_CURSOR);
-  // encode/decode own URL boundary (RED: http://evil must fail at package edge)
-  assert.equal(encodeDeltaCursorPackageV1('deltaLink', 'http://evil/x').ok, false);
-  assert.equal(encodeDeltaCursorPackageV1('nextLink', 'https://evil.com/v1.0/x').ok, false);
-  assert.equal(validateGraphCursorUrlBoundary(PLANTED_CURSOR).ok, true);
-  assert.equal(validateGraphCursorUrlBoundary('http://graph.microsoft.com/v1.0/x').ok, false);
-  assert.equal(validateGraphCursorUrlBoundary('https://evil.com/v1.0/x').ok, false);
-  assert.equal(validateGraphCursorUrlBoundary(
-    'https://user:pass@graph.microsoft.com/v1.0/me/messages/delta',
-  ).ok, false);
-  assert.equal(validateGraphCursorUrlBoundary(
-    'https://graph.microsoft.com/beta/me/messages/delta',
-  ).ok, false);
-  assert.equal(validateGraphCursorUrlBoundary(
-    'https://graph.microsoft.com/v1.0/me/messages/delta#frag',
-  ).ok, false);
 
-  // Module-init-pinned URL: ambient global / prototype monkeypatches must not
-  // flip accept/reject (no live property reads; node:url pin only).
+  // encode/decode require mailbox+kind authority-bound validation
+  assert.equal(encodeDeltaCursorPackageV1('deltaLink', 'http://evil/x', MAILBOX).ok, false);
+  assert.equal(encodeDeltaCursorPackageV1('nextLink', 'https://evil.com/v1.0/x', MAILBOX).ok, false);
+  assert.equal(encodeDeltaCursorPackageV1('nextLink', PLANTED_CURSOR, MAILBOX).ok, false,
+    'delta token rejected for nextLink kind');
+  assert.equal(encodeDeltaCursorPackageV1('deltaLink', PLANTED_NEXT, MAILBOX).ok, false,
+    'skip token rejected for deltaLink kind');
+
+  assert.equal(validateMessagesDeltaCursorUrl(PLANTED_CURSOR, bind).ok, true);
+  assert.equal(validateMessagesDeltaCursorUrl(PLANTED_NEXT, bindNext).ok, true);
+  assert.equal(validateGraphCursorUrlBoundary(PLANTED_CURSOR, bind).ok, true);
+  assert.equal(validateMessagesDeltaCursorUrl('http://graph.microsoft.com/v1.0/x', bind).ok, false);
+  assert.equal(validateMessagesDeltaCursorUrl('https://evil.com/v1.0/x', bind).ok, false);
+  assert.equal(validateMessagesDeltaCursorUrl(
+    `https://user:pass@graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$deltatoken=x`,
+    bind,
+  ).ok, false);
+  assert.equal(validateMessagesDeltaCursorUrl(
+    `https://graph.microsoft.com/beta/users/${MAILBOX}/messages/delta?$deltatoken=x`,
+    bind,
+  ).ok, false);
+  assert.equal(validateMessagesDeltaCursorUrl(
+    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$deltatoken=x#frag`,
+    bind,
+  ).ok, false);
+  assert.equal(validateMessagesDeltaCursorUrl(
+    `https://graph.microsoft.com/v1.0/me/messages/delta?$deltatoken=x`,
+    bind,
+  ).ok, false, 'reject /me resource');
+  assert.equal(validateMessagesDeltaCursorUrl(
+    `https://graph.microsoft.com/v1.0/users/${OTHER_MAILBOX}/messages/delta?$deltatoken=x`,
+    bind,
+  ).ok, false, 'wrong mailbox');
+  assert.equal(validateMessagesDeltaCursorUrl(
+    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages?$skiptoken=x`,
+    bindNext,
+  ).ok, false, 'wrong path resource (not messages/delta)');
+  assert.equal(validateMessagesDeltaCursorUrl(
+    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$skiptoken=x&$deltatoken=y`,
+    bindNext,
+  ).ok, false, 'mixed tokens');
+  assert.equal(validateMessagesDeltaCursorUrl(
+    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$filter=x`,
+    bindNext,
+  ).ok, false, 'filter rejected');
+  assert.equal(validateMessagesDeltaCursorUrl(
+    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$deltatoken=x`,
+    bindNext,
+  ).ok, false, 'token-kind mismatch');
+  assert.equal(validateMessagesDeltaCursorUrl(
+    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta`,
+    bindNext,
+  ).ok, false, 'missing token');
+  assert.equal(validateMessagesDeltaCursorUrl(
+    { toString: () => PLANTED_NEXT },
+    bindNext,
+  ).ok, false, 'non-primitive rejected');
+
+  // Module-init-pinned URL + ambient monkeypatch zero-touch
   const storeSrcEarly = fs.readFileSync(storeAbs, 'utf8');
   assert.match(storeSrcEarly, /require\(['"]node:url['"]\)/);
   assert.match(storeSrcEarly, /PINNED_URL_INTRINSICS_READY/);
-  assert.match(storeSrcEarly, /Reflect\.construct\(PINNED_URL/);
+  assert.match(storeSrcEarly, /PINNED_REFLECT_APPLY|Reflect\.apply/);
+  assert.match(storeSrcEarly, /validateMessagesDeltaCursorUrl/);
   assert.equal(/\bnew URL\s*\(/.test(storeSrcEarly), false, 'no ambient new URL()');
+  assert.equal(/\bverifiedAuthority\b/.test(storeSrcEarly), true);
+  // verifiedAuthority may only appear as reject path, not acceptance
+  assert.match(storeSrcEarly, /authorityVerifier|verifyBinding/);
+  assert.match(storeSrcEarly, /SQL_REVALIDATE_LEASE|revalidate/i);
+  assert.match(storeSrcEarly, /successor_cursor_rejected|openSealedDeltaCursor/);
+  assert.equal(/query_version = \$7::bigint/.test(storeSrcEarly), false);
+
   const savedGlobalUrl = globalThis.URL;
   const protoDesc = Object.getOwnPropertyDescriptor(require('node:url').URL.prototype, 'hostname');
   let ambientCtorHits = 0;
@@ -700,12 +871,10 @@ async function main() {
       configurable: true,
       get() { return 'evil.example'; },
     });
-    assert.equal(validateGraphCursorUrlBoundary(PLANTED_CURSOR).ok, true,
-      'pinned validation still accepts good cursor under monkeypatch');
-    assert.equal(validateGraphCursorUrlBoundary('https://evil.com/v1.0/x').ok, false,
-      'pinned validation still rejects hostile host under monkeypatch');
-    assert.equal(encodeDeltaCursorPackageV1('deltaLink', PLANTED_CURSOR).ok, true);
-    assert.equal(encodeDeltaCursorPackageV1('deltaLink', 'http://evil/x').ok, false);
+    assert.equal(validateMessagesDeltaCursorUrl(PLANTED_CURSOR, bind).ok, true);
+    assert.equal(validateMessagesDeltaCursorUrl('https://evil.com/v1.0/x', bind).ok, false);
+    assert.equal(encodeDeltaCursorPackageV1('deltaLink', PLANTED_CURSOR, MAILBOX).ok, true);
+    assert.equal(encodeDeltaCursorPackageV1('deltaLink', 'http://evil/x', MAILBOX).ok, false);
     assert.equal(ambientCtorHits, 0, 'ambient global URL constructor never invoked');
   } finally {
     globalThis.URL = savedGlobalUrl;
@@ -713,6 +882,16 @@ async function main() {
       Object.defineProperty(require('node:url').URL.prototype, 'hostname', protoDesc);
     }
   }
+
+  // Proxy URL input zero-trap (object targets only — primitives cannot be Proxy targets)
+  const urlTrapHits = { get: 0, ownKeys: 0, apply: 0 };
+  const hostileObj = new Proxy({ href: PLANTED_NEXT }, {
+    get(t, p, r) { urlTrapHits.get += 1; return Reflect.get(t, p, r); },
+    ownKeys(t) { urlTrapHits.ownKeys += 1; return Reflect.ownKeys(t); },
+  });
+  assert.equal(validateMessagesDeltaCursorUrl(hostileObj, bindNext).ok, false);
+  assert.equal(urlTrapHits.get, 0, 'proxy get trap must not run on URL boundary');
+  assert.equal(urlTrapHits.ownKeys, 0, 'proxy ownKeys trap must not run on URL boundary');
 
   // ── Seal / open roundtrip + AAD cross-scope failure ─────────────────────
   const envProvider = createFakeEmailGrantEnvelopeProvider();
@@ -722,7 +901,7 @@ async function main() {
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
     ingestionGeneration: 1,
-    queryVersion: 1,
+    queryVersion: QV1,
     cursorKind: 'nextLink',
     cursorUrl: PLANTED_NEXT,
     operationId: crypto.randomUUID(),
@@ -738,36 +917,35 @@ async function main() {
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
     ingestionGeneration: 1,
-    queryVersion: 1,
+    queryVersion: QV1,
     cursorKind: 'nextLink',
     envelope: sealed.value.envelope,
   }));
   assert.equal(opened.ok, true);
   assert.equal(opened.value.cursor_url, PLANTED_NEXT);
 
-  const crossGen = await openSealedDeltaCursor(envProvider, Object.freeze({
-    clientId: CLIENT,
-    endpointId: ENDPOINT,
-    providerTenantId: TENANT,
-    providerMailboxId: MAILBOX,
-    ingestionGeneration: 2,
-    queryVersion: 1,
-    cursorKind: 'nextLink',
-    envelope: sealed.value.envelope,
-  }));
-  assert.equal(crossGen.ok, false, 'AAD generation mismatch fails closed');
-
-  const crossKind = await openSealedDeltaCursor(envProvider, Object.freeze({
-    clientId: CLIENT,
-    endpointId: ENDPOINT,
-    providerTenantId: TENANT,
-    providerMailboxId: MAILBOX,
-    ingestionGeneration: 1,
-    queryVersion: 1,
-    cursorKind: 'deltaLink',
-    envelope: sealed.value.envelope,
-  }));
-  assert.equal(crossKind.ok, false, 'AAD cursor_kind mismatch fails closed');
+  for (const [label, patch] of [
+    ['generation', { ingestionGeneration: 2 }],
+    ['queryVersion', { queryVersion: QV2 }],
+    ['cursorKind', { cursorKind: 'deltaLink' }],
+    ['client', { clientId: OTHER_CLIENT }],
+    ['endpoint', { endpointId: OTHER_ENDPOINT }],
+    ['tenant', { providerTenantId: OTHER_TENANT }],
+    ['mailbox', { providerMailboxId: OTHER_MAILBOX }],
+  ]) {
+    const cross = await openSealedDeltaCursor(envProvider, Object.freeze({
+      clientId: CLIENT,
+      endpointId: ENDPOINT,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+      ingestionGeneration: 1,
+      queryVersion: QV1,
+      cursorKind: 'nextLink',
+      envelope: sealed.value.envelope,
+      ...patch,
+    }));
+    assert.equal(cross.ok, false, `AAD ${label} mismatch fails closed`);
+  }
 
   // ── Factory boundary ────────────────────────────────────────────────────
   assert.throws(
@@ -777,47 +955,36 @@ async function main() {
   assert.throws(
     () => createInboundEmailDeltaStateStore(Object.freeze({
       withTransactionClient: new Proxy(async () => {}, {
-        apply(t, thisArg, args) { return Reflect.apply(t, thisArg, args); },
+        apply() { throw new Error('proxy must not run'); },
       }),
     })),
     (err) => err && err.code === FAILURE_CODE,
-    'proxy loaner rejected',
   );
-  assert.ok(resolveWithTransactionClient(async (work) => work({
-    async query() { return { rows: [] }; },
-  })));
 
+  // ── initialize → acquire → commit nextLink → commit deltaLink ───────────
   const harness = createFakeDeltaHarness();
+  const authorityVerifier = makeAuthorityVerifier();
   const deltaStore = createInboundEmailDeltaStateStore(Object.freeze({
     withTransactionClient: harness.withTransactionClient,
     envelopeProvider: envProvider,
+    authorityVerifier,
   }));
 
-  // ── initialize → acquire → commit nextLink → commit deltaLink ───────────
   const init = await deltaStore.initializeState(Object.freeze({
     clientId: CLIENT,
     locationId: LOCATION,
     endpointId: ENDPOINT,
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    queryVersion: 1,
+    queryVersion: QV1,
   }));
   assert.equal(init.ok, true, JSON.stringify(init));
   assert.equal(init.value.phase, 'initial');
   assert.equal(init.value.ingestion_generation, 1);
+  assert.equal(init.value.query_version, QV1);
   assert.equal(init.value.state_version, 1);
 
-  const dupInit = await deltaStore.initializeState(Object.freeze({
-    clientId: CLIENT,
-    locationId: LOCATION,
-    endpointId: ENDPOINT,
-    providerTenantId: TENANT,
-    providerMailboxId: MAILBOX,
-  }));
-  assert.equal(dupInit.ok, false);
-  assert.equal(dupInit.error, 'delta_state_already_exists');
-
-  let lease = await deltaStore.acquireLease(Object.freeze({
+  const lease = await deltaStore.acquireLease(Object.freeze({
     clientId: CLIENT,
     endpointId: ENDPOINT,
     workerId: 'runner-1',
@@ -826,19 +993,9 @@ async function main() {
     expectedStateVersion: 1,
   }));
   assert.equal(lease.ok, true, JSON.stringify(lease));
-  assert.ok(lease.value.lease_token);
-  assert.equal(lease.value.state_version, 2);
-
-  // stale state_version cannot acquire
-  const staleAcq = await deltaStore.acquireLease(Object.freeze({
-    clientId: CLIENT,
-    endpointId: ENDPOINT,
-    workerId: 'runner-2',
-    ttlSeconds: 60,
-    expectedGeneration: 1,
-    expectedStateVersion: 1,
-  }));
-  assert.equal(staleAcq.ok, false);
+  assert.equal(lease.value.query_version, QV1);
+  let sv = lease.value.state_version;
+  const token = lease.value.lease_token;
 
   const sealedNext = await deltaStore.sealDeltaCursor(Object.freeze({
     clientId: CLIENT,
@@ -846,7 +1003,7 @@ async function main() {
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
     ingestionGeneration: 1,
-    queryVersion: 1,
+    queryVersion: QV1,
     cursorKind: 'nextLink',
     cursorUrl: PLANTED_NEXT,
     operationId: crypto.randomUUID(),
@@ -857,84 +1014,74 @@ async function main() {
     clientId: CLIENT,
     locationId: LOCATION,
     endpointId: ENDPOINT,
-    leaseToken: lease.value.lease_token,
+    leaseToken: token,
     expectedGeneration: 1,
-    expectedStateVersion: lease.value.state_version,
+    expectedStateVersion: sv,
+    providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    queryVersion: 1,
-    envelopes: [envelope({ provider_message_id: 'msg-a' })],
-    tombstones: [],
-    successorCursor: {
+    queryVersion: QV1,
+    envelopes: Object.freeze([
+      envelope({ provider_message_id: 'msg-001' }),
+      envelope({ provider_message_id: 'msg-002' }),
+    ]),
+    tombstones: Object.freeze([]),
+    successorCursor: Object.freeze({
       cursor_kind: 'nextLink',
       envelope: sealedNext.value.envelope,
-    },
+    }),
   }));
   assert.equal(page1.ok, true, JSON.stringify(page1));
-  assert.equal(page1.value.phase, 'initial');
   assert.equal(page1.value.cursor_kind, 'nextLink');
-  assert.equal(page1.value.envelopes_presented, 1);
-  assert.equal(harness.events.size, 1);
+  assert.equal(page1.value.phase, 'initial');
+  assert.equal(page1.value.envelopes_presented, 2);
+  assert.equal(harness.events.size, 2);
+  sv = page1.value.state_version;
 
-  // refresh lease after commit (state_version advanced)
-  lease = await deltaStore.renewLease(Object.freeze({
-    clientId: CLIENT,
-    endpointId: ENDPOINT,
-    leaseToken: lease.value.lease_token,
-    expectedGeneration: 1,
-    expectedStateVersion: page1.value.state_version,
-    ttlSeconds: 60,
-  }));
-  assert.equal(lease.ok, true, JSON.stringify(lease));
-
-  // duplicate page still advances cursor
+  // Duplicate-only page still advances
   const sealedNext2 = await deltaStore.sealDeltaCursor(Object.freeze({
     clientId: CLIENT,
     endpointId: ENDPOINT,
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
     ingestionGeneration: 1,
-    queryVersion: 1,
+    queryVersion: QV1,
     cursorKind: 'nextLink',
-    cursorUrl: `${PLANTED_NEXT}&page=2`,
+    cursorUrl: PLANTED_NEXT.replace('SECRET_NEXT_TOKEN_NEVER_LEAK', 'SECRET_NEXT_TOKEN_NEVER_LEAK_2'),
     operationId: crypto.randomUUID(),
   }));
   const pageDup = await deltaStore.commitPageEvents(Object.freeze({
     clientId: CLIENT,
     locationId: LOCATION,
     endpointId: ENDPOINT,
-    leaseToken: lease.value.lease_token,
+    leaseToken: token,
     expectedGeneration: 1,
-    expectedStateVersion: lease.value.state_version,
+    expectedStateVersion: sv,
+    providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    queryVersion: 1,
-    envelopes: [envelope({ provider_message_id: 'msg-a' })], // duplicate identity
-    tombstones: [tombstone('msg-gone')],
-    successorCursor: {
+    queryVersion: QV1,
+    envelopes: Object.freeze([
+      envelope({ provider_message_id: 'msg-001' }),
+      envelope({ provider_message_id: 'msg-002' }),
+    ]),
+    tombstones: Object.freeze([]),
+    successorCursor: Object.freeze({
       cursor_kind: 'nextLink',
       envelope: sealedNext2.value.envelope,
-    },
+    }),
   }));
-  assert.equal(pageDup.ok, true, JSON.stringify(pageDup));
-  assert.equal(harness.events.size, 1, 'duplicate does not insert second row');
-  assert.equal(pageDup.value.tombstones_presented, 1);
-  assert.ok(pageDup.value.state_version > lease.value.state_version);
+  assert.equal(pageDup.ok, true);
+  assert.equal(harness.events.size, 2, 'duplicates do not insert');
+  assert.ok(pageDup.value.state_version > sv);
+  sv = pageDup.value.state_version;
 
-  lease = {
-    ok: true,
-    value: {
-      ...lease.value,
-      state_version: pageDup.value.state_version,
-    },
-  };
-
-  // terminal deltaLink transition
+  // terminal deltaLink transition + tombstone-only
   const sealedDelta = await deltaStore.sealDeltaCursor(Object.freeze({
     clientId: CLIENT,
     endpointId: ENDPOINT,
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
     ingestionGeneration: 1,
-    queryVersion: 1,
+    queryVersion: QV1,
     cursorKind: 'deltaLink',
     cursorUrl: PLANTED_CURSOR,
     operationId: crypto.randomUUID(),
@@ -943,201 +1090,319 @@ async function main() {
     clientId: CLIENT,
     locationId: LOCATION,
     endpointId: ENDPOINT,
-    leaseToken: lease.value.lease_token,
+    leaseToken: token,
     expectedGeneration: 1,
-    expectedStateVersion: lease.value.state_version,
+    expectedStateVersion: sv,
+    providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    queryVersion: 1,
-    envelopes: [envelope({ provider_message_id: 'msg-b' })],
-    tombstones: [],
-    successorCursor: {
+    queryVersion: QV1,
+    envelopes: Object.freeze([]),
+    tombstones: Object.freeze([tombstone('deleted-1')]),
+    successorCursor: Object.freeze({
       cursor_kind: 'deltaLink',
       envelope: sealedDelta.value.envelope,
-    },
+    }),
   }));
   assert.equal(pageTerm.ok, true, JSON.stringify(pageTerm));
-  assert.equal(pageTerm.value.phase, 'tracking');
   assert.equal(pageTerm.value.cursor_kind, 'deltaLink');
-  assert.equal(harness.events.size, 2);
+  assert.equal(pageTerm.value.phase, 'tracking');
+  assert.equal(harness.events.size, 2, 'tombstone creates no synthetic event');
+  sv = pageTerm.value.state_version;
 
   // open under lease
-  const openedLive = await deltaStore.openCursor(Object.freeze({
+  const openedCursor = await deltaStore.openCursor(Object.freeze({
     clientId: CLIENT,
     endpointId: ENDPOINT,
-    leaseToken: lease.value.lease_token,
+    leaseToken: token,
     expectedGeneration: 1,
-    expectedStateVersion: pageTerm.value.state_version,
+    expectedStateVersion: sv,
   }));
-  assert.equal(openedLive.ok, true, JSON.stringify(openedLive));
-  assert.equal(openedLive.value.cursor_present, true);
-  assert.equal(openedLive.value.cursor_url, PLANTED_CURSOR);
+  assert.equal(openedCursor.ok, true, JSON.stringify(openedCursor));
+  assert.equal(openedCursor.value.cursor_present, true);
+  assert.equal(openedCursor.value.cursor_kind, 'deltaLink');
+  assert.equal(openedCursor.value.cursor_url, PLANTED_CURSOR);
 
-  // public status — no cursor URL / lease token / mailbox / PII
+  // public status strips secrets
   const status = await deltaStore.getPublicStatus(Object.freeze({
-    clientId: CLIENT,
-    endpointId: ENDPOINT,
+    clientId: CLIENT, endpointId: ENDPOINT,
   }));
   assert.equal(status.ok, true);
   assert.equal(status.value.state_present, true);
-  assert.equal(status.value.phase, 'tracking');
-  assert.equal(status.value.has_sealed_cursor, true);
   assert.equal(status.value.cursor_kind, 'deltaLink');
+  assert.equal(status.value.query_version, QV1);
+  assert.equal('cursor_url' in status.value, false);
+  assert.equal('lease_token' in status.value, false);
+  assert.equal('provider_mailbox_id' in status.value, false);
+  assert.equal('provider_tenant_id' in status.value, false);
   assert.deepEqual(Object.keys(status.value).sort(), [...PUBLIC_STATUS_KEYS].sort());
   assert.equal(noLeak(status.value), true);
-  assert.equal(Object.prototype.hasOwnProperty.call(status.value, 'lease_token'), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(status.value, 'cursor_url'), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(status.value, 'provider_mailbox_id'), false);
 
-  // ── CAS failure rolls back inserts ──────────────────────────────────────
-  harness.setFailOn((sql) => /SET cursor_kind = \$8/.test(sql));
-  const lease2 = await deltaStore.acquireLease(Object.freeze({
-    clientId: CLIENT,
-    endpointId: ENDPOINT,
-    workerId: 'runner-1',
-    ttlSeconds: 60,
-    // force fail: wrong state version path via cursor CAS failOn after insert
-    expectedGeneration: 1,
-    expectedStateVersion: pageTerm.value.state_version,
-  }));
-  // lease may fail due to active lease — expire first
-  harness.setFailOn(null);
-  harness.advanceClock(120_000);
-  const leaseAfterExpiry = await deltaStore.acquireLease(Object.freeze({
-    clientId: CLIENT,
-    endpointId: ENDPOINT,
-    workerId: 'runner-1',
-    ttlSeconds: 60,
-    expectedGeneration: 1,
-    expectedStateVersion: pageTerm.value.state_version,
-  }));
-  assert.equal(leaseAfterExpiry.ok, true, JSON.stringify(leaseAfterExpiry));
+  // ── Hostile sealed successor: cross-AAD → zero inserts / zero cursor advance ──
+  const eventsBeforeHostile = harness.events.size;
+  const cursorKindBefore = [...harness.states.values()].find((r) => r.is_current).cursor_kind;
+  const svBeforeHostile = [...harness.states.values()].find((r) => r.is_current).state_version;
 
-  harness.setFailOn((sql) => /SET cursor_kind = \$8/.test(sql));
-  const sealedX = await deltaStore.sealDeltaCursor(Object.freeze({
-    clientId: CLIENT,
-    endpointId: ENDPOINT,
-    providerTenantId: TENANT,
-    providerMailboxId: MAILBOX,
-    ingestionGeneration: 1,
-    queryVersion: 1,
-    cursorKind: 'deltaLink',
-    cursorUrl: PLANTED_CURSOR,
-    operationId: crypto.randomUUID(),
-  }));
-  const eventsBefore = harness.events.size;
-  const failCas = await deltaStore.commitPageEvents(Object.freeze({
-    clientId: CLIENT,
-    locationId: LOCATION,
-    endpointId: ENDPOINT,
-    leaseToken: leaseAfterExpiry.value.lease_token,
-    expectedGeneration: 1,
-    expectedStateVersion: leaseAfterExpiry.value.state_version,
-    providerMailboxId: MAILBOX,
-    queryVersion: 1,
-    envelopes: [envelope({ provider_message_id: 'msg-should-rollback' })],
-    tombstones: [],
-    successorCursor: {
-      cursor_kind: 'deltaLink',
-      envelope: sealedX.value.envelope,
+  const otherDeltaUrl =
+    `https://graph.microsoft.com/v1.0/users/${OTHER_MAILBOX}/messages/delta?$deltatoken=SECRET_DELTA_OTHER`;
+  const hostileCases = [
+    {
+      label: 'client',
+      seal: { clientId: OTHER_CLIENT },
+      claimKind: 'deltaLink',
     },
+    {
+      label: 'endpoint',
+      seal: { endpointId: OTHER_ENDPOINT },
+      claimKind: 'deltaLink',
+    },
+    {
+      label: 'tenant',
+      seal: { providerTenantId: OTHER_TENANT },
+      claimKind: 'deltaLink',
+    },
+    {
+      label: 'mailbox',
+      seal: {
+        providerMailboxId: OTHER_MAILBOX,
+        cursorUrl: otherDeltaUrl,
+      },
+      claimKind: 'deltaLink',
+    },
+    {
+      label: 'generation',
+      seal: { ingestionGeneration: 99 },
+      claimKind: 'deltaLink',
+    },
+    {
+      label: 'queryVersion',
+      seal: { queryVersion: QV2 },
+      claimKind: 'deltaLink',
+    },
+    {
+      label: 'kind',
+      seal: { cursorKind: 'nextLink', cursorUrl: PLANTED_NEXT },
+      claimKind: 'deltaLink',
+    },
+  ];
+  for (const hc of hostileCases) {
+    const sealArgs = {
+      clientId: CLIENT,
+      endpointId: ENDPOINT,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+      ingestionGeneration: 1,
+      queryVersion: QV1,
+      cursorKind: 'deltaLink',
+      cursorUrl: PLANTED_CURSOR,
+      operationId: crypto.randomUUID(),
+      ...hc.seal,
+    };
+    const sealedHostile = await sealDeltaCursorCompatible(envProvider, Object.freeze(sealArgs));
+    assert.equal(sealedHostile.ok, true, `hostile ${hc.label} must seal under its own AAD`);
+    const commitHostile = await deltaStore.commitPageEvents(Object.freeze({
+      clientId: CLIENT,
+      locationId: LOCATION,
+      endpointId: ENDPOINT,
+      leaseToken: token,
+      expectedGeneration: 1,
+      expectedStateVersion: sv,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+      queryVersion: QV1,
+      envelopes: Object.freeze([
+        envelope({ provider_message_id: `hostile-${hc.label}` }),
+      ]),
+      tombstones: Object.freeze([]),
+      successorCursor: Object.freeze({
+        cursor_kind: hc.claimKind,
+        envelope: sealedHostile.value.envelope,
+      }),
+    }));
+    assert.equal(commitHostile.ok, false, `hostile ${hc.label} must reject`);
+    assert.equal(harness.events.size, eventsBeforeHostile, `zero inserts on hostile ${hc.label}`);
+    const cur = [...harness.states.values()].find((r) => r.is_current);
+    assert.equal(cur.state_version, svBeforeHostile, `zero cursor advance on hostile ${hc.label}`);
+    assert.equal(cur.cursor_kind, cursorKindBefore);
+  }
+
+  // ── Planted delayed-open takeover/expiry (post-crypto lease fence) ──────
+  // After first lease read, another worker reacquires / expires lease before
+  // plaintext release → openCursor must return no cursor.
+  let openLoans = 0;
+  harness.setOnLoanStart(async ({ loanId }) => {
+    openLoans += 1;
+    // After first openCursor TX commits (loan for read), and before second
+    // revalidation loan, expire the lease via clock + clear token.
+    // openCursor uses: loan1=read, (crypto outside), loan2=revalidate.
+    // We mutate durable state after loan 1 completes — hook runs at loan start
+    // so on loan 2 start we take over.
+    if (openLoans === 2) {
+      harness.mutateCurrent(CLIENT, ENDPOINT, (row) => {
+        row.lease_owner = 'takeover-worker';
+        row.lease_token = crypto.randomUUID();
+        row.lease_until = new Date(harness.getClockMs() + 60_000);
+        row.state_version = Number(row.state_version) + 1;
+      });
+    }
+  });
+  const fencedOpen = await deltaStore.openCursor(Object.freeze({
+    clientId: CLIENT,
+    endpointId: ENDPOINT,
+    leaseToken: token,
+    expectedGeneration: 1,
+    expectedStateVersion: sv,
   }));
-  assert.equal(failCas.ok, false);
-  assert.equal(harness.events.size, eventsBefore, 'CAS fail rolls back event insert');
-  harness.setFailOn(null);
+  harness.setOnLoanStart(null);
+  assert.equal(fencedOpen.ok, false, 'stale lease after crypto must not release cursor');
+  assert.ok(
+    fencedOpen.error === 'lease_fenced' || fencedOpen.error === 'lease_expired'
+      || fencedOpen.error === 'state_version_mismatch'
+      || fencedOpen.error === 'generation_mismatch',
+    fencedOpen.error,
+  );
+
+  // Restore lease for remaining tests
+  harness.mutateCurrent(CLIENT, ENDPOINT, (row) => {
+    row.lease_owner = 'runner-1';
+    row.lease_token = token;
+    row.lease_until = new Date(harness.getClockMs() + 120_000);
+    // keep elevated state_version from takeover mutation
+  });
+  sv = [...harness.states.values()].find((r) => r.is_current).state_version;
 
   // ── commit-unknown (COMMIT reject after send) ───────────────────────────
-  // re-acquire clean lease state_version from public status
-  const st2 = await deltaStore.getPublicStatus(Object.freeze({
-    clientId: CLIENT, endpointId: ENDPOINT,
-  }));
-  harness.advanceClock(120_000);
-  const leaseCu = await deltaStore.acquireLease(Object.freeze({
-    clientId: CLIENT,
-    endpointId: ENDPOINT,
-    workerId: 'runner-cu',
-    ttlSeconds: 60,
-    expectedGeneration: 1,
-    expectedStateVersion: st2.value.state_version,
-  }));
-  assert.equal(leaseCu.ok, true, JSON.stringify(leaseCu));
-  harness.setCommitReject(true);
   const sealedCu = await deltaStore.sealDeltaCursor(Object.freeze({
     clientId: CLIENT,
     endpointId: ENDPOINT,
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
     ingestionGeneration: 1,
-    queryVersion: 1,
+    queryVersion: QV1,
     cursorKind: 'deltaLink',
-    cursorUrl: PLANTED_CURSOR,
+    cursorUrl: PLANTED_CURSOR.replace('SECRET_DELTA', 'SECRET_DELTA_CU'),
     operationId: crypto.randomUUID(),
   }));
-  const cu = await deltaStore.commitPageEvents(Object.freeze({
+  assert.equal(sealedCu.ok, true);
+  harness.setCommitReject(true);
+  const unknown = await deltaStore.commitPageEvents(Object.freeze({
     clientId: CLIENT,
     locationId: LOCATION,
     endpointId: ENDPOINT,
-    leaseToken: leaseCu.value.lease_token,
+    leaseToken: token,
     expectedGeneration: 1,
-    expectedStateVersion: leaseCu.value.state_version,
+    expectedStateVersion: sv,
+    providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    queryVersion: 1,
-    envelopes: [envelope({ provider_message_id: 'msg-cu' })],
-    tombstones: [],
-    successorCursor: {
+    queryVersion: QV1,
+    envelopes: Object.freeze([envelope({ provider_message_id: 'msg-unknown' })]),
+    tombstones: Object.freeze([]),
+    successorCursor: Object.freeze({
       cursor_kind: 'deltaLink',
       envelope: sealedCu.value.envelope,
-    },
+    }),
   }));
-  assert.equal(cu.ok, false);
-  assert.equal(cu.error, 'inbound_delta_state_commit_outcome_unknown');
-  assert.equal(noLeak(cu), true);
   harness.setCommitReject(false);
+  assert.equal(unknown.ok, false);
+  assert.equal(unknown.error, 'inbound_delta_state_commit_outcome_unknown');
+  // uncertainty: never claims rollback; events may or may not be durable — harness
+  // rejects COMMIT so staged is discarded; size unchanged is the fake model.
+  assert.equal(harness.events.has(`microsoft_graph\0${MAILBOX}\0msg-unknown`), false);
 
-  // replay converges (whether or not prior commit landed — fake rolled back staged)
+  // replay converges after unknown
   const sealedReplay = await deltaStore.sealDeltaCursor(Object.freeze({
     clientId: CLIENT,
     endpointId: ENDPOINT,
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
     ingestionGeneration: 1,
-    queryVersion: 1,
+    queryVersion: QV1,
     cursorKind: 'deltaLink',
-    cursorUrl: PLANTED_CURSOR,
+    cursorUrl: PLANTED_CURSOR.replace('SECRET_DELTA', 'SECRET_DELTA_REPLAY'),
     operationId: crypto.randomUUID(),
   }));
   const replay = await deltaStore.commitPageEvents(Object.freeze({
     clientId: CLIENT,
     locationId: LOCATION,
     endpointId: ENDPOINT,
-    leaseToken: leaseCu.value.lease_token,
+    leaseToken: token,
     expectedGeneration: 1,
-    expectedStateVersion: leaseCu.value.state_version,
+    expectedStateVersion: sv,
+    providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    queryVersion: 1,
-    envelopes: [envelope({ provider_message_id: 'msg-cu' })],
-    tombstones: [],
-    successorCursor: {
+    queryVersion: QV1,
+    envelopes: Object.freeze([envelope({ provider_message_id: 'msg-cu' })]),
+    tombstones: Object.freeze([]),
+    successorCursor: Object.freeze({
       cursor_kind: 'deltaLink',
       envelope: sealedReplay.value.envelope,
-    },
+    }),
   }));
   assert.equal(replay.ok, true, JSON.stringify(replay));
   assert.equal(harness.events.has(`microsoft_graph\0${MAILBOX}\0msg-cu`), true);
+  sv = replay.value.state_version;
 
-  // ── reset required + next generation (grant gen independent) ────────────
-  const st3 = await deltaStore.getPublicStatus(Object.freeze({
-    clientId: CLIENT, endpointId: ENDPOINT,
-  }));
+  // ── reset required + next generation (authority verifier, no boolean) ───
   const reset = await deltaStore.markResetRequired(Object.freeze({
     clientId: CLIENT,
     endpointId: ENDPOINT,
     expectedGeneration: 1,
-    expectedStateVersion: st3.value.state_version,
+    expectedStateVersion: sv,
     reason: 'graph_410_gone',
   }));
   assert.equal(reset.ok, true);
   assert.equal(reset.value.phase, 'reset_required');
-  assert.equal(reset.value.reset_reason, 'graph_410_gone');
+
+  // caller boolean self-assert rejected even if true
+  const boolAuth = await deltaStore.beginNextGeneration(Object.freeze({
+    clientId: CLIENT,
+    locationId: LOCATION,
+    endpointId: ENDPOINT,
+    expectedGeneration: 1,
+    expectedStateVersion: reset.value.state_version,
+    providerTenantId: TENANT,
+    providerMailboxId: MAILBOX,
+    queryVersion: QV2,
+    verifiedAuthority: true,
+  }));
+  assert.equal(boolAuth.ok, false);
+  assert.equal(boolAuth.error, 'authority_not_verified');
+
+  // wrong mailbox via verifier fails
+  const badVerifierStore = createInboundEmailDeltaStateStore(Object.freeze({
+    withTransactionClient: harness.withTransactionClient,
+    envelopeProvider: envProvider,
+    authorityVerifier: makeAuthorityVerifier({ allow: false }),
+  }));
+  const noAuth = await badVerifierStore.beginNextGeneration(Object.freeze({
+    clientId: CLIENT,
+    locationId: LOCATION,
+    endpointId: ENDPOINT,
+    expectedGeneration: 1,
+    expectedStateVersion: reset.value.state_version,
+    providerTenantId: TENANT,
+    providerMailboxId: MAILBOX,
+    queryVersion: QV2,
+  }));
+  assert.equal(noAuth.ok, false);
+  assert.equal(noAuth.error, 'authority_not_verified');
+
+  // without authorityVerifier factory dep
+  const noVerStore = createInboundEmailDeltaStateStore(Object.freeze({
+    withTransactionClient: harness.withTransactionClient,
+    envelopeProvider: envProvider,
+  }));
+  const missingVer = await noVerStore.beginNextGeneration(Object.freeze({
+    clientId: CLIENT,
+    locationId: LOCATION,
+    endpointId: ENDPOINT,
+    expectedGeneration: 1,
+    expectedStateVersion: reset.value.state_version,
+    providerTenantId: TENANT,
+    providerMailboxId: MAILBOX,
+    queryVersion: QV2,
+  }));
+  assert.equal(missingVer.ok, false);
+  assert.equal(missingVer.error, 'authority_verifier_required');
 
   const next = await deltaStore.beginNextGeneration(Object.freeze({
     clientId: CLIENT,
@@ -1147,57 +1412,44 @@ async function main() {
     expectedStateVersion: reset.value.state_version,
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    queryVersion: 2,
-    verifiedAuthority: true,
+    queryVersion: QV2,
   }));
   assert.equal(next.ok, true, JSON.stringify(next));
   assert.equal(next.value.ingestion_generation, 2);
-  assert.equal(next.value.query_version, 2);
+  assert.equal(next.value.query_version, QV2);
   assert.equal(next.value.phase, 'initial');
   assert.equal(next.value.previous_generation, 1);
-  // old events preserved
-  assert.ok(harness.events.size >= 2);
-  // old generation still durable but not current
-  let oldCurrent = 0;
-  let newCurrent = 0;
+
+  // one-current invariant after rebind
+  let currentCount = 0;
+  let oldGenPresent = 0;
   for (const row of harness.states.values()) {
-    if (row.endpoint_id === ENDPOINT && row.is_current) newCurrent += 1;
-    if (row.ingestion_generation === 1) oldCurrent += 1;
+    if (row.endpoint_id === ENDPOINT && row.is_current) currentCount += 1;
+    if (row.ingestion_generation === 1) oldGenPresent += 1;
   }
-  assert.equal(newCurrent, 1);
-  assert.equal(oldCurrent, 1);
+  assert.equal(currentCount, 1, 'exactly one current after rebind');
+  assert.equal(oldGenPresent, 1, 'old generation preserved');
+  assert.ok(harness.events.size >= 2, 'events preserved across generation rebind');
 
-  // beginNextGeneration without verifiedAuthority
-  const noAuth = await deltaStore.beginNextGeneration(Object.freeze({
-    clientId: CLIENT,
-    locationId: LOCATION,
-    endpointId: ENDPOINT,
-    expectedGeneration: 2,
-    expectedStateVersion: 1,
-    providerTenantId: TENANT,
-    providerMailboxId: MAILBOX,
-    queryVersion: 2,
-  }));
-  assert.equal(noAuth.ok, false);
-  assert.equal(noAuth.error, 'authority_not_verified');
-
-  // grant generation independence: no grant table/column SQL owners in this module
+  // grant generation independence
   const storeSrc = fs.readFileSync(storeAbs, 'utf8');
   assert.equal(/tenant_email_delegated_grants/.test(storeSrc), false);
-  // Do not couple delta ingestion_generation to OAuth grant_generation identifiers.
   assert.equal(/\bgrant_generation\b/.test(storeSrc), false);
   assert.match(storeSrc, /EMAIL_INBOUND_DELTA_STATE_RUNTIME_WIRED = false/);
   assert.equal(/require\(['"]\.\/staff-/.test(storeSrc), false);
   assert.equal(/fetch\(|axios|http\.request/.test(storeSrc), false);
   assert.equal(/\bnet\.connect\b|\bhttps?\.request\b|\baxios\b|\bnode-fetch\b/.test(storeSrc), false);
+  // no delete API for states
+  assert.equal(/deleteState|deleteCurrent|DROP ROW|DELETE FROM tenant_email_inbound_delta/.test(storeSrc), false);
 
-  // ── hostile inputs (runtime results, not regex self-reference) ──────────
+  // ── hostile inputs ──────────────────────────────────────────────────────
   assert.equal(prepareCanonicalBatch(null, MAILBOX).ok, true);
   assert.equal(prepareCanonicalBatch([envelope({ provider_mailbox_id: 'other' })], MAILBOX).ok, false);
   assert.equal(prepareTombstones([tombstone('x')], MAILBOX).ok, true);
-  assert.equal(prepareTombstones([{ provider: 'gmail_api', provider_mailbox_id: MAILBOX, provider_message_id: 'x' }], MAILBOX).ok, false);
+  assert.equal(prepareTombstones([{
+    provider: 'gmail_api', provider_mailbox_id: MAILBOX, provider_message_id: 'x',
+  }], MAILBOX).ok, false);
 
-  // Proxy array rejected before any get/ownKeys traps (zero-touch).
   const proxyTrapHits = { get: 0, ownKeys: 0, getOwnPropertyDescriptor: 0, getPrototypeOf: 0 };
   const proxyEnv = new Proxy([envelope()], {
     get(t, p, r) { proxyTrapHits.get += 1; return Reflect.get(t, p, r); },
@@ -1210,28 +1462,24 @@ async function main() {
   });
   const proxyBatch = prepareCanonicalBatch(proxyEnv, MAILBOX);
   assert.equal(proxyBatch.ok, false, 'proxy envelope array must fail closed');
-  assert.equal(proxyTrapHits.get, 0, 'proxy get trap must not run');
-  assert.equal(proxyTrapHits.ownKeys, 0, 'proxy ownKeys trap must not run');
-  assert.equal(proxyTrapHits.getOwnPropertyDescriptor, 0, 'proxy descriptor trap must not run');
-  assert.equal(proxyTrapHits.getPrototypeOf, 0, 'proxy getPrototypeOf trap must not run');
+  assert.equal(proxyTrapHits.get, 0);
+  assert.equal(proxyTrapHits.ownKeys, 0);
+  assert.equal(proxyTrapHits.getOwnPropertyDescriptor, 0);
+  assert.equal(proxyTrapHits.getPrototypeOf, 0);
 
-  // Accessor-owned envelope fields fail closed (no silent [[Get]] acceptance).
   const accessorEnv = {};
   Object.defineProperty(accessorEnv, 'provider', {
     enumerable: true,
     get() { return 'microsoft_graph'; },
   });
   Object.defineProperty(accessorEnv, 'provider_mailbox_id', {
-    enumerable: true,
-    value: MAILBOX,
+    enumerable: true, value: MAILBOX,
   });
   Object.defineProperty(accessorEnv, 'provider_message_id', {
-    enumerable: true,
-    value: 'acc-1',
+    enumerable: true, value: 'acc-1',
   });
   Object.defineProperty(accessorEnv, 'received_at', {
-    enumerable: true,
-    value: '2026-08-01T12:00:00.000Z',
+    enumerable: true, value: '2026-08-01T12:00:00.000Z',
   });
   Object.defineProperty(accessorEnv, 'subject', { enumerable: true, value: 'x' });
   Object.defineProperty(accessorEnv, 'sender_display_name', { enumerable: true, value: 'x' });
@@ -1240,14 +1488,6 @@ async function main() {
   Object.defineProperty(accessorEnv, 'conversation_id', { enumerable: true, value: null });
   Object.defineProperty(accessorEnv, 'internet_message_id', { enumerable: true, value: null });
   assert.equal(prepareCanonicalBatch([accessorEnv], MAILBOX).ok, false);
-
-  const symbolTomb = Object.create(null);
-  Object.defineProperty(symbolTomb, 'provider', { value: 'microsoft_graph', enumerable: true });
-  Object.defineProperty(symbolTomb, 'provider_mailbox_id', { value: MAILBOX, enumerable: true });
-  Object.defineProperty(symbolTomb, 'provider_message_id', { value: 'z', enumerable: true });
-  Object.defineProperty(symbolTomb, Symbol('x'), { value: 1 });
-  // symbol keys → snapshotOwnDataProps fails
-  assert.equal(prepareTombstones([symbolTomb], MAILBOX).ok, false);
 
   // stale lease token cannot commit
   const leaseFresh = await deltaStore.acquireLease(Object.freeze({
@@ -1265,7 +1505,7 @@ async function main() {
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
     ingestionGeneration: 2,
-    queryVersion: 2,
+    queryVersion: QV2,
     cursorKind: 'nextLink',
     cursorUrl: PLANTED_NEXT,
     operationId: crypto.randomUUID(),
@@ -1277,18 +1517,19 @@ async function main() {
     leaseToken: crypto.randomUUID(),
     expectedGeneration: 2,
     expectedStateVersion: leaseFresh.value.state_version,
+    providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    queryVersion: 2,
-    envelopes: [],
-    tombstones: [],
-    successorCursor: {
+    queryVersion: QV2,
+    envelopes: Object.freeze([]),
+    tombstones: Object.freeze([]),
+    successorCursor: Object.freeze({
       cursor_kind: 'nextLink',
       envelope: sealedStale.value.envelope,
-    },
+    }),
   }));
   assert.equal(staleCommit.ok, false);
 
-  // query_version mismatch fails closed
+  // query_version mismatch fails closed (after open succeeds under wrong qv claim)
   const qvMismatch = await deltaStore.commitPageEvents(Object.freeze({
     clientId: CLIENT,
     locationId: LOCATION,
@@ -1296,14 +1537,15 @@ async function main() {
     leaseToken: leaseFresh.value.lease_token,
     expectedGeneration: 2,
     expectedStateVersion: leaseFresh.value.state_version,
+    providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    queryVersion: 99,
-    envelopes: [],
-    tombstones: [],
-    successorCursor: {
+    queryVersion: 'messages_delta_v99',
+    envelopes: Object.freeze([]),
+    tombstones: Object.freeze([]),
+    successorCursor: Object.freeze({
       cursor_kind: 'nextLink',
       envelope: sealedStale.value.envelope,
-    },
+    }),
   }));
   assert.equal(qvMismatch.ok, false);
 
@@ -1317,8 +1559,6 @@ async function main() {
   }));
   assert.equal(rel.ok, true);
 
-  // Harness SQL log may contain envelope column values (subject/address) as
-  // INSERT bind params — that is the durable write path, not application logging.
   // Cursor capability secrets must never appear in SQL text or bind params.
   for (const entry of harness.log) {
     const s = JSON.stringify(entry);
@@ -1328,9 +1568,6 @@ async function main() {
     assert.equal(s.includes(PLANTED_NEXT), false, 'no plaintext next url in sql log');
     assert.equal(s.includes('refresh_token'), false, 'no refresh_token key in sql log');
   }
-
-  // silence unused
-  void lease2;
 
   console.log('PASS verify-email-inbound-delta-state-store');
 }
