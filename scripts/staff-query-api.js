@@ -210,6 +210,7 @@ const {
   OAUTH_REFRESH_HEALTH_PATH,
   OAUTH_READ_HEALTH_PATH,
   OAUTH_INBOUND_DIAGNOSTIC_PATH,
+  OAUTH_INBOUND_CAPTURE_PATH,
   OAUTH_CALLBACK_PATH,
 } = require('./lib/staff-email-oauth-routes');
 // Canonical dual-gate predicate (composition-owned) — router evaluates before
@@ -217,6 +218,10 @@ const {
 const {
   isInboundDiagnosticEnabled,
 } = require('./lib/email-microsoft-delegated-inbound-diagnostic-sunset-staging-runtime-composition');
+// Durable inbound-capture dual-gate (composition-owned; separate flag/path).
+const {
+  isInboundEventStoreEnabled,
+} = require('./lib/email-microsoft-delegated-inbound-event-store-sunset-staging-runtime-composition');
 
 const {
   listStaffAutomatedNotifications,
@@ -2555,6 +2560,9 @@ const emailOAuthRoutes = createStaffEmailOAuthRoutes({
   sendJSON,
   assertStaffClientAccess,
   authorizeAuthenticatedStaffRoute,
+  // Single Staff API withPgClient loan owns the full inbound-capture route
+  // operation (resolve + grant session + durable persist). Route factory-fixes
+  // withTransactionClient over that outer client — no second checkout.
   withPgClient,
 });
 
@@ -49225,6 +49233,34 @@ async function router(req, res) {
       res,
       auth.user,
       inboundDiagnosticGateEnv,
+    );
+  }
+  // Admin-only durable inbound capture (default-off; separate flag/path from
+  // diagnostic and read-health). Dual gate uses composition canonical
+  // isInboundEventStoreEnabled (LUNA_DEPLOYMENT=sunset-staging +
+  // LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED exact true). Snapshot once before
+  // requireAuth / session / readBody / DB / runtime / network; pass same frozen
+  // object to handler (TOCTOU-resistant). Absent/other → concealed 404 not_found.
+  if (pathname === OAUTH_INBOUND_CAPTURE_PATH && method === 'POST') {
+    const inboundCaptureGateEnv = Object.freeze({
+      LUNA_DEPLOYMENT: process.env.LUNA_DEPLOYMENT,
+      LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED:
+        process.env.LUNA_EMAIL_DURABLE_INBOUND_CAPTURE_ENABLED,
+    });
+    if (!isInboundEventStoreEnabled(inboundCaptureGateEnv)) {
+      return sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); }
+    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    return emailOAuthRoutes.handleInboundCapture(
+      body,
+      req,
+      res,
+      auth.user,
+      inboundCaptureGateEnv,
     );
   }
   // Microsoft returns by top-level GET. SameSite=Lax plus Path=/staff allows
