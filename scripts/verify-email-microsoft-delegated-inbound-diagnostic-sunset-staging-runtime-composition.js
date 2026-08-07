@@ -112,8 +112,11 @@ async function main() {
     assert.equal(MAX_COUNT, 5);
     assert.deepEqual(
       [...PUBLIC_RESULT_KEYS],
-      ['status', 'input_count', 'unique_count', 'duplicate_count'],
+      ['status', 'received_count', 'accepted_count', 'discarded_count'],
     );
+    for (const forbidden of ['input_count', 'unique_count', 'duplicate_count', 'delivered_count']) {
+      assert.equal(PUBLIC_RESULT_KEYS.includes(forbidden), false, forbidden);
+    }
 
     assert.equal(isInboundDiagnosticEnabled({}), false);
     assert.equal(isInboundDiagnosticEnabled(null), false);
@@ -251,7 +254,7 @@ async function main() {
       );
     }
 
-    // ── Public result mapping ─────────────────────────────────────────────
+    // ── Public result mapping (internal → public vocabulary) ──────────────
     const mapped = mapPublicDiagnosticResult(Object.freeze({
       status: 'processed',
       input_count: 3,
@@ -260,12 +263,15 @@ async function main() {
     }));
     assert.deepEqual(Reflect.ownKeys(mapped), [...PUBLIC_RESULT_KEYS]);
     assert.equal(mapped.status, 'ok');
-    assert.equal(mapped.input_count, 3);
-    assert.equal(mapped.unique_count, 2);
-    assert.equal(mapped.duplicate_count, 1);
+    assert.equal(mapped.received_count, 3);
+    assert.equal(mapped.accepted_count, 2);
+    assert.equal(mapped.discarded_count, 1);
     assert.ok(noLeak(mapped));
     assert.equal(JSON.stringify(mapped).includes('processed'), false);
     assert.equal(JSON.stringify(mapped).includes('delivered'), false);
+    assert.equal(JSON.stringify(mapped).includes('input_count'), false);
+    assert.equal(JSON.stringify(mapped).includes('unique_count'), false);
+    assert.equal(JSON.stringify(mapped).includes('duplicate_count'), false);
 
     assert.equal(mapPublicDiagnosticResult(Object.freeze({
       status: 'processed',

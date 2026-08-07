@@ -18,8 +18,9 @@
  *      exact synchronous `{ acknowledged: true }` (never durability)
  *
  * Public runtime result is identity-free counts with public vocabulary only
- * (`status: 'ok'`, `input_count`, `unique_count`, `duplicate_count`) — never
- * internal `processed`/`delivered` terms, IDs, PII, stage, or generation.
+ * (`status: 'ok'`, `received_count`, `accepted_count`, `discarded_count`) —
+ * never internal `processed`/`delivered`/`input_count`/`unique_count`/
+ * `duplicate_count` terms, IDs, PII, stage, or generation.
  *
  * @module email-microsoft-delegated-inbound-diagnostic-sunset-staging-runtime-composition
  */
@@ -72,9 +73,9 @@ const TIMERS_KEYS = Object.freeze(['setTimeout', 'clearTimeout']);
 /** Exact ordered public runtime result keys (identity-free; no stage/generation). */
 const PUBLIC_RESULT_KEYS = Object.freeze([
   'status',
-  'input_count',
-  'unique_count',
-  'duplicate_count',
+  'received_count',
+  'accepted_count',
+  'discarded_count',
 ]);
 
 const PUBLIC_STATUS_OK = 'ok';
@@ -257,9 +258,12 @@ function snapshotEnvReadiness(env) {
 
 /**
  * Map authority-bound internal identity-free result → public diagnostic DTO.
- * Never expose `processed` / `delivered_*` / stage / generation / IDs / PII.
+ * Internal `{ status:'processed', input_count, delivered_count, duplicate_count }`
+ * maps to public `{ status:'ok', received_count, accepted_count, discarded_count }`.
+ * Never expose `processed` / `delivered_*` / `input_count` / `unique_count` /
+ * `duplicate_count` / stage / generation / IDs / PII.
  *
- * @param {object} internal frozen { status, input_count, delivered_count, duplicate_count }
+ * @param {object} internal frozen authority-bound result keys
  * @returns {object|null}
  */
 function mapPublicDiagnosticResult(internal) {
@@ -282,9 +286,9 @@ function mapPublicDiagnosticResult(internal) {
     // Build with explicit assignment order (exact PUBLIC_RESULT_KEYS).
     const out = {};
     out.status = PUBLIC_STATUS_OK;
-    out.input_count = inputCount;
-    out.unique_count = deliveredCount;
-    out.duplicate_count = duplicateCount;
+    out.received_count = inputCount;
+    out.accepted_count = deliveredCount;
+    out.discarded_count = duplicateCount;
     return Object.freeze(out);
   } catch {
     return null;

@@ -95,12 +95,16 @@ async function main() {
   );
   assert.deepEqual(
     [...INBOUND_DIAGNOSTIC_SUCCESS_KEYS],
-    ['success', 'status', 'input_count', 'unique_count', 'duplicate_count'],
+    ['success', 'status', 'received_count', 'accepted_count', 'discarded_count'],
   );
   assert.deepEqual([...INBOUND_DIAGNOSTIC_BODY_KEYS], ['location_id', 'endpoint_id']);
   assert.equal(INBOUND_DIAGNOSTIC_ERROR, 'inbound_diagnostic_unavailable');
   assert.equal(ENV_INBOUND_DIAGNOSTIC_ENABLED, 'LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED');
   assert.equal(PUBLIC_STATUS_OK, 'ok');
+  // Public contract forbids internal / prior wrong public count names.
+  for (const forbidden of ['input_count', 'unique_count', 'duplicate_count', 'delivered_count']) {
+    assert.equal(INBOUND_DIAGNOSTIC_SUCCESS_KEYS.includes(forbidden), false, forbidden);
+  }
 
   // ── Flag isolation ──────────────────────────────────────────────────────
   const offEnv = { LUNA_DEPLOYMENT: 'sunset-staging' };
@@ -149,22 +153,25 @@ async function main() {
   }), null);
   assert.equal(snapshotInboundDiagnosticBody(null), null);
 
-  // ── Success DTO ─────────────────────────────────────────────────────────
+  // ── Success DTO (exact public vocabulary) ───────────────────────────────
   const good = buildInboundDiagnosticSuccessJson({
     status: 'ok',
-    input_count: 3,
-    unique_count: 2,
-    duplicate_count: 1,
+    received_count: 3,
+    accepted_count: 2,
+    discarded_count: 1,
   });
   assert.deepEqual(Reflect.ownKeys(good), [...INBOUND_DIAGNOSTIC_SUCCESS_KEYS]);
   assert.equal(good.success, true);
   assert.equal(good.status, 'ok');
-  assert.equal(good.input_count, 3);
-  assert.equal(good.unique_count, 2);
-  assert.equal(good.duplicate_count, 1);
+  assert.equal(good.received_count, 3);
+  assert.equal(good.accepted_count, 2);
+  assert.equal(good.discarded_count, 1);
   const goodJson = JSON.stringify(good);
   assert.equal(goodJson.includes('processed'), false);
   assert.equal(goodJson.includes('delivered'), false);
+  assert.equal(goodJson.includes('input_count'), false);
+  assert.equal(goodJson.includes('unique_count'), false);
+  assert.equal(goodJson.includes('duplicate_count'), false);
   assert.equal(goodJson.includes('subject'), false);
   assert.equal(goodJson.includes('token'), false);
   assert.equal(goodJson.includes(PLANTED_SUBJECT), false);
@@ -172,31 +179,48 @@ async function main() {
   assert.equal(goodJson.includes('grant_generation'), false);
   assert.equal(goodJson.includes('graph_stage'), false);
 
-  assert.equal(buildInboundDiagnosticSuccessJson({
+  // Route maps authority-bound internal DTO safely → public vocabulary only.
+  const fromInternal = buildInboundDiagnosticSuccessJson({
     status: 'processed',
+    input_count: 2,
+    delivered_count: 1,
+    duplicate_count: 1,
+  });
+  assert.ok(fromInternal);
+  assert.deepEqual(Reflect.ownKeys(fromInternal), [...INBOUND_DIAGNOSTIC_SUCCESS_KEYS]);
+  assert.equal(fromInternal.status, 'ok');
+  assert.equal(fromInternal.received_count, 2);
+  assert.equal(fromInternal.accepted_count, 1);
+  assert.equal(fromInternal.discarded_count, 1);
+  assert.equal(JSON.stringify(fromInternal).includes('input_count'), false);
+  assert.equal(JSON.stringify(fromInternal).includes('delivered'), false);
+
+  // Prior wrong public names alone must not pass as public runtime result.
+  assert.equal(buildInboundDiagnosticSuccessJson({
+    status: 'ok',
     input_count: 1,
     unique_count: 1,
     duplicate_count: 0,
-  }), null, 'internal processed status rejected on public DTO');
+  }), null, 'old public count names rejected');
   assert.equal(buildInboundDiagnosticSuccessJson({
     status: 'ok',
-    input_count: 6,
-    unique_count: 6,
-    duplicate_count: 0,
+    received_count: 6,
+    accepted_count: 6,
+    discarded_count: 0,
   }), null, 'max5');
   assert.equal(buildInboundDiagnosticSuccessJson({
     status: 'ok',
-    input_count: 2,
-    unique_count: 1,
-    duplicate_count: 0,
+    received_count: 2,
+    accepted_count: 1,
+    discarded_count: 0,
   }), null, 'count invariant');
   // Builder reads only known fields from result object (extras on input ignored).
   // Public output keys are exact ordered only — never stage/generation/PII.
   const withExtraInput = buildInboundDiagnosticSuccessJson({
     status: 'ok',
-    input_count: 1,
-    unique_count: 1,
-    duplicate_count: 0,
+    received_count: 1,
+    accepted_count: 1,
+    discarded_count: 0,
     grant_generation: 2,
     graph_stage: 'success',
     subject: PLANTED_SUBJECT,
@@ -444,9 +468,25 @@ async function main() {
     apiSrc,
     /pathname === OAUTH_INBOUND_DIAGNOSTIC_PATH && method === 'POST'/,
   );
-  assert.equal(/cron|setInterval|poller/i.test(
-    apiSrc.slice(apiSrc.indexOf('OAUTH_INBOUND_DIAGNOSTIC_PATH'), apiSrc.indexOf('OAUTH_INBOUND_DIAGNOSTIC_PATH') + 800),
-  ), false);
+  // Canonical dual-gate predicate reused — no divergent router-local logic.
+  assert.match(apiSrc, /isInboundDiagnosticEnabled/);
+  assert.match(
+    apiSrc,
+    /require\('\.\/lib\/email-microsoft-delegated-inbound-diagnostic-sunset-staging-runtime-composition'\)/,
+  );
+  // Source-order: gate before requireAuth / readBody in the inbound-diagnostic block.
+  const blockStart = apiSrc.indexOf(
+    "pathname === OAUTH_INBOUND_DIAGNOSTIC_PATH && method === 'POST'",
+  );
+  assert.ok(blockStart > 0);
+  const block = apiSrc.slice(blockStart, blockStart + 700);
+  const iGate = block.indexOf('isInboundDiagnosticEnabled');
+  const iAuth = block.indexOf('requireAuth');
+  const iBody = block.indexOf('readBody');
+  assert.ok(iGate >= 0 && iAuth > iGate && iBody > iAuth,
+    'router dual-gate must precede requireAuth and readBody');
+  assert.match(block, /error:\s*['"]not_found['"]/);
+  assert.equal(/cron|setInterval|poller/i.test(block), false);
 
   // Route module must not duplicate refresh/custody.
   const routesSrc = fs.readFileSync(
@@ -455,6 +495,9 @@ async function main() {
   );
   assert.match(routesSrc, /createSunsetStagingMicrosoftDelegatedInboundDiagnosticRuntime/);
   assert.match(routesSrc, /handleInboundDiagnostic/);
+  assert.match(routesSrc, /received_count/);
+  assert.match(routesSrc, /accepted_count/);
+  assert.match(routesSrc, /discarded_count/);
   // Read-health path/flag untouched in semantics.
   assert.match(routesSrc, /LUNA_EMAIL_OAUTH_READ_HEALTH_ENABLED|isReadHealthEnabled/);
   assert.match(routesSrc, /OAUTH_READ_HEALTH_PATH = '\/staff\/admin\/email-settings\/oauth\/microsoft\/read-health'/);
@@ -466,7 +509,208 @@ async function main() {
     'node scripts/verify-staff-email-oauth-inbound-diagnostic-routes.js',
   );
 
+  // ── Router-level adversarial: dual-gate before auth/body/DB/runtime ─────
+  await assertRouterDualGateBeforeSideEffects();
+
   console.log('verify:staff-email-oauth-inbound-diagnostic-routes: ok');
+}
+
+/**
+ * Real-listener proofs via fortress dual-gate: disabled / wolfhouse / prod
+ * unauth + malformed-body requests still exact 404 not_found with zero
+ * auth-session / body-read / DB side effects (gate is pre-requireAuth).
+ */
+async function assertRouterDualGateBeforeSideEffects() {
+  const http = require('node:http');
+  const Module = require('node:module');
+
+  // staff-query-api needs workspace deps (dotenv, …). Prefer local node_modules;
+  // fall back to sibling agent install when the sparse checkout has none.
+  try {
+    require.resolve('dotenv');
+  } catch {
+    const candidates = [
+      path.join(ROOT, 'node_modules'),
+      path.join(ROOT, '..', 'wolfhouse-agent', 'node_modules'),
+      '/opt/data/wolfhouse-agent/node_modules',
+    ];
+    const found = candidates.find((c) => fs.existsSync(path.join(c, 'dotenv')));
+    if (found) {
+      const prev = process.env.NODE_PATH || '';
+      process.env.NODE_PATH = prev ? `${found}${path.delimiter}${prev}` : found;
+      Module._initPaths();
+    }
+  }
+
+  const saved = {
+    NODE_ENV: process.env.NODE_ENV,
+    STAFF_API_FORTRESS_OFFLINE_LISTENER: process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER,
+    STAFF_AUTH_REQUIRED: process.env.STAFF_AUTH_REQUIRED,
+    STAFF_AUTH_HTTPS: process.env.STAFF_AUTH_HTTPS,
+    STAFF_RUNTIME_PROFILE: process.env.STAFF_RUNTIME_PROFILE,
+    STAFF_QUERY_API_HOST: process.env.STAFF_QUERY_API_HOST,
+    LUNA_BOT_INTERNAL_TOKEN: process.env.LUNA_BOT_INTERNAL_TOKEN,
+    LUNA_DEPLOYMENT: process.env.LUNA_DEPLOYMENT,
+    LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED:
+      process.env.LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED,
+  };
+
+  function clearStaffApiCache() {
+    for (const key of Object.keys(require.cache)) {
+      if (/staff-query-api\.js$/.test(key)
+          || /staff-auth-config\.js$/.test(key)
+          || /staff-portal-clients\.js$/.test(key)
+          || /pg-connect\.js$/.test(key)) {
+        delete require.cache[key];
+      }
+    }
+  }
+
+  function listen(server) {
+    return new Promise((resolve, reject) => {
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address();
+        resolve(addr.port);
+      });
+      server.on('error', reject);
+    });
+  }
+
+  function closeServer(server) {
+    return new Promise((resolve) => {
+      server.close(() => resolve());
+    });
+  }
+
+  function post(port, body, headers) {
+    return new Promise((resolve, reject) => {
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port,
+        path: OAUTH_INBOUND_DIAGNOSTIC_PATH,
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(body),
+          ...(headers || {}),
+        },
+      }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8');
+          let parsed = null;
+          try { parsed = JSON.parse(raw); } catch (_) { parsed = raw; }
+          resolve({ status: res.statusCode, body: parsed, raw });
+        });
+      });
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+    });
+  }
+
+  process.env.NODE_ENV = 'test';
+  process.env.STAFF_RUNTIME_PROFILE = 'test';
+  process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = '1';
+  process.env.STAFF_AUTH_REQUIRED = 'true';
+  process.env.STAFF_AUTH_HTTPS = 'false';
+  process.env.STAFF_QUERY_API_HOST = '127.0.0.1';
+  process.env.LUNA_BOT_INTERNAL_TOKEN = 'inbound_diag_router_offline_token_01';
+
+  const cases = [
+    {
+      name: 'flag_absent_unauth',
+      env: { LUNA_DEPLOYMENT: 'sunset-staging' },
+      body: '{"location_id":"main","endpoint_id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}',
+    },
+    {
+      name: 'flag_false_malformed_json',
+      env: {
+        LUNA_DEPLOYMENT: 'sunset-staging',
+        LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED: 'false',
+      },
+      body: '{not-json',
+    },
+    {
+      name: 'production_flag_true_unauth',
+      env: {
+        LUNA_DEPLOYMENT: 'production',
+        LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED: 'true',
+      },
+      body: '{"location_id":"main","endpoint_id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}',
+    },
+    {
+      name: 'wolfhouse_flag_true_malformed',
+      env: {
+        LUNA_DEPLOYMENT: 'wolfhouse',
+        LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED: 'true',
+      },
+      body: '[[[',
+    },
+  ];
+
+  try {
+    for (const c of cases) {
+      delete process.env.LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED;
+      process.env.LUNA_DEPLOYMENT = c.env.LUNA_DEPLOYMENT;
+      if (c.env.LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED != null) {
+        process.env.LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED =
+          c.env.LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED;
+      }
+
+      // Canonical predicate must reject before any router side effects.
+      assert.equal(
+        isInboundDiagnosticEnabled(process.env),
+        false,
+        `${c.name}: dual gate closed`,
+      );
+
+      clearStaffApiCache();
+      const api = require('./staff-query-api');
+      assert.equal(typeof api.createStaffQueryApiHttpServer, 'function');
+
+      let dbCalls = 0;
+      let sessionCalls = 0;
+      api.setFortress15j3OfflineSeams({
+        withPgClient: async () => {
+          dbCalls += 1;
+          throw new Error('router_gate_must_not_reach_db');
+        },
+      });
+
+      // loadAuthSession is not seam-injectable; prove via status: unauth disabled
+      // path must be 404 not_found, never 401 auth-required (requireAuth not run).
+      const server = api.createStaffQueryApiHttpServer();
+      const port = await listen(server);
+      try {
+        const res = await post(port, c.body);
+        assert.equal(res.status, 404, `${c.name}: status`);
+        assert.deepEqual(
+          res.body,
+          { success: false, error: 'not_found' },
+          `${c.name}: body`,
+        );
+        // Not 401 (auth), not 400 (body parse) — gate is before both.
+        assert.notEqual(res.status, 401, `${c.name}: must not hit requireAuth`);
+        assert.notEqual(res.status, 400, `${c.name}: must not hit body parse`);
+        assert.equal(dbCalls, 0, `${c.name}: zero DB`);
+        assert.equal(sessionCalls, 0, `${c.name}: zero session counters`);
+        assert.equal(String(res.raw).includes('Authentication required'), false);
+        assert.equal(String(res.raw).includes('invalid_request'), false);
+      } finally {
+        await closeServer(server);
+        api.setFortress15j3OfflineSeams(null);
+        clearStaffApiCache();
+      }
+    }
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    clearStaffApiCache();
+  }
 }
 
 main().catch((e) => {

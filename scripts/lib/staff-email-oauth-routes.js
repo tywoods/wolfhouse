@@ -91,14 +91,15 @@ const READ_HEALTH_SUCCESS_KEYS = Object.freeze([
 ]);
 /**
  * Exact ordered inbound-diagnostic success JSON keys.
- * Public vocabulary only — never `processed`/`delivered`/IDs/PII/stage/generation.
+ * Public vocabulary only — never `processed`/`delivered`/`input_count`/
+ * `unique_count`/`duplicate_count`/IDs/PII/stage/generation.
  */
 const INBOUND_DIAGNOSTIC_SUCCESS_KEYS = Object.freeze([
   'success',
   'status',
-  'input_count',
-  'unique_count',
-  'duplicate_count',
+  'received_count',
+  'accepted_count',
+  'discarded_count',
 ]);
 const READ_HEALTH_GRAPH_STAGE_SET = new Set(GRAPH_STAGES);
 const PREPARE_ERROR = 'endpoint_prepare_unavailable';
@@ -392,34 +393,50 @@ function snapshotInboundDiagnosticBody(body) {
 
 /**
  * Exact ordered inbound-diagnostic success DTO.
- * Maps runtime public result only — never internal processed/delivered terms,
- * grant generation, graph_stage, IDs, or PII.
+ * Maps runtime public counts (received/accepted/discarded), or authority-bound
+ * internal counts when runtime returns internal DTO only. Never exposes
+ * processed/delivered/input_count/unique_count/duplicate_count on the public
+ * wire. Validates max-5 + count invariant. No stage/generation/IDs/PII.
  */
 function buildInboundDiagnosticSuccessJson(result) {
   try {
     if (!result || typeof result !== 'object') return null;
     const status = result.status;
-    const inputCount = result.input_count;
-    const uniqueCount = result.unique_count;
-    const duplicateCount = result.duplicate_count;
-    if (status !== INBOUND_DIAGNOSTIC_PUBLIC_STATUS_OK) return null;
-    if (!Number.isInteger(inputCount) || inputCount < 0
-        || inputCount > INBOUND_DIAGNOSTIC_MAX_COUNT) {
+    let receivedCount;
+    let acceptedCount;
+    let discardedCount;
+    if (status === INBOUND_DIAGNOSTIC_PUBLIC_STATUS_OK
+        && Number.isInteger(result.received_count)) {
+      // Runtime public vocabulary (preferred).
+      receivedCount = result.received_count;
+      acceptedCount = result.accepted_count;
+      discardedCount = result.discarded_count;
+    } else if (status === 'processed' && Number.isInteger(result.input_count)) {
+      // Authority-bound internal DTO — map safely at the route boundary.
+      receivedCount = result.input_count;
+      acceptedCount = result.delivered_count;
+      discardedCount = result.duplicate_count;
+    } else {
       return null;
     }
-    if (!Number.isInteger(uniqueCount) || uniqueCount < 0 || uniqueCount > inputCount) {
+    if (!Number.isInteger(receivedCount) || receivedCount < 0
+        || receivedCount > INBOUND_DIAGNOSTIC_MAX_COUNT) {
       return null;
     }
-    if (!Number.isInteger(duplicateCount) || duplicateCount < 0
-        || duplicateCount !== inputCount - uniqueCount) {
+    if (!Number.isInteger(acceptedCount) || acceptedCount < 0
+        || acceptedCount > receivedCount) {
+      return null;
+    }
+    if (!Number.isInteger(discardedCount) || discardedCount < 0
+        || discardedCount !== receivedCount - acceptedCount) {
       return null;
     }
     const dto = {};
     dto.success = true;
-    dto.status = status;
-    dto.input_count = inputCount;
-    dto.unique_count = uniqueCount;
-    dto.duplicate_count = duplicateCount;
+    dto.status = INBOUND_DIAGNOSTIC_PUBLIC_STATUS_OK;
+    dto.received_count = receivedCount;
+    dto.accepted_count = acceptedCount;
+    dto.discarded_count = discardedCount;
     return Object.freeze(dto);
   } catch {
     return null;

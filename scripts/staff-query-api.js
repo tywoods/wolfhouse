@@ -212,6 +212,11 @@ const {
   OAUTH_INBOUND_DIAGNOSTIC_PATH,
   OAUTH_CALLBACK_PATH,
 } = require('./lib/staff-email-oauth-routes');
+// Canonical dual-gate predicate (composition-owned) — router evaluates before
+// requireAuth / session / readBody / DB / runtime / network. Do not reimplement.
+const {
+  isInboundDiagnosticEnabled,
+} = require('./lib/email-microsoft-delegated-inbound-diagnostic-sunset-staging-runtime-composition');
 
 const {
   listStaffAutomatedNotifications,
@@ -49195,7 +49200,13 @@ async function router(req, res) {
     return emailOAuthRoutes.handleReadHealth(body, req, res, auth.user);
   }
   // Admin-only inbound diagnostic (default-off; separate flag/path from read-health).
+  // Dual gate (flag + sunset-staging) is side-effect-free and runs before
+  // requireAuth, session lookup, readBody/JSON parse, DB, runtime, or network.
+  // Absent/other/production/wolfhouse → exact concealed 404 not_found.
   if (pathname === OAUTH_INBOUND_DIAGNOSTIC_PATH && method === 'POST') {
+    if (!isInboundDiagnosticEnabled(process.env)) {
+      return sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     let body;
