@@ -1,10 +1,11 @@
 'use strict';
 
 /**
- * verify:email-delta-runtime-config — offline hostile gate.
+ * verify:email-delta-runtime-config — offline hostile gate (fresh-process probes).
  *
  * Default-off independent flags; worker/admin true rejected; composition-only
- * pin validation; no DB/Pool/Azure SDK/Graph/timer/lease/migration.
+ * pin validation; raw byte-exact KV enabled gate; pinned-intrinsic resistance;
+ * zero #410/KV/state/crypto owner load on import/disabled/rejected/composition.
  */
 
 const fs = require('fs');
@@ -74,7 +75,6 @@ function exactEnv(o) {
   if (o && typeof o === 'object') {
     for (const k of Object.keys(o)) e[k] = o[k];
   }
-  // Convert null-prototype to plain object with own enumerable data for parse.
   return Object.assign({}, e);
 }
 
@@ -92,11 +92,11 @@ function enabledComposition(extra) {
   });
 }
 
-function runChild(body) {
+function runChild(body, envExtra) {
   return spawnSync(process.execPath, ['-e', body], {
     encoding: 'utf8',
     cwd: ROOT,
-    env: { ...process.env, NODE_OPTIONS: '' },
+    env: { ...process.env, NODE_OPTIONS: '', ...(envExtra || {}) },
     maxBuffer: 4 * 1024 * 1024,
   });
 }
@@ -123,6 +123,131 @@ function noPlanted(v) {
     && !s.includes('access_token')
     && !s.includes('refresh_token')
     && !s.includes('client_secret');
+}
+
+/** Forbidden module id substrings for inert config paths. */
+const FORBIDDEN_LOAD_SNIPS = [
+  'email-authority-bound-messages-delta',
+  'email-microsoft-graph-messages-delta',
+  'email-microsoft-graph-delegated-messages',
+  'email-delegated-grant-access-session',
+  'email-inbound-delta-state-store',
+  'email-grant-envelope-azure-kv',
+  'email-grant-envelope-provider',
+  'pg-connect',
+];
+
+const FORBIDDEN_BUILTINS = ['pg', 'https', 'http', 'net', 'tls', 'dns'];
+
+function probeBody(actionJson) {
+  // Shared fresh-process harness: instrument Module._load + fake timers/pg methods.
+  return `
+    'use strict';
+    const Module = require('module');
+    const hits = [];
+    const dbMethodHits = [];
+    const timerHits = [];
+    const real = Module._load;
+    const forbiddenSnips = ${JSON.stringify(FORBIDDEN_LOAD_SNIPS)};
+    const forbiddenBuiltins = ${JSON.stringify(FORBIDDEN_BUILTINS)};
+    Module._load = function(r, p, m) {
+      if (typeof r === 'string') {
+        const s = r;
+        if (forbiddenBuiltins.includes(s) || s.startsWith('@azure/')) {
+          hits.push(s);
+          throw new Error('blocked ' + s);
+        }
+        for (const sn of forbiddenSnips) {
+          if (s.includes(sn)) {
+            hits.push(s);
+            throw new Error('blocked ' + s);
+          }
+        }
+      }
+      return real(r, p, m);
+    };
+    // Fake timer/DB ambient after require of config would still be free to call;
+    // wrap global timers to detect accidental scheduling.
+    const _setTimeout = global.setTimeout;
+    const _setInterval = global.setInterval;
+    global.setTimeout = function(...a) { timerHits.push('setTimeout'); return _setTimeout(...a); };
+    global.setInterval = function(...a) { timerHits.push('setInterval'); return _setInterval(...a); };
+
+    const action = ${JSON.stringify(actionJson)};
+    const mod = require(${JSON.stringify(CFG_PATH)});
+
+    // Ambient intrinsic monkeypatch AFTER require — pins must resist.
+    const poison = function() { throw new Error(${JSON.stringify(PLANTED)}); };
+    Object.getOwnPropertyDescriptor = poison;
+    Object.getPrototypeOf = poison;
+    Reflect.ownKeys = poison;
+    Object.isFrozen = poison;
+    if (utilTypesAvailable()) {
+      try { require('util').types.isProxy = function() { return false; }; } catch (_) {}
+    }
+    function utilTypesAvailable() {
+      try { return !!(require('util').types); } catch { return false; }
+    }
+
+    let result = null;
+    let errCode = null;
+    try {
+      if (action.kind === 'parse') {
+        result = mod.parseEmailDeltaRuntimeConfig(action.env || {});
+      } else if (action.kind === 'flag') {
+        result = { flag: mod.isEmailDeltaCompositionFlagEnabled(action.env || {}) };
+      }
+    } catch (e) {
+      errCode = e && e.code;
+    }
+
+    // Nested callable capability escape: exports must not expose owner factories.
+    const exportKeys = Object.keys(mod);
+    const nestedCallables = [];
+    for (const k of exportKeys) {
+      const v = mod[k];
+      if (typeof v === 'function' && /create|withPg|Factory|Owner|Transport|Store|Session|Provider/i.test(k)
+          && k !== 'parseEmailDeltaRuntimeConfig'
+          && k !== 'isEmailDeltaCompositionFlagEnabled'
+          && k !== 'failure') {
+        nestedCallables.push(k);
+      }
+    }
+    // Also ensure no exported object bags with constructor-like callables.
+    for (const k of exportKeys) {
+      const v = mod[k];
+      if (v && typeof v === 'object') {
+        for (const sk of Object.keys(v)) {
+          if (typeof v[sk] === 'function' && /create|withPg|Factory/i.test(sk)) {
+            nestedCallables.push(k + '.' + sk);
+          }
+        }
+      }
+    }
+
+    console.log(JSON.stringify({
+      hits,
+      timerHits,
+      dbMethodHits,
+      errCode,
+      status: result && result.status,
+      ok: result && result.ok,
+      code: result && result.code,
+      flag: result && result.flag,
+      composition_enabled: result && result.composition_enabled,
+      kv_pins_valid: result && result.kv_pins_valid,
+      worker_activation_possible: result && result.worker_activation_possible,
+      nestedCallables,
+      exportHasCreate: typeof mod.createEmailDeltaSunsetStagingRuntimeComposition === 'function'
+        || typeof mod.createLazyDurableOperationFactory === 'function'
+        || typeof mod.createInboundEmailDeltaStateStore === 'function'
+        || typeof mod.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition === 'function'
+        || typeof mod.withPgClient === 'function',
+      // Do not call ambient Object.isFrozen after poison — pin resistance is
+      // proven by successful parse under poisoned intrinsics.
+      resultStatusOnly: !!(result && typeof result.status === 'string'),
+    }));
+  `;
 }
 
 function main() {
@@ -152,10 +277,7 @@ function main() {
     && MIGRATION_064_READINESS_CONTRACT.applied_by_this_module === false
     && MIGRATION_064_READINESS_CONTRACT.ddl_allowed === false
     && mig.includes('tenant_email_inbound_delta_states')
-    && mig.includes('ms_messages_delta_v1')
-    && (manifest.migrations || manifest.entries || []).some
-      ? true
-      : JSON.stringify(manifest).includes('064_tenant_email_inbound_delta_states'));
+    && mig.includes('ms_messages_delta_v1'));
   ok('manifest includes 064',
     JSON.stringify(manifest).includes('064_tenant_email_inbound_delta_states'));
   ok('future txn adapter documented + inactive',
@@ -166,11 +288,28 @@ function main() {
     && /withPgClient|exclusive|getPool|closePgPool|release/.test(src));
   ok('docs mention email-delta runtime composition inert',
     /email-delta-runtime|email-delta-sunset-staging-runtime-composition|LUNA_EMAIL_DELTA_RUNTIME_COMPOSITION_ENABLED/.test(doc));
-  ok('no Pool/pg construction / no azure require at top level',
-    !/new\s+Pool\b/.test(src)
+  ok('module pins security-critical intrinsics at init',
+    /PINNED_GET_OWN_PROPERTY_DESCRIPTOR/.test(src)
+    && /PINNED_GET_PROTOTYPE_OF/.test(src)
+    && /PINNED_REFLECT_OWN_KEYS/.test(src)
+    && /PINNED_HAS_OWN|safeHasOwn/.test(src)
+    && /PINNED_IS_FROZEN/.test(src)
+    && /PINNED_IS_PROXY/.test(src));
+  ok('no top-level require of #410/KV/state owner graph',
+    !/require\s*\(\s*['"]\.\/email-grant-envelope-azure-kv/.test(src)
+    && !/require\s*\(\s*['"]\.\/email-inbound-delta-state-store['"]/.test(src)
+    && !/require\s*\(\s*['"]\.\/email-authority-bound/.test(src)
+    && !/require\s*\(\s*['"]\.\/email-delegated-grant/.test(src)
+    && !/require\s*\(\s*['"]\.\/email-microsoft-graph/.test(src)
     && !/require\s*\(\s*['"]pg['"]\s*\)/.test(src)
-    && !/require\s*\(\s*['"]@azure\//.test(src)
-    && !/setInterval|setTimeout|createServer|listen\s*\(/.test(src));
+    && !/require\s*\(\s*['"]@azure\//.test(src));
+  ok('no public owner-loader / createLazy / withPgClient export',
+    !/createLazyDurable|createLazyDurableOwnersAccessor|getLazyDurableOwners/.test(src)
+    && !/module\.exports[\s\S]*withPgClient/.test(src)
+    && typeof M.createLazyDurableOperationFactory !== 'function'
+    && typeof M.withPgClient !== 'function'
+    && typeof M.createInboundEmailDeltaStateStore !== 'function'
+    && typeof M.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition !== 'function');
 
   // Default-off
   {
@@ -218,6 +357,33 @@ function main() {
     const r = parseCfg(exactEnv({ [E_COMP]: val }));
     ok(`composition ${label} disabled`,
       r.ok === true && r.status === CONFIG_STATUS.DISABLED && r.composition_enabled === false);
+  }
+
+  // Exact KV raw booleans: only byte-exact 'true' accepted when composition on.
+  for (const [label, val] of [
+    ['TRUE', 'TRUE'],
+    ['True', 'True'],
+    ['1', '1'],
+    ['yes', 'yes'],
+    [' true', ' true'],
+    ['true ', 'true '],
+    ['true\\n', 'true\n'],
+    ['false', 'false'],
+    ['', ''],
+  ]) {
+    const r = parseCfg(enabledComposition({ [ENV_KV_COMPOSITION_ENABLED]: val }));
+    ok(`kv raw ${label} rejected (zero-loose)`,
+      r.ok === false
+      && r.status === CONFIG_STATUS.CONFIG_INVALID
+      && r.code === 'email_delta_kv_pins_invalid'
+      && r.kv_pins_valid === false
+      && noPlanted(r),
+      `got ${r && r.status}/${r && r.code}`);
+  }
+  {
+    const r = parseCfg(enabledComposition({ [ENV_KV_COMPOSITION_ENABLED]: 'true' }));
+    ok('kv raw exact true accepted with pins',
+      r.ok === true && r.status === CONFIG_STATUS.COMPOSITION_INERT && r.kv_pins_valid === true);
   }
 
   // Worker/admin true → activation rejected (independent of composition)
@@ -312,8 +478,6 @@ function main() {
       enumerable: false,
       value: PLANTED,
     });
-    // Symbol extra on env object — parse should still succeed if own string keys ok
-    // (readEnvString only touches known keys). Ensure status not leak planted.
     const r = parseCfg(env);
     ok('symbol nonenumerable does not leak',
       noPlanted(r)
@@ -325,7 +489,6 @@ function main() {
       enumerable: false,
       value: 'true',
     });
-    // Nonenumerable own data — hasOwnProperty true; reject worker true.
     const r = parseCfg(env);
     ok('nonenumerable worker true still rejected',
       r.status === CONFIG_STATUS.ACTIVATION_REJECTED
@@ -333,7 +496,7 @@ function main() {
       && noPlanted(r));
   }
 
-  // Ambient process.env not mutated / default path
+  // Ambient process.env not mutated
   {
     const before = process.env[E_COMP];
     const r = parseCfg(undefined);
@@ -342,57 +505,103 @@ function main() {
       && process.env[E_COMP] === before);
   }
 
-  // Child: require config never loads azure/pg
+  // ── Fresh-process behavioral probes ────────────────────────────────────
+  const probeCases = [
+    {
+      name: 'import+disabled: zero owner/pg/azure/https load',
+      action: { kind: 'parse', env: {} },
+      expect: (b) => b
+        && b.status === 'disabled'
+        && b.ok === true
+        && Array.isArray(b.hits) && b.hits.length === 0
+        && Array.isArray(b.timerHits) && b.timerHits.length === 0
+        && b.exportHasCreate === false
+        && Array.isArray(b.nestedCallables) && b.nestedCallables.length === 0,
+    },
+    {
+      name: 'composition-only: zero owner/pg/azure/https load + inert',
+      action: { kind: 'parse', env: enabledComposition() },
+      expect: (b) => b
+        && b.status === 'composition_inert'
+        && b.ok === true
+        && b.kv_pins_valid === true
+        && Array.isArray(b.hits) && b.hits.length === 0
+        && Array.isArray(b.timerHits) && b.timerHits.length === 0
+        && b.exportHasCreate === false
+        && Array.isArray(b.nestedCallables) && b.nestedCallables.length === 0,
+    },
+    {
+      name: 'worker rejected: zero owner load',
+      action: { kind: 'parse', env: enabledComposition({ [E_WORK]: 'true' }) },
+      expect: (b) => b
+        && b.status === 'activation_rejected'
+        && b.ok === false
+        && b.worker_activation_possible === false
+        && Array.isArray(b.hits) && b.hits.length === 0
+        && b.exportHasCreate === false,
+    },
+    {
+      name: 'admin rejected: zero owner load',
+      action: { kind: 'parse', env: enabledComposition({ [E_ADMIN]: 'true' }) },
+      expect: (b) => b
+        && b.status === 'activation_rejected'
+        && b.ok === false
+        && Array.isArray(b.hits) && b.hits.length === 0,
+    },
+    {
+      name: 'kv TRUE rejected: zero owner load',
+      action: {
+        kind: 'parse',
+        env: enabledComposition({ [ENV_KV_COMPOSITION_ENABLED]: 'TRUE' }),
+      },
+      expect: (b) => b
+        && b.status === 'config_invalid'
+        && b.code === 'email_delta_kv_pins_invalid'
+        && Array.isArray(b.hits) && b.hits.length === 0,
+    },
+    {
+      name: 'kv 1 rejected: zero owner load',
+      action: {
+        kind: 'parse',
+        env: enabledComposition({ [ENV_KV_COMPOSITION_ENABLED]: '1' }),
+      },
+      expect: (b) => b
+        && b.status === 'config_invalid'
+        && b.code === 'email_delta_kv_pins_invalid'
+        && Array.isArray(b.hits) && b.hits.length === 0,
+    },
+  ];
+
+  for (const tc of probeCases) {
+    const ch = runChild(probeBody(tc.action));
+    const b = parseChildJson(ch);
+    ok(`probe: ${tc.name}`,
+      ch.status === 0 && b && tc.expect(b),
+      `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 200)}`);
+  }
+
+  // Hostile proxy env under ambient monkeypatch still fail-closed
   {
     const ch = runChild(`
       'use strict';
-      const Module = require('module');
-      const hits = [];
-      const real = Module._load;
-      Module._load = function(r, p, m) {
-        if (typeof r === 'string' && (r === 'pg' || r.startsWith('@azure/')
-            || r === 'https' || r === 'http')) {
-          hits.push(r);
-          throw new Error('blocked ' + r);
-        }
-        return real(r, p, m);
-      };
       const mod = require(${JSON.stringify(CFG_PATH)});
-      const r = mod.parseEmailDeltaRuntimeConfig({});
+      Object.getOwnPropertyDescriptor = () => { throw new Error(${JSON.stringify(PLANTED)}); };
+      Object.getPrototypeOf = () => { throw new Error(${JSON.stringify(PLANTED)}); };
+      Reflect.ownKeys = () => { throw new Error(${JSON.stringify(PLANTED)}); };
+      const proxyEnv = new Proxy({ ${JSON.stringify(E_COMP)}: 'true' }, {
+        get() { throw new Error(${JSON.stringify(PLANTED)}); },
+        getOwnPropertyDescriptor() { throw new Error(${JSON.stringify(PLANTED)}); },
+        ownKeys() { throw new Error(${JSON.stringify(PLANTED)}); },
+      });
+      const r = mod.parseEmailDeltaRuntimeConfig(proxyEnv);
+      const s = JSON.stringify(r);
       console.log(JSON.stringify({
-        ok: r && r.status === 'disabled' && hits.length === 0,
-        hits: hits.length,
+        ok: r && r.ok === false && !s.includes(${JSON.stringify(PLANTED)}),
         status: r && r.status,
       }));
     `);
     const b = parseChildJson(ch);
-    ok('fresh require: zero pg/azure/http',
-      ch.status === 0 && b && b.ok, JSON.stringify(b));
-  }
-
-  // Child: composition inert still zero azure (parse only)
-  {
-    const env = enabledComposition();
-    const ch = runChild(`
-      'use strict';
-      const Module = require('module');
-      const hits = [];
-      const real = Module._load;
-      Module._load = function(r, p, m) {
-        if (typeof r === 'string' && r.startsWith('@azure/')) {
-          hits.push(r); throw new Error('blocked');
-        }
-        return real(r, p, m);
-      };
-      const mod = require(${JSON.stringify(CFG_PATH)});
-      const r = mod.parseEmailDeltaRuntimeConfig(${JSON.stringify(env)});
-      console.log(JSON.stringify({
-        ok: r && r.status === 'composition_inert' && r.ok === true && hits.length === 0,
-        hits: hits.length, status: r && r.status,
-      }));
-    `);
-    const b = parseChildJson(ch);
-    ok('composition-inert parse: zero azure SDK',
+    ok('probe: hostile proxy + ambient intrinsic poison fail-closed',
       ch.status === 0 && b && b.ok, JSON.stringify(b));
   }
 

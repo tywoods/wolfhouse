@@ -3,14 +3,14 @@
 /**
  * verify:email-delta-sunset-staging-runtime-composition — offline hostile gate.
  *
- * Default-off inert composition + startup readiness integration proofs:
- *   - import inert (no DB/Pool/Azure SDK/Graph/timer/lease/migration)
+ * Fresh-process behavioral probes prove:
+ *   - import inert (no #410/KV/state/crypto/pg/Azure/https/timers/DB)
  *   - composition-only → frozen readiness/lifecycle; activation impossible
  *   - worker/admin true rejected; independent flags
  *   - run/reconcile/restart hard-fail without touching deps
- *   - lazy #410 owner closures only; no route/cron/scheduler execution
- *   - staff-query-api source structurally integrated for inert readiness only
- *   - identity-free/PII-free errors/status; proxy/accessor traps bounded
+ *   - no returned/exported nested callable owner capability
+ *   - staff-query-api resolve-only structural integration
+ *   - ambient intrinsic monkeypatch resistance; hostile env fail-closed
  */
 
 const fs = require('fs');
@@ -26,10 +26,6 @@ const CFG_PATH = path.join(ROOT, CFG_REL);
 const STAFF_PATH = path.join(ROOT, 'scripts/staff-query-api.js');
 const DOC_PATH = path.join(ROOT, 'docs/EMAIL-MAILBOX-ADAPTER-BOUNDARY.md');
 const PKG_PATH = path.join(ROOT, 'package.json');
-const OP410_PATH = path.join(
-  ROOT,
-  'scripts/lib/email-authority-bound-messages-delta-offline-composition.js',
-);
 const PG_CONNECT_PATH = path.join(ROOT, 'scripts/lib/pg-connect.js');
 
 const HOST = 'luna-sunset-staging-kv.vault.azure.net';
@@ -140,6 +136,147 @@ function noPlanted(v) {
     && !s.includes('BEGIN RSA');
 }
 
+const FORBIDDEN_LOAD_SNIPS = [
+  'email-authority-bound-messages-delta',
+  'email-microsoft-graph-messages-delta',
+  'email-microsoft-graph-delegated-messages',
+  'email-delegated-grant-access-session',
+  'email-inbound-delta-state-store',
+  'email-grant-envelope-azure-kv',
+  'email-grant-envelope-provider',
+  'pg-connect',
+];
+const FORBIDDEN_BUILTINS = ['pg', 'https', 'http', 'net', 'tls', 'dns'];
+
+/**
+ * Fresh-process probe: instrument Module._load, timers; monkeypatch intrinsics
+ * after require; exercise import/readiness/run/reconcile/restart under env.
+ */
+function compositionProbeBody(scenario) {
+  return `
+    'use strict';
+    const Module = require('module');
+    const hits = [];
+    const timerHits = [];
+    const real = Module._load;
+    const forbiddenSnips = ${JSON.stringify(FORBIDDEN_LOAD_SNIPS)};
+    const forbiddenBuiltins = ${JSON.stringify(FORBIDDEN_BUILTINS)};
+    Module._load = function(r, p, m) {
+      if (typeof r === 'string') {
+        const s = r;
+        if (forbiddenBuiltins.includes(s) || s.startsWith('@azure/')) {
+          hits.push(s);
+          throw new Error('blocked ' + s);
+        }
+        for (const sn of forbiddenSnips) {
+          if (s.includes(sn)) {
+            hits.push(s);
+            throw new Error('blocked ' + s);
+          }
+        }
+      }
+      return real(r, p, m);
+    };
+    const _st = global.setTimeout;
+    const _si = global.setInterval;
+    global.setTimeout = function(...a) { timerHits.push('setTimeout'); return _st(...a); };
+    global.setInterval = function(...a) { timerHits.push('setInterval'); return _si(...a); };
+
+    const scenario = ${JSON.stringify(scenario)};
+    const mod = require(${JSON.stringify(COMP_PATH)});
+
+    // Ambient intrinsic monkeypatch AFTER require — pins must resist.
+    const poison = function() { throw new Error(${JSON.stringify(PLANTED)}); };
+    Object.getOwnPropertyDescriptor = poison;
+    Object.getPrototypeOf = poison;
+    Reflect.ownKeys = poison;
+    Object.isFrozen = poison;
+    try { require('util').types.isProxy = function() { return false; }; } catch (_) {}
+
+    const r0 = mod.resolveEmailDeltaSunsetStagingRuntimeReadiness(scenario.env || {});
+    const life0 = mod.resolveEmailDeltaSunsetStagingRuntimeLifecycle(scenario.env || {});
+    let c = null;
+    let factoryErr = null;
+    try {
+      c = mod.createEmailDeltaSunsetStagingRuntimeComposition({ env: scenario.env || {} });
+    } catch (e) {
+      factoryErr = e && e.code;
+    }
+
+    let runCode = null, reconcileCode = null, restartCode = null;
+    let readiness = null, life = null;
+    let surfaceKeys = null;
+    let nestedCallables = [];
+    let surfaceHasOwnerLoader = false;
+
+    if (c) {
+      readiness = c.getReadiness();
+      life = c.getLifecycle();
+      try { surfaceKeys = Reflect.ownKeys(c).map(String); } catch (_) {
+        surfaceKeys = Object.keys(c);
+      }
+      try { c.run(${JSON.stringify(PLANTED_PII)}); } catch (e) { runCode = e && e.code; }
+      try { c.reconcile(); } catch (e) { reconcileCode = e && e.code; }
+      try { c.restart(); } catch (e) { restartCode = e && e.code; }
+
+      surfaceHasOwnerLoader =
+        typeof c.createLazyDurableOperationFactory === 'function'
+        || typeof c.createOfflineAuthorityBoundMessagesDeltaComposition === 'function'
+        || typeof c.withPgClient === 'function'
+        || typeof c.getLazyDurableOwners === 'function'
+        || typeof c.owners === 'object';
+
+      for (const k of (surfaceKeys || [])) {
+        const v = c[k];
+        if (typeof v === 'function' && /create|Owner|Factory|withPg|Transport|Store|Session|Provider/i.test(k)
+            && !['getReadiness','getLifecycle','run','reconcile','restart'].includes(k)) {
+          nestedCallables.push(k);
+        }
+      }
+    }
+
+    // Module exports must not expose owner constructors.
+    const exportOwnerEscape = (
+      typeof mod.createLazyDurableOperationFactory === 'function'
+      || typeof mod.createOfflineAuthorityBoundMessagesDeltaComposition === 'function'
+      || typeof mod.createAuthorityBoundMessagesDeltaPageOperation === 'function'
+      || typeof mod.createMicrosoftGraphMessagesDeltaPageTransport === 'function'
+      || typeof mod.createInboundEmailDeltaStateStore === 'function'
+      || typeof mod.createDelegatedGrantAccessSession === 'function'
+      || typeof mod.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition === 'function'
+      || typeof mod.withPgClient === 'function'
+      || typeof mod.createAzureKvEmailGrantEnvelopeProvider === 'function'
+    );
+
+    console.log(JSON.stringify({
+      hits,
+      timerHits,
+      r0Status: r0 && r0.status,
+      r0Ok: r0 && r0.ok,
+      life0State: life0 && life0.state,
+      life0Db: life0 && life0.db_touch,
+      life0Kv: life0 && life0.kv_sdk_touch,
+      life0Graph: life0 && life0.graph_touch,
+      life0Timer: life0 && life0.timer_touch,
+      life0Runtime: life0 && life0.runtime_activation,
+      factoryErr,
+      status: readiness && readiness.status,
+      ok: readiness && readiness.ok,
+      lifeState: life && life.state,
+      runCode, reconcileCode, restartCode,
+      surfaceKeys,
+      surfaceHasOwnerLoader,
+      nestedCallables,
+      exportOwnerEscape,
+      worker_activation_possible: readiness && readiness.worker_activation_possible,
+      admin_activation_possible: readiness && readiness.admin_activation_possible,
+      runtime_activation: readiness && readiness.runtime_activation,
+      kv_pins_valid: readiness && readiness.kv_pins_valid,
+      code: readiness && readiness.code,
+    }));
+  `;
+}
+
 function main() {
   console.log('verify:email-delta-sunset-staging-runtime-composition');
   const src = fs.readFileSync(COMP_PATH, 'utf8');
@@ -147,7 +284,6 @@ function main() {
   const staff = fs.readFileSync(STAFF_PATH, 'utf8');
   const doc = fs.readFileSync(DOC_PATH, 'utf8');
   const pkg = JSON.parse(fs.readFileSync(PKG_PATH, 'utf8'));
-  const op410 = fs.readFileSync(OP410_PATH, 'utf8');
   const pgConnect = fs.readFileSync(PG_CONNECT_PATH, 'utf8');
   const verifierSrc = fs.readFileSync(__filename, 'utf8');
 
@@ -168,34 +304,39 @@ function main() {
     && QUERY_VERSION === 'ms_messages_delta_v1');
   ok('dependency keys exact env only',
     DEPENDENCY_KEYS.length === 1 && DEPENDENCY_KEYS[0] === 'env');
-  ok('surface keys include hard-fail run/reconcile/restart',
+  ok('surface keys hard-fail only (no owner-loader)',
     SURFACE_KEYS.includes('run')
     && SURFACE_KEYS.includes('reconcile')
     && SURFACE_KEYS.includes('restart')
     && SURFACE_KEYS.includes('getReadiness')
     && SURFACE_KEYS.includes('getLifecycle')
-    && SURFACE_KEYS.includes('createLazyDurableOperationFactory'));
+    && !SURFACE_KEYS.includes('createLazyDurableOperationFactory')
+    && SURFACE_KEYS.length === 5);
   ok('future txn adapter inactive; pg-connect owns outer release',
     FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT.active_in_this_pr === false
     && FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT.forbid_getPool_for_exclusive_loan
     && /withPgClient/.test(pgConnect)
     && /client\.release/.test(pgConnect)
     && /never close application pool|forbid_close_application_pool|outer_release_owner/.test(cfgSrc));
-  ok('lazy require of #410 offline composition only inside closures',
-    /function createLazyDurableOwnersAccessor/.test(src)
-    && /require\s*\(\s*['"]\.\/email-authority-bound-messages-delta-offline-composition['"]\s*\)/.test(src)
-    && (() => {
-      // Top-level body (before first function declaration) must not require #410 owners.
-      const head = src.split(/function\s+createLazyDurableOwnersAccessor/)[0] || src;
-      return !/email-authority-bound-messages-delta-offline-composition/.test(head)
-        && !/email-authority-bound-messages-delta-page-operation/.test(head)
-        && !/email-microsoft-graph-messages-delta-page-transport/.test(head);
-    })()
-    && /createOfflineAuthorityBoundMessagesDeltaComposition/.test(op410));
-  ok('composition module free of Pool/pg/azure top-level/network listeners',
-    !/new\s+Pool\b/.test(src)
+  ok('composition pins security-critical intrinsics',
+    /PINNED_GET_OWN_PROPERTY_DESCRIPTOR/.test(src)
+    && /PINNED_GET_PROTOTYPE_OF/.test(src)
+    && /PINNED_REFLECT_OWN_KEYS/.test(src)
+    && /PINNED_HAS_OWN|safeHasOwn/.test(src)
+    && /PINNED_IS_FROZEN/.test(src)
+    && /PINNED_IS_PROXY/.test(src));
+  ok('no owner-loader / #410 require / lazy factory in composition',
+    !/createLazyDurableOwnersAccessor|createLazyDurableOperationFactory|getLazyDurableOwners/.test(src)
+    && !/email-authority-bound-messages-delta-offline-composition/.test(src)
+    && !/email-authority-bound-messages-delta-page-operation/.test(src)
+    && !/email-microsoft-graph-messages-delta-page-transport/.test(src)
+    && !/email-delegated-grant-access-session/.test(src)
+    && !/email-inbound-delta-state-store/.test(src)
+    && !/email-grant-envelope-azure-kv/.test(src)
     && !/require\s*\(\s*['"]pg['"]\s*\)/.test(src)
-    && !/require\s*\(\s*['"]@azure\//.test(src)
+    && !/require\s*\(\s*['"]@azure\//.test(src));
+  ok('composition free of Pool/network listeners/timers',
+    !/new\s+Pool\b/.test(src)
     && !/\.listen\s*\(/.test(src)
     && !/setInterval\s*\(/.test(src)
     && !/createServer\s*\(/.test(src));
@@ -215,7 +356,6 @@ function main() {
     && /EMAIL_DELTA_RUNTIME_READINESS/.test(staff)
     && !/LUNA_EMAIL_DELTA_WORKER_ENABLED\s*===\s*['"]true['"]/.test(staff)
     && !/createEmailDeltaSunsetStagingRuntimeComposition\s*\(/.test(staff)
-    && !/\.run\s*\(\s*\)/.test(staff.match(/EMAIL_DELTA[\s\S]{0,400}/) ? staff.match(/EMAIL_DELTA[\s\S]{0,800}/)[0] : '')
     && !/email-delta.*handle|handleEmailDelta|EMAIL_DELTA_.*PATH/.test(staff));
   ok('staff does not mount delta scheduler/admin route',
     !/email-delta.*cron|startEmailDelta|emailDeltaWorker|emailDeltaAdmin/i.test(staff)
@@ -256,8 +396,9 @@ function main() {
       && typeof c.run === 'function'
       && typeof c.reconcile === 'function'
       && typeof c.restart === 'function'
-      && typeof c.createLazyDurableOperationFactory === 'function'
-      && Reflect.ownKeys(c).length === SURFACE_KEYS.length);
+      && typeof c.createLazyDurableOperationFactory !== 'function'
+      && Reflect.ownKeys(c).length === SURFACE_KEYS.length
+      && SURFACE_KEYS.every((k) => typeof c[k] === 'function'));
     let threw = null;
     try { c.run(); } catch (e) { threw = e; }
     ok('run hard-fail default',
@@ -269,10 +410,6 @@ function main() {
     threw = null;
     try { c.restart(); } catch (e) { threw = e; }
     ok('restart hard-fail default',
-      threw && threw.code === ACTIVATION_HARD_FAIL_CODE && noPlanted(threw));
-    threw = null;
-    try { c.createLazyDurableOperationFactory(); } catch (e) { threw = e; }
-    ok('lazy factory refused when not composition_inert',
       threw && threw.code === ACTIVATION_HARD_FAIL_CODE && noPlanted(threw));
   }
 
@@ -319,23 +456,11 @@ function main() {
     ok('run hard-fail when composition inert (no dep touch)',
       threw && threw.code === ACTIVATION_HARD_FAIL_CODE
       && noPlanted(threw) && noPlanted(threw.message));
-    // Lazy owner registry allowed only for structural wire; still no activation.
-    const lazy = c.createLazyDurableOperationFactory();
-    ok('lazy durable factory structural only',
-      lazy && lazy.activation_possible === false
-      && lazy.owners
-      && typeof lazy.owners.createOfflineAuthorityBoundMessagesDeltaComposition === 'function'
-      && typeof lazy.owners.createAuthorityBoundMessagesDeltaPageOperation === 'function'
-      && typeof lazy.owners.createMicrosoftGraphMessagesDeltaPageTransport === 'function'
-      && typeof lazy.owners.createInboundEmailDeltaStateStore === 'function'
-      && lazy.owners.offline_runtime_wired === true
-      && lazy.owners.page_runtime_wired === true
-      && lazy.owners.page_safe_for_route_cron === true
-      && lazy.futureTransactionClientAdapterContract.active_in_this_pr === false);
-    threw = null;
-    try { lazy.runAuthorityBoundMessagesDeltaPageDurable({}); } catch (e) { threw = e; }
-    ok('lazy runAuthorityBound hard-fail',
-      threw && threw.code === ACTIVATION_HARD_FAIL_CODE && noPlanted(threw));
+    // No owner-loader capability on surface.
+    ok('no createLazyDurableOperationFactory on surface',
+      typeof c.createLazyDurableOperationFactory !== 'function'
+      && !Object.prototype.hasOwnProperty.call(c, 'createLazyDurableOperationFactory')
+      && !Object.prototype.hasOwnProperty.call(c, 'owners'));
   }
 
   // Worker/admin rejected via factory readiness
@@ -352,9 +477,22 @@ function main() {
       && r.runtime_activation === false
       && noPlanted(r));
     let threw = null;
-    try { c.createLazyDurableOperationFactory(); } catch (e) { threw = e; }
-    ok(`lazy owners refused when ${label} true`,
+    try { c.run(); } catch (e) { threw = e; }
+    ok(`run hard-fail when ${label} true`,
       threw && threw.code === ACTIVATION_HARD_FAIL_CODE);
+  }
+
+  // Exact KV raw booleans via composition surface
+  for (const [label, val] of [
+    ['TRUE', 'TRUE'], ['1', '1'], ['yes', 'yes'], ['true ', 'true '],
+  ]) {
+    const c = create({ env: enabledComposition({ [ENV_KV_EN]: val }) });
+    const r = c.getReadiness();
+    ok(`composition surface kv raw ${label} invalid`,
+      r.ok === false
+      && r.status === CONFIG_STATUS.CONFIG_INVALID
+      && r.code === 'email_delta_kv_pins_invalid'
+      && noPlanted(r));
   }
 
   // Invalid deps
@@ -388,128 +526,101 @@ function main() {
       r.ok === false && noPlanted(r) && noPlanted(r.code));
   }
 
-  // Child: import + factory + readiness never loads pg/azure; run hard-fails.
-  // Lazy #410 owner load may require Node http/https builtins (transport owner
-  // modules) but must not construct Pool/Azure SDK or open sockets.
-  {
-    const env = enabledComposition();
-    const ch = runChild(`
-      'use strict';
-      const Module = require('module');
-      const hits = [];
-      const real = Module._load;
-      Module._load = function(r, p, m) {
-        if (typeof r === 'string' && (r === 'pg' || r.startsWith('@azure/'))) {
-          hits.push(r);
-          throw new Error('blocked ' + r);
-        }
-        return real(r, p, m);
-      };
-      const mod = require(${JSON.stringify(COMP_PATH)});
-      const r0 = mod.resolveEmailDeltaSunsetStagingRuntimeReadiness({});
-      const c = mod.createEmailDeltaSunsetStagingRuntimeComposition({
-        env: ${JSON.stringify(env)},
-      });
-      const r = c.getReadiness();
-      const life = c.getLifecycle();
-      let runCode = null;
-      try { c.run(); } catch (e) { runCode = e && e.code; }
-      const hitsBeforeLazy = hits.slice();
-      const lazy = c.createLazyDurableOperationFactory();
-      console.log(JSON.stringify({
-        ok: r0 && r0.status === 'disabled'
-          && r && r.status === 'composition_inert' && r.ok === true
-          && life && life.state === 'inert' && life.kv_sdk_touch === false
-          && life.db_touch === false && life.graph_touch === false
-          && runCode === 'email_delta_activation_impossible'
-          && lazy && lazy.activation_possible === false
-          && hitsBeforeLazy.length === 0
-          && hits.length === 0
-          && typeof lazy.owners.createOfflineAuthorityBoundMessagesDeltaComposition === 'function',
-        hits,
-        hitsBeforeLazy,
-        status: r && r.status,
-        runCode,
-      }));
-    `);
+  // ── Fresh-process behavioral probes ────────────────────────────────────
+  const probeScenarios = [
+    {
+      name: 'disabled import/readiness/run/reconcile/restart zero owner load',
+      env: {},
+      expect: (b) => b
+        && b.r0Status === 'disabled' && b.r0Ok === true
+        && b.status === 'disabled'
+        && b.runCode === 'email_delta_activation_impossible'
+        && b.reconcileCode === 'email_delta_activation_impossible'
+        && b.restartCode === 'email_delta_activation_impossible'
+        && Array.isArray(b.hits) && b.hits.length === 0
+        && Array.isArray(b.timerHits) && b.timerHits.length === 0
+        && b.exportOwnerEscape === false
+        && b.surfaceHasOwnerLoader === false
+        && Array.isArray(b.nestedCallables) && b.nestedCallables.length === 0
+        && Array.isArray(b.surfaceKeys) && b.surfaceKeys.length === 5
+        && b.life0Db === false && b.life0Kv === false && b.life0Graph === false,
+    },
+    {
+      name: 'composition-only import/readiness/run zero owner load',
+      env: enabledComposition(),
+      expect: (b) => b
+        && b.r0Status === 'composition_inert' && b.r0Ok === true
+        && b.status === 'composition_inert' && b.ok === true
+        && b.kv_pins_valid === true
+        && b.lifeState === 'inert'
+        && b.runCode === 'email_delta_activation_impossible'
+        && b.reconcileCode === 'email_delta_activation_impossible'
+        && b.restartCode === 'email_delta_activation_impossible'
+        && Array.isArray(b.hits) && b.hits.length === 0
+        && Array.isArray(b.timerHits) && b.timerHits.length === 0
+        && b.exportOwnerEscape === false
+        && b.surfaceHasOwnerLoader === false
+        && Array.isArray(b.nestedCallables) && b.nestedCallables.length === 0
+        && b.worker_activation_possible === false
+        && b.admin_activation_possible === false
+        && b.runtime_activation === false,
+    },
+    {
+      name: 'worker true rejected zero owner load',
+      env: enabledComposition({ [E_WORK]: 'true' }),
+      expect: (b) => b
+        && b.status === 'activation_rejected' && b.ok === false
+        && b.runCode === 'email_delta_activation_impossible'
+        && Array.isArray(b.hits) && b.hits.length === 0
+        && b.exportOwnerEscape === false
+        && b.surfaceHasOwnerLoader === false
+        && b.worker_activation_possible === false,
+    },
+    {
+      name: 'admin true rejected zero owner load',
+      env: enabledComposition({ [E_ADMIN]: 'true' }),
+      expect: (b) => b
+        && b.status === 'activation_rejected' && b.ok === false
+        && b.runCode === 'email_delta_activation_impossible'
+        && Array.isArray(b.hits) && b.hits.length === 0
+        && b.exportOwnerEscape === false,
+    },
+    {
+      name: 'worker+admin both rejected zero owner load',
+      env: enabledComposition({ [E_WORK]: 'true', [E_ADMIN]: 'true' }),
+      expect: (b) => b
+        && b.status === 'activation_rejected'
+        && Array.isArray(b.hits) && b.hits.length === 0
+        && b.surfaceHasOwnerLoader === false,
+    },
+    {
+      name: 'kv TRUE rejected zero owner load',
+      env: enabledComposition({ [ENV_KV_EN]: 'TRUE' }),
+      expect: (b) => b
+        && b.status === 'config_invalid'
+        && b.code === 'email_delta_kv_pins_invalid'
+        && Array.isArray(b.hits) && b.hits.length === 0
+        && b.runCode === 'email_delta_activation_impossible',
+    },
+    {
+      name: 'kv 1 rejected zero owner load',
+      env: enabledComposition({ [ENV_KV_EN]: '1' }),
+      expect: (b) => b
+        && b.status === 'config_invalid'
+        && b.code === 'email_delta_kv_pins_invalid'
+        && Array.isArray(b.hits) && b.hits.length === 0,
+    },
+  ];
+
+  for (const sc of probeScenarios) {
+    const ch = runChild(compositionProbeBody({ env: sc.env }));
     const b = parseChildJson(ch);
-    ok('child: composition-inert zero pg/azure + hard-fail run + lazy #410 owners',
-      ch.status === 0 && b && b.ok, `st=${ch.status} ${JSON.stringify(b)}`);
+    ok(`probe: ${sc.name}`,
+      ch.status === 0 && b && sc.expect(b),
+      `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 240)}`);
   }
 
-  // Child: create/getReadiness alone never loads #410 durable-op / Graph transport
-  // owners (config may load pin constants from delta-state / KV parse modules).
-  {
-    const env = enabledComposition();
-    const ch = runChild(`
-      'use strict';
-      const Module = require('module');
-      const hits = [];
-      const real = Module._load;
-      Module._load = function(r, p, m) {
-        if (typeof r === 'string' && (
-          r === 'pg' || r.startsWith('@azure/')
-          || String(r).includes('email-authority-bound-messages-delta')
-          || String(r).includes('email-microsoft-graph-messages-delta')
-          || String(r).includes('email-microsoft-graph-delegated-messages')
-          || String(r).includes('email-delegated-grant-access-session')
-        )) {
-          hits.push(r);
-          throw new Error('blocked ' + r);
-        }
-        return real(r, p, m);
-      };
-      const mod = require(${JSON.stringify(COMP_PATH)});
-      const c = mod.createEmailDeltaSunsetStagingRuntimeComposition({
-        env: ${JSON.stringify(env)},
-      });
-      const r = c.getReadiness();
-      let runCode = null;
-      try { c.run(); } catch (e) { runCode = e && e.code; }
-      console.log(JSON.stringify({
-        ok: r && r.status === 'composition_inert' && hits.length === 0
-          && runCode === 'email_delta_activation_impossible',
-        hits, status: r && r.status, runCode,
-      }));
-    `);
-    const b = parseChildJson(ch);
-    ok('child: readiness path zero #410 op/transport/pg/azure',
-      ch.status === 0 && b && b.ok, `st=${ch.status} ${JSON.stringify(b)}`);
-  }
-
-  // Child: worker true never loads #410 owners via lazy path
-  {
-    const env = enabledComposition({ [E_WORK]: 'true' });
-    const ch = runChild(`
-      'use strict';
-      const Module = require('module');
-      const hits = [];
-      const real = Module._load;
-      Module._load = function(r, p, m) {
-        if (typeof r === 'string' && r.includes('email-authority-bound-messages-delta')) {
-          hits.push(r);
-        }
-        return real(r, p, m);
-      };
-      const mod = require(${JSON.stringify(COMP_PATH)});
-      const c = mod.createEmailDeltaSunsetStagingRuntimeComposition({
-        env: ${JSON.stringify(env)},
-      });
-      let code = null;
-      try { c.createLazyDurableOperationFactory(); } catch (e) { code = e && e.code; }
-      console.log(JSON.stringify({
-        ok: c.getReadiness().status === 'activation_rejected'
-          && code === 'email_delta_activation_impossible'
-          && hits.length === 0,
-        hits: hits.length, code,
-      }));
-    `);
-    const b = parseChildJson(ch);
-    ok('child: worker true zero #410 owner load',
-      ch.status === 0 && b && b.ok, JSON.stringify(b));
-  }
-
-  // Source: staff integration does not call run/create factory
+  // Staff integration resolve-only block
   {
     const block = staff.match(
       /email-delta-sunset-staging-runtime-composition[\s\S]{0,600}/,
@@ -524,24 +635,59 @@ function main() {
     }
   }
 
-  // Identity-free: readiness keys exact order set (no envelope/token fields)
+  // Identity-free: readiness keys exact set (no envelope/token fields)
   {
     const r = resolveReady(enabledComposition());
     const keys = Reflect.ownKeys(r);
     ok('readiness keys exact frozen set',
       keys.length === READINESS_KEYS.length
-      && keys.every((k, i) => k === READINESS_KEYS[i] || READINESS_KEYS.includes(k))
+      && keys.every((k) => READINESS_KEYS.includes(k))
       && !keys.some((k) => /token|envelope|cursor|secret|password|mail|address/i.test(String(k)))
       && noPlanted(r));
   }
 
-  ok('verifier stays offline (no live network markers in production modules)',
-    !/graph\.microsoft\.com/.test(src) || /graph\.microsoft\.com/.test(cfgSrc) === false
-    || true);
-  // Config/composition must not hardcode live graph calls.
   ok('no live graph fetch in composition/config',
     !/fetchInitialPage|fetchContinuationPage|runAuthorityBoundMessagesDeltaPage\s*\(/.test(src)
-    && !/ManagedIdentityCredential|CryptographyClient/.test(src));
+    && !/require\s*\(\s*['"]@azure\//.test(src)
+    && !/require\s*\(\s*['"]@azure\//.test(cfgSrc)
+    && !/new\s+ManagedIdentityCredential|new\s+CryptographyClient/.test(src + cfgSrc));
+
+  // Ordinary Staff startup: requiring composition module under default env must not throw
+  // and must leave readiness disabled (staff integration path).
+  {
+    const ch = runChild(`
+      'use strict';
+      const Module = require('module');
+      const hits = [];
+      const real = Module._load;
+      Module._load = function(r, p, m) {
+        if (typeof r === 'string' && (
+          r === 'pg' || r.startsWith('@azure/') || r === 'https'
+          || String(r).includes('email-authority-bound-messages-delta')
+          || String(r).includes('email-grant-envelope-azure-kv')
+          || String(r).includes('email-inbound-delta-state-store')
+        )) {
+          hits.push(r);
+          throw new Error('blocked ' + r);
+        }
+        return real(r, p, m);
+      };
+      // Simulate ordinary Staff startup: no email-delta flags set.
+      delete process.env.LUNA_EMAIL_DELTA_RUNTIME_COMPOSITION_ENABLED;
+      delete process.env.LUNA_EMAIL_DELTA_WORKER_ENABLED;
+      delete process.env.LUNA_EMAIL_DELTA_ADMIN_ENABLED;
+      const mod = require(${JSON.stringify(COMP_PATH)});
+      const r = mod.resolveEmailDeltaSunsetStagingRuntimeReadiness(process.env);
+      console.log(JSON.stringify({
+        ok: r && r.status === 'disabled' && r.ok === true && hits.length === 0,
+        status: r && r.status,
+        hits,
+      }));
+    `);
+    const b = parseChildJson(ch);
+    ok('probe: ordinary Staff startup path disabled + zero owner load',
+      ch.status === 0 && b && b.ok, JSON.stringify(b));
+  }
 
   assert.ok(verifierSrc.length > 100);
 

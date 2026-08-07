@@ -24,6 +24,16 @@
  *   Migration 064 readiness contract (ledger id + query_version pin)
  *   Existing Sunset Azure KV grant-envelope env pins (parse only; no SDK)
  *
+ * Self-contained: does NOT require/load #410 durable-operation owners, Graph
+ * transport, delta store, grant session, KV provider/composition constructors,
+ * withPgClient, or dependency bags on import, readiness, factory, or hard-fail
+ * paths. Production-exact query_version and Sunset KV pin constants are
+ * module-local. Delta enforces raw byte-exact `'true'` on the existing KV
+ * composition-enabled env *before* any existing-parser semantics (existing
+ * module uses trim+toLowerCase for other callers and is never required here —
+ * stays backward-compatible). Non-exact values (TRUE/1/yes/etc.) fail closed
+ * with zero SDK/owner load.
+ *
  * Side-effect-free: no DB checkout/query, no Pool, no Azure credential/KV SDK,
  * no crypto unwrap, no Graph, no timer, no lease, no migration/DDL.
  *
@@ -31,21 +41,6 @@
  */
 
 const util = require('util');
-
-const {
-  parseEmailGrantEnvelopeAzureKvSunsetStagingRuntimeConfig,
-  SUNSET_STAGING_TRUSTED_HOST,
-  SUNSET_STAGING_KEK_KEY_NAME,
-  SUNSET_STAGING_KEK_KEY_VERSION,
-  SUNSET_STAGING_VERSIONED_KEY_ID,
-  SUNSET_STAGING_MI_CLIENT_ID,
-  ENV_COMPOSITION_ENABLED: ENV_KV_COMPOSITION_ENABLED,
-  ENV_TRUSTED_HOST: ENV_KV_TRUSTED_HOST,
-  ENV_VERSIONED_KEY_ID: ENV_KV_VERSIONED_KEY_ID,
-} = require('./email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
-const {
-  DEFAULT_QUERY_VERSION,
-} = require('./email-inbound-delta-state-store');
 
 const ERROR_CODE = 'EMAIL_DELTA_RUNTIME_CONFIG_INVALID';
 const ERROR_MESSAGE = 'Email delta runtime config failed.';
@@ -62,13 +57,32 @@ const WORKER_ID_MAX_LEN = 128;
 const MIGRATION_064_ID = '064_tenant_email_inbound_delta_states';
 const MIGRATION_064_FILENAME = '064_tenant_email_inbound_delta_states.sql';
 const MIGRATION_064_TABLE = 'tenant_email_inbound_delta_states';
-const QUERY_VERSION = DEFAULT_QUERY_VERSION;
+/** Production-exact text pin (byte-identical to migration 064 + #410 store). */
+const QUERY_VERSION = 'ms_messages_delta_v1';
 
 const ENV_COMPOSITION_ENABLED = 'LUNA_EMAIL_DELTA_RUNTIME_COMPOSITION_ENABLED';
 const ENV_WORKER_ENABLED = 'LUNA_EMAIL_DELTA_WORKER_ENABLED';
 const ENV_ADMIN_ENABLED = 'LUNA_EMAIL_DELTA_ADMIN_ENABLED';
 const ENV_DEPLOYMENT = 'LUNA_DEPLOYMENT';
 const ENV_TENANT = 'DEFAULT_CLIENT_SLUG';
+
+/** Existing Sunset Azure KV grant-envelope env keys (names only; no owner load). */
+const ENV_KV_COMPOSITION_ENABLED = 'EMAIL_GRANT_ENVELOPE_AZURE_KV_COMPOSITION_ENABLED';
+const ENV_KV_TRUSTED_HOST = 'EMAIL_GRANT_ENVELOPE_AZURE_KV_TRUSTED_HOST';
+const ENV_KV_VERSIONED_KEY_ID = 'EMAIL_GRANT_ENVELOPE_AZURE_KV_VERSIONED_KEY_ID';
+
+/**
+ * Sunset-staging canary KV pin constants (byte-identical to 2F-C2 composition).
+ * Duplicated deliberately so this config never requires the KV owner graph.
+ */
+const SUNSET_STAGING_TRUSTED_HOST = 'luna-sunset-staging-kv.vault.azure.net';
+const SUNSET_STAGING_KEK_KEY_NAME = 'luna-email-grant-kek';
+const SUNSET_STAGING_KEK_KEY_VERSION = 'fde9704bd37b45fabe1f12a6a615b032';
+const SUNSET_STAGING_VERSIONED_KEY_ID = (
+  `https://${SUNSET_STAGING_TRUSTED_HOST}`
+  + `/keys/${SUNSET_STAGING_KEK_KEY_NAME}/${SUNSET_STAGING_KEK_KEY_VERSION}`
+);
+const SUNSET_STAGING_MI_CLIENT_ID = '0e05fbe3-e8c5-48aa-a914-30aed284e6f7';
 
 const ENV_FLAG_KEYS = Object.freeze([
   ENV_COMPOSITION_ENABLED,
@@ -114,6 +128,7 @@ const READINESS_KEYS = Object.freeze([
  *   - Never call `closePgPool` / end the application pool from delta code.
  *   - Never call `client.release` inside store/operation code — outer
  *     `withPgClient` owns release (and discard-required release(true)).
+ * This PR never exports/returns withPgClient, getPool, or any DB dependency bag.
  */
 const FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT = Object.freeze({
   active_in_this_pr: false,
@@ -141,11 +156,39 @@ const CANONICAL_WORKER_CONFIG = Object.freeze({
   no_whitespace: true,
 });
 
-// Module-init pin: ambient isProxy monkeypatch after load must not weaken detection.
+/* ── Module-init pins (security-critical intrinsics) ────────────────────────
+ * Ambient global/prototype monkeypatches after load must not weaken hostile
+ * boundary checks. All own-data / prototype / freeze / proxy paths use pins.
+ */
 const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
 const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
   ? PINNED_UTIL_TYPES.isProxy
   : null;
+const PINNED_OBJECT_PROTOTYPE = Object.prototype;
+const PINNED_REFLECT_APPLY = typeof Reflect.apply === 'function' ? Reflect.apply : null;
+const PINNED_REFLECT_OWN_KEYS = typeof Reflect.ownKeys === 'function' ? Reflect.ownKeys : null;
+const PINNED_GET_OWN_PROPERTY_DESCRIPTOR =
+  typeof Object.getOwnPropertyDescriptor === 'function' ? Object.getOwnPropertyDescriptor : null;
+const PINNED_GET_PROTOTYPE_OF =
+  typeof Object.getPrototypeOf === 'function' ? Object.getPrototypeOf : null;
+const PINNED_IS_FROZEN =
+  typeof Object.isFrozen === 'function' ? Object.isFrozen : null;
+const PINNED_HAS_OWN =
+  typeof Object.prototype.hasOwnProperty === 'function'
+    ? Object.prototype.hasOwnProperty
+    : null;
+
+const PINNED_INTRINSICS_READY = Boolean(
+  PINNED_IS_PROXY
+  && PINNED_UTIL_TYPES
+  && PINNED_REFLECT_APPLY
+  && PINNED_REFLECT_OWN_KEYS
+  && PINNED_GET_OWN_PROPERTY_DESCRIPTOR
+  && PINNED_GET_PROTOTYPE_OF
+  && PINNED_IS_FROZEN
+  && PINNED_HAS_OWN
+  && PINNED_OBJECT_PROTOTYPE,
+);
 
 if (typeof QUERY_VERSION !== 'string' || QUERY_VERSION !== 'ms_messages_delta_v1') {
   throw new Error('email_delta_runtime_config_query_version_unexpected');
@@ -164,10 +207,20 @@ function failure() {
   return Object.freeze(error);
 }
 
+/** Pinned Object.prototype.hasOwnProperty.call — never ambient rebinding. */
+function safeHasOwn(object, key) {
+  try {
+    if (!PINNED_HAS_OWN || object == null) return false;
+    return PINNED_HAS_OWN.call(object, key) === true;
+  } catch {
+    return false;
+  }
+}
+
 function isProxySurface(value) {
   try {
-    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) return true;
-    return Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
+    if (!PINNED_INTRINSICS_READY) return true;
+    return PINNED_REFLECT_APPLY.call(Reflect, PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
   } catch {
     return true;
   }
@@ -182,14 +235,15 @@ function readEnvString(env, key) {
     if (env == null || (typeof env !== 'object' && typeof env !== 'function')) {
       return { ok: false };
     }
+    if (!PINNED_INTRINSICS_READY) return { ok: false };
     if (isProxySurface(env)) return { ok: false };
-    if (!Object.prototype.hasOwnProperty.call(env, key)) {
+    if (!safeHasOwn(env, key)) {
       return { ok: true, present: false };
     }
-    const desc = Object.getOwnPropertyDescriptor(env, key);
+    const desc = PINNED_GET_OWN_PROPERTY_DESCRIPTOR.call(Object, env, key);
     if (!desc) return { ok: false };
     if (typeof desc.get === 'function' || typeof desc.set === 'function') return { ok: false };
-    if (!Object.prototype.hasOwnProperty.call(desc, 'value')) return { ok: false };
+    if (!safeHasOwn(desc, 'value')) return { ok: false };
     if (typeof desc.value !== 'string') return { ok: false };
     return { ok: true, present: true, value: desc.value };
   } catch {
@@ -338,8 +392,53 @@ function workerIdentityValid() {
 }
 
 /**
+ * Delta-required KV pin validation (self-contained; zero owner-graph load).
+ *
+ * Enforces raw byte-exact `'true'` on EMAIL_GRANT_ENVELOPE_AZURE_KV_COMPOSITION_ENABLED
+ * *before* any existing-KV-parser semantics would accept loose TRUE/1/yes values.
+ * Existing KV module is never required from this path (keeps trim+toLowerCase for
+ * other callers; delta is intentionally stricter and activation-impossible).
+ *
+ * After exact enabled, validates exact pinned trusted host + versioned key id
+ * (byte-identical to 2F-C2 Sunset canary). No Azure SDK, no KV crypto client, no MI
+ * credential construction, no require of KV composition/provider modules.
+ *
+ * @param {object} env
+ * @returns {boolean}
+ */
+function kvPinsValidExact(env) {
+  try {
+    // Gate 1: raw byte-exact enabled — reject TRUE/True/1/yes/" true " with zero load.
+    // Sits *before* any existing KV parser path (which would accept trim+toLowerCase).
+    const en = readEnvString(env, ENV_KV_COMPOSITION_ENABLED);
+    if (!en.ok) return false;
+    if (!en.present || en.value !== 'true') return false;
+
+    // Gate 2: exact pinned host + versioned key id (self-contained; no require).
+    const host = readEnvString(env, ENV_KV_TRUSTED_HOST);
+    const kid = readEnvString(env, ENV_KV_VERSIONED_KEY_ID);
+    if (!host.ok || !host.present || host.value !== SUNSET_STAGING_TRUSTED_HOST) return false;
+    if (!kid.ok || !kid.present || kid.value !== SUNSET_STAGING_VERSIONED_KEY_ID) return false;
+
+    // Local pin integrity (module constants must stay aligned with 2F-C2).
+    if (SUNSET_STAGING_KEK_KEY_NAME !== 'luna-email-grant-kek') return false;
+    if (SUNSET_STAGING_KEK_KEY_VERSION !== 'fde9704bd37b45fabe1f12a6a615b032') return false;
+    if (SUNSET_STAGING_MI_CLIENT_ID !== '0e05fbe3-e8c5-48aa-a914-30aed284e6f7') return false;
+    if (SUNSET_STAGING_VERSIONED_KEY_ID
+        !== `https://${SUNSET_STAGING_TRUSTED_HOST}`
+          + `/keys/${SUNSET_STAGING_KEK_KEY_NAME}/${SUNSET_STAGING_KEK_KEY_VERSION}`) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Parse email-delta runtime config from a trusted env object.
  * Never throws attacker-controlled messages; returns frozen readiness only.
+ * Never constructs/returns owner constructors, KV SDK, Pool, or dependency bags.
  *
  * @param {object} [env]
  * @returns {Readonly<object>} exact READINESS_KEYS surface
@@ -367,6 +466,7 @@ function parseEmailDeltaRuntimeConfig(env) {
     const flags = { composition, worker, admin };
 
     // Independent flags: worker/admin true always rejected (activation-impossible).
+    // No KV/owner load on rejected path.
     if (worker === true || admin === true) {
       return rejectedReadiness(flags);
     }
@@ -390,21 +490,8 @@ function parseEmailDeltaRuntimeConfig(env) {
       return invalidReadiness(flags, 'email_delta_tenant_mismatch');
     }
 
-    // Existing pinned envelope/KV settings — parse only (no SDK construction).
-    let kv;
-    try {
-      kv = parseEmailGrantEnvelopeAzureKvSunsetStagingRuntimeConfig(env);
-    } catch {
-      return invalidReadiness(flags, 'email_delta_kv_pins_invalid');
-    }
-    if (!kv || kv.ok !== true || kv.composition_enabled !== true) {
-      return invalidReadiness(flags, 'email_delta_kv_pins_invalid');
-    }
-    if (kv.trusted_host !== SUNSET_STAGING_TRUSTED_HOST
-        || kv.versioned_key_id !== SUNSET_STAGING_VERSIONED_KEY_ID
-        || kv.kek_key_name !== SUNSET_STAGING_KEK_KEY_NAME
-        || kv.kek_key_version !== SUNSET_STAGING_KEK_KEY_VERSION
-        || kv.managed_identity_client_id !== SUNSET_STAGING_MI_CLIENT_ID) {
+    // Existing pinned envelope/KV settings — raw-exact then existing parser.
+    if (!kvPinsValidExact(env)) {
       return invalidReadiness(flags, 'email_delta_kv_pins_invalid');
     }
 
@@ -420,6 +507,7 @@ function parseEmailDeltaRuntimeConfig(env) {
 /**
  * Whether composition flag is exact true AND worker/admin are not true.
  * Does not validate deployment/tenant/KV pins (use parseEmailDeltaRuntimeConfig).
+ * Never loads owner graph.
  */
 function isEmailDeltaCompositionFlagEnabled(env) {
   try {
@@ -456,6 +544,11 @@ module.exports = Object.freeze({
   ENV_KV_COMPOSITION_ENABLED,
   ENV_KV_TRUSTED_HOST,
   ENV_KV_VERSIONED_KEY_ID,
+  SUNSET_STAGING_TRUSTED_HOST,
+  SUNSET_STAGING_KEK_KEY_NAME,
+  SUNSET_STAGING_KEK_KEY_VERSION,
+  SUNSET_STAGING_VERSIONED_KEY_ID,
+  SUNSET_STAGING_MI_CLIENT_ID,
   CONFIG_STATUS,
   READINESS_KEYS,
   MIGRATION_064_READINESS_CONTRACT,

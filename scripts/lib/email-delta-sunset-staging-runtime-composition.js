@@ -15,11 +15,13 @@
  * Composition enabled alone (with exact deployment=sunset-staging,
  * tenant=sunset, migration064 contract, canonical worker id, pinned KV env)
  * yields frozen composition_inert readiness. No DB/KV SDK/Graph/timer/lease/
- * migration/DDL work on import, factory, or readiness resolve.
+ * migration/DDL work on import, factory, readiness, or hard-fail lifecycle.
  *
- * Reuses PR #410 durable-operation composition and real owners only through
- * lazy factory closures (never invoked by the public surface of this PR).
- * Never duplicates SQL / network / crypto / refresh / URL parsing.
+ * Activation capability escape removed: public exports and returned surface
+ * never expose or load #410 durable-operation owners, Graph transport, delta
+ * store, grant session, KV provider/composition constructors, withPgClient,
+ * or dependency bags. No generic owner-loader path. run/reconcile/restart
+ * hard-fail without touching dependencies.
  *
  * Future exclusive transaction-client adapter is documented on the config
  * module; this PR never passes getPool, never closes the application pool,
@@ -80,13 +82,13 @@ const LIFECYCLE_KEYS = Object.freeze([
   'runtime_activation',
 ]);
 
+/** Public surface only — no owner-loader, no #410 factory, no dependency bag. */
 const SURFACE_KEYS = Object.freeze([
   'getReadiness',
   'getLifecycle',
   'run',
   'reconcile',
   'restart',
-  'createLazyDurableOperationFactory',
 ]);
 
 const ACTIVATION_HARD_FAIL_CODE = 'email_delta_activation_impossible';
@@ -94,11 +96,36 @@ const ACTIVATION_HARD_FAIL_MESSAGE = 'Email delta activation is impossible in th
 
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
-// Module-init pins.
+/* ── Module-init pins (security-critical intrinsics) ─────────────────────── */
 const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
 const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
   ? PINNED_UTIL_TYPES.isProxy
   : null;
+const PINNED_OBJECT_PROTOTYPE = Object.prototype;
+const PINNED_REFLECT_APPLY = typeof Reflect.apply === 'function' ? Reflect.apply : null;
+const PINNED_REFLECT_OWN_KEYS = typeof Reflect.ownKeys === 'function' ? Reflect.ownKeys : null;
+const PINNED_GET_OWN_PROPERTY_DESCRIPTOR =
+  typeof Object.getOwnPropertyDescriptor === 'function' ? Object.getOwnPropertyDescriptor : null;
+const PINNED_GET_PROTOTYPE_OF =
+  typeof Object.getPrototypeOf === 'function' ? Object.getPrototypeOf : null;
+const PINNED_IS_FROZEN =
+  typeof Object.isFrozen === 'function' ? Object.isFrozen : null;
+const PINNED_HAS_OWN =
+  typeof Object.prototype.hasOwnProperty === 'function'
+    ? Object.prototype.hasOwnProperty
+    : null;
+
+const PINNED_INTRINSICS_READY = Boolean(
+  PINNED_IS_PROXY
+  && PINNED_UTIL_TYPES
+  && PINNED_REFLECT_APPLY
+  && PINNED_REFLECT_OWN_KEYS
+  && PINNED_GET_OWN_PROPERTY_DESCRIPTOR
+  && PINNED_GET_PROTOTYPE_OF
+  && PINNED_IS_FROZEN
+  && PINNED_HAS_OWN
+  && PINNED_OBJECT_PROTOTYPE,
+);
 
 // Static alignment with config pins.
 if (SUNSET_DEPLOYMENT !== 'sunset-staging') {
@@ -141,10 +168,20 @@ function activationHardFail() {
   return Object.freeze(error);
 }
 
+/** Pinned Object.prototype.hasOwnProperty.call — never ambient rebinding. */
+function safeHasOwn(object, key) {
+  try {
+    if (!PINNED_HAS_OWN || object == null) return false;
+    return PINNED_HAS_OWN.call(object, key) === true;
+  } catch {
+    return false;
+  }
+}
+
 function isProxySurface(value) {
   try {
-    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) return true;
-    return Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
+    if (!PINNED_INTRINSICS_READY) return true;
+    return PINNED_REFLECT_APPLY.call(Reflect, PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
   } catch {
     return true;
   }
@@ -152,10 +189,10 @@ function isProxySurface(value) {
 
 function ownData(object, key) {
   try {
-    if (object == null || isProxySurface(object)) return undefined;
-    const descriptor = Object.getOwnPropertyDescriptor(object, key);
+    if (object == null || !PINNED_INTRINSICS_READY || isProxySurface(object)) return undefined;
+    const descriptor = PINNED_GET_OWN_PROPERTY_DESCRIPTOR.call(Object, object, key);
     return descriptor
-      && Object.prototype.hasOwnProperty.call(descriptor, 'value')
+      && safeHasOwn(descriptor, 'value')
       && !descriptor.get
       && !descriptor.set
       ? descriptor.value
@@ -168,9 +205,10 @@ function ownData(object, key) {
 function exactPlainData(object, keys) {
   try {
     if (!object || typeof object !== 'object' || Array.isArray(object)) return false;
+    if (!PINNED_INTRINSICS_READY) return false;
     if (isProxySurface(object)) return false;
-    if (Object.getPrototypeOf(object) !== Object.prototype) return false;
-    const actual = Reflect.ownKeys(object);
+    if (PINNED_GET_PROTOTYPE_OF.call(Object, object) !== PINNED_OBJECT_PROTOTYPE) return false;
+    const actual = PINNED_REFLECT_OWN_KEYS.call(Reflect, object);
     if (actual.length !== keys.length
         || actual.some((key) => typeof key !== 'string'
           || DANGEROUS_KEYS.has(key)
@@ -178,10 +216,10 @@ function exactPlainData(object, keys) {
       return false;
     }
     return keys.every((key) => {
-      const descriptor = Object.getOwnPropertyDescriptor(object, key);
+      const descriptor = PINNED_GET_OWN_PROPERTY_DESCRIPTOR.call(Object, object, key);
       return Boolean(
         descriptor
-        && Object.prototype.hasOwnProperty.call(descriptor, 'value')
+        && safeHasOwn(descriptor, 'value')
         && descriptor.enumerable
         && !descriptor.get
         && !descriptor.set,
@@ -193,7 +231,13 @@ function exactPlainData(object, keys) {
 }
 
 function exactFrozenData(object, keys) {
-  return Boolean(object && Object.isFrozen(object) && exactPlainData(object, keys));
+  try {
+    if (!object || !PINNED_INTRINSICS_READY) return false;
+    if (PINNED_IS_FROZEN.call(Object, object) !== true) return false;
+    return exactPlainData(object, keys);
+  } catch {
+    return false;
+  }
 }
 
 function assertReadinessShape(readiness) {
@@ -235,60 +279,9 @@ function lifecycleFromReadiness(readiness) {
 }
 
 /**
- * Lazy owner registry for PR #410 durable-operation composition.
- * Closures only — never invoked by public readiness/lifecycle/hard-fail paths.
- * First call (future PR only) loads real owners without duplicating SQL/network/
- * crypto/refresh/URL parsing. Import of this composition module does not load them.
- *
- * @returns {function(): Readonly<object>}
- */
-function createLazyDurableOwnersAccessor() {
-  let owners = null;
-  return function getLazyDurableOwners() {
-    if (owners) return owners;
-    // Lazy requires — keep import of this module free of operation/transport graph
-    // until a future activation path deliberately asks for owners.
-    const offline = require('./email-authority-bound-messages-delta-offline-composition');
-    const pageOp = require('./email-authority-bound-messages-delta-page-operation');
-    const transport = require('./email-microsoft-graph-messages-delta-page-transport');
-    const deltaStore = require('./email-inbound-delta-state-store');
-    const grantSession = require('./email-delegated-grant-access-session');
-    const kvComp = require('./email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
-
-    owners = Object.freeze({
-      createOfflineAuthorityBoundMessagesDeltaComposition:
-        offline.createOfflineAuthorityBoundMessagesDeltaComposition,
-      createAuthorityBoundMessagesDeltaPageOperation:
-        pageOp.createAuthorityBoundMessagesDeltaPageOperation,
-      createMicrosoftGraphMessagesDeltaPageTransport:
-        transport.createMicrosoftGraphMessagesDeltaPageTransport,
-      createInboundEmailDeltaStateStore:
-        deltaStore.createInboundEmailDeltaStateStore,
-      resolveWithTransactionClient:
-        deltaStore.resolveWithTransactionClient,
-      createDelegatedGrantAccessSession:
-        grantSession.createDelegatedGrantAccessSession,
-      parseEmailGrantEnvelopeAzureKvSunsetStagingRuntimeConfig:
-        kvComp.parseEmailGrantEnvelopeAzureKvSunsetStagingRuntimeConfig,
-      createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition:
-        kvComp.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition,
-      // Documented future exclusive loan — not constructed here.
-      futureTransactionClientAdapterContract:
-        FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT,
-      offline_runtime_wired:
-        offline.EMAIL_MESSAGES_DELTA_OFFLINE_COMPOSITION_RUNTIME_WIRED === false,
-      page_runtime_wired:
-        pageOp.EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_RUNTIME_WIRED === false,
-      page_safe_for_route_cron:
-        pageOp.EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_SAFE_FOR_RUNTIME_ROUTE_CRON === false,
-    });
-    return owners;
-  };
-}
-
-/**
  * Side-effect-free readiness resolve (Staff API safe).
  * Never constructs Pool / Azure SDK / Graph / timers / leases / migrations.
+ * Never loads #410 / KV owner / grant / transport modules.
  *
  * @param {object} [env]
  * @returns {Readonly<object>} frozen READINESS_KEYS
@@ -324,6 +317,7 @@ function resolveEmailDeltaSunsetStagingRuntimeLifecycle(env) {
  * Accepts exact own-data `{ env }` only. Import-inert; factory does not touch
  * DB / Pool / Azure KV SDK / Graph / timers / leases / migrations.
  * Returns frozen readiness/lifecycle surface; run/reconcile/restart hard-fail.
+ * No owner-loader, no #410 factory, no nested callable capability escape.
  *
  * @param {{ env: object }} deps
  * @returns {Readonly<object>}
@@ -342,9 +336,6 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps) {
 
     const readiness = parseEmailDeltaRuntimeConfig(env);
     if (!assertReadinessShape(readiness)) throw failure();
-
-    // Lazy #410 owner closures — public surface never invokes for execution.
-    const getLazyDurableOwners = createLazyDurableOwnersAccessor();
 
     function getReadiness() {
       // Return the frozen factory-time snapshot (no re-read of ambient env).
@@ -370,50 +361,28 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps) {
       throw activationHardFail();
     }
 
-    /**
-     * Lazy durable-operation factory accessor (structural wire only).
-     * Returns owner registry; does not run a page, open Graph, unwrap crypto,
-     * construct Pool, or start a timer. Future worker PRs may build on this
-     * after separate activation review — this PR keeps activation impossible.
-     *
-     * When composition is not inert-ready, refuse even the lazy owner load so
-     * misconfigured worker/admin env cannot reach #410 factories.
-     */
-    function createLazyDurableOperationFactory() {
-      if (ownData(readiness, 'status') !== CONFIG_STATUS.COMPOSITION_INERT
-          || ownData(readiness, 'ok') !== true
-          || ownData(readiness, 'composition_enabled') !== true) {
-        throw activationHardFail();
-      }
-      // Still activation-impossible for run; only exposes lazy owner handles.
-      const owners = getLazyDurableOwners();
-      return Object.freeze({
-        owners,
-        // Explicit non-run surface for future composition — hard fail.
-        runAuthorityBoundMessagesDeltaPageDurable() {
-          throw activationHardFail();
-        },
-        futureTransactionClientAdapterContract:
-          FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT,
-        activation_possible: false,
-      });
-    }
-
     const surface = Object.freeze({
       getReadiness,
       getLifecycle,
       run,
       reconcile,
       restart,
-      createLazyDurableOperationFactory,
     });
 
-    // Exact public key set (no extras).
-    if (!exactFrozenData(surface, SURFACE_KEYS)
-        && !(Object.isFrozen(surface)
-          && Reflect.ownKeys(surface).length === SURFACE_KEYS.length
-          && SURFACE_KEYS.every((k) => typeof surface[k] === 'function'))) {
-      throw failure();
+    // Exact public key set (no extras, no owner-loader).
+    if (!exactFrozenData(surface, SURFACE_KEYS)) {
+      // Fallback check when freeze/plain drift; still reject extras.
+      try {
+        if (!PINNED_IS_FROZEN.call(Object, surface)) throw failure();
+        const keys = PINNED_REFLECT_OWN_KEYS.call(Reflect, surface);
+        if (keys.length !== SURFACE_KEYS.length
+            || !SURFACE_KEYS.every((k) => typeof surface[k] === 'function')) {
+          throw failure();
+        }
+      } catch (e) {
+        if (e && e.code === ERROR_CODE) throw e;
+        throw failure();
+      }
     }
 
     return surface;
