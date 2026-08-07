@@ -5,8 +5,10 @@
  *
  * One internal operation, exact call order:
  *   1) resolveDelegatedReadAuthority (merged custodian repository)
- *   2) obtainAccessTokenOnce via trusted injected one-shot grant-session capability
- *   3) ImmutableId page transport with authority.providerMailboxId only
+ *   2) runWithAccessTokenOnce via trusted injected one-shot grant-session
+ *      capability (callback-scoped; never a returned/exported token source)
+ *   3) Private session callback alone invokes ImmutableId page transport with
+ *      authority.providerMailboxId only (double-scrub loan + transport input)
  *   4) processInboundEmailBatch exactly once with factory-fixed consumer
  *
  * Access tokens never come from caller input. Caller input is exact
@@ -19,10 +21,11 @@
  * sanitized identity-free status/counts.
  *
  * Does **not** reimplement lease → open → refresh → reseal → CAS (no
- * refresh/custody duplication). Token provenance is the injected grant-session
- * capability alone. No envelope/PII/token/authority DTO escape/log/retention.
- * Default-off / unreferenced by runtime/routes. No DB migration, OAuth scope
- * change, deploy, live I/O, or persistence.
+ * refresh/custody duplication; no second lease/SQL/refresh owner). Token
+ * provenance is the injected grant-session capability alone. No envelope/PII/
+ * token/authority DTO escape/log/retention. Default-off / unreferenced by
+ * runtime/routes. No DB migration, OAuth scope change, deploy, live I/O, or
+ * persistence.
  *
  * @module email-authority-bound-inbound-operation
  */
@@ -59,10 +62,10 @@ const DEPENDENCY_KEYS = Object.freeze([
   'consumer',
 ]);
 
-const GRANT_SESSION_KEYS = Object.freeze(['obtainAccessTokenOnce']);
+const GRANT_SESSION_KEYS = Object.freeze(['runWithAccessTokenOnce']);
 const TRANSPORT_KEYS = Object.freeze(['listNormalizedInboundEnvelopes']);
 const GRANT_SESSION_CALL_KEYS = Object.freeze(['clientId', 'endpointId']);
-const TOKEN_RESULT_KEYS = Object.freeze(['accessToken']);
+const LOAN_KEYS = Object.freeze(['accessToken']);
 const RESULT_KEYS = Object.freeze([
   'status',
   'input_count',
@@ -197,9 +200,17 @@ function acceptAuthorityDto(value) {
   });
 }
 
-function acceptAccessTokenResult(value) {
-  if (!exactPlainData(value, TOKEN_RESULT_KEYS)) return null;
-  const token = ownData(value, 'accessToken');
+/**
+ * Accept mutable one-shot loan from grant-session callback.
+ * Exact own-data LOAN_KEYS only; non-empty printable accessToken.
+ * Does not require frozen (loan must stay mutable for scrub).
+ *
+ * @param {object} loan
+ * @returns {string|null}
+ */
+function acceptLoanAccessToken(loan) {
+  if (!exactPlainData(loan, LOAN_KEYS)) return null;
+  const token = ownData(loan, 'accessToken');
   if (typeof token !== 'string' || token.length < 1 || token.length > TOKEN_LIMIT
       || !/^[\x21-\x7e]+$/.test(token)) {
     return null;
@@ -379,9 +390,9 @@ function resolveDb(db) {
 function resolveGrantSession(grantSession) {
   try {
     if (!exactFrozenData(grantSession, GRANT_SESSION_KEYS)) return null;
-    const fn = ownData(grantSession, 'obtainAccessTokenOnce');
+    const fn = ownData(grantSession, 'runWithAccessTokenOnce');
     if (typeof fn !== 'function' || isProxySurface(fn)) return null;
-    return Object.freeze({ obtainAccessTokenOnce: fn });
+    return Object.freeze({ runWithAccessTokenOnce: fn });
   } catch {
     return null;
   }
@@ -464,10 +475,9 @@ function createAuthorityBoundInboundOperation(deps) {
       return failResult(FAILURE_CODE);
     }
 
-    // 2) Access token only through trusted one-shot grant-session capability.
+    // 2) Access token only through trusted callback-scoped grant-session.
     // Identity for the session comes from authority DTO — never caller token fields.
-    let accessTokenOwner = null;
-    let graphInput = null;
+    // Private callback alone owns ImmutableId transport + double-scrub + batch.
     try {
       const sessionInput = Object.freeze({
         clientId: authority.clientId,
@@ -478,72 +488,96 @@ function createAuthorityBoundInboundOperation(deps) {
         return failResult(FAILURE_CODE);
       }
 
-      let tokenResult;
+      let sessionOut;
       try {
-        tokenResult = await Reflect.apply(
-          grantSession.obtainAccessTokenOnce,
+        sessionOut = await Reflect.apply(
+          grantSession.runWithAccessTokenOnce,
           grantSession,
-          [sessionInput],
+          [
+            sessionInput,
+            async function authorityBoundSessionConsumer(loan) {
+              // Private callback: ImmutableId transport then batch. No second
+              // lease/SQL/refresh owner here.
+              const accessTokenOwner = acceptLoanAccessToken(loan);
+              if (accessTokenOwner === null) {
+                throw failure();
+              }
+
+              let graphInput = null;
+              try {
+                graphInput = {
+                  accessToken: accessTokenOwner,
+                  provider_mailbox_id: authority.providerMailboxId,
+                };
+                // Double-scrub loan immediately after copying into transport input.
+                try { loan.accessToken = null; } catch { /* */ }
+
+                let envelopes;
+                try {
+                  envelopes = await Reflect.apply(
+                    transport.listNormalizedInboundEnvelopes,
+                    transport,
+                    [graphInput],
+                  );
+                } finally {
+                  if (graphInput) {
+                    try { graphInput.accessToken = null; } catch { /* */ }
+                    graphInput = null;
+                  }
+                }
+
+                const accepted = acceptEnvelopeArray(envelopes);
+                if (!accepted) throw failure();
+                if (!envelopesMatchAuthority(accepted, authority)) {
+                  throw failure();
+                }
+
+                // Batch processor exactly once — factory-fixed consumer only.
+                let batchResult;
+                try {
+                  batchResult = await processInboundEmailBatch({
+                    envelopes: accepted,
+                    consumer,
+                  });
+                } catch {
+                  throw failure();
+                }
+
+                const publicCounts = acceptBatchSuccess(batchResult);
+                batchResult = null;
+                if (!publicCounts) throw failure();
+                return publicCounts;
+              } finally {
+                if (graphInput) {
+                  try { graphInput.accessToken = null; } catch { /* */ }
+                  graphInput = null;
+                }
+                if (loan) {
+                  try { loan.accessToken = null; } catch { /* */ }
+                }
+              }
+            },
+          ],
         );
       } catch {
         return failResult(FAILURE_CODE);
       }
 
-      accessTokenOwner = acceptAccessTokenResult(tokenResult);
-      tokenResult = null;
-      if (accessTokenOwner === null) return failResult(FAILURE_CODE);
-
-      // 3) ImmutableId transport — authority.providerMailboxId only.
-      graphInput = {
-        accessToken: accessTokenOwner,
-        provider_mailbox_id: authority.providerMailboxId,
-      };
-      accessTokenOwner = null;
-
-      let envelopes;
-      try {
-        envelopes = await Reflect.apply(
-          transport.listNormalizedInboundEnvelopes,
-          transport,
-          [graphInput],
-        );
-      } catch {
-        return failResult(FAILURE_CODE);
-      } finally {
-        if (graphInput) {
-          try { graphInput.accessToken = null; } catch { /* */ }
-          graphInput = null;
-        }
-        accessTokenOwner = null;
-      }
-
-      const accepted = acceptEnvelopeArray(envelopes);
-      if (!accepted) return failResult(FAILURE_CODE);
-      if (!envelopesMatchAuthority(accepted, authority)) {
+      // Pre-CAS / CAS failure from real session → zero transport/batch (callback
+      // never ran). Injected mocks may return the same ok:false shape.
+      if (!sessionOut || sessionOut.ok !== true) {
         return failResult(FAILURE_CODE);
       }
 
-      // 4) Batch processor exactly once — factory-fixed consumer only.
-      let batchResult;
-      try {
-        batchResult = await processInboundEmailBatch({
-          envelopes: accepted,
-          consumer,
-        });
-      } catch {
+      const publicCounts = sessionOut.value;
+      if (!publicCounts
+          || !exactFrozenData(publicCounts, RESULT_KEYS)
+          || ownData(publicCounts, 'status') !== 'processed') {
         return failResult(FAILURE_CODE);
       }
-
-      const publicCounts = acceptBatchSuccess(batchResult);
-      batchResult = null;
-      if (!publicCounts) return failResult(FAILURE_CODE);
       return okResult(publicCounts);
-    } finally {
-      if (graphInput) {
-        try { graphInput.accessToken = null; } catch { /* */ }
-        graphInput = null;
-      }
-      accessTokenOwner = null;
+    } catch {
+      return failResult(FAILURE_CODE);
     }
   }
 
@@ -558,7 +592,7 @@ module.exports = Object.freeze({
   GRANT_SESSION_KEYS,
   TRANSPORT_KEYS,
   GRANT_SESSION_CALL_KEYS,
-  TOKEN_RESULT_KEYS,
+  LOAN_KEYS,
   RESULT_KEYS,
   EMAIL_AUTHORITY_BOUND_INBOUND_OPERATION_RUNTIME_WIRED,
   EMAIL_AUTHORITY_BOUND_INBOUND_OPERATION_PERSISTENCE_READY,

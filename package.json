@@ -367,6 +367,7 @@
     "verify:email-inbound-batch-processor": "node scripts/verify-email-inbound-batch-processor.js",
     "verify:email-microsoft-graph-normalized-page": "node scripts/verify-email-microsoft-graph-normalized-page.js",
     "verify:email-microsoft-graph-immutableid-page-transport": "node scripts/verify-email-microsoft-graph-immutableid-page-transport.js",
+    "verify:email-delegated-grant-access-session": "node scripts/verify-email-delegated-grant-access-session.js",
     "verify:email-delegated-grant-read-health": "node scripts/verify-email-delegated-grant-read-health.js",
     "verify:email-microsoft-delegated-read-sunset-staging-runtime-composition": "node scripts/verify-email-microsoft-delegated-read-sunset-staging-runtime-composition.js",
     "verify:staff-email-oauth-read-health-routes": "node scripts/verify-staff-email-oauth-read-health-routes.js",

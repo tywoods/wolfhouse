@@ -4,8 +4,9 @@
  * verify:email-authority-bound-inbound-operation — hostile all-or-nothing gate.
  *
  * Authority-bound inbound composition:
- *   resolveDelegatedReadAuthority → grant-session token → ImmutableId transport
- *   → processInboundEmailBatch (factory-fixed consumer) exactly once each.
+ *   resolveDelegatedReadAuthority → grant-session runWithAccessTokenOnce
+ *   (callback) → ImmutableId transport → processInboundEmailBatch
+ *   (factory-fixed consumer) exactly once each.
  *
  * No network, routes, OAuth scope, DB migration, deploy, live Graph, or
  * refresh/custody duplication. Prefer observable call counts/order + scrub
@@ -175,15 +176,34 @@ function mockDbForAuthority(dtoOrNull, multi = false) {
 }
 
 function makeGrantSession(state, opts = {}) {
-  const fn = async function obtainAccessTokenOnce(input) {
+  const fn = async function runWithAccessTokenOnce(input, consumer) {
     state.grantCalls += 1;
     state.grantOrder.push('grant');
     state.grantInputs.push(input);
     if (opts.throw) throw new Error(PLANTED_TOKEN);
-    if (opts.badShape) return opts.badShape;
-    return { accessToken: opts.token != null ? opts.token : PLANTED_TOKEN };
+    if (opts.preCasFail) {
+      return Object.freeze({
+        ok: false,
+        status: String(opts.preCasFail),
+        grant_generation: opts.grantGeneration != null ? opts.grantGeneration : null,
+      });
+    }
+    // Callback-scoped loan (mutable). badShape simulates hostile loan key sets.
+    const loan = opts.badShape
+      ? opts.badShape
+      : { accessToken: opts.token != null ? opts.token : PLANTED_TOKEN };
+    try {
+      if (typeof consumer !== 'function') throw new Error(PLANTED_TOKEN);
+      const value = await consumer(loan);
+      return Object.freeze({ ok: true, grant_generation: 1, value });
+    } finally {
+      if (loan && Object.prototype.hasOwnProperty.call(loan, 'accessToken')) {
+        try { loan.accessToken = null; } catch { /* */ }
+      }
+      state.retainedLoan = loan;
+    }
   };
-  return Object.freeze({ obtainAccessTokenOnce: fn });
+  return Object.freeze({ runWithAccessTokenOnce: fn });
 }
 
 function makeTransport(state, opts = {}) {
@@ -237,6 +257,7 @@ function freshState() {
     grantInputs: [],
     transportInputs: [],
     consumerEnvelopeCounts: [],
+    retainedLoan: null,
   };
 }
 
@@ -282,8 +303,12 @@ async function main() {
       'dependency-keys-exact',
       DEPENDENCY_KEYS.join(',') === 'db,grantSession,immutableIdPageTransport,consumer',
     );
-    ok('grant-session-keys', GRANT_SESSION_KEYS.join(',') === 'obtainAccessTokenOnce');
+    ok('grant-session-keys', GRANT_SESSION_KEYS.join(',') === 'runWithAccessTokenOnce');
     ok('transport-keys', TRANSPORT_KEYS.join(',') === 'listNormalizedInboundEnvelopes');
+    ok(
+      'loan-keys',
+      op.LOAN_KEYS && op.LOAN_KEYS.join(',') === 'accessToken',
+    );
     ok(
       'result-keys-identity-free',
       RESULT_KEYS.join(',') === 'status,input_count,delivered_count,duplicate_count',
@@ -301,6 +326,8 @@ async function main() {
       'uses-merged-resolveDelegatedReadAuthority',
       /resolveDelegatedReadAuthority/.test(src)
         && /processInboundEmailBatch/.test(src)
+        && /runWithAccessTokenOnce/.test(src)
+        && !/obtainAccessTokenOnce/.test(src)
         && !/tryAcquireDelegatedGrantLease/.test(src)
         && !/openDelegatedGrantUnderLease/.test(src)
         && !/commitDelegatedGrantRotation/.test(src)
@@ -374,7 +401,9 @@ async function main() {
     assert.throws(
       () => createAuthorityBoundInboundOperation(Object.freeze({
         db: { query: async () => ({ rows: [] }) },
-        grantSession: Object.freeze({ obtainAccessTokenOnce: async () => ({ accessToken: 'x' }) }),
+        grantSession: Object.freeze({
+          runWithAccessTokenOnce: async () => Object.freeze({ ok: true, grant_generation: 1, value: null }),
+        }),
         immutableIdPageTransport: Object.freeze({
           listNormalizedInboundEnvelopes: async () => Object.freeze([]),
         }),
@@ -388,7 +417,7 @@ async function main() {
       () => createAuthorityBoundInboundOperation(Object.freeze({
         db: { query: async () => ({ rows: [] }) },
         grantSession: Object.freeze({
-          obtainAccessTokenOnce: async () => ({ accessToken: 'x' }),
+          runWithAccessTokenOnce: async () => Object.freeze({ ok: true, grant_generation: 1, value: null }),
           extra: true,
         }),
         immutableIdPageTransport: Object.freeze({
@@ -408,7 +437,9 @@ async function main() {
         () => createAuthorityBoundInboundOperation(Object.freeze({
           db: { query: async () => ({ rows: [] }) },
           grantSession: Object.freeze({
-            obtainAccessTokenOnce: async () => ({ accessToken: 'x' }),
+            runWithAccessTokenOnce: async () => Object.freeze({
+              ok: true, grant_generation: 1, value: null,
+            }),
           }),
           immutableIdPageTransport: Object.freeze({
             listNormalizedInboundEnvelopes: async () => Object.freeze([]),
@@ -643,6 +674,28 @@ async function main() {
         ser(res),
       );
     }
+    {
+      // Pre-CAS / CAS failure shape → zero callback side effects (no transport/batch).
+      const state = freshState();
+      const { db } = mockDbForAuthority(authorityDto());
+      const service = createAuthorityBoundInboundOperation(Object.freeze({
+        db,
+        grantSession: makeGrantSession(state, { preCasFail: 'uncertain' }),
+        immutableIdPageTransport: makeTransport(state),
+        consumer: makeConsumer(state),
+      }));
+      const res = await service.runAuthorityBoundInbound(baseInput());
+      ok(
+        'pre-cas-fail-zero-downstream',
+        res.ok === false
+          && res.error === FAILURE_CODE
+          && state.grantCalls === 1
+          && state.transportCalls === 0
+          && state.consumerCalls === 0
+          && noLeak(res),
+        ser({ res, state }),
+      );
+    }
 
     // ── Transport failure ─────────────────────────────────────────────────
     {
@@ -754,6 +807,14 @@ async function main() {
           && Object.prototype.hasOwnProperty.call(seenInput, 'accessToken')
           && seenInput.accessToken === null,
         ser({ accessToken: seenInput && seenInput.accessToken }),
+      );
+      ok(
+        'retained-loan-accessToken-null',
+        state.retainedLoan
+          && Object.prototype.hasOwnProperty.call(state.retainedLoan, 'accessToken')
+          && state.retainedLoan.accessToken === null
+          && noLeak(state.retainedLoan),
+        ser(state.retainedLoan),
       );
     }
 
