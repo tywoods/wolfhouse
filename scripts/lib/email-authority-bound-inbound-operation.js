@@ -13,7 +13,10 @@
  * `{ clientId, locationId, endpointId }` only — no token / provider / mailbox /
  * address / status / generation / consumer. Dependencies are trusted executable
  * code and exact frozen/snapshotted services; consumer is fixed at factory
- * construction. Returns only frozen sanitized identity-free status/counts.
+ * construction. The `db` dependency is resolved at factory into a private
+ * frozen minimal query adapter (captured query + trusted original receiver);
+ * execution never re-reads the caller's mutable db/query. Returns only frozen
+ * sanitized identity-free status/counts.
  *
  * Does **not** reimplement lease → open → refresh → reseal → CAS (no
  * refresh/custody duplication). Token provenance is the injected grant-session
@@ -274,19 +277,100 @@ function acceptBatchSuccess(result) {
   });
 }
 
+/**
+ * Resolve a genuine pg-like `query` capability without instance [[Get]].
+ * Own data-function descriptor wins; else prototype-chain data function
+ * (realistic node-postgres Client/Pool put query on the prototype, often
+ * non-enumerable). Own/prototype accessor or non-function → reject.
+ * Proxies rejected before any prototype/descriptor walk. Fail-closed on
+ * hostile/custom prototype/accessor/symbol-only surfaces.
+ *
+ * Mirrors the reviewed custodian `resolveReadAuthorityQueryMethod` pattern
+ * (not exported from that module — kept local so we do not expand custodian
+ * surface). Does **not** probe pool-shape properties (connect/totalCount/
+ * idleCount) — those would execute hostile getters for no security gain.
+ *
+ * @param {object|function} surface
+ * @returns {Function|null}
+ */
+function resolvePgLikeQueryMethod(surface) {
+  try {
+    if (!surface || (typeof surface !== 'object' && typeof surface !== 'function')) {
+      return null;
+    }
+    if (isProxySurface(surface)) return null;
+    const own = Object.getOwnPropertyDescriptor(surface, 'query');
+    if (own) {
+      if (Object.prototype.hasOwnProperty.call(own, 'value')
+          && typeof own.value === 'function'
+          && !own.get
+          && !own.set) {
+        return own.value;
+      }
+      // Own accessor / non-function data — reject without executing getter.
+      return null;
+    }
+    let proto = Object.getPrototypeOf(surface);
+    let depth = 0;
+    while (proto && proto !== Object.prototype && depth < 8) {
+      if (isProxySurface(proto)) return null;
+      const descriptor = Object.getOwnPropertyDescriptor(proto, 'query');
+      if (descriptor) {
+        if (Object.prototype.hasOwnProperty.call(descriptor, 'value')
+            && typeof descriptor.value === 'function'
+            && !descriptor.get
+            && !descriptor.set) {
+          return descriptor.value;
+        }
+        // Hostile prototype accessor / non-function — fail closed, no [[Get]].
+        return null;
+      }
+      proto = Object.getPrototypeOf(proto);
+      depth += 1;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Factory-time db dependency snapshot.
+ *
+ * Captures the validated query function once and returns a **private frozen
+ * minimal adapter** whose `query` always `Reflect.apply`s that captured
+ * function to the **original receiver** (the trusted executable dependency
+ * surface). `resolveDelegatedReadAuthority` is given only this adapter —
+ * never the caller's mutable db, and never re-reads original db/query at
+ * execution. Post-factory mutation/replacement of the caller's `query` must
+ * therefore call the old captured function exactly once and the new zero.
+ *
+ * Trusted receiver note: genuine pg Client/Pool prototype methods require the
+ * original client/pool as `this` (connection state lives on the instance).
+ * The adapter deliberately re-binds to that original receiver; the injected
+ * query implementation remains a trusted executable dependency and is not
+ * sandboxed.
+ *
+ * @param {object|function} db
+ * @returns {{query: Function}|null} frozen private adapter, or null
+ */
 function resolveDb(db) {
   try {
     if (db == null || (typeof db !== 'object' && typeof db !== 'function')) return null;
     if (isProxySurface(db)) return null;
-    // Pool-shaped surfaces rejected (read-authority uses single-query executor).
-    if (typeof db.connect === 'function'
-        && (typeof db.totalCount === 'number' || typeof db.idleCount === 'number')) {
-      return null;
-    }
-    const query = ownData(db, 'query');
-    if (typeof query !== 'function') return null;
-    if (isProxySurface(query)) return null;
-    return db;
+
+    const capturedQuery = resolvePgLikeQueryMethod(db);
+    if (typeof capturedQuery !== 'function') return null;
+    if (isProxySurface(capturedQuery)) return null;
+
+    // Pin original receiver once. Never re-resolve query from caller surface.
+    const trustedReceiver = db;
+    const adapter = Object.freeze({
+      query(...args) {
+        return Reflect.apply(capturedQuery, trustedReceiver, args);
+      },
+    });
+    return adapter;
   } catch {
     return null;
   }

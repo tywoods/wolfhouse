@@ -848,6 +848,386 @@ async function main() {
       }
     }
 
+    // ── DB/query factory snapshot: private frozen adapter, no live re-read ──
+    // Honest contract:
+    // - At factory: resolve genuine pg-like query via descriptor-safe walk only
+    //   (after pinned proxy reject); capture exact validated function once.
+    // - Private frozen minimal adapter always Reflect.apply's captured fn to the
+    //   original receiver (trusted executable dependency). Only that adapter is
+    //   passed to resolveDelegatedReadAuthority — never reread original db/query.
+    // - Mutation after factory: old captured query exactly once, new zero.
+    // - Getters connect/totalCount/idleCount/query: zero hits at factory + run.
+    // - Pool-shape property reads removed (no connect/totalCount/idleCount probe).
+    // - Realistic Client/Pool prototype methods accepted; hostile accessor /
+    //   custom-proto / symbol / proxy surfaces fail-closed.
+    {
+      const state = freshState();
+      const { db, state: dbState } = mockDbForAuthority(authorityDto());
+      const oldQuery = db.query;
+      let newHits = 0;
+      const service = createAuthorityBoundInboundOperation(Object.freeze({
+        db,
+        grantSession: makeGrantSession(state),
+        immutableIdPageTransport: makeTransport(state),
+        consumer: makeConsumer(state),
+      }));
+      // Post-factory ambient replacement of original surface.query.
+      db.query = async function replacedQuery() {
+        newHits += 1;
+        throw new Error(`MUTATED_QUERY_MUST_NOT_RUN ${PLANTED_TOKEN}`);
+      };
+      const res = await service.runAuthorityBoundInbound(baseInput());
+      ok(
+        'post-factory-query-mutation-uses-captured-old',
+        res && res.ok === true
+          && dbState.queries === 1
+          && newHits === 0
+          && typeof oldQuery === 'function'
+          && db.query !== oldQuery
+          && noLeak(res),
+        ser({
+          ok: res && res.ok,
+          queries: dbState.queries,
+          newHits,
+          sameRef: db.query === oldQuery,
+        }),
+      );
+    }
+
+    // Getter surfaces on pool-ish / hostile db must not execute during factory or run.
+    {
+      const getterHits = {
+        connect: 0,
+        totalCount: 0,
+        idleCount: 0,
+        query: 0,
+      };
+      const { db: plain, state: dbState } = mockDbForAuthority(authorityDto());
+      const capturedQuery = plain.query;
+      const db = {};
+      Object.defineProperty(db, 'connect', {
+        get() {
+          getterHits.connect += 1;
+          return async () => ({});
+        },
+        enumerable: true,
+        configurable: true,
+      });
+      Object.defineProperty(db, 'totalCount', {
+        get() {
+          getterHits.totalCount += 1;
+          return 1;
+        },
+        enumerable: true,
+        configurable: true,
+      });
+      Object.defineProperty(db, 'idleCount', {
+        get() {
+          getterHits.idleCount += 1;
+          return 0;
+        },
+        enumerable: true,
+        configurable: true,
+      });
+      // Own data query — descriptor value only; must not use [[Get]] path that
+      // would also touch sibling getters, and query itself is a data property.
+      Object.defineProperty(db, 'query', {
+        value: capturedQuery,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
+      const state = freshState();
+      const service = createAuthorityBoundInboundOperation(Object.freeze({
+        db,
+        grantSession: makeGrantSession(state),
+        immutableIdPageTransport: makeTransport(state),
+        consumer: makeConsumer(state),
+      }));
+      ok(
+        'factory-zero-pool-shape-getter-hits',
+        getterHits.connect === 0
+          && getterHits.totalCount === 0
+          && getterHits.idleCount === 0
+          && getterHits.query === 0,
+        ser(getterHits),
+      );
+      const res = await service.runAuthorityBoundInbound(baseInput());
+      ok(
+        'run-zero-pool-shape-getter-hits',
+        res && res.ok === true
+          && dbState.queries === 1
+          && getterHits.connect === 0
+          && getterHits.totalCount === 0
+          && getterHits.idleCount === 0
+          && getterHits.query === 0
+          && noLeak(res),
+        ser({ resOk: res && res.ok, queries: dbState.queries, getterHits }),
+      );
+    }
+
+    // Own query accessor must be rejected without executing the getter.
+    {
+      const hits = { query: 0 };
+      const db = {};
+      Object.defineProperty(db, 'query', {
+        get() {
+          hits.query += 1;
+          throw new Error(`boom db.query ${PLANTED_TOKEN}`);
+        },
+        enumerable: true,
+        configurable: true,
+      });
+      const state = freshState();
+      assert.throws(
+        () => createAuthorityBoundInboundOperation(Object.freeze({
+          db,
+          grantSession: makeGrantSession(state),
+          immutableIdPageTransport: makeTransport(state),
+          consumer: makeConsumer(state),
+        })),
+        (e) => e && e.code === FAILURE_CODE && noLeak(e),
+      );
+      ok(
+        'own-query-accessor-rejected-zero-hits',
+        hits.query === 0,
+        ser(hits),
+      );
+    }
+
+    // Realistic pg Client.prototype.query (non-enumerable prototype method).
+    {
+      function RealisticResult(rows) {
+        this.command = 'SELECT';
+        this.rowCount = rows.length;
+        this.oid = null;
+        this.rows = rows;
+        this.fields = [];
+      }
+      function RealisticClient(row) {
+        this._row = row;
+        this.queries = 0;
+      }
+      RealisticClient.prototype.query = async function query() {
+        this.queries += 1;
+        return new RealisticResult([this._row]);
+      };
+      const dto = authorityDto();
+      const row = {
+        client_id: dto.clientId,
+        location_id: dto.locationId,
+        endpoint_id: dto.endpointId,
+        provider: 'microsoft_graph',
+        channel: 'email',
+        auth_mode: 'delegated_authorization_code',
+        connector_mode: 'microsoft_delegated_oauth',
+        binding_status: 'verified',
+        provider_tenant_id: '11111111-1111-4111-8111-111111111111',
+        provider_resource_id: dto.providerMailboxId,
+        provider_principal_oid: dto.providerMailboxId,
+        mailbox_kind: 'user',
+        mailbox_access_kind: 'own_user',
+        public_address: PLANTED_ADDRESS,
+        grant_client_id: dto.clientId,
+        grant_endpoint_id: dto.endpointId,
+      };
+      const client = new RealisticClient(row);
+      // Pool-like own data properties present; must not be probed via [[Get]].
+      Object.defineProperty(client, 'connect', {
+        value: async () => ({}),
+        enumerable: false,
+        writable: true,
+        configurable: true,
+      });
+      Object.defineProperty(client, 'totalCount', {
+        value: 1,
+        enumerable: false,
+        writable: true,
+        configurable: true,
+      });
+      Object.defineProperty(client, 'idleCount', {
+        value: 0,
+        enumerable: false,
+        writable: true,
+        configurable: true,
+      });
+      const state = freshState();
+      const service = createAuthorityBoundInboundOperation(Object.freeze({
+        db: client,
+        grantSession: makeGrantSession(state),
+        immutableIdPageTransport: makeTransport(state),
+        consumer: makeConsumer(state),
+      }));
+      // Post-factory shadow: own query must not displace captured prototype fn.
+      let shadowHits = 0;
+      client.query = async function shadow() {
+        shadowHits += 1;
+        throw new Error(`SHADOW_QUERY ${PLANTED_TOKEN}`);
+      };
+      const res = await service.runAuthorityBoundInbound(baseInput());
+      ok(
+        'pg-client-prototype-query-captured-with-receiver',
+        res && res.ok === true
+          && client.queries === 1
+          && shadowHits === 0
+          && noLeak(res),
+        ser({
+          ok: res && res.ok,
+          queries: client.queries,
+          shadowHits,
+        }),
+      );
+    }
+
+    // Proxy db surface: factory rejects with zero traps (pinned isProxy).
+    {
+      function trapCounters() {
+        return {
+          apply: 0,
+          get: 0,
+          then: 0,
+          getPrototypeOf: 0,
+          getOwnPropertyDescriptor: 0,
+          ownKeys: 0,
+          set: 0,
+          has: 0,
+        };
+      }
+      function countingProxy(target, traps) {
+        return new Proxy(target, {
+          apply(t, thisArg, args) {
+            traps.apply += 1;
+            return Reflect.apply(t, thisArg, args);
+          },
+          get(t, prop, receiver) {
+            traps.get += 1;
+            if (prop === 'then') traps.then += 1;
+            return Reflect.get(t, prop, receiver);
+          },
+          getPrototypeOf(t) {
+            traps.getPrototypeOf += 1;
+            return Reflect.getPrototypeOf(t);
+          },
+          getOwnPropertyDescriptor(t, prop) {
+            traps.getOwnPropertyDescriptor += 1;
+            return Reflect.getOwnPropertyDescriptor(t, prop);
+          },
+          ownKeys(t) {
+            traps.ownKeys += 1;
+            return Reflect.ownKeys(t);
+          },
+          set(t, prop, value, receiver) {
+            traps.set += 1;
+            return Reflect.set(t, prop, value, receiver);
+          },
+          has(t, prop) {
+            traps.has += 1;
+            return Reflect.has(t, prop);
+          },
+        });
+      }
+      function zeroTraps(traps) {
+        return traps.apply === 0
+          && traps.get === 0
+          && traps.then === 0
+          && traps.getPrototypeOf === 0
+          && traps.getOwnPropertyDescriptor === 0
+          && traps.ownKeys === 0
+          && traps.set === 0
+          && traps.has === 0;
+      }
+
+      {
+        const traps = trapCounters();
+        const { db: plain } = mockDbForAuthority(authorityDto());
+        const proxyDb = countingProxy(plain, traps);
+        const state = freshState();
+        assert.throws(
+          () => createAuthorityBoundInboundOperation(Object.freeze({
+            db: proxyDb,
+            grantSession: makeGrantSession(state),
+            immutableIdPageTransport: makeTransport(state),
+            consumer: makeConsumer(state),
+          })),
+          (e) => e && e.code === FAILURE_CODE && noLeak(e),
+        );
+        ok('proxy-db-factory-reject-zero-traps', zeroTraps(traps), ser(traps));
+      }
+
+      // Ambient isProxy monkeypatch must not hide proxy db.
+      {
+        const realIsProxy = util.types.isProxy;
+        util.types.isProxy = () => false;
+        try {
+          const traps = trapCounters();
+          const { db: plain } = mockDbForAuthority(authorityDto());
+          const proxyDb = countingProxy(plain, traps);
+          const state = freshState();
+          assert.throws(
+            () => createAuthorityBoundInboundOperation(Object.freeze({
+              db: proxyDb,
+              grantSession: makeGrantSession(state),
+              immutableIdPageTransport: makeTransport(state),
+              consumer: makeConsumer(state),
+            })),
+            (e) => e && e.code === FAILURE_CODE && noLeak(e),
+          );
+          ok(
+            'proxy-db-ambient-isProxy-monkeypatch-resistant',
+            zeroTraps(traps),
+            ser(traps),
+          );
+        } finally {
+          util.types.isProxy = realIsProxy;
+        }
+      }
+
+      // Hostile custom prototype with query accessor — fail-closed, no getter hit.
+      {
+        const hits = { query: 0 };
+        const proto = {};
+        Object.defineProperty(proto, 'query', {
+          get() {
+            hits.query += 1;
+            throw new Error(`boom proto.query ${PLANTED_TOKEN}`);
+          },
+          enumerable: false,
+          configurable: true,
+        });
+        const db = Object.create(proto);
+        const state = freshState();
+        assert.throws(
+          () => createAuthorityBoundInboundOperation(Object.freeze({
+            db,
+            grantSession: makeGrantSession(state),
+            immutableIdPageTransport: makeTransport(state),
+            consumer: makeConsumer(state),
+          })),
+          (e) => e && e.code === FAILURE_CODE && noLeak(e),
+        );
+        ok('hostile-proto-query-accessor-zero-hits', hits.query === 0, ser(hits));
+      }
+
+      // Symbol-only "query" surface must not be accepted as pg-like capability.
+      {
+        const sym = Symbol('query');
+        const db = {
+          [sym]: async () => ({ rows: [] }),
+        };
+        const state = freshState();
+        assert.throws(
+          () => createAuthorityBoundInboundOperation(Object.freeze({
+            db,
+            grantSession: makeGrantSession(state),
+            immutableIdPageTransport: makeTransport(state),
+            consumer: makeConsumer(state),
+          })),
+          (e) => e && e.code === FAILURE_CODE && noLeak(e),
+        );
+        ok('symbol-query-surface-rejected', true);
+      }
+    }
+
     ok('zero-network-hits-end', networkHits === 0, `hits=${networkHits}`);
   } finally {
     restoreNetworkGuards();
