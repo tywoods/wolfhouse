@@ -25,8 +25,10 @@ const crypto = require('node:crypto');
 
 const ROOT = path.resolve(__dirname, '..');
 const UP_065 = path.join(ROOT, 'database/migrations/065_tenant_email_delta_recovery_operations.sql');
+const UP_066 = path.join(ROOT, 'database/migrations/066_tenant_email_delta_page_commit_journal.sql');
 const UP_064 = path.join(ROOT, 'database/migrations/064_tenant_email_inbound_delta_states.sql');
 const UP = fs.readFileSync(UP_065, 'utf8');
+const UP_PAGE = fs.readFileSync(UP_066, 'utf8');
 const UP_DELTA = fs.readFileSync(UP_064, 'utf8');
 
 const ids = {
@@ -217,6 +219,7 @@ async function proveWithPglite(PGlite) {
   await db.exec(shellSql());
   await db.exec(UP_DELTA);
   await db.exec(UP);
+  await db.exec(UP_PAGE);
 
   const loaner = createPgliteExclusiveLoaner(db);
   const binding = Object.freeze({

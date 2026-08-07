@@ -825,6 +825,26 @@
       "rationale": "Explicit down for 065: DROP TABLE tenant_email_delta_recovery_operations only; leaves 057-064 registry/grants/oauth/events/delta states intact.",
       "pairsWith": "065_tenant_email_delta_recovery_operations.sql",
       "sha256": "1665b1c0da6f7ad928892d23e130f290f00e5fa2628fb30f7fa22e0195c65e2e"
+    },
+    {
+      "id": "066_tenant_email_delta_page_commit_journal",
+      "filename": "066_tenant_email_delta_page_commit_journal.sql",
+      "order": 65,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Extend 065 recovery journal for durable page_commit: actor_kind staff|worker; actor_staff_user_id nullable; bounded worker_id exact sunset-email-delta-worker; page_commit worker-only; restart_generation/reconcile_page_commit remain staff-only. Existing rows migrate actor_kind=staff. No mailbox/provider/cursor/message/PII/JSON. No seed/route/activation.",
+      "downFilename": "066_tenant_email_delta_page_commit_journal_down.sql",
+      "sha256": "d405c1a38b585cb3ee28a24ed954018fd23b19ae043be534463ae495a2e03c76"
+    },
+    {
+      "id": "066_tenant_email_delta_page_commit_journal_down",
+      "filename": "066_tenant_email_delta_page_commit_journal_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit down for 066: fail closed if any page_commit/worker rows exist (refuse silent evidence loss); otherwise drop actor_kind/worker_id, restore actor_staff_user_id NOT NULL and exact 065 kind/target/outcome coupling.",
+      "pairsWith": "066_tenant_email_delta_page_commit_journal.sql",
+      "sha256": "4b052ab65df50b0dde28d9e478edd6d9b627d98fa26b34802767870e21f90363"
     }
   ]
 }

@@ -9,6 +9,15 @@
  *   validates the successor envelope **before** the short exclusive-client TX
  *   (no network/crypto inside TX). Caller supplies already-validated canonical
  *   envelopes/tombstones and an already-sealed successor cursor envelope.
+ *   Page operation id is the sealed successor envelope.operation_id (generated
+ *   before seal/commit; internal only — never public result/log/metric).
+ *   Inside one exclusive-client TX: authority re-verify → claim/validate
+ *   page_commit journal (worker actor sunset-email-delta-worker) → idempotent
+ *   event inserts → cursor CAS with same operation id → complete committed
+ *   journal outcome → one COMMIT. Same operation id exact retry replays the
+ *   persisted committed result with zero event/state mutation. COMMIT dispatch
+ *   ambiguity → inbound_delta_state_commit_outcome_unknown (no release/retry/
+ *   guessed rollback). Mismatch actor/endpoint/fences/kind → conflict.
  * - Inserts reuse migration-063 event identity via `SQL_INSERT_EVENT` from
  *   `email-inbound-event-store` (ON CONFLICT DO NOTHING; arrival-capture only).
  * - Seal/open reuse injected envelope provider (AES-256-GCM + wrapped DEK).
@@ -96,6 +105,12 @@ const GRAPH_API_VERSION = 'v1.0';
 const DEFAULT_QUERY_VERSION = 'ms_messages_delta_v1';
 /** JS Number.MAX_SAFE_INTEGER — generations never fence beyond this. */
 const MAX_SAFE_GENERATION = Number.MAX_SAFE_INTEGER;
+
+/**
+ * Source-pinned worker actor for page_commit journal attribution (migration 066).
+ * Distinct from lease worker_id; journal CHECK requires this exact value.
+ */
+const PAGE_COMMIT_WORKER_ID = 'sunset-email-delta-worker';
 
 const STORE_DEPENDENCY_KEYS = Object.freeze(['withTransactionClient']);
 const STORE_WITH_PROVIDER_KEYS = Object.freeze([
@@ -392,6 +407,48 @@ UPDATE tenant_email_inbound_delta_states
    AND phase IN ('initial', 'tracking')
  RETURNING client_id, endpoint_id, ingestion_generation, state_version,
            phase, query_version, cursor_kind
+`.replace(/\s+/g, ' ').trim();
+
+/* ── page_commit journal SQL (migration 066; same exclusive TX as events/cursor) ── */
+const SQL_PAGE_COMMIT_SELECT_FOR_UPDATE = `
+SELECT operation_id, client_id, location_id, endpoint_id,
+       actor_staff_user_id, actor_kind, worker_id,
+       operation_kind, requested_generation, requested_state_version,
+       target_operation_id, outcome,
+       result_generation, result_state_version, result_phase
+  FROM tenant_email_delta_recovery_operations
+ WHERE operation_id = $1::uuid
+ FOR UPDATE
+`.replace(/\s+/g, ' ').trim();
+
+const SQL_PAGE_COMMIT_INSERT_CLAIMED = `
+INSERT INTO tenant_email_delta_recovery_operations (
+  operation_id, client_id, location_id, endpoint_id,
+  actor_staff_user_id, actor_kind, worker_id,
+  operation_kind, requested_generation, requested_state_version,
+  target_operation_id, outcome
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, $4::uuid,
+  NULL, 'worker', $5,
+  'page_commit', $6::bigint, $7::bigint,
+  NULL, 'claimed'
+)
+ON CONFLICT (operation_id) DO NOTHING
+RETURNING operation_id
+`.replace(/\s+/g, ' ').trim();
+
+const SQL_PAGE_COMMIT_COMPLETE_COMMITTED = `
+UPDATE tenant_email_delta_recovery_operations
+   SET outcome = 'committed',
+       result_generation = $2::bigint,
+       result_state_version = $3::bigint,
+       result_phase = $4,
+       updated_at = NOW()
+ WHERE operation_id = $1::uuid
+   AND outcome = 'claimed'
+   AND operation_kind = 'page_commit'
+ RETURNING operation_id, operation_kind, outcome,
+           result_generation, result_state_version, result_phase
 `.replace(/\s+/g, ' ').trim();
 
 const SQL_CAS_RESET_REQUIRED = `
@@ -1099,6 +1156,115 @@ async function withTxn(client, fn) {
     if (begun) await attemptRollback(client);
     return fail('inbound_delta_state_write_failed');
   }
+}
+
+function pageCommitInputsMatchRow(row, expected) {
+  try {
+    if (String(row.client_id).toLowerCase() !== expected.clientId) return false;
+    if (String(row.location_id).toLowerCase() !== expected.locationId) return false;
+    if (String(row.endpoint_id).toLowerCase() !== expected.endpointId) return false;
+    if (String(row.operation_kind) !== 'page_commit') return false;
+    if (String(row.actor_kind) !== 'worker') return false;
+    if (row.actor_staff_user_id != null) return false;
+    if (String(row.worker_id) !== expected.workerId) return false;
+    const rg = coerceSafeIntField(row.requested_generation);
+    const rsv = coerceSafeIntField(row.requested_state_version);
+    if (rg !== expected.requestedGeneration) return false;
+    if (rsv !== expected.requestedStateVersion) return false;
+    if (row.target_operation_id != null) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Claim-or-replay page_commit journal attribution on an exclusive client.
+ * Same operation id + matching actor/endpoint/fences → replay committed result.
+ * Mismatch → operation_id_conflict. Stuck claimed → conflict.
+ */
+async function claimOrReplayPageCommit(exclusive, expected) {
+  const existing = await exclusive.query(SQL_PAGE_COMMIT_SELECT_FOR_UPDATE, [
+    expected.operationId,
+  ]);
+  if (existing.rows && existing.rows.length === 1) {
+    const row = existing.rows[0];
+    if (!pageCommitInputsMatchRow(row, expected)) {
+      return fail('operation_id_conflict');
+    }
+    if (String(row.outcome) === 'claimed') {
+      return fail('operation_id_conflict');
+    }
+    return ok(Object.freeze({ kind: 'replay', row }));
+  }
+
+  const ins = await exclusive.query(SQL_PAGE_COMMIT_INSERT_CLAIMED, [
+    expected.operationId,
+    expected.clientId,
+    expected.locationId,
+    expected.endpointId,
+    expected.workerId,
+    String(expected.requestedGeneration),
+    String(expected.requestedStateVersion),
+  ]);
+  if (ins.rows && ins.rows.length === 1) {
+    return ok(Object.freeze({ kind: 'claimed' }));
+  }
+
+  const raced = await exclusive.query(SQL_PAGE_COMMIT_SELECT_FOR_UPDATE, [
+    expected.operationId,
+  ]);
+  if (!raced.rows || raced.rows.length !== 1) {
+    return fail('inbound_delta_state_write_failed');
+  }
+  const row = raced.rows[0];
+  if (!pageCommitInputsMatchRow(row, expected)) {
+    return fail('operation_id_conflict');
+  }
+  if (String(row.outcome) === 'claimed') {
+    return fail('operation_id_conflict');
+  }
+  return ok(Object.freeze({ kind: 'replay', row }));
+}
+
+async function verifyAuthorityBinding(authorityVerifier, binding) {
+  let verified;
+  try {
+    verified = await authorityVerifier.verifyBinding(binding);
+  } catch {
+    return fail('authority_not_verified');
+  }
+  if (!verified || verified.ok !== true) return fail('authority_not_verified');
+  if (verified.value && typeof verified.value === 'object') {
+    const v = verified.value;
+    if (String(v.clientId || '').toLowerCase() !== binding.clientId
+        || String(v.locationId || '').toLowerCase() !== binding.locationId
+        || String(v.endpointId || '').toLowerCase() !== binding.endpointId
+        || String(v.providerTenantId || '').toLowerCase() !== binding.providerTenantId
+        || String(v.providerMailboxId || '').toLowerCase() !== binding.providerMailboxId) {
+      return fail('authority_not_verified');
+    }
+  }
+  return ok(true);
+}
+
+function pageCommitReplayResult(row, preparedCount, tombCount, cursorKind, queryVersion, ids) {
+  const gen = coerceSafeIntField(row.result_generation);
+  const sv = coerceSafeIntField(row.result_state_version);
+  if (gen == null || sv == null || row.result_phase == null) {
+    return fail('inbound_delta_state_write_failed');
+  }
+  return ok(Object.freeze({
+    client_id: ids.clientId,
+    endpoint_id: ids.endpointId,
+    ingestion_generation: gen,
+    state_version: sv,
+    phase: String(row.result_phase),
+    query_version: queryVersion,
+    cursor_kind: cursorKind,
+    envelopes_presented: preparedCount,
+    tombstones_presented: tombCount,
+  }));
 }
 
 function snapshotIds(input, fields) {
@@ -1867,12 +2033,20 @@ function createInboundEmailDeltaStateStore(deps) {
    * ONLY page-commit owner.
    * BEFORE TX: cryptographically open + validate successor against exact AAD
    * (client+endpoint+provider tenant+mailbox+ingestion generation+query version+
-   * cursor kind) and strict messages-delta URL; scrub plaintext.
-   * THEN short atomic event+cursor TX (no crypto/network inside).
-   * Hostile sealed successors → zero inserts / zero cursor advance.
+   * cursor kind) and strict messages-delta URL; scrub plaintext. Authority
+   * precheck. Page operation id = successor envelope.operation_id (internal).
+   * THEN one exclusive-client TX (no crypto/network inside):
+   *   authority re-verify → claim/validate page_commit journal → event inserts
+   *   → cursor CAS (same operation id) → complete committed journal → COMMIT.
+   * Same operation id exact retry replays persisted committed result (zero
+   * event/state mutation). COMMIT dispatch ambiguity →
+   * inbound_delta_state_commit_outcome_unknown. Hostile sealed successors →
+   * zero inserts / zero cursor advance / zero journal.
+   * Public result never includes operation_id.
    */
   async function commitPageEvents(input) {
     if (!envelopeProvider) return fail('envelope_provider_required');
+    if (!authorityVerifier) return fail('authority_verifier_required');
     const ids = snapshotIds(input, [
       'clientId', 'locationId', 'endpointId', 'leaseToken',
       'expectedGeneration', 'expectedStateVersion',
@@ -1885,6 +2059,10 @@ function createInboundEmailDeltaStateStore(deps) {
     const qv = parseQueryVersion(ids.snap.queryVersion);
     if (!qv.ok) return qv;
 
+    if (Object.prototype.hasOwnProperty.call(ids.snap, 'verifiedAuthority')) {
+      return fail('authority_not_verified');
+    }
+
     const prepared = prepareCanonicalBatch(ids.snap.envelopes, mailbox.value);
     if (!prepared.ok) return fail('page_batch_invalid');
     const tombs = prepareTombstones(
@@ -1894,6 +2072,12 @@ function createInboundEmailDeltaStateStore(deps) {
     if (!tombs.ok) return fail('page_tombstones_invalid');
     const successor = validateSealedSuccessor(ids.snap.successorCursor);
     if (!successor.ok) return successor;
+
+    // Page operation id from sealed successor (generated before seal; internal).
+    const operationId = parseUuid(
+      successor.value.envelope.operation_id, 'operation_id',
+    );
+    if (!operationId.ok) return fail('operation_id_invalid');
 
     // Cryptographic open + strict URL validate BEFORE any durable write TX.
     const opened = await openSealedDeltaCursor(envelopeProvider, Object.freeze({
@@ -1913,7 +2097,52 @@ function createInboundEmailDeltaStateStore(deps) {
     // Plaintext was validated then discarded — TX installs sealed envelope only.
     // (cursor_url from open is intentionally not retained past this point.)
 
+    const binding = Object.freeze({
+      clientId: ids.clientId.value,
+      locationId: ids.locationId.value,
+      endpointId: ids.endpointId.value,
+      providerTenantId: tenant.value,
+      providerMailboxId: mailbox.value,
+    });
+    const authPre = await verifyAuthorityBinding(authorityVerifier, binding);
+    if (!authPre.ok) return authPre;
+
+    const journalExpected = Object.freeze({
+      operationId: operationId.value,
+      clientId: ids.clientId.value,
+      locationId: ids.locationId.value,
+      endpointId: ids.endpointId.value,
+      workerId: PAGE_COMMIT_WORKER_ID,
+      requestedGeneration: ids.expectedGeneration.value,
+      requestedStateVersion: ids.expectedStateVersion.value,
+    });
+
     return runExclusive(async (client) => withTxn(client, async () => {
+      // Authority re-verify at mutation boundary (fail closed → full ROLLBACK).
+      const authTx = await verifyAuthorityBinding(authorityVerifier, binding);
+      if (!authTx.ok) return fail('authority_not_verified');
+
+      // Claim / validate page_commit journal attribution (same exclusive client).
+      const claim = await claimOrReplayPageCommit(client, journalExpected);
+      if (!claim.ok) return claim;
+      if (claim.value.kind === 'replay') {
+        // Exact same-ID retry: return persisted committed fences; zero mutation.
+        if (String(claim.value.row.outcome) !== 'committed') {
+          return fail('operation_id_conflict');
+        }
+        return pageCommitReplayResult(
+          claim.value.row,
+          prepared.envelopes.length,
+          tombs.tombstones.length,
+          successor.value.cursor_kind,
+          qv.value,
+          Object.freeze({
+            clientId: ids.clientId.value,
+            endpointId: ids.endpointId.value,
+          }),
+        );
+      }
+
       const locked = await client.query(SQL_LOCK_CURRENT, [
         ids.clientId.value, ids.endpointId.value,
       ]);
@@ -1965,6 +2194,10 @@ function createInboundEmailDeltaStateStore(deps) {
         : (row.phase === 'tracking' ? 'tracking' : 'initial');
 
       const env = successor.value.envelope;
+      // Cursor CAS uses the same page operation id (envelope.operation_id).
+      if (String(env.operation_id).toLowerCase() !== operationId.value) {
+        return fail('operation_id_invalid');
+      }
       const cols = envelopeColumnsFromRecord(env);
       const upd = await client.query(SQL_CAS_COMMIT_CURSOR, [
         ids.clientId.value,
@@ -1986,6 +2219,19 @@ function createInboundEmailDeltaStateStore(deps) {
       const outGen = coerceSafeIntField(upd.rows[0].ingestion_generation);
       const outSv = coerceSafeIntField(upd.rows[0].state_version);
       if (outGen == null || outSv == null) return fail('inbound_delta_state_write_failed');
+
+      // Complete page_commit journal committed (same operation id / TX).
+      const done = await client.query(SQL_PAGE_COMMIT_COMPLETE_COMMITTED, [
+        operationId.value,
+        String(outGen),
+        String(outSv),
+        upd.rows[0].phase,
+      ]);
+      if (!done.rows || done.rows.length !== 1) {
+        return fail('inbound_delta_state_write_failed');
+      }
+
+      // Public result: never includes operation_id / worker / journal fields.
       return ok(Object.freeze({
         client_id: String(upd.rows[0].client_id),
         endpoint_id: String(upd.rows[0].endpoint_id),
@@ -2224,6 +2470,7 @@ module.exports = Object.freeze({
   GRAPH_API_VERSION,
   DEFAULT_QUERY_VERSION,
   MAX_SAFE_GENERATION,
+  PAGE_COMMIT_WORKER_ID,
   PUBLIC_STATUS_KEYS,
   STORE_DEPENDENCY_KEYS,
   STORE_WITH_PROVIDER_KEYS,

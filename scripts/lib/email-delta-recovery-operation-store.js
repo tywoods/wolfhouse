@@ -21,10 +21,12 @@
  *     no raw primitive import). Authority rebind between initial precheck and
  *     mutation → ROLLBACK / zero durable journal/state mutation.
  *   - reconcilePageCommit — separate reconciliation operationId + targetOperationId;
- *     classifies only durable journal evidence; page commits are not journaled in
- *     this PR → evidence_unavailable (never infers not_committed from migration
- *     064 cursor_operation_id mismatch / generation / version; never mutates
- *     events/cursor)
+ *     classifies only durable journal evidence for matching page_commit rows
+ *     (migration 066): committed terminal → committed; explicit terminal
+ *     not_committed/conflict → same; missing/claimed/ambiguous →
+ *     evidence_unavailable / commit_outcome_unknown. Never infers from migration
+ *     064 cursor_operation_id / generation / version / lease; never mutates
+ *     events/cursor/generation/lease. Does not reimplement event/state SQL.
  *
  * Idempotency:
  *   - same operationId + identical inputs → persisted exact result, zero mutation
@@ -70,7 +72,11 @@ const EMAIL_DELTA_RECOVERY_OPERATION_LOGGING_FORBIDDEN = true;
 const OPERATION_KINDS = Object.freeze([
   'restart_generation',
   'reconcile_page_commit',
+  'page_commit',
 ]);
+const ACTOR_KINDS = Object.freeze(['staff', 'worker']);
+/** Source-pinned worker actor for page_commit journal rows only. */
+const PAGE_COMMIT_WORKER_ID = 'sunset-email-delta-worker';
 const OUTCOMES = Object.freeze([
   'claimed',
   'committed',
@@ -154,7 +160,8 @@ function pinnedFreeze(value) {
 }
 
 const SQL_SELECT_OPERATION_FOR_UPDATE = `
-SELECT operation_id, client_id, location_id, endpoint_id, actor_staff_user_id,
+SELECT operation_id, client_id, location_id, endpoint_id,
+       actor_staff_user_id, actor_kind, worker_id,
        operation_kind, requested_generation, requested_state_version,
        target_operation_id, outcome,
        result_generation, result_state_version, result_phase
@@ -165,13 +172,15 @@ SELECT operation_id, client_id, location_id, endpoint_id, actor_staff_user_id,
 
 const SQL_INSERT_CLAIMED = `
 INSERT INTO tenant_email_delta_recovery_operations (
-  operation_id, client_id, location_id, endpoint_id, actor_staff_user_id,
+  operation_id, client_id, location_id, endpoint_id,
+  actor_staff_user_id, actor_kind, worker_id,
   operation_kind, requested_generation, requested_state_version,
   target_operation_id, outcome
 ) VALUES (
-  $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid,
-  $6, $7::bigint, $8::bigint,
-  $9::uuid, 'claimed'
+  $1::uuid, $2::uuid, $3::uuid, $4::uuid,
+  $5::uuid, $6, $7,
+  $8, $9::bigint, $10::bigint,
+  $11::uuid, 'claimed'
 )
 ON CONFLICT (operation_id) DO NOTHING
 RETURNING operation_id
@@ -208,7 +217,10 @@ UPDATE tenant_email_delta_recovery_operations
 `.replace(/\s+/g, ' ').trim();
 
 const SQL_SELECT_TARGET_JOURNAL = `
-SELECT operation_id, operation_kind, outcome
+SELECT operation_id, client_id, location_id, endpoint_id,
+       actor_staff_user_id, actor_kind, worker_id,
+       operation_kind, outcome,
+       result_generation, result_state_version, result_phase
   FROM tenant_email_delta_recovery_operations
  WHERE operation_id = $1::uuid
 `.replace(/\s+/g, ' ').trim();
@@ -307,9 +319,19 @@ function inputsMatchRow(row, expected) {
     if (String(row.client_id).toLowerCase() !== expected.clientId) return false;
     if (String(row.location_id).toLowerCase() !== expected.locationId) return false;
     if (String(row.endpoint_id).toLowerCase() !== expected.endpointId) return false;
-    if (String(row.actor_staff_user_id).toLowerCase() !== expected.actorStaffUserId) {
-      return false;
-    }
+    const rowActorKind = row.actor_kind == null ? 'staff' : String(row.actor_kind);
+    const expActorKind = expected.actorKind == null ? 'staff' : expected.actorKind;
+    if (rowActorKind !== expActorKind) return false;
+    const rowStaff = row.actor_staff_user_id == null
+      ? null
+      : String(row.actor_staff_user_id).toLowerCase();
+    const expStaff = expected.actorStaffUserId == null
+      ? null
+      : expected.actorStaffUserId;
+    if (rowStaff !== expStaff) return false;
+    const rowWorker = row.worker_id == null ? null : String(row.worker_id);
+    const expWorker = expected.workerId == null ? null : expected.workerId;
+    if (rowWorker !== expWorker) return false;
     if (String(row.operation_kind) !== expected.operationKind) return false;
     const rg = coerceSafeIntField(row.requested_generation);
     const rsv = coerceSafeIntField(row.requested_state_version);
@@ -566,12 +588,15 @@ function createEmailDeltaRecoveryOperationStore(deps) {
       return ok(pinnedFreeze({ kind: 'replay', row }));
     }
 
+    const actorKind = expected.actorKind == null ? 'staff' : expected.actorKind;
     const ins = await exclusive.query(SQL_INSERT_CLAIMED, [
       expected.operationId,
       expected.clientId,
       expected.locationId,
       expected.endpointId,
       expected.actorStaffUserId,
+      actorKind,
+      expected.workerId == null ? null : expected.workerId,
       expected.operationKind,
       String(expected.requestedGeneration),
       String(expected.requestedStateVersion),
@@ -633,6 +658,8 @@ function createEmailDeltaRecoveryOperationStore(deps) {
       locationId: ids.locationId.value,
       endpointId: ids.endpointId.value,
       actorStaffUserId: ids.actorStaffUserId.value,
+      actorKind: 'staff',
+      workerId: null,
       operationKind: 'restart_generation',
       requestedGeneration: ids.expectedGeneration.value,
       requestedStateVersion: ids.expectedStateVersion.value,
@@ -771,9 +798,14 @@ function createEmailDeltaRecoveryOperationStore(deps) {
 
   /**
    * Reconcile a page-commit operation id against durable journal evidence only.
-   * This PR does not journal page commits in the same TX as events/cursor —
-   * unjournaled/historical targets always yield evidence_unavailable and never
-   * mutate events/cursor. Never infers not_committed from 064 cursor_operation_id.
+   * Classifies matching page_commit rows (066):
+   *   committed terminal → committed
+   *   explicit terminal not_committed / conflict → same
+   *   commit_outcome_unknown → commit_outcome_unknown
+   *   missing / claimed / non-page_commit → evidence_unavailable
+   * Cross-tenant/endpoint mismatch on a durable target → conflict.
+   * Never consults 064 cursor_operation_id / generation / lease / state.
+   * Never mutates events/cursor/generation/lease. No event/state SQL here.
    */
   async function reconcilePageCommit(input) {
     const ids = snapshotRequired(input, [
@@ -815,6 +847,8 @@ function createEmailDeltaRecoveryOperationStore(deps) {
       locationId: ids.locationId.value,
       endpointId: ids.endpointId.value,
       actorStaffUserId: ids.actorStaffUserId.value,
+      actorKind: 'staff',
+      workerId: null,
       operationKind: 'reconcile_page_commit',
       requestedGeneration: ids.expectedGeneration.value,
       requestedStateVersion: ids.expectedStateVersion.value,
@@ -831,19 +865,38 @@ function createEmailDeltaRecoveryOperationStore(deps) {
         return ok(toRecoveryResult(claim.value.row, true));
       }
 
-      // Durable journal evidence only — never consult 064 cursor_operation_id.
-      // Page commits are not journaled in this PR, so target is evidence_unavailable
-      // unless a future PR journals page commits under the same operation id space.
-      // Restart rows are not page-commit evidence either.
+      // Durable journal evidence only — never consult 064 cursor/state/lease.
       const target = await exclusive.query(SQL_SELECT_TARGET_JOURNAL, [
         ids.targetOperationId.value,
       ]);
-      // Explicit: even if a journal row exists, only page-commit journal evidence
-      // would classify; this PR never journals page commits → always unavailable.
-      void target;
-      // Do not change events/cursor.
+      let classify = 'evidence_unavailable';
+      if (target && target.rows && target.rows.length === 1) {
+        const t = target.rows[0];
+        const sameTenant = String(t.client_id).toLowerCase() === ids.clientId.value
+          && String(t.location_id).toLowerCase() === ids.locationId.value
+          && String(t.endpoint_id).toLowerCase() === ids.endpointId.value;
+        if (!sameTenant) {
+          classify = 'conflict';
+        } else if (String(t.operation_kind) !== 'page_commit') {
+          // restart_generation / reconcile rows are not page-commit evidence.
+          classify = 'evidence_unavailable';
+        } else if (String(t.outcome) === 'committed') {
+          classify = 'committed';
+        } else if (String(t.outcome) === 'not_committed') {
+          classify = 'not_committed';
+        } else if (String(t.outcome) === 'conflict') {
+          classify = 'conflict';
+        } else if (String(t.outcome) === 'commit_outcome_unknown') {
+          classify = 'commit_outcome_unknown';
+        } else {
+          // claimed / other non-terminal → evidence unavailable (never guess).
+          classify = 'evidence_unavailable';
+        }
+      }
+
+      // Do not change events/cursor/generation/lease.
       const term = await exclusive.query(SQL_COMPLETE_TERMINAL, [
-        ids.operationId.value, 'evidence_unavailable',
+        ids.operationId.value, classify,
       ]);
       if (!term.rows || term.rows.length !== 1) {
         return fail('email_delta_recovery_write_failed');
@@ -865,6 +918,8 @@ module.exports = pinnedFreeze({
   EMAIL_DELTA_RECOVERY_OPERATION_RUNTIME_WIRED,
   EMAIL_DELTA_RECOVERY_OPERATION_LOGGING_FORBIDDEN,
   OPERATION_KINDS,
+  ACTOR_KINDS,
+  PAGE_COMMIT_WORKER_ID,
   OUTCOMES,
   STORE_DEPENDENCY_KEYS,
   AUTHORITY_VERIFIER_KEYS,

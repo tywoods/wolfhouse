@@ -1,20 +1,23 @@
 'use strict';
 
 /**
- * Prove migration 065 recovery journal + authority-bearing factory generation
- * advance (exclusive client, no raw primitive export) on PGlite.
+ * Prove migration 065+066 recovery journal + page_commit classification +
+ * authority-bearing factory generation advance on PGlite.
  *
  * When PGlite is available:
  *   - minimal parent shell (clients/staff_users unique/locations/endpoints)
- *   - 064 delta states + 065 recovery operations
- *   - FK/check/bounds/coherence
+ *   - 064 delta states + 065 recovery + 066 page_commit actor extension
+ *   - FK/check/bounds/coherence + actor_kind coupling
+ *   - existing 065 staff rows migrate actor_kind=staff
  *   - restartGeneration claim/complete in one TX (no nested BEGIN)
  *   - duplicate/concurrent claims, authority rebind, active lease fail closed
  *   - two IDs same CAS → one committed one conflict
  *   - commit_outcome_unknown sequence + retry
- *   - reconcile evidence_unavailable (no 064 cursor_operation_id inference)
+ *   - reconcile: unjournaled → evidence_unavailable (no 064 inference);
+ *     durable page_commit committed → committed; claimed → unavailable
+ *   - cross-tenant / actor-kind CHECKs; PII absence
+ *   - 066 down fail-closed with page_commit rows; clean restore without
  *   - old generation preserved / no cursor copy
- *   - down drops 065 only
  *
  * When PGlite is unavailable: static migration contract only.
  *
@@ -30,10 +33,15 @@ const crypto = require('node:crypto');
 const ROOT = path.resolve(__dirname, '..');
 const UP_065 = path.join(ROOT, 'database/migrations/065_tenant_email_delta_recovery_operations.sql');
 const DOWN_065 = path.join(ROOT, 'database/migrations/065_tenant_email_delta_recovery_operations_down.sql');
+const UP_066 = path.join(ROOT, 'database/migrations/066_tenant_email_delta_page_commit_journal.sql');
+const DOWN_066 = path.join(ROOT, 'database/migrations/066_tenant_email_delta_page_commit_journal_down.sql');
 const UP_064 = path.join(ROOT, 'database/migrations/064_tenant_email_inbound_delta_states.sql');
 const UP = fs.readFileSync(UP_065, 'utf8');
 const DOWN = fs.readFileSync(DOWN_065, 'utf8');
+const UP066 = fs.readFileSync(UP_066, 'utf8');
+const DOWN066 = fs.readFileSync(DOWN_066, 'utf8');
 const UP_DELTA = fs.readFileSync(UP_064, 'utf8');
+const PAGE_WORKER = 'sunset-email-delta-worker';
 
 const ids = {
   client: '11111111-1111-4111-8111-111111111111',
@@ -120,7 +128,14 @@ function assertStaticContract() {
   assert.match(UP, /tenant_email_delta_recovery_operations_updated_at/);
   assert.equal(/INSERT INTO tenant_email_delta_recovery_operations/.test(UP), false);
   assert.match(DOWN, /DROP TABLE IF EXISTS tenant_email_delta_recovery_operations/);
-  console.log('ok - static 065 recovery journal contract');
+  assert.match(UP066, /actor_kind/);
+  assert.match(UP066, /worker_id/);
+  assert.match(UP066, /page_commit/);
+  assert.match(UP066, /sunset-email-delta-worker/);
+  assert.match(UP066, /tenant_email_delta_recovery_operations_actor_coupling/);
+  assert.match(DOWN066, /066_down_refused/);
+  assert.match(DOWN066, /page_commit or worker journal rows present/);
+  console.log('ok - static 065+066 recovery journal contract');
 }
 
 function createPgliteExclusiveLoaner(db) {
@@ -138,11 +153,15 @@ function createPgliteExclusiveLoaner(db) {
           if (norm === 'BEGIN') {
             beginDepth += 1;
             if (beginDepth > maxBeginDepth) maxBeginDepth = beginDepth;
-          } else if (norm === 'COMMIT' || norm === 'ROLLBACK') {
-            beginDepth = Math.max(0, beginDepth - 1);
+            return db.query(sql, params || []);
           }
           if (norm === 'COMMIT' && commitReject) {
+            // Fail after send semantics: leave connection recoverable via ROLLBACK
+            // without applying COMMIT. Depth stays until ROLLBACK.
             throw new Error('commit rejected by proof harness');
+          }
+          if (norm === 'COMMIT' || norm === 'ROLLBACK') {
+            beginDepth = Math.max(0, beginDepth - 1);
           }
           return db.query(sql, params || []);
         },
@@ -195,18 +214,111 @@ async function proveWithPglite(PGlite) {
   await db.exec(UP_DELTA);
   await db.exec(UP);
 
+  // Seed a staff 065 row BEFORE 066 to prove deterministic actor_kind=staff migrate.
+  const legacyStaffOp = crypto.randomUUID();
+  await db.query(
+    `INSERT INTO tenant_email_delta_recovery_operations (
+       operation_id, client_id, location_id, endpoint_id, actor_staff_user_id,
+       operation_kind, requested_generation, requested_state_version, outcome
+     ) VALUES ($1,$2,$3,$4,$5,'restart_generation',1,1,'not_committed')`,
+    [legacyStaffOp, ids.client, ids.location, ids.endpoint, ids.actor],
+  );
+
+  await db.exec(UP066);
+
+  // Existing 065 staff row migrated deterministically actor_kind=staff
+  const legacy = await db.query(
+    `SELECT actor_kind, worker_id, actor_staff_user_id, operation_kind
+       FROM tenant_email_delta_recovery_operations WHERE operation_id = $1`,
+    [legacyStaffOp],
+  );
+  assert.equal(legacy.rows[0].actor_kind, 'staff');
+  assert.equal(legacy.rows[0].worker_id, null);
+  assert.equal(String(legacy.rows[0].actor_staff_user_id).toLowerCase(), ids.actor);
+
   // RED: invalid operation_kind
   let badKind = false;
   try {
     await db.query(
       `INSERT INTO tenant_email_delta_recovery_operations (
          operation_id, client_id, location_id, endpoint_id, actor_staff_user_id,
+         actor_kind, worker_id,
          operation_kind, requested_generation, requested_state_version, outcome
-       ) VALUES ($1,$2,$3,$4,$5,'not_a_kind',1,1,'claimed')`,
+       ) VALUES ($1,$2,$3,$4,$5,'staff',NULL,'not_a_kind',1,1,'claimed')`,
       [crypto.randomUUID(), ids.client, ids.location, ids.endpoint, ids.actor],
     );
   } catch { badKind = true; }
   assert.equal(badKind, true, 'invalid operation_kind rejected');
+
+  // RED: page_commit with staff actor rejected
+  let badPageStaff = false;
+  try {
+    await db.query(
+      `INSERT INTO tenant_email_delta_recovery_operations (
+         operation_id, client_id, location_id, endpoint_id, actor_staff_user_id,
+         actor_kind, worker_id,
+         operation_kind, requested_generation, requested_state_version, outcome
+       ) VALUES ($1,$2,$3,$4,$5,'staff',NULL,'page_commit',1,1,'claimed')`,
+      [crypto.randomUUID(), ids.client, ids.location, ids.endpoint, ids.actor],
+    );
+  } catch { badPageStaff = true; }
+  assert.equal(badPageStaff, true, 'page_commit staff actor rejected');
+
+  // RED: restart with worker actor rejected
+  let badRestartWorker = false;
+  try {
+    await db.query(
+      `INSERT INTO tenant_email_delta_recovery_operations (
+         operation_id, client_id, location_id, endpoint_id, actor_staff_user_id,
+         actor_kind, worker_id,
+         operation_kind, requested_generation, requested_state_version, outcome
+       ) VALUES ($1,$2,$3,$4,NULL,'worker',$5,'restart_generation',1,1,'claimed')`,
+      [crypto.randomUUID(), ids.client, ids.location, ids.endpoint, PAGE_WORKER],
+    );
+  } catch { badRestartWorker = true; }
+  assert.equal(badRestartWorker, true, 'restart worker actor rejected');
+
+  // RED: wrong worker_id rejected
+  let badWorkerId = false;
+  try {
+    await db.query(
+      `INSERT INTO tenant_email_delta_recovery_operations (
+         operation_id, client_id, location_id, endpoint_id, actor_staff_user_id,
+         actor_kind, worker_id,
+         operation_kind, requested_generation, requested_state_version, outcome
+       ) VALUES ($1,$2,$3,$4,NULL,'worker','other-worker','page_commit',1,1,'claimed')`,
+      [crypto.randomUUID(), ids.client, ids.location, ids.endpoint],
+    );
+  } catch { badWorkerId = true; }
+  assert.equal(badWorkerId, true, 'non-pinned worker_id rejected');
+
+  // GREEN: valid page_commit worker row shape (actor coupling)
+  {
+    const shapeOp = crypto.randomUUID();
+    await db.query(
+      `INSERT INTO tenant_email_delta_recovery_operations (
+         operation_id, client_id, location_id, endpoint_id, actor_staff_user_id,
+         actor_kind, worker_id,
+         operation_kind, requested_generation, requested_state_version,
+         outcome, result_generation, result_state_version, result_phase
+       ) VALUES ($1,$2,$3,$4,NULL,'worker',$5,'page_commit',1,1,
+                 'committed',1,2,'tracking')`,
+      [shapeOp, ids.client, ids.location, ids.endpoint, PAGE_WORKER],
+    );
+    const shape = await db.query(
+      `SELECT operation_kind, actor_kind, worker_id FROM tenant_email_delta_recovery_operations
+        WHERE operation_id = $1`,
+      [shapeOp],
+    );
+    assert.equal(shape.rows[0].operation_kind, 'page_commit');
+    assert.equal(shape.rows[0].actor_kind, 'worker');
+    assert.equal(shape.rows[0].worker_id, PAGE_WORKER);
+    // Leave no durable page_commit for later down-fail tests until classify section.
+    await db.query(
+      `DELETE FROM tenant_email_delta_recovery_operations WHERE operation_id = $1`,
+      [shapeOp],
+    );
+  }
 
   // RED: actor cross-tenant (other client staff) — insert staff for other client fails FK on actor composite
   let badActorFk = false;
@@ -469,7 +581,7 @@ async function proveWithPglite(PGlite) {
   assert.equal(b.ok, true);
   assert.equal(b.value.outcome, 'conflict');
 
-  // Reconcile → evidence_unavailable; plant cursor_operation_id to prove non-inference
+  // Reconcile unjournaled → evidence_unavailable; plant cursor_operation_id to prove non-inference
   const targetOp = crypto.randomUUID();
   await db.query(
     `UPDATE tenant_email_inbound_delta_states
@@ -502,6 +614,66 @@ async function proveWithPglite(PGlite) {
   assert.equal(recon.value.outcome, 'evidence_unavailable');
   assert.equal(recon.value.target_operation_id, targetOp);
 
+  // Reconcile durable page_commit committed → committed (no cursor/gen mutation)
+  // Plant immediately before classify so prior store TX rollback cannot erase it.
+  const pageOp = crypto.randomUUID();
+  await db.query(
+    `INSERT INTO tenant_email_delta_recovery_operations (
+       operation_id, client_id, location_id, endpoint_id, actor_staff_user_id,
+       actor_kind, worker_id,
+       operation_kind, requested_generation, requested_state_version,
+       outcome, result_generation, result_state_version, result_phase
+     ) VALUES ($1,$2,$3,$4,NULL,'worker',$5,'page_commit',1,1,
+               'committed',1,2,'tracking')`,
+    [pageOp, ids.client, ids.location, ids.endpoint, PAGE_WORKER],
+  );
+  const planted = await db.query(
+    `SELECT 1 FROM tenant_email_delta_recovery_operations WHERE operation_id = $1`,
+    [pageOp],
+  );
+  assert.equal(planted.rows.length, 1, 'page_commit plant durable before reconcile');
+  const reconCommittedOp = crypto.randomUUID();
+  const reconCommitted = await recovery.reconcilePageCommit(Object.freeze({
+    operationId: reconCommittedOp,
+    targetOperationId: pageOp,
+    clientId: ids.client,
+    locationId: ids.location,
+    endpointId: ids.endpoint,
+    actorStaffUserId: ids.actor,
+    expectedGeneration: Number(cur3.rows[0].ingestion_generation),
+    expectedStateVersion: Number(cur3.rows[0].state_version),
+    providerTenantId: ids.tenant,
+    providerMailboxId: ids.mailbox,
+  }));
+  assert.equal(reconCommitted.ok, true, JSON.stringify(reconCommitted));
+  assert.equal(reconCommitted.value.outcome, 'committed');
+  assert.equal(reconCommitted.value.target_operation_id, pageOp);
+
+  // claimed page_commit → evidence_unavailable
+  const claimedPage = crypto.randomUUID();
+  await db.query(
+    `INSERT INTO tenant_email_delta_recovery_operations (
+       operation_id, client_id, location_id, endpoint_id, actor_staff_user_id,
+       actor_kind, worker_id,
+       operation_kind, requested_generation, requested_state_version, outcome
+     ) VALUES ($1,$2,$3,$4,NULL,'worker',$5,'page_commit',1,1,'claimed')`,
+    [claimedPage, ids.client, ids.location, ids.endpoint, PAGE_WORKER],
+  );
+  const reconClaimed = await recovery.reconcilePageCommit(Object.freeze({
+    operationId: crypto.randomUUID(),
+    targetOperationId: claimedPage,
+    clientId: ids.client,
+    locationId: ids.location,
+    endpointId: ids.endpoint,
+    actorStaffUserId: ids.actor,
+    expectedGeneration: Number(cur3.rows[0].ingestion_generation),
+    expectedStateVersion: Number(cur3.rows[0].state_version),
+    providerTenantId: ids.tenant,
+    providerMailboxId: ids.mailbox,
+  }));
+  assert.equal(reconClaimed.ok, true);
+  assert.equal(reconClaimed.value.outcome, 'evidence_unavailable');
+
   // Generation unchanged by reconcile
   const afterRecon = await db.query(
     `SELECT ingestion_generation FROM tenant_email_inbound_delta_states
@@ -512,6 +684,13 @@ async function proveWithPglite(PGlite) {
     Number(afterRecon.rows[0].ingestion_generation),
     Number(cur3.rows[0].ingestion_generation),
   );
+
+  // PII absence on journal rows
+  const allJournal = await db.query(
+    `SELECT * FROM tenant_email_delta_recovery_operations`,
+  );
+  const jTxt = JSON.stringify(allJournal.rows);
+  assert.equal(/skiptoken|deltatoken|@|subject|refresh_token/i.test(jTxt), false);
 
   // Commit unknown sequence
   const cur4 = await db.query(
@@ -536,6 +715,8 @@ async function proveWithPglite(PGlite) {
   loaner.setCommitReject(false);
   assert.equal(unk.ok, false);
   assert.equal(unk.error, 'commit_outcome_unknown');
+  // Clear aborted/open TX left by rejected COMMIT so subsequent direct db work is clean.
+  try { await db.query('ROLLBACK'); } catch { /* no open txn */ }
   // Retry may execute (rolled back) or return committed if landed — harness rejects before durable
   const retry = await recovery.restartGeneration(Object.freeze({
     operationId: unkOp,
@@ -668,7 +849,39 @@ async function proveWithPglite(PGlite) {
   assert.equal(pub.ok, true, JSON.stringify(pub));
   assert.equal(pub.value.ingestion_generation, Number(cur5.rows[0].ingestion_generation) + 1);
 
-  // Down drops 065 only
+  // 066 down fails closed while page_commit/worker rows exist
+  let downRefused = false;
+  try {
+    await db.exec(DOWN066);
+  } catch (err) {
+    downRefused = /066_down_refused|page_commit or worker/i.test(String(err && err.message));
+  }
+  // Failed migration BEGIN leaves the connection aborted — clear before reads.
+  try { await db.query('ROLLBACK'); } catch { /* no open txn */ }
+  assert.equal(downRefused, true, '066 down refuses silent page_commit evidence loss');
+  const still066 = await db.query(
+    `SELECT count(*)::int AS n FROM tenant_email_delta_recovery_operations
+      WHERE operation_kind = 'page_commit'`,
+  );
+  assert.ok(Number(still066.rows[0].n) >= 1, 'page_commit evidence preserved');
+
+  // Remove page_commit/worker rows then 066 down restores 065 shape
+  await db.query(
+    `DELETE FROM tenant_email_delta_recovery_operations
+      WHERE operation_kind = 'page_commit' OR actor_kind = 'worker' OR worker_id IS NOT NULL`,
+  );
+  await db.exec(DOWN066);
+  const cols = await db.query(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'tenant_email_delta_recovery_operations'
+      ORDER BY column_name`,
+  );
+  const colNames = cols.rows.map((r) => r.column_name);
+  assert.equal(colNames.includes('actor_kind'), false);
+  assert.equal(colNames.includes('worker_id'), false);
+  assert.equal(colNames.includes('actor_staff_user_id'), true);
+
+  // Down drops 065 table only
   await db.exec(DOWN);
   const gone = await db.query(
     `SELECT to_regclass('public.tenant_email_delta_recovery_operations') AS reg`,

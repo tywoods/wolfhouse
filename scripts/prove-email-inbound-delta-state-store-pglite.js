@@ -1,18 +1,21 @@
 'use strict';
 
 /**
- * Prove migration 064 tenant_email_inbound_delta_states + page-commit atomicity.
+ * Prove migration 064 tenant_email_inbound_delta_states + 066 page_commit journal
+ * atomicity (events+cursor+journal one TX).
  *
  * When PGlite is available:
- *   - minimal parent shell + 063 events + 064 delta state
+ *   - minimal parent shell + 063 events + 064 delta + 065/066 journal
  *   - initialize / lease / seal / commit nextLink / terminal deltaLink
+ *   - page_commit journal claim/complete with worker actor pin
+ *   - same-ID exact retry (ack-loss) zero mutation; two IDs one CAS
+ *   - journal+events+cursor rollback at every substep
+ *   - commit_outcome_unknown safe exact retry
  *   - pre-TX crypto open rejects cross-AAD sealed successors (zero inserts)
- *   - event+cursor atomic advancement
- *   - insert/CAS rollback (wrong state_version)
- *   - replay converges
+ *   - public result never includes operation_id
  *   - generation rebind via authority verifier preserves old state/events
  *   - post-crypto lease fencing on openCursor (takeover)
- *   - down drops table
+ *   - down drops 064 table
  *
  * When PGlite is unavailable: static migration contract only.
  *
@@ -28,9 +31,14 @@ const ROOT = path.resolve(__dirname, '..');
 const UP_064 = path.join(ROOT, 'database/migrations/064_tenant_email_inbound_delta_states.sql');
 const DOWN_064 = path.join(ROOT, 'database/migrations/064_tenant_email_inbound_delta_states_down.sql');
 const UP_063 = path.join(ROOT, 'database/migrations/063_tenant_email_inbound_events.sql');
+const UP_065 = path.join(ROOT, 'database/migrations/065_tenant_email_delta_recovery_operations.sql');
+const UP_066 = path.join(ROOT, 'database/migrations/066_tenant_email_delta_page_commit_journal.sql');
 const UP = fs.readFileSync(UP_064, 'utf8');
 const DOWN = fs.readFileSync(DOWN_064, 'utf8');
 const UP_EVENTS = fs.readFileSync(UP_063, 'utf8');
+const UP_RECOVERY = fs.readFileSync(UP_065, 'utf8');
+const UP_PAGE_JOURNAL = fs.readFileSync(UP_066, 'utf8');
+const PAGE_WORKER = 'sunset-email-delta-worker';
 
 const ids = {
   client: '11111111-1111-4111-8111-111111111111',
@@ -73,7 +81,12 @@ function shellSql() {
       )::uuid;
     $$ LANGUAGE sql;
     CREATE TABLE clients (id uuid PRIMARY KEY);
-    CREATE TABLE staff_users (id uuid PRIMARY KEY, client_id uuid REFERENCES clients(id));
+    CREATE TABLE staff_users (
+      id uuid PRIMARY KEY,
+      client_id uuid NOT NULL REFERENCES clients(id)
+    );
+    ALTER TABLE staff_users
+      ADD CONSTRAINT staff_users_client_id_id_uq UNIQUE (client_id, id);
     CREATE TABLE tenant_locations (
       id uuid PRIMARY KEY,
       client_id uuid NOT NULL REFERENCES clients(id),
@@ -197,6 +210,8 @@ async function proveWithPglite(PGlite) {
   await db.exec(shellSql());
   await db.exec(UP_EVENTS);
   await db.exec(UP);
+  await db.exec(UP_RECOVERY);
+  await db.exec(UP_PAGE_JOURNAL);
 
   // RED: partial sealed cursor rejected
   let redFailed = false;
@@ -338,7 +353,9 @@ async function proveWithPglite(PGlite) {
   }));
   assert.equal(sealedNext.ok, true, JSON.stringify(sealedNext));
 
-  // Atomic event+cursor advancement
+  // Atomic event+cursor+page_commit journal advancement
+  const page1RequestedSv = sv;
+  const page1OpId = String(sealedNext.value.envelope.operation_id).toLowerCase();
   const commit1 = await store.commitPageEvents(Object.freeze({
     clientId: ids.client,
     locationId: ids.location,
@@ -354,9 +371,95 @@ async function proveWithPglite(PGlite) {
     successorCursor: sealedNext.value,
   }));
   assert.equal(commit1.ok, true, JSON.stringify(commit1));
+  assert.equal('operation_id' in commit1.value, false, 'operation_id never public');
+  assert.equal('worker_id' in commit1.value, false);
   sv = commit1.value.state_version;
 
+  // Journal durable: worker page_commit committed with same operation id as cursor
+  const j1 = await db.query(
+    `SELECT operation_kind, actor_kind, worker_id, actor_staff_user_id, outcome,
+            result_generation, result_state_version, result_phase,
+            requested_generation, requested_state_version
+       FROM tenant_email_delta_recovery_operations WHERE operation_id = $1`,
+    [page1OpId],
+  );
+  assert.equal(j1.rows.length, 1);
+  assert.equal(j1.rows[0].operation_kind, 'page_commit');
+  assert.equal(j1.rows[0].actor_kind, 'worker');
+  assert.equal(j1.rows[0].worker_id, PAGE_WORKER);
+  assert.equal(j1.rows[0].actor_staff_user_id, null);
+  assert.equal(j1.rows[0].outcome, 'committed');
+  assert.equal(Number(j1.rows[0].result_generation), 1);
+  assert.equal(Number(j1.rows[0].result_state_version), sv);
+  assert.equal(Number(j1.rows[0].requested_state_version), page1RequestedSv);
+  const curOp = await db.query(
+    `SELECT cursor_operation_id FROM tenant_email_inbound_delta_states WHERE is_current = true`,
+  );
+  assert.equal(String(curOp.rows[0].cursor_operation_id).toLowerCase(), page1OpId);
+
+  // Same-ID exact retry (ack-loss): zero Graph/event/state mutation
+  const countBeforeReplay = await db.query('SELECT count(*)::int AS n FROM tenant_email_inbound_events');
+  const sameIdReplay = await store.commitPageEvents(Object.freeze({
+    clientId: ids.client,
+    locationId: ids.location,
+    endpointId: ids.endpoint,
+    leaseToken: token,
+    expectedGeneration: 1,
+    expectedStateVersion: page1RequestedSv,
+    providerTenantId: ids.tenant,
+    providerMailboxId: ids.mailbox,
+    queryVersion: QV1,
+    envelopes: Object.freeze([makeEnvelope('msg-1'), makeEnvelope('msg-2')]),
+    tombstones: Object.freeze([]),
+    successorCursor: sealedNext.value,
+  }));
+  assert.equal(sameIdReplay.ok, true, JSON.stringify(sameIdReplay));
+  assert.equal(sameIdReplay.value.state_version, sv);
+  assert.equal('operation_id' in sameIdReplay.value, false);
   let count = await db.query('SELECT count(*)::int AS n FROM tenant_email_inbound_events');
+  assert.equal(count.rows[0].n, countBeforeReplay.rows[0].n, 'zero event mutation on same-ID replay');
+
+  // Two IDs, one CAS: second concurrent fence fails; first stays committed
+  const sealedRace = await store.sealDeltaCursor(Object.freeze({
+    clientId: ids.client,
+    endpointId: ids.endpoint,
+    providerTenantId: ids.tenant,
+    providerMailboxId: ids.mailbox,
+    ingestionGeneration: 1,
+    queryVersion: QV1,
+    cursorKind: 'nextLink',
+    cursorUrl: cursorUrl('nextLink', 'race-b'),
+    operationId: crypto.randomUUID(),
+  }));
+  assert.equal(sealedRace.ok, true);
+  const raceB = await store.commitPageEvents(Object.freeze({
+    clientId: ids.client,
+    locationId: ids.location,
+    endpointId: ids.endpoint,
+    leaseToken: token,
+    expectedGeneration: 1,
+    expectedStateVersion: page1RequestedSv, // stale fence
+    providerTenantId: ids.tenant,
+    providerMailboxId: ids.mailbox,
+    queryVersion: QV1,
+    envelopes: Object.freeze([makeEnvelope('msg-race-b')]),
+    tombstones: Object.freeze([]),
+    successorCursor: sealedRace.value,
+  }));
+  assert.equal(raceB.ok, false, 'stale fence second ID fails');
+  // Journal claim for race rolled back with events/cursor
+  const raceJ = await db.query(
+    `SELECT 1 FROM tenant_email_delta_recovery_operations WHERE operation_id = $1`,
+    [String(sealedRace.value.envelope.operation_id).toLowerCase()],
+  );
+  assert.equal(raceJ.rows.length, 0, 'failed page_commit journal rolled back');
+  count = await db.query(
+    `SELECT count(*)::int AS n FROM tenant_email_inbound_events
+      WHERE provider_message_id = 'msg-race-b'`,
+  );
+  assert.equal(count.rows[0].n, 0);
+
+  count = await db.query('SELECT count(*)::int AS n FROM tenant_email_inbound_events');
   assert.equal(count.rows[0].n, 2);
   let st = await db.query(
     `SELECT phase, cursor_kind, state_version, query_version, ciphertext IS NOT NULL AS sealed
