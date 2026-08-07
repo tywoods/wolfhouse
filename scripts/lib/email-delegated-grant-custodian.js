@@ -730,7 +730,8 @@ function failReadAuthority(error) {
 
 /**
  * Module-init pinned native util.types.isProxy via Reflect.apply.
- * Missing pin / throw → fail closed (treat as proxy). Zero proxy traps.
+ * Missing pin / throw → fail closed (treat as proxy). Does not invoke
+ * application traps on the value (isProxy is a native brand check).
  */
 function isProxySurface(value) {
   try {
@@ -1115,11 +1116,25 @@ function snapshotReadAuthorityQueryResult(result) {
  * Exact own-data input `{ clientId, locationId, endpointId }` only (UUID strings).
  * One parameterized SELECT/join of locations + endpoints + grants. Returns one
  * frozen internal DTO; never public_address / provider_principal_oid / secrets.
- * Sanitized failures only; no logging. Hostile boundary: module-init pinned
- * isProxy before prototype/key/descriptor ops on input, deps, db/client,
- * result, rows array, and driver rows; dependency resolution and every
- * result/rows read inside sanitized handling; dense intrinsic Array rows;
- * enumerable own-data driver descriptors only.
+ * Sanitized failures only; no logging.
+ *
+ * Hostile / threat-model boundary (honest):
+ * - Pre-await caller/input/deps/db/client surfaces: module-init pinned isProxy
+ *   before any prototype/key/descriptor ops (zero traps enforceable there;
+ *   ambient isProxy monkeypatch resistant).
+ * - Injected pg client/query is a **trusted executable dependency**. Arbitrary
+ *   code inside query or during Promise resolution cannot be sandboxed.
+ * - Promise/await assimilation of a fulfilled/returned proxy necessarily
+ *   [[Get]]s `then`. Do **not** claim zero traps for the query return/result
+ *   across Promise assimilation, and do **not** claim protection against a
+ *   Promise resolving to a proxy.
+ * - Optional: if query returns a Proxy **synchronously**, reject via pinned
+ *   isProxy before await (does not break genuine pg Promise returns).
+ * - Post-await: reject a resolved proxy via pinned isProxy **before** any
+ *   application-owned prototype/key/descriptor/rows operation; planted throws
+ *   and invalid shapes become frozen sanitized `{ok:false,error:'db_error'}`
+ *   with no attacker message/PII. Rows array + driver rows keep zero-trap
+ *   guarantees once the result root is accepted as a non-proxy.
  *
  * Not exposed via getDelegatedGrantPublicStatus, read-health, routes, transport,
  * or runtime composition (`EMAIL_DELEGATED_READ_AUTHORITY_RUNTIME_WIRED = false`).
@@ -1143,9 +1158,9 @@ async function resolveDelegatedReadAuthority(input, deps) {
     const dbc = resolveReadAuthorityDb(deps);
     if (!dbc.ok) return failReadAuthority(dbc.error || 'db_required');
 
-    let res;
+    let pending;
     try {
-      res = await Reflect.apply(
+      pending = Reflect.apply(
         dbc.query,
         dbc.surface,
         [SQL_RESOLVE_DELEGATED_READ_AUTHORITY, [clientId, locationId, endpointId]],
@@ -1154,6 +1169,26 @@ async function resolveDelegatedReadAuthority(input, deps) {
       return failReadAuthority('db_error');
     }
 
+    // Sync proxy return only: reject before await so no thenable probe runs.
+    // Genuine node-postgres returns a real Promise (not a Proxy) — preserved.
+    // A Promise that later fulfills to a proxy is out of scope for zero-trap
+    // claims (assimilation necessarily reads `then`).
+    if (pending != null
+        && (typeof pending === 'object' || typeof pending === 'function')
+        && isProxySurface(pending)) {
+      return failReadAuthority('db_error');
+    }
+
+    let res;
+    try {
+      res = await pending;
+    } catch (_) {
+      // Planted throws / driver rejection → frozen sanitized only.
+      return failReadAuthority('db_error');
+    }
+
+    // Post-await: snapshotReadAuthorityQueryResult rejects proxies via pinned
+    // isProxy before any prototype/key/descriptor/rows application ops.
     const shaped = snapshotReadAuthorityQueryResult(res);
     if (shaped.kind === 'empty') {
       return failReadAuthority('delegated_read_authority_unresolved');

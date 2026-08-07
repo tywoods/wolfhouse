@@ -641,9 +641,15 @@ async function main() {
   }
 
   // ── Hostile-boundary family (strict RED-GREEN) ─────────────────────────
-  // Attacker-controlled errors/PII must never escape from deps/db/client/
-  // query/result/rows/input/driver surfaces. Module-init pinned isProxy;
-  // zero traps; dense Array.prototype rows; enumerable own-data row fields.
+  // Honest contract:
+  // - Pre-await input/deps/db/client + post-accept rows/driver-row: zero traps
+  //   via module-init pinned isProxy (enforceable).
+  // - Injected pg query is a trusted executable dependency (not sandboxed).
+  // - Promise/await assimilation of a fulfilled/returned proxy necessarily
+  //   [[Get]]s `then` — do NOT claim zero traps for query return/result across
+  //   assimilation, and do NOT claim protection against a Promise resolving to
+  //   a proxy. After await: reject proxy before app-owned ops; frozen sanitized
+  //   db_error; no planted PII escape.
 
   function sanitizedFail(res) {
     return Boolean(
@@ -664,6 +670,7 @@ async function main() {
     return {
       apply: 0,
       get: 0,
+      then: 0,
       getPrototypeOf: 0,
       getOwnPropertyDescriptor: 0,
       ownKeys: 0,
@@ -679,12 +686,9 @@ async function main() {
         return Reflect.apply(t, thisArg, args);
       },
       get(t, prop, receiver) {
-        // Promise resolve may probe [[Get]] 'then' when an async query returns
-        // a proxy. That is language thenable-check noise, not production
-        // reflection. Claim non-thenable and do not count it; every other get
-        // is a production trap.
-        if (prop === 'then') return undefined;
+        // Count every get honestly — including language thenable checks.
         traps.get += 1;
+        if (prop === 'then') traps.then += 1;
         return Reflect.get(t, prop, receiver);
       },
       getPrototypeOf(t) {
@@ -713,6 +717,19 @@ async function main() {
   function zeroTraps(traps) {
     return traps.apply === 0
       && traps.get === 0
+      && traps.then === 0
+      && traps.getPrototypeOf === 0
+      && traps.getOwnPropertyDescriptor === 0
+      && traps.ownKeys === 0
+      && traps.set === 0
+      && traps.has === 0;
+  }
+
+  /** Only unavoidable Promise-assimilation `then` gets; no app-owned traps. */
+  function onlyUnavoidableThenTraps(traps) {
+    return traps.then >= 1
+      && traps.get === traps.then
+      && traps.apply === 0
       && traps.getPrototypeOf === 0
       && traps.getOwnPropertyDescriptor === 0
       && traps.ownKeys === 0
@@ -796,7 +813,7 @@ async function main() {
     ok('throwing result.rows accessor sanitized', sanitizedFail(res), ser(res));
   }
 
-  // Proxies at every surface — zero traps via module-init pinned isProxy
+  // Proxies at pre-await surfaces — zero traps via module-init pinned isProxy
   {
     const trapsInput = trapCounters();
     const proxyInput = countingProxy(baseInput(), trapsInput);
@@ -820,16 +837,67 @@ async function main() {
     ok('proxy db fail-closed', sanitizedFail(resDb), ser(resDb));
     ok('proxy db zero traps', zeroTraps(trapsDb), ser(trapsDb));
   }
+  // Query return / result across Promise assimilation: only unavoidable `then`
+  // may fire. Do not claim zero traps. After await: reject proxy before any
+  // ownKeys/getPrototypeOf/getOwnPropertyDescriptor/application field reads;
+  // callback result is frozen sanitized db_error with no planted PII.
   {
     const trapsResult = trapCounters();
+    const plantedTarget = new RealisticResult([baseRow({
+      public_address: PLANTED_ADDRESS,
+      provider_principal_oid: PLANTED_SECRET,
+    })]);
+    // Plant PII on the proxy target so any post-assimilation field/key walk
+    // would risk observing attacker material — must not escape.
+    plantedTarget.planted_leak = PLANTED_SECRET;
     const db = {
       async query() {
-        return countingProxy(new RealisticResult([baseRow()]), trapsResult);
+        return countingProxy(plantedTarget, trapsResult);
       },
     };
     const resR = await cust.resolveDelegatedReadAuthority(baseInput(), { db });
-    ok('proxy result fail-closed', sanitizedFail(resR), ser(resR));
-    ok('proxy result zero traps', zeroTraps(trapsResult), ser(trapsResult));
+    ok(
+      'proxy result (Promise-resolved) fail-closed sanitized db_error',
+      sanitizedFail(resR) && resR.error === 'db_error',
+      ser(resR),
+    );
+    ok(
+      'proxy result only unavoidable then — no ownKeys/proto/descriptor/app field traps after assimilation',
+      onlyUnavoidableThenTraps(trapsResult),
+      ser(trapsResult),
+    );
+    ok(
+      'proxy result frozen sanitized no planted PII',
+      Object.isFrozen(resR)
+        && noLeak(resR)
+        && !ser(resR).includes(PLANTED_ADDRESS)
+        && !ser(resR).includes(PLANTED_SECRET)
+        && !ser(resR).includes('planted_leak'),
+      ser(resR),
+    );
+  }
+  // Sync proxy return from query: optional pre-await pinned detect — zero traps
+  // (no thenable assimilation). Does not claim coverage for Promise→proxy.
+  {
+    const trapsSync = trapCounters();
+    const db = {
+      query() {
+        return countingProxy(new RealisticResult([baseRow({
+          public_address: PLANTED_ADDRESS,
+        })]), trapsSync);
+      },
+    };
+    const resSync = await cust.resolveDelegatedReadAuthority(baseInput(), { db });
+    ok(
+      'sync proxy query return fail-closed sanitized db_error',
+      sanitizedFail(resSync) && resSync.error === 'db_error',
+      ser(resSync),
+    );
+    ok(
+      'sync proxy query return zero traps (pre-await pin detect)',
+      zeroTraps(trapsSync),
+      ser(trapsSync),
+    );
   }
   {
     const trapsRows = trapCounters();
