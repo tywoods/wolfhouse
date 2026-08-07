@@ -55,17 +55,14 @@ CREATE TABLE tenant_email_inbound_events (
   CONSTRAINT tenant_email_inbound_events_provider_values
     CHECK (provider IN ('microsoft_graph', 'gmail_api', 'imap_smtp')),
 
+  -- Canonical envelope contract: bounded nonempty strings (1..2048). No btrim
+  -- equality — persistence domain accepts exact canonical IDs as validated
+  -- (leading/trailing spaces are valid if the offline contract accepted them).
   CONSTRAINT tenant_email_inbound_events_mailbox_shape
-    CHECK (
-      provider_mailbox_id = btrim(provider_mailbox_id)
-      AND char_length(provider_mailbox_id) BETWEEN 1 AND 2048
-    ),
+    CHECK (char_length(provider_mailbox_id) BETWEEN 1 AND 2048),
 
   CONSTRAINT tenant_email_inbound_events_message_shape
-    CHECK (
-      provider_message_id = btrim(provider_message_id)
-      AND char_length(provider_message_id) BETWEEN 1 AND 2048
-    ),
+    CHECK (char_length(provider_message_id) BETWEEN 1 AND 2048),
 
   -- Optional strings: length bounds only (contract does not force trim equality).
   CONSTRAINT tenant_email_inbound_events_subject_shape

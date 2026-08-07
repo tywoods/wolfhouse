@@ -11,8 +11,8 @@
  *   1) callback-scoped delegated grant access-session
  *   2) ImmutableId page transport
  *   3) authority-bound inbound operation + batch processor
- *   4) factory-fixed durable event-store consumer (one txn per batch;
- *      insert-or-no-op; ack only after successful COMMIT)
+ *   4) factory-fixed durable event-store consumer (one exclusive-client txn per
+ *      batch via withTransactionClient; insert-or-no-op; ack only after COMMIT)
  *
  * Import-inert: zero credential/session/transport construction at require time.
  * Disabled env → factory throws before any Azure/session/network construction.
@@ -49,6 +49,7 @@ const {
 const {
   createDurableInboundEventStoreConsumer,
   EMAIL_INBOUND_EVENT_STORE_RUNTIME_WIRED,
+  resolveWithTransactionClient,
 } = require('./email-inbound-event-store');
 
 const ERROR_CODE = 'MICROSOFT_DELEGATED_INBOUND_EVENT_STORE_RUNTIME_COMPOSITION_INVALID';
@@ -63,6 +64,7 @@ const ENV_INBOUND_EVENT_STORE_ENABLED = 'LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_EN
 const DEPENDENCY_KEYS = Object.freeze([
   'env',
   'pgClient',
+  'withTransactionClient',
   'https',
   'timers',
 ]);
@@ -303,7 +305,13 @@ function mapInternalEventStoreResult(internal) {
 }
 
 /**
- * @param {{ env: object, pgClient: object, https: object, timers: object }} deps
+ * @param {{
+ *   env: object,
+ *   pgClient: object,
+ *   withTransactionClient: Function,
+ *   https: object,
+ *   timers: object,
+ * }} deps
  * @returns {Readonly<{ runInboundEventStore: Function }>}
  */
 function createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(deps) {
@@ -311,6 +319,7 @@ function createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(deps) {
     if (!exactPlainData(deps, DEPENDENCY_KEYS)) throw failure();
     const env = ownData(deps, 'env');
     const pgClient = ownData(deps, 'pgClient');
+    const withTxnRaw = ownData(deps, 'withTransactionClient');
     const httpsRaw = ownData(deps, 'https');
     const timersRaw = ownData(deps, 'timers');
 
@@ -325,6 +334,11 @@ function createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(deps) {
         && (typeof pgClient.totalCount === 'number' || typeof pgClient.idleCount === 'number')) {
       throw failure();
     }
+
+    // Factory-fixed exclusive transaction loaner (descriptor/proxy-safe capture).
+    const withTransactionClient = resolveWithTransactionClient(withTxnRaw);
+    if (!withTransactionClient) throw failure();
+
     const natives = pinNativeSurfaces(httpsRaw, timersRaw);
     if (!natives) throw failure();
 
@@ -357,7 +371,7 @@ function createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(deps) {
 
     /**
      * Per-run: new one-shot grant session + durable consumer (authority closed)
-     * + authority-bound operation. Consumer ack only after COMMIT.
+     * + authority-bound operation. Consumer ack only after exclusive-client COMMIT.
      */
     async function runInboundEventStore(input) {
       const ids = snapshotInput(input);
@@ -374,7 +388,7 @@ function createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(deps) {
       }));
 
       const consumer = createDurableInboundEventStoreConsumer(Object.freeze({
-        db: pgClient,
+        withTransactionClient,
         authority: ids,
       }));
 

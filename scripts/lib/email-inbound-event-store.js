@@ -5,8 +5,15 @@
  * already-canonical inbound envelopes (offline store + factory-fixed consumer).
  *
  * - Reuses `validateInboundEmailEnvelope` (no second envelope contract).
- * - One transaction per delivered batch: BEGIN → insert-or-no-op per identity
- *   (ON CONFLICT DO NOTHING; no UPDATE) → COMMIT.
+ * - Factory-fixed trusted `withTransactionClient` capability (or existing
+ *   repository equivalent such as `withPgClient`) loans an exclusively
+ *   owned/dedicated client for the full transaction and releases only after
+ *   the work callback settles. Descriptor/proxy-safe capture; no caller override.
+ * - Every persist acquires its own dedicated connection; concurrent batches
+ *   never share or interleave on one client.
+ * - One transaction per delivered batch on the loaned client:
+ *   BEGIN → insert-or-no-op per identity (ON CONFLICT DO NOTHING; no UPDATE)
+ *   → COMMIT.
  * - Exact frozen `{ acknowledged: true }` only after conclusively successful
  *   COMMIT. Mid-batch failure → ROLLBACK all; no ack.
  * - Commit sent then post-commit rejection → sanitized failure only; no
@@ -15,7 +22,6 @@
  * - Authority (clientId/locationId/endpointId) is factory-closed trusted UUIDs
  *   matching delegated-read DTO; never taken from envelope fields.
  * - location_id is tenant_locations.id UUID (not text kebab location_id).
- * - Descriptor/proxy-safe db dependency boundary (module-init isProxy pin).
  * - No logging of envelope/PII field values.
  *
  * @module email-inbound-event-store
@@ -43,7 +49,9 @@ const EMAIL_INBOUND_EVENT_STORE_LOGGING_FORBIDDEN =
 
 const AUTHORITY_KEYS = Object.freeze(['clientId', 'locationId', 'endpointId']);
 const ACK_KEYS = Object.freeze(['acknowledged']);
-const STORE_DEPENDENCY_KEYS = Object.freeze(['db']);
+/** Exact store factory dependency: exclusive transaction-client loaner only. */
+const STORE_DEPENDENCY_KEYS = Object.freeze(['withTransactionClient']);
+const CONSUMER_DEPENDENCY_KEYS = Object.freeze(['withTransactionClient', 'authority']);
 
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
@@ -196,24 +204,55 @@ function resolvePgLikeQueryMethod(surface) {
 }
 
 /**
- * Factory-time db snapshot → private frozen minimal query adapter.
- * Captures query once; never re-reads caller mutable db/query at execution.
+ * Pin a loaned exclusive client to a private frozen query adapter.
+ * Captures query once for this loan; never re-reads caller mutable surfaces.
  *
- * @param {object|function} db
+ * @param {object|function} client
  * @returns {{query: Function}|null}
  */
-function resolveDb(db) {
+function resolveExclusiveClient(client) {
   try {
-    if (db == null || (typeof db !== 'object' && typeof db !== 'function')) return null;
-    if (isProxySurface(db)) return null;
-    const capturedQuery = resolvePgLikeQueryMethod(db);
+    if (client == null || (typeof client !== 'object' && typeof client !== 'function')) {
+      return null;
+    }
+    if (isProxySurface(client)) return null;
+    const capturedQuery = resolvePgLikeQueryMethod(client);
     if (typeof capturedQuery !== 'function' || isProxySurface(capturedQuery)) return null;
-    const trustedReceiver = db;
+    const trustedReceiver = client;
     return Object.freeze({
       query(...args) {
         return Reflect.apply(capturedQuery, trustedReceiver, args);
       },
     });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Factory-time capture of trusted `withTransactionClient` (or withPgClient-equivalent).
+ * Signature: async (work) => work(exclusiveClient). Releases only after settle.
+ * Descriptor/proxy-safe; no re-read of caller dependency at execution.
+ *
+ * @param {unknown} raw
+ * @returns {Function|null}
+ */
+function resolveWithTransactionClient(raw) {
+  try {
+    if (typeof raw !== 'function' || isProxySurface(raw)) return null;
+    const captured = raw;
+    return async function pinnedWithTransactionClient(work) {
+      if (typeof work !== 'function' || isProxySurface(work)) {
+        throw failure();
+      }
+      return Reflect.apply(captured, undefined, [
+        async function exclusiveLoan(client) {
+          const exclusive = resolveExclusiveClient(client);
+          if (!exclusive) throw failure();
+          return work(exclusive);
+        },
+      ]);
+    };
   } catch {
     return null;
   }
@@ -306,44 +345,40 @@ function buildInsertParams(authority, envelope) {
 }
 
 /**
- * Best-effort ROLLBACK. Never claims success/failure of rollback to callers.
- * @param {{query: Function}} db
+ * Best-effort ROLLBACK on an exclusive loaned client.
+ * Never claims success/failure of rollback to callers.
+ * @param {{query: Function}} client
  */
-async function attemptRollback(db) {
+async function attemptRollback(client) {
   try {
-    await db.query('ROLLBACK');
+    await client.query('ROLLBACK');
   } catch {
     // Intentionally swallowed — no rollback claim / no compensation.
   }
 }
 
 /**
- * Persist one delivered batch under a single transaction.
+ * Run BEGIN → inserts → COMMIT on one exclusive loaned client.
  *
- * @param {{query: Function}} db
+ * @param {{query: Function}} client
  * @param {{clientId:string,locationId:string,endpointId:string}} authority
- * @param {unknown} envelopes
+ * @param {object[]} envelopes
  * @returns {Promise<{ok:true}|{ok:false,error:string}>}
  */
-async function persistCanonicalBatch(db, authority, envelopes) {
-  const prepared = prepareCanonicalBatch(envelopes);
-  if (!prepared.ok) {
-    return Object.freeze({ ok: false, error: 'inbound_event_store_batch_invalid' });
-  }
-
+async function runBatchTransaction(client, authority, envelopes) {
   let begun = false;
   let commitSent = false;
   try {
-    await db.query('BEGIN');
+    await client.query('BEGIN');
     begun = true;
-    for (let i = 0; i < prepared.envelopes.length; i += 1) {
-      await db.query(SQL_INSERT_EVENT, buildInsertParams(authority, prepared.envelopes[i]));
+    for (let i = 0; i < envelopes.length; i += 1) {
+      await client.query(SQL_INSERT_EVENT, buildInsertParams(authority, envelopes[i]));
     }
     commitSent = true;
-    await db.query('COMMIT');
+    await client.query('COMMIT');
   } catch {
     if (begun && !commitSent) {
-      await attemptRollback(db);
+      await attemptRollback(client);
     }
     // Commit sent then rejection: sanitized only — no ack, no compensation,
     // no internal retry, no rollback claim. Later replay converges via
@@ -355,33 +390,61 @@ async function persistCanonicalBatch(db, authority, envelopes) {
         : 'inbound_event_store_write_failed',
     });
   }
-
   return Object.freeze({ ok: true });
+}
+
+/**
+ * Persist one delivered batch under a single exclusive-client transaction.
+ * Acquires a dedicated connection for this invocation only.
+ *
+ * @param {Function} withTransactionClient
+ * @param {{clientId:string,locationId:string,endpointId:string}} authority
+ * @param {unknown} envelopes
+ * @returns {Promise<{ok:true}|{ok:false,error:string}>}
+ */
+async function persistCanonicalBatch(withTransactionClient, authority, envelopes) {
+  const prepared = prepareCanonicalBatch(envelopes);
+  if (!prepared.ok) {
+    return Object.freeze({ ok: false, error: 'inbound_event_store_batch_invalid' });
+  }
+
+  try {
+    return await withTransactionClient(async (client) => (
+      runBatchTransaction(client, authority, prepared.envelopes)
+    ));
+  } catch (err) {
+    // Loaner failure / exclusive client rejection — sanitized write failure.
+    // If the inner path already returned a structured result it is not thrown.
+    if (err && err.code === FAILURE_CODE) {
+      return Object.freeze({ ok: false, error: FAILURE_CODE });
+    }
+    return Object.freeze({ ok: false, error: 'inbound_event_store_write_failed' });
+  }
 }
 
 /**
  * Factory-fixed durable consumer for the inbound batch processor.
  *
- * Closed over trusted authority UUIDs + db adapter. Invoked once per batch
- * with a frozen envelope array. Returns exact `{ acknowledged: true }` only
- * after conclusively successful COMMIT.
+ * Closed over trusted authority UUIDs + withTransactionClient. Invoked once
+ * per batch with a frozen envelope array. Returns exact `{ acknowledged: true }`
+ * only after conclusively successful COMMIT on a dedicated loaned client.
  *
- * @param {{ db: object, authority: {clientId:string,locationId:string,endpointId:string} }} deps
+ * @param {{ withTransactionClient: Function, authority: {clientId:string,locationId:string,endpointId:string} }} deps
  * @returns {Function}
  */
-const CONSUMER_DEPENDENCY_KEYS = Object.freeze(['db', 'authority']);
-
 function createDurableInboundEventStoreConsumer(deps) {
-  let db;
+  let withTransactionClient;
   let authority;
   try {
     if (!exactPlainData(deps, CONSUMER_DEPENDENCY_KEYS)
         && !exactFrozenData(deps, CONSUMER_DEPENDENCY_KEYS)) {
       throw failure();
     }
-    db = resolveDb(ownData(deps, 'db'));
+    withTransactionClient = resolveWithTransactionClient(
+      ownData(deps, 'withTransactionClient'),
+    );
     authority = snapshotAuthority(ownData(deps, 'authority'));
-    if (!db || !authority) throw failure();
+    if (!withTransactionClient || !authority) throw failure();
   } catch (err) {
     if (err && err.code === FAILURE_CODE) throw err;
     throw failure();
@@ -392,7 +455,7 @@ function createDurableInboundEventStoreConsumer(deps) {
    * @returns {Promise<{acknowledged:true}>}
    */
   async function durableInboundEventStoreConsumer(envelopes) {
-    const result = await persistCanonicalBatch(db, authority, envelopes);
+    const result = await persistCanonicalBatch(withTransactionClient, authority, envelopes);
     if (!result || result.ok !== true) {
       throw failure(result && result.error ? result.error : FAILURE_CODE);
     }
@@ -404,20 +467,22 @@ function createDurableInboundEventStoreConsumer(deps) {
 }
 
 /**
- * Create an event-store handle with a private db adapter.
+ * Create an event-store handle closed over a factory-fixed transaction loaner.
  *
- * @param {{ db: object }} deps
+ * @param {{ withTransactionClient: Function }} deps
  * @returns {{ createConsumer: Function, persistBatch: Function }}
  */
 function createInboundEmailEventStore(deps) {
-  let db;
+  let withTransactionClient;
   try {
     if (!exactPlainData(deps, STORE_DEPENDENCY_KEYS)
         && !exactFrozenData(deps, STORE_DEPENDENCY_KEYS)) {
       throw failure();
     }
-    db = resolveDb(ownData(deps, 'db'));
-    if (!db) throw failure();
+    withTransactionClient = resolveWithTransactionClient(
+      ownData(deps, 'withTransactionClient'),
+    );
+    if (!withTransactionClient) throw failure();
   } catch (err) {
     if (err && err.code === FAILURE_CODE) throw err;
     throw failure();
@@ -425,7 +490,7 @@ function createInboundEmailEventStore(deps) {
 
   function createConsumer(authorityInput) {
     return createDurableInboundEventStoreConsumer(Object.freeze({
-      db,
+      withTransactionClient,
       authority: authorityInput,
     }));
   }
@@ -439,7 +504,7 @@ function createInboundEmailEventStore(deps) {
     if (!authority) {
       return Object.freeze({ ok: false, error: 'inbound_event_store_authority_invalid' });
     }
-    return persistCanonicalBatch(db, authority, envelopes);
+    return persistCanonicalBatch(withTransactionClient, authority, envelopes);
   }
 
   return Object.freeze({ createConsumer, persistBatch });
@@ -454,11 +519,13 @@ module.exports = Object.freeze({
   AUTHORITY_KEYS,
   ACK_KEYS,
   STORE_DEPENDENCY_KEYS,
+  CONSUMER_DEPENDENCY_KEYS,
   SQL_INSERT_EVENT,
   createInboundEmailEventStore,
   createDurableInboundEventStoreConsumer,
   // Test/inspection helpers (pure; no network).
   prepareCanonicalBatch,
   snapshotAuthority,
-  resolveDb,
+  resolveWithTransactionClient,
+  resolveExclusiveClient,
 });

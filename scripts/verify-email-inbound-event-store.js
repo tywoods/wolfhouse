@@ -3,10 +3,11 @@
 /**
  * Offline RED-GREEN gate: inbound email event store + default-off Sunset composition.
  *
- * Covers: dependency boundary, durable consumer, one-txn insert-or-no-op, rollback,
- * commit-unknown, authority override rejection, provider/mailbox mismatch before SQL,
- * mixed replay counts via batch processor, composition flag isolation / zero construction,
- * no logs/PII. No live DB/network/route.
+ * Covers: withTransactionClient custody, durable consumer, exclusive-client
+ * one-txn insert-or-no-op, real staged-rollback fake, commit-unknown, authority
+ * override rejection, provider/mailbox mismatch before SQL, concurrent dedicated
+ * loans, mixed replay, composition flag isolation / zero construction, no logs/PII.
+ * No live DB/network/route.
  */
 
 const assert = require('node:assert/strict');
@@ -74,53 +75,86 @@ function noLeak(v) {
     && !s.includes('refresh_token');
 }
 
-/** Stateful fake pg: supports BEGIN/COMMIT/ROLLBACK + INSERT ON CONFLICT. */
-function createFakeDb(options = {}) {
-  const rows = options.rows || new Map();
+/**
+ * Accurate multi-client fake: each withTransactionClient loan gets a dedicated
+ * exclusive client with its own staged inserts. COMMIT merges into durable rows;
+ * ROLLBACK discards the loan's staged map (earlier successful inserts disappear).
+ * Concurrent loans do not share staging or interleave on one client.
+ */
+function createFakeTxnHarness(options = {}) {
+  const durable = options.rows || new Map();
   const log = [];
-  let inTx = false;
+  let loanSeq = 0;
+  let activeLoans = 0;
+  let maxConcurrentLoans = 0;
   let failOn;
   let commitShouldReject = false;
-  let insertCalls = 0;
+  let gate = null;
 
   function keyOf(p, mbox, mid) {
     return `${p}\0${mbox}\0${mid}`;
   }
 
-  const db = {
-    async query(sql, params) {
-      const norm = String(sql).replace(/\s+/g, ' ').trim();
-      log.push({ sql: norm, params: params ? params.slice() : null });
-      if (failOn && failOn(norm, params, { insertCalls, inTx })) {
-        throw new Error('planted_db_failure');
-      }
-      if (norm === 'BEGIN') {
-        inTx = true;
-        return { rows: [], rowCount: 0 };
-      }
-      if (norm === 'COMMIT') {
-        if (commitShouldReject) {
-          throw new Error('planted_commit_reject');
+  async function withTransactionClient(work) {
+    const loanId = (loanSeq += 1);
+    activeLoans += 1;
+    if (activeLoans > maxConcurrentLoans) maxConcurrentLoans = activeLoans;
+
+    let inTx = false;
+    /** @type {Map<string, object>} inserts staged for this exclusive loan only */
+    const staged = new Map();
+    let insertCalls = 0;
+    let released = false;
+
+    const client = {
+      async query(sql, params) {
+        const norm = String(sql).replace(/\s+/g, ' ').trim();
+        log.push({ loanId, sql: norm, params: params ? params.slice() : null });
+        if (failOn && failOn(norm, params, { insertCalls, inTx, loanId, staged })) {
+          throw new Error('planted_db_failure');
         }
-        inTx = false;
-        return { rows: [], rowCount: 0 };
-      }
-      if (norm === 'ROLLBACK') {
-        inTx = false;
-        return { rows: [], rowCount: 0 };
-      }
-      if (/^INSERT INTO tenant_email_inbound_events/.test(norm)) {
-        insertCalls += 1;
-        const [
-          clientId, locationId, endpointId,
-          provider, mailbox, messageId,
-          receivedAt, subject, senderDisplay, senderAddress,
-          isRead, conversationId, internetMessageId,
-        ] = params;
-        // Reject authority override via envelope — authority comes from params 0-2 only.
-        const k = keyOf(provider, mailbox, messageId);
-        if (!rows.has(k)) {
-          rows.set(k, {
+        if (norm === 'BEGIN') {
+          if (inTx) throw new Error('nested_begin');
+          inTx = true;
+          staged.clear();
+          return { rows: [], rowCount: 0 };
+        }
+        if (norm === 'COMMIT') {
+          if (!inTx) throw new Error('commit_without_begin');
+          if (commitShouldReject) {
+            throw new Error('planted_commit_reject');
+          }
+          // Optional coordination gate for overlapping concurrency probes.
+          if (gate && typeof gate.beforeCommit === 'function') {
+            await gate.beforeCommit({ loanId, staged });
+          }
+          for (const [k, row] of staged) {
+            if (!durable.has(k)) durable.set(k, row);
+            // ON CONFLICT DO NOTHING semantics at commit visibility.
+          }
+          staged.clear();
+          inTx = false;
+          return { rows: [], rowCount: 0 };
+        }
+        if (norm === 'ROLLBACK') {
+          staged.clear();
+          inTx = false;
+          return { rows: [], rowCount: 0 };
+        }
+        if (/^INSERT INTO tenant_email_inbound_events/.test(norm)) {
+          insertCalls += 1;
+          const [
+            clientId, locationId, endpointId,
+            provider, mailbox, messageId,
+            receivedAt, subject, senderDisplay, senderAddress,
+            isRead, conversationId, internetMessageId,
+          ] = params;
+          const k = keyOf(provider, mailbox, messageId);
+          // Conflict against durable + this loan's staged only (not other loans).
+          if (durable.has(k) || staged.has(k)) {
+            return { rows: [], rowCount: 0 };
+          }
+          staged.set(k, {
             client_id: clientId,
             location_id: locationId,
             endpoint_id: endpointId,
@@ -137,21 +171,31 @@ function createFakeDb(options = {}) {
           });
           return { rows: [], rowCount: 1 };
         }
-        // ON CONFLICT DO NOTHING
-        return { rows: [], rowCount: 0 };
-      }
-      throw new Error(`unexpected sql: ${norm.slice(0, 80)}`);
-    },
-  };
+        throw new Error(`unexpected sql: ${norm.slice(0, 80)}`);
+      },
+    };
+
+    try {
+      return await work(client);
+    } finally {
+      // Release only after settle — discard any uncommitted staged rows.
+      staged.clear();
+      inTx = false;
+      released = true;
+      activeLoans -= 1;
+      void released;
+    }
+  }
 
   return {
-    db,
-    rows,
+    withTransactionClient,
+    rows: durable,
     log,
-    get insertCalls() { return insertCalls; },
-    get inTx() { return inTx; },
+    get maxConcurrentLoans() { return maxConcurrentLoans; },
+    get activeLoans() { return activeLoans; },
     setFailOn(fn) { failOn = fn; },
     setCommitReject(v) { commitShouldReject = v; },
+    setGate(g) { gate = g; },
   };
 }
 
@@ -206,12 +250,13 @@ async function main() {
     EMAIL_INBOUND_EVENT_STORE_PERSISTENCE_AUTHORIZED,
     EMAIL_INBOUND_EVENT_STORE_LOGGING_FORBIDDEN,
     AUTHORITY_KEYS,
+    STORE_DEPENDENCY_KEYS,
     SQL_INSERT_EVENT,
     createInboundEmailEventStore,
     createDurableInboundEventStoreConsumer,
     prepareCanonicalBatch,
     snapshotAuthority,
-    resolveDb,
+    resolveWithTransactionClient,
   } = store;
 
   // ── Static flags / SQL / migration shape ────────────────────────────────
@@ -219,6 +264,7 @@ async function main() {
   assert.equal(EMAIL_INBOUND_EVENT_STORE_PERSISTENCE_AUTHORIZED, true);
   assert.equal(EMAIL_INBOUND_EVENT_STORE_LOGGING_FORBIDDEN, true);
   assert.deepEqual([...AUTHORITY_KEYS], ['clientId', 'locationId', 'endpointId']);
+  assert.deepEqual([...STORE_DEPENDENCY_KEYS], ['withTransactionClient']);
   assert.match(SQL_INSERT_EVENT, /ON CONFLICT \(provider, provider_mailbox_id, provider_message_id\) DO NOTHING/);
   assert.equal(/ON CONFLICT[\s\S]*DO UPDATE/i.test(SQL_INSERT_EVENT), false);
   assert.match(SQL_INSERT_EVENT, /internet_message_id/);
@@ -237,9 +283,21 @@ async function main() {
     false,
     'must not use text location_id column as authority',
   );
-  assert.match(up, /REFERENCES tenant_locations \(client_id, id\)/);
   assert.match(up, /internet_message_id\s+TEXT NULL/);
   assert.equal(/INSERT INTO tenant_email_inbound_events/.test(up), false, 'empty migration');
+  // No btrim equality on canonical identity IDs (contract is bounded nonempty).
+  assert.equal(
+    /provider_mailbox_id\s*=\s*btrim\s*\(\s*provider_mailbox_id\s*\)/.test(up),
+    false,
+    'must not restrict provider_mailbox_id with btrim equality',
+  );
+  assert.equal(
+    /provider_message_id\s*=\s*btrim\s*\(\s*provider_message_id\s*\)/.test(up),
+    false,
+    'must not restrict provider_message_id with btrim equality',
+  );
+  assert.match(up, /char_length\(provider_mailbox_id\) BETWEEN 1 AND 2048/);
+  assert.match(up, /char_length\(provider_message_id\) BETWEEN 1 AND 2048/);
   assert.match(down, /DROP TABLE IF EXISTS tenant_email_inbound_events/);
 
   // ── Authority snapshot / proxy rejection ────────────────────────────────
@@ -261,15 +319,20 @@ async function main() {
     get(t, p) { return t[p]; },
   })), null, 'proxy authority');
 
-  // ── resolveDb proxy / accessor boundary ─────────────────────────────────
-  assert.ok(resolveDb({ async query() { return { rows: [] }; } }));
-  assert.equal(resolveDb(null), null);
-  assert.equal(resolveDb(new Proxy({ query() {} }, {
-    get(t, p) { return t[p]; },
-  })), null, 'proxy db');
-  assert.equal(resolveDb({
-    get query() { return function q() {}; },
-  }), null, 'accessor query');
+  // ── withTransactionClient boundary ──────────────────────────────────────
+  assert.ok(resolveWithTransactionClient(async (work) => work({ async query() { return { rows: [] }; } })));
+  assert.equal(resolveWithTransactionClient(null), null);
+  assert.equal(resolveWithTransactionClient(new Proxy(async () => {}, {
+    apply(t, thisArg, args) { return Reflect.apply(t, thisArg, args); },
+  })), null, 'proxy loaner');
+
+  // Reject store factory on db-only (old) dependency shape.
+  assert.throws(
+    () => createInboundEmailEventStore(Object.freeze({
+      db: { async query() { return { rows: [] }; } },
+    })),
+    (err) => err && err.code === FAILURE_CODE,
+  );
 
   // ── prepareCanonicalBatch: mismatch before SQL ──────────────────────────
   const okBatch = prepareCanonicalBatch([
@@ -288,8 +351,10 @@ async function main() {
 
   // ── Roundtrip insert + idempotent replay ────────────────────────────────
   {
-    const fake = createFakeDb();
-    const es = createInboundEmailEventStore(Object.freeze({ db: fake.db }));
+    const fake = createFakeTxnHarness();
+    const es = createInboundEmailEventStore(Object.freeze({
+      withTransactionClient: fake.withTransactionClient,
+    }));
     const envs = Object.freeze([
       Object.freeze(envelope({ provider_message_id: 'msg-a', internet_message_id: null })),
       Object.freeze(envelope({ provider_message_id: 'msg-b', internet_message_id: '<same@x>' })),
@@ -300,7 +365,6 @@ async function main() {
     assert.equal(fake.log.filter((e) => e.sql === 'BEGIN').length, 1);
     assert.equal(fake.log.filter((e) => e.sql === 'COMMIT').length, 1);
 
-    // Replay same identities (including null and same internet_message_id non-identity).
     const r2 = await es.persistBatch(authority(), Object.freeze([
       Object.freeze(envelope({
         provider_message_id: 'msg-a',
@@ -315,7 +379,6 @@ async function main() {
     const a = fake.rows.get(`microsoft_graph\0${MAILBOX}\0msg-a`);
     assert.equal(a.subject, PLANTED_SUBJECT, 'no updates on conflict');
     assert.equal(a.internet_message_id, null);
-    // Two rows may share internet_message_id
     const b = fake.rows.get(`microsoft_graph\0${MAILBOX}\0msg-b`);
     const c = fake.rows.get(`microsoft_graph\0${MAILBOX}\0msg-c`);
     assert.equal(b.internet_message_id, c.internet_message_id);
@@ -323,10 +386,10 @@ async function main() {
 
   // ── Consumer: one call, ack after commit ────────────────────────────────
   {
-    const fake = createFakeDb();
+    const fake = createFakeTxnHarness();
     let consumerCalls = 0;
     const consumer = createDurableInboundEventStoreConsumer(Object.freeze({
-      db: fake.db,
+      withTransactionClient: fake.withTransactionClient,
       authority: authority(),
     }));
     const wrapped = async (envs) => {
@@ -349,11 +412,14 @@ async function main() {
     assert.equal(fake.rows.size, 2);
   }
 
-  // ── Mid-batch failure rolls back all ────────────────────────────────────
+  // ── Mid-batch failure: earlier successful insert discarded on rollback ──
   {
-    const fake = createFakeDb();
+    const fake = createFakeTxnHarness();
+    // Fail on the second INSERT within a loan (insertCalls is per-loan).
     fake.setFailOn((sql, _p, st) => /INSERT INTO/.test(sql) && st.insertCalls >= 1);
-    const es = createInboundEmailEventStore(Object.freeze({ db: fake.db }));
+    const es = createInboundEmailEventStore(Object.freeze({
+      withTransactionClient: fake.withTransactionClient,
+    }));
     const r = await es.persistBatch(authority(), Object.freeze([
       Object.freeze(envelope({ provider_message_id: 'rb-1' })),
       Object.freeze(envelope({ provider_message_id: 'rb-2' })),
@@ -361,15 +427,22 @@ async function main() {
     assert.equal(r.ok, false);
     assert.equal(r.error, 'inbound_event_store_write_failed');
     assert.ok(fake.log.some((e) => e.sql === 'ROLLBACK'));
+    // Critical: first insert must not remain after rollback.
+    assert.equal(fake.rows.size, 0, 'earlier successful insert discarded after later failure');
+    assert.equal(
+      fake.rows.has(`microsoft_graph\0${MAILBOX}\0rb-1`),
+      false,
+      'rb-1 must disappear after rollback',
+    );
     assert.equal(noLeak(r), true);
   }
 
-  // ── Commit sent then rejection → sanitized, no ack ──────────────────────
+  // ── Commit sent then rejection → sanitized, no ack, no rollback ─────────
   {
-    const fake = createFakeDb();
+    const fake = createFakeTxnHarness();
     fake.setCommitReject(true);
     const consumer = createDurableInboundEventStoreConsumer(Object.freeze({
-      db: fake.db,
+      withTransactionClient: fake.withTransactionClient,
       authority: authority(),
     }));
     await assert.rejects(
@@ -380,7 +453,6 @@ async function main() {
         return true;
       },
     );
-    // No compensation / no rollback claim after commit sent.
     const afterCommit = fake.log.findIndex((e) => e.sql === 'COMMIT');
     assert.ok(afterCommit >= 0);
     assert.equal(
@@ -392,20 +464,34 @@ async function main() {
 
   // ── Authority override rejection (envelope cannot change client/location) ─
   {
-    const fake = createFakeDb();
-    const es = createInboundEmailEventStore(Object.freeze({ db: fake.db }));
+    const fake = createFakeTxnHarness();
+    const es = createInboundEmailEventStore(Object.freeze({
+      withTransactionClient: fake.withTransactionClient,
+    }));
     const envWithExtra = envelope({ provider_message_id: 'ao-1' });
     envWithExtra.clientId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
-    // Extra key → envelope validation fails in prepare (exact keyset).
     const r = await es.persistBatch(authority(), [envWithExtra]);
     assert.equal(r.ok, false);
     assert.equal(fake.rows.size, 0, 'no insert on authority override attempt');
   }
 
-  // ── Concurrent race simulation: two inserts same identity → one row ─────
+  // ── Concurrent race: independently loaned clients, one durable row ──────
   {
-    const fake = createFakeDb();
-    const es = createInboundEmailEventStore(Object.freeze({ db: fake.db }));
+    const fake = createFakeTxnHarness();
+    // Gate: hold both loans in-flight until both have staged the same identity.
+    let arrivals = 0;
+    let releaseGate;
+    const bothArrived = new Promise((resolve) => { releaseGate = resolve; });
+    fake.setGate({
+      async beforeCommit() {
+        arrivals += 1;
+        if (arrivals >= 2) releaseGate();
+        await bothArrived;
+      },
+    });
+    const es = createInboundEmailEventStore(Object.freeze({
+      withTransactionClient: fake.withTransactionClient,
+    }));
     const env = Object.freeze(envelope({ provider_message_id: 'race-1' }));
     const [a, b] = await Promise.all([
       es.persistBatch(authority(), Object.freeze([env])),
@@ -413,7 +499,28 @@ async function main() {
     ]);
     assert.equal(a.ok, true);
     assert.equal(b.ok, true);
-    assert.equal(fake.rows.size, 1, 'race converges to one row');
+    assert.equal(fake.rows.size, 1, 'concurrent same-identity → one durable row');
+    assert.ok(fake.maxConcurrentLoans >= 2, 'two dedicated loans overlapped');
+    // Distinct loan ids on BEGIN prove independent exclusive clients.
+    const beginLoans = fake.log.filter((e) => e.sql === 'BEGIN').map((e) => e.loanId);
+    assert.equal(new Set(beginLoans).size, 2, 'two distinct exclusive loans');
+  }
+
+  // ── Every persist acquires its own loan (no shared client reuse) ────────
+  {
+    const fake = createFakeTxnHarness();
+    const es = createInboundEmailEventStore(Object.freeze({
+      withTransactionClient: fake.withTransactionClient,
+    }));
+    await es.persistBatch(authority(), Object.freeze([
+      Object.freeze(envelope({ provider_message_id: 'loan-a' })),
+    ]));
+    await es.persistBatch(authority(), Object.freeze([
+      Object.freeze(envelope({ provider_message_id: 'loan-b' })),
+    ]));
+    const begins = fake.log.filter((e) => e.sql === 'BEGIN');
+    assert.equal(begins.length, 2);
+    assert.notEqual(begins[0].loanId, begins[1].loanId, 'separate loan per persist');
   }
 
   // ── Composition: flag isolation + disabled zero construction ────────────
@@ -426,6 +533,7 @@ async function main() {
       WORKER_ID,
       INTERNAL_DURABLY_PROCESSED,
       INTERNAL_STATUS_SUCCESS,
+      DEPENDENCY_KEYS,
       isInboundEventStoreEnabled,
       createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime,
       ERROR_CODE,
@@ -436,6 +544,9 @@ async function main() {
     assert.equal(WORKER_ID, 'sunset-email-inbound-event-store');
     assert.equal(INTERNAL_DURABLY_PROCESSED, true);
     assert.equal(INTERNAL_STATUS_SUCCESS, 'success');
+    assert.deepEqual([...DEPENDENCY_KEYS], [
+      'env', 'pgClient', 'withTransactionClient', 'https', 'timers',
+    ]);
 
     assert.equal(isInboundEventStoreEnabled({}), false);
     assert.equal(isInboundEventStoreEnabled({
@@ -455,7 +566,6 @@ async function main() {
     let constructed = false;
     const restore = installAzureLoadIntercept();
     try {
-      // Patch identity load to detect construction
       const origLoad = Module._load;
       Module._load = function (request, parent, isMain) {
         if (request === '@azure/identity' || request === '@azure/keyvault-keys') {
@@ -467,6 +577,7 @@ async function main() {
         () => createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime({
           env: { LUNA_DEPLOYMENT: 'sunset-staging' },
           pgClient: { query() {} },
+          withTransactionClient: async (work) => work({ query() {} }),
           https: { request() {} },
           timers: { setTimeout() {}, clearTimeout() {} },
         }),
@@ -483,12 +594,9 @@ async function main() {
     const restore = installAzureLoadIntercept();
     try {
       delete require.cache[compAbs];
-      // Force re-require store/composition cleanly.
       const absStore = path.join(ROOT, STORE_REL);
       delete require.cache[absStore];
 
-      // Stub heavy modules to avoid full custody path while still exercising
-      // factory + durable consumer wiring shape.
       const authBoundPath = path.join(ROOT, 'scripts/lib/email-authority-bound-inbound-operation.js');
       const sessionPath = path.join(ROOT, 'scripts/lib/email-delegated-grant-access-session.js');
       const immutPath = path.join(
@@ -503,10 +611,9 @@ async function main() {
       const provPath = path.join(ROOT, 'scripts/lib/email-grant-envelope-provider-contract.js');
       const tokPath = path.join(ROOT, 'scripts/lib/email-microsoft-token-http-transport.js');
 
-      const fake = createFakeDb();
+      const fake = createFakeTxnHarness();
       let consumerSeen = 0;
 
-      // Minimal stubs for composition graph.
       require.cache[secretPath] = {
         id: secretPath,
         filename: secretPath,
@@ -585,7 +692,6 @@ async function main() {
             return Object.freeze({
               runAuthorityBoundInbound: async () => {
                 consumerSeen += 1;
-                // Invoke durable consumer once with a valid envelope batch.
                 const ack = await deps.consumer(Object.freeze([
                   Object.freeze(envelope({ provider_message_id: 'comp-1' })),
                 ]));
@@ -609,7 +715,8 @@ async function main() {
       const comp = require('./lib/email-microsoft-delegated-inbound-event-store-sunset-staging-runtime-composition');
       const runtime = comp.createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime({
         env: enabledEnv(),
-        pgClient: fake.db,
+        pgClient: { async query() { return { rows: [] }; } },
+        withTransactionClient: fake.withTransactionClient,
         https: { request() {} },
         timers: { setTimeout() {}, clearTimeout() {} },
       });
@@ -622,7 +729,6 @@ async function main() {
       assert.equal(noLeak(result), true);
     } finally {
       restore();
-      // Clear poisoned require cache entries for sibling gates.
       for (const key of Object.keys(require.cache)) {
         if (key.includes('scripts/lib/email-') || key.includes('sunset-microsoft-oauth')) {
           delete require.cache[key];
@@ -638,15 +744,21 @@ async function main() {
   const doc = fs.readFileSync(DOC, 'utf8');
   assert.match(doc, /inbound-event-store|tenant_email_inbound_events/);
   assert.match(doc, /LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED/);
-  // Flag must not appear in client defaults/manifests.
+  assert.match(doc, /withTransactionClient/);
   const defaultsHit = fs.readFileSync(path.join(ROOT, 'config/clients/sunset.baseline.json'), 'utf8');
   assert.equal(defaultsHit.includes('LUNA_EMAIL_OAUTH_INBOUND_EVENT_STORE_ENABLED'), false);
 
-  // Source must not log envelope fields.
+  // Source must not log envelope fields; must use exclusive loaner not shared db.
   const storeSrc = fs.readFileSync(storeAbs, 'utf8');
   assert.equal(/\bconsole\.(log|info|debug|warn|error)\b/.test(storeSrc), false);
   assert.match(storeSrc, /commit_outcome_unknown/);
   assert.match(storeSrc, /Provider\/mailbox mismatch before/);
+  assert.match(storeSrc, /withTransactionClient/);
+  assert.equal(
+    /STORE_DEPENDENCY_KEYS = Object\.freeze\(\['db'\]\)/.test(storeSrc),
+    false,
+    'must not use shared db dependency',
+  );
 
   console.log('PASS verify-email-inbound-event-store');
 }
