@@ -28,12 +28,16 @@ const {
   createAuthorityBoundMessagesDeltaPageOperation,
   DEPENDENCY_KEYS: OP_DEPENDENCY_KEYS,
   RESULT_KEYS,
+  ATTEMPT_SURFACE_KEYS,
   FAILURE_CODE,
   INPUT_KEYS,
   EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_RUNTIME_WIRED,
   EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_SAFE_FOR_RUNTIME_ROUTE_CRON,
   EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_AUTO_BEGIN_GENERATION,
   EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_MULTIPAGE,
+  EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_CALLER_DURABILITY_LIFECYCLE_READY,
+  EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_ATTEMPT_API_REQUIRED_FOR_RUNTIME,
+  EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_DIRECT_RUN_ACTIVATION_INELIGIBLE,
 } = require('./email-authority-bound-messages-delta-page-operation');
 
 const ERROR_CODE = 'AUTHORITY_BOUND_MESSAGES_DELTA_OFFLINE_COMPOSITION_INVALID';
@@ -69,6 +73,15 @@ if (EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_AUTO_BEGIN_GENERATION !== false) {
 }
 if (EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_MULTIPAGE !== false) {
   throw new Error('messages_delta_offline_composition_unexpected_multipage');
+}
+if (EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_CALLER_DURABILITY_LIFECYCLE_READY !== false) {
+  throw new Error('messages_delta_offline_composition_caller_durability_ready');
+}
+if (EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_ATTEMPT_API_REQUIRED_FOR_RUNTIME !== true) {
+  throw new Error('messages_delta_offline_composition_attempt_api_required');
+}
+if (EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_DIRECT_RUN_ACTIVATION_INELIGIBLE !== true) {
+  throw new Error('messages_delta_offline_composition_direct_run_eligible');
 }
 
 function failure() {
@@ -166,7 +179,10 @@ function snapshotInput(input) {
  *   withTransactionClient: Function,
  *   envelopeProvider: object,
  * }} deps
- * @returns {Readonly<{ runAuthorityBoundMessagesDeltaPageDurable: Function }>}
+ * @returns {Readonly<{
+ *   createPageAttempt: Function,
+ *   runAuthorityBoundMessagesDeltaPageDurable: Function,
+ * }>}
  */
 function createOfflineAuthorityBoundMessagesDeltaComposition(deps) {
   let operation;
@@ -194,6 +210,30 @@ function createOfflineAuthorityBoundMessagesDeltaComposition(deps) {
   }
 
   /**
+   * Opaque retry-stable page attempt (preferred). Activation requires a caller
+   * durability lifecycle before worker runtime may use this path.
+   *
+   * @param {object} input exact { clientId, locationId, endpointId }
+   * @returns {Readonly<{run:Function,reconcile:Function,status:Function}>}
+   */
+  function createPageAttempt(input) {
+    const ids = snapshotInput(input);
+    if (!ids) throw failure();
+    try {
+      const attempt = operation.createPageAttempt(ids);
+      if (!attempt || typeof attempt !== 'object') throw failure();
+      if (!exactFrozenData(attempt, ATTEMPT_SURFACE_KEYS)) throw failure();
+      return attempt;
+    } catch (err) {
+      if (err && err.code === FAILURE_CODE) throw failure();
+      throw failure();
+    }
+  }
+
+  /**
+   * Direct single-shot offline path — activation-ineligible (ephemeral attempt).
+   * Prefer createPageAttempt for same-ID replay/reconcile.
+   *
    * @param {object} input exact { clientId, locationId, endpointId }
    * @returns {Promise<object>} frozen RESULT_KEYS identity-free result
    */
@@ -215,7 +255,10 @@ function createOfflineAuthorityBoundMessagesDeltaComposition(deps) {
     return out.value;
   }
 
-  return Object.freeze({ runAuthorityBoundMessagesDeltaPageDurable });
+  return Object.freeze({
+    createPageAttempt,
+    runAuthorityBoundMessagesDeltaPageDurable,
+  });
 }
 
 module.exports = Object.freeze({
