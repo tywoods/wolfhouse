@@ -74,7 +74,7 @@ function noLeak(v) {
   const s = typeof v === 'string' ? v : (() => {
     try { return JSON.stringify(v); } catch { return String(v); }
   })();
-  // Public DTO may include delivered_count; forbid internal status + secrets/PII.
+  // Internal composition DTO may include delivered_count; forbid internal status + secrets/PII.
   return !s.includes(PLANTED_TOKEN)
     && !s.includes(PLANTED_SUBJECT)
     && !s.includes(PLANTED_ADDRESS)
@@ -95,13 +95,13 @@ async function main() {
       ENV_INBOUND_DIAGNOSTIC_ENABLED,
       SUNSET_DEPLOYMENT,
       WORKER_ID,
-      PUBLIC_RESULT_KEYS,
-      PUBLIC_STATUS_SUCCESS,
-      PUBLIC_DURABLY_PROCESSED,
+      INTERNAL_RESULT_KEYS,
+      INTERNAL_STATUS_SUCCESS,
+      INTERNAL_DURABLY_PROCESSED,
       MAX_COUNT,
       DIAGNOSTIC_INBOUND_CONSUMER,
       isInboundDiagnosticEnabled,
-      mapPublicDiagnosticResult,
+      mapInternalDiagnosticResult,
       createSunsetStagingMicrosoftDelegatedInboundDiagnosticRuntime,
     } = mod;
 
@@ -109,18 +109,18 @@ async function main() {
     assert.equal(ENV_INBOUND_DIAGNOSTIC_ENABLED, 'LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED');
     assert.equal(SUNSET_DEPLOYMENT, 'sunset-staging');
     assert.equal(WORKER_ID, 'sunset-email-inbound-diagnostic');
-    assert.equal(PUBLIC_STATUS_SUCCESS, 'success');
-    assert.equal(PUBLIC_DURABLY_PROCESSED, false);
+    assert.equal(INTERNAL_STATUS_SUCCESS, 'success');
+    assert.equal(INTERNAL_DURABLY_PROCESSED, false);
     assert.equal(MAX_COUNT, 5);
     assert.deepEqual(
-      [...PUBLIC_RESULT_KEYS],
+      [...INTERNAL_RESULT_KEYS],
       ['status', 'durably_processed', 'input_count', 'delivered_count', 'duplicate_count'],
     );
     // Forbidden synonyms / former wrong public names / internal status.
     for (const forbidden of [
       'received_count', 'accepted_count', 'discarded_count', 'unique_count', 'ok', 'processed',
     ]) {
-      assert.equal(PUBLIC_RESULT_KEYS.includes(forbidden), false, forbidden);
+      assert.equal(INTERNAL_RESULT_KEYS.includes(forbidden), false, forbidden);
     }
     // Exports must not reintroduce removed PUBLIC_STATUS_OK.
     assert.equal(Object.prototype.hasOwnProperty.call(mod, 'PUBLIC_STATUS_OK'), false);
@@ -261,14 +261,14 @@ async function main() {
       );
     }
 
-    // ── Public result mapping (internal → public; exact keys + order + JSON) ─
-    const mapped = mapPublicDiagnosticResult(Object.freeze({
+    // ── Internal composition mapping (exact keys + order + JSON) ─
+    const mapped = mapInternalDiagnosticResult(Object.freeze({
       status: 'processed',
       input_count: 3,
       delivered_count: 2,
       duplicate_count: 1,
     }));
-    assert.deepEqual(Reflect.ownKeys(mapped), [...PUBLIC_RESULT_KEYS]);
+    assert.deepEqual(Reflect.ownKeys(mapped), [...INTERNAL_RESULT_KEYS]);
     assert.equal(mapped.status, 'success');
     assert.equal(mapped.durably_processed, false);
     assert.equal(mapped.input_count, 3);
@@ -288,7 +288,7 @@ async function main() {
     assert.equal(JSON.stringify(mapped).includes('"ok"'), false);
 
     // Zero-count exact JSON order.
-    const mappedZero = mapPublicDiagnosticResult(Object.freeze({
+    const mappedZero = mapInternalDiagnosticResult(Object.freeze({
       status: 'processed',
       input_count: 0,
       delivered_count: 0,
@@ -299,25 +299,25 @@ async function main() {
       '{"status":"success","durably_processed":false,"input_count":0,"delivered_count":0,"duplicate_count":0}',
     );
 
-    assert.equal(mapPublicDiagnosticResult(Object.freeze({
+    assert.equal(mapInternalDiagnosticResult(Object.freeze({
       status: 'processed',
       input_count: 6,
       delivered_count: 6,
       duplicate_count: 0,
     })), null, 'max5 invariant');
-    assert.equal(mapPublicDiagnosticResult(Object.freeze({
+    assert.equal(mapInternalDiagnosticResult(Object.freeze({
       status: 'ok',
       input_count: 1,
       delivered_count: 1,
       duplicate_count: 0,
     })), null, 'internal status must be processed');
-    assert.equal(mapPublicDiagnosticResult(Object.freeze({
+    assert.equal(mapInternalDiagnosticResult(Object.freeze({
       status: 'success',
       input_count: 1,
       delivered_count: 1,
       duplicate_count: 0,
     })), null, 'public status is not accepted as internal input');
-    assert.equal(mapPublicDiagnosticResult(Object.freeze({
+    assert.equal(mapInternalDiagnosticResult(Object.freeze({
       status: 'processed',
       input_count: 2,
       delivered_count: 1,

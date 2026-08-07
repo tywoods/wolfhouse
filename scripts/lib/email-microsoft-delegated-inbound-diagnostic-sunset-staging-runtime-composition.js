@@ -74,7 +74,7 @@ const HTTPS_KEYS = Object.freeze(['request']);
 const TIMERS_KEYS = Object.freeze(['setTimeout', 'clearTimeout']);
 
 /** Exact ordered internal composition result keys (identity-free; no stage/generation). */
-const PUBLIC_RESULT_KEYS = Object.freeze([
+const INTERNAL_RESULT_KEYS = Object.freeze([
   'status',
   'durably_processed',
   'input_count',
@@ -83,9 +83,9 @@ const PUBLIC_RESULT_KEYS = Object.freeze([
 ]);
 
 /** Internal composition success status literal; the HTTP route remaps it. */
-const PUBLIC_STATUS_SUCCESS = 'success';
+const INTERNAL_STATUS_SUCCESS = 'success';
 /** Diagnostic never claims durable processing; always literal false. */
-const PUBLIC_DURABLY_PROCESSED = false;
+const INTERNAL_DURABLY_PROCESSED = false;
 const MAX_COUNT = 5;
 
 /**
@@ -264,7 +264,7 @@ function snapshotEnvReadiness(env) {
 }
 
 /**
- * Map authority-bound internal identity-free result → public diagnostic DTO.
+ * Map authority-bound internal identity-free result → internal composition DTO.
  * Internal `{ status:'processed', input_count, delivered_count, duplicate_count }`
  * maps to public `{ status:'success', durably_processed:false, input_count,
  * delivered_count, duplicate_count }` — same count names, no synonyms.
@@ -274,7 +274,7 @@ function snapshotEnvReadiness(env) {
  * @param {object} internal frozen authority-bound result keys
  * @returns {object|null}
  */
-function mapPublicDiagnosticResult(internal) {
+function mapInternalDiagnosticResult(internal) {
   try {
     if (!exactFrozenData(internal, AUTHORITY_BOUND_RESULT_KEYS)) return null;
     if (ownData(internal, 'status') !== 'processed') return null;
@@ -292,10 +292,10 @@ function mapPublicDiagnosticResult(internal) {
         || duplicateCount !== inputCount - deliveredCount) {
       return null;
     }
-    // Build with explicit assignment order (exact PUBLIC_RESULT_KEYS).
+    // Build with explicit assignment order (exact INTERNAL_RESULT_KEYS).
     const out = {};
-    out.status = PUBLIC_STATUS_SUCCESS;
-    out.durably_processed = PUBLIC_DURABLY_PROCESSED;
+    out.status = INTERNAL_STATUS_SUCCESS;
+    out.durably_processed = INTERNAL_DURABLY_PROCESSED;
     out.input_count = inputCount;
     out.delivered_count = deliveredCount;
     out.duplicate_count = duplicateCount;
@@ -384,14 +384,14 @@ function createSunsetStagingMicrosoftDelegatedInboundDiagnosticRuntime(deps) {
         throw failure();
       }
       if (!out || out.ok !== true || !out.value) throw failure();
-      const publicResult = mapPublicDiagnosticResult(out.value);
-      if (!publicResult
-          || !exactFrozenData(publicResult, PUBLIC_RESULT_KEYS)
-          || ownData(publicResult, 'status') !== PUBLIC_STATUS_SUCCESS
-          || ownData(publicResult, 'durably_processed') !== PUBLIC_DURABLY_PROCESSED) {
+      const internalResult = mapInternalDiagnosticResult(out.value);
+      if (!internalResult
+          || !exactFrozenData(internalResult, INTERNAL_RESULT_KEYS)
+          || ownData(internalResult, 'status') !== INTERNAL_STATUS_SUCCESS
+          || ownData(internalResult, 'durably_processed') !== INTERNAL_DURABLY_PROCESSED) {
         throw failure();
       }
-      return publicResult;
+      return internalResult;
     }
 
     return Object.freeze({ runInboundDiagnostic });
@@ -408,12 +408,12 @@ module.exports = Object.freeze({
   WORKER_ID,
   ENV_INBOUND_DIAGNOSTIC_ENABLED,
   DEPENDENCY_KEYS,
-  PUBLIC_RESULT_KEYS,
-  PUBLIC_STATUS_SUCCESS,
-  PUBLIC_DURABLY_PROCESSED,
+  INTERNAL_RESULT_KEYS,
+  INTERNAL_STATUS_SUCCESS,
+  INTERNAL_DURABLY_PROCESSED,
   MAX_COUNT,
   DIAGNOSTIC_INBOUND_CONSUMER,
   isInboundDiagnosticEnabled,
-  mapPublicDiagnosticResult,
+  mapInternalDiagnosticResult,
   createSunsetStagingMicrosoftDelegatedInboundDiagnosticRuntime,
 });

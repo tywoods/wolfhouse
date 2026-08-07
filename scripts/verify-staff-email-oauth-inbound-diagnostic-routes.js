@@ -30,9 +30,9 @@ const {
 const {
   isInboundDiagnosticEnabled,
   ENV_INBOUND_DIAGNOSTIC_ENABLED,
-  PUBLIC_STATUS_SUCCESS,
-  PUBLIC_DURABLY_PROCESSED,
-  PUBLIC_RESULT_KEYS,
+  INTERNAL_STATUS_SUCCESS,
+  INTERNAL_DURABLY_PROCESSED,
+  INTERNAL_RESULT_KEYS,
 } = require('./lib/email-microsoft-delegated-inbound-diagnostic-sunset-staging-runtime-composition');
 const {
   isReadHealthEnabled,
@@ -100,18 +100,18 @@ async function main() {
     ['success', 'status', 'observed_count', 'unique_in_batch_count', 'duplicate_in_batch_count', 'durably_processed'],
   );
   assert.deepEqual(
-    [...PUBLIC_RESULT_KEYS],
+    [...INTERNAL_RESULT_KEYS],
     ['status', 'durably_processed', 'input_count', 'delivered_count', 'duplicate_count'],
   );
   assert.deepEqual([...INBOUND_DIAGNOSTIC_BODY_KEYS], ['location_id', 'endpoint_id']);
   assert.equal(INBOUND_DIAGNOSTIC_ERROR, 'inbound_diagnostic_unavailable');
   assert.equal(ENV_INBOUND_DIAGNOSTIC_ENABLED, 'LUNA_EMAIL_OAUTH_INBOUND_DIAGNOSTIC_ENABLED');
-  assert.equal(PUBLIC_STATUS_SUCCESS, 'success');
-  assert.equal(PUBLIC_DURABLY_PROCESSED, false);
+  assert.equal(INTERNAL_STATUS_SUCCESS, 'success');
+  assert.equal(INTERNAL_DURABLY_PROCESSED, false);
   // Forbidden synonyms / former wrong public names.
   for (const forbidden of ['received_count', 'accepted_count', 'discarded_count', 'unique_count', 'ok']) {
     assert.equal(INBOUND_DIAGNOSTIC_SUCCESS_KEYS.includes(forbidden), false, forbidden);
-    assert.equal(PUBLIC_RESULT_KEYS.includes(forbidden), false, `runtime:${forbidden}`);
+    assert.equal(INTERNAL_RESULT_KEYS.includes(forbidden), false, `runtime:${forbidden}`);
   }
 
   // ── Flag isolation ──────────────────────────────────────────────────────

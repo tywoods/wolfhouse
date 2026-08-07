@@ -24,8 +24,8 @@ const {
 const {
   createSunsetStagingMicrosoftDelegatedInboundDiagnosticRuntime,
   isInboundDiagnosticEnabled,
-  PUBLIC_STATUS_SUCCESS: INBOUND_DIAGNOSTIC_PUBLIC_STATUS_SUCCESS,
-  PUBLIC_DURABLY_PROCESSED: INBOUND_DIAGNOSTIC_PUBLIC_DURABLY_PROCESSED,
+  INTERNAL_STATUS_SUCCESS: INBOUND_DIAGNOSTIC_INTERNAL_STATUS_SUCCESS,
+  INTERNAL_DURABLY_PROCESSED: INBOUND_DIAGNOSTIC_INTERNAL_DURABLY_PROCESSED,
   MAX_COUNT: INBOUND_DIAGNOSTIC_MAX_COUNT,
 } = require('./email-microsoft-delegated-inbound-diagnostic-sunset-staging-runtime-composition');
 const {
@@ -407,8 +407,8 @@ function buildInboundDiagnosticSuccessJson(result) {
     let inputCount;
     let deliveredCount;
     let duplicateCount;
-    if (status === INBOUND_DIAGNOSTIC_PUBLIC_STATUS_SUCCESS
-        && result.durably_processed === INBOUND_DIAGNOSTIC_PUBLIC_DURABLY_PROCESSED
+    if (status === INBOUND_DIAGNOSTIC_INTERNAL_STATUS_SUCCESS
+        && result.durably_processed === INBOUND_DIAGNOSTIC_INTERNAL_DURABLY_PROCESSED
         && Number.isInteger(result.input_count)) {
       // Runtime public vocabulary (preferred).
       inputCount = result.input_count;
