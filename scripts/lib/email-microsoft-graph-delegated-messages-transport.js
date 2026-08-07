@@ -111,7 +111,59 @@ const MESSAGES_PATH_ME = /^\/v1\.0\/me\/messages$/;
 const MESSAGES_PATH_USER = /^\/v1\.0\/users\/[^/]+\/messages$/;
 
 /** Module-init pins: ambient monkeypatches after load must not weaken detection. */
+// Capture the ambient URL constructor once at load — never re-read global URL later.
 const PINNED_URL = typeof URL === 'function' ? URL : null;
+const PINNED_URL_PROTOTYPE = PINNED_URL && PINNED_URL.prototype
+  ? PINNED_URL.prototype
+  : null;
+
+/**
+ * Pin a native URL.prototype getter at module init. Fail closed (null) if the
+ * descriptor is missing, is a data property, or is not a function getter.
+ * @param {string} name
+ * @returns {function|null}
+ */
+function pinUrlGetter(name) {
+  try {
+    if (!PINNED_URL_PROTOTYPE) return null;
+    const descriptor = Object.getOwnPropertyDescriptor(PINNED_URL_PROTOTYPE, name);
+    if (!descriptor
+        || typeof descriptor.get !== 'function'
+        || Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+      return null;
+    }
+    return descriptor.get;
+  } catch {
+    return null;
+  }
+}
+
+// Exact native getters used by nextLink validators — never live property reads.
+const PINNED_URL_GET_PROTOCOL = pinUrlGetter('protocol');
+const PINNED_URL_GET_USERNAME = pinUrlGetter('username');
+const PINNED_URL_GET_PASSWORD = pinUrlGetter('password');
+const PINNED_URL_GET_HOSTNAME = pinUrlGetter('hostname');
+const PINNED_URL_GET_HOST = pinUrlGetter('host');
+const PINNED_URL_GET_PORT = pinUrlGetter('port');
+const PINNED_URL_GET_PATHNAME = pinUrlGetter('pathname');
+const PINNED_URL_GET_SEARCH = pinUrlGetter('search');
+const PINNED_URL_GET_HASH = pinUrlGetter('hash');
+
+/** True only when every URL intrinsic needed for nextLink validation is pinned. */
+const PINNED_URL_INTRINSICS_READY = Boolean(
+  PINNED_URL
+  && PINNED_URL_PROTOTYPE
+  && PINNED_URL_GET_PROTOCOL
+  && PINNED_URL_GET_USERNAME
+  && PINNED_URL_GET_PASSWORD
+  && PINNED_URL_GET_HOSTNAME
+  && PINNED_URL_GET_HOST
+  && PINNED_URL_GET_PORT
+  && PINNED_URL_GET_PATHNAME
+  && PINNED_URL_GET_SEARCH
+  && PINNED_URL_GET_HASH,
+);
+
 const PINNED_INCOMING_MESSAGE = http.IncomingMessage;
 const PINNED_INCOMING_MESSAGE_PROTOTYPE = http.IncomingMessage
   && http.IncomingMessage.prototype
@@ -631,9 +683,123 @@ function classifyRow(row) {
 }
 
 /**
+ * Reflect.apply a module-init-pinned URL.prototype getter. Never uses live
+ * property reads (immune to post-load prototype monkeypatches).
+ * @param {object} url
+ * @param {function|null} getter
+ * @returns {unknown}
+ */
+function applyPinnedUrlGetter(url, getter) {
+  if (typeof getter !== 'function') {
+    throw new Error('pinned_url_getter_unavailable');
+  }
+  return Reflect.apply(getter, url, []);
+}
+
+/**
+ * Construct a URL via the module-init-pinned constructor only.
+ * Rejects proxy constructors / proxy inputs via module-init-pinned isProxy
+ * before construction. Never touches ambient global URL.
+ * Fail closed when pinned intrinsics are unavailable.
+ *
+ * @param {unknown} value
+ * @returns {object|null}
+ */
+function constructPinnedUrl(value) {
+  try {
+    if (!PINNED_URL_INTRINSICS_READY) return null;
+    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) return null;
+    // Reject a proxied constructor before construction (trap zero-hit).
+    try {
+      if (Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [PINNED_URL]) === true) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+    // Reject proxy inputs before construction (primitives are never proxies).
+    if (value !== null && (typeof value === 'object' || typeof value === 'function')) {
+      try {
+        if (Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true) {
+          return null;
+        }
+      } catch {
+        return null;
+      }
+    }
+    let url;
+    try {
+      url = Reflect.construct(PINNED_URL, [value]);
+    } catch {
+      return null;
+    }
+    // Constructed instance must not be a Proxy.
+    try {
+      if (Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [url]) === true) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the exact URL components needed for nextLink validation via pinned getters.
+ * @param {object} url
+ * @returns {{protocol:string,username:string,password:string,hostname:string,host:string,port:string,pathname:string,search:string,hash:string}|null}
+ */
+function readPinnedUrlComponents(url) {
+  try {
+    if (!PINNED_URL_INTRINSICS_READY || url === null || typeof url !== 'object') {
+      return null;
+    }
+    if (isProxySurface(url)) return null;
+    const protocol = applyPinnedUrlGetter(url, PINNED_URL_GET_PROTOCOL);
+    const username = applyPinnedUrlGetter(url, PINNED_URL_GET_USERNAME);
+    const password = applyPinnedUrlGetter(url, PINNED_URL_GET_PASSWORD);
+    const hostname = applyPinnedUrlGetter(url, PINNED_URL_GET_HOSTNAME);
+    const host = applyPinnedUrlGetter(url, PINNED_URL_GET_HOST);
+    const port = applyPinnedUrlGetter(url, PINNED_URL_GET_PORT);
+    const pathname = applyPinnedUrlGetter(url, PINNED_URL_GET_PATHNAME);
+    const search = applyPinnedUrlGetter(url, PINNED_URL_GET_SEARCH);
+    const hash = applyPinnedUrlGetter(url, PINNED_URL_GET_HASH);
+    if (typeof protocol !== 'string'
+        || typeof username !== 'string'
+        || typeof password !== 'string'
+        || typeof hostname !== 'string'
+        || typeof host !== 'string'
+        || typeof port !== 'string'
+        || typeof pathname !== 'string'
+        || typeof search !== 'string'
+        || typeof hash !== 'string') {
+      return null;
+    }
+    return {
+      protocol,
+      username,
+      password,
+      hostname,
+      host,
+      port,
+      pathname,
+      search,
+      hash,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Validate Graph @odata.nextLink without following, persisting, returning, or logging it.
  * HTTPS only; host exactly graph.microsoft.com; no credentials/fragment; messages collection path.
  * Single-page path only accepts (never follows). Bounded-catchup re-validates strictly before follow.
+ * Uses module-init-pinned URL constructor + prototype getters only (no ambient global URL /
+ * live property reads).
  */
 function isValidGraphMessagesNextLink(value) {
   try {
@@ -643,19 +809,17 @@ function isValidGraphMessagesNextLink(value) {
         || hasUnpairedSurrogate(value)) {
       return false;
     }
-    if (!PINNED_URL) return false;
-    let url;
-    try {
-      url = new PINNED_URL(value);
-    } catch {
-      return false;
-    }
-    if (url.protocol !== 'https:') return false;
-    if (url.hostname !== HOST) return false;
-    if (url.username !== '' || url.password !== '') return false;
-    if (url.hash !== '') return false;
-    if (url.port !== '' && url.port !== '443') return false;
-    if (!MESSAGES_PATH_ME.test(url.pathname) && !MESSAGES_PATH_USER.test(url.pathname)) {
+    if (!PINNED_URL_INTRINSICS_READY) return false;
+    const url = constructPinnedUrl(value);
+    if (!url) return false;
+    const parts = readPinnedUrlComponents(url);
+    if (!parts) return false;
+    if (parts.protocol !== 'https:') return false;
+    if (parts.hostname !== HOST) return false;
+    if (parts.username !== '' || parts.password !== '') return false;
+    if (parts.hash !== '') return false;
+    if (parts.port !== '' && parts.port !== '443') return false;
+    if (!MESSAGES_PATH_ME.test(parts.pathname) && !MESSAGES_PATH_USER.test(parts.pathname)) {
       return false;
     }
     return true;
@@ -665,11 +829,15 @@ function isValidGraphMessagesNextLink(value) {
 }
 
 /**
- * Parse query string into a Map; reject duplicate keys, malformed escapes, empty segments.
+ * Parse catch-up continuation query on both raw and decoded surfaces.
+ * Rejects: duplicate decoded keys, malformed escapes, empty segments, and
+ * encoded-key confusion for required base keys ($top / $select must appear as
+ * exact raw literals — not %24top / mixed case / re-encoded aliases).
+ *
  * @param {string} search url.search (may include leading ?)
  * @returns {{ok:true,params:Map<string,string>}|{ok:false}}
  */
-function parseQueryParamsNoDuplicates(search) {
+function parseCatchupQueryParamsStrict(search) {
   try {
     if (typeof search !== 'string') return { ok: false };
     const raw = search.startsWith('?') ? search.slice(1) : search;
@@ -697,6 +865,16 @@ function parseQueryParamsNoDuplicates(search) {
       if (typeof val !== 'string' || hasUnpairedSurrogate(val)) {
         return { ok: false };
       }
+      // Required base keys must appear as exact raw literals (case-sensitive).
+      // Encoded aliases (%24top) or case variants ($Top) are rejected.
+      if (key === '$top' || key === '$select') {
+        if (keyEnc !== key) return { ok: false };
+      } else if (keyEnc !== key) {
+        // Opaque continuation key: reject encoded forms that decode to a
+        // different surface than the raw key (encoded-key confusion).
+        // Allow only when raw keyEnc equals decoded key (no percent in key).
+        return { ok: false };
+      }
       if (params.has(key)) return { ok: false };
       params.set(key, val);
     }
@@ -708,15 +886,20 @@ function parseQueryParamsNoDuplicates(search) {
 
 /**
  * Strict nextLink validator for bounded-catchup follow (before any request).
- * Rules: primitive string + bounded length; pinned URL parse; https; no user/pass/hash;
- * exact graph.microsoft.com host/port; exact same /v1.0/users/{encoded uuid}/messages
- * path (no path confusion); query allowlist = original $top/$select keys plus exactly
- * one opaque bounded nonempty param; no duplicate keys; no changed $top/$select values;
- * no extra params.
+ * Rules: primitive string + bounded length; module-init-pinned URL parse + getters;
+ * https; no user/pass/hash; exact graph.microsoft.com host/port; exact same
+ * /v1.0/users/{encoded uuid}/messages path (no path confusion); exact
+ * case-sensitive required continuation query keyset = original immutable inbox
+ * keys ($top, $select) with exact required values plus exactly one nonempty
+ * bounded opaque continuation param; every canonical key exactly once; reject
+ * absence, arbitrary sole opaque keys, case variants, duplicates, changed
+ * values, extras; validate raw/decoded surfaces (no encoded-key confusion).
+ * Returns requestPath for follow + canonicalIdentity for loop detection
+ * (exact bound mailbox path + decoded continuation + invariant query values).
  *
  * @param {unknown} value
  * @param {string} providerMailboxId canonical UUID
- * @returns {{ok:true,requestPath:string}|{ok:false}}
+ * @returns {{ok:true,requestPath:string,canonicalIdentity:string}|{ok:false}}
  */
 function validateCatchupFollowNextLink(value, providerMailboxId) {
   try {
@@ -726,7 +909,7 @@ function validateCatchupFollowNextLink(value, providerMailboxId) {
         || hasUnpairedSurrogate(value)) {
       return { ok: false };
     }
-    if (!PINNED_URL) return { ok: false };
+    if (!PINNED_URL_INTRINSICS_READY) return { ok: false };
     if (typeof providerMailboxId !== 'string' || !UUID_CANON.test(providerMailboxId)) {
       return { ok: false };
     }
@@ -734,56 +917,72 @@ function validateCatchupFollowNextLink(value, providerMailboxId) {
     if (/\.\.|%2e|%2f|%5c|\\/i.test(value)) {
       return { ok: false };
     }
-    let url;
-    try {
-      url = new PINNED_URL(value);
-    } catch {
-      return { ok: false };
-    }
-    if (url.protocol !== 'https:') return { ok: false };
-    if (url.hostname !== HOST) return { ok: false };
-    if (url.host !== HOST && url.host !== `${HOST}:443`) return { ok: false };
-    if (url.username !== '' || url.password !== '') return { ok: false };
-    if (url.hash !== '') return { ok: false };
-    if (url.port !== '' && url.port !== '443') return { ok: false };
+    const url = constructPinnedUrl(value);
+    if (!url) return { ok: false };
+    const parts = readPinnedUrlComponents(url);
+    if (!parts) return { ok: false };
+    if (parts.protocol !== 'https:') return { ok: false };
+    if (parts.hostname !== HOST) return { ok: false };
+    if (parts.host !== HOST && parts.host !== `${HOST}:443`) return { ok: false };
+    if (parts.username !== '' || parts.password !== '') return { ok: false };
+    if (parts.hash !== '') return { ok: false };
+    if (parts.port !== '' && parts.port !== '443') return { ok: false };
     const expectedPath = `/v1.0/users/${encodeURIComponent(providerMailboxId)}/messages`;
-    if (url.pathname !== expectedPath) return { ok: false };
+    if (parts.pathname !== expectedPath) return { ok: false };
     // Exact path must also appear as a contiguous substring of the raw URL
     // (defeats normalization that collapses /users/x/../x/messages).
     if (!value.includes(expectedPath)) return { ok: false };
-    const parsed = parseQueryParamsNoDuplicates(url.search);
+    const parsed = parseCatchupQueryParamsStrict(parts.search);
     if (!parsed.ok) return { ok: false };
     const params = parsed.params;
-    let opaqueCount = 0;
+
+    // Exact required keyset: $top + $select + exactly one opaque continuation.
+    // Every canonical key exactly once; no absence, extras, or sole opaque.
+    if (params.size !== 3) return { ok: false };
+    if (!params.has('$top') || !params.has('$select')) return { ok: false };
+    const topVal = params.get('$top');
+    const selectVal = params.get('$select');
+    if (topVal !== CATCHUP_ORIGINAL_TOP) return { ok: false };
+    if (selectVal !== CATCHUP_ORIGINAL_SELECT) return { ok: false };
+
+    let opaqueKey = null;
+    let opaqueVal = null;
     for (const [key, val] of params) {
-      if (key === '$top') {
-        if (val !== CATCHUP_ORIGINAL_TOP) return { ok: false };
-        continue;
-      }
-      if (key === '$select') {
-        if (val !== CATCHUP_ORIGINAL_SELECT) return { ok: false };
-        continue;
-      }
-      // One opaque bounded nonempty continuation token only (e.g. $skiptoken / $skip).
-      if (opaqueCount >= 1) return { ok: false };
+      if (key === '$top' || key === '$select') continue;
+      // Exactly one opaque bounded nonempty continuation token (e.g. $skiptoken).
+      if (opaqueKey !== null) return { ok: false };
       if (typeof val !== 'string' || val.length < 1 || val.length > STRING_LIMIT) {
         return { ok: false };
       }
       if (hasUnpairedSurrogate(val)) return { ok: false };
-      opaqueCount += 1;
+      // Continuation key must be a nonempty primitive string (already checked);
+      // reject empty / dangerous keys.
+      if (typeof key !== 'string' || key.length < 1 || DANGEROUS_KEYS.has(key)) {
+        return { ok: false };
+      }
+      opaqueKey = key;
+      opaqueVal = val;
     }
-    // Must carry the opaque continuation; bare first-page query is not a valid follow link.
-    if (opaqueCount !== 1) return { ok: false };
-    // Reject unexpected base keys that are not in the original allowlist (already handled).
-    for (const key of params.keys()) {
-      if (key === '$top' || key === '$select') continue;
-      // opaque allowed
-    }
-    const requestPath = `${url.pathname}${url.search}`;
-    if (typeof requestPath !== 'string' || requestPath.length < 1 || requestPath.length > STRING_LIMIT) {
+    if (opaqueKey === null || opaqueVal === null) return { ok: false };
+
+    const requestPath = `${parts.pathname}${parts.search}`;
+    if (typeof requestPath !== 'string'
+        || requestPath.length < 1
+        || requestPath.length > STRING_LIMIT) {
       return { ok: false };
     }
-    return { ok: true, requestPath };
+
+    // Canonical continuation identity: bound mailbox path + decoded invariant
+    // query values + decoded opaque continuation. Semantically equivalent
+    // percent encodings / query orderings collide on this identity.
+    const canonicalIdentity = [
+      expectedPath,
+      `$top=${topVal}`,
+      `$select=${selectVal}`,
+      `${opaqueKey}=${opaqueVal}`,
+    ].join('\0');
+
+    return { ok: true, requestPath, canonicalIdentity };
   } catch {
     return { ok: false };
   }
@@ -1142,8 +1341,10 @@ function runDelegatedMessagesRequest(session, input) {
   if (immutableModes) {
     const parsed = readImmutableIdPageInput(input);
     if (parsed === null) return Promise.reject(failure('request_error', brand));
+    // Single mutable token owner only; scrub the parsed copy immediately.
     tokenOwner = parsed.accessToken;
     mailboxId = parsed.provider_mailbox_id;
+    try { parsed.accessToken = null; } catch { /* */ }
     if (typeof requestPathOverride === 'string' && requestPathOverride.length > 0) {
       requestPath = requestPathOverride;
     } else {
@@ -1457,22 +1658,32 @@ function createMicrosoftGraphImmutableIdBoundedCatchupTransport(dependencies = {
     if (used) return Promise.reject(failure('request_error', IMMUTABLEID_FAILURE_BRAND));
     used = true;
 
-    const parsed = readImmutableIdPageInput(input);
-    if (parsed === null) {
-      return Promise.reject(failure('request_error', IMMUTABLEID_FAILURE_BRAND));
+    // Catch-up retains only one mutable token owner. Immediately scrub any
+    // parsed/access-input copy after extraction; per-page holders scrub in
+    // their own finally after the awaited request settles.
+    let tokenOwner = null;
+    let mailboxId = null;
+    {
+      const parsed = readImmutableIdPageInput(input);
+      if (parsed === null) {
+        return Promise.reject(failure('request_error', IMMUTABLEID_FAILURE_BRAND));
+      }
+      tokenOwner = parsed.accessToken;
+      mailboxId = parsed.provider_mailbox_id;
+      try { parsed.accessToken = null; } catch { /* */ }
     }
-    // Hold token only for sequential page GETs; scrub in finally.
-    let tokenOwner = parsed.accessToken;
-    const mailboxId = parsed.provider_mailbox_id;
+
     const rawEnvelopes = [];
     let pagesFetched = 0;
     let requestPathOverride = null;
-    const seenNextLinks = new Set();
+    // Canonical continuation identities (not raw provider links) for loop detection.
+    const seenCanonicalContinuations = new Set();
     let pendingNextLink = null;
     let truncated = false;
 
     try {
       while (pagesFetched < maxPages) {
+        // Mutable page input/holder for this sequential GET only.
         const pageInput = {
           accessToken: tokenOwner,
           provider_mailbox_id: mailboxId,
@@ -1492,6 +1703,9 @@ function createMicrosoftGraphImmutableIdBoundedCatchupTransport(dependencies = {
           // Re-throw transport-branded failures only; never partial DTO.
           if (err && err.code === IMMUTABLEID_PAGE_FAILURE_CODE) throw err;
           throw failure('request_error', IMMUTABLEID_FAILURE_BRAND);
+        } finally {
+          // Scrub page holder accessToken after request settles (success + every failure).
+          try { pageInput.accessToken = null; } catch { /* */ }
         }
 
         if (!pageResult || !Array.isArray(pageResult.envelopes)) {
@@ -1543,15 +1757,17 @@ function createMicrosoftGraphImmutableIdBoundedCatchupTransport(dependencies = {
           return finalizeCatchupDto(selected, pagesFetched, true);
         }
 
-        // Validate nextLink BEFORE any follow request.
-        if (seenNextLinks.has(pendingNextLink)) {
-          throw failure('top_shape_invalid', IMMUTABLEID_FAILURE_BRAND);
-        }
-        seenNextLinks.add(pendingNextLink);
+        // Strict validation BEFORE any follow request; then canonical loop check.
         const follow = validateCatchupFollowNextLink(pendingNextLink, mailboxId);
         if (!follow.ok) {
           throw failure('top_shape_invalid', IMMUTABLEID_FAILURE_BRAND);
         }
+        // Canonical identity (decoded path + invariant query + continuation) —
+        // semantically equivalent percent encodings / query order collide here.
+        if (seenCanonicalContinuations.has(follow.canonicalIdentity)) {
+          throw failure('top_shape_invalid', IMMUTABLEID_FAILURE_BRAND);
+        }
+        seenCanonicalContinuations.add(follow.canonicalIdentity);
         requestPathOverride = follow.requestPath;
         pendingNextLink = null;
       }
@@ -1567,6 +1783,7 @@ function createMicrosoftGraphImmutableIdBoundedCatchupTransport(dependencies = {
         selected.truncated_by_messages || pendingNextLink !== null,
       );
     } finally {
+      // Outer finally scrubs the sole catch-up token owner.
       tokenOwner = null;
     }
   }

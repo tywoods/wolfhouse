@@ -131,10 +131,38 @@ function goodNextLink(token, mailbox = MAILBOX_ID, queryPatch = null) {
     $select: SELECT_JOINED,
     $skiptoken: token,
   };
+  // Keys must remain exact OData literals ($top/$select/$skiptoken) — never
+  // percent-encode `$` in keys (transport rejects encoded-key confusion).
+  // Values are percent-encoded.
   const qs = Object.entries(base)
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
     .join('&');
   return `https://graph.microsoft.com/v1.0/users/${mailbox}/messages?${qs}`;
+}
+
+/**
+ * Build a nextLink with an explicit query-string order / raw encoding for
+ * canonical-loop and keyset adversarial cases.
+ */
+function nextLinkWithRawQuery(rawQuery, mailbox = MAILBOX_ID) {
+  return `https://graph.microsoft.com/v1.0/users/${mailbox}/messages?${rawQuery}`;
+}
+
+function assertNoTokenSurface(value, label) {
+  const text = typeof value === 'string' ? value : ser(value);
+  assert.equal(text.includes(TOKEN), false, `${label}: must not contain token`);
+  assert.equal(text.includes('Bearer'), false, `${label}: must not contain Bearer`);
+  assert.equal(text.includes('NEVER_LEAK'), false, `${label}: must not contain planted secret`);
+}
+
+function assertRetainedOptionsScrubbed(retained, label) {
+  assert.ok(retained, `${label}: options must have been retained by hostile request`);
+  assert.equal(Object.isFrozen(retained), false, `${label}: retained options must not be frozen`);
+  assert.ok(retained.headers, `${label}: headers object still reachable`);
+  assert.equal(Object.isFrozen(retained.headers), false, `${label}: retained headers must not be frozen`);
+  assert.equal(retained.headers.Authorization, null, `${label}: Authorization cleared`);
+  assertNoTokenSurface(retained, label);
+  assertNoTokenSurface(retained.headers, `${label} headers`);
 }
 
 function goodInput(patch = {}) {
@@ -658,7 +686,7 @@ async function main() {
       );
     }
 
-    // ── Loop nextLink rejected ────────────────────────────────────────────
+    // ── Loop nextLink rejected (exact raw repeat) ─────────────────────────
     {
       const loop = goodNextLink('LOOP');
       const t = transportWith(multiPageHttps([
@@ -682,26 +710,82 @@ async function main() {
       ok('loop-nextlink-rejected-no-partial', true);
     }
 
+    // ── Canonical loop: equivalent percent-encoding / query order ─────────
+    {
+      // Page1 offers skiptoken=AB as literal "AB"; page2 re-offers same token via
+      // percent-encoding + reordered query — must collide on canonical identity
+      // and fail before a third request.
+      const linkA = nextLinkWithRawQuery(
+        `$top=5&$select=${encodeURIComponent(SELECT_JOINED)}&$skiptoken=AB`,
+      );
+      const linkB = nextLinkWithRawQuery(
+        `$skiptoken=%41%42&$select=${encodeURIComponent(SELECT_JOINED)}&$top=5`,
+      );
+      let calls = 0;
+      const t = transportWith(multiPageHttps((idx) => {
+        calls += 1;
+        if (idx === 0) {
+          return {
+            body: listBody(
+              [envelopeRow('AAMk-A', '2026-08-06T12:00:00Z')],
+              { '@odata.nextLink': linkA },
+            ),
+          };
+        }
+        if (idx === 1) {
+          return {
+            body: listBody(
+              [envelopeRow('AAMk-B', '2026-08-06T11:00:00Z')],
+              { '@odata.nextLink': linkB },
+            ),
+          };
+        }
+        // Must never be reached — loop detection fails before this request.
+        return {
+          body: listBody([envelopeRow('AAMk-EVIL', '2026-08-06T01:00:00Z')]),
+        };
+      }));
+      await mustFailStage(
+        () => t.listBoundedCatchupInboundEnvelopes(goodInput()),
+        'top_shape_invalid',
+      );
+      ok(
+        'canonical-loop-percent-and-order-collide',
+        calls === 2,
+        `calls=${calls}`,
+      );
+    }
+
     // ── Hostile nextLink shapes ───────────────────────────────────────────
     const hostileLinks = [
-      ['http-scheme', 'http://graph.microsoft.com/v1.0/users/' + MAILBOX_ID + '/messages?$skiptoken=x'],
-      ['wrong-host', 'https://evil.example/v1.0/users/' + MAILBOX_ID + '/messages?$skiptoken=x'],
-      ['port-8443', 'https://graph.microsoft.com:8443/v1.0/users/' + MAILBOX_ID + '/messages?$skiptoken=x'],
-      ['userinfo', 'https://user:pass@graph.microsoft.com/v1.0/users/' + MAILBOX_ID + '/messages?$skiptoken=x'],
+      ['http-scheme', 'http://graph.microsoft.com/v1.0/users/' + MAILBOX_ID + '/messages?$top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x'],
+      ['wrong-host', 'https://evil.example/v1.0/users/' + MAILBOX_ID + '/messages?$top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x'],
+      ['port-8443', 'https://graph.microsoft.com:8443/v1.0/users/' + MAILBOX_ID + '/messages?$top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x'],
+      ['userinfo', 'https://user:pass@graph.microsoft.com/v1.0/users/' + MAILBOX_ID + '/messages?$top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x'],
       ['hash', goodNextLink('H') + '#frag'],
       ['path-me', 'https://graph.microsoft.com/v1.0/me/messages?$top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x'],
       ['wrong-mailbox', goodNextLink('X', OTHER_MAILBOX)],
-      ['path-case', 'https://graph.microsoft.com/v1.0/Users/' + MAILBOX_ID + '/messages?$skiptoken=x'],
-      ['path-dotdot', 'https://graph.microsoft.com/v1.0/users/' + MAILBOX_ID + '/../' + MAILBOX_ID + '/messages?$skiptoken=x'],
+      ['path-case', 'https://graph.microsoft.com/v1.0/Users/' + MAILBOX_ID + '/messages?$top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x'],
+      ['path-dotdot', 'https://graph.microsoft.com/v1.0/users/' + MAILBOX_ID + '/../' + MAILBOX_ID + '/messages?$top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x'],
       ['changed-top', goodNextLink('T', MAILBOX_ID, { $top: '10', $select: SELECT_JOINED, $skiptoken: 'T' })],
       ['changed-select', goodNextLink('S', MAILBOX_ID, { $top: '5', $select: 'id,subject', $skiptoken: 'S' })],
       ['extra-param', goodNextLink('E', MAILBOX_ID, {
         $top: '5', $select: SELECT_JOINED, $skiptoken: 'E', $orderby: 'receivedDateTime desc',
       })],
-      ['dup-query-key', `https://graph.microsoft.com/v1.0/users/${MAILBOX_ID}/messages?$top=5&$top=5&$skiptoken=D`],
+      ['dup-query-key', nextLinkWithRawQuery('$top=5&$top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=D')],
       ['empty-skiptoken', goodNextLink('', MAILBOX_ID, { $top: '5', $select: SELECT_JOINED, $skiptoken: '' })],
       ['oversize-skiptoken', goodNextLink('X'.repeat(3000))],
-      ['no-opaque', `https://graph.microsoft.com/v1.0/users/${MAILBOX_ID}/messages?$top=5&$select=${encodeURIComponent(SELECT_JOINED)}`],
+      ['no-opaque', nextLinkWithRawQuery('$top=5&$select=' + encodeURIComponent(SELECT_JOINED))],
+      // Exact keyset: reject absence of required base keys / sole opaque / case variants / encoded key confusion.
+      ['sole-opaque', nextLinkWithRawQuery('$skiptoken=only')],
+      ['missing-top', nextLinkWithRawQuery('$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x')],
+      ['missing-select', nextLinkWithRawQuery('$top=5&$skiptoken=x')],
+      ['case-top', nextLinkWithRawQuery('$Top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x')],
+      ['case-select', nextLinkWithRawQuery('$top=5&$Select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x')],
+      ['encoded-top-key', nextLinkWithRawQuery('%24top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x')],
+      ['encoded-select-key', nextLinkWithRawQuery('$top=5&%24select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x')],
+      ['encoded-skiptoken-key', nextLinkWithRawQuery('$top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&%24skiptoken=x')],
+      ['dup-select', nextLinkWithRawQuery('$top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x')],
     ];
 
     for (const [label, link] of hostileLinks) {
@@ -988,6 +1072,286 @@ async function main() {
         'envelope-keys-exact-contract',
         Object.keys(dto.envelopes[0]).sort().join(',')
           === [...EMAIL_INBOUND_ENVELOPE_KEYS].sort().join(','),
+      );
+    }
+
+    // ── Token custody: single owner + page finally scrub + retained options ─
+    {
+      const messagesSrc = fs.readFileSync(path.join(ROOT, MESSAGES_REL), 'utf8');
+      const catchupFnStart = messagesSrc.indexOf('async function listBoundedCatchupInboundEnvelopes');
+      const catchupFnEnd = messagesSrc.indexOf(
+        'return Object.freeze({ listBoundedCatchupInboundEnvelopes })',
+      );
+      ok('src-catchup-fn-present', catchupFnStart >= 0 && catchupFnEnd > catchupFnStart);
+      const catchupFnBody = catchupFnStart >= 0 && catchupFnEnd > catchupFnStart
+        ? messagesSrc.slice(catchupFnStart, catchupFnEnd)
+        : '';
+      ok(
+        'src-catchup-single-tokenOwner-let',
+        /let\s+tokenOwner\s*=\s*null/.test(catchupFnBody)
+          && /tokenOwner\s*=\s*parsed\.accessToken/.test(catchupFnBody)
+          && /parsed\.accessToken\s*=\s*null/.test(catchupFnBody),
+      );
+      ok(
+        'src-catchup-pageInput-finally-scrub',
+        /const\s+pageInput\s*=\s*\{[\s\S]*?accessToken:\s*tokenOwner/.test(catchupFnBody)
+          && /finally\s*\{[\s\S]*?pageInput\.accessToken\s*=\s*null/.test(catchupFnBody),
+      );
+      ok(
+        'src-catchup-outer-finally-scrubs-owner',
+        /Outer finally scrubs the sole catch-up token owner/.test(catchupFnBody)
+          && /tokenOwner\s*=\s*null/.test(catchupFnBody),
+      );
+      ok(
+        'src-catchup-canonical-loop-after-validate',
+        /validateCatchupFollowNextLink/.test(catchupFnBody)
+          && /seenCanonicalContinuations/.test(catchupFnBody)
+          && /canonicalIdentity/.test(catchupFnBody)
+          && !/seenNextLinks/.test(catchupFnBody),
+      );
+
+      // Runtime: multi-page retained options scrubbed on success.
+      const retained = [];
+      let sawTokenDuringAnyCall = false;
+      const tOk = transportWith(multiPageHttps([
+        {
+          body: listBody(
+            [envelopeRow('AAMk-A', '2026-08-06T12:00:00Z')],
+            { '@odata.nextLink': goodNextLink('SCRUB2') },
+          ),
+        },
+        { body: listBody([envelopeRow('AAMk-B', '2026-08-06T11:00:00Z')]) },
+      ], (opts) => {
+        retained.push(opts);
+        if (opts && opts.headers
+            && typeof opts.headers.Authorization === 'string'
+            && opts.headers.Authorization.includes(TOKEN)) {
+          sawTokenDuringAnyCall = true;
+        }
+      }));
+      const dto = await tOk.listBoundedCatchupInboundEnvelopes(goodInput());
+      assertDtoShape(dto);
+      ok('token-custody-multi-page-success', dto.pages_fetched === 2 && dto.unique_count === 2);
+      ok('token-custody-saw-bearer-during-call', sawTokenDuringAnyCall === true);
+      ok(
+        'token-custody-retained-options-scrubbed-success',
+        retained.length === 2
+          && retained.every((r) => {
+            try {
+              assertRetainedOptionsScrubbed(r, 'multi-page-success');
+              return true;
+            } catch {
+              return false;
+            }
+          }),
+        ser(retained.map((r) => r && r.headers && r.headers.Authorization)),
+      );
+
+      // Runtime: page-2 failure still scrubs every retained options holder.
+      const retainedFail = [];
+      const tFail = transportWith(multiPageHttps((idx) => {
+        return idx === 0
+          ? {
+            body: listBody(
+              [envelopeRow('AAMk-A', '2026-08-06T12:00:00Z')],
+              { '@odata.nextLink': goodNextLink('SCRUBFAIL') },
+            ),
+          }
+          : { status: 500, body: JSON.stringify({ error: PLANTED }) };
+      }, (opts) => retainedFail.push(opts)));
+      let threwFail = null;
+      try {
+        await tFail.listBoundedCatchupInboundEnvelopes(goodInput());
+      } catch (err) {
+        threwFail = err;
+      }
+      ok(
+        'token-custody-page2-fail-still-scrubbed',
+        threwFail
+          && threwFail.code === FAILURE_CODE
+          && retainedFail.length === 2
+          && retainedFail.every((r) => {
+            try {
+              assertRetainedOptionsScrubbed(r, 'multi-page-fail');
+              return true;
+            } catch {
+              return false;
+            }
+          }),
+      );
+
+      // Runtime: request throw scrubs retained options (first page).
+      let retainedThrow = null;
+      const tThrow = createMicrosoftGraphImmutableIdBoundedCatchupTransport({
+        httpsImpl() {
+          const options = arguments[0];
+          retainedThrow = options;
+          throw new Error(`planted-request-throw-${PLANTED}`);
+        },
+        timers: { setTimeout, clearTimeout },
+      });
+      let threwReq = null;
+      try {
+        await tThrow.listBoundedCatchupInboundEnvelopes(goodInput());
+      } catch (err) {
+        threwReq = err;
+      }
+      ok(
+        'token-custody-request-throw-scrubbed',
+        threwReq
+          && threwReq.code === FAILURE_CODE
+          && retainedThrow
+          && retainedThrow.headers
+          && retainedThrow.headers.Authorization === null
+          && noLeak(retainedThrow)
+          && noLeak(threwReq),
+      );
+    }
+
+    // ── URL hardening: post-load monkeypatch getters / global / proxy ──────
+    {
+      const urlProto = URL.prototype;
+      const getterNames = [
+        'protocol', 'username', 'password', 'hostname', 'host', 'port',
+        'pathname', 'search', 'hash',
+      ];
+      const savedDescriptors = {};
+      for (const name of getterNames) {
+        savedDescriptors[name] = Object.getOwnPropertyDescriptor(urlProto, name);
+      }
+      const OriginalURL = globalThis.URL;
+      let proxyCtorHits = 0;
+      let proxyGetHits = 0;
+
+      try {
+        // Monkeypatch every relevant getter to return hostile values / throw.
+        for (const name of getterNames) {
+          Object.defineProperty(urlProto, name, {
+            configurable: true,
+            enumerable: true,
+            get() {
+              throw new Error(`hostile-url-getter-${name}-${PLANTED}`);
+            },
+            set() {
+              throw new Error(`hostile-url-setter-${name}-${PLANTED}`);
+            },
+          });
+        }
+        // Replace ambient global URL with a proxy constructor that traps.
+        const HostileURL = new Proxy(function HostileURL() {
+          proxyCtorHits += 1;
+          throw new Error(`hostile-URL-ctor-${PLANTED}`);
+        }, {
+          construct() {
+            proxyCtorHits += 1;
+            throw new Error(`hostile-URL-construct-${PLANTED}`);
+          },
+          apply() {
+            proxyCtorHits += 1;
+            throw new Error(`hostile-URL-apply-${PLANTED}`);
+          },
+          get(target, prop, receiver) {
+            proxyGetHits += 1;
+            return Reflect.get(target, prop, receiver);
+          },
+        });
+        globalThis.URL = HostileURL;
+
+        // Genuine follow must still succeed via module-init pins (zero ambient hits).
+        const t = transportWith(multiPageHttps([
+          {
+            body: listBody(
+              [envelopeRow('AAMk-A', '2026-08-06T12:00:00Z')],
+              { '@odata.nextLink': goodNextLink('PINNEDURL') },
+            ),
+          },
+          { body: listBody([envelopeRow('AAMk-B', '2026-08-06T11:00:00Z')]) },
+        ]));
+        const dto = await t.listBoundedCatchupInboundEnvelopes(goodInput());
+        assertDtoShape(dto);
+        ok(
+          'url-pin-survives-prototype-and-global-monkeypatch',
+          dto.pages_fetched === 2 && dto.unique_count === 2,
+        );
+        ok(
+          'url-proxy-ctor-zero-hit',
+          proxyCtorHits === 0 && proxyGetHits === 0,
+          `ctorHits=${proxyCtorHits} getHits=${proxyGetHits}`,
+        );
+
+        // Hostile nextLink still rejected under monkeypatch (fail closed uses pins).
+        const tBad = transportWith(multiPageHttps([
+          {
+            body: listBody(
+              [envelopeRow('AAMk-A', '2026-08-06T12:00:00Z')],
+              { '@odata.nextLink': 'http://evil.example/v1.0/users/' + MAILBOX_ID + '/messages?$top=5&$select=' + encodeURIComponent(SELECT_JOINED) + '&$skiptoken=x' },
+            ),
+          },
+        ]));
+        await mustFailStage(
+          () => tBad.listBoundedCatchupInboundEnvelopes(goodInput()),
+          'top_shape_invalid',
+        );
+        ok('url-pin-still-rejects-hostile-under-monkeypatch', true);
+
+        // Source pins: no ambient `new URL(` / live property reads on url.
+        const messagesSrc = fs.readFileSync(path.join(ROOT, MESSAGES_REL), 'utf8');
+        ok(
+          'src-url-module-init-pin',
+          /const\s+PINNED_URL\s*=/.test(messagesSrc)
+            && /PINNED_URL_GET_PROTOCOL/.test(messagesSrc)
+            && /PINNED_URL_GET_HOSTNAME/.test(messagesSrc)
+            && /PINNED_URL_GET_PATHNAME/.test(messagesSrc)
+            && /PINNED_URL_GET_SEARCH/.test(messagesSrc)
+            && /PINNED_URL_INTRINSICS_READY/.test(messagesSrc)
+            && /constructPinnedUrl/.test(messagesSrc)
+            && /readPinnedUrlComponents/.test(messagesSrc)
+            && /Reflect\.construct\(\s*PINNED_URL/.test(messagesSrc)
+            && /Reflect\.apply\(\s*PINNED_IS_PROXY/.test(messagesSrc),
+        );
+        // Live property reads of URL components on instances must not appear in validators.
+        const validateRegion = messagesSrc.includes('function validateCatchupFollowNextLink')
+          ? messagesSrc.slice(messagesSrc.indexOf('function validateCatchupFollowNextLink'))
+          : '';
+        ok(
+          'src-no-live-url-property-reads-in-catchup-validator',
+          validateRegion.length > 0
+            && !/url\.protocol|url\.hostname|url\.pathname|url\.search|url\.hash|url\.username|url\.password|url\.host|url\.port|url\.searchParams/.test(
+              validateRegion.slice(0, 3500),
+            )
+            && /parts\.protocol|parts\.hostname|parts\.pathname|parts\.search/.test(
+              validateRegion.slice(0, 3500),
+            ),
+        );
+      } finally {
+        for (const name of getterNames) {
+          if (savedDescriptors[name]) {
+            Object.defineProperty(urlProto, name, savedDescriptors[name]);
+          }
+        }
+        globalThis.URL = OriginalURL;
+      }
+    }
+
+    // ── GREEN exact keyset still accepts reordered query (non-loop) ───────
+    {
+      const reordered = nextLinkWithRawQuery(
+        `$skiptoken=REORDER1&$top=5&$select=${encodeURIComponent(SELECT_JOINED)}`,
+      );
+      const t = transportWith(multiPageHttps([
+        {
+          body: listBody(
+            [envelopeRow('AAMk-A', '2026-08-06T12:00:00Z')],
+            { '@odata.nextLink': reordered },
+          ),
+        },
+        { body: listBody([envelopeRow('AAMk-B', '2026-08-06T11:00:00Z')]) },
+      ]));
+      const dto = await t.listBoundedCatchupInboundEnvelopes(goodInput());
+      assertDtoShape(dto);
+      ok(
+        'exact-keyset-accepts-reordered-query-once',
+        dto.pages_fetched === 2 && dto.unique_count === 2,
       );
     }
 
