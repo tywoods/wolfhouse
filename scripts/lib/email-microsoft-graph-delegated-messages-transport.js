@@ -13,15 +13,24 @@
  * Count-health path remains `/v1.0/me/messages`. Raw page never escapes; no public
  * provenance mint/capability. Callers cannot inject Prefer or provenance.
  *
+ * ImmutableId bounded-catchup path (UNWIRED factory): multi-page sequential follow of
+ * provider-returned `@odata.nextLink` only, after strict descriptor-safe nextLink
+ * validation (exact host/path/mailbox + query allowlist). Factory-fixed maxPages=10
+ * and maxMessages=50. Returns one frozen sanitized DTO of canonical envelopes +
+ * identity-free counts; no persistence and no consumer invocation. Atomic: any
+ * page/request/parser/normalization failure yields only the sanitized ImmutableId
+ * transport failure and no partial envelopes.
+ *
  * Validates native responses with the pinned IncomingMessage / isProxy pattern.
  * Lifecycle methods (on/once/end/destroy) use own-data descriptors or pinned native
  * prototype functions only — never `typeof obj.method` / [[Get]] that run hostile
  * accessors or proxy traps.
- * May accept a standard @odata.nextLink on the list envelope (never followed).
+ * May accept a standard @odata.nextLink on the list envelope (single-page never
+ * follows; bounded-catchup follows only after strict re-validation).
  * May accept optional per-message @odata.etag (validated then discarded; never used).
  *
- * Not the app-only mailbox adapter. No pagination, delta, send, or persistence.
- * ImmutableId factory is not route/runtime/DB/OAuth wired.
+ * Not the app-only mailbox adapter. No delta, send, or persistence.
+ * ImmutableId factories are not route/runtime/DB/OAuth wired.
  *
  * @module email-microsoft-graph-delegated-messages-transport
  */
@@ -37,6 +46,7 @@ const {
 } = require('./email-microsoft-graph-inbound-envelope-mapper');
 const {
   compareInboundEmailEnvelopesForOrder,
+  inboundEmailEnvelopeIdentityTuple,
   EMAIL_INBOUND_ENVELOPE_STRING_MAX,
 } = require('./email-inbound-envelope-contract');
 
@@ -72,6 +82,21 @@ const IMMUTABLEID_PAGE_FAILURE_MESSAGE = 'Microsoft Graph ImmutableId page reque
 const IMMUTABLEID_PAGE_ERROR_NAME = 'MicrosoftGraphImmutableIdPageError';
 const COUNT_ERROR_NAME = 'MicrosoftGraphDelegatedMessagesError';
 const PROVIDER_ID = 'microsoft_graph';
+/** Factory-fixed bounded-catchup caps — never caller-supplied. */
+const BOUNDED_CATCHUP_MAX_PAGES = 10;
+const BOUNDED_CATCHUP_MAX_MESSAGES = 50;
+const BOUNDED_CATCHUP_RESULT_KEYS = Object.freeze([
+  'envelopes',
+  'pages_fetched',
+  'observed_count',
+  'unique_count',
+  'duplicate_count',
+  'truncated',
+]);
+/** Original list query keys from SELECT_QUERY ($top + $select). */
+const CATCHUP_BASE_QUERY_KEYS = Object.freeze(['$top', '$select']);
+const CATCHUP_ORIGINAL_TOP = String(TOP_MAX);
+const CATCHUP_ORIGINAL_SELECT = SELECT_FIELDS.join(',');
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const TOP_ALLOWED_EXACT = Object.freeze([
   Object.freeze(['value']),
@@ -85,6 +110,8 @@ const NEXT_LINK_KEY = '@odata.nextLink';
 const MESSAGES_PATH_ME = /^\/v1\.0\/me\/messages$/;
 const MESSAGES_PATH_USER = /^\/v1\.0\/users\/[^/]+\/messages$/;
 
+/** Module-init pins: ambient monkeypatches after load must not weaken detection. */
+const PINNED_URL = typeof URL === 'function' ? URL : null;
 const PINNED_INCOMING_MESSAGE = http.IncomingMessage;
 const PINNED_INCOMING_MESSAGE_PROTOTYPE = http.IncomingMessage
   && http.IncomingMessage.prototype
@@ -606,6 +633,7 @@ function classifyRow(row) {
 /**
  * Validate Graph @odata.nextLink without following, persisting, returning, or logging it.
  * HTTPS only; host exactly graph.microsoft.com; no credentials/fragment; messages collection path.
+ * Single-page path only accepts (never follows). Bounded-catchup re-validates strictly before follow.
  */
 function isValidGraphMessagesNextLink(value) {
   try {
@@ -615,9 +643,10 @@ function isValidGraphMessagesNextLink(value) {
         || hasUnpairedSurrogate(value)) {
       return false;
     }
+    if (!PINNED_URL) return false;
     let url;
     try {
-      url = new URL(value);
+      url = new PINNED_URL(value);
     } catch {
       return false;
     }
@@ -633,6 +662,188 @@ function isValidGraphMessagesNextLink(value) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Parse query string into a Map; reject duplicate keys, malformed escapes, empty segments.
+ * @param {string} search url.search (may include leading ?)
+ * @returns {{ok:true,params:Map<string,string>}|{ok:false}}
+ */
+function parseQueryParamsNoDuplicates(search) {
+  try {
+    if (typeof search !== 'string') return { ok: false };
+    const raw = search.startsWith('?') ? search.slice(1) : search;
+    const params = new Map();
+    if (raw.length === 0) return { ok: true, params };
+    const parts = raw.split('&');
+    for (let i = 0; i < parts.length; i += 1) {
+      const part = parts[i];
+      if (part.length < 1) return { ok: false };
+      const eq = part.indexOf('=');
+      const keyEnc = eq === -1 ? part : part.slice(0, eq);
+      const valEnc = eq === -1 ? '' : part.slice(eq + 1);
+      if (keyEnc.length < 1) return { ok: false };
+      let key;
+      let val;
+      try {
+        key = decodeURIComponent(keyEnc.replace(/\+/g, ' '));
+        val = decodeURIComponent(valEnc.replace(/\+/g, ' '));
+      } catch {
+        return { ok: false };
+      }
+      if (typeof key !== 'string' || key.length < 1 || hasUnpairedSurrogate(key)) {
+        return { ok: false };
+      }
+      if (typeof val !== 'string' || hasUnpairedSurrogate(val)) {
+        return { ok: false };
+      }
+      if (params.has(key)) return { ok: false };
+      params.set(key, val);
+    }
+    return { ok: true, params };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/**
+ * Strict nextLink validator for bounded-catchup follow (before any request).
+ * Rules: primitive string + bounded length; pinned URL parse; https; no user/pass/hash;
+ * exact graph.microsoft.com host/port; exact same /v1.0/users/{encoded uuid}/messages
+ * path (no path confusion); query allowlist = original $top/$select keys plus exactly
+ * one opaque bounded nonempty param; no duplicate keys; no changed $top/$select values;
+ * no extra params.
+ *
+ * @param {unknown} value
+ * @param {string} providerMailboxId canonical UUID
+ * @returns {{ok:true,requestPath:string}|{ok:false}}
+ */
+function validateCatchupFollowNextLink(value, providerMailboxId) {
+  try {
+    if (typeof value !== 'string'
+        || value.length < 1
+        || value.length > STRING_LIMIT
+        || hasUnpairedSurrogate(value)) {
+      return { ok: false };
+    }
+    if (!PINNED_URL) return { ok: false };
+    if (typeof providerMailboxId !== 'string' || !UUID_CANON.test(providerMailboxId)) {
+      return { ok: false };
+    }
+    // Reject path-confusion encodings before URL normalization can collapse them.
+    if (/\.\.|%2e|%2f|%5c|\\/i.test(value)) {
+      return { ok: false };
+    }
+    let url;
+    try {
+      url = new PINNED_URL(value);
+    } catch {
+      return { ok: false };
+    }
+    if (url.protocol !== 'https:') return { ok: false };
+    if (url.hostname !== HOST) return { ok: false };
+    if (url.host !== HOST && url.host !== `${HOST}:443`) return { ok: false };
+    if (url.username !== '' || url.password !== '') return { ok: false };
+    if (url.hash !== '') return { ok: false };
+    if (url.port !== '' && url.port !== '443') return { ok: false };
+    const expectedPath = `/v1.0/users/${encodeURIComponent(providerMailboxId)}/messages`;
+    if (url.pathname !== expectedPath) return { ok: false };
+    // Exact path must also appear as a contiguous substring of the raw URL
+    // (defeats normalization that collapses /users/x/../x/messages).
+    if (!value.includes(expectedPath)) return { ok: false };
+    const parsed = parseQueryParamsNoDuplicates(url.search);
+    if (!parsed.ok) return { ok: false };
+    const params = parsed.params;
+    let opaqueCount = 0;
+    for (const [key, val] of params) {
+      if (key === '$top') {
+        if (val !== CATCHUP_ORIGINAL_TOP) return { ok: false };
+        continue;
+      }
+      if (key === '$select') {
+        if (val !== CATCHUP_ORIGINAL_SELECT) return { ok: false };
+        continue;
+      }
+      // One opaque bounded nonempty continuation token only (e.g. $skiptoken / $skip).
+      if (opaqueCount >= 1) return { ok: false };
+      if (typeof val !== 'string' || val.length < 1 || val.length > STRING_LIMIT) {
+        return { ok: false };
+      }
+      if (hasUnpairedSurrogate(val)) return { ok: false };
+      opaqueCount += 1;
+    }
+    // Must carry the opaque continuation; bare first-page query is not a valid follow link.
+    if (opaqueCount !== 1) return { ok: false };
+    // Reject unexpected base keys that are not in the original allowlist (already handled).
+    for (const key of params.keys()) {
+      if (key === '$top' || key === '$select') continue;
+      // opaque allowed
+    }
+    const requestPath = `${url.pathname}${url.search}`;
+    if (typeof requestPath !== 'string' || requestPath.length < 1 || requestPath.length > STRING_LIMIT) {
+      return { ok: false };
+    }
+    return { ok: true, requestPath };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function envelopeIdentityKey(tuple) {
+  return `${tuple.provider}\0${tuple.provider_mailbox_id}\0${tuple.provider_message_id}`;
+}
+
+/**
+ * Canonical sort + within-batch identity dedupe (same rules as inbound batch processor).
+ * Deterministic selection for maxMessages: first N unique after sort (newest-first +
+ * identity ASC). observed_count counts only rows whose identity is among the accepted
+ * unique set (duplicates of accepted identities count; identities past the bound do not).
+ *
+ * @param {object[]} rawEnvelopes
+ * @param {number} maxMessages
+ * @returns {{envelopes:object[],observed_count:number,unique_count:number,duplicate_count:number,truncated_by_messages:boolean}}
+ */
+function selectBoundedCatchupEnvelopes(rawEnvelopes, maxMessages) {
+  const sorted = rawEnvelopes.slice().sort(compareInboundEmailEnvelopesForOrder);
+  const seen = new Set();
+  const uniqueAll = [];
+  for (let i = 0; i < sorted.length; i += 1) {
+    const id = inboundEmailEnvelopeIdentityTuple(sorted[i]);
+    if (!id.ok) {
+      return null;
+    }
+    const key = envelopeIdentityKey(id.value);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueAll.push(sorted[i]);
+  }
+  const truncatedByMessages = uniqueAll.length > maxMessages;
+  const acceptedUnique = truncatedByMessages
+    ? uniqueAll.slice(0, maxMessages)
+    : uniqueAll;
+  const acceptedKeys = new Set();
+  for (let i = 0; i < acceptedUnique.length; i += 1) {
+    const id = inboundEmailEnvelopeIdentityTuple(acceptedUnique[i]);
+    if (!id.ok) return null;
+    acceptedKeys.add(envelopeIdentityKey(id.value));
+  }
+  let observed = 0;
+  for (let i = 0; i < sorted.length; i += 1) {
+    const id = inboundEmailEnvelopeIdentityTuple(sorted[i]);
+    if (!id.ok) return null;
+    if (acceptedKeys.has(envelopeIdentityKey(id.value))) {
+      observed += 1;
+    }
+  }
+  const uniqueCount = acceptedUnique.length;
+  const duplicateCount = observed - uniqueCount;
+  return {
+    envelopes: acceptedUnique,
+    observed_count: observed,
+    unique_count: uniqueCount,
+    duplicate_count: duplicateCount,
+    truncated_by_messages: truncatedByMessages,
+  };
 }
 
 /**
@@ -761,9 +972,12 @@ function loadClassifiedMessageEnvelopePage(bodyText) {
  * frozen canonical envelopes. Authenticated provenance is implied only by this
  * pinned HTTP path — no public mint/capability. Page is not returned.
  *
- * @returns {{ok:true, envelopes:object[]}|{ok:false, stage:string}}
+ * When `includeNextLink` is true (bounded-catchup internal only), also returns the
+ * descriptor-safe own-data `@odata.nextLink` string or null — never followed here.
+ *
+ * @returns {{ok:true, envelopes:object[], nextLink?:string|null}|{ok:false, stage:string}}
  */
-function mapSuccessBodyToImmutableIdEnvelopes(bodyText, providerMailboxId) {
+function mapSuccessBodyToImmutableIdEnvelopes(bodyText, providerMailboxId, includeNextLink) {
   const loaded = loadClassifiedMessageEnvelopePage(bodyText);
   if (!loaded || loaded.stage !== 'success' || typeof loaded.count !== 'number' || !loaded.page) {
     return Object.freeze({
@@ -788,9 +1002,30 @@ function mapSuccessBodyToImmutableIdEnvelopes(bodyText, providerMailboxId) {
     if (!mapped || mapped.ok !== true) {
       return Object.freeze({ ok: false, stage: 'row_value_invalid' });
     }
+    // Provider/mailbox identity must match the authority-bound request input.
+    if (mapped.value.provider !== PROVIDER_ID
+        || mapped.value.provider_mailbox_id !== providerMailboxId) {
+      return Object.freeze({ ok: false, stage: 'row_value_invalid' });
+    }
     envelopes.push(mapped.value);
   }
   envelopes.sort(compareInboundEmailEnvelopesForOrder);
+  if (includeNextLink === true) {
+    let nextLink = null;
+    if (Object.prototype.hasOwnProperty.call(loaded.page, NEXT_LINK_KEY)) {
+      const raw = ownData(loaded.page, NEXT_LINK_KEY);
+      // Classifier already validated loosely; surface only a primitive string.
+      if (typeof raw !== 'string') {
+        return Object.freeze({ ok: false, stage: 'top_shape_invalid' });
+      }
+      nextLink = raw;
+    }
+    return Object.freeze({
+      ok: true,
+      envelopes: Object.freeze(envelopes),
+      nextLink,
+    });
+  }
   return Object.freeze({ ok: true, envelopes: Object.freeze(envelopes) });
 }
 
@@ -883,6 +1118,10 @@ function resolveTransportDependencies(dependencies, brand) {
  * mode 'count' → `/me/messages` bounded count health (no Prefer).
  * mode 'immutableid_envelopes' → exact `/users/{canonicalUuid}/messages` + pinned
  * Prefer + private canonical envelopes (token/mailbox mismatch fails at Graph).
+ * mode 'immutableid_envelopes_page' → same as envelopes but returns
+ * `{ envelopes, nextLink }` for bounded-catchup internal follow only.
+ * Optional session.requestPathOverride: full path+query for a validated nextLink follow
+ * (still Prefer-pinned; never caller-supplied without prior strict validation).
  * No generic success callback; modes are closed over module-private paths only.
  */
 function runDelegatedMessagesRequest(session, input) {
@@ -893,20 +1132,26 @@ function runDelegatedMessagesRequest(session, input) {
     brand,
     mode,
     preferHeader,
+    requestPathOverride,
   } = session;
 
   let tokenOwner = null;
   let mailboxId = null;
   let requestPath = GRAPH_REQUEST_CONSTANTS.path;
-  if (mode === 'immutableid_envelopes') {
+  const immutableModes = mode === 'immutableid_envelopes' || mode === 'immutableid_envelopes_page';
+  if (immutableModes) {
     const parsed = readImmutableIdPageInput(input);
     if (parsed === null) return Promise.reject(failure('request_error', brand));
     tokenOwner = parsed.accessToken;
     mailboxId = parsed.provider_mailbox_id;
-    requestPath = buildImmutableIdUserMessagesPath(mailboxId);
-    if (requestPath === null) {
-      tokenOwner = null;
-      return Promise.reject(failure('request_error', brand));
+    if (typeof requestPathOverride === 'string' && requestPathOverride.length > 0) {
+      requestPath = requestPathOverride;
+    } else {
+      requestPath = buildImmutableIdUserMessagesPath(mailboxId);
+      if (requestPath === null) {
+        tokenOwner = null;
+        return Promise.reject(failure('request_error', brand));
+      }
     }
   } else {
     tokenOwner = readAccessToken(input);
@@ -1005,8 +1250,12 @@ function runDelegatedMessagesRequest(session, input) {
           ended = true;
           try {
             const bodyText = Buffer.concat(chunks, bytes).toString('utf8');
-            if (mode === 'immutableid_envelopes') {
-              const mapped = mapSuccessBodyToImmutableIdEnvelopes(bodyText, mailboxId);
+            if (mode === 'immutableid_envelopes' || mode === 'immutableid_envelopes_page') {
+              const mapped = mapSuccessBodyToImmutableIdEnvelopes(
+                bodyText,
+                mailboxId,
+                mode === 'immutableid_envelopes_page',
+              );
               if (!mapped || mapped.ok !== true || !Array.isArray(mapped.envelopes)) {
                 finish(fail(
                   mapped && typeof mapped.stage === 'string' ? mapped.stage : 'json_invalid',
@@ -1015,6 +1264,13 @@ function runDelegatedMessagesRequest(session, input) {
               }
               if (mapped.envelopes.length > TOP_MAX) {
                 finish(fail('row_value_invalid'));
+                return;
+              }
+              if (mode === 'immutableid_envelopes_page') {
+                finish(null, Object.freeze({
+                  envelopes: mapped.envelopes,
+                  nextLink: mapped.nextLink === undefined ? null : mapped.nextLink,
+                }));
                 return;
               }
               finish(null, mapped.envelopes);
@@ -1170,6 +1426,177 @@ function createMicrosoftGraphImmutableIdPageTransport(dependencies = {}) {
   return Object.freeze({ listNormalizedInboundEnvelopes });
 }
 
+/**
+ * UNWIRED ImmutableId bounded-catchup factory (multi-page).
+ *
+ * Factory-fixed maxPages=10, maxMessages=50 — never caller-supplied.
+ * Sequential GETs: first request is exact users/{uuid}/messages + Prefer ImmutableId;
+ * subsequent requests follow only provider @odata.nextLink after strict validation.
+ * Canonical sort + identity dedupe use envelope-contract owners (same rules as batch
+ * processor) — no consumer invocation, no persistence.
+ *
+ * Success: one fresh frozen DTO
+ * `{ envelopes, pages_fetched, observed_count, unique_count, duplicate_count, truncated }`.
+ * Failure: sanitized microsoft_graph_immutableid_page_failed only; no partial envelopes.
+ */
+function createMicrosoftGraphImmutableIdBoundedCatchupTransport(dependencies = {}) {
+  let resolved;
+  try {
+    resolved = resolveTransportDependencies(dependencies, IMMUTABLEID_FAILURE_BRAND);
+  } catch (err) {
+    if (err && err.code === IMMUTABLEID_PAGE_FAILURE_CODE) throw err;
+    throw failure('request_error', IMMUTABLEID_FAILURE_BRAND);
+  }
+
+  // Caps closed over factory init — not readable from caller input.
+  const maxPages = BOUNDED_CATCHUP_MAX_PAGES;
+  const maxMessages = BOUNDED_CATCHUP_MAX_MESSAGES;
+
+  let used = false;
+  async function listBoundedCatchupInboundEnvelopes(input) {
+    if (used) return Promise.reject(failure('request_error', IMMUTABLEID_FAILURE_BRAND));
+    used = true;
+
+    const parsed = readImmutableIdPageInput(input);
+    if (parsed === null) {
+      return Promise.reject(failure('request_error', IMMUTABLEID_FAILURE_BRAND));
+    }
+    // Hold token only for sequential page GETs; scrub in finally.
+    let tokenOwner = parsed.accessToken;
+    const mailboxId = parsed.provider_mailbox_id;
+    const rawEnvelopes = [];
+    let pagesFetched = 0;
+    let requestPathOverride = null;
+    const seenNextLinks = new Set();
+    let pendingNextLink = null;
+    let truncated = false;
+
+    try {
+      while (pagesFetched < maxPages) {
+        const pageInput = {
+          accessToken: tokenOwner,
+          provider_mailbox_id: mailboxId,
+        };
+        let pageResult;
+        try {
+          pageResult = await runDelegatedMessagesRequest({
+            requestFn: resolved.requestFn,
+            setTimer: resolved.setTimer,
+            clearTimer: resolved.clearTimer,
+            brand: IMMUTABLEID_FAILURE_BRAND,
+            mode: 'immutableid_envelopes_page',
+            preferHeader: PREFER_IMMUTABLE_ID,
+            requestPathOverride,
+          }, pageInput);
+        } catch (err) {
+          // Re-throw transport-branded failures only; never partial DTO.
+          if (err && err.code === IMMUTABLEID_PAGE_FAILURE_CODE) throw err;
+          throw failure('request_error', IMMUTABLEID_FAILURE_BRAND);
+        }
+
+        if (!pageResult || !Array.isArray(pageResult.envelopes)) {
+          throw failure('json_invalid', IMMUTABLEID_FAILURE_BRAND);
+        }
+        // Append this page's mapped envelopes (max TOP_MAX already enforced).
+        for (let i = 0; i < pageResult.envelopes.length; i += 1) {
+          const env = pageResult.envelopes[i];
+          if (!env
+              || env.provider !== PROVIDER_ID
+              || env.provider_mailbox_id !== mailboxId) {
+            throw failure('row_value_invalid', IMMUTABLEID_FAILURE_BRAND);
+          }
+          rawEnvelopes.push(env);
+        }
+        pagesFetched += 1;
+
+        const nextLink = pageResult.nextLink === undefined ? null : pageResult.nextLink;
+        pendingNextLink = typeof nextLink === 'string' ? nextLink : null;
+
+        // Deterministic selection after each page so maxMessages stop is unambiguous.
+        const selected = selectBoundedCatchupEnvelopes(rawEnvelopes, maxMessages);
+        if (selected === null) {
+          throw failure('row_value_invalid', IMMUTABLEID_FAILURE_BRAND);
+        }
+
+        if (selected.truncated_by_messages) {
+          truncated = true;
+          pendingNextLink = null;
+          // Drop unaccepted raw rows — DTO uses selected counts only.
+          return finalizeCatchupDto(selected, pagesFetched, true);
+        }
+
+        if (selected.unique_count >= maxMessages) {
+          // Bound reached exactly; if provider still offers nextLink → truncated.
+          if (pendingNextLink !== null) {
+            truncated = true;
+          }
+          return finalizeCatchupDto(selected, pagesFetched, truncated);
+        }
+
+        if (pendingNextLink === null) {
+          return finalizeCatchupDto(selected, pagesFetched, false);
+        }
+
+        if (pagesFetched >= maxPages) {
+          // Hit page cap with another nextLink still offered.
+          truncated = true;
+          return finalizeCatchupDto(selected, pagesFetched, true);
+        }
+
+        // Validate nextLink BEFORE any follow request.
+        if (seenNextLinks.has(pendingNextLink)) {
+          throw failure('top_shape_invalid', IMMUTABLEID_FAILURE_BRAND);
+        }
+        seenNextLinks.add(pendingNextLink);
+        const follow = validateCatchupFollowNextLink(pendingNextLink, mailboxId);
+        if (!follow.ok) {
+          throw failure('top_shape_invalid', IMMUTABLEID_FAILURE_BRAND);
+        }
+        requestPathOverride = follow.requestPath;
+        pendingNextLink = null;
+      }
+
+      // Exhausted maxPages without early return — treat remaining nextLink as truncate.
+      const selected = selectBoundedCatchupEnvelopes(rawEnvelopes, maxMessages);
+      if (selected === null) {
+        throw failure('row_value_invalid', IMMUTABLEID_FAILURE_BRAND);
+      }
+      return finalizeCatchupDto(
+        selected,
+        pagesFetched,
+        selected.truncated_by_messages || pendingNextLink !== null,
+      );
+    } finally {
+      tokenOwner = null;
+    }
+  }
+
+  return Object.freeze({ listBoundedCatchupInboundEnvelopes });
+}
+
+/**
+ * Build the exact frozen catchup success DTO (no links/tokens/raw rows).
+ * @param {{envelopes:object[],observed_count:number,unique_count:number,duplicate_count:number}} selected
+ * @param {number} pagesFetched
+ * @param {boolean} truncated
+ */
+function finalizeCatchupDto(selected, pagesFetched, truncated) {
+  const dto = {
+    envelopes: Object.freeze(selected.envelopes.slice()),
+    pages_fetched: pagesFetched,
+    observed_count: selected.observed_count,
+    unique_count: selected.unique_count,
+    duplicate_count: selected.duplicate_count,
+    truncated: truncated === true,
+  };
+  const keys = Object.keys(dto);
+  if (keys.length !== BOUNDED_CATCHUP_RESULT_KEYS.length
+      || keys.some((k, i) => k !== BOUNDED_CATCHUP_RESULT_KEYS[i])) {
+    throw failure('json_invalid', IMMUTABLEID_FAILURE_BRAND);
+  }
+  return Object.freeze(dto);
+}
+
 module.exports = Object.freeze({
   FAILURE_CODE,
   FAILURE_MESSAGE,
@@ -1182,6 +1609,8 @@ module.exports = Object.freeze({
   SELECT_FIELDS,
   RESPONSE_CAP_BYTES,
   GRAPH_STAGES,
+  BOUNDED_CATCHUP_MAX_PAGES,
+  BOUNDED_CATCHUP_MAX_MESSAGES,
   buildImmutableIdUserMessagesPath,
   countBoundedMessageEnvelopes,
   classifyMessageEnvelopeBody,
@@ -1190,4 +1619,5 @@ module.exports = Object.freeze({
   readTrustedGraphStage,
   createMicrosoftGraphDelegatedMessagesTransport,
   createMicrosoftGraphImmutableIdPageTransport,
+  createMicrosoftGraphImmutableIdBoundedCatchupTransport,
 });
