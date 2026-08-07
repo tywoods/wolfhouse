@@ -219,6 +219,7 @@ function createDelegatedGrantAccessSession(deps) {
     let lease = null;
     let openedOwner = null;
     let refreshToken = null;
+    let accessCandidate = null;
     let accessTokenOwner = null;
     let refreshToSeal = null;
     let classified = null;
@@ -321,11 +322,17 @@ function createDelegatedGrantAccessSession(deps) {
       }
 
       // Narrow token owners: extract minimum locals, then drop classified/selected.
+      // accessCandidate is a nullable outer-scope owner (never a const token alias).
       try {
         selectedOwner = classified.selected;
         classified = null;
-        const accessCandidate = selectedOwner && selectedOwner.accessToken;
+        if (selectedOwner
+            && typeof selectedOwner.accessToken === 'string'
+            && selectedOwner.accessToken) {
+          accessCandidate = selectedOwner.accessToken;
+        }
         if (typeof accessCandidate !== 'string' || !accessCandidate) {
+          accessCandidate = null;
           await markDelegatedGrantReconciliation({
             clientId: ids.clientId,
             endpointId: ids.endpointId,
@@ -339,7 +346,9 @@ function createDelegatedGrantAccessSession(deps) {
           lease = null;
           return sessionFail(STATUS_UNCERTAIN, gen);
         }
+        // Transfer custody to accessTokenOwner; drop candidate alias immediately.
         accessTokenOwner = accessCandidate;
+        accessCandidate = null;
 
         if (selectedOwner.refreshTokenOmitted === true) {
           if (typeof refreshToken !== 'string' || !refreshToken) {
@@ -380,6 +389,7 @@ function createDelegatedGrantAccessSession(deps) {
       } finally {
         classified = null;
         selectedOwner = null;
+        accessCandidate = null;
       }
       // Drop the one-time-opened refresh local once seal material is chosen.
       refreshToken = null;
@@ -488,6 +498,7 @@ function createDelegatedGrantAccessSession(deps) {
         try { loan.accessToken = null; } catch { /* */ }
         loan = null;
       }
+      accessCandidate = null;
       accessTokenOwner = null;
       refreshToken = null;
       refreshToSeal = null;

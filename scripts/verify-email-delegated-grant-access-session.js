@@ -295,8 +295,11 @@ async function main() {
 
     // Lifetime: nullable token-owner lets released by reference nulling in outer
     // finally. Opened result is a let owner; sealed/selected/refresh/access too.
+    // accessCandidate is also a nullable outer owner (never a long-lived const
+    // token alias); assign only when needed, null in inner + outer finally.
     // Do not claim immutable JS strings are overwritten — only references released.
     assert.match(src, /let\s+openedOwner\s*=\s*null/);
+    assert.match(src, /let\s+accessCandidate\s*=\s*null/);
     assert.match(src, /let\s+accessTokenOwner\s*=\s*null/);
     assert.match(src, /let\s+refreshToken\s*=\s*null/);
     assert.match(src, /let\s+refreshToSeal\s*=\s*null/);
@@ -306,8 +309,12 @@ async function main() {
     assert.match(src, /openedOwner\s*=\s*null/);
     assert.match(src, /sealedOwner\s*=\s*null/);
     assert.match(src, /selectedOwner\s*=\s*null/);
+    assert.match(src, /accessCandidate\s*=\s*null/);
     assert.match(src, /accessTokenOwner\s*=\s*null/);
-    // Outer finally must release opened + sealed owners (not only mid-path).
+    // No immutable long-lived token alias for the selected access token.
+    assert.doesNotMatch(src, /const\s+accessCandidate\b/);
+    // Outer finally must release opened + sealed + accessCandidate owners
+    // (not only mid-path). accessCandidate nulling is before/with accessTokenOwner.
     {
       const finallyIdx = src.lastIndexOf('} finally {');
       assert.ok(finallyIdx > 0, 'outer finally present');
@@ -315,10 +322,23 @@ async function main() {
       assert.match(finallyBody, /openedOwner\s*=\s*null/);
       assert.match(finallyBody, /sealedOwner\s*=\s*null/);
       assert.match(finallyBody, /selectedOwner\s*=\s*null/);
+      assert.match(finallyBody, /accessCandidate\s*=\s*null/);
       assert.match(finallyBody, /accessTokenOwner\s*=\s*null/);
       assert.match(finallyBody, /refreshToken\s*=\s*null/);
       assert.match(finallyBody, /refreshToSeal\s*=\s*null/);
       assert.match(finallyBody, /classified\s*=\s*null/);
+      // accessCandidate released before or with accessTokenOwner in outer finally.
+      const acIdx = finallyBody.search(/accessCandidate\s*=\s*null/);
+      const atoIdx = finallyBody.search(/accessTokenOwner\s*=\s*null/);
+      assert.ok(acIdx >= 0 && atoIdx >= 0 && acIdx <= atoIdx,
+        'outer finally nulls accessCandidate before/with accessTokenOwner');
+    }
+    // Inner selection finally must also null accessCandidate (async paths may
+    // await after mid-path release of accessTokenOwner).
+    {
+      const selectFinallyRe =
+        /} finally \{\s*classified\s*=\s*null;\s*selectedOwner\s*=\s*null;\s*accessCandidate\s*=\s*null;/;
+      assert.match(src, selectFinallyRe);
     }
     // No string-mutation / zero-fill patterns (reference nulling only).
     assert.doesNotMatch(src, /zero[\s-]?fill|fill\(0\)|\.fill\(|string\.length\s*=\s*0|Buffer\.from\([^)]*\)\.fill/i);
