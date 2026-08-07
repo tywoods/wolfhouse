@@ -65,6 +65,7 @@ const DELEGATED_READ_AUTHORITY_INPUT_KEYS = Object.freeze([
 /**
  * Frozen internal DTO keys only. Never public_address or provider_principal_oid.
  * providerMailboxId is always endpoint.provider_resource_id (resource id wins).
+ * Public resolve deliberately omits providerTenantId (local-only binding field).
  */
 const DELEGATED_READ_AUTHORITY_DTO_KEYS = Object.freeze([
   'clientId',
@@ -73,6 +74,30 @@ const DELEGATED_READ_AUTHORITY_DTO_KEYS = Object.freeze([
   'provider',
   'providerMailboxId',
   'bindingStatus',
+]);
+
+/**
+ * Local-only binding DTO keys (includes private provider_tenant_id row field).
+ * Used by createDelegatedReadAuthorityBindingVerifier and delta composition —
+ * never public status / routes / read-health.
+ */
+const DELEGATED_READ_AUTHORITY_BINDING_DTO_KEYS = Object.freeze([
+  'clientId',
+  'locationId',
+  'endpointId',
+  'provider',
+  'providerMailboxId',
+  'providerTenantId',
+  'bindingStatus',
+]);
+
+/** Exact ordered verifyBinding input keys (PR408 authorityVerifier contract). */
+const DELEGATED_READ_AUTHORITY_BINDING_VERIFY_KEYS = Object.freeze([
+  'clientId',
+  'locationId',
+  'endpointId',
+  'providerTenantId',
+  'providerMailboxId',
 ]);
 
 /** Driver-row own-data key set (SQL textual order). */
@@ -964,18 +989,33 @@ function snapshotAndValidateReadAuthorityRow(row, expected) {
       return null;
     }
 
-    // Fresh frozen internal DTO — only allowlisted keys; never principal/address.
+    // Fresh frozen local binding — includes private provider_tenant_id for
+    // seal/init/verifyBinding. Public resolve strips providerTenantId.
+    // Never principal/address.
     return Object.freeze({
       clientId: expected.clientId,
       locationId: expected.locationId,
       endpointId: expected.endpointId,
       provider: 'microsoft_graph',
       providerMailboxId: own.provider_resource_id,
+      providerTenantId: own.provider_tenant_id,
       bindingStatus: 'verified',
     });
   } catch {
     return null;
   }
+}
+
+/** Public resolve DTO — exact DELEGATED_READ_AUTHORITY_DTO_KEYS (no tenant). */
+function toPublicReadAuthorityDto(binding) {
+  return Object.freeze({
+    clientId: binding.clientId,
+    locationId: binding.locationId,
+    endpointId: binding.endpointId,
+    provider: binding.provider,
+    providerMailboxId: binding.providerMailboxId,
+    bindingStatus: binding.bindingStatus,
+  });
 }
 
 /**
@@ -1111,39 +1151,14 @@ function snapshotReadAuthorityQueryResult(result) {
 }
 
 /**
- * UNWIRED repository resolve of delegated email read authority.
+ * Shared load of verified Microsoft delegated read authority binding.
+ * Exact same SQL + row validation as public resolve. Returns local-only
+ * binding DTO including private provider_tenant_id (providerTenantId).
+ * Never public_address / provider_principal_oid / secrets.
  *
- * Exact own-data input `{ clientId, locationId, endpointId }` only (UUID strings).
- * One parameterized SELECT/join of locations + endpoints + grants. Returns one
- * frozen internal DTO; never public_address / provider_principal_oid / secrets.
- * Sanitized failures only; no logging.
- *
- * Hostile / threat-model boundary (honest):
- * - Pre-await caller/input/deps/db/client surfaces: module-init pinned isProxy
- *   before any prototype/key/descriptor ops (zero traps enforceable there;
- *   ambient isProxy monkeypatch resistant).
- * - Injected pg client/query is a **trusted executable dependency**. Arbitrary
- *   code inside query or during Promise resolution cannot be sandboxed.
- * - Promise/await assimilation of a fulfilled/returned proxy necessarily
- *   [[Get]]s `then`. Do **not** claim zero traps for the query return/result
- *   across Promise assimilation, and do **not** claim protection against a
- *   Promise resolving to a proxy.
- * - Optional: if query returns a Proxy **synchronously**, reject via pinned
- *   isProxy before await (does not break genuine pg Promise returns).
- * - Post-await: reject a resolved proxy via pinned isProxy **before** any
- *   application-owned prototype/key/descriptor/rows operation; planted throws
- *   and invalid shapes become frozen sanitized `{ok:false,error:'db_error'}`
- *   with no attacker message/PII. Rows array + driver rows keep zero-trap
- *   guarantees once the result root is accepted as a non-proxy.
- *
- * Not exposed via getDelegatedGrantPublicStatus, read-health, routes, transport,
- * or runtime composition (`EMAIL_DELEGATED_READ_AUTHORITY_RUNTIME_WIRED = false`).
- *
- * @param {{ clientId: string, locationId: string, endpointId: string }} input
- * @param {{ db?: object, client?: object }} deps
  * @returns {Promise<{ok:true,value:object}|{ok:false,error:string}>}
  */
-async function resolveDelegatedReadAuthority(input, deps) {
+async function loadDelegatedReadAuthorityBinding(input, deps) {
   try {
     const snap = snapshotExactReadAuthorityInput(input);
     if (!snap) return failReadAuthority('input_invalid');
@@ -1201,17 +1216,165 @@ async function resolveDelegatedReadAuthority(input, deps) {
       return failReadAuthority('db_error');
     }
 
-    const dto = snapshotAndValidateReadAuthorityRow(shaped.row, {
+    const binding = snapshotAndValidateReadAuthorityRow(shaped.row, {
       clientId,
       locationId,
       endpointId,
     });
-    if (!dto) return failReadAuthority('delegated_read_authority_unresolved');
-    return ok(dto);
+    if (!binding) return failReadAuthority('delegated_read_authority_unresolved');
+    return ok(binding);
   } catch (_) {
     // Any unexpected reflection/driver throw → sanitized only; never rethrow.
     return failReadAuthority('db_error');
   }
+}
+
+/**
+ * UNWIRED repository resolve of delegated email read authority.
+ *
+ * Exact own-data input `{ clientId, locationId, endpointId }` only (UUID strings).
+ * One parameterized SELECT/join of locations + endpoints + grants. Returns one
+ * frozen internal DTO (public keys only — no providerTenantId); never
+ * public_address / provider_principal_oid / secrets. Sanitized failures only.
+ *
+ * Hostile / threat-model boundary (honest): see loadDelegatedReadAuthorityBinding.
+ *
+ * Not exposed via getDelegatedGrantPublicStatus, read-health, routes, transport,
+ * or runtime composition (`EMAIL_DELEGATED_READ_AUTHORITY_RUNTIME_WIRED = false`).
+ *
+ * @param {{ clientId: string, locationId: string, endpointId: string }} input
+ * @param {{ db?: object, client?: object }} deps
+ * @returns {Promise<{ok:true,value:object}|{ok:false,error:string}>}
+ */
+async function resolveDelegatedReadAuthority(input, deps) {
+  const loaded = await loadDelegatedReadAuthorityBinding(input, deps);
+  if (!loaded.ok) return loaded;
+  // Strip private providerTenantId — public DTO keys stay byte-compatible.
+  return ok(toPublicReadAuthorityDto(loaded.value));
+}
+
+/**
+ * Local-only binding resolve (includes private providerTenantId from
+ * provider_tenant_id row field). Same SQL/row semantics as
+ * resolveDelegatedReadAuthority. For delta seal/init/composition only —
+ * never public status/routes/read-health.
+ *
+ * @param {{ clientId: string, locationId: string, endpointId: string }} input
+ * @param {{ db?: object, client?: object }} deps
+ * @returns {Promise<{ok:true,value:object}|{ok:false,error:string}>}
+ */
+async function resolveDelegatedReadAuthorityBinding(input, deps) {
+  return loadDelegatedReadAuthorityBinding(input, deps);
+}
+
+/**
+ * Factory-fixed trusted authority-verifier for PR408 beginNextGeneration.
+ * Reuses exact SQL_RESOLVE_DELEGATED_READ_AUTHORITY + row validation; matches
+ * private provider_tenant_id and provider_resource_id against binding input.
+ * Caller cannot self-assert with a boolean. No second SQL dialect.
+ *
+ * @param {{ db: object }} deps
+ * @returns {Readonly<{ verifyBinding: Function }>}
+ */
+function createDelegatedReadAuthorityBindingVerifier(deps) {
+  let dbSurface;
+  try {
+    if (deps == null || typeof deps !== 'object' || Array.isArray(deps)) {
+      throw new Error('authority_binding_verifier_deps_invalid');
+    }
+    if (isProxySurface(deps)) {
+      throw new Error('authority_binding_verifier_deps_invalid');
+    }
+    const dbc = resolveReadAuthorityDb(deps);
+    if (!dbc.ok) throw new Error('authority_binding_verifier_db_required');
+    // Pin minimal frozen db adapter so verifyBinding never re-reads caller deps.
+    dbSurface = Object.freeze({
+      query(...args) {
+        return Reflect.apply(dbc.query, dbc.surface, args);
+      },
+    });
+  } catch (_) {
+    const error = new Error('Delegated read authority binding verifier failed.');
+    Object.defineProperty(error, 'name', {
+      value: 'DelegatedReadAuthorityBindingVerifierError',
+    });
+    Object.defineProperty(error, 'code', {
+      value: 'authority_binding_verifier_invalid',
+      enumerable: true,
+    });
+    throw Object.freeze(error);
+  }
+
+  async function verifyBinding(binding) {
+    try {
+      if (!binding || typeof binding !== 'object' || Array.isArray(binding)) {
+        return Object.freeze({ ok: false, error: 'authority_not_verified' });
+      }
+      if (isProxySurface(binding)) {
+        return Object.freeze({ ok: false, error: 'authority_not_verified' });
+      }
+      // Exact own-data verify keys (PR408 beginNextGeneration binding shape).
+      const actual = Reflect.ownKeys(binding);
+      if (actual.length !== DELEGATED_READ_AUTHORITY_BINDING_VERIFY_KEYS.length) {
+        return Object.freeze({ ok: false, error: 'authority_not_verified' });
+      }
+      const snap = Object.create(null);
+      for (const key of DELEGATED_READ_AUTHORITY_BINDING_VERIFY_KEYS) {
+        if (!actual.includes(key)) {
+          return Object.freeze({ ok: false, error: 'authority_not_verified' });
+        }
+        const desc = Object.getOwnPropertyDescriptor(binding, key);
+        if (!desc
+            || !Object.prototype.hasOwnProperty.call(desc, 'value')
+            || desc.get
+            || desc.set) {
+          return Object.freeze({ ok: false, error: 'authority_not_verified' });
+        }
+        snap[key] = desc.value;
+      }
+      const clientId = parseCanonicalUuid(snap.clientId);
+      const locationId = parseCanonicalUuid(snap.locationId);
+      const endpointId = parseCanonicalUuid(snap.endpointId);
+      const providerTenantId = parseCanonicalUuid(snap.providerTenantId);
+      const providerMailboxId = parseCanonicalUuid(snap.providerMailboxId);
+      if (!clientId || !locationId || !endpointId
+          || !providerTenantId || !providerMailboxId) {
+        return Object.freeze({ ok: false, error: 'authority_not_verified' });
+      }
+
+      const loaded = await loadDelegatedReadAuthorityBinding(
+        Object.freeze({ clientId, locationId, endpointId }),
+        Object.freeze({ db: dbSurface }),
+      );
+      if (!loaded.ok || !loaded.value) {
+        return Object.freeze({ ok: false, error: 'authority_not_verified' });
+      }
+      const row = loaded.value;
+      if (row.clientId !== clientId
+          || row.locationId !== locationId
+          || row.endpointId !== endpointId
+          || row.providerTenantId !== providerTenantId
+          || row.providerMailboxId !== providerMailboxId
+          || row.provider !== 'microsoft_graph'
+          || row.bindingStatus !== 'verified') {
+        return Object.freeze({ ok: false, error: 'authority_not_verified' });
+      }
+      return Object.freeze({
+        ok: true,
+        value: Object.freeze({
+          clientId,
+          locationId,
+          endpointId,
+          providerTenantId,
+          providerMailboxId,
+        }),
+      });
+    } catch (_) {
+      return Object.freeze({ ok: false, error: 'authority_not_verified' });
+    }
+  }
+
+  return Object.freeze({ verifyBinding });
 }
 
 module.exports = {
@@ -1227,6 +1390,8 @@ module.exports = {
   commitDelegatedGrantRewrap,
   getDelegatedGrantPublicStatus,
   resolveDelegatedReadAuthority,
+  resolveDelegatedReadAuthorityBinding,
+  createDelegatedReadAuthorityBindingVerifier,
   toPublicGrantStatusDto,
   toPrivateLeaseHandle,
   withTxn,
@@ -1235,6 +1400,8 @@ module.exports = {
   EMAIL_DELEGATED_READ_AUTHORITY_RUNTIME_WIRED,
   DELEGATED_READ_AUTHORITY_INPUT_KEYS,
   DELEGATED_READ_AUTHORITY_DTO_KEYS,
+  DELEGATED_READ_AUTHORITY_BINDING_DTO_KEYS,
+  DELEGATED_READ_AUTHORITY_BINDING_VERIFY_KEYS,
   DELEGATED_READ_AUTHORITY_ROW_KEYS,
   SQL_RESOLVE_DELEGATED_READ_AUTHORITY,
 };
