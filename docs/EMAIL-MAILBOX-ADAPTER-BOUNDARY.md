@@ -1,6 +1,7 @@
-# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A + 2B + 2C + 2D + 2F-A + 2F-B + 2F-C2 + inbound-envelope)
+# Email mailbox adapter boundary (Slice 1A + 1B + 1C-alpha + 1C-beta + 1C-gamma + 2A + 2B + 2C + 2D + 2F-A + 2F-B + 2F-C2 + inbound-envelope + ms-normalized-page)
 
 **Status:**
+- **ms-normalized-page (offline page bridge):** Microsoft Graph list-page → max-5 **canonical** inbound envelopes. Reuses delegated Mail.ReadBasic page/row semantics (`classifyParsedMessageEnvelopeList`) + row mapper + contract order. Explicit provider mailbox identity + Graph ImmutableId provenance required; **non-persistence-ready**; never trusts caller boolean/string provenance (module-owned unauthenticated token or future unforgeable private brand only). Validates/discards `@odata.context` / `@odata.nextLink` / `@odata.etag`; retains no raw page/rows; no logging. **No** shared-validator extraction (composition without broad refactor). No network, routes, DB, OAuth, persistence, or activation.
 - **inbound-envelope (contract only):** provider-neutral immutable inbound email-envelope DTO + offline Microsoft Graph Mail.ReadBasic row mapper. Identity / ordering / dedup / staff-visible triage fields only. **PII fields must not be persisted or logged** until a later reviewed custody slice. No DB, runtime wiring, polling, Graph calls, OAuth scope changes, bodies, attachments, drafts, sends, deploy, or activation.
 - **1A:** provider-neutral adapter/validation contract, fake adapter, focused tests.
 - **1B:** canonical Postgres registry for tenant locations + email channel endpoints (**empty tables** on migrate; no backfill).
@@ -105,6 +106,7 @@ Down: `057_tenant_locations_and_channel_endpoints_down.sql`
 |-------|------|----------|
 | `scripts/lib/email-inbound-envelope-contract.js` | **Canonical** provider-neutral immutable inbound domain envelope (exact own enumerable data keys; calendar-safe timestamps; identity/dedup/order/tie-break; legacy Graph transport conversion); documents PII keys; **persistence/logging forbidden** until custody slice; ImmutableId required before future MS persistence | Bodies, previews, recipients, headers, attachments, links, tokens, raw provider objects; Graph/OData field names; DB/network; runtime wiring; false ImmutableId provenance |
 | `scripts/lib/email-microsoft-graph-inbound-envelope-mapper.js` | Offline mapper: approved Mail.ReadBasic row (+ optional validated/discarded `@odata.etag`) → **canonical** domain envelope; **provider + mailbox identity are explicit inputs** | Infer mailbox from row; network/Graph calls; retain etag/raw row; hasAttachments/body/uniqueBody/headers; claim ImmutableId provenance; runtime wiring |
+| `scripts/lib/email-microsoft-graph-normalized-page.js` | Offline **page → max-5 canonical envelopes** bridge: composes transport `classifyParsedMessageEnvelopeList` + inbound mapper + contract order; explicit mailbox + ImmutableId provenance (unauthenticated module token or unforgeable brand); **non-persistence-ready**; no shared-validator extraction | New page parser / envelope DTO; trust caller boolean/string provenance; retain context/nextLink/etag/raw rows; log; network/DB/routes/OAuth/activation |
 | `scripts/lib/email-mailbox-adapter-contract.js` | Provider id allowlist, exact eight boolean capability keys, secret-ref scheme allowlist (`kv:`, `secret-ref:`) with body secret-shape checks, public-address normalization, endpoint **write validation** requiring trusted **synchronous** out-of-band `locationAuthority` callback | Import provider SDKs; store credentials; hardcode tenant locations; invent default locations; honor authority from untrusted input; accept async/`Promise` authority |
 | `scripts/lib/email-mailbox-fake-adapter.js` | Deterministic in-memory adapter for tests (Graph/Gmail/IMAP capability *combinations* as data); `supports(unknown)` fails closed | Network I/O; production use; resolve secret values |
 | `scripts/lib/email-tenant-channel-registry.js` (1C-alpha) | Tenant-scoped list/create for `tenant_locations`; list endpoints; `createDisabledTenantChannelEndpoint`; pure `buildPreloadedLocationAuthority`; reads via `{ db }`; writes via pinned `{ client }` transaction (BEGIN guarded; no Pool); stable structured errors (`location_already_exists`, `endpoint_already_exists`, `location_not_authorized`, `transaction_client_required`, `db_error`) | HTTP routes; auth roles; enable active/inbound/outbound/automation; resolve `secret_ref`; provider SDK/network; global PG pool; Pool as write executor; upsert; leak raw PG messages |
@@ -669,6 +671,31 @@ Gate: `npm run verify:email-inbound-envelope-contract`.
 
 **Excluded:** bodies, previews, recipients, headers, attachments, links, tokens, raw provider objects. Microsoft mapper accepts only the approved Mail.ReadBasic row keyset plus optional `@odata.etag` (validated then discarded). No Graph/OData names on the normalized DTO. Contract fields must be **own enumerable data** (non-enumerable keys rejected).
 
+## Microsoft Graph normalized page bridge (offline)
+
+Module: `scripts/lib/email-microsoft-graph-normalized-page.js`.
+Gate: `npm run verify:email-microsoft-graph-normalized-page`.
+
+**Purpose:** map one already-fetched Graph messages list page to a fresh frozen array of at most **5** **canonical** inbound envelopes (deterministic contract order). Offline only.
+
+| Input (exact own-data keys) | Rule |
+|-----------------------------|------|
+| `provider` | exact `microsoft_graph` |
+| `provider_mailbox_id` | explicit bounded mailbox identity (never inferred from the page) |
+| `page` | Graph list object accepted by delegated transport `classifyParsedMessageEnvelopeList` (exact top keysets with optional `@odata.context` / `@odata.nextLink`; rows = Mail.ReadBasic select + optional `@odata.etag`; max 5) |
+| `graph_immutable_id_provenance` | **required**. Offline success uses only the module-owned `GRAPH_IMMUTABLE_ID_PROVENANCE_UNAUTHENTICATED` token (**reference equality**). Caller `true` / `"ImmutableId"` / `{ proven: true }` / clones **fail closed**. Future Prefer: `IdType="ImmutableId"` transport may mint an unforgeable private brand (WeakMap); this slice exports **no** public mint and remains **non-persistence-ready** (`EMAIL_MS_GRAPH_NORMALIZED_PAGE_PERSISTENCE_READY = false`, `EMAIL_MS_GRAPH_NORMALIZED_PAGE_CLAIMS_IMMUTABLE_ID_PROVENANCE = false`) |
+
+**Composition (no competing schemas):**
+
+1. Page/row shape → delegated transport classifier (validate then discard context / nextLink / etag; never follow nextLink).
+2. Each row → `mapMicrosoftGraphMailReadBasicRowToInboundEnvelope` (canonical domain envelope).
+3. Sort → `compareInboundEmailEnvelopesForOrder` (received_at desc, identity tuple ASC).
+4. Return fresh frozen envelope array only — no raw page/rows on the result surface. No logging.
+
+**Shared-validator extraction decision:** **not required** for safe reuse (`EMAIL_MS_GRAPH_NORMALIZED_PAGE_SHARED_VALIDATOR_EXTRACTED = false`). Transport already exports the approved page classifier; mapper already owns row → canonical conversion. Extracting a third shared schema module would be a broad transport refactor with dual-gate risk. Composition avoids duplicated competing page/envelope DTOs without that refactor.
+
+**Non-goals:** network/Graph calls, OAuth, routes, DB, persistence, activation, pagination following, bodies/attachments, second envelope DTO, logging PII/raw Graph.
+
 ## Verifiers
 
 ```bash
@@ -680,6 +707,7 @@ npm run prove:email-tenant-channel-registry-pg
 npm run verify:staff-email-registry-routes
 npm run verify:email-microsoft-graph-adapter
 npm run verify:email-inbound-envelope-contract
+npm run verify:email-microsoft-graph-normalized-page
 npm run verify:email-graph-app-only-readiness
 npm run verify:email-microsoft-delegated-oauth-contract
 npm run verify:email-channel-endpoint-identity
