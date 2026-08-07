@@ -176,12 +176,17 @@ function probeBody(actionJson) {
     const action = ${JSON.stringify(actionJson)};
     const mod = require(${JSON.stringify(CFG_PATH)});
 
+    // Save genuine freeze/isFrozen BEFORE ambient poison (post-require).
+    const realIsFrozen = Object.isFrozen;
+    const realFreeze = Object.freeze;
+
     // Ambient intrinsic monkeypatch AFTER require — pins must resist.
     const poison = function() { throw new Error(${JSON.stringify(PLANTED)}); };
     Object.getOwnPropertyDescriptor = poison;
     Object.getPrototypeOf = poison;
     Reflect.ownKeys = poison;
-    Object.isFrozen = poison;
+    Object.freeze = poison;
+    Object.isFrozen = function() { return false; };
     if (utilTypesAvailable()) {
       try { require('util').types.isProxy = function() { return false; }; } catch (_) {}
     }
@@ -213,7 +218,6 @@ function probeBody(actionJson) {
         nestedCallables.push(k);
       }
     }
-    // Also ensure no exported object bags with constructor-like callables.
     for (const k of exportKeys) {
       const v = mod[k];
       if (v && typeof v === 'object') {
@@ -224,6 +228,31 @@ function probeBody(actionJson) {
         }
       }
     }
+
+    // Genuine freeze under poisoned ambient freeze/isFrozen.
+    let genuinelyFrozen = false;
+    let assignRejected = false;
+    if (result && typeof result === 'object') {
+      genuinelyFrozen = realIsFrozen(result) === true;
+      const beforeOk = result.ok;
+      const beforeStatus = result.status;
+      let threw = false;
+      try { result.ok = 'hostile'; result.status = 'hostile'; } catch (_) { threw = true; }
+      assignRejected = threw
+        || (result.ok === beforeOk && result.status === beforeStatus);
+    }
+
+    // failure() error remains frozen under ambient freeze poison.
+    let failFrozen = false;
+    let failAssignRejected = false;
+    try {
+      const err = mod.failure();
+      failFrozen = realIsFrozen(err) === true;
+      const beforeCode = err.code;
+      let threw = false;
+      try { err.code = 'hostile'; } catch (_) { threw = true; }
+      failAssignRejected = threw || err.code === beforeCode;
+    } catch (_) {}
 
     console.log(JSON.stringify({
       hits,
@@ -243,9 +272,11 @@ function probeBody(actionJson) {
         || typeof mod.createInboundEmailDeltaStateStore === 'function'
         || typeof mod.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition === 'function'
         || typeof mod.withPgClient === 'function',
-      // Do not call ambient Object.isFrozen after poison — pin resistance is
-      // proven by successful parse under poisoned intrinsics.
-      resultStatusOnly: !!(result && typeof result.status === 'string'),
+      genuinelyFrozen,
+      assignRejected,
+      failFrozen,
+      failAssignRejected,
+      exportsFrozen: realIsFrozen(mod) === true,
     }));
   `;
 }
@@ -288,13 +319,16 @@ function main() {
     && /withPgClient|exclusive|getPool|closePgPool|release/.test(src));
   ok('docs mention email-delta runtime composition inert',
     /email-delta-runtime|email-delta-sunset-staging-runtime-composition|LUNA_EMAIL_DELTA_RUNTIME_COMPOSITION_ENABLED/.test(doc));
-  ok('module pins security-critical intrinsics at init',
-    /PINNED_GET_OWN_PROPERTY_DESCRIPTOR/.test(src)
+  ok('module pins freeze + security-critical intrinsics at init',
+    /PINNED_OBJECT_FREEZE/.test(src)
+    && /PINNED_IS_FROZEN/.test(src)
+    && /PINNED_GET_OWN_PROPERTY_DESCRIPTOR/.test(src)
     && /PINNED_GET_PROTOTYPE_OF/.test(src)
     && /PINNED_REFLECT_OWN_KEYS/.test(src)
     && /PINNED_HAS_OWN|safeHasOwn/.test(src)
-    && /PINNED_IS_FROZEN/.test(src)
-    && /PINNED_IS_PROXY/.test(src));
+    && /PINNED_IS_PROXY/.test(src)
+    && /envOwnKeyDescriptorSurfaceAccepted|pinnedFreeze/.test(src)
+    && !/\bObject\.freeze\s*\(/.test(src.replace(/typeof Object\.freeze/g, '')));
   ok('no top-level require of #410/KV/state owner graph',
     !/require\s*\(\s*['"]\.\/email-grant-envelope-azure-kv/.test(src)
     && !/require\s*\(\s*['"]\.\/email-inbound-delta-state-store['"]/.test(src)
@@ -451,7 +485,7 @@ function main() {
       `got ${r && r.code}`);
   }
 
-  // Proxy / accessor / symbol / nonenumerable traps
+  // Proxy / accessor / symbol / nonenumerable complete-surface traps (fail closed)
   {
     const proxyEnv = new Proxy({ [E_COMP]: 'true' }, {
       get() { throw new Error(PLANTED); },
@@ -460,7 +494,9 @@ function main() {
     });
     const r = parseCfg(proxyEnv);
     ok('proxy env fail closed + no planted',
-      r.ok === false && noPlanted(r) && noPlanted(r.code));
+      r.ok === false
+      && r.status === CONFIG_STATUS.CONFIG_INVALID
+      && noPlanted(r) && noPlanted(r.code));
   }
   {
     const env = {};
@@ -470,19 +506,62 @@ function main() {
     });
     const r = parseCfg(env);
     ok('accessor flag fail closed',
-      r.ok === false && noPlanted(r));
+      r.ok === false
+      && r.status === CONFIG_STATUS.CONFIG_INVALID
+      && noPlanted(r));
   }
-  {
-    const env = enabledComposition();
-    Object.defineProperty(env, Symbol('secret'), {
-      enumerable: false,
-      value: PLANTED,
-    });
-    const r = parseCfg(env);
-    ok('symbol nonenumerable does not leak',
-      noPlanted(r)
-      && (r.status === CONFIG_STATUS.COMPOSITION_INERT || r.ok === false));
+
+  // Complete env own-key/descriptor surface: symbol / nonenumerable / accessor
+  // planted under composition-enabled AND disabled — all fail closed.
+  for (const [label, baseEnv] of [
+    ['composition-enabled', enabledComposition()],
+    ['disabled', exactEnv({})],
+  ]) {
+    {
+      const env = exactEnv(baseEnv);
+      Object.defineProperty(env, Symbol('secret'), {
+        enumerable: false,
+        value: PLANTED,
+      });
+      const r = parseCfg(env);
+      ok(`symbol own key fail closed (${label})`,
+        r.ok === false
+        && r.status === CONFIG_STATUS.CONFIG_INVALID
+        && noPlanted(r)
+        && isEmailDeltaCompositionFlagEnabled(env) === false,
+        `got ${r && r.status}`);
+    }
+    {
+      const env = exactEnv(baseEnv);
+      Object.defineProperty(env, 'UNRELATED_HOSTILE_NONENUM', {
+        enumerable: false,
+        value: PLANTED,
+      });
+      const r = parseCfg(env);
+      ok(`unrelated nonenumerable fail closed (${label})`,
+        r.ok === false
+        && r.status === CONFIG_STATUS.CONFIG_INVALID
+        && noPlanted(r)
+        && isEmailDeltaCompositionFlagEnabled(env) === false,
+        `got ${r && r.status}`);
+    }
+    {
+      const env = exactEnv(baseEnv);
+      Object.defineProperty(env, 'UNRELATED_HOSTILE_ACCESSOR', {
+        enumerable: true,
+        get() { throw new Error(PLANTED); },
+      });
+      const r = parseCfg(env);
+      ok(`unrelated accessor fail closed (${label})`,
+        r.ok === false
+        && r.status === CONFIG_STATUS.CONFIG_INVALID
+        && noPlanted(r)
+        && isEmailDeltaCompositionFlagEnabled(env) === false,
+        `got ${r && r.status}`);
+    }
   }
+
+  // Nonenumerable selected flag fails closed on complete surface (before reads).
   {
     const env = enabledComposition();
     Object.defineProperty(env, E_WORK, {
@@ -490,9 +569,19 @@ function main() {
       value: 'true',
     });
     const r = parseCfg(env);
-    ok('nonenumerable worker true still rejected',
-      r.status === CONFIG_STATUS.ACTIVATION_REJECTED
-      && r.worker_enabled === true
+    ok('nonenumerable worker true fail closed before selected reads',
+      r.ok === false
+      && r.status === CONFIG_STATUS.CONFIG_INVALID
+      && r.worker_enabled === false
+      && noPlanted(r));
+  }
+
+  // Unknown ordinary string env vars remain allowed.
+  {
+    const r = parseCfg(enabledComposition({ UNRELATED_ORDINARY_STRING: 'hello' }));
+    ok('unknown ordinary string env var allowed',
+      r.ok === true
+      && r.status === CONFIG_STATUS.COMPOSITION_INERT
       && noPlanted(r));
   }
 
@@ -576,7 +665,12 @@ function main() {
     const ch = runChild(probeBody(tc.action));
     const b = parseChildJson(ch);
     ok(`probe: ${tc.name}`,
-      ch.status === 0 && b && tc.expect(b),
+      ch.status === 0 && b && tc.expect(b)
+      && b.genuinelyFrozen === true
+      && b.assignRejected === true
+      && b.failFrozen === true
+      && b.failAssignRejected === true
+      && b.exportsFrozen === true,
       `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 200)}`);
   }
 
@@ -584,10 +678,13 @@ function main() {
   {
     const ch = runChild(`
       'use strict';
+      const realIsFrozen = Object.isFrozen;
       const mod = require(${JSON.stringify(CFG_PATH)});
       Object.getOwnPropertyDescriptor = () => { throw new Error(${JSON.stringify(PLANTED)}); };
       Object.getPrototypeOf = () => { throw new Error(${JSON.stringify(PLANTED)}); };
       Reflect.ownKeys = () => { throw new Error(${JSON.stringify(PLANTED)}); };
+      Object.freeze = () => { throw new Error(${JSON.stringify(PLANTED)}); };
+      Object.isFrozen = () => false;
       const proxyEnv = new Proxy({ ${JSON.stringify(E_COMP)}: 'true' }, {
         get() { throw new Error(${JSON.stringify(PLANTED)}); },
         getOwnPropertyDescriptor() { throw new Error(${JSON.stringify(PLANTED)}); },
@@ -595,14 +692,62 @@ function main() {
       });
       const r = mod.parseEmailDeltaRuntimeConfig(proxyEnv);
       const s = JSON.stringify(r);
+      let assignRejected = false;
+      try { r.ok = 'hostile'; assignRejected = r.ok === false; } catch (_) { assignRejected = true; }
       console.log(JSON.stringify({
         ok: r && r.ok === false && !s.includes(${JSON.stringify(PLANTED)}),
         status: r && r.status,
+        genuinelyFrozen: realIsFrozen(r) === true,
+        assignRejected,
       }));
     `);
     const b = parseChildJson(ch);
-    ok('probe: hostile proxy + ambient intrinsic poison fail-closed',
-      ch.status === 0 && b && b.ok, JSON.stringify(b));
+    ok('probe: hostile proxy + ambient freeze/intrinsic poison fail-closed',
+      ch.status === 0 && b && b.ok && b.genuinelyFrozen && b.assignRejected,
+      JSON.stringify(b));
+  }
+
+  // Post-require ambient Object.freeze / Object.isFrozen replacement:
+  // returned readiness remains genuinely frozen; assignments rejected.
+  {
+    const ch = runChild(`
+      'use strict';
+      const realIsFrozen = Object.isFrozen;
+      const mod = require(${JSON.stringify(CFG_PATH)});
+      Object.freeze = function() { throw new Error(${JSON.stringify(PLANTED)}); };
+      Object.isFrozen = function() { return false; };
+      const disabled = mod.parseEmailDeltaRuntimeConfig({});
+      const inertEnv = ${JSON.stringify(enabledComposition())};
+      const inert = mod.parseEmailDeltaRuntimeConfig(inertEnv);
+      const err = mod.failure();
+      function assignHard(obj, key, val) {
+        const before = obj[key];
+        let threw = false;
+        try { obj[key] = val; } catch (_) { threw = true; }
+        return threw || obj[key] === before;
+      }
+      console.log(JSON.stringify({
+        disabledFrozen: realIsFrozen(disabled) === true,
+        disabledAssign: assignHard(disabled, 'status', 'hostile'),
+        disabledStatus: disabled && disabled.status,
+        inertFrozen: realIsFrozen(inert) === true,
+        inertAssign: assignHard(inert, 'ok', 'hostile'),
+        inertStatus: inert && inert.status,
+        errFrozen: realIsFrozen(err) === true,
+        errAssign: assignHard(err, 'code', 'hostile'),
+        exportsFrozen: realIsFrozen(mod) === true,
+        ambientIsFrozenLies: Object.isFrozen(disabled) === false,
+      }));
+    `);
+    const b = parseChildJson(ch);
+    ok('probe: post-require freeze/isFrozen poison — surfaces genuinely frozen',
+      ch.status === 0 && b
+      && b.disabledFrozen && b.disabledAssign && b.disabledStatus === 'disabled'
+      && b.inertFrozen && b.inertAssign && b.inertStatus === 'composition_inert'
+      && b.errFrozen && b.errAssign
+      && b.exportsFrozen
+      && b.ambientIsFrozenLies === true,
+      JSON.stringify(b));
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);

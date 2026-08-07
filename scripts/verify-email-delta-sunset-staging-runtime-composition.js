@@ -16,7 +16,6 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const assert = require('node:assert/strict');
 
 const ROOT = path.join(__dirname, '..');
 const COMP_REL = 'scripts/lib/email-delta-sunset-staging-runtime-composition.js';
@@ -183,6 +182,7 @@ function compositionProbeBody(scenario) {
     global.setInterval = function(...a) { timerHits.push('setInterval'); return _si(...a); };
 
     const scenario = ${JSON.stringify(scenario)};
+    const realIsFrozen = Object.isFrozen;
     const mod = require(${JSON.stringify(COMP_PATH)});
 
     // Ambient intrinsic monkeypatch AFTER require — pins must resist.
@@ -190,8 +190,17 @@ function compositionProbeBody(scenario) {
     Object.getOwnPropertyDescriptor = poison;
     Object.getPrototypeOf = poison;
     Reflect.ownKeys = poison;
-    Object.isFrozen = poison;
+    Object.freeze = poison;
+    Object.isFrozen = function() { return false; };
     try { require('util').types.isProxy = function() { return false; }; } catch (_) {}
+
+    function assignHard(obj, key, val) {
+      if (!obj || typeof obj !== 'object') return false;
+      const before = obj[key];
+      let threw = false;
+      try { obj[key] = val; } catch (_) { threw = true; }
+      return threw || obj[key] === before;
+    }
 
     const r0 = mod.resolveEmailDeltaSunsetStagingRuntimeReadiness(scenario.env || {});
     const life0 = mod.resolveEmailDeltaSunsetStagingRuntimeLifecycle(scenario.env || {});
@@ -208,14 +217,30 @@ function compositionProbeBody(scenario) {
     let surfaceKeys = null;
     let nestedCallables = [];
     let surfaceHasOwnerLoader = false;
+    let surfaceFrozen = false;
+    let readinessFrozen = false;
+    let lifeFrozen = false;
+    let surfaceAssignRejected = false;
+    let readinessAssignRejected = false;
+    let lifeAssignRejected = false;
+    let hardFailFrozen = false;
+    let hardFailAssignRejected = false;
 
     if (c) {
       readiness = c.getReadiness();
       life = c.getLifecycle();
-      try { surfaceKeys = Reflect.ownKeys(c).map(String); } catch (_) {
-        surfaceKeys = Object.keys(c);
+      try { surfaceKeys = Object.keys(c); } catch (_) { surfaceKeys = []; }
+      surfaceFrozen = realIsFrozen(c) === true;
+      readinessFrozen = realIsFrozen(readiness) === true;
+      lifeFrozen = realIsFrozen(life) === true;
+      surfaceAssignRejected = assignHard(c, 'run', null);
+      readinessAssignRejected = assignHard(readiness, 'status', 'hostile');
+      lifeAssignRejected = assignHard(life, 'state', 'hostile');
+      try { c.run(${JSON.stringify(PLANTED_PII)}); } catch (e) {
+        runCode = e && e.code;
+        hardFailFrozen = realIsFrozen(e) === true;
+        hardFailAssignRejected = assignHard(e, 'code', 'hostile');
       }
-      try { c.run(${JSON.stringify(PLANTED_PII)}); } catch (e) { runCode = e && e.code; }
       try { c.reconcile(); } catch (e) { reconcileCode = e && e.code; }
       try { c.restart(); } catch (e) { restartCode = e && e.code; }
 
@@ -253,12 +278,16 @@ function compositionProbeBody(scenario) {
       timerHits,
       r0Status: r0 && r0.status,
       r0Ok: r0 && r0.ok,
+      r0Frozen: realIsFrozen(r0) === true,
+      r0AssignRejected: assignHard(r0, 'status', 'hostile'),
       life0State: life0 && life0.state,
       life0Db: life0 && life0.db_touch,
       life0Kv: life0 && life0.kv_sdk_touch,
       life0Graph: life0 && life0.graph_touch,
       life0Timer: life0 && life0.timer_touch,
       life0Runtime: life0 && life0.runtime_activation,
+      life0Frozen: realIsFrozen(life0) === true,
+      life0AssignRejected: assignHard(life0, 'state', 'hostile'),
       factoryErr,
       status: readiness && readiness.status,
       ok: readiness && readiness.ok,
@@ -273,6 +302,15 @@ function compositionProbeBody(scenario) {
       runtime_activation: readiness && readiness.runtime_activation,
       kv_pins_valid: readiness && readiness.kv_pins_valid,
       code: readiness && readiness.code,
+      surfaceFrozen,
+      readinessFrozen,
+      lifeFrozen,
+      surfaceAssignRejected,
+      readinessAssignRejected,
+      lifeAssignRejected,
+      hardFailFrozen,
+      hardFailAssignRejected,
+      exportsFrozen: realIsFrozen(mod) === true,
     }));
   `;
 }
@@ -285,7 +323,6 @@ function main() {
   const doc = fs.readFileSync(DOC_PATH, 'utf8');
   const pkg = JSON.parse(fs.readFileSync(PKG_PATH, 'utf8'));
   const pgConnect = fs.readFileSync(PG_CONNECT_PATH, 'utf8');
-  const verifierSrc = fs.readFileSync(__filename, 'utf8');
 
   ok('package scripts present',
     !!(pkg.scripts && pkg.scripts['verify:email-delta-sunset-staging-runtime-composition']
@@ -318,13 +355,16 @@ function main() {
     && /withPgClient/.test(pgConnect)
     && /client\.release/.test(pgConnect)
     && /never close application pool|forbid_close_application_pool|outer_release_owner/.test(cfgSrc));
-  ok('composition pins security-critical intrinsics',
-    /PINNED_GET_OWN_PROPERTY_DESCRIPTOR/.test(src)
+  ok('composition pins freeze + security-critical intrinsics',
+    /PINNED_OBJECT_FREEZE/.test(src)
+    && /PINNED_IS_FROZEN/.test(src)
+    && /PINNED_GET_OWN_PROPERTY_DESCRIPTOR/.test(src)
     && /PINNED_GET_PROTOTYPE_OF/.test(src)
     && /PINNED_REFLECT_OWN_KEYS/.test(src)
     && /PINNED_HAS_OWN|safeHasOwn/.test(src)
-    && /PINNED_IS_FROZEN/.test(src)
-    && /PINNED_IS_PROXY/.test(src));
+    && /PINNED_IS_PROXY/.test(src)
+    && /pinnedFreeze/.test(src)
+    && !/\bObject\.freeze\s*\(/.test(src.replace(/typeof Object\.freeze/g, '')));
   ok('no owner-loader / #410 require / lazy factory in composition',
     !/createLazyDurableOwnersAccessor|createLazyDurableOperationFactory|getLazyDurableOwners/.test(src)
     && !/email-authority-bound-messages-delta-offline-composition/.test(src)
@@ -523,7 +563,68 @@ function main() {
     const c = create({ env });
     const r = c.getReadiness();
     ok('accessor env → config invalid sanitized',
-      r.ok === false && noPlanted(r) && noPlanted(r.code));
+      r.ok === false
+      && r.status === CONFIG_STATUS.CONFIG_INVALID
+      && noPlanted(r) && noPlanted(r.code));
+  }
+
+  // Complete env own-key/descriptor surface under composition-enabled + disabled.
+  for (const [label, baseEnv] of [
+    ['composition-enabled', enabledComposition()],
+    ['disabled', exactEnv({})],
+  ]) {
+    {
+      const env = exactEnv(baseEnv);
+      Object.defineProperty(env, Symbol('secret'), {
+        enumerable: false,
+        value: PLANTED,
+      });
+      const c = create({ env });
+      const r = c.getReadiness();
+      ok(`composition symbol own key fail closed (${label})`,
+        r.ok === false
+        && r.status === CONFIG_STATUS.CONFIG_INVALID
+        && noPlanted(r),
+        `got ${r && r.status}`);
+    }
+    {
+      const env = exactEnv(baseEnv);
+      Object.defineProperty(env, 'UNRELATED_HOSTILE_NONENUM', {
+        enumerable: false,
+        value: PLANTED,
+      });
+      const c = create({ env });
+      const r = c.getReadiness();
+      ok(`composition unrelated nonenumerable fail closed (${label})`,
+        r.ok === false
+        && r.status === CONFIG_STATUS.CONFIG_INVALID
+        && noPlanted(r),
+        `got ${r && r.status}`);
+    }
+    {
+      const env = exactEnv(baseEnv);
+      Object.defineProperty(env, 'UNRELATED_HOSTILE_ACCESSOR', {
+        enumerable: true,
+        get() { throw new Error(PLANTED); },
+      });
+      const c = create({ env });
+      const r = c.getReadiness();
+      ok(`composition unrelated accessor fail closed (${label})`,
+        r.ok === false
+        && r.status === CONFIG_STATUS.CONFIG_INVALID
+        && noPlanted(r),
+        `got ${r && r.status}`);
+    }
+  }
+
+  // Unknown ordinary string env vars remain allowed on composition path.
+  {
+    const c = create({ env: enabledComposition({ UNRELATED_ORDINARY_STRING: 'hello' }) });
+    const r = c.getReadiness();
+    ok('composition unknown ordinary string env var allowed',
+      r.ok === true
+      && r.status === CONFIG_STATUS.COMPOSITION_INERT
+      && noPlanted(r));
   }
 
   // ── Fresh-process behavioral probes ────────────────────────────────────
@@ -616,8 +717,63 @@ function main() {
     const ch = runChild(compositionProbeBody({ env: sc.env }));
     const b = parseChildJson(ch);
     ok(`probe: ${sc.name}`,
-      ch.status === 0 && b && sc.expect(b),
+      ch.status === 0 && b && sc.expect(b)
+      && b.r0Frozen === true && b.r0AssignRejected === true
+      && b.life0Frozen === true && b.life0AssignRejected === true
+      && b.surfaceFrozen === true && b.surfaceAssignRejected === true
+      && b.readinessFrozen === true && b.readinessAssignRejected === true
+      && b.lifeFrozen === true && b.lifeAssignRejected === true
+      && b.hardFailFrozen === true && b.hardFailAssignRejected === true
+      && b.exportsFrozen === true,
       `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 240)}`);
+  }
+
+  // Post-require ambient Object.freeze / Object.isFrozen replacement.
+  {
+    const ch = runChild(`
+      'use strict';
+      const realIsFrozen = Object.isFrozen;
+      const mod = require(${JSON.stringify(COMP_PATH)});
+      Object.freeze = function() { throw new Error(${JSON.stringify(PLANTED)}); };
+      Object.isFrozen = function() { return false; };
+      const c = mod.createEmailDeltaSunsetStagingRuntimeComposition({
+        env: ${JSON.stringify(enabledComposition())},
+      });
+      const r = c.getReadiness();
+      const life = c.getLifecycle();
+      function assignHard(obj, key, val) {
+        const before = obj[key];
+        let threw = false;
+        try { obj[key] = val; } catch (_) { threw = true; }
+        return threw || obj[key] === before;
+      }
+      let hardFail = null;
+      try { c.run(); } catch (e) { hardFail = e; }
+      console.log(JSON.stringify({
+        surfaceFrozen: realIsFrozen(c) === true,
+        readinessFrozen: realIsFrozen(r) === true,
+        lifeFrozen: realIsFrozen(life) === true,
+        hardFailFrozen: hardFail && realIsFrozen(hardFail) === true,
+        surfaceAssign: assignHard(c, 'run', null),
+        readinessAssign: assignHard(r, 'status', 'hostile'),
+        lifeAssign: assignHard(life, 'state', 'hostile'),
+        hardFailAssign: hardFail ? assignHard(hardFail, 'code', 'hostile') : false,
+        status: r && r.status,
+        lifeState: life && life.state,
+        hardFailCode: hardFail && hardFail.code,
+        ambientLies: Object.isFrozen(c) === false,
+        exportsFrozen: realIsFrozen(mod) === true,
+      }));
+    `);
+    const b = parseChildJson(ch);
+    ok('probe: post-require freeze/isFrozen poison — composition surfaces frozen',
+      ch.status === 0 && b
+      && b.surfaceFrozen && b.readinessFrozen && b.lifeFrozen && b.hardFailFrozen
+      && b.surfaceAssign && b.readinessAssign && b.lifeAssign && b.hardFailAssign
+      && b.status === 'composition_inert' && b.lifeState === 'inert'
+      && b.hardFailCode === 'email_delta_activation_impossible'
+      && b.ambientLies === true && b.exportsFrozen === true,
+      JSON.stringify(b));
   }
 
   // Staff integration resolve-only block
@@ -688,8 +844,6 @@ function main() {
     ok('probe: ordinary Staff startup path disabled + zero owner load',
       ch.status === 0 && b && b.ok, JSON.stringify(b));
   }
-
-  assert.ok(verifierSrc.length > 100);
 
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);

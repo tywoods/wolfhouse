@@ -30,6 +30,11 @@
  * Public surface: exact frozen readiness + lifecycle only.
  * run / reconcile / restart hard-fail without touching dependencies.
  *
+ * Module-init pins include Object.freeze alongside isFrozen; all
+ * errors/lifecycle/surface/constants freeze via the pinned callable.
+ * Env surface hostility (symbol/nonenumerable/accessor/malformed) is
+ * fail-closed by the config adapter before selected reads.
+ *
  * @module email-delta-sunset-staging-runtime-composition
  */
 
@@ -63,9 +68,56 @@ const EMAIL_DELTA_RUNTIME_COMPOSITION_SAFE_FOR_SCHEDULER = false;
 const EMAIL_DELTA_RUNTIME_COMPOSITION_SAFE_FOR_ADMIN_ROUTE = false;
 const EMAIL_DELTA_RUNTIME_COMPOSITION_ACTIVATION_POSSIBLE = false;
 
-const DEPENDENCY_KEYS = Object.freeze(['env']);
+const ACTIVATION_HARD_FAIL_CODE = 'email_delta_activation_impossible';
+const ACTIVATION_HARD_FAIL_MESSAGE = 'Email delta activation is impossible in this composition.';
 
-const LIFECYCLE_KEYS = Object.freeze([
+const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+
+/* ── Module-init pins (security-critical intrinsics) ───────────────────────
+ * Object.freeze pinned alongside isFrozen so post-require ambient freeze
+ * replacement cannot leave lifecycle/surface/error results unfrozen.
+ */
+const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
+const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
+  ? PINNED_UTIL_TYPES.isProxy
+  : null;
+const PINNED_OBJECT_PROTOTYPE = Object.prototype;
+const PINNED_REFLECT_APPLY = typeof Reflect.apply === 'function' ? Reflect.apply : null;
+const PINNED_REFLECT_OWN_KEYS = typeof Reflect.ownKeys === 'function' ? Reflect.ownKeys : null;
+const PINNED_GET_OWN_PROPERTY_DESCRIPTOR =
+  typeof Object.getOwnPropertyDescriptor === 'function' ? Object.getOwnPropertyDescriptor : null;
+const PINNED_GET_PROTOTYPE_OF =
+  typeof Object.getPrototypeOf === 'function' ? Object.getPrototypeOf : null;
+const PINNED_OBJECT_FREEZE =
+  typeof Object.freeze === 'function' ? Object.freeze : null;
+const PINNED_IS_FROZEN =
+  typeof Object.isFrozen === 'function' ? Object.isFrozen : null;
+const PINNED_HAS_OWN =
+  typeof Object.prototype.hasOwnProperty === 'function'
+    ? Object.prototype.hasOwnProperty
+    : null;
+
+const PINNED_INTRINSICS_READY = Boolean(
+  PINNED_IS_PROXY
+  && PINNED_UTIL_TYPES
+  && PINNED_REFLECT_APPLY
+  && PINNED_REFLECT_OWN_KEYS
+  && PINNED_GET_OWN_PROPERTY_DESCRIPTOR
+  && PINNED_GET_PROTOTYPE_OF
+  && PINNED_OBJECT_FREEZE
+  && PINNED_IS_FROZEN
+  && PINNED_HAS_OWN
+  && PINNED_OBJECT_PROTOTYPE,
+);
+
+/** Pinned freeze — never ambient Object.freeze after module init. */
+function pinnedFreeze(value) {
+  return PINNED_OBJECT_FREEZE.call(Object, value);
+}
+
+const DEPENDENCY_KEYS = pinnedFreeze(['env']);
+
+const LIFECYCLE_KEYS = pinnedFreeze([
   'state',
   'import_inert',
   'startup_side_effect_free',
@@ -83,49 +135,13 @@ const LIFECYCLE_KEYS = Object.freeze([
 ]);
 
 /** Public surface only — no owner-loader, no #410 factory, no dependency bag. */
-const SURFACE_KEYS = Object.freeze([
+const SURFACE_KEYS = pinnedFreeze([
   'getReadiness',
   'getLifecycle',
   'run',
   'reconcile',
   'restart',
 ]);
-
-const ACTIVATION_HARD_FAIL_CODE = 'email_delta_activation_impossible';
-const ACTIVATION_HARD_FAIL_MESSAGE = 'Email delta activation is impossible in this composition.';
-
-const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
-
-/* ── Module-init pins (security-critical intrinsics) ─────────────────────── */
-const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
-const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
-  ? PINNED_UTIL_TYPES.isProxy
-  : null;
-const PINNED_OBJECT_PROTOTYPE = Object.prototype;
-const PINNED_REFLECT_APPLY = typeof Reflect.apply === 'function' ? Reflect.apply : null;
-const PINNED_REFLECT_OWN_KEYS = typeof Reflect.ownKeys === 'function' ? Reflect.ownKeys : null;
-const PINNED_GET_OWN_PROPERTY_DESCRIPTOR =
-  typeof Object.getOwnPropertyDescriptor === 'function' ? Object.getOwnPropertyDescriptor : null;
-const PINNED_GET_PROTOTYPE_OF =
-  typeof Object.getPrototypeOf === 'function' ? Object.getPrototypeOf : null;
-const PINNED_IS_FROZEN =
-  typeof Object.isFrozen === 'function' ? Object.isFrozen : null;
-const PINNED_HAS_OWN =
-  typeof Object.prototype.hasOwnProperty === 'function'
-    ? Object.prototype.hasOwnProperty
-    : null;
-
-const PINNED_INTRINSICS_READY = Boolean(
-  PINNED_IS_PROXY
-  && PINNED_UTIL_TYPES
-  && PINNED_REFLECT_APPLY
-  && PINNED_REFLECT_OWN_KEYS
-  && PINNED_GET_OWN_PROPERTY_DESCRIPTOR
-  && PINNED_GET_PROTOTYPE_OF
-  && PINNED_IS_FROZEN
-  && PINNED_HAS_OWN
-  && PINNED_OBJECT_PROTOTYPE,
-);
 
 // Static alignment with config pins.
 if (SUNSET_DEPLOYMENT !== 'sunset-staging') {
@@ -153,7 +169,7 @@ function failure() {
     value: 'EmailDeltaSunsetStagingRuntimeCompositionError',
   });
   Object.defineProperty(error, 'code', { value: ERROR_CODE, enumerable: true });
-  return Object.freeze(error);
+  return pinnedFreeze(error);
 }
 
 function activationHardFail() {
@@ -165,7 +181,7 @@ function activationHardFail() {
     value: ACTIVATION_HARD_FAIL_CODE,
     enumerable: true,
   });
-  return Object.freeze(error);
+  return pinnedFreeze(error);
 }
 
 /** Pinned Object.prototype.hasOwnProperty.call — never ambient rebinding. */
@@ -260,7 +276,7 @@ function lifecycleFromReadiness(readiness) {
   else if (status === CONFIG_STATUS.CONFIG_INVALID) state = 'invalid';
   else if (status === CONFIG_STATUS.DISABLED) state = 'disabled';
 
-  return Object.freeze({
+  return pinnedFreeze({
     state,
     import_inert: true,
     startup_side_effect_free: true,
@@ -361,7 +377,7 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps) {
       throw activationHardFail();
     }
 
-    const surface = Object.freeze({
+    const surface = pinnedFreeze({
       getReadiness,
       getLifecycle,
       run,
@@ -371,18 +387,7 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps) {
 
     // Exact public key set (no extras, no owner-loader).
     if (!exactFrozenData(surface, SURFACE_KEYS)) {
-      // Fallback check when freeze/plain drift; still reject extras.
-      try {
-        if (!PINNED_IS_FROZEN.call(Object, surface)) throw failure();
-        const keys = PINNED_REFLECT_OWN_KEYS.call(Reflect, surface);
-        if (keys.length !== SURFACE_KEYS.length
-            || !SURFACE_KEYS.every((k) => typeof surface[k] === 'function')) {
-          throw failure();
-        }
-      } catch (e) {
-        if (e && e.code === ERROR_CODE) throw e;
-        throw failure();
-      }
+      throw failure();
     }
 
     return surface;
@@ -395,7 +400,7 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps) {
   }
 }
 
-module.exports = Object.freeze({
+module.exports = pinnedFreeze({
   ERROR_CODE,
   ERROR_MESSAGE,
   ACTIVATION_HARD_FAIL_CODE,

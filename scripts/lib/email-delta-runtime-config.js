@@ -37,6 +37,14 @@
  * Side-effect-free: no DB checkout/query, no Pool, no Azure credential/KV SDK,
  * no crypto unwrap, no Graph, no timer, no lease, no migration/DDL.
  *
+ * Hostile env fail-closed (before selected config reads): complete own-key/
+ * descriptor surface via pinned Reflect.ownKeys + getOwnPropertyDescriptor —
+ * reject any symbol own key, non-enumerable own property, accessor, or
+ * malformed descriptor. Normal process.env string enumerable data props and
+ * unknown ordinary string env vars remain accepted. Module-init pins include
+ * Object.freeze alongside isFrozen; all errors/readiness/constants freeze via
+ * the pinned callable (post-require ambient freeze replacement cannot unfreeze).
+ *
  * @module email-delta-runtime-config
  */
 
@@ -84,20 +92,64 @@ const SUNSET_STAGING_VERSIONED_KEY_ID = (
 );
 const SUNSET_STAGING_MI_CLIENT_ID = '0e05fbe3-e8c5-48aa-a914-30aed284e6f7';
 
-const ENV_FLAG_KEYS = Object.freeze([
+/* ── Module-init pins (security-critical intrinsics) ────────────────────────
+ * Ambient global/prototype monkeypatches after load must not weaken hostile
+ * boundary checks. All own-data / prototype / freeze / proxy paths use pins.
+ * Object.freeze is pinned alongside isFrozen so post-require ambient freeze
+ * replacement cannot leave errors/readiness/surfaces unfrozen.
+ */
+const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
+const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
+  ? PINNED_UTIL_TYPES.isProxy
+  : null;
+const PINNED_OBJECT_PROTOTYPE = Object.prototype;
+const PINNED_REFLECT_APPLY = typeof Reflect.apply === 'function' ? Reflect.apply : null;
+const PINNED_REFLECT_OWN_KEYS = typeof Reflect.ownKeys === 'function' ? Reflect.ownKeys : null;
+const PINNED_GET_OWN_PROPERTY_DESCRIPTOR =
+  typeof Object.getOwnPropertyDescriptor === 'function' ? Object.getOwnPropertyDescriptor : null;
+const PINNED_GET_PROTOTYPE_OF =
+  typeof Object.getPrototypeOf === 'function' ? Object.getPrototypeOf : null;
+const PINNED_OBJECT_FREEZE =
+  typeof Object.freeze === 'function' ? Object.freeze : null;
+const PINNED_IS_FROZEN =
+  typeof Object.isFrozen === 'function' ? Object.isFrozen : null;
+const PINNED_HAS_OWN =
+  typeof Object.prototype.hasOwnProperty === 'function'
+    ? Object.prototype.hasOwnProperty
+    : null;
+
+const PINNED_INTRINSICS_READY = Boolean(
+  PINNED_IS_PROXY
+  && PINNED_UTIL_TYPES
+  && PINNED_REFLECT_APPLY
+  && PINNED_REFLECT_OWN_KEYS
+  && PINNED_GET_OWN_PROPERTY_DESCRIPTOR
+  && PINNED_GET_PROTOTYPE_OF
+  && PINNED_OBJECT_FREEZE
+  && PINNED_IS_FROZEN
+  && PINNED_HAS_OWN
+  && PINNED_OBJECT_PROTOTYPE,
+);
+
+/** Pinned freeze — never ambient Object.freeze after module init. */
+function pinnedFreeze(value) {
+  return PINNED_OBJECT_FREEZE.call(Object, value);
+}
+
+const ENV_FLAG_KEYS = pinnedFreeze([
   ENV_COMPOSITION_ENABLED,
   ENV_WORKER_ENABLED,
   ENV_ADMIN_ENABLED,
 ]);
 
-const CONFIG_STATUS = Object.freeze({
+const CONFIG_STATUS = pinnedFreeze({
   DISABLED: 'disabled',
   COMPOSITION_INERT: 'composition_inert',
   ACTIVATION_REJECTED: 'activation_rejected',
   CONFIG_INVALID: 'config_invalid',
 });
 
-const READINESS_KEYS = Object.freeze([
+const READINESS_KEYS = pinnedFreeze([
   'ok',
   'status',
   'composition_enabled',
@@ -130,7 +182,7 @@ const READINESS_KEYS = Object.freeze([
  *     `withPgClient` owns release (and discard-required release(true)).
  * This PR never exports/returns withPgClient, getPool, or any DB dependency bag.
  */
-const FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT = Object.freeze({
+const FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT = pinnedFreeze({
   active_in_this_pr: false,
   exclusive_loan_required: true,
   outer_release_owner: 'pg-connect.withPgClient',
@@ -140,7 +192,7 @@ const FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT = Object.freeze({
   document_only: true,
 });
 
-const MIGRATION_064_READINESS_CONTRACT = Object.freeze({
+const MIGRATION_064_READINESS_CONTRACT = pinnedFreeze({
   id: MIGRATION_064_ID,
   filename: MIGRATION_064_FILENAME,
   table: MIGRATION_064_TABLE,
@@ -149,46 +201,12 @@ const MIGRATION_064_READINESS_CONTRACT = Object.freeze({
   ddl_allowed: false,
 });
 
-const CANONICAL_WORKER_CONFIG = Object.freeze({
+const CANONICAL_WORKER_CONFIG = pinnedFreeze({
   worker_id: WORKER_ID,
   min_len: WORKER_ID_MIN_LEN,
   max_len: WORKER_ID_MAX_LEN,
   no_whitespace: true,
 });
-
-/* ── Module-init pins (security-critical intrinsics) ────────────────────────
- * Ambient global/prototype monkeypatches after load must not weaken hostile
- * boundary checks. All own-data / prototype / freeze / proxy paths use pins.
- */
-const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
-const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
-  ? PINNED_UTIL_TYPES.isProxy
-  : null;
-const PINNED_OBJECT_PROTOTYPE = Object.prototype;
-const PINNED_REFLECT_APPLY = typeof Reflect.apply === 'function' ? Reflect.apply : null;
-const PINNED_REFLECT_OWN_KEYS = typeof Reflect.ownKeys === 'function' ? Reflect.ownKeys : null;
-const PINNED_GET_OWN_PROPERTY_DESCRIPTOR =
-  typeof Object.getOwnPropertyDescriptor === 'function' ? Object.getOwnPropertyDescriptor : null;
-const PINNED_GET_PROTOTYPE_OF =
-  typeof Object.getPrototypeOf === 'function' ? Object.getPrototypeOf : null;
-const PINNED_IS_FROZEN =
-  typeof Object.isFrozen === 'function' ? Object.isFrozen : null;
-const PINNED_HAS_OWN =
-  typeof Object.prototype.hasOwnProperty === 'function'
-    ? Object.prototype.hasOwnProperty
-    : null;
-
-const PINNED_INTRINSICS_READY = Boolean(
-  PINNED_IS_PROXY
-  && PINNED_UTIL_TYPES
-  && PINNED_REFLECT_APPLY
-  && PINNED_REFLECT_OWN_KEYS
-  && PINNED_GET_OWN_PROPERTY_DESCRIPTOR
-  && PINNED_GET_PROTOTYPE_OF
-  && PINNED_IS_FROZEN
-  && PINNED_HAS_OWN
-  && PINNED_OBJECT_PROTOTYPE,
-);
 
 if (typeof QUERY_VERSION !== 'string' || QUERY_VERSION !== 'ms_messages_delta_v1') {
   throw new Error('email_delta_runtime_config_query_version_unexpected');
@@ -204,7 +222,7 @@ function failure() {
   const error = new Error(ERROR_MESSAGE);
   Object.defineProperty(error, 'name', { value: 'EmailDeltaRuntimeConfigError' });
   Object.defineProperty(error, 'code', { value: ERROR_CODE, enumerable: true });
-  return Object.freeze(error);
+  return pinnedFreeze(error);
 }
 
 /** Pinned Object.prototype.hasOwnProperty.call — never ambient rebinding. */
@@ -227,7 +245,53 @@ function isProxySurface(value) {
 }
 
 /**
- * Own-data string env read only (reject accessor/symbol/nonenumerable traps).
+ * Fail-closed complete env own-key/descriptor surface (before selected config reads).
+ *
+ * Uses only pinned Reflect.ownKeys + getOwnPropertyDescriptor (bounded; no
+ * ambient get that would invoke accessors). Rejects:
+ *   - any symbol own key
+ *   - any non-enumerable own property
+ *   - any accessor descriptor (get/set)
+ *   - any malformed descriptor (missing data value, non-string env value)
+ *
+ * Accepts normal process.env-like surfaces: ordinary string keys with
+ * enumerable string data props. Unknown ordinary string env vars remain allowed.
+ *
+ * @param {object} env
+ * @returns {boolean}
+ */
+function envOwnKeyDescriptorSurfaceAccepted(env) {
+  try {
+    if (env == null || (typeof env !== 'object' && typeof env !== 'function')) {
+      return false;
+    }
+    if (!PINNED_INTRINSICS_READY) return false;
+    if (isProxySurface(env)) return false;
+    const keys = PINNED_REFLECT_OWN_KEYS.call(Reflect, env);
+    for (let i = 0; i < keys.length; i += 1) {
+      const key = keys[i];
+      if (typeof key === 'symbol') return false;
+      if (typeof key !== 'string') return false;
+      const desc = PINNED_GET_OWN_PROPERTY_DESCRIPTOR.call(Object, env, key);
+      if (!desc || typeof desc !== 'object') return false;
+      // Accessors fail closed without invoking get/set.
+      if (typeof desc.get === 'function' || typeof desc.set === 'function') return false;
+      // Data descriptor with own value required (malformed otherwise).
+      if (!safeHasOwn(desc, 'value')) return false;
+      // Non-enumerable own properties fail closed anywhere on env.
+      if (desc.enumerable !== true) return false;
+      // process.env contract: values are strings.
+      if (typeof desc.value !== 'string') return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Own-data string env read only (reject accessor/nonenumerable/malformed).
+ * Selected-key path; complete surface is validated first.
  * @returns {{ ok: false } | { ok: true, present: false } | { ok: true, present: true, value: string }}
  */
 function readEnvString(env, key) {
@@ -241,9 +305,10 @@ function readEnvString(env, key) {
       return { ok: true, present: false };
     }
     const desc = PINNED_GET_OWN_PROPERTY_DESCRIPTOR.call(Object, env, key);
-    if (!desc) return { ok: false };
+    if (!desc || typeof desc !== 'object') return { ok: false };
     if (typeof desc.get === 'function' || typeof desc.set === 'function') return { ok: false };
     if (!safeHasOwn(desc, 'value')) return { ok: false };
+    if (desc.enumerable !== true) return { ok: false };
     if (typeof desc.value !== 'string') return { ok: false };
     return { ok: true, present: true, value: desc.value };
   } catch {
@@ -264,7 +329,7 @@ function frozenReadiness(fields) {
   for (const key of READINESS_KEYS) {
     out[key] = fields[key];
   }
-  return Object.freeze(out);
+  return pinnedFreeze(out);
 }
 
 function disabledReadiness() {
@@ -446,7 +511,16 @@ function kvPinsValidExact(env) {
 function parseEmailDeltaRuntimeConfig(env) {
   try {
     if (env == null || (typeof env !== 'object' && typeof env !== 'function')
-        || Array.isArray(env) || isProxySurface(env)) {
+        || Array.isArray(env)) {
+      return invalidReadiness(
+        { composition: false, worker: false, admin: false },
+        'email_delta_runtime_config_invalid',
+      );
+    }
+
+    // Complete own-key/descriptor surface before any selected config reads.
+    // Proxy / symbol / nonenumerable / accessor / malformed → fail closed.
+    if (!envOwnKeyDescriptorSurfaceAccepted(env)) {
       return invalidReadiness(
         { composition: false, worker: false, admin: false },
         'email_delta_runtime_config_invalid',
@@ -490,7 +564,7 @@ function parseEmailDeltaRuntimeConfig(env) {
       return invalidReadiness(flags, 'email_delta_tenant_mismatch');
     }
 
-    // Existing pinned envelope/KV settings — raw-exact then existing parser.
+    // Existing pinned envelope/KV settings — raw-exact (zero owner load).
     if (!kvPinsValidExact(env)) {
       return invalidReadiness(flags, 'email_delta_kv_pins_invalid');
     }
@@ -507,10 +581,15 @@ function parseEmailDeltaRuntimeConfig(env) {
 /**
  * Whether composition flag is exact true AND worker/admin are not true.
  * Does not validate deployment/tenant/KV pins (use parseEmailDeltaRuntimeConfig).
- * Never loads owner graph.
+ * Never loads owner graph. Hostile complete env surface → false.
  */
 function isEmailDeltaCompositionFlagEnabled(env) {
   try {
+    if (env == null || (typeof env !== 'object' && typeof env !== 'function')
+        || Array.isArray(env)
+        || !envOwnKeyDescriptorSurfaceAccepted(env)) {
+      return false;
+    }
     const composition = readExactTrueFlag(env, ENV_COMPOSITION_ENABLED);
     const worker = readExactTrueFlag(env, ENV_WORKER_ENABLED);
     const admin = readExactTrueFlag(env, ENV_ADMIN_ENABLED);
@@ -523,7 +602,7 @@ function isEmailDeltaCompositionFlagEnabled(env) {
   }
 }
 
-module.exports = Object.freeze({
+module.exports = pinnedFreeze({
   ERROR_CODE,
   ERROR_MESSAGE,
   SUNSET_DEPLOYMENT,
