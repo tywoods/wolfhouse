@@ -31,7 +31,8 @@ const PKG_PATH = path.join(ROOT, 'package.json');
 const PLANTED = 'NEVER_LEAK_subject_addr_token';
 const TOKEN = 'atok-NEVER_LEAK-abcdefghijklmnopqrstuvwxyz012345';
 const PLANTED_BODY = 'BODY_MUST_NEVER_APPEAR_IMMUTABLEID_PAGE';
-const MAILBOX_ID = 'support@lunafrontdesk.com';
+/** Canonical provider mailbox UUID (authority.providerMailboxId / resource id). */
+const MAILBOX_ID = '22222222-2222-4222-8222-2222222222ab';
 const MSG_A = 'AAMkAGI2-AAA';
 const MSG_B = 'AAMkAGI2-BBB';
 const MSG_C = 'AAMkAGI2-CCC';
@@ -45,6 +46,7 @@ const {
   FAILURE_MESSAGE,
   PREFER_IMMUTABLE_ID,
   PATH,
+  buildImmutableIdUserMessagesPath,
   TOP_MAX,
   SELECT_FIELDS,
   RESPONSE_CAP_BYTES,
@@ -142,13 +144,23 @@ async function mustFailStage(action, stage) {
     && !JSON.stringify(error).includes(PLANTED));
 }
 
+function expectedImmutableIdPath() {
+  const p = buildImmutableIdUserMessagesPath(MAILBOX_ID);
+  assert.equal(typeof p, 'string');
+  assert.match(p, /^\/v1\.0\/users\/[0-9a-f-]{36}\/messages\?/);
+  assert.equal(p.includes('/me/'), false);
+  assert.equal(p.includes('hasAttachments'), false);
+  return p;
+}
+
 function mockHttps(statusCode, body, headerOverrides = {}, capture = null) {
   return function request(options, onResponse) {
     if (capture) capture(options);
     assert.equal(options.hostname, 'graph.microsoft.com');
     assert.equal(options.method, 'GET');
-    assert.equal(options.path, PATH);
-    assert.equal(PATH.includes('hasAttachments'), false);
+    assert.equal(options.path, expectedImmutableIdPath());
+    assert.equal(options.path.includes('/me/'), false);
+    assert.equal(options.path.includes('hasAttachments'), false);
     assert.match(options.headers.Authorization, /^Bearer /);
     assert.equal(options.headers.Authorization.includes(TOKEN), true);
     assert.equal(options.headers.Prefer, PREFER_IMMUTABLE_ID);
@@ -347,8 +359,19 @@ async function main() {
       PATH === messagesTransport.PATH
         && RESPONSE_CAP_BYTES === messagesTransport.RESPONSE_CAP_BYTES
         && SELECT_FIELDS.join(',') === messagesTransport.SELECT_FIELDS.join(',')
+        && PATH.includes('/me/messages')
         && PATH.includes('$top=5')
         && !PATH.includes('hasAttachments'),
+    );
+    ok(
+      'immutableid-users-path-not-me',
+      typeof buildImmutableIdUserMessagesPath === 'function'
+        && buildImmutableIdUserMessagesPath(MAILBOX_ID)
+          === `/v1.0/users/${MAILBOX_ID}/messages?$top=5&$select=${SELECT_FIELDS.join(',')}`
+        && buildImmutableIdUserMessagesPath(MAILBOX_ID).includes('/me/') === false
+        && buildImmutableIdUserMessagesPath('support@lunafrontdesk.com') === null
+        && buildImmutableIdUserMessagesPath('ME') === null
+        && buildImmutableIdUserMessagesPath(MAILBOX_ID.toUpperCase()) === null,
     );
     ok(
       'graph-stages-shared',
@@ -438,7 +461,13 @@ async function main() {
         'auth-scrubbed-after-request',
         captured && captured.headers && captured.headers.Authorization === null,
       );
-      ok('request-method-path', captured.method === 'GET' && captured.path === PATH);
+      ok(
+        'request-method-path-users-canonical',
+        captured.method === 'GET'
+          && captured.path === expectedImmutableIdPath()
+          && captured.path.includes(`/users/${MAILBOX_ID}/messages`)
+          && !captured.path.includes('/me/'),
+      );
       ok('happy-envelopes-array', Array.isArray(envelopes) && envelopes.length === 1, ser(envelopes));
       ok('happy-frozen-array', Object.isFrozen(envelopes));
       ok('happy-frozen-envelope', Object.isFrozen(envelopes[0]));
@@ -1048,6 +1077,15 @@ async function main() {
         ['missing-mailbox', { accessToken: TOKEN }],
         ['empty-token', { accessToken: '', provider_mailbox_id: MAILBOX_ID }],
         ['empty-mailbox', { accessToken: TOKEN, provider_mailbox_id: '' }],
+        ['email-mailbox-rejected', {
+          accessToken: TOKEN,
+          provider_mailbox_id: 'support@lunafrontdesk.com',
+        }],
+        ['me-mailbox-rejected', { accessToken: TOKEN, provider_mailbox_id: 'me' }],
+        ['uppercase-uuid-rejected', {
+          accessToken: TOKEN,
+          provider_mailbox_id: MAILBOX_ID.toUpperCase(),
+        }],
         ['proxy', typeof util.types.isProxy === 'function'
           ? new Proxy(goodInput(), {})
           : { accessToken: TOKEN, provider_mailbox_id: MAILBOX_ID, extra: 1 }],

@@ -7,9 +7,11 @@
  * Returns only a bounded count — never subjects, addresses, IDs, bodies, or links.
  *
  * ImmutableId page path (UNWIRED factory): same one-shot HTTP lifecycle with pinned
- * Prefer: IdType="ImmutableId", private success→canonical-envelope mapping. Raw page
- * never escapes; no public provenance mint/capability. Callers cannot inject Prefer
- * or provenance.
+ * Prefer: IdType="ImmutableId", private success→canonical-envelope mapping, and an
+ * exact authority-bound path `/v1.0/users/{canonicalUuid}/messages` (not `/me`) so
+ * token/mailbox mismatch fails at Graph instead of mislabeling canonical envelopes.
+ * Count-health path remains `/v1.0/me/messages`. Raw page never escapes; no public
+ * provenance mint/capability. Callers cannot inject Prefer or provenance.
  *
  * Validates native responses with the pinned IncomingMessage / isProxy pattern.
  * Lifecycle methods (on/once/end/destroy) use own-data descriptors or pinned native
@@ -51,7 +53,11 @@ const SELECT_FIELDS = Object.freeze([
 ]);
 const ETAG_KEY = '@odata.etag';
 const ROW_FIELDS_WITH_ETAG = Object.freeze([...SELECT_FIELDS, ETAG_KEY]);
-const PATH = `/v1.0/me/messages?$top=${TOP_MAX}&$select=${SELECT_FIELDS.join(',')}`;
+const SELECT_QUERY = `$top=${TOP_MAX}&$select=${SELECT_FIELDS.join(',')}`;
+/** Count-health path only — always `/me` (token subject). Do not use for ImmutableId. */
+const PATH = `/v1.0/me/messages?${SELECT_QUERY}`;
+/** Canonical lowercase hyphenated UUID (matches authority providerMailboxId / resource id). */
+const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DEADLINE_MS = 10_000;
 const RESPONSE_CAP_BYTES = 65_536;
 const TOKEN_LIMIT = 16_384;
@@ -788,6 +794,22 @@ function mapSuccessBodyToImmutableIdEnvelopes(bodyText, providerMailboxId) {
   return Object.freeze({ ok: true, envelopes: Object.freeze(envelopes) });
 }
 
+/**
+ * Build exact ImmutableId list path for a canonical provider mailbox UUID.
+ * Path-encodes the UUID segment; rejects non-canonical ids (no email/UPN/me).
+ *
+ * @param {string} providerMailboxId
+ * @returns {string|null}
+ */
+function buildImmutableIdUserMessagesPath(providerMailboxId) {
+  if (typeof providerMailboxId !== 'string' || !UUID_CANON.test(providerMailboxId)) {
+    return null;
+  }
+  // encodeURIComponent is identity for canonical UUID charset; still required so
+  // any future charset expansion cannot inject path separators.
+  return `/v1.0/users/${encodeURIComponent(providerMailboxId)}/messages?${SELECT_QUERY}`;
+}
+
 function readImmutableIdPageInput(input) {
   if (!exactPlainData(input, ['accessToken', 'provider_mailbox_id'])) return null;
   const token = ownData(input, 'accessToken');
@@ -796,10 +818,12 @@ function readImmutableIdPageInput(input) {
     return null;
   }
   const mailbox = ownData(input, 'provider_mailbox_id');
-  if (typeof mailbox !== 'string'
-      || mailbox.length < 1
-      || mailbox.length > EMAIL_INBOUND_ENVELOPE_STRING_MAX
-      || hasUnpairedSurrogate(mailbox)) {
+  // Exact canonical UUID only — matches authority.providerMailboxId (resource id).
+  // Email/UPN/`me` are rejected so transport cannot stamp non-authority labels.
+  if (typeof mailbox !== 'string' || !UUID_CANON.test(mailbox)) {
+    return null;
+  }
+  if (buildImmutableIdUserMessagesPath(mailbox) === null) {
     return null;
   }
   return { accessToken: token, provider_mailbox_id: mailbox };
@@ -855,9 +879,10 @@ function resolveTransportDependencies(dependencies, brand) {
 }
 
 /**
- * Single network owner: one-shot GET /me/messages.
- * mode 'count' → bounded count health result (no Prefer).
- * mode 'immutableid_envelopes' → pinned Prefer + private canonical envelopes.
+ * Single network owner: one-shot GET messages list.
+ * mode 'count' → `/me/messages` bounded count health (no Prefer).
+ * mode 'immutableid_envelopes' → exact `/users/{canonicalUuid}/messages` + pinned
+ * Prefer + private canonical envelopes (token/mailbox mismatch fails at Graph).
  * No generic success callback; modes are closed over module-private paths only.
  */
 function runDelegatedMessagesRequest(session, input) {
@@ -872,11 +897,17 @@ function runDelegatedMessagesRequest(session, input) {
 
   let tokenOwner = null;
   let mailboxId = null;
+  let requestPath = GRAPH_REQUEST_CONSTANTS.path;
   if (mode === 'immutableid_envelopes') {
     const parsed = readImmutableIdPageInput(input);
     if (parsed === null) return Promise.reject(failure('request_error', brand));
     tokenOwner = parsed.accessToken;
     mailboxId = parsed.provider_mailbox_id;
+    requestPath = buildImmutableIdUserMessagesPath(mailboxId);
+    if (requestPath === null) {
+      tokenOwner = null;
+      return Promise.reject(failure('request_error', brand));
+    }
   } else {
     tokenOwner = readAccessToken(input);
     if (tokenOwner === null) return Promise.reject(failure('request_error', brand));
@@ -1030,7 +1061,7 @@ function runDelegatedMessagesRequest(session, input) {
       // Isolate token/Authorization to this call site; scrub immediately after
       // https.request returns or throws (Node reads options synchronously).
       // Prefer is transport-owned when mode is immutableid_envelopes — never from input.
-      (function issueRequest(tokenForRequest) {
+      (function issueRequest(tokenForRequest, pathForRequest) {
         let requestHeaders = {
           Accept: ACCEPT_HEADER,
           Authorization: null,
@@ -1050,7 +1081,7 @@ function runDelegatedMessagesRequest(session, input) {
             host: GRAPH_REQUEST_CONSTANTS.host,
             port: GRAPH_REQUEST_CONSTANTS.port,
             method: GRAPH_REQUEST_CONSTANTS.method,
-            path: GRAPH_REQUEST_CONSTANTS.path,
+            path: pathForRequest,
             agent: GRAPH_REQUEST_CONSTANTS.agent,
             headers: requestHeaders,
           };
@@ -1064,7 +1095,7 @@ function runDelegatedMessagesRequest(session, input) {
           requestOptions = null;
           tokenForRequest = null;
         }
-      }(tokenOwner));
+      }(tokenOwner, requestPath));
       tokenOwner = null;
     } catch {
       tokenOwner = null;
@@ -1151,6 +1182,7 @@ module.exports = Object.freeze({
   SELECT_FIELDS,
   RESPONSE_CAP_BYTES,
   GRAPH_STAGES,
+  buildImmutableIdUserMessagesPath,
   countBoundedMessageEnvelopes,
   classifyMessageEnvelopeBody,
   classifyParsedMessageEnvelopeList,

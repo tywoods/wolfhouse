@@ -377,6 +377,7 @@
     "prove:email-channel-endpoint-identity-pg": "node scripts/prove-email-channel-endpoint-identity-pg.js",
     "verify:email-delegated-grant-custodian": "node scripts/verify-email-delegated-grant-custodian.js",
     "verify:email-delegated-read-authority": "node scripts/verify-email-delegated-read-authority.js",
+    "verify:email-authority-bound-inbound-operation": "node scripts/verify-email-authority-bound-inbound-operation.js",
     "prove:email-delegated-grant-custody-pg": "node scripts/prove-email-delegated-grant-custody-pg.js",
     "verify:email-grant-envelope-azure-kv-provider": "node scripts/verify-email-grant-envelope-azure-kv-provider.js",
     "verify:email-grant-envelope-azure-kv-sunset-staging-runtime-composition": "node scripts/verify-email-grant-envelope-azure-kv-sunset-staging-runtime-composition.js",
