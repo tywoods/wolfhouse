@@ -21,6 +21,17 @@
  * page/request/parser/normalization failure yields only the sanitized ImmutableId
  * transport failure and no partial envelopes.
  *
+ * Messages-delta single-page path (UNWIRED factory): one-shot GET of
+ * `/v1.0/users/{canonicalUuid}/messages/delta` with Prefer ImmutableId and the same
+ * $top/$select/caps. Continuation reuses PR408 `validateMessagesDeltaCursorUrl`
+ * (nextLink→$skiptoken only, deltaLink→$deltatoken only; validated provider URL
+ * used verbatim as request target — append nothing). Success is one frozen DTO
+ * `{ envelopes, tombstones, successor_cursor, observed_count }`. Exact one
+ * `@odata.nextLink` XOR `@odata.deltaLink` is mandatory. Deleted rows map to
+ * identity tombstones only. Continuation HTTP 410 brands unforgeable
+ * `cursor_gone` via `readTrustedMessagesDeltaOutcome` (public error remains
+ * generic). No DB/store/lease/grant/runtime/composition wiring.
+ *
  * Validates native responses with the pinned IncomingMessage / isProxy pattern.
  * Lifecycle methods (on/once/end/destroy) use own-data descriptors or pinned native
  * prototype functions only — never `typeof obj.method` / [[Get]] that run hostile
@@ -29,8 +40,8 @@
  * follows; bounded-catchup follows only after strict re-validation).
  * May accept optional per-message @odata.etag (validated then discarded; never used).
  *
- * Not the app-only mailbox adapter. No delta, send, or persistence.
- * ImmutableId factories are not route/runtime/DB/OAuth wired.
+ * Not the app-only mailbox adapter. No send or persistence.
+ * ImmutableId / messages-delta factories are not route/runtime/DB/OAuth wired.
  *
  * @module email-microsoft-graph-delegated-messages-transport
  */
@@ -50,6 +61,11 @@ const {
   inboundEmailEnvelopeIdentityTuple,
   EMAIL_INBOUND_ENVELOPE_STRING_MAX,
 } = require('./email-inbound-envelope-contract');
+// Reuse PR408 strict messages-delta cursor URL validation (do not weaken/duplicate).
+const {
+  validateMessagesDeltaCursorUrl,
+  CURSOR_KINDS: MESSAGES_DELTA_CURSOR_KINDS,
+} = require('./email-inbound-delta-state-store');
 
 const HOST = 'graph.microsoft.com';
 const TOP_MAX = 5;
@@ -82,6 +98,14 @@ const IMMUTABLEID_PAGE_FAILURE_CODE = 'microsoft_graph_immutableid_page_failed';
 const IMMUTABLEID_PAGE_FAILURE_MESSAGE = 'Microsoft Graph ImmutableId page request failed.';
 const IMMUTABLEID_PAGE_ERROR_NAME = 'MicrosoftGraphImmutableIdPageError';
 const COUNT_ERROR_NAME = 'MicrosoftGraphDelegatedMessagesError';
+/** Messages-delta single-page transport failure surface (distinct from count/ImmutableId). */
+const MESSAGES_DELTA_PAGE_FAILURE_CODE = 'microsoft_graph_messages_delta_page_failed';
+const MESSAGES_DELTA_PAGE_FAILURE_MESSAGE =
+  'Microsoft Graph messages delta page request failed.';
+const MESSAGES_DELTA_PAGE_ERROR_NAME = 'MicrosoftGraphMessagesDeltaPageError';
+/** Unforgeable private continuation-410 outcome (WeakMap brand only). */
+const MESSAGES_DELTA_OUTCOME_CURSOR_GONE = 'cursor_gone';
+const MESSAGES_DELTA_OUTCOMES_ALLOWED = Object.freeze([MESSAGES_DELTA_OUTCOME_CURSOR_GONE]);
 const PROVIDER_ID = 'microsoft_graph';
 /** Factory-fixed bounded-catchup caps — never caller-supplied. */
 const BOUNDED_CATCHUP_MAX_PAGES = 10;
@@ -94,6 +118,23 @@ const BOUNDED_CATCHUP_RESULT_KEYS = Object.freeze([
   'duplicate_count',
   'truncated',
 ]);
+/** Exact ordered success DTO keys for messages-delta single page. */
+const MESSAGES_DELTA_PAGE_RESULT_KEYS = Object.freeze([
+  'envelopes',
+  'tombstones',
+  'successor_cursor',
+  'observed_count',
+]);
+const MESSAGES_DELTA_SUCCESSOR_KEYS = Object.freeze(['cursor_kind', 'cursor_url']);
+const MESSAGES_DELTA_TOMBSTONE_KEYS = Object.freeze([
+  'provider',
+  'provider_mailbox_id',
+  'provider_message_id',
+]);
+const MESSAGES_DELTA_REMOVED_KEY = '@removed';
+const MESSAGES_DELTA_REMOVED_REASON = 'deleted';
+const MESSAGES_DELTA_DELETED_ROW_KEYS = Object.freeze(['id', MESSAGES_DELTA_REMOVED_KEY]);
+const MESSAGES_DELTA_REMOVED_OBJECT_KEYS = Object.freeze(['reason']);
 /** Original list query keys from SELECT_QUERY ($top + $select). */
 const CATCHUP_BASE_QUERY_KEYS = Object.freeze(['$top', '$select']);
 const CATCHUP_ORIGINAL_TOP = String(TOP_MAX);
@@ -105,9 +146,17 @@ const TOP_ALLOWED_EXACT = Object.freeze([
   Object.freeze(['value', '@odata.nextLink']),
   Object.freeze(['@odata.context', 'value', '@odata.nextLink']),
 ]);
+/** Messages-delta page: exact one nextLink XOR deltaLink is mandatory (zero rows ok). */
+const DELTA_TOP_ALLOWED_EXACT = Object.freeze([
+  Object.freeze(['value', '@odata.nextLink']),
+  Object.freeze(['value', '@odata.deltaLink']),
+  Object.freeze(['@odata.context', 'value', '@odata.nextLink']),
+  Object.freeze(['@odata.context', 'value', '@odata.deltaLink']),
+]);
 const FROM_KEYS = Object.freeze(['emailAddress']);
 const EMAIL_ADDRESS_KEYS = Object.freeze(['address', 'name']);
 const NEXT_LINK_KEY = '@odata.nextLink';
+const DELTA_LINK_KEY = '@odata.deltaLink';
 const MESSAGES_PATH_ME = /^\/v1\.0\/me\/messages$/;
 const MESSAGES_PATH_USER = /^\/v1\.0\/users\/[^/]+\/messages$/;
 
@@ -270,16 +319,22 @@ const GRAPH_STAGE_SET = new Set(GRAPH_STAGES);
 
 /** Module-private brand: only transport-created failure objects may map to a stage. */
 const STAGED_FAILURES = new WeakMap();
+/**
+ * Module-private messages-delta outcomes (continuation 410 → cursor_gone).
+ * Separate from GRAPH_STAGES so forged public errors cannot classify.
+ */
+const MESSAGES_DELTA_OUTCOMES = new WeakMap();
 
 /**
  * @param {string} [stage]
  * @param {{ failureMessage: string, failureCode: string, errorName: string }} brand
+ * @param {{ deltaOutcome?: string }} [extra]
  */
 function failure(stage, brand = {
   failureMessage: FAILURE_MESSAGE,
   failureCode: FAILURE_CODE,
   errorName: COUNT_ERROR_NAME,
-}) {
+}, extra) {
   let graphStage = 'request_error';
   if (typeof stage === 'string' && GRAPH_STAGE_SET.has(stage) && stage !== 'success') {
     graphStage = stage;
@@ -289,6 +344,11 @@ function failure(stage, brand = {
   Object.defineProperty(error, 'code', { value: brand.failureCode, enumerable: true });
   // Stage lives only in the private brand — never as a readable error property.
   STAGED_FAILURES.set(error, graphStage);
+  if (extra
+      && typeof extra.deltaOutcome === 'string'
+      && MESSAGES_DELTA_OUTCOMES_ALLOWED.includes(extra.deltaOutcome)) {
+    MESSAGES_DELTA_OUTCOMES.set(error, extra.deltaOutcome);
+  }
   return Object.freeze(error);
 }
 
@@ -301,6 +361,11 @@ const IMMUTABLEID_FAILURE_BRAND = Object.freeze({
   failureMessage: IMMUTABLEID_PAGE_FAILURE_MESSAGE,
   failureCode: IMMUTABLEID_PAGE_FAILURE_CODE,
   errorName: IMMUTABLEID_PAGE_ERROR_NAME,
+});
+const MESSAGES_DELTA_FAILURE_BRAND = Object.freeze({
+  failureMessage: MESSAGES_DELTA_PAGE_FAILURE_MESSAGE,
+  failureCode: MESSAGES_DELTA_PAGE_FAILURE_CODE,
+  errorName: MESSAGES_DELTA_PAGE_ERROR_NAME,
 });
 
 /**
@@ -318,6 +383,27 @@ function readTrustedGraphStage(error) {
       return null;
     }
     return stage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Safe reader for messages-delta private outcomes (continuation HTTP 410 only).
+ * Returns `'cursor_gone'` only for transport-branded continuation-410 failures.
+ * Forged public errors (same code/message/name) cannot classify.
+ * Never reads attacker-controlled properties on the error object.
+ */
+function readTrustedMessagesDeltaOutcome(error) {
+  try {
+    if (error === null || (typeof error !== 'object' && typeof error !== 'function')) {
+      return null;
+    }
+    const outcome = MESSAGES_DELTA_OUTCOMES.get(error);
+    if (typeof outcome !== 'string' || !MESSAGES_DELTA_OUTCOMES_ALLOWED.includes(outcome)) {
+      return null;
+    }
+    return outcome;
   } catch {
     return null;
   }
@@ -1236,6 +1322,43 @@ function buildImmutableIdUserMessagesPath(providerMailboxId) {
   return `/v1.0/users/${encodeURIComponent(providerMailboxId)}/messages?${SELECT_QUERY}`;
 }
 
+/**
+ * Exact initial messages-delta path for a canonical provider mailbox UUID.
+ * `$top=5` + fixed `$select` only — no filter/order/expand/body/me.
+ *
+ * @param {string} providerMailboxId
+ * @returns {string|null}
+ */
+function buildMessagesDeltaInitialPath(providerMailboxId) {
+  if (typeof providerMailboxId !== 'string' || !UUID_CANON.test(providerMailboxId)) {
+    return null;
+  }
+  return `/v1.0/users/${encodeURIComponent(providerMailboxId)}/messages/delta?${SELECT_QUERY}`;
+}
+
+/**
+ * Convert a PR408-validated absolute messages-delta cursor URL into the exact
+ * request path+query target. Appends nothing.
+ *
+ * @param {string} cursorUrl
+ * @returns {string|null}
+ */
+function messagesDeltaCursorUrlToRequestPath(cursorUrl) {
+  try {
+    if (typeof cursorUrl !== 'string' || cursorUrl.length < 1) return null;
+    const url = constructPinnedUrl(cursorUrl);
+    if (!url) return null;
+    const parts = readPinnedUrlComponents(url);
+    if (!parts) return null;
+    if (parts.pathname.length < 1) return null;
+    const requestPath = `${parts.pathname}${parts.search}`;
+    if (typeof requestPath !== 'string' || requestPath.length < 1) return null;
+    return requestPath;
+  } catch {
+    return null;
+  }
+}
+
 function readImmutableIdPageInput(input) {
   if (!exactPlainData(input, ['accessToken', 'provider_mailbox_id'])) return null;
   const token = ownData(input, 'accessToken');
@@ -1253,6 +1376,291 @@ function readImmutableIdPageInput(input) {
     return null;
   }
   return { accessToken: token, provider_mailbox_id: mailbox };
+}
+
+/**
+ * Exact own-data input for messages-delta initial page.
+ * Same token/mailbox contract as ImmutableId page.
+ */
+function readMessagesDeltaInitialInput(input) {
+  if (!exactPlainData(input, ['accessToken', 'provider_mailbox_id'])) return null;
+  const token = ownData(input, 'accessToken');
+  if (typeof token !== 'string' || token.length < 1 || token.length > TOKEN_LIMIT
+      || !/^[\x21-\x7e]+$/.test(token)) {
+    return null;
+  }
+  const mailbox = ownData(input, 'provider_mailbox_id');
+  if (typeof mailbox !== 'string' || !UUID_CANON.test(mailbox)) {
+    return null;
+  }
+  if (buildMessagesDeltaInitialPath(mailbox) === null) {
+    return null;
+  }
+  return { accessToken: token, provider_mailbox_id: mailbox };
+}
+
+/**
+ * Exact own-data input for messages-delta continuation page.
+ * Validates cursor via PR408 `validateMessagesDeltaCursorUrl` before any network.
+ * Returns requestPath = validated provider URL path+query (append nothing).
+ */
+function readMessagesDeltaContinuationInput(input) {
+  if (!exactPlainData(input, [
+    'accessToken',
+    'provider_mailbox_id',
+    'cursor_kind',
+    'cursor_url',
+  ])) {
+    return null;
+  }
+  const token = ownData(input, 'accessToken');
+  if (typeof token !== 'string' || token.length < 1 || token.length > TOKEN_LIMIT
+      || !/^[\x21-\x7e]+$/.test(token)) {
+    return null;
+  }
+  const mailbox = ownData(input, 'provider_mailbox_id');
+  if (typeof mailbox !== 'string' || !UUID_CANON.test(mailbox)) {
+    return null;
+  }
+  const cursorKind = ownData(input, 'cursor_kind');
+  if (typeof cursorKind !== 'string' || !MESSAGES_DELTA_CURSOR_KINDS.includes(cursorKind)) {
+    return null;
+  }
+  const cursorUrl = ownData(input, 'cursor_url');
+  if (typeof cursorUrl !== 'string') {
+    return null;
+  }
+  // Strict PR408 semantics — wrong host/path/mailbox/token-kind → zero network.
+  const validated = validateMessagesDeltaCursorUrl(cursorUrl, {
+    providerMailboxId: mailbox,
+    cursorKind,
+  });
+  if (!validated || validated.ok !== true || typeof validated.value !== 'string') {
+    return null;
+  }
+  const requestPath = messagesDeltaCursorUrlToRequestPath(validated.value);
+  if (requestPath === null) {
+    return null;
+  }
+  return {
+    accessToken: token,
+    provider_mailbox_id: mailbox,
+    cursor_kind: cursorKind,
+    cursor_url: validated.value,
+    requestPath,
+  };
+}
+
+/**
+ * Classify a messages-delta deleted row: exact `{ id, '@removed': { reason: 'deleted' } }`.
+ * Rejects mixed normal fields, malformed removed, wrong reason.
+ *
+ * @returns {'ok'|'row_keyset_invalid'|'row_value_invalid'}
+ */
+function classifyMessagesDeltaDeletedRow(row) {
+  try {
+    if (!isPlainOwnDataObject(row)) return 'row_keyset_invalid';
+    // Mixed normal+deleted fields (e.g. subject + @removed) → keyset invalid.
+    if (!exactPlainData(row, MESSAGES_DELTA_DELETED_ROW_KEYS)) {
+      // If @removed is present with other keys, still keyset invalid (not normal row).
+      return 'row_keyset_invalid';
+    }
+    if (!requiredBoundedString(ownData(row, 'id'))) return 'row_value_invalid';
+    const removed = ownData(row, MESSAGES_DELTA_REMOVED_KEY);
+    if (!isPlainOwnDataObject(removed)
+        || !exactPlainData(removed, MESSAGES_DELTA_REMOVED_OBJECT_KEYS)) {
+      return 'row_value_invalid';
+    }
+    if (ownData(removed, 'reason') !== MESSAGES_DELTA_REMOVED_REASON) {
+      return 'row_value_invalid';
+    }
+    return 'ok';
+  } catch {
+    return 'row_keyset_invalid';
+  }
+}
+
+/**
+ * Map validated messages-delta page body → frozen DTO.
+ * Exact one nextLink XOR deltaLink mandatory; total rows ≤5; zero rows valid.
+ * Normal rows → Mail.ReadBasic mapper (ImmutableId-owned path). Deleted → tombstone.
+ * Any invalid row / identity collision → no partial output.
+ *
+ * @returns {{ok:true, dto:object}|{ok:false, stage:string}}
+ */
+function mapSuccessBodyToMessagesDeltaPage(bodyText, providerMailboxId) {
+  if (typeof bodyText !== 'string') {
+    return Object.freeze({ ok: false, stage: 'utf8_invalid' });
+  }
+  if (Buffer.byteLength(bodyText, 'utf8') > RESPONSE_CAP_BYTES) {
+    return Object.freeze({ ok: false, stage: 'response_too_large' });
+  }
+  if (bodyText.includes('\ufffd')) {
+    return Object.freeze({ ok: false, stage: 'utf8_invalid' });
+  }
+  let parsed;
+  try {
+    parsed = parseStrictJson(bodyText);
+  } catch {
+    return Object.freeze({ ok: false, stage: 'json_invalid' });
+  }
+  try {
+    if (!isPlainOwnDataObject(parsed)) {
+      return Object.freeze({ ok: false, stage: 'top_shape_invalid' });
+    }
+    const keys = Reflect.ownKeys(parsed);
+    if (keys.some((key) => typeof key !== 'string' || DANGEROUS_KEYS.has(key))) {
+      return Object.freeze({ ok: false, stage: 'top_shape_invalid' });
+    }
+    let allowed = false;
+    for (const candidate of DELTA_TOP_ALLOWED_EXACT) {
+      if (keysMatchExactSet(keys, candidate)) {
+        allowed = true;
+        break;
+      }
+    }
+    if (!allowed) return Object.freeze({ ok: false, stage: 'top_shape_invalid' });
+    if (!keys.every((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(parsed, key);
+      return Boolean(
+        descriptor
+        && Object.prototype.hasOwnProperty.call(descriptor, 'value')
+        && descriptor.enumerable
+        && !descriptor.get
+        && !descriptor.set,
+      );
+    })) {
+      return Object.freeze({ ok: false, stage: 'top_shape_invalid' });
+    }
+    // Discard @odata.context after validation (never retain/return).
+    if (Object.prototype.hasOwnProperty.call(parsed, '@odata.context')) {
+      const context = ownData(parsed, '@odata.context');
+      if (typeof context !== 'string' || context.length < 1 || context.length > STRING_LIMIT
+          || hasUnpairedSurrogate(context)) {
+        return Object.freeze({ ok: false, stage: 'top_shape_invalid' });
+      }
+    }
+
+    const hasNext = Object.prototype.hasOwnProperty.call(parsed, NEXT_LINK_KEY);
+    const hasDelta = Object.prototype.hasOwnProperty.call(parsed, DELTA_LINK_KEY);
+    // Exact one XOR mandatory.
+    if (hasNext === hasDelta) {
+      return Object.freeze({ ok: false, stage: 'top_shape_invalid' });
+    }
+    const successorKind = hasNext ? 'nextLink' : 'deltaLink';
+    const linkKey = hasNext ? NEXT_LINK_KEY : DELTA_LINK_KEY;
+    const rawLink = ownData(parsed, linkKey);
+    if (typeof rawLink !== 'string') {
+      return Object.freeze({ ok: false, stage: 'top_shape_invalid' });
+    }
+    // Strict PR408 successor validation — never weaken.
+    const linkCheck = validateMessagesDeltaCursorUrl(rawLink, {
+      providerMailboxId,
+      cursorKind: successorKind,
+    });
+    if (!linkCheck || linkCheck.ok !== true || typeof linkCheck.value !== 'string') {
+      return Object.freeze({ ok: false, stage: 'top_shape_invalid' });
+    }
+    const successorCursor = Object.freeze({
+      cursor_kind: successorKind,
+      cursor_url: linkCheck.value,
+    });
+    // Key order exact for successor.
+    if (Object.keys(successorCursor).length !== MESSAGES_DELTA_SUCCESSOR_KEYS.length
+        || Object.keys(successorCursor).some((k, i) => k !== MESSAGES_DELTA_SUCCESSOR_KEYS[i])) {
+      return Object.freeze({ ok: false, stage: 'top_shape_invalid' });
+    }
+
+    const rows = ownData(parsed, 'value');
+    if (!Array.isArray(rows) || rows.length > TOP_MAX) {
+      return Object.freeze({ ok: false, stage: 'top_shape_invalid' });
+    }
+
+    const envelopes = [];
+    const tombstones = [];
+    const seenIds = new Set();
+
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      if (!isPlainOwnDataObject(row)) {
+        return Object.freeze({ ok: false, stage: 'row_keyset_invalid' });
+      }
+      const rowKeys = Reflect.ownKeys(row);
+      if (rowKeys.some((k) => typeof k !== 'string' || DANGEROUS_KEYS.has(k))) {
+        return Object.freeze({ ok: false, stage: 'row_keyset_invalid' });
+      }
+      const hasRemoved = Object.prototype.hasOwnProperty.call(row, MESSAGES_DELTA_REMOVED_KEY);
+
+      if (hasRemoved) {
+        const delStage = classifyMessagesDeltaDeletedRow(row);
+        if (delStage !== 'ok') {
+          return Object.freeze({ ok: false, stage: delStage });
+        }
+        const messageId = ownData(row, 'id');
+        if (seenIds.has(messageId)) {
+          return Object.freeze({ ok: false, stage: 'row_value_invalid' });
+        }
+        seenIds.add(messageId);
+        const tombstone = Object.freeze({
+          provider: PROVIDER_ID,
+          provider_mailbox_id: providerMailboxId,
+          provider_message_id: messageId,
+        });
+        if (Object.keys(tombstone).length !== MESSAGES_DELTA_TOMBSTONE_KEYS.length
+            || Object.keys(tombstone).some((k, j) => k !== MESSAGES_DELTA_TOMBSTONE_KEYS[j])) {
+          return Object.freeze({ ok: false, stage: 'row_value_invalid' });
+        }
+        tombstones.push(tombstone);
+        continue;
+      }
+
+      // Normal Mail.ReadBasic row (optional validated/discarded etag).
+      const rowStage = classifyRow(row);
+      if (rowStage) {
+        return Object.freeze({ ok: false, stage: rowStage });
+      }
+      const messageId = ownData(row, 'id');
+      if (typeof messageId !== 'string' || seenIds.has(messageId)) {
+        return Object.freeze({ ok: false, stage: 'row_value_invalid' });
+      }
+      seenIds.add(messageId);
+      const mapped = mapMicrosoftGraphMailReadBasicRowToInboundEnvelope({
+        provider: PROVIDER_ID,
+        provider_mailbox_id: providerMailboxId,
+        row,
+      });
+      if (!mapped || mapped.ok !== true) {
+        return Object.freeze({ ok: false, stage: 'row_value_invalid' });
+      }
+      if (mapped.value.provider !== PROVIDER_ID
+          || mapped.value.provider_mailbox_id !== providerMailboxId
+          || mapped.value.provider_message_id !== messageId) {
+        return Object.freeze({ ok: false, stage: 'row_value_invalid' });
+      }
+      envelopes.push(mapped.value);
+    }
+
+    envelopes.sort(compareInboundEmailEnvelopesForOrder);
+    const observedCount = rows.length;
+    if (envelopes.length + tombstones.length !== observedCount) {
+      return Object.freeze({ ok: false, stage: 'row_value_invalid' });
+    }
+
+    const dto = {
+      envelopes: Object.freeze(envelopes),
+      tombstones: Object.freeze(tombstones),
+      successor_cursor: successorCursor,
+      observed_count: observedCount,
+    };
+    const dtoKeys = Object.keys(dto);
+    if (dtoKeys.length !== MESSAGES_DELTA_PAGE_RESULT_KEYS.length
+        || dtoKeys.some((k, i) => k !== MESSAGES_DELTA_PAGE_RESULT_KEYS[i])) {
+      return Object.freeze({ ok: false, stage: 'json_invalid' });
+    }
+    return Object.freeze({ ok: true, dto: Object.freeze(dto) });
+  } catch {
+    return Object.freeze({ ok: false, stage: 'top_shape_invalid' });
+  }
 }
 
 /**
@@ -1311,6 +1719,11 @@ function resolveTransportDependencies(dependencies, brand) {
  * Prefer + private canonical envelopes (token/mailbox mismatch fails at Graph).
  * mode 'immutableid_envelopes_page' → same as envelopes but returns
  * `{ envelopes, nextLink }` for bounded-catchup internal follow only.
+ * mode 'messages_delta_page' → exact `/users/{uuid}/messages/delta` (+ Prefer) or
+ * continuation path from PR408-validated cursor URL (append nothing). Success DTO
+ * `{ envelopes, tombstones, successor_cursor, observed_count }`. When
+ * `session.cursorGoneOn410` is true (continuation only), HTTP 410 brands
+ * unforgeable `cursor_gone` via `readTrustedMessagesDeltaOutcome`.
  * Optional session.requestPathOverride: full path+query for a validated nextLink follow
  * (still Prefer-pinned; never caller-supplied without prior strict validation).
  * No generic success callback; modes are closed over module-private paths only.
@@ -1324,12 +1737,14 @@ function runDelegatedMessagesRequest(session, input) {
     mode,
     preferHeader,
     requestPathOverride,
+    cursorGoneOn410,
   } = session;
 
   let tokenOwner = null;
   let mailboxId = null;
   let requestPath = GRAPH_REQUEST_CONSTANTS.path;
   const immutableModes = mode === 'immutableid_envelopes' || mode === 'immutableid_envelopes_page';
+  const deltaMode = mode === 'messages_delta_page';
   if (immutableModes) {
     const parsed = readImmutableIdPageInput(input);
     if (parsed === null) return Promise.reject(failure('request_error', brand));
@@ -1341,6 +1756,32 @@ function runDelegatedMessagesRequest(session, input) {
       requestPath = requestPathOverride;
     } else {
       requestPath = buildImmutableIdUserMessagesPath(mailboxId);
+      if (requestPath === null) {
+        tokenOwner = null;
+        return Promise.reject(failure('request_error', brand));
+      }
+    }
+  } else if (deltaMode) {
+    // Token + mailbox already validated by caller factory; input is pre-scrubbed
+    // plain data with accessToken + provider_mailbox_id (+ optional path override).
+    if (!exactPlainData(input, ['accessToken', 'provider_mailbox_id'])) {
+      return Promise.reject(failure('request_error', brand));
+    }
+    const token = ownData(input, 'accessToken');
+    const mailbox = ownData(input, 'provider_mailbox_id');
+    if (typeof token !== 'string' || token.length < 1 || token.length > TOKEN_LIMIT
+        || !/^[\x21-\x7e]+$/.test(token)
+        || typeof mailbox !== 'string'
+        || !UUID_CANON.test(mailbox)) {
+      return Promise.reject(failure('request_error', brand));
+    }
+    tokenOwner = token;
+    mailboxId = mailbox;
+    try { input.accessToken = null; } catch { /* */ }
+    if (typeof requestPathOverride === 'string' && requestPathOverride.length > 0) {
+      requestPath = requestPathOverride;
+    } else {
+      requestPath = buildMessagesDeltaInitialPath(mailboxId);
       if (requestPath === null) {
         tokenOwner = null;
         return Promise.reject(failure('request_error', brand));
@@ -1408,6 +1849,16 @@ function runDelegatedMessagesRequest(session, input) {
         const headers = readResponseHeaders(response);
         const contentType = headers && typeof headers === 'object'
           ? ownData(headers, 'content-type') : undefined;
+        // Continuation-only: HTTP 410 → unforgeable private cursor_gone brand.
+        // Initial-page 410 stays generic http_status_not_200 (no cursor_gone).
+        if (status === 410 && cursorGoneOn410 === true && deltaMode) {
+          terminate(failure(
+            'http_status_not_200',
+            brand,
+            { deltaOutcome: MESSAGES_DELTA_OUTCOME_CURSOR_GONE },
+          ));
+          return;
+        }
         if (status !== 200) { terminate(fail('http_status_not_200')); return; }
         if (typeof contentType !== 'string'
             || !/^application\/json(?:\s*;|$)/i.test(contentType)) {
@@ -1467,6 +1918,17 @@ function runDelegatedMessagesRequest(session, input) {
                 return;
               }
               finish(null, mapped.envelopes);
+              return;
+            }
+            if (mode === 'messages_delta_page') {
+              const mapped = mapSuccessBodyToMessagesDeltaPage(bodyText, mailboxId);
+              if (!mapped || mapped.ok !== true || !mapped.dto) {
+                finish(fail(
+                  mapped && typeof mapped.stage === 'string' ? mapped.stage : 'json_invalid',
+                ));
+                return;
+              }
+              finish(null, mapped.dto);
               return;
             }
             const classified = classifyMessageEnvelopeBody(bodyText);
@@ -1806,12 +2268,89 @@ function finalizeCatchupDto(selected, pagesFetched, truncated) {
   return Object.freeze(dto);
 }
 
+/**
+ * UNWIRED messages-delta single-page factory (same network owner).
+ *
+ * Exact frozen API: `{ fetchInitialPage, fetchContinuationPage }`.
+ * - Initial: GET `/v1.0/users/{uuid}/messages/delta?$top=5&$select=…` + Prefer ImmutableId
+ * - Continuation: PR408-validated cursor URL used verbatim (append nothing);
+ *   HTTP 410 → private `cursor_gone` (public error still generic)
+ * - Success: frozen `{ envelopes, tombstones, successor_cursor, observed_count }`
+ * - No DB/store/lease/grant/runtime/composition; not one-shot across methods
+ *   (each call is independent; exactly one HTTPS request per call).
+ */
+function createMicrosoftGraphMessagesDeltaPageTransport(dependencies = {}) {
+  let resolved;
+  try {
+    resolved = resolveTransportDependencies(dependencies, MESSAGES_DELTA_FAILURE_BRAND);
+  } catch (err) {
+    if (err && err.code === MESSAGES_DELTA_PAGE_FAILURE_CODE) throw err;
+    throw failure('request_error', MESSAGES_DELTA_FAILURE_BRAND);
+  }
+
+  function fetchInitialPage(input) {
+    const parsed = readMessagesDeltaInitialInput(input);
+    if (parsed === null) {
+      return Promise.reject(failure('request_error', MESSAGES_DELTA_FAILURE_BRAND));
+    }
+    const pageInput = {
+      accessToken: parsed.accessToken,
+      provider_mailbox_id: parsed.provider_mailbox_id,
+    };
+    try { parsed.accessToken = null; } catch { /* */ }
+    return runDelegatedMessagesRequest({
+      requestFn: resolved.requestFn,
+      setTimer: resolved.setTimer,
+      clearTimer: resolved.clearTimer,
+      brand: MESSAGES_DELTA_FAILURE_BRAND,
+      mode: 'messages_delta_page',
+      preferHeader: PREFER_IMMUTABLE_ID,
+      requestPathOverride: null,
+      cursorGoneOn410: false,
+    }, pageInput).finally(() => {
+      try { pageInput.accessToken = null; } catch { /* */ }
+    });
+  }
+
+  function fetchContinuationPage(input) {
+    const parsed = readMessagesDeltaContinuationInput(input);
+    if (parsed === null) {
+      return Promise.reject(failure('request_error', MESSAGES_DELTA_FAILURE_BRAND));
+    }
+    const pageInput = {
+      accessToken: parsed.accessToken,
+      provider_mailbox_id: parsed.provider_mailbox_id,
+    };
+    const requestPath = parsed.requestPath;
+    try { parsed.accessToken = null; } catch { /* */ }
+    return runDelegatedMessagesRequest({
+      requestFn: resolved.requestFn,
+      setTimer: resolved.setTimer,
+      clearTimer: resolved.clearTimer,
+      brand: MESSAGES_DELTA_FAILURE_BRAND,
+      mode: 'messages_delta_page',
+      preferHeader: PREFER_IMMUTABLE_ID,
+      requestPathOverride: requestPath,
+      cursorGoneOn410: true,
+    }, pageInput).finally(() => {
+      try { pageInput.accessToken = null; } catch { /* */ }
+    });
+  }
+
+  return Object.freeze({
+    fetchInitialPage,
+    fetchContinuationPage,
+  });
+}
+
 module.exports = Object.freeze({
   FAILURE_CODE,
   FAILURE_MESSAGE,
   PREFER_IMMUTABLE_ID,
   IMMUTABLEID_PAGE_FAILURE_CODE,
   IMMUTABLEID_PAGE_FAILURE_MESSAGE,
+  MESSAGES_DELTA_PAGE_FAILURE_CODE,
+  MESSAGES_DELTA_PAGE_FAILURE_MESSAGE,
   HOST,
   PATH,
   TOP_MAX,
@@ -1820,13 +2359,19 @@ module.exports = Object.freeze({
   GRAPH_STAGES,
   BOUNDED_CATCHUP_MAX_PAGES,
   BOUNDED_CATCHUP_MAX_MESSAGES,
+  MESSAGES_DELTA_PAGE_RESULT_KEYS,
+  MESSAGES_DELTA_CURSOR_KINDS,
   buildImmutableIdUserMessagesPath,
+  buildMessagesDeltaInitialPath,
   countBoundedMessageEnvelopes,
   classifyMessageEnvelopeBody,
   classifyParsedMessageEnvelopeList,
   acceptParsedMessageEnvelopeList,
+  validateMessagesDeltaCursorUrl,
   readTrustedGraphStage,
+  readTrustedMessagesDeltaOutcome,
   createMicrosoftGraphDelegatedMessagesTransport,
   createMicrosoftGraphImmutableIdPageTransport,
   createMicrosoftGraphImmutableIdBoundedCatchupTransport,
+  createMicrosoftGraphMessagesDeltaPageTransport,
 });
