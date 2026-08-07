@@ -8,12 +8,16 @@
  *   LUNA_EMAIL_DELTA_WORKER_ENABLED
  *   LUNA_EMAIL_DELTA_ADMIN_ENABLED
  *
- * Semantics for this PR:
+ * Semantics:
  *   - All absent/false → disabled (ok, inert).
  *   - Composition alone (`true`) + exact deployment/tenant/worker/migration065/KV pins
  *     → composition_inert (structurally ready; no scheduler/admin/run).
- *   - Worker or admin `'true'` → fail closed (`activation_rejected`) — activation
- *     impossible; no runnable worker/admin surface may be produced.
+ *   - Worker `'true'` → fail closed (`activation_rejected`) — always impossible.
+ *   - Admin `'true'` on this inert composition → fail closed (`activation_rejected`).
+ *     Admin recovery activation is ONLY via the separate full operator-recovery
+ *     gate (`LUNA_EMAIL_DELTA_OPERATOR_RECOVERY_ENABLED` + composition + admin +
+ *     worker not true + sunset deployment/tenant + exact KV/migration064/065 pins).
+ *     Composition alone / admin alone remain inert/rejected.
  *   - Composition true with invalid deployment/tenant/identity/migration/KV pins
  *     → fail closed (`config_invalid`).
  *

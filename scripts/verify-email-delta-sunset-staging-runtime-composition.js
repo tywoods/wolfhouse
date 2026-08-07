@@ -398,10 +398,21 @@ function main() {
     && /EMAIL_DELTA_RUNTIME_READINESS/.test(staff)
     && !/LUNA_EMAIL_DELTA_WORKER_ENABLED\s*===\s*['"]true['"]/.test(staff)
     && !/createEmailDeltaSunsetStagingRuntimeComposition\s*\(/.test(staff)
-    && !/email-delta.*handle|handleEmailDelta|EMAIL_DELTA_.*PATH/.test(staff));
-  ok('staff does not mount delta scheduler/admin route',
-    !/email-delta.*cron|startEmailDelta|emailDeltaWorker|emailDeltaAdmin/i.test(staff)
-    && !/\/staff\/admin\/email-settings\/oauth\/microsoft\/delta/.test(staff));
+    // Inert composition never mounts worker/scheduler; operator recovery routes
+    // are a separate full-gate surface (not this composition's run/admin escape).
+    && !/createEmailDeltaSunsetStagingRuntimeComposition\s*\(/.test(staff));
+  ok('staff does not mount delta scheduler/worker',
+    !/email-delta.*cron|startEmailDelta|emailDeltaWorker/i.test(staff)
+    && !/\/staff\/admin\/email-settings\/oauth\/microsoft\/delta/.test(staff)
+    && EMAIL_DELTA_RUNTIME_COMPOSITION_SAFE_FOR_SCHEDULER === false
+    && EMAIL_DELTA_RUNTIME_COMPOSITION_ACTIVATION_POSSIBLE === false);
+  ok('staff operator recovery is separate full-gate surface',
+    /staff-email-delta-operator-recovery-routes/.test(staff)
+    && /isEmailDeltaOperatorRecoveryEnabled/.test(staff)
+    && /RECOVERY_STATUS_PATH|delta\/recovery\/status/.test(staff)
+    && /LUNA_EMAIL_DELTA_OPERATOR_RECOVERY_ENABLED/.test(
+      fs.readFileSync(path.join(ROOT, 'scripts/lib/email-delta-operator-recovery-config.js'), 'utf8'),
+    ));
 
   // resolve readiness default
   {

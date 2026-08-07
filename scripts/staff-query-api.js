@@ -224,14 +224,25 @@ const {
 } = require('./lib/email-microsoft-delegated-inbound-event-store-sunset-staging-runtime-composition');
 // Email-delta runtime composition (default-off / inert). Side-effect-free
 // readiness snapshot only — no DB/KV SDK/Graph/timer/lease/migration, no
-// scheduler, no admin route, no worker activation. Worker/admin true rejected
-// by composition config (activation-impossible).
+// scheduler, no admin route, no worker activation. Worker true rejected
+// (activation-impossible). Admin recovery activation is only via the full
+// operator-recovery gate below (composition alone / admin alone remain inert).
 const {
   resolveEmailDeltaSunsetStagingRuntimeReadiness,
 } = require('./lib/email-delta-sunset-staging-runtime-composition');
-/** Frozen inert readiness only (default-off; never scheduler/admin/worker run). */
+/** Frozen inert readiness only (default-off; never scheduler/worker run). */
 const EMAIL_DELTA_RUNTIME_READINESS =
   resolveEmailDeltaSunsetStagingRuntimeReadiness(process.env);
+// Sunset-staging email-delta operator recovery routes (default-off). Full gate
+// before requireAuth / body / DB / owner load. No worker/scheduler.
+const {
+  createStaffEmailDeltaOperatorRecoveryRoutes,
+  RECOVERY_STATUS_PATH,
+  RECOVERY_RESTART_PATH,
+  RECOVERY_RECONCILE_PATH,
+  snapshotOperatorRecoveryGateEnv,
+  isEmailDeltaOperatorRecoveryEnabled,
+} = require('./lib/staff-email-delta-operator-recovery-routes');
 
 const {
   listStaffAutomatedNotifications,
@@ -2573,6 +2584,16 @@ const emailOAuthRoutes = createStaffEmailOAuthRoutes({
   // Single Staff API withPgClient loan owns the full inbound-capture route
   // operation (resolve + grant session + durable persist). Route factory-fixes
   // withTransactionClient over that outer client — no second checkout.
+  withPgClient,
+});
+
+// Email-delta operator recovery routes (default-off; full gate before auth).
+// One withPgClient loan per request; factory-fixed exclusive transaction client
+// on that same loan. No worker/scheduler. No owner graph when disabled.
+const emailDeltaOperatorRecoveryRoutes = createStaffEmailDeltaOperatorRecoveryRoutes({
+  sendJSON,
+  assertStaffClientAccess,
+  authorizeAuthenticatedStaffRoute,
   withPgClient,
 });
 
@@ -49271,6 +49292,63 @@ async function router(req, res) {
       res,
       auth.user,
       inboundCaptureGateEnv,
+    );
+  }
+  // Admin-only email-delta operator recovery (default-off). Full gate
+  // (operator recovery + composition + admin + worker not true + sunset
+  // deployment/tenant + exact KV/migration064/065 pins) evaluated before
+  // requireAuth / session / readBody / DB / owner load / network.
+  // Disabled/malformed/wrong tenant/deployment → concealed 404 not_found.
+  // Composition alone / admin alone remain inert. Worker true impossible.
+  if (pathname === RECOVERY_STATUS_PATH && method === 'GET') {
+    const operatorRecoveryGateEnv = snapshotOperatorRecoveryGateEnv(process.env);
+    if (!isEmailDeltaOperatorRecoveryEnabled(operatorRecoveryGateEnv)) {
+      return sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return emailDeltaOperatorRecoveryRoutes.handleStatus(
+      parsed.query,
+      req,
+      res,
+      auth.user,
+      operatorRecoveryGateEnv,
+    );
+  }
+  if (pathname === RECOVERY_RESTART_PATH && method === 'POST') {
+    const operatorRecoveryGateEnv = snapshotOperatorRecoveryGateEnv(process.env);
+    if (!isEmailDeltaOperatorRecoveryEnabled(operatorRecoveryGateEnv)) {
+      return sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); }
+    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    return emailDeltaOperatorRecoveryRoutes.handleRestartGeneration(
+      body,
+      req,
+      res,
+      auth.user,
+      operatorRecoveryGateEnv,
+    );
+  }
+  if (pathname === RECOVERY_RECONCILE_PATH && method === 'POST') {
+    const operatorRecoveryGateEnv = snapshotOperatorRecoveryGateEnv(process.env);
+    if (!isEmailDeltaOperatorRecoveryEnabled(operatorRecoveryGateEnv)) {
+      return sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); }
+    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    return emailDeltaOperatorRecoveryRoutes.handleReconcile(
+      body,
+      req,
+      res,
+      auth.user,
+      operatorRecoveryGateEnv,
     );
   }
   // Microsoft returns by top-level GET. SameSite=Lax plus Path=/staff allows
