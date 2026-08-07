@@ -28,6 +28,18 @@
  * - beginNextGeneration consumes a factory-fixed authority-verifier capability
  *   (caller cannot self-assert with a boolean). Injected adapter reuses existing
  *   authority resolver without importing/wiring runtime.
+ * - Module-private demote/insert SQL primitive is never exported. The authority-
+ *   bearing store object returned by `createInboundEmailDeltaStateStore` exposes
+ *   `advanceGenerationOnExclusiveClient`, which **unavoidably re-invokes the
+ *   factory-fixed authorityVerifier before any state SQL** (including forged
+ *   direct calls), binds canonical client/location/endpoint/provider tenant/
+ *   mailbox + expected generation/state version, and runs demote/insert on the
+ *   supplied exclusive client with **no** nested BEGIN/COMMIT/checkout/release.
+ *   Public `beginNextGeneration` calls the same factory-bound path inside its
+ *   exclusive withTxn wrapper and remains behavior-compatible. Recovery journal
+ *   (065) receives the factory store object capability (never imports the raw
+ *   private primitive) so claim + authority re-verify + demote/insert + journal
+ *   completion share ONE outer transaction/client.
  * - One-current invariant: partial unique is at-most-one; owner demote+insert never
  *   leaves zero current; no public delete API. (DB trigger not required solely for
  *   unauthorized direct SQL.)
@@ -1493,6 +1505,62 @@ async function openSealedDeltaCursor(envelopeProvider, input) {
   }
 }
 
+/**
+ * Module-private demote-current + insert generation+1 on an exclusive client.
+ * Not exported. No authority check — only callable from the factory-bound
+ * authority-bearing path after factory-fixed authorityVerifier succeeds.
+ *
+ * - No BEGIN / COMMIT / ROLLBACK
+ * - No pool checkout / release
+ * - Preserves old generation; no cursor copy onto the new generation
+ *
+ * @param {{query: Function}} exclusive exclusive loan client (already resolved)
+ * @param {object} params exact canonical UUID / safe-int fence fields
+ * @returns {Promise<{ok:true,value:object}|{ok:false,error:string}>}
+ */
+async function demoteAndInsertNextGenerationOnExclusiveClient(exclusive, params) {
+  try {
+    const demoted = await exclusive.query(SQL_DEMOTE_CURRENT, [
+      params.clientId,
+      params.endpointId,
+      String(params.expectedGeneration),
+      String(params.expectedStateVersion),
+    ]);
+    if (!demoted.rows || demoted.rows.length !== 1) return fail('generation_cas_conflict');
+    const prevGen = coerceSafeIntField(demoted.rows[0].ingestion_generation);
+    if (prevGen == null || prevGen >= MAX_SAFE_GENERATION) {
+      return fail('ingestion_generation_invalid');
+    }
+    const nextGen = prevGen + 1;
+    const ins = await exclusive.query(SQL_INSERT_NEXT_GENERATION, [
+      params.clientId,
+      params.locationId,
+      params.endpointId,
+      PROVIDER,
+      params.providerTenantId,
+      params.providerMailboxId,
+      String(nextGen),
+      params.queryVersion,
+    ]);
+    if (!ins.rows || ins.rows.length !== 1) return fail('inbound_delta_state_write_failed');
+    const row = ins.rows[0];
+    const gen = coerceSafeIntField(row.ingestion_generation);
+    const sv = coerceSafeIntField(row.state_version);
+    if (gen == null || sv == null) return fail('inbound_delta_state_write_failed');
+    return ok(Object.freeze({
+      client_id: String(row.client_id),
+      endpoint_id: String(row.endpoint_id),
+      ingestion_generation: gen,
+      query_version: String(row.query_version),
+      phase: row.phase,
+      state_version: sv,
+      previous_generation: prevGen,
+    }));
+  } catch {
+    return fail('inbound_delta_state_write_failed');
+  }
+}
+
 function createInboundEmailDeltaStateStore(deps) {
   let withTransactionClient;
   let envelopeProvider = null;
@@ -1964,35 +2032,61 @@ function createInboundEmailDeltaStateStore(deps) {
   }
 
   /**
-   * Explicit reset/rebind: demote current generation, insert generation+1 as current.
-   * Preserves old state/events. Factory-fixed authority-verifier validates
-   * client/location/endpoint/provider tenant/mailbox binding BEFORE TX.
-   * Caller boolean self-assert is not accepted. Grant refresh must not call this.
-   * Maintains one-current invariant (demote then insert; never zero current).
+   * Shared authority-bound generation advance on an already-loaned exclusive
+   * client. Factory-fixed authorityVerifier is invoked/reverified BEFORE any
+   * state SQL (including forged direct calls). No BEGIN/COMMIT/release.
+   * Private demote/insert runs only after authority succeeds.
+   *
+   * Exact own-data input:
+   *   exclusiveClient, clientId, locationId, endpointId,
+   *   expectedGeneration, expectedStateVersion,
+   *   providerTenantId, providerMailboxId, queryVersion?
+   * Rejects caller verifiedAuthority boolean. No generic client-only helper.
    */
-  async function beginNextGeneration(input) {
+  async function advanceGenerationOnExclusiveClient(input) {
     if (!authorityVerifier) return fail('authority_verifier_required');
-    const ids = snapshotIds(input, [
-      'clientId', 'locationId', 'endpointId',
-      'expectedGeneration', 'expectedStateVersion',
-    ]);
-    if (ids.ok === false) return ids;
-    const tenant = parseUuid(ids.snap.providerTenantId, 'provider_tenant_id');
-    if (!tenant.ok) return tenant;
-    const mailbox = parseUuid(ids.snap.providerMailboxId, 'provider_mailbox_id');
-    if (!mailbox.ok) return mailbox;
-    const qv = parseQueryVersion(ids.snap.queryVersion);
-    if (!qv.ok) return qv;
+    if (input == null || typeof input !== 'object' || Array.isArray(input)) {
+      return fail('input_invalid');
+    }
+    if (isProxySurface(input)) return fail('input_invalid');
+    const snap = snapshotOwnDataProps(input);
+    if (!snap.ok) return fail('input_invalid');
 
     // Reject any caller self-assert boolean — verifier capability is authority.
-    if (Object.prototype.hasOwnProperty.call(ids.snap, 'verifiedAuthority')) {
+    if (Object.prototype.hasOwnProperty.call(snap.value, 'verifiedAuthority')) {
       return fail('authority_not_verified');
     }
 
+    const exclusive = resolveExclusiveClient(snap.value.exclusiveClient);
+    if (!exclusive) return fail('inbound_delta_state_write_failed');
+
+    const clientId = parseUuid(snap.value.clientId, 'client_id');
+    if (!clientId.ok) return clientId;
+    const locationId = parseUuid(snap.value.locationId, 'location_id');
+    if (!locationId.ok) return locationId;
+    const endpointId = parseUuid(snap.value.endpointId, 'endpoint_id');
+    if (!endpointId.ok) return endpointId;
+    const tenant = parseUuid(snap.value.providerTenantId, 'provider_tenant_id');
+    if (!tenant.ok) return tenant;
+    const mailbox = parseUuid(snap.value.providerMailboxId, 'provider_mailbox_id');
+    if (!mailbox.ok) return mailbox;
+    const expectedGeneration = parsePositiveSafeInt(
+      snap.value.expectedGeneration, 'ingestion_generation',
+    );
+    if (!expectedGeneration.ok) return expectedGeneration;
+    const expectedStateVersion = parsePositiveSafeInt(
+      snap.value.expectedStateVersion, 'state_version',
+    );
+    if (!expectedStateVersion.ok) return expectedStateVersion;
+    const qv = parseQueryVersion(
+      snap.value.queryVersion == null ? DEFAULT_QUERY_VERSION : snap.value.queryVersion,
+    );
+    if (!qv.ok) return qv;
+
     const binding = Object.freeze({
-      clientId: ids.clientId.value,
-      locationId: ids.locationId.value,
-      endpointId: ids.endpointId.value,
+      clientId: clientId.value,
+      locationId: locationId.value,
+      endpointId: endpointId.value,
       providerTenantId: tenant.value,
       providerMailboxId: mailbox.value,
     });
@@ -2015,44 +2109,69 @@ function createInboundEmailDeltaStateStore(deps) {
       }
     }
 
-    return runExclusive(async (client) => withTxn(client, async () => {
-      const demoted = await client.query(SQL_DEMOTE_CURRENT, [
-        ids.clientId.value,
-        ids.endpointId.value,
-        String(ids.expectedGeneration.value),
-        String(ids.expectedStateVersion.value),
-      ]);
-      if (!demoted.rows || demoted.rows.length !== 1) return fail('generation_cas_conflict');
-      const prevGen = coerceSafeIntField(demoted.rows[0].ingestion_generation);
-      if (prevGen == null || prevGen >= MAX_SAFE_GENERATION) {
-        return fail('ingestion_generation_invalid');
-      }
-      const nextGen = prevGen + 1;
-      const ins = await client.query(SQL_INSERT_NEXT_GENERATION, [
-        ids.clientId.value,
-        ids.locationId.value,
-        ids.endpointId.value,
-        PROVIDER,
-        tenant.value,
-        mailbox.value,
-        String(nextGen),
-        qv.value,
-      ]);
-      if (!ins.rows || ins.rows.length !== 1) return fail('inbound_delta_state_write_failed');
-      const row = ins.rows[0];
-      const gen = coerceSafeIntField(row.ingestion_generation);
-      const sv = coerceSafeIntField(row.state_version);
-      if (gen == null || sv == null) return fail('inbound_delta_state_write_failed');
-      return ok(Object.freeze({
-        client_id: String(row.client_id),
-        endpoint_id: String(row.endpoint_id),
-        ingestion_generation: gen,
-        query_version: String(row.query_version),
-        phase: row.phase,
-        state_version: sv,
-        previous_generation: prevGen,
-      }));
+    // Authority succeeded — only now touch state SQL on the exclusive client.
+    return demoteAndInsertNextGenerationOnExclusiveClient(exclusive, Object.freeze({
+      clientId: clientId.value,
+      locationId: locationId.value,
+      endpointId: endpointId.value,
+      expectedGeneration: expectedGeneration.value,
+      expectedStateVersion: expectedStateVersion.value,
+      providerTenantId: tenant.value,
+      providerMailboxId: mailbox.value,
+      queryVersion: qv.value,
     }));
+  }
+
+  /**
+   * Explicit reset/rebind: demote current generation, insert generation+1 as current.
+   * Preserves old state/events. Calls the same factory-bound exclusive-client path
+   * (authorityVerifier re-verify before any state SQL) inside exclusive withTxn.
+   * Caller boolean self-assert is not accepted. Grant refresh must not call this.
+   * Maintains one-current invariant (demote then insert; never zero current).
+   */
+  async function beginNextGeneration(input) {
+    if (!authorityVerifier) return fail('authority_verifier_required');
+    if (input == null || typeof input !== 'object' || Array.isArray(input)) {
+      return fail('input_invalid');
+    }
+    if (isProxySurface(input)) return fail('input_invalid');
+    const snap = snapshotOwnDataProps(input);
+    if (!snap.ok) return fail('input_invalid');
+
+    // Reject any caller self-assert boolean before opening a TX.
+    if (Object.prototype.hasOwnProperty.call(snap.value, 'verifiedAuthority')) {
+      return fail('authority_not_verified');
+    }
+    // beginNextGeneration owns TX/checkout; reject smuggled exclusive client.
+    if (Object.prototype.hasOwnProperty.call(snap.value, 'exclusiveClient')) {
+      return fail('input_invalid');
+    }
+
+    const ids = snapshotIds(input, [
+      'clientId', 'locationId', 'endpointId',
+      'expectedGeneration', 'expectedStateVersion',
+    ]);
+    if (ids.ok === false) return ids;
+    const tenant = parseUuid(ids.snap.providerTenantId, 'provider_tenant_id');
+    if (!tenant.ok) return tenant;
+    const mailbox = parseUuid(ids.snap.providerMailboxId, 'provider_mailbox_id');
+    if (!mailbox.ok) return mailbox;
+    const qv = parseQueryVersion(ids.snap.queryVersion);
+    if (!qv.ok) return qv;
+
+    return runExclusive(async (client) => withTxn(client, async () => (
+      advanceGenerationOnExclusiveClient(Object.freeze({
+        exclusiveClient: client,
+        clientId: ids.clientId.value,
+        locationId: ids.locationId.value,
+        endpointId: ids.endpointId.value,
+        expectedGeneration: ids.expectedGeneration.value,
+        expectedStateVersion: ids.expectedStateVersion.value,
+        providerTenantId: tenant.value,
+        providerMailboxId: mailbox.value,
+        queryVersion: qv.value,
+      }))
+    )));
   }
 
   async function getPublicStatus(input) {
@@ -2080,6 +2199,11 @@ function createInboundEmailDeltaStateStore(deps) {
     commitPageEvents,
     markResetRequired,
     beginNextGeneration,
+    /**
+     * Authority-bearing exclusive-client generation advance (no BEGIN/COMMIT).
+     * Factory-fixed authorityVerifier re-verified before any state SQL.
+     */
+    advanceGenerationOnExclusiveClient,
     getPublicStatus,
     sealDeltaCursor: envelopeProvider
       ? (input) => sealDeltaCursorCompatible(envelopeProvider, input)
@@ -2107,6 +2231,7 @@ module.exports = Object.freeze({
   ENVELOPE_RECORD_KEYS,
   SQL_INSERT_EVENT,
   SQL_LOCK_CURRENT,
+  SQL_PUBLIC_STATUS,
   SQL_REVALIDATE_LEASE,
   buildDeltaCursorEnvelopeAadV1,
   parseDeltaCursorEnvelopeAadV1,
@@ -2117,6 +2242,11 @@ module.exports = Object.freeze({
   sealDeltaCursorCompatible,
   openSealedDeltaCursor,
   createInboundEmailDeltaStateStore,
+  // Raw demote/insert primitive is module-private only — never exported.
+  // Exclusive-client generation advance is only on the factory store object
+  // (authorityVerifier re-verify before any state SQL).
+  SQL_DEMOTE_CURRENT,
+  SQL_INSERT_NEXT_GENERATION,
   // test helpers
   resolveWithTransactionClient,
   resolveExclusiveClient,

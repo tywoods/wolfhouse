@@ -13,7 +13,7 @@
  *   LUNA_EMAIL_DELTA_ADMIN_ENABLED   — true rejected
  *
  * Composition enabled alone (with exact deployment=sunset-staging,
- * tenant=sunset, migration064 contract, canonical worker id, pinned KV env)
+ * tenant=sunset, migration065 contract, canonical worker id, pinned KV env)
  * yields frozen composition_inert readiness. No DB/KV SDK/Graph/timer/lease/
  * migration/DDL work on import, factory, readiness, or hard-fail lifecycle.
  *
@@ -45,6 +45,7 @@ const {
   SUNSET_DEPLOYMENT,
   SUNSET_TENANT,
   WORKER_ID,
+  MIGRATION_065_ID,
   MIGRATION_064_ID,
   QUERY_VERSION,
   ENV_COMPOSITION_ENABLED,
@@ -52,6 +53,7 @@ const {
   ENV_ADMIN_ENABLED,
   CONFIG_STATUS,
   READINESS_KEYS,
+  MIGRATION_065_READINESS_CONTRACT,
   MIGRATION_064_READINESS_CONTRACT,
   CANONICAL_WORKER_CONFIG,
   FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT,
@@ -153,8 +155,11 @@ if (SUNSET_TENANT !== 'sunset') {
 if (QUERY_VERSION !== 'ms_messages_delta_v1') {
   throw new Error('email_delta_runtime_composition_query_version_unexpected');
 }
-if (MIGRATION_064_ID !== '064_tenant_email_inbound_delta_states') {
+if (MIGRATION_065_ID !== '065_tenant_email_delta_recovery_operations') {
   throw new Error('email_delta_runtime_composition_migration_pin_unexpected');
+}
+if (MIGRATION_064_ID !== '064_tenant_email_inbound_delta_states') {
+  throw new Error('email_delta_runtime_composition_prior_migration_pin_unexpected');
 }
 if (EMAIL_DELTA_RUNTIME_COMPOSITION_ACTIVATION_POSSIBLE !== false) {
   throw new Error('email_delta_runtime_composition_activation_possible_unexpected');
@@ -408,6 +413,7 @@ module.exports = pinnedFreeze({
   SUNSET_DEPLOYMENT,
   SUNSET_TENANT,
   WORKER_ID,
+  MIGRATION_065_ID,
   MIGRATION_064_ID,
   QUERY_VERSION,
   ENV_COMPOSITION_ENABLED,
@@ -418,6 +424,7 @@ module.exports = pinnedFreeze({
   SURFACE_KEYS,
   READINESS_KEYS,
   CONFIG_STATUS,
+  MIGRATION_065_READINESS_CONTRACT,
   MIGRATION_064_READINESS_CONTRACT,
   CANONICAL_WORKER_CONFIG,
   FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT,

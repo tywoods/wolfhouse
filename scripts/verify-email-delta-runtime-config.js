@@ -19,6 +19,10 @@ const DOC_PATH = path.join(ROOT, 'docs/EMAIL-MAILBOX-ADAPTER-BOUNDARY.md');
 const PKG_PATH = path.join(ROOT, 'package.json');
 const MIG_PATH = path.join(
   ROOT,
+  'database/migrations/065_tenant_email_delta_recovery_operations.sql',
+);
+const MIG_064_PATH = path.join(
+  ROOT,
   'database/migrations/064_tenant_email_inbound_delta_states.sql',
 );
 const MANIFEST_PATH = path.join(
@@ -44,11 +48,13 @@ const {
   SUNSET_DEPLOYMENT,
   SUNSET_TENANT,
   WORKER_ID,
+  MIGRATION_065_ID,
   MIGRATION_064_ID,
   QUERY_VERSION,
   READINESS_KEYS,
   CONFIG_STATUS,
   FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT,
+  MIGRATION_065_READINESS_CONTRACT,
   MIGRATION_064_READINESS_CONTRACT,
   CANONICAL_WORKER_CONFIG,
   ENV_KV_COMPOSITION_ENABLED,
@@ -287,6 +293,7 @@ function main() {
   const pkg = JSON.parse(fs.readFileSync(PKG_PATH, 'utf8'));
   const doc = fs.readFileSync(DOC_PATH, 'utf8');
   const mig = fs.readFileSync(MIG_PATH, 'utf8');
+  const mig064 = fs.readFileSync(MIG_064_PATH, 'utf8');
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
 
   ok('package script present',
@@ -302,15 +309,20 @@ function main() {
     && CANONICAL_WORKER_CONFIG.worker_id === WORKER_ID
     && WORKER_ID.length >= 1 && WORKER_ID.length <= 128
     && !/\s/.test(WORKER_ID));
-  ok('migration064 + query_version pins',
-    MIGRATION_064_ID === '064_tenant_email_inbound_delta_states'
+  ok('migration065 readiness + 064 sibling + query_version pins',
+    MIGRATION_065_ID === '065_tenant_email_delta_recovery_operations'
+    && MIGRATION_064_ID === '064_tenant_email_inbound_delta_states'
     && QUERY_VERSION === 'ms_messages_delta_v1'
-    && MIGRATION_064_READINESS_CONTRACT.applied_by_this_module === false
-    && MIGRATION_064_READINESS_CONTRACT.ddl_allowed === false
-    && mig.includes('tenant_email_inbound_delta_states')
-    && mig.includes('ms_messages_delta_v1'));
-  ok('manifest includes 064',
-    JSON.stringify(manifest).includes('064_tenant_email_inbound_delta_states'));
+    && MIGRATION_065_READINESS_CONTRACT.applied_by_this_module === false
+    && MIGRATION_065_READINESS_CONTRACT.ddl_allowed === false
+    && MIGRATION_065_READINESS_CONTRACT.prior_sibling_id === MIGRATION_064_ID
+    && MIGRATION_064_READINESS_CONTRACT.readiness_tip === false
+    && mig.includes('tenant_email_delta_recovery_operations')
+    && mig064.includes('tenant_email_inbound_delta_states')
+    && mig064.includes('ms_messages_delta_v1'));
+  ok('manifest includes 064 and 065',
+    JSON.stringify(manifest).includes('064_tenant_email_inbound_delta_states')
+    && JSON.stringify(manifest).includes('065_tenant_email_delta_recovery_operations'));
   ok('future txn adapter documented + inactive',
     FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT.active_in_this_pr === false
     && FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT.forbid_getPool_for_exclusive_loan === true
