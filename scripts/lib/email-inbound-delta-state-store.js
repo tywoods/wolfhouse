@@ -18,7 +18,10 @@
  *   exact continuation token for cursorKind (nextLink→$skiptoken, deltaLink→$deltatoken).
  * - AAD binds client+endpoint+provider+tenant+mailbox+generation+query_version+
  *   cursor_kind so rebind/generation/query-version change fails closed.
- * - query_version is an exact text query-shape identifier (not BIGINT).
+ * - query_version is the production-exact text constant messages_delta_v1
+ *   (not BIGINT; not caller-chosen). Parser accepts omitted or that exact value
+ *   only; migration CHECK pins the same constant. Future contract changes require
+ *   a deliberate code+migration version bump together.
  * - ingestion_generation / state_version bounded to JS MAX_SAFE_INTEGER.
  * - openCursor: lease read → crypto outside TX → second DB-clock lease/token/
  *   generation/state_version revalidation immediately before releasing plaintext.
@@ -71,9 +74,14 @@ const CURSOR_KINDS = Object.freeze(['nextLink', 'deltaLink']);
 const PROVIDER = 'microsoft_graph';
 const GRAPH_HOST = 'graph.microsoft.com';
 const GRAPH_API_VERSION = 'v1.0';
-/** Exact text identifier of the default messages-delta query contract. */
+/**
+ * Production-exact text identifier of the messages-delta query contract.
+ * Must stay byte-identical to migration 064 CHECK
+ * tenant_email_inbound_delta_states_query_version_exact.
+ * Future contract changes require deliberate code+migration version bump —
+ * never accept caller-chosen strings.
+ */
 const DEFAULT_QUERY_VERSION = 'messages_delta_v1';
-const QUERY_VERSION_SHAPE = /^[a-z][a-z0-9_]{0,63}$/;
 /** JS Number.MAX_SAFE_INTEGER — generations never fence beyond this. */
 const MAX_SAFE_GENERATION = Number.MAX_SAFE_INTEGER;
 
@@ -576,13 +584,16 @@ function parsePositiveSafeInt(raw, field) {
   return fail(`${field}_invalid`);
 }
 
-/** Exact text query-shape identifier (not BIGINT). */
+/**
+ * Production query-contract id (not BIGINT, not caller-chosen).
+ * Accepts omitted (null/undefined) → DEFAULT_QUERY_VERSION, or the exact
+ * constant only. Every other value (shape-valid alternate, trim, case) fails.
+ */
 function parseQueryVersion(raw) {
   if (raw == null) return ok(DEFAULT_QUERY_VERSION);
   if (typeof raw !== 'string') return fail('query_version_invalid');
-  const v = raw.trim();
-  if (v !== raw || !QUERY_VERSION_SHAPE.test(v)) return fail('query_version_invalid');
-  return ok(v);
+  if (raw !== DEFAULT_QUERY_VERSION) return fail('query_version_invalid');
+  return ok(DEFAULT_QUERY_VERSION);
 }
 
 function parsePhase(raw) {
@@ -760,7 +771,7 @@ function validateGraphCursorUrlBoundary(cursorUrl, binding) {
 /**
  * Canonical AAD for sealed Graph cursor capabilities.
  * Binds ciphertext to trusted state identity + cursor_kind.
- * query_version is exact text identifier.
+ * query_version is the production-exact constant (omitted or messages_delta_v1).
  */
 function buildDeltaCursorEnvelopeAadV1({
   clientId,
@@ -836,7 +847,7 @@ function parseDeltaCursorEnvelopeAadV1(aad) {
         || !UUID_CANON.test(clientId) || !UUID_CANON.test(endpointId)
         || !UUID_CANON.test(providerTenantId) || !UUID_CANON.test(providerMailboxId)
         || provider !== PROVIDER || !CURSOR_KINDS.includes(cursorKind)
-        || !/^[1-9][0-9]*$/.test(genStr) || !QUERY_VERSION_SHAPE.test(qvStr)) {
+        || !/^[1-9][0-9]*$/.test(genStr) || qvStr !== DEFAULT_QUERY_VERSION) {
       return fail('aad_invalid');
     }
     const gen = parsePositiveSafeInt(genStr, 'ingestion_generation');

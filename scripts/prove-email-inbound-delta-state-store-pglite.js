@@ -40,7 +40,8 @@ const ids = {
   mailbox: '44444444-4444-4444-8444-444444444444',
 };
 const QV1 = 'messages_delta_v1';
-const QV2 = 'messages_delta_v2';
+/** Shape-valid but non-production; migration CHECK + store must reject. */
+const QV_OTHER = 'messages_delta_v2';
 const OTHER_CLIENT = '11111111-1111-4111-8111-111111111112';
 
 function cursorUrl(kind, token) {
@@ -112,6 +113,9 @@ function assertStaticContract() {
   assert.match(UP, /cursor_kind IN \('nextLink', 'deltaLink'\)/);
   assert.match(UP, /query_version\s+TEXT NOT NULL/);
   assert.match(UP, /9007199254740991/);
+  assert.match(UP, /tenant_email_inbound_delta_states_query_version_exact/);
+  assert.match(UP, /query_version = 'messages_delta_v1'/);
+  assert.equal(/query_version ~ /.test(UP), false, 'no shape-regex on query_version');
   assert.match(UP, /tenant_email_inbound_delta_states_cursor_coherence/);
   assert.equal(/INSERT INTO tenant_email_inbound_delta_states/.test(UP), false);
   assert.equal(/\bnext_link\b/i.test(UP), false);
@@ -237,7 +241,7 @@ async function proveWithPglite(PGlite) {
   }
   assert.equal(secondCurrentFailed, true, 'ambiguous current generation blocked');
 
-  // RED: query_version must be text shape, not bare integer column type
+  // RED: query_version must be exact production constant (not shape-regex / caller-chosen)
   let badQv = false;
   try {
     await db.query(
@@ -253,6 +257,21 @@ async function proveWithPglite(PGlite) {
     badQv = true;
   }
   assert.equal(badQv, true, 'invalid query_version text rejected');
+  let badQvShape = false;
+  try {
+    await db.query(
+      `INSERT INTO tenant_email_inbound_delta_states (
+         client_id, location_id, endpoint_id,
+         provider, provider_tenant_id, provider_mailbox_id,
+         ingestion_generation, query_version, is_current,
+         phase, state_version
+       ) VALUES ($1,$2,$3,'microsoft_graph',$4,$5,3,$6,false,'initial',1)`,
+      [ids.client, ids.location, ids.endpoint, ids.tenant, ids.mailbox, QV_OTHER],
+    );
+  } catch {
+    badQvShape = true;
+  }
+  assert.equal(badQvShape, true, 'shape-valid non-exact query_version rejected');
 
   // RED: generation beyond MAX_SAFE_INTEGER rejected
   let badGen = false;
@@ -565,6 +584,20 @@ async function proveWithPglite(PGlite) {
     reason: 'graph_410_gone',
   }));
   assert.equal(reset.ok, true);
+  // Non-exact query_version rejected at store boundary (not caller-chosen).
+  const badQvNext = await store.beginNextGeneration(Object.freeze({
+    clientId: ids.client,
+    locationId: ids.location,
+    endpointId: ids.endpoint,
+    expectedGeneration: 1,
+    expectedStateVersion: reset.value.state_version,
+    providerTenantId: ids.tenant,
+    providerMailboxId: ids.mailbox,
+    queryVersion: QV_OTHER,
+  }));
+  assert.equal(badQvNext.ok, false);
+  assert.equal(badQvNext.error, 'query_version_invalid');
+
   const next = await store.beginNextGeneration(Object.freeze({
     clientId: ids.client,
     locationId: ids.location,
@@ -573,11 +606,11 @@ async function proveWithPglite(PGlite) {
     expectedStateVersion: reset.value.state_version,
     providerTenantId: ids.tenant,
     providerMailboxId: ids.mailbox,
-    queryVersion: QV2,
+    queryVersion: QV1,
   }));
   assert.equal(next.ok, true, JSON.stringify(next));
   assert.equal(next.value.ingestion_generation, 2);
-  assert.equal(next.value.query_version, QV2);
+  assert.equal(next.value.query_version, QV1);
   const gens = await db.query(
     `SELECT ingestion_generation, is_current, query_version FROM tenant_email_inbound_delta_states
       ORDER BY ingestion_generation`,
@@ -585,7 +618,7 @@ async function proveWithPglite(PGlite) {
   assert.equal(gens.rows.length, 2);
   assert.equal(gens.rows[0].is_current, false);
   assert.equal(gens.rows[1].is_current, true);
-  assert.equal(gens.rows[1].query_version, QV2);
+  assert.equal(gens.rows[1].query_version, QV1);
   count = await db.query('SELECT count(*)::int AS n FROM tenant_email_inbound_events');
   assert.equal(count.rows[0].n, 3, 'events preserved across generation rebind');
 
@@ -597,7 +630,7 @@ async function proveWithPglite(PGlite) {
   assert.equal(pub.ok, true);
   assert.equal(pub.value.state_present, true);
   assert.equal(pub.value.ingestion_generation, 2);
-  assert.equal(pub.value.query_version, QV2);
+  assert.equal(pub.value.query_version, QV1);
   assert.equal('provider_mailbox_id' in pub.value, false);
   assert.equal('lease_token' in pub.value, false);
   assert.equal('cursor_url' in pub.value, false);

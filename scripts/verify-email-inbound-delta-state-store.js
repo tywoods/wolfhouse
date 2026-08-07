@@ -6,7 +6,7 @@
  * Hostile coverage: migration constraints, sealed cursor coherence, AAD binding,
  * strict authority-bound messages-delta URL validation, page-commit pre-TX crypto
  * open (cross-AAD zero inserts), openCursor post-crypto lease fencing, authority
- * verifier capability (no caller boolean), query_version text id + safe-int gens,
+ * verifier capability (no caller boolean), query_version exact production constant + safe-int gens,
  * one-current invariant, atomicity, duplicate/tombstone, commit-unknown, reset/rebind,
  * public secrecy, proxy/accessor zero-trap, import-inert / no route wiring.
  * No live DB/network/route/cron/deploy.
@@ -38,7 +38,8 @@ const OTHER_MAILBOX = '22222222-2222-4222-8222-2222222222ac';
 const PLANTED_SUBJECT = 'SUBJECT_PII_MUST_NOT_APPEAR_DELTA_STATE';
 const PLANTED_ADDRESS = 'pii-delta-state@example.com';
 const QV1 = 'messages_delta_v1';
-const QV2 = 'messages_delta_v2';
+/** Shape-valid but non-production; must be rejected by parser + migration CHECK. */
+const QV_OTHER = 'messages_delta_v2';
 const PLANTED_CURSOR =
   `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$deltatoken=SECRET_DELTA_TOKEN_NEVER_LEAK`;
 const PLANTED_NEXT =
@@ -707,7 +708,9 @@ async function main() {
   assert.match(up, /aead_alg = 'AES-256-GCM'/);
   assert.match(up, /query_version\s+TEXT NOT NULL/);
   assert.match(up, /9007199254740991/);
-  assert.match(up, /tenant_email_inbound_delta_states_query_version_shape/);
+  assert.match(up, /tenant_email_inbound_delta_states_query_version_exact/);
+  assert.match(up, /query_version = 'messages_delta_v1'/);
+  assert.equal(/query_version ~ /.test(up), false, 'no shape-regex on query_version');
   assert.match(up, /Independent of tenant_email_delegated_grants\.grant_generation/);
   assert.match(up, /at-most-one/i);
   assert.match(up, /No public delete API|no public delete API/i);
@@ -731,10 +734,20 @@ async function main() {
   assert.match(doc, /inbound-delta-state|delta-state-store|064_tenant_email_inbound_delta/);
   assert.match(doc, /verify:email-inbound-delta-state-store/);
 
-  // ── Safe-int + text query_version parsers ───────────────────────────────
+  // ── Safe-int + exact query_version parsers ──────────────────────────────
   assert.equal(parseQueryVersion(QV1).ok, true);
+  assert.equal(parseQueryVersion(QV1).value, QV1);
+  assert.equal(parseQueryVersion(null).ok, true);
+  assert.equal(parseQueryVersion(null).value, DEFAULT_QUERY_VERSION);
+  assert.equal(parseQueryVersion(undefined).ok, true);
+  assert.equal(parseQueryVersion(undefined).value, DEFAULT_QUERY_VERSION);
   assert.equal(parseQueryVersion(1).ok, false);
   assert.equal(parseQueryVersion('Messages_Delta').ok, false);
+  assert.equal(parseQueryVersion(QV_OTHER).ok, false, 'shape-valid alternate rejected');
+  assert.equal(parseQueryVersion('messages_delta_v1 ').ok, false, 'trailing space rejected');
+  assert.equal(parseQueryVersion(' messages_delta_v1').ok, false, 'leading space rejected');
+  assert.equal(parseQueryVersion('MESSAGES_DELTA_V1').ok, false, 'case variant rejected');
+  assert.equal(parseQueryVersion('').ok, false);
   assert.equal(parsePositiveSafeInt(1, 'g').ok, true);
   assert.equal(parsePositiveSafeInt(MAX_SAFE_GENERATION, 'g').ok, true);
   assert.equal(parsePositiveSafeInt(MAX_SAFE_GENERATION + 1, 'g').ok, false);
@@ -767,17 +780,33 @@ async function main() {
     cursorKind: 'nextLink',
   });
   assert.equal(aad.equals(aad2), false);
-  const aadQv = buildDeltaCursorEnvelopeAadV1({
-    clientId: CLIENT,
-    endpointId: ENDPOINT,
-    provider: PROVIDER,
-    providerTenantId: TENANT,
-    providerMailboxId: MAILBOX,
-    ingestionGeneration: 1,
-    queryVersion: QV2,
-    cursorKind: 'nextLink',
-  });
-  assert.equal(aad.equals(aadQv), false);
+  assert.throws(
+    () => buildDeltaCursorEnvelopeAadV1({
+      clientId: CLIENT,
+      endpointId: ENDPOINT,
+      provider: PROVIDER,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+      ingestionGeneration: 1,
+      queryVersion: QV_OTHER,
+      cursorKind: 'nextLink',
+    }),
+    /aad_query_version_invalid/,
+  );
+  // AAD parse rejects non-exact query_version even if shape-valid.
+  const aadBadQvText = [
+    'v1',
+    'delta_cursor_aad_v1',
+    `client_id=${CLIENT}`,
+    `endpoint_id=${ENDPOINT}`,
+    `provider=${PROVIDER}`,
+    `provider_tenant_id=${TENANT}`,
+    `provider_mailbox_id=${MAILBOX}`,
+    'ingestion_generation=1',
+    `query_version=${QV_OTHER}`,
+    'cursor_kind=nextLink',
+  ].join('\n');
+  assert.equal(parseDeltaCursorEnvelopeAadV1(Buffer.from(aadBadQvText, 'utf8')).ok, false);
 
   const bind = { providerMailboxId: MAILBOX, cursorKind: 'deltaLink' };
   const bindNext = { providerMailboxId: MAILBOX, cursorKind: 'nextLink' };
@@ -926,7 +955,7 @@ async function main() {
 
   for (const [label, patch] of [
     ['generation', { ingestionGeneration: 2 }],
-    ['queryVersion', { queryVersion: QV2 }],
+    ['queryVersion', { queryVersion: QV_OTHER }],
     ['cursorKind', { cursorKind: 'deltaLink' }],
     ['client', { clientId: OTHER_CLIENT }],
     ['endpoint', { endpointId: OTHER_ENDPOINT }],
@@ -1174,16 +1203,25 @@ async function main() {
       claimKind: 'deltaLink',
     },
     {
-      label: 'queryVersion',
-      seal: { queryVersion: QV2 },
-      claimKind: 'deltaLink',
-    },
-    {
       label: 'kind',
       seal: { cursorKind: 'nextLink', cursorUrl: PLANTED_NEXT },
       claimKind: 'deltaLink',
     },
   ];
+  // Non-production query_version cannot seal (exact constant only).
+  const sealBadQv = await sealDeltaCursorCompatible(envProvider, Object.freeze({
+    clientId: CLIENT,
+    endpointId: ENDPOINT,
+    providerTenantId: TENANT,
+    providerMailboxId: MAILBOX,
+    ingestionGeneration: 1,
+    queryVersion: QV_OTHER,
+    cursorKind: 'deltaLink',
+    cursorUrl: PLANTED_CURSOR,
+    operationId: crypto.randomUUID(),
+  }));
+  assert.equal(sealBadQv.ok, false, 'non-exact query_version cannot seal');
+
   for (const hc of hostileCases) {
     const sealArgs = {
       clientId: CLIENT,
@@ -1352,6 +1390,20 @@ async function main() {
   assert.equal(reset.ok, true);
   assert.equal(reset.value.phase, 'reset_required');
 
+  // Non-exact query_version rejected (not caller-chosen).
+  const badQvNext = await deltaStore.beginNextGeneration(Object.freeze({
+    clientId: CLIENT,
+    locationId: LOCATION,
+    endpointId: ENDPOINT,
+    expectedGeneration: 1,
+    expectedStateVersion: reset.value.state_version,
+    providerTenantId: TENANT,
+    providerMailboxId: MAILBOX,
+    queryVersion: QV_OTHER,
+  }));
+  assert.equal(badQvNext.ok, false);
+  assert.equal(badQvNext.error, 'query_version_invalid');
+
   // caller boolean self-assert rejected even if true
   const boolAuth = await deltaStore.beginNextGeneration(Object.freeze({
     clientId: CLIENT,
@@ -1361,7 +1413,7 @@ async function main() {
     expectedStateVersion: reset.value.state_version,
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    queryVersion: QV2,
+    queryVersion: QV1,
     verifiedAuthority: true,
   }));
   assert.equal(boolAuth.ok, false);
@@ -1381,7 +1433,7 @@ async function main() {
     expectedStateVersion: reset.value.state_version,
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    queryVersion: QV2,
+    queryVersion: QV1,
   }));
   assert.equal(noAuth.ok, false);
   assert.equal(noAuth.error, 'authority_not_verified');
@@ -1399,7 +1451,7 @@ async function main() {
     expectedStateVersion: reset.value.state_version,
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    queryVersion: QV2,
+    queryVersion: QV1,
   }));
   assert.equal(missingVer.ok, false);
   assert.equal(missingVer.error, 'authority_verifier_required');
@@ -1412,11 +1464,11 @@ async function main() {
     expectedStateVersion: reset.value.state_version,
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    queryVersion: QV2,
+    queryVersion: QV1,
   }));
   assert.equal(next.ok, true, JSON.stringify(next));
   assert.equal(next.value.ingestion_generation, 2);
-  assert.equal(next.value.query_version, QV2);
+  assert.equal(next.value.query_version, QV1);
   assert.equal(next.value.phase, 'initial');
   assert.equal(next.value.previous_generation, 1);
 
@@ -1505,11 +1557,12 @@ async function main() {
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
     ingestionGeneration: 2,
-    queryVersion: QV2,
+    queryVersion: QV1,
     cursorKind: 'nextLink',
     cursorUrl: PLANTED_NEXT,
     operationId: crypto.randomUUID(),
   }));
+  assert.equal(sealedStale.ok, true, JSON.stringify(sealedStale));
   const staleCommit = await deltaStore.commitPageEvents(Object.freeze({
     clientId: CLIENT,
     locationId: LOCATION,
@@ -1519,7 +1572,7 @@ async function main() {
     expectedStateVersion: leaseFresh.value.state_version,
     providerTenantId: TENANT,
     providerMailboxId: MAILBOX,
-    queryVersion: QV2,
+    queryVersion: QV1,
     envelopes: Object.freeze([]),
     tombstones: Object.freeze([]),
     successorCursor: Object.freeze({
@@ -1529,7 +1582,7 @@ async function main() {
   }));
   assert.equal(staleCommit.ok, false);
 
-  // query_version mismatch fails closed (after open succeeds under wrong qv claim)
+  // Non-exact query_version claim fails closed (parser; not caller-chosen).
   const qvMismatch = await deltaStore.commitPageEvents(Object.freeze({
     clientId: CLIENT,
     locationId: LOCATION,
@@ -1548,6 +1601,7 @@ async function main() {
     }),
   }));
   assert.equal(qvMismatch.ok, false);
+  assert.equal(qvMismatch.error, 'query_version_invalid');
 
   // release lease
   const rel = await deltaStore.releaseLease(Object.freeze({

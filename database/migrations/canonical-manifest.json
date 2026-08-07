@@ -792,9 +792,9 @@
       "order": 63,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Empty tenant_email_inbound_delta_states for durable Microsoft Graph messages-delta state. Composite FKs to tenant_locations/tenant_channel_endpoints. ingestion_generation independent of OAuth grant_generation, bounded to JS MAX_SAFE_INTEGER. query_version exact text query-shape id (not BIGINT). Partial unique current generation (at-most-one). Sealed nextLink/deltaLink cursor envelope only (never plaintext). No seed/route/activation.",
+      "rationale": "Empty tenant_email_inbound_delta_states for durable Microsoft Graph messages-delta state. Composite FKs to tenant_locations/tenant_channel_endpoints. ingestion_generation independent of OAuth grant_generation, bounded to JS MAX_SAFE_INTEGER. query_version exact production constant messages_delta_v1 (migration CHECK + store pin; not caller-chosen shape-regex; future contract changes require deliberate code+migration version bump). Partial unique current generation (at-most-one). Sealed nextLink/deltaLink cursor envelope only (never plaintext). No seed/route/activation.",
       "downFilename": "064_tenant_email_inbound_delta_states_down.sql",
-      "sha256": "07a9e4a4623db36d859b580254e19a30a8ba7d75baca20a5520b5cce406b1e8b"
+      "sha256": "2e822c3cb04101da56dfd2c2df9e0311961a2e1c77d5946925dae2727e8bc32b"
     },
     {
       "id": "064_tenant_email_inbound_delta_states_down",
