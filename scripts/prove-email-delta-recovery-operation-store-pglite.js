@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * Prove migration 065 recovery journal + PR408 generation primitive on PGlite.
+ * Prove migration 065 recovery journal + authority-bearing factory generation
+ * advance (exclusive client, no raw primitive export) on PGlite.
  *
  * When PGlite is available:
  *   - minimal parent shell (clients/staff_users unique/locations/endpoints)
@@ -276,13 +277,15 @@ async function proveWithPglite(PGlite) {
   await db.query('DELETE FROM tenant_email_delta_recovery_operations');
 
   const loaner = createPgliteExclusiveLoaner(db);
-  const recovery = createEmailDeltaRecoveryOperationStore(Object.freeze({
-    withTransactionClient: loaner.withTransactionClient,
-    authorityVerifier: makeAuthorityVerifier(),
-  }));
+  const sharedAuthority = makeAuthorityVerifier();
   const delta = createInboundEmailDeltaStateStore(Object.freeze({
     withTransactionClient: loaner.withTransactionClient,
-    authorityVerifier: makeAuthorityVerifier(),
+    authorityVerifier: sharedAuthority,
+  }));
+  const recovery = createEmailDeltaRecoveryOperationStore(Object.freeze({
+    withTransactionClient: loaner.withTransactionClient,
+    authorityVerifier: sharedAuthority,
+    inboundDeltaStateStore: delta,
   }));
 
   // Initialize delta state gen1
@@ -549,7 +552,104 @@ async function proveWithPglite(PGlite) {
   assert.equal(retry.ok, true, JSON.stringify(retry));
   assert.equal(retry.value.outcome, 'committed');
 
-  // Public beginNextGeneration still works
+  // Authority rebind between precheck and factory re-verify → zero durable mutation
+  {
+    let authCalls = 0;
+    const rebindVerifier = Object.freeze({
+      async verifyBinding(binding) {
+        authCalls += 1;
+        if (authCalls === 1) {
+          return Object.freeze({ ok: true, value: Object.freeze({ ...binding }) });
+        }
+        return Object.freeze({ ok: false });
+      },
+    });
+    const rebindDelta = createInboundEmailDeltaStateStore(Object.freeze({
+      withTransactionClient: loaner.withTransactionClient,
+      authorityVerifier: rebindVerifier,
+    }));
+    const rebindRecovery = createEmailDeltaRecoveryOperationStore(Object.freeze({
+      withTransactionClient: loaner.withTransactionClient,
+      authorityVerifier: rebindVerifier,
+      inboundDeltaStateStore: rebindDelta,
+    }));
+    const curRebind = await db.query(
+      `SELECT state_version, ingestion_generation FROM tenant_email_inbound_delta_states
+        WHERE client_id = $1 AND endpoint_id = $2 AND is_current = true`,
+      [ids.client, ids.endpoint],
+    );
+    const genBefore = Number(curRebind.rows[0].ingestion_generation);
+    const svBefore = Number(curRebind.rows[0].state_version);
+    const journalBefore = await db.query(
+      `SELECT count(*)::int AS n FROM tenant_email_delta_recovery_operations`,
+    );
+    const rebindOp = crypto.randomUUID();
+    const rebindRes = await rebindRecovery.restartGeneration(Object.freeze({
+      operationId: rebindOp,
+      clientId: ids.client,
+      locationId: ids.location,
+      endpointId: ids.endpoint,
+      actorStaffUserId: ids.actor,
+      expectedGeneration: genBefore,
+      expectedStateVersion: svBefore,
+      providerTenantId: ids.tenant,
+      providerMailboxId: ids.mailbox,
+      queryVersion: QV1,
+    }));
+    assert.equal(rebindRes.ok, false);
+    assert.equal(rebindRes.error, 'authority_not_verified');
+    assert.ok(authCalls >= 2, 'factory re-verify must run');
+    const journalAfter = await db.query(
+      `SELECT count(*)::int AS n FROM tenant_email_delta_recovery_operations`,
+    );
+    assert.equal(Number(journalAfter.rows[0].n), Number(journalBefore.rows[0].n));
+    const opRow = await db.query(
+      `SELECT 1 FROM tenant_email_delta_recovery_operations WHERE operation_id = $1`,
+      [rebindOp],
+    );
+    assert.equal(opRow.rows.length, 0, 'rebind claim rolled back');
+    const genAfter = await db.query(
+      `SELECT ingestion_generation FROM tenant_email_inbound_delta_states
+        WHERE client_id = $1 AND endpoint_id = $2 AND is_current = true`,
+      [ids.client, ids.endpoint],
+    );
+    assert.equal(Number(genAfter.rows[0].ingestion_generation), genBefore);
+  }
+
+  // Forged direct factory method + raw export absence
+  {
+    const deltaMod = require('./lib/email-inbound-delta-state-store');
+    assert.equal(typeof deltaMod.advanceGenerationOnExclusiveClient, 'undefined');
+    let sqlCount = 0;
+    const spyClient = {
+      async query() {
+        sqlCount += 1;
+        return { rows: [] };
+      },
+    };
+    const denyDelta = createInboundEmailDeltaStateStore(Object.freeze({
+      withTransactionClient: async (work) => work(spyClient),
+      authorityVerifier: Object.freeze({
+        async verifyBinding() { return Object.freeze({ ok: false }); },
+      }),
+    }));
+    const forged = await denyDelta.advanceGenerationOnExclusiveClient(Object.freeze({
+      exclusiveClient: spyClient,
+      clientId: ids.client,
+      locationId: ids.location,
+      endpointId: ids.endpoint,
+      expectedGeneration: 1,
+      expectedStateVersion: 1,
+      providerTenantId: ids.tenant,
+      providerMailboxId: ids.mailbox,
+      queryVersion: QV1,
+    }));
+    assert.equal(forged.ok, false);
+    assert.equal(forged.error, 'authority_not_verified');
+    assert.equal(sqlCount, 0, 'zero SQL when authority fails on forged direct call');
+  }
+
+  // Public beginNextGeneration still works via factory-bound path
   const cur5 = await db.query(
     `SELECT state_version, ingestion_generation FROM tenant_email_inbound_delta_states
       WHERE client_id = $1 AND endpoint_id = $2 AND is_current = true`,

@@ -5,16 +5,21 @@
  *
  * Import-inert. No routes / runtime / scheduler / worker activation.
  *
- * Factory-fixed deps only:
+ * Factory-fixed deps only (exact keys):
  *   - withTransactionClient (exclusive loan; outer release owner)
- *   - authorityVerifier ({ verifyBinding })
+ *   - authorityVerifier ({ verifyBinding }) — initial precheck before TX
+ *   - inboundDeltaStateStore — authority-bearing factory object from
+ *     createInboundEmailDeltaStateStore (only its advanceGenerationOnExclusiveClient
+ *     method is captured; no raw primitive import; no nested capability leakage)
  *
  * Public APIs:
  *   - getRecoveryStatus — safe current status + recovery_blocked (active lease)
  *   - restartGeneration — idempotent by operationId/actor/authority/fences;
- *     journal claim + demote/insert new generation + journal completion in ONE
- *     outer transaction via PR408 advanceGenerationOnExclusiveClient (no nested
- *     BEGIN/checkout/release)
+ *     journal claim + factory-bound authority re-verification + demote/insert +
+ *     journal completion in ONE outer transaction via the store object's
+ *     advanceGenerationOnExclusiveClient (no nested BEGIN/checkout/release;
+ *     no raw primitive import). Authority rebind between initial precheck and
+ *     mutation → ROLLBACK / zero durable journal/state mutation.
  *   - reconcilePageCommit — separate reconciliation operationId + targetOperationId;
  *     classifies only durable journal evidence; page commits are not journaled in
  *     this PR → evidence_unavailable (never infers not_committed from migration
@@ -44,7 +49,6 @@ const {
   snapshotOwnDataProps,
 } = require('./email-grant-envelope-provider-contract');
 const {
-  advanceGenerationOnExclusiveClient,
   DEFAULT_QUERY_VERSION,
   MAX_SAFE_GENERATION,
   SQL_LOCK_CURRENT,
@@ -79,8 +83,11 @@ const OUTCOMES = Object.freeze([
 const STORE_DEPENDENCY_KEYS = Object.freeze([
   'withTransactionClient',
   'authorityVerifier',
+  'inboundDeltaStateStore',
 ]);
 const AUTHORITY_VERIFIER_KEYS = Object.freeze(['verifyBinding']);
+/** Exact method captured from the authority-bearing delta state store object. */
+const INBOUND_DELTA_STATE_STORE_ADVANCE_METHOD = 'advanceGenerationOnExclusiveClient';
 
 const RECOVERY_STATUS_KEYS = Object.freeze([
   'state_present',
@@ -424,9 +431,49 @@ async function verifyAuthority(authorityVerifier, binding) {
   return ok(true);
 }
 
+/**
+ * Capture only the authority-bearing exclusive-client generation method from a
+ * createInboundEmailDeltaStateStore factory object. Does not re-export nested
+ * store methods or leak the raw demote/insert primitive.
+ */
+function resolveInboundDeltaStateStoreAdvance(raw) {
+  try {
+    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    if (isProxySurface(raw)) return null;
+    if (!PINNED_GET_OWN_PROPERTY_DESCRIPTOR || !PINNED_HAS_OWN || !PINNED_REFLECT_APPLY) {
+      return null;
+    }
+    const descriptor = PINNED_GET_OWN_PROPERTY_DESCRIPTOR.call(
+      Object, raw, INBOUND_DELTA_STATE_STORE_ADVANCE_METHOD,
+    );
+    if (!descriptor
+        || !PINNED_HAS_OWN.call(descriptor, 'value')
+        || typeof descriptor.value !== 'function'
+        || descriptor.get
+        || descriptor.set
+        || isProxySurface(descriptor.value)) {
+      return null;
+    }
+    const captured = descriptor.value;
+    // Bind receiver to the factory object so closure/this semantics stay intact
+    // without exposing any other nested capability on the recovery surface.
+    const receiver = raw;
+    return Object.freeze({
+      async advanceGenerationOnExclusiveClient(input) {
+        return PINNED_REFLECT_APPLY.call(
+          Reflect, captured, receiver, [input],
+        );
+      },
+    });
+  } catch {
+    return null;
+  }
+}
+
 function createEmailDeltaRecoveryOperationStore(deps) {
   let withTransactionClient;
   let authorityVerifier;
+  let inboundDeltaAdvance;
   try {
     if (deps == null || typeof deps !== 'object' || Array.isArray(deps)) throw failure();
     if (isProxySurface(deps)) throw failure();
@@ -441,6 +488,8 @@ function createEmailDeltaRecoveryOperationStore(deps) {
     if (!withTransactionClient) throw failure();
     authorityVerifier = resolveAuthorityVerifier(snap.value.authorityVerifier);
     if (!authorityVerifier) throw failure();
+    inboundDeltaAdvance = resolveInboundDeltaStateStoreAdvance(snap.value.inboundDeltaStateStore);
+    if (!inboundDeltaAdvance) throw failure();
   } catch (err) {
     if (err && err.code === FAILURE_CODE) throw err;
     throw failure();
@@ -670,19 +719,32 @@ function createEmailDeltaRecoveryOperationStore(deps) {
         return ok(toRecoveryResult(term.rows[0], false));
       }
 
-      // Same exclusive client; no nested BEGIN — primitive demotes + inserts.
-      const advanced = await advanceGenerationOnExclusiveClient(exclusive, pinnedFreeze({
-        clientId: ids.clientId.value,
-        locationId: ids.locationId.value,
-        endpointId: ids.endpointId.value,
-        expectedGeneration: ids.expectedGeneration.value,
-        expectedStateVersion: ids.expectedStateVersion.value,
-        providerTenantId: tenant.value,
-        providerMailboxId: mailbox.value,
-        queryVersion: qv.value,
-      }));
-      if (!advanced.ok) {
-        const outcome = advanced.error === 'generation_cas_conflict'
+      // Same exclusive client; no nested BEGIN — factory-bound method re-verifies
+      // authority (unavoidable) then demotes + inserts. Authority rebind since
+      // initial precheck → fail closed and ROLLBACK (zero durable journal/state).
+      const advanced = await inboundDeltaAdvance.advanceGenerationOnExclusiveClient(
+        pinnedFreeze({
+          exclusiveClient: exclusive,
+          clientId: ids.clientId.value,
+          locationId: ids.locationId.value,
+          endpointId: ids.endpointId.value,
+          expectedGeneration: ids.expectedGeneration.value,
+          expectedStateVersion: ids.expectedStateVersion.value,
+          providerTenantId: tenant.value,
+          providerMailboxId: mailbox.value,
+          queryVersion: qv.value,
+        }),
+      );
+      if (!advanced || advanced.ok !== true) {
+        // Authority failure after claim must not journal a terminal outcome —
+        // withOuterTxn ROLLBACKs so claim + state stay undurable.
+        if (advanced && advanced.error === 'authority_not_verified') {
+          return fail('authority_not_verified');
+        }
+        if (advanced && advanced.error === 'authority_verifier_required') {
+          return fail('authority_not_verified');
+        }
+        const outcome = advanced && advanced.error === 'generation_cas_conflict'
           ? 'conflict'
           : 'not_committed';
         const term = await exclusive.query(SQL_COMPLETE_TERMINAL, [

@@ -5,7 +5,8 @@
  *
  * Migration 065 recovery journal + import-inert store:
  *   getRecoveryStatus / restartGeneration / reconcilePageCommit
- * PR408 advanceGenerationOnExclusiveClient shared outer TX.
+ * Authority-bearing createInboundEmailDeltaStateStore factory method
+ * advanceGenerationOnExclusiveClient (raw primitive not exported) shared outer TX.
  * No routes / staff-query / runtime activation.
  */
 
@@ -44,10 +45,10 @@ const {
   RECOVERY_STATUS_KEYS,
   RECOVERY_RESULT_KEYS,
 } = require('./lib/email-delta-recovery-operation-store');
+const deltaStateMod = require('./lib/email-inbound-delta-state-store');
 const {
-  advanceGenerationOnExclusiveClient,
   createInboundEmailDeltaStateStore,
-} = require('./lib/email-inbound-delta-state-store');
+} = deltaStateMod;
 
 let pass = 0;
 let fail = 0;
@@ -419,9 +420,10 @@ async function main() {
     EMAIL_DELTA_RECOVERY_OPERATION_RUNTIME_WIRED === false
     && EMAIL_DELTA_RECOVERY_OPERATION_LOGGING_FORBIDDEN === true);
   ok('dependency keys exact',
-    STORE_DEPENDENCY_KEYS.length === 2
+    STORE_DEPENDENCY_KEYS.length === 3
     && STORE_DEPENDENCY_KEYS.includes('withTransactionClient')
-    && STORE_DEPENDENCY_KEYS.includes('authorityVerifier'));
+    && STORE_DEPENDENCY_KEYS.includes('authorityVerifier')
+    && STORE_DEPENDENCY_KEYS.includes('inboundDeltaStateStore'));
   ok('kinds/outcomes frozen',
     OPERATION_KINDS.includes('restart_generation')
     && OPERATION_KINDS.includes('reconcile_page_commit')
@@ -469,14 +471,35 @@ async function main() {
     && manifest.entries.some((e) => e.id === '065_tenant_email_delta_recovery_operations_down'
       && e.inForwardChain === false));
 
-  ok('PR408 exports advanceGenerationOnExclusiveClient',
-    typeof advanceGenerationOnExclusiveClient === 'function'
-    && /advanceGenerationOnExclusiveClient/.test(deltaSrc)
-    && /no nested BEGIN|already-loaned exclusive|No BEGIN/.test(deltaSrc));
-  ok('recovery uses primitive; no nested withTxn/BEGIN for generation',
-    /advanceGenerationOnExclusiveClient/.test(storeSrc)
-    && !/beginNextGeneration\(/.test(storeSrc)
-    && /withOuterTxn/.test(storeSrc));
+  {
+    const exportsBlock = deltaSrc.slice(deltaSrc.lastIndexOf('module.exports'));
+    ok('raw advanceGenerationOnExclusiveClient NOT module.exports',
+      !Object.prototype.hasOwnProperty.call(deltaStateMod, 'advanceGenerationOnExclusiveClient')
+      && deltaStateMod.advanceGenerationOnExclusiveClient === undefined
+      && !/\badvanceGenerationOnExclusiveClient\b/.test(exportsBlock)
+      && !/\bdemoteAndInsertNextGenerationOnExclusiveClient\b/.test(exportsBlock));
+  }
+  ok('private demote/insert stays module-private (not exported)',
+    /demoteAndInsertNextGenerationOnExclusiveClient/.test(deltaSrc)
+    && !Object.prototype.hasOwnProperty.call(deltaStateMod, 'demoteAndInsertNextGenerationOnExclusiveClient'));
+  ok('factory store exposes authority-bound exclusive advance method',
+    /advanceGenerationOnExclusiveClient/.test(deltaSrc)
+    && /authorityVerifier\.verifyBinding/.test(deltaSrc)
+    && /No BEGIN|no nested BEGIN|without BEGIN/i.test(deltaSrc));
+  {
+    const reqMatch = storeSrc.match(
+      /const\s*\{([\s\S]*?)\}\s*=\s*require\(['"]\.\/email-inbound-delta-state-store['"]\)/,
+    );
+    const reqBody = reqMatch ? reqMatch[1] : '';
+    ok('recovery uses factory store capability; no raw primitive import',
+      /inboundDeltaStateStore/.test(storeSrc)
+      && /advanceGenerationOnExclusiveClient/.test(storeSrc)
+      && !/\badvanceGenerationOnExclusiveClient\b/.test(reqBody)
+      && !/\bdemoteAndInsertNextGenerationOnExclusiveClient\b/.test(reqBody)
+      && !/\bdemoteAndInsertNextGenerationOnExclusiveClient\b/.test(storeSrc)
+      && !/beginNextGeneration\(/.test(storeSrc)
+      && /withOuterTxn/.test(storeSrc));
+  }
   ok('no cursor_operation_id inference for not_committed',
     // May appear only in forbid/documentation comments — never as a SQL/column touch.
     !/SELECT[\s\S]{0,80}cursor_operation_id|cursor_operation_id\s*=/.test(storeSrc)
@@ -497,9 +520,40 @@ async function main() {
   })), (e) => e.code === FAILURE_CODE);
   ok('factory rejects missing authorityVerifier', true);
 
+  // Shared harness + authority-bearing delta store for recovery deps.
+  const harness = createHarness();
+  const sharedVerifier = makeAuthorityVerifier();
+  function makeDeltaStore(verifier) {
+    return createInboundEmailDeltaStateStore(Object.freeze({
+      withTransactionClient: harness.withTransactionClient,
+      authorityVerifier: verifier || sharedVerifier,
+    }));
+  }
+  function makeRecoveryStore(verifier, deltaStore) {
+    return createEmailDeltaRecoveryOperationStore(Object.freeze({
+      withTransactionClient: harness.withTransactionClient,
+      authorityVerifier: verifier || sharedVerifier,
+      inboundDeltaStateStore: deltaStore || makeDeltaStore(verifier || sharedVerifier),
+    }));
+  }
+
+  assert.throws(() => createEmailDeltaRecoveryOperationStore(Object.freeze({
+    withTransactionClient: harness.withTransactionClient,
+    authorityVerifier: makeAuthorityVerifier(),
+  })), (e) => e.code === FAILURE_CODE);
+  ok('factory rejects missing inboundDeltaStateStore', true);
+
+  assert.throws(() => createEmailDeltaRecoveryOperationStore(Object.freeze({
+    withTransactionClient: harness.withTransactionClient,
+    authorityVerifier: makeAuthorityVerifier(),
+    inboundDeltaStateStore: Object.freeze({}),
+  })), (e) => e.code === FAILURE_CODE);
+  ok('factory rejects store missing advance method', true);
+
   const proxyDeps = new Proxy({
     withTransactionClient: async (w) => w({ query: async () => ({ rows: [] }) }),
     authorityVerifier: makeAuthorityVerifier(),
+    inboundDeltaStateStore: makeDeltaStore(),
   }, {
     get(t, p, r) { return Reflect.get(t, p, r); },
   });
@@ -511,8 +565,42 @@ async function main() {
   }
   ok('factory rejects proxy deps', proxyFactoryRejected);
 
+  // ── Behavioral forged-import / forged direct factory-method ─────────────
+  {
+    let sqlCount = 0;
+    const spyClient = {
+      async query() {
+        sqlCount += 1;
+        return { rows: [] };
+      },
+    };
+    const denyStore = createInboundEmailDeltaStateStore(Object.freeze({
+      withTransactionClient: async (work) => work(spyClient),
+      authorityVerifier: makeAuthorityVerifier({ allow: false }),
+    }));
+    ok('factory object exposes advanceGenerationOnExclusiveClient method',
+      typeof denyStore.advanceGenerationOnExclusiveClient === 'function');
+    const forged = await denyStore.advanceGenerationOnExclusiveClient(Object.freeze({
+      exclusiveClient: spyClient,
+      clientId: CLIENT,
+      locationId: LOCATION,
+      endpointId: ENDPOINT,
+      expectedGeneration: 1,
+      expectedStateVersion: 1,
+      providerTenantId: TENANT,
+      providerMailboxId: MAILBOX,
+      queryVersion: QV1,
+    }));
+    ok('forged direct factory method: authority verifier runs, zero SQL on failure',
+      forged && forged.ok === false
+      && forged.error === 'authority_not_verified'
+      && sqlCount === 0);
+    // Forged import of raw export remains impossible
+    ok('forged require cannot call raw module export advanceGenerationOnExclusiveClient',
+      typeof deltaStateMod.advanceGenerationOnExclusiveClient !== 'function');
+  }
+
   // ── Behavioral harness ──────────────────────────────────────────────────
-  const harness = createHarness();
   harness.seedCurrent({
     client_id: CLIENT,
     location_id: LOCATION,
@@ -523,10 +611,7 @@ async function main() {
     state_version: 1,
     phase: 'initial',
   });
-  const store = createEmailDeltaRecoveryOperationStore(Object.freeze({
-    withTransactionClient: harness.withTransactionClient,
-    authorityVerifier: makeAuthorityVerifier(),
-  }));
+  const store = makeRecoveryStore();
 
   const status0 = await store.getRecoveryStatus(Object.freeze({
     clientId: CLIENT, endpointId: ENDPOINT,
@@ -666,10 +751,8 @@ async function main() {
     && harness.states.get(`${CLIENT}|${ENDPOINT}`).ingestion_generation === 3);
 
   // Authority reject before TX
-  const badAuthStore = createEmailDeltaRecoveryOperationStore(Object.freeze({
-    withTransactionClient: harness.withTransactionClient,
-    authorityVerifier: makeAuthorityVerifier({ allow: false }),
-  }));
+  const denyVerifier = makeAuthorityVerifier({ allow: false });
+  const badAuthStore = makeRecoveryStore(denyVerifier);
   const noAuth = await badAuthStore.restartGeneration(baseRestartInput({
     operationId: crypto.randomUUID(),
     expectedGeneration: 3,
@@ -687,6 +770,52 @@ async function main() {
   }));
   ok('caller verifiedAuthority boolean rejected',
     !boolAuth.ok && boolAuth.error === 'authority_not_verified');
+
+  // Authority rebind between initial precheck and in-TX factory re-verify →
+  // ROLLBACK / zero durable journal or state mutation.
+  {
+    let authCalls = 0;
+    const rebindVerifier = Object.freeze({
+      async verifyBinding(binding) {
+        authCalls += 1;
+        // First call = recovery precheck; second = factory re-verify inside TX.
+        if (authCalls === 1) {
+          return Object.freeze({
+            ok: true,
+            value: Object.freeze({ ...binding }),
+          });
+        }
+        return Object.freeze({ ok: false });
+      },
+    });
+    harness.seedCurrent({
+      client_id: CLIENT,
+      location_id: LOCATION,
+      endpoint_id: ENDPOINT,
+      provider_tenant_id: TENANT,
+      provider_mailbox_id: MAILBOX,
+      ingestion_generation: 3,
+      state_version: 1,
+      phase: 'initial',
+    });
+    const journalBefore = harness.journal.size;
+    const genBefore = harness.states.get(`${CLIENT}|${ENDPOINT}`).ingestion_generation;
+    const rebindStore = makeRecoveryStore(rebindVerifier);
+    const rebindOp = crypto.randomUUID();
+    const rebindRes = await rebindStore.restartGeneration(baseRestartInput({
+      operationId: rebindOp,
+      expectedGeneration: 3,
+      expectedStateVersion: 1,
+    }));
+    ok('authority rebind after precheck → fail closed',
+      !rebindRes.ok && rebindRes.error === 'authority_not_verified'
+      && authCalls >= 2);
+    ok('authority rebind → zero durable journal mutation',
+      harness.journal.size === journalBefore
+      && !harness.journal.has(rebindOp));
+    ok('authority rebind → zero durable state generation mutation',
+      harness.states.get(`${CLIENT}|${ENDPOINT}`).ingestion_generation === genBefore);
+  }
 
   // reconcilePageCommit → evidence_unavailable (page commits not journaled)
   const reconOp = crypto.randomUUID();
@@ -826,11 +955,8 @@ async function main() {
     && !/mailbox|subject|token|cursor|password|refresh/i.test(ser)
     && !ser.includes(MAILBOX));
 
-  // beginNextGeneration still behavior-compatible via PR408 public API
-  const deltaStore = createInboundEmailDeltaStateStore(Object.freeze({
-    withTransactionClient: harness.withTransactionClient,
-    authorityVerifier: makeAuthorityVerifier(),
-  }));
+  // beginNextGeneration still behavior-compatible via factory-bound path
+  const deltaStore = makeDeltaStore();
   harness.seedCurrent({
     client_id: CLIENT,
     location_id: LOCATION,
@@ -851,7 +977,7 @@ async function main() {
     providerMailboxId: MAILBOX,
     queryVersion: QV1,
   }));
-  ok('public beginNextGeneration still works via primitive',
+  ok('public beginNextGeneration still works via factory-bound path',
     publicNext.ok && publicNext.value.ingestion_generation === 11
     && publicNext.value.previous_generation === 10);
 
