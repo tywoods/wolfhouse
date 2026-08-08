@@ -1,7 +1,7 @@
 # Sunset Email Front Desk — Project Plan
 
 **Owner of plan:** Captain. **Build lead:** Sea Dog (manages Deckhand). **Prior work:** Skipper.
-**Status:** planning → Slice 2 is the next real build. **Last updated:** 2026-08-07.
+**Status:** Slice 2 inbox bridge library landed offline (unwired); staging canary activation still open. **Last updated:** 2026-08-08.
 
 This is the single reference for the Sunset email project. It reconciles Skipper's
 "LIGHTHOUSE" plan and Deckhand's "reuse-first" plan against the **actual code on
@@ -133,6 +133,17 @@ the next. Parallel work only where file ownership doesn't overlap. Merges + depl
   Graph delta) → channel-neutral message → `INSERT` into `conversations`/`messages`
   with `channel='email'`, keyed by sender email + `client_id` + `location_id`
   (location must stick to the conversation).
+  - **Offline owner landed:** `scripts/lib/email-inbound-inbox-bridge.js` + migration
+    `067_tenant_email_inbound_inbox_projections` (exactly-once journal; tenant-consistent
+    composite FKs; opaque `emailv1:` conversation identity; customer-sync skip;
+    CASCADE deletion contract; fail-closed down). Gates:
+    `verify:email-inbound-inbox-bridge`, `prove:email-inbound-inbox-bridge-pglite`.
+    **Not** runtime-wired / not activated.
+  - **Production WhatsApp send boundary (Staff Inbox path; bridge stays unwired):**
+    `resolveAuthoritativeInboxSendTarget` on `POST /staff/inbox/send-reply` loads the
+    owned conversation, rejects `channel=email` / `emailv1:` / `email:` before WhatsApp
+    evaluation/audit/provider, and rejects forged caller `to`. Gate:
+    `verify:staff-inbox-routes`.
 - Turn the existing default-off delta ingest **on** for the single Somo mailbox
   (bounded canary; keep the kill switch and operator-recovery routes).
 - Inbox UI: an **Email** channel pill alongside WhatsApp in the same Inbox — do not

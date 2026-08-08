@@ -14,6 +14,8 @@
  *   - shared inbox libs reused (no duplicated query/send helpers)
  *   - evaluateGuestReplySendRouteWithPause injected and called with { pg, env: process.env }
  *   - send-reply response shape preserves success/send_performed/sends_whatsapp fields
+ *   - production WhatsApp boundary: email-channel / emailv1: / email: rejected before evaluate
+ *   - forged caller `to` rejected; valid WhatsApp telephone send still works
  *   - UI fetch paths still present
  *
  * No live DB / network / WhatsApp.
@@ -245,6 +247,8 @@ ok('requires luna-guest-message-events-read', /require\('\.\/luna-guest-message-
 ok('requires luna-guest-message-event-review', /require\('\.\/luna-guest-message-event-review'\)/.test(modSrc));
 ok('requires luna-staff-inbox-send-reply', /require\('\.\/luna-staff-inbox-send-reply'\)/.test(modSrc));
 ok('requires luna-staff-inbox-thread-message', /require\('\.\/luna-staff-inbox-thread-message'\)/.test(modSrc));
+ok('uses resolveAuthoritativeInboxSendTarget', /resolveAuthoritativeInboxSendTarget/.test(modSrc));
+ok('does not import email inbound bridge', !/email-inbound-inbox-bridge/.test(modSrc));
 ok('does not redefine evaluateGuestReplySendRouteWithPause', !/function evaluateGuestReplySendRouteWithPause\s*\(/.test(modSrc));
 ok('does not redefine parseInboxSendReplyInput', !/function parseInboxSendReplyInput\s*\(/.test(modSrc));
 ok('does not redefine listGuestMessageEvents', !/function listGuestMessageEvents\s*\(/.test(modSrc));
@@ -252,6 +256,10 @@ ok('does not redefine persistStaffInboxSentThreadMessage', !/function persistSta
 const modNoComments = modSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 ok('module does not call requireAuth', !/\brequireAuth\s*\(/.test(modNoComments));
 ok('send path uses injected fn + process.env', /evaluateGuestReplySendRouteWithPause\(sendBody,\s*\{\s*pg,\s*env:\s*process\.env\s*\}\)/.test(modSrc));
+ok(
+  'send path loads authoritative target before evaluate',
+  /const target = await resolveAuthoritativeInboxSendTarget[\s\S]{0,600}?evaluateGuestReplySendRouteWithPause\(sendBody/.test(modSrc),
+);
 
 console.log('\n── handler smoke ──');
 
@@ -313,14 +321,8 @@ console.log('\n── handler smoke ──');
     ok('send_reply invalid JSON 400', res.out.statusCode === 400);
   }
 
-  // send-reply happy path with injected send
+  // send-reply happy path with injected send (valid WhatsApp telephone)
   {
-    const d3 = makeDeps();
-    // Avoid real DB in persistStaffInboxSentThreadMessage: wrap withPgClient so
-    // after evaluate, return a canned evaluated object by short-circuiting the
-    // entire callback via a custom evaluate that still records the call, and a
-    // pg that makes persist return gracefully if possible.
-    const r3 = createInboxRoutes(d3);
     // Monkeypatch persist by intercepting withPgClient body execution:
     // re-create with a custom evaluate and withPgClient that mimics success path.
     let captured = null;
@@ -350,9 +352,18 @@ console.log('\n── handler smoke ──');
         const pg = {
           async query(sql, params) {
             const q = String(sql || '');
-            // Minimal stubs for persistStaffInboxSentThreadMessage / phone lookups
-            if (/INSERT/i.test(q) || /messages/i.test(q) || /RETURNING/i.test(q)) {
+            // Minimal stubs for persistStaffInboxSentThreadMessage / conversation load
+            if (/INSERT/i.test(q) || (/messages/i.test(q) && /RETURNING/i.test(q))) {
               return { rows: [{ id: 'msg-1', message_id: 'msg-1' }] };
+            }
+            if (/SELECT/i.test(q) && /conversations/i.test(q)) {
+              return {
+                rows: [{
+                  conversation_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                  phone: '+' + '34600111222',
+                  channel: 'whatsapp',
+                }],
+              };
             }
             if (/SELECT/i.test(q)) {
               return { rows: [{ guest_phone: '+' + '34600111222', phone: '+' + '34600111222' }] };
@@ -367,7 +378,7 @@ console.log('\n── handler smoke ──');
     const res = mockRes();
     await r4.handleInboxSendReply(mockReq({
       client_slug: 'wolfhouse-somo',
-      conversation_id: 'conv-1',
+      conversation_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
       to: '+' + '34600111222',
       message_text: 'Hello from staff inbox',
       idempotency_key: 'idem-contract-1',
@@ -380,19 +391,231 @@ console.log('\n── handler smoke ──');
       ok('send_reply passes env: process.env', call.context && call.context.env === process.env);
       ok('send_reply body has suggested_reply', call.body && call.body.suggested_reply === 'Hello from staff inbox');
       ok('send_reply body send_kind staff_reply', call.body && call.body.send_kind === 'staff_reply');
+      ok('send_reply uses authoritative telephone to', call.body && call.body.to === '+' + '34600111222');
     }
     if (res.out.statusCode === 200) {
       const body = parseBody(res.out);
       ok('send_reply success true', body && body.success === true);
       ok('send_reply sends_whatsapp preserved', body && body.sends_whatsapp === true);
       ok('send_reply send_performed preserved', body && body.send_performed === true);
-      ok('send_reply conversation_id echoed', body && body.conversation_id === 'conv-1');
+      ok('send_reply conversation_id echoed', body && body.conversation_id === 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
     } else {
       // If persist still fails offline, evaluate contract above is the critical proof.
       ok('send_reply evaluate contract checked offline', d4.sendCalls.length >= 1, `status=${res.out.statusCode}`);
       ok('send_reply offline not auth-shaped', res.out.statusCode !== 401 && res.out.statusCode !== 403);
       ok('send_reply offline placeholder B', true);
       ok('send_reply offline placeholder C', true);
+    }
+    void captured;
+  }
+
+  // ── Production WhatsApp boundary (email channel / forged to) ──────────────
+  console.log('\n── production WhatsApp boundary (email / forged to) ──');
+  {
+    const EMAIL_PHONE = 'emailv1:sunset-somo:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    const EMAIL_CONV = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const WA_PHONE = '+' + '34600111222';
+    const WA_CONV = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+
+    function makeBoundaryDeps(conversationRow) {
+      const d = makeDeps({
+        async evaluateGuestReplySendRouteWithPause(body, context) {
+          d.sendCalls.push({ body, context });
+          return {
+            status: 200,
+            result: {
+              success: true,
+              send_performed: true,
+              sends_whatsapp: true,
+              would_send_whatsapp: true,
+              send_kind: 'staff_reply',
+              idempotency_key: body && body.idempotency_key,
+              blocked_reasons: [],
+              guest_message_send_id: 'gms-should-not-create',
+              guest_message_send_status: 'sent',
+              whatsapp_message_id: 'wamid.SHOULD_NOT_SEND',
+            },
+          };
+        },
+        async withPgClient(fn) {
+          const pg = {
+            async query(sql) {
+              const q = String(sql || '');
+              if (/INSERT/i.test(q) || (/messages/i.test(q) && /RETURNING/i.test(q))) {
+                return { rows: [{ id: 'msg-1', message_id: 'msg-1' }] };
+              }
+              if (/SELECT/i.test(q) && /conversations/i.test(q)) {
+                return { rows: conversationRow ? [conversationRow] : [] };
+              }
+              if (/SELECT/i.test(q)) {
+                return { rows: conversationRow ? [conversationRow] : [] };
+              }
+              return { rows: [] };
+            },
+          };
+          return fn(pg);
+        },
+      });
+      return d;
+    }
+
+    // Selected email conversation (channel=email + emailv1 phone) cannot reach evaluate
+    {
+      const d = makeBoundaryDeps({
+        conversation_id: EMAIL_CONV,
+        phone: EMAIL_PHONE,
+        channel: 'email',
+      });
+      const routes = createInboxRoutes(d);
+      const res = mockRes();
+      await routes.handleInboxSendReply(mockReq({
+        client_slug: 'sunset',
+        conversation_id: EMAIL_CONV,
+        to: EMAIL_PHONE,
+        message_text: 'Should not go to WhatsApp',
+        idempotency_key: 'idem-email-selected-1',
+      }), res, { staff_user_id: 'op1', role: 'operator' });
+      const body = parseBody(res.out);
+      ok('email conversation rejects before evaluate', d.sendCalls.length === 0, `calls=${d.sendCalls.length}`);
+      ok('email conversation status 409', res.out.statusCode === 409, `status=${res.out.statusCode} body=${res.out.body}`);
+      ok(
+        'email conversation error code',
+        body && (body.error === 'email_channel_send_not_supported' || body.code === 'email_channel_send_not_supported'),
+        `body=${res.out.body}`,
+      );
+      ok('email conversation no success send', !(body && body.send_performed === true));
+      ok(
+        'email boundary audit recorded',
+        d.audit.some((a) => a.email_whatsapp_boundary === true && a.success === false),
+        `audit=${JSON.stringify(d.audit)}`,
+      );
+    }
+
+    // Forged telephone `to` on selected email conversation still cannot bypass
+    {
+      const d = makeBoundaryDeps({
+        conversation_id: EMAIL_CONV,
+        phone: EMAIL_PHONE,
+        channel: 'email',
+      });
+      const routes = createInboxRoutes(d);
+      const res = mockRes();
+      await routes.handleInboxSendReply(mockReq({
+        client_slug: 'sunset',
+        conversation_id: EMAIL_CONV,
+        to: WA_PHONE,
+        message_text: 'Forged to on email thread',
+        idempotency_key: 'idem-email-forged-to-1',
+      }), res, { staff_user_id: 'op1', role: 'operator' });
+      const body = parseBody(res.out);
+      ok('forged to on email conv never evaluates', d.sendCalls.length === 0, `calls=${d.sendCalls.length}`);
+      ok('forged to on email conv rejected', res.out.statusCode === 409 || res.out.statusCode === 400, `status=${res.out.statusCode}`);
+      ok(
+        'forged to on email still email_channel or forged',
+        body && (
+          body.error === 'email_channel_send_not_supported'
+          || body.code === 'email_channel_send_not_supported'
+          || body.error === 'to does not match conversation'
+          || body.code === 'forged_to_rejected'
+        ),
+        `body=${res.out.body}`,
+      );
+    }
+
+    // Legacy email: namespace phone (no channel column) still blocked
+    {
+      const d = makeBoundaryDeps({
+        conversation_id: EMAIL_CONV,
+        phone: 'email:somo:guest@example.test',
+        channel: 'whatsapp', // hostile: channel wrong but phone namespace is email
+      });
+      const routes = createInboxRoutes(d);
+      const res = mockRes();
+      await routes.handleInboxSendReply(mockReq({
+        client_slug: 'sunset',
+        conversation_id: EMAIL_CONV,
+        to: 'email:somo:guest@example.test',
+        message_text: 'Legacy email namespace',
+        idempotency_key: 'idem-legacy-email-ns-1',
+      }), res, { staff_user_id: 'op1', role: 'operator' });
+      ok('legacy email: namespace never evaluates', d.sendCalls.length === 0, `calls=${d.sendCalls.length}`);
+      ok('legacy email: namespace rejected', res.out.statusCode === 409, `status=${res.out.statusCode} body=${res.out.body}`);
+    }
+
+    // Forged `to` on a valid WhatsApp conversation rejected before evaluate
+    {
+      const d = makeBoundaryDeps({
+        conversation_id: WA_CONV,
+        phone: WA_PHONE,
+        channel: 'whatsapp',
+      });
+      const routes = createInboxRoutes(d);
+      const res = mockRes();
+      await routes.handleInboxSendReply(mockReq({
+        client_slug: 'wolfhouse-somo',
+        conversation_id: WA_CONV,
+        to: '+' + '34999888777',
+        message_text: 'Forged destination phone',
+        idempotency_key: 'idem-forged-wa-to-1',
+      }), res, { staff_user_id: 'op1', role: 'operator' });
+      const body = parseBody(res.out);
+      ok('forged WhatsApp to never evaluates', d.sendCalls.length === 0, `calls=${d.sendCalls.length}`);
+      ok('forged WhatsApp to status 400', res.out.statusCode === 400, `status=${res.out.statusCode}`);
+      ok(
+        'forged WhatsApp to error',
+        body && (body.error === 'to does not match conversation' || body.code === 'forged_to_rejected'),
+        `body=${res.out.body}`,
+      );
+    }
+
+    // Omitted `to` on WhatsApp conversation still works (authoritative phone used)
+    {
+      const d = makeBoundaryDeps({
+        conversation_id: WA_CONV,
+        phone: WA_PHONE,
+        channel: 'whatsapp',
+      });
+      const routes = createInboxRoutes(d);
+      const res = mockRes();
+      await routes.handleInboxSendReply(mockReq({
+        client_slug: 'wolfhouse-somo',
+        conversation_id: WA_CONV,
+        message_text: 'Reply without client to field',
+        idempotency_key: 'idem-wa-no-to-1',
+      }), res, { staff_user_id: 'op1', role: 'operator' });
+      ok('WhatsApp omit-to still evaluates', d.sendCalls.length >= 1, `calls=${d.sendCalls.length} status=${res.out.statusCode} body=${res.out.body}`);
+      if (d.sendCalls.length >= 1) {
+        ok('WhatsApp omit-to uses authoritative phone', d.sendCalls[0].body && d.sendCalls[0].body.to === WA_PHONE);
+      }
+    }
+
+    // Pure helper unit checks (no route)
+    {
+      const sendLib = require('./lib/luna-staff-inbox-send-reply');
+      ok('helper emailv1 namespace', sendLib.isEmailChannelPhoneNamespace(EMAIL_PHONE) === true);
+      ok('helper legacy email: namespace', sendLib.isEmailChannelPhoneNamespace('email:x@y.z') === true);
+      ok('helper telephone not namespace', sendLib.isEmailChannelPhoneNamespace(WA_PHONE) === false);
+      ok('normalizeGuestPhone does not invent E.164 from emailv1', sendLib.normalizeGuestPhone(EMAIL_PHONE) === '');
+    }
+
+    // Provider-path defense: evaluateGuestReplySendRoute rejects email namespace to
+    {
+      const route = require('./lib/luna-guest-reply-send-route');
+      const out = route.evaluateGuestReplySendRoute({
+        client_slug: 'sunset',
+        to: EMAIL_PHONE,
+        suggested_reply: 'nope',
+        send_kind: 'staff_reply',
+        idempotency_key: 'idem-provider-email-ns',
+        send_eligibility: { send_allowed_later: true, auto_send_ready: true },
+      }, {});
+      ok('provider path rejects emailv1 to', out && out.status === 400, `status=${out && out.status}`);
+      ok(
+        'provider path error email_channel_send_not_supported',
+        out && out.result && out.result.error === 'email_channel_send_not_supported',
+      );
+      ok('provider path no provider_pending', !(out && out.provider_pending));
+      ok('provider path no send_performed', out && out.result && out.result.send_performed === false);
     }
   }
 
@@ -483,6 +706,7 @@ console.log('\n── handler smoke ──');
     'Mixed roles preserved: message-events+handoffs viewer; handoff_review+send-reply operator; deep_link unauth 302.',
     'send-reply outbound evaluateGuestReplySendRouteWithPause injected via deps — call site keeps { pg, env: process.env }.',
     'Shared libs: luna-guest-message-events-read, luna-guest-message-event-review, luna-staff-inbox-send-reply, luna-staff-inbox-thread-message.',
+    'Production WhatsApp boundary: resolveAuthoritativeInboxSendTarget loads owned conversation; rejects channel=email and emailv1:/email: before evaluate/audit/provider; forged to rejected; bridge remains unwired.',
     'handleConversationNeedsHuman intentionally left inline (conversations vertical, not inbox slice).',
   ];
   for (const f of findings) console.log(`  NOTE  ${f}`);

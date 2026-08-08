@@ -119,6 +119,25 @@ function evaluateGuestReplySendRoute(body, env = process.env) {
     };
   }
 
+  // Provider-path defense: email-channel phone namespaces must never enter
+  // WhatsApp evaluation, guest_message_sends audit, or provider send.
+  // (Staff Inbox route also loads authoritative conversation channel first.)
+  if (to && /^(emailv1|email):/i.test(to)) {
+    return {
+      ok: false,
+      status: 400,
+      result: {
+        success: false,
+        error: 'email_channel_send_not_supported',
+        blocked_reasons: ['email_channel_send_not_supported'],
+        safe_next_step: 'keep_draft_or_handoff',
+        send_kind: sendKind,
+        to,
+        ...SEND_ROUTE_SAFETY_FLAGS,
+      },
+    };
+  }
+
   if (!to) blocked.push('to_required');
 
   if (se.requires_staff === true) blocked.push('requires_staff');
