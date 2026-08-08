@@ -13,7 +13,12 @@ const EMAIL_INBOX_MIN_ROLE = 'operator';
 const ENV_DRAFTS_ENABLED = 'EMAIL_STAFF_EMAIL_DRAFTS_ENABLED';
 const ENV_OUTBOUND_ENABLED = 'EMAIL_STAFF_OUTBOUND_ENABLED';
 const ENV_SEND_ENABLED = 'EMAIL_OUTBOUND_SEND_ENABLED';
+const ENV_COMPOSITION_ENABLED = 'EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED';
 const ENV_PORTAL_ORIGIN = 'STAFF_PORTAL_ORIGIN';
+const SEND_PUBLIC_CODES = Object.freeze([
+  'email_send_committed', 'email_send_outcome_unknown', 'email_send_recovery',
+  'email_send_reauthorization_required', 'email_send_unavailable',
+]);
 const BODY_KEYS = Object.freeze(['conversation_id', 'message_text', 'approval_id']);
 const SUCCESS_DTO_KEYS = Object.freeze(['success', 'conversation_id', 'message_text', 'approval_id']);
 const BODY_MAX_BYTES = 10_240; // production shared readBody cap
@@ -129,12 +134,48 @@ function envFlagTrue(env, key) { try { return ownData(env && typeof env === 'obj
 function isEmailStaffDraftsEnabled(env) { return envFlagTrue(env, ENV_DRAFTS_ENABLED); }
 function isEmailStaffOutboundEnabled(env) { return envFlagTrue(env, ENV_OUTBOUND_ENABLED); }
 function isEmailOutboundSendEnabled(env) { return envFlagTrue(env, ENV_SEND_ENABLED); }
+function isEmailOutboundRuntimeCompositionEnabled(env) { return envFlagTrue(env, ENV_COMPOSITION_ENABLED); }
 function snapshotGateEnv(env) {
   const src = env && typeof env === 'object' ? env : {}; const out = Object.create(null);
-  for (const k of [ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_PORTAL_ORIGIN]) {
+  for (const k of [ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_COMPOSITION_ENABLED, ENV_PORTAL_ORIGIN]) {
     const v = ownData(src, k); if (typeof v === 'string') out[k] = v;
   }
   return Object.freeze(out);
+}
+function sealApprovedDispatchRequest(row, auth, actor, lockedOperationId) {
+  try {
+    if (!row || !auth || !actor || typeof lockedOperationId !== 'string') return null;
+    return Object.freeze({
+      operation_id: lockedOperationId,
+      approval_id: String(row.approval_id).toLowerCase(),
+      message_text: String(row.message_text),
+      client_id: auth.client_id,
+      location_id: auth.location_id,
+      location_key: auth.location_key,
+      endpoint_id: auth.endpoint_id,
+      conversation_id: auth.conversation_id,
+      actor_staff_user_id: actor.staff_user_id,
+      provider_mailbox_id: auth.provider_mailbox_id,
+      provider_source_message_id: auth.provider_source_message_id,
+    });
+  } catch { return null; }
+}
+function mapDispatchToRoute(result, conversationId, approvalId) {
+  const base = { conversation_id: conversationId, approval_id: approvalId, approval_state: 'approved' };
+  try {
+    const code = result && typeof result === 'object' ? ownData(result, 'code') : null;
+    if (typeof code === 'string' && SEND_PUBLIC_CODES.includes(code)) {
+      if (code === 'email_send_committed' && result.ok === true) {
+        return { status: 200, body: Object.freeze({ success: true, ...base }), code, approved: true };
+      }
+      return { status: 503, body: Object.freeze({ success: false, error: code, ...base }), code, approved: true };
+    }
+  } catch { /* */ }
+  return {
+    status: 503,
+    body: Object.freeze({ success: false, error: 'email_send_unavailable', ...base }),
+    code: 'email_send_unavailable', approved: true,
+  };
 }
 function parseUuid(raw) {
   if (raw == null || typeof raw !== 'string') return null;
@@ -268,6 +309,7 @@ function createStaffEmailInboxRoutes(deps) {
   const { sendJSON, withPgClient, appendAuditLog } = deps;
   const readBody = typeof deps.readBody === 'function' ? deps.readBody : null;
   const outboundDispatch = typeof deps.outboundDispatch === 'function' ? deps.outboundDispatch : null;
+  const createOutboundDispatch = typeof deps.createOutboundDispatch === 'function' ? deps.createOutboundDispatch : null;
   if (typeof sendJSON !== 'function' || typeof withPgClient !== 'function') throw new Error('deps required');
   async function readBoundedJsonBody(req) {
     try {
@@ -430,27 +472,55 @@ function createStaffEmailInboxRoutes(deps) {
             return { status: 409, body: APPROVAL_CONFLICT, code: 'approve_cas_miss' };
           }
           if (began) await pg.query('COMMIT');
-          // Offline composition: endpoint true may still CAS-approve then 503 (no token/Graph).
+          // Post-COMMIT only. Global send + composition flags independently required.
+          // Hard-false owner constants remain; no token/Graph when either flag is off.
           const sendEnabled = isEmailOutboundSendEnabled(env);
-          const runtimeSafe = EMAIL_AUTHORITY_BOUND_OUTBOUND_SAFE_FOR_RUNTIME_ROUTE === true
-            && EMAIL_AUTHORITY_BOUND_OUTBOUND_RUNTIME_WIRED === true
-            && EMAIL_AUTHORITY_BOUND_OUTBOUND_PERSISTENCE_READY === true;
-          if (!sendEnabled || !runtimeSafe) {
+          const compositionEnabled = isEmailOutboundRuntimeCompositionEnabled(env);
+          if (!sendEnabled || !compositionEnabled) {
             return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'approved' }),
               code: 'email_send_disabled', approval_id: input.approval_id, approved: true };
           }
-          if (typeof outboundDispatch === 'function') {
-            await outboundDispatch({ approval_id: input.approval_id, conversation_id: input.conversation_id, message_text: row.message_text });
+          const sealed = sealApprovedDispatchRequest(row, auth, actor, lockedOperationId);
+          if (!sealed) {
+            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'approved' }),
+              code: 'email_send_unavailable', approval_id: input.approval_id, approved: true };
           }
-          return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'approved' }),
-            code: 'email_send_disabled_unreachable', approval_id: input.approval_id, approved: true };
+          let dispatchResult = null;
+          // Full runtime env for owner pins (gateEnv is flag snapshot only).
+          const compositionEnv = deps.runtimeEnv || process.env;
+          if (typeof createOutboundDispatch === 'function') {
+            // Lazy construction on pinned post-COMMIT client; never release here.
+            try {
+              const surface = createOutboundDispatch(pg, compositionEnv);
+              if (!surface || typeof surface.dispatchApprovedOutbound !== 'function') {
+                return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'approved' }),
+                  code: 'email_send_unavailable', approval_id: input.approval_id, approved: true };
+              }
+              dispatchResult = await surface.dispatchApprovedOutbound(sealed);
+            } catch {
+              return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'approved' }),
+                code: 'email_send_unavailable', approval_id: input.approval_id, approved: true };
+            }
+          } else if (typeof outboundDispatch === 'function') {
+            dispatchResult = await outboundDispatch(sealed);
+          } else {
+            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'approved' }),
+              code: 'email_send_disabled_unreachable', approval_id: input.approval_id, approved: true };
+          }
+          const mapped = mapDispatchToRoute(dispatchResult, input.conversation_id, input.approval_id);
+          return { ...mapped, approval_id: input.approval_id };
         } catch (err) {
           if (began) { try { await pg.query('ROLLBACK'); } catch { /* */ } }
           throw err;
         }
       });
+      // Audit success only for exact committed delivery — not mere approval persistence.
+      const deliveryCommitted = result.code === 'email_send_committed'
+        && result.status === 200
+        && result.body
+        && result.body.success === true;
       auditSafe(appendAuditLog, { intent: 'api:inbox.email.approve_send', category: 'email_inbox_approve_send',
-        success: result.approved === true, code: result.code, approval_id: result.approval_id || input.approval_id,
+        success: deliveryCommitted === true, code: result.code, approval_id: result.approval_id || input.approval_id,
         conversation_id: input.conversation_id, staff_user_id: actor.staff_user_id, elapsed_ms: Date.now() - started });
       return sendJSON(res, result.status, result.body);
     } catch (_err) {
@@ -464,11 +534,13 @@ function createStaffEmailInboxRoutes(deps) {
 }
 module.exports = {
   EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
-  ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_PORTAL_ORIGIN,
-  BODY_KEYS, SUCCESS_DTO_KEYS, BODY_MAX_BYTES, MESSAGE_MAX_BYTES,
+  ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_COMPOSITION_ENABLED, ENV_PORTAL_ORIGIN,
+  BODY_KEYS, SUCCESS_DTO_KEYS, BODY_MAX_BYTES, MESSAGE_MAX_BYTES, SEND_PUBLIC_CODES,
   SQL_RESOLVE, SQL_APPROVE,
   createStaffEmailInboxRoutes,
   isEmailStaffDraftsEnabled, isEmailStaffOutboundEnabled, isEmailOutboundSendEnabled,
+  isEmailOutboundRuntimeCompositionEnabled,
   snapshotGateEnv, snapshotEmailReplyBody, validateJsonContentType, validateSameOrigin,
   isExactApplicationJson, bodyDigestOf, exactOriginSerialization, normalizeConfiguredOrigin,
+  sealApprovedDispatchRequest, mapDispatchToRoute,
 };
