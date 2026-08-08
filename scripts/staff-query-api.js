@@ -15911,6 +15911,9 @@ async function handleManualBookingCreate(req, res, user) {
 function buildUiHtml(port, portalDeployClient) {
   const portalDefaultClient = portalDeployClient || resolvePortalDeployClient();
   const portalDevTabsEnabled = staffPortalDevTabsEnabled();
+  // Server-owned email Inbox UI flags (exact env === 'true'; default-off; no browser override).
+  const emailStaffEmailDraftsUi = process.env.EMAIL_STAFF_EMAIL_DRAFTS_ENABLED === 'true';
+  const emailStaffOutboundUi = process.env.EMAIL_STAFF_OUTBOUND_ENABLED === 'true';
   const rentalDayRatesJson = JSON.stringify(loadWolfhouseRentalDayRates());
   const portalBodyOpen = '<body class="portal-profile-pending"' + (portalDevTabsEnabled ? '' : ' portal-no-dev-tabs') + '>';
   // book-ui switch — warm paperback restyle of the Booking Calendar tab + drawer.
@@ -15926,6 +15929,7 @@ function buildUiHtml(port, portalDeployClient) {
 <link rel="icon" href="/staff/assets/luna-favicon.png?v=1" type="image/png" sizes="128x128">
 <link rel="apple-touch-icon" href="/staff/assets/luna-favicon.png?v=1">
 <script>window.PORTAL_DEFAULT_CLIENT=${JSON.stringify(portalDefaultClient)};</script>
+<script>window.__EMAIL_STAFF_EMAIL_DRAFTS_ENABLED__=${emailStaffEmailDraftsUi ? 'true' : 'false'};window.__EMAIL_STAFF_OUTBOUND_ENABLED__=${emailStaffOutboundUi ? 'true' : 'false'};</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -18479,6 +18483,16 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .draft-send-status.ok{background:#EBF1E5;color:#3D5235;border:1px solid #CFDFC3}
 .draft-send-status.blocked{background:#FBF0E8;color:#9C5742;border:1px solid #EFD9D0}
 .draft-send-status.error{background:#F8E8E8;color:#8B3A3A;border:1px solid #E8C4C4}
+.email-draft-byte-count{font-size:11px;color:var(--text-3);margin-top:6px;box-sizing:border-box;max-width:100%}
+.email-draft-byte-count.is-over{color:#8B3A3A;font-weight:600}
+.btn-email-save-draft{background:var(--ocean);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+.btn-email-save-draft:hover{background:#7FA3B8}
+.btn-email-save-draft:disabled,.btn-email-approve-send:disabled{background:#C9CFC8;color:#F2F1EC;cursor:default}
+.btn-email-approve-send{background:var(--primary);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+.btn-email-approve-send:hover{background:var(--primary-hover)}
+[data-theme="dark"] .btn-email-save-draft{background:#1e4a68;color:#c8dce8}
+[data-theme="dark"] .btn-email-approve-send{background:var(--primary);color:#f0f4f0}
+[data-theme="dark"] .btn-email-save-draft:disabled,[data-theme="dark"] .btn-email-approve-send:disabled{background:#333333;color:#6e6e6e}
 .inbox-bottom-debug-panels{display:none!important}
 .copy-confirm{font-size:11px;color:#5C7350;font-weight:700}
 /* ── Shadow-mode workflow checklist (Stage 7.7j) ─────────────────────────── */
@@ -18518,6 +18532,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
   #draft-textarea{width:100%;box-sizing:border-box;min-height:80px;font-size:16px}
   .draft-actions{width:100%}
   .btn-send-reply{min-height:44px;padding:10px 18px;font-size:13px;margin-left:auto}
+  .btn-email-save-draft,.btn-email-approve-send{min-height:44px;padding:10px 18px;font-size:13px;display:inline-flex;align-items:center;justify-content:center}
   .draft-warning{min-width:0;flex:1 1 100%}
   .inbox-filter-btn{min-height:40px;padding:8px 12px}
   .inbox-refresh-btn{min-width:44px;min-height:44px;padding:8px 12px}
@@ -31825,6 +31840,282 @@ function performInboxSend(convId, phone, targetEl){
     });
 }
 
+/* ── Gate 3 email draft/approve UI (default-off; channel==='email' only) ── */
+var EMAIL_DRAFT_MAX_UTF8_BYTES = 8000;
+var EMAIL_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+var EMAIL_DRAFT_OK_KEYS = ['success','conversation_id','message_text','approval_id'];
+var EMAIL_APPROVE_503_KEYS = ['success','error','conversation_id','approval_id','approval_state'];
+var _emailReplyStateByConv = Object.create(null);
+var _emailUtf8Encoder = (typeof TextEncoder !== 'undefined') ? new TextEncoder() : null;
+function staffEmailDraftsUiEnabled(){ return window.__EMAIL_STAFF_EMAIL_DRAFTS_ENABLED__ === true; }
+function staffEmailOutboundUiEnabled(){ return window.__EMAIL_STAFF_OUTBOUND_ENABLED__ === true; }
+/** Authoritative email channel only — never infer. */
+function isAuthoritativeEmailConversation(c){
+  return !!(c && c.channel === 'email');
+}
+function emailUtf8ByteLength(text){
+  var s = String(text == null ? '' : text);
+  try {
+    if (_emailUtf8Encoder) return _emailUtf8Encoder.encode(s).length;
+  } catch (_e) { /* fall through */ }
+  try { return unescape(encodeURIComponent(s)).length; } catch (_e2) { return s.length; }
+}
+function emailOwnData(o, k){
+  try {
+    if (!o || typeof o !== 'object' || !Object.prototype.hasOwnProperty.call(o, k)) return undefined;
+    var d = Object.getOwnPropertyDescriptor(o, k);
+    return (d && Object.prototype.hasOwnProperty.call(d, 'value') && !d.get && !d.set && d.enumerable) ? d.value : undefined;
+  } catch (_e) { return undefined; }
+}
+function emailIsPlainOwnObject(o){
+  try { return !!(o && typeof o === 'object' && !Array.isArray(o) && Object.getPrototypeOf(o) === Object.prototype); }
+  catch (_e) { return false; }
+}
+function emailExactPlainKeys(o, keys){
+  try {
+    if (!emailIsPlainOwnObject(o)) return false;
+    var actual = Object.keys(o);
+    if (actual.length !== keys.length) return false;
+    for (var i = 0; i < keys.length; i++) {
+      if (actual.indexOf(keys[i]) < 0) return false;
+      var d = Object.getOwnPropertyDescriptor(o, keys[i]);
+      if (!d || !Object.prototype.hasOwnProperty.call(d, 'value') || d.get || d.set || !d.enumerable) return false;
+    }
+    return true;
+  } catch (_e) { return false; }
+}
+function emailCanonicalUuid(raw){
+  if (typeof raw !== 'string') return null;
+  var t = raw.trim().toLowerCase();
+  return EMAIL_UUID_RE.test(t) ? t : null;
+}
+function acceptEmailDraftSuccess(data, reqConvId, reqText){
+  try {
+    if (!emailExactPlainKeys(data, EMAIL_DRAFT_OK_KEYS) || emailOwnData(data, 'success') !== true) return null;
+    var cid = emailCanonicalUuid(emailOwnData(data, 'conversation_id'));
+    var ap = emailCanonicalUuid(emailOwnData(data, 'approval_id'));
+    if (!cid || cid !== String(reqConvId || '').toLowerCase() || emailOwnData(data, 'message_text') !== reqText || !ap) return null;
+    return { conversation_id: cid, message_text: reqText, approval_id: ap };
+  } catch (_e) { return null; }
+}
+function acceptEmailApproveDisabled503(data, reqConvId, savedApprovalId){
+  try {
+    if (!emailExactPlainKeys(data, EMAIL_APPROVE_503_KEYS) || emailOwnData(data, 'success') !== false) return null;
+    if (emailOwnData(data, 'error') !== 'email_send_disabled') return null;
+    var st = emailOwnData(data, 'approval_state');
+    if (st !== 'draft' && st !== 'approved') return null;
+    var cid = emailCanonicalUuid(emailOwnData(data, 'conversation_id'));
+    var ap = emailCanonicalUuid(emailOwnData(data, 'approval_id'));
+    var want = emailCanonicalUuid(savedApprovalId);
+    if (!cid || cid !== String(reqConvId || '').toLowerCase() || !ap || !want || ap !== want) return null;
+    return { conversation_id: cid, approval_id: ap, approval_state: st };
+  } catch (_e) { return null; }
+}
+function emailUiFailureCopy(op, status){
+  var c = (typeof status === 'number' && isFinite(status)) ? status : 0;
+  if (c === 400) return 'Request rejected';
+  if (c === 401 || c === 403) return 'Unauthorized';
+  if (c === 404) return 'Conversation unavailable';
+  if (c === 409) return 'Conflict \u2014 reload and try again';
+  if (c === 503) return 'Temporarily unavailable';
+  return op === 'approve' ? 'Approve failed' : 'Save failed';
+}
+function emailParseFetchJson(r){
+  return r.text().then(function(raw){
+    try {
+      return { status: r.status, data: (raw == null || raw === '') ? null : JSON.parse(raw), parseOk: true };
+    } catch (_e) { return { status: r.status, data: null, parseOk: false }; }
+  });
+}
+function emailReplyState(convId){
+  var id = String(convId || '');
+  if (!_emailReplyStateByConv[id]) {
+    _emailReplyStateByConv[id] = { approvalId: null, locked: false, savedText: '', seq: 0, inFlight: false };
+  }
+  return _emailReplyStateByConv[id];
+}
+function updateEmailDraftByteCount(targetEl, text){
+  var elCount = targetEl && targetEl.querySelector('#email-draft-byte-count');
+  if (!elCount) return 0;
+  var n = emailUtf8ByteLength(text);
+  elCount.textContent = n + ' / ' + EMAIL_DRAFT_MAX_UTF8_BYTES + ' bytes';
+  if (n > EMAIL_DRAFT_MAX_UTF8_BYTES) elCount.classList.add('is-over');
+  else elCount.classList.remove('is-over');
+  return n;
+}
+function setEmailReplyControlsDisabled(targetEl, disabled, locked){
+  if (!targetEl) return;
+  var ta = targetEl.querySelector('#draft-textarea');
+  var saveBtn = targetEl.querySelector('#btn-email-save-draft');
+  var apprBtn = targetEl.querySelector('#btn-email-approve-send');
+  var freeze = !!(disabled || locked);
+  if (ta) ta.disabled = freeze;
+  if (saveBtn) saveBtn.disabled = freeze;
+  if (apprBtn) apprBtn.disabled = freeze;
+}
+function performEmailDraftSave(convId, targetEl){
+  var st = emailReplyState(convId);
+  var ta = targetEl.querySelector('#draft-textarea');
+  var statusEl = targetEl.querySelector('#draft-send-status');
+  if (!ta || st.locked || st.inFlight) return;
+  var messageText = String(ta.value == null ? '' : ta.value);
+  var bytes = emailUtf8ByteLength(messageText);
+  if (!messageText.length) {
+    showDraftSendStatus(statusEl, 'error', 'Enter a reply before saving a draft.');
+    return;
+  }
+  if (bytes > EMAIL_DRAFT_MAX_UTF8_BYTES) {
+    showDraftSendStatus(statusEl, 'error', 'Message exceeds 8,000 UTF-8 bytes.');
+    return;
+  }
+  var snapConv = String(convId);
+  var snapText = messageText;
+  var mySeq = ++st.seq;
+  st.inFlight = true;
+  setEmailReplyControlsDisabled(targetEl, true, false);
+  showDraftSendStatus(statusEl, '', 'Saving draft\u2026');
+  fetch('/staff/inbox/email/draft', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      conversation_id: convId,
+      message_text: messageText,
+      approval_id: st.approvalId == null ? null : st.approvalId,
+    }),
+  })
+    .then(emailParseFetchJson)
+    .then(function(out){
+      if (mySeq !== st.seq) return;
+      st.inFlight = false;
+      if (selectedConvId !== snapConv) return;
+      if (!out.parseOk) {
+        showDraftSendStatus(statusEl, 'error', 'Invalid response');
+        setEmailReplyControlsDisabled(targetEl, false, st.locked);
+        return;
+      }
+      var accepted = (out.status >= 200 && out.status < 300) ? acceptEmailDraftSuccess(out.data, snapConv, snapText) : null;
+      if (accepted) {
+        st.approvalId = accepted.approval_id;
+        st.savedText = snapText;
+        showDraftSendStatus(statusEl, 'ok', 'Draft saved');
+        setEmailReplyControlsDisabled(targetEl, false, st.locked);
+        return;
+      }
+      showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('draft', out.status));
+      setEmailReplyControlsDisabled(targetEl, false, st.locked);
+    })
+    .catch(function(){
+      if (mySeq !== st.seq) return;
+      st.inFlight = false;
+      if (selectedConvId !== snapConv) return;
+      showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('draft', 0));
+      setEmailReplyControlsDisabled(targetEl, false, st.locked);
+    });
+}
+function performEmailApproveSend(convId, targetEl){
+  var st = emailReplyState(convId);
+  var ta = targetEl.querySelector('#draft-textarea');
+  var statusEl = targetEl.querySelector('#draft-send-status');
+  if (!ta || st.locked || st.inFlight) return;
+  if (!staffEmailOutboundUiEnabled()) {
+    showDraftSendStatus(statusEl, 'blocked', 'Email sending is disabled; draft not approved.');
+    return;
+  }
+  var messageText = String(ta.value == null ? '' : ta.value);
+  if (!st.approvalId) {
+    showDraftSendStatus(statusEl, 'error', 'Save a draft before approving.');
+    return;
+  }
+  if (messageText !== st.savedText) {
+    showDraftSendStatus(statusEl, 'error', 'Save the current text before approving.');
+    return;
+  }
+  var bytes = emailUtf8ByteLength(messageText);
+  if (!messageText.length || bytes > EMAIL_DRAFT_MAX_UTF8_BYTES) {
+    showDraftSendStatus(statusEl, 'error', !messageText.length ? 'Enter a reply before approving.' : 'Message exceeds 8,000 UTF-8 bytes.');
+    return;
+  }
+  var snapConv = String(convId);
+  var snapApprovalId = st.approvalId;
+  var snapText = messageText;
+  var mySeq = ++st.seq;
+  st.inFlight = true;
+  setEmailReplyControlsDisabled(targetEl, true, true);
+  showDraftSendStatus(statusEl, '', 'Approving\u2026');
+  fetch('/staff/inbox/email/approve-send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      conversation_id: convId,
+      message_text: messageText,
+      approval_id: snapApprovalId,
+    }),
+  })
+    .then(emailParseFetchJson)
+    .then(function(out){
+      if (mySeq !== st.seq) return;
+      st.inFlight = false;
+      if (selectedConvId !== snapConv) return;
+      if (st.approvalId !== snapApprovalId || st.savedText !== snapText) {
+        setEmailReplyControlsDisabled(targetEl, false, st.locked);
+        return;
+      }
+      if (!out.parseOk) {
+        showDraftSendStatus(statusEl, 'error', 'Invalid response');
+        setEmailReplyControlsDisabled(targetEl, false, st.locked);
+        return;
+      }
+      if (out.status === 503) {
+        var accepted = acceptEmailApproveDisabled503(out.data, snapConv, snapApprovalId);
+        if (accepted && accepted.approval_state === 'approved') {
+          if (ta.value !== snapText) ta.value = snapText;
+          updateEmailDraftByteCount(targetEl, snapText);
+          st.savedText = snapText;
+          st.locked = true;
+          showDraftSendStatus(statusEl, 'blocked', 'Approved \u2014 email sending is currently disabled');
+          setEmailReplyControlsDisabled(targetEl, false, true);
+          return;
+        }
+        if (accepted && accepted.approval_state === 'draft') {
+          showDraftSendStatus(statusEl, 'blocked', 'Email sending is disabled; draft not approved.');
+          setEmailReplyControlsDisabled(targetEl, false, false);
+          return;
+        }
+        showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('approve', 503));
+        setEmailReplyControlsDisabled(targetEl, false, st.locked);
+        return;
+      }
+      showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('approve', out.status));
+      setEmailReplyControlsDisabled(targetEl, false, st.locked);
+    })
+    .catch(function(){
+      if (mySeq !== st.seq) return;
+      st.inFlight = false;
+      if (selectedConvId !== snapConv) return;
+      showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('approve', 0));
+      setEmailReplyControlsDisabled(targetEl, false, st.locked);
+    });
+}
+function wireInboxEmailReply(convId, targetEl){
+  var ta = targetEl.querySelector('#draft-textarea');
+  var saveBtn = targetEl.querySelector('#btn-email-save-draft');
+  var apprBtn = targetEl.querySelector('#btn-email-approve-send');
+  if (!ta || !saveBtn) return;
+  var st = emailReplyState(convId);
+  if (st.locked) {
+    ta.value = st.savedText || ta.value;
+    setEmailReplyControlsDisabled(targetEl, false, true);
+  } else if (st.inFlight) {
+    setEmailReplyControlsDisabled(targetEl, true, false);
+  }
+  updateEmailDraftByteCount(targetEl, ta.value);
+  ta.addEventListener('input', function(){
+    updateEmailDraftByteCount(targetEl, ta.value);
+  });
+  saveBtn.addEventListener('click', function(){ performEmailDraftSave(convId, targetEl); });
+  if (apprBtn) apprBtn.addEventListener('click', function(){ performEmailApproveSend(convId, targetEl); });
+}
+
 function wireInboxSendReply(convId, phone, targetEl){
   var sendBtn = targetEl.querySelector('#btn-send-reply');
   var textaEl = targetEl.querySelector('#draft-textarea');
@@ -32135,19 +32426,41 @@ function loadConvDetail(convId, targetEl){
     html += '</div>'; /* /thread */
     html += '</div>'; /* /thread-section */
 
-    /* Reply panel — review, copy, or send via Staff API */
+    /* Reply panel — WhatsApp send (default) or gated email draft/approve */
     var draftText = (draft && draft.draft_text) ? draft.draft_text : (c.staff_reply_draft || '');
+    var useEmailReplyUi = staffEmailDraftsUiEnabled() && isAuthoritativeEmailConversation(c);
+    var emailSt = useEmailReplyUi ? emailReplyState(convId) : null;
+    // Prefer per-conversation held draft/approval text (never shared across conversations).
+    if (emailSt && emailSt.savedText) draftText = emailSt.savedText;
 
     html += '<div class="draft-panel">';
     html +=   '<div class="draft-label">';
-    html +=     '<span style="font-size:11px;color:var(--text-3)">' + escHtml(t('inbox.detail.reply.label')) + '</span>';
+    if (useEmailReplyUi) {
+      html += '<label for="draft-textarea" style="font-size:11px;color:var(--text-3)">' + escHtml(t('inbox.detail.reply.label')) + '</label>';
+    } else {
+      html +=     '<span style="font-size:11px;color:var(--text-3)">' + escHtml(t('inbox.detail.reply.label')) + '</span>';
+    }
     html +=   '</div>';
-    html += '<textarea id="draft-textarea" placeholder="' + escHtml(t('inbox.detail.reply.editPlaceholder')) + '">' +
+    html += '<textarea id="draft-textarea" placeholder="' + escHtml(t('inbox.detail.reply.editPlaceholder')) + '"' +
+            (useEmailReplyUi && emailSt && emailSt.locked ? ' disabled' : '') + '>' +
             escHtml(draftText) + '</textarea>';
-    html += '<div class="draft-actions">';
-    html +=   '<button type="button" class="btn-send-reply" id="btn-send-reply">' + escHtml(t('inbox.detail.reply.send')) + '</button>';
-    html += '</div>';
-    html += '<div id="draft-send-status" class="draft-send-status"></div>';
+    if (useEmailReplyUi) {
+      html += '<div id="email-draft-byte-count" class="email-draft-byte-count" aria-live="polite">0 / 8000 bytes</div>';
+      html += '<div class="draft-actions">';
+      html +=   '<button type="button" class="btn-email-save-draft" id="btn-email-save-draft"' +
+              (emailSt && emailSt.locked ? ' disabled' : '') + '>Save draft</button>';
+      if (staffEmailOutboundUiEnabled()) {
+        html += '<button type="button" class="btn-email-approve-send" id="btn-email-approve-send"' +
+                (emailSt && emailSt.locked ? ' disabled' : '') + '>Approve &amp; send</button>';
+      }
+      html += '</div>';
+      html += '<div id="draft-send-status" class="draft-send-status" role="status" aria-live="polite"></div>';
+    } else {
+      html += '<div class="draft-actions">';
+      html +=   '<button type="button" class="btn-send-reply" id="btn-send-reply">' + escHtml(t('inbox.detail.reply.send')) + '</button>';
+      html += '</div>';
+      html += '<div id="draft-send-status" class="draft-send-status"></div>';
+    }
     html += '</div>'; /* /draft-panel */
 
     html += '</div>'; /* /detail-main */
@@ -32186,7 +32499,8 @@ function loadConvDetail(convId, targetEl){
     targetEl.innerHTML = html;
     targetEl.classList.remove('is-loading-detail');
 
-    wireInboxSendReply(convId, c.phone, targetEl);
+    if (useEmailReplyUi) wireInboxEmailReply(convId, targetEl);
+    else wireInboxSendReply(convId, c.phone, targetEl);
     var inboxCustBtn = targetEl.querySelector('#inbox-open-customer-card');
     if (inboxCustBtn && convPhone) {
       inboxCustBtn.addEventListener('click', function() { openCustomerCardForPhone(convPhone); });

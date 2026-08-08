@@ -386,6 +386,7 @@
     "verify:email-outbound-send-journal-store": "node scripts/verify-email-outbound-send-journal-store.js",
     "verify:email-authority-bound-outbound-operation": "node scripts/verify-email-authority-bound-outbound-operation.js",
     "verify:staff-email-inbox-routes": "node scripts/verify-staff-email-inbox-routes.js",
+    "verify:staff-email-inbox-ui": "node scripts/verify-staff-email-inbox-ui.js",
     "verify:email-delta-operator-recovery-config": "node scripts/verify-email-delta-operator-recovery-config.js",
     "verify:email-delta-operator-recovery-service": "node scripts/verify-email-delta-operator-recovery-service.js",
     "verify:staff-email-delta-operator-recovery-routes": "node scripts/verify-staff-email-delta-operator-recovery-routes.js",

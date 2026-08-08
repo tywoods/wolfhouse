@@ -413,7 +413,7 @@ function createStaffEmailInboxRoutes(deps) {
           // Kill switch: bound endpoint outbound must be true before durable approve CAS.
           if (auth.endpoint_outbound_enabled !== true) {
             if (began) await pg.query('ROLLBACK');
-            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: input.approval_id }),
+            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'draft' }),
               code: 'email_send_disabled', approval_id: input.approval_id, approved: false };
           }
           const lockedOperationId = parseUuid(typeof row.operation_id === 'string' ? row.operation_id : null);
@@ -436,13 +436,13 @@ function createStaffEmailInboxRoutes(deps) {
             && EMAIL_AUTHORITY_BOUND_OUTBOUND_RUNTIME_WIRED === true
             && EMAIL_AUTHORITY_BOUND_OUTBOUND_PERSISTENCE_READY === true;
           if (!sendEnabled || !runtimeSafe) {
-            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: input.approval_id }),
+            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'approved' }),
               code: 'email_send_disabled', approval_id: input.approval_id, approved: true };
           }
           if (typeof outboundDispatch === 'function') {
             await outboundDispatch({ approval_id: input.approval_id, conversation_id: input.conversation_id, message_text: row.message_text });
           }
-          return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled' }),
+          return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'approved' }),
             code: 'email_send_disabled_unreachable', approval_id: input.approval_id, approved: true };
         } catch (err) {
           if (began) { try { await pg.query('ROLLBACK'); } catch { /* */ } }
