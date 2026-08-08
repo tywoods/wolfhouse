@@ -349,6 +349,7 @@
     "verify:email-phase-b-authority": "node scripts/verify-email-phase-b-authority.js",
     "verify:email-microsoft-phase-b-oauth-callback-composition": "node scripts/verify-email-microsoft-phase-b-oauth-callback-composition.js",
     "verify:email-microsoft-phase-b-oauth-runtime-composition": "node scripts/verify-email-microsoft-phase-b-oauth-runtime-composition.js",
+    "verify:email-microsoft-oauth-shared-callback-dispatch": "node scripts/verify-email-microsoft-oauth-shared-callback-dispatch.js",
     "verify:email-sunset-microsoft-endpoint-prepare": "node scripts/verify-email-sunset-microsoft-endpoint-prepare.js",
     "verify:email-graph-app-only-readiness": "node scripts/verify-email-graph-app-only-readiness.js",
     "verify:email-microsoft-delegated-oauth-contract": "node scripts/verify-email-microsoft-delegated-oauth-contract.js",
