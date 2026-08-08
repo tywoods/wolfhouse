@@ -205,20 +205,70 @@ function snapValidateRow(row) {
     expectedPriorGrantGeneration: prior,
   });
 }
+/**
+ * Own enumerable data-descriptor string only. Never env[key] / inherited / accessors.
+ * null → invalid surface (fail closed); {present:false} → key absent.
+ */
+function readOwnEnvString(env, key) {
+  try {
+    if (env == null || (typeof env !== 'object' && typeof env !== 'function') || isProxy(env)) {
+      return null;
+    }
+    if (!Object.prototype.hasOwnProperty.call(env, key)) return { present: false };
+    const d = Object.getOwnPropertyDescriptor(env, key);
+    if (!d || !Object.prototype.hasOwnProperty.call(d, 'value') || d.get || d.set || !d.enumerable) {
+      return null;
+    }
+    if (typeof d.value !== 'string') return null;
+    return { present: true, value: d.value };
+  } catch { return null; }
+}
+/**
+ * Exact lowercase 'true' via own data only (zero getter hits).
+ * true | false | null(invalid accessor/proxy/non-enumerable surface).
+ * Absent or own non-'true' data (incl. non-string) → false — gate off, factory ok.
+ */
+function readOwnEnvExactTrue(env, key) {
+  try {
+    if (env == null || (typeof env !== 'object' && typeof env !== 'function') || isProxy(env)) {
+      return null;
+    }
+    if (!Object.prototype.hasOwnProperty.call(env, key)) return false;
+    const d = Object.getOwnPropertyDescriptor(env, key);
+    if (!d || !Object.prototype.hasOwnProperty.call(d, 'value') || d.get || d.set || !d.enumerable) {
+      return null;
+    }
+    return d.value === 'true';
+  } catch { return null; }
+}
+/** Exact lowercase 'true' via own data only; proxy/accessor/inherited → false, zero getter hits. */
 function isCallbackEnabled(env) {
   try {
-    if (!env || isProxy(env)) return false;
-    return env[CALLBACK_ENABLED_ENV] === 'true';
+    return readOwnEnvExactTrue(env, CALLBACK_ENABLED_ENV) === true;
   } catch { return false; }
 }
+/**
+ * Snap deployment + app client id + B flag from own data descriptors only.
+ * Rejects transparent Proxy, symbol own keys, accessors; no env[key].
+ * Flag: exact 'true' only; missing/false/malformed own data → phaseBEnabled false.
+ */
 function snapEnv(env) {
   try {
-    if (!env || typeof env !== 'object' || isProxy(env) || env.LUNA_DEPLOYMENT !== SUNSET_DEPLOYMENT) return null;
-    const appId = env.LUNA_EMAIL_OAUTH_CLIENT_ID;
-    if (typeof appId !== 'string' || !UUID_RE.test(appId)) return null;
+    if (!env || typeof env !== 'object' || isProxy(env)) return null;
+    let ownKeys;
+    try { ownKeys = Reflect.ownKeys(env); } catch { return null; }
+    for (let i = 0; i < ownKeys.length; i += 1) {
+      if (typeof ownKeys[i] === 'symbol') return null;
+    }
+    const dep = readOwnEnvString(env, 'LUNA_DEPLOYMENT');
+    if (!dep || !dep.present || dep.value !== SUNSET_DEPLOYMENT) return null;
+    const app = readOwnEnvString(env, 'LUNA_EMAIL_OAUTH_CLIENT_ID');
+    if (!app || !app.present || !UUID_RE.test(app.value)) return null;
+    const flag = readOwnEnvExactTrue(env, CALLBACK_ENABLED_ENV);
+    if (flag === null) return null;
     return Object.freeze({
-      applicationClientId: appId.toLowerCase(),
-      phaseBEnabled: isCallbackEnabled(env),
+      applicationClientId: app.value.toLowerCase(),
+      phaseBEnabled: flag === true,
     });
   } catch { return null; }
 }
