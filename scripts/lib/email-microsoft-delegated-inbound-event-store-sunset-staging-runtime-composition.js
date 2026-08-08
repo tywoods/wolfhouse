@@ -57,6 +57,9 @@ const {
   EMAIL_INBOUND_EVENT_STORE_RUNTIME_WIRED,
   resolveWithTransactionClient,
 } = require('./email-inbound-event-store');
+const {
+  createEmailInboundInboxBridge,
+} = require('./email-inbound-inbox-bridge');
 
 const ERROR_CODE = 'MICROSOFT_DELEGATED_INBOUND_EVENT_STORE_RUNTIME_COMPOSITION_INVALID';
 const ERROR_MESSAGE = 'Microsoft delegated inbound event-store runtime composition failed.';
@@ -385,6 +388,7 @@ function createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(deps) {
     // Factory-fixed exclusive transaction loaner (descriptor/proxy-safe capture).
     const withTransactionClient = resolveWithTransactionClient(withTxnRaw);
     if (!withTransactionClient) throw failure();
+    const inboxBridge = createEmailInboundInboxBridge(Object.freeze({ withTransactionClient }));
 
     const natives = pinNativeSurfaces(httpsRaw, timersRaw);
     if (!natives) throw failure();
@@ -434,10 +438,29 @@ function createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(deps) {
         workerId: WORKER_ID,
       }));
 
-      const consumer = createDurableInboundEventStoreConsumer(Object.freeze({
+      const durableConsumer = createDurableInboundEventStoreConsumer(Object.freeze({
         withTransactionClient,
         authority: ids,
       }));
+      const consumer = async (envelopes) => {
+        const acknowledged = await durableConsumer(envelopes);
+        for (const envelope of envelopes) {
+          const projected = await inboxBridge.projectInboundEvent({
+            clientId: ids.clientId,
+            locationId: ids.locationId,
+            endpointId: ids.endpointId,
+            provider: envelope.provider,
+            providerMailboxId: envelope.provider_mailbox_id,
+            providerMessageId: envelope.provider_message_id,
+          });
+          if (!projected
+              || (projected.status !== 'projected'
+                && projected.status !== 'already_projected')) {
+            throw failure();
+          }
+        }
+        return acknowledged;
+      };
 
       const operation = createAuthorityBoundInboundOperation(Object.freeze({
         db: pgClient,

@@ -750,9 +750,16 @@ async function main() {
       );
       const provPath = path.join(ROOT, 'scripts/lib/email-grant-envelope-provider-contract.js');
       const tokPath = path.join(ROOT, 'scripts/lib/email-microsoft-token-http-transport.js');
+      const bridgePath = path.join(ROOT, 'scripts/lib/email-inbound-inbox-bridge.js');
 
       const fake = createFakeTxnHarness();
       let consumerSeen = 0;
+      let batch = [
+        envelope({ provider_message_id: 'comp-1' }),
+        envelope({ provider_message_id: 'comp-2' }),
+      ];
+      let projectionStatuses = ['projected', 'projected'];
+      const projectionInputs = [];
 
       require.cache[secretPath] = {
         id: secretPath,
@@ -808,6 +815,20 @@ async function main() {
           }),
         },
       };
+      require.cache[bridgePath] = {
+        id: bridgePath,
+        filename: bridgePath,
+        loaded: true,
+        exports: {
+          createEmailInboundInboxBridge: () => Object.freeze({
+            projectInboundEvent: async (input) => {
+              assert.ok(fake.log.some((e) => e.sql === 'COMMIT'), 'event COMMIT precedes projection');
+              projectionInputs.push(input);
+              return Object.freeze({ status: projectionStatuses.shift() });
+            },
+          }),
+        },
+      };
       require.cache[immutPath] = {
         id: immutPath,
         filename: immutPath,
@@ -832,16 +853,16 @@ async function main() {
             return Object.freeze({
               runAuthorityBoundInbound: async () => {
                 consumerSeen += 1;
-                const ack = await deps.consumer(Object.freeze([
-                  Object.freeze(envelope({ provider_message_id: 'comp-1' })),
-                ]));
+                const ack = await deps.consumer(Object.freeze(
+                  batch.map((item) => Object.freeze(item)),
+                ));
                 assert.deepEqual(ack, { acknowledged: true });
                 return Object.freeze({
                   ok: true,
                   value: Object.freeze({
                     status: 'processed',
-                    input_count: 1,
-                    delivered_count: 1,
+                    input_count: batch.length,
+                    delivered_count: batch.length,
                     duplicate_count: 0,
                   }),
                 });
@@ -863,10 +884,38 @@ async function main() {
       const result = await runtime.runInboundEventStore(authority());
       assert.equal(result.status, 'success');
       assert.equal(result.durably_processed, true);
-      assert.equal(result.input_count, 1);
+      assert.equal(result.input_count, 2);
       assert.equal(consumerSeen, 1);
-      assert.equal(fake.rows.size, 1);
+      assert.equal(fake.rows.size, 2);
+      assert.deepEqual(projectionInputs.map((i) => i.providerMessageId), ['comp-1', 'comp-2']);
+      assert.deepEqual(projectionInputs[0], {
+        clientId: CLIENT,
+        locationId: LOCATION,
+        endpointId: ENDPOINT,
+        provider: 'microsoft_graph',
+        providerMailboxId: MAILBOX,
+        providerMessageId: 'comp-1',
+      });
       assert.equal(noLeak(result), true);
+
+      projectionStatuses = ['already_projected', 'projected'];
+      await runtime.runInboundEventStore(authority());
+      assert.equal(fake.rows.size, 2, 'replay keeps durable events stable');
+
+      batch = [envelope({ provider_message_id: 'comp-3' })];
+      for (const bad of ['rejected', 'uncertain']) {
+        projectionStatuses = [bad];
+        await assert.rejects(runtime.runInboundEventStore(authority()),
+          (err) => err && err.code === comp.ERROR_CODE && noLeak(err));
+      }
+
+      batch = [envelope({ provider_message_id: 'comp-4' }), envelope({ provider_message_id: 'comp-5' })];
+      projectionStatuses = ['projected', 'rejected'];
+      await assert.rejects(runtime.runInboundEventStore(authority()),
+        (err) => err && err.code === comp.ERROR_CODE && noLeak(err));
+      projectionStatuses = ['already_projected', 'projected'];
+      const converged = await runtime.runInboundEventStore(authority());
+      assert.equal(converged.input_count, 2, 'mid-batch replay converges');
     } finally {
       restore();
       for (const key of Object.keys(require.cache)) {
