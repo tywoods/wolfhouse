@@ -845,6 +845,26 @@
       "rationale": "Explicit down for 066: fail closed if any page_commit/worker rows exist (refuse silent evidence loss); otherwise drop actor_kind/worker_id, restore actor_staff_user_id NOT NULL and exact 065 kind/target/outcome coupling.",
       "pairsWith": "066_tenant_email_delta_page_commit_journal.sql",
       "sha256": "4b052ab65df50b0dde28d9e478edd6d9b627d98fa26b34802767870e21f90363"
+    },
+    {
+      "id": "067_tenant_email_inbound_inbox_projections",
+      "filename": "067_tenant_email_inbound_inbox_projections.sql",
+      "order": 66,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Empty tenant_email_inbound_inbox_projections exactly-once journal projecting durable inbound events into conversations/messages with channel=email and location preserved. Identity=(provider,provider_mailbox_id,provider_message_id). Tenant-consistent composite FKs (event/conversation/message ownership). Conversation/message delete CASCADE journal; event RESTRICT. Customer-sync skip for emailv1:/email: phone namespace. No seed/route/send/Luna/activation.",
+      "downFilename": "067_tenant_email_inbound_inbox_projections_down.sql",
+      "sha256": "f5bf406207d5ab3e91d8519d46f6813c6363a5e5504c9ca5c413c2ad212e3471"
+    },
+    {
+      "id": "067_tenant_email_inbound_inbox_projections_down",
+      "filename": "067_tenant_email_inbound_inbox_projections_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit down for 067: fail closed if any projection rows exist (refuse silent exactly-once evidence loss); otherwise DROP TABLE and supporting parent uniques. Leaves 063 events and Inbox conversations/messages intact.",
+      "pairsWith": "067_tenant_email_inbound_inbox_projections.sql",
+      "sha256": "6fcf04dc5f7a02ea0cbfbb941187377a31f2816a98d8236dd456cdf2c128de6f"
     }
   ]
 }

@@ -377,6 +377,7 @@
     "verify:staff-email-oauth-inbound-diagnostic-routes": "node scripts/verify-staff-email-oauth-inbound-diagnostic-routes.js",
     "verify:staff-email-oauth-inbound-capture-routes": "node scripts/verify-staff-email-oauth-inbound-capture-routes.js",
     "verify:email-inbound-event-store": "node scripts/verify-email-inbound-event-store.js",
+    "verify:email-inbound-inbox-bridge": "node scripts/verify-email-inbound-inbox-bridge.js",
     "prove:email-inbound-event-store-pglite": "node scripts/prove-email-inbound-event-store-pglite.js",
     "verify:email-inbound-delta-state-store": "node scripts/verify-email-inbound-delta-state-store.js",
     "prove:email-inbound-delta-state-store-pglite": "node scripts/prove-email-inbound-delta-state-store-pglite.js",
@@ -939,7 +940,8 @@
     "verify:item-display-name": "node scripts/verify-item-display-name.js",
     "diagnose:sunset-finance-data-quality": "node scripts/diagnose-sunset-finance-data-quality.js",
     "verify:sunset-private-course-card-onerow": "node scripts/verify-sunset-private-course-card-onerow.js",
-    "verify:sunset-group-course-card-opt3": "node scripts/verify-sunset-group-course-card-opt3.js"
+    "verify:sunset-group-course-card-opt3": "node scripts/verify-sunset-group-course-card-opt3.js",
+    "prove:email-inbound-inbox-bridge-pglite": "node scripts/prove-email-inbound-inbox-bridge-pglite.js"
   },
   "dependencies": {
     "@azure/identity": "4.13.1",

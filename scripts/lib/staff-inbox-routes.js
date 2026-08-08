@@ -16,6 +16,12 @@
  * Send-reply outbound contract: evaluateGuestReplySendRouteWithPause is injected
  * via deps (byte-identical call site) — do not reimplement send logic here.
  *
+ * Production WhatsApp boundary (Sunset Email Slice 2): before any evaluate /
+ * guest_message_sends audit / provider send, load the authoritative conversation
+ * under tenant ownership and reject channel=email and emailv1:/email: identities.
+ * Caller-supplied `to` is forge-checked only — never trusted for channel/destination.
+ * Does not import the email inbound → Inbox bridge (projection remains unwired).
+ *
  * @module staff-inbox-routes
  */
 
@@ -34,7 +40,7 @@ const {
 const {
   parseInboxSendReplyInput,
   buildStaffInboxGuestReplyBody,
-  resolveConversationGuestPhone,
+  resolveAuthoritativeInboxSendTarget,
 } = require('./luna-staff-inbox-send-reply');
 const {
   persistStaffInboxSentThreadMessage,
@@ -296,7 +302,10 @@ function createInboxRoutes(deps) {
   // Phase 23d — Staff Inbox explicit reply send
   //
   // POST /staff/inbox/send-reply
-  //   Delegates to evaluateGuestReplySendRouteWithPause (guest_message_sends audit path).
+  //   1) Load authoritative conversation under tenant ownership (never trust `to`).
+  //   2) Reject email-channel / emailv1: / email: before WhatsApp evaluation.
+  //   3) Reject forged caller `to` that does not match conversation phone.
+  //   4) Only then evaluateGuestReplySendRouteWithPause (guest_message_sends path).
   // ─────────────────────────────────────────────────────────────────────────────
 
   async function handleInboxSendReply(req, res, user) {
@@ -326,14 +335,24 @@ function createInboxRoutes(deps) {
 
     try {
       const evaluated = await withPgClient(async (pg) => {
-        let sendInput = { ...input };
-        if (!sendInput.to) {
-          const phone = await resolveConversationGuestPhone(pg, input.client_slug, input.conversation_id);
-          if (!phone.ok) {
-            return { error: phone.error, status: phone.status || 404 };
-          }
-          sendInput.to = phone.to;
+        // Always resolve destination from the owned conversation row.
+        // Caller-supplied `to` is forge-checked only — never used as authority.
+        const target = await resolveAuthoritativeInboxSendTarget(
+          pg,
+          input.client_slug,
+          input.conversation_id,
+          input.to,
+        );
+        if (!target.ok) {
+          return {
+            error: target.error,
+            status: target.status || 404,
+            code: target.code || null,
+            boundary_rejected: target.boundary_rejected === true,
+          };
         }
+
+        const sendInput = { ...input, to: target.to };
         const sendBody = buildStaffInboxGuestReplyBody(sendInput);
         const out = await evaluateGuestReplySendRouteWithPause(sendBody, { pg, env: process.env });
         const thread = await persistStaffInboxSentThreadMessage(pg, sendInput, out.result);
@@ -341,8 +360,17 @@ function createInboxRoutes(deps) {
       });
 
       if (evaluated.error) {
-        appendAuditLog({ ...auditBase, success: false, error: evaluated.error, elapsed_ms: Date.now() - started });
-        return sendJSON(res, evaluated.status || 404, { success: false, error: evaluated.error });
+        appendAuditLog({
+          ...auditBase,
+          success: false,
+          error: evaluated.error,
+          code: evaluated.code || undefined,
+          email_whatsapp_boundary: evaluated.boundary_rejected === true,
+          elapsed_ms: Date.now() - started,
+        });
+        const bodyOut = { success: false, error: evaluated.error };
+        if (evaluated.code) bodyOut.code = evaluated.code;
+        return sendJSON(res, evaluated.status || 404, bodyOut);
       }
 
       const elapsed = Date.now() - started;
