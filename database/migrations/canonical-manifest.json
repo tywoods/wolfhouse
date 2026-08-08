@@ -925,6 +925,26 @@
       "rationale": "Down for 070: refuse if rows present; else DROP TABLE+protect. Parent uniques intact.",
       "pairsWith": "070_tenant_email_reply_approvals.sql",
       "sha256": "da5d285b514d6384cb312397d276a42202f467e2bfb687c838f22362fa943c46"
+    },
+    {
+      "id": "071_tenant_email_phase_b_authority",
+      "filename": "071_tenant_email_phase_b_authority.sql",
+      "order": 70,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Gate 3 Phase B PR B1: OAuth transaction authorization_intent/scope_version/prior_grant_generation with safe backfill initial_connect/phase_a_v2/NULL and coupled CHECKs; grant scope_version phase_a_v2|phase_b_v1. Phase A DEFAULTs preserve existing insert paths. No seed/route/UI/activation.",
+      "downFilename": "071_tenant_email_phase_b_authority_down.sql",
+      "sha256": "d418667a01b6ed51d8888b6d85064c58a034f14eaf443a59c67b5adc4fdf6189"
+    },
+    {
+      "id": "071_tenant_email_phase_b_authority_down",
+      "filename": "071_tenant_email_phase_b_authority_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Down for 071: fail closed if any Phase B transaction/grant fact or unsafe intent/scope state exists; empty/Phase-A-only may drop columns. Preserves parent tables.",
+      "pairsWith": "071_tenant_email_phase_b_authority.sql",
+      "sha256": "6c702500350084a7e64d540069e5845de0b4cee882288046d12eb0835a5745a6"
     }
   ]
 }
