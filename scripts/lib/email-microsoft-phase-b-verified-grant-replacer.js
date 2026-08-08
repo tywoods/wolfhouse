@@ -1,6 +1,7 @@
 'use strict';
 /** Phase B replacer+custody (Gate 3 PR B1). Sealed envelope CAS N→N+1; seal outside TX. */
 const { timingSafeEqual } = require('crypto');
+const util = require('util');
 const {
   buildGrantEnvelopeAadV1, validateGrantEnvelopeRecordV1, validateEmailGrantEnvelopeProvider,
 } = require('./email-grant-envelope-provider-contract');
@@ -11,6 +12,11 @@ const {
 const {
   EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION, EMAIL_MS_DELEGATED_SCOPE_VERSION,
 } = require('./email-microsoft-delegated-oauth-contract');
+
+// Module-init pin: ambient util.types.isProxy monkeypatches after load must not weaken.
+const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
+const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
+  ? PINNED_UTIL_TYPES.isProxy : null;
 const REPLACER_ERR = 'MICROSOFT_PHASE_B_VERIFIED_GRANT_REPLACER_INVALID';
 const CUSTODY_ERR = 'MICROSOFT_PHASE_B_VERIFIED_GRANT_CUSTODY_INVALID';
 const REPLACER_MSG = 'Microsoft Phase B verified grant replace failed.';
@@ -110,15 +116,23 @@ function genPlus1(g) {
     const s = n.toString(10); return GEN_RE.test(s) && s !== g ? s : null;
   } catch { return null; }
 }
+/** Pinned native isProxy; missing pin / throw → treat as proxy (fail closed). */
+function isProxy(v) {
+  try {
+    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) return true;
+    return Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [v]) === true;
+  } catch { return true; }
+}
 function own(o, k) {
   try {
+    if (o == null || isProxy(o)) return undefined;
     const d = Object.getOwnPropertyDescriptor(o, k);
     return d && Object.prototype.hasOwnProperty.call(d, 'value') && !d.get && !d.set ? d.value : undefined;
   } catch { return undefined; }
 }
 function exactPlain(o, keys) {
   try {
-    if (!o || Object.getPrototypeOf(o) !== Object.prototype) return false;
+    if (!o || isProxy(o) || Object.getPrototypeOf(o) !== Object.prototype) return false;
     const a = Reflect.ownKeys(o);
     if (a.length !== keys.length || a.some((k) => typeof k !== 'string' || !keys.includes(k))) return false;
     return keys.every((k) => {
@@ -131,7 +145,7 @@ function exactFrozen(o, keys) { return Boolean(o && Object.isFrozen(o) && exactP
 function isUuid(v) { return typeof v === 'string' && UUID_RE.test(v); }
 function copyBuf(s) { const c = Buffer.alloc(s.length); s.copy(c); return c; }
 function hasForbidden(o) {
-  if (!o || typeof o !== 'object') return false;
+  if (!o || typeof o !== 'object' || isProxy(o)) return false;
   try { for (const k of Reflect.ownKeys(o)) { if (typeof k === 'symbol' || FORBIDDEN.includes(k)) return true; } }
   catch { return true; }
   return false;
@@ -142,7 +156,7 @@ function looksPool(o) {
 }
 function snapRow(row, keys, set) {
   try {
-    if (!row || typeof row !== 'object') return null;
+    if (!row || typeof row !== 'object' || isProxy(row)) return null;
     const p = Object.getPrototypeOf(row);
     if (p !== Object.prototype && p !== null) return null;
     const a = Reflect.ownKeys(row);
@@ -156,6 +170,38 @@ function snapRow(row, keys, set) {
     }
     return out;
   } catch { return null; }
+}
+/**
+ * Exact usable stored row for reconcile advanced/stillPrior: canonical identity
+ * formats + sealed envelope metadata/buffers via grant contract (no decrypt).
+ */
+function isUsableReconcileRow(o) {
+  try {
+    if (!o || o.grant_status !== 'active' || o.reconcile_state !== 'clean') return false;
+    if (o.grant_lease_token != null || o.grant_lease_owner != null || o.grant_lease_until != null) {
+      return false;
+    }
+    if (o.binding_status !== 'verified') return false;
+    if (!isUuid(o.provider_tenant_id) || !isUuid(o.provider_principal_oid)
+        || !isUuid(o.provider_resource_id) || !mailbox(o.public_address)) {
+      return false;
+    }
+    if (!isUuid(o.last_operation_id)) return false;
+    // Canonical stored envelope fields only (059 CHECK + contract); never open/decrypt.
+    const env = validateGrantEnvelopeRecordV1(Object.freeze({
+      envelope_version: o.envelope_version,
+      aead_alg: o.aead_alg,
+      kek_wrap_alg: o.kek_wrap_alg,
+      kek_key_name: o.kek_key_name,
+      kek_key_version: o.kek_key_version,
+      nonce: o.nonce,
+      ciphertext: o.ciphertext,
+      auth_tag: o.auth_tag,
+      wrapped_dek: o.wrapped_dek,
+      operation_id: o.last_operation_id,
+    }));
+    return !!(env && env.ok);
+  } catch { return false; }
 }
 function printable(v, lim) {
   return typeof v === 'string' && v.length > 0 && v.length <= lim && PRINTABLE.test(v);
@@ -346,13 +392,7 @@ function createMicrosoftPhaseBVerifiedGrantReplacer(dependencies) {
       if (!o) throw rFail();
       const gen = asCanonGen(o.grant_generation);
       if (gen == null) throw rFail();
-      const usable = o.grant_status === 'active' && o.reconcile_state === 'clean'
-        && o.grant_lease_token == null && o.grant_lease_owner == null && o.grant_lease_until == null
-        && o.binding_status === 'verified'
-        && typeof o.provider_tenant_id === 'string' && o.provider_tenant_id.length > 0
-        && typeof o.provider_principal_oid === 'string' && o.provider_principal_oid.length > 0
-        && typeof o.provider_resource_id === 'string' && o.provider_resource_id.length > 0
-        && typeof o.public_address === 'string' && o.public_address.length > 0;
+      const usable = isUsableReconcileRow(o);
       return Object.freeze({
         grantGeneration: gen, lastOperationId: o.last_operation_id,
         scopeVersion: o.scope_version, grantStatus: o.grant_status,

@@ -725,6 +725,94 @@ async function main() {
     }
     ok('dirty/revoked/leased reconcile cannot advanced', allBlocked);
   }
+  // Containment: advanced requires canonical identity + usable sealed envelope metadata
+  {
+    const priorGen = 4;
+    const baseAdv = makeGrantState({
+      grant_generation: priorGen + 1, scope_version: 'phase_b_v1', last_operation_id: OP,
+    });
+    const corruptCases = [
+      { ...baseAdv, provider_tenant_id: 'NOT-A-UUID' },
+      { ...baseAdv, provider_principal_oid: 'gggggggg-gggg-4ggg-8ggg-gggggggggggg' },
+      { ...baseAdv, provider_resource_id: 'resource-not-uuid' },
+      { ...baseAdv, public_address: 'Not-Lowercase@Sunset.Example' },
+      { ...baseAdv, public_address: 'bad..mailbox@sunset.example' },
+      { ...baseAdv, envelope_version: 'v2' },
+      { ...baseAdv, aead_alg: 'AES-128-GCM' },
+      { ...baseAdv, kek_key_version: 'latest' },
+      { ...baseAdv, nonce: bufN(8) },
+      { ...baseAdv, auth_tag: bufN(8) },
+      { ...baseAdv, ciphertext: Buffer.alloc(0) },
+      { ...baseAdv, wrapped_dek: bufN(8) },
+    ];
+    let allFalse = true;
+    for (const st of corruptCases) {
+      const recon = await createMicrosoftPhaseBVerifiedGrantReplacer(
+        Object.freeze({ client: createFakeReplacerClient({ state: st }).client }),
+      ).reconcileReplacement(Object.freeze({
+        clientId: CLIENT, endpointId: ENDPOINT, operationId: OP,
+        expectedPriorGrantGeneration: priorGen,
+      }));
+      allFalse = allFalse && recon.advanced === false && recon.stillPrior === false
+        && noLeak(recon);
+    }
+    ok('reconcile corrupt UUID/mailbox/resource/envelope never advanced', allFalse);
+
+    const accessorState = makeGrantState({
+      grant_generation: priorGen + 1, scope_version: 'phase_b_v1', last_operation_id: OP,
+    });
+    const accessorRow = ownDataRow(SNAP_COLS, accessorState);
+    Object.defineProperty(accessorRow, 'provider_tenant_id', {
+      enumerable: true, get() { return TENANT; },
+    });
+    let accessorFail = false;
+    try {
+      await createMicrosoftPhaseBVerifiedGrantReplacer(Object.freeze({
+        client: {
+          async query() { return { rows: [accessorRow] }; },
+        },
+      })).reconcileReplacement(Object.freeze({
+        clientId: CLIENT, endpointId: ENDPOINT, operationId: OP,
+        expectedPriorGrantGeneration: priorGen,
+      }));
+    } catch (e) {
+      accessorFail = e && e.code === REPLACER_ERR && noLeak(e);
+    }
+    ok('reconcile accessor row fail-closed never advanced', accessorFail);
+
+    let proxyHits = 0;
+    const proxyTarget = ownDataRow(SNAP_COLS, baseAdv);
+    const proxyRow = new Proxy(proxyTarget, {
+      get(t, p, r) { proxyHits += 1; return Reflect.get(t, p, r); },
+    });
+    let proxyFail = false;
+    try {
+      await createMicrosoftPhaseBVerifiedGrantReplacer(Object.freeze({
+        client: {
+          async query() { return { rows: [proxyRow] }; },
+        },
+      })).reconcileReplacement(Object.freeze({
+        clientId: CLIENT, endpointId: ENDPOINT, operationId: OP,
+        expectedPriorGrantGeneration: priorGen,
+      }));
+    } catch (e) {
+      proxyFail = e && e.code === REPLACER_ERR && noLeak(e) && proxyHits === 0;
+    }
+    ok('reconcile transparent Proxy row fail-closed zero trap', proxyFail);
+
+    const validRecon = await createMicrosoftPhaseBVerifiedGrantReplacer(
+      Object.freeze({ client: createFakeReplacerClient({ state: baseAdv }).client }),
+    ).reconcileReplacement(Object.freeze({
+      clientId: CLIENT, endpointId: ENDPOINT, operationId: OP,
+      expectedPriorGrantGeneration: priorGen,
+    }));
+    ok('reconcile valid exact row still advanced=true secret-free',
+      validRecon.advanced === true
+      && validRecon.grantGeneration === String(priorGen + 1)
+      && validRecon.lastOperationId === OP
+      && validRecon.scopeVersion === 'phase_b_v1'
+      && noLeak(validRecon));
+  }
   {
     const priorGen = 4;
     let durable = makeGrantState({ grant_generation: priorGen });
@@ -1174,6 +1262,83 @@ async function main() {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
     ok('package has verify:email-phase-b-authority',
       pkg.scripts['verify:email-phase-b-authority'] === 'node scripts/verify-email-phase-b-authority.js');
+  }
+  // Shared Azure SDK composition containment (export getters/proxies → zero hits)
+  {
+    const COMP = path.join(ROOT, 'scripts/lib/email-grant-envelope-azure-kv-sunset-staging-runtime-composition.js');
+    const src = fs.readFileSync(COMP, 'utf8');
+    ok('loadAzureSdks own-data pin (no direct SDK property get)',
+      /function readOwnDataExport\b/.test(src)
+      && /getOwnPropertyDescriptor/.test(src)
+      && /PINNED_IS_PROXY|isProxy/.test(src)
+      && !/identity\.ManagedIdentityCredential/.test(src)
+      && !/keys\.CryptographyClient/.test(src));
+    const az = require('./lib/email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
+    const E_EN = az.ENV_COMPOSITION_ENABLED;
+    const E_HOST = az.ENV_TRUSTED_HOST;
+    const E_KID = az.ENV_VERSIONED_KEY_ID;
+    const HOST = az.SUNSET_STAGING_TRUSTED_HOST;
+    const KID = az.SUNSET_STAGING_VERSIONED_KEY_ID;
+    const PRE = `
+'use strict';
+const Module=require('module');
+const COMP=${JSON.stringify(COMP)};
+const E_EN=${JSON.stringify(E_EN)},E_HOST=${JSON.stringify(E_HOST)},E_KID=${JSON.stringify(E_KID)};
+const HOST=${JSON.stringify(HOST)},KID=${JSON.stringify(KID)};
+const realLoad=Module._load;
+function out(o){console.log(JSON.stringify(o));}
+function enabled(){return {[E_EN]:'true',[E_HOST]:HOST,[E_KID]:KID};}
+`;
+    const getterChild = spawnSync(process.execPath, ['-e', PRE + `
+      const expHits={micGet:0,ccGet:0,mic:0,cc:0};
+      function ManagedIdentityCredential(){expHits.mic++;}
+      function CryptographyClient(){expHits.cc++;}
+      Module._load=function(r,p,m){
+        if(r==='@azure/identity'){
+          const o={}; Object.defineProperty(o,'ManagedIdentityCredential',{enumerable:true,get(){
+            expHits.micGet++;return ManagedIdentityCredential;}}); return o;}
+        if(r==='@azure/keyvault-keys'){
+          const o={}; Object.defineProperty(o,'CryptographyClient',{enumerable:true,get(){
+            expHits.ccGet++;return CryptographyClient;}}); return o;}
+        if(typeof r==='string'&&r.startsWith('@azure/'))throw new Error('unexpected');
+        return realLoad(r,p,m);};
+      const mod=require(COMP); let code=null;
+      try{mod.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(enabled());}
+      catch(e){code=e&&e.code;}
+      out({ok:code==='envelope_azure_kv_sdk_unavailable'&&expHits.micGet===0&&expHits.ccGet===0
+        &&expHits.mic===0&&expHits.cc===0,hits:expHits,code});
+    `], { encoding: 'utf8', cwd: ROOT, env: { ...process.env, NODE_OPTIONS: '' } });
+    let getterBody = null;
+    try {
+      const lines = String(getterChild.stdout || '').trim().split('\n').filter(Boolean);
+      getterBody = JSON.parse(lines[lines.length - 1] || 'null');
+    } catch { getterBody = null; }
+    ok('Azure export getters hits=0 construction fails closed',
+      getterChild.status === 0 && getterBody && getterBody.ok, JSON.stringify(getterBody));
+    const proxyChild = spawnSync(process.execPath, ['-e', PRE + `
+      const expHits={get:0,mic:0,cc:0};
+      function ManagedIdentityCredential(){expHits.mic++;}
+      function CryptographyClient(){expHits.cc++;}
+      Module._load=function(r,p,m){
+        if(r==='@azure/identity'){
+          return new Proxy({ManagedIdentityCredential},{get(t,k,rc){expHits.get++;return Reflect.get(t,k,rc);}});}
+        if(r==='@azure/keyvault-keys'){
+          return new Proxy({CryptographyClient},{get(t,k,rc){expHits.get++;return Reflect.get(t,k,rc);}});}
+        if(typeof r==='string'&&r.startsWith('@azure/'))throw new Error('unexpected');
+        return realLoad(r,p,m);};
+      const mod=require(COMP); let code=null;
+      try{mod.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(enabled());}
+      catch(e){code=e&&e.code;}
+      out({ok:code==='envelope_azure_kv_sdk_unavailable'&&expHits.get===0&&expHits.mic===0&&expHits.cc===0,
+        hits:expHits,code});
+    `], { encoding: 'utf8', cwd: ROOT, env: { ...process.env, NODE_OPTIONS: '' } });
+    let proxyBody = null;
+    try {
+      const lines = String(proxyChild.stdout || '').trim().split('\n').filter(Boolean);
+      proxyBody = JSON.parse(lines[lines.length - 1] || 'null');
+    } catch { proxyBody = null; }
+    ok('Azure transparent Proxy module exports fail-closed zero get/construct',
+      proxyChild.status === 0 && proxyBody && proxyBody.ok, JSON.stringify(proxyBody));
   }
   console.log(`\n${pass} passed, ${fail} failed, ${skips.length} skipped`);
   if (skips.length) {

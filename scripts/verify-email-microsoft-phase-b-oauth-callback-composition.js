@@ -404,6 +404,86 @@ function svc(opts) {
       && isCallbackEnabled({}) === false);
     ok('B flag constant is LUNA_EMAIL_OAUTH_PHASE_B_CALLBACK_ENABLED',
       CALLBACK_ENABLED_ENV === 'LUNA_EMAIL_OAUTH_PHASE_B_CALLBACK_ENABLED');
+
+    // Containment: own-data env only; hostile getters/proxies/inherited accessors → hits=0
+    {
+      let hits = 0;
+      const hostileOwn = {
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+        LUNA_EMAIL_OAUTH_CLIENT_ID: APP,
+      };
+      Object.defineProperty(hostileOwn, CALLBACK_ENABLED_ENV, {
+        enumerable: true,
+        get() { hits += 1; return 'true'; },
+      });
+      let threw = false;
+      try {
+        createMicrosoftPhaseBOauthCallbackCompletionService(Object.freeze({
+          repository: makeRepo(async () => { hits += 100; return phaseBRow(); }),
+          completion: makeCompletion(async () => { hits += 1000; return Object.freeze({ status: 'completed' }); }),
+          env: hostileOwn, clock: makeClock(),
+        }));
+      } catch { threw = true; }
+      ok('hostile own env getter: factory fail-closed hits=0 zero DB/completion',
+        threw && hits === 0 && isCallbackEnabled(hostileOwn) === false);
+
+      hits = 0;
+      const proto = {};
+      Object.defineProperty(proto, CALLBACK_ENABLED_ENV, {
+        enumerable: true, configurable: true,
+        get() { hits += 1; return 'true'; },
+      });
+      Object.defineProperty(proto, 'LUNA_DEPLOYMENT', {
+        enumerable: true, configurable: true,
+        get() { hits += 1; return SUNSET_DEPLOYMENT; },
+      });
+      const inherited = Object.create(proto);
+      Object.defineProperty(inherited, 'LUNA_EMAIL_OAUTH_CLIENT_ID', {
+        enumerable: true, value: APP, writable: true, configurable: true,
+      });
+      threw = false;
+      try {
+        createMicrosoftPhaseBOauthCallbackCompletionService(Object.freeze({
+          repository: makeRepo(async () => { hits += 100; return phaseBRow(); }),
+          completion: makeCompletion(async () => { hits += 1000; return Object.freeze({ status: 'completed' }); }),
+          env: inherited, clock: makeClock(),
+        }));
+      } catch { threw = true; }
+      ok('inherited env accessors: fail-closed hits=0',
+        threw && hits === 0 && isCallbackEnabled(inherited) === false);
+
+      hits = 0;
+      const target = bEnv();
+      const proxyEnv = new Proxy(target, {
+        get(t, p, r) { hits += 1; return Reflect.get(t, p, r); },
+        getOwnPropertyDescriptor(t, p) { hits += 1; return Reflect.getOwnPropertyDescriptor(t, p); },
+        ownKeys(t) { hits += 1; return Reflect.ownKeys(t); },
+        has(t, p) { hits += 1; return Reflect.has(t, p); },
+      });
+      threw = false;
+      try {
+        createMicrosoftPhaseBOauthCallbackCompletionService(Object.freeze({
+          repository: makeRepo(async () => { hits += 100; return phaseBRow(); }),
+          completion: makeCompletion(async () => { hits += 1000; return Object.freeze({ status: 'completed' }); }),
+          env: proxyEnv, clock: makeClock(),
+        }));
+      } catch { threw = true; }
+      ok('transparent Proxy env: fail-closed zero trap/DB/completion',
+        threw && hits === 0 && isCallbackEnabled(proxyEnv) === false);
+
+      const sym = Symbol('plant');
+      const withSym = bEnv();
+      withSym[sym] = PLANTED;
+      threw = false;
+      try {
+        createMicrosoftPhaseBOauthCallbackCompletionService(Object.freeze({
+          repository: makeRepo(async () => phaseBRow()),
+          completion: makeCompletion(async () => Object.freeze({ status: 'completed' })),
+          env: withSym, clock: makeClock(),
+        }));
+      } catch { threw = true; }
+      ok('env symbol own key rejected fail-closed', threw);
+    }
   }
 
   // Duplicate consume (fresh service, second null) zero second completion

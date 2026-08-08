@@ -12,16 +12,23 @@
  * principal 5338388f-1685-40cb-ae69-dc2e00f32ad6. Current Azure readback of the MI
  * client ID is mandatory before any deploy. Lazy SDK require; import-inert; factory only.
  * No production DI/test second-arg hook — tests intercept Node module loading only.
+ * SDK exports: own data descriptors only (pinned isProxy; zero getter invocation).
  *
  * @module email-grant-envelope-azure-kv-sunset-staging-runtime-composition
  */
 
+const util = require('util');
 const {
   createAzureKvEmailGrantEnvelopeProvider,
   buildVersionedKeyId,
   parseVersionedKeyId,
   PROD_WRAP_ALG,
 } = require('./email-grant-envelope-azure-kv-provider');
+
+// Module-init pin: ambient util.types.isProxy monkeypatches after load must not weaken.
+const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
+const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
+  ? PINNED_UTIL_TYPES.isProxy : null;
 
 const SUNSET_STAGING_MI_CLIENT_ID = '0e05fbe3-e8c5-48aa-a914-30aed284e6f7';
 const SUNSET_STAGING_MI_PRINCIPAL_ID = '5338388f-1685-40cb-ae69-dc2e00f32ad6';
@@ -125,6 +132,31 @@ function parseEmailGrantEnvelopeAzureKvSunsetStagingRuntimeConfig(env) {
   }
 }
 
+/** Pinned native isProxy; missing pin / throw → treat as proxy (fail closed). */
+function isProxy(v) {
+  try {
+    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) return true;
+    return Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [v]) === true;
+  } catch { return true; }
+}
+
+/**
+ * Own data-descriptor export only. Never mod[name] (invokes getters).
+ * Rejects module proxies, inherited members, accessors, non-functions, export proxies.
+ */
+function readOwnDataExport(mod, name) {
+  try {
+    if (mod == null || (typeof mod !== 'object' && typeof mod !== 'function') || isProxy(mod)) {
+      return null;
+    }
+    if (!Object.prototype.hasOwnProperty.call(mod, name)) return null;
+    const d = Object.getOwnPropertyDescriptor(mod, name);
+    if (!d || !Object.prototype.hasOwnProperty.call(d, 'value') || d.get || d.set) return null;
+    if (typeof d.value !== 'function' || isProxy(d.value)) return null;
+    return d.value;
+  } catch { return null; }
+}
+
 /** Lazy load Azure SDKs; every require/export failure → fixed sdk_unavailable. */
 function loadAzureSdks() {
   let identity; let keys;
@@ -134,17 +166,20 @@ function loadAzureSdks() {
   } catch {
     throw err('envelope_azure_kv_sdk_unavailable');
   }
-  let MIC; let CC;
   try {
-    MIC = identity && identity.ManagedIdentityCredential;
-    CC = keys && keys.CryptographyClient;
-  } catch {
+    if (isProxy(identity) || isProxy(keys)) {
+      throw err('envelope_azure_kv_sdk_unavailable');
+    }
+    const MIC = readOwnDataExport(identity, 'ManagedIdentityCredential');
+    const CC = readOwnDataExport(keys, 'CryptographyClient');
+    if (typeof MIC !== 'function' || typeof CC !== 'function') {
+      throw err('envelope_azure_kv_sdk_unavailable');
+    }
+    return Object.freeze({ ManagedIdentityCredential: MIC, CryptographyClient: CC });
+  } catch (e) {
+    if (e && e.code === 'envelope_azure_kv_sdk_unavailable') throw e;
     throw err('envelope_azure_kv_sdk_unavailable');
   }
-  if (typeof MIC !== 'function' || typeof CC !== 'function') {
-    throw err('envelope_azure_kv_sdk_unavailable');
-  }
-  return Object.freeze({ ManagedIdentityCredential: MIC, CryptographyClient: CC });
 }
 
 function publicMetadata() {
