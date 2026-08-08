@@ -581,18 +581,13 @@ function svc(opts) {
           console.log('CONFIG', f); process.exit(6);
         }
       }
-      for (const rel of [
-        'scripts/lib/email-microsoft-phase-b-oauth-operation-composition.js',
-        'scripts/lib/email-microsoft-phase-b-oauth-sunset-staging-runtime-composition.js',
-      ]) {
-        if (fs.existsSync(path.join(root, rel))) { console.log('B2B', rel); process.exit(7); }
-      }
+      // B2b owners may exist; B2a remains import-inert regardless.
       console.log('OK');
     `], {
       encoding: 'utf8',
       env: { ...process.env, LUNA_EMAIL_OAUTH_PHASE_B_CALLBACK_ENABLED: undefined },
     });
-    ok('fresh-process: import inert, flag off, no B2b files, no defaults',
+    ok('fresh-process: import inert, flag off, no defaults',
       probe.status === 0 && /OK/.test(probe.stdout || ''),
       (probe.stdout || '') + (probe.stderr || ''));
   }
@@ -611,9 +606,9 @@ function svc(opts) {
     ok(`budget source=${src} <=430`, src <= 430);
     ok(`budget verifier=${ver} <=650`, ver <= 650);
     ok(`budget total=${total} <=1080`, total <= 1080);
-    ok('budget files prefer 3 (callback, verifier, package only in B2a set)',
-      !fs.existsSync(path.join(ROOT, 'scripts/lib/email-microsoft-phase-b-oauth-operation-composition.js'))
-      && !fs.existsSync(path.join(ROOT, 'scripts/lib/email-microsoft-phase-b-oauth-sunset-staging-runtime-composition.js')));
+    ok('B2a budget files present (callback + verifier); B2b optional peers allowed',
+      fs.existsSync(path.join(ROOT, srcFile))
+      && fs.existsSync(path.join(ROOT, verFile)));
   }
   {
     const phaseAFiles = [
