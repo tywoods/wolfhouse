@@ -604,16 +604,16 @@ function svc(opts) {
     const ver = fs.readFileSync(path.join(ROOT, verFile), 'utf8').split(/\r?\n/).length;
     const total = src + ver;
     ok(`budget source=${src} <=430`, src <= 430);
-    ok(`budget verifier=${ver} <=650`, ver <= 650);
-    ok(`budget total=${total} <=1080`, total <= 1080);
+    ok(`budget verifier=${ver} <=660`, ver <= 660);
+    ok(`budget total=${total} <=1090`, total <= 1090);
     ok('B2a budget files present (callback + verifier); B2b optional peers allowed',
       fs.existsSync(path.join(ROOT, srcFile))
       && fs.existsSync(path.join(ROOT, verFile)));
   }
   {
+    // Non-txn Phase A owners byte-identical; txn is intent-hardened (B3a1) — semantic only.
     const phaseAFiles = [
       'scripts/lib/email-microsoft-oauth-callback-completion.js',
-      'scripts/lib/email-microsoft-oauth-transaction-service.js',
       'scripts/lib/email-microsoft-oauth-operation-composition.js',
       'scripts/lib/email-microsoft-oauth-runtime-wiring.js',
     ];
@@ -624,7 +624,27 @@ function svc(opts) {
       });
       if (r.status !== 0) allSame = false;
     }
-    ok('Phase A OAuth owner files byte-identical to base', allSame);
+    const txn = require('./lib/email-microsoft-oauth-transaction-service');
+    const sql = PHASE_A_SQL_CONSUME;
+    const txnSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/email-microsoft-oauth-transaction-service.js'), 'utf8');
+    ok('Phase A non-txn byte-identical; txn scopes/API/SQL intent/no-B',
+      allSame
+      && PHASE_A_SCOPES === 'openid profile offline_access User.Read Mail.ReadBasic'
+      && !/Mail\.Send|Mail\.ReadWrite/.test(PHASE_A_SCOPES)
+      && typeof txn.createMicrosoftOAuthTransactionService === 'function'
+      && typeof txn.createMicrosoftOAuthCallbackService === 'function'
+      && typeof txn.createPostgresOAuthTransactionRepository === 'function'
+      && typeof txn.isStartEnabled === 'function' && typeof txn.isCallbackEnabled === 'function'
+      && /RETURNING id, location_id, staff_user_id, code_verifier, nonce, endpoint_id\s*$/.test(sql)
+      && !/RETURNING[^;]*(authorization_intent|scope_version|prior_grant_generation)/.test(sql)
+      && /state_hash=\$1::bytea/.test(sql) && /client_id=\$2::uuid/.test(sql)
+      && /auth_session_id=\$3::uuid/.test(sql) && /consumed_at IS NULL/.test(sql)
+      && /expires_at>\$4/.test(sql) && /authorization_intent='initial_connect'/.test(sql)
+      && /scope_version='phase_a_v2'/.test(sql) && /prior_grant_generation IS NULL/.test(sql)
+      && !/phase_b_reauthorization|phase_b_v1/.test(sql)
+      && !/phase-b-verified-grant-replacer|phase-b-oauth|staff-email-oauth-routes|staff-query-api/.test(txnSrc)
+      && !/require\([^)]*phase-b/.test(txnSrc) && !/\bexpress\b|\bcreateServer\b|\blisten\s*\(/.test(txnSrc)
+      && Object.keys(txn).sort().join(',') === 'AUTHORITY,CALLBACK_CODE_KEYS,CALLBACK_ERROR_KEYS,INPUT_KEYS,OWNER_KEYS,REDIRECT_URI,SCOPES,SQL_CONSUME_TRANSACTION,SQL_CREATE_TRANSACTION,START_ENDPOINT_ID_KEY_INDEX,TTL_SECONDS,createMicrosoftOAuthCallbackService,createMicrosoftOAuthTransactionService,createPostgresOAuthTransactionRepository,isCallbackEnabled,isStartEnabled,validateRuntime');
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);

@@ -66,10 +66,19 @@ WHERE e.client_id = $1::uuid
   AND e.binding_status IN ('unverified_offline', 'pending_manual_validation')
 RETURNING expires_at`.replace(/\s+/g, ' ').trim();
 
+/**
+ * Phase A atomic consume — migration-071 intent-disjoint predicates required:
+ * authorization_intent='initial_connect', scope_version='phase_a_v2',
+ * prior_grant_generation IS NULL (plus state/owner/unconsumed/unexpired).
+ * RETURNING surface stays Phase A keys only (no intent/scope/prior columns).
+ */
 const SQL_CONSUME_TRANSACTION = `
 UPDATE tenant_email_oauth_transactions SET consumed_at=$4
  WHERE state_hash=$1::bytea AND client_id=$2::uuid AND auth_session_id=$3::uuid
    AND consumed_at IS NULL AND expires_at>$4
+   AND authorization_intent='initial_connect'
+   AND scope_version='phase_a_v2'
+   AND prior_grant_generation IS NULL
  RETURNING id, location_id, staff_user_id, code_verifier, nonce, endpoint_id`.replace(/\s+/g, ' ').trim();
 
 function b64url(buffer) { return buffer.toString('base64url'); }

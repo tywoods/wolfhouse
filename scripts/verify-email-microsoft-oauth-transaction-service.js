@@ -14,6 +14,7 @@ const {
   sha256CanonicalLfV1File,
   loadManifest,
   forwardEntries,
+  validateManifestIntegrity,
 } = require('./lib/migration-integrity');
 
 const ROOT = path.join(__dirname, '..');
@@ -127,6 +128,10 @@ function createStatefulSqlFake(seedEndpoints) {
         issued_at: issuedAt,
         expires_at: expiresAt,
         consumed_at: null,
+        // Migration-071 Phase A defaults (intent-disjoint consume predicates).
+        authorization_intent: 'initial_connect',
+        scope_version: 'phase_a_v2',
+        prior_grant_generation: null,
       };
       rows.push(row);
       return { rows: [{ expires_at: expiresAt }] };
@@ -134,12 +139,16 @@ function createStatefulSqlFake(seedEndpoints) {
     if (matchConsume(sql)) {
       assert.strictEqual(params.length, 4, 'consume params arity');
       const [stateHash, clientId, authSessionId, now] = params;
+      // Mirror hardened Phase A SQL: intent/scope/prior must match initial_connect.
       const hit = rows.find(
         (r) => r.state_hash.equals(stateHash)
           && r.client_id === clientId
           && r.auth_session_id === authSessionId
           && r.consumed_at == null
-          && r.expires_at > now,
+          && r.expires_at > now
+          && r.authorization_intent === 'initial_connect'
+          && r.scope_version === 'phase_a_v2'
+          && r.prior_grant_generation == null,
       );
       if (!hit) return { rows: [] };
       hit.consumed_at = now;
@@ -256,7 +265,17 @@ function startInput(overrides = {}) {
   assert.ok(downEnt && downEnt.classification === 'rollback_down' && downEnt.inForwardChain === false, 'manifest down');
   assert.strictEqual(downEnt.sha256, downHash, 'manifest down sha');
   assert.strictEqual(manifest.checksumMode, CHECKSUM_MODE_CANONICAL_LF_V1, 'checksum mode');
-  assert.strictEqual(forwardEntries(manifest).length, 61, 'forward chain length 61');
+  // Applied canonical count/order from canonical-manifest.json (not a frozen 61/70).
+  const forward = forwardEntries(manifest);
+  assert.ok(forward.length > 0, 'manifest applied canonical forward non-empty');
+  for (let i = 0; i < forward.length; i += 1) {
+    assert.strictEqual(forward[i].order, i + 1, `forward contiguous ${i + 1}`);
+    assert.ok(fs.existsSync(path.join(MIG_DIR, forward[i].filename)), `forward file ${forward[i].filename}`);
+  }
+  assert.ok(forward.some((e) => e.filename === UP && e.order === 60), '061 in applied forward at order 60');
+  const integrity = validateManifestIntegrity(manifest, { migrationsDir: MIG_DIR });
+  assert.ok(integrity.ok && integrity.forwardCount === forward.length,
+    `manifest integrity count=${integrity.forwardCount} errors=${JSON.stringify((integrity.errors || []).slice(0, 2))}`);
 
   // ---------------------------------------------------------------------------
   // Service surface: ordered INPUT_KEYS + SQL constants
@@ -288,6 +307,11 @@ function startInput(overrides = {}) {
   assert.match(svc.SQL_CREATE_TRANSACTION, /RETURNING expires_at/);
   assert.ok(!/VALUES\s*\(/i.test(svc.SQL_CREATE_TRANSACTION), 'create is INSERT...SELECT not VALUES');
   assert.match(svc.SQL_CONSUME_TRANSACTION, /RETURNING id, location_id, staff_user_id, code_verifier, nonce, endpoint_id/);
+  // Gate 3 B3a1: Phase A consume requires migration-071 intent-disjoint facts.
+  assert.match(svc.SQL_CONSUME_TRANSACTION, /authorization_intent='initial_connect'/);
+  assert.match(svc.SQL_CONSUME_TRANSACTION, /scope_version='phase_a_v2'/);
+  assert.match(svc.SQL_CONSUME_TRANSACTION, /prior_grant_generation IS NULL/);
+  assert.ok(!/phase_b_reauthorization|phase_b_v1|RETURNING[^;]*authorization_intent/.test(svc.SQL_CONSUME_TRANSACTION));
 
   const svcSrc = fs.readFileSync(SVC_PATH, 'utf8');
   assert.match(
@@ -1278,6 +1302,32 @@ function startInput(overrides = {}) {
     ),
     { status: 'invalid_or_expired' },
   );
+
+  // Gate 3 B3a1: Phase A consume rejects Phase B reauth row; Phase A still consumes.
+  {
+    const intentFake = createStatefulSqlFake([eligibleEndpoint()]);
+    const intentRepo = svc.createPostgresOAuthTransactionRepository(intentFake);
+    const aHash = Buffer.alloc(32, 0xa1); const bHash = Buffer.alloc(32, 0xb2);
+    const now = new Date('2026-08-05T12:05:00Z');
+    const own = { clientId: ids.clientId, authSessionId: ids.authSessionId, now };
+    const rowBase = {
+      clientId: ids.clientId, locationId: ids.locationId, staffUserId: ids.staffUserId,
+      authSessionId: ids.authSessionId, endpointId: ids.endpointId,
+      codeVerifier: 'v'.repeat(43), nonce: 'n'.repeat(43),
+      issuedAt: new Date('2026-08-05T12:00:00Z'), expiresAt: new Date('2026-08-05T12:10:00Z'),
+    };
+    await intentRepo.create({ ...rowBase, stateHash: aHash });
+    intentFake.rows.push({
+      id: crypto.randomUUID(), client_id: ids.clientId, location_id: ids.locationId,
+      staff_user_id: ids.staffUserId, auth_session_id: ids.authSessionId, endpoint_id: ids.endpointId,
+      state_hash: bHash, code_verifier: 'v'.repeat(43), nonce: 'n'.repeat(43),
+      issued_at: rowBase.issuedAt, expires_at: rowBase.expiresAt, consumed_at: null,
+      authorization_intent: 'phase_b_reauthorization', scope_version: 'phase_b_v1', prior_grant_generation: 7,
+    });
+    assert.strictEqual(await intentRepo.consume({ ...own, stateHash: bHash }), null, 'A rejects B tx');
+    assert.ok((await intentRepo.consume({ ...own, stateHash: aHash }))?.endpoint_id === ids.endpointId, 'A consumes');
+    assert.strictEqual(await intentRepo.consume({ ...own, stateHash: aHash }), null, 'A single-use');
+  }
 
   console.log('PASS email Microsoft OAuth transaction service + 061 endpoint binding hostile gates');
 })().catch((e) => {

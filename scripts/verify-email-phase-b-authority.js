@@ -1243,11 +1243,12 @@ async function main() {
       probe.status === 0 && /OK/.test(probe.stdout || ''));
   }
   {
+    // Non-txn Phase A owners stay byte-identical. Transaction-service is intentionally
+    // intent-hardened (B3a1); semantic isolation asserted by B2a/B2b + txn verifiers.
     const phaseA = [
       'scripts/lib/email-microsoft-token-response-scope.js',
       'scripts/lib/email-microsoft-verified-grant-custody.js',
       'scripts/lib/email-microsoft-verified-grant-installer.js',
-      'scripts/lib/email-microsoft-oauth-transaction-service.js',
       'scripts/lib/email-microsoft-delegated-oauth-contract.js',
     ];
     const base = 'c08a4d7b9275def16f98f870e124f823393ca4a5';
@@ -1256,7 +1257,7 @@ async function main() {
       const r = spawnSync('git', ['diff', '--quiet', base, '--', f], { cwd: ROOT });
       if (r.status !== 0) allSame = false;
     }
-    ok('Phase A owners byte-identical vs base', allSame);
+    ok('Phase A owners (non-txn) byte-identical vs base', allSame);
   }
   {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
