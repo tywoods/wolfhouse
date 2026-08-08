@@ -2,6 +2,7 @@
 
 const https = require('https');
 const crypto = require('crypto');
+const util = require('util');
 const {
   createMicrosoftOAuthTransactionService,
   createPostgresOAuthTransactionRepository,
@@ -9,6 +10,18 @@ const {
   isCallbackEnabled,
   INPUT_KEYS,
 } = require('./email-microsoft-oauth-transaction-service');
+const {
+  createMicrosoftPhaseBReauthorizationTransactionService,
+  createPostgresPhaseBReauthTransactionRepository,
+  asCanonGen,
+  INPUT_KEYS: PHASE_B_REAUTH_INPUT_KEYS,
+  START_ENABLED_ENV: PHASE_B_REAUTH_START_ENABLED_ENV,
+} = require('./email-microsoft-phase-b-reauthorization-transaction-service');
+/** Independently reviewed route-boundary OAuth contract (not imported from B1). */
+const PHASE_B_REAUTH_ROUTE_AUTHORITY = 'https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize';
+const PHASE_B_REAUTH_ROUTE_REDIRECT_URI = 'https://sunset-staging.lunafrontdesk.com/staff/email/oauth/microsoft/callback';
+const PHASE_B_REAUTH_ROUTE_SCOPES = 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send';
+const PHASE_B_REAUTH_ROUTE_TTL_SECONDS = 600;
 const {
   createSunsetStagingMicrosoftOAuthCallbackRuntime,
   DEPENDENCY_KEYS,
@@ -67,6 +80,8 @@ const OAUTH_INBOUND_DIAGNOSTIC_PATH = '/staff/admin/email-settings/oauth/microso
  * read-health. Offline route only — no cron/poller/startup.
  */
 const OAUTH_INBOUND_CAPTURE_PATH = '/staff/admin/email-settings/oauth/microsoft/inbound-capture';
+/** Admin Phase B reauth start (B3a2a; default-off). Dedicated path/flag; no callback in this slice. */
+const OAUTH_REAUTHORIZE_PATH = '/staff/admin/email-settings/oauth/microsoft/reauthorize';
 const OAUTH_CALLBACK_PATH = '/staff/email/oauth/microsoft/callback';
 /** Canonical lowercase UUID (start body endpoint_id + ordinary SQL row ids). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -85,6 +100,7 @@ const READ_HEALTH_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 const INBOUND_DIAGNOSTIC_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 /** Exact ordered own-data inbound-capture body keys (location_id then endpoint_id). */
 const INBOUND_CAPTURE_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
+const REAUTHORIZE_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 /** Exact ordered prepare success JSON keys (no mailbox echo). */
 const PREPARE_SUCCESS_KEYS = Object.freeze(['success', 'endpoint_id']);
 /** Exact ordered refresh-health success JSON keys (sanitized status only). */
@@ -133,6 +149,18 @@ const INBOUND_CAPTURE_SUCCESS_KEYS = Object.freeze([
   'duplicate_in_batch_count',
   'durably_captured',
 ]);
+const REAUTHORIZE_SUCCESS_KEYS = Object.freeze(['authorization_url', 'expires_at']);
+/** Exact ordered production B1 start success DTO keys (never public). */
+const PHASE_B_REAUTH_B1_DTO_KEYS = Object.freeze([
+  'authorization_url', 'expires_at', 'authorization_intent', 'scope_version', 'prior_grant_generation',
+]);
+/** Exact ordered query keys from B1 start URL builder (do not reorder). */
+const PHASE_B_REAUTH_URL_QUERY_KEYS = Object.freeze([
+  'client_id', 'response_type', 'redirect_uri', 'response_mode', 'scope',
+  'state', 'nonce', 'code_challenge', 'code_challenge_method', 'prompt',
+]);
+/** B1 gen32 base64url(32-byte) for state/nonce/code_challenge. */
+const PHASE_B_REAUTH_B64URL_32_RE = /^[A-Za-z0-9_-]{43}$/;
 const INBOUND_DIAGNOSTIC_PUBLIC_STATUS = 'diagnostic_observed';
 const INBOUND_CAPTURE_PUBLIC_STATUS = 'durable_capture_completed';
 const READ_HEALTH_GRAPH_STAGE_SET = new Set(GRAPH_STAGES);
@@ -141,12 +169,25 @@ const REFRESH_HEALTH_ERROR = 'refresh_health_unavailable';
 const READ_HEALTH_ERROR = 'read_health_unavailable';
 const INBOUND_DIAGNOSTIC_ERROR = 'inbound_diagnostic_unavailable';
 const INBOUND_CAPTURE_ERROR = 'inbound_capture_unavailable';
+const REAUTHORIZE_ERROR = 'oauth_reauthorization_unavailable';
 /** Exact ordered own-data resolve SQL row keys (matches SELECT aliases / order). */
 const RESOLVE_ROW_KEYS = Object.freeze(['client_id', 'location_id', 'endpoint_id']);
 const RESOLVE_ROW_KEY_SET = new Set(RESOLVE_ROW_KEYS);
+const REAUTHORIZE_RESOLVE_ROW_KEYS = Object.freeze([
+  'client_id', 'location_id', 'endpoint_id', 'grant_generation',
+]);
+const REAUTHORIZE_RESOLVE_ROW_KEY_SET = new Set(REAUTHORIZE_RESOLVE_ROW_KEYS);
 /** Exact ordered own-data Sunset client row keys for prepare resolve. */
 const PREPARE_CLIENT_ROW_KEYS = Object.freeze(['client_id']);
 const PREPARE_CLIENT_ROW_KEY_SET = new Set(PREPARE_CLIENT_ROW_KEYS);
+const PHASE_B_REAUTH_GATE_ENV_KEYS = Object.freeze([
+  'LUNA_DEPLOYMENT',
+  PHASE_B_REAUTH_START_ENABLED_ENV,
+]);
+const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
+const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
+  ? PINNED_UTIL_TYPES.isProxy
+  : null;
 
 /**
  * Production native surfaces: capture node:https.request, node:crypto
@@ -246,6 +287,53 @@ const SQL_RESOLVE_INBOUND_DIAGNOSTIC_BINDING = SQL_RESOLVE_REFRESH_HEALTH_BINDIN
  * Inbound capture uses resolved DB UUIDs — never caller slug identity.
  */
 const SQL_RESOLVE_INBOUND_CAPTURE_BINDING = SQL_RESOLVE_REFRESH_HEALTH_BINDING;
+
+/** Phase B reauth resolve: Sunset + active location + verified delegated endpoint + clean Phase A grant. Params [location slug, endpoint_id]. grant_generation as text. */
+const SQL_RESOLVE_REAUTHORIZE_BINDING = `SELECT c.id::text AS client_id, l.id::text AS location_id, e.id::text AS endpoint_id, g.grant_generation::text AS grant_generation FROM clients c INNER JOIN tenant_locations l ON l.client_id=c.id INNER JOIN tenant_channel_endpoints e ON e.client_id=c.id AND e.location_id=l.location_id AND e.id=$2::uuid INNER JOIN tenant_email_delegated_grants g ON g.client_id=c.id AND g.endpoint_id=e.id WHERE c.slug='sunset' AND l.location_id=$1 AND l.active=true AND e.provider='microsoft_graph' AND e.auth_mode='delegated_authorization_code' AND e.connector_mode='microsoft_delegated_oauth' AND e.binding_status='verified' AND e.public_address IS NOT NULL AND btrim(e.public_address)<>'' AND g.scope_version='phase_a_v2' AND g.grant_status='active' AND g.reconcile_state='clean' AND g.grant_lease_token IS NULL AND g.grant_lease_owner IS NULL AND g.grant_lease_until IS NULL AND g.grant_generation IS NOT NULL AND g.grant_generation>=1`;
+
+function isProxySurface(value) {
+  try {
+    if (!PINNED_IS_PROXY || !PINNED_UTIL_TYPES) return false;
+    return Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
+  } catch { return true; }
+}
+function ownDataValue(obj, key) {
+  try {
+    if (!obj || typeof obj !== 'object') return undefined;
+    const d = Object.getOwnPropertyDescriptor(obj, key);
+    return d && Object.prototype.hasOwnProperty.call(d, 'value') && !d.get && !d.set ? d.value : undefined;
+  } catch { return undefined; }
+}
+/** Frozen own-data gate snapshot (TOCTOU-resistant). Accessors/proxies → absent. */
+function snapshotPhaseBReauthGateEnv(env) {
+  try {
+    if (!env || typeof env !== 'object' || Array.isArray(env) || isProxySurface(env)) {
+      return Object.freeze(Object.create(null));
+    }
+    const out = Object.create(null);
+    for (const key of PHASE_B_REAUTH_GATE_ENV_KEYS) {
+      const v = ownDataValue(env, key);
+      if (typeof v === 'string') out[key] = v;
+    }
+    return Object.freeze(out);
+  } catch { return Object.freeze(Object.create(null)); }
+}
+/** Dual gate: sunset-staging + REAUTH_START exact true (own-data). Independent of Phase A/B2/B3/UI. */
+function isPhaseBReauthStartEnabled(env) {
+  try {
+    if (!env || typeof env !== 'object' || Array.isArray(env) || isProxySurface(env)) return false;
+    return ownDataValue(env, 'LUNA_DEPLOYMENT') === 'sunset-staging'
+      && ownDataValue(env, PHASE_B_REAUTH_START_ENABLED_ENV) === 'true';
+  } catch { return false; }
+}
+
+/** Sunset tenant + canonical staff/session UUIDs (router before CT/body; same in handler). */
+function isPhaseBReauthCallerIdentityValid(user) {
+  try {
+    return !!(user && typeof user === 'object' && user.client_slug === 'sunset'
+      && UUID_RE_CI.test(user.staff_user_id || '') && UUID_RE_CI.test(user.session_id || ''));
+  } catch { return false; }
+}
 
 /**
  * Descriptor-safe start body snapshot: all reflection once.
@@ -435,6 +523,167 @@ function snapshotInboundDiagnosticBody(body) {
 /** Inbound-capture body shares start shape: exact ordered location_id + endpoint_id. */
 function snapshotInboundCaptureBody(body) {
   return snapshotStartBody(body);
+}
+
+/** Phase B reauth body: exact ordered {location_id,endpoint_id}; dedicated export. */
+function snapshotReauthorizeBody(body) { return snapshotStartBody(body); }
+
+/** Exact own-data reauth resolve row; grant_generation is decimal string never Number. */
+function snapshotExactReauthorizeResolveRow(row) {
+  try {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+    const proto = Object.getPrototypeOf(row);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(row);
+    if (actual.length !== REAUTHORIZE_RESOLVE_ROW_KEYS.length) return null;
+    const out = Object.create(null);
+    for (let i = 0; i < REAUTHORIZE_RESOLVE_ROW_KEYS.length; i += 1) {
+      const key = REAUTHORIZE_RESOLVE_ROW_KEYS[i];
+      if (actual[i] !== key || typeof actual[i] !== 'string' || !REAUTHORIZE_RESOLVE_ROW_KEY_SET.has(key)) {
+        return null;
+      }
+      const d = Object.getOwnPropertyDescriptor(row, key);
+      if (!d || !Object.prototype.hasOwnProperty.call(d, 'value') || d.get || d.set || !d.enumerable) return null;
+      out[key] = d.value;
+    }
+    for (const id of ['client_id', 'location_id', 'endpoint_id']) {
+      if (typeof out[id] !== 'string' || !UUID_RE.test(out[id]) || out[id] !== out[id].toLowerCase()) return null;
+    }
+    const gen = asCanonGen(out.grant_generation);
+    if (gen == null || typeof out.grant_generation === 'number') return null;
+    return Object.freeze({
+      client_id: out.client_id, location_id: out.location_id,
+      endpoint_id: out.endpoint_id, grant_generation: gen,
+    });
+  } catch { return null; }
+}
+
+/** pg resolve snapshot for reauth (same root/rows contract as start; reauth row shape). */
+function snapshotReauthorizeResolveQueryResult(result) {
+  try {
+    if (!result || typeof result !== 'object' || Array.isArray(result)) return Object.freeze({ kind: 'invalid' });
+    const rootKeys = Reflect.ownKeys(result);
+    let rowsDesc = null;
+    for (let i = 0; i < rootKeys.length; i += 1) {
+      const key = rootKeys[i];
+      if (typeof key === 'symbol') return Object.freeze({ kind: 'invalid' });
+      const desc = Object.getOwnPropertyDescriptor(result, key);
+      if (!desc || !Object.prototype.hasOwnProperty.call(desc, 'value') || desc.get || desc.set) {
+        return Object.freeze({ kind: 'invalid' });
+      }
+      if (key === 'rows') { if (rowsDesc) return Object.freeze({ kind: 'invalid' }); rowsDesc = desc; }
+    }
+    if (!rowsDesc) return Object.freeze({ kind: 'invalid' });
+    const rows = rowsDesc.value;
+    if (!Array.isArray(rows) || Object.getPrototypeOf(rows) !== Array.prototype) return Object.freeze({ kind: 'invalid' });
+    const rowKeys = Reflect.ownKeys(rows);
+    for (let i = 0; i < rowKeys.length; i += 1) if (typeof rowKeys[i] === 'symbol') return Object.freeze({ kind: 'invalid' });
+    const lengthDesc = Object.getOwnPropertyDescriptor(rows, 'length');
+    if (!lengthDesc || !Object.prototype.hasOwnProperty.call(lengthDesc, 'value') || lengthDesc.get || lengthDesc.set
+        || typeof lengthDesc.value !== 'number' || !Number.isInteger(lengthDesc.value) || lengthDesc.value < 0) {
+      return Object.freeze({ kind: 'invalid' });
+    }
+    const n = lengthDesc.value;
+    if (n === 0) {
+      return rowKeys.length === 1 && rowKeys[0] === 'length'
+        ? Object.freeze({ kind: 'empty' }) : Object.freeze({ kind: 'invalid' });
+    }
+    if (n !== 1 || rowKeys.length !== 2 || rowKeys[0] !== '0' || rowKeys[1] !== 'length') {
+      return Object.freeze({ kind: 'invalid' });
+    }
+    const indexDesc = Object.getOwnPropertyDescriptor(rows, '0');
+    if (!indexDesc || !Object.prototype.hasOwnProperty.call(indexDesc, 'value') || indexDesc.get || indexDesc.set) {
+      return Object.freeze({ kind: 'invalid' });
+    }
+    const rowSnap = snapshotExactReauthorizeResolveRow(indexDesc.value);
+    return rowSnap ? Object.freeze({ kind: 'one', row: rowSnap }) : Object.freeze({ kind: 'invalid' });
+  } catch { return Object.freeze({ kind: 'invalid' }); }
+}
+
+/** B1 DTO → public two keys. Frozen exact own-data + trusted facts + independent route contract. */
+function buildReauthorizeSuccessJson(serviceDto, trusted) {
+  try {
+    if (!trusted || typeof trusted !== 'object' || Array.isArray(trusted) || isProxySurface(trusted)) {
+      return null;
+    }
+    const expectedGen = asCanonGen(ownDataValue(trusted, 'expectedPriorGrantGeneration'));
+    const appIdRaw = ownDataValue(trusted, 'applicationClientId');
+    const pinnedNowMs = ownDataValue(trusted, 'pinnedNowMs');
+    if (expectedGen == null || typeof appIdRaw !== 'string' || !UUID_RE_CI.test(appIdRaw)
+        || typeof pinnedNowMs !== 'number' || !Number.isFinite(pinnedNowMs)
+        || !Number.isInteger(pinnedNowMs)) {
+      return null;
+    }
+    const appId = appIdRaw.toLowerCase();
+    const expectedExpires = new Date(pinnedNowMs + (PHASE_B_REAUTH_ROUTE_TTL_SECONDS * 1000)).toISOString();
+    if (!serviceDto || typeof serviceDto !== 'object' || Array.isArray(serviceDto)
+        || isProxySurface(serviceDto)) {
+      return null;
+    }
+    // Freeze after proxy reject, before field acceptance — mutable exact DTO fails closed.
+    if (Object.isFrozen(serviceDto) !== true) return null;
+    const proto = Object.getPrototypeOf(serviceDto);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(serviceDto);
+    if (actual.length !== PHASE_B_REAUTH_B1_DTO_KEYS.length) return null;
+    const snap = Object.create(null);
+    for (let i = 0; i < PHASE_B_REAUTH_B1_DTO_KEYS.length; i += 1) {
+      const key = PHASE_B_REAUTH_B1_DTO_KEYS[i];
+      if (actual[i] !== key || typeof actual[i] !== 'string') return null;
+      const d = Object.getOwnPropertyDescriptor(serviceDto, key);
+      if (!d || !Object.prototype.hasOwnProperty.call(d, 'value') || d.get || d.set
+          || !d.enumerable) {
+        return null;
+      }
+      snap[key] = d.value;
+    }
+    if (typeof snap.authorization_url !== 'string' || typeof snap.expires_at !== 'string'
+        || !snap.expires_at || snap.expires_at.length > 64) {
+      return null;
+    }
+    if (snap.authorization_intent !== 'phase_b_reauthorization'
+        || snap.scope_version !== 'phase_b_v1'
+        || typeof snap.prior_grant_generation !== 'string') {
+      return null;
+    }
+    const prior = asCanonGen(snap.prior_grant_generation);
+    if (prior == null || prior !== snap.prior_grant_generation || prior !== expectedGen) return null;
+    if (snap.expires_at !== expectedExpires) return null;
+    const urlRaw = snap.authorization_url;
+    let parsed; let expectedAuth;
+    try {
+      parsed = new URL(urlRaw);
+      expectedAuth = new URL(PHASE_B_REAUTH_ROUTE_AUTHORITY);
+    } catch { return null; }
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port !== ''
+        || parsed.hash !== '' || parsed.origin !== expectedAuth.origin
+        || parsed.pathname !== expectedAuth.pathname) {
+      return null;
+    }
+    const seenKeys = [];
+    for (const key of parsed.searchParams.keys()) seenKeys.push(key);
+    if (seenKeys.length !== PHASE_B_REAUTH_URL_QUERY_KEYS.length) return null;
+    for (let i = 0; i < PHASE_B_REAUTH_URL_QUERY_KEYS.length; i += 1) {
+      if (seenKeys[i] !== PHASE_B_REAUTH_URL_QUERY_KEYS[i]) return null;
+    }
+    for (const key of PHASE_B_REAUTH_URL_QUERY_KEYS) {
+      if (parsed.searchParams.getAll(key).length !== 1) return null;
+    }
+    const g = (k) => parsed.searchParams.get(k);
+    if (g('client_id') !== appId || g('response_type') !== 'code'
+        || g('redirect_uri') !== PHASE_B_REAUTH_ROUTE_REDIRECT_URI
+        || g('response_mode') !== 'query'
+        || g('scope') !== PHASE_B_REAUTH_ROUTE_SCOPES || g('code_challenge_method') !== 'S256'
+        || g('prompt') !== 'consent') {
+      return null;
+    }
+    const state = g('state'); const nonce = g('nonce'); const challenge = g('code_challenge');
+    if (typeof state !== 'string' || !PHASE_B_REAUTH_B64URL_32_RE.test(state)) return null;
+    if (typeof nonce !== 'string' || !PHASE_B_REAUTH_B64URL_32_RE.test(nonce)) return null;
+    if (typeof challenge !== 'string' || !PHASE_B_REAUTH_B64URL_32_RE.test(challenge)) return null;
+    const dto = {}; dto.authorization_url = urlRaw; dto.expires_at = snap.expires_at;
+    return Object.freeze(dto);
+  } catch { return null; }
 }
 
 /**
@@ -957,6 +1206,7 @@ function buildInboundCaptureRuntime(env, pg) {
 
 function createStaffEmailOAuthRoutes(deps) {
   const env = deps.runtimeEnv || process.env;
+  const nowFn = typeof deps.now === 'function' ? deps.now : () => new Date();
 
   /**
    * POST prepare — create one disabled Sunset Microsoft delegated endpoint.
@@ -1382,6 +1632,76 @@ function createStaffEmailOAuthRoutes(deps) {
     }
   }
 
+  /** POST reauthorize — Phase B start. Router authz-before-CT; handler predicates identical. */
+  async function handleReauthorize(body, req, res, user, gateEnv = env) {
+    if (!isPhaseBReauthStartEnabled(gateEnv)) {
+      return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    if (!isPhaseBReauthCallerIdentityValid(user)) {
+      return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    }
+    if (!deps.assertStaffClientAccess(user, 'sunset', res)) return;
+    const authz = deps.authorizeAuthenticatedStaffRoute({
+      clientSlug: 'sunset', method: 'POST', pathname: OAUTH_REAUTHORIZE_PATH, env,
+    });
+    if (!authz.ok) {
+      return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+    }
+    const bodySnap = snapshotReauthorizeBody(body);
+    if (!bodySnap) return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    try {
+      return await deps.withPgClient(async (pg) => {
+        const found = await pg.query(SQL_RESOLVE_REAUTHORIZE_BINDING, [
+          bodySnap.location_id, bodySnap.endpoint_id,
+        ]);
+        const resolved = snapshotReauthorizeResolveQueryResult(found);
+        if (resolved.kind === 'empty') {
+          return deps.sendJSON(res, 404, { success: false, error: 'endpoint_not_found' });
+        }
+        if (resolved.kind !== 'one' || resolved.row.endpoint_id !== bodySnap.endpoint_id) {
+          return deps.sendJSON(res, 503, { success: false, error: REAUTHORIZE_ERROR });
+        }
+        const rowSnap = resolved.row;
+        // Pin now once; same fixed clock into B1 + response owner (no timing drift).
+        let pinnedNowMs; let applicationClientId;
+        try {
+          const d = nowFn();
+          pinnedNowMs = d instanceof Date ? d.getTime() : NaN;
+          applicationClientId = ownDataValue(env, 'LUNA_EMAIL_OAUTH_CLIENT_ID');
+        } catch (_) { pinnedNowMs = NaN; }
+        if (!Number.isFinite(pinnedNowMs) || !Number.isInteger(pinnedNowMs)
+            || typeof applicationClientId !== 'string' || !UUID_RE_CI.test(applicationClientId)) {
+          return deps.sendJSON(res, 503, { success: false, error: REAUTHORIZE_ERROR });
+        }
+        const fixedNow = () => new Date(pinnedNowMs);
+        const ordered = Object.freeze({
+          [PHASE_B_REAUTH_INPUT_KEYS[0]]: rowSnap.client_id,
+          [PHASE_B_REAUTH_INPUT_KEYS[1]]: rowSnap.location_id,
+          [PHASE_B_REAUTH_INPUT_KEYS[2]]: rowSnap.endpoint_id,
+          [PHASE_B_REAUTH_INPUT_KEYS[3]]: String(user.staff_user_id).toLowerCase(),
+          [PHASE_B_REAUTH_INPUT_KEYS[4]]: String(user.session_id).toLowerCase(),
+          [PHASE_B_REAUTH_INPUT_KEYS[5]]: rowSnap.grant_generation,
+        });
+        const trusted = Object.freeze({
+          expectedPriorGrantGeneration: rowSnap.grant_generation, applicationClientId, pinnedNowMs,
+        });
+        // Test inject of B1 result only — production owner always validates (never bypass).
+        const b1Dto = typeof deps.phaseBReauthStartResult === 'function'
+          ? await deps.phaseBReauthStartResult({ input: ordered, trusted, fixedNow, pg })
+          : await createMicrosoftPhaseBReauthorizationTransactionService({
+            repository: createPostgresPhaseBReauthTransactionRepository(pg), env, now: fixedNow,
+          }).start(ordered);
+        const json = buildReauthorizeSuccessJson(b1Dto, trusted);
+        if (!json || Reflect.ownKeys(json).join(',') !== REAUTHORIZE_SUCCESS_KEYS.join(',')) {
+          return deps.sendJSON(res, 503, { success: false, error: REAUTHORIZE_ERROR });
+        }
+        return deps.sendJSON(res, 200, json);
+      });
+    } catch (_) {
+      return deps.sendJSON(res, 503, { success: false, error: REAUTHORIZE_ERROR });
+    }
+  }
+
   function terminal(res, statusCode, status) {
     const messages = {
       authorization_received: 'Authorization response received. You may close this window.',
@@ -1445,6 +1765,7 @@ function createStaffEmailOAuthRoutes(deps) {
     handleReadHealth,
     handleInboundDiagnostic,
     handleInboundCapture,
+    handleReauthorize,
     handleCallback,
   });
 }
@@ -1456,12 +1777,14 @@ module.exports = {
   OAUTH_READ_HEALTH_PATH,
   OAUTH_INBOUND_DIAGNOSTIC_PATH,
   OAUTH_INBOUND_CAPTURE_PATH,
+  OAUTH_REAUTHORIZE_PATH,
   OAUTH_CALLBACK_PATH,
   SQL_RESOLVE_START_BINDING,
   SQL_RESOLVE_REFRESH_HEALTH_BINDING,
   SQL_RESOLVE_READ_HEALTH_BINDING,
   SQL_RESOLVE_INBOUND_DIAGNOSTIC_BINDING,
   SQL_RESOLVE_INBOUND_CAPTURE_BINDING,
+  SQL_RESOLVE_REAUTHORIZE_BINDING,
   SQL_RESOLVE_SUNSET_CLIENT_FOR_PREPARE,
   START_BODY_KEYS,
   PREPARE_BODY_KEYS,
@@ -1469,18 +1792,27 @@ module.exports = {
   READ_HEALTH_BODY_KEYS,
   INBOUND_DIAGNOSTIC_BODY_KEYS,
   INBOUND_CAPTURE_BODY_KEYS,
+  REAUTHORIZE_BODY_KEYS,
   PREPARE_SUCCESS_KEYS,
   REFRESH_HEALTH_SUCCESS_KEYS,
   READ_HEALTH_SUCCESS_KEYS,
   INBOUND_DIAGNOSTIC_SUCCESS_KEYS,
   INBOUND_CAPTURE_SUCCESS_KEYS,
+  REAUTHORIZE_SUCCESS_KEYS,
+  PHASE_B_REAUTH_B1_DTO_KEYS,
   PREPARE_ERROR,
   REFRESH_HEALTH_ERROR,
   READ_HEALTH_ERROR,
   INBOUND_DIAGNOSTIC_ERROR,
   INBOUND_CAPTURE_ERROR,
+  REAUTHORIZE_ERROR,
   RESOLVE_ROW_KEYS,
+  REAUTHORIZE_RESOLVE_ROW_KEYS,
   PREPARE_CLIENT_ROW_KEYS,
+  PHASE_B_REAUTH_START_ENABLED_ENV,
+  PHASE_B_REAUTH_GATE_ENV_KEYS,
+  PHASE_B_REAUTH_URL_QUERY_KEYS,
+  PHASE_B_REAUTH_B64URL_32_RE,
   validBody,
   snapshotStartBody,
   snapshotPrepareBody,
@@ -1488,14 +1820,20 @@ module.exports = {
   snapshotReadHealthBody,
   snapshotInboundDiagnosticBody,
   snapshotInboundCaptureBody,
+  snapshotReauthorizeBody,
   snapshotPrepareClientResolve,
   snapshotResolveQueryResult,
+  snapshotReauthorizeResolveQueryResult,
+  snapshotPhaseBReauthGateEnv,
   isPrepareEnabled,
+  isPhaseBReauthStartEnabled,
+  isPhaseBReauthCallerIdentityValid,
   buildPrepareSuccessJson,
   buildRefreshHealthSuccessJson,
   buildReadHealthSuccessJson,
   buildInboundDiagnosticSuccessJson,
   buildInboundCaptureSuccessJson,
+  buildReauthorizeSuccessJson,
   createStaffEmailOAuthRoutes,
   // Re-export production dependency key constant for offline verifiers (no secrets).
   RUNTIME_DEPENDENCY_KEYS: DEPENDENCY_KEYS,

@@ -211,7 +211,11 @@ const {
   OAUTH_READ_HEALTH_PATH,
   OAUTH_INBOUND_DIAGNOSTIC_PATH,
   OAUTH_INBOUND_CAPTURE_PATH,
+  OAUTH_REAUTHORIZE_PATH,
   OAUTH_CALLBACK_PATH,
+  isPhaseBReauthStartEnabled,
+  snapshotPhaseBReauthGateEnv,
+  isPhaseBReauthCallerIdentityValid,
 } = require('./lib/staff-email-oauth-routes');
 // Canonical dual-gate predicate (composition-owned) — router evaluates before
 // requireAuth / session / readBody / DB / runtime / network. Do not reimplement.
@@ -49655,6 +49659,50 @@ async function router(req, res) {
       res,
       auth.user,
       inboundCaptureGateEnv,
+    );
+  }
+  // Phase B reauth start (B3a2a; default-off). Authority-first: dual gate →
+  // requireAuth(admin) → sunset identity → assertStaffClientAccess →
+  // authorizeAuthenticatedStaffRoute → CT → strict body → handler/DB/B1.
+  // Unauthorized tenant/ACL never reaches reader/parser. Gate-off before auth.
+  if (pathname === OAUTH_REAUTHORIZE_PATH && method === 'POST') {
+    const reauthGateEnv = snapshotPhaseBReauthGateEnv(process.env);
+    if (!isPhaseBReauthStartEnabled(reauthGateEnv)) {
+      return sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    if (!isPhaseBReauthCallerIdentityValid(auth.user)) {
+      return sendJSON(res, 403, { success: false, error: 'forbidden' });
+    }
+    if (!assertStaffClientAccess(auth.user, 'sunset', res)) return;
+    const reauthAuthz = authorizeAuthenticatedStaffRoute({
+      clientSlug: 'sunset',
+      method: 'POST',
+      pathname: OAUTH_REAUTHORIZE_PATH,
+      env: process.env,
+    });
+    if (!reauthAuthz.ok) {
+      return sendJSON(
+        res,
+        reauthAuthz.status || 403,
+        reauthAuthz.body || { success: false, error: 'forbidden' },
+      );
+    }
+    const ct = validateOperatorRecoveryJsonContentType(req);
+    if (!ct.ok) {
+      return sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    }
+    const bodyParsed = await readOperatorRecoveryStrictJsonBody(req);
+    if (!bodyParsed.ok) {
+      return sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    }
+    return emailOAuthRoutes.handleReauthorize(
+      bodyParsed.body,
+      req,
+      res,
+      auth.user,
+      reauthGateEnv,
     );
   }
   // Admin-only email-delta operator recovery (default-off). Full gate

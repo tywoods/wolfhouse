@@ -380,6 +380,7 @@
     "verify:email-microsoft-delegated-inbound-diagnostic-sunset-staging-runtime-composition": "node scripts/verify-email-microsoft-delegated-inbound-diagnostic-sunset-staging-runtime-composition.js",
     "verify:staff-email-oauth-inbound-diagnostic-routes": "node scripts/verify-staff-email-oauth-inbound-diagnostic-routes.js",
     "verify:staff-email-oauth-inbound-capture-routes": "node scripts/verify-staff-email-oauth-inbound-capture-routes.js",
+    "verify:staff-email-oauth-phase-b-reauthorize-route": "node scripts/verify-staff-email-oauth-phase-b-reauthorize-route.js",
     "verify:email-inbound-event-store": "node scripts/verify-email-inbound-event-store.js",
     "verify:email-inbound-inbox-bridge": "node scripts/verify-email-inbound-inbox-bridge.js",
     "prove:email-inbound-event-store-pglite": "node scripts/prove-email-inbound-event-store-pglite.js",
