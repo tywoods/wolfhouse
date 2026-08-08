@@ -246,12 +246,16 @@ const {
   readOperatorRecoveryStrictJsonBody,
   parseOperatorRecoveryStatusQueryFromRequest,
 } = require('./lib/staff-email-delta-operator-recovery-routes');
-// Gate 3 email inbox draft/approve-send (default-off; no Graph/token owners).
+// Gate 3 email inbox draft/approve-send (default-off; composition owners lazy).
 const {
   createStaffEmailInboxRoutes, EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH,
   snapshotGateEnv: snapshotEmailInboxGateEnv, isEmailStaffDraftsEnabled,
   isEmailStaffOutboundEnabled, validateJsonContentType: validateEmailInboxJsonContentType,
 } = require('./lib/staff-email-inbox-routes');
+const {
+  createSunsetStagingEmailOutboundDispatch,
+} = require('./lib/email-outbound-sunset-staging-runtime-composition');
+const https = require('https');
 
 const {
   listStaffAutomatedNotifications,
@@ -2606,7 +2610,21 @@ const emailDeltaOperatorRecoveryRoutes = createStaffEmailDeltaOperatorRecoveryRo
   withPgClient,
 });
 
-const emailInboxRoutes = createStaffEmailInboxRoutes({ sendJSON, withPgClient, appendAuditLog, readBody });
+// Lazy outbound composition: owners construct only when route invokes after
+// post-COMMIT gates (send + composition flags). Outer withPgClient owns release.
+const emailInboxRoutes = createStaffEmailInboxRoutes({
+  sendJSON, withPgClient, appendAuditLog, readBody,
+  createOutboundDispatch(pgClient, env) {
+    async function withTransactionClient(work) { return work(pgClient); }
+    return createSunsetStagingEmailOutboundDispatch(Object.freeze({
+      env: env || process.env,
+      pgClient,
+      withTransactionClient,
+      https,
+      timers: { setTimeout, clearTimeout },
+    }));
+  },
+});
 
 // Staff Inbox routes (extracted module). Auth stays in the router with
 // per-route minRole (viewer reads / operator writes) — do not homogenize.

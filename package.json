@@ -385,6 +385,7 @@
     "prove:email-delta-recovery-operation-store-pglite": "node scripts/prove-email-delta-recovery-operation-store-pglite.js",
     "verify:email-outbound-send-journal-store": "node scripts/verify-email-outbound-send-journal-store.js",
     "verify:email-authority-bound-outbound-operation": "node scripts/verify-email-authority-bound-outbound-operation.js",
+    "verify:email-outbound-sunset-staging-runtime-composition": "node scripts/verify-email-outbound-sunset-staging-runtime-composition.js",
     "verify:staff-email-inbox-routes": "node scripts/verify-staff-email-inbox-routes.js",
     "verify:staff-email-inbox-ui": "node scripts/verify-staff-email-inbox-ui.js",
     "verify:email-delta-operator-recovery-config": "node scripts/verify-email-delta-operator-recovery-config.js",
