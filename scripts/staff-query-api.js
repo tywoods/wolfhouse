@@ -246,6 +246,12 @@ const {
   readOperatorRecoveryStrictJsonBody,
   parseOperatorRecoveryStatusQueryFromRequest,
 } = require('./lib/staff-email-delta-operator-recovery-routes');
+// Gate 3 email inbox draft/approve-send (default-off; no Graph/token owners).
+const {
+  createStaffEmailInboxRoutes, EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH,
+  snapshotGateEnv: snapshotEmailInboxGateEnv, isEmailStaffDraftsEnabled,
+  isEmailStaffOutboundEnabled, validateJsonContentType: validateEmailInboxJsonContentType,
+} = require('./lib/staff-email-inbox-routes');
 
 const {
   listStaffAutomatedNotifications,
@@ -2599,6 +2605,8 @@ const emailDeltaOperatorRecoveryRoutes = createStaffEmailDeltaOperatorRecoveryRo
   authorizeAuthenticatedStaffRoute,
   withPgClient,
 });
+
+const emailInboxRoutes = createStaffEmailInboxRoutes({ sendJSON, withPgClient, appendAuditLog, readBody });
 
 // Staff Inbox routes (extracted module). Auth stays in the router with
 // per-route minRole (viewer reads / operator writes) — do not homogenize.
@@ -47914,6 +47922,26 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleInboxSendReply(req, res, auth.user);
+  }
+
+  // Email inbox draft/approve-send (default-off; gate before auth/body/DB).
+  if (pathname === EMAIL_DRAFT_PATH && method === 'POST') {
+    const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
+    if (!isEmailStaffDraftsEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    const ct = validateEmailInboxJsonContentType(req);
+    if (!ct.ok) return sendJSON(res, ct.status, ct.body);
+    return emailInboxRoutes.handleDraft(req, res, auth.user, emailInboxGateEnv);
+  }
+  if (pathname === EMAIL_APPROVE_SEND_PATH && method === 'POST') {
+    const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
+    if (!isEmailStaffOutboundEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    const ct = validateEmailInboxJsonContentType(req);
+    if (!ct.ok) return sendJSON(res, ct.status, ct.body);
+    return emailInboxRoutes.handleApproveSend(req, res, auth.user, emailInboxGateEnv);
   }
 
   const convNeedsHumanMatch = CONV_NEEDS_HUMAN_RE.exec(pathname);
