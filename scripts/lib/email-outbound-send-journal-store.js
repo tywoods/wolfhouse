@@ -1,4 +1,4 @@
-'use strict'; /** Offline outbound send-journal store (068). Exclusive TX claim/replay + CAS. Unwired. */
+'use strict'; /** Offline outbound send-journal store (068+069). Exclusive TX claim/replay + CAS. Unwired. */
 const util = require('util');
 const FAILURE_CODE = 'email_outbound_send_journal_failed';
 const FAILURE_MESSAGE = 'Email outbound send journal operation failed.';
@@ -11,19 +11,33 @@ const CLAIM_INPUT_KEYS = Object.freeze(['operationId','approvalId','bodyDigest']
 const OP_ID_KEYS = Object.freeze(['operationId']);
 const DRAFT_INPUT_KEYS = Object.freeze(['operationId','immutableDraftId']);
 const TERMINAL_INPUT_KEYS = Object.freeze(['operationId','outcome']);
-const OPERATION_RESULT_KEYS = Object.freeze(['operation_id','approval_id','phase','outcome','immutable_draft_id','body_digest','send_invocation_count','provider','replayed','authorize_dispatch']);
+const OPERATION_RESULT_KEYS = Object.freeze([
+  'operation_id','approval_id','phase','outcome','immutable_draft_id','body_digest',
+  'create_invocation_count','update_invocation_count','send_invocation_count','provider',
+  'replayed','authorize_create','authorize_update','authorize_dispatch',
+]);
 const OUTCOMES = Object.freeze(['claimed','committed','not_committed','outcome_unknown','conflict','rejected']);
-const PHASES = Object.freeze(['claimed','draft_created','draft_updated','send_dispatched','reconciled_sent','terminal']);
-const PRE_SEND_TERMINAL = Object.freeze(['not_committed','conflict','rejected']);
+const PHASES = Object.freeze([
+  'claimed','create_dispatched','draft_created','update_dispatched','draft_updated','send_dispatched','reconciled_sent','terminal',
+]);
+const PRE_INTENT_TERMINAL = Object.freeze(['not_committed','conflict','rejected']);
+const INTENT_TERMINAL = Object.freeze(['outcome_unknown','conflict','rejected','not_committed']);
 const POST_SEND_TERMINAL = Object.freeze(['outcome_unknown','conflict','rejected']);
-const LOCK_FIELDS = Object.freeze(['operation_id','client_id','location_id','location_key','endpoint_id','conversation_id','approval_id','actor_staff_user_id','provider','immutable_draft_id','body_digest','phase','outcome','send_invocation_count']);
-const PUBLIC_FIELDS = Object.freeze(['operation_id','approval_id','phase','outcome','immutable_draft_id','body_digest','send_invocation_count','provider']);
+const LOCK_FIELDS = Object.freeze([
+  'operation_id','client_id','location_id','location_key','endpoint_id','conversation_id','approval_id','actor_staff_user_id',
+  'provider','immutable_draft_id','body_digest','phase','outcome',
+  'create_invocation_count','update_invocation_count','send_invocation_count',
+]);
+const PUBLIC_FIELDS = Object.freeze([
+  'operation_id','approval_id','phase','outcome','immutable_draft_id','body_digest',
+  'create_invocation_count','update_invocation_count','send_invocation_count','provider',
+]);
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const BODY_DIGEST_RE = /^[0-9a-f]{64}$/;
 const LOCATION_KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const DRAFT_SECRET_RE = new RegExp(`${'access'}_${'token'}|${'refresh'}_${'token'}|bearer\\s`, 'i');
 const DANGEROUS = new Set(['__proto__','prototype','constructor']);
-const RET = 'operation_id, approval_id, phase, outcome, immutable_draft_id, body_digest, send_invocation_count, provider';
+const RET = 'operation_id, approval_id, phase, outcome, immutable_draft_id, body_digest, create_invocation_count, update_invocation_count, send_invocation_count, provider';
 const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
 const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function' ? PINNED_UTIL_TYPES.isProxy : null;
 const PINNED_OBJECT_PROTOTYPE = Object.prototype;
@@ -90,16 +104,22 @@ function exactUuidField(raw) {
   const t = raw.toLowerCase(); return UUID_CANON.test(t) && t === raw.toLowerCase() && raw.trim() === raw ? t : null;
 }
 function exactCount(raw) { return typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 && raw <= 1 ? raw : null; }
-function exactTsOk(raw) {
-  if (raw == null) return true; if (raw instanceof Date) return Number.isFinite(raw.getTime());
-  if (typeof raw === 'string') return raw.length >= 10 && raw.length <= 64 && Number.isFinite(Date.parse(raw)); return false;
-}
-function phaseCouplingOk(phase, outcome, draft, count) {
-  if (phase === 'claimed') return draft === null && count === 0 && outcome === 'claimed';
-  if (phase === 'draft_created' || phase === 'draft_updated') return draft !== null && count === 0 && outcome === 'not_committed';
-  if (phase === 'send_dispatched') return draft !== null && count === 1 && outcome === 'outcome_unknown';
-  if (phase === 'reconciled_sent') return draft !== null && count === 1 && outcome === 'committed'; if (phase === 'terminal') {
-    if (!['not_committed','outcome_unknown','conflict','rejected'].includes(outcome)) return false; return outcome === 'not_committed' ? count === 0 : (count === 0 || count === 1);
+function phaseCouplingOk(phase, outcome, draft, createC, updateC, sendC) {
+  if (phase === 'claimed') return draft === null && createC === 0 && updateC === 0 && sendC === 0 && outcome === 'claimed';
+  if (phase === 'create_dispatched') return draft === null && createC === 1 && updateC === 0 && sendC === 0 && outcome === 'outcome_unknown';
+  if (phase === 'draft_created') return draft !== null && createC === 1 && updateC === 0 && sendC === 0 && outcome === 'not_committed';
+  if (phase === 'update_dispatched') return draft !== null && createC === 1 && updateC === 1 && sendC === 0 && outcome === 'outcome_unknown';
+  if (phase === 'draft_updated') return draft !== null && createC === 1 && updateC === 1 && sendC === 0 && outcome === 'not_committed';
+  if (phase === 'send_dispatched') return draft !== null && createC === 1 && updateC === 1 && sendC === 1 && outcome === 'outcome_unknown';
+  if (phase === 'reconciled_sent') return draft !== null && createC === 1 && updateC === 1 && sendC === 1 && outcome === 'committed';
+  if (phase === 'terminal') {
+    if (!['not_committed','outcome_unknown','conflict','rejected'].includes(outcome)) return false;
+    if (updateC === 1 && createC !== 1) return false;
+    if (sendC === 1 && !(createC === 1 && updateC === 1 && draft !== null)) return false;
+    if (draft !== null && createC !== 1) return false;
+    if (draft === null && (updateC !== 0 || sendC !== 0)) return false;
+    if (outcome === 'not_committed' && sendC !== 0) return false;
+    return true;
   }
   return false;
 }
@@ -108,27 +128,34 @@ function snapshotRow(row, mode) {
     if (!row || typeof row !== 'object' || Array.isArray(row) || isProxy(row)) return null;
     const out = PINNED_OBJECT_CREATE.call(Object, null); for (const k of (mode === 'lock' ? LOCK_FIELDS : PUBLIC_FIELDS)) {
       const v = ownData(row, k); if (k === 'immutable_draft_id') { if (v == null) out[k] = null; else if (!draftShapeOk(v)) return null; else out[k] = v; }
-      else if (k === 'send_invocation_count') { const c = exactCount(v); if (c == null) return null; out[k] = c; }
-      else if (k === 'body_digest') { if (typeof v !== 'string' || !BODY_DIGEST_RE.test(v)) return null; out[k] = v; }
+      else if (k === 'create_invocation_count' || k === 'update_invocation_count' || k === 'send_invocation_count') {
+        const c = exactCount(v); if (c == null) return null; out[k] = c;
+      } else if (k === 'body_digest') { if (typeof v !== 'string' || !BODY_DIGEST_RE.test(v)) return null; out[k] = v; }
       else if (k === 'location_key') { if (typeof v !== 'string' || !LOCATION_KEY_RE.test(v) || v.length > 64) return null; out[k] = v; }
       else if (k === 'provider') { if (v !== EMAIL_OUTBOUND_SEND_JOURNAL_PROVIDER) return null; out[k] = v; }
       else if (k === 'phase') { if (typeof v !== 'string' || !PHASES.includes(v)) return null; out[k] = v; }
       else if (k === 'outcome') { if (typeof v !== 'string' || !OUTCOMES.includes(v)) return null; out[k] = v; }
       else { const u = exactUuidField(v); if (!u) return null; out[k] = u; }
     }
-    if (!phaseCouplingOk(out.phase, out.outcome, out.immutable_draft_id, out.send_invocation_count)) return null;
+    if (!phaseCouplingOk(out.phase, out.outcome, out.immutable_draft_id, out.create_invocation_count, out.update_invocation_count, out.send_invocation_count)) return null;
     if (!exactTsOk(ownData(row, 'created_at')) || !exactTsOk(ownData(row, 'updated_at'))) return null; return freeze(out);
   } catch { return null; }
+}
+function exactTsOk(raw) {
+  if (raw == null) return true; if (raw instanceof Date) return Number.isFinite(raw.getTime());
+  if (typeof raw === 'string') return raw.length >= 10 && raw.length <= 64 && Number.isFinite(Date.parse(raw)); return false;
 }
 function dbInvalid() { return fail('db_result_invalid'); }
 const SQL_LOCK = `SELECT ${LOCK_FIELDS.join(', ')}, created_at, updated_at FROM tenant_email_outbound_send_journal WHERE operation_id = $1::uuid FOR UPDATE`;
 const SQL_BY_APPROVAL = 'SELECT operation_id FROM tenant_email_outbound_send_journal WHERE client_id = $1::uuid AND approval_id = $2::uuid FOR UPDATE';
-const SQL_INSERT = `INSERT INTO tenant_email_outbound_send_journal (operation_id, client_id, location_id, location_key, endpoint_id, conversation_id, approval_id, actor_staff_user_id, provider, immutable_draft_id, body_digest, phase, outcome, send_invocation_count) VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5::uuid,$6::uuid,$7::uuid,$8::uuid,'microsoft_graph',NULL,$9,'claimed','claimed',0) ON CONFLICT (operation_id) DO NOTHING RETURNING ${RET}`;
-const SQL_DRAFT = `UPDATE tenant_email_outbound_send_journal SET phase='draft_created', outcome='not_committed', immutable_draft_id=$2 WHERE operation_id=$1::uuid AND phase='claimed' AND outcome='claimed' AND immutable_draft_id IS NULL AND send_invocation_count=0 RETURNING ${RET}`;
-const SQL_UPDATED = `UPDATE tenant_email_outbound_send_journal SET phase='draft_updated', outcome='not_committed' WHERE operation_id=$1::uuid AND phase='draft_created' AND outcome='not_committed' AND immutable_draft_id IS NOT NULL AND send_invocation_count=0 RETURNING ${RET}`;
-const SQL_DISPATCH = `UPDATE tenant_email_outbound_send_journal SET phase='send_dispatched', outcome='outcome_unknown', send_invocation_count=1 WHERE operation_id=$1::uuid AND phase='draft_updated' AND outcome='not_committed' AND immutable_draft_id IS NOT NULL AND send_invocation_count=0 RETURNING ${RET}`;
-const SQL_RECONCILE = `UPDATE tenant_email_outbound_send_journal SET phase='reconciled_sent', outcome='committed' WHERE operation_id=$1::uuid AND phase='send_dispatched' AND outcome='outcome_unknown' AND immutable_draft_id IS NOT NULL AND send_invocation_count=1 AND immutable_draft_id=$2 RETURNING ${RET}`;
-const SQL_TERMINAL = `UPDATE tenant_email_outbound_send_journal SET phase='terminal', outcome=$2 WHERE operation_id=$1::uuid AND phase=$3 AND send_invocation_count=$4::integer RETURNING ${RET}`;
+const SQL_INSERT = `INSERT INTO tenant_email_outbound_send_journal (operation_id, client_id, location_id, location_key, endpoint_id, conversation_id, approval_id, actor_staff_user_id, provider, immutable_draft_id, body_digest, phase, outcome, create_invocation_count, update_invocation_count, send_invocation_count) VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5::uuid,$6::uuid,$7::uuid,$8::uuid,'microsoft_graph',NULL,$9,'claimed','claimed',0,0,0) ON CONFLICT (operation_id) DO NOTHING RETURNING ${RET}`;
+const SQL_CLAIM_CREATE = `UPDATE tenant_email_outbound_send_journal SET phase='create_dispatched', outcome='outcome_unknown', create_invocation_count=1 WHERE operation_id=$1::uuid AND phase='claimed' AND outcome='claimed' AND immutable_draft_id IS NULL AND create_invocation_count=0 AND update_invocation_count=0 AND send_invocation_count=0 RETURNING ${RET}`;
+const SQL_DRAFT = `UPDATE tenant_email_outbound_send_journal SET phase='draft_created', outcome='not_committed', immutable_draft_id=$2 WHERE operation_id=$1::uuid AND phase='create_dispatched' AND outcome='outcome_unknown' AND immutable_draft_id IS NULL AND create_invocation_count=1 AND update_invocation_count=0 AND send_invocation_count=0 RETURNING ${RET}`;
+const SQL_CLAIM_UPDATE = `UPDATE tenant_email_outbound_send_journal SET phase='update_dispatched', outcome='outcome_unknown', update_invocation_count=1 WHERE operation_id=$1::uuid AND phase='draft_created' AND outcome='not_committed' AND immutable_draft_id IS NOT NULL AND immutable_draft_id=$2 AND create_invocation_count=1 AND update_invocation_count=0 AND send_invocation_count=0 RETURNING ${RET}`;
+const SQL_UPDATED = `UPDATE tenant_email_outbound_send_journal SET phase='draft_updated', outcome='not_committed' WHERE operation_id=$1::uuid AND phase='update_dispatched' AND outcome='outcome_unknown' AND immutable_draft_id IS NOT NULL AND create_invocation_count=1 AND update_invocation_count=1 AND send_invocation_count=0 RETURNING ${RET}`;
+const SQL_DISPATCH = `UPDATE tenant_email_outbound_send_journal SET phase='send_dispatched', outcome='outcome_unknown', send_invocation_count=1 WHERE operation_id=$1::uuid AND phase='draft_updated' AND outcome='not_committed' AND immutable_draft_id IS NOT NULL AND create_invocation_count=1 AND update_invocation_count=1 AND send_invocation_count=0 RETURNING ${RET}`;
+const SQL_RECONCILE = `UPDATE tenant_email_outbound_send_journal SET phase='reconciled_sent', outcome='committed' WHERE operation_id=$1::uuid AND phase='send_dispatched' AND outcome='outcome_unknown' AND immutable_draft_id IS NOT NULL AND create_invocation_count=1 AND update_invocation_count=1 AND send_invocation_count=1 AND immutable_draft_id=$2 RETURNING ${RET}`;
+const SQL_TERMINAL = `UPDATE tenant_email_outbound_send_journal SET phase='terminal', outcome=$2 WHERE operation_id=$1::uuid AND phase=$3 AND create_invocation_count=$4::integer AND update_invocation_count=$5::integer AND send_invocation_count=$6::integer RETURNING ${RET}`;
 function resolveQuery(surface) {
   try {
     if (!surface || (typeof surface !== 'object' && typeof surface !== 'function') || isProxy(surface)) return null;
@@ -171,11 +198,15 @@ function snapshotInput(input, keys) {
   if (!exactPlain(input, keys)) return fail('input_invalid');
   const out = PINNED_OBJECT_CREATE.call(Object, null); for (const k of keys) out[k] = ownData(input, k); return ok(out);
 }
-function toPublic(snap, replayed, authorize) {
+function toPublic(snap, replayed, auth) {
+  const a = auth && typeof auth === 'object' ? auth : {};
   return freeze({
     operation_id: snap.operation_id, approval_id: snap.approval_id, phase: snap.phase, outcome: snap.outcome,
-    immutable_draft_id: snap.immutable_draft_id, body_digest: snap.body_digest, send_invocation_count: snap.send_invocation_count,
-    provider: snap.provider, replayed: replayed === true, authorize_dispatch: authorize === true,
+    immutable_draft_id: snap.immutable_draft_id, body_digest: snap.body_digest,
+    create_invocation_count: snap.create_invocation_count, update_invocation_count: snap.update_invocation_count,
+    send_invocation_count: snap.send_invocation_count, provider: snap.provider,
+    replayed: replayed === true,
+    authorize_create: a.create === true, authorize_update: a.update === true, authorize_dispatch: a.dispatch === true,
   });
 }
 function authMatch(snap, a) {
@@ -184,7 +215,7 @@ function authMatch(snap, a) {
     && snap.actor_staff_user_id === a.actorStaffUserId && snap.provider === EMAIL_OUTBOUND_SEND_JOURNAL_PROVIDER;
 }
 function claimMatch(snap, exp) { return authMatch(snap, exp.authority) && snap.approval_id === exp.approvalId && snap.body_digest === exp.bodyDigest; }
-function publicOrInvalid(row, replayed, authorize) { const snap = snapshotRow(row, 'public'); return snap ? ok(toPublic(snap, replayed, authorize)) : dbInvalid(); }
+function publicOrInvalid(row, replayed, auth) { const snap = snapshotRow(row, 'public'); return snap ? ok(toPublic(snap, replayed, auth)) : dbInvalid(); }
 async function attemptRollback(client) { try { await client.query('ROLLBACK'); } catch { /* best-effort */ } }
 async function withOuterTxn(client, fn) {
   let begun = false; let commitSent = false; try {
@@ -221,7 +252,7 @@ function createEmailOutboundSendJournalStore(deps) {
     const bodyDigest = parseDigest(snapIn.value.bodyDigest); if (!bodyDigest.ok) return bodyDigest;
     const expected = freeze({ operationId: operationId.value, approvalId: approvalId.value, bodyDigest: bodyDigest.value, authority }); return run((client) => withOuterTxn(client, async () => {
       const existing = await lockRowResult(client, expected.operationId); if (!existing.ok) return existing;
-      if (existing.value) return claimMatch(existing.value, expected) ? ok(toPublic(existing.value, true, false)) : fail('operation_id_conflict');
+      if (existing.value) return claimMatch(existing.value, expected) ? ok(toPublic(existing.value, true, null)) : fail('operation_id_conflict');
       const byAp = await client.query(SQL_BY_APPROVAL, [authority.clientId, expected.approvalId]); if (byAp && byAp.rows && byAp.rows.length === 1) {
         const opU = exactUuidField(ownData(byAp.rows[0], 'operation_id')); if (!opU) return dbInvalid(); if (opU !== expected.operationId) return fail('approval_id_conflict');
       } else if (byAp && byAp.rows && byAp.rows.length > 1) return dbInvalid();
@@ -230,15 +261,35 @@ function createEmailOutboundSendJournalStore(deps) {
           authority.endpointId, authority.conversationId, expected.approvalId, authority.actorStaffUserId, expected.bodyDigest,
         ]);
       } catch (err) { if (isUniqueViolation(err)) return fail('approval_id_conflict'); throw err; }
-      if (ins && ins.rows && ins.rows.length === 1) return publicOrInvalid(ins.rows[0], false, false);
+      if (ins && ins.rows && ins.rows.length === 1) return publicOrInvalid(ins.rows[0], false, null);
       const raced = await lockRowResult(client, expected.operationId); if (!raced.ok) return raced; if (!raced.value) return fail('email_outbound_send_journal_write_failed');
-      return claimMatch(raced.value, expected) ? ok(toPublic(raced.value, true, false)) : fail('operation_id_conflict');
+      return claimMatch(raced.value, expected) ? ok(toPublic(raced.value, true, null)) : fail('operation_id_conflict');
     }));
   }
   async function load(input) {
     const snapIn = snapshotInput(input, OP_ID_KEYS); if (!snapIn.ok) return snapIn;
     const operationId = parseUuid(snapIn.value.operationId, 'operation_id'); if (!operationId.ok) return operationId; return run((client) => withOuterTxn(client, async () => {
-      const row = await requireLocked(client, operationId.value); if (!row.ok) return row; return ok(toPublic(row.value, true, false));
+      const row = await requireLocked(client, operationId.value); if (!row.ok) return row; return ok(toPublic(row.value, true, null));
+    }));
+  }
+  async function claimCreate(input) {
+    const snapIn = snapshotInput(input, OP_ID_KEYS); if (!snapIn.ok) return snapIn;
+    const operationId = parseUuid(snapIn.value.operationId, 'operation_id'); if (!operationId.ok) return operationId; return run((client) => withOuterTxn(client, async () => {
+      const row = await requireLocked(client, operationId.value); if (!row.ok) return row;
+      const cur = row.value;
+      if (cur.phase === 'create_dispatched' || cur.phase === 'draft_created' || cur.phase === 'update_dispatched'
+          || cur.phase === 'draft_updated' || cur.phase === 'send_dispatched' || cur.phase === 'reconciled_sent'
+          || cur.create_invocation_count === 1) {
+        return ok(toPublic(cur, true, null));
+      }
+      if (cur.phase === 'terminal' || cur.phase !== 'claimed') return fail('phase_conflict');
+      const updated = await client.query(SQL_CLAIM_CREATE, [operationId.value]);
+      if (!updated || !updated.rows || updated.rows.length !== 1) {
+        const again = await lockRowResult(client, operationId.value); if (!again.ok) return again;
+        if (again.value && again.value.create_invocation_count === 1) return ok(toPublic(again.value, true, null));
+        return fail('phase_conflict');
+      }
+      return publicOrInvalid(updated.rows[0], false, { create: true });
     }));
   }
   async function persistDraftCreated(input) {
@@ -246,33 +297,57 @@ function createEmailOutboundSendJournalStore(deps) {
     const operationId = parseUuid(snapIn.value.operationId, 'operation_id'); if (!operationId.ok) return operationId;
     const draftId = parseDraftId(snapIn.value.immutableDraftId); if (!draftId.ok) return draftId; return run((client) => withOuterTxn(client, async () => {
       const row = await requireLocked(client, operationId.value); if (!row.ok) return row;
-      const cur = row.value; if (cur.phase === 'draft_created' && cur.immutable_draft_id === draftId.value) return ok(toPublic(cur, true, false));
-      if (cur.immutable_draft_id != null && cur.immutable_draft_id !== draftId.value) return fail('immutable_draft_id_conflict'); if (cur.phase !== 'claimed') return fail('phase_conflict');
+      const cur = row.value; if (cur.phase === 'draft_created' && cur.immutable_draft_id === draftId.value) return ok(toPublic(cur, true, null));
+      if (cur.immutable_draft_id != null && cur.immutable_draft_id !== draftId.value) return fail('immutable_draft_id_conflict');
+      if (cur.phase !== 'create_dispatched' || cur.create_invocation_count !== 1) return fail('phase_conflict');
       let updated; try { updated = await client.query(SQL_DRAFT, [operationId.value, draftId.value]); }
       catch (err) { if (isUniqueViolation(err)) return fail('immutable_draft_id_conflict'); throw err; }
-      if (!updated || !updated.rows || updated.rows.length !== 1) return fail('phase_conflict'); return publicOrInvalid(updated.rows[0], false, false);
+      if (!updated || !updated.rows || updated.rows.length !== 1) return fail('phase_conflict'); return publicOrInvalid(updated.rows[0], false, null);
+    }));
+  }
+  async function claimUpdate(input) {
+    const snapIn = snapshotInput(input, DRAFT_INPUT_KEYS); if (!snapIn.ok) return snapIn;
+    const operationId = parseUuid(snapIn.value.operationId, 'operation_id'); if (!operationId.ok) return operationId;
+    const draftId = parseDraftId(snapIn.value.immutableDraftId); if (!draftId.ok) return draftId; return run((client) => withOuterTxn(client, async () => {
+      const row = await requireLocked(client, operationId.value); if (!row.ok) return row;
+      const cur = row.value;
+      if (cur.immutable_draft_id != null && cur.immutable_draft_id !== draftId.value) return fail('immutable_draft_id_conflict');
+      if (cur.phase === 'update_dispatched' || cur.phase === 'draft_updated' || cur.phase === 'send_dispatched'
+          || cur.phase === 'reconciled_sent' || cur.update_invocation_count === 1) {
+        return ok(toPublic(cur, true, null));
+      }
+      if (cur.phase === 'terminal' || cur.phase !== 'draft_created' || cur.create_invocation_count !== 1) return fail('phase_conflict');
+      if (cur.immutable_draft_id == null || cur.immutable_draft_id !== draftId.value) return fail('immutable_draft_id_conflict');
+      const updated = await client.query(SQL_CLAIM_UPDATE, [operationId.value, draftId.value]);
+      if (!updated || !updated.rows || updated.rows.length !== 1) {
+        const again = await lockRowResult(client, operationId.value); if (!again.ok) return again;
+        if (again.value && again.value.update_invocation_count === 1) return ok(toPublic(again.value, true, null));
+        return fail('phase_conflict');
+      }
+      return publicOrInvalid(updated.rows[0], false, { update: true });
     }));
   }
   async function markDraftUpdated(input) {
     const snapIn = snapshotInput(input, OP_ID_KEYS); if (!snapIn.ok) return snapIn;
     const operationId = parseUuid(snapIn.value.operationId, 'operation_id'); if (!operationId.ok) return operationId; return run((client) => withOuterTxn(client, async () => {
-      const row = await requireLocked(client, operationId.value); if (!row.ok) return row; if (row.value.phase === 'draft_updated') return ok(toPublic(row.value, true, false));
-      if (row.value.phase !== 'draft_created') return fail('phase_conflict');
+      const row = await requireLocked(client, operationId.value); if (!row.ok) return row;
+      if (row.value.phase === 'draft_updated') return ok(toPublic(row.value, true, null));
+      if (row.value.phase !== 'update_dispatched' || row.value.update_invocation_count !== 1) return fail('phase_conflict');
       const updated = await client.query(SQL_UPDATED, [operationId.value]); if (!updated || !updated.rows || updated.rows.length !== 1) return fail('phase_conflict');
-      return publicOrInvalid(updated.rows[0], false, false);
+      return publicOrInvalid(updated.rows[0], false, null);
     }));
   }
   async function claimDispatch(input) {
     const snapIn = snapshotInput(input, OP_ID_KEYS); if (!snapIn.ok) return snapIn;
     const operationId = parseUuid(snapIn.value.operationId, 'operation_id'); if (!operationId.ok) return operationId; return run((client) => withOuterTxn(client, async () => {
       const row = await requireLocked(client, operationId.value); if (!row.ok) return row;
-      const cur = row.value; if (cur.phase === 'send_dispatched' || cur.phase === 'reconciled_sent' || cur.send_invocation_count === 1) return ok(toPublic(cur, true, false));
+      const cur = row.value; if (cur.phase === 'send_dispatched' || cur.phase === 'reconciled_sent' || cur.send_invocation_count === 1) return ok(toPublic(cur, true, null));
       if (cur.phase === 'terminal' || cur.phase !== 'draft_updated') return fail('phase_conflict');
       const updated = await client.query(SQL_DISPATCH, [operationId.value]); if (!updated || !updated.rows || updated.rows.length !== 1) {
         const again = await lockRowResult(client, operationId.value); if (!again.ok) return again;
-        if (again.value && again.value.send_invocation_count === 1) return ok(toPublic(again.value, true, false)); return fail('phase_conflict');
+        if (again.value && again.value.send_invocation_count === 1) return ok(toPublic(again.value, true, null)); return fail('phase_conflict');
       }
-      return publicOrInvalid(updated.rows[0], false, true);
+      return publicOrInvalid(updated.rows[0], false, { dispatch: true });
     }));
   }
   async function reconcileSent(input) {
@@ -281,12 +356,12 @@ function createEmailOutboundSendJournalStore(deps) {
     const draftId = parseDraftId(snapIn.value.immutableDraftId); if (!draftId.ok) return draftId; return run((client) => withOuterTxn(client, async () => {
       const row = await requireLocked(client, operationId.value); if (!row.ok) return row;
       const cur = row.value; if (cur.phase === 'reconciled_sent' && cur.outcome === 'committed') {
-        return cur.immutable_draft_id === draftId.value ? ok(toPublic(cur, true, false)) : fail('immutable_draft_id_conflict');
+        return cur.immutable_draft_id === draftId.value ? ok(toPublic(cur, true, null)) : fail('immutable_draft_id_conflict');
       }
       if (cur.phase === 'terminal' || cur.phase !== 'send_dispatched') return fail('phase_conflict');
       if (cur.immutable_draft_id == null || cur.immutable_draft_id !== draftId.value) return fail('immutable_draft_id_conflict');
       const updated = await client.query(SQL_RECONCILE, [operationId.value, draftId.value]); if (!updated || !updated.rows || updated.rows.length !== 1) return fail('phase_conflict');
-      return publicOrInvalid(updated.rows[0], false, false);
+      return publicOrInvalid(updated.rows[0], false, null);
     }));
   }
   async function markTerminal(input) {
@@ -294,20 +369,28 @@ function createEmailOutboundSendJournalStore(deps) {
     const operationId = parseUuid(snapIn.value.operationId, 'operation_id'); if (!operationId.ok) return operationId;
     const outcome = snapIn.value.outcome; if (typeof outcome !== 'string' || !OUTCOMES.includes(outcome)) return fail('outcome_invalid'); return run((client) => withOuterTxn(client, async () => {
       const row = await requireLocked(client, operationId.value); if (!row.ok) return row;
-      const cur = row.value; if (cur.phase === 'terminal') return cur.outcome === outcome ? ok(toPublic(cur, true, false)) : fail('phase_conflict');
+      const cur = row.value; if (cur.phase === 'terminal') return cur.outcome === outcome ? ok(toPublic(cur, true, null)) : fail('phase_conflict');
       if (cur.phase === 'reconciled_sent') return fail('phase_conflict');
-      const count = cur.send_invocation_count; const phase = cur.phase;
-      const allowed = count === 0 ? PRE_SEND_TERMINAL : POST_SEND_TERMINAL; if (!allowed.includes(outcome)) return fail('outcome_invalid');
-      if (count === 0 && !['claimed','draft_created','draft_updated'].includes(phase)) return fail('phase_conflict'); if (count === 1 && phase !== 'send_dispatched') return fail('phase_conflict');
-      const updated = await client.query(SQL_TERMINAL, [operationId.value, outcome, phase, count]); if (!updated || !updated.rows || updated.rows.length !== 1) return fail('phase_conflict');
-      return publicOrInvalid(updated.rows[0], false, false);
+      const phase = cur.phase; const createC = cur.create_invocation_count; const updateC = cur.update_invocation_count; const sendC = cur.send_invocation_count;
+      let allowed;
+      if (phase === 'create_dispatched' || phase === 'update_dispatched') allowed = INTENT_TERMINAL;
+      else if (sendC === 1) allowed = POST_SEND_TERMINAL;
+      else allowed = PRE_INTENT_TERMINAL;
+      if (!allowed.includes(outcome)) return fail('outcome_invalid');
+      if (phase === 'create_dispatched' && !(createC === 1 && updateC === 0 && sendC === 0)) return fail('phase_conflict');
+      if (phase === 'update_dispatched' && !(createC === 1 && updateC === 1 && sendC === 0)) return fail('phase_conflict');
+      if (sendC === 0 && !['claimed','create_dispatched','draft_created','update_dispatched','draft_updated'].includes(phase)) return fail('phase_conflict');
+      if (sendC === 1 && phase !== 'send_dispatched') return fail('phase_conflict');
+      const updated = await client.query(SQL_TERMINAL, [operationId.value, outcome, phase, createC, updateC, sendC]);
+      if (!updated || !updated.rows || updated.rows.length !== 1) return fail('phase_conflict');
+      return publicOrInvalid(updated.rows[0], false, null);
     }));
   }
-  return freeze({ claim, load, persistDraftCreated, markDraftUpdated, claimDispatch, reconcileSent, markTerminal });
+  return freeze({ claim, load, claimCreate, persistDraftCreated, claimUpdate, markDraftUpdated, claimDispatch, reconcileSent, markTerminal });
 }
 module.exports = freeze({
   FAILURE_CODE, FAILURE_MESSAGE, EMAIL_OUTBOUND_SEND_JOURNAL_RUNTIME_WIRED,
   EMAIL_OUTBOUND_SEND_JOURNAL_LOGGING_FORBIDDEN, EMAIL_OUTBOUND_SEND_JOURNAL_PROVIDER,
-  STORE_DEPENDENCY_KEYS, AUTHORITY_KEYS, OPERATION_RESULT_KEYS, OUTCOMES,
+  STORE_DEPENDENCY_KEYS, AUTHORITY_KEYS, OPERATION_RESULT_KEYS, OUTCOMES, PHASES,
   createEmailOutboundSendJournalStore,
 });

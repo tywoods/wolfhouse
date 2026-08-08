@@ -885,6 +885,26 @@
       "rationale": "Explicit down for 068: fail closed if any outbound send journal rows exist (refuse silent exactly-once evidence loss); otherwise DROP TABLE, protect function, and composite parent uniques. Leaves conversations and 067 uniques intact.",
       "pairsWith": "068_tenant_email_outbound_send_journal.sql",
       "sha256": "f7a3b78ea10ced6ebdbcf906f2809601132a7b78dfd01c2a704637f10c30905f"
+    },
+    {
+      "id": "069_tenant_email_outbound_send_journal_provider_intents",
+      "filename": "069_tenant_email_outbound_send_journal_provider_intents.sql",
+      "order": 68,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Evolve tenant_email_outbound_send_journal with durable pre-invocation intents for createReply/update: create_dispatched+update_dispatched phases; create/update/send invocation counts each 0|1 monotonic; exact nonterminal phase/draft/count/outcome coupling; terminal admits all valid-068 combinations (incl. send=1 draft NULL) with conservative backfill; terminal rows sealed at protect trigger. No seed/route/UI/activation.",
+      "downFilename": "069_tenant_email_outbound_send_journal_provider_intents_down.sql",
+      "sha256": "7e6d3d3f4f5480b4677277a43e356ba7c0a66e5c9a5edb1cd41ea941dda5a666"
+    },
+    {
+      "id": "069_tenant_email_outbound_send_journal_provider_intents_down",
+      "filename": "069_tenant_email_outbound_send_journal_provider_intents_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit down for 069: fail closed if any journal rows present (refuse silent provider-intent evidence loss / unsafe 068 reconstruction); empty table may drop intent counts and restore 068 phase set/coupling/protect. Leaves table and 068 ownership FKs intact.",
+      "pairsWith": "069_tenant_email_outbound_send_journal_provider_intents.sql",
+      "sha256": "bf477598354a23ab102b10f28c332b564a062cc551d9f12464dcbf021b90b16a"
     }
   ]
 }
