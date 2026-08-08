@@ -383,6 +383,7 @@
     "prove:email-inbound-delta-state-store-pglite": "node scripts/prove-email-inbound-delta-state-store-pglite.js",
     "verify:email-delta-recovery-operation-store": "node scripts/verify-email-delta-recovery-operation-store.js",
     "prove:email-delta-recovery-operation-store-pglite": "node scripts/prove-email-delta-recovery-operation-store-pglite.js",
+    "verify:email-outbound-send-journal-store": "node scripts/verify-email-outbound-send-journal-store.js",
     "verify:email-delta-operator-recovery-config": "node scripts/verify-email-delta-operator-recovery-config.js",
     "verify:email-delta-operator-recovery-service": "node scripts/verify-email-delta-operator-recovery-service.js",
     "verify:staff-email-delta-operator-recovery-routes": "node scripts/verify-staff-email-delta-operator-recovery-routes.js",
