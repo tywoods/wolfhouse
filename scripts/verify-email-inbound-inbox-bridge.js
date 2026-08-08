@@ -25,6 +25,8 @@ const PLAN = path.join(ROOT, 'docs/SUNSET-EMAIL-FRONT-DESK-PLAN.md');
 const PKG = path.join(ROOT, 'package.json');
 const PROVE_REL = 'scripts/prove-email-inbound-inbox-bridge-pglite.js';
 const PROVE_PATH = path.join(ROOT, PROVE_REL);
+const EVENT_STORE_COMPOSITION_REL =
+  'scripts/lib/email-microsoft-delegated-inbound-event-store-sunset-staging-runtime-composition.js';
 
 const CLIENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const LOCATION = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
@@ -37,9 +39,10 @@ const PLANTED_SUBJECT = 'SUBJECT_PII_MUST_NOT_APPEAR_INBOX_BRIDGE';
 const PLANTED_ADDRESS = 'pii-inbox-bridge@example.com';
 const PLANTED_TOKEN = 'ya29.NEVER_LEAK_INBOX_BRIDGE_AT';
 
-/** Owners allowed to import the bridge module (runtime must stay unwired). */
+/** Owners allowed to import the bridge module (one reviewed runtime owner). */
 const BRIDGE_IMPORT_ALLOWLIST = new Set([
   BRIDGE_REL,
+  EVENT_STORE_COMPOSITION_REL,
   'scripts/verify-email-inbound-inbox-bridge.js',
   PROVE_REL,
 ]);
@@ -480,7 +483,7 @@ function assertStaticSurface() {
 
 /**
  * Repository-wide import/ownership: only allowlisted scripts may reference the
- * bridge module. Runtime entry points, routes, workers, and composition must not.
+ * bridge module. Only the reviewed event-store composition is runtime-wired.
  */
 function assertRuntimeUnwiredImportOwnership() {
   const bridge = loadBridge();
