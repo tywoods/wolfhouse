@@ -905,6 +905,26 @@
       "rationale": "Explicit down for 069: fail closed if any journal rows present (refuse silent provider-intent evidence loss / unsafe 068 reconstruction); empty table may drop intent counts and restore 068 phase set/coupling/protect. Leaves table and 068 ownership FKs intact.",
       "pairsWith": "069_tenant_email_outbound_send_journal_provider_intents.sql",
       "sha256": "bf477598354a23ab102b10f28c332b564a062cc551d9f12464dcbf021b90b16a"
+    },
+    {
+      "id": "070_tenant_email_reply_approvals",
+      "filename": "070_tenant_email_reply_approvals.sql",
+      "order": 69,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Empty tenant_email_reply_approvals staff draft/approval fact; server-minted ids; composite FKs; CAS draft; immutable after approval. Endpoint send flag owned by 057. No seed/UI/Graph.",
+      "downFilename": "070_tenant_email_reply_approvals_down.sql",
+      "sha256": "85a2d59dbf84f337bbf708e4d1e0a8460aa12cc986f528b6341ab57e4dfbaf85"
+    },
+    {
+      "id": "070_tenant_email_reply_approvals_down",
+      "filename": "070_tenant_email_reply_approvals_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Down for 070: refuse if rows present; else DROP TABLE+protect. Parent uniques intact.",
+      "pairsWith": "070_tenant_email_reply_approvals.sql",
+      "sha256": "da5d285b514d6384cb312397d276a42202f467e2bfb687c838f22362fa943c46"
     }
   ]
 }
