@@ -31,8 +31,15 @@ const EMAIL_MS_DELEGATED_PHASE_A_OPTIONAL_OIDC_SCOPES = Object.freeze(['email'])
 // phase_a_v2 Graph exact set: User.Read (/me bind) + Mail.ReadBasic.
 const EMAIL_MS_DELEGATED_PHASE_A_GRAPH_DELEGATED_SCOPES = Object.freeze(['User.Read', 'Mail.ReadBasic']);
 const EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES = Object.freeze(['Mail.ReadWrite', 'Mail.Send']);
+const EMAIL_MS_DELEGATED_PHASE_B_V1_GRAPH_DELEGATED_SCOPES = Object.freeze(['User.Read', 'Mail.ReadWrite', 'Mail.Send']);
 const EMAIL_MS_DELEGATED_SCOPE_VERSION = 'phase_a_v2';
+const EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION = 'phase_b_v1';
 const EMAIL_MS_DELEGATED_ME_REQUIRED_DELEGATED_PERMISSION = 'User.Read';
+const EMAIL_MS_DELEGATED_PHASE_B_ALLOWED_OIDC_SCOPES = Object.freeze(['openid', 'profile', 'offline_access', 'email']);
+const EMAIL_MS_DELEGATED_PHASE_B_TOKEN_SCOPE_ORDER = Object.freeze([
+  'openid', 'profile', 'offline_access', 'email', 'User.Read', 'Mail.ReadWrite', 'Mail.Send',
+]);
+const EMAIL_MS_DELEGATED_PHASE_B_TOKEN_SCOPE_MAX_CHARS = 512;
 const EMAIL_MS_DELEGATED_CANONICAL_ADDRESS_FIELDS_ROLE = 'display_routing_evidence_only';
 const EMAIL_MS_DELEGATED_PRINCIPAL_KEY_PREFIX = 'ms_delegated_principal:';
 const EMAIL_MS_DELEGATED_PRINCIPAL_VALIDATION_RULES = Object.freeze({
@@ -105,6 +112,9 @@ const FORBIDDEN_PUBLIC_VALUE_KEY_SET = new Set([
 const TOKEN_AUTH_METHOD_SET = new Set(EMAIL_MS_DELEGATED_TOKEN_ENDPOINT_CLIENT_AUTH_METHODS);
 const PHASE_A_OIDC_SET = new Set(EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES);
 const PHASE_A_GRAPH_SET = new Set(EMAIL_MS_DELEGATED_PHASE_A_GRAPH_DELEGATED_SCOPES);
+const PHASE_B_V1_GRAPH_SET = new Set(EMAIL_MS_DELEGATED_PHASE_B_V1_GRAPH_DELEGATED_SCOPES);
+const PHASE_B_ALLOWED_OIDC_SET = new Set(EMAIL_MS_DELEGATED_PHASE_B_ALLOWED_OIDC_SCOPES);
+const PHASE_B_TOKEN_ALLOWED_SET = new Set([...EMAIL_MS_DELEGATED_PHASE_B_ALLOWED_OIDC_SCOPES, ...EMAIL_MS_DELEGATED_PHASE_B_V1_GRAPH_DELEGATED_SCOPES]);
 const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // RFC 7636: verifier 43–128 unreserved; S256 challenge = unpadded base64url(SHA256) = 43 chars.
 const PKCE_VERIFIER_RE = /^[A-Za-z0-9\-._~]{43,128}$/;
@@ -263,13 +273,24 @@ function requireExactFalse(v, field) {
   return ok();
 }
 
+function rejectDangerousScopeTokens(tokens) {
+  for (const tok of tokens) {
+    if (tok.includes('.Shared')) return fail('scope_plan_invalid', { reason: 'shared_scope_forbidden' });
+    if (tok === '/.default' || tok.endsWith('/.default')) return fail('scope_plan_invalid', { reason: 'application_default_scope_forbidden' });
+    if (tok.startsWith('Application ') || tok.endsWith('.All')) return fail('scope_plan_invalid', { reason: 'forbidden_scope' });
+  }
+  return null;
+}
+
 function validateScopePlanImpl(raw) {
   const s = snapOrFail(raw, 'scope_plan_invalid');
   if (!s.ok) return s.fail;
   const plan = s.value;
   const ks = keySetFail(plan, SCOPE_PLAN_KEYS, 'scope_plan_invalid');
   if (ks) return ks;
-  if (plan.phase !== 'A') return fail('scope_plan_invalid', { reason: 'phase_not_a' });
+  if (plan.phase !== 'A' && plan.phase !== 'B') {
+    return fail('scope_plan_invalid', { reason: 'phase_not_a_or_b' });
+  }
   if (plan.include_email_scope !== true && plan.include_email_scope !== false) {
     return fail('scope_plan_invalid', { reason: 'include_email_scope_not_boolean' });
   }
@@ -277,34 +298,74 @@ function validateScopePlanImpl(raw) {
   if (!oidc.ok) return fail('scope_plan_invalid', { reason: oidc.reason });
   const graph = snapshotStringArray(plan.graph_delegated);
   if (!graph.ok) return fail('scope_plan_invalid', { reason: graph.reason });
-  for (const tok of oidc.value.concat(graph.value)) {
-    if (tok.includes('.Shared')) return fail('scope_plan_invalid', { reason: 'shared_scope_forbidden' });
-    if (tok === '/.default' || tok.endsWith('/.default')) {
-      return fail('scope_plan_invalid', { reason: 'application_default_scope_forbidden' });
-    }
-    if (tok.startsWith('Application ') || tok.endsWith('.All')
-        || tok === 'Mail.ReadWrite' || tok === 'Mail.Send' || tok === 'Mail.Read') {
-      return fail('scope_plan_invalid', { reason: 'forbidden_scope' });
-    }
-  }
+  const dangerous = rejectDangerousScopeTokens(oidc.value.concat(graph.value));
+  if (dangerous) return dangerous;
   if (!stringArraySetEqual(oidc.value, EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES, PHASE_A_OIDC_SET)) {
     return fail('scope_plan_invalid', { reason: 'oidc_not_phase_a' });
   }
-  if (!stringArraySetEqual(graph.value, EMAIL_MS_DELEGATED_PHASE_A_GRAPH_DELEGATED_SCOPES, PHASE_A_GRAPH_SET)) {
-    return fail('scope_plan_invalid', { reason: 'graph_not_phase_a' });
+  if (plan.phase === 'A') {
+    for (const tok of graph.value) {
+      if (tok === 'Mail.ReadWrite' || tok === 'Mail.Send' || tok === 'Mail.Read') {
+        return fail('scope_plan_invalid', { reason: 'forbidden_scope' });
+      }
+    }
+    if (!stringArraySetEqual(graph.value, EMAIL_MS_DELEGATED_PHASE_A_GRAPH_DELEGATED_SCOPES, PHASE_A_GRAPH_SET)) {
+      return fail('scope_plan_invalid', { reason: 'graph_not_phase_a' });
+    }
+    return ok({
+      phase: 'A', scope_version: EMAIL_MS_DELEGATED_SCOPE_VERSION,
+      oidc: EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES.slice(),
+      graph_delegated: EMAIL_MS_DELEGATED_PHASE_A_GRAPH_DELEGATED_SCOPES.slice(),
+      include_email_scope: plan.include_email_scope === true, email_scope_authoritative: false,
+      optional_oidc_display_only: plan.include_email_scope === true ? EMAIL_MS_DELEGATED_PHASE_A_OPTIONAL_OIDC_SCOPES.slice() : [],
+      me_required_delegated_permission: EMAIL_MS_DELEGATED_ME_REQUIRED_DELEGATED_PERMISSION,
+      canonical_address_fields_role: EMAIL_MS_DELEGATED_CANONICAL_ADDRESS_FIELDS_ROLE,
+      phase_b_graph_delegated_future: EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES.slice(),
+      phase_b_included_in_phase_a: false,
+    });
+  }
+  for (const tok of graph.value) {
+    if (tok === 'Mail.Read' || tok === 'Mail.ReadBasic') {
+      return fail('scope_plan_invalid', { reason: 'forbidden_scope' });
+    }
+  }
+  if (!stringArraySetEqual(graph.value, EMAIL_MS_DELEGATED_PHASE_B_V1_GRAPH_DELEGATED_SCOPES, PHASE_B_V1_GRAPH_SET)) {
+    return fail('scope_plan_invalid', { reason: 'graph_not_phase_b_v1' });
   }
   return ok({
-    phase: 'A', scope_version: EMAIL_MS_DELEGATED_SCOPE_VERSION,
+    phase: 'B', scope_version: EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION,
     oidc: EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES.slice(),
-    graph_delegated: EMAIL_MS_DELEGATED_PHASE_A_GRAPH_DELEGATED_SCOPES.slice(),
+    graph_delegated: EMAIL_MS_DELEGATED_PHASE_B_V1_GRAPH_DELEGATED_SCOPES.slice(),
     include_email_scope: plan.include_email_scope === true, email_scope_authoritative: false,
     optional_oidc_display_only: plan.include_email_scope === true
       ? EMAIL_MS_DELEGATED_PHASE_A_OPTIONAL_OIDC_SCOPES.slice() : [],
     me_required_delegated_permission: EMAIL_MS_DELEGATED_ME_REQUIRED_DELEGATED_PERMISSION,
     canonical_address_fields_role: EMAIL_MS_DELEGATED_CANONICAL_ADDRESS_FIELDS_ROLE,
-    phase_b_graph_delegated_future: EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES.slice(),
-    phase_b_included_in_phase_a: false,
+    phase_b_graph_delegated_exact: EMAIL_MS_DELEGATED_PHASE_B_V1_GRAPH_DELEGATED_SCOPES.slice(),
+    phase_a_included_in_phase_b: false,
   });
+}
+
+function validatePhaseBTokenResponseScopeImpl(scope) {
+  if (typeof scope !== 'string' || scope.length < 1 || scope.length > EMAIL_MS_DELEGATED_PHASE_B_TOKEN_SCOPE_MAX_CHARS) {
+    return fail('token_response_scope_invalid', { reason: 'scope_shape' });
+  }
+  const parts = scope.split(' '); const seen = new Set();
+  for (const item of parts) {
+    if (!item || !PHASE_B_TOKEN_ALLOWED_SET.has(item) || seen.has(item)) return fail('token_response_scope_invalid', { reason: 'unknown_or_duplicate' });
+    if (item.includes('.Shared') || item === '/.default' || item.endsWith('/.default') || item.startsWith('Application ') || item.endsWith('.All')) {
+      return fail('token_response_scope_invalid', { reason: 'forbidden_scope' });
+    }
+    seen.add(item);
+  }
+  for (const required of EMAIL_MS_DELEGATED_PHASE_B_V1_GRAPH_DELEGATED_SCOPES) {
+    if (!seen.has(required)) return fail('token_response_scope_invalid', { reason: 'missing_required_resource' });
+  }
+  if (seen.has('Mail.ReadBasic') || seen.has('Mail.Read')) return fail('token_response_scope_invalid', { reason: 'forbidden_scope' });
+  for (const item of seen) {
+    if (!PHASE_B_V1_GRAPH_SET.has(item) && !PHASE_B_ALLOWED_OIDC_SET.has(item)) return fail('token_response_scope_invalid', { reason: 'unknown_or_duplicate' });
+  }
+  return ok(EMAIL_MS_DELEGATED_PHASE_B_TOKEN_SCOPE_ORDER.filter((item) => seen.has(item)).join(' '));
 }
 
 function validateClientAuthModelImpl(raw) {
@@ -383,7 +444,9 @@ function validateOauthTransactionImpl(raw) {
   if (tx.redirect_uri_id !== EMAIL_MS_DELEGATED_REDIRECT_URI_ID) return txFail('redirect_uri_id');
   if (tx.connector_mode !== EMAIL_MS_DELEGATED_CONNECTOR_MODE) return txFail('connector_mode');
   if (tx.auth_mode !== EMAIL_MS_DELEGATED_AUTH_MODE) return txFail('auth_mode');
-  if (tx.scope_version !== EMAIL_MS_DELEGATED_SCOPE_VERSION) return txFail('scope_version');
+  if (tx.scope_version !== EMAIL_MS_DELEGATED_SCOPE_VERSION && tx.scope_version !== EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION) {
+    return txFail('scope_version');
+  }
   const min = EMAIL_MS_DELEGATED_OAUTH_TRANSACTION_MIN_ENTROPY_BYTES;
   if (!highEntropyString(tx.state, min)) return txFail('state_entropy');
   if (!highEntropyString(tx.nonce, min)) return txFail('nonce_entropy');
@@ -410,7 +473,7 @@ function validateOauthTransactionImpl(raw) {
     transaction_id_present: true, redirect_uri_id: EMAIL_MS_DELEGATED_REDIRECT_URI_ID,
     luna_client_id: tx.luna_client_id, location_id: tx.location_id, staff_session_present: true,
     ownership_bound: true, connector_mode: EMAIL_MS_DELEGATED_CONNECTOR_MODE,
-    auth_mode: EMAIL_MS_DELEGATED_AUTH_MODE, scope_version: EMAIL_MS_DELEGATED_SCOPE_VERSION,
+    auth_mode: EMAIL_MS_DELEGATED_AUTH_MODE, scope_version: tx.scope_version,
     issued_at: tx.issued_at, expires_at: tx.expires_at, status: 'consumed',
     atomic_consume_required: true, replay_rejected: true,
     runtime_atomic_compare_and_consume: true, pkce_s256_verified: true,
@@ -701,6 +764,7 @@ function buildMicrosoftDelegatedPrincipalKey(tid, oid) {
 
 const evaluateMicrosoftDelegatedOauthReadiness = wrap(evaluateReadinessImpl, 'declaration_invalid');
 const validateMicrosoftDelegatedScopePlan = wrap(validateScopePlanImpl, 'scope_plan_invalid');
+const validateMicrosoftDelegatedPhaseBTokenResponseScope = wrap(validatePhaseBTokenResponseScopeImpl, 'token_response_scope_invalid');
 const validateMicrosoftDelegatedClientAuthModel = wrap(validateClientAuthModelImpl, 'client_auth_model_invalid');
 const validateMicrosoftDelegatedAuthority = wrap(validateAuthorityImpl, 'authority_invalid');
 const validateMicrosoftDelegatedOauthTransaction = wrap(validateOauthTransactionImpl, 'oauth_transaction_invalid');
@@ -713,7 +777,8 @@ const validateMicrosoftDelegatedActivationInvariants = wrap(validateActivationIn
 
 module.exports = {
   evaluateMicrosoftDelegatedOauthReadiness, isMicrosoftDelegatedOauthReadinessComplete,
-  validateMicrosoftDelegatedScopePlan, validateMicrosoftDelegatedClientAuthModel,
+  validateMicrosoftDelegatedScopePlan, validateMicrosoftDelegatedPhaseBTokenResponseScope,
+  validateMicrosoftDelegatedClientAuthModel,
   validateMicrosoftDelegatedAuthority, validateMicrosoftDelegatedOauthTransaction,
   validateMicrosoftDelegatedPrincipal, validateMicrosoftDelegatedMailboxBindingHint,
   validateMicrosoftDelegatedOwnUserLiveBinding, validateMicrosoftDelegatedRefreshRotationPolicy,
@@ -727,7 +792,8 @@ module.exports = {
   EMAIL_MS_DELEGATED_PREFERRED_TOKEN_ENDPOINT_CLIENT_AUTH,
   EMAIL_MS_DELEGATED_CLIENT_SECRET_POST_DECLARATION,
   EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES, EMAIL_MS_DELEGATED_PHASE_A_GRAPH_DELEGATED_SCOPES,
-  EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES, EMAIL_MS_DELEGATED_SCOPE_VERSION,
+  EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES, EMAIL_MS_DELEGATED_PHASE_B_V1_GRAPH_DELEGATED_SCOPES,
+  EMAIL_MS_DELEGATED_SCOPE_VERSION, EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION, EMAIL_MS_DELEGATED_PHASE_B_ALLOWED_OIDC_SCOPES,
   EMAIL_MS_DELEGATED_ME_REQUIRED_DELEGATED_PERMISSION, EMAIL_MS_DELEGATED_CANONICAL_ADDRESS_FIELDS_ROLE,
   EMAIL_MS_DELEGATED_OWN_USER_LIVE_BINDING, EMAIL_MS_DELEGATED_REFRESH_TOKEN_CUSTODY,
   EMAIL_MS_DELEGATED_PRINCIPAL_KEY_PREFIX, EMAIL_MS_DELEGATED_PRINCIPAL_VALIDATION_RULES,

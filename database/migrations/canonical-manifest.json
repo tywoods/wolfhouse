@@ -865,6 +865,26 @@
       "rationale": "Explicit down for 067: fail closed if any projection rows exist (refuse silent exactly-once evidence loss); otherwise DROP TABLE and supporting parent uniques. Leaves 063 events and Inbox conversations/messages intact.",
       "pairsWith": "067_tenant_email_inbound_inbox_projections.sql",
       "sha256": "6fcf04dc5f7a02ea0cbfbb941187377a31f2816a98d8236dd456cdf2c128de6f"
+    },
+    {
+      "id": "068_tenant_email_outbound_send_journal",
+      "filename": "068_tenant_email_outbound_send_journal.sql",
+      "order": 67,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Empty tenant_email_outbound_send_journal for durable Graph reply-draft send (createReply→update→send at most once→reconcile). operation_id PK; approval uniqueness; immutable draft id; body_digest only; send_invocation_count 0|1; location_id+location_key+endpoint share one canonical location; update guard; tenant-consistent FKs. No body/token/address/raw payload. No seed/route/UI/activation.",
+      "downFilename": "068_tenant_email_outbound_send_journal_down.sql",
+      "sha256": "658de0403c3c65400cd0c681935f0a9514bc894530bc2cc172f2b2715d32eba3"
+    },
+    {
+      "id": "068_tenant_email_outbound_send_journal_down",
+      "filename": "068_tenant_email_outbound_send_journal_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit down for 068: fail closed if any outbound send journal rows exist (refuse silent exactly-once evidence loss); otherwise DROP TABLE, protect function, and composite parent uniques. Leaves conversations and 067 uniques intact.",
+      "pairsWith": "068_tenant_email_outbound_send_journal.sql",
+      "sha256": "f7a3b78ea10ced6ebdbcf906f2809601132a7b78dfd01c2a704637f10c30905f"
     }
   ]
 }
