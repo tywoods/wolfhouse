@@ -7,7 +7,7 @@ const {
 } = require('./email-microsoft-phase-b-verified-grant-replacer');
 const { createMicrosoftTokenHttpTransport, REQUEST_LIMIT_BYTES } = require('./email-microsoft-token-http-transport');
 const { REDIRECT_URI } = require('./email-microsoft-oauth-transaction-service');
-const { validateAndNormalizePhaseBTokenResponseScope } = require('./email-microsoft-phase-b-token-response-scope');
+const { classifyAndNormalizePhaseBTokenResponseScope } = require('./email-microsoft-phase-b-token-response-scope');
 const { validateEmailGrantEnvelopeProvider } = require('./email-grant-envelope-provider-contract');
 const { resolveOptionalStageTelemetry, safeEmitStage } = require('./email-microsoft-oauth-stage-telemetry');
 const { asCanonGen } = require('./email-microsoft-phase-b-reauthorization-transaction-service');
@@ -21,7 +21,7 @@ const COMPLETION_ACK = Object.freeze({ status: COMPLETION_ACK_STATUS });
 const OUTCOME_UNKNOWN_ACK = Object.freeze({ status: OUTCOME_UNKNOWN });
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 const JSON_LIMIT = 65_536; const TOK_LIM = 8192; const ID_LIM = 32768; const MAX_EXP = 86_400; const SEC_LIM = 4096;
-const DANGEROUS = new Set(['__proto__', 'prototype', 'constructor']);
+const DANGEROUS = new Set(['__proto__', 'prototype', 'constructor']); const SCOPE_REJECTION_STAGES = Object.freeze(Object.fromEntries(['invalid', 'duplicate', 'dangerous', 'phase_a_mixed', 'unknown', 'missing_required'].map((category) => [category, `token_response_scope_rejected_${category}`])));
 const CUSTODY_DEPS = Object.freeze(['verifiedIdentity', 'envelopeProvider', 'clock', 'replacer']);
 const COMPLETION_KEYS = Object.freeze([
   'authorizationCode', 'transactionId', 'clientId', 'locationId', 'endpointId',
@@ -168,7 +168,7 @@ function validateTokenResponse(response, stageTelemetry) {
   if (Object.prototype.hasOwnProperty.call(value, 'ext_expires_in')) {
     const ext = own(value, 'ext_expires_in'); if (!Number.isInteger(ext) || ext < 1 || ext > MAX_EXP) throw failure();
   } safeEmitStage(stageTelemetry, 'token_response_fields_validated');
-  const ns = validateAndNormalizePhaseBTokenResponseScope(scope); if (ns === null) throw failure();
+  const scopeResult = classifyAndNormalizePhaseBTokenResponseScope(scope); const ns = scopeResult.value; if (ns === null) { safeEmitStage(stageTelemetry, SCOPE_REJECTION_STAGES[scopeResult.rejectionCategory]); throw failure(); }
   safeEmitStage(stageTelemetry, 'token_response_scope_validated'); return Object.freeze({ accessToken, refreshToken, tokenType, expiresIn, scope: ns, idToken });
 }
 function statusOne(v, st) {
