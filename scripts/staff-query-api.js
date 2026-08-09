@@ -252,7 +252,7 @@ const {
 } = require('./lib/staff-email-delta-operator-recovery-routes');
 // Gate 3 email inbox draft/approve-send (default-off; composition owners lazy).
 const {
-  createStaffEmailInboxRoutes, EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH,
+  createStaffEmailInboxRoutes, EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH,
   snapshotGateEnv: snapshotEmailInboxGateEnv, isEmailStaffDraftsEnabled,
   isEmailStaffOutboundEnabled, validateJsonContentType: validateEmailInboxJsonContentType,
 } = require('./lib/staff-email-inbox-routes');
@@ -48434,6 +48434,16 @@ async function router(req, res) {
     const ct = validateEmailInboxJsonContentType(req);
     if (!ct.ok) return sendJSON(res, ct.status, ct.body);
     return emailInboxRoutes.handleApproveSend(req, res, auth.user, emailInboxGateEnv);
+  }
+  // Staff-safe email outbound recovery/reconcile (already-approved; default-off with outbound UI).
+  if (pathname === EMAIL_RECOVER_SEND_PATH && method === 'POST') {
+    const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
+    if (!isEmailStaffOutboundEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    const ct = validateEmailInboxJsonContentType(req);
+    if (!ct.ok) return sendJSON(res, ct.status, ct.body);
+    return emailInboxRoutes.handleRecoverSend(req, res, auth.user, emailInboxGateEnv);
   }
 
   const convNeedsHumanMatch = CONV_NEEDS_HUMAN_RE.exec(pathname);

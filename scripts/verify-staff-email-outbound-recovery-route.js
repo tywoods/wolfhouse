@@ -196,9 +196,16 @@ async function main() {
   ok('handleRecoverSend on surface', typeof mod.createStaffEmailInboxRoutes === 'function');
 
   const src = fs.readFileSync(ROUTES_ABS, 'utf8');
+  const recoveryKeysDecl = src.match(/RECOVERY_BODY_KEYS\s*=\s*Object\.freeze\(\[([^\]]+)\]\)/);
   ok('recovery never accepts provider/authority browser fields',
-    /RECOVERY_BODY_KEYS/.test(src)
-    && !/RECOVERY_BODY_KEYS[\s\S]{0,200}message_text/.test(src)
+    !!recoveryKeysDecl
+    && recoveryKeysDecl[1].includes("'conversation_id'")
+    && recoveryKeysDecl[1].includes("'approval_id'")
+    && !recoveryKeysDecl[1].includes('message_text')
+    && !recoveryKeysDecl[1].includes('operation_id')
+    && !recoveryKeysDecl[1].includes('endpoint_id')
+    && !recoveryKeysDecl[1].includes('provider_mailbox')
+    && !recoveryKeysDecl[1].includes('immutable_draft')
     && /send_dispatched/.test(src)
     && /create_dispatched/.test(src)
     && /update_dispatched/.test(src));
