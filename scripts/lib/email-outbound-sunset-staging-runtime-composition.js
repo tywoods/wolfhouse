@@ -18,6 +18,9 @@ const {
   EMAIL_AUTHORITY_BOUND_OUTBOUND_LOGGING_FORBIDDEN,
 } = require('./email-authority-bound-outbound-operation');
 const {
+  wrapReplyDraftTransportForForcedPostSendUncertainty,
+} = require('./email-outbound-forced-post-send-uncertainty-seam');
+const {
   createSunsetMicrosoftOAuthClientSecretProvider, SUNSET_DEPLOYMENT: SECRET_SUNSET,
 } = require('./sunset-microsoft-oauth-provider');
 const {
@@ -181,7 +184,7 @@ function createSunsetStagingEmailOutboundDispatch(deps) {
     const prov = validateEmailGrantEnvelopeProvider(composition.provider);
     if (!prov.ok) throw failure();
     const tokenTransport = createMicrosoftTokenHttpTransport(Object.freeze({ httpsImpl: httpsPinned, timers: timersPinned }));
-    const replyDraftTransport = createMicrosoftGraphReplyDraftTransport(Object.freeze({ httpsImpl: httpsPinned.request, timers: timersPinned }));
+    const baseReplyDraftTransport = createMicrosoftGraphReplyDraftTransport(Object.freeze({ httpsImpl: httpsPinned.request, timers: timersPinned }));
     const applicationClientId = ready.applicationClientId;
     const envelopeProvider = prov.value;
     const readyEnv = ready.env;
@@ -201,6 +204,10 @@ function createSunsetStagingEmailOutboundDispatch(deps) {
             transport: tokenTransport, workerId: WORKER_ID,
           }));
         }
+        // Staging-only default-off seam: after one real sendDraft acceptance, force
+        // outcome_unknown before initial reconcile. Fresh wrap per dispatch so recovery
+        // does not inherit a prior skip bit and never authorizes a second send.
+        const replyDraftTransport = wrapReplyDraftTransportForForcedPostSendUncertainty(baseReplyDraftTransport, readyEnv);
         const operation = createAuthorityBoundOutboundOperation(Object.freeze({
           journalStore, createAccessSession, replyDraftTransport,
           authority: Object.freeze({
