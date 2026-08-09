@@ -1037,19 +1037,25 @@ async function main() {
   }
 
   // Authentic RED: pre-require host Object.isFrozen=()=>true must not open committed.
+  // Module may load (poison is a function); if loaded, private intrinsic rejects mutable
+  // and may accept genuine frozen owner acks. Never false-commit.
   {
     const ch = runChild(childProbeSource(`Object.isFrozen = () => true;`));
     const b = parseChildJson(ch);
-    ok('pre-require Object.isFrozen=()=>true → loads; mutable non-committed; frozen owner commits',
+    ok('pre-require Object.isFrozen=()=>true → never false-commit; if loaded mutable non-committed + frozen may commit',
       ch.status === 0
-      && b && b.loaded === true
-      && b.mutableNonCommitted === true
-      && b.frozenCommitted === true,
+      && b
+      && (
+        (b.loaded === false)
+        || (b.loaded === true && b.mutableNonCommitted === true && b.frozenCommitted === true)
+      ),
       `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 300)}`);
   }
 
-  // Pre-require throwing accessor on host Object.isFrozen: module must still load;
-  // mutable must not commit; accessor hits should be zero when acquisition skips host.
+  // Pre-require throwing accessor on host Object.isFrozen:
+  // Acceptable: deterministic fail-closed load if a transitive dependency cannot evaluate,
+  // OR load with private intrinsic (mutable never commits; frozen may commit). Never mutate
+  // host Object.isFrozen to force the load graph open. Never false-commit.
   {
     const ch = runChild(childProbeSource(`
       let accessorHits = 0;
@@ -1068,18 +1074,28 @@ async function main() {
       }
     `, `
       out.accessorHits = accessorHits;
+      if (out.loaded === true) {
+        out.neverFalseCommit = out.mutableNonCommitted === true
+          && !(out.mutableStatus === 200 && out.mutableCode === 'email_send_committed');
+      } else {
+        out.neverFalseCommit = true;
+      }
     `));
     const b = parseChildJson(ch);
-    ok('pre-require Object.isFrozen throwing accessor → loads; mutable non-committed; frozen commits; accessorHits===0',
-      ch.status === 0
-      && b && b.loaded === true
+    const loadFailClosed = b && b.loaded === false && b.neverFalseCommit === true;
+    const loadPrivateOk = b && b.loaded === true
       && b.mutableNonCommitted === true
       && b.frozenCommitted === true
-      && b.accessorHits === 0,
+      && b.accessorHits === 0
+      && b.neverFalseCommit === true;
+    ok('pre-require Object.isFrozen throwing accessor → fail-closed load OR private-intrinsic gate; never false-commit',
+      ch.status === 0 && b && (loadFailClosed || loadPrivateOk),
       `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 300)}`);
   }
 
   // Pre-require throwing function replacement of host Object.isFrozen.
+  // Same contract: fail-closed load is acceptable; if loaded, never false-commit mutable;
+  // frozen owner may commit via private intrinsic. Never reinstall host isFrozen.
   {
     const ch = runChild(childProbeSource(`
       let throwHits = 0;
@@ -1089,14 +1105,22 @@ async function main() {
       };
     `, `
       out.throwHits = throwHits;
+      if (out.loaded === true) {
+        out.neverFalseCommit = out.mutableNonCommitted === true
+          && !(out.mutableStatus === 200 && out.mutableCode === 'email_send_committed');
+      } else {
+        out.neverFalseCommit = true;
+      }
     `));
     const b = parseChildJson(ch);
-    ok('pre-require Object.isFrozen throwing function → loads; mutable non-committed; frozen commits; throwHits===0',
-      ch.status === 0
-      && b && b.loaded === true
+    const loadFailClosed = b && b.loaded === false && b.neverFalseCommit === true;
+    const loadPrivateOk = b && b.loaded === true
       && b.mutableNonCommitted === true
       && b.frozenCommitted === true
-      && b.throwHits === 0,
+      && b.throwHits === 0
+      && b.neverFalseCommit === true;
+    ok('pre-require Object.isFrozen throwing function → fail-closed load OR private-intrinsic gate; never false-commit',
+      ch.status === 0 && b && (loadFailClosed || loadPrivateOk),
       `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 300)}`);
   }
 
@@ -1189,8 +1213,191 @@ async function main() {
       `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 300)}`);
   }
 
+  // ── SEC4: Normal import must NOT mutate process-global Object.isFrozen ──
+  // Exact-head blocker at e6c9f3a: installGenuineIsFrozenForLoadGraph rewrites host
+  // Object.isFrozen during ordinary require (sameIdentity false). Forbidden.
+  // Fresh-realm genuine isFrozen must stay private to the recovery ack gate only.
+  {
+    const ch = runChild(`
+      'use strict';
+      const fs = require('node:fs');
+      const ROUTES = ${JSON.stringify(ROUTES_ABS)};
+      const beforeFn = Object.isFrozen;
+      const beforeDesc = Object.getOwnPropertyDescriptor(Object, 'isFrozen');
+      const beforeSnap = beforeDesc ? {
+        value: beforeDesc.value,
+        writable: beforeDesc.writable,
+        enumerable: beforeDesc.enumerable,
+        configurable: beforeDesc.configurable,
+        get: beforeDesc.get,
+        set: beforeDesc.set,
+        hasValue: Object.prototype.hasOwnProperty.call(beforeDesc, 'value'),
+        hasGet: Object.prototype.hasOwnProperty.call(beforeDesc, 'get'),
+        hasSet: Object.prototype.hasOwnProperty.call(beforeDesc, 'set'),
+      } : null;
+      let definePropertyHits = 0;
+      const realDefineProperty = Object.defineProperty;
+      Object.defineProperty = function(target, prop, desc) {
+        if (target === Object && prop === 'isFrozen') definePropertyHits += 1;
+        return realDefineProperty.apply(this, arguments);
+      };
+      let loadErr = null;
+      let mod = null;
+      try {
+        for (const k of Object.keys(require.cache)) {
+          if (k === ROUTES || /staff-email-inbox-routes\\.js$/.test(k)) delete require.cache[k];
+        }
+        mod = require(ROUTES);
+      } catch (e) {
+        loadErr = String(e && e.message || e);
+      }
+      // Restore defineProperty trap after import observation.
+      Object.defineProperty = realDefineProperty;
+      const afterFn = Object.isFrozen;
+      const afterDesc = Object.getOwnPropertyDescriptor(Object, 'isFrozen');
+      const afterSnap = afterDesc ? {
+        value: afterDesc.value,
+        writable: afterDesc.writable,
+        enumerable: afterDesc.enumerable,
+        configurable: afterDesc.configurable,
+        get: afterDesc.get,
+        set: afterDesc.set,
+        hasValue: Object.prototype.hasOwnProperty.call(afterDesc, 'value'),
+        hasGet: Object.prototype.hasOwnProperty.call(afterDesc, 'get'),
+        hasSet: Object.prototype.hasOwnProperty.call(afterDesc, 'set'),
+      } : null;
+      const sameIdentity = beforeFn === afterFn;
+      const sameDescriptor = !!(beforeSnap && afterSnap
+        && beforeSnap.value === afterSnap.value
+        && beforeSnap.writable === afterSnap.writable
+        && beforeSnap.enumerable === afterSnap.enumerable
+        && beforeSnap.configurable === afterSnap.configurable
+        && beforeSnap.get === afterSnap.get
+        && beforeSnap.set === afterSnap.set
+        && beforeSnap.hasValue === afterSnap.hasValue
+        && beforeSnap.hasGet === afterSnap.hasGet
+        && beforeSnap.hasSet === afterSnap.hasSet);
+      // Unrelated host/module behavior: ordinary freeze detection still works via host intrinsic.
+      const plain = { __gate3_unrelated: 1 };
+      const frozenPlain = Object.freeze({ __gate3_unrelated_frz: 1 });
+      const unrelatedHostBehavior =
+        typeof afterFn === 'function'
+        && afterFn(plain) === false
+        && afterFn(frozenPlain) === true
+        && beforeFn(plain) === false
+        && beforeFn(frozenPlain) === true;
+      // Sibling module that pins ambient isFrozen at its import must still see host identity.
+      let siblingOk = false;
+      try {
+        const journalPath = require('node:path').join(
+          require('node:path').dirname(ROUTES),
+          'email-outbound-send-journal-store.js'
+        );
+        for (const k of Object.keys(require.cache)) {
+          if (k === journalPath || /email-outbound-send-journal-store\\.js$/.test(k)) delete require.cache[k];
+        }
+        // journal already transitively loaded; re-check host identity only.
+        siblingOk = Object.isFrozen === beforeFn && sameIdentity;
+      } catch {
+        siblingOk = false;
+      }
+      const loaded = !loadErr && !!mod && typeof mod.mapRecoveryDispatch === 'function';
+      console.log(JSON.stringify({
+        loaded,
+        loadErr,
+        sameIdentity,
+        sameDescriptor,
+        definePropertyHits,
+        unrelatedHostBehavior,
+        siblingOk,
+        noHostWrite: sameIdentity && sameDescriptor && definePropertyHits === 0,
+      }));
+    `);
+    const b = parseChildJson(ch);
+    ok('normal import preserves exact host Object.isFrozen identity+descriptor (no write/defineProperty)',
+      ch.status === 0
+      && b
+      && b.loaded === true
+      && b.sameIdentity === true
+      && b.sameDescriptor === true
+      && b.definePropertyHits === 0
+      && b.noHostWrite === true
+      && b.unrelatedHostBehavior === true
+      && b.siblingOk === true,
+      `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 300)}`);
+  }
+
+  // Under pre-import always-true poison: if module loads, host poison identity must remain
+  // (must not reinstall genuine over host). Mutable never commits; frozen may commit privately.
+  {
+    const ch = runChild(`
+      'use strict';
+      const ROUTES = ${JSON.stringify(ROUTES_ABS)};
+      const V = ${JSON.stringify(V)};
+      const AP = ${JSON.stringify(AP)};
+      const poison = () => true;
+      Object.isFrozen = poison;
+      const beforeFn = Object.isFrozen;
+      const beforeDesc = Object.getOwnPropertyDescriptor(Object, 'isFrozen');
+      let definePropertyHits = 0;
+      const realDefineProperty = Object.defineProperty;
+      Object.defineProperty = function(target, prop, desc) {
+        if (target === Object && prop === 'isFrozen') definePropertyHits += 1;
+        return realDefineProperty.apply(this, arguments);
+      };
+      let loadErr = null;
+      let mod = null;
+      try {
+        for (const k of Object.keys(require.cache)) {
+          if (k === ROUTES || /staff-email-inbox-routes\\.js$/.test(k)) delete require.cache[k];
+        }
+        mod = require(ROUTES);
+      } catch (e) {
+        loadErr = String(e && e.message || e);
+      }
+      Object.defineProperty = realDefineProperty;
+      const afterFn = Object.isFrozen;
+      const afterDesc = Object.getOwnPropertyDescriptor(Object, 'isFrozen');
+      const out = {
+        loaded: !loadErr && !!mod && typeof (mod && mod.mapRecoveryDispatch) === 'function',
+        loadErr,
+        sameIdentity: beforeFn === afterFn && afterFn === poison,
+        sameValue: beforeDesc && afterDesc && beforeDesc.value === afterDesc.value,
+        definePropertyHits,
+      };
+      if (out.loaded) {
+        const realFreeze = Object.freeze;
+        const mMutable = mod.mapRecoveryDispatch({ ok: true, code: 'email_send_committed' }, V, AP);
+        const mFrozen = mod.mapRecoveryDispatch(realFreeze({ ok: true, code: 'email_send_committed' }), V, AP);
+        out.mutableNonCommitted = ${childNonCommitted.toString()}(mMutable);
+        out.frozenCommitted = ${childCommitted.toString()}(mFrozen);
+        out.neverFalseCommit = out.mutableNonCommitted === true
+          && !(mMutable && mMutable.status === 200 && mMutable.code === 'email_send_committed');
+      } else {
+        out.neverFalseCommit = true;
+      }
+      console.log(JSON.stringify(out));
+    `);
+    const b = parseChildJson(ch);
+    ok('pre-import always-true poison: host isFrozen identity preserved; never false-commit; no host reinstall',
+      ch.status === 0
+      && b
+      && b.neverFalseCommit === true
+      && b.definePropertyHits === 0
+      && (
+        (b.loaded === false)
+        || (b.loaded === true
+          && b.sameIdentity === true
+          && b.sameValue === true
+          && b.mutableNonCommitted === true
+          && b.frozenCommitted === true)
+      ),
+      `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 300)}`);
+  }
+
   // Source contract: recovery ack freeze gate must pin a genuine isFrozen from a
   // fresh Node vm realm (or equivalent) — never host Object.isFrozen at import.
+  // Private to recovery ack only — must NOT install onto process-global Object.isFrozen.
   {
     const src = fs.readFileSync(ROUTES_ABS, 'utf8');
     const pinPresent = /PINNED_IS_FROZEN/.test(src)
@@ -1216,6 +1423,11 @@ async function main() {
     })();
     const pinRegionReadsHost = /Object\.isFrozen/.test(pinRegion)
       && !/runInNewContext[\s\S]*Object\.isFrozen|Object\.isFrozen[\s\S]*runInNewContext/.test(pinRegion);
+    // Forbidden: any load-graph host install of genuine isFrozen.
+    const installsHostIsFrozen = /installGenuineIsFrozenForLoadGraph/.test(src)
+      || /Object\.isFrozen\s*=\s*genuine\b/.test(src)
+      || /defineProperty\(\s*Object\s*,\s*['"]isFrozen['"]/.test(src)
+      || /defineProperty\(\s*Object\s*,\s*"isFrozen"/.test(src);
     ok('source pins genuine fresh-realm isFrozen (not host Object.isFrozen) for recovery ack freeze gate',
       pinPresent && acceptFn && usesPinned && !ambientCallInAccept
       && usesVmFreshRealm && !pinsHostIsFrozen,
@@ -1224,6 +1436,14 @@ async function main() {
         usesVmFreshRealm, pinsHostIsFrozen, pinRegionReadsHost,
         acceptSnippet: acceptBody.slice(0, 280),
         pinSnippet: pinRegion.slice(0, 280),
+      }));
+    ok('source must not install genuine isFrozen onto process-global Object.isFrozen',
+      !installsHostIsFrozen,
+      JSON.stringify({
+        installsHostIsFrozen,
+        hasInstallFn: /installGenuineIsFrozenForLoadGraph/.test(src),
+        hasAssignGenuine: /Object\.isFrozen\s*=\s*genuine\b/.test(src),
+        hasDefineIsFrozen: /defineProperty\(\s*Object\s*,\s*['"]isFrozen['"]/.test(src),
       }));
   }
 
