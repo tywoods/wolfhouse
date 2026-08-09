@@ -393,12 +393,15 @@ async function casNeg(sql, params, grantOver) {
       ok('genuine node-postgres Client constructs without query I/O', nativeRuntime
         && typeof nativeRuntime.accept === 'function' && nativeClient._queryQueue.length === 0
         && bundle.calls.token === 0 && azure.counters.wrap === 0);
-      const pool = new PgPool(); const poolClient = new PgClient(); let acquired = null;
-      pool._acquireClient(poolClient, { timedOut: false, callback(err, client) { if (!err) acquired = client; } }, () => {}, false);
-      const poolRuntime = createSunsetStagingMicrosoftPhaseBOauthCallbackRuntime(factoryDeps(goodEnv(), acquired, bundle));
-      ok('genuine pool-acquired PoolClient shape constructs without query I/O', acquired === poolClient
-        && typeof acquired.release === 'function' && poolRuntime && typeof poolRuntime.accept === 'function'
-        && poolClient._queryQueue.length === 0 && bundle.calls.token === 0 && azure.counters.wrap === 0);
+      const pool = new PgPool();
+      try {
+        const poolClient = new PgClient(); let acquired = null;
+        pool._acquireClient(poolClient, { timedOut: false, callback(err, client) { if (!err) acquired = client; } }, () => {}, false);
+        const poolRuntime = createSunsetStagingMicrosoftPhaseBOauthCallbackRuntime(factoryDeps(goodEnv(), acquired, bundle)); // Actual Pool lifecycle is an external integration proof, not an offline claim.
+        ok('real pg Client with synthesized pool-release-compatible shape constructs without query I/O', acquired === poolClient
+          && !pool._clients.includes(acquired) && typeof acquired.release === 'function'
+          && poolRuntime && typeof poolRuntime.accept === 'function' && poolClient._queryQueue.length === 0 && bundle.calls.token === 0 && azure.counters.wrap === 0);
+      } finally { await pool.end(); }
       const rejectsPg = (candidate) => {
         try { createSunsetStagingMicrosoftPhaseBOauthCallbackRuntime(factoryDeps(goodEnv(), candidate, bundle)); return false; }
         catch { return true; }
