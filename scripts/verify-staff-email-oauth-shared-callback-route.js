@@ -1,11 +1,13 @@
 'use strict';
 /** Gate 3 B3a2b focused production-router verifier (offline). */
+const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const v8 = require('node:v8');
 const Module = require('node:module');
 const url = require('node:url');
+const http = require('node:http');
 const { spawnSync } = require('node:child_process');
 const {
   OAUTH_CALLBACK_PATH, OAUTH_START_PATH, OAUTH_REAUTHORIZE_PATH,
@@ -236,6 +238,70 @@ function isTerminal(res, code, needle) {
 }
 async function main() {
   console.log('\n== B3a2b shared OAuth callback production route ==');
+
+  // Genuine emitted production HTTP listener/router boundary. The only seams
+  // are the existing dual-gated offline session/ACL/PG adapters; native
+  // IncomingMessage, cookie header, url.parse and production route composition
+  // remain real. A provider-error callback avoids all provider network I/O.
+  {
+    const saved = {};
+    for (const [k, v] of Object.entries({
+      NODE_ENV: 'test', STAFF_RUNTIME_PROFILE: 'test', STAFF_API_FORTRESS_OFFLINE_LISTENER: '1',
+      STAFF_AUTH_REQUIRED: 'true', STAFF_AUTH_HTTPS: 'false',
+      LUNA_DEPLOYMENT: 'sunset-staging', LUNA_EMAIL_OAUTH_CALLBACK_ENABLED: 'true',
+      LUNA_EMAIL_OAUTH_PHASE_B_CALLBACK_ENABLED: 'true', LUNA_EMAIL_OAUTH_CLIENT_ID: APP,
+      LUNA_EMAIL_OAUTH_CLIENT_SECRET: SECRET, LUNA_BOT_INTERNAL_TOKEN: 'offline_gate3_listener_token_123456',
+      [ENV_COMPOSITION_ENABLED]: 'true', [ENV_TRUSTED_HOST]: SUNSET_STAGING_TRUSTED_HOST,
+      [ENV_VERSIONED_KEY_ID]: SUNSET_STAGING_VERSIONED_KEY_ID,
+    })) { saved[k] = process.env[k]; process.env[k] = v; }
+    let api; let server;
+    try {
+      api = require('./staff-query-api');
+      let auth = 0; let aConsume = 0; let bConsume = 0;
+      api.setFortress15j3OfflineSeams({
+        resolveSessionUser(req) {
+          auth += 1;
+          assert.match(String(req.headers.cookie || ''), /staff_session=gate3-real-cookie/);
+          return admin();
+        },
+        canAccessClient() { return true; },
+        withPgClient: async (fn) => fn(Object.freeze({
+          async query(sql) {
+            if (nSql(sql) === nSql(PHASE_A_SQL)) { aConsume += 1; return { rows: [] }; }
+            if (nSql(sql) === nSql(PHASE_B_SQL)) {
+              bConsume += 1;
+              return { rows: [{
+                id: CLIENT, location_id: CLIENT, staff_user_id: CLIENT,
+                code_verifier: 'v'.repeat(43), nonce: 'n'.repeat(43), endpoint_id: CLIENT,
+                authorization_intent: 'phase_b_reauthorization', scope_version: 'phase_b_v1',
+                prior_grant_generation: '7',
+              }] };
+            }
+            throw new Error('unexpected_sql');
+          },
+        })),
+      });
+      server = api.createStaffQueryApiHttpServer();
+      await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+      const port = server.address().port;
+      const target = `${OAUTH_CALLBACK_PATH}?error=access_denied&state=${encodeURIComponent(STATE)}`;
+      const response = await new Promise((resolve, reject) => {
+        const req = http.request({ hostname: '127.0.0.1', port, path: target, method: 'GET', headers: { Cookie: 'staff_session=gate3-real-cookie' } }, (res) => {
+          const chunks = []; res.on('data', (c) => chunks.push(c));
+          res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+        });
+        req.on('error', reject); req.end();
+      });
+      ok('outer production listener: cookie auth + native query + A fallthrough + B consume once + declined terminal',
+        auth === 1 && aConsume === 1 && bConsume === 1
+        && response.status === 200 && /Authorization was declined/.test(response.body)
+        && noLeak(response.body));
+    } finally {
+      if (server) await new Promise((resolve) => server.close(resolve));
+      if (api) api.setFortress15j3OfflineSeams(null);
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
+  }
   ok('path/readiness/scopes/flags',
     OAUTH_CALLBACK_PATH === '/staff/email/oauth/microsoft/callback'
     && OAUTH_CALLBACK_PATH !== OAUTH_START_PATH && OAUTH_CALLBACK_PATH !== OAUTH_REAUTHORIZE_PATH

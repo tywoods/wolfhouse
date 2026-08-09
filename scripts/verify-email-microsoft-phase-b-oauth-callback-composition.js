@@ -170,9 +170,9 @@ function svc(opts) {
       'phase_b_clock_validated', 'phase_b_consume_started',
     ];
     const cases = [
-      { name: 'consume no-match', opts: { row: null }, expected: [...prefix, 'callback_failed'] },
+      { name: 'consume no-match', opts: { row: null }, expected: [...prefix, 'phase_b_consume_returned', 'callback_failed'] },
       { name: 'consume DB throw', opts: { consumeThrow: true }, expected: [...prefix, 'callback_failed'], throws: true },
-      { name: 'malformed consumed row', opts: { row: phaseBRow({ nonce: PLANTED }) }, expected: [...prefix, 'phase_b_consume_matched', 'callback_failed'], throws: true },
+      { name: 'malformed consumed row', opts: { row: phaseBRow({ nonce: PLANTED }) }, expected: [...prefix, 'phase_b_consume_returned', 'phase_b_consume_matched', 'callback_failed'], throws: true },
     ];
     for (const c of cases) {
       const events = [];

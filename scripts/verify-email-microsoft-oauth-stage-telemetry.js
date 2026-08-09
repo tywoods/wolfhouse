@@ -320,14 +320,22 @@ test('pinEmailOAuthStageTelemetry rejects proxies/getters; safeEmit never throws
   });
   assert.equal(pinEmailOAuthStageTelemetry(Object.freeze(getter)), null);
 
-  const proxy = new Proxy(Object.freeze({ emit() {} }), {
-    get() { throw new Error(LEAK); },
+  const transparentProxy = new Proxy(Object.freeze({ emit() {} }), {});
+  assert.equal(pinEmailOAuthStageTelemetry(transparentProxy), null);
+
+  let traps = 0;
+  const trappingProxy = new Proxy(Object.freeze({ emit() {} }), {
+    getPrototypeOf(t) { traps += 1; return Reflect.getPrototypeOf(t); },
+    ownKeys(t) { traps += 1; return Reflect.ownKeys(t); },
+    getOwnPropertyDescriptor(t, p) { traps += 1; return Reflect.getOwnPropertyDescriptor(t, p); },
+    isExtensible(t) { traps += 1; return Reflect.isExtensible(t); },
+    preventExtensions(t) { traps += 1; return Reflect.preventExtensions(t); },
+    get(t, p, r) { traps += 1; return Reflect.get(t, p, r); },
+    has(t, p) { traps += 1; return Reflect.has(t, p); },
+    set(t, p, v, r) { traps += 1; return Reflect.set(t, p, v, r); },
   });
-  // pin may fail closed or succeed depending on ownKeys path — emit must not throw
-  const pinned = pinEmailOAuthStageTelemetry(proxy);
-  if (pinned) {
-    assert.doesNotThrow(() => pinned.emit('callback_consumed'));
-  }
+  assert.equal(pinEmailOAuthStageTelemetry(trappingProxy), null);
+  assert.equal(traps, 0, 'proxy rejection must precede prototype/keys/descriptor/frozen access');
 
   assert.doesNotThrow(() => safeEmitStage(null, 'callback_consumed'));
   assert.doesNotThrow(() => safeEmitStage({}, 'callback_consumed'));
