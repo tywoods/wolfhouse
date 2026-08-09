@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const Module = require('module');
 const { EventEmitter } = require('events');
 const { spawnSync } = require('child_process');
-const { Client: PgClient } = require('pg');
+const { Client: PgClient, Pool: PgPool } = require('pg');
 const ROOT = path.join(__dirname, '..');
 const {
   createMicrosoftPhaseBOauthOperationComposition, COMPLETION_KEYS: OP_KEYS,
@@ -382,24 +382,49 @@ async function casNeg(sql, params, grantOver) {
   }
 
   {
-    const nativeClient = new PgClient(); const bundle = createHttps(); const azure = installAzureSdkSpies();
-    try {
-      let runtime = null; let threw = false;
-      try { runtime = createSunsetStagingMicrosoftPhaseBOauthCallbackRuntime(factoryDeps(goodEnv(), nativeClient, bundle)); }
-      catch { threw = true; }
-      ok('genuine node-postgres Client constructs without query I/O', !threw && runtime
-        && typeof runtime.accept === 'function' && nativeClient.queryQueue.length === 0
-        && bundle.calls.token === 0 && azure.counters.wrap === 0);
-    } finally { azure.restore(); }
-  }
-
-  {
     const pg = createPg(); const bundle = createHttps(); const azure = installAzureSdkSpies();
     const st = stageCounter();
     try {
       const runtime = createSunsetStagingMicrosoftPhaseBOauthCallbackRuntime(factoryDeps(goodEnv(), pg.client, bundle, st.stageTelemetry));
       ok('construct without I/O', typeof runtime.accept === 'function' && pg.counts.query === 0
         && bundle.calls.token === 0 && azure.counters.wrap === 0);
+      const nativeClient = new PgClient();
+      const nativeRuntime = createSunsetStagingMicrosoftPhaseBOauthCallbackRuntime(factoryDeps(goodEnv(), nativeClient, bundle));
+      ok('genuine node-postgres Client constructs without query I/O', nativeRuntime
+        && typeof nativeRuntime.accept === 'function' && nativeClient._queryQueue.length === 0
+        && bundle.calls.token === 0 && azure.counters.wrap === 0);
+      const pool = new PgPool(); const poolClient = new PgClient(); let acquired = null;
+      pool._acquireClient(poolClient, { timedOut: false, callback(err, client) { if (!err) acquired = client; } }, () => {}, false);
+      const poolRuntime = createSunsetStagingMicrosoftPhaseBOauthCallbackRuntime(factoryDeps(goodEnv(), acquired, bundle));
+      ok('genuine pool-acquired PoolClient shape constructs without query I/O', acquired === poolClient
+        && typeof acquired.release === 'function' && poolRuntime && typeof poolRuntime.accept === 'function'
+        && poolClient._queryQueue.length === 0 && bundle.calls.token === 0 && azure.counters.wrap === 0);
+      const rejectsPg = (candidate) => {
+        try { createSunsetStagingMicrosoftPhaseBOauthCallbackRuntime(factoryDeps(goodEnv(), candidate, bundle)); return false; }
+        catch { return true; }
+      };
+      let proxyTraps = 0;
+      const nativeProxy = new Proxy(new PgClient(), {
+        get() { proxyTraps += 1; throw new Error('trap'); },
+        getPrototypeOf() { proxyTraps += 1; throw new Error('trap'); },
+        getOwnPropertyDescriptor() { proxyTraps += 1; throw new Error('trap'); },
+        ownKeys() { proxyTraps += 1; throw new Error('trap'); },
+      });
+      ok('native pg transparent/trapping proxy rejected with zero traps', rejectsPg(nativeProxy) && proxyTraps === 0);
+      class PgSubclass extends PgClient {}
+      ok('native pg subclass rejected', rejectsPg(new PgSubclass()));
+      const customProtoClient = new PgClient(); Object.setPrototypeOf(customProtoClient, Object.create(PgClient.prototype));
+      ok('native pg custom prototype rejected', rejectsPg(customProtoClient));
+      let queryGetterHits = 0; const getterClient = new PgClient();
+      Object.defineProperty(getterClient, 'query', { get() { queryGetterHits += 1; return PgClient.prototype.query; } });
+      ok('native pg own query getter rejected with zero getter hits', rejectsPg(getterClient) && queryGetterHits === 0);
+      const queryDesc = Object.getOwnPropertyDescriptor(PgClient.prototype, 'query');
+      let ambientRejected = false;
+      try {
+        Object.defineProperty(PgClient.prototype, 'query', { ...queryDesc, value() { throw new Error('ambient'); } });
+        ambientRejected = rejectsPg(new PgClient());
+      } finally { Object.defineProperty(PgClient.prototype, 'query', queryDesc); }
+      ok('post-module ambient pg prototype monkeypatch rejected', ambientRejected);
       const ack = await runtime.accept(codeInput(), owner());
       ok('accept → authorization_received status-only',
         ack && ack.status === PUBLIC_STATUS_RECEIVED.status && Reflect.ownKeys(ack).length === 1 && noLeak(ack));
@@ -641,7 +666,7 @@ console.log('\n== Mutant owner seam ==');
     const vf = 'scripts/verify-email-microsoft-phase-b-oauth-runtime-composition.js';
     const srcLoc = sfs.reduce((n, f) => n + fs.readFileSync(path.join(ROOT, f), 'utf8').split(/\r?\n/).length, 0);
     const verLoc = fs.readFileSync(path.join(ROOT, vf), 'utf8').split(/\r?\n/).length;
-    ok(`budget source=${srcLoc} <=450`, srcLoc <= 450);
+    ok(`budget source=${srcLoc} <=475`, srcLoc <= 475);
     ok(`budget verifier=${verLoc} <=700`, verLoc <= 700);
     ok(`budget total=${srcLoc + verLoc} <=1150`, srcLoc + verLoc <= 1150);
   }

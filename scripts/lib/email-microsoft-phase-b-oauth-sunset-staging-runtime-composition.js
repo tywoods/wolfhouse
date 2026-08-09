@@ -1,6 +1,7 @@
 'use strict';
 /** Gate 3 Phase B PR B2b — dormant sunset-staging Phase B callback runtime (import inert). */
 const util = require('util');
+const { Client: PgClient } = require('pg');
 const {
   createPostgresPhaseBOauthTransactionConsumer, createMicrosoftPhaseBOauthCallbackCompletionService,
   CALLBACK_ENABLED_ENV, isCallbackEnabled, SUNSET_DEPLOYMENT: CB_SUNSET,
@@ -27,6 +28,13 @@ const {
 } = require('./email-microsoft-oauth-stage-telemetry');
 const UT = util.types && typeof util.types === 'object' ? util.types : null;
 const ISP = UT && typeof UT.isProxy === 'function' ? UT.isProxy : null;
+const PG_CLIENT_PROTO = PgClient && PgClient.prototype;
+const PG_QUERY_DESC = PG_CLIENT_PROTO && Object.getOwnPropertyDescriptor(PG_CLIENT_PROTO, 'query');
+const PG_QUERY_FN = PG_QUERY_DESC && Object.prototype.hasOwnProperty.call(PG_QUERY_DESC, 'value')
+  && !PG_QUERY_DESC.get && !PG_QUERY_DESC.set && typeof PG_QUERY_DESC.value === 'function' ? PG_QUERY_DESC.value : null;
+const PG_CTOR_DESC = PG_CLIENT_PROTO && Object.getOwnPropertyDescriptor(PG_CLIENT_PROTO, 'constructor');
+const PG_NATIVE_PINNED = typeof PgClient === 'function' && PG_CLIENT_PROTO && PG_QUERY_FN
+  && PG_CTOR_DESC && PG_CTOR_DESC.value === PgClient && !PG_CTOR_DESC.get && !PG_CTOR_DESC.set;
 const ERROR_CODE = 'MICROSOFT_PHASE_B_OAUTH_RUNTIME_COMPOSITION_INVALID';
 const ERROR_MESSAGE = 'Microsoft Phase B OAuth runtime composition failed.';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
@@ -91,7 +99,17 @@ function pinNatives(h, c, t) {
 function pinPgClient(raw) {
   try {
     if (!raw || isProxy(raw) || typeof raw !== 'object' || Array.isArray(raw)) return null;
-    const queryFn = ownFn(raw, 'query'); if (typeof queryFn !== 'function') return null;
+    let queryFn = ownFn(raw, 'query');
+    if (typeof queryFn !== 'function') {
+      if (Object.getOwnPropertyDescriptor(raw, 'query')) return null;
+      if (!PG_NATIVE_PINNED || Object.getPrototypeOf(raw) !== PG_CLIENT_PROTO) return null;
+      const queryDesc = Object.getOwnPropertyDescriptor(PG_CLIENT_PROTO, 'query');
+      const ctorDesc = Object.getOwnPropertyDescriptor(PG_CLIENT_PROTO, 'constructor');
+      if (!queryDesc || queryDesc.value !== PG_QUERY_FN || queryDesc.get || queryDesc.set
+          || !ctorDesc || ctorDesc.value !== PgClient || ctorDesc.get || ctorDesc.set
+          || !(raw instanceof PgClient)) return null;
+      queryFn = PG_QUERY_FN;
+    }
     if (typeof ownFn(raw, 'connect') === 'function') {
       for (const k of POOL_HINTS) {
         const d = Object.getOwnPropertyDescriptor(raw, k);
