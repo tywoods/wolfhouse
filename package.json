@@ -348,6 +348,7 @@
     "verify:email-microsoft-verified-grant-custody": "node scripts/verify-email-microsoft-verified-grant-custody.js",
     "verify:email-microsoft-verified-grant-installer": "node scripts/verify-email-microsoft-verified-grant-installer.js",
     "verify:email-phase-b-authority": "node scripts/verify-email-phase-b-authority.js",
+    "prove:email-phase-b-stock-pg-concurrency": "node scripts/prove-email-phase-b-stock-pg-concurrency.js",
     "verify:email-microsoft-phase-b-oauth-callback-composition": "node scripts/verify-email-microsoft-phase-b-oauth-callback-composition.js",
     "verify:email-microsoft-phase-b-oauth-runtime-composition": "node scripts/verify-email-microsoft-phase-b-oauth-runtime-composition.js",
     "verify:email-microsoft-oauth-shared-callback-dispatch": "node scripts/verify-email-microsoft-oauth-shared-callback-dispatch.js",
