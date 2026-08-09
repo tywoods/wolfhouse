@@ -310,34 +310,37 @@ function installAzureSdkSpies() {
     throw new Error('KeyClient forbidden');
   }
 
+  // App-root trust: never redirect require.resolve outside app nm. Intercept deep loads only.
   const realLoad = Module._load;
+  const cacheExp = (r, p, exp) => {
+    require.cache[r] = Object.assign(new Module(r, p), { filename: r, paths: [], exports: exp, loaded: true });
+    return exp;
+  };
   Module._load = function interceptAzure(request, parent, isMain) {
-    if (request === '@azure/identity') {
+    if (typeof request === 'string' && request.includes('managedIdentityCredential') && request.endsWith('index.js')) {
       counters.idLoad += 1;
-      return { ManagedIdentityCredential, DefaultAzureCredential };
+      return cacheExp(request, parent, { ManagedIdentityCredential, DefaultAzureCredential });
     }
-    if (request === '@azure/keyvault-keys') {
+    if (typeof request === 'string' && request.includes('keyvault-keys') && request.endsWith('cryptographyClient.js')) {
       counters.kvLoad += 1;
-      return { CryptographyClient, KeyClient };
+      return cacheExp(request, parent, { CryptographyClient, KeyClient });
     }
-    if (typeof request === 'string' && request.startsWith('@azure/')) {
-      throw new Error(`unexpected ${request}`);
+    if (request === '@azure/identity' || request === '@azure/keyvault-keys') {
+      throw new Error(`root-name ${request}`);
+    }
+    if (typeof request === 'string' && request.includes('@azure/') && request.endsWith('dist/commonjs/index.js')) {
+      throw new Error(`root-entry ${request}`);
     }
     return realLoad(request, parent, isMain);
   };
-
-  // Drop cached real Azure modules if any so intercept wins.
   for (const key of Object.keys(require.cache)) {
     if (key.includes(`${path.sep}@azure${path.sep}`) || key.includes('/@azure/')) {
       delete require.cache[key];
     }
   }
-
   return {
     counters,
-    restore() {
-      Module._load = realLoad;
-    },
+    restore() { Module._load = realLoad; },
   };
 }
 

@@ -30,9 +30,10 @@ const ISP = UT && typeof UT.isProxy === 'function' ? UT.isProxy : null;
 const ERROR_CODE = 'MICROSOFT_PHASE_B_OAUTH_RUNTIME_COMPOSITION_INVALID';
 const ERROR_MESSAGE = 'Microsoft Phase B OAuth runtime composition failed.';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
-const EMAIL_MS_PHASE_B_CALLBACK_RUNTIME_WIRED = false;
+// B3a2b: route-wired/safe; deferred (flag default-off); import inert without flag.
+const EMAIL_MS_PHASE_B_CALLBACK_RUNTIME_WIRED = true;
 const EMAIL_MS_PHASE_B_CALLBACK_DEFERRED_ACTIVATION = true;
-const EMAIL_MS_PHASE_B_CALLBACK_SAFE_FOR_RUNTIME_ROUTE = false;
+const EMAIL_MS_PHASE_B_CALLBACK_SAFE_FOR_RUNTIME_ROUTE = true;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DEPENDENCY_KEYS = Object.freeze(['env', 'pgClient', 'https', 'crypto', 'timers']);
 const HTTPS_KEYS = Object.freeze(['request']);
@@ -44,8 +45,8 @@ const SNAP_ENV_KEYS = Object.freeze(['LUNA_DEPLOYMENT', 'LUNA_EMAIL_OAUTH_CLIENT
 if (CB_SUNSET !== SUNSET_DEPLOYMENT || OP_SUNSET !== SUNSET_DEPLOYMENT || SECRET_SUNSET !== SUNSET_DEPLOYMENT) {
   throw new Error('phase_b_oauth_runtime_composition_sunset_deployment_mismatch');
 }
-if (EMAIL_MS_PHASE_B_CALLBACK_RUNTIME_WIRED !== false || EMAIL_MS_PHASE_B_CALLBACK_DEFERRED_ACTIVATION !== true
-    || EMAIL_MS_PHASE_B_CALLBACK_SAFE_FOR_RUNTIME_ROUTE !== false) {
+if (EMAIL_MS_PHASE_B_CALLBACK_RUNTIME_WIRED !== true || EMAIL_MS_PHASE_B_CALLBACK_DEFERRED_ACTIVATION !== true
+    || EMAIL_MS_PHASE_B_CALLBACK_SAFE_FOR_RUNTIME_ROUTE !== true) {
   throw new Error('phase_b_oauth_runtime_composition_activation_unexpected');
 }
 function failure() {

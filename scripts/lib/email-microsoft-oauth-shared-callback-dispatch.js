@@ -35,18 +35,19 @@ const ALLOW = Object.freeze({
   [S_INVALID]: PUB_INVALID, [S_DECLINED]: PUB_DECLINED, [S_RECEIVED]: PUB_RECEIVED,
   [S_UNAVAILABLE]: PUB_UNAVAILABLE, [S_OUTCOME]: PUB_OUTCOME,
 });
+// B3a2b: route-wired/safe; deferred (flags default-off); import inert.
 const EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_IMPORT_INERT = true;
-const EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_RUNTIME_WIRED = false;
+const EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_RUNTIME_WIRED = true;
 const EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_DEFERRED_ACTIVATION = true;
-const EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_SAFE_FOR_RUNTIME_ROUTE = false;
+const EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_SAFE_FOR_RUNTIME_ROUTE = true;
 const DEPENDENCY_KEYS = Object.freeze(['env', 'createPhaseACallback', 'createPhaseBCallback']);
 const OWNER_KEYS = Object.freeze(['clientId', 'authSessionId']);
 const Q_CODE_ALLOW = Object.freeze(new Set(['state', 'code', 'session_state']));
 const Q_ERR_ALLOW = Object.freeze(new Set(['state', 'error']));
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-if (EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_RUNTIME_WIRED !== false
+if (EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_RUNTIME_WIRED !== true
     || EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_DEFERRED_ACTIVATION !== true
-    || EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_SAFE_FOR_RUNTIME_ROUTE !== false
+    || EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_SAFE_FOR_RUNTIME_ROUTE !== true
     || EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_IMPORT_INERT !== true) {
   throw new Error('shared_oauth_callback_dispatch_activation_unexpected');
 }

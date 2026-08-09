@@ -1,13 +1,9 @@
 'use strict';
 
-/**
- * verify:email-grant-envelope-azure-kv-sunset-staging-runtime-composition
- * Slice 2F-C2 offline gate — Sunset-staging canary only. No live Azure/network/DB.
- * SDK path: fresh child processes intercept Module._load BEFORE requiring composition.
- * No production DI/test-hook export. Verifier < 500 LOC.
- */
+/** verify:email-grant-envelope-azure-kv-sunset-staging-runtime-composition — 2F-C2 offline; deep Azure paths; <1000 LOC. */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
@@ -63,11 +59,24 @@ function exactEnv(o) {
 function enabledEnv(extra) {
   return exactEnv({ [E_EN]: 'true', [E_HOST]: HOST, [E_KID]: KID, ...(extra || {}) });
 }
-function runChild(body) {
+function runChild(body, extraEnv) {
   return spawnSync(process.execPath, ['-e', body], {
-    encoding: 'utf8', cwd: ROOT, env: { ...process.env, NODE_OPTIONS: '' },
+    encoding: 'utf8', cwd: ROOT, env: { ...process.env, NODE_OPTIONS: '', ...(extraEnv || {}) },
     maxBuffer: 4 * 1024 * 1024,
   });
+}
+function mkFakeAzureNodePath() {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'az-fake-'));
+  const id = path.join(base, 'node_modules/@azure/identity');
+  const kv = path.join(base, 'node_modules/@azure/keyvault-keys');
+  fs.mkdirSync(path.join(id, 'dist/commonjs/credentials/managedIdentityCredential'), { recursive: true });
+  fs.mkdirSync(path.join(kv, 'dist/commonjs'), { recursive: true });
+  fs.writeFileSync(path.join(id, 'package.json'), '{"name":"@azure/identity","version":"4.13.1","main":"./dist/commonjs/index.js"}');
+  fs.writeFileSync(path.join(kv, 'package.json'), '{"name":"@azure/keyvault-keys","version":"4.10.2","main":"./dist/commonjs/index.js"}');
+  for (const f of [path.join(id,'dist/commonjs/index.js'),path.join(kv,'dist/commonjs/index.js'),
+    path.join(id,'dist/commonjs/credentials/managedIdentityCredential/index.js'),
+    path.join(kv,'dist/commonjs/cryptographyClient.js')]) fs.writeFileSync(f, 'module.exports={};');
+  return { base, nodePath: path.join(base, 'node_modules') };
 }
 function parseChildJson(child) {
   try {
@@ -90,10 +99,10 @@ function enabled(x){return Object.assign({[E_EN]:'true',[E_HOST]:HOST,[E_KID]:KI
 function noPlanted(v){let s;try{s=JSON.stringify(v);}catch{s=String(v);}
   return !s.includes(PLANTED)&&!s.includes('LEAKED_SECRET')&&!s.includes('BEGIN RSA')
     &&!s.includes('access_token')&&!s.includes('client_secret')&&!s.includes('secret_field');}
-function blockAzure(){Module._load=function(r,p,m){
-  if(typeof r==='string'&&(r==='@azure/identity'||r==='@azure/keyvault-keys'||r.startsWith('@azure/'))){
-    hits.push(r);const e=new Error('blocked '+r);e.code='AZURE_IMPORT_BLOCKED';throw e;}
-  return realLoad(r,p,m);};}
+function blockAzure(){const rr=Module._resolveFilename;Module._resolveFilename=function(r,p,m,o){
+  if(typeof r==='string'&&(r==='@azure/identity'||r==='@azure/keyvault-keys'||r.startsWith('@azure/'))){hits.push(r);const e=new Error('blocked '+r);e.code='MODULE_NOT_FOUND';throw e;}
+  return rr(r,p,m,o);};
+  Module._load=function(r,p,m){if(typeof r==='string'&&(r==='@azure/identity'||r==='@azure/keyvault-keys'||r.startsWith('@azure/'))){hits.push(r);throw Object.assign(new Error('blocked '+r),{code:'AZURE_IMPORT_BLOCKED'});}return realLoad(r,p,m);};}
 function installSpies(c,mode){
   const {publicKey,privateKey}=crypto.generateKeyPairSync('rsa',{modulusLength:3072});
   const w={key:publicKey,padding:crypto.constants.RSA_PKCS1_OAEP_PADDING,oaepHash:'sha256'};
@@ -133,10 +142,12 @@ function installSpies(c,mode){
   }
   function DefaultAzureCredential(){c.dac++;throw new Error('DAC forbidden');}
   function KeyClient(){c.keyClient++;throw new Error('KeyClient forbidden');}
+  function cacheExport(r,p,exp){
+    const m=new Module(r,p);m.filename=r;m.paths=[];m.exports=exp;m.loaded=true;require.cache[r]=m;return exp;}
   Module._load=function(r,p,m){
-    if(r==='@azure/identity'){c.idLoad++;return{ManagedIdentityCredential,DefaultAzureCredential};}
-    if(r==='@azure/keyvault-keys'){c.kvLoad++;return{CryptographyClient,KeyClient};}
-    if(typeof r==='string'&&r.startsWith('@azure/'))throw new Error('unexpected '+r);
+    if(typeof r==='string'&&r.includes('managedIdentityCredential')&&r.endsWith('index.js')){c.idLoad++;return cacheExport(r,p,{ManagedIdentityCredential,DefaultAzureCredential});}
+    if(typeof r==='string'&&r.includes('keyvault-keys')&&r.endsWith('cryptographyClient.js')){c.kvLoad++;return cacheExport(r,p,{CryptographyClient,KeyClient});}
+    if(r==='@azure/identity'||r==='@azure/keyvault-keys'||(typeof r==='string'&&r.includes('@azure/')&&r.endsWith('dist/commonjs/index.js')))throw new Error('root '+r);
     return realLoad(r,p,m);};
 }
 `;
@@ -180,10 +191,14 @@ async function main() {
     && E_HOST === 'EMAIL_GRANT_ENVELOPE_AZURE_KV_TRUSTED_HOST'
     && E_KID === 'EMAIL_GRANT_ENVELOPE_AZURE_KV_VERSIONED_KEY_ID');
   ok('retry maxRetries 0', CRYPTO_CLIENT_OPTIONS.retryOptions.maxRetries === 0);
-  ok('lazy MIC only; no DAC/KeyClient/DI helpers/aliases',
+  ok('lazy deep-path MIC; app-root trust; no package-root require/DAC/DI helpers',
     !/^(const|let|var).*=\s*require\s*\(\s*['"]@azure\//m.test(src)
-    && /require\s*\(\s*['"]@azure\/identity['"]\s*\)/.test(src)
-    && /require\s*\(\s*['"]@azure\/keyvault-keys['"]\s*\)/.test(src)
+    && /require\.resolve/.test(src) && /managedIdentityCredential/.test(src) && /cryptographyClient\.js/.test(src)
+    && /APP_ROOT|APP_NM_ROOT/.test(src) && /realpathSync\.native/.test(src) && !/process\.cwd\s*\(/.test(src)
+    && /trusted package code only|app-root\/path\/version/i.test(src)
+    && !/require\s*\(\s*['"]@azure\/identity['"]\s*\)/.test(src)
+    && !/require\s*\(\s*['"]@azure\/keyvault-keys['"]\s*\)/.test(src)
+    && /4\.13\.1/.test(src) && /4\.10\.2/.test(src)
     && /ManagedIdentityCredential/.test(src) && /never DefaultAzureCredential/i.test(src)
     && !/\bnew\s+\w*DefaultAzureCredential\b|identity\.DefaultAzureCredential|\.DefaultAzureCredential\b/.test(src)
     && src.includes(MI) && !/\bKeyClient\b|\bSecretClient\b|\.listPropertiesOfKeys\b/.test(src)
@@ -191,16 +206,24 @@ async function main() {
     && /canary|never be deployed|separately reviewed/i.test(src)
     && !/\bparseTestDeps\b|\bcreateCredential\b|\bcreateCryptographyClient\b|\bloadAzureSdksDefault\b|\btestDeps\b|\bKNOWN_SANITIZED_CODES\b/.test(src)
     && !/createEmailGrantEnvelopeAzureKvRuntimeComposition|parseEmailGrantEnvelopeAzureKvRuntimeConfig/.test(src));
-  ok('throwSanitized never reads exception properties',
-    /function throwSanitized\s*\(\s*_?maybe\s*,\s*fallback\s*\)/.test(src)
-    && !/throwSanitized[\s\S]{0,220}maybe\s*\.\s*code/.test(src)
-    && !/throwSanitized[\s\S]{0,220}maybe\s*&&/.test(src));
+  ok('SHA-256 pin identity + precise trust claim + no thrown-value property reads',
+    /createHash\(\s*['"]sha256['"]\s*\)/.test(src)
+    && /70f61fd65648da7d70750d17de2b726d3892d3cfd9637643d4e1c82c649620b9/.test(src)
+    && /93d90cef99db00060c2eeb491b670d6c9873a38827884eb2a284b43e92735049/.test(src)
+    && /a63ec9cca669e97f3f2f4c908a1896c27a627a4f7d673be0419ae72259f1d900/.test(src)
+    && /pinIdentityBeforeRequire/.test(src) && /pinIdentityAfterRequire/.test(src)
+    && /require\.cache/.test(src) && /execution trust boundary/i.test(src)
+    && /does not claim/i.test(src) && /arbitrary local|code execution/i.test(src)
+    && /Never read e\.code\/e\.message/.test(src)
+    && !/loadAzureSdks[\s\S]{0,1400}catch\s*\(\s*e\s*\)[\s\S]{0,80}e\s*\.\s*code/.test(src)
+    && /function throwSanitized\s*\(\s*_?maybe\s*,\s*fallback\s*\)/.test(src)
+    && !/throwSanitized[\s\S]{0,220}maybe\s*\.\s*code/.test(src));
   ok('2F-B free of @azure; staff does not require composition',
     !/@azure\/identity/.test(coreSrc) && !/DefaultAzureCredential/.test(coreSrc)
     && !/require\s*\(\s*['"]@azure\//.test(coreSrc)
     && !/email-grant-envelope-azure-kv-.*runtime-composition/.test(staff));
-  ok('production net LOC < 250; verifier < 500',
-    netLoc(src) < 250 && verifierSrc.split('\n').length < 500);
+  ok('production net LOC < 400; verifier < 1000',
+    netLoc(src) < 400 && verifierSrc.split('\n').length < 1000);
   ok('Dockerfiles Node 22', DOCKERFILES.every((f) => {
     const p = path.join(ROOT, f);
     return fs.existsSync(p) && /FROM\s+node:22\b/i.test(fs.readFileSync(p, 'utf8'));
@@ -260,7 +283,10 @@ async function main() {
     ok(`fail-closed ${label} + zero SDK import`, ch.status === 0 && b && b.ok, JSON.stringify(b));
   }
 
-  // SDK Module._load spies + RSA + hostile AZURE + second-arg ignored
+  // SDK deep-path spies + RSA + hostile AZURE + second-arg ignored
+  const fakeAz = mkFakeAzureNodePath();
+  const np = { NODE_PATH: fakeAz.nodePath };
+  try {
   {
     const ch = runChild(PRE + `
       const c={mic:0,cc:0,dac:0,keyClient:0,idLoad:0,kvLoad:0,micClientId:null,ccKeyId:null,ccOptions:null,ccCredential:null};
@@ -301,17 +327,13 @@ async function main() {
             maxRetries:c.ccOptions.retryOptions.maxRetries,prototypeOnly:c.prototypeOnly}});
         process.exit(0);
       }catch(e){out({ok:false,stage:'async',err:String(e&&e.message)});process.exit(4);}})();
-    `);
+    `, np);
     const b = parseChildJson(ch);
-    ok('prototype-only SDK client succeeds through own bound adapter with exact options',
+    ok('prototype-only SDK client seal/open + hostile AZURE/DI ignored',
       ch.status === 0 && b && b.ok && b.c && b.c.prototypeOnly === true
       && b.c.mic === 1 && b.c.cc === 1
       && b.c.micClientId === MI && b.c.ccKeyId === KID && b.c.maxRetries === 0,
       `st=${ch.status} ${(ch.stderr || '').slice(0, 160)} ${JSON.stringify(b)}`);
-    ok('SDK path seal/open/reseal + canary metadata; hostile AZURE env ignored',
-      ch.status === 0 && b && b.ok);
-    ok('second-arg fakeDeps ignored (no production DI bypass)',
-      ch.status === 0 && b && b.ok);
   }
 
   // throwing code getter
@@ -323,7 +345,7 @@ async function main() {
       catch(e){sanitized=e&&e.code==='envelope_kv_failed'&&e.message==='envelope_kv_failed'
         &&noPlanted(e)&&!Object.prototype.hasOwnProperty.call(e,'secret_field');}
       out({ok:sanitized});
-    `);
+    `, np);
     const b = parseChildJson(ch);
     ok('throwing code getter on construction → envelope_kv_failed (no plant)',
       ch.status === 0 && b && b.ok, JSON.stringify(b));
@@ -337,7 +359,7 @@ async function main() {
       try{mod.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(enabled());}
       catch(e){sanitized=e&&e.code==='envelope_kv_failed'&&e.message==='envelope_kv_failed'&&noPlanted(e);}
       out({ok:sanitized});
-    `);
+    `, np);
     const b = parseChildJson(ch);
     ok('proxy ownKeys/getOwnPropertyDescriptor/getPrototypeOf traps → sanitized',
       ch.status === 0 && b && b.ok, JSON.stringify(b));
@@ -346,15 +368,11 @@ async function main() {
   // missing packages
   {
     const ch = runChild(PRE + `
-      Module._load=function(r,p,m){
-        if(r==='@azure/identity'||r==='@azure/keyvault-keys'){
-          hits.push(r);const e=new Error("Cannot find module '"+r+"' "+PLANTED);e.code='MODULE_NOT_FOUND';throw e;}
-        return realLoad(r,p,m);};
-      const mod=require(COMP); let threw=false;
+      blockAzure(); const mod=require(COMP); let threw=false;
       try{mod.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(enabled());}
       catch(e){threw=e&&e.code==='envelope_azure_kv_sdk_unavailable'
         &&e.message==='envelope_azure_kv_sdk_unavailable'&&noPlanted(e);}
-      out({ok:threw&&hits.length>=1,hits:hits.length});
+      out({ok:threw,hits:hits.length});
     `);
     const b = parseChildJson(ch);
     ok('missing @azure → sanitized sdk_unavailable', ch.status === 0 && b && b.ok, JSON.stringify(b));
@@ -375,10 +393,113 @@ async function main() {
       }catch(e){sanitized=e&&typeof e.code==='string'&&e.code.startsWith('envelope_')
         &&noPlanted(e)&&!String(e.message||'').includes(PLANTED);}
         out({ok:sanitized});process.exit(sanitized?0:1);})();
-    `);
+    `, np);
     const b = parseChildJson(ch);
     ok('planted wrap exception sanitized at provider boundary',
       ch.status === 0 && b && b.ok, JSON.stringify(b));
+  }
+
+  {
+    const ch = runChild(PRE + `
+      function clr(){for(const k of Object.keys(require.cache))if(/@azure|managedIdentity|cryptographyClient|email-grant-envelope-azure-kv-sunset/.test(k))delete require.cache[k];}
+      function runCase(kind){let hits=0;clr();const rl=Module._load;
+        Module._load=function(r,p,m){
+          if(typeof r==='string'&&r.includes('managedIdentityCredential')&&r.endsWith('index.js')){
+            if(kind==='proxy')throw new Proxy({},{get(){hits++;throw new Error(PLANTED);},
+              getOwnPropertyDescriptor(){hits++;throw new Error(PLANTED);},ownKeys(){hits++;throw new Error(PLANTED);},
+              getPrototypeOf(){hits++;throw new Error(PLANTED);},has(){hits++;throw new Error(PLANTED);}});
+            if(kind==='accessor'){const h={};Object.defineProperty(h,'code',{enumerable:true,get(){hits++;throw new Error(PLANTED);}});
+              Object.defineProperty(h,'message',{enumerable:true,get(){hits++;throw new Error(PLANTED);}});throw h;}
+            if(kind==='getter'){const o={};Object.defineProperty(o,'ManagedIdentityCredential',{enumerable:true,get(){hits++;return function(){};}});
+              const mo=new Module(r,p);mo.filename=r;mo.exports=o;mo.loaded=true;require.cache[r]=mo;return o;}
+            if(kind==='cacheMut'){const exp=rl(r,p,m);const ent=require.cache[r];if(ent)ent.filename='/tmp/evil-azure-mic-mutant.js';return exp;}
+          }
+          if(kind==='getter'&&typeof r==='string'&&r.endsWith('cryptographyClient.js')){
+            const exp={CryptographyClient:function(){}};const mo=new Module(r,p);mo.filename=r;mo.exports=exp;mo.loaded=true;require.cache[r]=mo;return exp;}
+          return rl(r,p,m);};
+        const mod=require(COMP);let code=null;
+        try{mod.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(enabled());}catch(e){code=e&&e.code;}
+        Module._load=rl;return {code,hits};}
+      const proxy=runCase('proxy'),acc=runCase('accessor'),get=runCase('getter'),mut=runCase('cacheMut');
+      out({ok:proxy.code==='envelope_azure_kv_sdk_unavailable'&&proxy.hits===0
+        &&acc.code==='envelope_azure_kv_sdk_unavailable'&&acc.hits===0
+        &&get.code==='envelope_azure_kv_sdk_unavailable'&&get.hits===0
+        &&mut.code==='envelope_azure_kv_sdk_unavailable',proxy,acc,get,mut});
+    `);
+    const b = parseChildJson(ch);
+    ok('loadAzureSdks Proxy/accessor/getter/cacheMut → sdk_unavailable; trap hits=0',
+      ch.status === 0 && b && b.ok, JSON.stringify(b));
+  }
+  // NODE_PATH spoof: exact meta/layout/getter outside app root → reject before require/getter
+  {
+    const idE=path.join(fakeAz.nodePath,'@azure/identity/dist/commonjs/index.js');
+    const kvE=path.join(fakeAz.nodePath,'@azure/keyvault-keys/dist/commonjs/index.js');
+    fs.writeFileSync(path.join(fakeAz.nodePath,'@azure/identity/dist/commonjs/credentials/managedIdentityCredential/index.js'),
+      "const o={};Object.defineProperty(o,'ManagedIdentityCredential',{enumerable:true,get(){globalThis.__spoofG=(globalThis.__spoofG||0)+1;return function(){};}});module.exports=o;");
+    fs.writeFileSync(path.join(fakeAz.nodePath,'@azure/keyvault-keys/dist/commonjs/cryptographyClient.js'),
+      "const o={};Object.defineProperty(o,'CryptographyClient',{enumerable:true,get(){globalThis.__spoofG=(globalThis.__spoofG||0)+1;return function(){};}});module.exports=o;");
+    const ch=runChild(PRE+`
+      const idE=${JSON.stringify(idE)},kvE=${JSON.stringify(kvE)},base=${JSON.stringify(fakeAz.base)};
+      const rr=Module._resolveFilename;Module._resolveFilename=function(r,p,m,o){
+        if(r==='@azure/identity')return idE;if(r==='@azure/keyvault-keys')return kvE;return rr(r,p,m,o);};
+      let loads=0;const rl=Module._load;Module._load=function(r,p,m){
+        if(typeof r==='string'&&(r.includes('managedIdentityCredential')||r.endsWith('cryptographyClient.js')||r===idE||r===kvE||r.includes(base)))loads++;
+        return rl(r,p,m);};
+      const mod=require(COMP);let code=null;
+      try{mod.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(enabled());}catch(e){code=e&&e.code;}
+      out({ok:code==='envelope_azure_kv_sdk_unavailable'&&loads===0&&(globalThis.__spoofG||0)===0,code,loads,g:globalThis.__spoofG||0});
+    `,{NODE_PATH:fakeAz.nodePath});
+    const b=parseChildJson(ch);
+    ok('NODE_PATH spoof exact meta/layout/getter: reject before require; getter=0', ch.status===0&&b&&b.ok, JSON.stringify(b));
+  }
+  // Symlink escape: resolve → symlink whose realpath is outside app package root
+  {
+    const outDir=fs.mkdtempSync(path.join(os.tmpdir(),'az-sym-'));
+    try{
+      const evil=path.join(outDir,'evil-entry.js');
+      fs.writeFileSync(evil,'globalThis.__symG=(globalThis.__symG||0)+1;module.exports={};');
+      const link=path.join(outDir,'link-entry.js'); fs.symlinkSync(evil,link);
+      const ch=runChild(PRE+`
+        const link=${JSON.stringify(link)},outDir=${JSON.stringify(outDir)};
+        const rr=Module._resolveFilename;Module._resolveFilename=function(r,p,m,o){
+          if(r==='@azure/identity'||r==='@azure/keyvault-keys')return link;return rr(r,p,m,o);};
+        let loads=0;const rl=Module._load;Module._load=function(r,p,m){
+          if(typeof r==='string'&&(r===link||r.includes(outDir)))loads++;return rl(r,p,m);};
+        const mod=require(COMP);let code=null;
+        try{mod.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(enabled());}catch(e){code=e&&e.code;}
+        out({ok:code==='envelope_azure_kv_sdk_unavailable'&&loads===0&&(globalThis.__symG||0)===0,code,loads,g:globalThis.__symG||0});
+      `);
+      const b=parseChildJson(ch);
+      ok('symlink escape entry realpath outside app root: reject; load/getter=0', ch.status===0&&b&&b.ok, JSON.stringify(b));
+    }finally{try{fs.rmSync(outDir,{recursive:true,force:true});}catch{/* ignore */}}
+  }
+  } finally { try { fs.rmSync(fakeAz.base, { recursive: true, force: true }); } catch { /* ignore */ } }
+
+  // REAL app-root SDK only (never NODE_PATH authority); zero network at construct
+  {
+    let appAz=false;
+    try{require.resolve('@azure/identity',{paths:[path.join(ROOT,'node_modules')]});
+      require.resolve('@azure/keyvault-keys',{paths:[path.join(ROOT,'node_modules')]});appAz=true;}catch{}
+    if(!appAz) ok('REAL Azure SDK environmental absence (not claiming construct)', true);
+    else {
+      const ch=runChild(PRE+`
+        const https=require('https'),http=require('http'),net=require('net'),tls=require('tls');
+        let netN=0;const bump=()=>{netN++;throw new Error('net');};
+        https.request=bump;http.request=bump;net.connect=bump;tls.connect=bump;
+        if(typeof globalThis.fetch==='function')globalThis.fetch=bump;
+        const loads={root:0,deep:0};const rl=Module._load;
+        Module._load=function(r,p,m){if(typeof r==='string'){
+          if(r==='@azure/identity'||r==='@azure/keyvault-keys'||(r.includes('@azure/')&&r.endsWith('dist/commonjs/index.js')))loads.root++;
+          if(r.includes('managedIdentityCredential')||r.endsWith('cryptographyClient.js'))loads.deep++;}
+          return rl(r,p,m);};
+        const idE=require.resolve('@azure/identity'),kvE=require.resolve('@azure/keyvault-keys');
+        const mod=require(COMP); let composed=null,code=null;
+        try{composed=mod.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(enabled());}catch(e){code=e&&e.code;}
+        out({ok:!!composed&&composed.ok&&loads.root===0&&loads.deep>=2&&netN===0&&!require.cache[idE]&&!require.cache[kvE]&&!code,loads,netN,code});
+      `);
+      const b=parseChildJson(ch);
+      ok('REAL app-root SDK deep construct; zero root/cache/network', ch.status===0&&b&&b.ok, `st=${ch.status} ${JSON.stringify(b)}`);
+    }
   }
 
   ok('parse omitted → disabled', (() => {

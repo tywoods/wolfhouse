@@ -172,8 +172,9 @@ async function main() {
   Object.defineProperty(acc, PHASE_B_REAUTH_START_ENABLED_ENV, { get() { return 'true'; }, enumerable: true });
   assert.equal(isPhaseBReauthStartEnabled(acc), false);
   assert.equal(isPhaseBReauthStartEnabled(snapshotPhaseBReauthGateEnv(env())), true);
-  assert.equal(EMAIL_MS_PHASE_B_CALLBACK_RUNTIME_WIRED, false);
-  assert.equal(EMAIL_MS_PHASE_B_CALLBACK_SAFE_FOR_RUNTIME_ROUTE, false);
+  // B3a2b: Phase B callback runtime is route-wired/safe; flags remain default-off.
+  assert.equal(EMAIL_MS_PHASE_B_CALLBACK_RUNTIME_WIRED, true);
+  assert.equal(EMAIL_MS_PHASE_B_CALLBACK_SAFE_FOR_RUNTIME_ROUTE, true);
   assert.equal(EMAIL_MS_PHASE_B_CALLBACK_DEFERRED_ACTIVATION, true);
   assert.equal(PHASE_B_CALLBACK_ENABLED_ENV, 'LUNA_EMAIL_OAUTH_PHASE_B_CALLBACK_ENABLED');
   assert.equal(isPhaseBReauthStartEnabled({
@@ -412,7 +413,7 @@ async function main() {
   // Module._load: mutated producer + independent validator reject authority/redirect/scope/TTL
   await assertMutatedProducerRejected();
   assert.match(fs.readFileSync(path.join(ROOT, 'scripts/lib/email-microsoft-phase-b-oauth-sunset-staging-runtime-composition.js'), 'utf8'),
-    /EMAIL_MS_PHASE_B_CALLBACK_RUNTIME_WIRED = false/);
+    /EMAIL_MS_PHASE_B_CALLBACK_RUNTIME_WIRED = true/);
   assert.equal(JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).scripts['verify:staff-email-oauth-phase-b-reauthorize-route'],
     'node scripts/verify-staff-email-oauth-phase-b-reauthorize-route.js');
   const baseline = path.join(ROOT, 'config/clients/sunset.baseline.json');
