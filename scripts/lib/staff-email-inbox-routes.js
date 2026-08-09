@@ -1,18 +1,19 @@
 'use strict';
 /** Gate 3 staff email draft/approve-send (offline). */
 /*
- * Genuine freeze intrinsic for recovery ack ownership — established FIRST,
- * before any local require whose import graph may read host Object.isFrozen.
+ * Genuine freeze intrinsic for recovery ack ownership — private only.
  *
- * Do NOT read host Object.isFrozen at import: pre-require
+ * Established before any local require whose import graph may read host
+ * Object.isFrozen. Do NOT read host Object.isFrozen at import: pre-require
  * Object.isFrozen=()=>true would otherwise be pinned as trusted and map
- * mutable own-data {ok:true,code:email_send_committed} as HTTP 200; a
- * throwing host isFrozen accessor would prevent module load via transitive
- * pins (journal/outbound operation).
+ * mutable own-data {ok:true,code:email_send_committed} as HTTP 200.
  *
  * Source: fresh Node vm realm Object.isFrozen (independent primordial).
- * Recovery gate calls only PINNED_IS_FROZEN. Scope is this freeze boundary
- * only — not every host primordial. Fail closed (null) if acquisition fails.
+ * Recovery gate calls only PINNED_IS_FROZEN. NEVER install onto process-global
+ * Object.isFrozen (forbidden host mutation). If a transitive dependency cannot
+ * load under pre-import host poison, import may fail closed deterministically;
+ * never mutate the global to force the load graph open. Scope is this freeze
+ * boundary only. Fail closed (null) if acquisition fails.
  */
 const PINNED_OBJECT = Object;
 const PINNED_IS_FROZEN = (() => {
@@ -38,33 +39,6 @@ const PINNED_IS_FROZEN = (() => {
     return null;
   }
 })();
-/*
- * Load-graph enablement only: install the genuine isFrozen as a host data
- * property WITHOUT reading/invoking host Object.isFrozen (descriptor inspect
- * only). Transitive modules still pin ambient Object.isFrozen at their import;
- * under a pre-require throwing accessor that would throw on typeof/read and
- * block this routes module from loading. Recovery ack path never trusts those
- * sibling pins — it uses PINNED_IS_FROZEN exclusively.
- */
-(function installGenuineIsFrozenForLoadGraph(genuine) {
-  if (typeof genuine !== 'function') return;
-  try {
-    const desc = Object.getOwnPropertyDescriptor(Object, 'isFrozen');
-    if (desc && desc.configurable === false && desc.writable === false) return;
-    if (desc && desc.configurable === false && desc.writable === true) {
-      Object.isFrozen = genuine;
-      return;
-    }
-    Object.defineProperty(Object, 'isFrozen', {
-      configurable: true,
-      enumerable: false,
-      writable: true,
-      value: genuine,
-    });
-  } catch {
-    /* leave host as-is; recovery uses PINNED_IS_FROZEN or fail-closed */
-  }
-}(PINNED_IS_FROZEN));
 
 const crypto = require('crypto');
 const http = require('http');
