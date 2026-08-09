@@ -351,6 +351,7 @@
     "prove:email-phase-b-stock-pg-concurrency": "node scripts/prove-email-phase-b-stock-pg-concurrency.js",
     "verify:email-microsoft-phase-b-oauth-callback-composition": "node scripts/verify-email-microsoft-phase-b-oauth-callback-composition.js",
     "verify:email-microsoft-phase-b-oauth-runtime-composition": "node scripts/verify-email-microsoft-phase-b-oauth-runtime-composition.js",
+    "verify:email-microsoft-phase-b-token-scope-classification": "node scripts/verify-email-microsoft-phase-b-token-scope-classification.js",
     "verify:email-microsoft-oauth-shared-callback-dispatch": "node scripts/verify-email-microsoft-oauth-shared-callback-dispatch.js",
     "verify:email-sunset-microsoft-endpoint-prepare": "node scripts/verify-email-sunset-microsoft-endpoint-prepare.js",
     "verify:email-graph-app-only-readiness": "node scripts/verify-email-graph-app-only-readiness.js",
