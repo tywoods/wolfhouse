@@ -1037,17 +1037,21 @@ async function main() {
   // Source contract: recovery ack boundary must pin isFrozen and not re-consult ambient.
   {
     const src = fs.readFileSync(ROUTES_ABS, 'utf8');
-    const pinPresent = /PINNED_IS_FROZEN/.test(src);
+    const pinPresent = /PINNED_IS_FROZEN/.test(src)
+      && /function pinnedIsFrozen\s*\(/.test(src)
+      && /PINNED_REFLECT_APPLY/.test(src);
     const acceptFn = src.includes('function acceptRecoveryDispatchAck');
-    // Ambient re-consultation patterns inside acceptRecoveryDispatchAck must not remain.
+    // Ambient re-consultation call sites inside acceptRecoveryDispatchAck must not remain.
+    // Comments may mention Object.isFrozen; ban only ambient call/typeof forms.
     const acceptBody = (() => {
       const m = src.match(/function acceptRecoveryDispatchAck\([\s\S]*?\n\}/);
       return m ? m[0] : '';
     })();
-    const ambientInAccept = /Object\.isFrozen/.test(acceptBody);
+    const ambientCallInAccept = /(?:typeof\s+Object\.isFrozen|Object\.isFrozen\s*\()/.test(acceptBody);
+    const usesPinned = /pinnedIsFrozen\s*\(\s*result\s*\)/.test(acceptBody);
     ok('source pins PINNED_IS_FROZEN for recovery ack freeze gate',
-      pinPresent && acceptFn && !ambientInAccept,
-      JSON.stringify({ pinPresent, acceptFn, ambientInAccept, acceptSnippet: acceptBody.slice(0, 200) }));
+      pinPresent && acceptFn && usesPinned && !ambientCallInAccept,
+      JSON.stringify({ pinPresent, acceptFn, usesPinned, ambientCallInAccept, acceptSnippet: acceptBody.slice(0, 280) }));
   }
 
   // Router wiring offline integration

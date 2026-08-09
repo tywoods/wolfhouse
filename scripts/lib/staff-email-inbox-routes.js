@@ -38,6 +38,13 @@ if (EMAIL_AUTHORITY_BOUND_OUTBOUND_RUNTIME_WIRED !== false || EMAIL_AUTHORITY_BO
     || EMAIL_AUTHORITY_BOUND_OUTBOUND_PERSISTENCE_READY !== false) throw new Error('staff_email_inbox_outbound_flags');
 const PINNED_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
 const PINNED_IS_PROXY = PINNED_TYPES && typeof PINNED_TYPES.isProxy === 'function' ? PINNED_TYPES.isProxy : null;
+/* Pin Object.isFrozen at module init. Recovery ack freeze gate must never
+ * re-consult ambient Object.isFrozen after load (always-true / throwing /
+ * accessor replacements would otherwise map mutable own-data committed acks).
+ * Fail closed when the pin is unavailable or not callable. */
+const PINNED_OBJECT = Object;
+const PINNED_IS_FROZEN = typeof Object.isFrozen === 'function' ? Object.isFrozen : null;
+const PINNED_REFLECT_APPLY = typeof Reflect.apply === 'function' ? Reflect.apply : null;
 const PINNED_IM_PROTO = http.IncomingMessage && http.IncomingMessage.prototype ? http.IncomingMessage.prototype : null;
 const PINNED_HDR_GET = (() => {
   if (!PINNED_IM_PROTO) return null;
@@ -46,6 +53,15 @@ const PINNED_HDR_GET = (() => {
 })();
 function isProxy(v) {
   try { return !PINNED_IS_PROXY || !PINNED_TYPES ? true : Reflect.apply(PINNED_IS_PROXY, PINNED_TYPES, [v]) === true; } catch { return true; }
+}
+/** Module-init-pinned isFrozen only — never ambient Object.isFrozen. Fail closed. */
+function pinnedIsFrozen(value) {
+  try {
+    if (!PINNED_IS_FROZEN || typeof PINNED_IS_FROZEN !== 'function' || !PINNED_REFLECT_APPLY) return false;
+    return PINNED_REFLECT_APPLY.call(Reflect, PINNED_IS_FROZEN, PINNED_OBJECT, [value]) === true;
+  } catch {
+    return false;
+  }
 }
 function ownData(o, k) {
   try { const d = Object.getOwnPropertyDescriptor(o, k); return d && Object.prototype.hasOwnProperty.call(d, 'value') && !d.get && !d.set ? d.value : undefined; } catch { return undefined; }
@@ -262,6 +278,8 @@ const RECOVERY_DISPATCH_ACK_KEYS = Object.freeze(['ok', 'code']);
  * exact own keys {ok, code}, own data descriptors only (no accessors /
  * inheritance / extras / Proxy), primitive boolean + public code string.
  * Reject Proxy via module-init-pinned isProxy before any reflection.
+ * Freeze check uses module-init-pinned Object.isFrozen only (Reflect.apply);
+ * never consults ambient Object.isFrozen. Fail closed if pin unavailable.
  * Never evaluates result.ok directly.
  */
 function acceptRecoveryDispatchAck(result) {
@@ -270,7 +288,8 @@ function acceptRecoveryDispatchAck(result) {
     // Proxy rejection must precede getOwnPropertyDescriptor / ownKeys / reads.
     if (isProxy(result)) return null;
     if (typeof result !== 'object' || Array.isArray(result)) return null;
-    if (typeof Object.isFrozen === 'function' && Object.isFrozen(result) !== true) return null;
+    // Pinned isFrozen only — ambient post-init always-true must not open committed.
+    if (pinnedIsFrozen(result) !== true) return null;
     if (!exactPlainKeys(result, RECOVERY_DISPATCH_ACK_KEYS)) return null;
     const okVal = ownData(result, 'ok');
     const code = ownData(result, 'code');
