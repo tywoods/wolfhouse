@@ -28,6 +28,7 @@ const {
 } = require('./email-microsoft-oauth-sunset-staging-runtime-composition');
 const {
   createMicrosoftOauthSharedCallbackDispatch,
+  snapQuery: snapSharedCallbackQuery,
   PHASE_A_CALLBACK_ENABLED_ENV,
   PHASE_B_CALLBACK_ENABLED_ENV,
   SUNSET_DEPLOYMENT: SHARED_CALLBACK_SUNSET_DEPLOYMENT,
@@ -72,6 +73,7 @@ const {
   createCallbackEmailOAuthStageTelemetry,
   createNoopEmailOAuthStageTelemetry,
   defaultEmailOAuthStageLogger,
+  safeEmitStage,
 } = require('./email-microsoft-oauth-stage-telemetry');
 const {
   GRAPH_STAGES,
@@ -1888,16 +1890,25 @@ function createStaffEmailOAuthRoutes(deps) {
     if (!isSharedOauthCallbackRouteEnabled(env)) {
       return terminal(res, 404, 'invalid_or_expired');
     }
+    const stageTelemetry = buildCallbackStageTelemetry();
+    safeEmitStage(stageTelemetry, 'callback_route_accepted');
     // Authenticated admin Sunset session; canonical client/session UUIDs only.
     // Preserve existing unauthenticated/forbidden semantics (400, no leak).
     if (!isSharedOauthCallbackCallerIdentityValid(user)) {
+      safeEmitStage(stageTelemetry, 'callback_failed');
       return terminal(res, 400, 'invalid_or_expired');
+    }
+    safeEmitStage(stageTelemetry, 'callback_owner_authenticated');
+    // Diagnostic-only mirror of the dispatcher's strict snapshot. Do not branch
+    // on it here: callback acceptance and PG-loan semantics stay unchanged.
+    if (snapSharedCallbackQuery(query)) {
+      safeEmitStage(stageTelemetry, 'callback_query_validated');
     }
     // Snapshot server-generated stage telemetry once per callback (shared by
     // all stages). Logger failures never affect OAuth; no ALS/x-request-id.
-    const stageTelemetry = buildCallbackStageTelemetry();
     try {
       const result = await deps.withPgClient(async (pg) => {
+        safeEmitStage(stageTelemetry, 'callback_pg_acquired');
         // Per-request composition only: fresh B3a1 dispatcher (single-use).
         // Factories close over this exclusive PG loan — no nested checkout.
         // Natives always from production wrap of node:https / node:crypto /
@@ -1932,7 +1943,9 @@ function createStaffEmailOAuthRoutes(deps) {
           env: dispatchEnv,
           createPhaseACallback,
           createPhaseBCallback,
+          stageTelemetry,
         }));
+        safeEmitStage(stageTelemetry, 'callback_dispatch_constructed');
         // Owner from server session only — never provider query.
         return dispatcher.accept(query, {
           clientId: user.client_id,
@@ -1940,12 +1953,16 @@ function createStaffEmailOAuthRoutes(deps) {
         });
       });
       // Exact existing public bounded HTTP mapping (no bodies/codes/tokens).
+      if (!result || result.status === 'invalid_or_expired') {
+        safeEmitStage(stageTelemetry, 'callback_failed');
+      }
       return terminal(
         res,
         result && result.status === 'invalid_or_expired' ? 400 : 200,
         result && result.status ? result.status : 'invalid_or_expired',
       );
     } catch (_) {
+      safeEmitStage(stageTelemetry, 'callback_failed');
       return terminal(res, 400, 'invalid_or_expired');
     }
   }

@@ -161,6 +161,22 @@ test('exports frozen surface and exact stage vocabulary', async function exportS
   // Finer Graph /me milestones sit between oidc_verified and the retained
   // graph_identity_verified terminal Graph success stage.
   assert.deepEqual([...STAGES], [
+    'callback_route_accepted',
+    'callback_owner_authenticated',
+    'callback_query_validated',
+    'callback_pg_acquired',
+    'callback_dispatch_constructed',
+    'phase_a_started',
+    'phase_a_invalid',
+    'phase_b_runtime_constructed',
+    'phase_b_started',
+    'phase_b_owner_validated',
+    'phase_b_input_validated',
+    'phase_b_state_hashed',
+    'phase_b_clock_validated',
+    'phase_b_consume_started',
+    'phase_b_consume_matched',
+    'phase_b_row_validated',
     'callback_consumed',
     'token_request_started',
     'token_response_received',

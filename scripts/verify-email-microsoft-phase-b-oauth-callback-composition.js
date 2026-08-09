@@ -128,9 +128,10 @@ function statusOnly(r, expected) {
 function svc(opts) {
   const consumeCalls = { n: 0 };
   const completeCalls = { n: 0 };
-  const s = createMicrosoftPhaseBOauthCallbackCompletionService(Object.freeze({
+  const dependencies = {
     repository: makeRepo(async (args) => {
       consumeCalls.n += 1;
+      if (opts.consumeThrow) throw new Error(PLANTED);
       return opts.row === undefined ? phaseBRow() : opts.row;
     }),
     completion: makeCompletion(async (input) => {
@@ -140,7 +141,11 @@ function svc(opts) {
     }),
     env: opts.env || bEnv(),
     clock: makeClock(),
-  }));
+  };
+  if (opts.events) dependencies.stageTelemetry = Object.freeze({
+    emit(stage) { opts.events.push(stage); },
+  });
+  const s = createMicrosoftPhaseBOauthCallbackCompletionService(Object.freeze(dependencies));
   return { s, consumeCalls, completeCalls };
 }
 
@@ -155,6 +160,31 @@ function svc(opts) {
     const r = await s.accept(plain, owner());
     ok('raw query code+state+session_state any order',
       r.status === 'authorization_received' && completeCalls.n === 1);
+  }
+
+  // Diagnostic-only pre-consumption stages distinguish stop boundaries without
+  // changing the public failure contract or invoking completion prematurely.
+  {
+    const prefix = [
+      'phase_b_owner_validated', 'phase_b_input_validated', 'phase_b_state_hashed',
+      'phase_b_clock_validated', 'phase_b_consume_started',
+    ];
+    const cases = [
+      { name: 'consume no-match', opts: { row: null }, expected: [...prefix, 'callback_failed'] },
+      { name: 'consume DB throw', opts: { consumeThrow: true }, expected: [...prefix, 'callback_failed'], throws: true },
+      { name: 'malformed consumed row', opts: { row: phaseBRow({ nonce: PLANTED }) }, expected: [...prefix, 'phase_b_consume_matched', 'callback_failed'], throws: true },
+    ];
+    for (const c of cases) {
+      const events = [];
+      const { s, completeCalls } = svc({ ...c.opts, events });
+      let result = null; let threw = false;
+      try { result = await s.accept(codeInput(), owner()); } catch (e) { threw = e && e.code === ERROR_CODE; }
+      ok(`stage stop: ${c.name}`,
+        threw === Boolean(c.throws)
+        && (c.throws || statusOnly(result, 'invalid_or_expired'))
+        && JSON.stringify(events) === JSON.stringify(c.expected)
+        && completeCalls.n === 0 && noLeak(events));
+    }
   }
 
   // Happy path: consume-once, exact frozen handoff, status-only, reentrant burn
@@ -199,6 +229,17 @@ function svc(opts) {
 
   // Error path both key orders; extras/duplicates; no row; outcome_unknown
   {
+    for (const providerError of ['access_denied', 'interaction_required', 'temporarily_unavailable']) {
+      const events = [];
+      const { s, consumeCalls, completeCalls } = svc({ events });
+      const input = Object.freeze({ error: providerError, state: STATE });
+      const r = await s.accept(input, owner());
+      ok(`realistic Entra error ${providerError} remains diagnostic-only declined`,
+        statusOnly(r, 'authorization_declined')
+        && consumeCalls.n === 1 && completeCalls.n === 0
+        && events.includes('callback_consumed')
+        && !events.includes('callback_failed') && noLeak(events));
+    }
     for (const order of ['state_first', 'error_first']) {
       const { s, consumeCalls, completeCalls } = svc({});
       const r = await s.accept(errorInput(order), owner());
@@ -604,8 +645,8 @@ function svc(opts) {
     const ver = fs.readFileSync(path.join(ROOT, verFile), 'utf8').split(/\r?\n/).length;
     const total = src + ver;
     ok(`budget source=${src} <=430`, src <= 430);
-    ok(`budget verifier=${ver} <=660`, ver <= 660);
-    ok(`budget total=${total} <=1090`, total <= 1090);
+    ok(`budget verifier=${ver} <=705`, ver <= 705);
+    ok(`budget total=${total} <=1120`, total <= 1120);
     ok('B2a budget files present (callback + verifier); B2b optional peers allowed',
       fs.existsSync(path.join(ROOT, srcFile))
       && fs.existsSync(path.join(ROOT, verFile)));

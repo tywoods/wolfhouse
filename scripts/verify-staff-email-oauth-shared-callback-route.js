@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const v8 = require('node:v8');
 const Module = require('node:module');
+const url = require('node:url');
 const { spawnSync } = require('node:child_process');
 const {
   OAUTH_CALLBACK_PATH, OAUTH_START_PATH, OAUTH_REAUTHORIZE_PATH,
@@ -118,19 +119,21 @@ function completionStub(ctr, key) {
   } });
 }
 function realAFactory(db, ctr) {
-  return () => createMicrosoftOAuthCallbackCompletionService(Object.freeze({
+  return ({ stageTelemetry }) => createMicrosoftOAuthCallbackCompletionService(Object.freeze({
     repository: pinConsume(createPostgresOAuthTransactionRepository(db)),
     completion: completionStub(ctr, 'a'),
     env: { LUNA_DEPLOYMENT: 'sunset-staging', LUNA_EMAIL_OAUTH_CALLBACK_ENABLED: 'true', LUNA_EMAIL_OAUTH_CLIENT_ID: APP },
     clock: Object.freeze({ now() { return new Date(); } }),
+    stageTelemetry,
   }));
 }
 function realBFactory(db, ctr) {
-  return () => createMicrosoftPhaseBOauthCallbackCompletionService(Object.freeze({
+  return ({ stageTelemetry }) => createMicrosoftPhaseBOauthCallbackCompletionService(Object.freeze({
     repository: pinConsume(createPostgresPhaseBOauthTransactionConsumer(db)),
     completion: completionStub(ctr, 'b'),
     env: { LUNA_DEPLOYMENT: 'sunset-staging', LUNA_EMAIL_OAUTH_CLIENT_ID: APP, [PHASE_B_CALLBACK_ENABLED_ENV]: 'true' },
     clock: Object.freeze({ now() { return new Date(); } }),
+    stageTelemetry,
   }));
 }
 function fullEnv(a, b) {
@@ -441,8 +444,33 @@ async function main() {
         env: env(true, true), withPgClient: async (fn) => fn(db),
         aFactory: realAFactory(db, ctr), bFactory: realBFactory(db, ctr),
       });
-      const r1 = await call(routes, q(), admin());
+      const logs = [];
+      const originalLog = console.log;
+      let r1;
+      try {
+        console.log = (line) => { logs.push(line); };
+        const nativeQuery = url.parse(
+          `/staff/email/oauth/microsoft/callback?code=${encodeURIComponent(CODE)}&state=${encodeURIComponent(STATE)}&session_state=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee`,
+          true,
+        ).query;
+        r1 = await call(routes, nativeQuery, admin());
+      } finally { console.log = originalLog; }
+      const events = logs.map((line) => JSON.parse(line));
+      const expectedPreconsume = [
+        'callback_route_accepted', 'callback_owner_authenticated', 'callback_query_validated',
+        'callback_pg_acquired', 'callback_dispatch_constructed', 'phase_a_started',
+        'phase_a_invalid', 'phase_b_runtime_constructed', 'phase_b_started',
+        'phase_b_owner_validated', 'phase_b_input_validated', 'phase_b_state_hashed',
+        'phase_b_clock_validated', 'phase_b_consume_started', 'phase_b_consume_matched',
+        'phase_b_row_validated', 'callback_consumed',
+      ];
       const r2 = await call(routes, q(), admin());
+      ok('both+B-intent: native url.parse query reaches Phase B with exact sanitized stages',
+        isTerminal(r1, 200, 'Authorization response received')
+        && events.map((e) => e.stage).join(',') === expectedPreconsume.join(',')
+        && new Set(events.map((e) => e.request_id)).size === 1
+        && events.every((e) => Reflect.ownKeys(e).join(',') === 'event,stage,request_id')
+        && noLeak(events));
       ok('both+B-intent: B completes once; replay terminal; intent-disjoint',
         isTerminal(r1, 200, 'Authorization response received')
         && isTerminal(r2, 400, 'could not be accepted')
