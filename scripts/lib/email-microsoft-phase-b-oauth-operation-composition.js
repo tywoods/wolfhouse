@@ -151,15 +151,15 @@ function assertUniqueKeys(body) {
     if (depth === 1 && ch === ',') exp = true;
   }
 }
-function validateTokenResponse(response) {
+function validateTokenResponse(response, stageTelemetry) {
   if (!response || isProxy(response) || Object.getPrototypeOf(response) !== Object.prototype || own(response, 'statusCode') !== 200) throw failure();
   const type = own(response, 'contentType'); const body = own(response, 'body');
   if (typeof type !== 'string' || !/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(type)) throw failure();
-  if (typeof body !== 'string' || Buffer.byteLength(body, 'utf8') > JSON_LIMIT || body.includes('\ufffd')) throw failure();
+  if (typeof body !== 'string' || Buffer.byteLength(body, 'utf8') > JSON_LIMIT || body.includes('\ufffd')) throw failure(); safeEmitStage(stageTelemetry, 'token_response_envelope_validated');
   assertUniqueKeys(body);
   let value; try { value = JSON.parse(body); } catch { throw failure(); }
   if (!value || isProxy(value) || Object.getPrototypeOf(value) !== Object.prototype
-      || Reflect.ownKeys(value).some((k) => typeof k !== 'string' || DANGEROUS.has(k))) throw failure();
+      || Reflect.ownKeys(value).some((k) => typeof k !== 'string' || DANGEROUS.has(k))) throw failure(); safeEmitStage(stageTelemetry, 'token_response_json_validated');
   const tokenType = own(value, 'token_type'); const expiresIn = own(value, 'expires_in');
   const accessToken = own(value, 'access_token'); const refreshToken = own(value, 'refresh_token');
   const idToken = own(value, 'id_token'); const scope = own(value, 'scope');
@@ -167,9 +167,9 @@ function validateTokenResponse(response) {
       || !printable(accessToken, TOK_LIM) || !printable(refreshToken, TOK_LIM) || !printable(idToken, ID_LIM)) throw failure();
   if (Object.prototype.hasOwnProperty.call(value, 'ext_expires_in')) {
     const ext = own(value, 'ext_expires_in'); if (!Number.isInteger(ext) || ext < 1 || ext > MAX_EXP) throw failure();
-  }
+  } safeEmitStage(stageTelemetry, 'token_response_fields_validated');
   const ns = validateAndNormalizePhaseBTokenResponseScope(scope); if (ns === null) throw failure();
-  return Object.freeze({ accessToken, refreshToken, tokenType, expiresIn, scope: ns, idToken });
+  safeEmitStage(stageTelemetry, 'token_response_scope_validated'); return Object.freeze({ accessToken, refreshToken, tokenType, expiresIn, scope: ns, idToken });
 }
 function statusOne(v, st) {
   return Boolean(v && !isProxy(v) && Object.isFrozen(v) && Object.getPrototypeOf(v) === Object.prototype
@@ -238,7 +238,7 @@ function createMicrosoftPhaseBOauthOperationComposition(dependencies) {
       safeEmitStage(pinned.stageTelemetry, 'token_request_started');
       let rawResponse; try { rawResponse = await transport.postTokenForm(Object.freeze({ body })); } catch { throw failure(); }
       safeEmitStage(pinned.stageTelemetry, 'token_response_received');
-      let selected; try { selected = validateTokenResponse(rawResponse); } catch { throw failure(); }
+      let selected; try { selected = validateTokenResponse(rawResponse, pinned.stageTelemetry); } catch { throw failure(); }
       safeEmitStage(pinned.stageTelemetry, 'token_response_validated');
       let sealed; try { sealed = await Reflect.apply(own(grantCustody, 'acceptValidatedTokens'), grantCustody, [selected]); } catch { throw failure(); }
       if (statusOne(sealed, OUTCOME_UNKNOWN)) return OUTCOME_UNKNOWN_ACK;
