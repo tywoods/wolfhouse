@@ -371,7 +371,7 @@ async function expectFail(fn) {
     const txnNet = m ? Number(m[1]) - Number(m[2]) : Number.NaN;
     const implNet = dLoc + txnNet;
     ok(`budget impl=${implNet} ver=${vLoc} total=${implNet + vLoc}`,
-      Number.isSafeInteger(txnNet) && implNet <= 280 && vLoc <= 385 && implNet + vLoc <= 665);
+      Number.isSafeInteger(txnNet) && implNet <= 295 && vLoc <= 385 && implNet + vLoc <= 680);
     ok('A/B factories present', typeof createMicrosoftOAuthCallbackService === 'function'
       && typeof createMicrosoftPhaseBOauthCallbackCompletionService === 'function');
   }

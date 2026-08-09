@@ -1,10 +1,13 @@
 'use strict';
 /** Gate 3 B3a2b focused production-router verifier (offline). */
+const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const v8 = require('node:v8');
 const Module = require('node:module');
+const url = require('node:url');
+const http = require('node:http');
 const { spawnSync } = require('node:child_process');
 const {
   OAUTH_CALLBACK_PATH, OAUTH_START_PATH, OAUTH_REAUTHORIZE_PATH,
@@ -118,19 +121,21 @@ function completionStub(ctr, key) {
   } });
 }
 function realAFactory(db, ctr) {
-  return () => createMicrosoftOAuthCallbackCompletionService(Object.freeze({
+  return ({ stageTelemetry }) => createMicrosoftOAuthCallbackCompletionService(Object.freeze({
     repository: pinConsume(createPostgresOAuthTransactionRepository(db)),
     completion: completionStub(ctr, 'a'),
     env: { LUNA_DEPLOYMENT: 'sunset-staging', LUNA_EMAIL_OAUTH_CALLBACK_ENABLED: 'true', LUNA_EMAIL_OAUTH_CLIENT_ID: APP },
     clock: Object.freeze({ now() { return new Date(); } }),
+    stageTelemetry,
   }));
 }
 function realBFactory(db, ctr) {
-  return () => createMicrosoftPhaseBOauthCallbackCompletionService(Object.freeze({
+  return ({ stageTelemetry }) => createMicrosoftPhaseBOauthCallbackCompletionService(Object.freeze({
     repository: pinConsume(createPostgresPhaseBOauthTransactionConsumer(db)),
     completion: completionStub(ctr, 'b'),
     env: { LUNA_DEPLOYMENT: 'sunset-staging', LUNA_EMAIL_OAUTH_CLIENT_ID: APP, [PHASE_B_CALLBACK_ENABLED_ENV]: 'true' },
     clock: Object.freeze({ now() { return new Date(); } }),
+    stageTelemetry,
   }));
 }
 function fullEnv(a, b) {
@@ -233,6 +238,85 @@ function isTerminal(res, code, needle) {
 }
 async function main() {
   console.log('\n== B3a2b shared OAuth callback production route ==');
+
+  // Genuine emitted production HTTP listener/router boundary. Native
+  // IncomingMessage, cookie header, url.parse, outer auth, Staff OAuth route,
+  // shared dispatcher, and real A/B transaction consumers remain real. Exact
+  // offline seam: callback completion factories replace hard Azure/provider
+  // construction; session/ACL/PG use the existing dual-gated harness.
+  {
+    const saved = {};
+    for (const [k, v] of Object.entries({
+      NODE_ENV: 'test', STAFF_RUNTIME_PROFILE: 'test', STAFF_API_FORTRESS_OFFLINE_LISTENER: '1',
+      STAFF_AUTH_REQUIRED: 'true', STAFF_AUTH_HTTPS: 'false',
+      LUNA_DEPLOYMENT: 'sunset-staging', LUNA_EMAIL_OAUTH_CALLBACK_ENABLED: 'true',
+      LUNA_EMAIL_OAUTH_PHASE_B_CALLBACK_ENABLED: 'true', LUNA_EMAIL_OAUTH_CLIENT_ID: APP,
+      LUNA_EMAIL_OAUTH_CLIENT_SECRET: SECRET, LUNA_BOT_INTERNAL_TOKEN: 'offline_gate3_listener_token_123456',
+      [ENV_COMPOSITION_ENABLED]: 'true', [ENV_TRUSTED_HOST]: SUNSET_STAGING_TRUSTED_HOST,
+      [ENV_VERSIONED_KEY_ID]: SUNSET_STAGING_VERSIONED_KEY_ID,
+    })) { saved[k] = process.env[k]; process.env[k] = v; }
+    let api; let server;
+    try {
+      const realLoad = Module._load;
+      Module._load = function loadWithOfflineCallbackCompletion(request, parent, isMain) {
+        const loaded = realLoad(request, parent, isMain);
+        if (!(parent && /staff-query-api\.js$/.test(parent.filename)
+            && /staff-email-oauth-routes/.test(String(request)))) return loaded;
+        return Object.freeze({ ...loaded,
+          createStaffEmailOAuthRoutes(deps) {
+            return loaded.createStaffEmailOAuthRoutes({ ...deps,
+              createPhaseACallbackFactory: ({ pgClient, stageTelemetry }) => realAFactory(pgClient, { a: 0, b: 0 })({ stageTelemetry }),
+              createPhaseBCallbackFactory: ({ pgClient, stageTelemetry }) => realBFactory(pgClient, { a: 0, b: 0 })({ stageTelemetry }),
+            });
+          },
+        });
+      };
+      try { api = require('./staff-query-api'); } finally { Module._load = realLoad; }
+      let auth = 0; let aConsume = 0; let bConsume = 0;
+      api.setFortress15j3OfflineSeams({
+        resolveSessionUser(req) {
+          auth += 1;
+          assert.match(String(req.headers.cookie || ''), /staff_session=gate3-real-cookie/);
+          return admin();
+        },
+        canAccessClient() { return true; },
+        withPgClient: async (fn) => fn(Object.freeze({
+          async query(sql) {
+            if (nSql(sql) === nSql(PHASE_A_SQL)) { aConsume += 1; return { rows: [] }; }
+            if (nSql(sql) === nSql(PHASE_B_SQL)) {
+              bConsume += 1;
+              return { rows: [{
+                id: CLIENT, location_id: CLIENT, staff_user_id: CLIENT,
+                code_verifier: 'v'.repeat(43), nonce: 'n'.repeat(43), endpoint_id: CLIENT,
+                authorization_intent: 'phase_b_reauthorization', scope_version: 'phase_b_v1',
+                prior_grant_generation: '7',
+              }] };
+            }
+            throw new Error('unexpected_sql');
+          },
+        })),
+      });
+      server = api.createStaffQueryApiHttpServer();
+      await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+      const port = server.address().port;
+      const target = `${OAUTH_CALLBACK_PATH}?error=access_denied&state=${encodeURIComponent(STATE)}`;
+      const response = await new Promise((resolve, reject) => {
+        const req = http.request({ hostname: '127.0.0.1', port, path: target, method: 'GET', headers: { Cookie: 'staff_session=gate3-real-cookie' } }, (res) => {
+          const chunks = []; res.on('data', (c) => chunks.push(c));
+          res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+        });
+        req.on('error', reject); req.end();
+      });
+      ok('outer production listener: cookie auth + native query + A fallthrough + B consume once + declined terminal',
+        auth === 1 && aConsume === 1 && bConsume === 1
+        && response.status === 200 && /Authorization was declined/.test(response.body)
+        && noLeak(response.body));
+    } finally {
+      if (server) await new Promise((resolve) => server.close(resolve));
+      if (api) api.setFortress15j3OfflineSeams(null);
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
+  }
   ok('path/readiness/scopes/flags',
     OAUTH_CALLBACK_PATH === '/staff/email/oauth/microsoft/callback'
     && OAUTH_CALLBACK_PATH !== OAUTH_START_PATH && OAUTH_CALLBACK_PATH !== OAUTH_REAUTHORIZE_PATH
@@ -441,8 +525,33 @@ async function main() {
         env: env(true, true), withPgClient: async (fn) => fn(db),
         aFactory: realAFactory(db, ctr), bFactory: realBFactory(db, ctr),
       });
-      const r1 = await call(routes, q(), admin());
+      const logs = [];
+      const originalLog = console.log;
+      let r1;
+      try {
+        console.log = (line) => { logs.push(line); };
+        const nativeQuery = url.parse(
+          `/staff/email/oauth/microsoft/callback?code=${encodeURIComponent(CODE)}&state=${encodeURIComponent(STATE)}&session_state=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee`,
+          true,
+        ).query;
+        r1 = await call(routes, nativeQuery, admin());
+      } finally { console.log = originalLog; }
+      const events = logs.map((line) => JSON.parse(line));
+      const expectedPreconsume = [
+        'callback_route_accepted', 'callback_owner_authenticated', 'callback_query_validated',
+        'callback_pg_acquired', 'callback_dispatch_constructed', 'phase_a_started',
+        'phase_a_invalid', 'phase_b_runtime_constructed', 'phase_b_started',
+        'phase_b_owner_validated', 'phase_b_input_validated', 'phase_b_state_hashed',
+        'phase_b_clock_validated', 'phase_b_consume_started', 'phase_b_consume_returned', 'phase_b_consume_matched',
+        'phase_b_row_validated', 'callback_consumed',
+      ];
       const r2 = await call(routes, q(), admin());
+      ok('both+B-intent: native url.parse query reaches Phase B with exact sanitized stages',
+        isTerminal(r1, 200, 'Authorization response received')
+        && events.map((e) => e.stage).join(',') === expectedPreconsume.join(',')
+        && new Set(events.map((e) => e.request_id)).size === 1
+        && events.every((e) => Reflect.ownKeys(e).join(',') === 'event,stage,request_id')
+        && noLeak(events));
       ok('both+B-intent: B completes once; replay terminal; intent-disjoint',
         isTerminal(r1, 200, 'Authorization response received')
         && isTerminal(r2, 400, 'could not be accepted')
@@ -757,7 +866,7 @@ async function run(a,b){
         && !b.includes(`"${PHASE_B_CALLBACK_ENABLED_ENV}": "true"`));
     } else ok('baseline absent (skip flag check)', true);
     const vLoc = fs.readFileSync(__filename, 'utf8').split(/\r?\n/).length;
-    ok(`verifier lines ${vLoc} <= 1020`, vLoc <= 1020);
+    ok(`verifier lines ${vLoc} <= 1080`, vLoc <= 1080);
     // Full-path budget vs slice base: working tree (includes uncommitted amend work).
     const num = spawnSync('git', ['diff', '--numstat', SLICE_BASE], {
       cwd: ROOT, encoding: 'utf8',

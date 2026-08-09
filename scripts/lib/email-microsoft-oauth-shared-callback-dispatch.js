@@ -12,6 +12,7 @@
  * @module email-microsoft-oauth-shared-callback-dispatch
  */
 const util = require('util');
+const { resolveOptionalStageTelemetry, safeEmitStage } = require('./email-microsoft-oauth-stage-telemetry');
 const UT = util.types && typeof util.types === 'object' ? util.types : null;
 const ISP = UT && typeof UT.isProxy === 'function' ? UT.isProxy : null;
 const ISPROMISE = UT && typeof UT.isPromise === 'function' ? UT.isPromise : null;
@@ -194,7 +195,9 @@ function mapPublicStatus(result) {
 }
 function pinDeps(deps) {
   try {
-    if (!deps || isProxy(deps) || !exactPlain(deps, DEPENDENCY_KEYS)) return null;
+    if (!deps || isProxy(deps)) return null;
+    const resolved = resolveOptionalStageTelemetry(deps, DEPENDENCY_KEYS);
+    if (!resolved.ok || !resolved.stageTelemetry) return null;
     const createA = own(deps, 'createPhaseACallback');
     const createB = own(deps, 'createPhaseBCallback');
     if (typeof createA !== 'function' || isProxy(createA)
@@ -204,6 +207,7 @@ function pinDeps(deps) {
     return Object.freeze({
       phaseAEnabled: gates.phaseAEnabled, phaseBEnabled: gates.phaseBEnabled,
       createPhaseACallback: createA, createPhaseBCallback: createB,
+      stageTelemetry: resolved.stageTelemetry,
     });
   } catch { return null; }
 }
@@ -233,6 +237,9 @@ function createMicrosoftOauthSharedCallbackDispatch(dependencies) {
     for (let i = 0; i < chain.length; i += 1) {
       const svc = constructOwner(chain[i]);
       if (!svc) throw failure();
+      const phaseB = pinned.phaseBEnabled && chain[i] === pinned.createPhaseBCallback;
+      safeEmitStage(pinned.stageTelemetry, phaseB ? 'phase_b_runtime_constructed' : 'phase_a_started');
+      if (phaseB) safeEmitStage(pinned.stageTelemetry, 'phase_b_started');
       let raw;
       try { raw = Reflect.apply(own(svc, ACCEPT_METHOD), svc, [querySnap, ownerSnap]); }
       catch (err) { if (err && err.code === ERROR_CODE) throw err; throw failure(); }
@@ -245,7 +252,10 @@ function createMicrosoftOauthSharedCallbackDispatch(dependencies) {
       catch (err) { if (err && err.code === ERROR_CODE) throw err; throw failure(); }
       const mapped = mapPublicStatus(settled);
       if (!mapped) throw failure();
-      if (mapped.status === S_INVALID && i < chain.length - 1) continue;
+      if (mapped.status === S_INVALID && i < chain.length - 1) {
+        safeEmitStage(pinned.stageTelemetry, 'phase_a_invalid');
+        continue;
+      }
       return mapped;
     }
     throw failure();

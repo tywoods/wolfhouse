@@ -305,27 +305,37 @@ function createMicrosoftPhaseBOauthCallbackCompletionService(dependencies) {
   let used = false;
   async function accept(input, owner) {
     if (used) throw failure(); used = true;
-    let consumed = false;
     try {
       // Exact flag gate before any repository consume / DB access / completion.
       if (!pinned.phaseBEnabled) return PUBLIC_STATUS_UNAVAILABLE;
       const ownerSnap = snapUuids(owner, OWNER_KEYS); if (!ownerSnap) throw failure();
+      safeEmitStage(pinned.stageTelemetry, 'phase_b_owner_validated');
       const inputSnap = snapInput(input); if (!inputSnap) throw failure();
+      safeEmitStage(pinned.stageTelemetry, 'phase_b_input_validated');
       const stateHash = crypto.createHash('sha256').update(inputSnap.state, 'ascii').digest();
       if (!Buffer.isBuffer(stateHash) || stateHash.length !== 32) throw failure();
+      safeEmitStage(pinned.stageTelemetry, 'phase_b_state_hashed');
       let rawNow;
       try { rawNow = Reflect.apply(pinned.now, pinned.clock, []); } catch { throw failure(); }
       if (!(rawNow instanceof Date) || Number.isNaN(rawNow.getTime())) throw failure();
       const now = new Date(rawNow.getTime());
+      safeEmitStage(pinned.stageTelemetry, 'phase_b_clock_validated');
       let rawRow;
       try {
+        safeEmitStage(pinned.stageTelemetry, 'phase_b_consume_started');
         rawRow = await Reflect.apply(pinned.consume, pinned.repository, [Object.freeze({
           stateHash, clientId: ownerSnap.clientId, authSessionId: ownerSnap.authSessionId, now,
         })]);
       } catch { throw failure(); }
-      if (rawRow == null) return PUBLIC_STATUS_INVALID;
+      safeEmitStage(pinned.stageTelemetry, 'phase_b_consume_returned');
+      if (rawRow == null) {
+        safeEmitStage(pinned.stageTelemetry, 'callback_failed');
+        return PUBLIC_STATUS_INVALID;
+      }
+      safeEmitStage(pinned.stageTelemetry, 'phase_b_consume_matched');
       const rowSnap = snapValidateRow(rawRow); if (!rowSnap) throw failure();
-      consumed = true; safeEmitStage(pinned.stageTelemetry, 'callback_consumed');
+      safeEmitStage(pinned.stageTelemetry, 'phase_b_row_validated');
+      safeEmitStage(pinned.stageTelemetry, 'callback_consumed');
       if (inputSnap.kind === 'error') return PUBLIC_STATUS_DECLINED;
       // Never persist callback authorization code outside completion handoff surface.
       const completionInput = Object.freeze({
@@ -346,7 +356,7 @@ function createMicrosoftPhaseBOauthCallbackCompletionService(dependencies) {
       if (st === COMPLETION_ACK_STATUS) return PUBLIC_STATUS_RECEIVED;
       throw failure();
     } catch (err) {
-      if (consumed) safeEmitStage(pinned.stageTelemetry, 'callback_failed');
+      safeEmitStage(pinned.stageTelemetry, 'callback_failed');
       if (err && err.code === ERROR_CODE) throw err; throw failure();
     }
   }
