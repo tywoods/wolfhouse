@@ -795,6 +795,261 @@ async function main() {
     }
   }
 
+  // ── Ambient Object.isFrozen intrinsic hardening (post-init pin boundary) ──
+  // Exact-head blocker: after module load, ambient Object.isFrozen=()=>true lets a
+  // mutable own-data {ok:true,code:'email_send_committed'} map as HTTP 200 committed.
+  // Module must pin genuine isFrozen at init and never re-consult ambient later.
+  function runChild(source) {
+    return spawnSync(process.execPath, ['-e', source], {
+      cwd: ROOT, encoding: 'utf8', timeout: 30000,
+      env: { ...process.env, NODE_PATH: process.env.NODE_PATH || '/opt/data/wolfhouse-agent/node_modules' },
+    });
+  }
+  function parseChildJson(ch) {
+    try {
+      const lines = String(ch.stdout || '').trim().split('\n').filter(Boolean);
+      return JSON.parse(lines[lines.length - 1] || 'null');
+    } catch {
+      return null;
+    }
+  }
+
+  // Authentic RED: import module, then monkeypatch ambient isFrozen after init.
+  {
+    const realIsFrozen = Object.isFrozen;
+    try {
+      Object.isFrozen = () => true;
+      const mutable = { ok: true, code: 'email_send_committed' };
+      // Prove ambient now lies and object is genuinely unfrozen under real intrinsic.
+      const ambientLies = Object.isFrozen(mutable) === true && realIsFrozen(mutable) === false;
+      const mapped = mod.mapRecoveryDispatch(mutable, V, AP);
+      ok('post-init ambient Object.isFrozen=()=>true + mutable own-data ack → non-committed',
+        ambientLies && nonCommittedSanitized(mapped) && noLeak(mapped),
+        JSON.stringify({ status: mapped && mapped.status, code: mapped && mapped.code, body: mapped && mapped.body }));
+    } finally {
+      Object.isFrozen = realIsFrozen;
+    }
+  }
+
+  // Post-init: ambient isFrozen always-true must not break genuine frozen owner acks.
+  {
+    const realIsFrozen = Object.isFrozen;
+    try {
+      Object.isFrozen = () => true;
+      const good = mod.mapRecoveryDispatch(ownerAck(true, 'email_send_committed'), V, AP);
+      const unk = mod.mapRecoveryDispatch(ownerAck(false, 'email_send_outcome_unknown'), V, AP);
+      ok('post-init isFrozen always-true still preserves frozen owner committed/unknown',
+        good.status === 200 && good.code === 'email_send_committed' && good.body.status === 'committed'
+        && unk.status === 503 && unk.code === 'email_send_outcome_unknown'
+        && noLeak(good) && noLeak(unk),
+        JSON.stringify({ good: good && good.body, unk: unk && unk.body }));
+    } finally {
+      Object.isFrozen = realIsFrozen;
+    }
+  }
+
+  // Post-init throwing ambient isFrozen replacement: fail closed for mutable; preserve frozen.
+  {
+    const realIsFrozen = Object.isFrozen;
+    let poisonHits = 0;
+    try {
+      Object.isFrozen = () => {
+        poisonHits += 1;
+        throw new Error(`password=${PLANTED} ambient_isFrozen`);
+      };
+      let threw = false;
+      let mappedMutable;
+      let mappedFrozen;
+      try {
+        mappedMutable = mod.mapRecoveryDispatch({ ok: true, code: 'email_send_committed' }, V, AP);
+        mappedFrozen = mod.mapRecoveryDispatch(ownerAck(true, 'email_send_committed'), V, AP);
+      } catch (e) {
+        threw = true;
+        ok('throwing ambient isFrozen must not escape mapRecoveryDispatch', false, String(e && e.message || e));
+      }
+      ok('post-init throwing ambient isFrozen → mutable non-committed; frozen committed; no ambient call',
+        !threw
+        && poisonHits === 0
+        && nonCommittedSanitized(mappedMutable)
+        && mappedFrozen && mappedFrozen.status === 200 && mappedFrozen.code === 'email_send_committed'
+        && noLeak(mappedMutable) && noLeak(mappedFrozen),
+        JSON.stringify({ poisonHits, m: mappedMutable && mappedMutable.body, f: mappedFrozen && mappedFrozen.body }));
+    } finally {
+      Object.isFrozen = realIsFrozen;
+    }
+  }
+
+  // Post-init accessor replacement of Object.isFrozen (where configurable).
+  {
+    const realDesc = Object.getOwnPropertyDescriptor(Object, 'isFrozen');
+    const realIsFrozen = Object.isFrozen;
+    let accessorHits = 0;
+    try {
+      if (realDesc && realDesc.configurable) {
+        Object.defineProperty(Object, 'isFrozen', {
+          configurable: true,
+          enumerable: realDesc.enumerable,
+          get() {
+            accessorHits += 1;
+            return () => true;
+          },
+        });
+      } else {
+        Object.isFrozen = () => true;
+      }
+      const mutable = { ok: true, code: 'email_send_committed' };
+      const mapped = mod.mapRecoveryDispatch(mutable, V, AP);
+      const good = mod.mapRecoveryDispatch(ownerAck(true, 'email_send_committed'), V, AP);
+      ok('post-init ambient isFrozen accessor/replacement → mutable non-committed; frozen committed',
+        nonCommittedSanitized(mapped)
+        && good.status === 200 && good.code === 'email_send_committed'
+        && noLeak(mapped) && noLeak(good),
+        JSON.stringify({ accessorHits, m: mapped && mapped.body, g: good && good.body }));
+    } finally {
+      try {
+        if (realDesc && realDesc.configurable) {
+          Object.defineProperty(Object, 'isFrozen', realDesc);
+        } else {
+          Object.isFrozen = realIsFrozen;
+        }
+      } catch {
+        Object.isFrozen = realIsFrozen;
+      }
+    }
+  }
+
+  // Post-init mutation of other Object/Reflect helpers used on the ack *read* boundary:
+  // getOwnPropertyDescriptor / getPrototypeOf / ownKeys / isFrozen. Hostile field
+  // getters / Proxy traps must still never execute; never open committed for mutable
+  // or hostile shapes. (DTO construction may still use ambient freeze — not in scope.)
+  {
+    const realGopd = Object.getOwnPropertyDescriptor;
+    const realGpo = Object.getPrototypeOf;
+    const realOwnKeys = Reflect.ownKeys;
+    const realIsFrozen = Object.isFrozen;
+    try {
+      Object.getOwnPropertyDescriptor = () => { throw new Error(`client_secret=${PLANTED} gopd`); };
+      Object.getPrototypeOf = () => { throw new Error(`refresh_token=${PLANTED} gpo`); };
+      Reflect.ownKeys = () => { throw new Error(`access_token=${TOKEN} ownKeys`); };
+      Object.isFrozen = () => true;
+
+      let getterHits = 0;
+      const hostileAcc = {};
+      Object.defineProperty(hostileAcc, 'code', {
+        value: 'email_send_committed', enumerable: true, writable: false, configurable: false,
+      });
+      Object.defineProperty(hostileAcc, 'ok', {
+        get() { getterHits += 1; return true; }, enumerable: true,
+      });
+      let trapHits = 0;
+      const proxy = new Proxy({ ok: true, code: 'email_send_committed' }, {
+        get(t, p, r) { trapHits += 1; return Reflect.get(t, p, r); },
+        getOwnPropertyDescriptor(t, p) { trapHits += 1; return realGopd.call(Object, t, p); },
+        ownKeys(t) { trapHits += 1; return realOwnKeys.call(Reflect, t); },
+        getPrototypeOf(t) { trapHits += 1; return realGpo.call(Object, t); },
+      });
+      let threw = false;
+      let mAcc; let mProxy; let mMutable;
+      try {
+        mAcc = mod.mapRecoveryDispatch(hostileAcc, V, AP);
+        mProxy = mod.mapRecoveryDispatch(proxy, V, AP);
+        mMutable = mod.mapRecoveryDispatch({ ok: true, code: 'email_send_committed' }, V, AP);
+      } catch (e) {
+        threw = true;
+        ok('ambient helper poison must not escape mapRecoveryDispatch', false, String(e && e.message || e));
+      }
+      ok('post-init ambient Object/Reflect helper poison → zero getter/trap; all non-committed',
+        !threw
+        && getterHits === 0
+        && trapHits === 0
+        && nonCommittedSanitized(mAcc)
+        && nonCommittedSanitized(mProxy)
+        && nonCommittedSanitized(mMutable)
+        && noLeak(mAcc) && noLeak(mProxy) && noLeak(mMutable),
+        JSON.stringify({ getterHits, trapHits, a: mAcc && mAcc.body, p: mProxy && mProxy.body, m: mMutable && mMutable.body }));
+    } finally {
+      Object.getOwnPropertyDescriptor = realGopd;
+      Object.getPrototypeOf = realGpo;
+      Reflect.ownKeys = realOwnKeys;
+      Object.isFrozen = realIsFrozen;
+    }
+  }
+
+  // Fresh-process pre-require probes: invalid/unavailable pin must fail closed;
+  // post-require always-true poison must still reject mutable own-data committed.
+  {
+    const ch = runChild(`
+      'use strict';
+      const path = require('node:path');
+      const ROUTES = ${JSON.stringify(ROUTES_ABS)};
+      const V = ${JSON.stringify(V)};
+      const AP = ${JSON.stringify(AP)};
+      const realIsFrozen = Object.isFrozen;
+      const realFreeze = Object.freeze;
+      // Pre-require: unavailable/invalid isFrozen → pin must fail closed.
+      Object.isFrozen = null;
+      delete require.cache[ROUTES];
+      const mod = require(ROUTES);
+      const frozenAck = realFreeze({ ok: true, code: 'email_send_committed' });
+      const mInvalidPin = mod.mapRecoveryDispatch(frozenAck, V, AP);
+      const invalidPinClosed = !!(mInvalidPin
+        && mInvalidPin.status === 503
+        && mInvalidPin.body
+        && mInvalidPin.body.success === false
+        && mInvalidPin.body.status !== 'committed'
+        && mInvalidPin.code !== 'email_send_committed');
+      // Fresh process post-require always-true poison + mutable own-data.
+      // Reload under pristine intrinsic, then poison ambient after init.
+      Object.isFrozen = realIsFrozen;
+      delete require.cache[ROUTES];
+      // Clear any intermediate module cache entries for this path.
+      for (const k of Object.keys(require.cache)) {
+        if (k === ROUTES || k.endsWith('${ROUTES_REL.replace(/\\/g, '/')}')) delete require.cache[k];
+      }
+      const mod2 = require(ROUTES);
+      Object.isFrozen = () => true;
+      const mutable = { ok: true, code: 'email_send_committed' };
+      const mPoison = mod2.mapRecoveryDispatch(mutable, V, AP);
+      const postInitClosed = !!(mPoison
+        && mPoison.status === 503
+        && mPoison.body
+        && mPoison.body.success === false
+        && mPoison.body.status !== 'committed'
+        && mPoison.code !== 'email_send_committed'
+        && realIsFrozen(mutable) === false);
+      const good = mod2.mapRecoveryDispatch(realFreeze({ ok: true, code: 'email_send_committed' }), V, AP);
+      const frozenPreserved = !!(good && good.status === 200 && good.code === 'email_send_committed');
+      console.log(JSON.stringify({
+        invalidPinClosed,
+        postInitClosed,
+        frozenPreserved,
+        invalidStatus: mInvalidPin && mInvalidPin.status,
+        poisonStatus: mPoison && mPoison.status,
+        goodStatus: good && good.status,
+      }));
+    `);
+    const b = parseChildJson(ch);
+    ok('fresh-process pre-require invalid isFrozen pin fail-closed + post-require poison rejects mutable',
+      ch.status === 0 && b && b.invalidPinClosed === true && b.postInitClosed === true && b.frozenPreserved === true,
+      `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 300)}`);
+  }
+
+  // Source contract: recovery ack boundary must pin isFrozen and not re-consult ambient.
+  {
+    const src = fs.readFileSync(ROUTES_ABS, 'utf8');
+    const pinPresent = /PINNED_IS_FROZEN/.test(src);
+    const acceptFn = src.includes('function acceptRecoveryDispatchAck');
+    // Ambient re-consultation patterns inside acceptRecoveryDispatchAck must not remain.
+    const acceptBody = (() => {
+      const m = src.match(/function acceptRecoveryDispatchAck\([\s\S]*?\n\}/);
+      return m ? m[0] : '';
+    })();
+    const ambientInAccept = /Object\.isFrozen/.test(acceptBody);
+    ok('source pins PINNED_IS_FROZEN for recovery ack freeze gate',
+      pinPresent && acceptFn && !ambientInAccept,
+      JSON.stringify({ pinPresent, acceptFn, ambientInAccept, acceptSnippet: acceptBody.slice(0, 200) }));
+  }
+
   // Router wiring offline integration
   const routerScript = `'use strict';
 const assert=require('node:assert/strict');const http=require('node:http');const path=require('node:path');
