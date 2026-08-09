@@ -65,10 +65,10 @@ function tokenBody(patch = {}) {
 function response(overrides = {}) {
   return { statusCode: 200, contentType: 'application/json; charset=utf-8', body: tokenBody(), ...overrides };
 }
-function makeOperation(events) {
+function makeOperation(events, logger = (event) => { events.push(event); }) {
   const stageTelemetry = createEmailOAuthStageTelemetry(Object.freeze({
     requestId: 'a1a1a1a1-b2b2-4c3c-8d4d-e5e5e5e5e5e5',
-    logger(event) { events.push(event); },
+    logger,
   }));
   return createMicrosoftPhaseBOauthOperationComposition(Object.freeze({
     verifiedIdentity: Object.freeze({ async verifyIdentity() { throw new Error('provider downstream must not run'); } }),
@@ -88,11 +88,11 @@ function assertSafe(events) {
   for (const leak of LEAKS) assert.equal(serialized.includes(leak), false, `leaked ${leak}`);
   for (const event of events) assert.deepEqual(Reflect.ownKeys(event), ['event', 'stage', 'request_id']);
 }
-async function rejectsAt(name, rawResponse, expected, extraCheck) {
+async function rejectsAt(name, rawResponse, expected, extraCheck, logger) {
   custodyCalls = 0;
   nextResponse = rawResponse;
   const events = [];
-  const operation = makeOperation(events);
+  const operation = makeOperation(events, logger);
   await assert.rejects(() => operation.completeAuthorization(input),
     (error) => error && error.code === 'MICROSOFT_PHASE_B_OAUTH_OPERATION_COMPOSITION_INVALID');
   assert.deepEqual(events.map((event) => event.stage), expected, name);
@@ -123,7 +123,29 @@ async function rejectsAt(name, rawResponse, expected, extraCheck) {
   await rejectsAt('required token field shape', response({ body: tokenBody({ refresh_token: '' }) }), json);
 
   const fields = [...json, 'token_response_fields_validated'];
-  await rejectsAt('scope acceptance', response({ body: tokenBody({ scope: 'openid profile User.Read Mail.ReadBasic' }) }), fields);
+  const scopeCases = [
+    ['invalid shape', 7, 'token_response_scope_rejected_invalid'],
+    ['invalid spacing', 'User.Read  Mail.ReadWrite Mail.Send', 'token_response_scope_rejected_invalid'],
+    ['duplicate', 'User.Read User.Read Mail.ReadWrite Mail.Send', 'token_response_scope_rejected_duplicate'],
+    ['dangerous shared', 'User.Read Mail.ReadWrite Mail.Send Mail.Read.Shared', 'token_response_scope_rejected_dangerous'],
+    ['dangerous broad', 'User.Read Mail.ReadWrite Mail.Send User.Read.All', 'token_response_scope_rejected_dangerous'],
+    ['dangerous default', 'User.Read Mail.ReadWrite Mail.Send /.default', 'token_response_scope_rejected_dangerous'],
+    ['dangerous application role', 'User.Read Mail.ReadWrite Mail.Send Application Role', 'token_response_scope_rejected_dangerous'],
+    ['Phase A mixed', 'openid profile User.Read Mail.ReadBasic', 'token_response_scope_rejected_phase_a_mixed'],
+    ['unknown', 'User.Read Mail.ReadWrite Mail.Send Calendars.Read', 'token_response_scope_rejected_unknown'],
+    ['missing resource', 'openid profile User.Read Mail.ReadWrite', 'token_response_scope_rejected_missing_required'],
+    ['overlap duplicate first', 'User.Read User.Read User.Read.All Mail.ReadBasic Unknown', 'token_response_scope_rejected_duplicate'],
+    ['permuted Phase A first', 'Mail.Read Unknown User.Read', 'token_response_scope_rejected_phase_a_mixed'],
+    ['permuted unknown first', 'Unknown Mail.Read User.Read', 'token_response_scope_rejected_unknown'],
+  ];
+  for (const [name, scope, stage] of scopeCases) {
+    await rejectsAt(name, response({ body: tokenBody({ scope }) }), [...fields, stage]);
+  }
+
+  let loggerCalls = 0;
+  await rejectsAt('logger throw preserves rejection and zero downstream',
+    response({ body: tokenBody({ scope: 'User.Read User.Read Mail.Send' }) }), [],
+    () => assert.equal(loggerCalls > 0, true), () => { loggerCalls += 1; throw new Error('PLANTED'); });
 
   custodyCalls = 0;
   nextResponse = response();
