@@ -5,6 +5,9 @@ const Module = require('module');
 const { EventEmitter } = require('events');
 const { createFakeEmailGrantEnvelopeProvider } = require('./lib/email-grant-envelope-fake-provider');
 const { createEmailOAuthStageTelemetry } = require('./lib/email-microsoft-oauth-stage-telemetry');
+const {
+  PHASE_B_SCOPES,
+} = require('./lib/email-microsoft-phase-b-reauthorization-transaction-service');
 
 const ACCESS = 'access-token-NEVER-LOG';
 const REFRESH = 'refresh-token-NEVER-LOG';
@@ -27,6 +30,7 @@ const input = Object.freeze({
 });
 
 let nextResponse;
+let postedTokenRequest;
 let custodyCalls = 0;
 const realLoad = Module._load;
 Module._load = function load(request, parent, isMain) {
@@ -35,7 +39,7 @@ Module._load = function load(request, parent, isMain) {
     return Object.freeze({
       REQUEST_LIMIT_BYTES: 65_536,
       createMicrosoftTokenHttpTransport() {
-        return Object.freeze({ async postTokenForm() { return nextResponse; } });
+        return Object.freeze({ async postTokenForm(request) { postedTokenRequest = request; return nextResponse; } });
       },
     });
   }
@@ -102,6 +106,35 @@ async function rejectsAt(name, rawResponse, expected, extraCheck, logger) {
 }
 
 (async () => {
+  nextResponse = response();
+  postedTokenRequest = null;
+  await makeOperation([]).completeAuthorization(input);
+  assert.ok(postedTokenRequest && Object.isFrozen(postedTokenRequest));
+  assert.deepEqual(Reflect.ownKeys(postedTokenRequest), ['body']);
+  const expectedTokenBody = new URLSearchParams([
+    ['client_id', IDS.applicationClientId], ['client_secret', 'fixed-secret'],
+    ['grant_type', 'authorization_code'], ['code', input.authorizationCode],
+    ['redirect_uri', 'https://sunset-staging.lunafrontdesk.com/staff/email/oauth/microsoft/callback'],
+    ['code_verifier', input.codeVerifier], ['scope', PHASE_B_SCOPES],
+  ]).toString();
+  assert.equal(postedTokenRequest.body, expectedTokenBody);
+  const postedParams = new URLSearchParams(postedTokenRequest.body);
+  assert.deepEqual([...postedParams.keys()], [
+    'client_id', 'client_secret', 'grant_type', 'code', 'redirect_uri', 'code_verifier', 'scope',
+  ]);
+  assert.deepEqual(postedParams.getAll('scope'), [PHASE_B_SCOPES]);
+  assert.equal(postedParams.get('scope'), SCOPE);
+  for (const forbidden of ['Mail.ReadBasic', 'Mail.Read', 'Mail.Read.Shared', '/.default']) {
+    assert.equal(postedParams.get('scope').split(' ').includes(forbidden), false);
+  }
+  assert.ok(Buffer.byteLength(postedTokenRequest.body, 'utf8') <= 65_536);
+
+  const injectedInput = Object.freeze({ ...input, scope: 'Mail.ReadBasic /.default' });
+  postedTokenRequest = null;
+  await assert.rejects(() => makeOperation([]).completeAuthorization(injectedInput),
+    (error) => error && error.code === 'MICROSOFT_PHASE_B_OAUTH_OPERATION_COMPOSITION_INVALID');
+  assert.equal(postedTokenRequest, null, 'caller/browser scope injection must fail before token transport');
+
   const received = ['token_request_started', 'token_response_received'];
   await rejectsAt('response status envelope', response({ statusCode: 500 }), received);
   await rejectsAt('response content-type envelope', response({ contentType: 'text/json' }), received);
