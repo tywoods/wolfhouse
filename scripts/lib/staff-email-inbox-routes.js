@@ -1,5 +1,71 @@
 'use strict';
 /** Gate 3 staff email draft/approve-send (offline). */
+/*
+ * Genuine freeze intrinsic for recovery ack ownership — established FIRST,
+ * before any local require whose import graph may read host Object.isFrozen.
+ *
+ * Do NOT read host Object.isFrozen at import: pre-require
+ * Object.isFrozen=()=>true would otherwise be pinned as trusted and map
+ * mutable own-data {ok:true,code:email_send_committed} as HTTP 200; a
+ * throwing host isFrozen accessor would prevent module load via transitive
+ * pins (journal/outbound operation).
+ *
+ * Source: fresh Node vm realm Object.isFrozen (independent primordial).
+ * Recovery gate calls only PINNED_IS_FROZEN. Scope is this freeze boundary
+ * only — not every host primordial. Fail closed (null) if acquisition fails.
+ */
+const PINNED_OBJECT = Object;
+const PINNED_IS_FROZEN = (() => {
+  try {
+    // eslint-disable-next-line global-require
+    const vm = require('node:vm');
+    if (!vm || typeof vm.runInNewContext !== 'function') return null;
+    // Extract isFrozen from a fresh realm — never host Object.isFrozen.
+    const isFrozen = vm.runInNewContext('Object.isFrozen');
+    if (typeof isFrozen !== 'function') return null;
+    // Self-check entirely inside the fresh realm (no host isFrozen).
+    const selfOk = vm.runInNewContext(
+      '(function(){var o={__gate3_frz:1};'
+      + 'if(Object.isFrozen(o)!==false)return false;'
+      + 'Object.freeze(o);'
+      + 'return Object.isFrozen(o)===true;})()'
+    );
+    if (selfOk !== true) return null;
+    // Cross-realm: host-mutable plain object must report false.
+    if (isFrozen({ __gate3_host_mutable: 1 }) !== false) return null;
+    return isFrozen;
+  } catch {
+    return null;
+  }
+})();
+/*
+ * Load-graph enablement only: install the genuine isFrozen as a host data
+ * property WITHOUT reading/invoking host Object.isFrozen (descriptor inspect
+ * only). Transitive modules still pin ambient Object.isFrozen at their import;
+ * under a pre-require throwing accessor that would throw on typeof/read and
+ * block this routes module from loading. Recovery ack path never trusts those
+ * sibling pins — it uses PINNED_IS_FROZEN exclusively.
+ */
+(function installGenuineIsFrozenForLoadGraph(genuine) {
+  if (typeof genuine !== 'function') return;
+  try {
+    const desc = Object.getOwnPropertyDescriptor(Object, 'isFrozen');
+    if (desc && desc.configurable === false && desc.writable === false) return;
+    if (desc && desc.configurable === false && desc.writable === true) {
+      Object.isFrozen = genuine;
+      return;
+    }
+    Object.defineProperty(Object, 'isFrozen', {
+      configurable: true,
+      enumerable: false,
+      writable: true,
+      value: genuine,
+    });
+  } catch {
+    /* leave host as-is; recovery uses PINNED_IS_FROZEN or fail-closed */
+  }
+}(PINNED_IS_FROZEN));
+
 const crypto = require('crypto');
 const http = require('http');
 const util = require('util');
@@ -38,12 +104,6 @@ if (EMAIL_AUTHORITY_BOUND_OUTBOUND_RUNTIME_WIRED !== false || EMAIL_AUTHORITY_BO
     || EMAIL_AUTHORITY_BOUND_OUTBOUND_PERSISTENCE_READY !== false) throw new Error('staff_email_inbox_outbound_flags');
 const PINNED_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
 const PINNED_IS_PROXY = PINNED_TYPES && typeof PINNED_TYPES.isProxy === 'function' ? PINNED_TYPES.isProxy : null;
-/* Pin Object.isFrozen at module init. Recovery ack freeze gate must never
- * re-consult ambient Object.isFrozen after load (always-true / throwing /
- * accessor replacements would otherwise map mutable own-data committed acks).
- * Fail closed when the pin is unavailable or not callable. */
-const PINNED_OBJECT = Object;
-const PINNED_IS_FROZEN = typeof Object.isFrozen === 'function' ? Object.isFrozen : null;
 const PINNED_REFLECT_APPLY = typeof Reflect.apply === 'function' ? Reflect.apply : null;
 const PINNED_IM_PROTO = http.IncomingMessage && http.IncomingMessage.prototype ? http.IncomingMessage.prototype : null;
 const PINNED_HDR_GET = (() => {
@@ -54,10 +114,11 @@ const PINNED_HDR_GET = (() => {
 function isProxy(v) {
   try { return !PINNED_IS_PROXY || !PINNED_TYPES ? true : Reflect.apply(PINNED_IS_PROXY, PINNED_TYPES, [v]) === true; } catch { return true; }
 }
-/** Module-init-pinned isFrozen only — never ambient Object.isFrozen. Fail closed. */
+/** Module-init-pinned genuine isFrozen only — never host/ambient Object.isFrozen. Fail closed. */
 function pinnedIsFrozen(value) {
   try {
     if (!PINNED_IS_FROZEN || typeof PINNED_IS_FROZEN !== 'function' || !PINNED_REFLECT_APPLY) return false;
+    // Call the fresh-realm intrinsic; do not re-resolve host Object.isFrozen.
     return PINNED_REFLECT_APPLY.call(Reflect, PINNED_IS_FROZEN, PINNED_OBJECT, [value]) === true;
   } catch {
     return false;
@@ -277,10 +338,10 @@ const RECOVERY_DISPATCH_ACK_KEYS = Object.freeze(['ok', 'code']);
  * Accept only frozen local owner acknowledgements:
  * exact own keys {ok, code}, own data descriptors only (no accessors /
  * inheritance / extras / Proxy), primitive boolean + public code string.
- * Reject Proxy via module-init-pinned isProxy before any reflection.
- * Freeze check uses module-init-pinned Object.isFrozen only (Reflect.apply);
- * never consults ambient Object.isFrozen. Fail closed if pin unavailable.
- * Never evaluates result.ok directly.
+ * Reject Proxy via module-init-pinned isProxy before any field reflection.
+ * Freeze check uses module-init-pinned *genuine* isFrozen only (fresh vm realm
+ * via Reflect.apply); never reads host/ambient Object.isFrozen. Fail closed
+ * if pin unavailable. Never evaluates result.ok directly.
  */
 function acceptRecoveryDispatchAck(result) {
   try {
@@ -288,7 +349,7 @@ function acceptRecoveryDispatchAck(result) {
     // Proxy rejection must precede getOwnPropertyDescriptor / ownKeys / reads.
     if (isProxy(result)) return null;
     if (typeof result !== 'object' || Array.isArray(result)) return null;
-    // Pinned isFrozen only — ambient post-init always-true must not open committed.
+    // Genuine pinned isFrozen only — host pre/post-import always-true must not open committed.
     if (pinnedIsFrozen(result) !== true) return null;
     if (!exactPlainKeys(result, RECOVERY_DISPATCH_ACK_KEYS)) return null;
     const okVal = ownData(result, 'ok');
