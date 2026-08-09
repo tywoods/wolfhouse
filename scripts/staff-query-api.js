@@ -48147,7 +48147,112 @@ async function browserLoginRedirect(req, res) {
   return false;
 }
 
+/**
+ * Gate 3 B3a2b raw request-target classifier (not a second URL parser).
+ * canonical=exact origin-form PATH[?query]; hostile=callback-equivalent (\\ ; // ./ ../;
+ * %5c/%3B; nested % e.g. %2525252561→%61 in staff/email/oauth/microsoft/callback); other=unrelated.
+ * Collapse linear %+(25)+XX→%XX (ci), one strict decode+form-normalize; repeat while len drops ≥2,
+ * bound by input length (not fixed 3). Residual % on callback-dir → hostile. Split at first `?`.
+ * Overlong callback-like → hostile (classifier DoS bound).
+ */
+const OAUTH_CALLBACK_RAW_TARGET_MAX = 2048;
+function classifyOauthCallbackRawTarget(rawUrl) {
+  const P = OAUTH_CALLBACK_PATH;
+  if (typeof rawUrl !== 'string' || rawUrl.length === 0) return 'other';
+  const q = rawUrl.indexOf('?');
+  let s = q === -1 ? rawUrl : rawUrl.slice(0, q);
+  if (s === P) return rawUrl.indexOf('#') === -1 ? 'canonical' : 'hostile';
+  // Bound only the request-target path. Query data is not callback-routing authority
+  // and must never make an unrelated route look callback-like.
+  if (s.length > OAUTH_CALLBACK_RAW_TARGET_MAX) {
+    return /\/staff|callback|microsoft|oauth|%25|%5c|%2f|%3b|\\|\/;/i.test(s) ? 'hostile' : 'other';
+  }
+  const hash = s.indexOf('#');
+  if (hash !== -1) s = s.slice(0, hash);
+  if (s === P) return 'hostile';
+  const schemeAt = s.indexOf('://');
+  if (schemeAt !== -1) {
+    const rest = s.slice(schemeAt + 3); const sl = rest.indexOf('/');
+    if (sl === -1) return 'other'; s = rest.slice(sl);
+  } else if (s.length >= 2 && s.charCodeAt(0) === 47 && s.charCodeAt(1) === 47) {
+    const rest = s.slice(2); const sl = rest.indexOf('/');
+    if (sl === -1) return 'other'; s = rest.slice(sl);
+  }
+  function formNormalize(pathStr) {
+    let x = pathStr;
+    if (x.indexOf('\\') !== -1) x = x.split('\\').join('/');
+    if (x.indexOf(';') !== -1) x = x.replace(/;[^/]*/g, '');
+    const parts = [];
+    for (const seg of x.split('/')) {
+      if (seg === '.') continue;
+      if (seg === '..') { if (parts.length > 1) parts.pop(); continue; }
+      if (seg === '' && parts.length > 0) continue;
+      parts.push(seg);
+    }
+    let norm = parts.join('/');
+    if (!norm || norm.charCodeAt(0) !== 47) norm = `/${norm}`;
+    return norm.replace(/\/+$/, '') || '/';
+  }
+  function expandResidualPathMeta(str) {
+    return str.replace(/%5c/gi, '\\').replace(/%2f/gi, '/').replace(/%3b/gi, ';');
+  }
+  function isCb(p) {
+    return formNormalize(p) === P || formNormalize(expandResidualPathMeta(p)) === P;
+  }
+  function underMs(p) {
+    const n = formNormalize(p);
+    return n === '/staff/email/oauth/microsoft' || n.indexOf('/staff/email/oauth/microsoft/') === 0;
+  }
+  // Collapse %+(25)+XX → %XX (e.g. %2525252561 → %61); case-insensitive.
+  const collapsePct = (str) => str.replace(/%(?:25)+([0-9A-Fa-f]{2})/gi, '%$1');
+  if (isCb(s)) return 'hostile';
+  if (s.indexOf('%') !== -1) {
+    let cur = s;
+    for (let pass = 0; pass < cur.length; pass += 1) {
+      if (cur.indexOf('%') === -1) break;
+      if (/%(?![0-9A-Fa-f]{2})/.test(cur)) {
+        const stripped = cur.replace(/%[0-9A-Fa-f]{0,2}|%/gi, '');
+        if (isCb(stripped) || isCb(cur)) return 'hostile';
+        return underMs(stripped) || underMs(cur) ? 'hostile' : 'other';
+      }
+      const collapsed = collapsePct(cur);
+      let decoded;
+      try { decoded = decodeURIComponent(collapsed); } catch (_) {
+        return isCb(collapsed) || isCb(cur) || underMs(collapsed) || underMs(cur) ? 'hostile' : 'other';
+      }
+      if (isCb(decoded)) return 'hostile';
+      if (cur.length - decoded.length < 2) break;
+      cur = decoded;
+    }
+    if (/%[0-9A-Fa-f]{2}/i.test(cur) && underMs(cur)) return 'hostile';
+  }
+  return 'other';
+}
+
+function writeConcealedOauthCallbackNotFound(res) {
+  const body = JSON.stringify({ success: false, error: 'not_found' }, null, 2);
+  res.writeHead(404, {
+    'Content-Type': 'application/json', 'Cache-Control': 'no-store',
+    'X-Powered-By': 'wolfhouse-staff-api/6.6', 'Content-Length': Buffer.byteLength(body),
+  });
+  res.end(body);
+}
+
 async function router(req, res) {
+  // Gate 3 B3a2b pre-parse: classify raw request-target BEFORE url.parse.
+  // Only canonical origin-form PATH[?query] may proceed when gate on.
+  // Hostile callback-targeting forms → concealed 404 always (pre parse/auth).
+  {
+    const kind = classifyOauthCallbackRawTarget(typeof req.url === 'string' ? req.url : '');
+    if (kind === 'hostile') { writeConcealedOauthCallbackNotFound(res); return; }
+    if (kind === 'canonical') {
+      const depOk = process.env.LUNA_DEPLOYMENT === 'sunset-staging';
+      const aOn = process.env.LUNA_EMAIL_OAUTH_CALLBACK_ENABLED === 'true';
+      const bOn = process.env.LUNA_EMAIL_OAUTH_PHASE_B_CALLBACK_ENABLED === 'true';
+      if (!(depOk && (aOn || bOn))) { writeConcealedOauthCallbackNotFound(res); return; }
+    }
+  }
+
   const parsed   = url.parse(req.url, true);
   const pathname = parsed.pathname.replace(/\/+$/, '') || '/';
   const method   = req.method.toUpperCase();
@@ -49782,8 +49887,17 @@ async function router(req, res) {
   // Microsoft returns by top-level GET. SameSite=Lax plus Path=/staff allows
   // this server to resolve the live initiating session. Provider parameters
   // never supply client or session ownership.
+  // Gate 3 B3a2b: outer conceal unless Phase A or Phase B callback flag is
+  // exact 'true' (never broad truthy). Handler additionally requires
+  // sunset-staging + own-data A|B and authenticates admin session before
+  // shared intent-disjoint A→B dispatch. B-only is permitted; dual-A not
+  // required. Default-off: neither flag → JSON 404 not_found (unchanged form).
   if (pathname === OAUTH_CALLBACK_PATH && method === 'GET') {
-    if (process.env.LUNA_EMAIL_OAUTH_CALLBACK_ENABLED !== 'true') return sendJSON(res, 404, { success:false, error:'not_found' });
+    const phaseACallbackOn = process.env.LUNA_EMAIL_OAUTH_CALLBACK_ENABLED === 'true';
+    const phaseBCallbackOn = process.env.LUNA_EMAIL_OAUTH_PHASE_B_CALLBACK_ENABLED === 'true';
+    if (!phaseACallbackOn && !phaseBCallbackOn) {
+      return sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
     let user = null;
     try { user = await loadAuthSession(req); } catch (_) { user = null; }
     if (!user || !hasRole(resolveStaffRole(user), 'admin')) return emailOAuthRoutes.handleCallback(parsed.query, req, res, null);

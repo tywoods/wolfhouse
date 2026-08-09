@@ -92,11 +92,11 @@ async function expectFail(fn) {
 
 (async function main() {
   console.log('\n== B3a1 shared callback dispatch ==');
-  ok('readiness deferred/false/inert',
+  ok('readiness wired/safe + deferred/inert (B3a2b route invokes; flags default-off)',
     EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_IMPORT_INERT === true
-    && EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_RUNTIME_WIRED === false
+    && EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_RUNTIME_WIRED === true
     && EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_DEFERRED_ACTIVATION === true
-    && EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_SAFE_FOR_RUNTIME_ROUTE === false
+    && EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_SAFE_FOR_RUNTIME_ROUTE === true
     && DEPENDENCY_KEYS.join(',') === 'env,createPhaseACallback,createPhaseBCallback'
     && OWNER_KEYS.join(',') === 'clientId,authSessionId');
 
@@ -351,13 +351,14 @@ async function expectFail(fn) {
       && /util\.types/.test(src) && /isProxy/.test(src));
     const probe = spawnSync(process.execPath, ['-e', `
       const m=require(${JSON.stringify(path.join(ROOT, 'scripts/lib/email-microsoft-oauth-shared-callback-dispatch.js'))});
-      if(m.EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_RUNTIME_WIRED!==false) process.exit(2);
-      if(m.EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_SAFE_FOR_RUNTIME_ROUTE!==false) process.exit(3);
+      if(m.EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_RUNTIME_WIRED!==true) process.exit(2);
+      if(m.EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_SAFE_FOR_RUNTIME_ROUTE!==true) process.exit(3);
       if(m.EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_IMPORT_INERT!==true) process.exit(4);
+      if(m.EMAIL_MS_SHARED_OAUTH_CALLBACK_DISPATCH_DEFERRED_ACTIVATION!==true) process.exit(5);
       console.log('OK');
     `], { encoding: 'utf8', env: { ...process.env, LUNA_EMAIL_OAUTH_CALLBACK_ENABLED: undefined,
       LUNA_EMAIL_OAUTH_PHASE_B_CALLBACK_ENABLED: undefined } });
-    ok('import inert defaults off', probe.status === 0 && /OK/.test(probe.stdout || ''));
+    ok('import inert; wired/safe; deferred (flags still default-off)', probe.status === 0 && /OK/.test(probe.stdout || ''));
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
     ok('package script', pkg.scripts['verify:email-microsoft-oauth-shared-callback-dispatch']
       === 'node scripts/verify-email-microsoft-oauth-shared-callback-dispatch.js');

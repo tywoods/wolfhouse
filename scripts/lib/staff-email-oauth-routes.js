@@ -27,6 +27,21 @@ const {
   DEPENDENCY_KEYS,
 } = require('./email-microsoft-oauth-sunset-staging-runtime-composition');
 const {
+  createMicrosoftOauthSharedCallbackDispatch,
+  PHASE_A_CALLBACK_ENABLED_ENV,
+  PHASE_B_CALLBACK_ENABLED_ENV,
+  SUNSET_DEPLOYMENT: SHARED_CALLBACK_SUNSET_DEPLOYMENT,
+} = require('./email-microsoft-oauth-shared-callback-dispatch');
+const {
+  createSunsetStagingMicrosoftPhaseBOauthCallbackRuntime,
+  CALLBACK_ENABLED_ENV: PHASE_B_CALLBACK_RUNTIME_ENABLED_ENV,
+} = require('./email-microsoft-phase-b-oauth-sunset-staging-runtime-composition');
+const {
+  ENV_COMPOSITION_ENABLED: ENVELOPE_ENV_COMPOSITION_ENABLED,
+  ENV_TRUSTED_HOST: ENVELOPE_ENV_TRUSTED_HOST,
+  ENV_VERSIONED_KEY_ID: ENVELOPE_ENV_VERSIONED_KEY_ID,
+} = require('./email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
+const {
   createSunsetStagingMicrosoftDelegatedRefreshRuntime,
   isRefreshHealthEnabled,
 } = require('./email-microsoft-delegated-refresh-sunset-staging-runtime-composition');
@@ -184,6 +199,25 @@ const PHASE_B_REAUTH_GATE_ENV_KEYS = Object.freeze([
   'LUNA_DEPLOYMENT',
   PHASE_B_REAUTH_START_ENABLED_ENV,
 ]);
+/**
+ * Gate 3 B3a2b shared callback gate env keys (own-data only).
+ * A|B callback exact true + sunset-staging; never broad truthy.
+ */
+const SHARED_CALLBACK_GATE_ENV_KEYS = Object.freeze([
+  'LUNA_DEPLOYMENT',
+  PHASE_A_CALLBACK_ENABLED_ENV,
+  PHASE_B_CALLBACK_ENABLED_ENV,
+]);
+/** Own-data env keys required by B2b Phase B runtime factory (exact strings). */
+const PHASE_B_CALLBACK_RUNTIME_ENV_KEYS = Object.freeze([
+  'LUNA_DEPLOYMENT',
+  'LUNA_EMAIL_OAUTH_CLIENT_ID',
+  PHASE_B_CALLBACK_RUNTIME_ENABLED_ENV,
+  ENVELOPE_ENV_COMPOSITION_ENABLED,
+  ENVELOPE_ENV_TRUSTED_HOST,
+  ENVELOPE_ENV_VERSIONED_KEY_ID,
+  'LUNA_EMAIL_OAUTH_CLIENT_SECRET',
+]);
 const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
 const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
   ? PINNED_UTIL_TYPES.isProxy
@@ -332,6 +366,102 @@ function isPhaseBReauthCallerIdentityValid(user) {
   try {
     return !!(user && typeof user === 'object' && user.client_slug === 'sunset'
       && UUID_RE_CI.test(user.staff_user_id || '') && UUID_RE_CI.test(user.session_id || ''));
+  } catch { return false; }
+}
+
+/**
+ * Frozen own-data gate snapshot for shared OAuth callback (B3a2b).
+ * Accessors/proxies/symbols → empty; only string own-data for known keys.
+ */
+function snapshotSharedOauthCallbackGateEnv(env) {
+  try {
+    if (!env || typeof env !== 'object' || Array.isArray(env) || isProxySurface(env)) {
+      return Object.freeze(Object.create(null));
+    }
+    let oks;
+    try { oks = Reflect.ownKeys(env); } catch { return Object.freeze(Object.create(null)); }
+    for (let i = 0; i < oks.length; i += 1) {
+      if (typeof oks[i] === 'symbol') return Object.freeze(Object.create(null));
+    }
+    const out = Object.create(null);
+    for (const key of SHARED_CALLBACK_GATE_ENV_KEYS) {
+      const v = ownDataValue(env, key);
+      if (typeof v === 'string') out[key] = v;
+    }
+    return Object.freeze(out);
+  } catch { return Object.freeze(Object.create(null)); }
+}
+
+/**
+ * Shared callback route gate (B3a2b): exact sunset-staging AND
+ * (Phase A callback exact true OR Phase B callback exact true). Own-data only;
+ * never broad truthy / accessors / proxies. Neither → concealed before auth/DB.
+ * B-only is permitted (session ownership + intent-disjoint consume); dual-A
+ * is not required when B alone is exact true.
+ */
+function isSharedOauthCallbackRouteEnabled(env) {
+  try {
+    if (!env || typeof env !== 'object' || Array.isArray(env) || isProxySurface(env)) return false;
+    if (ownDataValue(env, 'LUNA_DEPLOYMENT') !== SHARED_CALLBACK_SUNSET_DEPLOYMENT) return false;
+    const a = ownDataValue(env, PHASE_A_CALLBACK_ENABLED_ENV) === 'true';
+    const b = ownDataValue(env, PHASE_B_CALLBACK_ENABLED_ENV) === 'true';
+    return a === true || b === true;
+  } catch { return false; }
+}
+
+/**
+ * Own-data env bag for B3a1 dispatcher construction (gates only).
+ * Fresh frozen Object.prototype bag; never process.env proxy/accessors.
+ */
+function snapshotSharedCallbackDispatchEnv(env) {
+  try {
+    if (!env || typeof env !== 'object' || Array.isArray(env) || isProxySurface(env)) return null;
+    let oks;
+    try { oks = Reflect.ownKeys(env); } catch { return null; }
+    for (let i = 0; i < oks.length; i += 1) {
+      if (typeof oks[i] === 'symbol') return null;
+    }
+    const out = {};
+    const dep = ownDataValue(env, 'LUNA_DEPLOYMENT');
+    if (typeof dep !== 'string') return null;
+    out.LUNA_DEPLOYMENT = dep;
+    // Always materialize both flags as own data strings (absent → 'false').
+    const a = ownDataValue(env, PHASE_A_CALLBACK_ENABLED_ENV);
+    const b = ownDataValue(env, PHASE_B_CALLBACK_ENABLED_ENV);
+    out[PHASE_A_CALLBACK_ENABLED_ENV] = a === 'true' ? 'true' : 'false';
+    out[PHASE_B_CALLBACK_ENABLED_ENV] = b === 'true' ? 'true' : 'false';
+    return Object.freeze(out);
+  } catch { return null; }
+}
+
+/**
+ * Own-data env snapshot for B2b Phase B runtime factory.
+ * Exact required string keys only; never expose process.env or accessors.
+ */
+function snapshotPhaseBCallbackRuntimeEnv(env) {
+  try {
+    if (!env || typeof env !== 'object' || Array.isArray(env) || isProxySurface(env)) return null;
+    let oks;
+    try { oks = Reflect.ownKeys(env); } catch { return null; }
+    for (let i = 0; i < oks.length; i += 1) {
+      if (typeof oks[i] === 'symbol') return null;
+    }
+    const out = {};
+    for (const key of PHASE_B_CALLBACK_RUNTIME_ENV_KEYS) {
+      const v = ownDataValue(env, key);
+      if (typeof v !== 'string') return null;
+      out[key] = v;
+    }
+    return Object.freeze(out);
+  } catch { return null; }
+}
+
+/** Canonical client/session UUIDs from Sunset admin session (callback owner). */
+function isSharedOauthCallbackCallerIdentityValid(user) {
+  try {
+    return !!(user && typeof user === 'object' && user.client_slug === 'sunset'
+      && UUID_RE_CI.test(user.client_id || '')
+      && UUID_RE_CI.test(user.session_id || ''));
   } catch { return false; }
 }
 
@@ -1147,6 +1277,29 @@ function buildCallbackRuntime(env, pg, stageTelemetry) {
   }));
 }
 
+/**
+ * Phase B callback runtime (B2b) for shared dispatcher factory injection.
+ * Own-data env snapshot + production natives only; no process.env proxy.
+ * Construction fails closed when readiness/envelope/secret incomplete.
+ */
+function buildPhaseBCallbackRuntime(env, pg, stageTelemetry) {
+  const natives = productionNativeSurfaces();
+  const tel = stageTelemetry || createNoopEmailOAuthStageTelemetry();
+  const envSnap = snapshotPhaseBCallbackRuntimeEnv(env);
+  if (!envSnap) {
+    const err = new Error('phase_b_callback_runtime_env_invalid');
+    throw err;
+  }
+  return createSunsetStagingMicrosoftPhaseBOauthCallbackRuntime(Object.freeze({
+    env: envSnap,
+    pgClient: pg,
+    https: natives.https,
+    crypto: natives.crypto,
+    timers: natives.timers,
+    stageTelemetry: tel,
+  }));
+}
+
 function buildRefreshHealthRuntime(env, pg) {
   const natives = productionNativeSurfaces();
   return createSunsetStagingMicrosoftDelegatedRefreshRuntime(Object.freeze({
@@ -1723,13 +1876,21 @@ function createStaffEmailOAuthRoutes(deps) {
     );
   }
 
+  /**
+   * GET shared Microsoft OAuth callback (Phase A + Phase B via B3a1 dispatcher).
+   * Path unchanged. Gate concealment before auth/DB/owner/SDK. Provider query
+   * never supplies owner. Per-request dispatcher + one PG loan; A then B only
+   * on exact frozen A invalid_or_expired. Public bounded terminal statuses only.
+   * Default-off: neither callback flag exact true → concealed.
+   */
   async function handleCallback(query, req, res, user) {
-    if (!isCallbackEnabled(env)) {
+    // Gate first (own-data sunset-staging + A|B exact true). No auth/DB/SDK.
+    if (!isSharedOauthCallbackRouteEnabled(env)) {
       return terminal(res, 404, 'invalid_or_expired');
     }
-    if (!user || user.client_slug !== 'sunset'
-        || !UUID_RE_CI.test(user.client_id || '')
-        || !UUID_RE_CI.test(user.session_id || '')) {
+    // Authenticated admin Sunset session; canonical client/session UUIDs only.
+    // Preserve existing unauthenticated/forbidden semantics (400, no leak).
+    if (!isSharedOauthCallbackCallerIdentityValid(user)) {
       return terminal(res, 400, 'invalid_or_expired');
     }
     // Snapshot server-generated stage telemetry once per callback (shared by
@@ -1737,17 +1898,48 @@ function createStaffEmailOAuthRoutes(deps) {
     const stageTelemetry = buildCallbackStageTelemetry();
     try {
       const result = await deps.withPgClient(async (pg) => {
-        // Completing callback only when flag true (gate above). Concrete
-        // merged completion chain via runtime factory — not legacy receive-only
-        // service. Construction fails closed if readiness missing.
+        // Per-request composition only: fresh B3a1 dispatcher (single-use).
+        // Factories close over this exclusive PG loan — no nested checkout.
         // Natives always from production wrap of node:https / node:crypto /
-        // global timers — never route DI substitution.
-        const service = buildCallbackRuntime(env, pg, stageTelemetry);
-        return service.accept(query, {
+        // global timers — never route DI substitution of Microsoft surfaces.
+        // Test-only injects may wrap factories; production uses real owners.
+        const dispatchEnv = snapshotSharedCallbackDispatchEnv(env);
+        if (!dispatchEnv) {
+          throw new Error('shared_callback_dispatch_env_invalid');
+        }
+        function createPhaseACallback() {
+          if (typeof deps.createPhaseACallbackFactory === 'function') {
+            return deps.createPhaseACallbackFactory({
+              env, pgClient: pg, stageTelemetry,
+            });
+          }
+          // Existing production Phase A callback composition exactly.
+          return buildCallbackRuntime(env, pg, stageTelemetry);
+        }
+        function createPhaseBCallback() {
+          if (typeof deps.createPhaseBCallbackFactory === 'function') {
+            return deps.createPhaseBCallbackFactory({
+              env, pgClient: pg, stageTelemetry,
+            });
+          }
+          // Real merged Phase B B2b sunset runtime (own-data env + natives).
+          return buildPhaseBCallbackRuntime(env, pg, stageTelemetry);
+        }
+        const createDispatch = typeof deps.createSharedCallbackDispatch === 'function'
+          ? deps.createSharedCallbackDispatch
+          : createMicrosoftOauthSharedCallbackDispatch;
+        const dispatcher = createDispatch(Object.freeze({
+          env: dispatchEnv,
+          createPhaseACallback,
+          createPhaseBCallback,
+        }));
+        // Owner from server session only — never provider query.
+        return dispatcher.accept(query, {
           clientId: user.client_id,
           authSessionId: user.session_id,
         });
       });
+      // Exact existing public bounded HTTP mapping (no bodies/codes/tokens).
       return terminal(
         res,
         result && result.status === 'invalid_or_expired' ? 400 : 200,
@@ -1813,6 +2005,10 @@ module.exports = {
   PHASE_B_REAUTH_GATE_ENV_KEYS,
   PHASE_B_REAUTH_URL_QUERY_KEYS,
   PHASE_B_REAUTH_B64URL_32_RE,
+  PHASE_A_CALLBACK_ENABLED_ENV,
+  PHASE_B_CALLBACK_ENABLED_ENV,
+  SHARED_CALLBACK_GATE_ENV_KEYS,
+  PHASE_B_CALLBACK_RUNTIME_ENV_KEYS,
   validBody,
   snapshotStartBody,
   snapshotPrepareBody,
@@ -1825,9 +2021,15 @@ module.exports = {
   snapshotResolveQueryResult,
   snapshotReauthorizeResolveQueryResult,
   snapshotPhaseBReauthGateEnv,
+  snapshotSharedOauthCallbackGateEnv,
+  snapshotSharedCallbackDispatchEnv,
+  snapshotPhaseBCallbackRuntimeEnv,
   isPrepareEnabled,
   isPhaseBReauthStartEnabled,
   isPhaseBReauthCallerIdentityValid,
+  isSharedOauthCallbackRouteEnabled,
+  isSharedOauthCallbackCallerIdentityValid,
+  isCallbackEnabled,
   buildPrepareSuccessJson,
   buildRefreshHealthSuccessJson,
   buildReadHealthSuccessJson,

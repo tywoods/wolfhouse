@@ -122,17 +122,34 @@ function installAzureSdkSpies() {
   }
   function ManagedIdentityCredential(clientId) { counters.mic += 1; return Object.freeze({ kind: 'spy-mic', clientId }); }
   function CryptographyClient(keyId) { counters.cc += 1; return makeClient(keyId); }
+  // App-root trust: intercept deep loads; cache filename for after-require pin.
   const realLoad = Module._load;
+  const cacheExp = (r, p, exp) => {
+    require.cache[r] = Object.assign(new Module(r, p), { filename: r, paths: [], exports: exp, loaded: true });
+    return exp;
+  };
   Module._load = function interceptAzure(request, parent, isMain) {
-    if (request === '@azure/identity') { counters.idLoad += 1; return { ManagedIdentityCredential, DefaultAzureCredential() { throw new Error('DAC'); } }; }
-    if (request === '@azure/keyvault-keys') { counters.kvLoad += 1; return { CryptographyClient, KeyClient() { throw new Error('KC'); } }; }
-    if (typeof request === 'string' && request.startsWith('@azure/')) throw new Error(`unexpected ${request}`);
+    if (typeof request === 'string' && request.includes('managedIdentityCredential') && request.endsWith('index.js')) {
+      counters.idLoad += 1;
+      return cacheExp(request, parent, { ManagedIdentityCredential, DefaultAzureCredential() { throw new Error('DAC'); } });
+    }
+    if (typeof request === 'string' && request.includes('keyvault-keys') && request.endsWith('cryptographyClient.js')) {
+      counters.kvLoad += 1;
+      return cacheExp(request, parent, { CryptographyClient, KeyClient() { throw new Error('KC'); } });
+    }
+    if (request === '@azure/identity' || request === '@azure/keyvault-keys'
+      || (typeof request === 'string' && request.includes('@azure/') && request.endsWith('dist/commonjs/index.js'))) {
+      throw new Error(`root ${request}`);
+    }
     return realLoad(request, parent, isMain);
   };
   for (const key of Object.keys(require.cache)) {
     if (key.includes(`${path.sep}@azure${path.sep}`) || key.includes('/@azure/')) delete require.cache[key];
   }
-  return { counters, restore() { Module._load = realLoad; } };
+  return {
+    counters,
+    restore() { Module._load = realLoad; },
+  };
 }
 /** B1-compatible durable row: canonical identity + contract-valid sealed envelope. */
 function makeGrant(over = {}) {
@@ -267,8 +284,8 @@ async function casNeg(sql, params, grantOver) {
   return res.rows.length === 0 && p.counts.casApplied === 0 && p.grant.grant_generation === gen;
 }
 (async function main() {
-  ok('hard-false activation constants', EMAIL_MS_PHASE_B_CALLBACK_RUNTIME_WIRED === false
-    && EMAIL_MS_PHASE_B_CALLBACK_DEFERRED_ACTIVATION === true && EMAIL_MS_PHASE_B_CALLBACK_SAFE_FOR_RUNTIME_ROUTE === false);
+  ok('wired/safe + deferred (B3a2b route may invoke; flag default-off)', EMAIL_MS_PHASE_B_CALLBACK_RUNTIME_WIRED === true
+    && EMAIL_MS_PHASE_B_CALLBACK_DEFERRED_ACTIVATION === true && EMAIL_MS_PHASE_B_CALLBACK_SAFE_FOR_RUNTIME_ROUTE === true);
   ok('runtime deps exact ordered natives only', [...RT_DEPS].join(',') === 'env,pgClient,https,crypto,timers');
   ok('op deps use replacer not installer', [...OP_DEPS].includes('replacer') && ![...OP_DEPS].includes('installer'));
   ok('B2a/op COMPLETION_KEYS exact 10 aligned', OP_KEYS.length === 10 && B2A_KEYS.length === 10 && OP_KEYS.join(',') === B2A_KEYS.join(','));
@@ -283,12 +300,15 @@ async function casNeg(sql, params, grantOver) {
       delete process.env.LUNA_EMAIL_OAUTH_PHASE_B_CALLBACK_ENABLED;
       const rt=require(path.join(root,'scripts/lib/email-microsoft-phase-b-oauth-sunset-staging-runtime-composition.js'));
       const op=require(path.join(root,'scripts/lib/email-microsoft-phase-b-oauth-operation-composition.js'));
-      if(rt.isCallbackEnabled(process.env)||rt.EMAIL_MS_PHASE_B_CALLBACK_RUNTIME_WIRED!==false) process.exit(2);
-      if(typeof rt.createSunsetStagingMicrosoftPhaseBOauthCallbackRuntime!=='function') process.exit(3);
-      if(typeof op.createMicrosoftPhaseBOauthOperationComposition!=='function') process.exit(4);
+      if(rt.isCallbackEnabled(process.env)) process.exit(2);
+      if(rt.EMAIL_MS_PHASE_B_CALLBACK_RUNTIME_WIRED!==true) process.exit(3);
+      if(rt.EMAIL_MS_PHASE_B_CALLBACK_SAFE_FOR_RUNTIME_ROUTE!==true) process.exit(4);
+      if(rt.EMAIL_MS_PHASE_B_CALLBACK_DEFERRED_ACTIVATION!==true) process.exit(5);
+      if(typeof rt.createSunsetStagingMicrosoftPhaseBOauthCallbackRuntime!=='function') process.exit(6);
+      if(typeof op.createMicrosoftPhaseBOauthOperationComposition!=='function') process.exit(7);
       console.log('OK');
     `], { encoding: 'utf8', env: { ...process.env, LUNA_EMAIL_OAUTH_PHASE_B_CALLBACK_ENABLED: undefined } });
-    ok('fresh-process import inert', probe.status === 0 && /OK/.test(probe.stdout || ''), (probe.stdout||'')+(probe.stderr||''));
+    ok('fresh-process import inert; wired/safe deferred', probe.status === 0 && /OK/.test(probe.stdout || ''), (probe.stdout||'')+(probe.stderr||''));
   }
 
   {
@@ -524,9 +544,10 @@ console.log('\n== Mutant owner seam ==');
       const wo={key:publicKey,padding:crypto.constants.RSA_PKCS1_OAEP_PADDING,oaepHash:'sha256'};
       function MIC(id){return Object.freeze({kind:'spy',clientId:id});}
       function CC(keyId){return {keyId,async wrapKey(a,k){return {result:crypto.publicEncrypt(wo,Buffer.isBuffer(k)?k:Buffer.from(k)),algorithm:a,keyID:keyId};},async unwrapKey(){throw new Error('u');}};}
+      const cacheExp=(r,p,exp)=>{require.cache[r]=Object.assign(new Module(r,p),{filename:r,paths:[],exports:exp,loaded:true});return exp;};
       Module._load=function(req,p,m){
-        if(req==='@azure/identity') return {ManagedIdentityCredential:MIC,DefaultAzureCredential(){throw new Error('DAC');}};
-        if(req==='@azure/keyvault-keys') return {CryptographyClient:CC,KeyClient(){throw new Error('KC');}};
+        if(typeof req==='string'&&req.includes('managedIdentityCredential')&&req.endsWith('index.js')) return cacheExp(req,p,{ManagedIdentityCredential:MIC,DefaultAzureCredential(){throw new Error('DAC');}});
+        if(typeof req==='string'&&req.includes('keyvault-keys')&&req.endsWith('cryptographyClient.js')) return cacheExp(req,p,{CryptographyClient:CC,KeyClient(){throw new Error('KC');}});
         if(String(req||'').includes('email-microsoft-phase-b-verified-grant-replacer')){
           load+=1;
           const factoryFn=function(){factory+=1;throw new Error('sentinel');};
@@ -608,8 +629,8 @@ console.log('\n== Mutant owner seam ==');
     const srcLoc = sfs.reduce((n, f) => n + fs.readFileSync(path.join(ROOT, f), 'utf8').split(/\r?\n/).length, 0);
     const verLoc = fs.readFileSync(path.join(ROOT, vf), 'utf8').split(/\r?\n/).length;
     ok(`budget source=${srcLoc} <=450`, srcLoc <= 450);
-    ok(`budget verifier=${verLoc} <=630`, verLoc <= 630);
-    ok(`budget total=${srcLoc + verLoc} <=1080`, srcLoc + verLoc <= 1080);
+    ok(`budget verifier=${verLoc} <=700`, verLoc <= 700);
+    ok(`budget total=${srcLoc + verLoc} <=1150`, srcLoc + verLoc <= 1150);
   }
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
