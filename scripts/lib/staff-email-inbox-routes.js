@@ -1,5 +1,45 @@
 'use strict';
 /** Gate 3 staff email draft/approve-send (offline). */
+/*
+ * Genuine freeze intrinsic for recovery ack ownership — private only.
+ *
+ * Established before any local require whose import graph may read host
+ * Object.isFrozen. Do NOT read host Object.isFrozen at import: pre-require
+ * Object.isFrozen=()=>true would otherwise be pinned as trusted and map
+ * mutable own-data {ok:true,code:email_send_committed} as HTTP 200.
+ *
+ * Source: fresh Node vm realm Object.isFrozen (independent primordial).
+ * Recovery gate calls only PINNED_IS_FROZEN. NEVER install onto process-global
+ * Object.isFrozen (forbidden host mutation). If a transitive dependency cannot
+ * load under pre-import host poison, import may fail closed deterministically;
+ * never mutate the global to force the load graph open. Scope is this freeze
+ * boundary only. Fail closed (null) if acquisition fails.
+ */
+const PINNED_OBJECT = Object;
+const PINNED_IS_FROZEN = (() => {
+  try {
+    // eslint-disable-next-line global-require
+    const vm = require('node:vm');
+    if (!vm || typeof vm.runInNewContext !== 'function') return null;
+    // Extract isFrozen from a fresh realm — never host Object.isFrozen.
+    const isFrozen = vm.runInNewContext('Object.isFrozen');
+    if (typeof isFrozen !== 'function') return null;
+    // Self-check entirely inside the fresh realm (no host isFrozen).
+    const selfOk = vm.runInNewContext(
+      '(function(){var o={__gate3_frz:1};'
+      + 'if(Object.isFrozen(o)!==false)return false;'
+      + 'Object.freeze(o);'
+      + 'return Object.isFrozen(o)===true;})()'
+    );
+    if (selfOk !== true) return null;
+    // Cross-realm: host-mutable plain object must report false.
+    if (isFrozen({ __gate3_host_mutable: 1 }) !== false) return null;
+    return isFrozen;
+  } catch {
+    return null;
+  }
+})();
+
 const crypto = require('crypto');
 const http = require('http');
 const util = require('util');
@@ -9,6 +49,7 @@ const {
 } = require('./email-authority-bound-outbound-operation');
 const EMAIL_DRAFT_PATH = '/staff/inbox/email/draft';
 const EMAIL_APPROVE_SEND_PATH = '/staff/inbox/email/approve-send';
+const EMAIL_RECOVER_SEND_PATH = '/staff/inbox/email/recover-send';
 const EMAIL_INBOX_MIN_ROLE = 'operator';
 const ENV_DRAFTS_ENABLED = 'EMAIL_STAFF_EMAIL_DRAFTS_ENABLED';
 const ENV_OUTBOUND_ENABLED = 'EMAIL_STAFF_OUTBOUND_ENABLED';
@@ -20,7 +61,9 @@ const SEND_PUBLIC_CODES = Object.freeze([
   'email_send_reauthorization_required', 'email_send_unavailable',
 ]);
 const BODY_KEYS = Object.freeze(['conversation_id', 'message_text', 'approval_id']);
+const RECOVERY_BODY_KEYS = Object.freeze(['conversation_id', 'approval_id']);
 const SUCCESS_DTO_KEYS = Object.freeze(['success', 'conversation_id', 'message_text', 'approval_id']);
+const RECOVERY_SUCCESS_DTO_KEYS = Object.freeze(['success', 'conversation_id', 'approval_id', 'status']);
 const BODY_MAX_BYTES = 10_240; // production shared readBody cap
 const MESSAGE_MAX_BYTES = 8_000; // UTF-8 bytes; DTO always fits in BODY_MAX_BYTES
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -35,6 +78,7 @@ if (EMAIL_AUTHORITY_BOUND_OUTBOUND_RUNTIME_WIRED !== false || EMAIL_AUTHORITY_BO
     || EMAIL_AUTHORITY_BOUND_OUTBOUND_PERSISTENCE_READY !== false) throw new Error('staff_email_inbox_outbound_flags');
 const PINNED_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
 const PINNED_IS_PROXY = PINNED_TYPES && typeof PINNED_TYPES.isProxy === 'function' ? PINNED_TYPES.isProxy : null;
+const PINNED_REFLECT_APPLY = typeof Reflect.apply === 'function' ? Reflect.apply : null;
 const PINNED_IM_PROTO = http.IncomingMessage && http.IncomingMessage.prototype ? http.IncomingMessage.prototype : null;
 const PINNED_HDR_GET = (() => {
   if (!PINNED_IM_PROTO) return null;
@@ -43,6 +87,16 @@ const PINNED_HDR_GET = (() => {
 })();
 function isProxy(v) {
   try { return !PINNED_IS_PROXY || !PINNED_TYPES ? true : Reflect.apply(PINNED_IS_PROXY, PINNED_TYPES, [v]) === true; } catch { return true; }
+}
+/** Module-init-pinned genuine isFrozen only — never host/ambient Object.isFrozen. Fail closed. */
+function pinnedIsFrozen(value) {
+  try {
+    if (!PINNED_IS_FROZEN || typeof PINNED_IS_FROZEN !== 'function' || !PINNED_REFLECT_APPLY) return false;
+    // Call the fresh-realm intrinsic; do not re-resolve host Object.isFrozen.
+    return PINNED_REFLECT_APPLY.call(Reflect, PINNED_IS_FROZEN, PINNED_OBJECT, [value]) === true;
+  } catch {
+    return false;
+  }
 }
 function ownData(o, k) {
   try { const d = Object.getOwnPropertyDescriptor(o, k); return d && Object.prototype.hasOwnProperty.call(d, 'value') && !d.get && !d.set ? d.value : undefined; } catch { return undefined; }
@@ -216,8 +270,124 @@ function snapshotEmailReplyBody(raw) {
     return Object.freeze({ conversation_id: conversationId, message_text: messageText, approval_id: approvalId });
   } catch { return null; }
 }
+/** Authority-neutral recovery browser input: conversation_id + approval_id only. */
+function snapshotRecoveryBody(raw) {
+  try {
+    if (!exactPlainKeys(raw, RECOVERY_BODY_KEYS)) return null;
+    const conversationId = parseUuid(ownData(raw, 'conversation_id'));
+    const approvalId = parseUuid(ownData(raw, 'approval_id'));
+    if (!conversationId || !approvalId) return null;
+    return Object.freeze({ conversation_id: conversationId, approval_id: approvalId });
+  } catch { return null; }
+}
 function successDto(conversationId, messageText, approvalId) {
   return Object.freeze({ success: true, conversation_id: conversationId, message_text: messageText, approval_id: approvalId });
+}
+function recoverySuccessDto(conversationId, approvalId, status) {
+  return Object.freeze({
+    success: true,
+    conversation_id: conversationId,
+    approval_id: approvalId,
+    status: status === 'committed' ? 'committed' : 'committed',
+  });
+}
+function recoveryFailureDto(conversationId, approvalId, code) {
+  const err = (typeof code === 'string' && SEND_PUBLIC_CODES.includes(code)) ? code
+    : (code === 'email_send_disabled' ? 'email_send_disabled' : 'email_send_unavailable');
+  const status = err === 'email_send_committed' ? 'committed'
+    : (err === 'email_send_outcome_unknown' ? 'outcome_unknown'
+      : (err === 'email_send_recovery' ? 'recovery'
+        : (err === 'email_send_reauthorization_required' ? 'reauthorization_required'
+          : (err === 'email_send_disabled' ? 'disabled' : 'unavailable'))));
+  return Object.freeze({
+    success: false,
+    error: err,
+    conversation_id: conversationId,
+    approval_id: approvalId,
+    status,
+  });
+}
+const RECOVERY_DISPATCH_ACK_KEYS = Object.freeze(['ok', 'code']);
+/**
+ * Accept only frozen local owner acknowledgements:
+ * exact own keys {ok, code}, own data descriptors only (no accessors /
+ * inheritance / extras / Proxy), primitive boolean + public code string.
+ * Reject Proxy via module-init-pinned isProxy before any field reflection.
+ * Freeze check uses module-init-pinned *genuine* isFrozen only (fresh vm realm
+ * via Reflect.apply); never reads host/ambient Object.isFrozen. Fail closed
+ * if pin unavailable. Never evaluates result.ok directly.
+ */
+function acceptRecoveryDispatchAck(result) {
+  try {
+    if (result == null) return null;
+    // Proxy rejection must precede getOwnPropertyDescriptor / ownKeys / reads.
+    if (isProxy(result)) return null;
+    if (typeof result !== 'object' || Array.isArray(result)) return null;
+    // Genuine pinned isFrozen only — host pre/post-import always-true must not open committed.
+    if (pinnedIsFrozen(result) !== true) return null;
+    if (!exactPlainKeys(result, RECOVERY_DISPATCH_ACK_KEYS)) return null;
+    const okVal = ownData(result, 'ok');
+    const code = ownData(result, 'code');
+    if (typeof okVal !== 'boolean') return null;
+    if (typeof code !== 'string' || !SEND_PUBLIC_CODES.includes(code)) return null;
+    return Object.freeze({ ok: okVal, code });
+  } catch {
+    return null;
+  }
+}
+function mapRecoveryDispatch(result, conversationId, approvalId) {
+  try {
+    const ack = acceptRecoveryDispatchAck(result);
+    if (ack) {
+      if (ack.code === 'email_send_committed' && ack.ok === true) {
+        return {
+          status: 200,
+          body: recoverySuccessDto(conversationId, approvalId, 'committed'),
+          code: ack.code,
+          approved: true,
+        };
+      }
+      return {
+        status: 503,
+        body: recoveryFailureDto(conversationId, approvalId, ack.code),
+        code: ack.code,
+        approved: true,
+      };
+    }
+  } catch { /* */ }
+  return {
+    status: 503,
+    body: recoveryFailureDto(conversationId, approvalId, 'email_send_unavailable'),
+    code: 'email_send_unavailable', approved: true,
+  };
+}
+function parseInvocationCountText(raw) {
+  if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 && raw <= 1) return raw;
+  if (typeof raw === 'string' && /^(0|1)$/.test(raw)) return Number(raw);
+  return null;
+}
+function journalEligibleForRecovery(row) {
+  try {
+    if (!row || typeof row !== 'object') return Object.freeze({ ok: false, reason: 'missing' });
+    const phase = ownData(row, 'phase');
+    const outcome = ownData(row, 'outcome');
+    const createC = parseInvocationCountText(ownData(row, 'create_invocation_count'));
+    const updateC = parseInvocationCountText(ownData(row, 'update_invocation_count'));
+    const sendC = parseInvocationCountText(ownData(row, 'send_invocation_count'));
+    if (createC == null || updateC == null || sendC == null) return Object.freeze({ ok: false, reason: 'counts' });
+    if (phase === 'create_dispatched' || phase === 'update_dispatched') {
+      return Object.freeze({ ok: false, reason: 'frozen', code: 'email_send_recovery' });
+    }
+    if (phase === 'reconciled_sent' && outcome === 'committed' && createC === 1 && updateC === 1 && sendC === 1) {
+      return Object.freeze({ ok: true, mode: 'already_committed' });
+    }
+    if (phase === 'send_dispatched' && outcome === 'outcome_unknown' && createC === 1 && updateC === 1 && sendC === 1) {
+      return Object.freeze({ ok: true, mode: 'reconcile' });
+    }
+    return Object.freeze({ ok: false, reason: 'ineligible', code: 'email_send_recovery' });
+  } catch {
+    return Object.freeze({ ok: false, reason: 'error' });
+  }
 }
 const SQL_RESOLVE = `
 SELECT c.id::text AS conversation_id, cl.id::text AS client_id, loc.id::text AS location_id,
@@ -273,6 +443,26 @@ UPDATE tenant_email_reply_approvals
  WHERE approval_id=$1::uuid AND client_id=$2::uuid AND conversation_id=$3::uuid
    AND operation_id=$4::uuid AND state='draft' AND message_text=$6 AND body_digest=$7
  RETURNING approval_id::text AS approval_id, conversation_id::text AS conversation_id, message_text, state
+`.replace(/\s+/g, ' ').trim();
+const SQL_LOAD_APPROVAL = `
+SELECT approval_id::text AS approval_id, operation_id::text AS operation_id,
+  client_id::text AS client_id, location_id::text AS location_id, location_key,
+  endpoint_id::text AS endpoint_id, conversation_id::text AS conversation_id,
+  source_inbound_event_id::text AS source_inbound_event_id, provider,
+  provider_mailbox_id, provider_source_message_id, message_text, body_digest, state
+FROM tenant_email_reply_approvals
+WHERE approval_id=$1::uuid AND client_id=$2::uuid AND conversation_id=$3::uuid
+`.replace(/\s+/g, ' ').trim();
+/** Journal phase only — BIGINT counters returned as text; never select draft body/ids for HTTP. */
+const SQL_JOURNAL_RECOVERY_PHASE = `
+SELECT phase, outcome,
+  create_invocation_count::text AS create_invocation_count,
+  update_invocation_count::text AS update_invocation_count,
+  send_invocation_count::text AS send_invocation_count
+FROM tenant_email_outbound_send_journal
+WHERE client_id=$1::uuid AND approval_id=$2::uuid AND operation_id=$3::uuid
+  AND conversation_id=$4::uuid
+LIMIT 1
 `.replace(/\s+/g, ' ').trim();
 function actorFromUser(user) {
   if (!user || typeof user !== 'object') return null;
@@ -530,17 +720,210 @@ function createStaffEmailInboxRoutes(deps) {
       return sendJSON(res, 500, Object.freeze({ success: false, error: 'approve_failed' }));
     }
   }
-  return Object.freeze({ EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_INBOX_MIN_ROLE, handleDraft, handleApproveSend });
+  async function readRecoveryBody(req) {
+    try {
+      let text;
+      if (readBody) {
+        const raw = await readBody(req, BODY_MAX_BYTES);
+        text = Buffer.isBuffer(raw) ? raw.toString('utf8') : raw;
+      } else {
+        const chunks = []; let total = 0;
+        await new Promise((resolve, reject) => {
+          req.on('data', (c) => {
+            total += c.length;
+            if (total > BODY_MAX_BYTES) reject(new Error('body_too_large'));
+            else chunks.push(c);
+          });
+          req.on('end', resolve); req.on('error', reject);
+        });
+        text = Buffer.concat(chunks).toString('utf8');
+      }
+      if (typeof text !== 'string') return { ok: false, status: 400, body: INVALID_REQUEST };
+      if (utf8Bytes(text) > BODY_MAX_BYTES) return { ok: false, status: 400, body: INVALID_REQUEST };
+      let parsed; try { parsed = JSON.parse(text); } catch { return { ok: false, status: 400, body: INVALID_REQUEST }; }
+      const snap = snapshotRecoveryBody(parsed);
+      return snap ? { ok: true, body: snap } : { ok: false, status: 400, body: INVALID_REQUEST };
+    } catch {
+      return { ok: false, status: 400, body: INVALID_REQUEST };
+    }
+  }
+  /**
+   * Staff-safe recovery for already-approved operations in send_dispatched/outcome_unknown.
+   * Browser input: conversation_id + approval_id only. Server derives authority + operation facts.
+   * Only dispatchApprovedOutbound reconcile-only path for send_dispatched; never second create/update/send.
+   */
+  async function handleRecoverSend(req, res, user, gateEnv) {
+    const started = Date.now();
+    const env = gateEnv || snapshotGateEnv(deps.runtimeEnv || process.env);
+    if (!isEmailStaffOutboundEnabled(env)) {
+      sendJSON(res, 404, NOT_FOUND);
+      return;
+    }
+    const origin = validateSameOrigin(req, env);
+    if (!origin.ok) { sendJSON(res, origin.status, origin.body); return; }
+    const ct = validateJsonContentType(req);
+    if (!ct.ok) { sendJSON(res, ct.status, ct.body); return; }
+    const actor = actorFromUser(user);
+    if (!actor) { sendJSON(res, 403, Object.freeze({ success: false, error: 'forbidden' })); return; }
+    let input;
+    try {
+      const parsed = await readRecoveryBody(req);
+      if (!parsed.ok) { sendJSON(res, parsed.status, parsed.body); return; }
+      input = parsed.body;
+    } catch {
+      auditSafe(appendAuditLog, {
+        intent: 'api:inbox.email.recover_send', category: 'email_inbox_recover_send',
+        success: false, code: 'recover_error', staff_user_id: actor.staff_user_id,
+      });
+      return sendJSON(res, 500, Object.freeze({ success: false, error: 'recover_failed' }));
+    }
+    try {
+      const result = await withPgClient(async (pg) => {
+        const auth = await resolveAuthority(pg, actor, input.conversation_id);
+        if (!auth) return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
+        const loaded = await pg.query(SQL_LOAD_APPROVAL, [input.approval_id, actor.client_id, input.conversation_id]);
+        if (!loaded || !loaded.rows || loaded.rows.length !== 1) {
+          return { status: 404, body: NOT_FOUND, code: 'approval_not_found' };
+        }
+        const row = loaded.rows[0];
+        if (row.state !== 'approved') {
+          return { status: 409, body: APPROVAL_CONFLICT, code: 'approval_not_approved' };
+        }
+        if (!authorityMatchesApproval(auth, row)) {
+          return { status: 409, body: APPROVAL_CONFLICT, code: 'authority_drift' };
+        }
+        if (auth.endpoint_outbound_enabled !== true) {
+          return {
+            status: 503,
+            body: recoveryFailureDto(input.conversation_id, input.approval_id, 'email_send_disabled'),
+            code: 'email_send_disabled',
+            approval_id: input.approval_id,
+          };
+        }
+        const lockedOperationId = parseUuid(typeof row.operation_id === 'string' ? row.operation_id : null);
+        if (!lockedOperationId) {
+          return { status: 409, body: APPROVAL_CONFLICT, code: 'recover_operation_missing' };
+        }
+        const journalRes = await pg.query(SQL_JOURNAL_RECOVERY_PHASE, [
+          actor.client_id, input.approval_id, lockedOperationId, input.conversation_id,
+        ]);
+        if (!journalRes || !Array.isArray(journalRes.rows) || journalRes.rows.length !== 1) {
+          return {
+            status: 503,
+            body: recoveryFailureDto(input.conversation_id, input.approval_id, 'email_send_recovery'),
+            code: 'email_send_recovery',
+            approval_id: input.approval_id,
+          };
+        }
+        const eligibility = journalEligibleForRecovery(journalRes.rows[0]);
+        if (!eligibility.ok) {
+          const code = eligibility.code || 'email_send_recovery';
+          return {
+            status: 503,
+            body: recoveryFailureDto(input.conversation_id, input.approval_id, code),
+            code,
+            approval_id: input.approval_id,
+          };
+        }
+        if (eligibility.mode === 'already_committed') {
+          return {
+            status: 200,
+            body: recoverySuccessDto(input.conversation_id, input.approval_id, 'committed'),
+            code: 'email_send_committed',
+            approval_id: input.approval_id,
+          };
+        }
+        // send_dispatched reconcile-only via existing dispatchApprovedOutbound path.
+        const sendEnabled = isEmailOutboundSendEnabled(env);
+        const compositionEnabled = isEmailOutboundRuntimeCompositionEnabled(env);
+        if (!sendEnabled || !compositionEnabled) {
+          return {
+            status: 503,
+            body: recoveryFailureDto(input.conversation_id, input.approval_id, 'email_send_disabled'),
+            code: 'email_send_disabled',
+            approval_id: input.approval_id,
+          };
+        }
+        const sealed = sealApprovedDispatchRequest(row, auth, actor, lockedOperationId);
+        if (!sealed) {
+          return {
+            status: 503,
+            body: recoveryFailureDto(input.conversation_id, input.approval_id, 'email_send_unavailable'),
+            code: 'email_send_unavailable',
+            approval_id: input.approval_id,
+          };
+        }
+        const compositionEnv = deps.runtimeEnv || process.env;
+        let dispatchResult = null;
+        if (typeof createOutboundDispatch === 'function') {
+          try {
+            const surface = createOutboundDispatch(pg, compositionEnv);
+            if (!surface || typeof surface.dispatchApprovedOutbound !== 'function') {
+              return {
+                status: 503,
+                body: recoveryFailureDto(input.conversation_id, input.approval_id, 'email_send_unavailable'),
+                code: 'email_send_unavailable',
+                approval_id: input.approval_id,
+              };
+            }
+            dispatchResult = await surface.dispatchApprovedOutbound(sealed);
+          } catch {
+            return {
+              status: 503,
+              body: recoveryFailureDto(input.conversation_id, input.approval_id, 'email_send_unavailable'),
+              code: 'email_send_unavailable',
+              approval_id: input.approval_id,
+            };
+          }
+        } else if (typeof outboundDispatch === 'function') {
+          dispatchResult = await outboundDispatch(sealed);
+        } else {
+          return {
+            status: 503,
+            body: recoveryFailureDto(input.conversation_id, input.approval_id, 'email_send_disabled'),
+            code: 'email_send_disabled',
+            approval_id: input.approval_id,
+          };
+        }
+        const mapped = mapRecoveryDispatch(dispatchResult, input.conversation_id, input.approval_id);
+        return { ...mapped, approval_id: input.approval_id };
+      });
+      const deliveryCommitted = result.code === 'email_send_committed'
+        && result.status === 200
+        && result.body
+        && result.body.success === true;
+      auditSafe(appendAuditLog, {
+        intent: 'api:inbox.email.recover_send', category: 'email_inbox_recover_send',
+        success: deliveryCommitted === true, code: result.code,
+        approval_id: result.approval_id || input.approval_id,
+        conversation_id: input.conversation_id, staff_user_id: actor.staff_user_id,
+        elapsed_ms: Date.now() - started,
+      });
+      return sendJSON(res, result.status, result.body);
+    } catch (_err) {
+      auditSafe(appendAuditLog, {
+        intent: 'api:inbox.email.recover_send', category: 'email_inbox_recover_send', success: false,
+        code: 'recover_error', conversation_id: input.conversation_id, approval_id: input.approval_id,
+        staff_user_id: actor.staff_user_id, elapsed_ms: Date.now() - started,
+      });
+      return sendJSON(res, 500, Object.freeze({ success: false, error: 'recover_failed' }));
+    }
+  }
+  return Object.freeze({
+    EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
+    handleDraft, handleApproveSend, handleRecoverSend,
+  });
 }
 module.exports = {
-  EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
+  EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
   ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_COMPOSITION_ENABLED, ENV_PORTAL_ORIGIN,
-  BODY_KEYS, SUCCESS_DTO_KEYS, BODY_MAX_BYTES, MESSAGE_MAX_BYTES, SEND_PUBLIC_CODES,
-  SQL_RESOLVE, SQL_APPROVE,
+  BODY_KEYS, RECOVERY_BODY_KEYS, SUCCESS_DTO_KEYS, RECOVERY_SUCCESS_DTO_KEYS,
+  BODY_MAX_BYTES, MESSAGE_MAX_BYTES, SEND_PUBLIC_CODES,
+  SQL_RESOLVE, SQL_APPROVE, SQL_LOAD_APPROVAL, SQL_JOURNAL_RECOVERY_PHASE,
   createStaffEmailInboxRoutes,
   isEmailStaffDraftsEnabled, isEmailStaffOutboundEnabled, isEmailOutboundSendEnabled,
   isEmailOutboundRuntimeCompositionEnabled,
-  snapshotGateEnv, snapshotEmailReplyBody, validateJsonContentType, validateSameOrigin,
+  snapshotGateEnv, snapshotEmailReplyBody, snapshotRecoveryBody, validateJsonContentType, validateSameOrigin,
   isExactApplicationJson, bodyDigestOf, exactOriginSerialization, normalizeConfiguredOrigin,
-  sealApprovedDispatchRequest, mapDispatchToRoute,
+  sealApprovedDispatchRequest, mapDispatchToRoute, mapRecoveryDispatch, journalEligibleForRecovery,
 };

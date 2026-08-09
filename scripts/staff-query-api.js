@@ -252,7 +252,7 @@ const {
 } = require('./lib/staff-email-delta-operator-recovery-routes');
 // Gate 3 email inbox draft/approve-send (default-off; composition owners lazy).
 const {
-  createStaffEmailInboxRoutes, EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH,
+  createStaffEmailInboxRoutes, EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH,
   snapshotGateEnv: snapshotEmailInboxGateEnv, isEmailStaffDraftsEnabled,
   isEmailStaffOutboundEnabled, validateJsonContentType: validateEmailInboxJsonContentType,
 } = require('./lib/staff-email-inbox-routes');
@@ -31887,6 +31887,7 @@ var EMAIL_DRAFT_MAX_UTF8_BYTES = 8000;
 var EMAIL_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var EMAIL_DRAFT_OK_KEYS = ['success','conversation_id','message_text','approval_id'];
 var EMAIL_APPROVE_503_KEYS = ['success','error','conversation_id','approval_id','approval_state'];
+var EMAIL_APPROVE_OK_KEYS = ['success','conversation_id','approval_id','approval_state'];
 var _emailReplyStateByConv = Object.create(null);
 var _emailUtf8Encoder = (typeof TextEncoder !== 'undefined') ? new TextEncoder() : null;
 function staffEmailDraftsUiEnabled(){ return window.__EMAIL_STAFF_EMAIL_DRAFTS_ENABLED__ === true; }
@@ -31953,6 +31954,18 @@ function acceptEmailApproveDisabled503(data, reqConvId, savedApprovalId){
     return { conversation_id: cid, approval_id: ap, approval_state: st };
   } catch (_e) { return null; }
 }
+/** Exact production approve-send 200 committed DTO only — conversation+approval ownership. */
+function acceptEmailApproveSuccess(data, reqConvId, savedApprovalId){
+  try {
+    if (!emailExactPlainKeys(data, EMAIL_APPROVE_OK_KEYS) || emailOwnData(data, 'success') !== true) return null;
+    if (emailOwnData(data, 'approval_state') !== 'approved') return null;
+    var cid = emailCanonicalUuid(emailOwnData(data, 'conversation_id'));
+    var ap = emailCanonicalUuid(emailOwnData(data, 'approval_id'));
+    var want = emailCanonicalUuid(savedApprovalId);
+    if (!cid || cid !== String(reqConvId || '').toLowerCase() || !ap || !want || ap !== want) return null;
+    return { conversation_id: cid, approval_id: ap, approval_state: 'approved' };
+  } catch (_e) { return null; }
+}
 function emailUiFailureCopy(op, status){
   var c = (typeof status === 'number' && isFinite(status)) ? status : 0;
   if (c === 400) return 'Request rejected';
@@ -31972,7 +31985,7 @@ function emailParseFetchJson(r){
 function emailReplyState(convId){
   var id = String(convId || '');
   if (!_emailReplyStateByConv[id]) {
-    _emailReplyStateByConv[id] = { approvalId: null, locked: false, savedText: '', seq: 0, inFlight: false };
+    _emailReplyStateByConv[id] = { approvalId: null, locked: false, sent: false, savedText: '', seq: 0, inFlight: false };
   }
   return _emailReplyStateByConv[id];
 }
@@ -32058,7 +32071,7 @@ function performEmailApproveSend(convId, targetEl){
   var st = emailReplyState(convId);
   var ta = targetEl.querySelector('#draft-textarea');
   var statusEl = targetEl.querySelector('#draft-send-status');
-  if (!ta || st.locked || st.inFlight) return;
+  if (!ta || st.locked || st.sent || st.inFlight) return;
   if (!staffEmailOutboundUiEnabled()) {
     showDraftSendStatus(statusEl, 'blocked', 'Email sending is disabled; draft not approved.');
     return;
@@ -32107,6 +32120,22 @@ function performEmailApproveSend(convId, targetEl){
         setEmailReplyControlsDisabled(targetEl, false, st.locked);
         return;
       }
+      if (out.status === 200) {
+        var committed = acceptEmailApproveSuccess(out.data, snapConv, snapApprovalId);
+        if (committed) {
+          if (ta.value !== snapText) ta.value = snapText;
+          updateEmailDraftByteCount(targetEl, snapText);
+          st.savedText = snapText;
+          st.locked = true;
+          st.sent = true;
+          showDraftSendStatus(statusEl, 'ok', 'Email sent');
+          setEmailReplyControlsDisabled(targetEl, false, true);
+          return;
+        }
+        showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('approve', out.status));
+        setEmailReplyControlsDisabled(targetEl, false, st.locked);
+        return;
+      }
       if (out.status === 503) {
         var accepted = acceptEmailApproveDisabled503(out.data, snapConv, snapApprovalId);
         if (accepted && accepted.approval_state === 'approved') {
@@ -32144,7 +32173,7 @@ function wireInboxEmailReply(convId, targetEl){
   var apprBtn = targetEl.querySelector('#btn-email-approve-send');
   if (!ta || !saveBtn) return;
   var st = emailReplyState(convId);
-  if (st.locked) {
+  if (st.locked || st.sent) {
     ta.value = st.savedText || ta.value;
     setEmailReplyControlsDisabled(targetEl, false, true);
   } else if (st.inFlight) {
@@ -48405,6 +48434,16 @@ async function router(req, res) {
     const ct = validateEmailInboxJsonContentType(req);
     if (!ct.ok) return sendJSON(res, ct.status, ct.body);
     return emailInboxRoutes.handleApproveSend(req, res, auth.user, emailInboxGateEnv);
+  }
+  // Staff-safe email outbound recovery/reconcile (already-approved; default-off with outbound UI).
+  if (pathname === EMAIL_RECOVER_SEND_PATH && method === 'POST') {
+    const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
+    if (!isEmailStaffOutboundEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    const ct = validateEmailInboxJsonContentType(req);
+    if (!ct.ok) return sendJSON(res, ct.status, ct.body);
+    return emailInboxRoutes.handleRecoverSend(req, res, auth.user, emailInboxGateEnv);
   }
 
   const convNeedsHumanMatch = CONV_NEEDS_HUMAN_RE.exec(pathname);
