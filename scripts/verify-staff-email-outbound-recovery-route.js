@@ -468,6 +468,313 @@ async function main() {
     && !('message_text' in send.calls[0].body)
     && noLeak(send.calls[0].body));
 
+  // ── Hostile dispatch acknowledgement hardening (mapRecoveryDispatch) ──
+  // Exact-head blocker: ownData(code) + direct result.ok / no isProxy rejects
+  // accessor-backed ok and transparent Proxy as HTTP 200 committed.
+  function nonCommittedSanitized(mapped) {
+    return !!(mapped
+      && mapped.status === 503
+      && mapped.body
+      && mapped.body.success === false
+      && mapped.body.status !== 'committed'
+      && mapped.body.error !== 'email_send_committed'
+      && mapped.code !== 'email_send_committed'
+      && mapped.body.conversation_id === V
+      && mapped.body.approval_id === AP
+      && Object.keys(mapped.body).sort().join(',') === 'approval_id,conversation_id,error,status,success'
+      && noLeak(mapped.body)
+      && noLeak(mapped));
+  }
+  function ownerAck(okVal, code) {
+    return Object.freeze({ ok: okVal, code });
+  }
+  ok('mapRecoveryDispatch export present', typeof mod.mapRecoveryDispatch === 'function');
+
+  // Valid production owner acknowledgements preserved
+  {
+    const good = mod.mapRecoveryDispatch(ownerAck(true, 'email_send_committed'), V, AP);
+    ok('owner frozen committed ack → 200 committed DTO',
+      good.status === 200
+      && good.body.success === true
+      && good.body.status === 'committed'
+      && good.body.conversation_id === V
+      && good.body.approval_id === AP
+      && good.code === 'email_send_committed'
+      && Object.keys(good.body).sort().join(',') === 'approval_id,conversation_id,status,success'
+      && noLeak(good.body));
+    const unk = mod.mapRecoveryDispatch(ownerAck(false, 'email_send_outcome_unknown'), V, AP);
+    ok('owner frozen outcome_unknown ack → 503 public',
+      unk.status === 503
+      && unk.body.success === false
+      && unk.body.error === 'email_send_outcome_unknown'
+      && unk.body.status === 'outcome_unknown'
+      && unk.code === 'email_send_outcome_unknown'
+      && noLeak(unk.body));
+    const reauth = mod.mapRecoveryDispatch(ownerAck(false, 'email_send_reauthorization_required'), V, AP);
+    ok('owner frozen reauthorization ack → 503 public',
+      reauth.status === 503
+      && reauth.body.error === 'email_send_reauthorization_required'
+      && reauth.body.status === 'reauthorization_required'
+      && noLeak(reauth.body));
+  }
+
+  // Probe 1: own data code=email_send_committed + accessor-backed ok
+  {
+    let getterHits = 0;
+    const hostile = {};
+    Object.defineProperty(hostile, 'code', {
+      value: 'email_send_committed', enumerable: true, writable: false, configurable: false,
+    });
+    Object.defineProperty(hostile, 'ok', {
+      get() { getterHits += 1; return true; },
+      enumerable: true,
+      configurable: false,
+    });
+    const mapped = mod.mapRecoveryDispatch(hostile, V, AP);
+    ok('hostile accessor-backed ok → zero getter execution', getterHits === 0, `getterHits=${getterHits}`);
+    ok('hostile accessor-backed ok → fail-closed non-committed sanitized',
+      nonCommittedSanitized(mapped), JSON.stringify(mapped && mapped.body));
+  }
+
+  // Probe 2: transparent Proxy around valid target
+  {
+    let trapHits = 0;
+    const target = { ok: true, code: 'email_send_committed' };
+    const proxy = new Proxy(target, {
+      get(t, p, r) { trapHits += 1; return Reflect.get(t, p, r); },
+      getOwnPropertyDescriptor(t, p) { trapHits += 1; return Reflect.getOwnPropertyDescriptor(t, p); },
+      ownKeys(t) { trapHits += 1; return Reflect.ownKeys(t); },
+      has(t, p) { trapHits += 1; return Reflect.has(t, p); },
+      getPrototypeOf(t) { trapHits += 1; return Reflect.getPrototypeOf(t); },
+      set() { trapHits += 1; return false; },
+      defineProperty() { trapHits += 1; return false; },
+    });
+    const mapped = mod.mapRecoveryDispatch(proxy, V, AP);
+    ok('hostile transparent Proxy → zero trap execution', trapHits === 0, `trapHits=${trapHits}`);
+    ok('hostile transparent Proxy → fail-closed non-committed sanitized',
+      nonCommittedSanitized(mapped), JSON.stringify(mapped && mapped.body));
+  }
+
+  // Accessors on every field
+  {
+    let hits = 0;
+    const accCode = {};
+    Object.defineProperty(accCode, 'ok', { value: true, enumerable: true });
+    Object.defineProperty(accCode, 'code', {
+      get() { hits += 1; return 'email_send_committed'; }, enumerable: true,
+    });
+    const m1 = mod.mapRecoveryDispatch(accCode, V, AP);
+    ok('accessor on code → zero hits + non-committed', hits === 0 && nonCommittedSanitized(m1));
+
+    hits = 0;
+    const accBoth = {};
+    Object.defineProperty(accBoth, 'ok', {
+      get() { hits += 1; return true; }, enumerable: true,
+    });
+    Object.defineProperty(accBoth, 'code', {
+      get() { hits += 1; return 'email_send_committed'; }, enumerable: true,
+    });
+    const m2 = mod.mapRecoveryDispatch(accBoth, V, AP);
+    ok('accessors on every field → zero hits + non-committed', hits === 0 && nonCommittedSanitized(m2));
+  }
+
+  // Extra keys / inherited fields / mutable objects
+  {
+    const extra = Object.freeze({ ok: true, code: 'email_send_committed', planted: PLANTED });
+    ok('extra keys rejected non-committed sanitized',
+      nonCommittedSanitized(mod.mapRecoveryDispatch(extra, V, AP)) && noLeak(mod.mapRecoveryDispatch(extra, V, AP)));
+
+    const proto = { ok: true, code: 'email_send_committed' };
+    const inherited = Object.create(proto);
+    ok('inherited fields only → non-committed',
+      nonCommittedSanitized(mod.mapRecoveryDispatch(inherited, V, AP)));
+
+    const mixed = Object.create({ code: 'email_send_committed' });
+    Object.defineProperty(mixed, 'ok', { value: true, enumerable: true });
+    ok('inherited code + own ok → non-committed',
+      nonCommittedSanitized(mod.mapRecoveryDispatch(mixed, V, AP)));
+
+    const mutable = { ok: true, code: 'email_send_committed' };
+    ok('mutable unfrozen object → non-committed',
+      nonCommittedSanitized(mod.mapRecoveryDispatch(mutable, V, AP)));
+  }
+
+  // Throwing traps / trapping Proxy / weird prototypes / arrays / functions / primitives
+  {
+    let throwHits = 0;
+    const throwing = new Proxy({ ok: true, code: 'email_send_committed' }, {
+      get() { throwHits += 1; throw new Error(`password=${PLANTED} trap_get`); },
+      getOwnPropertyDescriptor() { throwHits += 1; throw new Error(`client_secret=${PLANTED} trap_gopd`); },
+      ownKeys() { throwHits += 1; throw new Error(`token=${TOKEN} trap_ownKeys`); },
+      getPrototypeOf() { throwHits += 1; throw new Error(`refresh_token=${PLANTED}`); },
+      has() { throwHits += 1; throw new Error(`access_token=${PLANTED}`); },
+    });
+    let threw = false;
+    let mappedThrow;
+    try { mappedThrow = mod.mapRecoveryDispatch(throwing, V, AP); } catch (e) {
+      threw = true;
+      ok('throwing Proxy must not escape', false, String(e && e.message || e));
+    }
+    ok('throwing Proxy → zero traps + no throw + sanitized',
+      !threw && throwHits === 0 && nonCommittedSanitized(mappedThrow) && noLeak(mappedThrow));
+
+    function Weird() { this.ok = true; this.code = 'email_send_committed'; }
+    Weird.prototype = Object.create(null);
+    const weirdInst = Object.freeze(new Weird());
+    ok('weird constructor prototype → non-committed',
+      nonCommittedSanitized(mod.mapRecoveryDispatch(weirdInst, V, AP)));
+
+    const nullProto = Object.freeze(Object.assign(Object.create(null), {
+      ok: true, code: 'email_send_committed',
+    }));
+    ok('Object.create(null) ack → non-committed',
+      nonCommittedSanitized(mod.mapRecoveryDispatch(nullProto, V, AP)));
+
+    ok('array ack → non-committed',
+      nonCommittedSanitized(mod.mapRecoveryDispatch([true, 'email_send_committed'], V, AP)));
+    const arrObj = ['x'];
+    arrObj.ok = true;
+    arrObj.code = 'email_send_committed';
+    ok('array-with-props ack → non-committed',
+      nonCommittedSanitized(mod.mapRecoveryDispatch(Object.freeze(arrObj), V, AP)));
+
+    const fn = function hostileAck() { return true; };
+    fn.ok = true;
+    fn.code = 'email_send_committed';
+    ok('function ack → non-committed',
+      nonCommittedSanitized(mod.mapRecoveryDispatch(fn, V, AP)));
+
+    let primAll = true;
+    for (const prim of [null, undefined, true, false, 1, 0, 'email_send_committed', Symbol('ok')]) {
+      const m = mod.mapRecoveryDispatch(prim, V, AP);
+      if (!nonCommittedSanitized(m)) primAll = false;
+    }
+    ok('primitives → non-committed sanitized', primAll);
+  }
+
+  // Route-level hostile dispatch: accessor ok must not commit delivery
+  {
+    let getterHits = 0;
+    const routesHostileAcc = mod.createStaffEmailInboxRoutes({
+      sendJSON: send.sendJSON,
+      withPgClient: pg.withPgClient,
+      appendAuditLog() {},
+      createOutboundDispatch() {
+        return Object.freeze({
+          async dispatchApprovedOutbound() {
+            dispatchHits += 1;
+            const hostile = {};
+            Object.defineProperty(hostile, 'code', {
+              value: 'email_send_committed', enumerable: true, writable: false, configurable: false,
+            });
+            Object.defineProperty(hostile, 'ok', {
+              get() { getterHits += 1; return true; }, enumerable: true,
+            });
+            return hostile;
+          },
+        });
+      },
+      runtimeEnv: enabledEnv(),
+    });
+    pg.setJournal('send_dispatched', 'outcome_unknown', { createC: 1, updateC: 1, sendC: 1 });
+    send.calls.length = 0; dispatchHits = 0; getterHits = 0;
+    await routesHostileAcc.handleRecoverSend(mockReq(recoveryDto()), {}, user(), gate);
+    ok('route hostile accessor ack → 503 non-committed zero getter',
+      send.calls[0].status === 503
+      && send.calls[0].body.success === false
+      && send.calls[0].body.status !== 'committed'
+      && send.calls[0].body.error !== 'email_send_committed'
+      && getterHits === 0
+      && dispatchHits === 1
+      && noLeak(send.calls[0].body),
+      JSON.stringify(send.calls[0]));
+  }
+
+  // Route-level hostile transparent Proxy dispatch
+  {
+    let trapHits = 0;
+    const routesHostileProxy = mod.createStaffEmailInboxRoutes({
+      sendJSON: send.sendJSON,
+      withPgClient: pg.withPgClient,
+      appendAuditLog() {},
+      createOutboundDispatch() {
+        return Object.freeze({
+          async dispatchApprovedOutbound() {
+            dispatchHits += 1;
+            const target = { ok: true, code: 'email_send_committed' };
+            return new Proxy(target, {
+              get(t, p, r) { trapHits += 1; return Reflect.get(t, p, r); },
+              getOwnPropertyDescriptor(t, p) {
+                trapHits += 1; return Reflect.getOwnPropertyDescriptor(t, p);
+              },
+              ownKeys(t) { trapHits += 1; return Reflect.ownKeys(t); },
+              getPrototypeOf(t) { trapHits += 1; return Reflect.getPrototypeOf(t); },
+            });
+          },
+        });
+      },
+      runtimeEnv: enabledEnv(),
+    });
+    send.calls.length = 0; dispatchHits = 0; trapHits = 0;
+    await routesHostileProxy.handleRecoverSend(mockReq(recoveryDto()), {}, user(), gate);
+    ok('route hostile Proxy ack → 503 non-committed zero traps',
+      send.calls[0].status === 503
+      && send.calls[0].body.success === false
+      && send.calls[0].body.status !== 'committed'
+      && trapHits === 0
+      && dispatchHits === 1
+      && noLeak(send.calls[0].body),
+      JSON.stringify(send.calls[0]));
+  }
+
+  // Logger / error sanitization: planted secrets in hostile surfaces never appear
+  {
+    const plantedAck = Object.freeze({
+      ok: true,
+      code: 'email_send_committed',
+      detail: `password=${PLANTED}`,
+      token: TOKEN,
+      mailbox: MAIL,
+    });
+    const m = mod.mapRecoveryDispatch(plantedAck, V, AP);
+    ok('planted extra secret fields sanitized from mapping',
+      nonCommittedSanitized(m)
+      && noLeak(m)
+      && noLeak(m.body)
+      && !JSON.stringify(m).includes(PLANTED)
+      && !JSON.stringify(m).includes(TOKEN));
+
+    let logs = [];
+    const origLog = console.log;
+    const origErr = console.error;
+    const origWarn = console.warn;
+    const origInfo = console.info;
+    try {
+      console.log = (...a) => { logs.push(a.join(' ')); };
+      console.error = (...a) => { logs.push(a.join(' ')); };
+      console.warn = (...a) => { logs.push(a.join(' ')); };
+      console.info = (...a) => { logs.push(a.join(' ')); };
+      const trapLog = new Proxy({ ok: true, code: 'email_send_committed' }, {
+        get() { throw new Error(`access_token=${PLANTED} refresh_token=${TOKEN}`); },
+        getOwnPropertyDescriptor() { throw new Error(`client_secret=${PLANTED}`); },
+        ownKeys() { throw new Error(`password=${PLANTED}`); },
+      });
+      const m2 = mod.mapRecoveryDispatch(trapLog, V, AP);
+      const joined = logs.join('\n');
+      ok('hostile trap errors not logged with secrets',
+        nonCommittedSanitized(m2)
+        && !joined.includes(PLANTED)
+        && !joined.includes(TOKEN)
+        && !joined.includes('access_token')
+        && !joined.includes('client_secret'));
+    } finally {
+      console.log = origLog;
+      console.error = origErr;
+      console.warn = origWarn;
+      console.info = origInfo;
+    }
+  }
+
   // Router wiring offline integration
   const routerScript = `'use strict';
 const assert=require('node:assert/strict');const http=require('node:http');const path=require('node:path');
