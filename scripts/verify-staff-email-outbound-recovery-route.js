@@ -690,9 +690,12 @@ async function main() {
       JSON.stringify(send.calls[0]));
   }
 
-  // Route-level hostile transparent Proxy dispatch
+  // Route-level hostile transparent Proxy dispatch.
+  // Promise resolution may probe only the language thenable key "then" exactly once;
+  // mapRecoveryDispatch must not consult any other traps and must not commit.
   {
     let trapHits = 0;
+    const trapProps = [];
     const routesHostileProxy = mod.createStaffEmailInboxRoutes({
       sendJSON: send.sendJSON,
       withPgClient: pg.withPgClient,
@@ -703,28 +706,45 @@ async function main() {
             dispatchHits += 1;
             const target = { ok: true, code: 'email_send_committed' };
             return new Proxy(target, {
-              get(t, p, r) { trapHits += 1; return Reflect.get(t, p, r); },
-              getOwnPropertyDescriptor(t, p) {
-                trapHits += 1; return Reflect.getOwnPropertyDescriptor(t, p);
+              get(t, p, r) {
+                trapHits += 1;
+                trapProps.push(['get', p]);
+                return Reflect.get(t, p, r);
               },
-              ownKeys(t) { trapHits += 1; return Reflect.ownKeys(t); },
-              getPrototypeOf(t) { trapHits += 1; return Reflect.getPrototypeOf(t); },
+              getOwnPropertyDescriptor(t, p) {
+                trapHits += 1;
+                trapProps.push(['gopd', p]);
+                return Reflect.getOwnPropertyDescriptor(t, p);
+              },
+              ownKeys(t) {
+                trapHits += 1;
+                trapProps.push(['ownKeys']);
+                return Reflect.ownKeys(t);
+              },
+              getPrototypeOf(t) {
+                trapHits += 1;
+                trapProps.push(['getPrototypeOf']);
+                return Reflect.getPrototypeOf(t);
+              },
             });
           },
         });
       },
       runtimeEnv: enabledEnv(),
     });
-    send.calls.length = 0; dispatchHits = 0; trapHits = 0;
+    send.calls.length = 0; dispatchHits = 0; trapHits = 0; trapProps.length = 0;
     await routesHostileProxy.handleRecoverSend(mockReq(recoveryDto()), {}, user(), gate);
-    ok('route hostile Proxy ack → 503 non-committed zero traps',
+    const onlyThenableProbe = trapProps.length <= 1
+      && trapProps.every((x) => x[0] === 'get' && x[1] === 'then');
+    ok('route hostile Proxy ack → 503 non-committed; no ack reflection traps',
       send.calls[0].status === 503
       && send.calls[0].body.success === false
       && send.calls[0].body.status !== 'committed'
-      && trapHits === 0
+      && send.calls[0].body.error !== 'email_send_committed'
+      && onlyThenableProbe
       && dispatchHits === 1
       && noLeak(send.calls[0].body),
-      JSON.stringify(send.calls[0]));
+      JSON.stringify({ call: send.calls[0], trapHits, trapProps: trapProps.map(String) }));
   }
 
   // Logger / error sanitization: planted secrets in hostile surfaces never appear

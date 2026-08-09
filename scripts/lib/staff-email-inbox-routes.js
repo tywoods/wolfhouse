@@ -256,14 +256,49 @@ function recoveryFailureDto(conversationId, approvalId, code) {
     status,
   });
 }
+const RECOVERY_DISPATCH_ACK_KEYS = Object.freeze(['ok', 'code']);
+/**
+ * Accept only frozen local owner acknowledgements:
+ * exact own keys {ok, code}, own data descriptors only (no accessors /
+ * inheritance / extras / Proxy), primitive boolean + public code string.
+ * Reject Proxy via module-init-pinned isProxy before any reflection.
+ * Never evaluates result.ok directly.
+ */
+function acceptRecoveryDispatchAck(result) {
+  try {
+    if (result == null) return null;
+    // Proxy rejection must precede getOwnPropertyDescriptor / ownKeys / reads.
+    if (isProxy(result)) return null;
+    if (typeof result !== 'object' || Array.isArray(result)) return null;
+    if (typeof Object.isFrozen === 'function' && Object.isFrozen(result) !== true) return null;
+    if (!exactPlainKeys(result, RECOVERY_DISPATCH_ACK_KEYS)) return null;
+    const okVal = ownData(result, 'ok');
+    const code = ownData(result, 'code');
+    if (typeof okVal !== 'boolean') return null;
+    if (typeof code !== 'string' || !SEND_PUBLIC_CODES.includes(code)) return null;
+    return Object.freeze({ ok: okVal, code });
+  } catch {
+    return null;
+  }
+}
 function mapRecoveryDispatch(result, conversationId, approvalId) {
   try {
-    const code = result && typeof result === 'object' ? ownData(result, 'code') : null;
-    if (code === 'email_send_committed' && result && result.ok === true) {
-      return { status: 200, body: recoverySuccessDto(conversationId, approvalId, 'committed'), code, approved: true };
-    }
-    if (typeof code === 'string' && SEND_PUBLIC_CODES.includes(code)) {
-      return { status: 503, body: recoveryFailureDto(conversationId, approvalId, code), code, approved: true };
+    const ack = acceptRecoveryDispatchAck(result);
+    if (ack) {
+      if (ack.code === 'email_send_committed' && ack.ok === true) {
+        return {
+          status: 200,
+          body: recoverySuccessDto(conversationId, approvalId, 'committed'),
+          code: ack.code,
+          approved: true,
+        };
+      }
+      return {
+        status: 503,
+        body: recoveryFailureDto(conversationId, approvalId, ack.code),
+        code: ack.code,
+        approved: true,
+      };
     }
   } catch { /* */ }
   return {
