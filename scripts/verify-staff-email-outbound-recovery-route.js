@@ -975,83 +975,256 @@ async function main() {
     }
   }
 
-  // Fresh-process pre-require probes: invalid/unavailable pin must fail closed;
-  // post-require always-true poison must still reject mutable own-data committed.
-  {
-    const ch = runChild(`
+  // ── Pre-import genuine freeze intrinsic (fresh-process boundary) ──
+  // Exact-head remaining blocker: PINNED_IS_FROZEN = host Object.isFrozen at import
+  // trusts pre-require Object.isFrozen=()=>true, so mutable own-data committed acks
+  // map as HTTP 200. Throwing host isFrozen accessor/function at import also breaks
+  // load. Module must extract a genuine isFrozen from a fresh Node vm realm (or
+  // equivalent primordial source) WITHOUT reading host Object.isFrozen, and fail
+  // closed if that acquisition fails. Scope is the freeze gate only.
+  function childNonCommitted(mapped) {
+    return !!(mapped
+      && mapped.status === 503
+      && mapped.body
+      && mapped.body.success === false
+      && mapped.body.status !== 'committed'
+      && mapped.code !== 'email_send_committed'
+      && mapped.body.error !== 'email_send_committed');
+  }
+  function childCommitted(mapped) {
+    return !!(mapped
+      && mapped.status === 200
+      && mapped.code === 'email_send_committed'
+      && mapped.body
+      && mapped.body.success === true
+      && mapped.body.status === 'committed');
+  }
+  function childProbeSource(poisonPrelude, extraAsserts) {
+    return `
       'use strict';
       const path = require('node:path');
       const ROUTES = ${JSON.stringify(ROUTES_ABS)};
       const V = ${JSON.stringify(V)};
       const AP = ${JSON.stringify(AP)};
-      const realIsFrozen = Object.isFrozen;
       const realFreeze = Object.freeze;
-      // Pre-require: unavailable/invalid isFrozen → pin must fail closed.
-      Object.isFrozen = null;
-      delete require.cache[ROUTES];
-      const mod = require(ROUTES);
-      const frozenAck = realFreeze({ ok: true, code: 'email_send_committed' });
-      const mInvalidPin = mod.mapRecoveryDispatch(frozenAck, V, AP);
-      const invalidPinClosed = !!(mInvalidPin
-        && mInvalidPin.status === 503
-        && mInvalidPin.body
-        && mInvalidPin.body.success === false
-        && mInvalidPin.body.status !== 'committed'
-        && mInvalidPin.code !== 'email_send_committed');
-      // Fresh process post-require always-true poison + mutable own-data.
-      // Reload under pristine intrinsic, then poison ambient after init.
-      Object.isFrozen = realIsFrozen;
-      delete require.cache[ROUTES];
-      // Clear any intermediate module cache entries for this path.
-      for (const k of Object.keys(require.cache)) {
-        if (k === ROUTES || k.endsWith('${ROUTES_REL.replace(/\\/g, '/')}')) delete require.cache[k];
+      ${poisonPrelude}
+      let loadErr = null;
+      let mod = null;
+      try {
+        for (const k of Object.keys(require.cache)) {
+          if (k === ROUTES || /staff-email-inbox-routes\\.js$/.test(k)) delete require.cache[k];
+        }
+        mod = require(ROUTES);
+      } catch (e) {
+        loadErr = String(e && e.message || e);
       }
-      const mod2 = require(ROUTES);
+      const out = { loaded: !loadErr && !!mod && typeof mod.mapRecoveryDispatch === 'function', loadErr };
+      if (out.loaded) {
+        const mutable = { ok: true, code: 'email_send_committed' };
+        const mMutable = mod.mapRecoveryDispatch(mutable, V, AP);
+        const mFrozen = mod.mapRecoveryDispatch(realFreeze({ ok: true, code: 'email_send_committed' }), V, AP);
+        out.mutableNonCommitted = ${childNonCommitted.toString()}(mMutable);
+        out.frozenCommitted = ${childCommitted.toString()}(mFrozen);
+        out.mutableStatus = mMutable && mMutable.status;
+        out.mutableCode = mMutable && mMutable.code;
+        out.frozenStatus = mFrozen && mFrozen.status;
+        out.frozenCode = mFrozen && mFrozen.code;
+        out.mutableBodyStatus = mMutable && mMutable.body && mMutable.body.status;
+      }
+      ${extraAsserts || ''}
+      console.log(JSON.stringify(out));
+    `;
+  }
+
+  // Authentic RED: pre-require host Object.isFrozen=()=>true must not open committed.
+  {
+    const ch = runChild(childProbeSource(`Object.isFrozen = () => true;`));
+    const b = parseChildJson(ch);
+    ok('pre-require Object.isFrozen=()=>true → loads; mutable non-committed; frozen owner commits',
+      ch.status === 0
+      && b && b.loaded === true
+      && b.mutableNonCommitted === true
+      && b.frozenCommitted === true,
+      `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 300)}`);
+  }
+
+  // Pre-require throwing accessor on host Object.isFrozen: module must still load;
+  // mutable must not commit; accessor hits should be zero when acquisition skips host.
+  {
+    const ch = runChild(childProbeSource(`
+      let accessorHits = 0;
+      const realDesc = Object.getOwnPropertyDescriptor(Object, 'isFrozen');
+      if (realDesc && realDesc.configurable) {
+        Object.defineProperty(Object, 'isFrozen', {
+          configurable: true,
+          enumerable: realDesc.enumerable,
+          get() {
+            accessorHits += 1;
+            throw new Error('password=${PLANTED} pre_require_isFrozen_accessor');
+          },
+        });
+      } else {
+        Object.isFrozen = () => { accessorHits += 1; throw new Error('password=${PLANTED} pre_require_isFrozen_fn'); };
+      }
+    `, `
+      out.accessorHits = accessorHits;
+    `));
+    const b = parseChildJson(ch);
+    ok('pre-require Object.isFrozen throwing accessor → loads; mutable non-committed; frozen commits; accessorHits===0',
+      ch.status === 0
+      && b && b.loaded === true
+      && b.mutableNonCommitted === true
+      && b.frozenCommitted === true
+      && b.accessorHits === 0,
+      `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 300)}`);
+  }
+
+  // Pre-require throwing function replacement of host Object.isFrozen.
+  {
+    const ch = runChild(childProbeSource(`
+      let throwHits = 0;
+      Object.isFrozen = () => {
+        throwHits += 1;
+        throw new Error('password=${PLANTED} pre_require_isFrozen_throw_fn');
+      };
+    `, `
+      out.throwHits = throwHits;
+    `));
+    const b = parseChildJson(ch);
+    ok('pre-require Object.isFrozen throwing function → loads; mutable non-committed; frozen commits; throwHits===0',
+      ch.status === 0
+      && b && b.loaded === true
+      && b.mutableNonCommitted === true
+      && b.frozenCommitted === true
+      && b.throwHits === 0,
+      `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 300)}`);
+  }
+
+  // Fresh process: post-require always-true poison still rejects mutable (pin independence).
+  {
+    const ch = runChild(`
+      'use strict';
+      const ROUTES = ${JSON.stringify(ROUTES_ABS)};
+      const V = ${JSON.stringify(V)};
+      const AP = ${JSON.stringify(AP)};
+      const realFreeze = Object.freeze;
+      for (const k of Object.keys(require.cache)) {
+        if (k === ROUTES || /staff-email-inbox-routes\\.js$/.test(k)) delete require.cache[k];
+      }
+      const mod = require(ROUTES);
       Object.isFrozen = () => true;
       const mutable = { ok: true, code: 'email_send_committed' };
-      const mPoison = mod2.mapRecoveryDispatch(mutable, V, AP);
-      const postInitClosed = !!(mPoison
-        && mPoison.status === 503
-        && mPoison.body
-        && mPoison.body.success === false
-        && mPoison.body.status !== 'committed'
-        && mPoison.code !== 'email_send_committed'
-        && realIsFrozen(mutable) === false);
-      const good = mod2.mapRecoveryDispatch(realFreeze({ ok: true, code: 'email_send_committed' }), V, AP);
-      const frozenPreserved = !!(good && good.status === 200 && good.code === 'email_send_committed');
+      const mPoison = mod.mapRecoveryDispatch(mutable, V, AP);
+      const good = mod.mapRecoveryDispatch(realFreeze({ ok: true, code: 'email_send_committed' }), V, AP);
       console.log(JSON.stringify({
-        invalidPinClosed,
-        postInitClosed,
-        frozenPreserved,
-        invalidStatus: mInvalidPin && mInvalidPin.status,
+        postInitClosed: ${childNonCommitted.toString()}(mPoison),
+        frozenPreserved: ${childCommitted.toString()}(good),
         poisonStatus: mPoison && mPoison.status,
         goodStatus: good && good.status,
       }));
     `);
     const b = parseChildJson(ch);
-    ok('fresh-process pre-require invalid isFrozen pin fail-closed + post-require poison rejects mutable',
-      ch.status === 0 && b && b.invalidPinClosed === true && b.postInitClosed === true && b.frozenPreserved === true,
+    ok('fresh-process post-require Object.isFrozen=()=>true still rejects mutable; frozen commits',
+      ch.status === 0 && b && b.postInitClosed === true && b.frozenPreserved === true,
       `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 300)}`);
   }
 
-  // Source contract: recovery ack boundary must pin isFrozen and not re-consult ambient.
+  // Poison fresh-intrinsic acquisition (vm module) when safely testable → fail closed,
+  // never false-commit mutable own-data as email_send_committed.
+  {
+    const ch = runChild(`
+      'use strict';
+      const Module = require('node:module');
+      const ROUTES = ${JSON.stringify(ROUTES_ABS)};
+      const V = ${JSON.stringify(V)};
+      const AP = ${JSON.stringify(AP)};
+      const realFreeze = Object.freeze;
+      const origRequire = Module.prototype.require;
+      Module.prototype.require = function poisonedRequire(id) {
+        const s = String(id);
+        if (s === 'vm' || s === 'node:vm') {
+          throw new Error('password=${PLANTED} vm_module_poisoned');
+        }
+        return origRequire.apply(this, arguments);
+      };
+      let loadErr = null;
+      let mod = null;
+      try {
+        for (const k of Object.keys(require.cache)) {
+          if (k === ROUTES || /staff-email-inbox-routes\\.js$/.test(k)) delete require.cache[k];
+        }
+        // Also drop cached vm so require path is exercised if module needs it.
+        for (const k of Object.keys(require.cache)) {
+          if (/[\\\\/]vm\\.js$/.test(k) || k === 'vm' || k === 'node:vm') delete require.cache[k];
+        }
+        mod = require(ROUTES);
+      } catch (e) {
+        loadErr = String(e && e.message || e);
+      }
+      const out = { loaded: !loadErr && !!mod && typeof (mod && mod.mapRecoveryDispatch) === 'function', loadErr };
+      if (out.loaded) {
+        const mutable = { ok: true, code: 'email_send_committed' };
+        const mMutable = mod.mapRecoveryDispatch(mutable, V, AP);
+        const mFrozen = mod.mapRecoveryDispatch(realFreeze({ ok: true, code: 'email_send_committed' }), V, AP);
+        out.mutableFalseCommit = !!(mMutable && mMutable.status === 200 && mMutable.code === 'email_send_committed');
+        out.mutableNonCommitted = ${childNonCommitted.toString()}(mMutable);
+        // Fail-closed may reject even genuine frozen acks when intrinsic missing.
+        out.frozenFalseOpenOk = !(mFrozen && mFrozen.status === 200 && mFrozen.code === 'email_send_committed' && mFrozen.body && mFrozen.body.status === 'committed' && out.mutableFalseCommit);
+        out.frozenStatus = mFrozen && mFrozen.status;
+        out.mutableStatus = mMutable && mMutable.status;
+        out.neverFalseCommit = out.mutableFalseCommit !== true;
+      } else {
+        // Module refused to load under poisoned vm — also fail closed / deterministic.
+        out.neverFalseCommit = true;
+        out.moduleDeterministic = true;
+      }
+      console.log(JSON.stringify(out));
+    `);
+    const b = parseChildJson(ch);
+    ok('poisoned vm/fresh-intrinsic acquisition → fail closed / deterministic; never false commit',
+      ch.status === 0
+      && b
+      && b.neverFalseCommit === true
+      && (b.loaded === false || (b.mutableNonCommitted === true && b.mutableFalseCommit === false)),
+      `st=${ch.status} ${JSON.stringify(b)} err=${(ch.stderr || '').slice(0, 300)}`);
+  }
+
+  // Source contract: recovery ack freeze gate must pin a genuine isFrozen from a
+  // fresh Node vm realm (or equivalent) — never host Object.isFrozen at import.
   {
     const src = fs.readFileSync(ROUTES_ABS, 'utf8');
     const pinPresent = /PINNED_IS_FROZEN/.test(src)
       && /function pinnedIsFrozen\s*\(/.test(src)
       && /PINNED_REFLECT_APPLY/.test(src);
     const acceptFn = src.includes('function acceptRecoveryDispatchAck');
-    // Ambient re-consultation call sites inside acceptRecoveryDispatchAck must not remain.
-    // Comments may mention Object.isFrozen; ban only ambient call/typeof forms.
     const acceptBody = (() => {
       const m = src.match(/function acceptRecoveryDispatchAck\([\s\S]*?\n\}/);
       return m ? m[0] : '';
     })();
     const ambientCallInAccept = /(?:typeof\s+Object\.isFrozen|Object\.isFrozen\s*\()/.test(acceptBody);
     const usesPinned = /pinnedIsFrozen\s*\(\s*result\s*\)/.test(acceptBody);
-    ok('source pins PINNED_IS_FROZEN for recovery ack freeze gate',
-      pinPresent && acceptFn && usesPinned && !ambientCallInAccept,
-      JSON.stringify({ pinPresent, acceptFn, usesPinned, ambientCallInAccept, acceptSnippet: acceptBody.slice(0, 280) }));
+    // Must not assign PINNED_IS_FROZEN from host Object.isFrozen / typeof host form.
+    const pinsHostIsFrozen = /PINNED_IS_FROZEN\s*=\s*(?:typeof\s+Object\.isFrozen|Object\.isFrozen)\b/.test(src)
+      || /PINNED_IS_FROZEN\s*=\s*[^;\n]*\bObject\.isFrozen\b/.test(src)
+        && !/runInNewContext|createContext|Script/.test(src);
+    const usesVmFreshRealm = /require\(\s*['"]node:vm['"]\s*\)|require\(\s*['"]vm['"]\s*\)/.test(src)
+      && /runInNewContext\s*\(/.test(src);
+    // Top-level pin region must not read host Object.isFrozen.
+    const pinRegion = (() => {
+      const m = src.match(/PINNED_IS_FROZEN[\s\S]{0,800}/);
+      return m ? m[0] : '';
+    })();
+    const pinRegionReadsHost = /Object\.isFrozen/.test(pinRegion)
+      && !/runInNewContext[\s\S]*Object\.isFrozen|Object\.isFrozen[\s\S]*runInNewContext/.test(pinRegion);
+    ok('source pins genuine fresh-realm isFrozen (not host Object.isFrozen) for recovery ack freeze gate',
+      pinPresent && acceptFn && usesPinned && !ambientCallInAccept
+      && usesVmFreshRealm && !pinsHostIsFrozen,
+      JSON.stringify({
+        pinPresent, acceptFn, usesPinned, ambientCallInAccept,
+        usesVmFreshRealm, pinsHostIsFrozen, pinRegionReadsHost,
+        acceptSnippet: acceptBody.slice(0, 280),
+        pinSnippet: pinRegion.slice(0, 280),
+      }));
   }
 
   // Router wiring offline integration
