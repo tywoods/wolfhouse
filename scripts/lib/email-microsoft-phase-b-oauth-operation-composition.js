@@ -9,9 +9,7 @@ const { createMicrosoftTokenHttpTransport, REQUEST_LIMIT_BYTES } = require('./em
 const { classifyAndNormalizePhaseBTokenResponseScope } = require('./email-microsoft-phase-b-token-response-scope');
 const { validateEmailGrantEnvelopeProvider } = require('./email-grant-envelope-provider-contract');
 const { resolveOptionalStageTelemetry, safeEmitStage } = require('./email-microsoft-oauth-stage-telemetry');
-const {
-  REDIRECT_URI, PHASE_B_SCOPES, asCanonGen,
-} = require('./email-microsoft-phase-b-reauthorization-transaction-service');
+const { REDIRECT_URI, PHASE_B_SCOPES, asCanonGen } = require('./email-microsoft-phase-b-reauthorization-transaction-service');
 const UT = util.types && typeof util.types === 'object' ? util.types : null;
 const ISP = UT && typeof UT.isProxy === 'function' ? UT.isProxy : null;
 const ERROR_CODE = 'MICROSOFT_PHASE_B_OAUTH_OPERATION_COMPOSITION_INVALID';
