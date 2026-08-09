@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const Module = require('module');
 const { EventEmitter } = require('events');
 const { spawnSync } = require('child_process');
+const { Client: PgClient } = require('pg');
 const ROOT = path.join(__dirname, '..');
 const {
   createMicrosoftPhaseBOauthOperationComposition, COMPLETION_KEYS: OP_KEYS,
@@ -377,6 +378,18 @@ async function casNeg(sql, params, grantOver) {
       const iE = Object.create(eP); iE.LUNA_EMAIL_OAUTH_CLIENT_SECRET = SECRET;
       threw = false; try { createSunsetStagingMicrosoftPhaseBOauthCallbackRuntime(factoryDeps(iE, pg.client, bundle)); } catch { threw = true; }
       ok('env inherited getters gate keys hits=0', threw && eH === 0 && pg.counts.query === 0);
+    } finally { azure.restore(); }
+  }
+
+  {
+    const nativeClient = new PgClient(); const bundle = createHttps(); const azure = installAzureSdkSpies();
+    try {
+      let runtime = null; let threw = false;
+      try { runtime = createSunsetStagingMicrosoftPhaseBOauthCallbackRuntime(factoryDeps(goodEnv(), nativeClient, bundle)); }
+      catch { threw = true; }
+      ok('genuine node-postgres Client constructs without query I/O', !threw && runtime
+        && typeof runtime.accept === 'function' && nativeClient.queryQueue.length === 0
+        && bundle.calls.token === 0 && azure.counters.wrap === 0);
     } finally { azure.restore(); }
   }
 
