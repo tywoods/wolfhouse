@@ -2968,7 +2968,13 @@ function renderFinanceSummaryHtml(summary){
  */
 function adminSelectSubTab(key, opts){
   var next = (key === 'pricing' || key === 'luna-staff' || key === 'bookings' || key === 'email') ? key : 'finance';
+  var prevSub = adminActiveSubTab;
   adminActiveSubTab = next;
+  // Leaving Email panel: invalidate/abort any pending Phase B reauthorization.
+  if (prevSub === 'email' && next !== 'email'
+      && typeof cancelAdminEmailReauthorization === 'function') {
+    cancelAdminEmailReauthorization();
+  }
   // Rental write errors are operation-scoped — never stick across Admin subtabs.
   // Equipment-local only: do not hide unrelated shared Admin notices.
   if (typeof adminClearEquipErrors === 'function') adminClearEquipErrors();
@@ -3031,7 +3037,11 @@ function adminSyncEmailTabVisibility(){
   if (available) tab.removeAttribute('hidden');
   else tab.setAttribute('hidden', '');
   if (!available && panel) panel.setAttribute('hidden', '');
-  if (!available && adminActiveSubTab === 'email') adminActiveSubTab = 'finance';
+  if (!available && adminActiveSubTab === 'email') {
+    adminActiveSubTab = 'finance';
+    // Client left Sunset Email surface: abort pending reauthorization.
+    if (typeof cancelAdminEmailReauthorization === 'function') cancelAdminEmailReauthorization();
+  }
 }
 
 function wireAdminSubTabs(){
@@ -3085,6 +3095,8 @@ function wireAdminSubTabs(){
  */
 function loadAdminTab(opts){
   opts = opts || {};
+  // Admin re-entry / reload: abort pending Email reauthorization before re-render.
+  if (typeof cancelAdminEmailReauthorization === 'function') cancelAdminEmailReauthorization();
   adminSyncEmailTabVisibility();
   wireAdminTab();
   wireAdminSubTabs();

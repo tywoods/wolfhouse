@@ -17060,6 +17060,21 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 }
 .portal-admin-tabpanel{max-width:100%}
 .portal-admin-tabpanel[hidden]{display:none!important}
+/* Sunset Email Settings: minimum 44px touch targets for connect/reauthorize */
+.portal-admin-email-settings .portal-admin-email-action-btn,
+.portal-admin-email-settings [data-email-connect],
+.portal-admin-email-settings [data-email-reauthorize]{
+  min-height:44px;min-width:44px;padding:10px 16px;box-sizing:border-box;
+  display:inline-flex;align-items:center;justify-content:center;
+  font:inherit;font-weight:600;cursor:pointer;border-radius:10px
+}
+.portal-admin-email-settings .portal-admin-email-action-btn:disabled,
+.portal-admin-email-settings [data-email-connect]:disabled,
+.portal-admin-email-settings [data-email-reauthorize]:disabled{opacity:.55;cursor:not-allowed}
+.portal-admin-email-settings .portal-admin-email-reauth-group,
+.portal-admin-email-settings .portal-admin-email-prepare-group{margin:12px 0}
+.portal-admin-email-settings .portal-admin-email-reauth-safety,
+.portal-admin-email-settings .portal-admin-email-connect-safety{margin:8px 0 12px;color:var(--text-2);font-size:13px;line-height:1.45}
 .portal-admin-finance-shell{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:18px 16px;box-shadow:var(--shadow-soft)}
 .portal-admin-finance-shell p{margin:0;font-size:14px;line-height:1.5;color:var(--text-2)}
 .portal-admin-finance{display:flex;flex-direction:column;gap:14px;max-width:100%}
@@ -21120,6 +21135,11 @@ function switchToTab(tab, subtab){
   // Leaving Admin: clear equipment-local rental write errors only (not shared Admin notices).
   else if (prevTab === 'admin' && typeof adminClearEquipErrors === 'function') {
     adminClearEquipErrors();
+  }
+  // Leaving Admin top-level: abort any pending Phase B email reauthorization.
+  if (prevTab === 'admin' && tab !== 'admin'
+      && typeof cancelAdminEmailReauthorization === 'function') {
+    cancelAdminEmailReauthorization();
   }
   if (tab === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
   if (tab === 'day-schedule') loadDaySchedule();
@@ -32702,6 +32722,8 @@ var clientSelectEl = el('c-client');
 if (clientSelectEl){
   clientSelectEl.addEventListener('change', function(){
     localStorage.setItem('staff_portal_client', getClient());
+    // Client change: abort pending Email reauthorization (surface isolation).
+    if (typeof cancelAdminEmailReauthorization === 'function') cancelAdminEmailReauthorization();
     syncSunsetSchoolSwitcher();
     syncBcClientFromInbox();
     applyClientPortalProfile(getClient());
