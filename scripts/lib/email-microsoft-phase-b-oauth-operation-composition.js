@@ -6,11 +6,12 @@ const {
   OUTCOME_UNKNOWN, SEALED_ACK,
 } = require('./email-microsoft-phase-b-verified-grant-replacer');
 const { createMicrosoftTokenHttpTransport, REQUEST_LIMIT_BYTES } = require('./email-microsoft-token-http-transport');
-const { REDIRECT_URI } = require('./email-microsoft-oauth-transaction-service');
 const { classifyAndNormalizePhaseBTokenResponseScope } = require('./email-microsoft-phase-b-token-response-scope');
 const { validateEmailGrantEnvelopeProvider } = require('./email-grant-envelope-provider-contract');
 const { resolveOptionalStageTelemetry, safeEmitStage } = require('./email-microsoft-oauth-stage-telemetry');
-const { asCanonGen } = require('./email-microsoft-phase-b-reauthorization-transaction-service');
+const {
+  REDIRECT_URI, PHASE_B_SCOPES, asCanonGen,
+} = require('./email-microsoft-phase-b-reauthorization-transaction-service');
 const UT = util.types && typeof util.types === 'object' ? util.types : null;
 const ISP = UT && typeof UT.isProxy === 'function' ? UT.isProxy : null;
 const ERROR_CODE = 'MICROSOFT_PHASE_B_OAUTH_OPERATION_COMPOSITION_INVALID';
@@ -233,6 +234,7 @@ function createMicrosoftPhaseBOauthOperationComposition(dependencies) {
         ['client_id', snap.applicationClientId], ['client_secret', clientSecret],
         ['grant_type', 'authorization_code'], ['code', snap.authorizationCode],
         ['redirect_uri', REDIRECT_URI], ['code_verifier', snap.codeVerifier],
+        ['scope', PHASE_B_SCOPES],
       ]).toString();
       if (Buffer.byteLength(body, 'utf8') > REQUEST_LIMIT_BYTES) throw failure();
       safeEmitStage(pinned.stageTelemetry, 'token_request_started');
