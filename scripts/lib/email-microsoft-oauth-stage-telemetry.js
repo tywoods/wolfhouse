@@ -25,6 +25,7 @@
  */
 
 const crypto = require('crypto');
+const util = require('util');
 
 /**
  * Module-init pin of native crypto.randomUUID. Capture the function reference
@@ -33,6 +34,18 @@ const crypto = require('crypto');
  */
 const PINNED_CRYPTO = crypto;
 const PINNED_RANDOM_UUID = crypto.randomUUID;
+const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
+const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
+  ? PINNED_UTIL_TYPES.isProxy : null;
+
+function isProxy(value) {
+  try {
+    if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) return true;
+    return Reflect.apply(PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
+  } catch {
+    return true;
+  }
+}
 
 /** Canonical UUIDv4 lowercase (correlation id shape only — not HTTP ALS). */
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -58,6 +71,7 @@ const STAGES = Object.freeze([
   'phase_b_state_hashed',
   'phase_b_clock_validated',
   'phase_b_consume_started',
+  'phase_b_consume_returned',
   'phase_b_consume_matched',
   'phase_b_row_validated',
   'callback_consumed',
@@ -238,6 +252,8 @@ function assertSafeEmailOAuthStageEvent(event) {
  */
 function pinEmailOAuthStageTelemetry(raw) {
   try {
+    // Native proxy detection is deliberately the first reflective operation.
+    if (isProxy(raw)) return null;
     if (!exactFrozenService(raw, TELEMETRY_METHOD)) return null;
     const emitFn = ownData(raw, TELEMETRY_METHOD);
     if (typeof emitFn !== 'function') return null;

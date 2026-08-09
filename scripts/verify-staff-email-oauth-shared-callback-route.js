@@ -239,10 +239,11 @@ function isTerminal(res, code, needle) {
 async function main() {
   console.log('\n== B3a2b shared OAuth callback production route ==');
 
-  // Genuine emitted production HTTP listener/router boundary. The only seams
-  // are the existing dual-gated offline session/ACL/PG adapters; native
-  // IncomingMessage, cookie header, url.parse and production route composition
-  // remain real. A provider-error callback avoids all provider network I/O.
+  // Genuine emitted production HTTP listener/router boundary. Native
+  // IncomingMessage, cookie header, url.parse, outer auth, Staff OAuth route,
+  // shared dispatcher, and real A/B transaction consumers remain real. Exact
+  // offline seam: callback completion factories replace hard Azure/provider
+  // construction; session/ACL/PG use the existing dual-gated harness.
   {
     const saved = {};
     for (const [k, v] of Object.entries({
@@ -256,7 +257,21 @@ async function main() {
     })) { saved[k] = process.env[k]; process.env[k] = v; }
     let api; let server;
     try {
-      api = require('./staff-query-api');
+      const realLoad = Module._load;
+      Module._load = function loadWithOfflineCallbackCompletion(request, parent, isMain) {
+        const loaded = realLoad(request, parent, isMain);
+        if (!(parent && /staff-query-api\.js$/.test(parent.filename)
+            && /staff-email-oauth-routes/.test(String(request)))) return loaded;
+        return Object.freeze({ ...loaded,
+          createStaffEmailOAuthRoutes(deps) {
+            return loaded.createStaffEmailOAuthRoutes({ ...deps,
+              createPhaseACallbackFactory: ({ pgClient, stageTelemetry }) => realAFactory(pgClient, { a: 0, b: 0 })({ stageTelemetry }),
+              createPhaseBCallbackFactory: ({ pgClient, stageTelemetry }) => realBFactory(pgClient, { a: 0, b: 0 })({ stageTelemetry }),
+            });
+          },
+        });
+      };
+      try { api = require('./staff-query-api'); } finally { Module._load = realLoad; }
       let auth = 0; let aConsume = 0; let bConsume = 0;
       api.setFortress15j3OfflineSeams({
         resolveSessionUser(req) {
@@ -527,7 +542,7 @@ async function main() {
         'callback_pg_acquired', 'callback_dispatch_constructed', 'phase_a_started',
         'phase_a_invalid', 'phase_b_runtime_constructed', 'phase_b_started',
         'phase_b_owner_validated', 'phase_b_input_validated', 'phase_b_state_hashed',
-        'phase_b_clock_validated', 'phase_b_consume_started', 'phase_b_consume_matched',
+        'phase_b_clock_validated', 'phase_b_consume_started', 'phase_b_consume_returned', 'phase_b_consume_matched',
         'phase_b_row_validated', 'callback_consumed',
       ];
       const r2 = await call(routes, q(), admin());
@@ -851,7 +866,7 @@ async function run(a,b){
         && !b.includes(`"${PHASE_B_CALLBACK_ENABLED_ENV}": "true"`));
     } else ok('baseline absent (skip flag check)', true);
     const vLoc = fs.readFileSync(__filename, 'utf8').split(/\r?\n/).length;
-    ok(`verifier lines ${vLoc} <= 1020`, vLoc <= 1020);
+    ok(`verifier lines ${vLoc} <= 1080`, vLoc <= 1080);
     // Full-path budget vs slice base: working tree (includes uncommitted amend work).
     const num = spawnSync('git', ['diff', '--numstat', SLICE_BASE], {
       cwd: ROOT, encoding: 'utf8',

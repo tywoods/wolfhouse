@@ -175,6 +175,7 @@ test('exports frozen surface and exact stage vocabulary', async function exportS
     'phase_b_state_hashed',
     'phase_b_clock_validated',
     'phase_b_consume_started',
+    'phase_b_consume_returned',
     'phase_b_consume_matched',
     'phase_b_row_validated',
     'callback_consumed',

@@ -327,6 +327,7 @@ function createMicrosoftPhaseBOauthCallbackCompletionService(dependencies) {
           stateHash, clientId: ownerSnap.clientId, authSessionId: ownerSnap.authSessionId, now,
         })]);
       } catch { throw failure(); }
+      safeEmitStage(pinned.stageTelemetry, 'phase_b_consume_returned');
       if (rawRow == null) {
         safeEmitStage(pinned.stageTelemetry, 'callback_failed');
         return PUBLIC_STATUS_INVALID;
