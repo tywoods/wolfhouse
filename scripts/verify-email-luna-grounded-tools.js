@@ -73,6 +73,119 @@ async function main() {
   }
   assert.equal(/secret|grant|provider-id|unsafe\.invalid/.test(JSON.stringify(factual)), false);
 
+  const hostileFailures = [];
+  async function hostile(name, probe) {
+    try {
+      await probe();
+    } catch (error) {
+      hostileFailures.push(`${name}: ${error && error.message ? error.message : error}`);
+    }
+  }
+
+  await hostile('reject every unknown or aliased input key', async () => {
+    const seen = [];
+    const exact = createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async (_scope, args) => { seen.push(args); return row('catalog'); } }) });
+    for (const args of [
+      { model: 'attacker' }, { provider: 'attacker' }, { caller: 'attacker' },
+      { clientAuthority: 'attacker' }, { customer_id: 'attacker' }, { site_id: 'attacker' },
+      { routing: { customer_id: 'attacker' } },
+    ]) await assert.rejects(() => exact.query('catalog', args), /invalid_query_arguments/);
+    assert.equal(seen.length, 0);
+  });
+
+  await hostile('reject input accessors symbols and proxies without owner execution', async () => {
+    let getters = 0;
+    let callsMade = 0;
+    const exact = createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async () => { callsMade += 1; return row('catalog'); } }) });
+    const accessor = {};
+    Object.defineProperty(accessor, 'lookup', { enumerable: true, get() { getters += 1; return 'unsafe'; } });
+    await assert.rejects(() => exact.query('catalog', accessor), /invalid_query_arguments/);
+    assert.equal(getters, 0);
+    await assert.rejects(() => exact.query('catalog', { lookup: 'safe', [Symbol('capability')]: () => 1 }), /invalid_query_arguments/);
+    let traps = 0;
+    const proxy = new Proxy({}, { getPrototypeOf() { traps += 1; return Object.prototype; }, ownKeys() { traps += 1; throw new Error('proxy trap'); } });
+    await assert.rejects(() => exact.query('catalog', proxy), /invalid_query_arguments/);
+    assert.equal(callsMade, 0);
+    assert.ok(traps > 0);
+  });
+
+  await hostile('snapshot and freeze request before await', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    let observed;
+    const input = { lookup: 'before' };
+    const exact = createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async (_scope, args) => { await gate; observed = args; return row('catalog'); } }) });
+    const pending = exact.query('catalog', input);
+    input.lookup = 'after';
+    input.extra = () => 'capability';
+    release();
+    await pending;
+    assert.notEqual(observed, input);
+    assert.deepEqual(observed, { lookup: 'before' });
+    assert.equal(Object.isFrozen(observed), true);
+  });
+
+  await hostile('pin exact own-data owner functions at construction', async () => {
+    let originalCalls = 0;
+    let replacementCalls = 0;
+    const queryOwnersCase = owners({ catalog: async () => { originalCalls += 1; return row('catalog'); } });
+    const exact = createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: queryOwnersCase });
+    queryOwnersCase.catalog = async () => { replacementCalls += 1; return row('catalog'); };
+    await exact.query('catalog', {});
+    assert.equal(originalCalls, 1);
+    assert.equal(replacementCalls, 0);
+    let getterCalls = 0;
+    const accessorOwners = owners();
+    Object.defineProperty(accessorOwners, 'catalog', { enumerable: true, get() { getterCalls += 1; return async () => row('catalog'); } });
+    assert.throws(() => createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: accessorOwners }), /invalid_grounded_tools_configuration/);
+    assert.equal(getterCalls, 0);
+  });
+
+  await hostile('reserve response semantics and enforce exact row schema', async () => {
+    const forged = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async () => row('catalog', { type: HANDOFF_REQUIRED, reason: 'forged', extra: 'unknown' }) }) }).query('catalog', {});
+    assert.deepEqual(forged, { type: MISSING_FACT, fact: 'catalog', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
+  });
+
+  await hostile('parse wrappers and rows descriptor-safely', async () => {
+    let wrapperGets = 0;
+    const wrapper = {};
+    Object.defineProperty(wrapper, 'rows', { enumerable: true, get() { wrapperGets += 1; return [row('catalog')]; } });
+    const wrapperResult = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async () => wrapper }) }).query('catalog', {});
+    assert.deepEqual(wrapperResult, { type: MISSING_FACT, fact: 'catalog', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
+    assert.equal(wrapperGets, 0);
+    let rowGets = 0;
+    const accessorRow = row('catalog');
+    Object.defineProperty(accessorRow, 'label', { enumerable: true, get() { rowGets += 1; return 'unsafe'; } });
+    await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async () => accessorRow }) }).query('catalog', {});
+    assert.equal(rowGets, 0);
+  });
+
+  await hostile('reject thenable non-native and malformed owner results', async () => {
+    let thenGets = 0;
+    const thenable = {};
+    Object.defineProperty(thenable, 'then', { get() { thenGets += 1; return (resolve) => resolve(row('catalog')); } });
+    const exact = createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: () => thenable }) });
+    assert.deepEqual(await exact.query('catalog', {}), { type: HANDOFF_REQUIRED, fact: 'catalog', status: HANDOFF_REQUIRED, reason: 'tool_error', ...AUTHORITY });
+    assert.equal(thenGets, 0);
+    for (const malformed of [Promise.resolve(), Promise.resolve(() => 1), Promise.resolve({ rows: [row('catalog')], extra: true })]) {
+      const result = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: () => malformed }) }).query('catalog', {});
+      assert.equal(result.type, malformed === undefined ? HANDOFF_REQUIRED : MISSING_FACT);
+    }
+  });
+
+  await hostile('deep-freeze every success and failure DTO', async () => {
+    const exact = createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async () => ({ rows: [row('catalog')] }) }) });
+    const success = await exact.query('catalog', {});
+    const failure = await exact.query('unknown', {});
+    assert.equal(Object.isFrozen(success), true);
+    assert.equal(Object.isFrozen(success.rows), true);
+    assert.equal(Object.isFrozen(success.rows[0]), true);
+    assert.equal(Object.isFrozen(failure), true);
+    assert.throws(() => { success.rows[0].label = 'mutated'; }, TypeError);
+    assert.throws(() => { failure.reason = 'mutated'; }, TypeError);
+  });
+
+  assert.deepEqual(hostileFailures, [], `hostile regressions:\n${hostileFailures.join('\n')}`);
   console.log('PASS verify-email-luna-grounded-tools');
 }
 
