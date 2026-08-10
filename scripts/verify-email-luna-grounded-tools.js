@@ -184,15 +184,16 @@ async function main() {
 
   await hostile('ignore post-import Array iterator monkeypatches', async () => {
     const original = Array.prototype[Symbol.iterator];
+    const exact = createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({
+      catalog: async () => row('catalog', { item: 'safe-item' }),
+    }) });
     let iteratorCalls = 0;
     try {
       Array.prototype[Symbol.iterator] = function hostileIterator() {
         iteratorCalls += 1;
         return original.call(this);
       };
-      const result = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({
-        catalog: async () => row('catalog', { item: 'safe-item' }),
-      }) }).query('catalog', {});
+      const result = await exact.query('catalog', {});
       assert.equal(result.item, 'safe-item');
     } finally {
       Array.prototype[Symbol.iterator] = original;

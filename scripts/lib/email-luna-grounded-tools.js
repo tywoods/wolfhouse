@@ -6,6 +6,7 @@ const arrayIncludes = uncurryThis(Array.prototype.includes);
 const arrayPush = uncurryThis(Array.prototype.push);
 const objectFreeze = Object.freeze;
 const objectCreate = Object.create;
+const objectDefineProperty = Object.defineProperty;
 const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectHasOwn = Object.hasOwn;
@@ -39,12 +40,13 @@ function ownDataSnapshot(value, allowedKeys, requiredKeys = allowedKeys) {
     const prototype = objectGetPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return null;
     const keys = reflectOwnKeys(value);
-    for (const key of keys) if (typeof key !== 'string') return null;
+    for (let index = 0; index < keys.length; index += 1) if (typeof keys[index] !== 'string') return null;
     if (keys.length > allowedKeys.length) return null;
-    for (const key of keys) if (!arrayIncludes(allowedKeys, key)) return null;
-    for (const key of requiredKeys) if (!objectHasOwn(value, key)) return null;
+    for (let index = 0; index < keys.length; index += 1) if (!arrayIncludes(allowedKeys, keys[index])) return null;
+    for (let index = 0; index < requiredKeys.length; index += 1) if (!objectHasOwn(value, requiredKeys[index])) return null;
     const snapshot = objectCreate(null);
-    for (const key of keys) {
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
       const descriptor = objectGetOwnPropertyDescriptor(value, key);
       if (!descriptor || !objectHasOwn(descriptor, 'value')) return null;
       snapshot[key] = descriptor.value;
@@ -61,7 +63,12 @@ function safeScalar(value) {
 
 function frozenRecord(entries) {
   const value = {};
-  for (const [key, entry] of entries) value[key] = entry;
+  for (let index = 0; index < entries.length; index += 1) {
+    const pair = entries[index];
+    objectDefineProperty(value, pair[0], {
+      value: pair[1], enumerable: true, writable: true, configurable: true,
+    });
+  }
   return objectFreeze(value);
 }
 
@@ -84,7 +91,8 @@ function pinOwners(queryOwners) {
   const snapshot = ownDataSnapshot(queryOwners, FACTS);
   if (!snapshot) return null;
   const pinned = objectCreate(null);
-  for (const fact of FACTS) {
+  for (let index = 0; index < FACTS.length; index += 1) {
+    const fact = FACTS[index];
     if (typeof snapshot[fact] !== 'function') return null;
     pinned[fact] = snapshot[fact];
   }
@@ -104,7 +112,7 @@ function snapshotArray(value) {
   if (value === null || typeof value !== 'object' || runtimeIsProxy(value) || !arrayIsArray(value)) return null;
   try {
     const keys = reflectOwnKeys(value);
-    for (const key of keys) if (typeof key !== 'string') return null;
+    for (let index = 0; index < keys.length; index += 1) if (typeof keys[index] !== 'string') return null;
     const lengthDescriptor = objectGetOwnPropertyDescriptor(value, 'length');
     if (!lengthDescriptor || !objectHasOwn(lengthDescriptor, 'value') || !numberIsSafeInteger(lengthDescriptor.value) || lengthDescriptor.value < 0) return null;
     const length = lengthDescriptor.value;
@@ -123,16 +131,23 @@ function snapshotArray(value) {
 }
 
 function sanitizeRow(row, fact, authority) {
-  const allowed = [...ROW_CORE_KEYS, ...FACT_FIELDS[fact]];
+  const allowed = [];
+  const factFields = FACT_FIELDS[fact];
+  for (let index = 0; index < ROW_CORE_KEYS.length; index += 1) arrayPush(allowed, ROW_CORE_KEYS[index]);
+  for (let index = 0; index < factFields.length; index += 1) arrayPush(allowed, factFields[index]);
   const snapshot = ownDataSnapshot(row, allowed, ROW_CORE_KEYS);
   if (!snapshot || snapshot.fact !== fact || snapshot.status !== 'found') return { kind: MISSING_FACT };
   if (snapshot.client_id !== authority.client_id || snapshot.location_id !== authority.location_id) return { kind: HANDOFF_REQUIRED };
-  for (const key of reflectOwnKeys(snapshot)) if (!safeScalar(snapshot[key])) return { kind: MISSING_FACT };
+  const snapshotKeys = reflectOwnKeys(snapshot);
+  for (let index = 0; index < snapshotKeys.length; index += 1) if (!safeScalar(snapshot[snapshotKeys[index]])) return { kind: MISSING_FACT };
   const entries = [
     ['fact', fact], ['status', 'found'],
     ['client_id', authority.client_id], ['location_id', authority.location_id],
   ];
-  for (const key of FACT_FIELDS[fact]) if (objectHasOwn(snapshot, key)) arrayPush(entries, [key, snapshot[key]]);
+  for (let index = 0; index < factFields.length; index += 1) {
+    const key = factFields[index];
+    if (objectHasOwn(snapshot, key)) arrayPush(entries, [key, snapshot[key]]);
+  }
   return { kind: 'found', value: frozenRecord(entries) };
 }
 
@@ -180,7 +195,8 @@ function createEmailLunaGroundedTools(configuration = {}) {
       if (!normalized) return typed(MISSING_FACT, factName, 'malformed_fact', pinnedAuthority);
       if (!normalized.rows.length) return typed(MISSING_FACT, factName, 'not_found', pinnedAuthority);
       const values = [];
-      for (const row of normalized.rows) {
+      for (let index = 0; index < normalized.rows.length; index += 1) {
+        const row = normalized.rows[index];
         const checked = sanitizeRow(row, factName, pinnedAuthority);
         if (checked.kind === HANDOFF_REQUIRED) return typed(HANDOFF_REQUIRED, factName, 'authority_mismatch', pinnedAuthority);
         if (checked.kind === MISSING_FACT) return typed(MISSING_FACT, factName, 'malformed_fact', pinnedAuthority);
