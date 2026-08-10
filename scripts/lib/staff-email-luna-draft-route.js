@@ -8,6 +8,7 @@ const EMAIL_LUNA_GENERATE_DRAFT_ENABLED_ENV = 'EMAIL_STAFF_LUNA_DRAFT_ENABLED';
 const EMAIL_LUNA_GENERATE_BODY_KEYS = Object.freeze(['conversation_id']);
 const READY_KEYS = Object.freeze(['status','subject','body','language','client_id','location_id','conversation_id','draft_only','requires_staff_review','send_allowed','auto_send_allowed']);
 const HANDOFF_KEYS = Object.freeze(['status','reason','client_id','location_id','conversation_id','draft_only','requires_staff_review','send_allowed','auto_send_allowed']);
+const SAVE_RECEIPT_KEYS = Object.freeze(['status','conversation_id','approval_id']);
 const BODY_MAX_BYTES = 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const isProxy = util.types.isProxy.bind(undefined);
@@ -131,6 +132,25 @@ function snapshotGenerated(result, authority) {
       || Buffer.byteLength(snap.body, 'utf8') > 8000) return null;
   return freeze(snap);
 }
+function snapshotSaveReceipt(receipt, conversationId) {
+  try {
+    if (!receipt || typeof receipt !== 'object' || isArray(receipt) || isProxy(receipt)
+      || (getPrototypeOf(receipt) !== Object.prototype && getPrototypeOf(receipt) !== null)) return null;
+    const actual = ownKeys(receipt);
+    if (actual.length !== SAVE_RECEIPT_KEYS.length
+      || !actual.every((key) => typeof key === 'string' && SAVE_RECEIPT_KEYS.includes(key))) return null;
+    const snap = Object.create(null);
+    for (const key of SAVE_RECEIPT_KEYS) {
+      const descriptor = getDescriptor(receipt, key);
+      if (!descriptor || !hasOwn(descriptor, 'value') || !descriptor.enumerable || descriptor.get || descriptor.set) return null;
+      snap[key] = descriptor.value;
+    }
+    const savedConversationId = uuid(snap.conversation_id);
+    const approvalId = uuid(snap.approval_id);
+    if (snap.status !== 'saved' || savedConversationId !== conversationId || !approvalId) return null;
+    return freeze({ status: snap.status, conversation_id: savedConversationId, approval_id: approvalId });
+  } catch { return null; }
+}
 function createStaffEmailLunaDraftRoute(deps) {
   if (!deps || typeof deps.sendJSON !== 'function' || typeof deps.withPgClient !== 'function'
       || typeof deps.createLunaRuntime !== 'function' || typeof deps.saveDraftThroughStaffOwner !== 'function') throw new Error('deps required');
@@ -172,12 +192,17 @@ function createStaffEmailLunaDraftRoute(deps) {
       if (generated && generated.status === 'handoff_required')
         return deps.sendJSON(res, 422, freeze({ success: false, error: 'luna_handoff_required', reason: generated.reason }));
       if (!generated) return deps.sendJSON(res, 503, freeze({ success: false, error: 'luna_draft_unavailable' }));
-      const saved = await deps.saveDraftThroughStaffOwner({ actor: a, conversation_id: input.conversation_id,
-        message_text: generated.body, approval_id: null, expected_authority: context.expectedAuthority });
-      if (!saved || saved.success !== true || saved.conversation_id !== input.conversation_id || saved.message_text !== generated.body)
-        return deps.sendJSON(res, 503, freeze({ success: false, error: 'luna_draft_unavailable' }));
-      return deps.sendJSON(res, 200, freeze({ success: true, conversation_id: saved.conversation_id,
-        message_text: saved.message_text, approval_id: saved.approval_id }));
+      let returned;
+      try {
+        returned = await deps.saveDraftThroughStaffOwner({ actor: a, conversation_id: input.conversation_id,
+          message_text: generated.body, approval_id: null, expected_authority: context.expectedAuthority });
+      } catch {
+        return deps.sendJSON(res, 503, freeze({ success: false, error: 'draft_save_outcome_unknown' }));
+      }
+      const saved = snapshotSaveReceipt(returned, input.conversation_id);
+      if (!saved) return deps.sendJSON(res, 503, freeze({ success: false, error: 'draft_save_outcome_unknown' }));
+      return deps.sendJSON(res, 200, freeze({ success: true, conversation_id: input.conversation_id,
+        message_text: generated.body, approval_id: saved.approval_id }));
     } catch {
       return deps.sendJSON(res, 503, freeze({ success: false, error: 'luna_draft_unavailable' }));
     }

@@ -32046,6 +32046,7 @@ function performEmailLunaDraftGenerate(convId, targetEl){
     var accepted=out.status===200?acceptEmailDraftSuccess(out.data,snapConv,text):null;
     if(accepted){ta.value=accepted.message_text;st.approvalId=accepted.approval_id;st.savedText=accepted.message_text;updateEmailDraftByteCount(targetEl,ta.value);showDraftSendStatus(statusEl,'ok','Luna draft generated \u2014 review and edit before approval.');}
     else if(out.status===422)showDraftSendStatus(statusEl,'blocked','Luna handoff required; draft was not changed.');
+    else if(out.status===503&&out.parseOk&&emailOwnData(out.data,'error')==='draft_save_outcome_unknown'){st.approvalId=null;st.savedText='';showDraftSendStatus(statusEl,'blocked','Draft save outcome is unknown. Check the conversation before trying again manually.');}
     else showDraftSendStatus(statusEl,'error','Draft generation failed.');
     setEmailReplyControlsDisabled(targetEl,false,st.locked);
   }).catch(function(){if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId===snapConv)showDraftSendStatus(statusEl,'error','Could not generate Luna draft.');setEmailReplyControlsDisabled(targetEl,false,st.locked);});

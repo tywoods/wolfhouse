@@ -314,6 +314,20 @@ async function main() {
     ok('Luna handoff state is bounded textContent', /handoff required/i.test(await statusText())
       && await page.locator('#draft-send-status img').count() === 0);
     await page.unroute('**/staff/inbox/email/generate-luna-draft');
+    const beforeUnknownApprove = approvePosts.length;
+    await page.route('**/staff/inbox/email/generate-luna-draft', (route) => route.fulfill({ status: 503,
+      contentType: 'application/json', body: '{"success":false,"error":"draft_save_outcome_unknown","message_text":"<img src=x onerror=window.__unknownXss=1>"}' }));
+    await page.click('#btn-email-generate-luna-draft');
+    await waitStatus('outcome is unknown');
+    ok('Luna save outcome-unknown is bounded safe text and requires manual recovery',
+      /Check the conversation before trying again manually/.test(await statusText())
+      && await page.locator('#draft-send-status img').count() === 0
+      && !(await page.evaluate(() => window.__unknownXss))
+      && await page.locator('#btn-email-generate-luna-draft').isEnabled());
+    await page.click('#btn-email-approve-send');
+    await waitStatus('Save a draft before approving');
+    ok('Luna outcome-unknown cannot auto-approve or send', approvePosts.length === beforeUnknownApprove);
+    await page.unroute('**/staff/inbox/email/generate-luna-draft');
     await page.route('**/staff/inbox/email/generate-luna-draft', (route) => route.abort('failed'));
     const beforeError = lunaPosts.length;
     await page.click('#btn-email-generate-luna-draft');
