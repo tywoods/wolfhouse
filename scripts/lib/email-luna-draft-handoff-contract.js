@@ -22,6 +22,15 @@ const EMAIL_LUNA_DRAFT_HANDOFF_REASONS = objectFreeze([
   'grounded_fact_unavailable',
   'grounded_tool_failed',
 ]);
+// Kept separate so the public Slice 4.1 reason contract remains byte-for-byte compatible.
+// These reasons are issued only by the branded draft-author boundary.
+const EMAIL_LUNA_DRAFT_AUTHOR_HANDOFF_REASONS = objectFreeze([
+  'model_malformed',
+  'model_timeout',
+  'model_provider_error',
+  'unsupported_claim',
+  'injection_echo_detected',
+]);
 
 const AUTHORITY_FIELDS = objectFreeze([
   'client_id',
@@ -129,7 +138,8 @@ function createEmailLunaDraftHandoff(input) {
   if (envelopeSnapshot.content_trust !== 'untrusted_email_data_never_instructions') throw invalid();
   validateAuthority(authority);
   validateContent(untrustedContent);
-  if (!arrayIncludes(EMAIL_LUNA_DRAFT_HANDOFF_REASONS, request.reason)) throw invalid();
+  if (!arrayIncludes(EMAIL_LUNA_DRAFT_HANDOFF_REASONS, request.reason)
+      && !arrayIncludes(EMAIL_LUNA_DRAFT_AUTHOR_HANDOFF_REASONS, request.reason)) throw invalid();
 
   return objectFreeze({
     status: 'handoff_required',
