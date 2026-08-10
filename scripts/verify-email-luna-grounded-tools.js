@@ -19,7 +19,7 @@ async function main() {
   const calls = [];
   const queryOwners = owners(Object.fromEntries(FACTS.map((fact) => [fact, async (scope, args) => {
     calls.push({ fact, scope, args });
-    return row(fact, { label: args.lookup, secret_ref: 'hidden' });
+    return row(fact, { label: args.lookup });
   }])));
   const tools = createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners });
 
@@ -40,7 +40,7 @@ async function main() {
     { client_id: 'other' }, { clientId: 'other' },
     { location_id: 'sunset-sardinero' }, { locationId: 'sunset-sardinero' },
     { authority: { ...AUTHORITY } }, { scope: { ...AUTHORITY } },
-  ]) await assert.rejects(() => tools.query('catalog', override), /authority_override_rejected/);
+  ]) await assert.rejects(() => tools.query('catalog', override), /invalid_query_arguments/);
 
   for (const fact of FACTS) {
     const scoped = createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ [fact]: async () => row(fact, { location_id: 'sunset-sardinero' }) }) });
@@ -67,6 +67,7 @@ async function main() {
     booking_code: 'SUN-42', booking_status: 'confirmed', secret_ref: 'secret', delegated_grant_id: 'grant',
     provider_message_id: 'provider-id', checkout_url: 'https://unsafe.invalid',
   }) }) }).query('booking', {});
+  assert.deepEqual(factual, { type: MISSING_FACT, fact: 'booking', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
   for (const key of Object.keys(factual)) {
     assert.equal(ALLOWED.has(key), true, `non-allowlisted field escaped: ${key}`);
     assert.equal(FORBIDDEN.test(key), false, `sensitive field escaped: ${key}`);
@@ -169,7 +170,7 @@ async function main() {
     assert.equal(thenGets, 0);
     for (const malformed of [Promise.resolve(), Promise.resolve(() => 1), Promise.resolve({ rows: [row('catalog')], extra: true })]) {
       const result = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: () => malformed }) }).query('catalog', {});
-      assert.equal(result.type, malformed === undefined ? HANDOFF_REQUIRED : MISSING_FACT);
+      assert.equal(result.type, MISSING_FACT);
     }
   });
 
