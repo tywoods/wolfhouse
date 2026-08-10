@@ -6,7 +6,7 @@ const { assertEmailLunaDraftPolicyIssuance } = require('./email-luna-draft-polic
 const uncurry = (fn) => Function.prototype.call.bind(fn);
 const isProxy = utilTypes.isProxy.bind(undefined);
 const isPromise = utilTypes.isPromise.bind(undefined);
-const freeze=Object.freeze, create=Object.create, getProto=Object.getPrototypeOf, getDesc=Object.getOwnPropertyDescriptor, hasOwn=Object.hasOwn;
+const freeze=Object.freeze, create=Object.create, defineProperty=uncurry(Object.defineProperty), getProto=Object.getPrototypeOf, getDesc=Object.getOwnPropertyDescriptor, hasOwn=Object.hasOwn;
 const ownKeys=Reflect.ownKeys, isArray=Array.isArray, stringify=JSON.stringify, parse=JSON.parse;
 const arrayIncludes=uncurry(Array.prototype.includes), arraySome=uncurry(Array.prototype.some);
 const test=uncurry(RegExp.prototype.test);
@@ -62,7 +62,7 @@ function render(trusted,plan){const language=trusted.language,intent=plan.templa
   return {subject,body,language};
 }
 function handoff(envelope,reason){return createEmailLunaDraftHandoff({envelope,reason});}
-function ready(d,b){const out=create(null);for(const [k,v] of [['status','draft_ready'],['subject',d.subject],['body',d.body],['language',d.language],['client_id',b.client_id],['location_id',b.location_id],['conversation_id',b.conversation_id],['draft_only',true],['requires_staff_review',true],['send_allowed',false],['auto_send_allowed',false]])Object.defineProperty(out,k,{value:v,enumerable:true});return freeze(out);}
+function ready(d,b){const out=create(null);for(const [k,v] of [['status','draft_ready'],['subject',d.subject],['body',d.body],['language',d.language],['client_id',b.client_id],['location_id',b.location_id],['conversation_id',b.conversation_id],['draft_only',true],['requires_staff_review',true],['send_allowed',false],['auto_send_allowed',false]])defineProperty(Object,out,k,{value:v,enumerable:true});return freeze(out);}
 function createEmailLunaDraftAuthor(configuration={}){const c=record(configuration,['callModel','timeoutMs'],false);const callModel=hasOwn(c,'callModel')?c.callModel:(p)=>callLunaAiJsonChat({...p,jsonObject:true,maxTokens:120,temperature:0,call_label:'email_luna_draft_author'});const timeoutMs=hasOwn(c,'timeoutMs')?c.timeoutMs:15000;if(typeof callModel!=='function'||!isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>120000)throw invalid();
   async function authorDraft(input){const {r,trusted}=request(input);const prompt=buildEmailLunaDraftAuthorPrompt(input);let timer,result;try{result=callModel(prompt);if(isProxy(result)||!isPromise(result)||getProto(result)!==NativePromise.prototype)return handoff(r.envelope,'model_provider_error');const timeout=new NativePromise((_,reject)=>{timer=setTimeout(()=>{const e=new Error('timeout');e.code='EMAIL_LUNA_AUTHOR_TIMEOUT';reject(e);},timeoutMs);});result=await promiseRace([result,timeout]);}catch(e){return handoff(r.envelope,e&&e.code==='EMAIL_LUNA_AUTHOR_TIMEOUT'?'model_timeout':'model_provider_error');}finally{if(timer)clearTimeout(timer);}const plan=parsePlan(result,r.decision.intent);if(!plan)return handoff(r.envelope,'model_malformed');const draft=render(trusted,plan);if(!draft)return handoff(r.envelope,'unsupported_claim');return ready(draft,trusted.binding);}return freeze({authorDraft});}
 module.exports={EMAIL_LUNA_DRAFT_AUTHOR_HANDOFF_REASONS,buildEmailLunaDraftAuthorPrompt,createEmailLunaDraftAuthor};
