@@ -154,7 +154,7 @@ async function main() {
       const revoked = Proxy.revocable(target, {});
       revoked.revoke();
       const revokedResult = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async () => revoked.proxy }) }).query('catalog', {});
-      assert.deepEqual(revokedResult, { type: MISSING_FACT, fact: 'catalog', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
+      assert.deepEqual(revokedResult, { type: HANDOFF_REQUIRED, fact: 'catalog', status: HANDOFF_REQUIRED, reason: 'tool_error', ...AUTHORITY });
     }
   });
 

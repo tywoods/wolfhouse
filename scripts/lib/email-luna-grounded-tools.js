@@ -1,6 +1,7 @@
 'use strict';
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
+const runtimeIsProxy = require('node:util').types.isProxy.bind(undefined);
 const arrayIncludes = uncurryThis(Array.prototype.includes);
 const arrayPush = uncurryThis(Array.prototype.push);
 const objectFreeze = Object.freeze;
@@ -33,7 +34,7 @@ const WRAPPER_KEYS = objectFreeze(['rows']);
 const ROW_CORE_KEYS = objectFreeze(['fact', 'status', 'client_id', 'location_id']);
 
 function ownDataSnapshot(value, allowedKeys, requiredKeys = allowedKeys) {
-  if (value === null || typeof value !== 'object' || arrayIsArray(value)) return null;
+  if (value === null || typeof value !== 'object' || runtimeIsProxy(value) || arrayIsArray(value)) return null;
   try {
     const prototype = objectGetPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return null;
@@ -100,7 +101,7 @@ function snapshotArguments(args) {
 }
 
 function snapshotArray(value) {
-  if (!arrayIsArray(value)) return null;
+  if (value === null || typeof value !== 'object' || runtimeIsProxy(value) || !arrayIsArray(value)) return null;
   try {
     const keys = reflectOwnKeys(value);
     for (const key of keys) if (typeof key !== 'string') return null;
@@ -166,7 +167,8 @@ function createEmailLunaGroundedTools(configuration = {}) {
     let pending;
     try {
       pending = pinnedOwners[factName](pinnedAuthority, request);
-      if (objectGetPrototypeOf(pending) !== nativePromisePrototype) {
+      if (pending === null || typeof pending !== 'object' || runtimeIsProxy(pending)
+          || objectGetPrototypeOf(pending) !== nativePromisePrototype) {
         return promiseResolve(typed(HANDOFF_REQUIRED, factName, 'tool_error', pinnedAuthority));
       }
     } catch (_) {
