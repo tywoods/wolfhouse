@@ -59,6 +59,15 @@ for (const disabled of [
 }
 console.log('  PASS  factory is fail-closed and exposes authorDraft only after exact gates');
 
+const originalSome = Array.prototype.some;
+try {
+  Array.prototype.some = function ambientAlwaysFalseSome() { return false; };
+  assert.throws(() => createEmailLunaSunsetStagingRuntimeComposition({
+    ...enabledInput(), callModel: async () => '{}', send: () => {},
+  }), (error) => error && error.code === 'EMAIL_LUNA_DRAFT_AUTHOR_INVALID');
+} finally { Array.prototype.some = originalSome; }
+console.log('  PASS  post-import Array.prototype.some mutation cannot admit extra runtime capabilities');
+
 const modulePath = path.join(__dirname, 'lib/email-luna-sunset-staging-runtime-composition.js');
 const child = spawnSync(process.execPath, ['-e', `
   const Module = require('node:module');
