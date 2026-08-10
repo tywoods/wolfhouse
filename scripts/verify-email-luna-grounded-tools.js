@@ -104,10 +104,75 @@ async function main() {
     assert.equal(getters, 0);
     await assert.rejects(() => exact.query('catalog', { lookup: 'safe', [Symbol('capability')]: () => 1 }), /invalid_query_arguments/);
     let traps = 0;
-    const proxy = new Proxy({}, { getPrototypeOf() { traps += 1; return Object.prototype; }, ownKeys() { traps += 1; throw new Error('proxy trap'); } });
+    const proxy = new Proxy({}, {
+      getPrototypeOf() { traps += 1; return Object.prototype; },
+      ownKeys() { traps += 1; return []; },
+      getOwnPropertyDescriptor() { traps += 1; return undefined; },
+    });
     await assert.rejects(() => exact.query('catalog', proxy), /invalid_query_arguments/);
     assert.equal(callsMade, 0);
-    assert.ok(traps > 0);
+    assert.equal(traps, 0, 'transparent request Proxy must be rejected before reflection');
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    await assert.rejects(() => exact.query('catalog', revoked.proxy), /invalid_query_arguments/);
+    assert.equal(callsMade, 0);
+  });
+
+  await hostile('reject owner map proxies before reflection or owner execution', async () => {
+    let traps = 0;
+    let callsMade = 0;
+    const target = owners({ catalog: async () => { callsMade += 1; return row('catalog'); } });
+    const proxy = new Proxy(target, {
+      getPrototypeOf() { traps += 1; return Object.prototype; },
+      ownKeys() { traps += 1; return Reflect.ownKeys(target); },
+      getOwnPropertyDescriptor(_value, key) { traps += 1; return Object.getOwnPropertyDescriptor(target, key); },
+    });
+    assert.throws(() => createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: proxy }), /invalid_grounded_tools_configuration/);
+    assert.equal(traps, 0, 'transparent owner map Proxy must be rejected before reflection');
+    assert.equal(callsMade, 0);
+    const revoked = Proxy.revocable(target, {});
+    revoked.revoke();
+    assert.throws(() => createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: revoked.proxy }), /invalid_grounded_tools_configuration/);
+    assert.equal(callsMade, 0);
+  });
+
+  await hostile('reject owner wrapper and row proxies before reflection', async () => {
+    for (const shape of ['wrapper', 'row']) {
+      let traps = 0;
+      let callsMade = 0;
+      const target = shape === 'wrapper' ? { rows: [row('catalog')] } : row('catalog');
+      const proxy = new Proxy(target, {
+        getPrototypeOf() { traps += 1; return Object.prototype; },
+        ownKeys() { traps += 1; return Reflect.ownKeys(target); },
+        getOwnPropertyDescriptor(_value, key) { traps += 1; return Object.getOwnPropertyDescriptor(target, key); },
+      });
+      const result = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async () => { callsMade += 1; return proxy; } }) }).query('catalog', {});
+      assert.deepEqual(result, { type: MISSING_FACT, fact: 'catalog', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
+      assert.equal(callsMade, 1);
+      assert.equal(traps, 0, `transparent owner ${shape} Proxy must be rejected before reflection`);
+
+      const revoked = Proxy.revocable(target, {});
+      revoked.revoke();
+      const revokedResult = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async () => revoked.proxy }) }).query('catalog', {});
+      assert.deepEqual(revokedResult, { type: MISSING_FACT, fact: 'catalog', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
+    }
+  });
+
+  await hostile('retain the privately captured proxy detector after monkeypatch', async () => {
+    const utilTypes = require('node:util').types;
+    const original = utilTypes.isProxy;
+    let traps = 0;
+    let callsMade = 0;
+    const proxy = new Proxy({}, { getPrototypeOf() { traps += 1; return Object.prototype; } });
+    try {
+      utilTypes.isProxy = () => false;
+      const exact = createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async () => { callsMade += 1; return row('catalog'); } }) });
+      await assert.rejects(() => exact.query('catalog', proxy), /invalid_query_arguments/);
+    } finally {
+      utilTypes.isProxy = original;
+    }
+    assert.equal(traps, 0);
+    assert.equal(callsMade, 0);
   });
 
   await hostile('snapshot and freeze request before await', async () => {
