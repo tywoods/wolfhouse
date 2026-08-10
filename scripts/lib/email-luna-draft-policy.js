@@ -18,6 +18,9 @@ const arrayIsArray = Array.isArray;
 const regexpTest = uncurryThis(RegExp.prototype.test);
 const numberIsSafeInteger = Number.isSafeInteger;
 const numberIsFinite = Number.isFinite;
+const weakSetAdd = uncurryThis(WeakSet.prototype.add);
+const weakSetHas = uncurryThis(WeakSet.prototype.has);
+const AUTHENTIC_POLICY_EVIDENCE = new WeakSet();
 
 const EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS = objectFreeze([
   'ambiguous_identity',
@@ -263,6 +266,112 @@ function frozenResults(value, requiredFacts) {
   }
 }
 
+function validateEvidenceScalars(evidence) {
+  if (typeof evidence.client_id !== 'string' || typeof evidence.location_id !== 'string'
+      || typeof evidence.conversation_id !== 'string' || typeof evidence.requested_location_id !== 'string'
+      || typeof evidence.identity !== 'string' || typeof evidence.intent !== 'string'
+      || typeof evidence.intent_support !== 'string' || typeof evidence.explicit_human_request !== 'boolean'
+      || typeof evidence.unsafe_transactional_request !== 'boolean') throw invalid();
+  if (!arrayIncludes(['matched', 'ambiguous', 'uncertain'], evidence.identity)
+      || !arrayIncludes(['supported', 'unsupported', 'uncertain'], evidence.intent_support)) throw invalid();
+}
+
+function copyExactProducerRecord(value, keys, prototype) {
+  if (value === null || typeof value !== 'object' || runtimeIsProxy(value) || arrayIsArray(value)) throw invalid();
+  try {
+    if (objectGetPrototypeOf(value) !== prototype) throw invalid();
+    const ownKeys = safeOwnKeys(value);
+    if (ownKeys.length !== keys.length) throw invalid();
+    const copy = objectCreate(null);
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (!arrayIncludes(ownKeys, key)) throw invalid();
+      const descriptor = objectGetOwnPropertyDescriptor(value, key);
+      if (!descriptor || !objectHasOwn(descriptor, 'value') || !descriptor.enumerable) throw invalid();
+      copy[key] = descriptor.value;
+    }
+    return copy;
+  } catch (error) {
+    if (error && error.code === 'EMAIL_LUNA_DRAFT_POLICY_INVALID') throw error;
+    throw invalid();
+  }
+}
+
+function copyRequiredFacts(value) {
+  if (value === null || typeof value !== 'object' || runtimeIsProxy(value) || !arrayIsArray(value)
+      || objectGetPrototypeOf(value) !== Array.prototype) throw invalid();
+  const keys = safeOwnKeys(value);
+  const lengthDescriptor = objectGetOwnPropertyDescriptor(value, 'length');
+  if (!lengthDescriptor || !objectHasOwn(lengthDescriptor, 'value')) throw invalid();
+  const length = lengthDescriptor.value;
+  if (!numberIsSafeInteger(length) || length < 0 || keys.length !== length + 1) throw invalid();
+  const copy = [];
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = objectGetOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !objectHasOwn(descriptor, 'value') || !descriptor.enumerable
+        || typeof descriptor.value !== 'string' || !arrayIncludes(FACTS, descriptor.value)) throw invalid();
+    for (let prior = 0; prior < index; prior += 1) if (copy[prior] === descriptor.value) throw invalid();
+    arrayPush(copy, descriptor.value);
+  }
+  return objectFreeze(copy);
+}
+
+function copyGroundedResult(value, fact) {
+  if (value === null || typeof value !== 'object' || runtimeIsProxy(value) || arrayIsArray(value)) throw invalid();
+  const prototype = objectGetPrototypeOf(value);
+  if (prototype !== null && prototype !== Object.prototype) throw invalid();
+  const ownKeys = safeOwnKeys(value);
+  const allowed = arrayIncludes(ownKeys, 'type') ? FAILURE_KEYS : resultKeys(fact);
+  if (ownKeys.length > allowed.length) throw invalid();
+  const copy = objectCreate(null);
+  for (let index = 0; index < ownKeys.length; index += 1) {
+    const key = ownKeys[index];
+    if (typeof key !== 'string' || !arrayIncludes(allowed, key)) throw invalid();
+    const descriptor = objectGetOwnPropertyDescriptor(value, key);
+    if (!descriptor || !objectHasOwn(descriptor, 'value') || !descriptor.enumerable) throw invalid();
+    const item = descriptor.value;
+    if (item !== null && typeof item !== 'string' && typeof item !== 'number' && typeof item !== 'boolean') throw invalid();
+    objectDefineProperty(copy, key, { value: item, enumerable: true, writable: true, configurable: true });
+  }
+  objectFreeze(copy);
+  frozenResult(copy, fact);
+  return copy;
+}
+
+/**
+ * Trusted server-composition boundary only. It copies and brands supplied
+ * classifier/tool snapshots; it does not classify email or infer truth.
+ */
+function createEmailLunaDraftPolicyEvidence(input) {
+  const evidence = copyExactProducerRecord(input, EVIDENCE_KEYS, Object.prototype);
+  validateEvidenceScalars(evidence);
+  const requiredFacts = copyRequiredFacts(evidence.required_facts);
+  const intentSupported = objectHasOwn(INTENT_REQUIRED_FACTS, evidence.intent);
+  const policyFacts = intentSupported ? INTENT_REQUIRED_FACTS[evidence.intent] : requiredFacts;
+  const sourceResults = copyExactProducerRecord(evidence.grounded_results, policyFacts, Object.prototype);
+  const groundedResults = {};
+  for (let index = 0; index < policyFacts.length; index += 1) {
+    const fact = policyFacts[index];
+    groundedResults[fact] = copyGroundedResult(sourceResults[fact], fact);
+  }
+  objectFreeze(groundedResults);
+  const issued = objectFreeze({
+    client_id: evidence.client_id,
+    location_id: evidence.location_id,
+    conversation_id: evidence.conversation_id,
+    identity: evidence.identity,
+    intent: evidence.intent,
+    intent_support: evidence.intent_support,
+    requested_location_id: evidence.requested_location_id,
+    explicit_human_request: evidence.explicit_human_request,
+    unsafe_transactional_request: evidence.unsafe_transactional_request,
+    required_facts: requiredFacts,
+    grounded_results: groundedResults,
+  });
+  weakSetAdd(AUTHENTIC_POLICY_EVIDENCE, issued);
+  return issued;
+}
+
 function output(entries) {
   const value = objectCreate(null);
   for (let index = 0; index < entries.length; index += 1) {
@@ -294,6 +403,7 @@ function hasInjection(content) {
 function decideEmailLunaDraftPolicy(input) {
   const request = exactInput(input);
   const trusted = authenticEnvelope(request.envelope);
+  if (!request.evidence || !weakSetHas(AUTHENTIC_POLICY_EVIDENCE, request.evidence)) throw invalid();
   const evidence = exactFrozenRecord(request.evidence, EVIDENCE_KEYS, Object.prototype);
   const callerRequiredFacts = exactFrozenStringArray(evidence.required_facts);
   for (let index = 0; index < callerRequiredFacts.length; index += 1) {
@@ -301,11 +411,7 @@ function decideEmailLunaDraftPolicy(input) {
     for (let prior = 0; prior < index; prior += 1) if (callerRequiredFacts[prior] === callerRequiredFacts[index]) throw invalid();
   }
 
-  if (typeof evidence.client_id !== 'string' || typeof evidence.location_id !== 'string'
-      || typeof evidence.conversation_id !== 'string' || typeof evidence.requested_location_id !== 'string'
-      || typeof evidence.identity !== 'string' || typeof evidence.intent !== 'string'
-      || typeof evidence.intent_support !== 'string' || typeof evidence.explicit_human_request !== 'boolean'
-      || typeof evidence.unsafe_transactional_request !== 'boolean') throw invalid();
+  validateEvidenceScalars(evidence);
   const intentSupported = objectHasOwn(INTENT_REQUIRED_FACTS, evidence.intent);
   const requiredFacts = intentSupported ? INTENT_REQUIRED_FACTS[evidence.intent] : callerRequiredFacts;
   const results = frozenResults(evidence.grounded_results, requiredFacts);
@@ -347,4 +453,8 @@ function decideEmailLunaDraftPolicy(input) {
   ]);
 }
 
-module.exports = { decideEmailLunaDraftPolicy, EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS };
+module.exports = {
+  createEmailLunaDraftPolicyEvidence,
+  decideEmailLunaDraftPolicy,
+  EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS,
+};
