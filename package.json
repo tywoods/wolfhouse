@@ -396,6 +396,7 @@
     "verify:email-outbound-send-journal-store": "node scripts/verify-email-outbound-send-journal-store.js",
     "verify:email-authority-bound-outbound-operation": "node scripts/verify-email-authority-bound-outbound-operation.js",
     "verify:email-outbound-sunset-staging-runtime-composition": "node scripts/verify-email-outbound-sunset-staging-runtime-composition.js",
+    "verify:email-luna-draft-handoff-contract": "node scripts/verify-email-luna-draft-handoff-contract.js",
     "verify:email-outbound-forced-post-send-uncertainty-seam": "node scripts/verify-email-outbound-forced-post-send-uncertainty-seam.js",
     "verify:staff-email-inbox-routes": "node scripts/verify-staff-email-inbox-routes.js",
     "verify:staff-email-inbox-mailbox-authority-binding": "node scripts/verify-staff-email-inbox-mailbox-authority-binding.js",
