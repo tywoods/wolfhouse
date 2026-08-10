@@ -8,11 +8,11 @@ const { spawnSync } = require('node:child_process');
 const ROOT = path.join(__dirname, '..');
 const {
   createStaffEmailInboxRoutes, EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
-  BODY_KEYS, SUCCESS_DTO_KEYS, BODY_MAX_BYTES, MESSAGE_MAX_BYTES, SQL_RESOLVE, SQL_APPROVE,
+  BODY_KEYS, SUCCESS_DTO_KEYS, BODY_MAX_BYTES, MESSAGE_MAX_BYTES, SQL_RESOLVE, SQL_APPROVE, SQL_JOURNAL_EXISTS,
   isEmailStaffDraftsEnabled, isEmailStaffOutboundEnabled, isEmailOutboundSendEnabled,
   snapshotGateEnv, snapshotEmailReplyBody, validateJsonContentType, validateSameOrigin,
   isExactApplicationJson, bodyDigestOf, exactOriginSerialization, normalizeConfiguredOrigin,
-  ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_PORTAL_ORIGIN,
+  ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_COMPOSITION_ENABLED, ENV_PORTAL_ORIGIN,
 } = require('./lib/staff-email-inbox-routes');
 const {
   EMAIL_AUTHORITY_BOUND_OUTBOUND_RUNTIME_WIRED, EMAIL_AUTHORITY_BOUND_OUTBOUND_SAFE_FOR_RUNTIME_ROUTE,
@@ -65,6 +65,7 @@ function authRow(o = {}) {
 }
 function createFakePg(opts = {}) {
   const durable = new Map();
+  const journal = new Set();
   let endpointOutbound = opts.endpointOutbound !== false; // default on; kill-switch tests set false
   let authorityPresent = opts.authorityPresent !== false;
   let foreign = opts.foreign === true;
@@ -110,6 +111,9 @@ function createFakePg(opts = {}) {
       if (!row || row.client_id !== String(params[1]).toLowerCase() || row.conversation_id !== String(params[2]).toLowerCase()) return { rows: [] };
       return { rows: [{ ...row }] };
     }
+    if (n === SQL_JOURNAL_EXISTS) {
+      return { rows: journal.has(String(params[2]).toLowerCase()) ? [{ journal_exists: 1 }] : [] };
+    }
     if (/state='approved'/.test(n) || /state = 'approved'/.test(n)) {
       // params: approval_id, client_id, conversation_id, operation_id, actor, message_text, body_digest
       const row = durable.get(String(params[0]).toLowerCase());
@@ -122,7 +126,7 @@ function createFakePg(opts = {}) {
     throw new Error(`unexpected_sql:${n.slice(0, 60)}`);
   } };
   return {
-    durable, client,
+    durable, journal, client,
     setEndpointOutbound(v) { endpointOutbound = v === true; },
     setAuthorityPresent(v) { authorityPresent = v === true; },
     setForeign(v) { foreign = v === true; },
@@ -183,6 +187,9 @@ async function main() {
   ok('SQL_APPROVE binds locked operation_id CAS', /operation_id=\$4::uuid/.test(SQL_APPROVE)
     && /state='draft'/.test(SQL_APPROVE) && /message_text=\$6/.test(SQL_APPROVE)
     && /body_digest=\$7/.test(SQL_APPROVE) && /approved_actor_staff_user_id=\$5::uuid/.test(SQL_APPROVE));
+  ok('approved initial dispatch uses exact journal absence query', /SELECT 1 AS journal_exists/.test(SQL_JOURNAL_EXISTS)
+    && /client_id=\$1::uuid/.test(SQL_JOURNAL_EXISTS) && /approval_id=\$2::uuid/.test(SQL_JOURNAL_EXISTS)
+    && /operation_id=\$3::uuid/.test(SQL_JOURNAL_EXISTS) && /conversation_id=\$4::uuid/.test(SQL_JOURNAL_EXISTS));
   ok('default-off flags exact true only', !isEmailStaffDraftsEnabled({})
     && !isEmailStaffDraftsEnabled({ [ENV_DRAFTS_ENABLED]: 'TRUE' })
     && isEmailStaffDraftsEnabled({ [ENV_DRAFTS_ENABLED]: 'true' })
@@ -294,8 +301,8 @@ async function main() {
     routes.handleApproveSend(mockReq(dto({ approval_id: ap3 })), {}, user(), gate),
   ]);
   const st = send.calls.map((c) => c.status).sort();
-  ok('concurrent endpoint true one approval winner', pg.durable.get(ap3).state === 'approved' && st.includes(503)
-    && (st.includes(409) || st.filter((s) => s === 503).length === 1) && dispatchHits === 0);
+  ok('concurrent approved record remains retryable while journal absent', pg.durable.get(ap3).state === 'approved'
+    && st.join(',') === '503,503' && dispatchHits === 0);
   send.calls.length = 0;
   await routes.handleDraft(mockReq(dto()), {}, user(), gate);
   const ap4 = send.calls[0].body.approval_id; send.calls.length = 0;
@@ -305,6 +312,23 @@ async function main() {
   ok('runtime offline endpoint true durable approved 503', send.calls[0].status === 503
     && send.calls[0].body.error === 'email_send_disabled' && pg.durable.get(ap4).state === 'approved'
     && dispatchHits === 0 && noLeak(send.calls[0].body));
+  const initialEnv = snapshotGateEnv(enabledEnv({ [ENV_SEND_ENABLED]: 'true', [ENV_COMPOSITION_ENABLED]: 'true' }));
+  const initialPg = createFakePg(); const initialSend = captureSend(); let initialDispatches = 0;
+  const initialRoutes = createStaffEmailInboxRoutes({
+    sendJSON: initialSend.sendJSON, withPgClient: initialPg.withPgClient, runtimeEnv: enabledEnv(),
+    outboundDispatch: async (sealed) => {
+      initialDispatches += 1; initialPg.journal.add(sealed.operation_id);
+      return Object.freeze({ ok: true, code: 'email_send_committed' });
+    },
+  });
+  await initialRoutes.handleDraft(mockReq(dto()), {}, user(), gate);
+  const initialApproval = initialSend.calls[0].body.approval_id;
+  initialPg.durable.get(initialApproval).state = 'approved'; initialSend.calls.length = 0;
+  await initialRoutes.handleApproveSend(mockReq(dto({ approval_id: initialApproval })), {}, user(), initialEnv);
+  await initialRoutes.handleApproveSend(mockReq(dto({ approval_id: initialApproval })), {}, user(), initialEnv);
+  ok('approved exact-authority journal-absent initial dispatch once; replay zero-call', initialDispatches === 1
+    && initialSend.calls[0].status === 200 && initialSend.calls[1].status === 409
+    && initialSend.calls[1].body.error === 'approval_conflict');
   send.calls.length = 0;
   await routes.handleDraft(mockReq(dto()), {}, user(), gate);
   const ap5 = send.calls[0].body.approval_id; send.calls.length = 0;
