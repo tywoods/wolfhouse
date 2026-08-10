@@ -78,6 +78,7 @@ function evidence(patch = {}) {
     client_id: IDS.client_id,
     location_id: IDS.location_id,
     conversation_id: IDS.conversation_id,
+    language: 'en',
     identity: 'matched',
     intent: 'booking_status_question',
     intent_support: 'supported',
@@ -129,11 +130,11 @@ assert.deepEqual(EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS, REASONS);
 
 const ready = decide();
 assert.deepEqual(Object.keys(ready), [
-  'status', 'intent', 'client_id', 'location_id', 'conversation_id', 'grounded_facts',
+  'status', 'intent', 'language', 'client_id', 'location_id', 'conversation_id', 'grounded_facts',
   'draft_only', 'requires_staff_review', 'send_allowed', 'auto_send_allowed',
 ]);
 assert.deepEqual(plain(ready), {
-  status: 'draft_ready', intent: 'booking_status_question',
+  status: 'draft_ready', intent: 'booking_status_question', language: 'en',
   client_id: IDS.client_id, location_id: IDS.location_id, conversation_id: IDS.conversation_id,
   grounded_facts: ['booking'], draft_only: true, requires_staff_review: true,
   send_allowed: false, auto_send_allowed: false,
@@ -194,6 +195,9 @@ expectInvalid({ envelope: envelope(), evidence: evidence({ model: 'gpt', provide
 expectInvalid({ envelope: envelope(), evidence: evidence({ send: () => {} }) }, 'send capability forbidden');
 expectInvalid({ envelope: envelope(), evidence: evidence({ required_facts: ['booking', 'booking'] }) }, 'duplicate facts forbidden');
 expectInvalid({ envelope: envelope(), evidence: evidence({ grounded_results: frozen({ booking: found('payment') }) }) }, 'fact key/result mismatch forbidden');
+expectInvalid({ envelope: envelope(), evidence: evidence({ language: 'fr' }) }, 'unsupported language forbidden');
+const missingLanguage = plain(evidence()); delete missingLanguage.language;
+expectInvalid({ envelope: envelope(), evidence: frozen(missingLanguage) }, 'missing language forbidden');
 expectInvalid({ envelope: envelope(), evidence: { ...plain(evidence()) } }, 'mutable evidence forbidden');
 expectInvalid({ envelope: envelope(), evidence: frozen({ ...plain(evidence()), grounded_results: { booking: { ...plain(found('booking')) } } }) }, 'non-authentic nested result shape forbidden');
 expectInvalid({ envelope: envelope(), evidence: evidence(), extra: true }, 'exact input schema');
@@ -306,7 +310,9 @@ for (const [label, copied] of [
 const producerInput = { ...forgedExactEvidence };
 const isolated = createEmailLunaDraftPolicyEvidence(producerInput);
 producerInput.location_id = OTHER_LOCATION;
+producerInput.language = 'es';
 assert.equal(isolated.location_id, IDS.location_id, 'producer copies before caller mutation');
+assert.equal(isolated.language, 'en', 'producer copies trusted language before caller mutation');
 assert.throws(() => { isolated.location_id = OTHER_LOCATION; }, TypeError);
 assert.throws(() => { isolated.grounded_results.booking.booking_status = 'cancelled'; }, TypeError);
 assert.equal(decideEmailLunaDraftPolicy({ envelope: envelope(), evidence: isolated }).status, 'draft_ready');

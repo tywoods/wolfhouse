@@ -8,7 +8,7 @@ const path = require('node:path');
 
 const SOURCE_PATH = require.resolve('./lib/email-luna-draft-policy');
 const HANDOFF_PATH = require.resolve('./lib/email-luna-draft-handoff-contract');
-const SOURCE_SHA256 = 'f9acbae74fd1ddbb5c3c1cecd6299881df21bcdb5b7f3014e8090e7f937d5755';
+const SOURCE_SHA256 = 'dc39247e5f75f5bae7b6188dc37445fb83a840fa321f1c3e2c4164401a7beaf8';
 const CONSTRUCTOR_VALIDATION_BLOCK = [
   '  objectFreeze(copy);',
   '  frozenResult(copy, fact);',
@@ -95,6 +95,7 @@ function evidence(groundedResult) {
     client_id: IDS.client_id,
     location_id: IDS.location_id,
     conversation_id: IDS.conversation_id,
+    language: 'en',
     identity: 'matched',
     intent: 'booking_status_question',
     intent_support: 'supported',

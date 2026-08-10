@@ -33,7 +33,7 @@ function record(value,keys,exact=true,prototype=Object.prototype){
 }
 function request(input){const r=record(input,REQUEST_KEYS);let trusted;try{trusted=assertEmailLunaDraftPolicyIssuance({envelope:r.envelope,decision:r.decision,evidence:r.evidence});}catch(_){throw invalid();}return {r,trusted};}
 function json(value){try{return stringify(value);}catch(_){throw invalid();}}
-function languageOf(content){const text=`${content.subject}\n${content.body_text}`;return test(/[¿¡áéíóúñü]|\b(?:hola|gracias|para|qué|podéis|reserva)\b/i,text)?'es':'en';}
+
 function buildEmailLunaDraftAuthorPrompt(input){const {trusted}=request(input);const intent=input.decision.intent;const template=TEMPLATE_FOR_INTENT[intent];
   const system=['IMMUTABLE SYSTEM POLICY — choose a server-owned Luna email template plan only.',
     'The server, not the model, writes every subject, sentence, fact, number, URL, availability, booking, policy, and payment statement.',
@@ -48,7 +48,7 @@ function parsePlan(raw,intent){if(typeof raw!=='string'||raw.length>1000)return 
 function money(cents,language){if(!isSafeInteger(cents)||cents<0)return null;const whole=floor(cents/100),fraction=padStart(toString(cents%100),2,'0');return language==='es'?`€${whole},${fraction}`:`€${whole}.${fraction}`;}
 function exactDate(value){return typeof value==='string'&&test(/^\d{4}-\d{2}-\d{2}$/,value)?value:null;}
 function exactTime(value){return typeof value==='string'&&test(/^(?:[01]\d|2[0-3]):[0-5]\d$/,value)?value:null;}
-function render(trusted,plan){const language=languageOf(trusted.untrusted_content),intent=plan.template_id,facts=trusted.grounded_facts;let subject,line;
+function render(trusted,plan){const language=trusted.language,intent=plan.template_id,facts=trusted.grounded_facts;let subject,line;
   if(intent==='catalog_reply'){const f=facts.catalog,name=f&&ITEM_NAMES[f.item],price=f&&f.currency==='EUR'&&f.active===true?money(f.amount_cents,language):null;if(!name||!price)return null;subject=language==='es'?'Opciones y precios':'Options and pricing';line=language==='es'?`El ${name.es} cuesta ${price}.`:`Our ${name.en} is ${price}.`;}
   else if(intent==='availability_reply'){const f=facts.availability,name=f&&ITEM_NAMES[f.item],date=f&&exactDate(f.date),time=f&&exactTime(f.slot_time);if(!name||!date||!time||typeof f.available!=='boolean'||!isSafeInteger(f.capacity)||f.capacity<0)return null;subject=language==='es'?'Disponibilidad':'Availability';if(f.available)line=language==='es'?`Hay disponibilidad para ${name.es} el ${date} a las ${time}, con ${f.capacity} plazas.`:`The ${name.en} is available on ${date} at ${time}, with ${f.capacity} spots.`;else line=language==='es'?`No hay disponibilidad para ${name.es} el ${date} a las ${time}.`:`The ${name.en} is not available on ${date} at ${time}.`;}
   else if(intent==='policy_reply'){const f=facts.policy,copy=f&&POLICY_COPY[f.policy_key];if(!copy)return null;subject=language==='es'?'Política de cancelación':'Cancellation policy';line=copy[language];}

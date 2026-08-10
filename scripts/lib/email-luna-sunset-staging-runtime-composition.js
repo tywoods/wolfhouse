@@ -13,13 +13,14 @@ const objectHasOwn = Object.hasOwn;
 const reflectOwnKeys = Reflect.ownKeys;
 const arrayIsArray = Array.isArray;
 const arrayIncludes = Function.prototype.call.bind(Array.prototype.includes);
+const arraySome = Function.prototype.call.bind(Array.prototype.some);
 
 function data(value, keys, exact, allowedOnly = true) {
   if (!value || typeof value !== 'object' || runtimeIsProxy(value) || arrayIsArray(value)
       || objectGetPrototypeOf(value) !== Object.prototype) return null;
   let own;
   try { own = reflectOwnKeys(value); } catch (_) { return null; }
-  if ((allowedOnly && own.some((key) => typeof key !== 'string' || !arrayIncludes(keys, key)))
+  if ((allowedOnly && arraySome(own, (key) => typeof key !== 'string' || !arrayIncludes(keys, key)))
       || (exact && own.length !== keys.length)) return null;
   const out = Object.create(null);
   for (const key of keys) {

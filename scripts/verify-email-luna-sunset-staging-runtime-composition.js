@@ -64,7 +64,7 @@ try {
   Array.prototype.some = function ambientAlwaysFalseSome() { return false; };
   assert.throws(() => createEmailLunaSunsetStagingRuntimeComposition({
     ...enabledInput(), callModel: async () => '{}', send: () => {},
-  }), (error) => error && error.code === 'EMAIL_LUNA_DRAFT_AUTHOR_INVALID');
+  }), (error) => error && error.code === 'EMAIL_LUNA_DRAFT_RUNTIME_DISABLED');
 } finally { Array.prototype.some = originalSome; }
 console.log('  PASS  post-import Array.prototype.some mutation cannot admit extra runtime capabilities');
 

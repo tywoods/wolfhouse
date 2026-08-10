@@ -87,6 +87,7 @@ function safe(result) {
     {template_id:'catalog_reply',tone:'warm',question_key:'none',acknowledgment_key:'thanks',body:'Pay at evil.test/pay'},
     {template_id:'catalog_reply',tone:'warm',question_key:'none',acknowledgment_key:'thanks',amount:99},
     {template_id:'catalog_reply',tone:'warm',question_key:'none',acknowledgment_key:'thanks',url:'evil.test/pay'},
+    {template_id:'catalog_reply',tone:'warm',question_key:'none',acknowledgment_key:'thanks',language:'es'},
   ]) {
     const result=await createEmailLunaDraftAuthor({callModel:()=>Promise.resolve(JSON.stringify(hostile))}).authorDraft(issue('catalog_question','catalog'));
     assert.equal(result.status,'handoff_required'); assert.equal(result.reason,'model_malformed');
@@ -109,7 +110,7 @@ function safe(result) {
   const timeout=await createEmailLunaDraftAuthor({callModel:()=>new Promise(()=>{}),timeoutMs:5}).authorDraft(issue('catalog_question','catalog'));
   assert.equal(timeout.reason,'model_timeout');
 
-  const a=issue('catalog_question','catalog'); const b=issue('catalog_question','catalog');
+  const a=issue('catalog_question','catalog','en'); const b=issue('catalog_question','catalog','es');
   await assert.rejects(createEmailLunaDraftAuthor({callModel:()=>Promise.resolve(plan('catalog_reply'))}).authorDraft({envelope:a.envelope,evidence:b.evidence,decision:a.decision}));
   await assert.rejects(createEmailLunaDraftAuthor({callModel:()=>Promise.resolve(plan('catalog_reply'))}).authorDraft({envelope:a.envelope,evidence:a.evidence,decision:b.decision}));
 

@@ -43,6 +43,7 @@ const EVIDENCE_KEYS = objectFreeze([
   'client_id',
   'location_id',
   'conversation_id',
+  'language',
   'identity',
   'intent',
   'intent_support',
@@ -272,10 +273,11 @@ function frozenResults(value, requiredFacts) {
 function validateEvidenceScalars(evidence) {
   if (typeof evidence.client_id !== 'string' || typeof evidence.location_id !== 'string'
       || typeof evidence.conversation_id !== 'string' || typeof evidence.requested_location_id !== 'string'
-      || typeof evidence.identity !== 'string' || typeof evidence.intent !== 'string'
+      || typeof evidence.language !== 'string' || typeof evidence.identity !== 'string' || typeof evidence.intent !== 'string'
       || typeof evidence.intent_support !== 'string' || typeof evidence.explicit_human_request !== 'boolean'
       || typeof evidence.unsafe_transactional_request !== 'boolean') throw invalid();
-  if (!arrayIncludes(['matched', 'ambiguous', 'uncertain'], evidence.identity)
+  if (!arrayIncludes(['en', 'es'], evidence.language)
+      || !arrayIncludes(['matched', 'ambiguous', 'uncertain'], evidence.identity)
       || !arrayIncludes(['supported', 'unsupported', 'uncertain'], evidence.intent_support)) throw invalid();
 }
 
@@ -362,6 +364,7 @@ function createEmailLunaDraftPolicyEvidence(input) {
     client_id: evidence.client_id,
     location_id: evidence.location_id,
     conversation_id: evidence.conversation_id,
+    language: evidence.language,
     identity: evidence.identity,
     intent: evidence.intent,
     intent_support: evidence.intent_support,
@@ -451,7 +454,7 @@ function decideEmailLunaDraftPolicy(input) {
   for (let index = 0; index < requiredFacts.length; index += 1) arrayPush(groundedFacts, requiredFacts[index]);
   objectFreeze(groundedFacts);
   const decision = output([
-    ['status', 'draft_ready'], ['intent', evidence.intent],
+    ['status', 'draft_ready'], ['intent', evidence.intent], ['language', evidence.language],
     ['client_id', trusted.binding.client_id], ['location_id', trusted.binding.location_id],
     ['conversation_id', trusted.binding.conversation_id], ['grounded_facts', groundedFacts],
     ['draft_only', true], ['requires_staff_review', true],
@@ -474,14 +477,15 @@ function assertEmailLunaDraftPolicyIssuance(input) {
   if (!issuance || issuance.envelope !== request.envelope || issuance.evidence !== request.evidence
       || POLICY_EVIDENCE_ENVELOPES.get(request.evidence) !== request.envelope) throw invalid();
   const decision = exactFrozenRecord(request.decision, [
-    'status', 'intent', 'client_id', 'location_id', 'conversation_id', 'grounded_facts',
+    'status', 'intent', 'language', 'client_id', 'location_id', 'conversation_id', 'grounded_facts',
     'draft_only', 'requires_staff_review', 'send_allowed', 'auto_send_allowed',
   ], null);
   const evidence = exactFrozenRecord(request.evidence, EVIDENCE_KEYS, Object.prototype);
   if (decision.status !== 'draft_ready' || decision.client_id !== trusted.binding.client_id
       || decision.location_id !== trusted.binding.location_id || decision.conversation_id !== trusted.binding.conversation_id
       || evidence.client_id !== trusted.binding.client_id || evidence.location_id !== trusted.binding.location_id
-      || evidence.conversation_id !== trusted.binding.conversation_id || evidence.intent !== decision.intent) throw invalid();
+      || evidence.conversation_id !== trusted.binding.conversation_id || evidence.intent !== decision.intent
+      || evidence.language !== decision.language) throw invalid();
   const factIds = exactFrozenStringArray(decision.grounded_facts);
   const results = frozenResults(evidence.grounded_results, factIds);
   const facts = objectCreate(null);
@@ -491,7 +495,7 @@ function assertEmailLunaDraftPolicyIssuance(input) {
         || result.location_id !== trusted.binding.location_id) throw invalid();
     facts[id] = objectFreeze({ ...result });
   }
-  return objectFreeze({ binding: trusted.binding, authority: objectFreeze({ ...trusted.authority }),
+  return objectFreeze({ binding: trusted.binding, authority: objectFreeze({ ...trusted.authority }), language: evidence.language,
     untrusted_content: objectFreeze({ ...trusted.untrustedContent }), fact_ids: objectFreeze(factIds),
     grounded_facts: objectFreeze(facts) });
 }
