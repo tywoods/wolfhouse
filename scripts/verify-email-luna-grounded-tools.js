@@ -136,20 +136,27 @@ async function main() {
     assert.equal(callsMade, 0);
   });
 
-  await hostile('reject owner wrapper and row proxies before reflection', async () => {
+  await hostile('reject owner wrapper and row proxies before module reflection', async () => {
     for (const shape of ['wrapper', 'row']) {
-      let traps = 0;
+      let thenGets = 0;
+      let reflectionTraps = 0;
       let callsMade = 0;
       const target = shape === 'wrapper' ? { rows: [row('catalog')] } : row('catalog');
       const proxy = new Proxy(target, {
-        getPrototypeOf() { traps += 1; return Object.prototype; },
-        ownKeys() { traps += 1; return Reflect.ownKeys(target); },
-        getOwnPropertyDescriptor(_value, key) { traps += 1; return Object.getOwnPropertyDescriptor(target, key); },
+        get(value, key, receiver) {
+          if (key === 'then') thenGets += 1;
+          return Reflect.get(value, key, receiver);
+        },
+        getPrototypeOf() { reflectionTraps += 1; return Object.prototype; },
+        ownKeys() { reflectionTraps += 1; return Reflect.ownKeys(target); },
+        getOwnPropertyDescriptor(_value, key) { reflectionTraps += 1; return Object.getOwnPropertyDescriptor(target, key); },
       });
       const result = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async () => { callsMade += 1; return proxy; } }) }).query('catalog', {});
       assert.deepEqual(result, { type: MISSING_FACT, fact: 'catalog', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
       assert.equal(callsMade, 1);
-      assert.equal(traps, 0, `transparent owner ${shape} Proxy must be rejected before reflection`);
+      assert.equal(thenGets, 1, `native Promise assimilation must perform exactly one unavoidable then probe for owner ${shape} Proxy`);
+      assert.equal(reflectionTraps, 0, `module must reject owner ${shape} Proxy before any subsequent reflection`);
+      assert.equal(JSON.stringify(result).includes('unsafe'), false, 'Proxy data/capabilities must not leak');
 
       const revoked = Proxy.revocable(target, {});
       revoked.revoke();
@@ -173,6 +180,42 @@ async function main() {
     }
     assert.equal(traps, 0);
     assert.equal(callsMade, 0);
+  });
+
+  await hostile('ignore post-import Array iterator monkeypatches', async () => {
+    const original = Array.prototype[Symbol.iterator];
+    let iteratorCalls = 0;
+    try {
+      Array.prototype[Symbol.iterator] = function hostileIterator() {
+        iteratorCalls += 1;
+        return original.call(this);
+      };
+      const result = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({
+        catalog: async () => row('catalog', { item: 'safe-item' }),
+      }) }).query('catalog', {});
+      assert.equal(result.item, 'safe-item');
+    } finally {
+      Array.prototype[Symbol.iterator] = original;
+    }
+    assert.equal(iteratorCalls, 0, 'module must not execute the ambient Array iterator');
+  });
+
+  await hostile('ignore post-import Object prototype framework-key setters', async () => {
+    const original = Object.getOwnPropertyDescriptor(Object.prototype, 'label');
+    let setterCalls = 0;
+    let result;
+    try {
+      Object.defineProperty(Object.prototype, 'label', {
+        configurable: true,
+        set() { setterCalls += 1; },
+      });
+      result = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners() }).query('catalog', {});
+    } finally {
+      if (original) Object.defineProperty(Object.prototype, 'label', original);
+      else delete Object.prototype.label;
+    }
+    assert.equal(setterCalls, 0, 'record construction must not execute Object.prototype setters');
+    assert.deepEqual(result, row('catalog'));
   });
 
   await hostile('snapshot and freeze request before await', async () => {
