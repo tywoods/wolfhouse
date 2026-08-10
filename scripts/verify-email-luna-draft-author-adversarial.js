@@ -52,5 +52,24 @@ try{
 }finally{Object.defineProperty=originalDefineProperty;}
 assert.equal(Object.defineProperty,originalDefineProperty,'ambient Object.defineProperty restored');
 console.log('  PASS  post-import Object.defineProperty mutation cannot forge any send-denial DTO');
+
+const inherited={send(){},write(){},approve(){},secret:'ambient-secret'};
+const inheritedOriginals=Object.fromEntries(Object.keys(inherited).map(key=>[key,Object.getOwnPropertyDescriptor(Object.prototype,key)]));
+try{
+  for(const [key,value] of Object.entries(inherited))originalDefineProperty(Object.prototype,key,{value,writable:true,enumerable:true,configurable:true});
+  for(const reason of allHandoffReasons){
+    const dto=createEmailLunaDraftHandoff({envelope:env(),reason});
+    const expected={status:'handoff_required',reason,client_id:ids.client_id,location_id:ids.location_id,conversation_id:ids.conversation_id,draft_only:true,requires_staff_review:true,send_allowed:false,auto_send_allowed:false};
+    assert.equal(Object.getPrototypeOf(dto),null,`${reason} null prototype`);
+    assert.equal(Object.isFrozen(dto),true,`${reason} frozen`);
+    assert.deepEqual(Object.keys(dto),Object.keys(expected),`${reason} exact own keys`);
+    for(const key of Object.keys(inherited)){assert.equal(dto[key],undefined,`${reason} no inherited ${key}`);assert.equal(Object.hasOwn(dto,key),false,`${reason} no own ${key}`);}
+    assert.equal(JSON.stringify(dto),JSON.stringify(expected),`${reason} exact JSON`);
+    assert.deepEqual(Object.getOwnPropertyDescriptors(dto),Object.fromEntries(Object.entries(expected).map(([key,value])=>[key,{value,writable:false,enumerable:true,configurable:false}])),`${reason} exact descriptors`);
+  }
+}finally{
+  for(const [key,descriptor] of Object.entries(inheritedOriginals)){if(descriptor)originalDefineProperty(Object.prototype,key,descriptor);else delete Object.prototype[key];}
+}
+console.log('  PASS  post-import Object.prototype capabilities cannot reach any handoff DTO');
 console.log('ALL OK — adversarial author boundaries');
 })().catch(e=>{console.error(e);process.exitCode=1});
