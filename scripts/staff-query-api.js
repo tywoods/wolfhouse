@@ -32008,6 +32008,14 @@ function setEmailReplyControlsDisabled(targetEl, disabled, locked){
   if (saveBtn) saveBtn.disabled = freeze;
   if (apprBtn) apprBtn.disabled = freeze;
 }
+function emailReplyActionPanel(buttonEl, targetEl){
+  if (!buttonEl || !targetEl || typeof buttonEl.closest !== 'function') return null;
+  var panel = buttonEl.closest('.draft-panel');
+  if (!panel || !targetEl.contains(panel)) return null;
+  if (panel.querySelectorAll('#draft-textarea').length !== 1) return null;
+  if (panel.querySelectorAll('#btn-email-save-draft').length !== 1) return null;
+  return panel;
+}
 function performEmailDraftSave(convId, targetEl){
   var st = emailReplyState(convId);
   var ta = targetEl.querySelector('#draft-textarea');
@@ -32183,8 +32191,14 @@ function wireInboxEmailReply(convId, targetEl){
   ta.addEventListener('input', function(){
     updateEmailDraftByteCount(targetEl, ta.value);
   });
-  saveBtn.addEventListener('click', function(){ performEmailDraftSave(convId, targetEl); });
-  if (apprBtn) apprBtn.addEventListener('click', function(){ performEmailApproveSend(convId, targetEl); });
+  saveBtn.addEventListener('click', function(){
+    var panel = emailReplyActionPanel(saveBtn, targetEl);
+    if (panel) performEmailDraftSave(convId, panel);
+  });
+  if (apprBtn) apprBtn.addEventListener('click', function(){
+    var panel = emailReplyActionPanel(apprBtn, targetEl);
+    if (panel) performEmailApproveSend(convId, panel);
+  });
 }
 
 function wireInboxSendReply(convId, phone, targetEl){

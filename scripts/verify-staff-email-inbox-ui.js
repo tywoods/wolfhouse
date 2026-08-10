@@ -247,9 +247,23 @@ async function main() {
     await emailCard().click();
     await page.waitForSelector('#btn-email-save-draft', { timeout: 10000 });
     draftPosts.length = 0;
-    await page.fill('#draft-textarea', 'First email draft body');
+    await page.evaluate(() => {
+      const button = document.querySelector('#btn-email-save-draft');
+      const panel = button && button.closest('.draft-panel');
+      const owner = panel && panel.parentElement;
+      if (!owner) throw new Error('draft panel owner unavailable');
+      const decoy = document.createElement('textarea');
+      decoy.id = 'draft-textarea';
+      decoy.className = 'gate3-duplicate-target-decoy';
+      decoy.value = '';
+      decoy.hidden = true;
+      owner.insertBefore(decoy, panel);
+    });
+    await page.locator('.draft-panel #draft-textarea').fill('First email draft body');
     await page.click('#btn-email-save-draft');
     await waitStatus('Draft saved');
+    ok('action binds to button-owned draft panel despite duplicate ancestor target', draftPosts.length === 1 && draftPosts[0].body.message_text === 'First email draft body');
+    await page.evaluate(() => document.querySelector('.gate3-duplicate-target-decoy')?.remove());
     ok('first draft null id exact keys', draftPosts.length === 1 && draftPosts[0].method === 'POST' && Object.keys(draftPosts[0].body).sort().join(',') === 'approval_id,conversation_id,message_text' && draftPosts[0].body.conversation_id === EMAIL_CONV && draftPosts[0].body.message_text === 'First email draft body' && draftPosts[0].body.approval_id === null && /application\/json/i.test(String(draftPosts[0].headers['content-type'] || '')));
     await page.fill('#draft-textarea', 'Updated email draft body');
     await page.click('#btn-email-save-draft');
