@@ -52,7 +52,7 @@ function authorityRow(patch = {}) {
   return {
     client_id: C, client_slug: 'sunset', location_id: L, location_key: 'sunset-somo',
     endpoint_id: E, conversation_id: V, inbound_message_id: M, channel: 'email',
-    provider: 'microsoft_graph', provider_mailbox_id: MAILBOX,
+    provider: 'microsoft_graph', provider_mailbox_id: MAILBOX, provider_source_message_id: 'graph-message-v1',
     endpoint_provider_mailbox_id: MAILBOX, event_location_id: L,
     subject: 'Booking question', body_text: BODY, quoted_history: '',
     from_display_name: 'Ana', from_address: 'ana@example.test',
@@ -173,6 +173,33 @@ function noSideEffects(h) {
   assert.equal(h.runtimeCalls[0].authority.location_id, L);
   assert.equal(h.runtimeCalls[0].authority.location_key, 'sunset-somo');
   assert.equal(h.runtimeCalls[1].envelope.untrusted_content.body_text, BODY);
+  assert.deepEqual(h.writes[0].expected_authority, {
+    client_id: C, location_id: L, location_key: 'sunset-somo', endpoint_id: E,
+    conversation_id: V, source_inbound_event_id: M, provider: 'microsoft_graph',
+    provider_mailbox_id: MAILBOX, provider_source_message_id: 'graph-message-v1',
+  });
+
+  // Actor and generated output are exact own-data snapshots, never inherited/accessor/proxy/extra records.
+  const inheritedActor = Object.create(user());
+  h = makeHarness(); out = await invoke(h, { conversation_id: V }, inheritedActor);
+  assert.equal(out.status, 403); noSideEffects(h);
+  const actorAccessor = user(); Object.defineProperty(actorAccessor, 'role', { enumerable: true, get() { return 'operator'; } });
+  h = makeHarness(); out = await invoke(h, { conversation_id: V }, actorAccessor);
+  assert.equal(out.status, 403); noSideEffects(h);
+  h = makeHarness(); out = await invoke(h, { conversation_id: V }, new Proxy(user(), {}));
+  assert.equal(out.status, 403); noSideEffects(h);
+
+  const ready = () => ({ status: 'draft_ready', subject: 'Re: Booking question', body: GENERATED, language: 'en',
+    client_id: C, location_id: L, conversation_id: V, draft_only: true, requires_staff_review: true,
+    send_allowed: false, auto_send_allowed: false });
+  for (const malicious of [Object.assign(ready(), { extra: true }), Object.assign(Object.create(ready()), {}), new Proxy(ready(), {})]) {
+    h = makeHarness({ lunaResult: malicious }); out = await invoke(h);
+    assert.equal(out.status, 503); noSideEffects(h);
+  }
+  let bodyReads = 0; const changing = ready();
+  Object.defineProperty(changing, 'body', { enumerable: true, get() { bodyReads += 1; return bodyReads === 1 ? GENERATED : 'MUTATED AFTER VALIDATION'; } });
+  h = makeHarness({ lunaResult: changing }); out = await invoke(h);
+  assert.equal(out.status, 503); assert.ok(bodyReads <= 1); noSideEffects(h);
 
   // Deliberate generate-new: sequential repeats author and save fresh approval_id:null each time.
   await invoke(h);
