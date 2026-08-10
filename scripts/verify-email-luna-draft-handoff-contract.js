@@ -157,6 +157,44 @@ expectContractFailure(() => createEmailLunaDraftHandoff({
   envelope: frozenLookalike(),
   reason: 'uncertain_intent',
 }), 'public strings and frozen lookalike cannot forge envelope provenance');
+
+const ambientOriginals = {
+  weakSetHas: WeakSet.prototype.has,
+  freeze: Object.freeze,
+  isFrozen: Object.isFrozen,
+  keys: Object.keys,
+  getOwnPropertyDescriptors: Object.getOwnPropertyDescriptors,
+  getPrototypeOf: Object.getPrototypeOf,
+};
+const ambientForgedEnvelope = frozenLookalike();
+try {
+  WeakSet.prototype.has = () => true;
+  expectContractFailure(() => createEmailLunaDraftHandoff({
+    envelope: ambientForgedEnvelope,
+    reason: 'uncertain_intent',
+  }), 'post-import WeakSet.prototype.has tampering cannot forge envelope provenance');
+} finally {
+  WeakSet.prototype.has = ambientOriginals.weakSetHas;
+}
+
+try {
+  Object.freeze = () => { throw new Error('ambient Object.freeze called'); };
+  Object.isFrozen = () => { throw new Error('ambient Object.isFrozen called'); };
+  Object.keys = () => { throw new Error('ambient Object.keys called'); };
+  Object.getOwnPropertyDescriptors = () => { throw new Error('ambient Object.getOwnPropertyDescriptors called'); };
+  Object.getPrototypeOf = () => { throw new Error('ambient Object.getPrototypeOf called'); };
+
+  const ambientAuthenticEnvelope = createEmailLunaDraftEnvelope({ authority: authority(), untrusted_content: content() });
+  const ambientHandoff = createEmailLunaDraftHandoff({ envelope: ambientAuthenticEnvelope, reason: 'uncertain_intent' });
+  assert.equal(ambientHandoff.send_allowed, false, 'pinned intrinsics preserve authentic no-send handoff');
+} finally {
+  Object.freeze = ambientOriginals.freeze;
+  Object.isFrozen = ambientOriginals.isFrozen;
+  Object.keys = ambientOriginals.keys;
+  Object.getOwnPropertyDescriptors = ambientOriginals.getOwnPropertyDescriptors;
+  Object.getPrototypeOf = ambientOriginals.getPrototypeOf;
+}
+
 expectContractFailure(() => createEmailLunaDraftHandoff({
   envelope: frozenLookalike({ envelope: { send: () => {} } }),
   reason: 'uncertain_intent',
