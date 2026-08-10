@@ -1,7 +1,9 @@
 'use strict';
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
-const objectFreeze = Object.freeze;
+const objectCreate = Function.prototype.call.bind(Object.create, Object);
+const objectDefineProperty = Function.prototype.call.bind(Object.defineProperty, Object);
+const objectFreeze = Function.prototype.call.bind(Object.freeze, Object);
 const objectGetOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
 const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectHasOwn = Object.hasOwn;
@@ -141,17 +143,23 @@ function createEmailLunaDraftHandoff(input) {
   if (!arrayIncludes(EMAIL_LUNA_DRAFT_HANDOFF_REASONS, request.reason)
       && !arrayIncludes(EMAIL_LUNA_DRAFT_AUTHOR_HANDOFF_REASONS, request.reason)) throw invalid();
 
-  return objectFreeze({
-    status: 'handoff_required',
-    reason: request.reason,
-    client_id: authority.client_id,
-    location_id: authority.location_id,
-    conversation_id: authority.conversation_id,
-    draft_only: true,
-    requires_staff_review: true,
-    send_allowed: false,
-    auto_send_allowed: false,
+  const handoff = objectCreate(null);
+  const immutableEnumerable = (key, value) => objectDefineProperty(handoff, key, {
+    value,
+    writable: false,
+    enumerable: true,
+    configurable: false,
   });
+  immutableEnumerable('status', 'handoff_required');
+  immutableEnumerable('reason', request.reason);
+  immutableEnumerable('client_id', authority.client_id);
+  immutableEnumerable('location_id', authority.location_id);
+  immutableEnumerable('conversation_id', authority.conversation_id);
+  immutableEnumerable('draft_only', true);
+  immutableEnumerable('requires_staff_review', true);
+  immutableEnumerable('send_allowed', false);
+  immutableEnumerable('auto_send_allowed', false);
+  return objectFreeze(handoff);
 }
 
 module.exports = {
