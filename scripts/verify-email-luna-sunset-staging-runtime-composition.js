@@ -41,6 +41,42 @@ for (const [label, input] of [
 }
 console.log('  PASS  exact Sunset-staging + dedicated flag + exact tenant/location gate are all required');
 
+const originalCreate = Object.create;
+let hostileCreateCalls = 0;
+try {
+  Object.create = function hostileCreate() {
+    hostileCreateCalls += 1;
+    const admitted = {
+      env: { LUNA_DEPLOYMENT: 'sunset-staging', EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true' },
+      authority: { client_id: C, location_id: L, location_key: 'sunset-somo' },
+      tenant_location_gate: { client_id: C, location_id: L, location_key: 'sunset-somo', draft_enabled: true },
+      LUNA_DEPLOYMENT: 'sunset-staging', EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
+      client_id: C, location_id: L, location_key: 'sunset-somo', draft_enabled: true,
+    };
+    return new Proxy(admitted, { set() { return true; } });
+  };
+  const hostileOutcomes = [
+    ['hostile create cannot bypass production deployment', enabledInput({ env: env({ LUNA_DEPLOYMENT: 'sunset-production' }) })],
+    ['hostile create cannot bypass false runtime flag', enabledInput({ env: env({ EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'false' }) })],
+    ['hostile create cannot bypass wrong location', enabledInput({ authority: Object.freeze({ ...authority, location_key: 'wolfhouse-somo' }) })],
+    ['hostile create cannot bypass disabled tenant gate', enabledInput({ tenant_location_gate: gate({ draft_enabled: false }) })],
+    ['hostile create cannot jointly bypass all activation prerequisites', enabledInput({
+      env: env({ LUNA_DEPLOYMENT: 'sunset-production', EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'false' }),
+      authority: Object.freeze({ ...authority, location_key: 'wolfhouse-somo' }),
+      tenant_location_gate: gate({ location_key: 'wolfhouse-somo', draft_enabled: false }),
+    })],
+  ].map(([label, input]) => [label, isEmailLunaDraftRuntimeEnabled(input)]);
+  assert.deepEqual(hostileOutcomes, [
+    ['hostile create cannot bypass production deployment', false],
+    ['hostile create cannot bypass false runtime flag', false],
+    ['hostile create cannot bypass wrong location', false],
+    ['hostile create cannot bypass disabled tenant gate', false],
+    ['hostile create cannot jointly bypass all activation prerequisites', false],
+  ]);
+} finally { Object.create = originalCreate; }
+assert.equal(hostileCreateCalls, 0, 'post-import Object.create must never be invoked');
+console.log('  PASS  captured Object.create cannot be replaced to bypass activation prerequisites');
+
 const composition = createEmailLunaSunsetStagingRuntimeComposition({
   ...enabledInput(),
   callModel: async () => JSON.stringify({ subject: 'Hello', body: 'Hello there.', language: 'en' }),
