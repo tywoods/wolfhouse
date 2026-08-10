@@ -183,13 +183,96 @@ expectInvalid({ envelope: envelope(), evidence: evidence({ low_confidence: true 
 expectInvalid({ envelope: envelope(), evidence: evidence({ model: 'gpt', provider: 'attacker' }) }, 'model/provider forbidden');
 expectInvalid({ envelope: envelope(), evidence: evidence({ send: () => {} }) }, 'send capability forbidden');
 expectInvalid({ envelope: envelope(), evidence: evidence({ required_facts: ['booking', 'booking'] }) }, 'duplicate facts forbidden');
-expectInvalid({ envelope: envelope(), evidence: evidence({ required_facts: [], grounded_results: frozen({ booking: found('booking') }) }) }, 'unused result forbidden');
 expectInvalid({ envelope: envelope(), evidence: evidence({ grounded_results: frozen({ booking: found('payment') }) }) }, 'fact key/result mismatch forbidden');
-expectInvalid({ envelope: envelope(), evidence: evidence({ conversation_id: OTHER_LOCATION }) }, 'conversation mismatch forbidden');
 expectInvalid({ envelope: envelope(), evidence: { ...plain(evidence()) } }, 'mutable evidence forbidden');
 expectInvalid({ envelope: envelope(), evidence: frozen({ ...plain(evidence()), grounded_results: { booking: { ...plain(found('booking')) } } }) }, 'non-authentic nested result shape forbidden');
 expectInvalid({ envelope: envelope(), evidence: evidence(), extra: true }, 'exact input schema');
 console.log('  PASS  strict immutable schemas reject aliases, capabilities, generic confidence, and binding drift');
+
+const CANONICAL_INTENT_FACTS = Object.freeze({
+  catalog_question: Object.freeze(['catalog']),
+  availability_question: Object.freeze(['availability']),
+  policy_question: Object.freeze(['policy']),
+  booking_status_question: Object.freeze(['booking']),
+  payment_status_question: Object.freeze(['payment']),
+});
+const SUBSTANTIVE_FACTS = Object.freeze({
+  catalog: { item: 'lesson', label: 'Surf lesson', currency: 'EUR', amount_cents: 4500, active: true },
+  availability: { item: 'lesson', label: 'Morning lesson', date: '2026-08-12', slot_time: '09:00', available: true, capacity: 4 },
+  policy: { label: 'Cancellation', policy_key: 'cancellation', policy_text: 'Free cancellation up to 48 hours before arrival.' },
+  booking: { booking_code: 'SUN-42', booking_status: 'confirmed' },
+  payment: { currency: 'EUR', payment_status: 'partially_paid', amount_paid_cents: 5000, balance_due_cents: 7500 },
+});
+function policyEvidence(intent, patch = {}) {
+  const required = CANONICAL_INTENT_FACTS[intent] || ['booking'];
+  const grounded = {};
+  for (const fact of required) grounded[fact] = found(fact, SUBSTANTIVE_FACTS[fact]);
+  return evidence({ intent, required_facts: required, grounded_results: frozen(grounded), ...patch });
+}
+function assertReadyFor(intent, expectedFacts) {
+  const result = decide({ evidence: policyEvidence(intent) });
+  assert.equal(result.status, 'draft_ready');
+  assert.equal(result.intent, intent);
+  assert.deepEqual(result.grounded_facts, expectedFacts);
+}
+
+const adversarialFailures = [];
+function adversarial(label, probe) {
+  try {
+    probe();
+    console.log(`  PASS  adversarial: ${label}`);
+  } catch (error) {
+    adversarialFailures.push(`${label}: ${error && error.message}`);
+    console.error(`  RED   adversarial: ${label}: ${error && error.message}`);
+  }
+}
+
+for (const intent of Object.keys(CANONICAL_INTENT_FACTS)) {
+  adversarial(`server-supported intent ${intent} uses canonical facts`, () => assertReadyFor(intent, CANONICAL_INTENT_FACTS[intent]));
+}
+for (const intent of ['attacker_chosen_arbitrary_intent', 'delete_everything', 'refund_request']) {
+  adversarial(`caller cannot mark ${intent} supported/safe`, () => {
+    assertHandoff(decide({ evidence: evidence({ intent, intent_support: 'supported', unsafe_transactional_request: false }) }), 'unsupported_intent');
+  });
+}
+adversarial('empty caller required_facts cannot remove booking minimum', () => {
+  assertReadyFor('booking_status_question', ['booking']);
+  const result = decide({ evidence: policyEvidence('booking_status_question', { required_facts: [] }) });
+  assert.equal(result.status, 'draft_ready');
+  assert.deepEqual(result.grounded_facts, ['booking']);
+});
+adversarial('incorrect caller required_facts cannot replace booking minimum', () => {
+  const result = decide({ evidence: policyEvidence('booking_status_question', { required_facts: ['payment'] }) });
+  assert.equal(result.status, 'draft_ready');
+  assert.deepEqual(result.grounded_facts, ['booking']);
+});
+for (const fact of Object.keys(SUBSTANTIVE_FACTS)) {
+  const intent = Object.keys(CANONICAL_INTENT_FACTS).find((candidate) => CANONICAL_INTENT_FACTS[candidate][0] === fact);
+  adversarial(`core-only ${fact} is not substantive evidence`, () => {
+    expectInvalid({ envelope: envelope(), evidence: policyEvidence(intent, { grounded_results: frozen({ [fact]: found(fact) }) }) }, `core-only ${fact}`);
+  });
+  const field = Object.keys(SUBSTANTIVE_FACTS[fact])[0];
+  const valid = SUBSTANTIVE_FACTS[fact][field];
+  const wrong = typeof valid === 'string' ? true : typeof valid === 'boolean' ? 'true' : 'not-a-number';
+  adversarial(`${fact}.${field} rejects the wrong fact-specific type`, () => {
+    expectInvalid({ envelope: envelope(), evidence: policyEvidence(intent, {
+      grounded_results: frozen({ [fact]: found(fact, { ...SUBSTANTIVE_FACTS[fact], [field]: wrong }) }),
+    }) }, `${fact}.${field} wrong type`);
+  });
+}
+for (const [fact, field] of [['catalog', 'amount_cents'], ['availability', 'capacity'], ['payment', 'balance_due_cents']]) {
+  const intent = Object.keys(CANONICAL_INTENT_FACTS).find((candidate) => CANONICAL_INTENT_FACTS[candidate][0] === fact);
+  adversarial(`${fact}.${field} rejects NaN`, () => {
+    expectInvalid({ envelope: envelope(), evidence: policyEvidence(intent, {
+      grounded_results: frozen({ [fact]: found(fact, { ...SUBSTANTIVE_FACTS[fact], [field]: NaN }) }),
+    }) }, `${fact}.${field} NaN`);
+  });
+}
+adversarial('conversation mismatch is an immutable explicit authority handoff', () => {
+  assertHandoff(decide({ evidence: evidence({ conversation_id: OTHER_LOCATION }) }), 'authority_mismatch');
+});
+assert.deepEqual(adversarialFailures, [], `review-driven RED findings:\n${adversarialFailures.join('\n')}`);
+console.log('  PASS  review-driven adversarial intent, fact, type, finite-number, and conversation gates');
 
 const source = require('node:fs').readFileSync(require.resolve('./lib/email-luna-draft-policy'), 'utf8');
 assert.equal(/\brequire\s*\(\s*['"](?:openai|axios|node-fetch|pg|postgres|sequelize|knex|nodemailer|@microsoft\/microsoft-graph-client)/.test(source), false);
