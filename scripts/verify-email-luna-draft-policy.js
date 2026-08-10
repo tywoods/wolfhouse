@@ -31,7 +31,10 @@ const REASONS = Object.freeze([
 function frozen(value) {
   if (Array.isArray(value)) return Object.freeze(value.map(frozen));
   if (value && typeof value === 'object') {
-    for (const key of Object.keys(value)) value[key] = frozen(value[key]);
+    for (const key of Object.keys(value)) {
+      const nested = frozen(value[key]);
+      if (!Object.isFrozen(value)) value[key] = nested;
+    }
     return Object.freeze(value);
   }
   return value;
