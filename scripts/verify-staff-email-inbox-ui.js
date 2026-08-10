@@ -791,14 +791,20 @@ async function main() {
     await bindSession(ctxOff, prod.base);
     const pageOff = await ctxOff.newPage();
     pageOff.on('pageerror', (e) => pageErrors.push('off:' + e.message));
-    let emailHits = 0;
+    let emailHits = 0, genericSendHits = 0;
     await pageOff.route('**/staff/inbox/email/**', (r) => { emailHits += 1; return r.fulfill({ status: 404, contentType: 'application/json', body: '{}' }); });
+    await pageOff.route('**/staff/inbox/send-reply', (r) => { genericSendHits += 1; return r.fulfill({ status: 409, contentType: 'application/json', body: '{"success":false,"error":"email_channel_send_not_supported"}' }); });
     await pageOff.goto(prod.base + '/staff/ui?client=sunset&location=sunset-somo', { waitUntil: 'domcontentloaded' });
     await openInbox(pageOff);
     await pageOff.locator('.conv-card').filter({ hasText: 'Email Guest' }).first().click();
-    await pageOff.waitForSelector('#draft-textarea', { timeout: 10000 });
-    ok('gate-off WA send on email conv', await pageOff.locator('#btn-send-reply').count() === 1);
-    ok('gate-off no email controls', await pageOff.locator('#btn-email-save-draft').count() === 0 && await pageOff.locator('#btn-email-approve-send').count() === 0);
+    await pageOff.waitForSelector('#email-drafting-disabled', { timeout: 10000 });
+    ok('gate-off email is explicit read-only drafting-disabled state', await pageOff.locator('#email-drafting-disabled[role="status"]').count() === 1
+      && /email drafting is currently disabled/i.test(await pageOff.locator('#email-drafting-disabled').innerText()));
+    ok('gate-off email never renders generic or email send actions', await pageOff.locator('#btn-send-reply,#btn-email-save-draft,#btn-email-approve-send').count() === 0);
+    ok('gate-off email composer is read-only', await pageOff.locator('#draft-textarea').count() === 1 && await pageOff.locator('#draft-textarea').isDisabled());
+    await pageOff.locator('#draft-textarea').press('Enter').catch(() => {});
+    await pageOff.waitForTimeout(80);
+    ok('gate-off email never posts generic send-reply', genericSendHits === 0);
     ok('gate-off zero email endpoint hits', emailHits === 0);
     await pageOff.close(); await ctxOff.close();
     await closeS(prod.server);

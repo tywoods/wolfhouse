@@ -32511,9 +32511,10 @@ function loadConvDetail(convId, targetEl){
     html += '</div>'; /* /thread */
     html += '</div>'; /* /thread-section */
 
-    /* Reply panel — WhatsApp send (default) or gated email draft/approve */
+    /* Reply panel — WhatsApp send, gated email draft/approve, or fail-closed email read-only */
     var draftText = (draft && draft.draft_text) ? draft.draft_text : (c.staff_reply_draft || '');
-    var useEmailReplyUi = staffEmailDraftsUiEnabled() && isAuthoritativeEmailConversation(c);
+    var isEmailConversation = isAuthoritativeEmailConversation(c);
+    var useEmailReplyUi = staffEmailDraftsUiEnabled() && isEmailConversation;
     var emailSt = useEmailReplyUi ? emailReplyState(convId) : null;
     // Prefer per-conversation held draft/approval text (never shared across conversations).
     if (emailSt && emailSt.savedText) draftText = emailSt.savedText;
@@ -32527,7 +32528,7 @@ function loadConvDetail(convId, targetEl){
     }
     html +=   '</div>';
     html += '<textarea id="draft-textarea" placeholder="' + escHtml(t('inbox.detail.reply.editPlaceholder')) + '"' +
-            (useEmailReplyUi && emailSt && emailSt.locked ? ' disabled' : '') + '>' +
+            ((isEmailConversation && !useEmailReplyUi) || (useEmailReplyUi && emailSt && emailSt.locked) ? ' disabled' : '') + '>' +
             escHtml(draftText) + '</textarea>';
     if (useEmailReplyUi) {
       html += '<div id="email-draft-byte-count" class="email-draft-byte-count" aria-live="polite">0 / 8000 bytes</div>';
@@ -32540,6 +32541,8 @@ function loadConvDetail(convId, targetEl){
       }
       html += '</div>';
       html += '<div id="draft-send-status" class="draft-send-status" role="status" aria-live="polite"></div>';
+    } else if (isEmailConversation) {
+      html += '<div id="email-drafting-disabled" class="draft-warning" role="status">Email drafting is currently disabled. This conversation is read-only.</div>';
     } else {
       html += '<div class="draft-actions">';
       html +=   '<button type="button" class="btn-send-reply" id="btn-send-reply">' + escHtml(t('inbox.detail.reply.send')) + '</button>';
@@ -32585,7 +32588,7 @@ function loadConvDetail(convId, targetEl){
     targetEl.classList.remove('is-loading-detail');
 
     if (useEmailReplyUi) wireInboxEmailReply(convId, targetEl);
-    else wireInboxSendReply(convId, c.phone, targetEl);
+    else if (!isEmailConversation) wireInboxSendReply(convId, c.phone, targetEl);
     var inboxCustBtn = targetEl.querySelector('#inbox-open-customer-card');
     if (inboxCustBtn && convPhone) {
       inboxCustBtn.addEventListener('click', function() { openCustomerCardForPhone(convPhone); });
