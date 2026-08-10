@@ -37,22 +37,44 @@ function safe(result) {
 }
 (async()=>{
   const cases=[
-    ['catalog_question','catalog','catalog_reply','ask_dates'],
-    ['availability_question','availability','availability_reply','ask_guest_count'],
-    ['policy_question','policy','policy_reply','none'],
-    ['booking_status_question','booking','booking_status_reply','none'],
-    ['payment_status_question','payment','payment_status_reply','none'],
+    ['catalog_question','catalog','catalog_reply',['none','ask_dates']],
+    ['availability_question','availability','availability_reply',['none','ask_guest_count']],
+    ['policy_question','policy','policy_reply',['none']],
+    ['booking_status_question','booking','booking_status_reply',['none']],
+    ['payment_status_question','payment','payment_status_reply',['none']],
   ];
-  for (const language of ['en','es']) for (const [intent,fact,template,question] of cases) {
+  let renderedCombinations=0;
+  for (const language of ['en','es']) for (const [intent,fact,template,questions] of cases) for (const tone of ['warm','concise']) for (const acknowledgment of ['thanks','noted']) for (const question of questions) {
     const request=issue(intent,fact,language); const prompt=buildEmailLunaDraftAuthorPrompt(request);
     assert.match(prompt.system,/template_id/); assert.match(prompt.system,/question_key/);
     assert.doesNotMatch(prompt.system,/"subject":string|"body":string|claim_atoms|used_fact_ids/);
-    const output=await createEmailLunaDraftAuthor({callModel:()=>Promise.resolve(plan(template,'warm',question))}).authorDraft(request);
+    const output=await createEmailLunaDraftAuthor({callModel:()=>Promise.resolve(plan(template,tone,question,acknowledgment))}).authorDraft(request);
     safe(output); assert.equal(output.language,language); assert.match(output.body,/Luna/);
+    if (tone==='warm') assert.match(output.body,language==='es'?/Un saludo cálido,\nLuna$/:/Warm regards,\nLuna$/);
+    renderedCombinations++;
   }
+  assert.equal(renderedCombinations,56);
 
   const catalog=await createEmailLunaDraftAuthor({callModel:()=>Promise.resolve(plan('catalog_reply'))}).authorDraft(issue('catalog_question','catalog'));
   safe(catalog); assert.match(catalog.body,/€20\.00/); assert.doesNotMatch(catalog.body,/2000 guests|2000 places|Payment confirmed/i);
+  const cents=await createEmailLunaDraftAuthor({callModel:()=>Promise.resolve(plan('catalog_reply','concise'))}).authorDraft(issue('catalog_question','catalog','en',{amount_cents:2001}));
+  safe(cents); assert.match(cents.body,/€20\.01/);
+  const spanishCents=await createEmailLunaDraftAuthor({callModel:()=>Promise.resolve(plan('catalog_reply','concise'))}).authorDraft(issue('catalog_question','catalog','es',{amount_cents:2001}));
+  safe(spanishCents); assert.match(spanishCents.body,/€20,01/);
+
+  for (const [owner,key,replacement] of [
+    [Math,'floor',()=>999],
+    [Number,'isSafeInteger',()=>true],
+    [globalThis,'String',()=> '999'],
+    [String.prototype,'padStart',()=> '99'],
+  ]) {
+    const original=owner[key]; let patched;
+    try {
+      owner[key]=replacement;
+      patched=await createEmailLunaDraftAuthor({callModel:()=>Promise.resolve(plan('catalog_reply','concise'))}).authorDraft(issue('catalog_question','catalog'));
+    } finally { owner[key]=original; }
+    safe(patched); assert.match(patched.body,/€20\.00/); assert.doesNotMatch(patched.body,/€999\.00|€20\.99/);
+  }
   const availability=await createEmailLunaDraftAuthor({callModel:()=>Promise.resolve(plan('availability_reply'))}).authorDraft(issue('availability_question','availability'));
   safe(availability); assert.match(availability.body,/6 (?:places|spots|guests)/i); assert.doesNotMatch(availability.body,/€6|Booking guaranteed/i);
 
