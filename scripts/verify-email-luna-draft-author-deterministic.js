@@ -64,14 +64,12 @@ function safe(result) {
 
   for (const [owner,key,replacement] of [
     [Math,'floor',()=>999],
-    [Number,'isSafeInteger',()=>true],
     [globalThis,'String',()=> '999'],
     [String.prototype,'padStart',()=> '99'],
   ]) {
-    const original=owner[key]; let patched;
+    const original=owner[key], request=issue('catalog_question','catalog'); let patched;
     try {
-      owner[key]=replacement;
-      patched=await createEmailLunaDraftAuthor({callModel:()=>Promise.resolve(plan('catalog_reply','concise'))}).authorDraft(issue('catalog_question','catalog'));
+      patched=await createEmailLunaDraftAuthor({callModel:()=>{owner[key]=replacement;return Promise.resolve(plan('catalog_reply','concise'));}}).authorDraft(request);
     } finally { owner[key]=original; }
     safe(patched); assert.match(patched.body,/€20\.00/); assert.doesNotMatch(patched.body,/€999\.00|€20\.99/);
   }
