@@ -2,10 +2,12 @@
 /** Slice 4.3 RED: deterministic, pure Luna email draft-or-handoff policy. */
 const assert = require('node:assert/strict');
 const { createEmailLunaDraftEnvelope } = require('./lib/email-luna-draft-handoff-contract');
+const policyModule = require('./lib/email-luna-draft-policy');
 const {
+  createEmailLunaDraftPolicyEvidence,
   decideEmailLunaDraftPolicy,
   EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS,
-} = require('./lib/email-luna-draft-policy');
+} = policyModule;
 
 const IDS = Object.freeze({
   client_id: '11111111-1111-4111-8111-111111111111',
@@ -90,8 +92,14 @@ function evidence(patch = {}) {
   };
   return frozen(value);
 }
+const issueEvidence = typeof createEmailLunaDraftPolicyEvidence === 'function'
+  ? createEmailLunaDraftPolicyEvidence
+  : (value) => value;
 function decide(input = {}) {
-  return decideEmailLunaDraftPolicy({ envelope: input.envelope || envelope(), evidence: input.evidence || evidence() });
+  const issuedEvidence = input.evidence
+    ? issueEvidence(input.evidence)
+    : issueEvidence(evidence());
+  return decideEmailLunaDraftPolicy({ envelope: input.envelope || envelope(), evidence: issuedEvidence });
 }
 function plain(value) {
   return JSON.parse(JSON.stringify(value));
@@ -276,12 +284,65 @@ adversarial('conversation mismatch is an immutable explicit authority handoff', 
 assert.deepEqual(adversarialFailures, [], `review-driven RED findings:\n${adversarialFailures.join('\n')}`);
 console.log('  PASS  review-driven adversarial intent, fact, type, finite-number, and conversation gates');
 
+const forgedExactEvidence = evidence();
+expectInvalid({ envelope: envelope(), evidence: forgedExactEvidence }, 'deeply frozen structurally exact forged evidence rejected');
+assert.notEqual(decideEmailLunaDraftPolicy, undefined);
+for (const [label, forged] of [
+  ['spread copy', frozen({ ...forgedExactEvidence })],
+  ['nested spread copy', frozen({ ...forgedExactEvidence, grounded_results: { ...forgedExactEvidence.grounded_results } })],
+  ['JSON roundtrip', frozen(JSON.parse(JSON.stringify(forgedExactEvidence)))],
+]) {
+  expectInvalid({ envelope: envelope(), evidence: forged }, `${label} has no producer provenance`);
+}
+
+const issued = createEmailLunaDraftPolicyEvidence(forgedExactEvidence);
+for (const [label, copied] of [
+  ['issued spread copy', frozen({ ...issued })],
+  ['issued JSON roundtrip', frozen(JSON.parse(JSON.stringify(issued)))],
+]) {
+  expectInvalid({ envelope: envelope(), evidence: copied }, `${label} loses producer provenance`);
+}
+
+const producerInput = { ...forgedExactEvidence };
+const isolated = createEmailLunaDraftPolicyEvidence(producerInput);
+producerInput.location_id = OTHER_LOCATION;
+assert.equal(isolated.location_id, IDS.location_id, 'producer copies before caller mutation');
+assert.throws(() => { isolated.location_id = OTHER_LOCATION; }, TypeError);
+assert.throws(() => { isolated.grounded_results.booking.booking_status = 'cancelled'; }, TypeError);
+assert.equal(decideEmailLunaDraftPolicy({ envelope: envelope(), evidence: isolated }).status, 'draft_ready');
+
+const policyPath = require.resolve('./lib/email-luna-draft-policy');
+const originalCacheEntry = require.cache[policyPath];
+delete require.cache[policyPath];
+const wrongProducerModule = require(policyPath);
+const wrongProducerEvidence = wrongProducerModule.createEmailLunaDraftPolicyEvidence(forgedExactEvidence);
+delete require.cache[policyPath];
+require.cache[policyPath] = originalCacheEntry;
+expectInvalid({ envelope: envelope(), evidence: wrongProducerEvidence }, 'evidence issued by another module instance rejected');
+
+const originalWeakSetAdd = WeakSet.prototype.add;
+const originalWeakSetHas = WeakSet.prototype.has;
+const originalArrayIncludes = Array.prototype.includes;
+try {
+  WeakSet.prototype.add = function ambientNoopAdd() { return this; };
+  WeakSet.prototype.has = function ambientAlwaysHas() { return true; };
+  Array.prototype.includes = function ambientAlwaysIncludes() { return true; };
+  expectInvalid({ envelope: envelope(), evidence: forgedExactEvidence }, 'ambient prototype patch cannot bless forged evidence');
+  const underPatch = createEmailLunaDraftPolicyEvidence(forgedExactEvidence);
+  assert.equal(decideEmailLunaDraftPolicy({ envelope: envelope(), evidence: underPatch }).status, 'draft_ready');
+} finally {
+  WeakSet.prototype.add = originalWeakSetAdd;
+  WeakSet.prototype.has = originalWeakSetHas;
+  Array.prototype.includes = originalArrayIncludes;
+}
+console.log('  PASS  producer provenance rejects exact forgeries, copies, wrong producers, mutation, and ambient monkeypatch bypasses');
+
 const source = require('node:fs').readFileSync(require.resolve('./lib/email-luna-draft-policy'), 'utf8');
 assert.equal(/\brequire\s*\(\s*['"](?:openai|axios|node-fetch|pg|postgres|sequelize|knex|nodemailer|@microsoft\/microsoft-graph-client)/.test(source), false);
 assert.equal(/\b(?:fetch|XMLHttpRequest|WebSocket|sendMail|send|write|insert|update|delete)\s*\(/i.test(source), false);
 assert.equal(/\b(?:model|provider|completion|database|network|recipient|approval)\b/i.test(source), false);
 assert.deepEqual(Object.keys(require('./lib/email-luna-draft-policy')).sort(), [
-  'EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS', 'decideEmailLunaDraftPolicy',
+  'EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS', 'createEmailLunaDraftPolicyEvidence', 'decideEmailLunaDraftPolicy',
 ]);
 console.log('  PASS  owner is pure: no prose/model/provider/network/DB/write/send capability');
 console.log('ALL OK — Slice 4.3 email Luna draft policy');
