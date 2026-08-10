@@ -471,6 +471,14 @@ WHERE client_id=$1::uuid AND approval_id=$2::uuid AND operation_id=$3::uuid
   AND conversation_id=$4::uuid
 LIMIT 1
 `.replace(/\s+/g, ' ').trim();
+/** Exact immutable-operation existence check used before approved initial dispatch. */
+const SQL_JOURNAL_EXISTS = `
+SELECT 1 AS journal_exists
+FROM tenant_email_outbound_send_journal
+WHERE client_id=$1::uuid AND approval_id=$2::uuid AND operation_id=$3::uuid
+  AND conversation_id=$4::uuid
+LIMIT 1
+`.replace(/\s+/g, ' ').trim();
 function actorFromUser(user) {
   if (!user || typeof user !== 'object') return null;
   const sid = parseUuid(typeof user.staff_user_id === 'string' ? user.staff_user_id : null);
@@ -632,9 +640,9 @@ function createStaffEmailInboxRoutes(deps) {
             return { status: 404, body: NOT_FOUND, code: 'approval_not_found' };
           }
           const row = locked.rows[0];
-          if (row.state !== 'draft') {
+          if (row.state !== 'draft' && row.state !== 'approved') {
             if (began) await pg.query('ROLLBACK');
-            return { status: 409, body: APPROVAL_CONFLICT, code: 'approval_not_draft' };
+            return { status: 409, body: APPROVAL_CONFLICT, code: 'approval_not_dispatchable' };
           }
           if (row.message_text !== input.message_text || row.body_digest !== digest) {
             if (began) await pg.query('ROLLBACK');
@@ -660,13 +668,25 @@ function createStaffEmailInboxRoutes(deps) {
             if (began) await pg.query('ROLLBACK');
             return { status: 409, body: APPROVAL_CONFLICT, code: 'approve_operation_missing' };
           }
-          const approved = await pg.query(SQL_APPROVE, [
-            input.approval_id, actor.client_id, input.conversation_id, lockedOperationId,
-            actor.staff_user_id, input.message_text, digest,
-          ]);
-          if (!approved || !approved.rows || approved.rows.length !== 1) {
-            if (began) await pg.query('ROLLBACK');
-            return { status: 409, body: APPROVAL_CONFLICT, code: 'approve_cas_miss' };
+          if (row.state === 'approved') {
+            // Dispatch an approved record here only if this immutable operation
+            // has never entered the journal. Any row or malformed result closes.
+            const journal = await pg.query(SQL_JOURNAL_EXISTS, [
+              actor.client_id, input.approval_id, lockedOperationId, input.conversation_id,
+            ]);
+            if (!journal || !Array.isArray(journal.rows) || journal.rows.length !== 0) {
+              if (began) await pg.query('ROLLBACK');
+              return { status: 409, body: APPROVAL_CONFLICT, code: 'approved_operation_already_dispatched' };
+            }
+          } else {
+            const approved = await pg.query(SQL_APPROVE, [
+              input.approval_id, actor.client_id, input.conversation_id, lockedOperationId,
+              actor.staff_user_id, input.message_text, digest,
+            ]);
+            if (!approved || !approved.rows || approved.rows.length !== 1) {
+              if (began) await pg.query('ROLLBACK');
+              return { status: 409, body: APPROVAL_CONFLICT, code: 'approve_cas_miss' };
+            }
           }
           if (began) await pg.query('COMMIT');
           // Post-COMMIT only. Global send + composition flags independently required.
@@ -926,7 +946,7 @@ module.exports = {
   ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_COMPOSITION_ENABLED, ENV_PORTAL_ORIGIN,
   BODY_KEYS, RECOVERY_BODY_KEYS, SUCCESS_DTO_KEYS, RECOVERY_SUCCESS_DTO_KEYS,
   BODY_MAX_BYTES, MESSAGE_MAX_BYTES, SEND_PUBLIC_CODES,
-  SQL_RESOLVE, SQL_APPROVE, SQL_LOAD_APPROVAL, SQL_JOURNAL_RECOVERY_PHASE,
+  SQL_RESOLVE, SQL_APPROVE, SQL_LOAD_APPROVAL, SQL_JOURNAL_RECOVERY_PHASE, SQL_JOURNAL_EXISTS,
   createStaffEmailInboxRoutes,
   isEmailStaffDraftsEnabled, isEmailStaffOutboundEnabled, isEmailOutboundSendEnabled,
   isEmailOutboundRuntimeCompositionEnabled,
