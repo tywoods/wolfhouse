@@ -4,17 +4,29 @@
  *
  * Production-route / real node-postgres-shape proof that SQL_RESOLVE binds
  * reply authority only when the inbound event/projection Graph mailbox UUID
- * equals the exact current tenant_email_inbound_delta_states.provider_mailbox_id
- * for the same client_id + location_id + endpoint_id + provider.
+ * exactly equals tenant_channel_endpoints.provider_resource_id for the same
+ * verified endpoint (client/location/endpoint/provider identity preserved).
  *
- * Live blocker (Sunset draft-only revision): SQL compared endpoint public_address
- * (email address) to event provider_mailbox_id (canonical Graph mailbox UUID).
- * Migration 064 owns authoritative mailbox UUID on current delta state; public
- * address can never equal UUID, so valid conversations returned fixed 404.
+ * Live blocker after #442: SQL_RESOLVE INNER JOINed current
+ * tenant_email_inbound_delta_states as mailbox identity. Sunset has ZERO
+ * current delta rows because inbound polling is disabled (projected=3,
+ * current delta matches=0) while endpoint.provider_resource_id is present
+ * and exactly equals event.provider_mailbox_id for all live inbound events.
+ * Valid conversations still returned fixed 404 not_found.
+ *
+ * Canonical identity (source contracts — not browser/public_address):
+ * - email-delegated-grant-custodian: providerMailboxId always
+ *   endpoint.provider_resource_id
+ * - Phase B verified grant replacer: provider_resource_id == Graph /me
+ *   principal id (validated/persisted)
+ * - OAuth own-user live bind: persist /me.id as provider_resource_id
+ * - Outbound authority uses that same providerMailboxId
+ *
+ * Current inbound delta state is operational cursor state only — not required
+ * outbound mailbox identity. Public_address remains non-null sender config.
  *
  * No Azure / live product DB / OAuth / Graph / deploy / network.
  */
-const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -32,8 +44,24 @@ const {
   ENV_PORTAL_ORIGIN,
 } = require('./lib/staff-email-inbox-routes');
 
-const UP_064 = fs.readFileSync(
-  path.join(ROOT, 'database/migrations/064_tenant_email_inbound_delta_states.sql'),
+const CUSTODIAN_SRC = fs.readFileSync(
+  path.join(ROOT, 'scripts/lib/email-delegated-grant-custodian.js'),
+  'utf8',
+);
+const OAUTH_SRC = fs.readFileSync(
+  path.join(ROOT, 'scripts/lib/email-microsoft-delegated-oauth-contract.js'),
+  'utf8',
+);
+const PHASE_B_REPLACER_SRC = fs.readFileSync(
+  path.join(ROOT, 'scripts/lib/email-microsoft-phase-b-verified-grant-replacer.js'),
+  'utf8',
+);
+const GRANT_INSTALLER_SRC = fs.readFileSync(
+  path.join(ROOT, 'scripts/lib/email-microsoft-verified-grant-installer.js'),
+  'utf8',
+);
+const ROUTES_SRC = fs.readFileSync(
+  path.join(ROOT, 'scripts/lib/staff-email-inbox-routes.js'),
   'utf8',
 );
 
@@ -48,15 +76,15 @@ const E3 = '33333333-3333-4333-8333-333333333335';
 const A = '55555555-5555-4555-8555-555555555555';
 const V = '44444444-4444-4444-8444-444444444444';
 const EV = '66666666-6666-4666-8666-666666666666';
-const TENANT = '77777777-7777-4777-8777-777777777777';
 const MAILBOX = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const MAILBOX2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const PUBLIC = 'desk@sunset.test';
 const K = 'sunset-somo';
 const K2 = 'other-loc';
-const SRC = 'AAMkAGI2-SRC-MAILBOX-AUTHORITY';
+const SRC = 'AAMkAGI2-SRC-PROVIDER-RESOURCE-AUTHORITY';
 const ORIGIN = 'https://staff.sunset.test';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UUID_SQL = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
 
 let pass = 0;
 let fail = 0;
@@ -85,8 +113,9 @@ function tryLoadPglite() {
 }
 
 function shellSql() {
-  // Minimal parent shell: columns SQL_RESOLVE joins + 064 FKs require.
+  // Minimal parent shell: columns SQL_RESOLVE joins require.
   // Node-postgres shape: parameterized $1,$2,$3; result.rows array.
+  // No tenant_email_inbound_delta_states — live Sunset has zero current rows.
   return `
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$ LANGUAGE plpgsql;
@@ -127,6 +156,7 @@ CREATE TABLE tenant_channel_endpoints (
   channel TEXT NOT NULL DEFAULT 'email',
   provider TEXT NOT NULL DEFAULT 'microsoft_graph',
   public_address TEXT NOT NULL,
+  provider_resource_id TEXT,
   secret_ref TEXT,
   capabilities JSONB NOT NULL DEFAULT '{}'::jsonb,
   outbound_enabled BOOLEAN NOT NULL DEFAULT true,
@@ -169,6 +199,19 @@ CREATE TABLE tenant_email_inbound_inbox_projections (
   conversation_id UUID NOT NULL,
   message_id UUID NOT NULL
 );
+
+-- Minimal delta-states shell only so a pre-fix SQL that still joins 064 can
+-- execute. Live Sunset has this table with ZERO current rows (inbound polling
+-- disabled). Fixture intentionally never inserts is_current=true rows — the
+-- GREEN bind must not require them.
+CREATE TABLE tenant_email_inbound_delta_states (
+  client_id UUID NOT NULL,
+  location_id UUID NOT NULL,
+  endpoint_id UUID NOT NULL,
+  provider TEXT NOT NULL,
+  provider_mailbox_id TEXT NOT NULL,
+  is_current BOOLEAN NOT NULL DEFAULT false
+);
 `;
 }
 
@@ -181,6 +224,7 @@ async function seedBase(db, opts = {}) {
   const conversationId = opts.conversationId || V;
   const eventId = opts.eventId || EV;
   const mailbox = opts.mailbox || MAILBOX;
+  const resourceId = opts.resourceId !== undefined ? opts.resourceId : mailbox;
   const publicAddress = opts.publicAddress || PUBLIC;
   const provider = opts.provider || 'microsoft_graph';
   const messageId = opts.messageId || crypto.randomUUID();
@@ -208,12 +252,12 @@ async function seedBase(db, opts = {}) {
   );
   await db.query(
     `INSERT INTO tenant_channel_endpoints (
-       id, client_id, location_id, channel, provider, public_address, secret_ref,
-       outbound_enabled, auth_mode, connector_mode, mailbox_access_kind, binding_status
-     ) VALUES ($1,$2,$3,'email',$4,$5,'kv:test-ref',$6,$7,$8,$9,$10)
+       id, client_id, location_id, channel, provider, public_address, provider_resource_id,
+       secret_ref, outbound_enabled, auth_mode, connector_mode, mailbox_access_kind, binding_status
+     ) VALUES ($1,$2,$3,'email',$4,$5,$6,'kv:test-ref',$7,$8,$9,$10,$11)
      ON CONFLICT (id) DO NOTHING`,
     [
-      endpointId, clientId, locationKey, provider, publicAddress,
+      endpointId, clientId, locationKey, provider, publicAddress, resourceId,
       outbound, authMode, connector, accessKind, binding,
     ],
   );
@@ -247,26 +291,15 @@ async function seedBase(db, opts = {}) {
   );
 }
 
-async function insertDelta(db, opts = {}) {
-  const clientId = opts.clientId || C;
-  const locationId = opts.locationId || L;
-  const endpointId = opts.endpointId || E;
-  const mailbox = opts.mailbox || MAILBOX;
-  const isCurrent = opts.isCurrent !== false;
-  const provider = opts.provider || 'microsoft_graph';
-  const generation = opts.generation || 1;
-  const tenant = opts.tenant || TENANT;
-  await db.query(
-    `INSERT INTO tenant_email_inbound_delta_states (
-       client_id, location_id, endpoint_id, provider, provider_tenant_id,
-       provider_mailbox_id, ingestion_generation, query_version, is_current,
-       phase, state_version
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,'ms_messages_delta_v1',$8,'tracking',1)`,
-    [
-      clientId, locationId, endpointId, provider, tenant,
-      mailbox, generation, isCurrent,
-    ],
-  );
+async function resetHome(db) {
+  await db.exec('DELETE FROM tenant_email_inbound_inbox_projections');
+  await db.exec('DELETE FROM tenant_email_inbound_events');
+  await db.exec('DELETE FROM messages');
+  await db.exec('DELETE FROM conversations');
+  await db.exec('DELETE FROM tenant_channel_endpoints');
+  await db.exec('DELETE FROM tenant_locations');
+  await db.exec('DELETE FROM staff_users');
+  await db.exec('DELETE FROM clients');
 }
 
 async function resolve(db, params = {}) {
@@ -284,31 +317,66 @@ function rowCount(res) {
 
 function assertNoLeak(value) {
   const text = typeof value === 'string' ? value : JSON.stringify(value);
-  // Never surface raw mailbox UUID or public address in verifier failure output
-  // paths that production HTTP would use; SQL itself may return them to server.
   return !text.includes('access_token')
     && !text.includes('refresh_token')
     && !text.includes('Bearer ');
 }
 
+function assertPhaseBIdentityContracts() {
+  ok(
+    'custodian DTO: providerMailboxId always endpoint.provider_resource_id',
+    /providerMailboxId is always endpoint\.provider_resource_id/.test(CUSTODIAN_SRC)
+      && /providerMailboxId:\s*own\.provider_resource_id/.test(CUSTODIAN_SRC)
+      && /e\.provider_resource_id IS NOT NULL/.test(CUSTODIAN_SRC)
+      && /UUID_CANON\.test\(own\.provider_resource_id\)/.test(CUSTODIAN_SRC),
+  );
+  ok(
+    'OAuth own-user live bind persists /me.id as provider_resource_id',
+    /persist_me_id_as_provider_resource_id:\s*true/.test(OAUTH_SRC)
+      && /require_me_id_equals_provider_principal_oid:\s*true/.test(OAUTH_SRC)
+      && /live_graph_path:\s*'\/me'/.test(OAUTH_SRC)
+      && /me_id_field:\s*'id'/.test(OAUTH_SRC)
+      && /mail_upn_email_not_ownership_keys:\s*true/.test(OAUTH_SRC),
+  );
+  ok(
+    'Phase B verified grant replacer requires provider_resource_id == principal id',
+    /o\.provider_resource_id !== id\.providerPrincipalId/.test(PHASE_B_REPLACER_SRC)
+      && /!isUuid\(o\.provider_resource_id\)/.test(PHASE_B_REPLACER_SRC),
+  );
+  ok(
+    'verified grant installer persists principal as provider_resource_id (not public_address)',
+    /provider_resource_id = providerPrincipalId/.test(GRANT_INSTALLER_SRC)
+      && /own\.provider_resource_id !== snap\.identity\.providerPrincipalId/.test(GRANT_INSTALLER_SRC),
+  );
+  ok(
+    'mailbox identity is Phase B provider_resource_id not browser public_address',
+    !/public_address/.test(CUSTODIAN_SRC.match(/providerMailboxId[\s\S]{0,120}/)?.[0] || 'public_address')
+      || (/never public_address/.test(CUSTODIAN_SRC)
+        && /providerMailboxId is always endpoint\.provider_resource_id/.test(CUSTODIAN_SRC)),
+  );
+}
+
 function assertStaticSqlContract() {
   ok(
-    'SQL_RESOLVE joins current delta state as authoritative mailbox',
-    /tenant_email_inbound_delta_states/.test(SQL_RESOLVE)
-      && /ds\.is_current\s*=\s*true/.test(SQL_RESOLVE)
-      && /ds\.client_id\s*=\s*ev\.client_id/.test(SQL_RESOLVE)
-      && /ds\.location_id\s*=\s*ev\.location_id/.test(SQL_RESOLVE)
-      && /ds\.endpoint_id\s*=\s*ev\.endpoint_id/.test(SQL_RESOLVE)
-      && /ds\.provider\s*=\s*ev\.provider/.test(SQL_RESOLVE)
-      && /ds\.provider_mailbox_id\s*=\s*ev\.provider_mailbox_id/.test(SQL_RESOLVE),
+    'SQL_RESOLVE binds event mailbox to endpoint.provider_resource_id (no delta join)',
+    /ev\.provider_mailbox_id\s*=\s*ep\.provider_resource_id/.test(SQL_RESOLVE)
+      && !/tenant_email_inbound_delta_states/.test(SQL_RESOLVE)
+      && !/\bds\./.test(SQL_RESOLVE)
+      && !/is_current\s*=\s*true/.test(SQL_RESOLVE),
+  );
+  ok(
+    'SQL_RESOLVE requires non-null/nonblank UUID provider_resource_id',
+    /ep\.provider_resource_id\s+IS\s+NOT\s+NULL/.test(SQL_RESOLVE)
+      && /btrim\s*\(\s*ep\.provider_resource_id\s*\)\s*<>\s*''/.test(SQL_RESOLVE)
+      && /ep\.provider_resource_id\s*~\s*'?\^\[0-9a-f\]\{8\}/.test(SQL_RESOLVE),
   );
   ok(
     'SQL_RESOLVE never equates public_address to Graph mailbox UUID',
-    // Exact historical bug shape only — do not use loose .* across SELECT list.
     !/btrim\(ep\.public_address\)\)\s*=\s*lower\(btrim\(ev\.provider_mailbox_id/.test(SQL_RESOLVE)
       && !/btrim\(ev\.provider_mailbox_id\)\)\s*=\s*lower\(btrim\(ep\.public_address/.test(SQL_RESOLVE)
       && !/ep\.public_address\s*=\s*ev\.provider_mailbox_id/.test(SQL_RESOLVE)
-      && !/ev\.provider_mailbox_id\s*=\s*ep\.public_address/.test(SQL_RESOLVE),
+      && !/ev\.provider_mailbox_id\s*=\s*ep\.public_address/.test(SQL_RESOLVE)
+      && !/ep\.public_address\s*=\s*ep\.provider_resource_id/.test(SQL_RESOLVE),
   );
   ok(
     'SQL_RESOLVE keeps public_address non-null verified sender config',
@@ -317,41 +385,44 @@ function assertStaticSqlContract() {
       && /btrim\s*\(\s*ep\.public_address\s*\)\s*<>\s*''/.test(SQL_RESOLVE),
   );
   ok(
-    'SQL_RESOLVE preserves actor/client/conversation binding',
+    'SQL_RESOLVE preserves actor/client/conversation/projection/event bindings',
     /su\.id\s*=\s*\$2::uuid/.test(SQL_RESOLVE)
       && /cl\.id\s*=\s*\$1::uuid/.test(SQL_RESOLVE)
       && /c\.id\s*=\s*\$3::uuid/.test(SQL_RESOLVE)
       && /c\.client_id\s*=\s*cl\.id/.test(SQL_RESOLVE)
       && /p\.conversation_id\s*=\s*c\.id/.test(SQL_RESOLVE)
+      && /ev\.location_id\s*=\s*p\.location_id/.test(SQL_RESOLVE)
+      && /ev\.endpoint_id\s*=\s*p\.endpoint_id/.test(SQL_RESOLVE)
+      && /ev\.provider\s*=\s*p\.provider/.test(SQL_RESOLVE)
+      && /ev\.provider_mailbox_id\s*=\s*p\.provider_mailbox_id/.test(SQL_RESOLVE)
+      && /ev\.provider_message_id\s*=\s*p\.provider_message_id/.test(SQL_RESOLVE)
+      && /ep\.location_id\s*=\s*loc\.location_id/.test(SQL_RESOLVE)
       && /ORDER BY ev\.received_at DESC, ev\.id DESC/.test(SQL_RESOLVE)
       && /LIMIT 1/.test(SQL_RESOLVE),
   );
   ok(
-    '064 current-state cardinality unique (client_id, endpoint_id) WHERE is_current',
-    /tenant_email_inbound_delta_states_current_uq/.test(UP_064)
-      && /ON tenant_email_inbound_delta_states\s*\(\s*client_id\s*,\s*endpoint_id\s*\)/.test(UP_064)
-      && /WHERE is_current\s*=\s*true/.test(UP_064)
-      && /provider_mailbox_id\s*=\s*btrim\s*\(\s*provider_mailbox_id\s*\)/.test(UP_064)
-      && /provider_mailbox_id\s*~\s*'\^\[0-9a-f\]\{8\}/.test(UP_064),
-  );
-  ok(
-    '064 mailbox identity is Graph UUID not public_address',
-    /authoritative mailbox UUID/i.test(UP_064)
-      && !/public_address/.test(UP_064),
+    'SQL_RESOLVE preserves verified microsoft delegated own_user endpoint filters',
+    /ev\.provider\s*=\s*'microsoft_graph'/.test(SQL_RESOLVE)
+      && /ep\.provider\s*=\s*'microsoft_graph'/.test(SQL_RESOLVE)
+      && /ep\.channel\s*=\s*'email'/.test(SQL_RESOLVE)
+      && /ep\.auth_mode\s*=\s*'delegated_authorization_code'/.test(SQL_RESOLVE)
+      && /ep\.connector_mode\s*=\s*'microsoft_delegated_oauth'/.test(SQL_RESOLVE)
+      && /ep\.mailbox_access_kind\s*=\s*'own_user'/.test(SQL_RESOLVE),
   );
 }
 
 async function provePglite(PGlite) {
   const db = new PGlite();
   await db.exec(shellSql());
-  await db.exec(UP_064);
 
-  // ── Happy path: UUID mailbox equals current delta state ──────────────
-  await seedBase(db);
-  await insertDelta(db, { mailbox: MAILBOX, isCurrent: true, generation: 1 });
+  // ── #442 regression / live Sunset shape ──────────────────────────────
+  // Valid endpoint/event authority: provider_resource_id exact-matches
+  // event.provider_mailbox_id. ZERO current delta states (table not even
+  // present). #442 still 404s; GREEN must bind via provider_resource_id.
+  await seedBase(db, { mailbox: MAILBOX, resourceId: MAILBOX });
   const happy = await resolve(db);
   ok(
-    'valid authority binds when event mailbox UUID equals current delta',
+    'valid authority binds with provider_resource_id match and NO current delta',
     rowCount(happy) === 1
       && happy.rows[0]
       && String(happy.rows[0].client_id).toLowerCase() === C
@@ -370,42 +441,41 @@ async function provePglite(PGlite) {
   );
 
   // ── Public-address substitution cannot satisfy mailbox identity ──────
-  // Event/projection incorrectly store public address as mailbox while
-  // authoritative delta holds the Graph UUID — must not bind.
-  await db.exec('DELETE FROM tenant_email_inbound_inbox_projections');
-  await db.exec('DELETE FROM tenant_email_inbound_events');
-  await db.exec('DELETE FROM messages');
-  await db.exec('DELETE FROM tenant_email_inbound_delta_states');
+  await resetHome(db);
   await seedBase(db, {
-    mailbox: PUBLIC, // impossible live shape vs Graph UUID, but proves substitution fails
+    mailbox: PUBLIC, // event wrongly stores email as mailbox
+    resourceId: MAILBOX, // endpoint holds canonical Graph UUID from Phase B
     messageId: crypto.randomUUID(),
   });
-  await insertDelta(db, { mailbox: MAILBOX, isCurrent: true });
   const sub = await resolve(db);
   ok(
-    'public-address substitution rejected (delta UUID ≠ event mailbox)',
+    'public-address substitution rejected (event mailbox ≠ provider_resource_id)',
     rowCount(sub) === 0,
     `rows=${rowCount(sub)}`,
   );
 
-  // Restore happy path fixture for negative cases below
-  await db.exec('DELETE FROM tenant_email_inbound_inbox_projections');
-  await db.exec('DELETE FROM tenant_email_inbound_events');
-  await db.exec('DELETE FROM messages');
-  await db.exec('DELETE FROM tenant_email_inbound_delta_states');
-  await db.exec('DELETE FROM conversations');
-  await db.exec('DELETE FROM tenant_channel_endpoints');
-  await db.exec('DELETE FROM tenant_locations');
-  await db.exec('DELETE FROM staff_users');
-  await db.exec('DELETE FROM clients');
-  await seedBase(db);
-  await insertDelta(db, { mailbox: MAILBOX, isCurrent: true, generation: 1 });
+  // Event mailbox = UUID but endpoint.provider_resource_id wrongly holds public address
+  await resetHome(db);
+  await seedBase(db, {
+    mailbox: MAILBOX,
+    resourceId: PUBLIC,
+    messageId: crypto.randomUUID(),
+  });
+  const resourceIsEmail = await resolve(db);
+  ok(
+    'provider_resource_id public-address value rejected (not UUID domain)',
+    rowCount(resourceIsEmail) === 0,
+    `rows=${rowCount(resourceIsEmail)}`,
+  );
+
+  // ── Restore happy path fixture for negative cases ────────────────────
+  await resetHome(db);
+  await seedBase(db, { mailbox: MAILBOX, resourceId: MAILBOX });
 
   // ── Foreign client ───────────────────────────────────────────────────
   const foreignClient = await resolve(db, { clientId: C2 });
   ok('foreign client rejected', rowCount(foreignClient) === 0);
 
-  // Seed foreign client fully with own conversation — still no bind for actor's client query
   await seedBase(db, {
     clientId: C2,
     locationId: L2,
@@ -415,18 +485,11 @@ async function provePglite(PGlite) {
     conversationId: '44444444-4444-4444-8444-444444444445',
     eventId: '66666666-6666-4666-8666-666666666667',
     mailbox: MAILBOX2,
+    resourceId: MAILBOX2,
     publicAddress: 'other@sunset.test',
     messageId: crypto.randomUUID(),
     slug: 'other',
   });
-  await insertDelta(db, {
-    clientId: C2,
-    locationId: L2,
-    endpointId: E2,
-    mailbox: MAILBOX2,
-    tenant: '77777777-7777-4777-8777-777777777778',
-  });
-  // Query as foreign client actor against home conversation → 0
   const crossClient = await resolve(db, {
     clientId: C2,
     actorId: '55555555-5555-4555-8555-555555555556',
@@ -434,129 +497,113 @@ async function provePglite(PGlite) {
   });
   ok('foreign client cannot bind home conversation', rowCount(crossClient) === 0);
 
-  // ── Noncurrent delta state only ──────────────────────────────────────
-  await db.exec('DELETE FROM tenant_email_inbound_delta_states');
-  await insertDelta(db, { mailbox: MAILBOX, isCurrent: false, generation: 1 });
-  const noncurrent = await resolve(db);
-  ok('noncurrent delta state rejected', rowCount(noncurrent) === 0);
+  // ── Null / blank provider_resource_id ────────────────────────────────
+  await db.query(
+    `UPDATE tenant_channel_endpoints SET provider_resource_id = NULL
+     WHERE id = $1 AND client_id = $2`,
+    [E, C],
+  );
+  const nullResource = await resolve(db);
+  ok('null provider_resource_id rejected', rowCount(nullResource) === 0);
 
-  // ── Mailbox mismatch (current delta has different UUID) ──────────────
-  await db.exec('DELETE FROM tenant_email_inbound_delta_states');
-  await insertDelta(db, { mailbox: MAILBOX2, isCurrent: true, generation: 1 });
+  await db.query(
+    `UPDATE tenant_channel_endpoints SET provider_resource_id = '   '
+     WHERE id = $1 AND client_id = $2`,
+    [E, C],
+  );
+  const blankResource = await resolve(db);
+  ok('blank provider_resource_id rejected', rowCount(blankResource) === 0);
+
+  // ── Mailbox / resource mismatch ──────────────────────────────────────
+  await db.query(
+    `UPDATE tenant_channel_endpoints SET provider_resource_id = $1
+     WHERE id = $2 AND client_id = $3`,
+    [MAILBOX2, E, C],
+  );
   const mbMismatch = await resolve(db);
-  ok('mailbox UUID mismatch rejected', rowCount(mbMismatch) === 0);
+  ok('provider_resource_id ≠ event provider_mailbox_id rejected', rowCount(mbMismatch) === 0);
+
+  // Restore match
+  await db.query(
+    `UPDATE tenant_channel_endpoints SET provider_resource_id = $1
+     WHERE id = $2 AND client_id = $3`,
+    [MAILBOX, E, C],
+  );
 
   // ── Provider mismatch ────────────────────────────────────────────────
-  // Delta states CHECK forces microsoft_graph; event/projection can differ.
-  await db.exec('DELETE FROM tenant_email_inbound_delta_states');
   await db.exec('DELETE FROM tenant_email_inbound_inbox_projections');
   await db.exec('DELETE FROM tenant_email_inbound_events');
   await db.exec('DELETE FROM messages');
   await seedBase(db, {
     provider: 'gmail_api',
     mailbox: MAILBOX,
+    resourceId: MAILBOX,
     messageId: crypto.randomUUID(),
   });
-  // Cannot insert non-microsoft delta (064 CHECK). Absence of matching current
-  // delta for gmail event is provider-mismatch fail-closed.
   const provMismatch = await resolve(db);
-  ok('provider mismatch / missing microsoft delta rejected', rowCount(provMismatch) === 0);
+  ok('provider mismatch rejected', rowCount(provMismatch) === 0);
 
   // Restore microsoft happy path
-  await db.exec('DELETE FROM tenant_email_inbound_inbox_projections');
-  await db.exec('DELETE FROM tenant_email_inbound_events');
-  await db.exec('DELETE FROM messages');
-  await seedBase(db, { messageId: crypto.randomUUID() });
-  await insertDelta(db, { mailbox: MAILBOX, isCurrent: true, generation: 1 });
+  await resetHome(db);
+  await seedBase(db, { mailbox: MAILBOX, resourceId: MAILBOX, messageId: crypto.randomUUID() });
 
-  // ── Foreign location (delta for other location_id under same client) ──
-  await db.exec('DELETE FROM tenant_email_inbound_delta_states');
-  // Distinct location UUID (L3) under home client — not the foreign-client L2.
+  // ── Foreign location (event/projection location must match join) ─────
+  // Seed a second location; move only the endpoint location_id key away
+  // from the event's location → ep.location_id join fails.
   await db.query(
     `INSERT INTO tenant_locations (id, client_id, location_id) VALUES ($1,$2,$3)
      ON CONFLICT (id) DO NOTHING`,
     [L3, C, 'home-other-loc'],
   );
-  await insertDelta(db, {
-    clientId: C,
-    locationId: L3,
-    endpointId: E,
-    mailbox: MAILBOX,
-    isCurrent: true,
-    generation: 1,
-  });
-  // Delta location_id must equal event.location_id for the join. Foreign → 0.
+  await db.query(
+    `UPDATE tenant_channel_endpoints SET location_id = $1
+     WHERE id = $2 AND client_id = $3`,
+    ['home-other-loc', E, C],
+  );
   const foreignLoc = await resolve(db);
-  ok('foreign location delta rejected', rowCount(foreignLoc) === 0);
+  ok('foreign location endpoint rejected', rowCount(foreignLoc) === 0);
 
-  // ── Foreign endpoint (same home client, different endpoint id) ───────
-  await db.exec('DELETE FROM tenant_email_inbound_delta_states');
+  // Restore endpoint location key
+  await db.query(
+    `UPDATE tenant_channel_endpoints SET location_id = $1
+     WHERE id = $2 AND client_id = $3`,
+    [K, E, C],
+  );
+
+  // ── Foreign endpoint (event points at different endpoint id) ─────────
   await db.query(
     `INSERT INTO tenant_channel_endpoints (
-       id, client_id, location_id, channel, provider, public_address, secret_ref,
-       outbound_enabled, auth_mode, connector_mode, mailbox_access_kind, binding_status
-     ) VALUES ($1,$2,$3,'email','microsoft_graph',$4,'kv:other',true,
+       id, client_id, location_id, channel, provider, public_address, provider_resource_id,
+       secret_ref, outbound_enabled, auth_mode, connector_mode, mailbox_access_kind, binding_status
+     ) VALUES ($1,$2,$3,'email','microsoft_graph',$4,$5,'kv:other',true,
        'delegated_authorization_code','microsoft_delegated_oauth','own_user','verified')
      ON CONFLICT (id) DO NOTHING`,
-    [E3, C, K, 'alt@sunset.test'],
+    [E3, C, K, 'alt@sunset.test', MAILBOX],
   );
-  await insertDelta(db, {
-    clientId: C,
-    locationId: L,
-    endpointId: E3,
-    mailbox: MAILBOX,
-    isCurrent: true,
-    generation: 1,
-  });
+  await db.query(
+    `UPDATE tenant_email_inbound_events SET endpoint_id = $1 WHERE id = $2 AND client_id = $3`,
+    [E3, EV, C],
+  );
+  await db.query(
+    `UPDATE tenant_email_inbound_inbox_projections SET endpoint_id = $1
+     WHERE inbound_event_id = $2 AND client_id = $3`,
+    [E3, EV, C],
+  );
+  // Conversation still projects, but we query home conversation which now
+  // points at E3 — authority should bind to E3 if resource matches (it does).
+  // To prove foreign endpoint isolation: change E3 resource away from event mailbox.
+  await db.query(
+    `UPDATE tenant_channel_endpoints SET provider_resource_id = $1 WHERE id = $2`,
+    [MAILBOX2, E3],
+  );
   const foreignEp = await resolve(db);
-  ok('foreign endpoint delta rejected', rowCount(foreignEp) === 0);
+  ok('foreign/mismatched endpoint resource rejected', rowCount(foreignEp) === 0);
 
-  // ── Exact current cardinality via unique constraint ──────────────────
-  await db.exec('DELETE FROM tenant_email_inbound_delta_states');
-  await insertDelta(db, {
-    clientId: C,
-    locationId: L,
-    endpointId: E,
-    mailbox: MAILBOX,
-    isCurrent: true,
-    generation: 1,
-  });
-  let dupBlocked = false;
-  try {
-    await insertDelta(db, {
-      clientId: C,
-      locationId: L,
-      endpointId: E,
-      mailbox: MAILBOX2,
-      isCurrent: true,
-      generation: 2,
-    });
-  } catch {
-    dupBlocked = true;
-  }
-  ok(
-    'ambiguous dual-current state blocked by unique index',
-    dupBlocked === true,
-  );
-  // Historical noncurrent + one current is allowed
-  await insertDelta(db, {
-    clientId: C,
-    locationId: L,
-    endpointId: E,
-    mailbox: MAILBOX,
-    isCurrent: false,
-    generation: 2,
-  });
-  const afterHist = await resolve(db);
-  ok(
-    'one current + historical noncurrent still exact single bind',
-    rowCount(afterHist) === 1
-      && afterHist.rows[0].provider_mailbox_id === MAILBOX,
-    `rows=${rowCount(afterHist)}`,
-  );
+  // Restore happy path for draft route
+  await resetHome(db);
+  await seedBase(db, { mailbox: MAILBOX, resourceId: MAILBOX, messageId: crypto.randomUUID() });
 
   // ── Production draft route uses resolveAuthority → SQL_RESOLVE ───────
-  // Wire real SQL through createStaffEmailInboxRoutes with PGlite loaner.
   const { EventEmitter } = require('node:events');
   function mockReq(bodyObj) {
     const ee = new EventEmitter();
@@ -593,7 +640,6 @@ async function provePglite(PGlite) {
       [ENV_PORTAL_ORIGIN]: ORIGIN,
     }),
   });
-  // Need reply-approvals table for draft insert path after authority resolves
   await db.exec(`
     CREATE TABLE IF NOT EXISTS tenant_email_reply_approvals (
       approval_id UUID PRIMARY KEY,
@@ -622,7 +668,7 @@ async function provePglite(PGlite) {
     [ENV_SEND_ENABLED]: 'false',
     [ENV_PORTAL_ORIGIN]: ORIGIN,
   });
-  const BODY = 'Mailbox authority draft body.';
+  const BODY = 'Provider resource authority draft body.';
   await routes.handleDraft(
     mockReq({ conversation_id: V, message_text: BODY, approval_id: null }),
     {},
@@ -630,7 +676,7 @@ async function provePglite(PGlite) {
     gate,
   );
   ok(
-    'production draft route binds via delta mailbox UUID (not public_address)',
+    'production draft route binds via provider_resource_id (no delta required)',
     calls.length === 1
       && calls[0].status === 200
       && calls[0].body
@@ -644,9 +690,12 @@ async function provePglite(PGlite) {
     `status=${calls[0] && calls[0].status} body=${calls[0] && JSON.stringify(calls[0].body)}`,
   );
 
-  // Broken-path simulation: only public_address match would have worked historically.
-  // Remove delta → draft must 404 not_found (fail closed).
-  await db.exec('DELETE FROM tenant_email_inbound_delta_states');
+  // Broken-path simulation: null provider_resource_id → draft 404 not_found.
+  await db.query(
+    `UPDATE tenant_channel_endpoints SET provider_resource_id = NULL
+     WHERE id = $1 AND client_id = $2`,
+    [E, C],
+  );
   calls.length = 0;
   await routes.handleDraft(
     mockReq({ conversation_id: V, message_text: BODY, approval_id: null }),
@@ -655,7 +704,7 @@ async function provePglite(PGlite) {
     gate,
   );
   ok(
-    'missing current delta → draft 404 not_found (fail closed)',
+    'missing provider_resource_id → draft 404 not_found (fail closed)',
     calls.length === 1
       && calls[0].status === 404
       && calls[0].body
@@ -663,6 +712,38 @@ async function provePglite(PGlite) {
       && calls[0].body.error === 'not_found'
       && !String(JSON.stringify(calls[0].body)).includes(PUBLIC)
       && !String(JSON.stringify(calls[0].body)).includes(MAILBOX),
+    `status=${calls[0] && calls[0].status}`,
+  );
+
+  // Stale/foreign event: event mailbox no longer matches restored resource.
+  await db.query(
+    `UPDATE tenant_channel_endpoints SET provider_resource_id = $1
+     WHERE id = $2 AND client_id = $3`,
+    [MAILBOX, E, C],
+  );
+  await db.query(
+    `UPDATE tenant_email_inbound_events SET provider_mailbox_id = $1
+     WHERE id = $2 AND client_id = $3`,
+    [MAILBOX2, EV, C],
+  );
+  await db.query(
+    `UPDATE tenant_email_inbound_inbox_projections SET provider_mailbox_id = $1
+     WHERE inbound_event_id = $2 AND client_id = $3`,
+    [MAILBOX2, EV, C],
+  );
+  calls.length = 0;
+  await routes.handleDraft(
+    mockReq({ conversation_id: V, message_text: BODY, approval_id: null }),
+    {},
+    { staff_user_id: A, client_id: C, role: 'operator', status: 'active' },
+    gate,
+  );
+  ok(
+    'stale/foreign event mailbox → draft 404 not_found',
+    calls.length === 1
+      && calls[0].status === 404
+      && calls[0].body
+      && calls[0].body.error === 'not_found',
     `status=${calls[0] && calls[0].status}`,
   );
 
@@ -683,20 +764,31 @@ function assertPackageAndSourcePins() {
       && isEmailStaffDraftsEnabled({ [ENV_DRAFTS_ENABLED]: 'true' }) === true
       && isEmailStaffDraftsEnabled({}) === false,
   );
-  const src = fs.readFileSync(
-    path.join(ROOT, 'scripts/lib/staff-email-inbox-routes.js'),
-    'utf8',
+  ok(
+    'source SQL_RESOLVE uses provider_resource_id and omits delta_states',
+    ROUTES_SRC.includes('const SQL_RESOLVE =')
+      && /ev\.provider_mailbox_id\s*=\s*ep\.provider_resource_id/.test(ROUTES_SRC)
+      && !/tenant_email_inbound_delta_states/.test(
+        ROUTES_SRC.slice(
+          ROUTES_SRC.indexOf('const SQL_RESOLVE ='),
+          ROUTES_SRC.indexOf('const SQL_INSERT_DRAFT'),
+        ),
+      )
+      && !/lower\s*\(\s*btrim\s*\(\s*ep\.public_address\s*\)\s*\)\s*=\s*lower\s*\(\s*btrim\s*\(\s*ev\.provider_mailbox_id/.test(ROUTES_SRC),
   );
   ok(
-    'source SQL_RESOLVE export matches runtime constant',
-    src.includes('const SQL_RESOLVE =')
-      && src.includes('tenant_email_inbound_delta_states')
-      && !/lower\s*\(\s*btrim\s*\(\s*ep\.public_address\s*\)\s*\)\s*=\s*lower\s*\(\s*btrim\s*\(\s*ev\.provider_mailbox_id/.test(src),
+    'UUID domain pin matches Phase B canonical lowercase hyphenated UUID',
+    UUID_RE.test(MAILBOX)
+      && (
+        SQL_RESOLVE.includes(UUID_SQL)
+        || /ep\.provider_resource_id\s*~\s*'?\^\[0-9a-f\]\{8\}/.test(SQL_RESOLVE)
+      ),
   );
 }
 
 async function main() {
   console.log('verify:staff-email-inbox-mailbox-authority-binding\n');
+  assertPhaseBIdentityContracts();
   assertStaticSqlContract();
   assertPackageAndSourcePins();
 
