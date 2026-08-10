@@ -105,6 +105,7 @@ function makeHarness(options = {}) {
     async saveDraftThroughStaffOwner(input) {
       writes.push(input);
       if (options.saveError) throw new Error('save failed');
+      if (options.saveOwner) return options.saveOwner(input);
       return Object.freeze({ success: true, conversation_id: V, message_text: input.message_text,
         approval_id: options.approvalId || '77777777-7777-4777-8777-777777777777' });
     },
@@ -178,6 +179,43 @@ function noSideEffects(h) {
     conversation_id: V, source_inbound_event_id: M, provider: 'microsoft_graph',
     provider_mailbox_id: MAILBOX, provider_source_message_id: 'graph-message-v1',
   });
+
+  // A dispatched persistence acknowledgement is untrusted metadata, never prose authority.
+  for (const [label, receipt] of [
+    ['extra', { success: true, conversation_id: V, approval_id: '77777777-7777-4777-8777-777777777777', extra: true }],
+    ['inherited', Object.assign(Object.create({ success: true }), { conversation_id: V, approval_id: '77777777-7777-4777-8777-777777777777' })],
+    ['proxy', new Proxy({ success: true, conversation_id: V, approval_id: '77777777-7777-4777-8777-777777777777' }, {})],
+  ]) {
+    h = makeHarness({ saveOwner: async () => receipt }); out = await invoke(h);
+    assert.equal(out.status, 503, label);
+    assert.equal(out.body.error, 'draft_save_outcome_unknown', label);
+    assert.equal(h.writes.length, 1, label);
+  }
+  let receiptGetterReads = 0;
+  const accessorReceipt = { conversation_id: V, approval_id: '77777777-7777-4777-8777-777777777777' };
+  Object.defineProperty(accessorReceipt, 'success', { enumerable: true, get() { receiptGetterReads += 1; return true; } });
+  h = makeHarness({ saveOwner: async () => accessorReceipt }); out = await invoke(h);
+  assert.equal(out.status, 503); assert.equal(out.body.error, 'draft_save_outcome_unknown'); assert.equal(receiptGetterReads, 0);
+
+  const fieldReads = { success: 0, conversation_id: 0, approval_id: 0 };
+  const mutableReceipt = new Proxy({ success: true, conversation_id: V, approval_id: '77777777-7777-4777-8777-777777777777' }, {
+    get(target, key, receiver) {
+      if (Object.hasOwn(fieldReads, key)) fieldReads[key] += 1;
+      if (key === 'conversation_id' && fieldReads[key] > 1) return C2;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  h = makeHarness({ saveOwner: async () => mutableReceipt }); out = await invoke(h);
+  assert.equal(out.status, 503); assert.equal(out.body.error, 'draft_save_outcome_unknown');
+  assert.ok(Object.values(fieldReads).every((n) => n <= 1), JSON.stringify(fieldReads));
+
+  // Once save dispatch occurred, malformed/throwing acknowledgement is outcome-unknown.
+  for (const saveOwner of [async () => null, async () => { throw new Error('post-write acknowledgement lost'); }]) {
+    h = makeHarness({ saveOwner }); out = await invoke(h);
+    assert.equal(out.status, 503);
+    assert.deepEqual(out.body, { success: false, error: 'draft_save_outcome_unknown' });
+    assert.equal(h.writes.length, 1); assert.equal(h.approvals.length + h.outbound.length + h.providers.length, 0);
+  }
 
   // Actor and generated output are exact own-data snapshots, never inherited/accessor/proxy/extra records.
   const inheritedActor = Object.create(user());
