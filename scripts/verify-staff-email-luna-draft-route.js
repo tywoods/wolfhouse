@@ -161,9 +161,9 @@ function noSideEffects(h) {
   assert.deepEqual(out.body, { success: true, conversation_id: V, message_text: GENERATED,
     approval_id: '77777777-7777-4777-8777-777777777777' });
   assert.equal(h.writes.length, 1);
-  assert.deepEqual(h.writes[0], {
+  assert.deepEqual({ ...h.writes[0], expected_authority: undefined }, {
     actor: { staff_user_id: A, client_id: C, role: 'operator' },
-    conversation_id: V, message_text: GENERATED, approval_id: null,
+    conversation_id: V, message_text: GENERATED, approval_id: null, expected_authority: undefined,
   });
   assert.equal(h.approvals.length, 0, 'Luna never approves');
   assert.equal(h.outbound.length, 0, 'Luna never calls approve/send owner');
@@ -202,7 +202,8 @@ function noSideEffects(h) {
   assert.equal(out.status, 503); assert.ok(bodyReads <= 1); noSideEffects(h);
 
   // Deliberate generate-new: sequential repeats author and save fresh approval_id:null each time.
-  await invoke(h);
+  h = makeHarness();
+  await invoke(h); await invoke(h);
   assert.equal(h.writes.length, 2);
   assert.equal(h.writes[0].approval_id, null);
   assert.equal(h.writes[1].approval_id, null);

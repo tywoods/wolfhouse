@@ -6,6 +6,8 @@ const { createEmailLunaDraftEnvelope } = require('./email-luna-draft-handoff-con
 const EMAIL_LUNA_GENERATE_DRAFT_PATH = '/staff/inbox/email/generate-luna-draft';
 const EMAIL_LUNA_GENERATE_DRAFT_ENABLED_ENV = 'EMAIL_STAFF_LUNA_DRAFT_ENABLED';
 const EMAIL_LUNA_GENERATE_BODY_KEYS = Object.freeze(['conversation_id']);
+const READY_KEYS = Object.freeze(['status','subject','body','language','client_id','location_id','conversation_id','draft_only','requires_staff_review','send_allowed','auto_send_allowed']);
+const HANDOFF_KEYS = Object.freeze(['status','reason','client_id','location_id','conversation_id','draft_only','requires_staff_review','send_allowed','auto_send_allowed']);
 const BODY_MAX_BYTES = 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const isProxy = util.types.isProxy.bind(undefined);
@@ -22,7 +24,7 @@ SELECT cl.id::text AS client_id, cl.slug AS client_slug,
   loc.id::text AS location_id, loc.location_id AS location_key,
   ep.id::text AS endpoint_id, c.id::text AS conversation_id,
   p.inbound_event_id::text AS inbound_message_id, c.channel,
-  ev.provider, ev.provider_mailbox_id AS provider_mailbox_id,
+  ev.provider, ev.provider_mailbox_id AS provider_mailbox_id, ev.provider_message_id AS provider_source_message_id,
   ep.provider_resource_id AS endpoint_provider_mailbox_id, ev.location_id::text AS event_location_id,
   COALESCE(ev.subject,'') AS subject, COALESCE(ev.body_text,'') AS body_text,
   ''::text AS quoted_history, COALESCE(ev.from_display_name,'') AS from_display_name,
@@ -48,7 +50,8 @@ function ownData(value, key) {
 }
 function exactRecord(value, keys) {
   try {
-    if (!value || typeof value !== 'object' || isArray(value) || isProxy(value) || getPrototypeOf(value) !== Object.prototype) return false;
+    if (!value || typeof value !== 'object' || isArray(value) || isProxy(value)
+      || (getPrototypeOf(value) !== Object.prototype && getPrototypeOf(value) !== null)) return false;
     const actual = ownKeys(value);
     return actual.length === keys.length && actual.every((key) => typeof key === 'string' && keys.includes(key)
       && ownData(value, key) !== undefined);
@@ -74,10 +77,11 @@ function isEmailLunaGenerateDraftEnabled(env) {
     && ownData(env, 'EMAIL_LUNA_DRAFT_RUNTIME_ENABLED') === 'true';
 }
 function actor(user) {
-  if (!user || typeof user !== 'object' || user.status !== 'active' || user.client_slug !== 'sunset') return null;
-  const staffId = uuid(user.staff_user_id); const clientId = uuid(user.client_id);
-  return staffId && clientId && ['operator', 'admin', 'owner'].includes(user.role)
-    ? freeze({ staff_user_id: staffId, client_id: clientId, role: user.role }) : null;
+  if (!user || typeof user !== 'object' || isProxy(user)) return null;
+  const status = ownData(user, 'status'); const slug = ownData(user, 'client_slug'); const role = ownData(user, 'role');
+  const staffId = uuid(ownData(user, 'staff_user_id')); const clientId = uuid(ownData(user, 'client_id'));
+  return status === 'active' && slug === 'sunset' && staffId && clientId && ['operator', 'admin', 'owner'].includes(role)
+    ? freeze({ staff_user_id: staffId, client_id: clientId, role }) : null;
 }
 async function readBody(req) {
   const chunks = []; let bytes = 0;
@@ -89,29 +93,43 @@ async function readBody(req) {
 }
 function safeRow(row, expectedActor, conversationId) {
   try {
-    if (!row || typeof row !== 'object') return null;
+    if (!row || typeof row !== 'object' || isProxy(row)) return null;
+    const r = Object.create(null);
+    for (const key of ['client_id','client_slug','location_id','location_key','endpoint_id','conversation_id','inbound_message_id',
+      'channel','provider','provider_mailbox_id','provider_source_message_id','endpoint_provider_mailbox_id','event_location_id',
+      'subject','body_text','quoted_history','from_display_name','from_address','conversation_deleted_at','conversation_status',
+      'latest_message_id','luna_draft_enabled']) r[key] = ownData(row, key);
     const authority = {
-      client_id: uuid(row.client_id), location_id: uuid(row.location_id), location_key: row.location_key,
-      conversation_id: uuid(row.conversation_id), endpoint_id: uuid(row.endpoint_id), inbound_message_id: uuid(row.inbound_message_id),
+      client_id: uuid(r.client_id), location_id: uuid(r.location_id), location_key: r.location_key,
+      conversation_id: uuid(r.conversation_id), endpoint_id: uuid(r.endpoint_id), inbound_message_id: uuid(r.inbound_message_id),
     };
     if (!authority.client_id || authority.client_id !== expectedActor.client_id || authority.conversation_id !== conversationId
       || !authority.location_id || authority.location_key !== 'sunset-somo' || !authority.endpoint_id || !authority.inbound_message_id
-      || row.client_slug !== 'sunset' || row.channel !== 'email' || row.provider !== 'microsoft_graph'
-      || row.conversation_deleted_at != null || row.conversation_status !== 'active'
-      || uuid(row.latest_message_id) !== authority.inbound_message_id || row.luna_draft_enabled !== true
-      || uuid(row.event_location_id) !== authority.location_id
-      || uuid(row.endpoint_provider_mailbox_id) !== uuid(row.provider_mailbox_id)) return null;
-    return freeze({ authority: freeze(authority), row });
+      || r.client_slug !== 'sunset' || r.channel !== 'email' || r.provider !== 'microsoft_graph'
+      || r.conversation_deleted_at != null || r.conversation_status !== 'active'
+      || uuid(r.latest_message_id) !== authority.inbound_message_id || r.luna_draft_enabled !== true
+      || uuid(r.event_location_id) !== authority.location_id
+      || uuid(r.endpoint_provider_mailbox_id) !== uuid(r.provider_mailbox_id)
+      || typeof r.provider_source_message_id !== 'string' || !r.provider_source_message_id) return null;
+    const expectedAuthority = freeze({ client_id: authority.client_id, location_id: authority.location_id,
+      location_key: authority.location_key, endpoint_id: authority.endpoint_id, conversation_id: authority.conversation_id,
+      source_inbound_event_id: authority.inbound_message_id, provider: r.provider,
+      provider_mailbox_id: r.provider_mailbox_id, provider_source_message_id: r.provider_source_message_id });
+    return freeze({ authority: freeze(authority), expectedAuthority, row: freeze(r) });
   } catch { return null; }
 }
-function isSafeReady(result, authority) {
-  try {
-    return result && typeof result === 'object' && result.status === 'draft_ready'
-      && result.client_id === authority.client_id && result.location_id === authority.location_id
-      && result.conversation_id === authority.conversation_id && result.draft_only === true
-      && result.requires_staff_review === true && result.send_allowed === false && result.auto_send_allowed === false
-      && typeof result.body === 'string' && result.body.length > 0 && Buffer.byteLength(result.body, 'utf8') <= 8000;
-  } catch { return false; }
+function snapshotGenerated(result, authority) {
+  const keys = exactRecord(result, READY_KEYS) ? READY_KEYS : (exactRecord(result, HANDOFF_KEYS) ? HANDOFF_KEYS : null);
+  if (!keys) return null;
+  const snap = Object.create(null);
+  for (const key of keys) snap[key] = ownData(result, key);
+  if (snap.client_id !== authority.client_id || snap.location_id !== authority.location_id
+      || snap.conversation_id !== authority.conversation_id || snap.draft_only !== true
+      || snap.requires_staff_review !== true || snap.send_allowed !== false || snap.auto_send_allowed !== false) return null;
+  if (snap.status === 'handoff_required' && typeof snap.reason === 'string') return freeze(snap);
+  if (snap.status !== 'draft_ready' || typeof snap.body !== 'string' || !snap.body.length
+      || Buffer.byteLength(snap.body, 'utf8') > 8000) return null;
+  return freeze(snap);
 }
 function createStaffEmailLunaDraftRoute(deps) {
   if (!deps || typeof deps.sendJSON !== 'function' || typeof deps.withPgClient !== 'function'
@@ -150,12 +168,12 @@ function createStaffEmailLunaDraftRoute(deps) {
       const runtime = deps.createLunaRuntime({ env: deps.runtimeEnv || process.env, authority: context.authority,
         tenant_location_gate: freeze({ client_id: context.authority.client_id, location_id: context.authority.location_id,
           location_key: context.authority.location_key, draft_enabled: true }) });
-      const generated = await runtime.authorDraft({ envelope, evidence, decision });
+      const generated = snapshotGenerated(await runtime.authorDraft({ envelope, evidence, decision }), context.authority);
       if (generated && generated.status === 'handoff_required')
-        return deps.sendJSON(res, 422, freeze({ success: false, error: 'luna_handoff_required', reason: typeof generated.reason === 'string' ? generated.reason : 'unsupported_request' }));
-      if (!isSafeReady(generated, context.authority)) return deps.sendJSON(res, 503, freeze({ success: false, error: 'luna_draft_unavailable' }));
+        return deps.sendJSON(res, 422, freeze({ success: false, error: 'luna_handoff_required', reason: generated.reason }));
+      if (!generated) return deps.sendJSON(res, 503, freeze({ success: false, error: 'luna_draft_unavailable' }));
       const saved = await deps.saveDraftThroughStaffOwner({ actor: a, conversation_id: input.conversation_id,
-        message_text: generated.body, approval_id: null });
+        message_text: generated.body, approval_id: null, expected_authority: context.expectedAuthority });
       if (!saved || saved.success !== true || saved.conversation_id !== input.conversation_id || saved.message_text !== generated.body)
         return deps.sendJSON(res, 503, freeze({ success: false, error: 'luna_draft_unavailable' }));
       return deps.sendJSON(res, 200, freeze({ success: true, conversation_id: saved.conversation_id,
