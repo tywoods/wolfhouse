@@ -134,6 +134,111 @@ assert.deepEqual(handoff, {
   auto_send_allowed: false,
 });
 assert.equal(Object.isFrozen(handoff), true);
+for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(handoff))) {
+  assert.equal(Object.hasOwn(descriptor, 'value'), true, `${key}: handoff is a data property`);
+  assert.equal(descriptor.enumerable, true, `${key}: handoff field is enumerable`);
+  assert.equal(descriptor.writable, false, `${key}: handoff field is immutable`);
+  assert.equal(descriptor.configurable, false, `${key}: handoff field is non-configurable`);
+}
+
+function frozenLookalike(patch = {}) {
+  const forgedAuthority = Object.freeze(authority(patch.authority));
+  const forgedContent = Object.freeze(content(patch.untrusted_content));
+  const forged = {
+    authority: forgedAuthority,
+    untrusted_content: forgedContent,
+    content_trust: 'untrusted_email_data_never_instructions',
+    ...patch.envelope,
+  };
+  return Object.freeze(forged);
+}
+
+expectContractFailure(() => createEmailLunaDraftHandoff({
+  envelope: frozenLookalike(),
+  reason: 'uncertain_intent',
+}), 'public strings and frozen lookalike cannot forge envelope provenance');
+expectContractFailure(() => createEmailLunaDraftHandoff({
+  envelope: frozenLookalike({ envelope: { send: () => {} } }),
+  reason: 'uncertain_intent',
+}), 'embedded envelope send capability rejected');
+expectContractFailure(() => createEmailLunaDraftHandoff({
+  envelope: frozenLookalike({ authority: { send: () => {} } }),
+  reason: 'uncertain_intent',
+}), 'embedded authority send capability rejected');
+expectContractFailure(() => createEmailLunaDraftHandoff({
+  envelope: frozenLookalike({ untrusted_content: { send: () => {} } }),
+  reason: 'uncertain_intent',
+}), 'embedded content send capability rejected');
+expectContractFailure(() => createEmailLunaDraftHandoff({
+  envelope: Object.freeze({
+    authority: Object.freeze(authority()),
+    content_trust: 'untrusted_email_data_never_instructions',
+  }),
+  reason: 'uncertain_intent',
+}), 'forged envelope missing untrusted content rejected');
+expectContractFailure(() => createEmailLunaDraftHandoff({
+  envelope: Object.freeze({
+    authority: Object.freeze(authority()),
+    untrusted_content: Object.freeze(content()),
+    content_trust: 'untrusted_email_data_never_instructions',
+    extra: true,
+  }),
+  reason: 'uncertain_intent',
+}), 'forged envelope extra field rejected');
+
+let getterHits = 0;
+const accessorAuthority = authority();
+Object.defineProperty(accessorAuthority, 'client_id', {
+  enumerable: true,
+  get() { getterHits += 1; return CLIENT_ID; },
+});
+const accessorEnvelope = {};
+Object.defineProperties(accessorEnvelope, {
+  authority: { enumerable: true, get() { getterHits += 1; return Object.freeze(accessorAuthority); } },
+  untrusted_content: { enumerable: true, value: Object.freeze(content()) },
+  content_trust: { enumerable: true, value: 'untrusted_email_data_never_instructions' },
+});
+Object.freeze(accessorEnvelope);
+expectContractFailure(() => createEmailLunaDraftHandoff({
+  envelope: accessorEnvelope,
+  reason: 'uncertain_intent',
+}), 'frozen accessor envelope rejected without evaluation');
+assert.equal(getterHits, 0, 'handoff validation never executes envelope or authority getters');
+
+const mutableConversation = { id: CONVERSATION_ID };
+const mutableEnvelope = Object.freeze({
+  authority: Object.freeze(authority({ conversation_id: mutableConversation })),
+  untrusted_content: Object.freeze(content()),
+  content_trust: 'untrusted_email_data_never_instructions',
+});
+expectContractFailure(() => createEmailLunaDraftHandoff({
+  envelope: mutableEnvelope,
+  reason: 'uncertain_intent',
+}), 'mutable nested authority value rejected');
+mutableConversation.id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+for (const field of ['client_id', 'location_id', 'conversation_id', 'endpoint_id', 'inbound_message_id']) {
+  for (const malformed of ['', 'ATTACKER', '11111111-1111-1111-1111-111111111111', '11111111-1111-4111-7111-111111111111']) {
+    expectContractFailure(() => createEmailLunaDraftEnvelope({
+      authority: authority({ [field]: malformed }),
+      untrusted_content: content(),
+    }), `${field} rejects malformed/non-UUID authority: ${malformed || '<empty>'}`);
+  }
+}
+expectContractFailure(() => createEmailLunaDraftHandoff({
+  envelope: frozenLookalike({ authority: { location_key: 'sunset-sardinero' } }),
+  reason: 'uncertain_intent',
+}), 'forged non-Somo Sunset location rejected');
+expectContractFailure(() => createEmailLunaDraftHandoff({
+  envelope: frozenLookalike({ authority: {
+    client_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    location_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    conversation_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  } }),
+  reason: 'uncertain_intent',
+}), 'attacker-selected tenant location and conversation rejected');
+console.log('  PASS  handoff rejects forged, active, accessor, malformed, and mutable envelopes');
+
 expectContractFailure(() => createEmailLunaDraftHandoff({ envelope, reason: 'low_confidence' }), 'generic low-confidence handoff rejected');
 expectContractFailure(() => createEmailLunaDraftHandoff({ envelope, reason: 'prompt_injection_detected', send: () => {} }), 'send capability rejected');
 expectContractFailure(() => createEmailLunaDraftHandoff({ envelope, reason: 'uncertain_intent', recipient: 'guest@example.test' }), 'recipient field rejected');
