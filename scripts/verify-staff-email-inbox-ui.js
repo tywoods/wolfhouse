@@ -58,6 +58,12 @@ function buildHtmlArtifact(drafts, outbound) {
   clearStaffCache();
   return require('./lib/sunset-admin-verify-ui-html').buildVerifyStaffUiHtml();
 }
+
+// Slice 4.5 RED: the cooked browser journey must own Luna generation behavior,
+// not merely grep the generated router source.
+if (!fs.readFileSync(__filename, 'utf8').includes('SLICE_4_5_LUNA_' + 'BEHAVIOR_GREEN:')) {
+  throw new Error('missing cooked Slice 4.5 Luna behavior journey');
+}
 function emailListRow(id, ch, name, phone) {
   return { conversation_id: id, guest_name: name, phone, channel: ch, last_message_preview: ch === 'email' ? 'Hello from email' : 'Hello from wa', needs_human: true, guest_email: ch === 'email' ? 'guest@example.com' : null, location_id: 'sunset-somo', bot_mode: 'bot', conversation_status: 'active' };
 }
