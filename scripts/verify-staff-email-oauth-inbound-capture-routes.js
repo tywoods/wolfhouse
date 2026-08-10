@@ -962,6 +962,16 @@ async function main() {
   assert.match(routesSrc, /durably_captured/);
   assert.match(routesSrc, /durable_capture_completed/);
   assert.match(routesSrc, /inbound_capture_unavailable/);
+  // Phase B refresh 503 fix is access-session classification ownership; capture route
+  // must remain on the same access-session-backed composition path.
+  {
+    const sessionSrc = fs.readFileSync(
+      path.join(ROOT, 'scripts/lib/email-delegated-grant-access-session.js'),
+      'utf8',
+    );
+    assert.match(sessionSrc, /scope_version|scopeVersion/,
+      'inbound capture 503 shell must not keep Phase-A-only refresh classification');
+  }
   // Factory-fixed capability reuses captured outer pg (no second checkout).
   assert.match(routesSrc, /async function withTransactionClient\(work\)/);
   assert.match(routesSrc, /return work\(pg\)/);

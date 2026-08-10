@@ -237,6 +237,19 @@ async function main() {
     assert.match(compSrc, /createDelegatedGrantAccessSession/);
     assert.match(compSrc, /createAuthorityBoundInboundOperation/);
     assert.match(compSrc, /createMicrosoftGraphImmutableIdPageTransport/);
+    // Phase B refresh classification is owned by access-session (not composition).
+    // Composition must keep a single access-session owner so Phase B grants stop
+    // becoming sanitized 503 after phase-aware session GREEN.
+    {
+      const sessionSrc = fs.readFileSync(
+        path.join(ROOT, 'scripts/lib/email-delegated-grant-access-session.js'),
+        'utf8',
+      );
+      assert.match(sessionSrc, /scope_version|scopeVersion/,
+        'access-session must thread trusted scope_version for Phase B refresh');
+      assert.match(sessionSrc, /exchangeRefreshToken/);
+      assert.doesNotMatch(compSrc, /validateAndNormalizeTokenResponseScope|Mail\.ReadBasic/);
+    }
     // No timer/cron/poller wiring; comments may mention "startup" as a non-goal.
     assert.equal(/setInterval\s*\(|\.cron\b|createPoller|startPolling/i.test(compSrc), false);
     assert.equal(

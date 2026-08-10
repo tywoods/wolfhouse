@@ -365,6 +365,7 @@
     "verify:email-microsoft-response-custody-handoff": "node scripts/verify-email-microsoft-response-custody-handoff.js",
     "verify:email-microsoft-authorization-code-request": "node scripts/verify-email-microsoft-authorization-code-request.js",
     "verify:email-microsoft-refresh-token-response": "node scripts/verify-email-microsoft-refresh-token-response.js",
+    "verify:email-microsoft-refresh-token-response-by-scope-version": "node scripts/verify-email-microsoft-refresh-token-response-by-scope-version.js",
     "verify:email-microsoft-refresh-token-request": "node scripts/verify-email-microsoft-refresh-token-request.js",
     "verify:email-delegated-grant-refresh-rotation": "node scripts/verify-email-delegated-grant-refresh-rotation.js",
     "verify:email-microsoft-delegated-refresh-sunset-staging-runtime-composition": "node scripts/verify-email-microsoft-delegated-refresh-sunset-staging-runtime-composition.js",

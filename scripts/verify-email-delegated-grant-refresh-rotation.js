@@ -59,6 +59,9 @@ function createMockPg(handlers) {
 
 function frozenMethod(name, fn) { return Object.freeze({ [name]: fn }); }
 
+const PHASE_A_TOKEN_SCOPE = 'openid profile User.Read Mail.ReadBasic';
+const PHASE_B_TOKEN_SCOPE = 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send';
+
 function successTransport(bodyPatch = {}) {
   return frozenMethod('postTokenForm', async () => Object.freeze({
     statusCode: 200,
@@ -68,10 +71,14 @@ function successTransport(bodyPatch = {}) {
       expires_in: 3600,
       access_token: 'at-NEVER_LEAK',
       refresh_token: NEW_RT,
-      scope: 'openid profile User.Read Mail.ReadBasic',
+      scope: PHASE_A_TOKEN_SCOPE,
       ...bodyPatch,
     }),
   }));
+}
+
+function phaseBSuccessTransport(bodyPatch = {}) {
+  return successTransport({ scope: PHASE_B_TOKEN_SCOPE, ...bodyPatch });
 }
 
 function omitRefreshTransport() {
@@ -102,8 +109,9 @@ function emptyRefreshTransport() {
 }
 
 /** Mock PG that supports status → acquire → open → commit (+ optional reconcile/abort). */
-function mockGrantLifecycle({ sealed, opId, onCommit, failCommit }) {
+function mockGrantLifecycle({ sealed, opId, onCommit, failCommit, scopeVersion }) {
   let leaseTok = null;
+  const scopeVer = scopeVersion === undefined ? 'phase_a_v2' : scopeVersion;
   return createMockPg([
     {
       match: (t) => /FROM tenant_email_delegated_grants/i.test(t)
@@ -112,6 +120,7 @@ function mockGrantLifecycle({ sealed, opId, onCommit, failCommit }) {
         client_id: CLIENT, endpoint_id: ENDPOINT,
         grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
         grant_lease_token: null,
+        scope_version: scopeVer,
       }),
     },
     {
@@ -121,6 +130,7 @@ function mockGrantLifecycle({ sealed, opId, onCommit, failCommit }) {
         grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
         grant_lease_token: null, grant_lease_until: null,
         last_operation_id: opId,
+        scope_version: scopeVer,
         envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
         kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
         kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
@@ -139,6 +149,7 @@ function mockGrantLifecycle({ sealed, opId, onCommit, failCommit }) {
           grant_lease_token: leaseTok,
           grant_lease_until: new Date(Date.now() + 60000).toISOString(),
           last_operation_id: opId,
+          scope_version: scopeVer,
         });
       },
     },
@@ -151,6 +162,7 @@ function mockGrantLifecycle({ sealed, opId, onCommit, failCommit }) {
         grant_lease_token: leaseTok,
         grant_lease_until: new Date(Date.now() + 60000).toISOString(),
         last_operation_id: opId,
+        scope_version: scopeVer,
         envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
         kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
         kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
@@ -167,6 +179,7 @@ function mockGrantLifecycle({ sealed, opId, onCommit, failCommit }) {
           client_id: CLIENT, endpoint_id: ENDPOINT,
           grant_generation: Number(p[2]), grant_status: 'active',
           reconcile_state: 'clean',
+          scope_version: scopeVer,
         });
       },
     },
@@ -176,6 +189,7 @@ function mockGrantLifecycle({ sealed, opId, onCommit, failCommit }) {
         client_id: CLIENT, endpoint_id: ENDPOINT,
         grant_generation: 1, grant_status: 'lease_held',
         reconcile_state: 'ms_response_uncertain',
+        scope_version: scopeVer,
       }),
     },
     {
@@ -184,6 +198,7 @@ function mockGrantLifecycle({ sealed, opId, onCommit, failCommit }) {
         client_id: CLIENT, endpoint_id: ENDPOINT,
         grant_generation: 1, grant_status: 'active',
         reconcile_state: 'ms_response_uncertain',
+        scope_version: scopeVer,
       }),
     },
     { match: () => true, run: () => empty() },
@@ -776,6 +791,79 @@ async function main() {
       () => once.runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT })),
       (e) => e.code === FAILURE_CODE,
     );
+
+    // ── Phase B grant + Phase B MS 200 → healthy (refresh-health honesty) ─
+    {
+      const fakeB = createFakeEmailGrantEnvelopeProvider();
+      const opB = crypto.randomUUID();
+      const sealedB = await fakeSealRefreshToken(fakeB, {
+        refreshToken: OLD_RT,
+        clientId: CLIENT,
+        endpointId: ENDPOINT,
+        grantGeneration: 1,
+        operationId: opB,
+      });
+      const result = await createDelegatedGrantRefreshRotationService(Object.freeze({
+        deployment: SUNSET_DEPLOYMENT,
+        applicationClientId: APP_ID,
+        client: mockGrantLifecycle({ sealed: sealedB, opId: opB, scopeVersion: 'phase_b_v1' }),
+        envelopeProvider: fakeB,
+        secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+        transport: phaseBSuccessTransport(),
+      })).runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+      assert.equal(result.status, STATUS_HEALTHY,
+        'Phase B grant refresh-health must not stay ms_response_uncertain');
+      assert.equal(result.grant_generation, 2);
+      assert.equal(result.reauthorization_required, false);
+      assert.equal(noLeak(result), true);
+    }
+
+    // Phase A grant + Phase B scopes → uncertain (Phase A not broadened).
+    {
+      const fakeA = createFakeEmailGrantEnvelopeProvider();
+      const opA = crypto.randomUUID();
+      const sealedA = await fakeSealRefreshToken(fakeA, {
+        refreshToken: OLD_RT,
+        clientId: CLIENT,
+        endpointId: ENDPOINT,
+        grantGeneration: 1,
+        operationId: opA,
+      });
+      const result = await createDelegatedGrantRefreshRotationService(Object.freeze({
+        deployment: SUNSET_DEPLOYMENT,
+        applicationClientId: APP_ID,
+        client: mockGrantLifecycle({ sealed: sealedA, opId: opA, scopeVersion: 'phase_a_v2' }),
+        envelopeProvider: fakeA,
+        secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+        transport: phaseBSuccessTransport(),
+      })).runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+      assert.equal(result.status, STATUS_UNCERTAIN);
+      assert.equal(result.reconcile_state, 'ms_response_uncertain');
+      assert.equal(noLeak(result), true);
+    }
+
+    // Unknown scope_version fails closed.
+    {
+      const fakeU = createFakeEmailGrantEnvelopeProvider();
+      const opU = crypto.randomUUID();
+      const sealedU = await fakeSealRefreshToken(fakeU, {
+        refreshToken: OLD_RT,
+        clientId: CLIENT,
+        endpointId: ENDPOINT,
+        grantGeneration: 1,
+        operationId: opU,
+      });
+      const result = await createDelegatedGrantRefreshRotationService(Object.freeze({
+        deployment: SUNSET_DEPLOYMENT,
+        applicationClientId: APP_ID,
+        client: mockGrantLifecycle({ sealed: sealedU, opId: opU, scopeVersion: 'phase_b_v2' }),
+        envelopeProvider: fakeU,
+        secretProvider: frozenMethod('getClientSecret', async () => SECRET),
+        transport: phaseBSuccessTransport(),
+      })).runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
+      assert.equal(result.status, STATUS_UNCERTAIN);
+      assert.equal(noLeak(result), true);
+    }
 
     assert.deepEqual(logged, []);
   } finally {
