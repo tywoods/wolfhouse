@@ -1,6 +1,19 @@
 'use strict';
 
-const EMAIL_LUNA_DRAFT_HANDOFF_REASONS = Object.freeze([
+const uncurryThis = (fn) => Function.prototype.call.bind(fn);
+const objectFreeze = Object.freeze;
+const objectGetOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
+const objectGetPrototypeOf = Object.getPrototypeOf;
+const objectHasOwn = Object.hasOwn;
+const objectIsFrozen = Object.isFrozen;
+const reflectOwnKeys = Reflect.ownKeys;
+const arrayFilter = uncurryThis(Array.prototype.filter);
+const arrayIncludes = uncurryThis(Array.prototype.includes);
+const regexpTest = uncurryThis(RegExp.prototype.test);
+const weakSetAdd = uncurryThis(WeakSet.prototype.add);
+const weakSetHas = uncurryThis(WeakSet.prototype.has);
+
+const EMAIL_LUNA_DRAFT_HANDOFF_REASONS = objectFreeze([
   'uncertain_identity',
   'uncertain_intent',
   'authority_mismatch',
@@ -10,7 +23,7 @@ const EMAIL_LUNA_DRAFT_HANDOFF_REASONS = Object.freeze([
   'grounded_tool_failed',
 ]);
 
-const AUTHORITY_FIELDS = Object.freeze([
+const AUTHORITY_FIELDS = objectFreeze([
   'client_id',
   'location_id',
   'location_key',
@@ -18,14 +31,14 @@ const AUTHORITY_FIELDS = Object.freeze([
   'endpoint_id',
   'inbound_message_id',
 ]);
-const CONTENT_FIELDS = Object.freeze([
+const CONTENT_FIELDS = objectFreeze([
   'subject',
   'body_text',
   'quoted_history',
   'from_display_name',
   'from_address',
 ]);
-const CONTENT_LIMITS = Object.freeze({
+const CONTENT_LIMITS = objectFreeze({
   subject: 998,
   body_text: 64000,
   quoted_history: 64000,
@@ -42,25 +55,25 @@ function invalid() {
 }
 
 function isPlainRecord(value) {
-  return value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype;
+  return value !== null && typeof value === 'object' && objectGetPrototypeOf(value) === Object.prototype;
 }
 
 function readExactDataRecord(value, fields) {
   if (!isPlainRecord(value)) throw invalid();
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  if (Reflect.ownKeys(descriptors).length !== fields.length) throw invalid();
+  const descriptors = objectGetOwnPropertyDescriptors(value);
+  if (reflectOwnKeys(descriptors).length !== fields.length) throw invalid();
   const copy = {};
   for (const field of fields) {
     const descriptor = descriptors[field];
-    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) throw invalid();
+    if (!descriptor || !descriptor.enumerable || !objectHasOwn(descriptor, 'value')) throw invalid();
     copy[field] = descriptor.value;
   }
   return copy;
 }
 
 function validateAuthority(authority) {
-  for (const field of AUTHORITY_FIELDS.filter((field) => field !== 'location_key')) {
-    if (typeof authority[field] !== 'string' || !UUID.test(authority[field])) throw invalid();
+  for (const field of arrayFilter(AUTHORITY_FIELDS, (field) => field !== 'location_key')) {
+    if (typeof authority[field] !== 'string' || !regexpTest(UUID, authority[field])) throw invalid();
   }
   if (authority.location_key !== 'sunset-somo') throw invalid();
 }
@@ -72,13 +85,13 @@ function validateContent(untrustedContent) {
 }
 
 function readFrozenExactDataRecord(value, fields) {
-  if (!isPlainRecord(value) || !Object.isFrozen(value)) throw invalid();
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  if (Reflect.ownKeys(descriptors).length !== fields.length) throw invalid();
+  if (!isPlainRecord(value) || !objectIsFrozen(value)) throw invalid();
+  const descriptors = objectGetOwnPropertyDescriptors(value);
+  if (reflectOwnKeys(descriptors).length !== fields.length) throw invalid();
   const copy = {};
   for (const field of fields) {
     const descriptor = descriptors[field];
-    if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.enumerable
+    if (!descriptor || !objectHasOwn(descriptor, 'value') || !descriptor.enumerable
         || descriptor.writable || descriptor.configurable) throw invalid();
     copy[field] = descriptor.value;
   }
@@ -93,19 +106,19 @@ function createEmailLunaDraftEnvelope(input) {
   const untrustedContent = readExactDataRecord(request.untrusted_content, CONTENT_FIELDS);
   validateContent(untrustedContent);
 
-  const envelope = Object.freeze({
-    authority: Object.freeze(authority),
-    untrusted_content: Object.freeze(untrustedContent),
+  const envelope = objectFreeze({
+    authority: objectFreeze(authority),
+    untrusted_content: objectFreeze(untrustedContent),
     content_trust: 'untrusted_email_data_never_instructions',
   });
-  AUTHENTIC_ENVELOPES.add(envelope);
+  weakSetAdd(AUTHENTIC_ENVELOPES, envelope);
   return envelope;
 }
 
 function createEmailLunaDraftHandoff(input) {
   const request = readExactDataRecord(input, ['envelope', 'reason']);
   const envelope = request.envelope;
-  if (!envelope || !AUTHENTIC_ENVELOPES.has(envelope)) throw invalid();
+  if (!envelope || !weakSetHas(AUTHENTIC_ENVELOPES, envelope)) throw invalid();
 
   const envelopeSnapshot = readFrozenExactDataRecord(
     envelope,
@@ -116,9 +129,9 @@ function createEmailLunaDraftHandoff(input) {
   if (envelopeSnapshot.content_trust !== 'untrusted_email_data_never_instructions') throw invalid();
   validateAuthority(authority);
   validateContent(untrustedContent);
-  if (!EMAIL_LUNA_DRAFT_HANDOFF_REASONS.includes(request.reason)) throw invalid();
+  if (!arrayIncludes(EMAIL_LUNA_DRAFT_HANDOFF_REASONS, request.reason)) throw invalid();
 
-  return Object.freeze({
+  return objectFreeze({
     status: 'handoff_required',
     reason: request.reason,
     client_id: authority.client_id,
