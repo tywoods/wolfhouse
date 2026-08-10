@@ -267,6 +267,7 @@ async function main() {
             client_id: CLIENT, endpoint_id: ENDPOINT,
             grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
             grant_lease_token: null,
+            scope_version: 'phase_a_v2',
           }),
         },
         {
@@ -276,6 +277,7 @@ async function main() {
             grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
             grant_lease_token: null, grant_lease_until: null,
             last_operation_id: op1,
+            scope_version: 'phase_a_v2',
             envelope_version: sealed1.envelope_version, aead_alg: sealed1.aead_alg,
             kek_wrap_alg: sealed1.kek_wrap_alg, kek_key_name: sealed1.kek_key_name,
             kek_key_version: sealed1.kek_key_version, nonce: sealed1.nonce,
@@ -294,6 +296,7 @@ async function main() {
               grant_lease_token: leaseTok,
               grant_lease_until: new Date(Date.now() + 60000).toISOString(),
               last_operation_id: op1,
+              scope_version: 'phase_a_v2',
             });
           },
         },
@@ -306,6 +309,7 @@ async function main() {
             grant_lease_token: leaseTok,
             grant_lease_until: new Date(Date.now() + 60000).toISOString(),
             last_operation_id: op1,
+            scope_version: 'phase_a_v2',
             envelope_version: sealed1.envelope_version, aead_alg: sealed1.aead_alg,
             kek_wrap_alg: sealed1.kek_wrap_alg, kek_key_name: sealed1.kek_key_name,
             kek_key_version: sealed1.kek_key_version, nonce: sealed1.nonce,
@@ -321,6 +325,7 @@ async function main() {
               client_id: CLIENT, endpoint_id: ENDPOINT,
               grant_generation: committedGen, grant_status: 'active',
               reconcile_state: 'clean',
+              scope_version: 'phase_a_v2',
             });
           },
         },
@@ -509,6 +514,7 @@ async function main() {
             client_id: CLIENT, endpoint_id: ENDPOINT,
             grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
             grant_lease_token: null,
+            scope_version: 'phase_a_v2',
           }),
         },
         {
@@ -534,6 +540,7 @@ async function main() {
               grant_lease_token: leaseTok,
               grant_lease_until: new Date(Date.now() + 60000).toISOString(),
               last_operation_id: op,
+              scope_version: 'phase_a_v2',
             });
           },
         },
@@ -546,6 +553,7 @@ async function main() {
             grant_lease_token: leaseTok,
             grant_lease_until: new Date(Date.now() + 60000).toISOString(),
             last_operation_id: op,
+            scope_version: 'phase_a_v2',
             envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
             kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
             kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
@@ -600,6 +608,7 @@ async function main() {
             client_id: CLIENT, endpoint_id: ENDPOINT,
             grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
             grant_lease_token: null,
+            scope_version: 'phase_a_v2',
           }),
         },
         {
@@ -625,6 +634,7 @@ async function main() {
               grant_lease_token: leaseTok,
               grant_lease_until: new Date(Date.now() + 60000).toISOString(),
               last_operation_id: op,
+              scope_version: 'phase_a_v2',
             });
           },
         },
@@ -637,6 +647,7 @@ async function main() {
             grant_lease_token: leaseTok,
             grant_lease_until: new Date(Date.now() + 60000).toISOString(),
             last_operation_id: op,
+            scope_version: 'phase_a_v2',
             envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
             kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
             kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,

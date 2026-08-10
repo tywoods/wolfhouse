@@ -111,11 +111,16 @@ function invalidGrant() {
 }
 
 /**
+ * Core success-path classification with an injected scope normalizer.
+ * Scope validator must return normalized string or null. Never logs tokens.
+ *
  * @param {unknown} response frozen transport shape { statusCode, contentType, body }
+ * @param {(scope: unknown) => string|null} scopeValidator
  * @returns {{ kind: 'success'|'invalid_grant'|'uncertain', selected?: object }}
  */
-function classifyMicrosoftRefreshTokenResponse(response) {
+function classifyMicrosoftRefreshTokenResponseWithScopeValidator(response, scopeValidator) {
   try {
+    if (typeof scopeValidator !== 'function') return uncertain();
     if (!response || Object.getPrototypeOf(response) !== Object.prototype) return uncertain();
     const statusCode = ownData(response, 'statusCode');
     const contentType = ownData(response, 'contentType');
@@ -157,8 +162,13 @@ function classifyMicrosoftRefreshTokenResponse(response) {
       const ext = ownData(value, 'ext_expires_in');
       if (!Number.isInteger(ext) || ext < 1 || ext > MAX_EXPIRES_IN_SECONDS) return uncertain();
     }
-    const normalizedScope = validateAndNormalizeTokenResponseScope(scope);
-    if (normalizedScope === null) return uncertain();
+    let normalizedScope;
+    try {
+      normalizedScope = scopeValidator(scope);
+    } catch (_) {
+      return uncertain();
+    }
+    if (typeof normalizedScope !== 'string' || normalizedScope.length < 1) return uncertain();
 
     // Distinguish absent (valid carry-forward) from present-but-hostile.
     // Use own-data descriptor reflection — never treat accessors as omission.
@@ -207,10 +217,25 @@ function classifyMicrosoftRefreshTokenResponse(response) {
   }
 }
 
+/**
+ * Phase A-only public classifier (legacy access-session / health path).
+ * Requires User.Read + Mail.ReadBasic; rejects higher-privilege Graph scopes.
+ *
+ * @param {unknown} response frozen transport shape { statusCode, contentType, body }
+ * @returns {{ kind: 'success'|'invalid_grant'|'uncertain', selected?: object }}
+ */
+function classifyMicrosoftRefreshTokenResponse(response) {
+  return classifyMicrosoftRefreshTokenResponseWithScopeValidator(
+    response,
+    validateAndNormalizeTokenResponseScope,
+  );
+}
+
 module.exports = Object.freeze({
   FAILURE_CODE,
   JSON_LIMIT_BYTES,
   TOKEN_LIMIT_CHARS,
   MAX_EXPIRES_IN_SECONDS,
   classifyMicrosoftRefreshTokenResponse,
+  classifyMicrosoftRefreshTokenResponseWithScopeValidator,
 });

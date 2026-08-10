@@ -267,6 +267,10 @@ function createDelegatedGrantAccessSession(deps) {
       refreshToken = openedOwner.value.refresh_token;
       openedOwner = null;
 
+      // Trusted persisted scope_version from private lease snapshot only.
+      // Never browser/env/provider response — missing/hostile fails closed.
+      const scopeVersion = typeof lease.scope_version === 'string' ? lease.scope_version : '';
+
       const exchange = createMicrosoftRefreshTokenRequestService(Object.freeze({
         deployment: SUNSET_DEPLOYMENT,
         applicationClientId,
@@ -274,7 +278,10 @@ function createDelegatedGrantAccessSession(deps) {
         transport,
       }));
       try {
-        classified = await exchange.exchangeRefreshToken(Object.freeze({ refreshToken }));
+        classified = await exchange.exchangeRefreshToken(Object.freeze({
+          refreshToken,
+          scopeVersion,
+        }));
       } catch (_) {
         const gen = lease.grant_generation;
         await markDelegatedGrantReconciliation({

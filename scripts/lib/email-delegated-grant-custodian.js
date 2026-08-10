@@ -265,8 +265,14 @@ function toPublicGrantStatusDto(row) {
   });
 }
 
-/** Private lease handle — ids + token only; never envelope material. */
+/** Private lease handle — ids + token + trusted scope_version; never envelope material. */
 function toPrivateLeaseHandle(row) {
+  // scope_version is non-secret custody policy key for phase-aware refresh.
+  // Missing/null rows fail closed at the refresh classifier (uncertain).
+  let scopeVersion = null;
+  if (typeof row.scope_version === 'string') {
+    scopeVersion = row.scope_version;
+  }
   return Object.freeze({
     client_id: row.client_id,
     endpoint_id: row.endpoint_id,
@@ -274,6 +280,7 @@ function toPrivateLeaseHandle(row) {
     lease_token: row.grant_lease_token,
     lease_until: row.grant_lease_until,
     last_operation_id: row.last_operation_id,
+    scope_version: scopeVersion,
   });
 }
 

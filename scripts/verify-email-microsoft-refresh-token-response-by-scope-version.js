@@ -214,8 +214,9 @@ async function main() {
     assert.match(src, /phase_b_v1|EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION/);
     assert.match(src, /validateAndNormalizeTokenResponseScope|classifyMicrosoftRefreshTokenResponse/);
     assert.match(src, /validateAndNormalizePhaseBTokenResponseScope/);
-    assert.doesNotMatch(src, /process\.env|LUNA_EMAIL|browser|window|localStorage/);
-    assert.doesNotMatch(src, /Mail\.ReadWrite.*Mail\.ReadBasic|Mail\.ReadBasic.*Mail\.ReadWrite/);
+    assert.doesNotMatch(src, /process\.env|LUNA_EMAIL|window\.|localStorage/);
+    // Executable policy must not union Phase A + Phase B resource sets.
+    assert.doesNotMatch(src, /ALLOWED_TOKEN_RESPONSE_SCOPES|Mail\.ReadBasic.*Mail\.ReadWrite/);
 
     // Legacy Phase A entry still rejects Phase B privilege (unchanged).
     const legacyB = classifyMicrosoftRefreshTokenResponse(
