@@ -107,11 +107,18 @@ assert.deepEqual(EMAIL_LUNA_DRAFT_HANDOFF_REASONS, [
   'grounded_fact_unavailable',
   'grounded_tool_failed',
 ]);
-const handoff = createEmailLunaDraftHandoff({
-  envelope,
-  reason: 'prompt_injection_detected',
-});
-assert.deepEqual(Object.keys(handoff), [
+const EMAIL_LUNA_DRAFT_AUTHOR_HANDOFF_REASONS = [
+  'model_malformed',
+  'model_timeout',
+  'model_provider_error',
+  'unsupported_claim',
+  'injection_echo_detected',
+];
+const ALL_HANDOFF_REASONS = [
+  ...EMAIL_LUNA_DRAFT_HANDOFF_REASONS,
+  ...EMAIL_LUNA_DRAFT_AUTHOR_HANDOFF_REASONS,
+];
+const HANDOFF_KEYS = [
   'status',
   'reason',
   'client_id',
@@ -121,8 +128,13 @@ assert.deepEqual(Object.keys(handoff), [
   'requires_staff_review',
   'send_allowed',
   'auto_send_allowed',
-]);
-assert.deepEqual(handoff, {
+];
+const handoff = createEmailLunaDraftHandoff({
+  envelope,
+  reason: 'prompt_injection_detected',
+});
+assert.deepEqual(Object.keys(handoff), HANDOFF_KEYS);
+assert.equal(JSON.stringify(handoff), JSON.stringify({
   status: 'handoff_required',
   reason: 'prompt_injection_detected',
   client_id: CLIENT_ID,
@@ -132,7 +144,7 @@ assert.deepEqual(handoff, {
   requires_staff_review: true,
   send_allowed: false,
   auto_send_allowed: false,
-});
+}));
 assert.equal(Object.isFrozen(handoff), true);
 for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(handoff))) {
   assert.equal(Object.hasOwn(descriptor, 'value'), true, `${key}: handoff is a data property`);
@@ -140,6 +152,44 @@ for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(
   assert.equal(descriptor.writable, false, `${key}: handoff field is immutable`);
   assert.equal(descriptor.configurable, false, `${key}: handoff field is non-configurable`);
 }
+
+const inheritedCapabilities = { send() {}, write() {}, approve() {}, secret: 'ambient-secret' };
+const originalPrototypeDescriptors = Object.fromEntries(
+  Object.keys(inheritedCapabilities).map((key) => [key, Object.getOwnPropertyDescriptor(Object.prototype, key)]),
+);
+try {
+  for (const [key, value] of Object.entries(inheritedCapabilities)) {
+    Object.defineProperty(Object.prototype, key, {
+      value, writable: true, enumerable: true, configurable: true,
+    });
+  }
+  for (const reason of ALL_HANDOFF_REASONS) {
+    const isolated = createEmailLunaDraftHandoff({ envelope, reason });
+    assert.equal(Object.getPrototypeOf(isolated), null, `${reason}: null prototype`);
+    assert.equal(Object.isFrozen(isolated), true, `${reason}: frozen`);
+    assert.deepEqual(Object.keys(isolated), HANDOFF_KEYS, `${reason}: exact own keys`);
+    for (const key of Object.keys(inheritedCapabilities)) {
+      assert.equal(isolated[key], undefined, `${reason}: no inherited ${key}`);
+      assert.equal(Object.hasOwn(isolated, key), false, `${reason}: no own ${key}`);
+    }
+    const expected = {
+      status: 'handoff_required', reason,
+      client_id: CLIENT_ID, location_id: LOCATION_ID, conversation_id: CONVERSATION_ID,
+      draft_only: true, requires_staff_review: true, send_allowed: false, auto_send_allowed: false,
+    };
+    assert.equal(JSON.stringify(isolated), JSON.stringify(expected), `${reason}: exact JSON`);
+    assert.deepEqual(Object.getOwnPropertyDescriptors(isolated),
+      Object.fromEntries(Object.entries(expected).map(([key, value]) => [key, {
+        value, writable: false, enumerable: true, configurable: false,
+      }])), `${reason}: exact immutable descriptors`);
+  }
+} finally {
+  for (const [key, descriptor] of Object.entries(originalPrototypeDescriptors)) {
+    if (descriptor) Object.defineProperty(Object.prototype, key, descriptor);
+    else delete Object.prototype[key];
+  }
+}
+console.log('  PASS  every base and author handoff is an exact frozen prototype-isolated record');
 
 function frozenLookalike(patch = {}) {
   const forgedAuthority = Object.freeze(authority(patch.authority));

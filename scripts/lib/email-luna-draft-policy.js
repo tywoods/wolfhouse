@@ -21,6 +21,9 @@ const numberIsFinite = Number.isFinite;
 const weakSetAdd = uncurryThis(WeakSet.prototype.add);
 const weakSetHas = uncurryThis(WeakSet.prototype.has);
 const AUTHENTIC_POLICY_EVIDENCE = new WeakSet();
+const AUTHENTIC_POLICY_DECISIONS = new WeakSet();
+const POLICY_EVIDENCE_ENVELOPES = new WeakMap();
+const POLICY_DECISION_ISSUANCE = new WeakMap();
 
 const EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS = objectFreeze([
   'ambiguous_identity',
@@ -40,6 +43,7 @@ const EVIDENCE_KEYS = objectFreeze([
   'client_id',
   'location_id',
   'conversation_id',
+  'language',
   'identity',
   'intent',
   'intent_support',
@@ -269,10 +273,11 @@ function frozenResults(value, requiredFacts) {
 function validateEvidenceScalars(evidence) {
   if (typeof evidence.client_id !== 'string' || typeof evidence.location_id !== 'string'
       || typeof evidence.conversation_id !== 'string' || typeof evidence.requested_location_id !== 'string'
-      || typeof evidence.identity !== 'string' || typeof evidence.intent !== 'string'
+      || typeof evidence.language !== 'string' || typeof evidence.identity !== 'string' || typeof evidence.intent !== 'string'
       || typeof evidence.intent_support !== 'string' || typeof evidence.explicit_human_request !== 'boolean'
       || typeof evidence.unsafe_transactional_request !== 'boolean') throw invalid();
-  if (!arrayIncludes(['matched', 'ambiguous', 'uncertain'], evidence.identity)
+  if (!arrayIncludes(['en', 'es'], evidence.language)
+      || !arrayIncludes(['matched', 'ambiguous', 'uncertain'], evidence.identity)
       || !arrayIncludes(['supported', 'unsupported', 'uncertain'], evidence.intent_support)) throw invalid();
 }
 
@@ -359,6 +364,7 @@ function createEmailLunaDraftPolicyEvidence(input) {
     client_id: evidence.client_id,
     location_id: evidence.location_id,
     conversation_id: evidence.conversation_id,
+    language: evidence.language,
     identity: evidence.identity,
     intent: evidence.intent,
     intent_support: evidence.intent_support,
@@ -404,6 +410,9 @@ function decideEmailLunaDraftPolicy(input) {
   const request = exactInput(input);
   const trusted = authenticEnvelope(request.envelope);
   if (!request.evidence || !weakSetHas(AUTHENTIC_POLICY_EVIDENCE, request.evidence)) throw invalid();
+  const boundEnvelope = POLICY_EVIDENCE_ENVELOPES.get(request.evidence);
+  if (boundEnvelope !== undefined && boundEnvelope !== request.envelope) throw invalid();
+  POLICY_EVIDENCE_ENVELOPES.set(request.evidence, request.envelope);
   const evidence = exactFrozenRecord(request.evidence, EVIDENCE_KEYS, Object.prototype);
   const callerRequiredFacts = exactFrozenStringArray(evidence.required_facts);
   for (let index = 0; index < callerRequiredFacts.length; index += 1) {
@@ -444,17 +453,56 @@ function decideEmailLunaDraftPolicy(input) {
   const groundedFacts = [];
   for (let index = 0; index < requiredFacts.length; index += 1) arrayPush(groundedFacts, requiredFacts[index]);
   objectFreeze(groundedFacts);
-  return output([
-    ['status', 'draft_ready'], ['intent', evidence.intent],
+  const decision = output([
+    ['status', 'draft_ready'], ['intent', evidence.intent], ['language', evidence.language],
     ['client_id', trusted.binding.client_id], ['location_id', trusted.binding.location_id],
     ['conversation_id', trusted.binding.conversation_id], ['grounded_facts', groundedFacts],
     ['draft_only', true], ['requires_staff_review', true],
     ['send_allowed', false], ['auto_send_allowed', false],
   ]);
+  weakSetAdd(AUTHENTIC_POLICY_DECISIONS, decision);
+  POLICY_DECISION_ISSUANCE.set(decision, objectFreeze({
+    envelope: request.envelope,
+    evidence: request.evidence,
+  }));
+  return decision;
+}
+
+function assertEmailLunaDraftPolicyIssuance(input) {
+  const request = copyExactProducerRecord(input, ['envelope', 'decision', 'evidence'], Object.prototype);
+  const trusted = authenticEnvelope(request.envelope);
+  if (!weakSetHas(AUTHENTIC_POLICY_DECISIONS, request.decision)
+      || !weakSetHas(AUTHENTIC_POLICY_EVIDENCE, request.evidence)) throw invalid();
+  const issuance = POLICY_DECISION_ISSUANCE.get(request.decision);
+  if (!issuance || issuance.envelope !== request.envelope || issuance.evidence !== request.evidence
+      || POLICY_EVIDENCE_ENVELOPES.get(request.evidence) !== request.envelope) throw invalid();
+  const decision = exactFrozenRecord(request.decision, [
+    'status', 'intent', 'language', 'client_id', 'location_id', 'conversation_id', 'grounded_facts',
+    'draft_only', 'requires_staff_review', 'send_allowed', 'auto_send_allowed',
+  ], null);
+  const evidence = exactFrozenRecord(request.evidence, EVIDENCE_KEYS, Object.prototype);
+  if (decision.status !== 'draft_ready' || decision.client_id !== trusted.binding.client_id
+      || decision.location_id !== trusted.binding.location_id || decision.conversation_id !== trusted.binding.conversation_id
+      || evidence.client_id !== trusted.binding.client_id || evidence.location_id !== trusted.binding.location_id
+      || evidence.conversation_id !== trusted.binding.conversation_id || evidence.intent !== decision.intent
+      || evidence.language !== decision.language) throw invalid();
+  const factIds = exactFrozenStringArray(decision.grounded_facts);
+  const results = frozenResults(evidence.grounded_results, factIds);
+  const facts = objectCreate(null);
+  for (let index = 0; index < factIds.length; index += 1) {
+    const id = factIds[index]; const result = results[id];
+    if (result.status !== 'found' || result.client_id !== trusted.binding.client_id
+        || result.location_id !== trusted.binding.location_id) throw invalid();
+    facts[id] = objectFreeze({ ...result });
+  }
+  return objectFreeze({ binding: trusted.binding, authority: objectFreeze({ ...trusted.authority }), language: evidence.language,
+    untrusted_content: objectFreeze({ ...trusted.untrustedContent }), fact_ids: objectFreeze(factIds),
+    grounded_facts: objectFreeze(facts) });
 }
 
 module.exports = {
   createEmailLunaDraftPolicyEvidence,
   decideEmailLunaDraftPolicy,
+  assertEmailLunaDraftPolicyIssuance,
   EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS,
 };
