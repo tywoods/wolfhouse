@@ -8,6 +8,10 @@ const FACTS = Object.freeze(['catalog', 'availability', 'policy', 'booking', 'pa
 const ALLOWED = new Set(['type', 'fact', 'status', 'reason', 'client_id', 'location_id', 'item', 'label', 'currency', 'amount_cents', 'active', 'date', 'slot_time', 'available', 'capacity', 'policy_key', 'policy_text', 'booking_code', 'booking_status', 'check_in', 'check_out', 'guest_count', 'payment_status', 'amount_paid_cents', 'balance_due_cents']);
 const FORBIDDEN = /secret|token|grant|provider|credential|password|checkout_url|session_id|payment_intent_id/i;
 
+function assertJsonEqual(actual, expected, message) {
+  assert.deepEqual(JSON.parse(JSON.stringify(actual)), expected, message);
+}
+
 function row(fact, extra = {}) {
   return { fact, client_id: AUTHORITY.client_id, location_id: AUTHORITY.location_id, status: 'found', label: `${fact} fact`, ...extra };
 }
@@ -23,16 +27,24 @@ async function main() {
   }])));
   const tools = createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners });
 
-  assert.ok(Object.isFrozen(tools.authority), 'server authority must be immutable');
-  assert.deepEqual(tools.authority, AUTHORITY);
+  assert.equal(Object.getPrototypeOf(tools), null, 'tools surface must have a null prototype');
+  assert.equal(Object.isFrozen(tools), true, 'tools surface must be immutable');
+  assert.equal(Object.isFrozen(tools.authority), true, 'server authority must be immutable');
+  assertJsonEqual(tools.authority, AUTHORITY);
   assert.equal('send' in tools, false, 'no send capability');
   assert.equal('write' in tools, false, 'no write capability');
-  assert.deepEqual(Object.keys(tools).sort(), ['authority', 'query']);
+  assert.deepEqual(Reflect.ownKeys(tools), ['authority', 'query']);
+  assert.equal(Object.getOwnPropertyDescriptor(tools, 'authority').value, tools.authority);
+  assert.equal(Object.getOwnPropertyDescriptor(tools, 'query').value, tools.query);
+  assert.equal(typeof tools.query, 'function');
+  assert.equal(Object.getOwnPropertyDescriptor(tools, 'query').enumerable, true);
+  assert.equal(Object.getOwnPropertyDescriptor(tools, 'query').writable, false);
+  assert.equal(Object.getOwnPropertyDescriptor(tools, 'query').configurable, false);
 
   for (const fact of FACTS) assert.equal((await tools.query(fact, { lookup: fact })).status, 'found');
   assert.equal(calls.length, FACTS.length);
   for (const call of calls) {
-    assert.deepEqual(call.scope, AUTHORITY, `${call.fact} must bind client and location`);
+    assertJsonEqual(call.scope, AUTHORITY, `${call.fact} must bind client and location`);
     assert.equal(Object.isFrozen(call.scope), true, `${call.fact} scope must be immutable`);
   }
 
@@ -44,7 +56,7 @@ async function main() {
 
   for (const fact of FACTS) {
     const scoped = createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ [fact]: async () => row(fact, { location_id: 'sunset-sardinero' }) }) });
-    assert.deepEqual(await scoped.query(fact, {}), {
+    assertJsonEqual(await scoped.query(fact, {}), {
       type: HANDOFF_REQUIRED, fact, status: 'handoff_required', reason: 'authority_mismatch', ...AUTHORITY,
     });
   }
@@ -61,13 +73,13 @@ async function main() {
   }
 
   const toolError = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ payment: async () => { throw new Error('db unavailable'); } }) }).query('payment', {});
-  assert.deepEqual(toolError, { type: HANDOFF_REQUIRED, fact: 'payment', status: 'handoff_required', reason: 'tool_error', ...AUTHORITY });
+  assertJsonEqual(toolError, { type: HANDOFF_REQUIRED, fact: 'payment', status: 'handoff_required', reason: 'tool_error', ...AUTHORITY });
 
   const factual = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ booking: async () => row('booking', {
     booking_code: 'SUN-42', booking_status: 'confirmed', secret_ref: 'secret', delegated_grant_id: 'grant',
     provider_message_id: 'provider-id', checkout_url: 'https://unsafe.invalid',
   }) }) }).query('booking', {});
-  assert.deepEqual(factual, { type: MISSING_FACT, fact: 'booking', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
+  assertJsonEqual(factual, { type: MISSING_FACT, fact: 'booking', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
   for (const key of Object.keys(factual)) {
     assert.equal(ALLOWED.has(key), true, `non-allowlisted field escaped: ${key}`);
     assert.equal(FORBIDDEN.test(key), false, `sensitive field escaped: ${key}`);
@@ -152,7 +164,7 @@ async function main() {
         getOwnPropertyDescriptor(_value, key) { reflectionTraps += 1; return Object.getOwnPropertyDescriptor(target, key); },
       });
       const result = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async () => { callsMade += 1; return proxy; } }) }).query('catalog', {});
-      assert.deepEqual(result, { type: MISSING_FACT, fact: 'catalog', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
+      assertJsonEqual(result, { type: MISSING_FACT, fact: 'catalog', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
       assert.equal(callsMade, 1);
       assert.equal(thenGets, 1, `native Promise assimilation must perform exactly one unavoidable then probe for owner ${shape} Proxy`);
       assert.equal(reflectionTraps, 0, `module must reject owner ${shape} Proxy before any subsequent reflection`);
@@ -161,7 +173,7 @@ async function main() {
       const revoked = Proxy.revocable(target, {});
       revoked.revoke();
       const revokedResult = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async () => revoked.proxy }) }).query('catalog', {});
-      assert.deepEqual(revokedResult, { type: HANDOFF_REQUIRED, fact: 'catalog', status: HANDOFF_REQUIRED, reason: 'tool_error', ...AUTHORITY });
+      assertJsonEqual(revokedResult, { type: HANDOFF_REQUIRED, fact: 'catalog', status: HANDOFF_REQUIRED, reason: 'tool_error', ...AUTHORITY });
     }
   });
 
@@ -216,7 +228,7 @@ async function main() {
       else delete Object.prototype.label;
     }
     assert.equal(setterCalls, 0, 'record construction must not execute Object.prototype setters');
-    assert.deepEqual(result, row('catalog'));
+    assertJsonEqual(result, row('catalog'));
   });
 
   await hostile('isolate every returned surface from post-import prototype injection', async () => {
@@ -305,7 +317,7 @@ async function main() {
     release();
     await pending;
     assert.notEqual(observed, input);
-    assert.deepEqual(observed, { lookup: 'before' });
+    assertJsonEqual(observed, { lookup: 'before' });
     assert.equal(Object.isFrozen(observed), true);
   });
 
@@ -327,7 +339,7 @@ async function main() {
 
   await hostile('reserve response semantics and enforce exact row schema', async () => {
     const forged = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async () => row('catalog', { type: HANDOFF_REQUIRED, reason: 'forged', extra: 'unknown' }) }) }).query('catalog', {});
-    assert.deepEqual(forged, { type: MISSING_FACT, fact: 'catalog', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
+    assertJsonEqual(forged, { type: MISSING_FACT, fact: 'catalog', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
   });
 
   await hostile('parse wrappers and rows descriptor-safely', async () => {
@@ -335,7 +347,7 @@ async function main() {
     const wrapper = {};
     Object.defineProperty(wrapper, 'rows', { enumerable: true, get() { wrapperGets += 1; return [row('catalog')]; } });
     const wrapperResult = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: async () => wrapper }) }).query('catalog', {});
-    assert.deepEqual(wrapperResult, { type: MISSING_FACT, fact: 'catalog', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
+    assertJsonEqual(wrapperResult, { type: MISSING_FACT, fact: 'catalog', status: MISSING_FACT, reason: 'malformed_fact', ...AUTHORITY });
     assert.equal(wrapperGets, 0);
     let rowGets = 0;
     const accessorRow = row('catalog');
@@ -349,7 +361,7 @@ async function main() {
     const thenable = {};
     Object.defineProperty(thenable, 'then', { get() { thenGets += 1; return (resolve) => resolve(row('catalog')); } });
     const exact = createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: () => thenable }) });
-    assert.deepEqual(await exact.query('catalog', {}), { type: HANDOFF_REQUIRED, fact: 'catalog', status: HANDOFF_REQUIRED, reason: 'tool_error', ...AUTHORITY });
+    assertJsonEqual(await exact.query('catalog', {}), { type: HANDOFF_REQUIRED, fact: 'catalog', status: HANDOFF_REQUIRED, reason: 'tool_error', ...AUTHORITY });
     assert.equal(thenGets, 0);
     for (const malformed of [Promise.resolve(), Promise.resolve(() => 1), Promise.resolve({ rows: [row('catalog')], extra: true })]) {
       const result = await createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({ catalog: () => malformed }) }).query('catalog', {});

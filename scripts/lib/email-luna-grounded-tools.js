@@ -10,6 +10,7 @@ const objectDefineProperty = Object.defineProperty;
 const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectHasOwn = Object.hasOwn;
+const objectSetPrototypeOf = Object.setPrototypeOf;
 const reflectOwnKeys = Reflect.ownKeys;
 const arrayIsArray = Array.isArray;
 const numberIsSafeInteger = Number.isSafeInteger;
@@ -62,13 +63,18 @@ function safeScalar(value) {
 }
 
 function frozenRecord(entries) {
-  const value = {};
+  const value = objectCreate(null);
   for (let index = 0; index < entries.length; index += 1) {
     const pair = entries[index];
     objectDefineProperty(value, pair[0], {
       value: pair[1], enumerable: true, writable: true, configurable: true,
     });
   }
+  return objectFreeze(value);
+}
+
+function frozenArray(value) {
+  objectSetPrototypeOf(value, null);
   return objectFreeze(value);
 }
 
@@ -202,13 +208,13 @@ function createEmailLunaGroundedTools(configuration = {}) {
         if (checked.kind === MISSING_FACT) return typed(MISSING_FACT, factName, 'malformed_fact', pinnedAuthority);
         arrayPush(values, checked.value);
       }
-      if (normalized.shape === 'array') return objectFreeze(values);
-      if (normalized.shape === 'rows') return frozenRecord([['rows', objectFreeze(values)]]);
+      if (normalized.shape === 'array') return frozenArray(values);
+      if (normalized.shape === 'rows') return frozenRecord([['rows', frozenArray(values)]]);
       return values[0];
     }, () => typed(HANDOFF_REQUIRED, factName, 'tool_error', pinnedAuthority));
   }
 
-  return objectFreeze({ authority: pinnedAuthority, query });
+  return frozenRecord([['authority', pinnedAuthority], ['query', query]]);
 }
 
 module.exports = { createEmailLunaGroundedTools, MISSING_FACT, HANDOFF_REQUIRED };
