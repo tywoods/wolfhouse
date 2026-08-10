@@ -11,6 +11,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wolfhouse import output_guard as og  # noqa: E402
 
 FAILS = []
+_ORIGINAL_ROLE = os.environ.get("HERMES_ROLE")
+os.environ["HERMES_ROLE"] = "luna"
 
 
 def check(name, cond, detail=""):
@@ -155,9 +157,14 @@ check(
 _raw_orch = "Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error'}, 'request_id': 'req_x'}"
 _orch_err = og.guard_turn_response(_raw_orch, None, [], platform="discord")
 check(
-    "orchestrator provider error -> debug diagnostic (not outage fallback)",
-    _orch_err.startswith("[wolfhouse-orchestrator]") and og.OUTAGE_FALLBACK["en"] not in _orch_err,
+    "orchestrator provider-shaped text -> exact passthrough",
+    _orch_err == _raw_orch,
     f"got: {_orch_err!r}",
+)
+_orch_status = "CURRENT FAILURE: Durable capture returned HTTP 503 inbound_capture_unavailable."
+check(
+    "orchestrator operational HTTP status -> exact passthrough",
+    og.guard_turn_response(_orch_status, None, [], platform="discord") == _orch_status,
 )
 check(
     "should_apply_guest_output_guard false for orchestrator+discord",
@@ -167,6 +174,11 @@ if _prev_role is None:
     os.environ.pop("HERMES_ROLE", None)
 else:
     os.environ["HERMES_ROLE"] = _prev_role
+
+if _ORIGINAL_ROLE is None:
+    os.environ.pop("HERMES_ROLE", None)
+else:
+    os.environ["HERMES_ROLE"] = _ORIGINAL_ROLE
 
 print()
 if FAILS:

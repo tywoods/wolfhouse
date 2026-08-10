@@ -370,7 +370,9 @@ def guard_turn_response(
     try/except too, but this is the inner safety net.
 
     Guest leak/outage fallbacks run only on Luna WhatsApp. Orchestrator /
-    operator channels pass replies through (provider errors become debug text).
+    operator channels pass every reply through byte-for-byte. Provider-shaped
+    text is legitimate in technical status reports and must not be flattened or
+    truncated by this guest-only defense.
     """
     try:
         text = str(response or "")
@@ -381,17 +383,6 @@ def guard_turn_response(
         model_meta = _model_meta_from_agent_result(agent_result)
 
         if not guest_guard:
-            if is_provider_error(text):
-                diag = orchestrator_debug_error(text, kind="model/provider error")
-                _log_guard_decision(
-                    guest_guard=False,
-                    hermes_role=_hermes_role(),
-                    platform=str(getattr(platform, "value", platform) or ""),
-                    action="orchestrator_provider_error",
-                    fallback_used=False,
-                    model_meta=model_meta,
-                )
-                return diag
             _log_guard_decision(
                 guest_guard=False,
                 hermes_role=_hermes_role(),
