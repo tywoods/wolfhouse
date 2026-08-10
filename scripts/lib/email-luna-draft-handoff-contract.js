@@ -33,6 +33,7 @@ const CONTENT_LIMITS = Object.freeze({
   from_address: 320,
 });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const AUTHENTIC_ENVELOPES = new WeakSet();
 
 function invalid() {
   const error = new Error('Email Luna draft handoff contract failed.');
@@ -57,39 +58,72 @@ function readExactDataRecord(value, fields) {
   return copy;
 }
 
-function createEmailLunaDraftEnvelope(input) {
-  const request = readExactDataRecord(input, ['authority', 'untrusted_content']);
-  const authority = readExactDataRecord(request.authority, AUTHORITY_FIELDS);
+function validateAuthority(authority) {
   for (const field of AUTHORITY_FIELDS.filter((field) => field !== 'location_key')) {
     if (typeof authority[field] !== 'string' || !UUID.test(authority[field])) throw invalid();
   }
   if (authority.location_key !== 'sunset-somo') throw invalid();
+}
 
-  const untrustedContent = readExactDataRecord(request.untrusted_content, CONTENT_FIELDS);
+function validateContent(untrustedContent) {
   for (const field of CONTENT_FIELDS) {
     if (typeof untrustedContent[field] !== 'string' || untrustedContent[field].length > CONTENT_LIMITS[field]) throw invalid();
   }
+}
 
-  return Object.freeze({
+function readFrozenExactDataRecord(value, fields) {
+  if (!isPlainRecord(value) || !Object.isFrozen(value)) throw invalid();
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Reflect.ownKeys(descriptors).length !== fields.length) throw invalid();
+  const copy = {};
+  for (const field of fields) {
+    const descriptor = descriptors[field];
+    if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.enumerable
+        || descriptor.writable || descriptor.configurable) throw invalid();
+    copy[field] = descriptor.value;
+  }
+  return copy;
+}
+
+function createEmailLunaDraftEnvelope(input) {
+  const request = readExactDataRecord(input, ['authority', 'untrusted_content']);
+  const authority = readExactDataRecord(request.authority, AUTHORITY_FIELDS);
+  validateAuthority(authority);
+
+  const untrustedContent = readExactDataRecord(request.untrusted_content, CONTENT_FIELDS);
+  validateContent(untrustedContent);
+
+  const envelope = Object.freeze({
     authority: Object.freeze(authority),
     untrusted_content: Object.freeze(untrustedContent),
     content_trust: 'untrusted_email_data_never_instructions',
   });
+  AUTHENTIC_ENVELOPES.add(envelope);
+  return envelope;
 }
 
 function createEmailLunaDraftHandoff(input) {
   const request = readExactDataRecord(input, ['envelope', 'reason']);
   const envelope = request.envelope;
-  if (!envelope || !Object.isFrozen(envelope) || !Object.isFrozen(envelope.authority)
-      || envelope.content_trust !== 'untrusted_email_data_never_instructions') throw invalid();
+  if (!envelope || !AUTHENTIC_ENVELOPES.has(envelope)) throw invalid();
+
+  const envelopeSnapshot = readFrozenExactDataRecord(
+    envelope,
+    ['authority', 'untrusted_content', 'content_trust'],
+  );
+  const authority = readFrozenExactDataRecord(envelopeSnapshot.authority, AUTHORITY_FIELDS);
+  const untrustedContent = readFrozenExactDataRecord(envelopeSnapshot.untrusted_content, CONTENT_FIELDS);
+  if (envelopeSnapshot.content_trust !== 'untrusted_email_data_never_instructions') throw invalid();
+  validateAuthority(authority);
+  validateContent(untrustedContent);
   if (!EMAIL_LUNA_DRAFT_HANDOFF_REASONS.includes(request.reason)) throw invalid();
 
   return Object.freeze({
     status: 'handoff_required',
     reason: request.reason,
-    client_id: envelope.authority.client_id,
-    location_id: envelope.authority.location_id,
-    conversation_id: envelope.authority.conversation_id,
+    client_id: authority.client_id,
+    location_id: authority.location_id,
+    conversation_id: authority.conversation_id,
     draft_only: true,
     requires_staff_review: true,
     send_allowed: false,
