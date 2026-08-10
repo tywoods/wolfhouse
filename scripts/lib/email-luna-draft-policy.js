@@ -17,6 +17,7 @@ const reflectOwnKeys = Reflect.ownKeys;
 const arrayIsArray = Array.isArray;
 const regexpTest = uncurryThis(RegExp.prototype.test);
 const numberIsSafeInteger = Number.isSafeInteger;
+const numberIsFinite = Number.isFinite;
 
 const EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS = objectFreeze([
   'ambiguous_identity',
@@ -53,6 +54,13 @@ const CONTENT_KEYS = objectFreeze([
   'subject', 'body_text', 'quoted_history', 'from_display_name', 'from_address',
 ]);
 const FACTS = objectFreeze(['catalog', 'availability', 'policy', 'booking', 'payment']);
+const INTENT_REQUIRED_FACTS = objectFreeze({
+  catalog_question: objectFreeze(['catalog']),
+  availability_question: objectFreeze(['availability']),
+  policy_question: objectFreeze(['policy']),
+  booking_status_question: objectFreeze(['booking']),
+  payment_status_question: objectFreeze(['payment']),
+});
 const CORE_RESULT_KEYS = objectFreeze(['fact', 'status', 'client_id', 'location_id']);
 const FOUND_FIELDS = objectFreeze({
   catalog: objectFreeze(['item', 'label', 'currency', 'amount_cents', 'active']),
@@ -60,6 +68,20 @@ const FOUND_FIELDS = objectFreeze({
   policy: objectFreeze(['label', 'policy_key', 'policy_text']),
   booking: objectFreeze(['label', 'booking_code', 'booking_status', 'check_in', 'check_out', 'guest_count']),
   payment: objectFreeze(['label', 'currency', 'payment_status', 'amount_paid_cents', 'balance_due_cents']),
+});
+const REQUIRED_FOUND_FIELDS = objectFreeze({
+  catalog: objectFreeze(['item', 'label', 'currency', 'amount_cents', 'active']),
+  availability: objectFreeze(['item', 'label', 'date', 'slot_time', 'available', 'capacity']),
+  policy: objectFreeze(['label', 'policy_key', 'policy_text']),
+  booking: objectFreeze(['booking_code', 'booking_status']),
+  payment: objectFreeze(['currency', 'payment_status', 'amount_paid_cents', 'balance_due_cents']),
+});
+const FOUND_FIELD_TYPES = objectFreeze({
+  item: 'string', label: 'string', currency: 'string', amount_cents: 'number', active: 'boolean',
+  date: 'string', slot_time: 'string', available: 'boolean', capacity: 'number',
+  policy_key: 'string', policy_text: 'string', booking_code: 'string', booking_status: 'string',
+  check_in: 'string', check_out: 'string', guest_count: 'number', payment_status: 'string',
+  amount_paid_cents: 'number', balance_due_cents: 'number',
 });
 const FAILURE_KEYS = objectFreeze(['type', 'fact', 'status', 'reason', 'client_id', 'location_id']);
 const INJECTION = /(?:\bsystem\s*:|\[\s*system\s*\]|\bdeveloper\s+(?:message|instruction)|ignore\s+(?:all\s+)?previous\s+instructions?|override\s+policy|switch\s+tenant|call\s+[a-z_$][\w$]*\s*\(|<\s*\/?\s*system\b|\b(?:location_id|required_facts|send_allowed|draft_ready|low_confidence)\s*=|"(?:authority|policy|low_confidence)"\s*:)/i;
@@ -201,7 +223,21 @@ function frozenResult(value, fact) {
         && snapshot.reason !== 'not_found' && snapshot.reason !== 'malformed_fact') throw invalid();
     if (snapshot.type === 'handoff_required'
         && snapshot.reason !== 'tool_error' && snapshot.reason !== 'authority_mismatch') throw invalid();
-  } else if (snapshot.status !== 'found') throw invalid();
+  } else {
+    if (snapshot.status !== 'found') throw invalid();
+    const requiredFields = REQUIRED_FOUND_FIELDS[fact];
+    for (let index = 0; index < requiredFields.length; index += 1) {
+      if (!objectHasOwn(snapshot, requiredFields[index])) throw invalid();
+    }
+    const factFields = FOUND_FIELDS[fact];
+    for (let index = 0; index < factFields.length; index += 1) {
+      const field = factFields[index];
+      if (!objectHasOwn(snapshot, field)) continue;
+      const expectedType = FOUND_FIELD_TYPES[field];
+      if (typeof snapshot[field] !== expectedType
+          || (expectedType === 'number' && !numberIsFinite(snapshot[field]))) throw invalid();
+    }
+  }
   return snapshot;
 }
 
@@ -259,19 +295,24 @@ function decideEmailLunaDraftPolicy(input) {
   const request = exactInput(input);
   const trusted = authenticEnvelope(request.envelope);
   const evidence = exactFrozenRecord(request.evidence, EVIDENCE_KEYS, Object.prototype);
-  const requiredFacts = exactFrozenStringArray(evidence.required_facts);
-  for (let index = 0; index < requiredFacts.length; index += 1) {
-    if (!arrayIncludes(FACTS, requiredFacts[index])) throw invalid();
-    for (let prior = 0; prior < index; prior += 1) if (requiredFacts[prior] === requiredFacts[index]) throw invalid();
+  const callerRequiredFacts = exactFrozenStringArray(evidence.required_facts);
+  for (let index = 0; index < callerRequiredFacts.length; index += 1) {
+    if (!arrayIncludes(FACTS, callerRequiredFacts[index])) throw invalid();
+    for (let prior = 0; prior < index; prior += 1) if (callerRequiredFacts[prior] === callerRequiredFacts[index]) throw invalid();
   }
-  const results = frozenResults(evidence.grounded_results, requiredFacts);
 
   if (typeof evidence.client_id !== 'string' || typeof evidence.location_id !== 'string'
       || typeof evidence.conversation_id !== 'string' || typeof evidence.requested_location_id !== 'string'
       || typeof evidence.identity !== 'string' || typeof evidence.intent !== 'string'
       || typeof evidence.intent_support !== 'string' || typeof evidence.explicit_human_request !== 'boolean'
       || typeof evidence.unsafe_transactional_request !== 'boolean') throw invalid();
-  if (evidence.conversation_id !== trusted.binding.conversation_id) throw invalid();
+  const intentSupported = objectHasOwn(INTENT_REQUIRED_FACTS, evidence.intent);
+  const requiredFacts = intentSupported ? INTENT_REQUIRED_FACTS[evidence.intent] : callerRequiredFacts;
+  const results = frozenResults(evidence.grounded_results, requiredFacts);
+
+  if (evidence.conversation_id !== trusted.binding.conversation_id) {
+    return handoff('authority_mismatch', trusted.binding);
+  }
   if (hasInjection(trusted.untrustedContent)) return handoff('prompt_injection_detected', trusted.binding);
   if (evidence.client_id !== trusted.binding.client_id || evidence.location_id !== trusted.binding.location_id) {
     return handoff('authority_mismatch', trusted.binding);
@@ -281,7 +322,7 @@ function decideEmailLunaDraftPolicy(input) {
   if (evidence.requested_location_id !== trusted.binding.location_id) return handoff('cross_location_request', trusted.binding);
   if (evidence.identity !== 'matched') return handoff('ambiguous_identity', trusted.binding);
   if (evidence.intent_support === 'uncertain' || evidence.intent === 'uncertain') return handoff('uncertain_intent', trusted.binding);
-  if (evidence.intent_support !== 'supported') return handoff('unsupported_intent', trusted.binding);
+  if (!intentSupported || evidence.intent_support !== 'supported') return handoff('unsupported_intent', trusted.binding);
 
   for (let index = 0; index < requiredFacts.length; index += 1) {
     const result = results[requiredFacts[index]];

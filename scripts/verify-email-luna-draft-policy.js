@@ -155,7 +155,9 @@ assertHandoff(decide({ evidence: evidence({
   grounded_results: frozen({ booking: groundedFailure('handoff_required', 'booking', 'tool_error') }),
 }) }), 'tool_error');
 assertHandoff(decide({ evidence: evidence({
-  grounded_results: frozen({ booking: found('booking', { location_id: OTHER_LOCATION }) }),
+  grounded_results: frozen({ booking: found('booking', {
+    booking_code: 'SUN-42', booking_status: 'confirmed', location_id: OTHER_LOCATION,
+  }) }),
 }) }), 'authority_mismatch');
 assertHandoff(decide({ evidence: evidence({ location_id: OTHER_LOCATION }) }), 'authority_mismatch');
 console.log('  PASS  fact absence, tool error, and every authority mismatch fail closed explicitly');
