@@ -389,9 +389,11 @@ function journalEligibleForRecovery(row) {
     return Object.freeze({ ok: false, reason: 'error' });
   }
 }
-// Authority mailbox identity: migration 064 current delta-state provider_mailbox_id
-// (canonical Graph mailbox UUID). Never equate endpoint public_address (email) to
-// event/projection provider_mailbox_id — those domains cannot match.
+// Authority mailbox identity: endpoint.provider_resource_id (canonical Graph
+// mailbox UUID from Phase B verified grant / OAuth /me.id bind). Event
+// provider_mailbox_id must exact-match that resource id. Never equate
+// public_address (sender config email) to Graph mailbox UUID. Current inbound
+// delta state is operational cursor only — not required outbound identity.
 const SQL_RESOLVE = `
 SELECT c.id::text AS conversation_id, cl.id::text AS client_id, loc.id::text AS location_id,
   loc.location_id AS location_key, ep.id::text AS endpoint_id, ev.id::text AS source_inbound_event_id,
@@ -409,17 +411,14 @@ INNER JOIN tenant_email_inbound_events ev ON ev.client_id = p.client_id AND ev.i
 INNER JOIN tenant_locations loc ON loc.client_id = ev.client_id AND loc.id = ev.location_id
 INNER JOIN tenant_channel_endpoints ep ON ep.client_id = ev.client_id AND ep.id = ev.endpoint_id
   AND ep.location_id = loc.location_id
-INNER JOIN tenant_email_inbound_delta_states ds ON ds.client_id = ev.client_id
-  AND ds.location_id = ev.location_id
-  AND ds.endpoint_id = ev.endpoint_id
-  AND ds.provider = ev.provider
-  AND ds.provider_mailbox_id = ev.provider_mailbox_id
-  AND ds.is_current = true
 WHERE cl.id = $1::uuid AND su.status = 'active' AND su.role IN ('operator','admin','owner')
   AND c.phone ~ '^(emailv1|email):' AND ev.provider = 'microsoft_graph' AND ep.provider = 'microsoft_graph'
   AND ep.channel = 'email' AND ep.auth_mode = 'delegated_authorization_code'
   AND ep.connector_mode = 'microsoft_delegated_oauth' AND ep.mailbox_access_kind = 'own_user'
   AND ep.binding_status = 'verified' AND ep.public_address IS NOT NULL AND btrim(ep.public_address) <> ''
+  AND ep.provider_resource_id IS NOT NULL AND btrim(ep.provider_resource_id) <> ''
+  AND ep.provider_resource_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  AND ev.provider_mailbox_id = ep.provider_resource_id
 ORDER BY ev.received_at DESC, ev.id DESC LIMIT 1`.replace(/\s+/g, ' ').trim();
 const SQL_INSERT_DRAFT = `
 INSERT INTO tenant_email_reply_approvals (
