@@ -54,14 +54,27 @@ function installAzureRsa(stats) {
   const wrapOpts = { key: publicKey, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' };
   const unwrapOpts = { key: privateKey, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' };
   const orig = Module._load;
+  function interceptedExport(request, parent, exports) {
+    const mod = new Module(request, parent);
+    mod.filename = request;
+    mod.paths = [];
+    mod.exports = exports;
+    mod.loaded = true;
+    require.cache[request] = mod;
+    return exports;
+  }
   Module._load = function (request, parent, isMain) {
-    if (request === '@azure/identity') {
+    if (request === '@azure/identity'
+        || (typeof request === 'string' && request.includes('managedIdentityCredential') && request.endsWith('index.js'))) {
       if (stats) stats.kv += 1;
-      return { ManagedIdentityCredential: class { constructor(id) { assert.equal(id, MI); } getToken() { return Promise.resolve({ token: 'x', expiresOnTimestamp: Date.now() + 1 }); } } };
+      const exports = { ManagedIdentityCredential: class { constructor(id) { assert.equal(id, MI); } getToken() { return Promise.resolve({ token: 'x', expiresOnTimestamp: Date.now() + 1 }); } } };
+      return typeof request === 'string' && path.isAbsolute(request)
+        ? interceptedExport(request, parent, exports) : exports;
     }
-    if (request === '@azure/keyvault-keys') {
+    if (request === '@azure/keyvault-keys'
+        || (typeof request === 'string' && request.includes('keyvault-keys') && request.endsWith('cryptographyClient.js'))) {
       if (stats) stats.kv += 1;
-      return {
+      const exports = {
         CryptographyClient: class {
           constructor(id) { assert.equal(id, KEY_ID); }
           async wrapKey(_a, key) {
@@ -72,6 +85,8 @@ function installAzureRsa(stats) {
           }
         },
       };
+      return typeof request === 'string' && path.isAbsolute(request)
+        ? interceptedExport(request, parent, exports) : exports;
     }
     return orig.call(this, request, parent, isMain);
   };
@@ -103,7 +118,7 @@ function fakeHttpsRouted(graphSeq) {
         tokenHits += 1;
         queueMicrotask(() => cb(im(200, {
           token_type: 'Bearer', expires_in: 3600, access_token: TOKEN,
-          scope: 'openid profile User.Read Mail.ReadBasic',
+          scope: 'User.Read Mail.ReadWrite Mail.Send',
         })));
         return;
       }
@@ -144,12 +159,12 @@ function createPinnedClientHarness(grantEnvelope) {
   };
   const grantPublic = () => ({
     client_id: C, endpoint_id: E, grant_generation: grantGen, grant_status: grantStatus,
-    reconcile_state: 'clean', grant_lease_token: leaseTok,
+    reconcile_state: 'clean', grant_lease_token: leaseTok, scope_version: 'phase_b_v1',
   });
   const grantOpenRow = () => ({
     client_id: C, endpoint_id: E, grant_generation: grantGen, grant_status: grantStatus,
     grant_lease_token: leaseTok, grant_lease_until: new Date(Date.now() + 60000).toISOString(),
-    last_operation_id: lastOp, envelope_version: envRow.envelope_version, aead_alg: envRow.aead_alg,
+    last_operation_id: lastOp, scope_version: 'phase_b_v1', envelope_version: envRow.envelope_version, aead_alg: envRow.aead_alg,
     kek_wrap_alg: envRow.kek_wrap_alg, kek_key_name: envRow.kek_key_name, kek_key_version: envRow.kek_key_version,
     nonce: envRow.nonce, ciphertext: envRow.ciphertext, auth_tag: envRow.auth_tag, wrapped_dek: envRow.wrapped_dek,
     endpoint_binding_status: 'verified',
