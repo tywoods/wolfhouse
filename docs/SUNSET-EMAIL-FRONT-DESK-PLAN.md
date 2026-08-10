@@ -1,212 +1,146 @@
-# Sunset Email Front Desk — Project Plan
+# Sunset Email Front Desk — Delivery Plan
 
-**Owner of plan:** Captain. **Build lead:** Sea Dog (manages Deckhand). **Prior work:** Skipper.
-**Status:** Slice 2 inbox bridge library landed offline (unwired); staging canary activation still open. **Last updated:** 2026-08-08.
+**Scope:** Sunset staging first. Production remains untouched.
+**Status:** Stages 1–3 proven and deployed; Stage 4 active.
 
-This is the single reference for the Sunset email project. It reconciles Skipper's
-"LIGHTHOUSE" plan and Deckhand's "reuse-first" plan against the **actual code on
-`origin/master`**, and lays out the slices to ship.
+## Staging activation rule
 
----
+Sunset staging is the working test environment. After each reviewed increment is merged and deployed:
 
-## 1. Goal & guardrails
+- turn the new feature on for the exact Sunset staging tenant/location;
+- exercise it through the real Staff UI and a controlled mailbox;
+- leave it on for operator testing when healthy;
+- retain global and tenant/location kill switches;
+- turn it off only for a demonstrated safety/reliability defect or while replacing a revision;
+- never confuse “kill switch exists” with “feature should remain permanently disabled.”
 
-**Goal:** a safe, real email front desk for Sunset. Guests email the hostel; staff
-see those emails in the **existing Inbox** next to WhatsApp, answer in **draft mode**
-(compose/edit) and **live mode** (approve → send). "Connect your mailbox" is easy
-(Microsoft sign-in). Luna drafting replies comes **last**.
+No production activation is included in this plan.
 
-**Scope discipline (from owner):**
-- **Somo only** for the whole build. Sardinero is copied over at the very end.
-- **Luna is wired in last** — after the staff-facing Inbox + draft/send loop is trusted.
-- **Not overkill.** Reuse-first, thin vertical slices into the Inbox that already exists.
-  No parallel "Email" app, no parallel message tables.
-- **Draft + live** are both in scope; **no auto-send** before the send loop is proven.
+## Stage 1 — Connect Microsoft email — CLOSED
 
-**Non-negotiable guardrails on every slice:**
-- **Tenant/location isolation** — `location_id` sticks to every conversation; never
-  answer Sardinero mail in a Somo context.
-- **Idempotent, exactly-once** on both ingest and send (crash/retry safe).
-- **Secrets in Azure Key Vault only** (via `secret_ref`); never in Postgres product
-  rows, never exposed to Luna, API responses, or logs.
-- **Default-off + kill switches** (per-tenant and global) on every runtime path.
-- **Email body is untrusted data, never instructions** (prompt-injection hardening) —
-  matters once Luna reads mail.
-- **No invented facts** — availability, prices, policies, booking confirmations,
-  payment status/URLs come from the Staff API / DB only.
+- Microsoft delegated OAuth for Sunset Somo.
+- Key Vault token custody and mailbox ownership binding.
+- Read/refresh health in Staff Email Settings.
+- Real staging mailbox connected and enabled.
 
----
+**Exit:** Somo Microsoft mailbox connects and reports healthy in staging.
 
-## 2. Ground truth — what is already built on `origin/master`
+## Stage 2 — Email into the existing Inbox — CLOSED
 
-More is built than either source plan implies. This is Skipper's work.
+- Exactly-once Microsoft Graph ingest.
+- Project email into existing `conversations` and `messages`.
+- Email channel badge and Somo location ownership.
+- Keep email identities out of the WhatsApp transport.
+- Leave staging ingest enabled for ongoing tests.
 
-### ANCHOR — identity & credentials (BUILT, default-off)
-Microsoft **delegated OAuth** + encrypted grant custody, all as libraries + Sunset-staging
-runtime compositions:
-- Contracts: `email-connector-auth-mode-contract`, `email-channel-endpoint-identity-contract`,
-  `email-microsoft-delegated-oauth-contract`, `email-grant-envelope-provider-contract`,
-  `email-mailbox-adapter-contract`, `email-http-transport-contract`,
-  `email-graph-app-only-readiness-contract`.
-- Grants: `email-delegated-grant-custodian`, `-access-session`, `-read-health`,
-  `-refresh-rotation`; KV envelope: `email-grant-envelope-azure-kv-provider`
-  (+ `-sunset-staging-runtime-composition`), fake provider for tests.
-- Microsoft: `email-microsoft-authorization-code-request`,
-  `email-microsoft-delegated-{read,refresh,inbound}-...-runtime-composition`.
-- Graph adapters: `email-microsoft-graph-adapter`,
-  `-delegated-messages-transport`, `-immutableid-page-transport`,
-  `-immutableid-bounded-catchup-transport`.
+**Exit:** controlled inbound email appears once in the Staff Inbox.
 
-**Wired HTTP routes** (in `scripts/staff-query-api.js`, default-off):
-- `staff-email-registry-routes` — locations/endpoints registry.
-- `staff-email-settings-routes` — `GET /staff/admin/email-settings`.
-- `staff-email-oauth-routes`:
-  - `POST /staff/admin/email-settings/oauth/microsoft/start`
-  - `POST /staff/admin/email-settings/oauth/microsoft/endpoint`
-  - `.../oauth/microsoft/refresh-health`, `.../read-health`, `.../inbound-diagnostic`
-- Admin UI started: `scripts/browser/sunset-admin-email-settings-ui.js`
-  (Connect Microsoft button → the routes above).
+## Stage 3 — Staff draft, approve, and send — CLOSED / REACTIVATION ACTIVE
 
-### RADAR — reliable receive (BUILT, default-off; Skipper's active stage)
-Durable delta ingest into email's **own** event store — not yet into the Inbox:
-- Operations: `email-authority-bound-inbound-operation`,
-  `-messages-delta-page-operation`, `-messages-delta-offline-composition`,
-  `-bounded-catchup-offline-composition`.
-- Stores: `email-inbound-event-store`, `email-inbound-delta-state-store`,
-  `email-inbound-batch-processor`, `email-delta-recovery-operation-store`.
-- Runtime + recovery: `email-delta-runtime-config`,
-  `email-delta-sunset-staging-runtime-composition`,
-  `email-delta-operator-recovery-{config,service}`,
-  route: `staff-email-delta-operator-recovery-routes`
-  (`.../delta/recovery/{status,restart-generation,reconcile}`).
+- Manual draft save.
+- Explicit staff approval.
+- Graph `createReply`, update exact immutable draft, send exact draft.
+- Durable exactly-once journal.
+- Forced-uncertainty reconciliation and zero-call replay.
+- Correct gate-off UI: email must never fall back to the WhatsApp send route.
+- After the UI repair, enable staff email drafting/sending on Sunset Somo staging and leave it enabled for testing.
 
-### Migrations on master (email)
-`057` tenant_locations_and_channel_endpoints · `058` channel_endpoint_identity ·
-`059` email_delegated_grants · `060` email_oauth_transactions ·
-`061` oauth_transaction_endpoint_binding · `062` channel_endpoint_secret_ref_nullable ·
-`063` email_inbound_events · `064` email_inbound_delta_states ·
-`065` email_delta_recovery_operations · `066` email_delta_page_commit_journal.
+**Exit:** staff reply reaches the original controlled thread exactly once and remains usable in staging.
 
-### Inbox
-`scripts/staff-query-api.js` already understands `channel === 'email'` in conversation
-list/needs-human/contact rendering — so the Inbox surface is partly ready to show email.
+## Stage 4 — Luna email drafting — ACTIVE
 
-### Codename warning
-The repo's `verify-radar-slice16*` scripts are **staff-API reliability hardening**
-(readiness / Stripe claim / healthz / shutdown) — a *different* "RADAR" from Skipper's
-email-receive stage. Don't conflate them.
+Luna drafts; staff reviews and sends. Luna never approves or sends.
 
----
+### Slice 4.1 — Trusted email envelope — MERGED
 
-## 3. The real gaps (what's NOT built)
+- Immutable tenant, location, and conversation authority.
+- Email body, subject, quoted thread, HTML, and attachments treated as untrusted data.
+- Draft-only output with no send capability.
 
-1. **Bridge: `email_inbound_events` → `conversations`/`messages`.** The delta ingest
-   writes to its own event store; nothing yet normalizes an inbound email into a
-   channel-neutral `conversations`/`messages` row so it appears in the Inbox. *(No
-   `INSERT INTO conversations/messages` exists in any `email-*.js`.)* **This is the
-   money slice.**
-2. **Activate ingest for one real Somo mailbox** (register endpoint, flip runtime
-   flags on for a bounded canary).
-3. **Outbound send.** No Graph `sendMail` transport, no email draft/approve/send
-   composer, no exactly-once send journal, no send kill switch. *(Only contracts exist.)*
-4. **Luna email brain.** Not built.
+### Slice 4.2 — Grounded read-only tools — IN REVIEW
 
----
+- Read configured catalog, prices, policies, availability, booking details, and payment status through existing Staff API/DB owners.
+- Bind every read to server-selected tenant and location.
+- Reject model/caller authority overrides.
+- Return typed `missing_fact` or `handoff_required` results.
+- Exclude secrets, provider IDs, raw payment URLs, and active capabilities.
 
-## 4. Execution — vertical slices (Somo only, Luna last)
+### Slice 4.3 — Deterministic draft-or-handoff policy
 
-Ship one slice at a time; each passes a **deployed** exit gate on Sunset staging before
-the next. Parallel work only where file ownership doesn't overlap. Merges + deploys serial.
+- Draft only when identity, intent, location, and required facts are sufficiently established.
+- Explicit handoffs for ambiguity, unsupported requests, missing facts, tool failure, ownership mismatch, or human request.
+- Prompt-injection and cross-location attempts fail closed.
 
-### Slice 1 — Connect email (Somo) — *mostly built; close it out*
-- Verify the OAuth connect flow end-to-end on staging: `start` → Microsoft consent
-  (Phase A read scope, e.g. `Mail.ReadBasic`) → `endpoint` binding → `read-health` green.
-- Register the **real** sunset-somo `tenant_location` + `channel_endpoint` via the
-  registry API (no invented addresses in git). Set `binding_status=verified`.
-- Refresh-token stored in KV via `secret_ref`; `refresh-health` green.
-- **No send scope yet.**
-- **Exit gate:** staff open Email Settings, click Connect Microsoft for Somo, land on
-  "Connected (read-only)", health checks pass on staging.
+### Slice 4.4 — Luna email author and SOUL
 
-### Slice 2 — Mail appears in the Inbox (read-only) — *the core new build*
-- Build the normalizer/bridge: inbound email (from `email-inbound-event-store` /
-  Graph delta) → channel-neutral message → `INSERT` into `conversations`/`messages`
-  with `channel='email'`, keyed by sender email + `client_id` + `location_id`
-  (location must stick to the conversation).
-  - **Offline owner landed:** `scripts/lib/email-inbound-inbox-bridge.js` + migration
-    `067_tenant_email_inbound_inbox_projections` (exactly-once journal; tenant-consistent
-    composite FKs; opaque `emailv1:` conversation identity; customer-sync skip;
-    CASCADE deletion contract; fail-closed down). Gates:
-    `verify:email-inbound-inbox-bridge`, `prove:email-inbound-inbox-bridge-pglite`.
-    **Not** runtime-wired / not activated.
-  - **Production WhatsApp send boundary (Staff Inbox path; bridge stays unwired):**
-    `resolveAuthoritativeInboxSendTarget` on `POST /staff/inbox/send-reply` loads the
-    owned conversation, rejects `channel=email` / `emailv1:` / `email:` before WhatsApp
-    evaluation/audit/provider, and rejects forged caller `to`. Gate:
-    `verify:staff-inbox-routes`.
-- Turn the existing default-off delta ingest **on** for the single Somo mailbox
-  (bounded canary; keep the kill switch and operator-recovery routes).
-- Inbox UI: an **Email** channel pill alongside WhatsApp in the same Inbox — do not
-  add a second tab. Reuse `staff-conversation-queries`, needs-human / pause patterns.
-- Read-only first: **no auto-replies.**
-- **Exit gate:** a real inbound Somo email shows as an Inbox thread with an Email badge
-  and the correct location, on staging.
+- Warm, capable front-desk host voice.
+- Follow the guest’s language.
+- Email-appropriate structure: concise paragraphs, direct answers, one clear next step.
+- No invented facts, fake certainty, internal jargon, or repetitive emoji/openers.
+- Schema-validate and fact-check drafts before saving.
 
-### Slice 3 — Staff can answer (draft + live)
-- Upgrade consent to **Phase B** send scopes (separate outbound permission review).
-- Email composer = same **Approve & Send** UX as WhatsApp; `draft_only` is the default
-  (draft mode). Approve → send = live mode.
-- Outbound send transport via Graph `sendMail` with: approved sender-mailbox
-  enforcement, recipient + thread validation, a **durable exactly-once send journal**
-  (survives retries/crashes, no duplicate sends), full audit trail, and a send **kill
-  switch** (tenant + global).
-- **Exit gate:** a staff-approved staging reply reaches a controlled test mailbox
-  **exactly once**, stays in the correct thread, survives a forced-uncertainty retry
-  test, and can be disabled immediately.
+### Slice 4.5 — Staff Inbox integration
 
-### Slice 4 — Luna speaks email (LAST)
-- Luna email brain, same truth rules as WhatsApp (facts from tools/DB only), email
-  tone/length. Email content treated as untrusted (prompt-injection hardening).
-- Explicit handoff reasons (not low-confidence spam). **Draft-only first**; only later
-  consider limited auto-send for boring deterministic templates, behind the kill switch.
-- **Exit gate:** on a golden Sunset email corpus, Luna produces correct, grounded
-  drafts and hands off uncertain identity/intent instead of guessing.
+- “Generate Luna draft” on an owned email thread.
+- Editable result saved through the existing Stage 3 draft route.
+- Staff remains the only approval/send authority.
 
-### Then — Sardinero
-- Copy the Somo endpoint config for `sunset-sardinero` (second `channel_endpoint`),
-  reconnect/health UX. Two beaches must never cross contexts.
+### Slice 4.6 — Golden corpus
 
----
+- English and Spanish.
+- Pricing, policy, availability, booking, and payment-status questions.
+- Missing details and ambiguous identity.
+- Quoted-thread, HTML, attachment, and prompt-injection attacks.
+- Somo/Sardinero and cross-tenant isolation.
 
-## 5. Explicitly dropped as v1 overkill (defer to prod hardening)
+### Slice 4.7 — Deployed staging activation
 
-From Skipper's LIGHTHOUSE, **not** required to ship staff-usable email:
-- The 8 formal "deployed stage gates" as a product denominator.
-- Seven-consecutive-day canary **per stage**.
-- AUTOPILOT autonomy cohort / shadow-decision analysis.
-- Full SLO / cost-ceiling / incident-runbook apparatus.
+- Enable Luna drafting for Sunset Somo after reviewed deployment.
+- Test real Inbox drafts and explicit handoffs.
+- Prove no Luna send/approve capability.
+- Leave healthy drafting enabled for operator testing.
 
-These are real, but they belong to the **production canary** conversation (Wolfhouse
-prod is untouched here), not to getting Sunset staff answering email. Keep the *safety
-mechanics* (idempotency, exactly-once, isolation, kill switches) — drop the *ceremony*.
+**Exit:** Luna produces grounded editable drafts or explicit handoffs in the real staging Inbox; staff alone sends.
 
----
+## Stage 5 — Gmail / Google Workspace connector
 
-## 6. Working conventions
+- Google OAuth onboarding in Email Settings.
+- Gmail history/thread ingest behind the shared mailbox adapter.
+- Gmail reply-draft, update, send, and reconciliation adapter.
+- Reuse shared Inbox, Luna, approval, journal, isolation, and kill-switch layers.
+- Enable one controlled Sunset staging Gmail mailbox and leave it on for testing.
 
-- Sunset staging Staff API deploys from **`/opt/luna/Luna-Sunset`** on lunabox (shared
-  `staff-query-api.js`), via `az acr build` + `containerapp update`. See the Sunset
-  deploy runbooks.
-- Run repo preflights before any build/deploy; tag images with the master SHA.
-- Every slice: reviewed + merged → migration applied → exact image on Sunset staging →
-  real deployed behavior exercised → isolation + failure/recovery proven → kill switch
-  proven → verify script committed.
-- Report each slice gate back to Captain: what merged, what deployed, what was verified,
-  any blocker.
+**Exit:** Gmail mail ingests once and a staff-approved reply reaches the original Gmail thread exactly once.
 
----
+## Stage 6 — Generic IMAP/SMTP connector
 
-## 7. Source plans (for reference)
-- Skipper "LIGHTHOUSE" (8-stage: ANCHOR→RADAR→COMPASS→QUARTERMASTER→COPILOT→GUARDIAN→
-  AUTOPILOT→LIGHTHOUSE) — rigorous; we keep its safety spine, drop its ceremony.
-- Deckhand "reuse-first" (Chapters A–E into the existing Inbox) — this plan's shape.
+- Secure IMAP/SMTP settings and credentials in Key Vault.
+- Support app-password/basic-secret providers only over verified TLS; provider-specific OAuth can be added behind the same adapter.
+- IMAP UID/UIDVALIDITY and Message-ID based ingest identity.
+- Standards-correct `In-Reply-To` / `References` threading.
+- SMTP acceptance journal, uncertainty handling, reconciliation, and duplicate suppression.
+- Provider presets plus custom host/port settings in Email Settings.
+- Enable one controlled non-Microsoft/non-Gmail Sunset staging mailbox and leave it on for testing.
+
+**Exit:** generic mailbox ingests once and a staff-approved SMTP reply is threaded and accepted once, including uncertainty/replay proof.
+
+## Stage 7 — Copy the proven system to Sardinero
+
+- Separate Sardinero endpoint and mailbox authority.
+- Support any connector proven in Stages 1, 5, or 6.
+- Independent health, ingest, Inbox, Luna drafting, approval, and send controls.
+- Cross-location refusal tests.
+- Enable Sardinero staging after deployed proof.
+
+**Exit:** Somo and Sardinero operate independently without mailbox, conversation, booking, or location crossover.
+
+## Shared guardrails
+
+- Facts come only from Staff API/DB-owned evidence.
+- Provider/mail content never selects tenant or location authority.
+- Exactly-once ingest and outbound behavior.
+- Staff approval required for every send.
+- Luna has no approve/send capability.
+- Secrets stay in Key Vault and never reach Luna, UI responses, or logs.
+- Every connector is a provider adapter; Inbox, Luna, approval, and audit remain shared.
+- Reviewed exact source, exact-image deployment, real staging UI/mailbox proof, and kill-switch verification for every stage.
