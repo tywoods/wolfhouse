@@ -53,6 +53,7 @@ function authorityRow(patch = {}) {
     client_id: C, client_slug: 'sunset', location_id: L, location_key: 'sunset-somo',
     endpoint_id: E, conversation_id: V, inbound_message_id: M, channel: 'email',
     provider: 'microsoft_graph', provider_mailbox_id: MAILBOX,
+    endpoint_provider_mailbox_id: MAILBOX, event_location_id: L,
     subject: 'Booking question', body_text: BODY, quoted_history: '',
     from_display_name: 'Ana', from_address: 'ana@example.test',
     conversation_deleted_at: null, conversation_status: 'active', latest_message_id: M,

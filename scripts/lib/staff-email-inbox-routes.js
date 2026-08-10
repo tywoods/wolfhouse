@@ -617,6 +617,26 @@ function createStaffEmailInboxRoutes(deps) {
       return sendJSON(res, 500, Object.freeze({ success: false, error: 'draft_failed' }));
     }
   }
+  /** Existing manual draft persistence owner reused by explicit Luna generation. */
+  async function saveDraftThroughStaffOwner(input) {
+    const a = input && input.actor;
+    const body = snapshotEmailReplyBody(input && { conversation_id: input.conversation_id,
+      message_text: input.message_text, approval_id: input.approval_id });
+    if (!a || !body || body.approval_id !== null) throw new Error('invalid draft owner input');
+    const digest = bodyDigestOf(body.message_text);
+    return withPgClient(async (pg) => {
+      const auth = await resolveAuthority(pg, a, body.conversation_id);
+      if (!auth) throw new Error('draft authority unavailable');
+      const approvalId = mintUuid(); const operationId = mintUuid();
+      const ins = await pg.query(SQL_INSERT_DRAFT, [approvalId, operationId, auth.client_id,
+        auth.location_id, auth.location_key, auth.endpoint_id, auth.conversation_id,
+        auth.source_inbound_event_id, auth.provider_mailbox_id, auth.provider_source_message_id,
+        a.staff_user_id, body.message_text, digest]);
+      if (!ins || !ins.rows || ins.rows.length !== 1) throw new Error('draft insert failed');
+      const row = ins.rows[0];
+      return successDto(row.conversation_id, row.message_text, row.approval_id);
+    });
+  }
   async function handleApproveSend(req, res, user, gateEnv) {
     const started = Date.now();
     const env = gateEnv || snapshotGateEnv(deps.runtimeEnv || process.env);
@@ -938,7 +958,7 @@ function createStaffEmailInboxRoutes(deps) {
   }
   return Object.freeze({
     EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
-    handleDraft, handleApproveSend, handleRecoverSend,
+    handleDraft, handleApproveSend, handleRecoverSend, saveDraftThroughStaffOwner,
   });
 }
 module.exports = {

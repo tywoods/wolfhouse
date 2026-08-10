@@ -257,6 +257,11 @@ const {
   isEmailStaffOutboundEnabled, validateJsonContentType: validateEmailInboxJsonContentType,
 } = require('./lib/staff-email-inbox-routes');
 const {
+  createStaffEmailLunaDraftRoute, EMAIL_LUNA_GENERATE_DRAFT_PATH,
+  snapshotEmailLunaGenerateGateEnv, isEmailLunaGenerateDraftEnabled,
+} = require('./lib/staff-email-luna-draft-route');
+const { createEmailLunaSunsetStagingRuntimeComposition } = require('./lib/email-luna-sunset-staging-runtime-composition');
+const {
   createSunsetStagingEmailOutboundDispatch,
 } = require('./lib/email-outbound-sunset-staging-runtime-composition');
 const https = require('https');
@@ -2628,6 +2633,13 @@ const emailInboxRoutes = createStaffEmailInboxRoutes({
       timers: { setTimeout, clearTimeout },
     }));
   },
+});
+// Luna composition remains lazy and capability-limited to authorDraft. Persistence
+// crosses only the existing manual draft owner; no approve/send owner is provided.
+const emailLunaDraftRoute = createStaffEmailLunaDraftRoute({
+  sendJSON, withPgClient, runtimeEnv: process.env,
+  createLunaRuntime: createEmailLunaSunsetStagingRuntimeComposition,
+  saveDraftThroughStaffOwner: emailInboxRoutes.saveDraftThroughStaffOwner,
 });
 
 // Staff Inbox routes (extracted module). Auth stays in the router with
@@ -15936,6 +15948,9 @@ function buildUiHtml(port, portalDeployClient) {
   // Server-owned email Inbox UI flags (exact env === 'true'; default-off; no browser override).
   const emailStaffEmailDraftsUi = process.env.EMAIL_STAFF_EMAIL_DRAFTS_ENABLED === 'true';
   const emailStaffOutboundUi = process.env.EMAIL_STAFF_OUTBOUND_ENABLED === 'true';
+  const emailStaffLunaDraftUi = process.env.EMAIL_STAFF_LUNA_DRAFT_ENABLED === 'true'
+    && process.env.EMAIL_LUNA_DRAFT_RUNTIME_ENABLED === 'true'
+    && process.env.LUNA_DEPLOYMENT === 'sunset-staging';
   const rentalDayRatesJson = JSON.stringify(loadWolfhouseRentalDayRates());
   const portalBodyOpen = '<body class="portal-profile-pending"' + (portalDevTabsEnabled ? '' : ' portal-no-dev-tabs') + '>';
   // book-ui switch — warm paperback restyle of the Booking Calendar tab + drawer.
@@ -15951,7 +15966,7 @@ function buildUiHtml(port, portalDeployClient) {
 <link rel="icon" href="/staff/assets/luna-favicon.png?v=1" type="image/png" sizes="128x128">
 <link rel="apple-touch-icon" href="/staff/assets/luna-favicon.png?v=1">
 <script>window.PORTAL_DEFAULT_CLIENT=${JSON.stringify(portalDefaultClient)};</script>
-<script>window.__EMAIL_STAFF_EMAIL_DRAFTS_ENABLED__=${emailStaffEmailDraftsUi ? 'true' : 'false'};window.__EMAIL_STAFF_OUTBOUND_ENABLED__=${emailStaffOutboundUi ? 'true' : 'false'};</script>
+<script>window.__EMAIL_STAFF_EMAIL_DRAFTS_ENABLED__=${emailStaffEmailDraftsUi ? 'true' : 'false'};window.__EMAIL_STAFF_OUTBOUND_ENABLED__=${emailStaffOutboundUi ? 'true' : 'false'};window.__EMAIL_STAFF_LUNA_DRAFT_ENABLED__=${emailStaffLunaDraftUi ? 'true' : 'false'};</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -31892,6 +31907,7 @@ var _emailReplyStateByConv = Object.create(null);
 var _emailUtf8Encoder = (typeof TextEncoder !== 'undefined') ? new TextEncoder() : null;
 function staffEmailDraftsUiEnabled(){ return window.__EMAIL_STAFF_EMAIL_DRAFTS_ENABLED__ === true; }
 function staffEmailOutboundUiEnabled(){ return window.__EMAIL_STAFF_OUTBOUND_ENABLED__ === true; }
+function staffEmailLunaDraftUiEnabled(){ return window.__EMAIL_STAFF_LUNA_DRAFT_ENABLED__ === true; }
 /** Authoritative email channel only — never infer. */
 function isAuthoritativeEmailConversation(c){
   return !!(c && c.channel === 'email');
@@ -32015,6 +32031,22 @@ function emailReplyActionPanel(buttonEl, targetEl){
   if (panel.querySelectorAll('#draft-textarea').length !== 1) return null;
   if (panel.querySelectorAll('#btn-email-save-draft').length !== 1) return null;
   return panel;
+}
+function performEmailLunaDraftGenerate(convId, targetEl){
+  var st=emailReplyState(convId),ta=targetEl.querySelector('#draft-textarea'),statusEl=targetEl.querySelector('#draft-send-status');
+  if(!ta||st.locked||st.inFlight)return;
+  var snapConv=String(convId),mySeq=++st.seq;st.inFlight=true;setEmailReplyControlsDisabled(targetEl,true,false);
+  showDraftSendStatus(statusEl,'','Generating Luna draft\u2026');
+  fetch('/staff/inbox/email/generate-luna-draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:convId})})
+  .then(emailParseFetchJson).then(function(out){
+    if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snapConv)return;
+    var text=out.parseOk?emailOwnData(out.data,'message_text'):null;
+    var accepted=out.status===200?acceptEmailDraftSuccess(out.data,snapConv,text):null;
+    if(accepted){ta.value=accepted.message_text;st.approvalId=accepted.approval_id;st.savedText=accepted.message_text;updateEmailDraftByteCount(targetEl,ta.value);showDraftSendStatus(statusEl,'ok','Luna draft generated \u2014 review and edit before approval.');}
+    else if(out.status===422)showDraftSendStatus(statusEl,'blocked','Luna handoff required; draft was not changed.');
+    else showDraftSendStatus(statusEl,'error','Draft generation failed.');
+    setEmailReplyControlsDisabled(targetEl,false,st.locked);
+  }).catch(function(){if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId===snapConv)showDraftSendStatus(statusEl,'error','Could not generate Luna draft.');setEmailReplyControlsDisabled(targetEl,false,st.locked);});
 }
 function performEmailDraftSave(convId, targetEl){
   var st = emailReplyState(convId);
@@ -32179,6 +32211,7 @@ function wireInboxEmailReply(convId, targetEl){
   var ta = targetEl.querySelector('#draft-textarea');
   var saveBtn = targetEl.querySelector('#btn-email-save-draft');
   var apprBtn = targetEl.querySelector('#btn-email-approve-send');
+  var lunaBtn = targetEl.querySelector('#btn-email-generate-luna-draft');
   if (!ta || !saveBtn) return;
   var st = emailReplyState(convId);
   if (st.locked || st.sent) {
@@ -32194,6 +32227,10 @@ function wireInboxEmailReply(convId, targetEl){
   saveBtn.addEventListener('click', function(){
     var panel = emailReplyActionPanel(saveBtn, targetEl);
     if (panel) performEmailDraftSave(convId, panel);
+  });
+  if (lunaBtn) lunaBtn.addEventListener('click', function(){
+    var panel = emailReplyActionPanel(lunaBtn, targetEl);
+    if (panel) performEmailLunaDraftGenerate(convId, panel);
   });
   if (apprBtn) apprBtn.addEventListener('click', function(){
     var panel = emailReplyActionPanel(apprBtn, targetEl);
@@ -32533,6 +32570,10 @@ function loadConvDetail(convId, targetEl){
     if (useEmailReplyUi) {
       html += '<div id="email-draft-byte-count" class="email-draft-byte-count" aria-live="polite">0 / 8000 bytes</div>';
       html += '<div class="draft-actions">';
+      if (staffEmailLunaDraftUiEnabled() && isAuthoritativeEmailConversation(c)) {
+        html += '<button type="button" class="btn-email-save-draft" id="btn-email-generate-luna-draft"' +
+                (emailSt && emailSt.locked ? ' disabled' : '') + '>Generate Luna draft</button>';
+      }
       html +=   '<button type="button" class="btn-email-save-draft" id="btn-email-save-draft"' +
               (emailSt && emailSt.locked ? ' disabled' : '') + '>Save draft</button>';
       if (staffEmailOutboundUiEnabled()) {
@@ -48431,6 +48472,15 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleInboxSendReply(req, res, auth.user);
+  }
+
+  // Explicit Staff Luna draft generation (default-off; gate before auth/body/DB).
+  if (pathname === EMAIL_LUNA_GENERATE_DRAFT_PATH && method === 'POST') {
+    const gate = snapshotEmailLunaGenerateGateEnv(process.env);
+    if (!isEmailLunaGenerateDraftEnabled(gate)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return emailLunaDraftRoute.handleGenerateLunaDraft(req, res, auth.user, gate);
   }
 
   // Email inbox draft/approve-send (default-off; gate before auth/body/DB).
