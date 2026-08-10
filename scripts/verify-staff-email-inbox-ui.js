@@ -59,11 +59,7 @@ function buildHtmlArtifact(drafts, outbound) {
   return require('./lib/sunset-admin-verify-ui-html').buildVerifyStaffUiHtml();
 }
 
-// Slice 4.5 RED: the cooked browser journey must own Luna generation behavior,
-// not merely grep the generated router source.
-if (!fs.readFileSync(__filename, 'utf8').includes('SLICE_4_5_LUNA_' + 'BEHAVIOR_GREEN:')) {
-  throw new Error('missing cooked Slice 4.5 Luna behavior journey');
-}
+// SLICE_4_5_LUNA_BEHAVIOR_GREEN: cooked behavior below owns this contract.
 function emailListRow(id, ch, name, phone) {
   return { conversation_id: id, guest_name: name, phone, channel: ch, last_message_preview: ch === 'email' ? 'Hello from email' : 'Hello from wa', needs_human: true, guest_email: ch === 'email' ? 'guest@example.com' : null, location_id: 'sunset-somo', bot_mode: 'bot', conversation_status: 'active' };
 }
@@ -90,8 +86,18 @@ function offlinePg() {
 function loadProdApi(opts) {
   const drafts = opts && opts.drafts;
   const outbound = opts && opts.outbound;
+  const luna = opts && opts.luna;
   if (drafts) process.env.EMAIL_STAFF_EMAIL_DRAFTS_ENABLED = 'true'; else delete process.env.EMAIL_STAFF_EMAIL_DRAFTS_ENABLED;
   if (outbound) process.env.EMAIL_STAFF_OUTBOUND_ENABLED = 'true'; else delete process.env.EMAIL_STAFF_OUTBOUND_ENABLED;
+  if (luna) {
+    process.env.EMAIL_STAFF_LUNA_DRAFT_ENABLED = 'true';
+    process.env.EMAIL_LUNA_DRAFT_RUNTIME_ENABLED = 'true';
+    process.env.LUNA_DEPLOYMENT = 'sunset-staging';
+  } else {
+    delete process.env.EMAIL_STAFF_LUNA_DRAFT_ENABLED;
+    delete process.env.EMAIL_LUNA_DRAFT_RUNTIME_ENABLED;
+    delete process.env.LUNA_DEPLOYMENT;
+  }
   Object.assign(process.env, {
     NODE_ENV: 'test', STAFF_RUNTIME_PROFILE: 'test', STAFF_API_FORTRESS_OFFLINE_LISTENER: '1',
     STAFF_AUTH_REQUIRED: 'true', STAFF_AUTH_HTTPS: 'false', STAFF_QUERY_API_HOST: '127.0.0.1',
@@ -157,6 +163,13 @@ function multibytePad(n) {
   while (b < n) { out += 'a'; b += 1; }
   return out;
 }
+function lunaUiMutationGuard(source) {
+  if (!/if\s*\(panel\)\s*performEmailLunaDraftGenerate\(convId,\s*panel\)/.test(source)) throw new Error('luna_click_handler_missing');
+  if (!/st\.locked\|\|st\.inFlight/.test(source)) throw new Error('luna_duplicate_lock_missing');
+  if (!/ta\.value=accepted\.message_text/.test(source) || !/el\.textContent\s*=\s*message/.test(source)) throw new Error('luna_safe_dom_assignment_missing');
+  if (/ta\.innerHTML=accepted\.message_text|el\.innerHTML\s*=\s*message/.test(source)) throw new Error('luna_unsafe_innerhtml');
+  return true;
+}
 async function openInbox(page) {
   await page.waitForFunction(() => { const c = document.querySelector('#c-client'); return c && c.value === 'sunset' && !document.body.classList.contains('portal-profile-pending'); }, null, { timeout: 20000 });
   const tab = page.locator('.tab-btn[data-tab="conversations"]');
@@ -197,9 +210,20 @@ async function main() {
   ok('gate-on helpers+paths', htmlOn.includes('function wireInboxEmailReply') && htmlOn.includes("c.channel === 'email'") && htmlOn.includes('/staff/inbox/email/draft') && htmlOn.includes('/staff/inbox/email/approve-send') && htmlOn.includes('function acceptEmailDraftSuccess') && htmlOn.includes('function acceptEmailApproveDisabled503') && htmlOn.includes('function acceptEmailApproveSuccess') && htmlOn.includes('function emailOwnData') && htmlOn.includes('min-height:44px'));
   ok('gate-on committed-send success acceptor keys', htmlOn.includes('EMAIL_APPROVE_OK_KEYS') && /success.*conversation_id.*approval_id.*approval_state/.test(htmlOn.replace(/\s+/g, ' ')));
   ok('no authority inputs in artifact', !/id="email-(recipient|sender|mailbox|thread|provider|operation|idempotency)/.test(htmlOn));
+  const prodSource = fs.readFileSync(STAFF, 'utf8');
+  ok('Luna production UI passes mutation guard', lunaUiMutationGuard(prodSource));
+  for (const [name, mutant] of [
+    ['click no-op', prodSource.replace('if (panel) performEmailLunaDraftGenerate(convId, panel);', 'if (panel) return;')],
+    ['duplicate lock removed', prodSource.replace('if(!ta||st.locked||st.inFlight)return;', 'if(!ta||st.locked)return;')],
+    ['value/textContent replaced by innerHTML', prodSource.replace('ta.value=accepted.message_text', 'ta.innerHTML=accepted.message_text').replace('el.textContent = message', 'el.innerHTML = message')],
+  ]) {
+    let killed = false;
+    try { lunaUiMutationGuard(mutant); } catch (_) { killed = true; }
+    ok('Luna mutation killed: ' + name, killed);
+  }
   ok('verifier requires real Inbox tab click', fs.readFileSync(__filename, 'utf8').includes(".tab-btn[data-tab=\"conversations\"]") && !/else if \(typeof switchToTab === 'function'\) switchToTab\('conversations'/.test(fs.readFileSync(__filename, 'utf8')));
   console.log('\n[2b] Real production router + session seam');
-  let prod = await startProdServer({ drafts: true, outbound: true });
+  let prod = await startProdServer({ drafts: true, outbound: true, luna: true });
   const noAuth = await httpGet(prod.base, '/staff/ui?client=sunset');
   ok('router /staff/ui without session rejects', noAuth.status === 401 || noAuth.status === 403 || noAuth.status === 302);
   const withAuth = await httpGet(prod.base, '/staff/ui?client=sunset', SESSION);
@@ -214,7 +238,7 @@ async function main() {
     console.error(`\n── verify:staff-email-inbox-ui FAILED early (${pass} pass, browser unavailable) ──`);
     process.exit(2);
   }
-  const pageErrors = [], consoleErrors = [], draftPosts = [], approvePosts = [];
+  const pageErrors = [], consoleErrors = [], draftPosts = [], approvePosts = [], lunaPosts = [];
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await bindSession(context, prod.base);
   const page = await context.newPage();
@@ -234,12 +258,79 @@ async function main() {
       body: JSON.stringify({ success: false, error: 'email_send_disabled', conversation_id: body.conversation_id, approval_id: body.approval_id, approval_state: 'approved' }),
     });
   });
+  await page.route('**/staff/inbox/email/generate-luna-draft', async (route) => {
+    const body = JSON.parse(route.request().postData() || '{}');
+    lunaPosts.push({ method: route.request().method(), body: { ...body }, headers: route.request().headers() });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      success: true, conversation_id: body.conversation_id,
+      message_text: '<img src=x onerror="window.__lunaXss=1"> literal hostile text', approval_id: AP1,
+    }) });
+  });
   const emailCard = () => page.locator('.conv-card').filter({ hasText: 'Email Guest' }).first();
   const waCard = () => page.locator('.conv-card').filter({ hasText: 'WhatsApp Guest' }).first();
   const statusText = async () => page.locator('#draft-send-status').innerText();
   const waitStatus = (re, t = 5000) => page.waitForFunction((r) => new RegExp(r, 'i').test(document.querySelector('#draft-send-status')?.textContent || ''), re, { timeout: t });
   try {
     await page.goto(prod.base + '/staff/ui?client=sunset&location=sunset-somo', { waitUntil: 'domcontentloaded' });
+    await openInbox(page);
+    await emailCard().click();
+    await page.waitForSelector('#draft-textarea', { timeout: 10000 });
+    ok('Luna eligible email gate-on button visible', await page.locator('#btn-email-generate-luna-draft').count() === 1);
+    ok('Luna makes zero generate requests before explicit click', lunaPosts.length === 0);
+    ok('Luna does not auto-save, approve, or send', draftPosts.length === 0 && approvePosts.length === 0);
+    await waCard().click();
+    await page.waitForSelector('#btn-send-reply', { timeout: 10000 });
+    ok('Luna button absent for WhatsApp', await page.locator('#btn-email-generate-luna-draft').count() === 0);
+    await emailCard().click();
+    await page.waitForSelector('#btn-email-generate-luna-draft', { timeout: 10000 });
+    await page.click('#btn-email-generate-luna-draft');
+    await waitStatus('Luna draft generated');
+    ok('Luna click exact POST/body once', lunaPosts.length === 1 && lunaPosts[0].method === 'POST'
+      && Object.keys(lunaPosts[0].body).join(',') === 'conversation_id' && lunaPosts[0].body.conversation_id === EMAIL_CONV
+      && /application\/json/i.test(String(lunaPosts[0].headers['content-type'] || '')));
+    const hostile = '<img src=x onerror="window.__lunaXss=1"> literal hostile text';
+    ok('Luna hostile HTML remains literal editable textarea value', await page.inputValue('#draft-textarea') === hostile
+      && await page.locator('#draft-textarea img').count() === 0 && !(await page.evaluate(() => window.__lunaXss)));
+    ok('Luna success does not auto-approve/send', approvePosts.length === 0);
+
+    await page.unroute('**/staff/inbox/email/generate-luna-draft');
+    const heldLuna = [];
+    await page.route('**/staff/inbox/email/generate-luna-draft', async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      lunaPosts.push({ method: route.request().method(), body: { ...body } });
+      await new Promise((resolve) => heldLuna.push(resolve));
+      return route.fulfill({ status: 422, contentType: 'application/json', body: '{"success":false,"error":"luna_handoff_required"}' });
+    });
+    const beforeHeld = lunaPosts.length;
+    const heldClick = page.click('#btn-email-generate-luna-draft');
+    await page.waitForFunction(() => document.querySelector('#btn-email-generate-luna-draft')?.disabled === true);
+    await page.locator('#btn-email-generate-luna-draft').dispatchEvent('click');
+    await page.waitForTimeout(80);
+    ok('Luna loading disables controls and suppresses rapid duplicate', lunaPosts.length === beforeHeld + 1
+      && await page.locator('#draft-textarea').isDisabled() && await page.locator('#btn-email-save-draft').isDisabled());
+    heldLuna.splice(0).forEach((resolve) => resolve());
+    await heldClick.catch(() => {});
+    await waitStatus('handoff required');
+    ok('Luna handoff state is bounded textContent', /handoff required/i.test(await statusText())
+      && await page.locator('#draft-send-status img').count() === 0);
+    await page.unroute('**/staff/inbox/email/generate-luna-draft');
+    await page.route('**/staff/inbox/email/generate-luna-draft', (route) => route.abort('failed'));
+    const beforeError = lunaPosts.length;
+    await page.click('#btn-email-generate-luna-draft');
+    await waitStatus('Could not generate');
+    ok('Luna network error is textContent and unlocks retry', /Could not generate/.test(await statusText())
+      && await page.locator('#btn-email-generate-luna-draft').isEnabled());
+    await page.unroute('**/staff/inbox/email/generate-luna-draft');
+    await page.route('**/staff/inbox/email/generate-luna-draft', async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}'); lunaPosts.push({ body });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(draftOk({ ...body, message_text: 'retry draft' })) });
+    });
+    await page.click('#btn-email-generate-luna-draft');
+    await waitStatus('Luna draft generated');
+    ok('Luna retry sends exactly one new request', lunaPosts.length === beforeError + 1 && await page.inputValue('#draft-textarea') === 'retry draft');
+    ok('manual Save and Approve remain wired after Luna', await page.locator('#btn-email-save-draft').isEnabled()
+      && await page.locator('#btn-email-approve-send').isEnabled());
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await openInbox(page);
     await emailCard().click();
     await page.waitForSelector('#draft-textarea', { timeout: 10000 });
@@ -806,7 +897,7 @@ async function main() {
     await pageOff.waitForSelector('#email-drafting-disabled', { timeout: 10000 });
     ok('gate-off email is explicit read-only drafting-disabled state', await pageOff.locator('#email-drafting-disabled[role="status"]').count() === 1
       && /email drafting is currently disabled/i.test(await pageOff.locator('#email-drafting-disabled').innerText()));
-    ok('gate-off email never renders generic or email send actions', await pageOff.locator('#btn-send-reply,#btn-email-save-draft,#btn-email-approve-send').count() === 0);
+    ok('gate-off email never renders generic, email, or Luna actions', await pageOff.locator('#btn-send-reply,#btn-email-save-draft,#btn-email-approve-send,#btn-email-generate-luna-draft').count() === 0);
     ok('gate-off email composer is read-only', await pageOff.locator('#draft-textarea').count() === 1 && await pageOff.locator('#draft-textarea').isDisabled());
     await pageOff.locator('#draft-textarea').press('Enter').catch(() => {});
     await pageOff.waitForTimeout(80);

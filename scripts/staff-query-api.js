@@ -32019,10 +32019,12 @@ function setEmailReplyControlsDisabled(targetEl, disabled, locked){
   var ta = targetEl.querySelector('#draft-textarea');
   var saveBtn = targetEl.querySelector('#btn-email-save-draft');
   var apprBtn = targetEl.querySelector('#btn-email-approve-send');
+  var lunaBtn = targetEl.querySelector('#btn-email-generate-luna-draft');
   var freeze = !!(disabled || locked);
   if (ta) ta.disabled = freeze;
   if (saveBtn) saveBtn.disabled = freeze;
   if (apprBtn) apprBtn.disabled = freeze;
+  if (lunaBtn) lunaBtn.disabled = freeze;
 }
 function emailReplyActionPanel(buttonEl, targetEl){
   if (!buttonEl || !targetEl || typeof buttonEl.closest !== 'function') return null;
