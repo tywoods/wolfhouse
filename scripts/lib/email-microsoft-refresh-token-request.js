@@ -10,14 +10,16 @@
 
 const { REQUEST_LIMIT_BYTES } = require('./email-microsoft-token-http-transport');
 const {
-  classifyMicrosoftRefreshTokenResponse,
-} = require('./email-microsoft-refresh-token-response');
+  classifyMicrosoftRefreshTokenResponseForScopeVersion,
+} = require('./email-microsoft-refresh-token-response-by-scope-version');
 
 const FAILURE_CODE = 'microsoft_refresh_token_exchange_failed';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 const CLIENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REFRESH_TOKEN_LIMIT_CHARS = 8192;
 const CLIENT_SECRET_LIMIT_CHARS = 4096;
+const SCOPE_VERSION_LIMIT_CHARS = 32;
+const EXCHANGE_INPUT_KEYS = Object.freeze(['refreshToken', 'scopeVersion']);
 const CORE_DEPS_KEYS = Object.freeze([
   'deployment',
   'applicationClientId',
@@ -69,10 +71,19 @@ function printable(value, limit) {
 }
 
 function snapshotInput(input) {
-  if (!exactPlainData(input, ['refreshToken'])) return null;
+  // Exact own-data keys only: refreshToken + trusted scopeVersion from custody.
+  // Browser/env/provider body must never choose scope policy.
+  if (!exactPlainData(input, EXCHANGE_INPUT_KEYS)) return null;
   const refreshToken = ownData(input, 'refreshToken');
+  const scopeVersion = ownData(input, 'scopeVersion');
   if (!printable(refreshToken, REFRESH_TOKEN_LIMIT_CHARS)) return null;
-  return Object.freeze({ refreshToken });
+  // scopeVersion is a non-secret custody key. Empty/hostile values are allowed
+  // through so the phase-aware classifier fails closed as uncertain (not
+  // transport failure). Must still be a bounded string own-data value.
+  if (typeof scopeVersion !== 'string' || scopeVersion.length > SCOPE_VERSION_LIMIT_CHARS) {
+    return null;
+  }
+  return Object.freeze({ refreshToken, scopeVersion });
 }
 
 function createMicrosoftRefreshTokenRequestService(deps) {
@@ -113,7 +124,10 @@ function createMicrosoftRefreshTokenRequestService(deps) {
       const rawResponse = await Reflect.apply(postTokenForm, transport, [
         Object.freeze({ body }),
       ]);
-      const classified = classifyMicrosoftRefreshTokenResponse(rawResponse);
+      const classified = classifyMicrosoftRefreshTokenResponseForScopeVersion(
+        inputSnapshot.scopeVersion,
+        rawResponse,
+      );
       if (!classified || typeof classified !== 'object' || !Object.isFrozen(classified)) {
         throw failure();
       }
@@ -132,5 +146,7 @@ module.exports = Object.freeze({
   SUNSET_DEPLOYMENT,
   REFRESH_TOKEN_LIMIT_CHARS,
   CLIENT_SECRET_LIMIT_CHARS,
+  SCOPE_VERSION_LIMIT_CHARS,
+  EXCHANGE_INPUT_KEYS,
   createMicrosoftRefreshTokenRequestService,
 });

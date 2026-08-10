@@ -76,6 +76,10 @@ function createMockPg(handlers) {
 
 function frozenMethod(name, fn) { return Object.freeze({ [name]: fn }); }
 
+const PHASE_A_TOKEN_SCOPE = 'openid profile User.Read Mail.ReadBasic';
+const PHASE_B_TOKEN_SCOPE = 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send';
+const MIXED_TOKEN_SCOPE = 'openid profile User.Read Mail.ReadBasic Mail.ReadWrite Mail.Send';
+
 function successTransport(bodyPatch = {}) {
   return frozenMethod('postTokenForm', async () => Object.freeze({
     statusCode: 200,
@@ -85,10 +89,14 @@ function successTransport(bodyPatch = {}) {
       expires_in: 3600,
       access_token: ACCESS,
       refresh_token: NEW_RT,
-      scope: 'openid profile User.Read Mail.ReadBasic',
+      scope: PHASE_A_TOKEN_SCOPE,
       ...bodyPatch,
     }),
   }));
+}
+
+function phaseBSuccessTransport(bodyPatch = {}) {
+  return successTransport({ scope: PHASE_B_TOKEN_SCOPE, ...bodyPatch });
 }
 
 function omitRefreshTransport() {
@@ -137,12 +145,18 @@ function uncertainTransport() {
   }));
 }
 
-function mockGrantLifecycle({ sealed, opId, onCommit, failCommit, priorStatus, noGrant }) {
+function mockGrantLifecycle({
+  sealed, opId, onCommit, failCommit, priorStatus, noGrant, scopeVersion,
+}) {
   let leaseTok = null;
+  // Default Phase A custody version for existing happy paths. Phase B RED/GREEN
+  // cases pass scopeVersion: 'phase_b_v1' explicitly.
+  const scopeVer = scopeVersion === undefined ? 'phase_a_v2' : scopeVersion;
   const prior = priorStatus || {
     client_id: CLIENT, endpoint_id: ENDPOINT,
     grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
     grant_lease_token: null,
+    scope_version: scopeVer,
   };
   return createMockPg([
     {
@@ -157,6 +171,7 @@ function mockGrantLifecycle({ sealed, opId, onCommit, failCommit, priorStatus, n
         grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
         grant_lease_token: null, grant_lease_until: null,
         last_operation_id: opId,
+        scope_version: scopeVer,
         envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
         kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
         kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
@@ -175,6 +190,7 @@ function mockGrantLifecycle({ sealed, opId, onCommit, failCommit, priorStatus, n
           grant_lease_token: leaseTok,
           grant_lease_until: new Date(Date.now() + 60000).toISOString(),
           last_operation_id: opId,
+          scope_version: scopeVer,
         });
       },
     },
@@ -187,6 +203,7 @@ function mockGrantLifecycle({ sealed, opId, onCommit, failCommit, priorStatus, n
         grant_lease_token: leaseTok,
         grant_lease_until: new Date(Date.now() + 60000).toISOString(),
         last_operation_id: opId,
+        scope_version: scopeVer,
         envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
         kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
         kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
@@ -203,6 +220,7 @@ function mockGrantLifecycle({ sealed, opId, onCommit, failCommit, priorStatus, n
           client_id: CLIENT, endpoint_id: ENDPOINT,
           grant_generation: Number(p[2]), grant_status: 'active',
           reconcile_state: 'clean',
+          scope_version: scopeVer,
         });
       },
     },
@@ -212,6 +230,7 @@ function mockGrantLifecycle({ sealed, opId, onCommit, failCommit, priorStatus, n
         client_id: CLIENT, endpoint_id: ENDPOINT,
         grant_generation: 1, grant_status: 'lease_held',
         reconcile_state: 'ms_response_uncertain',
+        scope_version: scopeVer,
       }),
     },
     {
@@ -220,6 +239,7 @@ function mockGrantLifecycle({ sealed, opId, onCommit, failCommit, priorStatus, n
         client_id: CLIENT, endpoint_id: ENDPOINT,
         grant_generation: 1, grant_status: 'active',
         reconcile_state: 'ms_response_uncertain',
+        scope_version: scopeVer,
       }),
     },
     {
@@ -764,6 +784,135 @@ async function main() {
       );
       assert.equal(noLeak(out), true);
       assert.equal(JSON.stringify(out).includes(ACCESS), false);
+    }
+
+    // ── Phase B grant + Phase B MS 200 scopes → CAS + callback (RED) ──
+    // On base (Phase A-only classifier) this fails as uncertain with zero
+    // callback. GREEN must thread trusted lease scope_version=phase_b_v1.
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      let cbCalls = 0;
+      let seenToken = null;
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op, scopeVersion: 'phase_b_v1' }),
+        envelopeProvider: fake,
+        transport: phaseBSuccessTransport(),
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async (loan) => {
+          cbCalls += 1;
+          seenToken = loan.accessToken;
+          return Object.freeze({ phase: 'B', n: 12 });
+        },
+      );
+      assert.equal(out.ok, true, 'Phase B grant refresh must not be terminal uncertain');
+      assert.equal(out.grant_generation, 2);
+      assert.deepEqual(out.value, { phase: 'B', n: 12 });
+      assert.equal(cbCalls, 1, 'Phase B success must reach access-token callback once');
+      assert.equal(seenToken, ACCESS);
+      assert.equal(noLeak(out), true);
+    }
+
+    // Phase A grant + Phase B scopes stays uncertain (do not broaden Phase A).
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      let cbCalls = 0;
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op, scopeVersion: 'phase_a_v2' }),
+        envelopeProvider: fake,
+        transport: phaseBSuccessTransport(),
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => { cbCalls += 1; return 'nope'; },
+      );
+      assert.equal(out.ok, false);
+      assert.equal(out.status, STATUS_UNCERTAIN);
+      assert.equal(cbCalls, 0);
+      assert.equal(noLeak(out), true);
+    }
+
+    // Phase B grant + Phase A scopes → uncertain (no mixed policy).
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      let cbCalls = 0;
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op, scopeVersion: 'phase_b_v1' }),
+        envelopeProvider: fake,
+        transport: successTransport(),
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => { cbCalls += 1; return 'nope'; },
+      );
+      assert.equal(out.ok, false);
+      assert.equal(out.status, STATUS_UNCERTAIN);
+      assert.equal(cbCalls, 0);
+    }
+
+    // Mixed A/B scopes under either phase → uncertain.
+    for (const ver of ['phase_a_v2', 'phase_b_v1']) {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      let cbCalls = 0;
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op, scopeVersion: ver }),
+        envelopeProvider: fake,
+        transport: successTransport({ scope: MIXED_TOKEN_SCOPE }),
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => { cbCalls += 1; return 'nope'; },
+      );
+      assert.equal(out.ok, false, `mixed under ${ver}`);
+      assert.equal(out.status, STATUS_UNCERTAIN, `mixed under ${ver}`);
+      assert.equal(cbCalls, 0, `mixed under ${ver}`);
+    }
+
+    // Unknown / missing / hostile scope_version → fail closed uncertain.
+    for (const bad of [null, '', 'phase_b_v2', 'PHASE_B_V1', 'phase_a_v1']) {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      let cbCalls = 0;
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op, scopeVersion: bad }),
+        envelopeProvider: fake,
+        transport: phaseBSuccessTransport(),
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => { cbCalls += 1; return 'nope'; },
+      );
+      assert.equal(out.ok, false, `hostile scope_version=${String(bad)}`);
+      assert.equal(out.status, STATUS_UNCERTAIN, `hostile scope_version=${String(bad)}`);
+      assert.equal(cbCalls, 0, `hostile scope_version=${String(bad)}`);
+      assert.equal(noLeak(out), true);
+    }
+
+    // Source: trusted scope_version from lease, not env/browser/provider body.
+    {
+      assert.match(src, /scope_version|scopeVersion/);
+      assert.match(src, /exchangeRefreshToken/);
+      assert.doesNotMatch(src, /process\.env\.LUNA_EMAIL|window\.|localStorage/);
     }
 
     assert.deepEqual(logged, []);

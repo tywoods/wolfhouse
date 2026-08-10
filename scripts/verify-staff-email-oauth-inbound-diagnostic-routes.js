@@ -547,6 +547,17 @@ async function main() {
   assert.match(routesSrc, /input_count/);
   assert.match(routesSrc, /delivered_count/);
   assert.match(routesSrc, /duplicate_count/);
+  // Phase B refresh 503 fix lives in access-session classification, not route DTO.
+  // Route must keep composing through access-session-backed diagnostic runtime.
+  {
+    const sessionSrc = fs.readFileSync(
+      path.join(ROOT, 'scripts/lib/email-delegated-grant-access-session.js'),
+      'utf8',
+    );
+    assert.match(sessionSrc, /scope_version|scopeVersion/,
+      'inbound diagnostic 503 shell must not keep Phase-A-only refresh classification');
+    assert.match(routesSrc, /createSunsetStagingMicrosoftDelegatedInboundDiagnosticRuntime/);
+  }
   // Removed wrong public vocabulary must not remain as public DTO keys.
   assert.equal(/received_count|accepted_count|discarded_count|PUBLIC_STATUS_OK|status:\s*['"]ok['"]/.test(routesSrc), false,
     'routes must not keep status ok / received/accepted/discarded public DTO');
