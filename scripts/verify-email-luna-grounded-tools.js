@@ -219,6 +219,80 @@ async function main() {
     assert.deepEqual(result, row('catalog'));
   });
 
+  await hostile('isolate every returned surface from post-import prototype injection', async () => {
+    const originalObjectSend = Object.getOwnPropertyDescriptor(Object.prototype, 'send');
+    const originalObjectSecret = Object.getOwnPropertyDescriptor(Object.prototype, 'secret_token');
+    const originalArrayExecute = Object.getOwnPropertyDescriptor(Array.prototype, 'execute');
+    const originalArraySecret = Object.getOwnPropertyDescriptor(Array.prototype, 'secret_token');
+    let sendGetterCalls = 0;
+    let success;
+    let failure;
+    let arrayResult;
+    let wrappedResult;
+    let exact;
+    try {
+      Object.defineProperty(Object.prototype, 'send', {
+        configurable: true,
+        get() { sendGetterCalls += 1; return () => 'ambient-send'; },
+      });
+      Object.defineProperty(Object.prototype, 'secret_token', {
+        configurable: true, writable: true, value: 'ambient-object-secret',
+      });
+      Object.defineProperty(Array.prototype, 'execute', {
+        configurable: true, writable: true, value: () => 'ambient-execute',
+      });
+      Object.defineProperty(Array.prototype, 'secret_token', {
+        configurable: true, writable: true, value: 'ambient-array-secret',
+      });
+
+      exact = createEmailLunaGroundedTools({ authority: AUTHORITY, queryOwners: owners({
+        catalog: async () => row('catalog', { item: 'safe-item' }),
+        availability: async () => [row('availability', { item: 'safe-slot' })],
+        policy: async () => ({ rows: [row('policy', { policy_key: 'safe-policy' })] }),
+      }) });
+      success = await exact.query('catalog', {});
+      failure = await exact.query('unknown', {});
+      arrayResult = await exact.query('availability', {});
+      wrappedResult = await exact.query('policy', {});
+
+      const leaks = [];
+      for (const [name, record] of [
+        ['tools', exact], ['authority', exact.authority], ['success', success], ['failure', failure],
+        ['wrapper', wrappedResult], ['nested_fact', wrappedResult.rows[0]],
+      ]) {
+        if (Object.getPrototypeOf(record) !== null) leaks.push(`${name}:object_prototype`);
+        if ('send' in record) leaks.push(`${name}:inherited_send`);
+        if (record.send !== undefined) leaks.push(`${name}:direct_send`);
+        if (record.secret_token !== undefined) leaks.push(`${name}:inherited_secret`);
+      }
+      for (const [name, output] of [['array_output', arrayResult], ['nested_array', wrappedResult.rows]]) {
+        assert.equal(Array.isArray(output), true, 'array output must remain an Array');
+        if (Object.getPrototypeOf(output) !== null) leaks.push(`${name}:array_prototype`);
+        if (output.execute !== undefined) leaks.push(`${name}:inherited_execute`);
+        if (output.secret_token !== undefined) leaks.push(`${name}:inherited_secret`);
+      }
+      assert.deepEqual(leaks, [], `ambient prototype injection remained observable:\n${leaks.join('\n')}`);
+      assert.equal(sendGetterCalls, 0, 'ambient send getter must never execute');
+      assert.deepEqual(Object.keys(exact), ['authority', 'query']);
+      assert.equal(typeof exact.query, 'function');
+      assert.equal(JSON.stringify(success), '{"fact":"catalog","status":"found","client_id":"sunset-client","location_id":"sunset-somo","item":"safe-item","label":"catalog fact"}');
+      assert.equal(JSON.stringify(failure), '{"type":"missing_fact","fact":"unknown","status":"missing_fact","reason":"unknown_fact","client_id":"sunset-client","location_id":"sunset-somo"}');
+      assert.equal(JSON.stringify(arrayResult), '[{"fact":"availability","status":"found","client_id":"sunset-client","location_id":"sunset-somo","item":"safe-slot","label":"availability fact"}]');
+      assert.throws(() => { exact.query = () => null; }, TypeError);
+      assert.throws(() => { arrayResult[0] = null; }, TypeError);
+    } finally {
+      for (const [prototype, key, descriptor] of [
+        [Object.prototype, 'send', originalObjectSend],
+        [Object.prototype, 'secret_token', originalObjectSecret],
+        [Array.prototype, 'execute', originalArrayExecute],
+        [Array.prototype, 'secret_token', originalArraySecret],
+      ]) {
+        if (descriptor) Object.defineProperty(prototype, key, descriptor);
+        else delete prototype[key];
+      }
+    }
+  });
+
   await hostile('snapshot and freeze request before await', async () => {
     let release;
     const gate = new Promise((resolve) => { release = resolve; });
