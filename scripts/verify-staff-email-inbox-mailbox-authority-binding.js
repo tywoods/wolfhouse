@@ -304,9 +304,11 @@ function assertStaticSqlContract() {
   );
   ok(
     'SQL_RESOLVE never equates public_address to Graph mailbox UUID',
-    !/public_address\s*\)\s*=\s*lower\s*\(\s*btrim\s*\(\s*ev\.provider_mailbox_id/.test(SQL_RESOLVE)
-      && !/public_address\s*=\s*.*provider_mailbox_id/.test(SQL_RESOLVE)
-      && !/provider_mailbox_id\s*=\s*.*public_address/.test(SQL_RESOLVE),
+    // Exact historical bug shape only — do not use loose .* across SELECT list.
+    !/btrim\(ep\.public_address\)\)\s*=\s*lower\(btrim\(ev\.provider_mailbox_id/.test(SQL_RESOLVE)
+      && !/btrim\(ev\.provider_mailbox_id\)\)\s*=\s*lower\(btrim\(ep\.public_address/.test(SQL_RESOLVE)
+      && !/ep\.public_address\s*=\s*ev\.provider_mailbox_id/.test(SQL_RESOLVE)
+      && !/ev\.provider_mailbox_id\s*=\s*ep\.public_address/.test(SQL_RESOLVE),
   );
   ok(
     'SQL_RESOLVE keeps public_address non-null verified sender config',
