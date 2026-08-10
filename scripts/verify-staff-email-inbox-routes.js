@@ -165,15 +165,17 @@ async function main() {
     && EMAIL_AUTHORITY_BOUND_OUTBOUND_SAFE_FOR_RUNTIME_ROUTE === false
     && EMAIL_AUTHORITY_BOUND_OUTBOUND_PERSISTENCE_READY === false
     && bodyDigestOf(BODY) === DIGEST);
-  ok('SQL_RESOLVE from ev + p↔ev equality + current delta mailbox UUID',
+  ok('SQL_RESOLVE from ev + p↔ev equality + endpoint provider_resource_id',
     /ev\.provider AS provider/.test(SQL_RESOLVE) && /ev\.provider_mailbox_id AS provider_mailbox_id/.test(SQL_RESOLVE)
     && /ev\.provider_message_id AS provider_source_message_id/.test(SQL_RESOLVE)
     && /ev\.location_id = p\.location_id/.test(SQL_RESOLVE) && /ev\.endpoint_id = p\.endpoint_id/.test(SQL_RESOLVE)
     && /ev\.provider = p\.provider/.test(SQL_RESOLVE) && /ev\.provider_mailbox_id = p\.provider_mailbox_id/.test(SQL_RESOLVE)
     && /ev\.provider_message_id = p\.provider_message_id/.test(SQL_RESOLVE)
-    && /tenant_email_inbound_delta_states/.test(SQL_RESOLVE)
-    && /ds\.provider_mailbox_id = ev\.provider_mailbox_id/.test(SQL_RESOLVE)
-    && /ds\.is_current = true/.test(SQL_RESOLVE)
+    && /ev\.provider_mailbox_id = ep\.provider_resource_id/.test(SQL_RESOLVE)
+    && /ep\.provider_resource_id IS NOT NULL/.test(SQL_RESOLVE)
+    && /btrim\(ep\.provider_resource_id\) <> ''/.test(SQL_RESOLVE)
+    && /ep\.provider_resource_id ~ '\^\[0-9a-f\]\{8\}/.test(SQL_RESOLVE)
+    && !/tenant_email_inbound_delta_states/.test(SQL_RESOLVE)
     && /ep\.public_address IS NOT NULL/.test(SQL_RESOLVE)
     && !/public_address\s*=\s*.*provider_mailbox_id/.test(SQL_RESOLVE)
     && /ORDER BY ev\.received_at DESC, ev\.id DESC/.test(SQL_RESOLVE)
