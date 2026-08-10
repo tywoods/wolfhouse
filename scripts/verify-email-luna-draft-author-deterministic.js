@@ -65,6 +65,23 @@ function safe(result) {
     assert.equal(result.status,'handoff_required'); assert.equal(result.reason,'model_malformed');
   }
 
+  for (const [request,template] of [
+    [issue('catalog_question','catalog','en',{item:'unknown_item'}),'catalog_reply'],
+    [issue('catalog_question','catalog','en',{currency:'USD'}),'catalog_reply'],
+    [issue('policy_question','policy','en',{policy_key:'model_authored_policy'}),'policy_reply'],
+    [issue('booking_status_question','booking','en',{booking_code:'evil.test/pay'}),'booking_status_reply'],
+  ]) {
+    const result=await createEmailLunaDraftAuthor({callModel:()=>Promise.resolve(plan(template))}).authorDraft(request);
+    assert.equal(result.status,'handoff_required'); assert.equal(result.reason,'unsupported_claim');
+  }
+
+  const malformed=await createEmailLunaDraftAuthor({callModel:()=>Promise.resolve('{bad')}).authorDraft(issue('catalog_question','catalog'));
+  assert.equal(malformed.reason,'model_malformed');
+  const provider=await createEmailLunaDraftAuthor({callModel:()=>{throw new Error('provider');}}).authorDraft(issue('catalog_question','catalog'));
+  assert.equal(provider.reason,'model_provider_error');
+  const timeout=await createEmailLunaDraftAuthor({callModel:()=>new Promise(()=>{}),timeoutMs:5}).authorDraft(issue('catalog_question','catalog'));
+  assert.equal(timeout.reason,'model_timeout');
+
   const a=issue('catalog_question','catalog'); const b=issue('catalog_question','catalog');
   await assert.rejects(createEmailLunaDraftAuthor({callModel:()=>Promise.resolve(plan('catalog_reply'))}).authorDraft({envelope:a.envelope,evidence:b.evidence,decision:a.decision}));
   await assert.rejects(createEmailLunaDraftAuthor({callModel:()=>Promise.resolve(plan('catalog_reply'))}).authorDraft({envelope:a.envelope,evidence:a.evidence,decision:b.decision}));
