@@ -6,10 +6,12 @@ const { createEmailLunaDraftAuthor } = require('./email-luna-draft-author');
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 const SUNSET_LOCATION_KEY = 'sunset-somo';
 const ENV_RUNTIME_ENABLED = 'EMAIL_LUNA_DRAFT_RUNTIME_ENABLED';
+const objectCreate = Function.prototype.call.bind(Object.create, undefined);
 const objectFreeze = Object.freeze;
 const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectHasOwn = Object.hasOwn;
+const objectPrototype = Object.prototype;
 const reflectOwnKeys = Reflect.ownKeys;
 const arrayIsArray = Array.isArray;
 const arrayIncludes = Function.prototype.call.bind(Array.prototype.includes);
@@ -17,12 +19,12 @@ const arraySome = Function.prototype.call.bind(Array.prototype.some);
 
 function data(value, keys, exact, allowedOnly = true) {
   if (!value || typeof value !== 'object' || runtimeIsProxy(value) || arrayIsArray(value)
-      || objectGetPrototypeOf(value) !== Object.prototype) return null;
+      || objectGetPrototypeOf(value) !== objectPrototype) return null;
   let own;
   try { own = reflectOwnKeys(value); } catch (_) { return null; }
   if ((allowedOnly && arraySome(own, (key) => typeof key !== 'string' || !arrayIncludes(keys, key)))
       || (exact && own.length !== keys.length)) return null;
-  const out = Object.create(null);
+  const out = objectCreate(null);
   for (const key of keys) {
     const descriptor = objectGetOwnPropertyDescriptor(value, key);
     if (!descriptor) { if (exact) return null; continue; }
