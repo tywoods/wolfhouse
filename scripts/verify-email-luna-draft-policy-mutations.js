@@ -8,7 +8,7 @@ const path = require('node:path');
 
 const SOURCE_PATH = require.resolve('./lib/email-luna-draft-policy');
 const HANDOFF_PATH = require.resolve('./lib/email-luna-draft-handoff-contract');
-const SOURCE_SHA256 = '231253028eb7f87f05639818ecb5c76368cddc02cce42aaef7f456c52ad4b340';
+const SOURCE_SHA256 = 'fdb3d58775975c2d9abe3190eeca13658035d477325fb2315a2e42995613435a';
 const CONSTRUCTOR_VALIDATION_BLOCK = [
   '  objectFreeze(copy);',
   '  frozenResult(copy, fact);',

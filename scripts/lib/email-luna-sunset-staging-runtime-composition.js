@@ -11,13 +11,15 @@ const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectHasOwn = Object.hasOwn;
 const reflectOwnKeys = Reflect.ownKeys;
+const arrayIsArray = Array.isArray;
+const arrayIncludes = Function.prototype.call.bind(Array.prototype.includes);
 
 function data(value, keys, exact, allowedOnly = true) {
-  if (!value || typeof value !== 'object' || runtimeIsProxy(value) || Array.isArray(value)
+  if (!value || typeof value !== 'object' || runtimeIsProxy(value) || arrayIsArray(value)
       || objectGetPrototypeOf(value) !== Object.prototype) return null;
   let own;
   try { own = reflectOwnKeys(value); } catch (_) { return null; }
-  if ((allowedOnly && own.some((key) => typeof key !== 'string' || !keys.includes(key)))
+  if ((allowedOnly && own.some((key) => typeof key !== 'string' || !arrayIncludes(keys, key)))
       || (exact && own.length !== keys.length)) return null;
   const out = Object.create(null);
   for (const key of keys) {
@@ -31,7 +33,7 @@ function data(value, keys, exact, allowedOnly = true) {
 function isEmailLunaDraftRuntimeEnabled(input) {
   const request = data(input, ['env', 'authority', 'tenant_location_gate'], true);
   if (!request) return false;
-  const env = data(request.env, ['LUNA_DEPLOYMENT', ENV_RUNTIME_ENABLED], false, false);
+  const env = data(request.env, ['LUNA_DEPLOYMENT', ENV_RUNTIME_ENABLED], true);
   const authority = data(request.authority, ['client_id', 'location_id', 'location_key'], true);
   const gate = data(request.tenant_location_gate, ['client_id', 'location_id', 'location_key', 'draft_enabled'], true);
   return Boolean(env && authority && gate
