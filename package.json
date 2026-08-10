@@ -397,6 +397,7 @@
     "verify:email-outbound-sunset-staging-runtime-composition": "node scripts/verify-email-outbound-sunset-staging-runtime-composition.js",
     "verify:email-outbound-forced-post-send-uncertainty-seam": "node scripts/verify-email-outbound-forced-post-send-uncertainty-seam.js",
     "verify:staff-email-inbox-routes": "node scripts/verify-staff-email-inbox-routes.js",
+    "verify:staff-email-inbox-mailbox-authority-binding": "node scripts/verify-staff-email-inbox-mailbox-authority-binding.js",
     "verify:staff-email-outbound-recovery-route": "node scripts/verify-staff-email-outbound-recovery-route.js",
     "verify:staff-email-inbox-ui": "node scripts/verify-staff-email-inbox-ui.js",
     "verify:email-delta-operator-recovery-config": "node scripts/verify-email-delta-operator-recovery-config.js",
