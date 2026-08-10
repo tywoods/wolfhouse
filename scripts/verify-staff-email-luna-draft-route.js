@@ -41,6 +41,9 @@ const GENERATED = 'Hello Ana,\n\nThis is an editable Luna draft.\n\nWarm regards
 function user(patch = {}) {
   return { staff_user_id: A, client_id: C, client_slug: 'sunset', role: 'operator', status: 'active', ...patch };
 }
+function actorCapability(patch = {}) {
+  return Object.assign(Object.create(null), { staff_user_id: A, client_id: C, role: 'operator' }, patch);
+}
 function request(body, headers = {}) {
   const req = new EventEmitter();
   req.headers = { 'content-type': 'application/json', origin: ORIGIN, ...headers };
@@ -116,7 +119,7 @@ function makeHarness(options = {}) {
   });
   return { route, sent, writes, approvals, outbound, journals, providers, runtimeCalls };
 }
-async function invoke(h, body = { conversation_id: V }, u = user(), gate) {
+async function invoke(h, body = { conversation_id: V }, u = actorCapability(), gate) {
   await h.route.handleGenerateLunaDraft(request(body), {}, u,
     gate || snapshotEmailLunaGenerateGateEnv(h.route.runtimeEnv));
   return h.sent.calls.at(-1);
@@ -217,15 +220,35 @@ function noSideEffects(h) {
     assert.equal(h.writes.length, 1); assert.equal(h.approvals.length + h.outbound.length + h.providers.length, 0);
   }
 
-  // Actor and generated output are exact own-data snapshots, never inherited/accessor/proxy/extra records.
-  const inheritedActor = Object.create(user());
+  // Dedicated route actor capability is exact own-data: three enumerable data UUID/role fields, null proto.
+  const legitimateActor = actorCapability();
+  assert.equal(Object.getPrototypeOf(legitimateActor), null);
+  assert.deepEqual(Reflect.ownKeys(legitimateActor), ['staff_user_id', 'client_id', 'role']);
+  for (const key of Reflect.ownKeys(legitimateActor)) {
+    assert.deepEqual(Object.getOwnPropertyDescriptor(legitimateActor, key), {
+      value: legitimateActor[key], writable: true, enumerable: true, configurable: true,
+    });
+  }
+  h = makeHarness(); out = await invoke(h, { conversation_id: V }, legitimateActor);
+  assert.equal(out.status, 200);
+  const inheritedActor = Object.create(actorCapability());
   h = makeHarness(); out = await invoke(h, { conversation_id: V }, inheritedActor);
   assert.equal(out.status, 403); noSideEffects(h);
-  const actorAccessor = user(); Object.defineProperty(actorAccessor, 'role', { enumerable: true, get() { return 'operator'; } });
+  const actorAccessor = actorCapability(); Object.defineProperty(actorAccessor, 'role', { enumerable: true, get() { return 'operator'; } });
   h = makeHarness(); out = await invoke(h, { conversation_id: V }, actorAccessor);
   assert.equal(out.status, 403); noSideEffects(h);
-  h = makeHarness(); out = await invoke(h, { conversation_id: V }, new Proxy(user(), {}));
+  h = makeHarness(); out = await invoke(h, { conversation_id: V }, new Proxy(actorCapability(), {}));
   assert.equal(out.status, 403); noSideEffects(h);
+  for (const hostile of [
+    Object.assign(actorCapability(), { status: 'active' }),
+    (() => { const a = actorCapability(); a[Symbol('ambient')] = true; return a; })(),
+    Object.assign(Object.create({ ambient: true }), actorCapability()),
+    actorCapability({ staff_user_id: 7 }), actorCapability({ client_id: 'not-a-uuid' }),
+    actorCapability({ role: 1 }), actorCapability({ role: 'viewer' }),
+  ]) {
+    h = makeHarness(); out = await invoke(h, { conversation_id: V }, hostile);
+    assert.equal(out.status, 403); noSideEffects(h);
+  }
 
   const ready = () => ({ status: 'draft_ready', subject: 'Re: Booking question', body: GENERATED, language: 'en',
     client_id: C, location_id: L, conversation_id: V, draft_only: true, requires_staff_review: true,
@@ -251,13 +274,13 @@ function noSideEffects(h) {
   let dbHits = 0;
   h = makeHarness({ env: { LUNA_DEPLOYMENT: 'sunset-staging', STAFF_PORTAL_ORIGIN: ORIGIN } });
   h.route.withPgClient = async () => { dbHits += 1; };
-  out = await invoke(h, { conversation_id: V }, user(), snapshotEmailLunaGenerateGateEnv({
+  out = await invoke(h, { conversation_id: V }, actorCapability(), snapshotEmailLunaGenerateGateEnv({
     LUNA_DEPLOYMENT: 'sunset-staging', STAFF_PORTAL_ORIGIN: ORIGIN,
   }));
   assert.equal(out.status, 404); noSideEffects(h); assert.equal(dbHits, 0);
 
   // Authentication, same origin, exact JSON, and role are mandatory.
-  for (const u of [null, user({ role: 'viewer' }), user({ client_id: C2 }), user({ status: 'disabled' })]) {
+  for (const u of [null, actorCapability({ role: 'viewer' }), actorCapability({ client_id: C2 })]) {
     h = makeHarness(); out = await invoke(h, { conversation_id: V }, u);
     assert.ok([401, 403, 404].includes(out.status)); noSideEffects(h);
   }

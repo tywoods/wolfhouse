@@ -315,19 +315,30 @@ async function main() {
       && await page.locator('#draft-send-status img').count() === 0);
     await page.unroute('**/staff/inbox/email/generate-luna-draft');
     const beforeUnknownApprove = approvePosts.length;
-    await page.route('**/staff/inbox/email/generate-luna-draft', (route) => route.fulfill({ status: 503,
-      contentType: 'application/json', body: '{"success":false,"error":"draft_save_outcome_unknown","message_text":"<img src=x onerror=window.__unknownXss=1>"}' }));
+    await page.route('**/staff/inbox/email/generate-luna-draft', (route) => {
+      lunaPosts.push({ method: route.request().method(), body: JSON.parse(route.request().postData() || '{}') });
+      return route.fulfill({ status: 503, contentType: 'application/json',
+        body: '{"success":false,"error":"draft_save_outcome_unknown","message_text":"<img src=x onerror=window.__unknownXss=1>"}' });
+    });
+    const beforeUnknownGenerate = lunaPosts.length;
     await page.click('#btn-email-generate-luna-draft');
     await waitStatus('outcome is unknown');
     ok('Luna save outcome-unknown is bounded safe text and requires manual recovery',
       /Check the conversation before trying again manually/.test(await statusText())
       && await page.locator('#draft-send-status img').count() === 0
       && !(await page.evaluate(() => window.__unknownXss))
-      && await page.locator('#btn-email-generate-luna-draft').isEnabled());
-    await page.click('#btn-email-approve-send');
-    await waitStatus('Save a draft before approving');
-    ok('Luna outcome-unknown cannot auto-approve or send', approvePosts.length === beforeUnknownApprove);
+      && await page.locator('#btn-email-generate-luna-draft').isDisabled()
+      && await page.locator('#btn-email-approve-send').isDisabled());
+    await page.locator('#btn-email-generate-luna-draft').dispatchEvent('click');
+    await page.waitForTimeout(100);
+    ok('Luna outcome-unknown is terminal until authoritative reload with no retry/approve/send',
+      lunaPosts.length === beforeUnknownGenerate + 1 && approvePosts.length === beforeUnknownApprove);
     await page.unroute('**/staff/inbox/email/generate-luna-draft');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await openInbox(page); await emailCard().click();
+    await page.waitForSelector('#btn-email-generate-luna-draft', { timeout: 10000 });
+    ok('authoritative page reload clears uncertain-generation terminal lock',
+      await page.locator('#btn-email-generate-luna-draft').isEnabled());
     await page.route('**/staff/inbox/email/generate-luna-draft', (route) => route.abort('failed'));
     const beforeError = lunaPosts.length;
     await page.click('#btn-email-generate-luna-draft');
