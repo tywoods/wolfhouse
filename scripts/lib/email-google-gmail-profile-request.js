@@ -15,7 +15,7 @@ const RESPONSE_BYTES_MAX = 16384;
 const ACCESS_TOKEN_MAX = 8192;
 const EMAIL_MAX = 320;
 const TOTAL_MAX = 4294967295;
-const HOSTNAME = 'gmail.' + 'google' + 'apis.com';
+const HOSTNAME = 'gmail.googleapis.com';
 const REQUEST_PATH = '/gmail/v1/users/me/profile';
 const CONTENT_TYPE = /^application\/json(?:\s*;\s*charset\s*=\s*utf-8\s*)?$/i;
 const VISIBLE_ASCII = /^[\x21-\x7e]+$/;
@@ -38,7 +38,7 @@ const NumberIsSafeInteger = Number.isSafeInteger.bind(Number);
 const BufferIsBuffer = Buffer.isBuffer.bind(Buffer);
 const BufferFrom = Buffer.from.bind(Buffer);
 const BufferConcat = Buffer.concat.bind(Buffer);
-const BufferByteLength = Buffer.byteLength.bind(Buffer);
+
 const BufferAlloc = Buffer.alloc.bind(Buffer);
 const JsonParse = JSON.parse.bind(JSON);
 const ArrayIsArray = Array.isArray.bind(Array);

@@ -221,7 +221,7 @@ test('rejects concurrent and reentrant reuse, makes one request, retries zero ti
 (async () => {
   for (const { name, run } of tests) { await run(); process.stdout.write(`ok - ${name}\n`); }
   const source = fs.readFileSync(require.resolve('./lib/email-google-gmail-profile-request'), 'utf8');
-  for (const forbidden of [/googleapis/, /\bfetch\b/, /process\.env/, /database|postgres|route|callback|persist|install|binding/i,
+  for (const forbidden of [/require\s*\(\s*['"](?:@googleapis\/|googleapis['"])/, /\bfetch\b/, /process\.env/, /database|postgres|route|callback|persist|install|binding/i,
     /console\./, /followRedirect|retry/i, /gmail\/v1\/users\/(?!me\/profile)/]) assert.equal(forbidden.test(source), false, `forbidden capability: ${forbidden}`);
   assert.equal(tests.length, 14);
   console.log('PASS verify:email-google-gmail-profile-request (14 strict offline tests)');
