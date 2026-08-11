@@ -151,9 +151,10 @@ const SQL_COMMIT_ENVELOPE = `
 /**
  * One parameterized SELECT/join: tenant_locations + tenant_channel_endpoints +
  * tenant_email_delegated_grants on exact client/location/endpoint. Requires
- * channel=email, microsoft_graph + delegated_authorization_code +
- * microsoft_delegated_oauth, binding_status=verified, nonnull tid/resource,
- * mailbox_kind=user, mailbox_access_kind=own_user, exact grant ownership.
+ * channel=email and one closed delegated provider tuple: Microsoft Graph with
+ * canonical UUID tenant/resource, or Gmail with the canonical Google issuer and
+ * an exact printable-ASCII principal/resource sub. Both require verified,
+ * user/own_user, and exact grant ownership.
  * Params: $1 client_id, $2 location_id (tenant_locations.id UUID), $3 endpoint_id.
  */
 const SQL_RESOLVE_DELEGATED_READ_AUTHORITY = `
@@ -184,14 +185,25 @@ const SQL_RESOLVE_DELEGATED_READ_AUTHORITY = `
      AND tl.id = $2::uuid
      AND e.id = $3::uuid
      AND e.channel = 'email'
-     AND e.provider = 'microsoft_graph'
      AND e.auth_mode = 'delegated_authorization_code'
-     AND e.connector_mode = 'microsoft_delegated_oauth'
      AND e.binding_status = 'verified'
-     AND e.provider_tenant_id IS NOT NULL
-     AND e.provider_resource_id IS NOT NULL
      AND e.mailbox_kind = 'user'
      AND e.mailbox_access_kind = 'own_user'
+     AND COALESCE((
+       (e.provider = 'microsoft_graph'
+        AND e.connector_mode = 'microsoft_delegated_oauth'
+        AND e.provider_tenant_id IS NOT NULL
+        AND e.provider_resource_id IS NOT NULL)
+       OR
+       (e.provider = 'gmail_api'
+        AND e.connector_mode = 'google_delegated_oauth'
+        AND e.provider_tenant_id COLLATE "C" = 'https://accounts.google.com'
+        AND e.provider_principal_oid IS NOT NULL
+        AND e.provider_resource_id IS NOT NULL
+        AND e.provider_principal_oid COLLATE "C" = e.provider_resource_id COLLATE "C"
+        AND char_length(e.provider_resource_id) BETWEEN 1 AND 255
+        AND e.provider_resource_id COLLATE "C" ~ '^[!-~]+$')
+     ), FALSE)
      AND g.client_id = e.client_id
      AND g.endpoint_id = e.id`.replace(/\s+/g, ' ').trim();
 
@@ -971,7 +983,8 @@ function resolveReadAuthorityDb(deps) {
 
 /**
  * Snapshot + validate exact own-data driver row (SQL textual key set).
- * Re-validates ownership/modes/status/resource after SQL; never trusts SQL alone.
+ * Re-validates ownership/provider identity/modes/status after SQL; never trusts
+ * SQL alone.
  * public_address and provider_principal_oid are observed once and discarded —
  * never mapped into the internal DTO. providerMailboxId always uses resource_id.
  *
@@ -1014,26 +1027,38 @@ function snapshotAndValidateReadAuthorityRow(row, expected) {
       return null;
     }
     if (own.channel !== 'email'
-        || own.provider !== 'microsoft_graph'
         || own.auth_mode !== 'delegated_authorization_code'
-        || own.connector_mode !== 'microsoft_delegated_oauth'
         || own.binding_status !== 'verified'
         || own.mailbox_kind !== 'user'
         || own.mailbox_access_kind !== 'own_user') {
       return null;
     }
-    if (typeof own.provider_tenant_id !== 'string'
-        || !UUID_CANON.test(own.provider_tenant_id)) {
-      return null;
-    }
-    if (typeof own.provider_resource_id !== 'string'
-        || !UUID_CANON.test(own.provider_resource_id)) {
-      return null;
-    }
-    // principal / address may differ from resource_id; resource_id always wins.
-    // They must not be non-string when non-null (malformed driver defense only).
-    if (own.provider_principal_oid != null
-        && typeof own.provider_principal_oid !== 'string') {
+    let provider;
+    if (own.provider === 'microsoft_graph') {
+      if (own.connector_mode !== 'microsoft_delegated_oauth'
+          || typeof own.provider_tenant_id !== 'string'
+          || !UUID_CANON.test(own.provider_tenant_id)
+          || typeof own.provider_resource_id !== 'string'
+          || !UUID_CANON.test(own.provider_resource_id)) {
+        return null;
+      }
+      // Microsoft principal may be null or differ; resource_id always wins.
+      if (own.provider_principal_oid != null
+          && typeof own.provider_principal_oid !== 'string') {
+        return null;
+      }
+      provider = 'microsoft_graph';
+    } else if (own.provider === 'gmail_api') {
+      if (own.connector_mode !== 'google_delegated_oauth'
+          || own.provider_tenant_id !== 'https://accounts.google.com'
+          || typeof own.provider_principal_oid !== 'string'
+          || typeof own.provider_resource_id !== 'string'
+          || own.provider_principal_oid !== own.provider_resource_id
+          || !/^[\x21-\x7e]{1,255}$/.test(own.provider_resource_id)) {
+        return null;
+      }
+      provider = 'gmail_api';
+    } else {
       return null;
     }
     if (own.public_address != null && typeof own.public_address !== 'string') {
@@ -1047,7 +1072,7 @@ function snapshotAndValidateReadAuthorityRow(row, expected) {
       clientId: expected.clientId,
       locationId: expected.locationId,
       endpointId: expected.endpointId,
-      provider: 'microsoft_graph',
+      provider,
       providerMailboxId: own.provider_resource_id,
       providerTenantId: own.provider_tenant_id,
       bindingStatus: 'verified',
@@ -1202,7 +1227,7 @@ function snapshotReadAuthorityQueryResult(result) {
 }
 
 /**
- * Shared load of verified Microsoft delegated read authority binding.
+ * Shared load of verified delegated read authority binding.
  * Exact same SQL + row validation as public resolve. Returns local-only
  * binding DTO including private provider_tenant_id (providerTenantId).
  * Never public_address / provider_principal_oid / secrets.

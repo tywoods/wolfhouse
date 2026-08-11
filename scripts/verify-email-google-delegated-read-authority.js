@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * RED-only contract: exact Gmail delegated read-authority generalization.
+ * Offline contract: exact Gmail delegated read-authority generalization.
  * Offline and import-inert; no provider transport, OAuth route, or network access.
  */
 
@@ -98,7 +98,7 @@ function isUnresolved(result) {
 }
 
 async function main() {
-  console.log('verify:email-google-delegated-read-authority (RED contract)');
+  console.log('verify:email-google-delegated-read-authority');
 
   const originals = {
     lookup: dns.lookup,
@@ -156,10 +156,26 @@ async function main() {
       ser(gmail.result),
     );
 
+    ok(
+      'query contains closed two-valued Gmail authority branch',
+      gmail.db.queries.length === 1
+        && gmail.db.queries[0].sql.includes("e.provider = 'gmail_api'")
+        && gmail.db.queries[0].sql.includes("e.connector_mode = 'google_delegated_oauth'")
+        && gmail.db.queries[0].sql.includes("e.provider_tenant_id COLLATE \"C\" = 'https://accounts.google.com'")
+        && gmail.db.queries[0].sql.includes('e.provider_principal_oid IS NOT NULL')
+        && gmail.db.queries[0].sql.includes('e.provider_resource_id IS NOT NULL')
+        && gmail.db.queries[0].sql.includes('e.provider_principal_oid COLLATE \"C\" = e.provider_resource_id COLLATE \"C\"')
+        && gmail.db.queries[0].sql.includes("e.provider_resource_id COLLATE \"C\" ~ '^[!-~]+$'")
+        && gmail.db.queries[0].sql.includes('COALESCE('),
+      gmail.db.queries.length ? gmail.db.queries[0].sql : 'no query',
+    );
+
     const rejects = [
       ['no live grant row', null],
       ['partial identity', { provider_principal_oid: null }],
       ['malformed non-ASCII sub', { provider_principal_oid: 'sub-é', provider_resource_id: 'sub-é' }],
+      ['empty sub', { provider_principal_oid: '', provider_resource_id: '' }],
+      ['overlength sub', { provider_principal_oid: 'x'.repeat(256), provider_resource_id: 'x'.repeat(256) }],
       ['malformed space in sub', { provider_principal_oid: 'sub space', provider_resource_id: 'sub space' }],
       ['noncanonical issuer', { provider_tenant_id: 'https://accounts.google.com/' }],
       ['case-mismatched principal/resource sub', { provider_resource_id: GOOGLE_SUB.toLowerCase() }],
