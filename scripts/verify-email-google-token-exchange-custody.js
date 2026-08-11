@@ -231,6 +231,22 @@ test('requires exact frozen custodied acknowledgement, never collects after sett
   h.response.emit('data', Buffer.from(LEAK)); h.response.emit('end'); assert.deepEqual(result, SUCCESS); assert.equal(JSON.stringify(result).includes(TOKEN_BODY), false);
 });
 
+test('keeps the deadline active through a custody acknowledgement that never settles', async () => {
+  const responseCustody = freeze({ acceptTokenResponse() { return new Promise(() => {}); } });
+  const h = makeHarness({ manualResponse: true, responseCustody });
+  const pending = service(h).exchangeAndCustody(input());
+  h.state.responseCallback(h.response);
+  h.response.emit('data', Buffer.from(TOKEN_BODY));
+  h.response.emit('end');
+  await Promise.resolve();
+  assert.equal(h.state.clearCalls.length, 0);
+  h.state.deadline();
+  await cleanReject(() => pending);
+  assert.equal(h.state.clearCalls.length, 1);
+  assert.equal(h.state.requestDestroyed, 1);
+  assert.equal(h.state.responseDestroyed, 1);
+});
+
 test('composes with real response custody: non-200 reaches custody then rejects, and source excludes ambient authorities', async () => {
   let validated = 0;
   const real = createGoogleTokenResponseCustody(freeze({ custody: freeze({ async acceptValidatedTokens() { validated += 1; return freeze({ status: 'accepted' }); } }) }));
