@@ -350,6 +350,7 @@
     "verify:email-microsoft-verified-identity": "node scripts/verify-email-microsoft-verified-identity.js",
     "verify:email-microsoft-verified-grant-custody": "node scripts/verify-email-microsoft-verified-grant-custody.js",
     "verify:email-google-verified-grant-custody": "node scripts/verify-email-google-verified-grant-custody.js",
+    "verify:email-google-oidc-verified-identity": "node scripts/verify-email-google-oidc-verified-identity.js",
     "verify:email-microsoft-verified-grant-installer": "node scripts/verify-email-microsoft-verified-grant-installer.js",
     "verify:email-verified-grant-installer": "node scripts/verify-email-verified-grant-installer.js",
     "prove:email-verified-grant-installer-pglite": "node scripts/prove-email-verified-grant-installer-pglite.js",
