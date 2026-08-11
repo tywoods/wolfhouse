@@ -1,9 +1,8 @@
 'use strict';
 
 /**
- * RED-only offline tracer for one provider-neutral atomic Gmail verified-grant install.
- * No Google/OIDC/network/token exchange/routes/activation. The production owner is
- * deliberately absent in this slice; this verifier names the exact missing seam.
+ * Focused offline tracer for the shared provider-neutral atomic Gmail install owner.
+ * No Google/OIDC/network/token exchange/routes/activation.
  */
 
 const assert = require('assert/strict');
@@ -65,10 +64,11 @@ function kind(sql) {
   if (/INSERT\s+INTO\s+tenant_email_delegated_grants/i.test(sql)) return 'INSERT_ENCRYPTED_GRANT_GENERATION_1';
   if (/UPDATE\s+tenant_channel_endpoints/i.test(sql)) return 'UPDATE_ENDPOINT_GMAIL_VERIFIED';
   if (/^\s*COMMIT\b/i.test(sql)) return 'COMMIT';
+  if (/^\s*ROLLBACK\b/i.test(sql)) return 'ROLLBACK';
   return 'UNEXPECTED';
 }
 
-function createPinnedTraceClient() {
+function createPinnedTraceClient(endpointPatch = {}) {
   const trace = [];
   const client = {
     async query(rawSql, rawParams) {
@@ -78,6 +78,7 @@ function createPinnedTraceClient() {
       switch (kind(sql)) {
         case 'BEGIN':
         case 'COMMIT':
+        case 'ROLLBACK':
           return { rows: [], rowCount: 0 };
         case 'SELECT_ENDPOINT_FOR_UPDATE':
           assert.deepEqual(params, [CLIENT_ID, ENDPOINT_ID]);
@@ -90,6 +91,7 @@ function createPinnedTraceClient() {
               connector_mode: 'google_delegated_oauth',
               binding_status: 'unverified_offline',
               public_address: PUBLIC_ADDRESS,
+              ...endpointPatch,
             }],
             rowCount: 1,
           };
@@ -200,6 +202,27 @@ async function main() {
   ]);
   assertNoRawTokensOrAad(fake.trace, 'SQL trace');
   assertNoRawTokensOrAad(result, 'output');
+
+  const crossed = createPinnedTraceClient({
+    provider: 'microsoft_graph', connector_mode: 'microsoft_delegated_oauth',
+  });
+  const crossedInstaller = owner.createVerifiedGrantInstaller(Object.freeze({ client: crossed.client }));
+  await assert.rejects(() => crossedInstaller.installVerifiedGrant(installInput()),
+    (error) => error && error.code === owner.ERROR_CODE);
+  assert.deepEqual(crossed.trace.map((entry) => kind(entry.sql)), [
+    'BEGIN', 'SELECT_ENDPOINT_FOR_UPDATE', 'ROLLBACK',
+  ]);
+
+  const microsoft = require('./lib/email-microsoft-verified-grant-installer');
+  const gmailForWrapper = createPinnedTraceClient();
+  const wrapped = microsoft.createMicrosoftVerifiedGrantInstaller(
+    Object.freeze({ client: gmailForWrapper.client }),
+  );
+  await assert.rejects(() => wrapped.installVerifiedGrant(installInput()),
+    (error) => error && error.code === microsoft.ERROR_CODE);
+  assert.deepEqual(gmailForWrapper.trace.map((entry) => kind(entry.sql)), [
+    'BEGIN', 'SELECT_ENDPOINT_FOR_UPDATE', 'ROLLBACK',
+  ]);
   console.log('PASS provider-neutral exact Gmail verified-grant atomic install');
 }
 
