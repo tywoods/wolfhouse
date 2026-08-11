@@ -5,25 +5,38 @@ const {
 } = require('./email-mailbox-adapter-contract');
 
 const apply = Reflect.apply;
+const ownKeys = Reflect.ownKeys;
+const freeze = Object.freeze;
+const isFrozen = Object.isFrozen;
+const getPrototypeOf = Object.getPrototypeOf;
+const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+const hasOwn = Object.hasOwn;
+const create = Object.create;
+const objectPrototype = Object.prototype;
+const regexTest = RegExp.prototype.test;
 const promisePrototype = Promise.prototype;
 const promiseThen = Promise.prototype.then;
+const visiblePattern = /^[\x21-\x7e]+$/;
+const verifierPattern = /^[A-Za-z0-9._~-]+$/;
 const FAILURE_CODE = 'GOOGLE_CLIENT_SECRET_HANDOFF_FAILED';
 const FAILURE = new Error(FAILURE_CODE);
 Object.defineProperty(FAILURE, 'name', { value: 'GoogleClientSecretHandoffError' });
 Object.defineProperty(FAILURE, 'code', { value: FAILURE_CODE, enumerable: true });
-Object.freeze(FAILURE);
+freeze(FAILURE);
 
 function snapshot(value, keys) {
   try {
     if (value === null || typeof value !== 'object'
-        || Object.getPrototypeOf(value) !== Object.prototype
-        || !Object.isFrozen(value)) return null;
-    const actual = Reflect.ownKeys(value);
-    if (actual.length !== keys.length || actual.some((key, index) => key !== keys[index])) return null;
-    const copy = Object.create(null);
-    for (const key of keys) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.enumerable
+        || getPrototypeOf(value) !== objectPrototype
+        || !isFrozen(value)) return null;
+    const actual = ownKeys(value);
+    if (actual.length !== keys.length) return null;
+    const copy = create(null);
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (actual[index] !== key) return null;
+      const descriptor = getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !hasOwn(descriptor, 'value') || !descriptor.enumerable
           || descriptor.writable || descriptor.configurable) return null;
       copy[key] = descriptor.value;
     }
@@ -36,10 +49,10 @@ function snapshot(value, keys) {
 function validationValue(result, expected) {
   try {
     if (result === null || typeof result !== 'object') return false;
-    const ok = Object.getOwnPropertyDescriptor(result, 'ok');
-    const value = Object.getOwnPropertyDescriptor(result, 'value');
-    return !!ok && Object.hasOwn(ok, 'value') && ok.value === true
-      && !!value && Object.hasOwn(value, 'value') && value.value === expected;
+    const ok = getOwnPropertyDescriptor(result, 'ok');
+    const value = getOwnPropertyDescriptor(result, 'value');
+    return !!ok && hasOwn(ok, 'value') && ok.value === true
+      && !!value && hasOwn(value, 'value') && value.value === expected;
   } catch (_) {
     return false;
   }
@@ -47,13 +60,13 @@ function validationValue(result, expected) {
 
 function visible(value, minimum, maximum) {
   return typeof value === 'string' && value.length >= minimum && value.length <= maximum
-    && /^[\x21-\x7e]+$/.test(value);
+    && apply(regexTest, visiblePattern, [value]);
 }
 
 function nativeChain(value, fulfilled) {
   let chained;
   try {
-    if (Object.getPrototypeOf(value) !== promisePrototype) throw FAILURE;
+    if (getPrototypeOf(value) !== promisePrototype) throw FAILURE;
     chained = apply(promiseThen, value, [fulfilled, () => { throw FAILURE; }]);
     return apply(promiseThen, chained, [result => result, () => { throw FAILURE; }]);
   } catch (_) {
@@ -90,13 +103,13 @@ function createGoogleClientSecretHandoff(configuration, dependencies) {
         if (!request || !visible(request.authorizationCode, 1, 8192)
             || typeof request.codeVerifier !== 'string'
             || request.codeVerifier.length < 43 || request.codeVerifier.length > 128
-            || !/^[A-Za-z0-9._~-]+$/.test(request.codeVerifier)) throw FAILURE;
+            || !apply(regexTest, verifierPattern, [request.codeVerifier])) throw FAILURE;
 
         const finish = secretOutput => {
           try {
             const selected = snapshot(secretOutput, ['clientSecret']);
             if (!selected || !visible(selected.clientSecret, 1, 4096)) throw FAILURE;
-            const output = apply(exchangeAuthorizationCode, operationOwner, [Object.freeze({
+            const output = apply(exchangeAuthorizationCode, operationOwner, [freeze({
               authorizationCode: request.authorizationCode,
               codeVerifier: request.codeVerifier,
               clientSecret: selected.clientSecret,
@@ -113,7 +126,7 @@ function createGoogleClientSecretHandoff(configuration, dependencies) {
           }
         };
 
-        const output = apply(resolveClientSecret, providerOwner, [Object.freeze({ secretRef })]);
+        const output = apply(resolveClientSecret, providerOwner, [freeze({ secretRef })]);
         const direct = snapshot(output, ['clientSecret']);
         return direct ? finish(output) : nativeChain(output, finish);
       } catch (_) {
@@ -121,10 +134,10 @@ function createGoogleClientSecretHandoff(configuration, dependencies) {
       }
     }
 
-    return Object.freeze({ completeAuthorization });
+    return freeze({ completeAuthorization });
   } catch (_) {
     throw FAILURE;
   }
 }
 
-module.exports = Object.freeze({ createGoogleClientSecretHandoff });
+module.exports = freeze({ createGoogleClientSecretHandoff });
