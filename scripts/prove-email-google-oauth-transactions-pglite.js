@@ -52,6 +52,7 @@ function loadPglite() {
 const id = {
   client: '10000000-0000-4000-8000-000000000001', otherClient: '10000000-0000-4000-8000-000000000002',
   location: '20000000-0000-4000-8000-000000000001', otherLocation: '20000000-0000-4000-8000-000000000002',
+  sameClientOtherLocation: '20000000-0000-4000-8000-000000000003',
   staff: '30000000-0000-4000-8000-000000000001', otherStaff: '30000000-0000-4000-8000-000000000002',
   session: '40000000-0000-4000-8000-000000000001', otherSession: '40000000-0000-4000-8000-000000000002',
   google: '50000000-0000-4000-8000-000000000001', googlePending: '50000000-0000-4000-8000-000000000002',
@@ -117,7 +118,8 @@ async function main() {
     INSERT INTO auth_sessions VALUES ('${id.session}','${id.client}','${id.staff}'),
       ('${id.otherSession}','${id.otherClient}','${id.otherStaff}');
     INSERT INTO tenant_locations(id,client_id,location_id) VALUES
-      ('${id.location}','${id.client}','sunset'),('${id.otherLocation}','${id.otherClient}','other');
+      ('${id.location}','${id.client}','sunset'),('${id.otherLocation}','${id.otherClient}','other'),
+      ('${id.sameClientOtherLocation}','${id.client}','other');
     INSERT INTO tenant_channel_endpoints
       (id,client_id,location_id,provider,auth_mode,connector_mode,binding_status,
        provider_tenant_id,provider_principal_oid,provider_resource_id,mailbox_kind,mailbox_access_kind)
@@ -217,6 +219,26 @@ async function main() {
     [fresh.row.operation_id], 'cannot unconsume');
   await reject(db, `UPDATE ${TABLE} SET consumed_at=$1 WHERE operation_id=$2::uuid`,
     [new Date('2026-08-11T12:00:02Z'), fresh.row.operation_id], 'cannot re-consume');
+
+  const verifiedDrift = insertSql({ endpoint_id: id.googlePending });
+  await db.query(verifiedDrift.sql, verifiedDrift.params);
+  await db.query(`UPDATE tenant_channel_endpoints SET
+    binding_status='verified', provider_tenant_id='https://accounts.google.com',
+    provider_principal_oid='subject', provider_resource_id='subject',
+    mailbox_kind='user', mailbox_access_kind='own_user' WHERE id=$1::uuid`, [id.googlePending]);
+  await reject(db, consumeSql, [verifiedDrift.row.state_hash, id.client, id.session, consumeParams[3]],
+    'consume rejects endpoint verified after issuance');
+  await db.query(`UPDATE tenant_channel_endpoints SET
+    binding_status='pending_manual_validation', provider_tenant_id=NULL,
+    provider_principal_oid=NULL, provider_resource_id=NULL,
+    mailbox_kind=NULL, mailbox_access_kind=NULL WHERE id=$1::uuid`, [id.googlePending]);
+
+  const locationDrift = insertSql({ endpoint_id: id.googlePending });
+  await db.query(locationDrift.sql, locationDrift.params);
+  await db.query('UPDATE tenant_channel_endpoints SET location_id=$1 WHERE id=$2::uuid', ['other', id.googlePending]);
+  await reject(db, consumeSql, [locationDrift.row.state_hash, id.client, id.session, consumeParams[3]],
+    'consume rejects endpoint location changed after issuance');
+  await db.query('UPDATE tenant_channel_endpoints SET location_id=$1 WHERE id=$2::uuid', ['sunset', id.googlePending]);
 
   await assert.rejects(() => db.exec(downSql), /row|nonempty|refus|transaction/i, 'nonempty down refuses');
   assert.strictEqual((await db.query(`SELECT count(*)::int AS n FROM ${TABLE}`)).rows[0].n > 0, true, 'failed down preserves rows');
