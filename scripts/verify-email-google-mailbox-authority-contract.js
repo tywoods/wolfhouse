@@ -17,7 +17,6 @@ const base = () => ({
     nonce: 'server-owned-nonce-0123456789',
     email: 'Support.Example@gmail.com',
     email_verified: true,
-    hd: null,
   },
   gmail_profile: { emailAddress: 'Support.Example@gmail.com', historyId: '987654321' },
 });
@@ -54,6 +53,10 @@ assert.equal(JSON.stringify(result).includes('apps.googleusercontent.com'), fals
 
 const workspace = base(); workspace.oidc_claims.hd = 'example.com';
 assert.equal(deriveGoogleMailboxAuthority(workspace).value.hosted_domain, 'example.com');
+const consumer = base(); delete consumer.oidc_claims.hd;
+assert.equal(deriveGoogleMailboxAuthority(consumer).value.hosted_domain, null);
+const caseSensitiveSub = base(); caseSensitiveSub.oidc_claims.sub = 'AbC-123';
+assert.equal(deriveGoogleMailboxAuthority(caseSensitiveSub).value.provider_resource_id, 'AbC-123');
 for (const [label, mutate] of [
   ['issuer alias', x => { x.oidc_claims.iss = 'accounts.google.com'; }],
   ['aud mismatch', x => { x.oidc_claims.aud = 'other-client'; }],
@@ -66,6 +69,7 @@ for (const [label, mutate] of [
   ['sub too long', x => { x.oidc_claims.sub = 'a'.repeat(256); }],
   ['sub non-ascii', x => { x.oidc_claims.sub = 'abcé'; }],
   ['history cursor malformed', x => { x.gmail_profile.historyId = '1e3'; }],
+  ['hd null', x => { x.oidc_claims.hd = null; }],
   ['hd empty', x => { x.oidc_claims.hd = ''; }],
   ['extra claim', x => { x.oidc_claims.name = 'PII'; }],
   ['extra profile field', x => { x.gmail_profile.messagesTotal = 1; }],
