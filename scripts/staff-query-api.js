@@ -962,6 +962,8 @@ const LOG_DIR            = path.join(__dirname, '..', 'logs');
 const LOG_FILE           = path.join(LOG_DIR, 'staff-query-log.jsonl');
 const STAFF_PORTAL_LOGO_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-front-desk-logo.png');
 const STAFF_PORTAL_HEADER_BANNER_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-header-banner.png');
+const STAFF_PORTAL_HEADER_SIGN_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-header-sign.png');
+const STAFF_PORTAL_HEADER_SCENE_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-header-scene.png');
 const STAFF_PORTAL_FAVICON_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-favicon.png');
 const STAFF_PORTAL_LOGIN_BTN_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-login-signin-btn.png');
 const STAFF_PORTAL_LOGIN_BG_PATH = path.join(__dirname, '..', 'public', 'images', 'luna-login-bg.jpg');
@@ -19536,35 +19538,48 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
    Banner-art header + wave-underlined nav. Scoped entirely under
    .luna-header-ui so STAFF_PORTAL_LUNA_HEADER=false restores the old header.
 
-   Height note: the source art is 1989x329 (~6:1). Left to scale it would eat
-   ~240px of vertical on a 1440px desk monitor, and the schedule board is the
-   screen staff sit in front of all day. So the banner is a fixed-height crop
-   (cover, centred) that keeps the sunset + owl and gives the grid its space.
+   The art is used as two slices, not one image, because its two halves want
+   opposite things. Cover-cropping the whole 1989x329 composite meant every
+   viewport width framed a different slice: the carved sign grew and slid out
+   of frame as the window widened, and the composite's own feathered,
+   rounded-corner alpha edge let the page show through the top as a pale haze.
+     - luna-header-sign.png  — the carved panel. Its own element, height-locked
+       to the banner, so it is never cropped and never reframes.
+     - luna-header-scene.png — sky/wave/sun/coast. Cover-cropped freely; a
+       seascape has no fixed object in it to knock askew.
+   Both slices are cut inside the feather and flattened onto opaque pixels, so
+   there is no transparent edge left to show white or haze into the page.
    ═══════════════════════════════════════════════════════════════════════ */
 .luna-header-ui{
   --luna-teal:#1d8681;
   --luna-teal-dark:#2c5f56;
-  --luna-terracotta:#ca6d45;
-  --luna-terracotta-dark:#b45c37;
   --luna-cream:#fff8e9;
-  /* 150px shows the whole carved owl sign plus the wave and sunset. Below
-     ~130px the crop cuts through the sign; the full 1989x329 aspect would be
-     238px here and pushes the schedule grid too far down the page. */
-  --luna-banner-h:150px;
+  /* sampled from the art's deep sea, so the base never reads as a seam */
+  --luna-banner-base:#123a44;
+  /* Height tracks width between ~1230px and ~1740px so the scene holds a
+     constant crop across the sizes staff actually resize between; the clamp
+     ends keep it off the schedule board on a big monitor. */
+  --luna-banner-h:clamp(116px,9.4vw,164px);
 }
 
 /* ── banner ─────────────────────────────────────────────────────────────── */
 .luna-header-ui #banner{
   position:relative;
+  overflow:hidden;
   /* #banner is a flex item of the column body and its flex basis (0 0 60px)
      pins the height, so the basis has to move with it, not just height. */
   height:var(--luna-banner-h);
   flex:0 0 var(--luna-banner-h);
   min-height:var(--luna-banner-h);
-  padding:0 clamp(14px,2.2vw,30px);
-  background-image:url('/staff/assets/luna-header-banner.png?v=1');
+  /* no left padding: the carved panel is full-bleed, as it is in the art */
+  padding:0 clamp(14px,2.2vw,30px) 0 0;
+  background-color:var(--luna-banner-base);
+  background-image:url('/staff/assets/luna-header-scene.png?v=3');
   background-size:cover;
-  background-position:center 42%;
+  /* the scene is cropped to its clean sun+horizon band (no sky-smear left to
+     show), so we sit just above centre to keep the sun in frame as the cover
+     crop tightens on very wide screens */
+  background-position:center 30%;
   background-repeat:no-repeat;
   border-bottom:none;
   display:flex;
@@ -19572,19 +19587,46 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   justify-content:space-between;
   gap:16px;
 }
-[data-theme="dark"] .luna-header-ui #banner{
-  filter:brightness(.84) saturate(.92);
+[data-theme="dark"] .luna-header-ui #banner{background-color:#0b2b34}
+/* No top wash in light theme: the art stays fully crisp edge-to-edge. The
+   control pills carry their own glass background for legibility, so nothing
+   needs to darken or haze the top of the banner. */
+[data-theme="dark"] .luna-header-ui #banner::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  /* dark theme only: a faint even sit-back so cream pills read on a night sea */
+  background:linear-gradient(180deg,rgba(4,20,26,.28),rgba(4,20,26,.12));
 }
-/* The art already carries the wordmark — the <img> logo would double it up. */
+
+/* the carved sign: locked to the banner height, left-anchored — always whole */
 .luna-header-ui #banner .brand{
+  position:relative;
+  z-index:2;
   display:block;
   height:100%;
+  width:auto;
   flex:0 0 auto;
-  width:clamp(150px,17vw,250px);
+  line-height:0;
 }
-.luna-header-ui #banner .brand-logo{display:none}
+.luna-header-ui #banner .brand-logo{
+  /* swaps the wordmark <img> for the sign slice without touching the markup,
+     so STAFF_PORTAL_LUNA_HEADER=false still renders the plain logo */
+  content:url('/staff/assets/luna-header-sign.png?v=2');
+  display:block;
+  height:100%;
+  width:auto;
+  max-width:none;
+  /* the slice is a rectangle; feather its right edge so the panel meets the
+     sky the way it does in the source art instead of butting a hard seam */
+  -webkit-mask-image:linear-gradient(90deg,#000 0 87%,rgba(0,0,0,0) 100%);
+  mask-image:linear-gradient(90deg,#000 0 87%,rgba(0,0,0,0) 100%);
+}
 
 .luna-header-ui .banner-actions{
+  position:relative;
+  z-index:1;
   display:flex;
   align-items:center;
   gap:clamp(8px,1vw,14px);
@@ -19658,18 +19700,21 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .luna-header-ui .staff-theme-icon{width:17px;height:17px;color:var(--luna-cream)}
 [data-theme="dark"] .luna-header-ui .staff-theme-icon{color:#f5cf7a}
 
-/* sign out: terracotta-tinted glass so the destructive action reads apart */
+/* sign out: darker ink glass at rest, muted rose only on hover. The old
+   terracotta fill shouted from the corner of every screen for an action
+   staff take once a day. */
 .luna-header-ui .btn-logout{
-  background:linear-gradient(180deg,rgba(216,116,70,.80),rgba(184,90,50,.64));
-  border-color:rgba(255,255,255,.38);
+  background:linear-gradient(180deg,rgba(8,42,50,.52),rgba(8,42,50,.34));
+  border-color:rgba(255,255,255,.26);
   padding:8px 20px;
   font-size:12.5px;
   font-weight:800;
-  color:#fff;
+  color:var(--luna-cream);
   cursor:pointer;
 }
 .luna-header-ui .btn-logout:hover{
-  background:linear-gradient(180deg,rgba(226,126,80,.90),rgba(194,100,58,.74));
+  background:linear-gradient(180deg,rgba(150,64,58,.62),rgba(120,48,44,.46));
+  border-color:rgba(255,196,186,.42);
 }
 
 /* ── nav bar ────────────────────────────────────────────────────────────── */
@@ -19715,11 +19760,9 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 8'%3E%3Cpath d='M1 5c3-4 6-4 9 0s6 4 9 0 6-4 9 0 6 4 9 0' fill='none' stroke='%2356c9c0' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
 }
 
-/* ── narrow screens: the art crops to a shallow strip ───────────────────── */
+/* ── narrow screens: shallower strip, sign still whole ──────────────────── */
 @media (max-width:719px){
-  .luna-header-ui{--luna-banner-h:64px}
-  .luna-header-ui #banner{background-position:center 38%}
-  .luna-header-ui #banner .brand{width:120px}
+  .luna-header-ui{--luna-banner-h:74px}
   .luna-header-ui .btn-logout{padding:7px 14px;font-size:11.5px}
 }
 /* ═══ END luna-header-ui ═════════════════════════════════════════════════ */
@@ -41987,6 +42030,36 @@ function handleStaffPortalHeaderBanner(res) {
   });
 }
 
+// The two slices the luna-header banner is actually built from — see the
+// .luna-header-ui CSS block for why the composite is cut in half.
+function handleStaffPortalHeaderSign(res) {
+  fs.readFile(STAFF_PORTAL_HEADER_SIGN_PATH, (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      return res.end('Not found');
+    }
+    res.writeHead(200, {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=86400',
+    });
+    res.end(data);
+  });
+}
+
+function handleStaffPortalHeaderScene(res) {
+  fs.readFile(STAFF_PORTAL_HEADER_SCENE_PATH, (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      return res.end('Not found');
+    }
+    res.writeHead(200, {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=86400',
+    });
+    res.end(data);
+  });
+}
+
 function handleStaffPortalFavicon(res) {
   fs.readFile(STAFF_PORTAL_FAVICON_PATH, (err, data) => {
     if (err) {
@@ -50724,6 +50797,22 @@ async function router(req, res) {
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
     }
     return handleStaffPortalHeaderBanner(res);
+  }
+
+  // ── GET /staff/assets/luna-header-sign|scene.png — banner slices (public) ──
+  if (pathname === '/staff/assets/luna-header-sign.png') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
+    }
+    return handleStaffPortalHeaderSign(res);
+  }
+  if (pathname === '/staff/assets/luna-header-scene.png') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
+    }
+    return handleStaffPortalHeaderScene(res);
   }
 
   // ── GET /staff/assets/luna-login-signin-btn.png — login sign-in button (public) ─
