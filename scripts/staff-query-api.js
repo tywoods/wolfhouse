@@ -32050,7 +32050,7 @@ function performEmailLunaDraftGenerate(convId, targetEl){
     else showDraftSendStatus(statusEl,'error','Draft generation failed.');
     setEmailReplyControlsDisabled(targetEl,false,st.locked);
     if(st.generationUncertain){var lunaBtn=targetEl.querySelector('#btn-email-generate-luna-draft'),apprBtn=targetEl.querySelector('#btn-email-approve-send');if(lunaBtn)lunaBtn.disabled=true;if(apprBtn)apprBtn.disabled=true;}
-  }).catch(function(){if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId===snapConv)showDraftSendStatus(statusEl,'error','Could not generate Luna draft.');setEmailReplyControlsDisabled(targetEl,false,st.locked);});
+  }).catch(function(){if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snapConv)return;st.approvalId=null;st.savedText='';st.generationUncertain=true;showDraftSendStatus(statusEl,'blocked','Draft save outcome is unknown. Reload the conversation or page before generating again.');setEmailReplyControlsDisabled(targetEl,true,st.locked);});
 }
 function performEmailDraftSave(convId, targetEl){
   var st = emailReplyState(convId);
