@@ -18,6 +18,7 @@ const STAFF_PORTAL_STRINGS = {
     'nav.tab.calendar': 'Booking Calendar',
     'nav.tab.daySchedule': 'Day Schedule',
     'nav.tab.inbox': 'Inbox',
+    'nav.tab.conversations': 'Conversations',
     'school.sunsetSomo': 'Sunset',
     'school.sunsetSardinero': 'elSardi',
     'nav.tab.portalHome': 'Schedule',

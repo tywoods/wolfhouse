@@ -19997,14 +19997,48 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
    Customers is folded into the Inbox tab via a segmented toggle at the top of
    both panels; the standalone Customers nav tab is dropped. */
 #tabs .tab-btn[data-tab="customers"]{display:none!important}
-.inbox-view-switch{display:inline-flex;gap:4px;background:var(--surface-soft,#f1ece1);border-radius:10px;padding:4px;margin:0 0 12px;flex:0 0 auto;align-self:flex-start}
-.inbox-view-btn{border:1px solid transparent;background:transparent;border-radius:8px;padding:7px 16px;font:inherit;font-size:13px;font-weight:700;color:var(--luna-teal-dark,#2c5f56);cursor:pointer;white-space:nowrap}
+.inbox-view-switch{display:inline-flex;gap:3px;background:var(--surface-soft,#f1ece1);border-radius:10px;padding:3px;margin:0;flex:0 0 auto;align-self:center}
+.inbox-view-btn{border:1px solid transparent;background:transparent;border-radius:8px;padding:6px 12px;font:inherit;font-size:12px;font-weight:600;color:var(--luna-teal-dark,#2c5f56);cursor:pointer;white-space:nowrap;line-height:1.2}
 .inbox-view-btn:hover{background:rgba(0,0,0,.04)}
 .inbox-view-btn.is-active{background:var(--surface);color:var(--luna-teal,#1d8681);border-color:var(--border-soft);box-shadow:0 1px 2px rgba(0,0,0,.1)}
 [data-theme="dark"] .inbox-view-switch{background:#2a2a2b}
 [data-theme="dark"] .inbox-view-btn{color:#cfe6e2}
 [data-theme="dark"] .inbox-view-btn:hover{background:rgba(255,255,255,.05)}
 [data-theme="dark"] .inbox-view-btn.is-active{background:#1e1e1e;color:#56c9c0;border-color:#3c3c3c}
+/* Toolbar-docked Conversations|Customers pill (left of search / client select). */
+.customers-toolbar-main > .inbox-view-switch,
+.inbox-toolbar-top > .inbox-view-switch{order:-1;margin-right:4px}
+/* Conversations shell mirrors Customers: 1240 wrap + toolbar + two framed cards. */
+#tab-conversations.active #wrap.inbox-shell-wrap{
+  max-width:1240px!important;width:100%;margin:0 auto;padding:16px 20px 12px!important;
+  display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box;align-self:center;
+}
+@media(max-width:900px){
+  #tab-conversations.active #wrap.inbox-shell-wrap{
+    max-width:100vw!important;padding:8px 12px!important;margin:0 auto;
+  }
+}
+.inbox-shell-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;flex-shrink:0}
+.inbox-two-col.inbox-shell-cols{
+  display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:14px;
+  flex:1;min-height:0;overflow:hidden;width:100%;align-self:stretch;
+  border:none;border-radius:0;box-shadow:none;background:transparent;
+}
+.inbox-two-col.inbox-shell-cols .inbox-left{
+  flex:unset;width:auto;min-width:0;height:auto;max-height:none;
+  border-right:none;border:1px solid var(--border-soft);border-radius:var(--radius);
+  box-shadow:none;background:var(--surface);overflow:hidden;
+}
+.inbox-two-col.inbox-shell-cols #conv-detail{
+  min-width:0;min-height:0;overflow:hidden;
+  border:1px solid var(--border-soft);border-radius:var(--radius);
+  background:var(--surface);box-shadow:none;display:flex;flex-direction:column;
+}
+@media(max-width:900px){
+  .inbox-two-col.inbox-shell-cols{grid-template-columns:1fr;gap:0;border:none}
+  .inbox-two-col.inbox-shell-cols .inbox-left,
+  .inbox-two-col.inbox-shell-cols #conv-detail{border-radius:var(--radius)}
+}
 /* ═══ END luna-header-ui ═════════════════════════════════════════════════ */
 </style>
 </head>
@@ -20054,7 +20088,8 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
     var pn=panel(); if(!pn) return false;
     // only hijack when this panel is itself the scroller (Schedule, Admin, …);
     // tabs with their own inner scroll areas (Inbox) are left alone.
-    if(pn.scrollHeight<=pn.clientHeight+4) return false;
+    // Do NOT bail when scrollHeight≈clientHeight — short pages still need
+    // collapse/expand (and expand after content shrinks away the scrollbar).
     if(Date.now()<lockUntil) return true; // freeze the page while collapsing/expanding
     var atTop = (pn.scrollTop||0)<=0;
     if(dy>0){ // scrolling down
@@ -20437,15 +20472,15 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <!-- ── Customers tab (shared CRM) ───────────────────────────────────────── -->
 <div id="tab-customers" class="tab-panel">
 <div class="customers-wrap">
-  <div class="inbox-view-switch" role="tablist" aria-label="Inbox view">
-    <button type="button" class="inbox-view-btn" role="tab" data-view="conversations" onclick="switchToTab('conversations')" data-i18n="nav.tab.inbox">Inbox</button>
-    <button type="button" class="inbox-view-btn is-active" role="tab" data-view="customers" onclick="switchToTab('customers')" data-i18n="nav.tab.customers">Customers</button>
-  </div>
   <header class="customers-header">
     <h1 class="customers-school-heading" id="customers-school-heading" style="display:none" aria-live="polite">—</h1>
   </header>
   <div class="customers-toolbar">
     <div class="customers-toolbar-main">
+      <div class="inbox-view-switch" role="tablist" aria-label="Inbox view">
+        <button type="button" class="inbox-view-btn" role="tab" data-view="conversations" onclick="switchToTab('conversations')" data-i18n="nav.tab.conversations">Conversations</button>
+        <button type="button" class="inbox-view-btn is-active" role="tab" data-view="customers" onclick="switchToTab('customers')" data-i18n="nav.tab.customers">Customers</button>
+      </div>
       <input type="search" id="cust-search" class="customers-search" data-i18n-placeholder="customers.searchPlaceholder" placeholder="Search by name, email, or phone" autocomplete="off">
       <div class="customers-filters-wrap">
         <button type="button" id="cust-filters-btn" class="btn btn-ghost customers-filters-trigger" aria-haspopup="true" aria-expanded="false" data-i18n="customers.filters.button">Filters</button>
@@ -20606,26 +20641,28 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
 <!-- ── Conversations / Inbox tab ──────────────────────────────────────────── -->
 <div id="tab-conversations" class="tab-panel">
-<div id="wrap">
+<div id="wrap" class="inbox-shell-wrap">
 
-  <div class="inbox-view-switch" role="tablist" aria-label="Inbox view">
-    <button type="button" class="inbox-view-btn is-active" role="tab" data-view="conversations" onclick="switchToTab('conversations')" data-i18n="nav.tab.inbox">Inbox</button>
-    <button type="button" class="inbox-view-btn" role="tab" data-view="customers" onclick="switchToTab('customers')" data-i18n="nav.tab.customers">Customers</button>
+  <div class="inbox-shell-toolbar">
+    <div class="inbox-toolbar-top">
+      <div class="inbox-view-switch" role="tablist" aria-label="Inbox view">
+        <button type="button" class="inbox-view-btn is-active" role="tab" data-view="conversations" onclick="switchToTab('conversations')" data-i18n="nav.tab.conversations">Conversations</button>
+        <button type="button" class="inbox-view-btn" role="tab" data-view="customers" onclick="switchToTab('customers')" data-i18n="nav.tab.customers">Customers</button>
+      </div>
+      <select id="c-client" title="Company" class="inbox-client-select"></select>
+      <button class="btn btn-primary inbox-refresh-btn" id="btn-refresh" data-i18n-title="inbox.refreshTitle" title="Refresh conversation list">&#8635;</button>
+      <span id="inbox-live-status" class="inbox-live-status" aria-live="polite">Live</span>
+    </div>
+    <div class="portal-inbox-school-context" id="inbox-school-context" style="display:none;margin:0;font-size:13px;color:var(--text-2)">
+      <span data-i18n="inbox.school.context">Inbox for:</span>
+      <span id="inbox-school-label">—</span>
+    </div>
   </div>
-  <div class="inbox-two-col">
+  <div class="inbox-two-col inbox-shell-cols">
 
     <!-- LEFT: conversation list + filters -->
     <div class="inbox-left" id="inbox-card">
       <div class="inbox-left-toolbar">
-        <div class="inbox-toolbar-top">
-          <select id="c-client" title="Company" class="inbox-client-select"></select>
-          <button class="btn btn-primary inbox-refresh-btn" id="btn-refresh" data-i18n-title="inbox.refreshTitle" title="Refresh conversation list">&#8635;</button>
-          <span id="inbox-live-status" class="inbox-live-status" aria-live="polite">Live</span>
-        </div>
-        <div class="portal-inbox-school-context" id="inbox-school-context" style="display:none;margin:8px 0 0;font-size:13px;color:var(--text-2)">
-          <span data-i18n="inbox.school.context">Inbox for:</span>
-          <span id="inbox-school-label">—</span>
-        </div>
         <div class="inbox-filters">
           <button type="button" class="inbox-filter-btn active" data-inbox-filter="all" id="inbox-filter-all" data-i18n="inbox.filter.all">All Conversations</button>
           <button type="button" class="inbox-filter-btn" data-inbox-filter="needs-human" id="inbox-filter-needs-human"><span data-i18n="inbox.filter.needsHuman">Needs Human</span> <span class="hq-count" id="hq-badge">0</span></button>

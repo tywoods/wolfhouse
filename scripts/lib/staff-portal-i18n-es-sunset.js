@@ -545,6 +545,7 @@ module.exports = {
   'nav.tab.customers': 'Clientes',
   'nav.tab.daySchedule': 'Horario del día',
   'nav.tab.inbox': 'Bandeja de entrada',
+  'nav.tab.conversations': 'Conversaciones',
   'nav.tab.portalHome': 'Horario',
   'schedule.action.unpaid': 'Sin pagar',
   'schedule.badge.dbManual': 'Reserva guardada',
