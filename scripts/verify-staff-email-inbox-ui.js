@@ -314,6 +314,30 @@ async function main() {
     ok('Luna handoff state is bounded textContent', /handoff required/i.test(await statusText())
       && await page.locator('#draft-send-status img').count() === 0);
     await page.unroute('**/staff/inbox/email/generate-luna-draft');
+    await page.route('**/staff/inbox/email/generate-luna-draft', (route) => {
+      lunaPosts.push({ method: route.request().method(), body: JSON.parse(route.request().postData() || '{}') });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{malformed-after-dispatch' });
+    });
+    const beforeMalformedGenerate = lunaPosts.length;
+    const beforeMalformedApprove = approvePosts.length;
+    await page.click('#btn-email-generate-luna-draft');
+    await waitStatus('outcome is unknown');
+    ok('Luna malformed response after dispatch invalidates prior authority and terminally locks same selection',
+      /Reload the conversation or page before generating again/.test(await statusText())
+      && await page.locator('#draft-textarea').isDisabled()
+      && await page.locator('#btn-email-save-draft').isDisabled()
+      && await page.locator('#btn-email-generate-luna-draft').isDisabled()
+      && await page.locator('#btn-email-approve-send').isDisabled());
+    await page.locator('#btn-email-generate-luna-draft').dispatchEvent('click');
+    await page.locator('#btn-email-approve-send').dispatchEvent('click');
+    await page.waitForTimeout(100);
+    ok('Luna malformed response permits zero repeat Generate/Approve with old authority',
+      lunaPosts.length === beforeMalformedGenerate + 1 && approvePosts.length === beforeMalformedApprove);
+    await page.unroute('**/staff/inbox/email/generate-luna-draft');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await openInbox(page); await emailCard().click();
+    await page.waitForSelector('#btn-email-generate-luna-draft', { timeout: 10000 });
+    await page.unroute('**/staff/inbox/email/generate-luna-draft');
     const beforeUnknownApprove = approvePosts.length;
     await page.route('**/staff/inbox/email/generate-luna-draft', (route) => {
       lunaPosts.push({ method: route.request().method(), body: JSON.parse(route.request().postData() || '{}') });
@@ -358,6 +382,7 @@ async function main() {
         dispatched += 1; lunaPosts.push({ body: JSON.parse(route.request().postData() || '{}') });
         await held;
         if (kind === 'fetch rejection') return route.abort('failed');
+        if (kind === 'malformed response') return route.fulfill({ status: 200, contentType: 'application/json', body: '{malformed-after-dispatch' });
         return route.fulfill({ status: 503, contentType: 'application/json', body: '{"success":false,"error":"draft_save_outcome_unknown"}' });
       });
       await page.click('#btn-email-generate-luna-draft');
@@ -383,6 +408,7 @@ async function main() {
       ok(kind + ' authoritative full reload clears terminal lock', await page.locator('#btn-email-generate-luna-draft').isEnabled());
     }
     await staleSelectionUncertain('fetch rejection');
+    await staleSelectionUncertain('malformed response');
     await staleSelectionUncertain('parsed 503 outcome unknown');
     await page.waitForSelector('#draft-textarea', { timeout: 10000 });
     ok('email Save+Approve', await page.locator('#btn-email-save-draft').count() === 1 && await page.locator('#btn-email-approve-send').count() === 1);
