@@ -4,7 +4,7 @@ Running Sunset product TODO (formerly `UI-BACKLOG.md`): UI/UX, functional work, 
 
 **Tags:** `[UI]` layout/visual · `[BUG]` broken behavior · `[FEAT]` new capability · `[LUNA]` chatbot brain/wiring · `[I18N]` translation.
 **Size:** S / M / L. **Sketch?** = wants a concept mock before build. **@Earthling** = needs Earthling's call.
-_Started 2026-08-03. Last updated 2026-08-11 19:54 UTC by Skipper. Owner brain-dump complete; refine + resequence as we go._
+_Started 2026-08-03. Last updated 2026-08-11 22:10 UTC by Skipper. Owner brain-dump complete; refine + resequence as we go._
 
 ---
 
@@ -56,6 +56,7 @@ _Started 2026-08-03. Last updated 2026-08-11 19:54 UTC by Skipper. Owner brain-d
 - **W4 — [I18N] Custom course names translated everywhere.** Course names are custom but must be translated across menus, cockpit, Luna — everywhere they appear. **@Earthling.** `M–L`
 
 ## 🧾 Create / Edit booking drawer
+- **D5 — [BUG] Create booking as Paid updates the bubble but not payment truth.** When staff creates a booking and sets it to **Paid**, the booking shows the correct Paid status bubble, but the invoice still treats it as unpaid and the Finance tab does not include the collection. Fix the write path so **Paid on create records the canonical payment/collection ledger state** consumed consistently by booking balance, invoice, Bookings, and Finance; do not solve this with display-only status inference. Add a real create→invoice→Finance regression, including amount/date attribution and protection against duplicate collection records. `M–L` · **high priority**
 - ✅ **D4 (shipped) — [BUG] Group Course on, none picked → rentals unpriced.** If "Group Course" is toggled but no actual course is selected, rentals show no estimate → booking can't complete. Fix: let standalone rentals price without a course, OR block submit until a real course is chosen. `M`
 
 ## 📅 Schedule tab
