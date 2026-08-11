@@ -15,9 +15,9 @@ const { createGoogleAuthorizationCodeRequest } = owner;
 const FAILURE_CODE = 'GOOGLE_AUTHORIZATION_CODE_REQUEST_FAILED';
 const CLIENT_ID = '9876543210-web_client.v2.apps.googleusercontent.com';
 const REDIRECT_URI = 'https://mail.example.test/private/google/callback';
-const CODE = '4/0A+code%?=& NEVER_LEAK_CODE';
+const CODE = '4/0A+code%?=&!NEVER_LEAK_CODE';
 const VERIFIER = `${'A'.repeat(41)}-._~`;
-const SECRET = 'secret+/%?=& NEVER_LEAK_SECRET';
+const SECRET = 'secret+/%?=&!NEVER_LEAK_SECRET';
 const ACK = Object.freeze({ status: 'custodied' });
 const SUCCESS_KEYS = ['status'];
 const INPUT_KEYS = ['authorizationCode', 'codeVerifier', 'clientSecret'];
@@ -94,8 +94,8 @@ test('constructs the exact canonical ordered Google form and forwards one frozen
 test('percent-encodes reserved characters without raw plus ambiguity and adds no optional fields', async () => {
   let body;
   await service(custody(dto => { ({ body } = dto); return ACK; })).exchangeAuthorizationCode(input());
-  assert.match(body, /client_secret=secret%2B%2F%25%3F%3D%26\+NEVER_LEAK_SECRET/);
-  assert.match(body, /code=4%2F0A%2Bcode%25%3F%3D%26\+NEVER_LEAK_CODE/);
+  assert.match(body, /client_secret=secret%2B%2F%25%3F%3D%26%21NEVER_LEAK_SECRET/);
+  assert.match(body, /code=4%2F0A%2Bcode%25%3F%3D%26%21NEVER_LEAK_CODE/);
   const form = new URLSearchParams(body);
   assert.deepEqual([...form.keys()], FORM_KEYS);
   for (const absent of ['scope', 'access_type', 'include_granted_scopes', 'nonce', 'state']) assert.equal(form.has(absent), false);
