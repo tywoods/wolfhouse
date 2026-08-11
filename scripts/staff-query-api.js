@@ -16979,8 +16979,10 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-pack-form{min-width:0;max-width:100%;width:100%;box-sizing:border-box}
 
 #tab-admin.active{display:block}
-#tab-admin{font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
-#tab-admin input,#tab-admin textarea,#tab-admin select{font-family:var(--font-sans)}
+#tab-bookings.active{display:block}
+#tab-admin,#tab-bookings{font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
+#tab-admin input,#tab-admin textarea,#tab-admin select,
+#tab-bookings input,#tab-bookings textarea,#tab-bookings select{font-family:var(--font-sans)}
 /* Camps, Lessons and Services tab — same serif house style as Admin/Customers (form inputs stay sans). */
 #tab-services{--svc-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--svc-serif);-webkit-font-smoothing:antialiased}
 #tab-services input,#tab-services textarea,#tab-services select{font-family:var(--font-sans)}
@@ -21950,6 +21952,19 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
     if (target === 'customers') loadCustomersTab();
     if (target === 'admin') { loadAdminTab({ resetSubTab: true }); loadAdminFinanceForCurrentScope(); }
+    // Top-level Bookings: primary nav click does NOT call switchToTab — must load here.
+    if (target === 'bookings') {
+      if (typeof loadBookingsTopTab === 'function') loadBookingsTopTab();
+      else if (typeof renderAdminBookingsShell === 'function') {
+        var bbClick = el('admin-bookings-body');
+        if (bbClick && !bbClick.dataset.bookingsMounted) {
+          bbClick.dataset.bookingsMounted = '1';
+          renderAdminBookingsShell();
+        } else if (typeof loadAdminBookings === 'function') {
+          loadAdminBookings();
+        }
+      }
+    }
     if (target === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
     if (target === 'day-schedule') loadDaySchedule();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
@@ -22875,6 +22890,10 @@ function setSunsetLocation(locationId){
     if (el('tab-portal-home') && el('tab-portal-home').classList.contains('active')) loadSchedulePage();
     if (el('tab-customers') && el('tab-customers').classList.contains('active')) loadCustomersTab();
     if (el('tab-admin') && el('tab-admin').classList.contains('active')) { loadAdminTab(); loadAdminFinanceForCurrentScope(); }
+    if (el('tab-bookings') && el('tab-bookings').classList.contains('active')) {
+      if (typeof loadBookingsTopTab === 'function') loadBookingsTopTab();
+      else if (typeof loadAdminBookings === 'function') loadAdminBookings();
+    }
     if (el('tab-conversations') && el('tab-conversations').classList.contains('active')) {
       inboxConversationsCache = null;
       selectedConvId = null;

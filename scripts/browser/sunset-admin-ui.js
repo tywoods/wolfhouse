@@ -3016,13 +3016,20 @@ function adminSelectSubTab(key, opts){
   if (next === 'email' && typeof loadAdminEmailSettings === 'function') loadAdminEmailSettings();
 }
 
-/** Top-level Bookings tab loader (shell + list). IDs kept for least-invasive move. */
+/** Top-level Bookings tab loader (shell + list). IDs kept for least-invasive move.
+ *  Self-contained: must not depend on Admin tab having been opened first.
+ *  Called from switchToTab AND the primary nav click listener (which does not call switchToTab).
+ */
 function loadBookingsTopTab(){
   var body = el('admin-bookings-body');
   if (!body) return;
-  if (typeof renderAdminBookingsShell === 'function' && !body.dataset.bookingsMounted) {
+  // Ensure shell markup exists (first visit or body wiped).
+  var needsShell = !body.dataset.bookingsMounted
+    || !el('admin-bookings-table-wrap')
+    || !body.querySelector('[data-admin-bookings="1"]');
+  if (needsShell && typeof renderAdminBookingsShell === 'function') {
     body.dataset.bookingsMounted = '1';
-    renderAdminBookingsShell();
+    renderAdminBookingsShell(); // mounts shell + loadAdminBookings
     return;
   }
   if (typeof loadAdminBookings === 'function') loadAdminBookings();

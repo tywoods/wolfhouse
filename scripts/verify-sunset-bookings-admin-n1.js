@@ -1063,20 +1063,69 @@ async function testGeneratedUi() {
       return document.body && !document.body.classList.contains('portal-profile-pending')
         && select && select.value === 'sunset';
     }, null, { timeout: 30000 });
+    // Desktop viewport so the top-level Bookings nav button is visible (not hamburger-only).
+    await page.setViewportSize({ width: 1280, height: 900 });
+    // Surf profile may leave display:none until applyClientPortalProfile — force visible for click path.
     await page.evaluate(() => {
-      if (typeof window.switchToTab === 'function') window.switchToTab('bookings');
-      else {
-        const btn = document.querySelector('button.tab-btn[data-tab="bookings"]');
-        if (btn) btn.click();
-      }
+      var btn = document.querySelector('button.tab-btn[data-tab="bookings"]');
+      if (btn) btn.style.display = '';
     });
+    // CRITICAL live path: primary .tab-btn click listener (does NOT call switchToTab).
+    // Do not use switchToTab here — that was the false green that missed the empty panel.
+    lastListQuery = null;
+    await page.locator('button.tab-btn[data-tab="bookings"]').click();
     await page.waitForSelector('#tab-bookings.tab-panel.active', { timeout: 15000 });
-    await page.waitForSelector('#admin-bookings-body', { timeout: 10000 });
-    await page.waitForSelector('.portal-admin-bookings-code', { timeout: 10000 });
+    await page.waitForSelector('#admin-bookings-body [data-admin-bookings="1"]', { timeout: 10000 });
+    await page.waitForSelector('.portal-admin-bookings-code', { timeout: 15000 });
   }
 
   try {
     await openBookings();
+
+    ok('nav click path: tab-bookings active',
+      await page.locator('#tab-bookings.tab-panel.active').count() === 1);
+    ok('nav click path: bookings shell mounted',
+      await page.locator('#admin-bookings-body [data-admin-bookings="1"]').count() === 1);
+    ok('nav click path: list request fired',
+      !!(lastListQuery && lastListQuery.get('client') === 'sunset'),
+      lastListQuery ? lastListQuery.toString() : 'no query');
+    ok('nav click path: list uses sunset-somo location',
+      !!(lastListQuery && lastListQuery.get('location') === 'sunset-somo'),
+      lastListQuery ? lastListQuery.get('location') : 'none');
+
+    // School switch while Bookings active must reload list for the new location.
+    await page.evaluate(() => {
+      var wrap = document.getElementById('staff-school-switch');
+      if (wrap) {
+        wrap.style.display = 'inline-flex';
+        wrap.removeAttribute('hidden');
+      }
+      document.querySelectorAll('.staff-school-btn').forEach(function (b) {
+        b.style.display = '';
+        b.removeAttribute('hidden');
+      });
+    });
+    lastListQuery = null;
+    const sardiBtn = page.locator('.staff-school-btn[data-school="sunset-sardinero"]');
+    ok('school switcher sardinero control present', await sardiBtn.count() >= 1);
+    await sardiBtn.click();
+    // Poll for list reload with new location (primary nav/school path — no switchToTab).
+    for (var i = 0; i < 25; i++) {
+      if (lastListQuery && lastListQuery.get('location') === 'sunset-sardinero') break;
+      await page.waitForTimeout(100);
+    }
+    ok('school switch while Bookings active: list location=sunset-sardinero',
+      !!(lastListQuery && lastListQuery.get('location') === 'sunset-sardinero'),
+      lastListQuery ? lastListQuery.toString() : 'no query');
+    ok('school switch keeps Bookings tab active',
+      await page.locator('#tab-bookings.tab-panel.active').count() === 1);
+    // Restore Somo for the rest of the suite via the same school control path.
+    lastListQuery = null;
+    await page.locator('.staff-school-btn[data-school="sunset-somo"]').click();
+    for (var j = 0; j < 25; j++) {
+      if (lastListQuery && lastListQuery.get('location') === 'sunset-somo') break;
+      await page.waitForTimeout(100);
+    }
 
     // Full code + XSS escaped
     const codeText = await page.locator('.portal-admin-bookings-code').first().innerText();
@@ -1841,6 +1890,11 @@ function testOwnerWiring() {
   ok('switchToTab routes bookings to loadBookingsTopTab',
     /tab === 'bookings'/.test(apiSrc) && /loadBookingsTopTab/.test(apiSrc));
   ok('nav data-tab=bookings present', /data-tab="bookings"/.test(apiSrc));
+  // Live bug: primary .tab-btn click listener does not call switchToTab — must load bookings there too.
+  ok('primary nav click listener loads bookings top tab',
+    /target === 'bookings'/.test(apiSrc) && /loadBookingsTopTab/.test(apiSrc));
+  ok('school switch reloads active bookings tab',
+    /tab-bookings/.test(apiSrc) && /setSunsetLocation/.test(apiSrc));
   ok('no quote service changes in N1 domain module',
     !fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-bookings-admin.js'), 'utf8').includes('createQuote'));
   ok('migration no stripe refund',
