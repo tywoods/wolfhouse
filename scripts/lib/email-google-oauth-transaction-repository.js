@@ -20,7 +20,7 @@ const numberIsFinite = Number.isFinite;
 const bufferFrom = Buffer.from;
 
 const FAILURE = 'GOOGLE_OAUTH_TRANSACTION_REPOSITORY_FAILED';
-const SQL = `INSERT INTO tenant_email_google_oauth_transactions (
+const CREATE_SQL = `INSERT INTO tenant_email_google_oauth_transactions (
   client_id, location_id, endpoint_id, staff_user_id, auth_session_id,
   operation_id, state_hash, code_verifier, nonce, authorization_intent,
   scope_version, issued_at, expires_at
@@ -30,10 +30,12 @@ const SQL = `INSERT INTO tenant_email_google_oauth_transactions (
   'phase_a_v2', $10::timestamptz, $11::timestamptz
 )
 RETURNING operation_id, expires_at`;
+const CONSUME_SQL = "UPDATE tenant_email_google_oauth_transactions SET consumed_at=$4::timestamptz WHERE state_hash=$1::bytea AND client_id=$2::uuid AND auth_session_id=$3::uuid AND consumed_at IS NULL AND expires_at>$4::timestamptz AND authorization_intent='initial_connect' AND scope_version='phase_a_v2' RETURNING operation_id, location_id, endpoint_id, staff_user_id, code_verifier, nonce";
 const INPUT_KEYS = objectFreeze([
   'clientId', 'locationId', 'endpointId', 'staffUserId', 'authSessionId',
   'operationId', 'stateHash', 'codeVerifier', 'nonce', 'issuedAt', 'expiresAt',
 ]);
+const CONSUME_INPUT_KEYS = objectFreeze(['stateHash', 'clientId', 'authSessionId', 'consumedAt']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
 const VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
@@ -102,6 +104,46 @@ function acknowledgement(value, input) {
   return objectFreeze({ operationId: row.operation_id, expiresAt: row.expires_at });
 }
 
+function readConsumeInput(value) {
+  const input = snapshot(value, CONSUME_INPUT_KEYS, true);
+  if (!input || typeof input.stateHash !== 'string' || !test(DIGEST, input.stateHash)
+      || typeof input.clientId !== 'string' || !test(UUID, input.clientId)
+      || typeof input.authSessionId !== 'string' || !test(UUID, input.authSessionId)
+      || typeof input.consumedAt !== 'string' || !test(TIMESTAMP, input.consumedAt)
+      || !numberIsFinite(reflectApply(dateParse, dateConstructor, [input.consumedAt]))) return null;
+  return input;
+}
+
+function consumeResult(value) {
+  const frozen = objectIsFrozen(value);
+  const result = snapshot(value, ['rows'], frozen);
+  if (!result || !arrayIsArray(result.rows) || objectGetPrototypeOf(result.rows) !== arrayPrototype
+      || objectIsFrozen(result.rows) !== frozen || result.rows.length > 1) fail();
+  const keys = reflectOwnKeys(result.rows);
+  const expectedKeys = result.rows.length === 0 ? ['length'] : ['0', 'length'];
+  if (keys.length !== expectedKeys.length) fail();
+  for (let index = 0; index < keys.length; index += 1) if (keys[index] !== expectedKeys[index]) fail();
+  const lengthDescriptor = objectGetOwnPropertyDescriptor(result.rows, 'length');
+  if (!lengthDescriptor || !objectHasOwn(lengthDescriptor, 'value')
+      || lengthDescriptor.value !== result.rows.length || lengthDescriptor.enumerable
+      || lengthDescriptor.configurable || lengthDescriptor.writable === frozen) fail();
+  if (result.rows.length === 0) return null;
+  const rowDescriptor = objectGetOwnPropertyDescriptor(result.rows, '0');
+  if (!rowDescriptor || !objectHasOwn(rowDescriptor, 'value') || !rowDescriptor.enumerable
+      || rowDescriptor.writable === frozen || rowDescriptor.configurable === frozen) fail();
+  const row = snapshot(rowDescriptor.value,
+    ['operation_id', 'location_id', 'endpoint_id', 'staff_user_id', 'code_verifier', 'nonce'], frozen);
+  if (!row || typeof row.operation_id !== 'string' || !test(UUID, row.operation_id)
+      || typeof row.location_id !== 'string' || !test(UUID, row.location_id)
+      || typeof row.endpoint_id !== 'string' || !test(UUID, row.endpoint_id)
+      || typeof row.staff_user_id !== 'string' || !test(UUID, row.staff_user_id)
+      || typeof row.code_verifier !== 'string' || !test(VERIFIER, row.code_verifier)
+      || typeof row.nonce !== 'string' || !test(NONCE, row.nonce)) fail();
+  return objectFreeze({ operationId: row.operation_id, locationId: row.location_id,
+    endpointId: row.endpoint_id, staffUserId: row.staff_user_id,
+    codeVerifier: row.code_verifier, nonce: row.nonce });
+}
+
 function createGoogleOAuthTransactionRepository(configuration) {
   try {
     const config = snapshot(configuration, ['queryOwner'], true);
@@ -117,7 +159,7 @@ function createGoogleOAuthTransactionRepository(configuration) {
         const params = [input.clientId, input.locationId, input.endpointId, input.staffUserId,
           input.authSessionId, input.operationId, reflectApply(bufferFrom, Buffer, [input.stateHash, 'hex']),
           input.codeVerifier, input.nonce, input.issuedAt, input.expiresAt];
-        const output = reflectApply(query, queryOwner, [SQL, params]);
+        const output = reflectApply(query, queryOwner, [CREATE_SQL, params]);
         if (output !== null && typeof output === 'object' && objectGetPrototypeOf(output) === promisePrototype) {
           return reflectApply(promiseThen, output, [
             result => acknowledgement(result, input),
@@ -127,7 +169,23 @@ function createGoogleOAuthTransactionRepository(configuration) {
         return acknowledgement(output, input);
       } catch (_) { fail(); }
     }
-    return objectFreeze({ create });
+    function consume(value) {
+      try {
+        const input = readConsumeInput(value);
+        if (!input) fail();
+        const params = [reflectApply(bufferFrom, Buffer, [input.stateHash, 'hex']),
+          input.clientId, input.authSessionId, input.consumedAt];
+        const output = reflectApply(query, queryOwner, [CONSUME_SQL, params]);
+        if (output !== null && typeof output === 'object' && objectGetPrototypeOf(output) === promisePrototype) {
+          return reflectApply(promiseThen, output, [
+            result => consumeResult(result),
+            () => fail(),
+          ]);
+        }
+        return consumeResult(output);
+      } catch (_) { fail(); }
+    }
+    return objectFreeze({ create, consume });
   } catch (_) { fail(); }
 }
 
