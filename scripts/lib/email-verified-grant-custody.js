@@ -8,46 +8,104 @@ const {
 } = require('./email-grant-envelope-provider-contract');
 
 const GRANT_GENERATION_INITIAL = 1;
-const DEPENDENCY_KEYS = Object.freeze(['verifiedIdentity', 'envelopeProvider', 'clock', 'installer']);
+const DEPENDENCY_KEYS = Object.freeze([
+  'verifiedIdentity',
+  'envelopeProvider',
+  'clock',
+  'installer',
+]);
 const SEAL_KEYS = Object.freeze(['refresh_token', 'aad', 'operation_id']);
-const INSTALL_KEYS = Object.freeze(['clientId','endpointId','operationId','actorStaffUserId','identity','envelope']);
+const INSTALL_KEYS = Object.freeze([
+  'clientId',
+  'endpointId',
+  'operationId',
+  'actorStaffUserId',
+  'identity',
+  'envelope',
+]);
 const INSTALLER_METHOD = 'installVerifiedGrant';
 const SEALED_ACK = Object.freeze({ status: 'accepted' });
 
 function ownData(object, key) {
   try {
     const d = Object.getOwnPropertyDescriptor(object, key);
-    return d && Object.prototype.hasOwnProperty.call(d, 'value') && !d.get && !d.set ? d.value : undefined;
-  } catch { return undefined; }
+    return d &&
+      Object.prototype.hasOwnProperty.call(d, 'value') &&
+      !d.get &&
+      !d.set
+      ? d.value
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 function exactPlainData(object, keys) {
   try {
-    if (!object || Object.getPrototypeOf(object) !== Object.prototype) return false;
+    if (!object || Object.getPrototypeOf(object) !== Object.prototype)
+      return false;
     const actual = Reflect.ownKeys(object);
-    if (actual.length !== keys.length || actual.some(k => typeof k !== 'string' || !keys.includes(k))) return false;
+    if (
+      actual.length !== keys.length ||
+      actual.some((k) => typeof k !== 'string' || !keys.includes(k))
+    )
+      return false;
     return keys.every((k) => {
       const d = Object.getOwnPropertyDescriptor(object, k);
-      return Boolean(d && Object.prototype.hasOwnProperty.call(d, 'value') && d.enumerable && !d.get && !d.set);
+      return Boolean(
+        d &&
+        Object.prototype.hasOwnProperty.call(d, 'value') &&
+        d.enumerable &&
+        !d.get &&
+        !d.set
+      );
     });
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
-function exactFrozenData(value, keys) { return Boolean(value && Object.isFrozen(value) && exactPlainData(value, keys)); }
+function exactFrozenData(value, keys) {
+  return Boolean(
+    value && Object.isFrozen(value) && exactPlainData(value, keys)
+  );
+}
 function exactFrozenService(value, method) {
-  return exactFrozenData(value, [method]) && typeof ownData(value, method) === 'function';
+  return (
+    exactFrozenData(value, [method]) &&
+    typeof ownData(value, method) === 'function'
+  );
 }
-function independentCopy(source) { const out = Buffer.alloc(source.length); source.copy(out); return out; }
+function independentCopy(source) {
+  const out = Buffer.alloc(source.length);
+  source.copy(out);
+  return out;
+}
 function unchanged(a, b) {
-  return Buffer.isBuffer(a) && Buffer.isBuffer(b) && a.length > 0 && a.length === b.length && timingSafeEqual(a, b);
+  return (
+    Buffer.isBuffer(a) &&
+    Buffer.isBuffer(b) &&
+    a.length > 0 &&
+    a.length === b.length &&
+    timingSafeEqual(a, b)
+  );
 }
 function installerAck(value) {
   try {
-    return exactFrozenData(value, ['status']) && ownData(value, 'status') === 'installed';
-  } catch { return false; }
+    return (
+      exactFrozenData(value, ['status']) &&
+      ownData(value, 'status') === 'installed'
+    );
+  } catch {
+    return false;
+  }
 }
 
 function createVerifiedGrantCustodyAdapter(config, dependencies, policy) {
   const fail = policy.failure;
-  let frozenConfig, verifiedIdentity, verifyIdentity, envelopeProvider, sealGrantPayload;
+  let frozenConfig,
+    verifiedIdentity,
+    verifyIdentity,
+    envelopeProvider,
+    sealGrantPayload;
   let clock, nowEpochSecondsFn, installer, installVerifiedGrant, stageTelemetry;
   try {
     frozenConfig = policy.snapshotConfig(config);
@@ -55,13 +113,21 @@ function createVerifiedGrantCustodyAdapter(config, dependencies, policy) {
     if (policy.microsoftStageTelemetry === true) {
       // Microsoft alone owns this optional dependency and its stage vocabulary.
       // Keep the import off the Google execution path entirely.
-      const { resolveOptionalStageTelemetry } = require('./email-microsoft-oauth-stage-telemetry');
-      const resolved = resolveOptionalStageTelemetry(dependencies, DEPENDENCY_KEYS);
+      const {
+        resolveOptionalStageTelemetry,
+      } = require('./email-microsoft-oauth-stage-telemetry');
+      const resolved = resolveOptionalStageTelemetry(
+        dependencies,
+        DEPENDENCY_KEYS
+      );
       if (!resolved.ok || !resolved.stageTelemetry) throw fail();
       stageTelemetry = resolved.stageTelemetry;
     } else {
-      if (policy.microsoftStageTelemetry !== false
-          || !exactFrozenData(dependencies, DEPENDENCY_KEYS)) throw fail();
+      if (
+        policy.microsoftStageTelemetry !== false ||
+        !exactFrozenData(dependencies, DEPENDENCY_KEYS)
+      )
+        throw fail();
       stageTelemetry = null;
     }
     verifiedIdentity = ownData(dependencies, 'verifiedIdentity');
@@ -79,7 +145,9 @@ function createVerifiedGrantCustodyAdapter(config, dependencies, policy) {
     verifyIdentity = ownData(verifiedIdentity, 'verifyIdentity');
     nowEpochSecondsFn = ownData(clock, 'nowEpochSeconds');
     installVerifiedGrant = ownData(installer, INSTALLER_METHOD);
-  } catch { throw fail(); }
+  } catch {
+    throw fail();
+  }
 
   let used = false;
   async function acceptValidatedTokens(input) {
@@ -88,66 +156,125 @@ function createVerifiedGrantCustodyAdapter(config, dependencies, policy) {
     try {
       const selected = policy.snapshotSelected(input);
       if (!selected) throw fail();
+      // Access and ID tokens are used only for identity verification. The refresh
+      // token crosses the custody boundary only as the envelope provider's secret.
       let now;
-      try { now = Reflect.apply(nowEpochSecondsFn, clock, []); } catch { throw fail(); }
+      try {
+        now = Reflect.apply(nowEpochSecondsFn, clock, []);
+      } catch {
+        throw fail();
+      }
       if (!Number.isSafeInteger(now) || now < 0) throw fail();
       let rawIdentity;
       try {
-        rawIdentity = await Reflect.apply(verifyIdentity, verifiedIdentity, [Object.freeze({
-          idToken: selected.idToken, accessToken: selected.accessToken,
-          expectedNonce: frozenConfig.expectedNonce, expectedClientId: frozenConfig.expectedClientId,
-          nowEpochSeconds: now,
-        })]);
-      } catch { throw fail(); }
+        rawIdentity = await Reflect.apply(verifyIdentity, verifiedIdentity, [
+          Object.freeze({
+            idToken: selected.idToken,
+            accessToken: selected.accessToken,
+            expectedNonce: frozenConfig.expectedNonce,
+            expectedClientId: frozenConfig.expectedClientId,
+            nowEpochSeconds: now,
+          }),
+        ]);
+      } catch {
+        throw fail();
+      }
       const identity = policy.readIdentity(rawIdentity);
       if (!identity) throw fail();
       let canonical;
       try {
-        canonical = buildGrantEnvelopeAadV1({ clientId: frozenConfig.clientId,
-          endpointId: frozenConfig.endpointId, grantGeneration: GRANT_GENERATION_INITIAL,
-          operationId: frozenConfig.operationId });
-      } catch { throw fail(); }
+        canonical = buildGrantEnvelopeAadV1({
+          clientId: frozenConfig.clientId,
+          endpointId: frozenConfig.endpointId,
+          grantGeneration: GRANT_GENERATION_INITIAL,
+          operationId: frozenConfig.operationId,
+        });
+      } catch {
+        throw fail();
+      }
       if (!Buffer.isBuffer(canonical) || canonical.length < 1) throw fail();
       const authority = independentCopy(canonical);
       const facing = independentCopy(canonical);
-      const sealInput = Object.freeze({ refresh_token: selected.refreshToken, aad: facing,
-        operation_id: frozenConfig.operationId });
+      // Seal the refresh token before installation; the installer receives only
+      // the validated envelope and never the plaintext provider secret.
+      const sealInput = Object.freeze({
+        refresh_token: selected.refreshToken,
+        aad: facing,
+        operation_id: frozenConfig.operationId,
+      });
       if (!exactPlainData(sealInput, SEAL_KEYS)) throw fail();
       let rawEnvelope;
-      try { rawEnvelope = await Reflect.apply(sealGrantPayload, envelopeProvider, [sealInput]); }
-      catch { throw fail(); }
+      try {
+        rawEnvelope = await Reflect.apply(sealGrantPayload, envelopeProvider, [
+          sealInput,
+        ]);
+      } catch {
+        throw fail();
+      }
       if (!unchanged(facing, authority)) throw fail();
       let envelope;
       try {
         const checked = validateGrantEnvelopeRecordV1(rawEnvelope);
-        if (!checked.ok || checked.value.operation_id !== frozenConfig.operationId) throw fail();
+        if (
+          !checked.ok ||
+          checked.value.operation_id !== frozenConfig.operationId
+        )
+          throw fail();
         envelope = checked.value;
-      } catch { throw fail(); }
+      } catch {
+        throw fail();
+      }
       if (policy.microsoftStageTelemetry) {
-        const { safeEmitStage } = require('./email-microsoft-oauth-stage-telemetry');
+        const {
+          safeEmitStage,
+        } = require('./email-microsoft-oauth-stage-telemetry');
         safeEmitStage(stageTelemetry, 'envelope_sealed');
       }
-      const installInput = Object.freeze({ clientId: frozenConfig.clientId, endpointId: frozenConfig.endpointId,
-        operationId: frozenConfig.operationId, actorStaffUserId: frozenConfig.actorStaffUserId,
-        identity, envelope });
+      const installInput = Object.freeze({
+        clientId: frozenConfig.clientId,
+        endpointId: frozenConfig.endpointId,
+        operationId: frozenConfig.operationId,
+        actorStaffUserId: frozenConfig.actorStaffUserId,
+        identity,
+        envelope,
+      });
       if (!exactPlainData(installInput, INSTALL_KEYS)) throw fail();
       if (policy.microsoftStageTelemetry) {
-        const { safeEmitStage } = require('./email-microsoft-oauth-stage-telemetry');
+        const {
+          safeEmitStage,
+        } = require('./email-microsoft-oauth-stage-telemetry');
         safeEmitStage(stageTelemetry, 'installer_started');
       }
       let ack;
-      try { ack = await Reflect.apply(installVerifiedGrant, installer, [installInput]); }
-      catch { throw fail(); }
+      try {
+        ack = await Reflect.apply(installVerifiedGrant, installer, [
+          installInput,
+        ]);
+      } catch {
+        throw fail();
+      }
       if (!installerAck(ack)) throw fail();
       if (policy.microsoftStageTelemetry) {
-        const { safeEmitStage } = require('./email-microsoft-oauth-stage-telemetry');
+        const {
+          safeEmitStage,
+        } = require('./email-microsoft-oauth-stage-telemetry');
         safeEmitStage(stageTelemetry, 'installer_committed');
       }
       return SEALED_ACK;
-    } catch { throw fail(); }
+    } catch {
+      throw fail();
+    }
   }
   return Object.freeze({ acceptValidatedTokens });
 }
 
-module.exports = Object.freeze({ GRANT_GENERATION_INITIAL, DEPENDENCY_KEYS, INSTALL_KEYS,
-  INSTALLER_METHOD, SEALED_ACK, ownData, exactFrozenData, createVerifiedGrantCustodyAdapter });
+module.exports = Object.freeze({
+  GRANT_GENERATION_INITIAL,
+  DEPENDENCY_KEYS,
+  INSTALL_KEYS,
+  INSTALLER_METHOD,
+  SEALED_ACK,
+  ownData,
+  exactFrozenData,
+  createVerifiedGrantCustodyAdapter,
+});
