@@ -5,9 +5,10 @@
  *
  * A focused callback-composition test must not duplicate the authorization operation's
  * RSA/JWT, HTTPS and envelope harness (already exhaustively owned by its verifier).
- * Therefore this seam uses the specifically named `transactionCompletionFactory`:
- * GREEN must statically compose the real authorization operation and secret handoff in
- * that factory's production default; this tracer injects only the per-transaction seam.
+ * Therefore this owner consumes a specifically named, preconfigured
+ * `transactionCompletionFactory`. A separate adapter owner will statically bind the real
+ * authorization operation and secret handoff, so neither boundary has unused imports or
+ * a generic caller-controlled factory.
  * No route, environment, network, database, deployment, credential or logging capability.
  */
 const assert = require('node:assert/strict');
@@ -186,10 +187,10 @@ test('pins intrinsics and child methods and rejects proxies with zero traps afte
   } finally { Object.freeze = saved.freeze; Reflect.ownKeys = saved.ownKeys; Reflect.apply = saved.apply; }
 });
 
-test('source statically composes only named owners and remains offline/pure with package registration', () => {
+test('source remains an offline pure mapper and delegates only to the named transaction completion factory', () => {
   const sourcePath = path.join(__dirname, 'lib/email-google-oauth-callback-completion.js'); const source = fs.readFileSync(sourcePath, 'utf8');
   const imports = [...source.matchAll(/require\(\s*['"](\.\/[^'"]+)['"]\s*\)/g)].map(match => match[1]);
-  assert.deepEqual(imports, ['./email-google-authorization-code-operation', './email-google-client-secret-handoff']);
+  assert.deepEqual(imports, []);
   assert.match(source, /transactionCompletionFactory/);
   for (const forbidden of [/process\s*\./, /console\s*\./, /node:https/, /\bfetch\s*\(/, /express|router|middleware/i,
     /\b(?:database|postgres|sql|deploy)\b/i, /googleapis|@googleapis\//, /setTimeout|setInterval/]) assert.equal(forbidden.test(source), false, `${forbidden}`);
