@@ -32042,7 +32042,7 @@ function performEmailLunaDraftGenerate(convId, targetEl){
   fetch('/staff/inbox/email/generate-luna-draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:convId})})
   .then(emailParseFetchJson).then(function(out){
     if(mySeq!==st.seq)return;st.inFlight=false;
-    var outcomeUnknown=out.status===503&&out.parseOk&&emailOwnData(out.data,'error')==='draft_save_outcome_unknown';
+    var outcomeUnknown=!out.parseOk||(out.status===503&&emailOwnData(out.data,'error')==='draft_save_outcome_unknown');
     if(outcomeUnknown){st.approvalId=null;st.savedText='';st.generationUncertain=true;}
     if(selectedConvId!==snapConv)return;
     var text=out.parseOk?emailOwnData(out.data,'message_text'):null;
@@ -32051,8 +32051,7 @@ function performEmailLunaDraftGenerate(convId, targetEl){
     else if(out.status===422)showDraftSendStatus(statusEl,'blocked','Luna handoff required; draft was not changed.');
     else if(outcomeUnknown)showDraftSendStatus(statusEl,'blocked','Draft save outcome is unknown. Reload the conversation or page before generating again.');
     else showDraftSendStatus(statusEl,'error','Draft generation failed.');
-    setEmailReplyControlsDisabled(targetEl,false,st.locked);
-    if(st.generationUncertain){var lunaBtn=targetEl.querySelector('#btn-email-generate-luna-draft'),apprBtn=targetEl.querySelector('#btn-email-approve-send');if(lunaBtn)lunaBtn.disabled=true;if(apprBtn)apprBtn.disabled=true;}
+    setEmailReplyControlsDisabled(targetEl,st.generationUncertain,st.locked);
   }).catch(function(){if(mySeq!==st.seq)return;st.inFlight=false;st.approvalId=null;st.savedText='';st.generationUncertain=true;if(selectedConvId!==snapConv)return;showDraftSendStatus(statusEl,'blocked','Draft save outcome is unknown. Reload the conversation or page before generating again.');setEmailReplyControlsDisabled(targetEl,true,st.locked);});
 }
 function performEmailDraftSave(convId, targetEl){
