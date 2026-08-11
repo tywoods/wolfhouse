@@ -350,6 +350,8 @@
     "verify:email-microsoft-verified-identity": "node scripts/verify-email-microsoft-verified-identity.js",
     "verify:email-microsoft-verified-grant-custody": "node scripts/verify-email-microsoft-verified-grant-custody.js",
     "verify:email-microsoft-verified-grant-installer": "node scripts/verify-email-microsoft-verified-grant-installer.js",
+    "verify:email-verified-grant-installer": "node scripts/verify-email-verified-grant-installer.js",
+    "prove:email-verified-grant-installer-pglite": "node scripts/prove-email-verified-grant-installer-pglite.js",
     "verify:email-phase-b-authority": "node scripts/verify-email-phase-b-authority.js",
     "prove:email-phase-b-stock-pg-concurrency": "node scripts/prove-email-phase-b-stock-pg-concurrency.js",
     "verify:email-microsoft-phase-b-oauth-callback-composition": "node scripts/verify-email-microsoft-phase-b-oauth-callback-composition.js",
