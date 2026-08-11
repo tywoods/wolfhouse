@@ -339,38 +339,51 @@ async function main() {
     await page.waitForSelector('#btn-email-generate-luna-draft', { timeout: 10000 });
     ok('authoritative page reload clears uncertain-generation terminal lock',
       await page.locator('#btn-email-generate-luna-draft').isEnabled());
-    await page.route('**/staff/inbox/email/generate-luna-draft', async (route) => {
-      const body = JSON.parse(route.request().postData() || '{}'); lunaPosts.push({ body });
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(draftOk({ ...body, message_text: 'authority-bearing draft' })) });
-    });
-    await page.click('#btn-email-generate-luna-draft');
-    await waitStatus('Luna draft generated');
-    ok('successful generation establishes approval authority before response-loss probe',
-      await page.inputValue('#draft-textarea') === 'authority-bearing draft'
-      && await page.locator('#btn-email-approve-send').isEnabled());
-    await page.unroute('**/staff/inbox/email/generate-luna-draft');
-    let rejectedDispatchedRequests = 0;
-    await page.route('**/staff/inbox/email/generate-luna-draft', (route) => {
-      rejectedDispatchedRequests += 1;
-      return route.abort('failed');
-    });
-    await page.click('#btn-email-generate-luna-draft');
-    await waitStatus('outcome is unknown');
-    ok('Luna dispatched fetch rejection clears authority and terminally requires authoritative reload',
-      rejectedDispatchedRequests === 1
-      && /Reload the conversation or page before generating again/.test(await statusText())
-      && await page.locator('#draft-send-status img').count() === 0
-      && await page.locator('#btn-email-generate-luna-draft').isDisabled()
-      && await page.locator('#btn-email-approve-send').isDisabled());
-    await page.locator('#btn-email-generate-luna-draft').dispatchEvent('click');
-    await page.locator('#btn-email-approve-send').dispatchEvent('click');
-    await page.waitForTimeout(100);
-    ok('Luna dispatched fetch rejection permits zero retry/approve requests before authoritative reload',
-      rejectedDispatchedRequests === 1 && approvePosts.length === beforeUnknownApprove);
-    await page.unroute('**/staff/inbox/email/generate-luna-draft');
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await openInbox(page);
-    await emailCard().click();
+    async function staleSelectionUncertain(kind) {
+      await page.unroute('**/staff/inbox/email/generate-luna-draft').catch(() => {});
+      await page.reload({ waitUntil: 'domcontentloaded' }); await openInbox(page); await emailCard().click();
+      await page.waitForSelector('#btn-email-generate-luna-draft', { timeout: 10000 });
+      await page.route('**/staff/inbox/email/generate-luna-draft', async (route) => {
+        const body = JSON.parse(route.request().postData() || '{}'); lunaPosts.push({ body });
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(draftOk({ ...body, message_text: 'authority-bearing ' + kind })) });
+      });
+      await page.click('#btn-email-generate-luna-draft'); await waitStatus('Luna draft generated');
+      ok(kind + ' stale probe starts with prior approval authority',
+        await page.inputValue('#draft-textarea') === 'authority-bearing ' + kind
+        && await page.locator('#btn-email-approve-send').isEnabled());
+      await page.unroute('**/staff/inbox/email/generate-luna-draft');
+      let release, dispatched = 0;
+      const held = new Promise((resolve) => { release = resolve; });
+      await page.route('**/staff/inbox/email/generate-luna-draft', async (route) => {
+        dispatched += 1; lunaPosts.push({ body: JSON.parse(route.request().postData() || '{}') });
+        await held;
+        if (kind === 'fetch rejection') return route.abort('failed');
+        return route.fulfill({ status: 503, contentType: 'application/json', body: '{"success":false,"error":"draft_save_outcome_unknown"}' });
+      });
+      await page.click('#btn-email-generate-luna-draft');
+      await page.waitForFunction(() => document.querySelector('#btn-email-generate-luna-draft')?.disabled === true);
+      await waCard().click(); await page.waitForSelector('#btn-send-reply', { timeout: 10000 });
+      release(); await page.waitForTimeout(150);
+      ok(kind + ' stale completion does not corrupt selected WhatsApp conversation',
+        await page.locator('#btn-send-reply').count() === 1 && await page.locator('#draft-send-status').count() === 1);
+      await emailCard().click(); await page.waitForSelector('#btn-email-generate-luna-draft', { timeout: 10000 });
+      ok(kind + ' stale completion clears approvalId/savedText, records generationUncertain, and renders terminal reload guidance',
+        dispatched === 1 && await page.inputValue('#draft-textarea') === ''
+        && /Reload the conversation or page before generating again/.test(await statusText())
+        && await page.locator('#btn-email-generate-luna-draft').isDisabled()
+        && await page.locator('#btn-email-approve-send').isDisabled());
+      const beforeApprove = approvePosts.length;
+      await page.locator('#btn-email-generate-luna-draft').dispatchEvent('click');
+      await page.locator('#btn-email-approve-send').dispatchEvent('click'); await page.waitForTimeout(100);
+      ok(kind + ' stale terminal state permits zero retry/approve requests until full reload',
+        dispatched === 1 && approvePosts.length === beforeApprove);
+      await page.unroute('**/staff/inbox/email/generate-luna-draft');
+      await page.reload({ waitUntil: 'domcontentloaded' }); await openInbox(page); await emailCard().click();
+      await page.waitForSelector('#btn-email-generate-luna-draft', { timeout: 10000 });
+      ok(kind + ' authoritative full reload clears terminal lock', await page.locator('#btn-email-generate-luna-draft').isEnabled());
+    }
+    await staleSelectionUncertain('fetch rejection');
+    await staleSelectionUncertain('parsed 503 outcome unknown');
     await page.waitForSelector('#draft-textarea', { timeout: 10000 });
     ok('email Save+Approve', await page.locator('#btn-email-save-draft').count() === 1 && await page.locator('#btn-email-approve-send').count() === 1);
     ok('email hides WA send', await page.locator('#btn-send-reply').count() === 0);
