@@ -213,9 +213,12 @@ test('permits exactly 32768 encoded ASCII bytes and rejects encoded boundary plu
 });
 
 test('requires the exact frozen custody acknowledgement and masks throws, thenables, and malformed values', async () => {
+  const spoofedPromise = new Proxy({ then(resolve) { resolve(ACK); } }, {
+    getPrototypeOf() { return Promise.prototype; },
+  });
   const malformed = [undefined, null, {}, { status: 'custodied' }, freeze({ status: 'wrong' }),
     freeze({ status: 'custodied', extra: true }), freeze(Object.assign(Object.create(null), { status: 'custodied' })),
-    freeze({ then(resolve) { resolve(ACK); } })];
+    freeze({ then(resolve) { resolve(ACK); } }), spoofedPromise];
   for (const value of malformed) await cleanReject(() => service(custody(() => value)).exchangeAuthorizationCode(input()));
   await cleanReject(() => service(custody(() => { throw new Error(`${CODE}:${SECRET}`); })).exchangeAuthorizationCode(input()));
   await cleanReject(() => service(custody(() => Promise.reject(new Error(`${CODE}:${SECRET}`)))).exchangeAuthorizationCode(input()));
