@@ -137,7 +137,7 @@ async function rejects(name, endpoint) {
 }
 
 async function main() {
-  console.log('verify:email-google-delegated-custodian-generalization (RED)');
+  console.log('verify:email-google-delegated-custodian-generalization');
 
   // Explicit Microsoft delegated regression: same accepted endpoint and public DTO.
   await accepts('preserves exact Microsoft delegated custody behavior', microsoftEndpoint());
