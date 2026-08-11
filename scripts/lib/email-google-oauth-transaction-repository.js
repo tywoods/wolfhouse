@@ -16,6 +16,7 @@ const promisePrototype = Promise.prototype;
 const promiseThen = Promise.prototype.then;
 const dateConstructor = Date;
 const dateParse = Date.parse;
+const dateToISOString = Date.prototype.toISOString;
 const numberIsFinite = Number.isFinite;
 const bufferFrom = Buffer.from;
 
@@ -49,6 +50,13 @@ objectFreeze(failure);
 
 function fail() { throw failure; }
 function test(pattern, value) { return reflectApply(regexpTest, pattern, [value]); }
+function canonicalTimestamp(value) {
+  if (typeof value !== 'string' || !test(TIMESTAMP, value)) return null;
+  const parsed = reflectApply(dateParse, dateConstructor, [value]);
+  if (!numberIsFinite(parsed)
+      || reflectApply(dateToISOString, new dateConstructor(parsed), []) !== value) return null;
+  return parsed;
+}
 
 function snapshot(value, keys, frozenRequired) {
   if (value === null || typeof value !== 'object' || arrayIsArray(value)
@@ -77,12 +85,10 @@ function readInput(value) {
   }
   if (typeof input.stateHash !== 'string' || !test(DIGEST, input.stateHash)
       || typeof input.codeVerifier !== 'string' || !test(VERIFIER, input.codeVerifier)
-      || typeof input.nonce !== 'string' || !test(NONCE, input.nonce)
-      || typeof input.issuedAt !== 'string' || !test(TIMESTAMP, input.issuedAt)
-      || typeof input.expiresAt !== 'string' || !test(TIMESTAMP, input.expiresAt)) return null;
-  const issued = reflectApply(dateParse, dateConstructor, [input.issuedAt]);
-  const expires = reflectApply(dateParse, dateConstructor, [input.expiresAt]);
-  if (!numberIsFinite(issued) || !numberIsFinite(expires) || expires <= issued || expires - issued > 600000) return null;
+      || typeof input.nonce !== 'string' || !test(NONCE, input.nonce)) return null;
+  const issued = canonicalTimestamp(input.issuedAt);
+  const expires = canonicalTimestamp(input.expiresAt);
+  if (issued === null || expires === null || expires <= issued || expires - issued > 600000) return null;
   return input;
 }
 
@@ -109,8 +115,7 @@ function readConsumeInput(value) {
   if (!input || typeof input.stateHash !== 'string' || !test(DIGEST, input.stateHash)
       || typeof input.clientId !== 'string' || !test(UUID, input.clientId)
       || typeof input.authSessionId !== 'string' || !test(UUID, input.authSessionId)
-      || typeof input.consumedAt !== 'string' || !test(TIMESTAMP, input.consumedAt)
-      || !numberIsFinite(reflectApply(dateParse, dateConstructor, [input.consumedAt]))) return null;
+      || canonicalTimestamp(input.consumedAt) === null) return null;
   return input;
 }
 
