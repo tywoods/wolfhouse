@@ -13,6 +13,9 @@ const path = require('node:path');
 // Authentic RED: GREEN must add this sole adapter owner.
 const owner = require('./lib/email-google-transaction-completion-factory');
 const { createGoogleTransactionCompletionFactory } = owner;
+const {
+  createGoogleOAuthCallbackCompletion,
+} = require('./lib/email-google-oauth-callback-completion');
 
 const freeze = Object.freeze;
 const CLIENT = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
@@ -110,7 +113,7 @@ test('rejects hostile boundary proxies and accessors with sanitized adapter fail
   assert.equal(traps, 0); noEffects(h.calls);
 });
 
-test('rejects an HTTP redirect after post-load URL prototype getter poisoning', () => {
+test('keeps canonical HTTPS valid and rejects HTTP after post-load URL getter changes', () => {
   const h = harness();
   const factory = createGoogleTransactionCompletionFactory(h.dependencies);
   const names = ['protocol', 'username', 'password', 'hash', 'search', 'port', 'hostname', 'href'];
@@ -126,6 +129,15 @@ test('rejects an HTTP redirect after post-load URL prototype getter poisoning', 
     assert.throws(() => factory.createTransactionCompletion(
       operationConfig({ redirectUri: 'http://evil.test/callback' }), handoffConfig(), provider(),
     ), clean);
+    const completion = factory.createTransactionCompletion(operationConfig(), handoffConfig(), provider());
+    assert.deepEqual(Reflect.ownKeys(completion), ['completeAuthorization']);
+    const callbackConsume = freeze({ consumeCallback() { return freeze({ status: 'invalid' }); } });
+    const callback = createGoogleOAuthCallbackCompletion(freeze({
+      applicationClientId: APP_CLIENT, redirectUri: REDIRECT, secretRef: REF,
+    }), freeze({ callbackConsume, secretProvider: provider(), transactionCompletionFactory: factory }));
+    assert.deepEqual(callback.completeCallback(freeze({
+      clientId: CLIENT, authSessionId: ENDPOINT, query: 'state=ignored&code=ignored',
+    })), freeze({ status: 'invalid' }));
     noEffects(h.calls);
   } finally {
     for (const name of names) Object.defineProperty(URL.prototype, name, originals.get(name));
