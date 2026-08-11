@@ -126,6 +126,12 @@ test('pins custody method and receiver at factory construction', async () => {
   assert.throws(() => { exchangeCustody.exchangeAndCustody = () => { replacementCalls += 1; return ACK; }; }, TypeError);
   await exchange.exchangeAuthorizationCode(input());
   assert.equal(receiver, exchangeCustody); assert.equal(originalCalls, 1); assert.equal(replacementCalls, 0);
+
+  let trapped = 0; let invoked = 0;
+  function pinned() { invoked += 1; return ACK; }
+  Object.defineProperty(pinned, 'call', { value() { trapped += 1; return ACK; } });
+  await service(custody(pinned)).exchangeAuthorizationCode(input());
+  assert.equal(invoked, 1); assert.equal(trapped, 0, 'forwarding must not trust a function-owned call property');
 });
 
 test('accepts broad bounded canonical Google web client IDs without UUID overfit', async () => {
@@ -135,6 +141,7 @@ test('accepts broad bounded canonical Google web client IDs without UUID overfit
     assert.equal(new URLSearchParams(body).get('client_id'), applicationClientId);
   }
   for (const applicationClientId of ['', '.apps.googleusercontent.com', 'bad.example.com', 'bad space.apps.googleusercontent.com',
+    'bad/.apps.googleusercontent.com', 'bad?.apps.googleusercontent.com', 'bad#.apps.googleusercontent.com',
     'é.apps.googleusercontent.com', `${'a'.repeat(256)}.apps.googleusercontent.com`]) {
     assert.throws(() => service(custody(), { applicationClientId }), { code: FAILURE_CODE });
   }
