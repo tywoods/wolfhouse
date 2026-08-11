@@ -358,6 +358,7 @@
     "verify:email-google-authorization-code-request": "node scripts/verify-email-google-authorization-code-request.js",
     "verify:email-google-authorization-code-operation": "node scripts/verify-email-google-authorization-code-operation.js",
     "verify:email-google-client-secret-handoff": "node scripts/verify-email-google-client-secret-handoff.js",
+    "verify:email-google-transaction-completion-factory": "node scripts/verify-email-google-transaction-completion-factory.js",
     "verify:email-google-oauth-transaction-repository-create": "node scripts/verify-email-google-oauth-transaction-repository-create.js",
     "verify:email-google-oauth-transaction-repository-consume": "node scripts/verify-email-google-oauth-transaction-repository-consume.js",
     "verify:email-google-oauth-start": "node scripts/verify-email-google-oauth-start.js",
