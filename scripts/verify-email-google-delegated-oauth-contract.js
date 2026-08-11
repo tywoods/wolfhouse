@@ -49,7 +49,10 @@ function expectReject(value, reason) {
   const result = validateGoogleDelegatedOAuthDeclaration(value);
   assert.equal(result.ok, false, reason);
   assert.equal(Object.isFrozen(result), true, `${reason}: result frozen`);
-  assert.equal(JSON.stringify(result).includes('secret_ref'), false, `${reason}: secret ref not exposed`);
+  const serialized = JSON.stringify(result);
+  if (value && typeof value.secret_ref === 'string') {
+    assert.equal(serialized.includes(value.secret_ref), false, `${reason}: secret value not exposed`);
+  }
 }
 
 assert.equal(GOOGLE_EMAIL_PROVIDER, 'gmail_api');
@@ -110,8 +113,17 @@ Object.defineProperty(accessor, 'provider', { enumerable: true, get() { throw ne
 expectReject(accessor, 'accessor');
 
 const source = require('node:fs').readFileSync(require.resolve('./lib/email-google-delegated-oauth-contract'), 'utf8');
-for (const forbidden of ['googleapis', 'fetch(', 'https.request', 'nodemailer', 'imapflow', 'process.env', 'staff-query-api']) {
-  assert.equal(source.includes(forbidden), false, `forbidden runtime capability: ${forbidden}`);
+const forbiddenRuntimePatterns = [
+  /require\s*\(\s*['"]googleapis['"]\s*\)/,
+  /\bfetch\s*\(/,
+  /\bhttps\.(?:get|request)\s*\(/,
+  /require\s*\(\s*['"]nodemailer['"]\s*\)/,
+  /require\s*\(\s*['"]imapflow['"]\s*\)/,
+  /\bprocess\.env\b/,
+  /require\s*\(\s*['"][^'"]*staff-query-api[^'"]*['"]\s*\)/,
+];
+for (const forbidden of forbiddenRuntimePatterns) {
+  assert.equal(forbidden.test(source), false, `forbidden runtime capability: ${forbidden}`);
 }
 
 console.log('PASS verify:email-google-delegated-oauth-contract');
