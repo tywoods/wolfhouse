@@ -196,8 +196,8 @@ async function main() {
   assert.deepEqual(fake.trace.map((entry) => kind(entry.sql)), [
     'BEGIN',
     'SELECT_ENDPOINT_FOR_UPDATE',
-    'INSERT_ENCRYPTED_GRANT_GENERATION_1',
     'UPDATE_ENDPOINT_GMAIL_VERIFIED',
+    'INSERT_ENCRYPTED_GRANT_GENERATION_1',
     'COMMIT',
   ]);
   assertNoRawTokensOrAad(fake.trace, 'SQL trace');
