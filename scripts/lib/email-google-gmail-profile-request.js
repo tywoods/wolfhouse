@@ -38,6 +38,7 @@ const RegExpTest = RegExp.prototype.test;
 const StringTrim = String.prototype.trim;
 const ArraySome = Array.prototype.some;
 const ArrayIncludes = Array.prototype.includes;
+const ArrayPush = Array.prototype.push;
 const NumberIsInteger = Number.isInteger.bind(Number);
 const NumberIsSafeInteger = Number.isSafeInteger.bind(Number);
 const NumberConstructor = Number;
@@ -92,7 +93,8 @@ function exactFrozenRecord(value, names) {
     if (value === null || value === undefined || isProxyValue(value)) return null;
     if (ObjectGetPrototypeOf(value) !== Object.prototype || !ObjectIsFrozen(value)) return null;
     const keys = ReflectOwnKeys(value);
-    if (keys.length !== names.length || keys.some((key, index) => key !== names[index])) return null;
+    if (keys.length !== names.length
+        || ReflectApply(ArraySome, keys, [(key, index) => key !== names[index]])) return null;
     const record = ObjectCreate(null);
     for (const name of names) {
       const descriptor = ObjectGetOwnPropertyDescriptor(value, name);
@@ -359,7 +361,7 @@ function performGetProfile(accessToken, configuration, dependencies) {
             return;
           }
           size += bytes.length;
-          chunks.push(bytes);
+          ReflectApply(ArrayPush, chunks, [bytes]);
         });
         incoming.on('end', () => {
           if (finished) return;

@@ -210,15 +210,16 @@ test('burns before reflecting exact frozen ordered token input and validates vis
 
 test('pins built-ins after module load and never forwards malformed token bytes', async () => {
   const badHarness = harness();
-  const badService = createGoogleGmailProfileRequest(CONFIGURATION, badHarness.dependencies);
   const badInput = input('bad\nheader');
   const goodHarness = harness();
-  const goodService = createGoogleGmailProfileRequest(CONFIGURATION, goodHarness.dependencies);
   const goodInput = input();
   const goodResponse = response();
+  const reversedConfiguration = Object.freeze({ responseBytesMax: 16384, requestTimeoutMs: 5000 });
+  const reversedDependencies = Object.freeze({ timers: goodHarness.dependencies.timers, https: goodHarness.dependencies.https });
   const originals = {
     regexTest: RegExp.prototype.test, stringTrim: String.prototype.trim,
     arraySome: Array.prototype.some, arrayIncludes: Array.prototype.includes,
+    arrayPush: Array.prototype.push,
     Set: global.Set, Number: global.Number, Error: global.Error,
     setPrototypeOf: Object.setPrototypeOf, freeze: Object.freeze,
   };
@@ -233,8 +234,13 @@ test('pins built-ins after module load and never forwards malformed token bytes'
     global.Error = function BrokenError() { throw new originals.Error(TOKEN); };
     Object.setPrototypeOf = () => { throw new originals.Error(TOKEN); };
     Object.freeze = () => { throw new originals.Error(TOKEN); };
+    assert.throws(() => createGoogleGmailProfileRequest(reversedConfiguration, badHarness.dependencies));
+    assert.throws(() => createGoogleGmailProfileRequest(CONFIGURATION, reversedDependencies));
+    const badService = createGoogleGmailProfileRequest(CONFIGURATION, badHarness.dependencies);
+    const goodService = createGoogleGmailProfileRequest(CONFIGURATION, goodHarness.dependencies);
     badPending = badService.getProfile(badInput);
     goodPending = goodService.getProfile(goodInput);
+    Array.prototype.push = () => { throw new originals.Error(TOKEN); };
     goodHarness.calls[0].callback(goodResponse);
     goodResponse.emit('data', Buffer.from(SOURCE));
     goodResponse.emit('end');
@@ -243,6 +249,7 @@ test('pins built-ins after module load and never forwards malformed token bytes'
     String.prototype.trim = originals.stringTrim;
     Array.prototype.some = originals.arraySome;
     Array.prototype.includes = originals.arrayIncludes;
+    Array.prototype.push = originals.arrayPush;
     global.Set = originals.Set;
     global.Number = originals.Number;
     global.Error = originals.Error;
