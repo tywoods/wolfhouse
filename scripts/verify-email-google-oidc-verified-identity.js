@@ -132,9 +132,15 @@ test('passes only exact frozen compact signing authority input and receiver', as
 
 test('requires exact frozen dependencies and verifySignature authority', async () => {
   const goodVerifier = Object.freeze({ async verifySignature() { return Object.freeze({ verified: true }); } });
+  const hiddenVerifier = {};
+  Object.defineProperty(hiddenVerifier, 'verifySignature', {
+    value: async function verifySignature() { return Object.freeze({ verified: true }); },
+  });
+  Object.freeze(hiddenVerifier);
   const bad = [null, {}, Object.freeze({}), { signatureVerifier: goodVerifier },
     Object.freeze({ signatureVerifier: {} }),
     Object.freeze({ signatureVerifier: Object.freeze({ verifySignature: 1 }) }),
+    Object.freeze({ signatureVerifier: hiddenVerifier }),
     Object.freeze({ signatureVerifier: Object.freeze({ verifySignature() {}, extra: true }) }),
     Object.freeze({ signatureVerifier: goodVerifier, extra: true })];
   const accessor = {}; Object.defineProperty(accessor, 'signatureVerifier', { enumerable: true, get() { throw new Error(LEAK); } }); Object.freeze(accessor); bad.push(accessor);
@@ -146,6 +152,7 @@ test('requires exact frozen five-field custody request and contains access token
   const variants = [
     { ...request() }, Object.freeze({ ...request(), extra: true }),
     Object.freeze({ ...request(), accessToken: '' }), Object.freeze({ ...request(), accessToken: 'x'.repeat(8193) }),
+    Object.freeze({ ...request(), accessToken: 'non-ascii-\u00e9' }),
     Object.freeze({ ...request(), expectedNonce: '' }), Object.freeze({ ...request(), expectedClientId: '' }),
     Object.freeze({ ...request(), nowEpochSeconds: 1.5 }), Object.freeze({ ...request(), idToken: 'x'.repeat(32769) }),
     Object.freeze(Object.assign(Object.create(null), request())),
@@ -222,6 +229,17 @@ test('allowlists documented Google profile claims as bounded discard-only metada
   const result = await harness().service.verifyIdentity(request(token(BASE_HEADER, { ...BASE_CLAIMS, ...metadata })));
   for (const key of Object.keys(metadata)) assert.equal(key in result, false);
   assert.equal(result.providerTenantId, ISSUER); // hd is never tenant authority
+  const originalUrl = global.URL;
+  global.URL = class HostileAmbientURL { constructor() { throw new Error(LEAK); } };
+  try {
+    const pinned = await harness().service.verifyIdentity(request(token(BASE_HEADER, {
+      ...BASE_CLAIMS,
+      picture: 'https://lh3.googleusercontent.com/a/example',
+    })));
+    assert.equal(pinned.mailboxAddress, EMAIL);
+  } finally {
+    global.URL = originalUrl;
+  }
   for (const claims of [
     { given_name: 1 }, { family_name: 'bad\nname' }, { given_name: 'x'.repeat(257) },
     { picture: 'javascript:alert(1)' }, { picture: `https://example.test/${'x'.repeat(2049)}` },
@@ -259,6 +277,7 @@ test('uses Microsoft-grounded 300-second skew and 86400-second maximum token lif
   const valid = [{ exp: NOW - 299 }, { iat: NOW + 300 }, { iat: NOW, exp: NOW + 86400 }];
   for (const patch of valid) await harness().service.verifyIdentity(request(token(BASE_HEADER, { ...BASE_CLAIMS, ...patch })));
   const bad = [{ exp: NOW - 300 }, { iat: NOW + 301 }, { exp: NOW + 10, iat: NOW + 10 },
+    { exp: NOW + 10, iat: NOW + 20 },
     { iat: NOW, exp: NOW + 86401 }, { exp: 1.5 }, { iat: null }];
   for (const patch of bad) await invalid(() => harness().service.verifyIdentity(request(token(BASE_HEADER, { ...BASE_CLAIMS, ...patch }))));
 });
