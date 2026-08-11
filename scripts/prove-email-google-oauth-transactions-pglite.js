@@ -57,6 +57,7 @@ const id = {
   google: '50000000-0000-4000-8000-000000000001', googlePending: '50000000-0000-4000-8000-000000000002',
   microsoft: '50000000-0000-4000-8000-000000000003', wrongMode: '50000000-0000-4000-8000-000000000004',
   wrongLocation: '50000000-0000-4000-8000-000000000005', verifiedGoogle: '50000000-0000-4000-8000-000000000006',
+  partialGoogle: '50000000-0000-4000-8000-000000000007',
 };
 const issued = new Date('2026-08-11T12:00:00.000Z');
 const expires = new Date('2026-08-11T12:10:00.000Z');
@@ -127,7 +128,8 @@ async function main() {
       ('${id.microsoft}','${id.client}','sunset','microsoft_graph','delegated_authorization_code','microsoft_delegated_oauth','unverified_offline',NULL,NULL,NULL,NULL,NULL),
       ('${id.wrongMode}','${id.client}','sunset','gmail_api','application_client_credentials','google_delegated_oauth','unverified_offline',NULL,NULL,NULL,NULL,NULL),
       ('${id.wrongLocation}','${id.client}','other','gmail_api','delegated_authorization_code','google_delegated_oauth','unverified_offline',NULL,NULL,NULL,NULL,NULL),
-      ('${id.verifiedGoogle}','${id.client}','sunset','gmail_api','delegated_authorization_code','google_delegated_oauth','verified','https://accounts.google.com','subject','subject','user','own_user');
+      ('${id.verifiedGoogle}','${id.client}','sunset','gmail_api','delegated_authorization_code','google_delegated_oauth','verified','https://accounts.google.com','subject','subject','user','own_user'),
+      ('${id.partialGoogle}','${id.client}','sunset','gmail_api','delegated_authorization_code','google_delegated_oauth','unverified_offline','https://accounts.google.com',NULL,NULL,NULL,NULL);
   `);
 
   assert.strictEqual((await db.query(`SELECT to_regclass('${TABLE}') AS r`)).rows[0].r, null, 'candidate not pre-created');
@@ -147,6 +149,7 @@ async function main() {
   for (const [label, change] of [
     ['Microsoft endpoint', { endpoint_id: id.microsoft }], ['wrong Google mode', { endpoint_id: id.wrongMode }],
     ['wrong endpoint/location mapping', { endpoint_id: id.wrongLocation }], ['verified identity endpoint', { endpoint_id: id.verifiedGoogle }],
+    ['partial preverified identity endpoint', { endpoint_id: id.partialGoogle }],
     ['wrong client', { client_id: id.otherClient }], ['wrong location relation', { location_id: id.otherLocation }],
     ['wrong staff relation', { staff_user_id: id.otherStaff }], ['wrong session relation', { auth_session_id: id.otherSession }],
   ]) { const q = insertSql(change); await reject(db, q.sql, q.params, label); }
@@ -161,6 +164,7 @@ async function main() {
     ['nonce alphabet', { nonce: 'b'.repeat(42) + '.' }], ['zero TTL', { expires_at: issued }],
     ['TTL over 600', { expires_at: new Date(issued.getTime() + 601000) }],
     ['consumed before issued', { consumed_at: new Date(issued.getTime() - 1) }],
+    ['insert already consumed', { consumed_at: new Date(issued.getTime() + 1) }],
     ['wrong intent', { authorization_intent: 'phase_b_reauthorization' }], ['null intent', { authorization_intent: null }],
     ['wrong scope', { scope_version: 'phase_b_v1' }], ['null scope', { scope_version: null }],
     ['null verifier', { code_verifier: null }], ['null nonce', { nonce: null }],
@@ -173,7 +177,7 @@ async function main() {
     RETURNING id,location_id,endpoint_id,staff_user_id,auth_session_id,operation_id,code_verifier,nonce`;
   const consumeParams = [canonical.row.state_hash, id.client, id.session, new Date('2026-08-11T12:09:59Z')];
   const races = await Promise.all([db.query(consumeSql, consumeParams), db.query(consumeSql, consumeParams)]);
-  assert.strictEqual(races.reduce((n, r) => n + r.rows.length, 0), 1, 'concurrent atomic consume has one winner');
+  assert.strictEqual(races.reduce((n, r) => n + r.rows.length, 0), 1, 'overlapping atomic dispatch has one winner');
   const won = races.find((r) => r.rows.length).rows[0];
   assert.deepStrictEqual([won.code_verifier, won.nonce, won.endpoint_id, won.operation_id],
     [canonical.row.code_verifier, canonical.row.nonce, id.google, canonical.row.operation_id], 'private fields exact');
@@ -183,7 +187,8 @@ async function main() {
   assert.strictEqual((await db.query(consumeSql, [fresh.row.state_hash, id.client, id.otherSession, consumeParams[3]])).rows.length, 0);
   assert.strictEqual((await db.query(consumeSql, [fresh.row.state_hash, id.client, id.session, expires])).rows.length, 0, 'expiry boundary');
 
-  // Every authority/ownership mutation is revalidated by structural DB enforcement.
+  // Every authority/ownership mutation is rejected. Valid alternate values
+  // below prevent generic shape constraints from masking missing immutability.
   for (const column of ['client_id','location_id','endpoint_id','staff_user_id','auth_session_id']) {
     const value = column === 'endpoint_id' ? id.microsoft
       : column === 'location_id' ? id.otherLocation
@@ -191,8 +196,28 @@ async function main() {
           : column === 'auth_session_id' ? id.otherSession : id.otherClient;
     await reject(db, `UPDATE ${TABLE} SET ${column}=$1::uuid WHERE operation_id=$2::uuid`, [value, fresh.row.operation_id], `mutation ${column}`);
   }
+  for (const [column, value, cast] of [
+    ['id', '70000000-0000-4000-8000-000000000001', 'uuid'],
+    ['endpoint_id', id.googlePending, 'uuid'],
+    ['operation_id', operation(), 'uuid'],
+    ['state_hash', digest(), 'bytea'],
+    ['code_verifier', 'B'.repeat(43), 'text'],
+    ['nonce', 'c'.repeat(43), 'text'],
+    ['issued_at', new Date(issued.getTime() + 1000), 'timestamptz'],
+    ['expires_at', new Date(expires.getTime() - 1000), 'timestamptz'],
+  ]) {
+    await reject(db, `UPDATE ${TABLE} SET ${column}=$1::${cast} WHERE operation_id=$2::uuid`,
+      [value, fresh.row.operation_id], `immutable ${column}`);
+  }
   await db.query(`UPDATE ${TABLE} SET consumed_at=$1 WHERE operation_id=$2::uuid`,
     [new Date('2026-08-11T12:00:01Z'), fresh.row.operation_id]);
+  const lateConsume = insertSql(); await db.query(lateConsume.sql, lateConsume.params);
+  await reject(db, `UPDATE ${TABLE} SET consumed_at=$1 WHERE operation_id=$2::uuid`,
+    [new Date(expires.getTime() + 1), lateConsume.row.operation_id], 'cannot consume after expiry');
+  await reject(db, `UPDATE ${TABLE} SET consumed_at=NULL WHERE operation_id=$1::uuid`,
+    [fresh.row.operation_id], 'cannot unconsume');
+  await reject(db, `UPDATE ${TABLE} SET consumed_at=$1 WHERE operation_id=$2::uuid`,
+    [new Date('2026-08-11T12:00:02Z'), fresh.row.operation_id], 'cannot re-consume');
 
   await assert.rejects(() => db.exec(downSql), /row|nonempty|refus|transaction/i, 'nonempty down refuses');
   assert.strictEqual((await db.query(`SELECT count(*)::int AS n FROM ${TABLE}`)).rows[0].n > 0, true, 'failed down preserves rows');
