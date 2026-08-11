@@ -139,11 +139,14 @@ test('rejects malformed provider output and validates visible ASCII secret lengt
   await create(provider(() => freeze({ clientSecret: 'x'.repeat(4096) }))).completeAuthorization(input());
 });
 
-test('rejects custom/proxy/spoof thenables without invoking then', async () => {
+test('rejects custom/proxy/spoof thenables from both children without invoking then', async () => {
   let invoked = 0;
-  const specimens = [freeze({ then() { invoked += 1; } }),
-    new Proxy({ then() { invoked += 1; } }, { getPrototypeOf() { return Promise.prototype; } })];
-  for (const value of specimens) await rejects(() => create(provider(() => value)).completeAuthorization(input()));
+  function specimens() {
+    return [freeze({ then() { invoked += 1; } }),
+      new Proxy({ then() { invoked += 1; } }, { getPrototypeOf() { return Promise.prototype; } })];
+  }
+  for (const value of specimens()) await rejects(() => create(provider(() => value)).completeAuthorization(input()));
+  for (const value of specimens()) await rejects(() => create(provider(), operation(() => value)).completeAuthorization(input()));
   assert.equal(invoked, 0);
 });
 
