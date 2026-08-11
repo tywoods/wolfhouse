@@ -358,6 +358,7 @@
     "verify:email-google-authorization-code-request": "node scripts/verify-email-google-authorization-code-request.js",
     "verify:email-google-authorization-code-operation": "node scripts/verify-email-google-authorization-code-operation.js",
     "verify:email-google-client-secret-handoff": "node scripts/verify-email-google-client-secret-handoff.js",
+    "verify:email-google-oauth-transaction-repository-create": "node scripts/verify-email-google-oauth-transaction-repository-create.js",
     "verify:email-microsoft-verified-grant-installer": "node scripts/verify-email-microsoft-verified-grant-installer.js",
     "verify:email-verified-grant-installer": "node scripts/verify-email-verified-grant-installer.js",
     "prove:email-verified-grant-installer-pglite": "node scripts/prove-email-verified-grant-installer-pglite.js",
