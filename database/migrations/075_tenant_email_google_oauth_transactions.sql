@@ -62,58 +62,59 @@ BEGIN
       RAISE EXCEPTION 'tenant_email_google_oauth_transactions: insert must be unconsumed'
         USING ERRCODE = '23514';
     END IF;
-
-    SELECT TRUE INTO eligible_endpoint
-    FROM tenant_channel_endpoints e
-    JOIN tenant_locations l
-      ON l.client_id = NEW.client_id
-     AND l.id = NEW.location_id
-     AND l.location_id = e.location_id
-    WHERE e.client_id = NEW.client_id
-      AND e.id = NEW.endpoint_id
-      AND e.provider IS NOT DISTINCT FROM 'gmail_api'
-      AND e.auth_mode IS NOT DISTINCT FROM 'delegated_authorization_code'
-      AND e.connector_mode IS NOT DISTINCT FROM 'google_delegated_oauth'
-      AND e.binding_status IN ('unverified_offline', 'pending_manual_validation')
-      AND e.provider_tenant_id IS NULL
-      AND e.provider_principal_oid IS NULL
-      AND e.provider_resource_id IS NULL
-      AND e.mailbox_kind IS NULL
-      AND e.mailbox_access_kind IS NULL;
-
-    IF NOT FOUND THEN
-      RAISE EXCEPTION 'tenant_email_google_oauth_transactions: endpoint is not eligible for client and location'
+  ELSE
+    IF NEW.id IS DISTINCT FROM OLD.id
+       OR NEW.client_id IS DISTINCT FROM OLD.client_id
+       OR NEW.location_id IS DISTINCT FROM OLD.location_id
+       OR NEW.endpoint_id IS DISTINCT FROM OLD.endpoint_id
+       OR NEW.staff_user_id IS DISTINCT FROM OLD.staff_user_id
+       OR NEW.auth_session_id IS DISTINCT FROM OLD.auth_session_id
+       OR NEW.operation_id IS DISTINCT FROM OLD.operation_id
+       OR NEW.state_hash IS DISTINCT FROM OLD.state_hash
+       OR NEW.code_verifier IS DISTINCT FROM OLD.code_verifier
+       OR NEW.nonce IS DISTINCT FROM OLD.nonce
+       OR NEW.authorization_intent IS DISTINCT FROM OLD.authorization_intent
+       OR NEW.scope_version IS DISTINCT FROM OLD.scope_version
+       OR NEW.issued_at IS DISTINCT FROM OLD.issued_at
+       OR NEW.expires_at IS DISTINCT FROM OLD.expires_at THEN
+      RAISE EXCEPTION 'tenant_email_google_oauth_transactions: transaction authority is immutable'
         USING ERRCODE = '23514';
     END IF;
-    RETURN NEW;
+
+    IF OLD.consumed_at IS NOT NULL
+       OR NEW.consumed_at IS NULL
+       OR NEW.consumed_at < OLD.issued_at
+       OR NEW.consumed_at > OLD.expires_at THEN
+      RAISE EXCEPTION 'tenant_email_google_oauth_transactions: only one valid consume transition is permitted'
+        USING ERRCODE = '23514';
+    END IF;
   END IF;
 
-  IF NEW.id IS DISTINCT FROM OLD.id
-     OR NEW.client_id IS DISTINCT FROM OLD.client_id
-     OR NEW.location_id IS DISTINCT FROM OLD.location_id
-     OR NEW.endpoint_id IS DISTINCT FROM OLD.endpoint_id
-     OR NEW.staff_user_id IS DISTINCT FROM OLD.staff_user_id
-     OR NEW.auth_session_id IS DISTINCT FROM OLD.auth_session_id
-     OR NEW.operation_id IS DISTINCT FROM OLD.operation_id
-     OR NEW.state_hash IS DISTINCT FROM OLD.state_hash
-     OR NEW.code_verifier IS DISTINCT FROM OLD.code_verifier
-     OR NEW.nonce IS DISTINCT FROM OLD.nonce
-     OR NEW.authorization_intent IS DISTINCT FROM OLD.authorization_intent
-     OR NEW.scope_version IS DISTINCT FROM OLD.scope_version
-     OR NEW.issued_at IS DISTINCT FROM OLD.issued_at
-     OR NEW.expires_at IS DISTINCT FROM OLD.expires_at THEN
-    RAISE EXCEPTION 'tenant_email_google_oauth_transactions: transaction authority is immutable'
+  -- Revalidate at issuance and again at consume. The row locks keep endpoint and
+  -- location authority stable until the transaction performing this write ends.
+  SELECT TRUE INTO eligible_endpoint
+  FROM tenant_channel_endpoints e
+  JOIN tenant_locations l
+    ON l.client_id = NEW.client_id
+   AND l.id = NEW.location_id
+   AND l.location_id = e.location_id
+  WHERE e.client_id = NEW.client_id
+    AND e.id = NEW.endpoint_id
+    AND e.provider IS NOT DISTINCT FROM 'gmail_api'
+    AND e.auth_mode IS NOT DISTINCT FROM 'delegated_authorization_code'
+    AND e.connector_mode IS NOT DISTINCT FROM 'google_delegated_oauth'
+    AND e.binding_status IN ('unverified_offline', 'pending_manual_validation')
+    AND e.provider_tenant_id IS NULL
+    AND e.provider_principal_oid IS NULL
+    AND e.provider_resource_id IS NULL
+    AND e.mailbox_kind IS NULL
+    AND e.mailbox_access_kind IS NULL
+  FOR KEY SHARE OF e, l;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'tenant_email_google_oauth_transactions: endpoint is not eligible for client and location'
       USING ERRCODE = '23514';
   END IF;
-
-  IF OLD.consumed_at IS NOT NULL
-     OR NEW.consumed_at IS NULL
-     OR NEW.consumed_at < OLD.issued_at
-     OR NEW.consumed_at > OLD.expires_at THEN
-    RAISE EXCEPTION 'tenant_email_google_oauth_transactions: only one valid consume transition is permitted'
-      USING ERRCODE = '23514';
-  END IF;
-
   RETURN NEW;
 END;
 $$;
