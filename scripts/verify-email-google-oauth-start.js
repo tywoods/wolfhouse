@@ -99,15 +99,18 @@ test('requires exact frozen ordered deployment configuration and exact true acti
     freeze(Object.assign(Object.create(null), good)), freeze({ ...good, [Symbol('x')]: true }),
     config({ enabled: false }), config({ enabled: 'true' }), config({ enabled: 1 }),
     config({ applicationClientId: 'other.apps.googleusercontent.com' }),
-    config({ applicationClientId: '9876543210-UPPER.apps.googleusercontent.com' }),
     config({ redirectUri: 'http://mail.example.test/callback' }), config({ redirectUri: 'https://user@mail.example.test/callback' }),
     config({ redirectUri: 'https://mail.example.test/callback#fragment' }),
+    config({ redirectUri: 'https://mail.example.test/callback?unexpected=1' }),
     new Proxy(good, { ownKeys() { throw new Error(LEAK); } })];
   const accessor = {}; Object.defineProperties(accessor, {
     enabled: { enumerable: true, get() { throw new Error(LEAK); } },
     applicationClientId: { enumerable: true, value: APPLICATION_CLIENT }, redirectUri: { enumerable: true, value: REDIRECT },
   }); freeze(accessor); bad.push(accessor);
   for (const value of bad) { const h = harness(); assert.throws(() => create(h, value), clean); assert.deepEqual(h.calls, { uuid: [], bytes: [], sha: [], now: [], create: [] }); }
+  const uppercase = harness();
+  const service = create(uppercase, config({ applicationClientId: '9876543210-UPPER.apps.googleusercontent.com' }));
+  assert.equal(Object.isFrozen(service), true); assert.deepEqual(uppercase.calls, { uuid: [], bytes: [], sha: [], now: [], create: [] });
 });
 
 test('requires exact frozen ordered narrow dependency owners and pins every method and receiver', async () => {
@@ -211,8 +214,14 @@ test('fails closed on malformed generated values or clock before persistence and
     h => { h.cryptography = freeze({ ...h.cryptography, randomBytes() { return new Uint8Array(32); } }); },
     h => { h.cryptography = freeze({ ...h.cryptography, sha256Ascii() { return Buffer.alloc(31); } }); },
     h => { h.clock = freeze({ now() { return '2026-08-11T12:00:00Z'; } }); },
+    h => { h.clock = freeze({ now() { return '2026-02-30T12:00:00.000Z'; } }); },
+    h => { h.clock = freeze({ now() { return '2026-02-29T12:00:00.000Z'; } }); },
   ];
   for (const mutate of cases) { const h = harness(); mutate(h); h.dependencies = freeze({ cryptography: h.cryptography, clock: h.clock, repository: h.repository }); await rejects(() => create(h).start(input())); assert.equal(h.calls.create.length, 0); }
+  const leap = harness(); leap.clock = freeze({ now() { return '2028-02-29T12:00:00.000Z'; } });
+  leap.repository = freeze({ create(dto) { leap.calls.create.push({ dto, receiver: this }); return freeze({ operationId: dto.operationId, expiresAt: dto.expiresAt }); } });
+  leap.dependencies = freeze({ cryptography: leap.cryptography, clock: leap.clock, repository: leap.repository });
+  assert.equal((await create(leap).start(input())).expiresAt, '2028-02-29T12:10:00.000Z');
 });
 
 test('sanitizes generation and repository failures, emits no logs, and performs no retry', async () => {
