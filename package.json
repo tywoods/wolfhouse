@@ -347,6 +347,7 @@
     "verify:email-microsoft-graph-me-identity": "node scripts/verify-email-microsoft-graph-me-identity.js",
     "verify:email-microsoft-oidc-id-token": "node scripts/verify-email-microsoft-oidc-id-token.js",
     "verify:email-microsoft-oidc-jwks-verifier": "node scripts/verify-email-microsoft-oidc-jwks-verifier.js",
+    "verify:email-google-oidc-jwks-verifier": "node scripts/verify-email-google-oidc-jwks-verifier.js",
     "verify:email-microsoft-verified-identity": "node scripts/verify-email-microsoft-verified-identity.js",
     "verify:email-microsoft-verified-grant-custody": "node scripts/verify-email-microsoft-verified-grant-custody.js",
     "verify:email-google-verified-grant-custody": "node scripts/verify-email-google-verified-grant-custody.js",
