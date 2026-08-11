@@ -107,7 +107,7 @@ test('rejects hostile boundary proxies and accessors with sanitized adapter fail
   assert.throws(() => factory.createTransactionCompletion(hostile, handoffConfig(), provider()), clean);
   const accessor = {}; Object.defineProperty(accessor, 'secretRef', { enumerable: true, get() { traps += 1; throw new Error(LEAK); } }); freeze(accessor);
   assert.throws(() => factory.createTransactionCompletion(operationConfig(), accessor, provider()), clean);
-  assert.ok(traps <= 1); noEffects(h.calls);
+  assert.equal(traps, 0); noEffects(h.calls);
 });
 
 test('composes the real operation and real handoff, preserving provider receiver without network or retries', async () => {
@@ -140,11 +140,11 @@ test('pins dependency methods and intrinsics against post-construction poisoning
   assert.deepEqual(Reflect.ownKeys(completion), ['completeAuthorization']); noEffects(h.calls);
 });
 
-test('source statically imports exactly the two real owners once and contains no ambient capability', () => {
+test('source imports only the native proxy detector and exactly the two real owners once', () => {
   const sourcePath = path.join(__dirname, 'lib/email-google-transaction-completion-factory.js');
   const source = fs.readFileSync(sourcePath, 'utf8');
   const imports = [...source.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map(match => match[1]);
-  assert.deepEqual(imports, ['./email-google-authorization-code-operation', './email-google-client-secret-handoff']);
+  assert.deepEqual(imports, ['node:util', './email-google-authorization-code-operation', './email-google-client-secret-handoff']);
   assert.equal(source.split('createGoogleAuthorizationCodeOperation(').length - 1, 1);
   assert.equal(source.split('createGoogleClientSecretHandoff(').length - 1, 1);
   assert.ok(source.indexOf('createGoogleAuthorizationCodeOperation(') < source.indexOf('createGoogleClientSecretHandoff('));
