@@ -541,6 +541,7 @@ module.exports = {
   'inbox.preview.detailNote': 'Este es un ejemplo de vista previa, no un mensaje real.',
   'inbox.preview.exampleLabel': 'Ejemplo de hilo con huésped',
   'nav.tab.admin': 'Admin',
+  'nav.tab.bookings': 'Reservas',
   'nav.tab.customers': 'Clientes',
   'nav.tab.daySchedule': 'Horario del día',
   'nav.tab.inbox': 'Bandeja de entrada',

@@ -20134,6 +20134,7 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
   <button class="tab-btn" data-tab="portal-home" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg></span><span class="tab-label" data-i18n="nav.tab.portalHome">Schedule</span></button>
   <button class="tab-btn" data-tab="bed-calendar"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6M3 14h18M6 10V8a1 1 0 0 1 1-1h4M3 18v2M21 18v2"/></svg></span><span class="tab-label" data-i18n="nav.tab.calendar">Booking Calendar</span></button>
   <button class="tab-btn" data-tab="conversations"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg></span><span class="tab-label" data-i18n="nav.tab.whatsapp">WhatsApp</span></button>
+  <button class="tab-btn" data-tab="bookings" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-3.2-2-2.4 2-2.4-2L8.2 21 5 19V4a1 1 0 0 1 1-1z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span><span class="tab-label" data-i18n="nav.tab.bookings">Bookings</span></button>
   <button class="tab-btn" data-tab="day-schedule" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="tab-label" data-i18n="nav.tab.daySchedule">Day Schedule</span></button>
   <button class="tab-btn" data-tab="customers" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5M16 3.6a3 3 0 0 1 0 5.8M21 20c0-2.2-1.3-4-3.4-4.7"/></svg></span><span class="tab-label" data-i18n="nav.tab.customers">Customers</span></button>
   <button class="tab-btn" data-tab="ask-luna"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M18.5 15.5l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z"/></svg></span><span class="tab-label" data-i18n="nav.tab.lunaStaff">Luna Staff</span></button>
@@ -20516,16 +20517,12 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   </header>
   <div class="portal-admin-subtabs" id="admin-subtab-list" role="tablist" data-i18n-aria="admin.tabs.listLabel" aria-label="Admin sections">
     <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-finance" data-admin-tab="finance" aria-controls="admin-panel-finance" aria-selected="true" tabindex="0" data-i18n="admin.tabs.finance">Finance</button>
-    <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-bookings" data-admin-tab="bookings" aria-controls="admin-panel-bookings" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.bookings">Bookings</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-pricing" data-admin-tab="pricing" aria-controls="admin-panel-pricing" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.pricing">Pricing</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-luna-staff" data-admin-tab="luna-staff" aria-controls="admin-panel-luna-staff" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.lunaStaff" hidden>Luna Staff</button>
     ${isSunsetEmailSettingsUiEnabled(process.env) && portalDefaultClient === 'sunset' ? '<button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-email" data-admin-tab="email" aria-controls="admin-panel-email" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.email">Email</button>' : ''}
   </div>
   <div id="admin-panel-finance" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="finance" aria-labelledby="admin-tab-finance">
     <div id="admin-finance-body" class="portal-admin-finance-shell"></div>
-  </div>
-  <div id="admin-panel-bookings" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="bookings" aria-labelledby="admin-tab-bookings" hidden>
-    <div id="admin-bookings-body" class="portal-admin-bookings-shell"></div>
   </div>
   ${isSunsetEmailSettingsUiEnabled(process.env) && portalDefaultClient === 'sunset' ? '<div id="admin-panel-email" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="email" aria-labelledby="admin-tab-email" hidden><div id="admin-email-settings-body"></div></div>' : ''}
   <div id="admin-panel-pricing" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="pricing" aria-labelledby="admin-tab-pricing" hidden>
@@ -20550,6 +20547,15 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <div id="admin-save-msg" class="state-msg portal-admin-save-msg" style="display:none;margin-top:12px" aria-live="polite"></div>
 </div>
 </div><!-- /tab-admin -->
+
+<!-- ── Bookings (top-level; was Admin subtab) ─────────────────────────────── -->
+<div id="tab-bookings" class="tab-panel">
+<div class="portal-admin-wrap">
+  <div id="admin-panel-bookings" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="bookings" aria-label="Bookings">
+    <div id="admin-bookings-body" class="portal-admin-bookings-shell"></div>
+  </div>
+</div>
+</div><!-- /tab-bookings -->
 
 <div id="tab-services" class="tab-panel">
 <div class="portal-admin-wrap">
@@ -21746,6 +21752,18 @@ function switchToTab(tab, subtab){
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
   if (tab === 'customers') loadCustomersTab();
   if (tab === 'admin') { loadAdminTab({ resetSubTab: true }); loadAdminFinanceForCurrentScope(); }
+  if (tab === 'bookings') {
+    if (typeof loadBookingsTopTab === 'function') loadBookingsTopTab();
+    else if (typeof renderAdminBookingsShell === 'function') {
+      var bb = el('admin-bookings-body');
+      if (bb && !bb.dataset.bookingsMounted) {
+        bb.dataset.bookingsMounted = '1';
+        renderAdminBookingsShell();
+      } else if (typeof loadAdminBookings === 'function') {
+        loadAdminBookings();
+      }
+    }
+  }
   // Leaving Admin: clear equipment-local rental write errors only (not shared Admin notices).
   else if (prevTab === 'admin' && typeof adminClearEquipErrors === 'function') {
     adminClearEquipErrors();
@@ -22924,6 +22942,8 @@ function isTabHiddenForClient(tab, clientSlug){
   if (tab === 'portal-home' && !profile.is_surf_vertical) return true;
   if (tab === 'customers' && !portalHasCustomersCrm(profile)) return true;
   if (tab === 'admin' && !profile.is_surf_vertical) return true;
+  // Bookings top-level: same surf-shop visibility as Admin (Sunset / surf vertical).
+  if (tab === 'bookings' && !profile.is_surf_vertical) return true;
   if (tab === 'services' && clientSlug !== 'wolfhouse-somo') return true;
   if (tab === 'day-schedule') return true;
   return false;
@@ -23086,6 +23106,10 @@ function applyClientPortalProfile(clientSlug){
       return;
     }
     if (tab === 'admin') {
+      btn.style.display = profile.is_surf_vertical ? '' : 'none';
+      return;
+    }
+    if (tab === 'bookings') {
       btn.style.display = profile.is_surf_vertical ? '' : 'none';
       return;
     }

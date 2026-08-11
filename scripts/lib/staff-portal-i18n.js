@@ -1171,6 +1171,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.drawer.waiverAnswers': 'Submitted answers',
     'schedule.drawer.waiverMigrationPending': 'Form tables are not applied on this database yet.',
     'nav.tab.admin': 'Admin',
+    'nav.tab.bookings': 'Bookings',
     'admin.title': 'Admin',
     'admin.tabs.finance': 'Finance',
     'admin.tabs.email': 'Email',

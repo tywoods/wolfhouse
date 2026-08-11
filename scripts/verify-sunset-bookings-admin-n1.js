@@ -1064,15 +1064,14 @@ async function testGeneratedUi() {
         && select && select.value === 'sunset';
     }, null, { timeout: 30000 });
     await page.evaluate(() => {
-      if (typeof window.switchToTab === 'function') window.switchToTab('admin');
+      if (typeof window.switchToTab === 'function') window.switchToTab('bookings');
       else {
-        const btn = document.querySelector('button.tab-btn[data-tab="admin"]');
+        const btn = document.querySelector('button.tab-btn[data-tab="bookings"]');
         if (btn) btn.click();
       }
     });
-    await page.waitForSelector('#tab-admin.tab-panel.active', { timeout: 15000 });
-    await page.locator('[data-admin-tab="bookings"]').click();
-    await page.waitForSelector('#admin-panel-bookings:not([hidden])', { timeout: 10000 });
+    await page.waitForSelector('#tab-bookings.tab-panel.active', { timeout: 15000 });
+    await page.waitForSelector('#admin-bookings-body', { timeout: 10000 });
     await page.waitForSelector('.portal-admin-bookings-code', { timeout: 10000 });
   }
 
@@ -1659,10 +1658,11 @@ async function testGeneratedUi() {
     await page.fill('#admin-bookings-q', '');
     await page.waitForTimeout(300);
     await page.setViewportSize({ width: 390, height: 844 });
+    // At ≤768px the nav button is hamburger-hidden — programmatic switch only.
     await page.evaluate(() => {
-      if (typeof window.switchToTab === 'function') window.switchToTab('admin');
+      if (typeof window.switchToTab === 'function') window.switchToTab('bookings');
     });
-    await page.locator('[data-admin-tab="bookings"]').click();
+    await page.waitForSelector('#tab-bookings.tab-panel.active', { timeout: 10000 });
     await page.waitForSelector('#admin-bookings-body', { timeout: 10000 });
     await page.waitForSelector('.portal-admin-bookings-code', { timeout: 10000 });
     // Expand + open refund form for geometry of those surfaces
@@ -1829,9 +1829,18 @@ function testOwnerWiring() {
   section('8. Owner wiring + no quote/pricing contract ownership');
   const uiSrc = getSunsetAdminUiBrowserSource();
   ok('browser source includes bookings shell', /renderAdminBookingsShell/.test(uiSrc));
-  ok('adminSelectSubTab handles bookings', /key === 'bookings'/.test(uiSrc));
+  ok('Bookings is not an Admin subtab (adminSelectSubTab ignores bookings)',
+    /function adminSelectSubTab/.test(uiSrc)
+    && !/key === 'bookings'/.test(uiSrc)
+    && /Bookings is a top-level tab/.test(uiSrc));
+  ok('loadBookingsTopTab owns top-level load', /function loadBookingsTopTab/.test(uiSrc));
   const apiSrc = fs.readFileSync(API_PATH, 'utf8');
   ok('HTML bookings panel', /id="admin-panel-bookings"/.test(apiSrc));
+  ok('top-level tab-bookings panel', /id="tab-bookings"/.test(apiSrc));
+  ok('no Admin bookings subtab button', !/id="admin-tab-bookings"/.test(apiSrc));
+  ok('switchToTab routes bookings to loadBookingsTopTab',
+    /tab === 'bookings'/.test(apiSrc) && /loadBookingsTopTab/.test(apiSrc));
+  ok('nav data-tab=bookings present', /data-tab="bookings"/.test(apiSrc));
   ok('no quote service changes in N1 domain module',
     !fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-bookings-admin.js'), 'utf8').includes('createQuote'));
   ok('migration no stripe refund',
