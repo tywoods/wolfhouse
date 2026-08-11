@@ -278,6 +278,12 @@ test('rejects malformed verifier output before seal', async () => {
   }
 });
 
+test('rejects an unpaired surrogate display name before seal', async () => {
+  const c = composition({ verifyResult: identity({ displayName: 'bad\ud800name' }) });
+  await sanitized(() => c.adapter.acceptValidatedTokens(selected()));
+  assert.deepEqual(c.order, ['verify']);
+});
+
 test('rejects hostile selected input before any dependency call', async () => {
   for (const input of [
     { ...selected() },
@@ -304,6 +310,25 @@ test('rejects hostile dependencies and does not accept authority-shape comparato
     assert.throws(() => createGoogleVerifiedGrantCustodyAdapter(config(), deps),
       error => error && error.code === ERROR_CODE);
   }
+});
+
+test('rejects Microsoft stage telemetry injection without emitting Google telemetry', async () => {
+  const valid = composition().deps;
+  let emitCount = 0;
+  const stageTelemetry = Object.freeze({ emit() { emitCount += 1; } });
+  const dependencies = Object.freeze({
+    verifiedIdentity: valid.verifiedIdentity,
+    envelopeProvider: valid.envelopeProvider,
+    clock: valid.clock,
+    installer: valid.installer,
+    stageTelemetry,
+  });
+  assert.throws(
+    () => createGoogleVerifiedGrantCustodyAdapter(config(), dependencies),
+    error => error && error.name === 'GoogleVerifiedGrantCustodyError'
+      && error.code === ERROR_CODE && error.message === ERROR_MESSAGE,
+  );
+  assert.equal(emitCount, 0);
 });
 
 test('one-shot burns atomically on malformed, failed, concurrent, and successful first calls', async () => {
@@ -333,8 +358,14 @@ test('sanitizes hostile dependency failures and emits no logs', async () => {
 
 test('Google wrapper contains no provider verification, network, credentials, DB, routes, or logs', async () => {
   const source = fs.readFileSync(require.resolve('./lib/email-google-verified-grant-custody'), 'utf8');
+  assert.equal(source.includes("'https://www.googleapis.com/auth/gmail.readonly'"), true);
+  assert.equal(source.includes("'https://www.googleapis.com/auth/gmail.compose'"), true);
   for (const forbidden of [
-    /googleapis/, /\bfetch\s*\(/, /\bhttps\.(?:get|request)\s*\(/, /jwks/i,
+    /require\s*\(\s*['"]googleapis['"]\s*\)/,
+    /require\s*\(\s*['"]@googleapis\//,
+    /\bfrom\s*['"](?:googleapis|@googleapis\/)/,
+    /\bimport\s*\(\s*['"](?:googleapis|@googleapis\/)/,
+    /\bfetch\s*\(/, /\bhttps\.(?:get|request)\s*\(/, /jwks/i,
     /verify.*signature/i, /token[_-]?exchange/i, /process\.env/, /\bpg\b/,
     /staff-query-api/, /console\.(?:log|info|warn|error)/,
     /deriveGoogleMailboxAuthority/,
