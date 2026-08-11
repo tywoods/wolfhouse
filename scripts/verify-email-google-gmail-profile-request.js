@@ -152,6 +152,38 @@ test('requires sole 200 and sole JSON content type and never follows redirects',
   }
 });
 
+test('requires canonical declared content length and rejects invalid UTF-8 before parsing', async () => {
+  {
+    const encoded = Buffer.from(SOURCE);
+    const specimen = response(200, { 'content-type': 'application/json', 'content-length': String(encoded.length) });
+    const { h, request } = service(); const pending = request.getProfile(input()); complete(h, SOURCE, specimen);
+    assert.deepEqual(await pending, PROFILE);
+  }
+  for (const length of ['01', '-1', '1.5', '16385', String(Buffer.byteLength(SOURCE) + 1)]) {
+    const specimen = response(200, { 'content-type': 'application/json', 'content-length': length });
+    const { h, request } = service(); const pending = request.getProfile(input()); complete(h, SOURCE, specimen);
+    await cleanReject(() => pending);
+  }
+  {
+    const { h, request } = service(); const pending = request.getProfile(input()); const specimen = response();
+    h.calls[0].callback(specimen); specimen.emit('data', Buffer.from([0xc3, 0x28])); specimen.emit('end');
+    await cleanReject(() => pending);
+  }
+});
+
+test('fails closed on aborted or premature response close and synchronous request acquisition errors', async () => {
+  for (const event of ['aborted', 'close']) {
+    const { h, request } = service(); const pending = request.getProfile(input()); const specimen = response();
+    h.calls[0].callback(specimen); specimen.emit(event); await cleanReject(() => pending);
+    assert.equal(specimen.destroyed, true); assert.equal(h.calls[0].request.destroyed, true);
+  }
+  {
+    const h = harness({ https: { request() { throw new Error(TOKEN); } } });
+    const request = createGoogleGmailProfileRequest(CONFIGURATION, h.dependencies);
+    await cleanReject(() => request.getProfile(input())); assert.equal(h.timers[0].cleared, 1);
+  }
+});
+
 test('allows exactly 16384 response bytes and destroys request and response at plus one', async () => {
   const exactBody = `${SOURCE.slice(0, -1)},"padding":"${'x'.repeat(16384 - Buffer.byteLength(SOURCE) - 14)}"}`;
   // Extra field makes exact-boundary parse fail, but only after end rather than as byte overflow.
@@ -191,6 +223,6 @@ test('rejects concurrent and reentrant reuse, makes one request, retries zero ti
   const source = fs.readFileSync(require.resolve('./lib/email-google-gmail-profile-request'), 'utf8');
   for (const forbidden of [/googleapis/, /\bfetch\b/, /process\.env/, /database|postgres|route|callback|persist|install|binding/i,
     /console\./, /followRedirect|retry/i, /gmail\/v1\/users\/(?!me\/profile)/]) assert.equal(forbidden.test(source), false, `forbidden capability: ${forbidden}`);
-  assert.equal(tests.length, 12);
-  console.log('PASS verify:email-google-gmail-profile-request (12 strict offline tests)');
+  assert.equal(tests.length, 14);
+  console.log('PASS verify:email-google-gmail-profile-request (14 strict offline tests)');
 })().catch(error => { console.error(error); process.exitCode = 1; });
