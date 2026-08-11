@@ -130,7 +130,9 @@ const SQL_LOCK_GRANT = `
    WHERE g.client_id = $1 AND g.endpoint_id = $2
    FOR UPDATE OF g`;
 const SQL_LOCK_ENDPOINT = `
-  SELECT id, client_id, provider, auth_mode, connector_mode, binding_status
+  SELECT id, client_id, provider, auth_mode, connector_mode, binding_status,
+         provider_tenant_id, provider_principal_oid, provider_resource_id,
+         mailbox_kind, mailbox_access_kind
     FROM tenant_channel_endpoints
    WHERE client_id = $1 AND id = $2 FOR UPDATE`;
 // Shared promote/rewrap CAS: advance generation + write envelope under unexpired lease.
@@ -246,6 +248,50 @@ function parseGen(raw) {
   return ok(n);
 }
 function dbErr() { return fail('db_error'); }
+
+/**
+ * Custodian-local closed applicability classifier. Driver rows are treated as a
+ * hostile surface: reject proxies/accessors/reflection failures and observe each
+ * required field exactly once. Microsoft intentionally retains its historical
+ * three-field mode tuple; Gmail additionally requires the complete G2c identity.
+ */
+function isDelegatedGrantCustodyEndpoint(row) {
+  try {
+    if (!row || typeof row !== 'object' || Array.isArray(row) || isProxySurface(row)) return false;
+    const own = Object.create(null);
+    const snapshot = (keys) => {
+      for (const key of keys) {
+        const d = Object.getOwnPropertyDescriptor(row, key);
+        if (!d || !Object.prototype.hasOwnProperty.call(d, 'value') || d.get || d.set) return false;
+        own[key] = d.value;
+      }
+      return true;
+    };
+    if (!snapshot(['provider', 'auth_mode', 'connector_mode'])) return false;
+    if (own.provider === 'microsoft_graph') {
+      return own.auth_mode === 'delegated_authorization_code'
+        && own.connector_mode === 'microsoft_delegated_oauth';
+    }
+    if (!snapshot([
+      'binding_status', 'provider_tenant_id', 'provider_principal_oid',
+      'provider_resource_id', 'mailbox_kind', 'mailbox_access_kind',
+    ])) return false;
+    if (own.provider !== 'gmail_api'
+        || own.auth_mode !== 'delegated_authorization_code'
+        || own.connector_mode !== 'google_delegated_oauth'
+        || own.binding_status !== 'verified'
+        || own.provider_tenant_id !== 'https://accounts.google.com'
+        || own.mailbox_kind !== 'user'
+        || own.mailbox_access_kind !== 'own_user') return false;
+    const principal = own.provider_principal_oid;
+    const resource = own.provider_resource_id;
+    return typeof principal === 'string' && typeof resource === 'string'
+      && principal.length >= 1 && principal.length <= 255
+      && /^[!-~]+$/.test(principal) && principal === resource;
+  } catch (_) {
+    return false;
+  }
+}
 
 function toPublicGrantStatusDto(row) {
   if (!row) {
@@ -406,9 +452,7 @@ async function installInitialDelegatedGrant(input, deps) {
     const ep = await cc.value.query(SQL_LOCK_ENDPOINT, [ids.clientId.value, ids.endpointId.value]);
     if (!ep.rows || ep.rows.length !== 1) return fail('endpoint_not_found');
     const row = ep.rows[0];
-    if (row.provider !== 'microsoft_graph'
-      || row.auth_mode !== 'delegated_authorization_code'
-      || row.connector_mode !== 'microsoft_delegated_oauth') {
+    if (!isDelegatedGrantCustodyEndpoint(row)) {
       return fail('grant_custody_not_applicable');
     }
     const ins = await cc.value.query(

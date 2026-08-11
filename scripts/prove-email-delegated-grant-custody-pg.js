@@ -19,6 +19,9 @@ const UP057 = '057_tenant_locations_and_channel_endpoints.sql';
 const UP058 = '058_tenant_channel_endpoint_identity.sql';
 const UP059 = '059_tenant_email_delegated_grants.sql';
 const DOWN059 = '059_tenant_email_delegated_grants_down.sql';
+const UP073 = '073_tenant_channel_endpoint_google_identity.sql';
+const UP074 = '074_tenant_email_delegated_grants_google_mode_guard.sql';
+const DOWN074 = '074_tenant_email_delegated_grants_google_mode_guard_down.sql';
 
 const CAPS = {
   push_notifications: false, provider_threads: false, remote_drafts: false,
@@ -142,8 +145,9 @@ async function insertEndpointFixed(client, opts) {
     [
       endpointId, clientId, locationId, provider, address, CAPS_J,
       authMode, connectorMode,
-      authMode ? TID : null,
-      authMode === 'delegated_authorization_code' ? OID : null,
+      provider === 'gmail_api' && authMode ? 'https://accounts.google.com' : (authMode ? TID : null),
+      provider === 'gmail_api' && authMode ? (resourceId || null)
+        : (authMode === 'delegated_authorization_code' ? OID : null),
       authMode ? 'user' : null,
       authMode === 'delegated_authorization_code' ? 'own_user'
         : (authMode === 'application_client_credentials' ? 'application' : null),
@@ -161,6 +165,8 @@ async function applySchema(client) {
   await applySqlFile(client, path.join(MIGRATIONS_DIR, UP057));
   await applySqlFile(client, path.join(MIGRATIONS_DIR, UP058));
   await applySqlFile(client, path.join(MIGRATIONS_DIR, UP059));
+  await applySqlFile(client, path.join(MIGRATIONS_DIR, UP073));
+  await applySqlFile(client, path.join(MIGRATIONS_DIR, UP074));
 }
 
 async function runSequentialProofs(Client, connection, backend) {
@@ -169,12 +175,12 @@ async function runSequentialProofs(Client, connection, backend) {
   await client.connect();
   try {
     await applySchema(client);
-    ok('P1a apply 057+058+059', true);
+    ok('P1a apply 057+058+059+073+074', true);
 
     const man = loadManifest();
-    const entry = man.entries.find((e) => e.filename === UP059);
-    const hash = sha256CanonicalLfV1File(path.join(MIGRATIONS_DIR, UP059));
-    ok('P1b manifest sha256 matches 059', entry && entry.sha256 === hash, hash);
+    const entry = man.entries.find((e) => e.filename === UP074);
+    const hash = sha256CanonicalLfV1File(path.join(MIGRATIONS_DIR, UP074));
+    ok('P1b manifest sha256 matches 074', entry && entry.sha256 === hash, hash);
 
     const clientA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     const clientB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -209,7 +215,8 @@ async function runSequentialProofs(Client, connection, backend) {
       {
         clientId: clientA, endpointId: epGmail, locationId: 'client-a-loc',
         address: 'gmail@example.com', provider: 'gmail_api',
-        authMode: null, connectorMode: null, bindingStatus: null, resourceId: null,
+        authMode: 'delegated_authorization_code', connectorMode: 'google_delegated_oauth',
+        bindingStatus: 'verified', resourceId: 'Google-Sub_123:CaseSensitive',
       },
       {
         clientId: clientB, endpointId: epB, locationId: 'client-b-loc',
@@ -223,8 +230,44 @@ async function runSequentialProofs(Client, connection, backend) {
     const env = envelopeParams();
     await expectFail(client, SQL_INSERT_GRANT, grantArgs(clientA, epAppOnly, env),
       'P2 app-only grant rejected by trigger');
+    await insertGrant(client, clientA, epGmail, envelopeParams());
+    ok('P2b exact Gmail delegated grant accepted', true);
+    await client.query(
+      `UPDATE tenant_channel_endpoints
+          SET binding_status=binding_status, provider_resource_id=provider_resource_id
+        WHERE id=$1`,
+      [epGmail],
+    );
+    ok('P2c Gmail no-op identity update under grant accepted', true);
+    await expectFail(client,
+      `UPDATE tenant_channel_endpoints SET provider_resource_id='hostile-different-sub' WHERE id=$1`,
+      [epGmail], 'P2d Gmail identity mutation under grant rejected');
+    await expectFail(client,
+      `UPDATE tenant_channel_endpoints
+          SET client_id=$2, location_id='client-b-loc'
+        WHERE id=$1`,
+      [epGmail, clientB], 'P2e Gmail client ownership transfer under grant rejected');
+    const ownerRows = await client.query(
+      `SELECT e.client_id AS endpoint_client_id, g.client_id AS grant_client_id
+         FROM tenant_channel_endpoints e
+         JOIN tenant_email_delegated_grants g ON g.endpoint_id=e.id
+        WHERE e.id=$1`,
+      [epGmail],
+    );
+    ok('P2f failed transfer preserves endpoint and grant owner',
+      ownerRows.rows.length === 1
+        && ownerRows.rows[0].endpoint_client_id === clientA
+        && ownerRows.rows[0].grant_client_id === clientA);
+    await expectFail(client, prepareMigrationBody(fs.readFileSync(path.join(MIGRATIONS_DIR, DOWN074), 'utf8')).body,
+      [], 'P2g 074 rollback refuses while Gmail grant exists');
+    await client.query('ROLLBACK');
+    await client.query('DELETE FROM tenant_email_delegated_grants WHERE endpoint_id=$1', [epGmail]);
+    await applySqlFile(client, path.join(MIGRATIONS_DIR, DOWN074));
     await expectFail(client, SQL_INSERT_GRANT, miniEnv(clientA, epGmail),
-      'P2b gmail grant rejected');
+      'P2h clean rollback restores Microsoft-only guard');
+    await applySqlFile(client, path.join(MIGRATIONS_DIR, UP074));
+    await insertGrant(client, clientA, epGmail, envelopeParams());
+    ok('P2i 074 reapplies and accepts exact Gmail grant', true);
 
     await insertGrant(client, clientA, epDelegated, env);
     ok('P3a delegated grant insert ok', true);

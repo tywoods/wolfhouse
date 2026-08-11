@@ -116,6 +116,7 @@ Guest email provider  →  provider adapter (2A Graph app-only boundary today;
 - **1C-beta admin READ API** lists registry rows for authenticated admin/owner only; never enables traffic.
 - **1C-gamma admin WRITE API** registers locations and **disabled** email endpoints only when `EMAIL_REGISTRY_WRITES_ENABLED=true`; never enables traffic.
 - **Provider adapters** may later be `microsoft_graph`, `gmail_api`, or `imap_smtp`.
+- **074 delegated-grant Gmail guard:** the existing encrypted `tenant_email_delegated_grants` custodian admits Gmail only for the exact verified tuple `gmail_api` + `delegated_authorization_code` + `google_delegated_oauth`, canonical issuer `https://accounts.google.com`, printable-ASCII byte-equal principal/resource `sub`, and `user`/`own_user`. Microsoft custody and the Microsoft-only delegated read-authority/Graph transports are unchanged. No raw token or new `secret_ref` custody path is introduced.
 - **support@lunafrontdesk.com** is a licensed Microsoft 365 user mailbox and the intended first *test* Graph mailbox. Slice **2A** ships the Graph adapter **boundary** only (injected transport; verifiers use a deterministic fake — zero live Graph calls).
 
 ## Slice 1B schema (empty on apply)

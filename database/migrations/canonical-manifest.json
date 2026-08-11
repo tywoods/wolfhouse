@@ -985,6 +985,26 @@
       "rationale": "Explicit safe rollback for G2c: refuses rollback while any classified Gmail identity exists; otherwise restores exact pre-G2c Microsoft-only constraints without rewriting data.",
       "pairsWith": "073_tenant_channel_endpoint_google_identity.sql",
       "sha256": "9aa205a5d5cbd5ab3dbfcec673f9c1c7c7df6d23aeaabc79a5ef02aa592d3357"
+    },
+    {
+      "id": "074_tenant_email_delegated_grants_google_mode_guard",
+      "filename": "074_tenant_email_delegated_grants_google_mode_guard.sql",
+      "order": 73,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Additive closed custody applicability for exact classified Gmail delegated own-user identity while retaining the existing Microsoft delegated tuple and encrypted grant owner.",
+      "downFilename": "074_tenant_email_delegated_grants_google_mode_guard_down.sql",
+      "sha256": "cba907b279746c88f59e2eb5e5e7b83f3570ef2b09f866a510afa1a74eb20353"
+    },
+    {
+      "id": "074_tenant_email_delegated_grants_google_mode_guard_down",
+      "filename": "074_tenant_email_delegated_grants_google_mode_guard_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses while any Gmail grant exists; otherwise restores the exact pre-074 Microsoft-only grant applicability function and endpoint trigger columns without DML.",
+      "pairsWith": "074_tenant_email_delegated_grants_google_mode_guard.sql",
+      "sha256": "0bc716c90cf6d2f81d130b3062168cd2a85e2abecc0b9690496bbc0e6029b650"
     }
   ]
 }
