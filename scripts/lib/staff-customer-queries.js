@@ -13,6 +13,7 @@ const {
   DEFAULT_SUNSET_LOCATION_ID,
   SUNSET_CLIENT_SLUG,
   normalizeSunsetLocationId,
+  isSunsetLocationId,
   sqlConversationLocationMatch,
   sqlLocationMatch,
 } = require('./sunset-school-locations');
@@ -823,6 +824,109 @@ FULL OUTER JOIN conv ON TRUE
 `;
 }
 
+/**
+ * Latest conversation id per channel for a customer phone (+ optional email).
+ * Read-only; tenant-scoped.
+ * Params: $1 client slug, $2 phone, $3 email (may be '').
+ * When locationScoped (Sunset school): also $4 location_id via sqlConversationLocationMatch.
+ * WhatsApp = channel not email (default); Email = channel email.
+ * @param {{ locationScoped?: boolean }} [opts]
+ */
+function getCustomerChannelConversationsQuery(opts) {
+  const locationScoped = !!(opts && opts.locationScoped);
+  const locClause = locationScoped
+    ? `\n    AND ${sqlConversationLocationMatch('conv', 4)}`
+    : '';
+  return `
+WITH ranked AS (
+  SELECT
+    conv.id::text AS conversation_id,
+    CASE
+      WHEN lower(COALESCE(conv.metadata->>'channel', conv.session_state->>'channel', 'whatsapp')) = 'email'
+        THEN 'email'
+      ELSE 'whatsapp'
+    END AS channel,
+    ROW_NUMBER() OVER (
+      PARTITION BY CASE
+        WHEN lower(COALESCE(conv.metadata->>'channel', conv.session_state->>'channel', 'whatsapp')) = 'email'
+          THEN 'email'
+        ELSE 'whatsapp'
+      END
+      ORDER BY conv.updated_at DESC NULLS LAST
+    ) AS rn
+  FROM conversations conv
+  INNER JOIN clients c ON c.id = conv.client_id
+  WHERE c.slug = $1
+    AND (
+      ${sqlCustomerPhoneMatch('conv.phone', '$2')}
+      OR (
+        NULLIF(BTRIM($3::text), '') IS NOT NULL
+        AND conv.email IS NOT NULL
+        AND lower(BTRIM(conv.email)) = lower(BTRIM($3::text))
+      )
+    )${locClause}
+)
+SELECT
+  MAX(conversation_id) FILTER (WHERE channel = 'whatsapp' AND rn = 1) AS whatsapp_conversation_id,
+  MAX(conversation_id) FILTER (WHERE channel = 'email' AND rn = 1) AS email_conversation_id
+FROM ranked
+`;
+}
+
+/**
+ * Build params + SQL for channel conversation lookup (Sunset location-aware).
+ * Sunset requires an explicit canonical location (sunset-somo | sunset-sardinero).
+ * Missing/invalid location → reject:true and empty ids (fail-closed; no navigation).
+ * Non-Sunset: unscoped 3-param lookup.
+ * @returns {{
+ *   sql: string|null,
+ *   params: any[]|null,
+ *   locationScoped: boolean,
+ *   locationId: string|null,
+ *   reject: boolean,
+ *   empty: { whatsapp_conversation_id: null, email_conversation_id: null }
+ * }}
+ */
+function buildCustomerChannelConversationsLookup(clientSlug, phone, email, queryLocation) {
+  const slug = String(clientSlug || '').trim();
+  const emailStr = email == null ? '' : String(email);
+  const empty = {
+    whatsapp_conversation_id: null,
+    email_conversation_id: null,
+  };
+  if (slug !== SUNSET_CLIENT_SLUG) {
+    return {
+      sql: getCustomerChannelConversationsQuery({ locationScoped: false }),
+      params: [slug, phone, emailStr],
+      locationScoped: false,
+      locationId: null,
+      reject: false,
+      empty,
+    };
+  }
+  // Sunset: require explicit active school — do not default missing/invalid to Somo.
+  const raw = queryLocation == null ? '' : String(queryLocation).trim();
+  if (!isSunsetLocationId(raw)) {
+    return {
+      sql: null,
+      params: null,
+      locationScoped: true,
+      locationId: null,
+      reject: true,
+      empty,
+    };
+  }
+  const locationId = normalizeSunsetLocationId(raw);
+  return {
+    sql: getCustomerChannelConversationsQuery({ locationScoped: true }),
+    params: [slug, phone, emailStr, locationId],
+    locationScoped: true,
+    locationId,
+    reject: false,
+    empty,
+  };
+}
+
 function getCustomerBookingsQuery() {
   return `
 SELECT
@@ -1192,6 +1296,8 @@ module.exports = {
   clampOffset,
   getCustomerListQuery,
   getCustomerContextQuery,
+  getCustomerChannelConversationsQuery,
+  buildCustomerChannelConversationsLookup,
   getCustomerBookingsQuery,
   getCustomerServiceRecordsQuery,
   getCustomerHandoffsQuery,

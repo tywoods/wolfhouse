@@ -20,6 +20,8 @@ const {
   buildLastSetupSummary,
   normalizeCustomerPhone,
   getCustomerContextQuery,
+  getCustomerChannelConversationsQuery,
+  buildCustomerChannelConversationsLookup,
   getCustomerBookingsQuery,
   getCustomerServiceRecordsQuery,
   getCustomerHandoffsQuery,
@@ -200,12 +202,34 @@ function createCustomersRoutes(deps) {
     try {
       const data = await withPgClient(async (pg) => {
         const identity = (await pg.query(getCustomerContextQuery(), [clientSlug, phone])).rows[0] || null;
+        const emailForLookup = identity && identity.email ? String(identity.email) : '';
+        const channelLookup = buildCustomerChannelConversationsLookup(
+          clientSlug,
+          phone,
+          emailForLookup,
+          query.location,
+        );
+        const channelRow = channelLookup.reject
+          ? channelLookup.empty
+          : ((await pg.query(channelLookup.sql, channelLookup.params)).rows[0] || channelLookup.empty);
         const mergedCrmTags = await loadCustomerCrmTagsMerged(pg, clientSlug, phone);
         const bookings = (await pg.query(getCustomerBookingsQuery(), [clientSlug, phone])).rows;
         const service_records = (await pg.query(getCustomerServiceRecordsQuery(), [clientSlug, phone])).rows;
         const handoffs = (await pg.query(getCustomerHandoffsQuery(), [clientSlug, phone])).rows;
         const messages = (await pg.query(getCustomerMessagesQuery(), [clientSlug, phone])).rows;
-        return { identity, mergedCrmTags, bookings, service_records, handoffs, messages };
+        return {
+          identity,
+          channel_conversations: {
+            whatsapp_conversation_id: channelRow.whatsapp_conversation_id || null,
+            email_conversation_id: channelRow.email_conversation_id || null,
+          },
+          channel_location_id: channelLookup.locationId,
+          mergedCrmTags,
+          bookings,
+          service_records,
+          handoffs,
+          messages,
+        };
       });
 
       const lastSetup = buildLastSetupSummary(data.service_records);
@@ -271,6 +295,10 @@ function createCustomersRoutes(deps) {
           conversation_stage: data.identity.conversation_stage,
           last_contact_at: data.identity.last_contact_at,
         } : null,
+        channel_conversations: data.channel_conversations || {
+          whatsapp_conversation_id: null,
+          email_conversation_id: null,
+        },
         bookings: data.bookings || [],
         service_records: data.service_records || [],
         handoffs: data.handoffs || [],

@@ -18239,6 +18239,14 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .customers-profile-field-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);padding-top:2px}
 .customers-profile-field-value{color:var(--text);word-break:break-word}
 .customers-profile-field-value.is-muted{color:var(--text-3);font-style:italic}
+button.customers-contact-open{
+  appearance:none;-webkit-appearance:none;border:none;background:transparent;padding:0;margin:0;
+  font:inherit;font-weight:600;color:var(--primary,#4E5853);text-decoration:underline;text-underline-offset:2px;
+  cursor:pointer;text-align:left;word-break:break-word;max-width:100%;
+}
+button.customers-contact-open:hover{color:var(--text)}
+button.customers-contact-open:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px;border-radius:4px}
+button.customers-contact-open.is-missing{color:var(--text-2);font-weight:600;text-decoration-style:dotted}
 .customers-inline-edit{flex:0 0 auto;border:none;background:transparent;color:var(--text-3);cursor:pointer;padding:2px 4px;font-size:12px;line-height:1;border-radius:4px}
 .customers-inline-edit:hover{color:var(--text);background:var(--surface-soft)}
 .customers-profile-edit-form{display:flex;flex-direction:column;gap:10px}
@@ -29753,6 +29761,39 @@ function customerResolveConversationId(data) {
   return cs && cs.conversation_id ? cs.conversation_id : null;
 }
 
+/** Channel-specific conversation ids from context payload (read-only). */
+function customerResolveChannelConversationId(data, channel) {
+  if (!data) return null;
+  var ch = data.channel_conversations || {};
+  var key = channel === 'email' ? 'email_conversation_id' : 'whatsapp_conversation_id';
+  var id = ch[key];
+  if (id) return String(id);
+  // Fallback: legacy single conversation_id only for WhatsApp-ish default channel.
+  if (channel !== 'email') return customerResolveConversationId(data);
+  return null;
+}
+
+function customerContactOpenControlHtml(channel, value, conversationId) {
+  if (!value) {
+    return '<span class="customers-profile-field-value is-muted">—</span>';
+  }
+  var ch = channel === 'email' ? 'email' : 'whatsapp';
+  var has = !!conversationId;
+  var aria = has
+    ? (ch === 'email'
+      ? (portalT('customers.conversation.openEmail') || 'Open email conversation')
+      : (portalT('customers.conversation.openWhatsapp') || 'Open WhatsApp conversation'))
+    : (ch === 'email'
+      ? (portalT('customers.conversation.noEmailOfferStart') || 'No email conversation — use Start conversation')
+      : (portalT('customers.conversation.noWhatsappOfferStart') || 'No WhatsApp conversation — use Start conversation'));
+  return '<button type="button" class="customers-contact-open' + (has ? '' : ' is-missing') + '"'
+    + ' data-cust-open-channel="' + escHtml(ch) + '"'
+    + (has ? ' data-conversation-id="' + escHtml(String(conversationId)) + '"' : '')
+    + ' aria-label="' + escHtml(aria) + '">'
+    + escHtml(String(value))
+    + '</button>';
+}
+
 function customerBookingDateLabel(val) {
   if (!val) return '';
   var s = String(val).trim();
@@ -29897,8 +29938,12 @@ function renderCustomerProfileSection(data, editing) {
       '<button type="button" class="btn btn-ghost" id="cust-profile-edit-btn">' + escHtml(portalT('customers.editProfile')) + '</button>' +
       '</div></div>' +
       '<div class="customers-profile-fields">' +
-      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.phone')) + '</span><span class="customers-profile-field-value">' + escHtml(data.phone || '—') + '</span></div>' +
-      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.email')) + '</span><span class="customers-profile-field-value' + (id.email ? '' : ' is-muted') + '">' + escHtml(id.email || '—') + '</span></div>' +
+      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.phone')) + '</span>' +
+        customerContactOpenControlHtml('whatsapp', data.phone || '', customerResolveChannelConversationId(data, 'whatsapp')) +
+      '</div>' +
+      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.email')) + '</span>' +
+        customerContactOpenControlHtml('email', id.email || '', customerResolveChannelConversationId(data, 'email')) +
+      '</div>' +
       (isSunsetSurfActive() ? '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(t('customers.detail.school')) + '</span><span class="customers-profile-field-value">' + escHtml(getSunsetLocationLabel()) + '</span></div>' : '') +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.language')) + '</span><span class="customers-profile-field-value' + (id.language ? '' : ' is-muted') + '">' + escHtml(id.language || '—') + '</span></div>' +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.lastSetup')) + '</span><span class="customers-profile-field-value' + (lastSetup ? '' : ' is-muted') + '">' + escHtml(lastSetup || portalT('customers.detail.noServices')) + '</span></div>' +
@@ -29945,6 +29990,43 @@ function wireCustomerProfileActions(data) {
   if (saveBtn) saveBtn.addEventListener('click', function(){ customerSaveProfile(); });
   var cancelBtn = el('cust-profile-cancel');
   if (cancelBtn) cancelBtn.addEventListener('click', function(){ customerCancelEditMode(); });
+  // Phone / email contact → open matching channel conversation (never auto-create).
+  document.querySelectorAll('#cust-profile-section [data-cust-open-channel]').forEach(function(btn){
+    if (btn.dataset.wiredContactOpen === '1') return;
+    btn.dataset.wiredContactOpen = '1';
+    btn.addEventListener('click', function(){
+      customerOpenChannelContact(btn.getAttribute('data-cust-open-channel') || 'whatsapp', btn.getAttribute('data-conversation-id') || '');
+    });
+  });
+}
+
+/**
+ * Open channel-specific conversation from a contact click.
+ * If no thread exists for that channel, offer the existing Start conversation control
+ * (do not create/send on the contact click itself).
+ */
+function customerOpenChannelContact(channel, conversationIdHint) {
+  if (!customerDetailState.data) return;
+  var ch = channel === 'email' ? 'email' : 'whatsapp';
+  var convId = conversationIdHint || customerResolveChannelConversationId(customerDetailState.data, ch);
+  var msg = el('cust-profile-msg');
+  if (convId) {
+    if (msg) msg.style.display = 'none';
+    openInboxToConversation(convId);
+    return;
+  }
+  // No matching channel thread — surface status and focus explicit Start conversation.
+  if (msg) {
+    msg.className = 'state-msg';
+    msg.textContent = ch === 'email'
+      ? (portalT('customers.conversation.noneEmail') || 'No email conversation found. Use Start conversation.')
+      : (portalT('customers.conversation.noneWhatsapp') || 'No WhatsApp conversation found. Use Start conversation.');
+    msg.style.display = 'block';
+  }
+  var startBtn = el('cust-conversation-btn');
+  if (startBtn) {
+    try { startBtn.focus(); } catch (_e) { /* ignore */ }
+  }
 }
 
 function customerOpenOrStartConversation() {
