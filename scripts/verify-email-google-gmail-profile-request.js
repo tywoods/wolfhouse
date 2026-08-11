@@ -208,6 +208,52 @@ test('burns before reflecting exact frozen ordered token input and validates vis
   for (const value of bad) { const { h, request } = service(); await cleanReject(() => request.getProfile(value)); await cleanReject(() => request.getProfile(input())); assert.equal(h.calls.length, 0); }
 });
 
+test('pins built-ins after module load and never forwards malformed token bytes', async () => {
+  const badHarness = harness();
+  const badService = createGoogleGmailProfileRequest(CONFIGURATION, badHarness.dependencies);
+  const badInput = input('bad\nheader');
+  const goodHarness = harness();
+  const goodService = createGoogleGmailProfileRequest(CONFIGURATION, goodHarness.dependencies);
+  const goodInput = input();
+  const goodResponse = response();
+  const originals = {
+    regexTest: RegExp.prototype.test, stringTrim: String.prototype.trim,
+    arraySome: Array.prototype.some, arrayIncludes: Array.prototype.includes,
+    Set: global.Set, Number: global.Number, Error: global.Error,
+    setPrototypeOf: Object.setPrototypeOf, freeze: Object.freeze,
+  };
+  let badPending; let goodPending;
+  try {
+    RegExp.prototype.test = () => true;
+    String.prototype.trim = () => '';
+    Array.prototype.some = () => false;
+    Array.prototype.includes = () => true;
+    global.Set = function BrokenSet() { throw new originals.Error(TOKEN); };
+    global.Number = () => 0;
+    global.Error = function BrokenError() { throw new originals.Error(TOKEN); };
+    Object.setPrototypeOf = () => { throw new originals.Error(TOKEN); };
+    Object.freeze = () => { throw new originals.Error(TOKEN); };
+    badPending = badService.getProfile(badInput);
+    goodPending = goodService.getProfile(goodInput);
+    goodHarness.calls[0].callback(goodResponse);
+    goodResponse.emit('data', Buffer.from(SOURCE));
+    goodResponse.emit('end');
+  } finally {
+    RegExp.prototype.test = originals.regexTest;
+    String.prototype.trim = originals.stringTrim;
+    Array.prototype.some = originals.arraySome;
+    Array.prototype.includes = originals.arrayIncludes;
+    global.Set = originals.Set;
+    global.Number = originals.Number;
+    global.Error = originals.Error;
+    Object.setPrototypeOf = originals.setPrototypeOf;
+    Object.freeze = originals.freeze;
+  }
+  await cleanReject(() => badPending);
+  assert.equal(badHarness.calls.length, 0);
+  assert.deepEqual(await goodPending, PROFILE);
+});
+
 test('rejects concurrent and reentrant reuse, makes one request, retries zero times, and logs nothing', async () => {
   const captured = []; const originalLog = console.log; const originalError = console.error;
   console.log = console.error = (...values) => captured.push(values);
@@ -223,6 +269,6 @@ test('rejects concurrent and reentrant reuse, makes one request, retries zero ti
   const source = fs.readFileSync(require.resolve('./lib/email-google-gmail-profile-request'), 'utf8');
   for (const forbidden of [/require\s*\(\s*['"](?:@googleapis\/|googleapis['"])/, /\bfetch\b/, /process\.env/, /database|postgres|route|callback|persist|install|binding/i,
     /console\./, /followRedirect|retry/i, /gmail\/v1\/users\/(?!me\/profile)/]) assert.equal(forbidden.test(source), false, `forbidden capability: ${forbidden}`);
-  assert.equal(tests.length, 14);
-  console.log('PASS verify:email-google-gmail-profile-request (14 strict offline tests)');
+  assert.equal(tests.length, 15);
+  console.log('PASS verify:email-google-gmail-profile-request (15 strict offline tests)');
 })().catch(error => { console.error(error); process.exitCode = 1; });
