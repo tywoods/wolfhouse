@@ -2,7 +2,7 @@
 
 **Keyword: "Journey".** *"pull up the Journey"* → Captain/Skipper reads this back + brings you current. *"update the Journey"* → we save the current state here. Keep it terse — a living board, not docs. Whoever picks up / ships / deploys updates the matching section. Say *"I'm deploying X"* before deploying to avoid parallel-deploy collisions (deploy only from clean `HEAD == origin/master`).
 
-_Last updated: 2026-08-05 06:07 UTC by Captain_
+_Last updated: 2026-08-11 19:54 UTC by Skipper_
 
 ---
 
@@ -69,12 +69,13 @@ _Last updated: 2026-08-05 06:07 UTC by Captain_
 - **Email 2F-C2 checkpoint** — integrated to master at `1b6fa65b` (serial after `2b25d077`; newer schedule work preserved). Runtime composition is Sunset-staging-canary-only, default-off, explicit-factory-only, not wired into startup/OAuth/refresh. Gates: runtime composition 31/31, provider 92/92, custodian 80/80, OAuth contract 118/118, migration integrity PASS, npm audit 0 vulns. **Not deployed** (staging left on `2b25d077` for this slice); migration 059 not applied; no mailbox/OAuth consent/Graph access/polling/ingestion/drafts/sending. Next (at slice close): Azure identity/KEK/RBAC readback, then deploy code with every email capability off.
 
 ## 🍳 On the stove (in progress)
+- **PAUSED SAFE — Gmail connector G3 (~90%):** OAuth callback/transaction-completion owners and the one-shot Gmail `users/me/profile` authority-evidence request are merged to master. Latest checkpoint: PR #479 approved head `fe63d368…`, merge `6ff4e054…`; focused profile transport **15/15**, mailbox-authority contract, token custody/exchange, and JWKS gates green. Everything remains **unwired/default-off**: no Staff routes, DB binding, mailbox activation, deployment, or live Google call. **Do not bypass or rewrite these custody owners, and do not activate email.** Resume with a fresh TDD slice that composes verified OIDC identity + Gmail profile evidence through the existing mailbox-authority contract; only after that build runtime assembly, then separately reviewed Staff routes. This is an intentional pause point while Monshies works elsewhere.
 - **L3 / email 2F-C3 DEPLOYED dormant (email OFF):** Azure pre-deploy gate done by Captain read-back — identity clientId `0e05fbe3…`/principalId `5338388f…` ✅, **Crypto User granted narrowly to the exact KEK** `luna-email-grant-kek` ✅ (least-privilege); KEK `enabled` flag not host-readable (least-privilege) but proven by the later custody test (runs as the MI). 2F-C2 factory now on staging (rev 0474) but dormant — no routes, migration 059 unapplied. **Next (each own gate, still OFF):** apply migration 059 → synthetic wrap/unwrap custody proof → OAuth callback plumbing → shadow/readiness → separately-approved activation. No guest mail before all green.
 - **OPEN — finance money-truth:** booking `c713c1d7` (€35 total / €20 persisted balance / no captured payment). Finance renders around it (fail-soft), but the record needs correcting once owner says whether €15 was paid or €35 is owed.
 - Sunset UI from **[SUNSET-TODO.md]** — Bookings/Finance/cancel-hide/rental-editor + course-card (A2) + bookings-tab-edits/Restore + item-name audit + schedule guest-collapse all **shipped (revs 0458–0473)**. **Remaining:** **L2** (Luna still offers disabled rentals — @Earthling/Luna layer), Admin **A3** (beaches de-hardcode + Luna wire), Cockpit **C1**, Luna wiring **W1–W4** (@Earthling), then **Mobile** last.
 - Notice-board auto-message idea (one editable Discord message mirroring Journey+SUNSET-TODO) — parked pending owner enabling the Discord send/edit tool for Captain.
 ## 📋 To do
-- Luna email — post-2F-C2 path (all OFF until each gate passes): Azure pre-deploy verify → deploy 2F-C2 → controlled staging Key Vault wrap/unwrap custody proof → refresh-exchange adapter + OAuth callback → shadow/readiness proof → separately-approved activation. No guest mail before every gate passes.
+- Luna email — **resume from paused Gmail G3 checkpoint above**, not from the older 2F-C2 wording: mailbox-authority composition → inert runtime assembly → exact Sunset Staff routes/ACL → source-acceptance proof → IMAP/SMTP owners → separately approved staging activation. Keep every capability OFF until its own gate passes; no guest mail and no live-provider call during the composition slices.
 - **Crowsnest favicon deploy** — image `crowsnest:34e4b7f3…` built & in ACR; **blocked** (this host has no write on `luna-crowsnest-rg`) → Earthling runs the `az containerapp update`.
 - Staff-API decomposition — more slices (1–5 shipped).
 - Lunabox deep disk clean (~20G: stale clones + `docker image prune -a`) when agents idle.
