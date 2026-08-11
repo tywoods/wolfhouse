@@ -1,6 +1,9 @@
 'use strict';
 
 const FAILURE = 'GOOGLE_AUTHORIZATION_CODE_REQUEST_FAILED';
+const APPLY = Reflect.apply;
+const PROMISE_PROTOTYPE = Promise.prototype;
+const PROMISE_THEN = Promise.prototype.then;
 const FAILURE_PROTOTYPE = Object.freeze(Object.assign(Object.create(Error.prototype), { code: FAILURE }));
 const FAILURE_ERROR = new Error(FAILURE);
 Object.setPrototypeOf(FAILURE_ERROR, FAILURE_PROTOTYPE);
@@ -97,10 +100,10 @@ function createGoogleAuthorizationCodeRequest(configuration) {
           ['code_verifier', codeVerifier],
         ]).toString();
         if (body.length > 32768) fail();
-        let acknowledgement = Reflect.apply(exchangeAndCustody, exchangeCustody, [Object.freeze({ body })]);
+        let acknowledgement = APPLY(exchangeAndCustody, exchangeCustody, [Object.freeze({ body })]);
         if (acknowledgement !== null && typeof acknowledgement === 'object' &&
-            Object.getPrototypeOf(acknowledgement) === Promise.prototype) {
-          acknowledgement = await acknowledgement;
+            Object.getPrototypeOf(acknowledgement) === PROMISE_PROTOTYPE) {
+          acknowledgement = await APPLY(PROMISE_THEN, acknowledgement, []);
         }
         if (!validAcknowledgement(acknowledgement)) fail();
         return acknowledgement;
