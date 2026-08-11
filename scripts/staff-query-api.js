@@ -32001,7 +32001,7 @@ function emailParseFetchJson(r){
 function emailReplyState(convId){
   var id = String(convId || '');
   if (!_emailReplyStateByConv[id]) {
-    _emailReplyStateByConv[id] = { approvalId: null, locked: false, sent: false, savedText: '', seq: 0, inFlight: false };
+    _emailReplyStateByConv[id] = { approvalId: null, locked: false, sent: false, savedText: '', seq: 0, inFlight: false, generationUncertain: false };
   }
   return _emailReplyStateByConv[id];
 }
@@ -32036,7 +32036,7 @@ function emailReplyActionPanel(buttonEl, targetEl){
 }
 function performEmailLunaDraftGenerate(convId, targetEl){
   var st=emailReplyState(convId),ta=targetEl.querySelector('#draft-textarea'),statusEl=targetEl.querySelector('#draft-send-status');
-  if(!ta||st.locked||st.inFlight)return;
+  if(!ta||st.locked||st.inFlight||st.generationUncertain)return;
   var snapConv=String(convId),mySeq=++st.seq;st.inFlight=true;setEmailReplyControlsDisabled(targetEl,true,false);
   showDraftSendStatus(statusEl,'','Generating Luna draft\u2026');
   fetch('/staff/inbox/email/generate-luna-draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:convId})})
@@ -32046,9 +32046,10 @@ function performEmailLunaDraftGenerate(convId, targetEl){
     var accepted=out.status===200?acceptEmailDraftSuccess(out.data,snapConv,text):null;
     if(accepted){ta.value=accepted.message_text;st.approvalId=accepted.approval_id;st.savedText=accepted.message_text;updateEmailDraftByteCount(targetEl,ta.value);showDraftSendStatus(statusEl,'ok','Luna draft generated \u2014 review and edit before approval.');}
     else if(out.status===422)showDraftSendStatus(statusEl,'blocked','Luna handoff required; draft was not changed.');
-    else if(out.status===503&&out.parseOk&&emailOwnData(out.data,'error')==='draft_save_outcome_unknown'){st.approvalId=null;st.savedText='';showDraftSendStatus(statusEl,'blocked','Draft save outcome is unknown. Check the conversation before trying again manually.');}
+    else if(out.status===503&&out.parseOk&&emailOwnData(out.data,'error')==='draft_save_outcome_unknown'){st.approvalId=null;st.savedText='';st.generationUncertain=true;showDraftSendStatus(statusEl,'blocked','Draft save outcome is unknown. Reload the conversation or page before generating again.');}
     else showDraftSendStatus(statusEl,'error','Draft generation failed.');
     setEmailReplyControlsDisabled(targetEl,false,st.locked);
+    if(st.generationUncertain){var lunaBtn=targetEl.querySelector('#btn-email-generate-luna-draft'),apprBtn=targetEl.querySelector('#btn-email-approve-send');if(lunaBtn)lunaBtn.disabled=true;if(apprBtn)apprBtn.disabled=true;}
   }).catch(function(){if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId===snapConv)showDraftSendStatus(statusEl,'error','Could not generate Luna draft.');setEmailReplyControlsDisabled(targetEl,false,st.locked);});
 }
 function performEmailDraftSave(convId, targetEl){
@@ -32114,7 +32115,7 @@ function performEmailApproveSend(convId, targetEl){
   var st = emailReplyState(convId);
   var ta = targetEl.querySelector('#draft-textarea');
   var statusEl = targetEl.querySelector('#draft-send-status');
-  if (!ta || st.locked || st.sent || st.inFlight) return;
+  if (!ta || st.locked || st.sent || st.inFlight || st.generationUncertain) return;
   if (!staffEmailOutboundUiEnabled()) {
     showDraftSendStatus(statusEl, 'blocked', 'Email sending is disabled; draft not approved.');
     return;
@@ -48483,7 +48484,22 @@ async function router(req, res) {
     if (!isEmailLunaGenerateDraftEnabled(gate)) return sendJSON(res, 404, { success: false, error: 'not_found' });
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
-    return emailLunaDraftRoute.handleGenerateLunaDraft(req, res, auth.user, gate);
+    // Trusted router seam projects ambient session metadata into the route's
+    // minimal authority capability. Descriptor reads avoid invoking accessors;
+    // the route independently enforces exact null-prototype own data.
+    let lunaActor = null;
+    try {
+      const source = auth.user;
+      const out = Object.create(null);
+      for (const key of ['staff_user_id', 'client_id', 'role']) {
+        const descriptor = Object.getOwnPropertyDescriptor(source, key);
+        if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+            || !descriptor.enumerable || descriptor.get || descriptor.set) throw new Error('invalid_actor');
+        out[key] = descriptor.value;
+      }
+      lunaActor = Object.freeze(out);
+    } catch (_) { lunaActor = null; }
+    return emailLunaDraftRoute.handleGenerateLunaDraft(req, res, lunaActor, gate);
   }
 
   // Email inbox draft/approve-send (default-off; gate before auth/body/DB).

@@ -214,7 +214,7 @@ async function main() {
   ok('Luna production UI passes mutation guard', lunaUiMutationGuard(prodSource));
   for (const [name, mutant] of [
     ['click no-op', prodSource.replace('if (panel) performEmailLunaDraftGenerate(convId, panel);', 'if (panel) return;')],
-    ['duplicate lock removed', prodSource.replace('if(!ta||st.locked||st.inFlight)return;', 'if(!ta||st.locked)return;')],
+    ['duplicate lock removed', prodSource.replace('if(!ta||st.locked||st.inFlight||st.generationUncertain)return;', 'if(!ta||st.locked||st.generationUncertain)return;')],
     ['value/textContent replaced by innerHTML', prodSource.replace('ta.value=accepted.message_text', 'ta.innerHTML=accepted.message_text').replace('el.textContent = message', 'el.innerHTML = message')],
   ]) {
     let killed = false;
@@ -324,7 +324,7 @@ async function main() {
     await page.click('#btn-email-generate-luna-draft');
     await waitStatus('outcome is unknown');
     ok('Luna save outcome-unknown is bounded safe text and requires manual recovery',
-      /Check the conversation before trying again manually/.test(await statusText())
+      /Reload the conversation or page before generating again/.test(await statusText())
       && await page.locator('#draft-send-status img').count() === 0
       && !(await page.evaluate(() => window.__unknownXss))
       && await page.locator('#btn-email-generate-luna-draft').isDisabled()

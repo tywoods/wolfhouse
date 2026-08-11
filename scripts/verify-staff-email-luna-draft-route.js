@@ -42,7 +42,7 @@ function user(patch = {}) {
   return { staff_user_id: A, client_id: C, client_slug: 'sunset', role: 'operator', status: 'active', ...patch };
 }
 function actorCapability(patch = {}) {
-  return Object.assign(Object.create(null), { staff_user_id: A, client_id: C, role: 'operator' }, patch);
+  return Object.freeze(Object.assign(Object.create(null), { staff_user_id: A, client_id: C, role: 'operator' }, patch));
 }
 function request(body, headers = {}) {
   const req = new EventEmitter();
@@ -165,10 +165,17 @@ function noSideEffects(h) {
   assert.deepEqual(out.body, { success: true, conversation_id: V, message_text: GENERATED,
     approval_id: '77777777-7777-4777-8777-777777777777' });
   assert.equal(h.writes.length, 1);
-  assert.deepEqual({ ...h.writes[0], expected_authority: undefined }, {
-    actor: { staff_user_id: A, client_id: C, role: 'operator' },
-    conversation_id: V, message_text: GENERATED, approval_id: null, expected_authority: undefined,
+  assert.deepEqual({ ...h.writes[0], actor: undefined, expected_authority: undefined }, {
+    actor: undefined, conversation_id: V, message_text: GENERATED, approval_id: null, expected_authority: undefined,
   });
+  assert.equal(Object.getPrototypeOf(h.writes[0].actor), null);
+  assert.deepEqual(Reflect.ownKeys(h.writes[0].actor), ['staff_user_id', 'client_id', 'role']);
+  for (const key of Reflect.ownKeys(h.writes[0].actor)) {
+    assert.deepEqual(Object.getOwnPropertyDescriptor(h.writes[0].actor, key), {
+      value: { staff_user_id: A, client_id: C, role: 'operator' }[key],
+      writable: false, enumerable: true, configurable: false,
+    });
+  }
   assert.equal(h.approvals.length, 0, 'Luna never approves');
   assert.equal(h.outbound.length, 0, 'Luna never calls approve/send owner');
   assert.equal(h.journals.length, 0, 'outbound journal untouched');
@@ -226,7 +233,7 @@ function noSideEffects(h) {
   assert.deepEqual(Reflect.ownKeys(legitimateActor), ['staff_user_id', 'client_id', 'role']);
   for (const key of Reflect.ownKeys(legitimateActor)) {
     assert.deepEqual(Object.getOwnPropertyDescriptor(legitimateActor, key), {
-      value: legitimateActor[key], writable: true, enumerable: true, configurable: true,
+      value: legitimateActor[key], writable: false, enumerable: true, configurable: false,
     });
   }
   h = makeHarness(); out = await invoke(h, { conversation_id: V }, legitimateActor);
@@ -234,14 +241,15 @@ function noSideEffects(h) {
   const inheritedActor = Object.create(actorCapability());
   h = makeHarness(); out = await invoke(h, { conversation_id: V }, inheritedActor);
   assert.equal(out.status, 403); noSideEffects(h);
-  const actorAccessor = actorCapability(); Object.defineProperty(actorAccessor, 'role', { enumerable: true, get() { return 'operator'; } });
+  const actorAccessor = Object.assign(Object.create(null), { staff_user_id: A, client_id: C });
+  Object.defineProperty(actorAccessor, 'role', { enumerable: true, get() { return 'operator'; } });
   h = makeHarness(); out = await invoke(h, { conversation_id: V }, actorAccessor);
   assert.equal(out.status, 403); noSideEffects(h);
   h = makeHarness(); out = await invoke(h, { conversation_id: V }, new Proxy(actorCapability(), {}));
   assert.equal(out.status, 403); noSideEffects(h);
   for (const hostile of [
-    Object.assign(actorCapability(), { status: 'active' }),
-    (() => { const a = actorCapability(); a[Symbol('ambient')] = true; return a; })(),
+    actorCapability({ status: 'active' }),
+    actorCapability({ [Symbol('ambient')]: true }),
     Object.assign(Object.create({ ambient: true }), actorCapability()),
     actorCapability({ staff_user_id: 7 }), actorCapability({ client_id: 'not-a-uuid' }),
     actorCapability({ role: 1 }), actorCapability({ role: 'viewer' }),

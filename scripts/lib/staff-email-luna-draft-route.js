@@ -9,6 +9,7 @@ const EMAIL_LUNA_GENERATE_BODY_KEYS = Object.freeze(['conversation_id']);
 const READY_KEYS = Object.freeze(['status','subject','body','language','client_id','location_id','conversation_id','draft_only','requires_staff_review','send_allowed','auto_send_allowed']);
 const HANDOFF_KEYS = Object.freeze(['status','reason','client_id','location_id','conversation_id','draft_only','requires_staff_review','send_allowed','auto_send_allowed']);
 const SAVE_RECEIPT_KEYS = Object.freeze(['status','conversation_id','approval_id']);
+const ACTOR_KEYS = Object.freeze(['staff_user_id','client_id','role']);
 const BODY_MAX_BYTES = 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const isProxy = util.types.isProxy.bind(undefined);
@@ -78,11 +79,13 @@ function isEmailLunaGenerateDraftEnabled(env) {
     && ownData(env, 'EMAIL_LUNA_DRAFT_RUNTIME_ENABLED') === 'true';
 }
 function actor(user) {
-  if (!user || typeof user !== 'object' || isProxy(user)) return null;
-  const status = ownData(user, 'status'); const slug = ownData(user, 'client_slug'); const role = ownData(user, 'role');
+  if (!exactRecord(user, ACTOR_KEYS) || getPrototypeOf(user) !== null) return null;
+  const role = ownData(user, 'role');
   const staffId = uuid(ownData(user, 'staff_user_id')); const clientId = uuid(ownData(user, 'client_id'));
-  return status === 'active' && slug === 'sunset' && staffId && clientId && ['operator', 'admin', 'owner'].includes(role)
-    ? freeze({ staff_user_id: staffId, client_id: clientId, role }) : null;
+  if (!staffId || !clientId || !['operator', 'admin', 'owner'].includes(role)) return null;
+  const snap = Object.create(null);
+  snap.staff_user_id = staffId; snap.client_id = clientId; snap.role = role;
+  return freeze(snap);
 }
 async function readBody(req) {
   const chunks = []; let bytes = 0;
