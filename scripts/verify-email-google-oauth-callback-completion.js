@@ -80,7 +80,8 @@ test('exports only the frozen factory and creates an inert exact frozen reusable
 
 test('requires exact frozen ordered configuration and narrow dependency owners before effects', () => {
   const h = harness(); const good = config();
-  for (const value of [undefined, {}, { ...good }, freeze({ ...good, extra: true }),
+  assert.throws(() => createGoogleOAuthCallbackCompletion(undefined, h.dependencies), clean);
+  for (const value of [{}, { ...good }, freeze({ ...good, extra: true }),
     freeze({ redirectUri: REDIRECT, applicationClientId: APP_CLIENT, secretRef: REF }), new Proxy(good, {})])
     assert.throws(() => create(h, value), clean);
   const d = h.dependencies;
