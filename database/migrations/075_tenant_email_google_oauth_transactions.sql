@@ -90,8 +90,8 @@ BEGIN
     END IF;
   END IF;
 
-  -- Revalidate at issuance and again at consume. The row locks keep endpoint and
-  -- location authority stable until the transaction performing this write ends.
+  -- Revalidate at issuance and again at consume. Exclusive row locks keep all
+  -- endpoint and location authority fields stable until this write transaction ends.
   SELECT TRUE INTO eligible_endpoint
   FROM tenant_channel_endpoints e
   JOIN tenant_locations l
@@ -109,7 +109,7 @@ BEGIN
     AND e.provider_resource_id IS NULL
     AND e.mailbox_kind IS NULL
     AND e.mailbox_access_kind IS NULL
-  FOR KEY SHARE OF e, l;
+  FOR UPDATE OF e, l;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'tenant_email_google_oauth_transactions: endpoint is not eligible for client and location'
