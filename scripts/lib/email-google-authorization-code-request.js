@@ -1,5 +1,18 @@
 'use strict';
 
+const apply = Reflect.apply;
+const getDescriptor = Object.getOwnPropertyDescriptor;
+const URLConstructor = URL;
+const urlPrototype = URLConstructor.prototype;
+const urlProtocol = getDescriptor(urlPrototype, 'protocol').get;
+const urlUsername = getDescriptor(urlPrototype, 'username').get;
+const urlPassword = getDescriptor(urlPrototype, 'password').get;
+const urlHash = getDescriptor(urlPrototype, 'hash').get;
+const urlSearch = getDescriptor(urlPrototype, 'search').get;
+const urlPort = getDescriptor(urlPrototype, 'port').get;
+const urlHostname = getDescriptor(urlPrototype, 'hostname').get;
+const urlHref = getDescriptor(urlPrototype, 'href').get;
+
 const FAILURE = 'GOOGLE_AUTHORIZATION_CODE_REQUEST_FAILED';
 const APPLY = Reflect.apply;
 const PROMISE_PROTOTYPE = Promise.prototype;
@@ -45,13 +58,15 @@ function validRedirect(value) {
   if (!visible(value, 1, 2048)) return false;
   let parsed;
   try {
-    parsed = new URL(value);
+    parsed = new URLConstructor(value);
   } catch (_) {
     return false;
   }
-  return parsed.protocol === 'https:' && parsed.username === '' && parsed.password === '' &&
-    parsed.hash === '' && parsed.search === '' && parsed.port === '' && parsed.hostname !== '' &&
-    parsed.href === value;
+  return apply(urlProtocol, parsed, []) === 'https:'
+    && apply(urlUsername, parsed, []) === '' && apply(urlPassword, parsed, []) === ''
+    && apply(urlHash, parsed, []) === '' && apply(urlSearch, parsed, []) === ''
+    && apply(urlPort, parsed, []) === '' && apply(urlHostname, parsed, []) !== ''
+    && apply(urlHref, parsed, []) === value;
 }
 
 function validVerifier(value) {
