@@ -961,6 +961,7 @@ const MAX_ROWS           = 500;
 const LOG_DIR            = path.join(__dirname, '..', 'logs');
 const LOG_FILE           = path.join(LOG_DIR, 'staff-query-log.jsonl');
 const STAFF_PORTAL_LOGO_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-front-desk-logo.png');
+const STAFF_PORTAL_HEADER_BANNER_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-header-banner.png');
 const STAFF_PORTAL_FAVICON_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-favicon.png');
 const STAFF_PORTAL_LOGIN_BTN_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-login-signin-btn.png');
 const STAFF_PORTAL_LOGIN_BG_PATH = path.join(__dirname, '..', 'public', 'images', 'luna-login-bg.jpg');
@@ -15953,7 +15954,13 @@ function buildUiHtml(port, portalDeployClient) {
     && process.env.EMAIL_LUNA_DRAFT_RUNTIME_ENABLED === 'true'
     && process.env.LUNA_DEPLOYMENT === 'sunset-staging';
   const rentalDayRatesJson = JSON.stringify(loadWolfhouseRentalDayRates());
-  const portalBodyOpen = '<body class="portal-profile-pending"' + (portalDevTabsEnabled ? '' : ' portal-no-dev-tabs') + '>';
+  // luna-header switch — banner-art header + wave-underlined nav.
+  // Set STAFF_PORTAL_LUNA_HEADER=false to drop the scoping class and instantly
+  // restore the previous header (all ".luna-header-ui ..." rules go inert).
+  const lunaHeaderOn = String(process.env.STAFF_PORTAL_LUNA_HEADER || 'true').trim().toLowerCase() !== 'false';
+  const portalBodyOpen = '<body class="portal-profile-pending'
+    + (lunaHeaderOn ? ' luna-header-ui' : '')
+    + '"' + (portalDevTabsEnabled ? '' : ' portal-no-dev-tabs') + '>';
   // book-ui switch — warm paperback restyle of the Booking Calendar tab + drawer.
   // Set STAFF_PORTAL_BOOK_UI=false to drop the scoping class and instantly restore
   // the previous look (all ".book-ui ..." CSS rules go inert). Default: on.
@@ -19524,6 +19531,198 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .book-ui .bc-drawer-tab,
 .book-ui .bk-quote-section-title{font-family:var(--bk-serif)}
 /* ===== END book-ui ===== */
+
+/* ═══ luna-header-ui ══════════════════════════════════════════════════════
+   Banner-art header + wave-underlined nav. Scoped entirely under
+   .luna-header-ui so STAFF_PORTAL_LUNA_HEADER=false restores the old header.
+
+   Height note: the source art is 1989x329 (~6:1). Left to scale it would eat
+   ~240px of vertical on a 1440px desk monitor, and the schedule board is the
+   screen staff sit in front of all day. So the banner is a fixed-height crop
+   (cover, centred) that keeps the sunset + owl and gives the grid its space.
+   ═══════════════════════════════════════════════════════════════════════ */
+.luna-header-ui{
+  --luna-teal:#1d8681;
+  --luna-teal-dark:#2c5f56;
+  --luna-terracotta:#ca6d45;
+  --luna-terracotta-dark:#b45c37;
+  --luna-cream:#fff8e9;
+  /* 150px shows the whole carved owl sign plus the wave and sunset. Below
+     ~130px the crop cuts through the sign; the full 1989x329 aspect would be
+     238px here and pushes the schedule grid too far down the page. */
+  --luna-banner-h:150px;
+}
+
+/* ── banner ─────────────────────────────────────────────────────────────── */
+.luna-header-ui #banner{
+  position:relative;
+  /* #banner is a flex item of the column body and its flex basis (0 0 60px)
+     pins the height, so the basis has to move with it, not just height. */
+  height:var(--luna-banner-h);
+  flex:0 0 var(--luna-banner-h);
+  min-height:var(--luna-banner-h);
+  padding:0 clamp(14px,2.2vw,30px);
+  background-image:url('/staff/assets/luna-header-banner.png?v=1');
+  background-size:cover;
+  background-position:center 42%;
+  background-repeat:no-repeat;
+  border-bottom:none;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+}
+[data-theme="dark"] .luna-header-ui #banner{
+  filter:brightness(.84) saturate(.92);
+}
+/* The art already carries the wordmark — the <img> logo would double it up. */
+.luna-header-ui #banner .brand{
+  display:block;
+  height:100%;
+  flex:0 0 auto;
+  width:clamp(150px,17vw,250px);
+}
+.luna-header-ui #banner .brand-logo{display:none}
+
+.luna-header-ui .banner-actions{
+  display:flex;
+  align-items:center;
+  gap:clamp(8px,1vw,14px);
+  margin-left:auto;
+}
+
+/* ── liquid glass control surface ───────────────────────────────────────── */
+.luna-header-ui .staff-school-switch,
+.luna-header-ui .staff-lang-switch,
+.luna-header-ui .staff-theme-toggle,
+.luna-header-ui .btn-logout{
+  background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,.10));
+  -webkit-backdrop-filter:blur(16px) saturate(170%);
+  backdrop-filter:blur(16px) saturate(170%);
+  border:1px solid rgba(255,255,255,.32);
+  border-radius:999px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.45),
+             inset 0 -1px 0 rgba(255,255,255,.08),
+             0 4px 14px rgba(10,40,45,.20);
+  color:var(--luna-cream);
+  text-shadow:0 1px 2px rgba(10,40,45,.35);
+  transition:background .18s,box-shadow .18s;
+}
+.luna-header-ui .staff-school-switch:hover,
+.luna-header-ui .staff-lang-switch:hover,
+.luna-header-ui .staff-theme-toggle:hover{
+  background:linear-gradient(180deg,rgba(255,255,255,.32),rgba(255,255,255,.16));
+}
+
+/* segmented pills: school + language share one capsule, two segments */
+.luna-header-ui .staff-school-switch,
+.luna-header-ui .staff-lang-switch{
+  display:flex;
+  align-items:center;
+  gap:2px;
+  padding:3px 4px;
+}
+.luna-header-ui .staff-school-btn,
+.luna-header-ui .staff-lang-btn{
+  background:none;
+  border:none;
+  border-radius:999px;
+  padding:5px 13px;
+  font:inherit;
+  font-size:12.5px;
+  font-weight:600;
+  color:var(--luna-cream);
+  opacity:.78;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.luna-header-ui .staff-school-btn:hover,
+.luna-header-ui .staff-lang-btn:hover{opacity:1}
+.luna-header-ui .staff-school-btn.is-active,
+.luna-header-ui .staff-lang-btn.is-active{
+  background:rgba(255,248,233,.88);
+  color:var(--luna-teal-dark);
+  text-shadow:none;
+  font-weight:800;
+  opacity:1;
+}
+/* the "|" separators belong to the old flat header */
+.luna-header-ui .staff-lang-sep{display:none}
+
+.luna-header-ui .staff-theme-toggle{
+  width:36px;height:36px;
+  display:flex;align-items:center;justify-content:center;
+  padding:0;cursor:pointer;
+  text-shadow:none;
+}
+.luna-header-ui .staff-theme-icon{width:17px;height:17px;color:var(--luna-cream)}
+[data-theme="dark"] .luna-header-ui .staff-theme-icon{color:#f5cf7a}
+
+/* sign out: terracotta-tinted glass so the destructive action reads apart */
+.luna-header-ui .btn-logout{
+  background:linear-gradient(180deg,rgba(216,116,70,.80),rgba(184,90,50,.64));
+  border-color:rgba(255,255,255,.38);
+  padding:8px 20px;
+  font-size:12.5px;
+  font-weight:800;
+  color:#fff;
+  cursor:pointer;
+}
+.luna-header-ui .btn-logout:hover{
+  background:linear-gradient(180deg,rgba(226,126,80,.90),rgba(194,100,58,.74));
+}
+
+/* ── nav bar ────────────────────────────────────────────────────────────── */
+.luna-header-ui #tabs{
+  background:var(--surface);
+  border-bottom:2px solid var(--border-soft);
+  padding-left:clamp(14px,2.2vw,30px);
+  padding-right:clamp(14px,2.2vw,30px);
+}
+.luna-header-ui #tabs .tab-btn{
+  position:relative;
+  font-weight:800;
+  font-size:13.5px;
+  color:var(--luna-teal-dark);
+  opacity:.82;
+  border-bottom:none;
+  padding:13px 0 15px;
+  margin-right:clamp(18px,2.4vw,38px);
+}
+.luna-header-ui #tabs .tab-btn:hover{opacity:1}
+.luna-header-ui #tabs .tab-btn.active{
+  color:var(--luna-teal);
+  opacity:1;
+  border-bottom-color:transparent;
+}
+/* wave underline instead of a flat rule — echoes the banner surf */
+.luna-header-ui #tabs .tab-btn.active::after{
+  content:'';
+  position:absolute;
+  left:50%;
+  transform:translateX(-50%);
+  bottom:4px;
+  width:46px;
+  height:7px;
+  background-repeat:no-repeat;
+  background-position:center;
+  background-size:contain;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 8'%3E%3Cpath d='M1 5c3-4 6-4 9 0s6 4 9 0 6-4 9 0 6 4 9 0' fill='none' stroke='%231d8681' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+[data-theme="dark"] .luna-header-ui #tabs .tab-btn{color:#8fbdb6}
+[data-theme="dark"] .luna-header-ui #tabs .tab-btn.active{color:#56c9c0}
+[data-theme="dark"] .luna-header-ui #tabs .tab-btn.active::after{
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 8'%3E%3Cpath d='M1 5c3-4 6-4 9 0s6 4 9 0 6-4 9 0 6 4 9 0' fill='none' stroke='%2356c9c0' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+
+/* ── narrow screens: the art crops to a shallow strip ───────────────────── */
+@media (max-width:719px){
+  .luna-header-ui{--luna-banner-h:64px}
+  .luna-header-ui #banner{background-position:center 38%}
+  .luna-header-ui #banner .brand{width:120px}
+  .luna-header-ui .btn-logout{padding:7px 14px;font-size:11.5px}
+}
+/* ═══ END luna-header-ui ═════════════════════════════════════════════════ */
 </style>
 </head>
 ${portalBodyOpen}
@@ -41774,6 +41973,20 @@ function handleStaffPortalLogo(res) {
   });
 }
 
+function handleStaffPortalHeaderBanner(res) {
+  fs.readFile(STAFF_PORTAL_HEADER_BANNER_PATH, (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      return res.end('Not found');
+    }
+    res.writeHead(200, {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=86400',
+    });
+    res.end(data);
+  });
+}
+
 function handleStaffPortalFavicon(res) {
   fs.readFile(STAFF_PORTAL_FAVICON_PATH, (err, data) => {
     if (err) {
@@ -50502,6 +50715,15 @@ async function router(req, res) {
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
     }
     return handleStaffPortalLogo(res);
+  }
+
+  // ── GET /staff/assets/luna-header-banner.png — portal header art (public) ───
+  if (pathname === '/staff/assets/luna-header-banner.png') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
+    }
+    return handleStaffPortalHeaderBanner(res);
   }
 
   // ── GET /staff/assets/luna-login-signin-btn.png — login sign-in button (public) ─

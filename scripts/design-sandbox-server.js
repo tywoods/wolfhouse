@@ -178,8 +178,34 @@ function designSandboxBadge() {
 <div id="design-sandbox-flag">Design sandbox — mock data</div>`;
 }
 
+/**
+ * Sandbox-only header variants, switchable live with ?header=…
+ * Lets us compare banner heights side by side without a redeploy. None of this
+ * ships — the branch itself only carries the `compact` values.
+ */
+function headerVariantCss(variant) {
+  if (variant === 'full') {
+    // The banner art at its intended full aspect (1989x329).
+    return `<style>.luna-header-ui #banner{height:auto;flex:0 0 auto;min-height:0;aspect-ratio:1989/329;background-size:100% auto;background-position:center}</style>`;
+  }
+  if (variant === 'compact') {
+    return `<style>.luna-header-ui{--luna-banner-h:104px}</style>`;
+  }
+  if (variant === 'off') {
+    return `<script>document.addEventListener('DOMContentLoaded',function(){document.body.classList.remove('luna-header-ui');});</script>`;
+  }
+  return '';
+}
+
 function portalHtml(req) {
   let html = buildUiHtml(PORT, CLIENT_SLUG);
+  const variant = String(url.parse(req.url, true).query.header || '').trim();
+  const variantCss = headerVariantCss(variant);
+  if (variantCss) {
+    html = html.includes('</head>')
+      ? html.replace('</head>', `${variantCss}\n</head>`)
+      : variantCss + html;
+  }
   const badge = designSandboxBadge();
   html = html.includes('</body>')
     ? html.replace('</body>', `${badge}\n</body>`)

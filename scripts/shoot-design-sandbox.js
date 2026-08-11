@@ -24,6 +24,7 @@ const EMAIL = process.env.DESIGN_SANDBOX_EMAIL || '';
 const PASSWORD = process.env.DESIGN_SANDBOX_PASSWORD || '';
 const TAB = arg('tab', 'portal-home');
 const OUT = arg('out', '/tmp/design-sandbox.png');
+const SUFFIX = arg('suffix', '');
 const WIDTH = Number(arg('width', 1440));
 const HEIGHT = Number(arg('height', 900));
 
@@ -51,6 +52,11 @@ const HEIGHT = Number(arg('height', 900));
     page.waitForURL('**/staff/ui', { timeout: 60000 }),
     page.click('button[type="submit"]'),
   ]);
+
+  // Re-enter with the variant query so sandbox-only header overrides apply.
+  if (SUFFIX) {
+    await page.goto(`${BASE}/staff/ui${SUFFIX}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  }
 
   // The portal is one page of tabs; click through to the one we want.
   await page.waitForLoadState('networkidle', { timeout: 60000 }).catch(() => {});
