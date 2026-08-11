@@ -97,12 +97,8 @@ function acknowledgement(value, input) {
       || !lengthDescriptor || !objectHasOwn(lengthDescriptor, 'value') || lengthDescriptor.value !== 1
       || lengthDescriptor.enumerable || lengthDescriptor.configurable || lengthDescriptor.writable === frozen) fail();
   const row = snapshot(rowDescriptor.value, ['operation_id', 'expires_at'], frozen);
-  if (!row || typeof row.operation_id !== 'string' || !test(UUID, row.operation_id)
-      || row.operation_id === input.clientId || row.operation_id === input.locationId
-      || row.operation_id === input.endpointId || row.operation_id === input.staffUserId
-      || row.operation_id === input.authSessionId || typeof row.expires_at !== 'string'
-      || !test(TIMESTAMP, row.expires_at)
-      || !numberIsFinite(reflectApply(dateParse, dateConstructor, [row.expires_at]))) fail();
+  if (!row || typeof row.operation_id !== 'string' || row.operation_id !== input.operationId
+      || typeof row.expires_at !== 'string' || row.expires_at !== input.expiresAt) fail();
   return objectFreeze({ operationId: row.operation_id, expiresAt: row.expires_at });
 }
 

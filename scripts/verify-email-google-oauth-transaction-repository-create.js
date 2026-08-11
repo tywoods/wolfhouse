@@ -139,7 +139,10 @@ test('validates canonical UUID, digest, verifier, nonce, and immutable canonical
     { issuedAt: new String(ISSUED) }, { expiresAt: new String(EXPIRES) },
   ];
   for (const patch of patches) { let calls = 0; await rejects(() => create(queryOwner(() => { calls += 1; return result(); })).create(input(patch))); assert.equal(calls, 0); }
-  await create().create(input({ codeVerifier: 'A'.repeat(43), nonce: 'A'.repeat(43), expiresAt: '2026-08-11T12:00:00.001Z' }));
+  const minimumExpiry = '2026-08-11T12:00:00.001Z';
+  await create(queryOwner(() => result(row({ expires_at: minimumExpiry })))).create(
+    input({ codeVerifier: 'A'.repeat(43), nonce: 'A'.repeat(43), expiresAt: minimumExpiry }),
+  );
   await create().create(input({ codeVerifier: `${'A'.repeat(124)}-._~`, nonce: `${'A'.repeat(127)}_` }));
 });
 
@@ -207,7 +210,10 @@ test('pins intrinsics so hostile query poisoning cannot defeat post-query valida
 
 test('is reusable and concurrent with exactly one query and isolated digest buffer per create', async () => {
   const buffers = []; let release; const gate = new Promise(resolve => { release = resolve; }); let calls = 0;
-  const repository = create(queryOwner((text, params) => { calls += 1; buffers.push(params[6]); return gate.then(() => result()); }));
+  const repository = create(queryOwner((text, params) => {
+    calls += 1; buffers.push(params[6]);
+    return gate.then(() => result(row({ operation_id: params[5], expires_at: params[10] })));
+  }));
   const first = repository.create(input()); const second = repository.create(input({ operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }));
   release(); await Promise.all([first, second]); assert.equal(calls, 2); assert.notStrictEqual(buffers[0], buffers[1]);
   buffers[0][0] = 255; assert.equal(buffers[1].toString('hex'), STATE);
