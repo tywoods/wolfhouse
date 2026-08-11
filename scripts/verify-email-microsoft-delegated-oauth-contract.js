@@ -305,7 +305,6 @@ function main() {
       for (const mix of [
         ['gmail_api', 'application_client_credentials'], ['imap_smtp', 'delegated_authorization_code'],
         ['imap_smtp', 'application_client_credentials'], ['microsoft_graph', 'password_or_app_password'],
-        ['gmail_api', 'delegated_authorization_code'],
       ]) {
         ok(`connector: reject ${mix[0]}+${mix[1]}`,
           !connector.validateEmailConnectorAuthModePair({ provider: mix[0], auth_mode: mix[1] }).ok);

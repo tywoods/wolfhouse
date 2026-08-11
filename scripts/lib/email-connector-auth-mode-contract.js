@@ -7,6 +7,7 @@ const EMAIL_AUTH_MODES = Object.freeze([
 ]);
 const EMAIL_CONNECTOR_MODE_IDS = Object.freeze([
   'microsoft_delegated_oauth', 'microsoft_app_only_enterprise',
+  'google_delegated_oauth',
 ]);
 const EMAIL_CONNECTOR_MODE_ROWS = Object.freeze([
   Object.freeze({
@@ -19,6 +20,11 @@ const EMAIL_CONNECTOR_MODE_ROWS = Object.freeze([
     auth_mode: 'application_client_credentials', default_saas: false,
     enterprise_opt_in: true, phase: 'enterprise',
   }),
+  Object.freeze({
+    connector_mode: 'google_delegated_oauth', provider: 'gmail_api',
+    auth_mode: 'delegated_authorization_code', default_saas: false,
+    enterprise_opt_in: false, phase: 'gmail',
+  }),
 ]);
 const EMAIL_DEFAULT_SAAS_CONNECTOR_MODE = 'microsoft_delegated_oauth';
 const EMAIL_DEFAULT_SAAS_PROVIDER = 'microsoft_graph';
@@ -26,6 +32,7 @@ const EMAIL_DEFAULT_SAAS_AUTH_MODE = 'delegated_authorization_code';
 const EMAIL_CONNECTOR_MATERIAL_KEY_NAMES = Object.freeze({
   microsoft_delegated_oauth: Object.freeze(['refresh_token']),
   microsoft_app_only_enterprise: Object.freeze(['tenant_id', 'client_id', 'client_secret']),
+  google_delegated_oauth: Object.freeze(['refresh_token']),
 });
 const PAIR_KEYS = ['provider', 'auth_mode'];
 const MODE_KEYS = ['connector_mode'];
