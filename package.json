@@ -333,6 +333,7 @@
     "verify:sunset-staging-iac-diff-check": "node scripts/verify-sunset-staging-iac-diff-check.js",
     "verify:migration-integrity": "node scripts/verify-migration-integrity.js",
     "verify:email-mailbox-adapter-contract": "node scripts/verify-email-mailbox-adapter-contract.js",
+    "verify:email-google-delegated-oauth-contract": "node scripts/verify-email-google-delegated-oauth-contract.js",
     "verify:email-tenant-location-registry": "node scripts/verify-email-tenant-location-registry.js",
     "prove:email-tenant-location-registry-pg": "node scripts/prove-email-tenant-location-registry-pg.js",
     "verify:email-tenant-channel-registry": "node scripts/verify-email-tenant-channel-registry.js",
