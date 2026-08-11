@@ -159,7 +159,10 @@ test('safely snapshots exact one-row driver output and requires exact unchanged 
   const malformed = [undefined, null, {}, { rows: [] }, freeze({ rows: freeze([]) }),
     freeze({ rows: freeze([row(), row()]) }), freeze({ rows: freeze([{ ...row() }]) }),
     freeze({ rows: freeze([freeze({ expires_at: EXPIRES, operation_id: OPERATION })]) }),
-    result(row({ operation_id: CLIENT })), result(row({ expires_at: '2026-08-11 12:10:00+00' })), result(accessorRow),
+    result(row({ operation_id: CLIENT })),
+    result(row({ operation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })),
+    result(row({ expires_at: '2026-08-11T12:09:59.999Z' })),
+    result(row({ expires_at: '2026-08-11 12:10:00+00' })), result(accessorRow),
     new Proxy(result(), { ownKeys() { throw new Error(LEAK); } })];
   for (const value of malformed) await rejects(() => create(queryOwner(() => value)).create(input()));
 });
