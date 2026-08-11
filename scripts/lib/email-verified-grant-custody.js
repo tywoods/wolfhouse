@@ -6,7 +6,6 @@ const {
   validateGrantEnvelopeRecordV1,
   validateEmailGrantEnvelopeProvider,
 } = require('./email-grant-envelope-provider-contract');
-const { resolveOptionalStageTelemetry, safeEmitStage } = require('./email-microsoft-oauth-stage-telemetry');
 
 const GRANT_GENERATION_INITIAL = 1;
 const DEPENDENCY_KEYS = Object.freeze(['verifiedIdentity', 'envelopeProvider', 'clock', 'installer']);
@@ -53,9 +52,18 @@ function createVerifiedGrantCustodyAdapter(config, dependencies, policy) {
   try {
     frozenConfig = policy.snapshotConfig(config);
     if (!frozenConfig) throw fail();
-    const resolved = resolveOptionalStageTelemetry(dependencies, DEPENDENCY_KEYS);
-    if (!resolved.ok || !resolved.stageTelemetry) throw fail();
-    stageTelemetry = resolved.stageTelemetry;
+    if (policy.microsoftStageTelemetry === true) {
+      // Microsoft alone owns this optional dependency and its stage vocabulary.
+      // Keep the import off the Google execution path entirely.
+      const { resolveOptionalStageTelemetry } = require('./email-microsoft-oauth-stage-telemetry');
+      const resolved = resolveOptionalStageTelemetry(dependencies, DEPENDENCY_KEYS);
+      if (!resolved.ok || !resolved.stageTelemetry) throw fail();
+      stageTelemetry = resolved.stageTelemetry;
+    } else {
+      if (policy.microsoftStageTelemetry !== false
+          || !exactFrozenData(dependencies, DEPENDENCY_KEYS)) throw fail();
+      stageTelemetry = null;
+    }
     verifiedIdentity = ownData(dependencies, 'verifiedIdentity');
     const rawEnvelope = ownData(dependencies, 'envelopeProvider');
     clock = ownData(dependencies, 'clock');
@@ -115,17 +123,26 @@ function createVerifiedGrantCustodyAdapter(config, dependencies, policy) {
         if (!checked.ok || checked.value.operation_id !== frozenConfig.operationId) throw fail();
         envelope = checked.value;
       } catch { throw fail(); }
-      safeEmitStage(stageTelemetry, 'envelope_sealed');
+      if (policy.microsoftStageTelemetry) {
+        const { safeEmitStage } = require('./email-microsoft-oauth-stage-telemetry');
+        safeEmitStage(stageTelemetry, 'envelope_sealed');
+      }
       const installInput = Object.freeze({ clientId: frozenConfig.clientId, endpointId: frozenConfig.endpointId,
         operationId: frozenConfig.operationId, actorStaffUserId: frozenConfig.actorStaffUserId,
         identity, envelope });
       if (!exactPlainData(installInput, INSTALL_KEYS)) throw fail();
-      safeEmitStage(stageTelemetry, 'installer_started');
+      if (policy.microsoftStageTelemetry) {
+        const { safeEmitStage } = require('./email-microsoft-oauth-stage-telemetry');
+        safeEmitStage(stageTelemetry, 'installer_started');
+      }
       let ack;
       try { ack = await Reflect.apply(installVerifiedGrant, installer, [installInput]); }
       catch { throw fail(); }
       if (!installerAck(ack)) throw fail();
-      safeEmitStage(stageTelemetry, 'installer_committed');
+      if (policy.microsoftStageTelemetry) {
+        const { safeEmitStage } = require('./email-microsoft-oauth-stage-telemetry');
+        safeEmitStage(stageTelemetry, 'installer_committed');
+      }
       return SEALED_ACK;
     } catch { throw fail(); }
   }

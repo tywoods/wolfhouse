@@ -7,10 +7,11 @@ const {
 
 const ERROR_CODE = 'GOOGLE_VERIFIED_GRANT_CUSTODY_INVALID';
 const ERROR_MESSAGE = 'Google verified grant custody failed.';
-const GOOGLE_API_ORIGIN = `https://www.${'google'}${'apis'}.com/auth/`;
 const GOOGLE_PHASE_A_SCOPES = Object.freeze([
-  'openid', 'email', `${GOOGLE_API_ORIGIN}gmail.readonly`,
-  `${GOOGLE_API_ORIGIN}gmail.compose`,
+  'openid',
+  'email',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.compose',
 ]);
 const SELECTED_KEYS = Object.freeze(['accessToken','refreshToken','tokenType','expiresIn','scope','idToken']);
 const CONFIG_KEYS = Object.freeze(['clientId','endpointId','operationId','actorStaffUserId','expectedNonce','expectedClientId']);
@@ -19,7 +20,20 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ASCII = /^[\x21-\x7e]+$/;
 const GMAIL = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
 function failure(){const error=new Error(ERROR_MESSAGE);Object.defineProperty(error,'name',{value:'GoogleVerifiedGrantCustodyError'});Object.defineProperty(error,'code',{value:ERROR_CODE,enumerable:true});return Object.freeze(error);}
-function bounded(value,max){return typeof value==='string'&&value.length>0&&value.length<=max&&!/[\u0000-\u001f\u007f]/.test(value)&&!/[\ud800-\udfff]/.test(value);}
+function hasUnpairedSurrogate(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+      index += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+function bounded(value,max){return typeof value==='string'&&value.length>0&&value.length<=max&&!/[\u0000-\u001f\u007f]/.test(value)&&!hasUnpairedSurrogate(value);}
 function printable(value,max){return typeof value==='string'&&value.length>0&&value.length<=max&&ASCII.test(value);}
 function snapshotConfig(input){
   if(!exactFrozenData(input,CONFIG_KEYS))return null;
@@ -43,9 +57,9 @@ function readIdentity(input){
   if(!exactFrozenData(input,IDENTITY_KEYS))return null;
   const providerTenantId=ownData(input,'providerTenantId'),providerPrincipalId=ownData(input,'providerPrincipalId'),mailboxAddress=ownData(input,'mailboxAddress'),displayName=ownData(input,'displayName');
   if(providerTenantId!=='https://accounts.google.com'||!printable(providerPrincipalId,255)||typeof mailboxAddress!=='string'||mailboxAddress.length<3||mailboxAddress.length>254||mailboxAddress!==mailboxAddress.trim()||!GMAIL.test(mailboxAddress)||mailboxAddress.includes('..'))return null;
-  if(displayName!==null&&(typeof displayName!=='string'||displayName.length<1||displayName.length>256||/[\u0000-\u001f\u007f]/.test(displayName)))return null;
+  if(displayName!==null&&!bounded(displayName,256))return null;
   return Object.freeze({providerTenantId,providerPrincipalId,mailboxAddress,displayName});
 }
-const POLICY=Object.freeze({failure,snapshotConfig,snapshotSelected,readIdentity});
+const POLICY=Object.freeze({failure,snapshotConfig,snapshotSelected,readIdentity,microsoftStageTelemetry:false});
 function createGoogleVerifiedGrantCustodyAdapter(config,dependencies){return createVerifiedGrantCustodyAdapter(config,dependencies,POLICY);}
 module.exports=Object.freeze({ERROR_CODE,ERROR_MESSAGE,GOOGLE_PHASE_A_SCOPES,SELECTED_KEYS,CONFIG_KEYS,INSTALL_KEYS,INSTALLER_METHOD,SEALED_ACK,createGoogleVerifiedGrantCustodyAdapter});

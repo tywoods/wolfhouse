@@ -61,7 +61,7 @@ function readIdentity(input){
   if(displayName!==null&&(typeof displayName!=='string'||displayName.length<1||displayName.length>PRINCIPAL_LIMIT||/[\u0000-\u001f\u007f]/.test(displayName)))return null;
   return Object.freeze({providerTenantId,providerPrincipalId,mailboxAddress,displayName});
 }
-const POLICY=Object.freeze({failure,snapshotConfig,snapshotSelected,readIdentity});
+const POLICY=Object.freeze({failure,snapshotConfig,snapshotSelected,readIdentity,microsoftStageTelemetry:true});
 function createMicrosoftVerifiedGrantCustodyAdapter(config,dependencies){return createVerifiedGrantCustodyAdapter(config,dependencies,POLICY);}
 module.exports=Object.freeze({
   ERROR_CODE,ERROR_MESSAGE,TOKEN_LIMIT_CHARS,ID_TOKEN_LIMIT_CHARS,MAX_EXPIRES_IN_SECONDS,
