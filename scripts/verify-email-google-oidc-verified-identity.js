@@ -217,7 +217,7 @@ test('pins RS256, optional exact JWT typ, bounded kid, and rejects critical or u
 });
 
 test('allowlists documented Google profile claims as bounded discard-only metadata', async () => {
-  const allowed = [...Object.keys(BASE_CLAIMS), 'azp', 'hd', 'given_name', 'family_name', 'picture', 'locale'];
+  const allowed = [...Object.keys(BASE_CLAIMS), 'azp', 'hd', 'given_name', 'family_name', 'picture', 'locale', 'nbf', 'jti'];
   const required = ['iss', 'aud', 'sub', 'email', 'email_verified', 'nonce', 'exp', 'iat'];
   for (const key of required) { const claims = { ...BASE_CLAIMS }; delete claims[key]; await invalid(() => harness().service.verifyIdentity(request(token(BASE_HEADER, claims)))); }
   await invalid(() => harness().service.verifyIdentity(request(token(BASE_HEADER, { ...BASE_CLAIMS, unknown_googleish_claim: 'x' }))));
@@ -225,6 +225,7 @@ test('allowlists documented Google profile claims as bounded discard-only metada
   const metadata = {
     hd: 'workspace.example', given_name: 'Owner', family_name: 'Case',
     picture: 'https://lh3.googleusercontent.com/a/example', locale: 'en-US',
+    nbf: NOW - 1, jti: 'google-jwt-id-123',
   };
   const result = await harness().service.verifyIdentity(request(token(BASE_HEADER, { ...BASE_CLAIMS, ...metadata })));
   for (const key of Object.keys(metadata)) assert.equal(key in result, false);
@@ -244,6 +245,7 @@ test('allowlists documented Google profile claims as bounded discard-only metada
     { given_name: 1 }, { family_name: 'bad\nname' }, { given_name: 'x'.repeat(257) },
     { picture: 'javascript:alert(1)' }, { picture: `https://example.test/${'x'.repeat(2049)}` },
     { locale: {} }, { locale: 'not a locale!' }, { hd: 'x'.repeat(254) },
+    { nbf: NOW + 301 }, { nbf: 1.5 }, { jti: '' }, { jti: 'x'.repeat(513) },
   ]) await invalid(() => harness().service.verifyIdentity(request(token(BASE_HEADER, { ...BASE_CLAIMS, ...claims }))));
   for (const key of Object.keys(metadata)) assert(allowed.includes(key));
 });
@@ -261,7 +263,8 @@ test('pins audience string/array and authorized-party semantics exactly', async 
 });
 
 test('pins nonce, subject, email verification, case-preserving mailbox, and safe display name', async () => {
-  const bad = [{ nonce: 'other' }, { sub: '' }, { sub: ' bad' }, { sub: 'bad\nsub' }, { sub: 'x'.repeat(256) },
+  const bad = [{ nonce: 'other' }, { sub: '' }, { sub: ' bad' }, { sub: 'bad\nsub' },
+    { sub: 'bad\u0085sub' }, { sub: 'bad\u200bsub' }, { sub: 'x'.repeat(256) },
     { email_verified: false }, { email_verified: 1 }, { email: 'not-an-email' }, { email: 'a..b@example.com' },
     { email: 'a@localhost' }, { email: 'x'.repeat(245) + '@example.com' }];
   for (const patch of bad) await invalid(() => harness().service.verifyIdentity(request(token(BASE_HEADER, { ...BASE_CLAIMS, ...patch }))));
