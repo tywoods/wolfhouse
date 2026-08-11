@@ -78,7 +78,6 @@ test('executes one fixed Google INSERT with explicit authority columns, constant
   assert.equal(calls.length, 1); assert.strictEqual(calls[0].receiver, q); assert.equal(calls[0].text, SQL);
   assert.deepEqual(calls[0].params.slice(0, 6), [CLIENT, LOCATION, ENDPOINT, STAFF, SESSION, OPERATION]);
   assert.ok(Buffer.isBuffer(calls[0].params[6])); assert.equal(calls[0].params[6].toString('hex'), STATE);
-  assert.notStrictEqual(calls[0].params[6], Buffer.from(STATE, 'hex'));
   assert.deepEqual(calls[0].params.slice(7), [VERIFIER, NONCE, ISSUED, EXPIRES]);
   assert.deepEqual(ack, { operationId: OPERATION, expiresAt: EXPIRES }); assert.equal(Object.isFrozen(ack), true);
   assert.deepEqual(Reflect.ownKeys(ack), ['operationId', 'expiresAt']);
@@ -96,6 +95,8 @@ test('SQL is insert-only, Google-specific, and delegates endpoint eligibility to
 
 test('accepts direct or genuine same-realm native Promise query results', async () => {
   assert.deepEqual(await create().create(input()), { operationId: OPERATION, expiresAt: EXPIRES });
+  assert.deepEqual(await create(queryOwner(() => ({ rows: [{ operation_id: OPERATION, expires_at: EXPIRES }] }))).create(input()),
+    { operationId: OPERATION, expiresAt: EXPIRES });
   assert.deepEqual(await create(queryOwner(() => Promise.resolve(result()))).create(input()), { operationId: OPERATION, expiresAt: EXPIRES });
 });
 
@@ -153,9 +154,9 @@ test('rejects custom, proxy, spoofed, subclass, and cross-realm promises without
   assert.equal(invoked, 0);
 });
 
-test('requires exact frozen one-row normalized query output and exact unchanged operation and expiry', async () => {
+test('safely snapshots exact one-row driver output and requires exact unchanged operation and expiry', async () => {
   const accessorRow = { operation_id: OPERATION }; Object.defineProperty(accessorRow, 'expires_at', { enumerable: true, get() { throw new Error(LEAK); } }); freeze(accessorRow);
-  const malformed = [undefined, null, {}, { rows: freeze([row()]) }, freeze({ rows: [] }), freeze({ rows: freeze([]) }),
+  const malformed = [undefined, null, {}, { rows: [] }, freeze({ rows: freeze([]) }),
     freeze({ rows: freeze([row(), row()]) }), freeze({ rows: freeze([{ ...row() }]) }),
     freeze({ rows: freeze([freeze({ expires_at: EXPIRES, operation_id: OPERATION })]) }),
     result(row({ operation_id: CLIENT })), result(row({ expires_at: '2026-08-11 12:10:00+00' })), result(accessorRow),
