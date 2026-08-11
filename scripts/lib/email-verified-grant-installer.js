@@ -5,9 +5,10 @@
  *
  * Owns ONE short PostgreSQL transaction that atomically:
  *   1) locks the endpoint row FOR UPDATE
- *   2) inserts generation-1 active/clean sealed envelope into
- *      tenant_email_delegated_grants (actor audit)
- *   3) binds verified identity on the same endpoint (binding_status=verified)
+ *   2) performs the two mutations in provider-safe order: Microsoft inserts the
+ *      grant then binds the endpoint; Gmail binds first so its immediate grant
+ *      guard accepts the insert
+ *   3) validates exact RETURNING rows for both mutations before commit
  *
  * Receives exact frozen install payload from the verified-grant custody adapter
  * (INSTALL_KEYS order). No tokens, no AAD bytes, no routes/callback/Azure/live.
@@ -556,6 +557,33 @@ async function rollbackQuiet(client) {
   }
 }
 
+async function insertGrant(client, snap, errorIdentity) {
+  const e = snap.envelope;
+  const actor = snap.actorStaffUserId;
+  const inserted = await client.query(SQL_INSERT_GRANT, [
+    snap.clientId, snap.endpointId, snap.operationId, e.envelope_version, e.aead_alg,
+    e.kek_wrap_alg, e.kek_key_name, e.kek_key_version, e.nonce, e.ciphertext,
+    e.auth_tag, e.wrapped_dek, actor,
+  ]);
+  if (!inserted || !Array.isArray(inserted.rows) || inserted.rows.length !== 1) {
+    throw failure(errorIdentity);
+  }
+  if (!snapshotAndValidateGrantReturning(inserted.rows[0], snap.clientId, snap.endpointId)) {
+    throw failure(errorIdentity);
+  }
+}
+
+async function updateEndpoint(client, snap, lockSnap, provider, errorIdentity) {
+  const actor = snap.actorStaffUserId;
+  const updated = await client.query(sqlUpdateEndpoint(provider), [
+    snap.clientId, snap.endpointId, snap.identity.providerTenantId,
+    snap.identity.providerPrincipalId, snap.identity.providerPrincipalId, actor,
+    lockSnap.bindingStatus, snap.identity.mailboxAddress,
+  ]);
+  if (!updated || !Array.isArray(updated.rows) || updated.rows.length !== 1
+      || !snapshotAndValidateUpdateReturning(updated.rows[0], snap)) throw failure(errorIdentity);
+}
+
 /**
  * One short TX. Pre-COMMIT failure → ROLLBACK. After COMMIT attempt is sent,
  * never ROLLBACK (commit outcome ambiguity → fixed sanitized failure).
@@ -579,26 +607,14 @@ async function installInTransaction(client, snap, allowedProviderKeys, errorIden
     if (typeof lockSnap.publicAddress !== 'string'
         || lockSnap.publicAddress !== snap.identity.mailboxAddress) throw failure(errorIdentity);
 
-    const e = snap.envelope;
-    const actor = snap.actorStaffUserId;
-    const inserted = await client.query(SQL_INSERT_GRANT, [
-      snap.clientId, snap.endpointId, snap.operationId, e.envelope_version, e.aead_alg,
-      e.kek_wrap_alg, e.kek_key_name, e.kek_key_version, e.nonce, e.ciphertext,
-      e.auth_tag, e.wrapped_dek, actor,
-    ]);
-    if (!inserted || !Array.isArray(inserted.rows) || inserted.rows.length !== 1) {
-      throw failure(errorIdentity);
+    if (snap.identity.providerKey === 'gmail') {
+      await updateEndpoint(client, snap, lockSnap, provider, errorIdentity);
+      await insertGrant(client, snap, errorIdentity);
+    } else {
+      // Preserve the Microsoft install's existing INSERT → UPDATE statement order.
+      await insertGrant(client, snap, errorIdentity);
+      await updateEndpoint(client, snap, lockSnap, provider, errorIdentity);
     }
-    if (!snapshotAndValidateGrantReturning(inserted.rows[0], snap.clientId, snap.endpointId)) {
-      throw failure(errorIdentity);
-    }
-    const updated = await client.query(sqlUpdateEndpoint(provider), [
-      snap.clientId, snap.endpointId, snap.identity.providerTenantId,
-      snap.identity.providerPrincipalId, snap.identity.providerPrincipalId, actor,
-      lockSnap.bindingStatus, snap.identity.mailboxAddress,
-    ]);
-    if (!updated || !Array.isArray(updated.rows) || updated.rows.length !== 1
-        || !snapshotAndValidateUpdateReturning(updated.rows[0], snap)) throw failure(errorIdentity);
     commitSent = true;
     await client.query(SQL_COMMIT);
     began = false;

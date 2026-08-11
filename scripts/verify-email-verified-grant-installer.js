@@ -68,7 +68,7 @@ function kind(sql) {
   return 'UNEXPECTED';
 }
 
-function createPinnedTraceClient(endpointPatch = {}) {
+function createPinnedTraceClient(endpointPatch = {}, options = {}) {
   const trace = [];
   const client = {
     async query(rawSql, rawParams) {
@@ -96,6 +96,7 @@ function createPinnedTraceClient(endpointPatch = {}) {
             rowCount: 1,
           };
         case 'INSERT_ENCRYPTED_GRANT_GENERATION_1':
+          if (options.failInsert) throw new Error('fake insert failure');
           assert.match(sql, /grant_generation[\s\S]*VALUES\s*\([^)]*1\s*,\s*'active'/i);
           assert.deepEqual(params.slice(0, 3), [CLIENT_ID, ENDPOINT_ID, OPERATION_ID]);
           assert.equal(params[3], 'v1');
@@ -202,6 +203,17 @@ async function main() {
   ]);
   assertNoRawTokensOrAad(fake.trace, 'SQL trace');
   assertNoRawTokensOrAad(result, 'output');
+
+  const insertFailure = createPinnedTraceClient({}, { failInsert: true });
+  const insertFailureInstaller = owner.createVerifiedGrantInstaller(
+    Object.freeze({ client: insertFailure.client }),
+  );
+  await assert.rejects(() => insertFailureInstaller.installVerifiedGrant(installInput()),
+    (error) => error && error.code === owner.ERROR_CODE);
+  assert.deepEqual(insertFailure.trace.map((entry) => kind(entry.sql)), [
+    'BEGIN', 'SELECT_ENDPOINT_FOR_UPDATE', 'UPDATE_ENDPOINT_GMAIL_VERIFIED',
+    'INSERT_ENCRYPTED_GRANT_GENERATION_1', 'ROLLBACK',
+  ]);
 
   const crossed = createPinnedTraceClient({
     provider: 'microsoft_graph', connector_mode: 'microsoft_delegated_oauth',
