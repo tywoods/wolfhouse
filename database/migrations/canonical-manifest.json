@@ -965,6 +965,26 @@
       "rationale": "Down for 072: DROP INDEX messages_staff_email_reply_approval_uq only. Does not delete messages rows.",
       "pairsWith": "072_messages_staff_email_reply_approval_uq.sql",
       "sha256": "a2bebb75b8bfd4fd142015ece577bb50bfa3759afdf887fa55a1ec1471df617c"
+    },
+    {
+      "id": "073_tenant_channel_endpoint_google_identity",
+      "filename": "073_tenant_channel_endpoint_google_identity.sql",
+      "order": 72,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "G2c additive provider-specific endpoint identity: classify gmail_api+delegated_authorization_code+google_delegated_oauth; exact Google issuer and case-sensitive printable ASCII OIDC sub mailbox identity. Preserves Microsoft GUID and ownership semantics; no rows, grants, activation, routes, credentials, or sends.",
+      "downFilename": "073_tenant_channel_endpoint_google_identity_down.sql",
+      "sha256": "0de8cbbab1f77f55ee96dde280f11afd54c0fdc7e2f3ce4c391dc8c73a3c20e6"
+    },
+    {
+      "id": "073_tenant_channel_endpoint_google_identity_down",
+      "filename": "073_tenant_channel_endpoint_google_identity_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit safe rollback for G2c: refuses rollback while any classified Gmail identity exists; otherwise restores exact pre-G2c Microsoft-only constraints without rewriting data.",
+      "pairsWith": "073_tenant_channel_endpoint_google_identity.sql",
+      "sha256": "9aa205a5d5cbd5ab3dbfcec673f9c1c7c7df6d23aeaabc79a5ef02aa592d3357"
     }
   ]
 }

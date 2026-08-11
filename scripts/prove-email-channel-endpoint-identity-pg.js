@@ -18,6 +18,8 @@ const { startDisposablePostgresHarness, dockerAvailable } = require('./lib/dispo
 const UP057 = '057_tenant_locations_and_channel_endpoints.sql';
 const UP058 = '058_tenant_channel_endpoint_identity.sql';
 const DOWN058 = '058_tenant_channel_endpoint_identity_down.sql';
+const UP073 = '073_tenant_channel_endpoint_google_identity.sql';
+const DOWN073 = '073_tenant_channel_endpoint_google_identity_down.sql';
 const CAPS = {
   push_notifications: false, provider_threads: false, remote_drafts: false,
   reply: false, reply_all: false, forward: false,
@@ -251,6 +253,61 @@ async function runProof(client) {
     [clientB, 'main-b', 'case-dup@example.com', 'kv:case-dup', CAPS_J, TID, OID, 'Mailbox-Res-Case', 'verified', actor],
     'collate-c-exact-case-23505');
 
+  await applySqlFile(client, path.join(MIGRATIONS_DIR, UP073));
+  ok('apply-073-google-identity', true);
+  const googleSub = 'Google-Sub_123:CaseSensitive';
+  await client.query(
+    `INSERT INTO tenant_channel_endpoints (
+       client_id, location_id, provider, public_address, secret_ref, capabilities,
+       auth_mode, connector_mode, provider_tenant_id, provider_principal_oid,
+       provider_resource_id, mailbox_kind, mailbox_access_kind, binding_status,
+       created_by, updated_by
+     ) VALUES ($1,'main','gmail_api','classified@gmail.test','kv:g-classified',$2::jsonb,
+       'delegated_authorization_code','google_delegated_oauth','https://accounts.google.com',$3,
+       $3,'user','own_user','verified',$4,$4)`,
+    [clientId, CAPS_J, googleSub, actor],
+  );
+  ok('gmail-classified-verified-insert', true);
+  await expectCheckFail(client,
+    `UPDATE tenant_channel_endpoints SET provider_principal_oid='Google Sub',
+       provider_resource_id='Google Sub' WHERE public_address='classified@gmail.test'`,
+    [], 'gmail-sub-embedded-space-check');
+  await expectCheckFail(client,
+    `UPDATE tenant_channel_endpoints SET provider_tenant_id='https://accounts.google.com/'
+       WHERE public_address='classified@gmail.test'`,
+    [], 'gmail-issuer-alias-check');
+  await expectCheckFail(client,
+    `UPDATE tenant_channel_endpoints SET provider_resource_id='different-sub'
+       WHERE public_address='classified@gmail.test'`,
+    [], 'gmail-principal-resource-match-check');
+  await expectCheckFail(client,
+    `UPDATE tenant_channel_endpoints SET binding_status='pending_manual_validation', provider_principal_oid=NULL
+       WHERE public_address='classified@gmail.test'`,
+    [], 'gmail-principal-null-resource-present-check');
+  await expectCheckFail(client,
+    `UPDATE tenant_channel_endpoints SET binding_status='pending_manual_validation', provider_resource_id=NULL
+       WHERE public_address='classified@gmail.test'`,
+    [], 'gmail-resource-null-principal-present-check');
+  await expectCheckFail(client,
+    `UPDATE tenant_channel_endpoints SET auth_mode=NULL, connector_mode='google_delegated_oauth',
+       provider_tenant_id=NULL, provider_principal_oid=NULL, provider_resource_id=NULL,
+       mailbox_kind=NULL, mailbox_access_kind=NULL, binding_status=NULL
+       WHERE public_address='classified@gmail.test'`,
+    [], 'gmail-auth-connector-null-coupling-check');
+  try {
+    await applySqlFile(client, path.join(MIGRATIONS_DIR, DOWN073));
+    ok('down-073-blocks-classified-gmail', false, 'rollback unexpectedly succeeded');
+  } catch (e) {
+    ok('down-073-blocks-classified-gmail', /073 rollback blocked/.test(String(e && e.message)));
+  }
+  await client.query(`DELETE FROM tenant_channel_endpoints WHERE public_address='classified@gmail.test'`);
+  await applySqlFile(client, path.join(MIGRATIONS_DIR, DOWN073));
+  ok('down-073-after-google-row-removed', true);
+  await applySqlFile(client, path.join(MIGRATIONS_DIR, UP073));
+  ok('reapply-073', true);
+  await applySqlFile(client, path.join(MIGRATIONS_DIR, DOWN073));
+  ok('down-073-clean-before-058', true);
+
   await applySqlFile(client, path.join(MIGRATIONS_DIR, DOWN058));
   const colsAfterDown = await client.query(
     `SELECT column_name FROM information_schema.columns
@@ -268,6 +325,9 @@ async function runProof(client) {
   const ent = man.entries.find((e) => e.filename === UP058);
   const live = sha256CanonicalLfV1File(path.join(MIGRATIONS_DIR, UP058));
   ok('manifest-sha-matches-file', ent && ent.sha256 === live && ent.order === 56);
+  const ent073 = man.entries.find((e) => e.filename === UP073);
+  const live073 = sha256CanonicalLfV1File(path.join(MIGRATIONS_DIR, UP073));
+  ok('manifest-073-sha-matches-file', ent073 && ent073.sha256 === live073 && ent073.order === 72);
 }
 
 async function main() {

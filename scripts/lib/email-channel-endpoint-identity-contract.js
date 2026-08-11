@@ -26,6 +26,8 @@ const BINDING_SET = new Set(EMAIL_BINDING_STATUSES);
 const KIND_SET = new Set(EMAIL_MAILBOX_KINDS);
 const ACCESS_SET = new Set(EMAIL_MAILBOX_ACCESS_KINDS);
 const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const GOOGLE_ISSUER = 'https://accounts.google.com';
+const PRINTABLE_ASCII_RE = /^[\x21-\x7e]{1,255}$/;
 const FORBIDDEN_RAW_KEYS = Object.freeze([
   'access_token', 'refresh_token', 'id_token', 'authorization_code', 'code',
   'state', 'nonce', 'pkce_verifier', 'pkce_challenge', 'code_verifier',
@@ -56,6 +58,7 @@ const EMAIL_IDENTITY_SECRET_PACKAGE_SEMANTICS = Object.freeze({
   material_key_names_by_mode: Object.freeze({
     microsoft_delegated_oauth: Object.freeze(['refresh_token']),
     microsoft_app_only_enterprise: Object.freeze(['tenant_id', 'client_id', 'client_secret']),
+    google_delegated_oauth: Object.freeze(['refresh_token']),
   }),
 });
 
@@ -137,6 +140,9 @@ function pairRow(authMode, connectorMode) {
       default_saas: false,
     };
   }
+  if (authMode === 'delegated_authorization_code' && connectorMode === 'google_delegated_oauth') {
+    return { provider: 'gmail_api', auth_mode: authMode, connector_mode: connectorMode, default_saas: false };
+  }
   return null;
 }
 
@@ -159,7 +165,7 @@ function validateIdentityModePairImpl(raw) {
   if (authNull !== connNull) {
     return fail('identity_mode_pair_invalid', { reason: 'auth_connector_null_coupling' });
   }
-  if (o.provider !== 'microsoft_graph') {
+  if (o.provider === 'imap_smtp') {
     if (!authNull || !connNull) {
       return fail('identity_mode_pair_invalid', { reason: 'non_graph_modes_must_be_null' });
     }
@@ -169,7 +175,7 @@ function validateIdentityModePairImpl(raw) {
   }
   if (authNull) {
     return ok({
-      provider: 'microsoft_graph', auth_mode: null, connector_mode: null, legacy_unclassified: true,
+      provider: o.provider, auth_mode: null, connector_mode: null, legacy_unclassified: true,
     });
   }
   if (typeof o.auth_mode !== 'string' || typeof o.connector_mode !== 'string') {
@@ -223,8 +229,8 @@ function validateBindingIdentityImpl(raw) {
   if (anyIdentity && mode.value.legacy_unclassified) {
     return fail('binding_identity_invalid', { reason: 'identity_requires_modes' });
   }
-  if (o.provider !== 'microsoft_graph' && anyIdentity) {
-    return fail('binding_identity_invalid', { reason: 'non_graph_identity_forbidden' });
+  if (o.provider === 'imap_smtp' && anyIdentity) {
+    return fail('binding_identity_invalid', { reason: 'unclassified_identity_forbidden' });
   }
 
   // Non-null provider_resource_id: exact-trimmed nonempty in every status (no coercion).
@@ -233,11 +239,16 @@ function validateBindingIdentityImpl(raw) {
     if (e) return e;
   }
   if (hasOwn(o, 'provider_tenant_id') && !isNullish(o.provider_tenant_id)) {
-    const e = nullOrCanonicalGuid(o.provider_tenant_id, 'provider_tenant_id');
+    const e = o.provider === 'gmail_api'
+      ? (o.provider_tenant_id === GOOGLE_ISSUER ? null : fail('identity_field_invalid', { reason: 'google_issuer_exact', field: 'provider_tenant_id' }))
+      : nullOrCanonicalGuid(o.provider_tenant_id, 'provider_tenant_id');
     if (e) return e;
   }
   if (hasOwn(o, 'provider_principal_oid') && !isNullish(o.provider_principal_oid)) {
-    const e = nullOrCanonicalGuid(o.provider_principal_oid, 'provider_principal_oid');
+    const e = o.provider === 'gmail_api'
+      ? (typeof o.provider_principal_oid === 'string' && PRINTABLE_ASCII_RE.test(o.provider_principal_oid)
+        ? null : fail('identity_field_invalid', { reason: 'google_sub_grammar', field: 'provider_principal_oid' }))
+      : nullOrCanonicalGuid(o.provider_principal_oid, 'provider_principal_oid');
     if (e) return e;
   }
   if (hasOwn(o, 'mailbox_kind') && !isNullish(o.mailbox_kind)) {
@@ -261,6 +272,14 @@ function validateBindingIdentityImpl(raw) {
   }
 
   const auth = mode.value.auth_mode;
+  if (o.provider === 'gmail_api' && !mode.value.legacy_unclassified) {
+    const principalNull = isNullish(o.provider_principal_oid);
+    const resourceNull = isNullish(o.provider_resource_id);
+    if (principalNull !== resourceNull
+      || (!principalNull && o.provider_resource_id !== o.provider_principal_oid)) {
+      return fail('binding_identity_invalid', { reason: 'google_principal_resource_pair' });
+    }
+  }
   if (auth === 'delegated_authorization_code') {
     if (hasOwn(o, 'mailbox_kind') && !isNullish(o.mailbox_kind) && o.mailbox_kind !== 'user') {
       return fail('binding_identity_invalid', { reason: 'delegated_mailbox_kind' });
@@ -285,10 +304,11 @@ function validateBindingIdentityImpl(raw) {
 
   const status = hasOwn(o, 'binding_status') ? o.binding_status : null;
   if (status != null && VERIFIED_LIKE.has(status)) {
-    if (o.provider !== 'microsoft_graph' || mode.value.legacy_unclassified) {
-      return fail('binding_identity_invalid', { reason: 'verified_requires_graph_pair' });
+    if (mode.value.legacy_unclassified) {
+      return fail('binding_identity_invalid', { reason: 'verified_requires_classified_pair' });
     }
-    if (!isCanonicalGuid(o.provider_tenant_id)) {
+    if ((o.provider === 'microsoft_graph' && !isCanonicalGuid(o.provider_tenant_id))
+      || (o.provider === 'gmail_api' && o.provider_tenant_id !== GOOGLE_ISSUER)) {
       return fail('binding_identity_invalid', { reason: 'verified_requires_tenant' });
     }
     // Shape already enforced above; verified requires non-null string present.
@@ -299,7 +319,9 @@ function validateBindingIdentityImpl(raw) {
       return fail('binding_identity_invalid', { reason: 'verified_requires_mailbox_kind' });
     }
     if (auth === 'delegated_authorization_code') {
-      if (!isCanonicalGuid(o.provider_principal_oid)) {
+      if ((o.provider === 'microsoft_graph' && !isCanonicalGuid(o.provider_principal_oid))
+        || (o.provider === 'gmail_api' && (!PRINTABLE_ASCII_RE.test(o.provider_principal_oid)
+          || o.provider_resource_id !== o.provider_principal_oid))) {
         return fail('binding_identity_invalid', { reason: 'verified_delegated_requires_principal' });
       }
       if (o.mailbox_access_kind !== 'own_user') {
@@ -327,7 +349,7 @@ function validateBindingIdentityImpl(raw) {
     mailbox_kind: isNullish(o.mailbox_kind) ? null : o.mailbox_kind,
     mailbox_access_kind: isNullish(o.mailbox_access_kind) ? null : o.mailbox_access_kind,
     binding_status: isNullish(status) ? null : status,
-    principal_is_mailbox_identity: false,
+    principal_is_mailbox_identity: o.provider === 'gmail_api',
     legacy_unclassified: mode.value.legacy_unclassified === true,
     ownership: {
       verified_like: status != null && VERIFIED_LIKE.has(status),
