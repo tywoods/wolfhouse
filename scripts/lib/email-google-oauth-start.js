@@ -40,6 +40,7 @@ const DIGEST = /^[0-9a-f]{64}$/;
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const CLIENT_SUFFIX = '.apps.googleusercontent.com';
 const AUTHORITY = 'https://accounts.google.com/o/oauth2/v2/auth';
+const SCOPE = GOOGLE_PHASE_A_SCOPES.join(' ');
 
 const failure = new Error(FAILURE);
 defineProperty(failure, 'name', { value: 'GoogleOAuthStartError' });
@@ -130,7 +131,7 @@ function createGoogleOAuthStart(configuration, dependencies) {
       const params = new URLSearchParamsConstructor([
         ['client_id', config.applicationClientId], ['response_type', 'code'],
         ['redirect_uri', config.redirectUri], ['response_mode', 'query'],
-        ['scope', GOOGLE_PHASE_A_SCOPES.join(' ')], ['state', values.state],
+        ['scope', SCOPE], ['state', values.state],
         ['nonce', values.nonce], ['code_challenge', values.challenge],
         ['code_challenge_method', 'S256'], ['prompt', 'consent'],
       ]);
@@ -155,6 +156,7 @@ function createGoogleOAuthStart(configuration, dependencies) {
           encoded.push(text);
         }
         const state = encoded[0]; const nonce = encoded[1]; const codeVerifier = encoded[2];
+        if (state === nonce || state === codeVerifier || nonce === codeVerifier) fail();
         const stateDigest = apply(sha256Ascii, cryptographyOwner, [state]);
         const verifierDigest = apply(sha256Ascii, cryptographyOwner, [codeVerifier]);
         if (!apply(bufferIsBuffer, Buffer, [stateDigest]) || stateDigest.length !== 32

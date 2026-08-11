@@ -17,6 +17,8 @@ const owner = require('./lib/email-google-oauth-start');
 const { createGoogleOAuthStart } = owner;
 
 const freeze = Object.freeze;
+const apply = Reflect.apply;
+const bufferFrom = Buffer.from;
 const CLIENT = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const LOCATION = '11111111-2222-4333-8444-555555555555';
 const ENDPOINT = '66666666-7777-4888-8999-aaaaaaaaaaaa';
@@ -58,7 +60,7 @@ function harness(patch = {}) {
   let byteIndex = 0;
   const cryptography = freeze({
     randomUUID() { calls.uuid.push({ receiver: this }); return OPERATION; },
-    randomBytes(size) { calls.bytes.push({ size, receiver: this }); return Buffer.from(byteSets[byteIndex++]); },
+    randomBytes(size) { calls.bytes.push({ size, receiver: this }); return apply(bufferFrom, Buffer, [byteSets[byteIndex++]]); },
     sha256Ascii(value) {
       calls.sha.push({ value, receiver: this });
       return crypto.createHash('sha256').update(value, 'ascii').digest();
@@ -98,7 +100,7 @@ test('requires exact frozen ordered deployment configuration and exact true acti
     freeze({ applicationClientId: APPLICATION_CLIENT, enabled: true, redirectUri: REDIRECT }),
     freeze(Object.assign(Object.create(null), good)), freeze({ ...good, [Symbol('x')]: true }),
     config({ enabled: false }), config({ enabled: 'true' }), config({ enabled: 1 }),
-    config({ applicationClientId: 'other.apps.googleusercontent.com' }),
+    config({ applicationClientId: '.apps.googleusercontent.com' }),
     config({ redirectUri: 'http://mail.example.test/callback' }), config({ redirectUri: 'https://user@mail.example.test/callback' }),
     config({ redirectUri: 'https://mail.example.test/callback#fragment' }),
     config({ redirectUri: 'https://mail.example.test/callback?unexpected=1' }),
@@ -107,7 +109,7 @@ test('requires exact frozen ordered deployment configuration and exact true acti
     enabled: { enumerable: true, get() { throw new Error(LEAK); } },
     applicationClientId: { enumerable: true, value: APPLICATION_CLIENT }, redirectUri: { enumerable: true, value: REDIRECT },
   }); freeze(accessor); bad.push(accessor);
-  for (const value of bad) { const h = harness(); assert.throws(() => create(h, value), clean); assert.deepEqual(h.calls, { uuid: [], bytes: [], sha: [], now: [], create: [] }); }
+  for (const value of bad) { const h = harness(); assert.throws(() => createGoogleOAuthStart(value, h.dependencies), clean); assert.deepEqual(h.calls, { uuid: [], bytes: [], sha: [], now: [], create: [] }); }
   const uppercase = harness();
   const service = create(uppercase, config({ applicationClientId: '9876543210-UPPER.apps.googleusercontent.com' }));
   assert.equal(Object.isFrozen(service), true); assert.deepEqual(uppercase.calls, { uuid: [], bytes: [], sha: [], now: [], create: [] });
@@ -212,6 +214,7 @@ test('fails closed on malformed generated values or clock before persistence and
     h => { h.cryptography = freeze({ ...h.cryptography, randomUUID() { return 'not-uuid'; } }); },
     h => { h.cryptography = freeze({ ...h.cryptography, randomBytes() { return Buffer.alloc(31); } }); },
     h => { h.cryptography = freeze({ ...h.cryptography, randomBytes() { return new Uint8Array(32); } }); },
+    h => { h.cryptography = freeze({ ...h.cryptography, randomBytes() { return Buffer.alloc(32, 7); } }); },
     h => { h.cryptography = freeze({ ...h.cryptography, sha256Ascii() { return Buffer.alloc(31); } }); },
     h => { h.clock = freeze({ now() { return '2026-08-11T12:00:00Z'; } }); },
     h => { h.clock = freeze({ now() { return '2026-02-30T12:00:00.000Z'; } }); },
@@ -256,15 +259,15 @@ test('uses captured intrinsics and pinned functions despite function-owned and p
   for (const ownerValue of [h.cryptography, h.clock, h.repository]) for (const key of Reflect.ownKeys(ownerValue)) {
     const fn = ownerValue[key]; Object.defineProperties(fn, { call: { value() { traps += 1; } }, apply: { value() { traps += 1; } } });
   }
-  const service = create(h); const saved = { apply: Reflect.apply, freeze: Object.freeze, Promise: global.Promise,
+  const service = create(h); const saved = { apply: Reflect.apply, freeze: Object.freeze, join: Array.prototype.join, Promise: global.Promise,
     URL: global.URL, from: Buffer.from, isBuffer: Buffer.isBuffer, test: RegExp.prototype.test };
   let result;
   try {
-    Reflect.apply = () => { throw new Error(LEAK); }; Object.freeze = value => value;
+    Reflect.apply = () => { throw new Error(LEAK); }; Object.freeze = value => value; Array.prototype.join = () => { throw new Error(LEAK); };
     global.Promise = function PoisonPromise() { throw new Error(LEAK); }; global.URL = function PoisonURL() { throw new Error(LEAK); };
     Buffer.from = () => { throw new Error(LEAK); }; Buffer.isBuffer = () => false; RegExp.prototype.test = () => { throw new Error(LEAK); };
     result = await service.start(input());
-  } finally { Reflect.apply = saved.apply; Object.freeze = saved.freeze; global.Promise = saved.Promise;
+  } finally { Reflect.apply = saved.apply; Object.freeze = saved.freeze; Array.prototype.join = saved.join; global.Promise = saved.Promise;
     global.URL = saved.URL; Buffer.from = saved.from; Buffer.isBuffer = saved.isBuffer; RegExp.prototype.test = saved.test; }
   assert.equal(traps, 0); assert.equal(saved.freeze === Object.freeze, true); assert.equal(Object.isFrozen(result), true);
 });
