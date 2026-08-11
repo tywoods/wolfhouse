@@ -1005,6 +1005,26 @@
       "rationale": "Refuses while any Gmail grant exists; otherwise restores the exact pre-074 Microsoft-only grant applicability function and endpoint trigger columns without DML.",
       "pairsWith": "074_tenant_email_delegated_grants_google_mode_guard.sql",
       "sha256": "0bc716c90cf6d2f81d130b3062168cd2a85e2abecc0b9690496bbc0e6029b650"
+    },
+    {
+      "id": "075_tenant_email_google_oauth_transactions",
+      "filename": "075_tenant_email_google_oauth_transactions.sql",
+      "order": 74,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Isolated Google delegated OAuth transaction custody with exact tenant ownership, eligible pre-verification endpoint binding, bounded private PKCE/nonce material, single-use consume transition, and no Microsoft table changes.",
+      "downFilename": "075_tenant_email_google_oauth_transactions_down.sql",
+      "sha256": "34a4771a86a03cf8c803fb6b1f02caf8686f60595d1d522e5d5073141876d0a1"
+    },
+    {
+      "id": "075_tenant_email_google_oauth_transactions_down",
+      "filename": "075_tenant_email_google_oauth_transactions_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses destructive rollback while Google OAuth transaction rows exist; otherwise removes only the isolated Google table, trigger, and guard function.",
+      "pairsWith": "075_tenant_email_google_oauth_transactions.sql",
+      "sha256": "00537a12ea3dca1d76fe3aed3454ddc264046ba64f1a9dbefaa881941ad02647"
     }
   ]
 }
