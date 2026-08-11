@@ -419,7 +419,7 @@ WHERE cl.id = $1::uuid AND su.status = 'active' AND su.role IN ('operator','admi
   AND ep.provider_resource_id IS NOT NULL AND btrim(ep.provider_resource_id) <> ''
   AND ep.provider_resource_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
   AND ev.provider_mailbox_id = ep.provider_resource_id
-ORDER BY ev.received_at DESC, ev.id DESC LIMIT 1`.replace(/\s+/g, ' ').trim();
+ORDER BY ev.received_at DESC, ev.id DESC LIMIT 1 FOR UPDATE OF c,p,ev,ep`.replace(/\s+/g, ' ').trim();
 const SQL_INSERT_DRAFT = `
 INSERT INTO tenant_email_reply_approvals (
   approval_id, operation_id, client_id, location_id, location_key, endpoint_id, conversation_id,
@@ -572,6 +572,27 @@ function createStaffEmailInboxRoutes(deps) {
     if (!digest) { sendJSON(res, 400, INVALID_REQUEST); return null; }
     return { actor, input: parsed.body, digest };
   }
+  async function persistNewDraftThroughStaffOwner(pg, a, body, digest, expectedAuthority) {
+    const auth = await resolveAuthority(pg, a, body.conversation_id);
+    if (!auth) return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
+    if (expectedAuthority && !authorityMatchesExpected(auth, expectedAuthority)) {
+      return { status: 409, body: Object.freeze({ success: false, error: 'stale_authority' }), code: 'stale_authority' };
+    }
+    const approvalId = mintUuid(); const operationId = mintUuid();
+    const ins = await pg.query(SQL_INSERT_DRAFT, [approvalId, operationId, auth.client_id, auth.location_id,
+      auth.location_key, auth.endpoint_id, auth.conversation_id, auth.source_inbound_event_id,
+      auth.provider_mailbox_id, auth.provider_source_message_id, a.staff_user_id, body.message_text, digest]);
+    if (!ins || !ins.rows || ins.rows.length !== 1) {
+      return { status: 500, body: Object.freeze({ success: false, error: 'draft_failed' }), code: 'draft_insert_failed' };
+    }
+    const row = ins.rows[0];
+    return { status: 200, body: successDto(row.conversation_id, row.message_text, row.approval_id), code: 'draft_created', approval_id: row.approval_id };
+  }
+  function authorityMatchesExpected(auth, expected) {
+    const keys = ['client_id', 'location_id', 'location_key', 'endpoint_id', 'conversation_id',
+      'source_inbound_event_id', 'provider', 'provider_mailbox_id', 'provider_source_message_id'];
+    try { return keys.every((key) => Object.hasOwn(expected, key) && expected[key] === auth[key]); } catch { return false; }
+  }
   async function handleDraft(req, res, user, gateEnv) {
     const started = Date.now();
     const env = gateEnv || snapshotGateEnv(deps.runtimeEnv || process.env);
@@ -585,21 +606,11 @@ function createStaffEmailInboxRoutes(deps) {
     const { actor, input, digest } = pre;
     try {
       const result = await withPgClient(async (pg) => {
+        if (input.approval_id == null) {
+          return persistNewDraftThroughStaffOwner(pg, actor, input, digest, null);
+        }
         const auth = await resolveAuthority(pg, actor, input.conversation_id);
         if (!auth) return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
-        if (input.approval_id == null) {
-          const approvalId = mintUuid(); const operationId = mintUuid();
-          const ins = await pg.query(SQL_INSERT_DRAFT, [
-            approvalId, operationId, auth.client_id, auth.location_id, auth.location_key, auth.endpoint_id,
-            auth.conversation_id, auth.source_inbound_event_id, auth.provider_mailbox_id, auth.provider_source_message_id,
-            actor.staff_user_id, input.message_text, digest,
-          ]);
-          if (!ins || !ins.rows || ins.rows.length !== 1) {
-            return { status: 500, body: Object.freeze({ success: false, error: 'draft_failed' }), code: 'draft_insert_failed' };
-          }
-          const row = ins.rows[0];
-          return { status: 200, body: successDto(row.conversation_id, row.message_text, row.approval_id), code: 'draft_created', approval_id: row.approval_id };
-        }
         const upd = await pg.query(SQL_CAS_DRAFT, [
           input.approval_id, actor.client_id, input.conversation_id, input.message_text, digest, actor.staff_user_id,
         ]);
@@ -616,6 +627,26 @@ function createStaffEmailInboxRoutes(deps) {
         conversation_id: input.conversation_id, staff_user_id: actor.staff_user_id, elapsed_ms: Date.now() - started });
       return sendJSON(res, 500, Object.freeze({ success: false, error: 'draft_failed' }));
     }
+  }
+  /** Shared authoritative new-draft persistence owner for manual and Luna routes. */
+  async function saveDraftThroughStaffOwner(input) {
+    const a = input && input.actor;
+    const body = snapshotEmailReplyBody(input && { conversation_id: input.conversation_id,
+      message_text: input.message_text, approval_id: input.approval_id });
+    if (!a || !body || body.approval_id !== null) throw new Error('invalid draft owner input');
+    const digest = bodyDigestOf(body.message_text);
+    return withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const result = await persistNewDraftThroughStaffOwner(pg, a, body, digest, input.expected_authority || null);
+        if (result.status !== 200) { await pg.query('ROLLBACK'); return Object.freeze({ status: 'not_saved', conversation_id: body.conversation_id, approval_id: null }); }
+        await pg.query('COMMIT');
+        return Object.freeze({ status: 'saved', conversation_id: body.conversation_id, approval_id: result.approval_id });
+      } catch (error) {
+        try { await pg.query('ROLLBACK'); } catch { /* preserve original error */ }
+        throw error;
+      }
+    });
   }
   async function handleApproveSend(req, res, user, gateEnv) {
     const started = Date.now();
@@ -938,7 +969,7 @@ function createStaffEmailInboxRoutes(deps) {
   }
   return Object.freeze({
     EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
-    handleDraft, handleApproveSend, handleRecoverSend,
+    handleDraft, handleApproveSend, handleRecoverSend, saveDraftThroughStaffOwner,
   });
 }
 module.exports = {
