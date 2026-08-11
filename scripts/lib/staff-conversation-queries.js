@@ -64,6 +64,7 @@ function getConversationInboxQuery(opts = {}) {
 SELECT
   conv.id::text              AS conversation_id,
   conv.phone,
+  conv.customer_id::text     AS customer_id,
   COALESCE(NULLIF(btrim(conv.display_name), ''), NULLIF(btrim(b.guest_name), ''), bphone.guest_name) AS guest_name,
   conv.language,
   conv.bot_mode::text,

@@ -382,7 +382,9 @@ const {
   CUSTOMERS_MESSAGE_TEMPLATES_PATH,
   CUSTOMERS_MESSAGE_TEMPLATES_GENERATE_PATH,
   CUSTOMERS_OUTREACH_SEND_PATH,
+  CUSTOMERS_BY_EMAIL_CONTEXT_PATH,
   CUSTOMER_CONTEXT_RE,
+  CUSTOMER_BY_ID_CONTEXT_RE,
   CUSTOMER_TAGS_RE,
   CUSTOMER_CREATE_CONVERSATION_RE,
   CUSTOMER_MESSAGE_TEMPLATE_RE,
@@ -2552,6 +2554,8 @@ const customersRoutes = createCustomersRoutes({
 const {
   handleCustomerList,
   handleCustomerContext,
+  handleCustomerContextByEmail,
+  handleCustomerContextById,
   handleCustomerCreate,
   handleCustomerBulkDelete,
   handleCustomerTagsUpdate,
@@ -29748,9 +29752,18 @@ function customerProfileNotes(data) {
 function normalizeCustomerPhoneClient(phone) {
   var raw = String(phone || '').trim();
   if (!raw) return '';
+  // Opaque email identities: never digit-mangle to +dddd… (Open customer card bug).
+  if (/^(emailv1|email):/i.test(raw)) return ''; // conversation keys — not customers
+  if (/^emailcust1:/i.test(raw)) return raw.slice(0, 200); // stable email-customer key
   if (raw.charAt(0) === '+') return raw.slice(0, 40);
   var digits = raw.replace(/[^\d]/g, '');
   return digits ? ('+' + digits).slice(0, 40) : '';
+}
+
+function isEmailChannelConversationClient(c) {
+  if (!c) return false;
+  if (c.channel === 'email') return true;
+  return /^(emailv1|email):/i.test(String(c.phone || ''));
 }
 
 function customerResolveConversationId(data) {
@@ -29939,7 +29952,7 @@ function renderCustomerProfileSection(data, editing) {
       '</div></div>' +
       '<div class="customers-profile-fields">' +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.phone')) + '</span>' +
-        customerContactOpenControlHtml('whatsapp', data.phone || '', customerResolveChannelConversationId(data, 'whatsapp')) +
+        customerContactOpenControlHtml('whatsapp', (/^emailcust1:/i.test(String(data.phone||'')) ? '' : (data.phone || '')), customerResolveChannelConversationId(data, 'whatsapp')) +
       '</div>' +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.email')) + '</span>' +
         customerContactOpenControlHtml('email', id.email || '', customerResolveChannelConversationId(data, 'email')) +
@@ -30215,14 +30228,83 @@ function openCustomerCardForPhone(phone, opts) {
   var profile = getPortalProfile(getClient());
   if (!portalHasCustomersCrm(profile)) return Promise.resolve();
   var search = el('cust-search');
-  if (search) search.value = phone;
+  if (search) search.value = phone.indexOf('emailcust1:') === 0 ? (opts.email || phone) : phone;
   switchToTab('customers');
   return waitForCustomersDom().then(function() {
     var searchEl = el('cust-search');
-    if (searchEl) searchEl.value = phone;
+    if (searchEl) searchEl.value = phone.indexOf('emailcust1:') === 0 ? (opts.email || phone) : phone;
     return loadCustomersList();
   }).then(function() {
     return loadCustomerDetail(phone);
+  });
+}
+
+/** Open customer card from an Inbox conversation (email-safe). */
+function openCustomerCardFromConversation(c) {
+  if (!c) return Promise.resolve();
+  if (isEmailChannelConversationClient(c)) {
+    var email = c.guest_email || c.email || '';
+    if (c.customer_id) return openCustomerCardByCustomerId(c.customer_id, { email: email });
+    if (email) return openCustomerCardByEmail(email);
+    return Promise.resolve();
+  }
+  return openCustomerCardForPhone(c.phone);
+}
+
+function openCustomerCardByCustomerId(customerId, opts) {
+  opts = opts || {};
+  if (!customerId) return Promise.resolve();
+  var profile = getPortalProfile(getClient());
+  if (!portalHasCustomersCrm(profile)) return Promise.resolve();
+  switchToTab('customers');
+  return waitForCustomersDom().then(function() {
+    var url = '/staff/customers/by-id/' + encodeURIComponent(customerId) + '/context?client=' + encodeURIComponent(getClient()) +
+      (getClient() === 'sunset' ? ('&location=' + encodeURIComponent(getSunsetLocation())) : '');
+    return fetch(url).then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+      .then(function(data) {
+        if (!data || !data.success) throw new Error('context failed');
+        var phone = data.phone || '';
+        customerDetailState = { phone: phone, data: data, editing: false, tagsEditing: false };
+        selectedCustomerPhone = phone;
+        var searchEl = el('cust-search');
+        if (searchEl) searchEl.value = (data.identity && data.identity.email) || opts.email || phone;
+        renderCustomersList(getCustomersVisibleRows());
+        renderCustomerDetail(data);
+        return data;
+      })
+      .catch(function() {
+        var box = el('cust-detail');
+        if (box) box.innerHTML = '<div class="customers-detail-empty">' + escHtml(portalT('customers.detail.error')) + '</div>';
+      });
+  });
+}
+
+function openCustomerCardByEmail(email) {
+  email = String(email || '').trim().toLowerCase();
+  if (!email || email.indexOf('@') < 0) return Promise.resolve();
+  var profile = getPortalProfile(getClient());
+  if (!portalHasCustomersCrm(profile)) return Promise.resolve();
+  switchToTab('customers');
+  return waitForCustomersDom().then(function() {
+    var url = '/staff/customers/by-email/context?email=' + encodeURIComponent(email) +
+      '&client=' + encodeURIComponent(getClient()) +
+      (getClient() === 'sunset' ? ('&location=' + encodeURIComponent(getSunsetLocation())) : '');
+    return fetch(url).then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+      .then(function(data) {
+        if (!data || !data.success) throw new Error('context failed');
+        var phone = data.phone || '';
+        customerDetailState = { phone: phone, data: data, editing: false, tagsEditing: false };
+        selectedCustomerPhone = phone;
+        var searchEl = el('cust-search');
+        if (searchEl) searchEl.value = email;
+        renderCustomersList(getCustomersVisibleRows());
+        renderCustomerDetail(data);
+        return data;
+      })
+      .catch(function() {
+        var box = el('cust-detail');
+        if (box) box.innerHTML = '<div class="customers-detail-empty">' + escHtml(portalT('customers.detail.error')) + '</div>';
+      });
   });
 }
 
@@ -33310,7 +33392,10 @@ function loadConvDetail(convId, targetEl){
     html +=   '</div>';
     html +=   '<div class="detail-header-right">';
     var convPhone = normalizeCustomerPhoneClient(c.phone);
-    if (convPhone && portalHasCustomersCrm(getPortalProfile(getClient()))) {
+    var canOpenCust = portalHasCustomersCrm(getPortalProfile(getClient())) && (
+      convPhone || isEmailChannelConversationClient(c) || c.customer_id || c.guest_email || c.email
+    );
+    if (canOpenCust) {
       html += '<button type="button" class="btn btn-soft-grey btn-compact" id="inbox-open-customer-card">' + escHtml(portalT('customers.openCustomerCard')) + '</button>';
     }
     html +=     '<span class="detail-header-pills">' + convHeaderStatusPillsHtml(c, lunaGuestPaused) + '</span>';
@@ -33430,8 +33515,8 @@ function loadConvDetail(convId, targetEl){
     if (useEmailReplyUi) wireInboxEmailReply(convId, targetEl);
     else if (!isEmailConversation) wireInboxSendReply(convId, c.phone, targetEl);
     var inboxCustBtn = targetEl.querySelector('#inbox-open-customer-card');
-    if (inboxCustBtn && convPhone) {
-      inboxCustBtn.addEventListener('click', function() { openCustomerCardForPhone(convPhone); });
+    if (inboxCustBtn) {
+      inboxCustBtn.addEventListener('click', function() { openCustomerCardFromConversation(c); });
     }
     var cbBtn = targetEl.querySelector('#inbox-create-booking-for-guest');
     if (cbBtn) cbBtn.addEventListener('click', function(){
@@ -51438,6 +51523,20 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleCustomerList(parsed.query, res, auth.user);
+  }
+
+  // Email/id context must be matched before :phone/context (avoids phone='by-id').
+  if (pathname === CUSTOMERS_BY_EMAIL_CONTEXT_PATH) {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleCustomerContextByEmail(parsed.query, res, auth.user);
+  }
+
+  const customerByIdCtxMatch = CUSTOMER_BY_ID_CONTEXT_RE.exec(pathname);
+  if (customerByIdCtxMatch) {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleCustomerContextById(customerByIdCtxMatch[1], parsed.query, res, auth.user);
   }
 
   const customerCtxMatch = CUSTOMER_CONTEXT_RE.exec(pathname);

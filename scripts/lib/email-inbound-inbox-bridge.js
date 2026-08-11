@@ -26,6 +26,10 @@
 const crypto = require('crypto');
 const util = require('util');
 
+const {
+  upsertCustomerFromEmailInboundTouch,
+} = require('./staff-customer-queries');
+
 const FAILURE_CODE = 'inbound_inbox_bridge_failed';
 const FAILURE_MESSAGE = 'Inbound email inbox bridge operation failed.';
 
@@ -718,6 +722,40 @@ async function runProjectTransaction(client, parsed) {
     if (typeof conversationId !== 'string' || !conversationId) {
       await attemptRollback(client);
       return rejected('conversation_upsert_failed');
+    }
+
+    // 5b) Upsert email-identity customer + link conversation.customer_id.
+    // Never uses emailv1 conversation keys as customers.phone; WhatsApp path unchanged.
+    try {
+      // Resolve client slug for upsert helper (authority is client UUID).
+      const slugRes = await client.query(
+        'SELECT slug FROM clients WHERE id = $1::uuid LIMIT 1',
+        [parsed.clientId],
+      );
+      const clientSlug = slugRes && slugRes.rows && slugRes.rows[0]
+        ? String(slugRes.rows[0].slug || '')
+        : '';
+      if (clientSlug && senderNorm) {
+        const cust = await upsertCustomerFromEmailInboundTouch(client, {
+          client_slug: clientSlug,
+          client_id: parsed.clientId,
+          email: senderNorm,
+          display_name: displayName,
+          location_id: locationKebab,
+          conversation_id: conversationId,
+        });
+        if (!cust || cust.ok !== true) {
+          // Customer link is required for Open customer card — fail closed.
+          await attemptRollback(client);
+          return rejected('customer_upsert_failed');
+        }
+      } else {
+        await attemptRollback(client);
+        return rejected('customer_upsert_failed');
+      }
+    } catch (_custErr) {
+      await attemptRollback(client);
+      return rejected('customer_upsert_failed');
     }
 
     // 6) Insert inbound message.

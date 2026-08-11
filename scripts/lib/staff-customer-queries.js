@@ -253,13 +253,20 @@ async function updateCustomerCrmTags(pg, clientSlug, phone, tags) {
 /**
  * Canonical E.164-style phone key for customer dedupe per tenant.
  * Matches Hermes WhatsApp mirror normalization.
+ * Opaque email-channel identities (emailv1:/email:/emailcust1:) are NOT phones.
  */
 function normalizeCustomerPhone(phone) {
   const raw = String(phone || '').trim();
   if (!raw) return '';
+  if (/^(emailv1|email|emailcust1):/i.test(raw)) return '';
   if (raw.startsWith('+')) return raw.slice(0, 40);
   const digits = raw.replace(/[^\d]/g, '');
   return digits ? `+${digits}`.slice(0, 40) : '';
+}
+
+/** True when phone column holds an opaque email-channel / email-customer identity. */
+function isOpaqueEmailIdentityPhone(phone) {
+  return typeof phone === 'string' && /^(emailv1|email|emailcust1):/i.test(phone.trim());
 }
 
 /** Digits-only phone key for tolerant tenant-scoped matching (+prefix optional). */
@@ -392,6 +399,187 @@ async function upsertCustomerFromInboundTouch(pg, input) {
   }
 
   return { ok: true, customer_id: customerId, phone, client_id: clientId };
+}
+
+const EMAIL_CUSTOMER_IDENTITY_PREFIX = 'emailcust1';
+const EMAIL_CUSTOMER_IDENTITY_DIGEST_VERSION = 'email-customer-v1';
+
+function normalizeCustomerEmail(raw) {
+  if (raw == null) return '';
+  const trimmed = String(raw).trim().toLowerCase();
+  if (!trimmed || !trimmed.includes('@') || trimmed.length > 160) return '';
+  return trimmed;
+}
+
+/**
+ * Stable customers.phone key for email-only guests (NOT a telephone / WhatsApp dest).
+ * Distinct from conversation emailv1: identity keys.
+ * Format: emailcust1:<location_kebab>:<64-hex>
+ */
+function buildEmailCustomerIdentityKey(locationText, senderEmail) {
+  const loc = typeof locationText === 'string' ? locationText.trim().toLowerCase() : '';
+  const email = normalizeCustomerEmail(senderEmail);
+  if (!loc || !email) return null;
+  if (loc.length > 128) return null;
+  const crypto = require('crypto');
+  const digest = crypto
+    .createHash('sha256')
+    .update(`${EMAIL_CUSTOMER_IDENTITY_DIGEST_VERSION}\0${loc}\0${email}`, 'utf8')
+    .digest('hex');
+  return `${EMAIL_CUSTOMER_IDENTITY_PREFIX}:${loc}:${digest}`;
+}
+
+/**
+ * Upsert a Sunset/tenant customer from email inbound when no real phone exists.
+ * Never uses emailv1: conversation keys or digit-mangled placeholders as identity.
+ * Links conversations.customer_id when conversation_id provided.
+ *
+ * @param {import('pg').Client|import('pg').PoolClient} pg
+ * @param {{
+ *   client_slug: string,
+ *   client_id?: string,
+ *   email: string,
+ *   display_name?: string|null,
+ *   location_id?: string|null,
+ *   conversation_id?: string|null,
+ * }} input
+ */
+async function upsertCustomerFromEmailInboundTouch(pg, input) {
+  const src = input || {};
+  const clientSlug = String(src.client_slug || '').trim();
+  const email = normalizeCustomerEmail(src.email);
+  const locationId = trimInboundText(src.location_id, 64) || null;
+  if (!clientSlug || !email || !locationId) {
+    return { ok: false, reason: 'missing_client_email_or_location' };
+  }
+  // Reject accidental telephone misuse of this path for bare +E.164 without email.
+  if (isOpaqueEmailIdentityPhone(src.phone) && String(src.phone).startsWith('emailv1:')) {
+    // conversation key must never become customers.phone
+  }
+
+  const identityPhone = buildEmailCustomerIdentityKey(locationId, email);
+  if (!identityPhone) {
+    return { ok: false, reason: 'email_customer_key_invalid' };
+  }
+
+  let clientId = src.client_id || null;
+  if (!clientId) {
+    const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
+    clientId = clientRes.rows[0] && clientRes.rows[0].id;
+  }
+  if (!clientId) {
+    return { ok: false, reason: 'client_not_found' };
+  }
+
+  const displayName = trimInboundText(src.display_name, 120);
+
+  // Prefer existing customer already keyed by this email at this school (idempotent).
+  const existingByEmail = await pg.query(
+    `SELECT cu.id::text AS customer_id, cu.phone
+       FROM customers cu
+      WHERE cu.client_id = $1::uuid
+        AND lower(btrim(COALESCE(cu.email, ''))) = $2
+        AND COALESCE(cu.location_id, '') = $3
+      ORDER BY
+        CASE WHEN cu.phone LIKE 'emailcust1:%' THEN 0 ELSE 1 END,
+        cu.updated_at DESC NULLS LAST
+      LIMIT 1`,
+    [clientId, email, locationId],
+  );
+  let customerId = existingByEmail.rows[0] && existingByEmail.rows[0].customer_id;
+  let phoneKey = existingByEmail.rows[0] && existingByEmail.rows[0].phone;
+
+  if (!customerId) {
+    const ins = await pg.query(
+      `INSERT INTO customers (client_id, phone, full_name, email, location_id, first_seen, last_seen)
+       VALUES ($1::uuid, $2, $3, $4, $5, NOW(), NOW())
+       ON CONFLICT (client_id, phone) DO UPDATE SET
+         full_name   = COALESCE(EXCLUDED.full_name, customers.full_name),
+         email       = COALESCE(EXCLUDED.email, customers.email),
+         location_id = COALESCE(EXCLUDED.location_id, customers.location_id),
+         last_seen   = NOW(),
+         updated_at  = NOW()
+       RETURNING id::text AS customer_id, phone`,
+      [clientId, identityPhone, displayName, email, locationId],
+    );
+    customerId = ins.rows[0] && ins.rows[0].customer_id;
+    phoneKey = ins.rows[0] && ins.rows[0].phone;
+  } else if (displayName || email) {
+    await pg.query(
+      `UPDATE customers
+          SET full_name = COALESCE($2, full_name),
+              email = COALESCE($3, email),
+              last_seen = NOW(),
+              updated_at = NOW()
+        WHERE id = $1::uuid`,
+      [customerId, displayName || null, email],
+    );
+  }
+
+  if (!customerId) {
+    return { ok: false, reason: 'customer_upsert_failed' };
+  }
+
+  const conversationId = trimInboundText(src.conversation_id, 64);
+  if (conversationId) {
+    await pg.query(
+      `UPDATE conversations
+          SET customer_id = $3::uuid,
+              updated_at = NOW()
+        WHERE id = $2::uuid
+          AND client_id = $1::uuid
+          AND (customer_id IS NULL OR customer_id = $3::uuid)`,
+      [clientId, conversationId, customerId],
+    );
+  }
+
+  return {
+    ok: true,
+    customer_id: customerId,
+    phone: phoneKey || identityPhone,
+    email,
+    client_id: clientId,
+  };
+}
+
+/**
+ * School-scoped by-id customer phone lookup (Open customer card by UUID).
+ * Sunset requires explicit canonical location; missing/invalid → reject.
+ * @param {string} clientSlug
+ * @param {string} customerId
+ * @param {string|null|undefined} queryLocation
+ * @returns {{ reject: true } | { reject: false, locationId: string|null, sql: string, params: any[] }}
+ */
+function buildCustomerByIdPhoneLookup(clientSlug, customerId, queryLocation) {
+  const slug = String(clientSlug || '').trim();
+  const id = String(customerId || '').trim();
+  if (!slug || !id) return { reject: true };
+  if (slug === SUNSET_CLIENT_SLUG) {
+    const raw = queryLocation == null ? '' : String(queryLocation).trim();
+    if (!isSunsetLocationId(raw)) return { reject: true };
+    return {
+      reject: false,
+      locationId: raw,
+      sql: `SELECT cu.phone
+              FROM customers cu
+              INNER JOIN clients c ON c.id = cu.client_id
+             WHERE c.slug = $1
+               AND cu.id = $2::uuid
+               AND COALESCE(cu.location_id, '') = $3
+             LIMIT 1`,
+      params: [slug, id, raw],
+    };
+  }
+  return {
+    reject: false,
+    locationId: null,
+    sql: `SELECT cu.phone
+            FROM customers cu
+            INNER JOIN clients c ON c.id = cu.client_id
+           WHERE c.slug = $1 AND cu.id = $2::uuid
+           LIMIT 1`,
+    params: [slug, id],
+  };
 }
 
 /**
@@ -785,15 +973,23 @@ LIMIT $${limitParam} OFFSET $${offsetParam}
 
 /**
  * Detail context for one phone on a tenant.
+ * @param {{ exactPhone?: boolean }} [opts] exactPhone=true for opaque emailcust1 keys
  * @returns {string} SQL ($1 client slug, $2 phone)
  */
-function getCustomerContextQuery() {
+function getCustomerContextQuery(opts) {
+  const exactPhone = !!(opts && opts.exactPhone);
+  const custPhonePred = exactPhone
+    ? 'cu.phone = $2'
+    : `${sqlCustomerPhoneMatch('cu.phone', '$2')}`;
+  const convPhonePred = exactPhone
+    ? 'conv.phone = $2'
+    : `${sqlCustomerPhoneMatch('conv.phone', '$2')}`;
   return `
 WITH cust AS (
   SELECT cu.*
   FROM customers cu
   INNER JOIN clients c ON c.id = cu.client_id
-  WHERE c.slug = $1 AND ${sqlCustomerPhoneMatch('cu.phone', '$2')}
+  WHERE c.slug = $1 AND ${custPhonePred}
   ORDER BY cu.updated_at DESC NULLS LAST, ${sqlCustomerCanonicalPhoneRank('cu.phone')}
   LIMIT 1
 ),
@@ -801,7 +997,7 @@ conv AS (
   SELECT conv.*
   FROM conversations conv
   INNER JOIN clients c ON c.id = conv.client_id
-  WHERE c.slug = $1 AND ${sqlCustomerPhoneMatch('conv.phone', '$2')}
+  WHERE c.slug = $1 AND ${convPhonePred}
   ORDER BY conv.updated_at DESC
   LIMIT 1
 )
@@ -1284,6 +1480,11 @@ module.exports = {
   customerPhoneDigits,
   sqlCustomerPhoneMatch,
   upsertCustomerFromInboundTouch,
+  upsertCustomerFromEmailInboundTouch,
+  isOpaqueEmailIdentityPhone,
+  normalizeCustomerEmail,
+  buildEmailCustomerIdentityKey,
+  buildCustomerByIdPhoneLookup,
   parseManualCustomerCreateBody,
   createOrMergeManualCustomer,
   normalizeCustomerFilter,
