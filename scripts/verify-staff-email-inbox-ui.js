@@ -294,6 +294,45 @@ async function main() {
     ok('Luna success does not auto-approve/send', approvePosts.length === 0);
 
     await page.unroute('**/staff/inbox/email/generate-luna-draft');
+    let releaseStaleSuccess;
+    const staleSuccessHeld = new Promise((resolve) => { releaseStaleSuccess = resolve; });
+    const beforeStaleSuccessGenerate = lunaPosts.length;
+    const beforeStaleSuccessDraft = draftPosts.length;
+    const beforeStaleSuccessApprove = approvePosts.length;
+    await page.route('**/staff/inbox/email/generate-luna-draft', async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      lunaPosts.push({ method: route.request().method(), body: { ...body } });
+      await staleSuccessHeld;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        success: true, conversation_id: body.conversation_id, message_text: 'authoritative generated draft B', approval_id: AP2,
+      }) });
+    });
+    await page.click('#btn-email-generate-luna-draft');
+    await page.waitForFunction(() => document.querySelector('#btn-email-generate-luna-draft')?.disabled === true);
+    await waCard().click(); await page.waitForSelector('#btn-send-reply', { timeout: 10000 });
+    releaseStaleSuccess(); await page.waitForTimeout(150);
+    ok('Luna stale strict success does not mutate selected WhatsApp DOM or auto-save/approve/send',
+      await page.locator('#btn-send-reply').count() === 1
+      && await page.locator('#btn-email-generate-luna-draft').count() === 0
+      && await page.locator('#btn-email-approve-send').count() === 0
+      && draftPosts.length === beforeStaleSuccessDraft && approvePosts.length === beforeStaleSuccessApprove);
+    await emailCard().click(); await page.waitForSelector('#draft-textarea', { timeout: 10000 });
+    ok('Luna stale strict persisted 200 renders authoritative text B on return without automatic approve/send',
+      lunaPosts.length === beforeStaleSuccessGenerate + 1
+      && await page.inputValue('#draft-textarea') === 'authoritative generated draft B'
+      && await page.locator('#btn-email-approve-send').isEnabled()
+      && draftPosts.length === beforeStaleSuccessDraft && approvePosts.length === beforeStaleSuccessApprove);
+    await page.click('#btn-email-approve-send');
+    await page.waitForTimeout(100);
+    ok('Luna stale strict persisted 200 replaces approval authority A with B',
+      approvePosts.length === beforeStaleSuccessApprove + 1
+      && approvePosts[approvePosts.length - 1].body.approval_id === AP2
+      && approvePosts[approvePosts.length - 1].body.conversation_id === EMAIL_CONV);
+
+    await page.unroute('**/staff/inbox/email/generate-luna-draft');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await openInbox(page); await emailCard().click();
+    await page.waitForSelector('#btn-email-generate-luna-draft', { timeout: 10000 });
     const heldLuna = [];
     await page.route('**/staff/inbox/email/generate-luna-draft', async (route) => {
       const body = JSON.parse(route.request().postData() || '{}');
