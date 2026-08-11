@@ -32042,12 +32042,13 @@ function performEmailLunaDraftGenerate(convId, targetEl){
   fetch('/staff/inbox/email/generate-luna-draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:convId})})
   .then(emailParseFetchJson).then(function(out){
     if(mySeq!==st.seq)return;st.inFlight=false;
-    var outcomeUnknown=!out.parseOk||(out.status===503&&emailOwnData(out.data,'error')==='draft_save_outcome_unknown');
-    if(outcomeUnknown){st.approvalId=null;st.savedText='';st.generationUncertain=true;}
-    if(selectedConvId!==snapConv)return;
     var text=out.parseOk?emailOwnData(out.data,'message_text'):null;
     var accepted=out.status===200?acceptEmailDraftSuccess(out.data,snapConv,text):null;
-    if(accepted){ta.value=accepted.message_text;st.approvalId=accepted.approval_id;st.savedText=accepted.message_text;updateEmailDraftByteCount(targetEl,ta.value);showDraftSendStatus(statusEl,'ok','Luna draft generated \u2014 review and edit before approval.');}
+    var outcomeUnknown=!out.parseOk||(out.status===200&&!accepted)||(out.status===503&&emailOwnData(out.data,'error')==='draft_save_outcome_unknown');
+    if(accepted){st.approvalId=accepted.approval_id;st.savedText=accepted.message_text;st.generationUncertain=false;}
+    if(outcomeUnknown){st.approvalId=null;st.savedText='';st.generationUncertain=true;}
+    if(selectedConvId!==snapConv)return;
+    if(accepted){ta.value=accepted.message_text;updateEmailDraftByteCount(targetEl,ta.value);showDraftSendStatus(statusEl,'ok','Luna draft generated \u2014 review and edit before approval.');}
     else if(out.status===422)showDraftSendStatus(statusEl,'blocked','Luna handoff required; draft was not changed.');
     else if(outcomeUnknown)showDraftSendStatus(statusEl,'blocked','Draft save outcome is unknown. Reload the conversation or page before generating again.');
     else showDraftSendStatus(statusEl,'error','Draft generation failed.');
@@ -32229,6 +32230,8 @@ function wireInboxEmailReply(convId, targetEl){
     setEmailReplyControlsDisabled(targetEl, true, false);
   } else if (st.inFlight) {
     setEmailReplyControlsDisabled(targetEl, true, false);
+  } else if (st.savedText) {
+    ta.value = st.savedText;
   }
   updateEmailDraftByteCount(targetEl, ta.value);
   ta.addEventListener('input', function(){
