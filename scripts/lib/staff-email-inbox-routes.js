@@ -479,13 +479,13 @@ WHERE client_id=$1::uuid AND approval_id=$2::uuid AND operation_id=$3::uuid
   AND conversation_id=$4::uuid
 LIMIT 1
 `.replace(/\s+/g, ' ').trim();
-/** Best-effort staff inbox thread mirror after Graph commit (body in message_text). */
-const SQL_OUTBOUND_THREAD_EXISTS = `
-SELECT id::text AS message_id FROM messages
- WHERE client_id=$1::uuid AND conversation_id=$2::uuid
-   AND direction='outbound' AND metadata->>'approval_id'=$3
- LIMIT 1
-`.replace(/\s+/g, ' ').trim();
+/**
+ * Best-effort staff inbox thread mirror after Graph commit (body in message_text).
+ * Atomic identity: partial unique index messages_staff_email_reply_approval_uq (072)
+ * on (client_id, conversation_id, metadata->>'approval_id') for outbound
+ * staff_email_reply/email rows only. ON CONFLICT DO NOTHING; RETURNING empty
+ * means a concurrent/retried peer already inserted — do not rewrite preview.
+ */
 const SQL_INSERT_OUTBOUND_THREAD = `
 INSERT INTO messages (
   client_id, conversation_id, direction, message_text, message_type,
@@ -493,7 +493,15 @@ INSERT INTO messages (
 ) VALUES (
   $1::uuid, $2::uuid, 'outbound', $3, 'email',
   'staff_email_reply', 'email', $4::jsonb
-) RETURNING id::text AS message_id
+)
+ON CONFLICT (client_id, conversation_id, ((metadata->>'approval_id')))
+WHERE direction = 'outbound'
+  AND source = 'staff_email_reply'
+  AND route = 'email'
+  AND (metadata->>'approval_id') IS NOT NULL
+  AND (metadata->>'approval_id') <> ''
+DO NOTHING
+RETURNING id::text AS message_id
 `.replace(/\s+/g, ' ').trim();
 const SQL_TOUCH_OUTBOUND_PREVIEW = `
 UPDATE conversations
@@ -654,12 +662,8 @@ function createStaffEmailInboxRoutes(deps) {
     try {
       if (!actor || !conversationId || !approvalId || typeof messageText !== 'string' || !messageText.length) return;
       await withPgClient(async (pg) => {
-        const existing = await pg.query(SQL_OUTBOUND_THREAD_EXISTS, [
-          actor.client_id, conversationId, String(approvalId).toLowerCase(),
-        ]);
-        if (existing && existing.rows && existing.rows.length) return;
         const preview = messageText.slice(0, 500);
-        await pg.query(SQL_INSERT_OUTBOUND_THREAD, [
+        const inserted = await pg.query(SQL_INSERT_OUTBOUND_THREAD, [
           actor.client_id,
           conversationId,
           messageText,
@@ -669,6 +673,8 @@ function createStaffEmailInboxRoutes(deps) {
             send_kind: 'staff_email_reply',
           }),
         ]);
+        // Preview/timestamp only when this invocation won the insert (RETURNING).
+        if (!inserted || !Array.isArray(inserted.rows) || inserted.rows.length !== 1) return;
         await pg.query(SQL_TOUCH_OUTBOUND_PREVIEW, [actor.client_id, conversationId, preview]);
       });
     } catch { /* non-authoritative after provider commit */ }

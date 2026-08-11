@@ -945,6 +945,26 @@
       "rationale": "Down for 071: fail closed if any Phase B transaction/grant fact or unsafe intent/scope state exists; empty/Phase-A-only may drop columns. Preserves parent tables.",
       "pairsWith": "071_tenant_email_phase_b_authority.sql",
       "sha256": "6c702500350084a7e64d540069e5845de0b4cee882288046d12eb0835a5745a6"
+    },
+    {
+      "id": "072_messages_staff_email_reply_approval_uq",
+      "filename": "072_messages_staff_email_reply_approval_uq.sql",
+      "order": 71,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Partial unique index on messages for staff email outbound thread mirrors: (client_id, conversation_id, metadata approval_id) where direction=outbound source=staff_email_reply route=email. Enables INSERT ON CONFLICT DO NOTHING so concurrent/retried Graph-committed approve-send mirrors yield one durable bubble; WhatsApp/other rows unconstrained.",
+      "downFilename": "072_messages_staff_email_reply_approval_uq_down.sql",
+      "sha256": "f2b98b1dc354f6f859481aa8dfe8203aafe68f946b2b4946fcfab4eca184f3f6"
+    },
+    {
+      "id": "072_messages_staff_email_reply_approval_uq_down",
+      "filename": "072_messages_staff_email_reply_approval_uq_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Down for 072: DROP INDEX messages_staff_email_reply_approval_uq only. Does not delete messages rows.",
+      "pairsWith": "072_messages_staff_email_reply_approval_uq.sql",
+      "sha256": "a2bebb75b8bfd4fd142015ece577bb50bfa3759afdf887fa55a1ec1471df617c"
     }
   ]
 }
