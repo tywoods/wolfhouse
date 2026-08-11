@@ -110,6 +110,28 @@ test('rejects hostile boundary proxies and accessors with sanitized adapter fail
   assert.equal(traps, 0); noEffects(h.calls);
 });
 
+test('rejects an HTTP redirect after post-load URL prototype getter poisoning', () => {
+  const h = harness();
+  const factory = createGoogleTransactionCompletionFactory(h.dependencies);
+  const names = ['protocol', 'username', 'password', 'hash', 'search', 'port', 'hostname', 'href'];
+  const originals = new Map(names.map(name => [name, Object.getOwnPropertyDescriptor(URL.prototype, name)]));
+  const poisoned = {
+    protocol: 'https:', username: '', password: '', hash: '', search: '', port: '',
+    hostname: 'mail.example.test', href: 'http://evil.test/callback',
+  };
+  try {
+    for (const name of names) Object.defineProperty(URL.prototype, name, {
+      configurable: true, enumerable: originals.get(name).enumerable, get() { return poisoned[name]; },
+    });
+    assert.throws(() => factory.createTransactionCompletion(
+      operationConfig({ redirectUri: 'http://evil.test/callback' }), handoffConfig(), provider(),
+    ), clean);
+    noEffects(h.calls);
+  } finally {
+    for (const name of names) Object.defineProperty(URL.prototype, name, originals.get(name));
+  }
+});
+
 test('composes the real operation and real handoff, preserving provider receiver without network or retries', async () => {
   const h = harness(); let calls = 0; let receiver;
   const secretProvider = provider(function resolveClientSecret(dto) { calls += 1; receiver = this;
@@ -157,6 +179,6 @@ test('source imports only the native proxy detector and exactly the two real own
 
 (async () => {
   for (const { name, run } of tests) { await run(); process.stdout.write(`ok - ${name}\n`); }
-  assert.equal(tests.length, 8);
-  process.stdout.write('PASS verify:email-google-transaction-completion-factory (8 named offline tests)\n');
+  assert.equal(tests.length, 9);
+  process.stdout.write('PASS verify:email-google-transaction-completion-factory (9 named offline tests)\n');
 })().catch(error => { process.stderr.write(`${error && error.stack ? error.stack : error}\n`); process.exitCode = 1; });
