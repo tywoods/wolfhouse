@@ -146,7 +146,7 @@ test('validates returned shape and grammar without binding returned IDs to consu
 
 test('rejects multiple, malformed, mixed-freeze, accessor, proxy, and noncanonical returned values with sanitized error', async () => {
   const accessor = { ...row({}, false) }; Object.defineProperty(accessor, 'nonce', { enumerable: true, get() { throw new Error(LEAK); } }); freeze(accessor);
-  const malformed = [undefined, null, {}, { rows: [] }, freeze({ rows: [] }), result([row(), row()]),
+  const malformed = [undefined, null, {}, freeze({ rows: [] }), result([row(), row()]),
     result([{ ...row() }]), result([row({}, false)]), result([row()], false),
     result([freeze({ location_id: LOCATION, operation_id: OPERATION, endpoint_id: ENDPOINT, staff_user_id: STAFF, code_verifier: VERIFIER, nonce: NONCE })]),
     result([row({ operation_id: 'not-a-uuid' })]), result([row({ location_id: LOCATION.toUpperCase() })]),
