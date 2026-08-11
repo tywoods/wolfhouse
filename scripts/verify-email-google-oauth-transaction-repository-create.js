@@ -68,7 +68,7 @@ test('exports only the frozen factory and constructs exact frozen reusable creat
   assert.equal(Object.isFrozen(owner), true);
   assert.deepEqual(Reflect.ownKeys(owner), ['createGoogleOAuthTransactionRepository']);
   assert.equal(Object.isFrozen(repository), true);
-  assert.deepEqual(Reflect.ownKeys(repository), ['create']);
+  assert.deepEqual(Reflect.ownKeys(repository), ['create', 'consume']);
   await Promise.resolve(); assert.equal(calls, 0);
 });
 
