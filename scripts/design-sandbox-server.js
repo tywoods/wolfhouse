@@ -170,7 +170,7 @@ function loginHtml(error) {
 function designSandboxBadge() {
   return `<style>
   #design-sandbox-flag { position:fixed; left:0; right:0; bottom:0; z-index:99999;
-    background:#ca6d45; color:#fff8e9; font:700 12px/1 'Nunito',system-ui,sans-serif;
+    background:#0e3742; color:#fff8e9; font:700 12px/1 'Nunito',system-ui,sans-serif;
     letter-spacing:.06em; text-transform:uppercase; text-align:center; padding:7px 10px;
     box-shadow:0 -2px 10px rgba(10,40,45,.25); pointer-events:none; }
   body { padding-bottom:30px !important; }
@@ -221,6 +221,10 @@ const ASSETS = {
   '/staff/assets/luna-front-desk-logo.png': 'luna-front-desk-logo.png',
   '/staff/assets/luna-login-signin-btn.png': 'luna-login-signin-btn.png',
   '/staff/assets/luna-header-banner.png': 'luna-header-banner.png',
+  '/staff/assets/luna-header-banner-dark.png': 'luna-header-banner-dark.png',
+  '/staff/assets/luna-header-bamboo-divider.png': 'luna-header-bamboo-divider.png',
+  '/staff/assets/luna-header-sign.png': 'luna-header-sign.png',
+  '/staff/assets/luna-header-scene.png': 'luna-header-scene.png',
 };
 
 function serveAsset(res, file) {

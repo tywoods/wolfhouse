@@ -962,6 +962,8 @@ const LOG_DIR            = path.join(__dirname, '..', 'logs');
 const LOG_FILE           = path.join(LOG_DIR, 'staff-query-log.jsonl');
 const STAFF_PORTAL_LOGO_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-front-desk-logo.png');
 const STAFF_PORTAL_HEADER_BANNER_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-header-banner.png');
+const STAFF_PORTAL_HEADER_BANNER_DARK_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-header-banner-dark.png');
+const STAFF_PORTAL_HEADER_BAMBOO_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-header-bamboo-divider.png');
 const STAFF_PORTAL_HEADER_SIGN_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-header-sign.png');
 const STAFF_PORTAL_HEADER_SCENE_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-header-scene.png');
 const STAFF_PORTAL_FAVICON_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-favicon.png');
@@ -16312,9 +16314,9 @@ body.nav-menu-open .nav-menu-toggle-bars:after{top:0;transform:rotate(-45deg)}
 .tab-btn:hover{color:var(--text)}
 .tab-btn.active{color:var(--primary);border-bottom-color:var(--sage)}
 /* ── Layout ─────────────────────────────────────────────────────────────── */
-#wrap{max-width:1200px;width:100%;margin:0 auto;padding:12px 20px 16px;height:calc(100vh - 104px);display:flex;flex-direction:column;min-height:0;box-sizing:border-box}
+#wrap{max-width:1240px;width:100%;margin:0 auto;padding:12px 20px 16px;height:calc(100vh - 104px);display:flex;flex-direction:column;min-height:0;box-sizing:border-box}
 #tab-conversations.active{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 104px);overflow:hidden;box-sizing:border-box;width:100%}
-#tab-conversations.active #wrap{flex:1;min-height:0;overflow:hidden;width:100%;max-width:1200px;align-self:stretch}
+#tab-conversations.active #wrap{flex:1;min-height:0;overflow:hidden;width:100%;max-width:1240px;align-self:stretch}
 .tab-panel{display:none}
 .tab-panel.active{display:block}
 body > .tab-panel.active{flex:1;min-height:0;overflow:auto}
@@ -16480,7 +16482,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 [data-theme="dark"] #tab-portal-home .portal-schedule-drawer,
 [data-theme="dark"] #tab-portal-home .portal-schedule-create-drawer{background:var(--surface);border-color:var(--border-soft)}
 
-.portal-admin-wrap{max-width:1100px;margin:0 auto;padding:24px 20px 32px}
+.portal-admin-wrap{max-width:1240px;margin:0 auto;padding:24px 20px 32px}
 .portal-admin-header{margin-bottom:18px}
 .portal-admin-header h2{font-size:20px;font-weight:700;color:var(--text);margin:0 0 8px}
 .portal-admin-banner{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius);padding:12px 16px;margin-bottom:18px;font-size:13px;color:var(--text-2);line-height:1.5}
@@ -18122,7 +18124,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 
 /* ── Customers tab (shared CRM) ───────────────────────────────────────────── */
 #tab-customers.active{display:flex;flex-direction:column;flex:1;min-height:0;height:auto;overflow:hidden}
-.customers-wrap{max-width:1200px;width:100%;margin:0 auto;padding:16px 20px 12px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
+.customers-wrap{max-width:1240px;width:100%;margin:0 auto;padding:16px 20px 12px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
 .customers-header{margin-bottom:12px}
 .customers-school-heading{font-size:26px;font-weight:600;letter-spacing:normal;color:var(--text);line-height:1.1;margin:0;font-family:var(--font-display)}
 .customers-header h2{font-size:17px;font-weight:700;color:var(--text);margin:0 0 3px;letter-spacing:-.01em}
@@ -19192,7 +19194,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .bc-rr-purpose{font-size:11px;color:var(--text-2);background:#f7f9fb;border-left:3px solid #b8ccd8;padding:8px 10px;border-radius:4px;margin-bottom:10px;line-height:1.5}
 .to-form-hint{font-size:11px;color:var(--text-3);font-style:italic;margin:2px 0 6px;max-width:480px;line-height:1.45}
 /* Stage 8.6.2 — Ask Luna panel */
-#al-wrap{max-width:1100px;margin:0 auto;padding:24px 20px 32px}
+#al-wrap{max-width:1240px;margin:0 auto;padding:24px 20px 32px}
 .al-hero{background:linear-gradient(135deg,#EBF1E5 0%,#E3EEF4 100%);border:1px solid #C9D9BE;border-radius:var(--radius);padding:18px 22px;margin-bottom:24px;display:flex;align-items:flex-start;gap:14px}
 .al-hero-icon{font-size:28px;line-height:1;flex-shrink:0}
 .al-hero-title{font-size:15px;font-weight:700;color:var(--text)}
@@ -19574,20 +19576,64 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   /* no left padding: the carved panel is full-bleed, as it is in the art */
   padding:0 clamp(14px,2.2vw,30px) 0 0;
   background-color:var(--luna-banner-base);
-  background-image:url('/staff/assets/luna-header-scene.png?v=3');
+  /* single pre-composed banner: carved LUNA sign, sunset shoreline and boards
+     are all baked into one 1560x152 strip (owner-supplied), so we no longer
+     split it into scene + sign slices — the whole art is the background. */
+  background-image:url('/staff/assets/luna-header-banner.png?v=8');
   background-size:cover;
-  /* the scene is cropped to its clean sun+horizon band (no sky-smear left to
-     show), so we sit just above centre to keep the sun in frame as the cover
-     crop tightens on very wide screens */
-  background-position:center 30%;
+  /* the strip's aspect (~10.3:1) is a hair narrower than the bar, so cover only
+     shaves top/bottom — full width (sign … water … boards) stays in frame.
+     Sit dead-centre to keep the sun and wave band front-and-centre. */
+  background-position:center 50%;
   background-repeat:no-repeat;
   border-bottom:none;
+  position:relative;
   display:flex;
   align-items:center;
   justify-content:space-between;
   gap:16px;
 }
-[data-theme="dark"] .luna-header-ui #banner{background-color:#0b2b34}
+[data-theme="dark"] .luna-header-ui #banner{
+  background-color:#0b2b34;
+  /* night-time art: moonlit shoreline swapped in for the sunset scene */
+  background-image:url('/staff/assets/luna-header-banner-dark.png?v=2');
+}
+/* ── bamboo cane divider ────────────────────────────────────────────────────
+   A real photographic bamboo cane (dark weathered, rope-lashed nodes) laid
+   ACROSS the banner/nav seam, in both themes. It lives on its own zero-height
+   layer (.luna-bamboo-divider) sitting exactly between #banner and #tabs, so it
+   can straddle the seam: neither the banner (overflow:hidden) nor the nav
+   (overflow-y:hidden) clips it. The layer takes no vertical space, so the nav
+   row and the "Pause Luna" toggle don't move. z-index lifts it above both the
+   banner art and the nav's tan surface, so the rope knots sit ON TOP of the tan
+   and it reads as a divider combining the two sections. Delete the div + this
+   rule to revert.
+
+   Quality note: the asset is ONE seamless node-to-node segment of the cane and
+   is TILED (repeat-x) at its native resolution rather than a single strip
+   stretched to full width — this avoids upscaling blur at any width/DPR and
+   shows the full cane thickness (no cover-clip of the rounded top/bottom). */
+.luna-header-ui .luna-bamboo-divider{
+  position:relative;
+  height:0;
+  z-index:5;
+  pointer-events:none;
+}
+.luna-header-ui .luna-bamboo-divider::before{
+  content:'';
+  position:absolute;
+  left:0;right:0;
+  top:0;
+  transform:translateY(-50%);
+  height:11px;
+  pointer-events:none;
+  background-image:url('/staff/assets/luna-header-bamboo-divider.png?v=2');
+  background-repeat:repeat-x;
+  background-position:left center;
+  background-size:auto 11px;
+  /* soft shadow underneath so it lifts off the seam like a laid-on layer */
+  filter:drop-shadow(0 2px 2px rgba(0,0,0,.38));
+}
 /* No top wash in light theme: the art stays fully crisp edge-to-edge. The
    control pills carry their own glass background for legibility, so nothing
    needs to darken or haze the top of the banner. */
@@ -19600,28 +19646,23 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   background:linear-gradient(180deg,rgba(4,20,26,.28),rgba(4,20,26,.12));
 }
 
-/* the carved sign: locked to the banner height, left-anchored — always whole */
+/* The carved sign is baked into the composite background now, so the <img>
+   brand mark is not drawn — we keep the .brand element as an invisible,
+   left-anchored click target sized to the plaque so the "home" link still
+   works without a second owl stacking on top of the art. */
 .luna-header-ui #banner .brand{
   position:relative;
   z-index:2;
   display:block;
   height:100%;
-  width:auto;
+  /* ~ the width the plaque occupies in the 1560px strip (left ~28%) */
+  width:clamp(160px,27%,430px);
   flex:0 0 auto;
   line-height:0;
 }
 .luna-header-ui #banner .brand-logo{
-  /* swaps the wordmark <img> for the sign slice without touching the markup,
-     so STAFF_PORTAL_LUNA_HEADER=false still renders the plain logo */
-  content:url('/staff/assets/luna-header-sign.png?v=2');
-  display:block;
-  height:100%;
-  width:auto;
-  max-width:none;
-  /* the slice is a rectangle; feather its right edge so the panel meets the
-     sky the way it does in the source art instead of butting a hard seam */
-  -webkit-mask-image:linear-gradient(90deg,#000 0 87%,rgba(0,0,0,0) 100%);
-  mask-image:linear-gradient(90deg,#000 0 87%,rgba(0,0,0,0) 100%);
+  /* sign is in the background art — hide the separate slice entirely */
+  display:none;
 }
 
 .luna-header-ui .banner-actions{
@@ -19631,90 +19672,108 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   align-items:center;
   gap:clamp(8px,1vw,14px);
   margin-left:auto;
+  /* Sit the controls along the TOP edge of the banner (the new art leaves open
+     sky under the plaque there), not floating mid-height or on the bottom.
+     Small top gap so they don't touch the edge. */
+  align-self:flex-start;
+  margin-top:clamp(9px,1.1vw,16px);
+  /* The surfboards are baked into the far-right of the art, so pull the whole
+     control cluster in from the right edge to leave a clear gap over them
+     instead of the sign-out sitting on top of the boards. */
+  margin-right:clamp(64px,6vw,120px);
 }
 
-/* ── liquid glass control surface ───────────────────────────────────────── */
-.luna-header-ui .staff-school-switch,
-.luna-header-ui .staff-lang-switch,
-.luna-header-ui .staff-theme-toggle,
-.luna-header-ui .btn-logout{
-  background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,.10));
-  -webkit-backdrop-filter:blur(16px) saturate(170%);
-  backdrop-filter:blur(16px) saturate(170%);
-  border:1px solid rgba(255,255,255,.32);
-  border-radius:999px;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.45),
-             inset 0 -1px 0 rgba(255,255,255,.08),
-             0 4px 14px rgba(10,40,45,.20);
-  color:var(--luna-cream);
-  text-shadow:0 1px 2px rgba(10,40,45,.35);
-  transition:background .18s,box-shadow .18s;
-}
-.luna-header-ui .staff-school-switch:hover,
-.luna-header-ui .staff-lang-switch:hover,
-.luna-header-ui .staff-theme-toggle:hover{
-  background:linear-gradient(180deg,rgba(255,255,255,.32),rgba(255,255,255,.16));
-}
-
-/* segmented pills: school + language share one capsule, two segments */
+/* ── flat ghost controls (matches sunset-staging simple header) ─────────── */
+/* school + language: plain text links with "|" separators, no capsule/glass */
 .luna-header-ui .staff-school-switch,
 .luna-header-ui .staff-lang-switch{
   display:flex;
   align-items:center;
-  gap:2px;
-  padding:3px 4px;
+  gap:8px;
+  padding:0;
+  background:none;
+  border:none;
+  box-shadow:none;
+  -webkit-backdrop-filter:none;
+  backdrop-filter:none;
+  color:var(--luna-cream);
+  text-shadow:none;
 }
 .luna-header-ui .staff-school-btn,
 .luna-header-ui .staff-lang-btn{
   background:none;
   border:none;
-  border-radius:999px;
-  padding:5px 13px;
+  border-radius:0;
+  padding:0;
   font:inherit;
-  font-size:12.5px;
+  font-size:13px;
   font-weight:600;
   color:var(--luna-cream);
-  opacity:.78;
+  opacity:.66;
+  /* soft ink shadow keeps light text readable over the bright sky/water —
+     legibility only, not a glass/scrim surface */
+  text-shadow:0 1px 3px rgba(6,22,28,.55);
+  text-decoration:none;
   cursor:pointer;
   white-space:nowrap;
 }
 .luna-header-ui .staff-school-btn:hover,
-.luna-header-ui .staff-lang-btn:hover{opacity:1}
+.luna-header-ui .staff-lang-btn:hover{opacity:.9}
 .luna-header-ui .staff-school-btn.is-active,
 .luna-header-ui .staff-lang-btn.is-active{
-  background:rgba(255,248,233,.88);
-  color:var(--luna-teal-dark);
-  text-shadow:none;
-  font-weight:800;
+  background:none;
+  color:var(--luna-cream);
   opacity:1;
+  font-weight:700;
+  text-decoration:underline;
+  text-underline-offset:3px;
 }
-/* the "|" separators belong to the old flat header */
-.luna-header-ui .staff-lang-sep{display:none}
+/* show the "|" separators — flat header style */
+.luna-header-ui .staff-lang-sep,
+.luna-header-ui .staff-school-sep{
+  display:inline;
+  color:var(--luna-cream);
+  opacity:.5;
+  padding:0 2px;
+  text-shadow:0 1px 3px rgba(6,22,28,.55);
+}
 
+/* theme toggle: transparent circle, thin light ring */
 .luna-header-ui .staff-theme-toggle{
-  width:36px;height:36px;
+  width:34px;height:34px;
   display:flex;align-items:center;justify-content:center;
   padding:0;cursor:pointer;
+  background:none;
+  border:1px solid rgba(255,255,255,.6);
+  border-radius:999px;
+  box-shadow:0 1px 3px rgba(6,22,28,.35);
+  -webkit-backdrop-filter:none;
+  backdrop-filter:none;
+  color:var(--luna-cream);
   text-shadow:none;
 }
-.luna-header-ui .staff-theme-icon{width:17px;height:17px;color:var(--luna-cream)}
+.luna-header-ui .staff-theme-toggle:hover{border-color:rgba(255,255,255,.85)}
+.luna-header-ui .staff-theme-icon{width:16px;height:16px;color:var(--luna-cream)}
 [data-theme="dark"] .luna-header-ui .staff-theme-icon{color:#f5cf7a}
 
-/* sign out: darker ink glass at rest, muted rose only on hover. The old
-   terracotta fill shouted from the corner of every screen for an action
-   staff take once a day. */
+/* sign out: transparent ghost pill, thin light ring */
 .luna-header-ui .btn-logout{
-  background:linear-gradient(180deg,rgba(8,42,50,.52),rgba(8,42,50,.34));
-  border-color:rgba(255,255,255,.26);
-  padding:8px 20px;
-  font-size:12.5px;
-  font-weight:800;
+  background:none;
+  border:1px solid rgba(255,255,255,.42);
+  border-radius:999px;
+  box-shadow:none;
+  -webkit-backdrop-filter:none;
+  backdrop-filter:none;
+  padding:7px 18px;
+  font-size:13px;
+  font-weight:600;
   color:var(--luna-cream);
+  text-shadow:none;
   cursor:pointer;
 }
 .luna-header-ui .btn-logout:hover{
-  background:linear-gradient(180deg,rgba(150,64,58,.62),rgba(120,48,44,.46));
-  border-color:rgba(255,196,186,.42);
+  background:rgba(255,255,255,.10);
+  border-color:rgba(255,255,255,.72);
 }
 
 /* ── nav bar ────────────────────────────────────────────────────────────── */
@@ -19740,24 +19799,28 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   opacity:1;
   border-bottom-color:transparent;
 }
-/* wave underline instead of a flat rule — echoes the banner surf */
-.luna-header-ui #tabs .tab-btn.active::after{
+/* wave underline instead of a flat rule — echoes the banner surf.
+   Double ripple: two thin stacked waves, like layered surf. */
+/* underline hangs off the LABEL, so it starts at the first letter (the "S" of
+   Schedule, the "C" of Customers) and runs the width of the word; the ripple is
+   a seamless tile so it fills any word length. */
+.luna-header-ui #tabs .tab-label{position:relative;display:inline-block;line-height:1.15;vertical-align:middle}
+.luna-header-ui #tabs .tab-btn.active .tab-label::after{
   content:'';
   position:absolute;
-  left:50%;
-  transform:translateX(-50%);
-  bottom:4px;
-  width:46px;
-  height:7px;
-  background-repeat:no-repeat;
-  background-position:center;
-  background-size:contain;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 8'%3E%3Cpath d='M1 5c3-4 6-4 9 0s6 4 9 0 6-4 9 0 6 4 9 0' fill='none' stroke='%231d8681' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+  left:0;
+  right:0;
+  bottom:-8px;
+  height:9px;
+  background-repeat:repeat-x;
+  background-position:left center;
+  background-size:auto 9px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 12'%3E%3Cpath d='M0 5q3 -3 6 0t6 0t6 0t6 0' fill='none' stroke='%231d8681' stroke-width='1.6' stroke-linecap='round'/%3E%3Cpath d='M0 9q3 -3 6 0t6 0t6 0t6 0' fill='none' stroke='%231d8681' stroke-width='1.6' stroke-linecap='round' opacity='.45'/%3E%3C/svg%3E");
 }
 [data-theme="dark"] .luna-header-ui #tabs .tab-btn{color:#8fbdb6}
 [data-theme="dark"] .luna-header-ui #tabs .tab-btn.active{color:#56c9c0}
-[data-theme="dark"] .luna-header-ui #tabs .tab-btn.active::after{
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 8'%3E%3Cpath d='M1 5c3-4 6-4 9 0s6 4 9 0 6-4 9 0 6 4 9 0' fill='none' stroke='%2356c9c0' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+[data-theme="dark"] .luna-header-ui #tabs .tab-btn.active .tab-label::after{
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 12'%3E%3Cpath d='M0 5q3 -3 6 0t6 0t6 0t6 0' fill='none' stroke='%2356c9c0' stroke-width='1.6' stroke-linecap='round'/%3E%3Cpath d='M0 9q3 -3 6 0t6 0t6 0t6 0' fill='none' stroke='%2356c9c0' stroke-width='1.6' stroke-linecap='round' opacity='.45'/%3E%3C/svg%3E");
 }
 
 /* ── narrow screens: shallower strip, sign still whole ──────────────────── */
@@ -19765,12 +19828,270 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   .luna-header-ui{--luna-banner-h:74px}
   .luna-header-ui .btn-logout{padding:7px 14px;font-size:11.5px}
 }
+
+/* ═══ Header modes ═══════════════════════════════════════════════════════════
+   Three interchangeable header looks, toggled by a body class set on load
+   (see the header-mode loader script). Normal = the theme-aware banner we built
+   (sunset in light, night in dark). Sunset = force the sunset photo in every
+   theme. Compact = a slim single-row bar (small logo + nav, no banner art).
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Banner art per mode. The base .luna-header-ui already does the theme-aware
+   "Sunset/Moonlight" look (sunset in light, night in dark) with no extra class,
+   so luna-hdr-sunsetmoonlight needs no rule. The two "always" modes override
+   the theme that would otherwise show the other scene.
+   NB: data-theme lives on <html>, so it must precede the body selector. */
+
+/* ── SUNSET mode: keep the sunset shoreline even in dark theme ───────────── */
+[data-theme="dark"] .luna-header-ui.luna-hdr-sunset #banner{
+  background-image:url('/staff/assets/luna-header-banner.png?v=8');
+}
+/* ── MOONLIGHT mode: keep the night scene even in light theme ────────────── */
+.luna-header-ui.luna-hdr-moonlight #banner{
+  background-image:url('/staff/assets/luna-header-banner-dark.png?v=2');
+}
+
+/* ── COMPACT mode: ONE slim white row — bigger logo · nav tabs · controls ────
+   #tabs is a sibling of #banner in the column body, so to fold the nav up INTO
+   the banner we lift #tabs onto the banner row with a negative top margin and
+   pad it clear of the logo (left) and the controls cluster (right). #banner
+   keeps the logo + controls; the tab buttons float in the open middle band. */
+.luna-header-ui.luna-hdr-compact #banner{
+  height:68px;flex:0 0 68px;min-height:68px;
+  background-image:none;
+  background:var(--surface);
+  border-bottom:1px solid var(--border-soft);
+  padding:0 clamp(12px,1.6vw,22px);
+  box-shadow:var(--shadow-soft);
+  align-items:center;
+  position:relative;
+  z-index:1; /* the bar surface — the lifted nav floats above this */
+}
+[data-theme="dark"] .luna-header-ui.luna-hdr-compact #banner{background:#252526}
+.luna-header-ui.luna-hdr-compact #banner::after{display:none}
+/* bigger brand logo on the slim bar — the logo grows by shedding padding, the
+   nav stays tight (it does not widen to make room). */
+.luna-header-ui.luna-hdr-compact #banner .brand{width:auto;height:auto;align-self:center;flex:0 0 auto}
+.luna-header-ui.luna-hdr-compact #banner .brand-logo{
+  display:block;height:60px;width:auto;max-width:300px;object-fit:contain;object-position:left center;
+}
+/* controls sit centred on the row, no surfboard gap / top offset */
+.luna-header-ui.luna-hdr-compact .banner-actions{
+  align-self:center;margin-top:0;margin-bottom:0;margin-right:0;
+}
+/* lift the nav row up onto the banner and clear the logo / controls.
+   The row floats ABOVE the banner (transparent), so the banner's surface shows
+   through as the single bar. pointer-events:none on the container lets the empty
+   middle pass clicks down to the logo/controls; the tab buttons re-enable it. */
+.luna-header-ui.luna-hdr-compact #tabs{
+  margin-top:-68px;height:68px;min-height:68px;
+  background:transparent;border-bottom:none;box-shadow:none;
+  align-items:center;position:relative;z-index:7;pointer-events:none;
+  padding-left:clamp(170px,14vw,235px);  /* clear the logo */
+  padding-right:clamp(260px,24vw,360px); /* clear the controls cluster */
+}
+[data-theme="dark"] .luna-header-ui.luna-hdr-compact #tabs{background:transparent;border-bottom:none}
+.luna-header-ui.luna-hdr-compact #tabs .tab-btn{height:68px;line-height:68px;padding-top:0;padding-bottom:0;margin-right:clamp(14px,1.8vw,26px);pointer-events:auto}
+.luna-header-ui.luna-hdr-compact #tabs .tab-btn.active .tab-label::after{bottom:-9px}
+/* compact hides the global-pause card from the bar to keep the row clean (owner). */
+.luna-header-ui.luna-hdr-compact #tabs .tabs-global-pause{display:none}
+/* on a light bar the cream control text/rings would vanish — ink them dark */
+.luna-header-ui.luna-hdr-compact .staff-school-btn,
+.luna-header-ui.luna-hdr-compact .staff-lang-btn,
+.luna-header-ui.luna-hdr-compact .staff-lang-sep,
+.luna-header-ui.luna-hdr-compact .staff-school-sep{
+  color:var(--luna-teal-dark);text-shadow:none;
+}
+.luna-header-ui.luna-hdr-compact .staff-school-btn.is-active,
+.luna-header-ui.luna-hdr-compact .staff-lang-btn.is-active{color:var(--luna-teal)}
+.luna-header-ui.luna-hdr-compact .staff-theme-toggle{
+  border-color:rgba(44,95,86,.45);box-shadow:none;
+}
+.luna-header-ui.luna-hdr-compact .staff-theme-icon{color:var(--luna-teal-dark)}
+.luna-header-ui.luna-hdr-compact .btn-logout{
+  color:var(--luna-teal-dark);border-color:rgba(44,95,86,.4);text-shadow:none;
+}
+[data-theme="dark"] .luna-header-ui.luna-hdr-compact .staff-school-btn,
+[data-theme="dark"] .luna-header-ui.luna-hdr-compact .staff-lang-btn,
+[data-theme="dark"] .luna-header-ui.luna-hdr-compact .staff-lang-sep,
+[data-theme="dark"] .luna-header-ui.luna-hdr-compact .staff-school-sep,
+[data-theme="dark"] .luna-header-ui.luna-hdr-compact .staff-theme-icon,
+[data-theme="dark"] .luna-header-ui.luna-hdr-compact .btn-logout{color:#e7e2d6}
+/* no bamboo divider in the slim bar */
+.luna-header-ui.luna-hdr-compact .luna-bamboo-divider{display:none}
+
+/* ── Admin > Header style picker (segmented control) ────────────────────── */
+.luna-header-mode-card{
+  background:var(--surface);border:1px solid var(--border-soft);border-radius:12px;
+  padding:14px 16px;margin-bottom:14px;box-shadow:var(--shadow-soft);
+}
+.luna-header-mode-head{display:flex;flex-direction:column;gap:2px;margin-bottom:10px}
+.luna-header-mode-title{font-weight:800;font-size:14px;color:var(--text)}
+.luna-header-mode-sub{font-size:12px;color:var(--luna-teal-dark);opacity:.72}
+.luna-header-mode-seg{display:inline-flex;flex-wrap:wrap;gap:6px;background:var(--surface-soft,#f1ece1);border-radius:10px;padding:4px}
+.luna-header-mode-btn{
+  border:1px solid transparent;background:transparent;border-radius:8px;
+  padding:7px 14px;font:inherit;font-size:13px;font-weight:700;
+  color:var(--luna-teal-dark);cursor:pointer;white-space:nowrap;
+}
+.luna-header-mode-btn:hover{background:rgba(0,0,0,.04)}
+.luna-header-mode-btn.is-active{
+  background:var(--surface);color:var(--luna-teal);
+  border-color:var(--border-soft);box-shadow:0 1px 2px rgba(0,0,0,.10);
+}
+[data-theme="dark"] .luna-header-mode-seg{background:#2a2a2b}
+[data-theme="dark"] .luna-header-mode-btn{color:#cfe6e2}
+[data-theme="dark"] .luna-header-mode-btn:hover{background:rgba(255,255,255,.05)}
+[data-theme="dark"] .luna-header-mode-btn.is-active{background:#1e1e1e;color:#56c9c0;border-color:#3c3c3c}
+
+@media (max-width:719px){
+  .luna-header-ui{--luna-banner-h:74px}
+  .luna-header-ui .btn-logout{padding:7px 14px;font-size:11.5px}
+}
+
+/* ── nav tab icons (redesign modes only; Normal stays icon-free) ─────────── */
+.tab-btn .tab-ico{display:none}
+.luna-header-ui #tabs .tab-btn{display:inline-flex;align-items:center;gap:8px}
+.luna-header-ui #tabs .tab-btn .tab-ico{display:inline-flex;width:17px;height:17px;flex:0 0 auto;opacity:.9}
+.luna-header-ui #tabs .tab-btn .tab-ico svg{width:100%;height:100%;display:block}
+.luna-header-ui.luna-hdr-compact #tabs .tab-btn .tab-ico{width:16px;height:16px}
+
+/* ── sticky / collapsing header (two-stage) ──────────────────────────────────
+   body is a fixed-height flex column and each active .tab-panel is the scroll
+   area; the banner sits above it as its own flex row. The wheel controller makes
+   it two-stage: at the top of the page the FIRST scroll collapses the whole
+   banner to zero height (the page content underneath — Previous/Today/Next etc.
+   — does NOT move, it just rises to fill), and only the NEXT scroll scrolls the
+   content. Scrolling back up to the top then expands the banner on one scroll.
+   Banner-art modes only; compact/Normal are left static. */
+.luna-header-ui:not(.luna-hdr-compact) #banner{transition:height .3s ease, min-height .3s ease, flex-basis .3s ease}
+.luna-header-ui:not(.luna-hdr-compact) .luna-bamboo-divider{transition:opacity .18s linear}
+.luna-header-ui:not(.luna-hdr-compact).header-collapsed #banner{
+  height:0;min-height:0;flex-basis:0;overflow:hidden;border-bottom:none;box-shadow:none;pointer-events:none;
+}
+.luna-header-ui:not(.luna-hdr-compact).header-collapsed .luna-bamboo-divider{opacity:0}
+.luna-header-ui:not(.luna-hdr-compact).header-collapsed #tabs{box-shadow:0 3px 10px rgba(43,36,31,.13)}
+
+/* ── Header style picker: read row + Edit gate ──────────────────────────── */
+.luna-header-mode-read{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.luna-header-mode-current{font-size:13px;font-weight:700;color:var(--luna-teal)}
+.luna-header-mode-edit{
+  border:1px solid var(--border-soft);background:var(--surface);border-radius:8px;
+  padding:6px 14px;font:inherit;font-size:12.5px;font-weight:700;color:var(--luna-teal-dark);cursor:pointer;
+}
+.luna-header-mode-edit:hover{border-color:var(--luna-teal);color:var(--luna-teal)}
+.luna-header-mode-card.is-editing .luna-header-mode-read{display:none}
+.luna-header-mode-card:not(.is-editing) .luna-header-mode-seg{display:none}
+[data-theme="dark"] .luna-header-mode-edit{background:#1e1e1e;border-color:#3c3c3c;color:#cfe6e2}
+
+/* redundant per-tab "Sunset" school title — the header already carries the
+   Sunset | elSardi switcher, so drop the bare heading on Admin & Customers.
+   (Normal mode has no .luna-header-ui, so it keeps them → unchanged.) */
+.luna-header-ui #admin-school-heading,
+.luna-header-ui #customers-school-heading,
+.luna-header-ui #inbox-school-context{display:none!important}
+
+/* ── Inbox ⇄ Customers: one tab, two views ───────────────────────────────────
+   Customers is folded into the Inbox tab via a segmented toggle at the top of
+   both panels; the standalone Customers nav tab is dropped. */
+#tabs .tab-btn[data-tab="customers"]{display:none!important}
+.inbox-view-switch{display:inline-flex;gap:4px;background:var(--surface-soft,#f1ece1);border-radius:10px;padding:4px;margin:0 0 12px;flex:0 0 auto;align-self:flex-start}
+.inbox-view-btn{border:1px solid transparent;background:transparent;border-radius:8px;padding:7px 16px;font:inherit;font-size:13px;font-weight:700;color:var(--luna-teal-dark,#2c5f56);cursor:pointer;white-space:nowrap}
+.inbox-view-btn:hover{background:rgba(0,0,0,.04)}
+.inbox-view-btn.is-active{background:var(--surface);color:var(--luna-teal,#1d8681);border-color:var(--border-soft);box-shadow:0 1px 2px rgba(0,0,0,.1)}
+[data-theme="dark"] .inbox-view-switch{background:#2a2a2b}
+[data-theme="dark"] .inbox-view-btn{color:#cfe6e2}
+[data-theme="dark"] .inbox-view-btn:hover{background:rgba(255,255,255,.05)}
+[data-theme="dark"] .inbox-view-btn.is-active{background:#1e1e1e;color:#56c9c0;border-color:#3c3c3c}
 /* ═══ END luna-header-ui ═════════════════════════════════════════════════ */
 </style>
 </head>
 ${portalBodyOpen}
 ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
 <script>window.__STAFF_PORTAL_DEV_TABS__=${portalDevTabsEnabled ? 'true' : 'false'};</script>
+<script>
+/* Header mode controller: Compact | Sunset | Moonlight | Sunset/Moonlight.
+   Exposes window.__lunaHeaderMode.{apply,current,MODES}. The Admin > header
+   style picker calls apply(); on load we apply ?mode= (persisting it) or the
+   stored preference, defaulting to Sunset/Moonlight (theme-aware). */
+(function(){
+  var MODES=['normal','compact','sunset','moonlight','sunsetmoonlight'];
+  var ALIAS={auto:'sunsetmoonlight','sunset-moonlight':'sunsetmoonlight','sunset/moonlight':'sunsetmoonlight'};
+  var LABELS={normal:'Normal',compact:'Compact',sunset:'Sunset',moonlight:'Moonlight',sunsetmoonlight:'Sunset & Moonlight'};
+  var KEY='wh_staff_header_mode';
+  function norm(m){m=(''+(m||'')).toLowerCase();m=ALIAS[m]||m;return MODES.indexOf(m)<0?'sunsetmoonlight':m;}
+  function reflect(m){try{var els=document.querySelectorAll('[data-header-mode]');for(var i=0;i<els.length;i++){var on=els[i].getAttribute('data-header-mode')===m;els[i].classList.toggle('is-active',on);els[i].setAttribute('aria-pressed',on?'true':'false');}var cur=document.getElementById('luna-header-mode-current');if(cur)cur.textContent=LABELS[m]||m;}catch(e){}}
+  /* Normal = the original portal header (colored gradient bar). It drops the
+     whole .luna-header-ui redesign scope so every ".luna-header-ui …" rule goes
+     inert, exactly like STAFF_PORTAL_LUNA_HEADER=false. Every other mode ensures
+     the redesign scope is on and adds its luna-hdr-<mode> variant. */
+  function apply(m,persist){m=norm(m);var b=document.body;if(b){MODES.forEach(function(x){b.classList.remove('luna-hdr-'+x);});if(m==='normal'){b.classList.remove('luna-header-ui');}else{b.classList.add('luna-header-ui');b.classList.add('luna-hdr-'+m);}}if(persist){try{localStorage.setItem(KEY,m);}catch(e){}}reflect(m);return m;}
+  function current(){try{return norm(localStorage.getItem(KEY));}catch(e){return 'sunsetmoonlight';}}
+  window.__lunaHeaderMode={apply:apply,current:current,MODES:MODES,label:function(m){return LABELS[norm(m)]||norm(m);}};
+  try{var q=new URL(location.href).searchParams.get('mode');apply(q||current(),!!q);}catch(e){apply('sunsetmoonlight',false);}
+  document.addEventListener('DOMContentLoaded',function(){reflect(current());});
+})();
+</script>
+<script>
+/* Header collapse controller — TWO-STAGE. At the top of the page, one scroll
+   down collapses the WHOLE banner (page content stays put, just rises to fill);
+   the next scroll actually scrolls the content. Scrolling back up to the top,
+   one scroll up expands the banner again. We intercept the wheel/touch at the
+   top boundary and consume that one gesture into a collapse/expand instead of
+   letting the panel scroll. Banner-art modes only. */
+(function(){
+  var COOLDOWN=420; // ms: the page stays frozen while the banner animates
+  var lockUntil=0;
+  function panel(){return document.querySelector('body > .tab-panel.active');}
+  function eligible(){var b=document.body;return !!(b&&b.classList.contains('luna-header-ui')&&!b.classList.contains('luna-hdr-compact'));}
+  function collapsed(){return document.body.classList.contains('header-collapsed');}
+  function setCollapsed(v){document.body.classList.toggle('header-collapsed',!!v);}
+  function reset(){setCollapsed(false);}
+  function handle(dy){
+    if(!eligible()){reset();return false;}
+    var pn=panel(); if(!pn) return false;
+    // only hijack when this panel is itself the scroller (Schedule, Admin, …);
+    // tabs with their own inner scroll areas (Inbox) are left alone.
+    if(pn.scrollHeight<=pn.clientHeight+4) return false;
+    if(Date.now()<lockUntil) return true; // freeze the page while collapsing/expanding
+    var atTop = (pn.scrollTop||0)<=0;
+    if(dy>0){ // scrolling down
+      if(!collapsed() && atTop){ lockUntil=Date.now()+COOLDOWN; setCollapsed(true); return true; } // stage 1: hide banner
+      return false; // banner already gone → let the content scroll
+    } else if(dy<0){ // scrolling up
+      if(collapsed() && atTop){ lockUntil=Date.now()+COOLDOWN; setCollapsed(false); return true; } // bring banner back
+      return false; // scroll the content back to the top first
+    }
+    return false;
+  }
+  document.addEventListener('wheel',function(e){
+    if(Math.abs(e.deltaY)<2) return;
+    if(handle(e.deltaY)) e.preventDefault();
+  },{passive:false,capture:true});
+  // touch: mirror the wheel logic on vertical swipes
+  var ty=null;
+  document.addEventListener('touchstart',function(e){ty=e.touches&&e.touches[0]?e.touches[0].clientY:null;},{passive:true,capture:true});
+  document.addEventListener('touchmove',function(e){
+    if(ty==null||!e.touches||!e.touches[0])return;
+    var dy=ty-e.touches[0].clientY; // swipe up (content down) => dy>0
+    if(Math.abs(dy)<6)return;
+    if(handle(dy)){ e.preventDefault(); ty=e.touches[0].clientY; }
+  },{passive:false,capture:true});
+  document.addEventListener('touchend',function(){ty=null;},{passive:true,capture:true});
+  // keep state sane on tab / mode switches
+  document.addEventListener('click',function(e){var t=e.target;if(t&&t.closest&&(t.closest('.tab-btn')||t.closest('[data-header-mode]'))){setTimeout(function(){if(!eligible())reset();},60);}},true);
+  window.__lunaHeaderCondense=function(){if(!eligible())reset();};
+})();
+/* Header-style picker Edit gate: reveal the segmented control only after Edit. */
+(function(){
+  document.addEventListener('click',function(e){
+    var t=e.target;if(!t||!t.closest)return;
+    var card=document.getElementById('luna-header-mode-card');if(!card)return;
+    if(t.closest('#luna-header-mode-edit-btn')){card.classList.add('is-editing');}
+    else if(t.closest('#luna-header-mode-done-btn')){card.classList.remove('is-editing');}
+  },false);
+})();
+</script>
 
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
@@ -19803,17 +20124,22 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
   </div>
 </div>
 
+<!-- Bamboo cane divider: a zero-height layer sitting ON the banner/nav seam so
+     the cane straddles both sections (knots over the tan nav), reading as a
+     divider laid on top rather than part of the banner art. -->
+<div class="luna-bamboo-divider" aria-hidden="true"></div>
+
 <!-- ── Tabs ───────────────────────────────────────────────────────────────── -->
 <div id="tabs">
-  <button class="tab-btn" data-tab="portal-home" data-i18n="nav.tab.portalHome" style="display:none">Schedule</button>
-  <button class="tab-btn" data-tab="bed-calendar" data-i18n="nav.tab.calendar">Booking Calendar</button>
-  <button class="tab-btn" data-tab="conversations" data-i18n="nav.tab.whatsapp">WhatsApp</button>
-  <button class="tab-btn" data-tab="day-schedule" data-i18n="nav.tab.daySchedule" style="display:none">Day Schedule</button>
-  <button class="tab-btn" data-tab="customers" data-i18n="nav.tab.customers" style="display:none">Customers</button>
-  <button class="tab-btn" data-tab="ask-luna" data-i18n="nav.tab.lunaStaff">Luna Staff</button>
-  <button class="tab-btn" data-tab="admin" data-i18n="nav.tab.admin" style="display:none">Admin</button>
-  <button class="tab-btn" data-tab="services" style="display:none">Camps, Lessons and Services</button>
-  <button class="tab-btn" data-tab="tour-operator" data-i18n="nav.tab.tourOperator">Tour Operator</button>
+  <button class="tab-btn" data-tab="portal-home" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg></span><span class="tab-label" data-i18n="nav.tab.portalHome">Schedule</span></button>
+  <button class="tab-btn" data-tab="bed-calendar"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6M3 14h18M6 10V8a1 1 0 0 1 1-1h4M3 18v2M21 18v2"/></svg></span><span class="tab-label" data-i18n="nav.tab.calendar">Booking Calendar</span></button>
+  <button class="tab-btn" data-tab="conversations"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg></span><span class="tab-label" data-i18n="nav.tab.whatsapp">WhatsApp</span></button>
+  <button class="tab-btn" data-tab="day-schedule" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="tab-label" data-i18n="nav.tab.daySchedule">Day Schedule</span></button>
+  <button class="tab-btn" data-tab="customers" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5M16 3.6a3 3 0 0 1 0 5.8M21 20c0-2.2-1.3-4-3.4-4.7"/></svg></span><span class="tab-label" data-i18n="nav.tab.customers">Customers</span></button>
+  <button class="tab-btn" data-tab="ask-luna"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M18.5 15.5l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z"/></svg></span><span class="tab-label" data-i18n="nav.tab.lunaStaff">Luna Staff</span></button>
+  <button class="tab-btn" data-tab="admin" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span><span class="tab-label" data-i18n="nav.tab.admin">Admin</span></button>
+  <button class="tab-btn" data-tab="services" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 3 12V4a1 1 0 0 1 1-1h8a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.6z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg></span><span class="tab-label">Camps, Lessons and Services</span></button>
+  <button class="tab-btn" data-tab="tour-operator"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6 3 4v14l6 2 6-2 6 2V6l-6-2-6 2zM9 6v14M15 4v14"/></svg></span><span class="tab-label" data-i18n="nav.tab.tourOperator">Tour Operator</span></button>
   <button class="tab-btn dev-tab" data-tab="query-tools"><span aria-hidden="true">&#128736;</span> <span data-i18n="nav.tab.devtools">Developer Tools</span></button>
   <button class="tab-btn dev-tab" data-tab="luna-guest-simulator" data-i18n="nav.tab.simulator">Luna Guest Simulator</button>
   <div class="tabs-global-pause luna-global-pause-card" id="cc-luna-global-pause">
@@ -20108,6 +20434,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <!-- ── Customers tab (shared CRM) ───────────────────────────────────────── -->
 <div id="tab-customers" class="tab-panel">
 <div class="customers-wrap">
+  <div class="inbox-view-switch" role="tablist" aria-label="Inbox view">
+    <button type="button" class="inbox-view-btn" role="tab" data-view="conversations" onclick="switchToTab('conversations')" data-i18n="nav.tab.inbox">Inbox</button>
+    <button type="button" class="inbox-view-btn is-active" role="tab" data-view="customers" onclick="switchToTab('customers')" data-i18n="nav.tab.customers">Customers</button>
+  </div>
   <header class="customers-header">
     <h1 class="customers-school-heading" id="customers-school-heading" style="display:none" aria-live="polite">—</h1>
   </header>
@@ -20270,6 +20600,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <div id="tab-conversations" class="tab-panel">
 <div id="wrap">
 
+  <div class="inbox-view-switch" role="tablist" aria-label="Inbox view">
+    <button type="button" class="inbox-view-btn is-active" role="tab" data-view="conversations" onclick="switchToTab('conversations')" data-i18n="nav.tab.inbox">Inbox</button>
+    <button type="button" class="inbox-view-btn" role="tab" data-view="customers" onclick="switchToTab('customers')" data-i18n="nav.tab.customers">Customers</button>
+  </div>
   <div class="inbox-two-col">
 
     <!-- LEFT: conversation list + filters -->
@@ -20878,6 +21212,27 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <div id="tab-ask-luna" class="tab-panel">
 <div id="al-wrap">
 
+  <!-- Header style picker — portal-wide header look (saved per browser). Read
+       row shows the current style; click Edit to reveal the choices. -->
+  <section class="luna-header-mode-card" id="luna-header-mode-card" aria-label="Header style">
+    <div class="luna-header-mode-head">
+      <span class="luna-header-mode-title">Header style</span>
+      <span class="luna-header-mode-sub">How the top banner looks across the staff portal.</span>
+    </div>
+    <div class="luna-header-mode-read">
+      <span class="luna-header-mode-current" id="luna-header-mode-current">—</span>
+      <button type="button" class="luna-header-mode-edit" id="luna-header-mode-edit-btn">Edit</button>
+    </div>
+    <div class="luna-header-mode-seg" role="group" aria-label="Header style">
+      <button type="button" class="luna-header-mode-btn" data-header-mode="normal" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('normal',true)">Normal</button>
+      <button type="button" class="luna-header-mode-btn" data-header-mode="compact" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('compact',true)">Compact</button>
+      <button type="button" class="luna-header-mode-btn" data-header-mode="sunset" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('sunset',true)">Sunset</button>
+      <button type="button" class="luna-header-mode-btn" data-header-mode="moonlight" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('moonlight',true)">Moonlight</button>
+      <button type="button" class="luna-header-mode-btn" data-header-mode="sunsetmoonlight" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('sunsetmoonlight',true)">Sunset &amp; Moonlight</button>
+      <button type="button" class="luna-header-mode-btn luna-header-mode-done" id="luna-header-mode-done-btn">Done</button>
+    </div>
+  </section>
+
   <div class="card cc-section" id="cc-staff-whatsapp-numbers" style="display:none">
     <div class="cc-section-hdr">Staff &amp; Owner Numbers</div>
     <div class="cc-section-sub">WhatsApp numbers recognized by Luna Staff. Staff numbers get operations access; Owner numbers also get owner insights.</div>
@@ -21404,6 +21759,8 @@ function switchToTab(tab, subtab){
   if (tab === 'day-schedule') loadDaySchedule();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
   if (tab !== 'conversations') hideInboxMobileThread();
+  // Inbox ⇄ Customers segmented toggle: reflect which view is showing.
+  try { document.querySelectorAll('.inbox-view-btn').forEach(function(vb){ vb.classList.toggle('is-active', vb.getAttribute('data-view') === tab); }); } catch (_vw) {}
   staffNotificationSettingsApplyVisibility();
   try { if (window.__syncNavQuickFlip) window.__syncNavQuickFlip(tab); } catch (_f2) {}
 }
@@ -22606,22 +22963,20 @@ function inboxEmptyDetailHtml(){
 }
 
 function applySurfNavLabels(profile){
+  // Set the label on the button's .tab-label span (not the button itself) so the
+  // leading .tab-ico icon survives. Fall back to the button if no span exists.
+  function setNavLabel(btn, key){
+    if (!btn) return;
+    var span = btn.querySelector('.tab-label') || btn;
+    span.setAttribute('data-i18n', key);
+    span.textContent = t(key);
+  }
   var homeBtn = document.querySelector('.tab-btn[data-tab="portal-home"]');
-  if (homeBtn && profile.is_surf_vertical) {
-    homeBtn.setAttribute('data-i18n', 'nav.tab.portalHome');
-    homeBtn.textContent = t('nav.tab.portalHome');
-  }
+  if (homeBtn && profile.is_surf_vertical) setNavLabel(homeBtn, 'nav.tab.portalHome');
   var custBtn = document.querySelector('.tab-btn[data-tab="customers"]');
-  if (custBtn && portalHasCustomersCrm(profile)) {
-    custBtn.setAttribute('data-i18n', 'nav.tab.customers');
-    custBtn.textContent = t('nav.tab.customers');
-  }
+  if (custBtn && portalHasCustomersCrm(profile)) setNavLabel(custBtn, 'nav.tab.customers');
   var convBtn = document.querySelector('.tab-btn[data-tab="conversations"]');
-  if (convBtn) {
-    var labelKey = profile.is_surf_vertical ? 'nav.tab.inbox' : 'nav.tab.whatsapp';
-    convBtn.setAttribute('data-i18n', labelKey);
-    convBtn.textContent = t(labelKey);
-  }
+  if (convBtn) setNavLabel(convBtn, profile.is_surf_vertical ? 'nav.tab.inbox' : 'nav.tab.whatsapp');
   var dsSub = document.querySelector('#tab-day-schedule [data-i18n="daySchedule.sub"]');
   if (dsSub) dsSub.textContent = portalT('daySchedule.sub');
   var dsSlots = document.querySelector('#tab-day-schedule [data-i18n="daySchedule.demoSlots"]');
@@ -42030,6 +42385,36 @@ function handleStaffPortalHeaderBanner(res) {
   });
 }
 
+// Night-time header art, swapped in under [data-theme="dark"].
+function handleStaffPortalHeaderBannerDark(res) {
+  fs.readFile(STAFF_PORTAL_HEADER_BANNER_DARK_PATH, (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      return res.end('Not found');
+    }
+    res.writeHead(200, {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=86400',
+    });
+    res.end(data);
+  });
+}
+
+// Bamboo cane divider laid along the banner/nav seam (both themes).
+function handleStaffPortalHeaderBamboo(res) {
+  fs.readFile(STAFF_PORTAL_HEADER_BAMBOO_PATH, (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      return res.end('Not found');
+    }
+    res.writeHead(200, {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=86400',
+    });
+    res.end(data);
+  });
+}
+
 // The two slices the luna-header banner is actually built from — see the
 // .luna-header-ui CSS block for why the composite is cut in half.
 function handleStaffPortalHeaderSign(res) {
@@ -50797,6 +51182,20 @@ async function router(req, res) {
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
     }
     return handleStaffPortalHeaderBanner(res);
+  }
+  if (pathname === '/staff/assets/luna-header-banner-dark.png') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
+    }
+    return handleStaffPortalHeaderBannerDark(res);
+  }
+  if (pathname === '/staff/assets/luna-header-bamboo-divider.png') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
+    }
+    return handleStaffPortalHeaderBamboo(res);
   }
 
   // ── GET /staff/assets/luna-header-sign|scene.png — banner slices (public) ──
