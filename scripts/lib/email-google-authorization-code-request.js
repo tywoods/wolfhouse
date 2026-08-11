@@ -35,7 +35,7 @@ function visible(value, minimum, maximum) {
 function validClientId(value) {
   const ending = '.apps.googleusercontent.com';
   return visible(value, ending.length + 1, 255) && value.endsWith(ending) &&
-    value.length > ending.length;
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value.slice(0, -ending.length));
 }
 
 function validRedirect(value) {
@@ -97,7 +97,7 @@ function createGoogleAuthorizationCodeRequest(configuration) {
           ['code_verifier', codeVerifier],
         ]).toString();
         if (body.length > 32768) fail();
-        let acknowledgement = exchangeAndCustody.call(exchangeCustody, Object.freeze({ body }));
+        let acknowledgement = Reflect.apply(exchangeAndCustody, exchangeCustody, [Object.freeze({ body })]);
         if (acknowledgement !== null && typeof acknowledgement === 'object' &&
             Object.getPrototypeOf(acknowledgement) === Promise.prototype) {
           acknowledgement = await acknowledgement;
