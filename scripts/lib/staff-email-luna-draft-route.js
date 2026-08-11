@@ -21,29 +21,43 @@ const ownKeys = Reflect.ownKeys;
 const isArray = Array.isArray;
 const reflectApply = Reflect.apply;
 
+// Align with staff-email-inbox-routes SQL_RESOLVE + live conversations schema:
+// no c.deleted_at / c.channel (email proven by phone namespace + projection chain).
+// Inbound events (063) use sender_* columns; body is not durable on events yet
+// (empty body_text projection — handoff envelope still receives the key).
 const SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT = `
 SELECT cl.id::text AS client_id, cl.slug AS client_slug,
   loc.id::text AS location_id, loc.location_id AS location_key,
   ep.id::text AS endpoint_id, c.id::text AS conversation_id,
-  p.inbound_event_id::text AS inbound_message_id, c.channel,
+  p.inbound_event_id::text AS inbound_message_id, 'email'::text AS channel,
   ev.provider, ev.provider_mailbox_id AS provider_mailbox_id, ev.provider_message_id AS provider_source_message_id,
   ep.provider_resource_id AS endpoint_provider_mailbox_id, ev.location_id::text AS event_location_id,
-  COALESCE(ev.subject,'') AS subject, COALESCE(ev.body_text,'') AS body_text,
-  ''::text AS quoted_history, COALESCE(ev.from_display_name,'') AS from_display_name,
-  COALESCE(ev.from_address,'') AS from_address, c.deleted_at AS conversation_deleted_at,
+  COALESCE(ev.subject,'') AS subject, ''::text AS body_text,
+  ''::text AS quoted_history, COALESCE(ev.sender_display_name,'') AS from_display_name,
+  COALESCE(ev.sender_address,'') AS from_address, NULL::timestamptz AS conversation_deleted_at,
   c.status AS conversation_status, p.inbound_event_id::text AS latest_message_id,
   TRUE AS luna_draft_enabled
 FROM clients cl
 INNER JOIN staff_users su ON su.client_id=cl.id AND su.id=$2::uuid AND su.status='active'
-INNER JOIN conversations c ON c.client_id=cl.id AND c.id=$3::uuid AND c.deleted_at IS NULL AND c.channel='email'
+  AND su.role IN ('operator','admin','owner')
+INNER JOIN conversations c ON c.client_id=cl.id AND c.id=$3::uuid
+  AND c.phone ~ '^(emailv1|email):'
 INNER JOIN tenant_email_inbound_inbox_projections p ON p.client_id=c.client_id AND p.conversation_id=c.id
 INNER JOIN tenant_email_inbound_events ev ON ev.client_id=p.client_id AND ev.id=p.inbound_event_id
   AND ev.location_id=p.location_id AND ev.endpoint_id=p.endpoint_id
+  AND ev.provider=p.provider AND ev.provider_mailbox_id=p.provider_mailbox_id
+  AND ev.provider_message_id=p.provider_message_id
 INNER JOIN tenant_locations loc ON loc.client_id=ev.client_id AND loc.id=ev.location_id
 INNER JOIN tenant_channel_endpoints ep ON ep.client_id=ev.client_id AND ep.id=ev.endpoint_id
   AND ep.location_id=loc.location_id AND ep.channel='email'
+  AND ep.provider='microsoft_graph' AND ep.auth_mode='delegated_authorization_code'
+  AND ep.connector_mode='microsoft_delegated_oauth' AND ep.mailbox_access_kind='own_user'
+  AND ep.binding_status='verified' AND ep.public_address IS NOT NULL AND btrim(ep.public_address)<>''
+  AND ep.provider_resource_id IS NOT NULL AND btrim(ep.provider_resource_id)<>''
+  AND ep.provider_resource_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
   AND ev.provider_mailbox_id=ep.provider_resource_id
 WHERE cl.id=$1::uuid AND cl.slug='sunset' AND loc.location_id='sunset-somo'
+  AND ev.provider='microsoft_graph'
 ORDER BY ev.received_at DESC, ev.id DESC LIMIT 1`.replace(/\s+/g, ' ').trim();
 
 function ownData(value, key) {

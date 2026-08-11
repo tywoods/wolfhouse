@@ -154,10 +154,24 @@ function noSideEffects(h) {
   assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /tenant_locations/i);
   assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /tenant_channel_endpoints/i);
   assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /messages|tenant_email_inbound/i);
-  assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /channel\s*=\s*'email'/i);
   assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /client_id/i);
   assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /location_id/i);
-  assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /deleted_at\s+is\s+null/i);
+  // Live conversations have no deleted_at/channel columns. Canonical email authority
+  // (SQL_RESOLVE) proves email via phone namespace + projection/event/endpoint binds.
+  assert.doesNotMatch(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /\bc\.deleted_at\b|conversations\.deleted_at|deleted_at\s+is\s+null/i);
+  assert.doesNotMatch(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /\bc\.channel\s*=|conversations\.channel\s*=/);
+  assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /c\.phone\s*~\s*'\^\(emailv1\|email\):'/);
+  // Endpoint channel remains valid; conversation channel column does not exist.
+  assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /ep\.channel\s*=\s*'email'/i);
+  // Canonical inbound event sender columns (063); not invented from_*/body_text cols.
+  assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /sender_display_name/);
+  assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /sender_address/);
+  assert.doesNotMatch(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /ev\.from_display_name|ev\.from_address|ev\.body_text/);
+  // Align with SQL_RESOLVE fail-closed Graph / binding checks.
+  assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /microsoft_graph/);
+  assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /delegated_authorization_code/);
+  assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /binding_status\s*=\s*'verified'/);
+  assert.match(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, /provider_resource_id/);
 
   let h = makeHarness();
   let out = await invoke(h);

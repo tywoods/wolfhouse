@@ -361,6 +361,7 @@ const {
   getConversationInboxQuery,
   getConversationDetailQuery,
   getConversationMessagesQuery,
+  projectStaffInboxThreadMessage,
   getConversationContextQuery,
   getConversationBookingsQuery,
   getConversationDraftQuery,
@@ -18506,6 +18507,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .msg.inbound .msg-bubble{background:#DCEAD2;color:#4C6048;border-bottom-left-radius:5px}
 .msg.outbound.msg-luna .msg-bubble{background:#DCE7EE;color:#3D5360;border-bottom-right-radius:5px}
 .msg.outbound.msg-staff .msg-bubble{background:#DCEAD2;color:#4C6048;border-bottom-right-radius:5px}
+.msg-bubble .msg-email-subject{font-weight:600;margin-bottom:6px;line-height:1.35}
 .msg-bubble .msg-link{color:inherit;text-decoration:underline;font-weight:600}
 .msg-bubble .msg-link:hover{text-decoration:none}
 .msg-meta{font-size:10px;color:var(--text-3);margin-top:5px;padding:0 4px}
@@ -21989,6 +21991,32 @@ function isThreadNearBottom(scrollEl){
   return remaining < 80;
 }
 
+/** Email thread body ownership: prefer body_text when present; else message_text. */
+function inboxThreadMessageBodyText(m){
+  if (!m) return '';
+  if (Object.prototype.hasOwnProperty.call(m, 'body_text') && m.body_text != null) return String(m.body_text);
+  return String(m.message_text || '');
+}
+function inboxThreadMessageSubjectText(m){
+  if (!m) return '';
+  if (m.email_subject != null && String(m.email_subject).length) return String(m.email_subject);
+  if (m.subject != null && String(m.subject).length) return String(m.subject);
+  return '';
+}
+function formatInboxThreadBubbleHtml(m){
+  var subject = inboxThreadMessageSubjectText(m);
+  var body = inboxThreadMessageBodyText(m);
+  // Distinct subject + body: retain subject chrome and render truthful body.
+  if (subject && body && subject !== body) {
+    return '<div class="msg-email-subject">' + escHtml(subject) + '</div>' + formatThreadMessageHtml(body);
+  }
+  // Subject-only inbound (bridge stores subject in message_text; body empty):
+  // show subject once — never a blank body content area.
+  if (subject && (!body || subject === body)) {
+    return '<div class="msg-email-subject">' + escHtml(subject) + '</div>';
+  }
+  return formatThreadMessageHtml(body || '');
+}
 function renderInboxThreadMessagesHtml(msgs){
   var html = '';
   if (!msgs || !msgs.length){
@@ -21996,15 +22024,15 @@ function renderInboxThreadMessagesHtml(msgs){
   }
   msgs.forEach(function(m){
     var dir = (m.direction === 'inbound') ? 'inbound' : 'outbound';
-    var sender = dir === 'inbound' ? 'Guest' : (m.source === 'staff_inbox_reply' ? 'Staff' : (m.source || 'Luna'));
+    var sender = dir === 'inbound' ? 'Guest' : (m.source === 'staff_inbox_reply' || m.source === 'staff_email_reply' ? 'Staff' : (m.source || 'Luna'));
     var msgClass = 'msg ' + dir;
     if (dir === 'outbound') {
-      msgClass += (m.source === 'staff_inbox_reply') ? ' msg-staff' : ' msg-luna';
+      msgClass += (m.source === 'staff_inbox_reply' || m.source === 'staff_email_reply') ? ' msg-staff' : ' msg-luna';
     }
     // Map hermes reply source to a short guest-facing sender label.
     if (dir === 'outbound' && m.source === 'hermes_luna_whatsapp_reply') sender = 'Luna';
     html += '<div class="' + msgClass + '">';
-    html +=   '<div class="msg-bubble">' + formatThreadMessageHtml(m.message_text || '') + '</div>';
+    html +=   '<div class="msg-bubble">' + formatInboxThreadBubbleHtml(m) + '</div>';
     html +=   '<div class="msg-meta">' + escHtml(sender) + ' &bull; ' + escHtml(fmtTs(m.created_at));
     html +=   '</div>';
     html += '</div>';
@@ -32177,6 +32205,19 @@ function performEmailApproveSend(convId, targetEl){
           st.sent = true;
           showDraftSendStatus(statusEl, 'ok', 'Email sent');
           setEmailReplyControlsDisabled(targetEl, false, true);
+          // Refresh thread bubbles only — do not rebuild the draft panel (status/locks).
+          try {
+            fetch('/staff/conversations/' + encodeURIComponent(snapConv) + '/messages' + inboxClientQuery())
+              .then(function(r){ return r.json(); })
+              .then(function(data){
+                if (selectedConvId !== snapConv) return;
+                var container = el('thread-container');
+                if (!container || !data || !data.success) return;
+                var msgs = data.messages || [];
+                container.innerHTML = renderInboxThreadMessagesHtml(msgs);
+                inboxThreadMessageSig = threadMessagesFingerprint(msgs);
+              }).catch(function(){ /* best-effort thread mirror refresh */ });
+          } catch (_reload) { /* ignore */ }
           return;
         }
         showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('approve', out.status));
@@ -32537,21 +32578,7 @@ function loadConvDetail(convId, targetEl){
     if (msgs.length === 0){
       html += '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
     } else {
-      msgs.forEach(function(m){
-        var dir = (m.direction === 'inbound') ? 'inbound' : 'outbound';
-        var sender = dir === 'inbound' ? 'Guest' : (m.source === 'staff_inbox_reply' ? 'Staff' : 'Luna');
-        if (dir === 'outbound' && m.source === 'staff_inbox_reply') sender = 'Staff';
-        else if (dir === 'outbound') sender = 'Luna';
-        var msgClass = 'msg ' + dir;
-        if (dir === 'outbound') {
-          msgClass += (m.source === 'staff_inbox_reply') ? ' msg-staff' : ' msg-luna';
-        }
-        html += '<div class="' + msgClass + '">';
-        html +=   '<div class="msg-bubble">' + formatThreadMessageHtml(m.message_text || '') + '</div>';
-        html +=   '<div class="msg-meta">' + escHtml(sender) + ' &bull; ' + escHtml(fmtTs(m.created_at));
-        html +=   '</div>';
-        html += '</div>';
-      });
+      html += renderInboxThreadMessagesHtml(msgs);
     }
     html +=   '</div>'; /* /thread-messages */
     html +=   '</div>'; /* /inbox-thread-wrap */
@@ -44638,7 +44665,7 @@ async function handleConversationMessages(convId, query, res, user) {
         getConversationMessagesQuery(scope.queryOpts),
         conversationDetailQueryParams(clientSlug, convId, scope),
       );
-      return r.rows;
+      return (r.rows || []).map((row) => projectStaffInboxThreadMessage(row));
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
