@@ -1,5 +1,6 @@
 'use strict';
 
+const { isProxy } = require('node:util').types;
 const { GOOGLE_PHASE_A_SCOPES } = require('./email-google-verified-grant-custody');
 
 const apply = Reflect.apply;
@@ -51,7 +52,7 @@ function fail() { throw failure; }
 function test(pattern, value) { return apply(regexpTest, pattern, [value]); }
 
 function snapshot(value, keys) {
-  if (value === null || typeof value !== 'object' || arrayIsArray(value)
+  if (value === null || typeof value !== 'object' || isProxy(value) || arrayIsArray(value)
       || getPrototypeOf(value) !== objectPrototype || !isFrozen(value)) return null;
   const actual = ownKeys(value);
   if (actual.length !== keys.length) return null;
@@ -147,13 +148,13 @@ function createGoogleOAuthStart(configuration, dependencies) {
         }
         const operationId = apply(randomUUID, cryptographyOwner, []);
         if (typeof operationId !== 'string' || !test(UUID, operationId)) fail();
-        const encoded = [];
+        const encoded = [null, null, null];
         for (let index = 0; index < 3; index += 1) {
           const bytes = apply(randomBytes, cryptographyOwner, [32]);
           if (!apply(bufferIsBuffer, Buffer, [bytes]) || bytes.length !== 32) fail();
           const text = apply(bufferToString, bytes, ['base64url']);
           if (!test(TOKEN, text)) fail();
-          encoded.push(text);
+          encoded[index] = text;
         }
         const state = encoded[0]; const nonce = encoded[1]; const codeVerifier = encoded[2];
         if (state === nonce || state === codeVerifier || nonce === codeVerifier) fail();
