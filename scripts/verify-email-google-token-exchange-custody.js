@@ -239,7 +239,7 @@ test('composes with real response custody: non-200 reaches custody then rejects,
     responseBody: JSON.stringify({ error: LEAK }) });
   await cleanReject(() => service(non200).exchangeAndCustody(input()));
   const source = fs.readFileSync(path.join(__dirname, 'lib/email-google-token-exchange-custody.js'), 'utf8');
-  for (const forbidden of ["require('node:https')", 'require("node:https")', 'googleapis', 'process.env', 'express', 'router', 'database', 'postgres',
+  for (const forbidden of ["require('node:https')", 'require("node:https")', "require('googleapis')", 'require("googleapis")', 'process.env', 'express', 'router', 'database', 'postgres',
     'client_secret', 'authorization_code', 'console.', 'fetch(', 'postTokenForm']) assert.equal(source.includes(forbidden), false, forbidden);
   assert.deepEqual([...source.matchAll(/require\(['"]([^'"]+)['"]\)/g)], []);
 });

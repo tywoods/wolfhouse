@@ -12,7 +12,7 @@ const FAILURE_PROTOTYPE = Object.create(Error.prototype, {
 Object.freeze(FAILURE_PROTOTYPE);
 const REQUEST_OPTIONS = Object.freeze({
   protocol: 'https:',
-  hostname: ['oauth2', 'google', 'apis', 'com'].join('.').replace('.apis.', 'apis.'),
+  hostname: 'oauth2.googleapis.com',
   port: 443,
   method: 'POST',
   path: '/token',
