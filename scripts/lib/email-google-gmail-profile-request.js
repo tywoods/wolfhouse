@@ -28,13 +28,19 @@ const ObjectIsFrozen = Object.isFrozen;
 const ObjectGetPrototypeOf = Object.getPrototypeOf;
 const ObjectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const ObjectCreate = Object.create;
+const ObjectSetPrototypeOf = Object.setPrototypeOf;
 const ObjectHasOwn = Object.hasOwn
   ? Object.hasOwn.bind(Object)
   : (target, key) => Object.prototype.hasOwnProperty.call(target, key);
 const ReflectOwnKeys = Reflect.ownKeys.bind(Reflect);
 const ReflectApply = Reflect.apply.bind(Reflect);
+const RegExpTest = RegExp.prototype.test;
+const StringTrim = String.prototype.trim;
+const ArraySome = Array.prototype.some;
+const ArrayIncludes = Array.prototype.includes;
 const NumberIsInteger = Number.isInteger.bind(Number);
 const NumberIsSafeInteger = Number.isSafeInteger.bind(Number);
+const NumberConstructor = Number;
 const BufferIsBuffer = Buffer.isBuffer.bind(Buffer);
 const BufferFrom = Buffer.from.bind(Buffer);
 const BufferConcat = Buffer.concat.bind(Buffer);
@@ -44,6 +50,14 @@ const JsonParse = JSON.parse.bind(JSON);
 const ArrayIsArray = Array.isArray.bind(Array);
 const StringFrom = String;
 const PinnedTextDecoder = TextDecoder;
+const TextDecoderDecode = TextDecoder.prototype.decode;
+const ErrorConstructor = Error;
+const PromiseConstructor = Promise;
+const PromiseReject = Promise.reject;
+const PromiseCatch = Promise.prototype.catch;
+const WeakSetConstructor = WeakSet;
+const WeakSetHas = WeakSet.prototype.has;
+const WeakSetAdd = WeakSet.prototype.add;
 const PinnedIsProxy = utilTypes && typeof utilTypes.isProxy === 'function'
   ? utilTypes.isProxy.bind(utilTypes)
   : null;
@@ -58,8 +72,8 @@ Object.defineProperty(FAILURE_PROTOTYPE, 'name', {
 ObjectFreeze(FAILURE_PROTOTYPE);
 
 function failure() {
-  const error = new Error(FAILURE_CODE);
-  Object.setPrototypeOf(error, FAILURE_PROTOTYPE);
+  const error = new ErrorConstructor(FAILURE_CODE);
+  ObjectSetPrototypeOf(error, FAILURE_PROTOTYPE);
   error.code = FAILURE_CODE;
   return ObjectFreeze(error);
 }
@@ -135,7 +149,7 @@ function readAccessToken(input) {
   if (typeof token !== 'string'
       || token.length < 1
       || token.length > ACCESS_TOKEN_MAX
-      || !VISIBLE_ASCII.test(token)) {
+      || !ReflectApply(RegExpTest, VISIBLE_ASCII, [token])) {
     throw failure();
   }
   return StringFrom(token);
@@ -152,13 +166,13 @@ function isEmailAddress(value) {
   return typeof value === 'string'
     && value.length > 0
     && value.length <= EMAIL_MAX
-    && value === value.trim()
-    && VISIBLE_ASCII.test(value)
-    && EMAIL_SHAPE.test(value);
+    && value === ReflectApply(StringTrim, value, [])
+    && ReflectApply(RegExpTest, VISIBLE_ASCII, [value])
+    && ReflectApply(RegExpTest, EMAIL_SHAPE, [value]);
 }
 
 function isHistoryId(value) {
-  return typeof value === 'string' && HISTORY_ID.test(value);
+  return typeof value === 'string' && ReflectApply(RegExpTest, HISTORY_ID, [value]);
 }
 
 function parseProfileBody(text) {
@@ -178,10 +192,12 @@ function parseProfileBody(text) {
   } catch {
     throw failure();
   }
-  if (keys.some((key) => typeof key !== 'string')) throw failure();
-  const allowed = new Set([...RESULT_KEYS, ...OPTIONAL_TOTAL_KEYS]);
-  if (!keys.includes('emailAddress') || !keys.includes('historyId')) throw failure();
-  if (keys.length < 2 || keys.length > 4 || keys.some((key) => !allowed.has(key))) throw failure();
+  if (ReflectApply(ArraySome, keys, [(key) => typeof key !== 'string'])) throw failure();
+  if (!ReflectApply(ArrayIncludes, keys, ['emailAddress'])
+      || !ReflectApply(ArrayIncludes, keys, ['historyId'])) throw failure();
+  if (keys.length < 2 || keys.length > 4
+      || ReflectApply(ArraySome, keys, [(key) => key !== 'emailAddress' && key !== 'historyId'
+        && key !== 'messagesTotal' && key !== 'threadsTotal'])) throw failure();
   const emailAddress = parsed.emailAddress;
   const historyId = parsed.historyId;
   if (!isEmailAddress(emailAddress) || !isHistoryId(historyId)) throw failure();
@@ -212,7 +228,7 @@ function readHeader(headers, name) {
 }
 
 function performGetProfile(accessToken, configuration, dependencies) {
-  return new Promise((resolve, reject) => {
+  return new PromiseConstructor((resolve, reject) => {
     let finished = false;
     let request;
     let response;
@@ -223,6 +239,7 @@ function performGetProfile(accessToken, configuration, dependencies) {
     let timerCleared = false;
     let responseSeen = false;
     let responseEnded = false;
+    const lateResponses = new WeakSetConstructor();
     const maxBytes = configuration.responseBytesMax;
     const timeoutMs = configuration.requestTimeoutMs;
 
@@ -246,6 +263,8 @@ function performGetProfile(accessToken, configuration, dependencies) {
       if (!target || (typeof target !== 'object' && typeof target !== 'function') || target === response) {
         return;
       }
+      if (ReflectApply(WeakSetHas, lateResponses, [target])) return;
+      ReflectApply(WeakSetAdd, lateResponses, [target]);
       try {
         if (typeof target.destroy === 'function') ReflectApply(target.destroy, target, []);
       } catch { /* best-effort late cleanup */ }
@@ -310,7 +329,7 @@ function performGetProfile(accessToken, configuration, dependencies) {
           return;
         }
         const contentType = readHeader(headers, 'content-type');
-        if (typeof contentType !== 'string' || !CONTENT_TYPE.test(contentType)) {
+        if (typeof contentType !== 'string' || !ReflectApply(RegExpTest, CONTENT_TYPE, [contentType])) {
           fail();
           return;
         }
@@ -321,11 +340,11 @@ function performGetProfile(accessToken, configuration, dependencies) {
         }
         const rawLength = readHeader(headers, 'content-length');
         if (rawLength !== undefined) {
-          if (typeof rawLength !== 'string' || !CONTENT_LENGTH.test(rawLength)) {
+          if (typeof rawLength !== 'string' || !ReflectApply(RegExpTest, CONTENT_LENGTH, [rawLength])) {
             fail();
             return;
           }
-          declaredLength = Number(rawLength);
+          declaredLength = NumberConstructor(rawLength);
           if (!NumberIsSafeInteger(declaredLength) || declaredLength > maxBytes) {
             fail();
             return;
@@ -352,7 +371,8 @@ function performGetProfile(accessToken, configuration, dependencies) {
           let decoded;
           try {
             const body = size === 0 ? BufferAlloc(0) : BufferConcat(chunks, size);
-            decoded = new PinnedTextDecoder('utf-8', { fatal: true }).decode(body);
+            const decoder = new PinnedTextDecoder('utf-8', { fatal: true });
+            decoded = ReflectApply(TextDecoderDecode, decoder, [body]);
           } catch {
             fail();
             return;
@@ -419,15 +439,16 @@ function createGoogleGmailProfileRequest(configuration, dependencies) {
   let used = false;
 
   function getProfile(input) {
-    if (used) return Promise.reject(failure());
+    if (used) return ReflectApply(PromiseReject, PromiseConstructor, [failure()]);
     used = true;
     try {
       const accessToken = readAccessToken(input);
-      return performGetProfile(accessToken, pinnedConfiguration, pinnedDependencies).catch(() => {
+      return ReflectApply(PromiseCatch,
+        performGetProfile(accessToken, pinnedConfiguration, pinnedDependencies), [() => {
         throw failure();
-      });
+        }]);
     } catch {
-      return Promise.reject(failure());
+      return ReflectApply(PromiseReject, PromiseConstructor, [failure()]);
     }
   }
 
