@@ -33,6 +33,8 @@ const CLAIMS = new Set([
   'family_name',
   'picture',
   'locale',
+  'nbf',
+  'jti',
 ]);
 
 function failure() {
@@ -226,6 +228,14 @@ function bounded(value, max) {
     !/[\u0000-\u001f\u007f]/.test(value)
   );
 }
+function visibleAscii(value, max) {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= max &&
+    /^[\x21-\x7e]+$/.test(value)
+  );
+}
 function safeEqual(left, right) {
   if (typeof left !== 'string' || typeof right !== 'string') return false;
   const a = Buffer.from(left, 'utf8');
@@ -305,6 +315,10 @@ function validMetadata(claims) {
       return false;
     }
   }
+  if (claims.nbf !== undefined && !Number.isSafeInteger(claims.nbf))
+    return false;
+  if (claims.jti !== undefined && !visibleAscii(claims.jti, 512))
+    return false;
   return true;
 }
 
@@ -399,8 +413,7 @@ function createGoogleOidcVerifiedIdentity(dependencies) {
         !['accounts.google.com', ISSUER].includes(claims.iss) ||
         !validAudience(claims.aud, claims.azp, data.expectedClientId) ||
         !safeEqual(claims.nonce, data.expectedNonce) ||
-        !bounded(claims.sub, 255) ||
-        /^\s|\s$/.test(claims.sub) ||
+        !visibleAscii(claims.sub, 255) ||
         claims.email_verified !== true ||
         !validEmail(claims.email) ||
         !validMetadata(claims) ||
@@ -408,6 +421,7 @@ function createGoogleOidcVerifiedIdentity(dependencies) {
         !Number.isSafeInteger(claims.iat) ||
         claims.exp <= now - 300 ||
         claims.iat > now + 300 ||
+        (claims.nbf !== undefined && claims.nbf > now + 300) ||
         claims.exp <= claims.iat ||
         claims.exp - claims.iat > 86400
       )
