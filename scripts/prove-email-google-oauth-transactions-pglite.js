@@ -98,7 +98,6 @@ async function main() {
   const PGlite = loadPglite();
   const db = new PGlite();
   await db.exec(`
-    CREATE EXTENSION IF NOT EXISTS pgcrypto;
     CREATE TABLE clients (id uuid PRIMARY KEY);
     CREATE TABLE staff_users (id uuid PRIMARY KEY, client_id uuid NOT NULL REFERENCES clients(id), UNIQUE(client_id,id));
     CREATE TABLE auth_sessions (id uuid PRIMARY KEY, client_id uuid NOT NULL, staff_user_id uuid NOT NULL,
