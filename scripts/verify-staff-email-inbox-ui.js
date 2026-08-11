@@ -339,22 +339,35 @@ async function main() {
     await page.waitForSelector('#btn-email-generate-luna-draft', { timeout: 10000 });
     ok('authoritative page reload clears uncertain-generation terminal lock',
       await page.locator('#btn-email-generate-luna-draft').isEnabled());
-    await page.route('**/staff/inbox/email/generate-luna-draft', (route) => route.abort('failed'));
-    const beforeError = lunaPosts.length;
-    await page.click('#btn-email-generate-luna-draft');
-    await waitStatus('Could not generate');
-    ok('Luna network error is textContent and unlocks retry', /Could not generate/.test(await statusText())
-      && await page.locator('#btn-email-generate-luna-draft').isEnabled());
-    await page.unroute('**/staff/inbox/email/generate-luna-draft');
     await page.route('**/staff/inbox/email/generate-luna-draft', async (route) => {
       const body = JSON.parse(route.request().postData() || '{}'); lunaPosts.push({ body });
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(draftOk({ ...body, message_text: 'retry draft' })) });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(draftOk({ ...body, message_text: 'authority-bearing draft' })) });
     });
     await page.click('#btn-email-generate-luna-draft');
     await waitStatus('Luna draft generated');
-    ok('Luna retry sends exactly one new request', lunaPosts.length === beforeError + 1 && await page.inputValue('#draft-textarea') === 'retry draft');
-    ok('manual Save and Approve remain wired after Luna', await page.locator('#btn-email-save-draft').isEnabled()
+    ok('successful generation establishes approval authority before response-loss probe',
+      await page.inputValue('#draft-textarea') === 'authority-bearing draft'
       && await page.locator('#btn-email-approve-send').isEnabled());
+    await page.unroute('**/staff/inbox/email/generate-luna-draft');
+    let rejectedDispatchedRequests = 0;
+    await page.route('**/staff/inbox/email/generate-luna-draft', (route) => {
+      rejectedDispatchedRequests += 1;
+      return route.abort('failed');
+    });
+    await page.click('#btn-email-generate-luna-draft');
+    await waitStatus('outcome is unknown');
+    ok('Luna dispatched fetch rejection clears authority and terminally requires authoritative reload',
+      rejectedDispatchedRequests === 1
+      && /Reload the conversation or page before generating again/.test(await statusText())
+      && await page.locator('#draft-send-status img').count() === 0
+      && await page.locator('#btn-email-generate-luna-draft').isDisabled()
+      && await page.locator('#btn-email-approve-send').isDisabled());
+    await page.locator('#btn-email-generate-luna-draft').dispatchEvent('click');
+    await page.locator('#btn-email-approve-send').dispatchEvent('click');
+    await page.waitForTimeout(100);
+    ok('Luna dispatched fetch rejection permits zero retry/approve requests before authoritative reload',
+      rejectedDispatchedRequests === 1 && approvePosts.length === beforeUnknownApprove);
+    await page.unroute('**/staff/inbox/email/generate-luna-draft');
     await page.reload({ waitUntil: 'domcontentloaded' });
     await openInbox(page);
     await emailCard().click();
