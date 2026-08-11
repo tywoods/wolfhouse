@@ -423,6 +423,7 @@
     "prove:email-channel-endpoint-secret-ref-null-policy-pglite": "node scripts/prove-email-channel-endpoint-secret-ref-null-policy-pglite.js",
     "verify:staff-email-oauth-routes": "node scripts/verify-staff-email-oauth-routes.js",
     "verify:email-channel-endpoint-identity": "node scripts/verify-email-channel-endpoint-identity.js",
+    "verify:email-google-endpoint-identity": "node scripts/verify-email-google-endpoint-identity.js",
     "prove:email-channel-endpoint-identity-pg": "node scripts/prove-email-channel-endpoint-identity-pg.js",
     "verify:email-delegated-grant-custodian": "node scripts/verify-email-delegated-grant-custodian.js",
     "verify:email-delegated-read-authority": "node scripts/verify-email-delegated-read-authority.js",
