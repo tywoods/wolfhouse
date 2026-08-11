@@ -410,6 +410,7 @@
     "verify:staff-email-inbox-mailbox-authority-binding": "node scripts/verify-staff-email-inbox-mailbox-authority-binding.js",
     "verify:staff-email-outbound-recovery-route": "node scripts/verify-staff-email-outbound-recovery-route.js",
     "verify:staff-email-inbox-ui": "node scripts/verify-staff-email-inbox-ui.js",
+    "verify:staff-email-thread-body-render": "node scripts/verify-staff-email-thread-body-render.js",
     "verify:email-delta-operator-recovery-config": "node scripts/verify-email-delta-operator-recovery-config.js",
     "verify:email-delta-operator-recovery-service": "node scripts/verify-email-delta-operator-recovery-service.js",
     "verify:staff-email-delta-operator-recovery-routes": "node scripts/verify-staff-email-delta-operator-recovery-routes.js",

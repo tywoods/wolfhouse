@@ -209,6 +209,11 @@ WHERE c.slug = $1
  */
 function getConversationMessagesQuery(opts = {}) {
   const scoped = !!opts.locationScoped;
+  // email_subject / body_text are staff-portal display projections.
+  // Storage truth remains messages.message_text:
+  //   - email_inbound bridge (Slice 2): message_text holds subject only
+  //   - outbound staff email: message_text holds the sent body
+  //   - WhatsApp: message_text is the body (email_* null)
   return `
 SELECT
   m.id::text                 AS message_id,
@@ -220,7 +225,23 @@ SELECT
   m.conversation_stage,
   m.created_at,
   CASE WHEN m.metadata->>'open_phone_testing' = 'true' THEN TRUE ELSE FALSE END AS open_phone_testing,
-  m.metadata->>'guest_tester_class' AS guest_tester_class
+  m.metadata->>'guest_tester_class' AS guest_tester_class,
+  CASE
+    WHEN m.source = 'email_inbound' OR m.route = 'email' OR m.metadata->>'channel' = 'email'
+      THEN COALESCE(
+        NULLIF(m.metadata->>'email_subject', ''),
+        CASE WHEN m.source = 'email_inbound' THEN m.message_text ELSE NULL END
+      )
+    ELSE NULL
+  END AS email_subject,
+  CASE
+    WHEN m.source = 'email_inbound'
+      THEN COALESCE(NULLIF(m.metadata->>'body_text', ''), NULLIF(m.metadata->>'body', ''), '')
+    WHEN m.route = 'email' OR m.metadata->>'channel' = 'email'
+      OR m.source IN ('staff_email_reply', 'staff_inbox_reply', 'email_outbound')
+      THEN m.message_text
+    ELSE NULL
+  END AS body_text
 FROM messages m
 INNER JOIN conversations conv ON conv.id = m.conversation_id
 INNER JOIN clients c ON c.id = conv.client_id
@@ -229,6 +250,74 @@ WHERE c.slug = $1
 ORDER BY m.created_at ASC
 LIMIT 500
 `;
+}
+
+/**
+ * Project a messages-query row into the staff portal thread DTO.
+ * Field ownership:
+ *   - message_text: durable messages.message_text (storage truth)
+ *   - email_subject: email subject when known (inbound subject-only storage or metadata)
+ *   - body_text: email body for display when known; never invents body from subject
+ *
+ * @param {object} row
+ * @returns {object}
+ */
+function projectStaffInboxThreadMessage(row) {
+  if (!row || typeof row !== 'object') return row;
+  const messageText = row.message_text == null ? '' : String(row.message_text);
+  const source = row.source == null ? '' : String(row.source);
+  const route = row.route == null ? '' : String(row.route);
+  const isEmail = source === 'email_inbound'
+    || route === 'email'
+    || source === 'staff_email_reply'
+    || source === 'email_outbound'
+    || (row.email_subject != null && String(row.email_subject).length > 0)
+    || (row.body_text != null && String(row.body_text).length > 0);
+
+  let emailSubject = row.email_subject == null ? null : String(row.email_subject);
+  let bodyText = row.body_text == null ? null : String(row.body_text);
+
+  if (source === 'email_inbound') {
+    if (!emailSubject) emailSubject = messageText || null;
+    if (bodyText == null) bodyText = '';
+  } else if (isEmail) {
+    if (bodyText == null || bodyText === '') bodyText = messageText;
+  }
+
+  const out = { ...row, message_text: messageText };
+  if (emailSubject != null && emailSubject !== '') out.email_subject = emailSubject;
+  else if ('email_subject' in out) delete out.email_subject;
+  if (bodyText != null) out.body_text = bodyText;
+  else if ('body_text' in out) delete out.body_text;
+  return out;
+}
+
+/**
+ * Staff-visible bubble body for a thread message DTO.
+ * Prefers body_text when present (including empty string for subject-only inbound);
+ * otherwise falls back to message_text (WhatsApp / legacy).
+ *
+ * @param {object} m
+ * @returns {string}
+ */
+function staffInboxThreadMessageBody(m) {
+  if (!m || typeof m !== 'object') return '';
+  if (Object.prototype.hasOwnProperty.call(m, 'body_text') && m.body_text != null) {
+    return String(m.body_text);
+  }
+  return m.message_text == null ? '' : String(m.message_text);
+}
+
+/**
+ * Staff-visible subject for an email thread message (empty when not email).
+ * @param {object} m
+ * @returns {string}
+ */
+function staffInboxThreadMessageSubject(m) {
+  if (!m || typeof m !== 'object') return '';
+  if (m.email_subject != null && String(m.email_subject).length) return String(m.email_subject);
+  if (m.subject != null && String(m.subject).length) return String(m.subject);
+  return '';
 }
 
 // ---------------------------------------------------------------------------
@@ -491,6 +580,9 @@ module.exports = {
   getConversationInboxQuery,
   getConversationDetailQuery,
   getConversationMessagesQuery,
+  projectStaffInboxThreadMessage,
+  staffInboxThreadMessageBody,
+  staffInboxThreadMessageSubject,
   getConversationContextQuery,
   getConversationBookingsQuery,
   getConversationDraftQuery,

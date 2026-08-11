@@ -479,6 +479,27 @@ WHERE client_id=$1::uuid AND approval_id=$2::uuid AND operation_id=$3::uuid
   AND conversation_id=$4::uuid
 LIMIT 1
 `.replace(/\s+/g, ' ').trim();
+/** Best-effort staff inbox thread mirror after Graph commit (body in message_text). */
+const SQL_OUTBOUND_THREAD_EXISTS = `
+SELECT id::text AS message_id FROM messages
+ WHERE client_id=$1::uuid AND conversation_id=$2::uuid
+   AND direction='outbound' AND metadata->>'approval_id'=$3
+ LIMIT 1
+`.replace(/\s+/g, ' ').trim();
+const SQL_INSERT_OUTBOUND_THREAD = `
+INSERT INTO messages (
+  client_id, conversation_id, direction, message_text, message_type,
+  source, route, metadata
+) VALUES (
+  $1::uuid, $2::uuid, 'outbound', $3, 'email',
+  'staff_email_reply', 'email', $4::jsonb
+) RETURNING id::text AS message_id
+`.replace(/\s+/g, ' ').trim();
+const SQL_TOUCH_OUTBOUND_PREVIEW = `
+UPDATE conversations
+   SET last_message_preview=$3, last_staff_reply_at=NOW(), updated_at=NOW()
+ WHERE client_id=$1::uuid AND id=$2::uuid
+`.replace(/\s+/g, ' ').trim();
 function actorFromUser(user) {
   if (!user || typeof user !== 'object') return null;
   const sid = parseUuid(typeof user.staff_user_id === 'string' ? user.staff_user_id : null);
@@ -628,6 +649,30 @@ function createStaffEmailInboxRoutes(deps) {
       return sendJSON(res, 500, Object.freeze({ success: false, error: 'draft_failed' }));
     }
   }
+  /** Best-effort: durable staff-visible outbound body after Graph commit. */
+  async function mirrorCommittedOutboundThread(actor, conversationId, approvalId, messageText) {
+    try {
+      if (!actor || !conversationId || !approvalId || typeof messageText !== 'string' || !messageText.length) return;
+      await withPgClient(async (pg) => {
+        const existing = await pg.query(SQL_OUTBOUND_THREAD_EXISTS, [
+          actor.client_id, conversationId, String(approvalId).toLowerCase(),
+        ]);
+        if (existing && existing.rows && existing.rows.length) return;
+        const preview = messageText.slice(0, 500);
+        await pg.query(SQL_INSERT_OUTBOUND_THREAD, [
+          actor.client_id,
+          conversationId,
+          messageText,
+          JSON.stringify({
+            channel: 'email',
+            approval_id: String(approvalId).toLowerCase(),
+            send_kind: 'staff_email_reply',
+          }),
+        ]);
+        await pg.query(SQL_TOUCH_OUTBOUND_PREVIEW, [actor.client_id, conversationId, preview]);
+      });
+    } catch { /* non-authoritative after provider commit */ }
+  }
   /** Shared authoritative new-draft persistence owner for manual and Luna routes. */
   async function saveDraftThroughStaffOwner(input) {
     const a = input && input.actor;
@@ -767,6 +812,9 @@ function createStaffEmailInboxRoutes(deps) {
         && result.status === 200
         && result.body
         && result.body.success === true;
+      if (deliveryCommitted === true) {
+        await mirrorCommittedOutboundThread(actor, input.conversation_id, input.approval_id, input.message_text);
+      }
       auditSafe(appendAuditLog, { intent: 'api:inbox.email.approve_send', category: 'email_inbox_approve_send',
         success: deliveryCommitted === true, code: result.code, approval_id: result.approval_id || input.approval_id,
         conversation_id: input.conversation_id, staff_user_id: actor.staff_user_id, elapsed_ms: Date.now() - started });
