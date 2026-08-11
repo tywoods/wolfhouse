@@ -428,6 +428,7 @@
     "verify:email-delegated-grant-custodian": "node scripts/verify-email-delegated-grant-custodian.js",
     "verify:email-google-delegated-custodian-generalization": "node scripts/verify-email-google-delegated-custodian-generalization.js",
     "verify:email-delegated-read-authority": "node scripts/verify-email-delegated-read-authority.js",
+    "verify:email-google-delegated-read-authority": "node scripts/verify-email-google-delegated-read-authority.js",
     "verify:email-authority-bound-inbound-operation": "node scripts/verify-email-authority-bound-inbound-operation.js",
     "verify:email-authority-bound-bounded-catchup-operation": "node scripts/verify-email-authority-bound-bounded-catchup-operation.js",
     "verify:email-authority-bound-messages-delta-page-operation": "node scripts/verify-email-authority-bound-messages-delta-page-operation.js",
