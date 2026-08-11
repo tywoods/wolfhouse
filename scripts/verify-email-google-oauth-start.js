@@ -113,6 +113,9 @@ test('requires exact frozen ordered deployment configuration and exact true acti
   const uppercase = harness();
   const service = create(uppercase, config({ applicationClientId: '9876543210-UPPER.apps.googleusercontent.com' }));
   assert.equal(Object.isFrozen(service), true); assert.deepEqual(uppercase.calls, { uuid: [], bytes: [], sha: [], now: [], create: [] });
+  let proxyTraps = 0; const proxied = new Proxy(good, { getPrototypeOf() { proxyTraps += 1; return Object.prototype; } });
+  const proxyHarness = harness(); assert.throws(() => createGoogleOAuthStart(proxied, proxyHarness.dependencies), clean);
+  assert.equal(proxyTraps, 0); assert.deepEqual(proxyHarness.calls, { uuid: [], bytes: [], sha: [], now: [], create: [] });
 });
 
 test('requires exact frozen ordered narrow dependency owners and pins every method and receiver', async () => {
@@ -270,6 +273,18 @@ test('uses captured intrinsics and pinned functions despite function-owned and p
   } finally { Reflect.apply = saved.apply; Object.freeze = saved.freeze; Array.prototype.join = saved.join; global.Promise = saved.Promise;
     global.URL = saved.URL; Buffer.from = saved.from; Buffer.isBuffer = saved.isBuffer; RegExp.prototype.test = saved.test; }
   assert.equal(traps, 0); assert.equal(saved.freeze === Object.freeze, true); assert.equal(Object.isFrozen(result), true);
+  let poisonExecutions = 0; let byteIndex = 0; const originalPush = Array.prototype.push;
+  const poisoningCrypto = freeze({
+    randomUUID() { return OPERATION; },
+    randomBytes() { const output = apply(bufferFrom, Buffer, [byteSets[byteIndex++]]); Array.prototype.push = () => { poisonExecutions += 1; }; return output; },
+    sha256Ascii(value) { return crypto.createHash('sha256').update(value, 'ascii').digest(); },
+  });
+  const directClock = freeze({ now() { return ISSUED; } });
+  const directRepository = freeze({ create() { return ack(); } });
+  const poisoningService = createGoogleOAuthStart(config(), freeze({ cryptography: poisoningCrypto, clock: directClock, repository: directRepository }));
+  try { assert.equal((await poisoningService.start(input())).expiresAt, EXPIRES); }
+  finally { Array.prototype.push = originalPush; }
+  assert.equal(poisonExecutions, 0);
 });
 
 test('production owner is structurally pure and has no ambient or capability-bearing imports', async () => {
