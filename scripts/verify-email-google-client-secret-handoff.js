@@ -150,6 +150,47 @@ test('rejects custom/proxy/spoof thenables from both children without invoking t
   assert.equal(invoked, 0);
 });
 
+test('pins reflection and freezing intrinsics across hostile child execution', async () => {
+  const saved = {
+    freeze: Object.freeze,
+    isFrozen: Object.isFrozen,
+    getPrototypeOf: Object.getPrototypeOf,
+    getOwnPropertyDescriptor: Object.getOwnPropertyDescriptor,
+    hasOwn: Object.hasOwn,
+    create: Object.create,
+    ownKeys: Reflect.ownKeys,
+    regexTest: RegExp.prototype.test,
+  };
+  let operationDto; let result;
+  const poison = () => {
+    Object.freeze = value => value;
+    Object.isFrozen = () => false;
+    Object.getPrototypeOf = () => { throw new Error(LEAK); };
+    Object.getOwnPropertyDescriptor = () => { throw new Error(LEAK); };
+    Object.hasOwn = () => false;
+    Object.create = () => { throw new Error(LEAK); };
+    Reflect.ownKeys = () => { throw new Error(LEAK); };
+    RegExp.prototype.test = () => { throw new Error(LEAK); };
+  };
+  try {
+    const p = provider(() => { const output = saved.freeze({ clientSecret: SECRET }); poison(); return output; });
+    const o = operation(dto => { operationDto = dto; poison(); return ACK; });
+    result = await create(p, o).completeAuthorization(input());
+  } finally {
+    Object.freeze = saved.freeze;
+    Object.isFrozen = saved.isFrozen;
+    Object.getPrototypeOf = saved.getPrototypeOf;
+    Object.getOwnPropertyDescriptor = saved.getOwnPropertyDescriptor;
+    Object.hasOwn = saved.hasOwn;
+    Object.create = saved.create;
+    Reflect.ownKeys = saved.ownKeys;
+    RegExp.prototype.test = saved.regexTest;
+  }
+  assert.strictEqual(result, ACK);
+  assert.equal(saved.isFrozen(operationDto), true);
+  assert.deepEqual(saved.ownKeys(operationDto), ['authorizationCode', 'codeVerifier', 'clientSecret']);
+});
+
 test('requires exact frozen custodied acknowledgement and masks operation ambiguity', async () => {
   const malformed = [undefined, null, {}, { status: 'custodied' }, freeze({ status: 'wrong' }),
     freeze({ status: 'custodied', extra: true }), freeze(Object.assign(Object.create(null), { status: 'custodied' })),
@@ -191,6 +232,6 @@ test('structurally imports only the canonical mailbox secret-ref validator and n
 
 (async () => {
   for (const { name, run } of tests) { await run(); process.stdout.write(`ok - ${name}\n`); }
-  assert.equal(tests.length, 14);
-  process.stdout.write('PASS verify:email-google-client-secret-handoff (14 named offline tests)\n');
+  assert.equal(tests.length, 15);
+  process.stdout.write('PASS verify:email-google-client-secret-handoff (15 named offline tests)\n');
 })().catch(error => { process.stderr.write(`${error && error.stack ? error.stack : error}\n`); process.exitCode = 1; });
