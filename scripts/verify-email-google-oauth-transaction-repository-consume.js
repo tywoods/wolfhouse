@@ -149,7 +149,7 @@ test('rejects multiple, malformed, mixed-freeze, accessor, proxy, and noncanonic
   const malformed = [undefined, null, {}, freeze({ rows: [] }), result([row(), row()]),
     result([{ ...row() }]), result([row({}, false)]), result([row()], false),
     result([freeze({ location_id: LOCATION, operation_id: OPERATION, endpoint_id: ENDPOINT, staff_user_id: STAFF, code_verifier: VERIFIER, nonce: NONCE })]),
-    result([row({ operation_id: 'not-a-uuid' })]), result([row({ location_id: LOCATION.toUpperCase() })]),
+    result([row({ operation_id: 'not-a-uuid' })]), result([row({ location_id: ENDPOINT.toUpperCase() })]),
     result([row({ code_verifier: 'A'.repeat(42) })]), result([row({ nonce: `${'A'.repeat(42)}.` })]), result([accessor]),
     new Proxy(result(), { ownKeys() { throw new Error(LEAK); } })];
   for (const value of malformed) await rejects(() => repository(queryOwner(() => value)).consume(input()));
@@ -172,19 +172,21 @@ test('pins intrinsics before child query poisoning for zero, one, malformed hand
     ownKeys: Reflect.ownKeys, apply: Reflect.apply, regexTest: RegExp.prototype.test,
     promise: global.Promise, arrayIsArray: Array.isArray };
   async function poisoned(output, rejectExpected) {
-    let answer; try {
+    let answer; let caught;
+    try {
       answer = await repository(queryOwner(() => {
         Object.freeze = value => value; Object.isFrozen = () => false; Object.getPrototypeOf = () => { throw new Error(LEAK); };
         Object.getOwnPropertyDescriptor = () => { throw new Error(LEAK); }; Object.hasOwn = () => false; Object.create = () => { throw new Error(LEAK); };
         Reflect.ownKeys = () => { throw new Error(LEAK); }; Reflect.apply = () => { throw new Error(LEAK); }; RegExp.prototype.test = () => false;
         Array.isArray = () => false; global.Promise = function PoisonPromise() { throw new Error(LEAK); }; return output;
       })).consume(input());
-      if (rejectExpected) assert.fail('malformed poisoned output accepted');
-    } catch (error) { if (!rejectExpected) throw error; assertClean(error); }
+    } catch (error) { caught = error; }
     finally { Object.freeze = saved.freeze; Object.isFrozen = saved.isFrozen; Object.getPrototypeOf = saved.getPrototypeOf;
       Object.getOwnPropertyDescriptor = saved.getOwnPropertyDescriptor; Object.hasOwn = saved.hasOwn; Object.create = saved.create;
       Reflect.ownKeys = saved.ownKeys; Reflect.apply = saved.apply; RegExp.prototype.test = saved.regexTest;
       Array.isArray = saved.arrayIsArray; global.Promise = saved.promise; }
+    if (rejectExpected) { assert.ok(caught, 'malformed poisoned output rejected'); assertClean(caught); }
+    else if (caught) throw caught;
     return answer;
   }
   assert.equal(await poisoned(result([]), false), null);
