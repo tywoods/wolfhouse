@@ -4,8 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const MIG = path.join(ROOT, 'database/migrations');
-const UP = '070_tenant_channel_endpoint_google_identity.sql';
-const DOWN = '070_tenant_channel_endpoint_google_identity_down.sql';
+const UP = '073_tenant_channel_endpoint_google_identity.sql';
+const DOWN = '073_tenant_channel_endpoint_google_identity_down.sql';
 const {
   validateEmailChannelEndpointIdentityModePair: pair,
   validateEmailChannelEndpointBindingIdentity: bind,
@@ -20,6 +20,9 @@ const gmail = (extra = {}) => ({
   mailbox_access_kind: 'own_user', binding_status: 'verified', ...extra,
 });
 assert.equal(pair({ provider: 'gmail_api', auth_mode: 'delegated_authorization_code', connector_mode: 'google_delegated_oauth' }).ok, true);
+const gmailNullPair = pair({ provider: 'gmail_api', auth_mode: null, connector_mode: null });
+assert.equal(gmailNullPair.ok, true);
+assert.equal(gmailNullPair.value.provider, 'gmail_api');
 const good = bind(gmail());
 assert.equal(good.ok, true);
 assert.equal(good.value.principal_is_mailbox_identity, true);
@@ -33,6 +36,9 @@ for (const bad of [
   { provider_principal_oid: 'é' }, { provider_principal_oid: 'x'.repeat(256) },
   { mailbox_kind: 'shared' }, { mailbox_access_kind: 'application' },
 ]) assert.equal(bind(gmail(bad)).ok, false, JSON.stringify(bad));
+assert.equal(bind(gmail({ provider_principal_oid: 'x y', provider_resource_id: 'x y' })).ok, false);
+assert.equal(bind(gmail({ binding_status: 'pending_manual_validation', provider_principal_oid: null })).ok, false);
+assert.equal(bind(gmail({ binding_status: 'pending_manual_validation', provider_resource_id: null })).ok, false);
 assert.equal(bind(gmail({ binding_status: 'reauthorization_required' })).ok, true);
 assert.equal(bind(gmail({ auth_mode: null, connector_mode: null })).ok, false);
 assert.equal(bind({ provider: 'gmail_api' }).ok, true);
@@ -55,6 +61,6 @@ assert.doesNotMatch(down, /DELETE|UPDATE\s+tenant_channel_endpoints/i);
 const manifest = loadManifest(path.join(MIG, 'canonical-manifest.json'));
 const ue = manifest.entries.find((e) => e.filename === UP);
 const de = manifest.entries.find((e) => e.filename === DOWN);
-assert.ok(ue && ue.order === 69 && ue.inForwardChain === true && ue.sha256 === sha256CanonicalLfV1File(upPath));
+assert.ok(ue && ue.order === 72 && ue.inForwardChain === true && ue.sha256 === sha256CanonicalLfV1File(upPath));
 assert.ok(de && de.inForwardChain === false && de.pairsWith === UP && de.sha256 === sha256CanonicalLfV1File(downPath));
 console.log('PASS verify:email-google-endpoint-identity');

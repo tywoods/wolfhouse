@@ -104,7 +104,7 @@ const proveExists = fs.existsSync(path.join(ROOT, PROVE_REL));
 const proveLines = proveExists
   ? fs.readFileSync(path.join(ROOT, PROVE_REL), 'utf8').split(/\r?\n/).length : 0;
 ok('budget-up-down-le-280', upLines + downLines <= 280, `up+down=${upLines + downLines}`);
-ok('budget-domain-le-400', domainLines <= 400, `domain=${domainLines}`);
+ok('budget-domain-le-440', domainLines <= 440, `domain=${domainLines}`);
 ok('budget-verify-prove-le-800', verifyLines + proveLines <= 800, `v+p=${verifyLines + proveLines}`);
 
 ok('up-no-if-not-exists', !/\bIF\s+NOT\s+EXISTS\b/i.test(upSql));
@@ -154,7 +154,7 @@ ok('manifest-down-rollback', Boolean(downEnt && downEnt.classification === 'roll
 ok('manifest-up-sha', Boolean(upEnt && upEnt.sha256 === upHash));
 ok('manifest-down-sha', Boolean(downEnt && downEnt.sha256 === downHash));
 ok('manifest-checksum-mode', manifest.checksumMode === CHECKSUM_MODE_CANONICAL_LF_V1);
-ok('manifest-forward-count-61', forwardEntries(manifest).length === 61);
+ok('manifest-forward-count-72', forwardEntries(manifest).length === 72);
 
 ok('package-gate', pkg.scripts
   && pkg.scripts['verify:email-channel-endpoint-identity']
@@ -237,9 +237,9 @@ ok('pair-app-only-ok', pair({
 ok('pair-half-null-fail', !pair({
   provider: 'microsoft_graph', auth_mode: 'delegated_authorization_code', connector_mode: null,
 }).ok);
-ok('pair-gmail-with-modes-fail', !pair({
+ok('pair-gmail-with-modes', pair({
   provider: 'gmail_api', auth_mode: 'delegated_authorization_code',
-  connector_mode: 'microsoft_delegated_oauth',
+  connector_mode: 'google_delegated_oauth',
 }).ok);
 ok('pair-cross-mix-fail', !pair({
   provider: 'microsoft_graph', auth_mode: 'delegated_authorization_code',

@@ -895,3 +895,9 @@ Migration: `058_tenant_channel_endpoint_identity.sql` · Down: `058_tenant_chann
 11. No OAuth tx/nonce/pkce/code/token columns; no rotation state columns. **Does not flip 2C** activation readiness / `schema_enforces` flags (`schema_enforces_activation: false`).
 
 Gate: `npm run verify:email-channel-endpoint-identity`. Disposable PG: `npm run prove:email-channel-endpoint-identity-pg` (Docker preferred; PGlite fallback; report blocker if neither).
+
+### G2c — provider-specific Gmail endpoint identity (offline / UNWIRED)
+
+Migration `073_tenant_channel_endpoint_google_identity.sql` additively classifies only `gmail_api` + `delegated_authorization_code` + `google_delegated_oauth`. Google `provider_tenant_id` is the exact canonical issuer `https://accounts.google.com`; `provider_principal_oid` and `provider_resource_id` are the same byte-for-byte, case-sensitive OIDC `sub` (1–255 printable ASCII). The Google principal is explicitly the mailbox identity. `public_address` remains mutable non-identity metadata. Verified and reauthorization rows require the classified pair, `mailbox_kind=user`, and `mailbox_access_kind=own_user`.
+
+Microsoft delegated/app-only UUID shapes, its explicit `principal_is_mailbox_identity=false`, and the existing C-collated partial ownership index are unchanged. The migration performs no DML, activation, grant custody, OAuth route/runtime wiring, credential access, provider call, or send. Its explicit down migration refuses rollback while any classified Gmail identity exists rather than deleting, rewriting, or weakening identity; otherwise it restores the pre-G2c Microsoft-only constraints. Gate: `npm run verify:email-google-endpoint-identity`.
