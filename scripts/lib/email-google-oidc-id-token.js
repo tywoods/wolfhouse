@@ -2,6 +2,7 @@
 
 const { createHash, timingSafeEqual } = require('node:crypto');
 const { TextDecoder } = require('node:util');
+const { URL } = require('node:url');
 
 const CODE = 'GOOGLE_OIDC_VERIFIED_IDENTITY_INVALID';
 const MESSAGE = 'Google OIDC verified identity validation failed.';
@@ -164,7 +165,8 @@ function createGoogleOidcVerifiedIdentity(dependencies) {
     if (!verifier || Object.getPrototypeOf(verifier) !== Object.prototype || !Object.isFrozen(verifier)
         || Reflect.ownKeys(verifier).length !== 1) throw failure();
     const descriptor = Object.getOwnPropertyDescriptor(verifier, 'verifySignature');
-    if (!descriptor || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'function') throw failure();
+    if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.enumerable
+        || typeof descriptor.value !== 'function') throw failure();
     verifySignature = descriptor.value;
   } catch { throw failure(); }
   let used = false;
@@ -173,6 +175,7 @@ function createGoogleOidcVerifiedIdentity(dependencies) {
     try {
       const data = exactFrozenData(input, ['idToken', 'accessToken', 'expectedNonce', 'expectedClientId', 'nowEpochSeconds']);
       if (!data || !bounded(data.idToken, LIMITS.token) || !bounded(data.accessToken, 8192)
+          || !/^[\x21-\x7e]+$/.test(data.accessToken)
           || !bounded(data.expectedNonce, 512) || !bounded(data.expectedClientId, 256)
           || !Number.isSafeInteger(data.nowEpochSeconds) || data.nowEpochSeconds < 0) throw failure();
       const parts = data.idToken.split('.'); if (parts.length !== 3) throw failure();
@@ -193,7 +196,8 @@ function createGoogleOidcVerifiedIdentity(dependencies) {
           || !safeEqual(claims.nonce, data.expectedNonce) || !bounded(claims.sub, 255) || /^\s|\s$/.test(claims.sub)
           || claims.email_verified !== true || !validEmail(claims.email) || !validMetadata(claims)
           || !Number.isSafeInteger(claims.exp) || !Number.isSafeInteger(claims.iat)
-          || claims.exp <= now - 300 || claims.iat > now + 300 || claims.exp === claims.iat || claims.exp - claims.iat > 86400) throw failure();
+          || claims.exp <= now - 300 || claims.iat > now + 300 || claims.exp <= claims.iat
+          || claims.exp - claims.iat > 86400) throw failure();
       if (claims.at_hash !== undefined) {
         const hash = decode(claims.at_hash, 22); if (hash.length !== 16) throw failure();
         const expected = createHash('sha256').update(data.accessToken, 'ascii').digest().subarray(0, 16);

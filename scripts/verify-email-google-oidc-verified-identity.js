@@ -274,7 +274,11 @@ test('pins nonce, subject, email verification, case-preserving mailbox, and safe
 });
 
 test('uses Microsoft-grounded 300-second skew and 86400-second maximum token lifetime', async () => {
-  const valid = [{ exp: NOW - 299 }, { iat: NOW + 300 }, { iat: NOW, exp: NOW + 86400 }];
+  const valid = [
+    { iat: NOW - 400, exp: NOW - 299 },
+    { iat: NOW + 300 },
+    { iat: NOW, exp: NOW + 86400 },
+  ];
   for (const patch of valid) await harness().service.verifyIdentity(request(token(BASE_HEADER, { ...BASE_CLAIMS, ...patch })));
   const bad = [{ exp: NOW - 300 }, { iat: NOW + 301 }, { exp: NOW + 10, iat: NOW + 10 },
     { exp: NOW + 10, iat: NOW + 20 },
