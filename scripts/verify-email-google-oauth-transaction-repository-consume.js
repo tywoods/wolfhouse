@@ -105,8 +105,13 @@ test('validates lowercase digest, canonical UUIDv4 owners, and canonical millise
     { clientId: CLIENT.toUpperCase() }, { clientId: 'aaaaaaaa-bbbb-3ccc-8ddd-eeeeeeeeeeee' },
     { authSessionId: SESSION.toUpperCase() }, { authSessionId: 'not-a-uuid' },
     { consumedAt: '2026-08-11T12:05:00Z' }, { consumedAt: '2026-08-11 12:05:00.000+00' },
-    { consumedAt: 'not-a-date' }, { consumedAt: new String(CONSUMED) }];
+    { consumedAt: 'not-a-date' }, { consumedAt: '2026-02-30T12:00:00.000Z' },
+    { consumedAt: '2026-13-01T12:00:00.000Z' }, { consumedAt: '2026-02-29T12:00:00.000Z' },
+    { consumedAt: new String(CONSUMED) }];
   for (const patch of patches) { let calls = 0; await rejects(() => repository(queryOwner(() => { calls += 1; return result(); })).consume(input(patch))); assert.equal(calls, 0); }
+  assert.equal(await repository(queryOwner(() => result([]))).consume(
+    input({ consumedAt: '2028-02-29T12:00:00.000Z' }),
+  ), null);
 });
 
 test('pins inherited factory receiver/query method and defeats later mutation and function call/apply substitution', async () => {

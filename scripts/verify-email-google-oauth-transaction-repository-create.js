@@ -136,6 +136,9 @@ test('validates canonical UUID, digest, verifier, nonce, and immutable canonical
     { codeVerifier: 'A'.repeat(42) }, { codeVerifier: 'A'.repeat(129) }, { codeVerifier: `${'A'.repeat(42)}+` },
     { nonce: 'A'.repeat(42) }, { nonce: 'A'.repeat(129) }, { nonce: `${'A'.repeat(42)}~` },
     { issuedAt: '2026-08-11T12:00:00Z' }, { expiresAt: ISSUED }, { expiresAt: '2026-08-11T12:10:00.001Z' },
+    { issuedAt: '2026-02-30T12:00:00.000Z', expiresAt: '2026-02-30T12:01:00.000Z' },
+    { issuedAt: '2026-13-01T12:00:00.000Z', expiresAt: '2026-13-01T12:01:00.000Z' },
+    { issuedAt: '2026-02-29T12:00:00.000Z', expiresAt: '2026-02-29T12:01:00.000Z' },
     { issuedAt: new String(ISSUED) }, { expiresAt: new String(EXPIRES) },
   ];
   for (const patch of patches) { let calls = 0; await rejects(() => create(queryOwner(() => { calls += 1; return result(); })).create(input(patch))); assert.equal(calls, 0); }
@@ -144,6 +147,10 @@ test('validates canonical UUID, digest, verifier, nonce, and immutable canonical
     input({ codeVerifier: 'A'.repeat(43), nonce: 'A'.repeat(43), expiresAt: minimumExpiry }),
   );
   await create().create(input({ codeVerifier: `${'A'.repeat(124)}-._~`, nonce: `${'A'.repeat(127)}_` }));
+  const leapExpiry = '2028-02-29T12:01:00.000Z';
+  await create(queryOwner(() => result(row({ expires_at: leapExpiry })))).create(
+    input({ issuedAt: '2028-02-29T12:00:00.000Z', expiresAt: leapExpiry }),
+  );
 });
 
 test('rejects custom, proxy, spoofed, subclass, and cross-realm promises without invoking then', async () => {
