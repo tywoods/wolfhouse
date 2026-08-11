@@ -139,7 +139,16 @@ function assertClean(error) {
   for (const secret of [CODE, CLIENT_SECRET, ACCESS, REFRESH, NONCE, EMAIL, LEAK]) assert.equal(rendered.includes(secret), false);
   return true;
 }
-async function rejects(action) { await assert.rejects(Promise.resolve().then(action), assertClean); }
+function assertRuntimeClean(error) {
+  assert.equal(error.name, 'Error');
+  assert.equal(error.code, 'GOOGLE_AUTHORIZATION_CODE_REQUEST_FAILED');
+  assert.equal(error.message, 'GOOGLE_AUTHORIZATION_CODE_REQUEST_FAILED');
+  assert.equal(Object.isFrozen(error), true);
+  const rendered = `${error}\n${error.stack || ''}\n${JSON.stringify(error)}`;
+  for (const secret of [CODE, CLIENT_SECRET, ACCESS, REFRESH, NONCE, EMAIL, LEAK]) assert.equal(rendered.includes(secret), false);
+  return true;
+}
+async function rejects(action) { await assert.rejects(Promise.resolve().then(action), assertRuntimeClean); }
 const tests = [];
 function test(name, run) { tests.push({ name, run }); }
 
@@ -235,7 +244,7 @@ test('invalid signature, nonce, or audience prevents sealing and installation', 
     { tokenPatch: { id_token: signedToken({ nonce: 'wrong' }) } },
     { tokenPatch: { id_token: signedToken({ aud: 'wrong.apps.googleusercontent.com' }) } },
   ];
-  for (const tokenPatch of cases) { const c = create({ tokenPatch }); await rejects(() => c.service.exchangeAuthorizationCode(input())); assert.equal(c.calls.seal.length, 0); assert.equal(c.calls.install.length, 0); }
+  for (const spec of cases) { const c = create(spec); await rejects(() => c.service.exchangeAuthorizationCode(input())); assert.ok(c.calls.crypto.length > 0); assert.equal(c.calls.seal.length, 0); assert.equal(c.calls.install.length, 0); }
 });
 
 test('invalid scope or malformed/non-success exact token response prevents crypto, seal, and install', async () => {
