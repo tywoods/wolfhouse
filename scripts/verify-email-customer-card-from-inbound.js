@@ -214,6 +214,15 @@ function testUiSourceGuards() {
       && !/if \(inboxCustBtn && convPhone\)/.test(snip)
       && /openCustomerCardFromConversation\(c\)/.test(snip);
   })());
+  ok('email open prefers by-email over by-id (heal sticky poison customer_id)', (() => {
+    const i = api.indexOf('function openCustomerCardFromConversation');
+    const body = api.slice(i, i + 500);
+    const emailFirst = body.indexOf('openCustomerCardByEmail');
+    const idFirst = body.indexOf('openCustomerCardByCustomerId');
+    return emailFirst >= 0 && idFirst >= 0 && emailFirst < idFirst;
+  })());
+  ok('profile UI hides digit-mangled phone/name',
+    /function customerCardDisplayPhone/.test(api) && /function customerCardDisplayName/.test(api));
   ok('bridge calls email customer upsert',
     require('fs').readFileSync(path.join(ROOT, 'scripts/lib/email-inbound-inbox-bridge.js'), 'utf8')
       .includes('upsertCustomerFromEmailInboundTouch'));
@@ -275,10 +284,95 @@ async function testByIdSchoolScope() {
   ok('non-sunset by-id does not require location', wh.reject === false && wh.params.length === 2);
 }
 
+async function testLegacyPoisonPrefer() {
+  section('2b. Legacy +dddd poison must not win over emailcust1');
+  const {
+    isDigitMangledPlaceholderPhone,
+    isReusableEmailLinkedCustomerPhone,
+    upsertCustomerFromEmailInboundTouch,
+  } = require('./lib/staff-customer-queries');
+
+  ok('+dddddddd is digit-mangled poison', isDigitMangledPlaceholderPhone('+dddddddd') === true);
+  ok('+34600111222 is plausible E.164', isDigitMangledPlaceholderPhone('+34600111222') === false);
+  ok('emailcust1 is reusable', isReusableEmailLinkedCustomerPhone('emailcust1:sunset-somo:abc') === true);
+  ok('poison not reusable', isReusableEmailLinkedCustomerPhone('+dddddddd') === false);
+
+  // Fake PG with only a poison customer for this email/school.
+  const state = {
+    clients: { sunset: '11111111-1111-1111-1111-111111111111' },
+    customers: [{
+      id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+      client_id: '11111111-1111-1111-1111-111111111111',
+      phone: '+dddddddd',
+      full_name: '+dddddddd',
+      email: 'legacy.guest@example.com',
+      location_id: 'sunset-somo',
+    }],
+    conversations: [],
+  };
+  const pg = {
+    state,
+    async query(sql, params) {
+      const s = String(sql).replace(/\s+/g, ' ');
+      if (/SELECT id FROM clients WHERE slug/.test(s)) {
+        return { rows: [{ id: state.clients[params[0]] }] };
+      }
+      if (/SELECT cu\.id::text AS customer_id, cu\.phone/.test(s)) {
+        // reusable filter in SQL is applied in upsert; emulate by filtering
+        const [clientId, email, loc] = params;
+        const rows = state.customers.filter((c) =>
+          c.client_id === clientId && c.email === email && c.location_id === loc
+          && isReusableEmailLinkedCustomerPhone(c.phone));
+        rows.sort((a, b) => (a.phone.startsWith('emailcust1:') ? 0 : 1) - (b.phone.startsWith('emailcust1:') ? 0 : 1));
+        const row = rows[0];
+        return { rows: row ? [{ customer_id: row.id, phone: row.phone, full_name: row.full_name, email: row.email }] : [] };
+      }
+      if (/INSERT INTO customers/.test(s)) {
+        const [clientId, phone, name, email, loc] = params;
+        let row = state.customers.find((c) => c.client_id === clientId && c.phone === phone);
+        if (!row) {
+          row = {
+            id: require('crypto').randomUUID(),
+            client_id: clientId,
+            phone,
+            full_name: name,
+            email,
+            location_id: loc,
+          };
+          state.customers.push(row);
+        }
+        return { rows: [{ customer_id: row.id, phone: row.phone }] };
+      }
+      if (/UPDATE customers/.test(s)) return { rows: [] };
+      if (/UPDATE conversations/.test(s)) {
+        const [clientId, convId, custId] = params;
+        state.conversations.push({ id: convId, client_id: clientId, customer_id: custId });
+        return { rows: [] };
+      }
+      throw new Error('unexpected SQL ' + s.slice(0, 100));
+    },
+  };
+
+  const r = await upsertCustomerFromEmailInboundTouch(pg, {
+    client_slug: 'sunset',
+    email: 'legacy.guest@example.com',
+    display_name: 'Legacy Guest',
+    location_id: 'sunset-somo',
+    conversation_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  });
+  ok('upsert skips poison and creates emailcust1', r.ok && String(r.phone).startsWith('emailcust1:'), r.phone);
+  ok('new customer id is not poison id', r.customer_id !== 'dddddddd-dddd-dddd-dddd-dddddddddddd');
+  ok('poison row still present (orphaned, not reused)',
+    state.customers.some((c) => c.phone === '+dddddddd'));
+  ok('emailcust1 row exists with email',
+    state.customers.some((c) => String(c.phone).startsWith('emailcust1:') && c.email === 'legacy.guest@example.com'));
+}
+
 async function main() {
   console.log('verify-email-customer-card-from-inbound');
   testNormalizeRegression();
   await testEmailUpsert();
+  await testLegacyPoisonPrefer();
   testUiSourceGuards();
   await testByIdSchoolScope();
   await testBrowserOpenCustomerCardClick();
@@ -375,7 +469,7 @@ async function testBrowserOpenCustomerCardClick() {
         window.fetch = function(url){
           window.__fetches.push(String(url));
           var u = String(url);
-          if (u.indexOf('/staff/customers/by-id/') >= 0) {
+          if (u.indexOf('/staff/customers/by-email/context') >= 0 || u.indexOf('/staff/customers/by-id/') >= 0) {
             return Promise.resolve({
               ok: true,
               json: function(){
@@ -442,13 +536,15 @@ async function testBrowserOpenCustomerCardClick() {
     await page.waitForFunction(() => window.__cardInstalled != null, null, { timeout: 3000 });
 
     const emailFetch = await page.evaluate(() => window.__fetches.slice());
-    const emailUrl = emailFetch.find((u) => u.includes('/staff/customers/by-id/'));
-    ok('email click fires by-id context', !!emailUrl, JSON.stringify(emailFetch));
-    ok('email by-id URL includes customer_id',
-      emailUrl && emailUrl.includes('cccccccc-cccc-cccc-cccc-cccccccccccc'));
-    ok('email by-id URL includes active location',
+    const emailUrl = emailFetch.find((u) => u.includes('/staff/customers/by-email/context') || u.includes('/staff/customers/by-id/'));
+    ok('email click fires by-email (heal) or by-id context', !!emailUrl, JSON.stringify(emailFetch));
+    ok('email open prefers by-email path',
+      emailUrl && emailUrl.includes('/staff/customers/by-email/context'));
+    ok('email URL includes guest email',
+      emailUrl && emailUrl.includes('guest%40example.com'));
+    ok('email URL includes active location',
       emailUrl && emailUrl.includes('location=sunset-somo'));
-    ok('email by-id URL includes client=sunset',
+    ok('email URL includes client=sunset',
       emailUrl && emailUrl.includes('client=sunset'));
     const cardEmail = await page.evaluate(() => window.__cardInstalled && window.__cardInstalled.identity
       && window.__cardInstalled.identity.email);

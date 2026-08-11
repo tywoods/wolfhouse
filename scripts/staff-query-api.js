@@ -29766,6 +29766,33 @@ function isEmailChannelConversationClient(c) {
   return /^(emailv1|email):/i.test(String(c.phone || ''));
 }
 
+/** Hide emailcust1 + digit-mangled +dddd placeholders from profile UI. */
+function customerCardDisplayPhone(phone) {
+  var raw = String(phone || '').trim();
+  if (!raw) return '';
+  if (/^(emailv1|email|emailcust1):/i.test(raw)) return '';
+  var n = normalizeCustomerPhoneClient(raw);
+  if (!n) return '';
+  var digits = n.replace(/\D/g, '');
+  // Plausible E.164 only (10–15 digits). Hex-mangled residue is not a phone.
+  if (digits.length < 10 || digits.length > 15) return '';
+  return n;
+}
+
+function customerCardDisplayName(data) {
+  var id = (data && data.identity) || {};
+  var name = String(id.display_name || '').trim();
+  var phone = String((data && data.phone) || '');
+  var email = String(id.email || '').trim();
+  if (name && name !== phone && !/^\+\d+$/.test(name) && !/^(emailv1|email|emailcust1):/i.test(name)) {
+    return name;
+  }
+  if (email) return email;
+  var showPhone = customerCardDisplayPhone(phone);
+  if (showPhone) return showPhone;
+  return 'Guest';
+}
+
 function customerResolveConversationId(data) {
   if (!data) return null;
   var id = data.identity && data.identity.conversation_id;
@@ -29931,12 +29958,13 @@ function renderCustomerProfileSection(data, editing) {
   var id = data.identity || {};
   var notes = customerProfileNotes(data);
   var lastSetup = (data && data.last_setup_summary) || '';
-  var displayName = id.display_name || data.phone || 'Guest';
+  var displayName = customerCardDisplayName(data);
   var convId = customerResolveConversationId(data);
   var convLabel = convId ? portalT('customers.conversation.open') : portalT('customers.conversation.start');
   if (!editing) {
     var contactBits = [];
-    if (data.phone) contactBits.push(data.phone);
+    var showPhone = customerCardDisplayPhone(data.phone);
+    if (showPhone) contactBits.push(showPhone);
     if (id.email) contactBits.push(id.email);
     return '<div class="customers-profile-summary" id="cust-profile-section">' +
       '<div class="customers-profile-summary-hdr">' +
@@ -29952,7 +29980,7 @@ function renderCustomerProfileSection(data, editing) {
       '</div></div>' +
       '<div class="customers-profile-fields">' +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.phone')) + '</span>' +
-        customerContactOpenControlHtml('whatsapp', (/^emailcust1:/i.test(String(data.phone||'')) ? '' : (data.phone || '')), customerResolveChannelConversationId(data, 'whatsapp')) +
+        customerContactOpenControlHtml('whatsapp', customerCardDisplayPhone(data.phone), customerResolveChannelConversationId(data, 'whatsapp')) +
       '</div>' +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.email')) + '</span>' +
         customerContactOpenControlHtml('email', id.email || '', customerResolveChannelConversationId(data, 'email')) +
@@ -30244,8 +30272,9 @@ function openCustomerCardFromConversation(c) {
   if (!c) return Promise.resolve();
   if (isEmailChannelConversationClient(c)) {
     var email = c.guest_email || c.email || '';
-    if (c.customer_id) return openCustomerCardByCustomerId(c.customer_id, { email: email });
+    // Prefer by-email heal path so legacy poison customer_id (+dddd…) is not sticky.
     if (email) return openCustomerCardByEmail(email);
+    if (c.customer_id) return openCustomerCardByCustomerId(c.customer_id, { email: email });
     return Promise.resolve();
   }
   return openCustomerCardForPhone(c.phone);

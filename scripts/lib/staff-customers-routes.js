@@ -20,6 +20,8 @@ const {
   buildLastSetupSummary,
   normalizeCustomerPhone,
   isOpaqueEmailIdentityPhone,
+  isDigitMangledPlaceholderPhone,
+  isReusableEmailLinkedCustomerPhone,
   normalizeCustomerEmail,
   getCustomerContextQuery,
   getCustomerChannelConversationsQuery,
@@ -801,10 +803,18 @@ function createCustomersRoutes(deps) {
         if (!clientRes.rows.length) return null;
         const clientId = clientRes.rows[0].id;
         const params = [clientId, email];
+        // Skip digit-mangled +dddd… placeholders; prefer emailcust1 then real E.164.
         let sql = `SELECT cu.phone
           FROM customers cu
          WHERE cu.client_id = $1::uuid
-           AND lower(btrim(COALESCE(cu.email, ''))) = $2`;
+           AND lower(btrim(COALESCE(cu.email, ''))) = $2
+           AND (
+             cu.phone LIKE 'emailcust1:%'
+             OR (
+               length(regexp_replace(COALESCE(cu.phone, ''), '[^0-9]', '', 'g')) BETWEEN 10 AND 15
+               AND regexp_replace(COALESCE(cu.phone, ''), '[^0-9+]', '', 'g') ~ '^\\+?[0-9]+$'
+             )
+           )`;
         if (clientSlug === SUNSET_CLIENT_SLUG) {
           sql += ` AND COALESCE(cu.location_id, '') = $3`;
           params.push(locationId);
@@ -813,8 +823,8 @@ function createCustomersRoutes(deps) {
         const r = await pg.query(sql, params);
         return r.rows[0] || null;
       });
-      if (!row || !row.phone) {
-        // Lazy email-customer create so legacy emailv1 threads (no customer_id) still open a card.
+      // Heal: no reusable row (or only poison) → upsert emailcust1 and open that.
+      if (!row || !row.phone || !isReusableEmailLinkedCustomerPhone(row.phone)) {
         if (clientSlug === SUNSET_CLIENT_SLUG && locationId) {
           const created = await withPgClient((pg) => upsertCustomerFromEmailInboundTouch(pg, {
             client_slug: clientSlug,
@@ -846,10 +856,37 @@ function createCustomersRoutes(deps) {
     }
     try {
       const row = await withPgClient(async (pg) => {
-        const r = await pg.query(lookup.sql, lookup.params);
+        const r = await pg.query(
+          // Include email so we can heal poison phones without disclosing other schools.
+          lookup.sql.replace(
+            'SELECT cu.phone',
+            'SELECT cu.phone, cu.email, cu.full_name, cu.location_id',
+          ),
+          lookup.params,
+        );
         return r.rows[0] || null;
       });
       if (!row || !row.phone) {
+        return sendJSON(res, 404, { success: false, error: 'customer_not_found' });
+      }
+      // Heal legacy poison customer_id (digit-mangled +dddd…) via email → emailcust1.
+      if (isDigitMangledPlaceholderPhone(row.phone)) {
+        const email = normalizeCustomerEmail(row.email);
+        const loc = clientSlug === SUNSET_CLIENT_SLUG
+          ? (lookup.locationId || '')
+          : (row.location_id || null);
+        if (email && (clientSlug !== SUNSET_CLIENT_SLUG || loc)) {
+          const healed = await withPgClient((pg) => upsertCustomerFromEmailInboundTouch(pg, {
+            client_slug: clientSlug,
+            email,
+            display_name: row.full_name || null,
+            location_id: loc,
+            // Do not force-link conversation here; open path may pass conversation later.
+          }));
+          if (healed && healed.ok && healed.phone && !isDigitMangledPlaceholderPhone(healed.phone)) {
+            return handleCustomerContext(healed.phone, query, res, user);
+          }
+        }
         return sendJSON(res, 404, { success: false, error: 'customer_not_found' });
       }
       return handleCustomerContext(row.phone, query, res, user);

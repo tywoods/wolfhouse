@@ -269,6 +269,39 @@ function isOpaqueEmailIdentityPhone(phone) {
   return typeof phone === 'string' && /^(emailv1|email|emailcust1):/i.test(phone.trim());
 }
 
+/**
+ * Real WhatsApp/E.164 customer phones are typically 10–15 digits.
+ * Hex-digit residue from emailv1:… mangle is often shorter or longer than E.164
+ * (e.g. live Monshies +dddddddd) and must never be treated as identity.
+ */
+function isPlausibleE164CustomerPhone(phone) {
+  if (!phone || isOpaqueEmailIdentityPhone(phone)) return false;
+  const n = normalizeCustomerPhone(phone);
+  if (!n) return false;
+  const digits = n.replace(/\D/g, '');
+  return digits.length >= 10 && digits.length <= 15;
+}
+
+/** Digit-mangled placeholders (+dddd… from emailv1 normalize) — not reusable identity. */
+function isDigitMangledPlaceholderPhone(phone) {
+  const raw = String(phone || '').trim();
+  if (!raw) return false;
+  if (/^emailcust1:/i.test(raw)) return false;
+  if (isOpaqueEmailIdentityPhone(raw)) return false;
+  // Anything that normalizes to +digits but is not plausible E.164 is poison.
+  const n = normalizeCustomerPhone(raw);
+  if (!n) return false;
+  return !isPlausibleE164CustomerPhone(n);
+}
+
+/** Phones safe to reuse for email-guest customer resolution. */
+function isReusableEmailLinkedCustomerPhone(phone) {
+  const raw = String(phone || '').trim();
+  if (!raw) return false;
+  if (/^emailcust1:/i.test(raw)) return true;
+  return isPlausibleE164CustomerPhone(raw);
+}
+
 /** Digits-only phone key for tolerant tenant-scoped matching (+prefix optional). */
 function customerPhoneDigits(phone) {
   return String(phone || '').replace(/[^\d]/g, '');
@@ -473,13 +506,21 @@ async function upsertCustomerFromEmailInboundTouch(pg, input) {
 
   const displayName = trimInboundText(src.display_name, 120);
 
-  // Prefer existing customer already keyed by this email at this school (idempotent).
+  // Prefer existing *reusable* customer for this email at this school.
+  // Never reuse digit-mangled +dddd… placeholders created by old Open-card bugs.
   const existingByEmail = await pg.query(
-    `SELECT cu.id::text AS customer_id, cu.phone
+    `SELECT cu.id::text AS customer_id, cu.phone, cu.full_name, cu.email
        FROM customers cu
       WHERE cu.client_id = $1::uuid
         AND lower(btrim(COALESCE(cu.email, ''))) = $2
         AND COALESCE(cu.location_id, '') = $3
+        AND (
+          cu.phone LIKE 'emailcust1:%'
+          OR (
+            length(regexp_replace(COALESCE(cu.phone, ''), '[^0-9]', '', 'g')) BETWEEN 10 AND 15
+            AND regexp_replace(COALESCE(cu.phone, ''), '[^0-9+]', '', 'g') ~ '^\\+?[0-9]+$'
+          )
+        )
       ORDER BY
         CASE WHEN cu.phone LIKE 'emailcust1:%' THEN 0 ELSE 1 END,
         cu.updated_at DESC NULLS LAST
@@ -488,6 +529,11 @@ async function upsertCustomerFromEmailInboundTouch(pg, input) {
   );
   let customerId = existingByEmail.rows[0] && existingByEmail.rows[0].customer_id;
   let phoneKey = existingByEmail.rows[0] && existingByEmail.rows[0].phone;
+  // Defense in depth (JS): skip poison even if SQL filter drifts.
+  if (phoneKey && !isReusableEmailLinkedCustomerPhone(phoneKey)) {
+    customerId = null;
+    phoneKey = null;
+  }
 
   if (!customerId) {
     const ins = await pg.query(
@@ -1482,6 +1528,9 @@ module.exports = {
   upsertCustomerFromInboundTouch,
   upsertCustomerFromEmailInboundTouch,
   isOpaqueEmailIdentityPhone,
+  isReusableEmailLinkedCustomerPhone,
+  isDigitMangledPlaceholderPhone,
+  isPlausibleE164CustomerPhone,
   normalizeCustomerEmail,
   buildEmailCustomerIdentityKey,
   buildCustomerByIdPhoneLookup,
