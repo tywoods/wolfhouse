@@ -19785,7 +19785,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 .luna-header-ui #tabs .tab-btn{
   position:relative;
-  font-weight:800;
+  font-weight:700;
   font-size:13.5px;
   color:var(--luna-teal-dark);
   opacity:.82;
@@ -19926,7 +19926,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   padding:14px 16px;margin-bottom:14px;box-shadow:var(--shadow-soft);
 }
 .luna-header-mode-head{display:flex;flex-direction:column;gap:2px;margin-bottom:10px}
-.luna-header-mode-title{font-weight:800;font-size:14px;color:var(--text)}
+.luna-header-mode-title{font-weight:700;font-size:14px;color:var(--text)}
 .luna-header-mode-sub{font-size:12px;color:var(--luna-teal-dark);opacity:.72}
 .luna-header-mode-seg{display:inline-flex;flex-wrap:wrap;gap:6px;background:var(--surface-soft,#f1ece1);border-radius:10px;padding:4px}
 .luna-header-mode-btn{
