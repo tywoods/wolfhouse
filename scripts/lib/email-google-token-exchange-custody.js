@@ -122,7 +122,7 @@ function performExchange(body, dependencies) {
       catch { /* cleanup cannot alter settlement */ }
     }
     function fail() {
-      if (finished || transportComplete) return;
+      if (finished) return;
       finished = true;
       clearTimer();
       destroyRequest();
@@ -131,7 +131,6 @@ function performExchange(body, dependencies) {
     }
     function completeCustody(dto) {
       transportComplete = true;
-      clearTimer();
       Promise.resolve().then(() => Reflect.apply(
         dependencies.custody.accept,
         dependencies.custody.owner,
@@ -140,14 +139,17 @@ function performExchange(body, dependencies) {
         if (finished) return;
         if (!sealedAcknowledgement(acknowledgement)) {
           finished = true;
+          clearTimer();
           reject(failure());
           return;
         }
         finished = true;
+        clearTimer();
         resolve(SUCCESS);
       }, () => {
         if (finished) return;
         finished = true;
+        clearTimer();
         reject(failure());
       });
     }
