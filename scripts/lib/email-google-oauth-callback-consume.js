@@ -31,8 +31,8 @@ const DEPENDENCY_KEYS = freeze(['cryptography', 'clock', 'repository']);
 const CRYPTOGRAPHY_KEYS = freeze(['sha256Ascii']);
 const CLOCK_KEYS = freeze(['now']);
 const REPOSITORY_KEYS = freeze(['consume']);
-const INPUT_KEYS = freeze(['clientId', 'authSessionId', 'query']);
-const ROW_KEYS = freeze(['operationId', 'locationId', 'endpointId', 'staffUserId', 'codeVerifier', 'nonce']);
+const INPUT_KEYS = freeze(['query']);
+const ROW_KEYS = freeze(['clientId', 'authSessionId', 'operationId', 'locationId', 'endpointId', 'staffUserId', 'codeVerifier', 'nonce']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const STATE = /^[A-Za-z0-9_-]{43}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
@@ -152,9 +152,7 @@ function createGoogleOAuthCallbackConsume(dependencies) {
     async function consumeCallback(value) {
       try {
         const input = snapshot(value, INPUT_KEYS);
-        if (!input || typeof input.clientId !== 'string' || !test(UUID, input.clientId)
-            || typeof input.authSessionId !== 'string' || !test(UUID, input.authSessionId)
-            || typeof input.query !== 'string') fail();
+        if (!input || typeof input.query !== 'string') fail();
         const parsed = parseQuery(input.query);
         const digest = apply(sha256Ascii, cryptographyOwner, [parsed.state]);
         if (!apply(bufferIsBuffer, Buffer, [digest]) || digest.length !== 32) fail();
@@ -162,8 +160,7 @@ function createGoogleOAuthCallbackConsume(dependencies) {
         if (!test(DIGEST, stateHash)) fail();
         const consumedAt = apply(now, clockOwner, []);
         if (!timestamp(consumedAt)) fail();
-        const dto = freeze({ stateHash, clientId: input.clientId,
-          authSessionId: input.authSessionId, consumedAt });
+        const dto = freeze({ stateHash, consumedAt });
         let output = apply(consume, repositoryOwner, [dto]);
         if (output !== null && typeof output === 'object') {
           if (isProxy(output)) fail();
@@ -176,8 +173,8 @@ function createGoogleOAuthCallbackConsume(dependencies) {
         const row = validRow(output);
         if (!row) fail();
         if (parsed.declined) return freeze({ status: 'declined' });
-        return freeze({ status: 'consumed', authorizationCode: parsed.code, clientId: input.clientId,
-          operationId: row.operationId, locationId: row.locationId, endpointId: row.endpointId,
+        return freeze({ status: 'consumed', authorizationCode: parsed.code, clientId: row.clientId,
+          authSessionId: row.authSessionId, operationId: row.operationId, locationId: row.locationId, endpointId: row.endpointId,
           staffUserId: row.staffUserId, codeVerifier: row.codeVerifier, nonce: row.nonce });
       } catch (_) { fail(); }
     }

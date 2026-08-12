@@ -85,6 +85,13 @@ function isSunsetEmailOAuthStartEnabled(env) {
   return src.LUNA_EMAIL_OAUTH_START_ENABLED === 'true' && src.LUNA_DEPLOYMENT === 'sunset-staging';
 }
 
+function isSunsetEmailGoogleOAuthStartEnabled(env) {
+  const src = env && typeof env === 'object' ? env : process.env;
+  return src.SUNSET_EMAIL_SETTINGS_UI_ENABLED === 'true'
+    && src.LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED === 'true'
+    && src.LUNA_DEPLOYMENT === 'sunset-staging';
+}
+
 /**
  * Exact dual gate for Settings reauthorize action projection:
  * settings UI on + Phase B reauth start on (sunset-staging + exact true).
@@ -106,7 +113,7 @@ function isPhaseBReauthSettingsActionEnabled(env) {
  * Eligible for OAuth start (existing prepare product): Microsoft delegated modes
  * + pre-verified binding + non-empty public_address. Matches start resolve SQL.
  */
-function isEligibleUnverifiedDelegatedEndpoint(row) {
+function isEligibleMicrosoftEndpoint(row) {
   if (!row || typeof row !== 'object') return false;
   if (row.provider !== 'microsoft_graph') return false;
   if (row.auth_mode !== 'delegated_authorization_code') return false;
@@ -117,6 +124,20 @@ function isEligibleUnverifiedDelegatedEndpoint(row) {
   }
   const addr = row.public_address;
   return typeof addr === 'string' && addr.trim() !== '';
+}
+
+function isEligibleGmailEndpoint(row) {
+  if (!row || typeof row !== 'object') return false;
+  if (row.provider !== 'gmail_api') return false;
+  if (row.auth_mode !== 'delegated_authorization_code') return false;
+  if (row.connector_mode !== 'google_delegated_oauth') return false;
+  if (row.binding_status !== 'unverified_offline'
+      && row.binding_status !== 'pending_manual_validation') return false;
+  return typeof row.public_address === 'string' && row.public_address.trim() !== '';
+}
+
+function isEligibleUnverifiedDelegatedEndpoint(row) {
+  return isEligibleMicrosoftEndpoint(row) || isEligibleGmailEndpoint(row);
 }
 
 /**
@@ -521,27 +542,30 @@ function endpointDto(row, grant, options) {
  * Never both prepare/connect and reauthorize for the same endpoint (binding
  * status disjoint). Never auto-creates endpoints.
  */
-function computeEmailSettingsActions(runtimeEnv, locations, endpoints) {
-  const startOn = isSunsetEmailOAuthStartEnabled(runtimeEnv);
-  const reauthOn = isPhaseBReauthSettingsActionEnabled(runtimeEnv);
+function providerActions(startOn, reauthOn, provider, locations, endpoints) {
+  const providerEndpoints = endpoints.filter((endpoint) => endpoint.provider === provider);
+  const hasEligible = startOn && providerEndpoints.some((endpoint) => endpoint.start_eligible === true);
+  const hasActiveLocationWithoutEndpoint = locations.some((location) => location.active === true
+    && !providerEndpoints.some((endpoint) => endpoint.location_id === location.location_id));
+  const hasReauth = provider === 'microsoft_graph' && reauthOn
+    && providerEndpoints.some((endpoint) => endpoint.reauthorize_eligible === true);
+  return Object.freeze({ prepare: startOn && hasActiveLocationWithoutEndpoint && !hasEligible,
+    connect: hasEligible, disconnect: false, reauthorize: hasReauth });
+}
+
+function computeProviderEmailSettingsActions(runtimeEnv, locations, endpoints) {
   const eps = Array.isArray(endpoints) ? endpoints : [];
   const locs = Array.isArray(locations) ? locations : [];
-  if (!startOn && !reauthOn) {
-    return Object.freeze({
-      prepare: false, connect: false, disconnect: false, reauthorize: false,
-    });
-  }
-  const hasEligible = startOn && eps.some((endpoint) => endpoint.start_eligible === true);
-  const hasActiveLocationWithoutEndpoint = locs.some((location) =>
-    location.active === true
-    && !eps.some((endpoint) => endpoint.location_id === location.location_id));
-  const hasReauth = reauthOn && eps.some((endpoint) => endpoint.reauthorize_eligible === true);
   return Object.freeze({
-    prepare: startOn === true && hasActiveLocationWithoutEndpoint && !hasEligible,
-    connect: hasEligible === true,
-    disconnect: false,
-    reauthorize: hasReauth === true,
+    microsoft_graph: providerActions(isSunsetEmailOAuthStartEnabled(runtimeEnv),
+      isPhaseBReauthSettingsActionEnabled(runtimeEnv), 'microsoft_graph', locs, eps),
+    gmail_api: providerActions(isSunsetEmailGoogleOAuthStartEnabled(runtimeEnv), false,
+      'gmail_api', locs, eps),
   });
+}
+
+function computeEmailSettingsActions(runtimeEnv, locations, endpoints) {
+  return computeProviderEmailSettingsActions(runtimeEnv, locations, endpoints).microsoft_graph;
 }
 
 function createEmailSettingsRoutes(deps) {
@@ -607,12 +631,14 @@ function createEmailSettingsRoutes(deps) {
         const locations = locationsResult.value.map((row) => Object.freeze({
           location_id: row.location_id, display_name: row.display_name, active: row.active === true,
         }));
-        const actions = computeEmailSettingsActions(runtimeEnv, locations, endpoints);
+        const providerActionsDto = computeProviderEmailSettingsActions(runtimeEnv, locations, endpoints);
+        const actions = providerActionsDto.microsoft_graph;
         return deps.sendJSON(res, 200, {
           success: true,
           client: SUNSET_CLIENT_SLUG,
           read_only: true,
           actions,
+          provider_actions: providerActionsDto,
           locations,
           endpoints,
         });
@@ -633,8 +659,11 @@ module.exports = {
   ATOMIC_ELIGIBILITY_OWN_KEYS,
   isSunsetEmailSettingsUiEnabled,
   isSunsetEmailOAuthStartEnabled,
+  isSunsetEmailGoogleOAuthStartEnabled,
   isPhaseBReauthSettingsActionEnabled,
   isEligibleUnverifiedDelegatedEndpoint,
+  isEligibleMicrosoftEndpoint,
+  isEligibleGmailEndpoint,
   isEligiblePhaseBReauthorizeEndpoint,
   snapshotPhaseBReauthGrantFact,
   grantFactFromAtomicEligibilityRow,
@@ -644,6 +673,7 @@ module.exports = {
   indexAtomicEligibilityRows,
   loadPhaseBReauthEligibilityFacts,
   computeEmailSettingsActions,
+  computeProviderEmailSettingsActions,
   publicState,
   endpointDto,
   createEmailSettingsRoutes,

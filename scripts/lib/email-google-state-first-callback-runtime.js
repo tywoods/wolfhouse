@@ -50,15 +50,15 @@ const urlHostname = getDescriptor(urlPrototype, 'hostname').get;
 const urlHref = getDescriptor(urlPrototype, 'href').get;
 
 const CONFIG_KEYS = freeze([
-  'tenantSlug', 'clientId', 'locationKey', 'applicationClientId', 'redirectUri', 'callbackEnabled',
+  'tenantSlug', 'locationKey', 'applicationClientId', 'redirectUri', 'callbackEnabled',
 ]);
 const DEPENDENCY_KEYS = freeze([
   'cryptography', 'clock', 'repository', 'endpointAuthorityResolver',
   'transactionCompletionFactory', 'secretProvider',
 ]);
-const INPUT_KEYS = freeze(['tenantSlug', 'clientId', 'authSessionId', 'query']);
+const INPUT_KEYS = freeze(['query']);
 const CONSUMED_KEYS = freeze([
-  'status', 'authorizationCode', 'clientId', 'operationId', 'locationId',
+  'status', 'authorizationCode', 'clientId', 'authSessionId', 'operationId', 'locationId',
   'endpointId', 'staffUserId', 'codeVerifier', 'nonce',
 ]);
 const AUTHORITY_KEYS = freeze([
@@ -224,7 +224,7 @@ function consumedRecord(value) {
   const record = snapshot(value, CONSUMED_KEYS);
   if (!record || record.status !== 'consumed') return null;
   if (!visible(record.authorizationCode, 1, 8192)) return null;
-  for (let index = 2; index <= 6; index += 1) {
+  for (let index = 2; index <= 7; index += 1) {
     if (typeof record[CONSUMED_KEYS[index]] !== 'string'
         || !test(UUID, record[CONSUMED_KEYS[index]])) {
       return null;
@@ -250,7 +250,6 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
     if (!config || !owners || !cryptography || !clock || !repository || !resolver
         || !factory || !provider
         || config.tenantSlug !== TENANT
-        || !test(UUID, config.clientId)
         || config.locationKey !== LOCATION_KEY
         || !validApplicationClientId(config.applicationClientId)
         || !validRedirectUri(config.redirectUri)
@@ -275,7 +274,6 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
 
     const publicConfiguration = freeze({
       tenantSlug: config.tenantSlug,
-      clientId: config.clientId,
       locationKey: config.locationKey,
       applicationClientId: config.applicationClientId,
       redirectUri: config.redirectUri,
@@ -288,11 +286,11 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
         return freeze({ status: status.status });
       }
       const record = consumedRecord(output);
-      if (!record || record.clientId !== config.clientId) fail();
+      if (!record) fail();
 
       const request = freeze({
         tenantSlug: TENANT,
-        clientId: config.clientId,
+        clientId: record.clientId,
         locationKey: LOCATION_KEY,
         locationId: record.locationId,
         endpointId: record.endpointId,
@@ -302,7 +300,7 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
         const authority = snapshot(value, AUTHORITY_KEYS);
         if (!authority
             || authority.tenantSlug !== TENANT
-            || authority.clientId !== config.clientId
+            || authority.clientId !== record.clientId
             || authority.locationKey !== LOCATION_KEY
             || authority.locationId !== record.locationId
             || authority.endpointId !== record.endpointId
@@ -345,19 +343,10 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
       try {
         if (value !== null && typeof value === 'object' && proxy(value)) fail();
         const input = snapshot(value, INPUT_KEYS);
-        if (!input
-            || input.tenantSlug !== TENANT
-            || input.clientId !== config.clientId
-            || typeof input.authSessionId !== 'string'
-            || !test(UUID, input.authSessionId)
-            || typeof input.query !== 'string') {
+        if (!input || typeof input.query !== 'string') {
           fail();
         }
-        const consumeInput = freeze({
-          clientId: input.clientId,
-          authSessionId: input.authSessionId,
-          query: input.query,
-        });
+        const consumeInput = freeze({ query: input.query });
         return settle(
           apply(consumeCallback, callbackConsume, [consumeInput]),
           acceptConsumed,

@@ -31,14 +31,14 @@ const NOW = '2026-08-11T12:05:00.000Z';
 const LEAK = 'HOSTILE_GOOGLE_CALLBACK_VALUE_NEVER_DISCLOSE';
 
 function input(query = `code=${encodeURIComponent(CODE)}&state=${STATE}`, patch = {}) {
-  return freeze({ clientId: CLIENT, authSessionId: SESSION, query, ...patch });
+  return freeze({ query, ...patch });
 }
 function row(patch = {}) {
-  return freeze({ operationId: OPERATION, locationId: LOCATION, endpointId: ENDPOINT,
+  return freeze({ clientId: CLIENT, authSessionId: SESSION, operationId: OPERATION, locationId: LOCATION, endpointId: ENDPOINT,
     staffUserId: STAFF, codeVerifier: VERIFIER, nonce: NONCE, ...patch });
 }
 function expected(code = CODE) {
-  return { status: 'consumed', authorizationCode: code, clientId: CLIENT, operationId: OPERATION,
+  return { status: 'consumed', authorizationCode: code, clientId: CLIENT, authSessionId: SESSION, operationId: OPERATION,
     locationId: LOCATION, endpointId: ENDPOINT, staffUserId: STAFF, codeVerifier: VERIFIER, nonce: NONCE };
 }
 function harness(spec = {}) {
@@ -88,9 +88,8 @@ test('requires exact frozen ordered narrow dependency owners, native non-proxies
 
 test('requires exact frozen ordered canonical owner input and bounded primitive ASCII raw query before effects', async () => {
   const good = input(); const bad = [undefined, null, {}, { ...good }, freeze({ ...good, extra: true }),
-    freeze({ authSessionId: SESSION, clientId: CLIENT, query: good.query }), freeze(Object.assign(Object.create(null), good)),
-    freeze({ ...good, [Symbol('x')]: true }), input(good.query, { clientId: CLIENT.toUpperCase() }),
-    input(good.query, { authSessionId: '12345678-90ab-3cde-8fab-1234567890ab' }), input(new String(good.query)),
+    freeze({ query: good.query, clientId: CLIENT }), freeze(Object.assign(Object.create(null), good)),
+    freeze({ ...good, [Symbol('x')]: true }), input(new String(good.query)),
     input(`?${good.query}`), input('a'.repeat(16385)), input('code=olé&state=' + STATE)];
   const accessor = { ...good }; Object.defineProperty(accessor, 'query', { enumerable: true, get() { throw new Error(LEAK); } }); freeze(accessor); bad.push(accessor);
   let traps = 0; bad.push(new Proxy(good, { getOwnPropertyDescriptor() { traps += 1; throw new Error(LEAK); } }));
@@ -103,8 +102,8 @@ test('parses success independent of parameter order, hashes state once, and atom
     const h = harness(); const result = await create(h).consumeCallback(input(query));
     assert.deepEqual(h.calls.sha.map(call => call.value), [STATE]); assert.equal(h.calls.now.length, 1); assert.equal(h.calls.consume.length, 1);
     const dto = h.calls.consume[0].dto; assert.equal(Object.isFrozen(dto), true);
-    assert.deepEqual(Reflect.ownKeys(dto), ['stateHash', 'clientId', 'authSessionId', 'consumedAt']);
-    assert.deepEqual(dto, { stateHash: STATE_HASH, clientId: CLIENT, authSessionId: SESSION, consumedAt: NOW });
+    assert.deepEqual(Reflect.ownKeys(dto), ['stateHash', 'consumedAt']);
+    assert.deepEqual(dto, { stateHash: STATE_HASH, consumedAt: NOW });
     assert.deepEqual(result, expected()); assert.equal(Object.isFrozen(result), true);
   }
 });
@@ -151,15 +150,15 @@ test('maps repository null after success or decline to one exact frozen invalid 
 
 test('validates exact frozen repository DTO again before releasing minimized consumed material', async () => {
   const malformed = [undefined, {}, { ...row() }, freeze({ ...row(), extra: true }),
-    freeze({ locationId: LOCATION, operationId: OPERATION, endpointId: ENDPOINT, staffUserId: STAFF, codeVerifier: VERIFIER, nonce: NONCE }),
+    freeze({ clientId: CLIENT, authSessionId: SESSION, locationId: LOCATION, operationId: OPERATION, endpointId: ENDPOINT, staffUserId: STAFF, codeVerifier: VERIFIER, nonce: NONCE }),
     row({ operationId: 'bad' }), row({ codeVerifier: 'x'.repeat(42) }), row({ nonce: 'bad' })];
   const accessor = { ...row() }; Object.defineProperty(accessor, 'nonce', { enumerable: true, get() { throw new Error(LEAK); } }); freeze(accessor); malformed.push(accessor);
   let traps = 0; malformed.push(new Proxy(row(), { ownKeys() { traps += 1; throw new Error(LEAK); } }));
   for (const repoValue of malformed) await rejects(() => create(harness({ repoValue })).consumeCallback(input()));
   assert.equal(traps, 0);
   const result = await create().consumeCallback(input()); assert.deepEqual(Reflect.ownKeys(result),
-    ['status', 'authorizationCode', 'clientId', 'operationId', 'locationId', 'endpointId', 'staffUserId', 'codeVerifier', 'nonce']);
-  for (const key of ['authSessionId', 'state', 'stateHash', 'rawRow', 'error', 'token', 'accessToken', 'refreshToken']) assert.equal(key in result, false);
+    ['status', 'authorizationCode', 'clientId', 'authSessionId', 'operationId', 'locationId', 'endpointId', 'staffUserId', 'codeVerifier', 'nonce']);
+  for (const key of ['state', 'stateHash', 'rawRow', 'error', 'token', 'accessToken', 'refreshToken']) assert.equal(key in result, false);
 });
 
 test('accepts direct or exact same-realm native Promise repository result only and awaits consume acknowledgement before disclosure', async () => {

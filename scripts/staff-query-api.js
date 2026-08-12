@@ -206,6 +206,12 @@ const {
   EMAIL_SETTINGS_PATH,
   isSunsetEmailSettingsUiEnabled,
 } = require('./lib/staff-email-settings-routes');
+const { createSunsetGoogleEndpointPrepare } = require('./lib/email-sunset-google-endpoint-prepare');
+const { createSunsetStagingGoogleOAuthComposition } = require('./lib/email-google-oauth-sunset-staging-runtime-composition');
+const { createStaffEmailGoogleOAuthRoutes } = require('./lib/staff-email-google-oauth-routes');
+const {
+  createStaffGoogleOAuthProductionIntegration, GOOGLE_ENDPOINT_PATH, GOOGLE_START_PATH, GOOGLE_CALLBACK_PATH,
+} = require('./lib/staff-google-oauth-production-integration');
 const {
   createStaffEmailOAuthRoutes,
   OAUTH_START_PATH,
@@ -2637,6 +2643,21 @@ const emailOAuthRoutes = createStaffEmailOAuthRoutes({
   // withTransactionClient over that outer client — no second checkout.
   withPgClient,
 });
+function googleComposition(gateSnapshot) {
+    const crypto = require('node:crypto');
+    const runtimeEnv=Object.freeze({ ...process.env, ...gateSnapshot });
+    return createSunsetStagingGoogleOAuthComposition(Object.freeze({
+      env:runtimeEnv, https:Object.freeze({request:https.request.bind(https)}),
+      crypto:Object.freeze({createPublicKey:crypto.createPublicKey,verify:crypto.verify,randomUUID:crypto.randomUUID,randomBytes:crypto.randomBytes,createHash:crypto.createHash}),
+      timers:Object.freeze({setTimeout,clearTimeout}), clock:Object.freeze({now:()=>new Date().toISOString(),nowEpochSeconds:()=>Math.floor(Date.now()/1000)}),
+    }));
+}
+function googleRoutes(gateSnapshot, authorizeProductionStart) { const c=googleComposition(gateSnapshot); return createStaffEmailGoogleOAuthRoutes(Object.freeze({trustedGateSnapshot:gateSnapshot,authorizeProductionStart,sendJSON,sendHTML,assertStaffClientAccess,authorizeAuthenticatedStaffRoute,withPgClient,createStart:c.createStart,createCallbackRuntime:c.createCallbackRuntime})); }
+const staffGoogleOAuth=createStaffGoogleOAuthProductionIntegration(Object.freeze({
+  env:process.env,sendJSON,sendHTML,requireAdmin:(req,res)=>requireAuth(req,res,'admin'),readBody,withPgClient,assertStaffClientAccess,authorizeAuthenticatedStaffRoute,
+  createEndpointPrepare:pg=>createSunsetGoogleEndpointPrepare(Object.freeze({client:pg})),
+  createGoogleRoutes:googleRoutes,
+}));
 
 // Email-delta operator recovery routes (default-off; full gate before auth).
 // One withPgClient loan per request; factory-fixed exclusive transaction client
@@ -50932,6 +50953,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleHouseNotesPost(parsed.query, req, res, auth.user);
+  }
+
+  // Google OAuth adapter owns its single frozen gate snapshot before every effect.
+  if ([GOOGLE_ENDPOINT_PATH, GOOGLE_START_PATH, GOOGLE_CALLBACK_PATH].includes(pathname)) {
+    const handled = await staffGoogleOAuth.dispatch(req,res,pathname);
+    if (handled !== false) return handled;
   }
 
   // ── Email registry READ/WRITE (Slice 1C-beta/gamma) — admin inventory + kill-switched registration
