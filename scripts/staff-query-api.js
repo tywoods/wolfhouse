@@ -18126,13 +18126,15 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 
 /* ── Customers tab (shared CRM) ───────────────────────────────────────────── */
 #tab-customers.active{display:flex;flex-direction:column;flex:1;min-height:0;height:auto;overflow:hidden}
-.customers-wrap{max-width:1240px;width:100%;margin:0 auto;padding:16px 20px 12px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
-.customers-header{margin-bottom:12px}
-.customers-school-heading{font-size:26px;font-weight:600;letter-spacing:normal;color:var(--text);line-height:1.1;margin:0;font-family:var(--font-display)}
+/* Match Conversations shell vertical rhythm (nav→toolbar / toolbar→body = 10px). */
+.customers-wrap{max-width:1240px;width:100%;margin:0 auto;padding:10px 20px 12px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
+/* School heading is often hidden — do not leave a phantom margin above the toolbar. */
+.customers-header{margin:0;padding:0;min-height:0}
+.customers-school-heading{font-size:26px;font-weight:600;letter-spacing:normal;color:var(--text);line-height:1.1;margin:0 0 10px;font-family:var(--font-display)}
 .customers-header h2{font-size:17px;font-weight:700;color:var(--text);margin:0 0 3px;letter-spacing:-.01em}
 .customers-header p{font-size:12px;color:var(--text-2);margin:0;line-height:1.45;max-width:640px}
 .customers-promo{font-size:11px;color:var(--text-3);margin:6px 0 0;line-height:1.5;max-width:720px}
-.customers-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.customers-toolbar{display:flex;flex-direction:column;gap:8px;margin-top:0;margin-bottom:10px}
 .customers-toolbar-main{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .customers-search{flex:1 1 220px;min-width:0;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface);box-shadow:inset 0 1px 2px rgba(0,0,0,.03)}
 .customers-search:focus{outline:none;border-color:var(--tan);box-shadow:0 0 0 2px rgba(180,160,130,.18)}
@@ -20018,8 +20020,9 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .customers-toolbar-main > .inbox-view-switch,
 .inbox-toolbar-top > .inbox-view-switch{order:-1;margin-right:4px}
 /* Conversations shell mirrors Customers: 1240 wrap + toolbar + two framed cards. */
+/* Equal vertical rhythm: nav→toolbar and toolbar→content = 10px on both Inbox views. */
 #tab-conversations.active #wrap.inbox-shell-wrap{
-  max-width:1240px!important;width:100%;margin:0 auto;padding:16px 20px 12px!important;
+  max-width:1240px!important;width:100%;margin:0 auto;padding:10px 20px 12px!important;
   display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box;align-self:center;
 }
 @media(max-width:900px){
@@ -20027,7 +20030,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
     max-width:100vw!important;padding:8px 12px!important;margin:0 auto;
   }
 }
-.inbox-shell-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;flex-shrink:0}
+.inbox-shell-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;margin-top:0;flex-shrink:0}
 /* Inbox shell: list card | pass-through detail host (chat + bookings float as sibling cards). */
 .inbox-two-col.inbox-shell-cols{
   display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:14px;
@@ -21848,7 +21851,9 @@ function switchToTab(tab, subtab){
   var prevTab = prevPanel && prevPanel.id ? String(prevPanel.id).replace(/^tab-/, '') : '';
   document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
   document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
-  var btn = document.querySelector('.tab-btn[data-tab="' + tab + '"]');
+  // Customers is an Inbox sub-view — keep the Inbox (conversations) nav tab highlighted.
+  var navTab = (tab === 'customers') ? 'conversations' : tab;
+  var btn = document.querySelector('.tab-btn[data-tab="' + navTab + '"]');
   if (btn && btn.style.display !== 'none') btn.classList.add('active');
   var panel = el('tab-' + tab);
   if (panel) panel.classList.add('active');
@@ -21968,6 +21973,8 @@ window.switchToTabOnly = switchToTabOnly;
   }
   function syncNavQuickFlip(tab){
     tab = tab || activeMainTab();
+    // Customers is an Inbox sub-view — treat as conversations for flip control.
+    if (tab === 'customers') tab = 'conversations';
     var btn = document.getElementById('nav-quick-flip');
     if (!btn) return;
     var mobile = false;
