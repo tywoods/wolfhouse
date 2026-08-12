@@ -4,7 +4,7 @@ Running Sunset product TODO (formerly `UI-BACKLOG.md`): UI/UX, functional work, 
 
 **Tags:** `[UI]` layout/visual · `[BUG]` broken behavior · `[FEAT]` new capability · `[LUNA]` chatbot brain/wiring · `[I18N]` translation.
 **Size:** S / M / L. **Sketch?** = wants a concept mock before build. **@Earthling** = needs Earthling's call.
-_Started 2026-08-03. Last updated 2026-08-11 22:10 UTC by Skipper. Owner brain-dump complete; refine + resequence as we go._
+_Started 2026-08-03. Last updated 2026-08-12 07:02 UTC by Skipper. Owner brain-dump complete; refine + resequence as we go._
 
 ---
 
@@ -42,9 +42,9 @@ _Started 2026-08-03. Last updated 2026-08-11 22:10 UTC by Skipper. Owner brain-d
 - **L1 — Personality/voice.** Luna needs a defined personality. **@Earthling.** `L`
 - **L2 — [BUG] Disabled rental still offered.** Turning a rental OFF in Admin doesn't stop Luna offering it; she must respect the enabled/active flag. `M`
 - **L3 — [FEAT] Email capabilities for Luna.** Give Luna the ability to send/handle email (not just WhatsApp). **@Earthling + Skipper — in progress (foundation on master, email OFF).** `L`
-  - **PAUSED SAFE (2026-08-11) — Gmail G3 ~90%:** OAuth callback/transaction completion and fixed one-shot Gmail `users/me/profile` evidence are merged. Latest checkpoint is PR #479, approved `fe63d368…`, merged as `6ff4e054…`; profile request 15/15 plus mailbox-authority/token/JWKS gates green. **No route, DB binding, mailbox activation, deployment, or live Google call was added.**
-  - **Handoff / do not disturb:** do not replace, bypass, casually refactor, or directly wire the merged custody/transport owners; do not enable email flags or add provider calls. Any change to those owners needs its own RED, exact-head review, and clean PR. The current pause is intentional while Monshies works on other site tasks.
-  - **Exact resume order:** (1) compose verified OIDC identity + Gmail profile evidence through the existing pure mailbox-authority contract; (2) build inert runtime assembly; (3) add exact Sunset ACL Staff start/callback routes while default-off; (4) run source acceptance; (5) build IMAP/SMTP owners; (6) separately approve staging activation.
+  - **Gmail G3 authority composition COMPLETE (2026-08-12):** PR #482 approved at `684b4305…`, merged as `25d4f353…`. The genuine OIDC verifier now binds signature, audience, nonce, token and clock before one-shot Gmail `users/me/profile`; exact case-sensitive profile matching returns frozen sanitized authority with activation still false. Gates: composition 14/14, profile 15/15, identity 15/15, JWKS 26/26, custody/exchange and adjacent gates green. **No route, DB binding, mailbox activation, deployment, or live Google call was added.**
+  - **Handoff / do not disturb:** do not replace, bypass, casually refactor, or directly wire the merged identity/custody/profile/authority owners; do not enable email flags or add provider calls. Any change to those owners needs its own RED, exact-head review, and clean PR.
+  - **Exact resume order:** (1) build inert runtime assembly; (2) add exact Sunset ACL Staff start/callback routes while default-off; (3) run source acceptance; (4) build Gmail inbound/outbound owners; (5) build generic IMAP/SMTP owners; (6) separately approve staging activation.
   - **2F-C done + 2F-C2 integrated:** KEK created in `luna-sunset-staging-kv` (`luna-email-grant-kek/fde9704b…`) + Sunset identity granted Crypto User; default-off runtime-composition factory on master (`1b6fa65b`), **not deployed**. Next: Azure pre-deploy gate → deploy → staging wrap/unwrap custody proof → refresh-exchange/OAuth callback → separately-approved activation. Nothing on until each gate passes.
   - **Shipped foundation:** delegated endpoint/OAuth contracts, Graph adapter/readiness, encrypted grant custody (2F-A, PR #352), and Standard Key Vault RSA envelope provider (2F-B, PR #353).
   - **WAITING — 2F-C Azure boundary:** step-by-step runbook at **[EARTHLING-2F-C-AZURE-RUNBOOK.md]** — create/version-pin the RSA wrapping key in `wh-staging-kv`, grant the Sunset identity (`5338388f…`) Crypto User, paste the versioned key ID back; Captain then wires config + runs the staging wrap/unwrap proof.
