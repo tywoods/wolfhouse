@@ -1242,9 +1242,12 @@ function bug4RentalWriteErrorOwnership() {
     /c-client[\s\S]{0,500}addEventListener\(\s*['"]change['"][\s\S]{0,600}adminClearEquipErrors/.test(apiSrc)
       || /clientSelectEl\.addEventListener\(\s*['"]change['"][\s\S]{0,600}adminClearEquipErrors/.test(apiSrc),
   );
+  // The character window is a proximity heuristic, not a budget — switchToTab keeps
+  // growing as tenants are added. The `prevTab === 'admin'` check below is what
+  // actually pins the clear to the leave-Admin branch.
   ok(
     'top-level switchToTab clears equipment errors when leaving Admin',
-    /function switchToTab[\s\S]{0,2500}adminClearEquipErrors/.test(apiSrc)
+    /function switchToTab[\s\S]{0,4000}adminClearEquipErrors/.test(apiSrc)
       && /prevTab === 'admin'[\s\S]{0,120}adminClearEquipErrors/.test(apiSrc),
   );
 
@@ -1449,6 +1452,14 @@ function bug4RentalWriteErrorOwnership() {
       // Production re-entry still clears equipment-local errors.
       if (typeof sb.adminClearEquipErrors === 'function') sb.adminClearEquipErrors();
       else if (typeof sb.adminClearWriteMessage === 'function') sb.adminClearWriteMessage();
+    },
+    // Sunset harness: lodging Admin shell is off, so Admin entry takes the surf path
+    // and no top-level tab is redirected into an Admin sub-tab.
+    portalIsLodgingAdmin() { return false; },
+    portalRedirectNestedAdminTab() { return false; },
+    openAdminTabForCurrentClient(opts) {
+      sb.loadAdminTab(opts);
+      sb.loadAdminFinanceForCurrentScope();
     },
     loadAdminFinanceForCurrentScope() {},
     loadMessageEvents() {},

@@ -610,6 +610,7 @@ const {
 const { getStaffPortalI18nBootstrapScript, getStaffPortalThemeEarlyScript } = require('./lib/staff-portal-i18n');
 const { buildStaffLoginHtml } = require('./lib/staff-portal-login-page');
 const { getWolfhouseServicesAdminSource } = require('./lib/wolfhouse-services-browser-source');
+const { getWolfhouseAdminUiSource } = require('./lib/wolfhouse-admin-browser-source');
 const { getSunsetAdminBrowserHelperSource } = require('./lib/sunset-admin-ui-helpers');
 const { getSunsetAdminUiBrowserSource, getSunsetEquipmentPricingModelSource } = require('./lib/sunset-admin-browser-source');
 const {
@@ -20635,7 +20636,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
 <!-- ── Admin tab (Sunset: Finance shell + Pricing) ───────────────────────── -->
 <div id="tab-admin" class="tab-panel">
-<div class="portal-admin-wrap">
+<div class="portal-admin-wrap" id="admin-sunset-shell">
   <header class="portal-admin-header">
     <h1 class="portal-admin-school-heading" id="admin-school-heading" style="display:none" aria-live="polite">—</h1>
     <div id="admin-fetch-state" class="state-msg" style="display:none;margin-bottom:12px"></div>
@@ -20670,6 +20671,34 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   </div>
   <div id="admin-panel-luna-staff" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="luna-staff" aria-labelledby="admin-tab-luna-staff" hidden></div>
   <div id="admin-save-msg" class="state-msg portal-admin-save-msg" style="display:none;margin-top:12px" aria-live="polite"></div>
+</div>
+<!-- Wolfhouse (lodging) Admin shell — sibling of the Sunset shell, never both visible.
+     Luna Staff / Services / Tour Operator panels are moved in by applyClientPortalProfile. -->
+<div class="portal-admin-wrap" id="admin-wh-shell" hidden>
+  <div class="portal-admin-subtabs" id="wh-admin-subtab-list" role="tablist" data-i18n-aria="admin.tabs.listLabel" aria-label="Admin sections">
+    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-finance" data-wh-admin-tab="finance" aria-controls="wh-admin-panel-finance" aria-selected="true" tabindex="0" data-i18n="admin.tabs.finance">Finance</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-bookings" data-wh-admin-tab="bookings" aria-controls="wh-admin-panel-bookings" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.bookings">Bookings</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-pricing" data-wh-admin-tab="pricing" aria-controls="wh-admin-panel-pricing" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.pricing">Pricing</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-luna-staff" data-wh-admin-tab="luna-staff" aria-controls="wh-admin-panel-luna-staff" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.lunaStaff">Luna Staff</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-services" data-wh-admin-tab="services" aria-controls="wh-admin-panel-services" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.services">Camps, Lessons and Services</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-tour-operator" data-wh-admin-tab="tour-operator" aria-controls="wh-admin-panel-tour-operator" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.tourOperator">Tour Operator</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-email" data-wh-admin-tab="email" aria-controls="wh-admin-panel-email" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.email">Email</button>
+  </div>
+  <div id="wh-admin-panel-finance" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="finance" aria-labelledby="wh-admin-tab-finance">
+    <div class="portal-admin-sections" id="wh-admin-finance-body"></div>
+  </div>
+  <div id="wh-admin-panel-bookings" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="bookings" aria-labelledby="wh-admin-tab-bookings" hidden>
+    <div class="portal-admin-sections" id="wh-admin-bookings-body"></div>
+  </div>
+  <div id="wh-admin-panel-pricing" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="pricing" aria-labelledby="wh-admin-tab-pricing" hidden>
+    <div class="portal-admin-sections" id="wh-admin-pricing-body"></div>
+  </div>
+  <div id="wh-admin-panel-luna-staff" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="luna-staff" aria-labelledby="wh-admin-tab-luna-staff" hidden></div>
+  <div id="wh-admin-panel-services" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="services" aria-labelledby="wh-admin-tab-services" hidden></div>
+  <div id="wh-admin-panel-tour-operator" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="tour-operator" aria-labelledby="wh-admin-tab-tour-operator" hidden></div>
+  <div id="wh-admin-panel-email" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="email" aria-labelledby="wh-admin-tab-email" hidden>
+    <div class="portal-admin-sections" id="wh-admin-email-body"></div>
+  </div>
 </div>
 </div><!-- /tab-admin -->
 
@@ -21846,9 +21875,35 @@ function fmtDateOnly(d){
 }
 
 /* ── Tab utilities ────────────────────────────────────────────────────────── */
+/**
+ * Lodging nests Luna Staff / Services / Tour Operator under Admin. Existing links
+ * to those top-level tabs open Admin on the matching sub-tab instead of nothing.
+ * @returns {boolean} true when the tab was handled as an Admin sub-tab.
+ */
+function portalRedirectNestedAdminTab(tab){
+  if (!portalIsLodgingAdmin(getClient())) return false;
+  if (typeof window.whAdminSubTabForTopLevelTab !== 'function') return false;
+  var subTab = window.whAdminSubTabForTopLevelTab(tab);
+  if (!subTab) return false;
+  switchToTab('admin', null);
+  if (typeof loadWolfhouseAdminTab === 'function') loadWolfhouseAdminTab({ subTab: subTab });
+  return true;
+}
+
+/** Open Admin with the shell that belongs to this tenant. */
+function openAdminTabForCurrentClient(opts){
+  if (portalIsLodgingAdmin(getClient())) {
+    if (typeof loadWolfhouseAdminTab === 'function') loadWolfhouseAdminTab(opts || {});
+    return;
+  }
+  loadAdminTab(opts || {});
+  loadAdminFinanceForCurrentScope();
+}
+
 function switchToTab(tab, subtab){
   try { if (window.__closeStaffNavMenu) window.__closeStaffNavMenu(); } catch (_navClose) {}
   try { if (window.__syncNavQuickFlip) window.__syncNavQuickFlip(tab); } catch (_flip) {}
+  if (portalRedirectNestedAdminTab(tab)) return;
   if (isTabHiddenForClient(tab, getClient())) {
     var p = getPortalProfile(getClient());
     tab = p.default_tab || 'bed-calendar';
@@ -21880,7 +21935,7 @@ function switchToTab(tab, subtab){
   }
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
   if (tab === 'customers') loadCustomersTab();
-  if (tab === 'admin') { loadAdminTab({ resetSubTab: true }); loadAdminFinanceForCurrentScope(); }
+  if (tab === 'admin') { openAdminTabForCurrentClient({ resetSubTab: true }); }
   if (tab === 'bookings') {
     if (typeof loadBookingsTopTab === 'function') loadBookingsTopTab();
     else if (typeof renderAdminBookingsShell === 'function') {
@@ -22080,7 +22135,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target === 'ask-luna') wireLunaStaffTabCards();
     if (target === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
     if (target === 'customers') loadCustomersTab();
-    if (target === 'admin') { loadAdminTab({ resetSubTab: true }); loadAdminFinanceForCurrentScope(); }
+    if (target === 'admin') { openAdminTabForCurrentClient({ resetSubTab: true }); }
     // Top-level Bookings: primary nav click does NOT call switchToTab — must load here.
     if (target === 'bookings') {
       if (typeof loadBookingsTopTab === 'function') loadBookingsTopTab();
@@ -23082,6 +23137,12 @@ function portalHasCustomersCrm(profile){
   return !!profile.is_surf_vertical || slug === 'wolfhouse-somo';
 }
 
+/** Lodging Admin shell (Wolfhouse). Predicate owner: scripts/browser/wolfhouse-admin-ui.js. */
+function portalIsLodgingAdmin(clientSlug){
+  if (typeof window.portalIsWolfhouseAdmin !== 'function') return false;
+  return window.portalIsWolfhouseAdmin(clientSlug);
+}
+
 function isTabHiddenForClient(tab, clientSlug){
   var profile = getPortalProfile(clientSlug);
   var hidden = profile.hidden_tabs || [];
@@ -23089,8 +23150,9 @@ function isTabHiddenForClient(tab, clientSlug){
   if (window.__STAFF_PORTAL_DEV_TABS__ !== true && (tab === 'query-tools' || tab === 'luna-guest-simulator')) return true;
   if (tab === 'portal-home' && !profile.is_surf_vertical) return true;
   if (tab === 'customers' && !portalHasCustomersCrm(profile)) return true;
-  if (tab === 'admin' && !profile.is_surf_vertical) return true;
+  if (tab === 'admin' && !profile.is_surf_vertical && !portalIsLodgingAdmin(clientSlug)) return true;
   // Bookings top-level: same surf-shop visibility as Admin (Sunset / surf vertical).
+  // Lodging keeps Bookings inside its own Admin shell instead.
   if (tab === 'bookings' && !profile.is_surf_vertical) return true;
   if (tab === 'services' && clientSlug !== 'wolfhouse-somo') return true;
   if (tab === 'day-schedule') return true;
@@ -23224,21 +23286,43 @@ function applyCustomersFilterVisibility(profile){
   renderCustomersFilterUI();
 }
 
+/**
+ * Move (never clone) a production top-level panel into an Admin sub-tab host so
+ * its existing owners keep working, or return it to the top level when no Admin
+ * host applies.
+ */
+function portalHostAdminPanel(panelId, hostId){
+  var panel = el(panelId);
+  if (!panel) return;
+  var host = hostId ? el(hostId) : null;
+  if (host){
+    if (panel.parentElement !== host) host.appendChild(panel);
+    return;
+  }
+  var parent = panel.parentElement;
+  if (parent && parent.classList && parent.classList.contains('portal-admin-tabpanel')){
+    var admin = el('tab-admin');
+    if (admin) admin.insertAdjacentElement('afterend', panel);
+  }
+}
+
 function applyClientPortalProfile(clientSlug){
   var profile = getPortalProfile(clientSlug);
   var sunsetLunaInAdmin = clientSlug === 'sunset' && !!profile.is_surf_vertical;
+  var lodgingAdmin = portalIsLodgingAdmin(clientSlug);
+  var lunaInAdmin = sunsetLunaInAdmin || lodgingAdmin;
   var lunaNav = document.querySelector('.tab-btn[data-tab="ask-luna"]');
   var lunaAdminTab = el('admin-tab-luna-staff');
-  var lunaAdminPanel = el('admin-panel-luna-staff');
-  var lunaPanel = el('tab-ask-luna');
-  if (lunaNav) lunaNav.style.display = sunsetLunaInAdmin ? 'none' : '';
+  var sunsetShell = el('admin-sunset-shell');
+  var whShell = el('admin-wh-shell');
+  if (sunsetShell) sunsetShell.hidden = lodgingAdmin;
+  if (whShell) whShell.hidden = !lodgingAdmin;
+  if (lunaNav) lunaNav.style.display = lunaInAdmin ? 'none' : '';
   if (lunaAdminTab) lunaAdminTab.hidden = !sunsetLunaInAdmin;
-  // Move, rather than clone, the production Luna panel and its existing owners.
-  if (lunaPanel && lunaAdminPanel && sunsetLunaInAdmin && lunaPanel.parentElement !== lunaAdminPanel) {
-    lunaAdminPanel.appendChild(lunaPanel);
-  } else if (lunaPanel && !sunsetLunaInAdmin && lunaPanel.parentElement === lunaAdminPanel) {
-    el('tab-admin').insertAdjacentElement('afterend', lunaPanel);
-  }
+  portalHostAdminPanel('tab-ask-luna',
+    sunsetLunaInAdmin ? 'admin-panel-luna-staff' : (lodgingAdmin ? 'wh-admin-panel-luna-staff' : null));
+  portalHostAdminPanel('tab-services', lodgingAdmin ? 'wh-admin-panel-services' : null);
+  portalHostAdminPanel('tab-tour-operator', lodgingAdmin ? 'wh-admin-panel-tour-operator' : null);
   wireSunsetSchoolSwitcher();
   refreshSunsetSchoolContextLabels();
   try { if (window.__syncNavQuickFlip) window.__syncNavQuickFlip(); } catch (_sf) {}
@@ -23254,19 +23338,23 @@ function applyClientPortalProfile(clientSlug){
       return;
     }
     if (tab === 'admin') {
-      btn.style.display = profile.is_surf_vertical ? '' : 'none';
+      btn.style.display = (profile.is_surf_vertical || lodgingAdmin) ? '' : 'none';
       return;
     }
     if (tab === 'bookings') {
       btn.style.display = profile.is_surf_vertical ? '' : 'none';
       return;
     }
-    if (tab === 'ask-luna' && sunsetLunaInAdmin) {
+    if (tab === 'ask-luna' && lunaInAdmin) {
       btn.style.display = 'none';
       return;
     }
     if (tab === 'services') {
-      btn.style.display = (clientSlug === 'wolfhouse-somo') ? '' : 'none';
+      btn.style.display = (clientSlug === 'wolfhouse-somo' && !lodgingAdmin) ? '' : 'none';
+      return;
+    }
+    if (tab === 'tour-operator' && lodgingAdmin) {
+      btn.style.display = 'none';
       return;
     }
     if (tab === 'day-schedule') {
@@ -28864,6 +28952,9 @@ ${getSunsetAdminUiBrowserSource()}
 
 /* wolfhouse-services-admin: injected from scripts/browser/wolfhouse-services-admin.js */
 ${getWolfhouseServicesAdminSource()}
+
+/* wolfhouse-admin-ui: injected from scripts/browser/wolfhouse-admin-ui.js */
+${getWolfhouseAdminUiSource()}
 var customersCache = [];
 var customersFilter = 'all';
 var customersTagFilters = {};
