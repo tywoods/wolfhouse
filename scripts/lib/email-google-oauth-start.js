@@ -155,8 +155,10 @@ function createGoogleOAuthStart(configuration, dependencies) {
         const input = snapshot(value, INPUT_KEYS);
         if (!input) fail();
         for (let index = 0; index < INPUT_KEYS.length; index += 1) {
-          if (typeof input[INPUT_KEYS[index]] !== 'string' || !test(UUID, input[INPUT_KEYS[index]])) fail();
+          if (typeof input[INPUT_KEYS[index]] !== 'string'
+              || (index !== 1 && !test(UUID, input[INPUT_KEYS[index]]))) fail();
         }
+        if (!test(UUID, input.locationId) && input.locationId !== 'sunset-somo') fail();
         const operationId = apply(randomUUID, cryptographyOwner, []);
         if (typeof operationId !== 'string' || !test(UUID, operationId)) fail();
         const encoded = [null, null, null];

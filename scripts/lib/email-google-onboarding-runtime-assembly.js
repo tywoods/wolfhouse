@@ -39,22 +39,28 @@ function surface(value,keys){return capability(value,keys);}
 function binding(input,keys,config){const value=exact(input,keys);if(!value||value.tenantSlug!==config.tenantSlug||value.clientId!==config.clientId||value.locationId!==config.locationId||value.endpointId!==config.endpointId)fail();return value;}
 function createGoogleOnboardingRuntimeAssembly(configuration,dependencies){
  const config=exact(configuration,CONFIG_KEYS),deps=exact(dependencies,DEP_KEYS);
- if(!config||!deps||config.tenantSlug!=='sunset'||!UUID.test(config.locationId)||!UUID.test(config.clientId)||config.endpointId!==ENDPOINT||config.applicationClientId!==APP||config.redirectUri!==REDIRECT||config.secretRef!==REF||typeof config.onboardingEnabled!=='boolean')fail();
+ // clientId/endpointId are platform database UUIDs; locationId is the canonical
+ // tenant-owned location slug. applicationClientId is the distinct Google OAuth audience.
+ if(!config||!deps||config.tenantSlug!=='sunset'||config.locationId!=='sunset-somo'||!UUID.test(config.clientId)||config.endpointId!==ENDPOINT||config.applicationClientId!==APP||config.redirectUri!==REDIRECT||config.secretRef!==REF||typeof config.onboardingEnabled!=='boolean')fail();
  for(const key of DEP_KEYS)if(!capability(deps[key],METHODS[key]))fail();
  const snapshot=freeze({tenantSlug:config.tenantSlug,clientId:config.clientId,locationId:config.locationId,endpointId:config.endpointId,applicationClientId:config.applicationClientId,redirectUri:config.redirectUri,secretRef:config.secretRef,onboardingEnabled:config.onboardingEnabled});
  if(!config.onboardingEnabled){return freeze({configuration:snapshot,startOnboarding(){fail(true);},completeOnboardingCallback(){fail(true);},deriveMailboxAuthority(){fail(true);}});}
- const startClock=freeze({now(...args){return apply(descriptor(deps.clock,'now').value,deps.clock,args);}});
- const startRepository=freeze({create(...args){return apply(descriptor(deps.repository,'create').value,deps.repository,args);}});
- const consumeRepository=freeze({consume(...args){return apply(descriptor(deps.repository,'consume').value,deps.repository,args);}});
+ const now=descriptor(deps.clock,'now').value, nowEpochSeconds=descriptor(deps.clock,'nowEpochSeconds').value;
+ const createTransaction=descriptor(deps.repository,'create').value, consumeTransaction=descriptor(deps.repository,'consume').value;
+ const sha256Ascii=descriptor(deps.cryptography,'sha256Ascii').value;
+ const startClock=freeze({now(...args){return apply(now,deps.clock,args);}});
+ const startRepository=freeze({create(...args){return apply(createTransaction,deps.repository,args);}});
+ const consumeRepository=freeze({consume(...args){return apply(consumeTransaction,deps.repository,args);}});
  const start=createGoogleOAuthStart(freeze({enabled:config.onboardingEnabled,applicationClientId:APP,redirectUri:REDIRECT}),freeze({cryptography:deps.cryptography,clock:startClock,repository:startRepository}));
- const consume=createGoogleOAuthCallbackConsume(freeze({cryptography:freeze({sha256Ascii(...args){return apply(descriptor(deps.cryptography,'sha256Ascii').value,deps.cryptography,args);}}),clock:startClock,repository:consumeRepository}));
- const transactionFactory=createGoogleTransactionCompletionFactory(freeze({https:deps.https,crypto:deps.crypto,timers:deps.timers,envelopeProvider:deps.envelopeProvider,clock:freeze({nowEpochSeconds:descriptor(deps.clock,'nowEpochSeconds').value}),installer:deps.installer}));
+ const consume=createGoogleOAuthCallbackConsume(freeze({cryptography:freeze({sha256Ascii(...args){return apply(sha256Ascii,deps.cryptography,args);}}),clock:startClock,repository:consumeRepository}));
+ const transactionFactory=createGoogleTransactionCompletionFactory(freeze({https:deps.https,crypto:deps.crypto,timers:deps.timers,envelopeProvider:deps.envelopeProvider,clock:freeze({nowEpochSeconds(...args){return apply(nowEpochSeconds,deps.clock,args);}}),installer:deps.installer}));
  const callback=createGoogleOAuthCallbackCompletion(freeze({applicationClientId:APP,redirectUri:REDIRECT,secretRef:REF}),freeze({callbackConsume:consume,secretProvider:deps.secretProvider,transactionCompletionFactory:transactionFactory}));
  const startMethod=surface(start,['start']), callbackMethod=surface(callback,['completeCallback']);
  if(!startMethod||!callbackMethod)fail();
+ let authorityConsumed=false;
  function startOnboarding(input){const v=binding(input,START_INPUT,config);return apply(startMethod.start,start,[freeze({clientId:v.clientId,locationId:v.locationId,endpointId:v.endpointId,staffUserId:v.staffUserId,authSessionId:v.authSessionId})]);}
  function completeOnboardingCallback(input){try{const v=binding(input,CALLBACK_INPUT,config);return apply(callbackMethod.completeCallback,callback,[freeze({clientId:v.clientId,authSessionId:v.authSessionId,query:v.query})]);}catch(error){if(error&&error.code==='GOOGLE_ONBOARDING_RUNTIME_FAILED')throw error;fail();}}
- function deriveMailboxAuthority(input){try{const v=binding(input,AUTHORITY_INPUT,config);const authority=createGoogleMailboxAuthorityComposition(freeze({expectedAudience:APP,expectedNonce:v.expectedNonce,requestTimeoutMs:5000,responseBytesMax:16384}),freeze({https:deps.https,timers:deps.timers,signatureVerifier:deps.signatureVerifier}));const operation=surface(authority,['deriveAuthority']);if(!operation)fail();return apply(operation.deriveAuthority,authority,[freeze({idToken:v.idToken,accessToken:v.accessToken,nowEpochSeconds:v.nowEpochSeconds})]);}catch(error){if(error&&error.code==='GOOGLE_ONBOARDING_RUNTIME_FAILED')throw error;fail();}}
+ function deriveMailboxAuthority(input){try{const v=binding(input,AUTHORITY_INPUT,config);if(authorityConsumed)fail();authorityConsumed=true;const authority=createGoogleMailboxAuthorityComposition(freeze({expectedAudience:APP,expectedNonce:v.expectedNonce,requestTimeoutMs:5000,responseBytesMax:16384}),freeze({https:deps.https,timers:deps.timers,signatureVerifier:deps.signatureVerifier}));const operation=surface(authority,['deriveAuthority']);if(!operation)fail();const result=apply(operation.deriveAuthority,authority,[freeze({idToken:v.idToken,accessToken:v.accessToken,nowEpochSeconds:v.nowEpochSeconds})]);return Promise.resolve(result).catch(()=>fail());}catch(error){if(error&&error.code==='GOOGLE_ONBOARDING_RUNTIME_FAILED')throw error;fail();}}
  return freeze({configuration:snapshot,startOnboarding,completeOnboardingCallback,deriveMailboxAuthority});
 }
 module.exports=freeze({createGoogleOnboardingRuntimeAssembly});

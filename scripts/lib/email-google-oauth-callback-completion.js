@@ -146,8 +146,9 @@ function consumedRecord(value) {
   const record = snapshot(value, CONSUMED_KEYS);
   if (!record || record.status !== 'consumed' || !visible(record.authorizationCode, 1, 8192)) return null;
   for (let index = 2; index <= 6; index += 1) {
-    if (typeof record[CONSUMED_KEYS[index]] !== 'string' || !test(UUID, record[CONSUMED_KEYS[index]])) return null;
+    if (typeof record[CONSUMED_KEYS[index]] !== 'string' || (index !== 4 && !test(UUID, record[CONSUMED_KEYS[index]]))) return null;
   }
+  if (!test(UUID, record.locationId) && record.locationId !== 'sunset-somo') return null;
   if (typeof record.codeVerifier !== 'string' || !test(VERIFIER, record.codeVerifier)
       || typeof record.nonce !== 'string' || !test(NONCE, record.nonce)) return null;
   return record;
