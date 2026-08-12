@@ -341,6 +341,7 @@
     "verify:sunset-staging-iac-diff-check": "node scripts/verify-sunset-staging-iac-diff-check.js",
     "verify:migration-integrity": "node scripts/verify-migration-integrity.js",
     "verify:email-mailbox-adapter-contract": "node scripts/verify-email-mailbox-adapter-contract.js",
+    "verify:email-mailbridge-provider-operation-contract": "node scripts/verify-email-mailbridge-provider-operation-contract.js",
     "verify:email-google-onboarding-runtime-assembly": "node scripts/verify-email-google-onboarding-runtime-assembly.js",
     "verify:email-google-delegated-oauth-contract": "node scripts/verify-email-google-delegated-oauth-contract.js",
     "verify:email-google-mailbox-authority-contract": "node scripts/verify-email-google-mailbox-authority-contract.js",
