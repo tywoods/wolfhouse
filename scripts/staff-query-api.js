@@ -23394,7 +23394,7 @@ function scheduleLessonGroupHeaderMeta(stats, boardsNeeded, wetsuitsNeeded){
 
 
 function scheduleNormalizePhoneDigits(phone){
-  return String(phone || '').replace(/\D/g, '');
+  return String(phone || '').replace(/\\D/g, '');
 }
 
 function scheduleGroupHasPhone(group){
@@ -25047,7 +25047,7 @@ function scheduleRenderCreateAccommodation(){
 /** Timezone-safe YYYY-MM-DD + N days (UTC calendar arithmetic; no local DST). */
 function scheduleAddIsoDays(iso, days){
   var s = String(iso || '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return s;
   var p = s.split('-');
   var dt = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])));
   if (isNaN(dt.getTime())) return s;
@@ -26761,7 +26761,7 @@ async function scheduleRefreshCreateRentalStockNow(){
   var dateTo = (el('ps-create-date-to') && el('ps-create-date-to').value) || dateFrom;
   dateFrom = String(dateFrom || '').slice(0, 10);
   dateTo = String(dateTo || dateFrom).slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) return;
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(dateFrom)) return;
   var checks = wrap.querySelectorAll('.ps-create-rental-check');
   var offerings = [];
   for (var i = 0; i < checks.length; i++) {
@@ -31957,7 +31957,7 @@ function bcFilterManualBookingQuoteWarnings(warnings){
   if (!warnings || !warnings.length) return [];
   return warnings.filter(function(w){
     var s = String(w);
-    if (/yoga\s+class.*normally booked|normally booked and paid on site.*confirm with staff/i.test(s)) return false;
+    if (/yoga\\s+class.*normally booked|normally booked and paid on site.*confirm with staff/i.test(s)) return false;
     if (/^Yoga class:/i.test(s) && /on site|confirm with staff/i.test(s)) return false;
     return true;
   });
@@ -31987,14 +31987,14 @@ function bcQuoteDigitsBeforeCent(s){
   var idx = s.indexOf('\u00a2');
   if (idx < 0) idx = s.indexOf('\u00a2');
   if (idx < 0) return NaN;
-  var digits = s.slice(0, idx).replace(/[^\d]/g, '');
+  var digits = s.slice(0, idx).replace(/[^\\d]/g, '');
   return digits ? Number(digits) : NaN;
 }
 
 function bcQuoteParseTrailingInt(s, suffix){
   s = String(s || '').trim();
   if (suffix && s.slice(-suffix.length) !== suffix) return NaN;
-  var digits = (suffix ? s.slice(0, -suffix.length) : s).replace(/[^\d]/g, '');
+  var digits = (suffix ? s.slice(0, -suffix.length) : s).replace(/[^\\d]/g, '');
   return digits ? Number(digits) : NaN;
 }
 
@@ -32034,7 +32034,7 @@ function bcQuoteAccommodationNote(li, fmtEur){
         if (openIdx >= 0) {
           var pStart = openIdx + 'ceil5('.length;
           var pEnd = restB.indexOf('\u00a2', pStart);
-          if (pEnd > pStart) weeklyCents = Number(restB.slice(pStart, pEnd).replace(/[^\d]/g, ''));
+          if (pEnd > pStart) weeklyCents = Number(restB.slice(pStart, pEnd).replace(/[^\\d]/g, ''));
         }
         if (!isNaN(weeklyCents) && !isNaN(nightlyCents) && !isNaN(nightsB) && !isNaN(guestsB) && !isNaN(totalB)) {
           return fmtEur(weeklyCents) + '/7 = ' + fmtEur(nightlyCents) + '/night ' + times + ' ' + nightsB + ' night' + (nightsB !== 1 ? 's' : '') + ' ' + times + ' ' + guestsB + ' guest' + (guestsB !== 1 ? 's' : '') + ' = ' + fmtEur(totalB);
@@ -32358,8 +32358,8 @@ function renderBedCalendar(data){
     var roomCollapsed = bcIsRoomCollapsed(roomCode);
     /* Strip any non-alphanumerics (stray spaces / zero-width chars / dashes) before
        matching so an R# code with hidden junk still becomes "Room N". */
-    var rcMatch = String(room.room_code || '').replace(/[^A-Za-z0-9]/g, '').match(/^R0*(\d+)$/i);
-    var rnMatch = String(room.room_name || '').replace(/[^A-Za-z0-9]/g, '').match(/^R0*(\d+)$/i);
+    var rcMatch = String(room.room_code || '').replace(/[^A-Za-z0-9]/g, '').match(/^R0*(\\d+)$/i);
+    var rnMatch = String(room.room_name || '').replace(/[^A-Za-z0-9]/g, '').match(/^R0*(\\d+)$/i);
     var roomLabel = escHtml(rcMatch ? 'Room ' + rcMatch[1] : (rnMatch ? 'Room ' + rnMatch[1] : room.room_code));
     /* Only append a real human room name — never another R# code. */
     if (room.room_name && room.room_name !== room.room_code && !rnMatch) roomLabel += ' &mdash; ' + escHtml(room.room_name);
@@ -32388,7 +32388,7 @@ function renderBedCalendar(data){
       /* Prefer bed_code as the primary label; show bed_label as subtitle only if different */
       /* Show a clean "Bed N" label (prefer bed_label, else derive from the B-number
          in bed_code); drop the raw R#-B# code from the calendar. */
-      var bedBnum = String(bed.bed_code || '').match(/B0*(\d+)\s*$/i);
+      var bedBnum = String(bed.bed_code || '').match(/B0*(\\d+)\\s*$/i);
       var bedPrimary = (bed.bed_label && String(bed.bed_label).trim())
         ? bed.bed_label
         : (bedBnum ? 'Bed ' + bedBnum[1] : bed.bed_code);
@@ -34958,7 +34958,7 @@ function bcFieldEditBuildPackageWritePayload(){
 function bcFieldEditFormatPackageLine(obj){
   if (!obj) return '\u2014';
   if (obj.guest_packages && obj.guest_packages.length) {
-    return bcRenderPackagePebblesHtml(obj.guest_packages).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return bcRenderPackagePebblesHtml(obj.guest_packages).replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();
   }
   var code = bcFieldEditPackageDisplayLabel(obj.package_code || 'no_package');
   var total = obj.total_amount_cents != null ? bcFieldEditFormatEuro(obj.total_amount_cents) : '\u2014';
