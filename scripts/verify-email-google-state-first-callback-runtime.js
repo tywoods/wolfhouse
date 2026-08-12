@@ -73,6 +73,8 @@ function input(query = `state=${STATE}&code=${encodeURIComponent(CODE)}`, patch 
 }
 function row(patch = {}) {
   return freeze({
+    clientId: patch.clientId || CLIENT_A,
+    authSessionId: AUTH,
     operationId: OPERATION,
     locationId: LOCATION,
     endpointId: ENDPOINT,
@@ -253,14 +255,12 @@ test('accepts consumed records from two distinct valid client UUIDs and applicat
     { clientId: CLIENT_A, applicationClientId: APP_A, secretRef: REF_A },
     { clientId: CLIENT_B, applicationClientId: APP_B, secretRef: REF_B },
   ]) {
-    const h = harness(pair);
+    const h = harness({ ...pair, rows: [row({ clientId: pair.clientId })] });
     const cfg = config({ applicationClientId: pair.applicationClientId });
     const runtime = createGoogleStateFirstCallbackRuntime(cfg, h.dependencies);
     assert.equal('clientId' in runtime.configuration, false);
     assert.equal(runtime.configuration.applicationClientId, pair.applicationClientId);
-    const out = await runtime.completeCallback(input(`state=${STATE}&code=${encodeURIComponent(CODE)}`, {
-      clientId: pair.clientId,
-    }));
+    const out = await runtime.completeCallback(input());
     assert.deepEqual(out, freeze({ status: 'received' }));
     assert.equal(h.factoryArgs.length, 1);
     assert.deepEqual(h.factoryArgs[0].operationConfig, expectedOperation(pair.clientId, pair.applicationClientId));
@@ -291,11 +291,11 @@ test('construction rejects nonexact configuration and dependency bags', () => {
     freeze({ ...good, secretRef: REF_A }),
     freeze({ ...good, extra: true }),
     freeze({
+      callbackEnabled: true,
       tenantSlug: TENANT,
       locationKey: LOCATION_KEY,
       applicationClientId: APP_A,
       redirectUri: REDIRECT,
-      callbackEnabled: true,
     }),
     new Proxy(good, {}),
     freeze({ ...good, tenantSlug: 'wolfhouse' }),
@@ -409,8 +409,9 @@ test('consumed record clientId alone owns resolver and completion flow', async (
   const consumeCallback = freeze(function consumeCallback() {
     consumeCalls += 1;
     return freeze({
-      status: 'consumed', authorizationCode: CODE, clientId: CLIENT_B, operationId: OPERATION,
-      locationId: LOCATION, endpointId: ENDPOINT, staffUserId: STAFF, codeVerifier: VERIFIER, nonce: NONCE,
+      status: 'consumed', authorizationCode: CODE, clientId: CLIENT_B, authSessionId: AUTH,
+      operationId: OPERATION, locationId: LOCATION, endpointId: ENDPOINT,
+      staffUserId: STAFF, codeVerifier: VERIFIER, nonce: NONCE,
     });
   });
   const seam = freeze({ createGoogleOAuthCallbackConsume() { return freeze({ consumeCallback }); } });

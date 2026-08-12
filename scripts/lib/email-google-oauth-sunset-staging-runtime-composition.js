@@ -154,7 +154,7 @@ function createSunsetStagingGoogleOAuthComposition(dependencies) {
       if (!validated.ok || !validated.value) fail();
       const installer = createVerifiedGrantInstaller(freeze({ client: pinned.queryOwner }));
       const secretProvider = createSunsetGoogleOAuthClientSecretProvider({ deployment: SUNSET_DEPLOYMENT, env });
-      return createGoogleStateFirstRuntimeComposition(freeze({ tenantSlug: 'sunset', clientId: '00000000-0000-4000-8000-000000000000',
+      return createGoogleStateFirstRuntimeComposition(freeze({ tenantSlug: 'sunset',
         locationKey: 'sunset-somo', applicationClientId, redirectUri: REDIRECT, callbackEnabled: true }), freeze({
         db: pinned.queryOwner, cryptography: freeze({ sha256Ascii: cryptography.sha256Ascii }), clock,
         repository: freeze({ consume: pinned.repository.consume }),

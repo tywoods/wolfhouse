@@ -50,7 +50,7 @@ const urlHostname = getDescriptor(urlPrototype, 'hostname').get;
 const urlHref = getDescriptor(urlPrototype, 'href').get;
 
 const CONFIG_KEYS = freeze([
-  'tenantSlug', 'clientId', 'locationKey', 'applicationClientId', 'redirectUri', 'callbackEnabled',
+  'tenantSlug', 'locationKey', 'applicationClientId', 'redirectUri', 'callbackEnabled',
 ]);
 const DEPENDENCY_KEYS = freeze([
   'cryptography', 'clock', 'repository', 'endpointAuthorityResolver',
@@ -250,7 +250,6 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
     if (!config || !owners || !cryptography || !clock || !repository || !resolver
         || !factory || !provider
         || config.tenantSlug !== TENANT
-        || !test(UUID, config.clientId)
         || config.locationKey !== LOCATION_KEY
         || !validApplicationClientId(config.applicationClientId)
         || !validRedirectUri(config.redirectUri)
@@ -275,7 +274,6 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
 
     const publicConfiguration = freeze({
       tenantSlug: config.tenantSlug,
-      clientId: config.clientId,
       locationKey: config.locationKey,
       applicationClientId: config.applicationClientId,
       redirectUri: config.redirectUri,
