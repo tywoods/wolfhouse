@@ -21,6 +21,7 @@ for (const [type, raw] of [
   ['application/json','{"location_id":"sunset-somo",}'],
 ]) assert.equal(owner.parseStrictGoogleJson(type, raw, ['location_id','public_address']), null);
 
+async function main() {
 let effects = 0; const replies=[];
 const adapter = owner.createStaffGoogleOAuthProductionIntegration(Object.freeze({
   env:Object.freeze({}), sendJSON(_r,s,b){replies.push([s,b]);}, sendHTML(_r,s,b){replies.push([s,b]);},
@@ -32,3 +33,5 @@ await adapter.dispatch({method:'POST',url:owner.GOOGLE_ENDPOINT_PATH,headers:{}}
 assert.deepEqual(replies, [[404,{success:false,error:'not_found'}]]);
 assert.equal(effects,0,'concealment must precede auth/body/DB/runtime');
 console.log('staff Google OAuth production integration verifier: PASS');
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

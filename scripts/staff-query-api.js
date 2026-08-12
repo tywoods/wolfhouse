@@ -206,6 +206,13 @@ const {
   EMAIL_SETTINGS_PATH,
   isSunsetEmailSettingsUiEnabled,
 } = require('./lib/staff-email-settings-routes');
+const { createSunsetGoogleEndpointPrepare } = require('./lib/email-sunset-google-endpoint-prepare');
+const { createSunsetStagingGoogleOAuthComposition } = require('./lib/email-google-oauth-sunset-staging-runtime-composition');
+const { createStaffEmailGoogleOAuthRoutes } = require('./lib/staff-email-google-oauth-routes');
+const {
+  createStaffGoogleOAuthProductionIntegration, GOOGLE_ENDPOINT_PATH, GOOGLE_START_PATH, GOOGLE_CALLBACK_PATH,
+  isGoogleRouteEnabled,
+} = require('./lib/staff-google-oauth-production-integration');
 const {
   createStaffEmailOAuthRoutes,
   OAUTH_START_PATH,
@@ -2637,6 +2644,24 @@ const emailOAuthRoutes = createStaffEmailOAuthRoutes({
   // withTransactionClient over that outer client — no second checkout.
   withPgClient,
 });
+let googleOAuthComposition;
+function googleComposition() {
+  if (!googleOAuthComposition) {
+    const crypto = require('node:crypto');
+    googleOAuthComposition = createSunsetStagingGoogleOAuthComposition(Object.freeze({
+      env:Object.freeze({ ...process.env }), https:Object.freeze({request:https.request.bind(https)}),
+      crypto:Object.freeze({createPublicKey:crypto.createPublicKey,verify:crypto.verify,randomUUID:crypto.randomUUID,randomBytes:crypto.randomBytes,createHash:crypto.createHash}),
+      timers:Object.freeze({setTimeout,clearTimeout}), clock:Object.freeze({now:()=>new Date().toISOString(),nowEpochSeconds:()=>Math.floor(Date.now()/1000)}),
+    }));
+  }
+  return googleOAuthComposition;
+}
+function googleRoutes() { const c=googleComposition(); return createStaffEmailGoogleOAuthRoutes(Object.freeze({runtimeEnv:process.env,sendJSON,sendHTML,assertStaffClientAccess,authorizeAuthenticatedStaffRoute,withPgClient,createStart:c.createStart,createCallbackRuntime:c.createCallbackRuntime})); }
+const staffGoogleOAuth=createStaffGoogleOAuthProductionIntegration(Object.freeze({
+  env:process.env,sendJSON,sendHTML,requireAdmin:(req,res)=>requireAuth(req,res,'admin'),loadSession:loadAuthSession,readBody,withPgClient,assertStaffClientAccess,authorizeAuthenticatedStaffRoute,
+  createEndpointPrepare:pg=>createSunsetGoogleEndpointPrepare(Object.freeze({client:pg})),
+  googleRoutes:Object.freeze({handleStart:(...a)=>googleRoutes().handleStart(...a),handleCallback:(...a)=>googleRoutes().handleCallback(...a)}),
+}));
 
 // Email-delta operator recovery routes (default-off; full gate before auth).
 // One withPgClient loan per request; factory-fixed exclusive transaction client
@@ -50932,6 +50957,15 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleHouseNotesPost(parsed.query, req, res, auth.user);
+  }
+
+  // Google OAuth is concealed before auth/body/DB/runtime and wrong methods fall through sanitized.
+  if ([GOOGLE_ENDPOINT_PATH, GOOGLE_START_PATH, GOOGLE_CALLBACK_PATH].includes(pathname)) {
+    const kind=pathname===GOOGLE_ENDPOINT_PATH?'endpoint':pathname===GOOGLE_START_PATH?'start':'callback';
+    if (!isGoogleRouteEnabled(process.env,kind)) return kind==='callback'
+      ? sendHTML(res,404,'<!doctype html><title>Not found</title>')
+      : sendJSON(res,404,{success:false,error:'not_found'});
+    if (method===(kind==='callback'?'GET':'POST')) return staffGoogleOAuth.dispatch(req,res,pathname);
   }
 
   // ── Email registry READ/WRITE (Slice 1C-beta/gamma) — admin inventory + kill-switched registration
