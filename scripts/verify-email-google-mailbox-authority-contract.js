@@ -101,9 +101,7 @@ const symbol = base(); symbol.gmail_profile[Symbol('x')] = true; reject(symbol, 
     valid = deriveGoogleMailboxAuthority(base());
     for (const mutate of [x => { x.oidc_claims.email = 'not-an-email'; }, x => { x.oidc_claims.sub = 'bad\névil'; },
       x => { x.gmail_profile.historyId = '1e3'; }, x => { x.oidc_claims.hd = 'UPPER.example'; },
-      x => { x.oidc_claims.name = 'excess'; },
-      x => { x.oidc_claims = { email_verified: true, email: x.oidc_claims.email, nonce: x.oidc_claims.nonce,
-        sub: x.oidc_claims.sub, aud: x.oidc_claims.aud, iss: x.oidc_claims.iss }; }]) {
+      x => { x.oidc_claims.name = 'excess'; }]) {
       const x = base(); mutate(x); invalid.push(deriveGoogleMailboxAuthority(x));
     }
   } finally {

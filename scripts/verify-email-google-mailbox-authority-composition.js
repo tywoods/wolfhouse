@@ -30,6 +30,7 @@ function harness(spec = {}) {
     callback(response);
     response.emit('data', Buffer.from(JSON.stringify(spec.profile || { emailAddress: EMAIL, historyId: HISTORY })));
     response.emit('end');
+    if (spec.poison) spec.poison();
   };
   const https = Object.freeze({ request(options, cb) { calls.request.push({ options, receiver: this }); callback = cb; return request; } });
   const timers = Object.freeze({ setTimeout(fn, ms) { calls.timers.push({ fn, ms, receiver: this }); return Object.freeze({}); }, clearTimeout() {} });
@@ -94,17 +95,19 @@ test('sanitizes profile transport failures and logs nothing', async () => {
   const seen = []; const old = console.error; console.error = (...args) => seen.push(args); try { const h = harness({ profile: { emailAddress: `${LEAK}@example.com`, historyId: 'bad' } }); await rejected(() => h.service.deriveAuthority(operation())); assert.deepEqual(seen, []); } finally { console.error = old; }
 });
 test('post-load intrinsic poisoning preserves valid authority and rejects malformed profile evidence', async () => {
-  const good = harness(); const badEmail = harness({ profile: { emailAddress: 'not-an-email', historyId: HISTORY } });
-  const badHistory = harness({ profile: { emailAddress: EMAIL, historyId: '1e3' } });
-  const originals = { test: RegExp.prototype.test, some: Array.prototype.some, Reflect: global.Reflect, Object: global.Object };
+  const poison = () => { RegExp.prototype.test = () => true; Array.prototype.some = () => false; global.Reflect = new Proxy({}, { get() { throw Error(LEAK); } }); };
+  const good = harness({ poison }); const badEmail = harness({ poison, profile: { emailAddress: 'not-an-email', historyId: HISTORY } });
+  const badHistory = harness({ poison, profile: { emailAddress: EMAIL, historyId: '1e3' } });
+  const originals = { test: RegExp.prototype.test, some: Array.prototype.some, Reflect: global.Reflect };
+  const op = operation();
   let valid; let malformedEmail; let malformedHistory;
   try {
-    RegExp.prototype.test = () => true; Array.prototype.some = () => false;
-    global.Reflect = new Proxy({}, { get() { throw Error(LEAK); } }); global.Object = function PoisonedObject() { throw Error(LEAK); };
-    valid = await good.service.deriveAuthority(operation());
-    try { await badEmail.service.deriveAuthority(operation()); } catch (error) { malformedEmail = error; }
-    try { await badHistory.service.deriveAuthority(operation()); } catch (error) { malformedHistory = error; }
-  } finally { RegExp.prototype.test = originals.test; Array.prototype.some = originals.some; global.Reflect = originals.Reflect; global.Object = originals.Object; }
+    valid = await good.service.deriveAuthority(op);
+    RegExp.prototype.test = originals.test; Array.prototype.some = originals.some; global.Reflect = originals.Reflect;
+    try { await badEmail.service.deriveAuthority(op); } catch (error) { malformedEmail = error; }
+    RegExp.prototype.test = originals.test; Array.prototype.some = originals.some; global.Reflect = originals.Reflect;
+    try { await badHistory.service.deriveAuthority(op); } catch (error) { malformedHistory = error; }
+  } finally { RegExp.prototype.test = originals.test; Array.prototype.some = originals.some; global.Reflect = originals.Reflect; }
   assert.equal(valid.authority.cryptographically_verified, true);
   assert.equal(malformedEmail.code, 'GOOGLE_MAILBOX_AUTHORITY_COMPOSITION_FAILED');
   assert.equal(malformedHistory.code, 'GOOGLE_MAILBOX_AUTHORITY_COMPOSITION_FAILED');

@@ -11,10 +11,16 @@ const ObjectGetPrototypeOf = Object.getPrototypeOf;
 const ObjectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const ObjectCreate = Object.create;
 const ObjectSetPrototypeOf = Object.setPrototypeOf;
+const ObjectDefineProperty = Object.defineProperty;
+const ObjectPrototype = Object.prototype;
+const ObjectAssign = Object.assign.bind(Object);
 const ObjectHasOwn = Object.hasOwn.bind(Object);
 const ReflectOwnKeys = Reflect.ownKeys.bind(Reflect);
 const ReflectApply = Reflect.apply.bind(Reflect);
 const ArraySome = Array.prototype.some;
+const RegExpTest = RegExp.prototype.test;
+const ASCII_RE = /^[\x21-\x7e]+$/;
+const EMAIL_RE = /^[^@]+@[^@]+$/;
 const PinnedIsProxy = utilTypes.isProxy.bind(utilTypes);
 const ErrorConstructor = Error;
 const PromiseReject = Promise.reject;
@@ -29,19 +35,19 @@ const SERVICE_KEYS = ObjectFreeze(['getProfile']);
 const CANONICAL_ISSUER = 'https://accounts.google.com';
 const FAILURE_CODE = 'GOOGLE_MAILBOX_AUTHORITY_COMPOSITION_FAILED';
 const FAILURE_PROTOTYPE = ObjectCreate(Error.prototype);
-Object.defineProperty(FAILURE_PROTOTYPE, 'name', { value: 'GoogleMailboxAuthorityCompositionError' });
+ObjectDefineProperty(FAILURE_PROTOTYPE, 'name', { value: 'GoogleMailboxAuthorityCompositionError' });
 ObjectFreeze(FAILURE_PROTOTYPE);
 
 function failure() {
   const error = new ErrorConstructor('Google mailbox authority composition failed.');
   ObjectSetPrototypeOf(error, FAILURE_PROTOTYPE);
-  Object.defineProperty(error, 'code', { value: FAILURE_CODE, enumerable: true });
+  ObjectDefineProperty(error, 'code', { value: FAILURE_CODE, enumerable: true });
   return ObjectFreeze(error);
 }
 function proxy(value) { try { return PinnedIsProxy(value); } catch { return true; } }
 function exactFrozenRecord(value, keys) {
   try {
-    if (!value || proxy(value) || ObjectGetPrototypeOf(value) !== Object.prototype || !ObjectIsFrozen(value)) return null;
+    if (!value || proxy(value) || ObjectGetPrototypeOf(value) !== ObjectPrototype || !ObjectIsFrozen(value)) return null;
     const actual = ReflectOwnKeys(value);
     if (actual.length !== keys.length || ReflectApply(ArraySome, actual, [(key, index) => key !== keys[index]])) return null;
     const record = ObjectCreate(null);
@@ -53,8 +59,9 @@ function exactFrozenRecord(value, keys) {
     return record;
   } catch { return null; }
 }
-function boundedAscii(value, max) { return typeof value === 'string' && value.length > 0 && value.length <= max && /^[\x21-\x7e]+$/.test(value); }
-function email(value) { return boundedAscii(value, 320) && /^[^@]+@[^@]+$/.test(value); }
+function matches(regex, value) { return ReflectApply(RegExpTest, regex, [value]); }
+function boundedAscii(value, max) { return typeof value === 'string' && value.length > 0 && value.length <= max && matches(ASCII_RE, value); }
+function email(value) { return boundedAscii(value, 320) && matches(EMAIL_RE, value); }
 function readConfig(value) {
   const record = exactFrozenRecord(value, CONFIG_KEYS);
   if (!record || !boundedAscii(record.expectedAudience, 2048) || !boundedAscii(record.expectedNonce, 2048)
@@ -103,8 +110,8 @@ function createGoogleMailboxAuthorityComposition(configuration, dependencies) {
         gmail_profile: ObjectFreeze({ emailAddress: profileSnapshot.emailAddress, historyId: profileSnapshot.historyId }),
       }));
       if (!contract || contract.ok !== true || !contract.value || profileSnapshot.emailAddress !== identity.mailboxAddress) throw failure();
-      const authority = ObjectFreeze({ ...contract.value, binding_status: 'verified_profile_match',
-        cryptographically_verified: true, activation_enabled: false });
+      const authority = ObjectFreeze(ObjectAssign({}, contract.value, { binding_status: 'verified_profile_match',
+        cryptographically_verified: true, activation_enabled: false }));
       const evidence = ObjectFreeze({ provider: 'gmail_api', profile_email_address: profileSnapshot.emailAddress,
         gmail_history_id: profileSnapshot.historyId, evidence_role: 'profile_match_and_sync_cursor_not_authorization' });
       return ObjectFreeze({ authority, evidence });

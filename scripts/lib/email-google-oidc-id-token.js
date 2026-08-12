@@ -1,4 +1,6 @@
 'use strict';
+const { types: utilTypes } = require('node:util');
+const PinnedIsProxy = utilTypes.isProxy.bind(utilTypes);
 
 const { createHash, timingSafeEqual } = require('node:crypto');
 const { TextDecoder } = require('node:util');
@@ -330,6 +332,7 @@ function createGoogleOidcVerifiedIdentity(dependencies) {
     verifier = deps && deps.signatureVerifier;
     if (
       !verifier ||
+      PinnedIsProxy(verifier) ||
       Object.getPrototypeOf(verifier) !== Object.prototype ||
       !Object.isFrozen(verifier) ||
       Reflect.ownKeys(verifier).length !== 1
@@ -343,6 +346,8 @@ function createGoogleOidcVerifiedIdentity(dependencies) {
       !descriptor ||
       !Object.hasOwn(descriptor, 'value') ||
       !descriptor.enumerable ||
+      descriptor.writable ||
+      descriptor.configurable ||
       typeof descriptor.value !== 'function'
     )
       throw failure();
