@@ -20020,7 +20020,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 /* Toolbar-docked Conversations|Customers pill (left of search / client select). */
 .customers-toolbar-main > .inbox-view-switch,
 .inbox-toolbar-top > .inbox-view-switch{order:-1;margin-right:4px}
-/* Conversations shell mirrors Customers: 1240 wrap + toolbar + two framed cards. */
+/* Conversations shell mirrors Customers: 1240 wrap + toolbar + framed cards. */
 #tab-conversations.active #wrap.inbox-shell-wrap{
   max-width:1240px!important;width:100%;margin:0 auto;padding:16px 20px 12px!important;
   display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box;align-self:center;
@@ -20032,7 +20032,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 .inbox-shell-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;flex-shrink:0}
 .inbox-two-col.inbox-shell-cols{
-  display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:14px;
+  display:grid;grid-template-columns:minmax(260px,320px) minmax(0,1fr);gap:14px;
   flex:1;min-height:0;overflow:hidden;width:100%;align-self:stretch;
   border:none;border-radius:0;box-shadow:none;background:transparent;
 }
@@ -20041,15 +20041,70 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   border-right:none;border:1px solid var(--border-soft);border-radius:var(--radius);
   box-shadow:none;background:var(--surface);overflow:hidden;
 }
+/* Detail area is a transparent host for conversation + bookings cards. */
 .inbox-two-col.inbox-shell-cols #conv-detail{
   min-width:0;min-height:0;overflow:hidden;
+  border:none;border-radius:0;background:transparent;box-shadow:none;
+  display:flex;flex-direction:column;
+}
+.inbox-two-col.inbox-shell-cols #detail-content{
+  padding:0;background:transparent;overflow:hidden;
+}
+.inbox-two-col.inbox-shell-cols .detail-layout--three-card{
+  display:flex;flex-direction:row;align-items:stretch;gap:14px;
+  flex:1;min-height:0;width:100%;overflow:hidden;position:relative;
+  margin:0;
+}
+.inbox-two-col.inbox-shell-cols .detail-conv-card{
+  flex:1 1 auto;min-width:0;min-height:0;
+  display:flex;flex-direction:column;overflow:hidden;
   border:1px solid var(--border-soft);border-radius:var(--radius);
-  background:var(--surface);box-shadow:none;display:flex;flex-direction:column;
+  background:var(--surface);box-shadow:none;
+  padding:14px 16px 16px;box-sizing:border-box;
+}
+.inbox-two-col.inbox-shell-cols .detail-conv-card > .detail-header{
+  flex-shrink:0;margin-bottom:12px;padding-bottom:10px;
+  border-bottom:1px solid var(--border-soft);
+}
+.inbox-two-col.inbox-shell-cols .detail-bookings-card{
+  flex:0 0 300px;width:300px;max-width:34%;
+  align-self:stretch;max-height:none;
+  border:1px solid var(--border-soft);border-radius:var(--radius);
+  background:var(--surface);box-shadow:none;
+  padding:14px;box-sizing:border-box;
+  overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;
+}
+.inbox-two-col.inbox-shell-cols .detail-bookings-card > .sidebar-card{
+  border:none;box-shadow:none;background:transparent;padding:0;margin:0;
+}
+.inbox-two-col.inbox-shell-cols .detail-layout--three-card > .detail-sidebar-toggle{
+  position:absolute;top:10px;right:10px;z-index:3;
+}
+.inbox-two-col.inbox-shell-cols .detail-layout--three-card:not(.is-sidebar-collapsed) > .detail-sidebar-toggle{
+  right:318px;
+}
+.inbox-two-col.inbox-shell-cols .detail-layout--three-card.is-sidebar-collapsed .detail-bookings-card{
+  display:none!important;
+}
+.inbox-two-col.inbox-shell-cols .detail-layout--three-card.is-sidebar-collapsed .detail-conv-card{
+  flex:1 1 auto;width:100%;max-width:100%;
 }
 @media(max-width:900px){
   .inbox-two-col.inbox-shell-cols{grid-template-columns:1fr;gap:0;border:none}
-  .inbox-two-col.inbox-shell-cols .inbox-left,
-  .inbox-two-col.inbox-shell-cols #conv-detail{border-radius:var(--radius)}
+  .inbox-two-col.inbox-shell-cols .inbox-left{border-radius:var(--radius)}
+  .inbox-two-col.inbox-shell-cols #conv-detail{border:none;background:transparent}
+  .inbox-two-col.inbox-shell-cols .detail-layout--three-card{
+    flex-direction:column;overflow-y:auto;gap:12px;align-items:stretch;
+  }
+  .inbox-two-col.inbox-shell-cols .detail-conv-card{
+    flex:0 0 auto;width:100%;max-width:100%;overflow:visible;
+  }
+  .inbox-two-col.inbox-shell-cols .detail-bookings-card{
+    flex:0 0 auto;width:100%;max-width:100%;order:3;
+  }
+  .inbox-two-col.inbox-shell-cols .detail-layout--three-card > .detail-sidebar-toggle{
+    position:static;align-self:flex-end;margin:0;order:2;
+  }
 }
 /* ═══ END luna-header-ui ═════════════════════════════════════════════════ */
 </style>
@@ -32288,16 +32343,16 @@ function convDetailHasLayout(targetEl){
 }
 
 function buildConvDetailSkeleton(){
-  return '<div class="detail-header">' +
+  return '<div class="detail-layout detail-layout--three-card detail-layout-skeleton">' +
+    '<div class="detail-main detail-conv-card">' +
+    '<div class="detail-header">' +
     '<div><div class="detail-name conv-skeleton-line">&nbsp;</div>' +
     '<div class="detail-meta conv-skeleton-line short">&nbsp;</div></div>' +
     '<span id="conv-detail-load-status" class="conv-detail-load-status">Loading\u2026</span></div>' +
-    '<div class="detail-layout detail-layout-skeleton">' +
-    '<div class="detail-main">' +
     '<div class="thread-section"><div class="thread"><div class="thread-messages thread-skeleton"></div></div></div>' +
     '<div class="draft-panel"><div class="draft-label">' +
     '<span style="font-size:11px;color:var(--text-3)">Reply:</span></div></div></div>' +
-    '<div class="detail-sidebar"><div class="sidebar-card sidebar-card-skeleton"></div></div></div>';
+    '<div class="detail-sidebar detail-bookings-card"><div class="sidebar-card sidebar-card-skeleton"></div></div></div>';
 }
 
 function beginConvDetailLoad(targetEl){
@@ -33410,33 +33465,34 @@ function loadConvDetail(convId, targetEl){
     var state = (stateData.success && stateData.state)     ? stateData.state    : null;
     var lunaGuestPaused = isLunaGuestAutomationPaused([pauseData, detailData, c, stateData, state]);
 
-    /* ── Header ── */
-    var html = '<div class="detail-header">';
-    html +=   '<div class="detail-header-main">';
-    html +=     '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
-    html +=     '<div class="detail-meta">' + escHtml(c.phone);
-    if (conversationHasOpenHandoff(c) && c.handoff_reason)     html += ' &bull; ' + escHtml(handoffLabel(c.handoff_reason));
-    else if (c.needs_human) html += ' &bull; ' + escHtml(t('inbox.detail.meta.needsStaffReply'));
-    html +=     '</div>';
-    html +=   '</div>';
-    html +=   '<div class="detail-header-right">';
+    /* ── Header (Luna controls live in conversation card top-right) ── */
+    var headerHtml = '<div class="detail-header">';
+    headerHtml +=   '<div class="detail-header-main">';
+    headerHtml +=     '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
+    headerHtml +=     '<div class="detail-meta">' + escHtml(c.phone);
+    if (conversationHasOpenHandoff(c) && c.handoff_reason)     headerHtml += ' &bull; ' + escHtml(handoffLabel(c.handoff_reason));
+    else if (c.needs_human) headerHtml += ' &bull; ' + escHtml(t('inbox.detail.meta.needsStaffReply'));
+    headerHtml +=     '</div>';
+    headerHtml +=   '</div>';
+    headerHtml +=   '<div class="detail-header-right">';
     var convPhone = normalizeCustomerPhoneClient(c.phone);
     var canOpenCust = portalHasCustomersCrm(getPortalProfile(getClient())) && (
       convPhone || isEmailChannelConversationClient(c) || c.customer_id || c.guest_email || c.email
     );
     if (canOpenCust) {
-      html += '<button type="button" class="btn btn-soft-grey btn-compact" id="inbox-open-customer-card">' + escHtml(portalT('customers.openCustomerCard')) + '</button>';
+      headerHtml += '<button type="button" class="btn btn-soft-grey btn-compact" id="inbox-open-customer-card">' + escHtml(portalT('customers.openCustomerCard')) + '</button>';
     }
-    html +=     '<span class="detail-header-pills">' + convHeaderStatusPillsHtml(c, lunaGuestPaused) + '</span>';
-    html +=     detailHeaderSwitchesHtml(c, lunaGuestPaused);
-    html +=   '</div>';
-    html += '</div>';
+    headerHtml +=     '<span class="detail-header-pills">' + convHeaderStatusPillsHtml(c, lunaGuestPaused) + '</span>';
+    headerHtml +=     detailHeaderSwitchesHtml(c, lunaGuestPaused);
+    headerHtml +=   '</div>';
+    headerHtml += '</div>';
 
-    /* ── Two-column layout ── */
-    html += '<div class="detail-layout">';
+    /* ── Three-card layout: list (outer) | conversation card | bookings card ── */
+    var html = '<div class="detail-layout detail-layout--three-card">';
 
-    /* ═══ LEFT — thread + draft panel ═══ */
-    html += '<div class="detail-main">';
+    /* ═══ CENTER — conversation card (thread + reply + Luna header) ═══ */
+    html += '<div class="detail-main detail-conv-card" id="inbox-detail-conv-card">';
+    html += headerHtml;
 
     /* Message thread — Clear floats above box; box top aligns with Bot state */
     html += '<div class="thread-section">';
@@ -33505,14 +33561,14 @@ function loadConvDetail(convId, targetEl){
     }
     html += '</div>'; /* /draft-panel */
 
-    html += '</div>'; /* /detail-main */
+    html += '</div>'; /* /detail-main / detail-conv-card */
 
-    /* ═══ RIGHT — context sidebar ═══ */
+    /* ═══ RIGHT — bookings card (separate framed rail) ═══ */
     html += '<button type="button" class="detail-sidebar-toggle" id="inbox-sidebar-toggle" aria-controls="inbox-detail-sidebar" aria-expanded="true">' + escHtml(t('inbox.detail.sidebar.hide') || portalT('inbox.detail.sidebar.hide') || 'Hide bookings') + '</button>';
-    html += '<div class="detail-sidebar" id="inbox-detail-sidebar">';
+    html += '<div class="detail-sidebar detail-bookings-card" id="inbox-detail-sidebar">';
 
     /* ── Guest bookings (stacked) ── */
-    html += '<div class="sidebar-card">';
+    html += '<div class="sidebar-card sidebar-card--bookings">';
     html +=   '<h3>' + escHtml(t('inbox.detail.bookings.title')) + '</h3>';
     if (!bookingRows.length){
       html += '<div class="inbox-no-bookings">' + escHtml(t('inbox.detail.bookings.none')) + '</div>';
