@@ -19,7 +19,14 @@ config/clients/*.secrets.json
 # Staging channel routing with real Meta phone_number_id values — copy from channel-routing.staging.example.json outside git
 config/clients/channel-routing.staging.json
 
-# Sunset Bicep preflight secure overlays (FOUNDATION Slice 3 — must match git check-ignore)
+# Agent scratch space: probe scripts, screenshots, commit-message drafts. Never
+# part of a build — .dockerignore already excludes tmp from the image context —
+# but while untracked it made `git status --porcelain` dirty, which is what
+# scripts/assert-deploy-from-master.js reads, so leftover scratch blocked every
+# staff-api deploy. Supersedes the narrower rule below while keeping the
+# guarantee it existed for: Sunset Bicep secure overlays stay ignored
+# (FOUNDATION Slice 3 — must match git check-ignore).
+tmp/
 tmp/**/*.local.json
 
 # Private / raw WhatsApp exports (never commit)
