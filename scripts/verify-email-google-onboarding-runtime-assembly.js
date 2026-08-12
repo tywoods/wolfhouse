@@ -6,7 +6,9 @@ const owner = require('./lib/email-google-onboarding-runtime-assembly');
 const { createGoogleOnboardingRuntimeAssembly } = owner;
 const freeze = Object.freeze;
 const CLIENT='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
-const LOCATION='sunset-somo';
+// Plan-frozen deterministic UUID for the Sunset Somo location binding; it is
+// not a provider authority and is replaced only by later server assembly.
+const LOCATION='22222222-2222-4222-8222-222222222222';
 const ENDPOINT='11111111-2222-4333-8444-555555555555';
 const APP='9876543210-sunset.apps.googleusercontent.com';
 const REDIRECT='https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
