@@ -32596,6 +32596,19 @@ function openInboxToConversation(convId){
 function openInboxToPhone(phone, cardEl){
   var norm = String(phone || '').replace(/\D/g, '');
   if (!norm) return;
+  function flashNote(txt){
+    if (!cardEl) return;
+    var old = cardEl.querySelector('.customers-card-conv-empty');
+    if (old) old.remove();
+    var note = document.createElement('div');
+    note.className = 'customers-card-conv-empty';
+    note.textContent = txt;
+    var body = cardEl.querySelector('.customers-card-body') || cardEl;
+    body.appendChild(note);
+    setTimeout(function(){
+      if (note.parentNode) note.parentNode.removeChild(note);
+    }, 3200);
+  }
   if (cardEl) {
     var old = cardEl.querySelector('.customers-card-conv-empty');
     if (old) old.remove();
@@ -32607,40 +32620,34 @@ function openInboxToPhone(phone, cardEl){
     })
     .then(function(data){
       var list = (data && data.success && data.conversations) ? data.conversations : [];
-      var match = null;
       for (var i = 0; i < list.length; i++) {
-        var c = list[i];
-        var cDigits = String(c.phone || '').replace(/\D/g, '');
-        if (cDigits && cDigits === norm) { match = c; break; }
+        var cDigits = String(list[i].phone || '').replace(/\D/g, '');
+        if (cDigits && cDigits === norm && list[i].conversation_id) {
+          openInboxToConversation(list[i].conversation_id);
+          return;
+        }
       }
-      if (match && match.conversation_id) {
-        openInboxToConversation(match.conversation_id);
-        return;
-      }
-      // No match — stay on Customers; quiet empty state on the card.
-      if (cardEl) {
-        var note = document.createElement('div');
-        note.className = 'customers-card-conv-empty';
-        note.textContent = 'No conversation yet';
-        var body = cardEl.querySelector('.customers-card-body') || cardEl;
-        body.appendChild(note);
-        setTimeout(function(){
-          if (note.parentNode) note.parentNode.removeChild(note);
-        }, 3200);
-      }
+      // Slice 2: no existing conversation — create it for this contact, then open.
+      flashNote('Starting conversation…');
+      fetch('/staff/customers/' + encodeURIComponent(phone) + '/create-conversation?client=' + encodeURIComponent(getClient()), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          idempotency_key: 'customers-card-conv-' + norm,
+          reason: 'Created from Customers card',
+        }),
+      })
+        .then(function(r){ return r.json().then(function(body){ return { ok: r.ok, body: body }; }); })
+        .then(function(res){
+          if (!res.ok || !res.body || !res.body.success || !res.body.conversation_id) {
+            throw new Error((res.body && res.body.error) || 'create failed');
+          }
+          openInboxToConversation(res.body.conversation_id);
+        })
+        .catch(function(){ flashNote('Couldn’t start conversation'); });
     })
-    .catch(function(){
-      if (cardEl) {
-        var note = document.createElement('div');
-        note.className = 'customers-card-conv-empty';
-        note.textContent = 'No conversation yet';
-        var body = cardEl.querySelector('.customers-card-body') || cardEl;
-        body.appendChild(note);
-        setTimeout(function(){
-          if (note.parentNode) note.parentNode.removeChild(note);
-        }, 3200);
-      }
-    });
+    .catch(function(){ flashNote('Couldn’t open conversation'); });
 }
 
 /* Load inbox — optional selectConvIdAfterLoad opens that conversation after refresh. */

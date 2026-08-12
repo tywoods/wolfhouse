@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * Customers card phone/email → open existing Inbox conversation (Slice 1).
+ * Customers card phone/email → open existing conversation, or create it if
+ * none exists yet (Slice 1 + Slice 2).
  */
 
 const fs = require('fs');
@@ -35,18 +36,23 @@ function main() {
   })());
   ok('openInboxToPhone defined', /function openInboxToPhone\(phone/.test(api));
   ok('openInboxToPhone fetches conversations list',
-    /function openInboxToPhone[\s\S]{0,400}?fetch\('\/staff\/conversations' \+ inboxClientQuery\(\)/.test(api));
+    /function openInboxToPhone[\s\S]{0,900}?fetch\('\/staff\/conversations' \+ inboxClientQuery\(\)/.test(api));
   ok('openInboxToPhone digits-only compare',
     /function openInboxToPhone[\s\S]{0,800}?replace\(\/\\D\/g/.test(api));
-  ok('openInboxToPhone calls openInboxToConversation on match',
-    /function openInboxToPhone[\s\S]{0,1200}?openInboxToConversation\(match\.conversation_id\)/.test(api));
-  ok('openInboxToPhone empty state text',
-    /No conversation yet/.test(api));
-  ok('no create-conversation in openInboxToPhone', (() => {
+  ok('openInboxToPhone opens matched conversation',
+    /function openInboxToPhone[\s\S]{0,1200}?openInboxToConversation\(list\[i\]\.conversation_id\)/.test(api));
+  ok('openInboxToPhone creates conversation on no match (Slice 2)', (() => {
     const i = api.indexOf('function openInboxToPhone');
-    const snip = api.slice(i, i + 1600);
-    return !/create-conversation/.test(snip);
+    const snip = api.slice(i, i + 2600);
+    return /\/staff\/customers\/' \+ encodeURIComponent\(phone\) \+ '\/create-conversation/.test(snip)
+      && /idempotency_key: 'customers-card-conv-'/.test(snip);
   })());
+  ok('openInboxToPhone opens the newly created conversation', (() => {
+    const i = api.indexOf('function openInboxToPhone');
+    const snip = api.slice(i, i + 2600);
+    return /openInboxToConversation\(res\.body\.conversation_id\)/.test(snip);
+  })());
+  ok('openInboxToPhone shows progress note', /Starting conversation/.test(api));
   ok('cust-conv-link CSS present', /\.cust-conv-link\{/.test(api));
   ok('3-col conversation shell untouched markers',
     /\.inbox-two-col\.inbox-shell-cols\{/.test(api));
@@ -91,12 +97,21 @@ function openInboxToConversation(id){ window.__opened = id; }
 function openInboxToPhone(phone, cardEl){
   var norm = String(phone || '').replace(/\\D/g, '');
   if (!norm) return;
+  function flashNote(txt){
+    if (!cardEl) return;
+    var old = cardEl.querySelector('.customers-card-conv-empty');
+    if (old) old.remove();
+    var note = document.createElement('div');
+    note.className = 'customers-card-conv-empty';
+    note.textContent = txt;
+    (cardEl.querySelector('.customers-card-body') || cardEl).appendChild(note);
+  }
   if (cardEl) {
     var old = cardEl.querySelector('.customers-card-conv-empty');
     if (old) old.remove();
   }
   window.__fetchCalls++;
-  // mock fetch result
+  // mock conversations list (only conv-111 exists)
   return Promise.resolve({
     success: true,
     conversations: [
@@ -104,21 +119,21 @@ function openInboxToPhone(phone, cardEl){
     ]
   }).then(function(data){
     var list = data.conversations || [];
-    var match = null;
     for (var i = 0; i < list.length; i++) {
       var cDigits = String(list[i].phone || '').replace(/\\D/g, '');
-      if (cDigits && cDigits === norm) { match = list[i]; break; }
+      if (cDigits && cDigits === norm && list[i].conversation_id) {
+        openInboxToConversation(list[i].conversation_id);
+        return;
+      }
     }
-    if (match && match.conversation_id) {
-      openInboxToConversation(match.conversation_id);
-      return;
-    }
-    if (cardEl) {
-      var note = document.createElement('div');
-      note.className = 'customers-card-conv-empty';
-      note.textContent = 'No conversation yet';
-      (cardEl.querySelector('.customers-card-body') || cardEl).appendChild(note);
-    }
+    // Slice 2: no match — create then open (mock create endpoint).
+    flashNote('Starting conversation…');
+    window.__created = phone;
+    return Promise.resolve({ success: true, conversation_id: 'conv-new-999' })
+      .then(function(res){
+        if (!res || !res.success || !res.conversation_id) { flashNote('Could not start conversation'); return; }
+        openInboxToConversation(res.conversation_id);
+      });
   });
 }
 document.getElementById('cust-list').addEventListener('click', function(ev) {
@@ -148,10 +163,10 @@ document.getElementById('cust-list').addEventListener('click', function(ev) {
       await page.waitForTimeout(50);
       r = await page.evaluate(() => ({
         opened: window.__opened,
-        empty: document.querySelector('.customers-card[data-phone="+34999888777"] .customers-card-conv-empty')?.textContent || null,
+        created: window.__created || null,
         detail: window.__detail || null,
       }));
-      ok('no-match shows empty state, no open', !r.opened && r.empty === 'No conversation yet', JSON.stringify(r));
+      ok('no-match creates then opens conversation (Slice 2)', r.opened === 'conv-new-999' && r.created === '+34999888777', JSON.stringify(r));
 
       await page.evaluate(() => { window.__detail = null; window.__opened = null; });
       await page.click('.customers-card[data-phone="+34600111222"] .customers-card-body', { position: { x: 5, y: 5 } });
