@@ -1,20 +1,28 @@
 'use strict';
 
-// Server-internal capability registry. Authority is object identity in this
-// module's WeakMap, never properties a caller can reconstruct or observe.
-const bindings = new WeakMap();
+// Pin every intrinsic used by the registry before any caller can run. Authority
+// is object identity in this module-private WeakMap, never caller-visible data.
+const WeakMapConstructor = WeakMap;
+const weakMapPrototype = WeakMapConstructor.prototype;
+const weakMapGet = weakMapPrototype.get;
+const weakMapSet = weakMapPrototype.set;
+const weakMapDelete = weakMapPrototype.delete;
+const reflectApply = Reflect.apply;
+const objectCreate = Object.create;
+const objectFreeze = Object.freeze;
+const bindings = new WeakMapConstructor();
 
 function mintStartCapability(gate, req, user) {
-  const capability = Object.freeze(Object.create(null));
-  bindings.set(capability, { gate, req, user, consumed:false });
+  const capability = objectFreeze(objectCreate(null));
+  reflectApply(weakMapSet, bindings, [capability, { gate, req, user }]);
   return capability;
 }
 
 function consumeStartCapability(capability, gate, req, user) {
-  const binding = bindings.get(capability);
-  if (!binding || binding.consumed || binding.gate !== gate || binding.req !== req || binding.user !== user) return false;
-  binding.consumed = true;
-  return true;
+  const binding = reflectApply(weakMapGet, bindings, [capability]);
+  if (!binding || binding.gate !== gate || binding.req !== req || binding.user !== user) return false;
+  // One shot: revoke before granting authority. A failed revocation cannot pass.
+  return reflectApply(weakMapDelete, bindings, [capability]) === true;
 }
 
-module.exports = Object.freeze({ mintStartCapability, consumeStartCapability });
+module.exports = objectFreeze({ mintStartCapability, consumeStartCapability });
