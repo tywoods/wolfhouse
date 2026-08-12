@@ -32738,7 +32738,7 @@ function openInboxToConversation(convId){
  * No conversation create — leave on Customers and flash quiet empty state.
  */
 function openInboxToPhone(phone, cardEl){
-  var norm = String(phone || '').replace(/\D/g, '');
+  var norm = String(phone || '').replace(/\\D/g, '');
   if (!norm) return;
   function flashNote(txt){
     if (!cardEl) return;
@@ -32765,7 +32765,7 @@ function openInboxToPhone(phone, cardEl){
     .then(function(data){
       var list = (data && data.success && data.conversations) ? data.conversations : [];
       for (var i = 0; i < list.length; i++) {
-        var cDigits = String(list[i].phone || '').replace(/\D/g, '');
+        var cDigits = String(list[i].phone || '').replace(/\\D/g, '');
         if (cDigits && cDigits === norm && list[i].conversation_id) {
           openInboxToConversation(list[i].conversation_id);
           return;
@@ -33347,7 +33347,7 @@ function inboxBookingSourceToneClass(bctx){
 function inboxHumanizeStatus(raw){
   var s = String(raw || '').trim();
   if (!s || s === '—' || s === '-') return '—';
-  var key = s.toLowerCase().replace(/\s+/g, '_');
+  var key = s.toLowerCase().replace(/\\s+/g, '_');
   var map = {
     payment_pending: 'Payment pending',
     payment_link_sent: 'Payment link sent',
@@ -33370,8 +33370,8 @@ function inboxHumanizeStatus(raw){
   };
   if (map[key]) return map[key];
   // snake_case / camelCase → Title words
-  return s.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
-    .replace(/\b\w/g, function(ch){ return ch.toUpperCase(); });
+  return s.replace(/[_-]+/g, ' ').replace(/\\s+/g, ' ').trim()
+    .replace(/\\b\\w/g, function(ch){ return ch.toUpperCase(); });
 }
 
 function renderInboxBookingStackItemHtml(bctx, guestName){
