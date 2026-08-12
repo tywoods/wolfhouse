@@ -15,10 +15,13 @@ const SUBJECT = 'Google-Sub_123:CaseSensitive';
 const EMAIL = 'Owner.Case+Mailbox@Example.COM';
 const HISTORY = '9876543210123456789';
 const LEAK = 'hostile-authority-secret';
+const NOW = 1_900_000_000;
+const b64 = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+function idToken(patch = {}) { return `${b64({ alg: 'RS256', kid: 'key' })}.${b64({ iss: 'https://accounts.google.com', aud: AUDIENCE, sub: SUBJECT, email: EMAIL, email_verified: true, nonce: NONCE, exp: NOW + 600, iat: NOW, ...patch })}.${Buffer.from('signed').toString('base64url')}`; }
 
 function config(patch = {}) { return Object.freeze({ expectedAudience: AUDIENCE, expectedNonce: NONCE, requestTimeoutMs: 5000, responseBytesMax: 16384, ...patch }); }
 function identity(patch = {}) { return Object.freeze({ providerTenantId: 'https://accounts.google.com', providerPrincipalId: SUBJECT, mailboxAddress: EMAIL, displayName: 'Owner Case', ...patch }); }
-function operation(patch = {}) { return Object.freeze({ accessToken: TOKEN, verifiedIdentity: identity(), ...patch }); }
+function operation(patch = {}) { return Object.freeze({ idToken: idToken(), accessToken: TOKEN, nowEpochSeconds: NOW, ...patch }); }
 function harness(spec = {}) {
   const calls = { request: [], timers: [] };
   let callback;
@@ -30,7 +33,8 @@ function harness(spec = {}) {
   };
   const https = Object.freeze({ request(options, cb) { calls.request.push({ options, receiver: this }); callback = cb; return request; } });
   const timers = Object.freeze({ setTimeout(fn, ms) { calls.timers.push({ fn, ms, receiver: this }); return Object.freeze({}); }, clearTimeout() {} });
-  const dependencies = Object.freeze({ https, timers });
+  const signatureVerifier = Object.freeze({ async verifySignature(input) { calls.signature = [input]; if (spec.badSignature) throw Error(LEAK); return Object.freeze({ verified: true }); } });
+  const dependencies = Object.freeze({ https, timers, signatureVerifier });
   return { service: createGoogleMailboxAuthorityComposition(config(), dependencies), calls, https };
 }
 async function rejected(action) {
@@ -68,6 +72,12 @@ test('returns frozen sanitized authority and evidence from matching verified ide
   const rendered = JSON.stringify(result); for (const secret of [TOKEN, NONCE]) assert.equal(rendered.includes(secret), false);
   for (const key of ['accessToken', 'idToken', 'refreshToken', 'send', 'write', 'request']) assert.equal(key in result, false);
 });
+test('verifies token internally, accepts absent name, and rejects wrong audience, nonce, or signature before profile transport', async () => {
+  assert.equal((await harness().service.deriveAuthority(operation())).authority.cryptographically_verified, true);
+  for (const patch of [{ aud: 'wrong' }, { nonce: 'wrong' }]) { const h = harness(); await rejected(() => h.service.deriveAuthority(operation({ idToken: idToken(patch) }))); assert.equal(h.calls.request.length, 0); }
+  const bad = harness({ badSignature: true }); await rejected(() => bad.service.deriveAuthority(operation())); assert.equal(bad.calls.request.length, 0);
+});
+test('forged plain identity cannot produce verified authority', async () => { const h = harness(); await rejected(() => h.service.deriveAuthority(Object.freeze({ accessToken: TOKEN, verifiedIdentity: identity() }))); assert.equal(h.calls.request.length, 0); });
 test('rejects exact profile mismatch even by email case and does not return hostile authority', async () => { for (const emailAddress of ['other@example.com', EMAIL.toLowerCase()]) { const h = harness({ profile: { emailAddress, historyId: HISTORY } }); await rejected(() => h.service.deriveAuthority(operation())); } });
 test('rejects unverified, noncanonical, mutable, inherited, accessor, proxy, and excess identity/operation records before transport', async () => {
   const variants = [identity({ providerTenantId: 'accounts.google.com' }), identity({ extra: LEAK }), { ...identity() }, Object.freeze(Object.assign(Object.create(null), identity()))];
