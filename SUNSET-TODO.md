@@ -8,6 +8,9 @@ _Started 2026-08-03. Last updated 2026-08-11 22:10 UTC by Skipper. Owner brain-d
 
 ---
 
+## 🔴 @Earthling — first thing (blocking the nav team)
+- **[BUG] Sea Dog is down — can't write the repo.** Seadog's container runs as **UID 10000**, which is not in the `wolfhouse-dev` group (GID 1002). It can read `/opt/wolfhouse/WH/.git` but not write it, so every git op throws `PermissionError`. **Fix:** add group `wolfhouse-dev` / GID 1002 to the Seadog container — `group_add: ["1002"]` in its compose service (then restart), **or** run the container as `hermes-operator` (uid 1002, already in the group). Repo is already group-writable, so no repo changes needed once the container is in the group. (Diagnosed by Captain 2026-08-12 ~05:00 UTC; likely tipped over by heavy git churn tonight normalizing `.git` perms to group-only. Until fixed, Captain gates Deckhand packs solo.)
+
 ## ❓ Open questions (answered)
 - **"− N +" control** → the **quantity stepper**.
 - **Historical booking log placement/name** → recommended name **"Bookings"** (Schedule stays the calendar view; Bookings = searchable master list). Alts: "Records" / "Booking Log". Feeds both ops (find any booking) and Finance (refund home). **(Update 08-06: Bookings promoted to a top-level tab — see T1.)**
