@@ -114,14 +114,6 @@ function isLunaGuestAutomationPaused(sources){
   return false;
 }
 
-/* Phase 9.5 — live pause lookup via GET /staff/bot/pause-state; failure → default active */
-function fetchBotPauseState(client, convId){
-  var qs = '?client_slug=' + encodeURIComponent(client) + '&conversation_id=' + encodeURIComponent(convId);
-  return fetch('/staff/bot/pause-state' + qs)
-    .then(function(r){ return r.ok ? r.json() : { success: false }; })
-    .catch(function(){ return { success: false }; });
-}
-
 /* Phase 9.5b — Inbox Luna pause/resume controls (bot_pause_states via Staff API) */
 function setLunaPauseActionStatus(targetEl, msg, isError){
   var statusEl = targetEl.querySelector('#luna-pause-action-status');
@@ -1599,7 +1591,7 @@ function loadConvDetail(convId, targetEl){
 
   var qs   = inboxClientQuery();
 
-  /* One snapshot for all six sections; each keeps the body its own endpoint returns. */
+  /* One snapshot for every section; each keeps the body its own endpoint returns. */
   fetch('/staff/inbox/thread/' + encodeURIComponent(convId) + qs)
   .then(function(r){ return r.json(); })
   .then(function(composite){
@@ -1609,15 +1601,13 @@ function loadConvDetail(convId, targetEl){
       composite.messages,
       composite.context,
       composite.draft,
-      composite.staff_state,
       composite.pause_state,
     ];
     var detailData = results[0];
     var msgsData   = results[1];
     var ctxData    = results[2];
     var draftData  = results[3];
-    var stateData  = results[4];
-    var pauseData  = results[5];
+    var pauseData  = results[4];
 
     if (!detailData.success) throw new Error(detailData.error || 'detail error');
 
@@ -1629,8 +1619,7 @@ function loadConvDetail(convId, targetEl){
       ? filterActiveInboxBookings(ctxData.bookings)
       : (ctx && (ctx.booking_code || ctx.booking_id) ? [ctx] : []);
     var draft = (draftData.success && draftData.draft)     ? draftData.draft    : null;
-    var state = (stateData.success && stateData.state)     ? stateData.state    : null;
-    var lunaGuestPaused = isLunaGuestAutomationPaused([pauseData, detailData, c, stateData, state]);
+    var lunaGuestPaused = isLunaGuestAutomationPaused([pauseData, detailData, c]);
 
     /* ── Header ── */
     var convPhone = normalizeCustomerPhoneClient(c.phone);
