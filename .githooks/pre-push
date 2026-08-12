@@ -1,4 +1,12 @@
 #!/bin/sh
 # Block push if origin or Lunabox are ahead of laptop (Captain work not merged).
-node scripts/check-repo-sync.js --strict --ignore-dirty
+# WH_CHECK_REPO_SYNC_SKIP_VM=1 drops the Lunabox leg and compares laptop vs origin
+# only — the same escape scripts/assert-repo-sync.js already exposes. Needed when
+# Captain is mid-Hermes-work on the VM, which diverges the tree without ever being
+# ahead of the laptop.
+if [ "$WH_CHECK_REPO_SYNC_SKIP_VM" = "1" ]; then
+  node scripts/check-repo-sync.js --strict --ignore-dirty --skip-vm
+else
+  node scripts/check-repo-sync.js --strict --ignore-dirty
+fi
 exit $?
