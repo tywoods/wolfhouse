@@ -110,6 +110,13 @@ function loadPricingConfig() {
   return JSON.parse(fs.readFileSync(PRICING_CONFIG_PATH, 'utf8'));
 }
 
+/** `spring_autumn` -> `Spring Autumn`, for seeds that ship a code but no label. */
+function humanizeCode(code) {
+  return String(code || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 /**
  * Convert the JSON seed's month-number seasons into recurring day/month ranges.
  * Consecutive months are not merged; one range per month keeps the mapping
@@ -119,7 +126,9 @@ function configSeasons(config) {
   const seasons = Array.isArray(config && config.seasons) ? config.seasons : [];
   return seasons.map((s, idx) => ({
     code: String(s.code),
-    label: String(s.label || s.code),
+    // The shipped config carries codes only, so derive a readable name rather
+    // than showing staff `spring_autumn`.
+    label: String(s.label || humanizeCode(s.code)),
     priority: Number(s.priority) || 0,
     bookable: s.bookable !== false,
     active: true,
@@ -489,6 +498,7 @@ module.exports = {
   WH_PRICING_CLIENT_SLUG,
   splitRentalCode,
   buildAdminPricingView,
+  humanizeCode,
   PRICING_CONFIG_PATH,
   CONFIG_RENTAL_ADDON_CODES,
   DEFAULT_RENTAL_DURATION,

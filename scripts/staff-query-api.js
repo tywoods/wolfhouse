@@ -613,7 +613,10 @@ const {
 const { getStaffPortalI18nBootstrapScript, getStaffPortalThemeEarlyScript } = require('./lib/staff-portal-i18n');
 const { buildStaffLoginHtml } = require('./lib/staff-portal-login-page');
 const { getWolfhouseServicesAdminSource } = require('./lib/wolfhouse-services-browser-source');
-const { getWolfhouseAdminUiSource } = require('./lib/wolfhouse-admin-browser-source');
+const {
+  getWolfhouseAdminUiSource,
+  getWolfhousePricingUiSource,
+} = require('./lib/wolfhouse-admin-browser-source');
 const { getSunsetAdminBrowserHelperSource } = require('./lib/sunset-admin-ui-helpers');
 const { getSunsetAdminUiBrowserSource, getSunsetEquipmentPricingModelSource } = require('./lib/sunset-admin-browser-source');
 const {
@@ -16691,6 +16694,23 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-edit-field{margin-bottom:0}
 .portal-admin-edit-field label{display:block;font-size:11px;font-weight:700;color:var(--text-2);margin-bottom:4px}
 .portal-admin-edit-field input{width:100%;max-width:240px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text)}
+/* Wolfhouse Admin > Pricing (scripts/browser/wolfhouse-admin-pricing-ui.js). Scoped
+   to #wh-admin-pricing-body so nothing here can reach Sunset's admin shell. */
+#wh-admin-pricing-body .wh-price-range-row{display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+#wh-admin-pricing-body .wh-price-range-row select{padding:5px 6px;border:1px solid var(--border-soft);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text)}
+#wh-admin-pricing-body .wh-price-range-row input{width:62px;max-width:62px;padding:5px 6px;font-size:12px}
+#wh-admin-pricing-body .wh-price-range-sep{color:var(--text-3);font-size:12px}
+#wh-admin-pricing-body .wh-price-ranges-field,#wh-admin-pricing-body .wh-price-wide-field{grid-column:1 / -1}
+#wh-admin-pricing-body .wh-price-wide-field input{max-width:none}
+#wh-admin-pricing-body .wh-price-check-field{display:flex;align-items:center;gap:8px}
+#wh-admin-pricing-body .wh-price-check-field label{margin-bottom:0}
+#wh-admin-pricing-body .wh-price-check-field input{width:auto;max-width:none}
+#wh-admin-pricing-body .wh-price-closed-pill{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:1px 6px;border-radius:999px;background:var(--surface-soft);border:1px solid var(--border-soft);color:var(--text-3);vertical-align:middle}
+#wh-admin-pricing-body .wh-price-card-closed{opacity:.7}
+#wh-admin-pricing-body .wh-price-edited{font-weight:700;color:#2e8b57}
+#wh-admin-pricing-body .wh-price-banner-warn{border-color:rgba(200,138,0,.4);color:#8a6100}
+#wh-admin-pricing-body .wh-price-banner-ok{border-color:rgba(46,139,87,.4);color:#256b45}
+#wh-admin-pricing-body .portal-admin-price-card{gap:8px}
 .portal-admin-course-equipment-grid{display:grid;grid-template-columns:repeat(2,minmax(0,240px));gap:12px;max-width:100%}
 .portal-admin-equipment-editor{grid-column:1/-1;min-width:0}
 /* Equipment heading: title; empty-state + beside title; filled rows carry + next to × */
@@ -28974,6 +28994,9 @@ ${getWolfhouseServicesAdminSource()}
 
 /* wolfhouse-admin-ui: injected from scripts/browser/wolfhouse-admin-ui.js */
 ${getWolfhouseAdminUiSource()}
+
+/* wolfhouse-admin-pricing-ui: injected from scripts/browser/wolfhouse-admin-pricing-ui.js */
+${getWolfhousePricingUiSource()}
 var customersCache = [];
 var customersFilter = 'all';
 var customersTagFilters = {};

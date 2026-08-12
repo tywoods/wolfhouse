@@ -819,6 +819,152 @@ async function runRouteChecks() {
     badJsonSent.length === 1 && /invalid JSON body/.test(badJsonSent[0]));
 }
 
+// ── Browser UI (real module in a vm, minimal DOM shim) ──────────────────────
+
+const vm = require('vm');
+
+/**
+ * Smallest DOM the pricing module touches. Renders are string assembly, so an
+ * innerHTML sink plus getElementById is enough to assert real output without
+ * pulling in a browser or jsdom (neither is installable in this gate).
+ */
+function fakeDom() {
+  const elements = new Map();
+  function makeEl(id) {
+    return {
+      id,
+      innerHTML: '',
+      value: '',
+      checked: false,
+      readOnly: false,
+      dataset: {},
+      addEventListener() {},
+      contains() { return true; },
+      querySelectorAll() { return []; },
+      querySelector() { return null; },
+    };
+  }
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, makeEl(id));
+      return elements.get(id);
+    },
+  };
+  return { document, elements };
+}
+
+function runPricingUi(viewPayload) {
+  const dom = fakeDom();
+  const sandbox = {
+    window: {},
+    document: dom.document,
+    fetch: () => Promise.resolve({ json: () => Promise.resolve({}) }),
+    console,
+    Promise,
+    Number,
+    encodeURIComponent,
+  };
+  sandbox.globalThis = sandbox;
+  const src = fs.readFileSync(
+    path.join(ROOT, 'scripts/browser/wolfhouse-admin-pricing-ui.js'), 'utf8',
+  );
+  vm.createContext(sandbox);
+  vm.runInContext(src, sandbox);
+  sandbox.window.__whPricingStateForTest.view = viewPayload;
+  sandbox.window.__whPricingRenderForTest();
+  return {
+    html: dom.document.getElementById('wh-admin-pricing-body').innerHTML,
+    window: sandbox.window,
+  };
+}
+
+function uiChecks() {
+  console.log('\n── Browser UI ──');
+
+  const writable = Object.assign({}, view, { writes_enabled: true });
+  const { html, window: win } = runPricingUi(writable);
+
+  ok('the module exposes its entry point',
+    typeof win.loadWolfhouseAdminPricing === 'function');
+  ok('rendering produces markup', html.length > 500);
+
+  for (const [label, needle] of [
+    ['Seasons', 'Seasons'],
+    ['Packages', 'Packages'],
+    ['Rentals', 'Rentals'],
+    ['Services', 'Services'],
+    ['Transfers', 'Transfers'],
+    ['Extras', 'Extras'],
+  ]) {
+    ok(`the ${label} section renders`, html.includes(`>${needle}<`));
+  }
+
+  ok('the full-day extension gets its own section',
+    html.includes('Full day') && html.includes('Full-day extension'));
+
+  ok('a package price renders as euros, not cents',
+    html.includes('€349.00') && !html.includes('34900'));
+  ok('the August season is shown by name', html.includes('August'));
+  ok('the closed season is marked closed', html.includes('closed'));
+  ok('a season with no price shows Not set, never €0.00',
+    html.includes('Not set'));
+  ok('recurring ranges render as month and day', /Aug 1\s*–\s*Aug 31/.test(html));
+  ok('a transfer shows its airport code', html.includes('(SDR)'));
+  ok('Bilbao surfaces its group minimum', html.includes('min group') && html.includes('4'));
+  ok('deposits render in euros', html.includes('€200.00'));
+  ok('the private room supplement renders', html.includes('€10.00'));
+
+  ok('editable mode offers Edit controls',
+    html.includes('data-wh-price-action="edit-package-price"'));
+  ok('editable mode offers Add season and Add airport',
+    html.includes('data-wh-price-action="new-season"')
+    && html.includes('data-wh-price-action="new-transfer"'));
+  ok('editable mode offers Add rental and Add service',
+    html.includes('data-wh-item-type="rental"') && html.includes('data-wh-item-type="service"'));
+  ok('no read-only banner when writes are on',
+    !html.includes('Read-only'));
+
+  // Read-only mode
+  const readOnly = runPricingUi(Object.assign({}, view, { writes_enabled: false })).html;
+  ok('read-only mode explains itself', readOnly.includes('Read-only'));
+  ok('read-only mode hides every write control',
+    !readOnly.includes('data-wh-price-action="edit-package-price"')
+    && !readOnly.includes('data-wh-price-action="new-season"')
+    && !readOnly.includes('data-wh-price-action="delete-season"'));
+  ok('read-only mode still shows the prices', readOnly.includes('€349.00'));
+
+  // Degraded overlay
+  const degraded = runPricingUi(Object.assign({}, view, {
+    writes_enabled: true, overlay_available: false, overlay_error: 'relation does not exist',
+  })).html;
+  ok('a degraded overlay warns the operator',
+    degraded.includes('built-in prices only'));
+
+  // Edited vs default provenance
+  const edited = runPricingUi(Object.assign({}, viewWithDb, { writes_enabled: true })).html;
+  ok('an edited price is labelled edited', edited.includes('>edited<'));
+  ok('a shipped default is labelled default', edited.includes('>default<'));
+  ok('the edited August price shows the new amount', edited.includes('€375.00'));
+
+  // Escaping
+  const hostile = JSON.parse(JSON.stringify(view));
+  hostile.writes_enabled = true;
+  hostile.seasons[0].label = '<img src=x onerror=alert(1)>';
+  const escaped = runPricingUi(hostile).html;
+  ok('a hostile season label is escaped, not injected',
+    !escaped.includes('<img src=x') && escaped.includes('&lt;img src=x'));
+
+  // Comments mention Sunset's namespace to explain the separation, so compare
+  // against code only.
+  const uiCode = fs.readFileSync(
+    path.join(ROOT, 'scripts/browser/wolfhouse-admin-pricing-ui.js'), 'utf8',
+  ).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  ok('the UI never targets Sunset admin ids or actions',
+    !/data-admin-action|admin-sunset-shell|#admin-tab-/.test(uiCode));
+  ok('the UI only calls its own Wolfhouse endpoints',
+    (uiCode.match(/'\/staff\/[a-z/-]*'/g) || []).every((p) => p === "'/staff/admin/wh/pricing'"));
+}
+
 // ── Tenant isolation ────────────────────────────────────────────────────────
 function tenantIsolationChecks() {
 console.log('\n── Tenant isolation ──');
@@ -888,6 +1034,7 @@ ok('the runtime twin creates the same tables as the migration',
 runStoreChecks()
   .then(runRouteChecks)
   .then(() => {
+    uiChecks();
     tenantIsolationChecks();
     console.log(`\n── wolfhouse-admin-pricing: ${passed} passed, ${failed} failed ──\n`);
     process.exit(failed ? 1 : 0);

@@ -26,11 +26,14 @@
     'tour-operator': 'tab-tour-operator',
   };
 
-  /** Placeholder sub-tabs: body id → i18n key for the section title. */
+  /**
+   * Placeholder sub-tabs: body id → i18n key for the section title.
+   * Pricing is no longer here — scripts/browser/wolfhouse-admin-pricing-ui.js
+   * owns `#wh-admin-pricing-body` and must not be overwritten by a placeholder.
+   */
   var WH_ADMIN_PLACEHOLDERS = {
     finance: { body: 'wh-admin-finance-body', title: 'admin.tabs.finance', fallback: 'Finance' },
     bookings: { body: 'wh-admin-bookings-body', title: 'admin.tabs.bookings', fallback: 'Bookings' },
-    pricing: { body: 'wh-admin-pricing-body', title: 'admin.tabs.pricing', fallback: 'Pricing' },
     email: { body: 'wh-admin-email-body', title: 'admin.tabs.email', fallback: 'Email' },
   };
 
@@ -125,6 +128,7 @@
       if (hosted) hosted.classList.toggle('active', subKey === next);
     }
 
+    if (next === 'pricing' && typeof loadWolfhouseAdminPricing === 'function') loadWolfhouseAdminPricing();
     if (next === 'luna-staff' && typeof wireLunaStaffTabCards === 'function') wireLunaStaffTabCards();
     if (next === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
     if (next === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
