@@ -18206,6 +18206,11 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .customers-card-body{min-width:0}
 .customers-card-name{font-size:13px;font-weight:700;color:var(--text);margin-bottom:1px;line-height:1.3}
 .customers-card-contact{font-size:11px;color:var(--text-3);margin-bottom:4px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Slice 1: phone/email on card open existing conversation (no create). */
+.cust-conv-link{cursor:pointer;border-radius:4px;text-decoration:none;color:inherit;transition:color .12s,background .12s}
+.cust-conv-link:hover{color:var(--text-2);background:rgba(127,127,127,.12)}
+.cust-conv-link:focus-visible{outline:2px solid var(--focus,#6a9a72);outline-offset:1px}
+.customers-card-conv-empty{font-size:11px;color:var(--text-3);margin-top:4px;line-height:1.3;font-style:italic}
 .customers-card-preview{font-size:11px;color:var(--text-2);line-height:1.35;margin-bottom:3px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
 .customers-card-meta{font-size:10px;color:var(--text-3)}
 .customers-badges{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
@@ -29694,8 +29699,14 @@ function renderCustomersList(rows) {
     return '<div class="customers-card' + sel + bulkSel + '" data-phone="' + escHtml(c.phone) + '">' +
       '<label class="customers-card-check" title="' + escHtml(portalT('customers.outreach.selectCustomer')) + '"><input type="checkbox" class="cust-bulk-check" data-phone="' + escHtml(c.phone) + '"' + bulkChecked + ' aria-label="' + escHtml(portalT('customers.outreach.selectCustomer')) + '"></label>' +
       '<div class="customers-card-body">' +
-      '<div class="customers-card-heading"><div class="customers-card-name">' + escHtml(name) + '</div><span class="customers-card-phone">' + escHtml(c.phone || '') + '</span></div>' +
-      (c.email ? '<div class="customers-card-contact">' + escHtml(c.email) + '</div>' : '') +
+      '<div class="customers-card-heading"><div class="customers-card-name">' + escHtml(name) + '</div>' +
+      (c.phone
+        ? '<span class="customers-card-phone cust-conv-link" role="button" tabindex="0" title="Open conversation">' + escHtml(c.phone) + '</span>'
+        : '<span class="customers-card-phone"></span>') +
+      '</div>' +
+      (c.email
+        ? '<div class="customers-card-contact cust-conv-link" role="button" tabindex="0" title="Open conversation">' + escHtml(c.email) + '</div>'
+        : '') +
       (tagChips ? '<div class="customers-badges">' + tagChips + '</div>' : '') +
       '</div></div>';
   }).join('');
@@ -30351,8 +30362,30 @@ function wireCustomersTab() {
     list.dataset.wired = '1';
     list.addEventListener('click', function(ev) {
       if (ev.target && ev.target.closest && (ev.target.closest('.customers-card-check') || ev.target.closest('.cust-bulk-check'))) return;
+      // Slice 1: phone/email → open existing Inbox conversation (no create).
+      var convLink = ev.target && ev.target.closest ? ev.target.closest('.cust-conv-link') : null;
+      if (convLink) {
+        var linkCard = convLink.closest('.customers-card');
+        var linkPhone = linkCard && linkCard.dataset ? linkCard.dataset.phone : '';
+        if (linkPhone) {
+          if (ev.stopPropagation) ev.stopPropagation();
+          if (ev.preventDefault) ev.preventDefault();
+          openInboxToPhone(linkPhone, linkCard);
+        }
+        return;
+      }
       var card = ev.target && ev.target.closest ? ev.target.closest('.customers-card') : null;
       if (card && card.dataset && card.dataset.phone) loadCustomerDetail(card.dataset.phone);
+    });
+    list.addEventListener('keydown', function(ev) {
+      if (!ev || (ev.key !== 'Enter' && ev.key !== ' ')) return;
+      var convLink = ev.target && ev.target.closest ? ev.target.closest('.cust-conv-link') : null;
+      if (!convLink) return;
+      var linkCard = convLink.closest('.customers-card');
+      var linkPhone = linkCard && linkCard.dataset ? linkCard.dataset.phone : '';
+      if (!linkPhone) return;
+      if (ev.preventDefault) ev.preventDefault();
+      openInboxToPhone(linkPhone, linkCard);
     });
     list.addEventListener('change', function(ev) {
       var cb = ev.target;
@@ -32554,6 +32587,60 @@ function openInboxToConversation(convId){
     beginConvDetailLoad(detailEl);
   }
   loadInbox(convId);
+}
+
+/**
+ * Customers card phone/email (Slice 1): open existing conversation by digits-only phone match.
+ * No conversation create — leave on Customers and flash quiet empty state.
+ */
+function openInboxToPhone(phone, cardEl){
+  var norm = String(phone || '').replace(/\D/g, '');
+  if (!norm) return;
+  if (cardEl) {
+    var old = cardEl.querySelector('.customers-card-conv-empty');
+    if (old) old.remove();
+  }
+  fetch('/staff/conversations' + inboxClientQuery())
+    .then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(data){
+      var list = (data && data.success && data.conversations) ? data.conversations : [];
+      var match = null;
+      for (var i = 0; i < list.length; i++) {
+        var c = list[i];
+        var cDigits = String(c.phone || '').replace(/\D/g, '');
+        if (cDigits && cDigits === norm) { match = c; break; }
+      }
+      if (match && match.conversation_id) {
+        openInboxToConversation(match.conversation_id);
+        return;
+      }
+      // No match — stay on Customers; quiet empty state on the card.
+      if (cardEl) {
+        var note = document.createElement('div');
+        note.className = 'customers-card-conv-empty';
+        note.textContent = 'No conversation yet';
+        var body = cardEl.querySelector('.customers-card-body') || cardEl;
+        body.appendChild(note);
+        setTimeout(function(){
+          if (note.parentNode) note.parentNode.removeChild(note);
+        }, 3200);
+      }
+    })
+    .catch(function(){
+      if (cardEl) {
+        var note = document.createElement('div');
+        note.className = 'customers-card-conv-empty';
+        note.textContent = 'No conversation yet';
+        var body = cardEl.querySelector('.customers-card-body') || cardEl;
+        body.appendChild(note);
+        setTimeout(function(){
+          if (note.parentNode) note.parentNode.removeChild(note);
+        }, 3200);
+      }
+    });
 }
 
 /* Load inbox — optional selectConvIdAfterLoad opens that conversation after refresh. */
