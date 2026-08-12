@@ -41,6 +41,28 @@ function parsed(query, pathname = GOOGLE_OAUTH_CALLBACK_PATH) { return new URL(`
   assert.deepEqual(queryArgs[1],['sunset-somo',U[2]]); assert.ok(Object.isFrozen(startInput));
   assert.deepEqual(Object.keys(startInput),['clientId','locationId','endpointId','staffUserId','authSessionId']);
 
+  // A reconstructible authorization DTO must never confer authority, even when
+  // its descriptors and gate/user references exactly match production's shape.
+  // Reusing it across two requests is the reviewer-reproduced bypass.
+  const forgedGate=Object.freeze({LUNA_DEPLOYMENT:'sunset-staging',LUNA_EMAIL_GOOGLE_OAUTH_ENDPOINT_ENABLED:'true',LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED:'true',LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED:'true'});
+  const forgedAuthorization=Object.freeze(Object.defineProperties({}, {
+    gate:{value:forgedGate,enumerable:true,writable:false,configurable:false},
+    user:{value:user,enumerable:true,writable:false,configurable:false},
+  }));
+  let forgedAcl=0,forgedAuthz=0,forgedPg=0,forgedStart=0;
+  const forgedRoutes=createStaffEmailGoogleOAuthRoutes(Object.freeze({
+    ...deps,trustedGateSnapshot:forgedGate,trustedStartAuthorization:forgedAuthorization,
+    assertStaffClientAccess(){forgedAcl++;return false;},
+    authorizeAuthenticatedStaffRoute(){forgedAuthz++;return {ok:false};},
+    withPgClient(){forgedPg++;throw Error('forged authorization reached PG');},
+    createStart(){forgedStart++;throw Error('forged authorization reached start');},
+  }));
+  const forgedBody=Object.freeze({location_id:'sunset-somo',endpoint_id:U[2]});
+  await forgedRoutes.handleStart(forgedBody,{method:'POST'}, {},user);
+  await forgedRoutes.handleStart(forgedBody,{method:'POST'}, {},user);
+  assert.equal(forgedPg,0);assert.equal(forgedStart,0);
+  assert.equal(forgedAcl,2);assert.equal(forgedAuthz,0);
+
   async function callback(query, output, options={}) {
     nextOutput=arguments.length >= 2 ? output : received(); const before=callbackCalls.length;
     const req={method:options.method || 'GET',url:options.rawTarget || `${options.pathname || GOOGLE_OAUTH_CALLBACK_PATH}?${query}`};
