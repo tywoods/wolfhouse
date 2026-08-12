@@ -82,3 +82,16 @@ Static gates that assert on portal UI strings must read `scripts/lib/staff-porta
 - Local Hermes uses `hermes-local/.env` for `OPENAI_API_KEY` (gitignored).
 
 When asked “what should we do next”, prefer: read relevant spec + owner file, propose a small scoped change, and mention which verify script proves it.
+
+## Asking questions (cloud agents especially)
+
+Someone monitors the agent conversation and answers questions there, so a blocked agent gets
+unblocked only if it actually asks. End every turn in one of two states: the work is done and a
+PR is open, or you have asked a specific question and are waiting. Stopping quietly with the work
+unfinished is a question you failed to ask.
+
+- **Ask early.** If a decision changes the shape of the code, ask before writing it.
+- **Ask so it can be answered in one word:** state the decision, list the options with the
+  tradeoff of each, and give your recommendation. Quote the relevant code or payload inline so
+  the answer does not require opening the repo.
+- Do not poll or idle waiting for a reply — end the turn; you will be resumed with the answer.
