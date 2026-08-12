@@ -8,8 +8,8 @@ _Started 2026-08-03. Last updated 2026-08-11 22:10 UTC by Skipper. Owner brain-d
 
 ---
 
-## 🔴 @Earthling — first thing (blocking the nav team)
-- **[BUG] Sea Dog is down — can't write the repo.** Seadog's container runs as **UID 10000**, which is not in the `wolfhouse-dev` group (GID 1002). It can read `/opt/wolfhouse/WH/.git` but not write it, so every git op throws `PermissionError`. **Fix:** add group `wolfhouse-dev` / GID 1002 to the Seadog container — `group_add: ["1002"]` in its compose service (then restart), **or** run the container as `hermes-operator` (uid 1002, already in the group). Repo is already group-writable, so no repo changes needed once the container is in the group. (Diagnosed by Captain 2026-08-12 ~05:00 UTC; likely tipped over by heavy git churn tonight normalizing `.git` perms to group-only. Until fixed, Captain gates Deckhand packs solo.)
+## ✅ Sea Dog + Skipper were down — RESOLVED (Captain, 2026-08-12 ~06:00 UTC)
+- **[BUG] Seadog & Skipper threw `PermissionError` on `/opt/wolfhouse/WH/.git`.** Real cause was **not** group membership (my earlier 05:00 diagnosis was wrong — do **not** touch `.git` perms/ACLs or the `wolfhouse-dev` group). The repo is bind-mounted **read-only** into every Hermes container by design (anti-clobber), and both agents' `terminal.cwd` pointed at that ro mount, so any git write (fetch/index/commit) failed. Deckhand worked because its cwd is a writable clone under `/opt/data`. **Fix (live):** gave each a writable clone at `/opt/data/workspace/sandbox-repos/WH-<role>` and repointed `terminal.cwd` there in `docker/hermes-staging/99z-wh-vm-post-bootstrap.sh` (+ a guarded self-heal that re-seeds on a fresh volume), then restarted both. Both verified healthy + writable. **⚠️ Durability:** the bootstrap fix is live from the host working tree but **not yet committed** (that file carries unrelated uncommitted changes) — commit it so a branch switch/reset can't wipe the fleet cwd config.
 
 ## ❓ Open questions (answered)
 - **"− N +" control** → the **quantity stepper**.
