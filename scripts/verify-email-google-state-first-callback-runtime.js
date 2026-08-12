@@ -1,5 +1,4 @@
 'use strict';
-
 /**
  * Focused offline verifier for the pure state-first Google OAuth callback runtime.
  *
@@ -30,6 +29,10 @@ const {
 } = require('./lib/email-google-transaction-completion-factory');
 
 const freeze = Object.freeze;
+const verifierIsFrozen = Object.isFrozen;
+const VerifierPromise = Promise;
+const verifierPromiseResolve = Promise.resolve;
+const verifierApply = Reflect.apply;
 const TENANT = 'sunset';
 const LOCATION_KEY = 'sunset-somo';
 const REDIRECT = 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
@@ -61,7 +64,7 @@ const CONFIG_KEYS = freeze([
 
 function config(options = {}) {
   return freeze({
-    tenantSlug: TENANT,
+    tenantSlug: options.tenantSlug || TENANT,
     clientId: options.clientId || CLIENT_A,
     locationKey: LOCATION_KEY,
     applicationClientId: options.applicationClientId || APP_A,
@@ -109,13 +112,17 @@ function clean(code) {
     assert.ok(error);
     assert.equal(error.code, code);
     assert.equal(error.stack, undefined);
-    assert.equal(Object.isFrozen(error), true);
+    assert.equal(verifierIsFrozen(error), true);
     const rendered = `${error}\n${error.stack || ''}\n${JSON.stringify(error)}`;
     for (const privateValue of [LEAK, CODE, STATE, VERIFIER, NONCE, REF_A, REF_B, 'SECRET OFFLINE']) {
       assert.equal(rendered.includes(privateValue), false, `leak:${privateValue}`);
     }
     return true;
   };
+}
+
+async function rejects(action, code) {
+  await assert.rejects(verifierApply(verifierPromiseResolve, VerifierPromise, []).then(action), clean(code));
 }
 
 function harness(options = {}) {
@@ -428,23 +435,17 @@ test('propagates resolver secretRef A and B verbatim into handoff with no substi
 });
 
 test('requires consumed record.clientId to equal config.clientId before resolver and factory', async () => {
-  // Authentic consume always echoes input.clientId; force a mismatch via controlled
-  // module-load seam that wraps only the consume owner result path is not needed when
-  // the production owner re-validates consumed.clientId === config.clientId. Simulate by
-  // feeding a repository row through a harness that still returns normal consume, then
-  // separately poison the consume path via a custom repository that cannot change clientId.
-  // Direct contract: build runtime for CLIENT_A and complete with CLIENT_B input.
+  // Input clientId must match config.clientId before consume/resolver/factory.
   const h = harness({ clientId: CLIENT_A });
-  await assert.rejects(
-    create(h, config({ clientId: CLIENT_A })).completeCallback(input(`state=${STATE}&code=${encodeURIComponent(CODE)}`, {
-      clientId: CLIENT_B,
-    })),
-    clean(FAILURE),
+  await rejects(
+    () => create(h, config({ clientId: CLIENT_A })).completeCallback(
+      input(`state=${STATE}&code=${encodeURIComponent(CODE)}`, { clientId: CLIENT_B }),
+    ),
+    FAILURE,
   );
-  // Input mismatch fails before consume when tenant/client binding is checked, or after
-  // consume if only consumed.clientId is checked. Either way zero resolver/factory.
   assert.equal(steps(h).includes('resolve'), false);
   assert.equal(steps(h).includes('factory'), false);
+  assert.equal(steps(h).includes('consume'), false);
 });
 
 test('invalid and genuine decline pass through without resolver factory or secret provider', async () => {
@@ -472,7 +473,7 @@ test('hostile raw queries are rejected by authentic callback consume before repo
     `state=${STATE}&code=a#x`,
   ]) {
     const h = harness();
-    await assert.rejects(create(h).completeCallback(input(query)), clean(FAILURE));
+    await rejects(() => create(h).completeCallback(input(query)), FAILURE);
     assert.equal(steps(h).includes('consume'), false);
     assert.equal(steps(h).includes('resolve'), false);
   }
@@ -488,7 +489,7 @@ test('all authority dimensions must exactly bind consumed transaction', async ()
   ];
   for (const patch of patches) {
     const h = harness({ authority: authority(patch) });
-    await assert.rejects(create(h).completeCallback(input()), clean(FAILURE));
+    await rejects(() => create(h).completeCallback(input()), FAILURE);
     assert.equal(steps(h).includes('factory'), false);
   }
 });
@@ -517,7 +518,7 @@ test('rejects mutable accessor symbol proxy and trapping authority without facto
   ];
   for (const value of values) {
     const h = harness({ authority: value });
-    await assert.rejects(create(h).completeCallback(input()), clean(FAILURE));
+    await rejects(() => create(h).completeCallback(input()), FAILURE);
     assert.equal(steps(h).includes('factory'), false);
   }
 });
@@ -527,7 +528,7 @@ test('async resolver success then async completion rejection is sanitized and bu
     authority: Promise.resolve(authority()),
     ack: Promise.reject(new Error(`${LEAK}:completion`)),
   });
-  await assert.rejects(create(h).completeCallback(input()), clean(FAILURE));
+  await rejects(() => create(h).completeCallback(input()), FAILURE);
   assert.equal(steps(h).filter((s) => s === 'consume').length, 1);
   assert.equal(steps(h).filter((s) => s === 'resolve').length, 1);
   assert.equal(steps(h).filter((s) => s === 'complete').length, 1);
@@ -537,7 +538,7 @@ test('async resolver rejection is sanitized after state is burned', async () => 
   const h = harness({
     authority: Promise.reject(new Error(`${LEAK}:resolver`)),
   });
-  await assert.rejects(create(h).completeCallback(input()), clean(FAILURE));
+  await rejects(() => create(h).completeCallback(input()), FAILURE);
   assert.equal(steps(h).filter((s) => s === 'consume').length, 1);
   assert.equal(steps(h).includes('factory'), false);
 });
@@ -551,7 +552,7 @@ test('sync factory and unknown completion acknowledgement fail sanitized after b
     { ack: null },
   ]) {
     const h = harness(options);
-    await assert.rejects(create(h).completeCallback(input()), clean(FAILURE));
+    await rejects(() => create(h).completeCallback(input()), FAILURE);
     assert.equal(steps(h).filter((s) => s === 'consume').length, 1);
   }
 });
@@ -583,7 +584,7 @@ test('Promise subclasses cross-realm promises thenables and proxies fail without
   ];
   for (const authorityValue of hostile) {
     const h = harness({ authority: authorityValue });
-    await assert.rejects(create(h).completeCallback(input()), clean(FAILURE));
+    await rejects(() => create(h).completeCallback(input()), FAILURE);
     assert.equal(steps(h).includes('factory'), false);
   }
   assert.equal(thenCalls, 0);
@@ -600,7 +601,7 @@ test('Promise subclasses cross-realm promises thenables and proxies fail without
     new SubPromise((resolve) => resolve(freeze({ status: 'custodied' }))),
   ]) {
     const h = harness({ ack });
-    await assert.rejects(create(h).completeCallback(input()), clean(FAILURE));
+    await rejects(() => create(h).completeCallback(input()), FAILURE);
   }
   assert.equal(thenCalls, 0);
 });
@@ -662,7 +663,7 @@ test('captures Error constructor at import and resists global Error poisoning af
       clean(FAILURE),
     );
     const runtime = createGoogleStateFirstCallbackRuntime(config({ callbackEnabled: false }), h.dependencies);
-    await assert.rejects(runtime.completeCallback(input()), clean(DISABLED));
+    await rejects(() => runtime.completeCallback(input()), DISABLED);
   } finally {
     global.Error = savedError;
   }
@@ -712,9 +713,10 @@ test('post-import poisoning of Object Reflect RegExp Promise does not bypass val
       () => createGoogleStateFirstCallbackRuntime(config({ tenantSlug: 'evil' }), h.dependencies),
       clean(FAILURE),
     );
-    await assert.rejects(
-      createGoogleStateFirstCallbackRuntime(config(), h.dependencies).completeCallback(input('bad')),
-      clean(FAILURE),
+    await rejects(
+      () => createGoogleStateFirstCallbackRuntime(config(), h.dependencies)
+        .completeCallback(input('bad')),
+      FAILURE,
     );
   } finally {
     global.Object = saved.Object;
