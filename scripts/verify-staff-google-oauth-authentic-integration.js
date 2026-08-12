@@ -14,7 +14,7 @@ function harness(overrides={}){
   async requireAdmin(){effects.push('admin');return {ok:true,user};},
   assertStaffClientAccess(){effects.push('acl');return true;},authorizeAuthenticatedStaffRoute(x){effects.push('authz');gates.push(x.env);return {ok:true};},
   async readBody(){effects.push('body');return `{"location_id":"sunset-somo","endpoint_id":"${U[1]}"}`;},
-  createGoogleRoutes(gate,startCapability){effects.push('routes');gates.push(gate);capturedRoutes=createStaffEmailGoogleOAuthRoutes(Object.freeze({...routeDeps,trustedGateSnapshot:gate,startCapability}));return capturedRoutes;},
+  createGoogleRoutes(gate,authorizeProductionStart){effects.push('routes');gates.push(gate);capturedRoutes=createStaffEmailGoogleOAuthRoutes(Object.freeze({...routeDeps,trustedGateSnapshot:gate,authorizeProductionStart}));return capturedRoutes;},
   ...overrides};
  return {adapter:owner.createStaffGoogleOAuthProductionIntegration(Object.freeze(deps)),effects,replies,gates,user,get routes(){return capturedRoutes;},get req(){return capturedReq;},set req(v){capturedReq=v;},get reads(){return reads;},get pgCalls(){return pgCalls;},get queryCalls(){return queryCalls;}};
 }

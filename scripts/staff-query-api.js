@@ -2652,7 +2652,7 @@ function googleComposition(gateSnapshot) {
       timers:Object.freeze({setTimeout,clearTimeout}), clock:Object.freeze({now:()=>new Date().toISOString(),nowEpochSeconds:()=>Math.floor(Date.now()/1000)}),
     }));
 }
-function googleRoutes(gateSnapshot, startCapability) { const c=googleComposition(gateSnapshot); return createStaffEmailGoogleOAuthRoutes(Object.freeze({trustedGateSnapshot:gateSnapshot,startCapability,sendJSON,sendHTML,assertStaffClientAccess,authorizeAuthenticatedStaffRoute,withPgClient,createStart:c.createStart,createCallbackRuntime:c.createCallbackRuntime})); }
+function googleRoutes(gateSnapshot, authorizeProductionStart) { const c=googleComposition(gateSnapshot); return createStaffEmailGoogleOAuthRoutes(Object.freeze({trustedGateSnapshot:gateSnapshot,authorizeProductionStart,sendJSON,sendHTML,assertStaffClientAccess,authorizeAuthenticatedStaffRoute,withPgClient,createStart:c.createStart,createCallbackRuntime:c.createCallbackRuntime})); }
 const staffGoogleOAuth=createStaffGoogleOAuthProductionIntegration(Object.freeze({
   env:process.env,sendJSON,sendHTML,requireAdmin:(req,res)=>requireAuth(req,res,'admin'),readBody,withPgClient,assertStaffClientAccess,authorizeAuthenticatedStaffRoute,
   createEndpointPrepare:pg=>createSunsetGoogleEndpointPrepare(Object.freeze({client:pg})),

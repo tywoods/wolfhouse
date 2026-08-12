@@ -1,6 +1,12 @@
 'use strict';
 const { types } = require('node:util');
-const { mintStartCapability } = require('./staff-google-oauth-start-capability');
+const WeakMapConstructor=WeakMap;
+const weakMapGet=WeakMap.prototype.get;
+const weakMapSet=WeakMap.prototype.set;
+const weakMapDelete=WeakMap.prototype.delete;
+const reflectApply=Reflect.apply;
+const objectCreate=Object.create;
+const objectFreeze=Object.freeze;
 const GOOGLE_ENDPOINT_PATH='/staff/admin/email-settings/oauth/google/endpoint';
 const GOOGLE_START_PATH='/staff/admin/email-settings/oauth/google/start';
 const GOOGLE_CALLBACK_PATH='/staff/email/google/callback';
@@ -23,6 +29,9 @@ function parseStrictGoogleJson(contentType,raw,keys){
 }
 function createStaffGoogleOAuthProductionIntegration(deps){
   const env=own(deps,'env')||{};
+  const bindings=new WeakMapConstructor();
+  function mint(gate,req,user){const token=objectFreeze(objectCreate(null));reflectApply(weakMapSet,bindings,[token,{gate,req,user}]);return token;}
+  function consumer(token){return function authorizeProductionStart(gate,req,user){const binding=reflectApply(weakMapGet,bindings,[token]);if(!binding||binding.gate!==gate||binding.req!==req||binding.user!==user)return false;return reflectApply(weakMapDelete,bindings,[token])===true;};}
   function json(res,status,body){return deps.sendJSON(res,status,body);}
   async function dispatch(req,res,pathname){
     const gate=snapshotGate(env);const method=own(req,'method');
@@ -40,7 +49,7 @@ function createStaffGoogleOAuthProductionIntegration(deps){
     const keys=kind==='endpoint'?['location_id','public_address']:['location_id','endpoint_id'];
     const body=parseStrictGoogleJson(own(own(req,'headers')||{},'content-type'),raw,keys);if(!body)return json(res,400,{success:false,error:'invalid_request'});
     if(kind==='start'){
-      try{const capability=mintStartCapability(gate,req,user);const routes=typeof deps.createGoogleRoutes==='function'?deps.createGoogleRoutes(gate,capability):deps.googleRoutes;return await routes.handleStart(body,req,res,user);}
+      try{const token=mint(gate,req,user);const routes=typeof deps.createGoogleRoutes==='function'?deps.createGoogleRoutes(gate,consumer(token)):deps.googleRoutes;return await routes.handleStart(body,req,res,user);}
       catch{return json(res,503,{success:false,error:'oauth_start_unavailable'});}
     }
     try{return await deps.withPgClient(async pg=>{const service=deps.createEndpointPrepare(pg);const input=frozenDto([['clientId',own(user,'client_id').toLowerCase()],['locationId',body.location_id],['publicAddress',body.public_address],['actorStaffUserId',own(user,'staff_user_id').toLowerCase()]]);const ack=await service.prepareDisabledDelegatedEndpoint(input);return json(res,200,frozenDto([['success',true],['endpoint_id',ack.endpointId]]));});}
