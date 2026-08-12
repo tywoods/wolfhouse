@@ -93,6 +93,31 @@ test('does not accept or expose an injected generic authority capability', async
 test('sanitizes profile transport failures and logs nothing', async () => {
   const seen = []; const old = console.error; console.error = (...args) => seen.push(args); try { const h = harness({ profile: { emailAddress: `${LEAK}@example.com`, historyId: 'bad' } }); await rejected(() => h.service.deriveAuthority(operation())); assert.deepEqual(seen, []); } finally { console.error = old; }
 });
+test('post-load intrinsic poisoning preserves valid authority and rejects malformed profile evidence', async () => {
+  const good = harness(); const badEmail = harness({ profile: { emailAddress: 'not-an-email', historyId: HISTORY } });
+  const badHistory = harness({ profile: { emailAddress: EMAIL, historyId: '1e3' } });
+  const originals = { test: RegExp.prototype.test, some: Array.prototype.some, Reflect: global.Reflect, Object: global.Object };
+  let valid; let malformedEmail; let malformedHistory;
+  try {
+    RegExp.prototype.test = () => true; Array.prototype.some = () => false;
+    global.Reflect = new Proxy({}, { get() { throw Error(LEAK); } }); global.Object = function PoisonedObject() { throw Error(LEAK); };
+    valid = await good.service.deriveAuthority(operation());
+    try { await badEmail.service.deriveAuthority(operation()); } catch (error) { malformedEmail = error; }
+    try { await badHistory.service.deriveAuthority(operation()); } catch (error) { malformedHistory = error; }
+  } finally { RegExp.prototype.test = originals.test; Array.prototype.some = originals.some; global.Reflect = originals.Reflect; global.Object = originals.Object; }
+  assert.equal(valid.authority.cryptographically_verified, true);
+  assert.equal(malformedEmail.code, 'GOOGLE_MAILBOX_AUTHORITY_COMPOSITION_FAILED');
+  assert.equal(malformedHistory.code, 'GOOGLE_MAILBOX_AUTHORITY_COMPOSITION_FAILED');
+});
+test('rejects malformed signatureVerifier capability shape through genuine identity construction', async () => {
+  const h = harness(); const timers = Object.freeze({ setTimeout() {}, clearTimeout() {} });
+  const bad = [{ async verifySignature() {} }, Object.freeze({ extra: true, async verifySignature() {} }),
+    new Proxy(Object.freeze({ async verifySignature() {} }), {})];
+  const accessor = {}; Object.defineProperty(accessor, 'verifySignature', { enumerable: true, get() { return async () => {}; } }); Object.freeze(accessor); bad.push(accessor);
+  for (const signatureVerifier of bad) assert.throws(() => createGoogleMailboxAuthorityComposition(config(), Object.freeze({ https: h.https, timers, signatureVerifier })));
+  const signatureVerifier = Object.freeze({ async verifySignature() { return Object.freeze({ verified: true }); } });
+  assert.throws(() => createGoogleMailboxAuthorityComposition(config(), Object.freeze({ signatureVerifier, timers, https: h.https })));
+});
 test('source imports only existing profile request and pure authority contract and contains no activation surface', async () => {
   const source = fs.readFileSync(require.resolve('./lib/email-google-mailbox-authority-composition'), 'utf8');
   const imports = [...source.matchAll(/require\(\s*['"](\.\/[^'"]+)['"]\s*\)/g)].map(x => x[1]).sort(); assert.deepEqual(imports, ['./email-google-gmail-profile-request', './email-google-mailbox-authority-contract', './email-google-oidc-id-token']);

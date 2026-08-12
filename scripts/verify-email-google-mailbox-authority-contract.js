@@ -81,6 +81,42 @@ const nestedProxy = base(); nestedProxy.oidc_claims = new Proxy(nestedProxy.oidc
 const accessor = base(); Object.defineProperty(accessor.oidc_claims, 'sub', { enumerable: true, get() { throw Error('leak'); } }); reject(accessor, 'accessor');
 const symbol = base(); symbol.gmail_profile[Symbol('x')] = true; reject(symbol, 'symbol');
 
+// Decisions remain trustworthy after hostile mutation of ambient intrinsics after load.
+{
+  const originals = { call: Function.prototype.call, apply: Function.prototype.apply, some: Array.prototype.some,
+    includes: Array.prototype.includes, trim: String.prototype.trim, lower: String.prototype.toLowerCase,
+    test: RegExp.prototype.test, has: Set.prototype.has, hop: Object.prototype.hasOwnProperty,
+    Object: global.Object, Set: global.Set, Reflect: global.Reflect };
+  let valid; const invalid = [];
+  try {
+    Array.prototype.some = () => false; Array.prototype.includes = () => true;
+    String.prototype.trim = function poisonedTrim() { return ''; };
+    String.prototype.toLowerCase = function poisonedLower() { return 'example.com'; };
+    RegExp.prototype.test = () => true; Set.prototype.has = () => true; Object.prototype.hasOwnProperty = () => true;
+    global.Object = function PoisonedObject() { throw Error('poisoned Object'); };
+    global.Set = function PoisonedSet() { throw Error('poisoned Set'); };
+    global.Reflect = new Proxy({}, { get() { throw Error('poisoned Reflect'); } });
+    Function.prototype.call = function poisonedCall() { throw Error('poisoned call'); };
+    Function.prototype.apply = function poisonedApply() { throw Error('poisoned apply'); };
+    valid = deriveGoogleMailboxAuthority(base());
+    for (const mutate of [x => { x.oidc_claims.email = 'not-an-email'; }, x => { x.oidc_claims.sub = 'bad\névil'; },
+      x => { x.gmail_profile.historyId = '1e3'; }, x => { x.oidc_claims.hd = 'UPPER.example'; },
+      x => { x.oidc_claims.name = 'excess'; },
+      x => { x.oidc_claims = { email_verified: true, email: x.oidc_claims.email, nonce: x.oidc_claims.nonce,
+        sub: x.oidc_claims.sub, aud: x.oidc_claims.aud, iss: x.oidc_claims.iss }; }]) {
+      const x = base(); mutate(x); invalid.push(deriveGoogleMailboxAuthority(x));
+    }
+  } finally {
+    Function.prototype.call = originals.call; Function.prototype.apply = originals.apply;
+    Array.prototype.some = originals.some; Array.prototype.includes = originals.includes;
+    String.prototype.trim = originals.trim; String.prototype.toLowerCase = originals.lower;
+    RegExp.prototype.test = originals.test; Set.prototype.has = originals.has; Object.prototype.hasOwnProperty = originals.hop;
+    global.Object = originals.Object; global.Set = originals.Set; global.Reflect = originals.Reflect;
+  }
+  assert.equal(valid.ok, true, 'valid input survives post-load poisoning');
+  for (const outcome of invalid) assert.equal(outcome.ok, false, 'poisoning cannot admit malformed/reordered/excess input');
+}
+
 const source = fs.readFileSync(require.resolve('./lib/email-google-mailbox-authority-contract'), 'utf8');
 for (const pattern of [/\bfetch\s*\(/, /\bhttps\.(?:get|request)\s*\(/, /\bprocess\.env\b/, /googleapis/, /\bcrypto\b/]) {
   assert.equal(pattern.test(source), false, `offline/no crypto implementation: ${pattern}`);
