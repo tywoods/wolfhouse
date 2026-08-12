@@ -34,7 +34,7 @@ async function main(){
   const callback=make(on,b=>{b.LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED='false';},'callback'); const raw=`${GOOGLE_CALLBACK_PATH}?state=${'a'.repeat(43)}&code=raw%2Bcode`;
   await callback.adapter.dispatch({method:'GET',url:raw,headers:{}},{},GOOGLE_CALLBACK_PATH); assert.deepEqual(callback.calls,['pg','composition:callback','callback']); assert.equal(callback.reads.filter(x=>x==='LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED').length,1);
   const off=make({LUNA_DEPLOYMENT:'sunset-staging',LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED:'false'},b=>{b.LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED='true';},'callback'); await off.adapter.dispatch({method:'GET',url:raw,headers:{}},{},GOOGLE_CALLBACK_PATH); assert.deepEqual(off.calls,[]);assert.equal(off.replies[0][1],404);
-  assert.equal(await callback.adapter.dispatch({method:'POST',url:raw,headers:{}},{},GOOGLE_CALLBACK_PATH),false);
+  assert.equal(await callback.adapter.dispatch({method:'POST',url:raw,headers:{}},{},GOOGLE_CALLBACK_PATH),undefined);
   console.log('PASS authentic Staff Google OAuth frozen gate snapshot integration');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

@@ -35,6 +35,19 @@ function enabled(env, flag) {
 }
 function isGoogleOAuthStartEnabled(env) { return enabled(env, START_FLAG); }
 function isGoogleOAuthCallbackEnabled(env) { return enabled(env, CALLBACK_FLAG); }
+function isTrustedGateSnapshot(value) {
+  try {
+    if (!value || typeof value !== 'object' || isProxy(value) || objectGetPrototypeOf(value) !== authenticPlainObjectPrototype || !objectIsFrozen(value)) return false;
+    const keys = reflectOwnKeys(value);
+    const expected = ['LUNA_DEPLOYMENT','LUNA_EMAIL_GOOGLE_OAUTH_ENDPOINT_ENABLED','LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED','LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED'];
+    return keys.length === expected.length && keys.every((key,index) => key === expected[index] && exactDataDescriptor(value,key));
+  } catch (_) { return false; }
+}
+function exactDataDescriptor(value,key) {
+  const descriptor=objectGetOwnPropertyDescriptor(value,key);
+  return descriptor && descriptor.enumerable === true && descriptor.writable === false && descriptor.configurable === false
+    && objectHasOwn(descriptor,'value') && !objectHasOwn(descriptor,'get') && !objectHasOwn(descriptor,'set');
+}
 function identity(user, callback) {
   return own(user, 'client_slug') === 'sunset' && UUID.test(own(user, callback ? 'client_id' : 'staff_user_id') || '')
     && UUID.test(own(user, 'session_id') || '');
@@ -91,9 +104,11 @@ function isAuthenticReceived(output) {
   } catch (_) { return false; }
 }
 function createStaffEmailGoogleOAuthRoutes(deps) {
-  const env = own(deps, 'runtimeEnv') || {};
+  const candidateGateSnapshot = own(deps, 'trustedGateSnapshot');
+  const trustedGateSnapshot = isTrustedGateSnapshot(candidateGateSnapshot) ? candidateGateSnapshot : null;
+  const env = trustedGateSnapshot || own(deps, 'runtimeEnv') || {};
   async function handleStart(body, req, res, user) {
-    if (!isGoogleOAuthStartEnabled(env)) return deps.sendJSON(res, 404, { success:false, error:'not_found' });
+    if (!trustedGateSnapshot && !isGoogleOAuthStartEnabled(env)) return deps.sendJSON(res, 404, { success:false, error:'not_found' });
     if (!identity(user, false)) return deps.sendJSON(res, 403, { success:false, error:'forbidden' });
     if (!req || req.method !== 'POST') return deps.sendJSON(res, 400, { success:false, error:'invalid_request' });
     if (!deps.assertStaffClientAccess(user, 'sunset', res)) return;
@@ -110,7 +125,7 @@ function createStaffEmailGoogleOAuthRoutes(deps) {
     }); } catch (_) { return deps.sendJSON(res, 503, {success:false,error:'oauth_start_unavailable'}); }
   }
   async function handleCallback(req, res) {
-    if (!isGoogleOAuthCallbackEnabled(env)) return deps.sendHTML(res, 404, '<!doctype html><title>Not found</title>');
+    if (!trustedGateSnapshot && !isGoogleOAuthCallbackEnabled(env)) return deps.sendHTML(res, 404, '<!doctype html><title>Not found</title>');
     let url; try { url = new URL(req.url, 'https://staff-staging.lunafrontdesk.com'); } catch (_) { url = null; }
     const query = callbackQuery(url, req); if (!query) return deps.sendHTML(res, 400, '<!doctype html><title>Connection failed</title>');
     try { const output = await deps.withPgClient(pg => deps.createCallbackRuntime(pg).completeCallback(Object.freeze({query})));

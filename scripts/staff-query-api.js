@@ -2643,23 +2643,20 @@ const emailOAuthRoutes = createStaffEmailOAuthRoutes({
   // withTransactionClient over that outer client — no second checkout.
   withPgClient,
 });
-let googleOAuthComposition;
-function googleComposition() {
-  if (!googleOAuthComposition) {
+function googleComposition(gateSnapshot) {
     const crypto = require('node:crypto');
-    googleOAuthComposition = createSunsetStagingGoogleOAuthComposition(Object.freeze({
-      env:Object.freeze({ ...process.env }), https:Object.freeze({request:https.request.bind(https)}),
+    const runtimeEnv=Object.freeze({ ...process.env, ...gateSnapshot });
+    return createSunsetStagingGoogleOAuthComposition(Object.freeze({
+      env:runtimeEnv, https:Object.freeze({request:https.request.bind(https)}),
       crypto:Object.freeze({createPublicKey:crypto.createPublicKey,verify:crypto.verify,randomUUID:crypto.randomUUID,randomBytes:crypto.randomBytes,createHash:crypto.createHash}),
       timers:Object.freeze({setTimeout,clearTimeout}), clock:Object.freeze({now:()=>new Date().toISOString(),nowEpochSeconds:()=>Math.floor(Date.now()/1000)}),
     }));
-  }
-  return googleOAuthComposition;
 }
-function googleRoutes() { const c=googleComposition(); return createStaffEmailGoogleOAuthRoutes(Object.freeze({runtimeEnv:process.env,sendJSON,sendHTML,assertStaffClientAccess,authorizeAuthenticatedStaffRoute,withPgClient,createStart:c.createStart,createCallbackRuntime:c.createCallbackRuntime})); }
+function googleRoutes(gateSnapshot) { const c=googleComposition(gateSnapshot); return createStaffEmailGoogleOAuthRoutes(Object.freeze({trustedGateSnapshot:gateSnapshot,sendJSON,sendHTML,assertStaffClientAccess,authorizeAuthenticatedStaffRoute,withPgClient,createStart:c.createStart,createCallbackRuntime:c.createCallbackRuntime})); }
 const staffGoogleOAuth=createStaffGoogleOAuthProductionIntegration(Object.freeze({
-  env:process.env,sendJSON,sendHTML,requireAdmin:(req,res)=>requireAuth(req,res,'admin'),loadSession:loadAuthSession,readBody,withPgClient,assertStaffClientAccess,authorizeAuthenticatedStaffRoute,
+  env:process.env,sendJSON,sendHTML,requireAdmin:(req,res)=>requireAuth(req,res,'admin'),readBody,withPgClient,assertStaffClientAccess,authorizeAuthenticatedStaffRoute,
   createEndpointPrepare:pg=>createSunsetGoogleEndpointPrepare(Object.freeze({client:pg})),
-  googleRoutes:Object.freeze({handleStart:(...a)=>googleRoutes().handleStart(...a),handleCallback:(...a)=>googleRoutes().handleCallback(...a)}),
+  createGoogleRoutes:googleRoutes,
 }));
 
 // Email-delta operator recovery routes (default-off; full gate before auth).
