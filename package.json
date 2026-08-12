@@ -327,6 +327,8 @@
     "verify:luna-add-guest-to-booking": "node scripts/verify-luna-add-guest-to-booking.js",
     "verify:luna-add-guest-paid": "node scripts/verify-luna-add-guest-paid.js",
     "verify:luna-all": "node scripts/verify-luna-all.js",
+    "verify:gate-anchors": "node scripts/verify-gate-anchors.js",
+    "verify:inbox-ui-parity": "node scripts/verify-inbox-ui-parity.js",
     "verify:sunset-staging-live-iac-drift": "node scripts/verify-sunset-staging-live-iac-drift.js",
     "verify:sunset-staging-bicep-reconcile": "node scripts/verify-sunset-staging-bicep-reconcile.js",
     "verify:sunset-staging-bicep-preflight": "node scripts/verify-sunset-staging-bicep-preflight.js",
