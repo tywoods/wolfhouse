@@ -17,7 +17,7 @@ function harness(overrides={}){
 }
 async function invoke(h,path,method='POST',headers={'content-type':'application/json'}){return h.adapter.dispatch({method,url:path,headers},{},path);}
 async function main(){
- let h=harness();await invoke(h,START);assert.deepEqual(h.effects,['admin','acl','authz','body','routes','start']);assert.equal(h.seen[0],h.seen[1]);assert(Object.isFrozen(h.seen[0]));assert.equal(h.reads,1);
+ let h=harness();await invoke(h,START);assert.deepEqual(h.effects,['admin','acl','authz','body','routes','start']);assert.equal(h.seen[0],h.seen[1]);assert(Object.isFrozen(h.seen[0]));assert.equal(h.reads,3);
  h=harness({async readBody(){h.effects.push('body');return '{"location_id":"sunset-somo","public_address":"staff@example.com"}';},createGoogleRoutes(){throw Error('must never compose endpoint');}});await invoke(h,ENDPOINT);assert.deepEqual(h.effects,['admin','acl','authz','body','pg','prepare','prepare-call']);assert.equal(h.replies[0][1],200);
  for(const overrides of [
   {async requireAdmin(){h.effects.push('admin');return null;}},

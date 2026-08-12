@@ -27,15 +27,20 @@ function createStaffGoogleOAuthProductionIntegration(deps){
     let kind=null;if(pathname===GOOGLE_ENDPOINT_PATH)kind='endpoint';else if(pathname===GOOGLE_START_PATH)kind='start';else if(pathname===GOOGLE_CALLBACK_PATH)kind='callback';else return false;
     if(!isGoogleRouteEnabled(gate,kind))return kind==='callback'?deps.sendHTML(res,404,'<!doctype html><title>Not found</title>'):json(res,404,{success:false,error:'not_found'});
     if((kind==='callback'&&method!=='GET')||(kind!=='callback'&&method!=='POST'))return false;
-    const routes=typeof deps.createGoogleRoutes==='function'?deps.createGoogleRoutes(gate):deps.googleRoutes;
-    if(kind==='callback')return routes.handleCallback(req,res);
+    if(kind==='callback'){
+      try{const routes=typeof deps.createGoogleRoutes==='function'?deps.createGoogleRoutes(gate):deps.googleRoutes;return routes.handleCallback(req,res);}
+      catch{return deps.sendHTML(res,400,'<!doctype html><title>Connection failed</title><p>Gmail connection could not be completed.</p>');}
+    }
     const auth=await deps.requireAdmin(req,res);if(!auth||!auth.ok)return;
     const user=auth.user;if(!deps.assertStaffClientAccess(user,'sunset',res))return;
     const decision=deps.authorizeAuthenticatedStaffRoute({clientSlug:'sunset',method:'POST',pathname,env:gate});if(!decision.ok)return json(res,decision.status||403,decision.body||{success:false,error:'forbidden'});
     let raw;try{raw=await deps.readBody(req,JSON_LIMIT);}catch{return json(res,400,{success:false,error:'invalid_request'});}
     const keys=kind==='endpoint'?['location_id','public_address']:['location_id','endpoint_id'];
     const body=parseStrictGoogleJson(own(own(req,'headers')||{},'content-type'),raw,keys);if(!body)return json(res,400,{success:false,error:'invalid_request'});
-    if(kind==='start')return routes.handleStart(body,req,res,user);
+    if(kind==='start'){
+      try{const routes=typeof deps.createGoogleRoutes==='function'?deps.createGoogleRoutes(gate):deps.googleRoutes;return await routes.handleStart(body,req,res,user);}
+      catch{return json(res,503,{success:false,error:'oauth_start_unavailable'});}
+    }
     try{return await deps.withPgClient(async pg=>{const service=deps.createEndpointPrepare(pg);const input=frozenDto([['clientId',own(user,'client_id').toLowerCase()],['locationId',body.location_id],['publicAddress',body.public_address],['actorStaffUserId',own(user,'staff_user_id').toLowerCase()]]);const ack=await service.prepareDisabledDelegatedEndpoint(input);return json(res,200,frozenDto([['success',true],['endpoint_id',ack.endpointId]]));});}
     catch{return json(res,503,{success:false,error:'endpoint_prepare_unavailable'});}
   }
