@@ -34,6 +34,7 @@ Guest WhatsApp  →  Hermes Agent (staging: wh-staging-hermes on Azure Container
 | Hermes local | `scripts/run-local-hermes.js`, `hermes-local/` | Docker-based local Hermes |
 | Golden fixtures | `fixtures/luna-golden/` | Regression transcripts |
 | Canonical guest rules | `docs/LUNA-GUEST-BEHAVIOR-SPEC.md` | **Read this** for Luna behavior |
+| Inbox redesign spec | `docs/INBOX-PORTAL-REDESIGN.md` | **Read this** before Inbox/portal work |
 | Guest journey | `docs/LUNA-GUEST-JOURNEY.md` | End-to-end flows |
 | Hermes on Azure | `docs/HERMES-AZURE-CONTAINER-APPS.md` | Staging runbook |
 | Hermes local | `docs/HERMES-LOCAL.md` | Talk to Hermes about this repo |
