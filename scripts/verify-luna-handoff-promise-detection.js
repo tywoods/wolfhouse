@@ -245,7 +245,12 @@ print(json.dumps(out))
 `;
   let raw = null;
   try {
-    raw = execFileSync('python3', ['-c', script], { cwd: ROOT, encoding: 'utf8', timeout: 30000 });
+    raw = execFileSync('python3', ['-c', script], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 30000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
   } catch (err) {
     const detail = String((err && err.stderr) || (err && err.message) || '').slice(0, 400);
     if (err && (err.code === 'ENOENT' || /not found/i.test(detail))) {
