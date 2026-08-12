@@ -8,10 +8,13 @@
  * Proves:
  *   - createInboxThreadCompositeRoutes DI factory + route table (viewer, GET)
  *   - staff-query-api requireAuth minRole matches the table, and the six
- *     endpoints the composite replaces are still routed
+ *     endpoints the fan-out used are still routed — including
+ *     /staff/conversations/:id/staff-state, which the composite no longer reads
  *   - each composite section carries the same top-level fields the individual
  *     route returns today (keys read out of the real handlers in
  *     staff-query-api.js, values compared against the injected helpers)
+ *   - the thread view never queries staff-state: no section, no SQL, and the
+ *     Luna pause verdict is unchanged without it
  *   - the browser's per-section reads still work against the composite body
  *   - tenant scoping: denied client never reaches Postgres, unknown/foreign
  *     conversation 404s with the detail route's body before any other query
@@ -87,6 +90,34 @@ function parseBody(out) {
   try { return JSON.parse(out.body); } catch (_) { return out.body; }
 }
 
+/** Column aliases of a query builder's SELECT list, in order. */
+function selectAliases(sql) {
+  const body = sql.slice(sql.indexOf('SELECT') + 6, sql.search(/\nFROM /));
+  return body
+    .split(/,\n/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean)
+    .map((chunk) => {
+      const aliased = /\bAS\s+([a-z_][a-z0-9_]*)\s*$/i.exec(chunk);
+      if (aliased) return aliased[1];
+      const bare = /([a-z_][a-z0-9_]*)\s*$/i.exec(chunk.replace(/::[a-z_]+\s*$/i, ''));
+      return bare ? bare[1] : chunk;
+    });
+}
+
+function staffStateColumns() {
+  return selectAliases(getConversationStaffStateQuery());
+}
+
+/** The pause helper executed as the browser receives it, not a copy of it. */
+function shippedPauseHelper() {
+  const start = uiSrc.indexOf('function isLunaGuestAutomationPaused(sources){');
+  if (start < 0) throw new Error('isLunaGuestAutomationPaused not found in the rendered portal UI');
+  const src = uiSrc.slice(start, uiSrc.indexOf('\n}', start) + 2);
+  // eslint-disable-next-line no-new-func
+  return new Function(`${src}; return isLunaGuestAutomationPaused;`)();
+}
+
 // ── canned rows ─────────────────────────────────────────────────────────────
 
 const CONV_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -114,7 +145,7 @@ const BOOKING_ROWS = Object.freeze([
   { booking_id: 'bk-2', booking_code: 'WH-2', booking_status: 'cancelled' },
 ]);
 const DRAFT_ROW = Object.freeze({ conversation_id: CONV_ID, draft_text: 'hola', draft_available: true });
-const STAFF_STATE_ROW = Object.freeze({ conversation_id: CONV_ID, needs_human: false, bot_mode: 'bot' });
+const DETAIL_COLUMNS = selectAliases(getConversationDetailQuery());
 
 function pgError(code, message) {
   const err = new Error(message);
@@ -139,7 +170,6 @@ function makePg(plan) {
     if (sql === getConversationContextQuery(opts)) return plan.context;
     if (sql === getConversationBookingsQuery(opts)) return plan.bookings;
     if (sql === getConversationDraftQuery(opts)) return plan.draft;
-    if (sql === getConversationStaffStateQuery(opts)) return plan.staffState;
     if (/bot_pause_states/.test(sql)) {
       return /conversation_id = \$2/.test(sql) && /paused_at DESC/.test(sql) && plan.pauseGlobal !== undefined
         ? (log.filter((e) => /bot_pause_states/.test(e.sql)).length === 1 ? plan.pauseGlobal : plan.pause)
@@ -208,7 +238,6 @@ function makeDeps(plan = {}, overrides = {}) {
         context: { rows: [CONTEXT_ROW] },
         bookings: { rows: BOOKING_ROWS.slice() },
         draft: { rows: [DRAFT_ROW] },
-        staffState: { rows: [STAFF_STATE_ROW] },
         pause: { rows: [] },
         ...plan,
       });
@@ -305,7 +334,8 @@ ok('route table has exactly 1 route', INBOX_THREAD_COMPOSITE_ROUTE_TABLE.length 
 ok('route is GET viewer', INBOX_THREAD_COMPOSITE_ROUTE_TABLE[0].method === 'GET'
   && INBOX_THREAD_COMPOSITE_ROUTE_TABLE[0].minRole === 'viewer');
 ok('sections list', eq(INBOX_THREAD_COMPOSITE_SECTIONS,
-  ['detail', 'messages', 'context', 'draft', 'staff_state', 'pause_state']));
+  ['detail', 'messages', 'context', 'draft', 'pause_state']));
+ok('staff_state is not a section', INBOX_THREAD_COMPOSITE_SECTIONS.indexOf('staff_state') < 0);
 ok('RE matches uuid path', INBOX_THREAD_COMPOSITE_RE.test(`/staff/inbox/thread/${CONV_ID}`));
 ok('RE rejects non-uuid', !INBOX_THREAD_COMPOSITE_RE.test('/staff/inbox/thread/not-a-uuid'));
 ok('RE rejects sub-paths', !INBOX_THREAD_COMPOSITE_RE.test(`/staff/inbox/thread/${CONV_ID}/messages`));
@@ -316,6 +346,7 @@ ok('no require staff-query-api', !/require\s*\(\s*['"][^'"]*staff-query-api['"]\
 ok('requires staff-conversation-queries', /require\('\.\/staff-conversation-queries'\)/.test(modSrc));
 ok('requires staff-bot-pause-sql', /require\('\.\/staff-bot-pause-sql'\)/.test(modSrc));
 ok('no SELECT ... FROM conversations in module', !/SELECT[\s\S]{0,400}FROM\s+conversations/i.test(modSrc));
+ok('does not import the staff-state query', !/getConversationStaffStateQuery/.test(modSrc));
 ok('no bot_pause_states SQL in module', !/FROM\s+bot_pause_states/i.test(modSrc));
 ok('does not redefine conversation query builders',
   !/function\s+getConversation\w+Query\s*\(/.test(modSrc));
@@ -352,7 +383,7 @@ ok('router minRole matches the route table',
 ok('router dispatches to the module handler', /handleInboxThreadComposite\(/.test(dispatch));
 ok('router rejects non-GET', /Allow: 'GET'/.test(dispatch));
 
-console.log('\n── the six replaced endpoints stay routed ──');
+console.log('\n── the six endpoints of the old fan-out stay routed ──');
 ok('CONV_SUB_RE still covers the four sub-routes',
   /messages\|context\|draft\|staff-state/.test(apiSrc));
 for (const handler of [
@@ -368,21 +399,24 @@ ok('/staff/bot/pause-state still routed', apiSrc.includes("pathname === '/staff/
 
 console.log('\n── browser reads the composite ──');
 ok('portal UI fetches the composite endpoint', uiSrc.includes("fetch('/staff/inbox/thread/' + encodeURIComponent(convId) + qs)"));
-for (const key of ['composite.detail', 'composite.messages', 'composite.context', 'composite.draft', 'composite.staff_state', 'composite.pause_state']) {
+for (const key of ['composite.detail', 'composite.messages', 'composite.context', 'composite.draft', 'composite.pause_state']) {
   ok(`portal UI reads ${key}`, uiSrc.includes(key));
 }
+ok('portal UI does not read a staff_state section', !uiSrc.includes('composite.staff_state'));
 ok('portal UI no longer fans out to the five conversation sub-fetches',
   !uiSrc.includes("gjson(base + '/staff-state' + qs)"));
 ok('thread poll still refetches /messages on its own',
   uiSrc.includes("'/staff/conversations/' + encodeURIComponent(convId) + '/messages' + inboxClientQuery()"));
+ok('pause verdict reads the composite pause section, the detail section and the conversation row',
+  uiSrc.includes('isLunaGuestAutomationPaused([pauseData, detailData, c])'));
 
 (async () => {
-  console.log('\n── payload parity with the six endpoints ──');
+  console.log('\n── payload parity with the endpoints it replaces ──');
   {
     const { body, deps } = await runComposite();
     ok('composite 200', body && body.success === true);
     ok('composite top-level keys', eq(Object.keys(body),
-      ['success', 'conversation_id', 'detail', 'messages', 'context', 'draft', 'staff_state', 'pause_state', 'elapsed_ms']),
+      ['success', 'conversation_id', 'detail', 'messages', 'context', 'draft', 'pause_state', 'elapsed_ms']),
     JSON.stringify(Object.keys(body)));
     ok('conversation_id echoed', body.conversation_id === CONV_ID);
 
@@ -391,7 +425,6 @@ ok('thread poll still refetches /messages on its own',
       ['messages', 'handleConversationMessages'],
       ['context', 'handleConversationContext'],
       ['draft', 'handleConversationDraft'],
-      ['staff_state', 'handleConversationStaffState'],
     ];
     for (const [section, fnName] of keyExpectations) {
       const routeKeys = sendJsonOkKeys(apiSrc, fnName);
@@ -409,7 +442,6 @@ ok('thread poll still refetches /messages on its own',
     ok('context.bookings are the active-filtered rows', eq(body.context.bookings, deps.helperResults.bookings));
     ok('context drops inactive bookings', body.context.bookings.length === 1);
     ok('draft.draft is the draft row', eq(body.draft.draft, DRAFT_ROW));
-    ok('staff_state.staff_state is the staff state row', eq(body.staff_state.staff_state, STAFF_STATE_ROW));
     ok('pause_state is the shared builder output', eq(body.pause_state, deps.helperResults.pause));
     ok('pause_state defaults to active', body.pause_state.paused === false && body.pause_state.source === 'default_active');
     ok('pause_state scoped to this conversation', body.pause_state.conversation_id === CONV_ID
@@ -427,19 +459,51 @@ ok('thread poll still refetches /messages on its own',
   console.log('\n── browser consumption of the composite body ──');
   {
     const { body, deps } = await runComposite();
-    const results = [body.detail, body.messages, body.context, body.draft, body.staff_state, body.pause_state];
-    const [detailData, msgsData, ctxData, draftData, stateData, pauseData] = results;
+    const results = [body.detail, body.messages, body.context, body.draft, body.pause_state];
+    const [detailData, msgsData, ctxData, draftData, pauseData] = results;
     ok('detailData.success gate passes', detailData.success === true && !!detailData.conversation);
     ok('msgs read yields the thread', ((msgsData.success && msgsData.messages) ? msgsData.messages : []).length === 2);
     ok('ctx read yields a context object', !!((ctxData.success && ctxData.context) ? ctxData.context : null));
     ok('bookings read yields active rows',
       ((ctxData.success && ctxData.bookings && ctxData.bookings.length) ? ctxData.bookings : []).length === 1);
     ok('draft read yields the draft', ((draftData.success && draftData.draft) ? draftData.draft : null) !== null);
-    // Preserved verbatim: the browser reads stateData.state while the route (and
-    // therefore the composite) returns staff_state. Inert today; see PR notes.
-    ok('staff-state read stays as-is (.state undefined, as today)', stateData.state === undefined);
     ok('pause read is a plain object', !!pauseData && pauseData.success === true);
     ok('no helper double-application', deps.calls.sanitize === 1 && deps.calls.filterBookings === 1);
+  }
+
+  console.log('\n── staff-state is not part of the thread read ──');
+  {
+    const { body, deps } = await runComposite();
+    ok('no staff_state section on the body', !('staff_state' in body));
+    ok('the staff-state query is never issued',
+      !deps.pg.log.some((e) => e.sql === getConversationStaffStateQuery().trim()));
+    const dataQueries = deps.pg.log.filter((e) => !/^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)/i.test(e.sql));
+    // detail, messages, context, bookings, draft, then the global and
+    // per-conversation bot_pause_states lookups. Was 8 with staff-state.
+    ok('one thread open costs 7 queries', dataQueries.length === 7, `got ${dataQueries.length}`);
+
+    const isLunaGuestAutomationPaused = shippedPauseHelper();
+    const c = body.detail.conversation;
+    ok('the pause verdict is active without the staff-state row',
+      isLunaGuestAutomationPaused([body.pause_state, body.detail, c]) === false);
+    const paused = await runComposite({ pause: { rows: [{ client_slug: CLIENT, conversation_id: CONV_ID, paused: true }] } });
+    ok('the pause verdict is paused without the staff-state row',
+      isLunaGuestAutomationPaused([
+        paused.body.pause_state, paused.body.detail, paused.body.detail.conversation,
+      ]) === true);
+    ok('a staff-state row could not have moved the verdict either way',
+      isLunaGuestAutomationPaused([{
+        conversation_id: CONV_ID, needs_human: true, bot_mode: 'human', pending_action: 'awaiting_payment',
+        last_staff_reply_at: '2026-08-11T09:00:00Z', handoff_id: 'h-1', handoff_reason: 'payment_inquiry',
+        handoff_priority: 'high', handoff_status: 'open', assigned_staff: 'ada',
+        handoff_opened_at: '2026-08-11T08:55:00Z', handoff_due_at: '2026-08-11T09:30:00Z',
+      }]) === false);
+  }
+  {
+    const unique = staffStateColumns().filter((k) => !DETAIL_COLUMNS.includes(k));
+    ok('handoff_due_at is the only staff-state column the detail section does not carry',
+      eq(unique, ['handoff_due_at']), JSON.stringify(unique));
+    ok('the portal UI never reads handoff_due_at', !uiSrc.includes('handoff_due_at'));
   }
 
   console.log('\n── auth and client scoping ──');
@@ -484,7 +548,7 @@ ok('thread poll still refetches /messages on its own',
     ok('missing conversation 404s', res.out.statusCode === 404);
     ok('404 body matches the detail route', eq(body, { success: false, error: 'Not found' }));
     const dataQueries = deps.pg.log.filter((e) => !/^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)/i.test(e.sql));
-    ok('no messages/context/draft/staff-state/pause rows are read', dataQueries.length === 1);
+    ok('no messages/context/draft/pause rows are read', dataQueries.length === 1);
     ok('snapshot still closed', deps.pg.log[deps.pg.log.length - 1].sql === 'COMMIT');
   }
   {
@@ -521,7 +585,7 @@ ok('thread poll still refetches /messages on its own',
     ok('context section reports failure', eq(body.context, { success: false, error: 'query failed' }));
     ok('the thread still renders', body.detail.success === true && body.messages.messages.length === 2);
     ok('later sections survive the aborted statement',
-      body.draft.success === true && body.staff_state.success === true && body.pause_state.success === true);
+      body.draft.success === true && body.pause_state.success === true);
     ok('savepoint rewind was issued', deps.pg.log.some((e) => /^ROLLBACK TO SAVEPOINT/i.test(e.sql)));
     ok('snapshot committed once', deps.pg.log.filter((e) => e.sql === 'COMMIT').length === 1);
   }
@@ -533,10 +597,9 @@ ok('thread poll still refetches /messages on its own',
       ((body.messages.success && body.messages.messages) ? body.messages.messages : []).length === 0);
   }
   {
-    const { body } = await runComposite({ draft: { rows: [] }, staffState: { rows: [] } });
+    const { body } = await runComposite({ draft: { rows: [] } });
     ok('missing draft mirrors the route 404 body', eq(body.draft, { success: false, error: 'Not found' }));
-    ok('missing staff state mirrors the route 404 body', eq(body.staff_state, { success: false, error: 'Not found' }));
-    ok('thread still renders without draft or staff state', body.success === true && body.detail.success === true);
+    ok('thread still renders without a draft', body.success === true && body.detail.success === true);
   }
   {
     const { body, res } = await runComposite({ pause: pgError('42P01', 'relation "bot_pause_states" does not exist') });

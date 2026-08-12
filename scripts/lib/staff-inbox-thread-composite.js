@@ -3,10 +3,14 @@
  *
  * GET /staff/inbox/thread/:id returns, in one response and one Postgres
  * snapshot, the payloads the Inbox thread view used to assemble from
- * /staff/conversations/:id, .../messages, .../context, .../draft,
- * .../staff-state and /staff/bot/pause-state. Every section keeps the exact
- * body its own endpoint returns, nested under a named key, so the browser
- * consumes it without reshaping.
+ * /staff/conversations/:id, .../messages, .../context, .../draft and
+ * /staff/bot/pause-state. Every section keeps the exact body its own endpoint
+ * returns, nested under a named key, so the browser consumes it without
+ * reshaping.
+ *
+ * .../staff-state is deliberately absent: the thread view never read it, and
+ * every column it selects except handoff_due_at is already on the detail
+ * section of this same snapshot. The standalone route stays available.
  *
  * Auth is NOT enforced here. The Staff API router must call requireAuth with
  * the minRole from INBOX_THREAD_COMPOSITE_ROUTE_TABLE before dispatching; the
@@ -28,7 +32,6 @@ const {
   getConversationContextQuery,
   getConversationBookingsQuery,
   getConversationDraftQuery,
-  getConversationStaffStateQuery,
 } = require('./staff-conversation-queries');
 const { getPauseState } = require('./staff-bot-pause-sql');
 
@@ -43,7 +46,6 @@ const INBOX_THREAD_COMPOSITE_SECTIONS = Object.freeze([
   'messages',
   'context',
   'draft',
-  'staff_state',
   'pause_state',
 ]);
 
@@ -148,10 +150,6 @@ function createInboxThreadCompositeRoutes(deps) {
       getConversationDraftQuery(scope.queryOpts),
       params,
     ));
-    const staffState = await readSection(pg, () => pg.query(
-      getConversationStaffStateQuery(scope.queryOpts),
-      params,
-    ));
     const pause = await readSection(pg, () => getPauseState(pg, {
       client_slug: clientSlug,
       conversation_id: convId,
@@ -198,18 +196,6 @@ function createInboxThreadCompositeRoutes(deps) {
       sections.draft = notFoundSection();
     } else {
       sections.draft = { success: true, draft: draft.value.rows[0], elapsed_ms: draft.elapsed_ms };
-    }
-
-    if (!staffState.ok) {
-      sections.staff_state = queryFailedSection();
-    } else if (!(staffState.value.rows || []).length) {
-      sections.staff_state = notFoundSection();
-    } else {
-      sections.staff_state = {
-        success: true,
-        staff_state: staffState.value.rows[0],
-        elapsed_ms: staffState.elapsed_ms,
-      };
     }
 
     if (!pause.ok) {
@@ -304,7 +290,6 @@ function createInboxThreadCompositeRoutes(deps) {
       messages: sections.messages,
       context: sections.context,
       draft: sections.draft,
-      staff_state: sections.staff_state,
       pause_state: sections.pause_state,
       elapsed_ms: elapsed,
     });
