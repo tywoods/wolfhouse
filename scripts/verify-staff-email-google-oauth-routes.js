@@ -43,7 +43,7 @@ function parsed(query, pathname = GOOGLE_OAUTH_CALLBACK_PATH) { return new URL(`
 
   async function callback(query, output, options={}) {
     nextOutput=arguments.length >= 2 ? output : received(); const before=callbackCalls.length;
-    const req={method:options.method || 'GET',url:options.rawTarget || target(query)};
+    const req={method:options.method || 'GET',url:options.rawTarget || `${options.pathname || GOOGLE_OAUTH_CALLBACK_PATH}?${query}`};
     await routes.handleCallback(req,{});
     return {reply:replies.at(-1), called:callbackCalls.length-before};
   }

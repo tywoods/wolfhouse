@@ -31,12 +31,12 @@ const CREATE_SQL = `INSERT INTO tenant_email_google_oauth_transactions (
   'phase_a_v2', $10::timestamptz, $11::timestamptz
 )
 RETURNING operation_id, expires_at`;
-const CONSUME_SQL = "UPDATE tenant_email_google_oauth_transactions SET consumed_at=$4::timestamptz WHERE state_hash=$1::bytea AND client_id=$2::uuid AND auth_session_id=$3::uuid AND consumed_at IS NULL AND expires_at>$4::timestamptz AND authorization_intent='initial_connect' AND scope_version='phase_a_v2' RETURNING operation_id, location_id, endpoint_id, staff_user_id, code_verifier, nonce";
+const CONSUME_SQL = "UPDATE tenant_email_google_oauth_transactions t SET consumed_at=$2::timestamptz FROM clients c WHERE t.state_hash=$1::bytea AND t.client_id=c.id AND c.slug='sunset' AND t.consumed_at IS NULL AND t.expires_at>$2::timestamptz AND t.authorization_intent='initial_connect' AND t.scope_version='phase_a_v2' RETURNING t.client_id, t.auth_session_id, t.operation_id, t.location_id, t.endpoint_id, t.staff_user_id, t.code_verifier, t.nonce";
 const INPUT_KEYS = objectFreeze([
   'clientId', 'locationId', 'endpointId', 'staffUserId', 'authSessionId',
   'operationId', 'stateHash', 'codeVerifier', 'nonce', 'issuedAt', 'expiresAt',
 ]);
-const CONSUME_INPUT_KEYS = objectFreeze(['stateHash', 'clientId', 'authSessionId', 'consumedAt']);
+const CONSUME_INPUT_KEYS = objectFreeze(['stateHash', 'consumedAt']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
 const VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
@@ -113,8 +113,6 @@ function acknowledgement(value, input) {
 function readConsumeInput(value) {
   const input = snapshot(value, CONSUME_INPUT_KEYS, true);
   if (!input || typeof input.stateHash !== 'string' || !test(DIGEST, input.stateHash)
-      || typeof input.clientId !== 'string' || !test(UUID, input.clientId)
-      || typeof input.authSessionId !== 'string' || !test(UUID, input.authSessionId)
       || canonicalTimestamp(input.consumedAt) === null) return null;
   return input;
 }
@@ -137,14 +135,17 @@ function consumeResult(value) {
   if (!rowDescriptor || !objectHasOwn(rowDescriptor, 'value') || !rowDescriptor.enumerable
       || rowDescriptor.writable === frozen || rowDescriptor.configurable === frozen) fail();
   const row = snapshot(rowDescriptor.value,
-    ['operation_id', 'location_id', 'endpoint_id', 'staff_user_id', 'code_verifier', 'nonce'], frozen);
-  if (!row || typeof row.operation_id !== 'string' || !test(UUID, row.operation_id)
+    ['client_id', 'auth_session_id', 'operation_id', 'location_id', 'endpoint_id', 'staff_user_id', 'code_verifier', 'nonce'], frozen);
+  if (!row || typeof row.client_id !== 'string' || !test(UUID, row.client_id)
+      || typeof row.auth_session_id !== 'string' || !test(UUID, row.auth_session_id)
+      || typeof row.operation_id !== 'string' || !test(UUID, row.operation_id)
       || typeof row.location_id !== 'string' || !test(UUID, row.location_id)
       || typeof row.endpoint_id !== 'string' || !test(UUID, row.endpoint_id)
       || typeof row.staff_user_id !== 'string' || !test(UUID, row.staff_user_id)
       || typeof row.code_verifier !== 'string' || !test(VERIFIER, row.code_verifier)
       || typeof row.nonce !== 'string' || !test(NONCE, row.nonce)) fail();
-  return objectFreeze({ operationId: row.operation_id, locationId: row.location_id,
+  return objectFreeze({ clientId: row.client_id, authSessionId: row.auth_session_id,
+    operationId: row.operation_id, locationId: row.location_id,
     endpointId: row.endpoint_id, staffUserId: row.staff_user_id,
     codeVerifier: row.code_verifier, nonce: row.nonce });
 }
@@ -178,8 +179,7 @@ function createGoogleOAuthTransactionRepository(configuration) {
       try {
         const input = readConsumeInput(value);
         if (!input) fail();
-        const params = [reflectApply(bufferFrom, Buffer, [input.stateHash, 'hex']),
-          input.clientId, input.authSessionId, input.consumedAt];
+        const params = [reflectApply(bufferFrom, Buffer, [input.stateHash, 'hex']), input.consumedAt];
         const output = reflectApply(query, queryOwner, [CONSUME_SQL, params]);
         if (output !== null && typeof output === 'object' && objectGetPrototypeOf(output) === promisePrototype) {
           return reflectApply(promiseThen, output, [

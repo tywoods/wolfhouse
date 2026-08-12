@@ -74,7 +74,7 @@ test('executes exactly one atomic fixed Google UPDATE with exact params and fres
 
 test('SQL is structurally one atomic update with no preselect, Microsoft table, or prior generation', async () => {
   let text; await repository(queryOwner(sql => { text = sql; return result([]); })).consume(input());
-  assert.equal(text, SQL); assert.match(text, /^UPDATE tenant_email_google_oauth_transactions SET consumed_at=\$4::timestamptz WHERE /);
+  assert.equal(text, SQL); assert.match(text, /^UPDATE tenant_email_google_oauth_transactions t SET consumed_at=\$2::timestamptz FROM clients c WHERE /);
   assert.equal(/\bSELECT\b/i.test(text), false); assert.equal(/tenant_email_oauth_transactions|microsoft/i.test(text), false);
   assert.equal(/prior_generation/i.test(text), false);
   for (const fragment of ['t.state_hash=$1::bytea', "c.slug='sunset'", 't.client_id=c.id',
@@ -102,8 +102,7 @@ test('requires exact frozen ordered data-only consume input and burns no query w
 
 test('validates lowercase digest, canonical UUIDv4 owners, and canonical millisecond UTC consumedAt before query', async () => {
   const patches = [{ stateHash: STATE.toUpperCase() }, { stateHash: 'a'.repeat(63) }, { stateHash: new String(STATE) },
-    { clientId: CLIENT.toUpperCase() }, { clientId: 'aaaaaaaa-bbbb-3ccc-8ddd-eeeeeeeeeeee' },
-    { authSessionId: SESSION.toUpperCase() }, { authSessionId: 'not-a-uuid' },
+
     { consumedAt: '2026-08-11T12:05:00Z' }, { consumedAt: '2026-08-11 12:05:00.000+00' },
     { consumedAt: 'not-a-date' }, { consumedAt: '2026-02-30T12:00:00.000Z' },
     { consumedAt: '2026-13-01T12:00:00.000Z' }, { consumedAt: '2026-02-29T12:00:00.000Z' },
@@ -137,15 +136,15 @@ test('accepts exact consistent mutable/frozen rows and returns a new exact froze
   for (const frozen of [false, true]) {
     const databaseRow = row({}, frozen); const dto = await repository(queryOwner(() => result([databaseRow], frozen))).consume(input());
     assert.notStrictEqual(dto, databaseRow); assert.deepEqual(dto, expected()); assert.equal(Object.isFrozen(dto), true);
-    assert.deepEqual(Reflect.ownKeys(dto), ['operationId', 'locationId', 'endpointId', 'staffUserId', 'codeVerifier', 'nonce']);
-    for (const key of ['stateHash', 'clientId', 'authSessionId', 'consumedAt']) assert.equal(key in dto, false);
+    assert.deepEqual(Reflect.ownKeys(dto), ['clientId', 'authSessionId', 'operationId', 'locationId', 'endpointId', 'staffUserId', 'codeVerifier', 'nonce']);
+    for (const key of ['stateHash', 'consumedAt']) assert.equal(key in dto, false);
   }
 });
 
 test('validates returned shape and grammar without binding returned IDs to consume owner IDs', async () => {
   const dto = await repository(queryOwner(() => result([row({ operation_id: CLIENT, location_id: SESSION,
     endpoint_id: OPERATION, staff_user_id: LOCATION })]))).consume(input());
-  assert.deepEqual(dto, { operationId: CLIENT, locationId: SESSION, endpointId: OPERATION,
+  assert.deepEqual(dto, { clientId: CLIENT, authSessionId: SESSION, operationId: CLIENT, locationId: SESSION, endpointId: OPERATION,
     staffUserId: LOCATION, codeVerifier: VERIFIER, nonce: NONCE });
 });
 
@@ -153,7 +152,7 @@ test('rejects multiple, malformed, mixed-freeze, accessor, proxy, and noncanonic
   const accessor = { ...row({}, false) }; Object.defineProperty(accessor, 'nonce', { enumerable: true, get() { throw new Error(LEAK); } }); freeze(accessor);
   const malformed = [undefined, null, {}, freeze({ rows: [] }), result([row(), row()]),
     result([{ ...row() }]), result([row({}, false)]), result([row()], false),
-    result([freeze({ location_id: LOCATION, operation_id: OPERATION, endpoint_id: ENDPOINT, staff_user_id: STAFF, code_verifier: VERIFIER, nonce: NONCE })]),
+    result([freeze({ client_id: CLIENT, auth_session_id: SESSION, location_id: LOCATION, operation_id: OPERATION, endpoint_id: ENDPOINT, staff_user_id: STAFF, code_verifier: VERIFIER, nonce: NONCE })]),
     result([row({ operation_id: 'not-a-uuid' })]), result([row({ location_id: ENDPOINT.toUpperCase() })]),
     result([row({ code_verifier: 'A'.repeat(42) })]), result([row({ nonce: `${'A'.repeat(42)}.` })]), result([accessor]),
     new Proxy(result(), { ownKeys() { throw new Error(LEAK); } })];

@@ -109,12 +109,11 @@ function createStaffEmailGoogleOAuthRoutes(deps) {
       return deps.sendJSON(res, 200, dto);
     }); } catch (_) { return deps.sendJSON(res, 503, {success:false,error:'oauth_start_unavailable'}); }
   }
-  async function handleCallback(url, req, res, user) {
+  async function handleCallback(req, res) {
     if (!isGoogleOAuthCallbackEnabled(env)) return deps.sendHTML(res, 404, '<!doctype html><title>Not found</title>');
-    if (!identity(user, true)) return deps.sendHTML(res, 403, '<!doctype html><title>Forbidden</title>');
+    let url; try { url = new URL(req.url, 'https://staff-staging.lunafrontdesk.com'); } catch (_) { url = null; }
     const query = callbackQuery(url, req); if (!query) return deps.sendHTML(res, 400, '<!doctype html><title>Connection failed</title>');
-    const clientId = own(user,'client_id').toLowerCase();
-    try { const output = await deps.withPgClient(pg => deps.createCallbackRuntime(pg, clientId).completeCallback(Object.freeze({tenantSlug:'sunset',clientId,authSessionId:own(user,'session_id').toLowerCase(),query})));
+    try { const output = await deps.withPgClient(pg => deps.createCallbackRuntime(pg).completeCallback(Object.freeze({query})));
       if (!isAuthenticReceived(output)) return deps.sendHTML(res, 400, '<!doctype html><title>Connection failed</title><p>Gmail connection could not be completed.</p>');
       return deps.sendHTML(res, 200, '<!doctype html><title>Gmail connected</title><p>Gmail connection completed. You may close this window.</p>');
     } catch (_) { return deps.sendHTML(res, 400, '<!doctype html><title>Connection failed</title><p>Gmail connection could not be completed.</p>'); }
