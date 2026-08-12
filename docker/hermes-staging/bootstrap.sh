@@ -101,8 +101,11 @@ gateway:
   platforms:
     discord:
       require_mention: false
-      # Chief of Staff job thread — respond without @mention (Skipper).
+      # Skipper / Chief jobs thread — respond without @mention.
       free_response_channels:
+        - "1537038069343981618"
+      # Human ops "Chief of Staff" thread — never auto-wake Skipper.
+      ignored_channels:
         - "1537017482748100678"
 EOF
 }
@@ -179,13 +182,15 @@ write_orchestrator_env() {
     printf 'API_SERVER_ENABLED=true\n'
     printf 'API_SERVER_HOST=0.0.0.0\n'
     printf 'API_SERVER_PORT=8642\n'
-    # Chief of Staff (Grok Bot webhook) → auto-start Skipper turns in this thread.
-    # Does NOT set DISCORD_ALLOW_BOTS=all; narrow watch-list via discord_bot_wake patch.
-    printf 'DISCORD_BOT_WAKE_CHANNELS=%s\n' "${DISCORD_BOT_WAKE_CHANNELS:-1537017482748100678}"
+    # Luna Chief of Staff webhook → auto-start Skipper turns in Skipper / Chief
+    # jobs thread only (not the human "Chief of Staff" ops thread).
+    printf 'DISCORD_BOT_WAKE_CHANNELS=%s\n' "${DISCORD_BOT_WAKE_CHANNELS:-1537038069343981618}"
     printf 'DISCORD_BOT_WAKE_AUTHORS=%s\n' "${DISCORD_BOT_WAKE_AUTHORS:-Luna Chief of Staff}"
     printf 'DISCORD_BOT_WAKE_JSON_SOURCE=%s\n' "${DISCORD_BOT_WAKE_JSON_SOURCE:-grok-bot}"
     printf 'DISCORD_BOT_WAKE_JSON_TYPES=%s\n' "${DISCORD_BOT_WAKE_JSON_TYPES:-ping,approved_fix,status}"
-    printf 'DISCORD_FREE_RESPONSE_CHANNELS=%s\n' "${DISCORD_FREE_RESPONSE_CHANNELS:-1537017482748100678}"
+    printf 'DISCORD_FREE_RESPONSE_CHANNELS=%s\n' "${DISCORD_FREE_RESPONSE_CHANNELS:-1537038069343981618}"
+    # Human ops thread: collaboration chat only — never wake Skipper here.
+    printf 'DISCORD_IGNORED_CHANNELS=%s\n' "${DISCORD_IGNORED_CHANNELS:-1537017482748100678}"
     [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ]            && printf 'WOLFHOUSE_STAFF_API_BASE_URL=%s\n' "$WOLFHOUSE_STAFF_API_BASE_URL"
     # Anthropic OAuth (Claude Max) for Opus 4.8 — claude setup-token output.
     if [ -n "${ANTHROPIC_TOKEN:-}" ]; then

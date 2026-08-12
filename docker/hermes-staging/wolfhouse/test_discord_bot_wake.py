@@ -46,7 +46,8 @@ class _FakeMessage:
         self.embeds = embeds or []
 
 
-THREAD_ID = "1537017482748100678"
+THREAD_ID = "1537038069343981618"  # Skipper / Chief jobs thread
+HUMAN_OPS_THREAD_ID = "1537017482748100678"  # Chief of Staff human chat — never wake
 PARENT_ID = "1111111111111111111"
 AUTHOR = "Luna Chief of Staff"
 
@@ -100,6 +101,15 @@ class DiscordBotWakeTests(unittest.TestCase):
         self._arm_chief_of_staff()
         msg = self._job_message(content='{"source":"grok-bot","type":"ping","id":"x"}')
         msg.channel = _FakeChannel(2222222222222222222)
+        self.assertFalse(bot_wake_admit(msg))
+
+    def test_rejects_human_ops_chief_of_staff_thread(self):
+        """Human collaboration thread must never be a jobs wake target."""
+        self._arm_chief_of_staff()
+        msg = self._job_message(
+            content='{"source":"grok-bot","type":"ping","id":"luna-thread-retarget-001"}'
+        )
+        msg.channel = _FakeChannel(int(HUMAN_OPS_THREAD_ID))
         self.assertFalse(bot_wake_admit(msg))
 
     def test_rejects_wrong_author(self):

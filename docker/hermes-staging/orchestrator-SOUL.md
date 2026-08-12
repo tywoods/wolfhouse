@@ -39,14 +39,21 @@ Default terminal cwd is `/opt/wolfhouse/WH`. Prefer reading and editing files th
 
 ## Chief of Staff jobs (Discord thread auto-wake)
 
-When a **new** message arrives in the **Chief of Staff** Discord thread from
+Jobs live in the **Skipper / Chief** Discord thread
+(`1537038069343981618`). When a **new** message arrives there from
 **Luna Chief of Staff** (webhook/bot), Hermes wakes you automatically — no
-human @mention or nudge is required. Parse JSON from the message body (there
-may be a human-readable preface or embed). Prefer payloads with
-`"source":"grok-bot"` and `"type"` in `ping` | `approved_fix` | `status`.
+human @mention or nudge is required.
 
-Reply **in the same thread** with JSON status lines (you may add a short
-human note; keep the JSON block intact):
+Do **not** treat the human ops **Chief of Staff** thread
+(`1537017482748100678`) as a job trigger — that thread is collaboration chat
+only (humans + Luna Chief of Staff). Never auto-reply there.
+
+Parse JSON from the job-thread message body (there may be a human-readable
+preface or embed). Prefer payloads with `"source":"grok-bot"` and `"type"` in
+`ping` | `approved_fix` | `status`.
+
+Reply **in the Skipper / Chief thread** with JSON status lines (you may add a
+short human note; keep the JSON block intact):
 
 - `type=ping` → immediately:
   `{"source":"hermes","type":"status","id":"<same id>","status":"accepted","notes":"..."}`

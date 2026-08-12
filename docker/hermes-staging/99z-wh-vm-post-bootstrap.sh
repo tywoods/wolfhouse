@@ -38,23 +38,30 @@ gateway:
   platforms:
     discord:
       require_mention: false
-      # Chief of Staff job thread — respond without @mention (Skipper).
+      # Skipper / Chief jobs thread — respond without @mention.
       free_response_channels:
+        - "1537038069343981618"
+      # Human ops "Chief of Staff" thread — never auto-wake Skipper.
+      ignored_channels:
         - "1537017482748100678"
 EOF
-  # Ensure bot-wake watch-list env survives even when /etc/hermes-orchestrator.env
-  # was written before this feature. Append only when missing (do not clobber).
+  # Force jobs-thread retarget on every boot (replace any prior wake/free/
+  # ignored channel ids left in the live volume .env).
   if [ -f "$HERMES_HOME/.env" ]; then
-    grep -q '^DISCORD_BOT_WAKE_CHANNELS=' "$HERMES_HOME/.env" 2>/dev/null || \
-      printf 'DISCORD_BOT_WAKE_CHANNELS=%s\n' "${DISCORD_BOT_WAKE_CHANNELS:-1537017482748100678}" >> "$HERMES_HOME/.env"
-    grep -q '^DISCORD_BOT_WAKE_AUTHORS=' "$HERMES_HOME/.env" 2>/dev/null || \
-      printf 'DISCORD_BOT_WAKE_AUTHORS=%s\n' "${DISCORD_BOT_WAKE_AUTHORS:-Luna Chief of Staff}" >> "$HERMES_HOME/.env"
-    grep -q '^DISCORD_BOT_WAKE_JSON_SOURCE=' "$HERMES_HOME/.env" 2>/dev/null || \
-      printf 'DISCORD_BOT_WAKE_JSON_SOURCE=%s\n' "${DISCORD_BOT_WAKE_JSON_SOURCE:-grok-bot}" >> "$HERMES_HOME/.env"
-    grep -q '^DISCORD_BOT_WAKE_JSON_TYPES=' "$HERMES_HOME/.env" 2>/dev/null || \
-      printf 'DISCORD_BOT_WAKE_JSON_TYPES=%s\n' "${DISCORD_BOT_WAKE_JSON_TYPES:-ping,approved_fix,status}" >> "$HERMES_HOME/.env"
-    grep -q '^DISCORD_FREE_RESPONSE_CHANNELS=' "$HERMES_HOME/.env" 2>/dev/null || \
-      printf 'DISCORD_FREE_RESPONSE_CHANNELS=%s\n' "${DISCORD_FREE_RESPONSE_CHANNELS:-1537017482748100678}" >> "$HERMES_HOME/.env"
+    _wh_env_set() {
+      _k="$1"; _v="$2"
+      if grep -q "^${_k}=" "$HERMES_HOME/.env" 2>/dev/null; then
+        sed -i "s|^${_k}=.*|${_k}=${_v}|" "$HERMES_HOME/.env"
+      else
+        printf '%s=%s\n' "$_k" "$_v" >> "$HERMES_HOME/.env"
+      fi
+    }
+    _wh_env_set DISCORD_BOT_WAKE_CHANNELS "${DISCORD_BOT_WAKE_CHANNELS:-1537038069343981618}"
+    _wh_env_set DISCORD_BOT_WAKE_AUTHORS "${DISCORD_BOT_WAKE_AUTHORS:-Luna Chief of Staff}"
+    _wh_env_set DISCORD_BOT_WAKE_JSON_SOURCE "${DISCORD_BOT_WAKE_JSON_SOURCE:-grok-bot}"
+    _wh_env_set DISCORD_BOT_WAKE_JSON_TYPES "${DISCORD_BOT_WAKE_JSON_TYPES:-ping,approved_fix,status}"
+    _wh_env_set DISCORD_FREE_RESPONSE_CHANNELS "${DISCORD_FREE_RESPONSE_CHANNELS:-1537038069343981618}"
+    _wh_env_set DISCORD_IGNORED_CHANNELS "${DISCORD_IGNORED_CHANNELS:-1537017482748100678}"
   fi
 fi
 
