@@ -335,6 +335,7 @@
     "verify:email-mailbox-adapter-contract": "node scripts/verify-email-mailbox-adapter-contract.js",
     "verify:email-google-delegated-oauth-contract": "node scripts/verify-email-google-delegated-oauth-contract.js",
     "verify:email-google-mailbox-authority-contract": "node scripts/verify-email-google-mailbox-authority-contract.js",
+    "verify:email-google-mailbox-authority-composition": "node scripts/verify-email-google-mailbox-authority-composition.js",
     "verify:email-google-connector-auth-mode-contract": "node scripts/verify-email-google-connector-auth-mode-contract.js",
     "verify:email-tenant-location-registry": "node scripts/verify-email-tenant-location-registry.js",
     "prove:email-tenant-location-registry-pg": "node scripts/prove-email-tenant-location-registry-pg.js",

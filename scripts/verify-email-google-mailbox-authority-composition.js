@@ -75,8 +75,10 @@ test('rejects unverified, noncanonical, mutable, inherited, accessor, proxy, and
   for (const verifiedIdentity of variants) { const h = harness(); await rejected(() => h.service.deriveAuthority(Object.freeze({ accessToken: TOKEN, verifiedIdentity }))); assert.equal(h.calls.request.length, 0); }
   const h = harness(); await rejected(() => h.service.deriveAuthority(Object.freeze({ ...operation(), extra: true }))); assert.equal(h.calls.request.length, 0);
 });
-test('rejects hostile injected authority and ambient intrinsic mutation', async () => {
-  const h = harness(); const originalFreeze = Object.freeze; Object.freeze = () => { throw new Error(LEAK); }; try { const result = await h.service.deriveAuthority(operation()); assert.equal(result.authority.provider_resource_id, SUBJECT); } finally { Object.freeze = originalFreeze; }
+test('does not accept or expose an injected generic authority capability', async () => {
+  const h = harness();
+  await rejected(() => h.service.deriveAuthority(Object.freeze({ accessToken: TOKEN, verifiedIdentity: identity(), authority: Object.freeze({ send() { throw new Error(LEAK); } }) })));
+  assert.equal(h.calls.request.length, 0);
 });
 test('sanitizes profile transport failures and logs nothing', async () => {
   const seen = []; const old = console.error; console.error = (...args) => seen.push(args); try { const h = harness({ profile: { emailAddress: `${LEAK}@example.com`, historyId: 'bad' } }); await rejected(() => h.service.deriveAuthority(operation())); assert.deepEqual(seen, []); } finally { console.error = old; }
