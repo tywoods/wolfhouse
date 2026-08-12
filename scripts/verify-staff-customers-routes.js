@@ -27,6 +27,12 @@ const ROOT = path.join(__dirname, '..');
 const MODULE_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-customers-routes.js');
 const API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const QUERIES_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-customer-queries.js');
+/** Customers front-end modules injected into /staff/ui (see lib/inbox-browser-source.js). */
+const CUSTOMERS_BROWSER_MODULES = [
+  path.join(ROOT, 'scripts', 'browser', 'inbox-customers-filters.js'),
+  path.join(ROOT, 'scripts', 'browser', 'inbox-customers-outreach.js'),
+  path.join(ROOT, 'scripts', 'browser', 'inbox-customers-profile.js'),
+];
 
 const {
   CUSTOMER_ROUTE_TABLE,
@@ -368,16 +374,25 @@ console.log('\n── handler smoke (deps + response shape) ──');
     ok(`router ${id} role wiring`, re.test(apiSrc));
   }
 
-  // UI
-  ok('UI customers tab markers', /tab-customers|customersClientQuery|\/staff\/customers/.test(apiSrc));
-  ok('UI outreach send path', apiSrc.includes('/staff/customers/outreach/send') || apiSrc.includes('CUSTOMERS_OUTREACH'));
-  ok('UI template generate path', apiSrc.includes('/staff/customers/message-templates/generate') || apiSrc.includes('message-templates/generate'));
+  // UI. The Customers front-end now lives in scripts/browser/inbox-customers-*.js and is
+  // injected into /staff/ui at markers, so these assertions read the template plus modules.
+  const uiSrc = apiSrc + CUSTOMERS_BROWSER_MODULES.map((p) => fs.readFileSync(p, 'utf8')).join('\n');
+  ok('UI customers tab markers', /tab-customers|customersClientQuery|\/staff\/customers/.test(uiSrc));
+  ok('UI outreach send path', uiSrc.includes('/staff/customers/outreach/send') || uiSrc.includes('CUSTOMERS_OUTREACH'));
+  ok('UI template generate path', uiSrc.includes('/staff/customers/message-templates/generate') || uiSrc.includes('message-templates/generate'));
+  for (const p of CUSTOMERS_BROWSER_MODULES) {
+    ok(`UI module injected ${path.basename(p)}`, apiSrc.includes(`/* INJECT:${path.basename(p, '.js')} */`));
+  }
 
   console.log('\n── syntax ──');
   for (const rel of [
     'scripts/lib/staff-customers-routes.js',
     'scripts/staff-query-api.js',
     'scripts/verify-staff-customers-routes.js',
+    'scripts/lib/inbox-browser-source.js',
+    'scripts/browser/inbox-customers-filters.js',
+    'scripts/browser/inbox-customers-outreach.js',
+    'scripts/browser/inbox-customers-profile.js',
   ]) {
     const r = spawnSync(process.execPath, ['--check', path.join(ROOT, rel)], { encoding: 'utf8' });
     ok(`node --check ${rel}`, r.status === 0, r.stderr || r.stdout);

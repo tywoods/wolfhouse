@@ -6,3 +6,9 @@ scripts/*.sh text eol=lf
 # Checksums use checksumMode canonical_lf_v1 (EOL-normalized); pinning LF
 # prevents reintroducing CRLF Git blobs for new migrations.
 database/migrations/*.sql text eol=lf
+
+# Inbox browser modules: LF-only. These are spliced verbatim into /staff/ui, so
+# platform-dependent line endings would change the rendered document between the
+# laptop and the VM and would break scripts/verify-inbox-ui-parity.js after any
+# checkout that renormalizes them.
+scripts/browser/inbox-*.js text eol=lf
