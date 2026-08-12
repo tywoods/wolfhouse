@@ -8,6 +8,15 @@ const { types: utilTypes } = require('node:util');
 
 const isProxy = utilTypes.isProxy.bind(utilTypes);
 const freeze = Object.freeze.bind(Object);
+const getPrototypeOf = Object.getPrototypeOf.bind(Object);
+const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor.bind(Object);
+const hasOwnProperty = Object.prototype.hasOwnProperty;
+const ownKeys = Reflect.ownKeys.bind(Reflect);
+const arraySome = Array.prototype.some;
+const arrayIncludes = Array.prototype.includes;
+const stringTrim = String.prototype.trim;
+const regexpTest = RegExp.prototype.test;
+const setHas = Set.prototype.has;
 const GOOGLE_CANONICAL_ISSUER = 'https://accounts.google.com';
 const ROOT_KEYS = freeze(['expected_audience', 'expected_nonce', 'oidc_claims', 'gmail_profile']);
 const CLAIM_REQUIRED_KEYS = freeze(['iss', 'aud', 'sub', 'nonce', 'email', 'email_verified']);
@@ -22,27 +31,27 @@ function snapshotRecord(raw, required, optional = []) {
   let proto;
   let keys;
   try {
-    proto = Object.getPrototypeOf(raw);
-    keys = Reflect.ownKeys(raw);
+    proto = getPrototypeOf(raw);
+    keys = ownKeys(raw);
   } catch { return null; }
-  if (proto !== Object.prototype || keys.some(key => typeof key !== 'string')) return null;
+  if (proto !== Object.prototype || arraySome.call(keys, key => typeof key !== 'string')) return null;
   const allowed = new Set([...required, ...optional]);
   if (keys.length < required.length || keys.length > required.length + optional.length
-    || keys.some(key => !allowed.has(key)) || required.some(key => !keys.includes(key))) return null;
+    || arraySome.call(keys, key => !setHas.call(allowed, key)) || arraySome.call(required, key => !arrayIncludes.call(keys, key))) return null;
   const out = Object.create(null);
   for (const key of keys) {
     let descriptor;
-    try { descriptor = Object.getOwnPropertyDescriptor(raw, key); } catch { return null; }
+    try { descriptor = getOwnPropertyDescriptor(raw, key); } catch { return null; }
     if (!descriptor || !descriptor.enumerable
-      || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return null;
+      || !hasOwnProperty.call(descriptor, 'value')) return null;
     out[key] = descriptor.value;
   }
   return out;
 }
 
 const nonemptyExact = value => typeof value === 'string' && value.length > 0
-  && value === value.trim() && value.length <= 2048;
-const ascii = value => typeof value === 'string' && /^[\x21-\x7e]+$/.test(value);
+  && value === stringTrim.call(value) && value.length <= 2048;
+const ascii = value => typeof value === 'string' && regexpTest.call(/^[\x21-\x7e]+$/, value);
 const emailShape = value => nonemptyExact(value) && ascii(value) && value.length <= 320
   && /^[^@]+@[^@]+$/.test(value);
 const hostedDomainShape = value => typeof value === 'string' && value.length <= 253

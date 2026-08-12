@@ -95,7 +95,7 @@ test('sanitizes profile transport failures and logs nothing', async () => {
 });
 test('source imports only existing profile request and pure authority contract and contains no activation surface', async () => {
   const source = fs.readFileSync(require.resolve('./lib/email-google-mailbox-authority-composition'), 'utf8');
-  const imports = [...source.matchAll(/require\(\s*['"](\.\/[^'"]+)['"]\s*\)/g)].map(x => x[1]).sort(); assert.deepEqual(imports, ['./email-google-gmail-profile-request', './email-google-mailbox-authority-contract']);
+  const imports = [...source.matchAll(/require\(\s*['"](\.\/[^'"]+)['"]\s*\)/g)].map(x => x[1]).sort(); assert.deepEqual(imports, ['./email-google-gmail-profile-request', './email-google-mailbox-authority-contract', './email-google-oidc-id-token']);
   for (const forbidden of [/process\.env/, /\b(?:pg|postgres|database|sql)\b/i, /express|router|staff-query-api/i, /createServer|listen\s*\(/, /console\./, /gmail\.send|messages\.send/i]) assert.equal(forbidden.test(source), false, `${forbidden}`);
 });
 

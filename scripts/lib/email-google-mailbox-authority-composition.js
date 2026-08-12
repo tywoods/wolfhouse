@@ -3,6 +3,7 @@
 const { types: utilTypes } = require('node:util');
 const { createGoogleGmailProfileRequest } = require('./email-google-gmail-profile-request');
 const { deriveGoogleMailboxAuthority } = require('./email-google-mailbox-authority-contract');
+const { createGoogleOidcVerifiedIdentity } = require('./email-google-oidc-id-token');
 
 const ObjectFreeze = Object.freeze;
 const ObjectIsFrozen = Object.isFrozen;
@@ -20,8 +21,8 @@ const PromiseReject = Promise.reject;
 const PromiseConstructor = Promise;
 
 const CONFIG_KEYS = ObjectFreeze(['expectedAudience', 'expectedNonce', 'requestTimeoutMs', 'responseBytesMax']);
-const DEPENDENCY_KEYS = ObjectFreeze(['https', 'timers']);
-const OPERATION_KEYS = ObjectFreeze(['accessToken', 'verifiedIdentity']);
+const DEPENDENCY_KEYS = ObjectFreeze(['https', 'timers', 'signatureVerifier']);
+const OPERATION_KEYS = ObjectFreeze(['idToken', 'accessToken', 'nowEpochSeconds']);
 const IDENTITY_KEYS = ObjectFreeze(['providerTenantId', 'providerPrincipalId', 'mailboxAddress', 'displayName']);
 const PROFILE_KEYS = ObjectFreeze(['emailAddress', 'historyId']);
 const SERVICE_KEYS = ObjectFreeze(['getProfile']);
@@ -64,7 +65,7 @@ function readConfig(value) {
 function readIdentity(value) {
   const record = exactFrozenRecord(value, IDENTITY_KEYS);
   if (!record || record.providerTenantId !== CANONICAL_ISSUER || !boundedAscii(record.providerPrincipalId, 255)
-      || !email(record.mailboxAddress) || typeof record.displayName !== 'string' || record.displayName.length > 256) throw failure();
+      || !email(record.mailboxAddress) || !((typeof record.displayName === 'string' && record.displayName.length <= 256) || record.displayName === null)) throw failure();
   return ObjectFreeze({ providerTenantId: record.providerTenantId, providerPrincipalId: record.providerPrincipalId,
     mailboxAddress: record.mailboxAddress, displayName: record.displayName });
 }
@@ -73,18 +74,23 @@ function createGoogleMailboxAuthorityComposition(configuration, dependencies) {
   const config = readConfig(configuration);
   if (!exactFrozenRecord(dependencies, DEPENDENCY_KEYS)) throw failure();
   let profileOwner;
+  let identityOwner;
   try {
     profileOwner = createGoogleGmailProfileRequest(ObjectFreeze({ requestTimeoutMs: config.requestTimeoutMs,
-      responseBytesMax: config.responseBytesMax }), dependencies);
+      responseBytesMax: config.responseBytesMax }), ObjectFreeze({ https: dependencies.https, timers: dependencies.timers }));
     if (!exactFrozenRecord(profileOwner, SERVICE_KEYS)) throw failure();
+    identityOwner = createGoogleOidcVerifiedIdentity(ObjectFreeze({ signatureVerifier: dependencies.signatureVerifier }));
   } catch { throw failure(); }
   const getProfile = ObjectGetOwnPropertyDescriptor(profileOwner, 'getProfile').value;
+  const verifyIdentity = ObjectGetOwnPropertyDescriptor(identityOwner, 'verifyIdentity').value;
 
   async function deriveAuthority(input) {
     try {
       const operation = exactFrozenRecord(input, OPERATION_KEYS);
       if (!operation) throw failure();
-      const identity = readIdentity(operation.verifiedIdentity);
+      const identity = readIdentity(await ReflectApply(verifyIdentity, identityOwner, [ObjectFreeze({ idToken: operation.idToken,
+        accessToken: operation.accessToken, expectedNonce: config.expectedNonce,
+        expectedClientId: config.expectedAudience, nowEpochSeconds: operation.nowEpochSeconds })]));
       const profile = await ReflectApply(getProfile, profileOwner, [ObjectFreeze({ accessToken: operation.accessToken })]);
       const profileSnapshot = exactFrozenRecord(profile, PROFILE_KEYS);
       if (!profileSnapshot) throw failure();
