@@ -82,6 +82,7 @@
     "verify:sunset-luna-admin-tab": "node scripts/verify-sunset-luna-admin-tab.js",
     "verify:wolfhouse-admin-tabs": "node scripts/verify-wolfhouse-admin-tabs-playwright.js",
     "verify:portal-typography-fonts": "node scripts/verify-portal-typography-fonts.js",
+    "verify:portal-template-escapes": "node scripts/verify-portal-template-escapes.js",
     "verify:staff-write-api": "node scripts/verify-staff-write-api.js",
     "staff:api": "node scripts/staff-query-api.js",
     "crowsnest:start": "node scripts/crowsnest-api.js",
