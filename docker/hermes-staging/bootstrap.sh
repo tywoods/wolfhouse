@@ -280,14 +280,7 @@ apply_patches() {
       exit 1
     }
   fi
-  # Bot/webhook wake watch-list (Chief of Staff → Skipper). Orchestrator only —
-  # must not rewrite allow_bots admission on seadog/deckhand (A2A anchors).
-  if [ "$HERMES_ROLE" = "orchestrator" ] && [ -f /etc/hermes-staging/apply_discord_bot_wake_patch.py ]; then
-    python /etc/hermes-staging/apply_discord_bot_wake_patch.py || {
-      echo "apply_discord_bot_wake_patch failed — Chief of Staff auto-wake may be missing" >&2
-      exit 1
-    }
-  fi
+  # Bot/webhook wake watch-list lives in the orchestrator branch (not apply_patches).
   # A2A adapter patch only after standard gateway patches; gated no-op otherwise.
   maybe_activate_water_cooler_a2a
 }
@@ -335,6 +328,14 @@ if [ "$HERMES_ROLE" = "orchestrator" ]; then
   fi
   write_orchestrator_env
   link_shared_auth
+  # Chief of Staff webhook wake — orchestrator skips apply_patches (Luna-only),
+  # so install the Discord bot-wake seam here.
+  if [ -f /etc/hermes-staging/apply_discord_bot_wake_patch.py ]; then
+    python /etc/hermes-staging/apply_discord_bot_wake_patch.py || {
+      echo "apply_discord_bot_wake_patch failed — Chief of Staff auto-wake may be missing" >&2
+      exit 1
+    }
+  fi
 elif [ "$HERMES_ROLE" = "deckhand" ]; then
   # Discord engineering worker — never Luna guest bootstrap (no SOUL/plugins/WhatsApp
   # patches/env). Model is xAI grok-4.5 via xai-oauth (shared auth.json).
