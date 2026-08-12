@@ -58,6 +58,18 @@ function main() {
     /\.inbox-two-col\.inbox-shell-cols\{/.test(api));
   ok('tab-top-gap still present', /--tab-top-gap:\s*24px/.test(api));
 
+  // Detail panel: phone/email rows open (or create) the conversation.
+  ok('detail phone value is a conversation link',
+    /customers-profile-field-value' \+ \(data\.phone \? ' cust-conv-link cust-detail-conv-open'/.test(api));
+  ok('detail email value is a conversation link when phone present',
+    /\(id\.email && data\.phone\) \? ' cust-conv-link cust-detail-conv-open'/.test(api));
+  ok('detail conversation links wired to open-or-start', (() => {
+    const i = api.indexOf('cust-detail-conv-open');
+    const w = api.indexOf('querySelectorAll(\'.cust-detail-conv-open\')');
+    return i >= 0 && w >= 0 &&
+      /querySelectorAll\('\.cust-detail-conv-open'\)[\s\S]{0,300}?customerOpenOrStartConversation\(\)/.test(api);
+  })());
+
   // Lightweight browser simulation of openInboxToPhone match/no-match
   let playwright;
   try { playwright = require('playwright'); }

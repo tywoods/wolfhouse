@@ -29995,8 +29995,8 @@ function renderCustomerProfileSection(data, editing) {
       '<button type="button" class="btn btn-ghost" id="cust-profile-edit-btn">' + escHtml(portalT('customers.editProfile')) + '</button>' +
       '</div></div>' +
       '<div class="customers-profile-fields">' +
-      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.phone')) + '</span><span class="customers-profile-field-value">' + escHtml(data.phone || '—') + '</span></div>' +
-      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.email')) + '</span><span class="customers-profile-field-value' + (id.email ? '' : ' is-muted') + '">' + escHtml(id.email || '—') + '</span></div>' +
+      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.phone')) + '</span><span class="customers-profile-field-value' + (data.phone ? ' cust-conv-link cust-detail-conv-open' : '') + '"' + (data.phone ? ' role="button" tabindex="0" title="' + escHtml(portalT('customers.conversation.open')) + '"' : '') + '>' + escHtml(data.phone || '—') + '</span></div>' +
+      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.email')) + '</span><span class="customers-profile-field-value' + (id.email ? '' : ' is-muted') + ((id.email && data.phone) ? ' cust-conv-link cust-detail-conv-open' : '') + '"' + ((id.email && data.phone) ? ' role="button" tabindex="0" title="' + escHtml(portalT('customers.conversation.open')) + '"' : '') + '>' + escHtml(id.email || '—') + '</span></div>' +
       (isSunsetSurfActive() ? '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(t('customers.detail.school')) + '</span><span class="customers-profile-field-value">' + escHtml(getSunsetLocationLabel()) + '</span></div>' : '') +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.language')) + '</span><span class="customers-profile-field-value' + (id.language ? '' : ' is-muted') + '">' + escHtml(id.language || '—') + '</span></div>' +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.lastSetup')) + '</span><span class="customers-profile-field-value' + (lastSetup ? '' : ' is-muted') + '">' + escHtml(lastSetup || portalT('customers.detail.noServices')) + '</span></div>' +
@@ -30027,6 +30027,17 @@ function wireCustomerProfileActions(data) {
   if (editBtn) editBtn.addEventListener('click', function(){ customerEnterEditMode(); });
   var convBtn = el('cust-conversation-btn');
   if (convBtn) convBtn.addEventListener('click', function(){ customerOpenOrStartConversation(); });
+  // Phone / email rows in the detail panel open (or create) the conversation too.
+  var section = el('cust-profile-section');
+  if (section) {
+    var convOpeners = section.querySelectorAll('.cust-detail-conv-open');
+    for (var oi = 0; oi < convOpeners.length; oi++) {
+      convOpeners[oi].addEventListener('click', function(){ customerOpenOrStartConversation(); });
+      convOpeners[oi].addEventListener('keydown', function(ev){
+        if (ev && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); customerOpenOrStartConversation(); }
+      });
+    }
+  }
   var createBookingBtn = el('cust-profile-create-booking');
   if (createBookingBtn) createBookingBtn.addEventListener('click', function(){
     var id = (customerDetailState.data && customerDetailState.data.identity) || {};
