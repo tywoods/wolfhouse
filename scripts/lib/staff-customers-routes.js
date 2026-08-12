@@ -19,13 +19,7 @@ const {
   buildCustomerDisplayTags,
   buildLastSetupSummary,
   normalizeCustomerPhone,
-  isOpaqueEmailIdentityPhone,
-  isDigitMangledPlaceholderPhone,
-  isReusableEmailLinkedCustomerPhone,
-  normalizeCustomerEmail,
   getCustomerContextQuery,
-  getCustomerChannelConversationsQuery,
-  buildCustomerChannelConversationsLookup,
   getCustomerBookingsQuery,
   getCustomerServiceRecordsQuery,
   getCustomerHandoffsQuery,
@@ -36,8 +30,6 @@ const {
   updateCustomerCrmTags,
   updateCustomerProfile,
   createCustomerConversation,
-  upsertCustomerFromEmailInboundTouch,
-  buildCustomerByIdPhoneLookup,
 } = require('./staff-customer-queries');
 const { parseCustomerDeleteBody, deleteCustomerProfiles } = require('./staff-customer-profile-delete');
 const {
@@ -52,7 +44,6 @@ const { executeCustomerOutreachSend } = require('./staff-customer-outreach-send'
 const {
   SUNSET_CLIENT_SLUG,
   normalizeSunsetLocationId,
-  isSunsetLocationId,
 } = require('./sunset-school-locations');
 const { attachConversationChannelMetadata } = require('./sunset-inbox-channel-config');
 const { updateSunsetCustomerProfile } = require('./sunset-customer-profile-writes');
@@ -62,8 +53,6 @@ const CUSTOMERS_BULK_DELETE_PATH = '/staff/customers/bulk-delete';
 const CUSTOMERS_MESSAGE_TEMPLATES_PATH = '/staff/customers/message-templates';
 const CUSTOMERS_MESSAGE_TEMPLATES_GENERATE_PATH = '/staff/customers/message-templates/generate';
 const CUSTOMERS_OUTREACH_SEND_PATH = '/staff/customers/outreach/send';
-const CUSTOMERS_BY_EMAIL_CONTEXT_PATH = '/staff/customers/by-email/context';
-const CUSTOMER_BY_ID_CONTEXT_RE = /^\/staff\/customers\/by-id\/([0-9a-f-]{36})\/context$/i;
 
 const CUSTOMER_CONTEXT_RE = /^\/staff\/customers\/([^/]+)\/context$/i;
 const CUSTOMER_TAGS_RE = /^\/staff\/customers\/([^/]+)\/tags$/i;
@@ -78,8 +67,6 @@ const CUSTOMER_PHONE_RE = /^\/staff\/customers\/([^/]+)$/i;
 const CUSTOMER_ROUTE_TABLE = Object.freeze([
   { id: 'list', method: 'GET', path: CUSTOMERS_COLLECTION_PATH, match: 'exact', minRole: 'viewer' },
   { id: 'context', method: 'GET', path: '/staff/customers/:phone/context', match: 'context', minRole: 'viewer' },
-  { id: 'by_email_context', method: 'GET', path: CUSTOMERS_BY_EMAIL_CONTEXT_PATH, match: 'exact', minRole: 'viewer' },
-  { id: 'by_id_context', method: 'GET', path: '/staff/customers/by-id/:id/context', match: 'by_id_context', minRole: 'viewer' },
   { id: 'templates_list', method: 'GET', path: CUSTOMERS_MESSAGE_TEMPLATES_PATH, match: 'exact', minRole: 'viewer' },
   { id: 'create', method: 'POST', path: CUSTOMERS_COLLECTION_PATH, match: 'exact', minRole: 'operator' },
   { id: 'bulk_delete', method: 'POST', path: CUSTOMERS_BULK_DELETE_PATH, match: 'exact', minRole: 'operator' },
@@ -123,7 +110,7 @@ function createCustomersRoutes(deps) {
       lastServiceSummary = qty + ' ' + label;
     }
     return {
-      phone: isOpaqueEmailIdentityPhone(row.phone) ? row.phone : (normalizeCustomerPhone(row.phone) || row.phone),
+      phone: normalizeCustomerPhone(row.phone) || row.phone,
       conversation_id: row.conversation_id || null,
       display_name: row.display_name || null,
       email: row.email || null,
@@ -192,11 +179,7 @@ function createCustomersRoutes(deps) {
     const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
     let phone;
     try {
-      const rawPhone = decodeURIComponent(String(phoneRaw || '').trim());
-      // emailcust1: identity keys must stay opaque — never digit-normalize to +dddd…
-      phone = isOpaqueEmailIdentityPhone(rawPhone)
-        ? rawPhone.slice(0, 200)
-        : normalizeCustomerPhone(rawPhone);
+      phone = normalizeCustomerPhone(decodeURIComponent(String(phoneRaw || '').trim()));
     } catch (_) {
       return send400(res, 'invalid phone encoding');
     }
@@ -216,38 +199,13 @@ function createCustomersRoutes(deps) {
 
     try {
       const data = await withPgClient(async (pg) => {
-        const identity = (await pg.query(
-          getCustomerContextQuery({ exactPhone: isOpaqueEmailIdentityPhone(phone) }),
-          [clientSlug, phone],
-        )).rows[0] || null;
-        const emailForLookup = identity && identity.email ? String(identity.email) : '';
-        const channelLookup = buildCustomerChannelConversationsLookup(
-          clientSlug,
-          phone,
-          emailForLookup,
-          query.location,
-        );
-        const channelRow = channelLookup.reject
-          ? channelLookup.empty
-          : ((await pg.query(channelLookup.sql, channelLookup.params)).rows[0] || channelLookup.empty);
+        const identity = (await pg.query(getCustomerContextQuery(), [clientSlug, phone])).rows[0] || null;
         const mergedCrmTags = await loadCustomerCrmTagsMerged(pg, clientSlug, phone);
         const bookings = (await pg.query(getCustomerBookingsQuery(), [clientSlug, phone])).rows;
         const service_records = (await pg.query(getCustomerServiceRecordsQuery(), [clientSlug, phone])).rows;
         const handoffs = (await pg.query(getCustomerHandoffsQuery(), [clientSlug, phone])).rows;
         const messages = (await pg.query(getCustomerMessagesQuery(), [clientSlug, phone])).rows;
-        return {
-          identity,
-          channel_conversations: {
-            whatsapp_conversation_id: channelRow.whatsapp_conversation_id || null,
-            email_conversation_id: channelRow.email_conversation_id || null,
-          },
-          channel_location_id: channelLookup.locationId,
-          mergedCrmTags,
-          bookings,
-          service_records,
-          handoffs,
-          messages,
-        };
+        return { identity, mergedCrmTags, bookings, service_records, handoffs, messages };
       });
 
       const lastSetup = buildLastSetupSummary(data.service_records);
@@ -313,10 +271,6 @@ function createCustomersRoutes(deps) {
           conversation_stage: data.identity.conversation_stage,
           last_contact_at: data.identity.last_contact_at,
         } : null,
-        channel_conversations: data.channel_conversations || {
-          whatsapp_conversation_id: null,
-          email_conversation_id: null,
-        },
         bookings: data.bookings || [],
         service_records: data.service_records || [],
         handoffs: data.handoffs || [],
@@ -778,128 +732,9 @@ function createCustomersRoutes(deps) {
     }
   }
 
-
-  async function resolvePhoneThenContext(phone, query, res, user) {
-    return handleCustomerContext(phone, query, res, user);
-  }
-
-  async function handleCustomerContextByEmail(query, res, user) {
-    const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-    const email = normalizeCustomerEmail(query.email);
-    if (!email || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client or email');
-    if (!assertStaffClientAccess(user, clientSlug, res)) return;
-    // Sunset requires canonical active school — fail closed if missing/invalid.
-    let locationId = '';
-    if (clientSlug === SUNSET_CLIENT_SLUG) {
-      const rawLoc = query.location == null ? '' : String(query.location).trim();
-      if (!isSunsetLocationId(rawLoc)) {
-        return sendJSON(res, 404, { success: false, error: 'customer_not_found' });
-      }
-      locationId = rawLoc;
-    }
-    try {
-      const row = await withPgClient(async (pg) => {
-        const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
-        if (!clientRes.rows.length) return null;
-        const clientId = clientRes.rows[0].id;
-        const params = [clientId, email];
-        // Skip digit-mangled +dddd… placeholders; prefer emailcust1 then real E.164.
-        let sql = `SELECT cu.phone
-          FROM customers cu
-         WHERE cu.client_id = $1::uuid
-           AND lower(btrim(COALESCE(cu.email, ''))) = $2
-           AND (
-             cu.phone LIKE 'emailcust1:%'
-             OR (
-               length(regexp_replace(COALESCE(cu.phone, ''), '[^0-9]', '', 'g')) BETWEEN 10 AND 15
-               AND regexp_replace(COALESCE(cu.phone, ''), '[^0-9+]', '', 'g') ~ '^\\+?[0-9]+$'
-             )
-           )`;
-        if (clientSlug === SUNSET_CLIENT_SLUG) {
-          sql += ` AND COALESCE(cu.location_id, '') = $3`;
-          params.push(locationId);
-        }
-        sql += ` ORDER BY CASE WHEN cu.phone LIKE 'emailcust1:%' THEN 0 ELSE 1 END, cu.updated_at DESC NULLS LAST LIMIT 1`;
-        const r = await pg.query(sql, params);
-        return r.rows[0] || null;
-      });
-      // Heal: no reusable row (or only poison) → upsert emailcust1 and open that.
-      if (!row || !row.phone || !isReusableEmailLinkedCustomerPhone(row.phone)) {
-        if (clientSlug === SUNSET_CLIENT_SLUG && locationId) {
-          const created = await withPgClient((pg) => upsertCustomerFromEmailInboundTouch(pg, {
-            client_slug: clientSlug,
-            email,
-            display_name: null,
-            location_id: locationId,
-          }));
-          if (created && created.ok && created.phone) {
-            return handleCustomerContext(created.phone, query, res, user);
-          }
-        }
-        return sendJSON(res, 404, { success: false, error: 'customer_not_found' });
-      }
-      return handleCustomerContext(row.phone, query, res, user);
-    } catch (err) {
-      return sendJSON(res, 500, { success: false, error: 'query failed' });
-    }
-  }
-
-  async function handleCustomerContextById(customerIdRaw, query, res, user) {
-    const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
-    const customerId = String(customerIdRaw || '').trim();
-    if (!customerId || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client or customer id');
-    if (!assertStaffClientAccess(user, clientSlug, res)) return;
-    const lookup = buildCustomerByIdPhoneLookup(clientSlug, customerId, query.location);
-    if (lookup.reject) {
-      // Missing/invalid Sunset location → no disclosure.
-      return sendJSON(res, 404, { success: false, error: 'customer_not_found' });
-    }
-    try {
-      const row = await withPgClient(async (pg) => {
-        const r = await pg.query(
-          // Include email so we can heal poison phones without disclosing other schools.
-          lookup.sql.replace(
-            'SELECT cu.phone',
-            'SELECT cu.phone, cu.email, cu.full_name, cu.location_id',
-          ),
-          lookup.params,
-        );
-        return r.rows[0] || null;
-      });
-      if (!row || !row.phone) {
-        return sendJSON(res, 404, { success: false, error: 'customer_not_found' });
-      }
-      // Heal legacy poison customer_id (digit-mangled +dddd…) via email → emailcust1.
-      if (isDigitMangledPlaceholderPhone(row.phone)) {
-        const email = normalizeCustomerEmail(row.email);
-        const loc = clientSlug === SUNSET_CLIENT_SLUG
-          ? (lookup.locationId || '')
-          : (row.location_id || null);
-        if (email && (clientSlug !== SUNSET_CLIENT_SLUG || loc)) {
-          const healed = await withPgClient((pg) => upsertCustomerFromEmailInboundTouch(pg, {
-            client_slug: clientSlug,
-            email,
-            display_name: row.full_name || null,
-            location_id: loc,
-            // Do not force-link conversation here; open path may pass conversation later.
-          }));
-          if (healed && healed.ok && healed.phone && !isDigitMangledPlaceholderPhone(healed.phone)) {
-            return handleCustomerContext(healed.phone, query, res, user);
-          }
-        }
-        return sendJSON(res, 404, { success: false, error: 'customer_not_found' });
-      }
-      return handleCustomerContext(row.phone, query, res, user);
-    } catch (err) {
-      return sendJSON(res, 500, { success: false, error: 'query failed' });
-    }
-  }
-
   const handlers = Object.freeze({
     list: handleCustomerList,
     context: handleCustomerContext,
-    by_email_context: handleCustomerContextByEmail,
-    by_id_context: handleCustomerContextById,
     create: handleCustomerCreate,
     bulk_delete: handleCustomerBulkDelete,
     tags: handleCustomerTagsUpdate,
@@ -924,8 +759,6 @@ function createCustomersRoutes(deps) {
     CUSTOMERS_MESSAGE_TEMPLATES_PATH,
     CUSTOMERS_MESSAGE_TEMPLATES_GENERATE_PATH,
     CUSTOMERS_OUTREACH_SEND_PATH,
-    CUSTOMERS_BY_EMAIL_CONTEXT_PATH,
-    CUSTOMER_BY_ID_CONTEXT_RE,
     CUSTOMER_CONTEXT_RE,
     CUSTOMER_TAGS_RE,
     CUSTOMER_CREATE_CONVERSATION_RE,
@@ -957,9 +790,7 @@ module.exports = {
   CUSTOMERS_MESSAGE_TEMPLATES_PATH,
   CUSTOMERS_MESSAGE_TEMPLATES_GENERATE_PATH,
   CUSTOMERS_OUTREACH_SEND_PATH,
-  CUSTOMERS_BY_EMAIL_CONTEXT_PATH,
   CUSTOMER_CONTEXT_RE,
-  CUSTOMER_BY_ID_CONTEXT_RE,
   CUSTOMER_TAGS_RE,
   CUSTOMER_CREATE_CONVERSATION_RE,
   CUSTOMER_MESSAGE_TEMPLATE_RE,
