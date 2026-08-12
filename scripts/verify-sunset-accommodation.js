@@ -490,8 +490,13 @@ function mockPg() {
     }
     return null;
   }
-  const createAddIso = extractNamedFn(apiSrc, 'scheduleAddIsoDays');
-  const createDefaultStay = extractNamedFn(apiSrc, 'scheduleDefaultAccommodationStay');
+  /** apiSrc slices sit inside the /staff/ui template literal, which eats single backslashes. */
+  function emitFromTemplate(snippet) {
+    // eslint-disable-next-line no-new-func
+    return snippet == null ? null : new Function('return `' + snippet + '`')();
+  }
+  const createAddIso = emitFromTemplate(extractNamedFn(apiSrc, 'scheduleAddIsoDays'));
+  const createDefaultStay = emitFromTemplate(extractNamedFn(apiSrc, 'scheduleDefaultAccommodationStay'));
   ok('Create owners export scheduleAddIsoDays + scheduleDefaultAccommodationStay',
     !!createAddIso && !!createDefaultStay);
   if (createAddIso && createDefaultStay) {
