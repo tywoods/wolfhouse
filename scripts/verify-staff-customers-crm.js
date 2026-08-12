@@ -16,6 +16,7 @@ const { loadClientPortalProfile } = require('./lib/staff-portal-clients');
 
 const ROOT = path.join(__dirname, '..');
 const STAFF_API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
+const { readStaffPortalUiSource } = require('./lib/staff-portal-ui-source');
 const I18N_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-portal-i18n.js');
 
 let pass = 0;
@@ -37,7 +38,8 @@ const CUSTOMERS_ROUTES_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-customers
 
 let apiSrc = '';
 if (fs.existsSync(STAFF_API_PATH)) {
-  apiSrc = fs.readFileSync(STAFF_API_PATH, 'utf8');
+  // Template plus injected Inbox browser modules: the Customers front-end was extracted.
+  apiSrc = readStaffPortalUiSource();
 } else {
   assert('staff-query-api.js exists', false);
 }
@@ -442,7 +444,7 @@ if (apiSrc) {
   assert('send uses assertStaffClientAccess', /handleCustomerOutreachSend[\s\S]{0,900}assertStaffClientAccess/.test(handlerSrc));
   assert('send requires confirmed in body fetch', apiSrc.includes('confirmed: true'));
   assert('confirmation modal UI', apiSrc.includes('cust-outreach-confirm-modal') && apiSrc.includes('cust-outreach-confirm-send'));
-  assert('confirm skipped join escaped for embedded script', apiSrc.includes("lines.join('\\\\n')"));
+  assert('confirm skipped list joined on newlines', apiSrc.includes("lines.join('\\n')"));
   assert('modal shows preview + stats', apiSrc.includes('cust-outreach-confirm-preview') && apiSrc.includes('openCustomersOutreachConfirmModal'));
   assert('results panel UI', apiSrc.includes('renderCustomersOutreachResults'));
   assert('send button gated by message length', apiSrc.includes('updateCustomersOutreachSendButton'));

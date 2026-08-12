@@ -10,7 +10,10 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const freshStart = fs.readFileSync(path.join(ROOT, 'docker/hermes-staging/wolfhouse_guest_fresh_start.py'), 'utf8');
 const patches = fs.readFileSync(path.join(ROOT, 'docker/hermes-staging/apply_gateway_patches.py'), 'utf8');
-const staffApi = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
+// The Inbox front-end is injected into /staff/ui from scripts/browser/inbox-*.js, so the
+// portal-side assertions below read the template plus those modules.
+const staffApi = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8')
+  + fs.readFileSync(path.join(ROOT, 'scripts/browser/inbox-thread.js'), 'utf8');
 const resetLib = fs.readFileSync(path.join(ROOT, 'scripts/lib/luna-hermes-guest-session-reset.js'), 'utf8');
 
 let passes = 0;

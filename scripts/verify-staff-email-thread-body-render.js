@@ -21,6 +21,19 @@ const {
 const SUBJECT = 'SUNSET-G3-CONTROLLED-20260810';
 const BODY = 'Controlled Gate 3 body content for staff thread render.';
 const STAFF = path.join(ROOT, 'scripts/staff-query-api.js');
+/**
+ * The Inbox front-end is injected into /staff/ui from scripts/browser/inbox-*.js rather
+ * than living inline, so the portal renderer is read from the template plus those modules.
+ */
+const PORTAL_MODULES = [
+  STAFF,
+  path.join(ROOT, 'scripts/browser/inbox-list.js'),
+  path.join(ROOT, 'scripts/browser/inbox-thread.js'),
+];
+
+function readPortalSource() {
+  return PORTAL_MODULES.map((p) => fs.readFileSync(p, 'utf8')).join('\n');
+}
 
 function extractPortalFn(source, name) {
   // Production browser helpers live in the embedded /staff/ui script bundle.
@@ -41,7 +54,7 @@ function extractPortalFn(source, name) {
 }
 
 function loadProductionBubbleRenderer() {
-  const source = fs.readFileSync(STAFF, 'utf8');
+  const source = readPortalSource();
   assert.match(source, /function formatInboxThreadBubbleHtml/);
   assert.match(source, /function inboxThreadMessageBodyText/);
   assert.match(source, /msg-email-subject/);
@@ -166,7 +179,7 @@ function loadProductionBubbleRenderer() {
   assert.match(inboxRoutes, /deliveryCommitted === true/);
 
   // UI refreshes thread bubbles after successful email send (keeps draft status).
-  const api = fs.readFileSync(STAFF, 'utf8');
+  const api = readPortalSource();
   assert.match(api, /\/messages' \+ inboxClientQuery\(\)/);
   assert.match(api, /renderInboxThreadMessagesHtml\(msgs\)/);
   assert.match(api, /projectStaffInboxThreadMessage/);

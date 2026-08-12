@@ -23,10 +23,14 @@ const BROWSER_DIR = path.join(__dirname, '..', 'browser');
 const CUSTOMERS_FILTERS_MODULE = path.join(BROWSER_DIR, 'inbox-customers-filters.js');
 const CUSTOMERS_OUTREACH_MODULE = path.join(BROWSER_DIR, 'inbox-customers-outreach.js');
 const CUSTOMERS_PROFILE_MODULE = path.join(BROWSER_DIR, 'inbox-customers-profile.js');
+const LIST_MODULE = path.join(BROWSER_DIR, 'inbox-list.js');
+const THREAD_MODULE = path.join(BROWSER_DIR, 'inbox-thread.js');
 
 const INBOX_CUSTOMERS_FILTERS_INJECT_MARKER = '/* INJECT:inbox-customers-filters */';
 const INBOX_CUSTOMERS_OUTREACH_INJECT_MARKER = '/* INJECT:inbox-customers-outreach */';
 const INBOX_CUSTOMERS_PROFILE_INJECT_MARKER = '/* INJECT:inbox-customers-profile */';
+const INBOX_LIST_INJECT_MARKER = '/* INJECT:inbox-list */';
+const INBOX_THREAD_INJECT_MARKER = '/* INJECT:inbox-thread */';
 
 /**
  * Read a browser module for injection.
@@ -54,6 +58,14 @@ function getInboxCustomersProfileBrowserSource() {
   return readBrowserModule(CUSTOMERS_PROFILE_MODULE);
 }
 
+function getInboxListBrowserSource() {
+  return readBrowserModule(LIST_MODULE);
+}
+
+function getInboxThreadBrowserSource() {
+  return readBrowserModule(THREAD_MODULE);
+}
+
 /** Permissive: missing marker → return html unchanged (do not throw). */
 function injectAtMarker(html, marker, moduleJs) {
   const idx = html.indexOf(marker);
@@ -70,20 +82,28 @@ function injectAtMarker(html, marker, moduleJs) {
 function injectInboxBrowserModules(html) {
   html = injectAtMarker(html, INBOX_CUSTOMERS_FILTERS_INJECT_MARKER, getInboxCustomersFiltersBrowserSource());
   html = injectAtMarker(html, INBOX_CUSTOMERS_OUTREACH_INJECT_MARKER, getInboxCustomersOutreachBrowserSource());
-  return injectAtMarker(html, INBOX_CUSTOMERS_PROFILE_INJECT_MARKER, getInboxCustomersProfileBrowserSource());
+  html = injectAtMarker(html, INBOX_CUSTOMERS_PROFILE_INJECT_MARKER, getInboxCustomersProfileBrowserSource());
+  html = injectAtMarker(html, INBOX_LIST_INJECT_MARKER, getInboxListBrowserSource());
+  return injectAtMarker(html, INBOX_THREAD_INJECT_MARKER, getInboxThreadBrowserSource());
 }
 
 module.exports = {
   getInboxCustomersFiltersBrowserSource,
   getInboxCustomersOutreachBrowserSource,
   getInboxCustomersProfileBrowserSource,
+  getInboxListBrowserSource,
+  getInboxThreadBrowserSource,
   injectInboxBrowserModules,
   injectAtMarker,
   readBrowserModule,
   CUSTOMERS_FILTERS_MODULE,
   CUSTOMERS_OUTREACH_MODULE,
   CUSTOMERS_PROFILE_MODULE,
+  LIST_MODULE,
+  THREAD_MODULE,
   INBOX_CUSTOMERS_FILTERS_INJECT_MARKER,
   INBOX_CUSTOMERS_OUTREACH_INJECT_MARKER,
   INBOX_CUSTOMERS_PROFILE_INJECT_MARKER,
+  INBOX_LIST_INJECT_MARKER,
+  INBOX_THREAD_INJECT_MARKER,
 };

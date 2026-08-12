@@ -5,11 +5,7 @@
  * none exists yet (Slice 1 + Slice 2).
  */
 
-const fs = require('fs');
-const path = require('path');
-
-const ROOT = path.join(__dirname, '..');
-const API = path.join(ROOT, 'scripts/staff-query-api.js');
+const { readStaffPortalUiSource } = require('./lib/staff-portal-ui-source');
 
 let pass = 0;
 let fail = 0;
@@ -20,7 +16,8 @@ function ok(label, cond, detail) {
 
 function main() {
   console.log('verify-customers-card-open-conversation');
-  const api = fs.readFileSync(API, 'utf8');
+  // Template plus injected Inbox browser modules: the Customers front-end was extracted.
+  const api = readStaffPortalUiSource();
 
   ok('card phone is cust-conv-link',
     /customers-card-phone cust-conv-link/.test(api));

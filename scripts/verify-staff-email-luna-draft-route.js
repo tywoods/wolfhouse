@@ -335,7 +335,8 @@ function noSideEffects(h) {
   }
 
   // Existing generated Staff UI: dedicated gate, authoritative email only, explicit click only.
-  const api = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
+  // Template plus injected Inbox browser modules: the email reply UI was extracted.
+  const api = require('./lib/staff-portal-ui-source').readStaffPortalUiSource();
   assert.match(api, /__EMAIL_STAFF_LUNA_DRAFT_ENABLED__/);
   assert.match(api, /Generate Luna draft/);
   assert.match(api, /btn-email-generate-luna-draft/);

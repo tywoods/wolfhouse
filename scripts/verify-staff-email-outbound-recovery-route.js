@@ -1494,7 +1494,8 @@ console.log('recovery_router_ok');
     (out.stderr || out.stdout || '').slice(0, 400));
 
   // Staff UI does not add recovery authority inputs
-  const uiHtml = fs.readFileSync(STAFF_ABS, 'utf8');
+  // Template plus injected Inbox browser modules: the reply wiring was extracted.
+  const uiHtml = require('./lib/staff-portal-ui-source').readStaffPortalUiSource();
   ok('UI retains no recovery authority inputs',
     !/id="email-(recipient|sender|mailbox|operation|idempotency|immutable)/.test(uiHtml));
   ok('WhatsApp send-reply containment still present',
