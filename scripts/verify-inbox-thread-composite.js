@@ -409,6 +409,7 @@ ok('thread poll still refetches /messages on its own',
   uiSrc.includes("'/staff/conversations/' + encodeURIComponent(convId) + '/messages' + inboxClientQuery()"));
 ok('pause verdict reads the composite pause section, the detail section and the conversation row',
   uiSrc.includes('isLunaGuestAutomationPaused([pauseData, detailData, c])'));
+ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseState\s*\(/.test(uiSrc));
 
 (async () => {
   console.log('\n── payload parity with the endpoints it replaces ──');

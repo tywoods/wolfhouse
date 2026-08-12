@@ -114,14 +114,6 @@ function isLunaGuestAutomationPaused(sources){
   return false;
 }
 
-/* Phase 9.5 — live pause lookup via GET /staff/bot/pause-state; failure → default active */
-function fetchBotPauseState(client, convId){
-  var qs = '?client_slug=' + encodeURIComponent(client) + '&conversation_id=' + encodeURIComponent(convId);
-  return fetch('/staff/bot/pause-state' + qs)
-    .then(function(r){ return r.ok ? r.json() : { success: false }; })
-    .catch(function(){ return { success: false }; });
-}
-
 /* Phase 9.5b — Inbox Luna pause/resume controls (bot_pause_states via Staff API) */
 function setLunaPauseActionStatus(targetEl, msg, isError){
   var statusEl = targetEl.querySelector('#luna-pause-action-status');
