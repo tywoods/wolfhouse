@@ -29,6 +29,7 @@ Guest WhatsApp  →  Hermes Agent (staging: wh-staging-hermes on Azure Container
 |------|------|--------|
 | Luna guest brain | `scripts/lib/luna-guest-*.js` | Planner, tools, composer, Cami voice, pipeline |
 | Staff API | `scripts/staff-query-api.js` | Large staff + bot HTTP surface |
+| Staff portal front-end | `scripts/browser/*.js` | Browser modules injected into `/staff/ui` |
 | Hermes staging deploy | `scripts/deploy-staging-hermes.js` | ACA deploy, `chat-test`, `chat` |
 | Hermes local | `scripts/run-local-hermes.js`, `hermes-local/` | Docker-based local Hermes |
 | Golden fixtures | `fixtures/luna-golden/` | Regression transcripts |
@@ -55,9 +56,19 @@ Full spec: `docs/LUNA-GUEST-BEHAVIOR-SPEC.md`.
 
 ```bash
 npm run verify:luna-all          # fast Luna gate (no API key)
+node scripts/verify-inbox-ui-parity.js            # staff portal UI byte parity
 node scripts/deploy-staging-hermes.js chat-test   # staging Hermes smoke
 node scripts/run-local-hermes.js chat             # local Hermes (this repo)
 ```
+
+**Staff portal UI parity:** the Inbox front-end lives in `scripts/browser/inbox-*.js`, injected
+into `/staff/ui` at `/* INJECT:... */` markers. When moving that code around, capture a baseline
+**before editing** with `node scripts/verify-inbox-ui-parity.js --save`, then re-run without
+`--save` after each step to prove the rendered HTML is byte-identical. The baseline lives in
+`tmp/` (gitignored), so a fresh clone has none — save one first or you are refactoring blind.
+
+Static gates that assert on portal UI strings must read `scripts/lib/staff-portal-ui-source.js`
+(template **plus** injected modules), not `staff-query-api.js` alone.
 
 ## Working conventions
 
