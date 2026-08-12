@@ -127,9 +127,8 @@ function validRow(value) {
   const row = snapshot(value, ROW_KEYS);
   if (!row) return null;
   for (let index = 0; index < 4; index += 1) {
-    if (typeof row[ROW_KEYS[index]] !== 'string' || (index !== 1 && !test(UUID, row[ROW_KEYS[index]]))) return null;
+    if (typeof row[ROW_KEYS[index]] !== 'string' || !test(UUID, row[ROW_KEYS[index]])) return null;
   }
-  if (!test(UUID, row.locationId) && row.locationId !== 'sunset-somo') return null;
   if (typeof row.codeVerifier !== 'string' || !test(VERIFIER, row.codeVerifier)
       || typeof row.nonce !== 'string' || !test(NONCE, row.nonce)) return null;
   return row;
