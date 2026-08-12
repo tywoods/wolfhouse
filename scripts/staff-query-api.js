@@ -18373,7 +18373,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .bc-svc-nights-label{font-size:12px;color:var(--text-muted,#6B6560)}
 .bc-field-package-guest-row{margin-bottom:8px}
 /* ── Inbox two-column layout (WhatsApp Web style) ─────────────────────────── */
-.inbox-two-col{display:flex;gap:16px;flex:1 1 0;width:100%;min-width:0;min-height:0;align-self:stretch}
+.inbox-two-col{display:flex;gap:20px;flex:1 1 0;width:100%;min-width:0;min-height:0;align-self:stretch}
 .inbox-left{flex:0 0 300px;width:300px;min-height:0;height:100%;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
 .inbox-left-toolbar{padding:12px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-direction:column;gap:10px;flex-shrink:0;background:var(--surface-soft)}
 .inbox-toolbar-top{display:flex;align-items:center;gap:8px;width:100%}
@@ -18490,14 +18490,14 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .detail-main .detail-conv-toolbar{position:static;display:flex;justify-content:flex-end;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border-soft)}
 .detail-conv-toolbar .pill{font-size:11px;opacity:.7}
 .detail-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface);padding:14px 16px;overflow:hidden}
-.detail-sidebar{width:280px;flex-shrink:0;align-self:flex-start;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface);padding:14px 16px;max-height:calc(100vh - 200px);overflow-y:auto;-webkit-overflow-scrolling:touch}
+.detail-sidebar{width:280px;flex-shrink:0;align-self:flex-start;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface);padding:42px 16px 14px;max-height:calc(100vh - 200px);overflow-y:auto;-webkit-overflow-scrolling:touch}
 @media(max-width:860px){.detail-layout{flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;align-items:stretch}.detail-sidebar{width:100%;max-height:none;overflow:visible;flex-shrink:0}}
 
 /* Inbox detail: collapsible booking/payment right rail */
 
 .detail-layout{position:relative}
 .detail-layout > .detail-sidebar-toggle{position:absolute;top:0;right:0;z-index:2}
-.detail-layout:not(.is-sidebar-collapsed) > .detail-sidebar-toggle{right:288px}
+.detail-layout:not(.is-sidebar-collapsed) > .detail-sidebar-toggle{right:0}
 @media(max-width:860px){
   .detail-layout > .detail-sidebar-toggle{position:static;align-self:flex-end;margin:0 0 6px auto}
   .detail-layout:not(.is-sidebar-collapsed) > .detail-sidebar-toggle{right:auto}
