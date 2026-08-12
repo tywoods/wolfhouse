@@ -21,21 +21,29 @@ function harness(overrides={}){
 async function invoke(h){const req={method:'POST',url:START,headers:{'content-type':'application/json'}};h.req=req;return h.adapter.dispatch(req,{},START);}
 (async()=>{
  let h=harness();
- const originals={get:WeakMap.prototype.get,set:WeakMap.prototype.set,has:WeakMap.prototype.has,delete:WeakMap.prototype.delete};
- const poisonCalls={get:0,set:0,has:0,delete:0};
+ const weakMapOriginals={get:WeakMap.prototype.get,set:WeakMap.prototype.set,has:WeakMap.prototype.has,delete:WeakMap.prototype.delete};
+ const weakMapMethods=['get','set','has','delete'];
+ const intrinsicOriginals={getOwnPropertyDescriptor:Object.getOwnPropertyDescriptor,hasOwn:Object.hasOwn,freeze:Object.freeze,defineProperty:Object.defineProperty,getPrototypeOf:Object.getPrototypeOf,ownKeys:Reflect.ownKeys,apply:Reflect.apply};
+ const intrinsicTargets={getOwnPropertyDescriptor:Object,hasOwn:Object,freeze:Object,defineProperty:Object,getPrototypeOf:Object,ownKeys:Reflect,apply:Reflect};
+ const intrinsicNames=['getOwnPropertyDescriptor','hasOwn','freeze','defineProperty','getPrototypeOf','ownKeys','apply'];
+ const poisonCalls={weakMap:{get:0,set:0,has:0,delete:0},intrinsics:{getOwnPropertyDescriptor:0,hasOwn:0,freeze:0,defineProperty:0,getPrototypeOf:0,ownKeys:0,apply:0}};
  try {
-  for(const method of Object.keys(originals)) WeakMap.prototype[method]=function(){poisonCalls[method]++;throw Error(`poisoned WeakMap.${method}`);};
+  for(const method of weakMapMethods) WeakMap.prototype[method]=function(){poisonCalls.weakMap[method]++;throw Error(`poisoned WeakMap.${method}`);};
+  for(const name of intrinsicNames) intrinsicTargets[name][name]=function(){poisonCalls.intrinsics[name]++;throw Error(`poisoned ${name}`);};
   await invoke(h);
   assert.deepEqual(h.effects,['admin','acl','authz','body','routes','pg','query','createStart','start']);
-  assert.equal(h.gates[0],h.gates[1]);assert(Object.isFrozen(h.gates[0]));assert.equal(h.reads,3);assert.equal(h.pgCalls,1);assert.equal(h.queryCalls,1);
-  const body=Object.freeze({location_id:'sunset-somo',endpoint_id:U[1]});
-  await h.routes.handleStart(body,h.req,{},h.user); // exact replay
-  await h.routes.handleStart(body,{method:'POST'}, {},h.user); // different request
+  assert.equal(h.gates[0],h.gates[1]);assert.equal(h.reads,3);assert.equal(h.pgCalls,1);assert.equal(h.queryCalls,1);
+  const body={location_id:'sunset-somo',endpoint_id:U[1]};
+  await h.routes.handleStart(body,h.req,{},h.user); // exact replay: rejected before effects
+  await h.routes.handleStart(body,{method:'POST'}, {},h.user); // mismatched request: rejected before effects
   assert.equal(h.pgCalls,1);assert.equal(h.queryCalls,1);
  } finally {
-  for(const [method,original] of Object.entries(originals)) WeakMap.prototype[method]=original;
+  for(const name of intrinsicNames) intrinsicTargets[name][name]=intrinsicOriginals[name];
+  for(const method of weakMapMethods) WeakMap.prototype[method]=weakMapOriginals[method];
  }
- assert.deepEqual(poisonCalls,{get:0,set:0,has:0,delete:0});
+ assert(Object.isFrozen(h.gates[0]));
+ assert.deepEqual(poisonCalls.weakMap,{get:0,set:0,has:0,delete:0});
+ assert.deepEqual(poisonCalls.intrinsics,{getOwnPropertyDescriptor:0,hasOwn:0,freeze:0,defineProperty:0,getPrototypeOf:0,ownKeys:0,apply:0});
  for(const overrides of [
   {async requireAdmin(){h.effects.push('admin');return null;}},
   {assertStaffClientAccess(){h.effects.push('acl');return false;}},
