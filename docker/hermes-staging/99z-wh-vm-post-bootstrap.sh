@@ -18,6 +18,25 @@ fi
 HERMES_HOME="${HERMES_HOME:-/opt/data}"
 HERMES_ROLE="${HERMES_ROLE:-luna}"
 
+# Engineering roles (orchestrator/seadog) run git in their terminal cwd, but
+# /opt/wolfhouse/WH is bind-mounted READ-ONLY, so any git write (fetch/index/
+# commit) there throws PermissionError and takes the agent down. They must work
+# in a WRITABLE clone under HERMES_HOME (same pattern deckhand already uses).
+# Seed one if missing. Fully guarded so it can never abort cont-init (set -eu).
+case "$HERMES_ROLE" in
+  orchestrator|seadog)
+    _WH_CLONE="$HERMES_HOME/workspace/sandbox-repos/WH-$HERMES_ROLE"
+    mkdir -p "$HERMES_HOME/workspace/sandbox-repos" 2>/dev/null || true
+    if [ ! -d "$_WH_CLONE/.git" ]; then
+      if git clone --quiet --branch master /opt/wolfhouse/WH "$_WH_CLONE" 2>/dev/null; then
+        git -C "$_WH_CLONE" remote rename origin local 2>/dev/null || true
+        git -C "$_WH_CLONE" remote add github https://github.com/tywoods/wolfhouse.git 2>/dev/null || true
+      fi
+    fi
+    chown -R hermes:hermes "$HERMES_HOME/workspace/sandbox-repos" 2>/dev/null || true
+    ;;
+esac
+
 if [ "$HERMES_ROLE" = "orchestrator" ]; then
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
@@ -33,7 +52,7 @@ fallback_providers:
 curator:
   enabled: false
 terminal:
-  cwd: /opt/wolfhouse/WH
+  cwd: /opt/data/workspace/sandbox-repos/WH-orchestrator
 gateway:
   platforms:
     discord:
@@ -100,7 +119,7 @@ agent:
 curator:
   enabled: false
 terminal:
-  cwd: /opt/wolfhouse/WH
+  cwd: /opt/data/workspace/sandbox-repos/WH-seadog
 toolsets:
   - water_cooler_a2a
 plugins:
@@ -121,7 +140,7 @@ agent:
 curator:
   enabled: false
 terminal:
-  cwd: /opt/wolfhouse/WH
+  cwd: /opt/data/workspace/sandbox-repos/WH-seadog
 gateway:
   platforms:
     discord:
