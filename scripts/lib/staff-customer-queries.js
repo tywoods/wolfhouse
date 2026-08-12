@@ -508,13 +508,18 @@ function customerListLimitOffsetParams(opts) {
   return { limitParam: idx, offsetParam: idx + 1, searchParam };
 }
 
-function getCustomerListQuery(opts) {
+/**
+ * Owner of the CRM filter predicates behind ALLOWED_FILTERS. The saved-view
+ * registry (staff-inbox-saved-views.js) delegates here instead of restating
+ * the booking / payment / waiver business rules.
+ *
+ * @param {{ filter?: string, accommodationCrm?: boolean, surfCrm?: boolean }} opts
+ * @returns {string} SQL fragment appended to the list query WHERE, '' for `all`
+ */
+function buildCustomerListFilterClause(opts) {
   const filter = normalizeCustomerFilter(opts && opts.filter);
-  const hasSearch = !!(opts && opts.hasSearch);
-  const locationScoped = !!(opts && opts.locationScoped);
   const accommodationCrm = !!(opts && opts.accommodationCrm);
   const surfCrm = !!(opts && opts.surfCrm);
-  const { limitParam, offsetParam, searchParam } = customerListLimitOffsetParams(opts);
 
   let filterClause = '';
   if (filter === 'hot_leads') {
@@ -549,6 +554,18 @@ function getCustomerListQuery(opts) {
   } else if (filter === 'waiver_pending') {
     filterClause = surfCrm ? 'AND COALESCE(wp.waiver_pending, FALSE) = TRUE' : 'AND FALSE';
   }
+  return filterClause;
+}
+
+function getCustomerListQuery(opts) {
+  const filter = normalizeCustomerFilter(opts && opts.filter);
+  const hasSearch = !!(opts && opts.hasSearch);
+  const locationScoped = !!(opts && opts.locationScoped);
+  const accommodationCrm = !!(opts && opts.accommodationCrm);
+  const surfCrm = !!(opts && opts.surfCrm);
+  const { limitParam, offsetParam, searchParam } = customerListLimitOffsetParams(opts);
+
+  const filterClause = buildCustomerListFilterClause({ filter, accommodationCrm, surfCrm });
 
   const searchClause = hasSearch
     ? `AND (
@@ -1190,6 +1207,7 @@ module.exports = {
   isAccommodationCrmClient,
   clampLimit,
   clampOffset,
+  buildCustomerListFilterClause,
   getCustomerListQuery,
   getCustomerContextQuery,
   getCustomerBookingsQuery,
