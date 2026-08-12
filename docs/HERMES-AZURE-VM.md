@@ -4,7 +4,7 @@ Hermes staging runs on **Lunabox** — an Azure Linux VM — so `/var/lib/hermes
 
 ```
 You (Discord)     → hermes-orchestrator (Skipper) → ChatGPT 5.5 OAuth (shared auth.json); Anthropic fallback
-You (Discord)     → hermes-deckhand     → xAI grok-4.5 via xai-oauth (shared auth.json; isolated Discord bot)
+You (Discord)     → hermes-deckhand     → xAI grok-4.6 via xai-oauth (shared auth.json; isolated Discord bot)
 Guests (WhatsApp) → hermes-luna         → ChatGPT 5.5 OAuth → Anthropic OAuth fallback
                          ↓
               Staff API (wh-staging-staff-api on ACA) → Postgres
@@ -106,7 +106,7 @@ Ports: **8642** orchestrator, **8090** Luna WhatsApp webhook (live), **8091** is
 Isolated Discord Hermes worker for Luna / Wolfhouse engineering — same Hermes
 runtime + read-only repo mount as Skipper, but **separate** sessions, profile
 state, Discord bot identity, env file, and data directory. Model is **xAI
-`grok-4.5` via `xai-oauth`** (shared `auth.json`; no Anthropic / OpenAI fallback,
+`grok-4.6` via `xai-oauth`** (shared `auth.json`; no Anthropic / OpenAI fallback,
 no `XAI_API_KEY`).
 
 **Deckhand must not be connected to the Luna WhatsApp number.** It has no
@@ -123,7 +123,7 @@ closed instead of inheriting Luna guest setup.
 |-------|--------|
 | Service / container | `hermes-deckhand` |
 | Behavioral role | `HERMES_ROLE: deckhand` (explicit non-Luna path) |
-| Model | `grok-4.5` via `xai-oauth` (only; no fallback providers) |
+| Model | `grok-4.6` via `xai-oauth` (only; no fallback providers) |
 | Inbound ports | **None** (Discord gateway outbound) |
 | Data | `/var/lib/hermes-deckhand` |
 | Env | `/etc/hermes-deckhand.env` (Discord only) |
@@ -175,7 +175,7 @@ sudo docker ps --filter name=hermes-deckhand --format 'table {{.Names}}\t{{.Stat
 # Ports column should be empty (no inbound publish)
 sudo docker logs --tail 80 hermes-deckhand
 sudo docker exec hermes-deckhand sh -c 'grep -E "default:|provider:" /opt/data/config.yaml'
-# Expect: default: grok-4.5 / provider: xai-oauth — no fallback_providers
+# Expect: default: grok-4.6 / provider: xai-oauth — no fallback_providers
 sudo docker exec hermes-deckhand hermes auth status xai-oauth
 ```
 
