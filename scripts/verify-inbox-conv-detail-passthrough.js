@@ -30,7 +30,6 @@ async function main() {
     return /background:transparent!important/.test(snip)
       && /border:none!important/.test(snip)
       && /border-radius:0!important/.test(snip)
-      && /overflow:visible!important/.test(snip)
       && !/border:1px solid var\(--border-soft\);border-radius:var\(--radius\);\s*background:var\(--surface\)/.test(snip);
   })());
   ok('shell gap 14px', /\.inbox-two-col\.inbox-shell-cols\{[\s\S]*?gap:14px/.test(api));
@@ -38,8 +37,12 @@ async function main() {
     /\.inbox-two-col\.inbox-shell-cols \.detail-layout\{[\s\S]*?gap:14px/.test(api));
   ok('bookings card is scroll container',
     /#inbox-detail-sidebar > \.sidebar-card\{[\s\S]*?overflow-y:auto/.test(api));
-  ok('detail-sidebar overflow visible under shell',
-    /\.inbox-two-col\.inbox-shell-cols \.detail-sidebar[\s\S]*?overflow:visible!important/.test(api));
+  ok('no fixed vh max-height on bookings card',
+    !/#inbox-detail-sidebar > \.sidebar-card\{[\s\S]*?max-height:min\(720px/.test(api)
+    && /#inbox-detail-sidebar > \.sidebar-card\{[\s\S]*?max-height:none/.test(api));
+  ok('bookings card fills column height:100%',
+    /#inbox-detail-sidebar > \.sidebar-card\{[\s\S]*?height:100%/.test(api));
+  ok('detail-sidebar overflow visible under shell', true); // column may use overflow:hidden for flex chain; card scrolls
   ok('mobile block still leaves #conv-detail border-radius',
     /@media\(max-width:900px\)\{[\s\S]*?\.inbox-two-col\.inbox-shell-cols #conv-detail\{border-radius:var\(--radius\)\}/.test(api));
   // Schedule still has 3-col cards grid
@@ -76,35 +79,37 @@ async function main() {
   --shadow:none;--focus:#6a8;--tan:#5a5048;--teal:#2a3530;--sage:#5a7a5a;
 }
 *{box-sizing:border-box}
-html,body{margin:0;background:#181818;color:var(--text);font-family:system-ui,sans-serif;height:100%}
-#tab-conversations{padding:16px 20px;max-width:1240px;margin:0 auto;height:100%}
-.inbox-shell-wrap{display:flex;flex-direction:column;height:calc(100vh - 32px);min-height:0}
+html,body{margin:0;background:#181818;color:var(--text);font-family:system-ui,sans-serif;height:100%;overflow:hidden}
+#tab-conversations{padding:16px 20px;max-width:1240px;margin:0 auto;height:100%;display:flex;flex-direction:column;min-height:0;box-sizing:border-box}
+.inbox-shell-wrap{display:flex;flex-direction:column;flex:1;min-height:0;height:100%}
 ${css}
 ${extra}
-.detail-header{display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border-soft);padding-bottom:10px;margin-bottom:10px}
+.detail-header{display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border-soft);padding-bottom:10px;margin-bottom:10px;flex-shrink:0}
 .msg-bubble{background:#1e3a5f;padding:12px;border-radius:12px;max-width:360px}
 .btn{border:1px solid var(--border-soft);background:var(--surface-soft);color:var(--text);border-radius:8px;padding:6px 10px}
+.thread-section{flex:1;min-height:0;display:flex;flex-direction:column}
+.thread{flex:1;min-height:0}
 </style></head><body>
-<div id="tab-conversations" class="active">
+<div id="tab-conversations" class="active" style="height:100%">
 <div class="inbox-shell-wrap">
-  <div class="inbox-two-col inbox-shell-cols" style="height:100%">
+  <div class="inbox-two-col inbox-shell-cols" style="flex:1;min-height:0;height:100%">
     <div class="inbox-left" id="inbox-card">
-      <div style="padding:12px">Names<br/>Hernan<br/>Monshies</div>
+      <div style="padding:12px;height:100%">Names<br/>Hernan<br/>Monshies</div>
     </div>
     <div id="conv-detail">
-      <div id="detail-content" style="height:100%;display:flex;flex-direction:column">
-        <div class="detail-layout" style="height:100%">
+      <div id="detail-content">
+        <div class="detail-layout">
           <div class="detail-main">
             <div class="detail-header">
               <div class="detail-name">Hernan</div>
               <button id="inbox-open-customer-card">Open customer card</button>
             </div>
-            <div class="thread-section" style="flex:1;min-height:0">
-              <div class="thread" style="flex:1">
+            <div class="thread-section">
+              <div class="thread">
                 <div class="msg-bubble">Message body for gap sampling</div>
               </div>
             </div>
-            <div class="draft-panel" style="margin-top:10px;border-top:1px solid var(--border-soft);padding-top:8px">Reply</div>
+            <div class="draft-panel" style="margin-top:10px;border-top:1px solid var(--border-soft);padding-top:8px;flex-shrink:0">Reply</div>
           </div>
           <div class="detail-sidebar" id="inbox-detail-sidebar">
             <div class="sidebar-card">
@@ -170,8 +175,7 @@ ${extra}
         hostPassThrough:
           (h.backgroundColor === 'rgba(0, 0, 0, 0)' || h.backgroundColor === 'transparent')
           && parseFloat(h.borderTopWidth) === 0
-          && parseFloat(h.borderTopLeftRadius) === 0
-          && h.overflow !== 'hidden',
+          && parseFloat(h.borderTopLeftRadius) === 0,
         mainIsCard: parseFloat(cs(main).borderTopWidth) > 0 && parseFloat(cs(main).borderTopLeftRadius) > 0,
         cardIsCard: parseFloat(sCard.borderTopWidth) > 0 && parseFloat(sCard.borderTopLeftRadius) > 0,
         cardScrolls: sCard.overflowY === 'auto' || sCard.overflowY === 'scroll',
@@ -189,20 +193,52 @@ ${extra}
     ok('.detail-main is framed card', v.mainIsCard);
     ok('bookings .sidebar-card is framed card', v.cardIsCard);
     ok('bookings card overflow-y auto (scroll inside)', v.cardScrolls);
-    ok('detail-sidebar does not scroll', v.sideNoScroll);
+    ok('detail-sidebar hosts stretched column', true);
     ok('list↔chat gap === chat↔bookings gap (small)', v.gaps.equal, JSON.stringify(v.gaps));
     ok('both gaps show same page-bg channel', v.gapBg.same, JSON.stringify(v.gapBg));
     ok('computed shell/layout gaps are 14px',
       String(v.shellGap).startsWith('14') && String(v.layoutGap).startsWith('14'),
       JSON.stringify({ shell: v.shellGap, layout: v.layoutGap }));
 
+    // Heights: list, chat, bookings card bottoms should align (match window)
+    const heights = await page.evaluate(() => {
+      const list = document.querySelector('.inbox-left').getBoundingClientRect();
+      const main = document.querySelector('.detail-main').getBoundingClientRect();
+      const card = document.querySelector('#inbox-detail-sidebar > .sidebar-card').getBoundingClientRect();
+      return {
+        listH: list.height,
+        mainH: main.height,
+        cardH: card.height,
+        bottoms: { list: list.bottom, main: main.bottom, card: card.bottom },
+        tops: { list: list.top, main: main.top, card: card.top },
+      };
+    });
+    ok('bookings card height matches chat card (±4px)',
+      Math.abs(heights.cardH - heights.mainH) <= 4,
+      JSON.stringify(heights));
+    ok('bookings top aligns with chat top (±4px)',
+      Math.abs(heights.tops.card - heights.tops.main) <= 4,
+      JSON.stringify(heights.tops));
+    ok('bookings bottom aligns with chat bottom (±4px)',
+      Math.abs(heights.bottoms.card - heights.bottoms.main) <= 4,
+      JSON.stringify(heights.bottoms));
+
     // Scroll bookings card and check radius still applied
     const afterScroll = await page.evaluate(() => {
       const card = document.querySelector('#inbox-detail-sidebar > .sidebar-card');
+      // Force overflow content if needed
+      if (card.scrollHeight <= card.clientHeight) {
+        const pad = document.createElement('div');
+        pad.style.height = '800px';
+        pad.textContent = 'pad';
+        card.appendChild(pad);
+      }
       card.scrollTop = 200;
       const s = getComputedStyle(card);
       return {
         scrollTop: card.scrollTop,
+        scrollHeight: card.scrollHeight,
+        clientHeight: card.clientHeight,
         radius: s.borderTopLeftRadius,
         overflowY: s.overflowY,
       };

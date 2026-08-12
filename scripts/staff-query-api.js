@@ -20033,62 +20033,89 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:14px;
   flex:1;min-height:0;overflow:hidden;width:100%;align-self:stretch;
   border:none;border-radius:0;box-shadow:none;background:transparent;
+  /* grid row stretches so all columns share the same height as the window */
+  align-items:stretch;
 }
 .inbox-two-col.inbox-shell-cols .inbox-left{
-  flex:unset;width:auto;min-width:0;height:auto;max-height:none;
+  flex:unset;width:auto;min-width:0;min-height:0;height:auto;max-height:none;
   border-right:none;border:1px solid var(--border-soft);border-radius:var(--radius);
   box-shadow:none;background:var(--surface);overflow:hidden;
+  align-self:stretch;
 }
 /*
- * ROOT FIX: #conv-detail must NOT be a card. border/radius/bg + overflow:hidden
- * framed chat+bookings together and clipped the bookings card square on scroll.
- * Keep it a transparent non-clipping host; .detail-main + .sidebar-card are the cards.
- * Leave the max-width:900px mobile block below alone (full-width card is intentional).
+ * ROOT FIX: #conv-detail must NOT be a card. No border/radius/bg.
+ * overflow:hidden without radius is OK — needed so the flex height chain
+ * fills the grid row (header collapse grows the window; bookings must match).
  */
 .inbox-two-col.inbox-shell-cols #conv-detail{
-  min-width:0;min-height:0;
+  min-width:0;min-height:0;height:100%;
   border:none!important;border-radius:0!important;
   background:transparent!important;box-shadow:none!important;
-  overflow:visible!important;
+  overflow:hidden; /* no radius → no square clip of child cards */
   display:flex;flex-direction:column;padding:0;
+  align-self:stretch;
 }
 .inbox-two-col.inbox-shell-cols #detail-content{
   background:transparent!important;
-  overflow:hidden; /* flex chain only — no radius, so no rounded clip */
+  overflow:hidden;
   padding:0!important;
+  flex:1 1 auto;
+  min-height:0;
+  height:100%;
+  display:flex;
+  flex-direction:column;
 }
 /* chat↔bookings gap must match list↔chat (shell gap: 14px) */
 .inbox-two-col.inbox-shell-cols .detail-layout{
   gap:14px;
-  overflow:visible;
+  overflow:hidden;
   min-height:0;
+  flex:1 1 auto;
+  height:100%;
+  align-items:stretch;
 }
-/* Bookings column: plain host — does not scroll or clip */
+/* Bookings column: stretch full row height like list + chat */
 .inbox-two-col.inbox-shell-cols .detail-sidebar,
 .inbox-two-col.inbox-shell-cols #inbox-detail-sidebar{
-  overflow:visible!important;
+  overflow:hidden!important; /* column does not scroll; card does */
   max-height:none;
   min-height:0;
+  height:auto;
   align-self:stretch;
   display:flex;
   flex-direction:column;
 }
-/* BOOKINGS card scrolls inside its own rounded frame */
+/* BOOKINGS card fills the column (matches list/chat window height) and scrolls inside */
 .inbox-two-col.inbox-shell-cols #inbox-detail-sidebar > .sidebar-card{
   overflow-x:hidden;
   overflow-y:auto;
   -webkit-overflow-scrolling:touch;
-  /* Bound height so content scrolls *inside* the rounded card (not the column). */
-  max-height:min(720px, calc(100vh - 220px));
+  /* Fill the stretched column — no fixed vh cap (breaks when header collapses). */
+  max-height:none;
   min-height:0;
   flex:1 1 auto;
+  height:100%;
+  margin-bottom:0!important; /* .sidebar-card default margin leaves a short card */
   border-radius:var(--radius-sm);
-  /* keep existing card chrome (border/bg from .sidebar-card) */
+  box-sizing:border-box;
+}
+/* Any extra notes cards under bookings still stack without breaking fill */
+.inbox-two-col.inbox-shell-cols #inbox-detail-sidebar > .sidebar-card + .sidebar-card{
+  flex:0 0 auto;
+  height:auto;
+  max-height:40%;
+  margin-top:10px;
+  margin-bottom:0!important;
 }
 @media(max-width:900px){
   .inbox-two-col.inbox-shell-cols{grid-template-columns:1fr;gap:0;border:none}
   .inbox-two-col.inbox-shell-cols .inbox-left,
   .inbox-two-col.inbox-shell-cols #conv-detail{border-radius:var(--radius)}
+  .inbox-two-col.inbox-shell-cols #inbox-detail-sidebar > .sidebar-card{
+    height:auto;
+    max-height:none;
+    flex:0 0 auto;
+  }
 }
 /* ═══ END luna-header-ui ═════════════════════════════════════════════════ */
 </style>
