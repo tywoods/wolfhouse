@@ -18440,7 +18440,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .guest-name{font-weight:600;color:var(--text)}
 /* ── Detail pane (right column of inbox two-column layout) ─────────────────── */
 #conv-detail{flex:1 1 0%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0;background:var(--surface)}
-#detail-content{flex:1 1 0;width:100%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0;box-sizing:border-box}
+#detail-content{flex:1 1 0;width:100%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0;box-sizing:border-box;background:var(--cream)}
 #detail-content.is-loading-detail .detail-main{opacity:.72;pointer-events:none;transition:opacity .15s}
 .conv-detail-load-status{font-size:11px;color:var(--text-3);font-weight:600;white-space:nowrap}
 .conv-detail-load-status.error{color:#9C5742}
@@ -20044,7 +20044,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   background:var(--surface);box-shadow:none;display:flex;flex-direction:column;
 }
 @media(max-width:900px){
-  .inbox-two-col.inbox-shell-cols{grid-template-columns:1fr;gap:0;border:none}
+  .inbox-two-col.inbox-shell-cols{grid-template-columns:1fr;gap:24px;border:none}
   .inbox-two-col.inbox-shell-cols .inbox-left,
   .inbox-two-col.inbox-shell-cols #conv-detail{border-radius:var(--radius)}
 }
