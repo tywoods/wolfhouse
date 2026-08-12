@@ -337,6 +337,7 @@ test('source is pure composition importing only the three merged child owners', 
   const source = fs.readFileSync(require.resolve('./lib/email-google-verified-grant-composition'), 'utf8');
   const relativeImports = [...source.matchAll(/require\(\s*['"](\.\/[^'"]+)['"]\s*\)/g)].map(match => match[1]).sort();
   assert.deepEqual(relativeImports, [
+    './email-google-gmail-profile-request',
     './email-google-oidc-id-token',
     './email-google-oidc-jwks-verifier',
     './email-google-verified-grant-custody',

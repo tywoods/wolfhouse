@@ -15,7 +15,7 @@ const ENDPOINT='11111111-2222-4333-8444-555555555555';
 const APP='9876543210-sunset.apps.googleusercontent.com';
 const REDIRECT='https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
 const REF='secret-ref:email/google/sunset-staging-oauth-client';
-const config=(onboardingEnabled=false,patch={})=>freeze({tenantSlug:'sunset',clientId:CLIENT,locationKey:LOCATION_KEY,locationId:LOCATION,endpointId:ENDPOINT,applicationClientId:APP,redirectUri:REDIRECT,secretRef:REF,authorityNonce:AUTHORITY_NONCE,onboardingEnabled,...patch});
+const config=(onboardingEnabled=false,patch={})=>freeze({tenantSlug:'sunset',clientId:CLIENT,locationKey:LOCATION_KEY,locationId:LOCATION,endpointId:ENDPOINT,applicationClientId:APP,redirectUri:REDIRECT,secretRef:REF,onboardingEnabled,...patch});
 function harness(){const calls={random:0,sha:0,now:0,create:0,consume:0,https:0,crypto:0,timers:0,envelope:0,install:0,secret:0};
  const cryptography=freeze({randomUUID(){calls.random++;throw Error('leak')},randomBytes(){calls.random++;throw Error('leak')},sha256Ascii(){calls.sha++;throw Error('leak')}});
  const clock=freeze({now(){calls.now++;throw Error('leak')},nowEpochSeconds(){calls.now++;throw Error('leak')}});
