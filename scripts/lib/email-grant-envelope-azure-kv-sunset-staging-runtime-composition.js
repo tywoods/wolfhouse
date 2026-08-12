@@ -47,9 +47,10 @@ const SUNSET_STAGING_VERSIONED_KEY_ID = (
   `https://${SUNSET_STAGING_TRUSTED_HOST}`
   + `/keys/${SUNSET_STAGING_KEK_KEY_NAME}/${SUNSET_STAGING_KEK_KEY_VERSION}`
 );
-const ENV_COMPOSITION_ENABLED = 'EMAIL_GRANT_ENVELOPE_AZURE_KV_COMPOSITION_ENABLED';
-const ENV_TRUSTED_HOST = 'EMAIL_GRANT_ENVELOPE_AZURE_KV_TRUSTED_HOST';
-const ENV_VERSIONED_KEY_ID = 'EMAIL_GRANT_ENVELOPE_AZURE_KV_VERSIONED_KEY_ID';
+const ENV_COMPOSITION_ENABLED = 'EMAIL_GRANT_ENVELOPE_AZURE_KV_COMPOSITION_ENABLED',
+  ENV_TRUSTED_HOST = 'EMAIL_GRANT_ENVELOPE_AZURE_KV_TRUSTED_HOST',
+  ENV_VERSIONED_KEY_ID = 'EMAIL_GRANT_ENVELOPE_AZURE_KV_VERSIONED_KEY_ID',
+  ENV_RUNTIME_ACTIVATION_ENABLED = 'EMAIL_GRANT_ENVELOPE_AZURE_KV_SUNSET_STAGING_RUNTIME_ACTIVATION_ENABLED';
 const ENV_KEYS = Object.freeze([
   ENV_COMPOSITION_ENABLED, ENV_TRUSTED_HOST, ENV_VERSIONED_KEY_ID,
 ]);
@@ -415,8 +416,27 @@ function createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(env) {
   });
 }
 
+/** Separately reviewed active surface; the legacy factory remains default-off. */
+function createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(env) {
+  const source = env === undefined ? process.env : env;
+  const activation = readEnvString(source, ENV_RUNTIME_ACTIVATION_ENABLED);
+  if (!activation.ok || !activation.present || activation.value !== 'true') {
+    throw err('envelope_azure_kv_runtime_activation_disabled');
+  }
+  const composition = createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(source);
+  if (!composition || composition.ok !== true || composition.composition_enabled !== true
+      || composition.runtime_activation !== false) {
+    throw err('envelope_azure_kv_runtime_activation_disabled');
+  }
+  return Object.freeze({
+    ok: true, composition_enabled: true, runtime_activation: true,
+    deployment_boundary: composition.deployment_boundary, provider: composition.provider,
+    public_metadata: Object.freeze({ ...composition.public_metadata, runtime_activation: true }),
+  });
+}
+
 module.exports = {
-  createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition,
+  createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition, createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition,
   parseEmailGrantEnvelopeAzureKvSunsetStagingRuntimeConfig,
   SUNSET_STAGING_EMAIL_GRANT_KEK,
   SUNSET_STAGING_TRUSTED_HOST,
@@ -428,6 +448,7 @@ module.exports = {
   ENV_COMPOSITION_ENABLED,
   ENV_TRUSTED_HOST,
   ENV_VERSIONED_KEY_ID,
+  ENV_RUNTIME_ACTIVATION_ENABLED,
   ENV_KEYS,
   CRYPTO_CLIENT_OPTIONS,
   PROD_WRAP_ALG,

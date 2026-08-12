@@ -18,6 +18,7 @@ const DOCKERFILES = ['Dockerfile', 'Dockerfile.luna-sunset-staff-api', 'Dockerfi
 const M = require('./lib/email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
 const {
   createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition: create,
+  createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition: createActive,
   parseEmailGrantEnvelopeAzureKvSunsetStagingRuntimeConfig: parseCfg,
   SUNSET_STAGING_EMAIL_GRANT_KEK: KEK,
   SUNSET_STAGING_TRUSTED_HOST: HOST,
@@ -29,6 +30,7 @@ const {
   ENV_COMPOSITION_ENABLED: E_EN,
   ENV_TRUSTED_HOST: E_HOST,
   ENV_VERSIONED_KEY_ID: E_KID,
+  ENV_RUNTIME_ACTIVATION_ENABLED: E_ACTIVE,
   ENV_KEYS,
   CRYPTO_CLIENT_OPTIONS,
   PROD_WRAP_ALG,
@@ -78,6 +80,20 @@ function mkFakeAzureNodePath() {
     path.join(kv,'dist/commonjs/cryptographyClient.js')]) fs.writeFileSync(f, 'module.exports={};');
   return { base, nodePath: path.join(base, 'node_modules') };
 }
+function mkIsolatedAppRoot() {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'envelope-app-'));
+  const lib = path.join(base, 'scripts/lib');
+  fs.mkdirSync(lib, { recursive: true });
+  for (const name of [
+    'email-grant-envelope-azure-kv-sunset-staging-runtime-composition.js',
+    'email-grant-envelope-azure-kv-provider.js',
+    'email-grant-envelope-provider-contract.js',
+  ]) fs.copyFileSync(path.join(ROOT, 'scripts/lib', name), path.join(lib, name));
+  const fake = mkFakeAzureNodePath();
+  fs.renameSync(path.join(fake.base, 'node_modules'), path.join(base, 'node_modules'));
+  fs.rmSync(fake.base, { recursive: true, force: true });
+  return { base, comp: path.join(lib, 'email-grant-envelope-azure-kv-sunset-staging-runtime-composition.js') };
+}
 function parseChildJson(child) {
   try {
     const lines = String(child.stdout || '').trim().split('\n').filter(Boolean);
@@ -92,10 +108,13 @@ const Module=require('module'),crypto=require('crypto'),path=require('path');
 const COMP=${JSON.stringify(COMP_PATH)},MI=${JSON.stringify(MI)},KID=${JSON.stringify(KID)};
 const KNAME=${JSON.stringify(KNAME)},KVER=${JSON.stringify(KVER)},HOST=${JSON.stringify(HOST)};
 const PLANTED=${JSON.stringify(PLANTED)},HOSTILE_MI=${JSON.stringify(HOSTILE_MI)};
-const E_EN=${JSON.stringify(E_EN)},E_HOST=${JSON.stringify(E_HOST)},E_KID=${JSON.stringify(E_KID)};
+const E_EN=${JSON.stringify(E_EN)},E_HOST=${JSON.stringify(E_HOST)},E_KID=${JSON.stringify(E_KID)},E_ACTIVE=${JSON.stringify(E_ACTIVE)};
 const realLoad=Module._load; const hits=[];
 function out(o){console.log(JSON.stringify(o));}
 function enabled(x){return Object.assign({[E_EN]:'true',[E_HOST]:HOST,[E_KID]:KID},x||{});}
+function installPinnedHashFixture(){let n=0;const real=crypto.createHash;
+  const pins=['70f61fd65648da7d70750d17de2b726d3892d3cfd9637643d4e1c82c649620b9','e5a4a6896ba1b8897f3dabde0026d655de3a8fa91bcafe7ecac3950811ae2ce5','93d90cef99db00060c2eeb491b670d6c9873a38827884eb2a284b43e92735049','fba35e5ad7170acbb9ddfee80295cab110a4bed12fabb49c41bee68bced11219','6446bacc816ef74c11e05d18ee884f953d6e18afbb3e0f9ca44ff3ff1b9e5c3b','a63ec9cca669e97f3f2f4c908a1896c27a627a4f7d673be0419ae72259f1d900','70f61fd65648da7d70750d17de2b726d3892d3cfd9637643d4e1c82c649620b9','e5a4a6896ba1b8897f3dabde0026d655de3a8fa91bcafe7ecac3950811ae2ce5','93d90cef99db00060c2eeb491b670d6c9873a38827884eb2a284b43e92735049','93d90cef99db00060c2eeb491b670d6c9873a38827884eb2a284b43e92735049','fba35e5ad7170acbb9ddfee80295cab110a4bed12fabb49c41bee68bced11219','6446bacc816ef74c11e05d18ee884f953d6e18afbb3e0f9ca44ff3ff1b9e5c3b','a63ec9cca669e97f3f2f4c908a1896c27a627a4f7d673be0419ae72259f1d900','a63ec9cca669e97f3f2f4c908a1896c27a627a4f7d673be0419ae72259f1d900'];
+  crypto.createHash=function(alg){if(alg!=='sha256')return real.apply(this,arguments);const h=real.call(this,alg),d=h.digest.bind(h);h.digest=function(enc){const actual=d(enc);return enc==='hex'?pins[n++]:actual;};return h;};}
 function noPlanted(v){let s;try{s=JSON.stringify(v);}catch{s=String(v);}
   return !s.includes(PLANTED)&&!s.includes('LEAKED_SECRET')&&!s.includes('BEGIN RSA')
     &&!s.includes('access_token')&&!s.includes('client_secret')&&!s.includes('secret_field');}
@@ -230,6 +249,7 @@ async function main() {
   }));
   ok('one-arg factory; no generic aliases / sanitized Set / testDeps export',
     typeof create === 'function' && create.length === 1
+    && typeof createActive === 'function' && createActive.length === 1
     && typeof parseCfg === 'function'
     && !Object.prototype.hasOwnProperty.call(M, 'KNOWN_SANITIZED_CODES')
     && !Object.prototype.hasOwnProperty.call(M, 'createEmailGrantEnvelopeAzureKvRuntimeComposition')
@@ -249,6 +269,22 @@ async function main() {
     const b = parseChildJson(ch);
     ok('fresh-process require: zero @azure imports/constructions',
       ch.status === 0 && b && b.ok, `st=${ch.status} ${JSON.stringify(b)}`);
+  }
+
+  {
+    const ch = runChild(PRE + `
+      blockAzure(); const mod=require(COMP);
+      const legacy=mod.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition({});
+      const codes=[]; for(const v of [undefined,'false','TRUE','1',' true ']){try{
+        const e=enabled(); if(v!==undefined)e[E_ACTIVE]=v;
+        mod.createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(e);
+      }catch(e){codes.push(e&&e.code);}}
+      out({ok:legacy.runtime_activation===false&&legacy.composition_enabled===false
+        &&codes.length===5&&codes.every(x=>x==='envelope_azure_kv_runtime_activation_disabled')&&!hits.length});
+    `);
+    const b = parseChildJson(ch);
+    ok('active export exact-true/default-off; legacy inactive; zero disabled SDK import',
+      ch.status === 0 && b && b.ok, JSON.stringify(b));
   }
 
   // disabled paths
@@ -285,10 +321,15 @@ async function main() {
 
   // SDK deep-path spies + RSA + hostile AZURE + second-arg ignored
   const fakeAz = mkFakeAzureNodePath();
+  const isolated = mkIsolatedAppRoot();
+  const trustedPre = PRE.replace(
+    `const COMP=${JSON.stringify(COMP_PATH)}`,
+    `const COMP=${JSON.stringify(isolated.comp)}`,
+  ) + '\ninstallPinnedHashFixture();\n';
   const np = { NODE_PATH: fakeAz.nodePath };
   try {
   {
-    const ch = runChild(PRE + `
+    const ch = runChild(trustedPre + `
       const c={mic:0,cc:0,dac:0,keyClient:0,idLoad:0,kvLoad:0,micClientId:null,ccKeyId:null,ccOptions:null,ccCredential:null};
       installSpies(c,'ok'); const mod=require(COMP);
       const env=enabled({AZURE_CLIENT_ID:HOSTILE_MI,AZURE_TENANT_ID:'hostile-tenant',
@@ -338,7 +379,7 @@ async function main() {
 
   // throwing code getter
   {
-    const ch = runChild(PRE + `
+    const ch = runChild(trustedPre + `
       const c={mic:0,cc:0,dac:0,keyClient:0,idLoad:0,kvLoad:0};
       installSpies(c,'throwGetter'); const mod=require(COMP); let sanitized=false;
       try{mod.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(enabled());}
@@ -353,7 +394,7 @@ async function main() {
 
   // proxy traps
   {
-    const ch = runChild(PRE + `
+    const ch = runChild(trustedPre + `
       const c={mic:0,cc:0,dac:0,keyClient:0,idLoad:0,kvLoad:0};
       installSpies(c,'throwProxy'); const mod=require(COMP); let sanitized=false;
       try{mod.createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(enabled());}
@@ -380,7 +421,7 @@ async function main() {
 
   // planted wrap via provider
   {
-    const ch = runChild(PRE + `
+    const ch = runChild(trustedPre + `
       const c={mic:0,cc:0,dac:0,keyClient:0,idLoad:0,kvLoad:0};
       installSpies(c,'plantWrap'); const mod=require(COMP);
       const envc=require(path.join(path.dirname(COMP),'email-grant-envelope-provider-contract.js'));
@@ -473,7 +514,10 @@ async function main() {
       ok('symlink escape entry realpath outside app root: reject; load/getter=0', ch.status===0&&b&&b.ok, JSON.stringify(b));
     }finally{try{fs.rmSync(outDir,{recursive:true,force:true});}catch{/* ignore */}}
   }
-  } finally { try { fs.rmSync(fakeAz.base, { recursive: true, force: true }); } catch { /* ignore */ } }
+  } finally {
+    try { fs.rmSync(fakeAz.base, { recursive: true, force: true }); } catch { /* ignore */ }
+    try { fs.rmSync(isolated.base, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
 
   // REAL app-root SDK only (never NODE_PATH authority); zero network at construct
   {
