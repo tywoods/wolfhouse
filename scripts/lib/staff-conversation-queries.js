@@ -38,9 +38,15 @@ const {
   sqlConversationLocationMatch,
 } = require('./sunset-school-locations');
 
+/** Channel of a conversation row; WhatsApp is the pre-email default. */
+function sqlConversationChannelExpr(convAlias) {
+  const conv = convAlias || 'conv';
+  return `COALESCE(${conv}.metadata->>'channel', ${conv}.session_state->>'channel', 'whatsapp')`;
+}
+
 function inboxChannelFieldsSql() {
   return `
-  COALESCE(conv.metadata->>'channel', conv.session_state->>'channel', 'whatsapp') AS channel,
+  ${sqlConversationChannelExpr('conv')} AS channel,
   conv.email                                         AS guest_email,
   conv.metadata->>'email_subject'                    AS email_subject,
   ${sqlConversationLocationExpr('conv')}             AS location_id,`;
@@ -50,16 +56,27 @@ function inboxLocationWhereClause(scoped, paramIndex = 2) {
   return scoped ? `\n  AND ${sqlConversationLocationMatch('conv', paramIndex)}` : '';
 }
 
+/** $1 client slug, $2 location when location-scoped, so channel lands after both. */
+function conversationInboxChannelParamIndex(locationScoped) {
+  return locationScoped ? 3 : 2;
+}
+
+function inboxChannelWhereClause(scoped, paramIndex) {
+  return scoped ? `\n  AND ${sqlConversationChannelExpr('conv')} = $${paramIndex}` : '';
+}
+
 function detailLocationWhereClause(scoped, paramIndex = 3) {
   return scoped ? `\n  AND ${sqlConversationLocationMatch('conv', paramIndex)}` : '';
 }
 
 /**
- * @param {{ locationScoped?: boolean }} [opts]
- * @returns {string} $1 = client slug; when locationScoped, $2 = location_id
+ * @param {{ locationScoped?: boolean, channelScoped?: boolean }} [opts]
+ * @returns {string} $1 = client slug; when locationScoped, $2 = location_id;
+ *   when channelScoped, the next index is the channel value
  */
 function getConversationInboxQuery(opts = {}) {
   const scoped = !!opts.locationScoped;
+  const channelScoped = !!opts.channelScoped;
   return `
 SELECT
   conv.id::text              AS conversation_id,
@@ -116,7 +133,7 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) bphone ON TRUE
 WHERE c.slug = $1
-  AND conv.status IN ('open', 'on_hold')${inboxLocationWhereClause(scoped)}
+  AND conv.status IN ('open', 'on_hold')${inboxLocationWhereClause(scoped)}${inboxChannelWhereClause(channelScoped, conversationInboxChannelParamIndex(scoped))}
 ORDER BY
   conv.needs_human DESC,
   CASE h.priority
@@ -577,6 +594,8 @@ WHERE c.slug = $1
 
 module.exports = {
   DEFAULT_SUNSET_LOCATION_ID,
+  sqlConversationChannelExpr,
+  conversationInboxChannelParamIndex,
   getConversationInboxQuery,
   getConversationDetailQuery,
   getConversationMessagesQuery,
