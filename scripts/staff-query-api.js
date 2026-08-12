@@ -398,6 +398,10 @@ const {
   CUSTOMER_PHONE_RE,
 } = require('./lib/staff-customers-routes');
 const {
+  createInboxThreadCompositeRoutes,
+  INBOX_THREAD_COMPOSITE_RE,
+} = require('./lib/staff-inbox-thread-composite');
+const {
   clearConversationMessages,
   resetLunaConversationContext,
   deleteConversationHard,
@@ -2594,6 +2598,27 @@ const {
   handleCustomerUpdate,
   handleCustomerCreateConversation,
 } = customersRoutes;
+
+// Inbox thread composite read (extracted module). One snapshot for the six
+// payloads the thread view used to fetch separately; viewer auth stays in the
+// router and the handler re-applies assertStaffClientAccess.
+const inboxThreadCompositeRoutes = createInboxThreadCompositeRoutes({
+  sendJSON,
+  send400,
+  send404,
+  assertStaffClientAccess,
+  appendAuditLog,
+  withPgClient,
+  DEFAULT_CLIENT,
+  SQL_INJECT_RE,
+  resolveSunsetConversationScope,
+  conversationDetailQueryParams,
+  sanitizeConversationContextForInbox,
+  filterActiveInboxBookings,
+  buildPausedStateResponse,
+  buildDefaultActivePauseResponse,
+});
+const { handleInboxThreadComposite } = inboxThreadCompositeRoutes;
 
 // Sunset Admin Bookings (N1) — list/export viewer; manual refund operator+.
 const bookingsAdminRoutes = createBookingsAdminRoutes({
@@ -47944,6 +47969,17 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleConversationInbox(parsed.query, res, auth.user);
+  }
+
+  const inboxThreadCompositeMatch = INBOX_THREAD_COMPOSITE_RE.exec(pathname);
+  if (inboxThreadCompositeMatch) {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET for inbox/thread/:id' }));
+    }
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleInboxThreadComposite(inboxThreadCompositeMatch[1], parsed.query, res, auth.user);
   }
 
   const convSubMatch = CONV_SUB_RE.exec(pathname);
