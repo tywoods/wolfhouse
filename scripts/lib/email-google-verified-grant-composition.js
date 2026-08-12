@@ -7,6 +7,9 @@ const {
   createGoogleOidcVerifiedIdentity,
 } = require('./email-google-oidc-id-token');
 const {
+  createGoogleGmailProfileRequest,
+} = require('./email-google-gmail-profile-request');
+const {
   CONFIG_KEYS,
   createGoogleVerifiedGrantCustodyAdapter,
 } = require('./email-google-verified-grant-custody');
@@ -101,8 +104,34 @@ function createGoogleVerifiedGrantComposition(config, dependencies) {
     }));
     if (!readMethodOwner(verifiedIdentity, ['verifyIdentity'])) throw failure();
 
+    const profileRequest = createGoogleGmailProfileRequest(Object.freeze({
+      requestTimeoutMs: 5000,
+      responseBytesMax: 16384,
+    }), Object.freeze({
+      https: dependencyRecord.https,
+      timers: dependencyRecord.timers,
+    }));
+    const identityRecord = readMethodOwner(verifiedIdentity, ['verifyIdentity']);
+    const profileRecord = readMethodOwner(profileRequest, ['getProfile']);
+    if (!identityRecord || !profileRecord) throw failure();
+    const authorityBoundIdentity = Object.freeze({
+      async verifyIdentity(input) {
+        const identity = await Reflect.apply(identityRecord.verifyIdentity, verifiedIdentity, [input]);
+        const selected = readExactFrozenRecord(input, ['idToken', 'accessToken', 'expectedNonce',
+          'expectedClientId', 'nowEpochSeconds']);
+        const identityValue = readExactFrozenRecord(identity,
+          ['providerTenantId', 'providerPrincipalId', 'mailboxAddress', 'displayName']);
+        if (!selected || !identityValue) throw failure();
+        const profile = await Reflect.apply(profileRecord.getProfile, profileRequest,
+          [Object.freeze({ accessToken: selected.accessToken })]);
+        const profileValue = readExactFrozenRecord(profile, ['emailAddress', 'historyId']);
+        if (!profileValue || profileValue.emailAddress !== identityValue.mailboxAddress) throw failure();
+        return identity;
+      },
+    });
+
     custody = createGoogleVerifiedGrantCustodyAdapter(config, Object.freeze({
-      verifiedIdentity,
+      verifiedIdentity: authorityBoundIdentity,
       envelopeProvider: dependencyRecord.envelopeProvider,
       clock: dependencyRecord.clock,
       installer: dependencyRecord.installer,

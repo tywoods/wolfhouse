@@ -86,17 +86,20 @@ function transportResponse(statusCode, body) {
 function harness(spec = {}) {
   const calls = { requests: [], timers: [], crypto: [], seal: [], install: [], clock: [], open: 0, rewrap: 0 };
   const https = freeze({ request(options, callback) {
-    calls.requests.push({ options, receiver: this });
+    const record = { options, receiver: this };
+    calls.requests.push(record);
     if (spec.httpsThrow) throw new Error(`${LEAK}:${CLIENT_SECRET}`);
     const request = new EventEmitter(); request.destroy = function destroy() {};
     request.end = function end(body) {
-      calls.requests[calls.requests.length - 1].body = body;
+      record.body = body;
       if (options.hostname === 'oauth2.googleapis.com') {
         const payload = spec.rawTokenBody === undefined ? tokenBody(spec) : spec.rawTokenBody;
         transportResponse(spec.tokenStatus || 200, payload).deliver(callback);
-      } else if (options.hostname === 'www.googleapis.com') {
+      } else if (options.hostname === 'www.googleapis.com' && options.path === '/oauth2/v3/certs') {
         const jwk = { ...publicJwk, kid: KID, use: 'sig', alg: 'RS256' };
         transportResponse(200, JSON.stringify({ keys: [jwk] })).deliver(callback);
+      } else if (options.hostname === 'www.googleapis.com' && options.path === '/gmail/v1/users/me/profile') {
+        transportResponse(200, JSON.stringify({ emailAddress: spec.profileEmail || EMAIL, historyId: '123456' })).deliver(callback);
       } else throw new Error('unexpected offline destination');
     };
     return request;
@@ -162,8 +165,8 @@ test('exports only the frozen factory and returns the exact request one-shot sur
 test('performs the complete fixed token POST, Google JWKS verification, seal, and minimized install', async () => {
   const c = create(); const ack = await c.service.exchangeAuthorizationCode(input());
   assert.deepEqual(ack, { status: 'custodied' }); assert.equal(Object.isFrozen(ack), true);
-  assert.equal(c.calls.requests.length, 2);
-  const [post, jwks] = c.calls.requests;
+  assert.equal(c.calls.requests.length, 3);
+  const [post, jwks, profile] = c.calls.requests;
   assert.deepEqual(post.options, { protocol: 'https:', hostname: 'oauth2.googleapis.com', port: 443, method: 'POST', path: '/token',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(post.body), Accept: 'application/json' }, agent: false });
   assert.deepEqual([...new URLSearchParams(post.body)], [
@@ -172,6 +175,9 @@ test('performs the complete fixed token POST, Google JWKS verification, seal, an
   ]);
   assert.deepEqual(jwks.options, { protocol: 'https:', hostname: 'www.googleapis.com', port: 443, method: 'GET',
     path: '/oauth2/v3/certs', headers: { Accept: 'application/json' }, agent: false });
+  assert.equal(profile.options.hostname, 'www.googleapis.com');
+  assert.equal(profile.options.path, '/gmail/v1/users/me/profile');
+  assert.equal(profile.options.headers.Authorization, `Bearer ${ACCESS}`);
   assert.deepEqual(c.calls.crypto.map(call => call.method), ['createPublicKey', 'verify']);
   assert.equal(c.calls.seal.length, 1); assert.equal(c.calls.install.length, 1);
 });
@@ -197,7 +203,7 @@ test('shares exact HTTPS and timers owners across exchange and JWKS and preserve
   assert.ok(c.calls.crypto.every(call => call.receiver === c.crypto));
   assert.equal(c.calls.clock[0], c.clock); assert.equal(c.calls.seal[0].receiver, c.envelopeProvider);
   assert.equal(c.calls.install[0].receiver, c.installer); assert.equal(c.calls.open, 0); assert.equal(c.calls.rewrap, 0);
-  assert.deepEqual(c.calls.timers.filter(x => x.method === 'set').map(x => x.milliseconds), [10000, 5000]);
+  assert.deepEqual(c.calls.timers.filter(x => x.method === 'set').map(x => x.milliseconds), [10000, 5000, 5000]);
 });
 
 test('requires the exact frozen ordered eight-field data-only configuration before child side effects', async () => {
@@ -247,6 +253,15 @@ test('invalid signature, nonce, or audience prevents sealing and installation', 
   for (const spec of cases) { const c = create(spec); await rejects(() => c.service.exchangeAuthorizationCode(input())); assert.ok(c.calls.crypto.length > 0); assert.equal(c.calls.seal.length, 0); assert.equal(c.calls.install.length, 0); }
 });
 
+test('wrong Gmail profile blocks sealing and installation after cryptographic verification', async () => {
+  const c = create({ profileEmail: 'wrong@example.test' });
+  await rejects(() => c.service.exchangeAuthorizationCode(input()));
+  assert.deepEqual(c.calls.crypto.map(call => call.method), ['createPublicKey', 'verify']);
+  assert.equal(c.calls.requests.filter(call => call.options.path === '/gmail/v1/users/me/profile').length, 1);
+  assert.equal(c.calls.seal.length, 0);
+  assert.equal(c.calls.install.length, 0);
+});
+
 test('invalid scope or malformed/non-success exact token response prevents crypto, seal, and install', async () => {
   const specimens = [
     { tokenPatch: { scope: `${SCOPE} https://www.googleapis.com/auth/gmail.send` } },
@@ -292,6 +307,6 @@ test('source imports exactly four merged owners in construction order and contai
 
 (async () => {
   for (const { name, run } of tests) { await run(); process.stdout.write(`ok - ${name}\n`); }
-  assert.equal(tests.length, 14);
-  process.stdout.write('PASS verify:email-google-authorization-code-operation (14 named offline tests)\n');
+  assert.equal(tests.length, 15);
+  process.stdout.write('PASS verify:email-google-authorization-code-operation (15 named offline tests)\n');
 })().catch(error => { process.stderr.write(`${error && error.stack ? error.stack : error}\n`); process.exitCode = 1; });

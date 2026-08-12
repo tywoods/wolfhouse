@@ -112,7 +112,7 @@ test('pins dependency methods and receivers and ignores poisoned function-owned 
 test('emits the sole fixed GET with exact authorization and accept headers and no body', async () => {
   const { h, request } = service(); const pending = request.getProfile(input());
   assert.equal(h.calls.length, 1); const call = h.calls[0];
-  assert.deepEqual(call.options, Object.freeze({ protocol: 'https:', hostname: 'gmail.googleapis.com', port: 443,
+  assert.deepEqual(call.options, Object.freeze({ protocol: 'https:', hostname: 'www.googleapis.com', port: 443,
     method: 'GET', path: '/gmail/v1/users/me/profile', headers: Object.freeze({ Authorization: `Bearer ${TOKEN}`, Accept: 'application/json' }) }));
   assert.equal(Object.isFrozen(call.options), true); assert.equal(Object.isFrozen(call.options.headers), true);
   assert.equal(call.request.ended, 1); assert.equal(call.request.body, undefined); assert.equal(h.timers[0].ms, 5000);

@@ -85,23 +85,27 @@ function envelope() {
 }
 function harness(spec = {}) {
   const calls = { request: [], crypto: [], clock: [], seal: [], open: 0, rewrap: 0, install: [] };
-  const response = new EventEmitter();
-  response.statusCode = 200;
-  response.headers = { 'content-type': 'application/json' };
-  response.destroy = function destroy() {};
-  const request = new EventEmitter();
-  request.destroy = function destroy() {};
-  request.end = function end() {
-    const body = JSON.stringify({ keys: [{ ...publicJwk, kid: spec.jwksKid || KID, use: 'sig', alg: 'RS256' }] });
-    responseCallback(response);
-    response.emit('data', Buffer.from(body));
-    response.emit('end');
-  };
-  let responseCallback;
   const https = Object.freeze({ request(options, callback) {
-    calls.request.push({ options, receiver: this });
     if (spec.requestThrow) throw new Error(`${LEAK}:https`);
-    responseCallback = callback;
+    const response = new EventEmitter();
+    response.statusCode = 200;
+    response.headers = { 'content-type': 'application/json' };
+    response.destroy = function destroy() {};
+    const request = new EventEmitter();
+    request.destroy = function destroy() {};
+    const exchange = { options, receiver: this, request, response };
+    calls.request.push(exchange);
+    request.end = function end() {
+      const isProfile = options.path === '/gmail/v1/users/me/profile';
+      const body = JSON.stringify(isProfile
+        ? { emailAddress: spec.profileEmail || EMAIL, historyId: '123456' }
+        : { keys: [{ ...publicJwk, kid: spec.jwksKid || KID, use: 'sig', alg: 'RS256' }] });
+      callback(response);
+      response.emit('data', Buffer.from(body));
+      response.emit('end');
+      response.removeAllListeners();
+      request.removeAllListeners();
+    };
     return request;
   } });
   const crypto = Object.freeze({
@@ -208,20 +212,49 @@ test('performs no network, crypto, clock, seal, or install during factory constr
   noWork(c.calls);
 });
 
-test('runs real JWKS, identity, and custody in order only after token acceptance', async () => {
+test('binds one Gmail profile check between transaction-nonce identity verification and custody', async () => {
   const c = create();
   const ack = await Reflect.apply(c.service.acceptValidatedTokens, c.service, [selected()]);
   assert.deepEqual(ack, { status: 'accepted' });
   assert.equal(Object.isFrozen(ack), true);
-  assert.equal(c.calls.request.length, 1);
+  assert.equal(c.calls.request.length, 2);
   assert.deepEqual(c.calls.request[0].options, {
     protocol: 'https:', hostname: 'www.googleapis.com', port: 443, method: 'GET',
     path: '/oauth2/v3/certs', headers: { Accept: 'application/json' }, agent: false,
   });
+  assert.equal(c.calls.request[1].options.path, '/gmail/v1/users/me/profile');
   assert.deepEqual(c.calls.crypto.map(x => x.method), ['createPublicKey', 'verify']);
   assert.equal(c.calls.seal.length, 1);
   assert.equal(c.calls.install.length, 1);
   secretFree(ack);
+});
+
+test('JWKS and profile use distinct request/response lifecycles without cross-delivery or retained listeners', async () => {
+  const c = create();
+  await c.service.acceptValidatedTokens(selected());
+  assert.equal(c.calls.request.length, 2);
+  const [jwks, profile] = c.calls.request;
+  assert.notStrictEqual(jwks.request, profile.request);
+  assert.notStrictEqual(jwks.response, profile.response);
+  assert.equal(jwks.options.hostname, 'www.googleapis.com');
+  assert.equal(jwks.options.path, '/oauth2/v3/certs');
+  assert.equal(profile.options.hostname, 'www.googleapis.com');
+  assert.equal(profile.options.path, '/gmail/v1/users/me/profile');
+  for (const exchange of [jwks, profile]) {
+    assert.equal(exchange.request.listenerCount('error'), 0);
+    assert.equal(exchange.response.listenerCount('data'), 0);
+    assert.equal(exchange.response.listenerCount('end'), 0);
+    assert.equal(exchange.response.listenerCount('error'), 0);
+    assert.equal(exchange.response.listenerCount('aborted'), 0);
+  }
+});
+
+test('wrong Gmail profile prevents seal and install after genuine nonce verification', async () => {
+  const c = create({ profileEmail: 'other@example.test' });
+  await rejected(() => c.service.acceptValidatedTokens(selected()));
+  assert.equal(c.calls.request.length, 2);
+  assert.equal(c.calls.seal.length, 0);
+  assert.equal(c.calls.install.length, 0);
 });
 
 test('produces verified four-field identity, refresh-only canonical AAD, and minimized installer DTO', async () => {
@@ -325,6 +358,7 @@ test('source is pure composition importing only the three merged child owners', 
   const source = fs.readFileSync(require.resolve('./lib/email-google-verified-grant-composition'), 'utf8');
   const relativeImports = [...source.matchAll(/require\(\s*['"](\.\/[^'"]+)['"]\s*\)/g)].map(match => match[1]).sort();
   assert.deepEqual(relativeImports, [
+    './email-google-gmail-profile-request',
     './email-google-oidc-id-token',
     './email-google-oidc-jwks-verifier',
     './email-google-verified-grant-custody',

@@ -15,7 +15,7 @@ const RESPONSE_BYTES_MAX = 16384;
 const ACCESS_TOKEN_MAX = 8192;
 const EMAIL_MAX = 320;
 const TOTAL_MAX = 4294967295;
-const HOSTNAME = 'gmail.googleapis.com';
+const HOSTNAME = 'www.googleapis.com';
 const REQUEST_PATH = '/gmail/v1/users/me/profile';
 const CONTENT_TYPE = /^application\/json(?:\s*;\s*charset\s*=\s*utf-8\s*)?$/i;
 const VISIBLE_ASCII = /^[\x21-\x7e]+$/;
