@@ -166,6 +166,25 @@
       + '</div>';
   }
 
+  /**
+   * Delete is offered only for catalog entries staff created. A config-seeded
+   * item would come straight back from the JSON seed on the next load, so it is
+   * labelled built-in rather than given a button that silently does nothing.
+   */
+  function catalogTitleActions(itemType, entry) {
+    if (!canWrite()) return '';
+    if (entry.source !== 'db') {
+      return '<span class="portal-admin-price-meta">'
+        + whEsc(whT('admin.wh.pricing.builtIn', 'built-in')) + '</span>';
+    }
+    return '<div class="portal-admin-card-actions">'
+      + actionBtn('delete-item', whT('admin.action.delete', 'Delete'),
+        ' data-wh-item-type="' + whEsc(itemType)
+        + '" data-wh-item-code="' + whEsc(entry.code) + '"',
+        'btn-ghost portal-admin-danger')
+      + '</div>';
+  }
+
   function sectionShell(title, note, bodyHtml, headerExtra) {
     return '<section class="portal-admin-section">'
       + '<div class="portal-admin-section-hdr">'
@@ -297,8 +316,10 @@
   function renderPackagesSection() {
     var packages = state.view.packages || [];
     var html = '';
-    if (!packages.length) {
-      html = '<p class="portal-admin-muted">'
+    if (isEditing('item:package:__new__')) html += renderNewItemForm('package');
+
+    if (!packages.length && !isEditing('item:package:__new__')) {
+      html += '<p class="portal-admin-muted">'
         + whEsc(whT('admin.wh.pricing.noPackages', 'No packages configured.')) + '</p>';
     }
 
@@ -307,7 +328,9 @@
       html += '<div class="portal-admin-subsection">'
         + '<div class="portal-admin-subsection-title-row">'
         + '<div class="portal-admin-subsection-title">' + whEsc(p.label || humanize(p.code))
-        + '</div></div>'
+        + '</div>'
+        + catalogTitleActions('package', p)
+        + '</div>'
         + '<div class="portal-admin-card-grid">';
 
       for (var j = 0; j < (p.prices || []).length; j++) {
@@ -345,17 +368,33 @@
       html += '</div></div>';
     }
 
+    var headerExtra = canWrite() && !isEditing('item:package:__new__')
+      ? actionBtn('new-item', '+ ' + whT('admin.wh.pricing.addPackage', 'Add package'),
+        ' data-wh-item-type="package"')
+      : '';
+
     return sectionShell(
       whT('admin.wh.pricing.packages', 'Packages'),
       whT('admin.wh.pricing.packagesNote',
         'Weekly price per person, set per season. A season left unset cannot be quoted.'),
       html,
+      headerExtra,
     );
   }
 
   // ── Catalog sections (rentals + services) ──────────────────────────────────
 
+  var NEW_ITEM_PLACEHOLDERS = {
+    package: ['Malibu', 'malibu'],
+    rental: ['Longboard', 'longboard_rental'],
+    service: ['Yoga class', 'yoga_class'],
+  };
+
   function renderNewItemForm(itemType) {
+    // A package carries one price per season, so it is created empty and priced
+    // from the season cards it gains — there is no single amount to ask for here.
+    var isPackage = itemType === 'package';
+    var placeholders = NEW_ITEM_PLACEHOLDERS[itemType] || ['', ''];
     var unitOptions = itemType === 'rental'
       ? ['per_day', 'per_stay', 'flat']
       : ['per_day', 'per_class', 'per_lesson', 'per_meal', 'per_person', 'per_stay'];
@@ -368,15 +407,19 @@
       + '<div class="portal-admin-edit-field"><label for="wh-price-item-label">'
       + whEsc(whT('admin.wh.pricing.itemName', 'Name')) + '</label>'
       + '<input type="text" id="wh-price-item-label" maxlength="120" placeholder="'
-      + whEsc(itemType === 'rental' ? 'Longboard' : 'Yoga class') + '"></div>'
+      + whEsc(placeholders[0]) + '"></div>'
       + '<div class="portal-admin-edit-field"><label for="wh-price-item-code">'
       + whEsc(whT('admin.wh.pricing.itemCode', 'Code')) + '</label>'
       + '<input type="text" id="wh-price-item-code" maxlength="64" placeholder="'
-      + whEsc(itemType === 'rental' ? 'longboard_rental' : 'yoga_class') + '"></div>'
-      + '<div class="portal-admin-edit-field"><label for="wh-price-item-unit">'
-      + whEsc(whT('admin.wh.pricing.chargedPer', 'Charged per')) + '</label>'
-      + '<select id="wh-price-item-unit">' + opts + '</select></div>'
-      + amountField('wh-price-item-amount', null)
+      + whEsc(placeholders[1]) + '"></div>'
+      + (isPackage
+        ? '<p class="portal-admin-section-note">'
+          + whEsc(whT('admin.wh.pricing.newPackageNote',
+            'Set a weekly price for each season once the package is created.')) + '</p>'
+        : '<div class="portal-admin-edit-field"><label for="wh-price-item-unit">'
+          + whEsc(whT('admin.wh.pricing.chargedPer', 'Charged per')) + '</label>'
+          + '<select id="wh-price-item-unit">' + opts + '</select></div>'
+          + amountField('wh-price-item-amount', null))
       + editActions('save-new-item', ' data-wh-item-type="' + whEsc(itemType) + '"')
       + '</div>';
   }
@@ -397,13 +440,7 @@
         + '<div class="portal-admin-subsection-title-row">'
         + '<div class="portal-admin-subsection-title">' + whEsc(r.label || humanize(r.code))
         + '</div>'
-        + (canWrite()
-          ? '<div class="portal-admin-card-actions">'
-            + actionBtn('delete-item', whT('admin.action.delete', 'Delete'),
-              ' data-wh-item-type="rental" data-wh-item-code="' + whEsc(r.code) + '"',
-              'btn-ghost portal-admin-danger')
-            + '</div>'
-          : '')
+        + catalogTitleActions('rental', r)
         + '</div><div class="portal-admin-card-grid">';
 
       if (!(r.durations || []).length) {
@@ -534,9 +571,11 @@
           ? '<div class="portal-admin-card-actions">'
             + actionBtn('edit-service-price', whT('admin.action.edit', 'Edit'),
               ' data-wh-item-code="' + whEsc(s.code) + '"')
-            + actionBtn('delete-item', whT('admin.action.delete', 'Delete'),
-              ' data-wh-item-type="service" data-wh-item-code="' + whEsc(s.code) + '"',
-              'btn-ghost portal-admin-danger')
+            + (s.source === 'db'
+              ? actionBtn('delete-item', whT('admin.action.delete', 'Delete'),
+                ' data-wh-item-type="service" data-wh-item-code="' + whEsc(s.code) + '"',
+                'btn-ghost portal-admin-danger')
+              : '')
             + '</div>'
           : '')
         + '</div>';
@@ -920,7 +959,14 @@
     },
     'add-range': function () {
       mutateSeasonDraft(function (draft) {
-        draft.ranges.push({ start_month: 1, start_day: 1, end_month: 1, end_day: 31 });
+        // Start the new row after the previous one. A second row copied from the
+        // first would be an exact duplicate, which the server rejects, so the
+        // operator would have to fix it before it could ever save.
+        var last = draft.ranges[draft.ranges.length - 1];
+        var month = last ? (Number(last.end_month) % 12) + 1 : 1;
+        draft.ranges.push({
+          start_month: month, start_day: 1, end_month: month, end_day: 28,
+        });
       });
     },
     'remove-range': function (btn) {
@@ -1020,6 +1066,15 @@
       var itemType = btn.getAttribute('data-wh-item-type');
       var code = inputValue('wh-price-item-code').toLowerCase().replace(/\s+/g, '_');
       var label = inputValue('wh-price-item-label');
+      if (itemType === 'package') {
+        // Priced per season, so creating the package is a single write and the
+        // season cards it gains are where the amounts get set.
+        commit('PUT', WH_PRICING_BASE + '/items' + clientQuery(),
+          { item_type: 'package', item_code: code, label: label },
+          whT('admin.wh.pricing.packageCreated',
+            'Package created. Set a price for each season.'));
+        return;
+      }
       var unit = inputValue('wh-price-item-unit');
       var amount = inputValue('wh-price-item-amount');
       if (state.busy) return;

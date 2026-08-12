@@ -243,6 +243,14 @@ async function openPricingTab(page) {
   }, null, { timeout: 20000 });
 }
 
+/**
+ * Section and card headings are uppercased by the shared admin CSS, and
+ * innerText reflects text-transform, so heading assertions must ignore case.
+ */
+function hasText(text, needle) {
+  return String(text).toLowerCase().includes(String(needle).toLowerCase());
+}
+
 function pricingText(page) {
   return page.evaluate(() => {
     const body = document.getElementById('wh-admin-pricing-body');
@@ -268,12 +276,12 @@ async function runEditable(playwright, browser) {
     check('Pricing no longer shows the not-built-yet placeholder',
       !/Not built yet/.test(text), text.slice(0, 160));
     for (const section of ['Seasons', 'Packages', 'Rentals', 'Services', 'Transfers', 'Extras']) {
-      check(`"${section}" section renders`, text.includes(section));
+      check(`"${section}" section renders`, hasText(text, section));
     }
-    check('Full day section renders', /Full day/.test(text));
+    check('Full day section renders', hasText(text, 'Full day'));
     check('a package price shows in euros', text.includes('€349.00'), text.slice(0, 400));
     check('season names are readable, not raw codes',
-      text.includes('Spring Autumn') && !text.includes('spring_autumn'));
+      hasText(text, 'Spring Autumn') && !hasText(text, 'spring_autumn'));
     check('an unpriced season reads Not set', text.includes('Not set'));
     check('a transfer shows its airport code', text.includes('(SDR)'));
     check('no read-only banner in editable mode', !/Read-only/.test(text));
@@ -319,17 +327,47 @@ async function runEditable(playwright, browser) {
     const keptLabel = await page.inputValue('#wh-price-season-label');
     check('Add range keeps what was already typed', keptLabel === 'Shoulder', keptLabel);
 
+    // An added row must not duplicate the first: the server rejects duplicate
+    // ranges, so a copied row could never be saved as-is.
+    const secondRangeStart = await page.locator('.wh-price-range-row').nth(1)
+      .locator('[data-wh-range-field="start_month"]').inputValue();
+    const firstRangeStart = await page.locator('.wh-price-range-row').nth(0)
+      .locator('[data-wh-range-field="start_month"]').inputValue();
+    check('an added range starts after the previous one',
+      secondRangeStart !== firstRangeStart, `first=${firstRangeStart} second=${secondRangeStart}`);
+
     // Save the new season.
     await page.fill('#wh-price-season-code', 'shoulder');
     await page.locator('[data-wh-price-action="save-season"]').click();
     await page.waitForFunction(() => {
       const body = document.getElementById('wh-admin-pricing-body');
-      return body && /Shoulder/.test(body.innerText || '');
+      return body && /shoulder/i.test(body.innerText || '');
     }, null, { timeout: 15000 });
     const afterSeason = await pricingText(page);
-    check('a new season appears in the list', afterSeason.includes('Shoulder'));
+    check('a new season appears in the list', hasText(afterSeason, 'Shoulder'));
     check('a new season becomes a package price slot',
-      (afterSeason.match(/Shoulder/g) || []).length > 1, 'expected season + package slot');
+      (afterSeason.match(/shoulder/gi) || []).length > 1, 'expected season + package slot');
+
+    // Create a package. It has no single price, so it should arrive with an
+    // unpriced slot per season rather than asking for one amount up front.
+    await page.locator('[data-wh-price-action="new-item"][data-wh-item-type="package"]').click();
+    await page.waitForSelector('#wh-price-item-code', { timeout: 10000 });
+    check('the new-package form asks for no single amount',
+      await page.locator('#wh-price-item-amount').count() === 0);
+    await page.fill('#wh-price-item-label', 'Pipeline');
+    await page.fill('#wh-price-item-code', 'pipeline');
+    await page.locator('[data-wh-price-action="save-new-item"]').click();
+    await page.waitForFunction(() => {
+      const body = document.getElementById('wh-admin-pricing-body');
+      return body && /pipeline/i.test(body.innerText || '');
+    }, null, { timeout: 15000 });
+    const afterPackage = await pricingText(page);
+    check('a staff-created package appears', hasText(afterPackage, 'Pipeline'));
+
+    const packageDeletes = await page
+      .locator('[data-wh-price-action="delete-item"][data-wh-item-type="package"]').count();
+    check('only the staff-created package offers Delete', packageDeletes === 1,
+      `delete buttons=${packageDeletes}`);
 
     check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
   } finally {

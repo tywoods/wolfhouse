@@ -420,11 +420,20 @@ function buildAdminPricingView(input) {
     return Array.from(set);
   };
 
+  /**
+   * Which catalog entries staff own. A config-seeded item cannot be deleted —
+   * the JSON seed would just re-add it — so the UI offers Delete only for 'db'.
+   */
+  const catalogSource = (type, code) => (
+    items.some((it) => it.item_type === type && it.item_code === code) ? 'db' : 'config'
+  );
+
   const packages = codesFor('package',
     (Array.isArray(config && config.packages) ? config.packages : []).map((p) => p.code),
   ).map((code) => ({
     code,
     label: labelFor('package', code),
+    source: catalogSource('package', code),
     prices: seasons.map((s) => ({
       season_code: s.code,
       season_label: s.label,
@@ -438,6 +447,7 @@ function buildAdminPricingView(input) {
   const rentals = codesFor('rental').map((offering) => ({
     code: offering,
     label: labelFor('rental', offering),
+    source: catalogSource('rental', offering),
     durations: rules
       .filter((r) => r.item_type === 'rental' && splitRentalCode(r.item_code).offering === offering)
       .map((r) => Object.assign(
@@ -452,6 +462,7 @@ function buildAdminPricingView(input) {
     return {
       code,
       label: labelFor('service', code),
+      source: catalogSource('service', code),
       metadata: (item && item.metadata) || {},
       price: priceOf(found),
     };

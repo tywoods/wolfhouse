@@ -165,7 +165,11 @@ ok('non-gear add-ons flatten to services',
 ok('the multi-lesson bundle uses its price_cents_each',
   find('service', 'surf_lesson_multi', null).amount_cents === 3000);
 
-ok('duplicated meal/meals fixture entries collapse to one service',
+// The config ships both `meal` and `meals` at the same price, and its bytes are
+// pinned by the factory certificate chain, so the duplicate cannot simply be
+// deleted. Collapsing them here is what stops the portal from offering two
+// meal services whose prices could drift apart.
+ok('duplicated meal/meals config entries collapse to one service',
   rules.filter((r) => r.item_type === 'service' && r.item_code === 'meal').length === 1
   && find('service', 'meals', null) === null);
 
@@ -489,6 +493,13 @@ const viewWithDb = resolve.buildAdminPricingView({
 ok('an edited price shows the DB value tagged as db',
   viewWithDb.packages.find((p) => p.code === 'malibu').prices
     .find((s) => s.season_code === 'august').price.amount_cents === 37500);
+
+ok('a config-seeded package is marked config-owned',
+  view.packages.find((p) => p.code === 'malibu').source === 'config');
+ok('a staff-created rental is marked staff-owned',
+  viewWithDb.rentals.find((r) => r.code === 'longboard_rental').source === 'db');
+ok('editing a config item price does not make staff the owner of the item',
+  viewWithDb.packages.find((p) => p.code === 'malibu').source === 'config');
 ok('an edited price is distinguishable from a shipped default',
   viewWithDb.packages.find((p) => p.code === 'malibu').prices
     .find((s) => s.season_code === 'august').price.source === 'db');
@@ -882,7 +893,7 @@ function fakeDom() {
   return { document, elements };
 }
 
-function runPricingUi(viewPayload) {
+function runPricingUi(viewPayload, editing) {
   const dom = fakeDom();
   const sandbox = {
     window: {},
@@ -900,6 +911,7 @@ function runPricingUi(viewPayload) {
   vm.createContext(sandbox);
   vm.runInContext(src, sandbox);
   sandbox.window.__whPricingStateForTest.view = viewPayload;
+  if (editing) sandbox.window.__whPricingStateForTest.editing = editing;
   sandbox.window.__whPricingRenderForTest();
   return {
     html: dom.document.getElementById('wh-admin-pricing-body').innerHTML,
@@ -950,8 +962,27 @@ function uiChecks() {
     && html.includes('data-wh-price-action="new-transfer"'));
   ok('editable mode offers Add rental and Add service',
     html.includes('data-wh-item-type="rental"') && html.includes('data-wh-item-type="service"'));
+  ok('editable mode offers Add package',
+    html.includes('data-wh-price-action="new-item" data-wh-item-type="package"'));
   ok('no read-only banner when writes are on',
     !html.includes('Read-only'));
+
+  // A config-seeded item cannot be deleted — the JSON seed re-adds it — so the
+  // portal must not show a Delete that quietly does nothing.
+  ok('a config-seeded package shows no Delete button',
+    !html.includes('data-wh-item-type="package" data-wh-item-code="malibu"'));
+  ok('a config-seeded catalog item is labelled built-in',
+    html.includes('built-in'));
+
+  const newPackageForm = runPricingUi(writable, 'item:package:__new__').html;
+  ok('the new-package form asks for a name and a code',
+    newPackageForm.includes('wh-price-item-label')
+    && newPackageForm.includes('wh-price-item-code'));
+  ok('the new-package form asks for no single amount',
+    !newPackageForm.includes('wh-price-item-amount')
+    && newPackageForm.includes('data-wh-price-action="save-new-item"'));
+  ok('the new-rental form still asks for a unit and an amount',
+    runPricingUi(writable, 'item:rental:__new__').html.includes('wh-price-item-amount'));
 
   // Read-only mode
   const readOnly = runPricingUi(Object.assign({}, view, { writes_enabled: false })).html;
@@ -974,6 +1005,8 @@ function uiChecks() {
   ok('an edited price is labelled edited', edited.includes('>edited<'));
   ok('a shipped default is labelled default', edited.includes('>default<'));
   ok('the edited August price shows the new amount', edited.includes('€375.00'));
+  ok('a staff-created rental can be deleted',
+    edited.includes('data-wh-item-type="rental" data-wh-item-code="longboard_rental"'));
 
   // Escaping
   const hostile = JSON.parse(JSON.stringify(view));
@@ -1025,6 +1058,22 @@ ok('every store table is wh_pricing-prefixed',
     .map((m) => m.split(/\s+/).pop())
     .filter((t) => t !== 'information_schema')
     .every((t) => t.startsWith('wh_pricing_')));
+
+// The repo-wide tenant-scope scanner only watches a fixed list of shared
+// tables, so it will never notice a client_slug filter dropped from one of
+// these new ones. This gate is the only thing standing between a future edit
+// and a cross-tenant read, so it checks every statement individually.
+const storeStatements = (storeSrc.match(/`[^`]*`|'[^']*'/g) || [])
+  .filter((s) => /wh_pricing_/.test(s))
+  .filter((s) => /\b(SELECT|INSERT|UPDATE|DELETE)\b/i.test(s))
+  .filter((s) => !/CREATE TABLE/i.test(s))
+  // Reads catalog metadata, not tenant rows, so it carries no client filter.
+  .filter((s) => !/information_schema/i.test(s));
+ok('the store exposes statements to check', storeStatements.length >= 15);
+const unscopedStatements = storeStatements.filter((s) => !/client_slug/.test(s));
+ok('every store statement filters on client_slug',
+  unscopedStatements.length === 0,
+  unscopedStatements[0]);
 
 // ── Migration ───────────────────────────────────────────────────────────────
 console.log('\n── Migration ──');
