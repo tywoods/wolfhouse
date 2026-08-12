@@ -20031,59 +20031,83 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   }
 }
 .inbox-shell-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;flex-shrink:0}
-/* Three true sibling columns: list | conversation | bookings */
+/*
+ * THREE INDEPENDENT CARDS (desktop):
+ *   .inbox-left | #conv-detail | #inbox-bookings-rail
+ * Must remain siblings under .inbox-two-col.inbox-shell-cols.
+ * No shared outer frame around Conversation+Bookings.
+ */
 .inbox-two-col.inbox-shell-cols{
-  display:grid;
-  grid-template-columns:minmax(240px,300px) minmax(0,1fr) minmax(260px,320px);
-  gap:14px;
+  display:grid!important;
+  grid-template-columns:minmax(240px,300px) minmax(0,1fr) minmax(260px,320px)!important;
+  gap:14px!important;
   flex:1;min-height:0;overflow:hidden;width:100%;align-self:stretch;
-  border:none;border-radius:0;box-shadow:none;background:transparent;
+  /* Kill WhatsApp-style shared shell on the row owner */
+  border:none!important;border-radius:0!important;box-shadow:none!important;
+  background:transparent!important;padding:0!important;
 }
 .inbox-two-col.inbox-shell-cols.is-bookings-collapsed{
-  grid-template-columns:minmax(240px,300px) minmax(0,1fr);
+  grid-template-columns:minmax(240px,300px) minmax(0,1fr)!important;
 }
-.inbox-two-col.inbox-shell-cols .inbox-left{
-  flex:unset;width:auto;min-width:0;height:auto;max-height:none;
-  border-right:none;border:1px solid var(--border-soft);border-radius:var(--radius);
-  box-shadow:none;background:var(--surface);overflow:hidden;
+/* Card 1 — names */
+.inbox-two-col.inbox-shell-cols > .inbox-left{
+  flex:unset!important;width:auto!important;min-width:0;height:auto;max-height:none;
+  border-right:none!important;
+  border:1px solid var(--border-soft)!important;
+  border-radius:var(--radius)!important;
+  box-shadow:none!important;
+  background:var(--surface)!important;
+  overflow:hidden;
+  align-self:stretch;
 }
-/* Conversation column = own framed card only */
-.inbox-two-col.inbox-shell-cols #conv-detail.inbox-conv-column,
-.inbox-two-col.inbox-shell-cols #conv-detail{
+/* Card 2 — conversation ONLY (must not wrap bookings) */
+.inbox-two-col.inbox-shell-cols > #conv-detail,
+.inbox-two-col.inbox-shell-cols > #conv-detail.inbox-conv-column{
+  flex:unset!important;width:auto!important;
   min-width:0;min-height:0;overflow:hidden;
-  border:1px solid var(--border-soft);border-radius:var(--radius);
-  background:var(--surface);box-shadow:none;
-  display:flex;flex-direction:column;
+  border:1px solid var(--border-soft)!important;
+  border-radius:var(--radius)!important;
+  background:var(--surface)!important;
+  box-shadow:none!important;
+  display:flex!important;flex-direction:column;
+  align-self:stretch;
+  padding:0!important;
 }
-.inbox-two-col.inbox-shell-cols #detail-content{
-  padding:14px 16px 16px;background:transparent;overflow:hidden;flex:1;min-height:0;
+.inbox-two-col.inbox-shell-cols > #conv-detail > #detail-content{
+  padding:14px 16px 16px!important;
+  background:transparent!important;
+  overflow:hidden;flex:1;min-height:0;
   display:flex;flex-direction:column;box-sizing:border-box;
+  border:none!important;border-radius:0!important;box-shadow:none!important;
 }
 .inbox-two-col.inbox-shell-cols .detail-conv-card{
   flex:1 1 auto;min-width:0;min-height:0;
   display:flex;flex-direction:column;overflow:hidden;
-  border:none;background:transparent;padding:0;box-shadow:none;
+  border:none!important;background:transparent!important;padding:0!important;box-shadow:none!important;
 }
 .inbox-two-col.inbox-shell-cols .detail-conv-card > .detail-header{
   flex-shrink:0;margin-bottom:12px;padding-bottom:10px;
   border-bottom:1px solid var(--border-soft);
 }
-/* Bookings column = sibling framed card (NOT inside #conv-detail) */
-.inbox-two-col.inbox-shell-cols #inbox-bookings-rail.inbox-bookings-column,
-.inbox-two-col.inbox-shell-cols #inbox-bookings-rail{
+/* Card 3 — bookings ONLY (sibling; never inside #conv-detail) */
+.inbox-two-col.inbox-shell-cols > #inbox-bookings-rail,
+.inbox-two-col.inbox-shell-cols > #inbox-bookings-rail.inbox-bookings-column{
+  flex:unset!important;width:auto!important;
   min-width:0;min-height:0;align-self:stretch;
-  border:1px solid var(--border-soft);border-radius:var(--radius);
-  background:var(--surface);box-shadow:none;
-  padding:14px;box-sizing:border-box;
+  border:1px solid var(--border-soft)!important;
+  border-radius:var(--radius)!important;
+  background:var(--surface)!important;
+  box-shadow:none!important;
+  padding:14px!important;box-sizing:border-box;
   overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;
 }
-.inbox-two-col.inbox-shell-cols.is-bookings-collapsed #inbox-bookings-rail{
+.inbox-two-col.inbox-shell-cols.is-bookings-collapsed > #inbox-bookings-rail{
   display:none!important;
 }
-.inbox-two-col.inbox-shell-cols #inbox-bookings-rail .detail-bookings-card,
-.inbox-two-col.inbox-shell-cols #inbox-bookings-rail .sidebar-card{
-  border:none;box-shadow:none;background:transparent;padding:0;margin:0;
-  width:100%;max-width:none;
+.inbox-two-col.inbox-shell-cols > #inbox-bookings-rail .detail-bookings-card,
+.inbox-two-col.inbox-shell-cols > #inbox-bookings-rail .sidebar-card{
+  border:none!important;box-shadow:none!important;background:transparent!important;
+  padding:0!important;margin:0!important;width:100%;max-width:none;border-radius:0!important;
 }
 .inbox-two-col.inbox-shell-cols .inbox-bookings-empty{
   display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;
@@ -20095,21 +20119,28 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .inbox-two-col.inbox-shell-cols .inbox-bookings-empty .sub-msg{
   font-size:12px;margin:0;color:var(--text-3);
 }
+/* Kill leftover nested-layout chrome if any old markup appears */
+.inbox-two-col.inbox-shell-cols .detail-layout--three-card{
+  display:contents!important;
+}
+.inbox-two-col.inbox-shell-cols #inbox-sidebar-toggle,
+.inbox-two-col.inbox-shell-cols .detail-sidebar-toggle{
+  display:none!important;
+}
 @media(max-width:900px){
   .inbox-two-col.inbox-shell-cols{
-    grid-template-columns:1fr;gap:12px;border:none;
+    grid-template-columns:1fr!important;gap:12px!important;border:none!important;
   }
-  .inbox-two-col.inbox-shell-cols .inbox-left{border-radius:var(--radius)}
-  .inbox-two-col.inbox-shell-cols #conv-detail,
-  .inbox-two-col.inbox-shell-cols #inbox-bookings-rail{
-    border-radius:var(--radius);width:100%;max-width:100%;
+  .inbox-two-col.inbox-shell-cols > .inbox-left,
+  .inbox-two-col.inbox-shell-cols > #conv-detail,
+  .inbox-two-col.inbox-shell-cols > #inbox-bookings-rail{
+    border-radius:var(--radius)!important;width:100%!important;max-width:100%!important;
   }
-  /* Mobile stack: list (hidden when show-thread) → conversation → bookings */
-  .inbox-two-col.inbox-shell-cols #inbox-bookings-rail{order:3}
-  .inbox-two-col.inbox-shell-cols #conv-detail{order:2}
-  .inbox-two-col.inbox-shell-cols .inbox-left{order:1}
-  .inbox-two-col.show-thread.inbox-shell-cols #inbox-bookings-rail{
-    display:flex;flex-direction:column;
+  .inbox-two-col.inbox-shell-cols > #inbox-bookings-rail{order:3}
+  .inbox-two-col.inbox-shell-cols > #conv-detail{order:2}
+  .inbox-two-col.inbox-shell-cols > .inbox-left{order:1}
+  .inbox-two-col.show-thread.inbox-shell-cols > #inbox-bookings-rail{
+    display:block!important;
   }
 }
 /* ═══ END luna-header-ui ═════════════════════════════════════════════════ */
