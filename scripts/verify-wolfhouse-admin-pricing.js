@@ -658,8 +658,37 @@ async function runRouteChecks() {
   ok('an unrelated path is not claimed',
     routes.match('/staff/admin/config', 'GET') === null
     && routes.match('/staff/admin/wh/pricing', 'PATCH') === null);
-  ok('the Sunset admin config path is never claimed',
-    routes.match('/staff/admin/config/prices', 'POST') === null);
+
+  // Regression guard: the Wolfhouse dispatch sits ahead of Sunset's admin routes
+  // in the monolith router, so it must never claim one of them.
+  const SUNSET_ADMIN_PATHS = [
+    '/staff/admin/config',
+    '/staff/admin/config/prices',
+    '/staff/admin/config/prices/group-availability',
+    '/staff/admin/config/rental-offerings',
+    '/staff/admin/config/lesson-capacity',
+    '/staff/admin/config/course-equipment',
+    '/staff/admin/config/private-lesson',
+    '/staff/admin/config/full-day-equipment-addon',
+    '/staff/admin/config/accommodation',
+    '/staff/admin/config/surf-packs',
+    '/staff/admin/config/lesson-times',
+    '/staff/admin/services',
+    '/staff/admin/services/abc',
+    '/staff/admin/house-notes',
+    '/staff/admin/bookings',
+    '/staff/admin/finance/summary',
+    '/staff/whatsapp-numbers',
+  ];
+  const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+  let claimed = null;
+  for (const p of SUNSET_ADMIN_PATHS) {
+    for (const m of METHODS) {
+      if (routes.match(p, m)) claimed = `${m} ${p}`;
+    }
+  }
+  ok('no Sunset admin route is ever claimed by the Wolfhouse dispatch',
+    claimed === null, claimed ? `claimed ${claimed}` : '');
 
   // Reads
   const readHarness = harness();
