@@ -1597,20 +1597,21 @@ function loadConvDetail(convId, targetEl){
   if (isSurfInboxDemoThread(convId) && loadSurfInboxDemoDetail(convId, targetEl)) return;
   beginConvDetailLoad(targetEl);
 
-  var base = '/staff/conversations/' + encodeURIComponent(convId);
   var qs   = inboxClientQuery();
-  var client = getClient();
 
-  function gjson(path){ return fetch(path).then(function(r){ return r.json(); }); }
-
-  Promise.all([
-    gjson(base + qs),
-    gjson(base + '/messages' + qs),
-    gjson(base + '/context'  + qs),
-    gjson(base + '/draft'    + qs),
-    gjson(base + '/staff-state' + qs),
-    fetchBotPauseState(client, convId),
-  ]).then(function(results){
+  /* One snapshot for all six sections; each keeps the body its own endpoint returns. */
+  fetch('/staff/inbox/thread/' + encodeURIComponent(convId) + qs)
+  .then(function(r){ return r.json(); })
+  .then(function(composite){
+    if (!composite.success) throw new Error(composite.error || 'detail error');
+    var results = [
+      composite.detail,
+      composite.messages,
+      composite.context,
+      composite.draft,
+      composite.staff_state,
+      composite.pause_state,
+    ];
     var detailData = results[0];
     var msgsData   = results[1];
     var ctxData    = results[2];
