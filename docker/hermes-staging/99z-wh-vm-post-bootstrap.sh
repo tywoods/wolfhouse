@@ -38,7 +38,24 @@ gateway:
   platforms:
     discord:
       require_mention: false
+      # Chief of Staff job thread — respond without @mention (Skipper).
+      free_response_channels:
+        - "1537017482748100678"
 EOF
+  # Ensure bot-wake watch-list env survives even when /etc/hermes-orchestrator.env
+  # was written before this feature. Append only when missing (do not clobber).
+  if [ -f "$HERMES_HOME/.env" ]; then
+    grep -q '^DISCORD_BOT_WAKE_CHANNELS=' "$HERMES_HOME/.env" 2>/dev/null || \
+      printf 'DISCORD_BOT_WAKE_CHANNELS=%s\n' "${DISCORD_BOT_WAKE_CHANNELS:-1537017482748100678}" >> "$HERMES_HOME/.env"
+    grep -q '^DISCORD_BOT_WAKE_AUTHORS=' "$HERMES_HOME/.env" 2>/dev/null || \
+      printf 'DISCORD_BOT_WAKE_AUTHORS=%s\n' "${DISCORD_BOT_WAKE_AUTHORS:-Luna Chief of Staff}" >> "$HERMES_HOME/.env"
+    grep -q '^DISCORD_BOT_WAKE_JSON_SOURCE=' "$HERMES_HOME/.env" 2>/dev/null || \
+      printf 'DISCORD_BOT_WAKE_JSON_SOURCE=%s\n' "${DISCORD_BOT_WAKE_JSON_SOURCE:-grok-bot}" >> "$HERMES_HOME/.env"
+    grep -q '^DISCORD_BOT_WAKE_JSON_TYPES=' "$HERMES_HOME/.env" 2>/dev/null || \
+      printf 'DISCORD_BOT_WAKE_JSON_TYPES=%s\n' "${DISCORD_BOT_WAKE_JSON_TYPES:-ping,approved_fix,status}" >> "$HERMES_HOME/.env"
+    grep -q '^DISCORD_FREE_RESPONSE_CHANNELS=' "$HERMES_HOME/.env" 2>/dev/null || \
+      printf 'DISCORD_FREE_RESPONSE_CHANNELS=%s\n' "${DISCORD_FREE_RESPONSE_CHANNELS:-1537017482748100678}" >> "$HERMES_HOME/.env"
+  fi
 fi
 
 if [ -f "$HERMES_HOME/.auth-shared/auth.json" ]; then
