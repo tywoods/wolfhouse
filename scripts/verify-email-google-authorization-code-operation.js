@@ -94,9 +94,11 @@ function harness(spec = {}) {
       if (options.hostname === 'oauth2.googleapis.com') {
         const payload = spec.rawTokenBody === undefined ? tokenBody(spec) : spec.rawTokenBody;
         transportResponse(spec.tokenStatus || 200, payload).deliver(callback);
-      } else if (options.hostname === 'www.googleapis.com') {
+      } else if (options.hostname === 'www.googleapis.com' && options.path === '/oauth2/v3/certs') {
         const jwk = { ...publicJwk, kid: KID, use: 'sig', alg: 'RS256' };
         transportResponse(200, JSON.stringify({ keys: [jwk] })).deliver(callback);
+      } else if (options.hostname === 'www.googleapis.com' && options.path === '/gmail/v1/users/me/profile') {
+        transportResponse(200, JSON.stringify({ emailAddress: spec.profileEmail || EMAIL, historyId: '123456' })).deliver(callback);
       } else throw new Error('unexpected offline destination');
     };
     return request;
