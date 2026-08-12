@@ -369,6 +369,7 @@
     "verify:email-google-oauth-callback-consume": "node scripts/verify-email-google-oauth-callback-consume.js",
     "verify:email-google-oauth-callback-completion": "node scripts/verify-email-google-oauth-callback-completion.js",
     "verify:email-google-state-first-callback-runtime": "node scripts/verify-email-google-state-first-callback-runtime.js",
+    "verify:email-google-consumed-endpoint-authority-resolver": "node scripts/verify-email-google-consumed-endpoint-authority-resolver.js",
     "verify:email-microsoft-verified-grant-installer": "node scripts/verify-email-microsoft-verified-grant-installer.js",
     "verify:email-verified-grant-installer": "node scripts/verify-email-verified-grant-installer.js",
     "prove:email-verified-grant-installer-pglite": "node scripts/prove-email-verified-grant-installer-pglite.js",
