@@ -116,7 +116,7 @@ write_deckhand_config() {
   # Provider must be xai-oauth (shared auth.json), not bare xai (API-key provider).
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: grok-4.5
+  default: grok-4.6
   provider: xai-oauth
 agent:
   reasoning_effort: medium
@@ -343,7 +343,7 @@ if [ "$HERMES_ROLE" = "orchestrator" ]; then
   fi
 elif [ "$HERMES_ROLE" = "deckhand" ]; then
   # Discord engineering worker — never Luna guest bootstrap (no SOUL/plugins/WhatsApp
-  # patches/env). Model is xAI grok-4.5 via xai-oauth (shared auth.json).
+  # patches/env). Model is xAI grok-4.6 via xai-oauth (shared auth.json).
   write_deckhand_config
   if [ -f "$STAGING_DECKHAND_SOUL" ]; then
     cp "$STAGING_DECKHAND_SOUL" "$HERMES_HOME/SOUL.md"

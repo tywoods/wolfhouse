@@ -29,6 +29,37 @@ function isAllowedMicrosoftAuthorizationUrl(raw){
     return target.origin === 'https://login.microsoftonline.com' && target.pathname === '/organizations/oauth2/v2.0/authorize';
   } catch (_) { return false; }
 }
+var GOOGLE_UI_AUTHORITY = 'https://accounts.google.com/o/oauth2/v2/auth';
+var GOOGLE_UI_REDIRECT_URI = 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
+var GOOGLE_UI_SCOPES = 'openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose';
+var GOOGLE_UI_QUERY_KEYS = ['client_id','response_type','redirect_uri','response_mode','scope','state','nonce','code_challenge','code_challenge_method','prompt'];
+var GOOGLE_UI_CLIENT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apps\.googleusercontent\.com$/;
+function validateGoogleAuthorizationUrl(raw){
+  try {
+    if (typeof raw !== 'string') return null;
+    var u = new URL(raw);
+    if (u.protocol !== 'https:' || u.username || u.password || u.port || u.hash || (u.origin + u.pathname) !== GOOGLE_UI_AUTHORITY) return null;
+    var seen=[]; u.searchParams.forEach(function(_v,k){seen.push(k);});
+    if (seen.length !== GOOGLE_UI_QUERY_KEYS.length) return null;
+    for(var i=0;i<GOOGLE_UI_QUERY_KEYS.length;i+=1) if(seen.indexOf(GOOGLE_UI_QUERY_KEYS[i])<0||u.searchParams.getAll(GOOGLE_UI_QUERY_KEYS[i]).length!==1)return null;
+    if(!GOOGLE_UI_CLIENT_ID_RE.test(u.searchParams.get('client_id')||'')||u.searchParams.get('response_type')!=='code'||u.searchParams.get('redirect_uri')!==GOOGLE_UI_REDIRECT_URI||u.searchParams.get('response_mode')!=='query'||u.searchParams.get('scope')!==GOOGLE_UI_SCOPES||u.searchParams.get('code_challenge_method')!=='S256'||u.searchParams.get('prompt')!=='consent')return null;
+    for(i=5;i<=7;i+=1)if(!REAUTH_UI_B64URL_32_RE.test(u.searchParams.get(GOOGLE_UI_QUERY_KEYS[i])||''))return null;
+    return raw;
+  } catch (_) { return null; }
+}
+function exactOwnData(value, keys){
+  try {
+    if(!value||typeof value!=='object'||Array.isArray(value))return false;
+    var proto=Object.getPrototypeOf(value); if(proto!==null&&proto!==Object.prototype)return false;
+    var own=Reflect.ownKeys(value); if(own.length!==keys.length)return false;
+    for(var i=0;i<own.length;i+=1)if(typeof own[i]!=='string'||keys.indexOf(own[i])<0)return false;
+    for(i=0;i<keys.length;i+=1){var d=Object.getOwnPropertyDescriptor(value,keys[i]);if(!d||!Object.prototype.hasOwnProperty.call(d,'value')||d.enumerable!==true||d.get||d.set)return false;}
+    return true;
+  }catch(_){return false;}
+}
+function validateGoogleStartDto(dto){if(!exactOwnData(dto,['authorizationUrl','expiresAt'])||typeof dto.authorizationUrl!=='string'||typeof dto.expiresAt!=='string'||dto.expiresAt.length>64||!Number.isFinite(Date.parse(dto.expiresAt)))return null;return validateGoogleAuthorizationUrl(dto.authorizationUrl);}
+function postGoogleOAuthStart(locationId,endpointId){return fetch('/staff/admin/email-settings/oauth/google/start',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({location_id:locationId,endpoint_id:endpointId})}).then(function(r){return r.ok?r.json():Promise.reject(new Error('unavailable'));}).then(function(dto){var target=validateGoogleStartDto(dto);if(!target)throw new Error('invalid_response');window.location.assign(target);});}
+function postGoogleEndpointPrepare(locationId,publicAddress){return fetch('/staff/admin/email-settings/oauth/google/endpoint',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({location_id:locationId,public_address:publicAddress})}).then(function(r){return r.ok?r.json():Promise.reject(new Error('unavailable'));}).then(function(dto){if(!dto||dto.success!==true||typeof dto.endpoint_id!=='string')throw new Error('invalid_response');return dto.endpoint_id;});}
 
 /**
  * Invalidate/abort any pending Phase B reauthorization request.
@@ -226,8 +257,10 @@ function setConnectBusy(root, busy){
   if (reauth) reauth.disabled = busy === true;
 }
 function wireConnectHandlers(body, data){
-  var section = body.querySelector('.portal-admin-email-settings');
-  if (!section) return;
+  var sections = typeof body.querySelectorAll==='function' ? body.querySelectorAll('.portal-admin-email-settings') : [];
+  if(!sections.length)sections=[body.querySelector('.portal-admin-email-settings')];
+  for(var s=0;s<sections.length;s+=1)(function(section){
+  if(!section)return;
   var btn = section.querySelector('[data-email-connect]');
   if (!btn) return;
   btn.addEventListener('click', function(){
@@ -239,6 +272,7 @@ function wireConnectHandlers(body, data){
     }
     setConnectBusy(section, true);
     var chain;
+    var provider = btn.getAttribute('data-email-provider') || 'microsoft_graph';
     if (mode === 'prepare') {
       var input = section.querySelector('[data-email-prepare-address]');
       var address = input && typeof input.value === 'string' ? input.value : '';
@@ -248,7 +282,17 @@ function wireConnectHandlers(body, data){
         return;
       }
       // Prepare → start exact sequence; never create on page load.
-      chain = postMicrosoftEndpointPrepare(locationId, address).then(function(endpointId){
+      var prepare = provider === 'gmail_api' ? postGoogleEndpointPrepare : postMicrosoftEndpointPrepare;
+      chain = prepare(locationId, address).then(function(endpointId){
+        if(provider==='gmail_api'){
+          var endpoints=data&&Array.isArray(data.endpoints)?data.endpoints:[];
+          data.endpoints=endpoints.filter(function(ep){return !(ep&&ep.provider==='gmail_api'&&ep.location_id===locationId);});
+          data.endpoints.push({provider:'gmail_api',location_id:locationId,endpoint_id:endpointId,public_address:address,connection_state:'registered_not_connected'});
+          if(!data.provider_actions)data.provider_actions={};
+          data.provider_actions.gmail_api={prepare:false,connect:true,disconnect:false,reauthorize:false};
+          renderAdminEmailSettingsData(data);
+          return;
+        }
         return postMicrosoftOAuthStart(locationId, endpointId);
       });
     } else if (mode === 'connect') {
@@ -259,7 +303,7 @@ function wireConnectHandlers(body, data){
         return;
       }
       // Existing eligible endpoint: start only (no second prepare).
-      chain = postMicrosoftOAuthStart(locationId, endpointId);
+      chain = (provider === 'gmail_api' ? postGoogleOAuthStart : postMicrosoftOAuthStart)(locationId, endpointId);
     } else {
       setConnectBusy(section, false);
       renderAdminEmailSettingsState('error');
@@ -270,10 +314,13 @@ function wireConnectHandlers(body, data){
       renderAdminEmailSettingsState('error');
     });
   });
+  })(sections[s]);
 }
 function wireReauthorizeHandlers(body, data){
-  var section = body.querySelector('.portal-admin-email-settings');
-  if (!section) return;
+  var sections = typeof body.querySelectorAll==='function' ? body.querySelectorAll('.portal-admin-email-settings') : [];
+  if(!sections.length)sections=[body.querySelector('.portal-admin-email-settings')];
+  for(var s=0;s<sections.length;s+=1)(function(section){
+  if(!section)return;
   var btn = section.querySelector('[data-email-reauthorize]');
   if (!btn) return;
   btn.addEventListener('click', function(){
@@ -313,13 +360,16 @@ function wireReauthorizeHandlers(body, data){
         renderAdminEmailSettingsState('error');
       });
   });
+  })(sections[s]);
 }
-function renderAdminEmailSettingsState(state, data){
+function renderAdminEmailSettingsState(state, data, provider){
   var body = el('admin-email-settings-body');
   if (!body) return;
   // Re-render invalidates any pending reauth (origin body/button will detach).
   cancelAdminEmailReauthorization();
   var key = adminEmailStateKey(state);
+  provider = provider || 'microsoft_graph';
+  var providerLabel = provider === 'gmail_api' ? 'Google' : 'Microsoft';
   var actions = data && data.actions ? data.actions : null;
   var hasPrepare = !!(actions && actions.prepare === true && data.location_id);
   var hasConnect = !!(actions && actions.connect === true && data.location_id && data.endpoint_id);
@@ -337,7 +387,7 @@ function renderAdminEmailSettingsState(state, data){
     hasConnect = false;
   }
   var hasAnyAction = hasPrepare || hasConnect || hasDisconnect || hasReauthorize;
-  var html = '<section class="portal-admin-email-settings" data-email-state="' + escHtml(key) + '">' +
+  var html = '<section class="portal-admin-email-settings" data-email-provider="' + escHtml(provider) + '" data-email-state="' + escHtml(key) + '">' +
     '<h2>' + escHtml(portalT('admin.email.title')) + '</h2>' +
     '<p role="status">' + escHtml(portalT('admin.email.state.' + key)) + '</p>';
   if (data && data.public_address) html += '<p class="portal-admin-email-address">' + escHtml(data.public_address) + '</p>';
@@ -348,12 +398,12 @@ function renderAdminEmailSettingsState(state, data){
       '<span>' + escHtml(portalT('admin.email.mailboxLabel')) + '</span>' +
       '<input type="email" autocomplete="off" data-email-prepare-address maxlength="320" />' +
       '</label>' +
-      '<button type="button" class="portal-admin-email-action-btn" data-email-connect="prepare" data-email-location-id="' + escHtml(data.location_id) + '">Connect Microsoft email</button>' +
+      '<button type="button" class="portal-admin-email-action-btn" data-email-provider="' + escHtml(provider) + '" data-email-connect="prepare" data-email-location-id="' + escHtml(data.location_id) + '">Connect ' + providerLabel + ' email</button>' +
       '</div>';
   } else if (hasConnect) {
     // Existing eligible unverified endpoint — Connect starts OAuth only.
     html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group" aria-label="' + escHtml(portalT('admin.email.mailboxLabel')) + '">' +
-      '<button type="button" class="portal-admin-email-action-btn" data-email-connect="connect" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '">Connect Microsoft email</button>' +
+      '<button type="button" class="portal-admin-email-action-btn" data-email-provider="' + escHtml(provider) + '" data-email-connect="connect" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '">Connect ' + providerLabel + ' email</button>' +
       '</div>';
   } else if (hasReauthorize) {
     // Phase B reauthorize — explicit control only when DTO says eligible.
@@ -387,6 +437,26 @@ function renderAdminEmailSettingsState(state, data){
   wireConnectHandlers(body, data);
   wireReauthorizeHandlers(body, data);
 }
+function renderAdminEmailSettingsData(data){
+  var body = el('admin-email-settings-body'); if (!body) return;
+  var locations = data && Array.isArray(data.locations) ? data.locations : [];
+  var endpoints = data && Array.isArray(data.endpoints) ? data.endpoints : [];
+  var active = '', i;
+  for (i=0;i<locations.length;i+=1) if(locations[i]&&locations[i].active===true){active=locations[i].location_id||'';break;}
+  var providers=['microsoft_graph','gmail_api'], combined='';
+  for(var p=0;p<providers.length;p+=1){
+    var provider=providers[p], ep=null;
+    for(i=0;i<endpoints.length;i+=1)if(endpoints[i]&&endpoints[i].provider===provider&&(!active||endpoints[i].location_id===active)){ep=endpoints[i];break;}
+    var view={ location_id:active };
+    if(ep)for(var k in ep)if(Object.prototype.hasOwnProperty.call(ep,k))view[k]=ep[k];
+    view.actions=data&&data.provider_actions&&data.provider_actions[provider]
+      ||(provider==='microsoft_graph'&&data&&data.actions)||{};
+    renderAdminEmailSettingsState(ep?ep.connection_state:'disconnected',view,provider);
+    combined+=body.innerHTML;
+  }
+  body.innerHTML=combined;
+  wireConnectHandlers(body,data); wireReauthorizeHandlers(body,data);
+}
 function loadAdminEmailSettings(){
   var body = el('admin-email-settings-body');
   if (!body) return;
@@ -400,23 +470,7 @@ function loadAdminEmailSettings(){
     .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('unavailable')); })
     .then(function(data){
       if (seq !== adminEmailSettingsLoadSeq || getClient() !== 'sunset') return;
-      var endpoints = data && Array.isArray(data.endpoints) ? data.endpoints : [];
-      var actions = data && data.actions ? data.actions : { prepare: false, connect: false, disconnect: false, reauthorize: false };
-      if (!endpoints.length) {
-        var locations = data && Array.isArray(data.locations) ? data.locations : [];
-        var activeLoc = '';
-        for (var i = 0; i < locations.length; i += 1) {
-          if (locations[i] && locations[i].active) { activeLoc = locations[i].location_id || ''; break; }
-        }
-        renderAdminEmailSettingsState('disconnected', {
-          actions: actions,
-          location_id: activeLoc
-        });
-      } else {
-        var ep = endpoints[0];
-        ep.actions = actions;
-        renderAdminEmailSettingsState(ep.connection_state, ep);
-      }
+      renderAdminEmailSettingsData(data);
     })
     .catch(function(){ if (seq === adminEmailSettingsLoadSeq) renderAdminEmailSettingsState('error'); });
 }

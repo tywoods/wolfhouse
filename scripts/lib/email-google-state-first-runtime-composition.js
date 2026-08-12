@@ -19,7 +19,7 @@ const isProxy = utilTypes.isProxy;
 const regexpTest = RegExp.prototype.test;
 const stringEndsWith = String.prototype.endsWith;
 const ErrorConstructor = Error;
-const CONFIG_KEYS = freeze(['tenantSlug', 'clientId', 'locationKey', 'applicationClientId', 'redirectUri', 'callbackEnabled']);
+const CONFIG_KEYS = freeze(['tenantSlug', 'locationKey', 'applicationClientId', 'redirectUri', 'callbackEnabled']);
 const DEPENDENCY_KEYS = freeze(['db', 'cryptography', 'clock', 'repository', 'https', 'crypto', 'timers', 'envelopeProvider', 'installer', 'secretProvider']);
 const METHOD_KEYS = freeze([
   freeze(['query']), freeze(['sha256Ascii']), freeze(['now', 'nowEpochSeconds']),
@@ -82,7 +82,7 @@ function createGoogleStateFirstRuntimeComposition(configuration, dependencies) {
     const config = snapshot(configuration, CONFIG_KEYS);
     const dependency = snapshot(dependencies, DEPENDENCY_KEYS);
     if (!config || !dependency || config.tenantSlug !== 'sunset'
-        || !test(UUID, config.clientId) || config.locationKey !== 'sunset-somo'
+        || config.locationKey !== 'sunset-somo'
         || typeof config.applicationClientId !== 'string' || !test(APP, config.applicationClientId)
         || config.redirectUri !== REDIRECT || typeof config.callbackEnabled !== 'boolean') fail();
     const records = [];

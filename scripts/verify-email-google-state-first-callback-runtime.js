@@ -4,7 +4,7 @@
  *
  * Contract:
  * - Public config is server-owned and fixture-free for client/application IDs.
- * - Caller input is only {tenantSlug, clientId, authSessionId, query}.
+ * - Caller input is only {query}; consumed state owns tenant client identity.
  * - Authentic callback-consume burns state first; resolver then factory run after.
  * - Resolver authority.secretRef is propagated verbatim into handoff.
  * - Real createTransactionCompletion(operation, handoff, secretProvider) 3-arg contract.
@@ -54,12 +54,11 @@ const NOW = '2026-08-12T00:00:00.000Z';
 const FAILURE = 'GOOGLE_STATE_FIRST_CALLBACK_FAILED';
 const DISABLED = 'GOOGLE_STATE_FIRST_CALLBACK_DISABLED';
 const CONFIG_KEYS = freeze([
-  'tenantSlug', 'clientId', 'locationKey', 'applicationClientId', 'redirectUri', 'callbackEnabled',
+  'tenantSlug', 'locationKey', 'applicationClientId', 'redirectUri', 'callbackEnabled',
 ]);
 function config(options = {}) {
   return freeze({
     tenantSlug: options.tenantSlug || TENANT,
-    clientId: options.clientId || CLIENT_A,
     locationKey: LOCATION_KEY,
     applicationClientId: options.applicationClientId || APP_A,
     redirectUri: REDIRECT,
@@ -68,15 +67,14 @@ function config(options = {}) {
 }
 function input(query = `state=${STATE}&code=${encodeURIComponent(CODE)}`, patch = {}) {
   return freeze({
-    tenantSlug: TENANT,
-    clientId: patch.clientId || CLIENT_A,
-    authSessionId: AUTH,
     query,
     ...patch,
   });
 }
 function row(patch = {}) {
   return freeze({
+    clientId: patch.clientId || CLIENT_A,
+    authSessionId: AUTH,
     operationId: OPERATION,
     locationId: LOCATION,
     endpointId: ENDPOINT,
@@ -243,38 +241,36 @@ test('frozen configuration keys are exact and secretRef is never public', () => 
   const h = harness();
   const runtime = create(h);
   assert.deepEqual(Reflect.ownKeys(runtime.configuration), [
-    'tenantSlug', 'clientId', 'locationKey', 'applicationClientId', 'redirectUri', 'callbackEnabled',
+    'tenantSlug', 'locationKey', 'applicationClientId', 'redirectUri', 'callbackEnabled',
   ]);
+  assert.equal('clientId' in runtime.configuration, false);
   assert.equal('secretRef' in runtime.configuration, false);
   assert.equal(runtime.configuration.tenantSlug, TENANT);
   assert.equal(runtime.configuration.locationKey, LOCATION_KEY);
   assert.equal(runtime.configuration.redirectUri, REDIRECT);
   assert.equal(typeof runtime.configuration.callbackEnabled, 'boolean');
 });
-test('accepts at least two distinct valid client UUID and application client IDs', async () => {
+test('accepts consumed records from two distinct valid client UUIDs and application client IDs', async () => {
   for (const pair of [
     { clientId: CLIENT_A, applicationClientId: APP_A, secretRef: REF_A },
     { clientId: CLIENT_B, applicationClientId: APP_B, secretRef: REF_B },
   ]) {
-    const h = harness(pair);
-    const cfg = config(pair);
+    const h = harness({ ...pair, rows: [row({ clientId: pair.clientId })] });
+    const cfg = config({ applicationClientId: pair.applicationClientId });
     const runtime = createGoogleStateFirstCallbackRuntime(cfg, h.dependencies);
-    assert.equal(runtime.configuration.clientId, pair.clientId);
+    assert.equal('clientId' in runtime.configuration, false);
     assert.equal(runtime.configuration.applicationClientId, pair.applicationClientId);
-    const out = await runtime.completeCallback(input(`state=${STATE}&code=${encodeURIComponent(CODE)}`, {
-      clientId: pair.clientId,
-    }));
+    const out = await runtime.completeCallback(input());
     assert.deepEqual(out, freeze({ status: 'received' }));
     assert.equal(h.factoryArgs.length, 1);
     assert.deepEqual(h.factoryArgs[0].operationConfig, expectedOperation(pair.clientId, pair.applicationClientId));
     assert.deepEqual(h.factoryArgs[0].handoffConfig, freeze({ secretRef: pair.secretRef }));
   }
 });
-test('rejects malformed clientId and applicationClientId without effects', () => {
+test('rejects hostile extra clientId and malformed applicationClientId without effects', () => {
   const h = harness();
   for (const bad of [
-    config({ clientId: 'not-a-uuid' }),
-    config({ clientId: '12345678-90ab-3cde-8fab-1234567890ab' }),
+    freeze({ ...config(), clientId: CLIENT_A }),
     config({ applicationClientId: 'missing-suffix' }),
     config({ applicationClientId: '.apps.googleusercontent.com' }),
     config({ applicationClientId: 'bad apps.googleusercontent.com' }),
@@ -295,12 +291,11 @@ test('construction rejects nonexact configuration and dependency bags', () => {
     freeze({ ...good, secretRef: REF_A }),
     freeze({ ...good, extra: true }),
     freeze({
-      clientId: CLIENT_A,
+      callbackEnabled: true,
       tenantSlug: TENANT,
       locationKey: LOCATION_KEY,
       applicationClientId: APP_A,
       redirectUri: REDIRECT,
-      callbackEnabled: true,
     }),
     new Proxy(good, {}),
     freeze({ ...good, tenantSlug: 'wolfhouse' }),
@@ -405,7 +400,7 @@ test('propagates resolver secretRef A and B verbatim into handoff with no substi
     }));
   }
 });
-test('requires consumed record.clientId to equal config.clientId before resolver and factory', async () => {
+test('consumed record clientId alone owns resolver and completion flow', async () => {
   const dispatcherPath = require.resolve('./lib/email-google-state-first-callback-runtime');
   const consumePath = require.resolve('./lib/email-google-oauth-callback-consume');
   const savedLoad = Module._load;
@@ -414,8 +409,9 @@ test('requires consumed record.clientId to equal config.clientId before resolver
   const consumeCallback = freeze(function consumeCallback() {
     consumeCalls += 1;
     return freeze({
-      status: 'consumed', authorizationCode: CODE, clientId: CLIENT_B, operationId: OPERATION,
-      locationId: LOCATION, endpointId: ENDPOINT, staffUserId: STAFF, codeVerifier: VERIFIER, nonce: NONCE,
+      status: 'consumed', authorizationCode: CODE, clientId: CLIENT_B, authSessionId: AUTH,
+      operationId: OPERATION, locationId: LOCATION, endpointId: ENDPOINT,
+      staffUserId: STAFF, codeVerifier: VERIFIER, nonce: NONCE,
     });
   });
   const seam = freeze({ createGoogleOAuthCallbackConsume() { return freeze({ consumeCallback }); } });
@@ -427,13 +423,16 @@ test('requires consumed record.clientId to equal config.clientId before resolver
       return Reflect.apply(savedLoad, this, [request, parent, isMain]);
     };
     const freshCreate = require(dispatcherPath).createGoogleStateFirstCallbackRuntime;
-    const h = harness({ clientId: CLIENT_A });
-    const runtime = freshCreate(config({ clientId: CLIENT_A }), h.dependencies);
-    await rejects(() => runtime.completeCallback(input()), FAILURE);
+    const h = harness({ clientId: CLIENT_B, rows: [] });
+    const runtime = freshCreate(config(), h.dependencies);
+    const out = await runtime.completeCallback(input());
+    assert.deepEqual(out, freeze({ status: 'received' }));
     assert.equal(consumeCalls, 1);
-    assert.equal(steps(h).includes('resolve'), false);
-    assert.equal(steps(h).includes('factory'), false);
+    assert.equal(steps(h).includes('resolve'), true);
+    assert.equal(steps(h).includes('factory'), true);
     assert.equal(steps(h).includes('secret'), false);
+    assert.equal(h.resolveArgs[0].clientId, CLIENT_B);
+    assert.equal(h.factoryArgs[0].operationConfig.clientId, CLIENT_B);
   } finally {
     Module._load = savedLoad;
     delete require.cache[dispatcherPath];

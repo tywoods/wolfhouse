@@ -261,8 +261,8 @@ def main() -> int:
         "compose_luna_8090_unchanged": '"8090:8090"' in compose,
         "compose_wolfhouse_luna_8091_unchanged": '"8091:8091"' in compose,
         "overlay_deckhand_role_exists": bool(deckhand_role),
-        "overlay_model_grok_45": re.search(
-            r"default:\s*grok-4\.5\b", deckhand_yaml
+        "overlay_model_grok_46": re.search(
+            r"default:\s*grok-4\.6\b", deckhand_yaml
         ) is not None,
         "overlay_provider_xai_oauth": re.search(
             r"provider:\s*xai-oauth\b", deckhand_yaml
@@ -345,7 +345,7 @@ def main() -> int:
             bool(bootstrap_deckhand) and not luna_guest_calls_in(bootstrap_deckhand)
         ),
         "bootstrap_deckhand_model_xai_oauth_grok": (
-            re.search(r"default:\s*grok-4\.5\b", bootstrap_deckhand_yaml) is not None
+            re.search(r"default:\s*grok-4\.6\b", bootstrap_deckhand_yaml) is not None
             and re.search(r"provider:\s*xai-oauth\b", bootstrap_deckhand_yaml) is not None
             and re.search(r"(?m)^\s*provider:\s*xai\s*$", deckhand_fn) is None
             and "fallback_providers" not in bootstrap_deckhand_yaml

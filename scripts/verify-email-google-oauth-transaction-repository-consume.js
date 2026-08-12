@@ -21,11 +21,11 @@ const VERIFIER = `${'V'.repeat(41)}-._~`;
 const NONCE = `${'N'.repeat(42)}_`;
 const CONSUMED = '2026-08-11T12:05:00.000Z';
 const LEAK = 'HOSTILE_GOOGLE_CONSUME_VALUE_NEVER_LOG';
-const SQL = "UPDATE tenant_email_google_oauth_transactions SET consumed_at=$4::timestamptz WHERE state_hash=$1::bytea AND client_id=$2::uuid AND auth_session_id=$3::uuid AND consumed_at IS NULL AND expires_at>$4::timestamptz AND authorization_intent='initial_connect' AND scope_version='phase_a_v2' RETURNING operation_id, location_id, endpoint_id, staff_user_id, code_verifier, nonce";
+const SQL = "UPDATE tenant_email_google_oauth_transactions t SET consumed_at=$2::timestamptz FROM clients c WHERE t.state_hash=$1::bytea AND t.client_id=c.id AND c.slug='sunset' AND t.consumed_at IS NULL AND t.expires_at>$2::timestamptz AND t.authorization_intent='initial_connect' AND t.scope_version='phase_a_v2' RETURNING t.client_id, t.auth_session_id, t.operation_id, t.location_id, t.endpoint_id, t.staff_user_id, t.code_verifier, t.nonce";
 
-function input(patch = {}) { return freeze({ stateHash: STATE, clientId: CLIENT, authSessionId: SESSION, consumedAt: CONSUMED, ...patch }); }
+function input(patch = {}) { return freeze({ stateHash: STATE, consumedAt: CONSUMED, ...patch }); }
 function row(patch = {}, frozen = true) {
-  const value = { operation_id: OPERATION, location_id: LOCATION, endpoint_id: ENDPOINT,
+  const value = { client_id: CLIENT, auth_session_id: SESSION, operation_id: OPERATION, location_id: LOCATION, endpoint_id: ENDPOINT,
     staff_user_id: STAFF, code_verifier: VERIFIER, nonce: NONCE, ...patch };
   return frozen ? freeze(value) : value;
 }
@@ -36,7 +36,7 @@ function result(rows = [row()], frozen = true) {
 }
 function queryOwner(fn = function query() { return result(); }) { return freeze({ query: fn }); }
 function repository(query = queryOwner()) { return createGoogleOAuthTransactionRepository(freeze({ queryOwner: query })); }
-function expected() { return { operationId: OPERATION, locationId: LOCATION, endpointId: ENDPOINT,
+function expected() { return { clientId: CLIENT, authSessionId: SESSION, operationId: OPERATION, locationId: LOCATION, endpointId: ENDPOINT,
   staffUserId: STAFF, codeVerifier: VERIFIER, nonce: NONCE }; }
 function assertClean(error) {
   assert.equal(error.name, 'GoogleOAuthTransactionRepositoryError');
@@ -66,7 +66,7 @@ test('executes exactly one atomic fixed Google UPDATE with exact params and fres
   const calls = []; const q = queryOwner(function query(text, params) { calls.push({ text, params, receiver: this }); return result(); });
   const repo = repository(q); const first = await repo.consume(input()); const second = await repo.consume(input());
   assert.equal(calls.length, 2); assert.strictEqual(calls[0].receiver, q); assert.equal(calls[0].text, SQL);
-  assert.equal(calls[1].text, SQL); assert.deepEqual(calls[0].params.slice(1), [CLIENT, SESSION, CONSUMED]);
+  assert.equal(calls[1].text, SQL); assert.deepEqual(calls[0].params.slice(1), [CONSUMED]);
   assert.ok(Buffer.isBuffer(calls[0].params[0])); assert.equal(calls[0].params[0].toString('hex'), STATE);
   assert.notStrictEqual(calls[0].params[0], calls[1].params[0]);
   assert.deepEqual(first, expected()); assert.deepEqual(second, expected());
@@ -74,12 +74,12 @@ test('executes exactly one atomic fixed Google UPDATE with exact params and fres
 
 test('SQL is structurally one atomic update with no preselect, Microsoft table, or prior generation', async () => {
   let text; await repository(queryOwner(sql => { text = sql; return result([]); })).consume(input());
-  assert.equal(text, SQL); assert.match(text, /^UPDATE tenant_email_google_oauth_transactions SET consumed_at=\$4::timestamptz WHERE /);
+  assert.equal(text, SQL); assert.match(text, /^UPDATE tenant_email_google_oauth_transactions t SET consumed_at=\$2::timestamptz FROM clients c WHERE /);
   assert.equal(/\bSELECT\b/i.test(text), false); assert.equal(/tenant_email_oauth_transactions|microsoft/i.test(text), false);
   assert.equal(/prior_generation/i.test(text), false);
-  for (const fragment of ['state_hash=$1::bytea', 'client_id=$2::uuid', 'auth_session_id=$3::uuid',
-    'consumed_at IS NULL', 'expires_at>$4::timestamptz', "authorization_intent='initial_connect'", "scope_version='phase_a_v2'",
-    'RETURNING operation_id, location_id, endpoint_id, staff_user_id, code_verifier, nonce']) assert.ok(text.includes(fragment));
+  for (const fragment of ['t.state_hash=$1::bytea', "c.slug='sunset'", 't.client_id=c.id',
+    't.consumed_at IS NULL', 't.expires_at>$2::timestamptz', "t.authorization_intent='initial_connect'", "t.scope_version='phase_a_v2'",
+    'RETURNING t.client_id, t.auth_session_id, t.operation_id, t.location_id, t.endpoint_id, t.staff_user_id, t.code_verifier, t.nonce']) assert.ok(text.includes(fragment));
 });
 
 test('accepts direct and genuine native Promise zero/one outputs; zero rows is an ordinary null miss', async () => {
@@ -102,8 +102,7 @@ test('requires exact frozen ordered data-only consume input and burns no query w
 
 test('validates lowercase digest, canonical UUIDv4 owners, and canonical millisecond UTC consumedAt before query', async () => {
   const patches = [{ stateHash: STATE.toUpperCase() }, { stateHash: 'a'.repeat(63) }, { stateHash: new String(STATE) },
-    { clientId: CLIENT.toUpperCase() }, { clientId: 'aaaaaaaa-bbbb-3ccc-8ddd-eeeeeeeeeeee' },
-    { authSessionId: SESSION.toUpperCase() }, { authSessionId: 'not-a-uuid' },
+
     { consumedAt: '2026-08-11T12:05:00Z' }, { consumedAt: '2026-08-11 12:05:00.000+00' },
     { consumedAt: 'not-a-date' }, { consumedAt: '2026-02-30T12:00:00.000Z' },
     { consumedAt: '2026-13-01T12:00:00.000Z' }, { consumedAt: '2026-02-29T12:00:00.000Z' },
@@ -137,15 +136,15 @@ test('accepts exact consistent mutable/frozen rows and returns a new exact froze
   for (const frozen of [false, true]) {
     const databaseRow = row({}, frozen); const dto = await repository(queryOwner(() => result([databaseRow], frozen))).consume(input());
     assert.notStrictEqual(dto, databaseRow); assert.deepEqual(dto, expected()); assert.equal(Object.isFrozen(dto), true);
-    assert.deepEqual(Reflect.ownKeys(dto), ['operationId', 'locationId', 'endpointId', 'staffUserId', 'codeVerifier', 'nonce']);
-    for (const key of ['stateHash', 'clientId', 'authSessionId', 'consumedAt']) assert.equal(key in dto, false);
+    assert.deepEqual(Reflect.ownKeys(dto), ['clientId', 'authSessionId', 'operationId', 'locationId', 'endpointId', 'staffUserId', 'codeVerifier', 'nonce']);
+    for (const key of ['stateHash', 'consumedAt']) assert.equal(key in dto, false);
   }
 });
 
 test('validates returned shape and grammar without binding returned IDs to consume owner IDs', async () => {
   const dto = await repository(queryOwner(() => result([row({ operation_id: CLIENT, location_id: SESSION,
     endpoint_id: OPERATION, staff_user_id: LOCATION })]))).consume(input());
-  assert.deepEqual(dto, { operationId: CLIENT, locationId: SESSION, endpointId: OPERATION,
+  assert.deepEqual(dto, { clientId: CLIENT, authSessionId: SESSION, operationId: CLIENT, locationId: SESSION, endpointId: OPERATION,
     staffUserId: LOCATION, codeVerifier: VERIFIER, nonce: NONCE });
 });
 
@@ -153,7 +152,7 @@ test('rejects multiple, malformed, mixed-freeze, accessor, proxy, and noncanonic
   const accessor = { ...row({}, false) }; Object.defineProperty(accessor, 'nonce', { enumerable: true, get() { throw new Error(LEAK); } }); freeze(accessor);
   const malformed = [undefined, null, {}, freeze({ rows: [] }), result([row(), row()]),
     result([{ ...row() }]), result([row({}, false)]), result([row()], false),
-    result([freeze({ location_id: LOCATION, operation_id: OPERATION, endpoint_id: ENDPOINT, staff_user_id: STAFF, code_verifier: VERIFIER, nonce: NONCE })]),
+    result([freeze({ client_id: CLIENT, auth_session_id: SESSION, location_id: LOCATION, operation_id: OPERATION, endpoint_id: ENDPOINT, staff_user_id: STAFF, code_verifier: VERIFIER, nonce: NONCE })]),
     result([row({ operation_id: 'not-a-uuid' })]), result([row({ location_id: ENDPOINT.toUpperCase() })]),
     result([row({ code_verifier: 'A'.repeat(42) })]), result([row({ nonce: `${'A'.repeat(42)}.` })]), result([accessor]),
     new Proxy(result(), { ownKeys() { throw new Error(LEAK); } })];
