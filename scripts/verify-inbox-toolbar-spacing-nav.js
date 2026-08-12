@@ -21,10 +21,10 @@ function main() {
   console.log('verify-inbox-toolbar-spacing-nav');
   const api = fs.readFileSync(API, 'utf8');
 
-  ok('conversations wrap top padding 10px',
-    /#tab-conversations\.active #wrap\.inbox-shell-wrap\{[\s\S]*?padding:10px 20px 12px!important/.test(api));
-  ok('customers wrap top padding 10px',
-    /\.customers-wrap\{[^}]*padding:10px 20px 12px/.test(api));
+  ok('conversations wrap uses --tab-top-gap',
+    /#tab-conversations\.active #wrap\.inbox-shell-wrap\{[\s\S]*?padding:var\(--tab-top-gap\) 20px 12px!important/.test(api));
+  ok('customers wrap uses --tab-top-gap',
+    /\.customers-wrap\{[^}]*padding:var\(--tab-top-gap\) 20px 12px/.test(api));
   ok('inbox-shell-toolbar margin-bottom 10px',
     /\.inbox-shell-toolbar\{[^}]*margin-bottom:10px/.test(api));
   ok('customers-toolbar margin-bottom 10px',
@@ -64,7 +64,7 @@ function main() {
     try {
       const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
       await page.setContent(`<!doctype html><html data-theme="dark"><head><style>
-:root{--border-soft:#333;--surface:#1e1e1e;--surface-soft:#2a2a2a;--text:#eee;--text-2:#bbb;--sage:#5a7a5a;--primary:#ccc;--cream:#181818;--font-sans:system-ui}
+:root{--tab-top-gap:24px;--border-soft:#333;--surface:#1e1e1e;--surface-soft:#2a2a2a;--text:#eee;--text-2:#bbb;--sage:#5a7a5a;--primary:#ccc;--cream:#181818;--font-sans:system-ui}
 *{box-sizing:border-box}
 body{margin:0;background:#181818;color:var(--text);font-family:var(--font-sans)}
 #tabs{display:flex;border-bottom:1px solid #333;padding:0 12px;height:48px;align-items:stretch}
@@ -73,10 +73,10 @@ body{margin:0;background:#181818;color:var(--text);font-family:var(--font-sans)}
 .tab-panel{display:none}
 .tab-panel.active{display:flex;flex-direction:column}
 #tab-conversations.active #wrap.inbox-shell-wrap{
-  max-width:1240px;width:100%;margin:0 auto;padding:10px 20px 12px;display:flex;flex-direction:column;
+  max-width:1240px;width:100%;margin:0 auto;padding:var(--tab-top-gap) 20px 12px;display:flex;flex-direction:column;
 }
 .inbox-shell-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;margin-top:0}
-.customers-wrap{max-width:1240px;width:100%;margin:0 auto;padding:10px 20px 12px;display:flex;flex-direction:column}
+.customers-wrap{max-width:1240px;width:100%;margin:0 auto;padding:var(--tab-top-gap) 20px 12px;display:flex;flex-direction:column}
 .customers-header{margin:0;padding:0;min-height:0}
 .customers-toolbar{display:flex;flex-direction:column;gap:8px;margin-top:0;margin-bottom:10px}
 .inbox-two-col{min-height:200px;background:var(--surface);border:1px solid #333;border-radius:10px}
@@ -154,12 +154,14 @@ window.switchToTab = switchToTab;
         };
       });
 
-      const all = [gapsConv.above, gapsConv.below, gapsCust.above, gapsCust.below];
-      const max = Math.max.apply(null, all);
-      const min = Math.min.apply(null, all);
-      ok('four vertical gaps nearly equal (±2px)',
-        max - min <= 2 && min >= 8 && min <= 14,
-        JSON.stringify({ gapsConv, gapsCust, all }));
+      const allAbove = [gapsConv.above, gapsCust.above];
+      const allBelow = [gapsConv.below, gapsCust.below];
+      ok('nav→toolbar gaps are 24px (--tab-top-gap) on both tabs',
+        allAbove.every((v) => Math.abs(v - 24) <= 1),
+        JSON.stringify({ gapsConv, gapsCust }));
+      ok('toolbar→content gaps are 10px on both tabs',
+        allBelow.every((v) => Math.abs(v - 10) <= 1),
+        JSON.stringify({ gapsConv, gapsCust }));
       ok('Customers panel active while Inbox nav highlighted',
         gapsCust.panelOk && gapsCust.inboxActive && !gapsCust.customersBtnActive,
         JSON.stringify(gapsCust));

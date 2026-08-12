@@ -16011,6 +16011,8 @@ ${getStaffPortalThemeEarlyScript()}
   --primary:#4E5853;      /* primary action — match sign-out / schedule green */
   --primary-hover:#3F4843;
   --focus:#9DB4C4;        /* focus ring (ocean) */
+  /* Uniform gap: bottom of top nav → first content block on every tab (both themes). */
+  --tab-top-gap:24px;
 }
 [data-theme="dark"]{
   --cream:#181818;
@@ -16394,7 +16396,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
   --sched-unpaid:#B4534A;
   background:var(--sunset-bg);
 }
-:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-wrap{padding-top:20px}
+/* light-theme schedule: use --tab-top-gap (no separate 20px override) */
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-card,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-week-forecast-card,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-next30-card{background:var(--sunset-card);border-color:var(--sunset-border);box-shadow:var(--sunset-shadow-soft)}
@@ -16482,7 +16484,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 [data-theme="dark"] #tab-portal-home .portal-schedule-drawer,
 [data-theme="dark"] #tab-portal-home .portal-schedule-create-drawer{background:var(--surface);border-color:var(--border-soft)}
 
-.portal-admin-wrap{max-width:1240px;margin:0 auto;padding:24px 20px 32px}
+.portal-admin-wrap{max-width:1240px;margin:0 auto;padding:var(--tab-top-gap) 20px 32px}
 .portal-admin-header{margin-bottom:18px}
 .portal-admin-header h2{font-size:20px;font-weight:700;color:var(--text);margin:0 0 8px}
 .portal-admin-banner{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius);padding:12px 16px;margin-bottom:18px;font-size:13px;color:var(--text-2);line-height:1.5}
@@ -17253,7 +17255,7 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
   .portal-admin-subtab{flex:1 1 calc(50% - 4px);min-width:44px;min-height:44px;padding:12px 10px;font-size:13px}
 }
 
-.portal-schedule-wrap{max-width:1240px;margin:0 auto;padding:24px 20px 32px}
+.portal-schedule-wrap{max-width:1240px;margin:0 auto;padding:var(--tab-top-gap) 20px 32px}
 .portal-schedule-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:18px}
 @media(max-width:1100px){.portal-schedule-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:640px){.portal-schedule-summary{grid-template-columns:1fr 1fr}}
@@ -18127,7 +18129,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 /* ── Customers tab (shared CRM) ───────────────────────────────────────────── */
 #tab-customers.active{display:flex;flex-direction:column;flex:1;min-height:0;height:auto;overflow:hidden}
 /* Match Conversations shell vertical rhythm (nav→toolbar / toolbar→body = 10px). */
-.customers-wrap{max-width:1240px;width:100%;margin:0 auto;padding:10px 20px 12px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
+.customers-wrap{max-width:1240px;width:100%;margin:0 auto;padding:var(--tab-top-gap) 20px 12px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
 /* School heading is often hidden — do not leave a phantom margin above the toolbar. */
 .customers-header{margin:0;padding:0;min-height:0}
 .customers-school-heading{font-size:26px;font-weight:600;letter-spacing:normal;color:var(--text);line-height:1.1;margin:0 0 10px;font-family:var(--font-display)}
@@ -20022,12 +20024,12 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 /* Conversations shell mirrors Customers: 1240 wrap + toolbar + two framed cards. */
 /* Equal vertical rhythm: nav→toolbar and toolbar→content = 10px on both Inbox views. */
 #tab-conversations.active #wrap.inbox-shell-wrap{
-  max-width:1240px!important;width:100%;margin:0 auto;padding:10px 20px 12px!important;
+  max-width:1240px!important;width:100%;margin:0 auto;padding:var(--tab-top-gap) 20px 12px!important;
   display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box;align-self:center;
 }
 @media(max-width:900px){
   #tab-conversations.active #wrap.inbox-shell-wrap{
-    max-width:100vw!important;padding:8px 12px!important;margin:0 auto;
+    max-width:100vw!important;padding:var(--tab-top-gap) 12px 12px!important;margin:0 auto;
   }
 }
 .inbox-shell-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;margin-top:0;flex-shrink:0}
