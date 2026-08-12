@@ -18496,7 +18496,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .sidebar-expand-btn:hover{color:var(--text);background:var(--surface)}
 .detail-layout.is-sidebar-collapsed .sidebar-expand-btn{display:inline-flex}
 .detail-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface);padding:14px 16px;overflow:hidden}
-.detail-sidebar{width:280px;flex-shrink:0;align-self:stretch;min-height:0;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface);padding:14px 16px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.detail-sidebar{width:280px;flex-shrink:0;align-self:stretch;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .sidebar-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .sidebar-card-head h3{margin:0}
 @media(max-width:860px){.detail-layout{flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;align-items:stretch}.detail-sidebar{width:100%;max-height:none;overflow:visible;flex-shrink:0}}
