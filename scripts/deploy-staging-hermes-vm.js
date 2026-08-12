@@ -406,6 +406,17 @@ function writeEnvFiles() {
   const orch = {
     DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_TOKEN || kvSecret('discord-bot-token') || '',
     DISCORD_ALLOWED_USERS: process.env.DISCORD_ALLOWED_USERS || '',
+    // Chief of Staff webhook → Skipper auto-wake (thread + author watch-list).
+    DISCORD_BOT_WAKE_CHANNELS:
+      process.env.DISCORD_BOT_WAKE_CHANNELS || '1537017482748100678',
+    DISCORD_BOT_WAKE_AUTHORS:
+      process.env.DISCORD_BOT_WAKE_AUTHORS || 'Luna Chief of Staff',
+    DISCORD_BOT_WAKE_JSON_SOURCE:
+      process.env.DISCORD_BOT_WAKE_JSON_SOURCE || 'grok-bot',
+    DISCORD_BOT_WAKE_JSON_TYPES:
+      process.env.DISCORD_BOT_WAKE_JSON_TYPES || 'ping,approved_fix,status',
+    DISCORD_FREE_RESPONSE_CHANNELS:
+      process.env.DISCORD_FREE_RESPONSE_CHANNELS || '1537017482748100678',
     API_SERVER_KEY: apiServerKey,
     ANTHROPIC_TOKEN: anthropicToken,
     WOLFHOUSE_STAFF_API_BASE_URL: HERMES_VM.WOLFHOUSE_STAFF_API_BASE_URL,

@@ -101,6 +101,9 @@ gateway:
   platforms:
     discord:
       require_mention: false
+      # Chief of Staff job thread — respond without @mention (Skipper).
+      free_response_channels:
+        - "1537017482748100678"
 EOF
 }
 
@@ -174,9 +177,18 @@ write_orchestrator_env() {
     printf 'API_SERVER_ENABLED=true\n'
     printf 'API_SERVER_HOST=0.0.0.0\n'
     printf 'API_SERVER_PORT=8642\n'
+    # Chief of Staff (Grok Bot webhook) → auto-start Skipper turns in this thread.
+    # Does NOT set DISCORD_ALLOW_BOTS=all; narrow watch-list via discord_bot_wake patch.
+    printf 'DISCORD_BOT_WAKE_CHANNELS=%s\n' "${DISCORD_BOT_WAKE_CHANNELS:-1537017482748100678}"
+    printf 'DISCORD_BOT_WAKE_AUTHORS=%s\n' "${DISCORD_BOT_WAKE_AUTHORS:-Luna Chief of Staff}"
+    printf 'DISCORD_BOT_WAKE_JSON_SOURCE=%s\n' "${DISCORD_BOT_WAKE_JSON_SOURCE:-grok-bot}"
+    printf 'DISCORD_BOT_WAKE_JSON_TYPES=%s\n' "${DISCORD_BOT_WAKE_JSON_TYPES:-ping,approved_fix,status}"
+    printf 'DISCORD_FREE_RESPONSE_CHANNELS=%s\n' "${DISCORD_FREE_RESPONSE_CHANNELS:-1537017482748100678}"
     [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ]            && printf 'WOLFHOUSE_STAFF_API_BASE_URL=%s\n' "$WOLFHOUSE_STAFF_API_BASE_URL"
     # Anthropic OAuth (Claude Max) for Opus 4.8 — claude setup-token output.
-    [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=*** "$ANTHROPIC_TOKEN" || true
+    if [ -n "${ANTHROPIC_TOKEN:-}" ]; then
+      printf 'ANTHROPIC_TOKEN=%s\n' "$ANTHROPIC_TOKEN"
+    fi
   } > "$HERMES_HOME/.env"
 }
 
@@ -263,6 +275,14 @@ apply_patches() {
   if [ -f /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py ]; then
     python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py || {
       echo "apply_crowsnest_ai_usage_patch failed — refusing upstream drift" >&2
+      exit 1
+    }
+  fi
+  # Bot/webhook wake watch-list (Chief of Staff → Skipper). Orchestrator only —
+  # must not rewrite allow_bots admission on seadog/deckhand (A2A anchors).
+  if [ "$HERMES_ROLE" = "orchestrator" ] && [ -f /etc/hermes-staging/apply_discord_bot_wake_patch.py ]; then
+    python /etc/hermes-staging/apply_discord_bot_wake_patch.py || {
+      echo "apply_discord_bot_wake_patch failed — Chief of Staff auto-wake may be missing" >&2
       exit 1
     }
   fi

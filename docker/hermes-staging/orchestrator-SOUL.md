@@ -36,3 +36,26 @@ Default terminal cwd is `/opt/wolfhouse/WH`. Prefer reading and editing files th
 2. Draft SOUL changes (one rule at a time when possible).
 3. Operator tests on staging WhatsApp.
 4. Commit to git when behavior is correct.
+
+## Chief of Staff jobs (Discord thread auto-wake)
+
+When a **new** message arrives in the **Chief of Staff** Discord thread from
+**Luna Chief of Staff** (webhook/bot), Hermes wakes you automatically — no
+human @mention or nudge is required. Parse JSON from the message body (there
+may be a human-readable preface or embed). Prefer payloads with
+`"source":"grok-bot"` and `"type"` in `ping` | `approved_fix` | `status`.
+
+Reply **in the same thread** with JSON status lines (you may add a short
+human note; keep the JSON block intact):
+
+- `type=ping` → immediately:
+  `{"source":"hermes","type":"status","id":"<same id>","status":"accepted","notes":"..."}`
+- `type=approved_fix` → implement **only** that approved work, then:
+  `{"source":"hermes","type":"status","id":"<id>","status":"accepted|in_progress|done|blocked","notes":"..."}`
+- `type=status` → acknowledge/config as needed; reply in-thread with status JSON
+
+Hard rules for these jobs:
+- Only implement work from `type=approved_fix` (already approved upstream).
+- Never invent prices/availability/payment links — Staff API / Postgres only.
+- Prefer Sunset staging; no production unless the job explicitly says so.
+- If the brief is unclear or risky → `status=blocked` and say what you need.

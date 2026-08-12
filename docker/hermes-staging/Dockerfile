@@ -30,6 +30,7 @@ COPY apply_stt_patches.py /etc/hermes-staging/apply_stt_patches.py
 COPY apply_guest_send_guard_patches.py /etc/hermes-staging/apply_guest_send_guard_patches.py
 COPY apply_crowsnest_ai_usage_patch.py /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py
 COPY apply_water_cooler_a2a_adapter_patch.py /etc/hermes-staging/apply_water_cooler_a2a_adapter_patch.py
+COPY apply_discord_bot_wake_patch.py /etc/hermes-staging/apply_discord_bot_wake_patch.py
 COPY test_crowsnest_ai_usage_patch.py /etc/hermes-staging/test_crowsnest_ai_usage_patch.py
 COPY verify_stt_patches.py /etc/hermes-staging/verify_stt_patches.py
 COPY verify_guest_send_guard_patches.py /etc/hermes-staging/verify_guest_send_guard_patches.py
@@ -54,9 +55,12 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && python /etc/hermes-staging/verify_discord_session_continuity.py \
  && python /etc/hermes-staging/verify_wolfhouse_luna_instance.py \
  && cd /etc/hermes-staging \
- && python -m unittest wolfhouse.test_crowsnest_ai_usage_reporter test_crowsnest_ai_usage_patch -v \
+ && python -m unittest wolfhouse.test_crowsnest_ai_usage_reporter test_crowsnest_ai_usage_patch wolfhouse.test_discord_bot_wake wolfhouse.test_discord_bot_wake_patch -v \
  && python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py \
  && python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py
 # NOTE: Water-cooler A2A adapter patch is intentionally NOT applied at image
 # build. Bootstrap applies it only when HERMES_ROLE is seadog|deckhand and
 # WATER_COOLER_A2A_ENABLED=true (fail-closed default off for all roles).
+# Discord bot-wake watch-list patch is also NOT applied at image build — it
+# mutates the same allow_bots admission seam A2A validates. Bootstrap applies
+# it only for HERMES_ROLE=orchestrator (Skipper / Chief of Staff wake).
