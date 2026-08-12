@@ -5,17 +5,23 @@ const weakMapGet=WeakMap.prototype.get;
 const weakMapSet=WeakMap.prototype.set;
 const weakMapDelete=WeakMap.prototype.delete;
 const reflectApply=Reflect.apply;
+const reflectOwnKeys=Reflect.ownKeys;
 const objectCreate=Object.create;
 const objectFreeze=Object.freeze;
+const objectDefineProperty=Object.defineProperty;
+const objectGetOwnPropertyDescriptor=Object.getOwnPropertyDescriptor;
+const objectGetPrototypeOf=Object.getPrototypeOf;
+const objectHasOwn=Object.hasOwn;
+const authenticObjectPrototype=objectGetPrototypeOf({});
 const GOOGLE_ENDPOINT_PATH='/staff/admin/email-settings/oauth/google/endpoint';
 const GOOGLE_START_PATH='/staff/admin/email-settings/oauth/google/start';
 const GOOGLE_CALLBACK_PATH='/staff/email/google/callback';
-const FLAGS=Object.freeze({endpoint:'LUNA_EMAIL_GOOGLE_OAUTH_ENDPOINT_ENABLED',start:'LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED',callback:'LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED'});
+const FLAGS=objectFreeze({endpoint:'LUNA_EMAIL_GOOGLE_OAUTH_ENDPOINT_ENABLED',start:'LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED',callback:'LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED'});
 const JSON_LIMIT=10240;
-function own(o,k){try{const d=Object.getOwnPropertyDescriptor(o,k);return d&&Object.hasOwn(d,'value')&&!d.get&&!d.set?d.value:undefined;}catch{return undefined;}}
-function snapshotGate(env){return Object.freeze({LUNA_DEPLOYMENT:own(env,'LUNA_DEPLOYMENT'),LUNA_EMAIL_GOOGLE_OAUTH_ENDPOINT_ENABLED:own(env,FLAGS.endpoint),LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED:own(env,FLAGS.start),LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED:own(env,FLAGS.callback)});}
+function own(o,k){try{const d=objectGetOwnPropertyDescriptor(o,k);return d&&objectHasOwn(d,'value')&&!d.get&&!d.set?d.value:undefined;}catch{return undefined;}}
+function snapshotGate(env){return objectFreeze({LUNA_DEPLOYMENT:own(env,'LUNA_DEPLOYMENT'),LUNA_EMAIL_GOOGLE_OAUTH_ENDPOINT_ENABLED:own(env,FLAGS.endpoint),LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED:own(env,FLAGS.start),LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED:own(env,FLAGS.callback)});}
 function isGoogleRouteEnabled(env,kind){return own(env,'LUNA_DEPLOYMENT')==='sunset-staging'&&own(env,FLAGS[kind])==='true';}
-function frozenDto(entries){const dto={};for(const [key,value] of entries)Object.defineProperty(dto,key,{value,enumerable:true,writable:false,configurable:false});return Object.freeze(dto);}
+function frozenDto(entries){const dto={};for(const [key,value] of entries)objectDefineProperty(dto,key,{value,enumerable:true,writable:false,configurable:false});return objectFreeze(dto);}
 
 function parseStrictGoogleJson(contentType,raw,keys){
   try{
@@ -23,7 +29,7 @@ function parseStrictGoogleJson(contentType,raw,keys){
     const names=[];let inString=false,escaped=false,start=-1;
     for(let i=0;i<raw.length;i++){const c=raw[i];if(inString){if(escaped){escaped=false;continue;}if(c==='\\'){escaped=true;continue;}if(c==='"'){const token=raw.slice(start,i+1);let j=i+1;while(/\s/.test(raw[j]||''))j++;if(raw[j]===':')names.push(JSON.parse(token));inString=false;}}else if(c==='"'){inString=true;start=i;}}
     if(inString||new Set(names).size!==names.length||names.length!==keys.length||names.some((x,i)=>x!==keys[i]))return null;
-    const value=JSON.parse(raw);if(!value||Array.isArray(value)||types.isProxy(value)||Object.getPrototypeOf(value)!==Object.prototype||Reflect.ownKeys(value).some((x,i)=>x!==keys[i])||keys.some(k=>{const d=Object.getOwnPropertyDescriptor(value,k);return !d||!Object.hasOwn(d,'value');}))return null;
+    const value=JSON.parse(raw);if(!value||Array.isArray(value)||types.isProxy(value)||objectGetPrototypeOf(value)!==authenticObjectPrototype||reflectOwnKeys(value).some((x,i)=>x!==keys[i])||keys.some(k=>{const d=objectGetOwnPropertyDescriptor(value,k);return !d||!objectHasOwn(d,'value');}))return null;
     return frozenDto(keys.map(k=>[k,own(value,k)]));
   }catch{return null;}
 }
@@ -55,6 +61,6 @@ function createStaffGoogleOAuthProductionIntegration(deps){
     try{return await deps.withPgClient(async pg=>{const service=deps.createEndpointPrepare(pg);const input=frozenDto([['clientId',own(user,'client_id').toLowerCase()],['locationId',body.location_id],['publicAddress',body.public_address],['actorStaffUserId',own(user,'staff_user_id').toLowerCase()]]);const ack=await service.prepareDisabledDelegatedEndpoint(input);return json(res,200,frozenDto([['success',true],['endpoint_id',ack.endpointId]]));});}
     catch{return json(res,503,{success:false,error:'endpoint_prepare_unavailable'});}
   }
-  return Object.freeze({dispatch});
+  return objectFreeze({dispatch});
 }
-module.exports=Object.freeze({GOOGLE_ENDPOINT_PATH,GOOGLE_START_PATH,GOOGLE_CALLBACK_PATH,FLAGS,JSON_LIMIT,snapshotGate,isGoogleRouteEnabled,parseStrictGoogleJson,createStaffGoogleOAuthProductionIntegration});
+module.exports=objectFreeze({GOOGLE_ENDPOINT_PATH,GOOGLE_START_PATH,GOOGLE_CALLBACK_PATH,FLAGS,JSON_LIMIT,snapshotGate,isGoogleRouteEnabled,parseStrictGoogleJson,createStaffGoogleOAuthProductionIntegration});

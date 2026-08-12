@@ -2,19 +2,21 @@
 const assert=require('node:assert/strict');
 const owner=require('./lib/staff-google-oauth-production-integration');
 const {createStaffEmailGoogleOAuthRoutes,SQL_RESOLVE_GOOGLE_START_BINDING}=require('./lib/staff-email-google-oauth-routes');
+const fixtureFreeze=Object.freeze;
+const fixtureGetOwnPropertyDescriptor=Reflect.getOwnPropertyDescriptor;
 const START=owner.GOOGLE_START_PATH;
 const U=['11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','33333333-3333-4333-8333-333333333333','44444444-4444-4444-8444-444444444444'];
 const enabled={LUNA_DEPLOYMENT:'sunset-staging',LUNA_EMAIL_GOOGLE_OAUTH_ENDPOINT_ENABLED:'true',LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED:'true',LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED:'true'};
 function harness(overrides={}){
  const effects=[],replies=[],gates=[];let reads=0,pgCalls=0,queryCalls=0,capturedRoutes,capturedReq;
- const env=new Proxy({...enabled},{getOwnPropertyDescriptor(t,k){if(String(k).startsWith('LUNA_EMAIL_GOOGLE_'))reads++;return Reflect.getOwnPropertyDescriptor(t,k);}});
+ const env=new Proxy({...enabled},{getOwnPropertyDescriptor(t,k){if(String(k).startsWith('LUNA_EMAIL_GOOGLE_'))reads++;return fixtureGetOwnPropertyDescriptor(t,k);}});
  const user={client_slug:'sunset',client_id:U[0],staff_user_id:U[2],session_id:U[3]};
  const routeDeps={sendJSON(_r,s,b){replies.push([s,b]);},sendHTML(){throw Error('not callback');},assertStaffClientAccess(){effects.push('route-acl');return true;},authorizeAuthenticatedStaffRoute(){effects.push('route-authz');return {ok:true};},withPgClient(fn){effects.push('pg');pgCalls++;return fn({query(sql,args){effects.push('query');queryCalls++;assert.equal(sql,SQL_RESOLVE_GOOGLE_START_BINDING);assert.deepEqual(args,['sunset-somo',U[1]]);return {rows:[{client_id:U[0],location_id:U[1],endpoint_id:U[1]}]};}});},createStart(){effects.push('createStart');return {start(input){effects.push('start');assert.equal(input.staffUserId,U[2]);return {authorization_url:'https://accounts.google.com/auth'};}};},createCallbackRuntime(){throw Error('not callback');}};
  const deps={env,sendJSON:routeDeps.sendJSON,sendHTML:routeDeps.sendHTML,
   async requireAdmin(){effects.push('admin');return {ok:true,user};},
   assertStaffClientAccess(){effects.push('acl');return true;},authorizeAuthenticatedStaffRoute(x){effects.push('authz');gates.push(x.env);return {ok:true};},
   async readBody(){effects.push('body');return `{"location_id":"sunset-somo","endpoint_id":"${U[1]}"}`;},
-  createGoogleRoutes(gate,authorizeProductionStart){effects.push('routes');gates.push(gate);capturedRoutes=createStaffEmailGoogleOAuthRoutes(Object.freeze({...routeDeps,trustedGateSnapshot:gate,authorizeProductionStart}));return capturedRoutes;},
+  createGoogleRoutes(gate,authorizeProductionStart){effects.push('routes');gates.push(gate);capturedRoutes=createStaffEmailGoogleOAuthRoutes(fixtureFreeze({...routeDeps,trustedGateSnapshot:gate,authorizeProductionStart}));return capturedRoutes;},
   ...overrides};
  return {adapter:owner.createStaffGoogleOAuthProductionIntegration(Object.freeze(deps)),effects,replies,gates,user,get routes(){return capturedRoutes;},get req(){return capturedReq;},set req(v){capturedReq=v;},get reads(){return reads;},get pgCalls(){return pgCalls;},get queryCalls(){return queryCalls;}};
 }

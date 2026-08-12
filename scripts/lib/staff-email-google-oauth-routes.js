@@ -8,6 +8,8 @@ const authenticPlainObjectPrototype = objectGetPrototypeOf({});
 const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const objectHasOwn = Object.hasOwn;
 const objectIsFrozen = Object.isFrozen;
+const objectFreeze = Object.freeze;
+const objectCreate = Object.create;
 const reflectOwnKeys = Reflect.ownKeys;
 const GOOGLE_OAUTH_START_PATH='/staff/admin/email-settings/oauth/google/start';
 const GOOGLE_OAUTH_CALLBACK_PATH='/staff/email/google/callback';
@@ -28,8 +30,8 @@ AND e.binding_status IN ('unverified_offline', 'pending_manual_validation')
 AND e.public_address IS NOT NULL AND btrim(e.public_address) <> ''`.replace(/\s+/g, ' ').trim();
 function own(value, key) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)) return undefined;
-  const descriptor = Object.getOwnPropertyDescriptor(value, key);
-  return descriptor && Object.hasOwn(descriptor, 'value') && !descriptor.get && !descriptor.set ? descriptor.value : undefined;
+  const descriptor = objectGetOwnPropertyDescriptor(value, key);
+  return descriptor && objectHasOwn(descriptor, 'value') && !descriptor.get && !descriptor.set ? descriptor.value : undefined;
 }
 function enabled(env, flag) {
   try { return own(env, 'LUNA_DEPLOYMENT') === 'sunset-staging' && own(env, flag) === 'true'; } catch (_) { return false; }
@@ -56,11 +58,11 @@ function identity(user, callback) {
 }
 function bodySnapshot(body) {
   try {
-    if (!body || typeof body !== 'object' || utilTypes.isProxy(body) || Object.getPrototypeOf(body) !== Object.prototype
-        || !Object.isFrozen(body) || Reflect.ownKeys(body).join(',') !== 'location_id,endpoint_id') return null;
+    if (!body || typeof body !== 'object' || utilTypes.isProxy(body) || objectGetPrototypeOf(body) !== authenticPlainObjectPrototype
+        || !objectIsFrozen(body) || reflectOwnKeys(body).join(',') !== 'location_id,endpoint_id') return null;
     const location = own(body, 'location_id'); const endpoint = own(body, 'endpoint_id');
     return typeof location === 'string' && LOCATION.test(location) && typeof endpoint === 'string' && UUID.test(endpoint)
-      ? Object.freeze({ location_id: location, endpoint_id: endpoint }) : null;
+      ? objectFreeze({ location_id: location, endpoint_id: endpoint }) : null;
   } catch (_) { return null; }
 }
 function callbackQuery(url, req) {
@@ -72,13 +74,13 @@ function callbackQuery(url, req) {
         || req.url.indexOf('?') !== GOOGLE_OAUTH_CALLBACK_PATH.length) return null;
     const raw = req.url.slice(GOOGLE_OAUTH_CALLBACK_PATH.length + 1);
     if (url.search !== `?${raw}`) return null;
-    const parts = raw.split('&'); const values = Object.create(null);
+    const parts = raw.split('&'); const values = objectCreate(null);
     const allowed = new Set(['state', 'code', 'error', 'scope', 'authuser', 'prompt']);
     for (const part of parts) {
       const at = part.indexOf('=');
       if (at < 1 || at !== part.lastIndexOf('=')) return null;
       const key = part.slice(0, at); const encoded = part.slice(at + 1);
-      if (!allowed.has(key) || Object.hasOwn(values, key) || encoded.length < 1 || /\+/.test(encoded)) return null;
+      if (!allowed.has(key) || objectHasOwn(values, key) || encoded.length < 1 || /\+/.test(encoded)) return null;
       values[key] = decodeURIComponent(encoded);
     }
     if (!STATE.test(values.state || '')) return null;
@@ -132,7 +134,7 @@ function createStaffEmailGoogleOAuthRoutes(deps) {
       if (!result || !Array.isArray(result.rows) || result.rows.length !== 1) return deps.sendJSON(res, 404, {success:false,error:'not_found'});
       const row = result.rows[0];
       if (!UUID.test(row.client_id||'') || !UUID.test(row.location_id||'') || row.endpoint_id !== input.endpoint_id) throw Error('binding');
-      const start = deps.createStart(pg); const dto = await start.start(Object.freeze({clientId:row.client_id,locationId:row.location_id,endpointId:row.endpoint_id,staffUserId:own(user,'staff_user_id').toLowerCase(),authSessionId:own(user,'session_id').toLowerCase()}));
+      const start = deps.createStart(pg); const dto = await start.start(objectFreeze({clientId:row.client_id,locationId:row.location_id,endpointId:row.endpoint_id,staffUserId:own(user,'staff_user_id').toLowerCase(),authSessionId:own(user,'session_id').toLowerCase()}));
       return deps.sendJSON(res, 200, dto);
     }); } catch (_) { return deps.sendJSON(res, 503, {success:false,error:'oauth_start_unavailable'}); }
   }
@@ -140,11 +142,11 @@ function createStaffEmailGoogleOAuthRoutes(deps) {
     if (!trustedGateSnapshot && !isGoogleOAuthCallbackEnabled(env)) return deps.sendHTML(res, 404, '<!doctype html><title>Not found</title>');
     let url; try { url = new URL(req.url, 'https://staff-staging.lunafrontdesk.com'); } catch (_) { url = null; }
     const query = callbackQuery(url, req); if (!query) return deps.sendHTML(res, 400, '<!doctype html><title>Connection failed</title>');
-    try { const output = await deps.withPgClient(pg => deps.createCallbackRuntime(pg).completeCallback(Object.freeze({query})));
+    try { const output = await deps.withPgClient(pg => deps.createCallbackRuntime(pg).completeCallback(objectFreeze({query})));
       if (!isAuthenticReceived(output)) return deps.sendHTML(res, 400, '<!doctype html><title>Connection failed</title><p>Gmail connection could not be completed.</p>');
       return deps.sendHTML(res, 200, '<!doctype html><title>Gmail connected</title><p>Gmail connection completed. You may close this window.</p>');
     } catch (_) { return deps.sendHTML(res, 400, '<!doctype html><title>Connection failed</title><p>Gmail connection could not be completed.</p>'); }
   }
-  return Object.freeze({ handleStart, handleCallback });
+  return objectFreeze({ handleStart, handleCallback });
 }
-module.exports = Object.freeze({createStaffEmailGoogleOAuthRoutes,GOOGLE_OAUTH_START_PATH,GOOGLE_OAUTH_CALLBACK_PATH,START_FLAG,CALLBACK_FLAG,isGoogleOAuthStartEnabled,isGoogleOAuthCallbackEnabled,SQL_RESOLVE_GOOGLE_START_BINDING});
+module.exports = objectFreeze({createStaffEmailGoogleOAuthRoutes,GOOGLE_OAUTH_START_PATH,GOOGLE_OAUTH_CALLBACK_PATH,START_FLAG,CALLBACK_FLAG,isGoogleOAuthStartEnabled,isGoogleOAuthCallbackEnabled,SQL_RESOLVE_GOOGLE_START_BINDING});
