@@ -18,7 +18,7 @@ or any `/staff/inbox/*` route.
 | 1 | Unified shell, saved-view rail, merged context panel | not started |
 | 1 | Column layout model and presets | not started |
 | 1 | One `Auto \| Draft \| Off` Luna mode control (migration 079) | not started |
-| 1 | Handoff state gap — Luna promises a takeover that never sets `needs_human` | not started |
+| 1 | Handoff state gap — Luna promises a takeover that never sets `needs_human` | **done** (detector + corpus gate) |
 | 2 | Channel-agnostic approvals; WhatsApp draft parity (migration 078) | not started |
 | 3 | SSE live activity, replacing 5s/3s polling | not started |
 | 4 | Segments and broadcasts (migrations 080, 081) | not started |
@@ -285,12 +285,29 @@ they need their own verification rather than riding along with a UI refactor.
 
 ## Handoff state gap
 
-In a live thread, Luna's reply says "a teammate will take over and sort those for you", yet
-`Needs human` is off on that conversation and no attention pill shows in the list. Luna promises a
-handoff that never reaches `conversations.needs_human`, so it is invisible to staff. Confirm
-against `shouldRequireStaffHandoff` in `scripts/lib/luna-guest-handoff-policy.js` and the Hermes
-`flag_needs_human` tool: the copy path and the state path have diverged. Fix in Phase 1 alongside
-the mode control — the Needs-you rail is worthless if the flag is not reliably set.
+In a live thread, Luna's reply said "a teammate will take over and sort those for you", yet
+`Needs human` stayed off on that conversation and no attention pill showed in the list. Two paths
+can set the flag and both missed: Luna wrote handoff copy without calling `flag_needs_human`, and
+the outbound-text fallback in `docker/hermes-staging/wolfhouse_whatsapp_mirror.py` matched none of
+its five hardcoded phrases.
+
+Fixed by keeping the copy and the state on one rule:
+
+- `docker/hermes-staging/SOUL.md` (and the Sunset SOUL) carry a hard rule — promising that a
+  person will take over, get back to the guest, follow up, review or sort something out **requires**
+  `flag_needs_human` in the same turn, and the phrasing is banned when she is not handing off.
+- `scripts/lib/luna-guest-handoff-promise.js` is the single owner of "does this outbound reply
+  promise a human?". The Hermes Python mirror carries byte-identical pattern sources; the legacy JS
+  reply path, the Cami `handoff_copy_without_handoff_flag` guard and the coach evaluator all call it
+  instead of their own phrase lists.
+- `fixtures/luna-handoff-promise-corpus.json` holds the phrasings (positives from real repo copy,
+  SOUL rules and the live thread; negatives that merely mention the team), and
+  `scripts/verify-luna-handoff-promise-detection.js` runs it through both engines inside
+  `verify:luna-all`. A new phrasing that slips through fails CI instead of stranding a guest — add
+  the phrasing to the corpus when it does.
+
+Still open for Phase 1: the needs-human status chip and raise action in the thread header, and the
+Needs-you rail itself.
 
 ## Constraints
 
