@@ -1,6 +1,7 @@
 'use strict';
 
 const { types: utilTypes } = require('node:util');
+const { consumeStartCapability } = require('./staff-google-oauth-start-capability');
 const isProxy = utilTypes.isProxy;
 const objectGetPrototypeOf = Object.getPrototypeOf;
 const authenticPlainObjectPrototype = objectGetPrototypeOf({});
@@ -48,15 +49,7 @@ function exactDataDescriptor(value,key) {
   return descriptor && descriptor.enumerable === true && descriptor.writable === false && descriptor.configurable === false
     && objectHasOwn(descriptor,'value') && !objectHasOwn(descriptor,'get') && !objectHasOwn(descriptor,'set');
 }
-function isTrustedStartAuthorization(value, gate) {
-  try {
-    if (!value || typeof value !== 'object' || isProxy(value) || objectGetPrototypeOf(value) !== authenticPlainObjectPrototype || !objectIsFrozen(value)) return false;
-    const keys = reflectOwnKeys(value);
-    return keys.length === 2 && keys[0] === 'gate' && keys[1] === 'user'
-      && exactDataDescriptor(value, 'gate') && exactDataDescriptor(value, 'user')
-      && own(value, 'gate') === gate && identity(own(value, 'user'), false);
-  } catch (_) { return false; }
-}
+
 function identity(user, callback) {
   return own(user, 'client_slug') === 'sunset' && UUID.test(own(user, callback ? 'client_id' : 'staff_user_id') || '')
     && UUID.test(own(user, 'session_id') || '');
@@ -115,16 +108,16 @@ function isAuthenticReceived(output) {
 function createStaffEmailGoogleOAuthRoutes(deps) {
   const candidateGateSnapshot = own(deps, 'trustedGateSnapshot');
   const trustedGateSnapshot = isTrustedGateSnapshot(candidateGateSnapshot) ? candidateGateSnapshot : null;
-  const candidateStartAuthorization = own(deps, 'trustedStartAuthorization');
-  const trustedStartAuthorization = trustedGateSnapshot && isTrustedStartAuthorization(candidateStartAuthorization, trustedGateSnapshot)
-    ? candidateStartAuthorization : null;
+  const startCapability = own(deps, 'startCapability') || own(deps, 'trustedStartAuthorization');
+  const hasStartCapability = startCapability !== undefined;
   const env = trustedGateSnapshot || own(deps, 'runtimeEnv') || {};
   async function handleStart(body, req, res, user) {
     if (!trustedGateSnapshot && !isGoogleOAuthStartEnabled(env)) return deps.sendJSON(res, 404, { success:false, error:'not_found' });
     if (!identity(user, false)) return deps.sendJSON(res, 403, { success:false, error:'forbidden' });
     if (!req || req.method !== 'POST') return deps.sendJSON(res, 400, { success:false, error:'invalid_request' });
-    const trusted = trustedStartAuthorization && own(trustedStartAuthorization, 'user') === user;
+    const trusted = trustedGateSnapshot && consumeStartCapability(startCapability, trustedGateSnapshot, req, user);
     if (!trusted) {
+      if (hasStartCapability) return deps.sendJSON(res, 403, { success:false, error:'forbidden' });
       if (!deps.assertStaffClientAccess(user, 'sunset', res)) return;
       const authz = deps.authorizeAuthenticatedStaffRoute({ clientSlug:'sunset', method:'POST', pathname:GOOGLE_OAUTH_START_PATH, env });
       if (!authz.ok) return deps.sendJSON(res, authz.status || 403, authz.body || { success:false, error:'forbidden' });
