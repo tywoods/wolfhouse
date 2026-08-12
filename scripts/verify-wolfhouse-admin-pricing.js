@@ -424,6 +424,79 @@ ok('a disabled flag is reported before the client slug',
     env: {}, clientSlug: 'sunset', user: adminUser,
   }).body.error === 'writes_disabled');
 
+// ── Admin view payload ──────────────────────────────────────────────────────
+console.log('\n── Admin view payload ──');
+
+const transferConfig = getClientTransferConfig('wolfhouse-somo');
+
+const view = resolve.buildAdminPricingView({
+  config, transferConfig, dbSeasons: [], dbRules: [], dbItems: [], dbTransferRules: [],
+  writesEnabled: false,
+});
+
+ok('view is scoped to Wolfhouse', view.client_slug === 'wolfhouse-somo');
+ok('view reports the write flag so the UI can render read-only',
+  view.writes_enabled === false);
+ok('view lists every season', view.seasons.length === seasons.length);
+ok('view keeps the closed season flagged unbookable',
+  view.seasons.find((s) => s.code === 'closed').bookable === false);
+
+const malibuView = view.packages.find((p) => p.code === 'malibu');
+ok('every package carries one slot per season',
+  malibuView.prices.length === view.seasons.length);
+ok('a package price is filled from the config seed',
+  malibuView.prices.find((p) => p.season_code === 'august').price.amount_cents === 34900);
+ok('a season with no package price surfaces as null, not zero',
+  malibuView.prices.find((p) => p.season_code === 'closed').price === null);
+
+const wetsuitView = view.rentals.find((r) => r.code === 'wetsuit_rental');
+ok('rentals group their duration rows',
+  wetsuitView && wetsuitView.durations.length === 1
+  && wetsuitView.durations[0].duration === '1_day'
+  && wetsuitView.durations[0].amount_cents === 500);
+ok('rentals keep the full item_code for writes',
+  wetsuitView.durations[0].item_code === 'wetsuit_rental__1_day');
+
+ok('services appear with their unit',
+  view.services.find((s) => s.code === 'yoga_class').price.unit === 'per_class');
+
+const sdrView = view.transfers.find((t) => t.airport_code === 'SDR');
+ok('transfers merge eligibility with price',
+  sdrView && sdrView.included_when_package === true && sdrView.price.amount_cents === 2500);
+
+ok('extras split deposits and supplements',
+  view.extras.deposits.length === 2 && view.extras.supplements.length === 3);
+
+ok('every config-sourced price is tagged config',
+  view.packages.every((p) => p.prices.every((s) => !s.price || s.price.source === 'config')));
+
+const viewWithDb = resolve.buildAdminPricingView({
+  config,
+  transferConfig,
+  dbSeasons: [],
+  dbRules: [{
+    item_type: 'package', item_code: 'malibu', season_code: 'august',
+    unit: 'per_person_per_week', amount_cents: 37500, currency: 'EUR', active: true,
+  }],
+  dbItems: [{
+    item_type: 'rental', item_code: 'longboard_rental', label: 'Longboard', metadata: {},
+    active: true,
+  }],
+  dbTransferRules: [],
+  writesEnabled: true,
+});
+
+ok('an edited price shows the DB value tagged as db',
+  viewWithDb.packages.find((p) => p.code === 'malibu').prices
+    .find((s) => s.season_code === 'august').price.amount_cents === 37500);
+ok('an edited price is distinguishable from a shipped default',
+  viewWithDb.packages.find((p) => p.code === 'malibu').prices
+    .find((s) => s.season_code === 'august').price.source === 'db');
+ok('a staff-created rental appears even with no price yet',
+  viewWithDb.rentals.some((r) => r.code === 'longboard_rental' && r.durations.length === 0));
+ok('a staff-created item uses its own label',
+  viewWithDb.rentals.find((r) => r.code === 'longboard_rental').label === 'Longboard');
+
 // ── Store scoping (recording fake, no database) ─────────────────────────────
 console.log('\n── Store scoping ──');
 
@@ -514,6 +587,238 @@ async function runStoreChecks() {
     rulePg.calls[1].params[0] === 'wolfhouse-somo');
 }
 
+// ── Routes (fake deps, no server, no database) ───────────────────────────────
+
+const { createWolfhousePricingRoutes } = require('./lib/wolfhouse-pricing-routes');
+
+/** Fake pg that answers by statement shape so store writes can run offline. */
+function routeFakePg() {
+  const calls = [];
+  return {
+    calls,
+    async query(text, params) {
+      calls.push({ text, params: params || [] });
+      if (/information_schema/i.test(text)) return { rows: [{ n: 4 }], rowCount: 1 };
+      if (/^\s*SELECT id FROM/i.test(text)) return { rows: [], rowCount: 0 };
+      if (/RETURNING/i.test(text)) return { rows: [{ id: 'new-id' }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+}
+
+function harness(options) {
+  const opts = options || {};
+  const sent = [];
+  const pg = opts.pg || routeFakePg();
+  const routes = createWolfhousePricingRoutes({
+    sendJSON: (res, status, body) => { sent.push({ status, body }); return body; },
+    send400: (res, message) => {
+      sent.push({ status: 400, body: { success: false, error: message } });
+    },
+    readBody: async () => JSON.stringify(opts.body == null ? {} : opts.body),
+    assertStaffClientAccess: opts.accessAllowed === false
+      ? (u, slug, res) => { sent.push({ status: 403, body: { error: 'client_access_denied' } }); return false; }
+      : () => true,
+    appendAuditLog: () => {},
+    withPgClient: async (fn) => fn(pg),
+    DEFAULT_CLIENT: 'wolfhouse-somo',
+    SQL_INJECT_RE: /['";\\]|--|\bDROP\b|\bALTER\b|\bTRUNCATE\b/i,
+    STAFF_AUTH_REQUIRED: true,
+    resolveStaffRole: (u) => String((u && u.role) || '').toLowerCase(),
+  });
+  return { routes, sent, pg };
+}
+
+async function withWriteFlag(value, fn) {
+  const prev = process.env.WOLFHOUSE_ADMIN_WRITES_ENABLED;
+  if (value == null) delete process.env.WOLFHOUSE_ADMIN_WRITES_ENABLED;
+  else process.env.WOLFHOUSE_ADMIN_WRITES_ENABLED = value;
+  try { return await fn(); } finally {
+    if (prev == null) delete process.env.WOLFHOUSE_ADMIN_WRITES_ENABLED;
+    else process.env.WOLFHOUSE_ADMIN_WRITES_ENABLED = prev;
+  }
+}
+
+async function runRouteChecks() {
+  console.log('\n── Routes ──');
+
+  const { routes } = harness();
+
+  ok('GET base path resolves a handler',
+    typeof routes.match('/staff/admin/wh/pricing', 'GET') === 'function');
+  ok('PUT seasons resolves a handler',
+    typeof routes.match('/staff/admin/wh/pricing/seasons', 'PUT') === 'function');
+  ok('DELETE season by code resolves a handler',
+    typeof routes.match('/staff/admin/wh/pricing/seasons/august', 'DELETE') === 'function');
+  ok('DELETE item by type and code resolves a handler',
+    typeof routes.match('/staff/admin/wh/pricing/items/rental/longboard_rental', 'DELETE') === 'function');
+  ok('PUT prices and transfers resolve handlers',
+    typeof routes.match('/staff/admin/wh/pricing/prices', 'PUT') === 'function'
+    && typeof routes.match('/staff/admin/wh/pricing/transfers', 'PUT') === 'function');
+  ok('an unrelated path is not claimed',
+    routes.match('/staff/admin/config', 'GET') === null
+    && routes.match('/staff/admin/wh/pricing', 'PATCH') === null);
+  ok('the Sunset admin config path is never claimed',
+    routes.match('/staff/admin/config/prices', 'POST') === null);
+
+  // Reads
+  const readHarness = harness();
+  await withWriteFlag(null, () => readHarness.routes.handleWhPricingGet(
+    { client: 'wolfhouse-somo' }, {}, {}, { role: 'admin', staff_user_id: 'u1' },
+  ));
+  const read = readHarness.sent[0];
+  ok('a read succeeds with the write flag off', read.status === 200 && read.body.success === true);
+  ok('a read reports writes as disabled', read.body.writes_enabled === false);
+  ok('a read returns the merged catalog',
+    Array.isArray(read.body.packages) && read.body.packages.length > 0
+    && Array.isArray(read.body.seasons) && read.body.seasons.length > 0);
+
+  const wrongClient = harness();
+  await wrongClient.routes.handleWhPricingGet(
+    { client: 'sunset' }, {}, {}, { role: 'admin' },
+  );
+  ok('a Sunset slug gets 404 unsupported_client',
+    wrongClient.sent[0].status === 404
+    && wrongClient.sent[0].body.error === 'unsupported_client');
+
+  const injected = harness();
+  await injected.routes.handleWhPricingGet({ client: "wolf';DROP" }, {}, {}, { role: 'admin' });
+  ok('an injection attempt in the client slug is rejected', injected.sent[0].status === 400);
+
+  const denied = harness({ accessAllowed: false });
+  await denied.routes.handleWhPricingGet(
+    { client: 'wolfhouse-somo' }, {}, {}, { role: 'admin' },
+  );
+  ok('a staff user without Wolfhouse access is refused',
+    denied.sent[0].status === 403);
+
+  // Reads survive a broken overlay
+  const brokenPg = { async query() { throw new Error('relation does not exist'); } };
+  const brokenHarness = harness({ pg: brokenPg });
+  await brokenHarness.routes.handleWhPricingGet(
+    { client: 'wolfhouse-somo' }, {}, {}, { role: 'admin' },
+  );
+  const broken = brokenHarness.sent[0];
+  ok('a read still succeeds when the overlay is unreadable', broken.status === 200);
+  ok('a degraded read says so instead of pretending',
+    broken.body.overlay_available === false && !!broken.body.overlay_error);
+  ok('a degraded read still serves the config prices',
+    broken.body.packages.find((p) => p.code === 'malibu').prices
+      .find((s) => s.season_code === 'august').price.amount_cents === 34900);
+
+  // Writes are gated
+  const flagOff = harness({ body: { code: 'x', label: 'X', ranges: [{ start_month: 8, start_day: 1, end_month: 8, end_day: 31 }] } });
+  await withWriteFlag(null, () => flagOff.routes.handleWhPricingSeasonPut(
+    { client: 'wolfhouse-somo' }, {}, {}, { role: 'admin' },
+  ));
+  ok('a write with the flag off is refused',
+    flagOff.sent[0].status === 403 && flagOff.sent[0].body.error === 'writes_disabled');
+
+  const lowRole = harness({ body: { code: 'x', label: 'X', ranges: [{ start_month: 8, start_day: 1, end_month: 8, end_day: 31 }] } });
+  await withWriteFlag('true', () => lowRole.routes.handleWhPricingSeasonPut(
+    { client: 'wolfhouse-somo' }, {}, {}, { role: 'operator' },
+  ));
+  ok('an operator cannot write prices',
+    lowRole.sent[0].status === 403 && lowRole.sent[0].body.error === 'forbidden_role');
+
+  const badBody = harness({ body: { code: 'x', label: 'X', ranges: [] } });
+  await withWriteFlag('true', () => badBody.routes.handleWhPricingSeasonPut(
+    { client: 'wolfhouse-somo' }, {}, {}, { role: 'admin' },
+  ));
+  ok('a season with no ranges is rejected at the route',
+    badBody.sent[0].status === 400);
+
+  const goodSeason = harness({
+    body: {
+      code: 'shoulder', label: 'Shoulder', priority: 5,
+      ranges: [{ start_month: 3, start_day: 1, end_month: 3, end_day: 31 }],
+    },
+  });
+  await withWriteFlag('true', () => goodSeason.routes.handleWhPricingSeasonPut(
+    { client: 'wolfhouse-somo' }, {}, {}, { role: 'admin', staff_user_id: 'u1' },
+  ));
+  ok('a valid season save returns 200 with the fresh view',
+    goodSeason.sent[0].status === 200 && goodSeason.sent[0].body.success === true
+    && Array.isArray(goodSeason.sent[0].body.seasons));
+  ok('a season save writes the season and its ranges',
+    goodSeason.pg.calls.some((c) => /INSERT INTO wh_pricing_seasons/.test(c.text))
+    && goodSeason.pg.calls.some((c) => /INSERT INTO wh_pricing_season_ranges/.test(c.text)));
+
+  const goodPrice = harness({
+    body: {
+      item_type: 'package', item_code: 'malibu', season_code: 'august',
+      unit: 'per_person_per_week', amount_eur: '375,00',
+    },
+  });
+  await withWriteFlag('1', () => goodPrice.routes.handleWhPricingPricePut(
+    { client: 'wolfhouse-somo' }, {}, {}, { role: 'owner', staff_user_id: 'u1' },
+  ));
+  ok('a price save accepts euros and stores cents',
+    goodPrice.sent[0].status === 200
+    && goodPrice.pg.calls.some((c) => c.params.includes(37500)));
+
+  const badPrice = harness({
+    body: { item_type: 'rental', item_code: 'x', unit: 'per_day', amount_cents: 0 },
+  });
+  await withWriteFlag('true', () => badPrice.routes.handleWhPricingPricePut(
+    { client: 'wolfhouse-somo' }, {}, {}, { role: 'admin' },
+  ));
+  ok('a zero rental price is rejected at the route', badPrice.sent[0].status === 400);
+
+  const transferSave = harness({
+    body: {
+      airport_code: 'OVD', label: 'Asturias', requires_package: true,
+      unavailable_no_package_message: 'Package bookings only.',
+    },
+  });
+  await withWriteFlag('true', () => transferSave.routes.handleWhPricingTransferPut(
+    { client: 'wolfhouse-somo' }, {}, {}, { role: 'admin', staff_user_id: 'u1' },
+  ));
+  ok('a new airport can be added', transferSave.sent[0].status === 200);
+
+  const transferNoCopy = harness({
+    body: { airport_code: 'OVD', label: 'Asturias', min_guest_count: 4 },
+  });
+  await withWriteFlag('true', () => transferNoCopy.routes.handleWhPricingTransferPut(
+    { client: 'wolfhouse-somo' }, {}, {}, { role: 'admin' },
+  ));
+  ok('an airport with a group minimum needs refusal copy',
+    transferNoCopy.sent[0].status === 400);
+
+  const itemDelete = harness();
+  await withWriteFlag('true', () => itemDelete.routes.handleWhPricingItemDelete(
+    'rental', 'longboard_rental', { client: 'wolfhouse-somo' }, {}, {}, { role: 'admin' },
+  ));
+  ok('retiring an item returns 200 and the refreshed view',
+    itemDelete.sent[0].status === 200);
+
+  const badItemDelete = harness();
+  await withWriteFlag('true', () => badItemDelete.routes.handleWhPricingItemDelete(
+    'transfer', 'sdr', { client: 'wolfhouse-somo' }, {}, {}, { role: 'admin' },
+  ));
+  ok('item delete refuses a type outside the catalog',
+    badItemDelete.sent[0].status === 400);
+
+  const badJsonSent = [];
+  const badJsonRoutes = createWolfhousePricingRoutes({
+    sendJSON: () => {},
+    send400: (res, message) => { badJsonSent.push(message); },
+    readBody: async () => '{not json',
+    assertStaffClientAccess: () => true,
+    appendAuditLog: () => {},
+    withPgClient: async (fn) => fn(routeFakePg()),
+    DEFAULT_CLIENT: 'wolfhouse-somo',
+    SQL_INJECT_RE: /['";\\]|--/i,
+    STAFF_AUTH_REQUIRED: true,
+    resolveStaffRole: () => 'admin',
+  });
+  await withWriteFlag('true', () => badJsonRoutes.handleWhPricingSeasonPut(
+    { client: 'wolfhouse-somo' }, {}, {}, { role: 'admin' },
+  ));
+  ok('a malformed JSON body is rejected, not thrown',
+    badJsonSent.length === 1 && /invalid JSON body/.test(badJsonSent[0]));
+}
+
 // ── Tenant isolation ────────────────────────────────────────────────────────
 function tenantIsolationChecks() {
 console.log('\n── Tenant isolation ──');
@@ -527,8 +832,16 @@ ok('the resolver does not require any Sunset admin module',
   !SUNSET_MODULES.test(resolveSrc));
 ok('the write layer does not require any Sunset admin module',
   !SUNSET_MODULES.test(writesSrc));
+const routesSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/wolfhouse-pricing-routes.js'), 'utf8');
 ok('the store does not require any Sunset admin module',
   !SUNSET_MODULES.test(storeSrc));
+ok('the routes do not require any Sunset admin module',
+  !SUNSET_MODULES.test(routesSrc));
+ok('the routes never call Sunset\'s admin write gate',
+  !/evaluateAdminWriteGate/.test(routesSrc));
+ok('every Wolfhouse route lives under /staff/admin/wh/',
+  (routesSrc.match(/'\/staff\/[a-z/-]*'/g) || [])
+    .every((p) => p.startsWith("'/staff/admin/wh/")));
 ok('no Wolfhouse pricing rule can be written against a Sunset table',
   !/tenant_price_rules|tenant_surf_pack_rules|tenant_rental_offerings/.test(
     resolveSrc + writesSrc + storeSrc));
@@ -573,6 +886,7 @@ ok('the runtime twin creates the same tables as the migration',
 }
 
 runStoreChecks()
+  .then(runRouteChecks)
   .then(() => {
     tenantIsolationChecks();
     console.log(`\n── wolfhouse-admin-pricing: ${passed} passed, ${failed} failed ──\n`);

@@ -176,6 +176,9 @@ const {
   WHATSAPP_NUMBERS_PATH,
 } = require('./lib/staff-whatsapp-numbers-routes');
 const {
+  createWolfhousePricingRoutes,
+} = require('./lib/wolfhouse-pricing-routes');
+const {
   getHouseNotes: getTenantHouseNotes,
   setHouseNotes: setTenantHouseNotes,
 } = require('./lib/tenant-house-notes');
@@ -2535,6 +2538,22 @@ const {
   handleStaffWhatsappNumbersGet,
   handleStaffWhatsappNumbersPost,
 } = whatsappNumbersRoutes;
+
+// Wolfhouse Admin Pricing routes (extracted module). Auth stays in the router.
+// Wolfhouse-only by construction: the module 404s any other client slug, and its
+// writes go through its own fail-closed gate, not Sunset's evaluateAdminWriteGate.
+const wolfhousePricingRoutes = createWolfhousePricingRoutes({
+  sendJSON,
+  send400,
+  readBody,
+  assertStaffClientAccess,
+  appendAuditLog,
+  withPgClient,
+  DEFAULT_CLIENT,
+  SQL_INJECT_RE,
+  STAFF_AUTH_REQUIRED,
+  resolveStaffRole,
+});
 
 // Staff Customers CRM routes (extracted module). Auth stays in the router with
 // per-route minRole (viewer vs operator) — do not homogenize.
@@ -51265,6 +51284,16 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAdminConfigLessonTimeDelete(decodeAdminPathId(adminLessonTimePatchMatch[1]), parsed.query, req, res, auth.user);
+  }
+
+  // ── Wolfhouse Admin Pricing (seasons, packages, rentals, services, transfers) ─
+  // Auth here; handlers in scripts/lib/wolfhouse-pricing-routes.js. Reads are
+  // open to admin+; writes additionally require WOLFHOUSE_ADMIN_WRITES_ENABLED.
+  const whPricingHandler = wolfhousePricingRoutes.match(pathname, method);
+  if (whPricingHandler) {
+    const auth = await requireAuth(req, res, wolfhousePricingRoutes.MIN_ROLE);
+    if (!auth.ok) return;
+    return whPricingHandler(parsed.query, req, res, auth.user);
   }
 
   if (pathname === '/staff/admin/services' && method === 'GET') {

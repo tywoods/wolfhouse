@@ -358,8 +358,137 @@ function resolvePackagePriceForDate(ctx) {
   };
 }
 
+/** Split a rental rule code such as `wetsuit_rental__1_day` into its two parts. */
+function splitRentalCode(itemCode) {
+  const text = String(itemCode || '');
+  const idx = text.indexOf('__');
+  if (idx === -1) return { offering: text, duration: null };
+  return { offering: text.slice(0, idx), duration: text.slice(idx + 2) };
+}
+
+function priceOf(r) {
+  return r ? {
+    amount_cents: r.amount_cents,
+    currency: r.currency || 'EUR',
+    unit: r.unit,
+    source: r.source || 'config',
+  } : null;
+}
+
+/**
+ * Assemble the payload the Admin Pricing portal renders, already merged.
+ *
+ * Every price carries a `source` of 'db' or 'config' so the UI can show which
+ * numbers staff have customised and which are still the shipped defaults. Codes
+ * are unioned across the config seed, the DB catalog and the DB prices, so an
+ * item created by staff and an item shipped in JSON both appear.
+ */
+function buildAdminPricingView(input) {
+  const {
+    config, transferConfig, dbSeasons, dbRules, dbItems, dbTransferRules, writesEnabled,
+  } = input || {};
+
+  const seasons = mergeSeasons(configSeasons(config), dbSeasons);
+  const seedTransfers = configTransferRules(transferConfig);
+  const rules = mergePricingRules(
+    configPricingRules(config).concat(seedTransfers.rules),
+    dbRules,
+  );
+  const items = Array.isArray(dbItems) ? dbItems : [];
+
+  const labels = new Map();
+  for (const r of rules) if (r.label) labels.set(`${r.item_type}:${r.item_code}`, r.label);
+  for (const it of items) labels.set(`${it.item_type}:${it.item_code}`, it.label);
+  const labelFor = (type, code, fallback) => labels.get(`${type}:${code}`) || fallback || code;
+
+  const codesFor = (type, extra) => {
+    const set = new Set(extra || []);
+    for (const it of items) if (it.item_type === type) set.add(it.item_code);
+    for (const r of rules) {
+      if (r.item_type !== type) continue;
+      set.add(type === 'rental' ? splitRentalCode(r.item_code).offering : r.item_code);
+    }
+    return Array.from(set);
+  };
+
+  const packages = codesFor('package',
+    (Array.isArray(config && config.packages) ? config.packages : []).map((p) => p.code),
+  ).map((code) => ({
+    code,
+    label: labelFor('package', code),
+    prices: seasons.map((s) => ({
+      season_code: s.code,
+      season_label: s.label,
+      bookable: s.bookable !== false,
+      price: priceOf(lookupRule(rules, {
+        item_type: 'package', item_code: code, season_code: s.code,
+      })),
+    })),
+  }));
+
+  const rentals = codesFor('rental').map((offering) => ({
+    code: offering,
+    label: labelFor('rental', offering),
+    durations: rules
+      .filter((r) => r.item_type === 'rental' && splitRentalCode(r.item_code).offering === offering)
+      .map((r) => Object.assign(
+        { duration: splitRentalCode(r.item_code).duration, item_code: r.item_code },
+        priceOf(r),
+      )),
+  }));
+
+  const services = codesFor('service').map((code) => {
+    const found = lookupRule(rules, { item_type: 'service', item_code: code });
+    const item = items.find((it) => it.item_type === 'service' && it.item_code === code);
+    return {
+      code,
+      label: labelFor('service', code),
+      metadata: (item && item.metadata) || {},
+      price: priceOf(found),
+    };
+  });
+
+  const transferEligibility = new Map();
+  for (const e of seedTransfers.eligibility) transferEligibility.set(e.airport_code, e);
+  for (const e of (Array.isArray(dbTransferRules) ? dbTransferRules : [])) {
+    transferEligibility.set(e.airport_code, Object.assign({}, e, { source: 'db' }));
+  }
+  const transfers = Array.from(transferEligibility.values()).map((e) => Object.assign({}, e, {
+    price: priceOf(lookupRule(rules, { item_type: 'transfer', item_code: e.airport_code })),
+  }));
+
+  const extrasOf = (type) => rules
+    .filter((r) => r.item_type === type)
+    .map((r) => Object.assign({ code: r.item_code, label: labelFor(type, r.item_code) }, priceOf(r)));
+
+  return {
+    client_slug: WH_PRICING_CLIENT_SLUG,
+    currency: (config && config.currency) || 'EUR',
+    writes_enabled: !!writesEnabled,
+    seasons: seasons.map((s) => ({
+      code: s.code,
+      label: s.label,
+      priority: Number(s.priority) || 0,
+      bookable: s.bookable !== false,
+      ranges: Array.isArray(s.ranges) ? s.ranges : [],
+      source: s.source || 'config',
+    })),
+    packages,
+    rentals,
+    services,
+    transfers,
+    extras: {
+      deposits: extrasOf('deposit'),
+      supplements: extrasOf('supplement'),
+      addons: extrasOf('addon'),
+    },
+  };
+}
+
 module.exports = {
   WH_PRICING_CLIENT_SLUG,
+  splitRentalCode,
+  buildAdminPricingView,
   PRICING_CONFIG_PATH,
   CONFIG_RENTAL_ADDON_CODES,
   DEFAULT_RENTAL_DURATION,
