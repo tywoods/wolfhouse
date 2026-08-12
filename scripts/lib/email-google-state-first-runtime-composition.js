@@ -32,6 +32,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 const APP = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apps\.googleusercontent\.com$/;
 const REDIRECT = 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
 const FAILURE = 'GOOGLE_STATE_FIRST_RUNTIME_COMPOSITION_FAILED';
+const RUNTIME_KEYS = freeze(['configuration', 'completeCallback']);
 function proxy(value) { return apply(isProxy, undefined, [value]); }
 function test(pattern, value) { return apply(regexpTest, pattern, [value]); }
 function fail() {
@@ -102,17 +103,18 @@ function createGoogleStateFirstRuntimeComposition(configuration, dependencies) {
       endpointAuthorityResolver: resolver, transactionCompletionFactory: factory,
       secretProvider: narrow[9],
     }));
-    const surface = owner(runtime, freeze(['configuration', 'completeCallback']));
-    if (surface || !snapshot(runtime, freeze(['configuration', 'completeCallback']))) {
-      // configuration is data, so owner() must reject this exact authentic mixed surface.
-      if (surface) fail();
+    const surface = snapshot(runtime, RUNTIME_KEYS);
+    const publicConfig = surface && snapshot(surface.configuration, CONFIG_KEYS);
+    if (!surface || !publicConfig || typeof surface.completeCallback !== 'function'
+        || proxy(surface.completeCallback)) fail();
+    for (let index = 0; index < CONFIG_KEYS.length; index += 1) {
+      const key = CONFIG_KEYS[index];
+      if (publicConfig[key] !== config[key]) fail();
     }
-    const complete = getDescriptor(runtime, 'completeCallback');
-    const publicConfig = getDescriptor(runtime, 'configuration');
-    if (!complete || !publicConfig || typeof complete.value !== 'function') fail();
-    return freeze({ configuration: publicConfig.value, completeCallback: function completeCallback(value) {
-      return apply(complete.value, runtime, [value]);
-    } });
+    const completeCallback = freeze(function completeCallback(value) {
+      return apply(surface.completeCallback, runtime, [value]);
+    });
+    return freeze({ configuration: surface.configuration, completeCallback });
   } catch (_) { fail(); }
 }
 freeze(createGoogleStateFirstRuntimeComposition);
