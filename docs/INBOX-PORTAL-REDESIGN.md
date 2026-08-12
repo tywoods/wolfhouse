@@ -301,10 +301,15 @@ Fixed by keeping the copy and the state on one rule:
   reply path, the Cami `handoff_copy_without_handoff_flag` guard and the coach evaluator all call it
   instead of their own phrase lists.
 - `fixtures/luna-handoff-promise-corpus.json` holds the phrasings (positives from real repo copy,
-  SOUL rules and the live thread; negatives that merely mention the team), and
+  SOUL rules, the live thread and review probes; negatives that merely mention the team), and
   `scripts/verify-luna-handoff-promise-detection.js` runs it through both engines inside
   `verify:luna-all`. A new phrasing that slips through fails CI instead of stranding a guest — add
   the phrasing to the corpus when it does.
+
+The SOUL rule is the guarantee; the detector is the safety net. Luna's wording is generated, so no
+corpus can enumerate it — a detector miss only strands a guest when Luna also skipped
+`flag_needs_human`. Read corpus coverage as "how much slack the net has", not as the promise that
+handoffs get flagged.
 
 Still open for Phase 1: the needs-human status chip and raise action in the thread header, and the
 Needs-you rail itself.

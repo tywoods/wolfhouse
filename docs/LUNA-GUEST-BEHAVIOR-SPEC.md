@@ -113,6 +113,14 @@ Field order: dates → guest count → package choice → (room preference) → 
 | 8.4 | **Copy and state never diverge.** Any reply promising that a person will take over / get back to the guest / follow up / review / sort something out must also set `conversations.needs_human`. Luna calls `flag_needs_human` in the same turn; outbound-copy detection is only the safety net for when she doesn't. | `docker/hermes-staging/SOUL.md` (hard rule), `luna-guest-handoff-promise.js` (`detectHandoffPromise`) |
 | 8.5 | The safety net must not over-fire: replies that merely mention the team (meals/yoga scheduled by the team, surf-window chat, a shuttle already logged, reception info) must NOT flag. A flooded Needs-you rail gets ignored and fails the same way. | `luna-guest-handoff-promise.js`; corpus `fixtures/luna-handoff-promise-corpus.json`, gate `scripts/verify-luna-handoff-promise-detection.js` |
 
+The detector recognises a person (`team`, `teammate`, `colleague`, `manager`, `owner`, `staff`,
+`reception`, `front desk`, or a name qualified by one of those places) paired with a closed list of
+takeover verbs. Deliberately out of scope: a bare first name with no role marker ("Marta will sort
+this"), because both engines match case-insensitively and cannot tell a name from any other word;
+and operational roles such as `instructor` or `driver`, whose sentences are usually logistics
+("your instructor will meet you at 10"). Rule 8.4 covers those — the SOUL rule is the guarantee,
+not the corpus.
+
 ---
 
 ## 9. WhatsApp formatting

@@ -141,6 +141,50 @@
     {
       "text": "Ti passerò al team, ti ricontattano al più presto.",
       "source": "Italian paraphrase of the explicit_human_handoff ack (future form)"
+    },
+    {
+      "text": "Let me pass this to my colleague who handles refunds.",
+      "source": "review probe (PR #503) — colleague as the receiving person"
+    },
+    {
+      "text": "I'll get someone to look at this for you.",
+      "source": "review probe (PR #503) — first-person delegation, indefinite person as object"
+    },
+    {
+      "text": "Marta from reception will call you back this afternoon.",
+      "source": "review probe (PR #503) — named individual with a role"
+    },
+    {
+      "text": "My manager will reach out to you shortly.",
+      "source": "review probe (PR #503) — manager as the acting person"
+    },
+    {
+      "text": "I'm looping in our bookings team on this one.",
+      "source": "review probe (PR #503) — qualified team name (\"bookings team\")"
+    },
+    {
+      "text": "I'll have a colleague confirm the date change for you.",
+      "source": "review probe (PR #503) — first-person delegation, bare infinitive"
+    },
+    {
+      "text": "I'll ask the team to double-check that and come back to you.",
+      "source": "review probe (PR #503) — takeover verb inside a subordinate clause"
+    },
+    {
+      "text": "I'll have someone from the office call you back about the invoice.",
+      "source": "Adversarial probe written against the widened patterns — person qualified by a place"
+    },
+    {
+      "text": "Someone will call you back once the payment clears.",
+      "source": "Adversarial probe written against the widened patterns — callback with an unnamed person"
+    },
+    {
+      "text": "The front desk will contact you about the key.",
+      "source": "Adversarial probe written against the widened patterns — front desk as the acting person"
+    },
+    {
+      "text": "I'll pass your details on to our reservations team.",
+      "source": "Adversarial probe written against the widened patterns — qualified team name as the receiver"
     }
   ],
   "negatives": [
@@ -219,6 +263,66 @@
     {
       "text": "I'll double-check the dates on my side and confirm in a sec 😊",
       "source": "Luna doing the work herself — must not read as a handoff"
+    },
+    {
+      "text": "The team will pick you up from the bus station at 14:00.",
+      "source": "review probe (PR #503) — operational arrangement, not a takeover"
+    },
+    {
+      "text": "The team will be down at the beach around 10am for the morning session.",
+      "source": "review probe (PR #503) — where staff will be, not a takeover"
+    },
+    {
+      "text": "The team will love meeting you when you arrive.",
+      "source": "review probe (PR #503) — warmth about staff, not a takeover"
+    },
+    {
+      "text": "Staff are around all evening if you need anything.",
+      "source": "review probe (PR #503) — staff availability, not a takeover"
+    },
+    {
+      "text": "Our instructor Marta has been surfing here for fifteen years 🏄",
+      "source": "Named person with a role and no promise — guard for the named-person widening"
+    },
+    {
+      "text": "Just ask the team which day yoga is on and I'll add it to your booking 😊",
+      "source": "Guest is told to ask, Luna is not delegating — guard for the first-person delegation widening"
+    },
+    {
+      "text": "Your driver will call you when he's outside 🚐",
+      "source": "A call that is not a callback about this thread — guard for the call-you-back widening"
+    },
+    {
+      "text": "Reception is open until 10pm if you arrive late 😊",
+      "source": "Reception as a place, not a person promising to act"
+    },
+    {
+      "text": "Our manager sets the meal times each week, so dinner is at 8pm sharp.",
+      "source": "Manager mentioned as background — guard for the manager widening"
+    },
+    {
+      "text": "One of our colleagues took that photo on the terrace last summer.",
+      "source": "Colleague mentioned in the past tense — guard for the colleague widening"
+    },
+    {
+      "text": "The owner will be around the house tonight if you fancy a chat.",
+      "source": "Owner mentioned with a non-takeover verb — guard for the owner widening"
+    },
+    {
+      "text": "The front desk will be closed between 2pm and 4pm.",
+      "source": "Front desk opening hours — guard for the front desk widening"
+    },
+    {
+      "text": "The team will check in the new arrivals at 3pm.",
+      "source": "\"check in\" is an operation on guests, not a check of this thread"
+    },
+    {
+      "text": "A colleague of mine surfed that break yesterday and it was firing 🌊",
+      "source": "Colleague as a story, no promise — guard for the colleague widening"
+    },
+    {
+      "text": "Someone will always be at the house when you arrive.",
+      "source": "Staff presence, not a promise to reply — guard for the indefinite person widening"
     }
   ]
 }
