@@ -10,24 +10,21 @@
  * - Real createTransactionCompletion(operation, handoff, secretProvider) 3-arg contract.
  * - No routes, SQL, env activation, network, or provider wiring in this owner.
  */
-
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const Module = require('node:module');
 const path = require('node:path');
 const vm = require('node:vm');
-
 const OWNER_PATH = path.join(__dirname, 'lib', 'email-google-state-first-callback-runtime.js');
 const FACTORY_PATH = path.join(__dirname, 'lib', 'email-google-transaction-completion-factory.js');
 const PACKAGE_PATH = path.join(__dirname, '..', 'package.json');
-
 // Authentic RED: production module must be absent until GREEN.
 const owner = require('./lib/email-google-state-first-callback-runtime');
 const { createGoogleStateFirstCallbackRuntime } = owner;
 const {
   createGoogleTransactionCompletionFactory,
 } = require('./lib/email-google-transaction-completion-factory');
-
 const freeze = Object.freeze;
 const verifierIsFrozen = Object.isFrozen;
 const VerifierPromise = Promise;
@@ -36,7 +33,6 @@ const verifierApply = Reflect.apply;
 const TENANT = 'sunset';
 const LOCATION_KEY = 'sunset-somo';
 const REDIRECT = 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
-
 // Distinct dynamic server-owned IDs — not production fixture pins.
 const CLIENT_A = 'a1111111-bbbb-4ccc-8ddd-eeeeeeeeeee1';
 const CLIENT_B = 'b2222222-bbbb-4ccc-8ddd-eeeeeeeeeee2';
@@ -57,11 +53,9 @@ const LEAK = 'HOSTILE_STATE_FIRST_PRIVATE_VALUE';
 const NOW = '2026-08-12T00:00:00.000Z';
 const FAILURE = 'GOOGLE_STATE_FIRST_CALLBACK_FAILED';
 const DISABLED = 'GOOGLE_STATE_FIRST_CALLBACK_DISABLED';
-
 const CONFIG_KEYS = freeze([
   'tenantSlug', 'clientId', 'locationKey', 'applicationClientId', 'redirectUri', 'callbackEnabled',
 ]);
-
 function config(options = {}) {
   return freeze({
     tenantSlug: options.tenantSlug || TENANT,
@@ -72,7 +66,6 @@ function config(options = {}) {
     callbackEnabled: options.callbackEnabled !== undefined ? options.callbackEnabled : true,
   });
 }
-
 function input(query = `state=${STATE}&code=${encodeURIComponent(CODE)}`, patch = {}) {
   return freeze({
     tenantSlug: TENANT,
@@ -82,7 +75,6 @@ function input(query = `state=${STATE}&code=${encodeURIComponent(CODE)}`, patch 
     ...patch,
   });
 }
-
 function row(patch = {}) {
   return freeze({
     operationId: OPERATION,
@@ -94,7 +86,6 @@ function row(patch = {}) {
     ...patch,
   });
 }
-
 function authority(patch = {}) {
   return freeze({
     tenantSlug: TENANT,
@@ -106,7 +97,6 @@ function authority(patch = {}) {
     ...patch,
   });
 }
-
 function clean(code) {
   return (error) => {
     assert.ok(error);
@@ -120,11 +110,9 @@ function clean(code) {
     return true;
   };
 }
-
 async function rejects(action, code) {
   await assert.rejects(verifierApply(verifierPromiseResolve, VerifierPromise, []).then(action), clean(code));
 }
-
 function harness(options = {}) {
   const calls = [];
   const factoryArgs = [];
@@ -134,7 +122,6 @@ function harness(options = {}) {
   const clientId = options.clientId || CLIENT_A;
   const applicationClientId = options.applicationClientId || APP_A;
   const secretRef = options.secretRef || REF_A;
-
   const cryptography = freeze({
     sha256Ascii(value) {
       calls.push({ step: 'hash', value, receiver: this });
@@ -191,7 +178,6 @@ function harness(options = {}) {
       return service;
     },
   });
-
   return {
     calls,
     factoryArgs,
@@ -216,15 +202,12 @@ function harness(options = {}) {
     secretRef,
   };
 }
-
 function create(h = harness(), cfg = config()) {
   return createGoogleStateFirstCallbackRuntime(cfg, h.dependencies);
 }
-
 function steps(h) {
   return h.calls.map((entry) => entry.step);
 }
-
 function expectedOperation(clientId, applicationClientId) {
   return freeze({
     clientId,
@@ -237,17 +220,14 @@ function expectedOperation(clientId, applicationClientId) {
     redirectUri: REDIRECT,
   });
 }
-
 const tests = [];
 function test(name, run) {
   tests.push({ name, run });
 }
-
 test('exports only the frozen factory', () => {
   assert.equal(Object.isFrozen(owner), true);
   assert.deepEqual(Reflect.ownKeys(owner), ['createGoogleStateFirstCallbackRuntime']);
 });
-
 test('creates inert exact frozen reusable surface without child effects', () => {
   const h = harness();
   const runtime = create(h);
@@ -259,7 +239,6 @@ test('creates inert exact frozen reusable surface without child effects', () => 
   assert.equal(JSON.stringify(runtime).includes('secretRef'), false);
   assert.deepEqual(steps(h), []);
 });
-
 test('frozen configuration keys are exact and secretRef is never public', () => {
   const h = harness();
   const runtime = create(h);
@@ -272,7 +251,6 @@ test('frozen configuration keys are exact and secretRef is never public', () => 
   assert.equal(runtime.configuration.redirectUri, REDIRECT);
   assert.equal(typeof runtime.configuration.callbackEnabled, 'boolean');
 });
-
 test('accepts at least two distinct valid client UUID and application client IDs', async () => {
   for (const pair of [
     { clientId: CLIENT_A, applicationClientId: APP_A, secretRef: REF_A },
@@ -292,7 +270,6 @@ test('accepts at least two distinct valid client UUID and application client IDs
     assert.deepEqual(h.factoryArgs[0].handoffConfig, freeze({ secretRef: pair.secretRef }));
   }
 });
-
 test('rejects malformed clientId and applicationClientId without effects', () => {
   const h = harness();
   for (const bad of [
@@ -308,7 +285,6 @@ test('rejects malformed clientId and applicationClientId without effects', () =>
   }
   assert.deepEqual(steps(h), []);
 });
-
 test('construction rejects nonexact configuration and dependency bags', () => {
   const h = harness();
   const good = config();
@@ -360,7 +336,6 @@ test('construction rejects nonexact configuration and dependency bags', () => {
   }
   assert.deepEqual(steps(h), []);
 });
-
 test('disabled fails fresh stackless before input parse hash clock repository resolver factory', async () => {
   const h = harness();
   const runtime = create(h, config({ callbackEnabled: false }));
@@ -381,7 +356,6 @@ test('disabled fails fresh stackless before input parse hash clock repository re
   assert.notStrictEqual(first, second);
   assert.deepEqual(steps(h), []);
 });
-
 test('success orders authentic consume then authority then factory then completion', async () => {
   const h = harness();
   const out = await create(h).completeCallback(input());
@@ -395,7 +369,6 @@ test('success orders authentic consume then authority then factory then completi
   assert.strictEqual(h.calls.find((c) => c.step === 'resolve').receiver, h.endpointAuthorityResolver);
   assert.strictEqual(h.calls.find((c) => c.step === 'factory').receiver, h.transactionCompletionFactory);
 });
-
 test('factory is invoked with exact three-argument contract and secretProvider owner receiver', async () => {
   const h = harness();
   await create(h).completeCallback(input());
@@ -416,7 +389,6 @@ test('factory is invoked with exact three-argument contract and secretProvider o
   assert.equal('locationId' in call.operationConfig, false);
   assert.equal(steps(h).includes('secret'), false);
 });
-
 test('propagates resolver secretRef A and B verbatim into handoff with no substitution', async () => {
   for (const secretRef of [REF_A, REF_B]) {
     const h = harness({ secretRef, authority: authority({ secretRef }) });
@@ -433,21 +405,41 @@ test('propagates resolver secretRef A and B verbatim into handoff with no substi
     }));
   }
 });
-
 test('requires consumed record.clientId to equal config.clientId before resolver and factory', async () => {
-  // Input clientId must match config.clientId before consume/resolver/factory.
-  const h = harness({ clientId: CLIENT_A });
-  await rejects(
-    () => create(h, config({ clientId: CLIENT_A })).completeCallback(
-      input(`state=${STATE}&code=${encodeURIComponent(CODE)}`, { clientId: CLIENT_B }),
-    ),
-    FAILURE,
-  );
-  assert.equal(steps(h).includes('resolve'), false);
-  assert.equal(steps(h).includes('factory'), false);
-  assert.equal(steps(h).includes('consume'), false);
+  const dispatcherPath = require.resolve('./lib/email-google-state-first-callback-runtime');
+  const consumePath = require.resolve('./lib/email-google-oauth-callback-consume');
+  const savedLoad = Module._load;
+  const savedDispatcher = require.cache[dispatcherPath];
+  let consumeCalls = 0;
+  const consumeCallback = freeze(function consumeCallback() {
+    consumeCalls += 1;
+    return freeze({
+      status: 'consumed', authorizationCode: CODE, clientId: CLIENT_B, operationId: OPERATION,
+      locationId: LOCATION, endpointId: ENDPOINT, staffUserId: STAFF, codeVerifier: VERIFIER, nonce: NONCE,
+    });
+  });
+  const seam = freeze({ createGoogleOAuthCallbackConsume() { return freeze({ consumeCallback }); } });
+  try {
+    delete require.cache[dispatcherPath];
+    Module._load = function controlledLoad(request, parent, isMain) {
+      if (parent && parent.filename === dispatcherPath
+          && Module._resolveFilename(request, parent, isMain) === consumePath) return seam;
+      return Reflect.apply(savedLoad, this, [request, parent, isMain]);
+    };
+    const freshCreate = require(dispatcherPath).createGoogleStateFirstCallbackRuntime;
+    const h = harness({ clientId: CLIENT_A });
+    const runtime = freshCreate(config({ clientId: CLIENT_A }), h.dependencies);
+    await rejects(() => runtime.completeCallback(input()), FAILURE);
+    assert.equal(consumeCalls, 1);
+    assert.equal(steps(h).includes('resolve'), false);
+    assert.equal(steps(h).includes('factory'), false);
+    assert.equal(steps(h).includes('secret'), false);
+  } finally {
+    Module._load = savedLoad;
+    delete require.cache[dispatcherPath];
+    if (savedDispatcher) require.cache[dispatcherPath] = savedDispatcher;
+  }
 });
-
 test('invalid and genuine decline pass through without resolver factory or secret provider', async () => {
   const invalid = harness({ rows: [] });
   assert.deepEqual(
@@ -455,7 +447,6 @@ test('invalid and genuine decline pass through without resolver factory or secre
     freeze({ status: 'invalid' }),
   );
   assert.deepEqual(steps(invalid), ['hash', 'clock', 'consume']);
-
   const decline = harness();
   assert.deepEqual(
     await create(decline).completeCallback(input(`state=${STATE}&error=access_denied`)),
@@ -463,7 +454,6 @@ test('invalid and genuine decline pass through without resolver factory or secre
   );
   assert.deepEqual(steps(decline), ['hash', 'clock', 'consume']);
 });
-
 test('hostile raw queries are rejected by authentic callback consume before repository', async () => {
   for (const query of [
     'state=x&code=a',
@@ -478,7 +468,6 @@ test('hostile raw queries are rejected by authentic callback consume before repo
     assert.equal(steps(h).includes('resolve'), false);
   }
 });
-
 test('all authority dimensions must exactly bind consumed transaction', async () => {
   const patches = [
     { tenantSlug: 'wolfhouse' },
@@ -493,7 +482,6 @@ test('all authority dimensions must exactly bind consumed transaction', async ()
     assert.equal(steps(h).includes('factory'), false);
   }
 });
-
 test('rejects mutable accessor symbol proxy and trapping authority without factory', async () => {
   const accessor = { ...authority() };
   Object.defineProperty(accessor, 'secretRef', {
@@ -522,7 +510,6 @@ test('rejects mutable accessor symbol proxy and trapping authority without facto
     assert.equal(steps(h).includes('factory'), false);
   }
 });
-
 test('async resolver success then async completion rejection is sanitized and burned once', async () => {
   const h = harness({
     authority: Promise.resolve(authority()),
@@ -533,7 +520,6 @@ test('async resolver success then async completion rejection is sanitized and bu
   assert.equal(steps(h).filter((s) => s === 'resolve').length, 1);
   assert.equal(steps(h).filter((s) => s === 'complete').length, 1);
 });
-
 test('async resolver rejection is sanitized after state is burned', async () => {
   const h = harness({
     authority: Promise.reject(new Error(`${LEAK}:resolver`)),
@@ -542,7 +528,6 @@ test('async resolver rejection is sanitized after state is burned', async () => 
   assert.equal(steps(h).filter((s) => s === 'consume').length, 1);
   assert.equal(steps(h).includes('factory'), false);
 });
-
 test('sync factory and unknown completion acknowledgement fail sanitized after burn', async () => {
   for (const options of [
     { factoryThrow: true },
@@ -556,7 +541,6 @@ test('sync factory and unknown completion acknowledgement fail sanitized after b
     assert.equal(steps(h).filter((s) => s === 'consume').length, 1);
   }
 });
-
 test('Promise subclasses cross-realm promises thenables and proxies fail without attacker traps', async () => {
   let thenCalls = 0;
   class SubPromise extends Promise {}
@@ -588,7 +572,6 @@ test('Promise subclasses cross-realm promises thenables and proxies fail without
     assert.equal(steps(h).includes('factory'), false);
   }
   assert.equal(thenCalls, 0);
-
   // Same for completion acknowledgements after a valid authority.
   thenCalls = 0;
   for (const ack of [
@@ -605,7 +588,6 @@ test('Promise subclasses cross-realm promises thenables and proxies fail without
   }
   assert.equal(thenCalls, 0);
 });
-
 test('same repository row under concurrent callbacks resolves and completes once', async () => {
   const h = harness({ rows: [row()] });
   const runtime = create(h);
@@ -618,7 +600,6 @@ test('same repository row under concurrent callbacks resolves and completes once
   assert.equal(steps(h).filter((s) => s === 'complete').length, 1);
   assert.equal(steps(h).filter((s) => s === 'consume').length, 2);
 });
-
 test('completion result never leaks private material', async () => {
   const h = harness();
   const result = await create(h).completeCallback(input());
@@ -634,7 +615,6 @@ test('completion result never leaks private material', async () => {
     assert.equal(rendered.includes(privateValue), false);
   }
 });
-
 test('dependency owner methods are pinned with original receivers', async () => {
   const h = harness();
   await create(h).completeCallback(input());
@@ -649,7 +629,6 @@ test('dependency owner methods are pinned with original receivers', async () => 
   // completeAuthorization receiver is the service object returned by factory
   assert.equal(typeof h.completeArgs[0].receiver.completeAuthorization, 'function');
 });
-
 test('captures Error constructor at import and resists global Error poisoning after import', async () => {
   const savedError = global.Error;
   try {
@@ -668,7 +647,6 @@ test('captures Error constructor at import and resists global Error poisoning af
     global.Error = savedError;
   }
 });
-
 test('post-import poisoning of Object Reflect RegExp Promise does not bypass validation', async () => {
   const saved = {
     Object: global.Object,
@@ -707,7 +685,6 @@ test('post-import poisoning of Object Reflect RegExp Promise does not bypass val
     };
     Reflect.ownKeys = () => [];
     RegExp.prototype.test = () => true;
-
     const h = harness();
     assert.throws(
       () => createGoogleStateFirstCallbackRuntime(config({ tenantSlug: 'evil' }), h.dependencies),
@@ -730,7 +707,6 @@ test('post-import poisoning of Object Reflect RegExp Promise does not bypass val
     RegExp.prototype.test = saved.test;
   }
 });
-
 test('source imports authentic consume only and has no fixture client or application literals', () => {
   const source = fs.readFileSync(OWNER_PATH, 'utf8');
   assert.match(source, /require\('\.\/email-google-oauth-callback-consume'\)/);
@@ -757,7 +733,6 @@ test('source imports authentic consume only and has no fixture client or applica
   assert.match(source, /endpointAuthorityResolver/);
   assert.match(source, /transactionCompletionFactory/);
 });
-
 test('production invokes createTransactionCompletion with third secretProvider and original receiver', () => {
   const source = fs.readFileSync(OWNER_PATH, 'utf8');
   // Must pass secret provider owner as third argument (not only handoff/config).
@@ -777,39 +752,41 @@ test('production invokes createTransactionCompletion with third secretProvider a
     'node scripts/verify-email-google-state-first-callback-runtime.js',
   );
 });
-
-test('real factory composition proof via controlled module-load seam', async () => {
-  // Prove production can compose with the authentic factory export shape: the factory
-  // owner method is createTransactionCompletion and requires the secretProvider third arg.
-  const factoryCalls = [];
-  const realFactoryModule = createGoogleTransactionCompletionFactory;
-  assert.equal(typeof realFactoryModule, 'function');
-
-  // Minimal valid dependency surface for factory construction is heavy (https/crypto/…).
-  // Instead prove the exact 3-arg signature by loading production through a seam that
-  // records apply args when the runtime calls createTransactionCompletion.
+test('authentic factory owner composes through dispatcher and reaches secret provider', async () => {
+  const effects = [];
+  const inert = (name) => function inertMethod() { effects.push(name); throw new Error(LEAK); };
+  const factory = createGoogleTransactionCompletionFactory(freeze({
+    https: freeze({ request: inert('https') }),
+    crypto: freeze({ createPublicKey: inert('createPublicKey'), verify: inert('verify') }),
+    timers: freeze({ setTimeout: inert('setTimeout'), clearTimeout: inert('clearTimeout') }),
+    envelopeProvider: freeze({ sealGrantPayload: inert('seal'), openGrantPayload: inert('open'),
+      rewrapGrantDek: inert('rewrap') }),
+    clock: freeze({ nowEpochSeconds: inert('nowEpochSeconds') }),
+    installer: freeze({ installVerifiedGrant: inert('installVerifiedGrant') }),
+  }));
   const h = harness();
-  const runtime = create(h);
-  await runtime.completeCallback(input());
-  assert.equal(h.factoryArgs[0].argc, 3);
-  assert.strictEqual(h.factoryArgs[0].provider, h.secretProvider);
-
-  // Source-level relation: production file does not reimplement factory; it consumes the
-  // injected transactionCompletionFactory owner which is what createGoogleTransactionCompletionFactory returns.
-  const source = fs.readFileSync(OWNER_PATH, 'utf8');
-  assert.equal(source.includes('createGoogleAuthorizationCodeOperation'), false);
-  assert.equal(source.includes('createGoogleClientSecretHandoff'), false);
-  assert.match(source, /createTransactionCompletion/);
-
-  // Controlled reload seam: patch Module._load is intentionally avoided for untrusted code.
-  // Pin that the real factory export name remains the composition target.
-  const factoryExports = require('./lib/email-google-transaction-completion-factory');
-  assert.deepEqual(Reflect.ownKeys(factoryExports), ['createGoogleTransactionCompletionFactory']);
-  assert.equal(typeof factoryExports.createGoogleTransactionCompletionFactory, 'function');
-  factoryCalls.push('ok');
-  assert.deepEqual(factoryCalls, ['ok']);
+  const providerCalls = [];
+  const sentinel = new Error(`${LEAK}:secret-provider-sentinel`);
+  const secretProvider = freeze({ resolveClientSecret(request) {
+    providerCalls.push({ receiver: this, request }); throw sentinel;
+  } });
+  const dependencies = freeze({
+    cryptography: h.cryptography,
+    clock: h.clock,
+    repository: h.repository,
+    endpointAuthorityResolver: h.endpointAuthorityResolver,
+    transactionCompletionFactory: factory,
+    secretProvider,
+  });
+  const runtime = createGoogleStateFirstCallbackRuntime(config(), dependencies);
+  await rejects(() => runtime.completeCallback(input()), FAILURE);
+  assert.equal(steps(h).filter((step) => step === 'consume').length, 1);
+  assert.equal(steps(h).filter((step) => step === 'resolve').length, 1);
+  assert.equal(providerCalls.length, 1);
+  assert.strictEqual(providerCalls[0].receiver, secretProvider);
+  assert.deepEqual(providerCalls[0].request, freeze({ secretRef: REF_A }));
+  assert.deepEqual(effects, []);
 });
-
 test('production module stays within physical LOC budget and is not minified', () => {
   const source = fs.readFileSync(OWNER_PATH, 'utf8');
   const lines = source.split('\n');
@@ -820,13 +797,11 @@ test('production module stays within physical LOC budget and is not minified', (
   assert.ok(avg < 140, `average line length ${avg} suggests minification`);
   assert.ok(nonEmpty.length >= 80, 'production should remain readable with multiple statements');
 });
-
 test('verifier stays within readable LOC budget', () => {
   const source = fs.readFileSync(__filename, 'utf8');
   const lines = source.split('\n').length;
   assert.ok(lines <= 850, `verifier LOC ${lines} > 850`);
 });
-
 test('package exposes focused gate only', () => {
   const pkg = JSON.parse(fs.readFileSync(PACKAGE_PATH, 'utf8'));
   assert.equal(
@@ -834,7 +809,6 @@ test('package exposes focused gate only', () => {
     'node scripts/verify-email-google-state-first-callback-runtime.js',
   );
 });
-
 (async () => {
   for (const entry of tests) {
     await entry.run();
