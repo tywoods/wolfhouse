@@ -18439,7 +18439,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 /* Preserve helper classes used in detail JS */
 .guest-name{font-weight:600;color:var(--text)}
 /* ── Detail pane (right column of inbox two-column layout) ─────────────────── */
-#conv-detail{flex:1 1 0%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0;background:transparent}
+#conv-detail{flex:1 1 0%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0;background:var(--surface)}
 #detail-content{flex:1 1 0;width:100%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0;box-sizing:border-box}
 #detail-content.is-loading-detail .detail-main{opacity:.72;pointer-events:none;transition:opacity .15s}
 .conv-detail-load-status{font-size:11px;color:var(--text-3);font-weight:600;white-space:nowrap}
