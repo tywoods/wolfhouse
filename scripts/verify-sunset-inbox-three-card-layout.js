@@ -1,13 +1,12 @@
 'use strict';
 
 /**
- * Conversations three-card layout (list | conversation | bookings).
- * Execution-level DOM/CSS checks — no font/colour changes.
+ * Conversations three sibling columns (list | conversation | bookings).
+ * Proves Bookings is NOT nested inside Conversation.
  */
 
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
 
 const ROOT = path.join(__dirname, '..');
 const API = path.join(ROOT, 'scripts/staff-query-api.js');
@@ -18,48 +17,39 @@ function ok(label, cond, detail) {
   if (cond) { pass += 1; console.log('  PASS ', label); }
   else { fail += 1; console.log('  FAIL ', label, detail || ''); }
 }
-function section(t) { console.log('\n[inbox-three-card]', t); }
+function section(t) { console.log('\n[inbox-three-sibling]', t); }
 
 function testSource() {
-  section('1. Markup ownership');
+  section('1. Source structure');
   const api = fs.readFileSync(API, 'utf8');
-  ok('three-card layout class', /detail-layout--three-card/.test(api));
-  ok('conversation card class', /detail-conv-card/.test(api));
-  ok('bookings card class', /detail-bookings-card/.test(api));
-  ok('header nested inside conversation card', (() => {
-    const i = api.indexOf("var html = '<div class=\"detail-layout detail-layout--three-card\">'");
-    if (i < 0) return false;
-    const snip = api.slice(i, i + 900);
-    return /detail-conv-card/.test(snip)
-      && snip.indexOf('html += headerHtml') > snip.indexOf('detail-conv-card')
-      && snip.indexOf('headerHtml') < snip.indexOf('thread-section');
+  ok('HTML has sibling bookings rail', /id="inbox-bookings-rail"/.test(api));
+  ok('HTML bookings rail after conv-detail', (() => {
+    const a = api.indexOf('id="conv-detail"');
+    const b = api.indexOf('id="inbox-bookings-rail"');
+    return a > 0 && b > a;
   })());
-  ok('Luna controls still in header right (open customer + switches)',
-    /inbox-open-customer-card/.test(api)
-    && /detailHeaderSwitchesHtml/.test(api)
-    && /detail-header-right/.test(api));
-  ok('bookings create button preserved', /inbox-create-booking-for-guest/.test(api));
-  ok('bookings cal open preserved', /inbox-open-booking-cal/.test(api));
-  ok('tabs Conversations/Customers switch preserved', /inbox-view-switch/.test(api));
-  ok('no font-family rewrite in three-card CSS block', (() => {
-    const i = api.indexOf('.detail-layout--three-card');
-    const block = api.slice(i, i + 2500);
-    return !/font-family\s*:/.test(block);
+  ok('loadConvDetail writes bookings to rail not nested html',
+    /bookingsRail\.innerHTML\s*=\s*bookingsHtml/.test(api)
+    && /Bookings HTML goes into the sibling/.test(api));
+  ok('conversation html has no detail-layout--three-card wrapper', (() => {
+    const i = api.indexOf('function loadConvDetail');
+    const snip = api.slice(i, i + 12000);
+    // After inject, conversation target gets only detail-conv-card
+    return /var html = '';/.test(snip)
+      && /detail-conv-card/.test(snip)
+      && !/var html = '<div class="detail-layout detail-layout--three-card">/.test(snip);
   })());
-  ok('stack order bookings after conversation on mobile CSS',
-    /detail-bookings-card\{[^}]*order:\s*3/.test(api.replace(/\s+/g, '')));
+  ok('grid three columns in CSS',
+    /grid-template-columns:\s*minmax\(240px,300px\)\s+minmax\(0,1fr\)\s+minmax\(260px,320px\)/.test(api));
+  ok('Luna controls still in conversation header',
+    /inbox-open-customer-card/.test(api) && /detailHeaderSwitchesHtml/.test(api));
 }
 
 async function testBrowser() {
-  section('2. Browser DOM three-card');
+  section('2. Browser sibling parentage');
   let playwright;
   try { playwright = require('playwright'); }
   catch (e) { ok('playwright', false, e.message); return; }
-
-  const api = fs.readFileSync(API, 'utf8');
-  // Extract a thin HTML shell + inject CSS from style block + fixture detail markup.
-  const cssMatch = api.match(/\.inbox-two-col\.inbox-shell-cols\{[\s\S]*?\/\* ═══ END luna-header-ui/);
-  const threeCss = cssMatch ? cssMatch[0].replace(/\/\* ═══ END luna-header-ui/, '') : '';
 
   let browser;
   try {
@@ -70,105 +60,107 @@ async function testBrowser() {
   }
 
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
     await page.setContent(`<!doctype html><html><head><style>
-      :root{--border-soft:#ddd;--radius:10px;--surface:#fff;--surface-soft:#f6f6f4;--text:#222;--text-2:#555;--text-3:#888;--primary:#4E5853;--focus:#4E5853}
-      body{margin:0;font-family:system-ui,sans-serif}
-      ${threeCss}
-      .detail-header{display:flex;align-items:center;gap:10px}
-      .detail-header-right{margin-left:auto;display:flex;gap:8px;align-items:center}
-      .thread{min-height:120px;border:1px solid var(--border-soft);border-radius:8px;padding:8px}
-      .sidebar-card h3{margin:0 0 8px;font-size:12px}
+      :root{--border-soft:#444;--radius:10px;--surface:#1e1e1e;--text:#eee;--text-2:#bbb;--text-3:#888}
+      body{margin:0;background:#111;color:var(--text);font-family:system-ui,sans-serif}
+      .inbox-two-col.inbox-shell-cols{
+        display:grid;grid-template-columns:minmax(240px,300px) minmax(0,1fr) minmax(260px,320px);
+        gap:14px;height:80vh;padding:16px;
+      }
+      .inbox-left,#conv-detail,#inbox-bookings-rail{
+        border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);
+        min-height:0;overflow:auto;padding:12px;
+      }
+      .detail-header{display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border-soft);padding-bottom:8px;margin-bottom:8px}
+      .detail-header-right{margin-left:auto;display:flex;gap:8px}
+      .thread{min-height:100px;border:1px solid var(--border-soft);border-radius:8px;padding:8px}
+      @media(max-width:900px){
+        .inbox-two-col.inbox-shell-cols{grid-template-columns:1fr}
+        #inbox-bookings-rail{order:3} #conv-detail{order:2} .inbox-left{order:1}
+      }
     </style></head><body>
       <div id="tab-conversations" class="active">
-        <div id="wrap" class="inbox-shell-wrap">
-          <div class="inbox-two-col inbox-shell-cols show-thread">
-            <div class="inbox-left" id="inbox-list-card"><div class="conv-card selected">List guest</div></div>
-            <div id="conv-detail" class="visible">
-              <div id="detail-content">
-                <div class="detail-layout detail-layout--three-card">
-                  <div class="detail-main detail-conv-card" id="inbox-detail-conv-card">
-                    <div class="detail-header">
-                      <div class="detail-header-main"><div class="detail-name">Alex</div><div class="detail-meta">+34600</div></div>
-                      <div class="detail-header-right">
-                        <button type="button" id="inbox-open-customer-card">Open customer card</button>
-                        <span class="detail-header-pills"><span class="pill">Luna</span></span>
-                        <div class="detail-header-switches">
-                          <label class="inbox-header-switch-item"><span class="inbox-header-switch-label">Needs human</span></label>
-                          <label class="inbox-header-switch-item"><span class="inbox-header-switch-label">Pause Luna</span></label>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="thread-section"><div class="thread" id="thread-container">Hello thread</div></div>
-                    <div class="draft-panel"><textarea id="draft-textarea">hi</textarea>
-                      <div class="draft-actions"><button type="button" class="btn-send-reply" id="btn-send-reply">Send</button></div>
-                    </div>
-                  </div>
-                  <button type="button" class="detail-sidebar-toggle" id="inbox-sidebar-toggle">Hide bookings</button>
-                  <div class="detail-sidebar detail-bookings-card" id="inbox-detail-sidebar">
-                    <div class="sidebar-card sidebar-card--bookings">
-                      <h3>Bookings</h3>
-                      <div class="inbox-booking-stack">
-                        <div class="inbox-booking-stack-item">BK-1</div>
-                      </div>
-                      <button type="button" id="inbox-create-booking-for-guest">Create booking</button>
-                      <button type="button" class="inbox-open-booking-cal">Open in calendar</button>
-                    </div>
+        <div class="inbox-two-col inbox-shell-cols has-open-conversation">
+          <div class="inbox-left" id="inbox-card"><div class="conv-card">Names</div></div>
+          <div id="conv-detail" class="inbox-conv-column">
+            <div id="detail-content">
+              <div class="detail-main detail-conv-card" id="inbox-detail-conv-card">
+                <div class="detail-header">
+                  <div class="detail-header-main"><div class="detail-name">Hernan</div></div>
+                  <div class="detail-header-right">
+                    <button id="inbox-open-customer-card">Open customer card</button>
+                    <div class="detail-header-switches"><span>Needs human</span><span>Pause Luna</span></div>
                   </div>
                 </div>
+                <div class="thread" id="thread-container">Message body</div>
+                <div class="draft-panel"><button id="btn-send-reply">Send</button></div>
               </div>
+            </div>
+          </div>
+          <div id="inbox-bookings-rail" class="inbox-bookings-column has-conversation">
+            <div class="detail-sidebar detail-bookings-card" id="inbox-detail-sidebar">
+              <h3>BOOKINGS</h3>
+              <button id="inbox-create-booking-for-guest">Create booking</button>
+              <button class="inbox-open-booking-cal">Open booking</button>
             </div>
           </div>
         </div>
       </div>
     </body></html>`);
 
-    const desktop = await page.evaluate(() => {
+    const r = await page.evaluate(() => {
+      const owner = document.querySelector('.inbox-two-col.inbox-shell-cols');
       const list = document.querySelector('.inbox-left');
-      const conv = document.querySelector('.detail-conv-card');
-      const book = document.querySelector('.detail-bookings-card');
-      const layout = document.querySelector('.detail-layout--three-card');
-      const headerInConv = !!conv && !!conv.querySelector('.detail-header');
-      const lunaInHeader = !!conv && !!conv.querySelector('#inbox-open-customer-card')
-        && !!conv.querySelector('.detail-header-switches');
-      const bookOutsideConv = !!book && !conv.contains(book);
-      const lr = list.getBoundingClientRect();
-      const cr = conv.getBoundingClientRect();
-      const br = book.getBoundingClientRect();
+      const conv = document.getElementById('conv-detail');
+      const book = document.getElementById('inbox-bookings-rail');
+      const convCard = document.getElementById('inbox-detail-conv-card');
+      const kids = Array.from(owner.children).map((c) => c.id || c.className);
       return {
-        headerInConv,
-        lunaInHeader,
-        bookOutsideConv,
-        threePresent: !!(list && conv && book && layout),
-        orderX: lr.left < cr.left && cr.left < br.left,
-        sameRow: Math.abs(cr.top - br.top) < 40,
-        hasCreate: !!document.getElementById('inbox-create-booking-for-guest'),
-        hasCal: !!document.querySelector('.inbox-open-booking-cal'),
-        hasSend: !!document.getElementById('btn-send-reply'),
+        siblingOwner: owner && list && conv && book
+          && list.parentElement === owner
+          && conv.parentElement === owner
+          && book.parentElement === owner,
+        bookNotInConv: conv && book && !conv.contains(book),
+        convNotInBook: conv && book && !book.contains(conv),
+        noSharedWrapper: !document.querySelector('.detail-layout--three-card'),
+        lunaInConv: !!(conv && conv.querySelector('#inbox-open-customer-card') && conv.querySelector('.detail-header-switches')),
+        bookingActionsInBook: !!(book && book.querySelector('#inbox-create-booking-for-guest') && book.querySelector('.inbox-open-booking-cal')),
+        sendInConv: !!(conv && conv.querySelector('#btn-send-reply')),
+        kids,
+        geometry: (() => {
+          const lr = list.getBoundingClientRect();
+          const cr = conv.getBoundingClientRect();
+          const br = book.getBoundingClientRect();
+          return {
+            xOrder: lr.left < cr.left && cr.left < br.left,
+            sameRow: Math.abs(lr.top - cr.top) < 30 && Math.abs(cr.top - br.top) < 30,
+            gapLR: cr.left - lr.right,
+            gapRB: br.left - cr.right,
+          };
+        })(),
       };
     });
-    ok('desktop three regions present', desktop.threePresent);
-    ok('desktop left→conv→bookings x-order', desktop.orderX, JSON.stringify(desktop));
-    ok('desktop conv+bookings same row', desktop.sameRow);
-    ok('header+Luna controls inside conversation card', desktop.headerInConv && desktop.lunaInHeader);
-    ok('bookings card outside conversation card', desktop.bookOutsideConv);
-    ok('booking actions preserved', desktop.hasCreate && desktop.hasCal);
-    ok('send reply preserved in conversation card', desktop.hasSend);
+
+    ok('three columns are siblings under same owner', r.siblingOwner, JSON.stringify(r.kids));
+    ok('bookings NOT descendant of conversation', r.bookNotInConv);
+    ok('conversation NOT descendant of bookings', r.convNotInBook);
+    ok('no nested three-card wrapper', r.noSharedWrapper);
+    ok('Luna controls inside conversation column', r.lunaInConv);
+    ok('booking actions inside bookings column', r.bookingActionsInBook);
+    ok('send reply inside conversation column', r.sendInConv);
+    ok('desktop x-order list→conv→bookings', r.geometry.xOrder, JSON.stringify(r.geometry));
+    ok('desktop same-row top alignment', r.geometry.sameRow, JSON.stringify(r.geometry));
+    ok('visible gaps between independent cards', r.geometry.gapLR > 8 && r.geometry.gapRB > 8, JSON.stringify(r.geometry));
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.waitForTimeout(100);
-    const mobile = await page.evaluate(() => {
-      const conv = document.querySelector('.detail-conv-card');
-      const book = document.querySelector('.detail-bookings-card');
-      const cr = conv.getBoundingClientRect();
-      const br = book.getBoundingClientRect();
-      return {
-        stacked: br.top >= cr.bottom - 2,
-        fullWidth: cr.width > 300 && br.width > 300,
-      };
+    await page.waitForTimeout(80);
+    const m = await page.evaluate(() => {
+      const conv = document.getElementById('conv-detail').getBoundingClientRect();
+      const book = document.getElementById('inbox-bookings-rail').getBoundingClientRect();
+      return { stacked: book.top >= conv.bottom - 4 };
     });
-    ok('mobile stacks conversation above bookings', mobile.stacked, JSON.stringify(mobile));
-    ok('mobile cards usable width', mobile.fullWidth);
+    ok('mobile conversation above bookings', m.stacked, JSON.stringify(m));
   } finally {
     await browser.close();
   }

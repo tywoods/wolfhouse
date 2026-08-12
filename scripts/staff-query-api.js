@@ -20031,79 +20031,85 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   }
 }
 .inbox-shell-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;flex-shrink:0}
+/* Three true sibling columns: list | conversation | bookings */
 .inbox-two-col.inbox-shell-cols{
-  display:grid;grid-template-columns:minmax(260px,320px) minmax(0,1fr);gap:14px;
+  display:grid;
+  grid-template-columns:minmax(240px,300px) minmax(0,1fr) minmax(260px,320px);
+  gap:14px;
   flex:1;min-height:0;overflow:hidden;width:100%;align-self:stretch;
   border:none;border-radius:0;box-shadow:none;background:transparent;
+}
+.inbox-two-col.inbox-shell-cols.is-bookings-collapsed{
+  grid-template-columns:minmax(240px,300px) minmax(0,1fr);
 }
 .inbox-two-col.inbox-shell-cols .inbox-left{
   flex:unset;width:auto;min-width:0;height:auto;max-height:none;
   border-right:none;border:1px solid var(--border-soft);border-radius:var(--radius);
   box-shadow:none;background:var(--surface);overflow:hidden;
 }
-/* Detail area is a transparent host for conversation + bookings cards. */
+/* Conversation column = own framed card only */
+.inbox-two-col.inbox-shell-cols #conv-detail.inbox-conv-column,
 .inbox-two-col.inbox-shell-cols #conv-detail{
   min-width:0;min-height:0;overflow:hidden;
-  border:none;border-radius:0;background:transparent;box-shadow:none;
+  border:1px solid var(--border-soft);border-radius:var(--radius);
+  background:var(--surface);box-shadow:none;
   display:flex;flex-direction:column;
 }
 .inbox-two-col.inbox-shell-cols #detail-content{
-  padding:0;background:transparent;overflow:hidden;
-}
-.inbox-two-col.inbox-shell-cols .detail-layout--three-card{
-  display:flex;flex-direction:row;align-items:stretch;gap:14px;
-  flex:1;min-height:0;width:100%;overflow:hidden;position:relative;
-  margin:0;
+  padding:14px 16px 16px;background:transparent;overflow:hidden;flex:1;min-height:0;
+  display:flex;flex-direction:column;box-sizing:border-box;
 }
 .inbox-two-col.inbox-shell-cols .detail-conv-card{
   flex:1 1 auto;min-width:0;min-height:0;
   display:flex;flex-direction:column;overflow:hidden;
-  border:1px solid var(--border-soft);border-radius:var(--radius);
-  background:var(--surface);box-shadow:none;
-  padding:14px 16px 16px;box-sizing:border-box;
+  border:none;background:transparent;padding:0;box-shadow:none;
 }
 .inbox-two-col.inbox-shell-cols .detail-conv-card > .detail-header{
   flex-shrink:0;margin-bottom:12px;padding-bottom:10px;
   border-bottom:1px solid var(--border-soft);
 }
-.inbox-two-col.inbox-shell-cols .detail-bookings-card{
-  flex:0 0 300px;width:300px;max-width:34%;
-  align-self:stretch;max-height:none;
+/* Bookings column = sibling framed card (NOT inside #conv-detail) */
+.inbox-two-col.inbox-shell-cols #inbox-bookings-rail.inbox-bookings-column,
+.inbox-two-col.inbox-shell-cols #inbox-bookings-rail{
+  min-width:0;min-height:0;align-self:stretch;
   border:1px solid var(--border-soft);border-radius:var(--radius);
   background:var(--surface);box-shadow:none;
   padding:14px;box-sizing:border-box;
   overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;
 }
-.inbox-two-col.inbox-shell-cols .detail-bookings-card > .sidebar-card{
-  border:none;box-shadow:none;background:transparent;padding:0;margin:0;
-}
-.inbox-two-col.inbox-shell-cols .detail-layout--three-card > .detail-sidebar-toggle{
-  position:absolute;top:10px;right:10px;z-index:3;
-}
-.inbox-two-col.inbox-shell-cols .detail-layout--three-card:not(.is-sidebar-collapsed) > .detail-sidebar-toggle{
-  right:318px;
-}
-.inbox-two-col.inbox-shell-cols .detail-layout--three-card.is-sidebar-collapsed .detail-bookings-card{
+.inbox-two-col.inbox-shell-cols.is-bookings-collapsed #inbox-bookings-rail{
   display:none!important;
 }
-.inbox-two-col.inbox-shell-cols .detail-layout--three-card.is-sidebar-collapsed .detail-conv-card{
-  flex:1 1 auto;width:100%;max-width:100%;
+.inbox-two-col.inbox-shell-cols #inbox-bookings-rail .detail-bookings-card,
+.inbox-two-col.inbox-shell-cols #inbox-bookings-rail .sidebar-card{
+  border:none;box-shadow:none;background:transparent;padding:0;margin:0;
+  width:100%;max-width:none;
+}
+.inbox-two-col.inbox-shell-cols .inbox-bookings-empty{
+  display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;
+  gap:6px;padding:4px 0;color:var(--text-3);
+}
+.inbox-two-col.inbox-shell-cols .inbox-bookings-empty .main-msg{
+  font-size:13px;font-weight:700;color:var(--text-2);margin:0;
+}
+.inbox-two-col.inbox-shell-cols .inbox-bookings-empty .sub-msg{
+  font-size:12px;margin:0;color:var(--text-3);
 }
 @media(max-width:900px){
-  .inbox-two-col.inbox-shell-cols{grid-template-columns:1fr;gap:0;border:none}
+  .inbox-two-col.inbox-shell-cols{
+    grid-template-columns:1fr;gap:12px;border:none;
+  }
   .inbox-two-col.inbox-shell-cols .inbox-left{border-radius:var(--radius)}
-  .inbox-two-col.inbox-shell-cols #conv-detail{border:none;background:transparent}
-  .inbox-two-col.inbox-shell-cols .detail-layout--three-card{
-    flex-direction:column;overflow-y:auto;gap:12px;align-items:stretch;
+  .inbox-two-col.inbox-shell-cols #conv-detail,
+  .inbox-two-col.inbox-shell-cols #inbox-bookings-rail{
+    border-radius:var(--radius);width:100%;max-width:100%;
   }
-  .inbox-two-col.inbox-shell-cols .detail-conv-card{
-    flex:0 0 auto;width:100%;max-width:100%;overflow:visible;
-  }
-  .inbox-two-col.inbox-shell-cols .detail-bookings-card{
-    flex:0 0 auto;width:100%;max-width:100%;order:3;
-  }
-  .inbox-two-col.inbox-shell-cols .detail-layout--three-card > .detail-sidebar-toggle{
-    position:static;align-self:flex-end;margin:0;order:2;
+  /* Mobile stack: list (hidden when show-thread) → conversation → bookings */
+  .inbox-two-col.inbox-shell-cols #inbox-bookings-rail{order:3}
+  .inbox-two-col.inbox-shell-cols #conv-detail{order:2}
+  .inbox-two-col.inbox-shell-cols .inbox-left{order:1}
+  .inbox-two-col.show-thread.inbox-shell-cols #inbox-bookings-rail{
+    display:flex;flex-direction:column;
   }
 }
 /* ═══ END luna-header-ui ═════════════════════════════════════════════════ */
@@ -20743,14 +20749,22 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </div>
     </div>
 
-    <!-- RIGHT: conversation detail (always visible on desktop; master/detail on mobile) -->
-    <div id="conv-detail">
+    <!-- RIGHT: conversation-only card (always visible on desktop; master/detail on mobile) -->
+    <div id="conv-detail" class="inbox-conv-column">
       <button type="button" class="inbox-mobile-back" id="inbox-mobile-back" data-i18n="inbox.mobile.back" aria-label="Back">&larr; Back</button>
       <div id="detail-content">
         <div class="inbox-empty-right">
           <p class="main-msg" data-i18n="inbox.empty.main">Select a conversation to review.</p>
           <p class="sub-msg" data-i18n="inbox.empty.sub">Luna drafts and booking context will appear here.</p>
         </div>
+      </div>
+    </div>
+
+    <!-- RIGHTMOST: bookings-only sibling card (not nested in conversation) -->
+    <div id="inbox-bookings-rail" class="inbox-bookings-column" aria-label="Bookings">
+      <div class="inbox-bookings-empty">
+        <p class="main-msg" data-i18n="inbox.detail.bookings.title">Bookings</p>
+        <p class="sub-msg" data-i18n="inbox.detail.bookings.none">No bookings for this guest.</p>
       </div>
     </div>
 
@@ -23099,10 +23113,40 @@ function inboxEmptyDetailHtml(){
   if (subKey === 'inbox.empty.sub.school.surf') {
     sub = sub.replace('{school}', getSunsetLocationLabel());
   }
+  // Reset sibling bookings rail when no conversation is selected.
+  var rail = typeof el === 'function' ? el('inbox-bookings-rail') : null;
+  if (rail) {
+    rail.innerHTML = '<div class="inbox-bookings-empty">' +
+      '<p class="main-msg">' + escHtml(portalT('inbox.detail.bookings.title') || 'Bookings') + '</p>' +
+      '<p class="sub-msg">' + escHtml(portalT('inbox.detail.bookings.none') || 'No bookings for this guest.') + '</p>' +
+      '</div>';
+    rail.classList.remove('has-conversation');
+  }
+  var twoCol = document.querySelector('#tab-conversations .inbox-two-col');
+  if (twoCol) twoCol.classList.remove('has-open-conversation', 'is-bookings-collapsed');
   return '<div class="inbox-empty-right">' +
     '<p class="main-msg">' + escHtml(portalT('inbox.empty.main')) + '</p>' +
     '<p class="sub-msg">' + escHtml(sub) + '</p>' +
     '</div>';
+}
+
+function wireInboxSidebarToggle(targetEl) {
+  // Optional collapse of sibling bookings column (desktop).
+  var twoCol = document.querySelector('#tab-conversations .inbox-two-col');
+  var rail = typeof el === 'function' ? el('inbox-bookings-rail') : null;
+  if (!twoCol || !rail) return;
+  // Prefer a control on the conversation header if present; else none (always show).
+  var btn = (targetEl && targetEl.querySelector('#inbox-sidebar-toggle')) || null;
+  if (!btn || btn.dataset.wired === '1') return;
+  btn.dataset.wired = '1';
+  btn.addEventListener('click', function() {
+    var next = !twoCol.classList.contains('is-bookings-collapsed');
+    twoCol.classList.toggle('is-bookings-collapsed', next);
+    btn.setAttribute('aria-expanded', next ? 'false' : 'true');
+    btn.textContent = next
+      ? (t('inbox.detail.sidebar.show') || 'Show bookings')
+      : (t('inbox.detail.sidebar.hide') || 'Hide bookings');
+  });
 }
 
 function applySurfNavLabels(profile){
@@ -32339,20 +32383,18 @@ function wireInboxLeftListWheel(){
 }
 
 function convDetailHasLayout(targetEl){
-  return !!(targetEl && targetEl.querySelector('.detail-layout'));
+  return !!(targetEl && (targetEl.querySelector('.detail-conv-card') || targetEl.querySelector('.detail-layout')));
 }
 
 function buildConvDetailSkeleton(){
-  return '<div class="detail-layout detail-layout--three-card detail-layout-skeleton">' +
-    '<div class="detail-main detail-conv-card">' +
+  return '<div class="detail-main detail-conv-card" id="inbox-detail-conv-card">' +
     '<div class="detail-header">' +
     '<div><div class="detail-name conv-skeleton-line">&nbsp;</div>' +
     '<div class="detail-meta conv-skeleton-line short">&nbsp;</div></div>' +
     '<span id="conv-detail-load-status" class="conv-detail-load-status">Loading\u2026</span></div>' +
     '<div class="thread-section"><div class="thread"><div class="thread-messages thread-skeleton"></div></div></div>' +
     '<div class="draft-panel"><div class="draft-label">' +
-    '<span style="font-size:11px;color:var(--text-3)">Reply:</span></div></div></div>' +
-    '<div class="detail-sidebar detail-bookings-card"><div class="sidebar-card sidebar-card-skeleton"></div></div></div>';
+    '<span style="font-size:11px;color:var(--text-3)">Reply:</span></div></div></div>';
 }
 
 function beginConvDetailLoad(targetEl){
@@ -33409,19 +33451,6 @@ function inboxSetSidebarCollapsed(layout, collapsed) {
   }
   try { sessionStorage.setItem('inbox-detail-sidebar-collapsed', collapsed ? '1' : '0'); } catch (_s) { /* ignore */ }
 }
-function wireInboxSidebarToggle(targetEl) {
-  targetEl = targetEl || (typeof el === 'function' ? el('detail-content') : null);
-  if (!targetEl) return;
-  var layout = targetEl.querySelector('.detail-layout');
-  var btn = targetEl.querySelector('#inbox-sidebar-toggle');
-  if (!layout || !btn || btn.dataset.wired === '1') return;
-  btn.dataset.wired = '1';
-  inboxSetSidebarCollapsed(layout, inboxSidebarCollapsedPreferred());
-  btn.addEventListener('click', function() {
-    var next = !layout.classList.contains('is-sidebar-collapsed');
-    inboxSetSidebarCollapsed(layout, next);
-  });
-}
 
 function loadConvDetail(convId, targetEl){
   targetEl = targetEl || el('detail-content');
@@ -33487,10 +33516,8 @@ function loadConvDetail(convId, targetEl){
     headerHtml +=   '</div>';
     headerHtml += '</div>';
 
-    /* ── Three-card layout: list (outer) | conversation card | bookings card ── */
-    var html = '<div class="detail-layout detail-layout--three-card">';
-
-    /* ═══ CENTER — conversation card (thread + reply + Luna header) ═══ */
+    /* ── Conversation-only card (sibling of list + bookings) ── */
+    var html = '';
     html += '<div class="detail-main detail-conv-card" id="inbox-detail-conv-card">';
     html += headerHtml;
 
@@ -33563,39 +33590,43 @@ function loadConvDetail(convId, targetEl){
 
     html += '</div>'; /* /detail-main / detail-conv-card */
 
-    /* ═══ RIGHT — bookings card (separate framed rail) ═══ */
-    html += '<button type="button" class="detail-sidebar-toggle" id="inbox-sidebar-toggle" aria-controls="inbox-detail-sidebar" aria-expanded="true">' + escHtml(t('inbox.detail.sidebar.hide') || portalT('inbox.detail.sidebar.hide') || 'Hide bookings') + '</button>';
-    html += '<div class="detail-sidebar detail-bookings-card" id="inbox-detail-sidebar">';
-
-    /* ── Guest bookings (stacked) ── */
-    html += '<div class="sidebar-card sidebar-card--bookings">';
-    html +=   '<h3>' + escHtml(t('inbox.detail.bookings.title')) + '</h3>';
+    /* Bookings HTML goes into the sibling #inbox-bookings-rail — not nested here. */
+    var bookingsHtml = '';
+    bookingsHtml += '<div class="detail-sidebar detail-bookings-card" id="inbox-detail-sidebar">';
+    bookingsHtml += '<div class="sidebar-card sidebar-card--bookings">';
+    bookingsHtml +=   '<h3>' + escHtml(t('inbox.detail.bookings.title')) + '</h3>';
     if (!bookingRows.length){
-      html += '<div class="inbox-no-bookings">' + escHtml(t('inbox.detail.bookings.none')) + '</div>';
+      bookingsHtml += '<div class="inbox-no-bookings">' + escHtml(t('inbox.detail.bookings.none')) + '</div>';
     } else {
-      html += '<div class="inbox-booking-stack">';
+      bookingsHtml += '<div class="inbox-booking-stack">';
       bookingRows.forEach(function(bctx){
-        html += renderInboxBookingStackItemHtml(bctx, c.guest_name);
+        bookingsHtml += renderInboxBookingStackItemHtml(bctx, c.guest_name);
       });
-      html += '</div>';
+      bookingsHtml += '</div>';
     }
-    html += '<button type="button" class="btn btn-ghost" id="inbox-create-booking-for-guest" style="margin-top:10px">' + escHtml(t('inbox.detail.bookings.createForGuest')) + '</button>';
-    html += '</div>'; /* /sidebar-card */
+    bookingsHtml += '<button type="button" class="btn btn-ghost" id="inbox-create-booking-for-guest" style="margin-top:10px">' + escHtml(t('inbox.detail.bookings.createForGuest')) + '</button>';
+    bookingsHtml += '</div>'; /* /sidebar-card */
 
     /* Notes / summary */
     if (c.human_notes || c.conversation_summary){
-      html += '<div class="sidebar-card">';
-      html +=   '<h3>' + escHtml(t('inbox.detail.notes.title')) + '</h3>';
-      if (c.human_notes)          html += '<div style="font-size:12px;color:#2c3e50;white-space:pre-wrap;margin-bottom:6px">' + escHtml(c.human_notes) + '</div>';
-      if (c.conversation_summary) html += '<div style="font-size:11px;color:#7f8c8d;white-space:pre-wrap">' + escHtml(c.conversation_summary) + '</div>';
-      html += '</div>';
+      bookingsHtml += '<div class="sidebar-card">';
+      bookingsHtml +=   '<h3>' + escHtml(t('inbox.detail.notes.title')) + '</h3>';
+      if (c.human_notes)          bookingsHtml += '<div style="font-size:12px;color:#2c3e50;white-space:pre-wrap;margin-bottom:6px">' + escHtml(c.human_notes) + '</div>';
+      if (c.conversation_summary) bookingsHtml += '<div style="font-size:11px;color:#7f8c8d;white-space:pre-wrap">' + escHtml(c.conversation_summary) + '</div>';
+      bookingsHtml += '</div>';
     }
-
-    html += '</div>'; /* /detail-sidebar */
-    html += '</div>'; /* /detail-layout */
+    bookingsHtml += '</div>'; /* /detail-sidebar */
 
     targetEl.innerHTML = html;
     targetEl.classList.remove('is-loading-detail');
+    var bookingsRail = el('inbox-bookings-rail');
+    if (bookingsRail) {
+      bookingsRail.innerHTML = bookingsHtml;
+      bookingsRail.classList.add('has-conversation');
+      bookingsRail.removeAttribute('hidden');
+    }
+    var twoCol = document.querySelector('#tab-conversations .inbox-two-col');
+    if (twoCol) twoCol.classList.add('has-open-conversation');
 
     if (useEmailReplyUi) wireInboxEmailReply(convId, targetEl);
     else if (!isEmailConversation) wireInboxSendReply(convId, c.phone, targetEl);
@@ -33603,7 +33634,8 @@ function loadConvDetail(convId, targetEl){
     if (inboxCustBtn) {
       inboxCustBtn.addEventListener('click', function() { openCustomerCardFromConversation(c); });
     }
-    var cbBtn = targetEl.querySelector('#inbox-create-booking-for-guest');
+    var bookingsRoot = el('inbox-bookings-rail') || targetEl;
+    var cbBtn = bookingsRoot.querySelector('#inbox-create-booking-for-guest');
     if (cbBtn) cbBtn.addEventListener('click', function(){
       openCreateBookingFromContact({
         display_name: c.guest_name,
@@ -33619,7 +33651,7 @@ function loadConvDetail(convId, targetEl){
     wireFreshStart(convId, targetEl);
     wireAgentSessionReset(convId, targetEl);
 
-    var calLinks = targetEl.querySelectorAll('.inbox-open-booking-cal');
+    var calLinks = bookingsRoot.querySelectorAll('.inbox-open-booking-cal');
     calLinks.forEach(function(calLink){
       calLink.addEventListener('click', function(){
         openBookingInCalendar({
@@ -33631,7 +33663,7 @@ function loadConvDetail(convId, targetEl){
         });
       });
     });
-    targetEl.querySelectorAll('.inbox-booking-stack-item').forEach(function(item){
+    bookingsRoot.querySelectorAll('.inbox-booking-stack-item').forEach(function(item){
       item.addEventListener('dblclick', function(e){
         if (e.target.closest('.inbox-open-booking-cal')) return;
         var link = item.querySelector('.inbox-open-booking-cal');
