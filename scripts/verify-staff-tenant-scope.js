@@ -214,7 +214,7 @@ ok('R1 registry schema v2 fingerprint identity', registry.meta.schema_version ==
 // ── B. Portal session client scoping ────────────────────────────────────────
 console.log('\n── Portal session client scoping ──');
 
-// Wolfhouse-scoped fixture must not share the Sunset-only owner email.
+// Distinct from the owner email so this fixture proves the ACL, not the owner grant.
 const wolfhouseUser = {
   email: 'operator.stage72c@example.test',
   client_slug: 'wolfhouse-somo',
@@ -225,35 +225,45 @@ const wolfScoped = getSessionScopedClients(wolfhouseUser);
 ok('1 wolfhouse session returns exactly one client', wolfScoped.length === 1);
 ok('1 wolfhouse session slug is wolfhouse-somo', wolfScoped[0] && wolfScoped[0].slug === 'wolfhouse-somo');
 
+// The shared owner email is scoped per image: the Sunset overlay grants sunset
+// only, the Wolfhouse base file grants wolfhouse-somo only. Each image bakes
+// exactly one of them, so neither deployment can reach the other's tenant.
 const sunsetAccess = JSON.parse(fs.readFileSync(SUNSET_ACCESS_PATH, 'utf8'));
 const portalAccess = JSON.parse(fs.readFileSync(ACCESS_PATH, 'utf8'));
-const sunsetEmail = 'tywoods@gmail.com';
-const sunsetAllowed = sunsetAccess.client_access && sunsetAccess.client_access[sunsetEmail];
+const ownerEmail = 'tywoods@gmail.com';
+const sunsetAllowed = sunsetAccess.client_access && sunsetAccess.client_access[ownerEmail];
 ok('2 sunset staging access config lists sunset only', Array.isArray(sunsetAllowed)
   && sunsetAllowed.length === 1 && sunsetAllowed[0] === 'sunset');
 
-const portalSunsetAccess = portalAccess.client_access && portalAccess.client_access[sunsetEmail];
-ok('2b portal access config scopes sunset owner to sunset only', Array.isArray(portalSunsetAccess)
-  && portalSunsetAccess.length === 1
-  && portalSunsetAccess[0] === 'sunset');
-ok('2c sunset owner is not in all_clients_emails',
+const portalOwnerAccess = portalAccess.client_access && portalAccess.client_access[ownerEmail];
+ok('2b wolfhouse access config scopes owner to wolfhouse-somo only', Array.isArray(portalOwnerAccess)
+  && portalOwnerAccess.length === 1
+  && portalOwnerAccess[0] === 'wolfhouse-somo');
+ok('2b2 sunset overlay never grants wolfhouse-somo',
+  !Object.values(sunsetAccess.client_access || {})
+    .some((slugs) => (Array.isArray(slugs) ? slugs : []).includes('wolfhouse-somo')));
+ok('2c owner is not in all_clients_emails on either image',
   !(portalAccess.all_clients_emails || []).map((e) => String(e || '').trim().toLowerCase())
-    .includes(String(sunsetEmail).toLowerCase()));
+    .includes(String(ownerEmail).toLowerCase())
+  && !(sunsetAccess.all_clients_emails || []).map((e) => String(e || '').trim().toLowerCase())
+    .includes(String(ownerEmail).toLowerCase()));
 
-const sunsetOwnerUser = {
-  email: sunsetEmail,
-  client_slug: 'sunset',
+// In-process ACL reads the baked base file, i.e. the Wolfhouse image.
+const portalOwnerUser = {
+  email: ownerEmail,
+  client_slug: 'wolfhouse-somo',
   role: 'owner',
 };
-const sunsetOwnerSlugs = getAccessibleClientSlugs(sunsetOwnerUser);
-ok('2d sunset owner resolves sunset access', userCanAccessClient(sunsetOwnerUser, 'sunset')
-  && sunsetOwnerSlugs.includes('sunset')
-  && sunsetOwnerSlugs.length === 1);
-ok('2e sunset owner does not resolve wolfhouse or other tenants',
-  !userCanAccessClient(sunsetOwnerUser, 'wolfhouse-somo')
-  && !sunsetOwnerSlugs.includes('wolfhouse-somo')
-  && !sunsetOwnerSlugs.includes('mirleft')
-  && !sunsetOwnerSlugs.includes('lawave'));
+const portalOwnerSlugs = getAccessibleClientSlugs(portalOwnerUser);
+ok('2d owner resolves wolfhouse access on the wolfhouse image',
+  userCanAccessClient(portalOwnerUser, 'wolfhouse-somo')
+  && portalOwnerSlugs.includes('wolfhouse-somo')
+  && portalOwnerSlugs.length === 1);
+ok('2e owner does not resolve sunset or other tenants on the wolfhouse image',
+  !userCanAccessClient(portalOwnerUser, 'sunset')
+  && !portalOwnerSlugs.includes('sunset')
+  && !portalOwnerSlugs.includes('mirleft')
+  && !portalOwnerSlugs.includes('lawave'));
 ok('2f unlisted email remains denied',
   getAccessibleClientSlugs({
     email: 'unlisted.random.access@example.invalid',
@@ -268,11 +278,11 @@ ok('2f unlisted email remains denied',
     email: 'unlisted.random.access@example.invalid',
     role: 'operator',
   }, 'wolfhouse-somo'));
-ok('2g session-bound sunset authority rejects cross-tenant client override',
-  getSessionScopedClients(sunsetOwnerUser).length === 1
-  && getSessionScopedClients(sunsetOwnerUser)[0].slug === 'sunset'
-  && getSessionScopedClients({ ...sunsetOwnerUser, client_slug: 'wolfhouse-somo' }).length === 0
-  && !userCanAccessClient(sunsetOwnerUser, 'wolfhouse-somo'));
+ok('2g session-bound authority rejects cross-tenant client override',
+  getSessionScopedClients(portalOwnerUser).length === 1
+  && getSessionScopedClients(portalOwnerUser)[0].slug === 'wolfhouse-somo'
+  && getSessionScopedClients({ ...portalOwnerUser, client_slug: 'sunset' }).length === 0
+  && !userCanAccessClient(portalOwnerUser, 'sunset'));
 
 const sunsetBaseline = listBaselineClients().filter((c) => c.slug === 'sunset');
 ok('2 sunset baseline client exists', sunsetBaseline.length === 1);
@@ -280,7 +290,7 @@ const sunsetFilterSim = listBaselineClients().filter((c) => c.slug === 'sunset')
 ok('2 session filter logic returns only sunset for sunset slug', sunsetFilterSim.length === 1
   && sunsetFilterSim[0].slug === 'sunset');
 
-const noSlugUser = { email: sunsetEmail, client_slug: '', role: 'operator' };
+const noSlugUser = { email: ownerEmail, client_slug: '', role: 'operator' };
 ok('3 authenticated user without client_slug returns no session clients', getSessionScopedClients(noSlugUser).length === 0);
 
 const profiles = buildSessionClientProfilesMap(wolfhouseUser);
