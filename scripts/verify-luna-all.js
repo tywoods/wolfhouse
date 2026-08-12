@@ -41,6 +41,7 @@ const steps = [
   ['verify:luna-add-guest-to-booking', 'verify-luna-add-guest-to-booking.js'],
   ['verify:luna-add-guest-paid', 'verify-luna-add-guest-paid.js'],
   ['verify:hermes-gateway-mirror-patch', 'verify-hermes-gateway-mirror-patch.js'],
+  ['verify:luna-handoff-promise-detection', 'verify-luna-handoff-promise-detection.js'],
   ['verify:luna-golden', 'verify-luna-golden.js'],
   ['verify:luna-coach', 'verify-luna-coach.js'],
   ['verify:luna-unified-planner', 'verify-luna-unified-planner.js'],
