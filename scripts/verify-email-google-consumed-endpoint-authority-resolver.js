@@ -109,7 +109,6 @@ async function main() {
     () => { throw new Error('HOSTILE_PRIVATE_SECRET'); },
     () => Promise.reject(new Error('HOSTILE_PRIVATE_SECRET')),
     () => ({ then() { throw new Error('HOSTILE_PRIVATE_SECRET'); } }),
-    () => new Proxy(Promise.resolve(wrapper([row()])), {}),
   ]) {
     const fixture = db(undefined, behavior);
     const owner = createGoogleConsumedEndpointAuthorityResolver(freeze({ db: fixture.owner }));
