@@ -6,7 +6,7 @@ const owner = require('./lib/staff-google-oauth-production-integration');
 
 assert.equal(owner.GOOGLE_ENDPOINT_PATH, '/staff/admin/email-settings/oauth/google/endpoint');
 assert.equal(owner.GOOGLE_START_PATH, '/staff/admin/email-settings/oauth/google/start');
-assert.equal(owner.GOOGLE_CALLBACK_PATH, '/staff/email/oauth/google/callback');
+assert.equal(owner.GOOGLE_CALLBACK_PATH, '/staff/email/google/callback');
 assert.equal(owner.isGoogleRouteEnabled(Object.freeze({}),'endpoint'), false);
 assert.equal(owner.isGoogleRouteEnabled(Object.freeze({LUNA_DEPLOYMENT:'production',LUNA_EMAIL_GOOGLE_OAUTH_ENDPOINT_ENABLED:'true'}),'endpoint'), false);
 assert.equal(owner.isGoogleRouteEnabled(Object.freeze({LUNA_DEPLOYMENT:'sunset-staging',LUNA_EMAIL_GOOGLE_OAUTH_ENDPOINT_ENABLED:'true'}),'endpoint'), true);

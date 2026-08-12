@@ -211,7 +211,6 @@ const { createSunsetStagingGoogleOAuthComposition } = require('./lib/email-googl
 const { createStaffEmailGoogleOAuthRoutes } = require('./lib/staff-email-google-oauth-routes');
 const {
   createStaffGoogleOAuthProductionIntegration, GOOGLE_ENDPOINT_PATH, GOOGLE_START_PATH, GOOGLE_CALLBACK_PATH,
-  isGoogleRouteEnabled,
 } = require('./lib/staff-google-oauth-production-integration');
 const {
   createStaffEmailOAuthRoutes,
@@ -50959,13 +50958,10 @@ async function router(req, res) {
     return handleHouseNotesPost(parsed.query, req, res, auth.user);
   }
 
-  // Google OAuth is concealed before auth/body/DB/runtime and wrong methods fall through sanitized.
+  // Google OAuth adapter owns its single frozen gate snapshot before every effect.
   if ([GOOGLE_ENDPOINT_PATH, GOOGLE_START_PATH, GOOGLE_CALLBACK_PATH].includes(pathname)) {
-    const kind=pathname===GOOGLE_ENDPOINT_PATH?'endpoint':pathname===GOOGLE_START_PATH?'start':'callback';
-    if (!isGoogleRouteEnabled(process.env,kind)) return kind==='callback'
-      ? sendHTML(res,404,'<!doctype html><title>Not found</title>')
-      : sendJSON(res,404,{success:false,error:'not_found'});
-    if (method===(kind==='callback'?'GET':'POST')) return staffGoogleOAuth.dispatch(req,res,pathname);
+    const handled = await staffGoogleOAuth.dispatch(req,res,pathname);
+    if (handled !== false) return handled;
   }
 
   // ── Email registry READ/WRITE (Slice 1C-beta/gamma) — admin inventory + kill-switched registration
