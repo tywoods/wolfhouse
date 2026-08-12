@@ -732,6 +732,7 @@
     "verify:staff-whatsapp-numbers-routes": "node scripts/verify-staff-whatsapp-numbers-routes.js",
     "verify:staff-customers-routes": "node scripts/verify-staff-customers-routes.js",
     "verify:staff-inbox-routes": "node scripts/verify-staff-inbox-routes.js",
+    "verify:inbox-thread-composite": "node scripts/verify-inbox-thread-composite.js",
     "verify:staff-automated-notifications-routes": "node scripts/verify-staff-automated-notifications-routes.js",
     "verify:staff-automated-notification-ui": "node scripts/verify-staff-automated-notification-ui.js",
     "verify:staff-automated-notifications-crud": "node scripts/verify-staff-automated-notifications-crud.js",
