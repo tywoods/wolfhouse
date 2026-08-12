@@ -16080,7 +16080,7 @@ ${getStaffPortalThemeEarlyScript()}
 [data-theme="dark"] .inbox-booking-linked-tag{background:#264f78;color:#c8dce8;border-color:#3a6a9a}
 [data-theme="dark"] .conv-card.selected{background:var(--staff-green-bg);border-left-color:var(--sage)}
 [data-theme="dark"] .conv-card:hover{background:#2d2d2d}
-[data-theme="dark"] .thread{background:#1e1e1e;border-color:#3c3c3c}
+[data-theme="dark"] .thread{background:transparent;border:none}
 [data-theme="dark"] .msg.inbound .msg-bubble{background:var(--staff-green-bg);color:var(--staff-green-text);border:1px solid var(--staff-green-border);border-bottom-left-radius:5px}
 [data-theme="dark"] .msg.outbound.msg-luna .msg-bubble{background:var(--luna-blue);color:var(--luna-blue-text);border:1px solid var(--luna-blue-border);border-bottom-right-radius:5px}
 [data-theme="dark"] .msg.outbound.msg-staff .msg-bubble{background:var(--staff-green-bg);color:var(--staff-green-text);border:1px solid var(--staff-green-border);border-bottom-right-radius:5px}
@@ -18468,11 +18468,11 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 }
 .detail-header-switches .luna-pause-action-status{display:none!important}
 .inbox-thread-shell{display:flex;flex-direction:column;flex:0 0 auto;width:100%;flex-shrink:0;position:relative;z-index:2}
-.inbox-thread-wrap{position:relative;overflow:hidden;border:1px solid var(--border-soft);border-radius:12px 12px 0 0;background:var(--surface);display:flex;flex-direction:column;flex:0 0 auto;min-height:200px;width:100%}
+.inbox-thread-wrap{position:relative;overflow:hidden;display:flex;flex-direction:column;flex:0 0 auto;min-height:200px;width:100%}
 .inbox-thread-resize-handle{height:28px;min-height:28px;cursor:ns-resize;background:linear-gradient(180deg,#EFE8DC 0%,#E6DDD0 100%);border:1px solid #EFE8DC;border-top:none;border-radius:0 0 12px 12px;display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none;flex-shrink:0;width:100%;padding:8px 0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 .inbox-thread-resize-handle::after{content:'';width:56px;height:5px;border-radius:3px;background:#8A7A6C;opacity:.9;box-shadow:0 5px 0 0 #B8A99A,0 10px 0 0 #8A7A6C}
 .inbox-thread-resize-handle:hover::after,.inbox-thread-resize-handle:active::after{background:#6B5E52;box-shadow:0 5px 0 0 #9A8B7C,0 10px 0 0 #6B5E52}
-[data-theme="dark"] .inbox-thread-wrap{border-color:var(--border-soft);background:var(--surface)}
+[data-theme="dark"] .inbox-thread-wrap{background:transparent}
 [data-theme="dark"] .inbox-thread-resize-handle{background:linear-gradient(180deg,#333 0%,#3c3c3c 100%);border-color:var(--border-soft)}
 [data-theme="dark"] .inbox-thread-resize-handle::after{background:#6e6e6e}
 .detail-name{font-size:18px;font-weight:700;color:var(--text);letter-spacing:.01em}
@@ -18489,7 +18489,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .detail-layout{flex:1;min-height:0;display:flex;gap:16px;align-items:flex-start;margin-top:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scrollbar-gutter:stable}
 .detail-main .detail-conv-toolbar{position:absolute;right:0;bottom:100%;margin-bottom:6px;display:flex;justify-content:flex-end;padding:0;z-index:1}
 .detail-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:visible}
-.detail-sidebar{width:280px;flex-shrink:0;align-self:flex-start;max-height:calc(100vh - 280px);overflow-y:auto;-webkit-overflow-scrolling:touch}
+.detail-sidebar{width:280px;flex-shrink:0;align-self:stretch;border-left:1px solid var(--border-soft);padding-left:16px;max-height:calc(100vh - 280px);overflow-y:auto;-webkit-overflow-scrolling:touch}
 @media(max-width:860px){.detail-layout{flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;align-items:stretch}.detail-sidebar{width:100%;max-height:none;overflow:visible;flex-shrink:0}}
 
 /* Inbox detail: collapsible booking/payment right rail */
@@ -18510,7 +18510,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 /* ── Message thread ──────────────────────────────────────────────────────── */
 .thread-section{flex:0 0 auto;min-height:0;display:flex;flex-direction:column;overflow:visible}
 .thread-section h3{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;flex-shrink:0}
-.thread{position:relative;flex:0 0 auto;min-height:0;display:flex;flex-direction:column;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px 14px 10px}
+.thread{position:relative;flex:0 0 auto;min-height:0;display:flex;flex-direction:column;background:transparent;border:none;padding:0}
 .thread .inbox-thread-shell{border-radius:0;background:transparent;border:none;padding:0}
 .thread-messages{flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .msg{display:flex;flex-direction:column;max-width:78%}
@@ -33259,7 +33259,6 @@ function loadConvDetail(convId, targetEl){
     }
     html +=   '</div>'; /* /thread-messages */
     html +=   '</div>'; /* /inbox-thread-wrap */
-    html +=   '<div id="inbox-thread-resize-handle" class="inbox-thread-resize-handle" title="Drag to resize message area" role="separator" aria-orientation="horizontal" aria-label="Resize message area"></div>';
     html +=   '</div>'; /* /inbox-thread-shell */
     html += '<div class="luna-pause-action-status" id="luna-pause-action-status" style="display:none"></div>';
     html += '</div>'; /* /thread */
