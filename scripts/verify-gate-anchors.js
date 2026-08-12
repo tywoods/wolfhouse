@@ -11,14 +11,25 @@
  * crashes or asserts against nothing, while looking like ordinary CI noise.
  * verify-staff-portal-private-room-ui.js sat dead that way for a month.
  *
- * This gate collects every string literal passed to .indexOf/.includes/.lastIndexOf/.search
- * in a gate, keeps the ones that look like source code, and fails when such an anchor no
- * longer resolves in any non-verify .js file under scripts/.
+ * Scope is the anchors whose rot is SILENT:
  *
- * Anchors that legitimately never resolve there — assertions that a string must be ABSENT,
- * anchors into Python/Bicep files, anchors matched against strings built at runtime — need
- * an ALLOWLIST entry with a reason, so the exception is a decision on the record. Unused
- * allowlist entries fail too, so the list cannot outlive the assertion it excuses.
+ *   position lookups   indexOf, lastIndexOf, search — their result is an offset that feeds a
+ *                      slice. A miss returns -1, the window is empty or wrong, and nothing
+ *                      complains. This is the private-room failure.
+ *   negated lookups    a string asserted ABSENT, written either !src.includes(x) or
+ *                      assert.equal(src.includes(x), false). A rename makes the assertion
+ *                      vacuously true, so it passes forever for the wrong reason.
+ *
+ * Plain positive lookups are deliberately NOT scanned. When one rots its own gate goes red
+ * by construction, so a second copy of the expectation here would add no detection — only a
+ * false alarm every time the expected string is composed at runtime rather than stored on
+ * disk, and another place to edit. 486 of this repo's 691 anchors are that kind, and every
+ * one that failed to resolve was a runtime-composed or non-JavaScript string, never a bug.
+ *
+ * Anchors in scope that legitimately never resolve under scripts/ — a string that must be
+ * absent, or one that lives in a Python or Bicep file — need an ALLOWLIST entry with a
+ * reason, so the exception is a decision on the record. Unused allowlist entries fail too,
+ * so the list cannot outlive the assertion it excuses.
  *
  * Offline: no database, no network, no test framework.
  *
@@ -32,7 +43,11 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const SCRIPTS = path.join(ROOT, 'scripts');
 
-const LOOKUP_METHODS = ['indexOf', 'includes', 'lastIndexOf', 'search'];
+/** Offset lookups: the result feeds a slice, so a miss is silent. */
+const POSITION_METHODS = ['indexOf', 'lastIndexOf', 'search'];
+/** Boolean lookup: only in scope when negated, where a miss passes vacuously. */
+const BOOLEAN_METHOD = 'includes';
+const LOOKUP_METHODS = [...POSITION_METHODS, BOOLEAN_METHOD];
 
 /** Below this an anchor is a fragment, not a landmark. */
 const MIN_ANCHOR_LENGTH = 12;
@@ -40,10 +55,8 @@ const MIN_ANCHOR_LENGTH = 12;
 /**
  * Anchors that cannot resolve in scripts/*.js and are still correct.
  *
- *   negative    the gate asserts the string is ABSENT — resolving would be the bug
- *   external    the anchor targets a file outside scripts/*.js; `file` is re-checked here
- *   generated   the anchor is matched against a string built at runtime, not a file on disk
- *   disjunction the assertion is an || chain whose live branch is not a string lookup
+ *   negative  the gate asserts the string is ABSENT — resolving would be the bug
+ *   external  the anchor targets a file outside scripts/*.js; `file` is re-checked here
  */
 const ALLOWLIST = [
   {
@@ -198,13 +211,6 @@ const ALLOWLIST = [
   },
 
   {
-    gate: 'verify-messi-saas-stage2c1-private-network.js',
-    anchor: "module privateNetwork './private-network.bicep' = if (enablePrivateNetwork)",
-    kind: 'external',
-    file: 'infra/azure/modules/tenant-staging/main.bicep',
-    reason: 'Bicep module wiring, not JavaScript.',
-  },
-  {
     gate: 'verify-radar-slice16h-staff-api-metric-alerts.js',
     anchor: "fail('wrong_subscription')",
     kind: 'external',
@@ -240,13 +246,6 @@ const ALLOWLIST = [
     reason: 'slice boundary in the Hermes Python plugin, not JavaScript.',
   },
   {
-    gate: 'verify-sunset-bot-write-endpoints.js',
-    anchor: '_guest_payment_url(data)',
-    kind: 'external',
-    file: 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py',
-    reason: 'Hermes Python plugin prefers the compact guest payment URL, not JavaScript.',
-  },
-  {
     gate: 'verify-sunset-create-drawer-ux-followup.js',
     anchor: 'def create_sunset_booking(',
     kind: 'external',
@@ -259,58 +258,6 @@ const ALLOWLIST = [
     kind: 'external',
     file: 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py',
     reason: 'slice boundary in the Hermes Python plugin, not JavaScript.',
-  },
-  {
-    gate: 'verify-sunset-group-lesson-quote.js',
-    anchor: 'def get_sunset_group_lesson_quote(',
-    kind: 'external',
-    file: 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py',
-    reason: 'disabled Hermes Python stub must stay defined, not JavaScript.',
-  },
-  {
-    gate: 'verify-sunset-luna-courses-only.js',
-    anchor: 'def get_sunset_group_lesson_quote(',
-    kind: 'external',
-    file: 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py',
-    reason: 'disabled Hermes Python stub must stay defined, not JavaScript.',
-  },
-
-  {
-    gate: 'verify-sunset-admin-pure.js',
-    anchor: "new RegExp('\\\\b1 hour\\\\b'",
-    kind: 'generated',
-    reason: 'matched against getSunsetAdminBrowserHelperSource(), which rewrites regex literals at build time.',
-  },
-  {
-    gate: 'verify-sunset-admin-render.js',
-    anchor: "new RegExp('\\\\b1 hour\\\\b'",
-    kind: 'generated',
-    reason: 'matched against getSunsetAdminBrowserHelperSource(), which rewrites regex literals at build time.',
-  },
-  {
-    gate: 'verify-sunset-bookings-admin-n1.js',
-    anchor: 'sum(p.amount_paid_cents)',
-    kind: 'generated',
-    reason: 'fake pg router matches sql.toLowerCase(); the query text reads SUM(p.amount_paid_cents).',
-  },
-  {
-    gate: 'verify-sunset-bookings-admin-n1.js',
-    anchor: 'sum(amount_cents)',
-    kind: 'generated',
-    reason: 'fake pg router matches sql.toLowerCase(); the query text reads SUM(amount_cents).',
-  },
-
-  {
-    gate: 'verify-sunset-admin-tabs.js',
-    anchor: "portalT('admin.tabs.finance')",
-    kind: 'disjunction',
-    reason: 'live branch is /data-i18n="admin.tabs.finance"/ against rendered HTML; the tab title moved to markup.',
-  },
-  {
-    gate: 'verify-sunset-admin-tabs.js',
-    anchor: 'portalT("admin.tabs.finance")',
-    kind: 'disjunction',
-    reason: 'live branch is /data-i18n="admin.tabs.finance"/ against rendered HTML; the tab title moved to markup.',
   },
 ];
 
@@ -399,7 +346,7 @@ function looksLikeSourceAnchor(value) {
   return CODE_SHAPES.some((shape) => shape.test(value));
 }
 
-const LOOKUP_RE = new RegExp(`\\.(?:${LOOKUP_METHODS.join('|')})\\(\\s*(?:['"\`])`, 'g');
+const LOOKUP_RE = new RegExp(`\\.(${LOOKUP_METHODS.join('|')})\\(\\s*(?:['"\`])`, 'g');
 
 function collectLookups(src) {
   const found = [];
@@ -412,7 +359,11 @@ function collectLookups(src) {
       LOOKUP_RE.lastIndex = literal.end;
       if (!literal.raw.includes('${')) {
         const value = decodeLiteral(literal.raw);
-        if (value !== null) found.push({ value, start: match.index, end: literal.end });
+        if (value !== null) {
+          found.push({
+            value, start: match.index, end: literal.end, method: match[1],
+          });
+        }
       }
     }
     match = LOOKUP_RE.exec(src);
@@ -442,24 +393,18 @@ function receiverStart(src, index) {
   return i + 1;
 }
 
-/** `!src.includes(x) || !src.includes(y)` requires both, so it is not an alternative. */
+/** The other half of the repo writes its negations as assert.equal(lookup, false). */
+const COMPARED_FALSE = /^\s*\)\s*(?:,\s*false\b|={2,3}\s*false\b)/;
+
 function isNegatedLookup(src, lookup) {
   let i = receiverStart(src, lookup.start) - 1;
   while (i >= 0 && /[ \t]/.test(src[i])) i -= 1;
-  return i >= 0 && src[i] === '!';
+  if (i >= 0 && src[i] === '!') return true;
+  return COMPARED_FALSE.test(src.slice(lookup.end + 1, lookup.end + 32));
 }
 
-/**
- * Two lookups belong to the same `||` alternative when only a disjunction separates them.
- * A `&&` or a statement break means they are independent assertions.
- */
-function sameDisjunction(src, a, b) {
-  if (isNegatedLookup(src, a) || isNegatedLookup(src, b)) return false;
-  const from = Math.min(a.end, b.end);
-  const to = Math.max(a.start, b.start);
-  if (to <= from) return false;
-  const between = src.slice(from, to);
-  return between.includes('||') && !between.includes('&&') && !between.includes(';');
+function isSilentIfDead(src, lookup) {
+  return lookup.method !== BOOLEAN_METHOD || isNegatedLookup(src, lookup);
 }
 
 const gateFiles = listJsFiles(SCRIPTS, [])
@@ -492,23 +437,24 @@ const usedAllowlist = new Set();
 console.log(`\nverify:gate-anchors  (${gateFiles.length} gates, ${haystackFiles.length} source files)\n`);
 
 let anchorsChecked = 0;
+let anchorsSkipped = 0;
 let deadAnchors = 0;
 
 for (const gateFile of gateFiles) {
   const gate = path.basename(gateFile);
   const src = fs.readFileSync(gateFile, 'utf8');
-  const lookups = collectLookups(src);
-  const anchors = lookups.filter(
+  const anchors = collectLookups(src).filter(
     (l) => l.value.length >= MIN_ANCHOR_LENGTH && looksLikeSourceAnchor(l.value),
   );
 
   const reported = new Set();
   for (const anchor of anchors) {
+    if (!isSilentIfDead(src, anchor)) {
+      anchorsSkipped += 1;
+      continue;
+    }
     anchorsChecked += 1;
     if (resolvesInScripts(anchor.value)) continue;
-    if (lookups.some((other) => other !== anchor
-      && sameDisjunction(src, anchor, other)
-      && resolvesInScripts(other.value))) continue;
 
     const key = allowlistKey(gate, anchor.value);
     const entry = allowlist.get(key);
@@ -539,7 +485,8 @@ for (const [key, entry] of allowlist) {
   fail(`stale allowlist entry — ${entry.gate} no longer looks up ${JSON.stringify(entry.anchor)}, or it resolves now; delete the entry`);
 }
 
-console.log(`  checked ${anchorsChecked} anchors across ${gateFiles.length} gates`);
+console.log(`  checked ${anchorsChecked} silent-failure anchors across ${gateFiles.length} gates`);
+console.log(`  skipped ${anchorsSkipped} positive lookups — those fail loudly in their own gate`);
 console.log(`  allowlisted ${usedAllowlist.size} of ${allowlist.size} entries`);
 if (deadAnchors) console.log(`  dead anchors: ${deadAnchors}`);
 
