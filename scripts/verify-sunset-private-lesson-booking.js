@@ -31,20 +31,34 @@ function read(rel) {
 console.log('\nverify:sunset-private-lesson-booking — schedule private lesson create slice\n');
 
 const writes = read('scripts/lib/sunset-schedule-booking-writes.js');
-const api = read('scripts/staff-query-api.js');
+// Schedule create JS is split between the template and the extracted browser module.
+const api = [
+  read('scripts/staff-query-api.js'),
+  read('scripts/browser/sunset-schedule-portal-module.js'),
+].join('\n');
 const en = read('scripts/lib/staff-portal-i18n.js');
 const es = read('scripts/lib/staff-portal-i18n-es-sunset.js');
+
+function futureDate(offsetDays) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+
+const D1 = futureDate(30);
+const D2 = futureDate(31);
+const D3 = futureDate(32);
 
 assert('writes module private_lesson component key', writes.includes("'private_lesson'"));
 assert('writes normalizePrivateLessonPart', writes.includes('function normalizePrivateLessonPart'));
 assert('writes sessions length must equal quantity', writes.includes('sessions length must equal quantity'));
-assert('writes one insert per private session', /for \(const session of pl\.sessions\)/.test(writes));
+assert('writes one insert per private session', /for \(const session of sessions\)/.test(writes));
 assert('writes service_time_local columns for private', writes.includes('service_time_local: session.start'));
 assert('writes metadata component private_lesson', writes.includes("component: 'private_lesson'"));
 assert('writes metadata session index/count', writes.includes('private_lesson_session_index'));
 assert('writes metadata unit_amount_cents', writes.includes('unit_amount_cents'));
 assert('writes quantity uses surfer_count', /pl\.surfer_count/.test(writes));
-assert('writes skips private in date/component loop', writes.includes("if (componentKey === 'private_lesson') continue"));
+assert('writes skips private in date/component loop', writes.includes("if (key === 'private_lesson') continue"));
 assert('writes amount_due_cents stays 0', writes.includes("'confirmed', 0, 0,"));
 assert('writes exports normalizePrivateLessonSessions', writes.includes('normalizePrivateLessonSessions'));
 
@@ -71,17 +85,17 @@ const {
 
 const goodBody = {
   guest_name: 'Test Guest',
-  date_from: '2026-07-10',
-  date_to: '2026-07-12',
+  date_from: D1,
+  date_to: D3,
   components: {
     private_lesson: {
       enabled: true,
       quantity: 3,
       surfer_count: 1,
       sessions: [
-        { date: '2026-07-10', start: '10:00', end: '12:00' },
-        { date: '2026-07-11', start: '14:00', end: '16:00' },
-        { date: '2026-07-12', start: '09:30', end: '11:30' },
+        { date: D1, start: '10:00', end: '12:00' },
+        { date: D2, start: '14:00', end: '16:00' },
+        { date: D3, start: '09:30', end: '11:30' },
       ],
     },
   },
@@ -97,35 +111,35 @@ if (validated.ok) {
 
 const disabled = validateScheduleBookingBody({
   guest_name: 'X',
-  date_from: '2026-07-10',
-  date_to: '2026-07-10',
+  date_from: D1,
+  date_to: D1,
   components: { private_lesson: { enabled: false, quantity: 2, sessions: [] } },
 });
 assert('disabled private_lesson ignored', disabled.ok === false);
 
 const mismatch = validateScheduleBookingBody({
   guest_name: 'X',
-  date_from: '2026-07-10',
-  date_to: '2026-07-10',
+  date_from: D1,
+  date_to: D1,
   components: {
     private_lesson: {
       enabled: true,
       quantity: 2,
-      sessions: [{ date: '2026-07-10', start: '10:00', end: '12:00' }],
+      sessions: [{ date: D1, start: '10:00', end: '12:00' }],
     },
   },
 });
 assert('reject sessions.length !== quantity', mismatch.ok === false);
 
 const badEnd = normalizePrivateLessonSessions(
-  [{ date: '2026-07-10', start: '12:00', end: '10:00' }],
+  [{ date: D1, start: '12:00', end: '10:00' }],
   1,
 );
 assert('reject end before start', badEnd.ok === false);
 
 const plPart = normalizePrivateLessonPart({ enabled: true, quantity: 2, surfer_count: 3, sessions: [
-  { date: '2026-07-10', start: '10:00', end: '12:00' },
-  { date: '2026-07-11', start: '14:00', end: '16:00' },
+  { date: D1, start: '10:00', end: '12:00' },
+  { date: D2, start: '14:00', end: '16:00' },
 ] });
 assert('normalize surfer_count', plPart.ok && plPart.value.surfer_count === 3);
 
@@ -139,7 +153,7 @@ assert('reject quantity above max', maxQty.ok === false);
 const scheduleRow = scheduleRowFromDb({
   service_record_id: 'sr-1',
   service_type: 'surf_lesson',
-  service_date: '2026-07-10',
+  service_date: D1,
   quantity: 2,
   payment_status: 'pending',
   record_source: 'staff_manual',
