@@ -22,14 +22,16 @@ function parsed(query, pathname = GOOGLE_OAUTH_CALLBACK_PATH) { return new URL(`
   let effects = 0; const replies = [];
   const hidden = {runtimeEnv:{},sendJSON(_r,s,b){replies.push([s,b]);},sendHTML(_r,s,b){replies.push([s,b]);},assertStaffClientAccess(){effects++;return true;},authorizeAuthenticatedStaffRoute(){effects++;return {ok:true};},withPgClient(){effects++;},createStart(){effects++;},createCallbackRuntime(){effects++;}};
   const concealed = createStaffEmailGoogleOAuthRoutes(Object.freeze(hidden));
+  assert.equal(concealed.handleCallback.length, 2,
+    'callback route must expose the exact public (req, res) boundary');
   await concealed.handleStart(Object.defineProperty({},'location_id',{get(){effects++;}}),Object.defineProperty({},'method',{get(){effects++;}}),{},null);
-  await concealed.handleCallback(Object.defineProperty({},'pathname',{get(){effects++;}}),Object.defineProperty({},'url',{get(){effects++;}}),{},null);
+  await concealed.handleCallback(Object.defineProperty({},'url',{get(){effects++;}}),{});
   assert.equal(effects, 0); assert.deepEqual(replies.map(x=>x[0]), [404,404]);
 
   const env={LUNA_DEPLOYMENT:'sunset-staging',LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED:'true',LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED:'true'};
   const received = () => Object.freeze(Object.defineProperty({}, 'status', {value:'received', enumerable:true, writable:false, configurable:false}));
   let queryArgs; let startInput; const callbackCalls=[]; let nextOutput=received(); let runtimeClientId;
-  const deps={runtimeEnv:env,sendJSON(_r,s,b){replies.push([s,b]);},sendHTML(_r,s,b){replies.push([s,b]);},assertStaffClientAccess(){return true;},authorizeAuthenticatedStaffRoute(x){assert.equal(x.clientSlug,'sunset');return {ok:true};},withPgClient(fn){return fn({query(sql,p){queryArgs=[sql,p];return {rows:[{client_id:U[0],location_id:U[1],endpoint_id:U[2]}]};}});},createStart(pg){assert.equal(typeof pg.query,'function');return {start(v){startInput=v;return {authorizationUrl:'https://accounts.google.com/auth',expiresAt:'2026-08-12T00:10:00.000Z'};}};},createCallbackRuntime(pg,clientId){assert.equal(typeof pg.query,'function');runtimeClientId=clientId;return {completeCallback(v){callbackCalls.push(v);return typeof nextOutput === 'function' ? nextOutput() : nextOutput;}};}};
+  const deps={runtimeEnv:env,sendJSON(_r,s,b){replies.push([s,b]);},sendHTML(_r,s,b){replies.push([s,b]);},assertStaffClientAccess(){return true;},authorizeAuthenticatedStaffRoute(x){assert.equal(x.clientSlug,'sunset');return {ok:true};},withPgClient(fn){return fn({query(sql,p){queryArgs=[sql,p];return {rows:[{client_id:U[0],location_id:U[1],endpoint_id:U[2]}]};}});},createStart(pg){assert.equal(typeof pg.query,'function');return {start(v){startInput=v;return {authorizationUrl:'https://accounts.google.com/auth',expiresAt:'2026-08-12T00:10:00.000Z'};}};},createCallbackRuntime(pg){assert.equal(typeof pg.query,'function');assert.equal(arguments.length,1,'runtime authority must come from consumed state');runtimeClientId='state-first';return {completeCallback(v){callbackCalls.push(v);return typeof nextOutput === 'function' ? nextOutput() : nextOutput;}};}};
   const routes=createStaffEmailGoogleOAuthRoutes(Object.freeze(deps));
   const user={client_slug:'sunset',client_id:U[0],staff_user_id:U[3],session_id:U[4]};
 
@@ -41,8 +43,8 @@ function parsed(query, pathname = GOOGLE_OAUTH_CALLBACK_PATH) { return new URL(`
 
   async function callback(query, output, options={}) {
     nextOutput=arguments.length >= 2 ? output : received(); const before=callbackCalls.length;
-    const url=parsed(query, options.pathname); const req={method:options.method || 'GET',url:options.rawTarget || target(query)};
-    await routes.handleCallback(url,req,{},user);
+    const req={method:options.method || 'GET',url:options.rawTarget || target(query)};
+    await routes.handleCallback(req,{});
     return {reply:replies.at(-1), called:callbackCalls.length-before};
   }
   for (const query of [
@@ -54,9 +56,9 @@ function parsed(query, pathname = GOOGLE_OAUTH_CALLBACK_PATH) { return new URL(`
     assert.equal(result.reply[0],200); assert.equal(result.called,1);
     const input=callbackCalls.at(-1);
     assert.ok(Object.isFrozen(input));
-    assert.deepEqual(Object.keys(input),['tenantSlug','clientId','authSessionId','query']);
-    assert.deepEqual(input,{tenantSlug:'sunset',clientId:U[0],authSessionId:U[4],query:`state=${STATE}&code=provider-code`});
-    assert.equal(runtimeClientId,U[0]);
+    assert.deepEqual(Object.keys(input),['query']);
+    assert.deepEqual(input,{query:`state=${STATE}&code=provider-code`});
+    assert.equal(runtimeClientId,'state-first');
     assert.doesNotMatch(result.reply[1],/provider-code|state|token|secret/i);
   }
   for (const query of [`state=${STATE}&error=access_denied`,`error=access_denied&state=${STATE}`]) {
