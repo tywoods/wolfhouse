@@ -58,7 +58,7 @@ const START_INPUT = ObjectFreeze([
   'tenantSlug', 'clientId', 'locationKey', 'endpointId', 'staffUserId', 'authSessionId',
 ]);
 const CALLBACK_INPUT = ObjectFreeze([
-  'tenantSlug', 'clientId', 'locationKey', 'endpointId', 'authSessionId', 'query',
+  'tenantSlug', 'query',
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const APP = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apps\.googleusercontent\.com$/;
@@ -220,13 +220,25 @@ function createGoogleOnboardingRuntimeAssembly(configuration, dependencies) {
     consumeCallback(value) {
       return settle(ReflectApply(consumeMethod, rawConsume, [value]), (out) => {
         const record = exact(out, [
-          'status', 'authorizationCode', 'clientId', 'operationId', 'locationId',
+          'status', 'authorizationCode', 'clientId', 'authSessionId', 'operationId', 'locationId',
           'endpointId', 'staffUserId', 'codeVerifier', 'nonce',
         ]);
-        if (record && (record.locationId !== config.locationId || record.endpointId !== config.endpointId)) {
+        if (!record) return out;
+        if (record.clientId !== config.clientId
+            || record.locationId !== config.locationId || record.endpointId !== config.endpointId) {
           fail(false);
         }
-        return out;
+        return ObjectFreeze({
+          status: record.status,
+          authorizationCode: record.authorizationCode,
+          clientId: record.clientId,
+          operationId: record.operationId,
+          locationId: record.locationId,
+          endpointId: record.endpointId,
+          staffUserId: record.staffUserId,
+          codeVerifier: record.codeVerifier,
+          nonce: record.nonce,
+        });
       });
     },
   });
@@ -265,10 +277,9 @@ function createGoogleOnboardingRuntimeAssembly(configuration, dependencies) {
 
   function completeOnboardingCallback(input) {
     try {
-      const value = binding(input, CALLBACK_INPUT, config);
+      const value = exact(input, CALLBACK_INPUT);
+      if (!value || value.tenantSlug !== config.tenantSlug) fail(false);
       return settle(ReflectApply(callbackMethod, callback, [ObjectFreeze({
-        clientId: value.clientId,
-        authSessionId: value.authSessionId,
         query: value.query,
       })]), (x) => x);
     } catch (_) {
