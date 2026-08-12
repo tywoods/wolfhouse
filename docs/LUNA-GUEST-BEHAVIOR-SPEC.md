@@ -110,6 +110,16 @@ Field order: dates → guest count → package choice → (room preference) → 
 | 8.2 | Handoff only on explicit reasons: human requested, complaint, paid cancellation/change, payment mismatch, urgent safety, transfer exception, etc. | `luna-guest-handoff-policy.js` (`EXPLICIT_HANDOFF_REASONS`) |
 | 8.2a | Explicit request to speak with a human / real person / teammate / manager → call Hermes `flag_needs_human` with reason `human_requested` immediately; do not continue booking intake. | `docker/hermes-staging/SOUL.md`, `docker/hermes-staging/wolfhouse/explicit_human_handoff.py`, `luna-guest-handoff-policy.js` (`isExplicitHumanRequest`) |
 | 8.3 | Paid-booking change/cancel reasons require paid-booking context before escalating. | `luna-guest-handoff-policy.js` (`PAID_BOOKING_ONLY_REASONS`) |
+| 8.4 | **Copy and state never diverge.** Any reply promising that a person will take over / get back to the guest / follow up / review / sort something out must also set `conversations.needs_human`. Luna calls `flag_needs_human` in the same turn; outbound-copy detection is only the safety net for when she doesn't. | `docker/hermes-staging/SOUL.md` (hard rule), `luna-guest-handoff-promise.js` (`detectHandoffPromise`) |
+| 8.5 | The safety net must not over-fire: replies that merely mention the team (meals/yoga scheduled by the team, surf-window chat, a shuttle already logged, reception info) must NOT flag. A flooded Needs-you rail gets ignored and fails the same way. | `luna-guest-handoff-promise.js`; corpus `fixtures/luna-handoff-promise-corpus.json`, gate `scripts/verify-luna-handoff-promise-detection.js` |
+
+The detector recognises a person (`team`, `teammate`, `colleague`, `manager`, `owner`, `staff`,
+`reception`, `front desk`, or a name qualified by one of those places) paired with a closed list of
+takeover verbs. Deliberately out of scope: a bare first name with no role marker ("Marta will sort
+this"), because both engines match case-insensitively and cannot tell a name from any other word;
+and operational roles such as `instructor` or `driver`, whose sentences are usually logistics
+("your instructor will meet you at 10"). Rule 8.4 covers those — the SOUL rule is the guarantee,
+not the corpus.
 
 ---
 

@@ -10,12 +10,19 @@ const path = require('path');
 const { findInternalLanguage } = require('./luna-fixture-expectations');
 const { isForbiddenGuestCopy, isFormDevCopy } = require('./luna-guest-reply-style-contract');
 const { judgeCamiTone } = require('./luna-cami-tone-judge');
+const { isHandoffPromiseReply } = require('./luna-guest-handoff-promise');
 
 const SPEC_PATH = path.join(__dirname, '..', '..', 'docs', 'LUNA-GUEST-BEHAVIOR-SPEC.md');
 
 const OLD_PACKAGE_ASK_RE = /are you looking for a surf package like malibu, or just accommodation|malibu or (?:just )?accommodation/i;
 const STALL_RE = /i can look into (?:the best option|availability)|not confirming availability yet|let me look into the best option/i;
-const HANDOFF_RE = /looping in our wolfhouse team|passing this to our team|hand off|handoff|staff will follow up/i;
+const HANDOFF_JARGON_RE = /hand\s?off/i;
+
+/** Handoff copy in a transcript reply: a promised takeover, or the internal word itself. */
+function isHandoffCopy(reply) {
+  const t = trimStr(reply);
+  return isHandoffPromiseReply(t) || HANDOFF_JARGON_RE.test(t);
+}
 const FAKE_CONFIRM_RE = /\b(?:you(?:'|')?re confirmed|booking is confirmed|payment received|your booking is held)\b/i;
 
 const FAILURE_CATEGORIES = new Set([
@@ -144,7 +151,7 @@ function evaluateTurn(turn, ctx) {
     }));
   }
 
-  if (HANDOFF_RE.test(reply) && !ctx.stage_flags?.handoff_expected) {
+  if (isHandoffCopy(reply) && !ctx.stage_flags?.handoff_expected) {
     failures.push(failureEntry({
       category: 'handoff',
       severity: 'major',
@@ -316,7 +323,7 @@ function evaluateTurn(turn, ctx) {
     }
   }
 
-  if (/not sure|what do you offer|hmm/i.test(guestLower) && HANDOFF_RE.test(reply)) {
+  if (/not sure|what do you offer|hmm/i.test(guestLower) && isHandoffCopy(reply)) {
     failures.push(failureEntry({
       category: 'safety',
       severity: 'major',
@@ -468,6 +475,6 @@ module.exports = {
   evaluateLunaGuestTranscript,
   OLD_PACKAGE_ASK_RE,
   STALL_RE,
-  HANDOFF_RE,
+  isHandoffCopy,
   SPEC_PATH,
 };

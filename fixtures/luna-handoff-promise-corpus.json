@@ -1,0 +1,328 @@
+{
+  "id": "luna-handoff-promise-corpus",
+  "label": "Outbound Luna copy that promises a human takeover (positives) vs copy that merely mentions the team (negatives)",
+  "owner": "scripts/lib/luna-guest-handoff-promise.js",
+  "gate": "scripts/verify-luna-handoff-promise-detection.js",
+  "note": "Every phrasing here is taken from repo copy, SOUL rules, golden fixtures, or the live thread in docs/INBOX-PORTAL-REDESIGN.md. Add a row here whenever a new handoff phrasing shows up in a real thread.",
+  "positives": [
+    {
+      "text": "Got it — a teammate will take over and sort those for you.",
+      "source": "docs/INBOX-PORTAL-REDESIGN.md (Handoff state gap — the live thread that stranded a guest)",
+      "live_failure": true
+    },
+    {
+      "text": "Of course — I’m looping in a teammate now and they’ll take over from here.",
+      "source": "docker/hermes-staging/wolfhouse/explicit_human_handoff.py acknowledgement_for (EN)"
+    },
+    {
+      "text": "Claro — te paso con alguien del equipo y te atienden enseguida.",
+      "source": "docker/hermes-staging/wolfhouse/explicit_human_handoff.py acknowledgement_for (ES)"
+    },
+    {
+      "text": "Certo — ti passo al team e ti rispondono al più presto.",
+      "source": "docker/hermes-staging/wolfhouse/explicit_human_handoff.py acknowledgement_for (IT)"
+    },
+    {
+      "text": "Thanks for your patience — I'm looping in our team so they can help with the next step.",
+      "source": "scripts/lib/luna-guest-reply-composer.js (handoff)"
+    },
+    {
+      "text": "Thanks for your message — I'm passing this to our team so they can help you properly. Someone from Wolfhouse will follow up soon.",
+      "source": "scripts/lib/luna-guest-message-router.js (handoff)"
+    },
+    {
+      "text": "Thanks for reaching out to Wolfhouse! I'll flag this for our team so they can answer you properly.",
+      "source": "scripts/lib/luna-guest-message-router.js (general)"
+    },
+    {
+      "text": "I'm really sorry about that — refunds and changes on paid bookings are handled personally by our team, so I've passed your message along with the details. Someone from Wolfhouse will get back to you shortly to sort it out 💛",
+      "source": "scripts/lib/luna-guest-agent-brain.js (paid refund/change)"
+    },
+    {
+      "text": "Thank you for your message. A team member will review this and get back to you shortly.",
+      "source": "scripts/lib/luna-guest-reply-draft.js"
+    },
+    {
+      "text": "Thanks — I'll check that with our team and get back to you.",
+      "source": "scripts/lib/luna-guest-automation-orchestrator-dry-run.js"
+    },
+    {
+      "text": "I'm going to have the team check this and get back to you shortly.",
+      "source": "scripts/lib/luna-guest-booking-dry-run.js"
+    },
+    {
+      "text": "Thanks for your dates — I could not find enough beds free for that stay. I am passing this to our team so they can confirm options with you.",
+      "source": "scripts/lib/luna-guest-availability-dry-run.js (unavailable)"
+    },
+    {
+      "text": "For payment or balance questions I'll need your booking code — could you send that, and our team will confirm the right next step?",
+      "source": "scripts/lib/luna-guest-message-router.js (payment_help)"
+    },
+    {
+      "text": "I can't process payment automatically yet — our team will confirm your booking and payment status and follow up with you.",
+      "source": "scripts/lib/luna-guest-message-router.js (pay_now)"
+    },
+    {
+      "text": "I hit a snag setting up the hold on my side — our team will send your €200 deposit link here shortly. Sorry for the wait!",
+      "source": "scripts/lib/luna-guest-reply-composer.js (hold failure)"
+    },
+    {
+      "text": "I hit a quick snag generating your payment link for the €245 balance — our team will send it here shortly.",
+      "source": "scripts/lib/luna-guest-reply-composer.js (payment link failure)"
+    },
+    {
+      "text": "Your spot is held — our team will send your secure payment link here shortly for the €200 deposit 👍",
+      "source": "scripts/lib/luna-guest-personality-config.js"
+    },
+    {
+      "text": "Let me get you the exact breakdown from the team 😊",
+      "source": "docker/hermes-staging/SOUL.md (Hard rules — hand off warmly with zero technical explanation)"
+    },
+    {
+      "text": "Let me get the team to confirm that for you 😊",
+      "source": "docker/hermes-sunset/SOUL.md (hand off warmly)"
+    },
+    {
+      "text": "Date changes are handled by our team — they'll sort it out and get back to you shortly 😊",
+      "source": "docker/hermes-staging/SOUL.md (Changing an existing booking — date changes)"
+    },
+    {
+      "text": "The team will double-check that one and get back to you 🙌",
+      "source": "docker/hermes-staging/SOUL.md (say the team will double-check only when staff_review_needed=true)"
+    },
+    {
+      "text": "Our team will need to review this before we can confirm.",
+      "source": "docker/hermes-staging/wolfhouse_whatsapp_mirror.py (phrasing covered by the pre-fix regex)"
+    },
+    {
+      "text": "Our staff will get back to you as soon as they can.",
+      "source": "docker/hermes-staging/wolfhouse_whatsapp_mirror.py (phrasing covered by the pre-fix regex)"
+    },
+    {
+      "text": "I'll follow up with the team and let you know.",
+      "source": "docker/hermes-staging/wolfhouse_whatsapp_mirror.py (phrasing covered by the pre-fix regex)"
+    },
+    {
+      "text": "I've let the team know and someone will get back to you shortly 😊",
+      "source": "SOUL handoff rule — generated paraphrase of \"say the team will help AND call flag_needs_human\""
+    },
+    {
+      "text": "I've asked the team to sort this out for you.",
+      "source": "docker/hermes-staging/SOUL.md (never say you've \"asked the team\" unless you actually handed off)"
+    },
+    {
+      "text": "I'll connect you with our team so they can help you properly.",
+      "source": "scripts/lib/luna-guest-handoff-persist.js isGenuineLunaHandoffReply (phrasing covered by the pre-fix detector)"
+    },
+    {
+      "text": "I'm looping in our Wolfhouse team — they'll help with the next step.",
+      "source": "scripts/lib/luna-guest-handoff-persist.js isGenuineLunaHandoffReply (phrasing covered by the pre-fix detector)"
+    },
+    {
+      "text": "Our Wolfhouse team will help with the next step.",
+      "source": "scripts/lib/luna-guest-handoff-persist.js isGenuineLunaHandoffReply (phrasing covered by the pre-fix detector)"
+    },
+    {
+      "text": "Our staff will follow up with you shortly.",
+      "source": "scripts/lib/luna-guest-coach-evaluator.js HANDOFF_RE (phrasing covered by the pre-fix coach detector)"
+    },
+    {
+      "text": "Un compañero del equipo te escribirá enseguida 😊",
+      "source": "Spanish paraphrase of the explicit_human_handoff ack"
+    },
+    {
+      "text": "Voy a pasar tu mensaje al equipo y te contactan enseguida.",
+      "source": "Spanish paraphrase of the explicit_human_handoff ack (infinitive form)"
+    },
+    {
+      "text": "Un collega ti risponderà a breve 😊",
+      "source": "Italian paraphrase of the explicit_human_handoff ack"
+    },
+    {
+      "text": "Ti passerò al team, ti ricontattano al più presto.",
+      "source": "Italian paraphrase of the explicit_human_handoff ack (future form)"
+    },
+    {
+      "text": "Let me pass this to my colleague who handles refunds.",
+      "source": "review probe (PR #503) — colleague as the receiving person"
+    },
+    {
+      "text": "I'll get someone to look at this for you.",
+      "source": "review probe (PR #503) — first-person delegation, indefinite person as object"
+    },
+    {
+      "text": "Marta from reception will call you back this afternoon.",
+      "source": "review probe (PR #503) — named individual with a role"
+    },
+    {
+      "text": "My manager will reach out to you shortly.",
+      "source": "review probe (PR #503) — manager as the acting person"
+    },
+    {
+      "text": "I'm looping in our bookings team on this one.",
+      "source": "review probe (PR #503) — qualified team name (\"bookings team\")"
+    },
+    {
+      "text": "I'll have a colleague confirm the date change for you.",
+      "source": "review probe (PR #503) — first-person delegation, bare infinitive"
+    },
+    {
+      "text": "I'll ask the team to double-check that and come back to you.",
+      "source": "review probe (PR #503) — takeover verb inside a subordinate clause"
+    },
+    {
+      "text": "I'll have someone from the office call you back about the invoice.",
+      "source": "Adversarial probe written against the widened patterns — person qualified by a place"
+    },
+    {
+      "text": "Someone will call you back once the payment clears.",
+      "source": "Adversarial probe written against the widened patterns — callback with an unnamed person"
+    },
+    {
+      "text": "The front desk will contact you about the key.",
+      "source": "Adversarial probe written against the widened patterns — front desk as the acting person"
+    },
+    {
+      "text": "I'll pass your details on to our reservations team.",
+      "source": "Adversarial probe written against the widened patterns — qualified team name as the receiver"
+    }
+  ],
+  "negatives": [
+    {
+      "text": "I just peeked at Somo for today 🌊 it's pretty flat — 0.4m, light onshore — more beach-walk and coffee vibes than a surf day ☀️ If things shift, the team will know the sweet spot.",
+      "source": "scripts/lib/luna-guest-surf-report.js (tiny_flat)"
+    },
+    {
+      "text": "I just peeked at Somo for tomorrow 🌊 there's a bit more energy in the water — 1.6m. With waves on the bigger side for Somo, the team will find the best window 🤙 The surf school will choose the best timing for lessons.",
+      "source": "scripts/lib/luna-guest-surf-report.js (solid)"
+    },
+    {
+      "text": "It's looking pretty tiny/flat in Somo today — maybe more of a beach walk and coffee kind of surf check ☀️ If conditions change, the team will know the best window.",
+      "source": "scripts/lib/luna-guest-surf-report.js (fallback)"
+    },
+    {
+      "text": "Let me check those dates and get back to you.",
+      "source": "scripts/lib/luna-guest-booking-dry-run.js — Luna checks availability herself, no human promised"
+    },
+    {
+      "text": "Meals and yoga run on set sessions the team schedules — check with the team for the next one and I'll add it to your booking for that day 😊",
+      "source": "docker/hermes-staging/SOUL.md (\"never a reason to hand off — don't flag_needs_human for it\")"
+    },
+    {
+      "text": "Meals & yoga run on scheduled sessions set by the team.",
+      "source": "docker/hermes-staging/SOUL.md (Add-ons)"
+    },
+    {
+      "text": "You two could have a private room for just +€10/night for the room — want that, or a spot in our mixed dorm? 💕",
+      "source": "docker/hermes-staging/SOUL.md (private couples room — never hand off)"
+    },
+    {
+      "text": "Lovely — with the private room your new total is €470, including the +€10/night room supplement. Shall I lock it in? 😊",
+      "source": "docker/hermes-staging/SOUL.md (private couples room — mandatory re-quote, never hand off)"
+    },
+    {
+      "text": "We're closed November through February, but we're open again from March — want me to check some spring dates for you? ☀️",
+      "source": "docker/hermes-staging/SOUL.md (off-season — do NOT call flag_needs_human)"
+    },
+    {
+      "text": "Your yoga class is booked for Thursday 🧘 here's your balance link whenever you'd like to settle it.",
+      "source": "fixtures/luna-golden/golden-16-addon-no-false-link-error.json (reply_not_contains \"team will\")"
+    },
+    {
+      "text": "Your Santander shuttle is noted for 14:30 — the team will pick you up right outside arrivals 🚐",
+      "source": "docker/hermes-staging/SOUL.md (shuttle logged via save_transfer_request, not a handoff)"
+    },
+    {
+      "text": "I've taken your request for Saturday's group lesson — the team will confirm the exact time 🌊",
+      "source": "docker/hermes-sunset/SOUL.md (get_sunset_lesson_availability take_request — its own queue, not needs_human)"
+    },
+    {
+      "text": "There's always someone at the house from 8am, so the staff can help with your bags when you arrive 😊",
+      "source": "docker/hermes-staging/SOUL.md (reception/staff-info questions are not handoffs)"
+    },
+    {
+      "text": "Yes, we've got space for 3 on those dates 🌊 want me to put a quote together?",
+      "source": "docker/hermes-staging/SOUL.md (availability answer)"
+    },
+    {
+      "text": "One €200 deposit locks the booking in and everyone else can pay their share anytime 🙌",
+      "source": "docker/hermes-staging/SOUL.md (payment step)"
+    },
+    {
+      "text": "Not sure yet? No stress — tell me roughly when you'd like to come and how many of you, and I'll take it from there 😊",
+      "source": "fixtures/luna-golden/golden-07-no-false-handoff.json (vague message must not escalate)"
+    },
+    {
+      "text": "El equipo prepara la cena los jueves — te la puedo añadir a la reserva si quieres 😊",
+      "source": "Spanish rendering of the meals/yoga rule (not a handoff)"
+    },
+    {
+      "text": "Il team organizza lo yoga il martedì — te lo aggiungo alla prenotazione? 😊",
+      "source": "Italian rendering of the meals/yoga rule (not a handoff)"
+    },
+    {
+      "text": "I'll double-check the dates on my side and confirm in a sec 😊",
+      "source": "Luna doing the work herself — must not read as a handoff"
+    },
+    {
+      "text": "The team will pick you up from the bus station at 14:00.",
+      "source": "review probe (PR #503) — operational arrangement, not a takeover"
+    },
+    {
+      "text": "The team will be down at the beach around 10am for the morning session.",
+      "source": "review probe (PR #503) — where staff will be, not a takeover"
+    },
+    {
+      "text": "The team will love meeting you when you arrive.",
+      "source": "review probe (PR #503) — warmth about staff, not a takeover"
+    },
+    {
+      "text": "Staff are around all evening if you need anything.",
+      "source": "review probe (PR #503) — staff availability, not a takeover"
+    },
+    {
+      "text": "Our instructor Marta has been surfing here for fifteen years 🏄",
+      "source": "Named person with a role and no promise — guard for the named-person widening"
+    },
+    {
+      "text": "Just ask the team which day yoga is on and I'll add it to your booking 😊",
+      "source": "Guest is told to ask, Luna is not delegating — guard for the first-person delegation widening"
+    },
+    {
+      "text": "Your driver will call you when he's outside 🚐",
+      "source": "A call that is not a callback about this thread — guard for the call-you-back widening"
+    },
+    {
+      "text": "Reception is open until 10pm if you arrive late 😊",
+      "source": "Reception as a place, not a person promising to act"
+    },
+    {
+      "text": "Our manager sets the meal times each week, so dinner is at 8pm sharp.",
+      "source": "Manager mentioned as background — guard for the manager widening"
+    },
+    {
+      "text": "One of our colleagues took that photo on the terrace last summer.",
+      "source": "Colleague mentioned in the past tense — guard for the colleague widening"
+    },
+    {
+      "text": "The owner will be around the house tonight if you fancy a chat.",
+      "source": "Owner mentioned with a non-takeover verb — guard for the owner widening"
+    },
+    {
+      "text": "The front desk will be closed between 2pm and 4pm.",
+      "source": "Front desk opening hours — guard for the front desk widening"
+    },
+    {
+      "text": "The team will check in the new arrivals at 3pm.",
+      "source": "\"check in\" is an operation on guests, not a check of this thread"
+    },
+    {
+      "text": "A colleague of mine surfed that break yesterday and it was firing 🌊",
+      "source": "Colleague as a story, no promise — guard for the colleague widening"
+    },
+    {
+      "text": "Someone will always be at the house when you arrive.",
+      "source": "Staff presence, not a promise to reply — guard for the indefinite person widening"
+    }
+  ]
+}
