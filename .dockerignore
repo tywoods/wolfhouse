@@ -1,5 +1,18 @@
 ﻿node_modules
+**/node_modules
 scripts/node_modules
+
+# The image copies only scripts, database, config and public (see Dockerfile),
+# so everything below is upload-only weight. website/ alone is ~228 MB, which
+# made `az acr build` spend many minutes uploading a build context the image
+# cannot use. Excluding paths the Dockerfile never COPYs cannot change the image.
+website
+hermes-local
+Screenshots
+reports
+docs
+data
+
 .git
 .gitignore
 .env
