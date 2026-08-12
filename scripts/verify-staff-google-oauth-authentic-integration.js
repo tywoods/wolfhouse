@@ -1,40 +1,36 @@
 'use strict';
-const assert = require('node:assert/strict');
-const { createStaffGoogleOAuthProductionIntegration, GOOGLE_START_PATH, GOOGLE_CALLBACK_PATH } = require('./lib/staff-google-oauth-production-integration');
-const { createStaffEmailGoogleOAuthRoutes } = require('./lib/staff-email-google-oauth-routes');
-const U=['11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','33333333-3333-4333-8333-333333333333'];
-function response(log){return {json(_r,s,b){log.push(['json',s,b]);},html(_r,s,b){log.push(['html',s,b]);}};}
-function env(values, reads){return new Proxy(values,{getOwnPropertyDescriptor(target,key){if(typeof key==='string')reads.push(key);return Reflect.getOwnPropertyDescriptor(target,key);}});}
-function assertSnapshot(gate, expected, seen){
-  assert.equal(Object.isFrozen(gate),true); assert.equal(Reflect.ownKeys(gate).join(','),'LUNA_DEPLOYMENT,LUNA_EMAIL_GOOGLE_OAUTH_ENDPOINT_ENABLED,LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED,LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED');
-  for(const key of Reflect.ownKeys(gate)){const d=Object.getOwnPropertyDescriptor(gate,key);assert.deepEqual({enumerable:d.enumerable,writable:d.writable,configurable:d.configurable},{enumerable:true,writable:false,configurable:false});}
-  assert.equal(gate[expected],'true'); if(seen.value)assert.equal(gate,seen.value);else seen.value=gate;
+const assert=require('node:assert/strict');
+const owner=require('./lib/staff-google-oauth-production-integration');
+const {GOOGLE_ENDPOINT_PATH:ENDPOINT,GOOGLE_START_PATH:START,GOOGLE_CALLBACK_PATH:CALLBACK}=owner;
+const U=['11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222'];
+const enabled={LUNA_DEPLOYMENT:'sunset-staging',LUNA_EMAIL_GOOGLE_OAUTH_ENDPOINT_ENABLED:'true',LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED:'true',LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED:'true'};
+function harness(overrides={}){
+ const effects=[],replies=[],seen=[];let reads=0;const backing={...enabled};
+ const env=new Proxy(backing,{getOwnPropertyDescriptor(t,k){if(k==='LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED'||k==='LUNA_EMAIL_GOOGLE_OAUTH_ENDPOINT_ENABLED'||k==='LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED')reads++;return Reflect.getOwnPropertyDescriptor(t,k);}});
+ const deps={env,sendJSON(_r,s,b){replies.push(['json',s,b]);},sendHTML(_r,s,b){replies.push(['html',s,b]);},
+  async requireAdmin(){effects.push('admin');return {ok:true,user:{client_id:U[0],staff_user_id:U[1]}};},
+  assertStaffClientAccess(){effects.push('acl');return true;},authorizeAuthenticatedStaffRoute(x){effects.push('authz');seen.push(x.env);return {ok:true};},
+  async readBody(){effects.push('body');return '{"location_id":"sunset-somo","endpoint_id":"'+U[1]+'"}';},
+  createGoogleRoutes(g){effects.push('routes');seen.push(g);return {handleStart(){effects.push('start');},handleCallback(){effects.push('callback');}};},
+  withPgClient(fn){effects.push('pg');return fn({});},createEndpointPrepare(){effects.push('prepare');return {prepareDisabledDelegatedEndpoint(){effects.push('prepare-call');return {endpointId:U[1]};}};},...overrides};
+ return {adapter:owner.createStaffGoogleOAuthProductionIntegration(Object.freeze(deps)),effects,replies,seen,get reads(){return reads;}};
 }
-function make(values, mutate, kind){
-  const reads=[], calls=[], replies=[], seen={}; const backing={...values}; const send=response(replies);
-  const adapter=createStaffGoogleOAuthProductionIntegration(Object.freeze({
-    env:env(backing,reads), sendJSON:send.json, sendHTML:send.html,
-    async requireAdmin(){mutate(backing);return {ok:true,user:{client_slug:'sunset',client_id:U[0],staff_user_id:U[1],session_id:U[2]}};},
-    readBody(){return JSON.stringify({location_id:'sunset-somo',endpoint_id:U[2]});},
-    assertStaffClientAccess(){return true;}, authorizeAuthenticatedStaffRoute(x){assert.equal(x.env,seen.value);return {ok:true};},
-    createEndpointPrepare(){throw Error('wrong owner');},
-    createGoogleRoutes(gate){
-      assertSnapshot(gate,kind==='start'?'LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED':'LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED',seen);
-      mutate(backing);
-      return createStaffEmailGoogleOAuthRoutes(Object.freeze({trustedGateSnapshot:gate,sendJSON:send.json,sendHTML:send.html,assertStaffClientAccess(){return true;},authorizeAuthenticatedStaffRoute(x){assert.equal(x.env,gate);return {ok:true};},withPgClient(fn){calls.push('pg');return fn({query(){return {rows:[{client_id:U[0],location_id:U[1],endpoint_id:U[2]}]};}});},createStart(){calls.push('composition:start');return {start(){calls.push('start');return {authorizationUrl:'ok'};}};},createCallbackRuntime(){calls.push('composition:callback');return {completeCallback(){calls.push('callback');return Object.freeze({status:'received'});}};}}));
-    }
-  })); return {adapter,reads,calls,replies,seen};
-}
+async function invoke(h,path,method='POST',headers={'content-type':'application/json'}){return h.adapter.dispatch({method,url:path,headers},{},path);}
 async function main(){
-  const on={LUNA_DEPLOYMENT:'sunset-staging',LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED:'true',LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED:'true'};
-  const start=make(on,b=>{b.LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED='false';},'start');
-  const req={method:'POST',url:GOOGLE_START_PATH,headers:{'content-type':'application/json'}};
-  await start.adapter.dispatch(req,{},GOOGLE_START_PATH); assert.deepEqual(start.calls,['pg','composition:start','start']);
-  assert.equal(start.reads.filter(x=>x==='LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED').length,1);
-  const callback=make(on,b=>{b.LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED='false';},'callback'); const raw=`${GOOGLE_CALLBACK_PATH}?state=${'a'.repeat(43)}&code=raw%2Bcode`;
-  await callback.adapter.dispatch({method:'GET',url:raw,headers:{}},{},GOOGLE_CALLBACK_PATH); assert.deepEqual(callback.calls,['pg','composition:callback','callback']); assert.equal(callback.reads.filter(x=>x==='LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED').length,1);
-  const off=make({LUNA_DEPLOYMENT:'sunset-staging',LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED:'false'},b=>{b.LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED='true';},'callback'); await off.adapter.dispatch({method:'GET',url:raw,headers:{}},{},GOOGLE_CALLBACK_PATH); assert.deepEqual(off.calls,[]);assert.equal(off.replies[0][1],404);
-  assert.equal(await callback.adapter.dispatch({method:'POST',url:raw,headers:{}},{},GOOGLE_CALLBACK_PATH),undefined);
-  console.log('PASS authentic Staff Google OAuth frozen gate snapshot integration');
+ let h=harness();await invoke(h,START);assert.deepEqual(h.effects,['admin','acl','authz','body','routes','start']);assert.equal(h.seen[0],h.seen[1]);assert(Object.isFrozen(h.seen[0]));assert.equal(h.reads,1);
+ h=harness({async readBody(){h.effects.push('body');return '{"location_id":"sunset-somo","public_address":"staff@example.com"}';},createGoogleRoutes(){throw Error('must never compose endpoint');}});await invoke(h,ENDPOINT);assert.deepEqual(h.effects,['admin','acl','authz','body','pg','prepare','prepare-call']);assert.equal(h.replies[0][1],200);
+ for(const overrides of [
+  {async requireAdmin(){h.effects.push('admin');return null;}},
+  {assertStaffClientAccess(){h.effects.push('acl');return false;}},
+  {authorizeAuthenticatedStaffRoute(){h.effects.push('authz');return {ok:false};}},
+  {async readBody(){h.effects.push('body');return '{bad';}},
+  {async readBody(){h.effects.push('body');throw Error('aborted');}},
+  {async readBody(){h.effects.push('body');return 'x'.repeat(owner.JSON_LIMIT+1);}}
+ ]){h=harness(overrides);await invoke(h,START);assert(!h.effects.includes('routes'),h.effects.join(','));assert(!h.effects.includes('pg'));}
+ for(const [path,method] of [[START,'GET'],[ENDPOINT,'GET'],[CALLBACK,'POST']]){h=harness();assert.equal(await invoke(h,path,method),false);assert.deepEqual(h.effects,[]);}
+ h=harness({createGoogleRoutes(){throw Error('secret-route-factory-value');}});await invoke(h,START);assert.deepEqual(h.replies,[['json',503,{success:false,error:'oauth_start_unavailable'}]]);assert(!JSON.stringify(h.replies).includes('secret'));
+ h=harness({createGoogleRoutes(){throw Error('secret-route-factory-value');}});await invoke(h,CALLBACK,'GET',{});assert.equal(h.replies[0][0],'html');assert.equal(h.replies[0][1],400);assert(!h.replies[0][2].includes('secret'));
+ h=harness({createGoogleRoutes(){throw Error('endpoint must be independent');},async readBody(){h.effects.push('body');return '{bad';}});await invoke(h,ENDPOINT);assert.deepEqual(h.effects,['admin','acl','authz','body']);assert.equal(h.replies[0][1],400);
+ console.log('PASS authentic Staff Google OAuth safe effect ordering integration');
 }
-main().catch(error=>{console.error(error);process.exitCode=1;});
+main().catch(e=>{console.error(e);process.exitCode=1;});
