@@ -20,13 +20,22 @@ function harness(overrides={}){
 }
 async function invoke(h){const req={method:'POST',url:START,headers:{'content-type':'application/json'}};h.req=req;return h.adapter.dispatch(req,{},START);}
 (async()=>{
- let h=harness();await invoke(h);
- assert.deepEqual(h.effects,['admin','acl','authz','body','routes','pg','query','createStart','start']);
- assert.equal(h.gates[0],h.gates[1]);assert(Object.isFrozen(h.gates[0]));assert.equal(h.reads,3);assert.equal(h.pgCalls,1);assert.equal(h.queryCalls,1);
- const body=Object.freeze({location_id:'sunset-somo',endpoint_id:U[1]});
- await h.routes.handleStart(body,h.req,{},h.user); // exact replay
- await h.routes.handleStart(body,{method:'POST'}, {},h.user); // different request
- assert.equal(h.pgCalls,1);assert.equal(h.queryCalls,1);
+ let h=harness();
+ const originals={get:WeakMap.prototype.get,set:WeakMap.prototype.set,has:WeakMap.prototype.has,delete:WeakMap.prototype.delete};
+ const poisonCalls={get:0,set:0,has:0,delete:0};
+ try {
+  for(const method of Object.keys(originals)) WeakMap.prototype[method]=function(){poisonCalls[method]++;throw Error(`poisoned WeakMap.${method}`);};
+  await invoke(h);
+  assert.deepEqual(h.effects,['admin','acl','authz','body','routes','pg','query','createStart','start']);
+  assert.equal(h.gates[0],h.gates[1]);assert(Object.isFrozen(h.gates[0]));assert.equal(h.reads,3);assert.equal(h.pgCalls,1);assert.equal(h.queryCalls,1);
+  const body=Object.freeze({location_id:'sunset-somo',endpoint_id:U[1]});
+  await h.routes.handleStart(body,h.req,{},h.user); // exact replay
+  await h.routes.handleStart(body,{method:'POST'}, {},h.user); // different request
+  assert.equal(h.pgCalls,1);assert.equal(h.queryCalls,1);
+ } finally {
+  for(const [method,original] of Object.entries(originals)) WeakMap.prototype[method]=original;
+ }
+ assert.deepEqual(poisonCalls,{get:0,set:0,has:0,delete:0});
  for(const overrides of [
   {async requireAdmin(){h.effects.push('admin');return null;}},
   {assertStaffClientAccess(){h.effects.push('acl');return false;}},
