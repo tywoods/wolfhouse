@@ -228,6 +228,26 @@ test('binds one Gmail profile check between transaction-nonce identity verificat
   secretFree(ack);
 });
 
+test('JWKS and profile use distinct request/response lifecycles without cross-delivery or retained listeners', async () => {
+  const c = create();
+  await c.service.acceptValidatedTokens(selected());
+  assert.equal(c.calls.request.length, 2);
+  const [jwks, profile] = c.calls.request;
+  assert.notStrictEqual(jwks.request, profile.request);
+  assert.notStrictEqual(jwks.response, profile.response);
+  assert.equal(jwks.options.hostname, 'www.googleapis.com');
+  assert.equal(jwks.options.path, '/oauth2/v3/certs');
+  assert.equal(profile.options.hostname, 'www.googleapis.com');
+  assert.equal(profile.options.path, '/gmail/v1/users/me/profile');
+  for (const exchange of [jwks, profile]) {
+    assert.equal(exchange.request.listenerCount('error'), 0);
+    assert.equal(exchange.response.listenerCount('data'), 0);
+    assert.equal(exchange.response.listenerCount('end'), 0);
+    assert.equal(exchange.response.listenerCount('error'), 0);
+    assert.equal(exchange.response.listenerCount('aborted'), 0);
+  }
+});
+
 test('wrong Gmail profile prevents seal and install after genuine nonce verification', async () => {
   const c = create({ profileEmail: 'other@example.test' });
   await rejected(() => c.service.acceptValidatedTokens(selected()));
