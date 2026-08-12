@@ -8,6 +8,7 @@ const {
   maybeNotifyHumanNeeded,
   extractLocationFromMetadata,
 } = require('./staff-whatsapp-notifications');
+const { isHandoffPromiseReply } = require('./luna-guest-handoff-promise');
 
 function trimStr(v) {
   return v == null ? '' : String(v).trim();
@@ -21,11 +22,7 @@ function parseMetadata(raw) {
 
 /** True for composer/personality staff handoff copy — not gate-blocked pause messages. */
 function isGenuineLunaHandoffReply(text) {
-  const t = String(text || '');
-  return /looping in our(?:\s+Wolfhouse)?\s+team/i.test(t)
-    || /passing this to our team/i.test(t)
-    || /connect you with our team/i.test(t)
-    || /(?:wolfhouse|our)\s+team.*(?:follow up|help with|next step)/i.test(t);
+  return isHandoffPromiseReply(text);
 }
 
 function conversationHasLunaAutoHandoff(convRow) {

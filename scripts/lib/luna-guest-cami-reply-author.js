@@ -26,6 +26,7 @@ const {
 } = require('./luna-guest-reply-style-contract');
 const { buildWhatsAppPackageLines } = require('./luna-guest-package-explainer');
 const { collectPriorExtractedFields } = require('./luna-guest-context-merge');
+const { isHandoffPromiseReply } = require('./luna-guest-handoff-promise');
 
 const FLAG = 'LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED';
 const FLAG_PROD = 'LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED_PROD';
@@ -40,7 +41,6 @@ const EXPLAIN_ASK_RE = /\bwant\s+me\s+to\s+explain\b/i;
 const OLD_PACKAGE_ASK_RE = /are you looking for a surf package like malibu, or just accommodation|malibu or (?:just )?accommodation/i;
 const STALL_RE = /i can look into (?:the best option|availability)|let me look into the best option/i;
 const PUSHY_CLOSER_RE = /looking forward to hearing from you|can't wait to hear from you/i;
-const HANDOFF_COPY_RE = /looping in our(?:\s+Wolfhouse)?\s+team|passed your message along|get back to you shortly to sort/i;
 const INVENTED_PACKAGE_AMENITY_RE = /\b(?:yoga|breakfast|fr[uü]hst[uü]ck|workshop|abendessen|dinner included|daily breakfast|ausfl[uü]g|trip included)\b/i;
 const EURO_RE = /€\s*(\d+(?:[.,]\d{1,2})?)/g;
 
@@ -497,7 +497,7 @@ function validateCamiAuthoredReply(reply, input) {
   }
 
   const handoff = input.handoff_result || {};
-  if (HANDOFF_COPY_RE.test(text) && handoff.handoff_required !== true) {
+  if (isHandoffPromiseReply(text) && handoff.handoff_required !== true) {
     reasons.push('handoff_copy_without_handoff_flag');
   }
 

@@ -20,14 +20,42 @@ import urllib.request
 from typing import Any, Dict, Optional
 
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)", re.IGNORECASE)
-_NEEDS_HUMAN_RE = re.compile(
-    r"(team\s+will\s+(?:need\s+to\s+)?(?:review|check|double-check)"
-    r"|staff\s+will\s+(?:need\s+to\s+)?(?:review|check|double-check)"
-    r"|team\s+will\s+get\s+back\s+to\s+you"
-    r"|staff\s+will\s+get\s+back\s+to\s+you"
-    r"|I['’]ll\s+follow\s+up\s+with\s+the\s+team)",
-    re.IGNORECASE,
+
+# Safety net only: the trustworthy handoff signal is Luna calling flag_needs_human.
+# These sources are the same strings as HANDOFF_PROMISE_PATTERNS in
+# scripts/lib/luna-guest-handoff-promise.js; scripts/verify-luna-handoff-promise-detection.js
+# fails when the two copies drift or when a corpus phrasing stops matching.
+# --- BEGIN LUNA_HANDOFF_PROMISE_PATTERNS ---
+_HANDOFF_PROMISE_PATTERN_SOURCES = (
+    ("escalate_looping_in", r"(?:loop|looping|looped)\s+in\s+(?:a|an|our|the|one\s+of\s+our)?\s*(?:wolf[\s-]?house\s+)?(?:team|teammate|colleague|human|someone)"),
+    ("escalate_connect_you_with_team", r"connect\s+you\s+(?:with|to)\s+(?:our|the|a|one\s+of\s+our)\s+(?:wolf[\s-]?house\s+)?(?:team|teammate|colleague|staff|human|someone)"),
+    ("escalate_passing_to_team", r"pass(?:ing|ed|es)?\s+(?:this|it|that|you|your\s+message|your\s+details|your\s+question|your\s+request)?\s*(?:along\s+|on\s+)?to\s+(?:our|the|a|one\s+of\s+our)\s+(?:team|teammate|colleague|staff|human)"),
+    ("escalate_passed_message_along", r"pass(?:ing|ed)\s+your\s+message\s+along"),
+    ("escalate_flag_for_team", r"flag\s+(?:this|it|that|your\s+[a-z]+)\s+(?:for|to|with)\s+(?:our\s+|the\s+)?(?:team|staff)"),
+    ("escalate_hand_over_to_team", r"hand(?:ing|ed)?\s+(?:this|it|that|you|your\s+[a-z]+)\s+(?:over\s+|off\s+)?to\s+(?:our|the|a|one\s+of\s+our)\s+(?:team|teammate|colleague|staff|human)"),
+    ("escalate_check_with_team", r"(?:I['’]ll|I\s+will|I['’]m\s+going\s+to|let\s+me|going\s+to)\s+(?:just\s+)?(?:check|double[\s-]?check|confirm|run\s+this)\s+(?:this|that|it|these|those)?\s*with\s+(?:our|the)\s+team"),
+    ("escalate_have_team_check", r"have\s+(?:our|the)\s+team\s+(?:check|look|review|double[\s-]?check|sort|confirm)"),
+    ("escalate_get_breakdown_from_team", r"(?:let\s+me|I['’]ll|I\s+will)\s+get\s+(?:you\s+)?[^.!?]{0,40}from\s+(?:our|the)\s+team"),
+    ("escalate_get_team_to", r"get\s+(?:our|the)\s+team\s+to\s+(?:confirm|check|sort|look|help|answer)"),
+    ("escalate_follow_up_with_team", r"(?:I['’]ll|I\s+will|I['’]m\s+going\s+to)\s+follow\s+up\s+with\s+(?:our|the)\s+team"),
+    ("escalate_let_team_know", r"(?:I['’]ve|I\s+have|I['’]ll|I\s+will|let\s+me)\s+(?:just\s+)?let\s+(?:our|the)\s+team\s+know"),
+    ("escalate_asked_the_team", r"(?:I['’]ve|I\s+have)\s+asked\s+(?:our|the)\s+team"),
+    ("escalate_es_te_paso", r"te\s+pas(?:o|ar[eé])\s+con\s+(?:alguien|una\s+persona|el\s+equipo|un\s+compa[nñ]ero)"),
+    ("escalate_es_paso_al_equipo", r"pas(?:o|ar|ar[eé])\s+(?:tu\s+mensaje|esto|tu\s+consulta|tu\s+caso)\s+al\s+equipo"),
+    ("escalate_it_ti_passo", r"ti\s+pass(?:o|er[oò])\s+(?:al\s+team|allo\s+staff|a\s+un\s+collega|a\s+qualcuno)"),
+    ("escalate_it_passo_al_team", r"pass(?:o|er[oò])\s+(?:il\s+tuo\s+messaggio|questo|la\s+tua\s+richiesta)\s+al\s+team"),
+    ("human_subject_will_act", r"(?:(?:our|the|a|my|one\s+of\s+our)\s+(?:wolf[\s-]?house\s+)?(?:team|teammates?|colleagues?|staff)(?:\s+members?)?|a\s+team\s+member|(?:someone|somebody)\s+from\s+(?:the\s+team|our\s+team|wolf[\s-]?house|the\s+house|sunset)|(?:someone|somebody)\s+(?:on|in)\s+(?:the|our)\s+team|staff)\s+(?:will|['’]ll|is\s+going\s+to|are\s+going\s+to)\s+(?:need\s+to\s+|have\s+to\s+)?(?:take\s+over|take\s+it\s+from\s+here|jump\s+in|get\s+back\s+to\s+you|be\s+in\s+touch|follow\s+up|reach\s+out|contact\s+you|message\s+you|write\s+to\s+you|review\s+(?:this|it|that|your)|check\s+(?:this|it|that|those|these)|double[\s-]?check|sort\s+(?:this|that|it|those|them|out)|answer\s+you|look\s+into\s+(?:this|it|that)|help\s+(?:you\s+)?with\s+(?:this|that|it|the\s+next\s+step)|confirm\s+the\s+right\s+next\s+step|confirm\s+(?:your|the)\s+(?:booking|payment|balance|refund|cancellation)|send\s+(?:you\s+)?(?:your|the|it|them))"),
+    ("human_pronoun_will_act", r"(?:they|someone|somebody|a\s+teammate|a\s+colleague|another\s+teammate)(?:['’]ll|\s+will)\s+(?:take\s+over|take\s+it\s+from\s+here|jump\s+in|get\s+back\s+to\s+you|be\s+in\s+touch|follow\s+up|reach\s+out|contact\s+you|sort\s+(?:this|that|it|those|them)\s+out)"),
+    ("human_es_will_act", r"(?:el\s+equipo|alguien\s+del\s+equipo|un\s+compa[nñ]ero|una\s+persona\s+del\s+equipo|mis\s+compa[nñ]eros)[^.!?]{0,40}(?:te\s+atender|te\s+atienden|te\s+contactar|te\s+escribir|se\s+pondr|te\s+responder|lo\s+revisar|se\s+encargar)"),
+    ("human_it_will_act", r"(?:il\s+team|un\s+collega|qualcuno\s+del\s+team|lo\s+staff|i\s+colleghi)[^.!?]{0,40}(?:ti\s+rispond|ti\s+ricontatt|se\s+ne\s+occup|ti\s+scriver|ti\s+contatter)"),
 )
+# --- END LUNA_HANDOFF_PROMISE_PATTERNS ---
+
+_HANDOFF_PROMISE_RES = tuple(
+    (pattern_id, re.compile(source, re.IGNORECASE))
+    for pattern_id, source in _HANDOFF_PROMISE_PATTERN_SOURCES
+)
+HANDOFF_PROMISE_REASON = "luna_team_review_reply"
 _INTERNAL_STATUS_RE = re.compile(
     r"(^|\b)(self.?improvement|skill\s+['\"]?[-\w]+\s+(?:created|saved|updated)|auxiliary\s+|compression\s+|preflight|rate\s+limited)(\b|:)",
     re.IGNORECASE,
@@ -56,6 +84,17 @@ def normalize_whatsapp_message_text(text: str) -> str:
         return f"{label}: {url}"
 
     return _MD_LINK_RE.sub(_repl, str(text))
+
+
+def detects_handoff_promise(text) -> Optional[str]:
+    """Pattern id when outbound copy promises a human takeover, else None."""
+    raw = str(text or "")
+    if not raw.strip():
+        return None
+    for pattern_id, compiled in _HANDOFF_PROMISE_RES:
+        if compiled.search(raw):
+            return pattern_id
+    return None
 
 
 def resolve_mirror_client_slug() -> str:
@@ -215,9 +254,9 @@ def build_mirror_payload(
     if location_id:
         payload["location_id"] = location_id
 
-    if direction == "outbound" and _NEEDS_HUMAN_RE.search(msg):
+    if direction == "outbound" and detects_handoff_promise(msg):
         payload["needs_human"] = True
-        payload["handoff_reason"] = "luna_team_review_reply"
+        payload["handoff_reason"] = HANDOFF_PROMISE_REASON
     if wa_id:
         payload["whatsapp_message_id"] = str(wa_id)
     if contact_name:
