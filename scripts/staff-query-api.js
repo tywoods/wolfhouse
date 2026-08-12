@@ -18373,8 +18373,8 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .bc-svc-nights-label{font-size:12px;color:var(--text-muted,#6B6560)}
 .bc-field-package-guest-row{margin-bottom:8px}
 /* ── Inbox two-column layout (WhatsApp Web style) ─────────────────────────── */
-.inbox-two-col{display:flex;flex:1 1 0;width:100%;min-width:0;min-height:0;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;align-self:stretch}
-.inbox-left{flex:0 0 300px;width:300px;min-height:0;height:100%;border-right:1px solid var(--border-soft);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
+.inbox-two-col{display:flex;gap:16px;flex:1 1 0;width:100%;min-width:0;min-height:0;align-self:stretch}
+.inbox-left{flex:0 0 300px;width:300px;min-height:0;height:100%;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
 .inbox-left-toolbar{padding:12px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-direction:column;gap:10px;flex-shrink:0;background:var(--surface-soft)}
 .inbox-toolbar-top{display:flex;align-items:center;gap:8px;width:100%}
 .inbox-client-select{font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);flex:1;min-width:0}
@@ -18440,7 +18440,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .guest-name{font-weight:600;color:var(--text)}
 /* ── Detail pane (right column of inbox two-column layout) ─────────────────── */
 #conv-detail{flex:1 1 0%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0;background:var(--surface)}
-#detail-content{flex:1 1 0;width:100%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:16px 20px 20px;box-sizing:border-box}
+#detail-content{flex:1 1 0;width:100%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0;box-sizing:border-box}
 #detail-content.is-loading-detail .detail-main{opacity:.72;pointer-events:none;transition:opacity .15s}
 .conv-detail-load-status{font-size:11px;color:var(--text-3);font-weight:600;white-space:nowrap}
 .conv-detail-load-status.error{color:#9C5742}
@@ -18449,7 +18449,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .conv-skeleton-line{min-height:14px;background:var(--surface-soft);border-radius:4px}
 .conv-skeleton-line.short{max-width:160px;margin-top:6px}
 /* .visible no longer toggles display — kept for JS compat, no visual effect */
-.detail-header{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-shrink:0;flex-wrap:nowrap}
+.detail-header{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border-soft);flex-shrink:0;flex-wrap:nowrap}
 .detail-header-main{flex:1;min-width:0;overflow:hidden}
 .detail-header-right{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto}
 .detail-header-main .detail-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -18488,8 +18488,8 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 /* ── Detail two-column layout ────────────────────────────────────────────── */
 .detail-layout{flex:1;min-height:0;display:flex;gap:16px;align-items:flex-start;margin-top:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scrollbar-gutter:stable}
 .detail-main .detail-conv-toolbar{position:absolute;right:0;bottom:100%;margin-bottom:6px;display:flex;justify-content:flex-end;padding:0;z-index:1}
-.detail-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:visible}
-.detail-sidebar{width:280px;flex-shrink:0;align-self:stretch;border-left:1px solid var(--border-soft);padding-left:16px;max-height:calc(100vh - 280px);overflow-y:auto;-webkit-overflow-scrolling:touch}
+.detail-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface);padding:14px 16px;overflow:hidden}
+.detail-sidebar{width:280px;flex-shrink:0;align-self:flex-start;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface);padding:14px 16px;max-height:calc(100vh - 200px);overflow-y:auto;-webkit-overflow-scrolling:touch}
 @media(max-width:860px){.detail-layout{flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;align-items:stretch}.detail-sidebar{width:100%;max-height:none;overflow:visible;flex-shrink:0}}
 
 /* Inbox detail: collapsible booking/payment right rail */
@@ -33218,29 +33218,30 @@ function loadConvDetail(convId, targetEl){
     var lunaGuestPaused = isLunaGuestAutomationPaused([pauseData, detailData, c, stateData, state]);
 
     /* ── Header ── */
-    var html = '<div class="detail-header">';
-    html +=   '<div class="detail-header-main">';
-    html +=     '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
-    html +=     '<div class="detail-meta">' + escHtml(c.phone);
+    var convPhone = normalizeCustomerPhoneClient(c.phone);
+
+    /* ── Three-card layout: list | conversation | bookings ── */
+    var html = '<div class="detail-layout">';
+
+    /* ═══ MIDDLE — conversation card: header (controls) + thread + reply ═══ */
+    html += '<div class="detail-main">';
+
+    html +=   '<div class="detail-header">';
+    html +=     '<div class="detail-header-main">';
+    html +=       '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
+    html +=       '<div class="detail-meta">' + escHtml(c.phone);
     if (conversationHasOpenHandoff(c) && c.handoff_reason)     html += ' &bull; ' + escHtml(handoffLabel(c.handoff_reason));
     else if (c.needs_human) html += ' &bull; ' + escHtml(t('inbox.detail.meta.needsStaffReply'));
+    html +=       '</div>';
     html +=     '</div>';
-    html +=   '</div>';
-    html +=   '<div class="detail-header-right">';
-    var convPhone = normalizeCustomerPhoneClient(c.phone);
+    html +=     '<div class="detail-header-right">';
     if (convPhone && portalHasCustomersCrm(getPortalProfile(getClient()))) {
       html += '<button type="button" class="btn btn-soft-grey btn-compact" id="inbox-open-customer-card">' + escHtml(portalT('customers.openCustomerCard')) + '</button>';
     }
-    html +=     '<span class="detail-header-pills">' + convHeaderStatusPillsHtml(c, lunaGuestPaused) + '</span>';
-    html +=     detailHeaderSwitchesHtml(c, lunaGuestPaused);
+    html +=       '<span class="detail-header-pills">' + convHeaderStatusPillsHtml(c, lunaGuestPaused) + '</span>';
+    html +=       detailHeaderSwitchesHtml(c, lunaGuestPaused);
+    html +=     '</div>';
     html +=   '</div>';
-    html += '</div>';
-
-    /* ── Two-column layout ── */
-    html += '<div class="detail-layout">';
-
-    /* ═══ LEFT — thread + draft panel ═══ */
-    html += '<div class="detail-main">';
 
     /* Message thread — Clear floats above box; box top aligns with Bot state */
     html += '<div class="thread-section">';
