@@ -20040,8 +20040,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 .inbox-two-col.inbox-shell-cols #conv-detail{
   min-width:0;min-height:0;overflow:hidden;
-  border:1px solid var(--border-soft);border-radius:var(--radius);
-  background:var(--surface);box-shadow:none;display:flex;flex-direction:column;
+  background:transparent;box-shadow:none;display:flex;flex-direction:column;
 }
 @media(max-width:900px){
   .inbox-two-col.inbox-shell-cols{grid-template-columns:1fr;gap:24px;border:none}
