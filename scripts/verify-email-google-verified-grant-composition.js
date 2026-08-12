@@ -85,26 +85,27 @@ function envelope() {
 }
 function harness(spec = {}) {
   const calls = { request: [], crypto: [], clock: [], seal: [], open: 0, rewrap: 0, install: [] };
-  const response = new EventEmitter();
-  response.statusCode = 200;
-  response.headers = { 'content-type': 'application/json' };
-  response.destroy = function destroy() {};
-  const request = new EventEmitter();
-  request.destroy = function destroy() {};
-  request.end = function end() {
-    const isProfile = calls.request[calls.request.length - 1].options.path === '/gmail/v1/users/me/profile';
-    const body = JSON.stringify(isProfile
-      ? { emailAddress: spec.profileEmail || EMAIL, historyId: '123456' }
-      : { keys: [{ ...publicJwk, kid: spec.jwksKid || KID, use: 'sig', alg: 'RS256' }] });
-    responseCallback(response);
-    response.emit('data', Buffer.from(body));
-    response.emit('end');
-  };
-  let responseCallback;
   const https = Object.freeze({ request(options, callback) {
-    calls.request.push({ options, receiver: this });
     if (spec.requestThrow) throw new Error(`${LEAK}:https`);
-    responseCallback = callback;
+    const response = new EventEmitter();
+    response.statusCode = 200;
+    response.headers = { 'content-type': 'application/json' };
+    response.destroy = function destroy() {};
+    const request = new EventEmitter();
+    request.destroy = function destroy() {};
+    const exchange = { options, receiver: this, request, response };
+    calls.request.push(exchange);
+    request.end = function end() {
+      const isProfile = options.path === '/gmail/v1/users/me/profile';
+      const body = JSON.stringify(isProfile
+        ? { emailAddress: spec.profileEmail || EMAIL, historyId: '123456' }
+        : { keys: [{ ...publicJwk, kid: spec.jwksKid || KID, use: 'sig', alg: 'RS256' }] });
+      callback(response);
+      response.emit('data', Buffer.from(body));
+      response.emit('end');
+      response.removeAllListeners();
+      request.removeAllListeners();
+    };
     return request;
   } });
   const crypto = Object.freeze({
