@@ -20028,6 +20028,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   }
 }
 .inbox-shell-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;flex-shrink:0}
+/* Inbox shell: list card | pass-through detail host (chat + bookings float as sibling cards). */
 .inbox-two-col.inbox-shell-cols{
   display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:14px;
   flex:1;min-height:0;overflow:hidden;width:100%;align-self:stretch;
@@ -20038,10 +20039,51 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   border-right:none;border:1px solid var(--border-soft);border-radius:var(--radius);
   box-shadow:none;background:var(--surface);overflow:hidden;
 }
+/*
+ * ROOT FIX: #conv-detail must NOT be a card. border/radius/bg + overflow:hidden
+ * framed chat+bookings together and clipped the bookings card square on scroll.
+ * Keep it a transparent non-clipping host; .detail-main + .sidebar-card are the cards.
+ * Leave the max-width:900px mobile block below alone (full-width card is intentional).
+ */
 .inbox-two-col.inbox-shell-cols #conv-detail{
-  min-width:0;min-height:0;overflow:hidden;
-  border:1px solid var(--border-soft);border-radius:var(--radius);
-  background:var(--surface);box-shadow:none;display:flex;flex-direction:column;
+  min-width:0;min-height:0;
+  border:none!important;border-radius:0!important;
+  background:transparent!important;box-shadow:none!important;
+  overflow:visible!important;
+  display:flex;flex-direction:column;padding:0;
+}
+.inbox-two-col.inbox-shell-cols #detail-content{
+  background:transparent!important;
+  overflow:hidden; /* flex chain only — no radius, so no rounded clip */
+  padding:0!important;
+}
+/* chat↔bookings gap must match list↔chat (shell gap: 14px) */
+.inbox-two-col.inbox-shell-cols .detail-layout{
+  gap:14px;
+  overflow:visible;
+  min-height:0;
+}
+/* Bookings column: plain host — does not scroll or clip */
+.inbox-two-col.inbox-shell-cols .detail-sidebar,
+.inbox-two-col.inbox-shell-cols #inbox-detail-sidebar{
+  overflow:visible!important;
+  max-height:none;
+  min-height:0;
+  align-self:stretch;
+  display:flex;
+  flex-direction:column;
+}
+/* BOOKINGS card scrolls inside its own rounded frame */
+.inbox-two-col.inbox-shell-cols #inbox-detail-sidebar > .sidebar-card{
+  overflow-x:hidden;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  /* Bound height so content scrolls *inside* the rounded card (not the column). */
+  max-height:min(720px, calc(100vh - 220px));
+  min-height:0;
+  flex:1 1 auto;
+  border-radius:var(--radius-sm);
+  /* keep existing card chrome (border/bg from .sidebar-card) */
 }
 @media(max-width:900px){
   .inbox-two-col.inbox-shell-cols{grid-template-columns:1fr;gap:0;border:none}
