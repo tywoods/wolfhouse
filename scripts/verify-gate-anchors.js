@@ -385,6 +385,8 @@ function readLiteralAt(src, quoteIndex) {
 
 const CODE_SHAPES = [
   /^(?:function|async function|var|const|let|class)\s+[A-Za-z_$]/,
+  // Slice boundaries such as '\nasync function ' carry no identifier of their own.
+  /^\s*(?:async function|function|var|const|let|class)\s*$/,
   /\b(?:if|for|while|switch|catch|return|typeof)\s*\(/,
   /[A-Za-z_$][A-Za-z0-9_$]*\(/,
   /=>/,
