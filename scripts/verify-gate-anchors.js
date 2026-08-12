@@ -59,6 +59,12 @@ const ALLOWLIST = [
     reason: 'stage telemetry must have no ambient mutable logger to swap at runtime.',
   },
   {
+    gate: 'verify-inbox-thread-composite.js',
+    anchor: "gjson(base + '/staff-state' + qs)",
+    kind: 'negative',
+    reason: 'the Inbox thread reads one composite endpoint; the six-GET fan-out must stay gone.',
+  },
+  {
     gate: 'verify-manual-booking-per-guest-package.js',
     anchor: 'function bcUpdateManualPriceOverrideVisibility',
     kind: 'negative',
