@@ -13,7 +13,8 @@ function check(id, ok, msg) {
 }
 
 const apiPath = path.join(__dirname, 'staff-query-api.js');
-const src = fs.readFileSync(apiPath, 'utf8');
+// Template plus injected Inbox browser modules: Inbox/Customers JS was extracted.
+const src = require('./lib/staff-portal-ui-source').readStaffPortalUiSource();
 
 // Source markers — mobile shell + feature CSS
 check('M1', /@media\s*\(\s*max-width\s*:\s*768px\s*\)/.test(src), 'mobile media query @768px exists');

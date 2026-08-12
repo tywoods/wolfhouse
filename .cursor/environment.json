@@ -1,0 +1,4 @@
+{
+  "name": "Wolfhouse (WH)",
+  "install": "npm ci && npx playwright install chromium"
+}

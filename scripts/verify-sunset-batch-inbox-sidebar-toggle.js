@@ -16,7 +16,8 @@ function ok(label, cond, extra) {
   else { fail += 1; console.log(`  FAIL  ${label}${extra !== undefined ? `  (${extra})` : ''}`); }
 }
 
-const api = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
+// Template plus injected Inbox browser modules: the sidebar toggle wiring was extracted.
+const api = require('./lib/staff-portal-ui-source').readStaffPortalUiSource();
 const i18n = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8');
 const es = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n-es-sunset.js'), 'utf8');
 
