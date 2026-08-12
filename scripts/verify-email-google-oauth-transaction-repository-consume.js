@@ -21,11 +21,11 @@ const VERIFIER = `${'V'.repeat(41)}-._~`;
 const NONCE = `${'N'.repeat(42)}_`;
 const CONSUMED = '2026-08-11T12:05:00.000Z';
 const LEAK = 'HOSTILE_GOOGLE_CONSUME_VALUE_NEVER_LOG';
-const SQL = "UPDATE tenant_email_google_oauth_transactions SET consumed_at=$4::timestamptz WHERE state_hash=$1::bytea AND client_id=$2::uuid AND auth_session_id=$3::uuid AND consumed_at IS NULL AND expires_at>$4::timestamptz AND authorization_intent='initial_connect' AND scope_version='phase_a_v2' RETURNING operation_id, location_id, endpoint_id, staff_user_id, code_verifier, nonce";
+const SQL = "UPDATE tenant_email_google_oauth_transactions t SET consumed_at=$2::timestamptz FROM clients c WHERE t.state_hash=$1::bytea AND t.client_id=c.id AND c.slug='sunset' AND t.consumed_at IS NULL AND t.expires_at>$2::timestamptz AND t.authorization_intent='initial_connect' AND t.scope_version='phase_a_v2' RETURNING t.client_id, t.auth_session_id, t.operation_id, t.location_id, t.endpoint_id, t.staff_user_id, t.code_verifier, t.nonce";
 
-function input(patch = {}) { return freeze({ stateHash: STATE, clientId: CLIENT, authSessionId: SESSION, consumedAt: CONSUMED, ...patch }); }
+function input(patch = {}) { return freeze({ stateHash: STATE, consumedAt: CONSUMED, ...patch }); }
 function row(patch = {}, frozen = true) {
-  const value = { operation_id: OPERATION, location_id: LOCATION, endpoint_id: ENDPOINT,
+  const value = { client_id: CLIENT, auth_session_id: SESSION, operation_id: OPERATION, location_id: LOCATION, endpoint_id: ENDPOINT,
     staff_user_id: STAFF, code_verifier: VERIFIER, nonce: NONCE, ...patch };
   return frozen ? freeze(value) : value;
 }
@@ -36,7 +36,7 @@ function result(rows = [row()], frozen = true) {
 }
 function queryOwner(fn = function query() { return result(); }) { return freeze({ query: fn }); }
 function repository(query = queryOwner()) { return createGoogleOAuthTransactionRepository(freeze({ queryOwner: query })); }
-function expected() { return { operationId: OPERATION, locationId: LOCATION, endpointId: ENDPOINT,
+function expected() { return { clientId: CLIENT, authSessionId: SESSION, operationId: OPERATION, locationId: LOCATION, endpointId: ENDPOINT,
   staffUserId: STAFF, codeVerifier: VERIFIER, nonce: NONCE }; }
 function assertClean(error) {
   assert.equal(error.name, 'GoogleOAuthTransactionRepositoryError');
@@ -66,7 +66,7 @@ test('executes exactly one atomic fixed Google UPDATE with exact params and fres
   const calls = []; const q = queryOwner(function query(text, params) { calls.push({ text, params, receiver: this }); return result(); });
   const repo = repository(q); const first = await repo.consume(input()); const second = await repo.consume(input());
   assert.equal(calls.length, 2); assert.strictEqual(calls[0].receiver, q); assert.equal(calls[0].text, SQL);
-  assert.equal(calls[1].text, SQL); assert.deepEqual(calls[0].params.slice(1), [CLIENT, SESSION, CONSUMED]);
+  assert.equal(calls[1].text, SQL); assert.deepEqual(calls[0].params.slice(1), [CONSUMED]);
   assert.ok(Buffer.isBuffer(calls[0].params[0])); assert.equal(calls[0].params[0].toString('hex'), STATE);
   assert.notStrictEqual(calls[0].params[0], calls[1].params[0]);
   assert.deepEqual(first, expected()); assert.deepEqual(second, expected());
@@ -77,9 +77,9 @@ test('SQL is structurally one atomic update with no preselect, Microsoft table, 
   assert.equal(text, SQL); assert.match(text, /^UPDATE tenant_email_google_oauth_transactions SET consumed_at=\$4::timestamptz WHERE /);
   assert.equal(/\bSELECT\b/i.test(text), false); assert.equal(/tenant_email_oauth_transactions|microsoft/i.test(text), false);
   assert.equal(/prior_generation/i.test(text), false);
-  for (const fragment of ['state_hash=$1::bytea', 'client_id=$2::uuid', 'auth_session_id=$3::uuid',
-    'consumed_at IS NULL', 'expires_at>$4::timestamptz', "authorization_intent='initial_connect'", "scope_version='phase_a_v2'",
-    'RETURNING operation_id, location_id, endpoint_id, staff_user_id, code_verifier, nonce']) assert.ok(text.includes(fragment));
+  for (const fragment of ['t.state_hash=$1::bytea', "c.slug='sunset'", 't.client_id=c.id',
+    't.consumed_at IS NULL', 't.expires_at>$2::timestamptz', "t.authorization_intent='initial_connect'", "t.scope_version='phase_a_v2'",
+    'RETURNING t.client_id, t.auth_session_id, t.operation_id, t.location_id, t.endpoint_id, t.staff_user_id, t.code_verifier, t.nonce']) assert.ok(text.includes(fragment));
 });
 
 test('accepts direct and genuine native Promise zero/one outputs; zero rows is an ordinary null miss', async () => {
