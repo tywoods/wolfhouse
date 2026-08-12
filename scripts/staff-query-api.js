@@ -16485,7 +16485,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 [data-theme="dark"] #tab-portal-home .portal-schedule-create-drawer{background:var(--surface);border-color:var(--border-soft)}
 
 .portal-admin-wrap{max-width:1240px;margin:0 auto;padding:var(--tab-top-gap) 20px 32px}
-.portal-admin-header{margin-bottom:18px}
+.portal-admin-header{margin:0;padding:0;min-height:0}
 .portal-admin-header h2{font-size:20px;font-weight:700;color:var(--text);margin:0 0 8px}
 .portal-admin-banner{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius);padding:12px 16px;margin-bottom:18px;font-size:13px;color:var(--text-2);line-height:1.5}
 .portal-admin-banner strong{color:var(--text)}
