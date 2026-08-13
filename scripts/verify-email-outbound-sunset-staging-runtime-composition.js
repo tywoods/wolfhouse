@@ -604,10 +604,10 @@ async function main() {
     const ap6 = send2.calls[0].body.approval_id; send2.calls.length = 0;
     const lb = outerLoans; const rb = outerReleases;
     await routes2.handleApproveSend(mockReq({ conversation_id: V, message_text: BODY, approval_id: ap6 }), {}, user, gate2);
-    ok('dispatch under outer loan; committed sanitized 200',
+    ok('dispatch under outer loan; committed sanitized 200; mirror uses one later loan',
       loanDuring && send2.calls[0].status === 200 && send2.calls[0].body.success === true
       && send2.calls[0].body.approval_state === 'approved' && !('body_digest' in send2.calls[0].body)
-      && !('immutable_draft_id' in send2.calls[0].body) && outerLoans === lb + 1 && outerReleases === rb + 1
+      && !('immutable_draft_id' in send2.calls[0].body) && outerLoans === lb + 2 && outerReleases === rb + 2
       && noLeak(send2.calls[0].body));
 
     const compSrc = fs.readFileSync(COMP_ABS, 'utf8');
