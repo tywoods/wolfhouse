@@ -26,6 +26,10 @@ const {
 const {
   validateAndNormalizePhaseBTokenResponseScope,
 } = require('./email-microsoft-phase-b-token-response-scope');
+const {
+  CONTENT_SCOPE_VERSION,
+  validateContentReadTokenScope,
+} = require('./email-microsoft-content-read-scope');
 
 const SCOPE_VERSION_MAX_CHARS = 32;
 
@@ -57,6 +61,12 @@ function classifyMicrosoftRefreshTokenResponseForScopeVersion(scopeVersion, resp
         validateAndNormalizePhaseBTokenResponseScope,
       );
     }
+    if (scopeVersion === CONTENT_SCOPE_VERSION) {
+      return classifyMicrosoftRefreshTokenResponseWithScopeValidator(
+        response,
+        validateContentReadTokenScope,
+      );
+    }
     return uncertain();
   } catch (_) {
     return uncertain();
@@ -67,5 +77,6 @@ module.exports = Object.freeze({
   SCOPE_VERSION_MAX_CHARS,
   EMAIL_MS_DELEGATED_SCOPE_VERSION,
   EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION,
+  CONTENT_SCOPE_VERSION,
   classifyMicrosoftRefreshTokenResponseForScopeVersion,
 });
