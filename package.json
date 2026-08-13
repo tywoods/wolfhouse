@@ -747,6 +747,7 @@
     "verify:inbox-thread-composite": "node scripts/verify-inbox-thread-composite.js",
     "verify:inbox-saved-views": "node scripts/verify-inbox-saved-views.js",
     "verify:inbox-views-ui": "node scripts/verify-inbox-views-ui.js",
+    "verify:inbox-context": "node scripts/verify-inbox-context.js",
     "verify:inbox-view-routes": "node scripts/verify-inbox-view-routes.js",
     "verify:inbox-columns": "node scripts/verify-inbox-columns.js",
     "verify:inbox-columns-playwright": "node scripts/verify-inbox-columns-playwright.js",
