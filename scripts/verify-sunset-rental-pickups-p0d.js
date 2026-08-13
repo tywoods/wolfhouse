@@ -57,7 +57,25 @@ function ok(label, cond, detail) {
   }
 }
 
-const DATE = '2026-08-15';
+/**
+ * Fixture days are read off the clock. A pinned month stops testing pickups and starts
+ * testing the calendar the day it passes: create rejects past dates. Saturday is kept
+ * because the Admin rental schedule is weekday-shaped.
+ */
+function isoWeekdayAtLeastDaysOut(weekday, days) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  d.setUTCDate(d.getUTCDate() + ((weekday - d.getUTCDay() + 7) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+function isoDaysAfter(iso, days) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+const DATE = isoWeekdayAtLeastDaysOut(6, 30); // Saturday, a month out
 const RONNIE_BOOKING = 'bk-ronnie-p0d-0001';
 const STEVE_BOOKING = 'bk-steve-p0d-0002';
 
@@ -994,7 +1012,7 @@ console.log('\n[8] Production quote→create Ronnie (exact canonical S+W + gener
   const stockService = require('./lib/tenant-rental-stock-service');
 
   const LOC = 'sunset-somo';
-  const DATE_R = '2026-09-05';
+  const DATE_R = isoDaysAfter(DATE, 21); // three Saturdays on from DATE
   const PACK_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
   const SW = 'surfboard_wetsuit_rental';
   const SUP = 'sup_rental';
@@ -1309,7 +1327,7 @@ console.log('\n[8] Production quote→create Ronnie (exact canonical S+W + gener
         quote_provenance: quoteOut && quoteOut.body && quoteOut.body.quote_provenance,
       },
       trustedLocationId: LOC,
-      now: new Date('2026-09-05T12:00:00Z'),
+      now: new Date(`${DATE_R}T12:00:00Z`),
       actorHints: { staff_user_id: 'staff-p0d', email: 'p0d@test' },
     });
     ok('create command builds', cCmd.ok === true, JSON.stringify(cCmd).slice(0, 200));
@@ -1621,7 +1639,7 @@ console.log('\n[8] Production quote→create Ronnie (exact canonical S+W + gener
           quote_provenance: q && q.body && q.body.quote_provenance,
         },
         trustedLocationId: LOC,
-        now: new Date('2026-09-05T12:00:00Z'),
+        now: new Date(`${DATE_R}T12:00:00Z`),
         actorHints: { staff_user_id: 'staff-p0d' },
       });
       let bOut = null;

@@ -37,6 +37,32 @@ const {
 } = require('./lib/sunset-schedule-booking-writes');
 const { packPriceItemCode } = require('./lib/sunset-admin-price-identity');
 
+/**
+ * Fixture days come off the clock. Pinned to one September they stopped exercising the
+ * stock paths and started tripping the past-date guard instead. The anchor keeps its
+ * weekday; every other day keeps its exact offset from it.
+ */
+function isoWeekdayAtLeastDaysOut(weekday, days) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  d.setUTCDate(d.getUTCDate() + ((weekday - d.getUTCDay() + 7) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+function isoDaysAfter(iso, days) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+const DAY0 = isoWeekdayAtLeastDaysOut(2, 30); // Tuesday, a month out
+const DAY1 = isoDaysAfter(DAY0, 1);
+const DAY2 = isoDaysAfter(DAY0, 2);
+const DAY3 = isoDaysAfter(DAY0, 3);
+const DAY9 = isoDaysAfter(DAY0, 9);
+const DAY14 = isoDaysAfter(DAY0, 14);
+const DAY19 = isoDaysAfter(DAY0, 19);
+
 let pass = 0;
 let fail = 0;
 
@@ -154,8 +180,8 @@ async function main() {
       { offering_key: 'board_rental', quantity: 2 },
       { offering_key: 'wetsuit_rental', quantity: 3 },
     ],
-    '2026-09-01',
-    '2026-09-01',
+    DAY0,
+    DAY0,
   );
   ok(
     'three independent stock claims',
@@ -181,7 +207,7 @@ async function main() {
       { offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 },
       { offering_key: 'board_rental', duration_key: '1_day', quantity: 1 },
     ],
-    serviceDate: '2026-09-01',
+    serviceDate: DAY0,
     calendarDayCount: 1,
     bookingDurationKey: '1_day',
     listOfferings: async () => mockCatalog,
@@ -226,8 +252,8 @@ async function main() {
   const KAYAK_CENTS = 3500;
   const CUSTOM_CENTS = 4500;
   const LOC = 'sunset-somo';
-  const DATE = '2026-09-10';
-  const FIXED_NOW = new Date('2026-09-01T12:00:00Z');
+  const DATE = DAY9;
+  const FIXED_NOW = new Date(`${DAY0}T12:00:00Z`);
   const CATALOG_OFFERINGS = [
     {
       id: '1', client_slug: 'sunset', location_id: LOC,
@@ -603,13 +629,13 @@ async function main() {
 
   const rentalOnly = stockService.collectRentalStockClaims(
     [{ offering_key: 'board_rental', quantity: 1 }],
-    '2026-09-15',
-    '2026-09-15',
+    DAY14,
+    DAY14,
   );
   const ceOnly = stockService.collectCourseEquipmentStockClaims(
     [{ offering_key: 'board_rental', quantity: 2, mode: 'during_course' }],
-    '2026-09-15',
-    '2026-09-15',
+    DAY14,
+    DAY14,
   );
   const merged = stockService.mergeExactOfferingStockClaims(rentalOnly.claims, ceOnly.claims);
   ok(
@@ -620,11 +646,11 @@ async function main() {
 
   const mergedDiff = stockService.mergeExactOfferingStockClaims(
     stockService.collectRentalStockClaims(
-      [{ offering_key: 'board_rental', quantity: 1 }], '2026-09-15', '2026-09-15',
+      [{ offering_key: 'board_rental', quantity: 1 }], DAY14, DAY14,
     ).claims,
     stockService.collectCourseEquipmentStockClaims(
       [{ offering_key: 'wetsuit_rental', quantity: 1, mode: 'during_course' }],
-      '2026-09-15', '2026-09-15',
+      DAY14, DAY14,
     ).claims,
   );
   ok(
@@ -646,7 +672,7 @@ async function main() {
     locationId: 'sunset-somo',
     claims: stockService.mergeExactOfferingStockClaims(
       stockService.collectCourseEquipmentStockClaims(
-        [{ offering_key: 'board_rental', quantity: 1 }], '2026-09-20', '2026-09-20',
+        [{ offering_key: 'board_rental', quantity: 1 }], DAY19, DAY19,
       ).claims,
     ).claims,
     defaultLocationId: 'sunset-somo',
@@ -661,11 +687,11 @@ async function main() {
     reservations: [{
       booking_id: 'winner-booking',
       offering_key: 'board_rental',
-      service_date: '2026-09-20',
+      service_date: DAY19,
       quantity: 1,
       status: 'confirmed',
       booking_status: 'confirmed',
-      rental_service_dates: ['2026-09-20'],
+      rental_service_dates: [DAY19],
     }],
   });
   const loser = await stockService.assertRentalStockClaimsInTxn(loserPg, {
@@ -673,7 +699,7 @@ async function main() {
     locationId: 'sunset-somo',
     claims: stockService.mergeExactOfferingStockClaims(
       stockService.collectCourseEquipmentStockClaims(
-        [{ offering_key: 'board_rental', quantity: 1 }], '2026-09-20', '2026-09-20',
+        [{ offering_key: 'board_rental', quantity: 1 }], DAY19, DAY19,
       ).claims,
     ).claims,
     defaultLocationId: 'sunset-somo',
@@ -690,7 +716,7 @@ async function main() {
     locationId: 'sunset-somo',
     claims: [{
       offering_key: 'board_rental', quantity: 1,
-      date_from: '2026-09-20', date_to: '2026-09-20', dates: ['2026-09-20'],
+      date_from: DAY19, date_to: DAY19, dates: [DAY19],
     }],
     excludeBookingId: 'winner-booking',
     defaultLocationId: 'sunset-somo',
@@ -711,8 +737,8 @@ async function main() {
   // Must stay ≤ course surfer quantity so re-insert validation accepts preserved CE.
   const CE_QTY = 1;
   const COURSE_SURFERS = 1;
-  const DATE_OLD = '2026-09-10';
-  const DATE_NEW = '2026-09-20';
+  const DATE_OLD = DAY9;
+  const DATE_NEW = DAY19;
   const COURSE_CENTS = 4500;
   const CE_DURING = 500;
   const CE_ALLDAY = 1000;
@@ -1541,17 +1567,17 @@ async function main() {
   // same key/date qty2+qty3 => restore requires 5
   const sumServices = [
     {
-      service_type: 'addon_service', service_date: '2026-09-01', quantity: 2,
+      service_type: 'addon_service', service_date: DAY0, quantity: 2,
       metadata: {
         offering_key: 'board_rental', rental_offering: true,
-        rental_service_dates: ['2026-09-01'],
+        rental_service_dates: [DAY0],
       },
     },
     {
-      service_type: 'addon_service', service_date: '2026-09-01', quantity: 3,
+      service_type: 'addon_service', service_date: DAY0, quantity: 3,
       metadata: {
         offering_key: 'board_rental', rental_offering: true,
-        rental_service_dates: ['2026-09-01'],
+        rental_service_dates: [DAY0],
       },
     },
   ];
@@ -1560,24 +1586,24 @@ async function main() {
     'restore qty2+qty3 same day requires 5',
     sumClaims.ok && sumClaims.claims.length === 1
       && sumClaims.claims[0].quantity === 5
-      && sumClaims.claims[0].date_from === '2026-09-01',
+      && sumClaims.claims[0].date_from === DAY0,
     JSON.stringify(sumClaims),
   );
 
   // same key on two dates qty2 each requires 2 per day not 4
   const multiDay = stockService.collectRentalStockClaimsFromServices([
     {
-      service_type: 'addon_service', service_date: '2026-09-01', quantity: 2,
+      service_type: 'addon_service', service_date: DAY0, quantity: 2,
       metadata: {
         offering_key: 'board_rental', rental_offering: true,
-        rental_service_dates: ['2026-09-01'],
+        rental_service_dates: [DAY0],
       },
     },
     {
-      service_type: 'addon_service', service_date: '2026-09-02', quantity: 2,
+      service_type: 'addon_service', service_date: DAY1, quantity: 2,
       metadata: {
         offering_key: 'board_rental', rental_offering: true,
-        rental_service_dates: ['2026-09-02'],
+        rental_service_dates: [DAY1],
       },
     },
   ]);
@@ -1586,31 +1612,31 @@ async function main() {
     multiDay.ok
       && multiDay.claims.length === 2
       && multiDay.claims.every((c) => c.quantity === 2)
-      && multiDay.claims[0].date_from === '2026-09-01'
-      && multiDay.claims[1].date_from === '2026-09-02',
+      && multiDay.claims[0].date_from === DAY0
+      && multiDay.claims[1].date_from === DAY1,
     JSON.stringify(multiDay),
   );
 
   // historical grouped surfboard+wetsuit pair qty2 requires 2 once
   const histPair = stockService.collectRentalStockClaimsFromServices([
     {
-      service_type: 'surfboard', service_date: '2026-09-03', quantity: 2,
+      service_type: 'surfboard', service_date: DAY2, quantity: 2,
       metadata: {
         offering_key: 'board_and_suit_rental',
         pricing_group_id: 'grp-hist',
         bundle_part: 'surfboard',
         rental_pricing_role: 'surfboard',
-        rental_service_dates: ['2026-09-03'],
+        rental_service_dates: [DAY2],
       },
     },
     {
-      service_type: 'wetsuit', service_date: '2026-09-03', quantity: 2,
+      service_type: 'wetsuit', service_date: DAY2, quantity: 2,
       metadata: {
         offering_key: 'board_and_suit_rental',
         pricing_group_id: 'grp-hist',
         bundle_part: 'wetsuit',
         rental_pricing_role: 'wetsuit',
-        rental_service_dates: ['2026-09-03'],
+        rental_service_dates: [DAY2],
       },
     },
   ]);
@@ -1623,28 +1649,28 @@ async function main() {
   // mixed independent + historical
   const mixed = stockService.collectRentalStockClaimsFromServices([
     {
-      service_type: 'addon_service', service_date: '2026-09-04', quantity: 1,
+      service_type: 'addon_service', service_date: DAY3, quantity: 1,
       metadata: {
         offering_key: 'board_rental', rental_offering: true,
-        rental_service_dates: ['2026-09-04'],
+        rental_service_dates: [DAY3],
       },
     },
     {
-      service_type: 'surfboard', service_date: '2026-09-04', quantity: 2,
+      service_type: 'surfboard', service_date: DAY3, quantity: 2,
       metadata: {
         offering_key: 'board_and_suit_rental',
         pricing_group_id: 'grp-m',
         bundle_part: 'surfboard',
-        rental_service_dates: ['2026-09-04'],
+        rental_service_dates: [DAY3],
       },
     },
     {
-      service_type: 'wetsuit', service_date: '2026-09-04', quantity: 2,
+      service_type: 'wetsuit', service_date: DAY3, quantity: 2,
       metadata: {
         offering_key: 'board_and_suit_rental',
         pricing_group_id: 'grp-m',
         bundle_part: 'wetsuit',
-        rental_service_dates: ['2026-09-04'],
+        rental_service_dates: [DAY3],
       },
     },
   ]);
@@ -1667,11 +1693,11 @@ async function main() {
       reservations: [{
         booking_id: 'other',
         offering_key: 'board_rental',
-        service_date: '2026-09-01',
+        service_date: DAY0,
         quantity: 1,
         status: 'confirmed',
         booking_status: 'confirmed',
-        rental_service_dates: ['2026-09-01'],
+        rental_service_dates: [DAY0],
       }],
     }),
     {
@@ -1709,11 +1735,11 @@ async function main() {
   // Align with normalizeReservationDemand
   const demand = stock.normalizeReservationDemand([
     {
-      booking_id: 'b', offering_key: 'board_rental', service_date: '2026-09-01',
+      booking_id: 'b', offering_key: 'board_rental', service_date: DAY0,
       quantity: 2, status: 'confirmed',
     },
     {
-      booking_id: 'b', offering_key: 'board_rental', service_date: '2026-09-01',
+      booking_id: 'b', offering_key: 'board_rental', service_date: DAY0,
       quantity: 3, status: 'confirmed',
     },
   ]);
