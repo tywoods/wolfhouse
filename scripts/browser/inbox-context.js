@@ -123,19 +123,29 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-guest-linked-bookings .customers-row-table{width:100%;table-layout:fixed}',
   '.inbox-guest-booking-row{cursor:pointer}',
   '.inbox-guest-booking-row:hover{background:var(--surface-soft)}',
-  '.inbox-guest-notes{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;align-items:start}',
-  '.inbox-guest-notes-title{display:inline;width:auto;text-align:left;border:none;background:none;',
-  'padding:0;margin:0;cursor:pointer;text-decoration:none}',
-  '.inbox-guest-notes-display{min-width:0}',
-  '.inbox-guest-notes-display.is-empty{color:var(--text-3)}',
-  '.inbox-guest-notes-edit{grid-column:2;display:flex;flex-direction:row;align-items:center;gap:8px;min-width:0}',
-  '.inbox-guest-notes-edit[hidden]{display:none!important}',
-  '.inbox-guest-notes-edit textarea{flex:1 1 auto;min-width:0;min-height:40px;height:44px;box-sizing:border-box;',
-  'font:inherit;padding:8px 10px;border:1px solid var(--border);border-radius:8px;resize:vertical}',
-  '.inbox-guest-notes-save{flex:0 0 auto;padding:9px 16px;font-size:12px;font-weight:600}',
-  '.inbox-guest-tags-title{display:block;width:auto;text-align:left;border:none;background:none;',
-  'padding:0;margin:0 0 6px;cursor:pointer;text-decoration:none}',
-  '.inbox-guest-tags-edit{display:flex;flex-direction:column;gap:10px}',
+  '.inbox-customer-card.is-full .customers-profile-name{font-size:18px}',
+  '.inbox-customer-card.is-full .customers-profile-avatar{font-size:16px}',
+  '.inbox-customer-card.is-full .customers-profile-identity{display:flex;flex-direction:column;gap:6px;min-width:0}',
+  '.inbox-customer-card.is-full .inbox-guest-tags{margin:0}',
+  '.inbox-customer-card.is-full .customers-profile-fields{display:flex;flex-direction:column;gap:8px;margin-top:10px}',
+  '.inbox-customer-card.is-full .customers-profile-field{display:grid;grid-template-columns:7.6em minmax(0,1fr);gap:6px 14px;align-items:start;font-size:14px}',
+  '.inbox-customer-card.is-full .customers-profile-field-label{font-size:12px;line-height:1.25;padding-top:2px}',
+  '.inbox-customer-card.is-full .customers-profile-field-value{font-size:14px}',
+  '.inbox-customer-card.is-full .customers-section-hdr{font-size:13px}',
+  '.inbox-customer-card.is-full .customers-section-empty,.inbox-customer-card.is-full .customers-section-body{font-size:14px}',
+  '.inbox-customer-card.is-full .customers-badge{font-size:12px}',
+  '.inbox-guest-inline-title{display:inline;width:auto;max-width:7.6em;text-align:left;border:none;background:none;',
+  'padding:0;margin:0;cursor:pointer;text-decoration:none;white-space:normal}',
+  '.inbox-guest-inline-edit{grid-column:2;display:flex;flex-direction:row;align-items:center;gap:8px;min-width:0}',
+  '.inbox-guest-inline-edit[hidden]{display:none!important}',
+  '.inbox-guest-inline-edit input,.inbox-guest-inline-edit textarea{flex:1 1 auto;min-width:0;min-height:36px;height:38px;',
+  'box-sizing:border-box;font:inherit;font-size:14px;padding:6px 10px;border:1px solid var(--border);border-radius:8px}',
+  '.inbox-guest-inline-save{flex:0 0 auto;padding:9px 16px;font-size:12px;font-weight:600}',
+  '.inbox-guest-notes-title{max-width:7.6em}',
+  '.inbox-guest-notes-display.is-empty,.inbox-guest-inline-display.is-empty{color:var(--text-3)}',
+  '.inbox-guest-tags-open{display:flex;flex-wrap:wrap;gap:4px;align-items:center;border:none;background:none;',
+  'padding:0;margin:0;cursor:pointer;text-align:left}',
+  '.inbox-guest-tags-edit{display:flex;flex-direction:column;gap:10px;margin-top:6px}',
   '.inbox-guest-tags-edit[hidden]{display:none!important}',
   '.inbox-guest-tags-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}',
   '.inbox-guest-tags-toggle{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;',
@@ -935,25 +945,44 @@ function inboxCustomerBookingsListHtml(data) {
 function inboxCustomerField(label, value, muted) {
   return '<div class="customers-profile-field"><span class="customers-profile-field-label">' +
     inboxContextEsc(label) + '</span><span class="customers-profile-field-value' +
-    (muted ? ' is-muted' : '') + '">' + inboxContextEsc(value) + '</span></div>';
+    (muted ? ' is-empty' : '') + '">' + inboxContextEsc(value) + '</span></div>';
 }
 
-function inboxCustomerNotesFieldHtml(notes) {
-  var text = String(notes || '').trim();
+function inboxCustomerInlineFieldHtml(key, labelHtml, value, emptyCopy, asArea) {
+  var text = String(value || '').trim();
   var empty = !text;
-  var html = '<div class="customers-profile-field inbox-guest-notes" id="inbox-guest-notes">';
-  html += '<button type="button" class="customers-profile-field-label inbox-guest-notes-title" id="inbox-guest-notes-open">';
-  html += inboxContextEsc(inboxContextT('customers.detail.notes', 'Notes for next time'));
+  var html = '<div class="customers-profile-field inbox-guest-inline" data-inbox-inline="' + inboxContextEsc(key) + '">';
+  html += '<button type="button" class="customers-profile-field-label inbox-guest-inline-title' +
+    (key === 'notes' ? ' inbox-guest-notes-title' : '') + '"' +
+    (key === 'notes' ? ' id="inbox-guest-notes-open"' : '') + '>';
+  html += labelHtml;
   html += '</button>';
-  html += '<span class="customers-profile-field-value inbox-guest-notes-display' + (empty ? ' is-empty' : '') + '" id="inbox-guest-notes-text-display">';
-  html += inboxContextEsc(empty ? inboxContextT('customers.detail.noNotes', 'No notes yet') : text);
+  html += '<span class="customers-profile-field-value inbox-guest-inline-display' + (empty ? ' is-empty' : '') + '"' +
+    (key === 'notes' ? ' id="inbox-guest-notes-text-display"' : '') + '>';
+  html += inboxContextEsc(empty ? emptyCopy : text);
   html += '</span>';
-  html += '<div class="inbox-guest-notes-edit" id="inbox-guest-notes-edit" hidden>';
-  html += '<textarea id="inbox-guest-notes-text" rows="2">' + inboxContextEsc(text) + '</textarea>';
-  html += '<button type="button" class="btn btn-primary inbox-guest-notes-save" id="inbox-guest-notes-save">' +
+  html += '<div class="inbox-guest-inline-edit inbox-guest-notes-edit" hidden' +
+    (key === 'notes' ? ' id="inbox-guest-notes-edit"' : '') + '>';
+  if (asArea) {
+    html += '<textarea rows="2"' + (key === 'notes' ? ' id="inbox-guest-notes-text"' : '') + '>' + inboxContextEsc(text) + '</textarea>';
+  } else {
+    html += '<input type="text" value="' + inboxContextEsc(text) + '">';
+  }
+  html += '<button type="button" class="btn btn-primary inbox-guest-inline-save"' +
+    (key === 'notes' ? ' id="inbox-guest-notes-save"' : '') + '>' +
     inboxContextEsc(inboxContextT('common.save', 'Save')) + '</button>';
   html += '</div></div>';
   return html;
+}
+
+function inboxCustomerNotesFieldHtml(notes) {
+  return inboxCustomerInlineFieldHtml(
+    'notes',
+    'Notes for<br>next time',
+    notes,
+    inboxContextT('customers.detail.noNotes', 'No notes yet'),
+    true
+  );
 }
 
 function inboxCustomerGuestBookingsHtml(data) {
@@ -1029,19 +1058,15 @@ function inboxCustomerGuestTagsHtml(data) {
   var display = id.display_tags || [];
   var keys = inboxGuestCrmTagKeys();
   var autoKeys = inboxGuestAutoTagKeys();
-  var html = '<div class="customers-section inbox-guest-tags" id="inbox-guest-tags">';
-  html += '<button type="button" class="customers-section-hdr inbox-guest-tags-title" id="inbox-guest-tags-open">';
-  html += inboxContextEsc(inboxContextT('customers.detail.tags', 'Tags'));
-  html += '</button>';
-  html += '<div class="inbox-guest-tags-view" id="inbox-guest-tags-view">';
+  var html = '<div class="inbox-guest-tags" id="inbox-guest-tags">';
+  html += '<button type="button" class="inbox-guest-tags-open" id="inbox-guest-tags-open" aria-label="' +
+    inboxContextEsc(inboxContextT('customers.detail.tags', 'Tags')) + '">';
   if (display.length) {
-    html += '<div class="customers-tags-chips">';
     for (var d = 0; d < display.length; d++) html += inboxGuestTagChip(display[d], id);
-    html += '</div>';
   } else {
-    html += '<div class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noTags', 'No tags')) + '</div>';
+    html += '<span class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noTags', 'No tags')) + '</span>';
   }
-  html += '</div>';
+  html += '</button>';
   html += '<div class="inbox-guest-tags-edit" id="inbox-guest-tags-edit" hidden>';
   html += '<div class="inbox-guest-tags-row">';
   for (var i = 0; i < keys.length; i++) {
@@ -1098,6 +1123,7 @@ function inboxCustomerFullHtml(data, opts) {
   html += '<div class="customers-profile-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
   html += '<div class="customers-profile-identity">';
   html += '<h3 class="customers-profile-name">' + inboxContextEsc(name) + '</h3>';
+  html += inboxCustomerGuestTagsHtml(data);
   html += '</div>';
   html += '<div class="customers-profile-hdr-actions">';
   html += '<button type="button" class="btn btn-ghost" id="inbox-create-booking-for-guest">' +
@@ -1105,12 +1131,11 @@ function inboxCustomerFullHtml(data, opts) {
   html += '<button type="button" class="btn btn-ghost" id="inbox-customer-edit-profile">' +
     inboxContextEsc(inboxContextT('customers.editProfile', 'Edit profile')) + '</button>';
   html += '</div></div>';
-  html += inboxClientInfoChipsHtml(data, cacheRow);
   html += '<div class="customers-profile-fields">';
-  html += inboxCustomerField(inboxContextT('customers.detail.phone', 'Phone'), phone || '—', !phone);
-  html += inboxCustomerField(inboxContextT('customers.detail.email', 'Email'), email || '—', !email);
+  html += inboxCustomerInlineFieldHtml('phone', inboxContextEsc(inboxContextT('customers.detail.phone', 'Phone')), phone, '—', false);
+  html += inboxCustomerInlineFieldHtml('email', inboxContextEsc(inboxContextT('customers.detail.email', 'Email')), email, '—', false);
   if (school) html += inboxCustomerField(inboxContextT('customers.detail.school', 'Active school'), school, false);
-  html += inboxCustomerField(inboxContextT('customers.detail.language', 'Language'), language || '—', !language);
+  html += inboxCustomerInlineFieldHtml('language', inboxContextEsc(inboxContextT('customers.detail.language', 'Language')), language, '—', false);
   html += inboxCustomerField(inboxContextT('customers.detail.lastSetup', 'Last setup'), lastSetup || inboxContextT('customers.detail.noServices', 'No services yet'), !lastSetup);
   html += inboxCustomerNotesFieldHtml(notes);
   html += '</div></div>';
@@ -1124,8 +1149,6 @@ function inboxCustomerFullHtml(data, opts) {
     return '<details class="customers-collapsible"><summary>' + inboxContextEsc(title) +
       ' <span>' + inboxContextEsc(String(count)) + '</span></summary>' + body + '</details>';
   }
-
-  html += inboxCustomerGuestTagsHtml(data);
 
   var services = (data && data.service_records) || [];
   var svcBody = '';
@@ -1347,26 +1370,88 @@ function inboxCustomerEnsureBookingDelegate() {
 }
 
 function inboxCustomerWireNotes(root) {
-  if (!root || !root.querySelector) return;
-  var open = root.querySelector('#inbox-guest-notes-open');
-  var display = root.querySelector('#inbox-guest-notes-text-display');
-  var edit = root.querySelector('#inbox-guest-notes-edit');
-  var area = root.querySelector('#inbox-guest-notes-text');
-  var save = root.querySelector('#inbox-guest-notes-save');
-  if (open && open.dataset.inboxCustomerWired !== '1') {
-    open.dataset.inboxCustomerWired = '1';
-    open.addEventListener('click', function() {
+  inboxCustomerWireInlineFields(root);
+}
+
+function inboxCustomerWireInlineFields(root) {
+  if (!root || !root.querySelectorAll) return;
+  var fields = root.querySelectorAll('.inbox-guest-inline');
+  for (var i = 0; i < fields.length; i++) {
+    inboxCustomerWireOneInline(fields[i]);
+  }
+}
+
+function inboxCustomerWireOneInline(field) {
+  if (!field || field.dataset.inboxCustomerWired === '1') return;
+  field.dataset.inboxCustomerWired = '1';
+  var title = field.querySelector('.inbox-guest-inline-title');
+  var display = field.querySelector('.inbox-guest-inline-display');
+  var edit = field.querySelector('.inbox-guest-inline-edit');
+  var save = field.querySelector('.inbox-guest-inline-save');
+  var input = edit && (edit.querySelector('textarea') || edit.querySelector('input'));
+  if (title) {
+    title.addEventListener('click', function() {
       if (display) display.hidden = true;
       if (edit) edit.hidden = false;
-      if (area) area.focus();
+      if (input) input.focus();
     });
   }
-  if (save && save.dataset.inboxCustomerWired !== '1') {
-    save.dataset.inboxCustomerWired = '1';
+  if (save) {
     save.addEventListener('click', function() {
-      inboxCustomerSaveNotes(area ? area.value : '', root);
+      inboxCustomerSaveInline(field.getAttribute('data-inbox-inline'), input ? input.value : '', field.closest('.inbox-customer-card') || field.parentNode);
     });
   }
+}
+
+function inboxCustomerSaveInline(key, value, root) {
+  if (key === 'notes') return inboxCustomerSaveNotes(value, root);
+  var data = inboxContextLastCustomer || {};
+  var id = data.identity || {};
+  var phone = data.phone || '';
+  if (!phone) return;
+  var next = String(value || '').trim();
+  var payload = {
+    display_name: id.display_name || '',
+    phone: key === 'phone' ? next : phone,
+    email: key === 'email' ? next : (id.email || ''),
+    language: key === 'language' ? next : (id.language || ''),
+    notes: ((data.notes && (data.notes.internal_staff_notes || data.notes.notes)) || ''),
+  };
+  var field = root && root.querySelector('.inbox-guest-inline[data-inbox-inline="' + key + '"]');
+  var saveBtn = field && field.querySelector('.inbox-guest-inline-save');
+  if (saveBtn) saveBtn.disabled = true;
+  var url = '/staff/customers/' + encodeURIComponent(phone) + '?client=' + encodeURIComponent(typeof getClient === 'function' ? getClient() : '');
+  fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(function(r) {
+    return r.json().then(function(body) { return { ok: r.ok, body: body }; });
+  }).then(function(res) {
+    if (!res.ok || !res.body || res.body.success !== true) {
+      throw new Error((res.body && (res.body.error || res.body.message)) || 'Save failed');
+    }
+    if (!inboxContextLastCustomer) inboxContextLastCustomer = data;
+    if (!inboxContextLastCustomer.identity) inboxContextLastCustomer.identity = id;
+    if (key === 'phone') inboxContextLastCustomer.phone = payload.phone;
+    if (key === 'email') inboxContextLastCustomer.identity.email = payload.email;
+    if (key === 'language') inboxContextLastCustomer.identity.language = payload.language;
+    if (field) {
+      var display = field.querySelector('.inbox-guest-inline-display');
+      var edit = field.querySelector('.inbox-guest-inline-edit');
+      var empty = !next;
+      if (display) {
+        display.textContent = empty ? '—' : next;
+        display.classList.toggle('is-empty', empty);
+        display.hidden = false;
+      }
+      if (edit) edit.hidden = true;
+    }
+  }).catch(function() {
+    /* leave the box open so staff can retry */
+  }).finally(function() {
+    if (saveBtn) saveBtn.disabled = false;
+  });
 }
 
 function inboxCustomerSaveNotes(notes, root) {
@@ -1417,13 +1502,12 @@ function inboxCustomerSaveNotes(notes, root) {
 function inboxCustomerWireTags(root) {
   if (!root || !root.querySelector) return;
   var open = root.querySelector('#inbox-guest-tags-open');
-  var view = root.querySelector('#inbox-guest-tags-view');
   var edit = root.querySelector('#inbox-guest-tags-edit');
   var save = root.querySelector('#inbox-guest-tags-save');
   if (open && open.dataset.inboxCustomerWired !== '1') {
     open.dataset.inboxCustomerWired = '1';
     open.addEventListener('click', function() {
-      if (view) view.hidden = true;
+      open.hidden = true;
       if (edit) edit.hidden = false;
     });
   }
@@ -1468,12 +1552,6 @@ function inboxCustomerApplySavedTags(root, tags) {
     var next = wrap.firstChild;
     if (next) host.replaceWith(next);
     inboxCustomerWireTags(root);
-  }
-  var chips = root && root.querySelector('.inbox-client-info-chips');
-  var nextChips = inboxClientInfoChipsHtml(data, inboxClientInfoCacheRow(data.phone));
-  if (chips) {
-    if (nextChips) chips.outerHTML = nextChips;
-    else chips.remove();
   }
 }
 
