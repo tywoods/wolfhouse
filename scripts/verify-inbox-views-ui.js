@@ -66,8 +66,8 @@ ok('injector maps the views module onto the marker',
   && /getInboxViewsBrowserSource/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'inbox-browser-source.js'), 'utf8')));
 ok('rail mount exists in the Conversations column',
   /id="inbox-views-rail"/.test(apiSrc) && /class="inbox-views-rail"/.test(apiSrc));
-ok('rail sits next to the conversation list, not inside a new shell module',
-  /id="inbox-views-rail"[\s\S]{0,400}id="inbox-card"/.test(apiSrc));
+ok('rail is owned by column 1 and remains adjacent to the conversation-list column',
+  /id="inbox-col1"[\s\S]{0,1000}id="inbox-views-rail"[\s\S]{0,1000}id="inbox-card"/.test(apiSrc));
 
 {
   const injected = injectInboxBrowserModules(`before\n${INBOX_VIEWS_INJECT_MARKER}\nafter\n`);

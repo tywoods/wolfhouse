@@ -64,13 +64,16 @@ function testStaticSource() {
   ok('conversations has inbox-shell-toolbar', /class="inbox-shell-toolbar"/.test(convBlock));
   ok('conversations switch uses nav.tab.conversations',
     /data-i18n="nav\.tab\.conversations"/.test(convBlock) && /Conversations/.test(convBlock));
-  ok('conversations switch is inside inbox-toolbar-top', (() => {
-    const top = extractBetween(convBlock, 'class="inbox-toolbar-top"', 'class="portal-inbox-school-context"');
-    return /inbox-view-switch/.test(top) && /data-view="conversations"/.test(top);
+  /* Column layout model: the switch is view navigation, so it sits in the views rail
+     (column 1) rather than the top bar. The Customers panel keeps its toolbar-docked copy
+     until the saved-view rail replaces both. */
+  ok('conversations switch is inside the views rail', (() => {
+    const rail = extractBetween(convBlock, 'id="inbox-col1"', '</nav>');
+    return /inbox-view-switch/.test(rail) && /data-view="conversations"/.test(rail);
   })());
   ok('conversations two framed cols class', /inbox-two-col inbox-shell-cols/.test(convBlock));
-  ok('conversations has list + detail columns',
-    /id="inbox-card"/.test(convBlock) && /id="conv-detail"/.test(convBlock));
+  ok('conversations has rail + list + detail columns',
+    /id="inbox-col1"/.test(convBlock) && /id="inbox-card"/.test(convBlock) && /id="conv-detail"/.test(convBlock));
 
   const custBlock = extractBetween(api, 'id="tab-customers"', '<!-- /tab-customers -->');
   ok('customers switch uses nav.tab.conversations',

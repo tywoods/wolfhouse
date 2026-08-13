@@ -117,6 +117,8 @@ function main() {
     /wireLunaPauseSwitch\s*\(/.test(threadSrc) && /wireNeedsHumanToggle\s*\(/.test(threadSrc));
   assert('loadConvDetail wires the visible mode control', /wireInboxLunaModeControl\s*\(/.test(threadSrc));
   assert('loadConvDetail wires the needs-human raise', /wireInboxNeedsHumanRaise\s*\(/.test(threadSrc));
+  const demoDetail = sliceFn(threadSrc, 'loadSurfInboxDemoDetail');
+  assert('demo-preview threads do not render inert Luna controls', !/detailHeaderSwitchesHtml\s*\(/.test(demoDetail));
 
   console.log('\n[4] Visible clicks drive existing pause / needs_human semantics');
   const modeWire = sliceFn(modeSrc, 'wireInboxLunaModeControl');

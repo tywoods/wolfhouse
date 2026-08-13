@@ -754,6 +754,8 @@
     "verify:inbox-saved-views": "node scripts/verify-inbox-saved-views.js",
     "verify:inbox-views-ui": "node scripts/verify-inbox-views-ui.js",
     "verify:inbox-view-routes": "node scripts/verify-inbox-view-routes.js",
+    "verify:inbox-columns": "node scripts/verify-inbox-columns.js",
+    "verify:inbox-columns-playwright": "node scripts/verify-inbox-columns-playwright.js",
     "verify:staff-automated-notifications-routes": "node scripts/verify-staff-automated-notifications-routes.js",
     "verify:staff-automated-notification-ui": "node scripts/verify-staff-automated-notification-ui.js",
     "verify:staff-automated-notifications-crud": "node scripts/verify-staff-automated-notifications-crud.js",
