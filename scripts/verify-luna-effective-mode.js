@@ -363,8 +363,9 @@ function buildCombos() {
 // the resolver actually branches on: the four draft fixtures and two eligibility envs
 // collapse to the three outcomes the classifier can return, and `send_kind` folds into
 // the auto-send flag because the route exempts the staff Inbox send from it. Grouping
-// on these and then eliding any axis whose whole domain appears is exact rather than
-// approximate — `collapseToRules` proves it, and the gate fails if it ever is not.
+// on these and then eliding any axis whose whole domain appears loses nothing, and
+// `collapseToRules` proves that rather than assuming it: a rule that spans more states
+// than it covers is an over-generalisation, and the gate fails on it.
 
 const RULE_AXES = [
   'tenant', 'channel', 'eligibility', 'env_gate',
