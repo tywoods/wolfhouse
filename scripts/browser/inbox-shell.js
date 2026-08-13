@@ -205,13 +205,18 @@ function inboxMockupThemeCssText(){
     'border:none;',
     'box-shadow:none;',
     'padding:0;',
-    'gap:8px;',
+    'gap:10px;',
     '}',
-    '#inbox-shell .inbox-chat-body,',
+    '#inbox-shell .thread-section,',
+    '#inbox-shell .draft-panel textarea{',
+    'background:var(--surface);',
+    'border-radius:var(--radius);',
+    '}',
     '#inbox-shell .inbox-empty-right{',
     'background:var(--surface);',
     'border-radius:var(--radius);',
     '}',
+    '#tab-conversations:has(#inbox-shell[data-col4="wide"]) #inbox-chat-chrome-slot{visibility:hidden}',
     '#inbox-shell.inbox-two-col.inbox-shell-cols .inbox-left{',
     'background:var(--surface-soft);',
     'border-radius:var(--radius);',
@@ -639,8 +644,9 @@ function mountInboxShellChrome(){
     mount.innerHTML = inboxShellChannelDefaultsHtml(inboxShellLoadStoredModes());
     var node = mount.firstChild;
     var refresh = inboxShellById('btn-refresh');
-    if (refresh && refresh.parentNode === toolbar) toolbar.insertBefore(node, refresh);
-    else toolbar.insertBefore(node, toolbar.firstChild);
+    var host = (refresh && refresh.parentNode) || toolbar;
+    if (refresh && refresh.parentNode === host) host.insertBefore(node, refresh);
+    else host.insertBefore(node, host.firstChild);
   }
   wireInboxShellChannelDefaults();
   inboxShellSyncFromPauseState();

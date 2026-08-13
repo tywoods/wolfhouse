@@ -45,8 +45,8 @@ const W = {
 const COL3_MIN = 480;
 const PRESETS = {
   all4: { col1: 'full', col2: 'comfortable', col4: 'peek' },
-  chat: { col1: 'icons', col2: 'hidden', col4: 'peek' },
-  guest: { col1: 'icons', col2: 'hidden', col4: 'wide' },
+  chat: { col1: 'full', col2: 'comfortable', col4: 'hidden' },
+  guest: { col1: 'full', col2: 'comfortable', col4: 'wide' },
 };
 
 let pass = 0;
@@ -593,7 +593,7 @@ async function main() {
     await openInbox(page, base);
     const reloaded = await page.evaluate(MEASURE);
     ok('the guest preset comes back after a reload',
-      reloaded.attrs.col1 === 'icons' && reloaded.attrs.col2 === 'hidden' && reloaded.attrs.col4 === 'wide',
+      reloaded.attrs.col1 === 'full' && reloaded.attrs.col2 === 'comfortable' && reloaded.attrs.col4 === 'wide',
       JSON.stringify(reloaded.attrs));
     ok('column 4 measures its 460px wide state after the reload',
       near(reloaded.col4.width, 460), reloaded.col4.width);

@@ -119,6 +119,7 @@ function setLunaPauseActionStatus(targetEl, msg, isError){
 }
 
 function updateLunaPauseUiInPlace(targetEl, paused){
+  targetEl = inboxThreadScope(targetEl);
   var statusWrap = targetEl.querySelector('.luna-auto-status');
   var label = targetEl.querySelector('.luna-auto-status-label');
   var help = targetEl.querySelector('.luna-auto-status-help');
@@ -168,7 +169,15 @@ function updateInboxConvCardNeedsHuman(convId, needsHuman){
   updateInboxConvCardStatusPills(convId);
 }
 
+function inboxPaintChatChromeSlot(conv, lunaGuestPaused){
+  var slot = typeof el === 'function' ? el('inbox-chat-chrome-slot') : (typeof document !== 'undefined' ? document.getElementById('inbox-chat-chrome-slot') : null);
+  if (!slot) return;
+  slot.innerHTML = '<span class="detail-header-pills">' + convHeaderStatusPillsHtml(conv, lunaGuestPaused) + '</span>' +
+    detailHeaderSwitchesHtml(conv, lunaGuestPaused);
+}
+
 function updateConvHeaderPillsInPlace(targetEl, needsHuman, lunaPaused){
+  targetEl = inboxThreadScope(targetEl);
   var hdrPills = targetEl.querySelector('.detail-header-pills');
   if (hdrPills){
     hdrPills.innerHTML = convHeaderStatusPillsHtml({ needs_human: needsHuman }, lunaPaused);
@@ -177,6 +186,7 @@ function updateConvHeaderPillsInPlace(targetEl, needsHuman, lunaPaused){
 
 function updateNeedsHumanBadgeInPlace(targetEl, needsHuman, opts){
   opts = opts || {};
+  targetEl = inboxThreadScope(targetEl);
   var pauseSw = targetEl.querySelector('#luna-pause-switch');
   var lunaPaused = (typeof opts.conversation_paused === 'boolean')
     ? opts.conversation_paused
@@ -190,6 +200,7 @@ function updateNeedsHumanBadgeInPlace(targetEl, needsHuman, opts){
 }
 
 function wireNeedsHumanToggle(convId, targetEl){
+  targetEl = inboxThreadScope(targetEl);
   var toggle = targetEl.querySelector('#conv-needs-human-toggle');
   if (!toggle || toggle.dataset.wiredNeedsHuman === '1') return;
   toggle.dataset.wiredNeedsHuman = '1';
@@ -600,6 +611,7 @@ function bcSyncCustomerCardButton(data) {
 }
 
 function wireLunaPauseSwitch(convId, targetEl){
+  targetEl = inboxThreadScope(targetEl);
   var sw = targetEl.querySelector('#luna-pause-switch');
   if (!sw) return;
   sw.addEventListener('change', function(){
@@ -1636,11 +1648,6 @@ function loadConvDetail(convId, targetEl){
 
     /* ═══ MIDDLE — conversation card: header (controls) + thread + reply ═══ */
     html += '<div class="detail-main">';
-    html += '<div class="inbox-chat-chrome">';
-    html +=   '<span class="detail-header-pills">' + convHeaderStatusPillsHtml(c, lunaGuestPaused) + '</span>';
-    html +=   detailHeaderSwitchesHtml(c, lunaGuestPaused);
-    html += '</div>';
-    html += '<div class="inbox-chat-body">';
 
     html +=   '<div class="detail-header">';
     html +=     '<div class="detail-header-main">';
@@ -1727,7 +1734,6 @@ function loadConvDetail(convId, targetEl){
     html += '<button type="button" class="pill pill-guest-context-reset" id="btn-guest-context-reset" title="Full wipe for testing: Hermes memory + all message history and logs + cached context. Bookings cancelled.">Full Wipe (testing)</button>';
     html += '</details>';
 
-    html += '</div>'; /* /inbox-chat-body */
     html += '</div>'; /* /detail-main */
 
     /* ═══ RIGHT — context sidebar ═══ */
@@ -1735,6 +1741,7 @@ function loadConvDetail(convId, targetEl){
     html += '</div>'; /* /detail-layout */
 
     targetEl.innerHTML = html;
+    inboxPaintChatChromeSlot(c, lunaGuestPaused);
     targetEl.classList.remove('is-loading-detail');
 
     if (useEmailReplyUi) wireInboxEmailReply(convId, targetEl);

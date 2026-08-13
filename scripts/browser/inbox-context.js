@@ -783,10 +783,7 @@ function inboxClientInfoHtml(data, opts) {
 
 function inboxContextIsGuestMode() {
   var shell = typeof document !== 'undefined' ? document.getElementById('inbox-shell') : null;
-  return !!(shell
-    && shell.getAttribute('data-col1') === 'icons'
-    && shell.getAttribute('data-col2') === 'hidden'
-    && shell.getAttribute('data-col4') === 'wide');
+  return !!(shell && shell.getAttribute('data-col4') === 'wide');
 }
 
 function inboxCustomerFromConv(conv) {

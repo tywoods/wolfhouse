@@ -58,8 +58,8 @@ const SPEC_WIDTHS = {
 const SPEC_COL3_MIN = '480px';
 const SPEC_PRESETS = {
   all4: { col1: 'full', col2: 'comfortable', col4: 'peek' },
-  chat: { col1: 'icons', col2: 'hidden', col4: 'peek' },
-  guest: { col1: 'icons', col2: 'hidden', col4: 'wide' },
+  chat: { col1: 'full', col2: 'comfortable', col4: 'hidden' },
+  guest: { col1: 'full', col2: 'comfortable', col4: 'wide' },
 };
 /** Under roughly 1280px column 4 auto-collapses; under roughly 900px column 2 auto-hides. */
 const SPEC_BUCKETS = [
@@ -497,10 +497,10 @@ function checkModel(client, html) {
 
   harness.shell.attributeWrites.length = 0;
   api.setPreset('chat');
-  ok('Chat preset: 1 icons, 2 hidden, 4 peek', sameState(stateOf(harness), SPEC_PRESETS.chat),
+  ok('Chat preset: keep list + rail, hide guest card', sameState(stateOf(harness), SPEC_PRESETS.chat),
     JSON.stringify(stateOf(harness)));
   api.setPreset('guest');
-  ok('Guest preset: 1 icons, 2 hidden, 4 wide', sameState(stateOf(harness), SPEC_PRESETS.guest),
+  ok('Guest preset: keep list + rail, widen guest card', sameState(stateOf(harness), SPEC_PRESETS.guest),
     JSON.stringify(stateOf(harness)));
   api.setPreset('all4');
   ok('back to all four', sameState(stateOf(harness), SPEC_PRESETS.all4), JSON.stringify(stateOf(harness)));

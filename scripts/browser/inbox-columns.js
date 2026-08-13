@@ -40,8 +40,8 @@ var INBOX_COLUMNS_COL3_MIN = '480px';
 
 var INBOX_COLUMNS_PRESETS = {
   all4: { col1: 'full', col2: 'comfortable', col4: 'peek' },
-  chat: { col1: 'icons', col2: 'hidden', col4: 'peek' },
-  guest: { col1: 'icons', col2: 'hidden', col4: 'wide' },
+  chat: { col1: 'full', col2: 'comfortable', col4: 'hidden' },
+  guest: { col1: 'full', col2: 'comfortable', col4: 'wide' },
 };
 
 var INBOX_COLUMNS_PRESET_ORDER = ['all4', 'chat', 'guest'];

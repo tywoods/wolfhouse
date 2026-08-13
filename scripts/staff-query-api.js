@@ -18497,7 +18497,12 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .inbox-two-col{display:flex;gap:24px;flex:1 1 0;width:100%;min-width:0;min-height:0;align-self:stretch}
 .inbox-left{flex:0 0 300px;width:300px;min-height:0;height:100%;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;background:var(--surface-soft);overflow:hidden}
 .inbox-left-toolbar{padding:12px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-direction:column;gap:10px;flex-shrink:0;background:var(--surface-soft)}
-.inbox-toolbar-top{display:flex;align-items:center;gap:8px;width:100%}
+.inbox-toolbar-top{display:grid;align-items:center;gap:14px;width:100%;
+  grid-template-columns:var(--inbox-col1-w,240px) minmax(0,var(--inbox-col2-w,360px)) minmax(0,1fr) auto}
+.inbox-toolbar-channels{display:flex;align-items:center;gap:8px;min-width:0}
+.inbox-chat-chrome-slot{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;min-height:32px}
+.inbox-conv-search-wrap{min-width:0}
+.inbox-conv-search{width:100%;box-sizing:border-box;height:32px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px}
 .inbox-client-select{font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);flex:1;min-width:0}
 .inbox-refresh-btn{margin-left:auto;flex-shrink:0;padding:6px 12px;font-size:11px}
 .inbox-ro-note{flex-shrink:0}
@@ -18570,7 +18575,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .conv-skeleton-line{min-height:14px;background:var(--surface-soft);border-radius:4px}
 .conv-skeleton-line.short{max-width:160px;margin-top:6px}
 /* .visible no longer toggles display — kept for JS compat, no visual effect */
-.detail-header{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border-soft);flex-shrink:0;flex-wrap:wrap}
+.detail-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:14px 16px 12px;border-bottom:none;flex-shrink:0;flex-wrap:wrap}
 .detail-header-main{flex:1;min-width:0;overflow:hidden}
 .detail-header-right{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto}
 .detail-header-main .detail-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -18652,7 +18657,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .detail-layout.is-sidebar-collapsed .detail-sidebar{display:none!important}
 .detail-layout.is-sidebar-collapsed .detail-main{flex:1 1 auto;min-width:0;width:100%;max-width:100%}
 /* ── Message thread ──────────────────────────────────────────────────────── */
-.thread-section{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.thread-section{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius)}
 .thread-section h3{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;flex-shrink:0}
 .thread{position:relative;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;background:transparent;border:none;padding:0}
 .thread .inbox-thread-shell{border-radius:0;background:transparent;border:none;padding:0}
@@ -18671,7 +18676,8 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .msg.outbound .msg-meta{text-align:right}
 .thread-empty{color:var(--text-3);text-align:center;padding:28px;font-size:13px;font-style:italic}
 /* ── Luna draft panel ────────────────────────────────────────────────────── */
-.draft-panel{flex-shrink:0;margin-top:12px;padding-top:16px;border-top:1px solid var(--border-soft)}
+.draft-panel{flex-shrink:0;margin-top:10px;padding-top:0;border-top:none;background:transparent}
+.draft-panel textarea{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);box-sizing:border-box}
 .draft-label{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
 .draft-label h3{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin:0}
 .draft-not-sent{background:#EFD9D0;color:#9C5742;font-size:9.5px;font-weight:700;letter-spacing:.06em;padding:3px 9px;border-radius:var(--radius-pill);white-space:nowrap}
@@ -20277,6 +20283,14 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .inbox-two-col.inbox-shell-cols[data-col4="wide"]{--inbox-col4-w:460px}
 .inbox-two-col.inbox-shell-cols[data-col4="peek"]{--inbox-col4-w:300px}
 .inbox-two-col.inbox-shell-cols[data-col4="hidden"]{--inbox-col4-w:0px}
+.inbox-shell-wrap:has(#inbox-shell[data-col1="full"]){--inbox-col1-w:240px}
+.inbox-shell-wrap:has(#inbox-shell[data-col1="icons"]){--inbox-col1-w:56px}
+.inbox-shell-wrap:has(#inbox-shell[data-col2="comfortable"]){--inbox-col2-w:360px}
+.inbox-shell-wrap:has(#inbox-shell[data-col2="compact"]){--inbox-col2-w:280px}
+.inbox-shell-wrap:has(#inbox-shell[data-col2="hidden"]){--inbox-col2-w:0px}
+.inbox-shell-wrap:has(#inbox-shell[data-col4="wide"]){--inbox-col4-w:460px}
+.inbox-shell-wrap:has(#inbox-shell[data-col4="peek"]){--inbox-col4-w:300px}
+.inbox-shell-wrap:has(#inbox-shell[data-col4="hidden"]){--inbox-col4-w:0px}
 .inbox-two-col.inbox-shell-cols .inbox-left{
   flex:unset;width:auto;min-width:0;min-height:0;height:auto;max-height:none;
   border-right:none;border:1px solid var(--border-soft);border-radius:var(--radius);
@@ -20465,12 +20479,12 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   .inbox-two-col.inbox-shell-cols[data-col2="hidden"] .inbox-empty-right{margin-left:calc(-1 * var(--inbox-col-gap))}
   .inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-main,
   .inbox-two-col.inbox-shell-cols[data-col4="hidden"] .inbox-empty-right{margin-right:calc(-1 * var(--inbox-col-gap))}
-  /* Guest: collapse the chat track so the customer card takes the remaining width. */
-  .inbox-two-col.inbox-shell-cols[data-col1="icons"][data-col2="hidden"][data-col4="wide"]{
+  /* Guest: collapse only the chat track so the customer card takes that space. List + rail stay. */
+  .inbox-two-col.inbox-shell-cols[data-col4="wide"]{
     grid-template-columns:var(--inbox-col1-w) minmax(0,var(--inbox-col2-w)) 0px minmax(0,1fr);
   }
-  .inbox-two-col.inbox-shell-cols[data-col1="icons"][data-col2="hidden"][data-col4="wide"] .detail-main,
-  .inbox-two-col.inbox-shell-cols[data-col1="icons"][data-col2="hidden"][data-col4="wide"] .inbox-empty-right{
+  .inbox-two-col.inbox-shell-cols[data-col4="wide"] .detail-main,
+  .inbox-two-col.inbox-shell-cols[data-col4="wide"] .inbox-empty-right{
     display:none!important;
   }
   /*
@@ -21162,10 +21176,16 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <div id="wrap" class="inbox-shell-wrap">
 
   <div class="inbox-shell-toolbar">
-    <div class="inbox-toolbar-top">
-      <select id="c-client" title="Company" class="inbox-client-select"></select>
-      <button class="btn btn-primary inbox-refresh-btn" id="btn-refresh" data-i18n-title="inbox.refreshTitle" title="Refresh conversation list">&#8635;</button>
-      <span id="inbox-live-status" class="inbox-live-status" aria-live="polite">Live</span>
+    <div class="inbox-toolbar-top" id="inbox-toolbar-top">
+      <div class="inbox-toolbar-channels" id="inbox-toolbar-channels">
+        <select id="c-client" title="Company" class="inbox-client-select"></select>
+        <button class="btn btn-primary inbox-refresh-btn" id="btn-refresh" data-i18n-title="inbox.refreshTitle" title="Refresh conversation list">&#8635;</button>
+        <span id="inbox-live-status" class="inbox-live-status" aria-live="polite">Live</span>
+      </div>
+      <div class="inbox-conv-search-wrap">
+        <input type="search" id="inbox-conv-search" class="inbox-conv-search" placeholder="Search contacts" autocomplete="off" data-i18n-placeholder="inbox.search.contacts">
+      </div>
+      <div class="inbox-chat-chrome-slot" id="inbox-chat-chrome-slot"></div>
       <div class="inbox-layout-controls">
         <div class="inbox-layout-presets" id="inbox-layout-presets" role="group" data-i18n-aria="inbox.layout.presets" aria-label="Column layout">
           <button type="button" class="inbox-layout-preset-btn is-active" data-inbox-preset="all4" aria-pressed="true" aria-keyshortcuts="Alt+0" data-i18n-title="inbox.layout.preset.all4.title" title="Full layout — Alt+0"><span data-i18n="inbox.layout.preset.all4">Full</span></button>
@@ -21204,9 +21224,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div id="inbox-ro-note" class="inbox-ro-note" aria-hidden="true"></div>
       <div id="inbox-state" class="state-msg" style="padding:8px 14px;display:none;flex-shrink:0" data-i18n="inbox.loading">Loading conversations&hellip;</div>
       <div id="inbox-preview-banner" class="inbox-preview-banner" style="display:none" aria-hidden="true"></div>
-      <div class="inbox-conv-search-wrap">
-        <input type="search" id="inbox-conv-search" class="inbox-conv-search" placeholder="Search contacts" autocomplete="off" data-i18n-placeholder="inbox.search.contacts">
-      </div>
       <div class="inbox-left-rows">
         <div id="conv-list" class="conv-list"></div>
       </div>

@@ -98,7 +98,29 @@ function inboxLunaModeControlHtml(opts){
   return html;
 }
 
+function inboxThreadScope(targetEl){
+  var slot = typeof document !== 'undefined' ? document.getElementById('inbox-chat-chrome-slot') : null;
+  if (!slot) return targetEl;
+  return {
+    querySelector: function(sel){
+      return (slot && slot.querySelector(sel)) || (targetEl && targetEl.querySelector && targetEl.querySelector(sel)) || null;
+    },
+    querySelectorAll: function(sel){
+      var out = [];
+      if (slot) Array.prototype.push.apply(out, slot.querySelectorAll(sel));
+      if (targetEl && targetEl.querySelectorAll) {
+        var more = targetEl.querySelectorAll(sel);
+        for (var i = 0; i < more.length; i++) {
+          if (out.indexOf(more[i]) < 0) out.push(more[i]);
+        }
+      }
+      return out;
+    }
+  };
+}
+
 function setInboxLunaModeBusy(targetEl, busy){
+  targetEl = inboxThreadScope(targetEl);
   if (!targetEl) return;
   targetEl.querySelectorAll('.inbox-luna-mode-btn').forEach(function(btn){
     btn.disabled = !!busy;
@@ -106,6 +128,7 @@ function setInboxLunaModeBusy(targetEl, busy){
 }
 
 function syncInboxLunaModeControl(targetEl, paused){
+  targetEl = inboxThreadScope(targetEl);
   if (!targetEl) return;
   var wrap = targetEl.querySelector('.inbox-luna-mode');
   var sw = targetEl.querySelector('#luna-pause-switch');
@@ -123,6 +146,7 @@ function syncInboxLunaModeControl(targetEl, paused){
 }
 
 function syncInboxNeedsHumanRaise(targetEl, needsHuman){
+  targetEl = inboxThreadScope(targetEl);
   if (!targetEl) return;
   var btn = targetEl.querySelector('#inbox-needs-human-raise');
   var toggle = targetEl.querySelector('#conv-needs-human-toggle');
@@ -135,6 +159,7 @@ function syncInboxNeedsHumanRaise(targetEl, needsHuman){
 }
 
 function wireInboxLunaModeControl(targetEl){
+  targetEl = inboxThreadScope(targetEl);
   var wrap = targetEl && targetEl.querySelector('.inbox-luna-mode');
   var sw = targetEl && targetEl.querySelector('#luna-pause-switch');
   if (!wrap || !sw || wrap.dataset.wiredLunaMode === '1') return;
