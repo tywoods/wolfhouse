@@ -20189,7 +20189,8 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   max-width:1800px!important;width:100%;margin:0 auto;padding:var(--tab-top-gap) 20px 12px!important;
   display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box;align-self:center;
 }
-#tab-conversations.active:has([data-inbox-preset="chat"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
+#tab-conversations.active:has([data-inbox-preset="chat"][aria-pressed="true"]) #wrap.inbox-shell-wrap,
+#tab-conversations.active:has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
   max-width:1240px!important;
 }
 #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .detail-main{gap:0;padding:0}
