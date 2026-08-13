@@ -75,6 +75,13 @@ const {
 const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(process.env);
 
 const { withPgClient: _withPgClientImpl, markPgClientDiscardRequired } = require('./lib/pg-connect');
+const {
+  isInactiveInboxBookingStatus,
+  filterActiveInboxBookings,
+  sanitizeConversationContextForInbox,
+  buildDefaultActivePauseResponse,
+  buildPausedStateResponse,
+} = require('./lib/staff-inbox-helpers');
 const { fetchSunsetFinanceData, FinanceDataQualityError } = require('./lib/sunset-finance-data');
 const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
 const { createBookingsAdminRoutes } = require('./lib/sunset-bookings-admin-routes');
@@ -11057,38 +11064,8 @@ function botPauseControlsDisabledResponse() {
   };
 }
 
-function buildDefaultActivePauseResponse(extra) {
-  return Object.assign({
-    success:           true,
-    paused:            false,
-    bot_paused:        false,
-    live_send_blocked: false,
-    source:            'default_active',
-  }, extra || {});
-}
-
-function buildPausedStateResponse(pauseStateRow, extra) {
-  const pauseState = formatPauseStateRow(pauseStateRow);
-  return Object.assign({
-    success:           true,
-    paused:            true,
-    bot_paused:        true,
-    live_send_blocked: true,
-    source:            'bot_pause_states',
-    pause_state:       pauseState,
-    client_slug:       pauseState ? pauseState.client_slug : undefined,
-    guest_phone:       pauseState ? pauseState.guest_phone : undefined,
-    conversation_id:   pauseState ? pauseState.conversation_id : undefined,
-    booking_id:        pauseState ? pauseState.booking_id : undefined,
-    booking_code:      pauseState ? pauseState.booking_code : undefined,
-    pause_reason:      pauseState ? pauseState.pause_reason : undefined,
-    paused_by:         pauseState ? pauseState.paused_by : undefined,
-    paused_at:         pauseState ? pauseState.paused_at : undefined,
-    resumed_by:        pauseState ? pauseState.resumed_by : undefined,
-    resumed_at:        pauseState ? pauseState.resumed_at : undefined,
-    updated_at:        pauseState ? pauseState.updated_at : undefined,
-  }, extra || {});
-}
+// buildDefaultActivePauseResponse and buildPausedStateResponse are imported
+// from ./lib/staff-inbox-helpers.js (shared with composite and verifier).
 
 function resolveStaffActorId(user, body, fallback) {
   if (user && user.staff_user_id) return user.staff_user_id;
@@ -42032,31 +42009,9 @@ async function handleConversationMessages(convId, query, res, user) {
   return sendJSON(res, 200, { success: true, messages: rows, count: rows.length, elapsed_ms: elapsed });
 }
 
-function isInactiveInboxBookingStatusServer(status) {
-  const s = String(status || '').toLowerCase();
-  return s === 'cancelled' || s === 'canceled' || s === 'expired';
-}
-
-function filterActiveInboxBookings(rows) {
-  return (rows || []).filter((b) => !isInactiveInboxBookingStatusServer(b.booking_status));
-}
-
-function sanitizeConversationContextForInbox(row) {
-  if (!row || !isInactiveInboxBookingStatusServer(row.booking_status)) return row;
-  return {
-    ...row,
-    booking_id: null,
-    booking_code: null,
-    booking_status: null,
-    booking_payment_status: null,
-    check_in: null,
-    check_out: null,
-    guest_count: null,
-    package_code: null,
-    assigned_room_code: null,
-    assigned_bed_code: null,
-  };
-}
+// isInactiveInboxBookingStatus, filterActiveInboxBookings, and
+// sanitizeConversationContextForInbox are imported from ./lib/staff-inbox-helpers.js
+// (shared with composite and verifier).
 
 async function handleConversationContext(convId, query, res, user) {
   const started    = Date.now();
