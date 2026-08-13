@@ -40,6 +40,7 @@ const {
 } = require('./lib/sunset-schedule-browser-source');
 const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
 const esSunset = require('./lib/staff-portal-i18n-es-sunset');
+const { collectPortalFunctions, slicePortalFunction } = require('./lib/portal-fn-slice');
 
 let pass = 0;
 let fail = 0;
@@ -54,20 +55,7 @@ function ok(label, cond, detail) {
 }
 
 function extractFn(src, name) {
-  const needle = 'function ' + name + '(';
-  const start = src.indexOf(needle);
-  if (start < 0) return null;
-  const brace = src.indexOf('{', start);
-  if (brace < 0) return null;
-  let depth = 0;
-  for (let i = brace; i < src.length; i += 1) {
-    if (src[i] === '{') depth += 1;
-    else if (src[i] === '}') {
-      depth -= 1;
-      if (depth === 0) return src.slice(start, i + 1);
-    }
-  }
-  return null;
+  return slicePortalFunction(src, name);
 }
 
 function freePort() {
@@ -280,18 +268,22 @@ function sandboxFromHtml(html, opts) {
       querySelectorAll(sel) {
         if (this.id === 'ps-create-course-list') {
           const rows = this._courseRows || [];
+          if (sel && sel.includes('input')) {
+            const inputs = rows.map((r) => r._input).filter(Boolean);
+            return sel.includes(':checked') ? inputs.filter((i) => i.checked) : inputs;
+          }
           if (!sel || sel === '*' || sel.includes('label')
             || sel.includes('portal-schedule-create-check')
             || sel.includes('portal-schedule-create-activity-btn')
             || sel.includes('button[data-course-id]')
+            || sel.includes('[data-course-id]')
             || (sel.includes('button') && sel.includes('data-course-id'))) {
-            return rows.slice();
-          }
-          if (sel.includes('input')) {
-            return rows.map((r) => r._input).filter(Boolean);
-          }
-          if (sel.includes('[data-course-id]')) {
-            return rows.slice();
+            // Attribute filters in the selector are load-bearing: the multi-select
+            // reader asks for button[data-course-id][aria-pressed="true"].
+            const wantPressed = /\[aria-pressed=["']?true["']?\]/.test(sel);
+            return rows.filter((r) => (wantPressed
+              ? r.getAttribute && r.getAttribute('aria-pressed') === 'true'
+              : true));
           }
         }
         return [];
@@ -549,11 +541,6 @@ function sandboxFromHtml(html, opts) {
     'schedulePortalRentalLabel',
     'schedulePortalDurationLabel',
   ];
-  const chunks = [];
-  for (const name of needed) {
-    const fn = extractFn(html, name);
-    if (fn) chunks.push(fn);
-  }
 
   const ctx = {
     console,
@@ -741,22 +728,31 @@ function sandboxFromHtml(html, opts) {
     configurable: true,
   });
 
-  const prelude = [
-    'var schedulePortalQuoteState = null;',
-    'var schedulePortalQuoteGen = 0;',
-    'var schedulePortalQuoteAbort = null;',
-    'var schedulePortalQuoteTimer = null;',
-    'var schedulePortalQuoteDebounceMs = 400;',
-    'var schedulePortalSubmitInFlight = false;',
-    'var schedulePortalOpenGen = 1;',
-    'var schedulePortalPendingCourseId = null;',
-    'var schedulePortalPendingCourseGen = 0;',
-    'var schedulePortalMainActivityView = "root";',
-    'var scheduleCoursesCache = [];',
-  ].join('\n');
+  const preludeVars = [
+    'schedulePortalQuoteState = null',
+    'schedulePortalQuoteGen = 0',
+    'schedulePortalQuoteAbort = null',
+    'schedulePortalQuoteTimer = null',
+    'schedulePortalQuoteDebounceMs = 400',
+    'schedulePortalSubmitInFlight = false',
+    'schedulePortalOpenGen = 1',
+    'schedulePortalPendingCourseId = null',
+    'schedulePortalPendingCourseGen = 0',
+    'schedulePortalMainActivityView = "root"',
+    'scheduleCoursesCache = []',
+  ];
+  const prelude = preludeVars.map((v) => `var ${v};`).join('\n');
+
+  // Pull the roots above plus every helper they call: the portal front-end lives
+  // in scripts/browser modules now, so a hand-listed set of names goes stale and
+  // the slice dies on a ReferenceError before asserting anything.
+  const sliced = collectPortalFunctions(html, needed, {
+    provided: Object.keys(ctx).concat(preludeVars.map((v) => v.split(' ')[0])),
+  });
+  ctx._sliced = sliced;
 
   // Seed cache
-  const portalBody = chunks.join('\n');
+  const portalBody = sliced.code;
   vm.createContext(ctx);
   try {
     vm.runInContext(
@@ -927,6 +923,9 @@ function pathText(c) {
   console.log('\n[2] Initial three-choice view');
   const root = sandboxFromHtml(art);
   ok('sandbox loaded without throw', !root._loadError, root._loadError && root._loadError.message);
+  ok('every helper the sliced owners call is in scope',
+    root._sliced.missing.length === 0 && root._sliced.unparsable.length === 0,
+    'missing=' + root._sliced.missing.join(',') + ' unparsable=' + root._sliced.unparsable.join(','));
   ok('initial Equipment only checked', !!root.el('ps-create-comp-no-lesson').checked);
   ok('initial Group unchecked', !root.el('ps-create-comp-course').checked);
   ok('initial choices visible',
@@ -1013,23 +1012,42 @@ function pathText(c) {
       !rows[0]._input
         || rows.some((r) => r._input && r._input.checked && r.getAttribute('data-course-id') === 'c-manana'));
   }
+  // Multi-lesson Create (8e5b39ba, 2026-07-29) made a second pick additive:
+  // schedulePortalSelectCreateCourse appends, button clicks toggle, and exclusive
+  // replacement is now opt-in via { exclusive: true }.
   if (typeof group.schedulePortalSelectCreateCourse === 'function') {
     group.schedulePortalSelectCreateCourse('c-tarde', 'Curso Tarde');
   }
-  ok('selecting second course replaces first (exactly one)',
-    typeof group.schedulePortalGetSelectedCreateCourseId === 'function'
-      ? group.schedulePortalGetSelectedCreateCourseId() === 'c-tarde'
-      : group.el('ps-create-course-select').value === 'c-tarde');
+  ok('selecting second course adds it (multi-select) and keeps the first primary',
+    typeof group.schedulePortalGetSelectedCreateCourseIds === 'function'
+      ? group.schedulePortalGetSelectedCreateCourseIds().join(',') === 'c-manana,c-tarde'
+        && group.schedulePortalGetSelectedCreateCourseId() === 'c-manana'
+      : group.el('ps-create-course-select').value === 'c-manana',
+    typeof group.schedulePortalGetSelectedCreateCourseIds === 'function'
+      ? group.schedulePortalGetSelectedCreateCourseIds().join(',') : '');
   {
     const rows = group.el('ps-create-course-list')._courseRows || [];
     const pressed = rows.filter((r) => r.getAttribute && r.getAttribute('aria-pressed') === 'true');
-    ok('second select keeps exclusive aria-pressed on c-tarde only',
-      pressed.length === 1
-      && pressed[0]
-      && pressed[0].getAttribute('data-course-id') === 'c-tarde');
+    ok('both selected courses stay aria-pressed after the second pick',
+      pressed.length === 2
+      && pressed.map((r) => r.getAttribute('data-course-id')).sort().join(',') === 'c-manana,c-tarde',
+      'pressed=' + pressed.length);
   }
   if (typeof group.schedulePortalSelectCreateCourse === 'function') {
-    group.schedulePortalSelectCreateCourse('c-manana', 'Curso Mañana');
+    group.schedulePortalSelectCreateCourse('c-tarde', 'Curso Tarde', { exclusive: true });
+  }
+  {
+    const rows = group.el('ps-create-course-list')._courseRows || [];
+    const pressed = rows.filter((r) => r.getAttribute && r.getAttribute('aria-pressed') === 'true');
+    ok('exclusive select still replaces the whole set (single-course path intact)',
+      pressed.length === 1
+      && pressed[0]
+      && pressed[0].getAttribute('data-course-id') === 'c-tarde',
+      'pressed=' + pressed.length);
+  }
+  // Back to a single Curso Mañana selection for the footer/payload checks below.
+  if (typeof group.schedulePortalSelectCreateCourse === 'function') {
+    group.schedulePortalSelectCreateCourse('c-manana', 'Curso Mañana', { exclusive: true });
   }
   if (typeof group.schedulePortalRenderMainActivityPath === 'function') {
     group.schedulePortalRenderMainActivityPath();

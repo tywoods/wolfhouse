@@ -40,6 +40,7 @@ const {
 } = require('./lib/sunset-schedule-browser-source');
 const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
 const esSunset = require('./lib/staff-portal-i18n-es-sunset');
+const { collectPortalFunctions, slicePortalFunction } = require('./lib/portal-fn-slice');
 
 let pass = 0;
 let fail = 0;
@@ -54,20 +55,7 @@ function ok(label, cond, detail) {
 }
 
 function extractFn(src, name) {
-  const needle = 'function ' + name + '(';
-  const start = src.indexOf(needle);
-  if (start < 0) return null;
-  const brace = src.indexOf('{', start);
-  if (brace < 0) return null;
-  let depth = 0;
-  for (let i = brace; i < src.length; i += 1) {
-    if (src[i] === '{') depth += 1;
-    else if (src[i] === '}') {
-      depth -= 1;
-      if (depth === 0) return src.slice(start, i + 1);
-    }
-  }
-  return null;
+  return slicePortalFunction(src, name);
 }
 
 function freePort() {
@@ -687,12 +675,6 @@ function sandboxFromHtml(html, opts) {
     'schedulePrivateLessonSessionsRefreshDependents',
     'scheduleSyncPrivateLessonSessions',
   ];
-  const chunks = [];
-  for (const name of needed) {
-    const fn = extractFn(html, name);
-    if (fn) chunks.push(fn);
-  }
-
   function readSessionsFromDom() {
     if (typeof ctx.scheduleReadPrivateLessonSessionsFromDom === 'function') {
       return ctx.scheduleReadPrivateLessonSessionsFromDom();
@@ -910,22 +892,31 @@ function sandboxFromHtml(html, opts) {
     configurable: true,
   });
 
-  const prelude = [
-    'var schedulePortalQuoteState = null;',
-    'var schedulePortalQuoteGen = 0;',
-    'var schedulePortalQuoteAbort = null;',
-    'var schedulePortalQuoteTimer = null;',
-    'var schedulePortalQuoteDebounceMs = 400;',
-    'var schedulePortalSubmitInFlight = false;',
-    'var schedulePortalOpenGen = 1;',
-    'var schedulePortalPendingCourseId = null;',
-    'var schedulePortalPendingCourseGen = 0;',
-    'var schedulePortalMainActivityView = "root";',
-    'var scheduleCoursesCache = [];',
-    'var schedulePrivateLessonDurationCache = 120;',
-  ].join('\n');
+  const preludeVars = [
+    'schedulePortalQuoteState = null',
+    'schedulePortalQuoteGen = 0',
+    'schedulePortalQuoteAbort = null',
+    'schedulePortalQuoteTimer = null',
+    'schedulePortalQuoteDebounceMs = 400',
+    'schedulePortalSubmitInFlight = false',
+    'schedulePortalOpenGen = 1',
+    'schedulePortalPendingCourseId = null',
+    'schedulePortalPendingCourseGen = 0',
+    'schedulePortalMainActivityView = "root"',
+    'scheduleCoursesCache = []',
+    'schedulePrivateLessonDurationCache = 120',
+  ];
+  const prelude = preludeVars.map((v) => `var ${v};`).join('\n');
 
-  const portalBody = chunks.join('\n');
+  // Roots above plus every helper and module-level state var they call: the
+  // portal front-end lives in scripts/browser modules, so a hand-listed set of
+  // names goes stale and the slice dies on ReferenceError before asserting.
+  const sliced = collectPortalFunctions(html, needed, {
+    provided: Object.keys(ctx).concat(preludeVars.map((v) => v.split(' ')[0])),
+  });
+  ctx._sliced = sliced;
+
+  const portalBody = sliced.code;
   vm.createContext(ctx);
   try {
     vm.runInContext(
@@ -1126,6 +1117,9 @@ function exitMain(c, opts) {
   console.log('\n[2] Initial three-choice view');
   const root = sandboxFromHtml(art);
   ok('sandbox loaded without throw', !root._loadError, root._loadError && root._loadError.message);
+  ok('every helper the sliced owners call is in scope',
+    root._sliced.missing.length === 0 && root._sliced.unparsable.length === 0,
+    'missing=' + root._sliced.missing.join(',') + ' unparsable=' + root._sliced.unparsable.join(','));
   ok('initial No lesson checked', !!root.el('ps-create-comp-no-lesson').checked);
   ok('initial Private unchecked', !root.el('ps-create-comp-private-lesson').checked);
   ok('initial choices visible', visible(root.el('ps-create-main-activity-choices')));
@@ -1299,8 +1293,12 @@ function exitMain(c, opts) {
   if (typeof group.schedulePortalSelectCreateCourse === 'function') {
     group.schedulePortalSelectCreateCourse('c-manana', 'Curso Mañana');
   }
-  ok('Group: path Group course · Curso Mañana',
-    /Group course/i.test(pathText(group)) && /Curso Mañana/.test(pathText(group)),
+  // e97d9d0a (2026-07-28) dropped the Main activity crumb — the selected activity
+  // button already names the choice. Same contract as
+  // verify-sunset-create-course-drilldown's "path summary stays hidden after pick".
+  ok('Group: path crumb stays hidden after pick (activity button names the course)',
+    !visible(group.el('ps-create-main-activity-path'))
+    && !pathText(group).trim(),
     pathText(group));
   exitMain(group, { clearCourse: true });
   ok('Group Back: choices restored + No lesson',

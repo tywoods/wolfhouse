@@ -19,6 +19,8 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
+const { collectPortalFunctions } = require('./lib/portal-fn-slice');
+
 const ROOT = path.join(__dirname, '..');
 process.env.SUNSET_ADMIN_DB_READ_ENABLED = '1';
 
@@ -276,8 +278,6 @@ function makePg() {
 
 function loadCommercialHelper() {
   const src = loadViewUiSource();
-  const extract = src.match(/function scheduleDrawerBuildCommercialLines[\s\S]*?\n\}/);
-  if (!extract) throw new Error('scheduleDrawerBuildCommercialLines missing');
   const sandbox = {
     portalT(k) {
       if (k === 'schedule.ops.rentalBoth') return 'Board + wetsuit';
@@ -296,7 +296,20 @@ function loadCommercialHelper() {
     scheduleDrawerStripLabelDate(l) { return String(l || ''); },
   };
   vm.createContext(sandbox);
-  vm.runInContext(extract[0], sandbox);
+  // Slicing the one helper leaves its siblings (scheduleDrawerIsCourseLikeLine
+  // and friends) out of scope, so walk the call graph instead of naming one.
+  const sliced = collectPortalFunctions(src, ['scheduleDrawerBuildCommercialLines'], {
+    provided: Object.keys(sandbox),
+  });
+  if (!sliced.resolved.includes('scheduleDrawerBuildCommercialLines')) {
+    throw new Error('scheduleDrawerBuildCommercialLines missing');
+  }
+  if (sliced.missing.length || sliced.unparsable.length) {
+    throw new Error(`commercial helper deps unresolved: missing=${sliced.missing.join(',')} `
+      + `unparsable=${sliced.unparsable.join(',')}`);
+  }
+  const expose = sliced.resolved.map((n) => `this.${n}=${n};`).join('\n');
+  vm.runInContext(`${sliced.code}\n${expose}`, sandbox);
   return sandbox.scheduleDrawerBuildCommercialLines;
 }
 
@@ -816,8 +829,15 @@ async function main() {
   const writesSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-schedule-booking-writes.js'), 'utf8');
   const drawerSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-schedule-booking-drawer.js'), 'utf8');
   const rentalLookupSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-rental-price-lookup.js'), 'utf8');
+  // Create used to pass `quotePrepBody: rentalPrep.body` literally. 260b37fe
+  // (feat(sunset): add seasonal accommodation bookings) renamed it to a
+  // quoteTransportBody that spreads rentalPrep.body and adds custom line items
+  // and accommodation, so pin the transport, not the local's name.
+  const createQuoteBodies = writesSrc.match(/quotePrepBody:\s*[A-Za-z_$][\w$.]*/g) || [];
   assert('writes always passes quotePrepBody on Create',
-    /quotePrepBody:\s*rentalPrep\.body/.test(writesSrc));
+    createQuoteBodies.length >= 2
+      && createQuoteBodies.every((m) => !/\b(null|undefined)\b/.test(m))
+      && /const quoteTransportBody = \{\s*\.\.\.\(rentalPrep\.body/.test(writesSrc));
   assert('drawer Edit passes quotePrepBody',
     /course_equipment:\s*input\.course_equipment \|\| null/.test(drawerSrc)
       && /quotePrepBody:\s*quotePrepBody/.test(drawerSrc));

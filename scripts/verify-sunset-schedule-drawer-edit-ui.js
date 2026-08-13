@@ -15,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { injectSunsetSchedulePortalModule, SCHEDULE_EDIT_INJECT_MARKER } = require('./lib/sunset-schedule-browser-source');
+const { collectPortalFunctions, slicePortalFunction } = require('./lib/portal-fn-slice');
 
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
@@ -37,20 +38,7 @@ function assert(label, cond, detail) {
 }
 
 function extractFunctionSource(src, name) {
-  const needle = `function ${name}(`;
-  const start = src.indexOf(needle);
-  if (start < 0) return null;
-  const braceStart = src.indexOf('{', start);
-  if (braceStart < 0) return null;
-  let depth = 0;
-  for (let i = braceStart; i < src.length; i += 1) {
-    if (src[i] === '{') depth += 1;
-    else if (src[i] === '}') {
-      depth -= 1;
-      if (depth === 0) return src.slice(start, i + 1);
-    }
-  }
-  return null;
+  return slicePortalFunction(src, name);
 }
 
 function idOrder(html, id) {
@@ -308,6 +296,24 @@ if (editExists) {
   const fetchLog = [];
   let saveInFlight = false;
 
+  /** Real production owners call classList.toggle/add/remove/contains on rows. */
+  function makeClassList() {
+    const set = new Set();
+    return {
+      add(c) { set.add(c); },
+      remove(c) { set.delete(c); },
+      contains(c) { return set.has(c); },
+      toggle(c, force) {
+        if (force === true) set.add(c);
+        else if (force === false) set.delete(c);
+        else if (set.has(c)) set.delete(c);
+        else set.add(c);
+        return set.has(c);
+      },
+      toString() { return Array.from(set).join(' '); },
+    };
+  }
+
   function makeNode(extra) {
     const n = Object.assign({
       value: '',
@@ -352,6 +358,11 @@ if (editExists) {
         return all[0] || null;
       },
     }, extra || {});
+    // Older call sites pass a partial classList stub; production owners call
+    // toggle() on rows, so give every node the full surface.
+    if (!n.classList || typeof n.classList.toggle !== 'function') {
+      n.classList = makeClassList();
+    }
     return n;
   }
 
@@ -655,6 +666,7 @@ if (editExists) {
   vm.runInContext(`function portalT(k){return (${portalT.toString()})(k);}`, ctx);
   vm.runInContext('var scheduleDrawerSaveInFlight = false; var scheduleDrawerPriceStale = false; var scheduleDrawerValidationState = { ok: true }; var scheduleDrawerCustomLines = []; var scheduleDrawerCustomLineSeq = 0; var scheduleDrawerCustomLineEditorOpen = false; var scheduleDrawerQuoteState = null; var scheduleDrawerQuoteGen = 0; var scheduleDrawerQuoteAbort = null; var scheduleDrawerQuoteTimer = null; var scheduleDrawerQuoteDebounceMs = 0;', ctx);
 
+  const loadedOwners = [];
   // Inject pure helpers from portal + rental + commercial view.
   [
     'schedulePortalInclusiveDateCount',
@@ -665,6 +677,7 @@ if (editExists) {
     'schedulePortalValidatePrivateLessonCreate',
     'schedulePortalDurationLabel',
   ].forEach((name) => {
+    loadedOwners.push(name);
     const fnSrc = extractFunctionSource(portalModSrc, name);
     if (fnSrc) vm.runInContext(`${fnSrc}\nthis.${name}=${name};`, ctx);
   });
@@ -707,6 +720,7 @@ if (editExists) {
     'scheduleDrawerCommercialLineRank',
     'scheduleDrawerBuildCommercialLines',
   ].forEach((name) => {
+    loadedOwners.push(name);
     const fnSrc = extractFunctionSource(viewModSrc, name);
     if (fnSrc) vm.runInContext(`${fnSrc}\nthis.${name}=${name};`, ctx);
   });
@@ -823,6 +837,7 @@ if (editExists) {
     'scheduleSaveDrawerBooking',
     'scheduleWireEditableDrawer',
   ].forEach((name) => {
+    loadedOwners.push(name);
     const fnSrc = extractFunctionSource(editModSrc, name);
     if (fnSrc) vm.runInContext(`${fnSrc}\nthis.${name}=${name};`, ctx);
   });
@@ -879,11 +894,29 @@ if (editExists) {
     'scheduleDrawerShowShell',
     'scheduleCloneDrawerCtx',
   ].forEach((name) => {
+    loadedOwners.push(name);
     const fnSrc = extractFunctionSource(ctrlModSrc, name);
     if (fnSrc) vm.runInContext(`${fnSrc}\nthis.${name}=${name};`, ctx);
   });
   vm.runInContext('if(typeof scheduleDrawerState==="undefined"){var scheduleDrawerState={row:null,ctx:null,editing:false,openGen:0,mountGen:0,refreshGen:0,activeBookingKey:null};}else{if(scheduleDrawerState.mountGen==null)scheduleDrawerState.mountGen=0;}', ctx);
   vm.runInContext('function scheduleWireDrawerDeleteBooking(){}', ctx);
+
+  // The lists above name the owners under test; they do not name what those
+  // owners call. Helpers that still live in the buildUiHtml template (and any
+  // future module split) would otherwise be out of scope and take the whole
+  // gate down with a ReferenceError before it asserts anything.
+  const dangling = collectPortalFunctions(
+    [editModSrc, ctrlModSrc, viewModSrc, portalModSrc, rentalModSrc, payModSrc, apiSrc],
+    loadedOwners,
+    { provided: Object.keys(ctx), omitProvided: true },
+  );
+  if (dangling.code) {
+    const expose = dangling.resolved.map((n) => `this.${n}=${n};`).join('\n');
+    vm.runInContext(`${dangling.code}\n${expose}`, ctx);
+  }
+  assert('every helper the loaded owners call is in scope',
+    dangling.missing.length === 0 && dangling.unparsable.length === 0,
+    `missing=${dangling.missing.join(',')} unparsable=${dangling.unparsable.join(',')}`);
 
   dom['ps-detail-drawer'] = makeNode({ style: {} });
   dom['ps-drawer-backdrop'] = makeNode({ style: {} });

@@ -34,6 +34,7 @@ const {
   QUOTE_CHANNELS,
 } = require('./lib/luna-front-desk-quote-service');
 const { resolveTenantBusinessConfig } = require('./lib/tenant-business-config');
+const { collectPortalFunctions } = require('./lib/portal-fn-slice');
 
 let pass = 0;
 let fail = 0;
@@ -87,12 +88,13 @@ assert('Create renders independent Qty control for selected rentals',
   /data-i18n="schedule\.create\.rentalQty">Qty</.test(renderRentalsFn)
   || renderRentalsFn.includes("schedule.create.rentalQty") && renderRentalsFn.includes('Qty')
   || renderRentalsFn.includes('data-rental-quantity'));
+// f056e2d6 (feat(schedule): booking-drawer EQUIPMENT reorg) replaced
+// `if (!checked) qty = 1;` with a raw-string-preserving block that still
+// defaults an unselected row to 1. Assert the default and the independence
+// from surfer count, not the local's spelling.
 assert('Create default selected qty is 1 (not surfers)',
-  /qty = 1|quantity 1|default 1/.test(renderRentalsFn)
-  || /: 1;\s*$/.test(renderRentalsFn)
-  || renderRentalsFn.includes('qty = 1')
-  || /!\s*checked\) qty = 1/.test(renderRentalsFn)
-  || renderRentalsFn.includes('if (!checked) qty = 1'));
+  /!checked\)\s*\{?\s*\w+\s*=\s*'?1'?\s*;/.test(renderRentalsFn)
+  && !/\bqty\w*\s*=\s*[^;\n]*[Ss]urfer/.test(renderRentalsFn));
 assert('read path uses per-row qty input (not surfer force)',
   readRentalFn.includes('ps-create-rental-qty-input')
   && !/if \(noLesson\)[\s\S]*scheduleReadCreateSurferCount[\s\S]*qty = snNo/.test(readRentalFn));
@@ -314,7 +316,19 @@ if (phoneFn && enableFn) {
     schedulePortalSubmitInFlight: false,
   };
   vm.createContext(ctx);
-  vm.runInContext(phoneFn + '\n' + enableFn, ctx);
+  // The two named slices are the owners under test; the enable path also reads
+  // module state (schedulePortalQuotePriceBlocked) that lives beside them.
+  const enableDeps = collectPortalFunctions(
+    portalSrc,
+    ['schedulePortalIsValidCreatePhone', 'schedulePortalSyncCreateSubmitEnabled'],
+    { provided: Object.keys(ctx) },
+  );
+  assert('enable-path helpers all in scope',
+    enableDeps.missing.length === 0 && enableDeps.unparsable.length === 0,
+    `missing=${enableDeps.missing.join(',')} unparsable=${enableDeps.unparsable.join(',')}`);
+  vm.runInContext(enableDeps.code, ctx);
+  vm.runInContext(`${phoneFn}\n${enableFn}\nthis.schedulePortalSyncCreateSubmitEnabled=`
+    + 'schedulePortalSyncCreateSubmitEnabled;', ctx);
   ctx.schedulePortalSyncCreateSubmitEnabled();
   assert('F: Create disabled when both blank', nodes['ps-create-submit'].disabled === true);
   nodes['ps-create-guest'].value = 'Ada';
