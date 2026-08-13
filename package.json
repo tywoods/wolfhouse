@@ -331,6 +331,7 @@
     "verify:luna-all": "node scripts/verify-luna-all.js",
     "verify:gate-anchors": "node scripts/verify-gate-anchors.js",
     "verify:gate-dates": "node scripts/verify-gate-dates.js",
+    "verify:gate-fixture-dates": "node scripts/verify-gate-fixture-dates.js",
     "verify:inbox-ui-parity": "node scripts/verify-inbox-ui-parity.js",
     "verify:sunset-staging-live-iac-drift": "node scripts/verify-sunset-staging-live-iac-drift.js",
     "verify:sunset-staging-bicep-reconcile": "node scripts/verify-sunset-staging-bicep-reconcile.js",
@@ -1012,7 +1013,8 @@
     "diagnose:sunset-finance-data-quality": "node scripts/diagnose-sunset-finance-data-quality.js",
     "verify:sunset-private-course-card-onerow": "node scripts/verify-sunset-private-course-card-onerow.js",
     "verify:sunset-group-course-card-opt3": "node scripts/verify-sunset-group-course-card-opt3.js",
-    "prove:email-inbound-inbox-bridge-pglite": "node scripts/prove-email-inbound-inbox-bridge-pglite.js"
+    "prove:email-inbound-inbox-bridge-pglite": "node scripts/prove-email-inbound-inbox-bridge-pglite.js",
+    "prove:gate-fixture-dates-pglite": "node scripts/prove-gate-fixture-dates-pglite.js"
   },
   "dependencies": {
     "@azure/identity": "4.13.1",
