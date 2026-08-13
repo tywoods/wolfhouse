@@ -68,6 +68,7 @@ const {
   formatPauseStateRow,
 } = require('./lib/staff-bot-pause-sql');
 const { isEmailLunaGenerateDraftEnabled } = require('./lib/staff-email-luna-draft-route');
+const { fixtureDates, clockAt } = require('./lib/gate-fixture-dates');
 
 const ROOT = path.join(__dirname, '..');
 const STAFF_API_PATH = path.join(ROOT, 'scripts/staff-query-api.js');
@@ -134,6 +135,10 @@ function missingTable(name) {
   return err;
 }
 
+// The pause happened yesterday, off the clock: a literal timestamp is a fixture that
+// expires, and a pause dated in the future is not a pause that happened.
+const PAUSED_AT = clockAt(fixtureDates().daysAgo(1), '00:00').toISOString();
+
 function pauseRow(clientSlug, scope) {
   return {
     id:              `pause-${scope}`,
@@ -145,12 +150,12 @@ function pauseRow(clientSlug, scope) {
     paused:          true,
     pause_reason:    `${scope} pause fixture`,
     paused_by:       'gate-fixture',
-    paused_at:       '2026-08-13T00:00:00.000Z',
+    paused_at:       PAUSED_AT,
     resumed_by:      null,
     resumed_at:      null,
     metadata:        scope === 'global' ? { scope: 'global' } : {},
-    created_at:      '2026-08-13T00:00:00.000Z',
-    updated_at:      '2026-08-13T00:00:00.000Z',
+    created_at:      PAUSED_AT,
+    updated_at:      PAUSED_AT,
   };
 }
 

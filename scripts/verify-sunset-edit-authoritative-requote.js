@@ -27,32 +27,21 @@ const LINKS_REQ = path.join(__dirname, 'lib', 'sunset-stripe-payment-links.js');
 const COURSE_REQ = path.join(__dirname, 'lib', 'sunset-admin-course-join.js');
 
 const { packPriceItemCode } = require('./lib/sunset-admin-price-identity');
+const { fixtureDates } = require('./lib/gate-fixture-dates');
 
 // Production pricing path requires Admin DB reads for tenant_price_rules.
 process.env.SUNSET_ADMIN_DB_READ_ENABLED = '1';
 
-/**
- * The fixture calendar is translated onto the clock. Every booking day, session and
- * accommodation night in this file is defined as an offset from one anchor day, so
- * moving the whole calendar forward preserves each span and ordering exactly — while
- * keeping the payloads editable instead of aging into explicit_past_date. The anchor
- * keeps its weekday (Saturday), so the offsets do too.
- */
-function isoWeekdayAtLeastDaysOut(weekday, days) {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + days);
-  d.setUTCDate(d.getUTCDate() + ((weekday - d.getUTCDay() + 7) % 7));
-  return d.toISOString().slice(0, 10);
-}
-
-const ANCHOR = isoWeekdayAtLeastDaysOut(6, 30); // Saturday, a month out
+// The fixture calendar is translated onto the clock. Every booking day, session and
+// accommodation night in this file is defined as an offset from one anchor day, so moving
+// the whole calendar forward preserves each span and ordering exactly — while keeping the
+// payloads editable instead of aging into explicit_past_date. The anchor keeps its
+// weekday (Saturday), so the offsets do too.
+const dates = fixtureDates();
+const cal = dates.calendar(dates.weekdayFromNow('saturday', 30));
 
 /** Fixture day: `D(0)` is the anchor, `D(1)` the day after, `D(-61)` two months before. */
-function D(offsetDays) {
-  const d = new Date(`${ANCHOR}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + offsetDays);
-  return d.toISOString().slice(0, 10);
-}
+const D = (offsetDays) => cal.day(offsetDays);
 
 let pass = 0;
 let fail = 0;

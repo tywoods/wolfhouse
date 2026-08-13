@@ -36,32 +36,20 @@ const {
   createSunsetScheduleBooking,
 } = require('./lib/sunset-schedule-booking-writes');
 const { packPriceItemCode } = require('./lib/sunset-admin-price-identity');
+const { fixtureDates } = require('./lib/gate-fixture-dates');
 
-/**
- * Fixture days come off the clock. Pinned to one September they stopped exercising the
- * stock paths and started tripping the past-date guard instead. The anchor keeps its
- * weekday; every other day keeps its exact offset from it.
- */
-function isoWeekdayAtLeastDaysOut(weekday, days) {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + days);
-  d.setUTCDate(d.getUTCDate() + ((weekday - d.getUTCDay() + 7) % 7));
-  return d.toISOString().slice(0, 10);
-}
-
-function isoDaysAfter(iso, days) {
-  const d = new Date(`${iso}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-const DAY0 = isoWeekdayAtLeastDaysOut(2, 30); // Tuesday, a month out
-const DAY1 = isoDaysAfter(DAY0, 1);
-const DAY2 = isoDaysAfter(DAY0, 2);
-const DAY3 = isoDaysAfter(DAY0, 3);
-const DAY9 = isoDaysAfter(DAY0, 9);
-const DAY14 = isoDaysAfter(DAY0, 14);
-const DAY19 = isoDaysAfter(DAY0, 19);
+// Fixture days come off the clock. Pinned to one September they stopped exercising the
+// stock paths and started tripping the past-date guard instead. The anchor keeps its
+// weekday; every other day keeps its exact offset from it.
+const dates = fixtureDates();
+const cal = dates.calendar(dates.weekdayFromNow('tuesday', 30));
+const DAY0 = cal.day(0);
+const DAY1 = cal.day(1);
+const DAY2 = cal.day(2);
+const DAY3 = cal.day(3);
+const DAY9 = cal.day(9);
+const DAY14 = cal.day(14);
+const DAY19 = cal.day(19);
 
 let pass = 0;
 let fail = 0;
@@ -253,7 +241,7 @@ async function main() {
   const CUSTOM_CENTS = 4500;
   const LOC = 'sunset-somo';
   const DATE = DAY9;
-  const FIXED_NOW = new Date(`${DAY0}T12:00:00Z`);
+  const FIXED_NOW = cal.clock(0);
   const CATALOG_OFFERINGS = [
     {
       id: '1', client_slug: 'sunset', location_id: LOC,

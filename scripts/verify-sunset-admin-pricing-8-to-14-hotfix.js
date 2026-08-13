@@ -40,6 +40,7 @@ const {
   validateScheduleBookingBody,
 } = require('./lib/sunset-schedule-booking-writes');
 const { validatePricePatchBody, validatePriceCreateBody } = require('./lib/tenant-admin-writes');
+const { fixtureDates } = require('./lib/gate-fixture-dates');
 
 const LOC = 'sunset-somo';
 const PACK = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -241,37 +242,13 @@ function makeLoadRule(prices) {
   };
 }
 
-/**
- * Fixture days come off the clock: pinned to one August the payloads aged into
- * explicit_past_date and stopped reaching the 8-to-14 tier rules. The range keeps its
- * Monday start and its length; "now" stays the same distance ahead of it.
- */
-function isoWeekdayAtLeastDaysOut(weekday, days) {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + days);
-  d.setUTCDate(d.getUTCDate() + ((weekday - d.getUTCDay() + 7) % 7));
-  return d.toISOString().slice(0, 10);
-}
-
-function isoShift(iso, days) {
-  const d = new Date(`${iso}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-const RANGE_START = isoWeekdayAtLeastDaysOut(1, 30); // Monday, a month out
-const QUOTE_NOW = new Date(`${isoShift(RANGE_START, -33)}T12:00:00Z`);
-
-function isoRange(from, days) {
-  const out = [];
-  const start = new Date(`${from}T12:00:00Z`);
-  for (let i = 0; i < days; i += 1) {
-    const d = new Date(start);
-    d.setUTCDate(start.getUTCDate() + i);
-    out.push(d.toISOString().slice(0, 10));
-  }
-  return out;
-}
+// Fixture days come off the clock: pinned to one August the payloads aged into
+// explicit_past_date and stopped reaching the 8-to-14 tier rules. The range keeps its
+// Monday start and its length; "now" stays the same distance ahead of it.
+const fixtureCalendar = fixtureDates();
+const courseRange = fixtureCalendar.calendar(fixtureCalendar.weekdayFromNow('monday', 30));
+const RANGE_START = courseRange.day(0);
+const QUOTE_NOW = courseRange.clock(-33);
 
 function runCourseCardProofs() {
   console.log('\n[1] Admin Group course cards: no Single class commercial row\n');
@@ -489,7 +466,7 @@ async function runGroupCourse814Proofs() {
   };
 
   async function quoteDays(days, qty, cfg, loadRule) {
-    const dates = isoRange(RANGE_START, days);
+    const dates = courseRange.days(0, days);
     const built = buildSunsetQuoteCommand({
       channel: QUOTE_CHANNELS.MANUAL_STAFF,
       trustedLocationId: LOC,
@@ -576,8 +553,8 @@ async function runGroupCourse814Proofs() {
         guest_name: 'Test Guest',
         payment_status: 'unpaid',
         date_from: RANGE_START,
-        date_to: isoShift(RANGE_START, 14), // 15 days
-        service_dates: isoRange(RANGE_START, 15),
+        date_to: courseRange.day(14), // 15 days
+        service_dates: courseRange.days(0, 15),
         components: {
           course: { course_id: PACK, tier_key: '7_days', quantity: 1 },
         },
@@ -721,7 +698,7 @@ async function runGroupCourse814Proofs() {
   };
 
   async function catalogQuote(days, qty) {
-    const dates = isoRange(RANGE_START, days);
+    const dates = courseRange.days(0, days);
     const tierKey = groupCourseAdminTierKeyForInclusiveDays(days);
     const built = buildSunsetQuoteCommand({
       channel: QUOTE_CHANNELS.MANUAL_STAFF,

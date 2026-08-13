@@ -26,6 +26,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { fixtureDates } = require('./lib/gate-fixture-dates');
 
 const ROOT = path.join(__dirname, '..');
 const DRAWER_REQ = path.join(__dirname, 'lib', 'sunset-schedule-booking-drawer.js');
@@ -43,26 +44,13 @@ const LOC = 'sunset-somo';
 const TOWEL = 'towel_rental_edit';
 const TOWEL_LABEL = 'Towel';
 const TOWEL_CENTS = 2200;
-/**
- * The booking day is read off the clock — a pinned month stops testing the edit path and
- * starts testing the calendar, since edit rejects past dates. Thursday is kept.
- */
-function isoWeekdayAtLeastDaysOut(weekday, days) {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + days);
-  d.setUTCDate(d.getUTCDate() + ((weekday - d.getUTCDay() + 7) % 7));
-  return d.toISOString().slice(0, 10);
-}
-
-function isoDaysBefore(iso, days) {
-  const d = new Date(`${iso}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - days);
-  return d.toISOString().slice(0, 10);
-}
-
-const DATE = isoWeekdayAtLeastDaysOut(4, 30); // Thursday, a month out
+// The booking day is read off the clock — a pinned month stops testing the edit path and
+// starts testing the calendar, since edit rejects past dates. Thursday is kept.
+const dates = fixtureDates();
+const booking = dates.calendar(dates.weekdayFromNow('thursday', 30));
+const DATE = booking.day(0);
 // Admin price rows were last touched well before the booking they price.
-const PRICE_UPDATED_AT = isoDaysBefore(DATE, 80);
+const PRICE_UPDATED_AT = booking.day(-80);
 
 let pass = 0;
 function ok(name, cond, detail) {

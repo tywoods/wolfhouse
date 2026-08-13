@@ -30,6 +30,7 @@ const {
 const {
   staffFacingSunsetPriceError,
 } = require('./lib/sunset-course-lesson-price-lookup');
+const { fixtureDates } = require('./lib/gate-fixture-dates');
 
 let pass = 0;
 let fail = 0;
@@ -55,34 +56,19 @@ const COURSE_BILLING_UNIT = 'day';
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8');
 
-/**
- * Fixture days come off the clock. Pinned to one July week, create rejected the whole
- * payload as explicit_past_date and the gate stopped reaching the Admin price rules it
- * exists to check. Monday–Friday stays Monday–Friday, and "now" stays five days out.
- */
-function isoWeekdayAtLeastDaysOut(weekday, days) {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + days);
-  d.setUTCDate(d.getUTCDate() + ((weekday - d.getUTCDay() + 7) % 7));
-  return d.toISOString().slice(0, 10);
-}
-
-function isoShift(iso, days) {
-  const d = new Date(`${iso}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-const STAY_FROM = isoWeekdayAtLeastDaysOut(1, 30); // Monday, a month out
-const STAY_TO = isoShift(STAY_FROM, 4); // Friday
-const SERVICE_DAY_1 = STAY_FROM;
-const SERVICE_DAY_2 = isoShift(STAY_FROM, 1);
-const SERVICE_DAY_3 = isoShift(STAY_FROM, 2);
+// Fixture days come off the clock. Pinned to one July week, create rejected the whole
+// payload as explicit_past_date and the gate stopped reaching the Admin price rules it
+// exists to check. Monday–Friday stays Monday–Friday, and "now" stays five days out.
+const dates = fixtureDates();
+const stay = dates.calendar(dates.weekdayFromNow('monday', 30));
+const STAY_FROM = stay.day(0); // Monday
+const STAY_TO = stay.day(4); // Friday
+const [SERVICE_DAY_1, SERVICE_DAY_2, SERVICE_DAY_3] = stay.days(0, 3);
 // The Admin price row has been in force for months and was last touched weeks ago.
-const PRICE_EFFECTIVE_FROM = isoShift(STAY_FROM, -200);
-const PRICE_UPDATED_AT = isoShift(STAY_FROM, -49);
+const PRICE_EFFECTIVE_FROM = stay.day(-200);
+const PRICE_UPDATED_AT = stay.day(-49);
 
-const FIXED_NOW = new Date(`${isoShift(STAY_FROM, -5)}T12:00:00Z`);
+const FIXED_NOW = stay.clock(-5);
 
 function schemaRowsFor(loc, itemType, itemCode, unit, amountCents) {
   return [{

@@ -10,20 +10,15 @@
 const fs = require('fs');
 const path = require('path');
 
+const { fixtureDates } = require('./lib/gate-fixture-dates');
+
 const ROOT = path.join(__dirname, '..');
+// Booking fixtures are read off the clock, never written as a literal month: the schedule
+// validator rejects past dates, so a hardcoded fixture stops testing private lessons and
+// starts testing the calendar the moment it expires.
+const dates = fixtureDates();
 let pass = 0;
 let fail = 0;
-
-/**
- * Booking fixtures are read off the clock, never written as a literal month: the schedule
- * validator rejects past dates, so a hardcoded fixture stops testing private lessons and
- * starts testing the calendar the moment it expires.
- */
-function isoDaysFromNow(offset) {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + offset);
-  return d.toISOString().slice(0, 10);
-}
 
 function assert(label, condition, detail) {
   if (condition) {
@@ -107,9 +102,7 @@ const toolOut = executeSunsetCatalogTool('get_sunset_private_lesson', {
 assert('catalog tool disabled by default config', toolOut.ok === false && toolOut.reason === 'private_lesson_disabled');
 
 // A three-day run of consecutive sessions, one month out.
-const DAY_1 = isoDaysFromNow(30);
-const DAY_2 = isoDaysFromNow(31);
-const DAY_3 = isoDaysFromNow(32);
+const [DAY_1, DAY_2, DAY_3] = dates.range(dates.daysFromNow(30), 3);
 const THREE_SESSIONS = [
   { date: DAY_1, start: '10:00', end: '12:00' },
   { date: DAY_2, start: '14:00', end: '16:00' },

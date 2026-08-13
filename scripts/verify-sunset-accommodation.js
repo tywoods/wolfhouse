@@ -28,29 +28,18 @@ const admin = require('./lib/sunset-accommodation-admin');
 const writes = require('./lib/sunset-schedule-booking-writes');
 const drawer = require('./lib/sunset-schedule-booking-drawer');
 const quoteSvc = require('./lib/luna-front-desk-quote-service');
+const { fixtureDates } = require('./lib/gate-fixture-dates');
 
-/**
- * The fixture calendar is translated onto the clock. Every season range, stay and
- * expected night count in this file is defined relative to the same anchor day, so
- * moving the whole calendar forward preserves each boundary, span and cross-season
- * split exactly — while keeping the stays bookable instead of aging into
- * explicit_past_date. The anchor keeps its weekday (Wednesday), so the offsets do too.
- */
-function isoWeekdayAtLeastDaysOut(weekday, days) {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + days);
-  d.setUTCDate(d.getUTCDate() + ((weekday - d.getUTCDay() + 7) % 7));
-  return d.toISOString().slice(0, 10);
-}
-
-const ANCHOR = isoWeekdayAtLeastDaysOut(3, 30); // Wednesday, a month out
+// The fixture calendar is translated onto the clock. Every season range, stay and
+// expected night count in this file is defined relative to the same anchor day, so moving
+// the whole calendar forward preserves each boundary, span and cross-season split exactly
+// — while keeping the stays bookable instead of aging into explicit_past_date. The anchor
+// keeps its weekday (Wednesday), so the offsets do too.
+const dates = fixtureDates();
+const cal = dates.calendar(dates.weekdayFromNow('wednesday', 30));
 
 /** Fixture day: `D(0)` is the anchor, `D(3)` three days later, `D(-9)` nine days before. */
-function D(offsetDays) {
-  const d = new Date(`${ANCHOR}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + offsetDays);
-  return d.toISOString().slice(0, 10);
-}
+const D = (offsetDays) => cal.day(offsetDays);
 
 let pass = 0;
 let fail = 0;
@@ -162,7 +151,7 @@ ok('missing date_to becomes one-night stay',
 
 // ── 2) Booking body validation owner ───────────────────────────────────────
 console.log('\n[2] validateScheduleBookingBody + identity');
-const REF = new Date(`${D(-40)}T12:00:00Z`);
+const REF = cal.clock(-40);
 // Accommodation-only: no components key (Create/Edit may omit). allowEmpty is
 // auto-derived from accommodation selection when present — no caller flag required.
 const bodyOk = writes.validateScheduleBookingBody({

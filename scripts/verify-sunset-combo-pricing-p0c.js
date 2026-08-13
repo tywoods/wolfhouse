@@ -77,32 +77,26 @@ const {
 const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
 const esStrings = require('./lib/staff-portal-i18n-es-sunset');
 const jobReadonly = require('./job-sunset-staff-sw-quote-readonly');
+const {
+  fixtureDates, remapIsoDates, shift, daysBetween, clockAt,
+} = require('./lib/gate-fixture-dates');
 
 const FIXTURE = path.join(
   __dirname, '..', 'fixtures', 'sunset-admin-offline', 'curso-tarde-sw-collision-p0b.json',
 );
 const ROOT = path.join(__dirname, '..');
 
-/**
- * The fixture pins one service day. Keep its weekday — the Admin course schedule is
- * weekday-shaped — but read the rest off the clock, so the payloads stay bookable
- * instead of aging into explicit_past_date and testing the calendar.
- */
-function sameWeekdayAtLeastDaysOut(sampleIso, days) {
-  const target = new Date(`${sampleIso}T12:00:00Z`).getUTCDay();
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + days);
-  d.setUTCDate(d.getUTCDate() + ((target - d.getUTCDay() + 7) % 7));
-  return d.toISOString().slice(0, 10);
-}
-
+// The fixture pins one service day. Keep its weekday — the Admin course schedule is
+// weekday-shaped — but read the rest off the clock, so the payloads stay bookable instead
+// of aging into explicit_past_date and testing the calendar. The fixture's own dates are
+// remapped on load, so the fixture file itself stays untouched.
+const dates = fixtureDates();
 const fxRaw = fs.readFileSync(FIXTURE, 'utf8');
 const FIXTURE_SERVICE_DATE = JSON.parse(fxRaw).staff_drawer_selection.service_date;
-const fx = JSON.parse(
-  fxRaw.split(FIXTURE_SERVICE_DATE).join(sameWeekdayAtLeastDaysOut(FIXTURE_SERVICE_DATE, 30)),
-);
+const serviceDay = dates.sameWeekdayFromNow(FIXTURE_SERVICE_DATE, 30);
+const fx = JSON.parse(remapIsoDates(fxRaw, (iso) => shift(serviceDay, daysBetween(FIXTURE_SERVICE_DATE, iso))));
 const LOC = fx._meta.location_id;
-const FIXED_NOW = new Date(`${fx.staff_drawer_selection.service_date}T12:00:00Z`);
+const FIXED_NOW = clockAt(fx.staff_drawer_selection.service_date);
 const PACK_ID = fx.surf_pack.pack_id;
 const TIER = '1_day';
 const PACK_ITEM = packPriceItemCode(PACK_ID, TIER);

@@ -25,6 +25,9 @@ const {
   datesBelongToPackSchedule,
   weekdaysFromPackWeekly,
 } = require('./lib/sunset-admin-course-join');
+const { fixtureDates } = require('./lib/gate-fixture-dates');
+
+const dates = fixtureDates();
 
 let pass = 0;
 let fail = 0;
@@ -44,20 +47,10 @@ const INVENTED_COURSE = 'invented-course-not-in-admin';
 
 // Course dates are read off the clock, never written as a literal month: create rejects
 // past dates, so a hardcoded anchor stops testing the course join the day it expires.
-// First Monday (UTC) at least a month out, so the whole week stays in the future.
-function nextMondayAtLeastDaysOut(days) {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + days);
-  const day = d.getUTCDay();
-  d.setUTCDate(d.getUTCDate() + (day === 1 ? 0 : (8 - day) % 7));
-  return d.toISOString().slice(0, 10);
-}
-const COURSE_DATE = nextMondayAtLeastDaysOut(30); // Monday
-const WEEKEND_DATE = (() => {
-  const d = new Date(`${COURSE_DATE}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 5); // Saturday
-  return d.toISOString().slice(0, 10);
-})();
+// The course week starts on the first Monday at least a month out.
+const courseWeek = dates.calendar(dates.weekdayFromNow('monday', 30));
+const COURSE_DATE = courseWeek.day(0); // Monday
+const WEEKEND_DATE = courseWeek.day(5); // Saturday
 
 function packRow(overrides = {}) {
   return {

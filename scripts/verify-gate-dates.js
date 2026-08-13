@@ -11,19 +11,27 @@
  * before any private-lesson rule ran, so the gate proved nothing and blamed no one. Nothing
  * regressed. The date did.
  *
- * MAKE YOUR GATE IMMUNE — read the clock instead of writing a month:
+ * MAKE YOUR GATE IMMUNE — take the fixture off the clock with scripts/lib/gate-fixture-dates.js:
  *
- *     function isoDaysFromNow(offset) {
- *       const d = new Date();
- *       d.setUTCDate(d.getUTCDate() + offset);
- *       return d.toISOString().slice(0, 10);
- *     }
- *     const DATE_FROM = isoDaysFromNow(30);
+ *     const { fixtureDates } = require('./lib/gate-fixture-dates');
+ *     const dates = fixtureDates();
+ *     const DATE_FROM = dates.daysFromNow(30);            // never expires
+ *     const SESSIONS = dates.range(DATE_FROM, 3);         // a three-day span stays three days
  *
- * A gate that calls Date.now() or new Date() with no arguments is treated as clock-derived
- * and is not scanned at all. That is the escape hatch and the intended fix: derive the
- * fixture, keep the relationships (a three-day span stays three days), and this gate leaves
- * you alone forever.
+ * If your gate hardcoded a date because it wanted a STABLE one, you do not have to give
+ * that up. The same helper hands out a frozen clock — one instant per run, replayable with
+ * VERIFY_FIXTURE_NOW, injectable as `now:` — so you get determinism without a literal:
+ *
+ *     const stay = dates.calendar(dates.weekdayFromNow('monday', 30));
+ *     quote({ now: stay.clock(-5), date_from: stay.day(0), date_to: stay.day(4) });
+ *
+ * Fixtures that must stay in the PAST need the same treatment: dates.daysAgo(60), or an
+ * offset off the same anchor. A gate whose dates all come from there carries no literal
+ * and this gate never looks at it again. See verify-gate-fixture-dates.js for the
+ * contract, including what survives Postgres and explicit_past_date validation.
+ *
+ * A gate that calls Date.now() or new Date() with no arguments is also treated as
+ * clock-derived and is not scanned.
  *
  * WHAT FAILS: a hardcoded YYYY-MM-DD in a string literal that has already expired, or
  * expires within LEAD_DAYS. The lead time is the whole point — a fixture that dies next
