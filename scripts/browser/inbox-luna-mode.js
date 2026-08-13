@@ -27,6 +27,38 @@ function inboxLunaModeFromPaused(channel, paused){
   return channel === 'email' ? 'draft' : 'auto';
 }
 
+function inboxLunaModeChannelDefault(channel){
+  var email = channel === 'email';
+  var fallback = email ? 'draft' : 'auto';
+  if (typeof inboxShellLoadStoredModes !== 'function') return fallback;
+  try {
+    var stored = inboxShellLoadStoredModes() || {};
+    if (email) {
+      return typeof inboxShellNormalizeEmail === 'function'
+        ? inboxShellNormalizeEmail(stored.email)
+        : (stored.email === 'off' ? 'off' : 'draft');
+    }
+    return typeof inboxShellNormalizeWhatsApp === 'function'
+      ? inboxShellNormalizeWhatsApp(stored.whatsapp)
+      : (stored.whatsapp === 'draft' || stored.whatsapp === 'off' ? stored.whatsapp : 'auto');
+  } catch (_e) {
+    return fallback;
+  }
+}
+
+function inboxLunaModeIsInherited(channel, paused){
+  return inboxLunaModeChannelDefault(channel) === inboxLunaModeFromPaused(channel, paused);
+}
+
+function inboxLunaModeHeaderLabel(channel, paused){
+  var mode = inboxLunaModeFromPaused(channel, paused);
+  var label = t('inbox.detail.lunaMode.label') + ': ' + t('inbox.detail.lunaMode.' + mode);
+  if (inboxLunaModeIsInherited(channel, paused)) {
+    label += ' (' + t('inbox.detail.lunaMode.inherited') + ')';
+  }
+  return label;
+}
+
 function inboxNeedsHumanRaiseHtml(needsHuman){
   var on = !!needsHuman;
   var label = on ? t('inbox.detail.needsHuman.clear') : t('inbox.detail.needsHuman.raise');
@@ -49,7 +81,7 @@ function inboxLunaModeControlHtml(opts){
   html += '<input type="checkbox" id="conv-needs-human-toggle" class="inbox-luna-mode-native" tabindex="-1" aria-hidden="true"' +
     (needsHuman ? ' checked' : '') + '>';
   html += '<div class="inbox-luna-mode" data-inbox-luna-channel="' + channel + '">';
-  html += '<span class="inbox-luna-mode-label">' + escHtml(t('inbox.detail.lunaMode.label')) + '</span>';
+  html += '<span class="inbox-luna-mode-label">' + escHtml(inboxLunaModeHeaderLabel(channel, paused)) + '</span>';
   html += '<div class="inbox-luna-mode-seg" role="radiogroup" aria-label="' + escHtml(t('inbox.detail.lunaMode.label')) + '">';
   for (var i = 0; i < options.length; i++){
     var opt = options[i];
@@ -86,6 +118,8 @@ function syncInboxLunaModeControl(targetEl, paused){
     btn.classList.toggle('is-active', on);
     btn.setAttribute('aria-checked', on ? 'true' : 'false');
   });
+  var labelEl = wrap.querySelector('.inbox-luna-mode-label');
+  if (labelEl) labelEl.textContent = inboxLunaModeHeaderLabel(channel, paused);
 }
 
 function syncInboxNeedsHumanRaise(targetEl, needsHuman){

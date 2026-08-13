@@ -26,7 +26,8 @@ or any `/staff/inbox/*` route.
 | mockup slice A | Inbox chrome channel defaults: WhatsApp Auto\|Draft\|Off, Email Draft\|Off; school selector under header removed | **done** (#545) |
 | mockup slice B | Column 4 guest card: stay facts + collapsible collections, dims zero-count, no invented euros | **done** (#546) |
 | mockup slice C | Cream / forest / sage visual tokens on the four-column Inbox (no layout/API change) | **done** (#547) |
-| mockup slice D | Column 2 list rows: initials avatars, hide old chips, people multi-select | this PR |
+| mockup slice D | Column 2 list rows: initials avatars, hide old chips, people multi-select | **done** (#548) |
+| mockup slice E | Thread: date separators, Luna draft as outbound ghost bubble, inherited channel mode, hide Pause Globally on Inbox | this PR |
 
 ## Why it feels bulky and redundant
 

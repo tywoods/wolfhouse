@@ -200,12 +200,42 @@ function formatInboxThreadBubbleHtml(m){
   }
   return formatThreadMessageHtml(body || '');
 }
+function inboxThreadDayKey(ts){
+  if (!ts) return '';
+  var d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  return d.getFullYear() + '-' + String(d.getMonth() + 1) + '-' + String(d.getDate());
+}
+
+function inboxThreadDayLabel(ts){
+  var d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  var now = new Date();
+  var today = now.getFullYear() + '-' + String(now.getMonth() + 1) + '-' + String(now.getDate());
+  var y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  var yesterday = y.getFullYear() + '-' + String(y.getMonth() + 1) + '-' + String(y.getDate());
+  var key = inboxThreadDayKey(ts);
+  if (key === today) return 'Today';
+  if (key === yesterday) return 'Yesterday';
+  try {
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch (_e) {
+    return key;
+  }
+}
+
 function renderInboxThreadMessagesHtml(msgs){
   var html = '';
   if (!msgs || !msgs.length){
     return '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
   }
+  var lastDay = '';
   msgs.forEach(function(m){
+    var day = inboxThreadDayKey(m.created_at);
+    if (day && day !== lastDay) {
+      lastDay = day;
+      html += '<div class="inbox-thread-day" role="separator">' + escHtml(inboxThreadDayLabel(m.created_at)) + '</div>';
+    }
     var dir = (m.direction === 'inbound') ? 'inbound' : 'outbound';
     var sender = dir === 'inbound' ? 'Guest' : (m.source === 'staff_inbox_reply' || m.source === 'staff_email_reply' ? 'Staff' : (m.source || 'Luna'));
     var msgClass = 'msg ' + dir;

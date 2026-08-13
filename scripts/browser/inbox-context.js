@@ -53,8 +53,12 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-guest-booking-dates{flex:1 1 auto;min-width:0}',
   '.inbox-guest-booking-amount,.inbox-guest-booking-pay{flex:0 0 auto;color:var(--text-2)}',
   '.inbox-guest-booking-body{margin-top:8px}',
-  '.inbox-guest-actions{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:auto;padding-top:8px}',
+  '.inbox-guest-actions{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-top:auto;padding-top:8px}',
   '.inbox-guest-actions .btn{padding:0;border:none;background:none;color:var(--primary);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:2px}',
+  '.inbox-guest-actions .btn.inbox-guest-create-booking{',
+  'padding:8px 16px;border:none;background:#2F4A3E;color:#F3EBDD;',
+  'border-radius:999px;text-decoration:none;font-weight:700;font-size:13px;',
+  '}',
 ].join('');
 
 var inboxContextLastComposite = null;
@@ -575,7 +579,7 @@ function inboxContextGuestCardHtml(input, opts) {
   html += '</div>';
 
   html += '<div class="inbox-guest-actions">';
-  html += '<button type="button" class="btn" id="inbox-create-booking-for-guest">' +
+  html += '<button type="button" class="btn inbox-guest-create-booking" id="inbox-create-booking-for-guest">' +
     inboxContextEsc(inboxContextT('customers.detail.createBooking', 'Create booking')) + '</button>';
   html += '<button type="button" class="btn" id="inbox-edit-profile">' +
     inboxContextEsc(inboxContextT('customers.editProfile', 'Edit profile')) + '</button>';

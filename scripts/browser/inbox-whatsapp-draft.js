@@ -21,6 +21,7 @@ function whatsappDraftState(convId){
     _whatsappDraftStateByConv[id] = {
       approvalId: null,
       draftText: '',
+      toolTrace: null,
       editing: false,
       inFlight: false,
       sent: false,
@@ -50,7 +51,29 @@ function whatsappDraftGetUrl(convId){
 }
 
 function inboxWhatsAppDraftMountHtml(){
-  return '<div id="inbox-whatsapp-draft" class="inbox-whatsapp-draft" hidden></div>';
+  return '<div id="inbox-whatsapp-draft" class="inbox-whatsapp-draft inbox-whatsapp-draft-in-timeline" hidden></div>';
+}
+
+function inboxWhatsAppDraftToolsHtml(trace){
+  if (!trace) return '';
+  var bits = [];
+  if (typeof trace === 'string' && trace.trim()) bits.push(trace.trim());
+  else if (Array.isArray(trace)) {
+    for (var i = 0; i < trace.length; i++) {
+      var row = trace[i];
+      if (!row) continue;
+      if (typeof row === 'string') bits.push(row);
+      else if (row.name || row.tool) bits.push(String(row.name || row.tool));
+    }
+  } else if (typeof trace === 'object') {
+    if (trace.summary) bits.push(String(trace.summary));
+    else {
+      var keys = Object.keys(trace);
+      for (var k = 0; k < keys.length && k < 4; k++) bits.push(keys[k]);
+    }
+  }
+  if (!bits.length) return '';
+  return '<div class="inbox-whatsapp-draft-tools">▸ ' + escHtml(bits.join(', ')) + '</div>';
 }
 
 function inboxWhatsAppDraftCardHtml(st){
@@ -65,6 +88,7 @@ function inboxWhatsAppDraftCardHtml(st){
     html += '<div class="inbox-whatsapp-draft-text" id="whatsapp-draft-text">' +
       escHtml(st.draftText || '') + '</div>';
   }
+  html += inboxWhatsAppDraftToolsHtml(st.toolTrace);
   html += '<div class="draft-actions">';
   if (st.editing) {
     html += '<button type="button" class="btn-whatsapp-draft-edit" id="btn-whatsapp-draft-save"' +
@@ -75,6 +99,8 @@ function inboxWhatsAppDraftCardHtml(st){
   }
   html += '<button type="button" class="btn-whatsapp-draft-approve" id="btn-whatsapp-draft-approve"' +
     (st.inFlight || st.sent ? ' disabled' : '') + '>Approve</button>';
+  html += '<button type="button" class="btn-whatsapp-draft-discard" id="btn-whatsapp-draft-discard"' +
+    (st.inFlight || st.sent ? ' disabled' : '') + '>Discard</button>';
   html += '</div>';
   html += '<div id="whatsapp-draft-status" class="draft-send-status" role="status" aria-live="polite"></div>';
   html += '</div>';
@@ -140,6 +166,7 @@ function applyWhatsAppDraftFromGet(st, data){
   if (!data || data.success !== true || data.draft_available !== true) {
     st.approvalId = null;
     st.draftText = '';
+    st.toolTrace = null;
     st.editing = false;
     return false;
   }
@@ -149,11 +176,13 @@ function applyWhatsAppDraftFromGet(st, data){
   if (!text) {
     st.approvalId = null;
     st.draftText = '';
+    st.toolTrace = null;
     st.editing = false;
     return false;
   }
   st.approvalId = whatsappDraftCanonicalUuid(data.approval_id);
   st.draftText = text;
+  st.toolTrace = data.tool_trace || null;
   st.editing = false;
   st.sent = false;
   return true;
@@ -173,6 +202,7 @@ function loadInboxWhatsAppDraft(convId, targetEl){
       if (!out.parseOk || out.status !== 200 || !applyWhatsAppDraftFromGet(st, out.data)) {
         st.approvalId = null;
         st.draftText = '';
+        st.toolTrace = null;
         st.editing = false;
         st.sent = false;
       }
@@ -325,6 +355,17 @@ function performWhatsAppDraftApprove(convId, targetEl){
     });
 }
 
+function performWhatsAppDraftDiscard(convId, targetEl){
+  var st = whatsappDraftState(convId);
+  if (st.inFlight || st.sent) return;
+  st.seq += 1;
+  st.approvalId = null;
+  st.draftText = '';
+  st.toolTrace = null;
+  st.editing = false;
+  renderInboxWhatsAppDraftCard(targetEl, st);
+}
+
 function wireInboxWhatsAppDraft(convId, targetEl){
   var mount = whatsappDraftMount(targetEl);
   if (!mount) return;
@@ -336,6 +377,7 @@ function wireInboxWhatsAppDraft(convId, targetEl){
       if (btn.id === 'btn-whatsapp-draft-edit') performWhatsAppDraftEdit(convId, targetEl);
       else if (btn.id === 'btn-whatsapp-draft-save') performWhatsAppDraftSave(convId, targetEl);
       else if (btn.id === 'btn-whatsapp-draft-approve') performWhatsAppDraftApprove(convId, targetEl);
+      else if (btn.id === 'btn-whatsapp-draft-discard') performWhatsAppDraftDiscard(convId, targetEl);
     });
   }
   loadInboxWhatsAppDraft(convId, targetEl);

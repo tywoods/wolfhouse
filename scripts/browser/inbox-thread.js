@@ -1626,6 +1626,7 @@ function loadConvDetail(convId, targetEl){
       : (ctx && (ctx.booking_code || ctx.booking_id) ? [ctx] : []);
     var draft = (draftData.success && draftData.draft)     ? draftData.draft    : null;
     var lunaGuestPaused = isLunaGuestAutomationPaused([pauseData, detailData, c]);
+    var isEmailConversation = isAuthoritativeEmailConversation(c);
 
     /* ── Header ── */
     var convPhone = normalizeCustomerPhoneClient(c.phone);
@@ -1639,15 +1640,15 @@ function loadConvDetail(convId, targetEl){
     html +=   '<div class="detail-header">';
     html +=     '<div class="detail-header-main">';
     html +=       '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
-    html +=       '<div class="detail-meta">' + escHtml(c.phone);
-    if (conversationHasOpenHandoff(c) && c.handoff_reason)     html += ' &bull; ' + escHtml(handoffLabel(c.handoff_reason));
-    else if (c.needs_human) html += ' &bull; ' + escHtml(t('inbox.detail.meta.needsStaffReply'));
+    html +=       '<div class="detail-meta">' + escHtml(c.phone || '');
+    var channelLabel = (c.channel === 'email') ? 'Email' : 'WhatsApp';
+    if (c.phone || c.guest_email) html += ' · ' + escHtml(channelLabel);
+    else html += escHtml(channelLabel);
+    if (conversationHasOpenHandoff(c) && c.handoff_reason)     html += ' · ' + escHtml(handoffLabel(c.handoff_reason));
+    else if (c.needs_human) html += ' · ' + escHtml(t('inbox.detail.meta.needsStaffReply'));
     html +=       '</div>';
     html +=     '</div>';
     html +=     '<div class="detail-header-right">';
-    if (convPhone && portalHasCustomersCrm(getPortalProfile(getClient()))) {
-      html += '<button type="button" class="btn btn-soft-grey btn-compact" id="inbox-open-customer-card">' + escHtml(portalT('customers.openCustomerCard')) + '</button>';
-    }
     html +=       '<span class="detail-header-pills">' + convHeaderStatusPillsHtml(c, lunaGuestPaused) + '</span>';
     html +=       detailHeaderSwitchesHtml(c, lunaGuestPaused);
     html +=       '<button type="button" class="sidebar-expand-btn" id="inbox-sidebar-expand" aria-controls="inbox-detail-sidebar" title="' + escHtml(t('inbox.detail.sidebar.show') || portalT('inbox.detail.sidebar.show') || 'Show bookings') + '" aria-label="' + escHtml(t('inbox.detail.sidebar.show') || 'Show bookings') + '">&#8592;</button>';
@@ -1666,6 +1667,7 @@ function loadConvDetail(convId, targetEl){
       html += renderInboxThreadMessagesHtml(msgs);
     }
     html +=   '</div>'; /* /thread-messages */
+    if (!isEmailConversation) html += inboxWhatsAppDraftMountHtml();
     html +=   '</div>'; /* /inbox-thread-wrap */
     html +=   '</div>'; /* /inbox-thread-shell */
     html += '<div class="luna-pause-action-status" id="luna-pause-action-status" style="display:none"></div>';
@@ -1674,13 +1676,10 @@ function loadConvDetail(convId, targetEl){
 
     /* Reply panel — WhatsApp send, gated email draft/approve, or fail-closed email read-only */
     var draftText = (draft && draft.draft_text) ? draft.draft_text : (c.staff_reply_draft || '');
-    var isEmailConversation = isAuthoritativeEmailConversation(c);
     var useEmailReplyUi = staffEmailDraftsUiEnabled() && isEmailConversation;
     var emailSt = useEmailReplyUi ? emailReplyState(convId) : null;
     // Prefer per-conversation held draft/approval text (never shared across conversations).
     if (emailSt && emailSt.savedText) draftText = emailSt.savedText;
-
-    if (!isEmailConversation) html += inboxWhatsAppDraftMountHtml();
 
     html += '<div class="draft-panel">';
     html +=   '<div class="draft-label">';
@@ -1719,44 +1718,16 @@ function loadConvDetail(convId, targetEl){
     html += '</div>'; /* /draft-panel */
 
     /* Dev/testing tools — discreet footer, out of the header */
-    html += '<div class="detail-conv-toolbar">';
+    html += '<details class="detail-conv-toolbar inbox-dev-overflow">';
+    html += '<summary class="inbox-dev-overflow-summary" title="Testing tools">⋯</summary>';
     html += '<button type="button" class="pill pill-agent-session-reset" id="btn-agent-session-reset" title="Delete Hermes state.db session + messages for this guest. Portal thread and bookings unchanged. Use after SOUL edits.">Reset Luna session</button>';
-    html += '<button type="button" class="pill pill-guest-context-reset" id="btn-guest-context-reset" title="Full wipe for testing: Hermes memory + all message history/logs + cached context. Bookings cancelled.">Full Wipe (testing)</button>';
-    html += '</div>';
+    html += '<button type="button" class="pill pill-guest-context-reset" id="btn-guest-context-reset" title="Full wipe for testing: Hermes memory + all message history and logs + cached context. Bookings cancelled.">Full Wipe (testing)</button>';
+    html += '</details>';
 
     html += '</div>'; /* /detail-main */
 
     /* ═══ RIGHT — context sidebar ═══ */
-    html += '<div class="detail-sidebar" id="inbox-detail-sidebar">';
-
-    /* ── Guest bookings (stacked) — hide-arrow sits inline next to the title ── */
-    html += '<div class="sidebar-card">';
-    html +=   '<div class="sidebar-card-head">';
-    html +=     '<h3>' + escHtml(t('inbox.detail.bookings.title')) + '</h3>';
-    html +=     '<button type="button" class="detail-sidebar-toggle" id="inbox-sidebar-toggle" aria-controls="inbox-detail-sidebar" aria-expanded="true" title="' + escHtml(t('inbox.detail.sidebar.hide') || portalT('inbox.detail.sidebar.hide') || 'Hide bookings') + '" aria-label="' + escHtml(t('inbox.detail.sidebar.hide') || 'Hide bookings') + '">&#8594;</button>';
-    html +=   '</div>';
-    if (!bookingRows.length){
-      html += '<div class="inbox-no-bookings">' + escHtml(t('inbox.detail.bookings.none')) + '</div>';
-    } else {
-      html += '<div class="inbox-booking-stack">';
-      bookingRows.forEach(function(bctx){
-        html += renderInboxBookingStackItemHtml(bctx, c.guest_name);
-      });
-      html += '</div>';
-    }
-    html += '<button type="button" class="btn btn-ghost" id="inbox-create-booking-for-guest" style="margin-top:10px">' + escHtml(t('inbox.detail.bookings.createForGuest')) + '</button>';
-    html += '</div>'; /* /sidebar-card */
-
-    /* Notes / summary */
-    if (c.human_notes || c.conversation_summary){
-      html += '<div class="sidebar-card">';
-      html +=   '<h3>' + escHtml(t('inbox.detail.notes.title')) + '</h3>';
-      if (c.human_notes)          html += '<div style="font-size:12px;color:#2c3e50;white-space:pre-wrap;margin-bottom:6px">' + escHtml(c.human_notes) + '</div>';
-      if (c.conversation_summary) html += '<div style="font-size:11px;color:#7f8c8d;white-space:pre-wrap">' + escHtml(c.conversation_summary) + '</div>';
-      html += '</div>';
-    }
-
-    html += '</div>'; /* /detail-sidebar */
+    html += '<div class="detail-sidebar" id="inbox-detail-sidebar"></div>';
     html += '</div>'; /* /detail-layout */
 
     targetEl.innerHTML = html;
