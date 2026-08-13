@@ -97,7 +97,8 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-customer-edit{margin-left:auto;flex:0 0 auto;padding:0;border:none;background:none;',
   'color:var(--primary);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;',
   'text-underline-offset:2px;white-space:nowrap}',
-  '.inbox-customer-card .customers-profile-fields{margin-top:2px}',
+  '.inbox-customer-card .customers-profile-fields{display:flex;flex-direction:column;gap:8px}',
+  '.inbox-customer-card .customers-profile-field{display:grid;grid-template-columns:7.6em minmax(0,1fr);gap:6px 14px;align-items:start}',
   '.inbox-customer-stats{margin-top:8px}',
   '.inbox-customer-bookings{margin-top:10px;display:flex;flex-direction:column;gap:4px}',
   '.inbox-customer-booking-link{display:block;width:100%;text-align:left;padding:6px 0;border:none;',
@@ -861,7 +862,6 @@ function inboxCustomerCondensedHtml(data, opts) {
   var name = id.display_name || (cacheRow && cacheRow.display_name) || (data && data.phone) || 'Guest';
   var phone = (data && data.phone) || '';
   var email = id.email || (cacheRow && cacheRow.email) || '';
-  var language = id.language || (cacheRow && cacheRow.language) || '';
   var notes = '';
   if (data && data.notes) notes = data.notes.internal_staff_notes || data.notes.notes || '';
   if (!notes && opts.conv && opts.conv.internal_staff_notes) notes = opts.conv.internal_staff_notes;
@@ -872,26 +872,20 @@ function inboxCustomerCondensedHtml(data, opts) {
       school = getSunsetLocationLabel() || '';
     }
   } catch (_e) { school = ''; }
-  var contact = [];
-  if (phone) contact.push(phone);
-  if (email) contact.push(email);
   var html = '<div class="inbox-customer-card" id="inbox-customer-card">';
   html += '<div class="inbox-customer-head">';
   html += '<div class="inbox-client-info-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
   html += '<div class="inbox-client-info-id">';
   html += '<div class="inbox-client-info-name">' + inboxContextEsc(name) + '</div>';
-  if (contact.length) html += '<div class="inbox-client-info-contact">' + inboxContextEsc(contact.join(' · ')) + '</div>';
   html += '</div>';
-  html += '<button type="button" class="inbox-customer-edit" id="inbox-customer-edit-profile">' +
-    inboxContextEsc(inboxContextT('customers.editProfile', 'Edit profile')) + '</button>';
   html += '</div>';
   html += inboxClientInfoChipsHtml(data, cacheRow);
   html += '<div class="customers-profile-fields">';
-  html += inboxCustomerField(inboxContextT('customers.detail.phone', 'Phone'), phone || '—', !phone);
-  html += inboxCustomerField(inboxContextT('customers.detail.email', 'Email'), email || '—', !email);
+  html += inboxCustomerInlineFieldHtml('phone', inboxContextEsc(inboxContextT('customers.detail.phone', 'Phone')), phone, '—', false);
+  html += inboxCustomerInlineFieldHtml('email', inboxContextEsc(inboxContextT('customers.detail.email', 'Email')), email, '—', false);
   if (school) html += inboxCustomerField(inboxContextT('customers.detail.school', 'Active school'), school, false);
   html += inboxCustomerField(inboxContextT('customers.detail.lastSetup', 'Last setup'), lastSetup || inboxContextT('customers.detail.noServices', 'No services yet'), !lastSetup);
-  html += inboxCustomerField(inboxContextT('customers.detail.notes', 'Notes for next time'), notes || inboxContextT('customers.detail.noNotes', 'No notes yet'), !notes);
+  html += inboxCustomerNotesFieldHtml(notes);
   html += '</div>';
   html += '<div class="inbox-client-info-kv inbox-customer-stats">';
   html += inboxContextKv('Checked in', inboxClientInfoCheckedIn(data, cacheRow));
