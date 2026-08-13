@@ -9,7 +9,8 @@ const {
   SUNSET_DEPLOYMENT: ACCESS_SUNSET,
 } = require('./email-delegated-grant-access-session');
 const {
-  createMicrosoftGraphReplyDraftTransport, EMAIL_MS_GRAPH_REPLY_DRAFT_TRANSPORT_RUNTIME_WIRED,
+  createMicrosoftGraphReplyDraftTransport, pickReplyDraftTransportMethods,
+  EMAIL_MS_GRAPH_REPLY_DRAFT_TRANSPORT_RUNTIME_WIRED,
   EMAIL_MS_GRAPH_REPLY_DRAFT_TRANSPORT_DELIVERY_FROM_202, EMAIL_MS_GRAPH_REPLY_DRAFT_TRANSPORT_LOGGING_FORBIDDEN,
 } = require('./email-microsoft-graph-reply-draft-transport');
 const {
@@ -184,7 +185,9 @@ function createSunsetStagingEmailOutboundDispatch(deps) {
     const prov = validateEmailGrantEnvelopeProvider(composition.provider);
     if (!prov.ok) throw failure();
     const tokenTransport = createMicrosoftTokenHttpTransport(Object.freeze({ httpsImpl: httpsPinned, timers: timersPinned }));
-    const baseReplyDraftTransport = createMicrosoftGraphReplyDraftTransport(Object.freeze({ httpsImpl: httpsPinned.request, timers: timersPinned }));
+    const fullGraphTransport = createMicrosoftGraphReplyDraftTransport(Object.freeze({ httpsImpl: httpsPinned.request, timers: timersPinned }));
+    const baseReplyDraftTransport = pickReplyDraftTransportMethods(fullGraphTransport);
+    if (!baseReplyDraftTransport) throw failure();
     const applicationClientId = ready.applicationClientId;
     const envelopeProvider = prov.value;
     const readyEnv = ready.env;

@@ -5,7 +5,9 @@
  *   GET  /staff/broadcasts/:id          — operator; read draft + recipients
  *   POST /staff/broadcasts/:id/send     — operator; snapshot view members,
  *                                         exclude do_not_contact, persist
- *                                         pending rows, then 501 (no Graph send)
+ *                                         recipient rows. BROADCAST_EMAIL_SEND_ENABLED
+ *                                         fail-closed: unset/false → 501 (zero Graph);
+ *                                         "true" → sendMail on the existing Graph transport.
  *
  * Auth is NOT enforced here. The Staff API router must call requireAuth with
  * the minRole from BROADCAST_ROUTE_TABLE before dispatching; handlers then
@@ -19,6 +21,7 @@
 const {
   ERROR_WHATSAPP_NOT_SUPPORTED,
   ERROR_SEND_NOT_IMPLEMENTED,
+  ERROR_SEND_UNAVAILABLE,
   SQL_INSERT_BROADCAST,
   SQL_SELECT_BROADCAST,
   parseBroadcastCreateBody,
@@ -80,6 +83,9 @@ function createBroadcastRoutes(deps) {
     SQL_INJECT_RE,
   } = deps;
   const STAFF_ACTIONS_ENABLED = deps.STAFF_ACTIONS_ENABLED !== false;
+  const runtimeEnv = deps.runtimeEnv && typeof deps.runtimeEnv === 'object' ? deps.runtimeEnv : process.env;
+  const injectedSendMail = typeof deps.sendMail === 'function' ? deps.sendMail : null;
+  const createSendMail = typeof deps.createSendMail === 'function' ? deps.createSendMail : null;
 
   function resolveRequestClient(query, res, user) {
     const clientSlug = String((query && query.client) || DEFAULT_CLIENT).trim();
@@ -234,6 +240,9 @@ function createBroadcastRoutes(deps) {
         clientSlug,
         broadcastId: id,
         query,
+        env: runtimeEnv,
+        sendMail: injectedSendMail,
+        createSendMail,
       }));
       const elapsed = Date.now() - started;
       if (!outcome.ok) {
@@ -242,9 +251,25 @@ function createBroadcastRoutes(deps) {
         if (outcome.error === ERROR_WHATSAPP_NOT_SUPPORTED) {
           payload.detail = 'Broadcasts are email-only for promotions. WhatsApp is restricted to operational messages to currently checked-in guests inside Meta\'s 24-hour window, and that path is not in this API.';
         }
+        if (outcome.error === ERROR_SEND_UNAVAILABLE && outcome.body && outcome.body.detail) {
+          payload.detail = outcome.body.detail;
+        }
         if (outcome.summary) payload.summary = outcome.summary;
+        if (outcome.body && outcome.body.summary) payload.summary = outcome.body.summary;
         if (outcome.viewId) payload.view_id = outcome.viewId;
         return sendJSON(res, outcome.status || 400, payload);
+      }
+      if (outcome.status === 200) {
+        const summary = outcome.body && outcome.body.summary ? outcome.body.summary : {};
+        appendAuditLog({
+          ...auditBase,
+          success: outcome.body && outcome.body.success === true,
+          sent: summary.sent,
+          error: summary.error,
+          skipped: summary.skipped,
+          elapsed_ms: elapsed,
+        });
+        return sendJSON(res, 200, outcome.body);
       }
       appendAuditLog({
         ...auditBase,

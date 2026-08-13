@@ -3,10 +3,11 @@
  *
  * Opens from a PEOPLE saved view (multi_select). Creates a draft via
  * POST /staff/broadcasts, then Send POSTs /staff/broadcasts/:id/send.
- * Send is expected to snapshot recipients and return 501
- * email_broadcast_send_not_implemented — the UI shows that honestly
- * ("queued locally, email delivery not wired yet") and never claims mail
- * went out. Email only: no WhatsApp channel picker.
+ * Send snapshots recipients. 501 email_broadcast_send_not_implemented
+ * (flag off) is shown honestly ("queued locally, email delivery not wired
+ * yet"). When the flag is on and Graph sendMail runs, the UI shows sent /
+ * failed / skipped counts and never claims every recipient succeeded if some failed.
+ * Email only: no WhatsApp channel picker.
  *
  * Injected after inbox-views so it can wrap renderInboxViewsRail /
  * selectInboxSavedView. Overlay sits on columns 3–4 without flipping
@@ -74,8 +75,25 @@ function inboxBroadcastErrorCode(data){
   } catch (_e) { return ''; }
 }
 
+function inboxBroadcastSendResultCopy(summary){
+  var sent = summary && summary.sent != null ? Number(summary.sent) : 0;
+  var error = summary && summary.error != null ? Number(summary.error) : 0;
+  var skipped = summary && summary.skipped != null ? Number(summary.skipped) : 0;
+  if (isNaN(sent)) sent = 0;
+  if (isNaN(error)) error = 0;
+  if (isNaN(skipped)) skipped = 0;
+  if (error > 0) {
+    return 'Sent ' + String(sent) + ', failed ' + String(error)
+      + (skipped ? (', skipped ' + String(skipped)) : '') + '.';
+  }
+  return 'Sent ' + String(sent) + (skipped ? (', skipped ' + String(skipped)) : '') + '.';
+}
+
 function inboxBroadcastSendFailureCopy(status, errorCode, summary){
   var code = String(errorCode || '');
+  if (status === 503 || code === 'email_broadcast_send_unavailable') {
+    return 'Email send is not available.';
+  }
   if (status === 501 || code === INBOX_BROADCAST_SEND_NOT_IMPLEMENTED) {
     var pending = summary && summary.pending != null ? Number(summary.pending) : null;
     var skipped = summary && summary.skipped != null ? Number(summary.skipped) : null;
@@ -112,6 +130,14 @@ function inboxBroadcastCreateFailureCopy(status, errorCode){
 }
 
 function inboxBroadcastRecipientCountHtml(viewCount, summary){
+  if (summary && (summary.sent != null || summary.error != null) && (Number(summary.sent) > 0 || Number(summary.error) > 0)) {
+    var sentN = Number(summary.sent) || 0;
+    var errorN = Number(summary.error) || 0;
+    var skippedN = Number(summary.skipped) || 0;
+    return 'Sent: ' + sentN
+      + (errorN ? (' · failed: ' + errorN) : '')
+      + (skippedN ? (' · skipped: ' + skippedN) : '');
+  }
   if (summary && summary.pending != null) {
     var pending = Number(summary.pending) || 0;
     var skipped = Number(summary.skipped) || 0;
@@ -316,6 +342,15 @@ function inboxBroadcastSend(){
         inboxBroadcastSetStatus('blocked', inboxBroadcastSendFailureCopy(out.status, code, summary));
         var countEl = el('inbox-broadcast-count');
         if (countEl) countEl.textContent = inboxBroadcastRecipientCountHtml(inboxBroadcastState.viewCount, summary);
+        return;
+      }
+      if (out.status === 200 && data) {
+        inboxBroadcastState.sendFinished = true;
+        inboxBroadcastRender();
+        var failed = summary && Number(summary.error) > 0;
+        inboxBroadcastSetStatus(failed ? 'error' : '', inboxBroadcastSendResultCopy(summary));
+        var sentCountEl = el('inbox-broadcast-count');
+        if (sentCountEl) sentCountEl.textContent = inboxBroadcastRecipientCountHtml(inboxBroadcastState.viewCount, summary);
         return;
       }
       inboxBroadcastRender();

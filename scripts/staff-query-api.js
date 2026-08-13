@@ -429,6 +429,7 @@ const {
   BROADCAST_ID_RE,
   BROADCAST_SEND_RE,
 } = require('./lib/staff-broadcast-routes');
+const { createBroadcastEmailSendMail } = require('./lib/staff-broadcast-email-send');
 const {
   clearConversationMessages,
   resetLunaConversationContext,
@@ -2709,8 +2710,9 @@ const { handleWhatsAppDraftGet, handleWhatsAppDraftPost, handleWhatsAppApproveSe
 
 // Inbox Phase 4 email-first segment broadcasts. Operator auth stays in the
 // router; handlers re-apply assertStaffClientAccess. Send snapshots recipients
-// as pending and returns 501 — Graph bulk send is a follow-up. WhatsApp is
-// refused (promotions are email-only).
+// then 501 unless BROADCAST_EMAIL_SEND_ENABLED=true, in which case sendMail
+// on the existing Graph transport runs. WhatsApp is refused (promotions are
+// email-only).
 const broadcastRoutes = createBroadcastRoutes({
   sendJSON,
   send400,
@@ -2721,6 +2723,15 @@ const broadcastRoutes = createBroadcastRoutes({
   DEFAULT_CLIENT,
   SQL_INJECT_RE,
   STAFF_ACTIONS_ENABLED,
+  runtimeEnv: process.env,
+  createSendMail(pg, env) {
+    return createBroadcastEmailSendMail({
+      pgClient: pg,
+      env: env || process.env,
+      https,
+      timers: { setTimeout, clearTimeout },
+    });
+  },
 });
 const { handleBroadcastCreate, handleBroadcastGet, handleBroadcastSend } = broadcastRoutes;
 
