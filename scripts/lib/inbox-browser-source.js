@@ -31,6 +31,7 @@ const THREAD_MODULE = path.join(BROWSER_DIR, 'inbox-thread.js');
 const VIEWS_MODULE = path.join(BROWSER_DIR, 'inbox-views.js');
 const SHELL_MODULE = path.join(BROWSER_DIR, 'inbox-shell.js');
 const CONTEXT_MODULE = path.join(BROWSER_DIR, 'inbox-context.js');
+const ROWS_MODULE = path.join(BROWSER_DIR, 'inbox-rows.js');
 const WHATSAPP_DRAFT_MODULE = path.join(BROWSER_DIR, 'inbox-whatsapp-draft.js');
 const BROADCAST_MODULE = path.join(BROWSER_DIR, 'inbox-broadcast.js');
 
@@ -101,8 +102,12 @@ function getInboxContextBrowserSource() {
   return readBrowserModule(CONTEXT_MODULE);
 }
 
+function getInboxRowsBrowserSource() {
+  return readBrowserModule(ROWS_MODULE);
+}
+
 function getInboxViewsBrowserSource() {
-  return getInboxShellBrowserSource() + '\n' + readBrowserModule(VIEWS_MODULE) + '\n' + getInboxContextBrowserSource();
+  return getInboxShellBrowserSource() + '\n' + readBrowserModule(VIEWS_MODULE) + '\n' + getInboxContextBrowserSource() + '\n' + getInboxRowsBrowserSource();
 }
 
 function getInboxBroadcastBrowserSource() {
@@ -145,6 +150,7 @@ module.exports = {
   getInboxViewsBrowserSource,
   getInboxShellBrowserSource,
   getInboxContextBrowserSource,
+  getInboxRowsBrowserSource,
   getInboxBroadcastBrowserSource,
   getInboxWhatsAppDraftBrowserSource,
   injectInboxBrowserModules,
@@ -161,6 +167,7 @@ module.exports = {
   VIEWS_MODULE,
   SHELL_MODULE,
   CONTEXT_MODULE,
+  ROWS_MODULE,
   WHATSAPP_DRAFT_MODULE,
   BROADCAST_MODULE,
   INBOX_COLUMNS_INJECT_MARKER,
