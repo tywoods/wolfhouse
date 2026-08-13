@@ -105,7 +105,8 @@ var INBOX_CONTEXT_CSS = [
   'grid-template-columns:max-content minmax(0,1fr)}',
   '.inbox-guest-inline-display[hidden]{display:none!important}',
   '.inbox-customer-head .inbox-client-info-id{display:flex;flex-direction:column;gap:6px;min-width:0}',
-  '.inbox-customer-card:not(.is-full) .inbox-guest-tags{margin:0}',
+  '.inbox-customer-card:not(.is-full) .inbox-guest-tags{margin:10px 0 8px}',
+  '.inbox-customer-card.is-full .inbox-guest-tags{margin:10px 0 8px}',
   '.inbox-customer-stats{margin-top:8px}',
   '.inbox-customer-bookings{margin-top:10px;display:flex;flex-direction:column;gap:4px}',
   '.inbox-customer-booking-link{display:block;width:100%;text-align:left;padding:6px 0;border:none;',
@@ -135,7 +136,6 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-customer-card.is-full .customers-profile-name{font-size:18px}',
   '.inbox-customer-card.is-full .customers-profile-avatar{font-size:16px}',
   '.inbox-customer-card.is-full .customers-profile-identity{display:flex;flex-direction:column;gap:6px;min-width:0}',
-  '.inbox-customer-card.is-full .inbox-guest-tags{margin:0}',
   '.inbox-customer-card.is-full .customers-profile-fields{display:flex;flex-direction:column;gap:8px;margin-top:10px}',
   '.inbox-customer-card.is-full .customers-profile-field{display:grid;grid-template-columns:7.6em minmax(0,1fr);gap:6px 14px;align-items:start;font-size:14px}',
   '.inbox-customer-card.is-full .customers-profile-field-label{font-size:12px;line-height:1.25;padding-top:2px}',
@@ -885,7 +885,6 @@ function inboxCustomerCondensedHtml(data, opts) {
   html += '<div class="inbox-client-info-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
   html += '<div class="inbox-client-info-id">';
   html += '<div class="inbox-client-info-name">' + inboxContextEsc(name) + '</div>';
-  html += inboxCustomerGuestTagsHtml(data);
   html += '</div>';
   html += '</div>';
   html += '<div class="customers-profile-fields">';
@@ -908,6 +907,7 @@ function inboxCustomerCondensedHtml(data, opts) {
   html += inboxContextKv('Unpaid balance', inboxClientInfoUnpaid(data, opts.composite));
   html += inboxContextKv('Waiver status', inboxClientInfoWaiver(data));
   html += '</div>';
+  html += inboxCustomerGuestTagsHtml(data);
   html += inboxCustomerBookingsListHtml(data);
   html += '<div class="inbox-guest-actions">';
   html += '<button type="button" class="btn inbox-guest-create-booking" id="inbox-create-booking-for-guest">' +
@@ -1126,7 +1126,6 @@ function inboxCustomerFullHtml(data, opts) {
   html += '<div class="customers-profile-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
   html += '<div class="customers-profile-identity">';
   html += '<h3 class="customers-profile-name">' + inboxContextEsc(name) + '</h3>';
-  html += inboxCustomerGuestTagsHtml(data);
   html += '</div>';
   html += '<div class="customers-profile-hdr-actions">';
   html += '<button type="button" class="btn btn-ghost" id="inbox-create-booking-for-guest">' +
@@ -1141,6 +1140,7 @@ function inboxCustomerFullHtml(data, opts) {
   html += inboxCustomerNotesFieldHtml(notes);
   html += '</div></div>';
 
+  html += inboxCustomerGuestTagsHtml(data);
   html += inboxCustomerGuestBookingsHtml(data);
 
   function collapse(title, count, body) {

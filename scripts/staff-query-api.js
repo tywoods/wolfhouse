@@ -18579,7 +18579,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .conv-skeleton-line{min-height:14px;background:var(--surface-soft);border-radius:4px}
 .conv-skeleton-line.short{max-width:160px;margin-top:6px}
 /* .visible no longer toggles display — kept for JS compat, no visual effect */
-.detail-header{display:flex;align-items:center;gap:10px;margin:0 0 10px;padding:14px 16px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);flex-shrink:0;flex-wrap:wrap}
+.detail-header{display:flex;align-items:center;gap:10px;margin:0 0 10px;padding:14px 16px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);flex-shrink:0;flex-wrap:nowrap}
 .detail-header-main{flex:1;min-width:0;overflow:hidden}
 .detail-header-right{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-shrink:0;margin-left:auto}
 .detail-header-right .inbox-chat-chrome-slot{justify-content:flex-end;min-height:0}
@@ -20278,6 +20278,12 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .inbox-global-pause{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;gap:8px;width:100%;max-width:100%;box-sizing:border-box;padding:0;margin:0;border:none;background:transparent;white-space:nowrap}
 .inbox-global-pause .tabs-global-pause-toggle{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;justify-content:space-between;gap:8px;width:100%;margin:0;padding:0;cursor:pointer;white-space:nowrap}
 .inbox-global-pause .tabs-global-pause-label{flex:1 1 auto;display:inline-flex;align-items:center;gap:7px;min-width:0;font-size:12px;font-weight:600;letter-spacing:0;color:#31443a;white-space:nowrap}
+[data-theme="dark"] .channelModeIdentity,
+[data-theme="dark"] .inbox-global-pause .tabs-global-pause-label{color:#fff}
+[data-theme="dark"] .channelModeBtn{color:#fff}
+[data-theme="dark"] .channelModeSegmented{background:rgba(20,20,20,.45);border-color:rgba(255,255,255,.14)}
+[data-theme="dark"] .channelModeBtn.isSelected{background:#3a4a40;color:#fff}
+[data-theme="dark"] .channelModeBtn.isSelected.isAuto{background:#31483d;color:#fff}
 .channelAutonomy #cc-luna-global-pause{margin-top:5px;min-height:34px;width:100%;justify-content:space-between}
 .inbox-global-pause-owl{width:22px;height:22px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}
 .inbox-global-pause-owl svg{width:20px;height:20px;display:block}

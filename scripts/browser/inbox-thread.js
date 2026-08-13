@@ -1860,6 +1860,7 @@ function loadConvDetail(convId, targetEl){
     html +=       '</div>';
     html +=     '</div>';
     html +=     '<div class="detail-header-right">';
+    html +=       inboxComposerChannelSwitchHtml(composerChannel);
     html +=       '<button type="button" class="sidebar-expand-btn" id="inbox-sidebar-expand" aria-controls="inbox-detail-sidebar" title="' + escHtml(t('inbox.detail.sidebar.show') || portalT('inbox.detail.sidebar.show') || 'Show bookings') + '" aria-label="' + escHtml(t('inbox.detail.sidebar.show') || 'Show bookings') + '">&#8592;</button>';
     html +=     '</div>';
     html +=   '</div>';
@@ -1898,7 +1899,6 @@ function loadConvDetail(convId, targetEl){
     html += '<div class="draft-panel">';
     html +=   '<div class="draft-label">';
     html +=     '<label for="draft-textarea" style="font-size:11px;color:var(--text-3)">' + escHtml(t('inbox.detail.reply.label')) + '</label>';
-    html +=     inboxComposerChannelSwitchHtml(composerChannel);
     html +=   '</div>';
     if (missingEmail) {
       html += '<div class="inbox-composer-no-email" role="status">Update email address in guest profile to email.</div>';

@@ -223,10 +223,10 @@ console.log('\n── inherited Luna + hide Pause Globally ──');
   const fns = loadLunaFns();
   ok('unpaused WhatsApp matching chrome Auto is inherited',
     fns.inboxLunaModeIsInherited('whatsapp', false) === true
-    && /inherited/.test(fns.inboxLunaModeHeaderLabel('whatsapp', false)));
+    && !/inherited/i.test(fns.inboxLunaModeHeaderLabel('whatsapp', false)));
   ok('paused WhatsApp against chrome Auto is an override, not inherited',
     fns.inboxLunaModeIsInherited('whatsapp', true) === false
-    && !/\(inherited\)/.test(fns.inboxLunaModeHeaderLabel('whatsapp', true)));
+    && !/\(inherited\)/i.test(fns.inboxLunaModeHeaderLabel('whatsapp', true)));
   const html = fns.inboxLunaModeControlHtml({ channel: 'whatsapp', paused: false, needs_human: false });
   ok('header still keeps #luna-pause-switch and Auto|Off',
     /id="luna-pause-switch"/.test(html)

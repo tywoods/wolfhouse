@@ -52,11 +52,7 @@ function inboxLunaModeIsInherited(channel, paused){
 
 function inboxLunaModeHeaderLabel(channel, paused){
   var mode = inboxLunaModeFromPaused(channel, paused);
-  var label = t('inbox.detail.lunaMode.label') + ': ' + t('inbox.detail.lunaMode.' + mode);
-  if (inboxLunaModeIsInherited(channel, paused)) {
-    label += ' (' + t('inbox.detail.lunaMode.inherited') + ')';
-  }
-  return label;
+  return t('inbox.detail.lunaMode.label') + ': ' + t('inbox.detail.lunaMode.' + mode);
 }
 
 function inboxNeedsHumanRaiseHtml(needsHuman){
