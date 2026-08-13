@@ -120,6 +120,17 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-customer-card.is-editing .customers-edit-field{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--text-2)}',
   '.inbox-customer-card.is-editing .customers-edit-field input,.inbox-customer-card.is-editing .customers-edit-field textarea{font:inherit;font-weight:500;color:var(--text);padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);width:100%;box-sizing:border-box}',
   '.inbox-customer-edit-actions{display:flex;gap:8px;margin-top:12px}',
+  '.inbox-guest-linked-bookings .customers-row-table{width:100%;table-layout:fixed}',
+  '.inbox-guest-booking-row{cursor:pointer}',
+  '.inbox-guest-booking-row:hover{background:var(--surface-soft)}',
+  '.inbox-guest-notes-display{display:block;width:100%;text-align:left;border:none;background:none;',
+  'padding:0;margin:0;font:inherit;color:inherit;cursor:pointer}',
+  '.inbox-guest-notes-display.is-empty{color:var(--text-3)}',
+  '.inbox-guest-notes-edit{display:flex;flex-direction:column;gap:8px;margin-top:6px}',
+  '.inbox-guest-notes-edit[hidden]{display:none!important}',
+  '.inbox-guest-notes-edit textarea{min-height:72px;width:100%;box-sizing:border-box;font:inherit;',
+  'padding:8px 10px;border:1px solid var(--border);border-radius:8px;resize:vertical}',
+  '.inbox-guest-notes-save{align-self:flex-start;padding:9px 16px;font-size:12px;font-weight:600}',
 ].join('');
 
 var inboxContextLastComposite = null;
@@ -914,6 +925,59 @@ function inboxCustomerField(label, value, muted) {
     (muted ? ' is-muted' : '') + '">' + inboxContextEsc(value) + '</span></div>';
 }
 
+function inboxCustomerNotesFieldHtml(notes) {
+  var text = String(notes || '').trim();
+  var empty = !text;
+  var html = '<div class="customers-profile-field inbox-guest-notes" id="inbox-guest-notes">';
+  html += '<span class="customers-profile-field-label">' + inboxContextEsc(inboxContextT('customers.detail.notes', 'Notes for next time')) + '</span>';
+  html += '<button type="button" class="customers-profile-field-value inbox-guest-notes-display' + (empty ? ' is-empty' : '') + '" id="inbox-guest-notes-open">';
+  html += inboxContextEsc(empty ? inboxContextT('customers.detail.noNotes', 'No notes yet') : text);
+  html += '</button>';
+  html += '<div class="inbox-guest-notes-edit" id="inbox-guest-notes-edit" hidden>';
+  html += '<textarea id="inbox-guest-notes-text">' + inboxContextEsc(text) + '</textarea>';
+  html += '<button type="button" class="btn btn-primary inbox-guest-notes-save" id="inbox-guest-notes-save">' +
+    inboxContextEsc(inboxContextT('common.save', 'Save')) + '</button>';
+  html += '</div></div>';
+  return html;
+}
+
+function inboxCustomerGuestBookingsHtml(data) {
+  var bookings = (data && data.bookings) || [];
+  var html = '<div class="customers-section inbox-guest-linked-bookings">';
+  html += '<div class="customers-section-hdr">' + inboxContextEsc(inboxContextT('customers.detail.linkedBookings', 'Linked bookings')) + '</div>';
+  if (!bookings.length) {
+    html += '<div class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noLinkedBookings', 'No linked bookings yet')) + '</div>';
+    html += '</div>';
+    return html;
+  }
+  html += '<table class="customers-row-table"><thead><tr>';
+  html += '<th>' + inboxContextEsc(inboxContextT('customers.detail.bookingCode', 'Booking')) + '</th>';
+  html += '<th>' + inboxContextEsc(inboxContextT('customers.detail.bookingDates', 'Dates')) + '</th>';
+  html += '<th>' + inboxContextEsc(inboxContextT('customers.detail.paymentStatus', 'Payment')) + '</th>';
+  html += '</tr></thead><tbody>';
+  for (var i = 0; i < bookings.length; i++) {
+    var b = bookings[i] || {};
+    var checkIn = b.check_in ? String(b.check_in).slice(0, 10) : '';
+    var checkOut = b.check_out ? String(b.check_out).slice(0, 10) : '';
+    var dates = (checkIn || checkOut) ? ((checkIn || '—') + ' → ' + (checkOut || '—')) : '—';
+    var pay = b.payment_status || b.payment_payment_status || '—';
+    var guestName = b.guest_name || b.booking_guest_name || '';
+    html += '<tr class="inbox-guest-booking-row" data-inbox-open-booking="1"';
+    html += ' data-booking-id="' + inboxContextEsc(String(b.booking_id || '')) + '"';
+    html += ' data-booking-code="' + inboxContextEsc(String(b.booking_code || '')) + '"';
+    html += ' data-check-in="' + inboxContextEsc(checkIn) + '"';
+    html += ' data-check-out="' + inboxContextEsc(checkOut) + '"';
+    html += ' data-guest-name="' + inboxContextEsc(guestName) + '"';
+    html += ' tabindex="0" role="button">';
+    html += '<td>' + inboxContextEsc(String(b.booking_code || '—')) + '</td>';
+    html += '<td>' + inboxContextEsc(dates) + '</td>';
+    html += '<td>' + inboxContextEsc(String(pay)) + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
 function inboxCustomerFullHtml(data, opts) {
   opts = opts || {};
   var id = (data && data.identity) || {};
@@ -953,18 +1017,10 @@ function inboxCustomerFullHtml(data, opts) {
   if (school) html += inboxCustomerField(inboxContextT('customers.detail.school', 'Active school'), school, false);
   html += inboxCustomerField(inboxContextT('customers.detail.language', 'Language'), language || '—', !language);
   html += inboxCustomerField(inboxContextT('customers.detail.lastSetup', 'Last setup'), lastSetup || inboxContextT('customers.detail.noServices', 'No services yet'), !lastSetup);
-  html += inboxCustomerField(inboxContextT('customers.detail.notes', 'Notes for next time'), notes || inboxContextT('customers.detail.noNotes', 'No notes yet'), !notes);
+  html += inboxCustomerNotesFieldHtml(notes);
   html += '</div></div>';
 
-  var bookings = (data && data.bookings) || [];
-  if (typeof renderCustomerLinkedBookingsSection === 'function') {
-    html += String(renderCustomerLinkedBookingsSection(data) || '').replace('id="cust-linked-bookings-section"', '');
-  } else {
-    html += '<div class="customers-section">';
-    html += '<div class="customers-section-hdr">' + inboxContextEsc(inboxContextT('customers.detail.linkedBookings', 'Linked bookings')) + '</div>';
-    html += '<div class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noLinkedBookings', 'No linked bookings yet')) + '</div>';
-    html += '</div>';
-  }
+  html += inboxCustomerGuestBookingsHtml(data);
 
   function collapse(title, count, body) {
     if (typeof renderCollapsibleCustomerSection === 'function') {
@@ -1197,6 +1253,73 @@ function inboxCustomerEnsureBookingDelegate() {
   });
 }
 
+function inboxCustomerWireNotes(root) {
+  if (!root || !root.querySelector) return;
+  var open = root.querySelector('#inbox-guest-notes-open');
+  var edit = root.querySelector('#inbox-guest-notes-edit');
+  var area = root.querySelector('#inbox-guest-notes-text');
+  var save = root.querySelector('#inbox-guest-notes-save');
+  if (open && open.dataset.inboxCustomerWired !== '1') {
+    open.dataset.inboxCustomerWired = '1';
+    open.addEventListener('click', function() {
+      open.hidden = true;
+      if (edit) edit.hidden = false;
+      if (area) area.focus();
+    });
+  }
+  if (save && save.dataset.inboxCustomerWired !== '1') {
+    save.dataset.inboxCustomerWired = '1';
+    save.addEventListener('click', function() {
+      inboxCustomerSaveNotes(area ? area.value : '', root);
+    });
+  }
+}
+
+function inboxCustomerSaveNotes(notes, root) {
+  var data = inboxContextLastCustomer || {};
+  var id = data.identity || {};
+  var phone = data.phone || '';
+  if (!phone) return;
+  var payload = {
+    display_name: id.display_name || '',
+    phone: phone,
+    email: id.email || '',
+    language: id.language || '',
+    notes: String(notes || '').trim(),
+  };
+  var saveBtn = root && root.querySelector('#inbox-guest-notes-save');
+  if (saveBtn) saveBtn.disabled = true;
+  var url = '/staff/customers/' + encodeURIComponent(phone) + '?client=' + encodeURIComponent(typeof getClient === 'function' ? getClient() : '');
+  fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(function(r) {
+    return r.json().then(function(body) { return { ok: r.ok, body: body }; });
+  }).then(function(res) {
+    if (!res.ok || !res.body || res.body.success !== true) {
+      throw new Error((res.body && (res.body.error || res.body.message)) || 'Save failed');
+    }
+    if (!inboxContextLastCustomer) inboxContextLastCustomer = data;
+    inboxContextLastCustomer.notes = inboxContextLastCustomer.notes || {};
+    inboxContextLastCustomer.notes.internal_staff_notes = payload.notes;
+    if (inboxContextLastCustomer.identity) inboxContextLastCustomer.identity.display_name = payload.display_name;
+    var open = root && root.querySelector('#inbox-guest-notes-open');
+    var edit = root && root.querySelector('#inbox-guest-notes-edit');
+    if (open) {
+      var empty = !payload.notes;
+      open.textContent = empty ? inboxContextT('customers.detail.noNotes', 'No notes yet') : payload.notes;
+      open.classList.toggle('is-empty', empty);
+      open.hidden = false;
+    }
+    if (edit) edit.hidden = true;
+  }).catch(function() {
+    /* leave the box open so staff can retry */
+  }).finally(function() {
+    if (saveBtn) saveBtn.disabled = false;
+  });
+}
+
 function inboxCustomerWireFull(sidebar, data) {
   var edit = sidebar && sidebar.querySelector('#inbox-customer-edit-profile');
   if (edit && edit.dataset.inboxCustomerWired !== '1') {
@@ -1205,6 +1328,7 @@ function inboxCustomerWireFull(sidebar, data) {
       inboxCustomerStartEdit();
     });
   }
+  inboxCustomerWireNotes(sidebar);
   var save = sidebar && sidebar.querySelector('#inbox-cust-edit-save');
   if (save && save.dataset.inboxCustomerWired !== '1') {
     save.dataset.inboxCustomerWired = '1';
