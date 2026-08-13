@@ -2015,6 +2015,16 @@ function validateScheduleBookingBody(body, opts) {
     normalizeCanonicalLessons,
     expandLessonsToLegacyComponents,
   } = require('./sunset-schedule-lessons');
+  // The lessons expand rebuilds private_lesson.quantity from the session rows it
+  // produced. Carry a declared quantity across that round trip so the mismatch stays
+  // owned by normalizePrivateLessonPart; an omitted quantity still means "infer".
+  const declaredPrivatePart = b.components && typeof b.components === 'object'
+    ? b.components.private_lesson
+    : null;
+  const declaredPrivateQuantity = declaredPrivatePart && typeof declaredPrivatePart === 'object'
+    && Array.isArray(declaredPrivatePart.sessions)
+    ? (declaredPrivatePart.quantity != null ? declaredPrivatePart.quantity : declaredPrivatePart.count)
+    : null;
   const lessonsNorm = normalizeCanonicalLessons(b);
   if (!lessonsNorm.ok) {
     return {
@@ -2043,6 +2053,9 @@ function validateScheduleBookingBody(body, opts) {
     delete nextComponents.private_lesson;
     delete nextComponents.lesson;
     Object.assign(nextComponents, expanded.components || {});
+    if (declaredPrivateQuantity != null && nextComponents.private_lesson) {
+      nextComponents.private_lesson.quantity = declaredPrivateQuantity;
+    }
     bodyForComponents = {
       ...b,
       components: nextComponents,
