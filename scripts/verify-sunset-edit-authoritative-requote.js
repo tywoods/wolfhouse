@@ -31,6 +31,29 @@ const { packPriceItemCode } = require('./lib/sunset-admin-price-identity');
 // Production pricing path requires Admin DB reads for tenant_price_rules.
 process.env.SUNSET_ADMIN_DB_READ_ENABLED = '1';
 
+/**
+ * The fixture calendar is translated onto the clock. Every booking day, session and
+ * accommodation night in this file is defined as an offset from one anchor day, so
+ * moving the whole calendar forward preserves each span and ordering exactly — while
+ * keeping the payloads editable instead of aging into explicit_past_date. The anchor
+ * keeps its weekday (Saturday), so the offsets do too.
+ */
+function isoWeekdayAtLeastDaysOut(weekday, days) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  d.setUTCDate(d.getUTCDate() + ((weekday - d.getUTCDay() + 7) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+const ANCHOR = isoWeekdayAtLeastDaysOut(6, 30); // Saturday, a month out
+
+/** Fixture day: `D(0)` is the anchor, `D(1)` the day after, `D(-61)` two months before. */
+function D(offsetDays) {
+  const d = new Date(`${ANCHOR}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+
 let pass = 0;
 let fail = 0;
 function assert(label, cond, detail) {
@@ -159,8 +182,8 @@ function baseBooking(overrides) {
     phone: '+34600000001',
     status: 'payment_pending',
     payment_status: 'waiting_payment',
-    check_in: '2026-08-01',
-    check_out: '2026-08-02',
+    check_in: D(0),
+    check_out: D(1),
     guest_count: 1,
     total_amount_cents: COURSE_WEEK_CENTS,
     amount_paid_cents: 0,
@@ -183,7 +206,7 @@ function courseService(opts) {
     id: opts.id || 'sr-course-1',
     service_record_id: opts.id || 'sr-course-1',
     service_type: 'surf_lesson',
-    service_date: opts.date || '2026-08-01',
+    service_date: opts.date || D(0),
     quantity: opts.quantity || 1,
     amount_due_cents: opts.amount_due_cents != null ? opts.amount_due_cents : COURSE_WEEK_CENTS,
     amount_paid_cents: opts.amount_paid_cents || 0,
@@ -570,7 +593,7 @@ function makeStatefulPg(seed) {
             active: true,
             effective_from: null,
             effective_to: null,
-            updated_at: '2026-06-01',
+            updated_at: D(-61),
           }],
         };
       }
@@ -646,10 +669,10 @@ async function main() {
   // ── Pure helpers ──────────────────────────────────────────────
   {
     const { writes } = loadModules();
-    const a = writes.buildSchedulePricingIntent(courseBody(TIER_WEEK, ['2026-08-01']));
-    const b = writes.buildSchedulePricingIntent(courseBody(TIER_DAY, ['2026-08-01']));
+    const a = writes.buildSchedulePricingIntent(courseBody(TIER_WEEK, [D(0)]));
+    const b = writes.buildSchedulePricingIntent(courseBody(TIER_DAY, [D(0)]));
     const c = writes.buildSchedulePricingIntent({
-      ...courseBody(TIER_WEEK, ['2026-08-01']),
+      ...courseBody(TIER_WEEK, [D(0)]),
       guest_name: 'Other',
       notes: 'x',
       payment_status: 'paid',
@@ -658,9 +681,9 @@ async function main() {
     assert('pricing intent detects tier change', !writes.schedulePricingIntentsEqual(a, b));
 
     // RED fixtures: complete equality must detect price-affecting deltas
-    const offeringA = writes.buildSchedulePricingIntent(courseBody(TIER_WEEK, ['2026-08-01']));
+    const offeringA = writes.buildSchedulePricingIntent(courseBody(TIER_WEEK, [D(0)]));
     const offeringB = writes.buildSchedulePricingIntent({
-      ...courseBody(TIER_WEEK, ['2026-08-01']),
+      ...courseBody(TIER_WEEK, [D(0)]),
       components: {
         course: {
           quantity: 1,
@@ -675,34 +698,34 @@ async function main() {
     const withRental = writes.buildSchedulePricingIntent({
       guest_name: 'R',
       payment_status: 'unpaid',
-      service_dates: ['2026-08-01'],
+      service_dates: [D(0)],
       components: { surfboard: { quantity: 1 } },
       rentals: [{
         offering_key: 'board_rental', duration_key: '1_day', quantity: 1,
-        covered_dates: ['2026-08-01'],
+        covered_dates: [D(0)],
       }],
     }, {
       rentals: [{
         offering_key: 'board_rental', duration_key: '1_day', quantity: 1,
-        covered_dates: ['2026-08-01'],
+        covered_dates: [D(0)],
       }],
     });
     const rentalOmittedPreserve = writes.buildSchedulePricingIntent({
       guest_name: 'R',
       payment_status: 'unpaid',
-      service_dates: ['2026-08-01'],
+      service_dates: [D(0)],
       components: { surfboard: { quantity: 1 } },
       // rentals key absent
     }, {
       preserveExistingRentals: [{
         offering_key: 'board_rental', duration_key: '1_day', quantity: 1,
-        covered_dates: ['2026-08-01'],
+        covered_dates: [D(0)],
       }],
     });
     const rentalWiped = writes.buildSchedulePricingIntent({
       guest_name: 'R',
       payment_status: 'unpaid',
-      service_dates: ['2026-08-01'],
+      service_dates: [D(0)],
       components: { surfboard: { quantity: 1 } },
     }, { rentals: [] });
     assert('RED rental omission preserves (equal)',
@@ -711,29 +734,29 @@ async function main() {
       !writes.schedulePricingIntentsEqual(withRental, rentalWiped));
 
     const privA = writes.buildSchedulePricingIntent({
-      guest_name: 'P', payment_status: 'unpaid', service_dates: ['2026-08-10'],
+      guest_name: 'P', payment_status: 'unpaid', service_dates: [D(9)],
       components: {
         private_lesson: {
           quantity: 1, surfer_count: 1,
-          sessions: [{ date: '2026-08-10', start: '10:00', end: '12:00' }],
+          sessions: [{ date: D(9), start: '10:00', end: '12:00' }],
         },
       },
     });
     const privEnd = writes.buildSchedulePricingIntent({
-      guest_name: 'P', payment_status: 'unpaid', service_dates: ['2026-08-10'],
+      guest_name: 'P', payment_status: 'unpaid', service_dates: [D(9)],
       components: {
         private_lesson: {
           quantity: 1, surfer_count: 1,
-          sessions: [{ date: '2026-08-10', start: '10:00', end: '13:00' }],
+          sessions: [{ date: D(9), start: '10:00', end: '13:00' }],
         },
       },
     });
     const privDate = writes.buildSchedulePricingIntent({
-      guest_name: 'P', payment_status: 'unpaid', service_dates: ['2026-08-11'],
+      guest_name: 'P', payment_status: 'unpaid', service_dates: [D(10)],
       components: {
         private_lesson: {
           quantity: 1, surfer_count: 1,
-          sessions: [{ date: '2026-08-11', start: '10:00', end: '12:00' }],
+          sessions: [{ date: D(10), start: '10:00', end: '12:00' }],
         },
       },
     });
@@ -742,9 +765,9 @@ async function main() {
     assert('RED private date move unequal',
       !writes.schedulePricingIntentsEqual(privA, privDate));
 
-    const qtyA = writes.buildSchedulePricingIntent(courseBody(TIER_WEEK, ['2026-08-01']));
+    const qtyA = writes.buildSchedulePricingIntent(courseBody(TIER_WEEK, [D(0)]));
     const qtyB = writes.buildSchedulePricingIntent({
-      ...courseBody(TIER_WEEK, ['2026-08-01']),
+      ...courseBody(TIER_WEEK, [D(0)]),
       components: {
         course: {
           quantity: 2,
@@ -757,29 +780,29 @@ async function main() {
     assert('RED quantity change unequal', !writes.schedulePricingIntentsEqual(qtyA, qtyB));
 
     const fdA = writes.buildSchedulePricingIntent({
-      guest_name: 'G', payment_status: 'unpaid', service_dates: ['2026-08-12'],
+      guest_name: 'G', payment_status: 'unpaid', service_dates: [D(11)],
       components: {
         private_lesson: {
           quantity: 1, surfer_count: 1,
-          sessions: [{ date: '2026-08-12', start: '10:00', end: '12:00' }],
+          sessions: [{ date: D(11), start: '10:00', end: '12:00' }],
         },
-        full_day_equipment_extension: { enabled: true, dates: { '2026-08-12': 1 } },
+        full_day_equipment_extension: { enabled: true, dates: { [D(11)]: 1 } },
       },
     });
     const fdB = writes.buildSchedulePricingIntent({
-      guest_name: 'G', payment_status: 'unpaid', service_dates: ['2026-08-12'],
+      guest_name: 'G', payment_status: 'unpaid', service_dates: [D(11)],
       components: {
         private_lesson: {
           quantity: 1, surfer_count: 1,
-          sessions: [{ date: '2026-08-12', start: '10:00', end: '12:00' }],
+          sessions: [{ date: D(11), start: '10:00', end: '12:00' }],
         },
-        full_day_equipment_extension: { enabled: true, dates: { '2026-08-12': 2 } },
+        full_day_equipment_extension: { enabled: true, dates: { [D(11)]: 2 } },
       },
     });
     assert('RED full-day qty unequal', !writes.schedulePricingIntentsEqual(fdA, fdB));
 
     const incomplete = {
-      service_dates: ['2026-08-01'],
+      service_dates: [D(0)],
       components: { course: { quantity: 1, course_id: PACK_ID } }, // missing tier/offering
       rentals: [],
     };
@@ -824,12 +847,12 @@ async function main() {
       booking: baseBooking({
         total_amount_cents: COURSE_WEEK_CENTS,
         balance_due_cents: COURSE_WEEK_CENTS,
-        check_in: '2026-08-01',
-        check_out: '2026-08-03',
+        check_in: D(0),
+        check_out: D(2),
       }),
       services: [
-        courseService({ id: 'sr-w1', date: '2026-08-01', amount_due_cents: COURSE_WEEK_CENTS }),
-        courseService({ id: 'sr-w2', date: '2026-08-02', amount_due_cents: 0 }),
+        courseService({ id: 'sr-w1', date: D(0), amount_due_cents: COURSE_WEEK_CENTS }),
+        courseService({ id: 'sr-w2', date: D(1), amount_due_cents: 0 }),
       ],
     });
     const result = await drawer.updateSunsetScheduleBooking(pg, {
@@ -837,7 +860,7 @@ async function main() {
       bookingId: BOOKING_ID,
       locationId: LOC,
       actor: { email: 'staff@sunset.test' },
-      body: courseBody(TIER_DAY, ['2026-08-08']),
+      body: courseBody(TIER_DAY, [D(7)]),
     });
     assert('week→day update ok', result.ok === true, JSON.stringify(result.body || result));
     assert('locked once', pg.state.locks >= 1);
@@ -879,7 +902,7 @@ async function main() {
         id: 'sr-pl-1',
         service_record_id: 'sr-pl-1',
         service_type: 'surf_lesson',
-        service_date: '2026-08-10',
+        service_date: D(9),
         quantity: 1,
         amount_due_cents: PRIVATE_SESSION_CENTS,
         amount_paid_cents: 0,
@@ -904,15 +927,15 @@ async function main() {
       body: {
         guest_name: 'Edit Guest',
         payment_status: 'unpaid',
-        service_dates: ['2026-08-10', '2026-08-11'],
+        service_dates: [D(9), D(10)],
         components: {
           private_lesson: {
             enabled: true,
             quantity: 2,
             surfer_count: 1,
             sessions: [
-              { date: '2026-08-10', start: '10:00', end: '12:00' },
-              { date: '2026-08-11', start: '10:00', end: '12:00' },
+              { date: D(9), start: '10:00', end: '12:00' },
+              { date: D(10), start: '10:00', end: '12:00' },
             ],
           },
         },
@@ -947,7 +970,7 @@ async function main() {
         id: 'sr-pl-g',
         service_record_id: 'sr-pl-g',
         service_type: 'surf_lesson',
-        service_date: '2026-08-12',
+        service_date: D(11),
         quantity: 1,
         amount_due_cents: PRIVATE_SESSION_CENTS,
         amount_paid_cents: 0,
@@ -968,17 +991,17 @@ async function main() {
       body: {
         guest_name: 'Edit Guest',
         payment_status: 'unpaid',
-        service_dates: ['2026-08-12'],
+        service_dates: [D(11)],
         components: {
           private_lesson: {
             enabled: true,
             quantity: 1,
             surfer_count: 1,
-            sessions: [{ date: '2026-08-12', start: '10:00', end: '12:00' }],
+            sessions: [{ date: D(11), start: '10:00', end: '12:00' }],
           },
           full_day_equipment_extension: {
             enabled: true,
-            dates: { '2026-08-12': 1 },
+            dates: { [D(11)]: 1 },
           },
         },
       },
@@ -1054,7 +1077,7 @@ async function main() {
         id: 'sr-board',
         service_record_id: 'sr-board',
         service_type: 'surfboard',
-        service_date: '2026-08-20',
+        service_date: D(19),
         quantity: 1,
         amount_due_cents: BOARD_1D_CENTS,
         amount_paid_cents: 0,
@@ -1078,9 +1101,9 @@ async function main() {
       body: {
         guest_name: 'Edit Guest',
         payment_status: 'unpaid',
-        date_from: '2026-08-21',
-        date_to: '2026-08-21',
-        service_dates: ['2026-08-21'],
+        date_from: D(20),
+        date_to: D(20),
+        service_dates: [D(20)],
         rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
         components: { surfboard: { quantity: 1 } },
         // Staff no-lesson: authoritative party size (PR #248 anti-spoof).
@@ -1103,7 +1126,7 @@ async function main() {
     const pg = makeStatefulPg({ booking: baseBooking(), services: [] });
     const unclaimed = await writes.applyAuthoritativeQuoteAmounts(
       pg,
-      [{ service_record_id: 'x1', service_type: 'surf_lesson', service_date: '2026-08-01', metadata: { component: 'lesson' } }],
+      [{ service_record_id: 'x1', service_type: 'surf_lesson', service_date: D(0), metadata: { component: 'lesson' } }],
       { total_cents: 1000, line_items: [{ component: 'course', total_cents: 1000 }] },
       { clientSlug: 'sunset' },
     );
@@ -1113,7 +1136,7 @@ async function main() {
       [{
         service_record_id: 'x2',
         service_type: 'surf_lesson',
-        service_date: '2026-08-01',
+        service_date: D(0),
         metadata: { component: 'course' },
       }],
       {
@@ -1137,7 +1160,7 @@ async function main() {
     const pg = makeStatefulPg({
       booking: baseBooking(),
       services: [
-        courseService({ id: 'sr-self', date: '2026-08-01', quantity: 7, amount_due_cents: COURSE_WEEK_CENTS }),
+        courseService({ id: 'sr-self', date: D(0), quantity: 7, amount_due_cents: COURSE_WEEK_CENTS }),
       ],
       otherCourseSeats: {},
     });
@@ -1146,7 +1169,7 @@ async function main() {
       clientSlug: 'sunset',
       locationId: LOC,
       courseId: PACK_ID,
-      serviceDates: ['2026-08-01'],
+      serviceDates: [D(0)],
       quantity: 2,
     });
     // Pack capacity 8; self 7 → remaining 1 < 2
@@ -1156,7 +1179,7 @@ async function main() {
       clientSlug: 'sunset',
       locationId: LOC,
       courseId: PACK_ID,
-      serviceDates: ['2026-08-01'],
+      serviceDates: [D(0)],
       quantity: 2,
       excludeBookingId: BOOKING_ID,
     });
@@ -1172,7 +1195,7 @@ async function main() {
       booking: baseBooking(),
       services: [courseService()],
     });
-    const body = courseBody(TIER_DAY, ['2026-08-09']);
+    const body = courseBody(TIER_DAY, [D(8)]);
     const r1 = await drawer.updateSunsetScheduleBooking(pg, {
       clientSlug: 'sunset',
       bookingId: BOOKING_ID,
@@ -1213,13 +1236,13 @@ async function main() {
           courseService({
             id: 'sr-concurrent-day',
             tier_key: TIER_DAY,
-            date: '2026-08-09',
+            date: D(8),
             amount_due_cents: COURSE_DAY_CENTS,
           }),
         ];
         state.bookings[0].total_amount_cents = COURSE_DAY_CENTS;
         state.bookings[0].balance_due_cents = COURSE_DAY_CENTS;
-        state.bookings[0].check_in = '2026-08-09';
+        state.bookings[0].check_in = D(8);
         state.bookings[0].metadata = {
           ...parseMeta(state.bookings[0].metadata),
           concurrent_writer: true,
@@ -1232,7 +1255,7 @@ async function main() {
       locationId: LOC,
       actor: { email: 'staff@sunset.test' },
       body: {
-        ...courseBody(TIER_DAY, ['2026-08-09']),
+        ...courseBody(TIER_DAY, [D(8)]),
         guest_name: 'After Concurrent',
       },
     });
@@ -1276,7 +1299,7 @@ async function main() {
       bookingId: BOOKING_ID,
       locationId: LOC,
       actor: { email: 'staff@sunset.test' },
-      body: courseBody(TIER_DAY, ['2026-08-22']),
+      body: courseBody(TIER_DAY, [D(21)]),
     });
     assert('concurrent payment forces paid reprice conflict',
       result.ok === false && result.status === 409
@@ -1313,7 +1336,7 @@ async function main() {
       bookingId: BOOKING_ID,
       locationId: LOC,
       actor: { email: 'staff@sunset.test' },
-      body: courseBody(TIER_DAY, ['2026-08-22']),
+      body: courseBody(TIER_DAY, [D(21)]),
     });
     assert('in-txn location guard fails closed', rLoc.ok === false && rLoc.status === 404);
     assert('in-txn location guard rolled back', pgLoc.state.rollbacks >= 1);
@@ -1331,7 +1354,7 @@ async function main() {
       body: {
         guest_name: 'Edit Guest',
         payment_status: 'unpaid',
-        service_dates: ['2026-08-01'],
+        service_dates: [D(0)],
         components: {
           course: {
             quantity: 1,
@@ -1356,14 +1379,14 @@ async function main() {
       clientSlug: 'wolfhouse-somo',
       bookingId: BOOKING_ID,
       locationId: LOC,
-      body: courseBody(TIER_DAY, ['2026-08-09']),
+      body: courseBody(TIER_DAY, [D(8)]),
     });
     assert('wrong tenant rejected', badTenant.ok === false && badTenant.status === 403);
     const badLoc = await drawer.updateSunsetScheduleBooking(pg, {
       clientSlug: 'sunset',
       bookingId: BOOKING_ID,
       locationId: 'sunset-sardinero',
-      body: courseBody(TIER_DAY, ['2026-08-09']),
+      body: courseBody(TIER_DAY, [D(8)]),
     });
     assert('wrong location rejected', badLoc.ok === false && badLoc.status === 404);
   }
@@ -1400,7 +1423,7 @@ async function main() {
           bookingId: BOOKING_ID,
           locationId: LOC,
           actor: { email: 'staff@sunset.test' },
-          body: courseBody(TIER_DAY, ['2026-08-15']),
+          body: courseBody(TIER_DAY, [D(14)]),
         });
         assert(`rollback ${failAt} no success`, result.ok === false);
         assert(`rollback ${failAt} restores services`,
@@ -1418,7 +1441,7 @@ async function main() {
           bookingId: BOOKING_ID,
           locationId: LOC,
           actor: { email: 'staff@sunset.test' },
-          body: courseBody(TIER_DAY, ['2026-08-15']),
+          body: courseBody(TIER_DAY, [D(14)]),
         });
       } catch (_) {
         threw = true;
@@ -1456,7 +1479,7 @@ async function main() {
       bookingId: BOOKING_ID,
       locationId: LOC,
       actor: { email: 'staff@sunset.test' },
-      body: courseBody(TIER_DAY, ['2026-08-22']),
+      body: courseBody(TIER_DAY, [D(21)]),
     });
     assert('paid reprice rejected', result.ok === false && result.status === 409);
     assert('stable reason paid_booking_reprice_required',
@@ -1492,7 +1515,7 @@ async function main() {
       bookingId: BOOKING_ID,
       locationId: LOC,
       actor: { email: 'staff@sunset.test' },
-      body: courseBody(TIER_DAY, ['2026-08-22']),
+      body: courseBody(TIER_DAY, [D(21)]),
     });
     assert('payment-record reprice rejected', result.ok === false && result.status === 409);
     assert('payment-record reason paid_booking_reprice_required',
@@ -1525,7 +1548,7 @@ async function main() {
       locationId: LOC,
       actor: { email: 'staff@sunset.test' },
       body: {
-        ...courseBody(TIER_WEEK, ['2026-08-01']),
+        ...courseBody(TIER_WEEK, [D(0)]),
         guest_name: 'Stripe Guest',
         payment_status: 'paid',
         payment_method: 'link',
@@ -1562,7 +1585,7 @@ async function main() {
       locationId: LOC,
       actor: { email: 'staff@sunset.test' },
       body: {
-        ...courseBody(TIER_WEEK, ['2026-08-01', '2026-08-02']),
+        ...courseBody(TIER_WEEK, [D(0), D(1)]),
         guest_name: 'Paid Guest Renamed',
         payment_status: 'paid',
       },
@@ -1577,11 +1600,11 @@ async function main() {
           payment_status: 'paid',
           balance_due_cents: 0,
           guest_name: 'Paid Guest',
-          check_in: '2026-08-01',
-          check_out: '2026-08-02',
+          check_in: D(0),
+          check_out: D(1),
         }),
         services: [courseService({
-          date: '2026-08-01',
+          date: D(0),
           amount_paid_cents: COURSE_WEEK_CENTS,
           payment_status: 'paid',
         })],
@@ -1594,7 +1617,7 @@ async function main() {
         body: {
           guest_name: 'Paid Guest Renamed',
           payment_status: 'paid',
-          service_dates: ['2026-08-01'],
+          service_dates: [D(0)],
           components: {
             course: {
               quantity: 1,
@@ -1624,7 +1647,7 @@ async function main() {
   {
     console.log('\n[paid multi-lesson metadata-only allowed; commercial change fail-closed]');
     const { drawer } = loadModules();
-    const DATE = '2026-08-20';
+    const DATE = D(19);
     const multiLessons = [
       {
         kind: 'group',
@@ -1815,8 +1838,8 @@ async function main() {
       actor: { email: 'staff@sunset.test' },
       body: {
         ...multiBodyBase,
-        service_dates: ['2026-08-21'],
-        lessons: multiLessons.map((l) => ({ ...l, date: '2026-08-21' })),
+        service_dates: [D(20)],
+        lessons: multiLessons.map((l) => ({ ...l, date: D(20) })),
       },
     });
     assert(
@@ -1943,7 +1966,7 @@ async function main() {
       locationId: LOC,
       actor: { email: 'staff@sunset.test' },
       body: {
-        ...courseBody(TIER_DAY, ['2026-08-25']),
+        ...courseBody(TIER_DAY, [D(24)]),
         total_cents: 1,
         components: {
           course: {
@@ -1973,7 +1996,7 @@ async function main() {
       body: {
         guest_name: 'Edit Guest',
         payment_status: 'unpaid',
-        service_dates: ['2026-08-01'],
+        service_dates: [D(0)],
         components: {
           course: {
             quantity: 1,
@@ -2062,7 +2085,7 @@ async function main() {
           body: {
             guest_name: 'Edit Guest',
             payment_status: 'unpaid',
-            service_dates: ['2026-08-01'],
+            service_dates: [D(0)],
             components: {
               course: {
                 quantity: 1,
@@ -2123,7 +2146,7 @@ async function main() {
           bookingId: BOOKING_ID,
           locationId: LOC,
           actor: { email: 'staff@sunset.test' },
-          body: courseBody(TIER_DAY, ['2026-08-29']),
+          body: courseBody(TIER_DAY, [D(28)]),
         });
         assert('mutation payment lock/guard OFF allows reprice (RED hazard)',
           result.ok === true || pg.state.deleted > 0 || pg.state.inserts > 0,
@@ -2153,7 +2176,7 @@ async function main() {
           bookingId: BOOKING_ID,
           locationId: LOC,
           actor: { email: 'staff@sunset.test' },
-          body: courseBody(TIER_DAY, ['2026-08-28']),
+          body: courseBody(TIER_DAY, [D(27)]),
         });
         const zeroOrStale = pg.state.services.every((s) => Number(s.amount_due_cents) === 0)
           || Number(pg.state.bookings[0].total_amount_cents) === COURSE_WEEK_CENTS;

@@ -29,6 +29,29 @@ const writes = require('./lib/sunset-schedule-booking-writes');
 const drawer = require('./lib/sunset-schedule-booking-drawer');
 const quoteSvc = require('./lib/luna-front-desk-quote-service');
 
+/**
+ * The fixture calendar is translated onto the clock. Every season range, stay and
+ * expected night count in this file is defined relative to the same anchor day, so
+ * moving the whole calendar forward preserves each boundary, span and cross-season
+ * split exactly — while keeping the stays bookable instead of aging into
+ * explicit_past_date. The anchor keeps its weekday (Wednesday), so the offsets do too.
+ */
+function isoWeekdayAtLeastDaysOut(weekday, days) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  d.setUTCDate(d.getUTCDate() + ((weekday - d.getUTCDay() + 7) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+const ANCHOR = isoWeekdayAtLeastDaysOut(3, 30); // Wednesday, a month out
+
+/** Fixture day: `D(0)` is the anchor, `D(3)` three days later, `D(-9)` nine days before. */
+function D(offsetDays) {
+  const d = new Date(`${ANCHOR}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+
 let pass = 0;
 let fail = 0;
 function ok(label, cond, detail) {
@@ -48,25 +71,25 @@ console.log('\nverify:sunset-accommodation\n');
 // ── 1) Pure resolver math ──────────────────────────────────────────────────
 console.log('[1] Range validation + half-open pricing');
 const adj = resolver.normalizeAccommodationRanges([
-  { title: 'Low', check_in: '2026-06-01', check_out: '2026-07-01', amount_cents: 4000 },
-  { title: 'High', check_in: '2026-07-01', check_out: '2026-08-01', amount_cents: 6000 },
+  { title: 'Low', check_in: D(-9), check_out: D(21), amount_cents: 4000 },
+  { title: 'High', check_in: D(21), check_out: D(52), amount_cents: 6000 },
 ]);
 ok('adjacent ranges accepted', adj.ok === true, adj.error);
 const ov = resolver.normalizeAccommodationRanges([
-  { title: 'A', check_in: '2026-06-01', check_out: '2026-07-15', amount_cents: 4000 },
-  { title: 'B', check_in: '2026-07-01', check_out: '2026-08-01', amount_cents: 6000 },
+  { title: 'A', check_in: D(-9), check_out: D(35), amount_cents: 4000 },
+  { title: 'B', check_in: D(21), check_out: D(52), amount_cents: 6000 },
 ]);
 ok('overlap rejected', ov.ok === false && ov.reason_code === 'accommodation_ranges_overlap', ov.error);
 
 const single = resolver.priceAccommodationStay({
-  ranges: adj.value, checkIn: '2026-06-10', checkOut: '2026-06-13',
+  ranges: adj.value, checkIn: D(0), checkOut: D(3),
 });
 // nights 10,11,12 = 3 × 4000
 ok('single-season total 3×4000=12000', single.ok && single.total_cents === 12000 && single.nights === 3);
 ok('checkout exclusive (3 nights for 10→13)', single.ok && single.nights === 3);
 
 const cross = resolver.priceAccommodationStay({
-  ranges: adj.value, checkIn: '2026-06-28', checkOut: '2026-07-03',
+  ranges: adj.value, checkIn: D(18), checkOut: D(23),
 });
 // 28,29,30 = 3×4000; 1,2 = 2×6000 = 24000
 ok('cross-season total 24000', cross.ok && cross.total_cents === 24000, JSON.stringify(cross));
@@ -75,95 +98,95 @@ ok('cross-season grouped breakdown', cross.ok && cross.season_groups.length === 
   && cross.season_groups[1].title === 'High' && cross.season_groups[1].nights === 2);
 
 const unFirst = resolver.priceAccommodationStay({
-  ranges: adj.value, checkIn: '2026-05-30', checkOut: '2026-06-03',
+  ranges: adj.value, checkIn: D(-11), checkOut: D(-7),
 });
 ok('uncovered first night rejects', !unFirst.ok && unFirst.reason_code === 'accommodation_uncovered_nights');
-ok('uncovered first names span', /2026-05-30/.test(unFirst.error || ''));
+ok('uncovered first names span', String(unFirst.error || '').includes(D(-11)));
 
 const midRanges = resolver.normalizeAccommodationRanges([
-  { title: 'A', check_in: '2026-06-01', check_out: '2026-06-05', amount_cents: 4000 },
-  { title: 'B', check_in: '2026-06-08', check_out: '2026-06-15', amount_cents: 5000 },
+  { title: 'A', check_in: D(-9), check_out: D(-5), amount_cents: 4000 },
+  { title: 'B', check_in: D(-2), check_out: D(5), amount_cents: 5000 },
 ]).value;
 const unMid = resolver.priceAccommodationStay({
-  ranges: midRanges, checkIn: '2026-06-03', checkOut: '2026-06-10',
+  ranges: midRanges, checkIn: D(-7), checkOut: D(0),
 });
-ok('uncovered middle nights reject', !unMid.ok && /2026-06-05–2026-06-07|2026-06-05/.test(unMid.error || ''), unMid.error);
+ok('uncovered middle nights reject', !unMid.ok && String(unMid.error || '').includes(D(-5)), unMid.error);
 
 const unLast = resolver.priceAccommodationStay({
-  ranges: adj.value, checkIn: '2026-07-28', checkOut: '2026-08-03',
+  ranges: adj.value, checkIn: D(48), checkOut: D(54),
 });
-ok('uncovered final nights reject', !unLast.ok && /2026-08-01/.test(unLast.error || ''), unLast.error);
+ok('uncovered final nights reject', !unLast.ok && String(unLast.error || '').includes(D(52)), unLast.error);
 
 const money = resolver.normalizeAccommodationSelection({
-  enabled: true, check_in: '2026-06-01', check_out: '2026-06-03', amount_cents: 999,
+  enabled: true, check_in: D(-9), check_out: D(-7), amount_cents: 999,
 });
 ok('client money rejected', !money.ok && money.reason_code === 'accommodation_client_money_forbidden');
 
 const fracNum = resolver.normalizeAccommodationRanges([
-  { title: 'Frac', check_in: '2026-06-01', check_out: '2026-07-01', amount_cents: 4000.5 },
+  { title: 'Frac', check_in: D(-9), check_out: D(21), amount_cents: 4000.5 },
 ]);
 ok('fractional numeric amount_cents rejected (no parseInt truncate)',
   fracNum.ok === false && fracNum.reason_code === 'accommodation_amount_invalid', fracNum.error);
 const fracStr = resolver.normalizeAccommodationRanges([
-  { title: 'FracS', check_in: '2026-06-01', check_out: '2026-07-01', amount_cents: '4000.50' },
+  { title: 'FracS', check_in: D(-9), check_out: D(21), amount_cents: '4000.50' },
 ]);
 ok('fractional string amount_cents rejected',
   fracStr.ok === false && fracStr.reason_code === 'accommodation_amount_invalid', fracStr.error);
 const intStr = resolver.normalizeAccommodationRanges([
-  { title: 'Ok', check_in: '2026-06-01', check_out: '2026-07-01', amount_cents: '4000' },
+  { title: 'Ok', check_in: D(-9), check_out: D(21), amount_cents: '4000' },
 ]);
 ok('integer string amount_cents accepted', intStr.ok === true && intStr.value[0].amount_cents === 4000);
 
 const sel = resolver.normalizeAccommodationSelection({
-  enabled: true, check_in: '2026-06-01', check_out: '2026-06-03',
+  enabled: true, check_in: D(-9), check_out: D(-7),
 });
-ok('selection dates only', sel.ok && !sel.skip && sel.value.check_in === '2026-06-01');
+ok('selection dates only', sel.ok && !sel.skip && sel.value.check_in === D(-9));
 
 // Timezone-safe same-day / multi-day seed (production pure owner)
 console.log('\n[1b] Default stay seed + timezone-safe ISO day');
-ok('addDaysIso month boundary', resolver.addDaysIso('2026-01-31', 1) === '2026-02-01');
-ok('addDaysIso year boundary', resolver.addDaysIso('2025-12-31', 1) === '2026-01-01');
-const sameDayStay = resolver.defaultAccommodationStayFromBookingDates('2026-06-10', '2026-06-10');
+ok('addDaysIso month boundary', resolver.addDaysIso(D(-130), 1) === D(-129));
+ok('addDaysIso year boundary', resolver.addDaysIso(D(-161), 1) === D(-160));
+const sameDayStay = resolver.defaultAccommodationStayFromBookingDates(D(0), D(0));
 ok('same-day seeds one-night half-open stay',
-  sameDayStay.check_in === '2026-06-10' && sameDayStay.check_out === '2026-06-11'
+  sameDayStay.check_in === D(0) && sameDayStay.check_out === D(1)
   && sameDayStay.enabled === true);
-const multiStay = resolver.defaultAccommodationStayFromBookingDates('2026-06-10', '2026-06-14');
+const multiStay = resolver.defaultAccommodationStayFromBookingDates(D(0), D(4));
 ok('multi-day maps checkout to date_to (half-open)',
-  multiStay.check_in === '2026-06-10' && multiStay.check_out === '2026-06-14');
-const invertedStay = resolver.defaultAccommodationStayFromBookingDates('2026-06-10', '2026-06-09');
+  multiStay.check_in === D(0) && multiStay.check_out === D(4));
+const invertedStay = resolver.defaultAccommodationStayFromBookingDates(D(0), D(-1));
 ok('inverted date_to still becomes one-night stay',
-  invertedStay.check_in === '2026-06-10' && invertedStay.check_out === '2026-06-11');
-const missingTo = resolver.defaultAccommodationStayFromBookingDates('2026-06-10', '');
+  invertedStay.check_in === D(0) && invertedStay.check_out === D(1));
+const missingTo = resolver.defaultAccommodationStayFromBookingDates(D(0), '');
 ok('missing date_to becomes one-night stay',
-  missingTo.check_in === '2026-06-10' && missingTo.check_out === '2026-06-11');
+  missingTo.check_in === D(0) && missingTo.check_out === D(1));
 
 // ── 2) Booking body validation owner ───────────────────────────────────────
 console.log('\n[2] validateScheduleBookingBody + identity');
-const REF = new Date('2026-05-01T12:00:00Z');
+const REF = new Date(`${D(-40)}T12:00:00Z`);
 // Accommodation-only: no components key (Create/Edit may omit). allowEmpty is
 // auto-derived from accommodation selection when present — no caller flag required.
 const bodyOk = writes.validateScheduleBookingBody({
   guest_name: 'Ada',
   payment_status: 'unpaid',
-  date_from: '2026-06-10',
-  date_to: '2026-06-14',
-  service_dates: ['2026-06-10', '2026-06-11', '2026-06-12', '2026-06-13', '2026-06-14'],
-  accommodation: { enabled: true, check_in: '2026-06-10', check_out: '2026-06-14' },
+  date_from: D(0),
+  date_to: D(4),
+  service_dates: [D(0), D(1), D(2), D(3), D(4)],
+  accommodation: { enabled: true, check_in: D(0), check_out: D(4) },
 }, { refDate: REF });
 ok('accommodation-only body validates', bodyOk.ok === true, bodyOk.error);
 ok('accommodation preserved on validated value',
   bodyOk.ok && bodyOk.value.accommodation
   && bodyOk.value.accommodation.enabled === true
-  && bodyOk.value.accommodation.check_in === '2026-06-10'
-  && bodyOk.value.accommodation.check_out === '2026-06-14');
+  && bodyOk.value.accommodation.check_in === D(0)
+  && bodyOk.value.accommodation.check_out === D(4));
 
 // Empty booking (no components, no accommodation) still rejected.
 const emptyBody = writes.validateScheduleBookingBody({
   guest_name: 'Ada',
   payment_status: 'unpaid',
-  date_from: '2026-06-10',
-  date_to: '2026-06-12',
-  service_dates: ['2026-06-10', '2026-06-11', '2026-06-12'],
+  date_from: D(0),
+  date_to: D(2),
+  service_dates: [D(0), D(1), D(2)],
 }, { refDate: REF });
 ok('empty booking still rejected',
   emptyBody.ok === false
@@ -174,9 +197,9 @@ ok('empty booking still rejected',
 const emptyComps = writes.validateScheduleBookingBody({
   guest_name: 'Ada',
   payment_status: 'unpaid',
-  date_from: '2026-06-10',
-  date_to: '2026-06-12',
-  service_dates: ['2026-06-10', '2026-06-11', '2026-06-12'],
+  date_from: D(0),
+  date_to: D(2),
+  service_dates: [D(0), D(1), D(2)],
   components: {},
 }, { refDate: REF });
 ok('empty components object still rejected',
@@ -186,9 +209,9 @@ ok('empty components object still rejected',
 
 const bodyMoney = writes.validateScheduleBookingBody({
   guest_name: 'Ada', payment_status: 'unpaid',
-  date_from: '2026-06-10', date_to: '2026-06-12',
-  service_dates: ['2026-06-10', '2026-06-11', '2026-06-12'],
-  accommodation: { enabled: true, check_in: '2026-06-10', check_out: '2026-06-12', total_cents: 1 },
+  date_from: D(0), date_to: D(2),
+  service_dates: [D(0), D(1), D(2)],
+  accommodation: { enabled: true, check_in: D(0), check_out: D(2), total_cents: 1 },
 }, { refDate: REF });
 ok('validated body rejects client total_cents', bodyMoney.ok === false);
 
@@ -234,7 +257,7 @@ function mockPg() {
 
 (async () => {
   const priced = resolver.priceAccommodationStay({
-    ranges: adj.value, checkIn: '2026-06-28', checkOut: '2026-07-03',
+    ranges: adj.value, checkIn: D(18), checkOut: D(23),
   });
   const pg = mockPg();
   const row = await writes.insertStaffAccommodationServiceRow(pg, {
@@ -264,10 +287,10 @@ function mockPg() {
   // Later Admin price change does not rewrite historical snapshot in the row.
   const later = resolver.priceAccommodationStay({
     ranges: [
-      { title: 'Low', check_in: '2026-06-01', check_out: '2026-07-01', amount_cents: 9999 },
-      { title: 'High', check_in: '2026-07-01', check_out: '2026-08-01', amount_cents: 9999 },
+      { title: 'Low', check_in: D(-9), check_out: D(21), amount_cents: 9999 },
+      { title: 'High', check_in: D(21), check_out: D(52), amount_cents: 9999 },
     ],
-    checkIn: '2026-06-28', checkOut: '2026-07-03',
+    checkIn: D(18), checkOut: D(23),
   });
   ok('new pricing differs', later.ok && later.total_cents !== 24000);
   ok('historical row total unchanged', row.amount_due_cents === 24000);
@@ -285,8 +308,8 @@ function mockPg() {
   });
   ok('reconstruct selection from bundle',
     fromBundle && fromBundle.enabled
-    && fromBundle.check_in === '2026-06-28'
-    && fromBundle.check_out === '2026-07-03');
+    && fromBundle.check_in === D(18)
+    && fromBundle.check_out === D(23));
 
   // ── 3b) Edit pricing intent: accommodation equality / preserve / remove ──
   console.log('\n[3b] Edit pricing intent equality (production owners)');
@@ -294,8 +317,8 @@ function mockPg() {
     source: 'staff_accommodation',
     staff_accommodation: true,
     component: 'staff_accommodation',
-    check_in: '2026-06-28',
-    check_out: '2026-07-03',
+    check_in: D(18),
+    check_out: D(23),
     nights: 5,
     total_cents: 24000,
     season_groups: meta.season_groups,
@@ -316,7 +339,7 @@ function mockPg() {
     services: [{
       service_record_id: 'sr-accom',
       service_type: 'addon_service',
-      service_date: '2026-06-28',
+      service_date: D(18),
       quantity: 1,
       amount_due_cents: 24000,
       amount_paid_cents: 24000,
@@ -332,8 +355,8 @@ function mockPg() {
     && existingIntent.accommodation.enabled === true
     && Array.isArray(existingIntent.accommodation.stays)
     && existingIntent.accommodation.stays.length === 1
-    && existingIntent.accommodation.stays[0].check_in === '2026-06-28'
-    && existingIntent.accommodation.stays[0].check_out === '2026-07-03',
+    && existingIntent.accommodation.stays[0].check_in === D(18)
+    && existingIntent.accommodation.stays[0].check_out === D(23),
     JSON.stringify(existingIntent && existingIntent.accommodation));
   ok('pricingIntentFromBundle does not invent staff_accommodation component',
     !existingIntent.components || !existingIntent.components.staff_accommodation);
@@ -344,7 +367,7 @@ function mockPg() {
   const sameRequested = writes.buildSchedulePricingIntent({
     service_dates: drawerServiceDates,
     components: {},
-    accommodation: { enabled: true, check_in: '2026-06-28', check_out: '2026-07-03' },
+    accommodation: { enabled: true, check_in: D(18), check_out: D(23) },
   });
   ok('unchanged accommodation intents equal',
     writes.schedulePricingIntentsEqual(existingIntent, sameRequested) === true);
@@ -376,7 +399,7 @@ function mockPg() {
     components: {},
     notes: 'please leave towels',
     guest_name: 'Ada Lovelace',
-    accommodation: { enabled: true, check_in: '2026-06-28', check_out: '2026-07-03' },
+    accommodation: { enabled: true, check_in: D(18), check_out: D(23) },
   });
   ok('paid notes-only keeps pricing intent equal',
     writes.schedulePricingIntentsEqual(existingIntent, notesOnlyRequested) === true);
@@ -389,7 +412,7 @@ function mockPg() {
   const changedDates = writes.buildSchedulePricingIntent({
     service_dates: drawerServiceDates,
     components: {},
-    accommodation: { enabled: true, check_in: '2026-06-28', check_out: '2026-07-05' },
+    accommodation: { enabled: true, check_in: D(18), check_out: D(25) },
   });
   ok('changed accommodation dates unequal (triggers reprice)',
     writes.schedulePricingIntentsEqual(existingIntent, changedDates) === false);
@@ -421,7 +444,7 @@ function mockPg() {
   }, {
     clientSlug: 'wolfhouse-somo',
     locationId: 'sunset-somo',
-    body: { guest_name: 'X', accommodation: { enabled: true, check_in: '2026-06-01', check_out: '2026-06-03' } },
+    body: { guest_name: 'X', accommodation: { enabled: true, check_in: D(-9), check_out: D(-7) } },
     actor: { email: 'staff@test' },
   });
   ok('create booking wolfhouse denied',
@@ -506,17 +529,17 @@ function mockPg() {
       + '\nreturn { scheduleAddIsoDays: scheduleAddIsoDays, scheduleDefaultAccommodationStay: scheduleDefaultAccommodationStay };',
     )();
     ok('Create addIsoDays month/year boundary',
-      createFns.scheduleAddIsoDays('2026-01-31', 1) === '2026-02-01'
-      && createFns.scheduleAddIsoDays('2025-12-31', 1) === '2026-01-01');
+      createFns.scheduleAddIsoDays(D(-130), 1) === D(-129)
+      && createFns.scheduleAddIsoDays(D(-161), 1) === D(-160));
     ok('Create same-day default one-night stay',
       (() => {
-        const s = createFns.scheduleDefaultAccommodationStay('2026-07-04', '2026-07-04');
-        return s.check_in === '2026-07-04' && s.check_out === '2026-07-05';
+        const s = createFns.scheduleDefaultAccommodationStay(D(24), D(24));
+        return s.check_in === D(24) && s.check_out === D(25);
       })());
     ok('Create multi-day default maps checkout to date_to',
       (() => {
-        const s = createFns.scheduleDefaultAccommodationStay('2026-07-04', '2026-07-10');
-        return s.check_in === '2026-07-04' && s.check_out === '2026-07-10';
+        const s = createFns.scheduleDefaultAccommodationStay(D(24), D(30));
+        return s.check_in === D(24) && s.check_out === D(30);
       })());
   }
 
@@ -544,17 +567,17 @@ function mockPg() {
       + '\nreturn { scheduleDrawerAddIsoDays: scheduleDrawerAddIsoDays, scheduleDrawerDefaultAccommodationStay: scheduleDrawerDefaultAccommodationStay };',
     )();
     ok('Edit addIsoDays month/year boundary',
-      editFns.scheduleDrawerAddIsoDays('2026-01-31', 1) === '2026-02-01'
-      && editFns.scheduleDrawerAddIsoDays('2025-12-31', 1) === '2026-01-01');
+      editFns.scheduleDrawerAddIsoDays(D(-130), 1) === D(-129)
+      && editFns.scheduleDrawerAddIsoDays(D(-161), 1) === D(-160));
     ok('Edit same-day default one-night stay',
       (() => {
-        const s = editFns.scheduleDrawerDefaultAccommodationStay('2026-08-15', '2026-08-15');
-        return s.check_in === '2026-08-15' && s.check_out === '2026-08-16';
+        const s = editFns.scheduleDrawerDefaultAccommodationStay(D(66), D(66));
+        return s.check_in === D(66) && s.check_out === D(67);
       })());
     ok('Edit multi-day default maps checkout to date_to',
       (() => {
-        const s = editFns.scheduleDrawerDefaultAccommodationStay('2026-08-15', '2026-08-20');
-        return s.check_in === '2026-08-15' && s.check_out === '2026-08-20';
+        const s = editFns.scheduleDrawerDefaultAccommodationStay(D(66), D(71));
+        return s.check_in === D(66) && s.check_out === D(71);
       })());
   }
 
@@ -662,11 +685,11 @@ function mockPg() {
   console.log('\n[8] Disabled history reprice / paid / notes / untrusted field');
   const disabledRanges = [
     {
-      id: 'r-low', title: 'Low', check_in: '2026-06-01', check_out: '2026-07-01',
+      id: 'r-low', title: 'Low', check_in: D(-9), check_out: D(21),
       amount_cents: 4000, currency: 'EUR', active: true, sort_order: 0,
     },
     {
-      id: 'r-high', title: 'High', check_in: '2026-07-01', check_out: '2026-08-01',
+      id: 'r-high', title: 'High', check_in: D(21), check_out: D(52),
       amount_cents: 6000, currency: 'EUR', active: true, sort_order: 1,
     },
   ];
@@ -689,7 +712,7 @@ function mockPg() {
   }
   const disabledPg = mockDisabledAccomPg();
   const accomSel = {
-    enabled: true, check_in: '2026-06-10', check_out: '2026-06-13',
+    enabled: true, check_in: D(0), check_out: D(3),
   };
 
   // (1) Trusted server-derived existing accommodation may quote/reprice while disabled.
@@ -748,7 +771,7 @@ function mockPg() {
     services: [{
       service_record_id: 'sr-accom-u',
       service_type: 'addon_service',
-      service_date: '2026-06-10',
+      service_date: D(0),
       quantity: 1,
       amount_due_cents: 12000,
       amount_paid_cents: 0,
@@ -758,8 +781,8 @@ function mockPg() {
         source: 'staff_accommodation',
         staff_accommodation: true,
         component: 'staff_accommodation',
-        check_in: '2026-06-10',
-        check_out: '2026-06-13',
+        check_in: D(0),
+        check_out: D(3),
         nights: 3,
         total_cents: 12000,
         currency: 'EUR',
@@ -771,7 +794,7 @@ function mockPg() {
   const unpaidCommercialChange = writes.buildSchedulePricingIntent({
     service_dates: unpaidExistingIntent.service_dates,
     components: {},
-    accommodation: { enabled: true, check_in: '2026-06-10', check_out: '2026-06-13' },
+    accommodation: { enabled: true, check_in: D(0), check_out: D(3) },
     custom_line_items: [{ client_line_id: 'c1', label: 'Towel', amount_cents: 500 }],
   });
   ok('unpaid commercial change unequal (reprice) while accom preserved',
@@ -928,7 +951,7 @@ function mockPg() {
     services: [{
       service_record_id: 'sr-accom-p',
       service_type: 'addon_service',
-      service_date: '2026-06-10',
+      service_date: D(0),
       quantity: 1,
       amount_due_cents: 12000,
       amount_paid_cents: 12000,
@@ -938,8 +961,8 @@ function mockPg() {
         source: 'staff_accommodation',
         staff_accommodation: true,
         component: 'staff_accommodation',
-        check_in: '2026-06-10',
-        check_out: '2026-06-13',
+        check_in: D(0),
+        check_out: D(3),
         nights: 3,
         total_cents: 12000,
         currency: 'EUR',
@@ -951,7 +974,7 @@ function mockPg() {
   const paidChanged = writes.buildSchedulePricingIntent({
     service_dates: paidExisting.service_dates,
     components: {},
-    accommodation: { enabled: true, check_in: '2026-06-10', check_out: '2026-06-15' },
+    accommodation: { enabled: true, check_in: D(0), check_out: D(5) },
   });
   ok('paid + changed accom dates unequal (would reprice)',
     writes.schedulePricingIntentsEqual(paidExisting, paidChanged) === false);
@@ -976,7 +999,7 @@ function mockPg() {
     components: {},
     notes: 'leave towels please',
     guest_name: 'Ada Lovelace',
-    accommodation: { enabled: true, check_in: '2026-06-10', check_out: '2026-06-13' },
+    accommodation: { enabled: true, check_in: D(0), check_out: D(3) },
   });
   ok('notes-only keeps pricing intent equal (non-reprice)',
     writes.schedulePricingIntentsEqual(paidExisting, notesOnly) === true);
@@ -1034,49 +1057,49 @@ function mockPg() {
   const multiAdj = resolver.normalizeAccommodationSelection({
     enabled: true,
     stays: [
-      { client_stay_id: 'as1', check_in: '2026-06-10', check_out: '2026-06-13' },
-      { client_stay_id: 'as2', check_in: '2026-06-13', check_out: '2026-06-16' },
+      { client_stay_id: 'as1', check_in: D(0), check_out: D(3) },
+      { client_stay_id: 'as2', check_in: D(3), check_out: D(6) },
     ],
   });
   ok('two adjacent stays accepted (half-open)',
     multiAdj.ok === true && !multiAdj.skip
     && multiAdj.value.stays.length === 2
-    && multiAdj.value.stays[0].check_out === '2026-06-13'
-    && multiAdj.value.stays[1].check_in === '2026-06-13',
+    && multiAdj.value.stays[0].check_out === D(3)
+    && multiAdj.value.stays[1].check_in === D(3),
     multiAdj.error);
   const multiOv = resolver.normalizeAccommodationSelection({
     enabled: true,
     stays: [
-      { check_in: '2026-06-10', check_out: '2026-06-14' },
-      { check_in: '2026-06-13', check_out: '2026-06-16' },
+      { check_in: D(0), check_out: D(4) },
+      { check_in: D(3), check_out: D(6) },
     ],
   });
   ok('overlapping stays rejected with named spans',
     multiOv.ok === false
     && multiOv.reason_code === 'accommodation_stays_overlap'
-    && /2026-06-10/.test(multiOv.error || '')
-    && /2026-06-14/.test(multiOv.error || '')
-    && /2026-06-13/.test(multiOv.error || ''),
+    && String(multiOv.error || '').includes(D(0))
+    && String(multiOv.error || '').includes(D(4))
+    && String(multiOv.error || '').includes(D(3)),
     multiOv.error);
   // Singular BC
   const sing = resolver.normalizeAccommodationSelection({
-    enabled: true, check_in: '2026-06-10', check_out: '2026-06-13',
+    enabled: true, check_in: D(0), check_out: D(3),
   });
   ok('singular payload normalizes to one-stay collection',
     sing.ok && !sing.skip
     && sing.value.stays.length === 1
-    && sing.value.check_in === '2026-06-10'
-    && sing.value.check_out === '2026-06-13');
+    && sing.value.check_in === D(0)
+    && sing.value.check_out === D(3));
   const fp1 = resolver.accommodationForIntentFingerprint(sing.value);
   const fp2 = resolver.accommodationForIntentFingerprint({
-    enabled: true, check_in: '2026-06-10', check_out: '2026-06-13',
+    enabled: true, check_in: D(0), check_out: D(3),
   });
   ok('singular + collection fingerprint equal (deterministic)',
     JSON.stringify(fp1) === JSON.stringify(fp2)
     && fp1.stays.length === 1);
   const multiMoney = resolver.normalizeAccommodationSelection({
     enabled: true,
-    stays: [{ check_in: '2026-06-10', check_out: '2026-06-12', total_cents: 99 }],
+    stays: [{ check_in: D(0), check_out: D(2), total_cents: 99 }],
   });
   ok('multi-stay client money rejected',
     multiMoney.ok === false
@@ -1086,14 +1109,14 @@ function mockPg() {
   const multiBody = writes.validateScheduleBookingBody({
     guest_name: 'Ada',
     payment_status: 'unpaid',
-    date_from: '2026-06-10',
-    date_to: '2026-06-16',
-    service_dates: ['2026-06-10', '2026-06-11', '2026-06-12', '2026-06-13', '2026-06-14', '2026-06-15'],
+    date_from: D(0),
+    date_to: D(6),
+    service_dates: [D(0), D(1), D(2), D(3), D(4), D(5)],
     accommodation: {
       enabled: true,
       stays: [
-        { client_stay_id: 'as1', check_in: '2026-06-10', check_out: '2026-06-13' },
-        { client_stay_id: 'as2', check_in: '2026-06-13', check_out: '2026-06-16' },
+        { client_stay_id: 'as1', check_in: D(0), check_out: D(3) },
+        { client_stay_id: 'as2', check_in: D(3), check_out: D(6) },
       ],
     },
   }, { refDate: REF });
@@ -1110,8 +1133,8 @@ function mockPg() {
       accommodation: {
         enabled: true,
         stays: [
-          { client_stay_id: 'as1', check_in: '2026-06-10', check_out: '2026-06-13' },
-          { client_stay_id: 'as2', check_in: '2026-06-13', check_out: '2026-06-16' },
+          { client_stay_id: 'as1', check_in: D(0), check_out: D(3) },
+          { client_stay_id: 'as2', check_in: D(3), check_out: D(6) },
         ],
       },
     },
@@ -1130,7 +1153,7 @@ function mockPg() {
         return {
           rows: [
             {
-              id: 'r-low', title: 'Low', check_in: '2026-06-01', check_out: '2026-07-01',
+              id: 'r-low', title: 'Low', check_in: D(-9), check_out: D(21),
               amount_cents: 4000, currency: 'EUR', active: true, sort_order: 0,
             },
           ],
@@ -1149,18 +1172,18 @@ function mockPg() {
     JSON.stringify(multiAppend.body || { lines: multiAppend.lines && multiAppend.lines.length, total: multiAppend.totalCents }));
   ok('quote lines carry distinct date identity',
     multiAppend.ok
-    && multiAppend.lines[0].check_in === '2026-06-10'
-    && multiAppend.lines[0].check_out === '2026-06-13'
-    && multiAppend.lines[1].check_in === '2026-06-13'
-    && multiAppend.lines[1].check_out === '2026-06-16');
+    && multiAppend.lines[0].check_in === D(0)
+    && multiAppend.lines[0].check_out === D(3)
+    && multiAppend.lines[1].check_in === D(3)
+    && multiAppend.lines[1].check_out === D(6));
 
   // Persist two rows
   const pg2 = mockPg();
   const pricedA = resolver.priceAccommodationStay({
-    ranges: adj.value, checkIn: '2026-06-10', checkOut: '2026-06-13',
+    ranges: adj.value, checkIn: D(0), checkOut: D(3),
   });
   const pricedB = resolver.priceAccommodationStay({
-    ranges: adj.value, checkIn: '2026-06-13', checkOut: '2026-06-16',
+    ranges: adj.value, checkIn: D(3), checkOut: D(6),
   });
   await writes.insertStaffAccommodationServiceRow(pg2, {
     clientSlug: 'sunset', bookingId: 'b2', bookingCode: 'SUNSET-2',
@@ -1178,8 +1201,8 @@ function mockPg() {
   ok('each row has own snapshot total 12000',
     pg2.rows[0].amount_due_cents === 12000
     && pg2.rows[1].amount_due_cents === 12000
-    && pg2.rows[0].metadata.check_in === '2026-06-10'
-    && pg2.rows[1].metadata.check_in === '2026-06-13');
+    && pg2.rows[0].metadata.check_in === D(0)
+    && pg2.rows[1].metadata.check_in === D(3));
   ok('row match exclusive by check_in/check_out',
     writes.rowMatchesQuoteLine(pg2.rows[0], multiAppend.lines[0]) === true
     && writes.rowMatchesQuoteLine(pg2.rows[0], multiAppend.lines[1]) === false
@@ -1210,8 +1233,8 @@ function mockPg() {
   ok('bundle reconstructs two stays',
     fromMulti && fromMulti.enabled
     && Array.isArray(fromMulti.stays) && fromMulti.stays.length === 2
-    && fromMulti.stays[0].check_in === '2026-06-10'
-    && fromMulti.stays[1].check_in === '2026-06-13');
+    && fromMulti.stays[0].check_in === D(0)
+    && fromMulti.stays[1].check_in === D(3));
   ok('stay_details carry separate snapshots',
     Array.isArray(fromMulti.stay_details) && fromMulti.stay_details.length === 2
     && fromMulti.stay_details[0].snapshot
@@ -1226,8 +1249,8 @@ function mockPg() {
     accommodation: {
       enabled: true,
       stays: [
-        { client_stay_id: 'as1', check_in: '2026-06-10', check_out: '2026-06-12' }, // shortened
-        { client_stay_id: 'as2', check_in: '2026-06-13', check_out: '2026-06-16' },
+        { client_stay_id: 'as1', check_in: D(0), check_out: D(2) }, // shortened
+        { client_stay_id: 'as2', check_in: D(3), check_out: D(6) },
       ],
     },
   });
@@ -1239,7 +1262,7 @@ function mockPg() {
     accommodation: {
       enabled: true,
       stays: [
-        { client_stay_id: 'as2', check_in: '2026-06-13', check_out: '2026-06-16' },
+        { client_stay_id: 'as2', check_in: D(3), check_out: D(6) },
       ],
     },
   });
@@ -1247,7 +1270,7 @@ function mockPg() {
     writes.schedulePricingIntentsEqual(multiIntent, removeOne) === false
     && removeOne.accommodation
     && removeOne.accommodation.stays.length === 1
-    && removeOne.accommodation.stays[0].check_in === '2026-06-13');
+    && removeOne.accommodation.stays[0].check_in === D(3));
 
   // Omit preserve all stays
   const preservedMulti = drawer.accommodationFromBundle(multiBundle);
@@ -1297,9 +1320,9 @@ function mockPg() {
     ? new Function(hasSellableIntentSrc + '; return schedulePortalHasSellableIntent;')()
     : null;
   ok('Create soft quote gate treats singular accommodation-only as sellable',
-    !!hasSellableIntent && hasSellableIntent({ accommodation: { enabled: true, check_in: '2026-07-30', check_out: '2026-08-05' } }) === true);
+    !!hasSellableIntent && hasSellableIntent({ accommodation: { enabled: true, check_in: D(50), check_out: D(56) } }) === true);
   ok('Create soft quote gate treats multi-stay accommodation-only as sellable',
-    !!hasSellableIntent && hasSellableIntent({ accommodation: { enabled: true, stays: [{ check_in: '2026-07-30', check_out: '2026-08-05' }] } }) === true);
+    !!hasSellableIntent && hasSellableIntent({ accommodation: { enabled: true, stays: [{ check_in: D(50), check_out: D(56) }] } }) === true);
   ok('Create soft quote gate stays idle for empty accommodation',
     !!hasSellableIntent && hasSellableIntent({ accommodation: { enabled: true, stays: [] } }) === false);
 
@@ -1313,8 +1336,8 @@ function mockPg() {
         accommodation: {
           enabled: true,
           stays: [
-            { check_in: '2026-06-10', check_out: '2026-06-12' },
-            { check_in: '2026-06-12', check_out: '2026-06-14' },
+            { check_in: D(0), check_out: D(2) },
+            { check_in: D(2), check_out: D(4) },
           ],
         },
       },
@@ -1339,7 +1362,7 @@ function mockPg() {
       transportBody: {
         accommodation: {
           enabled: true,
-          stays: [{ check_in: '2026-06-10', check_out: '2026-06-13' }],
+          stays: [{ check_in: D(0), check_out: D(3) }],
         },
       },
       allowExistingAccommodationWhenDisabled: true,
@@ -1407,8 +1430,8 @@ function mockPg() {
   const dupIds = resolver.normalizeAccommodationSelection({
     enabled: true,
     stays: [
-      { client_stay_id: 'as1', check_in: '2026-06-10', check_out: '2026-06-12' },
-      { client_stay_id: 'as1', check_in: '2026-06-12', check_out: '2026-06-14' },
+      { client_stay_id: 'as1', check_in: D(0), check_out: D(2) },
+      { client_stay_id: 'as1', check_in: D(2), check_out: D(4) },
     ],
   });
   ok('duplicate client_stay_id rejected',
@@ -1416,8 +1439,8 @@ function mockPg() {
     && dupIds.reason_code === 'accommodation_client_stay_id_duplicate',
     JSON.stringify(dupIds));
   const dupArray = resolver.normalizeAccommodationSelection([
-    { client_stay_id: 'x', check_in: '2026-06-10', check_out: '2026-06-12' },
-    { client_stay_id: 'x', check_in: '2026-06-12', check_out: '2026-06-14' },
+    { client_stay_id: 'x', check_in: D(0), check_out: D(2) },
+    { client_stay_id: 'x', check_in: D(2), check_out: D(4) },
   ]);
   ok('duplicate client_stay_id rejected on array shape',
     dupArray.ok === false
@@ -1425,8 +1448,8 @@ function mockPg() {
   const emptyIdsOk = resolver.normalizeAccommodationSelection({
     enabled: true,
     stays: [
-      { check_in: '2026-06-10', check_out: '2026-06-12' },
-      { check_in: '2026-06-12', check_out: '2026-06-14' },
+      { check_in: D(0), check_out: D(2) },
+      { check_in: D(2), check_out: D(4) },
     ],
   });
   ok('empty client_stay_id values still allowed',
@@ -1453,8 +1476,8 @@ function mockPg() {
     // when historical present and stay count grows, loader throw → fail closed.
     const existingCount = 1;
     const growStays = [
-      { check_in: '2026-06-10', check_out: '2026-06-12' },
-      { check_in: '2026-06-12', check_out: '2026-06-14' },
+      { check_in: D(0), check_out: D(2) },
+      { check_in: D(2), check_out: D(4) },
     ];
     let growBlocked = null;
     if (growStays.length > existingCount) {
@@ -1501,13 +1524,13 @@ function mockPg() {
   // Behavioral: vertical quote owner prices accommodation-only transport body.
   // Booking dates required by validateScheduleBookingBody; season covers stay.
   const accomOnlyBody = {
-    date_from: '2026-08-10',
-    date_to: '2026-08-13',
-    service_dates: ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13'],
+    date_from: D(61),
+    date_to: D(64),
+    service_dates: [D(61), D(62), D(63), D(64)],
     components: {},
     accommodation: {
       enabled: true,
-      stays: [{ check_in: '2026-08-10', check_out: '2026-08-13' }],
+      stays: [{ check_in: D(61), check_out: D(64) }],
     },
   };
   const accomOnlyCmd = quoteSvc.buildSunsetQuoteCommand({
@@ -1531,7 +1554,7 @@ function mockPg() {
       if (/FROM tenant_accommodation_season_ranges/i.test(s)) {
         return {
           rows: [{
-            id: 'r-aug', title: 'High', check_in: '2026-08-01', check_out: '2026-09-01',
+            id: 'r-aug', title: 'High', check_in: D(52), check_out: D(83),
             amount_cents: 4000, currency: 'EUR', active: true, sort_order: 0,
           }],
         };
@@ -1566,7 +1589,7 @@ function mockPg() {
 
   // Intent helper: normalize path used by schedule quote gate treats valid accom as intent.
   const intentOn = resolver.normalizeAccommodationSelection({
-    enabled: true, check_in: '2026-06-10', check_out: '2026-06-13',
+    enabled: true, check_in: D(0), check_out: D(3),
   });
   const intentOff = resolver.normalizeAccommodationSelection({ enabled: false });
   const intentEmpty = resolver.normalizeAccommodationSelection({ stays: [] });

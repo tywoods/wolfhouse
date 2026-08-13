@@ -55,7 +55,34 @@ const COURSE_BILLING_UNIT = 'day';
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8');
 
-const FIXED_NOW = new Date('2026-07-15T12:00:00Z');
+/**
+ * Fixture days come off the clock. Pinned to one July week, create rejected the whole
+ * payload as explicit_past_date and the gate stopped reaching the Admin price rules it
+ * exists to check. Monday–Friday stays Monday–Friday, and "now" stays five days out.
+ */
+function isoWeekdayAtLeastDaysOut(weekday, days) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  d.setUTCDate(d.getUTCDate() + ((weekday - d.getUTCDay() + 7) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+function isoShift(iso, days) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+const STAY_FROM = isoWeekdayAtLeastDaysOut(1, 30); // Monday, a month out
+const STAY_TO = isoShift(STAY_FROM, 4); // Friday
+const SERVICE_DAY_1 = STAY_FROM;
+const SERVICE_DAY_2 = isoShift(STAY_FROM, 1);
+const SERVICE_DAY_3 = isoShift(STAY_FROM, 2);
+// The Admin price row has been in force for months and was last touched weeks ago.
+const PRICE_EFFECTIVE_FROM = isoShift(STAY_FROM, -200);
+const PRICE_UPDATED_AT = isoShift(STAY_FROM, -49);
+
+const FIXED_NOW = new Date(`${isoShift(STAY_FROM, -5)}T12:00:00Z`);
 
 function schemaRowsFor(loc, itemType, itemCode, unit, amountCents) {
   return [{
@@ -69,9 +96,9 @@ function schemaRowsFor(loc, itemType, itemCode, unit, amountCents) {
     amount_cents: amountCents,
     unit,
     active: true,
-    effective_from: '2026-01-01',
+    effective_from: PRICE_EFFECTIVE_FROM,
     effective_to: null,
-    updated_at: '2026-06-01',
+    updated_at: PRICE_UPDATED_AT,
   }];
 }
 
@@ -175,8 +202,8 @@ async function main() {
   const failingBrowserPayload = {
     guest_name: 'Synthetic Manual Guest',
     guest_phone: '+3400000999',
-    date_from: '2026-07-20',
-    date_to: '2026-07-24',
+    date_from: STAY_FROM,
+    date_to: STAY_TO,
     payment_status: 'unpaid',
     location_id: 'sunset-somo',
     components: {
@@ -321,7 +348,7 @@ async function main() {
             {
               id: 'sr-d1',
               service_type: 'surf_lesson',
-              service_date: '2026-07-20',
+              service_date: SERVICE_DAY_1,
               quantity: 2,
               amount_due_cents: 0,
               metadata: JSON.stringify({
@@ -336,7 +363,7 @@ async function main() {
             {
               id: 'sr-d2',
               service_type: 'surf_lesson',
-              service_date: '2026-07-21',
+              service_date: SERVICE_DAY_2,
               quantity: 2,
               amount_due_cents: 0,
               metadata: JSON.stringify({
@@ -351,7 +378,7 @@ async function main() {
             {
               id: 'sr-d3',
               service_type: 'surf_lesson',
-              service_date: '2026-07-22',
+              service_date: SERVICE_DAY_3,
               quantity: 2,
               amount_due_cents: 0,
               metadata: JSON.stringify({
@@ -472,7 +499,7 @@ async function main() {
             id: 'sr-x',
             service_record_id: 'sr-x',
             service_type: 'surf_lesson',
-            service_date: '2026-07-20',
+            service_date: SERVICE_DAY_1,
             quantity: 1,
             payment_status: 'unpaid',
             record_source: 'staff_manual',
