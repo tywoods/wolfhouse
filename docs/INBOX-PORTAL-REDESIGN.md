@@ -17,9 +17,9 @@ or any `/staff/inbox/*` route.
 | 0 | `GET /staff/inbox/thread/:id` composite endpoint | **done** (#506, #507, #509) — one snapshot; six original routes stay for polling. Inbox UI does not fetch `/staff-state`. |
 | 1 | Unified shell, saved-view rail, merged context panel | **done** API #510, UI rail #527, four-column shell #511 (Sunset staging deployed `372673b2`) |
 | 1 | Column layout model and presets | **done** (#511) |
-| 1 | One `Auto \| Draft \| Off` Luna mode control | **done** (#524) — WhatsApp Auto\|Off, Email Draft\|Off; WhatsApp Draft remains Phase 2 |
+| 1 | One `Auto \| Draft \| Off` Luna mode control | **done** (#524) — WhatsApp Auto\|Off, Email Draft\|Off; WhatsApp Draft shipped in Phase 2 (#535) |
 | 1 | Handoff state gap — Luna promises a takeover that never sets `needs_human` | **done** (detector + corpus gate) |
-| 2 | Channel-agnostic approvals; WhatsApp draft parity (migration 078) | **done** persist+read (#528, migration 078 `luna_outbound_approvals`); **done** approve-send (#533, `POST /staff/inbox/whatsapp/approve-send`, existing send path, dry-run fail-closed); WhatsApp Draft UI still missing |
+| 2 | Channel-agnostic approvals; WhatsApp draft parity (migration 078) | **done** persist+read (#528, migration 078 `luna_outbound_approvals`); **done** approve-send (#533, `POST /staff/inbox/whatsapp/approve-send`, existing send path, dry-run fail-closed); **done** Draft UI (#535, `inbox-whatsapp-draft.js`, Approve/Edit, no auto-send) |
 | 3 | SSE live activity, replacing 5s/3s polling | **this PR (#537)** — `GET /staff/inbox/stream` + EventSource; 5s/3s timers kept as fallback |
 | 4 | Segments and broadcasts (migrations 080, 081) | not started |
 | 5 | Identity linking across channels (optional) | not started |
