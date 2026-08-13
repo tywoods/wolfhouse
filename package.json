@@ -751,6 +751,7 @@
     "verify:inbox-columns": "node scripts/verify-inbox-columns.js",
     "verify:inbox-columns-playwright": "node scripts/verify-inbox-columns-playwright.js",
     "verify:inbox-whatsapp-draft-route": "node scripts/verify-inbox-whatsapp-draft-route.js",
+    "verify:inbox-stream-route": "node scripts/verify-inbox-stream-route.js",
     "verify:staff-automated-notifications-routes": "node scripts/verify-staff-automated-notifications-routes.js",
     "verify:staff-automated-notification-ui": "node scripts/verify-staff-automated-notification-ui.js",
     "verify:staff-automated-notifications-crud": "node scripts/verify-staff-automated-notifications-crud.js",

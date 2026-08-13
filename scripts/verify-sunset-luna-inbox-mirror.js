@@ -8,7 +8,7 @@
  * - Wolfhouse isolation / tenant mismatch rejection
  * - wamid dedupe, rapid burst = N inbox rows + 1 agent turn
  * - Luna reply = one outbound row; no combined inbound duplicate
- * - non-blocking mirror queue + Inbox live polling contracts
+ * - non-blocking mirror queue + Inbox live SSE with poll-timer fallback
  *
  * Run: node scripts/verify-sunset-luna-inbox-mirror.js
  */
@@ -16,6 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { readStaffPortalUiSource } = require('./lib/staff-portal-ui-source');
 
 const ROOT = path.join(__dirname, '..');
 const MIRROR_PY = path.join(ROOT, 'docker/hermes-staging/wolfhouse_whatsapp_mirror.py');
@@ -396,16 +397,19 @@ print(json.dumps({"ok": True, "sunset": p, "wolfhouse": p3, "missing_slug": p2 i
     assert('python mirror payload module', false, (err.stderr || err.message || '').slice(0, 400));
   }
 
-  // ── 6. Inbox live polling contract ────────────────────────────────────────
-  console.log('\n[6] Inbox automatic refresh (polling)');
-  assert('list poll interval 5000', /INBOX_LIST_POLL_MS\s*=\s*5000|poll.*5000|5000.*conversation/i.test(staffSrc));
-  assert('thread poll interval 3000', /INBOX_THREAD_POLL_MS\s*=\s*3000|poll.*3000|3000.*thread/i.test(staffSrc));
-  assert('startInboxLivePolling present', staffSrc.includes('startInboxLivePolling') || staffSrc.includes('function startInboxLivePolling'));
-  assert('stopInboxLivePolling present', staffSrc.includes('stopInboxLivePolling') || staffSrc.includes('function stopInboxLivePolling'));
-  assert('inbox live status UI', /inbox-live-status|Live|Reconnecting|Update failed/.test(staffSrc));
-  assert('no overlapping poll flag', /inboxListPollInFlight|inboxThreadPollInFlight|pollInFlight/.test(staffSrc));
-  assert('preserve selected thread on poll', /preserveDetail:\s*true/.test(staffSrc));
-  assert('preserve scroll near bottom', /nearBottom|scrollHeight|scrollTop/.test(staffSrc));
+  // ── 6. Inbox live activity: SSE with poll-timer fallback ──────────────────
+  console.log('\n[6] Inbox live activity (SSE + polling fallback)');
+  const portalSrc = readStaffPortalUiSource();
+  assert('list poll interval 5000', /INBOX_LIST_POLL_MS\s*=\s*5000|poll.*5000|5000.*conversation/i.test(portalSrc));
+  assert('thread poll interval 3000', /INBOX_THREAD_POLL_MS\s*=\s*3000|poll.*3000|3000.*thread/i.test(portalSrc));
+  assert('startInboxLivePolling present', portalSrc.includes('startInboxLivePolling') || portalSrc.includes('function startInboxLivePolling'));
+  assert('stopInboxLivePolling present', portalSrc.includes('stopInboxLivePolling') || portalSrc.includes('function stopInboxLivePolling'));
+  assert('inbox live status UI', /inbox-live-status|Live|Reconnecting|Update failed/.test(portalSrc));
+  assert('no overlapping poll flag', /inboxListPollInFlight|inboxThreadPollInFlight|pollInFlight/.test(portalSrc));
+  assert('preserve selected thread on poll', /preserveDetail:\s*true/.test(portalSrc));
+  assert('preserve scroll near bottom', /nearBottom|scrollHeight|scrollTop/.test(portalSrc));
+  assert('EventSource live stream path', /\/staff\/inbox\/stream/.test(portalSrc) && /EventSource/.test(portalSrc));
+  assert('stream error falls back to poll timers', /startInboxPollTimers/.test(portalSrc) && /fallbackInboxLiveToPolling/.test(portalSrc));
 
   const threadSrc = read(THREAD_MIRROR);
   assert('thread mirror exports assertHermesMirrorTenantScope', threadSrc.includes('assertHermesMirrorTenantScope'));

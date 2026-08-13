@@ -4,6 +4,8 @@
  * Phase 23e / Stage 28h — Persist Inbox-visible thread messages (staff sends + open-demo Meta).
  */
 
+const { emitInboxConversationUpdated } = require('./staff-inbox-live-events');
+
 const OPEN_DEMO_INBOUND_SOURCE = 'open_demo_whatsapp_inbound';
 const OPEN_DEMO_LIVE_REPLY_SOURCE = 'luna_open_demo_live_reply';
 const HERMES_LUNA_INBOUND_SOURCE = 'hermes_luna_whatsapp_inbound';
@@ -12,6 +14,22 @@ const HERMES_LUNA_OUTBOUND_SOURCE = 'hermes_luna_whatsapp_reply';
 function trimStr(v) {
   if (v == null) return '';
   return String(v).trim();
+}
+
+function notifyInboxIfPersisted(input, result) {
+  if (!result || result.persisted !== true) return result;
+  emitInboxConversationUpdated(
+    trimStr(input && input.client_slug),
+    trimStr(input && input.conversation_id),
+  );
+  return result;
+}
+
+function withInboxLiveNotify(fn) {
+  return async function inboxLiveNotifyWrap(pg, input, ...rest) {
+    const result = await fn(pg, input, ...rest);
+    return notifyInboxIfPersisted(input, result);
+  };
 }
 
 function shouldPersistStaffInboxThreadMessage(sendResult) {
@@ -441,9 +459,9 @@ module.exports = {
   HERMES_LUNA_OUTBOUND_SOURCE,
   shouldPersistStaffInboxThreadMessage,
   findStaffInboxThreadMessage,
-  persistOpenDemoInboundThreadMessage,
-  persistOpenDemoLiveReplyThreadMessage,
-  persistHermesLunaInboundThreadMessage,
-  persistHermesLunaOutboundThreadMessage,
-  persistStaffInboxSentThreadMessage,
+  persistOpenDemoInboundThreadMessage: withInboxLiveNotify(persistOpenDemoInboundThreadMessage),
+  persistOpenDemoLiveReplyThreadMessage: withInboxLiveNotify(persistOpenDemoLiveReplyThreadMessage),
+  persistHermesLunaInboundThreadMessage: withInboxLiveNotify(persistHermesLunaInboundThreadMessage),
+  persistHermesLunaOutboundThreadMessage: withInboxLiveNotify(persistHermesLunaOutboundThreadMessage),
+  persistStaffInboxSentThreadMessage: withInboxLiveNotify(persistStaffInboxSentThreadMessage),
 };

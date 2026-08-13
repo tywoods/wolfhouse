@@ -415,6 +415,10 @@ const {
   INBOX_LIST_PATH,
 } = require('./lib/staff-inbox-view-routes');
 const {
+  createInboxStreamRoutes,
+  INBOX_STREAM_PATH,
+} = require('./lib/staff-inbox-stream-routes');
+const {
   createWhatsAppDraftRoutes,
   WHATSAPP_DRAFT_PATH,
   WHATSAPP_APPROVE_SEND_PATH,
@@ -2663,6 +2667,20 @@ const inboxViewRoutes = createInboxViewRoutes({
   SQL_INJECT_RE,
 });
 const { handleInboxViews, handleInboxList } = inboxViewRoutes;
+
+// Inbox live activity SSE (Phase 3). In-process EventEmitter per client_slug;
+// staging is one replica so this needs no Redis and no new table. Viewer auth
+// stays in the router; the handler re-applies assertStaffClientAccess and never
+// queries Postgres. Browser EventSource falls back to the existing poll timers.
+const inboxStreamRoutes = createInboxStreamRoutes({
+  sendJSON,
+  send400,
+  assertStaffClientAccess,
+  appendAuditLog,
+  DEFAULT_CLIENT,
+  SQL_INJECT_RE,
+});
+const { handleInboxStream } = inboxStreamRoutes;
 
 // WhatsApp pending draft persist+read + approve-send (Phase 2 / migration 078).
 // Operator auth stays in the router; handlers re-apply assertStaffClientAccess
@@ -48223,6 +48241,16 @@ async function router(req, res) {
     return pathname === INBOX_VIEWS_PATH
       ? handleInboxViews(parsed.query, res, auth.user)
       : handleInboxList(parsed.query, res, auth.user);
+  }
+
+  if (pathname === INBOX_STREAM_PATH) {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET for inbox/stream' }));
+    }
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleInboxStream(req, parsed.query, res, auth.user);
   }
 
   const convSubMatch = CONV_SUB_RE.exec(pathname);
