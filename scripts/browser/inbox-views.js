@@ -40,6 +40,9 @@ function mapInboxPersonRowToConv(row){
     luna_paused: !!row.luna_paused,
     booking_code: row.booking_code || null,
     language: row.language || null,
+    display_tags: row.display_tags || [],
+    crm_tags: row.crm_tags || {},
+    auto_tags: row.auto_tags || {},
     _inbox_view_key: row.key || '',
     _inbox_view_source: row.source || '',
   };

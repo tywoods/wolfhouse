@@ -30,6 +30,7 @@ const LUNA_MODE_MODULE = path.join(BROWSER_DIR, 'inbox-luna-mode.js');
 const THREAD_MODULE = path.join(BROWSER_DIR, 'inbox-thread.js');
 const VIEWS_MODULE = path.join(BROWSER_DIR, 'inbox-views.js');
 const SHELL_MODULE = path.join(BROWSER_DIR, 'inbox-shell.js');
+const CONTEXT_MODULE = path.join(BROWSER_DIR, 'inbox-context.js');
 const WHATSAPP_DRAFT_MODULE = path.join(BROWSER_DIR, 'inbox-whatsapp-draft.js');
 const BROADCAST_MODULE = path.join(BROWSER_DIR, 'inbox-broadcast.js');
 
@@ -96,8 +97,12 @@ function getInboxShellBrowserSource() {
   return readBrowserModule(SHELL_MODULE);
 }
 
+function getInboxContextBrowserSource() {
+  return readBrowserModule(CONTEXT_MODULE);
+}
+
 function getInboxViewsBrowserSource() {
-  return getInboxShellBrowserSource() + '\n' + readBrowserModule(VIEWS_MODULE);
+  return getInboxShellBrowserSource() + '\n' + readBrowserModule(VIEWS_MODULE) + '\n' + getInboxContextBrowserSource();
 }
 
 function getInboxBroadcastBrowserSource() {
@@ -139,6 +144,7 @@ module.exports = {
   getInboxThreadBrowserSource,
   getInboxViewsBrowserSource,
   getInboxShellBrowserSource,
+  getInboxContextBrowserSource,
   getInboxBroadcastBrowserSource,
   getInboxWhatsAppDraftBrowserSource,
   injectInboxBrowserModules,
@@ -154,6 +160,7 @@ module.exports = {
   THREAD_MODULE,
   VIEWS_MODULE,
   SHELL_MODULE,
+  CONTEXT_MODULE,
   WHATSAPP_DRAFT_MODULE,
   BROADCAST_MODULE,
   INBOX_COLUMNS_INJECT_MARKER,
