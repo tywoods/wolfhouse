@@ -253,7 +253,6 @@ const UNPROVEN_THROUGH = [
   ['verify-sunset-rental-duration-pebbles-quickfix.js', '2026-08-20', 'common keys exactly configured hour/half-day (1-day absent)'],
   ['verify-sunset-rental-quantity-total-hotfix.js', '2026-07-31', 'components present but do not replace rentals'],
   ['verify-sunset-rental-surfer-label-edit-parity.js', '2026-08-01', 'rental qty min-height ≥ 36 shared CSS (touch)'],
-  ['verify-sunset-schedule-booking-attribution.js', '2026-08-04', 'Error: session_advisory_unlock_unknown'],
   ['verify-sunset-schedule-create-multi-equipment-playwright.js', '2026-08-14', 'Playwright browser not available'],
   ['verify-sunset-schedule-drawer-edit-ui.js', '2026-07-26', 'TypeError: Cannot read properties of undefined (reading \'toggle\')'],
   ['verify-sunset-schedule-drawer-view-ui.js', '2026-09-12', 'ReferenceError: scheduleDrawerBookingIsCancelled is not defined'],

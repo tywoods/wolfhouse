@@ -39,8 +39,48 @@ function parseMeta(raw) {
   try { return JSON.parse(raw); } catch (_) { return {}; }
 }
 
+function isoDaysFromNow(offset) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
+function addDaysIso(iso, n) {
+  const [y, m, day] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, day + n));
+  return dt.toISOString().slice(0, 10);
+}
+
+const SERVICE_DATE = isoDaysFromNow(30);
+const SERVICE_DATE_D1 = addDaysIso(SERVICE_DATE, 1);
+const SERVICE_DATE_D2 = addDaysIso(SERVICE_DATE, 2);
+
 function buildMockPg() {
   const PACK_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const LOC = 'sunset-somo';
+  const RENTAL_OFFERINGS = [
+    { id: 'off-board', offering_key: 'board_rental', label: 'Surfboard', display_name: 'Surfboard',
+      active: true, client_slug: 'sunset', location_id: LOC, stock_quantity: 99,
+      group_key: null, excludes: [], sort_order: 0, config_json: {} },
+    { id: 'off-wet', offering_key: 'wetsuit_rental', label: 'Wetsuit', display_name: 'Wetsuit',
+      active: true, client_slug: 'sunset', location_id: LOC, stock_quantity: 99,
+      group_key: null, excludes: [], sort_order: 1, config_json: {} },
+    { id: 'off-bundle', offering_key: 'board_and_suit_rental', label: 'Board and wetsuit',
+      display_name: 'Board and wetsuit', active: true, client_slug: 'sunset', location_id: LOC,
+      stock_quantity: 99, group_key: null, excludes: [], sort_order: 2, config_json: {} },
+  ];
+  const PRICE_ROWS = [
+    { amount_cents: 1500, currency: 'EUR', item_type: 'rental', item_code: 'board_rental__1_day',
+      unit: 'day', location_id: LOC, active: true },
+    { amount_cents: 2500, currency: 'EUR', item_type: 'rental', item_code: 'board_rental__2_days',
+      unit: 'day', location_id: LOC, active: true },
+    { amount_cents: 1000, currency: 'EUR', item_type: 'rental', item_code: 'wetsuit_rental__1_day',
+      unit: 'day', location_id: LOC, active: true },
+    { amount_cents: 1800, currency: 'EUR', item_type: 'rental', item_code: 'wetsuit_rental__2_days',
+      unit: 'day', location_id: LOC, active: true },
+    { amount_cents: 2200, currency: 'EUR', item_type: 'rental', item_code: 'board_and_suit_rental__1_day',
+      unit: 'day', location_id: LOC, active: true },
+  ];
   const state = {
     clientId: '11111111-1111-1111-1111-111111111111',
     bookings: [],
@@ -58,6 +98,30 @@ function buildMockPg() {
       }
       if (/BEGIN|COMMIT|ROLLBACK/i.test(q)) return { rows: [] };
       if (/pg_advisory_xact_lock/i.test(q)) return { rows: [{}] };
+      // Session lock/unlock is connection-scoped. Product requires unlock → true
+      // (AS unlocked); empty rows were session_advisory_unlock_unknown before assert.
+      if (/pg_advisory_unlock_all\b/i.test(q)) return { rows: [{ pg_advisory_unlock_all: '' }] };
+      if (/pg_advisory_unlock\b/i.test(q)) return { rows: [{ unlocked: true, pg_advisory_unlock: true }] };
+      if (/pg_advisory_lock\b/i.test(q)) return { rows: [{ pg_advisory_lock: true }] };
+      if (/FROM tenant_rental_offerings/i.test(q) || (/tenant_rental_offerings/i.test(q) && /SELECT/i.test(q))) {
+        return { rows: RENTAL_OFFERINGS.map((o) => ({ ...o })) };
+      }
+      if (/to_regclass/i.test(q) && /tenant_price_rules/i.test(q)) {
+        return { rows: [{ reg: 'tenant_price_rules' }] };
+      }
+      if (/FROM tenant_price_rules/i.test(q)) {
+        const code = params && params.find((p) => typeof p === 'string' && p.includes('__'));
+        const rows = code ? PRICE_ROWS.filter((r) => r.item_code === code) : PRICE_ROWS;
+        return { rows: rows.map((r) => ({ ...r, client_slug: 'sunset' })) };
+      }
+      if (/FROM information_schema\.tables/i.test(q)) {
+        const names = ['tenant_price_rules', 'tenant_lesson_capacity_rules',
+          'tenant_lesson_time_rules', 'tenant_config_audit_log', 'tenant_surf_pack_rules'];
+        return { rows: names.map((table_name) => ({ table_name })) };
+      }
+      if (/FROM information_schema\.columns/i.test(q)) {
+        return { rows: [{ '?column?': 1 }] };
+      }
       if (/information_schema\.tables/i.test(q) && /tenant_surf_pack_rules/i.test(q)) {
         return { rows: [{ '?column?': 1 }] };
       }
@@ -94,17 +158,22 @@ function buildMockPg() {
         return { rows: [{ id: row.id, booking_code: row.booking_code }] };
       }
       if (/INSERT INTO booking_service_records/i.test(q)) {
-        const meta = parseMeta(params[9]);
+        // Component-lane insertServiceRecord: $10::jsonb metadata (params[9]).
+        // Generic / amount_due insert: $11::jsonb metadata (params[10]).
+        const metaIdx = /\$11::jsonb/i.test(q) || (params && params.length >= 11) ? 10 : 9;
+        const meta = parseMeta(params[metaIdx]);
+        const sourceIdx = metaIdx - 1;
+        const paymentIdx = metaIdx - 2;
         const row = {
           service_record_id: `sr-${state.serviceRecords.length + 1}`,
           booking_id: params[1],
           booking_code: params[2],
           guest_name: params[3],
-          service_type: params[4],
-          service_date: params[5],
-          quantity: params[6],
-          payment_status: params[7],
-          record_source: params[8],
+          service_type: /'addon_service'/i.test(q) ? 'addon_service' : params[4],
+          service_date: /'addon_service'/i.test(q) ? params[4] : params[5],
+          quantity: /'addon_service'/i.test(q) ? params[5] : params[6],
+          payment_status: params[paymentIdx],
+          record_source: params[sourceIdx],
           client_slug: params[0],
           metadata: meta,
           metadata_source: meta.source,
@@ -151,7 +220,7 @@ function buildMockPg() {
           })),
         };
       }
-      if (/tenant_price_rules|full_day_equipment/i.test(q)) {
+      if (/full_day_equipment/i.test(q)) {
         // Enough for resolveFullDayEquipmentAddonUnitCents fail-closed (tables_missing → null).
         if (/to_regclass/i.test(q)) return { rows: [{ reg: null }] };
         return { rows: [] };
@@ -206,7 +275,10 @@ function rentalBody(name, extra) {
     guest_name: name,
     surfer_count: 1,
     components: { surfboard: { quantity: 1 } },
-    service_date: '2026-08-02',
+    service_date: SERVICE_DATE,
+    date_from: SERVICE_DATE,
+    date_to: SERVICE_DATE,
+    service_dates: [SERVICE_DATE],
   }, extra || {});
 }
 
@@ -230,7 +302,7 @@ function staffRentalBody(name, extra) {
       surfer_count: 1,
       // No guest_phone — Luna trusted path must not inherit staff phone gate.
       components: { surfboard: { quantity: 1 } },
-      service_date: '2026-08-02',
+      service_date: SERVICE_DATE,
       idempotency_key: 'luna-rental-1',
     },
   });
@@ -265,7 +337,7 @@ function staffRentalBody(name, extra) {
       guest_name: 'StaffNoPhone',
       surfer_count: 1,
       components: { wetsuit: { quantity: 1 } },
-      service_date: '2026-08-02',
+      service_date: SERVICE_DATE,
     },
   });
   assert(
@@ -284,7 +356,7 @@ function staffRentalBody(name, extra) {
       guest_phone: '+34000', // 5 digits — intentionally invalid for staff Create
       surfer_count: 1,
       components: { wetsuit: { quantity: 1 } },
-      service_date: '2026-08-02',
+      service_date: SERVICE_DATE,
     },
   });
   assert(
@@ -301,14 +373,14 @@ function staffRentalBody(name, extra) {
       guest_phone: '+34000',
       surfer_count: 1,
       components: { wetsuit: { quantity: 1 } },
-      service_date: '2026-08-02',
+      service_date: SERVICE_DATE,
     }).ok === true
       && validateScheduleBookingBody({
         guest_name: 'X',
         guest_phone: '+34000',
         surfer_count: 1,
         components: { wetsuit: { quantity: 1 } },
-        service_date: '2026-08-02',
+        service_date: SERVICE_DATE,
       }, { requireGuestPhone: true }).ok === false,
   );
 
@@ -321,10 +393,10 @@ function staffRentalBody(name, extra) {
     actor: { source: 'agent_luna_whatsapp_bot' },
     body: {
       guest_name: 'Group',
-      service_dates: ['2026-08-03', '2026-08-04'],
+      service_dates: [SERVICE_DATE_D1, SERVICE_DATE_D2],
       components: {
         course: { quantity: 2, course_id: pgCourseCombo.state.packId, course_label: '5-day' },
-        full_day_equipment_extension: { enabled: true, dates: { '2026-08-03': 2 } },
+        full_day_equipment_extension: { enabled: true, dates: { [SERVICE_DATE_D1]: 2 } },
       },
       idempotency_key: 'luna-course-combo-1',
     },
@@ -356,7 +428,7 @@ function staffRentalBody(name, extra) {
           enabled: true,
           quantity: 1,
           surfer_count: 1,
-          sessions: [{ date: '2026-08-02', start: '10:00', end: '12:00' }],
+          sessions: [{ date: SERVICE_DATE, start: '10:00', end: '12:00' }],
         },
       },
       idempotency_key: 'luna-pl-1',
@@ -384,7 +456,7 @@ function staffRentalBody(name, extra) {
     body: {
       guest_name: 'LessonGuest',
       components: { lesson: { quantity: 1 } },
-      service_date: '2026-08-02',
+      service_date: SERVICE_DATE,
       idempotency_key: 'luna-lesson-1',
     },
   });
@@ -412,8 +484,8 @@ function staffRentalBody(name, extra) {
     body: {
       guest_name: 'Group',
       surfer_count: 2,
-      date_from: '2026-08-03',
-      date_to: '2026-08-04',
+      date_from: SERVICE_DATE_D1,
+      date_to: SERVICE_DATE_D2,
       rentals: [{ offering_key: 'board_rental', duration_key: '2_days', quantity: 9 }],
       idempotency_key: 'luna-combo-1',
     },
@@ -432,7 +504,7 @@ function staffRentalBody(name, extra) {
       surfer_count: 1,
       // Second sellable shape (wetsuit) — proves Luna attribution on non-board rental.
       components: { wetsuit: { quantity: 1 } },
-      service_date: '2026-08-02',
+      service_date: SERVICE_DATE,
       idempotency_key: 'luna-wet-1',
     },
   });
@@ -465,7 +537,7 @@ function staffRentalBody(name, extra) {
     body: {
       guest_name: 'Replay',
       components: { lesson: { quantity: 1 } },
-      service_date: '2026-08-02',
+      service_date: SERVICE_DATE,
       idempotency_key: 'idem-luna-lesson-1',
     },
   });
@@ -504,7 +576,7 @@ function staffRentalBody(name, extra) {
   const lessonValidateBody = (name) => ({
     guest_name: name,
     components: { lesson: { quantity: 1 } },
-    service_date: '2026-08-02',
+    service_date: SERVICE_DATE,
   });
   const vLessonA = validateScheduleBookingBody(lessonValidateBody('Replay'));
   const vLessonB = validateScheduleBookingBody(lessonValidateBody('Other'));
@@ -524,7 +596,7 @@ function staffRentalBody(name, extra) {
   assert('fp stable/differs', fpA === buildScheduleBookingIntentFingerprint(vA.value, 'sunset-somo') && fpA !== fpB);
   const row = {
     service_record_id: 'sr-1', booking_id: 'bk-1', booking_code: 'SUNSET-SEED-1', guest_name: 'Replay',
-    service_type: 'surfboard', service_date: '2026-08-02', quantity: 1, payment_status: 'unpaid',
+    service_type: 'surfboard', service_date: SERVICE_DATE, quantity: 1, payment_status: 'unpaid',
     record_source: LUNA_DB_SOURCE, client_slug: 'sunset', location_id: 'sunset-somo', idempotency_intent_fp: fpA,
     metadata: {
       source: LUNA_METADATA_SOURCE_TAG,
@@ -568,7 +640,7 @@ function staffRentalBody(name, extra) {
     const v = validateScheduleBookingBody(prep.body);
     return v.ok ? buildScheduleBookingIntentFingerprint(v.value, 'sunset-somo', { rentals: prep.rentals }) : null;
   };
-  const day1 = { date_from: '2026-08-02', date_to: '2026-08-02', surfer_count: 1 };
+  const day1 = { date_from: SERVICE_DATE, date_to: SERVICE_DATE, surfer_count: 1 };
   const fpBoard = rentFp({ ...day1, rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }] });
   assert('rental body validates', !!fpBoard);
   assert('rental fp ignores client money', fpBoard === buildScheduleBookingIntentFingerprint(
@@ -583,7 +655,7 @@ function staffRentalBody(name, extra) {
     rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 99 }],
   }) !== fpBoard);
   assert('rental duration/dates fp differs', rentFp({
-    date_from: '2026-08-02', date_to: '2026-08-03', surfer_count: 1,
+    date_from: SERVICE_DATE, date_to: SERVICE_DATE_D1, surfer_count: 1,
     rentals: [{ offering_key: 'board_rental', duration_key: '2_days', quantity: 1 }],
   }) !== fpBoard);
   assert('rental offering fp differs', rentFp({
@@ -600,7 +672,7 @@ function staffRentalBody(name, extra) {
       }));
   const plSess = (start, end) => validateScheduleBookingBody({
     guest_name: 'Coach',
-    components: { private_lesson: { enabled: true, quantity: 1, surfer_count: 1, sessions: [{ date: '2026-08-02', start, end }] } },
+    components: { private_lesson: { enabled: true, quantity: 1, surfer_count: 1, sessions: [{ date: SERVICE_DATE, start, end }] } },
   });
   const plA = plSess('10:00', '12:00'); const plB = plSess('14:00', '16:00');
   assert('private session time material to fp', plA.ok && plB.ok
