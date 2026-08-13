@@ -45,8 +45,8 @@
     "sslmode": "verify-full"
   },
   "authorizedApplySequenceLength": 50,
-  "manifestHash": "30d0fa05ccc4ad289f10dbc4970d330d647d17853f1d94111569ebac4a91cdc6",
-  "forwardCount": 74,
+  "manifestHash": "f76df6f9287eb44499dd8ab1d186ebdfc51c24d6704cdda226b36b9366b134b5",
+  "forwardCount": 41,
   "checksumMode": "canonical_lf_v1",
   "approvalTokenEnv": "WOLFHOUSE_STAGING_LEDGER_RECOVERY_APPROVAL_TOKEN",
   "approvalFlag": "--approve-staging-ledger-recovery",
@@ -90,5 +90,5 @@
     "apply_post_write_reconcile_ok",
     "apply_public_output_secret_free"
   ],
-  "generatedAt": "2026-08-13T01:05:06.424Z"
+  "generatedAt": "2026-07-22T14:28:19.744Z"
 }

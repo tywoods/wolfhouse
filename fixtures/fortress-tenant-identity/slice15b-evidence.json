@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "slice": "FORTRESS-15B",
-  "generated_at": "2026-08-13T01:04:07.188Z",
+  "generated_at": "2026-07-20T01:18:04.408Z",
   "master_basis": "8ed81111b9a67a656dee0b7dbd5a46ab91ca125c",
   "live_mutation": false,
   "red": {

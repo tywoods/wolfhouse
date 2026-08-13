@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "slice": "FORTRESS-15C",
-  "generated_at": "2026-08-13T01:04:07.224Z",
+  "generated_at": "2026-07-20T01:26:38.342Z",
   "master_basis": "f6507cca9a11572911b4f5707e8728ee9c59d181",
   "live_mutation": false,
   "wolfhouse_production_queried": false,
@@ -29,10 +29,10 @@
     "failures": []
   },
   "bicep": {
-    "ok": false,
-    "hasWebhook": false,
-    "hasDefault": false,
-    "skipFalse": false
+    "ok": true,
+    "hasWebhook": true,
+    "hasDefault": true,
+    "skipFalse": true
   },
   "bicep_tooling": {
     "compile": "succeeded_local_bicep_cli_invariant",
@@ -228,7 +228,7 @@
   },
   "green": {
     "total": 7,
-    "passed": 5,
+    "passed": 7,
     "cases": [
       {
         "id": "live_inventory_hash_lock",
@@ -240,7 +240,7 @@
       },
       {
         "id": "bicep_declares_webhook_slug",
-        "ok": false
+        "ok": true
       },
       {
         "id": "expected_what_if_surface",
@@ -256,10 +256,10 @@
       },
       {
         "id": "zero_mutation_contract",
-        "ok": false
+        "ok": true
       }
     ]
   },
-  "pass": 36,
-  "fail": 3
+  "pass": 39,
+  "fail": 0
 }
