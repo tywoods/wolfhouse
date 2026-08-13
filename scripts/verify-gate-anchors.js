@@ -78,6 +78,13 @@ const ALLOWLIST = [
     reason: 'the Inbox thread reads one composite endpoint; the six-GET fan-out must stay gone.',
   },
   {
+    gate: 'verify-luna-effective-mode.js',
+    anchor: 'guest_whatsapp_send_flag_block(chat_id)',
+    kind: 'external',
+    file: 'docker/hermes-staging/apply_gateway_patches.py',
+    reason: 'ordering check on the Hermes send patch — kill switches before the pause gate — and that patch is Python.',
+  },
+  {
     gate: 'verify-manual-booking-per-guest-package.js',
     anchor: 'function bcUpdateManualPriceOverrideVisibility',
     kind: 'negative',

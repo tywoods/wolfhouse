@@ -313,6 +313,7 @@
     "verify:luna-unified-planner": "node scripts/verify-luna-unified-planner.js",
     "verify:luna-confirmation-spacing": "node scripts/verify-luna-confirmation-spacing.js",
     "verify:luna-effective-mode": "node scripts/verify-luna-effective-mode.js",
+    "verify:hermes-send-flags": "node scripts/verify-hermes-send-flags.js",
     "verify:inbox-luna-mode-control": "node scripts/verify-inbox-luna-mode-control.js",
     "verify:luna-pause-handoff-controls": "node scripts/verify-luna-pause-handoff-controls.js",
     "verify:luna-handoff-lifecycle": "node scripts/verify-luna-handoff-lifecycle.js",

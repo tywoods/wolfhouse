@@ -57,6 +57,7 @@ Full spec: `docs/LUNA-GUEST-BEHAVIOR-SPEC.md`.
 
 ```bash
 npm run verify:luna-all          # fast Luna gate (no API key)
+node scripts/verify-hermes-send-flags.js          # WhatsApp kill switches, run for real
 node scripts/verify-inbox-ui-parity.js            # staff portal UI byte parity
 node scripts/deploy-staging-hermes.js chat-test   # staging Hermes smoke
 node scripts/run-local-hermes.js chat             # local Hermes (this repo)

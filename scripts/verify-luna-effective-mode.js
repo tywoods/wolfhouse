@@ -854,19 +854,26 @@ async function main() {
         .every((r) => r.advisory.includes('needs_human')),
       'a needs_human cell resolved auto without recording the advisory reason');
 
-    // The other divergence is an absence: the JS env gates have no Hermes counterpart,
-    // so on staging neither flag can stop a send. Reported, not changed.
+    // The other divergence used to be an absence: the JS env gates had no Hermes
+    // counterpart, so on staging neither flag could stop a send. They do now. Only
+    // the wiring is asserted here — the behaviour (both flags honoured, fail-closed,
+    // on the real patched send) is proved by scripts/verify-hermes-send-flags.js,
+    // which runs that function against a recording provider rather than reading it.
+    const patchSrc = read(path.join(HERMES_STAGING_DIR, 'apply_gateway_patches.py'));
     const hermesPy = fs.readdirSync(path.join(HERMES_STAGING_DIR, 'wolfhouse'))
       .filter((f) => f.endsWith('.py'))
       .map((f) => read(path.join(HERMES_STAGING_DIR, 'wolfhouse', f)))
-      .concat(read(path.join(HERMES_STAGING_DIR, 'apply_gateway_patches.py')))
+      .concat(patchSrc)
       .join('\n');
-    check('Hermes has no counterpart to LUNA_AUTO_SEND_ENABLED / WHATSAPP_DRY_RUN',
-      !/LUNA_AUTO_SEND_ENABLED|WHATSAPP_DRY_RUN/.test(hermesPy));
-    check('the Hermes send patch is gated on the pause gate alone',
-      /from wolfhouse\.pause_gate import whatsapp_send_blocked/.test(
-        read(path.join(HERMES_STAGING_DIR, 'apply_gateway_patches.py')),
-      ));
+    check('Hermes reads LUNA_AUTO_SEND_ENABLED and WHATSAPP_DRY_RUN',
+      /LUNA_AUTO_SEND_ENABLED/.test(hermesPy) && /WHATSAPP_DRY_RUN/.test(hermesPy));
+    const flagCall = patchSrc.indexOf('guest_whatsapp_send_flag_block(chat_id)');
+    const pauseCall = patchSrc.indexOf('from wolfhouse.pause_gate import whatsapp_send_blocked');
+    check('the Hermes send patch consults the kill switches, before the pause gate',
+      flagCall > -1 && pauseCall > flagCall, `flags@${flagCall} pause@${pauseCall}`);
+    check('and still consults the pause gate', pauseCall > -1);
+    check('the behavioural proof of the kill switch exists',
+      fs.existsSync(path.join(ROOT, 'scripts/verify-hermes-send-flags.js')));
   }
 
   // ── [8] Truth table ──────────────────────────────────────────────────────────

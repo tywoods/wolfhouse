@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Static checks for Hermes Luna pause gate wiring."""
+"""Static checks for Hermes Luna pause gate + kill-switch wiring.
+
+Wiring only. The behaviour these names are supposed to have is proved by
+`scripts/verify-hermes-send-flags.js`, which runs the patched send for real.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PAUSE = ROOT / "wolfhouse" / "pause_gate.py"
+FLAGS = ROOT / "wolfhouse" / "send_flags.py"
 PATCHES = ROOT / "apply_gateway_patches.py"
 
 passed = 0
@@ -41,6 +46,18 @@ def main() -> int:
     check("webhook patch installer", "install_whatsapp_pause_webhook_patch" in pause)
     check("runtime send suppression", "suppressed_guest_automation_paused" in patches)
     check("runtime webhook hook", "pause_webhook" in patches and "install_whatsapp_pause_webhook_patch" in patches)
+
+    flags = FLAGS.read_text(encoding="utf-8")
+    check("send_flags module exists", FLAGS.is_file())
+    check("reads WHATSAPP_DRY_RUN", "WHATSAPP_DRY_RUN" in flags)
+    check("reads LUNA_AUTO_SEND_ENABLED", "LUNA_AUTO_SEND_ENABLED" in flags)
+    check("send patch consults the kill switches", "guest_whatsapp_send_flag_block(chat_id)" in patches)
+    check(
+        "kill switches are checked before the pause gate",
+        patches.index("guest_whatsapp_send_flag_block(chat_id)")
+        < patches.index("from wolfhouse.pause_gate import whatsapp_send_blocked"),
+    )
+    check("a flag-blocked send is logged", "log_flag_block" in patches and "logger.warning" in flags)
 
     print(f"\nverify-pause-gate: {passed} passed, {failed} failed")
     return 1 if failed else 0

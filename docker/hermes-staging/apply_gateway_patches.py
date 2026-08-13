@@ -844,6 +844,41 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
             return SendResult(success=True, message_id=None, raw_response={"suppressed_internal_status": True})
         except Exception:
             return None
+    # WhatsApp kill switches — WHATSAPP_DRY_RUN / LUNA_AUTO_SEND_ENABLED. All logic
+    # lives in the tested wolfhouse.send_flags module; this block only calls it.
+    # Unlike every other guard here, the except does NOT fall through to the send:
+    # if the kill switch cannot be evaluated, nothing reaches a guest. A kill switch
+    # that fails open is not a kill switch.
+    try:
+        from wolfhouse.send_flags import (
+            flag_block_raw_response,
+            guest_whatsapp_send_flag_block,
+            log_flag_block,
+        )
+        _wh_flag_block = guest_whatsapp_send_flag_block(chat_id)
+        _wh_flag_line = log_flag_block(_wh_flag_block)
+        _wh_flag_raw = flag_block_raw_response(_wh_flag_block)
+    except Exception as _wh_flag_exc:
+        _wh_flag_block = {"blocked_reason": "send_flag_guard_error"}
+        _wh_flag_line = (
+            "[wolfhouse] send blocked (send_flag_guard_error) — the WhatsApp kill-switch "
+            f"guard could not be loaded ({type(_wh_flag_exc).__name__}); failing closed, nothing sent"
+        )
+        _wh_flag_raw = {
+            "suppressed_guest_send_flag": True,
+            "blocked_reason": "send_flag_guard_error",
+        }
+    if _wh_flag_block:
+        try:
+            import sys as _sys
+            print(_wh_flag_line, file=_sys.stderr)
+        except Exception:
+            pass
+        try:
+            from gateway.platforms.base import SendResult
+            return SendResult(success=True, message_id=None, raw_response=_wh_flag_raw)
+        except Exception:
+            return None
     # Staff Portal pause gate — block outbound guest replies when Luna is paused.
     try:
         from wolfhouse.pause_gate import whatsapp_send_blocked
@@ -899,6 +934,7 @@ def install_runtime_whatsapp_patches() -> dict:
         "plain_reply_send": False,
         "pause_webhook": False,
         "pause_send": False,
+        "send_flags": False,
         "burst_coalesce": False,
     }
     try:
@@ -920,6 +956,7 @@ def install_runtime_whatsapp_patches() -> dict:
             _wh_cloud_mod.WhatsAppCloudAdapter._wolfhouse_internal_status_send_filter = True
             applied["plain_reply_send"] = True
             applied["pause_send"] = True
+            applied["send_flags"] = True
     except Exception:
         pass
     try:

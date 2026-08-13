@@ -206,13 +206,22 @@ def _event_wamid(event: Any) -> str:
         return ""
 
 
-def _send_was_suppressed(result: Any) -> bool:
+#: Every ``raw_response`` marker that means "the adapter returned success but the
+#: guest received nothing". Missing one makes the ack path record an acknowledgement
+#: that was never delivered.
+_SUPPRESSED_MARKERS = ("suppressed_guest_automation_paused", "suppressed_guest_send_flag")
+
+
+def _suppression_marker(result: Any) -> str:
     raw = getattr(result, "raw_response", None)
-    if isinstance(raw, dict) and raw.get("suppressed_guest_automation_paused"):
-        return True
-    if isinstance(result, dict) and (result.get("raw_response") or {}).get("suppressed_guest_automation_paused"):
-        return True
-    return False
+    if not isinstance(raw, dict) and isinstance(result, dict):
+        raw = result.get("raw_response") or {}
+    if not isinstance(raw, dict):
+        return ""
+    for marker in _SUPPRESSED_MARKERS:
+        if raw.get(marker):
+            return str(raw.get("blocked_reason") or marker)
+    return ""
 
 
 async def maybe_short_circuit_explicit_human(
@@ -259,13 +268,14 @@ async def maybe_short_circuit_explicit_human(
             adapter = getattr(adapter_dispatch, "adapter", None)
             if adapter is not None and chat_id and hasattr(adapter, "send"):
                 result = await adapter.send(chat_id, reply)
-                if _send_was_suppressed(result):
+                _suppressed_by = _suppression_marker(result)
+                if _suppressed_by:
                     ack_send_failed = True
                     logger.warning(
                         "%s",
                         {
                             "event": "handoff_ack_send_failed",
-                            "error_type": "suppressed_guest_automation_paused",
+                            "error_type": _suppressed_by,
                         },
                     )
                 else:
