@@ -19,7 +19,7 @@ or any `/staff/inbox/*` route.
 | 1 | Column layout model and presets | **done** (#511) |
 | 1 | One `Auto \| Draft \| Off` Luna mode control | **done** (#524) — WhatsApp Auto\|Off, Email Draft\|Off; WhatsApp Draft remains Phase 2 |
 | 1 | Handoff state gap — Luna promises a takeover that never sets `needs_human` | **done** (detector + corpus gate) |
-| 2 | Channel-agnostic approvals; WhatsApp draft parity (migration 078) | **PR #528 open** persist+read migration 078, not merged (operator-owned database); approve-send not started |
+| 2 | Channel-agnostic approvals; WhatsApp draft parity (migration 078) | **done** persist+read (#528, migration 078 `luna_outbound_approvals`); approve-send not started |
 | 3 | SSE live activity, replacing 5s/3s polling | not started |
 | 4 | Segments and broadcasts (migrations 080, 081) | not started |
 | 5 | Identity linking across channels (optional) | not started |
@@ -234,7 +234,7 @@ Existing endpoints stay for back-compat during migration.
 
 ## Data model
 
-Next free migration number is 078 (077 is the pricing pair).
+Next free migration number is 079 (078 is `luna_outbound_approvals`, shipped in #528).
 
 - `078_luna_outbound_approvals.sql` — channel-agnostic approvals: `client_id`, `conversation_id`,
   `channel`, `draft_text`, `edited_text`, `status` (pending/approved/rejected/sent/expired),
