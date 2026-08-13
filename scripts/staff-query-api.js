@@ -20189,6 +20189,9 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   max-width:1800px!important;width:100%;margin:0 auto;padding:var(--tab-top-gap) 20px 12px!important;
   display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box;align-self:center;
 }
+#tab-conversations.active:has([data-inbox-preset="chat"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
+  max-width:1240px!important;
+}
 @media(max-width:900px){
   #tab-conversations.active #wrap.inbox-shell-wrap{
     max-width:100vw!important;padding:var(--tab-top-gap) 12px 12px!important;margin:0 auto;
@@ -20586,6 +20589,29 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
     display:block;left:calc(var(--inbox-col1-w) + var(--inbox-col-gap));
   }
   .inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-peek-edge-col4{display:block;right:0}
+}
+/* Chat view: name click swaps the chat column for the full guest card. Full/Guest presets unchanged. */
+.inbox-chat-guest-host{display:none}
+button.inbox-chat-guest-name{
+  background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;
+  cursor:pointer;text-align:left;text-decoration:underline;text-underline-offset:3px;
+}
+button.inbox-chat-guest-name:hover{opacity:.82}
+.inbox-chat-guest-toolbar{flex:0 0 auto;margin:0 0 10px}
+.inbox-chat-guest-back{
+  border:1px solid var(--border-soft);background:var(--surface-soft);color:var(--text);
+  border-radius:8px;padding:6px 12px;font-size:12px;font-weight:650;cursor:pointer;letter-spacing:.04em;
+}
+.inbox-chat-guest-back:hover{background:var(--surface)}
+#tab-conversations.inbox-chat-showing-guest #inbox-chat-chrome-slot{display:none!important}
+@media(min-width:901px){
+  #tab-conversations.inbox-chat-showing-guest .inbox-chat-guest-host{
+    display:flex;flex-direction:column;grid-column:3;grid-row:1;
+    min-width:0;min-height:0;height:100%;overflow:auto;-webkit-overflow-scrolling:touch;
+    background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);
+    padding:12px 14px;box-sizing:border-box;
+  }
+  #tab-conversations.inbox-chat-showing-guest .detail-main{display:none!important}
 }
 /* ═══ END luna-header-ui ═════════════════════════════════════════════════ */
 </style>

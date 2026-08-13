@@ -1032,8 +1032,20 @@ function inboxCustomerPaint(sidebar, conv, composite, customer) {
 
 var inboxCustomerEditing = false;
 
+function inboxCustomerFormRoot() {
+  if (typeof inboxChatGuestIsShowing === 'function' && inboxChatGuestIsShowing()) {
+    var host = typeof document !== 'undefined' ? document.getElementById('inbox-chat-guest-host') : null;
+    if (host) return host;
+  }
+  return inboxContextSidebarEl();
+}
+
 function inboxCustomerStartEdit() {
   inboxCustomerEditing = true;
+  if (typeof inboxChatGuestIsShowing === 'function' && inboxChatGuestIsShowing()) {
+    if (typeof inboxChatPaintGuest === 'function') inboxChatPaintGuest();
+    return;
+  }
   if (typeof inboxColumnsSetPreset === 'function' && !inboxContextIsGuestMode()) {
     inboxColumnsSetPreset('guest');
   }
@@ -1043,6 +1055,10 @@ function inboxCustomerStartEdit() {
 
 function inboxCustomerCancelEdit() {
   inboxCustomerEditing = false;
+  if (typeof inboxChatGuestIsShowing === 'function' && inboxChatGuestIsShowing() && typeof inboxChatPaintGuest === 'function') {
+    inboxChatPaintGuest();
+    return;
+  }
   var sidebar = inboxContextSidebarEl();
   if (sidebar) inboxCustomerPaint(sidebar, inboxContextLastConv, inboxContextLastComposite, inboxContextLastCustomer);
 }
@@ -1082,7 +1098,7 @@ function inboxCustomerEditHtml(data, opts) {
 }
 
 function inboxCustomerSaveEdit(data) {
-  var sidebar = inboxContextSidebarEl();
+  var sidebar = inboxCustomerFormRoot();
   var msg = sidebar && sidebar.querySelector('#inbox-cust-edit-msg');
   var saveBtn = sidebar && sidebar.querySelector('#inbox-cust-edit-save');
   var nameEl = sidebar && sidebar.querySelector('#inbox-cust-edit-name');
@@ -1125,8 +1141,10 @@ function inboxCustomerSaveEdit(data) {
     if (inboxContextLastCustomer && inboxContextLastCustomer.notes) {
       inboxContextLastCustomer.notes.internal_staff_notes = payload.notes;
     }
-    var sidebarNow = inboxContextSidebarEl();
-    if (sidebarNow) inboxCustomerLoad(sidebarNow, inboxContextLastConv, inboxContextLastComposite);
+    var sidebarNow = inboxCustomerFormRoot();
+    if (typeof inboxChatGuestIsShowing === 'function' && inboxChatGuestIsShowing() && typeof inboxChatPaintGuest === 'function') {
+      inboxChatPaintGuest();
+    } else if (sidebarNow) inboxCustomerLoad(sidebarNow, inboxContextLastConv, inboxContextLastComposite);
   }).catch(function(err) {
     if (msg) { msg.className = 'state-msg error'; msg.textContent = inboxContextT('customers.saveFailed', 'Could not save.') + ' ' + (err.message || ''); msg.style.display = 'block'; }
   }).finally(function() {
@@ -1232,6 +1250,9 @@ function inboxContextWrapColumnsApply() {
   var legacy = inboxColumnsApply;
   function wrapped() {
     var out = legacy.apply(this, arguments);
+    if (typeof inboxIsChatPreset === 'function' && typeof inboxChatHideGuest === 'function' && !inboxIsChatPreset()) {
+      inboxChatHideGuest();
+    }
     inboxCustomerSyncDensity();
     return out;
   }

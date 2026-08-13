@@ -288,6 +288,63 @@ function wireInboxComposerChannelSwitch(conv, targetEl){
 
 var inboxComposerChannelByConv = {};
 
+function inboxIsChatPreset(){
+  try {
+    if (typeof inboxColumnsRuntime !== 'undefined' && inboxColumnsRuntime && inboxColumnsRuntime.record) {
+      return inboxColumnsRuntime.record.preset === 'chat';
+    }
+  } catch (_e) { /* ignore */ }
+  var btn = typeof document !== 'undefined' ? document.querySelector('[data-inbox-preset="chat"][aria-pressed="true"]') : null;
+  return !!btn;
+}
+
+function inboxChatGuestTab(){
+  return typeof document !== 'undefined' ? document.getElementById('tab-conversations') : null;
+}
+
+function inboxChatGuestIsShowing(){
+  var tab = inboxChatGuestTab();
+  return !!(tab && tab.classList.contains('inbox-chat-showing-guest'));
+}
+
+function inboxChatHideGuest(){
+  var tab = inboxChatGuestTab();
+  if (tab) tab.classList.remove('inbox-chat-showing-guest');
+  var host = typeof document !== 'undefined' ? document.getElementById('inbox-chat-guest-host') : null;
+  if (host) host.hidden = true;
+}
+
+function inboxChatPaintGuest(){
+  var host = typeof document !== 'undefined' ? document.getElementById('inbox-chat-guest-host') : null;
+  if (!host) return;
+  var data = (typeof inboxCustomerMerge === 'function')
+    ? inboxCustomerMerge(
+      typeof inboxCustomerFromConv === 'function' ? inboxCustomerFromConv(inboxContextLastConv) : {},
+      inboxContextLastCustomer
+    )
+    : inboxContextLastCustomer;
+  var body = '';
+  if (typeof inboxCustomerEditing !== 'undefined' && inboxCustomerEditing && typeof inboxCustomerEditHtml === 'function') {
+    body = inboxCustomerEditHtml(data, { composite: inboxContextLastComposite, conv: inboxContextLastConv });
+  } else if (typeof inboxCustomerFullHtml === 'function') {
+    body = inboxCustomerFullHtml(data, { composite: inboxContextLastComposite, conv: inboxContextLastConv });
+  }
+  host.innerHTML = '<div class="inbox-chat-guest-toolbar"><button type="button" class="inbox-chat-guest-back" id="inbox-chat-guest-back">BACK</button></div>' + (body || '');
+  if (typeof inboxContextWireActions === 'function') inboxContextWireActions(host, { conversation: inboxContextLastConv });
+  if (typeof inboxCustomerWireFull === 'function') inboxCustomerWireFull(host, data);
+  var back = host.querySelector('#inbox-chat-guest-back');
+  if (back) back.addEventListener('click', function(){ inboxChatHideGuest(); });
+}
+
+function inboxChatShowGuest(){
+  if (!inboxIsChatPreset()) return;
+  var tab = inboxChatGuestTab();
+  if (tab) tab.classList.add('inbox-chat-showing-guest');
+  var host = typeof document !== 'undefined' ? document.getElementById('inbox-chat-guest-host') : null;
+  if (host) host.hidden = false;
+  inboxChatPaintGuest();
+}
+
 function inboxPaintChatChromeSlot(conv, lunaGuestPaused){
   var slot = typeof el === 'function' ? el('inbox-chat-chrome-slot') : (typeof document !== 'undefined' ? document.getElementById('inbox-chat-chrome-slot') : null);
   if (!slot) return;
@@ -1772,7 +1829,11 @@ function loadConvDetail(convId, targetEl){
 
     html +=   '<div class="detail-header">';
     html +=     '<div class="detail-header-main">';
-    html +=       '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
+    if (inboxIsChatPreset()) {
+      html +=     '<button type="button" class="detail-name inbox-chat-guest-name" id="inbox-chat-guest-name">' + escHtml(c.guest_name || c.phone) + '</button>';
+    } else {
+      html +=     '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
+    }
     html +=       '<div class="detail-meta">' + escHtml(c.phone || '');
     var channelLabel = (c.channel === 'email') ? 'Email' : 'WhatsApp';
     if (c.phone || c.guest_email) html += ' · ' + escHtml(channelLabel);
@@ -1862,16 +1923,20 @@ function loadConvDetail(convId, targetEl){
     html += '</details>';
 
     html += '</div>'; /* /detail-main */
+    html += '<div class="inbox-chat-guest-host" id="inbox-chat-guest-host" hidden></div>';
 
     /* ═══ RIGHT — context sidebar ═══ */
     html += '<div class="detail-sidebar" id="inbox-detail-sidebar"></div>';
     html += '</div>'; /* /detail-layout */
 
     targetEl.innerHTML = html;
+    inboxChatHideGuest();
     inboxPaintChatChromeSlot(c, lunaGuestPaused);
     targetEl.classList.remove('is-loading-detail');
     wireInboxComposerChannelSwitch(c, targetEl);
     inboxFillComposerThread(c, msgs);
+    var chatName = targetEl.querySelector('#inbox-chat-guest-name');
+    if (chatName) chatName.addEventListener('click', function(){ inboxChatShowGuest(); });
 
     if (missingEmail) { /* composer shows the update-email note */ }
     else if (useEmailReplyUi) wireInboxEmailReply(convId, targetEl);
