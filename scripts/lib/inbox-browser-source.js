@@ -30,6 +30,7 @@ const LUNA_MODE_MODULE = path.join(BROWSER_DIR, 'inbox-luna-mode.js');
 const THREAD_MODULE = path.join(BROWSER_DIR, 'inbox-thread.js');
 const VIEWS_MODULE = path.join(BROWSER_DIR, 'inbox-views.js');
 const WHATSAPP_DRAFT_MODULE = path.join(BROWSER_DIR, 'inbox-whatsapp-draft.js');
+const BROADCAST_MODULE = path.join(BROWSER_DIR, 'inbox-broadcast.js');
 
 const INBOX_COLUMNS_INJECT_MARKER = '/* INJECT:inbox-columns */';
 const INBOX_CUSTOMERS_FILTERS_INJECT_MARKER = '/* INJECT:inbox-customers-filters */';
@@ -38,6 +39,7 @@ const INBOX_CUSTOMERS_PROFILE_INJECT_MARKER = '/* INJECT:inbox-customers-profile
 const INBOX_LIST_INJECT_MARKER = '/* INJECT:inbox-list */';
 const INBOX_THREAD_INJECT_MARKER = '/* INJECT:inbox-thread */';
 const INBOX_VIEWS_INJECT_MARKER = '/* INJECT:inbox-views */';
+const INBOX_BROADCAST_INJECT_MARKER = '/* INJECT:inbox-broadcast */';
 
 /**
  * Read a browser module for injection.
@@ -93,6 +95,10 @@ function getInboxViewsBrowserSource() {
   return readBrowserModule(VIEWS_MODULE);
 }
 
+function getInboxBroadcastBrowserSource() {
+  return readBrowserModule(BROADCAST_MODULE);
+}
+
 /** Permissive: missing marker → return html unchanged (do not throw). */
 function injectAtMarker(html, marker, moduleJs) {
   const idx = html.indexOf(marker);
@@ -113,7 +119,8 @@ function injectInboxBrowserModules(html) {
   html = injectAtMarker(html, INBOX_CUSTOMERS_PROFILE_INJECT_MARKER, getInboxCustomersProfileBrowserSource());
   html = injectAtMarker(html, INBOX_LIST_INJECT_MARKER, getInboxListBrowserSource());
   html = injectAtMarker(html, INBOX_THREAD_INJECT_MARKER, getInboxThreadBrowserSource());
-  return injectAtMarker(html, INBOX_VIEWS_INJECT_MARKER, getInboxViewsBrowserSource());
+  html = injectAtMarker(html, INBOX_VIEWS_INJECT_MARKER, getInboxViewsBrowserSource());
+  return injectAtMarker(html, INBOX_BROADCAST_INJECT_MARKER, getInboxBroadcastBrowserSource());
 }
 
 module.exports = {
@@ -126,6 +133,7 @@ module.exports = {
   getInboxLunaModeBrowserSource,
   getInboxThreadBrowserSource,
   getInboxViewsBrowserSource,
+  getInboxBroadcastBrowserSource,
   getInboxWhatsAppDraftBrowserSource,
   injectInboxBrowserModules,
   injectAtMarker,
@@ -140,6 +148,7 @@ module.exports = {
   THREAD_MODULE,
   VIEWS_MODULE,
   WHATSAPP_DRAFT_MODULE,
+  BROADCAST_MODULE,
   INBOX_COLUMNS_INJECT_MARKER,
   INBOX_CUSTOMERS_FILTERS_INJECT_MARKER,
   INBOX_CUSTOMERS_OUTREACH_INJECT_MARKER,
@@ -147,4 +156,5 @@ module.exports = {
   INBOX_LIST_INJECT_MARKER,
   INBOX_THREAD_INJECT_MARKER,
   INBOX_VIEWS_INJECT_MARKER,
+  INBOX_BROADCAST_INJECT_MARKER,
 };

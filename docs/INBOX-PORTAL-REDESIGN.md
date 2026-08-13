@@ -21,7 +21,7 @@ or any `/staff/inbox/*` route.
 | 1 | Handoff state gap — Luna promises a takeover that never sets `needs_human` | **done** (detector + corpus gate) |
 | 2 | Channel-agnostic approvals; WhatsApp draft parity (migration 078) | **done** persist+read (#528, migration 078 `luna_outbound_approvals`); **done** approve-send (#533, `POST /staff/inbox/whatsapp/approve-send`, existing send path, dry-run fail-closed); **done** Draft UI (#535, `inbox-whatsapp-draft.js`, Approve/Edit, no auto-send) |
 | 3 | SSE live activity, replacing 5s/3s polling | **done** (#537) — `GET /staff/inbox/stream`, in-process EventEmitter per `client_slug`. 5s/3s poll **fallback** remains if EventSource fails; saved-view counts still ride the list poll; pause/needs_human metadata-only writes are not on the emit hook yet. |
-| 4 | Segments and broadcasts (migration 079) | **done** API #539 (migration 079) — email-first `POST/GET /staff/broadcasts` + `POST /staff/broadcasts/:id/send`. Send stays **501** `email_broadcast_send_not_implemented` until Graph bulk send. No composer UI yet. WhatsApp promo refused. |
+| 4 | Segments and broadcasts (migration 079) | **done** API #539 (migration 079) — email-first `POST/GET /staff/broadcasts` + `POST /staff/broadcasts/:id/send`. Send stays **501** `email_broadcast_send_not_implemented` until Graph bulk send. **this PR** email composer UI (`inbox-broadcast.js`). WhatsApp promo refused. |
 | 5 | Identity linking across channels (optional) | not started |
 
 ## Why it feels bulky and redundant
@@ -206,12 +206,20 @@ Existing after Phase 0:
 - `inbox-thread.js` — thread detail, Luna pause controls, WhatsApp send, email draft/approve
 - `inbox-customers-filters.js`, `inbox-customers-outreach.js`, `inbox-customers-profile.js`
 
+Existing after later phases:
+
+- `inbox-columns.js` — four-column layout model
+- `inbox-luna-mode.js` — Auto \| Draft \| Off control
+- `inbox-whatsapp-draft.js` — WhatsApp Approve/Edit card
+- `inbox-stream.js` — SSE live activity
+- `inbox-views.js` — saved-view rail
+- `inbox-broadcast.js` — email broadcast composer (create + honest 501 send)
+
 Still to build:
 
 - `inbox-shell.js` — layout, top bar, view rail, routing, keyboard shortcuts
 - `inbox-context.js` — right panel (person, bookings, lessons, waivers, notes)
 - `inbox-approvals.js` — approvals queue
-- `inbox-broadcast.js` — segment builder and broadcast composer
 
 ## API consolidation
 
@@ -341,6 +349,8 @@ Needs-you rail itself.
   as two rows until the identity-linking phase.
 - `scripts/staff-query-api.js`, `database/` and `infra/` are operator-owned per `CODEOWNERS`.
 - Gate every phase with `npm run verify:luna-all` and `node scripts/verify-inbox-ui-parity.js`
-  (capture a baseline with `--save` **before** editing). `scripts/verify-sunset-luna-inbox-mirror.js`
+  (capture a baseline with `--save` **before** editing). Phase 4 composer is an intentional
+  rendered-HTML diff: injected `inbox-broadcast.js`, composer CSS, and `#inbox-broadcast-root`.
+  `scripts/verify-sunset-luna-inbox-mirror.js`
   still asserts the 5s/3s poll constants because those timers remain the EventSource
   fallback. `scripts/verify-inbox-stream-route.js` gates `GET /staff/inbox/stream`.

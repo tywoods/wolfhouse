@@ -20219,6 +20219,40 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .inbox-views-item-count{flex-shrink:0;font-size:11px;font-weight:700;color:var(--text-2)}
 .inbox-views-item.is-active .inbox-views-item-count{color:var(--primary)}
 .inbox-views-empty{padding:8px;font-size:12px;color:var(--text-2)}
+.inbox-broadcast-open{
+  margin-top:8px;width:100%;padding:8px 10px;border:1px solid var(--border);
+  border-radius:8px;background:var(--surface);color:var(--text);
+  font-size:12px;font-weight:600;cursor:pointer;text-align:left;
+}
+.inbox-broadcast-open:hover{background:var(--surface-soft)}
+.inbox-broadcast-open[hidden]{display:none!important}
+.inbox-broadcast-root[hidden]{display:none!important}
+.inbox-two-col.inbox-shell-cols > #inbox-broadcast-root:not([hidden]){
+  position:absolute;inset:0;z-index:28;display:flex;flex-direction:column;
+  background:var(--surface);padding:20px 22px;overflow:auto;box-sizing:border-box;
+}
+.inbox-broadcast-card{max-width:640px;width:100%;margin:0 auto;display:flex;flex-direction:column;gap:8px}
+.inbox-broadcast-header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.inbox-broadcast-title{font-size:16px;font-weight:700}
+.inbox-broadcast-close{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer}
+.inbox-broadcast-segment,.inbox-broadcast-channel,.inbox-broadcast-count{margin:0;font-size:13px;color:var(--text-2)}
+.inbox-broadcast-label{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2)}
+.inbox-broadcast-card input,.inbox-broadcast-card textarea{
+  width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);
+  padding:10px 12px;font:inherit;font-size:13px;box-sizing:border-box;background:var(--surface);color:var(--text);
+}
+.inbox-broadcast-card textarea{min-height:140px;resize:vertical;line-height:1.55}
+.inbox-broadcast-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.inbox-broadcast-create,.inbox-broadcast-send{
+  border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;
+  cursor:pointer;min-height:44px;display:inline-flex;align-items:center;
+}
+.inbox-broadcast-create{background:var(--ocean);color:#fff}
+.inbox-broadcast-send{background:var(--primary);color:#fff}
+.inbox-broadcast-create:disabled,.inbox-broadcast-send:disabled{background:#C9CFC8;color:#F2F1EC;cursor:default}
+.inbox-broadcast-status{min-height:1.4em;font-size:13px;color:var(--text-2)}
+.inbox-broadcast-status.is-error{color:#9C5742}
+.inbox-broadcast-status.is-blocked{color:#9C5742;font-weight:600}
 /* Column state → width. Every number the layout has lives in these eight rules. */
 .inbox-two-col.inbox-shell-cols[data-col1="full"]{--inbox-col1-w:240px}
 .inbox-two-col.inbox-shell-cols[data-col1="icons"]{--inbox-col1-w:56px}
@@ -21151,6 +21185,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </div>
     </div>
 
+    <div id="inbox-broadcast-root" class="inbox-broadcast-root" hidden></div>
   </div><!-- /inbox-two-col -->
 
   <!-- Message Events / Needs staff — hidden from normal Inbox (Phase 23d; APIs retained) -->
@@ -30349,6 +30384,8 @@ function wireHandoffsQueuePanel(){
 /* INJECT:inbox-thread */
 
 /* INJECT:inbox-views */
+
+/* INJECT:inbox-broadcast */
 
 function kv(label, val){
   return '<div class="kv"><span class="k">' + escHtml(label) + '</span><span class="v">' + escHtml(val==null?'—':String(val)) + '</span></div>';

@@ -14,13 +14,16 @@
  *   - channel=whatsapp is rejected with a stable error and no DB write
  *   - do_not_contact view members are stored as skipped, never pending
  *   - send snapshots recipients then 501 email_broadcast_send_not_implemented
- *   - no Graph / WhatsApp Cloud send; no Inbox UI
+ *   - no Graph / WhatsApp Cloud send; send is not flipped to 200/dry-run
+ *   - Inbox email composer (inbox-broadcast.js) POSTs create/send and displays the 501
+ *     honestly ("queued locally, email delivery not wired yet")
  *
  * No live DB / network / mailbox / Meta.
  */
 
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const { EventEmitter } = require('events');
 
 const ROOT = path.join(__dirname, '..');
@@ -63,6 +66,12 @@ const {
   parseBroadcastCreateBody,
   classifyBroadcastRecipients,
 } = require('./lib/staff-broadcasts');
+const { readStaffPortalUiSource } = require('./lib/staff-portal-ui-source');
+const {
+  BROADCAST_MODULE,
+  INBOX_BROADCAST_INJECT_MARKER,
+  injectInboxBrowserModules,
+} = require('./lib/inbox-browser-source');
 const { customerIsDoNotContact } = require('./lib/staff-customer-outreach-send');
 
 let pass = 0;
@@ -269,6 +278,14 @@ const pkg = JSON.parse(fs.readFileSync(PACKAGE_PATH, 'utf8'));
 const specSrc = fs.readFileSync(SPEC_PATH, 'utf8');
 const upSql = fs.readFileSync(MIG_UP, 'utf8');
 const downSql = fs.readFileSync(MIG_DOWN, 'utf8');
+const injectorSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'inbox-browser-source.js'), 'utf8');
+const broadcastUiSrc = fs.readFileSync(BROADCAST_MODULE, 'utf8');
+const columnsSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'inbox-columns.js'), 'utf8');
+const lunaSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'inbox-luna-mode.js'), 'utf8');
+const streamSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'inbox-stream.js'), 'utf8');
+const threadSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'inbox-thread.js'), 'utf8');
+const waDraftSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'inbox-whatsapp-draft.js'), 'utf8');
+const portalSrc = readStaffPortalUiSource();
 
 (async () => {
   console.log('verify:staff-broadcasts\n');
@@ -313,8 +330,7 @@ const downSql = fs.readFileSync(MIG_DOWN, 'utf8');
   ok('routes do not mention Graph or Cloud send',
     !/graph\.microsoft|nodemailer|sendLunaWhatsAppMessage/i.test(modSrc));
   ok('module does not call requireAuth', !/\brequireAuth\s*\(/.test(modSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')));
-  ok('no Inbox UI composer in this slice',
-    !fs.existsSync(path.join(ROOT, 'scripts', 'browser', 'inbox-broadcast.js')));
+  ok('Inbox email composer module exists', fs.existsSync(BROADCAST_MODULE));
 
   console.log('\n── parse: whatsapp refused, people views only ──');
   {
@@ -523,10 +539,136 @@ const downSql = fs.readFileSync(MIG_DOWN, 'utf8');
   ok('package.json has verify:staff-broadcasts',
     pkg.scripts && pkg.scripts['verify:staff-broadcasts'] === 'node scripts/verify-staff-broadcasts.js');
   ok('verify-luna-all runs this gate', /verify-staff-broadcasts\.js/.test(lunaAllSrc));
-  ok('spec mentions Phase 4 broadcast API',
+  ok('spec mentions Phase 4 broadcast API and composer',
     /migration 079/.test(specSrc)
     && /\/staff\/broadcasts/.test(specSrc)
-    && /email_broadcast_send_not_implemented/.test(specSrc));
+    && /email_broadcast_send_not_implemented/.test(specSrc)
+    && /inbox-broadcast\.js/.test(specSrc));
+
+  console.log('\n── inbox UI composer (email only, honest 501) ──');
+  ok('inject marker is in the portal template', apiSrc.includes(INBOX_BROADCAST_INJECT_MARKER));
+  ok('injector maps inbox-broadcast.js onto the marker',
+    injectorSrc.includes('INBOX_BROADCAST_INJECT_MARKER')
+    && injectorSrc.includes('getInboxBroadcastBrowserSource()')
+    && injectorSrc.indexOf('getInboxViewsBrowserSource()') < injectorSrc.indexOf('getInboxBroadcastBrowserSource()'));
+  {
+    const injected = injectInboxBrowserModules(`before\n${INBOX_BROADCAST_INJECT_MARKER}\nafter\n`);
+    ok('injector splices the composer over the marker',
+      injected.includes('function inboxBroadcastCreateUrl(')
+      && injected.includes('function inboxBroadcastSendUrl(')
+      && !injected.includes(INBOX_BROADCAST_INJECT_MARKER));
+  }
+  ok('composer POST create URL is /staff/broadcasts + inboxClientQuery()',
+    broadcastUiSrc.includes("return '/staff/broadcasts' + inboxClientQuery();"));
+  ok('composer GET URL is /staff/broadcasts/:id',
+    broadcastUiSrc.includes("'/staff/broadcasts/' + encodeURIComponent(broadcastId) + inboxClientQuery()"));
+  ok('composer Send URL is /staff/broadcasts/:id/send',
+    broadcastUiSrc.includes("'/staff/broadcasts/' + encodeURIComponent(broadcastId) + '/send' + inboxClientQuery()"));
+  ok('create body is email-only',
+    broadcastUiSrc.includes("channel: 'email'")
+    && !broadcastUiSrc.includes("channel: 'whatsapp'"));
+  ok('no WhatsApp promo UI',
+    broadcastUiSrc.includes('Channel: Email')
+    && !/Channel:\s*WhatsApp/.test(broadcastUiSrc)
+    && !/type="radio"/.test(broadcastUiSrc)
+    && !/whatsapp_broadcast/.test(broadcastUiSrc));
+  ok('honest 501 copy is stable',
+    broadcastUiSrc.includes("queued locally, email delivery not wired yet")
+    && broadcastUiSrc.includes("email_broadcast_send_not_implemented"));
+  ok('501 is treated as blocked, not sent',
+    /inboxBroadcastSetStatus\('blocked'/.test(broadcastUiSrc)
+    && !/Broadcast sent/.test(broadcastUiSrc)
+    && !/Email sent/.test(broadcastUiSrc)
+    && !/mail went out/.test(broadcastUiSrc));
+  ok('Send still 501 in domain (not flipped to 200/dry-run)',
+    /status: 501/.test(domainSrc)
+    && /ERROR_SEND_NOT_IMPLEMENTED/.test(domainSrc)
+    && !/status: 200/.test(domainSrc.slice(domainSrc.indexOf('async function executeSendBroadcast'))));
+  ok('composer does not touch four-column attributes',
+    !/data-col1|data-col2|data-col4|inboxColumns/.test(broadcastUiSrc));
+  ok('composer does not rewrite Luna / WhatsApp draft / SSE',
+    !broadcastUiSrc.includes('/staff/bot/pause')
+    && !broadcastUiSrc.includes('/staff/inbox/whatsapp/')
+    && !broadcastUiSrc.includes('EventSource')
+    && !broadcastUiSrc.includes('/staff/inbox/stream'));
+  ok('four-column module still owns data-col*',
+    columnsSrc.includes('data-col1') && columnsSrc.includes('data-col2') && columnsSrc.includes('data-col4'));
+  ok('Luna mode control still in its module',
+    lunaSrc.includes('function inboxLunaModeControlHtml(')
+    && lunaSrc.includes("return ['auto', 'off']"));
+  ok('WhatsApp draft card still in its module',
+    waDraftSrc.includes('id="inbox-whatsapp-draft"')
+    && waDraftSrc.includes('id="btn-whatsapp-draft-approve"'));
+  ok('SSE still in inbox-stream.js',
+    streamSrc.includes('new EventSource(inboxStreamUrl())')
+    && streamSrc.includes('/staff/inbox/stream'));
+  ok('combined portal UI has composer URLs and 501 copy',
+    portalSrc.includes('/staff/broadcasts')
+    && portalSrc.includes("queued locally, email delivery not wired yet")
+    && portalSrc.includes('/staff/inbox/whatsapp/draft')
+    && portalSrc.includes('/staff/inbox/stream')
+    && portalSrc.includes('function inboxLunaModeControlHtml('));
+  ok('thread still mounts WhatsApp draft off the email path',
+    /if \(!isEmailConversation\) html \+= inboxWhatsAppDraftMountHtml\(\)/.test(threadSrc));
+  ok('mount exists in the Inbox shell',
+    /id="inbox-broadcast-root"/.test(apiSrc) && /class="inbox-broadcast-root"/.test(apiSrc));
+
+  const sandbox = {
+    escHtml: (s) => String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;'),
+    inboxClientQuery: () => '?client=wolfhouse-somo',
+    el: () => null,
+    document: { createElement: () => ({ id: '', className: '', hidden: true, appendChild: () => {} }) },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(
+    `${broadcastUiSrc}\n` +
+    'this.inboxBroadcastCreateUrl = inboxBroadcastCreateUrl;\n' +
+    'this.inboxBroadcastGetUrl = inboxBroadcastGetUrl;\n' +
+    'this.inboxBroadcastSendUrl = inboxBroadcastSendUrl;\n' +
+    'this.inboxBroadcastComposerHtml = inboxBroadcastComposerHtml;\n' +
+    'this.inboxBroadcastSendFailureCopy = inboxBroadcastSendFailureCopy;\n' +
+    'this.inboxBroadcastIsEmailableView = inboxBroadcastIsEmailableView;\n' +
+    'this.inboxBroadcastRecipientCountHtml = inboxBroadcastRecipientCountHtml;',
+    sandbox,
+  );
+  ok('create URL carries tenant query',
+    sandbox.inboxBroadcastCreateUrl() === '/staff/broadcasts?client=wolfhouse-somo');
+  ok('send URL is POST path with id',
+    sandbox.inboxBroadcastSendUrl(BID) === `/staff/broadcasts/${BID}/send?client=wolfhouse-somo`);
+  ok('GET URL is id path',
+    sandbox.inboxBroadcastGetUrl(BID) === `/staff/broadcasts/${BID}?client=wolfhouse-somo`);
+  {
+    const card = sandbox.inboxBroadcastComposerHtml({
+      viewId: 'checked_in',
+      viewLabel: 'Checked in',
+      viewCount: 12,
+      subject: 'BBQ tonight',
+      body: 'Grill at 8.',
+    });
+    ok('composer shows email segment + subject/body, no WhatsApp control',
+      card.includes('Email broadcast')
+      && card.includes('Channel: Email')
+      && card.includes('Segment: Checked in (12)')
+      && /id="inbox-broadcast-subject"/.test(card)
+      && /id="inbox-broadcast-body"/.test(card)
+      && /id="inbox-broadcast-create"/.test(card)
+      && /id="inbox-broadcast-send"/.test(card)
+      && !/WhatsApp/.test(card));
+    ok('composer shows recipient count',
+      sandbox.inboxBroadcastRecipientCountHtml(12, null).indexOf('12') >= 0
+      && sandbox.inboxBroadcastRecipientCountHtml(12, { pending: 9, skipped: 2 }).indexOf('9') >= 0);
+  }
+  ok('501 copy names the honest queue message',
+    sandbox.inboxBroadcastSendFailureCopy(501, ERROR_SEND_NOT_IMPLEMENTED, { pending: 9, skipped: 1 })
+      .indexOf('queued locally, email delivery not wired yet') >= 0);
+  ok('people views with multi_select are emailable; do_not_contact is not',
+    sandbox.inboxBroadcastIsEmailableView({ multi_select: true, group: 'people' }) === true
+    && sandbox.inboxBroadcastIsEmailableView({ multi_select: false, group: 'people' }) === false
+    && sandbox.inboxBroadcastIsEmailableView({ multi_select: true, group: 'inbox' }) === false);
 
   console.log(`\n── ${fail === 0 ? 'PASSED' : 'FAILED'} (${pass} pass, ${fail} fail) ──`);
   process.exit(fail === 0 ? 0 : 1);
