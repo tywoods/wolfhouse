@@ -11,6 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { readStaffPortalUiSource } = require('./lib/staff-portal-ui-source');
 
 const ROOT = path.join(__dirname, '..');
 const PAUSE_PY = path.join(ROOT, 'docker/hermes-staging/wolfhouse/pause_gate.py');
@@ -119,8 +120,17 @@ async function main() {
   assert('checkGuestAutomationPauseState keeps conversations_needs_human for non-sunset',
     /conversations_needs_human/.test(staffSrc)
     && /clientSlug\s*!==\s*['"]sunset['"]|clientSlug\s*===\s*['"]sunset['"]/.test(staffSrc));
-  assert('portal pause switch uses conversation_id', /wireLunaPauseSwitch[\s\S]{0,500}conversation_id:\s*convId/.test(staffSrc));
-  assert('portal pause rolls back switch on failure', /sw\.checked = !wantPaused/.test(staffSrc));
+  // wireLunaPauseSwitch lives in scripts/browser/inbox-thread.js, injected into /staff/ui —
+  // read template + injected modules, and scope to the function so the global pause switch
+  // elsewhere in the portal cannot satisfy these for it.
+  const portalSrc = readStaffPortalUiSource();
+  const pauseSwitchStart = portalSrc.indexOf('function wireLunaPauseSwitch(');
+  const pauseSwitchEnd = portalSrc.indexOf('\nfunction ', pauseSwitchStart + 1);
+  const pauseSwitchSrc = pauseSwitchStart === -1
+    ? ''
+    : portalSrc.slice(pauseSwitchStart, pauseSwitchEnd === -1 ? undefined : pauseSwitchEnd);
+  assert('portal pause switch uses conversation_id', /conversation_id:\s*convId/.test(pauseSwitchSrc));
+  assert('portal pause rolls back switch on failure', /sw\.checked = !wantPaused/.test(pauseSwitchSrc));
 
   console.log('\n[8] Unit: pauseConversation stores resolved phone');
   const pauseMod = require('./lib/staff-bot-pause-sql');
