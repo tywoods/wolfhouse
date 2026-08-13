@@ -13,10 +13,10 @@ or any `/staff/inbox/*` route.
 |---|---|---|
 | 0 | Extract the Inbox front-end into `scripts/browser/inbox-*.js` | **done** (#499) |
 | 0 | Fix escapes eaten by the `buildUiHtml` template literal — Inbox sites | **done** (#499, 7 sites) |
-| 0 | Same bug class outside the Inbox — 16 sites, 9 functions | in progress |
-| 0 | `GET /staff/inbox/thread/:id` composite endpoint | **done** (#506, #507, #509) |
-| 1 | Unified shell, saved-view rail, merged context panel | not started |
-| 1 | Column layout model and presets | not started |
+| 0 | Same bug class outside the Inbox — 16 sites, 9 functions | **done** (#502) |
+| 0 | `GET /staff/inbox/thread/:id` composite endpoint | **done** (#506, #507, #509) — one snapshot; six original routes stay for polling. Inbox UI does not fetch `/staff-state`. |
+| 1 | Unified shell, saved-view rail, merged context panel | API reads **done** (#510); UI rail not on master (layout is #511, do not merge) |
+| 1 | Column layout model and presets | **PR #511 open, waiting operator** — do not merge, do not duplicate |
 | 1 | One `Auto \| Draft \| Off` Luna mode control (migration 079) | not started |
 | 1 | Handoff state gap — Luna promises a takeover that never sets `needs_human` | **done** (detector + corpus gate) |
 | 2 | Channel-agnostic approvals; WhatsApp draft parity (migration 078) | not started |
@@ -217,9 +217,10 @@ Still to build:
 
 Existing endpoints stay for back-compat during migration.
 
-- `GET /staff/inbox/views` — saved views with counts, replacing both filter-chip systems
-- `GET /staff/inbox/list?view=&q=&cursor=` — one list endpoint returning person-rows; unifies
-  `/staff/conversations` and `/staff/customers`
+- `GET /staff/inbox/views` — shipped (#510): saved views with counts, replacing both
+  filter-chip systems. The UI rail that consumes this is not on master.
+- `GET /staff/inbox/list?view=&q=&cursor=` — shipped (#510): one list endpoint returning
+  person-rows; unifies `/staff/conversations` and `/staff/customers`
 - `GET /staff/inbox/thread/:id` — shipped (#506, #507, #509): one snapshot for thread
   open. The six original conversation sub-routes stay routed for polling and
   back-compat. The Inbox UI does not fetch `/staff-state`; the composite does not
@@ -280,9 +281,14 @@ Four bugs this shipped, all fixed in #499 by executing the emitted functions bef
 - `openInboxToPhone` compared phone digits with `/D/` instead of `/\D/`, so the
   Customers-to-Conversations cross-link matched on the wrong string.
 
-`tmp/scan-eaten-escapes.js` regenerates the outstanding list. The three quote-parsing functions
-(`bcQuoteDigitsBeforeCent`, `bcQuoteParseTrailingInt`, `bcQuoteAccommodationNote`) touch money, so
-they need their own verification rather than riding along with a UI refactor.
+The remaining 16 metacharacters across nine functions outside the Inbox were restored in #502 by
+doubling the backslash in the template. In the emitted `/staff/ui` HTML those regexes now keep
+their shorthands: `scheduleAddIsoDays` guards ISO dates with `/^\d{4}-\d{2}-\d{2}$/`,
+`scheduleNormalizePhoneDigits` strips with `/\D/g`, and the money-touching quote parsers
+(`bcQuoteDigitsBeforeCent`, `bcQuoteParseTrailingInt`, `bcQuoteAccommodationNote`) strip
+non-digits with `/[^\d]/g`. `scripts/verify-portal-template-escapes.js` (`npm run
+verify:portal-template-escapes`) renders both tenants through `buildUiHtmlForOfflineTest` and
+fails if a regex reaches the browser missing its backslash.
 
 ## Handoff state gap
 
