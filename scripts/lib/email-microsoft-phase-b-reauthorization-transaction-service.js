@@ -1,21 +1,22 @@
 'use strict';
 /** Phase B reauth OAuth TX (Gate 3 PR B1). No prepare route/public wiring. */
 const crypto = require('crypto');
+const transitionPolicy = require('./email-microsoft-reauthorization-transition-policy');
 const {
   EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION,
   EMAIL_MS_DELEGATED_PHASE_B_V1_GRAPH_DELEGATED_SCOPES,
 } = require('./email-microsoft-delegated-oauth-contract');
 const AUTHORITY = 'https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize';
 const REDIRECT_URI = 'https://sunset-staging.lunafrontdesk.com/staff/email/oauth/microsoft/callback';
-const PHASE_B_SCOPES = ['openid', 'profile', 'offline_access', ...EMAIL_MS_DELEGATED_PHASE_B_V1_GRAPH_DELEGATED_SCOPES].join(' ');
+const PHASE_B_SCOPES = transitionPolicy.authorizationScopeString();
 const TTL_SECONDS = 600;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const B64URL_32_RE = /^[A-Za-z0-9_-]{43}$/;
 const PKCE_VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/;
 const GEN_RE = /^[1-9][0-9]*$/;
 const GEN_MAX = 9223372036854775807n;
-const AUTHORIZATION_INTENT = 'phase_b_reauthorization';
-const SCOPE_VERSION = EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION;
+const AUTHORIZATION_INTENT = transitionPolicy.authorizationIntent();
+const SCOPE_VERSION = transitionPolicy.targetScopeVersion();
 const START_ENABLED_ENV = 'LUNA_EMAIL_PHASE_B_REAUTH_START_ENABLED';
 const INPUT_KEYS = Object.freeze([
   'clientId', 'locationId', 'endpointId', 'staffUserId', 'authSessionId',
@@ -105,7 +106,13 @@ function createPostgresPhaseBReauthTransactionRepository(db) {
 }
 function createMicrosoftPhaseBReauthorizationTransactionService({
   repository, env = process.env, randomBytes = crypto.randomBytes, now = () => new Date(),
-}) {
+} = {}) {
+  let dependencyKeys;
+  try { dependencyKeys = Reflect.ownKeys(arguments[0]); } catch { throw new TypeError('dependencies_required'); }
+  const allowed = ['repository', 'env', 'randomBytes', 'now'];
+  if (dependencyKeys.some((key) => typeof key !== 'string' || !allowed.includes(key))) {
+    throw new TypeError('dependencies_invalid');
+  }
   if (!repository || typeof repository.create !== 'function') throw new TypeError('repository_required');
   return Object.freeze({
     async start(input) {

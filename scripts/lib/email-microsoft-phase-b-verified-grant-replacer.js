@@ -2,6 +2,7 @@
 /** Phase B replacer+custody (Gate 3 PR B1). Sealed envelope CAS N→N+1; seal outside TX. */
 const { timingSafeEqual } = require('crypto');
 const util = require('util');
+const transitionPolicy = require('./email-microsoft-reauthorization-transition-policy');
 const {
   buildGrantEnvelopeAadV1, validateGrantEnvelopeRecordV1, validateEmailGrantEnvelopeProvider,
 } = require('./email-grant-envelope-provider-contract');
@@ -25,8 +26,8 @@ const REPLACER_METHOD = 'replaceVerifiedGrant';
 const RECONCILE_METHOD = 'reconcileReplacement';
 const REPLACED_STATUS = 'replaced';
 const OUTCOME_UNKNOWN = 'outcome_unknown';
-const SCOPE_A = EMAIL_MS_DELEGATED_SCOPE_VERSION;
-const SCOPE_B = EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION;
+const SCOPE_A = transitionPolicy.sourceScopeVersion();
+const SCOPE_B = transitionPolicy.targetScopeVersion();
 const TOKEN_LIMIT = 8192;
 const ID_TOKEN_LIMIT = 32768;
 const MAX_EXPIRES = 86_400;
