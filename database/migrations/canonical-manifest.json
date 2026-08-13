@@ -1025,6 +1025,26 @@
       "rationale": "Refuses destructive rollback while Google OAuth transaction rows exist; otherwise removes only the isolated Google table, trigger, and guard function.",
       "pairsWith": "075_tenant_email_google_oauth_transactions.sql",
       "sha256": "00537a12ea3dca1d76fe3aed3454ddc264046ba64f1a9dbefaa881941ad02647"
+    },
+    {
+      "id": "078_luna_outbound_approvals",
+      "filename": "078_luna_outbound_approvals.sql",
+      "order": 75,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Inbox Phase 2 channel-agnostic outbound drafts/approvals. New table (not 070): 070 is Graph-mailbox-bound and cannot store WhatsApp drafts. Schema only; no seed, UI, approve-send, or live apply in this PR. 076/077 are the pricing pair and stay off this chain.",
+      "downFilename": "078_luna_outbound_approvals_down.sql",
+      "sha256": "1ef80c1d643ccbca5e2b8a9b7a0468b7cf8511c3b4e90cdcf0b5138410b93e67"
+    },
+    {
+      "id": "078_luna_outbound_approvals_down",
+      "filename": "078_luna_outbound_approvals_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Down for 078: refuse if rows present (refuse silent WhatsApp draft evidence loss); else DROP TABLE+protect. Parent conversations/staff_users uniques intact.",
+      "pairsWith": "078_luna_outbound_approvals.sql",
+      "sha256": "ec05d01f4984fff1c72279627d37547f311880a3f17022476382d474ce2be71b"
     }
   ]
 }

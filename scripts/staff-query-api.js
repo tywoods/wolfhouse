@@ -415,6 +415,10 @@ const {
   INBOX_LIST_PATH,
 } = require('./lib/staff-inbox-view-routes');
 const {
+  createWhatsAppDraftRoutes,
+  WHATSAPP_DRAFT_PATH,
+} = require('./lib/staff-inbox-whatsapp-draft-routes');
+const {
   clearConversationMessages,
   resetLunaConversationContext,
   deleteConversationHard,
@@ -2658,6 +2662,21 @@ const inboxViewRoutes = createInboxViewRoutes({
   SQL_INJECT_RE,
 });
 const { handleInboxViews, handleInboxList } = inboxViewRoutes;
+
+// WhatsApp pending draft persist+read (Phase 2 / migration 078). Operator auth
+// stays in the router; handlers re-apply assertStaffClientAccess and home-tenant
+// conversation ownership. No approve-send / Graph / Cloud API from these routes.
+const whatsAppDraftRoutes = createWhatsAppDraftRoutes({
+  sendJSON,
+  send400,
+  readBody,
+  assertStaffClientAccess,
+  appendAuditLog,
+  withPgClient,
+  DEFAULT_CLIENT,
+  SQL_INJECT_RE,
+});
+const { handleWhatsAppDraftGet, handleWhatsAppDraftPost } = whatsAppDraftRoutes;
 
 // Sunset Admin Bookings (N1) — list/export viewer; manual refund operator+.
 const bookingsAdminRoutes = createBookingsAdminRoutes({
@@ -46011,6 +46030,23 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleInboxSendReply(req, res, auth.user);
+  }
+
+  // WhatsApp draft persist+read only. GET is SELECT; POST upserts pending.
+  // Approve-send / provider send is not wired (email approve-send stays email-only).
+  if (pathname === WHATSAPP_DRAFT_PATH) {
+    if (method === 'GET') {
+      const auth = await requireAuth(req, res, 'operator');
+      if (!auth.ok) return;
+      return handleWhatsAppDraftGet(parsed.query, res, auth.user);
+    }
+    if (method === 'POST') {
+      const auth = await requireAuth(req, res, 'operator');
+      if (!auth.ok) return;
+      return handleWhatsAppDraftPost(req, res, auth.user);
+    }
+    res.writeHead(405, { Allow: 'GET, POST' });
+    return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET or POST for inbox/whatsapp/draft' }));
   }
 
   // Explicit Staff Luna draft generation (default-off; gate before auth/body/DB).
