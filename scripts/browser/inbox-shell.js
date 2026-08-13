@@ -160,6 +160,19 @@ function inboxShellSyncPauseChrome(paused){
   }
 }
 
+function inboxShellAdoptLayoutControls(){
+  var tabs = inboxShellById('tabs') || (typeof document !== 'undefined' ? document.getElementById('tabs') : null);
+  var controls = typeof document !== 'undefined'
+    ? (document.querySelector('#tab-conversations .inbox-layout-controls')
+      || document.querySelector('.inbox-layout-controls'))
+    : null;
+  if (!tabs || !controls) return;
+  if (controls.parentNode === tabs) return;
+  var tools = inboxShellById('nav-menu-tools');
+  if (tools && tools.parentNode === tabs) tabs.insertBefore(controls, tools);
+  else tabs.appendChild(controls);
+}
+
 function inboxShellAdoptSearch(){
   var list = inboxShellById('inbox-card');
   var wrap = document.querySelector('#tab-conversations .inbox-conv-search-wrap');
@@ -464,6 +477,10 @@ function inboxMockupThemeCssText(){
     'border-radius:var(--radius-pill,999px);',
     'background:var(--inbox-paper,var(--cream));',
     '}',
+    '#tabs .inbox-layout-controls{display:none;margin-left:auto;align-self:center}',
+    'body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls{display:flex}',
+    '#tab-conversations .inbox-shell-toolbar{display:none!important}',
+    '#tab-conversations.active #wrap.inbox-shell-wrap{padding-top:8px!important}',
     '#tab-conversations .inbox-layout-preset-btn{',
     'border-radius:var(--radius-pill,999px);',
     '}',
@@ -573,6 +590,7 @@ function inboxMockupThemeCssText(){
     '@media(max-width:768px){',
     '#tab-conversations .inbox-toolbar-top{display:flex;flex-wrap:wrap;grid-template-columns:none;gap:8px}',
     '#tab-conversations .inbox-layout-presets{display:none!important}',
+    '#tabs .inbox-layout-controls{display:none!important}',
     '#tab-conversations .inbox-shell-channel-defaults{width:100%;max-width:100%;box-sizing:border-box}',
     '}',
     '#inbox-shell .inbox-guest-card{',
@@ -862,6 +880,7 @@ function mountInboxShellChrome(){
   wireInboxShellChannelDefaults();
   inboxShellAdoptGlobalPause();
   inboxShellAdoptSearch();
+  inboxShellAdoptLayoutControls();
   inboxShellSyncFromPauseState();
 }
 

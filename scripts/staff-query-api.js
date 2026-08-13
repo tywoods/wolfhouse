@@ -20521,6 +20521,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-conversations .inbox-conv-search-wrap{flex:1 1 auto;min-width:0;order:2}
   #tab-conversations .inbox-layout-controls{order:2;margin-left:0;flex:0 0 auto}
   #tab-conversations .inbox-layout-presets{display:none!important}
+  #tabs .inbox-layout-controls{display:none!important}
   #tab-conversations .inbox-chat-chrome-slot{
     flex:1 1 100%;width:100%;order:3;justify-content:flex-start;flex-wrap:wrap;gap:6px;
   }
@@ -20557,6 +20558,10 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 /* ── Top-bar layout controls: preset segmented control + per-column toggles ── */
 .inbox-layout-controls{display:flex;align-items:center;gap:8px;margin-left:8px;flex:0 0 auto}
+#tabs .inbox-layout-controls{display:none;margin-left:auto;margin-right:0;align-self:center}
+body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls{display:flex}
+#tab-conversations .inbox-shell-toolbar{display:none!important}
+#tab-conversations.active #wrap.inbox-shell-wrap{padding-top:8px!important}
 .inbox-layout-presets{display:inline-flex;gap:3px;padding:3px;border-radius:10px;background:var(--surface-soft);flex:0 0 auto}
 .inbox-layout-preset-btn{
   border:1px solid transparent;background:transparent;border-radius:8px;padding:5px 10px;
