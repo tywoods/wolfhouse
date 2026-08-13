@@ -3,8 +3,9 @@
  *
  * Create a draft against a saved people-view, snapshot view members on send
  * (excluding do_not_contact), and persist recipient rows as pending.
- * Bulk Graph/mailbox delivery is not implemented: executeSendBroadcast
- * returns 501 email_broadcast_send_not_implemented after the snapshot.
+ * Bulk Graph/mailbox delivery is fail-closed behind BROADCAST_EMAIL_SEND_ENABLED.
+ * Unset / "false" → snapshot recipients then 501 email_broadcast_send_not_implemented
+ * (zero Graph). Flag "true" → sendMail on the existing Graph transport per recipient.
  *
  * WhatsApp is refused (promotions are email-only). Operational WhatsApp to
  * currently checked-in guests inside Meta's 24h window is out of scope.
@@ -41,8 +42,14 @@ const CHANNEL_WHATSAPP = 'whatsapp';
 
 const STATUS_DRAFT = 'draft';
 const STATUS_PENDING = 'pending';
+const STATUS_SENDING = 'sending';
+const STATUS_SENT = 'sent';
+const STATUS_FAILED = 'failed';
 const RECIPIENT_PENDING = 'pending';
 const RECIPIENT_SKIPPED = 'skipped';
+const RECIPIENT_SENT = 'sent';
+const RECIPIENT_ERROR = 'error';
+const ENV_BROADCAST_EMAIL_SEND = 'BROADCAST_EMAIL_SEND_ENABLED';
 
 const ERROR_WHATSAPP_NOT_SUPPORTED = 'whatsapp_broadcast_not_supported';
 const ERROR_CHANNEL_NOT_SUPPORTED = 'channel_not_supported';
@@ -56,6 +63,7 @@ const ERROR_NO_SENDABLE = 'no_sendable_recipients';
 const ERROR_NOT_DRAFT = 'broadcast_not_draft';
 const ERROR_CLIENT_NOT_FOUND = 'client_not_found';
 const ERROR_SEND_NOT_IMPLEMENTED = 'email_broadcast_send_not_implemented';
+const ERROR_SEND_UNAVAILABLE = 'email_broadcast_send_unavailable';
 const ERROR_NOT_FOUND = 'not_found';
 
 const SKIP_DO_NOT_CONTACT = 'do_not_contact';
@@ -109,6 +117,24 @@ UPDATE broadcasts
 RETURNING id, status
 `.trim();
 
+const SQL_MARK_BROADCAST_STATUS = `
+UPDATE broadcasts
+   SET status = $3
+ WHERE id = $1
+   AND client_id = $2
+RETURNING id, status
+`.trim();
+
+const SQL_UPDATE_RECIPIENT_STATUS = `
+UPDATE broadcast_recipients
+   SET status = $3
+ WHERE broadcast_id = $1
+   AND client_id = $2
+   AND phone = $4
+   AND status = 'pending'
+RETURNING id, status
+`.trim();
+
 function trimText(value, maxLen) {
   const s = String(value == null ? '' : value).trim();
   if (!s) return '';
@@ -128,13 +154,26 @@ function isoOrNull(value) {
   return Number.isNaN(d.getTime()) ? String(value) : d.toISOString();
 }
 
+function isBroadcastEmailSendEnabled(env) {
+  try {
+    if (!env || typeof env !== 'object') return false;
+    return env[ENV_BROADCAST_EMAIL_SEND] === 'true';
+  } catch {
+    return false;
+  }
+}
+
 function summarizeClassified(classified) {
   const rows = Array.isArray(classified) ? classified : [];
   const reasons = {};
   let pending = 0;
   let skipped = 0;
+  let sent = 0;
+  let error = 0;
   for (const row of rows) {
     if (row.status === RECIPIENT_PENDING) pending += 1;
+    else if (row.status === RECIPIENT_SENT) sent += 1;
+    else if (row.status === RECIPIENT_ERROR) error += 1;
     else if (row.status === RECIPIENT_SKIPPED) {
       skipped += 1;
       const reason = row.skip_reason || 'skipped';
@@ -145,6 +184,8 @@ function summarizeClassified(classified) {
     requested: rows.length,
     pending,
     skipped,
+    sent,
+    error,
     skipped_reasons: reasons,
   };
 }
@@ -394,7 +435,10 @@ async function executeGetBroadcast(pg, { clientSlug, broadcastId }) {
   };
 }
 
-async function executeSendBroadcast(pg, { clientSlug, broadcastId, query }) {
+async function executeSendBroadcast(pg, opts) {
+  const clientSlug = opts && opts.clientSlug;
+  const broadcastId = opts && opts.broadcastId;
+  const query = opts && opts.query;
   const loaded = await loadBroadcastWithRecipients(pg, broadcastId, clientSlug);
   if (!loaded.ok) return loaded;
   if (loaded.row.channel !== CHANNEL_EMAIL) {
@@ -448,18 +492,107 @@ async function executeSendBroadcast(pg, { clientSlug, broadcastId, query }) {
   }
 
   const pendingRow = { ...loaded.row, status: STATUS_PENDING };
+  const notImplementedBody = {
+    success: false,
+    error: ERROR_SEND_NOT_IMPLEMENTED,
+    detail: 'Recipients were stored as pending. Bulk Graph/mailbox send is a follow-up slice.',
+    broadcast: broadcastRecordDto(pendingRow),
+    recipients: classified.classified.map(recipientDto),
+    summary: classified.summary,
+  };
+
+  if (!isBroadcastEmailSendEnabled(opts.env)) {
+    return {
+      ok: true,
+      implemented: false,
+      status: 501,
+      error: ERROR_SEND_NOT_IMPLEMENTED,
+      body: notImplementedBody,
+    };
+  }
+
+  const sendMail = typeof opts.sendMail === 'function'
+    ? opts.sendMail
+    : (typeof opts.createSendMail === 'function' ? opts.createSendMail(pg, opts.env) : null);
+  if (typeof sendMail !== 'function') {
+    return {
+      ok: false,
+      status: 503,
+      error: ERROR_SEND_UNAVAILABLE,
+      body: {
+        success: false,
+        error: ERROR_SEND_UNAVAILABLE,
+        detail: 'Broadcast email send is enabled but the Graph send helper is unavailable.',
+        broadcast: broadcastRecordDto(pendingRow),
+        recipients: classified.classified.map(recipientDto),
+        summary: classified.summary,
+      },
+    };
+  }
+
+  await pg.query(SQL_MARK_BROADCAST_STATUS, [loaded.row.id, loaded.row.client_id, STATUS_SENDING]);
+
+  const pendingRecipients = classified.classified.filter((row) => row.status === RECIPIENT_PENDING);
+  let delivery;
+  try {
+    delivery = await sendMail({
+      clientId: loaded.row.client_id,
+      subject: loaded.row.email_subject,
+      body: loaded.row.email_body,
+      recipients: pendingRecipients.map((row) => ({ phone: row.phone, email: row.email })),
+    });
+  } catch (_err) {
+    delivery = { ok: false, invokedGraph: false, results: [] };
+  }
+
+  if (!delivery || delivery.invokedGraph !== true) {
+    await pg.query(SQL_MARK_BROADCAST_STATUS, [loaded.row.id, loaded.row.client_id, STATUS_PENDING]);
+    return {
+      ok: false,
+      status: 503,
+      error: ERROR_SEND_UNAVAILABLE,
+      body: {
+        success: false,
+        error: ERROR_SEND_UNAVAILABLE,
+        detail: 'Graph send was not invoked.',
+        broadcast: broadcastRecordDto(pendingRow),
+        recipients: classified.classified.map(recipientDto),
+        summary: classified.summary,
+      },
+    };
+  }
+
+  const resultByPhone = new Map();
+  for (const row of delivery.results || []) {
+    if (row && row.phone) resultByPhone.set(row.phone, row.ok === true);
+  }
+
+  for (const rec of classified.classified) {
+    if (rec.status !== RECIPIENT_PENDING) continue;
+    rec.status = resultByPhone.get(rec.phone) === true ? RECIPIENT_SENT : RECIPIENT_ERROR;
+    rec.skip_reason = null;
+    await pg.query(SQL_UPDATE_RECIPIENT_STATUS, [
+      loaded.row.id,
+      loaded.row.client_id,
+      rec.status,
+      rec.phone,
+    ]);
+  }
+
+  const summary = summarizeClassified(classified.classified);
+  const allSent = summary.error === 0 && summary.sent > 0;
+  const finalStatus = allSent ? STATUS_SENT : STATUS_FAILED;
+  await pg.query(SQL_MARK_BROADCAST_STATUS, [loaded.row.id, loaded.row.client_id, finalStatus]);
+  const finalRow = { ...loaded.row, status: finalStatus };
   return {
     ok: true,
-    implemented: false,
-    status: 501,
-    error: ERROR_SEND_NOT_IMPLEMENTED,
+    implemented: true,
+    status: 200,
     body: {
-      success: false,
-      error: ERROR_SEND_NOT_IMPLEMENTED,
-      detail: 'Recipients were stored as pending. Bulk Graph/mailbox send is a follow-up slice.',
-      broadcast: broadcastRecordDto(pendingRow),
+      success: allSent,
+      broadcast: broadcastRecordDto(finalRow),
       recipients: classified.classified.map(recipientDto),
-      summary: classified.summary,
+      summary,
     },
   };
 }
@@ -475,8 +608,14 @@ module.exports = {
   CHANNEL_WHATSAPP,
   STATUS_DRAFT,
   STATUS_PENDING,
+  STATUS_SENDING,
+  STATUS_SENT,
+  STATUS_FAILED,
   RECIPIENT_PENDING,
   RECIPIENT_SKIPPED,
+  RECIPIENT_SENT,
+  RECIPIENT_ERROR,
+  ENV_BROADCAST_EMAIL_SEND,
   ERROR_WHATSAPP_NOT_SUPPORTED,
   ERROR_CHANNEL_NOT_SUPPORTED,
   ERROR_VIEW_REQUIRED,
@@ -489,6 +628,7 @@ module.exports = {
   ERROR_NOT_DRAFT,
   ERROR_CLIENT_NOT_FOUND,
   ERROR_SEND_NOT_IMPLEMENTED,
+  ERROR_SEND_UNAVAILABLE,
   ERROR_NOT_FOUND,
   SKIP_DO_NOT_CONTACT,
   SKIP_MISSING_EMAIL,
@@ -498,6 +638,9 @@ module.exports = {
   SQL_SELECT_RECIPIENTS,
   SQL_INSERT_RECIPIENT,
   SQL_MARK_PENDING,
+  SQL_MARK_BROADCAST_STATUS,
+  SQL_UPDATE_RECIPIENT_STATUS,
+  isBroadcastEmailSendEnabled,
   parseBroadcastCreateBody,
   classifyBroadcastRecipients,
   isValidBroadcastEmail,

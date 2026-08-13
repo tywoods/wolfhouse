@@ -12,7 +12,7 @@ const {
   EMAIL_MS_GRAPH_REPLY_DRAFT_TRANSPORT_RUNTIME_WIRED,
   EMAIL_MS_GRAPH_REPLY_DRAFT_TRANSPORT_DELIVERY_FROM_202,
   buildCreateReplyPath, buildMessagePath, readTrustedGraphStage,
-  createMicrosoftGraphReplyDraftTransport,
+  createMicrosoftGraphReplyDraftTransport, buildSendMailPath,
 } = require('./lib/email-microsoft-graph-reply-draft-transport');
 const UP_068 = fs.readFileSync(path.join(ROOT, 'database/migrations/068_tenant_email_outbound_send_journal.sql'), 'utf8');
 const DOWN_068 = fs.readFileSync(path.join(ROOT, 'database/migrations/068_tenant_email_outbound_send_journal_down.sql'), 'utf8');
@@ -120,6 +120,27 @@ async function main() {
     const r3 = await t3.sendDraft(i3);
     let second = false; try { await t3.sendDraft({ accessToken: TOKEN, provider_mailbox_id: MAILBOX, immutable_draft_id: DRAFT_ID }); } catch (e) { second = e.code === FAILURE_CODE; }
     ok('send once; no delivery from 202', c3.length === 1 && c3[0].path === sendPath && r3.outcome === 'send_accepted' && r3.delivery_claimed === false && r3.requires_reconcile === true && second && i3.accessToken === null);
+    const sendMailPath = buildSendMailPath(MAILBOX);
+    const c4 = []; const i4 = {
+      accessToken: TOKEN, provider_mailbox_id: MAILBOX, to: 'ana@wolfhouse.test',
+      subject: 'BBQ tonight', body_content_type: 'Text', body_content: `Hey ${PLANTED}`,
+    };
+    const t4 = createMicrosoftGraphReplyDraftTransport({ httpsImpl: mockHttps({ capture: (o) => c4.push(o), statusCode: 202, body: '', contentType: '' }) });
+    const r4 = await t4.sendMail(i4);
+    const r4b = await t4.sendMail({
+      accessToken: TOKEN, provider_mailbox_id: MAILBOX, to: 'bob@wolfhouse.test',
+      subject: 'BBQ tonight', body_content_type: 'Text', body_content: 'Second',
+    });
+    ok('sendMail reuses host/pins; many recipients; no delivery claim',
+      sendMailPath === `/v1.0/users/${MAILBOX}/sendMail`
+      && c4.length === 2 && c4[0].hostname === HOST && c4[0].method === 'POST' && c4[0].path === sendMailPath
+      && !c4[0].headers.Prefer && r4.outcome === 'send_accepted' && r4.delivery_claimed === false
+      && r4b.outcome === 'send_accepted' && i4.accessToken === null && noLeak(r4) && noLeak(r4b));
+    await mustFail(() => createMicrosoftGraphReplyDraftTransport({ httpsImpl: mockHttps({ statusCode: 202, body: '', contentType: '' }) })
+      .sendMail({
+        accessToken: TOKEN, provider_mailbox_id: MAILBOX, to: 'not-an-email',
+        subject: 'x', body_content_type: 'Text', body_content: 'y',
+      }), 'request_error');
   }
   {
     const sent = await createMicrosoftGraphReplyDraftTransport({ httpsImpl: mockHttps({ statusCode: 200, body: JSON.stringify({ id: DRAFT_ID, isDraft: false }) }) })

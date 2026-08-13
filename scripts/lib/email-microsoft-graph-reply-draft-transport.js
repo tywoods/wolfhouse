@@ -140,6 +140,26 @@ function buildMessagePath(mailboxId, draftId, suffix) {
   if (suffix === 'patch') return base;
   return null;
 }
+function buildSendMailPath(mailboxId) {
+  if (!isCanonUuid(mailboxId)) return null;
+  return `/v1.0/users/${mailboxId}/sendMail`;
+}
+const SENDMAIL_TO_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const SENDMAIL_TO_MAX = 160;
+const SENDMAIL_SUBJECT_MAX = 200;
+const REPLY_DRAFT_METHOD_KEYS = Object.freeze(['createReply', 'updateApprovedDraft', 'sendDraft', 'reconcileDraft']);
+function pickReplyDraftTransportMethods(transport) {
+  try {
+    if (!transport || typeof transport !== 'object') return null;
+    const out = {};
+    for (const k of REPLY_DRAFT_METHOD_KEYS) {
+      const fn = ownData(transport, k);
+      if (typeof fn !== 'function') return null;
+      out[k] = fn;
+    }
+    return Object.freeze(out);
+  } catch { return null; }
+}
 function scrubToken(holder) {
   try {
     if (holder == null || (typeof holder !== 'object' && typeof holder !== 'function') || isProxySurface(holder)) return;
@@ -307,6 +327,39 @@ function createMicrosoftGraphReplyDraftTransport(dependencies = {}) {
       http_status: result.http_status, requires_reconcile: true,
     }));
   }
+  function sendMail(input) {
+    const parsed = readTokenMailbox(input, ['to', 'subject', 'body_content_type', 'body_content']);
+    if (!parsed) return Promise.reject(failure('request_error'));
+    const to = parsed.to;
+    const subject = parsed.subject;
+    const contentType = parsed.body_content_type;
+    const content = parsed.body_content;
+    if (typeof to !== 'string' || to.length < 3 || to.length > SENDMAIL_TO_MAX || !SENDMAIL_TO_RE.test(to)
+        || typeof subject !== 'string' || subject.length < 1 || subject.length > SENDMAIL_SUBJECT_MAX
+        || (contentType !== 'Text' && contentType !== 'HTML')
+        || typeof content !== 'string' || content.length < 1 || content.length > BODY_CONTENT_LIMIT) {
+      scrubToken(input); return Promise.reject(failure('request_error'));
+    }
+    const path = buildSendMailPath(parsed.provider_mailbox_id);
+    if (!path) { scrubToken(input); return Promise.reject(failure('request_error')); }
+    let bodyText;
+    try {
+      bodyText = JSON.stringify({
+        message: {
+          subject,
+          body: { contentType, content },
+          toRecipients: [{ emailAddress: { address: to } }],
+        },
+        saveToSentItems: true,
+      });
+    } catch { scrubToken(input); return Promise.reject(failure('request_error')); }
+    const token = parsed.accessToken; parsed.accessToken = null; scrubToken(input); parsed.body_content = null;
+    return issueGraphRequest({
+      ...base(), method: 'POST', path, token, bodyText, prefer: null, successStatuses: [202, 200], parseBody: null,
+    }).then((result) => Object.freeze({
+      outcome: 'send_accepted', delivery_claimed: false, http_status: result.http_status,
+    }));
+  }
   function reconcileDraft(input) {
     const parsed = readTokenMailbox(input, ['immutable_draft_id']);
     if (!parsed) return Promise.reject(failure('request_error'));
@@ -325,12 +378,13 @@ function createMicrosoftGraphReplyDraftTransport(dependencies = {}) {
       },
     });
   }
-  return Object.freeze({ createReply, updateApprovedDraft, sendDraft, reconcileDraft });
+  return Object.freeze({ createReply, updateApprovedDraft, sendDraft, reconcileDraft, sendMail });
 }
 module.exports = Object.freeze({
   FAILURE_CODE, FAILURE_MESSAGE, PREFER_IMMUTABLE_ID, HOST, GRAPH_STAGES,
   EMAIL_MS_GRAPH_REPLY_DRAFT_TRANSPORT_RUNTIME_WIRED, EMAIL_MS_GRAPH_REPLY_DRAFT_TRANSPORT_PERSISTENCE_READY,
   EMAIL_MS_GRAPH_REPLY_DRAFT_TRANSPORT_LOGGING_FORBIDDEN, EMAIL_MS_GRAPH_REPLY_DRAFT_TRANSPORT_PINS_PREFER_IMMUTABLE_ID,
-  EMAIL_MS_GRAPH_REPLY_DRAFT_TRANSPORT_DELIVERY_FROM_202, buildCreateReplyPath, buildMessagePath, readTrustedGraphStage,
+  EMAIL_MS_GRAPH_REPLY_DRAFT_TRANSPORT_DELIVERY_FROM_202, buildCreateReplyPath, buildMessagePath, buildSendMailPath,
+  pickReplyDraftTransportMethods, REPLY_DRAFT_METHOD_KEYS, readTrustedGraphStage,
   createMicrosoftGraphReplyDraftTransport,
 });

@@ -15,7 +15,10 @@ const {
   createAuthorityBoundOutboundOperation,
 } = require('./lib/email-authority-bound-outbound-operation');
 const { createEmailOutboundSendJournalStore } = require('./lib/email-outbound-send-journal-store');
-const { createMicrosoftGraphReplyDraftTransport } = require('./lib/email-microsoft-graph-reply-draft-transport');
+const {
+  createMicrosoftGraphReplyDraftTransport,
+  pickReplyDraftTransportMethods,
+} = require('./lib/email-microsoft-graph-reply-draft-transport');
 const C = '11111111-1111-4111-8111-111111111111'; const L = '22222222-2222-4222-8222-222222222222';
 const E = '33333333-3333-4333-8333-333333333333'; const V = '44444444-4444-4444-8444-444444444444';
 const A = '55555555-5555-4555-8555-555555555555'; const M = '22222222-2222-4222-8222-2222222222ab';
@@ -485,20 +488,20 @@ async function main() {
     () => im(202, null, {}), () => im(200, { id: DRAFT, isDraft: false }),
   ]);
   const hProd = createFakeTxnHarness(); const opP = uid(); const apP = uid();
-  const prodR = await mkOp(hProd, createMicrosoftGraphReplyDraftTransport({ httpsImpl: fake.httpsImpl })).runAuthorityBoundOutbound(inp(opP, apP));
+  const prodR = await mkOp(hProd, pickReplyDraftTransportMethods(createMicrosoftGraphReplyDraftTransport({ httpsImpl: fake.httpsImpl }))).runAuthorityBoundOutbound(inp(opP, apP));
   ok('production transport create/update/send/reconcile fake HTTPS', resultShape(prodR) && prodR.value.status === 'committed'
     && hProd.durable.get(opP).immutable_draft_id === DRAFT && fake.calls().length === 4
     && fake.calls()[0].method === 'POST' && /createReply/.test(fake.calls()[0].path)
     && fake.calls()[2].method === 'POST' && /\/send$/.test(fake.calls()[2].path) && noLeak(prodR));
   const fakeLoss = fakeHttps([() => im(201, { id: DRAFT, isDraft: true }), () => im(200, { id: DRAFT }), { loss: true }]);
   const hPl = createFakeTxnHarness(); const opPl = uid(); const apPl = uid();
-  const lostProd = await mkOp(hPl, createMicrosoftGraphReplyDraftTransport({ httpsImpl: fakeLoss.httpsImpl })).runAuthorityBoundOutbound(inp(opPl, apPl));
+  const lostProd = await mkOp(hPl, pickReplyDraftTransportMethods(createMicrosoftGraphReplyDraftTransport({ httpsImpl: fakeLoss.httpsImpl }))).runAuthorityBoundOutbound(inp(opPl, apPl));
   const rowPl = hPl.durable.get(opPl);
   const fakeRecon = fakeHttps([() => im(200, { id: DRAFT, isDraft: false })]);
-  const recProd = await mkOp(hPl, createMicrosoftGraphReplyDraftTransport({ httpsImpl: fakeRecon.httpsImpl })).runAuthorityBoundOutbound(inp(opPl, apPl));
+  const recProd = await mkOp(hPl, pickReplyDraftTransportMethods(createMicrosoftGraphReplyDraftTransport({ httpsImpl: fakeRecon.httpsImpl }))).runAuthorityBoundOutbound(inp(opPl, apPl));
   const hSd = createFakeTxnHarness(); const jSd = makeJournal(hSd); const opSd = uid(); const apSd = uid();
   await advanceToDraftUpdated(jSd, opSd, apSd); await jSd.claimDispatch({ operationId: opSd });
-  const stillProd = await mkOp(hSd, createMicrosoftGraphReplyDraftTransport({ httpsImpl: fakeHttps([() => im(200, { id: DRAFT, isDraft: true })]).httpsImpl }))
+  const stillProd = await mkOp(hSd, pickReplyDraftTransportMethods(createMicrosoftGraphReplyDraftTransport({ httpsImpl: fakeHttps([() => im(200, { id: DRAFT, isDraft: true })]).httpsImpl })))
     .runAuthorityBoundOutbound(inp(opSd, apSd));
   ok('prod journal+Graph send-loss: one send, reconcile same draft, isDraft=false only',
     resultShape(lostProd) && lostProd.value.phase === 'send_dispatched' && lostProd.value.status === 'outcome_unknown'

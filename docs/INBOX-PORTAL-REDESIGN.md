@@ -21,7 +21,7 @@ or any `/staff/inbox/*` route.
 | 1 | Handoff state gap — Luna promises a takeover that never sets `needs_human` | **done** (detector + corpus gate) |
 | 2 | Channel-agnostic approvals; WhatsApp draft parity (migration 078) | **done** persist+read (#528, migration 078 `luna_outbound_approvals`); **done** approve-send (#533, `POST /staff/inbox/whatsapp/approve-send`, existing send path, dry-run fail-closed); **done** Draft UI (#535, `inbox-whatsapp-draft.js`, Approve/Edit, no auto-send) |
 | 3 | SSE live activity, replacing 5s/3s polling | **done** (#537) — `GET /staff/inbox/stream`, in-process EventEmitter per `client_slug`. 5s/3s poll **fallback** remains if EventSource fails; saved-view counts still ride the list poll; pause/needs_human metadata-only writes are not on the emit hook yet. |
-| 4 | Segments and broadcasts (migration 079) | **done** API #539 (migration 079) — email-first `POST/GET /staff/broadcasts` + `POST /staff/broadcasts/:id/send`. Send stays **501** `email_broadcast_send_not_implemented` until Graph bulk send. **done** composer UI #541 (`inbox-broadcast.js`, honest 501 copy). WhatsApp promo refused. |
+| 4 | Segments and broadcasts (migration 079) | **done** API #539, composer #541. Graph `sendMail` on the existing reply-draft transport behind fail-closed `BROADCAST_EMAIL_SEND_ENABLED`. Unset/false → **501** `email_broadcast_send_not_implemented` (zero Graph). Flag `true` → per-recipient send, partial failure visible. WhatsApp promo refused. |
 | 5 | Identity linking across channels (optional) | not started |
 
 ## Why it feels bulky and redundant
@@ -213,7 +213,7 @@ Existing after later phases:
 - `inbox-whatsapp-draft.js` — WhatsApp Approve/Edit card
 - `inbox-stream.js` — SSE live activity
 - `inbox-views.js` — saved-view rail
-- `inbox-broadcast.js` — email broadcast composer (create + honest 501 send)
+- `inbox-broadcast.js` — email broadcast composer (create + honest 501 / send counts)
 
 Still to build:
 
@@ -242,9 +242,10 @@ Existing endpoints stay for back-compat during migration.
   remains if EventSource fails. Saved-view counts still ride the list poll.
   Pause/needs_human metadata-only writes are not on the emit hook yet.
 - `POST /staff/broadcasts`, `POST /staff/broadcasts/:id/send`, `GET /staff/broadcasts/:id` —
-  shipped (#539, migration 079): email-first. Send stays **501**
-  `email_broadcast_send_not_implemented` until Graph bulk send. Composer UI shipped
-  (#541, `inbox-broadcast.js`, honest 501 copy). WhatsApp promo refused.
+  shipped (#539, migration 079, composer #541). Send is fail-closed:
+  `BROADCAST_EMAIL_SEND_ENABLED` unset/false → **501**
+  `email_broadcast_send_not_implemented` (zero Graph). Flag `true` →
+  `sendMail` on the existing Graph transport per recipient. WhatsApp promo refused.
 
 ## Data model
 

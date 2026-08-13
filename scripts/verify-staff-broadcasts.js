@@ -14,9 +14,11 @@
  *   - channel=whatsapp is rejected with a stable error and no DB write
  *   - do_not_contact view members are stored as skipped, never pending
  *   - send snapshots recipients then 501 email_broadcast_send_not_implemented
- *   - no Graph / WhatsApp Cloud send; send is not flipped to 200/dry-run
+ *     when BROADCAST_EMAIL_SEND_ENABLED is unset/false (zero Graph; spy)
+ *   - flag "true" invokes the sendMail helper; 200 only if Graph/helper ran;
+ *     partial failure is 200 with counts, never "all sent"
  *   - Inbox email composer (inbox-broadcast.js) POSTs create/send and displays the 501
- *     honestly ("queued locally, email delivery not wired yet")
+ *     honestly, or sent/failed counts when send runs
  *
  * No live DB / network / mailbox / Meta.
  */
@@ -29,6 +31,8 @@ const { EventEmitter } = require('events');
 const ROOT = path.join(__dirname, '..');
 const MODULE_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-broadcast-routes.js');
 const DOMAIN_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-broadcasts.js');
+const SEND_HELPER_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-broadcast-email-send.js');
+const GRAPH_TRANSPORT_PATH = path.join(ROOT, 'scripts', 'lib', 'email-microsoft-graph-reply-draft-transport.js');
 const OUTREACH_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-customer-outreach-send.js');
 const API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const LUNA_ALL_PATH = path.join(ROOT, 'scripts', 'verify-luna-all.js');
@@ -55,7 +59,10 @@ const {
   ERROR_WHATSAPP_NOT_SUPPORTED,
   ERROR_VIEW_NOT_BROADCASTABLE,
   ERROR_SEND_NOT_IMPLEMENTED,
+  ERROR_SEND_UNAVAILABLE,
   ERROR_NOT_FOUND,
+  ENV_BROADCAST_EMAIL_SEND,
+  isBroadcastEmailSendEnabled,
   SKIP_DO_NOT_CONTACT,
   SKIP_MISSING_EMAIL,
   SQL_INSERT_BROADCAST,
@@ -162,6 +169,8 @@ function makeDeps(opts = {}) {
     DEFAULT_CLIENT: CLIENT,
     SQL_INJECT_RE: /['";\\]|--|\bDROP\b|\bALTER\b|\bTRUNCATE\b/i,
     STAFF_ACTIONS_ENABLED: opts.STAFF_ACTIONS_ENABLED !== false,
+    runtimeEnv: opts.runtimeEnv || {},
+    sendMail: typeof opts.sendMail === 'function' ? opts.sendMail : undefined,
     audit,
     sqlLog,
     get dbHits() { return dbHits; },
@@ -233,11 +242,25 @@ function makeDeps(opts = {}) {
             recipients.push(rec);
             return { rows: [rec] };
           }
+          if (/UPDATE broadcast_recipients/i.test(n)) {
+            const rec = recipients.find((r) => r.broadcast_id === params[0] && r.phone === params[3]);
+            if (!rec || rec.status !== 'pending') return { rows: [] };
+            rec.status = params[2];
+            return { rows: [{ id: rec.id, status: rec.status }] };
+          }
           if (/UPDATE broadcasts/i.test(n)) {
             const row = broadcasts.get(params[0]);
-            if (!row || row.status !== 'draft') return { rows: [] };
-            row.status = 'pending';
-            return { rows: [{ id: row.id, status: row.status }] };
+            if (!row) return { rows: [] };
+            if (/status = 'pending'/.test(n) && /status = 'draft'/.test(n)) {
+              if (row.status !== 'draft') return { rows: [] };
+              row.status = 'pending';
+              return { rows: [{ id: row.id, status: row.status }] };
+            }
+            if (params.length >= 3) {
+              row.status = params[2];
+              return { rows: [{ id: row.id, status: row.status }] };
+            }
+            return { rows: [] };
           }
           return { rows: viewRows.slice() };
         },
@@ -271,6 +294,8 @@ async function runSend(deps, id, usr, query) {
 
 const modSrc = fs.readFileSync(MODULE_PATH, 'utf8');
 const domainSrc = fs.readFileSync(DOMAIN_PATH, 'utf8');
+const sendHelperSrc = fs.readFileSync(SEND_HELPER_PATH, 'utf8');
+const graphTransportSrc = fs.readFileSync(GRAPH_TRANSPORT_PATH, 'utf8');
 const outreachSrc = fs.readFileSync(OUTREACH_PATH, 'utf8');
 const apiSrc = fs.readFileSync(API_PATH, 'utf8');
 const lunaAllSrc = fs.readFileSync(LUNA_ALL_PATH, 'utf8');
@@ -304,6 +329,13 @@ const portalSrc = readStaffPortalUiSource();
   ok('recipient cap matches outreach', MAX_BROADCAST_RECIPIENTS === 50);
   ok('whatsapp error is stable', ERROR_WHATSAPP_NOT_SUPPORTED === 'whatsapp_broadcast_not_supported');
   ok('send 501 error is stable', ERROR_SEND_NOT_IMPLEMENTED === 'email_broadcast_send_not_implemented');
+  ok('send unavailable error is stable', ERROR_SEND_UNAVAILABLE === 'email_broadcast_send_unavailable');
+  ok('flag name is fail-closed BROADCAST_EMAIL_SEND_ENABLED', ENV_BROADCAST_EMAIL_SEND === 'BROADCAST_EMAIL_SEND_ENABLED');
+  ok('flag unset/false/TRUE are off; only exact true enables',
+    isBroadcastEmailSendEnabled({}) === false
+    && isBroadcastEmailSendEnabled({ BROADCAST_EMAIL_SEND_ENABLED: 'false' }) === false
+    && isBroadcastEmailSendEnabled({ BROADCAST_EMAIL_SEND_ENABLED: 'TRUE' }) === false
+    && isBroadcastEmailSendEnabled({ BROADCAST_EMAIL_SEND_ENABLED: 'true' }) === true);
 
   console.log('\n── migration 079 ──');
   ok('078 still present', fs.existsSync(MIG_078));
@@ -325,10 +357,25 @@ const portalSrc = readStaffPortalUiSource();
       outreachSrc.lastIndexOf('module.exports'),
     )));
   ok('customerIsDoNotContact is the outreach helper', typeof customerIsDoNotContact === 'function');
-  ok('domain does not mention Graph or Cloud send',
+  ok('domain does not call Graph host directly',
     !/graph\.microsoft|nodemailer|sendLunaWhatsAppMessage|_patched_whatsapp_cloud_send/i.test(domainSrc));
-  ok('routes do not mention Graph or Cloud send',
+  ok('routes do not call Graph host directly',
     !/graph\.microsoft|nodemailer|sendLunaWhatsAppMessage/i.test(modSrc));
+  ok('send helper reuses reply-draft transport sendMail (no second client, no fake reply)',
+    /createMicrosoftGraphReplyDraftTransport/.test(sendHelperSrc)
+    && /sendMail\(/.test(sendHelperSrc)
+    && !/createReply/.test(sendHelperSrc)
+    && !/provider_source_message_id/.test(sendHelperSrc)
+    && !/dispatchApprovedOutbound/.test(sendHelperSrc));
+  ok('Graph transport exposes sendMail on the existing factory',
+    /function sendMail\(/.test(graphTransportSrc)
+    && /function buildSendMailPath\(/.test(graphTransportSrc)
+    && /\/sendMail/.test(graphTransportSrc)
+    && /return Object\.freeze\(\{ createReply, updateApprovedDraft, sendDraft, reconcileDraft, sendMail \}\)/.test(graphTransportSrc));
+  ok('Phase B grant already includes Mail.Send (OAuth not widened)',
+    /'User\.Read', 'Mail\.ReadWrite', 'Mail\.Send'/.test(fs.readFileSync(
+      path.join(ROOT, 'scripts', 'lib', 'email-microsoft-delegated-oauth-contract.js'), 'utf8',
+    )));
   ok('module does not call requireAuth', !/\brequireAuth\s*\(/.test(modSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')));
   ok('Inbox email composer module exists', fs.existsSync(BROADCAST_MODULE));
 
@@ -506,6 +553,7 @@ const portalSrc = readStaffPortalUiSource();
     ok('view query bound the tenant slug',
       deps.sqlLog.some((e) => e.params[0] === CLIENT && /customer_base|FROM customers/i.test(e.sql)));
     ok('send did not call a mailer', !/graph|nodemailer|whatsapp/i.test(deps.sqlLog.map((e) => e.sql).join('\n')));
+    ok('flag-off send helper was not invoked', deps.sendMail == null);
     const got = await runGet(deps, BID, user());
     ok('GET after send shows pending + skipped', got.res.statusCode === 200
       && got.body.broadcast.status === 'pending'
@@ -519,6 +567,133 @@ const portalSrc = readStaffPortalUiSource();
     const sent = await runSend(deps, BID, user(), { client: OTHER_CLIENT });
     ok('send denied ACL is 403', sent.res.statusCode === 403);
     ok('send denied ACL does not add queries', deps.dbHits === hits);
+  }
+
+  console.log('\n── flag: fail-closed 501 vs sendMail ──');
+  {
+    let graphCalls = 0;
+    const sendMail = async () => {
+      graphCalls += 1;
+      return { ok: true, invokedGraph: true, results: [{ phone: '+34600000111', ok: true }] };
+    };
+    const deps = makeDeps({
+      runtimeEnv: { BROADCAST_EMAIL_SEND_ENABLED: 'false' },
+      sendMail,
+      viewRows: [
+        { phone: '+34600000111', email: 'ana@wolfhouse.test', display_name: 'Ana', crm_tags: {} },
+      ],
+    });
+    await runCreate(deps, EMAIL_BODY, user());
+    const sent = await runSend(deps, BID, user());
+    ok('flag false is 501', sent.res.statusCode === 501 && sent.body.error === ERROR_SEND_NOT_IMPLEMENTED);
+    ok('flag false never invokes send helper / Graph', graphCalls === 0);
+  }
+  {
+    let graphCalls = 0;
+    const sendMail = async () => {
+      graphCalls += 1;
+      return { ok: true, invokedGraph: true, results: [{ phone: '+34600000111', ok: true }] };
+    };
+    const deps = makeDeps({
+      runtimeEnv: {},
+      sendMail,
+      viewRows: [
+        { phone: '+34600000111', email: 'ana@wolfhouse.test', display_name: 'Ana', crm_tags: {} },
+      ],
+    });
+    await runCreate(deps, EMAIL_BODY, user());
+    const sent = await runSend(deps, BID, user());
+    ok('flag unset is 501', sent.res.statusCode === 501 && sent.body.success === false);
+    ok('flag unset never invokes send helper / Graph', graphCalls === 0);
+  }
+  {
+    let graphCalls = 0;
+    let lastBatch = null;
+    const sendMail = async (batch) => {
+      graphCalls += 1;
+      lastBatch = batch;
+      return {
+        ok: true,
+        invokedGraph: true,
+        results: (batch.recipients || []).map((r) => ({ phone: r.phone, ok: true })),
+      };
+    };
+    const deps = makeDeps({
+      runtimeEnv: { BROADCAST_EMAIL_SEND_ENABLED: 'true' },
+      sendMail,
+      viewRows: [
+        { phone: '+34600000111', email: 'ana@wolfhouse.test', display_name: 'Ana', crm_tags: {} },
+        { phone: '+34600000222', email: 'bob@wolfhouse.test', display_name: 'Bob', crm_tags: { do_not_contact: true } },
+      ],
+    });
+    await runCreate(deps, EMAIL_BODY, user());
+    const sent = await runSend(deps, BID, user());
+    ok('flag true invokes send helper', graphCalls === 1);
+    ok('flag true 200 only after Graph helper ran', sent.res.statusCode === 200 && sent.body.success === true);
+    ok('flag true sendMail batch is Ana only (DNC skipped)',
+      lastBatch && lastBatch.recipients && lastBatch.recipients.length === 1
+      && lastBatch.recipients[0].email === 'ana@wolfhouse.test'
+      && lastBatch.subject === EMAIL_BODY.email_subject);
+    ok('flag true records sent on recipient',
+      deps.recipients.some((r) => r.phone === '+34600000111' && r.status === 'sent'));
+    ok('flag true keeps DNC skipped',
+      deps.recipients.some((r) => r.phone === '+34600000222' && r.status === 'skipped'));
+    ok('flag true broadcast status is sent', sent.body.broadcast && sent.body.broadcast.status === 'sent');
+    ok('flag true summary has sent count', sent.body.summary && sent.body.summary.sent === 1 && sent.body.summary.error === 0);
+  }
+  {
+    let graphCalls = 0;
+    const sendMail = async (batch) => {
+      graphCalls += 1;
+      return {
+        ok: true,
+        invokedGraph: true,
+        results: (batch.recipients || []).map((r) => ({
+          phone: r.phone,
+          ok: r.email !== 'fail@wolfhouse.test',
+        })),
+      };
+    };
+    const deps = makeDeps({
+      runtimeEnv: { BROADCAST_EMAIL_SEND_ENABLED: 'true' },
+      sendMail,
+      viewRows: [
+        { phone: '+34600000111', email: 'ana@wolfhouse.test', display_name: 'Ana', crm_tags: {} },
+        { phone: '+34600000444', email: 'fail@wolfhouse.test', display_name: 'Fay', crm_tags: {} },
+      ],
+    });
+    await runCreate(deps, EMAIL_BODY, user());
+    const sent = await runSend(deps, BID, user());
+    ok('partial failure still 200', sent.res.statusCode === 200 && graphCalls === 1);
+    ok('partial failure is not success/all-sent', sent.body.success === false
+      && sent.body.broadcast.status === 'failed'
+      && sent.body.summary.sent === 1
+      && sent.body.summary.error === 1);
+    ok('partial failure visible on recipient rows',
+      deps.recipients.some((r) => r.phone === '+34600000111' && r.status === 'sent')
+      && deps.recipients.some((r) => r.phone === '+34600000444' && r.status === 'error'));
+  }
+  {
+    const deps = makeDeps({
+      runtimeEnv: { BROADCAST_EMAIL_SEND_ENABLED: 'true' },
+      viewRows: [
+        { phone: '+34600000111', email: 'ana@wolfhouse.test', display_name: 'Ana', crm_tags: {} },
+      ],
+    });
+    await runCreate(deps, EMAIL_BODY, user());
+    const sent = await runSend(deps, BID, user());
+    ok('flag true without helper is 503 not 200', sent.res.statusCode === 503
+      && sent.body.success === false
+      && sent.body.error === ERROR_SEND_UNAVAILABLE);
+  }
+  {
+    const deps = makeDeps({
+      runtimeEnv: { BROADCAST_EMAIL_SEND_ENABLED: 'true' },
+      sendMail: async () => { throw new Error('should not run'); },
+    });
+    const { res, body } = await runCreate(deps, { ...EMAIL_BODY, channel: 'whatsapp' }, user());
+    ok('whatsapp still refused when flag on', res.statusCode === 400 && body.error === ERROR_WHATSAPP_NOT_SUPPORTED);
+    ok('whatsapp still never hits Postgres when flag on', deps.dbHits === 0);
   }
 
   console.log('\n── factory + gates registered ──');
@@ -578,12 +753,22 @@ const portalSrc = readStaffPortalUiSource();
   ok('501 is treated as blocked, not sent',
     /inboxBroadcastSetStatus\('blocked'/.test(broadcastUiSrc)
     && !/Broadcast sent/.test(broadcastUiSrc)
-    && !/Email sent/.test(broadcastUiSrc)
+    && !/all sent/.test(broadcastUiSrc)
     && !/mail went out/.test(broadcastUiSrc));
-  ok('Send still 501 in domain (not flipped to 200/dry-run)',
+  ok('composer shows send counts on 200',
+    /inboxBroadcastSendResultCopy/.test(broadcastUiSrc)
+    && /out\.status === 200/.test(broadcastUiSrc)
+    && /Sent /.test(broadcastUiSrc)
+    && /failed /.test(broadcastUiSrc));
+  ok('flag-off path still 501; 200 only after invokedGraph',
     /status: 501/.test(domainSrc)
     && /ERROR_SEND_NOT_IMPLEMENTED/.test(domainSrc)
-    && !/status: 200/.test(domainSrc.slice(domainSrc.indexOf('async function executeSendBroadcast'))));
+    && /isBroadcastEmailSendEnabled/.test(domainSrc)
+    && /invokedGraph !== true/.test(domainSrc)
+    && /status: 200/.test(domainSrc.slice(domainSrc.indexOf('async function executeSendBroadcast'))));
+  ok('api wires createSendMail to existing Graph helper',
+    /createBroadcastEmailSendMail/.test(apiSrc)
+    && /createSendMail\(pg, env\)/.test(apiSrc));
   ok('composer does not touch four-column attributes',
     !/data-col1|data-col2|data-col4|inboxColumns/.test(broadcastUiSrc));
   ok('composer does not rewrite Luna / WhatsApp draft / SSE',
@@ -631,9 +816,10 @@ const portalSrc = readStaffPortalUiSource();
     'this.inboxBroadcastSendUrl = inboxBroadcastSendUrl;\n' +
     'this.inboxBroadcastComposerHtml = inboxBroadcastComposerHtml;\n' +
     'this.inboxBroadcastSendFailureCopy = inboxBroadcastSendFailureCopy;\n' +
+    'this.inboxBroadcastSendResultCopy = inboxBroadcastSendResultCopy;\n' +
     'this.inboxBroadcastIsEmailableView = inboxBroadcastIsEmailableView;\n' +
     'this.inboxBroadcastRecipientCountHtml = inboxBroadcastRecipientCountHtml;',
-    sandbox,
+    sandbox
   );
   ok('create URL carries tenant query',
     sandbox.inboxBroadcastCreateUrl() === '/staff/broadcasts?client=wolfhouse-somo');
@@ -665,6 +851,13 @@ const portalSrc = readStaffPortalUiSource();
   ok('501 copy names the honest queue message',
     sandbox.inboxBroadcastSendFailureCopy(501, ERROR_SEND_NOT_IMPLEMENTED, { pending: 9, skipped: 1 })
       .indexOf('queued locally, email delivery not wired yet') >= 0);
+  ok('200 copy shows counts and never all-sent on partial',
+    sandbox.inboxBroadcastSendResultCopy({ sent: 9, error: 0, skipped: 1 }).indexOf('Sent 9') >= 0
+    && sandbox.inboxBroadcastSendResultCopy({ sent: 8, error: 1, skipped: 0 }).indexOf('failed 1') >= 0
+    && sandbox.inboxBroadcastSendResultCopy({ sent: 8, error: 1, skipped: 0 }).indexOf('all sent') < 0);
+  ok('503 copy is honest unavailable',
+    sandbox.inboxBroadcastSendFailureCopy(503, ERROR_SEND_UNAVAILABLE, null)
+      .indexOf('not available') >= 0);
   ok('people views with multi_select are emailable; do_not_contact is not',
     sandbox.inboxBroadcastIsEmailableView({ multi_select: true, group: 'people' }) === true
     && sandbox.inboxBroadcastIsEmailableView({ multi_select: false, group: 'people' }) === false
