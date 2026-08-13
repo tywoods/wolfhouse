@@ -89,7 +89,11 @@ def main() -> int:
         "+34600000404", {"LUNA_AUTO_SEND_ENABLED": "true", "WHATSAPP_DRY_RUN": "0"}
     )
     check("WHATSAPP_DRY_RUN=0 still blocks (matches the JS reading)", zero is not None)
-    check("and says so in words", "not the literal 'false'" in zero["flag_note"], zero["flag_note"])
+    check(
+        "and says so in words, quoting the value it rejected",
+        zero["flag_note"] == "'0', not the literal 'false'",
+        zero["flag_note"],
+    )
 
     # ── Process env is the default source ─────────────────────────────────────
     with mock.patch.dict(os.environ, {"LUNA_AUTO_SEND_ENABLED": "true", "WHATSAPP_DRY_RUN": "false"}, clear=False):

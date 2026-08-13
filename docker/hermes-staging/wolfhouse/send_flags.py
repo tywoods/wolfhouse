@@ -109,7 +109,7 @@ def _value_note(raw: Optional[str], expected: str) -> str:
         return "unset"
     if not raw.strip():
         return "empty"
-    return f"not the literal {expected!r}"
+    return f"{raw.strip()!r}, not the literal {expected!r}"
 
 
 def guest_whatsapp_send_flag_block(
