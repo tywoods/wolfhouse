@@ -213,6 +213,39 @@ function sliceStateVar(src, name) {
   return m ? `var ${name} = ${m[1]};` : null;
 }
 
+/**
+ * A module-level `var NAME = (function ... })();` namespace, if `src` has one.
+ *
+ * The browser modules expose their internals as one frozen namespace object
+ * (`SunsetScheduleDrawerActions`), and slices reach it as `NAME.method(...)` —
+ * a property access, so the call-graph walk never sees the name and the slice
+ * dies at run time with the namespace undefined. An IIFE is safe to replay
+ * because it is self-contained by construction: nothing outside it is read
+ * until one of its methods is called.
+ */
+function sliceNamespaceVar(src, name) {
+  const re = new RegExp(`^(?:var|let|const)\\s+${name}\\s*=\\s*\\(function\\b`, 'm');
+  const m = re.exec(src);
+  if (!m) return null;
+  const open = src.indexOf('(', m.index + m[0].length - '(function'.length);
+  // Depth-count on blanked source so a paren inside a string or comment in the
+  // factory body does not close the wrapper early. Offsets are preserved.
+  const scan = blankNonCode(src);
+  let depth = 0;
+  for (let i = open; i < scan.length; i += 1) {
+    if (scan[i] === '(') depth += 1;
+    else if (scan[i] === ')') {
+      depth -= 1;
+      if (depth === 0) {
+        const close = scan.indexOf(';', i);
+        if (close < 0) return null;
+        return `var ${name} = ${src.slice(open, close)};`;
+      }
+    }
+  }
+  return null;
+}
+
 /** Names the code only calls behind a `typeof x === 'function'` style guard. */
 function guardedIdentifiers(code) {
   const out = new Set();
@@ -232,7 +265,7 @@ function firstSlice(sources, name) {
 
 function firstStateVar(sources, name) {
   for (const src of sources) {
-    const code = sliceStateVar(src, name);
+    const code = sliceStateVar(src, name) || sliceNamespaceVar(src, name);
     if (code) return code;
   }
   return null;
@@ -335,6 +368,7 @@ function collectPortalFunctions(sources, roots, options) {
 module.exports = {
   slicePortalFunction,
   sliceStateVar,
+  sliceNamespaceVar,
   blankNonCode,
   calledIdentifiers,
   referencedIdentifiers,

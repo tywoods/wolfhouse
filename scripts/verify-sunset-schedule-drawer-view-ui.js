@@ -13,6 +13,8 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
+const { collectPortalFunctions, slicePortalFunction } = require('./lib/portal-fn-slice');
+
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const VIEW_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
@@ -29,20 +31,7 @@ function assert(label, cond, detail) {
 }
 
 function extractFunctionSource(src, name) {
-  const needle = `function ${name}(`;
-  const start = src.indexOf(needle);
-  if (start < 0) return null;
-  const braceStart = src.indexOf('{', start);
-  if (braceStart < 0) return null;
-  let depth = 0;
-  for (let i = braceStart; i < src.length; i += 1) {
-    if (src[i] === '{') depth += 1;
-    else if (src[i] === '}') {
-      depth -= 1;
-      if (depth === 0) return src.slice(start, i + 1);
-    }
-  }
-  return null;
+  return slicePortalFunction(src, name);
 }
 
 function escHtml(s) {
@@ -240,6 +229,21 @@ function buildRenderCtx(viewModSrc, portalModSrc, apiSrc) {
     assert(`module defines ${name}`, !!fnSrc);
     if (fnSrc) vm.runInContext(`${fnSrc}\nthis.${name}=${name};`, ctx);
   });
+  // The list above names the view owners under test; it does not name what they
+  // call. Resolve the remainder against the view/portal/actions modules and the
+  // template, or a helper that moved leaves the slice with a ReferenceError.
+  const dangling = collectPortalFunctions(
+    [viewModSrc, payModSrc, portalModSrc, ctrlModSrc, apiSrc].filter(Boolean),
+    fns,
+    { provided: Object.keys(ctx), omitProvided: true },
+  );
+  if (dangling.code) {
+    const expose = dangling.resolved.map((n) => `this.${n}=${n};`).join('\n');
+    vm.runInContext(`${dangling.code}\n${expose}`, ctx);
+  }
+  assert('every helper the view owners call is in scope',
+    dangling.missing.length === 0 && dangling.unparsable.length === 0,
+    `missing=${dangling.missing.join(',')} unparsable=${dangling.unparsable.join(',')}`);
   return ctx;
 }
 
