@@ -21,7 +21,7 @@ or any `/staff/inbox/*` route.
 | 1 | Handoff state gap — Luna promises a takeover that never sets `needs_human` | **done** (detector + corpus gate) |
 | 2 | Channel-agnostic approvals; WhatsApp draft parity (migration 078) | **done** persist+read (#528, migration 078 `luna_outbound_approvals`); **done** approve-send (#533, `POST /staff/inbox/whatsapp/approve-send`, existing send path, dry-run fail-closed); **done** Draft UI (#535, `inbox-whatsapp-draft.js`, Approve/Edit, no auto-send) |
 | 3 | SSE live activity, replacing 5s/3s polling | **done** (#537) — `GET /staff/inbox/stream`, in-process EventEmitter per `client_slug`. 5s/3s poll **fallback** remains if EventSource fails; saved-view counts still ride the list poll; pause/needs_human metadata-only writes are not on the emit hook yet. |
-| 4 | Segments and broadcasts (migrations 080, 081) | not started |
+| 4 | Segments and broadcasts (migration 079) | **this PR** — email-first `POST/GET /staff/broadcasts` + `POST /staff/broadcasts/:id/send`. Send snapshots recipients as `pending` and returns **501** `email_broadcast_send_not_implemented` until Graph bulk send exists. WhatsApp promo blast is refused. No composer UI. |
 | 5 | Identity linking across channels (optional) | not started |
 
 ## Why it feels bulky and redundant
@@ -237,22 +237,22 @@ Existing endpoints stay for back-compat during migration.
 
 ## Data model
 
-Next free migration number is 079 (078 is `luna_outbound_approvals`, shipped in #528).
+Next free migration number after this slice is 080 (079 is `broadcasts`).
 
 - `078_luna_outbound_approvals.sql` — channel-agnostic approvals: `client_id`, `conversation_id`,
   `channel`, `draft_text`, `edited_text`, `status` (pending/approved/rejected/sent/expired),
   `tool_trace` JSONB, `created_by_run_id`. Today only email has this, via
   `tenant_email_reply_approvals` (migration 070). WhatsApp has no approval step at all.
-- `079_luna_channel_modes.sql` — persisted mode per `(client_id, location_id, channel)` plus a
-  per-conversation override. Replaces env-only `LUNA_AUTO_SEND_ENABLED` / `WHATSAPP_DRY_RUN`
-  control and retires `conversations.bot_mode`.
-- `080_inbox_saved_views.sql` — saved views and segments; seed with the existing `ALLOWED_FILTERS`
-  presets so nothing regresses.
-- `081_broadcasts.sql` — `broadcasts`, `broadcast_recipients` (per-recipient status and reply
-  attribution), `contact_suppressions` (unsubscribe). `do_not_contact` suppression already exists
-  in `scripts/lib/staff-customer-outreach-send.js` — reuse it.
+- `079_broadcasts.sql` — `broadcasts` + `broadcast_recipients` (per-recipient status). Email-first
+  API in this slice; send persists `pending` rows and 501s until Graph bulk send exists.
+  `do_not_contact` suppression is reused from `scripts/lib/staff-customer-outreach-send.js`.
+  `contact_suppressions` (unsubscribe) is still later. Schema allows `channel=whatsapp` for a
+  future operational checked-in path; the API refuses it here (promotions are email-only).
+- Channel-mode persistence and a saved-views table were reserved as 079/080 before this slice
+  took 079. They take the next free numbers when those slices land. Saved views stay
+  code-defined (`staff-inbox-saved-views.js`).
 - `082_conversation_read_state.sql` — `last_read_at` and `assigned_to`, needed for the unread and
-  Unassigned views. Neither is stored today.
+  Unassigned views. Neither is stored today. (Number may shift if channel-modes lands first.)
 
 ## Draft mode for WhatsApp — the real work
 
