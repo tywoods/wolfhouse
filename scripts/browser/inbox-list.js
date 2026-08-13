@@ -292,7 +292,15 @@ function pollInboxSelectedThreadLive(){
         return;
       }
       inboxThreadMessageSig = sig;
-      container.innerHTML = renderInboxThreadMessagesHtml(msgs);
+      var selected = null;
+      try {
+        selected = (inboxConversationsCache || []).find(function(c){ return String(c.conversation_id) === String(convId); });
+      } catch (_e) { selected = null; }
+      if (selected && typeof inboxFillComposerThread === 'function') {
+        inboxFillComposerThread(selected, msgs);
+      } else {
+        container.innerHTML = renderInboxThreadMessagesHtml(msgs);
+      }
       if (wrap) {
         if (stickToBottom) wrap.scrollTop = wrap.scrollHeight;
         else wrap.scrollTop = prevScrollTop;

@@ -61,7 +61,7 @@ function inboxLunaModeHeaderLabel(channel, paused){
 
 function inboxNeedsHumanRaiseHtml(needsHuman){
   var on = !!needsHuman;
-  var label = on ? t('inbox.detail.needsHuman.clear') : t('inbox.detail.needsHuman.raise');
+  var label = t('inbox.detail.needsHuman.raise');
   return '<button type="button" class="inbox-needs-human-raise' + (on ? ' is-on' : '') +
     '" id="inbox-needs-human-raise" aria-pressed="' + (on ? 'true' : 'false') +
     '" title="' + escHtml(t('inbox.detail.switch.needsHuman')) + '">' +
@@ -155,7 +155,7 @@ function syncInboxNeedsHumanRaise(targetEl, needsHuman){
   var on = !!needsHuman;
   btn.classList.toggle('is-on', on);
   btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-  btn.textContent = on ? t('inbox.detail.needsHuman.clear') : t('inbox.detail.needsHuman.raise');
+  btn.textContent = t('inbox.detail.needsHuman.raise');
 }
 
 function wireInboxLunaModeControl(targetEl){

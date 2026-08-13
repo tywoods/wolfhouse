@@ -183,12 +183,94 @@ function inboxGuestEmailOf(conv){
   return String(email || '').trim();
 }
 
+function inboxComposerChannelIcon(channel){
+  if (typeof inboxShellChannelIconSvg === 'function') return inboxShellChannelIconSvg(channel);
+  if (channel === 'email') {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>';
+  }
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg>';
+}
+
 function inboxComposerChannelSwitchHtml(selected){
   var html = '<div class="inbox-composer-channel" role="group" aria-label="Reply channel">';
-  html += '<button type="button" class="inbox-composer-channel-btn' + (selected === 'whatsapp' ? ' is-active' : '') + '" data-inbox-composer-channel="whatsapp">WhatsApp</button>';
-  html += '<button type="button" class="inbox-composer-channel-btn' + (selected === 'email' ? ' is-active' : '') + '" data-inbox-composer-channel="email">Email</button>';
+  html += '<button type="button" class="inbox-composer-channel-btn' + (selected === 'whatsapp' ? ' is-active' : '') + '" data-inbox-composer-channel="whatsapp">';
+  html += '<span class="inbox-composer-channel-ico" aria-hidden="true">' + inboxComposerChannelIcon('whatsapp') + '</span><span>WhatsApp</span></button>';
+  html += '<button type="button" class="inbox-composer-channel-btn' + (selected === 'email' ? ' is-active' : '') + '" data-inbox-composer-channel="email">';
+  html += '<span class="inbox-composer-channel-ico" aria-hidden="true">' + inboxComposerChannelIcon('email') + '</span><span>Email</span></button>';
   html += '</div>';
   return html;
+}
+
+function inboxFindGuestConversation(conv, channel){
+  var list = (typeof inboxConversationsCache !== 'undefined' && inboxConversationsCache) ? inboxConversationsCache : [];
+  var phone = conv && conv.phone ? String(conv.phone) : '';
+  var email = inboxGuestEmailOf(conv).toLowerCase();
+  var selfId = conv && (conv.conversation_id || conv.id);
+  for (var i = 0; i < list.length; i++) {
+    var row = list[i] || {};
+    var rowCh = row.channel === 'email' ? 'email' : 'whatsapp';
+    if (rowCh !== channel) continue;
+    if (selfId && String(row.conversation_id || row.id || '') === String(selfId)) return row;
+    if (phone && row.phone && String(row.phone) === phone) return row;
+    var rowEmail = String(row.email || row.guest_email || '').trim().toLowerCase();
+    if (email && rowEmail && rowEmail === email) return row;
+  }
+  return null;
+}
+
+function inboxMessageChannelOf(m){
+  if (!m) return 'whatsapp';
+  if (m.channel === 'email' || m.message_channel === 'email') return 'email';
+  if (m.source === 'staff_email_reply' || m.message_type === 'email' || m.email_subject) return 'email';
+  return 'whatsapp';
+}
+
+function inboxFilterMessagesByChannel(msgs, channel){
+  var want = channel === 'email' ? 'email' : 'whatsapp';
+  var out = [];
+  for (var i = 0; i < (msgs || []).length; i++) {
+    if (inboxMessageChannelOf(msgs[i]) === want) out.push(msgs[i]);
+  }
+  return out;
+}
+
+function inboxNoEmailThreadHtml(){
+  return '<div class="inbox-composer-no-email" role="status">Update email address in guest profile to email.</div>';
+}
+
+function inboxFillComposerThread(conv, nativeMsgs){
+  var channel = inboxComposerChannelFor(conv);
+  var container = typeof el === 'function' ? el('thread-container') : null;
+  if (!container) return;
+  var nativeCh = (conv && conv.channel === 'email') ? 'email' : 'whatsapp';
+  if (channel === nativeCh) {
+    var filtered = inboxFilterMessagesByChannel(nativeMsgs, channel);
+    if (channel === 'email' && !filtered.length) {
+      container.innerHTML = inboxNoEmailThreadHtml();
+      return;
+    }
+    container.innerHTML = filtered.length ? renderInboxThreadMessagesHtml(filtered) : '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
+    return;
+  }
+  var sibling = inboxFindGuestConversation(conv, channel);
+  if (!sibling || !sibling.conversation_id) {
+    container.innerHTML = channel === 'email' ? inboxNoEmailThreadHtml() : '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
+    return;
+  }
+  fetch('/staff/conversations/' + encodeURIComponent(sibling.conversation_id) + '/messages' + inboxClientQuery())
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!container) return;
+      var msgs = inboxFilterMessagesByChannel((data && data.messages) || [], channel);
+      if (channel === 'email' && !msgs.length) {
+        container.innerHTML = inboxNoEmailThreadHtml();
+        return;
+      }
+      container.innerHTML = msgs.length ? renderInboxThreadMessagesHtml(msgs) : '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
+    })
+    .catch(function(){
+      if (container && channel === 'email') container.innerHTML = inboxNoEmailThreadHtml();
+    });
 }
 
 function wireInboxComposerChannelSwitch(conv, targetEl){
@@ -209,8 +291,7 @@ var inboxComposerChannelByConv = {};
 function inboxPaintChatChromeSlot(conv, lunaGuestPaused){
   var slot = typeof el === 'function' ? el('inbox-chat-chrome-slot') : (typeof document !== 'undefined' ? document.getElementById('inbox-chat-chrome-slot') : null);
   if (!slot) return;
-  slot.innerHTML = '<span class="detail-header-pills">' + convHeaderStatusPillsHtml(conv, lunaGuestPaused) + '</span>' +
-    detailHeaderSwitchesHtml(conv, lunaGuestPaused);
+  slot.innerHTML = detailHeaderSwitchesHtml(conv, lunaGuestPaused);
 }
 
 function updateConvHeaderPillsInPlace(targetEl, needsHuman, lunaPaused){
@@ -1711,10 +1792,15 @@ function loadConvDetail(convId, targetEl){
     html +=   '<div class="inbox-thread-shell" id="inbox-thread-shell">';
     html +=   '<div class="inbox-thread-wrap" id="inbox-thread-wrap">';
     html +=   '<div class="thread-messages" id="thread-container">';
-    if (msgs.length === 0){
+    var nativeCh = (c.channel === 'email') ? 'email' : 'whatsapp';
+    if (composerChannel !== nativeCh || (isEmailConversation && !guestEmail)) {
+      html += (isEmailConversation && !inboxFindGuestConversation(c, 'email'))
+        ? inboxNoEmailThreadHtml()
+        : '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
+    } else if (msgs.length === 0){
       html += '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
     } else {
-      html += renderInboxThreadMessagesHtml(msgs);
+      html += renderInboxThreadMessagesHtml(inboxFilterMessagesByChannel(msgs, composerChannel));
     }
     html +=   '</div>'; /* /thread-messages */
     if (!isEmailConversation) html += inboxWhatsAppDraftMountHtml();
@@ -1785,6 +1871,7 @@ function loadConvDetail(convId, targetEl){
     inboxPaintChatChromeSlot(c, lunaGuestPaused);
     targetEl.classList.remove('is-loading-detail');
     wireInboxComposerChannelSwitch(c, targetEl);
+    inboxFillComposerThread(c, msgs);
 
     if (missingEmail) { /* composer shows the update-email note */ }
     else if (useEmailReplyUi) wireInboxEmailReply(convId, targetEl);

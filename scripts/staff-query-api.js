@@ -18681,7 +18681,9 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .draft-panel{flex-shrink:0;margin-top:10px;padding-top:0;border-top:none;background:transparent}
 .draft-label{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
 .inbox-composer-channel{display:inline-flex;padding:2px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft);gap:2px}
-.inbox-composer-channel-btn{border:0;background:transparent;border-radius:6px;padding:4px 9px;font-size:11px;font-weight:650;color:var(--text-2);cursor:pointer}
+.inbox-composer-channel-btn{border:0;background:transparent;border-radius:6px;padding:4px 9px;font-size:11px;font-weight:650;color:var(--text-2);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.inbox-composer-channel-ico{width:14px;height:14px;display:inline-flex;color:currentColor}
+.inbox-composer-channel-ico svg{width:14px;height:14px;display:block}
 .inbox-composer-channel-btn.is-active{background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(30,42,36,.10)}
 .inbox-composer-no-email{padding:14px 12px;border:1px dashed var(--border);border-radius:var(--radius);background:transparent;color:var(--text-2);font-size:13px;line-height:1.4}
 .draft-panel textarea{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);box-sizing:border-box}
@@ -20230,10 +20232,11 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 .inbox-channel-autonomy-slot{flex:0 0 auto;width:100%}
 .inbox-channel-autonomy-slot .inbox-shell-channel-defaults{width:100%;box-sizing:border-box}
-.inbox-global-pause{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;box-sizing:border-box;padding:8px 10px;margin:0;border:1px solid var(--border-soft);border-radius:12px;background:var(--surface)}
-.inbox-global-pause .tabs-global-pause-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;margin:0;cursor:pointer}
-.inbox-global-pause .tabs-global-pause-label{font-size:11px;font-weight:600;color:var(--text-2)}
+.inbox-global-pause{display:flex;align-items:center;gap:8px;width:100%;max-width:100%;box-sizing:border-box;padding:0;margin:0;border:none;background:transparent;white-space:nowrap}
+.inbox-global-pause .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;width:auto;margin:0;padding:0;cursor:pointer;white-space:nowrap}
+.inbox-global-pause .tabs-global-pause-label{font-size:11px;font-weight:600;color:var(--text-2);white-space:nowrap}
 .inbox-global-pause .tabs-global-pause-help,.inbox-global-pause #luna-global-pause-status{display:none!important}
+.inbox-toolbar-channels{display:flex;align-items:center;gap:8px;min-width:0}
 .inbox-views-group{display:flex;flex-direction:column;gap:2px}
 .inbox-views-group-label{
   font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--text-2);
@@ -21182,6 +21185,17 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div class="inbox-toolbar-channels" id="inbox-toolbar-channels">
         <select id="c-client" title="Company" class="inbox-client-select"></select>
         <span id="inbox-live-status" class="inbox-live-status" aria-live="polite">Live</span>
+        <div class="tabs-global-pause luna-global-pause-card inbox-global-pause" id="cc-luna-global-pause">
+          <label class="tabs-global-pause-toggle" for="luna-global-pause-switch">
+            <span class="tabs-global-pause-label">Global Pause Luna:</span>
+            <span class="luna-global-pause-switch">
+              <input type="checkbox" id="luna-global-pause-switch">
+              <span class="luna-global-pause-slider"></span>
+            </span>
+          </label>
+          <span class="al-hint tabs-global-pause-help" id="luna-global-pause-help" data-i18n="lunaStaff.pause.active" hidden>Luna is active for all guest conversations.</span>
+          <span id="luna-global-pause-status" class="luna-pause-action-status" style="display:none"></span>
+        </div>
       </div>
       <div class="inbox-conv-search-wrap">
         <input type="search" id="inbox-conv-search" class="inbox-conv-search" placeholder="Search contacts" autocomplete="off" data-i18n-placeholder="inbox.search.contacts">
@@ -21214,17 +21228,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </div>
       <div id="inbox-views-rail" class="inbox-views-rail" aria-label="Saved views"></div>
       <div id="inbox-channel-autonomy-slot" class="inbox-channel-autonomy-slot"></div>
-      <div class="tabs-global-pause luna-global-pause-card inbox-global-pause" id="cc-luna-global-pause">
-        <label class="tabs-global-pause-toggle" for="luna-global-pause-switch">
-          <span class="tabs-global-pause-label">Pause Luna Globally:</span>
-          <span class="luna-global-pause-switch">
-            <input type="checkbox" id="luna-global-pause-switch">
-            <span class="luna-global-pause-slider"></span>
-          </span>
-        </label>
-        <span class="al-hint tabs-global-pause-help" id="luna-global-pause-help" data-i18n="lunaStaff.pause.active" hidden>Luna is active for all guest conversations.</span>
-        <span id="luna-global-pause-status" class="luna-pause-action-status" style="display:none"></span>
-      </div>
       <div class="inbox-left-toolbar">
         <div class="inbox-filters">
           <button type="button" class="inbox-filter-btn active" data-inbox-filter="all" id="inbox-filter-all" data-i18n="inbox.filter.all">All Conversations</button>

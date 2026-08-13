@@ -235,7 +235,7 @@ console.log('\n── inherited Luna + hide Pause Globally ──');
     && !/data-luna-mode="draft"/.test(html));
   ok('Pause Globally stays in the portal template',
     /id="cc-luna-global-pause"/.test(apiSrc)
-    && /Pause Luna Globally/.test(apiSrc));
+    && /Global Pause Luna:/.test(apiSrc));
   ok('Inbox no longer hides Pause Luna Globally (nav width matches other tabs)',
     !/body:has\(#tab-conversations\.active\) #cc-luna-global-pause\{display:none!important\}/.test(shellSrc)
     && !/luna-global-pause-switch/.test(shellSrc)
