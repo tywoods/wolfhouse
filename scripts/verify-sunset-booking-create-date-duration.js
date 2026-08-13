@@ -7,6 +7,7 @@ const ROOT = path.join(__dirname, '..');
 const apiSrc = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
 const portalSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-schedule-portal-module.js'), 'utf8');
 const bookable = require('./lib/sunset-bookable-offerings');
+const { collectPortalFunctions } = require('./lib/portal-fn-slice');
 let pass = 0, fail = 0;
 function assert(label, cond, detail) {
   if (cond) { console.log('  PASS  ' + label); pass += 1; }
@@ -113,6 +114,7 @@ function buildSandbox(opts) {
     'ps-create-course-fields', 'ps-create-course-tier-wrap', 'ps-create-course-qty-wrap',
     'ps-create-private-lesson-fields', 'ps-create-date-range', 'ps-create-private-when',
     'ps-create-private-lesson-sessions', 'ps-create-rentals', 'ps-create-comp-fullday',
+    'ps-create-surfers',
   ].forEach((id) => N(id));
   function radio(id, on) {
     nodes[id] = listen({ id, type: 'radio', name: 'act', _checked: !!on, style: {}, dataset: {}, setAttribute() {} });
@@ -122,6 +124,11 @@ function buildSandbox(opts) {
   nodes['ps-create-date-from'].value = opts.from || '2035-06-16';
   nodes['ps-create-date-to'].value = opts.to || '2035-06-16';
   nodes['ps-create-guest'].value = 'Ada'; nodes['ps-create-course-qty'].value = '1'; nodes['ps-create-payment'].value = 'unpaid';
+  // Fields the hard Create gate has since made mandatory: phone (da7a07c5)
+  // and surfer count (56a89f57). Without them the fixture is not a well-formed
+  // payload and every hard-gate check reads as red for the wrong reason.
+  nodes['ps-create-phone'].value = '+34600111222';
+  nodes['ps-create-surfers'].value = '1';
   nodes['ps-create-course-select'].options = [{ value: 'c1', textContent: 'Beginner', getAttribute: (k) => (k === 'data-label' ? 'Beginner' : null) }];
   nodes['ps-create-course-select'].value = 'c1'; nodes['ps-create-course-select'].selectedIndex = 0;
   nodes['ps-create-course-tier'].options = [{ value: '1_week', textContent: 'POISONED 1 week' }];
@@ -162,6 +169,10 @@ function buildSandbox(opts) {
     schedulePortalQuoteState: { total_cents: 9999 }, schedulePortalQuoteGen: 1,
     schedulePortalQuoteAbort: null, schedulePortalQuoteTimer: null, schedulePortalSubmitInFlight: false,
     getClient() { return 'sunset'; }, getSunsetLocation() { return 'sunset-somo'; },
+    // scheduleReadCreatePayload reads course-equipment rows straight off the
+    // document rather than through el(). These fixtures select no equipment,
+    // so an empty node list is the faithful model, not a shortcut.
+    document: { getElementById(id) { return nodes[id] || null; }, querySelectorAll() { return []; } },
     Intl: { DateTimeFormat() { return { format() { return '2035-06-16'; } }; } },
     Promise, JSON, Object, Array, Number, String, Math, Date, console, _net: net, _nodes: nodes,
   };
@@ -173,7 +184,16 @@ function buildSandbox(opts) {
     'schedulePortalHumanCourseBit', 'schedulePortalDurationLabel', 'schedulePortalRentalLabel',
   ];
   vm.createContext(sb);
-  vm.runInContext(names.map((n) => extractFn(portalSrc, n) || extractFn(apiSrc, n)).filter(Boolean).join('\n'), sb);
+  // `names` are the owners under test. Their callees moved into
+  // scripts/browser/*, so resolve the call graph rather than this list alone.
+  const sliced = collectPortalFunctions([portalSrc, apiSrc], names, {
+    provided: Object.keys(sb),
+  });
+  assert('create-payload helpers all in scope',
+    sliced.missing.length === 0 && sliced.unparsable.length === 0,
+    `missing=${sliced.missing.join(',')} unparsable=${sliced.unparsable.join(',')}`);
+  const expose = sliced.resolved.map((n) => `this.${n}=${n};`).join('\n');
+  vm.runInContext(`${sliced.code}\n${expose}`, sb);
   return sb;
 }
 
@@ -182,19 +202,45 @@ console.log('[2] Week/single/N_days match + ambiguous + fail-closed');
   const sb = buildSandbox();
   const r1 = sb.schedulePortalResolveDerivedCourseTier('c1', '2035-06-16', '2035-06-16');
   assert('same-day single_class', r1 && r1.ok && r1.tier_key === 'single_class' && r1.duration_days === 1);
-  assert('7/14/21/28 weeks',
+  // eaa1e02c (fix(sunset): Admin course/rental cards + Group 8–14 from 7_days,
+  // 2026-07-26) capped Group courses at 14 inclusive days and made 8–14 price
+  // from the Admin 7_days row. 2_weeks/3_weeks/4_weeks are now
+  // LEGACY_HIDDEN_DURATION_KEYS — readable from storage, never date-matched.
+  assert('7 days matches; 14/21/28 no longer sell from multi-week tiers',
     sb.schedulePortalResolveDerivedCourseTier('c1', '2035-06-16', '2035-06-22').tier_key === '1_week'
-    && sb.schedulePortalResolveDerivedCourseTier('c1', '2035-06-16', '2035-06-29').tier_key === '2_weeks'
-    && sb.schedulePortalResolveDerivedCourseTier('c1', '2035-06-16', '2035-07-06').tier_key === '3_weeks'
-    && sb.schedulePortalResolveDerivedCourseTier('c1', '2035-06-16', '2035-07-13').tier_key === '4_weeks');
+    && sb.schedulePortalResolveDerivedCourseTier('c1', '2035-06-16', '2035-06-29').errorKey === 'schedule.create.courseDurationUnavailable'
+    && sb.schedulePortalResolveDerivedCourseTier('c1', '2035-06-16', '2035-07-06').errorKey === 'schedule.create.courseDurationUnavailable'
+    && sb.schedulePortalResolveDerivedCourseTier('c1', '2035-06-16', '2035-07-13').errorKey === 'schedule.create.courseDurationUnavailable');
+  const prorate = buildSandbox({
+    courses: [{ course_id: 'c1', price_tiers: realTiers([
+      { key: '7_days', label: '7 days', duration_days: 7, bookable: true, offering_id: 'surf_pack_c1__7_days' },
+    ]) }],
+  });
+  const day14 = prorate.schedulePortalResolveDerivedCourseTier('c1', '2035-06-16', '2035-06-29');
+  assert('8–14 days prices from the Admin 7_days row',
+    day14.ok === true && day14.tier_key === '7_days' && day14.duration_days === 14
+    && day14.pricing_basis === '7_days_prorate');
   assert('3_days + no-match + nonbookable',
     sb.schedulePortalResolveDerivedCourseTier('c1', '2035-06-16', '2035-06-18').tier_key === '3_days'
     && sb.schedulePortalResolveDerivedCourseTier('c1', '2035-06-16', '2035-06-17').errorKey === 'schedule.create.courseDurationUnavailable'
     && sb.schedulePortalResolveDerivedCourseTier('c1', '2035-06-16', '2035-06-20').errorKey === 'schedule.create.courseDurationUnavailable');
-  const amb = buildSandbox({
+  // f4a9d354 (fix(sunset): prefer canonical one-day course tier, 2026-07-28)
+  // made a legacy row coexisting with its canonical twin resolve to the
+  // canonical row instead of reading as ambiguous, so 1_week + 7_days is no
+  // longer the ambiguous case — two non-canonical rows at one duration is.
+  const canon = buildSandbox({
     courses: [{ course_id: 'c1', price_tiers: [
       { key: '1_week', duration_days: 7, bookable: true, offering_id: 'a' },
       { key: '7_days', duration_days: 7, bookable: true, offering_id: 'b' },
+    ] }],
+    from: '2035-06-16', to: '2035-06-22',
+  });
+  assert('legacy row defers to its canonical twin (not ambiguous)',
+    canon.schedulePortalResolveDerivedCourseTier('c1', '2035-06-16', '2035-06-22').tier_key === '7_days');
+  const amb = buildSandbox({
+    courses: [{ course_id: 'c1', price_tiers: [
+      { key: '1_week', duration_days: 7, bookable: true, offering_id: 'a' },
+      { key: 'weekly_special', duration_days: 7, bookable: true, offering_id: 'b' },
     ] }],
     from: '2035-06-16', to: '2035-06-22',
   });
