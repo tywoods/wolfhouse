@@ -29,8 +29,8 @@ check('M9', src.includes('staff-portal-mobile:staff-numbers') && src.includes('s
 check('M10', src.includes('viewport-fit=cover'), 'viewport-fit=cover on main portal');
 
 // Auth POST unchanged (no accidental route edits in this slice)
-check('A1', !/app\.post\s*\(\s*['"]\/staff\/login['"]/.test(src) || src.includes("app.post('/staff/login'"), 'staff login POST route still present');
-check('A2', !src.includes("app.post('/staff/logout'") || src.includes("app.post('/staff/logout'"), 'staff logout POST route still present');
+check('A1', src.includes("pathname === '/staff/auth/login'") && src.includes('handleLogin'), 'staff login POST route still present');
+check('A2', src.includes("pathname === '/staff/auth/logout'") && src.includes('handleLogout'), 'staff logout POST route still present');
 
 // Tab / section markers still present
 check('T1', src.includes('data-tab="services"') || src.includes("data-tab='services'"), 'Services tab marker');

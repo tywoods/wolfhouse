@@ -1,10 +1,15 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
+process.env.NODE_ENV = 'test';
+process.env.STAFF_UI_BUILDER_TEST_SEAM = '1';
+process.env.STAFF_AUTH_REQUIRED = 'false';
+process.env.STAFF_AUTH_ALLOW_OPEN = 'true';
+process.env.WHATSAPP_DRY_RUN = 'true';
+
 const vm = require('vm');
 const { calculateWolfhouseQuote } = require('./lib/wolfhouse-quote-calculator');
 const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
+const { readStaffPortalUiSource } = require('./lib/staff-portal-ui-source');
 
 let passed = 0;
 let failed = 0;
@@ -70,8 +75,7 @@ function t(key, vars) {
 
 // Portal source wiring (static checks)
 {
-  const apiPath = path.join(__dirname, 'staff-query-api.js');
-  const src = fs.readFileSync(apiPath, 'utf8');
+  const src = readStaffPortalUiSource();
   check('S1', src.includes("edit_type: 'private_room'"), 'edit_type private_room in portal JS');
   check('S2', src.includes('bc-private-room-switch') && src.includes('bc-field-private-room-switch'), 'private room grey switch in edit UI');
   check('S3', src.includes('bcRenderPrivateRoomSupplementLineHtml') && !src.includes('id="bc-inv-private-room"'), 'supplement under accommodation');
@@ -85,23 +89,13 @@ function t(key, vars) {
   check('S11', src.includes('private_room_parent_booking_id') && src.includes("assignment_type = 'staff_block'"), 'private room companion beds use staff-style block bookings');
 }
 
-// Portal UI bundle syntax (embedded script in buildUiHtml)
+// Portal UI bundle syntax (rendered through the production /staff/ui builder)
 {
-  const { getStaffPortalI18nBootstrapScript } = require('./lib/staff-portal-i18n');
-  function loadWolfhouseRentalDayRates() {
-    return { wetsuit_rental: 500, soft_top_rental: 1500, hard_board_rental: 2000 };
-  }
-  const STAFF_ACTIONS_ENABLED = true;
-  const MANUAL_BOOKING_ENABLED = true;
-  const STRIPE_LINKS_ENABLED = true;
-  process.env.WHATSAPP_DRY_RUN = 'true';
-  const apiPath = path.join(__dirname, 'staff-query-api.js');
-  const src = fs.readFileSync(apiPath, 'utf8');
-  const buildUiHtml = eval(`(${src.slice(
-    src.indexOf('function buildUiHtml(port)'),
-    src.indexOf('function handleUI(res, port)'),
-  )})`);
-  const html = buildUiHtml(3036);
+  const api = require('./staff-query-api');
+  check('UI0', typeof api.buildUiHtmlForOfflineTest === 'function', 'production UI builder seam is exposed');
+  const html = typeof api.buildUiHtmlForOfflineTest === 'function'
+    ? api.buildUiHtmlForOfflineTest(3036, 'wolfhouse-somo')
+    : '';
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
   const main = scripts.find((s) => s.includes('bcOnBedCalendarTabOpen'));
   check('UI1', !!main, 'main portal script present');
