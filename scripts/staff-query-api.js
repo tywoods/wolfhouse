@@ -20192,6 +20192,29 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #tab-conversations.active:has([data-inbox-preset="chat"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
   max-width:1240px!important;
 }
+#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .detail-main{gap:0;padding:0}
+#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .detail-header{
+  background:var(--surface);border:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);
+  border-radius:var(--radius) var(--radius) 0 0;margin:0;box-shadow:none;
+}
+#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .thread-section{
+  background:var(--surface);border:1px solid var(--border-soft);border-top:none;
+  border-radius:0 0 var(--radius) var(--radius);
+}
+#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .thread-messages{
+  padding:12px 16px;
+}
+#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .msg.inbound{margin-left:10px;margin-right:28px}
+#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .msg.outbound{margin-right:10px;margin-left:28px}
+#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .btn-email-save-draft,
+#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .btn-email-approve-send{
+  min-height:0;height:auto;padding:9px 16px;font-size:12px;
+}
+#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-peek-edge-col4,
+#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .sidebar-expand-btn,
+#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell[data-col4="hidden"] .detail-sidebar{
+  display:none!important;pointer-events:none!important;
+}
 @media(max-width:900px){
   #tab-conversations.active #wrap.inbox-shell-wrap{
     max-width:100vw!important;padding:var(--tab-top-gap) 12px 12px!important;margin:0 auto;
