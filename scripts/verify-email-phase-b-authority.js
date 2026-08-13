@@ -2247,7 +2247,8 @@ async function main() {
       'scripts/lib/email-microsoft-verified-grant-installer.js',
       'scripts/lib/email-microsoft-delegated-oauth-contract.js',
     ];
-    const base = 'c08a4d7b9275def16f98f870e124f823393ca4a5';
+    // Fixed accepted pre-refactor baseline: correction branch base, never a moving ref.
+    const base = '2c8faf04b5d37f2010be273d404c12d94e433651';
     let allSame = true;
     for (const f of phaseA) {
       const r = spawnSync('git', ['diff', '--quiet', base, '--', f], { cwd: ROOT });

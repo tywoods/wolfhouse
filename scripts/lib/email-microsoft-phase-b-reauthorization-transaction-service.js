@@ -1,27 +1,28 @@
 'use strict';
 /** Phase B reauth OAuth TX (Gate 3 PR B1). No prepare route/public wiring. */
 const crypto = require('crypto');
+const transitionPolicy = require('./email-microsoft-reauthorization-transition-policy');
 const {
   EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION,
   EMAIL_MS_DELEGATED_PHASE_B_V1_GRAPH_DELEGATED_SCOPES,
 } = require('./email-microsoft-delegated-oauth-contract');
 const AUTHORITY = 'https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize';
 const REDIRECT_URI = 'https://sunset-staging.lunafrontdesk.com/staff/email/oauth/microsoft/callback';
-const PHASE_B_SCOPES = ['openid', 'profile', 'offline_access', ...EMAIL_MS_DELEGATED_PHASE_B_V1_GRAPH_DELEGATED_SCOPES].join(' ');
+const PHASE_B_SCOPES = transitionPolicy.authorizationScopeString();
 const TTL_SECONDS = 600;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const B64URL_32_RE = /^[A-Za-z0-9_-]{43}$/;
 const PKCE_VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/;
 const GEN_RE = /^[1-9][0-9]*$/;
 const GEN_MAX = 9223372036854775807n;
-const AUTHORIZATION_INTENT = 'phase_b_reauthorization';
-const SCOPE_VERSION = EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION;
+const AUTHORIZATION_INTENT = transitionPolicy.authorizationIntent();
+const SCOPE_VERSION = transitionPolicy.targetScopeVersion();
 const START_ENABLED_ENV = 'LUNA_EMAIL_PHASE_B_REAUTH_START_ENABLED';
 const INPUT_KEYS = Object.freeze([
   'clientId', 'locationId', 'endpointId', 'staffUserId', 'authSessionId',
   'expectedPriorGrantGeneration',
 ]);
-const SQL_CREATE_PHASE_B_REAUTH = `INSERT INTO tenant_email_oauth_transactions (client_id, location_id, staff_user_id, auth_session_id, endpoint_id, state_hash, code_verifier, nonce, issued_at, expires_at, authorization_intent, scope_version, prior_grant_generation) SELECT $1::uuid, tl.id, $3::uuid, $4::uuid, e.id, $6::bytea, $7, $8, $9, $10, 'phase_b_reauthorization', 'phase_b_v1', g.grant_generation FROM tenant_channel_endpoints e INNER JOIN tenant_locations tl ON tl.client_id=e.client_id AND tl.location_id=e.location_id INNER JOIN tenant_email_delegated_grants g ON g.client_id=e.client_id AND g.endpoint_id=e.id WHERE e.client_id=$1::uuid AND e.id=$5::uuid AND tl.id=$2::uuid AND e.provider='microsoft_graph' AND e.auth_mode='delegated_authorization_code' AND e.connector_mode='microsoft_delegated_oauth' AND e.binding_status='verified' AND g.scope_version='phase_a_v2' AND g.grant_status='active' AND g.reconcile_state='clean' AND g.grant_lease_token IS NULL AND g.grant_lease_owner IS NULL AND g.grant_lease_until IS NULL AND g.grant_generation=$11::bigint RETURNING expires_at, prior_grant_generation, authorization_intent, scope_version`;
+const SQL_CREATE_PHASE_B_REAUTH = transitionPolicy.transactionStatement();
 function b64url(b) { return b.toString('base64url'); }
 function gen32(randomBytes, err) {
   const bytes = randomBytes(32);
@@ -105,7 +106,7 @@ function createPostgresPhaseBReauthTransactionRepository(db) {
 }
 function createMicrosoftPhaseBReauthorizationTransactionService({
   repository, env = process.env, randomBytes = crypto.randomBytes, now = () => new Date(),
-}) {
+} = {}) {
   if (!repository || typeof repository.create !== 'function') throw new TypeError('repository_required');
   return Object.freeze({
     async start(input) {

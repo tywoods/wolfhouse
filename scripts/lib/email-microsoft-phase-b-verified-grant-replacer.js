@@ -2,6 +2,7 @@
 /** Phase B replacer+custody (Gate 3 PR B1). Sealed envelope CAS N→N+1; seal outside TX. */
 const { timingSafeEqual } = require('crypto');
 const util = require('util');
+const transitionPolicy = require('./email-microsoft-reauthorization-transition-policy');
 const {
   buildGrantEnvelopeAadV1, validateGrantEnvelopeRecordV1, validateEmailGrantEnvelopeProvider,
 } = require('./email-grant-envelope-provider-contract');
@@ -25,8 +26,8 @@ const REPLACER_METHOD = 'replaceVerifiedGrant';
 const RECONCILE_METHOD = 'reconcileReplacement';
 const REPLACED_STATUS = 'replaced';
 const OUTCOME_UNKNOWN = 'outcome_unknown';
-const SCOPE_A = EMAIL_MS_DELEGATED_SCOPE_VERSION;
-const SCOPE_B = EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION;
+const SCOPE_A = transitionPolicy.sourceScopeVersion();
+const SCOPE_B = transitionPolicy.targetScopeVersion();
 const TOKEN_LIMIT = 8192;
 const ID_TOKEN_LIMIT = 32768;
 const MAX_EXPIRES = 86_400;
@@ -86,8 +87,8 @@ const SEALED_ACK = Object.freeze({ status: 'accepted' });
 const SQL_BEGIN = 'BEGIN';
 const SQL_COMMIT = 'COMMIT';
 const SQL_ROLLBACK = 'ROLLBACK';
-const SQL_LOCK = `SELECT e.id, e.client_id, e.provider, e.auth_mode, e.connector_mode, e.binding_status, e.provider_tenant_id, e.provider_principal_oid, e.provider_resource_id, e.public_address, e.mailbox_kind, e.mailbox_access_kind, g.grant_generation, g.grant_status, g.reconcile_state, g.scope_version, g.grant_lease_token, g.last_operation_id, g.envelope_version, g.aead_alg, g.kek_wrap_alg, g.kek_key_name, g.kek_key_version, g.nonce, g.ciphertext, g.auth_tag, g.wrapped_dek FROM tenant_channel_endpoints e INNER JOIN tenant_email_delegated_grants g ON g.client_id = e.client_id AND g.endpoint_id = e.id WHERE e.client_id = $1 AND e.id = $2 FOR UPDATE OF e, g`;
-const SQL_CAS = `UPDATE tenant_email_delegated_grants SET grant_generation=$3::bigint, last_operation_id=$4, scope_version='phase_b_v1', grant_status='active', grant_lease_owner=NULL, grant_lease_token=NULL, grant_lease_until=NULL, reconcile_state='clean', reconcile_detail_code=NULL, envelope_version=$5, aead_alg=$6, kek_wrap_alg=$7, kek_key_name=$8, kek_key_version=$9, nonce=$10, ciphertext=$11, auth_tag=$12, wrapped_dek=$13, updated_by=$14, updated_at=NOW() WHERE client_id=$1 AND endpoint_id=$2 AND grant_generation=$15::bigint AND scope_version='phase_a_v2' AND grant_status='active' AND reconcile_state='clean' AND grant_lease_token IS NULL AND grant_lease_owner IS NULL AND grant_lease_until IS NULL RETURNING client_id, endpoint_id, grant_generation, grant_status, reconcile_state, scope_version, last_operation_id`;
+const SQL_LOCK = transitionPolicy.replacerLockStatement();
+const SQL_CAS = transitionPolicy.replacerCasStatement();
 const SQL_SNAP = `SELECT g.grant_generation, g.grant_status, g.reconcile_state, g.scope_version, g.last_operation_id, g.grant_lease_token, g.grant_lease_owner, g.grant_lease_until, e.binding_status, e.provider_tenant_id, e.provider_principal_oid, e.provider_resource_id, e.public_address, g.envelope_version, g.aead_alg, g.kek_wrap_alg, g.kek_key_name, g.kek_key_version, g.nonce, g.ciphertext, g.auth_tag, g.wrapped_dek FROM tenant_email_delegated_grants g INNER JOIN tenant_channel_endpoints e ON e.client_id=g.client_id AND e.id=g.endpoint_id WHERE g.client_id=$1 AND g.endpoint_id=$2`;
 function fail(code, msg) {
   const e = new Error(msg);
