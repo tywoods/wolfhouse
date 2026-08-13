@@ -12,6 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { readStaffPortalUiSource } = require('./lib/staff-portal-ui-source');
 
 const ROOT = path.join(__dirname, '..');
 const EXPLICIT = path.join(ROOT, 'docker/hermes-staging/wolfhouse/explicit_human_handoff.py');
@@ -80,10 +81,18 @@ assert(
   'manual reason is staff_manual_handoff',
   /staff_manual_handoff/.test(persistSrc) || /staff_manual_handoff/.test(apiSrc),
 );
+// wireNeedsHumanToggle lives in scripts/browser/inbox-thread.js, injected into /staff/ui —
+// read template + injected modules, and scope to the function body.
+const portalSrc = readStaffPortalUiSource();
+const needsHumanToggleStart = portalSrc.indexOf('function wireNeedsHumanToggle(');
+const needsHumanToggleEnd = portalSrc.indexOf('\nfunction ', needsHumanToggleStart + 1);
+const needsHumanToggleSrc = needsHumanToggleStart === -1
+  ? ''
+  : portalSrc.slice(needsHumanToggleStart, needsHumanToggleEnd === -1 ? undefined : needsHumanToggleEnd);
 assert(
   'UI toggle wires credentials and full state refresh',
-  /wireNeedsHumanToggle[\s\S]{0,1200}credentials:\s*['"]same-origin['"]/.test(apiSrc)
-    || /wireNeedsHumanToggle[\s\S]{0,1200}conversation_paused/.test(apiSrc),
+  /credentials:\s*['"]same-origin['"]/.test(needsHumanToggleSrc)
+    || /conversation_paused/.test(needsHumanToggleSrc),
 );
 
 console.log('\n[3] Python lifecycle + fail-closed unit behaviour');
