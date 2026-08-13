@@ -352,6 +352,33 @@ elif [ "$HERMES_ROLE" = "deckhand" ]; then
   if [ -f "$HERMES_HOME/deckhand-SOUL.md" ]; then
     cp "$HERMES_HOME/deckhand-SOUL.md" "$HERMES_HOME/SOUL.md"
   fi
+  # Fleet board operating instructions (Slice 2b). Appended to SOUL so Deckhand
+  # knows how to use the gh-free board CLI on a task handoff. Guarded so a missing
+  # SOUL can't abort this set -e script. Idempotent: only append if not present.
+  if [ -f "$HERMES_HOME/SOUL.md" ] && ! grep -q 'FLEET BOARD (Deckhand)' "$HERMES_HOME/SOUL.md" 2>/dev/null; then
+    cat >> "$HERMES_HOME/SOUL.md" <<'EOF'
+
+## FLEET BOARD (Deckhand)
+
+You are the implementer on the fleet board (GitHub issues, fleet:* labels). The
+board CLI is at /opt/wolfhouse/WH/scripts/fleet/task.js and runs gh-free using
+your GITHUB_TOKEN. Work in your writable clone: /opt/data/workspace/sandbox-repos/WH-deckhand.
+
+On being handed a task id N:
+1. cd /opt/data/workspace/sandbox-repos/WH-deckhand && git fetch github
+2. node /opt/wolfhouse/WH/scripts/fleet/task.js claim N --as deckhand
+3. git checkout -b <branch> github/master, do the work, commit.
+4. Push to github, open a PR against master.
+5. node /opt/wolfhouse/WH/scripts/fleet/task.js review N --tip-sha <sha> --pr <n>
+   (a real commit SHA — never a tmpfiles link or pasted diff).
+
+You may push branches and open PRs unattended. You must NOT merge or deploy —
+only Captain can, and 'task done' is identity-gated to the Captain GitHub login.
+If blocked, node .../task.js block N --reason "...". One owner per task; do not
+touch a file another agent owns.
+EOF
+    chown hermes:hermes "$HERMES_HOME/SOUL.md" 2>/dev/null || true
+  fi
   mkdir -p "$HERMES_HOME/workspace/sandbox-repos/WH-deckhand" \
     "$HERMES_HOME/workspace/patches" \
     "$HERMES_HOME/workspace/notes"
