@@ -25,7 +25,8 @@ or any `/staff/inbox/*` route.
 | 5 | Identity linking across channels (optional) | not started |
 | mockup slice A | Inbox chrome channel defaults: WhatsApp Auto\|Draft\|Off, Email Draft\|Off; school selector under header removed | **done** (#545) |
 | mockup slice B | Column 4 guest card: stay facts + collapsible collections, dims zero-count, no invented euros | **done** (#546) |
-| mockup slice C | Cream / forest / sage visual tokens on the four-column Inbox (no layout/API change) | this PR |
+| mockup slice C | Cream / forest / sage visual tokens on the four-column Inbox (no layout/API change) | **done** (#547) |
+| mockup slice D | Column 2 list rows: initials avatars, hide old chips, people multi-select | this PR |
 
 ## Why it feels bulky and redundant
 
@@ -218,11 +219,12 @@ Existing after later phases:
 - `inbox-views.js` — saved-view rail
 - `inbox-broadcast.js` — email broadcast composer (create + honest 501 / send counts)
 - `inbox-shell.js` — Inbox chrome top bar (slice A): WhatsApp / Email channel-default pills; mockup visual tokens (slice C) inject `#inbox-mockup-theme-style` from the same module
+- `inbox-context.js` — right panel guest card (slice B)
+- `inbox-rows.js` — column 2 list rows (slice D): initials avatars, hide old chips, people multi-select
 
 Still to build:
 
-- Inbox shell leftovers — routing / keyboard shortcuts (column layout is `inbox-columns.js`; view rail is `inbox-views.js`; top-bar channel defaults are slice A)
-- `inbox-context.js` — right panel (person, bookings, lessons, waivers, notes)
+- Inbox shell leftovers — routing / keyboard shortcuts (column layout is `inbox-columns.js`; view rail is `inbox-views.js`; top-bar channel defaults are slice A; list rows are slice D)
 - `inbox-approvals.js` — approvals queue
 
 ## API consolidation
