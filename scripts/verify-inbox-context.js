@@ -318,6 +318,34 @@ ok('wraps wireInboxSidebarToggle rather than rewriting loadConvDetail',
     && info.includes('Open full profile'));
 }
 
+
+{
+  const data = {
+    success: true,
+    phone: '+34000000001',
+    identity: { display_name: 'SliceB AllDay One', email: '', language: 'en', display_tags: ['hot_lead'] },
+    bookings: [],
+    service_records: [{ service_type: 'group_lesson' }],
+    waivers: [],
+  };
+  const condensed = fns.customerCondensedHtml(data, {});
+  const full = fns.customerFullHtml(data, {});
+  ok('condensed card is one surface with create booking, no open-profile',
+    condensed.includes('id="inbox-customer-card"')
+    && condensed.includes('inbox-client-info-name')
+    && condensed.includes('Create booking')
+    && !condensed.includes('Open full profile')
+    && !condensed.includes('id="inbox-guest-card"'));
+  ok('full Guest card is the Customers profile (fields + bookings + tags)',
+    full.includes('is-full')
+    && full.includes('customers-profile-name')
+    && full.includes('customers-profile-fields')
+    && full.includes('Linked bookings')
+    && full.includes('Previous lessons')
+    && full.includes('Create booking')
+    && full.includes('Edit profile'));
+}
+
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
 if (fail > 0) {

@@ -81,6 +81,18 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-client-info-open{display:inline-block;margin-top:8px;font-size:12px;font-weight:600;',
   'color:var(--primary);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;',
   'text-underline-offset:2px}',
+  '.inbox-two-col.inbox-shell-cols #inbox-detail-sidebar > .inbox-customer-card{',
+  'overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;',
+  'max-height:none;min-height:0;flex:1 1 auto;height:100%;margin:0;',
+  'box-sizing:border-box;padding:12px 14px;background:var(--surface);',
+  'border:1px solid var(--border-soft);border-radius:var(--radius-sm);',
+  'display:flex;flex-direction:column;gap:10px;',
+  '}',
+  '.inbox-customer-card.is-full{padding:16px 18px;gap:14px}',
+  '.inbox-customer-card .customers-profile-summary{margin-bottom:0;padding-bottom:12px}',
+  '.inbox-customer-card .customers-profile-hdr-actions{margin-left:auto;display:flex;flex-wrap:wrap;gap:6px}',
+  '.inbox-customer-card .customers-section{margin-top:4px}',
+  '.inbox-customer-card .customers-section-hdr{font-size:11px}',
 ].join('');
 
 var inboxContextLastComposite = null;
@@ -746,6 +758,212 @@ function inboxClientInfoHtml(data, opts) {
   return html;
 }
 
+function inboxContextIsGuestMode() {
+  var shell = typeof document !== 'undefined' ? document.getElementById('inbox-shell') : null;
+  return !!(shell
+    && shell.getAttribute('data-col1') === 'icons'
+    && shell.getAttribute('data-col2') === 'hidden'
+    && shell.getAttribute('data-col4') === 'wide');
+}
+
+function inboxCustomerFromConv(conv) {
+  conv = conv || {};
+  return {
+    success: true,
+    phone: conv.phone || conv.guest_phone || '',
+    identity: {
+      display_name: conv.guest_name || conv.display_name || '',
+      email: conv.email || '',
+      language: conv.language || '',
+    },
+    bookings: [],
+    service_records: [],
+    messages: [],
+    waivers: [],
+  };
+}
+
+function inboxCustomerMerge(base, extra) {
+  var out = extra && extra.success !== false ? extra : (base || inboxCustomerFromConv({}));
+  if (base && base.phone && !out.phone) out.phone = base.phone;
+  if (base && base.identity) {
+    out.identity = out.identity || {};
+    if (!out.identity.display_name && base.identity.display_name) out.identity.display_name = base.identity.display_name;
+    if (!out.identity.email && base.identity.email) out.identity.email = base.identity.email;
+    if (!out.identity.language && base.identity.language) out.identity.language = base.identity.language;
+  }
+  return out;
+}
+
+function inboxCustomerCondensedHtml(data, opts) {
+  opts = opts || {};
+  var inner = inboxClientInfoHtml(data, opts);
+  inner = inner.replace(
+    /<button type="button" class="inbox-client-info-open"[\s\S]*?<\/button>/,
+    '<div class="inbox-guest-actions">' +
+      '<button type="button" class="btn inbox-guest-create-booking" id="inbox-create-booking-for-guest">' +
+      inboxContextEsc(inboxContextT('customers.detail.createBooking', 'Create booking')) +
+      '</button></div>'
+  );
+  return '<div class="inbox-customer-card" id="inbox-customer-card">' + inner + '</div>';
+}
+
+function inboxCustomerField(label, value, muted) {
+  return '<div class="customers-profile-field"><span class="customers-profile-field-label">' +
+    inboxContextEsc(label) + '</span><span class="customers-profile-field-value' +
+    (muted ? ' is-muted' : '') + '">' + inboxContextEsc(value) + '</span></div>';
+}
+
+function inboxCustomerFullHtml(data, opts) {
+  opts = opts || {};
+  var id = (data && data.identity) || {};
+  var cacheRow = inboxClientInfoCacheRow(data && data.phone);
+  var name = id.display_name || (cacheRow && cacheRow.display_name) || (data && data.phone) || 'Guest';
+  var phone = (data && data.phone) || '';
+  var email = id.email || (cacheRow && cacheRow.email) || '';
+  var language = id.language || (cacheRow && cacheRow.language) || '';
+  var notes = '';
+  if (data && data.notes) notes = data.notes.internal_staff_notes || data.notes.notes || '';
+  if (!notes && opts.conv && opts.conv.internal_staff_notes) notes = opts.conv.internal_staff_notes;
+  var lastSetup = (data && data.last_setup_summary) || '';
+  var school = '';
+  try {
+    if (typeof isSunsetSurfActive === 'function' && isSunsetSurfActive() && typeof getSunsetLocationLabel === 'function') {
+      school = getSunsetLocationLabel() || '';
+    }
+  } catch (_e) { school = ''; }
+  var html = '<div class="inbox-customer-card is-full" id="inbox-customer-card">';
+  html += '<div class="customers-profile-summary">';
+  html += '<div class="customers-profile-summary-hdr">';
+  html += '<div class="customers-profile-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
+  html += '<div class="customers-profile-identity">';
+  html += '<h3 class="customers-profile-name">' + inboxContextEsc(name) + '</h3>';
+  html += '<div class="customers-profile-contact">' + inboxContextEsc([phone, email].filter(Boolean).join(' · ') || '—') + '</div>';
+  html += '</div>';
+  html += '<div class="customers-profile-hdr-actions">';
+  html += '<button type="button" class="btn btn-ghost" id="inbox-create-booking-for-guest">' +
+    inboxContextEsc(inboxContextT('customers.detail.createBooking', 'Create booking')) + '</button>';
+  html += '<button type="button" class="btn btn-ghost" id="inbox-customer-edit-profile">' +
+    inboxContextEsc(inboxContextT('customers.editProfile', 'Edit profile')) + '</button>';
+  html += '</div></div>';
+  html += inboxClientInfoChipsHtml(data, cacheRow);
+  html += '<div class="customers-profile-fields">';
+  html += inboxCustomerField(inboxContextT('customers.detail.phone', 'Phone'), phone || '—', !phone);
+  html += inboxCustomerField(inboxContextT('customers.detail.email', 'Email'), email || '—', !email);
+  if (school) html += inboxCustomerField(inboxContextT('customers.detail.school', 'Active school'), school, false);
+  html += inboxCustomerField(inboxContextT('customers.detail.language', 'Language'), language || '—', !language);
+  html += inboxCustomerField(inboxContextT('customers.detail.lastSetup', 'Last setup'), lastSetup || inboxContextT('customers.detail.noServices', 'No services yet'), !lastSetup);
+  html += inboxCustomerField(inboxContextT('customers.detail.notes', 'Notes for next time'), notes || inboxContextT('customers.detail.noNotes', 'No notes yet'), !notes);
+  html += '</div></div>';
+
+  var bookings = (data && data.bookings) || [];
+  if (typeof renderCustomerLinkedBookingsSection === 'function') {
+    html += String(renderCustomerLinkedBookingsSection(data) || '').replace('id="cust-linked-bookings-section"', '');
+  } else {
+    html += '<div class="customers-section">';
+    html += '<div class="customers-section-hdr">' + inboxContextEsc(inboxContextT('customers.detail.linkedBookings', 'Linked bookings')) + '</div>';
+    html += '<div class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noLinkedBookings', 'No linked bookings yet')) + '</div>';
+    html += '</div>';
+  }
+
+  function collapse(title, count, body) {
+    if (typeof renderCollapsibleCustomerSection === 'function') {
+      return renderCollapsibleCustomerSection({ title: title, count: count, body: body });
+    }
+    return '<details class="customers-collapsible"><summary>' + inboxContextEsc(title) +
+      ' <span>' + inboxContextEsc(String(count)) + '</span></summary>' + body + '</details>';
+  }
+
+  var tagsHtml = inboxClientInfoChipsHtml(data, cacheRow) ||
+    '<div class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noTags', 'No tags')) + '</div>';
+  html += collapse(inboxContextT('customers.detail.tags', 'Tags'), ((id.display_tags || []).length), tagsHtml);
+
+  var services = (data && data.service_records) || [];
+  var svcBody = '';
+  if (services.length) {
+    svcBody = '<table class="customers-row-table"><thead><tr><th>Date</th><th>Service</th><th>Qty</th><th>Status</th></tr></thead><tbody>';
+    for (var si = 0; si < services.length; si++) {
+      var r = services[si];
+      svcBody += '<tr><td>' + inboxContextEsc(String(r.service_date || '—')) + '</td><td>' +
+        inboxContextEsc(String(r.service_type || '—').replace(/_/g, ' ')) + '</td><td>' +
+        inboxContextEsc(String(r.quantity != null ? r.quantity : '—')) + '</td><td>' +
+        inboxContextEsc(String(r.service_status || '—')) + '</td></tr>';
+    }
+    svcBody += '</tbody></table>';
+  } else {
+    svcBody = '<div class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noServices', 'No services yet')) + '</div>';
+  }
+  html += collapse(inboxContextT('customers.detail.services', 'Previous lessons and rentals'), services.length, svcBody);
+
+  var messages = (data && data.messages) || [];
+  var msgBody = '';
+  if (messages.length) {
+    for (var mi = 0; mi < messages.length; mi++) {
+      var m = messages[mi];
+      msgBody += '<div class="customers-msg"><div class="customers-msg-dir">' +
+        inboxContextEsc(m.direction || '') + '</div><div>' + inboxContextEsc(m.message_text || '') + '</div></div>';
+    }
+  } else {
+    msgBody = '<div class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noMessages', 'No messages')) + '</div>';
+  }
+  html += collapse(inboxContextT('customers.detail.messages', 'Recent messages'), messages.length, msgBody);
+
+  if (typeof renderCustomerWaiverFormsSection === 'function') {
+    html += renderCustomerWaiverFormsSection(data);
+  }
+  html += '</div>';
+  return html;
+}
+
+function inboxCustomerPaint(sidebar, conv, composite, customer) {
+  if (!sidebar) return;
+  var data = inboxCustomerMerge(inboxCustomerFromConv(conv), customer || inboxContextLastCustomer);
+  inboxContextLastCustomer = data;
+  inboxContextLastConv = conv;
+  var full = inboxContextIsGuestMode();
+  sidebar.innerHTML = full
+    ? inboxCustomerFullHtml(data, { composite: composite, conv: conv })
+    : inboxCustomerCondensedHtml(data, { composite: composite });
+  inboxContextWireActions(sidebar, { conversation: conv });
+  inboxCustomerWireFull(sidebar, data);
+}
+
+function inboxCustomerWireFull(sidebar, data) {
+  var edit = sidebar && sidebar.querySelector('#inbox-customer-edit-profile');
+  if (edit && edit.dataset.inboxCustomerWired !== '1') {
+    edit.dataset.inboxCustomerWired = '1';
+    edit.addEventListener('click', function() {
+      var phone = data && data.phone;
+      if (typeof normalizeCustomerPhoneClient === 'function') phone = normalizeCustomerPhoneClient(phone);
+      if (typeof openCustomerCardForPhone === 'function' && phone) openCustomerCardForPhone(phone);
+    });
+  }
+  if (typeof wireCustomerLinkedBookingsActions === 'function') {
+    try { wireCustomerLinkedBookingsActions(); } catch (_e) { /* ignore */ }
+  }
+}
+
+function inboxCustomerSyncDensity() {
+  var sidebar = inboxContextSidebarEl();
+  if (!sidebar || !inboxContextLastConv) return;
+  var wantFull = inboxContextIsGuestMode();
+  var card = sidebar.querySelector('#inbox-customer-card');
+  if (card && card.classList.contains('is-full') === wantFull) return;
+  inboxCustomerPaint(sidebar, inboxContextLastConv, inboxContextLastComposite, inboxContextLastCustomer);
+}
+
+function inboxContextWrapColumnsApply() {
+  if (typeof inboxColumnsApply !== 'function' || inboxColumnsApply._inboxCustomerWrapped) return;
+  var legacy = inboxColumnsApply;
+  function wrapped() {
+    var out = legacy.apply(this, arguments);
+    inboxCustomerSyncDensity();
+    return out;
+  }
+  wrapped._inboxCustomerWrapped = true;
+  inboxColumnsApply = wrapped;
+}
+
 function inboxClientInfoRemove(sidebar) {
   if (!sidebar || !sidebar.querySelector) return;
   var old = sidebar.querySelector('#inbox-client-info');
@@ -762,15 +980,23 @@ function inboxClientInfoWire(sidebar, phone) {
 }
 
 var inboxClientInfoFetchGen = 0;
+var inboxContextLastCustomer = null;
+var inboxContextLastConv = null;
 
 function inboxClientInfoMount(sidebar, conv, composite) {
+  inboxCustomerLoad(sidebar, conv, composite);
+}
+
+function inboxCustomerLoad(sidebar, conv, composite) {
   if (!sidebar) return;
   var phone = conv && (conv.phone || conv.guest_phone);
   if (typeof normalizeCustomerPhoneClient === 'function') phone = normalizeCustomerPhoneClient(phone);
-  if (!phone) {
-    inboxClientInfoRemove(sidebar);
-    return;
+  if (inboxContextLastCustomer && phone && inboxContextLastCustomer.phone
+      && String(inboxContextLastCustomer.phone) !== String(phone)) {
+    inboxContextLastCustomer = null;
   }
+  inboxCustomerPaint(sidebar, conv, composite, inboxContextLastCustomer);
+  if (!phone) return;
   var gen = ++inboxClientInfoFetchGen;
   var url = '/staff/customers/' + encodeURIComponent(phone) + '/context?client=' +
     encodeURIComponent(typeof getClient === 'function' ? getClient() : '');
@@ -783,20 +1009,12 @@ function inboxClientInfoMount(sidebar, conv, composite) {
     .then(function(r) { return r.ok ? r.json() : null; })
     .then(function(data) {
       if (gen !== inboxClientInfoFetchGen) return;
-      inboxClientInfoRemove(sidebar);
-      if (!inboxClientInfoHasRecord(data)) return;
+      if (!data || data.success === false) return;
       if (!data.phone) data.phone = phone;
-      var mount = document.createElement('div');
-      mount.innerHTML = inboxClientInfoHtml(data, { composite: composite });
-      var node = mount.firstChild;
-      if (!node) return;
-      sidebar.insertBefore(node, sidebar.firstChild);
-      inboxClientInfoWire(sidebar, phone);
+      inboxContextLastCustomer = data;
+      inboxCustomerPaint(sidebar, conv, composite, data);
     })
-    .catch(function() {
-      if (gen !== inboxClientInfoFetchGen) return;
-      inboxClientInfoRemove(sidebar);
-    });
+    .catch(function() { /* keep condensed fallback */ });
 }
 
 function inboxContextEnsureStyles() {
@@ -840,10 +1058,7 @@ function inboxContextFill(targetEl) {
     return false;
   }
   inboxContextEnsureStyles();
-  sidebar.innerHTML = inboxContextGuestCardHtml(model);
-  inboxContextWireActions(sidebar, model);
-  inboxContextWireSectionMemory(sidebar);
-  inboxClientInfoMount(sidebar, conv, composite);
+  inboxCustomerLoad(sidebar, conv, composite);
   return true;
 }
 
@@ -897,6 +1112,7 @@ function inboxContextInstall() {
   inboxContextEnsureStyles();
   inboxContextInstallFetchHook();
   inboxContextWrapSidebarToggle();
+  inboxContextWrapColumnsApply();
   inboxContextRuntime.wired = true;
   return true;
 }
@@ -916,6 +1132,9 @@ if (typeof window !== 'undefined') {
     guestCardHtml: inboxContextGuestCardHtml,
     clientInfoHtml: inboxClientInfoHtml,
     clientInfoHasRecord: inboxClientInfoHasRecord,
+    customerCondensedHtml: inboxCustomerCondensedHtml,
+    customerFullHtml: inboxCustomerFullHtml,
+    isGuestMode: inboxContextIsGuestMode,
     modelFromComposite: inboxContextModelFromComposite,
     normalizeModel: inboxContextNormalizeModel,
     fill: inboxContextFill,

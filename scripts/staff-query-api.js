@@ -20465,6 +20465,14 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   .inbox-two-col.inbox-shell-cols[data-col2="hidden"] .inbox-empty-right{margin-left:calc(-1 * var(--inbox-col-gap))}
   .inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-main,
   .inbox-two-col.inbox-shell-cols[data-col4="hidden"] .inbox-empty-right{margin-right:calc(-1 * var(--inbox-col-gap))}
+  /* Guest: collapse the chat track so the customer card takes the remaining width. */
+  .inbox-two-col.inbox-shell-cols[data-col1="icons"][data-col2="hidden"][data-col4="wide"]{
+    grid-template-columns:var(--inbox-col1-w) minmax(0,var(--inbox-col2-w)) 0px minmax(0,1fr);
+  }
+  .inbox-two-col.inbox-shell-cols[data-col1="icons"][data-col2="hidden"][data-col4="wide"] .detail-main,
+  .inbox-two-col.inbox-shell-cols[data-col1="icons"][data-col2="hidden"][data-col4="wide"] .inbox-empty-right{
+    display:none!important;
+  }
   /*
    * Peek-on-demand. A collapsed column leaves the grid and waits above column 3; edge
    * hover, focusing its toggle or Escape-able data-peek slides it in and out. The tracks

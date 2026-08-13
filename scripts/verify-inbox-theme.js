@@ -212,10 +212,10 @@ console.log('\n── rail + guest card + pills ──');
 ok('.inbox-views-item.is-active is styled (filled forest row)',
   /#inbox-shell\s+\.inbox-views-item\.is-active\{/.test(themeCss)
   && /--inbox-forest/.test(themeCss));
-ok('guest card / column 4 sits on paper, not a bulky grey stack',
+ok('guest / customer card sits on a distinct surface, not a bulky grey stack',
   /#inbox-guest-card/.test(themeCss)
   && /\.inbox-guest-card/.test(themeCss)
-  && /--inbox-paper/.test(themeCss));
+  && (/\.inbox-customer-card/.test(themeCss) || /--inbox-paper/.test(themeCss)));
 ok('zero-count guest sections stay dimmed in sage',
   /\.inbox-guest-section\.is-zero/.test(themeCss)
   && /--inbox-sage/.test(themeCss));
