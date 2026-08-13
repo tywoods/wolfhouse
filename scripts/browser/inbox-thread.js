@@ -1328,12 +1328,14 @@ function performEmailLunaDraftGenerate(convId, targetEl){
     if(mySeq!==st.seq)return;st.inFlight=false;
     var text=out.parseOk?emailOwnData(out.data,'message_text'):null;
     var accepted=out.status===200?acceptEmailDraftSuccess(out.data,snapConv,text):null;
+    var unavailable=out.status===503&&emailOwnData(out.data,'error')==='luna_email_generation_capability_unavailable'&&emailOwnData(out.data,'reason')==='authoritative_content_and_grounded_policy_not_configured';
     var outcomeUnknown=!out.parseOk||(out.status===200&&!accepted)||(out.status===503&&emailOwnData(out.data,'error')==='draft_save_outcome_unknown');
     if(accepted){st.approvalId=accepted.approval_id;st.savedText=accepted.message_text;st.generationUncertain=false;}
-    if(outcomeUnknown){st.approvalId=null;st.savedText='';st.generationUncertain=true;}
+    if(outcomeUnknown||unavailable){st.approvalId=null;st.savedText='';st.generationUncertain=true;}
     if(selectedConvId!==snapConv)return;
     if(accepted){ta.value=accepted.message_text;updateEmailDraftByteCount(targetEl,ta.value);showDraftSendStatus(statusEl,'ok','Luna draft generated — review and edit before approval.');}
     else if(out.status===422)showDraftSendStatus(statusEl,'blocked','Luna handoff required; draft was not changed.');
+    else if(unavailable)showDraftSendStatus(statusEl,'blocked','Luna email generation is unavailable: authoritative email content and grounded policy are not configured. Reload the conversation or page before trying again.');
     else if(outcomeUnknown)showDraftSendStatus(statusEl,'blocked','Draft save outcome is unknown. Reload the conversation or page before generating again.');
     else showDraftSendStatus(statusEl,'error','Draft generation failed.');
     setEmailReplyControlsDisabled(targetEl,st.generationUncertain,st.locked);
