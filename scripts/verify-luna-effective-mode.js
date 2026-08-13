@@ -134,6 +134,10 @@ function missingTable(name) {
   return err;
 }
 
+// Audit columns only. The resolver never reads paused_at/created_at/updated_at — `paused: true`
+// is what decides — so this is dated a day back purely so the row reads as an existing pause.
+const PAUSE_FIXTURE_AUDIT_TS = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
 function pauseRow(clientSlug, scope) {
   return {
     id:              `pause-${scope}`,
@@ -145,12 +149,12 @@ function pauseRow(clientSlug, scope) {
     paused:          true,
     pause_reason:    `${scope} pause fixture`,
     paused_by:       'gate-fixture',
-    paused_at:       '2026-08-13T00:00:00.000Z',
+    paused_at:       PAUSE_FIXTURE_AUDIT_TS,
     resumed_by:      null,
     resumed_at:      null,
     metadata:        scope === 'global' ? { scope: 'global' } : {},
-    created_at:      '2026-08-13T00:00:00.000Z',
-    updated_at:      '2026-08-13T00:00:00.000Z',
+    created_at:      PAUSE_FIXTURE_AUDIT_TS,
+    updated_at:      PAUSE_FIXTURE_AUDIT_TS,
   };
 }
 
