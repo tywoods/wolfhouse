@@ -445,6 +445,8 @@
     "verify:email-outbound-forced-post-send-uncertainty-seam": "node scripts/verify-email-outbound-forced-post-send-uncertainty-seam.js",
     "verify:staff-email-inbox-routes": "node scripts/verify-staff-email-inbox-routes.js",
     "verify:staff-email-luna-draft-route": "node scripts/verify-staff-email-luna-draft-route.js",
+    "verify:staff-email-luna-unavailable-capability": "node scripts/verify-staff-email-luna-unavailable-capability.js",
+    "verify:staff-email-luna-catch-mutation": "node scripts/verify-staff-email-luna-catch-mutation.js",
     "verify:staff-email-inbox-mailbox-authority-binding": "node scripts/verify-staff-email-inbox-mailbox-authority-binding.js",
     "verify:staff-email-outbound-recovery-route": "node scripts/verify-staff-email-outbound-recovery-route.js",
     "verify:staff-email-inbox-ui": "node scripts/verify-staff-email-inbox-ui.js",
