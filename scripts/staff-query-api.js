@@ -20192,44 +20192,44 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   max-width:1800px!important;width:100%;margin:0 auto;padding:var(--tab-top-gap) 20px 12px!important;
   display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box;align-self:center;
 }
-#tab-conversations.active:has([data-inbox-preset="chat"][aria-pressed="true"]) #wrap.inbox-shell-wrap,
-#tab-conversations.active:has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
+body:has(#tab-conversations.active):has([data-inbox-preset="chat"][aria-pressed="true"]) #wrap.inbox-shell-wrap,
+body:has(#tab-conversations.active):has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
   max-width:1240px!important;
 }
-#tab-conversations:not(:has([data-inbox-preset="chat"][aria-pressed="true"])) .inbox-toolbar-channels{
+body:not(:has([data-inbox-preset="chat"][aria-pressed="true"])) .inbox-toolbar-channels{
   justify-content:flex-end;
 }
-#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .detail-main,
-#tab-conversations:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .detail-main{gap:0;padding:0}
-#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .detail-header,
-#tab-conversations:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .detail-header{
+body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .detail-main,
+body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .detail-main{gap:0;padding:0}
+body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .detail-header,
+body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .detail-header{
   background:var(--surface);border:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);
   border-radius:var(--radius) var(--radius) 0 0;margin:0;box-shadow:none;
 }
-#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .thread-section,
-#tab-conversations:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .thread-section{
+body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .thread-section,
+body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .thread-section{
   background:var(--surface);border:1px solid var(--border-soft);border-top:none;
   border-radius:0 0 var(--radius) var(--radius);
 }
-#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .thread-messages,
-#tab-conversations:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .thread-messages{
-  padding:12px 8px 10px;
+body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .thread-messages,
+body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .thread-messages{
+  padding:12px 16px 10px;
 }
-#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .msg.inbound,
-#tab-conversations:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .msg.inbound{margin-left:5px;margin-right:14px}
-#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .msg.outbound,
-#tab-conversations:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .msg.outbound{margin-right:5px;margin-left:14px}
-#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .draft-panel,
-#tab-conversations:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .draft-panel{margin-top:12px;padding-top:8px}
-#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .btn-email-save-draft,
-#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .btn-email-approve-send,
-#tab-conversations:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .btn-email-save-draft,
-#tab-conversations:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .btn-email-approve-send{
+body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .msg.inbound,
+body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .msg.inbound{margin-left:8px;margin-right:28px}
+body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .msg.outbound,
+body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .msg.outbound{margin-right:8px;margin-left:28px}
+body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .draft-panel,
+body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .draft-panel{margin-top:12px;padding-top:8px}
+body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .btn-email-save-draft,
+body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .btn-email-approve-send,
+body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .btn-email-save-draft,
+body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .btn-email-approve-send{
   min-height:0;height:auto;padding:9px 16px;font-size:12px;
 }
-#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-peek-edge-col4,
-#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .sidebar-expand-btn,
-#tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell[data-col4="hidden"] .detail-sidebar{
+body:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-peek-edge-col4,
+body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .sidebar-expand-btn,
+body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell[data-col4="hidden"] .detail-sidebar{
   display:none!important;pointer-events:none!important;
 }
 @media(max-width:900px){
@@ -20648,22 +20648,22 @@ body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls
   .inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-peek-edge-col4{display:block;right:0}
 }
 @media(min-width:901px){
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols{
+  body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols{
     --inbox-col2-w:252px;
     grid-template-columns:minmax(0,252px) minmax(var(--inbox-col3-min),1fr) var(--inbox-col1-w);
   }
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left{grid-column:1}
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols .detail-main,
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols .inbox-chat-guest-host{grid-column:2}
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-col1{grid-column:3}
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-main,
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .inbox-empty-right{margin-right:0}
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-toolbar-top{
+  body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left{grid-column:1}
+  body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols .detail-main,
+  body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols .inbox-chat-guest-host{grid-column:2}
+  body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-col1{grid-column:3}
+  body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-main,
+  body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .inbox-empty-right{margin-right:0}
+  body:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-toolbar-top{
     grid-template-columns:minmax(0,252px) minmax(0,1fr) var(--inbox-col1-w,240px) auto;
   }
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-toolbar-channels{grid-column:1;order:1}
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-chat-chrome-slot{grid-column:2;order:2}
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-layout-controls{grid-column:4;order:3}
+  body:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-toolbar-channels{grid-column:1;order:1}
+  body:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-chat-chrome-slot{grid-column:2;order:2}
+  body:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-layout-controls{grid-column:4;order:3}
 }
 /* Chat view: name click swaps the chat column for the full guest card. Full/Guest presets unchanged. */
 .inbox-chat-guest-host{display:none}

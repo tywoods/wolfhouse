@@ -122,7 +122,7 @@ var INBOX_CONTEXT_CSS = [
   'overflow:hidden;background:var(--surface);border:1px solid var(--border-soft);',
   'border-radius:var(--radius);}',
   '#inbox-shell .inbox-left .inbox-conv-search-wrap{flex:0 0 auto;padding:10px 12px 8px;',
-  'border-bottom:1px solid var(--border-soft);background:var(--surface-soft)}',
+  'border-bottom:1px solid var(--border-soft);background:var(--surface)}',
   '#inbox-shell .inbox-conv-search{width:100%;box-sizing:border-box;height:32px;padding:0 10px;',
   'border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);',
   'font-size:13px}',
