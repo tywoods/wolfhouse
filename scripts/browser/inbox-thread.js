@@ -1880,7 +1880,7 @@ function loadConvDetail(convId, targetEl){
 
     html += '<div class="draft-panel">';
     html +=   '<div class="draft-label">';
-    html +=     '<span style="font-size:11px;color:var(--text-3)">' + escHtml(t('inbox.detail.reply.label')) + '</span>';
+    html +=     '<label for="draft-textarea" style="font-size:11px;color:var(--text-3)">' + escHtml(t('inbox.detail.reply.label')) + '</label>';
     html +=     inboxComposerChannelSwitchHtml(composerChannel);
     html +=   '</div>';
     if (missingEmail) {
