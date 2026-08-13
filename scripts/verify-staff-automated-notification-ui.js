@@ -84,7 +84,9 @@ for (const token of forbiddenUi) {
 
 console.log('\n── Luna Staff portal layout ──');
 ok('global pause not in banner actions', bannerActionsSrc && !bannerActionsSrc.includes('id="cc-luna-global-pause"'));
-ok('global pause in tabs nav row', /id="tabs"[\s\S]*?id="cc-luna-global-pause"/.test(src));
+ok('global pause lives in Inbox rail (not the header tabs row)',
+  /id="inbox-channel-autonomy-slot"[\s\S]{0,400}id="cc-luna-global-pause"/.test(src)
+  && !/<div id="tabs"[\s\S]*?id="cc-luna-global-pause"[\s\S]*?id="nav-menu-tools"/.test(src));
 ok('tabs pause label copy', src.includes('Pause Luna Globally:'));
 ok('label and switch inline in tabs control', /class="tabs-global-pause-toggle"[\s\S]*?Pause Luna Globally:[\s\S]*?luna-global-pause-switch/.test(src));
 ok('global pause switch id preserved', src.includes('id="luna-global-pause-switch"'));

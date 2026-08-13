@@ -176,6 +176,7 @@ function wireInboxLunaModeControl(targetEl){
 }
 
 function wireInboxNeedsHumanRaise(targetEl){
+  targetEl = inboxThreadScope(targetEl);
   var btn = targetEl && targetEl.querySelector('#inbox-needs-human-raise');
   var toggle = targetEl && targetEl.querySelector('#conv-needs-human-toggle');
   if (!btn || !toggle || btn.dataset.wiredNeedsHumanRaise === '1') return;

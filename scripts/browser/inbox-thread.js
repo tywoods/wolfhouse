@@ -169,6 +169,43 @@ function updateInboxConvCardNeedsHuman(convId, needsHuman){
   updateInboxConvCardStatusPills(convId);
 }
 
+function inboxComposerChannelFor(conv){
+  var id = conv && (conv.conversation_id || conv.id);
+  if (id && inboxComposerChannelByConv[id]) return inboxComposerChannelByConv[id];
+  return (conv && conv.channel === 'email') ? 'email' : 'whatsapp';
+}
+
+function inboxGuestEmailOf(conv){
+  var email = (conv && (conv.email || conv.guest_email)) || '';
+  if (!email && typeof inboxContextLastCustomer !== 'undefined' && inboxContextLastCustomer && inboxContextLastCustomer.identity) {
+    email = inboxContextLastCustomer.identity.email || '';
+  }
+  return String(email || '').trim();
+}
+
+function inboxComposerChannelSwitchHtml(selected){
+  var html = '<div class="inbox-composer-channel" role="group" aria-label="Reply channel">';
+  html += '<button type="button" class="inbox-composer-channel-btn' + (selected === 'whatsapp' ? ' is-active' : '') + '" data-inbox-composer-channel="whatsapp">WhatsApp</button>';
+  html += '<button type="button" class="inbox-composer-channel-btn' + (selected === 'email' ? ' is-active' : '') + '" data-inbox-composer-channel="email">Email</button>';
+  html += '</div>';
+  return html;
+}
+
+function wireInboxComposerChannelSwitch(conv, targetEl){
+  if (!targetEl || !targetEl.querySelectorAll) return;
+  var btns = targetEl.querySelectorAll('[data-inbox-composer-channel]');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].addEventListener('click', function(){
+      var next = this.getAttribute('data-inbox-composer-channel');
+      var id = conv && (conv.conversation_id || conv.id);
+      if (id) inboxComposerChannelByConv[id] = next;
+      loadConvDetail(id, targetEl);
+    });
+  }
+}
+
+var inboxComposerChannelByConv = {};
+
 function inboxPaintChatChromeSlot(conv, lunaGuestPaused){
   var slot = typeof el === 'function' ? el('inbox-chat-chrome-slot') : (typeof document !== 'undefined' ? document.getElementById('inbox-chat-chrome-slot') : null);
   if (!slot) return;
@@ -1638,7 +1675,10 @@ function loadConvDetail(convId, targetEl){
       : (ctx && (ctx.booking_code || ctx.booking_id) ? [ctx] : []);
     var draft = (draftData.success && draftData.draft)     ? draftData.draft    : null;
     var lunaGuestPaused = isLunaGuestAutomationPaused([pauseData, detailData, c]);
-    var isEmailConversation = isAuthoritativeEmailConversation(c);
+    var composerChannel = inboxComposerChannelFor(c);
+    var guestEmail = inboxGuestEmailOf(c);
+    var isEmailConversation = composerChannel === 'email';
+    var missingEmail = isEmailConversation && !guestEmail;
 
     /* ── Header ── */
     var convPhone = normalizeCustomerPhoneClient(c.phone);
@@ -1693,12 +1733,12 @@ function loadConvDetail(convId, targetEl){
 
     html += '<div class="draft-panel">';
     html +=   '<div class="draft-label">';
-    if (useEmailReplyUi) {
-      html += '<label for="draft-textarea" style="font-size:11px;color:var(--text-3)">' + escHtml(t('inbox.detail.reply.label')) + '</label>';
-    } else {
-      html +=     '<span style="font-size:11px;color:var(--text-3)">' + escHtml(t('inbox.detail.reply.label')) + '</span>';
-    }
+    html +=     '<span style="font-size:11px;color:var(--text-3)">' + escHtml(t('inbox.detail.reply.label')) + '</span>';
+    html +=     inboxComposerChannelSwitchHtml(composerChannel);
     html +=   '</div>';
+    if (missingEmail) {
+      html += '<div class="inbox-composer-no-email" role="status">Update email address in guest profile to email.</div>';
+    } else {
     html += '<textarea id="draft-textarea" placeholder="' + escHtml(t('inbox.detail.reply.editPlaceholder')) + '"' +
             ((isEmailConversation && !useEmailReplyUi) || (useEmailReplyUi && emailSt && emailSt.locked) ? ' disabled' : '') + '>' +
             escHtml(draftText) + '</textarea>';
@@ -1725,6 +1765,7 @@ function loadConvDetail(convId, targetEl){
       html += '</div>';
       html += '<div id="draft-send-status" class="draft-send-status"></div>';
     }
+    }
     html += '</div>'; /* /draft-panel */
 
     /* Dev/testing tools — discreet footer, out of the header */
@@ -1743,8 +1784,10 @@ function loadConvDetail(convId, targetEl){
     targetEl.innerHTML = html;
     inboxPaintChatChromeSlot(c, lunaGuestPaused);
     targetEl.classList.remove('is-loading-detail');
+    wireInboxComposerChannelSwitch(c, targetEl);
 
-    if (useEmailReplyUi) wireInboxEmailReply(convId, targetEl);
+    if (missingEmail) { /* composer shows the update-email note */ }
+    else if (useEmailReplyUi) wireInboxEmailReply(convId, targetEl);
     else if (!isEmailConversation) {
       wireInboxSendReply(convId, c.phone, targetEl);
       wireInboxWhatsAppDraft(convId, targetEl);

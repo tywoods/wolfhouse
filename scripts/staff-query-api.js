@@ -16396,7 +16396,7 @@ body.nav-menu-open .nav-menu-toggle-bars:after{top:0;transform:rotate(-45deg)}
 [data-theme="dark"] .nav-menu-tools .btn-logout{background:#cccccc;color:#1e1e1e;border-color:#cccccc}
 [data-theme="dark"] .nav-menu-tools .staff-theme-toggle{background:#252526;border-color:#3c3c3c;color:#cccccc}
 
-#tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:0;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex:0 0 auto}
+#tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:52px;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex:0 0 auto}
 #tabs .tabs-global-pause{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;align-self:stretch;padding:0 0 0 16px;border:0;background:var(--surface);box-shadow:-16px 0 12px -8px var(--surface);position:sticky;right:0;z-index:2}
 #tabs .tabs-global-pause.luna-global-paused{background:var(--surface);border:0}
 #tabs .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;line-height:1;margin:0;padding:10px 12px 10px 0;font-size:12px;font-weight:600;color:var(--text-2);font-family:var(--font-sans)}
@@ -18596,7 +18596,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .inbox-needs-human-raise{border:1px solid var(--border);background:var(--surface);border-radius:999px;padding:4px 10px;font:inherit;font-size:11px;font-weight:700;color:var(--text-2);cursor:pointer;line-height:1.2;letter-spacing:.01em}
 .inbox-needs-human-raise:hover:not(:disabled){border-color:var(--tan);color:var(--text)}
 .inbox-needs-human-raise:disabled{opacity:.45;cursor:not-allowed}
-.inbox-needs-human-raise.is-on{background:#F5E6D2;color:#A2743D;border-color:#ECD7BC}
+.inbox-needs-human-raise.is-on{background:#E8893A;color:#fff;border-color:#D97706}
 .inbox-header-switch-item{display:inline-flex;align-items:center;gap:6px;cursor:pointer;margin:0;user-select:none}
 .inbox-header-switch-label{font-size:11px;font-weight:600;color:var(--text-2);letter-spacing:.01em;white-space:nowrap;line-height:1.1}
 .inbox-header-switch{position:relative;display:inline-block;width:34px;height:20px;flex-shrink:0}
@@ -18679,8 +18679,12 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .thread-empty{color:var(--text-3);text-align:center;padding:28px;font-size:13px;font-style:italic}
 /* ── Luna draft panel ────────────────────────────────────────────────────── */
 .draft-panel{flex-shrink:0;margin-top:10px;padding-top:0;border-top:none;background:transparent}
+.draft-label{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
+.inbox-composer-channel{display:inline-flex;padding:2px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft);gap:2px}
+.inbox-composer-channel-btn{border:0;background:transparent;border-radius:6px;padding:4px 9px;font-size:11px;font-weight:650;color:var(--text-2);cursor:pointer}
+.inbox-composer-channel-btn.is-active{background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(30,42,36,.10)}
+.inbox-composer-no-email{padding:14px 12px;border:1px dashed var(--border);border-radius:var(--radius);background:transparent;color:var(--text-2);font-size:13px;line-height:1.4}
 .draft-panel textarea{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);box-sizing:border-box}
-.draft-label{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
 .draft-label h3{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin:0}
 .draft-not-sent{background:#EFD9D0;color:#9C5742;font-size:9.5px;font-weight:700;letter-spacing:.06em;padding:3px 9px;border-radius:var(--radius-pill);white-space:nowrap}
 #draft-textarea{width:100%;min-height:104px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;font-size:13px;line-height:1.55;font-family:inherit;resize:vertical;background:var(--surface);color:var(--text);transition:border-color .15s,box-shadow .15s}
@@ -20226,6 +20230,10 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 .inbox-channel-autonomy-slot{flex:0 0 auto;width:100%}
 .inbox-channel-autonomy-slot .inbox-shell-channel-defaults{width:100%;box-sizing:border-box}
+.inbox-global-pause{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;box-sizing:border-box;padding:8px 10px;margin:0;border:1px solid var(--border-soft);border-radius:12px;background:var(--surface)}
+.inbox-global-pause .tabs-global-pause-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;margin:0;cursor:pointer}
+.inbox-global-pause .tabs-global-pause-label{font-size:11px;font-weight:600;color:var(--text-2)}
+.inbox-global-pause .tabs-global-pause-help,.inbox-global-pause #luna-global-pause-status{display:none!important}
 .inbox-views-group{display:flex;flex-direction:column;gap:2px}
 .inbox-views-group-label{
   font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--text-2);
@@ -20689,17 +20697,6 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
   <button class="tab-btn" data-tab="tour-operator"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6 3 4v14l6 2 6-2 6 2V6l-6-2-6 2zM9 6v14M15 4v14"/></svg></span><span class="tab-label" data-i18n="nav.tab.tourOperator">Tour Operator</span></button>
   <button class="tab-btn dev-tab" data-tab="query-tools"><span aria-hidden="true">&#128736;</span> <span data-i18n="nav.tab.devtools">Developer Tools</span></button>
   <button class="tab-btn dev-tab" data-tab="luna-guest-simulator" data-i18n="nav.tab.simulator">Luna Guest Simulator</button>
-  <div class="tabs-global-pause luna-global-pause-card" id="cc-luna-global-pause">
-    <label class="tabs-global-pause-toggle" for="luna-global-pause-switch">
-      <span class="tabs-global-pause-label">Pause Luna Globally:</span>
-      <span class="luna-global-pause-switch">
-        <input type="checkbox" id="luna-global-pause-switch">
-        <span class="luna-global-pause-slider"></span>
-      </span>
-    </label>
-    <span class="al-hint tabs-global-pause-help" id="luna-global-pause-help" data-i18n="lunaStaff.pause.active" hidden>Luna is active for all guest conversations.</span>
-    <span id="luna-global-pause-status" class="luna-pause-action-status" style="display:none"></span>
-  </div>
   <div class="nav-menu-tools" id="nav-menu-tools" aria-label="Account"></div>
 </div>
 <div class="nav-menu-backdrop" id="nav-menu-backdrop" hidden></div>
@@ -21187,11 +21184,11 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <span id="inbox-live-status" class="inbox-live-status" aria-live="polite">Live</span>
       </div>
       <div class="inbox-conv-search-wrap">
-        <button class="btn btn-primary inbox-refresh-btn" id="btn-refresh" data-i18n-title="inbox.refreshTitle" title="Refresh conversation list">&#8635;</button>
         <input type="search" id="inbox-conv-search" class="inbox-conv-search" placeholder="Search contacts" autocomplete="off" data-i18n-placeholder="inbox.search.contacts">
       </div>
       <div class="inbox-chat-chrome-slot" id="inbox-chat-chrome-slot"></div>
       <div class="inbox-layout-controls">
+        <button class="btn btn-primary inbox-refresh-btn" id="btn-refresh" data-i18n-title="inbox.refreshTitle" title="Refresh conversation list">&#8635;</button>
         <div class="inbox-layout-presets" id="inbox-layout-presets" role="group" data-i18n-aria="inbox.layout.presets" aria-label="Column layout">
           <button type="button" class="inbox-layout-preset-btn is-active" data-inbox-preset="all4" aria-pressed="true" aria-keyshortcuts="Alt+0" data-i18n-title="inbox.layout.preset.all4.title" title="Full layout — Alt+0"><span data-i18n="inbox.layout.preset.all4">Full</span></button>
           <button type="button" class="inbox-layout-preset-btn" data-inbox-preset="chat" aria-pressed="false" aria-keyshortcuts="Alt+3" data-i18n-title="inbox.layout.preset.chat.title" title="Chat focus — Alt+3"><span data-i18n="inbox.layout.preset.chat">Chat</span></button>
@@ -21217,6 +21214,17 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </div>
       <div id="inbox-views-rail" class="inbox-views-rail" aria-label="Saved views"></div>
       <div id="inbox-channel-autonomy-slot" class="inbox-channel-autonomy-slot"></div>
+      <div class="tabs-global-pause luna-global-pause-card inbox-global-pause" id="cc-luna-global-pause">
+        <label class="tabs-global-pause-toggle" for="luna-global-pause-switch">
+          <span class="tabs-global-pause-label">Pause Luna Globally:</span>
+          <span class="luna-global-pause-switch">
+            <input type="checkbox" id="luna-global-pause-switch">
+            <span class="luna-global-pause-slider"></span>
+          </span>
+        </label>
+        <span class="al-hint tabs-global-pause-help" id="luna-global-pause-help" data-i18n="lunaStaff.pause.active" hidden>Luna is active for all guest conversations.</span>
+        <span id="luna-global-pause-status" class="luna-pause-action-status" style="display:none"></span>
+      </div>
       <div class="inbox-left-toolbar">
         <div class="inbox-filters">
           <button type="button" class="inbox-filter-btn active" data-inbox-filter="all" id="inbox-filter-all" data-i18n="inbox.filter.all">All Conversations</button>
@@ -28847,6 +28855,9 @@ function scheduleApplyCreatePrefill(){
 function openScheduleCreateModal(context){
   var modal = el('ps-create-modal');
   if (!modal) return;
+  if (typeof document !== 'undefined' && document.body && modal.parentNode !== document.body) {
+    document.body.appendChild(modal);
+  }
   var prep = typeof schedulePortalPrepareCreateOpen === 'function' ? schedulePortalPrepareCreateOpen(context || null) : null;
   if (prep && prep.preserved){
     modal.style.display = 'flex';
@@ -31436,7 +31447,6 @@ function openCreateBookingFromContact(contact){
       phone: (contact.phone || '').toString().trim(),
       staff_notes: contactStaffNotesForBooking(contact) || null,
     };
-    switchToTab('portal-home', null);
     openScheduleCreateModal();
     return;
   }

@@ -116,6 +116,10 @@ var INBOX_CONTEXT_CSS = [
   '#inbox-shell .inbox-conv-search{width:100%;box-sizing:border-box;height:32px;padding:0 10px;',
   'border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);',
   'font-size:13px}',
+  '.inbox-customer-card.is-editing .customers-profile-edit-form{display:flex;flex-direction:column;gap:10px;margin-top:8px}',
+  '.inbox-customer-card.is-editing .customers-edit-field{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--text-2)}',
+  '.inbox-customer-card.is-editing .customers-edit-field input,.inbox-customer-card.is-editing .customers-edit-field textarea{font:inherit;font-weight:500;color:var(--text);padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);width:100%;box-sizing:border-box}',
+  '.inbox-customer-edit-actions{display:flex;gap:8px;margin-top:12px}',
 ].join('');
 
 var inboxContextLastComposite = null;
@@ -851,7 +855,6 @@ function inboxCustomerCondensedHtml(data, opts) {
   html += inboxCustomerField(inboxContextT('customers.detail.phone', 'Phone'), phone || '—', !phone);
   html += inboxCustomerField(inboxContextT('customers.detail.email', 'Email'), email || '—', !email);
   if (school) html += inboxCustomerField(inboxContextT('customers.detail.school', 'Active school'), school, false);
-  html += inboxCustomerField(inboxContextT('customers.detail.language', 'Language'), language || '—', !language);
   html += inboxCustomerField(inboxContextT('customers.detail.lastSetup', 'Last setup'), lastSetup || inboxContextT('customers.detail.noServices', 'No services yet'), !lastSetup);
   html += inboxCustomerField(inboxContextT('customers.detail.notes', 'Notes for next time'), notes || inboxContextT('customers.detail.noNotes', 'No notes yet'), !notes);
   html += '</div>';
@@ -867,7 +870,6 @@ function inboxCustomerCondensedHtml(data, opts) {
   html += inboxContextKv('Lessons', String(lessonsN));
   html += inboxContextKv('Unpaid balance', inboxClientInfoUnpaid(data, opts.composite));
   html += inboxContextKv('Waiver status', inboxClientInfoWaiver(data));
-  html += inboxContextKv('Language', language || '—');
   html += '</div>';
   html += inboxCustomerBookingsListHtml(data);
   html += '<div class="inbox-guest-actions">';
@@ -1018,12 +1020,118 @@ function inboxCustomerPaint(sidebar, conv, composite, customer) {
   var data = inboxCustomerMerge(inboxCustomerFromConv(conv), customer || inboxContextLastCustomer);
   inboxContextLastCustomer = data;
   inboxContextLastConv = conv;
-  var full = inboxContextIsGuestMode();
+  var full = inboxContextIsGuestMode() || inboxCustomerEditing;
   sidebar.innerHTML = full
-    ? inboxCustomerFullHtml(data, { composite: composite, conv: conv })
+    ? (inboxCustomerEditing
+      ? inboxCustomerEditHtml(data, { composite: composite, conv: conv })
+      : inboxCustomerFullHtml(data, { composite: composite, conv: conv }))
     : inboxCustomerCondensedHtml(data, { composite: composite });
   inboxContextWireActions(sidebar, { conversation: conv });
   inboxCustomerWireFull(sidebar, data);
+}
+
+var inboxCustomerEditing = false;
+
+function inboxCustomerStartEdit() {
+  inboxCustomerEditing = true;
+  if (typeof inboxColumnsSetPreset === 'function' && !inboxContextIsGuestMode()) {
+    inboxColumnsSetPreset('guest');
+  }
+  var sidebar = inboxContextSidebarEl();
+  if (sidebar) inboxCustomerPaint(sidebar, inboxContextLastConv, inboxContextLastComposite, inboxContextLastCustomer);
+}
+
+function inboxCustomerCancelEdit() {
+  inboxCustomerEditing = false;
+  var sidebar = inboxContextSidebarEl();
+  if (sidebar) inboxCustomerPaint(sidebar, inboxContextLastConv, inboxContextLastComposite, inboxContextLastCustomer);
+}
+
+function inboxCustomerEditHtml(data, opts) {
+  opts = opts || {};
+  var id = (data && data.identity) || {};
+  var cacheRow = inboxClientInfoCacheRow(data && data.phone);
+  var name = id.display_name || (cacheRow && cacheRow.display_name) || '';
+  var phone = (data && data.phone) || '';
+  var email = id.email || (cacheRow && cacheRow.email) || '';
+  var language = id.language || (cacheRow && cacheRow.language) || '';
+  var notes = '';
+  if (data && data.notes) notes = data.notes.internal_staff_notes || data.notes.notes || '';
+  if (!notes && opts.conv && opts.conv.internal_staff_notes) notes = opts.conv.internal_staff_notes;
+  var html = '<div class="inbox-customer-card is-full is-editing" id="inbox-customer-card">';
+  html += '<div class="customers-section-hdr">' + inboxContextEsc(inboxContextT('customers.editProfile', 'Edit profile')) + '</div>';
+  html += '<div class="customers-section-body customers-profile-edit-form">';
+  html += '<label class="customers-edit-field"><span>' + inboxContextEsc(inboxContextT('customers.detail.name', 'Name')) + '</span>';
+  html += '<input id="inbox-cust-edit-name" type="text" value="' + inboxContextEsc(name) + '"></label>';
+  html += '<label class="customers-edit-field"><span>' + inboxContextEsc(inboxContextT('customers.detail.phone', 'Phone')) + '</span>';
+  html += '<input id="inbox-cust-edit-phone" type="tel" value="' + inboxContextEsc(phone) + '"></label>';
+  html += '<label class="customers-edit-field"><span>' + inboxContextEsc(inboxContextT('customers.detail.email', 'Email')) + '</span>';
+  html += '<input id="inbox-cust-edit-email" type="email" value="' + inboxContextEsc(email) + '"></label>';
+  html += '<label class="customers-edit-field"><span>' + inboxContextEsc(inboxContextT('customers.detail.language', 'Language')) + '</span>';
+  html += '<input id="inbox-cust-edit-language" type="text" value="' + inboxContextEsc(language) + '" placeholder="en, es, …"></label>';
+  html += '<label class="customers-edit-field"><span>' + inboxContextEsc(inboxContextT('customers.detail.notes', 'Notes for next time')) + '</span>';
+  html += '<textarea id="inbox-cust-edit-notes" rows="4">' + inboxContextEsc(notes) + '</textarea></label>';
+  html += '</div>';
+  html += '<div class="customers-profile-actions inbox-customer-edit-actions">';
+  html += '<button type="button" class="btn btn-primary" id="inbox-cust-edit-save">' + inboxContextEsc(inboxContextT('customers.save', 'Save')) + '</button>';
+  html += '<button type="button" class="btn btn-ghost" id="inbox-cust-edit-cancel">' + inboxContextEsc(inboxContextT('customers.cancel', 'Cancel')) + '</button>';
+  html += '</div>';
+  html += '<p id="inbox-cust-edit-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
+  html += '</div>';
+  return html;
+}
+
+function inboxCustomerSaveEdit(data) {
+  var sidebar = inboxContextSidebarEl();
+  var msg = sidebar && sidebar.querySelector('#inbox-cust-edit-msg');
+  var saveBtn = sidebar && sidebar.querySelector('#inbox-cust-edit-save');
+  var nameEl = sidebar && sidebar.querySelector('#inbox-cust-edit-name');
+  var phoneEl = sidebar && sidebar.querySelector('#inbox-cust-edit-phone');
+  var emailEl = sidebar && sidebar.querySelector('#inbox-cust-edit-email');
+  var langEl = sidebar && sidebar.querySelector('#inbox-cust-edit-language');
+  var notesEl = sidebar && sidebar.querySelector('#inbox-cust-edit-notes');
+  var payload = {
+    display_name: nameEl ? String(nameEl.value || '').trim() : '',
+    phone: phoneEl ? String(phoneEl.value || '').trim() : '',
+    email: emailEl ? String(emailEl.value || '').trim() : '',
+    language: langEl ? String(langEl.value || '').trim() : '',
+    notes: notesEl ? String(notesEl.value || '').trim() : '',
+  };
+  if (!payload.display_name || !payload.phone) {
+    if (msg) { msg.className = 'state-msg error'; msg.textContent = inboxContextT('customers.saveRequired', 'Name and phone are required.'); msg.style.display = 'block'; }
+    return;
+  }
+  var currentPhone = (data && data.phone) || payload.phone;
+  if (saveBtn) saveBtn.disabled = true;
+  if (msg) msg.style.display = 'none';
+  var url = '/staff/customers/' + encodeURIComponent(currentPhone) + '?client=' + encodeURIComponent(typeof getClient === 'function' ? getClient() : '');
+  fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(function(r) {
+    return r.json().then(function(body) { return { ok: r.ok, body: body }; });
+  }).then(function(res) {
+    if (!res.ok || !res.body || res.body.success !== true) {
+      throw new Error((res.body && (res.body.error || res.body.message)) || 'Save failed');
+    }
+    inboxCustomerEditing = false;
+    if (inboxContextLastCustomer && inboxContextLastCustomer.identity) {
+      inboxContextLastCustomer.identity.display_name = payload.display_name;
+      inboxContextLastCustomer.identity.email = payload.email;
+      inboxContextLastCustomer.identity.language = payload.language;
+    }
+    if (inboxContextLastCustomer) inboxContextLastCustomer.phone = res.body.phone || payload.phone;
+    if (inboxContextLastCustomer && inboxContextLastCustomer.notes) {
+      inboxContextLastCustomer.notes.internal_staff_notes = payload.notes;
+    }
+    var sidebarNow = inboxContextSidebarEl();
+    if (sidebarNow) inboxCustomerLoad(sidebarNow, inboxContextLastConv, inboxContextLastComposite);
+  }).catch(function(err) {
+    if (msg) { msg.className = 'state-msg error'; msg.textContent = inboxContextT('customers.saveFailed', 'Could not save.') + ' ' + (err.message || ''); msg.style.display = 'block'; }
+  }).finally(function() {
+    if (saveBtn) saveBtn.disabled = false;
+  });
 }
 
 function inboxOpenBookingDrawerHere(booking) {
@@ -1076,10 +1184,18 @@ function inboxCustomerWireFull(sidebar, data) {
   if (edit && edit.dataset.inboxCustomerWired !== '1') {
     edit.dataset.inboxCustomerWired = '1';
     edit.addEventListener('click', function() {
-      var phone = data && data.phone;
-      if (typeof normalizeCustomerPhoneClient === 'function') phone = normalizeCustomerPhoneClient(phone);
-      if (typeof openCustomerCardForPhone === 'function' && phone) openCustomerCardForPhone(phone);
+      inboxCustomerStartEdit();
     });
+  }
+  var save = sidebar && sidebar.querySelector('#inbox-cust-edit-save');
+  if (save && save.dataset.inboxCustomerWired !== '1') {
+    save.dataset.inboxCustomerWired = '1';
+    save.addEventListener('click', function() { inboxCustomerSaveEdit(data); });
+  }
+  var cancel = sidebar && sidebar.querySelector('#inbox-cust-edit-cancel');
+  if (cancel && cancel.dataset.inboxCustomerWired !== '1') {
+    cancel.dataset.inboxCustomerWired = '1';
+    cancel.addEventListener('click', function() { inboxCustomerCancelEdit(); });
   }
   if (!sidebar || !sidebar.querySelectorAll) return;
   var links = sidebar.querySelectorAll('[data-inbox-open-booking]');
