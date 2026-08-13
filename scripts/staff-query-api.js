@@ -18650,7 +18650,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
   .inbox-left{flex:1 1 auto;width:100%;max-width:100%;border-right:none;min-height:0}
   .inbox-two-col #conv-detail{display:none;flex:1 1 auto;min-height:0;min-width:0;overflow:hidden}
   .inbox-two-col.show-thread .inbox-left,
-  .inbox-two-col.show-thread #inbox-views-rail{display:none}
+  .inbox-two-col.show-thread .inbox-col1{display:none}
   .inbox-two-col.show-thread #conv-detail{display:flex;flex-direction:column;width:100%;height:100%;min-height:0}
   .inbox-mobile-back{display:flex;align-items:center;gap:6px;flex-shrink:0;width:100%;min-height:44px;padding:10px 14px;margin:0;border:none;border-bottom:1px solid var(--border-soft);background:var(--surface-soft);color:var(--text);font-size:14px;font-weight:600;cursor:pointer;text-align:left;box-sizing:border-box}
   .inbox-mobile-back:hover{background:var(--surface)}
@@ -20077,8 +20077,10 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .inbox-toolbar-top > .inbox-view-switch{order:-1;margin-right:4px}
 /* Conversations shell mirrors Customers: 1240 wrap + toolbar + two framed cards. */
 /* Equal vertical rhythm: nav→toolbar and toolbar→content = 10px on both Inbox views. */
+/* Four columns need more than the 1240px the two-column shell used: 240 rail + 360 list +
+   480 chat floor + 460 guest card + gaps is already 1582px. */
 #tab-conversations.active #wrap.inbox-shell-wrap{
-  max-width:1240px!important;width:100%;margin:0 auto;padding:var(--tab-top-gap) 20px 12px!important;
+  max-width:1800px!important;width:100%;margin:0 auto;padding:var(--tab-top-gap) 20px 12px!important;
   display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box;align-self:center;
 }
 @media(max-width:900px){
@@ -20087,21 +20089,38 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   }
 }
 .inbox-shell-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;margin-top:0;flex-shrink:0}
-/* Inbox shell: list card | pass-through detail host (chat + bookings float as sibling cards). */
+/*
+ * Inbox shell — the four-column grid (docs/INBOX-PORTAL-REDESIGN.md, "Column layout model").
+ * 1 views rail | 2 list | 3 chat | 4 guest card. Only column 3 is elastic: 1, 2 and 4 snap
+ * between the fixed widths below and 3 absorbs the remainder, so every combination of
+ * collapses is a valid layout and JavaScript never computes a width — it only flips
+ * data-col1 / data-col2 / data-col4 on this container.
+ * The snapping tracks are minmax(0,width): they hold their documented width whenever the
+ * viewport can afford it, and give ground before column 3 breaks its 480px floor.
+ */
 .inbox-two-col.inbox-shell-cols{
-  display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:14px;
+  --inbox-col1-w:240px;
+  --inbox-col2-w:360px;
+  --inbox-col3-min:480px;
+  --inbox-col4-w:300px;
+  --inbox-col-gap:14px;
+  /* widths a peeked column takes as an overlay; the tracks themselves stay collapsed */
+  --inbox-col1-peek-w:240px;
+  --inbox-col2-peek-w:360px;
+  --inbox-col4-peek-w:300px;
+  display:grid;
+  grid-template-columns:var(--inbox-col1-w) minmax(0,var(--inbox-col2-w)) minmax(var(--inbox-col3-min),1fr) minmax(0,var(--inbox-col4-w));
+  grid-template-rows:minmax(0,1fr);
+  gap:14px;
   flex:1;min-height:0;overflow:hidden;width:100%;align-self:stretch;
   border:none;border-radius:0;box-shadow:none;background:transparent;
+  position:relative;
   /* grid row stretches so all columns share the same height as the window */
   align-items:stretch;
 }
-.inbox-two-col.inbox-shell-cols:has(> #inbox-views-rail){
-  grid-template-columns:minmax(148px,200px) minmax(260px,340px) minmax(0,1fr);
-}
 .inbox-views-rail{
   min-width:0;min-height:0;height:auto;align-self:stretch;
-  border:1px solid var(--border-soft);border-radius:var(--radius);
-  background:var(--surface);overflow-x:hidden;overflow-y:auto;
+  overflow-x:hidden;overflow-y:auto;
   padding:10px 8px;display:flex;flex-direction:column;gap:14px;
 }
 .inbox-views-group{display:flex;flex-direction:column;gap:2px}
@@ -20120,6 +20139,15 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .inbox-views-item-count{flex-shrink:0;font-size:11px;font-weight:700;color:var(--text-2)}
 .inbox-views-item.is-active .inbox-views-item-count{color:var(--primary)}
 .inbox-views-empty{padding:8px;font-size:12px;color:var(--text-2)}
+/* Column state → width. Every number the layout has lives in these eight rules. */
+.inbox-two-col.inbox-shell-cols[data-col1="full"]{--inbox-col1-w:240px}
+.inbox-two-col.inbox-shell-cols[data-col1="icons"]{--inbox-col1-w:56px}
+.inbox-two-col.inbox-shell-cols[data-col2="comfortable"]{--inbox-col2-w:360px}
+.inbox-two-col.inbox-shell-cols[data-col2="compact"]{--inbox-col2-w:280px}
+.inbox-two-col.inbox-shell-cols[data-col2="hidden"]{--inbox-col2-w:0px}
+.inbox-two-col.inbox-shell-cols[data-col4="wide"]{--inbox-col4-w:460px}
+.inbox-two-col.inbox-shell-cols[data-col4="peek"]{--inbox-col4-w:300px}
+.inbox-two-col.inbox-shell-cols[data-col4="hidden"]{--inbox-col4-w:0px}
 .inbox-two-col.inbox-shell-cols .inbox-left{
   flex:unset;width:auto;min-width:0;min-height:0;height:auto;max-height:none;
   border-right:none;border:1px solid var(--border-soft);border-radius:var(--radius);
@@ -20192,9 +20220,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   margin-bottom:0!important;
 }
 @media(max-width:900px){
-  .inbox-two-col.inbox-shell-cols{grid-template-columns:1fr;gap:0;border:none}
-  .inbox-two-col.inbox-shell-cols:has(> #inbox-views-rail){grid-template-columns:1fr}
-  .inbox-views-rail{max-height:168px;border-radius:var(--radius)}
+  .inbox-two-col.inbox-shell-cols{grid-template-columns:1fr;grid-template-rows:none;gap:0;border:none}
   .inbox-two-col.inbox-shell-cols .inbox-left,
   .inbox-two-col.inbox-shell-cols #conv-detail{border-radius:var(--radius)}
   .inbox-two-col.inbox-shell-cols #inbox-detail-sidebar > .sidebar-card{
@@ -20202,6 +20228,123 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
     max-height:none;
     flex:0 0 auto;
   }
+}
+/* ── Column 1: views rail ──────────────────────────────────────────────────
+   Holds today's tab switch and filter chips. The saved-view rail replaces this
+   content later without touching the layout mechanism above. */
+.inbox-col1{
+  min-width:0;min-height:0;box-sizing:border-box;align-self:stretch;
+  display:flex;flex-direction:column;gap:10px;
+  padding:10px;overflow-x:hidden;overflow-y:auto;
+  border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);
+}
+.inbox-col1 .inbox-view-switch{display:flex;flex-direction:column;gap:3px;width:100%;box-sizing:border-box;align-self:stretch}
+.inbox-col1 .inbox-view-btn{width:100%;display:flex;align-items:center;gap:8px;text-align:left}
+.inbox-col1 > .inbox-left-toolbar{padding:0;border-bottom:none;background:transparent;position:static;gap:6px}
+.inbox-col1 .inbox-filters{flex-direction:column;flex-wrap:nowrap;gap:4px}
+.inbox-col1 .inbox-filter-btn{width:100%;display:flex;align-items:center;gap:8px;text-align:left}
+.inbox-col1 .inbox-filter-btn .hq-count{margin-left:auto}
+.inbox-col1 .inbox-view-btn::before,
+.inbox-col1 .inbox-filter-btn::before{flex:0 0 auto;width:18px;text-align:center;font-size:14px;line-height:1;content:"\\2022"}
+.inbox-col1 .inbox-view-btn[data-view="conversations"]::before{content:"\\1F4AC"}
+.inbox-col1 .inbox-view-btn[data-view="customers"]::before{content:"\\1F464"}
+.inbox-col1 .inbox-filter-btn[data-inbox-filter="all"]::before{content:"\\2630"}
+.inbox-col1 .inbox-filter-btn[data-inbox-filter="needs-human"]::before{content:"\\26A0"}
+.inbox-col1 .inbox-filter-btn[data-inbox-filter="email"]::before{content:"\\2709"}
+.inbox-col1 .inbox-filter-btn[data-inbox-filter="whatsapp"]::before{content:"\\1F4F1"}
+.inbox-col1 .inbox-view-btn:focus-visible,
+.inbox-col1 .inbox-filter-btn:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+/* icons state (56px): labels collapse, glyph and count stay — the counts are the point. */
+.inbox-two-col.inbox-shell-cols[data-col1="icons"] .inbox-col1{padding:8px 4px;align-items:center}
+.inbox-two-col.inbox-shell-cols[data-col1="icons"] .inbox-col1 .inbox-view-btn,
+.inbox-two-col.inbox-shell-cols[data-col1="icons"] .inbox-col1 .inbox-filter-btn{
+  width:44px;justify-content:center;gap:0;padding:8px 0;font-size:0;position:relative;
+}
+.inbox-two-col.inbox-shell-cols[data-col1="icons"] .inbox-col1 .inbox-view-btn::before,
+.inbox-two-col.inbox-shell-cols[data-col1="icons"] .inbox-col1 .inbox-filter-btn::before{font-size:15px}
+.inbox-two-col.inbox-shell-cols[data-col1="icons"] .inbox-col1 .inbox-filter-btn .hq-count{
+  position:absolute;top:-3px;right:-3px;margin:0;font-size:9px;padding:0 4px;
+}
+/* ── Top-bar layout controls: preset segmented control + per-column toggles ── */
+.inbox-layout-controls{display:flex;align-items:center;gap:8px;margin-left:8px;flex:0 0 auto}
+.inbox-layout-presets,.inbox-col-toggles{display:inline-flex;gap:3px;padding:3px;border-radius:10px;background:var(--surface-soft);flex:0 0 auto}
+.inbox-layout-preset-btn,.inbox-col-toggle{
+  border:1px solid transparent;background:transparent;border-radius:8px;padding:5px 10px;
+  font:inherit;font-size:11.5px;font-weight:600;color:var(--text-2);cursor:pointer;
+  white-space:nowrap;line-height:1.2;
+}
+.inbox-col-toggle{min-width:28px;padding:5px 0;justify-content:center;display:inline-flex}
+.inbox-layout-preset-btn:hover,.inbox-col-toggle:hover{background:rgba(0,0,0,.05);color:var(--text)}
+.inbox-layout-preset-btn:focus-visible,.inbox-col-toggle:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.inbox-layout-preset-btn[aria-pressed="true"]{background:var(--surface);color:var(--text);border-color:var(--border-soft);box-shadow:0 1px 2px rgba(0,0,0,.1)}
+.inbox-col-toggle[aria-pressed="true"]{background:var(--surface);color:var(--text-3);border-color:var(--border-soft);text-decoration:line-through}
+[data-theme="dark"] .inbox-layout-presets,[data-theme="dark"] .inbox-col-toggles{background:#2a2a2b}
+[data-theme="dark"] .inbox-layout-preset-btn:hover,[data-theme="dark"] .inbox-col-toggle:hover{background:rgba(255,255,255,.06)}
+[data-theme="dark"] .inbox-layout-preset-btn[aria-pressed="true"],[data-theme="dark"] .inbox-col-toggle[aria-pressed="true"]{background:#1e1e1e;border-color:#3c3c3c}
+/* A hidden column keeps its bookings buttons meaningful: the header gets the restore arrow. */
+.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-sidebar-toggle{display:none}
+.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .sidebar-expand-btn{display:inline-flex}
+.inbox-peek-edge{display:none}
+@media(min-width:901px){
+  /*
+   * Columns 3 and 4 are rendered together inside #conv-detail by the thread renderer.
+   * display:contents lifts the chat card and the guest card into this grid without moving
+   * markup that renderer owns; below 901px the hosts stay flex and the mobile
+   * master/detail behaviour is exactly what it was.
+   */
+  .inbox-two-col.inbox-shell-cols > #conv-detail,
+  .inbox-two-col.inbox-shell-cols #detail-content,
+  .inbox-two-col.inbox-shell-cols .detail-layout{display:contents}
+  .inbox-two-col.inbox-shell-cols > .inbox-col1{grid-column:1;grid-row:1}
+  .inbox-two-col.inbox-shell-cols > .inbox-left{grid-column:2;grid-row:1}
+  .inbox-two-col.inbox-shell-cols .detail-main{grid-column:3;grid-row:1}
+  /* width comes from the track, never from the guest card's own 280px default. */
+  .inbox-two-col.inbox-shell-cols .detail-sidebar{grid-column:4;grid-row:1;width:auto}
+  .inbox-two-col.inbox-shell-cols .inbox-empty-right{grid-column:3 / -1;grid-row:1}
+  .inbox-two-col.inbox-shell-cols #inbox-mobile-back{display:none}
+  .inbox-two-col.inbox-shell-cols[data-col2="hidden"] > .inbox-left{display:none}
+  .inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-sidebar{display:none}
+  /* A collapsed column leaves a 0px track behind; column 3 takes back the gap it would keep. */
+  .inbox-two-col.inbox-shell-cols[data-col2="hidden"] .detail-main,
+  .inbox-two-col.inbox-shell-cols[data-col2="hidden"] .inbox-empty-right{margin-left:calc(-1 * var(--inbox-col-gap))}
+  .inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-main,
+  .inbox-two-col.inbox-shell-cols[data-col4="hidden"] .inbox-empty-right{margin-right:calc(-1 * var(--inbox-col-gap))}
+  /*
+   * Peek-on-demand. A collapsed column leaves the grid and waits above column 3; edge
+   * hover, focusing its toggle or Escape-able data-peek slides it in and out. The tracks
+   * never move, which is what makes a focus mode survive needing the list for a second.
+   */
+  .inbox-two-col.inbox-shell-cols[data-col2="hidden"] > .inbox-left,
+  .inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-sidebar{
+    display:flex;grid-area:1 / 1 / -1 / -1;position:absolute;top:0;bottom:0;height:auto;
+    z-index:26;opacity:0;visibility:hidden;box-shadow:0 12px 34px rgba(0,0,0,.3);
+    transition:opacity .14s ease,transform .16s ease,visibility .16s;
+  }
+  .inbox-two-col.inbox-shell-cols[data-col2="hidden"] > .inbox-left{
+    left:calc(var(--inbox-col1-w) + var(--inbox-col-gap));width:var(--inbox-col2-peek-w);transform:translateX(-16px);
+  }
+  .inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-sidebar{
+    right:0;width:var(--inbox-col4-peek-w);transform:translateX(16px);
+  }
+  .inbox-two-col.inbox-shell-cols[data-peek="col2"] > .inbox-left,
+  .inbox-two-col.inbox-shell-cols[data-peek="col4"] .detail-sidebar{opacity:1;visibility:visible;transform:none}
+  /* Column 1 is never hidden, so peeking it floats the full-width rail over column 3. */
+  .inbox-two-col.inbox-shell-cols[data-col1="icons"][data-peek="col1"] > .inbox-col1{
+    grid-area:1 / 1 / -1 / -1;position:absolute;left:0;top:0;bottom:0;height:auto;
+    width:var(--inbox-col1-peek-w);z-index:26;box-shadow:0 12px 34px rgba(0,0,0,.3);
+  }
+  .inbox-two-col.inbox-shell-cols[data-col1="icons"][data-peek="col1"] > .inbox-col1 .inbox-view-btn,
+  .inbox-two-col.inbox-shell-cols[data-col1="icons"][data-peek="col1"] > .inbox-col1 .inbox-filter-btn{
+    width:100%;justify-content:flex-start;gap:8px;padding:7px 10px;font-size:11.5px;
+  }
+  .inbox-two-col.inbox-shell-cols[data-col1="icons"][data-peek="col1"] > .inbox-col1 .inbox-filter-btn .hq-count{
+    position:static;margin-left:auto;font-size:10px;padding:1px 7px;
+  }
+  .inbox-peek-edge{position:absolute;top:0;bottom:0;width:16px;z-index:24}
+  .inbox-two-col.inbox-shell-cols[data-col2="hidden"] > .inbox-peek-edge-col2{
+    display:block;left:calc(var(--inbox-col1-w) + var(--inbox-col-gap));
+  }
+  .inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-peek-edge-col4{display:block;right:0}
 }
 /* ═══ END luna-header-ui ═════════════════════════════════════════════════ */
 </style>
@@ -20837,31 +20980,49 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
   <div class="inbox-shell-toolbar">
     <div class="inbox-toolbar-top">
-      <div class="inbox-view-switch" role="tablist" aria-label="Inbox view">
-        <button type="button" class="inbox-view-btn is-active" role="tab" data-view="conversations" onclick="switchToTab('conversations')" data-i18n="nav.tab.conversations">Conversations</button>
-        <button type="button" class="inbox-view-btn" role="tab" data-view="customers" onclick="switchToTab('customers')" data-i18n="nav.tab.customers">Customers</button>
-      </div>
       <select id="c-client" title="Company" class="inbox-client-select"></select>
       <button class="btn btn-primary inbox-refresh-btn" id="btn-refresh" data-i18n-title="inbox.refreshTitle" title="Refresh conversation list">&#8635;</button>
       <span id="inbox-live-status" class="inbox-live-status" aria-live="polite">Live</span>
+      <div class="inbox-layout-controls">
+        <div class="inbox-layout-presets" id="inbox-layout-presets" role="group" data-i18n-aria="inbox.layout.presets" aria-label="Column layout">
+          <button type="button" class="inbox-layout-preset-btn is-active" data-inbox-preset="all4" aria-pressed="true" aria-keyshortcuts="Alt+0" data-i18n-title="inbox.layout.preset.all4.title" title="All four columns — Alt+0"><span data-i18n="inbox.layout.preset.all4">All four</span></button>
+          <button type="button" class="inbox-layout-preset-btn" data-inbox-preset="chat" aria-pressed="false" aria-keyshortcuts="Alt+3" data-i18n-title="inbox.layout.preset.chat.title" title="Chat focus — Alt+3"><span data-i18n="inbox.layout.preset.chat">Chat</span></button>
+          <button type="button" class="inbox-layout-preset-btn" data-inbox-preset="guest" aria-pressed="false" aria-keyshortcuts="Alt+4" data-i18n-title="inbox.layout.preset.guest.title" title="Guest focus — Alt+4"><span data-i18n="inbox.layout.preset.guest">Guest</span></button>
+        </div>
+        <div class="inbox-col-toggles" id="inbox-col-toggles" role="group" data-i18n-aria="inbox.layout.toggles" aria-label="Collapse columns">
+          <button type="button" class="inbox-col-toggle" data-inbox-col-toggle="col1" aria-pressed="false" aria-keyshortcuts="Alt+1" data-i18n-title="inbox.layout.toggle.col1" data-i18n-aria="inbox.layout.toggle.col1" title="Views rail — Alt+1" aria-label="Views rail — Alt+1"><span aria-hidden="true">1</span></button>
+          <button type="button" class="inbox-col-toggle" data-inbox-col-toggle="col2" aria-pressed="false" aria-keyshortcuts="Alt+2" data-i18n-title="inbox.layout.toggle.col2" data-i18n-aria="inbox.layout.toggle.col2" title="Conversation list — Alt+2" aria-label="Conversation list — Alt+2"><span aria-hidden="true">2</span></button>
+          <button type="button" class="inbox-col-toggle" data-inbox-col-toggle="col4" aria-pressed="false" aria-keyshortcuts="Alt+Shift+4" data-i18n-title="inbox.layout.toggle.col4" data-i18n-aria="inbox.layout.toggle.col4" title="Guest card — Alt+Shift+4" aria-label="Guest card — Alt+Shift+4"><span aria-hidden="true">4</span></button>
+        </div>
+      </div>
     </div>
     <div class="portal-inbox-school-context" id="inbox-school-context" style="display:none;margin:0;font-size:13px;color:var(--text-2)">
       <span data-i18n="inbox.school.context">Inbox for:</span>
       <span id="inbox-school-label">—</span>
     </div>
   </div>
-  <div class="inbox-two-col inbox-shell-cols">
+  <div class="inbox-two-col inbox-shell-cols" id="inbox-shell" data-col1="full" data-col2="comfortable" data-col4="peek">
 
-    <nav id="inbox-views-rail" class="inbox-views-rail" aria-label="Saved views"></nav>
+    <div class="inbox-peek-edge inbox-peek-edge-col2" data-inbox-peek-edge="col2" aria-hidden="true"></div>
+    <div class="inbox-peek-edge inbox-peek-edge-col4" data-inbox-peek-edge="col4" aria-hidden="true"></div>
 
-    <!-- LEFT: conversation list + filters -->
-    <div class="inbox-left" id="inbox-card">
+    <!-- COLUMN 1: tab switch + API-backed saved-view rail -->
+    <nav class="inbox-col1" id="inbox-col1" data-i18n-aria="inbox.rail.label" aria-label="Inbox views">
+      <div class="inbox-view-switch" role="tablist" aria-label="Inbox view">
+        <button type="button" class="inbox-view-btn is-active" role="tab" data-view="conversations" onclick="switchToTab('conversations')" data-i18n="nav.tab.conversations">Conversations</button>
+        <button type="button" class="inbox-view-btn" role="tab" data-view="customers" onclick="switchToTab('customers')" data-i18n="nav.tab.customers">Customers</button>
+      </div>
+      <div id="inbox-views-rail" class="inbox-views-rail" aria-label="Saved views"></div>
       <div class="inbox-left-toolbar">
         <div class="inbox-filters">
           <button type="button" class="inbox-filter-btn active" data-inbox-filter="all" id="inbox-filter-all" data-i18n="inbox.filter.all">All Conversations</button>
           <button type="button" class="inbox-filter-btn" data-inbox-filter="needs-human" id="inbox-filter-needs-human"><span data-i18n="inbox.filter.needsHuman">Needs Human</span> <span class="hq-count" id="hq-badge">0</span></button>
         </div>
       </div>
+    </nav>
+
+    <!-- COLUMN 2: conversation list -->
+    <div class="inbox-left" id="inbox-card">
       <div id="inbox-ro-note" class="inbox-ro-note" aria-hidden="true"></div>
       <div id="inbox-state" class="state-msg" style="padding:8px 14px;display:none;flex-shrink:0" data-i18n="inbox.loading">Loading conversations&hellip;</div>
       <div id="inbox-preview-banner" class="inbox-preview-banner" style="display:none" aria-hidden="true"></div>
@@ -20870,7 +21031,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </div>
     </div>
 
-    <!-- RIGHT: conversation detail (always visible on desktop; master/detail on mobile) -->
+    <!-- COLUMNS 3 + 4: chat card and guest card (promoted into the shell grid on desktop) -->
     <div id="conv-detail">
       <button type="button" class="inbox-mobile-back" id="inbox-mobile-back" data-i18n="inbox.mobile.back" aria-label="Back">&larr; Back</button>
       <div id="detail-content">
@@ -22725,6 +22886,8 @@ function bcSortBedsForDisplay(beds){
     return bcNaturalCodeSort(a.bed_code, b.bed_code);
   });
 }
+
+/* INJECT:inbox-columns */
 
 /* INJECT:inbox-list */
 
@@ -30148,6 +30311,7 @@ var dsLoadBtn = el('ds-load');
 if (dsLoadBtn) dsLoadBtn.addEventListener('click', function(){ loadDaySchedule(); });
 wireInboxLeftListWheel();
 wireInboxMobileBack();
+initInboxColumns();
 wireMessageEventsPanel();
 wireHandoffsQueuePanel();
 

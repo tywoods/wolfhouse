@@ -20,6 +20,7 @@ const path = require('path');
 
 const BROWSER_DIR = path.join(__dirname, '..', 'browser');
 
+const COLUMNS_MODULE = path.join(BROWSER_DIR, 'inbox-columns.js');
 const CUSTOMERS_FILTERS_MODULE = path.join(BROWSER_DIR, 'inbox-customers-filters.js');
 const CUSTOMERS_OUTREACH_MODULE = path.join(BROWSER_DIR, 'inbox-customers-outreach.js');
 const CUSTOMERS_PROFILE_MODULE = path.join(BROWSER_DIR, 'inbox-customers-profile.js');
@@ -28,6 +29,7 @@ const LUNA_MODE_MODULE = path.join(BROWSER_DIR, 'inbox-luna-mode.js');
 const THREAD_MODULE = path.join(BROWSER_DIR, 'inbox-thread.js');
 const VIEWS_MODULE = path.join(BROWSER_DIR, 'inbox-views.js');
 
+const INBOX_COLUMNS_INJECT_MARKER = '/* INJECT:inbox-columns */';
 const INBOX_CUSTOMERS_FILTERS_INJECT_MARKER = '/* INJECT:inbox-customers-filters */';
 const INBOX_CUSTOMERS_OUTREACH_INJECT_MARKER = '/* INJECT:inbox-customers-outreach */';
 const INBOX_CUSTOMERS_PROFILE_INJECT_MARKER = '/* INJECT:inbox-customers-profile */';
@@ -47,6 +49,10 @@ const INBOX_VIEWS_INJECT_MARKER = '/* INJECT:inbox-views */';
  */
 function readBrowserModule(file) {
   return fs.readFileSync(file, 'utf8').replace(/\r?\n$/, '');
+}
+
+function getInboxColumnsBrowserSource() {
+  return readBrowserModule(COLUMNS_MODULE);
 }
 
 function getInboxCustomersFiltersBrowserSource() {
@@ -91,6 +97,7 @@ function injectAtMarker(html, marker, moduleJs) {
  * @returns {string} html with Inbox modules injected
  */
 function injectInboxBrowserModules(html) {
+  html = injectAtMarker(html, INBOX_COLUMNS_INJECT_MARKER, getInboxColumnsBrowserSource());
   html = injectAtMarker(html, INBOX_CUSTOMERS_FILTERS_INJECT_MARKER, getInboxCustomersFiltersBrowserSource());
   html = injectAtMarker(html, INBOX_CUSTOMERS_OUTREACH_INJECT_MARKER, getInboxCustomersOutreachBrowserSource());
   html = injectAtMarker(html, INBOX_CUSTOMERS_PROFILE_INJECT_MARKER, getInboxCustomersProfileBrowserSource());
@@ -100,6 +107,7 @@ function injectInboxBrowserModules(html) {
 }
 
 module.exports = {
+  getInboxColumnsBrowserSource,
   getInboxCustomersFiltersBrowserSource,
   getInboxCustomersOutreachBrowserSource,
   getInboxCustomersProfileBrowserSource,
@@ -110,6 +118,7 @@ module.exports = {
   injectInboxBrowserModules,
   injectAtMarker,
   readBrowserModule,
+  COLUMNS_MODULE,
   CUSTOMERS_FILTERS_MODULE,
   CUSTOMERS_OUTREACH_MODULE,
   CUSTOMERS_PROFILE_MODULE,
@@ -117,6 +126,7 @@ module.exports = {
   LUNA_MODE_MODULE,
   THREAD_MODULE,
   VIEWS_MODULE,
+  INBOX_COLUMNS_INJECT_MARKER,
   INBOX_CUSTOMERS_FILTERS_INJECT_MARKER,
   INBOX_CUSTOMERS_OUTREACH_INJECT_MARKER,
   INBOX_CUSTOMERS_PROFILE_INJECT_MARKER,

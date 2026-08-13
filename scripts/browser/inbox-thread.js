@@ -1531,7 +1531,20 @@ function loadSurfInboxDemoDetail(convId, targetEl){
 }
 
 
+/*
+ * Above 900px the column model owns column 4 (data-col4 on the shell), so the bookings
+ * hide/show buttons drive that instead of the legacy is-sidebar-collapsed class — one
+ * owner, and the collapsed track disappears with the card. Below 901px the shell grid is
+ * a single stack and the legacy class still runs the toggle.
+ */
+function inboxColumnsOwnSidebar() {
+  if (!window.__inboxColumns || typeof window.__inboxColumns.toggle !== 'function') return false;
+  if (typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia('(min-width:901px)').matches;
+}
+
 function inboxSidebarCollapsedPreferred() {
+  if (inboxColumnsOwnSidebar()) return window.__inboxColumns.state().col4 === 'hidden';
   try {
     return sessionStorage.getItem('inbox-detail-sidebar-collapsed') === '1';
   } catch (_e) { return false; }
@@ -1556,8 +1569,14 @@ function wireInboxSidebarToggle(targetEl) {
   var btn = targetEl.querySelector('#inbox-sidebar-toggle');
   if (!layout || !btn || btn.dataset.wired === '1') return;
   btn.dataset.wired = '1';
-  inboxSetSidebarCollapsed(layout, inboxSidebarCollapsedPreferred());
+  if (inboxColumnsOwnSidebar()) btn.setAttribute('aria-expanded', inboxSidebarCollapsedPreferred() ? 'false' : 'true');
+  else inboxSetSidebarCollapsed(layout, inboxSidebarCollapsedPreferred());
   function toggleSidebar() {
+    if (inboxColumnsOwnSidebar()) {
+      window.__inboxColumns.toggle('col4');
+      btn.setAttribute('aria-expanded', inboxSidebarCollapsedPreferred() ? 'false' : 'true');
+      return;
+    }
     inboxSetSidebarCollapsed(layout, !layout.classList.contains('is-sidebar-collapsed'));
   }
   btn.addEventListener('click', toggleSidebar);
