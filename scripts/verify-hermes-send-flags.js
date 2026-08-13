@@ -29,9 +29,10 @@
  *             re-run against it. Each mutant must break something. A gate that
  *             cannot fail is decoration.
  *
- * Also pins the three JS ⇄ Hermes divergences that are reported but not resolved
- * (see `docs/LUNA-SEND-KILL-SWITCH.md`): if one of them silently changes behaviour,
- * or the decision record stops matching the code, this gate fails.
+ * Also pins the three JS ⇄ Hermes rulings in `docs/LUNA-SEND-KILL-SWITCH.md`:
+ * (a) Hermes quiet on needs_human, (b) keep Hermes fail-closed on the Sunset
+ * carve-out, (c) email arm fail-closed. If a ruling silently changes behaviour,
+ * or the decision record stops matching, this gate fails.
  *
  * Offline: no Docker, no VM, no database, no network beyond 127.0.0.1.
  *
@@ -60,7 +61,7 @@ const ROOT = path.join(__dirname, '..');
 const HERMES_DIR = path.join(ROOT, 'docker/hermes-staging');
 const DECISIONS_DOC = path.join(ROOT, 'docs/LUNA-SEND-KILL-SWITCH.md');
 
-/** Decisions this work found. Exactly one is settled; the rest await a ruling. */
+/** Decisions this work found. All four are settled; the gate pins each ruling. */
 const DECISION_IDS = Object.freeze([
   'kill_switch_flags_unread_by_hermes',
   'needs_human_blocks_on_hermes_not_js',
@@ -68,6 +69,25 @@ const DECISION_IDS = Object.freeze([
   'email_pause_advisory',
 ]);
 const DECISION_STATUSES = Object.freeze(['resolved-in-this-pr', 'awaiting-ruling', 'ruled']);
+/** status + ruling pinned in docs/LUNA-SEND-KILL-SWITCH.md — must match code pins below. */
+const DECISION_RECORD = Object.freeze({
+  kill_switch_flags_unread_by_hermes: {
+    status: 'resolved-in-this-pr',
+    ruling: 'honour-both-flags-fail-closed',
+  },
+  needs_human_blocks_on_hermes_not_js: {
+    status: 'ruled',
+    ruling: 'hermes-quiet',
+  },
+  sunset_needs_human_carveout_defeated: {
+    status: 'ruled',
+    ruling: 'keep-hermes-fail-closed',
+  },
+  email_pause_advisory: {
+    status: 'ruled',
+    ruling: 'fail-closed',
+  },
+});
 
 let passes = 0;
 let failures = 0;
@@ -679,10 +699,11 @@ async function runPausedEmailDraft() {
 
 function parseDecisionRecord(src) {
   const rows = new Map();
-  const re = /^\|\s*`([a-z0-9_]+)`\s*\|[^|]*\|\s*`([a-z-]+)`\s*\|/gm;
+  // | `id` | question | `status` | `ruling` |
+  const re = /^\|\s*`([a-z0-9_]+)`\s*\|[^|]*\|\s*`([a-z-]+)`\s*\|\s*`([a-z0-9-]+)`\s*\|/gm;
   let m = re.exec(src);
   while (m) {
-    rows.set(m[1], m[2]);
+    rows.set(m[1], { status: m[2], ruling: m[3] });
     m = re.exec(src);
   }
   return rows;
@@ -917,8 +938,8 @@ async function main() {
       }
     }
 
-    // ── [6] Divergences (a) and (b): the pause gate, run for real ────────────
-    section('[6] Divergences (a) + (b) — needs_human, JS ⇄ Hermes');
+    // ── [6] Rulings (a) + (b): Hermes is staging SoT; keep fail-closed ────────
+    section('[6] Rulings (a) + (b) — needs_human, Hermes quiet / carve-out fail-closed');
     {
       const runtime = (slug) => ({
         HERMES_ROLE: 'luna',
@@ -936,7 +957,7 @@ async function main() {
         ],
       }));
 
-      // The same conversation state, put to the JS resolver.
+      // The same conversation state, put to the JS resolver (legacy; unchanged this PR).
       const jsSide = (needsHuman) => resolveLunaEffectiveMode({
         client_slug: 'wolfhouse-somo',
         channel: 'whatsapp',
@@ -946,28 +967,35 @@ async function main() {
         flags: { luna_auto_send_enabled: true, whatsapp_dry_run: false },
       });
 
-      check('(a) Hermes goes quiet on a needs_human thread with no pause row',
+      // Ruling (a): Hermes quiet is correct. Staging source of truth.
+      check('(a) Hermes goes quiet on a needs_human thread with no pause row (ruling: hermes-quiet)',
         pauseRows.get('wolfhouse_needs_human').paused === true);
-      check('(a) the JS path replies on the same thread — needs_human is advisory there',
+      check('(a) the JS legacy path still replies — unchanged this PR; needs_human advisory there',
         jsSide(true).mode === 'auto' && jsSide(true).advisory_reasons.includes('needs_human'),
         JSON.stringify(jsSide(true)));
-      check('(b) the Sunset carve-out is still defeated in Python: the Staff API says '
-        + 'automation may continue, pause_gate goes quiet anyway',
+      // Ruling (b): keep Hermes fail-closed; do not open the Python carve-out.
+      check('(b) Sunset carve-out response still fails closed in pause_gate (ruling: keep-hermes-fail-closed)',
         pauseRows.get('sunset_carveout').paused === true,
-        'if this now passes, the carve-out was fixed — record the ruling in the decision table');
+        'opening the carve-out in Python would break this pin — that is not the ruling');
       check('a thread with nothing flagged is not blocked (the gate is not a brick)',
         pauseRows.get('clear').paused === false);
     }
 
-    // ── [7] Divergence (c): pause is advisory on the email arm ───────────────
-    section('[7] Divergence (c) — a paused conversation still gets a Luna email draft');
+    // ── [7] Ruling (c): email arm must be fail-closed; observe unpaid gap ─────
+    section('[7] Ruling (c) — email arm fail-closed (pin ruling; observe shipped gap)');
     {
       const { outcome, sqlSeen } = await runPausedEmailDraft();
-      check('the shipped email draft route answered 200 with a draft on a paused thread',
+      // Ruling is fail-closed. The shipped Inbox draft route still drafts on a
+      // paused thread today — that unpaid gap is pinned so it cannot vanish from
+      // the record without a deliberate update when Inbox work lands.
+      check('(c) decision record pins email as fail-closed (see [8])',
+        DECISION_RECORD.email_pause_advisory.ruling === 'fail-closed');
+      check('(c) shipped email draft route still answers 200 with a draft on a paused thread '
+        + '(unpaid Inbox gap against fail-closed — flip these checks when Off means off)',
         outcome && outcome.status === 200 && outcome.body.success === true
         && typeof outcome.body.message_text === 'string' && outcome.body.message_text.length > 0,
         JSON.stringify(outcome && { status: outcome.status, error: outcome.body && outcome.body.error }));
-      check('it never asked about bot_pause_states — pause cannot reach this arm',
+      check('(c) shipped route still never asks bot_pause_states (gap against fail-closed)',
         sqlSeen.length > 0 && !sqlSeen.some((sql) => /bot_pause_states/.test(sql)),
         `${sqlSeen.length} statements issued`);
     }
@@ -982,25 +1010,18 @@ async function main() {
         check('the document records exactly the four decisions this work found',
           [...rows.keys()].sort().join(',') === [...DECISION_IDS].sort().join(','),
           `found [${[...rows.keys()].join(', ')}]`);
-        const badStatus = [...rows.entries()].filter(([, status]) => !DECISION_STATUSES.includes(status));
+        const badStatus = [...rows.entries()]
+          .filter(([, row]) => !DECISION_STATUSES.includes(row.status));
         check('every decision carries a known status',
-          badStatus.length === 0, badStatus.map(([id, s]) => `${id}=${s}`).join(' '));
-        check('the flags decision is recorded as settled by this work',
-          rows.get('kill_switch_flags_unread_by_hermes') === 'resolved-in-this-pr',
-          rows.get('kill_switch_flags_unread_by_hermes'));
+          badStatus.length === 0, badStatus.map(([id, row]) => `${id}=${row.status}`).join(' '));
 
-        // The three unresolved ones are pinned to the behaviour observed above: if
-        // somebody changes the behaviour without recording a ruling, this fails.
-        const stillDivergent = {
-          needs_human_blocks_on_hermes_not_js: true,
-          sunset_needs_human_carveout_defeated: true,
-          email_pause_advisory: true,
-        };
-        for (const [id, divergent] of Object.entries(stillDivergent)) {
-          const status = rows.get(id);
-          check(`${id} is marked awaiting-ruling while the divergence is still live`,
-            !divergent || status === 'awaiting-ruling',
-            `status=${status}`);
+        for (const id of DECISION_IDS) {
+          const expected = DECISION_RECORD[id];
+          const got = rows.get(id) || {};
+          check(`${id} status is ${expected.status}`,
+            got.status === expected.status, `status=${got.status}`);
+          check(`${id} ruling is ${expected.ruling}`,
+            got.ruling === expected.ruling, `ruling=${got.ruling}`);
         }
       }
     }

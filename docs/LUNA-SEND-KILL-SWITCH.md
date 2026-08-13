@@ -14,8 +14,10 @@ that only works on the path nobody uses is worse than no kill switch, because ev
 believes they are covered.
 
 This document is the map of what blocks a send today, on each path, and of the four
-decisions that came out of writing it down. `scripts/verify-hermes-send-flags.js` proves
-every behavioural claim here by running the shipped code.
+decisions that came out of writing it down — all four are settled. Hermes is the
+staging source of truth for guest WhatsApp.
+`scripts/verify-hermes-send-flags.js` proves every behavioural claim here by running
+the shipped code, and pins each ruling so it cannot drift quietly.
 
 ## What blocks a send, per path
 
@@ -78,32 +80,29 @@ the same shape `pause_gate.py` uses for a pause.
 
 ## Decision record
 
-Four questions came out of this. Only the first is settled — fail-closed flags need no
-ruling. The other three are real behaviour choices about whether a guest gets a reply, and
-are pinned by the gate so they cannot resolve themselves quietly.
+Four questions came out of this. All four are settled. Hermes is the staging source of truth
+for guest WhatsApp; the legacy JS path is left alone in this PR unless a ruling says otherwise.
+The gate pins each ruling so the decided behaviour cannot drift without updating this table.
 
-| id | question | status |
-|----|----------|--------|
-| `kill_switch_flags_unread_by_hermes` | Should the Hermes send path honour both kill-switch flags, fail-closed? | `resolved-in-this-pr` |
-| `needs_human_blocks_on_hermes_not_js` | A thread flagged for a human with no pause row — does Luna keep talking (JS) or go quiet (Hermes)? | `awaiting-ruling` |
-| `sunset_needs_human_carveout_defeated` | Sunset exempts needs_human from pausing, and Python overrides it — is the carve-out the intent, or dead code? | `awaiting-ruling` |
-| `email_pause_advisory` | Off is off on WhatsApp but not on the staff email Luna draft — should Off mean off on both channels? | `awaiting-ruling` |
+| id | question | status | ruling |
+|----|----------|--------|--------|
+| `kill_switch_flags_unread_by_hermes` | Should the Hermes send path honour both kill-switch flags, fail-closed? | `resolved-in-this-pr` | `honour-both-flags-fail-closed` |
+| `needs_human_blocks_on_hermes_not_js` | A thread flagged for a human with no pause row — does Luna keep talking (JS) or go quiet (Hermes)? | `ruled` | `hermes-quiet` |
+| `sunset_needs_human_carveout_defeated` | Sunset exempts needs_human from pausing, and Python overrides it — is the carve-out the intent, or dead code? | `ruled` | `keep-hermes-fail-closed` |
+| `email_pause_advisory` | Off is off on WhatsApp but not on the staff email Luna draft — should Off mean off on both channels? | `ruled` | `fail-closed` |
 
-### (a) `needs_human` blocks on Hermes but not in JS
+### (a) `needs_human` blocks on Hermes but not in JS — **ruled: Hermes quiet**
 
 `scripts/lib/luna-guest-reply-send-route.js` never reads `conversations.needs_human`, so with
 `bot_pause_states` clear it sends. The Staff API gate reports `needs_human` as an effective
 pause (`source: 'conversations_needs_human'`) and `pause_gate.py` honours it, so Hermes stays
 silent on the same thread.
 
-What a guest experiences: they asked something a staff member flagged. On the legacy path
-Luna keeps chatting. On staging she stops mid-conversation and waits for a human. Both are
-defensible; they cannot both be right.
+**Ruling:** Hermes is right. A flagged thread with no pause row → Luna goes quiet. Hermes is
+the staging source of truth. The JS legacy path is **not** changed in this PR; aligning it is
+separate work. The gate pins Hermes quiet on a `conversations_needs_human` response.
 
-Recommendation: **Hermes**. A flag raised for a human is the clearest signal we have that the
-thread is not Luna's, and silence is the recoverable failure. That makes the JS route the bug.
-
-### (b) The Sunset `needs_human` carve-out is defeated in Python
+### (b) The Sunset `needs_human` carve-out is defeated in Python — **ruled: keep Hermes fail-closed**
 
 `checkGuestAutomationPauseState` in `scripts/staff-query-api.js` deliberately exempts Sunset —
 it returns `bot_paused: false` and `can_continue_guest_automation: true` while still reporting
@@ -121,34 +120,27 @@ paused = bool(
 
 so Sunset Luna goes quiet anyway and the carve-out has no effect on staging.
 
-What a guest experiences: at Sunset, a flagged thread either keeps getting Luna's answers
-(the carve-out working) or goes silent (today). Either the carve-out is deliberate, in which
-case `pause_gate.py` is the bug and should drop the `needs_human` OR in favour of the gate's
-own verdict; or going quiet is correct, in which case the carve-out is dead code that should
-be removed rather than left to mislead the next reader.
+**Ruling:** Keep Hermes fail-closed. Do **not** open the carve-out in Python — under (a) the
+carve-out is contradictory (a flagged thread must go quiet). The gate pins that
+`pause_gate.py` still returns paused for the Sunset carve-out response shape.
 
-`scripts/staff-query-api.js` is operator-owned, so the Sunset half of this is described and
-not made. If the ruling is "the carve-out is dead code", the change there is to stop
-special-casing `sunset` in the `needs_human` branch of `checkGuestAutomationPauseState` so it
-reports `bot_paused: true` like every other tenant; the Python side then needs no change.
+If the Staff API carve-out is wrong (dead code that misleads), that fix belongs in
+operator-owned `scripts/staff-query-api.js`: stop special-casing `sunset` in the
+`needs_human` branch of `checkGuestAutomationPauseState` so it reports `bot_paused: true`
+like every other tenant. **Described here; not edited in this PR.**
 
-Recommendation: **drop the carve-out** (align Sunset with (a)), and take the `needs_human` OR
-out of `pause_gate.py` so the Staff API stays the single decider of what counts as a pause.
-
-### (c) Pause is advisory on the email arm
+### (c) Pause / kill switches on the email arm — **ruled: fail-closed**
 
 `scripts/lib/staff-email-luna-draft-route.js` never reads `bot_pause_states`, so a paused
-conversation can still get a Luna email draft. The gate proves this by driving the shipped
-route with a paused conversation and recording every SQL statement it issues: it answers 200
-with a draft and never mentions `bot_pause_states`.
+conversation can still get a Luna email draft. The gate still drives the shipped route with a
+paused conversation today and records that it answers 200 with a draft — that is the unpaid
+gap against this ruling, not the decided behaviour.
 
-What a guest experiences: nothing directly — the email arm is draft-only (`draft_only: true`,
-`auto_send_allowed: false`), so a human always presses send. What changes is what staff see:
-a thread they switched **Off** still offers Luna-written prose.
-
-Recommendation: **make Off mean off on both channels**, but note it is a behaviour change to
-the Inbox, so it belongs with the mode selector work in `docs/INBOX-PORTAL-REDESIGN.md`
-rather than being slipped in here.
+**Ruling:** Fail closed, not advisory. If the thread is paused, or dry-run / auto-send is
+disabled, do **not** send (or offer a Luna draft that pretends Off is still On) on the email
+arm either. Off means off on both channels. Implementing that Inbox alignment is separate
+from the Hermes kill-switch wiring; the gate pins the ruling as `fail-closed` so the decision
+cannot quietly revert to advisory.
 
 ## Proving it
 
