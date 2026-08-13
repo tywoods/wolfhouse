@@ -174,6 +174,10 @@ function emailLadder(state) {
  *      then ORs the raw `needs_human` field, so on staging Luna *is* silent on a
  *      needs_human thread — for Sunset too, defeating that carve-out. Reported, not
  *      resolved: see the PR that introduced this module.
+ *      The two env flags used to be the third disagreement — absent from Hermes
+ *      entirely — and are not any more: `docker/hermes-staging/wolfhouse/send_flags.py`
+ *      reads both with these exact semantics, proved against these predicates by
+ *      `scripts/verify-hermes-send-flags.js`.
  *   2. `gate_bot_paused` on email — the staff email draft route never reads
  *      `bot_pause_states`, so a paused thread can still get a staff-initiated Luna
  *      email draft today. The redesign wants Off to mean off on both channel

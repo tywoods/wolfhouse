@@ -55,6 +55,7 @@ const steps = [
   ['verify:hermes-gateway-mirror-patch', 'verify-hermes-gateway-mirror-patch.js'],
   ['verify:luna-handoff-promise-detection', 'verify-luna-handoff-promise-detection.js'],
   ['verify:luna-effective-mode', 'verify-luna-effective-mode.js'],
+  ['verify:hermes-send-flags', 'verify-hermes-send-flags.js'],
   ['verify:inbox-luna-mode-control', 'verify-inbox-luna-mode-control.js'],
   ['verify:luna-pause-handoff-controls', 'verify-luna-pause-handoff-controls.js'],
   ['verify:staff-bot-guest-automation-gate', 'verify-staff-bot-guest-automation-gate.js'],
