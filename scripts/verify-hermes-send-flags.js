@@ -985,17 +985,16 @@ async function main() {
     section('[7] Ruling (c) — email arm fail-closed (pin ruling; observe shipped gap)');
     {
       const { outcome, sqlSeen } = await runPausedEmailDraft();
-      // Ruling is fail-closed. The shipped Inbox draft route still drafts on a
-      // paused thread today — that unpaid gap is pinned so it cannot vanish from
-      // the record without a deliberate update when Inbox work lands.
+      // The prerequisite boundary now fails closed before generation regardless of
+      // pause state; pause wiring remains a separate future concern if generation exists.
       check('(c) decision record pins email as fail-closed (see [8])',
         DECISION_RECORD.email_pause_advisory.ruling === 'fail-closed');
-      check('(c) shipped email draft route still answers 200 with a draft on a paused thread '
-        + '(unpaid Inbox gap against fail-closed — flip these checks when Off means off)',
-        outcome && outcome.status === 200 && outcome.body.success === true
-        && typeof outcome.body.message_text === 'string' && outcome.body.message_text.length > 0,
+      check('(c) unavailable email generation cannot draft on a paused thread',
+        outcome && outcome.status === 503 && outcome.body.success === false
+        && outcome.body.error === 'luna_email_generation_capability_unavailable'
+        && outcome.body.reason === 'authoritative_content_and_grounded_policy_not_configured',
         JSON.stringify(outcome && { status: outcome.status, error: outcome.body && outcome.body.error }));
-      check('(c) shipped route still never asks bot_pause_states (gap against fail-closed)',
+      check('(c) unavailable route never asks bot_pause_states',
         sqlSeen.length > 0 && !sqlSeen.some((sql) => /bot_pause_states/.test(sql)),
         `${sqlSeen.length} statements issued`);
     }

@@ -1,10 +1,10 @@
 'use strict';
 /** Staff-only, draft-only Luna email generation boundary. */
 const util = require('node:util');
-const { createEmailLunaDraftEnvelope } = require('./email-luna-draft-handoff-contract');
-
 const EMAIL_LUNA_GENERATE_DRAFT_PATH = '/staff/inbox/email/generate-luna-draft';
 const EMAIL_LUNA_GENERATE_DRAFT_ENABLED_ENV = 'EMAIL_STAFF_LUNA_DRAFT_ENABLED';
+const EMAIL_LUNA_GENERATION_UNAVAILABLE_ERROR = 'luna_email_generation_capability_unavailable';
+const EMAIL_LUNA_GENERATION_UNAVAILABLE_REASON = 'authoritative_content_and_grounded_policy_not_configured';
 const EMAIL_LUNA_GENERATE_BODY_KEYS = Object.freeze(['conversation_id']);
 const READY_KEYS = Object.freeze(['status','subject','body','language','client_id','location_id','conversation_id','draft_only','requires_staff_review','send_allowed','auto_send_allowed']);
 const HANDOFF_KEYS = Object.freeze(['status','reason','client_id','location_id','conversation_id','draft_only','requires_staff_review','send_allowed','auto_send_allowed']);
@@ -192,37 +192,12 @@ function createStaffEmailLunaDraftRoute(deps) {
       return deps.sendJSON(res, 404, freeze({ success: false, error: 'not_found' }));
     }
     if (!context) return deps.sendJSON(res, 404, freeze({ success: false, error: 'not_found' }));
-    try {
-      const r = context.row;
-      const envelope = createEmailLunaDraftEnvelope({ authority: context.authority, untrusted_content: {
-        subject: String(r.subject || ''), body_text: String(r.body_text || ''), quoted_history: String(r.quoted_history || ''),
-        from_display_name: String(r.from_display_name || ''), from_address: String(r.from_address || ''),
-      } });
-      // Classification and grounded-tool outputs are server-owned. The merged runtime
-      // revalidates authentic provenance before any model call; no request authority is forwarded.
-      const evidence = freeze({ source: 'staff_email_authoritative_reload' });
-      const decision = freeze({ source: 'server_policy' });
-      const runtime = deps.createLunaRuntime({ env: deps.runtimeEnv || process.env, authority: context.authority,
-        tenant_location_gate: freeze({ client_id: context.authority.client_id, location_id: context.authority.location_id,
-          location_key: context.authority.location_key, draft_enabled: true }) });
-      const generated = snapshotGenerated(await runtime.authorDraft({ envelope, evidence, decision }), context.authority);
-      if (generated && generated.status === 'handoff_required')
-        return deps.sendJSON(res, 422, freeze({ success: false, error: 'luna_handoff_required', reason: generated.reason }));
-      if (!generated) return deps.sendJSON(res, 503, freeze({ success: false, error: 'luna_draft_unavailable' }));
-      let returned;
-      try {
-        returned = await deps.saveDraftThroughStaffOwner({ actor: a, conversation_id: input.conversation_id,
-          message_text: generated.body, approval_id: null, expected_authority: context.expectedAuthority });
-      } catch {
-        return deps.sendJSON(res, 503, freeze({ success: false, error: 'draft_save_outcome_unknown' }));
-      }
-      const saved = snapshotSaveReceipt(returned, input.conversation_id);
-      if (!saved) return deps.sendJSON(res, 503, freeze({ success: false, error: 'draft_save_outcome_unknown' }));
-      return deps.sendJSON(res, 200, freeze({ success: true, conversation_id: input.conversation_id,
-        message_text: generated.body, approval_id: saved.approval_id }));
-    } catch {
-      return deps.sendJSON(res, 503, freeze({ success: false, error: 'luna_draft_unavailable' }));
-    }
+    // The inbound owner stores subject/sender metadata, not authoritative message
+    // content, and no tenant/location-grounded email policy owner is production-wired.
+    // Fail closed after authority reload and before runtime/model/write/send capabilities.
+    return deps.sendJSON(res, 503, freeze({ success: false,
+      error: EMAIL_LUNA_GENERATION_UNAVAILABLE_ERROR,
+      reason: EMAIL_LUNA_GENERATION_UNAVAILABLE_REASON }));
   }
   route = { handleGenerateLunaDraft, runtimeEnv: deps.runtimeEnv || process.env, withPgClient: deps.withPgClient };
   // The handler resolves this property at call time for the established offline
@@ -231,5 +206,6 @@ function createStaffEmailLunaDraftRoute(deps) {
 }
 module.exports = { createStaffEmailLunaDraftRoute, EMAIL_LUNA_GENERATE_DRAFT_PATH,
   EMAIL_LUNA_GENERATE_DRAFT_ENABLED_ENV, EMAIL_LUNA_GENERATE_BODY_KEYS,
+  EMAIL_LUNA_GENERATION_UNAVAILABLE_ERROR, EMAIL_LUNA_GENERATION_UNAVAILABLE_REASON,
   SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, snapshotEmailLunaGenerateBody,
   snapshotEmailLunaGenerateGateEnv, isEmailLunaGenerateDraftEnabled };

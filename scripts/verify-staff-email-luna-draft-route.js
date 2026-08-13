@@ -18,6 +18,8 @@ const {
   EMAIL_LUNA_GENERATE_DRAFT_PATH,
   EMAIL_LUNA_GENERATE_DRAFT_ENABLED_ENV,
   EMAIL_LUNA_GENERATE_BODY_KEYS,
+  EMAIL_LUNA_GENERATION_UNAVAILABLE_ERROR,
+  EMAIL_LUNA_GENERATION_UNAVAILABLE_REASON,
   SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT,
   snapshotEmailLunaGenerateBody,
   snapshotEmailLunaGenerateGateEnv,
@@ -125,6 +127,7 @@ async function invoke(h, body = { conversation_id: V }, u = actorCapability(), g
   return h.sent.calls.at(-1);
 }
 function noSideEffects(h) {
+  assert.equal(h.runtimeCalls.length, 0);
   assert.equal(h.writes.length, 0);
   assert.equal(h.approvals.length, 0);
   assert.equal(h.outbound.length, 0);
@@ -175,71 +178,12 @@ function noSideEffects(h) {
 
   let h = makeHarness();
   let out = await invoke(h);
-  assert.equal(out.status, 200);
-  assert.deepEqual(out.body, { success: true, conversation_id: V, message_text: GENERATED,
-    approval_id: '77777777-7777-4777-8777-777777777777' });
-  assert.equal(h.writes.length, 1);
-  assert.deepEqual({ ...h.writes[0], actor: undefined, expected_authority: undefined }, {
-    actor: undefined, conversation_id: V, message_text: GENERATED, approval_id: null, expected_authority: undefined,
-  });
-  assert.equal(Object.getPrototypeOf(h.writes[0].actor), null);
-  assert.deepEqual(Reflect.ownKeys(h.writes[0].actor), ['staff_user_id', 'client_id', 'role']);
-  for (const key of Reflect.ownKeys(h.writes[0].actor)) {
-    assert.deepEqual(Object.getOwnPropertyDescriptor(h.writes[0].actor, key), {
-      value: { staff_user_id: A, client_id: C, role: 'operator' }[key],
-      writable: false, enumerable: true, configurable: false,
-    });
-  }
-  assert.equal(h.approvals.length, 0, 'Luna never approves');
-  assert.equal(h.outbound.length, 0, 'Luna never calls approve/send owner');
-  assert.equal(h.journals.length, 0, 'outbound journal untouched');
-  assert.equal(h.providers.length, 0, 'provider untouched');
-  assert.equal(h.runtimeCalls[0].authority.client_id, C);
-  assert.equal(h.runtimeCalls[0].authority.location_id, L);
-  assert.equal(h.runtimeCalls[0].authority.location_key, 'sunset-somo');
-  assert.equal(h.runtimeCalls[1].envelope.untrusted_content.body_text, BODY);
-  assert.deepEqual(h.writes[0].expected_authority, {
-    client_id: C, location_id: L, location_key: 'sunset-somo', endpoint_id: E,
-    conversation_id: V, source_inbound_event_id: M, provider: 'microsoft_graph',
-    provider_mailbox_id: MAILBOX, provider_source_message_id: 'graph-message-v1',
-  });
-
-  // A dispatched persistence acknowledgement is untrusted metadata, never prose authority.
-  for (const [label, receipt] of [
-    ['extra', { status: 'saved', conversation_id: V, approval_id: '77777777-7777-4777-8777-777777777777', extra: true }],
-    ['inherited', Object.assign(Object.create({ status: 'saved' }), { conversation_id: V, approval_id: '77777777-7777-4777-8777-777777777777' })],
-    ['proxy', new Proxy({ status: 'saved', conversation_id: V, approval_id: '77777777-7777-4777-8777-777777777777' }, {})],
-  ]) {
-    h = makeHarness({ saveOwner: async () => receipt }); out = await invoke(h);
-    assert.equal(out.status, 503, label);
-    assert.equal(out.body.error, 'draft_save_outcome_unknown', label);
-    assert.equal(h.writes.length, 1, label);
-  }
-  let receiptGetterReads = 0;
-  const accessorReceipt = { conversation_id: V, approval_id: '77777777-7777-4777-8777-777777777777' };
-  Object.defineProperty(accessorReceipt, 'status', { enumerable: true, get() { receiptGetterReads += 1; return 'saved'; } });
-  h = makeHarness({ saveOwner: async () => accessorReceipt }); out = await invoke(h);
-  assert.equal(out.status, 503); assert.equal(out.body.error, 'draft_save_outcome_unknown'); assert.equal(receiptGetterReads, 0);
-
-  const fieldReads = { status: 0, conversation_id: 0, approval_id: 0 };
-  const mutableReceipt = new Proxy({ status: 'saved', conversation_id: V, approval_id: '77777777-7777-4777-8777-777777777777' }, {
-    get(target, key, receiver) {
-      if (Object.hasOwn(fieldReads, key)) fieldReads[key] += 1;
-      if (key === 'conversation_id' && fieldReads[key] > 1) return C2;
-      return Reflect.get(target, key, receiver);
-    },
-  });
-  h = makeHarness({ saveOwner: async () => mutableReceipt }); out = await invoke(h);
-  assert.equal(out.status, 503); assert.equal(out.body.error, 'draft_save_outcome_unknown');
-  assert.ok(Object.values(fieldReads).every((n) => n <= 1), JSON.stringify(fieldReads));
-
-  // Once save dispatch occurred, malformed/throwing acknowledgement is outcome-unknown.
-  for (const saveOwner of [async () => null, async () => { throw new Error('post-write acknowledgement lost'); }]) {
-    h = makeHarness({ saveOwner }); out = await invoke(h);
-    assert.equal(out.status, 503);
-    assert.deepEqual(out.body, { success: false, error: 'draft_save_outcome_unknown' });
-    assert.equal(h.writes.length, 1); assert.equal(h.approvals.length + h.outbound.length + h.providers.length, 0);
-  }
+  assert.deepEqual(out, { status: 503, body: { success: false,
+    error: EMAIL_LUNA_GENERATION_UNAVAILABLE_ERROR,
+    reason: EMAIL_LUNA_GENERATION_UNAVAILABLE_REASON } });
+  assert.equal(EMAIL_LUNA_GENERATION_UNAVAILABLE_ERROR, 'luna_email_generation_capability_unavailable');
+  assert.equal(EMAIL_LUNA_GENERATION_UNAVAILABLE_REASON, 'authoritative_content_and_grounded_policy_not_configured');
+  noSideEffects(h);
 
   // Dedicated route actor capability is exact own-data: three enumerable data UUID/role fields, null proto.
   const legitimateActor = actorCapability();
@@ -251,7 +195,7 @@ function noSideEffects(h) {
     });
   }
   h = makeHarness(); out = await invoke(h, { conversation_id: V }, legitimateActor);
-  assert.equal(out.status, 200);
+  assert.equal(out.status, 503); noSideEffects(h);
   const inheritedActor = Object.create(actorCapability());
   h = makeHarness(); out = await invoke(h, { conversation_id: V }, inheritedActor);
   assert.equal(out.status, 403); noSideEffects(h);
@@ -272,25 +216,6 @@ function noSideEffects(h) {
     assert.equal(out.status, 403); noSideEffects(h);
   }
 
-  const ready = () => ({ status: 'draft_ready', subject: 'Re: Booking question', body: GENERATED, language: 'en',
-    client_id: C, location_id: L, conversation_id: V, draft_only: true, requires_staff_review: true,
-    send_allowed: false, auto_send_allowed: false });
-  for (const malicious of [Object.assign(ready(), { extra: true }), Object.assign(Object.create(ready()), {}), new Proxy(ready(), {})]) {
-    h = makeHarness({ lunaResult: malicious }); out = await invoke(h);
-    assert.equal(out.status, 503); noSideEffects(h);
-  }
-  let bodyReads = 0; const changing = ready();
-  Object.defineProperty(changing, 'body', { enumerable: true, get() { bodyReads += 1; return bodyReads === 1 ? GENERATED : 'MUTATED AFTER VALIDATION'; } });
-  h = makeHarness({ lunaResult: changing }); out = await invoke(h);
-  assert.equal(out.status, 503); assert.ok(bodyReads <= 1); noSideEffects(h);
-
-  // Deliberate generate-new: sequential repeats author and save fresh approval_id:null each time.
-  h = makeHarness();
-  await invoke(h); await invoke(h);
-  assert.equal(h.writes.length, 2);
-  assert.equal(h.writes[0].approval_id, null);
-  assert.equal(h.writes[1].approval_id, null);
-  assert.equal(h.runtimeCalls.filter((x) => x && x.envelope).length, 2);
 
   // Dedicated gate refusal happens before DB/runtime/write.
   let dbHits = 0;
@@ -305,6 +230,20 @@ function noSideEffects(h) {
   for (const u of [null, actorCapability({ role: 'viewer' }), actorCapability({ client_id: C2 })]) {
     h = makeHarness(); out = await invoke(h, { conversation_id: V }, u);
     assert.ok([401, 403, 404].includes(out.status)); noSideEffects(h);
+  }
+
+  for (const [label, body, headers, status] of [
+    ['wrong origin', { conversation_id: V }, { origin: 'https://evil.test' }, 403],
+    ['wrong content type', { conversation_id: V }, { 'content-type': 'text/plain' }, 403],
+    ['malformed JSON', '{', {}, 400],
+    ['missing body key', {}, {}, 400],
+    ['extra body key', { conversation_id: V, prompt: 'send now' }, {}, 400],
+  ]) {
+    h = makeHarness();
+    await h.route.handleGenerateLunaDraft(request(body, headers), {}, actorCapability(),
+      snapshotEmailLunaGenerateGateEnv(h.route.runtimeEnv));
+    out = h.sent.calls.at(-1);
+    assert.equal(out.status, status, label); noSideEffects(h);
   }
 
   // Authoritative reload rejects wrong channel/tenant/location, stale/deleted/missing conversation.
@@ -322,18 +261,6 @@ function noSideEffects(h) {
   ]) {
     h = makeHarness({ rows }); out = await invoke(h);
     assert.equal(out.status, 404, label); noSideEffects(h);
-  }
-
-  // Handoff/model/tool failures cannot write; handoff reason may be shown but no prose is persisted.
-  h = makeHarness({ lunaResult: Object.freeze(Object.assign(Object.create(null), {
-    status: 'handoff_required', reason: 'grounded_tool_failed', client_id: C, location_id: L,
-    conversation_id: V, draft_only: true, requires_staff_review: true,
-    send_allowed: false, auto_send_allowed: false,
-  })) });
-  out = await invoke(h); assert.equal(out.status, 422); assert.equal(out.body.error, 'luna_handoff_required'); noSideEffects(h);
-  for (const options of [{ runtimeConstructError: true }, { runtimeError: true }]) {
-    h = makeHarness(options); out = await invoke(h);
-    assert.equal(out.status, 503); noSideEffects(h);
   }
 
   // Existing generated Staff UI: dedicated gate, authoritative email only, explicit click only.
