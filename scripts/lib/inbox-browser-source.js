@@ -25,6 +25,7 @@ const CUSTOMERS_FILTERS_MODULE = path.join(BROWSER_DIR, 'inbox-customers-filters
 const CUSTOMERS_OUTREACH_MODULE = path.join(BROWSER_DIR, 'inbox-customers-outreach.js');
 const CUSTOMERS_PROFILE_MODULE = path.join(BROWSER_DIR, 'inbox-customers-profile.js');
 const LIST_MODULE = path.join(BROWSER_DIR, 'inbox-list.js');
+const STREAM_MODULE = path.join(BROWSER_DIR, 'inbox-stream.js');
 const LUNA_MODE_MODULE = path.join(BROWSER_DIR, 'inbox-luna-mode.js');
 const THREAD_MODULE = path.join(BROWSER_DIR, 'inbox-thread.js');
 const VIEWS_MODULE = path.join(BROWSER_DIR, 'inbox-views.js');
@@ -69,7 +70,11 @@ function getInboxCustomersProfileBrowserSource() {
 }
 
 function getInboxListBrowserSource() {
-  return readBrowserModule(LIST_MODULE);
+  return readBrowserModule(LIST_MODULE) + '\n' + readBrowserModule(STREAM_MODULE);
+}
+
+function getInboxStreamBrowserSource() {
+  return readBrowserModule(STREAM_MODULE);
 }
 
 function getInboxLunaModeBrowserSource() {
@@ -117,6 +122,7 @@ module.exports = {
   getInboxCustomersOutreachBrowserSource,
   getInboxCustomersProfileBrowserSource,
   getInboxListBrowserSource,
+  getInboxStreamBrowserSource,
   getInboxLunaModeBrowserSource,
   getInboxThreadBrowserSource,
   getInboxViewsBrowserSource,
@@ -129,6 +135,7 @@ module.exports = {
   CUSTOMERS_OUTREACH_MODULE,
   CUSTOMERS_PROFILE_MODULE,
   LIST_MODULE,
+  STREAM_MODULE,
   LUNA_MODE_MODULE,
   THREAD_MODULE,
   VIEWS_MODULE,

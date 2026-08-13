@@ -1,6 +1,7 @@
 /**
- * Staff Portal Inbox, Conversations tab: conversation list filtering, the live polling
- * loop for the list and the selected thread, and thread message bubble rendering.
+ * Staff Portal Inbox, Conversations tab: conversation list filtering, the live
+ * list/thread refresh (SSE in inbox-stream.js, with these poll timers as
+ * fallback), and thread message bubble rendering.
  *
  * Injected into /staff/ui at the inbox-list marker. Fragment spliced into the portal
  * IIFE, so it is already in strict mode and relies on siblings in that scope
@@ -99,20 +100,12 @@ function isInboxTabVisible(){
   return !!(panel && panel.classList.contains('active'));
 }
 
-function stopInboxLivePolling(){
-  inboxLivePollActive = false;
+function stopInboxPollTimers(){
   if (inboxListPollTimer) { clearInterval(inboxListPollTimer); inboxListPollTimer = null; }
   if (inboxThreadPollTimer) { clearInterval(inboxThreadPollTimer); inboxThreadPollTimer = null; }
 }
 
-function startInboxLivePolling(){
-  if (!isInboxTabVisible()) {
-    stopInboxLivePolling();
-    return;
-  }
-  if (inboxLivePollActive) return;
-  inboxLivePollActive = true;
-  setInboxLiveStatus('live', 'Live');
+function startInboxPollTimers(){
   if (!inboxListPollTimer) {
     inboxListPollTimer = setInterval(function(){
       pollInboxConversationListLive();
@@ -123,6 +116,22 @@ function startInboxLivePolling(){
       pollInboxSelectedThreadLive();
     }, INBOX_THREAD_POLL_MS);
   }
+}
+
+function stopInboxLivePolling(){
+  inboxLivePollActive = false;
+  stopInboxPollTimers();
+}
+
+function startInboxLivePolling(){
+  if (!isInboxTabVisible()) {
+    stopInboxLivePolling();
+    return;
+  }
+  if (inboxLivePollActive) return;
+  inboxLivePollActive = true;
+  setInboxLiveStatus('live', 'Live');
+  startInboxPollTimers();
 }
 
 function pollInboxConversationListLive(){

@@ -20,7 +20,7 @@ or any `/staff/inbox/*` route.
 | 1 | One `Auto \| Draft \| Off` Luna mode control | **done** (#524) — WhatsApp Auto\|Off, Email Draft\|Off; WhatsApp Draft shipped in Phase 2 (#535) |
 | 1 | Handoff state gap — Luna promises a takeover that never sets `needs_human` | **done** (detector + corpus gate) |
 | 2 | Channel-agnostic approvals; WhatsApp draft parity (migration 078) | **done** persist+read (#528, migration 078 `luna_outbound_approvals`); **done** approve-send (#533, `POST /staff/inbox/whatsapp/approve-send`, existing send path, dry-run fail-closed); **done** Draft UI (#535, `inbox-whatsapp-draft.js`, Approve/Edit, no auto-send) |
-| 3 | SSE live activity, replacing 5s/3s polling | not started |
+| 3 | SSE live activity, replacing 5s/3s polling | **this PR (#537)** — `GET /staff/inbox/stream` + EventSource; 5s/3s timers kept as fallback |
 | 4 | Segments and broadcasts (migrations 080, 081) | not started |
 | 5 | Identity linking across channels (optional) | not started |
 
@@ -336,4 +336,5 @@ Needs-you rail itself.
 - `scripts/staff-query-api.js`, `database/` and `infra/` are operator-owned per `CODEOWNERS`.
 - Gate every phase with `npm run verify:luna-all` and `node scripts/verify-inbox-ui-parity.js`
   (capture a baseline with `--save` **before** editing). `scripts/verify-sunset-luna-inbox-mirror.js`
-  asserts the poll intervals and will need updating when SSE lands.
+  still asserts the 5s/3s poll constants because those timers remain the EventSource
+  fallback. `scripts/verify-inbox-stream-route.js` gates `GET /staff/inbox/stream`.
