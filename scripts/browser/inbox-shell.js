@@ -109,7 +109,7 @@ function inboxShellChannelSelectHtml(channel, selected){
   var labelKey = channel === 'email' ? 'inbox.badge.email' : 'inbox.badge.whatsapp';
   var labelFallback = channel === 'email' ? 'Email' : 'WhatsApp';
   var label = inboxShellT(labelKey, labelFallback);
-  var html = '<label class="inbox-shell-channel" data-inbox-shell-channel="' + channel + '">';
+  var html = '<label class="inbox-shell-channel inbox-shell-channel-native" data-inbox-shell-channel="' + channel + '">';
   html += '<span class="inbox-shell-channel-ico" aria-hidden="true">' + inboxShellChannelIconSvg(channel) + '</span>';
   html += '<span class="inbox-channel-badge inbox-channel-badge-' + channel + ' inbox-shell-channel-name">' + escHtml(label) + '</span>';
   html += '<span class="inbox-shell-channel-sep" aria-hidden="true">·</span>';
@@ -130,11 +130,37 @@ function inboxShellChannelSelectHtml(channel, selected){
   return html;
 }
 
+function inboxShellAutonomyRowHtml(channel, selected){
+  var isEmail = channel === 'email';
+  var label = inboxShellT(isEmail ? 'inbox.badge.email' : 'inbox.badge.whatsapp', isEmail ? 'Email' : 'WhatsApp');
+  var visual = selected === 'auto' ? 'auto' : 'draft';
+  var html = '<div class="channelModeRow" data-inbox-autonomy-row="' + channel + '">';
+  html += '<div class="channelModeIdentity">';
+  html += '<span class="channelModeIcon" aria-hidden="true">' + inboxShellChannelIconSvg(channel) + '</span>';
+  html += '<span>' + escHtml(label) + '</span>';
+  html += '<span class="channelModeDot' + (visual === 'auto' ? ' is-auto' : '') + '" aria-hidden="true"></span>';
+  html += '</div>';
+  html += '<div class="channelModeSegmented" role="group" aria-label="' + escHtml(label) + ' autonomy">';
+  html += '<button type="button" class="channelModeBtn' + (visual === 'draft' ? ' isSelected' : '') + '"';
+  html += ' data-inbox-autonomy="draft" data-inbox-autonomy-channel="' + channel + '"';
+  html += ' aria-pressed="' + (visual === 'draft' ? 'true' : 'false') + '"';
+  html += ' title="Luna prepares replies for staff approval">Draft</button>';
+  html += '<button type="button" class="channelModeBtn' + (visual === 'auto' ? ' isSelected isAuto' : '') + '"';
+  html += ' data-inbox-autonomy="auto" data-inbox-autonomy-channel="' + channel + '"';
+  html += ' aria-pressed="' + (visual === 'auto' ? 'true' : 'false') + '"';
+  html += ' title="Luna can reply automatically">Auto</button>';
+  html += '</div></div>';
+  return html;
+}
+
 function inboxShellChannelDefaultsHtml(modes){
   modes = modes || inboxShellLoadStoredModes();
   var wa = inboxShellNormalizeWhatsApp(modes.whatsapp);
   var em = inboxShellNormalizeEmail(modes.email);
-  var html = '<div class="inbox-shell-channel-defaults" id="inbox-shell-channel-defaults">';
+  var html = '<div class="inbox-shell-channel-defaults channelAutonomy" id="inbox-shell-channel-defaults">';
+  html += '<div class="channelAutonomyLabel">CHANNEL AUTONOMY</div>';
+  html += inboxShellAutonomyRowHtml('whatsapp', wa);
+  html += inboxShellAutonomyRowHtml('email', em);
   html += inboxShellChannelSelectHtml('whatsapp', wa);
   html += inboxShellChannelSelectHtml('email', em);
   html += '</div>';
@@ -157,7 +183,31 @@ function inboxShellCssText(){
     'position:absolute!important;opacity:0!important;pointer-events:none!important;',
     '}',
     /* Keep the tab-row global pause visible so Inbox nav matches Schedule/Admin. */
-    '.inbox-shell-channel-defaults{display:inline-flex;align-items:center;gap:8px;flex:1;min-width:0;flex-wrap:wrap}',
+    '.inbox-shell-channel-defaults{display:block;width:218px;padding:9px;',
+    'border:1px solid rgba(47,65,57,.10);border-radius:12px;background:rgba(250,248,242,.88);',
+    'box-shadow:0 4px 14px rgba(37,47,42,.06);backdrop-filter:blur(8px);flex:0 0 auto}',
+    '.channelAutonomyLabel{margin:0 0 7px 3px;font-size:10px;font-weight:700;letter-spacing:.11em;color:#9aa59d}',
+    '.channelModeRow{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:34px}',
+    '.channelModeRow + .channelModeRow{margin-top:5px}',
+    '.channelModeIdentity{display:flex;align-items:center;gap:7px;min-width:82px;font-size:12px;font-weight:600;color:#31443a}',
+    '.channelModeIcon{width:18px;height:18px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}',
+    '.channelModeIcon svg{width:16px;height:16px;display:block}',
+    '.channelModeDot{width:7px;height:7px;border-radius:50%;border:1.5px solid #9aa59d;background:transparent;flex:0 0 auto}',
+    '.channelModeDot.is-auto{background:#31483d;border-color:#31483d}',
+    '.channelModeSegmented{display:inline-flex;padding:2px;border:1px solid rgba(47,65,57,.10);border-radius:9px;background:rgba(235,232,223,.72)}',
+    '.channelModeBtn{min-width:47px;height:26px;padding:0 9px;border:0;border-radius:7px;background:transparent;',
+    'color:#7c877f;font-size:11px;font-weight:650;cursor:pointer;',
+    'transition:background 140ms ease,color 140ms ease,box-shadow 140ms ease}',
+    '.channelModeBtn:hover{color:#31443a}',
+    '.channelModeBtn.isSelected{background:#f9f7f1;color:#31443a;box-shadow:0 1px 3px rgba(30,42,36,.10)}',
+    '.channelModeBtn.isSelected.isAuto{background:#31483d;color:#fff}',
+    '.channelModeBtn:focus-visible{outline:2px solid rgba(49,72,61,.35);outline-offset:2px}',
+    '.inbox-shell-channel-native{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;',
+    'display:none!important;white-space:nowrap;border:0}',
+    '.inbox-shell-channel-defaults.is-busy .channelModeBtn{opacity:.7;cursor:not-allowed}',
+    '.inbox-toolbar-channels{align-items:flex-start}',
+    '.inbox-toolbar-channels .inbox-refresh-btn{margin-left:0;margin-top:22px}',
+    '.inbox-chat-chrome-slot{justify-content:flex-start}',
     '.inbox-shell-channel{display:inline-flex;align-items:center;gap:6px;height:32px;box-sizing:border-box;',
     'padding:0 10px 0 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);',
     'cursor:pointer;max-width:100%;position:relative}',
@@ -199,6 +249,12 @@ function inboxMockupThemeCssText(){
     '#inbox-shell.inbox-two-col.inbox-shell-cols .inbox-col1{',
     'background:var(--surface);',
     'border-radius:var(--radius);',
+    '}',
+    '#inbox-shell .detail-header{',
+    'background:var(--surface);',
+    'border:1px solid var(--border-soft);',
+    'border-radius:var(--radius);',
+    'margin-bottom:10px;',
     '}',
     '#inbox-shell .detail-main{',
     'background:transparent;',
@@ -496,6 +552,28 @@ function inboxShellApplyUiModes(modes){
   var em = typeof el === 'function' ? el('inbox-shell-email-mode') : null;
   if (wa) wa.value = inboxShellNormalizeWhatsApp(modes && modes.whatsapp);
   if (em) em.value = inboxShellNormalizeEmail(modes && modes.email);
+  inboxShellSyncAutonomyButtons();
+}
+
+function inboxShellSyncAutonomyButtons(){
+  var wrap = typeof el === 'function' ? el('inbox-shell-channel-defaults') : null;
+  if (!wrap) return;
+  ['whatsapp', 'email'].forEach(function(channel){
+    var sel = typeof el === 'function' ? el('inbox-shell-' + channel + '-mode') : null;
+    var visual = (sel && sel.value === 'auto') ? 'auto' : 'draft';
+    var row = wrap.querySelector('[data-inbox-autonomy-row="' + channel + '"]');
+    if (!row) return;
+    var dot = row.querySelector('.channelModeDot');
+    if (dot) dot.classList.toggle('is-auto', visual === 'auto');
+    var btns = row.querySelectorAll('[data-inbox-autonomy]');
+    for (var i = 0; i < btns.length; i++){
+      var mode = btns[i].getAttribute('data-inbox-autonomy');
+      var on = mode === visual;
+      btns[i].classList.toggle('isSelected', on);
+      btns[i].classList.toggle('isAuto', on && mode === 'auto');
+      btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  });
 }
 
 function inboxShellClientQuery(){
@@ -628,6 +706,20 @@ function wireInboxShellChannelDefaults(){
     if (id === 'inbox-shell-email-mode') {
       persistInboxShellChannelMode('email', sel.value);
     }
+  });
+  wrap.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest && ev.target.closest('[data-inbox-autonomy]');
+    if (!btn || btn.disabled) return;
+    var channel = btn.getAttribute('data-inbox-autonomy-channel');
+    var mode = btn.getAttribute('data-inbox-autonomy');
+    if (!channel || !mode) return;
+    var sel = typeof el === 'function' ? el('inbox-shell-' + channel + '-mode') : null;
+    if (!sel) return;
+    var next = channel === 'email' ? inboxShellNormalizeEmail(mode) : inboxShellNormalizeWhatsApp(mode);
+    if (sel.value === next) return;
+    sel.value = next;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    inboxShellSyncAutonomyButtons();
   });
 }
 

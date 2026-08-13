@@ -1032,6 +1032,7 @@ function inboxOpenBookingDrawerHere(booking) {
     ? window.openScheduleDetailDrawer
     : (typeof openScheduleDetailDrawer === 'function' ? openScheduleDetailDrawer : null);
   if (!drawerFn) return false;
+  inboxEnsureScheduleDrawerOnBody();
   var start = booking.service_date_start || booking.service_date || booking.check_in || '';
   drawerFn({
     booking_id: booking.booking_id || null,
@@ -1043,6 +1044,31 @@ function inboxOpenBookingDrawerHere(booking) {
     _drawerFromCustomer: true,
   });
   return true;
+}
+
+function inboxEnsureScheduleDrawerOnBody() {
+  if (typeof document === 'undefined' || !document.body) return;
+  var drawer = typeof el === 'function' ? el('ps-detail-drawer') : document.getElementById('ps-detail-drawer');
+  var backdrop = typeof el === 'function' ? el('ps-drawer-backdrop') : document.getElementById('ps-drawer-backdrop');
+  if (backdrop && backdrop.parentNode !== document.body) document.body.appendChild(backdrop);
+  if (drawer && drawer.parentNode !== document.body) document.body.appendChild(drawer);
+}
+
+function inboxCustomerEnsureBookingDelegate() {
+  if (typeof document === 'undefined' || document.documentElement.dataset.inboxBookingDelegate === '1') return;
+  document.documentElement.dataset.inboxBookingDelegate = '1';
+  document.addEventListener('click', function(ev) {
+    var btn = ev.target && ev.target.closest && ev.target.closest('[data-inbox-open-booking]');
+    if (!btn) return;
+    if (ev.preventDefault) ev.preventDefault();
+    inboxOpenBookingDrawerHere({
+      booking_id: btn.getAttribute('data-booking-id'),
+      booking_code: btn.getAttribute('data-booking-code'),
+      check_in: btn.getAttribute('data-check-in'),
+      check_out: btn.getAttribute('data-check-out'),
+      guest_name: btn.getAttribute('data-guest-name'),
+    });
+  });
 }
 
 function inboxCustomerWireFull(sidebar, data) {
@@ -1063,6 +1089,7 @@ function inboxCustomerWireFull(sidebar, data) {
       btn.dataset.inboxCustomerWired = '1';
       btn.addEventListener('click', function(ev) {
         if (ev && ev.preventDefault) ev.preventDefault();
+        if (ev && ev.stopPropagation) ev.stopPropagation();
         inboxOpenBookingDrawerHere({
           booking_id: btn.getAttribute('data-booking-id'),
           booking_code: btn.getAttribute('data-booking-code'),
@@ -1245,6 +1272,7 @@ function inboxContextInstall() {
   inboxContextInstallFetchHook();
   inboxContextWrapSidebarToggle();
   inboxContextWrapColumnsApply();
+  inboxCustomerEnsureBookingDelegate();
   inboxContextRuntime.wired = true;
   return true;
 }

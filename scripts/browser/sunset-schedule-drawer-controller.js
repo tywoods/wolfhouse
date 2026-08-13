@@ -257,3 +257,7 @@ function closeScheduleDetailDrawer(){
   if (drawer) drawer.style.display = 'none';
   if (backdrop) backdrop.style.display = 'none';
 }
+
+if (typeof window !== 'undefined') {
+  window.openScheduleDetailDrawer = openScheduleDetailDrawer;
+}

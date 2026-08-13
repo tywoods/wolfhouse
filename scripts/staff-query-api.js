@@ -18500,7 +18500,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .inbox-toolbar-top{display:grid;align-items:center;gap:14px;width:100%;
   grid-template-columns:var(--inbox-col1-w,240px) minmax(0,var(--inbox-col2-w,360px)) minmax(0,1fr) auto}
 .inbox-toolbar-channels{display:flex;align-items:center;gap:8px;min-width:0}
-.inbox-chat-chrome-slot{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;min-height:32px}
+.inbox-chat-chrome-slot{display:flex;align-items:center;justify-content:flex-start;gap:6px;min-width:0;min-height:32px}
 .inbox-conv-search-wrap{min-width:0}
 .inbox-conv-search{width:100%;box-sizing:border-box;height:32px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px}
 .inbox-client-select{font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);flex:1;min-width:0}
@@ -18575,7 +18575,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .conv-skeleton-line{min-height:14px;background:var(--surface-soft);border-radius:4px}
 .conv-skeleton-line.short{max-width:160px;margin-top:6px}
 /* .visible no longer toggles display — kept for JS compat, no visual effect */
-.detail-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:14px 16px 12px;border-bottom:none;flex-shrink:0;flex-wrap:wrap}
+.detail-header{display:flex;align-items:center;gap:10px;margin:0 0 10px;padding:14px 16px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);flex-shrink:0;flex-wrap:wrap}
 .detail-header-main{flex:1;min-width:0;overflow:hidden}
 .detail-header-right{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto}
 .detail-header-main .detail-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
