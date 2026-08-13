@@ -26,6 +26,109 @@ _Started 2026-08-03. Last updated 2026-08-12 07:02 UTC by Skipper. Owner brain-d
 
 ---
 
+## 🐞 Bug Finder pass — 2026-08-14 (Sunset staging, external agent)
+
+_Added by Captain from Bug Finder / Chief of Staff report. Inbox re-verified 14 Aug (redesigned 4-col workspace); Horario/Reservas/Admin items are still-open from the 12 Aug pass, **not** re-verified 14 Aug. No merge, no deploy — triage list only._
+
+### Inbox — NEW (14 Aug, redesigned 4-column workspace)
+- **[BUG] P2 — Filter counts don't reconcile:** All 17 ≠ WhatsApp 8 + Email 3 (6 conversations unaccounted). Rail badges vs list query mismatch.
+- **[BUG] P2 — People views clip rows + inner horizontal scrollbar** (All people 133; multiselect checkbox overflows).
+- **[BUG] P2 — Guest card contradicts thread:** "No linked bookings yet" / BOOKINGS 0 while thread has a confirmed booking (e.g. Simulate Guest / SUNSET-20260714-D12AE3).
+- **[BUG] P2 — List timestamp ≠ last message time** (Simulate Guest row "Aug 5", newest in-thread Jul 14) — triage order wrong.
+- **[BUG] P2 — Selecting some threads hard-reloads the portal** ("Loading portal…"), drops staff on Horario, can flip locale ES→EN.
+- **[BUG] P3 — Changing filter/search silently reselects the first thread** (unrelated guest under a filtered list).
+- **[BUG] P3 — Empty states duplicated + generic** ("No guest email…" twice; Needs human 0 still says there are no conversations at all).
+- **[BUG] P3 — "Linked bookings" codes look like links but aren't clickable** (no href).
+- **[BUG] P3 — Email thread header shows raw internal ID** (`emailv1:sunset-somo:32cb2f9a…`) instead of the guest email.
+- **[BUG] P3 — ~1040px: 4-col layout collapses;** thread header can render as "H." / "+_".
+
+### Inbox — STILL OPEN (carried from prior pass)
+- **[BUG] P2 — Stale detail pane:** previous thread + guest card persist ~1s after click (wrong-guest action risk). Still repro.
+- **[I18N] P2 — Heavy bilingual leakage in new inbox chrome** (rail INBOX/NEEDS YOU/PEOPLE/CHANNEL AUTONOMY, Search contacts, Email broadcast, Generate/Save/Approve & send, guest card CHECKED IN/BOOKINGS/LESSONS/UNPAID BALANCE, mixed ES/EN accordions). After locale toggle, pane can stay in the other language until re-render.
+- **[UI] P3 — Destructive Reset Luna session / Full Wipe** now in an unlabeled ⋯ overflow on the live thread toolbar (better than under reply box, still too close). Not clicked.
+
+### Inbox — NOT REPRODUCED this pass (possibly fixed)
+- **P1 — Open customer card opens the wrong guest** (Monshies → +dddddddd). Guest binding looked correct on threads opened today.
+
+### Horario / Reservas / Admin — 12 Aug pass, NOT re-verified 14 Aug
+**P1**
+- **[BUG] Timeline overlap** — "Curso privado" covers "Curso Mañana"; Mañana unclickable (Daily Timeline).
+- **[I18N] Raw i18n key on Reservas booking-code control:** `admin.bookings.openInSchedule: SUNSET-…` (ES+EN).
+- **[BUG] Booking code opens Horario on today,** not the booking's service date.
+- **[BUG] Booking detail drawer opens behind invisible backdrop;** nav blocked until Escape.
+- **[BUG] Guest chip "Pagado" while drawer shows €0 of €960 paid** (Gary / SUNSET-20260811-EA783E).
+- **[BUG] Monthly Next advances grid but header stays stuck;** can skip a week / land on wrong day.
+- **[BUG] Reservas text search ignores active date-range filter** (count can rise, e.g. 17→21).
+- **[BUG] Finanzas Day: Pendiente €3,130 > Booked €1,240** for same 3 reservas.
+- **[BUG] Finanzas "Next 30 days" / "Delivered, unpaid" ignore selected period.**
+
+**P2**
+- **[BUG] Schedule empty-state flash before data loads.**
+- **[BUG] Booking drawer says "add a phone"** though list already shows one.
+- **[BUG] Guest name in Reservas silently jumps to Inbox/Clientes;** loses context.
+- **[I18N] Locale leakage:** Admin (esp. Luna Staff) largely English in ES; Reservas filters Spanish in EN; Bookings table doesn't re-localize until refetch; Horario ES keeps English chrome; course names inconsistently translated.
+- **[BUG] Closing booking drawer leaves body `overflow:hidden`** — scroll-locked / blank beige until reload.
+- **[BUG] Horario booking drawer ignores Escape** (only ✕ closes).
+- **[BUG] Create-booking date "Aplicar" sits under sticky "Crear reserva" footer** (near-miss submit).
+- **[BUG] Create booking accepts 99 guests on a 24-seat course;** submit stays enabled when quote fails.
+- **[BUG] Create booking phone accepts letters/symbols;** still submittable.
+- **[BUG] Expanded Reservas rows inject line-items into table;** raw ISO timestamps; KPI pollution.
+- **[BUG] Customer-card linked bookings show raw payment enums** vs localized table.
+- **[BUG] Clientes Filters popover overflows; Esc doesn't dismiss.** (Inbox Filters UI may have changed — re-check.)
+- **[BUG] Finanzas Year 2026 totals identical to August 2026** while 12-month chart shows other months.
+- **[BUG] Finanzas Custom: Prev/Next arrows dead;** raw ISO + English calendar chrome in ES.
+- **[BUG] Luna Staff: "No numbers yet"** while Guest Conversation Alerts have recipients; automations blocked.
+- **[BUG] Alert toggles checked/editable with "Disabled on server".**
+- **[BUG] Capacity: 132/100 · 100%;** "Alojamiento out 2" with no %.
+
+**P3 / process**
+- **[UI] Inbox thread header clipping** (may be improved by redesign — not re-checked).
+- **[UI] Precios bare unlabeled × on course cards.**
+- **[BUG] Create booking allows past dates.**
+- **[BUG] "TODAY'S PREP" on non-today dates;** weekday prefix missing on today.
+- **[UI] Reply UI differs by channel with no explanation** (more intentional in new inbox — lower priority).
+- **[BUG] Reservas no pagination at 46+ rows;** sort collapses expansion.
+- **[UI] No "Crear reserva" CTA inside Reservas.**
+- **[UI] Finanzas "—" placeholder product rows;** bilingual product names.
+- **[I18N] Precios enums/helpers English inside ES admin.**
+- **[BUG] Delete conversation × on thread hover (old)** — confirm if still present in new list.
+- **[BUG] Exportar CSV enabled at 0 results** — not clicked.
+- **[UI] Luna Staff header styles look instant-apply** — not clicked.
+
+## 🌐 Language audit — Inbox (Bandeja de entrada) — 2026-08-14 (EN/ES)
+
+_Added by Captain from Luna Language / Chief of Staff audit. Sunset staging, redesigned inbox, read-only (17 conversations, one WhatsApp thread opened, no send). Nothing changed in production copy. Priorities HIGH/MED/LOW per audit. Provided ES/EN fixes inline._
+
+**Re-check of prior inbox items**
+- **#7 (mixed ES inbox chrome) — STILL PRESENT**, now worse: the whole left rail is English in ES. Empty state + loading still mixed.
+- **#8 (detail pane untranslated in ES) — PARTLY FIXED.** Reply composer now ES ("Respuesta:", "Escribe una respuesta…", "Enviar respuesta", "Avisar"). Still broken: right-rail labels, Luna Auto/Off, Channel Autonomy.
+
+### HIGH
+- **[I18N] Left rail entirely English in ES** (nav itself says "Bandeja de entrada"): INBOX, All, WhatsApp, Email, NEEDS YOU, Needs human, PEOPLE, All people, Checked in, Hot leads, Warm leads, Unpaid, Waiver due, Lesson today, Upcoming, Do not contact.
+  - Fix ES: BANDEJA / Todas / WhatsApp / Email / TE NECESITAN / Requiere personal / PERSONAS / Todas las personas / Con check-in / Clientes potenciales calientes / Clientes potenciales templados / Sin pagar / Waiver pendiente / Clase hoy / Próximas / No contactar.
+- **[I18N] Right-rail customer card English in ES:** CHECKED IN, BOOKINGS, LESSONS, UNPAID BALANCE, WAIVER STATUS, LAST SETUP, Linked bookings; values "No", "9 due", "21 lessons, 25 addon service" (mixed with translated TELÉFONO / ESCUELA ACTIVA).
+  - Fix ES: CON CHECK-IN / RESERVAS / CLASES / SALDO PENDIENTE / ESTADO DEL WAIVER ("9 pendientes") / ÚLTIMA CONFIGURACIÓN ("21 clases, 25 servicios adicionales") / Reservas vinculadas.
+- **[I18N] "NOTES FOR NEXT TIME" stays English in ES** while value is "Sin notas aún" (mixed in one row). Fix ES: NOTAS PARA LA PRÓXIMA VEZ.
+- **[I18N] NEW — Spanish leftovers in EN mode** (tooltips/chrome from Inbox): "Reserva del staff", "Ocupación 3 de 24", "Día 2 de 8", "Duración del alquiler", "Cant.", "Curso Mañana 10:00–12:00", plus Channel Autonomy helpers still Spanish ("Luna prepara borradores…", "La automatización de WhatsApp está en pausa.").
+  - Fix EN: Staff booking / Occupancy 3 of 24 / Day 2 of 8 / Rental duration / Qty / Morning course 10:00–12:00 / "Luna drafts WhatsApp replies for staff approval. It does not send." / "WhatsApp automation is paused." / "Luna drafts email replies for staff approval. Email is never sent automatically." / "Luna will not draft email replies."
+
+### MED
+- **[I18N] "Loading conversations…" and "Loading…" in ES.** Fix: Cargando conversaciones… / Cargando…
+- **[I18N] Empty state mixed:** ES "Aún no hay conversaciones." + EN "Guest emails and WhatsApp for Sunset will appear here when they arrive." Fix ES body: Los emails y mensajes de WhatsApp de huéspedes de Sunset aparecerán aquí cuando lleguen.
+- **[I18N] Search placeholder "Search contacts" untranslated in ES** (a second search IS localized). Fix ES: Buscar contactos.
+- **[I18N] Channel Autonomy card English in ES:** CHANNEL AUTONOMY, Draft, Auto, Global Pause, Off, On. Fix ES: AUTONOMÍA POR CANAL / Borrador / Automático / Pausa global / Desactivada / Activada.
+- **[I18N] Thread header still English in ES:** "Luna: Auto", Auto, Off (only "Avisar" translated). Fix ES: Luna: automático / Automático / Desactivada. Prefer "Requiere personal" over "Avisar".
+- **[I18N] List timestamps not localized in ES:** "24m ago", "13h ago", "Aug 11", "Jul 31". Fix ES: hace 24 min / hace 13 h / 11 ago / 31 jul.
+- **[I18N] Untranslated tooltips/aria in ES:** Delete conversation, Back, Reply channel, Inbox view, Saved views, WhatsApp/Email autonomy, Global Pause, Account, School, Language, Menu, Schedule/Open schedule, Refresh.
+  - Fix ES: Eliminar conversación / Volver / Canal de respuesta / Vista de la bandeja / Vistas guardadas / Autonomía de WhatsApp / Autonomía de email / Pausa global / Cuenta / Escuela / Idioma / Menú / Horario / Abrir horario / Actualizar.
+- **[I18N] PEOPLE filter tooltips mixed in ES.** English leftovers: "Contacted but never booked", "Customers who have booked before", "Marked do not contact". Fix ES: Contactado pero nunca reservó / Clientes que ya han reservado / Marcado como no contactar.
+- **[I18N] Layout toggle:** EN "Full / Chat / Guest"; ES "Las cuatro / Chat / Huésped" ("Las cuatro" is opaque). Fix ES: Completa / Chat / Huésped.
+
+### LOW
+- **[I18N] Reply composer FIXED in ES** (Respuesta: / Escribe una respuesta… / Enviar respuesta). "Create booking for this guest" now "Crear reserva"; tags localized. Optional: "Crear reserva para este huésped".
+- **[I18N] Testing-tools strings English in both modes** (Delete Hermes state.db…, Full wipe…). Hide in production or translate; ES "Herramientas de prueba".
+- **[I18N] Sidebar title "INBOX" never localizes** (nav already says Bandeja de entrada). Fix ES: Bandeja de entrada.
+
 ## 🗂️ Tabs & navigation (restructure) — owner 2026-08-06
 - **T1 — [UI][FEAT] Collapse to 4 top-level tabs: Schedule · Inbox · Bookings · Admin.** `M–L`
   - **Schedule** — unchanged.
