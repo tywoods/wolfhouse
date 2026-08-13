@@ -1,7 +1,6 @@
 'use strict';
 /** Gate 3 Phase B PR B2b — token HTTP → Phase B scope → B1 custody/replacer. */
 const util = require('util');
-const transitionPolicy = require('./email-microsoft-reauthorization-transition-policy');
 const {
   createMicrosoftPhaseBVerifiedGrantCustodyAdapter, CONFIG_KEYS: CUSTODY_CONFIG_KEYS,
   OUTCOME_UNKNOWN, SEALED_ACK,
@@ -20,7 +19,6 @@ const COMPLETION_ACK_STATUS = 'completed';
 const COMPLETION_ACK = Object.freeze({ status: COMPLETION_ACK_STATUS });
 const OUTCOME_UNKNOWN_ACK = Object.freeze({ status: OUTCOME_UNKNOWN });
 const SUNSET_DEPLOYMENT = 'sunset-staging';
-if (transitionPolicy.authorizationIntent() !== 'phase_b_reauthorization') throw new Error('phase_b_policy_contract_invalid');
 const JSON_LIMIT = 65_536; const TOK_LIM = 8192; const ID_LIM = 32768; const MAX_EXP = 86_400; const SEC_LIM = 4096;
 const DANGEROUS = new Set(['__proto__', 'prototype', 'constructor']); const SCOPE_REJECTION_STAGES = Object.freeze(Object.fromEntries(['invalid', 'duplicate', 'dangerous', 'phase_a_mixed', 'unknown', 'missing_required'].map((category) => [category, `token_response_scope_rejected_${category}`])));
 const CUSTODY_DEPS = Object.freeze(['verifiedIdentity', 'envelopeProvider', 'clock', 'replacer']);

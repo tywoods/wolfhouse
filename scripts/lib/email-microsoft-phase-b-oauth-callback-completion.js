@@ -57,9 +57,7 @@ const NONCE_RE = /^[A-Za-z0-9_-]{43,128}$/;
 const CODE_RE = /^[\x21-\x7e]{1,4096}$/;
 const ERR_RE = /^[a-z][a-z0-9_]{0,63}$/;
 const SS_RE = /^[\x21-\x7e]{1,256}$/;
-const SQL_CONSUME_PHASE_B_TRANSACTION = "UPDATE tenant_email_oauth_transactions SET consumed_at=$4 WHERE state_hash=$1::bytea AND client_id=$2::uuid AND auth_session_id=$3::uuid AND consumed_at IS NULL AND expires_at>$4 AND authorization_intent='phase_b_reauthorization' AND scope_version='phase_b_v1' AND prior_grant_generation IS NOT NULL AND prior_grant_generation >= 1 RETURNING id, location_id, staff_user_id, code_verifier, nonce, endpoint_id, authorization_intent, scope_version, prior_grant_generation";
-if (AUTHORIZATION_INTENT !== transitionPolicy.authorizationIntent()
-    || SCOPE_VERSION !== transitionPolicy.targetScopeVersion()) throw new Error('phase_b_policy_contract_invalid');
+const SQL_CONSUME_PHASE_B_TRANSACTION = transitionPolicy.callbackConsumeStatement();
 
 function failure() {
   const e = new Error(ERROR_MESSAGE);

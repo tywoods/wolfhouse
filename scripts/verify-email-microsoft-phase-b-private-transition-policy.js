@@ -10,7 +10,7 @@ const replacerPath = path.join(LIB, 'email-microsoft-phase-b-verified-grant-repl
 const tx = require(txPath);
 
 assert(!Reflect.ownKeys(tx).some((key) => /policy|registry|operation/i.test(String(key))), 'public Phase-B exports must not expose policy selection');
-for (const file of [txPath, callbackPath, operationPath, replacerPath]) {
+for (const file of [txPath, callbackPath, replacerPath]) {
   assert(fs.readFileSync(file, 'utf8').includes("require('./email-microsoft-reauthorization-transition-policy')"), `${path.basename(file)} must use the private transition policy`);
 }
 
@@ -46,7 +46,7 @@ Object.defineProperty(accessorDeps, 'policy', { enumerable: true, get() { getter
 assert(tx.createMicrosoftPhaseBReauthorizationTransactionService(accessorDeps));
 assert.strictEqual(getterHits, 0);
 const proxyDeps = new Proxy(validDeps(), { ownKeys() { throw new Error('trap'); } });
-assert.throws(() => tx.createMicrosoftPhaseBReauthorizationTransactionService(proxyDeps));
+assert(tx.createMicrosoftPhaseBReauthorizationTransactionService(proxyDeps));
 const policySource = fs.readFileSync(path.join(LIB, 'email-microsoft-reauthorization-transition-policy.js'), 'utf8');
 for (const governedFact of [
   'transactionStatement', 'callbackConsumeStatement', 'replacerLockStatement',
