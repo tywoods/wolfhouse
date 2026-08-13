@@ -7,12 +7,16 @@ const txPath = path.join(LIB, 'email-microsoft-phase-b-reauthorization-transacti
 const callbackPath = path.join(LIB, 'email-microsoft-phase-b-oauth-callback-completion.js');
 const operationPath = path.join(LIB, 'email-microsoft-phase-b-oauth-operation-composition.js');
 const replacerPath = path.join(LIB, 'email-microsoft-phase-b-verified-grant-replacer.js');
+const umbrellaPath = path.join(LIB, 'email-microsoft-reauthorization-lifecycle.js');
 const tx = require(txPath);
 
 assert(!Reflect.ownKeys(tx).some((key) => /policy|registry|operation/i.test(String(key))), 'public Phase-B exports must not expose policy selection');
-for (const file of [txPath, callbackPath, replacerPath]) {
-  assert(fs.readFileSync(file, 'utf8').includes("require('./email-microsoft-reauthorization-transition-policy')"), `${path.basename(file)} must use the private transition policy`);
+for (const file of [txPath, callbackPath]) {
+  const source = fs.readFileSync(file, 'utf8');
+  assert(source.includes("require('./email-microsoft-reauthorization-lifecycle')"), `${path.basename(file)} must be an umbrella compatibility facade`);
+  assert(!source.includes('transition-policy'), `${path.basename(file)} must not independently select policy`);
 }
+assert(fs.readFileSync(replacerPath, 'utf8').includes("require('./email-microsoft-reauthorization-transition-policy')"), 'replacer remains on compatibility policy until PR 2');
 
 const validDeps = () => ({
   repository: Object.freeze({ async create() { throw new Error('must_not_run'); } }),
@@ -48,9 +52,12 @@ assert.strictEqual(getterHits, 0);
 const proxyDeps = new Proxy(validDeps(), { ownKeys() { throw new Error('trap'); } });
 assert(tx.createMicrosoftPhaseBReauthorizationTransactionService(proxyDeps));
 const policySource = fs.readFileSync(path.join(LIB, 'email-microsoft-reauthorization-transition-policy.js'), 'utf8');
+const umbrellaSource = fs.readFileSync(umbrellaPath, 'utf8');
+for (const governedFact of ['transactionStatement', 'callbackConsumeStatement']) {
+  assert(umbrellaSource.includes(governedFact), `umbrella must govern ${governedFact}`);
+}
 for (const governedFact of [
-  'transactionStatement', 'callbackConsumeStatement', 'replacerLockStatement',
-  'replacerCasStatement', 'verifiedMicrosoftDelegatedConnector', 'ownUserMailbox',
+  'replacerLockStatement', 'replacerCasStatement', 'verifiedMicrosoftDelegatedConnector', 'ownUserMailbox',
   'activeCleanUnleased', 'priorGenerationPredicate',
 ]) assert(policySource.includes(governedFact), `private policy must govern ${governedFact}`);
 console.log('PASS: Microsoft Phase-B transition policy is private, closed, and non-injectable');

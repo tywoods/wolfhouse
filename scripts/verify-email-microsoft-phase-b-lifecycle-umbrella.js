@@ -30,6 +30,6 @@ assert(!txSource.includes('transition-policy'), 'transaction facade must not sel
 assert(!callbackSource.includes('transition-policy'), 'callback facade must not select transition policy');
 assert(umbrellaSource.includes('Symbol('), 'umbrella must own an unforgeable operation token');
 assert(umbrellaSource.includes('transactionStatement') && umbrellaSource.includes('callbackConsumeStatement'));
-assert(!Reflect.ownKeys(require(umbrellaPath)).some((k) => /registry|policy|operation|selector|engine|validator|predicate/i.test(String(k))));
+assert.deepStrictEqual(Reflect.ownKeys(require(umbrellaPath)), ['phaseBReauthorizationTransactionService', 'phaseBOauthCallbackCompletion']);
 for (const mod of [tx, callback]) assert(!Reflect.ownKeys(mod).some((k) => /registry|policy|operation|selector|engine|validator|predicate/i.test(String(k))));
 console.log('PASS: Phase-B transaction and callback are compatibility facades over private umbrella lifecycle authority');
