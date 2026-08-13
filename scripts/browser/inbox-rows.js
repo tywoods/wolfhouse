@@ -41,6 +41,8 @@ var INBOX_ROWS_CSS = [
   '.inbox-row-broadcast-btn{margin-left:auto;border:1px solid var(--border);',
   'border-radius:8px;background:var(--surface);padding:6px 10px;font-size:12px;',
   'font-weight:600;cursor:pointer}',
+  '#inbox-shell[data-inbox-multiselect="false"] .inbox-row-select,',
+  '#tab-conversations[data-inbox-multiselect="false"] .inbox-row-select{display:none!important}',
 ].join('');
 
 var inboxRowsRuntime = { wired: false };
@@ -134,7 +136,7 @@ function inboxRowsSyncActiveView(viewId) {
   inboxRowsActiveView = {
     id: id,
     source: source,
-    multiSelect: view.multi_select === true,
+    multiSelect: view.multi_select === true && source === 'customers',
     searchSupported: source === 'customers',
   };
   inboxRowsPublishActiveView();
@@ -329,6 +331,11 @@ function inboxRowsAfterRender() {
   inboxRowsEnsureFilterField();
   inboxRowsEnsureSelectFooter();
   inboxRowsWireCheckboxes();
+  if (!inboxRowsMultiSelectActive()) {
+    inboxRowsSelected = {};
+    var footer = inboxRowsEl('inbox-row-select-footer');
+    if (footer) footer.hidden = true;
+  }
 }
 
 function inboxRowsOnViewChange(viewId) {
@@ -390,8 +397,8 @@ function inboxRowsWrapViews() {
   if (typeof selectInboxSavedView === 'function' && !selectInboxSavedView._inboxRowsWrapped) {
     var _inboxRowsLegacySelect = selectInboxSavedView;
     selectInboxSavedView = function(viewId) {
-      _inboxRowsLegacySelect(viewId);
       inboxRowsOnViewChange(viewId);
+      _inboxRowsLegacySelect(viewId);
     };
     selectInboxSavedView._inboxRowsWrapped = true;
   }

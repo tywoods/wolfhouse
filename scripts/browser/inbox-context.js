@@ -123,14 +123,17 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-guest-linked-bookings .customers-row-table{width:100%;table-layout:fixed}',
   '.inbox-guest-booking-row{cursor:pointer}',
   '.inbox-guest-booking-row:hover{background:var(--surface-soft)}',
-  '.inbox-guest-notes-display{display:block;width:100%;text-align:left;border:none;background:none;',
-  'padding:0;margin:0;font:inherit;color:inherit;cursor:pointer}',
+  '.inbox-guest-notes{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;align-items:start}',
+  '.inbox-guest-notes-title{display:inline;width:auto;text-align:left;border:none;background:none;',
+  'padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline;',
+  'text-underline-offset:2px}',
+  '.inbox-guest-notes-display{min-width:0}',
   '.inbox-guest-notes-display.is-empty{color:var(--text-3)}',
-  '.inbox-guest-notes-edit{display:flex;flex-direction:column;gap:8px;margin-top:6px}',
+  '.inbox-guest-notes-edit{grid-column:2;display:flex;flex-direction:row;align-items:center;gap:8px;min-width:0}',
   '.inbox-guest-notes-edit[hidden]{display:none!important}',
-  '.inbox-guest-notes-edit textarea{min-height:72px;width:100%;box-sizing:border-box;font:inherit;',
-  'padding:8px 10px;border:1px solid var(--border);border-radius:8px;resize:vertical}',
-  '.inbox-guest-notes-save{align-self:flex-start;padding:9px 16px;font-size:12px;font-weight:600}',
+  '.inbox-guest-notes-edit textarea{flex:1 1 auto;min-width:0;min-height:40px;height:44px;box-sizing:border-box;',
+  'font:inherit;padding:8px 10px;border:1px solid var(--border);border-radius:8px;resize:vertical}',
+  '.inbox-guest-notes-save{flex:0 0 auto;padding:9px 16px;font-size:12px;font-weight:600}',
 ].join('');
 
 var inboxContextLastComposite = null;
@@ -929,12 +932,14 @@ function inboxCustomerNotesFieldHtml(notes) {
   var text = String(notes || '').trim();
   var empty = !text;
   var html = '<div class="customers-profile-field inbox-guest-notes" id="inbox-guest-notes">';
-  html += '<span class="customers-profile-field-label">' + inboxContextEsc(inboxContextT('customers.detail.notes', 'Notes for next time')) + '</span>';
-  html += '<button type="button" class="customers-profile-field-value inbox-guest-notes-display' + (empty ? ' is-empty' : '') + '" id="inbox-guest-notes-open">';
-  html += inboxContextEsc(empty ? inboxContextT('customers.detail.noNotes', 'No notes yet') : text);
+  html += '<button type="button" class="customers-profile-field-label inbox-guest-notes-title" id="inbox-guest-notes-open">';
+  html += inboxContextEsc(inboxContextT('customers.detail.notes', 'Notes for next time'));
   html += '</button>';
+  html += '<span class="customers-profile-field-value inbox-guest-notes-display' + (empty ? ' is-empty' : '') + '" id="inbox-guest-notes-text-display">';
+  html += inboxContextEsc(empty ? inboxContextT('customers.detail.noNotes', 'No notes yet') : text);
+  html += '</span>';
   html += '<div class="inbox-guest-notes-edit" id="inbox-guest-notes-edit" hidden>';
-  html += '<textarea id="inbox-guest-notes-text">' + inboxContextEsc(text) + '</textarea>';
+  html += '<textarea id="inbox-guest-notes-text" rows="2">' + inboxContextEsc(text) + '</textarea>';
   html += '<button type="button" class="btn btn-primary inbox-guest-notes-save" id="inbox-guest-notes-save">' +
     inboxContextEsc(inboxContextT('common.save', 'Save')) + '</button>';
   html += '</div></div>';
@@ -1002,7 +1007,6 @@ function inboxCustomerFullHtml(data, opts) {
   html += '<div class="customers-profile-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
   html += '<div class="customers-profile-identity">';
   html += '<h3 class="customers-profile-name">' + inboxContextEsc(name) + '</h3>';
-  html += '<div class="customers-profile-contact">' + inboxContextEsc([phone, email].filter(Boolean).join(' · ') || '—') + '</div>';
   html += '</div>';
   html += '<div class="customers-profile-hdr-actions">';
   html += '<button type="button" class="btn btn-ghost" id="inbox-create-booking-for-guest">' +
@@ -1256,13 +1260,14 @@ function inboxCustomerEnsureBookingDelegate() {
 function inboxCustomerWireNotes(root) {
   if (!root || !root.querySelector) return;
   var open = root.querySelector('#inbox-guest-notes-open');
+  var display = root.querySelector('#inbox-guest-notes-text-display');
   var edit = root.querySelector('#inbox-guest-notes-edit');
   var area = root.querySelector('#inbox-guest-notes-text');
   var save = root.querySelector('#inbox-guest-notes-save');
   if (open && open.dataset.inboxCustomerWired !== '1') {
     open.dataset.inboxCustomerWired = '1';
     open.addEventListener('click', function() {
-      open.hidden = true;
+      if (display) display.hidden = true;
       if (edit) edit.hidden = false;
       if (area) area.focus();
     });
@@ -1304,13 +1309,13 @@ function inboxCustomerSaveNotes(notes, root) {
     inboxContextLastCustomer.notes = inboxContextLastCustomer.notes || {};
     inboxContextLastCustomer.notes.internal_staff_notes = payload.notes;
     if (inboxContextLastCustomer.identity) inboxContextLastCustomer.identity.display_name = payload.display_name;
-    var open = root && root.querySelector('#inbox-guest-notes-open');
+    var display = root && root.querySelector('#inbox-guest-notes-text-display');
     var edit = root && root.querySelector('#inbox-guest-notes-edit');
-    if (open) {
+    if (display) {
       var empty = !payload.notes;
-      open.textContent = empty ? inboxContextT('customers.detail.noNotes', 'No notes yet') : payload.notes;
-      open.classList.toggle('is-empty', empty);
-      open.hidden = false;
+      display.textContent = empty ? inboxContextT('customers.detail.noNotes', 'No notes yet') : payload.notes;
+      display.classList.toggle('is-empty', empty);
+      display.hidden = false;
     }
     if (edit) edit.hidden = true;
   }).catch(function() {

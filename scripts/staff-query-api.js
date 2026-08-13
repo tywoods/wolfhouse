@@ -20193,6 +20193,9 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #tab-conversations.active:has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
   max-width:1240px!important;
 }
+#tab-conversations:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-toolbar-channels{
+  justify-content:flex-end;
+}
 #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .detail-main{gap:0;padding:0}
 #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .detail-header{
   background:var(--surface);border:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);
