@@ -47,8 +47,9 @@ function isPlainObject(value) {
 function fail(error) { return Object.freeze({ ok: false, error }); }
 function ok(value) { return Object.freeze({ ok: true, value }); }
 function hasExactKeys(value, allowed) {
-  const keys = Object.keys(value);
-  return keys.length === allowed.length && keys.every((key) => allowed.includes(key));
+  const keys = Reflect.ownKeys(value);
+  return keys.length === allowed.length
+    && keys.every((key) => typeof key === 'string' && allowed.includes(key));
 }
 function boundedString(value, max = 255) {
   return typeof value === 'string' && value.length > 0 && value.length <= max;
@@ -70,8 +71,9 @@ function validateOutboundAdapterDescriptor(input) {
       || !isPlainObject(input.methods)) {
     return fail('outbound_descriptor_invalid');
   }
-  const methodKeys = Object.keys(input.methods);
-  if (methodKeys.some((key) => !OUTBOUND_METHOD_SET.has(key)
+  const methodKeys = Reflect.ownKeys(input.methods);
+  if (methodKeys.some((key) => typeof key !== 'string'
+      || !OUTBOUND_METHOD_SET.has(key)
       || typeof input.methods[key] !== 'function')) {
     return fail('outbound_methods_invalid');
   }

@@ -37,6 +37,23 @@ const smtp = contract.validateOutboundAdapterDescriptor({
 });
 assert.equal(smtp.ok, true);
 
+const symbolAuthority = Symbol('authority');
+const symbolMethods = { dispatch() {} };
+symbolMethods[symbolAuthority] = () => true;
+assert.equal(contract.validateOutboundAdapterDescriptor({
+  provider: 'imap_smtp',
+  capabilities: { remote_drafts: false, reconcile: false },
+  methods: symbolMethods,
+}).ok, false, 'methods reject symbol-keyed authority');
+
+const symbolCapabilities = { remote_drafts: false, reconcile: false };
+symbolCapabilities[symbolAuthority] = true;
+assert.equal(contract.validateOutboundAdapterDescriptor({
+  provider: 'imap_smtp',
+  capabilities: symbolCapabilities,
+  methods: { dispatch() {} },
+}).ok, false, 'capabilities reject symbol-keyed authority');
+
 assert.equal(contract.validateOutboundAdapterDescriptor({
   provider: 'imap_smtp',
   capabilities: { remote_drafts: false, reconcile: false },
