@@ -55,6 +55,7 @@ const steps = [
   ['verify:hermes-gateway-mirror-patch', 'verify-hermes-gateway-mirror-patch.js'],
   ['verify:luna-handoff-promise-detection', 'verify-luna-handoff-promise-detection.js'],
   ['verify:luna-effective-mode', 'verify-luna-effective-mode.js'],
+  ['verify:luna-pause-handoff-controls', 'verify-luna-pause-handoff-controls.js'],
   ['verify:luna-golden', 'verify-luna-golden.js'],
   ['verify:luna-coach', 'verify-luna-coach.js'],
   ['verify:luna-unified-planner', 'verify-luna-unified-planner.js'],
