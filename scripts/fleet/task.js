@@ -187,7 +187,22 @@ switch (cmd) {
     }
     break;
   }
-  case 'show': { if (!pos[0]) die('show needs <id>'); console.log(gh(['issue', 'view', pos[0], '-R', REPO])); break; }
+  case 'show': {
+    const id = pos[0]; if (!id) die('show needs <id>');
+    if (USE_GH) { console.log(gh(['issue', 'view', String(id), '-R', REPO])); break; }
+    const d = restRequest('GET', '/repos/' + REPO + '/issues/' + id);
+    if (!d) die('show: issue not found');
+    const labels = (d.labels || []).map((l) => (typeof l === 'string' ? l : l.name)).join(', ') || '-';
+    const who = (d.assignees || []).map((a) => a.login).join(', ') || '-';
+    console.log('#' + d.number + '  ' + (d.title || ''));
+    console.log('state:     ' + (d.state || '?'));
+    console.log('labels:    ' + labels);
+    console.log('assignees: ' + who);
+    console.log('url:       ' + (d.html_url || ''));
+    console.log('');
+    console.log(d.body || '(no body)');
+    break;
+  }
   case 'claim': {
     const id = pos[0]; if (!id) die('claim needs <id>');
     if (!f.as || !AGENTS.includes(f.as)) die('claim needs --as <' + AGENTS.join('|') + '>');
@@ -198,8 +213,15 @@ switch (cmd) {
     const login = process.env['FLEET_GH_LOGIN_' + f.as.toUpperCase()];
     let assigned = false;
     if (login) {
-      const r = spawnSync('gh', ['issue', 'edit', String(id), '-R', REPO, '--add-assignee', login], { encoding: 'utf8' });
-      assigned = r.status === 0;
+      if (USE_GH) {
+        const r = spawnSync('gh', ['issue', 'edit', String(id), '-R', REPO, '--add-assignee', login], { encoding: 'utf8' });
+        assigned = r.status === 0;
+      } else {
+        // REST: PATCH the issue with the assignees array. restRequest die()s on
+        // HTTP >= 400, so reaching the next line means the assignment took.
+        restRequest('PATCH', '/repos/' + REPO + '/issues/' + id, { assignees: [login] });
+        assigned = true;
+      }
     }
     comment(id, 'CLAIM by ' + f.as + (assigned ? ' (assignee=' + login + ')' : ' (no GitHub assignee mapped)'));
     console.log('#' + id + ' -> claimed (' + f.as + (assigned ? ', assignee ' + login : ', comment-only') + ')');

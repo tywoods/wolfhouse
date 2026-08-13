@@ -179,6 +179,21 @@ const queued = JSON.stringify({ labels: [{ name: 'fleet:queued' }] });
   ok('REST: review refuses illegal jump queued -> in-review', r.status !== 0 && /illegal transition/.test(r.stderr));
 }
 
+
+{
+  // REST: show renders an issue with no gh available.
+  const r = runRest(['show', '5'],
+    { MOCK_ISSUE_JSON: JSON.stringify({ labels: [{ name: 'fleet:gated' }] }) });
+  ok('REST: show works gh-free (renders issue)', r.status === 0 && /#5/.test(r.stdout) && /state:/.test(r.stdout), (r.stderr || r.stdout).trim());
+  ok('REST: show made a GET issue call, not gh', /GET \/repos\/test\/repo\/issues\/5/.test(r.restlog));
+}
+{
+  // REST: claim with a mapped assignee performs a PATCH assignees (not comment-only).
+  const r = runRest(['claim', '5', '--as', 'seadog'],
+    { FLEET_GH_LOGIN_SEADOG: 'seadogbot', MOCK_ISSUE_JSON: JSON.stringify({ labels: [{ name: 'fleet:queued' }] }) });
+  ok('REST: claim with mapped login sets assignee via PATCH', r.status === 0 && /PATCH \/repos\/test\/repo\/issues\/5/.test(r.restlog) && /assignee seadogbot/.test(r.stdout), (r.stderr || r.stdout).trim() + ' :: ' + r.restlog.trim());
+}
+
 console.log('\n' + '-'.repeat(40));
 console.log('fleet task.js tests: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
