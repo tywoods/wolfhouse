@@ -241,6 +241,27 @@ function makeLoadRule(prices) {
   };
 }
 
+/**
+ * Fixture days come off the clock: pinned to one August the payloads aged into
+ * explicit_past_date and stopped reaching the 8-to-14 tier rules. The range keeps its
+ * Monday start and its length; "now" stays the same distance ahead of it.
+ */
+function isoWeekdayAtLeastDaysOut(weekday, days) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  d.setUTCDate(d.getUTCDate() + ((weekday - d.getUTCDay() + 7) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+function isoShift(iso, days) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+const RANGE_START = isoWeekdayAtLeastDaysOut(1, 30); // Monday, a month out
+const QUOTE_NOW = new Date(`${isoShift(RANGE_START, -33)}T12:00:00Z`);
+
 function isoRange(from, days) {
   const out = [];
   const start = new Date(`${from}T12:00:00Z`);
@@ -468,7 +489,7 @@ async function runGroupCourse814Proofs() {
   };
 
   async function quoteDays(days, qty, cfg, loadRule) {
-    const dates = isoRange('2026-08-03', days);
+    const dates = isoRange(RANGE_START, days);
     const built = buildSunsetQuoteCommand({
       channel: QUOTE_CHANNELS.MANUAL_STAFF,
       trustedLocationId: LOC,
@@ -485,7 +506,7 @@ async function runGroupCourse814Proofs() {
           },
         },
       },
-      now: new Date('2026-07-01T12:00:00Z'),
+      now: QUOTE_NOW,
     });
     if (!built.ok) return built;
     // Inject loadRule via resolveActiveSunsetAdminPrice by stubbing through opts.adminCfg
@@ -554,9 +575,9 @@ async function runGroupCourse814Proofs() {
       const bad = validateScheduleBookingBody({
         guest_name: 'Test Guest',
         payment_status: 'unpaid',
-        date_from: '2026-08-03',
-        date_to: '2026-08-17', // 15 days
-        service_dates: isoRange('2026-08-03', 15),
+        date_from: RANGE_START,
+        date_to: isoShift(RANGE_START, 14), // 15 days
+        service_dates: isoRange(RANGE_START, 15),
         components: {
           course: { course_id: PACK, tier_key: '7_days', quantity: 1 },
         },
@@ -700,7 +721,7 @@ async function runGroupCourse814Proofs() {
   };
 
   async function catalogQuote(days, qty) {
-    const dates = isoRange('2026-08-03', days);
+    const dates = isoRange(RANGE_START, days);
     const tierKey = groupCourseAdminTierKeyForInclusiveDays(days);
     const built = buildSunsetQuoteCommand({
       channel: QUOTE_CHANNELS.MANUAL_STAFF,
@@ -721,7 +742,7 @@ async function runGroupCourse814Proofs() {
           },
         },
       },
-      now: new Date('2026-07-01T12:00:00Z'),
+      now: QUOTE_NOW,
     });
     if (!built.ok) return built;
     return executeSunsetQuote(null, built.command, { adminCfg: catalogCfg });

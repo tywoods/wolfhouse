@@ -43,7 +43,26 @@ const LOC = 'sunset-somo';
 const TOWEL = 'towel_rental_edit';
 const TOWEL_LABEL = 'Towel';
 const TOWEL_CENTS = 2200;
-const DATE = '2026-08-20';
+/**
+ * The booking day is read off the clock — a pinned month stops testing the edit path and
+ * starts testing the calendar, since edit rejects past dates. Thursday is kept.
+ */
+function isoWeekdayAtLeastDaysOut(weekday, days) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  d.setUTCDate(d.getUTCDate() + ((weekday - d.getUTCDay() + 7) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+function isoDaysBefore(iso, days) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+const DATE = isoWeekdayAtLeastDaysOut(4, 30); // Thursday, a month out
+// Admin price rows were last touched well before the booking they price.
+const PRICE_UPDATED_AT = isoDaysBefore(DATE, 80);
 
 let pass = 0;
 function ok(name, cond, detail) {
@@ -437,7 +456,7 @@ function makePg(seed) {
             active: true,
             effective_from: null,
             effective_to: null,
-            updated_at: '2026-06-01',
+            updated_at: PRICE_UPDATED_AT,
           }],
         };
       }

@@ -14,6 +14,17 @@ const ROOT = path.join(__dirname, '..');
 let pass = 0;
 let fail = 0;
 
+/**
+ * Booking fixtures are read off the clock, never written as a literal month: the schedule
+ * validator rejects past dates, so a hardcoded fixture stops testing private lessons and
+ * starts testing the calendar the moment it expires.
+ */
+function isoDaysFromNow(offset) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
 function assert(label, condition, detail) {
   if (condition) {
     console.log(`  PASS  ${label}`);
@@ -95,35 +106,44 @@ const toolOut = executeSunsetCatalogTool('get_sunset_private_lesson', {
 });
 assert('catalog tool disabled by default config', toolOut.ok === false && toolOut.reason === 'private_lesson_disabled');
 
-const booking = normalizeLunaPrivateLessonBookingPayload({
-  guest_name: 'Test Guest',
-  date_from: '2026-07-10',
-  date_to: '2026-07-12',
-  private_lesson: {
-    enabled: true,
-    session_count: 3,
-    surfer_count: 1,
-    sessions: [
-      { date: '2026-07-10', start: '10:00', end: '12:00' },
-      { date: '2026-07-11', start: '14:00', end: '16:00' },
-      { date: '2026-07-12', start: '09:30', end: '11:30' },
-    ],
-  },
-});
-assert('booking payload 3 sessions validates', booking.ok === true);
-assert('booking normalized session count 3', booking.value.components.private_lesson.quantity === 3);
+// A three-day run of consecutive sessions, one month out.
+const DAY_1 = isoDaysFromNow(30);
+const DAY_2 = isoDaysFromNow(31);
+const DAY_3 = isoDaysFromNow(32);
+const THREE_SESSIONS = [
+  { date: DAY_1, start: '10:00', end: '12:00' },
+  { date: DAY_2, start: '14:00', end: '16:00' },
+  { date: DAY_3, start: '09:30', end: '11:30' },
+];
+const ONE_SESSION = [{ date: DAY_1, start: '10:00', end: '12:00' }];
 
-const badBooking = normalizeLunaPrivateLessonBookingPayload({
-  guest_name: 'Test Guest',
-  date_from: '2026-07-10',
-  date_to: '2026-07-10',
-  private_lesson: {
-    enabled: true,
-    session_count: 2,
-    sessions: [{ date: '2026-07-10', start: '10:00', end: '12:00' }],
-  },
-});
-assert('booking rejects session_count mismatch', badBooking.ok === false);
+function bookPrivateLesson(privateLesson, dateFrom, dateTo) {
+  return normalizeLunaPrivateLessonBookingPayload({
+    guest_name: 'Test Guest',
+    date_from: dateFrom,
+    date_to: dateTo,
+    private_lesson: { enabled: true, surfer_count: 1, ...privateLesson },
+  });
+}
+
+// session_count omitted vs. session_count disagreeing are different payloads and must stay
+// so: an omitted count means "infer from the sessions", a declared one that disagrees with
+// them is a real error and stays rejected.
+const booking = bookPrivateLesson({ session_count: 3, sessions: THREE_SESSIONS }, DAY_1, DAY_3);
+assert('declared session_count 3 with 3 sessions validates', booking.ok === true, JSON.stringify(booking.error));
+assert('declared session_count 3 normalizes to quantity 3',
+  booking.ok === true && booking.value.components.private_lesson.quantity === 3);
+
+const inferred = bookPrivateLesson({ sessions: THREE_SESSIONS }, DAY_1, DAY_3);
+assert('omitted session_count with 3 sessions validates', inferred.ok === true, JSON.stringify(inferred.error));
+assert('omitted session_count infers quantity 3 from sessions',
+  inferred.ok === true && inferred.value.components.private_lesson.quantity === 3);
+
+const tooFewSessions = bookPrivateLesson({ session_count: 2, sessions: THREE_SESSIONS }, DAY_1, DAY_3);
+assert('declared session_count 2 with 3 sessions rejected', tooFewSessions.ok === false);
+
+const tooManyDeclared = bookPrivateLesson({ session_count: 3, sessions: ONE_SESSION }, DAY_1, DAY_1);
+assert('declared session_count 3 with 1 session rejected', tooManyDeclared.ok === false);
 
 assert('detect 3 private lessons', detectPrivateLessonSessionCount('I want 3 private lessons') === 3);
 const reply = buildServiceSideQuestionReply('en', 'surf_lessons', 'I want 3 private lessons', { default_duration_minutes: 120 });
