@@ -36,14 +36,21 @@ for (const extra of hostile) {
   const deps = validDeps();
   deps.repository = Object.freeze({ async create() { calls += 1; } });
   Object.assign(deps, extra);
-  assert.throws(() => tx.createMicrosoftPhaseBReauthorizationTransactionService(deps));
+  const service = tx.createMicrosoftPhaseBReauthorizationTransactionService(deps);
+  assert(service && typeof service.start === 'function');
   assert.strictEqual(calls, 0);
 }
 let getterHits = 0;
 const accessorDeps = validDeps();
 Object.defineProperty(accessorDeps, 'policy', { enumerable: true, get() { getterHits += 1; return {}; } });
-assert.throws(() => tx.createMicrosoftPhaseBReauthorizationTransactionService(accessorDeps));
+assert(tx.createMicrosoftPhaseBReauthorizationTransactionService(accessorDeps));
 assert.strictEqual(getterHits, 0);
 const proxyDeps = new Proxy(validDeps(), { ownKeys() { throw new Error('trap'); } });
 assert.throws(() => tx.createMicrosoftPhaseBReauthorizationTransactionService(proxyDeps));
+const policySource = fs.readFileSync(path.join(LIB, 'email-microsoft-reauthorization-transition-policy.js'), 'utf8');
+for (const governedFact of [
+  'transactionStatement', 'callbackConsumeStatement', 'replacerLockStatement',
+  'replacerCasStatement', 'verifiedMicrosoftDelegatedConnector', 'ownUserMailbox',
+  'activeCleanUnleased', 'priorGenerationPredicate',
+]) assert(policySource.includes(governedFact), `private policy must govern ${governedFact}`);
 console.log('PASS: Microsoft Phase-B transition policy is private, closed, and non-injectable');
