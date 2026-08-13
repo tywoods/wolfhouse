@@ -80,6 +80,7 @@ function createInboxThreadCompositeRoutes(deps) {
     assertStaffClientAccess,
     appendAuditLog,
     withPgClient,
+    markPgClientDiscardRequired,
     DEFAULT_CLIENT,
     SQL_INJECT_RE,
     resolveSunsetConversationScope,
@@ -243,17 +244,37 @@ function createInboxThreadCompositeRoutes(deps) {
     try {
       result = await withPgClient(async (pg) => {
         await pg.query(SNAPSHOT_BEGIN);
+        let snapshot;
         try {
-          return await readThreadSnapshot(pg, clientSlug, convId, scope);
+          snapshot = await readThreadSnapshot(pg, clientSlug, convId, scope);
         } finally {
           // COMMIT on an aborted transaction behaves as ROLLBACK; either way the
           // connection must not return to the pool still holding the snapshot.
+          // Cleanup uncertainty policy:
+          //   - COMMIT fails + ROLLBACK succeeds: transaction closed, fail closed (throw)
+          //   - COMMIT fails + ROLLBACK fails: connection unusable, mark for discard, throw
+          //   - Either success: normal path
           try {
             await pg.query('COMMIT');
-          } catch (_commitErr) {
-            try { await pg.query('ROLLBACK'); } catch (_rollbackErr) { /* connection unusable */ }
+          } catch (commitErr) {
+            let rollbackOk = false;
+            try {
+              await pg.query('ROLLBACK');
+              rollbackOk = true;
+            } catch (_rollbackErr) {
+              // Both COMMIT and ROLLBACK failed — connection state is uncertain.
+              // Mark the client so withPgClient releases it destructively.
+              if (markPgClientDiscardRequired) markPgClientDiscardRequired(pg);
+            }
+            // Whether ROLLBACK succeeded or not, we must fail closed: the read snapshot
+            // completed but transaction cleanup is uncertain; do not return HTTP 200.
+            const cleanupErr = new Error('transaction_cleanup_failed');
+            cleanupErr.commitErr = commitErr;
+            cleanupErr.rollbackOk = rollbackOk;
+            throw cleanupErr;
           }
         }
+        return snapshot;
       });
     } catch (err) {
       appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });

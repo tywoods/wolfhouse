@@ -74,7 +74,7 @@ const {
 } = require('./lib/meta-whatsapp-signature-config');
 const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(process.env);
 
-const { withPgClient: _withPgClientImpl } = require('./lib/pg-connect');
+const { withPgClient: _withPgClientImpl, markPgClientDiscardRequired } = require('./lib/pg-connect');
 const { fetchSunsetFinanceData, FinanceDataQualityError } = require('./lib/sunset-finance-data');
 const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
 const { createBookingsAdminRoutes } = require('./lib/sunset-bookings-admin-routes');
@@ -2609,6 +2609,7 @@ const inboxThreadCompositeRoutes = createInboxThreadCompositeRoutes({
   assertStaffClientAccess,
   appendAuditLog,
   withPgClient,
+  markPgClientDiscardRequired,
   DEFAULT_CLIENT,
   SQL_INJECT_RE,
   resolveSunsetConversationScope,
