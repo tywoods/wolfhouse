@@ -99,6 +99,11 @@ var INBOX_CONTEXT_CSS = [
   'text-underline-offset:2px;white-space:nowrap}',
   '.inbox-customer-card .customers-profile-fields{display:flex;flex-direction:column;gap:8px}',
   '.inbox-customer-card .customers-profile-field{display:grid;grid-template-columns:7.6em minmax(0,1fr);gap:6px 14px;align-items:start}',
+  '.inbox-customer-card:not(.is-full) .inbox-guest-inline:has(.inbox-guest-inline-edit:not([hidden])){',
+  'grid-template-columns:max-content minmax(0,1fr)}',
+  '.inbox-guest-inline-display[hidden]{display:none!important}',
+  '.inbox-customer-head .inbox-client-info-id{display:flex;flex-direction:column;gap:6px;min-width:0}',
+  '.inbox-customer-card:not(.is-full) .inbox-guest-tags{margin:0}',
   '.inbox-customer-stats{margin-top:8px}',
   '.inbox-customer-bookings{margin-top:10px;display:flex;flex-direction:column;gap:4px}',
   '.inbox-customer-booking-link{display:block;width:100%;text-align:left;padding:6px 0;border:none;',
@@ -877,9 +882,9 @@ function inboxCustomerCondensedHtml(data, opts) {
   html += '<div class="inbox-client-info-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
   html += '<div class="inbox-client-info-id">';
   html += '<div class="inbox-client-info-name">' + inboxContextEsc(name) + '</div>';
+  html += inboxCustomerGuestTagsHtml(data);
   html += '</div>';
   html += '</div>';
-  html += inboxClientInfoChipsHtml(data, cacheRow);
   html += '<div class="customers-profile-fields">';
   html += inboxCustomerInlineFieldHtml('phone', inboxContextEsc(inboxContextT('customers.detail.phone', 'Phone')), phone, '—', false);
   html += inboxCustomerInlineFieldHtml('email', inboxContextEsc(inboxContextT('customers.detail.email', 'Email')), email, '—', false);
