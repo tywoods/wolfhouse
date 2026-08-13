@@ -20456,6 +20456,50 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   .inbox-two-col.inbox-shell-cols:not(.show-thread){grid-template-rows:auto minmax(0,1fr)}
   .inbox-two-col.inbox-shell-cols:not(.show-thread) #conv-detail{display:none}
 }
+/* staff-portal-mobile:inbox-chrome — phone-only. Do not edit desktop (≥901px) selectors. */
+@media(max-width:768px){
+  #tab-conversations .inbox-toolbar-top{
+    display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+    grid-template-columns:none;
+  }
+  #tab-conversations .inbox-toolbar-channels{flex:1 1 100%;width:100%;order:1}
+  #tab-conversations .inbox-conv-search-wrap{flex:1 1 auto;min-width:0;order:2}
+  #tab-conversations .inbox-layout-controls{order:2;margin-left:0;flex:0 0 auto}
+  #tab-conversations .inbox-layout-presets{display:none!important}
+  #tab-conversations .inbox-chat-chrome-slot{
+    flex:1 1 100%;width:100%;order:3;justify-content:flex-start;flex-wrap:wrap;gap:6px;
+  }
+  #tab-conversations:not(:has(.show-thread)) .inbox-chat-chrome-slot{display:none}
+  #tab-conversations:has(.show-thread) .inbox-conv-search-wrap{display:none}
+  #tab-conversations .inbox-global-pause,
+  #tab-conversations .inbox-global-pause .tabs-global-pause-toggle{
+    max-width:100%;
+  }
+  .inbox-two-col.inbox-shell-cols:not(.show-thread) #inbox-detail-sidebar{display:none}
+  .inbox-two-col.inbox-shell-cols.show-thread #inbox-detail-sidebar{
+    display:block;width:100%;max-width:100%;
+  }
+  .inbox-two-col.inbox-shell-cols[data-col4="wide"] .detail-main{display:flex!important}
+  .inbox-col1{
+    width:100%;flex-direction:column;align-items:stretch;padding:0;gap:8px;
+  }
+  .inbox-col1 .inbox-view-switch{width:100%}
+  .inbox-col1 > .inbox-left-toolbar{display:none}
+  .inbox-views-rail{
+    flex-direction:row;flex-wrap:nowrap;align-items:center;
+    overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
+    gap:8px;padding:8px;width:100%;align-self:stretch;
+  }
+  .inbox-views-group{flex-direction:row;flex-wrap:nowrap;gap:4px;flex:0 0 auto}
+  .inbox-views-group-label{display:none}
+  .inbox-views-item{width:auto;padding:8px 10px;white-space:nowrap}
+  .inbox-channel-autonomy-slot,
+  .inbox-channel-autonomy-slot .inbox-shell-channel-defaults{width:100%;max-width:100%;box-sizing:border-box}
+  .inbox-peek-edge{display:none!important}
+  .inbox-customer-card.is-editing input,
+  .inbox-customer-card.is-editing select,
+  .inbox-customer-card.is-editing textarea{min-height:44px;font-size:16px}
+}
 /* ── Top-bar layout controls: preset segmented control + per-column toggles ── */
 .inbox-layout-controls{display:flex;align-items:center;gap:8px;margin-left:8px;flex:0 0 auto}
 .inbox-layout-presets{display:inline-flex;gap:3px;padding:3px;border-radius:10px;background:var(--surface-soft);flex:0 0 auto}
