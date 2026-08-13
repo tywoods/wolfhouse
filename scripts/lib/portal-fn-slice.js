@@ -36,12 +36,17 @@ const AMBIENT_GLOBALS = new Set([
   'Array', 'Boolean', 'Date', 'Error', 'Function', 'Infinity', 'Intl', 'JSON',
   'Map', 'Math', 'NaN', 'Number', 'Object', 'Promise', 'Proxy', 'RegExp', 'Set',
   'String', 'Symbol', 'TypeError', 'URL', 'URLSearchParams', 'WeakMap', 'WeakSet',
-  'AbortController', 'Blob', 'FormData', 'Headers', 'Request', 'Response',
+  'AbortController', 'AbortSignal', 'Blob', 'FormData', 'Headers', 'Request',
+  'Response', 'Event', 'CustomEvent', 'MouseEvent', 'KeyboardEvent', 'Element',
+  'HTMLElement', 'Node', 'Image', 'Audio', 'File', 'FileReader', 'DOMParser',
+  'MutationObserver', 'IntersectionObserver', 'ResizeObserver', 'XMLHttpRequest',
   'alert', 'atob', 'btoa', 'clearInterval', 'clearTimeout', 'confirm', 'console',
-  'decodeURI', 'decodeURIComponent', 'encodeURI', 'encodeURIComponent', 'fetch',
-  'isFinite', 'isNaN', 'localStorage', 'navigator', 'parseFloat', 'parseInt',
-  'prompt', 'queueMicrotask', 'requestAnimationFrame', 'setInterval',
-  'setTimeout', 'structuredClone', 'undefined', 'window', 'document',
+  'crypto', 'decodeURI', 'decodeURIComponent', 'encodeURI', 'encodeURIComponent',
+  'fetch', 'getComputedStyle', 'globalThis', 'history', 'isFinite', 'isNaN',
+  'localStorage', 'location', 'matchMedia', 'navigator', 'parseFloat', 'parseInt',
+  'performance', 'prompt', 'queueMicrotask', 'requestAnimationFrame',
+  'sessionStorage', 'setInterval', 'setTimeout', 'structuredClone', 'undefined',
+  'window', 'document',
 ]);
 
 /**
@@ -244,6 +249,9 @@ function firstStateVar(sources, name) {
  *   sliced nor reported missing, so gate stubs keep winning over production code
  * @param {boolean} [options.followDependencies=true] set false for the old
  *   hand-listed behaviour
+ * @param {boolean} [options.omitProvided=false] walk the roots for dependencies
+ *   but leave anything already in `provided` out of the emitted code — for a
+ *   gate that has loaded its own set and only wants the dangling remainder
  * @returns {{code: string, resolved: string[], missing: string[], optional: string[],
  *   unparsable: string[]}} `code` is every slice newline-joined; `missing` are
  *   called names found neither in the sources nor in `provided` — the crash
@@ -257,6 +265,7 @@ function collectPortalFunctions(sources, roots, options) {
   const srcList = Array.isArray(sources) ? sources : [sources];
   const provided = new Set(opts.provided || []);
   const follow = opts.followDependencies !== false;
+  const omitProvided = opts.omitProvided === true;
 
   const resolved = new Map();
   const stateVars = new Map();
@@ -305,15 +314,17 @@ function collectPortalFunctions(sources, roots, options) {
     }
   }
 
+  const emitNames = Array.from(resolved.keys())
+    .filter((n) => !(omitProvided && provided.has(n)));
   // Functions may be declared before the state they close over; vars run first.
   const emitted = Array.from(stateVars.values())
-    .concat(Array.from(resolved.values()));
+    .concat(emitNames.map((n) => resolved.get(n)));
   const missing = Array.from(unresolved)
     .filter((n) => !guarded.has(n) && !stateVars.has(n));
   const optional = Array.from(unresolved).filter((n) => guarded.has(n));
   return {
     code: emitted.join('\n'),
-    resolved: Array.from(resolved.keys()),
+    resolved: emitNames,
     stateVars: Array.from(stateVars.keys()),
     missing,
     optional,
