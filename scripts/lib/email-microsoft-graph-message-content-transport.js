@@ -1,19 +1,13 @@
 'use strict';
-const FAILURE='microsoft_graph_message_content_failed', UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, ID=/^[A-Za-z0-9_+=.-]{1,2048}$/;
-const CAP=256*1024, DEADLINE=10000;
+const FAILURE='microsoft_graph_message_content_failed', UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const CAP=256*1024, DEADLINE=10000, META=new Set(['@odata.context','@odata.etag']);
 function fail(){const e=new Error('Microsoft Graph message content request failed.');Object.defineProperty(e,'code',{value:FAILURE,enumerable:true});return Object.freeze(e);}
-function createMicrosoftGraphMessageContentTransport(deps){
- if(!deps||typeof deps.httpsImpl?.request!=='function'||!deps.timers)throw fail();
- async function fetchMessageContent(input){
-  let token=null, options=null, chunks=[];
-  try{
-   if(!input||Object.getPrototypeOf(input)!==Object.prototype||Reflect.ownKeys(input).length!==3)throw fail();
-   token=input.accessToken;if(typeof token!=='string'||token.length<1||token.length>16384||!UUID.test(input.providerMailboxId)||!ID.test(input.providerMessageId))throw fail();
-   options={protocol:'https:',hostname:'graph.microsoft.com',port:443,method:'GET',path:`/v1.0/users/${input.providerMailboxId}/messages/${encodeURIComponent(input.providerMessageId)}?$select=id,body`,agent:false,timeout:DEADLINE,headers:{Accept:'application/json',Prefer:'IdType="ImmutableId"',Authorization:`Bearer ${token}`}};
-   return await new Promise((resolve,reject)=>{let done=false,size=0;const finish=(err,val)=>{if(done)return;done=true;err?reject(fail()):resolve(val);};let req;
-    try{req=deps.httpsImpl.request(options,res=>{if(res.statusCode!==200||!res.headers||res.headers['content-type']!=='application/json'){finish(true);return;}res.on('data',b=>{size+=b.length;if(size>CAP)finish(true);else chunks.push(b);});res.on('error',()=>finish(true));res.on('aborted',()=>finish(true));res.on('end',()=>{try{const raw=Buffer.concat(chunks);const round=Buffer.from(raw.toString('utf8'),'utf8');if(!raw.equals(round))throw fail();const x=JSON.parse(raw.toString('utf8'));if(!x||Object.getPrototypeOf(x)!==Object.prototype||Reflect.ownKeys(x).length!==2||x.id!==input.providerMessageId||!x.body||Object.getPrototypeOf(x.body)!==Object.prototype||Reflect.ownKeys(x.body).length!==2||!['text','html'].includes(x.body.contentType)||typeof x.body.content!=='string')throw fail();finish(null,Object.freeze({contentType:x.body.contentType,content:x.body.content}));}catch{finish(true);}});});req.on('error',()=>finish(true));req.setTimeout?.(DEADLINE,()=>{req.destroy?.();finish(true);});req.end();}catch{finish(true);}});
-  }catch{throw fail();}finally{token=null;chunks=null;if(options?.headers)options.headers.Authorization=null;options=null;}
- }
- return Object.freeze({fetchMessageContent});
-}
+function opaqueId(x){return typeof x==='string'&&x.length>0&&Buffer.byteLength(x,'utf8')<=2048&&!/[\x00-\x1f\x7f]/.test(x)&&!/[\uD800-\uDFFF]/.test(x)&&x!=='.'&&x!=='..';}
+function jsonType(x){return typeof x==='string'&&/^application\/json(?:\s*;\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+\s*=\s*(?:[!#$%&'*+.^_`|~0-9A-Za-z-]+|"[^"]*"))*\s*$/i.test(x);}
+function createMicrosoftGraphMessageContentTransport(deps){if(!deps||typeof deps.httpsImpl?.request!=='function'||typeof deps.timers?.setTimeout!=='function'||typeof deps.timers?.clearTimeout!=='function')throw fail();
+ async function fetchMessageContent(input){let token=null,options=null,chunks=[];try{if(!input||Object.getPrototypeOf(input)!==Object.prototype||Reflect.ownKeys(input).length!==3)throw fail();token=input.accessToken;if(typeof token!=='string'||token.length<1||token.length>16384||!UUID.test(input.providerMailboxId)||!opaqueId(input.providerMessageId))throw fail();
+ options={protocol:'https:',hostname:'graph.microsoft.com',port:443,method:'GET',path:`/v1.0/users/${input.providerMailboxId}/messages/${encodeURIComponent(input.providerMessageId)}?$select=id,body`,agent:false,timeout:DEADLINE,headers:{Accept:'application/json',Prefer:'IdType="ImmutableId", outlook.body-content-type="text"',Authorization:`Bearer ${token}`}};
+ return await new Promise((resolve,reject)=>{let done=false,size=0,req,res,timer;const finish=(err,val)=>{if(done)return;done=true;if(timer!==undefined)deps.timers.clearTimeout(timer);if(err){chunks.length=0;res?.destroy?.();req?.destroy?.();reject(fail());}else resolve(val);};try{req=deps.httpsImpl.request(options,r=>{res=r;if(r.statusCode!==200||!r.headers||!jsonType(r.headers['content-type']))return finish(true);r.on('data',b=>{if(done)return;const chunk=Buffer.isBuffer(b)?b:Buffer.from(b);size+=chunk.length;if(size>CAP)return finish(true);chunks.push(chunk);});r.on('error',()=>finish(true));r.on('aborted',()=>finish(true));r.on('end',()=>{if(done)return;try{const raw=Buffer.concat(chunks);chunks.length=0;const text=new TextDecoder('utf-8',{fatal:true}).decode(raw),x=JSON.parse(text);if(!x||Object.getPrototypeOf(x)!==Object.prototype)throw fail();const keys=Reflect.ownKeys(x);if(!keys.every(k=>k==='id'||k==='body'||(META.has(k)&&typeof x[k]==='string'&&Buffer.byteLength(x[k])<=2048))||!keys.includes('id')||!keys.includes('body')||x.id!==input.providerMessageId||!x.body||Object.getPrototypeOf(x.body)!==Object.prototype||Reflect.ownKeys(x.body).length!==2||x.body.contentType!=='text'||typeof x.body.content!=='string')throw fail();finish(false,Object.freeze({contentType:'text',content:x.body.content}));}catch{finish(true);}});});req.on('error',()=>finish(true));timer=deps.timers.setTimeout(()=>finish(true),DEADLINE);req.setTimeout?.(DEADLINE,()=>finish(true));req.end();}catch{finish(true);}});
+ }catch{throw fail();}finally{token=null;chunks=null;if(options?.headers)options.headers.Authorization=null;options=null;}}
+ return Object.freeze({fetchMessageContent});}
 module.exports=Object.freeze({FAILURE_CODE:FAILURE,RESPONSE_CAP_BYTES:CAP,DEADLINE_MS:DEADLINE,createMicrosoftGraphMessageContentTransport});
