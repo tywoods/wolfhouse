@@ -3,14 +3,18 @@
 /**
  * verify:inbox-whatsapp-draft-route
  *
- * Offline contract for Inbox Phase 2 smallest WhatsApp draft persist+read:
+ * Offline contract for Inbox Phase 2 WhatsApp draft persist+read+approve-send:
  *   POST /staff/inbox/whatsapp/draft
  *   GET  /staff/inbox/whatsapp/draft?conversation_id=
+ *   POST /staff/inbox/whatsapp/approve-send
  *
  * Proves:
  *   - operator auth, assertStaffClientAccess, home-tenant conversation resolve
  *   - GET is SELECT-only (no send, no Graph, no WhatsApp Cloud)
  *   - POST body shape; email-channel conversations rejected
+ *   - approve-send auth, missing draft 404, not-pending 409
+ *   - WHATSAPP_DRY_RUN / LUNA_AUTO_SEND_ENABLED fail closed without calling send
+ *   - live approve-send uses the injected send-reply helper, then marks sent
  *   - denied / hostile client never reach Postgres
  *   - thread composite payload and Inbox UI modules are untouched
  *   - migration 078 is a new table (070 email approvals are not reused)
@@ -33,22 +37,30 @@ const MIG_070 = path.join(ROOT, 'database', 'migrations', '070_tenant_email_repl
 
 const {
   WHATSAPP_DRAFT_PATH,
+  WHATSAPP_APPROVE_SEND_PATH,
   WHATSAPP_DRAFT_CHANNEL,
   WHATSAPP_DRAFT_MIN_ROLE,
   WHATSAPP_DRAFT_ROUTE_TABLE,
   POST_BODY_KEYS,
+  APPROVE_BODY_KEYS,
   GET_SUCCESS_DTO_KEYS,
   POST_SUCCESS_DTO_KEYS,
+  APPROVE_SUCCESS_DTO_KEYS,
   BODY_MAX_BYTES,
   DRAFT_MAX_BYTES,
   SQL_RESOLVE,
   SQL_RESOLVE_FOR_UPDATE,
   SQL_SELECT_PENDING,
   SQL_UPSERT_PENDING,
+  SQL_SELECT_LATEST_FOR_UPDATE,
+  SQL_MARK_APPROVED,
+  SQL_MARK_SENT,
   snapshotPostBody,
+  snapshotApproveBody,
   parseConversationIdQuery,
   actorFromUser,
   isWhatsAppConversation,
+  killSwitchError,
   createWhatsAppDraftRoutes,
 } = require('./lib/staff-inbox-whatsapp-draft-routes');
 const { INBOX_THREAD_COMPOSITE_SECTIONS } = require('./lib/staff-inbox-thread-composite');
@@ -194,6 +206,12 @@ function makeDeps(opts = {}) {
             const clientId = String(params[0]).toLowerCase();
             const convId = String(params[1]).toLowerCase();
             const row = durable.get(`${clientId}:${convId}:whatsapp`);
+            return { rows: row && row.status === 'pending' ? [{ ...row }] : [] };
+          }
+          if (n === SQL_SELECT_LATEST_FOR_UPDATE) {
+            const clientId = String(params[0]).toLowerCase();
+            const convId = String(params[1]).toLowerCase();
+            const row = durable.get(`${clientId}:${convId}:whatsapp`);
             return { rows: row ? [{ ...row }] : [] };
           }
           if (n === SQL_UPSERT_PENDING) {
@@ -203,7 +221,7 @@ function makeDeps(opts = {}) {
             const key = `${clientId}:${convId}:whatsapp`;
             const existing = durable.get(key);
             const row = {
-              approval_id: existing ? existing.approval_id : approvalId,
+              approval_id: existing && existing.status === 'pending' ? existing.approval_id : approvalId,
               conversation_id: convId,
               channel: 'whatsapp',
               draft_text: String(params[3]),
@@ -215,10 +233,68 @@ function makeDeps(opts = {}) {
             durable.set(key, row);
             return { rows: [{ ...row }] };
           }
+          if (n === SQL_MARK_APPROVED) {
+            const approvalId = String(params[0]).toLowerCase();
+            const clientId = String(params[1]).toLowerCase();
+            for (const [key, row] of durable.entries()) {
+              if (row.approval_id === approvalId && key.startsWith(`${clientId}:`) && row.status === 'pending') {
+                const next = { ...row, status: 'approved' };
+                durable.set(key, next);
+                return { rows: [{ ...next }] };
+              }
+            }
+            return { rows: [] };
+          }
+          if (n === SQL_MARK_SENT) {
+            const approvalId = String(params[0]).toLowerCase();
+            const clientId = String(params[1]).toLowerCase();
+            for (const [key, row] of durable.entries()) {
+              if (row.approval_id === approvalId && key.startsWith(`${clientId}:`) && row.status === 'approved') {
+                const next = { ...row, status: 'sent' };
+                durable.set(key, next);
+                return { rows: [{ ...next }] };
+              }
+            }
+            return { rows: [] };
+          }
           throw new Error(`unexpected_sql:${n.slice(0, 80)}`);
         },
       };
       return fn(client);
+    },
+    runtimeEnv: opts.runtimeEnv || {
+      WHATSAPP_DRY_RUN: 'false',
+      LUNA_AUTO_SEND_ENABLED: 'true',
+    },
+    async evaluateGuestReplySendRouteWithPause(body, ctx) {
+      sendCalls.push({ kind: 'send', body, env: ctx && ctx.env });
+      if (opts.sendThrows) throw new Error('send_boom');
+      if (opts.sendFail) {
+        return {
+          ok: true,
+          status: 200,
+          result: {
+            success: false,
+            send_performed: false,
+            sends_whatsapp: false,
+            blocked_reasons: ['whatsapp_send_failed'],
+          },
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        result: {
+          success: true,
+          send_performed: true,
+          sends_whatsapp: true,
+          whatsapp_message_id: 'wamid.MOCK',
+        },
+      };
+    },
+    async persistStaffInboxSentThreadMessage() {
+      sendCalls.push({ kind: 'persist' });
+      return { ok: true, persisted: true, message_id: 'm1' };
     },
   };
   return deps;
@@ -238,6 +314,13 @@ async function runPost(deps, bodyObj, usr, headers) {
   return { res: res.out, body: parseBody(res.out), deps };
 }
 
+async function runApprove(deps, bodyObj, usr, headers) {
+  const res = mockRes();
+  const routes = createWhatsAppDraftRoutes(deps);
+  await routes.handleWhatsAppApproveSend(mockReq(bodyObj, headers), res, usr);
+  return { res: res.out, body: parseBody(res.out), deps };
+}
+
 const modSrc = fs.readFileSync(MODULE_PATH, 'utf8');
 const apiSrc = fs.readFileSync(API_PATH, 'utf8');
 const compositeSrc = fs.readFileSync(COMPOSITE_PATH, 'utf8');
@@ -250,14 +333,18 @@ console.log('verify:inbox-whatsapp-draft-route');
 
 console.log('\n── contract ──');
 ok('path is /staff/inbox/whatsapp/draft', WHATSAPP_DRAFT_PATH === '/staff/inbox/whatsapp/draft');
+ok('approve-send path matches email naming', WHATSAPP_APPROVE_SEND_PATH === '/staff/inbox/whatsapp/approve-send');
 ok('does not collide with email draft', WHATSAPP_DRAFT_PATH !== EMAIL_DRAFT_PATH);
-ok('does not collide with email approve-send', WHATSAPP_DRAFT_PATH !== EMAIL_APPROVE_SEND_PATH);
+ok('does not collide with email approve-send', WHATSAPP_APPROVE_SEND_PATH !== EMAIL_APPROVE_SEND_PATH);
 ok('minRole operator matches email drafts', WHATSAPP_DRAFT_MIN_ROLE === 'operator');
 ok('channel is whatsapp', WHATSAPP_DRAFT_CHANNEL === 'whatsapp');
-ok('route table GET+POST operator', WHATSAPP_DRAFT_ROUTE_TABLE.length === 2
-  && WHATSAPP_DRAFT_ROUTE_TABLE.every((r) => r.path === WHATSAPP_DRAFT_PATH && r.minRole === 'operator')
-  && eq(WHATSAPP_DRAFT_ROUTE_TABLE.map((r) => r.method), ['GET', 'POST']));
+ok('route table GET+POST draft and POST approve-send operator', WHATSAPP_DRAFT_ROUTE_TABLE.length === 3
+  && WHATSAPP_DRAFT_ROUTE_TABLE.every((r) => r.minRole === 'operator')
+  && eq(WHATSAPP_DRAFT_ROUTE_TABLE.map((r) => r.method), ['GET', 'POST', 'POST'])
+  && WHATSAPP_DRAFT_ROUTE_TABLE[2].path === WHATSAPP_APPROVE_SEND_PATH
+  && WHATSAPP_DRAFT_ROUTE_TABLE[2].id === 'whatsapp_approve_send');
 ok('POST body keys', eq(POST_BODY_KEYS.slice(), ['conversation_id', 'draft_text', 'client_slug']));
+ok('approve body keys', eq(APPROVE_BODY_KEYS.slice(), ['conversation_id', 'client_slug', 'approval_id']));
 ok('GET DTO keys', eq(GET_SUCCESS_DTO_KEYS.slice(), [
   'success', 'conversation_id', 'channel', 'draft_available', 'approval_id',
   'draft_text', 'edited_text', 'status', 'tool_trace', 'created_by_run_id',
@@ -265,12 +352,15 @@ ok('GET DTO keys', eq(GET_SUCCESS_DTO_KEYS.slice(), [
 ok('POST DTO keys', eq(POST_SUCCESS_DTO_KEYS.slice(), [
   'success', 'conversation_id', 'channel', 'approval_id', 'draft_text', 'status',
 ]));
+ok('approve DTO keys', eq(APPROVE_SUCCESS_DTO_KEYS.slice(), [
+  'success', 'conversation_id', 'channel', 'approval_id', 'status',
+  'send_performed', 'whatsapp_message_id',
+]));
 ok('body caps match email draft envelope', BODY_MAX_BYTES === 10240 && DRAFT_MAX_BYTES === 8000);
 
-console.log('\n── no send on GET (or anywhere in this module) ──');
-ok('module does not call evaluateGuestReplySendRouteWithPause',
-  !/\bevaluateGuestReplySendRouteWithPause\s*\(/.test(modSrc)
-  && !/luna-guest-reply-send-route/.test(modSrc));
+console.log('\n── no send on GET; approve-send uses injected helper ──');
+ok('does not require luna-guest-reply-send-route (send helper is injected)',
+  !/luna-guest-reply-send-route/.test(modSrc));
 ok('module does not mention Graph or Cloud send',
   !/graph\.microsoft|whatsapp_cloud|_patched_whatsapp_cloud_send|guest_message_sends/i.test(modSrc));
 ok('GET SQL is SELECT-only', /^SELECT\b/i.test(SQL_SELECT_PENDING)
@@ -282,14 +372,23 @@ ok('POST resolve locks the conversation', /FOR UPDATE OF conv/.test(SQL_RESOLVE_
 ok('upsert writes luna_outbound_approvals, not email table',
   /INSERT INTO luna_outbound_approvals/.test(SQL_UPSERT_PENDING)
   && !/tenant_email_reply_approvals/.test(SQL_UPSERT_PENDING));
-ok('GET handler never references upsert SQL', (() => {
+ok('approve-send CAS pending→approved then approved→sent',
+  /SET status = 'approved'/.test(SQL_MARK_APPROVED)
+  && /status = 'pending'/.test(SQL_MARK_APPROVED)
+  && /SET status = 'sent'/.test(SQL_MARK_SENT)
+  && /status = 'approved'/.test(SQL_MARK_SENT));
+ok('GET handler never references upsert or send SQL', (() => {
   const m = /async function handleWhatsAppDraftGet[\s\S]*?(?=\n  async function |\n  const handlers)/.exec(modSrc);
-  return !!(m && !/SQL_UPSERT_PENDING/.test(m[0]) && !/INSERT INTO/.test(m[0]));
+  return !!(m && !/SQL_UPSERT_PENDING/.test(m[0]) && !/INSERT INTO/.test(m[0])
+    && !/evaluateGuestReplySendRouteWithPause/.test(m[0])
+    && !/SQL_MARK_SENT/.test(m[0]));
 })());
+ok('approve-send calls the injected send helper',
+  /evaluateGuestReplySendRouteWithPause\(sendBody/.test(modSrc));
 ok('email approve-send stays on the email module',
   emailSrc.includes("'/staff/inbox/email/approve-send'")
   && !modSrc.includes('/staff/inbox/email/approve-send')
-  && !modSrc.includes('handleApproveSend'));
+  && !/\basync function handleApproveSend\b/.test(modSrc));
 
 console.log('\n── migration 078 (new table, not 070 reuse) ──');
 ok('078 up exists', fs.existsSync(MIG_UP));
@@ -333,9 +432,9 @@ ok('requires the draft-routes module', /require\('\.\/lib\/staff-inbox-whatsapp-
 ok('builds routes through the DI factory', /createWhatsAppDraftRoutes\(\{/.test(apiSrc));
 const wiring = apiSrc.slice(
   apiSrc.indexOf('createWhatsAppDraftRoutes({'),
-  apiSrc.indexOf('createWhatsAppDraftRoutes({') + 450,
+  apiSrc.indexOf('createWhatsAppDraftRoutes({') + 650,
 );
-for (const dep of ['sendJSON', 'send400', 'readBody', 'assertStaffClientAccess', 'appendAuditLog', 'withPgClient', 'DEFAULT_CLIENT', 'SQL_INJECT_RE']) {
+for (const dep of ['sendJSON', 'send400', 'readBody', 'assertStaffClientAccess', 'appendAuditLog', 'withPgClient', 'DEFAULT_CLIENT', 'SQL_INJECT_RE', 'evaluateGuestReplySendRouteWithPause']) {
   ok(`factory is injected ${dep}`, wiring.includes(dep));
 }
 const dispatchStart = apiSrc.indexOf('if (pathname === WHATSAPP_DRAFT_PATH)');
@@ -351,9 +450,22 @@ ok('router dispatches GET then POST handlers',
 ok('router authenticates before dispatching GET',
   dispatch.indexOf("requireAuth(req, res, 'operator')") < dispatch.indexOf('handleWhatsAppDraftGet('));
 ok('router rejects other methods', /Allow: 'GET, POST'/.test(dispatch));
+const approveDispatchStart = apiSrc.indexOf('if (pathname === WHATSAPP_APPROVE_SEND_PATH)');
+ok('router matches the whatsapp approve-send path', approveDispatchStart > 0);
+const approveDispatch = apiSrc.slice(approveDispatchStart, approveDispatchStart + 700);
+ok('approve-send requires operator auth',
+  approveDispatch.includes("requireAuth(req, res, 'operator')")
+  && approveDispatch.indexOf("requireAuth(req, res, 'operator')") < approveDispatch.indexOf('handleWhatsAppApproveSend('));
+ok('approve-send is POST only', /Allow: 'POST'/.test(approveDispatch)
+  && approveDispatch.includes('handleWhatsAppApproveSend('));
 ok('email draft POST stays routed', apiSrc.includes('pathname === EMAIL_DRAFT_PATH && method === \'POST\''));
 ok('email approve-send stays routed', apiSrc.includes('pathname === EMAIL_APPROVE_SEND_PATH && method === \'POST\''));
 ok('send-reply stays routed', apiSrc.includes('pathname === INBOX_SEND_REPLY_PATH'));
+ok('send-reply still injects the same helper',
+  /evaluateGuestReplySendRouteWithPause/.test(apiSrc.slice(
+    apiSrc.indexOf('const inboxRoutes = createInboxRoutes({'),
+    apiSrc.indexOf('const inboxRoutes = createInboxRoutes({') + 400,
+  )));
 ok('thread composite stays routed', apiSrc.includes('INBOX_THREAD_COMPOSITE_RE.exec(pathname)'));
 ok('composite dispatch does not mention whatsapp draft',
   !/WHATSAPP_DRAFT/.test(apiSrc.slice(
@@ -374,6 +486,19 @@ ok('snapshot rejects uppercase UUID',
   snapshotPostBody({ conversation_id: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA', draft_text: DRAFT }) === null);
 ok('snapshot rejects oversized draft',
   snapshotPostBody({ conversation_id: V, draft_text: 'x'.repeat(DRAFT_MAX_BYTES + 1) }) === null);
+ok('approve snapshot accepts conversation_id',
+  snapshotApproveBody({ conversation_id: V }) !== null);
+ok('approve snapshot accepts optional approval_id',
+  snapshotApproveBody({ conversation_id: V, approval_id: A }) !== null);
+ok('approve snapshot rejects extra keys',
+  snapshotApproveBody({ conversation_id: V, draft_text: DRAFT }) === null);
+ok('approve snapshot rejects uppercase UUID',
+  snapshotApproveBody({ conversation_id: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA' }) === null);
+ok('killSwitchError dry-run before auto-send',
+  killSwitchError({ WHATSAPP_DRY_RUN: 'true', LUNA_AUTO_SEND_ENABLED: 'true' }).code === 'whatsapp_dry_run'
+  && killSwitchError({ WHATSAPP_DRY_RUN: 'false' }).code === 'luna_auto_send_disabled'
+  && killSwitchError({}).code === 'whatsapp_dry_run'
+  && killSwitchError({ WHATSAPP_DRY_RUN: 'false', LUNA_AUTO_SEND_ENABLED: 'true' }) === null);
 ok('GET query parses lowercase uuid', parseConversationIdQuery({ conversation_id: V }) === V);
 ok('GET query rejects missing id', parseConversationIdQuery({}) === null);
 ok('actorFromUser requires operator+',
@@ -518,12 +643,127 @@ ok('isWhatsAppConversation rejects email channel and emailv1 phone',
     ok('GET bad conversation_id 400', res.statusCode === 400 && body.error === 'invalid_request' && deps.dbHits === 0);
   }
 
+  console.log('\n── approve-send auth ──');
+  {
+    const deps = makeDeps();
+    const { res, body } = await runApprove(deps, { conversation_id: V }, null);
+    ok('approve without actor 403', res.statusCode === 403 && body.error === 'forbidden');
+    ok('approve without actor zero DB and no send', deps.dbHits === 0
+      && deps.sendCalls.filter((c) => c.kind === 'send').length === 0);
+  }
+  {
+    const deps = makeDeps();
+    const { res, body } = await runApprove(deps, { conversation_id: V }, user({ role: 'viewer' }));
+    ok('approve viewer 403', res.statusCode === 403 && body.error === 'forbidden' && deps.dbHits === 0);
+  }
+  {
+    const deps = makeDeps({ accessDenied: true });
+    const { res, body } = await runApprove(deps, { conversation_id: V, client_slug: CLIENT }, user());
+    ok('approve denied client 403', res.statusCode === 403 && body.error === 'client_access_denied');
+    ok('approve denied client no send', deps.sendCalls.filter((c) => c.kind === 'send').length === 0);
+  }
+
+  console.log('\n── approve-send missing / not pending ──');
+  {
+    const deps = makeDeps();
+    const { res, body } = await runApprove(deps, { conversation_id: V }, user());
+    ok('approve missing draft 404', res.statusCode === 404 && body.error === 'not_found');
+    ok('approve missing draft does not send', deps.sendCalls.filter((c) => c.kind === 'send').length === 0);
+  }
+  {
+    const deps = makeDeps();
+    const posted = await runPost(deps, { conversation_id: V, draft_text: DRAFT }, user());
+    const key = `${C}:${V}:whatsapp`;
+    const row = deps.durable.get(key);
+    deps.durable.set(key, { ...row, status: 'sent' });
+    const { res, body } = await runApprove(deps, { conversation_id: V }, user());
+    ok('approve already-sent 409', res.statusCode === 409 && body.error === 'approval_conflict');
+    ok('approve already-sent does not send', deps.sendCalls.filter((c) => c.kind === 'send').length === 0);
+    ok('approve already-sent stays sent', deps.durable.get(key).status === 'sent');
+    ok('posted draft id retained', posted.body.approval_id === row.approval_id);
+  }
+
+  console.log('\n── approve-send kill switches do not call send ──');
+  {
+    const deps = makeDeps({ runtimeEnv: { WHATSAPP_DRY_RUN: 'true', LUNA_AUTO_SEND_ENABLED: 'true' } });
+    await runPost(deps, { conversation_id: V, draft_text: DRAFT }, user());
+    deps.sendCalls.length = 0;
+    const { res, body } = await runApprove(deps, { conversation_id: V }, user());
+    ok('dry-run 503 whatsapp_dry_run', res.statusCode === 503 && body.error === 'whatsapp_dry_run');
+    ok('dry-run does not call send helper', deps.sendCalls.filter((c) => c.kind === 'send').length === 0);
+    ok('dry-run leaves pending', [...deps.durable.values()][0].status === 'pending');
+  }
+  {
+    const deps = makeDeps({ runtimeEnv: { LUNA_AUTO_SEND_ENABLED: 'true' } });
+    await runPost(deps, { conversation_id: V, draft_text: DRAFT }, user());
+    deps.sendCalls.length = 0;
+    const { res, body } = await runApprove(deps, { conversation_id: V }, user());
+    ok('unset WHATSAPP_DRY_RUN 503 whatsapp_dry_run', res.statusCode === 503 && body.error === 'whatsapp_dry_run');
+    ok('unset dry-run does not send', deps.sendCalls.filter((c) => c.kind === 'send').length === 0);
+  }
+  {
+    const deps = makeDeps({ runtimeEnv: { WHATSAPP_DRY_RUN: 'false' } });
+    await runPost(deps, { conversation_id: V, draft_text: DRAFT }, user());
+    deps.sendCalls.length = 0;
+    const { res, body } = await runApprove(deps, { conversation_id: V }, user());
+    ok('auto-send unset 503 luna_auto_send_disabled', res.statusCode === 503 && body.error === 'luna_auto_send_disabled');
+    ok('auto-send unset does not send', deps.sendCalls.filter((c) => c.kind === 'send').length === 0);
+    ok('auto-send unset leaves pending', [...deps.durable.values()][0].status === 'pending');
+  }
+  {
+    const deps = makeDeps({ runtimeEnv: { WHATSAPP_DRY_RUN: 'false', LUNA_AUTO_SEND_ENABLED: 'false' } });
+    await runPost(deps, { conversation_id: V, draft_text: DRAFT }, user());
+    deps.sendCalls.length = 0;
+    const { res, body } = await runApprove(deps, { conversation_id: V }, user());
+    ok('auto-send false 503 luna_auto_send_disabled', res.statusCode === 503 && body.error === 'luna_auto_send_disabled');
+    ok('auto-send false does not persist thread', deps.sendCalls.filter((c) => c.kind === 'persist').length === 0);
+  }
+
+  console.log('\n── approve-send live path ──');
+  {
+    const deps = makeDeps();
+    const posted = await runPost(deps, { conversation_id: V, draft_text: DRAFT }, user());
+    deps.sendCalls.length = 0;
+    const approved = await runApprove(deps, { conversation_id: V }, user());
+    ok('approve-send 200', approved.res.statusCode === 200 && approved.body.success === true);
+    ok('approve-send DTO keys exact', eq(Object.keys(approved.body), APPROVE_SUCCESS_DTO_KEYS.slice()));
+    ok('approve-send marks sent', approved.body.status === 'sent'
+      && approved.body.send_performed === true
+      && approved.body.approval_id === posted.body.approval_id
+      && approved.body.whatsapp_message_id === 'wamid.MOCK');
+    ok('approve-send called send helper once', deps.sendCalls.filter((c) => c.kind === 'send').length === 1);
+    ok('approve-send send body is stored draft',
+      deps.sendCalls.find((c) => c.kind === 'send').body.suggested_reply === DRAFT);
+    ok('approve-send persisted thread after send', deps.sendCalls.filter((c) => c.kind === 'persist').length === 1);
+    ok('durable row is sent', [...deps.durable.values()][0].status === 'sent');
+    const got = await runGet(deps, { conversation_id: V }, user());
+    ok('GET after send has no pending draft', got.body.draft_available === false && got.body.approval_id === null);
+  }
+  {
+    const deps = makeDeps({ sendFail: true });
+    await runPost(deps, { conversation_id: V, draft_text: DRAFT }, user());
+    deps.sendCalls.length = 0;
+    const { res, body } = await runApprove(deps, { conversation_id: V }, user());
+    ok('send failure 502', res.statusCode === 502 && body.error === 'send_failed');
+    ok('send failure does not leave pending', [...deps.durable.values()][0].status === 'approved');
+    ok('send failure called helper', deps.sendCalls.filter((c) => c.kind === 'send').length === 1);
+    ok('send failure did not persist thread', deps.sendCalls.filter((c) => c.kind === 'persist').length === 0);
+  }
+
   console.log('\n── factory requires fail-closed deps ──');
   try {
     createWhatsAppDraftRoutes({ sendJSON() {}, send400() {}, withPgClient() {} });
     ok('missing assertStaffClientAccess throws', false);
   } catch (err) {
     ok('missing assertStaffClientAccess throws', /assertStaffClientAccess/.test(err.message));
+  }
+  try {
+    createWhatsAppDraftRoutes({
+      sendJSON() {}, send400() {}, withPgClient() {}, assertStaffClientAccess() {}, SQL_INJECT_RE: /x/,
+    });
+    ok('missing send helper throws', false);
+  } catch (err) {
+    ok('missing send helper throws', /evaluateGuestReplySendRouteWithPause/.test(err.message));
   }
 
   console.log(`\n── ${fail === 0 ? 'PASSED' : 'FAILED'} (${pass} pass, ${fail} fail) ──`);

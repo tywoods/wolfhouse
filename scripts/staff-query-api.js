@@ -417,6 +417,7 @@ const {
 const {
   createWhatsAppDraftRoutes,
   WHATSAPP_DRAFT_PATH,
+  WHATSAPP_APPROVE_SEND_PATH,
 } = require('./lib/staff-inbox-whatsapp-draft-routes');
 const {
   clearConversationMessages,
@@ -2663,9 +2664,11 @@ const inboxViewRoutes = createInboxViewRoutes({
 });
 const { handleInboxViews, handleInboxList } = inboxViewRoutes;
 
-// WhatsApp pending draft persist+read (Phase 2 / migration 078). Operator auth
-// stays in the router; handlers re-apply assertStaffClientAccess and home-tenant
-// conversation ownership. No approve-send / Graph / Cloud API from these routes.
+// WhatsApp pending draft persist+read + approve-send (Phase 2 / migration 078).
+// Operator auth stays in the router; handlers re-apply assertStaffClientAccess
+// and home-tenant conversation ownership. Approve-send uses the injected
+// send-reply helper (evaluateGuestReplySendRouteWithPause); this factory does
+// not open Graph itself. Email approve-send stays email-only.
 const whatsAppDraftRoutes = createWhatsAppDraftRoutes({
   sendJSON,
   send400,
@@ -2675,8 +2678,10 @@ const whatsAppDraftRoutes = createWhatsAppDraftRoutes({
   withPgClient,
   DEFAULT_CLIENT,
   SQL_INJECT_RE,
+  evaluateGuestReplySendRouteWithPause,
+  runtimeEnv: process.env,
 });
-const { handleWhatsAppDraftGet, handleWhatsAppDraftPost } = whatsAppDraftRoutes;
+const { handleWhatsAppDraftGet, handleWhatsAppDraftPost, handleWhatsAppApproveSend } = whatsAppDraftRoutes;
 
 // Sunset Admin Bookings (N1) — list/export viewer; manual refund operator+.
 const bookingsAdminRoutes = createBookingsAdminRoutes({
@@ -46032,8 +46037,7 @@ async function router(req, res) {
     return handleInboxSendReply(req, res, auth.user);
   }
 
-  // WhatsApp draft persist+read only. GET is SELECT; POST upserts pending.
-  // Approve-send / provider send is not wired (email approve-send stays email-only).
+  // WhatsApp draft persist+read. GET is SELECT; POST upserts pending.
   if (pathname === WHATSAPP_DRAFT_PATH) {
     if (method === 'GET') {
       const auth = await requireAuth(req, res, 'operator');
@@ -46047,6 +46051,18 @@ async function router(req, res) {
     }
     res.writeHead(405, { Allow: 'GET, POST' });
     return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET or POST for inbox/whatsapp/draft' }));
+  }
+
+  // WhatsApp draft approve-send. Kill switches live in the handler (dry-run /
+  // auto-send); staff send-reply stays on INBOX_SEND_REPLY_PATH unchanged.
+  if (pathname === WHATSAPP_APPROVE_SEND_PATH) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for inbox/whatsapp/approve-send' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleWhatsAppApproveSend(req, res, auth.user);
   }
 
   // Explicit Staff Luna draft generation (default-off; gate before auth/body/DB).

@@ -1,17 +1,24 @@
 /**
- * WhatsApp outbound draft persist + read (Inbox Phase 2 smallest backend slice).
+ * WhatsApp outbound draft persist + read + approve-send (Inbox Phase 2).
  *
- *   POST /staff/inbox/whatsapp/draft  — operator; store/update the pending draft
+ *   POST /staff/inbox/whatsapp/draft         — operator; store/update pending
  *   GET  /staff/inbox/whatsapp/draft?conversation_id=  — operator; read pending
+ *   POST /staff/inbox/whatsapp/approve-send  — operator; send pending via Staff
+ *                                            API WhatsApp path, then mark sent
  *
  * Auth is NOT enforced here. The Staff API router must call requireAuth with
  * the minRole from WHATSAPP_DRAFT_ROUTE_TABLE before dispatching; handlers then
  * apply assertStaffClientAccess and resolve the conversation under the actor's
  * home tenant (same fail-closed join as email draft: clients.id = user.client_id).
  *
- * No approve-send. GET is SELECT-only. This module must not call Graph, Meta
- * Cloud, or evaluateGuestReplySendRouteWithPause. Email continue to use
+ * GET is SELECT-only. Approve-send dispatches through the injected
+ * evaluateGuestReplySendRouteWithPause (send-reply internals / sendLunaWhatsAppMessage).
+ * This module must not call Graph or Meta Cloud itself. Email continue to use
  * /staff/inbox/email/draft and tenant_email_reply_approvals.
+ *
+ * Kill switches (fail closed, before the send helper): WHATSAPP_DRY_RUN truthy
+ * (unset defaults true) → whatsapp_dry_run; LUNA_AUTO_SEND_ENABLED not 'true'
+ * → luna_auto_send_disabled. Staff Inbox POST /staff/inbox/send-reply is unchanged.
  *
  * Storage: luna_outbound_approvals (migration 078). Do not write
  * conversations.staff_reply_draft and do not change the thread composite payload.
@@ -22,15 +29,27 @@
 'use strict';
 
 const crypto = require('crypto');
-const { isEmailChannelPhoneNamespace } = require('./luna-staff-inbox-send-reply');
+const {
+  isEmailChannelPhoneNamespace,
+  buildStaffInboxGuestReplyBody,
+  normalizeGuestPhone,
+} = require('./luna-staff-inbox-send-reply');
+const { persistStaffInboxSentThreadMessage: persistStaffInboxSentThreadMessageImpl } = require('./luna-staff-inbox-thread-message');
+const { isWhatsappDryRun } = require('./luna-guest-reply-send-eligibility');
 
 const WHATSAPP_DRAFT_PATH = '/staff/inbox/whatsapp/draft';
+const WHATSAPP_APPROVE_SEND_PATH = '/staff/inbox/whatsapp/approve-send';
 const WHATSAPP_DRAFT_CHANNEL = 'whatsapp';
 const WHATSAPP_DRAFT_MIN_ROLE = 'operator';
 const WHATSAPP_DRAFT_STATUS_PENDING = 'pending';
+const WHATSAPP_DRAFT_STATUS_APPROVED = 'approved';
+const WHATSAPP_DRAFT_STATUS_SENT = 'sent';
+const ENV_LUNA_AUTO_SEND = 'LUNA_AUTO_SEND_ENABLED';
 
 const POST_BODY_KEYS = Object.freeze(['conversation_id', 'draft_text', 'client_slug']);
 const POST_REQUIRED_KEYS = Object.freeze(['conversation_id', 'draft_text']);
+const APPROVE_BODY_KEYS = Object.freeze(['conversation_id', 'client_slug', 'approval_id']);
+const APPROVE_REQUIRED_KEYS = Object.freeze(['conversation_id']);
 const GET_SUCCESS_DTO_KEYS = Object.freeze([
   'success',
   'conversation_id',
@@ -51,6 +70,15 @@ const POST_SUCCESS_DTO_KEYS = Object.freeze([
   'draft_text',
   'status',
 ]);
+const APPROVE_SUCCESS_DTO_KEYS = Object.freeze([
+  'success',
+  'conversation_id',
+  'channel',
+  'approval_id',
+  'status',
+  'send_performed',
+  'whatsapp_message_id',
+]);
 
 const BODY_MAX_BYTES = 10_240;
 const DRAFT_MAX_BYTES = 8_000;
@@ -67,6 +95,10 @@ const EMAIL_CHANNEL_NOT_SUPPORTED = Object.freeze({
   error: 'email_channel_not_supported',
 });
 const DRAFT_FAILED = Object.freeze({ success: false, error: 'draft_failed' });
+const APPROVAL_CONFLICT = Object.freeze({ success: false, error: 'approval_conflict' });
+const APPROVE_FAILED = Object.freeze({ success: false, error: 'approve_failed' });
+const WHATSAPP_DRY_RUN = Object.freeze({ success: false, error: 'whatsapp_dry_run' });
+const LUNA_AUTO_SEND_DISABLED = Object.freeze({ success: false, error: 'luna_auto_send_disabled' });
 
 const WHATSAPP_DRAFT_ROUTE_TABLE = Object.freeze([
   {
@@ -80,6 +112,13 @@ const WHATSAPP_DRAFT_ROUTE_TABLE = Object.freeze([
     id: 'whatsapp_draft_post',
     method: 'POST',
     path: WHATSAPP_DRAFT_PATH,
+    match: 'exact',
+    minRole: WHATSAPP_DRAFT_MIN_ROLE,
+  },
+  {
+    id: 'whatsapp_approve_send',
+    method: 'POST',
+    path: WHATSAPP_APPROVE_SEND_PATH,
     match: 'exact',
     minRole: WHATSAPP_DRAFT_MIN_ROLE,
   },
@@ -126,6 +165,32 @@ DO UPDATE SET
   created_by_staff_user_id = EXCLUDED.created_by_staff_user_id
 RETURNING id::text AS approval_id, conversation_id::text AS conversation_id,
   channel, draft_text, status
+`.replace(/\s+/g, ' ').trim();
+
+const SQL_SELECT_LATEST_FOR_UPDATE = `
+SELECT id::text AS approval_id, conversation_id::text AS conversation_id, channel,
+  draft_text, edited_text, status, tool_trace, created_by_run_id
+FROM luna_outbound_approvals
+WHERE client_id = $1::uuid AND conversation_id = $2::uuid
+  AND channel = 'whatsapp'
+ORDER BY updated_at DESC, id DESC
+LIMIT 1
+FOR UPDATE
+`.replace(/\s+/g, ' ').trim();
+
+const SQL_MARK_APPROVED = `
+UPDATE luna_outbound_approvals
+SET status = 'approved'
+WHERE id = $1::uuid AND client_id = $2::uuid AND status = 'pending'
+RETURNING id::text AS approval_id, conversation_id::text AS conversation_id,
+  channel, draft_text, edited_text, status
+`.replace(/\s+/g, ' ').trim();
+
+const SQL_MARK_SENT = `
+UPDATE luna_outbound_approvals
+SET status = 'sent'
+WHERE id = $1::uuid AND client_id = $2::uuid AND status = 'approved'
+RETURNING id::text AS approval_id, status
 `.replace(/\s+/g, ' ').trim();
 
 function ownData(o, k) {
@@ -221,6 +286,23 @@ function allowedOwnKeys(o, allowed) {
   }
 }
 
+function allowedApproveKeys(o) {
+  try {
+    if (!o || typeof o !== 'object' || Array.isArray(o) || Object.getPrototypeOf(o) !== Object.prototype) {
+      return false;
+    }
+    const actual = Reflect.ownKeys(o);
+    if (actual.length < APPROVE_REQUIRED_KEYS.length || actual.length > APPROVE_BODY_KEYS.length) return false;
+    return actual.every((k) => {
+      if (typeof k !== 'string' || DANGEROUS.has(k) || !APPROVE_BODY_KEYS.includes(k)) return false;
+      const d = Object.getOwnPropertyDescriptor(o, k);
+      return !!(d && Object.prototype.hasOwnProperty.call(d, 'value') && d.enumerable && !d.get && !d.set);
+    }) && APPROVE_REQUIRED_KEYS.every((k) => Object.prototype.hasOwnProperty.call(o, k));
+  } catch {
+    return false;
+  }
+}
+
 function snapshotPostBody(raw) {
   try {
     if (!allowedOwnKeys(raw, POST_BODY_KEYS)) return null;
@@ -240,6 +322,33 @@ function snapshotPostBody(raw) {
       conversation_id: conversationId,
       draft_text: draftText,
       client_slug: clientSlug,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function snapshotApproveBody(raw) {
+  try {
+    if (!allowedApproveKeys(raw)) return null;
+    const conversationId = parseUuid(ownData(raw, 'conversation_id'));
+    if (!conversationId) return null;
+    const slugRaw = ownData(raw, 'client_slug');
+    let clientSlug = null;
+    if (slugRaw !== undefined) {
+      if (typeof slugRaw !== 'string' || !slugRaw.trim() || slugRaw.length > 64) return null;
+      clientSlug = slugRaw.trim();
+    }
+    const approvalRaw = ownData(raw, 'approval_id');
+    let approvalId = null;
+    if (approvalRaw !== undefined) {
+      approvalId = parseUuid(typeof approvalRaw === 'string' ? approvalRaw : null);
+      if (!approvalId) return null;
+    }
+    return Object.freeze({
+      conversation_id: conversationId,
+      client_slug: clientSlug,
+      approval_id: approvalId,
     });
   } catch {
     return null;
@@ -316,6 +425,60 @@ function postSuccessDto(row) {
   });
 }
 
+function approveSuccessDto(row, sendResult) {
+  const wamid = sendResult && sendResult.whatsapp_message_id
+    ? String(sendResult.whatsapp_message_id)
+    : null;
+  return Object.freeze({
+    success: true,
+    conversation_id: String(row.conversation_id).toLowerCase(),
+    channel: WHATSAPP_DRAFT_CHANNEL,
+    approval_id: String(row.approval_id).toLowerCase(),
+    status: WHATSAPP_DRAFT_STATUS_SENT,
+    send_performed: true,
+    whatsapp_message_id: wamid,
+  });
+}
+
+function sendFailedDto(conversationId, approvalId) {
+  return Object.freeze({
+    success: false,
+    error: 'send_failed',
+    conversation_id: conversationId,
+    approval_id: approvalId,
+    status: WHATSAPP_DRAFT_STATUS_APPROVED,
+  });
+}
+
+function isLunaAutoSendEnabled(env) {
+  try {
+    const raw = ownData(env && typeof env === 'object' ? env : {}, ENV_LUNA_AUTO_SEND);
+    return String(raw || '').trim().toLowerCase() === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Fail closed before Graph. WHATSAPP_DRY_RUN unset defaults true (provider
+ * vocabulary). LUNA_AUTO_SEND_ENABLED must be the string 'true'.
+ * Staff send-reply still bypasses the auto-send flag; this gate is approve-send only.
+ */
+function killSwitchError(env) {
+  if (isWhatsappDryRun(env)) {
+    return { status: 503, body: WHATSAPP_DRY_RUN, code: 'whatsapp_dry_run' };
+  }
+  if (!isLunaAutoSendEnabled(env)) {
+    return { status: 503, body: LUNA_AUTO_SEND_DISABLED, code: 'luna_auto_send_disabled' };
+  }
+  return null;
+}
+
+function approvalSendText(row) {
+  if (row && row.edited_text != null && String(row.edited_text).length > 0) return String(row.edited_text);
+  return row && row.draft_text != null ? String(row.draft_text) : '';
+}
+
 function auditSafe(appendAuditLog, fields) {
   if (typeof appendAuditLog !== 'function') return;
   try {
@@ -348,8 +511,13 @@ function createWhatsAppDraftRoutes(deps) {
     withPgClient,
     DEFAULT_CLIENT,
     SQL_INJECT_RE,
+    evaluateGuestReplySendRouteWithPause,
   } = deps;
   const readBody = typeof deps.readBody === 'function' ? deps.readBody : null;
+  const persistThread = typeof deps.persistStaffInboxSentThreadMessage === 'function'
+    ? deps.persistStaffInboxSentThreadMessage
+    : persistStaffInboxSentThreadMessageImpl;
+  const runtimeEnv = deps.runtimeEnv && typeof deps.runtimeEnv === 'object' ? deps.runtimeEnv : process.env;
 
   if (typeof sendJSON !== 'function' || typeof send400 !== 'function' || typeof withPgClient !== 'function') {
     throw new Error('createWhatsAppDraftRoutes: sendJSON, send400 and withPgClient required');
@@ -359,6 +527,9 @@ function createWhatsAppDraftRoutes(deps) {
   }
   if (!SQL_INJECT_RE) {
     throw new Error('createWhatsAppDraftRoutes: SQL_INJECT_RE required');
+  }
+  if (typeof evaluateGuestReplySendRouteWithPause !== 'function') {
+    throw new Error('createWhatsAppDraftRoutes: evaluateGuestReplySendRouteWithPause required');
   }
 
   function gateClient(res, user, clientSlug) {
@@ -392,6 +563,7 @@ function createWhatsAppDraftRoutes(deps) {
       ok: true,
       conversation_id: String(row.conversation_id).toLowerCase(),
       client_id: String(row.client_id).toLowerCase(),
+      phone: row.phone == null ? '' : String(row.phone).trim(),
     };
   }
 
@@ -549,40 +721,248 @@ function createWhatsAppDraftRoutes(deps) {
     }
   }
 
+  async function readApproveBody(req) {
+    try {
+      let text;
+      if (readBody) {
+        const raw = await readBody(req, BODY_MAX_BYTES);
+        text = Buffer.isBuffer(raw) ? raw.toString('utf8') : raw;
+      } else {
+        const chunks = [];
+        let total = 0;
+        await new Promise((resolve, reject) => {
+          req.on('data', (c) => {
+            total += c.length;
+            if (total > BODY_MAX_BYTES) reject(new Error('body_too_large'));
+            else chunks.push(c);
+          });
+          req.on('end', resolve);
+          req.on('error', reject);
+        });
+        text = Buffer.concat(chunks).toString('utf8');
+      }
+      if (typeof text !== 'string') return { ok: false, status: 400, body: INVALID_REQUEST };
+      if (utf8Bytes(text) > BODY_MAX_BYTES) return { ok: false, status: 400, body: INVALID_REQUEST };
+      let parsed;
+      try { parsed = JSON.parse(text); } catch { return { ok: false, status: 400, body: INVALID_REQUEST }; }
+      const snap = snapshotApproveBody(parsed);
+      return snap ? { ok: true, body: snap } : { ok: false, status: 400, body: INVALID_REQUEST };
+    } catch {
+      return { ok: false, status: 400, body: INVALID_REQUEST };
+    }
+  }
+
+  async function handleWhatsAppApproveSend(req, res, user) {
+    const started = Date.now();
+    const actor = actorFromUser(user);
+    if (!actor) return sendJSON(res, 403, FORBIDDEN);
+
+    const ct = validateJsonContentType(req);
+    if (!ct.ok) return sendJSON(res, ct.status, ct.body);
+
+    const parsed = await readApproveBody(req);
+    if (!parsed.ok) return sendJSON(res, parsed.status, parsed.body);
+    const input = parsed.body;
+
+    const clientSlug = resolveClientSlug(input.client_slug, actor, DEFAULT_CLIENT);
+    if (!gateClient(res, user, clientSlug)) return undefined;
+
+    const auditBase = {
+      intent: 'api:inbox.whatsapp.approve_send',
+      category: 'inbox_whatsapp_approve_send',
+      conversation_id: input.conversation_id,
+      staff_user_id: actor.staff_user_id,
+      client_slug: clientSlug,
+    };
+
+    try {
+      const outcome = await withPgClient(async (pg) => {
+        let began = false;
+        try {
+          await pg.query('BEGIN');
+          began = true;
+        } catch {
+          began = false;
+        }
+
+        async function abort(result) {
+          if (began) {
+            try { await pg.query('ROLLBACK'); } catch { /* */ }
+          }
+          return result;
+        }
+
+        const owned = await resolveOwnedWhatsApp(pg, actor, clientSlug, input.conversation_id, true);
+        if (!owned.ok) return abort(owned);
+
+        const latest = await pg.query(SQL_SELECT_LATEST_FOR_UPDATE, [owned.client_id, owned.conversation_id]);
+        const row = latest && latest.rows && latest.rows[0];
+        if (!row) {
+          return abort({ ok: false, status: 404, body: NOT_FOUND, code: 'approval_not_found' });
+        }
+        if (row.status !== WHATSAPP_DRAFT_STATUS_PENDING) {
+          return abort({
+            ok: false,
+            status: 409,
+            body: APPROVAL_CONFLICT,
+            code: 'approval_not_pending',
+          });
+        }
+        if (input.approval_id && input.approval_id !== String(row.approval_id).toLowerCase()) {
+          return abort({
+            ok: false,
+            status: 409,
+            body: APPROVAL_CONFLICT,
+            code: 'approval_id_mismatch',
+          });
+        }
+
+        const blocked = killSwitchError(runtimeEnv);
+        if (blocked) return abort({ ok: false, ...blocked });
+
+        const to = normalizeGuestPhone(owned.phone);
+        if (!to) {
+          return abort({ ok: false, status: 400, body: INVALID_REQUEST, code: 'conversation_phone_missing' });
+        }
+
+        const messageText = approvalSendText(row);
+        if (!messageText) {
+          return abort({ ok: false, status: 400, body: INVALID_REQUEST, code: 'draft_text_missing' });
+        }
+
+        const approved = await pg.query(SQL_MARK_APPROVED, [row.approval_id, owned.client_id]);
+        if (!approved || !approved.rows || approved.rows.length !== 1) {
+          return abort({
+            ok: false,
+            status: 409,
+            body: APPROVAL_CONFLICT,
+            code: 'approve_cas_miss',
+          });
+        }
+        if (began) {
+          try { await pg.query('COMMIT'); began = false; } catch {
+            return abort({ ok: false, status: 500, body: APPROVE_FAILED, code: 'approve_commit_failed' });
+          }
+        }
+
+        const approvalId = String(row.approval_id).toLowerCase();
+        const sendInput = {
+          client_slug: clientSlug,
+          conversation_id: owned.conversation_id,
+          to,
+          message_text: messageText,
+          idempotency_key: `whatsapp-approve-send:${clientSlug}:${owned.conversation_id}:${approvalId}`,
+        };
+        const sendBody = buildStaffInboxGuestReplyBody(sendInput);
+        const sendOut = await evaluateGuestReplySendRouteWithPause(sendBody, { pg, env: runtimeEnv });
+        const result = sendOut && sendOut.result;
+        const delivered = !!(result && (
+          result.send_performed === true
+          || (result.idempotent_replay === true && result.success === true)
+        ));
+        if (!delivered) {
+          return {
+            ok: false,
+            status: 502,
+            body: sendFailedDto(owned.conversation_id, approvalId),
+            code: 'send_failed',
+            approval_id: approvalId,
+          };
+        }
+
+        const sent = await pg.query(SQL_MARK_SENT, [approvalId, owned.client_id]);
+        if (!sent || !sent.rows || sent.rows.length !== 1) {
+          return {
+            ok: false,
+            status: 502,
+            body: sendFailedDto(owned.conversation_id, approvalId),
+            code: 'mark_sent_failed',
+            approval_id: approvalId,
+          };
+        }
+        try {
+          await persistThread(pg, sendInput, result);
+        } catch { /* thread mirror is best-effort after provider send */ }
+
+        return {
+          ok: true,
+          status: 200,
+          body: approveSuccessDto(
+            { conversation_id: owned.conversation_id, approval_id: approvalId },
+            result,
+          ),
+          code: 'whatsapp_send_committed',
+          approval_id: approvalId,
+        };
+      });
+
+      auditSafe(appendAuditLog, {
+        ...auditBase,
+        success: outcome.status === 200 && outcome.body && outcome.body.success === true,
+        code: outcome.code,
+        approval_id: outcome.approval_id || (outcome.body && outcome.body.approval_id),
+        elapsed_ms: Date.now() - started,
+      });
+      return sendJSON(res, outcome.status, outcome.body);
+    } catch (_err) {
+      auditSafe(appendAuditLog, {
+        ...auditBase,
+        success: false,
+        code: 'approve_error',
+        elapsed_ms: Date.now() - started,
+      });
+      return sendJSON(res, 500, APPROVE_FAILED);
+    }
+  }
+
   const handlers = Object.freeze({
     whatsapp_draft_get: handleWhatsAppDraftGet,
     whatsapp_draft_post: handleWhatsAppDraftPost,
+    whatsapp_approve_send: handleWhatsAppApproveSend,
   });
 
   return {
     WHATSAPP_DRAFT_PATH,
+    WHATSAPP_APPROVE_SEND_PATH,
     WHATSAPP_DRAFT_ROUTE_TABLE,
     handlers,
     handleWhatsAppDraftGet,
     handleWhatsAppDraftPost,
+    handleWhatsAppApproveSend,
   };
 }
 
 module.exports = {
   WHATSAPP_DRAFT_PATH,
+  WHATSAPP_APPROVE_SEND_PATH,
   WHATSAPP_DRAFT_CHANNEL,
   WHATSAPP_DRAFT_MIN_ROLE,
   WHATSAPP_DRAFT_STATUS_PENDING,
+  WHATSAPP_DRAFT_STATUS_APPROVED,
+  WHATSAPP_DRAFT_STATUS_SENT,
   WHATSAPP_DRAFT_ROUTE_TABLE,
   POST_BODY_KEYS,
   POST_REQUIRED_KEYS,
+  APPROVE_BODY_KEYS,
+  APPROVE_REQUIRED_KEYS,
   GET_SUCCESS_DTO_KEYS,
   POST_SUCCESS_DTO_KEYS,
+  APPROVE_SUCCESS_DTO_KEYS,
   BODY_MAX_BYTES,
   DRAFT_MAX_BYTES,
   SQL_RESOLVE,
   SQL_RESOLVE_FOR_UPDATE,
   SQL_SELECT_PENDING,
   SQL_UPSERT_PENDING,
+  SQL_SELECT_LATEST_FOR_UPDATE,
+  SQL_MARK_APPROVED,
+  SQL_MARK_SENT,
   snapshotPostBody,
+  snapshotApproveBody,
   parseConversationIdQuery,
   actorFromUser,
   isWhatsAppConversation,
   validateJsonContentType,
+  killSwitchError,
   createWhatsAppDraftRoutes,
 };
