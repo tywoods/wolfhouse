@@ -15,11 +15,11 @@ or any `/staff/inbox/*` route.
 | 0 | Fix escapes eaten by the `buildUiHtml` template literal — Inbox sites | **done** (#499, 7 sites) |
 | 0 | Same bug class outside the Inbox — 16 sites, 9 functions | **done** (#502) |
 | 0 | `GET /staff/inbox/thread/:id` composite endpoint | **done** (#506, #507, #509) — one snapshot; six original routes stay for polling. Inbox UI does not fetch `/staff-state`. |
-| 1 | Unified shell, saved-view rail, merged context panel | API reads **done** (#510); UI rail not on master (layout is #511, do not merge) |
-| 1 | Column layout model and presets | **PR #511 open, waiting operator** — do not merge, do not duplicate |
-| 1 | One `Auto \| Draft \| Off` Luna mode control | **PR #524** — WhatsApp Auto\|Off, Email Draft\|Off; no migration 079; WhatsApp Draft is Phase 2 / 078 |
+| 1 | Unified shell, saved-view rail, merged context panel | **done** API #510, UI rail #527, four-column shell #511 (Sunset staging deployed `372673b2`) |
+| 1 | Column layout model and presets | **done** (#511) |
+| 1 | One `Auto \| Draft \| Off` Luna mode control | **done** (#524) — WhatsApp Auto\|Off, Email Draft\|Off; WhatsApp Draft remains Phase 2 |
 | 1 | Handoff state gap — Luna promises a takeover that never sets `needs_human` | **done** (detector + corpus gate) |
-| 2 | Channel-agnostic approvals; WhatsApp draft parity (migration 078) | not started |
+| 2 | Channel-agnostic approvals; WhatsApp draft parity (migration 078) | **PR #528 open** persist+read migration 078, not merged (operator-owned database); approve-send not started |
 | 3 | SSE live activity, replacing 5s/3s polling | not started |
 | 4 | Segments and broadcasts (migrations 080, 081) | not started |
 | 5 | Identity linking across channels (optional) | not started |
@@ -218,7 +218,7 @@ Still to build:
 Existing endpoints stay for back-compat during migration.
 
 - `GET /staff/inbox/views` — shipped (#510): saved views with counts, replacing both
-  filter-chip systems. The UI rail that consumes this is not on master.
+  filter-chip systems. The UI rail that consumes this shipped in #527.
 - `GET /staff/inbox/list?view=&q=&cursor=` — shipped (#510): one list endpoint returning
   person-rows; unifies `/staff/conversations` and `/staff/customers`
 - `GET /staff/inbox/thread/:id` — shipped (#506, #507, #509): one snapshot for thread
