@@ -25,7 +25,7 @@ or any `/staff/inbox/*` route.
 | 5 | Identity linking across channels (optional) | not started |
 | mockup slice A | Inbox chrome channel defaults: WhatsApp Auto\|Draft\|Off, Email Draft\|Off; school selector under header removed | **done** (#545) |
 | mockup slice B | Column 4 guest card: stay facts + collapsible collections, dims zero-count, no invented euros | **done** (#546) |
-| mockup slice C | Cream / forest / sage visual tokens on the four-column Inbox (no layout/API change) | included (from #547) |
+| mockup slice C | Cream / forest / sage visual tokens on the four-column Inbox (no layout/API change) | **done** (#547) |
 | mockup slice D | Column 2 list rows: initials avatars, hide old chips, people multi-select | this PR |
 
 ## Why it feels bulky and redundant
