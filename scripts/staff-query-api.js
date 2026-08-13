@@ -18501,10 +18501,12 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
   grid-template-columns:var(--inbox-col1-w,240px) minmax(0,var(--inbox-col2-w,360px)) minmax(0,1fr) auto}
 .inbox-toolbar-channels{display:flex;align-items:center;gap:8px;min-width:0}
 .inbox-chat-chrome-slot{display:flex;align-items:center;justify-content:flex-start;gap:6px;min-width:0;min-height:32px}
-.inbox-conv-search-wrap{min-width:0}
-.inbox-conv-search{width:100%;box-sizing:border-box;height:32px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px}
+.inbox-conv-search-wrap{min-width:0;display:flex;align-items:center;gap:8px}
+.inbox-conv-search{flex:1 1 auto;min-width:0;box-sizing:border-box;height:32px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px}
+.inbox-conv-search-wrap .inbox-refresh-btn{flex:0 0 auto;margin:0}
 .inbox-client-select{font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);flex:1;min-width:0}
-.inbox-refresh-btn{margin-left:auto;flex-shrink:0;padding:6px 12px;font-size:11px}
+.inbox-refresh-btn{margin-left:0;flex-shrink:0;padding:6px 12px;font-size:11px}
+.inbox-conv-search-wrap .inbox-refresh-btn{margin:0}
 .inbox-ro-note{flex-shrink:0}
 .inbox-left-rows{flex:1 1 0;min-height:0;height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;scrollbar-gutter:stable}
 #conv-list.conv-list{min-height:0;overflow:visible}
@@ -20218,9 +20220,12 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 .inbox-views-rail{
   min-width:0;min-height:0;height:auto;align-self:stretch;
-  overflow-x:hidden;overflow-y:auto;
+  overflow-x:hidden;overflow-y:visible;
   padding:10px 8px;display:flex;flex-direction:column;gap:14px;
+  background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);
 }
+.inbox-channel-autonomy-slot{flex:0 0 auto;width:100%}
+.inbox-channel-autonomy-slot .inbox-shell-channel-defaults{width:100%;box-sizing:border-box}
 .inbox-views-group{display:flex;flex-direction:column;gap:2px}
 .inbox-views-group-label{
   font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--text-2);
@@ -20384,10 +20389,10 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
    Holds today's tab switch and filter chips. The saved-view rail replaces this
    content later without touching the layout mechanism above. */
 .inbox-col1{
-  min-width:0;min-height:0;box-sizing:border-box;align-self:stretch;
+  min-width:0;min-height:0;box-sizing:border-box;align-self:start;
   display:flex;flex-direction:column;gap:10px;
-  padding:10px;overflow-x:hidden;overflow-y:auto;
-  border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);
+  padding:0;overflow:visible;
+  border:none;background:transparent;
 }
 .inbox-col1 .inbox-view-switch{display:flex;flex-direction:column;gap:3px;width:100%;box-sizing:border-box;align-self:stretch}
 .inbox-col1 .inbox-view-btn{width:100%;display:flex;align-items:center;gap:8px;text-align:left}
@@ -21179,10 +21184,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div class="inbox-toolbar-top" id="inbox-toolbar-top">
       <div class="inbox-toolbar-channels" id="inbox-toolbar-channels">
         <select id="c-client" title="Company" class="inbox-client-select"></select>
-        <button class="btn btn-primary inbox-refresh-btn" id="btn-refresh" data-i18n-title="inbox.refreshTitle" title="Refresh conversation list">&#8635;</button>
         <span id="inbox-live-status" class="inbox-live-status" aria-live="polite">Live</span>
       </div>
       <div class="inbox-conv-search-wrap">
+        <button class="btn btn-primary inbox-refresh-btn" id="btn-refresh" data-i18n-title="inbox.refreshTitle" title="Refresh conversation list">&#8635;</button>
         <input type="search" id="inbox-conv-search" class="inbox-conv-search" placeholder="Search contacts" autocomplete="off" data-i18n-placeholder="inbox.search.contacts">
       </div>
       <div class="inbox-chat-chrome-slot" id="inbox-chat-chrome-slot"></div>
@@ -21211,6 +21216,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <button type="button" class="inbox-view-btn" role="tab" data-view="customers" onclick="switchToTab('customers')" data-i18n="nav.tab.customers">Customers</button>
       </div>
       <div id="inbox-views-rail" class="inbox-views-rail" aria-label="Saved views"></div>
+      <div id="inbox-channel-autonomy-slot" class="inbox-channel-autonomy-slot"></div>
       <div class="inbox-left-toolbar">
         <div class="inbox-filters">
           <button type="button" class="inbox-filter-btn active" data-inbox-filter="all" id="inbox-filter-all" data-i18n="inbox.filter.all">All Conversations</button>

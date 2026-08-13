@@ -138,7 +138,6 @@ function inboxShellAutonomyRowHtml(channel, selected){
   html += '<div class="channelModeIdentity">';
   html += '<span class="channelModeIcon" aria-hidden="true">' + inboxShellChannelIconSvg(channel) + '</span>';
   html += '<span>' + escHtml(label) + '</span>';
-  html += '<span class="channelModeDot' + (visual === 'auto' ? ' is-auto' : '') + '" aria-hidden="true"></span>';
   html += '</div>';
   html += '<div class="channelModeSegmented" role="group" aria-label="' + escHtml(label) + ' autonomy">';
   html += '<button type="button" class="channelModeBtn' + (visual === 'draft' ? ' isSelected' : '') + '"';
@@ -192,8 +191,6 @@ function inboxShellCssText(){
     '.channelModeIdentity{display:flex;align-items:center;gap:7px;min-width:82px;font-size:12px;font-weight:600;color:#31443a}',
     '.channelModeIcon{width:18px;height:18px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}',
     '.channelModeIcon svg{width:16px;height:16px;display:block}',
-    '.channelModeDot{width:7px;height:7px;border-radius:50%;border:1.5px solid #9aa59d;background:transparent;flex:0 0 auto}',
-    '.channelModeDot.is-auto{background:#31483d;border-color:#31483d}',
     '.channelModeSegmented{display:inline-flex;padding:2px;border:1px solid rgba(47,65,57,.10);border-radius:9px;background:rgba(235,232,223,.72)}',
     '.channelModeBtn{min-width:47px;height:26px;padding:0 9px;border:0;border-radius:7px;background:transparent;',
     'color:#7c877f;font-size:11px;font-weight:650;cursor:pointer;',
@@ -205,8 +202,8 @@ function inboxShellCssText(){
     '.inbox-shell-channel-native{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;',
     'display:none!important;white-space:nowrap;border:0}',
     '.inbox-shell-channel-defaults.is-busy .channelModeBtn{opacity:.7;cursor:not-allowed}',
-    '.inbox-toolbar-channels{align-items:flex-start}',
-    '.inbox-toolbar-channels .inbox-refresh-btn{margin-left:0;margin-top:22px}',
+    '.inbox-toolbar-channels{align-items:center}',
+    '.inbox-toolbar-channels .inbox-refresh-btn{margin-left:0;margin-top:0}',
     '.inbox-chat-chrome-slot{justify-content:flex-start}',
     '.inbox-shell-channel{display:inline-flex;align-items:center;gap:6px;height:32px;box-sizing:border-box;',
     'padding:0 10px 0 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);',
@@ -246,9 +243,12 @@ function inboxMockupThemeCssText(){
     '}',
 
     /* Card surfaces sit a step above the cream page so rail + chat read as cards */
-    '#inbox-shell.inbox-two-col.inbox-shell-cols .inbox-col1{',
+    '#inbox-shell.inbox-two-col.inbox-shell-cols .inbox-views-rail{',
     'background:var(--surface);',
     'border-radius:var(--radius);',
+    '}',
+    '#inbox-shell.inbox-two-col.inbox-shell-cols .inbox-col1{',
+    'background:transparent;',
     '}',
     '#inbox-shell .detail-header{',
     'background:var(--surface);',
@@ -563,8 +563,6 @@ function inboxShellSyncAutonomyButtons(){
     var visual = (sel && sel.value === 'auto') ? 'auto' : 'draft';
     var row = wrap.querySelector('[data-inbox-autonomy-row="' + channel + '"]');
     if (!row) return;
-    var dot = row.querySelector('.channelModeDot');
-    if (dot) dot.classList.toggle('is-auto', visual === 'auto');
     var btns = row.querySelectorAll('[data-inbox-autonomy]');
     for (var i = 0; i < btns.length; i++){
       var mode = btns[i].getAttribute('data-inbox-autonomy');
@@ -735,10 +733,14 @@ function mountInboxShellChrome(){
     var mount = document.createElement('div');
     mount.innerHTML = inboxShellChannelDefaultsHtml(inboxShellLoadStoredModes());
     var node = mount.firstChild;
+    var slot = inboxShellById('inbox-channel-autonomy-slot');
     var refresh = inboxShellById('btn-refresh');
-    var host = (refresh && refresh.parentNode) || toolbar;
-    if (refresh && refresh.parentNode === host) host.insertBefore(node, refresh);
-    else host.insertBefore(node, host.firstChild);
+    if (slot) slot.appendChild(node);
+    else {
+      var host = (refresh && refresh.parentNode) || toolbar;
+      if (refresh && refresh.parentNode === host) host.insertBefore(node, refresh);
+      else host.insertBefore(node, host.firstChild);
+    }
   }
   wireInboxShellChannelDefaults();
   inboxShellSyncFromPauseState();
