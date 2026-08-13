@@ -57,6 +57,7 @@ const steps = [
   ['verify:luna-effective-mode', 'verify-luna-effective-mode.js'],
   ['verify:hermes-send-flags', 'verify-hermes-send-flags.js'],
   ['verify:inbox-luna-mode-control', 'verify-inbox-luna-mode-control.js'],
+  ['verify:inbox-shell-channel-defaults', 'verify-inbox-shell-channel-defaults.js'],
   ['verify:inbox-whatsapp-draft-route', 'verify-inbox-whatsapp-draft-route.js'],
   ['verify:inbox-stream-route', 'verify-inbox-stream-route.js'],
   ['verify:staff-broadcasts', 'verify-staff-broadcasts.js'],
