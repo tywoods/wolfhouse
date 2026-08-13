@@ -38,6 +38,7 @@ const LAYOUT_MODULE = path.join(ROOT, 'scripts', 'browser', 'inbox-shell.js');
 
 const viewsSrc = fs.readFileSync(VIEWS_MODULE, 'utf8');
 const threadSrc = fs.readFileSync(THREAD_MODULE, 'utf8');
+const injectorSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'inbox-browser-source.js'), 'utf8');
 const apiSrc = fs.readFileSync(API_PATH, 'utf8');
 const uiSrc = readStaffPortalUiSource();
 
@@ -97,7 +98,7 @@ ok('combined portal UI still has list?view=',
   uiSrc.includes("'/staff/inbox/list' + inboxClientQuery()")
   && uiSrc.includes("'&view=' + encodeURIComponent("));
 ok('combined portal UI has no new /staff-state fan-out in the views module',
-  !viewsSrc.includes("gjson(base + '/staff-state'"));
+  !viewsSrc.includes('/staff-state') && !viewsSrc.includes('staff_state'));
 
 console.log('\n── counts and mapping ──');
 ok('rail counts render view.count from the API',
@@ -125,7 +126,10 @@ ok('views module calls loadConvDetail, does not rewrite it',
   viewsSrc.includes('loadConvDetail(selectConvIdAfterLoad)')
   && !/function\s+renderInbox\s*\(/.test(viewsSrc)
   && !/function\s+renderInboxConvCardHtml\s*\(/.test(viewsSrc));
-ok('no inbox-luna-mode.js', !fs.existsSync(LUNA_MODE_MODULE));
+ok('Luna mode composes ahead of thread while saved views keep their own marker',
+  fs.existsSync(LUNA_MODE_MODULE)
+  && injectorSrc.includes("return getInboxLunaModeBrowserSource() + '\\n' + readBrowserModule(THREAD_MODULE)")
+  && injectorSrc.includes('getInboxViewsBrowserSource()'));
 ok('no competing inbox-shell.js column-layout module', !fs.existsSync(LAYOUT_MODULE));
 ok('Customers tab is still in the Conversations toolbar',
   /data-view="customers"/.test(apiSrc)
