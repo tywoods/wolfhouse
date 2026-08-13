@@ -62,6 +62,7 @@ const steps = [
   ['verify:inbox-stream-route', 'verify-inbox-stream-route.js'],
   ['verify:staff-broadcasts', 'verify-staff-broadcasts.js'],
   ['verify:inbox-context', 'verify-inbox-context.js'],
+  ['verify:inbox-theme', 'verify-inbox-theme.js'],
   ['verify:luna-pause-handoff-controls', 'verify-luna-pause-handoff-controls.js'],
   ['verify:staff-bot-guest-automation-gate', 'verify-staff-bot-guest-automation-gate.js'],
   ['verify:luna-handoff-lifecycle', 'verify-luna-handoff-lifecycle.js'],
