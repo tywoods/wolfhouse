@@ -424,6 +424,12 @@ const {
   WHATSAPP_APPROVE_SEND_PATH,
 } = require('./lib/staff-inbox-whatsapp-draft-routes');
 const {
+  createBroadcastRoutes,
+  BROADCASTS_COLLECTION_PATH,
+  BROADCAST_ID_RE,
+  BROADCAST_SEND_RE,
+} = require('./lib/staff-broadcast-routes');
+const {
   clearConversationMessages,
   resetLunaConversationContext,
   deleteConversationHard,
@@ -2700,6 +2706,23 @@ const whatsAppDraftRoutes = createWhatsAppDraftRoutes({
   runtimeEnv: process.env,
 });
 const { handleWhatsAppDraftGet, handleWhatsAppDraftPost, handleWhatsAppApproveSend } = whatsAppDraftRoutes;
+
+// Inbox Phase 4 email-first segment broadcasts. Operator auth stays in the
+// router; handlers re-apply assertStaffClientAccess. Send snapshots recipients
+// as pending and returns 501 — Graph bulk send is a follow-up. WhatsApp is
+// refused (promotions are email-only).
+const broadcastRoutes = createBroadcastRoutes({
+  sendJSON,
+  send400,
+  readBody,
+  assertStaffClientAccess,
+  appendAuditLog,
+  withPgClient,
+  DEFAULT_CLIENT,
+  SQL_INJECT_RE,
+  STAFF_ACTIONS_ENABLED,
+});
+const { handleBroadcastCreate, handleBroadcastGet, handleBroadcastSend } = broadcastRoutes;
 
 // Sunset Admin Bookings (N1) — list/export viewer; manual refund operator+.
 const bookingsAdminRoutes = createBookingsAdminRoutes({
@@ -46096,6 +46119,38 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleWhatsAppApproveSend(req, res, auth.user);
+  }
+
+  // Phase 4 email-first segment broadcasts. WhatsApp promo blast is refused
+  // in the handler. Send persists pending recipients and 501s (no Graph send).
+  if (pathname === BROADCASTS_COLLECTION_PATH) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for /staff/broadcasts' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBroadcastCreate(parsed.query, req, res, auth.user);
+  }
+  const broadcastSendMatch = BROADCAST_SEND_RE.exec(pathname);
+  if (broadcastSendMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for /staff/broadcasts/:id/send' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBroadcastSend(broadcastSendMatch[1], parsed.query, req, res, auth.user);
+  }
+  const broadcastGetMatch = BROADCAST_ID_RE.exec(pathname);
+  if (broadcastGetMatch) {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET for /staff/broadcasts/:id' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBroadcastGet(broadcastGetMatch[1], parsed.query, res, auth.user);
   }
 
   // Explicit Staff Luna draft generation (default-off; gate before auth/body/DB).

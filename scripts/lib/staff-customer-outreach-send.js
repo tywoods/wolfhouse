@@ -231,4 +231,5 @@ module.exports = {
   lookupTenantCustomersByPhones,
   executeCustomerOutreachSend,
   isValidOutreachPhone,
+  customerIsDoNotContact,
 };
