@@ -319,6 +319,7 @@
     "verify:luna-coach": "node scripts/verify-luna-coach.js",
     "verify:luna-unified-planner": "node scripts/verify-luna-unified-planner.js",
     "verify:luna-confirmation-spacing": "node scripts/verify-luna-confirmation-spacing.js",
+    "verify:luna-effective-mode": "node scripts/verify-luna-effective-mode.js",
     "check:soul-clean": "node scripts/check-soul-clean.js",
     "check:repo-sync": "node scripts/check-repo-sync.js",
     "verify:repo-sync-ssh-identity": "node scripts/verify-repo-sync-ssh-identity.js",
