@@ -36,6 +36,7 @@ const {
 } = require('./lib/sunset-schedule-browser-source');
 const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
 const esSunset = require('./lib/staff-portal-i18n-es-sunset');
+const { collectPortalFunctions, slicePortalFunction } = require('./lib/portal-fn-slice');
 
 let pass = 0;
 let fail = 0;
@@ -50,20 +51,7 @@ function ok(label, cond, detail) {
 }
 
 function extractFn(src, name) {
-  const needle = 'function ' + name + '(';
-  const start = src.indexOf(needle);
-  if (start < 0) return null;
-  const brace = src.indexOf('{', start);
-  if (brace < 0) return null;
-  let depth = 0;
-  for (let i = brace; i < src.length; i += 1) {
-    if (src[i] === '{') depth += 1;
-    else if (src[i] === '}') {
-      depth -= 1;
-      if (depth === 0) return src.slice(start, i + 1);
-    }
-  }
-  return null;
+  return slicePortalFunction(src, name);
 }
 
 function freePort() {
@@ -187,6 +175,13 @@ const T_IT = Object.assign({}, T_EN, {
   'admin.period.6_days': '6 giorni',
 });
 
+/** Production copy for a portal i18n key, or '' when the catalog has none. */
+function catalogString(locale, key) {
+  if (locale === 'es' && esSunset[key]) return esSunset[key];
+  const bundle = STAFF_PORTAL_STRINGS[locale] || STAFF_PORTAL_STRINGS.en || {};
+  return bundle[key] || STAFF_PORTAL_STRINGS.en[key] || '';
+}
+
 function sandboxFromHtml(html, opts) {
   opts = opts || {};
   const locale = opts.locale || 'en';
@@ -275,13 +270,6 @@ function sandboxFromHtml(html, opts) {
     'schedulePortalInvalidatePreviewWork',
     'schedulePortalRefreshCreateQuote',
   ];
-  const chunks = [];
-  for (const name of needed) {
-    const fn = extractFn(html, name);
-    if (fn) chunks.push(fn);
-  }
-  // Fallback: if compact helper missing, still load renderer (RED expected).
-  const portalBody = chunks.join('\n');
   ok('generated artifact has schedulePortalRenderCreateIntentSummary',
     !!extractFn(html, 'schedulePortalRenderCreateIntentSummary'));
 
@@ -307,7 +295,10 @@ function sandboxFromHtml(html, opts) {
     scheduleReadCreatePayload: () => JSON.parse(JSON.stringify(payload)),
     scheduleUpdateFullDayAddonSummary() {},
     adminPeriodLabel: (k) => T['admin.period.' + k] || null,
-    portalT: (k) => T[k] || k,
+    // Fall back to the production catalog so a key the fixtures above never
+    // listed still renders its real copy. A key genuinely absent from the
+    // catalog still leaks, which is what the "no key leak" checks are for.
+    portalT: (k) => T[k] || catalogString(locale, k) || k,
     escHtml: (s) => String(s == null ? '' : s)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -331,18 +322,27 @@ function sandboxFromHtml(html, opts) {
   };
 
   // Declare mutable module-level vars used by extracted functions.
-  const prelude = [
-    'var schedulePortalQuoteState = null;',
-    'var schedulePortalQuoteGen = 0;',
-    'var schedulePortalQuoteAbort = null;',
-    'var schedulePortalQuoteTimer = null;',
-    'var schedulePortalQuoteDebounceMs = 400;',
-    'var schedulePortalSubmitInFlight = false;',
-  ].join('\n');
+  const preludeVars = [
+    'schedulePortalQuoteState = null',
+    'schedulePortalQuoteGen = 0',
+    'schedulePortalQuoteAbort = null',
+    'schedulePortalQuoteTimer = null',
+    'schedulePortalQuoteDebounceMs = 400',
+    'schedulePortalSubmitInFlight = false',
+  ];
+  const prelude = preludeVars.map((v) => `var ${v};`).join('\n');
+
+  // Roots above plus every helper and module-level state var they call: the
+  // portal front-end lives in scripts/browser modules, so a hand-listed set of
+  // names goes stale and the slice dies on ReferenceError before asserting.
+  const sliced = collectPortalFunctions(html, needed, {
+    provided: Object.keys(ctx).concat(preludeVars.map((v) => v.split(' ')[0])),
+  });
+  ctx._sliced = sliced;
 
   vm.createContext(ctx);
   try {
-    vm.runInContext(prelude + '\n' + portalBody, ctx);
+    vm.runInContext(prelude + '\n' + sliced.code, ctx);
   } catch (e) {
     // Some extracted helpers may reference missing siblings in RED state — surface later.
     ctx._loadError = e;
@@ -448,6 +448,11 @@ function stripYear(s) {
   // ── Behavioral cases from generated artifact ─────────────────────────────
   console.log('\n[2] Group course compact summary (screenshot case)');
   const group = sandboxFromHtml(art);
+  ok('sandbox loaded without throw', !group._loadError,
+    group._loadError && group._loadError.message);
+  ok('every helper the sliced owners call is in scope',
+    group._sliced.missing.length === 0 && group._sliced.unparsable.length === 0,
+    'missing=' + group._sliced.missing.join(',') + ' unparsable=' + group._sliced.unparsable.join(','));
   group._setPayload({
     guest_name: 'Koa',
     guest_phone: '+34600',
