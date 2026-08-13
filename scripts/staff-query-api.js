@@ -16171,8 +16171,10 @@ ${getStaffPortalThemeEarlyScript()}
 [data-theme="dark"] .inbox-booking-stack-item.inbox-booking-luna{background:#1a2836;border-color:#3a5a78}
 [data-theme="dark"] .inbox-booking-stack-item.inbox-booking-staff{background:#1e2428;border-color:#3a4548}
 [data-theme="dark"] .inbox-booking-linked-tag{background:#264f78;color:#c8dce8;border-color:#3a6a9a}
-[data-theme="dark"] .conv-card.selected{background:var(--staff-green-bg);border-left-color:var(--sage)}
-[data-theme="dark"] .conv-card:hover{background:#2d2d2d}
+[data-theme="dark"] .conv-card{background:var(--surface)}
+[data-theme="dark"] .conv-card.selected{background:#173322;border-left-color:var(--sage)}
+[data-theme="dark"] .conv-card:hover{background:#2a2a2a}
+[data-theme="dark"] .inbox-left,[data-theme="dark"] #conv-list.conv-list{background:var(--surface-soft)}
 [data-theme="dark"] .thread{background:transparent;border:none}
 [data-theme="dark"] .msg.inbound .msg-bubble{background:var(--staff-green-bg);color:var(--staff-green-text);border:1px solid var(--staff-green-border);border-bottom-left-radius:5px}
 [data-theme="dark"] .msg.outbound.msg-luna .msg-bubble{background:var(--luna-blue);color:var(--luna-blue-text);border:1px solid var(--luna-blue-border);border-bottom-right-radius:5px}
@@ -18493,7 +18495,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .bc-field-package-guest-row{margin-bottom:8px}
 /* ── Inbox two-column layout (WhatsApp Web style) ─────────────────────────── */
 .inbox-two-col{display:flex;gap:24px;flex:1 1 0;width:100%;min-width:0;min-height:0;align-self:stretch}
-.inbox-left{flex:0 0 300px;width:300px;min-height:0;height:100%;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
+.inbox-left{flex:0 0 300px;width:300px;min-height:0;height:100%;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;background:var(--surface-soft);overflow:hidden}
 .inbox-left-toolbar{padding:12px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-direction:column;gap:10px;flex-shrink:0;background:var(--surface-soft)}
 .inbox-toolbar-top{display:flex;align-items:center;gap:8px;width:100%}
 .inbox-client-select{font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);flex:1;min-width:0}
@@ -18508,9 +18510,9 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .inbox-live-status.is-reconnect{color:#9a7a3a}
 .inbox-live-status.is-error{color:#9C5742}
 /* ── Conversation cards (left list) ──────────────────────────────────────── */
-.conv-card{padding:13px 16px 13px 16px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .14s,border-color .14s;position:relative;padding-right:28px}
+.conv-card{padding:13px 16px;padding-right:28px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .14s,border-color .14s;position:relative;width:100%;box-sizing:border-box;border-radius:0;background:var(--surface)}
 .conv-card:hover{background:var(--surface-soft);border-color:var(--tan)}
-.conv-card.selected{background:var(--teal);border-left:3px solid var(--sage)}
+.conv-card.selected{background:#c5d6ce;border-left:3px solid var(--sage)}
 .conv-card-delete{position:absolute;top:8px;right:8px;width:20px;height:20px;border:none;border-radius:50%;background:transparent;color:var(--text-3);font-size:16px;line-height:1;cursor:pointer;padding:0;display:none;align-items:center;justify-content:center}
 .conv-card:hover .conv-card-delete{display:flex}
 .conv-card-delete:hover{background:#EFD9D0;color:#9C5742}
@@ -19645,7 +19647,6 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .inbox-toolbar-top{width:100%;gap:8px}
 .inbox-filters{width:100%;gap:6px}
 .inbox-filter-btn{flex:1 1 auto;min-width:0;text-align:center;font-size:12px}
-.conv-card{padding:12px 14px;border-bottom:1px solid var(--border-soft);width:100%;box-sizing:border-box;border-radius:0}
 .conv-card.conv-card-mobile-dense .conv-card-preview{-webkit-line-clamp:2;line-clamp:2}
 .conv-card-header-row .inbox-channel-badge{flex-shrink:0}
 .inbox-mobile-back{display:flex}
@@ -20226,7 +20227,10 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 .inbox-views-item:hover{background:var(--surface-soft)}
 .inbox-views-item.is-active{background:var(--teal);color:var(--primary)}
-.inbox-views-item-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inbox-views-item-ico{flex:0 0 auto;width:16px;height:16px;color:var(--text-3);display:inline-flex}
+.inbox-views-item-ico svg{width:16px;height:16px;display:block}
+.inbox-views-item.is-active .inbox-views-item-ico{color:currentColor;opacity:.9}
+.inbox-views-item-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
 .inbox-views-item-count{flex-shrink:0;font-size:11px;font-weight:700;color:var(--text-2)}
 .inbox-views-item.is-active .inbox-views-item-count{color:var(--primary)}
 .inbox-views-empty{padding:8px;font-size:12px;color:var(--text-2)}
@@ -20276,7 +20280,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .inbox-two-col.inbox-shell-cols .inbox-left{
   flex:unset;width:auto;min-width:0;min-height:0;height:auto;max-height:none;
   border-right:none;border:1px solid var(--border-soft);border-radius:var(--radius);
-  box-shadow:none;background:var(--surface);overflow:hidden;
+  box-shadow:none;background:var(--surface-soft);overflow:hidden;
   align-self:stretch;
 }
 /*
@@ -20421,20 +20425,18 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 /* ── Top-bar layout controls: preset segmented control + per-column toggles ── */
 .inbox-layout-controls{display:flex;align-items:center;gap:8px;margin-left:8px;flex:0 0 auto}
-.inbox-layout-presets,.inbox-col-toggles{display:inline-flex;gap:3px;padding:3px;border-radius:10px;background:var(--surface-soft);flex:0 0 auto}
-.inbox-layout-preset-btn,.inbox-col-toggle{
+.inbox-layout-presets{display:inline-flex;gap:3px;padding:3px;border-radius:10px;background:var(--surface-soft);flex:0 0 auto}
+.inbox-layout-preset-btn{
   border:1px solid transparent;background:transparent;border-radius:8px;padding:5px 10px;
   font:inherit;font-size:11.5px;font-weight:600;color:var(--text-2);cursor:pointer;
   white-space:nowrap;line-height:1.2;
 }
-.inbox-col-toggle{min-width:28px;padding:5px 0;justify-content:center;display:inline-flex}
-.inbox-layout-preset-btn:hover,.inbox-col-toggle:hover{background:rgba(0,0,0,.05);color:var(--text)}
-.inbox-layout-preset-btn:focus-visible,.inbox-col-toggle:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.inbox-layout-preset-btn:hover{background:rgba(0,0,0,.05);color:var(--text)}
+.inbox-layout-preset-btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .inbox-layout-preset-btn[aria-pressed="true"]{background:var(--surface);color:var(--text);border-color:var(--border-soft);box-shadow:0 1px 2px rgba(0,0,0,.1)}
-.inbox-col-toggle[aria-pressed="true"]{background:var(--surface);color:var(--text-3);border-color:var(--border-soft);text-decoration:line-through}
-[data-theme="dark"] .inbox-layout-presets,[data-theme="dark"] .inbox-col-toggles{background:#2a2a2b}
-[data-theme="dark"] .inbox-layout-preset-btn:hover,[data-theme="dark"] .inbox-col-toggle:hover{background:rgba(255,255,255,.06)}
-[data-theme="dark"] .inbox-layout-preset-btn[aria-pressed="true"],[data-theme="dark"] .inbox-col-toggle[aria-pressed="true"]{background:#1e1e1e;border-color:#3c3c3c}
+[data-theme="dark"] .inbox-layout-presets{background:#2a2a2b}
+[data-theme="dark"] .inbox-layout-preset-btn:hover{background:rgba(255,255,255,.06)}
+[data-theme="dark"] .inbox-layout-preset-btn[aria-pressed="true"]{background:#1e1e1e;border-color:#3c3c3c}
 /* A hidden column keeps its bookings buttons meaningful: the header gets the restore arrow. */
 .inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-sidebar-toggle{display:none}
 .inbox-two-col.inbox-shell-cols[data-col4="hidden"] .sidebar-expand-btn{display:inline-flex}
@@ -21142,11 +21144,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
           <button type="button" class="inbox-layout-preset-btn is-active" data-inbox-preset="all4" aria-pressed="true" aria-keyshortcuts="Alt+0" data-i18n-title="inbox.layout.preset.all4.title" title="All four columns — Alt+0"><span data-i18n="inbox.layout.preset.all4">All four</span></button>
           <button type="button" class="inbox-layout-preset-btn" data-inbox-preset="chat" aria-pressed="false" aria-keyshortcuts="Alt+3" data-i18n-title="inbox.layout.preset.chat.title" title="Chat focus — Alt+3"><span data-i18n="inbox.layout.preset.chat">Chat</span></button>
           <button type="button" class="inbox-layout-preset-btn" data-inbox-preset="guest" aria-pressed="false" aria-keyshortcuts="Alt+4" data-i18n-title="inbox.layout.preset.guest.title" title="Guest focus — Alt+4"><span data-i18n="inbox.layout.preset.guest">Guest</span></button>
-        </div>
-        <div class="inbox-col-toggles" id="inbox-col-toggles" role="group" data-i18n-aria="inbox.layout.toggles" aria-label="Collapse columns">
-          <button type="button" class="inbox-col-toggle" data-inbox-col-toggle="col1" aria-pressed="false" aria-keyshortcuts="Alt+1" data-i18n-title="inbox.layout.toggle.col1" data-i18n-aria="inbox.layout.toggle.col1" title="Views rail — Alt+1" aria-label="Views rail — Alt+1"><span aria-hidden="true">1</span></button>
-          <button type="button" class="inbox-col-toggle" data-inbox-col-toggle="col2" aria-pressed="false" aria-keyshortcuts="Alt+2" data-i18n-title="inbox.layout.toggle.col2" data-i18n-aria="inbox.layout.toggle.col2" title="Conversation list — Alt+2" aria-label="Conversation list — Alt+2"><span aria-hidden="true">2</span></button>
-          <button type="button" class="inbox-col-toggle" data-inbox-col-toggle="col4" aria-pressed="false" aria-keyshortcuts="Alt+Shift+4" data-i18n-title="inbox.layout.toggle.col4" data-i18n-aria="inbox.layout.toggle.col4" title="Guest card — Alt+Shift+4" aria-label="Guest card — Alt+Shift+4"><span aria-hidden="true">4</span></button>
         </div>
       </div>
     </div>

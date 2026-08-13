@@ -220,17 +220,17 @@ ok('zero-count guest sections stay dimmed in sage',
   /\.inbox-guest-section\.is-zero/.test(themeCss)
   && /--inbox-sage/.test(themeCss));
 
-ok('slice A channel pill selectors still exist',
+ok('slice A channel selector classes still exist',
   /\.inbox-shell-channel\{/.test(shellCss)
   && /\.inbox-shell-channel-select\{/.test(shellCss)
-  && /border-radius:999px/.test(shellCss)
+  && /border-radius:8px/.test(shellCss)
   && /data-inbox-shell-channel/.test(shellSrc)
   && /class="inbox-shell-channel-select"/.test(shellSrc)
   && /inbox-shell-' \+ channel \+ '-mode"/.test(shellSrc));
-ok('theme restyles those pills without dropping the slice A classes',
+ok('theme restyles those selectors without dropping the slice A classes',
   /#tab-conversations\s+\.inbox-shell-channel\{/.test(themeCss)
   && /#tab-conversations\s+\.inbox-shell-channel-select\{/.test(themeCss)
-  && /border-radius:var\(--radius-pill,999px\)/.test(themeCss));
+  && /border-radius:8px/.test(themeCss));
 ok('hides Conversations|Customers switch, Reset/Wipe toolbar, and per-row Luna pills',
   /#tab-conversations \.inbox-view-switch\{display:none!important\}/.test(themeCss)
   && /#tab-conversations \.detail-conv-toolbar\{display:none!important\}/.test(themeCss)

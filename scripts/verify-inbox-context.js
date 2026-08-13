@@ -135,8 +135,9 @@ ok('staff-query-api.js has no new inject marker for context',
   && apiSrc.includes('INJECT:inbox-views'));
 ok('context module does not fetch /staff-state or invent a bookings API',
   !contextSrc.includes('/staff-state')
-  && !contextSrc.includes('/staff/customers/')
-  && contextSrc.includes('/staff/inbox/thread/'));
+  && contextSrc.includes('/staff/inbox/thread/')
+  && contextSrc.includes("/staff/customers/'")
+  && contextSrc.includes('/context?client='));
 ok('context module does not open a booking form in the panel',
   !/openCreateBookingFromContact[\s\S]{0,80}sidebar/.test(contextSrc)
   && contextSrc.includes('openCreateBookingFromContact')
@@ -280,6 +281,41 @@ ok('list person-rows keep display_tags for the tag line',
 ok('wraps wireInboxSidebarToggle rather than rewriting loadConvDetail',
   contextSrc.includes('var legacy = wireInboxSidebarToggle')
   && !/function loadConvDetail\(/.test(contextSrc));
+
+{
+  const empty = fns.clientInfoHasRecord(null);
+  const stub = fns.clientInfoHasRecord({ success: true, phone: '+34600000000', identity: { display_name: null, email: null } });
+  const real = fns.clientInfoHasRecord({
+    success: true,
+    phone: '+34600000000',
+    identity: { display_name: 'Ada', email: 'ada@example.com', language: 'en', display_tags: ['hot_lead'] },
+    bookings: [{ booking_id: '1', booking_status: 'checked_in' }],
+    service_records: [{ service_type: 'group_lesson' }],
+    waivers: [{ status: 'pending' }],
+  });
+  ok('client-info renders nothing without a customer record',
+    empty === false && stub === false && real === true);
+  const info = fns.clientInfoHtml({
+    success: true,
+    phone: '+34600000000',
+    identity: { display_name: 'Ada Lovelace', email: 'ada@example.com', language: 'en', display_tags: ['hot_lead'] },
+    bookings: [{ booking_id: '1', booking_status: 'checked_in', payment_status: 'unpaid' }],
+    service_records: [{ service_type: 'group_lesson' }],
+    waivers: [{ status: 'pending' }],
+  });
+  ok('client-info is initials + name + phone · email + kv + open-profile',
+    info.includes('inbox-client-info-avatar')
+    && info.includes('AL')
+    && info.includes('Ada Lovelace')
+    && info.includes('+34600000000 · ada@example.com')
+    && info.includes('Checked in')
+    && info.includes('Bookings')
+    && info.includes('Lessons')
+    && info.includes('Unpaid balance')
+    && info.includes('Waiver status')
+    && info.includes('Language')
+    && info.includes('Open full profile'));
+}
 
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);

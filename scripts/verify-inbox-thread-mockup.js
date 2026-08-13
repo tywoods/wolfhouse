@@ -102,7 +102,7 @@ function loadLunaFns() {
       'inbox.detail.lunaMode.autoHelp': 'auto help',
       'inbox.detail.lunaMode.draftHelp': 'draft help',
       'inbox.detail.lunaMode.offHelp': 'off help',
-      'inbox.detail.needsHuman.raise': 'Raise',
+      'inbox.detail.needsHuman.raise': 'Needs human',
       'inbox.detail.needsHuman.clear': 'Clear',
       'inbox.detail.switch.needsHuman': 'Needs human',
     }[key] || key),

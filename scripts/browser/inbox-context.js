@@ -59,6 +59,28 @@ var INBOX_CONTEXT_CSS = [
   'padding:8px 16px;border:none;background:#2F4A3E;color:#F3EBDD;',
   'border-radius:999px;text-decoration:none;font-weight:700;font-size:13px;',
   '}',
+  '.inbox-two-col.inbox-shell-cols #inbox-detail-sidebar > .inbox-client-info{',
+  'flex:0 0 auto;height:auto;max-height:none;margin:0 0 10px;padding:12px;',
+  'background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);',
+  'box-sizing:border-box;overflow:visible;',
+  '}',
+  '.inbox-client-info-head{display:flex;align-items:center;gap:10px;min-width:0}',
+  '.inbox-client-info-avatar{flex:0 0 auto;width:32px;height:32px;border-radius:8px;',
+  'background:var(--surface-soft);border:1px solid var(--border-soft);display:flex;',
+  'align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--text-2);letter-spacing:.02em}',
+  '.inbox-client-info-id{min-width:0;flex:1 1 auto}',
+  '.inbox-client-info-name{font-size:14px;font-weight:700;color:var(--text);line-height:1.25;',
+  'overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.inbox-client-info-contact{font-size:11.5px;color:var(--text-2);margin-top:2px;line-height:1.35;',
+  'overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.inbox-client-info-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}',
+  '.inbox-client-info-kv{margin-top:8px;display:flex;flex-direction:column;gap:4px}',
+  '.inbox-client-info-kv .kv{flex-direction:row;align-items:baseline;justify-content:space-between;gap:8px}',
+  '.inbox-client-info-kv .k{font-size:10px}',
+  '.inbox-client-info-kv .v{font-size:12px;text-align:right}',
+  '.inbox-client-info-open{display:inline-block;margin-top:8px;font-size:12px;font-weight:600;',
+  'color:var(--primary);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;',
+  'text-underline-offset:2px}',
 ].join('');
 
 var inboxContextLastComposite = null;
@@ -598,6 +620,187 @@ function inboxContextSidebarEl(targetEl) {
   return null;
 }
 
+function inboxClientInfoInitials(name) {
+  if (typeof customerProfileInitials === 'function') return customerProfileInitials(name);
+  if (typeof inboxRowInitials === 'function') return inboxRowInitials(name);
+  var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
+function inboxClientInfoHasRecord(data) {
+  if (!data || data.success === false) return false;
+  var id = data.identity || {};
+  var tags = id.display_tags || [];
+  if (id.display_name || id.email || id.language) return true;
+  if ((data.bookings && data.bookings.length) || (data.service_records && data.service_records.length)) return true;
+  if (tags.length) return true;
+  if (typeof customersCache !== 'undefined' && customersCache && data.phone) {
+    for (var i = 0; i < customersCache.length; i++) {
+      if (customersCache[i] && customersCache[i].phone === data.phone) return true;
+    }
+  }
+  return false;
+}
+
+function inboxClientInfoCacheRow(phone) {
+  if (typeof customersCache === 'undefined' || !customersCache || !phone) return null;
+  for (var i = 0; i < customersCache.length; i++) {
+    if (customersCache[i] && customersCache[i].phone === phone) return customersCache[i];
+  }
+  return null;
+}
+
+function inboxClientInfoCheckedIn(data, cacheRow) {
+  if (cacheRow && cacheRow.checked_in_now) return 'Yes';
+  var bookings = (data && data.bookings) || [];
+  for (var i = 0; i < bookings.length; i++) {
+    if (INBOX_CONTEXT_CHECKED_IN[inboxContextStatusKey(bookings[i].booking_status)]) return 'Yes';
+  }
+  return 'No';
+}
+
+function inboxClientInfoUnpaid(data, composite) {
+  if (composite) {
+    var due = inboxContextSumDueCents(inboxContextBookingsFromComposite(composite));
+    if (due != null && due > 0) return inboxContextEuroFromCents(due);
+  }
+  var bookings = (data && data.bookings) || [];
+  var unpaid = 0;
+  for (var i = 0; i < bookings.length; i++) {
+    var st = inboxContextStatusKey(bookings[i].payment_status || bookings[i].booking_payment_status);
+    if (st && INBOX_CONTEXT_UNPAID[st]) unpaid += 1;
+  }
+  if (unpaid) return String(unpaid);
+  return '—';
+}
+
+function inboxClientInfoWaiver(data) {
+  var waivers = (data && data.waivers) || [];
+  if (!waivers.length) return '—';
+  var pending = 0;
+  var signed = 0;
+  for (var i = 0; i < waivers.length; i++) {
+    var st = inboxContextStatusKey(waivers[i] && waivers[i].status);
+    if (st === 'completed' || st === 'complete' || st === 'signed') signed += 1;
+    else pending += 1;
+  }
+  if (pending) return pending === 1 ? 'Due' : (String(pending) + ' due');
+  if (signed) return 'Signed';
+  return '—';
+}
+
+function inboxClientInfoChipsHtml(data, cacheRow) {
+  var tags = [];
+  var id = (data && data.identity) || {};
+  if (id.display_tags && id.display_tags.length) tags = id.display_tags;
+  else if (cacheRow && cacheRow.display_tags && cacheRow.display_tags.length) tags = cacheRow.display_tags;
+  if (!tags.length) return '';
+  var html = '<div class="inbox-client-info-chips">';
+  for (var i = 0; i < tags.length; i++) {
+    if (typeof customerTagChipHtml === 'function') {
+      html += customerTagChipHtml(tags[i], { auto: typeof customerTagIsAuto === 'function' ? customerTagIsAuto(tags[i], id) : false, compact: true });
+    } else {
+      html += '<span class="customers-badge customers-badge-tag">' + inboxContextEsc(inboxContextTagLabel(tags[i])) + '</span>';
+    }
+  }
+  html += '</div>';
+  return html;
+}
+
+function inboxClientInfoHtml(data, opts) {
+  opts = opts || {};
+  var id = (data && data.identity) || {};
+  var cacheRow = inboxClientInfoCacheRow(data.phone);
+  var name = id.display_name || (cacheRow && cacheRow.display_name) || data.phone || 'Guest';
+  var phone = data.phone || '';
+  var email = id.email || (cacheRow && cacheRow.email) || '';
+  var contact = [];
+  if (phone) contact.push(phone);
+  if (email) contact.push(email);
+  var bookingsN = cacheRow && cacheRow.booking_count != null
+    ? Number(cacheRow.booking_count) || 0
+    : ((data.bookings || []).length);
+  var lessonsN = cacheRow && cacheRow.service_count != null
+    ? Number(cacheRow.service_count) || 0
+    : ((data.service_records || []).length);
+  var language = id.language || (cacheRow && cacheRow.language) || '—';
+  var html = '<div class="inbox-client-info" id="inbox-client-info" data-phone="' + inboxContextEsc(phone) + '">';
+  html += '<div class="inbox-client-info-head">';
+  html += '<div class="inbox-client-info-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
+  html += '<div class="inbox-client-info-id">';
+  html += '<div class="inbox-client-info-name">' + inboxContextEsc(name) + '</div>';
+  if (contact.length) html += '<div class="inbox-client-info-contact">' + inboxContextEsc(contact.join(' · ')) + '</div>';
+  html += '</div></div>';
+  html += inboxClientInfoChipsHtml(data, cacheRow);
+  html += '<div class="inbox-client-info-kv">';
+  html += inboxContextKv('Checked in', inboxClientInfoCheckedIn(data, cacheRow));
+  html += inboxContextKv('Bookings', String(bookingsN));
+  html += inboxContextKv('Lessons', String(lessonsN));
+  html += inboxContextKv('Unpaid balance', inboxClientInfoUnpaid(data, opts.composite));
+  html += inboxContextKv('Waiver status', inboxClientInfoWaiver(data));
+  html += inboxContextKv('Language', language);
+  html += '</div>';
+  html += '<button type="button" class="inbox-client-info-open" id="inbox-client-info-open">' +
+    inboxContextEsc(inboxContextT('inbox.detail.clientInfo.openProfile', 'Open full profile')) + '</button>';
+  html += '</div>';
+  return html;
+}
+
+function inboxClientInfoRemove(sidebar) {
+  if (!sidebar || !sidebar.querySelector) return;
+  var old = sidebar.querySelector('#inbox-client-info');
+  if (old && old.parentNode) old.parentNode.removeChild(old);
+}
+
+function inboxClientInfoWire(sidebar, phone) {
+  var btn = sidebar && sidebar.querySelector('#inbox-client-info-open');
+  if (!btn || btn.dataset.inboxClientInfoWired === '1') return;
+  btn.dataset.inboxClientInfoWired = '1';
+  btn.addEventListener('click', function() {
+    if (typeof openCustomerCardForPhone === 'function' && phone) openCustomerCardForPhone(phone);
+  });
+}
+
+var inboxClientInfoFetchGen = 0;
+
+function inboxClientInfoMount(sidebar, conv, composite) {
+  if (!sidebar) return;
+  var phone = conv && (conv.phone || conv.guest_phone);
+  if (typeof normalizeCustomerPhoneClient === 'function') phone = normalizeCustomerPhoneClient(phone);
+  if (!phone) {
+    inboxClientInfoRemove(sidebar);
+    return;
+  }
+  var gen = ++inboxClientInfoFetchGen;
+  var url = '/staff/customers/' + encodeURIComponent(phone) + '/context?client=' +
+    encodeURIComponent(typeof getClient === 'function' ? getClient() : '');
+  try {
+    if (typeof getClient === 'function' && getClient() === 'sunset' && typeof getSunsetLocation === 'function') {
+      url += '&location=' + encodeURIComponent(getSunsetLocation());
+    }
+  } catch (_e) { /* ignore */ }
+  fetch(url, { headers: { Accept: 'application/json' } })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(data) {
+      if (gen !== inboxClientInfoFetchGen) return;
+      inboxClientInfoRemove(sidebar);
+      if (!inboxClientInfoHasRecord(data)) return;
+      if (!data.phone) data.phone = phone;
+      var mount = document.createElement('div');
+      mount.innerHTML = inboxClientInfoHtml(data, { composite: composite });
+      var node = mount.firstChild;
+      if (!node) return;
+      sidebar.insertBefore(node, sidebar.firstChild);
+      inboxClientInfoWire(sidebar, phone);
+    })
+    .catch(function() {
+      if (gen !== inboxClientInfoFetchGen) return;
+      inboxClientInfoRemove(sidebar);
+    });
+}
+
 function inboxContextEnsureStyles() {
   if (typeof document === 'undefined') return;
   if (document.getElementById(INBOX_CONTEXT_STYLE_ID)) return;
@@ -642,6 +845,7 @@ function inboxContextFill(targetEl) {
   sidebar.innerHTML = inboxContextGuestCardHtml(model);
   inboxContextWireActions(sidebar, model);
   inboxContextWireSectionMemory(sidebar);
+  inboxClientInfoMount(sidebar, conv, composite);
   return true;
 }
 
@@ -721,6 +925,8 @@ if (typeof window !== 'undefined') {
     outstandingSection: inboxContextOutstandingSection,
     sectionOpen: inboxContextSectionOpen,
     guestCardHtml: inboxContextGuestCardHtml,
+    clientInfoHtml: inboxClientInfoHtml,
+    clientInfoHasRecord: inboxClientInfoHasRecord,
     modelFromComposite: inboxContextModelFromComposite,
     normalizeModel: inboxContextNormalizeModel,
     fill: inboxContextFill,

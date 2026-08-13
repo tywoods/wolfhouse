@@ -149,9 +149,13 @@ function main() {
   const emailOnly = fns.inboxShellChannelSelectHtml('email', 'draft');
   assert('email-only fragment has no Auto',
     !/value="auto"/.test(emailOnly) && !/>Auto</.test(emailOnly));
-  assert('uses existing channel badges, not a new icon set',
+  assert('keeps channel badges and select handlers; restyle adds nav-stroke icons',
     /inbox-channel-badge-whatsapp/.test(html) && /inbox-channel-badge-email/.test(html)
-    && !/svg|⌘K|\+ New|cmdk/i.test(html));
+    && /inbox-shell-channel-ico/.test(html)
+    && /<svg[\s\S]*stroke="currentColor"/.test(html)
+    && !/⌘K|\+ New|cmdk/i.test(html));
+  assert('selectors read as Label · value',
+    /inbox-shell-channel-name/.test(html) && /inbox-shell-channel-sep/.test(html));
   assert('Live status stays in existing toolbar markup',
     /id="inbox-live-status"/.test(apiSrc) && /class="inbox-live-status"/.test(apiSrc)
     && !/⌘K/.test(html) && !/\+ New/.test(html));

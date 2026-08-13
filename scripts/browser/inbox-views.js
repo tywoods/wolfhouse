@@ -72,6 +72,50 @@ function inboxViewsGroupLabel(groups, groupId){
   return groupId;
 }
 
+var INBOX_VIEWS_ICON_PATHS = {
+  flag: '<path d="M4 21V5"/><path d="M4 5h11l-1.6 4L15 13H4"/>',
+  inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  chat: '<path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/>',
+  envelope: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+  people: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5M16 3.6a3 3 0 0 1 0 5.8M21 20c0-2.2-1.3-4-3.4-4.7"/>',
+  'check-circle': '<circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/>',
+  flame: '<path d="M12 3c0 4-3 6-3 9a3 3 0 0 0 6 0c0-2 2-3 2-6 2 3 3 5.5 3 8a8 8 0 1 1-16 0c0-4 4-7 8-11z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5 5l1.6 1.6M17.4 17.4 19 19M19 5l-1.6 1.6M6.6 17.4 5 19"/>',
+  card: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>',
+  doc: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/>',
+  calendar: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  ban: '<circle cx="12" cy="12" r="9"/><path d="m6.2 6.2 11.6 11.6"/>',
+};
+
+var INBOX_VIEWS_ICON_BY_ID = {
+  needs_human: 'flag',
+  approvals: 'flag',
+  all: 'inbox',
+  whatsapp: 'chat',
+  email: 'envelope',
+  all_people: 'people',
+  unassigned: 'people',
+  checked_in: 'check-circle',
+  hot_leads: 'flame',
+  warm_leads: 'sun',
+  unpaid: 'card',
+  waiver_due: 'doc',
+  lesson_today: 'calendar',
+  arriving_today: 'calendar',
+  upcoming: 'clock',
+  snoozed: 'clock',
+  do_not_contact: 'ban',
+};
+
+function inboxViewsItemIconHtml(viewId){
+  var key = INBOX_VIEWS_ICON_BY_ID[viewId] || 'inbox';
+  var body = INBOX_VIEWS_ICON_PATHS[key] || INBOX_VIEWS_ICON_PATHS.inbox;
+  return '<span class="inbox-views-item-ico" aria-hidden="true">' +
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    body + '</svg></span>';
+}
+
 function renderInboxViewsRail(data){
   var rail = el('inbox-views-rail');
   if (!rail) return;
@@ -116,6 +160,7 @@ function renderInboxViewsRail(data){
         ' data-inbox-view="' + escHtml(view.id) + '"' +
         (active ? ' aria-current="true"' : '') +
         '>';
+      html += inboxViewsItemIconHtml(view.id);
       html += '<span class="inbox-views-item-label">' + escHtml(view.label || view.id) + '</span>';
       html += countHtml;
       html += '</button>';

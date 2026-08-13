@@ -97,13 +97,22 @@ function inboxShellStoreModes(modes){
   return next;
 }
 
+function inboxShellChannelIconSvg(channel){
+  if (channel === 'email') {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>';
+  }
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg>';
+}
+
 function inboxShellChannelSelectHtml(channel, selected){
   var options = inboxShellChannelOptions(channel);
   var labelKey = channel === 'email' ? 'inbox.badge.email' : 'inbox.badge.whatsapp';
   var labelFallback = channel === 'email' ? 'Email' : 'WhatsApp';
   var label = inboxShellT(labelKey, labelFallback);
   var html = '<label class="inbox-shell-channel" data-inbox-shell-channel="' + channel + '">';
-  html += '<span class="inbox-channel-badge inbox-channel-badge-' + channel + '">' + escHtml(label) + '</span>';
+  html += '<span class="inbox-shell-channel-ico" aria-hidden="true">' + inboxShellChannelIconSvg(channel) + '</span>';
+  html += '<span class="inbox-channel-badge inbox-channel-badge-' + channel + ' inbox-shell-channel-name">' + escHtml(label) + '</span>';
+  html += '<span class="inbox-shell-channel-sep" aria-hidden="true">·</span>';
   html += '<select id="inbox-shell-' + channel + '-mode" class="inbox-shell-channel-select"';
   html += ' aria-label="' + escHtml(label) + '">';
   for (var i = 0; i < options.length; i++){
@@ -149,17 +158,25 @@ function inboxShellCssText(){
     '}',
     /* Channel pills own Inbox pause; hide the tabs-row global switch while Inbox is open. */
     'body:has(#tab-conversations.active) #cc-luna-global-pause{display:none!important}',
-    '.inbox-shell-channel-defaults{display:inline-flex;align-items:center;gap:10px;flex:1;min-width:0;flex-wrap:wrap}',
-    '.inbox-shell-channel{display:inline-flex;align-items:center;gap:6px;padding:2px 8px 2px 4px;',
-    'border:1px solid var(--border);border-radius:999px;background:var(--surface);cursor:pointer;',
-    'max-width:100%}',
-    '.inbox-shell-channel .inbox-channel-badge{margin:0}',
-    '.inbox-shell-channel-select{border:0;background:transparent;font:inherit;font-size:11px;',
-    'font-weight:700;color:var(--text);cursor:pointer;padding:2px 0;min-width:4.5em;max-width:8em}',
+    '.inbox-shell-channel-defaults{display:inline-flex;align-items:center;gap:8px;flex:1;min-width:0;flex-wrap:wrap}',
+    '.inbox-shell-channel{display:inline-flex;align-items:center;gap:6px;height:32px;box-sizing:border-box;',
+    'padding:0 10px 0 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);',
+    'cursor:pointer;max-width:100%;position:relative}',
+    '.inbox-shell-channel-ico{flex:0 0 auto;width:16px;height:16px;color:var(--text-3);display:inline-flex}',
+    '.inbox-shell-channel-ico svg{width:16px;height:16px;display:block}',
+    '.inbox-shell-channel .inbox-channel-badge{margin:0;background:transparent;border:0;padding:0;',
+    'text-transform:none;letter-spacing:0;font-size:12px;font-weight:600;color:var(--text);line-height:1}',
+    '.inbox-shell-channel-sep{color:var(--text-3);font-size:12px;line-height:1;flex:0 0 auto}',
+    '.inbox-shell-channel-select{-webkit-appearance:none;appearance:none;border:0;background:transparent;',
+    'font:inherit;font-size:12px;font-weight:600;color:var(--text);cursor:pointer;padding:0 14px 0 0;',
+    'min-width:3.4em;max-width:7em;line-height:1}',
+    '.inbox-shell-channel::after{content:"\\25BE";position:absolute;right:8px;top:50%;transform:translateY(-50%);',
+    'font-size:10px;color:var(--text-3);pointer-events:none;line-height:1}',
     '.inbox-shell-channel-select:disabled{opacity:.45;cursor:not-allowed}',
     '.inbox-shell-channel-defaults.is-busy .inbox-shell-channel-select{opacity:.7}',
-    '[data-theme="dark"] .inbox-shell-channel{background:#1e1e1e;border-color:#3c3c3c}',
-    '[data-theme="dark"] .inbox-shell-channel-select{color:#cccccc}',
+    '[data-theme="dark"] .inbox-shell-channel{background:var(--surface);border-color:var(--border)}',
+    '[data-theme="dark"] .inbox-shell-channel-select{color:var(--text)}',
+    '[data-theme="dark"] .inbox-shell-channel .inbox-channel-badge{color:var(--text)}',
   ].join('');
 }
 
@@ -248,22 +265,20 @@ function inboxMockupThemeCssText(){
     'color:var(--inbox-sage,var(--sage));',
     '}',
 
-    /* Channel pills (slice A) + layout pills: forest primary, cream paper */
+    /* Channel selectors (slice A) + layout presets: surface, 8px radius */
     '#tab-conversations .inbox-shell-channel{',
-    'background:var(--inbox-paper,var(--cream));',
-    'border-color:var(--inbox-sage,var(--sage));',
-    'border-radius:var(--radius-pill,999px);',
+    'background:var(--surface);',
+    'border:1px solid var(--border);',
+    'border-radius:8px;',
     '}',
     '#tab-conversations .inbox-shell-channel-select{',
-    'color:var(--inbox-forest);',
+    'color:var(--text);',
     '}',
-    '#tab-conversations .inbox-layout-presets,',
-    '#tab-conversations .inbox-col-toggles{',
+    '#tab-conversations .inbox-layout-presets{',
     'border-radius:var(--radius-pill,999px);',
     'background:var(--inbox-paper,var(--cream));',
     '}',
-    '#tab-conversations .inbox-layout-preset-btn,',
-    '#tab-conversations .inbox-col-toggle{',
+    '#tab-conversations .inbox-layout-preset-btn{',
     'border-radius:var(--radius-pill,999px);',
     '}',
     '#tab-conversations .inbox-layout-preset-btn[aria-pressed="true"],',
@@ -345,16 +360,24 @@ function inboxMockupThemeCssText(){
     '#inbox-shell .conv-card-contact,',
     '#inbox-shell .conv-card-phone{display:none!important}',
     '#inbox-shell .conv-card{',
-    'background:transparent;border:0;box-shadow:none;border-radius:0;',
-    'border-bottom:1px solid rgba(47,74,62,.12);padding:10px 12px;',
+    'background:var(--surface);border:0;box-shadow:none;border-radius:0;',
+    'border-bottom:1px solid var(--border-soft);padding:10px 12px;',
     '}',
-    '#inbox-shell .conv-card.selected{background:rgba(47,74,62,.10)}',
+    '#inbox-shell .conv-card:hover{background:var(--surface-soft)}',
+    '#inbox-shell .conv-card.selected{background:var(--teal)}',
     '#inbox-shell .inbox-row-avatar{',
     'background:var(--inbox-forest);color:var(--cream);',
     '}',
     '#inbox-shell #conv-list,',
     '#inbox-shell.inbox-two-col.inbox-shell-cols .inbox-left{',
-    'background:var(--inbox-paper,var(--cream));',
+    'background:var(--surface-soft);',
+    '}',
+    '[data-theme="dark"] #inbox-shell .conv-card{background:var(--surface)}',
+    '[data-theme="dark"] #inbox-shell .conv-card:hover{background:#2a2a2a}',
+    '[data-theme="dark"] #inbox-shell .conv-card.selected{background:var(--staff-green-bg,#1e3a28)}',
+    '[data-theme="dark"] #inbox-shell #conv-list,',
+    '[data-theme="dark"] #inbox-shell.inbox-two-col.inbox-shell-cols .inbox-left{',
+    'background:var(--surface-soft);',
     '}',
     '#tab-conversations .inbox-toolbar-top{',
     'background:var(--inbox-paper,var(--cream));',
