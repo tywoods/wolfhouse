@@ -134,7 +134,9 @@ function inboxShellChannelDefaultsHtml(modes){
 
 function inboxShellCssText(){
   return [
-    /* Native <select> ignores clip/sr-only and still paints "Sunset Surf School". */
+    /* Native <select> ignores clip/sr-only and still paints "Sunset Surf School".
+       #c-client has no parent id on the toolbar row, so also hide by the select id. */
+    '#c-client.inbox-client-select,',
     '#tab-conversations #c-client,',
     '#tab-conversations .inbox-toolbar-top .inbox-client-select,',
     '#tab-conversations #inbox-school-context,',
@@ -384,15 +386,33 @@ function inboxShellEnsureStyle(){
   inboxMockupThemeEnsureStyle();
 }
 
+function inboxShellById(id){
+  if (typeof el === 'function') {
+    var byId = el(id);
+    if (byId) return byId;
+  }
+  if (typeof document !== 'undefined' && document.getElementById) return document.getElementById(id);
+  return null;
+}
+
+function inboxShellToolbarEl(){
+  var byId = typeof el === 'function' ? el('inbox-toolbar-top') : inboxShellById('inbox-toolbar-top');
+  if (byId) return byId;
+  if (typeof document === 'undefined' || !document.querySelector) return null;
+  return document.querySelector('#tab-conversations .inbox-toolbar-top') ||
+    document.querySelector('.inbox-shell-toolbar .inbox-toolbar-top') ||
+    document.querySelector('.inbox-toolbar-top');
+}
+
 function hideInboxDuplicateSchoolSelector(){
-  var sel = typeof el === 'function' ? el('c-client') : null;
+  var sel = inboxShellById('c-client');
   if (sel) {
     sel.classList.add('inbox-client-select-hidden');
     sel.setAttribute('aria-hidden', 'true');
     sel.tabIndex = -1;
     sel.style.setProperty('display', 'none', 'important');
   }
-  var school = typeof el === 'function' ? el('inbox-school-context') : null;
+  var school = inboxShellById('inbox-school-context');
   if (school) {
     school.style.setProperty('display', 'none', 'important');
     school.setAttribute('aria-hidden', 'true');
@@ -400,7 +420,7 @@ function hideInboxDuplicateSchoolSelector(){
   /* renderInboxSchoolContext later sets display:block on sunset. Keep it off. */
   if (typeof renderInboxSchoolContext === 'function' && !renderInboxSchoolContext._inboxShellHidden) {
     renderInboxSchoolContext = function(){
-      var wrap = typeof el === 'function' ? el('inbox-school-context') : null;
+      var wrap = inboxShellById('inbox-school-context');
       if (wrap) {
         wrap.style.setProperty('display', 'none', 'important');
         wrap.setAttribute('aria-hidden', 'true');
@@ -569,16 +589,18 @@ function wireInboxShellChannelDefaults(){
 }
 
 function mountInboxShellChrome(){
-  if (typeof el !== 'function') return;
-  var toolbar = el('inbox-toolbar-top');
-  if (!toolbar) return;
+  /* Hide the company select even if the toolbar id is missing — that id was
+     never on the markup, so a getElementById lookup used to return here and
+     leave "Sunset Surf School" painted. */
   inboxShellEnsureStyle();
   hideInboxDuplicateSchoolSelector();
-  if (!el('inbox-shell-channel-defaults')) {
+  var toolbar = inboxShellToolbarEl();
+  if (!toolbar) return;
+  if (!inboxShellById('inbox-shell-channel-defaults')) {
     var mount = document.createElement('div');
     mount.innerHTML = inboxShellChannelDefaultsHtml(inboxShellLoadStoredModes());
     var node = mount.firstChild;
-    var refresh = el('btn-refresh');
+    var refresh = inboxShellById('btn-refresh');
     if (refresh && refresh.parentNode === toolbar) toolbar.insertBefore(node, refresh);
     else toolbar.insertBefore(node, toolbar.firstChild);
   }
@@ -586,7 +608,7 @@ function mountInboxShellChrome(){
   inboxShellSyncFromPauseState();
 }
 
-if (typeof document !== 'undefined' && typeof el === 'function') {
+if (typeof document !== 'undefined') {
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', mountInboxShellChrome);
   } else {
