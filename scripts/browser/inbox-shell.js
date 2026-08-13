@@ -134,10 +134,16 @@ function inboxShellChannelDefaultsHtml(modes){
 
 function inboxShellCssText(){
   return [
-    '#tab-conversations #c-client.inbox-client-select-hidden,',
-    '.inbox-toolbar-top #c-client.inbox-client-select-hidden{',
-    'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;',
-    'clip:rect(0,0,0,0);white-space:nowrap;border:0;flex:0;min-width:0;pointer-events:none;',
+    /* Native <select> ignores clip/sr-only and still paints "Sunset Surf School". */
+    '#tab-conversations #c-client,',
+    '#tab-conversations .inbox-toolbar-top .inbox-client-select,',
+    '#tab-conversations #inbox-school-context,',
+    '.inbox-shell-toolbar #c-client,',
+    '.inbox-shell-toolbar #inbox-school-context,',
+    '.inbox-toolbar-top #c-client{',
+    'display:none!important;width:0!important;min-width:0!important;height:0!important;',
+    'margin:0!important;padding:0!important;border:0!important;overflow:hidden!important;',
+    'position:absolute!important;opacity:0!important;pointer-events:none!important;',
     '}',
     '.inbox-shell-channel-defaults{display:inline-flex;align-items:center;gap:10px;flex:1;min-width:0;flex-wrap:wrap}',
     '.inbox-shell-channel{display:inline-flex;align-items:center;gap:6px;padding:2px 8px 2px 4px;',
@@ -289,6 +295,34 @@ function inboxMockupThemeCssText(){
     'background:var(--inbox-forest);',
     'color:var(--staff-green-text,#c8dcc8);',
     '}',
+
+    /* Density: hide leftover Conversations chrome the mockup does not have */
+    '#tab-conversations .inbox-view-switch{display:none!important}',
+    '#tab-conversations .detail-conv-toolbar{display:none!important}',
+    '#tab-conversations #inbox-open-customer-card{display:none!important}',
+    '#inbox-shell .conv-card-pills,',
+    '#inbox-shell .conv-card-delete,',
+    '#inbox-shell .conv-card-contact,',
+    '#inbox-shell .conv-card-phone{display:none!important}',
+    '#inbox-shell .conv-card{',
+    'background:transparent;border:0;box-shadow:none;border-radius:0;',
+    'border-bottom:1px solid rgba(47,74,62,.12);padding:10px 12px;',
+    '}',
+    '#inbox-shell .conv-card.selected{background:rgba(47,74,62,.10)}',
+    '#inbox-shell .inbox-row-avatar{',
+    'background:var(--inbox-forest);color:var(--cream);',
+    '}',
+    '#inbox-shell #conv-list,',
+    '#inbox-shell.inbox-two-col.inbox-shell-cols .inbox-left{',
+    'background:var(--inbox-paper,var(--cream));',
+    '}',
+    '#tab-conversations .inbox-toolbar-top{',
+    'background:var(--inbox-paper,var(--cream));',
+    '}',
+    '#inbox-shell .inbox-guest-card{',
+    'background:var(--inbox-paper,var(--cream));',
+    'border:0;box-shadow:none;',
+    '}',
   ].join('');
 }
 
@@ -318,12 +352,23 @@ function hideInboxDuplicateSchoolSelector(){
     sel.classList.add('inbox-client-select-hidden');
     sel.setAttribute('aria-hidden', 'true');
     sel.tabIndex = -1;
-    sel.title = sel.title || 'Company';
+    sel.style.setProperty('display', 'none', 'important');
   }
   var school = typeof el === 'function' ? el('inbox-school-context') : null;
   if (school) {
-    school.style.display = 'none';
+    school.style.setProperty('display', 'none', 'important');
     school.setAttribute('aria-hidden', 'true');
+  }
+  /* renderInboxSchoolContext later sets display:block on sunset. Keep it off. */
+  if (typeof renderInboxSchoolContext === 'function' && !renderInboxSchoolContext._inboxShellHidden) {
+    renderInboxSchoolContext = function(){
+      var wrap = typeof el === 'function' ? el('inbox-school-context') : null;
+      if (wrap) {
+        wrap.style.setProperty('display', 'none', 'important');
+        wrap.setAttribute('aria-hidden', 'true');
+      }
+    };
+    renderInboxSchoolContext._inboxShellHidden = true;
   }
 }
 
