@@ -1,31 +1,29 @@
 'use strict';
-const assert = require('node:assert/strict');
-const { EventEmitter } = require('node:events');
-const scope = require('./lib/email-microsoft-content-read-scope');
-const { normalizeAuthoritativeMessageContent } = require('./lib/email-authoritative-content-normalizer');
-const { createMicrosoftGraphMessageContentTransport } = require('./lib/email-microsoft-graph-message-content-transport');
-const { createAuthorityBoundCurrentMessageContentOperation, EMAIL_AUTHORITY_BOUND_CURRENT_MESSAGE_CONTENT_RUNTIME_WIRED } = require('./lib/email-authority-bound-current-message-content-operation');
-const U='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', T='tok-NEVER_LEAK', M='AAMkImmutable_1';
-function response(body,status=200,ct='application/json'){ const r=new EventEmitter(); r.statusCode=status; Object.defineProperty(r,'headers',{value:{'content-type':ct}}); r.destroy=()=>{}; queueMicrotask(()=>{r.emit('data',Buffer.from(body));r.emit('end');}); return r; }
-function https(body, inspect, status, ct){return {request(o,cb){inspect(o);const q=new EventEmitter();q.destroy=()=>{};q.end=()=>cb(response(body,status,ct));return q;}};}
+const assert=require('node:assert/strict');
+const {EventEmitter}=require('node:events');
+const {normalizeAuthoritativeMessageContent}=require('./lib/email-authoritative-content-normalizer');
+const {createMicrosoftGraphMessageContentTransport,RESPONSE_CAP_BYTES,DEADLINE_MS}=require('./lib/email-microsoft-graph-message-content-transport');
+const authority=require('./lib/email-authority-bound-current-message-content-operation');
+const U='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', V='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', T='tok-NEVER_LEAK', M='opaque/id+with=padding';
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function harness(payload,{status=200,ct='Application/JSON; charset=utf-8',stall=false}={}){const state={requests:0,reqDestroyed:0,resDestroyed:0,options:null};return {state,httpsImpl:{request(o,cb){state.requests++;state.options=o;const req=new EventEmitter();req.destroy=()=>state.reqDestroyed++;req.end=()=>{const res=new EventEmitter();res.statusCode=status;res.headers={'content-type':ct};res.destroy=()=>state.resDestroyed++;cb(res);if(!stall)queueMicrotask(()=>{for(const b of payload)res.emit('data',b);res.emit('end');});};return req;}}};}
+function input(){return {clientId:U,locationId:U,eventId:U};}
 (async()=>{
- assert.equal(scope.CONTENT_SCOPE_VERSION,'message_content_v1');
- assert.equal(scope.validateContentReadTokenScope('openid User.Read Mail.Read'), 'openid User.Read Mail.Read');
- for(const s of ['User.Read Mail.ReadBasic','User.Read Mail.Read Mail.ReadWrite','User.Read Mail.Read Calendars.Read','User.Read Mail.Read.Shared']) assert.equal(scope.validateContentReadTokenScope(s),null);
- assert.equal(scope.classifyContentGrantScopeVersion('phase_a_v2'),'reauthorization_required');
- assert.equal(scope.classifyContentGrantScopeVersion('message_content_v1'),'accepted');
- const text=normalizeAuthoritativeMessageContent({contentType:'text',content:'Hello\r\n world  \n\n'}); assert.deepEqual(text,{latest_text:'Hello\nworld'}); assert.ok(Object.isFrozen(text));
- const html=normalizeAuthoritativeMessageContent({contentType:'html',content:'<html><head><style>x</style></head><body><p>Hello&nbsp; world</p><script>fetch("https://evil")</script><form>bad</form><img src="https://evil/x"><p>Thanks</p></body></html>'}); assert.deepEqual(html,{latest_text:'Hello world\nThanks'});
- assert.throws(()=>normalizeAuthoritativeMessageContent({contentType:'html',content:'Hi<div>On Tue, someone wrote:</div><blockquote>old</blockquote>'}),/authoritative_content_failed/);
- assert.throws(()=>normalizeAuthoritativeMessageContent({contentType:'html',content:'<svg><text>evil</text></svg>'}),/authoritative_content_failed/);
- let calls=0, retained;
- const body=JSON.stringify({id:M,body:{contentType:'text',content:'Current only'}});
- const tr=createMicrosoftGraphMessageContentTransport({httpsImpl:https(body,o=>{calls++;retained=o;assert.equal(o.path,`/v1.0/users/${U}/messages/${encodeURIComponent(M)}?$select=id,body`);assert.equal(o.headers.Prefer,'IdType="ImmutableId"');assert.equal(o.timeout,10000);}),timers:{setTimeout,clearTimeout}});
- const raw=await tr.fetchMessageContent({accessToken:T,providerMailboxId:U,providerMessageId:M}); assert.deepEqual(raw,{contentType:'text',content:'Current only'}); assert.equal(calls,1); assert.equal(retained.headers.Authorization,null);
- for(const bad of [{id:'wrong',body:{contentType:'text',content:'x'}},{id:M,body:{contentType:'rtf',content:'x'}},{id:M,body:{contentType:'text',content:'x'},subject:'leak'}]) {const x=createMicrosoftGraphMessageContentTransport({httpsImpl:https(JSON.stringify(bad),()=>{}),timers:{setTimeout,clearTimeout}});await assert.rejects(()=>x.fetchMessageContent({accessToken:T,providerMailboxId:U,providerMessageId:M}),e=>e.code==='microsoft_graph_message_content_failed'&&!JSON.stringify(e).includes('leak'));}
- let fetched=0, loan={accessToken:T};
- const op=createAuthorityBoundCurrentMessageContentOperation({resolveAuthority:async()=>Object.freeze({clientId:U,locationId:U,endpointId:U,provider:'microsoft_graph',providerMailboxId:U,providerMessageId:M}),grantSession:Object.freeze({runWithAccessTokenOnce:async(i,cb)=>({ok:true,value:await cb(loan)})}),transport:Object.freeze({fetchMessageContent:async i=>{fetched++;assert.equal(i.providerMailboxId,U);assert.equal(i.providerMessageId,M);return {contentType:'text',content:'Now'};}})});
- const got=await op.getCurrentMessageContent({clientId:U,locationId:U,eventId:U}); assert.deepEqual(got,{latest_text:'Now'}); assert.ok(Object.isFrozen(got)); assert.equal(fetched,1); assert.equal(loan.accessToken,null); assert.equal(EMAIL_AUTHORITY_BOUND_CURRENT_MESSAGE_CONTENT_RUNTIME_WIRED,false);
- const before=createAuthorityBoundCurrentMessageContentOperation({resolveAuthority:async()=>{throw Error('no');},grantSession:Object.freeze({runWithAccessTokenOnce:async()=>{throw Error('network');}}),transport:Object.freeze({fetchMessageContent:async()=>{throw Error('network');}})}); await assert.rejects(()=>before.getCurrentMessageContent({clientId:U,locationId:U,eventId:U}),/authority_bound_current_message_content_failed/);
- console.log('verify:email-authoritative-message-content ok');
+ assert.deepEqual(normalizeAuthoritativeMessageContent({contentType:'text',content:' Hello\r\nworld '}),{latest_text:'Hello\nworld'});
+ for(const content of ['<script>SECRET</style>LEAK','<p>hello</p>'])assert.throws(()=>normalizeAuthoritativeMessageContent({contentType:'html',content}),/authoritative_content_failed/);
+ assert.throws(()=>normalizeAuthoritativeMessageContent({contentType:'text',content:'Now\nOn Tue, X wrote:\nold'}));
+ const graph=JSON.stringify({'@odata.context':'https://graph.microsoft.com/v1.0/$metadata#users/messages(id,body)/$entity','@odata.etag':'W/"abc"',id:M,body:{contentType:'text',content:'Current'}});
+ let h=harness([Buffer.from(graph)]);const timers={setTimeout,clearTimeout};const tr=createMicrosoftGraphMessageContentTransport({httpsImpl:h.httpsImpl,timers});
+ assert.deepEqual(await tr.fetchMessageContent({accessToken:T,providerMailboxId:U,providerMessageId:M}),{contentType:'text',content:'Current'});
+ assert.equal(h.state.options.path,`/v1.0/users/${U}/messages/${encodeURIComponent(M)}?$select=id,body`);assert.equal(h.state.options.headers.Prefer,'IdType="ImmutableId", outlook.body-content-type="text"');assert.equal(h.state.options.headers.Authorization,null);assert.equal(h.state.requests,1);
+ for(const status of [404,410,429,500,503]){h=harness([Buffer.from(graph)],{status});await assert.rejects(()=>createMicrosoftGraphMessageContentTransport({httpsImpl:h.httpsImpl,timers}).fetchMessageContent({accessToken:T,providerMailboxId:U,providerMessageId:M}));assert.ok(h.state.reqDestroyed&&h.state.resDestroyed);}
+ h=harness([Buffer.alloc(RESPONSE_CAP_BYTES+1)]);await assert.rejects(()=>createMicrosoftGraphMessageContentTransport({httpsImpl:h.httpsImpl,timers}).fetchMessageContent({accessToken:T,providerMailboxId:U,providerMessageId:M}));assert.ok(h.state.reqDestroyed&&h.state.resDestroyed);
+ h=harness([Buffer.from([0xc3]),Buffer.from([0x28])]);await assert.rejects(()=>createMicrosoftGraphMessageContentTransport({httpsImpl:h.httpsImpl,timers}).fetchMessageContent({accessToken:T,providerMailboxId:U,providerMessageId:M}));
+ const fastTimers={setTimeout(fn){queueMicrotask(fn);return 1;},clearTimeout(){}};h=harness([],{stall:true});await assert.rejects(()=>createMicrosoftGraphMessageContentTransport({httpsImpl:h.httpsImpl,timers:fastTimers}).fetchMessageContent({accessToken:T,providerMailboxId:U,providerMessageId:M}));assert.ok(h.state.reqDestroyed&&h.state.resDestroyed);
+ const issuer=authority.createAuthorityCapabilityIssuer();const cap=issuer.issue(Object.freeze({clientId:U,locationId:U,eventId:U,endpointId:V,provider:'microsoft_graph',providerMailboxId:U,providerMessageId:M}));assert.ok(Object.isFrozen(cap));
+ let network=0;const frozenLoan=Object.freeze({accessToken:T});const make=resolved=>authority.createAuthorityBoundCurrentMessageContentOperation({resolveAuthority:async()=>resolved,grantSession:{runWithAccessTokenOnce:async(_,cb)=>({ok:true,value:await cb(frozenLoan)})},transport:{fetchMessageContent:async()=>{network++;return {contentType:'text',content:'Now'};}}});
+ assert.deepEqual(await make(cap).getCurrentMessageContent(input()),{latest_text:'Now'});assert.equal(network,1);
+ for(const bad of [{...cap},Object.freeze({...cap,eventId:V}),Object.assign({...cap},{eventId:V}),Object.defineProperty({...cap},'eventId',{get(){return U;}}),Object.assign({...cap}, {[Symbol('x')]:1}),new Proxy({...cap},{})]){const before=network;await assert.rejects(()=>make(bad).getCurrentMessageContent(input()));assert.equal(network,before);}
+ const mismatch=issuer.issue(Object.freeze({clientId:U,locationId:U,eventId:V,endpointId:V,provider:'microsoft_graph',providerMailboxId:U,providerMessageId:M}));await assert.rejects(()=>make(mismatch).getCurrentMessageContent(input()));
+ assert.equal(authority.EMAIL_AUTHORITY_BOUND_CURRENT_MESSAGE_CONTENT_RUNTIME_WIRED,false);assert.ok(DEADLINE_MS>0);console.log('verify:email-authoritative-message-content ok');
 })().catch(e=>{console.error(e);process.exitCode=1;});
