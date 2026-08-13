@@ -171,9 +171,10 @@ ok('window.__inboxContext exports the renderer', !!(fns && typeof fns.guestCardH
     (html.match(/id="inbox-guest-card"/g) || []).length === 1
     && html.includes('class="inbox-guest-card"')
     && !html.includes('inbox-booking-stack'));
-  ok('create booking and edit profile are deep-links, not a form',
+  ok('create booking is a deep-link, not a form',
     html.includes('id="inbox-create-booking-for-guest"')
-    && html.includes('id="inbox-edit-profile"')
+    && html.includes('Create booking')
+    && !html.includes('id="inbox-edit-profile"')
     && !html.includes('<form')
     && !html.includes('cust-edit-name'));
 }

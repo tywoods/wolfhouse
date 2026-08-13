@@ -437,12 +437,13 @@ function checkRenderedCss(client, html) {
     && /data-inbox-preset="all4"[^>]*aria-pressed="true"[^>]*aria-keyshortcuts="Alt\+0"/.test(html)
     && /data-inbox-preset="chat"[^>]*aria-keyshortcuts="Alt\+3"/.test(html)
     && /data-inbox-preset="guest"[^>]*aria-keyshortcuts="Alt\+4"/.test(html));
-  ok('numeric 1/2/4 column toggles are gone; All four / Chat / Guest stay',
+  ok('numeric 1/2/4 column toggles are gone; Full / Chat / Guest stay',
     !/data-inbox-col-toggle=/.test(html)
     && !/id="inbox-col-toggles"/.test(html)
     && /data-inbox-preset="all4"/.test(html)
     && /data-inbox-preset="chat"/.test(html)
-    && /data-inbox-preset="guest"/.test(html));
+    && /data-inbox-preset="guest"/.test(html)
+    && />Full</.test(html));
   ok('peek edge strips are present and hidden from assistive tech',
     /data-inbox-peek-edge="col2" aria-hidden="true"/.test(html)
     && /data-inbox-peek-edge="col4" aria-hidden="true"/.test(html));

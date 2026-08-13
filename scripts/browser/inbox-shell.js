@@ -156,8 +156,7 @@ function inboxShellCssText(){
     'margin:0!important;padding:0!important;border:0!important;overflow:hidden!important;',
     'position:absolute!important;opacity:0!important;pointer-events:none!important;',
     '}',
-    /* Channel pills own Inbox pause; hide the tabs-row global switch while Inbox is open. */
-    'body:has(#tab-conversations.active) #cc-luna-global-pause{display:none!important}',
+    /* Keep the tab-row global pause visible so Inbox nav matches Schedule/Admin. */
     '.inbox-shell-channel-defaults{display:inline-flex;align-items:center;gap:8px;flex:1;min-width:0;flex-wrap:wrap}',
     '.inbox-shell-channel{display:inline-flex;align-items:center;gap:6px;height:32px;box-sizing:border-box;',
     'padding:0 10px 0 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);',
@@ -318,9 +317,11 @@ function inboxMockupThemeCssText(){
     /* Density: hide leftover Conversations chrome the mockup does not have */
     '#tab-conversations .inbox-view-switch{display:none!important}',
     '#tab-conversations .detail-conv-toolbar{display:none!important}',
-    '#tab-conversations .detail-conv-toolbar.inbox-dev-overflow{display:block!important;margin:6px 10px 8px}',
+    '#tab-conversations .detail-conv-toolbar.inbox-dev-overflow{display:none!important}',
     '#tab-conversations .inbox-dev-overflow-summary{cursor:pointer;list-style:none;color:var(--inbox-sage,var(--sage));font-size:14px;width:1.5em}',
     '#tab-conversations .inbox-dev-overflow-summary::-webkit-details-marker{display:none}',
+    '#tab-conversations .draft-panel{margin-top:auto}',
+    '#tab-conversations #inbox-live-status{display:none!important}',
     '#tab-conversations #inbox-open-customer-card{display:none!important}',
     '#inbox-shell .inbox-thread-day{',
     'display:flex;align-items:center;justify-content:center;gap:10px;',

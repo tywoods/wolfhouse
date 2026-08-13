@@ -45,8 +45,8 @@ const {
 } = require('./staff-conversation-queries');
 
 const INBOX_VIEW_GROUPS = Object.freeze([
-  Object.freeze({ id: 'needs_you', label: 'NEEDS YOU' }),
   Object.freeze({ id: 'inbox', label: 'INBOX' }),
+  Object.freeze({ id: 'needs_you', label: 'NEEDS YOU' }),
   Object.freeze({ id: 'people', label: 'PEOPLE' }),
 ]);
 
@@ -126,31 +126,6 @@ function declareView(view) {
 
 const INBOX_SAVED_VIEWS = Object.freeze([
   declareView({
-    id: 'approvals',
-    label: 'Approvals',
-    group: 'needs_you',
-    defaultSort: INBOX_VIEW_SORTS.ATTENTION_THEN_RECENT,
-    requires: ['luna_outbound_approvals'],
-    description: 'Luna drafts waiting for a staff decision, across WhatsApp and email.',
-  }),
-  declareView({
-    id: 'needs_human',
-    label: 'Needs human',
-    group: 'needs_you',
-    defaultSort: INBOX_VIEW_SORTS.BOOKED_THEN_RECENT,
-    source: INBOX_VIEW_SOURCES.CUSTOMERS,
-    crmFilter: 'needs_attention',
-    description: 'Conversation flagged needs_human or carrying an open staff handoff.',
-  }),
-  declareView({
-    id: 'unassigned',
-    label: 'Unassigned',
-    group: 'needs_you',
-    defaultSort: INBOX_VIEW_SORTS.ATTENTION_THEN_RECENT,
-    requires: ['conversations.assigned_to'],
-    description: 'Open threads with no staff owner.',
-  }),
-  declareView({
     id: 'all',
     label: 'All',
     group: 'inbox',
@@ -183,6 +158,31 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     defaultSort: INBOX_VIEW_SORTS.ATTENTION_THEN_RECENT,
     requires: ['conversations.last_read_at'],
     description: 'Threads hidden until their snooze expires.',
+  }),
+  declareView({
+    id: 'approvals',
+    label: 'Approvals',
+    group: 'needs_you',
+    defaultSort: INBOX_VIEW_SORTS.ATTENTION_THEN_RECENT,
+    requires: ['luna_outbound_approvals'],
+    description: 'Luna drafts waiting for a staff decision, across WhatsApp and email.',
+  }),
+  declareView({
+    id: 'needs_human',
+    label: 'Needs human',
+    group: 'needs_you',
+    defaultSort: INBOX_VIEW_SORTS.BOOKED_THEN_RECENT,
+    source: INBOX_VIEW_SOURCES.CUSTOMERS,
+    crmFilter: 'needs_attention',
+    description: 'Conversation flagged needs_human or carrying an open staff handoff.',
+  }),
+  declareView({
+    id: 'unassigned',
+    label: 'Unassigned',
+    group: 'needs_you',
+    defaultSort: INBOX_VIEW_SORTS.ATTENTION_THEN_RECENT,
+    requires: ['conversations.assigned_to'],
+    description: 'Open threads with no staff owner.',
   }),
   declareView({
     id: 'all_people',

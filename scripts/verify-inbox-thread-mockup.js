@@ -236,22 +236,23 @@ console.log('\n── inherited Luna + hide Pause Globally ──');
   ok('Pause Globally stays in the portal template',
     /id="cc-luna-global-pause"/.test(apiSrc)
     && /Pause Luna Globally/.test(apiSrc));
-  ok('Inbox-open CSS hides #cc-luna-global-pause without renaming the switch',
-    /body:has\(#tab-conversations\.active\) #cc-luna-global-pause\{display:none!important\}/.test(shellSrc)
+  ok('Inbox no longer hides Pause Luna Globally (nav width matches other tabs)',
+    !/body:has\(#tab-conversations\.active\) #cc-luna-global-pause\{display:none!important\}/.test(shellSrc)
     && !/luna-global-pause-switch/.test(shellSrc)
     && !/Pause Luna Globally/.test(shellSrc));
-  ok('Reset Luna / Full Wipe stay in thread HTML behind overflow',
+  ok('Reset Luna / Full Wipe stay in thread HTML; overflow chrome is hidden',
     threadSrc.includes('Reset Luna session')
     && threadSrc.includes('Full Wipe (testing)')
     && /class="detail-conv-toolbar inbox-dev-overflow"/.test(threadSrc)
     && /#tab-conversations \.detail-conv-toolbar\{display:none!important\}/.test(shellSrc)
-    && /#tab-conversations \.detail-conv-toolbar\.inbox-dev-overflow\{display:block!important/.test(shellSrc));
+    && /#tab-conversations \.detail-conv-toolbar\.inbox-dev-overflow\{display:none!important/.test(shellSrc));
 }
 
 console.log('\n── guest card ──');
-ok('Create booking is a forest pill class; Edit profile stays a text action',
+ok('Create booking is a forest pill class at the bottom-right; Edit profile is gone',
   /class="btn inbox-guest-create-booking" id="inbox-create-booking-for-guest"/.test(contextSrc)
-  && /id="inbox-edit-profile"/.test(contextSrc)
+  && !/id="inbox-edit-profile"/.test(contextSrc)
+  && /align-items:flex-end/.test(contextSrc)
   && /background:#2F4A3E/.test(contextSrc)
   && !/--inbox-forest/.test(contextSrc));
 ok('stay facts helper is unchanged',

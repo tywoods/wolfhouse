@@ -97,8 +97,8 @@ const ids = declarations.map((v) => v.id);
 
 assert('registry is frozen', Object.isFrozen(INBOX_SAVED_VIEWS));
 assert('view ids unique', new Set(ids).size === ids.length, ids.join(','));
-assert('groups are NEEDS YOU / INBOX / PEOPLE',
-  INBOX_VIEW_GROUP_IDS.join(',') === 'needs_you,inbox,people');
+assert('groups are INBOX / NEEDS YOU / PEOPLE',
+  INBOX_VIEW_GROUP_IDS.join(',') === 'inbox,needs_you,people');
 assert('every group has a rail label', INBOX_VIEW_GROUPS.every((g) => !!g.label));
 assert('every view declares id, label, group, defaultSort',
   declarations.every((v) => v.id && v.label && v.group && v.defaultSort));

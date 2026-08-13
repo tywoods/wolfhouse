@@ -18505,7 +18505,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 #conv-list.conv-list{min-height:0;overflow:visible}
 .inbox-left-scroll{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 #inbox-state{flex-shrink:0}
-.inbox-live-status{margin-left:8px;font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:0.02em;white-space:nowrap}
+.inbox-live-status{display:none!important}
 .inbox-live-status.is-live{color:#5a7a5a}
 .inbox-live-status.is-reconnect{color:#9a7a3a}
 .inbox-live-status.is-error{color:#9C5742}
@@ -20546,39 +20546,58 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
   function collapsed(){return document.body.classList.contains('header-collapsed');}
   function setCollapsed(v){document.body.classList.toggle('header-collapsed',!!v);}
   function reset(){setCollapsed(false);}
-  function handle(dy){
+  function canScroll(el,dy){
+    if(!el||el===document.body||el===document.documentElement) return false;
+    var oy='';
+    try{oy=window.getComputedStyle(el).overflowY;}catch(_e){return false;}
+    if(oy!=='auto'&&oy!=='scroll'&&oy!=='overlay') return false;
+    if(el.scrollHeight<=el.clientHeight+2) return false;
+    if(dy>0) return (el.scrollTop+el.clientHeight)<(el.scrollHeight-2);
+    if(dy<0) return el.scrollTop>1;
+    return false;
+  }
+  function scrollOwner(target,dy){
+    var node=target;
+    if(node&&node.nodeType!==1) node=node.parentElement;
+    while(node&&node!==document.body&&node!==document.documentElement){
+      if(node.id==='banner'||node.id==='tabs'||(node.classList&&node.classList.contains('luna-bamboo-divider'))) return 'banner';
+      if(canScroll(node,dy)) return 'section';
+      node=node.parentElement;
+    }
+    return 'page';
+  }
+  function handle(dy,target){
     if(!eligible()){reset();return false;}
     var pn=panel(); if(!pn) return false;
-    // only hijack when this panel is itself the scroller (Schedule, Admin, …);
-    // tabs with their own inner scroll areas (Inbox) are left alone.
-    // Do NOT bail when scrollHeight≈clientHeight — short pages still need
-    // collapse/expand (and expand after content shrinks away the scrollbar).
-    if(Date.now()<lockUntil) return true; // freeze the page while collapsing/expanding
+    var owner=scrollOwner(target,dy);
+    // Hovering a scrollable section: that section owns the wheel, never the banner first.
+    if(owner==='section') return false;
+    if(Date.now()<lockUntil) return true;
     var atTop = (pn.scrollTop||0)<=0;
-    if(dy>0){ // scrolling down
-      if(!collapsed() && atTop){ lockUntil=Date.now()+COOLDOWN; setCollapsed(true); return true; } // stage 1: hide banner
-      return false; // banner already gone → let the content scroll
-    } else if(dy<0){ // scrolling up
-      if(collapsed() && atTop){ lockUntil=Date.now()+COOLDOWN; setCollapsed(false); return true; } // bring banner back
-      return false; // scroll the content back to the top first
+    if(dy>0){
+      if(!collapsed() && (owner==='banner' || atTop)){ lockUntil=Date.now()+COOLDOWN; setCollapsed(true); return true; }
+      return false;
+    } else if(dy<0){
+      if(collapsed() && (owner==='banner' || atTop)){ lockUntil=Date.now()+COOLDOWN; setCollapsed(false); return true; }
+      return false;
     }
     return false;
   }
   document.addEventListener('wheel',function(e){
     if(Math.abs(e.deltaY)<2) return;
-    if(handle(e.deltaY)) e.preventDefault();
+    if(handle(e.deltaY,e.target)) e.preventDefault();
   },{passive:false,capture:true});
-  // touch: mirror the wheel logic on vertical swipes
   var ty=null;
   document.addEventListener('touchstart',function(e){ty=e.touches&&e.touches[0]?e.touches[0].clientY:null;},{passive:true,capture:true});
   document.addEventListener('touchmove',function(e){
     if(ty==null||!e.touches||!e.touches[0])return;
-    var dy=ty-e.touches[0].clientY; // swipe up (content down) => dy>0
+    var dy=ty-e.touches[0].clientY;
     if(Math.abs(dy)<6)return;
-    if(handle(dy)){ e.preventDefault(); ty=e.touches[0].clientY; }
+    var touchTarget=e.target;
+    try{if(document.elementFromPoint) touchTarget=document.elementFromPoint(e.touches[0].clientX,e.touches[0].clientY)||e.target;}catch(_e){}
+    if(handle(dy,touchTarget)){ e.preventDefault(); ty=e.touches[0].clientY; }
   },{passive:false,capture:true});
   document.addEventListener('touchend',function(){ty=null;},{passive:true,capture:true});
-  // keep state sane on tab / mode switches
   document.addEventListener('click',function(e){var t=e.target;if(t&&t.closest&&(t.closest('.tab-btn')||t.closest('[data-header-mode]'))){setTimeout(function(){if(!eligible())reset();},60);}},true);
   window.__lunaHeaderCondense=function(){if(!eligible())reset();};
 })();
@@ -21141,7 +21160,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <span id="inbox-live-status" class="inbox-live-status" aria-live="polite">Live</span>
       <div class="inbox-layout-controls">
         <div class="inbox-layout-presets" id="inbox-layout-presets" role="group" data-i18n-aria="inbox.layout.presets" aria-label="Column layout">
-          <button type="button" class="inbox-layout-preset-btn is-active" data-inbox-preset="all4" aria-pressed="true" aria-keyshortcuts="Alt+0" data-i18n-title="inbox.layout.preset.all4.title" title="All four columns — Alt+0"><span data-i18n="inbox.layout.preset.all4">All four</span></button>
+          <button type="button" class="inbox-layout-preset-btn is-active" data-inbox-preset="all4" aria-pressed="true" aria-keyshortcuts="Alt+0" data-i18n-title="inbox.layout.preset.all4.title" title="Full layout — Alt+0"><span data-i18n="inbox.layout.preset.all4">Full</span></button>
           <button type="button" class="inbox-layout-preset-btn" data-inbox-preset="chat" aria-pressed="false" aria-keyshortcuts="Alt+3" data-i18n-title="inbox.layout.preset.chat.title" title="Chat focus — Alt+3"><span data-i18n="inbox.layout.preset.chat">Chat</span></button>
           <button type="button" class="inbox-layout-preset-btn" data-inbox-preset="guest" aria-pressed="false" aria-keyshortcuts="Alt+4" data-i18n-title="inbox.layout.preset.guest.title" title="Guest focus — Alt+4"><span data-i18n="inbox.layout.preset.guest">Guest</span></button>
         </div>
