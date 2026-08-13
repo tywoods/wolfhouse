@@ -8,20 +8,32 @@
  */
 
 const { spawnSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 
+/**
+ * @returns {'green'|'red'|'missing'} 'missing' when the registered script is not on disk —
+ * a suite bookkeeping error, not a gate failure, and node's MODULE_NOT_FOUND stack reads
+ * like a broken install.
+ */
 function run(label, script, extraArgs) {
   console.log(`\n▶ ${label}`);
-  const res = spawnSync(process.execPath, [path.join(__dirname, script), ...(extraArgs || [])], {
+  const scriptPath = path.join(__dirname, script);
+  if (!fs.existsSync(scriptPath)) {
+    console.error(`  MISSING  registered step has no script on disk: scripts/${script}`);
+    console.error('  Restore the script, or remove the step from verify-luna-all.js and package.json.');
+    return 'missing';
+  }
+  const res = spawnSync(process.execPath, [scriptPath, ...(extraArgs || [])], {
     cwd: ROOT,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
   });
   if (res.stdout) process.stdout.write(res.stdout);
   if (res.stderr) process.stderr.write(res.stderr);
-  return res.status === 0;
+  return res.status === 0 ? 'green' : 'red';
 }
 
 const full = process.argv.includes('--full');
@@ -59,10 +71,25 @@ if (full) {
   );
 }
 
-let failed = 0;
+let green = 0;
+const red = [];
+const missing = [];
 for (const [label, script] of steps) {
-  if (!run(label, script)) failed++;
+  const outcome = run(label, script);
+  if (outcome === 'green') green++;
+  else if (outcome === 'missing') missing.push([label, script]);
+  else red.push(label);
 }
 
-console.log(`\n── verify:luna-all ${failed ? 'FAILED' : 'PASSED'} (${steps.length - failed}/${steps.length} green) ──`);
-process.exit(failed > 0 ? 1 : 0);
+const counts = [`${green}/${steps.length} green`];
+if (missing.length) counts.push(`${missing.length} missing`);
+console.log(`\n── verify:luna-all ${green === steps.length ? 'PASSED' : 'FAILED'} (${counts.join(', ')}) ──`);
+if (red.length) {
+  console.log('\nFailed steps:');
+  for (const label of red) console.log(`  ${label}`);
+}
+if (missing.length) {
+  console.log('\nRegistered steps with no script on disk:');
+  for (const [label, script] of missing) console.log(`  ${label} → scripts/${script}`);
+}
+process.exit(green === steps.length ? 0 : 1);
