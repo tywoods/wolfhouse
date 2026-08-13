@@ -217,9 +217,12 @@ switch (cmd) {
         const r = spawnSync('gh', ['issue', 'edit', String(id), '-R', REPO, '--add-assignee', login], { encoding: 'utf8' });
         assigned = r.status === 0;
       } else {
-        // REST: PATCH the issue with the assignees array. restRequest die()s on
+        // REST: use the ADDITIVE assignees endpoint (POST .../assignees), which
+        // adds without clobbering existing assignees — matching gh --add-assignee.
+        // (PATCH .../issues/{id} with assignees would REPLACE the whole list and
+        // could drop an already-assigned operator.) restRequest die()s on
         // HTTP >= 400, so reaching the next line means the assignment took.
-        restRequest('PATCH', '/repos/' + REPO + '/issues/' + id, { assignees: [login] });
+        restRequest('POST', '/repos/' + REPO + '/issues/' + id + '/assignees', { assignees: [login] });
         assigned = true;
       }
     }

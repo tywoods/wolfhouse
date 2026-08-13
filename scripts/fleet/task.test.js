@@ -25,7 +25,9 @@ const MOCK_REST_SRC = path.join(__dirname, 'test-mock-rest.js');
 function runRest(args, env) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-rest-'));
   const restLog = path.join(dir, 'rest.log');
+  const bodyLog = path.join(dir, 'body.log');
   fs.writeFileSync(restLog, '');
+  fs.writeFileSync(bodyLog, '');
   const r = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
     env: Object.assign({}, process.env, {
@@ -34,13 +36,15 @@ function runRest(args, env) {
       FLEET_TEST: '1',
       FLEET_REST_MOCK: MOCK_REST_SRC,
       REST_LOG: restLog,
+      REST_BODY_LOG: bodyLog,
       GITHUB_TOKEN: 'test-token',
       FLEET_REPO: 'test/repo',
     }, env || {}),
   });
   const log = fs.readFileSync(restLog, 'utf8');
+  const body = fs.readFileSync(bodyLog, 'utf8');
   fs.rmSync(dir, { recursive: true, force: true });
-  return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '', restlog: log };
+  return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '', restlog: log, restbody: body };
 }
 
 function run(args, env) {
@@ -188,10 +192,15 @@ const queued = JSON.stringify({ labels: [{ name: 'fleet:queued' }] });
   ok('REST: show made a GET issue call, not gh', /GET \/repos\/test\/repo\/issues\/5/.test(r.restlog));
 }
 {
-  // REST: claim with a mapped assignee performs a PATCH assignees (not comment-only).
+  // REST: claim with a mapped assignee uses the ADDITIVE endpoint
+  // POST .../issues/5/assignees with body {assignees:["seadogbot"]} — NOT a
+  // PATCH .../issues/5 (which would REPLACE the whole assignee list and could
+  // drop an existing operator). Assert the exact endpoint AND request body.
   const r = runRest(['claim', '5', '--as', 'seadog'],
     { FLEET_GH_LOGIN_SEADOG: 'seadogbot', MOCK_ISSUE_JSON: JSON.stringify({ labels: [{ name: 'fleet:queued' }] }) });
-  ok('REST: claim with mapped login sets assignee via PATCH', r.status === 0 && /PATCH \/repos\/test\/repo\/issues\/5/.test(r.restlog) && /assignee seadogbot/.test(r.stdout), (r.stderr || r.stdout).trim() + ' :: ' + r.restlog.trim());
+  ok('REST: claim mapped-login uses additive POST .../assignees', r.status === 0 && /POST \/repos\/test\/repo\/issues\/5\/assignees/.test(r.restlog) && /assignee seadogbot/.test(r.stdout), (r.stderr || r.stdout).trim() + ' :: ' + r.restlog.trim());
+  ok('REST: claim does NOT use PATCH .../issues/5 (would clobber assignees)', !/PATCH \/repos\/test\/repo\/issues\/5(\s|$)/.test(r.restlog), r.restlog.trim());
+  ok('REST: claim additive body is {assignees:["seadogbot"]}', /assignees.*seadogbot/.test(r.restbody || ''), (r.restbody || '(no body captured)'));
 }
 
 console.log('\n' + '-'.repeat(40));

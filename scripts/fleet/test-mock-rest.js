@@ -11,8 +11,9 @@
  * Mutations (POST/PATCH/DELETE) just log and return {}.
  */
 const fs = require('fs');
-const [method, apiPath] = process.argv.slice(2);
+const [method, apiPath, body] = process.argv.slice(2);
 if (process.env.REST_LOG) fs.appendFileSync(process.env.REST_LOG, method + ' ' + apiPath + '\n');
+if (process.env.REST_BODY_LOG && body) fs.appendFileSync(process.env.REST_BODY_LOG, method + ' ' + apiPath + ' ' + body + '\n');
 function out(o) { process.stdout.write(JSON.stringify(o)); process.exit(0); }
 if (method === 'GET' && apiPath === '/user') out({ login: process.env.MOCK_ACTOR || 'someuser' });
 if (method === 'GET' && /\/issues\/\d+$/.test(apiPath)) {
