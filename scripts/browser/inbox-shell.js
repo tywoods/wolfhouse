@@ -119,6 +119,52 @@ function inboxShellAdoptGlobalPause(){
     label.innerHTML = '<span class="channelModeIcon inbox-global-pause-owl" aria-hidden="true">' +
       inboxShellOwlIconSvg() + '</span><span>Global Pause</span>';
   }
+  if (!pause.querySelector('[data-inbox-pause]')) {
+    var segs = document.createElement('div');
+    segs.className = 'channelModeSegmented';
+    segs.setAttribute('role', 'group');
+    segs.setAttribute('aria-label', 'Global Pause');
+    segs.innerHTML =
+      '<button type="button" class="channelModeBtn" data-inbox-pause="off" aria-pressed="true">Off</button>' +
+      '<button type="button" class="channelModeBtn" data-inbox-pause="on" aria-pressed="false">On</button>';
+    pause.appendChild(segs);
+    segs.addEventListener('click', function(ev){
+      var btn = ev.target && ev.target.closest && ev.target.closest('[data-inbox-pause]');
+      if (!btn) return;
+      var sw = pause.querySelector('input[type="checkbox"]');
+      if (!sw || sw.disabled) return;
+      var wantOn = btn.getAttribute('data-inbox-pause') === 'on';
+      if (!!sw.checked === wantOn) return;
+      sw.checked = wantOn;
+      sw.dispatchEvent(new Event('change', { bubbles: true }));
+      inboxShellSyncPauseChrome(wantOn);
+    });
+  }
+  inboxShellSyncPauseChrome();
+}
+
+function inboxShellSyncPauseChrome(paused){
+  var card = inboxShellById('inbox-shell-channel-defaults');
+  var pause = inboxShellById('cc-luna-global-pause');
+  if (!pause) return;
+  var sw = pause.querySelector('input[type="checkbox"]');
+  var on = typeof paused === 'boolean' ? paused : !!(sw && sw.checked);
+  if (card) card.classList.toggle('is-paused', on);
+  var btns = pause.querySelectorAll('[data-inbox-pause]');
+  for (var i = 0; i < btns.length; i++) {
+    var isOnBtn = btns[i].getAttribute('data-inbox-pause') === 'on';
+    var selected = isOnBtn ? on : !on;
+    btns[i].classList.toggle('isSelected', selected);
+    btns[i].classList.toggle('isAuto', isOnBtn && on);
+    btns[i].setAttribute('aria-pressed', selected ? 'true' : 'false');
+  }
+}
+
+function inboxShellAdoptSearch(){
+  var list = inboxShellById('inbox-card');
+  var wrap = document.querySelector('#tab-conversations .inbox-conv-search-wrap');
+  if (!list || !wrap) return;
+  if (wrap.parentNode !== list) list.insertBefore(wrap, list.firstChild);
 }
 
 function inboxShellChannelIconSvg(channel){
@@ -213,8 +259,11 @@ function inboxShellCssText(){
     '.channelModeRow{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:34px}',
     '.channelModeRow + .channelModeRow{margin-top:5px}',
     '.channelAutonomy #cc-luna-global-pause{margin-top:5px;min-height:34px;width:100%}',
-    '.inbox-global-pause-owl{width:18px;height:18px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}',
-    '.inbox-global-pause-owl svg{width:16px;height:16px;display:block}',
+    '.inbox-global-pause-owl{width:22px;height:22px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}',
+    '.inbox-global-pause-owl svg{width:20px;height:20px;display:block}',
+    '.channelAutonomy.is-paused{background:rgba(199,74,74,.10);border-color:rgba(199,74,74,.22)}',
+    '[data-theme="dark"] .channelAutonomy{background:var(--surface);border-color:var(--border);box-shadow:none}',
+    '[data-theme="dark"] .channelAutonomy.is-paused{background:rgba(180,70,65,.24);border-color:rgba(199,74,74,.35)}',
     '.channelModeIdentity{display:flex;align-items:center;gap:7px;min-width:82px;font-size:12px;font-weight:600;color:#31443a}',
     '.channelModeIcon{width:18px;height:18px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}',
     '.channelModeIcon svg{width:16px;height:16px;display:block}',
@@ -806,6 +855,7 @@ function mountInboxShellChrome(){
   }
   wireInboxShellChannelDefaults();
   inboxShellAdoptGlobalPause();
+  inboxShellAdoptSearch();
   inboxShellSyncFromPauseState();
 }
 

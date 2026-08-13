@@ -18498,7 +18498,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .inbox-left{flex:0 0 300px;width:300px;min-height:0;height:100%;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;background:var(--surface-soft);overflow:hidden}
 .inbox-left-toolbar{padding:12px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-direction:column;gap:10px;flex-shrink:0;background:var(--surface-soft)}
 .inbox-toolbar-top{display:grid;align-items:center;gap:14px;width:100%;
-  grid-template-columns:var(--inbox-col1-w,240px) minmax(0,var(--inbox-col2-w,252px)) minmax(0,1fr) auto}
+  grid-template-columns:var(--inbox-col1-w,240px) minmax(0,1fr) auto}
 .inbox-toolbar-channels{display:flex;align-items:center;gap:8px;min-width:0}
 .inbox-chat-chrome-slot{display:flex;align-items:center;justify-content:flex-start;gap:6px;min-width:0;min-height:32px}
 .inbox-conv-search-wrap{min-width:0;display:flex;align-items:center;gap:8px}
@@ -20277,10 +20277,13 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .inbox-global-pause{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;gap:8px;width:100%;max-width:100%;box-sizing:border-box;padding:0;margin:0;border:none;background:transparent;white-space:nowrap}
 .inbox-global-pause .tabs-global-pause-toggle{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;justify-content:space-between;gap:8px;width:100%;margin:0;padding:0;cursor:pointer;white-space:nowrap}
 .inbox-global-pause .tabs-global-pause-label{flex:1 1 auto;display:inline-flex;align-items:center;gap:7px;min-width:0;font-size:12px;font-weight:600;letter-spacing:0;color:#31443a;white-space:nowrap}
-.channelAutonomy #cc-luna-global-pause{margin-top:5px;min-height:34px}
-.inbox-global-pause-owl{width:18px;height:18px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}
-.inbox-global-pause-owl svg{width:16px;height:16px;display:block}
-.inbox-global-pause .luna-global-pause-switch{flex:0 0 34px;width:34px!important;height:20px!important}
+.channelAutonomy #cc-luna-global-pause{margin-top:5px;min-height:34px;width:100%;justify-content:space-between}
+.inbox-global-pause-owl{width:22px;height:22px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}
+.inbox-global-pause-owl svg{width:20px;height:20px;display:block}
+.inbox-global-pause .luna-global-pause-switch{display:none!important}
+.channelAutonomy.is-paused{background:rgba(199,74,74,.10);border-color:rgba(199,74,74,.22)}
+[data-theme="dark"] .channelAutonomy{background:var(--surface);border-color:var(--border);box-shadow:none}
+[data-theme="dark"] .channelAutonomy.is-paused{background:rgba(180,70,65,.24);border-color:rgba(199,74,74,.35)}
 .inbox-global-pause .luna-global-pause-slider:before{height:16px;width:16px;left:2px;bottom:2px}
 .inbox-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(14px)}
 .inbox-global-pause .tabs-global-pause-help,.inbox-global-pause #luna-global-pause-status{display:none!important}
@@ -20644,12 +20647,11 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-main,
   #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .inbox-empty-right{margin-right:0}
   #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-toolbar-top{
-    grid-template-columns:minmax(0,252px) minmax(0,1fr) max-content var(--inbox-col1-w,240px) auto;
+    grid-template-columns:minmax(0,252px) minmax(0,1fr) var(--inbox-col1-w,240px) auto;
   }
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-conv-search-wrap{grid-column:1;order:1}
+  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-toolbar-channels{grid-column:1;order:1}
   #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-chat-chrome-slot{grid-column:2;order:2}
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-toolbar-channels{grid-column:3;order:3;justify-content:flex-end}
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-layout-controls{grid-column:5;order:4}
+  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-layout-controls{grid-column:4;order:3}
 }
 /* Chat view: name click swaps the chat column for the full guest card. Full/Guest presets unchanged. */
 .inbox-chat-guest-host{display:none}
@@ -30696,6 +30698,7 @@ function lunaGlobalPauseUpdateUi(paused, meta){
   var card = el('cc-luna-global-pause');
   if (sw) sw.checked = !!paused;
   if (card) card.classList.toggle('luna-global-paused', !!paused);
+  if (typeof inboxShellSyncPauseChrome === 'function') inboxShellSyncPauseChrome(!!paused);
   if (help){
     help.textContent = paused ? t('lunaStaff.pause.paused') : t('lunaStaff.pause.active');
     help.setAttribute('data-i18n', paused ? 'lunaStaff.pause.paused' : 'lunaStaff.pause.active');
