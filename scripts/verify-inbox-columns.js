@@ -52,7 +52,7 @@ const PHONE_MEDIA = '@media(max-width:768px){';
 /** The spec's own numbers. Changing one here is changing the design. */
 const SPEC_WIDTHS = {
   col1: { full: '240px', icons: '56px' },
-  col2: { comfortable: '360px', compact: '280px', hidden: '0px' },
+  col2: { comfortable: '252px', compact: '196px', hidden: '0px' },
   col4: { wide: '460px', peek: '300px', hidden: '0px' },
 };
 const SPEC_COL3_MIN = '480px';
@@ -629,7 +629,7 @@ function checkSpec() {
   const end = spec.indexOf('\n## ', start + 1);
   const body = start >= 0 ? spec.slice(start, end < 0 ? spec.length : end) : '';
   ok('spec section "Column layout model" is present', !!body);
-  const numbers = ['240px', '56px', '360px', '280px', '480px', '460px', '300px'];
+  const numbers = ['240px', '56px', '252px', '196px', '480px', '460px', '300px'];
   ok('spec still documents every width this gate enforces',
     numbers.every((n) => body.indexOf(n) >= 0),
     numbers.filter((n) => body.indexOf(n) < 0).join(', '));

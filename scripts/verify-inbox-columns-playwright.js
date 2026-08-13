@@ -39,7 +39,7 @@ const CONV_ID_2 = '9a2e4b31-5d1c-4b2f-8d22-1c8dab6e32ff';
 /** Spec widths. Only column 3 is elastic; the rest snap to these. */
 const W = {
   col1: { full: 240, icons: 56 },
-  col2: { comfortable: 360, compact: 280, hidden: 0 },
+  col2: { comfortable: 252, compact: 196, hidden: 0 },
   col4: { wide: 460, peek: 300, hidden: 0 },
 };
 const COL3_MIN = 480;
@@ -451,14 +451,14 @@ async function main() {
       afterCol2.col2 && afterCol2.col2.width);
     ok('Alt+2 leaves column 1 at 240px', near(afterCol2.col1.width, 240), afterCol2.col1.width);
     ok('Alt+2 leaves column 4 at its peek width', near(afterCol2.col4.width, 300), afterCol2.col4.width);
-    ok('column 3 takes the 360px column 2 gave up',
-      near(afterCol2.col3.width, before.col3.width + 360 + 14, 2),
+    ok('column 3 takes the 252px column 2 gave up',
+      near(afterCol2.col3.width, before.col3.width + 252 + 14, 2),
       JSON.stringify({ before: before.col3.width, after: afterCol2.col3.width }));
 
     await page.keyboard.press('Alt+Digit2');
     await page.waitForTimeout(SETTLE_MS);
     const restored = await page.evaluate(MEASURE);
-    ok('Alt+2 again restores column 2 to 360px', near(restored.col2.width, 360), restored.col2.width);
+    ok('Alt+2 again restores column 2 to 252px', near(restored.col2.width, 252), restored.col2.width);
 
     await page.keyboard.press('Alt+Digit1');
     await page.waitForTimeout(SETTLE_MS);
@@ -479,8 +479,8 @@ async function main() {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(SETTLE_MS);
     const escaped = await page.evaluate(MEASURE);
-    ok('Escape restores all four (240 / 360 / 300)',
-      near(escaped.col1.width, 240) && near(escaped.col2.width, 360) && near(escaped.col4.width, 300),
+    ok('Escape restores all four (240 / 252 / 300)',
+      near(escaped.col1.width, 240) && near(escaped.col2.width, 252) && near(escaped.col4.width, 300),
       JSON.stringify({ col1: escaped.col1.width, col2: escaped.col2.width, col4: escaped.col4.width }));
 
     section('4. Peek overlays column 3 without moving a track');
@@ -491,7 +491,7 @@ async function main() {
     const peeked = await page.evaluate(MEASURE);
     measurements['1920:peek-col2'] = peeked;
     ok('the peek is announced on the container', peeked.attrs.peek === 'col2', JSON.stringify(peeked.attrs));
-    ok('column 2 slides in at its 360px overlay width', near(peeked.col2.width, 360, 2), peeked.col2.width);
+    ok('column 2 slides in at its 252px overlay width', near(peeked.col2.width, 252, 2), peeked.col2.width);
     ok('the peeked column is an overlay, not a track', peeked.col2.position === 'absolute', peeked.col2.position);
     ok('column 3 does not move while a column is peeked',
       near(peeked.col3.width, chatTracks.col3.width, 1) && near(peeked.col3.left, chatTracks.col3.left, 1),

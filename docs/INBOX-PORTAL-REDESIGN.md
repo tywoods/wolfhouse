@@ -146,7 +146,7 @@ Only column 3 is elastic. Columns 1, 2 and 4 snap between fixed widths and 3 abs
 remainder, so any combination of collapses yields a sane layout with no width arithmetic.
 
 - **1** — `full` (240px) or `icons` (56px). Never fully hidden; it is navigation and the counts matter.
-- **2** — `comfortable` (360px), `compact` (280px), or `hidden`.
+- **2** — `comfortable` (252px), `compact` (196px), or `hidden`.
 - **3** — flexible, 480px minimum.
 - **4** — `wide` (460px), `peek` (300px), or `hidden`.
 

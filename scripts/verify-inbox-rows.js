@@ -193,13 +193,11 @@ ok('avatar initials: whitespace → ?', fns.initials('   ') === '?');
     last_message_preview: 'is the 10am free',
     last_activity_label: '2m',
   });
-  ok('on-load wrap prepends initials avatar and keeps preview + time + badge',
+  ok('on-load wrap prepends initials avatar and keeps time + badge',
     wrapped.includes('class="inbox-row-avatar"')
     && wrapped.includes('>MW</div>')
     && wrapped.includes('inbox-channel-badge')
     && wrapped.includes('WHATSAPP')
-    && wrapped.includes('conv-card-preview')
-    && wrapped.includes('is the 10am free')
     && wrapped.includes('conv-card-time')
     && wrapped.includes('2m')
     && wrapped.includes('inbox-row-body'));

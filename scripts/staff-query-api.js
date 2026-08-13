@@ -18498,7 +18498,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .inbox-left{flex:0 0 300px;width:300px;min-height:0;height:100%;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;background:var(--surface-soft);overflow:hidden}
 .inbox-left-toolbar{padding:12px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-direction:column;gap:10px;flex-shrink:0;background:var(--surface-soft)}
 .inbox-toolbar-top{display:grid;align-items:center;gap:14px;width:100%;
-  grid-template-columns:var(--inbox-col1-w,240px) minmax(0,var(--inbox-col2-w,360px)) minmax(0,1fr) auto}
+  grid-template-columns:var(--inbox-col1-w,240px) minmax(0,var(--inbox-col2-w,252px)) minmax(0,1fr) auto}
 .inbox-toolbar-channels{display:flex;align-items:center;gap:8px;min-width:0}
 .inbox-chat-chrome-slot{display:flex;align-items:center;justify-content:flex-start;gap:6px;min-width:0;min-height:32px}
 .inbox-conv-search-wrap{min-width:0;display:flex;align-items:center;gap:8px}
@@ -18528,10 +18528,12 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .conv-card-phone{font-size:11.5px;color:var(--text-2);margin-bottom:6px}
 .conv-card-contact{font-size:11.5px;color:var(--text-2);margin-bottom:4px}
 .conv-card-subject{font-size:11.5px;font-weight:600;color:var(--text);margin-bottom:4px;line-height:1.35}
-.conv-card-preview{font-size:11.5px;color:var(--text-2);margin-bottom:4px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.conv-card-time{font-size:10.5px;color:var(--text-3)}
+.conv-card-preview{display:none!important}
+.conv-card-time{font-size:10.5px;color:var(--text-3);margin:0}
 .conv-card-header-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:4px}
 .conv-card-header-row .conv-card-name{margin-bottom:0;flex:1;min-width:0}
+.conv-card-meta-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px}
+.conv-card-pebbles{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-wrap:wrap;margin-left:auto}
 .inbox-channel-badge{display:inline-flex;align-items:center;font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;padding:2px 7px;border-radius:var(--radius-pill);flex-shrink:0;line-height:1.3}
 .inbox-channel-badge-email{background:#e8eef6;color:#3d5a80;border:1px solid #c5d4e8}
 .inbox-channel-badge-whatsapp{background:#e6f4ea;color:#1e6b3a;border:1px solid #b7dfc4}
@@ -20193,7 +20195,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #tab-conversations.active:has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
   max-width:1240px!important;
 }
-#tab-conversations:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-toolbar-channels{
+#tab-conversations:not(:has([data-inbox-preset="chat"][aria-pressed="true"])) .inbox-toolbar-channels{
   justify-content:flex-end;
 }
 #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .detail-main{gap:0;padding:0}
@@ -20237,13 +20239,13 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
  */
 .inbox-two-col.inbox-shell-cols{
   --inbox-col1-w:240px;
-  --inbox-col2-w:360px;
+  --inbox-col2-w:252px;
   --inbox-col3-min:480px;
   --inbox-col4-w:300px;
   --inbox-col-gap:14px;
   /* widths a peeked column takes as an overlay; the tracks themselves stay collapsed */
   --inbox-col1-peek-w:240px;
-  --inbox-col2-peek-w:360px;
+  --inbox-col2-peek-w:252px;
   --inbox-col4-peek-w:300px;
   display:grid;
   grid-template-columns:var(--inbox-col1-w) minmax(0,var(--inbox-col2-w)) minmax(var(--inbox-col3-min),1fr) minmax(0,var(--inbox-col4-w));
@@ -20327,16 +20329,16 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 /* Column state → width. Every number the layout has lives in these eight rules. */
 .inbox-two-col.inbox-shell-cols[data-col1="full"]{--inbox-col1-w:240px}
 .inbox-two-col.inbox-shell-cols[data-col1="icons"]{--inbox-col1-w:56px}
-.inbox-two-col.inbox-shell-cols[data-col2="comfortable"]{--inbox-col2-w:360px}
-.inbox-two-col.inbox-shell-cols[data-col2="compact"]{--inbox-col2-w:280px}
+.inbox-two-col.inbox-shell-cols[data-col2="comfortable"]{--inbox-col2-w:252px}
+.inbox-two-col.inbox-shell-cols[data-col2="compact"]{--inbox-col2-w:196px}
 .inbox-two-col.inbox-shell-cols[data-col2="hidden"]{--inbox-col2-w:0px}
 .inbox-two-col.inbox-shell-cols[data-col4="wide"]{--inbox-col4-w:460px}
 .inbox-two-col.inbox-shell-cols[data-col4="peek"]{--inbox-col4-w:300px}
 .inbox-two-col.inbox-shell-cols[data-col4="hidden"]{--inbox-col4-w:0px}
 .inbox-shell-wrap:has(#inbox-shell[data-col1="full"]){--inbox-col1-w:240px}
 .inbox-shell-wrap:has(#inbox-shell[data-col1="icons"]){--inbox-col1-w:56px}
-.inbox-shell-wrap:has(#inbox-shell[data-col2="comfortable"]){--inbox-col2-w:360px}
-.inbox-shell-wrap:has(#inbox-shell[data-col2="compact"]){--inbox-col2-w:280px}
+.inbox-shell-wrap:has(#inbox-shell[data-col2="comfortable"]){--inbox-col2-w:252px}
+.inbox-shell-wrap:has(#inbox-shell[data-col2="compact"]){--inbox-col2-w:196px}
 .inbox-shell-wrap:has(#inbox-shell[data-col2="hidden"]){--inbox-col2-w:0px}
 .inbox-shell-wrap:has(#inbox-shell[data-col4="wide"]){--inbox-col4-w:460px}
 .inbox-shell-wrap:has(#inbox-shell[data-col4="peek"]){--inbox-col4-w:300px}
@@ -20620,8 +20622,8 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 @media(min-width:901px){
   #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols{
-    --inbox-col2-w:340px;
-    grid-template-columns:minmax(0,340px) minmax(var(--inbox-col3-min),1fr) var(--inbox-col1-w);
+    --inbox-col2-w:252px;
+    grid-template-columns:minmax(0,252px) minmax(var(--inbox-col3-min),1fr) var(--inbox-col1-w);
   }
   #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left{grid-column:1}
   #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols .detail-main,
@@ -20630,12 +20632,12 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-main,
   #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .inbox-empty-right{margin-right:0}
   #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-toolbar-top{
-    grid-template-columns:minmax(0,340px) minmax(0,1fr) 240px auto;
+    grid-template-columns:minmax(0,252px) minmax(0,1fr) max-content var(--inbox-col1-w,240px) auto;
   }
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-conv-search-wrap{order:1}
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-chat-chrome-slot{order:2}
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-toolbar-channels{order:3}
-  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-layout-controls{order:4}
+  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-conv-search-wrap{grid-column:1;order:1}
+  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-chat-chrome-slot{grid-column:2;order:2}
+  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-toolbar-channels{grid-column:3;order:3;justify-content:flex-end}
+  #tab-conversations:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-layout-controls{grid-column:5;order:4}
 }
 /* Chat view: name click swaps the chat column for the full guest card. Full/Guest presets unchanged. */
 .inbox-chat-guest-host{display:none}

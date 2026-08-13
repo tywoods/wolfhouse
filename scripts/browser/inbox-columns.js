@@ -31,7 +31,7 @@ var INBOX_COLUMNS_COLS = ['col1', 'col2', 'col4'];
 /** Every state a snapping column can hold, and the width the grid gives it. */
 var INBOX_COLUMNS_WIDTHS = {
   col1: { full: '240px', icons: '56px' },
-  col2: { comfortable: '360px', compact: '280px', hidden: '0px' },
+  col2: { comfortable: '252px', compact: '196px', hidden: '0px' },
   col4: { wide: '460px', peek: '300px', hidden: '0px' },
 };
 

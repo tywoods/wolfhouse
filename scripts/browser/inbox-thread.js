@@ -866,9 +866,7 @@ function renderInboxConvCardHtml(c, profile){
     var subjectLine = channel === 'email' && c.email_subject
       ? '<div class="conv-card-subject">' + escHtml(c.email_subject) + '</div>'
       : '';
-    var previewLine = c.last_message_preview
-      ? '<div class="conv-card-preview">' + escHtml(c.last_message_preview) + '</div>'
-      : '';
+    var previewLine = '';
     var timeLine = c.last_activity_label
       ? '<div class="conv-card-time">' + escHtml(c.last_activity_label) + '</div>'
       : '';
@@ -876,27 +874,34 @@ function renderInboxConvCardHtml(c, profile){
       delBtn +
       '<div class="conv-card-header-row">' +
         '<div class="conv-card-name">' + escHtml(c.guest_name || '—') + '</div>' +
-        inboxChannelBadgeHtml(channel) +
       '</div>' +
       subjectLine +
       (contactLine ? '<div class="conv-card-contact">' + escHtml(contactLine) + '</div>' : '') +
       previewLine +
-      '<div class="conv-card-pills">' + convListPill(c) + '</div>' +
+      '<div class="conv-card-meta-row">' +
+        timeLine +
+        '<div class="conv-card-pebbles">' +
+          '<div class="conv-card-pills">' + convListPill(c) + '</div>' +
+          inboxChannelBadgeHtml(channel) +
+        '</div>' +
+      '</div>' +
       handoffLine +
-      timeLine +
     '</div>';
   }
   return '<div class="conv-card conv-card-mobile-dense' + demoClass + '" data-id="' + escHtml(c.conversation_id) + '">' +
     delBtn +
     '<div class="conv-card-header-row">' +
       '<div class="conv-card-name">' + escHtml(c.guest_name || '—') + '</div>' +
-      inboxChannelBadgeHtml('whatsapp') +
     '</div>' +
     (c.phone ? '<div class="conv-card-phone">' + escHtml(c.phone) + '</div>' : '') +
-    (c.last_message_preview ? '<div class="conv-card-preview">' + escHtml(c.last_message_preview) + '</div>' : '') +
-    '<div class="conv-card-pills">' + convListPill(c) + '</div>' +
+    '<div class="conv-card-meta-row">' +
+      (c.last_activity_label ? '<div class="conv-card-time">' + escHtml(c.last_activity_label) + '</div>' : '') +
+      '<div class="conv-card-pebbles">' +
+        '<div class="conv-card-pills">' + convListPill(c) + '</div>' +
+        inboxChannelBadgeHtml('whatsapp') +
+      '</div>' +
+    '</div>' +
     handoffLine +
-    (c.last_activity_label ? '<div class="conv-card-time">' + escHtml(c.last_activity_label) + '</div>' : '') +
   '</div>';
 }
 

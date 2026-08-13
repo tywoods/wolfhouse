@@ -351,7 +351,7 @@ function inboxMockupThemeCssText(){
     '#inbox-shell .detail-name{',
     'color:var(--inbox-forest);',
     '}',
-    '#inbox-shell .conv-card-preview,',
+    '#inbox-shell .conv-card-preview{display:none!important}',
     '#inbox-shell .conv-card-time,',
     '#inbox-shell .inbox-guest-tags,',
     '#inbox-shell .detail-meta{',
