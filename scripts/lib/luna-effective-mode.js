@@ -55,6 +55,19 @@ const LUNA_EFFECTIVE_MODES = Object.freeze(['auto', 'draft', 'off']);
 const LUNA_EFFECTIVE_MODE_CHANNELS = Object.freeze(['whatsapp', 'email']);
 
 /**
+ * Options the Inbox thread-header control may offer *today*, without faking a
+ * mode the send path cannot honour. WhatsApp has no approval step (migration
+ * 078); email never auto-sends (`draft_only: true`). Off is pause on both.
+ *
+ * @param {'whatsapp'|'email'|string} [channel]
+ * @returns {ReadonlyArray<'auto'|'draft'|'off'>}
+ */
+function lunaModeControlOptions(channel) {
+  if (normalizeChannel(channel) === 'email') return Object.freeze(['draft', 'off']);
+  return Object.freeze(['auto', 'off']);
+}
+
+/**
  * Tenant the shipped staff email Luna draft route is hard-bound to
  * (`SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT` filters `cl.slug='sunset'`).
  */
@@ -301,6 +314,7 @@ module.exports = {
   resolveLunaEffectiveMode,
   readLunaEffectiveModeFlags,
   readLunaEffectiveModePauseInputsFromGateResponse,
+  lunaModeControlOptions,
   LUNA_EFFECTIVE_MODES,
   LUNA_EFFECTIVE_MODE_CHANNELS,
   LUNA_EFFECTIVE_MODE_REASONS,

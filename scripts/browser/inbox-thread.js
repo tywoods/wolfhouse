@@ -28,8 +28,8 @@ function convListPill(conv){
   return html;
 }
 
-function convHeaderStatusPillsHtml(conv, lunaPaused){
-  var html = inboxLunaStaffPill(lunaPaused);
+function convHeaderStatusPillsHtml(conv, _lunaPaused){
+  var html = '';
   if (conversationHasOpenHandoff(conv)){
     html += '<span class="pill pill-orange" id="conv-handoff-pill">' + escHtml(t('inbox.list.pill.handoff')) + '</span>';
   } else if (conv && conv.needs_human){
@@ -39,23 +39,11 @@ function convHeaderStatusPillsHtml(conv, lunaPaused){
 }
 
 function detailHeaderSwitchesHtml(c, lunaGuestPaused){
-  return (lunaGuestPaused ? inboxLunaPausedPillHtml(true) : '') +
-    '<div class="detail-header-switches">' +
-    '<label class="inbox-header-switch-item" for="conv-needs-human-toggle" title="' + escHtml(t('inbox.detail.switch.needsHuman')) + '">' +
-      '<span class="inbox-header-switch-label">' + escHtml(t('inbox.detail.switch.needsHuman')) + '</span>' +
-      '<span class="inbox-switch inbox-switch-orange inbox-header-switch">' +
-        '<input type="checkbox" id="conv-needs-human-toggle"' + (c.needs_human ? ' checked' : '') + '>' +
-        '<span class="inbox-switch-slider"></span>' +
-      '</span>' +
-    '</label>' +
-    '<label class="inbox-header-switch-item" for="luna-pause-switch" title="' + escHtml(t('inbox.detail.switch.pauseLuna')) + '">' +
-      '<span class="inbox-header-switch-label">' + escHtml(t('inbox.detail.switch.pauseLuna')) + '</span>' +
-      '<span class="inbox-switch inbox-switch-red inbox-header-switch">' +
-        '<input type="checkbox" id="luna-pause-switch"' + (lunaGuestPaused ? ' checked' : '') + '>' +
-        '<span class="inbox-switch-slider"></span>' +
-      '</span>' +
-    '</label>' +
-  '</div>';
+  return inboxLunaModeControlHtml({
+    channel: c && c.channel,
+    paused: !!lunaGuestPaused,
+    needs_human: !!(c && c.needs_human),
+  });
 }
 
 /* Inbox header — Luna active vs Staff (pause Luna) source pebble */
@@ -148,26 +136,11 @@ function updateLunaPauseUiInPlace(targetEl, paused){
   if (hdrPills){
     hdrPills.innerHTML = convHeaderStatusPillsHtml({ needs_human: needsHuman }, paused);
   }
-  updateLunaPausedPillInPlace(targetEl, paused);
+  syncInboxLunaModeControl(targetEl, paused);
 }
 
 function updateLunaPausedPillInPlace(targetEl, paused){
-  var right = targetEl.querySelector('.detail-header-right');
-  if (!right) return;
-  var existing = right.querySelector('#conv-luna-paused-pill');
-  if (paused){
-    if (!existing){
-      var switches = right.querySelector('.detail-header-switches');
-      var pill = document.createElement('span');
-      pill.className = 'pill pill-luna-paused';
-      pill.id = 'conv-luna-paused-pill';
-      pill.textContent = t('inbox.detail.pill.lunaPaused');
-      if (switches) right.insertBefore(pill, switches);
-      else right.appendChild(pill);
-    }
-  } else if (existing) {
-    existing.remove();
-  }
+  syncInboxLunaModeControl(targetEl, paused);
 }
 
 function patchInboxConvRow(convId, patch){
@@ -212,6 +185,7 @@ function updateNeedsHumanBadgeInPlace(targetEl, needsHuman, opts){
   }
   updateConvHeaderPillsInPlace(targetEl, needsHuman, lunaPaused);
   updateLunaPausedPillInPlace(targetEl, lunaPaused);
+  syncInboxNeedsHumanRaise(targetEl, needsHuman);
 }
 
 function wireNeedsHumanToggle(convId, targetEl){
@@ -222,6 +196,8 @@ function wireNeedsHumanToggle(convId, targetEl){
   toggle.addEventListener('change', function(){
     var want = toggle.checked;
     toggle.disabled = true;
+    var raise = targetEl.querySelector('#inbox-needs-human-raise');
+    if (raise) raise.disabled = true;
     fetch('/staff/conversations/' + encodeURIComponent(convId) + '/needs-human', {
       method: 'POST',
       credentials: 'same-origin',
@@ -263,9 +239,10 @@ function wireNeedsHumanToggle(convId, targetEl){
       })
       .catch(function(err){
         toggle.checked = !want;
+        syncInboxNeedsHumanRaise(targetEl, toggle.checked);
         alert(err.message || 'Could not update needs human flag');
       })
-      .finally(function(){ toggle.disabled = false; });
+      .finally(function(){ toggle.disabled = false; var raise = targetEl.querySelector('#inbox-needs-human-raise'); if (raise) raise.disabled = false; });
   });
 }
 
@@ -634,6 +611,7 @@ function wireLunaPauseSwitch(convId, targetEl){
     };
     if (wantPaused) body.pause_reason = 'Paused from Staff Portal Inbox';
     sw.disabled = true;
+    setInboxLunaModeBusy(targetEl, true);
     setLunaPauseActionStatus(targetEl, 'Updating Luna status…', false);
 
     fetch(path, {
@@ -648,14 +626,18 @@ function wireLunaPauseSwitch(convId, targetEl){
         var data = res.data || {};
         if (res.status === 403 && (data.error === 'bot_pause_controls_disabled' || data.enabled === false)){
           sw.checked = !wantPaused;
+          syncInboxLunaModeControl(targetEl, sw.checked);
           setLunaPauseActionStatus(targetEl, 'Pause controls are disabled.', true);
           sw.disabled = false;
+          setInboxLunaModeBusy(targetEl, false);
           return;
         }
         if (!res.ok || !data.success){
           sw.checked = !wantPaused;
+          syncInboxLunaModeControl(targetEl, sw.checked);
           setLunaPauseActionStatus(targetEl, data.error || 'Could not update Luna status.', true);
           sw.disabled = false;
+          setInboxLunaModeBusy(targetEl, false);
           return;
         }
         setLunaPauseActionStatus(targetEl, '', false);
@@ -664,11 +646,14 @@ function wireLunaPauseSwitch(convId, targetEl){
         updateInboxConvCardStatusPills(convId);
         bcUpdateDrawerConvBotModePebble(convId, wantPaused);
         sw.disabled = false;
+        setInboxLunaModeBusy(targetEl, false);
       })
       .catch(function(err){
         sw.checked = !wantPaused;
+        syncInboxLunaModeControl(targetEl, sw.checked);
         setLunaPauseActionStatus(targetEl, err.message || 'Could not update Luna status.', true);
         sw.disabled = false;
+        setInboxLunaModeBusy(targetEl, false);
       });
   });
 }
@@ -1530,7 +1515,9 @@ function loadSurfInboxDemoDetail(convId, targetEl){
   html += '<div class="detail-header-pills" style="margin-left:auto;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">';
   html += inboxChannelBadgeHtml(channel);
   html += convHeaderStatusPillsHtml(row, !!row.luna_paused);
-  html += '</div></div>';
+  html += '</div>';
+  html += detailHeaderSwitchesHtml(row, !!row.luna_paused);
+  html += '</div>';
   html += '<div class="detail-layout"><div class="detail-main">';
   html += '<div class="thread-section"><div class="thread"><div class="thread-messages">';
   html += '<div class="msg inbound"><div class="msg-bubble">' + escHtml(row.last_message_preview || '') + '</div>';
@@ -1772,7 +1759,9 @@ function loadConvDetail(convId, targetEl){
     });
     wireInboxSidebarToggle(targetEl);
     wireNeedsHumanToggle(convId, targetEl);
+    wireInboxNeedsHumanRaise(targetEl);
     wireLunaPauseSwitch(convId, targetEl);
+    wireInboxLunaModeControl(targetEl);
     wireFreshStart(convId, targetEl);
     wireAgentSessionReset(convId, targetEl);
 
