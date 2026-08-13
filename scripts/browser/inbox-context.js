@@ -154,6 +154,7 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-guest-tags-toggle.is-on{border-color:var(--primary);background:var(--surface-soft)}',
   '.inbox-guest-tags-toggle.is-auto{cursor:default;opacity:.75}',
   '.inbox-guest-tags-save{align-self:flex-start;padding:9px 16px;font-size:12px;font-weight:600}',
+  '.inbox-customer-card.is-editing{max-width:60%;width:60%;box-sizing:border-box}',
 ].join('');
 
 var inboxContextLastComposite = null;
@@ -1128,8 +1129,6 @@ function inboxCustomerFullHtml(data, opts) {
   html += '<div class="customers-profile-hdr-actions">';
   html += '<button type="button" class="btn btn-ghost" id="inbox-create-booking-for-guest">' +
     inboxContextEsc(inboxContextT('customers.detail.createBooking', 'Create booking')) + '</button>';
-  html += '<button type="button" class="btn btn-ghost" id="inbox-customer-edit-profile">' +
-    inboxContextEsc(inboxContextT('customers.editProfile', 'Edit profile')) + '</button>';
   html += '</div></div>';
   html += '<div class="customers-profile-fields">';
   html += inboxCustomerInlineFieldHtml('phone', inboxContextEsc(inboxContextT('customers.detail.phone', 'Phone')), phone, '—', false);

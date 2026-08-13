@@ -347,7 +347,7 @@ ok('wraps wireInboxSidebarToggle rather than rewriting loadConvDetail',
     && full.includes('Linked bookings')
     && full.includes('Previous lessons')
     && full.includes('Create booking')
-    && full.includes('Edit profile'));
+    && !full.includes('id="inbox-customer-edit-profile"'));
 }
 
 console.log('\n' + '─'.repeat(48));
