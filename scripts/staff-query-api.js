@@ -20219,8 +20219,16 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   margin-top:10px;
   margin-bottom:0!important;
 }
+/*
+ * Below 901px the grid is one column and the tracks become rows: rail, list, thread.
+ * The rail is content-sized; list and thread share what is left, so neither the
+ * pass-through host's height:100% nor a tall thread can squeeze the list to nothing.
+ */
 @media(max-width:900px){
-  .inbox-two-col.inbox-shell-cols{grid-template-columns:1fr;grid-template-rows:none;gap:0;border:none}
+  .inbox-two-col.inbox-shell-cols{
+    grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr) minmax(0,1fr);gap:0;border:none;
+  }
+  .inbox-two-col.inbox-shell-cols.show-thread{grid-template-rows:minmax(0,1fr)}
   .inbox-two-col.inbox-shell-cols .inbox-left,
   .inbox-two-col.inbox-shell-cols #conv-detail{border-radius:var(--radius)}
   .inbox-two-col.inbox-shell-cols #inbox-detail-sidebar > .sidebar-card{
@@ -20264,6 +20272,27 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .inbox-two-col.inbox-shell-cols[data-col1="icons"] .inbox-col1 .inbox-filter-btn::before{font-size:15px}
 .inbox-two-col.inbox-shell-cols[data-col1="icons"] .inbox-col1 .inbox-filter-btn .hq-count{
   position:absolute;top:-3px;right:-3px;margin:0;font-size:9px;padding:0 4px;
+}
+/* There is no narrow column on a phone: the rail flattens back into a chip bar. */
+@media(max-width:900px){
+  .inbox-col1{
+    flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 4px;
+    overflow:visible;border:none;background:transparent;align-self:start;
+  }
+  .inbox-col1 .inbox-view-switch{flex-direction:row;width:auto;gap:6px}
+  .inbox-col1 .inbox-view-btn,
+  .inbox-col1 .inbox-filter-btn{width:auto}
+  .inbox-col1 .inbox-filters{flex-direction:row;flex-wrap:wrap;gap:6px}
+  .inbox-col1 .inbox-filter-btn .hq-count{margin-left:4px}
+}
+/*
+ * Phone master/detail: the shell is either the list or the thread, which is what the
+ * back button promises. The pass-through host outranks the mobile display:none it was
+ * written against, so the closed thread is taken out of the flow here by state.
+ */
+@media(max-width:768px){
+  .inbox-two-col.inbox-shell-cols:not(.show-thread){grid-template-rows:auto minmax(0,1fr)}
+  .inbox-two-col.inbox-shell-cols:not(.show-thread) #conv-detail{display:none}
 }
 /* ── Top-bar layout controls: preset segmented control + per-column toggles ── */
 .inbox-layout-controls{display:flex;align-items:center;gap:8px;margin-left:8px;flex:0 0 auto}

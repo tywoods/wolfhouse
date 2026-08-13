@@ -1516,7 +1516,6 @@ function loadSurfInboxDemoDetail(convId, targetEl){
   html += inboxChannelBadgeHtml(channel);
   html += convHeaderStatusPillsHtml(row, !!row.luna_paused);
   html += '</div>';
-  html += detailHeaderSwitchesHtml(row, !!row.luna_paused);
   html += '</div>';
   html += '<div class="detail-layout"><div class="detail-main">';
   html += '<div class="thread-section"><div class="thread"><div class="thread-messages">';

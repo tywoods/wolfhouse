@@ -46,6 +46,8 @@ const MODULE_END = '/* ── inbox-columns model: end';
 
 const SHELL_RULE = '.inbox-two-col.inbox-shell-cols{';
 const DESKTOP_MEDIA = '@media(min-width:901px){';
+const STACK_MEDIA = '@media(max-width:900px){';
+const PHONE_MEDIA = '@media(max-width:768px){';
 
 /** The spec's own numbers. Changing one here is changing the design. */
 const SPEC_WIDTHS = {
@@ -156,6 +158,31 @@ function blockBody(css, header) {
     }
   }
   return null;
+}
+
+/** Every block for an at-rule header, since one breakpoint can be opened more than once. */
+function blockBodies(css, header) {
+  const out = [];
+  let from = 0;
+  for (;;) {
+    const start = css.indexOf(header, from);
+    if (start < 0) return out;
+    let depth = 0;
+    let advanced = false;
+    for (let i = start + header.length - 1; i < css.length; i += 1) {
+      if (css[i] === '{') depth += 1;
+      else if (css[i] === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          out.push(css.slice(start + header.length, i));
+          from = i + 1;
+          advanced = true;
+          break;
+        }
+      }
+    }
+    if (!advanced) return out;
+  }
 }
 
 function declaration(body, prop) {
@@ -384,6 +411,15 @@ function checkRenderedCss(client, html) {
   ok('an edge strip exposes the peek for each collapsible column',
     /\[data-col2="hidden"\] > \.inbox-peek-edge-col2\{\s*display:block/.test(desktop)
     && /\[data-col4="hidden"\] > \.inbox-peek-edge-col4\{\s*display:block/.test(desktop));
+
+  const stacked = blockBodies(html, STACK_MEDIA).join('\n');
+  ok('below 901px the tracks become rows the rail cannot squeeze',
+    /\.inbox-two-col\.inbox-shell-cols\{[^}]*grid-template-rows:auto minmax\(0,1fr\) minmax\(0,1fr\)/.test(stacked)
+    && /\.inbox-two-col\.inbox-shell-cols\.show-thread\{grid-template-rows:minmax\(0,1fr\)\}/.test(stacked));
+  const phone = blockBodies(html, PHONE_MEDIA).join('\n');
+  ok('on a phone the closed thread leaves the flow, so the list keeps the shell',
+    /\.inbox-shell-cols:not\(\.show-thread\)\{grid-template-rows:auto minmax\(0,1fr\)\}/.test(phone)
+    && /\.inbox-shell-cols:not\(\.show-thread\) #conv-detail\{display:none\}/.test(phone));
 
   section(`3. Rendered markup — ${client}`);
   ok('shell carries the container id and an initial state for every column',

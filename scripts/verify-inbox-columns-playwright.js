@@ -216,6 +216,30 @@ function startFixtureServer(html) {
       });
       return;
     }
+    if (pathname === '/staff/inbox/views') {
+      json({
+        success: true,
+        groups: [{ id: 'inbox', label: 'INBOX' }],
+        views: [{ id: 'all', label: 'All', group: 'inbox', count: 2 }],
+      });
+      return;
+    }
+    if (pathname === '/staff/inbox/list') {
+      json({
+        success: true,
+        rows: [
+          Object.assign({}, conversationRow(CONV_ID, 'Hernan Diaz', '+346****1222', 'Is a bed free from Friday?'), {
+            display_name: 'Hernan Diaz',
+            last_activity: '2026-08-13T06:00:00.000Z',
+          }),
+          Object.assign({}, conversationRow(CONV_ID_2, 'Marta Silva', '+346****3444', 'Can I add a board rental?'), {
+            display_name: 'Marta Silva',
+            last_activity: '2026-08-13T05:55:00.000Z',
+          }),
+        ],
+      });
+      return;
+    }
     if (pathname === '/staff/conversations') {
       json({
         success: true,
@@ -273,8 +297,10 @@ const MEASURE = () => {
     const cs = window.getComputedStyle(node);
     return {
       width: Math.round(r.width * 100) / 100,
+      height: Math.round(r.height * 100) / 100,
       left: Math.round(r.left * 100) / 100,
       right: Math.round(r.right * 100) / 100,
+      top: Math.round(r.top * 100) / 100,
       visible: cs.display !== 'none' && cs.visibility !== 'hidden'
         && parseFloat(cs.opacity) > 0.01 && r.width > 0,
       position: cs.position,
@@ -292,6 +318,8 @@ const MEASURE = () => {
       }
       : null,
     shellWidth: shellRect ? Math.round(shellRect.width * 100) / 100 : null,
+    shellHeight: shellRect ? Math.round(shellRect.height * 100) / 100 : null,
+    threadHost: rect('#conv-detail'),
     template: shell ? window.getComputedStyle(shell).gridTemplateColumns : null,
     col1: rect('#inbox-col1'),
     col2: rect('#inbox-card'),
@@ -309,8 +337,12 @@ async function openInbox(page, base) {
   });
   await page.goto(`${base}/staff/ui`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#inbox-shell', { state: 'attached', timeout: 15000 });
-  await page.waitForSelector('.tab-btn[data-tab="conversations"]', { timeout: 15000 });
-  await page.click('.tab-btn[data-tab="conversations"]');
+  /* On a phone the tab buttons live behind the nav menu, so drive the tab, not the chrome. */
+  await page.waitForSelector('.tab-btn[data-tab="conversations"]', { state: 'attached', timeout: 15000 });
+  await page.evaluate(() => {
+    const btn = document.querySelector('.tab-btn[data-tab="conversations"]');
+    if (btn) btn.click();
+  });
   await page.waitForSelector('#tab-conversations.active', { timeout: 15000 });
   await page.waitForSelector('#inbox-shell', { timeout: 15000 });
   await page.waitForSelector(`#conv-list .conv-card[data-id="${CONV_ID}"]`, { state: 'attached', timeout: 15000 });
@@ -570,13 +602,62 @@ async function main() {
     ok('the persisted key carries the viewport bucket',
       storedKeys.some((key) => /:lg$/.test(key)), storedKeys.join(', '));
 
+    section('8. Phone width keeps the master/detail stack');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(SETTLE_MS);
+    await openInbox(page, base);
+    const phoneThread = await page.evaluate(MEASURE);
+    measurements['390:thread'] = phoneThread;
+    ok('the thread takes the whole phone width', near(phoneThread.col3.width, phoneThread.shellWidth, 2),
+      JSON.stringify({ col3: phoneThread.col3.width, shell: phoneThread.shellWidth }));
+    ok('the thread takes the whole phone height',
+      near(phoneThread.threadHost.height, phoneThread.shellHeight, 2),
+      JSON.stringify({ host: phoneThread.threadHost.height, shell: phoneThread.shellHeight }));
+    ok('the rail and the list are out of the way while a thread is open',
+      (!phoneThread.col1 || !phoneThread.col1.visible) && (!phoneThread.col2 || !phoneThread.col2.visible),
+      JSON.stringify({ col1: phoneThread.col1, col2: phoneThread.col2 }));
+    await page.click('#inbox-mobile-back');
+    await page.waitForTimeout(SETTLE_MS);
+    const phoneList = await page.evaluate(MEASURE);
+    measurements['390:list'] = phoneList;
+    ok('back puts the rail and the list back, both full width',
+      near(phoneList.col1.width, phoneList.shellWidth, 2) && near(phoneList.col2.width, phoneList.shellWidth, 2),
+      JSON.stringify({ col1: phoneList.col1.width, col2: phoneList.col2.width, shell: phoneList.shellWidth }));
+    ok('the rail sits above the list rather than beside it',
+      phoneList.col2.left === phoneList.col1.left, JSON.stringify({ col1: phoneList.col1.left, col2: phoneList.col2.left }));
+    ok('back takes the closed thread out of the flow', !phoneList.threadHost.visible,
+      JSON.stringify(phoneList.threadHost));
+    ok('the list keeps every row of height the rail does not need',
+      near(phoneList.col2.height, phoneList.shellHeight - phoneList.col1.height, 2),
+      JSON.stringify({
+        list: phoneList.col2.height, rail: phoneList.col1.height, shell: phoneList.shellHeight,
+      }));
+    await page.screenshot({ path: path.join(OUT_DIR, 'phone-390-list.png') });
+
+    await page.setViewportSize({ width: 800, height: 844 });
+    await page.waitForTimeout(SETTLE_MS);
+    await openInbox(page, base);
+    const tablet = await page.evaluate(MEASURE);
+    measurements['800:stack'] = tablet;
+    ok('800px stacks rail, list and thread in one column',
+      tablet.col1.left === tablet.col2.left && tablet.col2.left === tablet.threadHost.left
+      && tablet.col1.top < tablet.col2.top && tablet.col2.top < tablet.threadHost.top,
+      JSON.stringify({ rail: tablet.col1.top, list: tablet.col2.top, thread: tablet.threadHost.top }));
+    ok('the list and the thread split the height the rail leaves',
+      near(tablet.col2.height, tablet.threadHost.height, 2)
+      && tablet.col2.height > 200,
+      JSON.stringify({
+        list: tablet.col2.height, thread: tablet.threadHost.height, rail: tablet.col1.height,
+      }));
+    await page.screenshot({ path: path.join(OUT_DIR, 'tablet-800-stack.png') });
+
     fs.writeFileSync(
       path.join(OUT_DIR, 'measurements.json'),
       `${JSON.stringify(measurements, null, 2)}\n`,
       'utf8',
     );
 
-    section('8. Measured widths');
+    section('9. Measured widths');
     Object.keys(measurements).forEach((key) => {
       const m = measurements[key];
       console.log(`  ${key.padEnd(20)} shell ${String(m.shellWidth).padStart(7)}`
