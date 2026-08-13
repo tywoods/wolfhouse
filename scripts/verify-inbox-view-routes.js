@@ -571,6 +571,9 @@ ok('saved-view paths do not collide with the thread composite',
       ok(`${view.id}: list refuses it cleanly`, res.out.statusCode === 409, String(res.out.statusCode));
       ok(`${view.id}: refusal names the view and reason`, body.error === ERROR_VIEW_UNAVAILABLE
         && body.view === view.id && !!body.reason);
+      ok(`${view.id}: refusal says what is missing`, Array.isArray(body.missing_capabilities)
+        && Array.isArray(body.pending_migrations)
+        && body.missing_capabilities.length > 0);
       ok(`${view.id}: refusal is not a 500`, res.out.statusCode !== 500);
       ok(`${view.id}: refusal never reaches Postgres`, deps.calls.withPgClient === 0);
       ok(`${view.id}: refusal returns no rows`, body.rows === undefined);
@@ -782,8 +785,14 @@ ok('saved-view paths do not collide with the thread composite',
       nullDecoded.ok === true && nullDecoded.cursor.last_contact_at === null);
 
     const other = AVAILABLE.find((v) => v.id === 'whatsapp');
-    ok("a cursor from another view is refused, not applied to this view's people",
+    ok("a cursor from another source is refused, not applied to this view's people",
       decodeInboxListCursor(cursor, other).ok === false);
+    // Same source, same tuple shape: only the view id in the payload can tell
+    // these apart, and a position in one population is not a position in another.
+    for (const sibling of AVAILABLE.filter((v) => v.source === view.source && v.id !== view.id)) {
+      ok(`a cursor from all_people is refused by the sibling view ${sibling.id}`,
+        decodeInboxListCursor(cursor, sibling).ok === false);
+    }
     for (const bad of ['', 'not-base64!!', Buffer.from('{}', 'utf8').toString('base64url'),
       Buffer.from(JSON.stringify({ v: 1, view: 'all_people' }), 'utf8').toString('base64url'),
       Buffer.from(JSON.stringify({ v: 99, view: 'all_people', k: {} }), 'utf8').toString('base64url'),
@@ -805,9 +814,13 @@ ok('saved-view paths do not collide with the thread composite',
       && bad.body.error === ERROR_INVALID_CURSOR);
     ok('a malformed cursor never reaches Postgres', bad.deps.calls.withPgClient === 0);
     const crossView = await runList({ view: 'whatsapp', cursor: page1.body.next_cursor }, {}, rows);
-    ok('a cursor from another view is a 400, not the wrong people',
+    ok('a cursor from another source is a 400, not the wrong people',
       crossView.res.out.statusCode === 400 && crossView.body.error === ERROR_INVALID_CURSOR);
-    ok('a cross-view cursor never reaches Postgres', crossView.deps.calls.withPgClient === 0);
+    ok('a cross-source cursor never reaches Postgres', crossView.deps.calls.withPgClient === 0);
+    const sibling = await runList({ view: 'hot_leads', cursor: page1.body.next_cursor }, {}, rows);
+    ok('a cursor from a sibling view of the same source is also a 400',
+      sibling.res.out.statusCode === 400 && sibling.body.error === ERROR_INVALID_CURSOR);
+    ok('a sibling-view cursor never reaches Postgres', sibling.deps.calls.withPgClient === 0);
   }
 
   console.log('\n── audit ──');
