@@ -61,6 +61,24 @@ async function main() {
   const svc=callback.createMicrosoftPhaseBOauthCallbackCompletionService(Object.freeze({repository:repo,completion,env,clock}));
   const result=await svc.accept({state,code:'secret-code'},{clientId:ids.clientId,authSessionId:ids.authSessionId});
   assert.deepStrictEqual(result,{status:'authorization_received'}); assert.deepStrictEqual(order.map(x=>x[0]),['consume','operation']); assert.strictEqual(order[0][1].clientId,ids.clientId); assert.strictEqual(order[0][1].authSessionId,ids.authSessionId); assert.deepStrictEqual(Reflect.ownKeys(order[1][1]),callback.COMPLETION_KEYS); assert.strictEqual(order[1][1].expectedPriorGrantGeneration,'7'); assert(!JSON.stringify(result).includes('secret-code')); await assert.rejects(()=>svc.accept({state,code:'secret-code'},{clientId:ids.clientId,authSessionId:ids.authSessionId})); assert.strictEqual(order.length,2);
+
+  // A consumed no-match is the exact frozen invalid singleton and never reaches completion.
+  const noRowOrder=[]; let noRowConsumes=0, noRowOps=0;
+  const noRowSvc=callback.createMicrosoftPhaseBOauthCallbackCompletionService(Object.freeze({
+    repository:Object.freeze({consume:async()=>{noRowConsumes++; noRowOrder.push('consume'); return null;}}),
+    completion:Object.freeze({completeAuthorization:async()=>{noRowOps++; noRowOrder.push('operation'); return Object.freeze({status:'completed'});}}),
+    env, clock,
+    stageTelemetry:Object.freeze({emit:event=>{noRowOrder.push(event);}}),
+  }));
+  const noRowResult=await noRowSvc.accept({state,code:'no-row-secret-code'},{clientId:ids.clientId,authSessionId:ids.authSessionId});
+  assert.strictEqual(noRowResult,callback.PUBLIC_STATUS_INVALID);
+  assert.deepStrictEqual(noRowResult,{status:'invalid_or_expired'}); assert(Object.isFrozen(noRowResult));
+  assert.deepStrictEqual([noRowConsumes,noRowOps],[1,0]);
+  assert.deepStrictEqual(noRowOrder,['phase_b_owner_validated','phase_b_input_validated','phase_b_state_hashed','phase_b_clock_validated','phase_b_consume_started','consume','phase_b_consume_returned','callback_failed']);
+  assert(!JSON.stringify(noRowResult).includes('no-row-secret-code'));
+  let replayError; try { await noRowSvc.accept({state,code:'no-row-secret-code'},{clientId:ids.clientId,authSessionId:ids.authSessionId}); } catch (e) { replayError=e; }
+  assert(replayError); assert(!String(replayError && (replayError.stack || replayError.message || replayError)).includes('no-row-secret-code'));
+  assert.deepStrictEqual([noRowConsumes,noRowOps],[1,0]);
   for (const mutation of [{authorization_intent:'wrong'},{scope_version:'phase_a_v2'},{prior_grant_generation:null}]) { let ops=0; const r=Object.freeze({consume:async()=>({...returnedRow,...mutation})}); const c=Object.freeze({completeAuthorization:async()=>{ops++; return Object.freeze({status:'completed'});}}); const s=callback.createMicrosoftPhaseBOauthCallbackCompletionService(Object.freeze({repository:r,completion:c,env,clock})); await assert.rejects(()=>s.accept({state,code:'secret-code'},{clientId:ids.clientId,authSessionId:ids.authSessionId})); assert.strictEqual(ops,0); }
   let disabledConsumes=0, disabledOps=0; const disabled=callback.createMicrosoftPhaseBOauthCallbackCompletionService(Object.freeze({repository:Object.freeze({consume:async()=>{disabledConsumes++;}}),completion:Object.freeze({completeAuthorization:async()=>{disabledOps++;}}),env:Object.freeze({...env,LUNA_EMAIL_OAUTH_PHASE_B_CALLBACK_ENABLED:'false'}),clock})); assert.deepStrictEqual(await disabled.accept({state,code:'secret-code'},{clientId:ids.clientId,authSessionId:ids.authSessionId}),{status:'authorization_unavailable'}); assert.deepStrictEqual([disabledConsumes,disabledOps],[0,0]);
 
