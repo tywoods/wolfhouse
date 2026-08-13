@@ -18524,9 +18524,9 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .conv-card:hover .conv-card-delete{display:flex}
 .conv-card-delete:hover{background:#EFD9D0;color:#9C5742}
 .thread-section-toolbar{display:none}
-.conv-card-name{font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:3px}
-.conv-card-phone{font-size:11.5px;color:var(--text-2);margin-bottom:6px}
-.conv-card-contact{font-size:11.5px;color:var(--text-2);margin-bottom:4px}
+.conv-card-name{font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.conv-card-phone{font-size:11.5px;color:var(--text-2);margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.conv-card-contact{font-size:11.5px;color:var(--text-2);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .conv-card-subject{font-size:11.5px;font-weight:600;color:var(--text);margin-bottom:4px;line-height:1.35}
 .conv-card-preview{display:none!important}
 .conv-card-time{font-size:10.5px;color:var(--text-3);margin:0}
@@ -18534,9 +18534,9 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .conv-card-header-row .conv-card-name{margin-bottom:0;flex:1;min-width:0}
 .conv-card-meta-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px}
 .conv-card-pebbles{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-wrap:wrap;margin-left:auto}
-.inbox-channel-badge{display:inline-flex;align-items:center;font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;padding:2px 7px;border-radius:var(--radius-pill);flex-shrink:0;line-height:1.3}
-.inbox-channel-badge-email{background:#e8eef6;color:#3d5a80;border:1px solid #c5d4e8}
-.inbox-channel-badge-whatsapp{background:#e6f4ea;color:#1e6b3a;border:1px solid #b7dfc4}
+.inbox-channel-badge{display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;padding:0;border-radius:var(--radius-pill);flex-shrink:0;line-height:1;width:18px;height:18px;background:transparent;border:0;color:var(--text-3)}
+.inbox-channel-badge-email,.inbox-channel-badge-whatsapp{background:transparent;color:var(--text-3);border:0}
+.inbox-channel-badge-icon svg{width:16px;height:16px;display:block}
 .conv-card-demo-preview{opacity:.98}
 .conv-card-demo-preview::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,#c5d4e8,#b7dfc4);opacity:.85}
 .inbox-preview-banner{margin:0 12px 8px;padding:10px 12px;border:1px dashed var(--border);border-radius:var(--radius-md);background:var(--surface-soft);flex-shrink:0}
@@ -18581,7 +18581,8 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 /* .visible no longer toggles display — kept for JS compat, no visual effect */
 .detail-header{display:flex;align-items:center;gap:10px;margin:0 0 10px;padding:14px 16px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);flex-shrink:0;flex-wrap:wrap}
 .detail-header-main{flex:1;min-width:0;overflow:hidden}
-.detail-header-right{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto}
+.detail-header-right{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-shrink:0;margin-left:auto}
+.detail-header-right .inbox-chat-chrome-slot{justify-content:flex-end;min-height:0}
 .detail-header-main .detail-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .detail-header-main .detail-meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .detail-header-switches{display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
@@ -22824,8 +22825,12 @@ function mergeSurfInboxConversations(liveRows, profile){
 
 function inboxChannelBadgeHtml(channel){
   var ch = channel === 'email' ? 'email' : 'whatsapp';
-  return '<span class="inbox-channel-badge inbox-channel-badge-' + ch + '">' +
-    escHtml(portalT('inbox.badge.' + ch)) + '</span>';
+  var label = portalT('inbox.badge.' + ch);
+  var icon = (typeof inboxShellChannelIconSvg === 'function')
+    ? inboxShellChannelIconSvg(ch)
+    : '';
+  return '<span class="inbox-channel-badge inbox-channel-badge-' + ch + ' inbox-channel-badge-icon" title="' +
+    escHtml(label) + '" aria-label="' + escHtml(label) + '">' + icon + '</span>';
 }
 
 function updateInboxPreviewBanner(convs){

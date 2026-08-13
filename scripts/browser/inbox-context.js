@@ -98,6 +98,8 @@ var INBOX_CONTEXT_CSS = [
   'color:var(--primary);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;',
   'text-underline-offset:2px;white-space:nowrap}',
   '.inbox-customer-card .customers-profile-fields{display:flex;flex-direction:column;gap:8px}',
+  '.inbox-customer-card .customers-profile-field-value,.inbox-guest-inline-display{min-width:0;overflow-wrap:anywhere;word-break:break-word}',
+  '.inbox-customer-card .inbox-client-info-name,.inbox-customer-card .customers-profile-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}',
   '.inbox-customer-card .customers-profile-field{display:grid;grid-template-columns:7.6em minmax(0,1fr);gap:6px 14px;align-items:start}',
   '.inbox-customer-card:not(.is-full) .inbox-guest-inline:has(.inbox-guest-inline-edit:not([hidden])){',
   'grid-template-columns:max-content minmax(0,1fr)}',

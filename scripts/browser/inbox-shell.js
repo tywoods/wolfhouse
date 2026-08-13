@@ -280,7 +280,7 @@ function inboxShellCssText(){
     '.inbox-shell-channel-defaults.is-busy .channelModeBtn{opacity:.7;cursor:not-allowed}',
     '.inbox-toolbar-channels{align-items:center}',
     '.inbox-toolbar-channels .inbox-refresh-btn{margin-left:0;margin-top:0}',
-    '.inbox-chat-chrome-slot{justify-content:flex-start}',
+    '.inbox-chat-chrome-slot{justify-content:flex-end}',
     '.inbox-shell-channel{display:inline-flex;align-items:center;gap:6px;height:32px;box-sizing:border-box;',
     'padding:0 10px 0 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);',
     'cursor:pointer;max-width:100%;position:relative}',

@@ -346,7 +346,17 @@ function inboxChatShowGuest(){
 }
 
 function inboxPaintChatChromeSlot(conv, lunaGuestPaused){
+  var right = typeof document !== 'undefined' ? document.querySelector('#conv-detail .detail-header-right') : null;
   var slot = typeof el === 'function' ? el('inbox-chat-chrome-slot') : (typeof document !== 'undefined' ? document.getElementById('inbox-chat-chrome-slot') : null);
+  if (right) {
+    if (!slot || !right.contains(slot)) {
+      if (slot && slot.parentNode) slot.parentNode.removeChild(slot);
+      slot = document.createElement('div');
+      slot.id = 'inbox-chat-chrome-slot';
+      slot.className = 'inbox-chat-chrome-slot';
+      right.appendChild(slot);
+    }
+  }
   if (!slot) return;
   slot.innerHTML = detailHeaderSwitchesHtml(conv, lunaGuestPaused);
 }
