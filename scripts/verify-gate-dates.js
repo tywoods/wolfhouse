@@ -229,7 +229,6 @@ const UNPROVEN_THROUGH = [
   ['verify-sunset-booking-activity-model.js', '2026-07-22', 'radiogroup role'],
   ['verify-sunset-booking-consent.js', '2026-08-02', 'literal true accepted at boundary'],
   ['verify-sunset-booking-create-draft-defaults.js', '2026-08-01', 'warm selects clicked course'],
-  ['verify-sunset-booking-create-when-sessions.js', '2026-07-31', 'TypeError: document.querySelectorAll is not a function'],
   ['verify-sunset-booking-stepper-playwright.js', '2026-08-20', 'Playwright browser not available'],
   ['verify-sunset-bot-write-endpoints.js', '2026-08-01', 'write handlers never read client_slug/client from body'],
   ['verify-sunset-canonical-offering-pipeline.js', '2026-07-20', 'Luna weekend quote succeeds'],
