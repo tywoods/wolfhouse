@@ -1,6 +1,12 @@
 ---
 name: "non-forgeable-authorization-gate"
 description: "Gating a privileged CLI/script action (e.g. deploy, close, ship) so callers cannot bypass the boundary."
+version: 1
+author: "captain"
+license: "MIT"
+metadata:
+  repo: "github.com/tywoods/wolfhouse"
+  tags: ["security", "authorization", "cli", "review"]
 ---
 
 ## When to use
@@ -73,10 +79,25 @@ same rule above, just wearing a different disguise:
    so a worker set it to their own login; their own creds resolved to it; match.
    This proves "you are who you say you are," not "you are the Captain."
 
-**What finally held:** the expected principal became a **committed constant** in
-the repo — `const CAPTAIN_GH_LOGIN = 'tywoods'` — never read from env, and the
-guard compares the platform-reported actor (`gh api user`) to that literal. A
-worker cannot change the constant without a PR through the very gate it protects.
+**What finally held (with a stated prerequisite):** the expected principal became
+a **committed constant** in the repo — `const CAPTAIN_GH_LOGIN = 'tywoods'` —
+never read from env, and the guard compares the platform-reported actor
+(`gh api user` / REST `GET /user`) to that literal.
+
+**The committed literal is only a boundary if the code path is integrity-
+protected.** "A worker can't change the constant without a PR through the gate"
+is FALSE on its own: if the worker can merge to the branch the gate runs from
+(no branch protection, no CODEOWNERS on this file, or they hold a merge/deploy
+credential), they can just edit the literal. So the constant is a
+**defense-in-depth policy check** layered on top of two real controls that must
+exist independently:
+1. **Code integrity** — the file defining `CAPTAIN_GH_LOGIN` (and the gate) is
+   protected: branch protection + required review/CODEOWNERS, so a worker cannot
+   land a change to it unilaterally.
+2. **Runtime integrity** — the code the gate actually executes at ship time is
+   the reviewed, protected version (not a worker-supplied local copy).
+Without both, the literal is advisory, not enforcing. State which of these hold
+in your environment; don't assume them.
 
 **Trap caught mid-fix:** a first cut allowed `FLEET_CAPTAIN_GH_LOGIN` to override
 the constant "only in tests" via `FLEET_TEST=1`. But `FLEET_TEST` is *also*
@@ -84,9 +105,20 @@ caller-settable — the same bypass in disguise. The test seam must not be a
 production-readable env override; drive tests through the mockable identity
 call (mock `gh`) instead, so no env var can lower the bar in production.
 
-**Boundary verified, not assumed:** confirmed the Captain host authenticates as
-`tywoods` and the threat principals (worker containers `hermes-deckhand`,
-`hermes-seadog`) have no `gh` at all — they cannot authenticate as anyone. State
-the residual scope honestly: this defends against workers with their own creds,
-not against someone already holding the Captain's token (who could push to
-master directly anyway).
+**Verify the actual credential identities — don't hardcode an assumption about
+them.** The gate's strength depends entirely on *who the threat principals can
+authenticate as*, which is environment-specific and changes over time. In this
+repo it did change: an early note claimed the worker containers had no `gh` and
+"could not authenticate as anyone," but the workers carry their own
+`GITHUB_TOKEN` and the CLI was later made `gh`-free precisely so they could reach
+GitHub. So before relying on the gate, **check the live facts**:
+- What login does the Captain runtime authenticate as? (`gh api user` / `GET /user`)
+- What login does each *threat* principal authenticate as with the creds it
+  actually holds? If any worker can authenticate as the Captain login, the gate
+  is void — fix the credentials, not the check.
+
+**Residual scope (state it honestly):** an identity gate defends against callers
+who authenticate as *their own* principal. It does NOT defend against a caller
+who already holds the Captain principal's credential — and, per the code-
+integrity note above, it only enforces at all when the gate's own code is
+protected from unilateral change.
