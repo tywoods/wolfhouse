@@ -43,6 +43,9 @@
  * added later is still checked. Unused entries fail, so the list cannot outlive the
  * exception it excuses.
  *
+ * To re-run that proof for one gate — say, to promote it out of the unproven list — run it
+ * under a Date shim pinned 31 days past its newest date and see whether it still passes.
+ *
  * Offline: no database, no network, no test framework. Reads files only.
  *
  * Run:
