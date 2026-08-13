@@ -30,16 +30,17 @@ const row=()=>({clientId:U,locationId:U,eventId:U,endpointId:V,provider:'microso
  });}
  const op=make();assert.deepEqual(Reflect.ownKeys(op),['getCurrentMessageContent']);assert.deepEqual(await op.getCurrentMessageContent(input()),{latest_text:'Now'});assert.equal(builderCalls,1);assert.equal(grants,1);assert.equal(network,1);
  // Every bound dimension fails before grant/network (malformed endpoint included).
- const mutations=[['clientId',V],['locationId',V],['eventId',V],['endpointId','bad'],['provider','google'],['providerMailboxId',V],['providerMessageId','other']];
+ const mutations=[['clientId',V],['locationId',V],['eventId',V],['endpointId','bad'],['provider','google'],['providerMailboxId','bad'],['providerMessageId','bad\nmessage']];
  for(const [key,value] of mutations){const before=[grants,network];const x=row();x[key]=value;const bad=make(x);await assert.rejects(()=>bad.getCurrentMessageContent(input()));assert.deepEqual([grants,network],before,key);}
- // Resolver output attacks and lookalikes never reach custody/network.
- for(const value of [Object.freeze(row()),Object.assign(row(),{eventId:V}),Object.defineProperty(row(),'eventId',{get(){return U;}}),Object.assign(row(),{[Symbol('x')]:1}),new Proxy(row(),{})]){const before=[grants,network];await assert.rejects(()=>make(value).getCurrentMessageContent(input()));assert.deepEqual([grants,network],before);}
+ // Forged lookalikes and malformed issuance never reach custody/network; mutable source is safely snapshotted.
+ {const before=[grants,network],forged=authority.createAuthorityBoundCurrentMessageContentOperation({buildAuthorityResolver:()=>async()=>Object.freeze(row()),grantSession:{runWithAccessTokenOnce(){grants++;}},transport:{fetchMessageContent(){network++;}}});await assert.rejects(()=>forged.getCurrentMessageContent(input()));assert.deepEqual([grants,network],before);}
+ for(const value of [Object.assign(row(),{eventId:V}),Object.defineProperty(row(),'eventId',{get(){return U;}}),Object.assign(row(),{[Symbol('x')]:1}),new Proxy(row(),{})]){const before=[grants,network];await assert.rejects(()=>make(value).getCurrentMessageContent(input()));assert.deepEqual([grants,network],before);}
  // Issuance rejects proxies before any trap, including changing-read races.
- let traps=0;const hostile=new Proxy(row(),{get(){traps++;return traps%2?U:V;},ownKeys(){traps++;throw Error('trap');}});assert.throws(()=>make(hostile));assert.equal(traps,0);
+ let traps=0;const hostile=new Proxy(row(),{get(){traps++;return traps%2?U:V;},ownKeys(){traps++;throw Error('trap');}});await assert.rejects(()=>make(hostile).getCurrentMessageContent(input()));assert.equal(traps,0);
  // Exotic/accessor/symbol dependency bags and async/thenable builders are rejected synchronously.
  const good={buildAuthorityResolver:issue=>async()=>issue(row()),grantSession:{runWithAccessTokenOnce(){}},transport:{fetchMessageContent(){}}};
  for(const deps of [new Proxy(good,{}),Object.assign({},good,{[Symbol('x')]:1}),Object.defineProperty({...good},'transport',{get(){return good.transport;}}),{...good,buildAuthorityResolver:()=>Promise.resolve(()=>{})},{...good,buildAuthorityResolver:()=>({then(){}})}])assert.throws(()=>authority.createAuthorityBoundCurrentMessageContentOperation(deps));
  // Pinned security intrinsics survive post-import monkeypatches.
- const old={WeakSet:global.WeakSet,Object:global.Object,Reflect:global.Reflect};try{global.WeakSet=function(){throw Error('patched');};global.Object={};global.Reflect={};const pinned=make();assert.deepEqual(await pinned.getCurrentMessageContent(input()),{latest_text:'Now'});}finally{Object.assign(global,old);}
+ const old={WeakSet:global.WeakSet,Object:global.Object,Reflect:global.Reflect};let pinned;try{global.WeakSet=function(){throw Error('patched');};global.Object={};global.Reflect={};pinned=make();}finally{old.Object.assign(global,old);}assert.deepEqual(await pinned.getCurrentMessageContent(input()),{latest_text:'Now'});
  assert.equal(authority.EMAIL_AUTHORITY_BOUND_CURRENT_MESSAGE_CONTENT_RUNTIME_WIRED,false);assert.ok(DEADLINE_MS>0);console.log('verify:email-authoritative-message-content ok');
 })().catch(e=>{console.error(e);process.exitCode=1;});
