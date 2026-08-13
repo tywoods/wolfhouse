@@ -28,25 +28,41 @@ function check(id, desc, ok, detail) {
   }
 }
 
+console.log('\nverify-staff-bot-guest-automation-gate.js  (Phase 9.6)\n');
+
+/**
+ * Source window for one top-level declaration, ending at the next one.
+ *
+ * The end used to be a named neighbour — handleBotPauseStateGet — which #509 extracted into
+ * lib/staff-bot-pause-state-handler.js. That collapsed every window to '', so the ten
+ * "handler must NOT do X" assertions below went on passing against an empty string. A
+ * structural end survives a neighbour moving out; a missing start anchor is reported, never
+ * swallowed into an empty window.
+ */
+const NEXT_TOP_LEVEL = /\n(?:async function|function|const|let|var|class)\s/g;
+
+function topLevelBlock(anchor, label) {
+  const start = API_SRC.indexOf(anchor);
+  if (start === -1) {
+    check(label, `anchor still resolves in staff-query-api.js: ${anchor}`, false);
+    return '';
+  }
+  NEXT_TOP_LEVEL.lastIndex = start + 1;
+  const next = NEXT_TOP_LEVEL.exec(API_SRC);
+  return API_SRC.slice(start, next ? next.index : API_SRC.length);
+}
+
 const routeIdx = API_SRC.indexOf("'/staff/bot/check-guest-automation-gate'");
 const routeBlock = routeIdx > -1 ? API_SRC.slice(routeIdx, routeIdx + 600) : '';
 
-const helperStart = API_SRC.indexOf('async function checkGuestAutomationPauseState(');
-const helperEnd = API_SRC.indexOf('function buildGuestAutomationGateResponse(', helperStart + 100);
-const helperText = helperStart > -1 && helperEnd > -1 ? API_SRC.slice(helperStart, helperEnd) : '';
-
-const buildStart = API_SRC.indexOf('function buildGuestAutomationGateResponse(');
-const handlerStart = API_SRC.indexOf('async function handleBotCheckGuestAutomationGate(', buildStart + 100);
-const handlerEnd = API_SRC.indexOf('async function handleBotPauseStateGet(', handlerStart + 100);
-const buildText = buildStart > -1 && handlerEnd > -1 ? API_SRC.slice(buildStart, handlerEnd) : '';
-const handlerText = handlerStart > -1 && handlerEnd > -1 ? API_SRC.slice(handlerStart, handlerEnd) : '';
+const helperText = topLevelBlock('async function checkGuestAutomationPauseState(', 'slice:helper');
+const buildText = topLevelBlock('function buildGuestAutomationGateResponse(', 'slice:build');
+const handlerText = topLevelBlock('async function handleBotCheckGuestAutomationGate(', 'slice:handler');
 const gateText = buildText + handlerText;
 
 const handlerStrip = (helperText + gateText)
   .replace(/\/\/[^\n]*/g, '')
   .replace(/\/\*[\s\S]*?\*\//g, '');
-
-console.log('\nverify-staff-bot-guest-automation-gate.js  (Phase 9.6)\n');
 
 console.log('A. Route');
 check('A1', "POST route '/staff/bot/check-guest-automation-gate' registered", routeIdx > -1);
@@ -54,7 +70,7 @@ check('A2', 'route dispatches handleBotCheckGuestAutomationGate', routeBlock.inc
 check('A3', 'route requires POST', routeBlock.includes("method !== 'POST'"));
 
 console.log('\nB. Helper + source of truth');
-check('B1', 'checkGuestAutomationPauseState helper present', helperStart > -1);
+check('B1', 'checkGuestAutomationPauseState helper present', helperText.length > 0);
 check('B2', 'helper uses getPauseState', helperText.includes('getPauseState'));
 check('B3', 'helper returns bot_paused and live_send_blocked', /bot_paused:\s*true/.test(helperText) && /live_send_blocked:\s*true/.test(helperText));
 check('B4', 'helper returns default_active when not paused', helperText.includes("'default_active'"));
@@ -92,14 +108,8 @@ check('F7', 'no n8n activation', !/activate.*n8n|n8n.*activ/i.test(handlerStrip)
 
 console.log('\nG. Inbox UI (gate handler unchanged — buttons allowed Phase 9.5b)');
 
-const gateHandlerStart = API_SRC.indexOf('async function handleBotCheckGuestAutomationGate(');
-const gateHandlerEnd = API_SRC.indexOf('async function handleBotPauseStateGet(', gateHandlerStart + 100);
-const gateHandlerText = gateHandlerStart > -1 && gateHandlerEnd > -1
-  ? API_SRC.slice(gateHandlerStart, gateHandlerEnd)
-  : '';
-
-check('G1', 'gate handler has no Pause Luna button text', !/Pause Luna/.test(gateHandlerText));
-check('G2', 'gate handler has no Resume Luna button text', !/Resume Luna/.test(gateHandlerText));
+check('G1', 'gate handler has no Pause Luna button text', !/Pause Luna/.test(handlerText));
+check('G2', 'gate handler has no Resume Luna button text', !/Resume Luna/.test(handlerText));
 
 console.log('\nH. package.json + syntax');
 check('H1', 'verify:staff-bot-guest-automation-gate script present',
