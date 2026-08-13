@@ -80,14 +80,18 @@ function normalizeLunaPrivateLessonBookingPayload(body) {
   if (!enabled) {
     return { ok: false, error: 'private_lesson.enabled must be true' };
   }
-  const sessionCountRaw = pl.session_count != null ? pl.session_count : pl.quantity;
-  const quantity = parseInt(String(sessionCountRaw == null ? 1 : sessionCountRaw), 10);
   const surfer_count = parseInt(String(pl.surfer_count == null ? 1 : pl.surfer_count), 10);
   const sessions = Array.isArray(pl.sessions) ? pl.sessions.map((s) => ({
     date: s && s.date,
     start: s && s.start,
     end: s && s.end,
   })) : [];
+  // An omitted count is not a disagreement: infer it from the sessions Luna supplied.
+  // A declared count that disagrees with them stays a rejection, owned by the validator.
+  const sessionCountRaw = pl.session_count != null ? pl.session_count : pl.quantity;
+  const quantity = sessionCountRaw != null
+    ? parseInt(String(sessionCountRaw), 10)
+    : (sessions.length || 1);
   const normalized = {
     guest_name: b.guest_name,
     guest_phone: b.guest_phone,
