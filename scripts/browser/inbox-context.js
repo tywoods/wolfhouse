@@ -125,8 +125,7 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-guest-booking-row:hover{background:var(--surface-soft)}',
   '.inbox-guest-notes{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;align-items:start}',
   '.inbox-guest-notes-title{display:inline;width:auto;text-align:left;border:none;background:none;',
-  'padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline;',
-  'text-underline-offset:2px}',
+  'padding:0;margin:0;cursor:pointer;text-decoration:none}',
   '.inbox-guest-notes-display{min-width:0}',
   '.inbox-guest-notes-display.is-empty{color:var(--text-3)}',
   '.inbox-guest-notes-edit{grid-column:2;display:flex;flex-direction:row;align-items:center;gap:8px;min-width:0}',
@@ -134,6 +133,17 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-guest-notes-edit textarea{flex:1 1 auto;min-width:0;min-height:40px;height:44px;box-sizing:border-box;',
   'font:inherit;padding:8px 10px;border:1px solid var(--border);border-radius:8px;resize:vertical}',
   '.inbox-guest-notes-save{flex:0 0 auto;padding:9px 16px;font-size:12px;font-weight:600}',
+  '.inbox-guest-tags-title{display:block;width:auto;text-align:left;border:none;background:none;',
+  'padding:0;margin:0 0 6px;cursor:pointer;text-decoration:none}',
+  '.inbox-guest-tags-edit{display:flex;flex-direction:column;gap:10px}',
+  '.inbox-guest-tags-edit[hidden]{display:none!important}',
+  '.inbox-guest-tags-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}',
+  '.inbox-guest-tags-toggle{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;',
+  'border:1px solid var(--border);border-radius:999px;font-size:12px;cursor:pointer;background:var(--surface);position:relative}',
+  '.inbox-guest-tags-toggle input{position:absolute;opacity:0;width:1px;height:1px}',
+  '.inbox-guest-tags-toggle.is-on{border-color:var(--primary);background:var(--surface-soft)}',
+  '.inbox-guest-tags-toggle.is-auto{cursor:default;opacity:.75}',
+  '.inbox-guest-tags-save{align-self:flex-start;padding:9px 16px;font-size:12px;font-weight:600}',
 ].join('');
 
 var inboxContextLastComposite = null;
@@ -983,6 +993,87 @@ function inboxCustomerGuestBookingsHtml(data) {
   return html;
 }
 
+var INBOX_GUEST_CRM_TAG_KEYS = ['lead', 'warm_lead', 'hot_lead', 'repeat_guest', 'vip', 'local', 'surf_school', 'accommodation', 'do_not_contact', 'newsletter_ok'];
+var INBOX_GUEST_AUTO_TAG_KEYS = ['hot_lead', 'warm_lead', 'rental', 'surf_school', 'needs_attention'];
+
+function inboxGuestCrmTagKeys() {
+  if (typeof CUSTOMER_CRM_TAG_KEYS !== 'undefined' && CUSTOMER_CRM_TAG_KEYS && CUSTOMER_CRM_TAG_KEYS.length) {
+    return CUSTOMER_CRM_TAG_KEYS;
+  }
+  return INBOX_GUEST_CRM_TAG_KEYS;
+}
+
+function inboxGuestAutoTagKeys() {
+  if (typeof CUSTOMER_AUTO_TAG_KEYS !== 'undefined' && CUSTOMER_AUTO_TAG_KEYS && CUSTOMER_AUTO_TAG_KEYS.length) {
+    return CUSTOMER_AUTO_TAG_KEYS;
+  }
+  return INBOX_GUEST_AUTO_TAG_KEYS;
+}
+
+function inboxGuestTagIsAuto(key, identity) {
+  if (typeof customerTagIsAuto === 'function') return customerTagIsAuto(key, identity);
+  var auto = (identity && identity.auto_tags) || {};
+  return !!auto[key];
+}
+
+function inboxGuestTagChip(key, identity) {
+  if (typeof customerTagChipHtml === 'function') {
+    return customerTagChipHtml(key, { auto: inboxGuestTagIsAuto(key, identity), compact: true });
+  }
+  return '<span class="customers-badge customers-badge-tag">' + inboxContextEsc(inboxContextTagLabel(key)) + '</span>';
+}
+
+function inboxCustomerGuestTagsHtml(data) {
+  var id = (data && data.identity) || {};
+  var crm = id.crm_tags || {};
+  var display = id.display_tags || [];
+  var keys = inboxGuestCrmTagKeys();
+  var autoKeys = inboxGuestAutoTagKeys();
+  var html = '<div class="customers-section inbox-guest-tags" id="inbox-guest-tags">';
+  html += '<button type="button" class="customers-section-hdr inbox-guest-tags-title" id="inbox-guest-tags-open">';
+  html += inboxContextEsc(inboxContextT('customers.detail.tags', 'Tags'));
+  html += '</button>';
+  html += '<div class="inbox-guest-tags-view" id="inbox-guest-tags-view">';
+  if (display.length) {
+    html += '<div class="customers-tags-chips">';
+    for (var d = 0; d < display.length; d++) html += inboxGuestTagChip(display[d], id);
+    html += '</div>';
+  } else {
+    html += '<div class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noTags', 'No tags')) + '</div>';
+  }
+  html += '</div>';
+  html += '<div class="inbox-guest-tags-edit" id="inbox-guest-tags-edit" hidden>';
+  html += '<div class="inbox-guest-tags-row">';
+  for (var i = 0; i < keys.length; i++) {
+    var key = keys[i];
+    var isAuto = inboxGuestTagIsAuto(key, id);
+    if (isAuto) {
+      html += '<span class="inbox-guest-tags-toggle is-auto is-on" title="' +
+        inboxContextEsc(inboxContextT('customers.tags.autoTitle', 'Set automatically from bookings or services')) + '">' +
+        inboxContextEsc(inboxContextTagLabel(key)) + '</span>';
+      continue;
+    }
+    var on = !!crm[key];
+    html += '<label class="inbox-guest-tags-toggle' + (on ? ' is-on' : '') + '">';
+    html += '<input type="checkbox" data-inbox-guest-tag="' + inboxContextEsc(key) + '"' + (on ? ' checked' : '') + '>';
+    html += inboxContextEsc(inboxContextTagLabel(key));
+    html += '</label>';
+  }
+  for (var a = 0; a < autoKeys.length; a++) {
+    var autoKey = autoKeys[a];
+    if (keys.indexOf(autoKey) >= 0) continue;
+    if (!inboxGuestTagIsAuto(autoKey, id) && display.indexOf(autoKey) < 0) continue;
+    html += '<span class="inbox-guest-tags-toggle is-auto is-on" title="' +
+      inboxContextEsc(inboxContextT('customers.tags.autoTitle', 'Set automatically from bookings or services')) + '">' +
+      inboxContextEsc(inboxContextTagLabel(autoKey)) + '</span>';
+  }
+  html += '</div>';
+  html += '<button type="button" class="btn btn-primary inbox-guest-tags-save" id="inbox-guest-tags-save">' +
+    inboxContextEsc(inboxContextT('customers.tags.save', 'Save tags')) + '</button>';
+  html += '</div></div>';
+  return html;
+}
+
 function inboxCustomerFullHtml(data, opts) {
   opts = opts || {};
   var id = (data && data.identity) || {};
@@ -1034,9 +1125,7 @@ function inboxCustomerFullHtml(data, opts) {
       ' <span>' + inboxContextEsc(String(count)) + '</span></summary>' + body + '</details>';
   }
 
-  var tagsHtml = inboxClientInfoChipsHtml(data, cacheRow) ||
-    '<div class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noTags', 'No tags')) + '</div>';
-  html += collapse(inboxContextT('customers.detail.tags', 'Tags'), ((id.display_tags || []).length), tagsHtml);
+  html += inboxCustomerGuestTagsHtml(data);
 
   var services = (data && data.service_records) || [];
   var svcBody = '';
@@ -1325,6 +1414,101 @@ function inboxCustomerSaveNotes(notes, root) {
   });
 }
 
+function inboxCustomerWireTags(root) {
+  if (!root || !root.querySelector) return;
+  var open = root.querySelector('#inbox-guest-tags-open');
+  var view = root.querySelector('#inbox-guest-tags-view');
+  var edit = root.querySelector('#inbox-guest-tags-edit');
+  var save = root.querySelector('#inbox-guest-tags-save');
+  if (open && open.dataset.inboxCustomerWired !== '1') {
+    open.dataset.inboxCustomerWired = '1';
+    open.addEventListener('click', function() {
+      if (view) view.hidden = true;
+      if (edit) edit.hidden = false;
+    });
+  }
+  var boxes = root.querySelectorAll('input[data-inbox-guest-tag]');
+  for (var i = 0; i < boxes.length; i++) {
+    if (boxes[i].dataset.inboxCustomerWired === '1') continue;
+    boxes[i].dataset.inboxCustomerWired = '1';
+    boxes[i].addEventListener('change', function(ev) {
+      var label = ev.target && ev.target.closest ? ev.target.closest('.inbox-guest-tags-toggle') : null;
+      if (label) label.classList.toggle('is-on', !!ev.target.checked);
+    });
+  }
+  if (save && save.dataset.inboxCustomerWired !== '1') {
+    save.dataset.inboxCustomerWired = '1';
+    save.addEventListener('click', function() { inboxCustomerSaveTags(root); });
+  }
+}
+
+function inboxCustomerApplySavedTags(root, tags) {
+  var data = inboxContextLastCustomer || {};
+  if (!data.identity) data.identity = {};
+  data.identity.crm_tags = tags || {};
+  if (typeof refreshCustomerDisplayTags === 'function') {
+    refreshCustomerDisplayTags(data.identity);
+  } else {
+    var display = [];
+    var order = inboxGuestCrmTagKeys().concat(inboxGuestAutoTagKeys());
+    var seen = {};
+    for (var i = 0; i < order.length; i++) {
+      var key = order[i];
+      if (seen[key]) continue;
+      seen[key] = true;
+      if (data.identity.crm_tags[key] || (data.identity.auto_tags && data.identity.auto_tags[key])) display.push(key);
+    }
+    data.identity.display_tags = display;
+  }
+  inboxContextLastCustomer = data;
+  var host = root && root.querySelector('#inbox-guest-tags');
+  if (host) {
+    var wrap = document.createElement('div');
+    wrap.innerHTML = inboxCustomerGuestTagsHtml(data);
+    var next = wrap.firstChild;
+    if (next) host.replaceWith(next);
+    inboxCustomerWireTags(root);
+  }
+  var chips = root && root.querySelector('.inbox-client-info-chips');
+  var nextChips = inboxClientInfoChipsHtml(data, inboxClientInfoCacheRow(data.phone));
+  if (chips) {
+    if (nextChips) chips.outerHTML = nextChips;
+    else chips.remove();
+  }
+}
+
+function inboxCustomerSaveTags(root) {
+  var data = inboxContextLastCustomer || {};
+  var phone = data.phone || '';
+  if (!phone) return;
+  var tags = {};
+  var keys = inboxGuestCrmTagKeys();
+  for (var i = 0; i < keys.length; i++) {
+    var box = root && root.querySelector('input[data-inbox-guest-tag="' + keys[i] + '"]');
+    if (box) tags[keys[i]] = !!box.checked;
+    else tags[keys[i]] = !!(data.identity && data.identity.crm_tags && data.identity.crm_tags[keys[i]]);
+  }
+  var saveBtn = root && root.querySelector('#inbox-guest-tags-save');
+  if (saveBtn) saveBtn.disabled = true;
+  var url = '/staff/customers/' + encodeURIComponent(phone) + '/tags?client=' + encodeURIComponent(typeof getClient === 'function' ? getClient() : '');
+  fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tags: tags }),
+  }).then(function(r) {
+    return r.json().then(function(body) { return { ok: r.ok, body: body }; });
+  }).then(function(res) {
+    if (!res.ok || !res.body || res.body.success !== true) {
+      throw new Error((res.body && (res.body.error || res.body.message)) || 'Save failed');
+    }
+    inboxCustomerApplySavedTags(root, res.body.crm_tags || tags);
+  }).catch(function() {
+    /* leave the picker open so staff can retry */
+  }).finally(function() {
+    if (saveBtn) saveBtn.disabled = false;
+  });
+}
+
 function inboxCustomerWireFull(sidebar, data) {
   var edit = sidebar && sidebar.querySelector('#inbox-customer-edit-profile');
   if (edit && edit.dataset.inboxCustomerWired !== '1') {
@@ -1334,6 +1518,7 @@ function inboxCustomerWireFull(sidebar, data) {
     });
   }
   inboxCustomerWireNotes(sidebar);
+  inboxCustomerWireTags(sidebar);
   var save = sidebar && sidebar.querySelector('#inbox-cust-edit-save');
   if (save && save.dataset.inboxCustomerWired !== '1') {
     save.dataset.inboxCustomerWired = '1';
