@@ -128,8 +128,10 @@ ok('views module calls loadConvDetail, does not rewrite it',
   && !/function\s+renderInboxConvCardHtml\s*\(/.test(viewsSrc));
 ok('Luna mode composes ahead of thread while saved views keep their own marker',
   fs.existsSync(LUNA_MODE_MODULE)
-  && injectorSrc.includes("return getInboxLunaModeBrowserSource() + '\\n' + readBrowserModule(THREAD_MODULE)")
-  && injectorSrc.includes('getInboxViewsBrowserSource()'));
+  && injectorSrc.includes('getInboxLunaModeBrowserSource()')
+  && injectorSrc.includes('readBrowserModule(THREAD_MODULE)')
+  && injectorSrc.includes('getInboxViewsBrowserSource()')
+  && injectorSrc.indexOf('getInboxLunaModeBrowserSource()') < injectorSrc.indexOf('readBrowserModule(THREAD_MODULE)'));
 ok('no competing inbox-shell.js column-layout module', !fs.existsSync(LAYOUT_MODULE));
 ok('Customers tab is still in the Conversations toolbar',
   /data-view="customers"/.test(apiSrc)

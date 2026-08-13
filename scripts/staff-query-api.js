@@ -18650,6 +18650,21 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 [data-theme="dark"] .btn-email-save-draft{background:#1e4a68;color:#c8dce8}
 [data-theme="dark"] .btn-email-approve-send{background:var(--primary);color:#f0f4f0}
 [data-theme="dark"] .btn-email-save-draft:disabled,[data-theme="dark"] .btn-email-approve-send:disabled{background:#333333;color:#6e6e6e}
+.inbox-whatsapp-draft{flex-shrink:0;margin-top:12px}
+.inbox-whatsapp-draft[hidden]{display:none!important}
+.inbox-whatsapp-draft-card{border:1px solid #CFDFC3;border-radius:var(--radius-sm);padding:12px 14px;background:#E8F0F5}
+.inbox-whatsapp-draft-label{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.inbox-whatsapp-draft-text{font-size:13px;line-height:1.55;color:var(--text);white-space:pre-wrap}
+.inbox-whatsapp-draft-card textarea{width:100%;min-height:88px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font:inherit;font-size:13px;line-height:1.55;resize:vertical;background:var(--surface);color:var(--text);box-sizing:border-box}
+.btn-whatsapp-draft-edit{background:var(--ocean);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+.btn-whatsapp-draft-edit:hover{background:#7FA3B8}
+.btn-whatsapp-draft-approve{background:var(--primary);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+.btn-whatsapp-draft-approve:hover{background:var(--primary-hover)}
+.btn-whatsapp-draft-edit:disabled,.btn-whatsapp-draft-approve:disabled{background:#C9CFC8;color:#F2F1EC;cursor:default}
+[data-theme="dark"] .inbox-whatsapp-draft-card{background:#1a2836;border-color:#2a3c4a}
+[data-theme="dark"] .btn-whatsapp-draft-edit{background:#1e4a68;color:#c8dce8}
+[data-theme="dark"] .btn-whatsapp-draft-approve{background:var(--primary);color:#f0f4f0}
+[data-theme="dark"] .btn-whatsapp-draft-edit:disabled,[data-theme="dark"] .btn-whatsapp-draft-approve:disabled{background:#333333;color:#6e6e6e}
 .inbox-bottom-debug-panels{display:none!important}
 .copy-confirm{font-size:11px;color:#5C7350;font-weight:700}
 /* ── Shadow-mode workflow checklist (Stage 7.7j) ─────────────────────────── */

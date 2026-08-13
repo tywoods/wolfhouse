@@ -147,7 +147,8 @@ function main() {
   assert('no WhatsApp draft approval write in the control', !/luna_outbound_approvals|078_luna_outbound/.test(modeSrc));
   const injector = read(path.join(ROOT, 'scripts/lib/inbox-browser-source.js'));
   assert('thread inject prepends luna-mode module',
-    /getInboxLunaModeBrowserSource\(\)\s*\+\s*['"]\\n['"]\s*\+\s*readBrowserModule\(THREAD_MODULE\)/.test(injector));
+    /getInboxLunaModeBrowserSource\(\)/.test(injector)
+    && injector.indexOf('getInboxLunaModeBrowserSource()') < injector.indexOf('readBrowserModule(THREAD_MODULE)'));
 
   console.log(`\nverify-inbox-luna-mode-control: ${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);

@@ -28,6 +28,7 @@ const LIST_MODULE = path.join(BROWSER_DIR, 'inbox-list.js');
 const LUNA_MODE_MODULE = path.join(BROWSER_DIR, 'inbox-luna-mode.js');
 const THREAD_MODULE = path.join(BROWSER_DIR, 'inbox-thread.js');
 const VIEWS_MODULE = path.join(BROWSER_DIR, 'inbox-views.js');
+const WHATSAPP_DRAFT_MODULE = path.join(BROWSER_DIR, 'inbox-whatsapp-draft.js');
 
 const INBOX_COLUMNS_INJECT_MARKER = '/* INJECT:inbox-columns */';
 const INBOX_CUSTOMERS_FILTERS_INJECT_MARKER = '/* INJECT:inbox-customers-filters */';
@@ -75,8 +76,12 @@ function getInboxLunaModeBrowserSource() {
   return readBrowserModule(LUNA_MODE_MODULE);
 }
 
+function getInboxWhatsAppDraftBrowserSource() {
+  return readBrowserModule(WHATSAPP_DRAFT_MODULE);
+}
+
 function getInboxThreadBrowserSource() {
-  return getInboxLunaModeBrowserSource() + '\n' + readBrowserModule(THREAD_MODULE);
+  return getInboxLunaModeBrowserSource() + '\n' + getInboxWhatsAppDraftBrowserSource() + '\n' + readBrowserModule(THREAD_MODULE);
 }
 
 function getInboxViewsBrowserSource() {
@@ -115,6 +120,7 @@ module.exports = {
   getInboxLunaModeBrowserSource,
   getInboxThreadBrowserSource,
   getInboxViewsBrowserSource,
+  getInboxWhatsAppDraftBrowserSource,
   injectInboxBrowserModules,
   injectAtMarker,
   readBrowserModule,
@@ -126,6 +132,7 @@ module.exports = {
   LUNA_MODE_MODULE,
   THREAD_MODULE,
   VIEWS_MODULE,
+  WHATSAPP_DRAFT_MODULE,
   INBOX_COLUMNS_INJECT_MARKER,
   INBOX_CUSTOMERS_FILTERS_INJECT_MARKER,
   INBOX_CUSTOMERS_OUTREACH_INJECT_MARKER,
