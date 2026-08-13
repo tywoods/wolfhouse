@@ -1636,6 +1636,11 @@ function loadConvDetail(convId, targetEl){
 
     /* ═══ MIDDLE — conversation card: header (controls) + thread + reply ═══ */
     html += '<div class="detail-main">';
+    html += '<div class="inbox-chat-chrome">';
+    html +=   '<span class="detail-header-pills">' + convHeaderStatusPillsHtml(c, lunaGuestPaused) + '</span>';
+    html +=   detailHeaderSwitchesHtml(c, lunaGuestPaused);
+    html += '</div>';
+    html += '<div class="inbox-chat-body">';
 
     html +=   '<div class="detail-header">';
     html +=     '<div class="detail-header-main">';
@@ -1649,8 +1654,6 @@ function loadConvDetail(convId, targetEl){
     html +=       '</div>';
     html +=     '</div>';
     html +=     '<div class="detail-header-right">';
-    html +=       '<span class="detail-header-pills">' + convHeaderStatusPillsHtml(c, lunaGuestPaused) + '</span>';
-    html +=       detailHeaderSwitchesHtml(c, lunaGuestPaused);
     html +=       '<button type="button" class="sidebar-expand-btn" id="inbox-sidebar-expand" aria-controls="inbox-detail-sidebar" title="' + escHtml(t('inbox.detail.sidebar.show') || portalT('inbox.detail.sidebar.show') || 'Show bookings') + '" aria-label="' + escHtml(t('inbox.detail.sidebar.show') || 'Show bookings') + '">&#8592;</button>';
     html +=     '</div>';
     html +=   '</div>';
@@ -1724,6 +1727,7 @@ function loadConvDetail(convId, targetEl){
     html += '<button type="button" class="pill pill-guest-context-reset" id="btn-guest-context-reset" title="Full wipe for testing: Hermes memory + all message history and logs + cached context. Bookings cancelled.">Full Wipe (testing)</button>';
     html += '</details>';
 
+    html += '</div>'; /* /inbox-chat-body */
     html += '</div>'; /* /detail-main */
 
     /* ═══ RIGHT — context sidebar ═══ */

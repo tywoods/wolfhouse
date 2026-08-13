@@ -334,6 +334,10 @@ ok('wraps wireInboxSidebarToggle rather than rewriting loadConvDetail',
     condensed.includes('id="inbox-customer-card"')
     && condensed.includes('inbox-client-info-name')
     && condensed.includes('Create booking')
+    && condensed.includes('Edit profile')
+    && condensed.includes('customers-profile-fields')
+    && condensed.includes('inbox-customer-stats')
+    && condensed.includes('Linked bookings')
     && !condensed.includes('Open full profile')
     && !condensed.includes('id="inbox-guest-card"'));
   ok('full Guest card is the Customers profile (fields + bookings + tags)',

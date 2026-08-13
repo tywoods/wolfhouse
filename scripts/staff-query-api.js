@@ -21204,6 +21204,9 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div id="inbox-ro-note" class="inbox-ro-note" aria-hidden="true"></div>
       <div id="inbox-state" class="state-msg" style="padding:8px 14px;display:none;flex-shrink:0" data-i18n="inbox.loading">Loading conversations&hellip;</div>
       <div id="inbox-preview-banner" class="inbox-preview-banner" style="display:none" aria-hidden="true"></div>
+      <div class="inbox-conv-search-wrap">
+        <input type="search" id="inbox-conv-search" class="inbox-conv-search" placeholder="Search contacts" autocomplete="off" data-i18n-placeholder="inbox.search.contacts">
+      </div>
       <div class="inbox-left-rows">
         <div id="conv-list" class="conv-list"></div>
       </div>

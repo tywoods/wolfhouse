@@ -93,6 +93,29 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-customer-card .customers-profile-hdr-actions{margin-left:auto;display:flex;flex-wrap:wrap;gap:6px}',
   '.inbox-customer-card .customers-section{margin-top:4px}',
   '.inbox-customer-card .customers-section-hdr{font-size:11px}',
+  '.inbox-customer-head{display:flex;align-items:flex-start;gap:10px;min-width:0}',
+  '.inbox-customer-edit{margin-left:auto;flex:0 0 auto;padding:0;border:none;background:none;',
+  'color:var(--primary);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;',
+  'text-underline-offset:2px;white-space:nowrap}',
+  '.inbox-customer-card .customers-profile-fields{margin-top:2px}',
+  '.inbox-customer-stats{margin-top:8px}',
+  '.inbox-customer-bookings{margin-top:10px;display:flex;flex-direction:column;gap:4px}',
+  '.inbox-customer-booking-link{display:block;width:100%;text-align:left;padding:6px 0;border:none;',
+  'border-top:1px solid var(--border-soft);background:none;color:var(--primary);font-size:12px;',
+  'font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:2px}',
+  '.inbox-customer-booking-link:first-child{border-top:none}',
+  '.inbox-customer-booking-meta{display:block;font-size:11px;font-weight:500;color:var(--text-3);',
+  'text-decoration:none;margin-top:1px}',
+  '.inbox-customer-card > .inbox-guest-actions{margin-top:auto}',
+  '#tab-conversations .inbox-chat-chrome{display:flex;align-items:center;justify-content:flex-end;',
+  'gap:6px;flex:0 0 auto;min-height:32px;padding:0 2px}',
+  '#tab-conversations .inbox-chat-body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;',
+  'overflow:hidden;background:var(--surface);border:1px solid var(--border-soft);',
+  'border-radius:var(--radius);}',
+  '#inbox-shell .inbox-left .inbox-conv-search-wrap{flex:0 0 auto;padding:10px 12px 8px}',
+  '#inbox-shell .inbox-conv-search{width:100%;box-sizing:border-box;height:32px;padding:0 10px;',
+  'border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);',
+  'font-size:13px}',
 ].join('');
 
 var inboxContextLastComposite = null;
@@ -797,15 +820,93 @@ function inboxCustomerMerge(base, extra) {
 
 function inboxCustomerCondensedHtml(data, opts) {
   opts = opts || {};
-  var inner = inboxClientInfoHtml(data, opts);
-  inner = inner.replace(
-    /<button type="button" class="inbox-client-info-open"[\s\S]*?<\/button>/,
-    '<div class="inbox-guest-actions">' +
-      '<button type="button" class="btn inbox-guest-create-booking" id="inbox-create-booking-for-guest">' +
-      inboxContextEsc(inboxContextT('customers.detail.createBooking', 'Create booking')) +
-      '</button></div>'
-  );
-  return '<div class="inbox-customer-card" id="inbox-customer-card">' + inner + '</div>';
+  var id = (data && data.identity) || {};
+  var cacheRow = inboxClientInfoCacheRow(data && data.phone);
+  var name = id.display_name || (cacheRow && cacheRow.display_name) || (data && data.phone) || 'Guest';
+  var phone = (data && data.phone) || '';
+  var email = id.email || (cacheRow && cacheRow.email) || '';
+  var language = id.language || (cacheRow && cacheRow.language) || '';
+  var notes = '';
+  if (data && data.notes) notes = data.notes.internal_staff_notes || data.notes.notes || '';
+  if (!notes && opts.conv && opts.conv.internal_staff_notes) notes = opts.conv.internal_staff_notes;
+  var lastSetup = (data && data.last_setup_summary) || '';
+  var school = '';
+  try {
+    if (typeof isSunsetSurfActive === 'function' && isSunsetSurfActive() && typeof getSunsetLocationLabel === 'function') {
+      school = getSunsetLocationLabel() || '';
+    }
+  } catch (_e) { school = ''; }
+  var contact = [];
+  if (phone) contact.push(phone);
+  if (email) contact.push(email);
+  var html = '<div class="inbox-customer-card" id="inbox-customer-card">';
+  html += '<div class="inbox-customer-head">';
+  html += '<div class="inbox-client-info-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
+  html += '<div class="inbox-client-info-id">';
+  html += '<div class="inbox-client-info-name">' + inboxContextEsc(name) + '</div>';
+  if (contact.length) html += '<div class="inbox-client-info-contact">' + inboxContextEsc(contact.join(' · ')) + '</div>';
+  html += '</div>';
+  html += '<button type="button" class="inbox-customer-edit" id="inbox-customer-edit-profile">' +
+    inboxContextEsc(inboxContextT('customers.editProfile', 'Edit profile')) + '</button>';
+  html += '</div>';
+  html += inboxClientInfoChipsHtml(data, cacheRow);
+  html += '<div class="customers-profile-fields">';
+  html += inboxCustomerField(inboxContextT('customers.detail.phone', 'Phone'), phone || '—', !phone);
+  html += inboxCustomerField(inboxContextT('customers.detail.email', 'Email'), email || '—', !email);
+  if (school) html += inboxCustomerField(inboxContextT('customers.detail.school', 'Active school'), school, false);
+  html += inboxCustomerField(inboxContextT('customers.detail.language', 'Language'), language || '—', !language);
+  html += inboxCustomerField(inboxContextT('customers.detail.lastSetup', 'Last setup'), lastSetup || inboxContextT('customers.detail.noServices', 'No services yet'), !lastSetup);
+  html += inboxCustomerField(inboxContextT('customers.detail.notes', 'Notes for next time'), notes || inboxContextT('customers.detail.noNotes', 'No notes yet'), !notes);
+  html += '</div>';
+  html += '<div class="inbox-client-info-kv inbox-customer-stats">';
+  html += inboxContextKv('Checked in', inboxClientInfoCheckedIn(data, cacheRow));
+  var bookingsN = cacheRow && cacheRow.booking_count != null
+    ? Number(cacheRow.booking_count) || 0
+    : ((data && data.bookings) || []).length;
+  var lessonsN = cacheRow && cacheRow.service_count != null
+    ? Number(cacheRow.service_count) || 0
+    : ((data && data.service_records) || []).length;
+  html += inboxContextKv('Bookings', String(bookingsN));
+  html += inboxContextKv('Lessons', String(lessonsN));
+  html += inboxContextKv('Unpaid balance', inboxClientInfoUnpaid(data, opts.composite));
+  html += inboxContextKv('Waiver status', inboxClientInfoWaiver(data));
+  html += inboxContextKv('Language', language || '—');
+  html += '</div>';
+  html += inboxCustomerBookingsListHtml(data);
+  html += '<div class="inbox-guest-actions">';
+  html += '<button type="button" class="btn inbox-guest-create-booking" id="inbox-create-booking-for-guest">' +
+    inboxContextEsc(inboxContextT('customers.detail.createBooking', 'Create booking')) + '</button>';
+  html += '</div></div>';
+  return html;
+}
+
+function inboxCustomerBookingsListHtml(data) {
+  var bookings = (data && data.bookings) || [];
+  var html = '<div class="inbox-customer-bookings">';
+  html += '<div class="customers-section-hdr">' + inboxContextEsc(inboxContextT('customers.detail.linkedBookings', 'Linked bookings')) + '</div>';
+  if (!bookings.length) {
+    html += '<div class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noLinkedBookings', 'No linked bookings yet')) + '</div>';
+    html += '</div>';
+    return html;
+  }
+  for (var i = 0; i < bookings.length; i++) {
+    var b = bookings[i] || {};
+    var code = b.booking_code || b.booking_id || 'Booking';
+    var checkIn = b.check_in ? String(b.check_in).slice(0, 10) : '';
+    var checkOut = b.check_out ? String(b.check_out).slice(0, 10) : '';
+    var dates = (checkIn || checkOut) ? (checkIn || '—') + ' → ' + (checkOut || '—') : '';
+    html += '<button type="button" class="inbox-customer-booking-link" data-inbox-open-booking="1"';
+    html += ' data-booking-id="' + inboxContextEsc(String(b.booking_id || '')) + '"';
+    html += ' data-booking-code="' + inboxContextEsc(String(b.booking_code || '')) + '"';
+    html += ' data-check-in="' + inboxContextEsc(checkIn) + '"';
+    html += ' data-check-out="' + inboxContextEsc(checkOut) + '"';
+    html += ' data-guest-name="' + inboxContextEsc(String(b.guest_name || '')) + '">';
+    html += inboxContextEsc(String(code));
+    if (dates) html += '<span class="inbox-customer-booking-meta">' + inboxContextEsc(dates) + '</span>';
+    html += '</button>';
+  }
+  html += '</div>';
+  return html;
 }
 
 function inboxCustomerField(label, value, muted) {
@@ -928,6 +1029,25 @@ function inboxCustomerPaint(sidebar, conv, composite, customer) {
   inboxCustomerWireFull(sidebar, data);
 }
 
+function inboxOpenBookingDrawerHere(booking) {
+  booking = booking || {};
+  var drawerFn = (typeof window !== 'undefined' && typeof window.openScheduleDetailDrawer === 'function')
+    ? window.openScheduleDetailDrawer
+    : (typeof openScheduleDetailDrawer === 'function' ? openScheduleDetailDrawer : null);
+  if (!drawerFn) return false;
+  var start = booking.service_date_start || booking.service_date || booking.check_in || '';
+  drawerFn({
+    booking_id: booking.booking_id || null,
+    booking_code: booking.booking_code || null,
+    guest_name: booking.guest_name || booking.booking_guest_name || '',
+    service_date: start ? String(start).slice(0, 10) : null,
+    check_in: booking.check_in || null,
+    check_out: booking.check_out || null,
+    _drawerFromCustomer: true,
+  });
+  return true;
+}
+
 function inboxCustomerWireFull(sidebar, data) {
   var edit = sidebar && sidebar.querySelector('#inbox-customer-edit-profile');
   if (edit && edit.dataset.inboxCustomerWired !== '1') {
@@ -938,8 +1058,23 @@ function inboxCustomerWireFull(sidebar, data) {
       if (typeof openCustomerCardForPhone === 'function' && phone) openCustomerCardForPhone(phone);
     });
   }
-  if (typeof wireCustomerLinkedBookingsActions === 'function') {
-    try { wireCustomerLinkedBookingsActions(); } catch (_e) { /* ignore */ }
+  if (!sidebar || !sidebar.querySelectorAll) return;
+  var links = sidebar.querySelectorAll('[data-inbox-open-booking]');
+  for (var i = 0; i < links.length; i++) {
+    (function(btn) {
+      if (btn.dataset.inboxCustomerWired === '1') return;
+      btn.dataset.inboxCustomerWired = '1';
+      btn.addEventListener('click', function(ev) {
+        if (ev && ev.preventDefault) ev.preventDefault();
+        inboxOpenBookingDrawerHere({
+          booking_id: btn.getAttribute('data-booking-id'),
+          booking_code: btn.getAttribute('data-booking-code'),
+          check_in: btn.getAttribute('data-check-in'),
+          check_out: btn.getAttribute('data-check-out'),
+          guest_name: btn.getAttribute('data-guest-name'),
+        });
+      });
+    })(links[i]);
   }
 }
 

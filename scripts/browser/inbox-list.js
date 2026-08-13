@@ -43,13 +43,26 @@ function conversationHasOpenHandoff(conv){
 function filterInboxConversations(convs){
   var list = convs || [];
   if (inboxFilter === 'needs-human'){
-    return list.filter(conversationNeedsHuman);
+    list = list.filter(conversationNeedsHuman);
+  } else if (inboxFilter === 'email'){
+    list = list.filter(function(c){ return c.channel === 'email'; });
+  } else if (inboxFilter === 'whatsapp'){
+    list = list.filter(function(c){ return (c.channel || 'whatsapp') === 'whatsapp'; });
   }
-  if (inboxFilter === 'email'){
-    return list.filter(function(c){ return c.channel === 'email'; });
-  }
-  if (inboxFilter === 'whatsapp'){
-    return list.filter(function(c){ return (c.channel || 'whatsapp') === 'whatsapp'; });
+  var qEl = typeof el === 'function' ? el('inbox-conv-search') : null;
+  var q = qEl && qEl.value ? String(qEl.value).trim().toLowerCase() : '';
+  if (q) {
+    list = list.filter(function(c){
+      var hay = [
+        c && c.guest_name,
+        c && c.phone,
+        c && c.guest_email,
+        c && c.email,
+        c && c.last_message_preview,
+        c && c.booking_code,
+      ].join(' ').toLowerCase();
+      return hay.indexOf(q) !== -1;
+    });
   }
   return list;
 }
@@ -302,5 +315,15 @@ function setInboxFilter(mode){
 }
 
 function applyInboxFilter(opts){
+  wireInboxConvSearch();
   renderInbox(filterInboxConversations(inboxConversationsCache || []), opts);
+}
+
+function wireInboxConvSearch(){
+  var input = typeof el === 'function' ? el('inbox-conv-search') : null;
+  if (!input || input.dataset.inboxSearchWired === '1') return;
+  input.dataset.inboxSearchWired = '1';
+  input.addEventListener('input', function(){
+    applyInboxFilter({ preserveDetail: true, selectedId: typeof selectedConvId !== 'undefined' ? selectedConvId : null });
+  });
 }
