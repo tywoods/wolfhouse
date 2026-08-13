@@ -941,31 +941,64 @@ ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseS
       return { res, body: parseBody(res.out), audit: harness.audit };
     }
 
-    // Default active: route and composite must agree
+    // Pure complete-payload comparator shared by every parity assertion below.
+    // It compares own-key presence and values recursively, including pause_state,
+    // and returns deterministic path-prefixed diagnostics without mutating verifier state.
+    function diffPauseStateParity(routeBody, compositePauseState) {
+      const mismatches = [];
+
+      function visit(routeValue, compositeValue, path) {
+        if (Object.is(routeValue, compositeValue)) return;
+
+        const routeIsObject = routeValue !== null && typeof routeValue === 'object';
+        const compositeIsObject = compositeValue !== null && typeof compositeValue === 'object';
+        if (!routeIsObject || !compositeIsObject || Array.isArray(routeValue) !== Array.isArray(compositeValue)) {
+          mismatches.push(`${path}: route=${JSON.stringify(routeValue)} vs composite=${JSON.stringify(compositeValue)}`);
+          return;
+        }
+
+        const keys = [...new Set([
+          ...Object.keys(routeValue),
+          ...Object.keys(compositeValue),
+        ])].sort();
+        for (const key of keys) {
+          const childPath = path ? `${path}.${key}` : key;
+          const routeHasKey = Object.prototype.hasOwnProperty.call(routeValue, key);
+          const compositeHasKey = Object.prototype.hasOwnProperty.call(compositeValue, key);
+          if (!routeHasKey || !compositeHasKey) {
+            mismatches.push(`${childPath}: ${routeHasKey ? 'composite missing key' : 'route missing key'}`);
+            continue;
+          }
+          visit(routeValue[key], compositeValue[key], childPath);
+        }
+      }
+
+      visit(routeBody, compositePauseState, '');
+      return mismatches;
+    }
+
+    function assertPauseStateParity(routeBody, compositePauseState, scenario) {
+      const mismatches = diffPauseStateParity(routeBody, compositePauseState);
+      ok(`${scenario}: complete parity`, mismatches.length === 0, mismatches.join('; '));
+    }
+
+    // Default active: route and composite must agree on ALL fields
     {
       const routeResult = await runRoute();
       const { body: compositeBody } = await runComposite();
       ok('route default active HTTP 200', routeResult.res.out.statusCode === 200);
-      ok('route default active success', routeResult.body.success === true);
-      ok('route default active paused=false', routeResult.body.paused === false);
-      ok('route default active source', routeResult.body.source === 'default_active');
-      ok('route vs composite: default active paused match',
-        routeResult.body.paused === compositeBody.pause_state.paused);
-      ok('route vs composite: default active source match',
-        routeResult.body.source === compositeBody.pause_state.source);
-      ok('route vs composite: default active conversation_id match',
-        routeResult.body.conversation_id === compositeBody.pause_state.conversation_id);
+      assertPauseStateParity(routeResult.body, compositeBody.pause_state, 'default active');
     }
 
-    // Paused row: route and composite must agree
+    // Paused row: route and composite must agree on ALL fields
     {
       const pauseRow = {
         id: 'pause-route-1',
         client_slug: CLIENT,
         guest_phone: '+34600111222',
         conversation_id: CONV_ID,
-        booking_id: null,
-        booking_code: null,
+        booking_id: 'bk-paused',
+        booking_code: 'WH-PAUSED',
         paused: true,
         pause_reason: 'Staff override',
         paused_by: 'staff-u1',
@@ -974,26 +1007,15 @@ ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseS
         resumed_at: null,
         metadata: {},
         created_at: '2026-08-01T10:00:00Z',
-        updated_at: '2026-08-01T10:00:00Z',
+        updated_at: '2026-08-01T10:05:00Z',
       };
       const routeResult = await runRoute({ pause: { rows: [pauseRow] } });
       const { body: compositeBody } = await runComposite({ pause: { rows: [pauseRow] } });
       ok('route paused HTTP 200', routeResult.res.out.statusCode === 200);
-      ok('route paused success', routeResult.body.success === true);
-      ok('route paused paused=true', routeResult.body.paused === true);
-      ok('route paused source', routeResult.body.source === 'bot_pause_states');
-      ok('route vs composite: paused match',
-        routeResult.body.paused === compositeBody.pause_state.paused);
-      ok('route vs composite: paused source match',
-        routeResult.body.source === compositeBody.pause_state.source);
-      ok('route vs composite: paused pause_reason match',
-        routeResult.body.pause_reason === compositeBody.pause_state.pause_reason);
-      ok('route vs composite: paused pause_state.id match',
-        routeResult.body.pause_state && compositeBody.pause_state.pause_state &&
-        routeResult.body.pause_state.id === compositeBody.pause_state.pause_state.id);
+      assertPauseStateParity(routeResult.body, compositeBody.pause_state, 'paused');
     }
 
-    // Missing pause table: route and composite must agree
+    // Missing pause table: route and composite must agree on ALL fields
     {
       const tableErr = pgError('XX000', 'relation bot_pause_states does not exist');
       const routeResult = await runRoute({
@@ -1005,76 +1027,56 @@ ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseS
         pause: tableErr,
       });
       ok('route table_missing HTTP 200', routeResult.res.out.statusCode === 200);
-      ok('route table_missing success', routeResult.body.success === true);
-      ok('route table_missing paused=false', routeResult.body.paused === false);
-      ok('route table_missing flag', routeResult.body.table_missing === true);
-      ok('route vs composite: table_missing paused match',
-        routeResult.body.paused === compositeBody.pause_state.paused);
-      ok('route vs composite: table_missing flag match',
-        routeResult.body.table_missing === compositeBody.pause_state.table_missing);
+      assertPauseStateParity(routeResult.body, compositeBody.pause_state, 'table_missing');
     }
 
-    // Lookup failure: route and composite must agree
+    // Lookup failure: route and composite must agree on ALL fields
     {
       const lookupErr = pgError('57014', 'query cancelled');
       const routeResult = await runRoute({ pause: lookupErr });
       const { body: compositeBody } = await runComposite({ pause: lookupErr });
       ok('route lookup_error HTTP 200', routeResult.res.out.statusCode === 200);
-      ok('route lookup_error success', routeResult.body.success === true);
-      ok('route lookup_error paused=false', routeResult.body.paused === false);
-      ok('route lookup_error flag', routeResult.body.lookup_error === true);
-      ok('route vs composite: lookup_error paused match',
-        routeResult.body.paused === compositeBody.pause_state.paused);
-      ok('route vs composite: lookup_error flag match',
-        routeResult.body.lookup_error === compositeBody.pause_state.lookup_error);
+      assertPauseStateParity(routeResult.body, compositeBody.pause_state, 'lookup_error');
     }
-  }
 
-  console.log('\n── pause-state route orchestration mutation detection ──');
-  // Hostile test: prove that changing the route's builder selection would fail.
-  // This demonstrates that the route-level tests are sensitive to orchestration regressions.
-  {
-    // If the route used buildPausedStateResponse for an active state, the test would fail.
-    // We simulate this by creating a "mutant" harness that always returns paused=true.
-    const mutantRoutes = {
-      async handleBotPauseStateGet(query, res, _user) {
-        const routeDeps = {
-          sendJSON(r, status, body) {
-            r.writeHead(status, { 'Content-Type': 'application/json' });
-            r.end(JSON.stringify(body));
-            return body;
-          },
-        };
-        // MUTANT: always use buildPausedStateResponse (wrong for active state)
-        return routeDeps.sendJSON(res, 200, prodBuildPausedStateResponse({
-          id: 'mutant-pause',
-          client_slug: CLIENT,
-          conversation_id: CONV_ID,
-          paused: true,
-          pause_reason: 'mutant',
-        }));
-      },
-    };
-    const mutantRes = mockRes();
-    await mutantRoutes.handleBotPauseStateGet(
-      { client: CLIENT, conversation_id: CONV_ID },
-      mutantRes,
-      { staff_user_id: 'u1' },
-    );
-    const mutantBody = parseBody(mutantRes.out);
-    const { body: compositeBody } = await runComposite();
+    console.log('\n── shared pause-state parity comparator hostile proof ──');
+    {
+      const realRouteResult = await runRoute();
+      const realRouteBody = realRouteResult.body;
 
-    // The mutant returns paused=true when composite says paused=false.
-    const mutantDetected = mutantBody.paused !== compositeBody.pause_state.paused;
-    ok('hostile: mutant builder selection detected (paused mismatch)',
-      mutantDetected,
-      'A route that uses wrong builder must fail parity check');
+      const wrongBuilderOutput = prodBuildPausedStateResponse({
+        id: 'mutant-pause',
+        client_slug: CLIENT,
+        guest_phone: null,
+        conversation_id: CONV_ID,
+        booking_id: null,
+        booking_code: null,
+        paused: true,
+        pause_reason: 'mutant-wrong-builder',
+        paused_by: 'mutant',
+        paused_at: '2026-08-01T10:00:00Z',
+        resumed_by: null,
+        resumed_at: null,
+        updated_at: '2026-08-01T10:00:00Z',
+      });
 
-    // Also verify source differs
-    const sourceDetected = mutantBody.source !== compositeBody.pause_state.source;
-    ok('hostile: mutant builder selection detected (source mismatch)',
-      sourceDetected,
-      'Mutant source "bot_pause_states" vs composite "default_active"');
+      const wrongMismatches = diffPauseStateParity(realRouteBody, wrongBuilderOutput);
+      const mismatchPaths = wrongMismatches.map((mismatch) => mismatch.split(':', 1)[0]);
+      ok('hostile: shared parity comparator rejects wrong-builder output', wrongMismatches.length > 0);
+      for (const path of ['paused', 'bot_paused', 'live_send_blocked', 'source']) {
+        ok(`hostile: shared comparator reports ${path}`,
+          mismatchPaths.includes(path),
+          `mismatches: ${wrongMismatches.join('; ')}`);
+      }
+
+      const shapeMismatches = diffPauseStateParity(
+        { pause_state: { id: 'route-id' } },
+        { pause_state: { id: 'composite-id' }, unexpected_field: true },
+      );
+      const shapePaths = shapeMismatches.map((mismatch) => mismatch.split(':', 1)[0]);
+      ok('hostile: shared comparator reports nested paths', shapePaths.includes('pause_state.id'));
+      ok('hostile: shared comparator rejects unexpected top-level keys', shapePaths.includes('unexpected_field'));
+    }
   }
 
   console.log('\n── audit ──');
