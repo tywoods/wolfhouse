@@ -402,6 +402,11 @@ const {
   INBOX_THREAD_COMPOSITE_RE,
 } = require('./lib/staff-inbox-thread-composite');
 const {
+  createInboxViewRoutes,
+  INBOX_VIEWS_PATH,
+  INBOX_LIST_PATH,
+} = require('./lib/staff-inbox-view-routes');
+const {
   clearConversationMessages,
   resetLunaConversationContext,
   deleteConversationHard,
@@ -2620,6 +2625,20 @@ const inboxThreadCompositeRoutes = createInboxThreadCompositeRoutes({
   buildDefaultActivePauseResponse,
 });
 const { handleInboxThreadComposite } = inboxThreadCompositeRoutes;
+
+// Inbox saved-view rail + list (extracted module). Counts for the whole rail are
+// two aggregate passes behind a short TTL cache, not one COUNT per view; viewer
+// auth stays in the router and the handlers re-apply assertStaffClientAccess.
+const inboxViewRoutes = createInboxViewRoutes({
+  sendJSON,
+  send400,
+  assertStaffClientAccess,
+  appendAuditLog,
+  withPgClient,
+  DEFAULT_CLIENT,
+  SQL_INJECT_RE,
+});
+const { handleInboxViews, handleInboxList } = inboxViewRoutes;
 
 // Sunset Admin Bookings (N1) — list/export viewer; manual refund operator+.
 const bookingsAdminRoutes = createBookingsAdminRoutes({
@@ -47981,6 +48000,18 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleInboxThreadComposite(inboxThreadCompositeMatch[1], parsed.query, res, auth.user);
+  }
+
+  if (pathname === INBOX_VIEWS_PATH || pathname === INBOX_LIST_PATH) {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET for inbox/views and inbox/list' }));
+    }
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return pathname === INBOX_VIEWS_PATH
+      ? handleInboxViews(parsed.query, res, auth.user)
+      : handleInboxList(parsed.query, res, auth.user);
   }
 
   const convSubMatch = CONV_SUB_RE.exec(pathname);

@@ -34,10 +34,14 @@ const {
 const {
   buildCustomerListFilterClause,
   buildCustomerListParams,
+  buildCustomerListCountsParams,
+  clampLimit,
 } = require('./staff-customer-queries');
 const {
   conversationInboxChannelParamIndex,
   getConversationInboxQuery,
+  getConversationInboxCountsQuery,
+  CONVERSATION_INBOX_CURSOR_FIELDS,
 } = require('./staff-conversation-queries');
 
 const INBOX_VIEW_GROUPS = Object.freeze([
@@ -383,9 +387,13 @@ function resolveInboxConversationLocationScope(clientSlug, query) {
   return { scoped: true, locationId: normalizeSunsetLocationId(query && query.location) };
 }
 
-function buildCustomerSourceQuery(view, clientSlug, query) {
+function buildCustomerSourceQuery(view, clientSlug, query, page) {
   const src = query && typeof query === 'object' ? query : {};
-  const built = buildCustomerListParams(clientSlug, { ...src, filter: view.crmFilter });
+  const built = buildCustomerListParams(
+    clientSlug,
+    page ? { ...src, filter: view.crmFilter, limit: page.limit } : { ...src, filter: view.crmFilter },
+    page ? { keyset: true, cursor: page.cursor || null } : undefined,
+  );
   return {
     source: INBOX_VIEW_SOURCES.CUSTOMERS,
     sql: built.sql,
@@ -403,18 +411,49 @@ function buildCustomerSourceQuery(view, clientSlug, query) {
     hasSearch: built.hasSearch,
     limit: built.limit,
     offset: built.offset,
+    keyset: !!built.keyset,
+    cursorApplied: !!built.cursor,
   };
 }
 
-function buildConversationSourceQuery(view, clientSlug, query) {
+/** $1 slug, optional location, optional channel, then the page size and cursor. */
+function conversationPageParamIndexes(locationScoped, channelScoped) {
+  let idx = 1;
+  if (locationScoped) idx += 1;
+  if (channelScoped) idx += 1;
+  return { limitParamIndex: idx + 1, cursorParamIndex: idx + 2 };
+}
+
+function buildConversationSourceQuery(view, clientSlug, query, page) {
   const scope = resolveInboxConversationLocationScope(clientSlug, query);
   const channelScoped = !!view.channel;
   const params = [clientSlug];
   if (scope.scoped) params.push(scope.locationId);
   if (channelScoped) params.push(view.channel);
+
+  let keyset = null;
+  let limit = null;
+  let cursorApplied = false;
+  if (page) {
+    const cursor = page.cursor || null;
+    const indexes = conversationPageParamIndexes(scope.scoped, channelScoped);
+    limit = clampLimit(page.limit);
+    keyset = {
+      limitParamIndex: indexes.limitParamIndex,
+      cursorParamIndex: cursor ? indexes.cursorParamIndex : null,
+    };
+    params.push(limit);
+    if (cursor) {
+      for (const field of CONVERSATION_INBOX_CURSOR_FIELDS) params.push(cursor[field]);
+      cursorApplied = true;
+    }
+  }
+
   return {
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
-    sql: getConversationInboxQuery({ locationScoped: scope.scoped, channelScoped }),
+    sql: getConversationInboxQuery(keyset
+      ? { locationScoped: scope.scoped, channelScoped, keyset }
+      : { locationScoped: scope.scoped, channelScoped }),
     params,
     crmFilter: null,
     filterSql: '',
@@ -423,8 +462,10 @@ function buildConversationSourceQuery(view, clientSlug, query) {
     locationScoped: scope.scoped,
     locationId: scope.locationId,
     hasSearch: false,
-    limit: null,
+    limit,
     offset: null,
+    keyset: !!keyset,
+    cursorApplied,
   };
 }
 
@@ -436,6 +477,8 @@ function buildConversationSourceQuery(view, clientSlug, query) {
  * @param {string} input.clientSlug - tenant slug, always bound as $1
  * @param {object} [input.query] - list query (location, q, limit, offset)
  * @param {object} [input.capabilities] - schema capabilities present on this deployment
+ * @param {{ limit: number, cursor: object|null }} [input.page] - keyset page; absent
+ *   keeps the legacy paging of each delegated builder
  * @returns {{ ok: true, view: object, source: string, sql: string, params: Array }
  *   | { ok: false, error: string, viewId: string, reason?: string,
  *       missingCapabilities?: string[], pendingMigrations?: string[] }}
@@ -463,9 +506,10 @@ function buildInboxViewQuery(input) {
 
   const view = decorateView(declared, req.capabilities);
   const clientSlug = String(req.clientSlug || req.client_slug || '').trim();
+  const page = req.page && typeof req.page === 'object' ? req.page : null;
   const built = declared.source === INBOX_VIEW_SOURCES.CUSTOMERS
-    ? buildCustomerSourceQuery(declared, clientSlug, req.query)
-    : buildConversationSourceQuery(declared, clientSlug, req.query);
+    ? buildCustomerSourceQuery(declared, clientSlug, req.query, page)
+    : buildConversationSourceQuery(declared, clientSlug, req.query, page);
 
   return {
     ok: true,
@@ -475,6 +519,67 @@ function buildInboxViewQuery(input) {
     multiSelect: declared.multiSelect,
     ...built,
   };
+}
+
+/**
+ * Rail counts as one aggregate pass per source, not one per view: every
+ * customer-source view shares the customer scan and every conversation-source
+ * view shares the conversation scan, each view contributing one filtered count
+ * column. Both passes come from the delegated builders, so a count is always
+ * computed from the same predicate as the view it labels.
+ *
+ * @param {object} input
+ * @param {string} input.clientSlug
+ * @param {object} [input.query] - location (and q, which also filters the counts)
+ * @param {object} [input.capabilities]
+ * @returns {{ views: object[], passes: Array<{ source: string, sql: string,
+ *   params: Array, viewIds: string[] }>, queryCount: number }}
+ */
+function buildInboxViewCountsPlan(input) {
+  const req = input && typeof input === 'object' ? input : {};
+  const clientSlug = String(req.clientSlug || req.client_slug || '').trim();
+  const query = req.query && typeof req.query === 'object' ? req.query : {};
+  const views = listInboxSavedViews({ capabilities: req.capabilities });
+
+  const customerViews = views.filter((v) => v.source === INBOX_VIEW_SOURCES.CUSTOMERS);
+  const conversationViews = views.filter((v) => v.source === INBOX_VIEW_SOURCES.CONVERSATIONS);
+  const passes = [];
+
+  if (customerViews.length) {
+    const built = buildCustomerListCountsParams(
+      clientSlug,
+      query,
+      customerViews.map((v) => ({ key: v.id, filter: v.crmFilter })),
+    );
+    passes.push({
+      source: INBOX_VIEW_SOURCES.CUSTOMERS,
+      sql: built.sql,
+      params: built.params,
+      viewIds: customerViews.map((v) => v.id),
+      locationScoped: built.locationScoped,
+      locationId: built.locationId,
+    });
+  }
+
+  if (conversationViews.length) {
+    const scope = resolveInboxConversationLocationScope(clientSlug, query);
+    const columns = conversationViews.map((v) => ({ key: v.id, channel: v.channel }));
+    const params = [clientSlug];
+    if (scope.scoped) params.push(scope.locationId);
+    for (const column of columns) {
+      if (column.channel) params.push(column.channel);
+    }
+    passes.push({
+      source: INBOX_VIEW_SOURCES.CONVERSATIONS,
+      sql: getConversationInboxCountsQuery({ locationScoped: scope.scoped, columns }),
+      params,
+      viewIds: conversationViews.map((v) => v.id),
+      locationScoped: scope.scoped,
+      locationId: scope.locationId,
+    });
+  }
+
+  return { views, passes, queryCount: passes.length };
 }
 
 module.exports = {
@@ -498,4 +603,5 @@ module.exports = {
   resolveInboxViewAvailability,
   resolveInboxConversationLocationScope,
   buildInboxViewQuery,
+  buildInboxViewCountsPlan,
 };

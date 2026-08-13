@@ -736,6 +736,7 @@
     "verify:staff-inbox-routes": "node scripts/verify-staff-inbox-routes.js",
     "verify:inbox-thread-composite": "node scripts/verify-inbox-thread-composite.js",
     "verify:inbox-saved-views": "node scripts/verify-inbox-saved-views.js",
+    "verify:inbox-view-routes": "node scripts/verify-inbox-view-routes.js",
     "verify:staff-automated-notifications-routes": "node scripts/verify-staff-automated-notifications-routes.js",
     "verify:staff-automated-notification-ui": "node scripts/verify-staff-automated-notification-ui.js",
     "verify:staff-automated-notifications-crud": "node scripts/verify-staff-automated-notifications-crud.js",
