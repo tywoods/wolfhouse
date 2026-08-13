@@ -166,7 +166,7 @@ The coach evaluator maps spec sections to failure categories. Used by `scripts/l
 **Gate commands:**
 ```bash
 npm run verify:luna-all          # fast gate (no API key)
-npm run verify:luna-all -- --full  # includes stage49c, 46b, staff gate
+npm run verify:luna-all -- --full  # adds database-backed steps (none at present)
 npm run luna:nightly             # full multilingual nightly (local dry-run)
 npm run luna:nightly -- --quick  # golden + verify only
 npm run luna:coach -- --seed package-choice-assumed  # diagnose a bad transcript

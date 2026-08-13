@@ -64,13 +64,16 @@ const steps = [
   ['verify:luna-pending-transfers-save', 'verify-luna-pending-transfers-save.js'],
 ];
 
-if (full) {
-  steps.push(
-    ['verify:stage49c-agent-package-choice-frontdesk', 'verify-stage49c-agent-package-choice-frontdesk.js'],
-    ['verify:stage46b-vague-booking-intake', 'verify-stage46b-vague-booking-intake.js'],
-    ['verify:staff-bot-guest-automation-gate', 'verify-staff-bot-guest-automation-gate.js'],
-  );
-}
+/**
+ * Steps needing infra/.env or a live database, opted into with --full.
+ *
+ * Empty since the stage46b/49c orchestrator gates were dropped: they were deleted by the
+ * 2026-06-14 quarantine (58c4377c) and never restored, and their subject matter is spec'd in
+ * docs/LUNA-GUEST-BEHAVIOR-SPEC.md. Slow or DB-backed gates belong here, not in `steps`.
+ */
+const FULL_ONLY_STEPS = [];
+
+if (full) steps.push(...FULL_ONLY_STEPS);
 
 let green = 0;
 const red = [];
