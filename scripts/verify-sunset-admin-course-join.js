@@ -42,15 +42,17 @@ const PACK_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const OTHER_LOC_PACK = 'ffffffff-1111-4222-8333-444444444444';
 const INVENTED_COURSE = 'invented-course-not-in-admin';
 
-// Next Monday (UTC) on/after a fixed future anchor so date-boundary stays green.
-function nextMondayOnOrAfter(iso) {
-  const d = new Date(`${iso}T12:00:00Z`);
+// Course dates are read off the clock, never written as a literal month: create rejects
+// past dates, so a hardcoded anchor stops testing the course join the day it expires.
+// First Monday (UTC) at least a month out, so the whole week stays in the future.
+function nextMondayAtLeastDaysOut(days) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
   const day = d.getUTCDay();
-  const add = day === 1 ? 0 : (8 - day) % 7;
-  d.setUTCDate(d.getUTCDate() + add);
+  d.setUTCDate(d.getUTCDate() + (day === 1 ? 0 : (8 - day) % 7));
   return d.toISOString().slice(0, 10);
 }
-const COURSE_DATE = nextMondayOnOrAfter('2026-08-03'); // Monday
+const COURSE_DATE = nextMondayAtLeastDaysOut(30); // Monday
 const WEEKEND_DATE = (() => {
   const d = new Date(`${COURSE_DATE}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + 5); // Saturday
