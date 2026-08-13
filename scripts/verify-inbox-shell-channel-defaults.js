@@ -214,10 +214,17 @@ function main() {
   assert('hides #c-client (Sunset Surf School company select) without removing getClient()',
     /el\('c-client'\)/.test(hideFn)
     && /inbox-client-select-hidden/.test(hideFn)
+    && /setProperty\('display', 'none', 'important'\)/.test(hideFn)
     && /function getClient\(/.test(apiSrc)
     && /el\('c-client'\)/.test(sliceFn(apiSrc, 'getClient')));
-  assert('hides #inbox-school-context under the header',
-    /el\('inbox-school-context'\)/.test(hideFn));
+  assert('native company select is display:none, not clip (select ignores sr-only)',
+    /#tab-conversations #c-client/.test(shellSrc)
+    && /display:none!important/.test(shellSrc)
+    && !/clip:rect/.test(shellSrc));
+  assert('hides #inbox-school-context even if renderInboxSchoolContext sets display:block',
+    /el\('inbox-school-context'\)/.test(hideFn)
+    && /renderInboxSchoolContext/.test(hideFn)
+    && /#tab-conversations #inbox-school-context/.test(shellSrc));
   assert('does not touch the banner school switch (Sunset | elSardi stays in header)',
     !/staff-school-switch/.test(hideFn)
     && !/staff-school-switch/.test(mountFn)

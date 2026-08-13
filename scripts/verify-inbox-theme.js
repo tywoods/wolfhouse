@@ -231,6 +231,11 @@ ok('theme restyles those pills without dropping the slice A classes',
   /#tab-conversations\s+\.inbox-shell-channel\{/.test(themeCss)
   && /#tab-conversations\s+\.inbox-shell-channel-select\{/.test(themeCss)
   && /border-radius:var\(--radius-pill,999px\)/.test(themeCss));
+ok('hides Conversations|Customers switch, Reset/Wipe toolbar, and per-row Luna pills',
+  /#tab-conversations \.inbox-view-switch\{display:none!important\}/.test(themeCss)
+  && /#tab-conversations \.detail-conv-toolbar\{display:none!important\}/.test(themeCss)
+  && /#inbox-shell \.conv-card-pills/.test(themeCss)
+  && /#inbox-shell \.conv-card-delete/.test(themeCss));
 
 console.log('\n── stay off ──');
 ok('inbox-thread.js is not modified (git)',
