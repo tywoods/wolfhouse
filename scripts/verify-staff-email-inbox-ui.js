@@ -6,6 +6,7 @@ const path = require('path');
 const Module = require('module');
 const ROOT = path.join(__dirname, '..');
 const STAFF = path.join(ROOT, 'scripts/staff-query-api.js');
+const { readStaffPortalUiSource } = require('./lib/staff-portal-ui-source');
 const EMAIL_CONV = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const WA_CONV = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const AP1 = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
@@ -210,7 +211,7 @@ async function main() {
   ok('gate-on helpers+paths', htmlOn.includes('function wireInboxEmailReply') && htmlOn.includes("c.channel === 'email'") && htmlOn.includes('/staff/inbox/email/draft') && htmlOn.includes('/staff/inbox/email/approve-send') && htmlOn.includes('function acceptEmailDraftSuccess') && htmlOn.includes('function acceptEmailApproveDisabled503') && htmlOn.includes('function acceptEmailApproveSuccess') && htmlOn.includes('function emailOwnData') && htmlOn.includes('min-height:44px'));
   ok('gate-on committed-send success acceptor keys', htmlOn.includes('EMAIL_APPROVE_OK_KEYS') && /success.*conversation_id.*approval_id.*approval_state/.test(htmlOn.replace(/\s+/g, ' ')));
   ok('no authority inputs in artifact', !/id="email-(recipient|sender|mailbox|thread|provider|operation|idempotency)/.test(htmlOn));
-  const prodSource = fs.readFileSync(STAFF, 'utf8');
+  const prodSource = readStaffPortalUiSource();
   ok('Luna production UI passes mutation guard', lunaUiMutationGuard(prodSource));
   for (const [name, mutant] of [
     ['click no-op', prodSource.replace('if (panel) performEmailLunaDraftGenerate(convId, panel);', 'if (panel) return;')],
@@ -997,6 +998,10 @@ async function main() {
     ok('zero pageerror', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '));
     const serious = consoleErrors.filter((t) => !/favicon|Failed to load resource/i.test(t));
     ok('zero console.error', serious.length === 0, serious.slice(0, 3).join(' | '));
+    // Close the page/context before the server: Inbox long-poll requests otherwise keep
+    // server.close() waiting indefinitely and prevent the gate-off scenarios from running.
+    await page.close();
+    await context.close();
     await closeS(prod.server);
     prod.api.setFortress15j3OfflineSeams(null);
     prod = await startProdServer({ drafts: false, outbound: false });
