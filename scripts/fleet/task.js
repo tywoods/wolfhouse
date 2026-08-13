@@ -8,6 +8,11 @@
 const { spawnSync } = require('child_process');
 
 const REPO = process.env.FLEET_REPO || 'tywoods/wolfhouse';
+// CAPTAIN identity is a HARD COMMITTED LITERAL — never read from env, never
+// caller-settable. Changing who can ship requires a PR through this very gate.
+// 'done' compares the actual GitHub actor (gh api user) to this literal. A
+// worker cannot become 'tywoods' without the Captain account's real gh token.
+const CAPTAIN_GH_LOGIN = 'tywoods';
 const STATES = ['queued', 'claimed', 'in-review', 'gated', 'done', 'blocked'];
 const LABEL = (s) => 'fleet:' + s;
 // legal forward transitions (blocked/unblock handled separately)
@@ -131,16 +136,15 @@ switch (cmd) {
   }
   case 'done': {
     const id = pos[0]; if (!id) die('done needs <id>');
-    // CAPTAIN-ONLY. The only non-bypassable check available to a CLI is the
-    // *authenticated GitHub actor* — env-var presence is caller-settable and
-    // authorizes nothing, so it is NOT used as the gate. We require an expected
-    // Captain login (FLEET_CAPTAIN_GH_LOGIN) and verify it against the identity
-    // GitHub itself reports for the credential in use (gh api user). A worker
-    // cannot forge this: it would need the Captain account's actual gh token.
-    const expectActor = process.env.FLEET_CAPTAIN_GH_LOGIN;
-    if (!expectActor) die('done is CAPTAIN-ONLY: FLEET_CAPTAIN_GH_LOGIN must be set to the Captain GitHub login (identity gate). Refusing to ship without it.');
+    // CAPTAIN-ONLY. The expected Captain identity is a COMMITTED CONSTANT
+    // (CAPTAIN_GH_LOGIN below), not a caller-settable env var — a worker cannot
+    // change it without a PR through this very gate. We verify it against the
+    // identity GitHub itself reports for the credential in use (gh api user).
+    // A worker cannot forge that without the Captain account's actual gh token.
+    // (Env-var expected-login was bypassable: a worker set it to their own login,
+    // their own creds resolved to it, and self-identity == self is always true.)
     const actor = gh(['api', 'user', '--jq', '.login']);
-    if (!actor || actor !== expectActor) die('done is CAPTAIN-ONLY: authenticated GitHub actor "' + actor + '" != Captain "' + expectActor + '". Workers cannot ship.');
+    if (!actor || actor !== CAPTAIN_GH_LOGIN) die('done is CAPTAIN-ONLY: authenticated GitHub actor "' + actor + '" != Captain "' + CAPTAIN_GH_LOGIN + '". Workers cannot ship.');
     if (!f['deploy-rev']) die('done needs --deploy-rev <revision>');
     const cur = currentState(id);
     if (cur !== 'gated') die('done only from gated (now ' + cur + ')');

@@ -43,39 +43,44 @@ const inReview = JSON.stringify({ labels: [{ name: 'fleet:in-review' }] });
 const claimed = JSON.stringify({ labels: [{ name: 'fleet:claimed' }] });
 const queued = JSON.stringify({ labels: [{ name: 'fleet:queued' }] });
 
-// --- done: the blocking guard (identity, not env-presence) ---
+// --- done: the blocking guard (COMMITTED-CONSTANT Captain identity) ---
+// The expected Captain login is a hardcoded literal in task.js ('tywoods'); it
+// is NOT read from env, so a worker cannot set it. 'done' passes only when the
+// real gh actor IS that literal.
 {
-  // No expected Captain login configured -> refuse outright.
+  // DIRECT REGRESSION (Seadog): worker sets FLEET_CAPTAIN_GH_LOGIN=workerbot and
+  // their own gh resolves to workerbot. Env is caller-controlled but IGNORED now,
+  // so the actor (workerbot) != committed Captain (tywoods) -> refuse.
   const r = run(['done', '5', '--as', 'captain', '--deploy-rev', 'rev1'],
-    { FLEET_CAPTAIN_GH_LOGIN: '', MOCK_ISSUE_JSON: gated });
-  ok('done refuses when FLEET_CAPTAIN_GH_LOGIN unset', r.status !== 0 && /CAPTAIN-ONLY/.test(r.stderr), r.stderr.trim());
-  ok('done did NOT close the issue when refused (no login)', !/issue close/.test(r.ghlog));
+    { FLEET_CAPTAIN_GH_LOGIN: 'workerbot', MOCK_ACTOR: 'workerbot', MOCK_ISSUE_JSON: gated });
+  ok('done refuses worker self-identity (FLEET_CAPTAIN_GH_LOGIN=workerbot, actor=workerbot)', r.status !== 0 && /actor/.test(r.stderr), r.stderr.trim());
+  ok('worker self-identity path did NOT close the issue', !/issue close/.test(r.ghlog));
 }
 {
-  // REGRESSION (Seadog): a worker supplies an arbitrary non-empty FLEET_CAPTAIN_TOKEN
-  // but is NOT the Captain GitHub actor -> must be refused. Env-presence != authorization.
+  // Arbitrary token + non-Captain actor -> still refused (token is not the gate).
   const r = run(['done', '5', '--as', 'captain', '--deploy-rev', 'rev1'],
-    { FLEET_CAPTAIN_TOKEN: 'anything', FLEET_CAPTAIN_GH_LOGIN: 'captainbot', MOCK_ACTOR: 'workerbot', MOCK_ISSUE_JSON: gated });
-  ok('done refuses an arbitrary non-empty token from a non-Captain actor', r.status !== 0 && /actor/.test(r.stderr), r.stderr.trim());
+    { FLEET_CAPTAIN_TOKEN: 'anything', MOCK_ACTOR: 'randobot', MOCK_ISSUE_JSON: gated });
+  ok('done refuses an arbitrary token from a non-Captain actor', r.status !== 0 && /actor/.test(r.stderr));
   ok('arbitrary-token path did NOT close the issue', !/issue close/.test(r.ghlog));
 }
 {
-  // Wrong actor with matching-looking login var still refused.
+  // env override cannot LOWER the bar: even setting the env to the Captain login
+  // does nothing (env ignored) — still gated on the real actor being tywoods.
   const r = run(['done', '5', '--as', 'captain', '--deploy-rev', 'rev1'],
-    { FLEET_CAPTAIN_GH_LOGIN: 'captainbot', MOCK_ACTOR: 'randobot', MOCK_ISSUE_JSON: gated });
-  ok('done refuses when authenticated actor != FLEET_CAPTAIN_GH_LOGIN', r.status !== 0 && /actor/.test(r.stderr));
+    { FLEET_CAPTAIN_GH_LOGIN: 'tywoods', MOCK_ACTOR: 'randobot', MOCK_ISSUE_JSON: gated });
+  ok('done ignores env even when env==Captain but actor!=Captain', r.status !== 0 && /actor/.test(r.stderr));
 }
 {
-  // Authorized: actor matches expected Captain login + gated -> proceeds and closes.
+  // Authorized ONLY when the real gh actor is the committed Captain literal.
   const r = run(['done', '5', '--as', 'captain', '--deploy-rev', 'rev1'],
-    { FLEET_CAPTAIN_GH_LOGIN: 'captainbot', MOCK_ACTOR: 'captainbot', MOCK_ISSUE_JSON: gated });
-  ok('done proceeds when actor == Captain login + gated', r.status === 0, r.stderr.trim());
+    { MOCK_ACTOR: 'tywoods', MOCK_ISSUE_JSON: gated });
+  ok('done proceeds when real actor == committed Captain (tywoods) + gated', r.status === 0, r.stderr.trim());
   ok('done closes the issue when authorized', /issue close/.test(r.ghlog));
 }
 {
   const r = run(['done', '5', '--as', 'captain', '--deploy-rev', 'rev1'],
-    { FLEET_CAPTAIN_GH_LOGIN: 'captainbot', MOCK_ACTOR: 'captainbot', MOCK_ISSUE_JSON: inReview });
-  ok('done refuses from non-gated state', r.status !== 0 && /only from gated/.test(r.stderr));
+    { MOCK_ACTOR: 'tywoods', MOCK_ISSUE_JSON: inReview });
+  ok('done refuses from non-gated state even as Captain', r.status !== 0 && /only from gated/.test(r.stderr));
 }
 
 // --- review: requires a real tip SHA, not a URL ---
