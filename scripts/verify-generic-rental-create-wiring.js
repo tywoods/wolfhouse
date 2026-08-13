@@ -323,10 +323,18 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
   });
   await expect('staff quote and create are wired for rental-only and mixed generic records', async () => {
     const apiSrc = fs.readFileSync(require.resolve('./staff-query-api'), 'utf8');
+    const quoteSrc = fs.readFileSync(require.resolve('./lib/sunset-staff-schedule-booking-quote'), 'utf8');
     const writesSrc = fs.readFileSync(require.resolve('./lib/sunset-schedule-booking-writes'), 'utf8');
     const browserSrc = fs.readFileSync(require.resolve('./browser/sunset-schedule-portal-module'), 'utf8');
-    assert.match(apiSrc, /handleSunsetScheduleBookingQuote[\s\S]*prepareGenericRentalsForCreate[\s\S]*hasClosedVerticalIntent[\s\S]*buildQuoteProvenance/);
-    assert.match(writesSrc, /for \(const descriptor of genericPrep\.records\)[\s\S]*insertServiceRecord/);
+    // HTTP handler is a thin auth/location wrapper; quote body lives in the helper
+    // (extracted d30acc4e). Scanning staff-query-api.js for prepareGenericRentalsForCreate
+    // after handleSunsetScheduleBookingQuote is the stale-regex flavour of the
+    // anchor class — the names still exist, just not in that file in that order.
+    assert.match(apiSrc, /async function handleSunsetScheduleBookingQuote[\s\S]*?executeSunsetStaffScheduleBookingQuote\(/);
+    assert.match(quoteSrc, /prepareGenericRentalsForCreate[\s\S]*hasClosedVerticalIntent[\s\S]*buildQuoteProvenance/);
+    // Create inserts each generic prep record as a booking_service_records row
+    // (inline INSERT, not the insertServiceRecord helper used by lesson/CE paths).
+    assert.match(writesSrc, /for \(const descriptor of genericPrep\.records\)[\s\S]*INSERT INTO booking_service_records/);
     assert.match(writesSrc, /genericRentalRecords: genericPrep\.records/);
     assert.match(writesSrc, /buildScheduleBookingIntentFingerprint\(input, locationId, intentFpOpts\)/);
     assert.doesNotMatch(browserSrc, /known\.indexOf\(off\) < 0/);
