@@ -46,10 +46,21 @@ function isPlainObject(value) {
 }
 function fail(error) { return Object.freeze({ ok: false, error }); }
 function ok(value) { return Object.freeze({ ok: true, value }); }
-function hasExactKeys(value, allowed) {
-  const keys = Reflect.ownKeys(value);
-  return keys.length === allowed.length
-    && keys.every((key) => typeof key === 'string' && allowed.includes(key));
+function readExactOwnData(value, allowed) {
+  if (!isPlainObject(value)) return null;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const keys = Reflect.ownKeys(descriptors);
+  if (keys.length !== allowed.length
+      || keys.some((key) => typeof key !== 'string' || !allowed.includes(key))) {
+    return null;
+  }
+  const output = Object.create(null);
+  for (const key of allowed) {
+    const descriptor = descriptors[key];
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+    output[key] = descriptor.value;
+  }
+  return output;
 }
 function boundedString(value, max = 255) {
   return typeof value === 'string' && value.length > 0 && value.length <= max;
@@ -60,67 +71,84 @@ function validateProviderOutcome(outcome) {
 }
 
 function validateOutboundAdapterDescriptor(input) {
-  if (!isPlainObject(input) || !hasExactKeys(input, ['provider', 'capabilities', 'methods'])) {
+  const descriptor = readExactOwnData(input, ['provider', 'capabilities', 'methods']);
+  if (!descriptor) return fail('outbound_descriptor_invalid');
+  const provider = validateEmailMailboxProviderId(descriptor.provider);
+  const capabilities = readExactOwnData(descriptor.capabilities, ['remote_drafts', 'reconcile']);
+  if (!provider.ok || !capabilities
+      || typeof capabilities.remote_drafts !== 'boolean'
+      || typeof capabilities.reconcile !== 'boolean') {
     return fail('outbound_descriptor_invalid');
   }
-  const provider = validateEmailMailboxProviderId(input.provider);
-  if (!provider.ok || !isPlainObject(input.capabilities)
-      || !hasExactKeys(input.capabilities, ['remote_drafts', 'reconcile'])
-      || typeof input.capabilities.remote_drafts !== 'boolean'
-      || typeof input.capabilities.reconcile !== 'boolean'
-      || !isPlainObject(input.methods)) {
-    return fail('outbound_descriptor_invalid');
-  }
-  const methodKeys = Reflect.ownKeys(input.methods);
+  if (!isPlainObject(descriptor.methods)) return fail('outbound_descriptor_invalid');
+  const methodDescriptors = Object.getOwnPropertyDescriptors(descriptor.methods);
+  const methodKeys = Reflect.ownKeys(methodDescriptors);
   if (methodKeys.some((key) => typeof key !== 'string'
       || !OUTBOUND_METHOD_SET.has(key)
-      || typeof input.methods[key] !== 'function')) {
+      || !methodDescriptors[key].enumerable
+      || !Object.hasOwn(methodDescriptors[key], 'value')
+      || typeof methodDescriptors[key].value !== 'function')) {
     return fail('outbound_methods_invalid');
   }
-  if (typeof input.methods.dispatch !== 'function') return fail('dispatch_required');
-  if (input.capabilities.remote_drafts) {
-    if (typeof input.methods.prepareReply !== 'function'
-        || typeof input.methods.applyApprovedBody !== 'function') {
+  const methods = Object.create(null);
+  for (const key of methodKeys) methods[key] = methodDescriptors[key].value;
+  if (typeof methods.dispatch !== 'function') return fail('dispatch_required');
+  if (capabilities.remote_drafts) {
+    if (typeof methods.prepareReply !== 'function'
+        || typeof methods.applyApprovedBody !== 'function') {
       return fail('remote_draft_methods_required');
     }
-  } else if ('prepareReply' in input.methods || 'applyApprovedBody' in input.methods) {
+  } else if (Object.hasOwn(methods, 'prepareReply') || Object.hasOwn(methods, 'applyApprovedBody')) {
     return fail('remote_draft_methods_forbidden');
   }
-  if (input.capabilities.reconcile !== (typeof input.methods.reconcile === 'function')) {
+  if (capabilities.reconcile !== (typeof methods.reconcile === 'function')) {
     return fail('reconcile_capability_mismatch');
+  }
+  const normalizedCapabilities = Object.freeze({
+    remote_drafts: capabilities.remote_drafts,
+    reconcile: capabilities.reconcile,
+  });
+  const normalizedMethods = {};
+  for (const key of MAILBRIDGE_OUTBOUND_METHODS) {
+    if (Object.hasOwn(methods, key)) normalizedMethods[key] = methods[key];
   }
   const value = Object.freeze({
     provider: provider.value,
-    capabilities: Object.freeze({ ...input.capabilities }),
-    methods: Object.freeze({ ...input.methods }),
+    capabilities: normalizedCapabilities,
+    methods: Object.freeze(normalizedMethods),
   });
   return ok(value);
 }
 
 function validateCursorDescriptor(input) {
-  if (!isPlainObject(input) || !hasExactKeys(input, CURSOR_KEYS)) {
+  const cursor = readExactOwnData(input, CURSOR_KEYS);
+  if (!cursor) return fail('cursor_descriptor_invalid');
+  const provider = validateEmailMailboxProviderId(cursor.provider);
+  if (!provider.ok || !UUID_RE.test(cursor.endpoint_id)
+      || !boundedString(cursor.provider_mailbox_id)
+      || !TOKEN_RE.test(cursor.query_version)
+      || !TOKEN_RE.test(cursor.cursor_kind)
+      || !boundedString(cursor.opaque_cursor, 4096)) {
     return fail('cursor_descriptor_invalid');
   }
-  const provider = validateEmailMailboxProviderId(input.provider);
-  if (!provider.ok || !UUID_RE.test(input.endpoint_id)
-      || !boundedString(input.provider_mailbox_id)
-      || !TOKEN_RE.test(input.query_version)
-      || !TOKEN_RE.test(input.cursor_kind)
-      || !boundedString(input.opaque_cursor, 4096)) {
-    return fail('cursor_descriptor_invalid');
-  }
-  return ok(Object.freeze({ ...input, provider: provider.value }));
+  return ok(Object.freeze({
+    provider: provider.value,
+    endpoint_id: cursor.endpoint_id,
+    provider_mailbox_id: cursor.provider_mailbox_id,
+    query_version: cursor.query_version,
+    cursor_kind: cursor.cursor_kind,
+    opaque_cursor: cursor.opaque_cursor,
+  }));
 }
 
 function validateRefreshStrategy(input) {
-  if (!isPlainObject(input) || !hasExactKeys(input, ['provider', 'refreshGrant'])) {
+  const strategy = readExactOwnData(input, ['provider', 'refreshGrant']);
+  if (!strategy) return fail('refresh_strategy_invalid');
+  const provider = validateEmailMailboxProviderId(strategy.provider);
+  if (!provider.ok || typeof strategy.refreshGrant !== 'function') {
     return fail('refresh_strategy_invalid');
   }
-  const provider = validateEmailMailboxProviderId(input.provider);
-  if (!provider.ok || typeof input.refreshGrant !== 'function') {
-    return fail('refresh_strategy_invalid');
-  }
-  return ok(Object.freeze({ provider: provider.value, refreshGrant: input.refreshGrant }));
+  return ok(Object.freeze({ provider: provider.value, refreshGrant: strategy.refreshGrant }));
 }
 
 module.exports = Object.freeze({

@@ -54,6 +54,33 @@ assert.equal(contract.validateOutboundAdapterDescriptor({
   methods: { dispatch() {} },
 }).ok, false, 'capabilities reject symbol-keyed authority');
 
+let getterCalls = 0;
+const accessorMethods = {};
+Object.defineProperty(accessorMethods, 'dispatch', {
+  enumerable: true,
+  get() { getterCalls += 1; return () => {}; },
+});
+assert.equal(contract.validateOutboundAdapterDescriptor({
+  provider: 'imap_smtp',
+  capabilities: { remote_drafts: false, reconcile: false },
+  methods: accessorMethods,
+}).ok, false, 'methods reject accessors');
+assert.equal(getterCalls, 0, 'method getter is never executed');
+
+const hiddenMethods = {};
+Object.defineProperty(hiddenMethods, 'dispatch', {
+  enumerable: false,
+  value() {},
+});
+assert.equal(contract.validateOutboundAdapterDescriptor({
+  provider: 'imap_smtp',
+  capabilities: { remote_drafts: false, reconcile: false },
+  methods: hiddenMethods,
+}).ok, false, 'methods reject non-enumerable required methods');
+
+assert.deepEqual(Reflect.ownKeys(smtp.value.methods), ['dispatch']);
+assert.equal(Object.getOwnPropertyDescriptor(smtp.value.methods, 'dispatch').enumerable, true);
+
 assert.equal(contract.validateOutboundAdapterDescriptor({
   provider: 'imap_smtp',
   capabilities: { remote_drafts: false, reconcile: false },
