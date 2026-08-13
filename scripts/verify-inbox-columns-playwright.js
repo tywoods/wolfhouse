@@ -496,6 +496,9 @@ async function main() {
       ok(`${row.width}px column 2 ${row.col2Visible ? 'stays' : 'auto-hides'}`,
         !!(m.col2 && m.col2.visible) === row.col2Visible, JSON.stringify(m.attrs));
       ok(`${row.width}px keeps column 3 at or above its floor`, m.col3.width >= COL3_MIN, m.col3.width);
+      if (row.width === 1180) {
+        await page.screenshot({ path: path.join(OUT_DIR, 'bucket-md-1180.png') });
+      }
       ok(`${row.width}px never overflows the shell`,
         m.col3.width + (m.col2 && m.col2.visible ? m.col2.width : 0)
           + (m.col4 && m.col4.visible ? m.col4.width : 0) + m.col1.width <= m.shellWidth + 1,
