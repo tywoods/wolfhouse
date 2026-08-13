@@ -59,7 +59,7 @@ function authorityRow(patch = {}) {
     endpoint_provider_mailbox_id: MAILBOX, event_location_id: L,
     subject: 'Booking question', body_text: BODY, quoted_history: '',
     from_display_name: 'Ana', from_address: 'ana@example.test',
-    conversation_deleted_at: null, conversation_status: 'active', latest_message_id: M,
+    conversation_deleted_at: null, conversation_status: 'open', latest_message_id: M,
     luna_draft_enabled: true,
     ...patch,
   };
@@ -314,6 +314,8 @@ function noSideEffects(h) {
     ['cross tenant', [authorityRow({ client_id: C2 })]],
     ['cross location', [authorityRow({ location_id: L2 })]],
     ['wrong location key', [authorityRow({ location_key: 'sunset-sardinero' })]],
+    ['closed conversation', [authorityRow({ conversation_status: 'closed' })]],
+    ['on-hold conversation', [authorityRow({ conversation_status: 'on_hold' })]],
     ['deleted', [authorityRow({ conversation_deleted_at: new Date().toISOString() })]],
     ['stale', [authorityRow({ latest_message_id: '88888888-8888-4888-8888-888888888888' })]],
     ['mailbox mismatch', [authorityRow({ provider_mailbox_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' })]],

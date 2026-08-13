@@ -124,7 +124,7 @@ function safeRow(row, expectedActor, conversationId) {
     if (!authority.client_id || authority.client_id !== expectedActor.client_id || authority.conversation_id !== conversationId
       || !authority.location_id || authority.location_key !== 'sunset-somo' || !authority.endpoint_id || !authority.inbound_message_id
       || r.client_slug !== 'sunset' || r.channel !== 'email' || r.provider !== 'microsoft_graph'
-      || r.conversation_deleted_at != null || r.conversation_status !== 'active'
+      || r.conversation_deleted_at != null || r.conversation_status !== 'open'
       || uuid(r.latest_message_id) !== authority.inbound_message_id || r.luna_draft_enabled !== true
       || uuid(r.event_location_id) !== authority.location_id
       || uuid(r.endpoint_provider_mailbox_id) !== uuid(r.provider_mailbox_id)

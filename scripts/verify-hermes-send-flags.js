@@ -626,7 +626,7 @@ function emailAuthorityRow() {
     from_display_name: 'Ana',
     from_address: 'ana@example.test',
     conversation_deleted_at: null,
-    conversation_status: 'active',
+    conversation_status: 'open',
     latest_message_id: EMAIL_IDS.message,
     luna_draft_enabled: true,
   };
