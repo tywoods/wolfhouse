@@ -87,8 +87,8 @@ ok('global pause not in banner actions', bannerActionsSrc && !bannerActionsSrc.i
 ok('global pause lives in the Inbox toolbar above the rail',
   /id="inbox-toolbar-channels"[\s\S]{0,900}id="cc-luna-global-pause"/.test(src)
   && !/<div id="tabs"[\s\S]*?id="cc-luna-global-pause"[\s\S]*?id="nav-menu-tools"/.test(src));
-ok('tabs pause label copy', src.includes('Global Pause Luna:'));
-ok('label and switch inline in tabs control', /class="tabs-global-pause-toggle"[\s\S]*?Global Pause Luna:[\s\S]*?luna-global-pause-switch/.test(src));
+ok('tabs pause label copy', src.includes('Global Pause') && !src.includes('Global Pause Luna:'));
+ok('label and switch inline in tabs control', /class="tabs-global-pause-toggle"[\s\S]*?Global Pause[\s\S]*?luna-global-pause-switch/.test(src));
 ok('global pause switch id preserved', src.includes('id="luna-global-pause-switch"'));
 ok('old Luna Staff global pause card removed', !tabSrc.includes('luna-global-pause-card" id="cc-luna-global-pause"'));
 ok('operations card hidden in Luna Staff tab', tabSrc.includes('id="cc-operations"') && tabSrc.includes('cc-luna-staff-retired'));

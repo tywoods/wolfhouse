@@ -20274,9 +20274,12 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 .inbox-channel-autonomy-slot{flex:0 0 auto;width:100%}
 .inbox-channel-autonomy-slot .inbox-shell-channel-defaults{width:100%;box-sizing:border-box}
-.inbox-global-pause{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;gap:8px;width:max-content;max-width:100%;box-sizing:border-box;padding:0;margin:0;border:none;background:transparent;white-space:nowrap}
-.inbox-global-pause .tabs-global-pause-toggle{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;justify-content:flex-start;gap:8px;width:max-content;margin:0;padding:0;cursor:pointer;white-space:nowrap}
-.inbox-global-pause .tabs-global-pause-label{flex:0 0 auto;display:inline;font-size:10px;font-weight:600;letter-spacing:.02em;color:var(--text-2);white-space:nowrap}
+.inbox-global-pause{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;gap:8px;width:100%;max-width:100%;box-sizing:border-box;padding:0;margin:0;border:none;background:transparent;white-space:nowrap}
+.inbox-global-pause .tabs-global-pause-toggle{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;justify-content:space-between;gap:8px;width:100%;margin:0;padding:0;cursor:pointer;white-space:nowrap}
+.inbox-global-pause .tabs-global-pause-label{flex:1 1 auto;display:inline-flex;align-items:center;gap:7px;min-width:0;font-size:12px;font-weight:600;letter-spacing:0;color:#31443a;white-space:nowrap}
+.channelAutonomy #cc-luna-global-pause{margin-top:5px;min-height:34px}
+.inbox-global-pause-owl{width:18px;height:18px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}
+.inbox-global-pause-owl svg{width:16px;height:16px;display:block}
 .inbox-global-pause .luna-global-pause-switch{flex:0 0 34px;width:34px!important;height:20px!important}
 .inbox-global-pause .luna-global-pause-slider:before{height:16px;width:16px;left:2px;bottom:2px}
 .inbox-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(14px)}
@@ -21318,7 +21321,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <span id="inbox-live-status" class="inbox-live-status" aria-live="polite">Live</span>
         <div class="tabs-global-pause inbox-global-pause" id="cc-luna-global-pause">
           <label class="tabs-global-pause-toggle" for="luna-global-pause-switch">
-            <span class="tabs-global-pause-label">Global Pause Luna:</span>
+            <span class="tabs-global-pause-label">Global Pause</span>
             <span class="luna-global-pause-switch">
               <input type="checkbox" id="luna-global-pause-switch">
               <span class="luna-global-pause-slider"></span>

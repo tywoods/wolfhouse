@@ -97,6 +97,30 @@ function inboxShellStoreModes(modes){
   return next;
 }
 
+function inboxShellOwlIconSvg(){
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+    '<path d="M8.1 8.8 6.4 4.6c1.8.45 3.2 1.55 5.6 1.55s3.8-1.1 5.6-1.55l-1.7 4.2"/>' +
+    '<path d="M6.3 11.3c.25 5.05 2.55 8.3 5.7 8.3s5.45-3.25 5.7-8.3c0-2.35-2.15-4.55-5.7-4.55s-5.7 2.2-5.7 4.55z"/>' +
+    '<circle cx="9.45" cy="11.35" r="2.15"/>' +
+    '<circle cx="14.55" cy="11.35" r="2.15"/>' +
+    '<circle cx="9.45" cy="11.35" r=".5" fill="currentColor" stroke="none"/>' +
+    '<circle cx="14.55" cy="11.35" r=".5" fill="currentColor" stroke="none"/>' +
+    '<path d="M12 12.15 13.35 14.25h-2.7z"/>' +
+    '</svg>';
+}
+
+function inboxShellAdoptGlobalPause(){
+  var card = inboxShellById('inbox-shell-channel-defaults');
+  var pause = inboxShellById('cc-luna-global-pause');
+  if (!card || !pause) return;
+  if (pause.parentNode !== card) card.appendChild(pause);
+  var label = pause.querySelector('.tabs-global-pause-label');
+  if (label && !label.querySelector('.inbox-global-pause-owl')) {
+    label.innerHTML = '<span class="channelModeIcon inbox-global-pause-owl" aria-hidden="true">' +
+      inboxShellOwlIconSvg() + '</span><span>Global Pause</span>';
+  }
+}
+
 function inboxShellChannelIconSvg(channel){
   if (channel === 'email') {
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>';
@@ -188,6 +212,9 @@ function inboxShellCssText(){
     '.channelAutonomyLabel{margin:0 0 7px 3px;font-size:10px;font-weight:700;letter-spacing:.11em;color:#9aa59d}',
     '.channelModeRow{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:34px}',
     '.channelModeRow + .channelModeRow{margin-top:5px}',
+    '.channelAutonomy #cc-luna-global-pause{margin-top:5px;min-height:34px;width:100%}',
+    '.inbox-global-pause-owl{width:18px;height:18px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}',
+    '.inbox-global-pause-owl svg{width:16px;height:16px;display:block}',
     '.channelModeIdentity{display:flex;align-items:center;gap:7px;min-width:82px;font-size:12px;font-weight:600;color:#31443a}',
     '.channelModeIcon{width:18px;height:18px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}',
     '.channelModeIcon svg{width:16px;height:16px;display:block}',
@@ -778,6 +805,7 @@ function mountInboxShellChrome(){
     }
   }
   wireInboxShellChannelDefaults();
+  inboxShellAdoptGlobalPause();
   inboxShellSyncFromPauseState();
 }
 
