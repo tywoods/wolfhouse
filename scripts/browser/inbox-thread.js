@@ -1,7 +1,8 @@
 /**
  * Staff Portal Inbox, Conversations tab: thread detail. Status pebbles, Luna pause
  * controls, needs-human handling, conversation list and detail rendering, WhatsApp send,
- * the email draft and approve-send flow, and booking cross-links.
+ * the email draft and approve-send flow, WhatsApp Luna draft Approve/Edit,
+ * and booking cross-links.
  *
  * Injected into /staff/ui at the inbox-thread marker. Fragment spliced into the portal
  * IIFE, so it is already in strict mode and relies on siblings in that scope.
@@ -1679,6 +1680,8 @@ function loadConvDetail(convId, targetEl){
     // Prefer per-conversation held draft/approval text (never shared across conversations).
     if (emailSt && emailSt.savedText) draftText = emailSt.savedText;
 
+    if (!isEmailConversation) html += inboxWhatsAppDraftMountHtml();
+
     html += '<div class="draft-panel">';
     html +=   '<div class="draft-label">';
     if (useEmailReplyUi) {
@@ -1760,7 +1763,10 @@ function loadConvDetail(convId, targetEl){
     targetEl.classList.remove('is-loading-detail');
 
     if (useEmailReplyUi) wireInboxEmailReply(convId, targetEl);
-    else if (!isEmailConversation) wireInboxSendReply(convId, c.phone, targetEl);
+    else if (!isEmailConversation) {
+      wireInboxSendReply(convId, c.phone, targetEl);
+      wireInboxWhatsAppDraft(convId, targetEl);
+    }
     var inboxCustBtn = targetEl.querySelector('#inbox-open-customer-card');
     if (inboxCustBtn && convPhone) {
       inboxCustBtn.addEventListener('click', function() { openCustomerCardForPhone(convPhone); });

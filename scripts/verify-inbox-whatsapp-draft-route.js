@@ -16,7 +16,9 @@
  *   - WHATSAPP_DRY_RUN / LUNA_AUTO_SEND_ENABLED fail closed without calling send
  *   - live approve-send uses the injected send-reply helper, then marks sent
  *   - denied / hostile client never reach Postgres
- *   - thread composite payload and Inbox UI modules are untouched
+ *   - thread composite payload is untouched
+ *   - Inbox WhatsApp draft card fetches GET/POST draft and POST approve-send
+ *   - email draft/approve-send paths unchanged; no WhatsApp auto-send of drafts
  *   - migration 078 is a new table (070 email approvals are not reused)
  *
  * No live DB / network / Graph / Meta.
@@ -24,6 +26,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const { EventEmitter } = require('events');
 
 const ROOT = path.join(__dirname, '..');
@@ -65,6 +68,13 @@ const {
 } = require('./lib/staff-inbox-whatsapp-draft-routes');
 const { INBOX_THREAD_COMPOSITE_SECTIONS } = require('./lib/staff-inbox-thread-composite');
 const { EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH } = require('./lib/staff-email-inbox-routes');
+const { readStaffPortalUiSource } = require('./lib/staff-portal-ui-source');
+const {
+  WHATSAPP_DRAFT_MODULE,
+  THREAD_MODULE,
+  LUNA_MODE_MODULE,
+  COLUMNS_MODULE,
+} = require('./lib/inbox-browser-source');
 
 let pass = 0;
 let fail = 0;
@@ -415,7 +425,7 @@ ok('does not require staff-query-api', !/require\s*\(\s*['"][^'"]*staff-query-ap
 ok('does not call requireAuth', !/\brequireAuth\s*\(/.test(modSrc));
 ok('calls assertStaffClientAccess', /assertStaffClientAccess\(/.test(modSrc));
 ok('does not import inbox UI modules',
-  !/inbox-thread\.js|inbox-luna-mode\.js|inbox-columns\.js/.test(modSrc));
+  !/inbox-thread\.js|inbox-luna-mode\.js|inbox-columns\.js|inbox-whatsapp-draft\.js/.test(modSrc));
 ok('does not write conversations.staff_reply_draft',
   !/SET staff_reply_draft/.test(modSrc) && !/staff_reply_draft/.test(SQL_UPSERT_PENDING)
   && !/staff_reply_draft/.test(SQL_SELECT_PENDING));
@@ -509,6 +519,123 @@ ok('isWhatsAppConversation rejects email channel and emailv1 phone',
   isWhatsAppConversation({ channel: 'whatsapp', phone: '+34600000404' }) === true
   && isWhatsAppConversation({ channel: 'email', phone: '+34600000404' }) === false
   && isWhatsAppConversation({ channel: 'whatsapp', phone: 'emailv1:abcd' }) === false);
+
+console.log('\n── inbox WhatsApp draft UI ──');
+{
+  const uiSrc = fs.readFileSync(WHATSAPP_DRAFT_MODULE, 'utf8');
+  const threadSrc = fs.readFileSync(THREAD_MODULE, 'utf8');
+  const lunaSrc = fs.readFileSync(LUNA_MODE_MODULE, 'utf8');
+  const columnsSrc = fs.readFileSync(COLUMNS_MODULE, 'utf8');
+  const injectorSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'inbox-browser-source.js'), 'utf8');
+  const portalSrc = readStaffPortalUiSource();
+
+  ok('whatsapp draft UI module exists', fs.existsSync(WHATSAPP_DRAFT_MODULE));
+  ok('GET draft URL uses conversation_id + inboxClientQuery',
+    uiSrc.includes("'/staff/inbox/whatsapp/draft' + inboxClientQuery()")
+    && uiSrc.includes("'&conversation_id=' + encodeURIComponent(convId)"));
+  ok('Edit saves via POST /staff/inbox/whatsapp/draft',
+    /fetch\('\/staff\/inbox\/whatsapp\/draft'/.test(uiSrc)
+    && /method:\s*'POST'/.test(uiSrc)
+    && uiSrc.includes("draft_text: messageText"));
+  ok('Approve POSTs /staff/inbox/whatsapp/approve-send',
+    uiSrc.includes("fetch('/staff/inbox/whatsapp/approve-send'")
+    && /method:\s*'POST'/.test(uiSrc.slice(uiSrc.indexOf("fetch('/staff/inbox/whatsapp/approve-send'"))));
+  ok('surfaces whatsapp_dry_run without treating it as sent',
+    uiSrc.includes("errorCode === 'whatsapp_dry_run'")
+    && uiSrc.includes('draft was not sent')
+    && !/st\.sent = true[\s\S]{0,200}whatsapp_dry_run/.test(uiSrc));
+  ok('surfaces luna_auto_send_disabled',
+    uiSrc.includes("errorCode === 'luna_auto_send_disabled'"));
+  ok('surfaces 409 approval_conflict',
+    uiSrc.includes('status === 409') && uiSrc.includes('approval_conflict'));
+  ok('inFlight guard prevents a second approve while one is in flight',
+    /function performWhatsAppDraftApprove[\s\S]*if \(st\.inFlight \|\| st\.sent\) return/.test(uiSrc));
+  ok('does not auto-send drafts (no send-reply from the card)',
+    !uiSrc.includes('/staff/inbox/send-reply')
+    && !uiSrc.includes('/staff/inbox/email/'));
+  ok('does not invent a WhatsApp Draft Luna mode',
+    !/data-luna-mode="draft"/.test(uiSrc)
+    && /if \(channel === 'email'\) return \['draft', 'off'\]/.test(lunaSrc)
+    && /return \['auto', 'off'\]/.test(lunaSrc));
+  ok('WhatsApp Auto|Off control is unchanged',
+    lunaSrc.includes("return ['auto', 'off']")
+    && lunaSrc.includes("return ['draft', 'off']"));
+  ok('four-column module does not grow draft fetches',
+    !columnsSrc.includes('/staff/inbox/whatsapp/')
+    && columnsSrc.includes('data-col1')
+    && columnsSrc.includes('data-col2')
+    && columnsSrc.includes('data-col4'));
+  ok('email draft POST path unchanged in thread',
+    threadSrc.includes("fetch('/staff/inbox/email/draft'")
+    && threadSrc.includes("fetch('/staff/inbox/email/approve-send'")
+    && threadSrc.includes("fetch('/staff/inbox/email/generate-luna-draft'"));
+  ok('email approve button ids unchanged',
+    threadSrc.includes('id="btn-email-approve-send"')
+    && threadSrc.includes('id="btn-email-save-draft"')
+    && threadSrc.includes('function wireInboxEmailReply('));
+  ok('WhatsApp staff Send reply remains',
+    threadSrc.includes('id="btn-send-reply"')
+    && threadSrc.includes('function wireInboxSendReply(')
+    && threadSrc.includes("fetch('/staff/inbox/send-reply'"));
+  ok('thread mounts the card only off the email path',
+    /if \(!isEmailConversation\) html \+= inboxWhatsAppDraftMountHtml\(\)/.test(threadSrc)
+    && /wireInboxWhatsAppDraft\(convId, targetEl\)/.test(threadSrc)
+    && /function loadSurfInboxDemoDetail[\s\S]*function inboxColumnsOwnSidebar/.test(threadSrc)
+    && !/inboxWhatsAppDraftMountHtml/.test(threadSrc.slice(
+      threadSrc.indexOf('function loadSurfInboxDemoDetail'),
+      threadSrc.indexOf('function inboxColumnsOwnSidebar'),
+    )));
+  ok('injector prepends whatsapp-draft ahead of thread',
+    injectorSrc.includes('getInboxWhatsAppDraftBrowserSource()')
+    && injectorSrc.indexOf('getInboxLunaModeBrowserSource()') < injectorSrc.indexOf('getInboxWhatsAppDraftBrowserSource()')
+    && injectorSrc.indexOf('getInboxWhatsAppDraftBrowserSource()') < injectorSrc.indexOf('readBrowserModule(THREAD_MODULE)'));
+  ok('combined portal UI has WhatsApp draft fetches and email fetches',
+    portalSrc.includes('/staff/inbox/whatsapp/draft')
+    && portalSrc.includes('/staff/inbox/whatsapp/approve-send')
+    && portalSrc.includes('/staff/inbox/email/draft')
+    && portalSrc.includes('/staff/inbox/email/approve-send'));
+  ok('email routes file still owns email approve-send',
+    emailSrc.includes("'/staff/inbox/email/approve-send'")
+    && !uiSrc.includes('/staff/inbox/email/approve-send'));
+
+  const sandbox = {
+    escHtml: (s) => String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;'),
+    inboxClientQuery: () => '?client=wolfhouse-somo',
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(
+    `${uiSrc}\nthis.inboxWhatsAppDraftMountHtml = inboxWhatsAppDraftMountHtml;\n` +
+    'this.inboxWhatsAppDraftCardHtml = inboxWhatsAppDraftCardHtml;\n' +
+    'this.whatsappDraftGetUrl = whatsappDraftGetUrl;\n' +
+    'this.whatsappDraftFailureCopy = whatsappDraftFailureCopy;',
+    sandbox,
+  );
+  const mount = sandbox.inboxWhatsAppDraftMountHtml();
+  const card = sandbox.inboxWhatsAppDraftCardHtml({ draftText: DRAFT, editing: false });
+  const editing = sandbox.inboxWhatsAppDraftCardHtml({ draftText: DRAFT, editing: true });
+  ok('mount is hidden until a pending draft loads',
+    /id="inbox-whatsapp-draft"/.test(mount) && /\bhidden\b/.test(mount));
+  ok('view card shows draft text + Approve / Edit',
+    card.includes(DRAFT)
+    && /id="btn-whatsapp-draft-approve"/.test(card)
+    && /id="btn-whatsapp-draft-edit"/.test(card)
+    && card.includes('Approve')
+    && card.includes('Edit'));
+  ok('edit card uses a dedicated textarea, not #draft-textarea',
+    /id="whatsapp-draft-textarea"/.test(editing)
+    && !/id="draft-textarea"/.test(editing)
+    && /id="btn-whatsapp-draft-save"/.test(editing));
+  ok('GET URL carries conversation_id',
+    sandbox.whatsappDraftGetUrl(V) === `/staff/inbox/whatsapp/draft?client=wolfhouse-somo&conversation_id=${V}`);
+  ok('kill-switch copy names the error codes',
+    sandbox.whatsappDraftFailureCopy('approve', 503, 'whatsapp_dry_run').indexOf('whatsapp_dry_run') >= 0
+    && sandbox.whatsappDraftFailureCopy('approve', 503, 'luna_auto_send_disabled').indexOf('luna_auto_send_disabled') >= 0
+    && sandbox.whatsappDraftFailureCopy('approve', 409, 'approval_conflict').indexOf('409') >= 0);
+}
 
 (async () => {
   console.log('\n── auth fail-closed ──');
