@@ -95,6 +95,40 @@ _Added by Captain from Bug Finder / Chief of Staff report. Inbox re-verified 14 
 - **[BUG] Exportar CSV enabled at 0 results** — not clicked.
 - **[UI] Luna Staff header styles look instant-apply** — not clicked.
 
+## 🌐 Language audit — Inbox (Bandeja de entrada) — 2026-08-14 (EN/ES)
+
+_Added by Captain from Luna Language / Chief of Staff audit. Sunset staging, redesigned inbox, read-only (17 conversations, one WhatsApp thread opened, no send). Nothing changed in production copy. Priorities HIGH/MED/LOW per audit. Provided ES/EN fixes inline._
+
+**Re-check of prior inbox items**
+- **#7 (mixed ES inbox chrome) — STILL PRESENT**, now worse: the whole left rail is English in ES. Empty state + loading still mixed.
+- **#8 (detail pane untranslated in ES) — PARTLY FIXED.** Reply composer now ES ("Respuesta:", "Escribe una respuesta…", "Enviar respuesta", "Avisar"). Still broken: right-rail labels, Luna Auto/Off, Channel Autonomy.
+
+### HIGH
+- **[I18N] Left rail entirely English in ES** (nav itself says "Bandeja de entrada"): INBOX, All, WhatsApp, Email, NEEDS YOU, Needs human, PEOPLE, All people, Checked in, Hot leads, Warm leads, Unpaid, Waiver due, Lesson today, Upcoming, Do not contact.
+  - Fix ES: BANDEJA / Todas / WhatsApp / Email / TE NECESITAN / Requiere personal / PERSONAS / Todas las personas / Con check-in / Clientes potenciales calientes / Clientes potenciales templados / Sin pagar / Waiver pendiente / Clase hoy / Próximas / No contactar.
+- **[I18N] Right-rail customer card English in ES:** CHECKED IN, BOOKINGS, LESSONS, UNPAID BALANCE, WAIVER STATUS, LAST SETUP, Linked bookings; values "No", "9 due", "21 lessons, 25 addon service" (mixed with translated TELÉFONO / ESCUELA ACTIVA).
+  - Fix ES: CON CHECK-IN / RESERVAS / CLASES / SALDO PENDIENTE / ESTADO DEL WAIVER ("9 pendientes") / ÚLTIMA CONFIGURACIÓN ("21 clases, 25 servicios adicionales") / Reservas vinculadas.
+- **[I18N] "NOTES FOR NEXT TIME" stays English in ES** while value is "Sin notas aún" (mixed in one row). Fix ES: NOTAS PARA LA PRÓXIMA VEZ.
+- **[I18N] NEW — Spanish leftovers in EN mode** (tooltips/chrome from Inbox): "Reserva del staff", "Ocupación 3 de 24", "Día 2 de 8", "Duración del alquiler", "Cant.", "Curso Mañana 10:00–12:00", plus Channel Autonomy helpers still Spanish ("Luna prepara borradores…", "La automatización de WhatsApp está en pausa.").
+  - Fix EN: Staff booking / Occupancy 3 of 24 / Day 2 of 8 / Rental duration / Qty / Morning course 10:00–12:00 / "Luna drafts WhatsApp replies for staff approval. It does not send." / "WhatsApp automation is paused." / "Luna drafts email replies for staff approval. Email is never sent automatically." / "Luna will not draft email replies."
+
+### MED
+- **[I18N] "Loading conversations…" and "Loading…" in ES.** Fix: Cargando conversaciones… / Cargando…
+- **[I18N] Empty state mixed:** ES "Aún no hay conversaciones." + EN "Guest emails and WhatsApp for Sunset will appear here when they arrive." Fix ES body: Los emails y mensajes de WhatsApp de huéspedes de Sunset aparecerán aquí cuando lleguen.
+- **[I18N] Search placeholder "Search contacts" untranslated in ES** (a second search IS localized). Fix ES: Buscar contactos.
+- **[I18N] Channel Autonomy card English in ES:** CHANNEL AUTONOMY, Draft, Auto, Global Pause, Off, On. Fix ES: AUTONOMÍA POR CANAL / Borrador / Automático / Pausa global / Desactivada / Activada.
+- **[I18N] Thread header still English in ES:** "Luna: Auto", Auto, Off (only "Avisar" translated). Fix ES: Luna: automático / Automático / Desactivada. Prefer "Requiere personal" over "Avisar".
+- **[I18N] List timestamps not localized in ES:** "24m ago", "13h ago", "Aug 11", "Jul 31". Fix ES: hace 24 min / hace 13 h / 11 ago / 31 jul.
+- **[I18N] Untranslated tooltips/aria in ES:** Delete conversation, Back, Reply channel, Inbox view, Saved views, WhatsApp/Email autonomy, Global Pause, Account, School, Language, Menu, Schedule/Open schedule, Refresh.
+  - Fix ES: Eliminar conversación / Volver / Canal de respuesta / Vista de la bandeja / Vistas guardadas / Autonomía de WhatsApp / Autonomía de email / Pausa global / Cuenta / Escuela / Idioma / Menú / Horario / Abrir horario / Actualizar.
+- **[I18N] PEOPLE filter tooltips mixed in ES.** English leftovers: "Contacted but never booked", "Customers who have booked before", "Marked do not contact". Fix ES: Contactado pero nunca reservó / Clientes que ya han reservado / Marcado como no contactar.
+- **[I18N] Layout toggle:** EN "Full / Chat / Guest"; ES "Las cuatro / Chat / Huésped" ("Las cuatro" is opaque). Fix ES: Completa / Chat / Huésped.
+
+### LOW
+- **[I18N] Reply composer FIXED in ES** (Respuesta: / Escribe una respuesta… / Enviar respuesta). "Create booking for this guest" now "Crear reserva"; tags localized. Optional: "Crear reserva para este huésped".
+- **[I18N] Testing-tools strings English in both modes** (Delete Hermes state.db…, Full wipe…). Hide in production or translate; ES "Herramientas de prueba".
+- **[I18N] Sidebar title "INBOX" never localizes** (nav already says Bandeja de entrada). Fix ES: Bandeja de entrada.
+
 ## 🗂️ Tabs & navigation (restructure) — owner 2026-08-06
 - **T1 — [UI][FEAT] Collapse to 4 top-level tabs: Schedule · Inbox · Bookings · Admin.** `M–L`
   - **Schedule** — unchanged.
