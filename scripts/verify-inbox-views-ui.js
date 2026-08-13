@@ -13,6 +13,7 @@
  *   - the new module does not fan out to /staff-state or /staff/conversations
  *   - conversation click still calls loadConvDetail (owned by inbox-thread.js)
  *   - Customers tab remains; inbox-thread.js and inbox-luna-mode.js are untouched
+ *   - inbox-shell.js may prepend chrome onto this marker (slice A); it is not a column-layout fork
  *
  * No database, no network, no browser.
  *
@@ -132,7 +133,10 @@ ok('Luna mode composes ahead of thread while saved views keep their own marker',
   && injectorSrc.includes('readBrowserModule(THREAD_MODULE)')
   && injectorSrc.includes('getInboxViewsBrowserSource()')
   && injectorSrc.indexOf('getInboxLunaModeBrowserSource()') < injectorSrc.indexOf('readBrowserModule(THREAD_MODULE)'));
-ok('no competing inbox-shell.js column-layout module', !fs.existsSync(LAYOUT_MODULE));
+ok('inbox-shell.js is chrome (channel defaults), not a column-layout fork',
+  fs.existsSync(LAYOUT_MODULE)
+  && /function mountInboxShellChrome\(/.test(fs.readFileSync(LAYOUT_MODULE, 'utf8'))
+  && !/INBOX_COLUMNS_PRESETS|initInboxColumns\(/.test(fs.readFileSync(LAYOUT_MODULE, 'utf8')));
 ok('Customers tab is still in the Conversations toolbar',
   /data-view="customers"/.test(apiSrc)
   && /onclick="switchToTab\('customers'\)"/.test(apiSrc)
