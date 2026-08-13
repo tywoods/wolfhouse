@@ -941,54 +941,45 @@ ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseS
       return { res, body: parseBody(res.out), audit: harness.audit };
     }
 
-    // Shared parity comparator: checks all relevant pause-state response fields.
-    // Returns { match: boolean, mismatches: string[] } where mismatches lists
-    // every field that differs between route and composite pause_state.
-    const PARITY_FIELDS = [
-      'success',
-      'paused',
-      'bot_paused',
-      'live_send_blocked',
-      'source',
-      'client_slug',
-      'guest_phone',
-      'conversation_id',
-      'booking_id',
-      'booking_code',
-      'pause_reason',
-      'paused_by',
-      'paused_at',
-      'resumed_by',
-      'resumed_at',
-      'updated_at',
-      'table_missing',
-      'lookup_error',
-    ];
-
-    function comparePauseStateParity(routeBody, compositePauseState, scenario) {
+    // Pure complete-payload comparator shared by every parity assertion below.
+    // It compares own-key presence and values recursively, including pause_state,
+    // and returns deterministic path-prefixed diagnostics without mutating verifier state.
+    function diffPauseStateParity(routeBody, compositePauseState) {
       const mismatches = [];
-      for (const field of PARITY_FIELDS) {
-        const routeVal = routeBody[field];
-        const compositeVal = compositePauseState[field];
-        if (routeVal !== compositeVal) {
-          mismatches.push(`${field}: route=${JSON.stringify(routeVal)} vs composite=${JSON.stringify(compositeVal)}`);
+
+      function visit(routeValue, compositeValue, path) {
+        if (Object.is(routeValue, compositeValue)) return;
+
+        const routeIsObject = routeValue !== null && typeof routeValue === 'object';
+        const compositeIsObject = compositeValue !== null && typeof compositeValue === 'object';
+        if (!routeIsObject || !compositeIsObject || Array.isArray(routeValue) !== Array.isArray(compositeValue)) {
+          mismatches.push(`${path}: route=${JSON.stringify(routeValue)} vs composite=${JSON.stringify(compositeValue)}`);
+          return;
+        }
+
+        const keys = [...new Set([
+          ...Object.keys(routeValue),
+          ...Object.keys(compositeValue),
+        ])].sort();
+        for (const key of keys) {
+          const childPath = path ? `${path}.${key}` : key;
+          const routeHasKey = Object.prototype.hasOwnProperty.call(routeValue, key);
+          const compositeHasKey = Object.prototype.hasOwnProperty.call(compositeValue, key);
+          if (!routeHasKey || !compositeHasKey) {
+            mismatches.push(`${childPath}: ${routeHasKey ? 'composite missing key' : 'route missing key'}`);
+            continue;
+          }
+          visit(routeValue[key], compositeValue[key], childPath);
         }
       }
-      // Also compare pause_state nested object if present
-      const routePauseState = routeBody.pause_state;
-      const compositePauseStateNested = compositePauseState.pause_state;
-      if (routePauseState || compositePauseStateNested) {
-        if (!eq(routePauseState, compositePauseStateNested)) {
-          mismatches.push(`pause_state (nested): route=${JSON.stringify(routePauseState)} vs composite=${JSON.stringify(compositePauseStateNested)}`);
-        }
-      }
-      const match = mismatches.length === 0;
-      if (!match) {
-        ok(`${scenario}: complete parity`, false, mismatches.join('; '));
-      } else {
-        ok(`${scenario}: complete parity`, true);
-      }
-      return { match, mismatches };
+
+      visit(routeBody, compositePauseState, '');
+      return mismatches;
+    }
+
+    function assertPauseStateParity(routeBody, compositePauseState, scenario) {
+      const mismatches = diffPauseStateParity(routeBody, compositePauseState);
+      ok(`${scenario}: complete parity`, mismatches.length === 0, mismatches.join('; '));
     }
 
     // Default active: route and composite must agree on ALL fields
@@ -996,7 +987,7 @@ ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseS
       const routeResult = await runRoute();
       const { body: compositeBody } = await runComposite();
       ok('route default active HTTP 200', routeResult.res.out.statusCode === 200);
-      comparePauseStateParity(routeResult.body, compositeBody.pause_state, 'default active');
+      assertPauseStateParity(routeResult.body, compositeBody.pause_state, 'default active');
     }
 
     // Paused row: route and composite must agree on ALL fields
@@ -1021,7 +1012,7 @@ ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseS
       const routeResult = await runRoute({ pause: { rows: [pauseRow] } });
       const { body: compositeBody } = await runComposite({ pause: { rows: [pauseRow] } });
       ok('route paused HTTP 200', routeResult.res.out.statusCode === 200);
-      comparePauseStateParity(routeResult.body, compositeBody.pause_state, 'paused');
+      assertPauseStateParity(routeResult.body, compositeBody.pause_state, 'paused');
     }
 
     // Missing pause table: route and composite must agree on ALL fields
@@ -1036,7 +1027,7 @@ ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseS
         pause: tableErr,
       });
       ok('route table_missing HTTP 200', routeResult.res.out.statusCode === 200);
-      comparePauseStateParity(routeResult.body, compositeBody.pause_state, 'table_missing');
+      assertPauseStateParity(routeResult.body, compositeBody.pause_state, 'table_missing');
     }
 
     // Lookup failure: route and composite must agree on ALL fields
@@ -1045,28 +1036,14 @@ ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseS
       const routeResult = await runRoute({ pause: lookupErr });
       const { body: compositeBody } = await runComposite({ pause: lookupErr });
       ok('route lookup_error HTTP 200', routeResult.res.out.statusCode === 200);
-      comparePauseStateParity(routeResult.body, compositeBody.pause_state, 'lookup_error');
+      assertPauseStateParity(routeResult.body, compositeBody.pause_state, 'lookup_error');
     }
 
-    // Hostile test: prove that the parity comparator rejects wrong builder output.
-    // This instantiates the real createBotPauseStateRoutes factory and executes
-    // handleBotPauseStateGet, then constructs what a WRONG builder would produce
-    // and verifies the comparator detects the substantive mismatches.
-    //
-    // NOTE: The production handler imports builders directly (not via DI), so we
-    // cannot inject wrong builders through the factory. Instead, we:
-    // 1. Run the real handler to get the correct active-state response
-    // 2. Construct what a wrong builder (paused builder for active state) would return
-    // 3. Pass both through the same comparator to prove it detects mismatches
-    console.log('\n── pause-state route orchestration mutation detection ──');
+    console.log('\n── shared pause-state parity comparator hostile proof ──');
     {
-      // Run the real production handler with default-active scenario
       const realRouteResult = await runRoute();
       const realRouteBody = realRouteResult.body;
 
-      // Construct what the WRONG builder (buildPausedStateResponse) would return
-      // for this same scenario. This simulates a mutation where the handler
-      // incorrectly selects buildPausedStateResponse instead of buildDefaultActivePauseResponse.
       const wrongBuilderOutput = prodBuildPausedStateResponse({
         id: 'mutant-pause',
         client_slug: CLIENT,
@@ -1083,32 +1060,22 @@ ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseS
         updated_at: '2026-08-01T10:00:00Z',
       });
 
-      // The real handler returns paused=false, the wrong builder returns paused=true
-      ok('hostile: real handler returns active state', realRouteBody.paused === false);
-      ok('hostile: wrong builder returns paused state', wrongBuilderOutput.paused === true);
-
-      // Now verify the parity comparator would detect this mismatch
-      const wrongMismatches = [];
-      for (const field of PARITY_FIELDS) {
-        if (wrongBuilderOutput[field] !== realRouteBody[field]) {
-          wrongMismatches.push(field);
-        }
+      const wrongMismatches = diffPauseStateParity(realRouteBody, wrongBuilderOutput);
+      const mismatchPaths = wrongMismatches.map((mismatch) => mismatch.split(':', 1)[0]);
+      ok('hostile: shared parity comparator rejects wrong-builder output', wrongMismatches.length > 0);
+      for (const path of ['paused', 'bot_paused', 'live_send_blocked', 'source']) {
+        ok(`hostile: shared comparator reports ${path}`,
+          mismatchPaths.includes(path),
+          `mismatches: ${wrongMismatches.join('; ')}`);
       }
-      ok('hostile: comparator detects paused mismatch',
-        wrongMismatches.includes('paused'),
-        'paused field must differ between correct and wrong builder');
-      ok('hostile: comparator detects source mismatch',
-        wrongMismatches.includes('source'),
-        'source field must differ (default_active vs bot_pause_states)');
-      ok('hostile: comparator detects bot_paused mismatch',
-        wrongMismatches.includes('bot_paused'),
-        'bot_paused field must differ');
-      ok('hostile: comparator detects live_send_blocked mismatch',
-        wrongMismatches.includes('live_send_blocked'),
-        'live_send_blocked field must differ');
-      ok('hostile: comparator detects multiple substantive mismatches',
-        wrongMismatches.length >= 4,
-        `detected ${wrongMismatches.length} mismatches: ${wrongMismatches.join(', ')}`);
+
+      const shapeMismatches = diffPauseStateParity(
+        { pause_state: { id: 'route-id' } },
+        { pause_state: { id: 'composite-id' }, unexpected_field: true },
+      );
+      const shapePaths = shapeMismatches.map((mismatch) => mismatch.split(':', 1)[0]);
+      ok('hostile: shared comparator reports nested paths', shapePaths.includes('pause_state.id'));
+      ok('hostile: shared comparator rejects unexpected top-level keys', shapePaths.includes('unexpected_field'));
     }
   }
 
