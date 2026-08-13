@@ -16130,6 +16130,8 @@ ${getStaffPortalThemeEarlyScript()}
 [data-theme="dark"] .pill-purple{background:#2a2436;color:#d8c8e8;border-color:#5a4a78}
 [data-theme="dark"] .sidebar-card{background:#2d2d2d;border-color:#3c3c3c}
 [data-theme="dark"] .inbox-left{background:var(--surface);border-color:var(--border-soft)}
+[data-theme="dark"] .inbox-views-rail{background:var(--surface);border-color:var(--border-soft)}
+[data-theme="dark"] .inbox-views-item.is-active{background:var(--staff-green-bg);color:#cccccc}
 [data-theme="dark"] .inbox-left-toolbar{background:#2d2d2d;border-bottom-color:#3c3c3c}
 [data-theme="dark"] .inbox-right{background:var(--surface)}
 [data-theme="dark"] .inbox-two-col{border-color:var(--border-soft)}
@@ -18626,7 +18628,8 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
   .inbox-two-col{flex-direction:column;flex:1;min-height:0;border-radius:0;border-left:none;border-right:none;box-shadow:none}
   .inbox-left{flex:1 1 auto;width:100%;max-width:100%;border-right:none;min-height:0}
   .inbox-two-col #conv-detail{display:none;flex:1 1 auto;min-height:0;min-width:0;overflow:hidden}
-  .inbox-two-col.show-thread .inbox-left{display:none}
+  .inbox-two-col.show-thread .inbox-left,
+  .inbox-two-col.show-thread #inbox-views-rail{display:none}
   .inbox-two-col.show-thread #conv-detail{display:flex;flex-direction:column;width:100%;height:100%;min-height:0}
   .inbox-mobile-back{display:flex;align-items:center;gap:6px;flex-shrink:0;width:100%;min-height:44px;padding:10px 14px;margin:0;border:none;border-bottom:1px solid var(--border-soft);background:var(--surface-soft);color:var(--text);font-size:14px;font-weight:600;cursor:pointer;text-align:left;box-sizing:border-box}
   .inbox-mobile-back:hover{background:var(--surface)}
@@ -20071,6 +20074,31 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   /* grid row stretches so all columns share the same height as the window */
   align-items:stretch;
 }
+.inbox-two-col.inbox-shell-cols:has(> #inbox-views-rail){
+  grid-template-columns:minmax(148px,200px) minmax(260px,340px) minmax(0,1fr);
+}
+.inbox-views-rail{
+  min-width:0;min-height:0;height:auto;align-self:stretch;
+  border:1px solid var(--border-soft);border-radius:var(--radius);
+  background:var(--surface);overflow-x:hidden;overflow-y:auto;
+  padding:10px 8px;display:flex;flex-direction:column;gap:14px;
+}
+.inbox-views-group{display:flex;flex-direction:column;gap:2px}
+.inbox-views-group-label{
+  font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--text-2);
+  padding:0 8px 4px;text-transform:uppercase;
+}
+.inbox-views-item{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  width:100%;padding:6px 8px;border:0;border-radius:8px;background:transparent;
+  color:var(--text);font-size:12.5px;font-weight:600;cursor:pointer;text-align:left;
+}
+.inbox-views-item:hover{background:var(--surface-soft)}
+.inbox-views-item.is-active{background:var(--teal);color:var(--primary)}
+.inbox-views-item-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inbox-views-item-count{flex-shrink:0;font-size:11px;font-weight:700;color:var(--text-2)}
+.inbox-views-item.is-active .inbox-views-item-count{color:var(--primary)}
+.inbox-views-empty{padding:8px;font-size:12px;color:var(--text-2)}
 .inbox-two-col.inbox-shell-cols .inbox-left{
   flex:unset;width:auto;min-width:0;min-height:0;height:auto;max-height:none;
   border-right:none;border:1px solid var(--border-soft);border-radius:var(--radius);
@@ -20144,6 +20172,8 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 @media(max-width:900px){
   .inbox-two-col.inbox-shell-cols{grid-template-columns:1fr;gap:0;border:none}
+  .inbox-two-col.inbox-shell-cols:has(> #inbox-views-rail){grid-template-columns:1fr}
+  .inbox-views-rail{max-height:168px;border-radius:var(--radius)}
   .inbox-two-col.inbox-shell-cols .inbox-left,
   .inbox-two-col.inbox-shell-cols #conv-detail{border-radius:var(--radius)}
   .inbox-two-col.inbox-shell-cols #inbox-detail-sidebar > .sidebar-card{
@@ -20800,6 +20830,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </div>
   <div class="inbox-two-col inbox-shell-cols">
+
+    <nav id="inbox-views-rail" class="inbox-views-rail" aria-label="Saved views"></nav>
 
     <!-- LEFT: conversation list + filters -->
     <div class="inbox-left" id="inbox-card">
@@ -30022,6 +30054,8 @@ function wireHandoffsQueuePanel(){
 }
 
 /* INJECT:inbox-thread */
+
+/* INJECT:inbox-views */
 
 function kv(label, val){
   return '<div class="kv"><span class="k">' + escHtml(label) + '</span><span class="v">' + escHtml(val==null?'—':String(val)) + '</span></div>';
