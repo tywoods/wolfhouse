@@ -35,16 +35,16 @@ Thin wrapper over `gh issue` / `gh pr` / `gh api`. Runnable from any container/h
 - `task create --title T --body B [--priority N]`  -> new issue, label `fleet:queued`
 - `task list [--status S]`                          -> board view
 - `task show <id>`                                  -> full issue
-- `task claim <id> --as <agent>`                    -> queued -> claimed (assignee set)
+- `task claim <id> --as <agent>`                    -> queued -> claimed (assignee set if FLEET_GH_LOGIN_<AGENT> maps a login; else comment-only, and it says so)
 - `task review <id> --tip-sha SHA [--pr N]`         -> claimed -> in-review (REQUIRES a real SHA)
 - `task gate <id> --result pass|fail [--notes ...]` -> in-review -> gated (pass) or bounce (fail)
-- `task done <id> --deploy-rev REV`                 -> gated -> done (CAPTAIN ONLY)
+- `task done <id> --deploy-rev REV`                 -> gated -> done (CAPTAIN ONLY — gated on FLEET_CAPTAIN_TOKEN in the Captain environment, not a flag)
 - `task block <id> --reason ...` / `task unblock <id>`
 
 ### Guards (enforced by the CLI, not just convention)
 
 1. Cannot enter `in-review` without a non-empty 7+ hex `tip-sha` (a SHA, not a URL).
-2. Only `--as captain` may run `done` (gated -> done + deploy-rev). No other agent ships.
+2. `done` (gated -> done + deploy-rev) requires `FLEET_CAPTAIN_TOKEN`, a secret present only in the Captain (lunabox main) environment — no worker container holds it. Optionally bound to the authenticated GitHub actor via `FLEET_CAPTAIN_GH_LOGIN`. This is an environment/credential boundary, NOT a caller-supplied flag.
 3. Illegal state jumps are rejected (must follow the state machine).
 4. 3rd reject bounce -> auto `fleet:blocked` + a comment flagging a human (loop guard).
 

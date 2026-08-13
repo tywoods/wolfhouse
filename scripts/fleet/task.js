@@ -73,12 +73,16 @@ switch (cmd) {
     break;
   }
   case 'list': {
-    const args = ['issue', 'list', '-R', REPO, '--state', 'open', '--json', 'number,title,labels,assignees'];
+    // GitHub's --label filters are conjunctive (AND). A one-state issue would
+    // never match a multi-label default filter, so fetch open issues unfiltered
+    // and select fleet-labelled ones in-process.
+    const args = ['issue', 'list', '-R', REPO, '--state', 'open', '--limit', '200', '--json', 'number,title,labels,assignees'];
     if (f.status) args.push('--label', LABEL(f.status));
-    else args.push('--label', 'fleet:queued', '--label', 'fleet:claimed', '--label', 'fleet:in-review', '--label', 'fleet:gated', '--label', 'fleet:blocked');
     const rows = gh(args, { json: true }) || [];
     for (const r of rows) {
-      const st = (r.labels || []).map((l) => l.name).filter((n) => n.startsWith('fleet:')).map((n) => n.slice(6)).join(',') || '-';
+      const fleet = (r.labels || []).map((l) => l.name).filter((n) => n.startsWith('fleet:'));
+      if (!fleet.length) continue; // only board items
+      const st = fleet.map((n) => n.slice(6)).join(',');
       const who = (r.assignees || []).map((a) => a.login).join(',') || '-';
       console.log('#' + r.number + '  [' + st + ']  ' + '(' + who + ')  ' + r.title);
     }
@@ -89,8 +93,17 @@ switch (cmd) {
     const id = pos[0]; if (!id) die('claim needs <id>');
     if (!f.as || !AGENTS.includes(f.as)) die('claim needs --as <' + AGENTS.join('|') + '>');
     setState(id, currentState(id), 'claimed');
-    comment(id, 'CLAIM by ' + f.as);
-    console.log('#' + id + ' -> claimed (' + f.as + ')');
+    // Set a GitHub assignee if the agent maps to a login; otherwise record the
+    // claimant in a comment only (and say so). FLEET_GH_LOGIN_<agent> can map
+    // an agent name to a real GitHub login.
+    const login = process.env['FLEET_GH_LOGIN_' + f.as.toUpperCase()];
+    let assigned = false;
+    if (login) {
+      const r = spawnSync('gh', ['issue', 'edit', String(id), '-R', REPO, '--add-assignee', login], { encoding: 'utf8' });
+      assigned = r.status === 0;
+    }
+    comment(id, 'CLAIM by ' + f.as + (assigned ? ' (assignee=' + login + ')' : ' (no GitHub assignee mapped)'));
+    console.log('#' + id + ' -> claimed (' + f.as + (assigned ? ', assignee ' + login : ', comment-only') + ')');
     break;
   }
   case 'review': {
@@ -118,7 +131,18 @@ switch (cmd) {
   }
   case 'done': {
     const id = pos[0]; if (!id) die('done needs <id>');
-    if (f.as !== 'captain') die('done is CAPTAIN ONLY (--as captain). No other agent ships.');
+    // CAPTAIN-ONLY, enforced by an environment/credential boundary — NOT a
+    // caller-supplied flag. Requires FLEET_CAPTAIN_TOKEN, a secret present only
+    // in the Captain (lunabox main) environment; no worker container holds it.
+    // We also bind it to the authenticated GitHub actor so a leaked token alone
+    // on an unexpected account is rejected.
+    const captainToken = process.env.FLEET_CAPTAIN_TOKEN;
+    if (!captainToken) die('done is CAPTAIN-ONLY: FLEET_CAPTAIN_TOKEN not present in this environment. Workers cannot ship.');
+    const expectActor = process.env.FLEET_CAPTAIN_GH_LOGIN;
+    if (expectActor) {
+      const actor = gh(['api', 'user', '--jq', '.login']);
+      if (actor !== expectActor) die('done is CAPTAIN-ONLY: authenticated GitHub actor ' + actor + ' != expected ' + expectActor + '.');
+    }
     if (!f['deploy-rev']) die('done needs --deploy-rev <revision>');
     const cur = currentState(id);
     if (cur !== 'gated') die('done only from gated (now ' + cur + ')');
