@@ -75,6 +75,7 @@ Static gates that assert on portal UI strings must read `scripts/lib/staff-porta
 
 - **Git (mandatory):** GitHub is source of truth — `docs/GITHUB-REPO-SETUP.md`.
   - **Before `git push` or any Hermes/Staff API deploy:** run `node scripts/assert-repo-sync.js` (also runs automatically via `.githooks/pre-push` after `node scripts/setup-git-hooks.js`).
+    - **This check cannot pass from a cloud VM or sandbox.** It reaches Lunabox over SSH, so it exits 1 with `Could not read Lunabox repo` anywhere without that access. That is an environment limit, not a sync problem — do not try to "fix" it, and do not treat it as a blocker. It remains mandatory on the operator's laptop before any deploy.
   - **Before ANY staff-api image build (`az acr build`) for staging or prod:** run `node scripts/assert-deploy-from-master.js` (`npm run deploy:preflight`) and **tag the image with the master SHA**. It refuses to build unless the tree is clean **and** `HEAD == origin/master`. This prevents two machines/agents building images from divergent local tips and silently overwriting each other's merged work (which has happened — a parallel deploy reverted the owner-agent fix on staging).
   - **After merging Captain's work:** `git pull` on laptop, then tell Captain to `git pull` on Lunabox (or they run `captain-git-start.sh`).
 - Node.js tooling; run scripts with `node scripts/...` (PowerShell may block `npm` scripts that shell out to npm.ps1).
@@ -83,6 +84,58 @@ Static gates that assert on portal UI strings must read `scripts/lib/staff-porta
 - Local Hermes uses `hermes-local/.env` for `OPENAI_API_KEY` (gitignored).
 
 When asked “what should we do next”, prefer: read relevant spec + owner file, propose a small scoped change, and mention which verify script proves it.
+
+## Before you merge: check how stale the branch is, not just the PR diff
+
+GitHub shows a PR's diff against the commit it **branched from**, so a months-old branch can
+present as a tidy one-line fix while being thousands of commits behind. Before merging, always run
+both diffs and read the second one:
+
+```bash
+git fetch origin
+git diff --stat origin/master...<branch> # three dots: what the PR page shows
+git diff --stat origin/master..<branch> # two dots: how far behind the branch is
+git merge-tree --write-tree origin/master <branch> # does it conflict, and where
+```
+
+The two-dot diff is not what merging does — git's three-way merge leaves files the branch never
+touched alone. It tells you something more useful: **every deletion in it is newer work the branch
+does not have.** Where that overlaps a file the branch *did* edit, you get a conflict, and that is
+the moment the damage happens.
+
+PR #416 is the worked example. The page reads **+4 −1** in a single verify script. Two-dot says the
+branch is ~73,000 deletions behind master, and `merge-tree` says the one file it edits conflicts.
+Resolving that conflict the way a "+4 −1" PR invites you to — take the branch's version, it is only
+four lines — deletes the migration-071 intent-disjoint assertions and the Phase A/Phase B rejection
+test that landed in that file afterwards. The fix itself was real and worth having; taking it the
+easy way would have quietly reverted someone else's gate.
+
+So: a conflict on a stale branch is not a formality to clear. **Resolve toward master and re-apply
+the author's change on top**, or ask the author to rebase and re-run their gates. Never resolve a
+conflict by taking a stale branch wholesale, however small its stated diff. Small diffs against a
+stale base are the dangerous ones, because nobody reads them carefully.
+
+## Worktrees: never point a recursive delete at one
+
+`node_modules` is commonly shared into a worktree as a **directory junction** (`mklink /J`) to avoid
+reinstalling it per branch. On Windows, `Remove-Item -Recurse -Force` **follows junctions and
+deletes the target's contents** — so deleting a worktree this way empties the main repo's
+`node_modules`, and every other worktree breaks at once with `Cannot find module`.
+
+Remove a worktree with git, which knows about the links:
+
+```bash
+git worktree remove <path> --force
+```
+
+If you must delete by hand, unlink the junction first — this removes the link, not the target:
+
+```powershell
+cmd /c rmdir "<path>\node_modules"
+```
+
+Recovery is `npm ci` in the main repo, but only after every stray junction is gone, or the reinstall
+races the very links that caused the problem.
 
 ## Asking questions (cloud agents especially)
 
