@@ -24,7 +24,8 @@ or any `/staff/inbox/*` route.
 | 4 | Segments and broadcasts (migration 079) | **done** API #539, composer #541. Graph `sendMail` on the existing reply-draft transport behind fail-closed `BROADCAST_EMAIL_SEND_ENABLED`. Unset/false → **501** `email_broadcast_send_not_implemented` (zero Graph). Flag `true` → per-recipient send, partial failure visible. WhatsApp promo refused. |
 | 5 | Identity linking across channels (optional) | not started |
 | mockup slice A | Inbox chrome channel defaults: WhatsApp Auto\|Draft\|Off, Email Draft\|Off; school selector under header removed | **done** (#545) |
-| mockup slice B | Column 4 guest card | **done** (#546) |
+| mockup slice B | Column 4 guest card: stay facts + collapsible collections, dims zero-count, no invented euros | **done** (#546) |
+| mockup slice C | Cream / forest / sage visual tokens on the four-column Inbox (no layout/API change) | included (from #547) |
 | mockup slice D | Column 2 list rows: initials avatars, hide old chips, people multi-select | this PR |
 
 ## Why it feels bulky and redundant
@@ -217,7 +218,7 @@ Existing after later phases:
 - `inbox-stream.js` — SSE live activity
 - `inbox-views.js` — saved-view rail
 - `inbox-broadcast.js` — email broadcast composer (create + honest 501 / send counts)
-- `inbox-shell.js` — Inbox chrome top bar (slice A): WhatsApp / Email channel-default pills
+- `inbox-shell.js` — Inbox chrome top bar (slice A): WhatsApp / Email channel-default pills; mockup visual tokens (slice C) inject `#inbox-mockup-theme-style` from the same module
 - `inbox-context.js` — right panel guest card (slice B)
 - `inbox-rows.js` — column 2 list rows (slice D): initials avatars, hide old chips, people multi-select
 

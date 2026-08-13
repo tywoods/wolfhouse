@@ -1,5 +1,5 @@
 /**
- * Staff Portal Inbox — chrome top bar (mockup slice A).
+ * Staff Portal Inbox — chrome top bar (mockup slice A) and visual tokens (slice C).
  *
  * Two independent channel-default pills, always visible in Inbox chrome
  * (no thread required):
@@ -30,6 +30,7 @@
 var INBOX_SHELL_LUNA_MODE_PATH = '/staff/inbox/luna-mode';
 var INBOX_SHELL_STORAGE_KEY = 'wh_staff_inbox_channel_mode_v1';
 var INBOX_SHELL_STYLE_ID = 'inbox-shell-channel-defaults-style';
+var INBOX_MOCKUP_THEME_STYLE_ID = 'inbox-mockup-theme-style';
 var inboxShellLunaModeRouted = null;
 var inboxShellPersistGen = 0;
 
@@ -152,13 +153,163 @@ function inboxShellCssText(){
   ].join('');
 }
 
+function inboxMockupThemeCssText(){
+  return [
+    '/* cream paper, forest green, sage — Inbox mockup slice C */',
+    '#tab-conversations,',
+    '#inbox-shell{',
+    '--inbox-paper:var(--cream);',
+    '--inbox-forest:#2F4A3E;',
+    '--inbox-sage:var(--sage);',
+    '}',
+    '[data-theme="dark"] #tab-conversations,',
+    '[data-theme="dark"] #inbox-shell{',
+    '--inbox-paper:var(--cream);',
+    '--inbox-forest:var(--staff-green-bg,#1e3a28);',
+    '--inbox-sage:var(--sage);',
+    '}',
+
+    /* Four columns sit on cream paper with generous radius */
+    '#inbox-shell.inbox-two-col.inbox-shell-cols .inbox-col1,',
+    '#inbox-shell.inbox-two-col.inbox-shell-cols .inbox-left,',
+    '#inbox-shell .detail-main,',
+    '#inbox-shell .inbox-empty-right{',
+    'background:var(--inbox-paper,var(--cream));',
+    'border-radius:var(--radius);',
+    '}',
+    '#inbox-shell.inbox-two-col.inbox-shell-cols #inbox-detail-sidebar > .inbox-guest-card,',
+    '#inbox-shell #inbox-guest-card.inbox-guest-card{',
+    'background:var(--inbox-paper,var(--cream));',
+    'border-radius:var(--radius);',
+    'box-shadow:none;',
+    '}',
+    '#inbox-shell.inbox-two-col.inbox-shell-cols #inbox-detail-sidebar > .sidebar-card{',
+    'background:var(--inbox-paper,var(--cream));',
+    'box-shadow:none;',
+    'border-radius:var(--radius);',
+    '}',
+
+    /* Rail section headers (API group labels, small-caps) */
+    '#inbox-shell .inbox-views-group-label{',
+    'font-variant:small-caps;',
+    'letter-spacing:.14em;',
+    'text-transform:uppercase;',
+    'color:var(--inbox-sage,var(--sage));',
+    'font-size:11px;',
+    'font-weight:700;',
+    '}',
+    '#inbox-shell .inbox-views-item{',
+    'border-radius:var(--radius-sm);',
+    'color:var(--text);',
+    '}',
+    '#inbox-shell .inbox-views-item:hover:not(.is-active){',
+    'background:rgba(47,74,62,.08);',
+    '}',
+    '#inbox-shell .inbox-views-item.is-active{',
+    'background:var(--inbox-forest);',
+    'color:var(--cream);',
+    'border-radius:var(--radius-sm);',
+    '}',
+    '#inbox-shell .inbox-views-item-count{',
+    'color:var(--inbox-sage,var(--sage));',
+    '}',
+    '#inbox-shell .inbox-views-item.is-active .inbox-views-item-count{',
+    'color:var(--cream);',
+    'opacity:.85;',
+    '}',
+    '#inbox-shell .inbox-views-empty{',
+    'color:var(--inbox-sage,var(--sage));',
+    '}',
+
+    /* Name emphasis + sage secondary / dimmed zero-state */
+    '#inbox-shell .conv-card-name,',
+    '#inbox-shell .inbox-guest-name,',
+    '#inbox-shell .detail-name{',
+    'color:var(--inbox-forest);',
+    '}',
+    '#inbox-shell .conv-card-preview,',
+    '#inbox-shell .conv-card-time,',
+    '#inbox-shell .inbox-guest-tags,',
+    '#inbox-shell .detail-meta{',
+    'color:var(--text-2);',
+    '}',
+    '#inbox-shell .inbox-guest-section.is-zero{',
+    'opacity:.45;',
+    'color:var(--inbox-sage,var(--sage));',
+    '}',
+
+    /* Channel pills (slice A) + layout pills: forest primary, cream paper */
+    '#tab-conversations .inbox-shell-channel{',
+    'background:var(--inbox-paper,var(--cream));',
+    'border-color:var(--inbox-sage,var(--sage));',
+    'border-radius:var(--radius-pill,999px);',
+    '}',
+    '#tab-conversations .inbox-shell-channel-select{',
+    'color:var(--inbox-forest);',
+    '}',
+    '#tab-conversations .inbox-layout-presets,',
+    '#tab-conversations .inbox-col-toggles{',
+    'border-radius:var(--radius-pill,999px);',
+    'background:var(--inbox-paper,var(--cream));',
+    '}',
+    '#tab-conversations .inbox-layout-preset-btn,',
+    '#tab-conversations .inbox-col-toggle{',
+    'border-radius:var(--radius-pill,999px);',
+    '}',
+    '#tab-conversations .inbox-layout-preset-btn[aria-pressed="true"],',
+    '#tab-conversations .inbox-layout-preset-btn.is-active{',
+    'background:var(--inbox-forest);',
+    'color:var(--cream);',
+    'border-color:var(--inbox-forest);',
+    '}',
+    '#inbox-shell .inbox-luna-mode-seg{',
+    'border-radius:var(--radius-pill,999px);',
+    'background:var(--inbox-paper,var(--cream));',
+    '}',
+    '#inbox-shell .inbox-luna-mode-btn.is-active{',
+    'background:var(--inbox-forest);',
+    'color:var(--cream);',
+    '}',
+    '#inbox-shell .inbox-luna-mode-btn[data-luna-mode="off"].is-active{',
+    'background:#9C3D3D;',
+    'color:var(--cream);',
+    '}',
+
+    '[data-theme="dark"] #inbox-shell .inbox-views-item.is-active{',
+    'background:var(--inbox-forest);',
+    'color:var(--staff-green-text,#c8dcc8);',
+    '}',
+    '[data-theme="dark"] #inbox-shell .conv-card-name,',
+    '[data-theme="dark"] #inbox-shell .inbox-guest-name,',
+    '[data-theme="dark"] #inbox-shell .detail-name{',
+    'color:var(--staff-green-text,#c8dcc8);',
+    '}',
+    '[data-theme="dark"] #tab-conversations .inbox-layout-preset-btn[aria-pressed="true"],',
+    '[data-theme="dark"] #tab-conversations .inbox-layout-preset-btn.is-active{',
+    'background:var(--inbox-forest);',
+    'color:var(--staff-green-text,#c8dcc8);',
+    '}',
+  ].join('');
+}
+
+function inboxMockupThemeEnsureStyle(){
+  if (typeof document === 'undefined') return;
+  if (document.getElementById(INBOX_MOCKUP_THEME_STYLE_ID)) return;
+  var style = document.createElement('style');
+  style.id = INBOX_MOCKUP_THEME_STYLE_ID;
+  style.textContent = inboxMockupThemeCssText();
+  (document.head || document.documentElement).appendChild(style);
+}
+
 function inboxShellEnsureStyle(){
   if (typeof document === 'undefined') return;
-  if (document.getElementById(INBOX_SHELL_STYLE_ID)) return;
-  var style = document.createElement('style');
-  style.id = INBOX_SHELL_STYLE_ID;
-  style.textContent = inboxShellCssText();
-  (document.head || document.documentElement).appendChild(style);
+  if (!document.getElementById(INBOX_SHELL_STYLE_ID)) {
+    var style = document.createElement('style');
+    style.id = INBOX_SHELL_STYLE_ID;
+    style.textContent = inboxShellCssText();
+    (document.head || document.documentElement).appendChild(style);
+  }
+  inboxMockupThemeEnsureStyle();
 }
 
 function hideInboxDuplicateSchoolSelector(){

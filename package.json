@@ -316,6 +316,7 @@
     "verify:hermes-send-flags": "node scripts/verify-hermes-send-flags.js",
     "verify:inbox-luna-mode-control": "node scripts/verify-inbox-luna-mode-control.js",
     "verify:inbox-shell-channel-defaults": "node scripts/verify-inbox-shell-channel-defaults.js",
+    "verify:inbox-theme": "node scripts/verify-inbox-theme.js",
     "verify:luna-pause-handoff-controls": "node scripts/verify-luna-pause-handoff-controls.js",
     "verify:luna-handoff-lifecycle": "node scripts/verify-luna-handoff-lifecycle.js",
     "verify:luna-needs-human-no-pause": "node scripts/verify-luna-needs-human-no-pause.js",
