@@ -509,6 +509,18 @@ function customerListLimitOffsetParams(opts) {
 }
 
 /**
+ * Keyset paging replaces OFFSET with the three sort-key params, bound after the
+ * page size: $limit, $is_booked, $last_contact_at, $phone.
+ */
+function customerListKeysetParams(opts) {
+  const { limitParam, searchParam } = customerListLimitOffsetParams(opts);
+  return { limitParam, searchParam, keysetParam: limitParam + 1 };
+}
+
+/** Row fields carrying the customer-list sort key, in ORDER BY order. */
+const CUSTOMER_LIST_CURSOR_FIELDS = Object.freeze(['is_booked', 'last_contact_at', 'phone']);
+
+/**
  * Owner of the CRM filter predicates behind ALLOWED_FILTERS. The saved-view
  * registry (staff-inbox-saved-views.js) delegates here instead of restating
  * the booking / payment / waiver business rules.
@@ -557,23 +569,56 @@ function buildCustomerListFilterClause(opts) {
   return filterClause;
 }
 
-function getCustomerListQuery(opts) {
-  const filter = normalizeCustomerFilter(opts && opts.filter);
-  const hasSearch = !!(opts && opts.hasSearch);
-  const locationScoped = !!(opts && opts.locationScoped);
-  const accommodationCrm = !!(opts && opts.accommodationCrm);
-  const surfCrm = !!(opts && opts.surfCrm);
-  const { limitParam, offsetParam, searchParam } = customerListLimitOffsetParams(opts);
+/** Owner of the booked/lead split: projection, ORDER BY and keyset cursor share it. */
+const CUSTOMER_LIST_IS_BOOKED_EXPR = '(COALESCE(ba.booking_count, 0) > 0 OR COALESCE(sa.service_count, 0) > 0)';
 
-  const filterClause = buildCustomerListFilterClause({ filter, accommodationCrm, surfCrm });
+const CUSTOMER_LIST_ORDER_BY_SQL = `ORDER BY
+  ${CUSTOMER_LIST_IS_BOOKED_EXPR} DESC,
+  lc.last_contact_at DESC NULLS LAST,
+  cu.phone ASC`;
 
-  const searchClause = hasSearch
-    ? `AND (
+function customerListSearchClause(opts) {
+  if (!(opts && opts.hasSearch)) return '';
+  const { searchParam } = customerListLimitOffsetParams(opts);
+  return `AND (
       COALESCE(lc.display_name, cu.full_name, '') ILIKE $${searchParam}
       OR COALESCE(lc.email, cu.email, '') ILIKE $${searchParam}
       OR cu.phone ILIKE $${searchParam}
-    )`
-    : '';
+    )`;
+}
+
+/**
+ * Rows strictly after the cursor under CUSTOMER_LIST_ORDER_BY_SQL. NULL
+ * last_contact_at sorts last, so a NULL cursor value only advances on phone.
+ */
+function customerListCursorClause(opts) {
+  const { keysetParam } = customerListKeysetParams(opts);
+  const booked = `$${keysetParam}::boolean`;
+  const contact = `$${keysetParam + 1}::timestamptz`;
+  const phone = `$${keysetParam + 2}::text`;
+  return `AND (
+  ${CUSTOMER_LIST_IS_BOOKED_EXPR} < ${booked}
+  OR (
+    ${CUSTOMER_LIST_IS_BOOKED_EXPR} = ${booked}
+    AND (
+      (${contact} IS NOT NULL AND (lc.last_contact_at IS NULL OR lc.last_contact_at < ${contact}))
+      OR (lc.last_contact_at IS NOT DISTINCT FROM ${contact} AND cu.phone > ${phone})
+    )
+  )
+)`;
+}
+
+/**
+ * The CTE block and FROM/JOIN block behind the customer list. Shared verbatim by
+ * the row query and the one-pass counts query so a view count can never drift
+ * from the rows that view lists.
+ *
+ * @param {{ locationScoped?: boolean, surfCrm?: boolean }} opts
+ * @returns {{ cteSql: string, fromSql: string }}
+ */
+function customerListScanSql(opts) {
+  const locationScoped = !!(opts && opts.locationScoped);
+  const surfCrm = !!(opts && opts.surfCrm);
 
   const locParam = locationScoped ? 2 : null;
   const convLocClause = locationScoped ? `\n    AND ${sqlConversationLocationMatch('conv', locParam)}` : '';
@@ -629,8 +674,7 @@ waiver_pending_agg AS (
     ? '\nLEFT JOIN waiver_pending_agg wp ON wp.phone_digits = cu.phone_digits'
     : '';
 
-  return `
-WITH customer_crm_merged AS (
+  const cteSql = `WITH customer_crm_merged AS (
   SELECT DISTINCT ON (${sqlCustomerPhoneDigits('cu.phone')})
     ${sqlCustomerPhoneDigits('cu.phone')} AS phone_digits,
     COALESCE(
@@ -758,8 +802,21 @@ checked_in_agg AS (
     AND b.check_in <= CURRENT_DATE
     AND b.check_out > CURRENT_DATE${bookingLocClause}
   GROUP BY ${sqlCustomerPhoneDigits('b.phone')}
-)${waiverPendingCte}
-SELECT
+)${waiverPendingCte}`;
+
+  const fromSql = `FROM customer_base cu
+INNER JOIN customer_crm_merged crm ON crm.phone_digits = cu.phone_digits
+LEFT JOIN latest_conv lc ON lc.phone_digits = cu.phone_digits
+LEFT JOIN booking_agg ba ON ba.phone_digits = cu.phone_digits
+LEFT JOIN service_agg sa ON sa.phone_digits = cu.phone_digits
+LEFT JOIN handoff_open ho ON ho.phone_digits = cu.phone_digits
+LEFT JOIN last_service ls ON ls.phone_digits = cu.phone_digits
+LEFT JOIN checked_in_agg cia ON cia.phone_digits = cu.phone_digits${waiverPendingJoin}`;
+
+  return { cteSql, fromSql };
+}
+
+const CUSTOMER_LIST_PROJECTION_SQL = `SELECT
   cu.phone,
   lc.conversation_id,
   COALESCE(lc.display_name, cu.full_name) AS display_name,
@@ -777,25 +834,96 @@ SELECT
   ls.quantity AS last_service_quantity,
   ls.service_date AS last_service_date_detail,
   COALESCE(ho.has_open_handoff, FALSE) AS has_open_handoff,
-  (COALESCE(ba.booking_count, 0) > 0 OR COALESCE(sa.service_count, 0) > 0) AS is_booked,
+  ${CUSTOMER_LIST_IS_BOOKED_EXPR} AS is_booked,
   crm.crm_tags,
-  COALESCE(cia.checked_in_now, FALSE) AS checked_in_now
-FROM customer_base cu
-INNER JOIN customer_crm_merged crm ON crm.phone_digits = cu.phone_digits
-LEFT JOIN latest_conv lc ON lc.phone_digits = cu.phone_digits
-LEFT JOIN booking_agg ba ON ba.phone_digits = cu.phone_digits
-LEFT JOIN service_agg sa ON sa.phone_digits = cu.phone_digits
-LEFT JOIN handoff_open ho ON ho.phone_digits = cu.phone_digits
-LEFT JOIN last_service ls ON ls.phone_digits = cu.phone_digits
-LEFT JOIN checked_in_agg cia ON cia.phone_digits = cu.phone_digits${waiverPendingJoin}
+  COALESCE(cia.checked_in_now, FALSE) AS checked_in_now`;
+
+/**
+ * @param {object} opts
+ * @param {string} [opts.filter] - one of ALLOWED_FILTERS
+ * @param {boolean} [opts.hasSearch]
+ * @param {boolean} [opts.locationScoped]
+ * @param {boolean} [opts.accommodationCrm]
+ * @param {boolean} [opts.surfCrm]
+ * @param {boolean} [opts.keyset] - bound LIMIT with no OFFSET
+ * @param {boolean} [opts.hasCursor] - add the keyset cursor predicate
+ */
+function getCustomerListQuery(opts) {
+  const filter = normalizeCustomerFilter(opts && opts.filter);
+  const accommodationCrm = !!(opts && opts.accommodationCrm);
+  const surfCrm = !!(opts && opts.surfCrm);
+  const keyset = !!(opts && opts.keyset);
+  const hasCursor = keyset && !!(opts && opts.hasCursor);
+  const { limitParam, offsetParam } = customerListLimitOffsetParams(opts);
+  const { cteSql, fromSql } = customerListScanSql(opts);
+  const filterClause = buildCustomerListFilterClause({ filter, accommodationCrm, surfCrm });
+  const cursorSql = hasCursor ? `${customerListCursorClause(opts)}\n` : '';
+  const pageSql = keyset
+    ? `${cursorSql}${CUSTOMER_LIST_ORDER_BY_SQL}
+LIMIT $${limitParam}`
+    : `${CUSTOMER_LIST_ORDER_BY_SQL}
+LIMIT $${limitParam} OFFSET $${offsetParam}`;
+
+  return `
+${cteSql}
+${CUSTOMER_LIST_PROJECTION_SQL}
+${fromSql}
 WHERE 1=1
-${searchClause}
+${customerListSearchClause(opts)}
 ${filterClause}
-ORDER BY
-  (COALESCE(ba.booking_count, 0) > 0 OR COALESCE(sa.service_count, 0) > 0) DESC,
-  lc.last_contact_at DESC NULLS LAST,
-  cu.phone ASC
-LIMIT $${limitParam} OFFSET $${offsetParam}
+${pageSql}
+`;
+}
+
+const COUNT_KEY_RE = /^[a-z][a-z0-9_]{0,60}$/;
+
+/**
+ * One aggregate pass covering every customer-source saved view: the CTEs and the
+ * FROM/JOIN block of the list query are reused verbatim, and each view becomes a
+ * `COUNT(*) FILTER (WHERE <its own list predicate>)` column. N views therefore
+ * cost one query, not N.
+ *
+ * @param {object} opts - customerListScanSql opts plus `views`
+ * @param {Array<{ key: string, filter: string }>} opts.views
+ * @returns {string} SQL ($1 client slug; optional $2 location; optional search param)
+ */
+function getCustomerListCountsQuery(opts) {
+  const views = Array.isArray(opts && opts.views) ? opts.views : [];
+  if (!views.length) {
+    throw new Error('getCustomerListCountsQuery: at least one view is required');
+  }
+  const accommodationCrm = !!(opts && opts.accommodationCrm);
+  const surfCrm = !!(opts && opts.surfCrm);
+  const { cteSql, fromSql } = customerListScanSql(opts);
+
+  const seen = new Set();
+  const columns = views.map((view) => {
+    const key = String((view && view.key) || '');
+    if (!COUNT_KEY_RE.test(key)) {
+      throw new Error(`getCustomerListCountsQuery: invalid count key ${JSON.stringify(key)}`);
+    }
+    if (seen.has(key)) {
+      throw new Error(`getCustomerListCountsQuery: duplicate count key ${JSON.stringify(key)}`);
+    }
+    seen.add(key);
+    const predicate = buildCustomerListFilterClause({
+      filter: view.filter,
+      accommodationCrm,
+      surfCrm,
+    }).replace(/^AND\s+/, '');
+    // Quoted because view ids are free to collide with reserved words ("all").
+    return predicate
+      ? `  COUNT(*) FILTER (WHERE ${predicate})::int AS "${key}"`
+      : `  COUNT(*)::int AS "${key}"`;
+  });
+
+  return `
+${cteSql}
+SELECT
+${columns.join(',\n')}
+${fromSql}
+WHERE 1=1
+${customerListSearchClause(opts)}
 `;
 }
 
@@ -1151,33 +1279,115 @@ async function createCustomerConversation(pg, clientSlug, phone, opts = {}) {
   };
 }
 
-function buildCustomerListParams(clientSlug, query) {
-  const filter = normalizeCustomerFilter(query.filter);
-  const limit = clampLimit(query.limit);
-  const offset = clampOffset(query.offset);
-  const q = String(query.q || query.query || '').trim();
+/**
+ * Tenant / location / search scope shared by the list, keyset and counts params.
+ * `params` holds $1 (client slug), the optional location and the optional search
+ * term — everything before the paging params.
+ */
+function buildCustomerListScope(clientSlug, query) {
+  const src = query && typeof query === 'object' ? query : {};
+  const filter = normalizeCustomerFilter(src.filter);
+  const q = String(src.q || src.query || '').trim();
   const hasSearch = q.length > 0;
-  const locationId = (clientSlug === SUNSET_CLIENT_SLUG && query && query.location)
-    ? normalizeSunsetLocationId(query.location)
+  const locationId = (clientSlug === SUNSET_CLIENT_SLUG && src.location)
+    ? normalizeSunsetLocationId(src.location)
     : null;
   const locationScoped = !!locationId;
   const params = [clientSlug];
   if (locationScoped) params.push(locationId);
   if (hasSearch) params.push(`%${q.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`);
-  params.push(limit, offset);
   const accommodationCrm = isAccommodationCrmClient(clientSlug);
-  const surfCrm = !accommodationCrm;
+  return {
+    filter,
+    q,
+    hasSearch,
+    locationId,
+    locationScoped,
+    accommodationCrm,
+    surfCrm: !accommodationCrm,
+    params,
+  };
+}
+
+function normalizeCustomerListCursor(raw) {
+  const src = raw && typeof raw === 'object' ? raw : null;
+  const phone = src ? String(src.phone == null ? '' : src.phone).trim() : '';
+  if (!phone) return null;
+  const contact = src.last_contact_at == null || src.last_contact_at === ''
+    ? null
+    : String(src.last_contact_at);
+  return { is_booked: !!src.is_booked, last_contact_at: contact, phone };
+}
+
+/**
+ * @param {string} clientSlug
+ * @param {object} query - filter, q, limit, offset, location
+ * @param {{ keyset?: boolean, cursor?: object|null }} [opts] - keyset paging drops
+ *   OFFSET; a cursor also adds the sort-key predicate
+ */
+function buildCustomerListParams(clientSlug, query, opts) {
+  const scope = buildCustomerListScope(clientSlug, query);
+  const { filter, hasSearch, locationScoped, accommodationCrm, surfCrm } = scope;
+  const limit = clampLimit(query.limit);
+  const offset = clampOffset(query.offset);
+  const rawCursor = opts && opts.cursor;
+  const cursor = rawCursor ? normalizeCustomerListCursor(rawCursor) : null;
+  if (rawCursor && !cursor) {
+    throw new Error('buildCustomerListParams: invalid cursor');
+  }
+  const keyset = !!(cursor || (opts && opts.keyset));
+  const params = scope.params.slice();
+  if (keyset) {
+    params.push(limit);
+    if (cursor) params.push(cursor.is_booked, cursor.last_contact_at, cursor.phone);
+  } else {
+    params.push(limit, offset);
+  }
   return {
     filter,
     limit,
     offset,
     hasSearch,
     locationScoped,
-    locationId,
+    locationId: scope.locationId,
     accommodationCrm,
     surfCrm,
+    keyset,
+    cursor,
     params,
-    sql: getCustomerListQuery({ filter, hasSearch, locationScoped, accommodationCrm, surfCrm }),
+    sql: getCustomerListQuery({
+      filter,
+      hasSearch,
+      locationScoped,
+      accommodationCrm,
+      surfCrm,
+      keyset,
+      hasCursor: !!cursor,
+    }),
+  };
+}
+
+/**
+ * @param {string} clientSlug
+ * @param {object} query - location and optional q; paging is irrelevant to counts
+ * @param {Array<{ key: string, filter: string }>} views
+ */
+function buildCustomerListCountsParams(clientSlug, query, views) {
+  const scope = buildCustomerListScope(clientSlug, query);
+  return {
+    hasSearch: scope.hasSearch,
+    locationScoped: scope.locationScoped,
+    locationId: scope.locationId,
+    accommodationCrm: scope.accommodationCrm,
+    surfCrm: scope.surfCrm,
+    params: scope.params.slice(),
+    sql: getCustomerListCountsQuery({
+      views,
+      hasSearch: scope.hasSearch,
+      locationScoped: scope.locationScoped,
+      accommodationCrm: scope.accommodationCrm,
+      surfCrm: scope.surfCrm,
+    }),
   };
 }
 
@@ -1208,7 +1418,16 @@ module.exports = {
   clampLimit,
   clampOffset,
   buildCustomerListFilterClause,
+  customerListLimitOffsetParams,
+  customerListKeysetParams,
+  customerListScanSql,
+  CUSTOMER_LIST_CURSOR_FIELDS,
+  CUSTOMER_LIST_IS_BOOKED_EXPR,
+  CUSTOMER_LIST_ORDER_BY_SQL,
   getCustomerListQuery,
+  getCustomerListCountsQuery,
+  buildCustomerListScope,
+  buildCustomerListCountsParams,
   getCustomerContextQuery,
   getCustomerBookingsQuery,
   getCustomerServiceRecordsQuery,

@@ -69,14 +69,89 @@ function detailLocationWhereClause(scoped, paramIndex = 3) {
   return scoped ? `\n  AND ${sqlConversationLocationMatch('conv', paramIndex)}` : '';
 }
 
+/** Handoff urgency rank — owner of the inbox sort, the projection and the cursor. */
+const CONVERSATION_INBOX_PRIORITY_RANK_SQL = `CASE h.priority
+    WHEN 'urgent' THEN 0 WHEN 'high' THEN 1
+    WHEN 'normal' THEN 2 ELSE 4
+  END`;
+
+/** Row fields carrying the inbox sort key, in ORDER BY order. */
+const CONVERSATION_INBOX_CURSOR_FIELDS = Object.freeze([
+  'needs_human',
+  'handoff_priority_rank',
+  'last_activity',
+  'conversation_id',
+]);
+
 /**
- * @param {{ locationScoped?: boolean, channelScoped?: boolean }} [opts]
+ * Tenant, status, location and channel scope of the inbox. The row query and the
+ * counts query share this verbatim so a view count cannot cover a different set
+ * of conversations than the view lists.
+ */
+function conversationInboxWhereSql(scoped, channelScoped) {
+  return `WHERE c.slug = $1
+  AND conv.status IN ('open', 'on_hold')${inboxLocationWhereClause(scoped)}${inboxChannelWhereClause(channelScoped, conversationInboxChannelParamIndex(scoped))}`;
+}
+
+/**
+ * Rows strictly after the cursor under the inbox ORDER BY. conv.id breaks ties so
+ * a page boundary cannot repeat or skip a thread when a new message lands.
+ */
+function conversationInboxCursorClause(paramIndex) {
+  const attention = `$${paramIndex}::boolean`;
+  const rank = `$${paramIndex + 1}::int`;
+  const activity = `$${paramIndex + 2}::timestamptz`;
+  const id = `$${paramIndex + 3}::uuid`;
+  return `
+  AND (
+    conv.needs_human < ${attention}
+    OR (
+      conv.needs_human = ${attention}
+      AND (
+        (${CONVERSATION_INBOX_PRIORITY_RANK_SQL}) > ${rank}
+        OR (
+          (${CONVERSATION_INBOX_PRIORITY_RANK_SQL}) = ${rank}
+          AND (
+            conv.updated_at < ${activity}
+            OR (conv.updated_at = ${activity} AND conv.id > ${id})
+          )
+        )
+      )
+    )
+  )`;
+}
+
+/**
+ * @param {object} [opts]
+ * @param {boolean} [opts.locationScoped]
+ * @param {boolean} [opts.channelScoped]
+ * @param {{ limitParamIndex: number, cursorParamIndex?: number|null }} [opts.keyset]
+ *   keyset page: bound LIMIT, tie-broken ORDER BY and the rank column the cursor
+ *   carries, instead of the fixed LIMIT 200 of the legacy inbox list
  * @returns {string} $1 = client slug; when locationScoped, $2 = location_id;
  *   when channelScoped, the next index is the channel value
  */
 function getConversationInboxQuery(opts = {}) {
   const scoped = !!opts.locationScoped;
   const channelScoped = !!opts.channelScoped;
+  const keyset = opts.keyset && typeof opts.keyset === 'object' ? opts.keyset : null;
+  const cursorParamIndex = keyset && keyset.cursorParamIndex ? keyset.cursorParamIndex : null;
+  const rankProjection = keyset
+    ? `\n  ${CONVERSATION_INBOX_PRIORITY_RANK_SQL} AS handoff_priority_rank,`
+    : '';
+  const cursorClause = cursorParamIndex ? conversationInboxCursorClause(cursorParamIndex) : '';
+  const pageSql = keyset
+    ? `ORDER BY
+  conv.needs_human DESC,
+  ${CONVERSATION_INBOX_PRIORITY_RANK_SQL} ASC,
+  conv.updated_at DESC,
+  conv.id ASC
+LIMIT $${keyset.limitParamIndex}`
+    : `ORDER BY
+  conv.needs_human DESC,
+  ${CONVERSATION_INBOX_PRIORITY_RANK_SQL} ASC,
+  conv.updated_at DESC
+LIMIT 200`;
   return `
 SELECT
   conv.id::text              AS conversation_id,
@@ -92,7 +167,7 @@ SELECT
   conv.updated_at            AS last_activity,
   CASE WHEN conv.metadata->>'open_phone_testing' = 'true' THEN TRUE ELSE FALSE END AS open_phone_testing,
   conv.metadata->>'guest_tester_class' AS guest_tester_class,
-${inboxChannelFieldsSql()}
+${inboxChannelFieldsSql()}${rankProjection}
   h.reason_code              AS handoff_reason,
   h.priority                 AS handoff_priority,
   h.status::text             AS handoff_status,
@@ -132,16 +207,56 @@ LEFT JOIN LATERAL (
   ORDER BY bk.created_at DESC
   LIMIT 1
 ) bphone ON TRUE
-WHERE c.slug = $1
-  AND conv.status IN ('open', 'on_hold')${inboxLocationWhereClause(scoped)}${inboxChannelWhereClause(channelScoped, conversationInboxChannelParamIndex(scoped))}
-ORDER BY
-  conv.needs_human DESC,
-  CASE h.priority
-    WHEN 'urgent' THEN 0 WHEN 'high' THEN 1
-    WHEN 'normal' THEN 2 ELSE 4
-  END ASC,
-  conv.updated_at DESC
-LIMIT 200
+${conversationInboxWhereSql(scoped, channelScoped)}${cursorClause}
+${pageSql}
+`;
+}
+
+/**
+ * One aggregate pass covering every conversation-source saved view. The channel
+ * views become `COUNT(*) FILTER (WHERE <channel> = $n)` columns over the same
+ * scan, so the rail costs one query here no matter how many channels exist.
+ *
+ * The list query's LEFT JOIN LATERALs are omitted: each yields at most one row,
+ * so they cannot change the count.
+ *
+ * @param {object} opts
+ * @param {boolean} [opts.locationScoped]
+ * @param {Array<{ key: string, channel: string|null }>} opts.columns - channel
+ *   null counts every conversation in scope
+ * @returns {string} SQL ($1 client slug; optional $2 location; then one param per
+ *   channel column, in column order)
+ */
+function getConversationInboxCountsQuery(opts) {
+  const scoped = !!(opts && opts.locationScoped);
+  const columns = Array.isArray(opts && opts.columns) ? opts.columns : [];
+  if (!columns.length) {
+    throw new Error('getConversationInboxCountsQuery: at least one column is required');
+  }
+  let channelParam = conversationInboxChannelParamIndex(scoped);
+  const seen = new Set();
+  const selected = columns.map((column) => {
+    const key = String((column && column.key) || '');
+    if (!/^[a-z][a-z0-9_]{0,60}$/.test(key)) {
+      throw new Error(`getConversationInboxCountsQuery: invalid count key ${JSON.stringify(key)}`);
+    }
+    if (seen.has(key)) {
+      throw new Error(`getConversationInboxCountsQuery: duplicate count key ${JSON.stringify(key)}`);
+    }
+    seen.add(key);
+    // Quoted because view ids are free to collide with reserved words ("all").
+    if (!column.channel) return `  COUNT(*)::int AS "${key}"`;
+    const idx = channelParam;
+    channelParam += 1;
+    return `  COUNT(*) FILTER (WHERE ${sqlConversationChannelExpr('conv')} = $${idx})::int AS "${key}"`;
+  });
+
+  return `
+SELECT
+${selected.join(',\n')}
+FROM conversations conv
+INNER JOIN clients c ON c.id = conv.client_id
+${conversationInboxWhereSql(scoped, false)}
 `;
 }
 
@@ -596,7 +711,12 @@ module.exports = {
   DEFAULT_SUNSET_LOCATION_ID,
   sqlConversationChannelExpr,
   conversationInboxChannelParamIndex,
+  conversationInboxWhereSql,
+  conversationInboxCursorClause,
+  CONVERSATION_INBOX_CURSOR_FIELDS,
+  CONVERSATION_INBOX_PRIORITY_RANK_SQL,
   getConversationInboxQuery,
+  getConversationInboxCountsQuery,
   getConversationDetailQuery,
   getConversationMessagesQuery,
   projectStaffInboxThreadMessage,
