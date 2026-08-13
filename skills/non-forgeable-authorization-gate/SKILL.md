@@ -7,7 +7,20 @@ license: "MIT"
 metadata:
   repo: "github.com/tywoods/wolfhouse"
   tags: ["security", "authorization", "cli", "review"]
+  hermes:
+    surface: "cli"
+    audience: ["captain", "deckhand", "seadog"]
+    risk: "high"
 ---
+
+# Non-forgeable authorization gate
+
+Overview: how to gate a privileged CLI/script action — deploy, ship, close,
+merge, mark-done, admin ops — so a caller cannot bypass the boundary. The one
+rule under everything here: **a value the caller can set is never an
+authorization check.** Real gates compare a signal the caller cannot forge
+(platform-reported identity, or a secret the caller lacks) and are layered on
+top of code- and runtime-integrity controls that must exist independently.
 
 ## When to use
 
@@ -122,3 +135,44 @@ who authenticate as *their own* principal. It does NOT defend against a caller
 who already holds the Captain principal's credential — and, per the code-
 integrity note above, it only enforces at all when the gate's own code is
 protected from unilateral change.
+
+## Common Pitfalls
+
+- **Presence check masquerading as auth.** `if (process.env.X)` / `if (flag)` —
+  the caller sets X or the flag. Never a boundary.
+- **Optional identity check.** `if (expected) { verify }` is bypassable by leaving
+  `expected` unset. Require it first, then verify; refuse if absent.
+- **Expected principal from caller-controlled input.** If the *expected* identity
+  comes from env/flag/header, a caller sets it to their own identity and matches
+  themselves. Source the expected principal from committed code or trusted config.
+- **Committed literal assumed self-sufficient.** A hardcoded expected identity only
+  enforces if the gate's code is integrity-protected (branch protection/CODEOWNERS)
+  and the runtime executes the protected version. Otherwise it is advisory.
+- **Test seam that leaks to production.** A test-only override keyed on another
+  caller-settable var (`FLEET_TEST=1`) reintroduces the bypass. Drive tests through
+  a mockable boundary (mock `gh`/REST), not a production-readable env override.
+- **Assuming the threat's capabilities instead of checking.** "Workers can't
+  authenticate as X" is environment-specific and changes. Verify the live
+  credential identities before relying on the gate.
+- **Over-claiming scope.** An identity gate does not stop a caller who already
+  holds the privileged credential. State the residual risk.
+
+## Verification Checklist
+
+- [ ] The expected principal is sourced from committed code / trusted config, not
+      from any caller-settable env var, flag, or header.
+- [ ] The check compares the *platform-reported* identity (or a caller-unknowable
+      secret), not a value the caller supplied.
+- [ ] The check is mandatory: missing expected-principal config → REFUSE, never
+      fall through to allowed.
+- [ ] No test-only override is readable in production (no `FLEET_TEST`-style seam
+      that lowers the bar).
+- [ ] Code integrity is in place for the gate's file (branch protection +
+      required review/CODEOWNERS) — or the literal is documented as advisory only.
+- [ ] Live credential identities were checked: Captain runtime and each threat
+      principal, with the creds they actually hold.
+- [ ] A regression test exercises the named bypass (caller supplies an arbitrary
+      token/flag/expected-login but is NOT the authorized identity) and asserts the
+      action is REFUSED and its side effect did not fire.
+- [ ] The authorized path (correct platform identity + valid state) is tested and
+      passes.
