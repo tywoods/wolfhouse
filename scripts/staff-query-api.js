@@ -20232,11 +20232,14 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 .inbox-channel-autonomy-slot{flex:0 0 auto;width:100%}
 .inbox-channel-autonomy-slot .inbox-shell-channel-defaults{width:100%;box-sizing:border-box}
-.inbox-global-pause{display:flex;align-items:center;gap:8px;width:100%;max-width:100%;box-sizing:border-box;padding:0;margin:0;border:none;background:transparent;white-space:nowrap}
-.inbox-global-pause .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;width:auto;margin:0;padding:0;cursor:pointer;white-space:nowrap}
-.inbox-global-pause .tabs-global-pause-label{font-size:11px;font-weight:600;color:var(--text-2);white-space:nowrap}
+.inbox-global-pause{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;gap:8px;width:max-content;max-width:100%;box-sizing:border-box;padding:0;margin:0;border:none;background:transparent;white-space:nowrap}
+.inbox-global-pause .tabs-global-pause-toggle{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;justify-content:flex-start;gap:8px;width:max-content;margin:0;padding:0;cursor:pointer;white-space:nowrap}
+.inbox-global-pause .tabs-global-pause-label{flex:0 0 auto;display:inline;font-size:10px;font-weight:600;letter-spacing:.02em;color:var(--text-2);white-space:nowrap}
+.inbox-global-pause .luna-global-pause-switch{flex:0 0 34px;width:34px!important;height:20px!important}
+.inbox-global-pause .luna-global-pause-slider:before{height:16px;width:16px;left:2px;bottom:2px}
+.inbox-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(14px)}
 .inbox-global-pause .tabs-global-pause-help,.inbox-global-pause #luna-global-pause-status{display:none!important}
-.inbox-toolbar-channels{display:flex;align-items:center;gap:8px;min-width:0}
+.inbox-toolbar-channels{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;gap:8px;min-width:0}
 .inbox-views-group{display:flex;flex-direction:column;gap:2px}
 .inbox-views-group-label{
   font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--text-2);
@@ -21185,7 +21188,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div class="inbox-toolbar-channels" id="inbox-toolbar-channels">
         <select id="c-client" title="Company" class="inbox-client-select"></select>
         <span id="inbox-live-status" class="inbox-live-status" aria-live="polite">Live</span>
-        <div class="tabs-global-pause luna-global-pause-card inbox-global-pause" id="cc-luna-global-pause">
+        <div class="tabs-global-pause inbox-global-pause" id="cc-luna-global-pause">
           <label class="tabs-global-pause-toggle" for="luna-global-pause-switch">
             <span class="tabs-global-pause-label">Global Pause Luna:</span>
             <span class="luna-global-pause-switch">
