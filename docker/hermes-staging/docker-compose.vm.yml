@@ -20,6 +20,10 @@ services:
     env_file:
       - /etc/hermes-orchestrator.env
 
+  # Guest WhatsApp. The two kill switches live in /etc/hermes-luna.env, deliberately
+  # not here: Luna will not send unless WHATSAPP_DRY_RUN=false AND
+  # LUNA_AUTO_SEND_ENABLED=true, both as those literal strings. Unset means dry run.
+  # See docs/LUNA-SEND-KILL-SWITCH.md.
   hermes-luna:
     image: ${HERMES_IMAGE:?HERMES_IMAGE must be set to whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>}
     container_name: hermes-luna
