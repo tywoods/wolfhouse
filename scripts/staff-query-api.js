@@ -82,6 +82,7 @@ const {
   buildDefaultActivePauseResponse,
   buildPausedStateResponse,
 } = require('./lib/staff-inbox-helpers');
+const { createBotPauseStateRoutes } = require('./lib/staff-bot-pause-state-handler');
 const { fetchSunsetFinanceData, FinanceDataQualityError } = require('./lib/sunset-finance-data');
 const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
 const { createBookingsAdminRoutes } = require('./lib/sunset-bookings-admin-routes');
@@ -2632,6 +2633,17 @@ const inboxThreadCompositeRoutes = createInboxThreadCompositeRoutes({
   buildDefaultActivePauseResponse,
 });
 const { handleInboxThreadComposite } = inboxThreadCompositeRoutes;
+
+// Bot pause-state GET route (extracted for verifier route-level parity).
+const botPauseStateRoutes = createBotPauseStateRoutes({
+  sendJSON,
+  send400,
+  withPgClient,
+  appendAuditLog,
+  DEFAULT_CLIENT,
+  SQL_INJECT_RE,
+});
+const { handleBotPauseStateGet } = botPauseStateRoutes;
 
 // Inbox saved-view rail + list (extracted module). Counts for the whole rail are
 // two aggregate passes behind a short TTL cache, not one COUNT per view; viewer
@@ -11377,77 +11389,6 @@ async function handleBotEffectivePauseState(req, res, user, authMode) {
       live_send_blocked: true,
       can_continue_guest_automation: false,
     });
-  }
-}
-
-async function handleBotPauseStateGet(query, res, user) {
-  const started = Date.now();
-  const clientSlug = String(query.client_slug || query.client || DEFAULT_CLIENT).trim();
-  const conversationId = query.conversation_id != null
-    ? String(query.conversation_id).trim() || null
-    : null;
-  const guestPhone = query.guest_phone != null
-    ? String(query.guest_phone).trim() || null
-    : null;
-  const bookingCode = query.booking_code != null
-    ? String(query.booking_code).trim() || null
-    : null;
-
-  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
-    return send400(res, 'client_slug is required');
-  }
-  if (!conversationId && !guestPhone && !bookingCode) {
-    return send400(res, 'conversation_id, guest_phone, or booking_code is required');
-  }
-
-  try {
-    const result = await withPgClient((pg) => getPauseState(pg, {
-      client_slug:     clientSlug,
-      conversation_id: conversationId,
-      guest_phone:     guestPhone,
-      booking_code:    bookingCode,
-    }));
-
-    appendAuditLog(Object.assign({
-      ts: new Date().toISOString(),
-      intent: 'api:bot.pause-state',
-      category: 'bot_pause_api',
-      client_slug: clientSlug,
-      success: true,
-      paused: !!result.row,
-      source: result.row ? 'bot_pause_states' : 'default_active',
-      table_missing: !!result.table_missing,
-      elapsed_ms: Date.now() - started,
-    }, user ? { staff_user_id: user.staff_user_id } : {}));
-
-    if (result.row) {
-      return sendJSON(res, 200, buildPausedStateResponse(result.row));
-    }
-
-    return sendJSON(res, 200, buildDefaultActivePauseResponse({
-      client_slug: clientSlug,
-      guest_phone: guestPhone,
-      conversation_id: conversationId,
-      booking_code: bookingCode,
-      table_missing: result.table_missing || false,
-    }));
-  } catch (err) {
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:bot.pause-state',
-      category: 'bot_pause_api',
-      client_slug: clientSlug,
-      success: false,
-      error: err.message,
-      elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 200, buildDefaultActivePauseResponse({
-      client_slug: clientSlug,
-      guest_phone: guestPhone,
-      conversation_id: conversationId,
-      booking_code: bookingCode,
-      lookup_error: true,
-    }));
   }
 }
 
