@@ -75,6 +75,14 @@ const {
 const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(process.env);
 
 const { withPgClient: _withPgClientImpl, markPgClientDiscardRequired } = require('./lib/pg-connect');
+const {
+  isInactiveInboxBookingStatus,
+  filterActiveInboxBookings,
+  sanitizeConversationContextForInbox,
+  buildDefaultActivePauseResponse,
+  buildPausedStateResponse,
+} = require('./lib/staff-inbox-helpers');
+const { createBotPauseStateRoutes } = require('./lib/staff-bot-pause-state-handler');
 const { fetchSunsetFinanceData, FinanceDataQualityError } = require('./lib/sunset-finance-data');
 const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
 const { createBookingsAdminRoutes } = require('./lib/sunset-bookings-admin-routes');
@@ -2625,6 +2633,17 @@ const inboxThreadCompositeRoutes = createInboxThreadCompositeRoutes({
   buildDefaultActivePauseResponse,
 });
 const { handleInboxThreadComposite } = inboxThreadCompositeRoutes;
+
+// Bot pause-state GET route (extracted for verifier route-level parity).
+const botPauseStateRoutes = createBotPauseStateRoutes({
+  sendJSON,
+  send400,
+  withPgClient,
+  appendAuditLog,
+  DEFAULT_CLIENT,
+  SQL_INJECT_RE,
+});
+const { handleBotPauseStateGet } = botPauseStateRoutes;
 
 // Inbox saved-view rail + list (extracted module). Counts for the whole rail are
 // two aggregate passes behind a short TTL cache, not one COUNT per view; viewer
@@ -11057,38 +11076,8 @@ function botPauseControlsDisabledResponse() {
   };
 }
 
-function buildDefaultActivePauseResponse(extra) {
-  return Object.assign({
-    success:           true,
-    paused:            false,
-    bot_paused:        false,
-    live_send_blocked: false,
-    source:            'default_active',
-  }, extra || {});
-}
-
-function buildPausedStateResponse(pauseStateRow, extra) {
-  const pauseState = formatPauseStateRow(pauseStateRow);
-  return Object.assign({
-    success:           true,
-    paused:            true,
-    bot_paused:        true,
-    live_send_blocked: true,
-    source:            'bot_pause_states',
-    pause_state:       pauseState,
-    client_slug:       pauseState ? pauseState.client_slug : undefined,
-    guest_phone:       pauseState ? pauseState.guest_phone : undefined,
-    conversation_id:   pauseState ? pauseState.conversation_id : undefined,
-    booking_id:        pauseState ? pauseState.booking_id : undefined,
-    booking_code:      pauseState ? pauseState.booking_code : undefined,
-    pause_reason:      pauseState ? pauseState.pause_reason : undefined,
-    paused_by:         pauseState ? pauseState.paused_by : undefined,
-    paused_at:         pauseState ? pauseState.paused_at : undefined,
-    resumed_by:        pauseState ? pauseState.resumed_by : undefined,
-    resumed_at:        pauseState ? pauseState.resumed_at : undefined,
-    updated_at:        pauseState ? pauseState.updated_at : undefined,
-  }, extra || {});
-}
+// buildDefaultActivePauseResponse and buildPausedStateResponse are imported
+// from ./lib/staff-inbox-helpers.js (shared with composite and verifier).
 
 function resolveStaffActorId(user, body, fallback) {
   if (user && user.staff_user_id) return user.staff_user_id;
@@ -11400,77 +11389,6 @@ async function handleBotEffectivePauseState(req, res, user, authMode) {
       live_send_blocked: true,
       can_continue_guest_automation: false,
     });
-  }
-}
-
-async function handleBotPauseStateGet(query, res, user) {
-  const started = Date.now();
-  const clientSlug = String(query.client_slug || query.client || DEFAULT_CLIENT).trim();
-  const conversationId = query.conversation_id != null
-    ? String(query.conversation_id).trim() || null
-    : null;
-  const guestPhone = query.guest_phone != null
-    ? String(query.guest_phone).trim() || null
-    : null;
-  const bookingCode = query.booking_code != null
-    ? String(query.booking_code).trim() || null
-    : null;
-
-  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
-    return send400(res, 'client_slug is required');
-  }
-  if (!conversationId && !guestPhone && !bookingCode) {
-    return send400(res, 'conversation_id, guest_phone, or booking_code is required');
-  }
-
-  try {
-    const result = await withPgClient((pg) => getPauseState(pg, {
-      client_slug:     clientSlug,
-      conversation_id: conversationId,
-      guest_phone:     guestPhone,
-      booking_code:    bookingCode,
-    }));
-
-    appendAuditLog(Object.assign({
-      ts: new Date().toISOString(),
-      intent: 'api:bot.pause-state',
-      category: 'bot_pause_api',
-      client_slug: clientSlug,
-      success: true,
-      paused: !!result.row,
-      source: result.row ? 'bot_pause_states' : 'default_active',
-      table_missing: !!result.table_missing,
-      elapsed_ms: Date.now() - started,
-    }, user ? { staff_user_id: user.staff_user_id } : {}));
-
-    if (result.row) {
-      return sendJSON(res, 200, buildPausedStateResponse(result.row));
-    }
-
-    return sendJSON(res, 200, buildDefaultActivePauseResponse({
-      client_slug: clientSlug,
-      guest_phone: guestPhone,
-      conversation_id: conversationId,
-      booking_code: bookingCode,
-      table_missing: result.table_missing || false,
-    }));
-  } catch (err) {
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:bot.pause-state',
-      category: 'bot_pause_api',
-      client_slug: clientSlug,
-      success: false,
-      error: err.message,
-      elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 200, buildDefaultActivePauseResponse({
-      client_slug: clientSlug,
-      guest_phone: guestPhone,
-      conversation_id: conversationId,
-      booking_code: bookingCode,
-      lookup_error: true,
-    }));
   }
 }
 
@@ -42032,31 +41950,9 @@ async function handleConversationMessages(convId, query, res, user) {
   return sendJSON(res, 200, { success: true, messages: rows, count: rows.length, elapsed_ms: elapsed });
 }
 
-function isInactiveInboxBookingStatusServer(status) {
-  const s = String(status || '').toLowerCase();
-  return s === 'cancelled' || s === 'canceled' || s === 'expired';
-}
-
-function filterActiveInboxBookings(rows) {
-  return (rows || []).filter((b) => !isInactiveInboxBookingStatusServer(b.booking_status));
-}
-
-function sanitizeConversationContextForInbox(row) {
-  if (!row || !isInactiveInboxBookingStatusServer(row.booking_status)) return row;
-  return {
-    ...row,
-    booking_id: null,
-    booking_code: null,
-    booking_status: null,
-    booking_payment_status: null,
-    check_in: null,
-    check_out: null,
-    guest_count: null,
-    package_code: null,
-    assigned_room_code: null,
-    assigned_bed_code: null,
-  };
-}
+// isInactiveInboxBookingStatus, filterActiveInboxBookings, and
+// sanitizeConversationContextForInbox are imported from ./lib/staff-inbox-helpers.js
+// (shared with composite and verifier).
 
 async function handleConversationContext(convId, query, res, user) {
   const started    = Date.now();

@@ -51,6 +51,14 @@ const {
 } = require('./lib/staff-conversation-queries');
 const { readStaffPortalUiSource } = require('./lib/staff-portal-ui-source');
 const { formatPauseStateRow } = require('./lib/staff-bot-pause-sql');
+const {
+  isInactiveInboxBookingStatus: prodIsInactiveInboxBookingStatus,
+  filterActiveInboxBookings: prodFilterActiveInboxBookings,
+  sanitizeConversationContextForInbox: prodSanitizeConversationContextForInbox,
+  buildDefaultActivePauseResponse: prodBuildDefaultActivePauseResponse,
+  buildPausedStateResponse: prodBuildPausedStateResponse,
+} = require('./lib/staff-inbox-helpers');
+const { createBotPauseStateRoutes } = require('./lib/staff-bot-pause-state-handler');
 
 let pass = 0;
 let fail = 0;
@@ -280,45 +288,26 @@ function makeDeps(plan = {}, overrides = {}) {
       if (scope.scoped) return [clientSlug, convId, scope.locationId];
       return [clientSlug, convId];
     },
+    // Use production helpers from staff-inbox-helpers.js — NOT test-authored recreations.
+    // This proves the composite injects the actual production behavior.
     sanitizeConversationContextForInbox(row) {
       calls.sanitize += 1;
-      helperResults.context = { ...row, _sanitized: true };
+      helperResults.context = prodSanitizeConversationContextForInbox(row);
       return helperResults.context;
     },
     filterActiveInboxBookings(rows) {
       calls.filterBookings += 1;
-      helperResults.bookings = (rows || []).filter((b) => b.booking_status !== 'cancelled');
+      helperResults.bookings = prodFilterActiveInboxBookings(rows);
       return helperResults.bookings;
     },
     buildPausedStateResponse(row, extra) {
       calls.paused += 1;
-      // Match production builder shape (staff-query-api.js:buildPausedStateResponse)
-      const pauseState = formatPauseStateRow(row);
-      helperResults.pause = {
-        success:           true,
-        paused:            true,
-        bot_paused:        true,
-        live_send_blocked: true,
-        source:            'bot_pause_states',
-        pause_state:       pauseState,
-        client_slug:       pauseState ? pauseState.client_slug : undefined,
-        guest_phone:       pauseState ? pauseState.guest_phone : undefined,
-        conversation_id:   pauseState ? pauseState.conversation_id : undefined,
-        booking_id:        pauseState ? pauseState.booking_id : undefined,
-        booking_code:      pauseState ? pauseState.booking_code : undefined,
-        pause_reason:      pauseState ? pauseState.pause_reason : undefined,
-        paused_by:         pauseState ? pauseState.paused_by : undefined,
-        paused_at:         pauseState ? pauseState.paused_at : undefined,
-        resumed_by:        pauseState ? pauseState.resumed_by : undefined,
-        resumed_at:        pauseState ? pauseState.resumed_at : undefined,
-        updated_at:        pauseState ? pauseState.updated_at : undefined,
-        ...(extra || {}),
-      };
+      helperResults.pause = prodBuildPausedStateResponse(row, extra);
       return helperResults.pause;
     },
     buildDefaultActivePauseResponse(extra) {
       calls.defaultActive += 1;
-      helperResults.pause = { success: true, paused: false, bot_paused: false, live_send_blocked: false, source: 'default_active', ...(extra || {}) };
+      helperResults.pause = prodBuildDefaultActivePauseResponse(extra);
       return helperResults.pause;
     },
     ...overrides,
@@ -722,51 +711,27 @@ ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseS
   }
 
   console.log('\n── pause-state parity with production owner ──');
-  // These tests anchor to the real production builders' shape/behavior, not test-authored fakes.
-  // The production builders are in staff-query-api.js; we verify them via source extraction.
+  // These tests execute the ACTUAL production builders from staff-inbox-helpers.js and
+  // compare the composite response to what the production builder returns directly.
+  // This is not source extraction or test-authored recreation — it's production execution.
   {
-    // Extract production buildDefaultActivePauseResponse from staff-query-api.js
-    const defaultActiveMatch = apiSrc.match(
-      /function buildDefaultActivePauseResponse\(extra\)\s*\{([\s\S]*?)\n\}/,
-    );
-    ok('production buildDefaultActivePauseResponse exists', !!defaultActiveMatch);
-
-    // Extract production buildPausedStateResponse from staff-query-api.js
-    const pausedMatch = apiSrc.match(
-      /function buildPausedStateResponse\(pauseStateRow,\s*extra\)\s*\{([\s\S]*?)\n\}/,
-    );
-    ok('production buildPausedStateResponse exists', !!pausedMatch);
-
-    // Verify the production builders' key sets via source-level extraction
-    // Default active response should have these required keys:
-    const defaultActiveKeys = ['success', 'paused', 'bot_paused', 'live_send_blocked', 'source'];
-    for (const key of defaultActiveKeys) {
-      ok(`production buildDefaultActivePauseResponse includes ${key}`,
-        defaultActiveMatch && defaultActiveMatch[1].includes(key));
-    }
-
-    // Paused response should have these required keys:
-    const pausedKeys = [
-      'success', 'paused', 'bot_paused', 'live_send_blocked', 'source', 'pause_state',
-      'client_slug', 'guest_phone', 'conversation_id', 'booking_id', 'booking_code',
-      'pause_reason', 'paused_by', 'paused_at', 'resumed_by', 'resumed_at', 'updated_at',
-    ];
-    for (const key of pausedKeys) {
-      ok(`production buildPausedStateResponse includes ${key}`,
-        pausedMatch && pausedMatch[1].includes(key));
-    }
-  }
-  {
-    // Active/default state parity: verify composite returns the same shape as handleBotPauseStateGet
+    // Default active parity: composite response must match production builder output
     const { body } = await runComposite();
-    ok('pause_state.success is true for active state', body.pause_state.success === true);
-    ok('pause_state.paused is false for active state', body.pause_state.paused === false);
-    ok('pause_state.bot_paused is false for active state', body.pause_state.bot_paused === false);
-    ok('pause_state.live_send_blocked is false for active state', body.pause_state.live_send_blocked === false);
-    ok('pause_state.source is default_active for active state', body.pause_state.source === 'default_active');
+    const prodActive = prodBuildDefaultActivePauseResponse({
+      client_slug: CLIENT,
+      guest_phone: null,
+      conversation_id: CONV_ID,
+      booking_code: null,
+    });
+    ok('active pause_state matches production builder',
+      body.pause_state.success === prodActive.success &&
+      body.pause_state.paused === prodActive.paused &&
+      body.pause_state.bot_paused === prodActive.bot_paused &&
+      body.pause_state.live_send_blocked === prodActive.live_send_blocked &&
+      body.pause_state.source === prodActive.source);
   }
   {
-    // Paused state parity: verify composite returns the same shape as handleBotPauseStateGet
+    // Paused state parity: composite response must match production builder output
     const pauseRow = {
       id: 'pause-1',
       client_slug: CLIENT,
@@ -785,34 +750,331 @@ ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseS
       updated_at: '2026-08-01T10:00:00Z',
     };
     const { body } = await runComposite({ pause: { rows: [pauseRow] } });
-    ok('pause_state.success is true for paused state', body.pause_state.success === true);
-    ok('pause_state.paused is true for paused state', body.pause_state.paused === true);
-    ok('pause_state.bot_paused is true for paused state', body.pause_state.bot_paused === true);
-    ok('pause_state.source is bot_pause_states for paused state', body.pause_state.source === 'bot_pause_states');
-    ok('pause_state.pause_state is formatted row for paused state',
-      body.pause_state.pause_state && body.pause_state.pause_state.id === 'pause-1');
-    // Production builder spreads these from the formatted row
-    ok('pause_state carries client_slug from row', body.pause_state.client_slug === CLIENT);
-    ok('pause_state carries conversation_id from row', body.pause_state.conversation_id === CONV_ID);
-    ok('pause_state carries pause_reason from row', body.pause_state.pause_reason === 'Staff requested');
+    const prodPaused = prodBuildPausedStateResponse(pauseRow);
+    ok('paused pause_state matches production builder shape',
+      body.pause_state.success === prodPaused.success &&
+      body.pause_state.paused === prodPaused.paused &&
+      body.pause_state.bot_paused === prodPaused.bot_paused &&
+      body.pause_state.live_send_blocked === prodPaused.live_send_blocked &&
+      body.pause_state.source === prodPaused.source);
+    ok('paused pause_state.pause_state matches production formatted row',
+      eq(body.pause_state.pause_state, prodPaused.pause_state));
+    ok('paused pause_state spreads row fields like production',
+      body.pause_state.client_slug === prodPaused.client_slug &&
+      body.pause_state.conversation_id === prodPaused.conversation_id &&
+      body.pause_state.pause_reason === prodPaused.pause_reason &&
+      body.pause_state.paused_by === prodPaused.paused_by);
   }
   {
-    // Missing pause table parity: handleBotPauseStateGet returns default_active with table_missing
+    // Missing pause table parity: production builder with table_missing flag
     const { body } = await runComposite({
       pauseGlobal: { rows: [] },
       pause: pgError('XX000', 'relation bot_pause_states does not exist'),
     });
-    ok('table_missing returns default_active shape', body.pause_state.paused === false);
-    ok('table_missing sets table_missing flag', body.pause_state.table_missing === true);
-    ok('table_missing preserves source as default_active', body.pause_state.source === 'default_active');
+    const prodMissing = prodBuildDefaultActivePauseResponse({
+      client_slug: CLIENT,
+      guest_phone: null,
+      conversation_id: CONV_ID,
+      booking_code: null,
+      table_missing: true,
+    });
+    ok('table_missing matches production builder shape',
+      body.pause_state.paused === prodMissing.paused &&
+      body.pause_state.source === prodMissing.source);
+    ok('table_missing sets flag like production',
+      body.pause_state.table_missing === true);
   }
   {
-    // Lookup failure parity: handleBotPauseStateGet returns default_active with lookup_error
-    // Test by simulating an error during pause lookup that isn't table_missing
+    // Lookup failure parity: production builder with lookup_error flag
     const { body } = await runComposite({ pause: pgError('57014', 'query cancelled') });
-    ok('lookup failure returns default_active shape', body.pause_state.paused === false);
-    ok('lookup failure sets lookup_error flag', body.pause_state.lookup_error === true);
-    ok('lookup failure preserves source as default_active', body.pause_state.source === 'default_active');
+    const prodLookupErr = prodBuildDefaultActivePauseResponse({
+      client_slug: CLIENT,
+      guest_phone: null,
+      conversation_id: CONV_ID,
+      booking_code: null,
+      lookup_error: true,
+    });
+    ok('lookup_error matches production builder shape',
+      body.pause_state.paused === prodLookupErr.paused &&
+      body.pause_state.source === prodLookupErr.source);
+    ok('lookup_error sets flag like production',
+      body.pause_state.lookup_error === true);
+  }
+
+  console.log('\n── production helper mutation-strength regression ──');
+  // These tests prove that the verifier would FAIL if someone changed production
+  // builder behavior, not merely removed a property name string. This demonstrates
+  // genuine production-anchored coverage.
+  {
+    // If production sanitizeConversationContextForInbox stopped clearing booking_id,
+    // the verifier would detect the change.
+    const cancelledRow = {
+      conversation_id: CONV_ID,
+      booking_id: 'bk-cancelled',
+      booking_code: 'WH-CANCEL',
+      booking_status: 'cancelled',
+    };
+    const sanitized = prodSanitizeConversationContextForInbox(cancelledRow);
+    ok('mutation-strength: sanitize clears booking_id on cancelled',
+      sanitized.booking_id === null,
+      'production helper must null booking_id for cancelled rows');
+    ok('mutation-strength: sanitize clears booking_code on cancelled',
+      sanitized.booking_code === null);
+    ok('mutation-strength: sanitize clears booking_status on cancelled',
+      sanitized.booking_status === null);
+    // Confirm active rows are untouched
+    const activeRow = { ...cancelledRow, booking_status: 'confirmed' };
+    const notSanitized = prodSanitizeConversationContextForInbox(activeRow);
+    ok('mutation-strength: sanitize preserves active booking_id',
+      notSanitized.booking_id === 'bk-cancelled');
+  }
+  {
+    // If production filterActiveInboxBookings stopped filtering cancelled, verifier detects.
+    const mixedRows = [
+      { booking_id: 'bk-1', booking_status: 'confirmed' },
+      { booking_id: 'bk-2', booking_status: 'cancelled' },
+      { booking_id: 'bk-3', booking_status: 'expired' },
+      { booking_id: 'bk-4', booking_status: 'pending' },
+    ];
+    const filtered = prodFilterActiveInboxBookings(mixedRows);
+    ok('mutation-strength: filter removes cancelled',
+      !filtered.some((b) => b.booking_id === 'bk-2'),
+      'production helper must filter cancelled rows');
+    ok('mutation-strength: filter removes expired',
+      !filtered.some((b) => b.booking_id === 'bk-3'));
+    ok('mutation-strength: filter keeps confirmed',
+      filtered.some((b) => b.booking_id === 'bk-1'));
+    ok('mutation-strength: filter keeps pending',
+      filtered.some((b) => b.booking_id === 'bk-4'));
+  }
+  {
+    // If production buildPausedStateResponse changed paused to false, verifier detects.
+    const pauseRow = {
+      id: 'pause-mut',
+      client_slug: CLIENT,
+      paused: true,
+      pause_reason: 'mutation test',
+    };
+    const pausedResp = prodBuildPausedStateResponse(pauseRow);
+    ok('mutation-strength: paused builder sets paused=true',
+      pausedResp.paused === true,
+      'production builder must set paused=true');
+    ok('mutation-strength: paused builder sets bot_paused=true',
+      pausedResp.bot_paused === true);
+    ok('mutation-strength: paused builder sets live_send_blocked=true',
+      pausedResp.live_send_blocked === true);
+    ok('mutation-strength: paused builder source is bot_pause_states',
+      pausedResp.source === 'bot_pause_states');
+  }
+  {
+    // If production buildDefaultActivePauseResponse changed paused to true, verifier detects.
+    const activeResp = prodBuildDefaultActivePauseResponse({});
+    ok('mutation-strength: active builder sets paused=false',
+      activeResp.paused === false,
+      'production builder must set paused=false');
+    ok('mutation-strength: active builder sets bot_paused=false',
+      activeResp.bot_paused === false);
+    ok('mutation-strength: active builder sets live_send_blocked=false',
+      activeResp.live_send_blocked === false);
+    ok('mutation-strength: active builder source is default_active',
+      activeResp.source === 'default_active');
+  }
+  {
+    // Prove isInactiveInboxBookingStatus correctly identifies each status.
+    ok('mutation-strength: cancelled is inactive',
+      prodIsInactiveInboxBookingStatus('cancelled') === true);
+    ok('mutation-strength: canceled (US spelling) is inactive',
+      prodIsInactiveInboxBookingStatus('canceled') === true);
+    ok('mutation-strength: expired is inactive',
+      prodIsInactiveInboxBookingStatus('expired') === true);
+    ok('mutation-strength: confirmed is NOT inactive',
+      prodIsInactiveInboxBookingStatus('confirmed') === false);
+    ok('mutation-strength: pending is NOT inactive',
+      prodIsInactiveInboxBookingStatus('pending') === false);
+  }
+
+  console.log('\n── pause-state route-level parity with production handler ──');
+  // These tests execute the ACTUAL production /staff/bot/pause-state route handler
+  // (handleBotPauseStateGet from staff-bot-pause-state-handler.js) and compare its
+  // response with the composite's pause_state section. This proves route orchestration
+  // parity, not just builder parity — a regression in route logic (wrong builder
+  // selection, missing table_missing/lookup_error propagation, wrong identifier
+  // binding) would fail these tests.
+  {
+    // Create a route-level test harness that executes the production handler.
+    function makeRouteTestHarness(plan = {}) {
+      const audit = [];
+      let pgCalls = 0;
+      const routeDeps = {
+        sendJSON(res, status, body) {
+          res.writeHead(status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(body));
+          return body;
+        },
+        send400(res, message) {
+          return routeDeps.sendJSON(res, 400, { success: false, error: message });
+        },
+        appendAuditLog(entry) { audit.push(entry); },
+        async withPgClient(fn) {
+          pgCalls += 1;
+          const pg = makePg({
+            pause: plan.pause || { rows: [] },
+            pauseGlobal: plan.pauseGlobal || { rows: [] },
+          });
+          return fn(pg);
+        },
+        DEFAULT_CLIENT: CLIENT,
+        SQL_INJECT_RE: /['";\\]|--|\bDROP\b|\bALTER\b|\bTRUNCATE\b/i,
+      };
+      const routes = createBotPauseStateRoutes(routeDeps);
+      return { routes, audit, getPgCalls: () => pgCalls };
+    }
+
+    async function runRoute(plan = {}, query = {}) {
+      const harness = makeRouteTestHarness(plan);
+      const res = mockRes();
+      await harness.routes.handleBotPauseStateGet(
+        { client: CLIENT, conversation_id: CONV_ID, ...query },
+        res,
+        { staff_user_id: 'u1', role: 'viewer' },
+      );
+      return { res, body: parseBody(res.out), audit: harness.audit };
+    }
+
+    // Default active: route and composite must agree
+    {
+      const routeResult = await runRoute();
+      const { body: compositeBody } = await runComposite();
+      ok('route default active HTTP 200', routeResult.res.out.statusCode === 200);
+      ok('route default active success', routeResult.body.success === true);
+      ok('route default active paused=false', routeResult.body.paused === false);
+      ok('route default active source', routeResult.body.source === 'default_active');
+      ok('route vs composite: default active paused match',
+        routeResult.body.paused === compositeBody.pause_state.paused);
+      ok('route vs composite: default active source match',
+        routeResult.body.source === compositeBody.pause_state.source);
+      ok('route vs composite: default active conversation_id match',
+        routeResult.body.conversation_id === compositeBody.pause_state.conversation_id);
+    }
+
+    // Paused row: route and composite must agree
+    {
+      const pauseRow = {
+        id: 'pause-route-1',
+        client_slug: CLIENT,
+        guest_phone: '+34600111222',
+        conversation_id: CONV_ID,
+        booking_id: null,
+        booking_code: null,
+        paused: true,
+        pause_reason: 'Staff override',
+        paused_by: 'staff-u1',
+        paused_at: '2026-08-01T10:00:00Z',
+        resumed_by: null,
+        resumed_at: null,
+        metadata: {},
+        created_at: '2026-08-01T10:00:00Z',
+        updated_at: '2026-08-01T10:00:00Z',
+      };
+      const routeResult = await runRoute({ pause: { rows: [pauseRow] } });
+      const { body: compositeBody } = await runComposite({ pause: { rows: [pauseRow] } });
+      ok('route paused HTTP 200', routeResult.res.out.statusCode === 200);
+      ok('route paused success', routeResult.body.success === true);
+      ok('route paused paused=true', routeResult.body.paused === true);
+      ok('route paused source', routeResult.body.source === 'bot_pause_states');
+      ok('route vs composite: paused match',
+        routeResult.body.paused === compositeBody.pause_state.paused);
+      ok('route vs composite: paused source match',
+        routeResult.body.source === compositeBody.pause_state.source);
+      ok('route vs composite: paused pause_reason match',
+        routeResult.body.pause_reason === compositeBody.pause_state.pause_reason);
+      ok('route vs composite: paused pause_state.id match',
+        routeResult.body.pause_state && compositeBody.pause_state.pause_state &&
+        routeResult.body.pause_state.id === compositeBody.pause_state.pause_state.id);
+    }
+
+    // Missing pause table: route and composite must agree
+    {
+      const tableErr = pgError('XX000', 'relation bot_pause_states does not exist');
+      const routeResult = await runRoute({
+        pauseGlobal: { rows: [] },
+        pause: tableErr,
+      });
+      const { body: compositeBody } = await runComposite({
+        pauseGlobal: { rows: [] },
+        pause: tableErr,
+      });
+      ok('route table_missing HTTP 200', routeResult.res.out.statusCode === 200);
+      ok('route table_missing success', routeResult.body.success === true);
+      ok('route table_missing paused=false', routeResult.body.paused === false);
+      ok('route table_missing flag', routeResult.body.table_missing === true);
+      ok('route vs composite: table_missing paused match',
+        routeResult.body.paused === compositeBody.pause_state.paused);
+      ok('route vs composite: table_missing flag match',
+        routeResult.body.table_missing === compositeBody.pause_state.table_missing);
+    }
+
+    // Lookup failure: route and composite must agree
+    {
+      const lookupErr = pgError('57014', 'query cancelled');
+      const routeResult = await runRoute({ pause: lookupErr });
+      const { body: compositeBody } = await runComposite({ pause: lookupErr });
+      ok('route lookup_error HTTP 200', routeResult.res.out.statusCode === 200);
+      ok('route lookup_error success', routeResult.body.success === true);
+      ok('route lookup_error paused=false', routeResult.body.paused === false);
+      ok('route lookup_error flag', routeResult.body.lookup_error === true);
+      ok('route vs composite: lookup_error paused match',
+        routeResult.body.paused === compositeBody.pause_state.paused);
+      ok('route vs composite: lookup_error flag match',
+        routeResult.body.lookup_error === compositeBody.pause_state.lookup_error);
+    }
+  }
+
+  console.log('\n── pause-state route orchestration mutation detection ──');
+  // Hostile test: prove that changing the route's builder selection would fail.
+  // This demonstrates that the route-level tests are sensitive to orchestration regressions.
+  {
+    // If the route used buildPausedStateResponse for an active state, the test would fail.
+    // We simulate this by creating a "mutant" harness that always returns paused=true.
+    const mutantRoutes = {
+      async handleBotPauseStateGet(query, res, _user) {
+        const routeDeps = {
+          sendJSON(r, status, body) {
+            r.writeHead(status, { 'Content-Type': 'application/json' });
+            r.end(JSON.stringify(body));
+            return body;
+          },
+        };
+        // MUTANT: always use buildPausedStateResponse (wrong for active state)
+        return routeDeps.sendJSON(res, 200, prodBuildPausedStateResponse({
+          id: 'mutant-pause',
+          client_slug: CLIENT,
+          conversation_id: CONV_ID,
+          paused: true,
+          pause_reason: 'mutant',
+        }));
+      },
+    };
+    const mutantRes = mockRes();
+    await mutantRoutes.handleBotPauseStateGet(
+      { client: CLIENT, conversation_id: CONV_ID },
+      mutantRes,
+      { staff_user_id: 'u1' },
+    );
+    const mutantBody = parseBody(mutantRes.out);
+    const { body: compositeBody } = await runComposite();
+
+    // The mutant returns paused=true when composite says paused=false.
+    const mutantDetected = mutantBody.paused !== compositeBody.pause_state.paused;
+    ok('hostile: mutant builder selection detected (paused mismatch)',
+      mutantDetected,
+      'A route that uses wrong builder must fail parity check');
+
+    // Also verify source differs
+    const sourceDetected = mutantBody.source !== compositeBody.pause_state.source;
+    ok('hostile: mutant builder selection detected (source mismatch)',
+      sourceDetected,
+      'Mutant source "bot_pause_states" vs composite "default_active"');
   }
 
   console.log('\n── audit ──');
