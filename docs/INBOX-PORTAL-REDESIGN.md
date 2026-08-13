@@ -14,7 +14,7 @@ or any `/staff/inbox/*` route.
 | 0 | Extract the Inbox front-end into `scripts/browser/inbox-*.js` | **done** (#499) |
 | 0 | Fix escapes eaten by the `buildUiHtml` template literal — Inbox sites | **done** (#499, 7 sites) |
 | 0 | Same bug class outside the Inbox — 16 sites, 9 functions | in progress |
-| 0 | `GET /staff/inbox/thread/:id` composite endpoint | in progress |
+| 0 | `GET /staff/inbox/thread/:id` composite endpoint | **done** (#506, #507, #509) |
 | 1 | Unified shell, saved-view rail, merged context panel | not started |
 | 1 | Column layout model and presets | not started |
 | 1 | One `Auto \| Draft \| Off` Luna mode control (migration 079) | not started |
@@ -39,8 +39,6 @@ their bookings, their tags. Everything below is duplicated once per tab.
 - Three overlapping Luna controls in one header — the "Luna" badge, "Pause Luna"
   (`bot_pause_states`), "Needs human" (`conversations.needs_human`) — plus legacy
   `conversations.bot_mode` and a separate global "Pause Luna Globally".
-- Opening a thread fires six parallel GETs: `/`, `/messages`, `/context`, `/draft`,
-  `/staff-state`, `/staff/bot/pause-state`.
 - Testing controls ("Reset Luna session", "Full Wipe") sit in the primary UI.
 - The BOOKINGS rail renders every booking as a full card. A guest with three bookings fills the
   column and creates a nested scroll region inside an already-scrolling page.
@@ -222,7 +220,10 @@ Existing endpoints stay for back-compat during migration.
 - `GET /staff/inbox/views` — saved views with counts, replacing both filter-chip systems
 - `GET /staff/inbox/list?view=&q=&cursor=` — one list endpoint returning person-rows; unifies
   `/staff/conversations` and `/staff/customers`
-- `GET /staff/inbox/thread/:id` — one composite response replacing the six-GET fan-out
+- `GET /staff/inbox/thread/:id` — shipped (#506, #507, #509): one snapshot for thread
+  open. The six original conversation sub-routes stay routed for polling and
+  back-compat. The Inbox UI does not fetch `/staff-state`; the composite does not
+  carry a `staff_state` section.
 - `PUT /staff/inbox/luna-mode` — scope `global | channel | conversation`, value `auto | draft | off`
 - `GET /staff/inbox/approvals` and `POST /staff/inbox/approvals/:id/{approve,edit,reject}` —
   channel-agnostic, generalizing today's email-only `/staff/inbox/email/approve-send`
