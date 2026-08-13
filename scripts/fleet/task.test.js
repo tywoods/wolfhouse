@@ -43,32 +43,38 @@ const inReview = JSON.stringify({ labels: [{ name: 'fleet:in-review' }] });
 const claimed = JSON.stringify({ labels: [{ name: 'fleet:claimed' }] });
 const queued = JSON.stringify({ labels: [{ name: 'fleet:queued' }] });
 
-// --- done: the blocking guard ---
+// --- done: the blocking guard (identity, not env-presence) ---
 {
+  // No expected Captain login configured -> refuse outright.
   const r = run(['done', '5', '--as', 'captain', '--deploy-rev', 'rev1'],
-    { FLEET_CAPTAIN_TOKEN: '', MOCK_ISSUE_JSON: gated });
-  ok('done refuses when FLEET_CAPTAIN_TOKEN unset (--as captain)', r.status !== 0 && /CAPTAIN-ONLY/.test(r.stderr), r.stderr.trim());
-  ok('done did NOT close the issue when refused', !/issue close/.test(r.ghlog));
+    { FLEET_CAPTAIN_GH_LOGIN: '', MOCK_ISSUE_JSON: gated });
+  ok('done refuses when FLEET_CAPTAIN_GH_LOGIN unset', r.status !== 0 && /CAPTAIN-ONLY/.test(r.stderr), r.stderr.trim());
+  ok('done did NOT close the issue when refused (no login)', !/issue close/.test(r.ghlog));
 }
 {
-  const r = run(['done', '5', '--as', 'deckhand', '--deploy-rev', 'rev1'],
-    { FLEET_CAPTAIN_TOKEN: '', MOCK_ISSUE_JSON: gated });
-  ok('done refuses a worker even with --as captain-style flag', r.status !== 0 && /CAPTAIN-ONLY/.test(r.stderr));
+  // REGRESSION (Seadog): a worker supplies an arbitrary non-empty FLEET_CAPTAIN_TOKEN
+  // but is NOT the Captain GitHub actor -> must be refused. Env-presence != authorization.
+  const r = run(['done', '5', '--as', 'captain', '--deploy-rev', 'rev1'],
+    { FLEET_CAPTAIN_TOKEN: 'anything', FLEET_CAPTAIN_GH_LOGIN: 'captainbot', MOCK_ACTOR: 'workerbot', MOCK_ISSUE_JSON: gated });
+  ok('done refuses an arbitrary non-empty token from a non-Captain actor', r.status !== 0 && /actor/.test(r.stderr), r.stderr.trim());
+  ok('arbitrary-token path did NOT close the issue', !/issue close/.test(r.ghlog));
 }
 {
+  // Wrong actor with matching-looking login var still refused.
   const r = run(['done', '5', '--as', 'captain', '--deploy-rev', 'rev1'],
-    { FLEET_CAPTAIN_TOKEN: 'secret', MOCK_ISSUE_JSON: gated });
-  ok('done proceeds when FLEET_CAPTAIN_TOKEN present + gated', r.status === 0, r.stderr.trim());
+    { FLEET_CAPTAIN_GH_LOGIN: 'captainbot', MOCK_ACTOR: 'randobot', MOCK_ISSUE_JSON: gated });
+  ok('done refuses when authenticated actor != FLEET_CAPTAIN_GH_LOGIN', r.status !== 0 && /actor/.test(r.stderr));
+}
+{
+  // Authorized: actor matches expected Captain login + gated -> proceeds and closes.
+  const r = run(['done', '5', '--as', 'captain', '--deploy-rev', 'rev1'],
+    { FLEET_CAPTAIN_GH_LOGIN: 'captainbot', MOCK_ACTOR: 'captainbot', MOCK_ISSUE_JSON: gated });
+  ok('done proceeds when actor == Captain login + gated', r.status === 0, r.stderr.trim());
   ok('done closes the issue when authorized', /issue close/.test(r.ghlog));
 }
 {
   const r = run(['done', '5', '--as', 'captain', '--deploy-rev', 'rev1'],
-    { FLEET_CAPTAIN_TOKEN: 'secret', FLEET_CAPTAIN_GH_LOGIN: 'captainbot', MOCK_ACTOR: 'randobot', MOCK_ISSUE_JSON: gated });
-  ok('done refuses when authenticated actor != FLEET_CAPTAIN_GH_LOGIN', r.status !== 0 && /actor/.test(r.stderr));
-}
-{
-  const r = run(['done', '5', '--as', 'captain', '--deploy-rev', 'rev1'],
-    { FLEET_CAPTAIN_TOKEN: 'secret', MOCK_ISSUE_JSON: inReview });
+    { FLEET_CAPTAIN_GH_LOGIN: 'captainbot', MOCK_ACTOR: 'captainbot', MOCK_ISSUE_JSON: inReview });
   ok('done refuses from non-gated state', r.status !== 0 && /only from gated/.test(r.stderr));
 }
 

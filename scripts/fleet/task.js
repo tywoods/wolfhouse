@@ -131,18 +131,16 @@ switch (cmd) {
   }
   case 'done': {
     const id = pos[0]; if (!id) die('done needs <id>');
-    // CAPTAIN-ONLY, enforced by an environment/credential boundary — NOT a
-    // caller-supplied flag. Requires FLEET_CAPTAIN_TOKEN, a secret present only
-    // in the Captain (lunabox main) environment; no worker container holds it.
-    // We also bind it to the authenticated GitHub actor so a leaked token alone
-    // on an unexpected account is rejected.
-    const captainToken = process.env.FLEET_CAPTAIN_TOKEN;
-    if (!captainToken) die('done is CAPTAIN-ONLY: FLEET_CAPTAIN_TOKEN not present in this environment. Workers cannot ship.');
+    // CAPTAIN-ONLY. The only non-bypassable check available to a CLI is the
+    // *authenticated GitHub actor* — env-var presence is caller-settable and
+    // authorizes nothing, so it is NOT used as the gate. We require an expected
+    // Captain login (FLEET_CAPTAIN_GH_LOGIN) and verify it against the identity
+    // GitHub itself reports for the credential in use (gh api user). A worker
+    // cannot forge this: it would need the Captain account's actual gh token.
     const expectActor = process.env.FLEET_CAPTAIN_GH_LOGIN;
-    if (expectActor) {
-      const actor = gh(['api', 'user', '--jq', '.login']);
-      if (actor !== expectActor) die('done is CAPTAIN-ONLY: authenticated GitHub actor ' + actor + ' != expected ' + expectActor + '.');
-    }
+    if (!expectActor) die('done is CAPTAIN-ONLY: FLEET_CAPTAIN_GH_LOGIN must be set to the Captain GitHub login (identity gate). Refusing to ship without it.');
+    const actor = gh(['api', 'user', '--jq', '.login']);
+    if (!actor || actor !== expectActor) die('done is CAPTAIN-ONLY: authenticated GitHub actor "' + actor + '" != Captain "' + expectActor + '". Workers cannot ship.');
     if (!f['deploy-rev']) die('done needs --deploy-rev <revision>');
     const cur = currentState(id);
     if (cur !== 'gated') die('done only from gated (now ' + cur + ')');
