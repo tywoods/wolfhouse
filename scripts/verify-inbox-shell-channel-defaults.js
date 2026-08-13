@@ -212,17 +212,18 @@ function main() {
   const hideFn = sliceFn(shellSrc, 'hideInboxDuplicateSchoolSelector');
   const mountFn = sliceFn(shellSrc, 'mountInboxShellChrome');
   assert('hides #c-client (Sunset Surf School company select) without removing getClient()',
-    /el\('c-client'\)/.test(hideFn)
+    /inboxShellById\('c-client'\)/.test(hideFn)
     && /inbox-client-select-hidden/.test(hideFn)
     && /setProperty\('display', 'none', 'important'\)/.test(hideFn)
     && /function getClient\(/.test(apiSrc)
     && /el\('c-client'\)/.test(sliceFn(apiSrc, 'getClient')));
   assert('native company select is display:none, not clip (select ignores sr-only)',
-    /#tab-conversations #c-client/.test(shellSrc)
+    /#c-client\.inbox-client-select/.test(shellSrc)
+    && /#tab-conversations #c-client/.test(shellSrc)
     && /display:none!important/.test(shellSrc)
     && !/clip:rect/.test(shellSrc));
   assert('hides #inbox-school-context even if renderInboxSchoolContext sets display:block',
-    /el\('inbox-school-context'\)/.test(hideFn)
+    /inboxShellById\('inbox-school-context'\)/.test(hideFn)
     && /renderInboxSchoolContext/.test(hideFn)
     && /#tab-conversations #inbox-school-context/.test(shellSrc));
   assert('does not touch the banner school switch (Sunset | elSardi stays in header)',
@@ -231,8 +232,16 @@ function main() {
     && /id="staff-school-switch"/.test(apiSrc)
     && /data-school="sunset-somo"/.test(apiSrc)
     && /data-school="sunset-sardinero"/.test(apiSrc));
+  assert('hide + CSS inject run even if the toolbar id lookup misses',
+    mountFn.indexOf('inboxShellEnsureStyle()') >= 0
+    && mountFn.indexOf('hideInboxDuplicateSchoolSelector()') >= 0
+    && mountFn.indexOf('inboxShellEnsureStyle()') < mountFn.indexOf('if (!toolbar) return')
+    && mountFn.indexOf('hideInboxDuplicateSchoolSelector()') < mountFn.indexOf('if (!toolbar) return'));
+  assert('toolbar is found by id or by class (markup used to lack the id)',
+    /el\('inbox-toolbar-top'\)/.test(shellSrc)
+    && /querySelector\('#tab-conversations \.inbox-toolbar-top'\)/.test(shellSrc));
   assert('inserts channel pills into the toolbar slot (before refresh / Live)',
-    /el\('btn-refresh'\)/.test(mountFn)
+    /inboxShellById\('btn-refresh'\)/.test(mountFn)
     && /insertBefore/.test(mountFn)
     && /id="inbox-live-status"/.test(apiSrc));
   assert('does not revive Pause Luna Globally or add a third Luna badge',
