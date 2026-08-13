@@ -472,6 +472,21 @@ assert('prototype keys are not views',
   getInboxSavedViewDeclaration('constructor') === null
   && getInboxSavedViewDeclaration('__proto__') === null);
 
+console.log('\n[9] UI rail wiring — GET /staff/inbox/views and list?view=');
+
+const VIEWS_UI_PATH = path.join(ROOT, 'scripts', 'browser', 'inbox-views.js');
+const VIEWS_UI_SRC = fs.existsSync(VIEWS_UI_PATH) ? fs.readFileSync(VIEWS_UI_PATH, 'utf8') : '';
+assert('inbox-views.js exists', fs.existsSync(VIEWS_UI_PATH));
+assert('rail fetches /staff/inbox/views with inboxClientQuery()',
+  VIEWS_UI_SRC.includes("'/staff/inbox/views' + inboxClientQuery()"));
+assert('list fetch includes view=',
+  VIEWS_UI_SRC.includes("'/staff/inbox/list' + inboxClientQuery()")
+  && VIEWS_UI_SRC.includes("'&view=' + encodeURIComponent("));
+assert('rail does not fan out to /staff-state',
+  !VIEWS_UI_SRC.includes('/staff-state') && !VIEWS_UI_SRC.includes('staff_state'));
+assert('rail does not dump /staff/conversations for counts',
+  !VIEWS_UI_SRC.includes('/staff/conversations'));
+
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
 if (fail > 0) {
