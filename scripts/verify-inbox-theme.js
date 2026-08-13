@@ -224,8 +224,9 @@ ok('slice A channel pill selectors still exist',
   /\.inbox-shell-channel\{/.test(shellCss)
   && /\.inbox-shell-channel-select\{/.test(shellCss)
   && /border-radius:999px/.test(shellCss)
-  && /id="inbox-shell-whatsapp-mode"/.test(shellSrc)
-  && /id="inbox-shell-email-mode"/.test(shellSrc));
+  && /data-inbox-shell-channel/.test(shellSrc)
+  && /class="inbox-shell-channel-select"/.test(shellSrc)
+  && /inbox-shell-' \+ channel \+ '-mode"/.test(shellSrc));
 ok('theme restyles those pills without dropping the slice A classes',
   /#tab-conversations\s+\.inbox-shell-channel\{/.test(themeCss)
   && /#tab-conversations\s+\.inbox-shell-channel-select\{/.test(themeCss)
@@ -254,12 +255,12 @@ ok('Customers tab, Pause Luna Globally, Reset Luna, Full Wipe stay in the portal
   /nav\.tab\.customers/.test(apiSrc)
   && /data-view="customers"/.test(apiSrc)
   && /Pause Luna Globally/.test(apiSrc)
-  && /Reset Luna/.test(apiSrc)
-  && /Full Wipe/.test(apiSrc));
-ok('views rail still renders API groups (NEEDS YOU / INBOX / PEOPLE) — not invented here',
+  && /Reset Luna session/.test(threadSrc)
+  && /Full Wipe/.test(threadSrc));
+ok('views rail still renders API groups — theme styles labels, does not invent groups',
   fs.readFileSync(VIEWS_MODULE, 'utf8').includes('inbox-views-group-label')
   && fs.readFileSync(VIEWS_MODULE, 'utf8').includes('inbox-views-item')
-  && !/NEEDS YOU/.test(shellSrc));
+  && !/<div class="inbox-views-group-label">/.test(shellSrc));
 ok('inbox-context.js guest-card renderer is not rewritten by this slice',
   fs.readFileSync(CONTEXT_MODULE, 'utf8').includes('function inboxContextGuestCardHtml(')
   && !/--inbox-forest/.test(fs.readFileSync(CONTEXT_MODULE, 'utf8')));

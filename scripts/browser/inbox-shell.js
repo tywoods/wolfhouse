@@ -189,7 +189,7 @@ function inboxMockupThemeCssText(){
     'border-radius:var(--radius);',
     '}',
 
-    /* Rail section headers: NEEDS YOU / INBOX / PEOPLE */
+    /* Rail section headers (API group labels, small-caps) */
     '#inbox-shell .inbox-views-group-label{',
     'font-variant:small-caps;',
     'letter-spacing:.14em;',
