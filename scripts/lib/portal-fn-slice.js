@@ -13,8 +13,11 @@
  *
  * `collectPortalFunctions` closes over that: it walks the call graph from the
  * requested roots and pulls in every callee that the sandbox does not already
- * provide. Names it cannot find anywhere are returned in `missing` so a gate can
- * fail with a named assertion instead of crashing.
+ * provide. A requested root that cannot be found anywhere throws, naming the
+ * function, so a stale `needed` list cannot assemble a sandbox with a hole and
+ * then pass having tested less than it claims. Transitive callees it cannot
+ * find are returned in `missing` so a gate can fail with a named assertion
+ * instead of crashing later on `ReferenceError`.
  *
  * Sources should come from lib/staff-portal-ui-source.js (template plus injected
  * modules) or from the rendered /staff/ui document, not staff-query-api.js alone.
@@ -291,7 +294,8 @@ function firstStateVar(sources, name) {
  *   class; `optional` are the same but only ever called behind a
  *   `typeof x === 'function'` guard, so they degrade instead of throwing;
  *   `unparsable` are slices that do not compile (brace matching confused by a
- *   brace inside a string or regex)
+ *   brace inside a string or regex). Throws if a requested root is not found
+ *   (and not already in `provided`), naming every missing function.
  */
 function collectPortalFunctions(sources, roots, options) {
   const opts = options || {};
@@ -303,6 +307,7 @@ function collectPortalFunctions(sources, roots, options) {
   const resolved = new Map();
   const stateVars = new Map();
   const unresolved = new Set();
+  const missingRoots = [];
   const guarded = new Set();
   const unparsable = new Set();
   const seen = new Set();
@@ -316,9 +321,14 @@ function collectPortalFunctions(sources, roots, options) {
 
     const code = firstSlice(srcList, name);
     if (!code) {
-      // Roots are the gate's own list — a missing root is a stale anchor, which
-      // verify-gate-anchors already covers. Missing callees are the scope rot.
-      if (!provided.has(name) && !roots.includes(name)) unresolved.add(name);
+      // A missing root is a stale `needed` entry: skip it and the sandbox is
+      // assembled with a hole, then the gate dies later (or worse, passes
+      // having never called the owner). Collect the names and throw after the
+      // walk. Missing callees stay in `missing` — those are the scope-rot
+      // class the gates assert.
+      if (provided.has(name)) continue;
+      if (roots.includes(name)) missingRoots.push(name);
+      else unresolved.add(name);
       continue;
     }
     try {
@@ -352,6 +362,12 @@ function collectPortalFunctions(sources, roots, options) {
   // Functions may be declared before the state they close over; vars run first.
   const emitted = Array.from(stateVars.values())
     .concat(emitNames.map((n) => resolved.get(n)));
+  if (missingRoots.length) {
+    throw new Error(
+      'portal-fn-slice: missing function' + (missingRoots.length === 1 ? ' ' : 's ')
+        + missingRoots.join(', '),
+    );
+  }
   const missing = Array.from(unresolved)
     .filter((n) => !guarded.has(n) && !stateVars.has(n));
   const optional = Array.from(unresolved).filter((n) => guarded.has(n));
