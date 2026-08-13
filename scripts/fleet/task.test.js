@@ -18,6 +18,30 @@ function ok(name, cond, extra) {
 }
 
 const MOCK_GH_SRC = path.join(__dirname, 'test-mock-gh.js');
+const MOCK_REST_SRC = path.join(__dirname, 'test-mock-rest.js');
+
+// Run the CLI forcing the gh-free REST backend. No gh on PATH; FLEET_FORCE_REST
+// makes ghAvailable() false; FLEET_REST_MOCK points task.js at the REST mock.
+function runRest(args, env) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-rest-'));
+  const restLog = path.join(dir, 'rest.log');
+  fs.writeFileSync(restLog, '');
+  const r = spawnSync(process.execPath, [CLI, ...args], {
+    encoding: 'utf8',
+    env: Object.assign({}, process.env, {
+      // deliberately NO mock gh on PATH; force REST
+      FLEET_FORCE_REST: '1',
+      FLEET_TEST: '1',
+      FLEET_REST_MOCK: MOCK_REST_SRC,
+      REST_LOG: restLog,
+      GITHUB_TOKEN: 'test-token',
+      FLEET_REPO: 'test/repo',
+    }, env || {}),
+  });
+  const log = fs.readFileSync(restLog, 'utf8');
+  fs.rmSync(dir, { recursive: true, force: true });
+  return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '', restlog: log };
+}
 
 function run(args, env) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-test-'));
@@ -122,6 +146,37 @@ const queued = JSON.stringify({ labels: [{ name: 'fleet:queued' }] });
   ok('list shows a one-fleet-label issue', /#7 .*\[queued\]/.test(r.stdout), r.stdout.trim());
   ok('list omits non-fleet issues', !/#8/.test(r.stdout));
   ok('default list does NOT pass conjunctive --label filters', !/--label fleet:queued --label fleet:claimed/.test(r.ghlog));
+}
+
+
+// === REST backend (gh-free) parity — the guards must hold identically ===
+{
+  // done identity gate over REST: non-Captain actor refused, no PATCH close.
+  const r = runRest(['done', '5', '--deploy-rev', 'rev1'],
+    { MOCK_ACTOR: 'workerbot', MOCK_ISSUE_JSON: gated });
+  ok('REST: done refuses non-Captain actor (workerbot)', r.status !== 0 && /actor/.test(r.stderr), r.stderr.trim());
+  ok('REST: done did NOT close the issue (no PATCH .../issues/5)', !/PATCH \/repos\/test\/repo\/issues\/5/.test(r.restlog), r.restlog.trim());
+}
+{
+  // done identity gate over REST: real Captain actor + gated -> proceeds, PATCH close.
+  const r = runRest(['done', '5', '--deploy-rev', 'rev1'],
+    { MOCK_ACTOR: 'tywoods', MOCK_ISSUE_JSON: gated });
+  ok('REST: done proceeds when actor == committed Captain + gated', r.status === 0, r.stderr.trim());
+  ok('REST: done closed the issue via PATCH', /PATCH \/repos\/test\/repo\/issues\/5/.test(r.restlog), r.restlog.trim());
+}
+{
+  // review tip-SHA guard holds over REST too.
+  const r = runRest(['review', '5', '--tip-sha', 'https://x/y'], { MOCK_ISSUE_JSON: claimed });
+  ok('REST: review refuses a URL as tip-sha', r.status !== 0 && /tip-sha/.test(r.stderr));
+}
+{
+  const r = runRest(['review', '5', '--tip-sha', 'abc1234'], { MOCK_ISSUE_JSON: claimed });
+  ok('REST: review accepts a hex SHA from claimed', r.status === 0, r.stderr.trim());
+}
+{
+  // illegal transition still rejected over REST.
+  const r = runRest(['review', '5', '--tip-sha', 'abc1234'], { MOCK_ISSUE_JSON: queued });
+  ok('REST: review refuses illegal jump queued -> in-review', r.status !== 0 && /illegal transition/.test(r.stderr));
 }
 
 console.log('\n' + '-'.repeat(40));
