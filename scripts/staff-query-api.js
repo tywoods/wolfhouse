@@ -20651,6 +20651,28 @@ body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls
   }
   .inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-peek-edge-col4{display:block;right:0}
 }
+.inbox-guest-restore{display:none}
+@media(min-width:901px){
+  body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-guest-restore{
+    display:flex;align-items:center;justify-content:center;
+    position:absolute;top:50%;right:0;z-index:25;
+    transform:translateY(-50%);
+    width:22px;min-height:88px;padding:10px 0;
+    border:1px solid var(--border-soft);border-right:none;
+    border-radius:10px 0 0 10px;
+    background:var(--surface);color:var(--text);
+    font:inherit;font-size:11px;font-weight:600;letter-spacing:.04em;
+    writing-mode:vertical-rl;text-orientation:mixed;cursor:pointer;
+    box-shadow:var(--shadow-soft);
+  }
+  body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-guest-restore:hover{
+    background:var(--surface-soft);
+  }
+  body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-peek-edge-col4{
+    pointer-events:none;width:22px;
+  }
+  body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .sidebar-expand-btn{display:none!important}
+}
 @media(min-width:901px){
   body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols{
     --inbox-col2-w:252px;
@@ -21371,6 +21393,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
     <div class="inbox-peek-edge inbox-peek-edge-col2" data-inbox-peek-edge="col2" aria-hidden="true"></div>
     <div class="inbox-peek-edge inbox-peek-edge-col4" data-inbox-peek-edge="col4" aria-hidden="true"></div>
+    <button type="button" class="inbox-guest-restore" id="inbox-guest-restore" data-inbox-col-toggle="col4" title="Show guest card" aria-label="Show guest card">Guest</button>
 
     <!-- COLUMN 1: tab switch + API-backed saved-view rail -->
     <nav class="inbox-col1" id="inbox-col1" data-i18n-aria="inbox.rail.label" aria-label="Inbox views">

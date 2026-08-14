@@ -94,6 +94,11 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-customer-card .customers-section{margin-top:4px}',
   '.inbox-customer-card .customers-section-hdr{font-size:11px}',
   '.inbox-customer-head{display:flex;align-items:flex-start;gap:10px;min-width:0}',
+  '.inbox-customer-hide{display:none;margin-left:auto;flex:0 0 auto;align-items:center;justify-content:center;',
+  'min-width:28px;min-height:28px;padding:0;border:1px solid var(--border-soft);border-radius:8px;',
+  'background:var(--surface-soft);color:var(--text-2);cursor:pointer;font-size:15px;line-height:1}',
+  'body:has([data-inbox-preset="all4"][aria-pressed="true"]) .inbox-customer-card:not(.is-full) .inbox-customer-hide{display:inline-flex}',
+  '.inbox-customer-hide:hover{color:var(--text);background:var(--surface)}',
   '.inbox-customer-edit{margin-left:auto;flex:0 0 auto;padding:0;border:none;background:none;',
   'color:var(--primary);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;',
   'text-underline-offset:2px;white-space:nowrap}',
@@ -886,6 +891,7 @@ function inboxCustomerCondensedHtml(data, opts) {
   html += '<div class="inbox-client-info-id">';
   html += '<div class="inbox-client-info-name">' + inboxContextEsc(name) + '</div>';
   html += '</div>';
+  html += '<button type="button" class="inbox-customer-hide" data-inbox-col-toggle="col4" title="Hide guest card" aria-label="Hide guest card">&#8594;</button>';
   html += '</div>';
   html += '<div class="customers-profile-fields">';
   html += inboxCustomerInlineFieldHtml('phone', inboxContextEsc(inboxContextT('customers.detail.phone', 'Phone')), phone, '—', false);

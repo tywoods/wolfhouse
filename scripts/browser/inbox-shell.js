@@ -597,6 +597,18 @@ function inboxMockupThemeCssText(){
     'background:var(--inbox-paper,var(--cream));',
     'border:0;box-shadow:none;',
     '}',
+    '.inbox-guest-restore{display:none}',
+    '@media(min-width:901px){',
+    'body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-guest-restore{',
+    'display:flex;align-items:center;justify-content:center;',
+    'position:absolute;top:50%;right:0;z-index:25;transform:translateY(-50%);',
+    'width:22px;min-height:88px;padding:10px 0;',
+    'border:1px solid var(--border-soft);border-right:none;border-radius:10px 0 0 10px;',
+    'background:var(--surface);color:var(--text);',
+    'font:inherit;font-size:11px;font-weight:600;letter-spacing:.04em;',
+    'writing-mode:vertical-rl;cursor:pointer;',
+    '}',
+    '}',
   ].join('');
 }
 
