@@ -20164,15 +20164,35 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .luna-header-ui:not(.luna-hdr-compact).header-collapsed .luna-bamboo-divider{opacity:0}
 .luna-header-ui:not(.luna-hdr-compact).header-collapsed #tabs{box-shadow:0 3px 10px rgba(43,36,31,.13)}
 
-/* staff-portal-mobile:main-menu — hamburger stays reachable; drawer beats compact lift */
+/* staff-portal-mobile:main-menu — hamburger stays on-screen and contrasty */
 @media(max-width:768px){
+  .luna-header-ui #banner,
   .luna-header-ui:not(.luna-hdr-compact).header-collapsed #banner{
-    height:auto;min-height:52px;flex-basis:auto;overflow:visible;pointer-events:auto;
+    overflow:visible;pointer-events:auto;
+    height:auto;min-height:56px;flex-basis:auto;
     border-bottom:1px solid rgba(74,55,37,.25);box-shadow:0 2px 12px rgba(43,36,31,.14);
   }
   .luna-header-ui:not(.luna-hdr-compact).header-collapsed .luna-bamboo-divider{opacity:1}
+  .luna-header-ui #banner .brand{width:min(120px,32vw);height:40px}
   .luna-header-ui.luna-hdr-compact #banner .brand-logo{
-    height:40px;max-width:min(140px,calc(100vw - 200px));
+    height:40px;max-width:min(120px,calc(100vw - 168px));
+  }
+  .luna-header-ui .banner-actions{
+    margin-right:0;margin-top:0;align-self:center;gap:6px;flex-shrink:0;
+  }
+  #banner .nav-menu-toggle,
+  .luna-header-ui #banner .nav-menu-toggle,
+  .luna-header-ui.luna-hdr-compact #banner .nav-menu-toggle{
+    display:inline-flex!important;
+    position:relative;z-index:8700;pointer-events:auto;
+    width:40px;height:40px;flex:0 0 40px;
+    color:#fffaf1;background:rgba(20,18,14,.48);
+    border:1px solid rgba(255,255,255,.7);
+  }
+  .luna-header-ui.luna-hdr-compact #banner .nav-menu-toggle{
+    color:var(--luna-teal-dark,#2c5f56);
+    background:rgba(44,95,86,.14);
+    border-color:rgba(44,95,86,.45);
   }
   .luna-header-ui #tabs,
   .luna-header-ui.luna-hdr-compact #tabs{
@@ -20196,7 +20216,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
     padding:14px 18px;pointer-events:auto;white-space:normal;
   }
   .luna-header-ui.luna-hdr-compact #tabs .tabs-global-pause{display:none}
-  .nav-menu-toggle,.nav-quick-flip{position:relative;z-index:8700;pointer-events:auto}
+  .nav-quick-flip{position:relative;z-index:8700;pointer-events:auto}
 }
 
 /* ── Header style picker: read row + Edit gate ──────────────────────────── */
