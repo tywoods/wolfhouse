@@ -4,7 +4,8 @@
  * EMAIL-MATCH-001 — Sunset inbound guest email match (offline helper).
  *
  * Exact email match against caller-supplied Sunset guest records.
- * Unknown email → unmatched. No fuzzy name match, no DB, no invented guests.
+ * Unknown or ambiguous (duplicate normalized email) → unmatched.
+ * No fuzzy name match, no DB, no invented guests.
  *
  * @module email-inbound-guest-email-match
  */
@@ -25,17 +26,23 @@ function matchSunsetGuestByInboundEmail(fromAddress, guests) {
     return Object.freeze({ status: 'unmatched' });
   }
 
+  let matchCount = 0;
+  let matchedGuestId = null;
+
   for (const record of guests) {
     if (!record || typeof record !== 'object') continue;
     const recordEmail = normalizeInboundEmailAddress(record.email);
     if (!recordEmail || recordEmail !== normalizedFrom) continue;
 
+    matchCount += 1;
     const guestId = typeof record.guest_id === 'string' && record.guest_id.trim()
       ? record.guest_id.trim()
       : (typeof record.id === 'string' && record.id.trim() ? record.id.trim() : null);
-    if (!guestId) continue;
+    if (guestId) matchedGuestId = guestId;
+  }
 
-    return Object.freeze({ status: 'matched', guest_id: guestId });
+  if (matchCount === 1 && matchedGuestId) {
+    return Object.freeze({ status: 'matched', guest_id: matchedGuestId });
   }
 
   return Object.freeze({ status: 'unmatched' });

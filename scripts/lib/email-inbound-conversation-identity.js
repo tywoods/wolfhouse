@@ -6,6 +6,8 @@
  * Pure functions for deterministic Staff Inbox conversation keys:
  * - same mailbox + same normalized From → same key (new threads)
  * - In-Reply-To / References join an existing thread when the anchor is registered
+ *   (registry keys are scoped to mailbox + Message-ID)
+ * - References search registered anchors newest→oldest before From-key fallback
  *
  * Does not query DB, persist, or wire into ingest/delta/worker paths.
  * Skipper imports when attaching live inbound mail to conversations.
@@ -18,6 +20,7 @@ const crypto = require('crypto');
 const EMAIL_INBOUND_CONVERSATION_IDENTITY_VERSION = 'email-inbound-conversation-v1';
 const KEY_PREFIX_FROM = 'emailconv-from';
 const KEY_PREFIX_THREAD = 'emailconv-thread';
+const THREAD_ANCHOR_REGISTRY_SEP = '\0';
 
 function normalizeInboundEmailAddress(raw) {
   if (raw == null || typeof raw !== 'string') return null;
@@ -59,15 +62,42 @@ function parseReferencesHeader(raw) {
 }
 
 /**
- * Pick thread anchor from In-Reply-To / References.
- * References wins (first id); else In-Reply-To.
+ * Thread anchor candidates newest→oldest.
+ * References supply the chain; In-Reply-To is used only when References are absent.
  */
-function pickInboundThreadAnchor({ inReplyTo, references }) {
+function listInboundThreadAnchorsNewestFirst({ inReplyTo, references }) {
   const refs = Array.isArray(references)
     ? references.map(normalizeMessageId).filter(Boolean)
     : parseReferencesHeader(references);
-  if (refs.length > 0) return refs[0];
-  return normalizeMessageId(inReplyTo);
+  if (refs.length > 0) return refs.slice().reverse();
+  const reply = normalizeMessageId(inReplyTo);
+  return reply ? [reply] : [];
+}
+
+/**
+ * @deprecated Use listInboundThreadAnchorsNewestFirst. Kept for offline gates.
+ */
+function pickInboundThreadAnchor({ inReplyTo, references }) {
+  const anchors = listInboundThreadAnchorsNewestFirst({ inReplyTo, references });
+  return anchors.length > 0 ? anchors[anchors.length - 1] : null;
+}
+
+function buildThreadAnchorRegistryKey(providerMailboxId, messageId) {
+  const mailbox = normalizeProviderMailboxId(providerMailboxId);
+  const id = normalizeMessageId(messageId);
+  if (!mailbox || !id) return null;
+  return `${mailbox}${THREAD_ANCHOR_REGISTRY_SEP}${id}`;
+}
+
+function lookupRegisteredThreadAnchor(registry, providerMailboxId, messageId) {
+  if (!registry) return null;
+  const registryKey = buildThreadAnchorRegistryKey(providerMailboxId, messageId);
+  if (!registryKey) return null;
+  const mapped = registry instanceof Map
+    ? registry.get(registryKey)
+    : registry[registryKey];
+  if (typeof mapped !== 'string' || mapped.length === 0) return null;
+  return mapped;
 }
 
 function digestKey(mailbox, kind, material) {
@@ -101,8 +131,8 @@ function buildThreadAnchorConversationKey(providerMailboxId, threadAnchorMessage
  * @param {string} [input.inReplyTo]
  * @param {string|string[]} [input.references]
  * @param {Map<string,string>|Record<string,string>} [input.threadAnchorKeys]
- *   Optional registry: normalized message-id → conversation_key from prior projections.
- * @returns {{ conversation_key: string, strategy: 'from'|'thread_join'|'thread_anchor', thread_anchor: string|null }|null}
+ *   Optional registry: mailbox-scoped Message-ID → conversation_key from prior projections.
+ * @returns {{ conversation_key: string, strategy: 'from'|'thread_join', thread_anchor: string|null }|null}
  */
 function resolveInboundConversationKey(input) {
   if (!input || typeof input !== 'object') return null;
@@ -110,18 +140,16 @@ function resolveInboundConversationKey(input) {
   const from = normalizeInboundEmailAddress(input.fromAddress);
   if (!mailbox || !from) return null;
 
-  const anchor = pickInboundThreadAnchor({
+  const anchorsNewestFirst = listInboundThreadAnchorsNewestFirst({
     inReplyTo: input.inReplyTo,
     references: input.references,
   });
 
-  if (anchor) {
+  if (anchorsNewestFirst.length > 0) {
     const registry = input.threadAnchorKeys;
-    if (registry) {
-      const mapped = registry instanceof Map
-        ? registry.get(anchor)
-        : registry[anchor];
-      if (typeof mapped === 'string' && mapped.length > 0) {
+    for (const anchor of anchorsNewestFirst) {
+      const mapped = lookupRegisteredThreadAnchor(registry, mailbox, anchor);
+      if (mapped) {
         return Object.freeze({
           conversation_key: mapped,
           strategy: 'thread_join',
@@ -129,13 +157,6 @@ function resolveInboundConversationKey(input) {
         });
       }
     }
-    const threaded = buildThreadAnchorConversationKey(mailbox, anchor);
-    if (!threaded) return null;
-    return Object.freeze({
-      conversation_key: threaded,
-      strategy: 'thread_anchor',
-      thread_anchor: anchor,
-    });
   }
 
   const fromKey = buildFromConversationKey(mailbox, from);
@@ -151,21 +172,22 @@ function resolveInboundConversationKey(input) {
  * Register a message internet Message-ID for future thread joins.
  *
  * @param {Map<string,string>|Record<string,string>} threadAnchorKeys
+ * @param {string} providerMailboxId
  * @param {string} messageId
  * @param {string} conversationKey
  * @returns {boolean}
  */
-function registerInboundThreadAnchor(threadAnchorKeys, messageId, conversationKey) {
+function registerInboundThreadAnchor(threadAnchorKeys, providerMailboxId, messageId, conversationKey) {
   if (!threadAnchorKeys) return false;
-  const id = normalizeMessageId(messageId);
+  const registryKey = buildThreadAnchorRegistryKey(providerMailboxId, messageId);
   const key = typeof conversationKey === 'string' ? conversationKey.trim() : '';
-  if (!id || !key) return false;
+  if (!registryKey || !key) return false;
   if (threadAnchorKeys instanceof Map) {
-    threadAnchorKeys.set(id, key);
+    threadAnchorKeys.set(registryKey, key);
     return true;
   }
   if (typeof threadAnchorKeys === 'object') {
-    threadAnchorKeys[id] = key;
+    threadAnchorKeys[registryKey] = key;
     return true;
   }
   return false;
@@ -177,7 +199,9 @@ module.exports = Object.freeze({
   normalizeProviderMailboxId,
   normalizeMessageId,
   parseReferencesHeader,
+  listInboundThreadAnchorsNewestFirst,
   pickInboundThreadAnchor,
+  buildThreadAnchorRegistryKey,
   buildFromConversationKey,
   buildThreadAnchorConversationKey,
   resolveInboundConversationKey,
