@@ -26,12 +26,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const util = require('util');
-const {
-  createAzureKvEmailGrantEnvelopeProvider,
-  buildVersionedKeyId,
-  parseVersionedKeyId,
-  PROD_WRAP_ALG,
-} = require('./email-grant-envelope-azure-kv-provider');
+const { createAzureKvEmailGrantEnvelopeProvider, createAzureKvEmailDeltaCursorEnvelopeProvider,
+  buildVersionedKeyId, parseVersionedKeyId, PROD_WRAP_ALG } = require('./email-grant-envelope-azure-kv-provider');
 
 // Module-init pin: ambient util.types.isProxy monkeypatches after load must not weaken.
 const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
@@ -396,15 +392,17 @@ function createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(env) {
     return boundCryptoClient;
   }
 
-  let provider;
+  let provider; let cursorProvider;
   try {
-    provider = createAzureKvEmailGrantEnvelopeProvider({
+    const providerConfig = Object.freeze({
       trustedVaultHosts: [SUNSET_STAGING_TRUSTED_HOST],
       vaultHost: SUNSET_STAGING_TRUSTED_HOST,
       kekKeyName: SUNSET_STAGING_KEK_KEY_NAME,
       kekKeyVersion: SUNSET_STAGING_KEK_KEY_VERSION,
       getCryptographyClient,
     });
+    provider = createAzureKvEmailGrantEnvelopeProvider(providerConfig);
+    cursorProvider = createAzureKvEmailDeltaCursorEnvelopeProvider(providerConfig);
   } catch (e) {
     throwSanitized(e, 'envelope_provider_config_invalid');
   }
@@ -412,7 +410,7 @@ function createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(env) {
   return Object.freeze({
     ok: true, composition_enabled: true, runtime_activation: false,
     deployment_boundary: 'sunset-staging-canary-only',
-    provider, public_metadata: publicMetadata(),
+    provider, cursorProvider, public_metadata: publicMetadata(),
   });
 }
 
@@ -430,7 +428,8 @@ function createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(en
   }
   return Object.freeze({
     ok: true, composition_enabled: true, runtime_activation: true,
-    deployment_boundary: composition.deployment_boundary, provider: composition.provider,
+    deployment_boundary: composition.deployment_boundary,
+    provider: composition.provider, cursorProvider: composition.cursorProvider,
     public_metadata: Object.freeze({ ...composition.public_metadata, runtime_activation: true }),
   });
 }

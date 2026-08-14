@@ -33,6 +33,9 @@ const {
   snapshotOwnDataProps,
   snapshotProviderOpInput,
 } = require('./email-grant-envelope-provider-contract');
+const {
+  parseDeltaCursorEnvelopeAadV1,
+} = require('./email-delta-cursor-envelope-aad');
 
 const PROD_WRAP_ALG = 'RSA-OAEP-256';
 /** Match 2F-A envelope record schema bounds (contract constants; not re-exported). */
@@ -391,8 +394,13 @@ function requireCanonicalAad(aad, expectedOperationId) {
   return parsed.value;
 }
 
+function requireCanonicalDeltaCursorAad(aad) {
+  const parsed = parseDeltaCursorEnvelopeAadV1(aad);
+  return parsed.ok === true && parsed.value ? parsed.value : null;
+}
+
 /** @param {object} config trustedVaultHosts, kekKeyName, kekKeyVersion, getCryptographyClient */
-function createAzureKvEmailGrantEnvelopeProvider(config) {
+function createAzureKvEmailEnvelopeProvider(config, aadPolicy) {
   const parsed = parseProviderConfig(config);
   if (!parsed.ok) {
     if (parsed.reason === 'a256kw_rejected') throw err('envelope_a256kw_rejected');
@@ -407,8 +415,8 @@ function createAzureKvEmailGrantEnvelopeProvider(config) {
     const aad = requireAad(s.aad);
     const operationId = requireOperationId(s.operation_id);
     if (!aad || !operationId) throw err('envelope_seal_failed');
-    // Canonical AAD must bind operation_id exactly (not just Buffer presence).
-    if (!requireCanonicalAad(aad, operationId)) throw err('envelope_seal_failed');
+    // Selected AAD policy is fixed by the public factory (grant or delta cursor).
+    if (!aadPolicy(aad, operationId)) throw err('envelope_seal_failed');
 
     let plaintext = null;
     let plaintextOwned = false;
@@ -463,8 +471,8 @@ function createAzureKvEmailGrantEnvelopeProvider(config) {
     const vr = validateGrantEnvelopeRecordV1(s.envelope);
     if (!vr.ok || !aad) throw err('envelope_open_failed');
     const e = vr.value;
-    // Canonical AAD operation_id must equal envelope.operation_id.
-    if (!requireCanonicalAad(aad, e.operation_id)) throw err('envelope_open_failed');
+    // Selected canonical AAD policy must accept this exact ciphertext context.
+    if (!aadPolicy(aad, e.operation_id)) throw err('envelope_open_failed');
 
     if (e.kek_wrap_alg === 'A256KW') throw err('envelope_a256kw_rejected');
     if (e.kek_wrap_alg !== PROD_WRAP_ALG) throw err('envelope_open_failed');
@@ -561,8 +569,17 @@ function createAzureKvEmailGrantEnvelopeProvider(config) {
   });
 }
 
+function createAzureKvEmailGrantEnvelopeProvider(config) {
+  return createAzureKvEmailEnvelopeProvider(config, requireCanonicalAad);
+}
+
+function createAzureKvEmailDeltaCursorEnvelopeProvider(config) {
+  return createAzureKvEmailEnvelopeProvider(config, requireCanonicalDeltaCursorAad);
+}
+
 module.exports = {
   createAzureKvEmailGrantEnvelopeProvider,
+  createAzureKvEmailDeltaCursorEnvelopeProvider,
   buildVersionedKeyId,
   parseVersionedKeyId,
   PROD_WRAP_ALG,

@@ -3,7 +3,7 @@
 const { createEmailDeltaSunsetStagingWorker } = require('./email-delta-sunset-staging-worker');
 const { createSunsetMicrosoftOAuthClientSecretProvider } = require('./sunset-microsoft-oauth-provider');
 const { createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition } = require('./email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
-const { validateEmailGrantEnvelopeProvider } = require('./email-grant-envelope-provider-contract');
+const{validateEmailGrantEnvelopeProvider}=require('./email-grant-envelope-provider-contract');
 const { createMicrosoftTokenHttpTransport } = require('./email-microsoft-token-http-transport');
 const { createDelegatedGrantAccessSession } = require('./email-delegated-grant-access-session');
 const { createMicrosoftGraphMessagesDeltaPageTransport } = require('./email-microsoft-graph-messages-delta-page-transport');
@@ -23,8 +23,8 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps){
   if(!exactDeps(deps)||typeof deps.withPgClient!=='function'||!deps.https||!deps.timers||typeof deps.timers.setTimeout!=='function'||typeof deps.timers.clearTimeout!=='function'||!Number.isInteger(deps.intervalMs))throw fail();
   const readiness=parseEmailDeltaRuntimeConfig(deps.env);
   if(!readiness||readiness.runtime_activation!==true||readiness.ok!==true)throw fail();
-  const kv=createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(deps.env), validated=kv&&validateEmailGrantEnvelopeProvider(kv.provider);
-  if(!kv||kv.ok!==true||!validated||validated.ok!==true)throw fail();
+  const kv=createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(deps.env), validated=kv&&validateEmailGrantEnvelopeProvider(kv.provider), validatedCursor=kv&&validateEmailGrantEnvelopeProvider(kv.cursorProvider);
+  if(!kv||kv.ok!==true||!validated||validated.ok!==true||!validatedCursor||validatedCursor.ok!==true)throw fail();
   const tokenTransport=createMicrosoftTokenHttpTransport(Object.freeze({httpsImpl:deps.https,timers:deps.timers}));
   let currentClient=null;
   const worker=createEmailDeltaSunsetStagingWorker({timers:deps.timers,intervalMs:deps.intervalMs,
@@ -33,7 +33,7 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps){
     const client=currentClient;
     const graphTransport=createMicrosoftGraphMessagesDeltaPageTransport(Object.freeze({httpsImpl:deps.https,timers:deps.timers}),authority.activationWatermark);
     const createGrantSession=()=>createDelegatedGrantAccessSession(Object.freeze({deployment:SUNSET_DEPLOYMENT,applicationClientId:deps.env[config.ENV_OAUTH_CLIENT_ID].toLowerCase(),client,envelopeProvider:validated.value,secretProvider:createSunsetMicrosoftOAuthClientSecretProvider(Object.freeze({deployment:SUNSET_DEPLOYMENT,env:deps.env})),transport:tokenTransport,workerId:WORKER_ID}));
-    const operation=createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({db:client,createGrantSession,messagesDeltaPageTransport:graphTransport,withTransactionClient:async work=>work(client),envelopeProvider:validated.value}));
+    const operation=createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({db:client,createGrantSession,messagesDeltaPageTransport:graphTransport,withTransactionClient:async work=>work(client),envelopeProvider:validatedCursor.value}));
     const cleanAuthority=Object.freeze({clientId:authority.clientId,locationId:authority.locationId,endpointId:authority.endpointId});
     const result=await operation.runAuthorityBoundMessagesDeltaPage(cleanAuthority);
     if(!result||result.ok!==true)throw fail(); return result.value;

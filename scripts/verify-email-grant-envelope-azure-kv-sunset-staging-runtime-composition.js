@@ -88,6 +88,7 @@ function mkIsolatedAppRoot() {
     'email-grant-envelope-azure-kv-sunset-staging-runtime-composition.js',
     'email-grant-envelope-azure-kv-provider.js',
     'email-grant-envelope-provider-contract.js',
+    'email-delta-cursor-envelope-aad.js',
   ]) fs.copyFileSync(path.join(ROOT, 'scripts/lib', name), path.join(lib, name));
   const fake = mkFakeAzureNodePath();
   fs.renameSync(path.join(fake.base, 'node_modules'), path.join(base, 'node_modules'));
