@@ -12,7 +12,9 @@
  *   B) saved draft / stable approval replay is exactly-once
  *   C) subject persisted on tenant_email_reply_approvals before Graph
  *   D) current UI 5-key payload (subject + email_subject, equal strings) and
- *      legacy 3-key; mismatch/accessor/proxy/extras rejected before DB/Graph
+ *      legacy 3-key; omitted/empty pair defaults to Re: last persisted subject
+ *      (no doubling) in the draft transaction; mismatch/accessor/proxy/extras
+ *      rejected before DB/Graph
  *   E) sealed dispatch + PATCH use locked persisted subject
  *   F) mirror-fail / outcome_unknown recovery repairs exact subject once
  *   G) list/detail current subject is inbound + committed outbound only
@@ -90,6 +92,7 @@ const {
   staffInboxThreadMessageSubject,
   sqlCurrentEmailSubjectExpr,
 } = require('./lib/staff-conversation-queries');
+const { SQL_LAST_PERSISTED_SUBJECT } = require('./lib/email-outbound-reply-subject');
 
 let pass = 0;
 let fail = 0;
@@ -204,8 +207,10 @@ function createReplyPg(opts = {}) {
   let providerCalls = 0;
   let dbHits = 0;
   let mirrorFailRemaining = opts.mirrorFailRemaining || 0;
+  let lastSubjectError = opts.lastSubjectError || null;
   let lastSql = null;
   const queries = [];
+  const lastSubjectQueries = [];
   const client = {
     async query(sql, params) {
       const n = String(sql).replace(/\s+/g, ' ').trim();
@@ -222,7 +227,10 @@ function createReplyPg(opts = {}) {
         }
         return { rows: [{ ...authRow({ endpoint_outbound_enabled: endpointOutbound }) }] };
       }
-      if (/tenant_email_inbound_events/.test(n) && /subject/.test(n) && /UNION ALL/i.test(n)) {
+      if (n === SQL_LAST_PERSISTED_SUBJECT
+          || (/tenant_email_inbound_events/.test(n) && /subject/.test(n) && /UNION ALL/i.test(n))) {
+        lastSubjectQueries.push({ sql: n, params: Array.isArray(params) ? params.slice() : [] });
+        if (lastSubjectError) throw lastSubjectError;
         if (!lastSubjects.length) return { rows: [] };
         return { rows: [{ subject: lastSubjects[lastSubjects.length - 1] }] };
       }
@@ -358,6 +366,7 @@ function createReplyPg(opts = {}) {
     mirrors,
     client,
     queries,
+    lastSubjectQueries,
     get lastSql() { return lastSql; },
     get dbHits() { return dbHits; },
     resetDbHits() { dbHits = 0; },
@@ -365,6 +374,7 @@ function createReplyPg(opts = {}) {
     setAuthorityPresent(v) { authorityPresent = v === true; },
     setEndpointOutbound(v) { endpointOutbound = v === true; },
     setLastSubjects(arr) { lastSubjects.splice(0, lastSubjects.length, ...arr); },
+    setLastSubjectError(err) { lastSubjectError = err || null; },
     setMirrorFailRemaining(n) { mirrorFailRemaining = n; },
     noteProvider() { providerCalls += 1; },
     get providerCalls() { return providerCalls; },
@@ -775,6 +785,231 @@ async function main() {
       && sealed && !Object.prototype.hasOwnProperty.call(sealed, 'subject')
       && (!pg.mirrors[0] || pg.mirrors[0].metadata.email_subject == null),
       send.calls[0] ? `status=${send.calls[0].status}` : 'no approve');
+  }
+
+  {
+    const routesSrc = fs.readFileSync(ROUTES_ABS, 'utf8');
+    ok('D last-subject loader does not catch DB errors as null',
+      !/async function loadLastPersistedSubject[\s\S]{0,500}catch\s*\{\s*return null;/.test(routesSrc));
+  }
+
+  {
+    const pg = createReplyPg({ lastSubjects: [LAST_SUBJECT] });
+    const send = captureSend();
+    let sealed = null;
+    const routes = createStaffEmailInboxRoutes({
+      sendJSON: send.sendJSON,
+      withPgClient: pg.withPgClient,
+      runtimeEnv: enabledEnv(),
+      outboundDispatch: async (req) => {
+        sealed = req;
+        pg.markJournal(req.operation_id);
+        return Object.freeze({ ok: true, code: 'email_send_committed' });
+      },
+    });
+    await routes.handleDraft(mockReq(legacyDto()), {}, user(), gate);
+    const draftCall = send.calls[0];
+    const ap = draftCall && draftCall.body && draftCall.body.approval_id;
+    const drafted = ap && pg.durable.get(ap);
+    const lastIdx = pg.queries.indexOf(SQL_LAST_PERSISTED_SUBJECT);
+    const insertIdx = pg.queries.findIndex((q) => /^INSERT INTO tenant_email_reply_approvals/.test(q));
+    ok('D omitted legacy subject queries last persisted and stores Re: last',
+      !!draftCall && draftCall.status === 200
+      && drafted && drafted.state === 'draft'
+      && drafted.subject === UI_SUBJECT
+      && drafted.subject !== LAST_SUBJECT
+      && drafted.subject !== '(no subject)'
+      && lastIdx !== -1
+      && insertIdx !== -1
+      && lastIdx < insertIdx
+      && pg.queries.includes('BEGIN')
+      && pg.queries.indexOf('BEGIN') < lastIdx
+      && pg.lastSubjectQueries.some((q) => (
+        q.sql === SQL_LAST_PERSISTED_SUBJECT
+        && String(q.params[0]).toLowerCase() === C
+        && String(q.params[1]).toLowerCase() === V
+      )),
+      draftCall
+        ? `status=${draftCall.status} subject=${drafted && drafted.subject} lastIdx=${lastIdx} insertIdx=${insertIdx}`
+        : 'no draft');
+    const queriesAfterDraft = pg.queries.length;
+    pg.setLastSubjects(['Later inbound subject']);
+    send.calls.length = 0;
+    await routes.handleApproveSend(mockReq(legacyDto({ approval_id: ap })), {}, user(), gate);
+    const approveQueries = pg.queries.slice(queriesAfterDraft);
+    ok('D omitted-subject approval locks Re: last even if thread subject changes',
+      send.calls[0] && send.calls[0].status === 200
+      && sealed && sealed.subject === UI_SUBJECT
+      && sealed.subject !== 'Re: Later inbound subject'
+      && !approveQueries.includes(SQL_LAST_PERSISTED_SUBJECT)
+      && pg.mirrors[0] && pg.mirrors[0].metadata.email_subject === UI_SUBJECT,
+      send.calls[0]
+        ? `status=${send.calls[0].status} sealed=${sealed && sealed.subject}`
+        : 'no approve');
+  }
+
+  {
+    const pg = createReplyPg({ lastSubjects: [LAST_SUBJECT] });
+    const send = captureSend();
+    let sealed = null;
+    const routes = createStaffEmailInboxRoutes({
+      sendJSON: send.sendJSON,
+      withPgClient: pg.withPgClient,
+      runtimeEnv: enabledEnv(),
+      outboundDispatch: async (req) => {
+        sealed = req;
+        pg.markJournal(req.operation_id);
+        return Object.freeze({ ok: true, code: 'email_send_committed' });
+      },
+    });
+    await routes.handleDraft(mockReq(uiDto({ approval_id: null, subject: '', email_subject: '' })), {}, user(), gate);
+    const draftCall = send.calls[0];
+    const ap = draftCall && draftCall.body && draftCall.body.approval_id;
+    const drafted = ap && pg.durable.get(ap);
+    ok('D current UI empty pair queries last persisted and stores Re: last',
+      !!draftCall && draftCall.status === 200
+      && drafted && drafted.subject === UI_SUBJECT
+      && drafted.subject !== '(no subject)'
+      && pg.queries.includes(SQL_LAST_PERSISTED_SUBJECT)
+      && pg.lastSubjectQueries.some((q) => q.sql === SQL_LAST_PERSISTED_SUBJECT),
+      draftCall ? `status=${draftCall.status} subject=${drafted && drafted.subject}` : 'no draft');
+    pg.setLastSubjects(['Changed after empty UI draft']);
+    send.calls.length = 0;
+    await routes.handleApproveSend(mockReq(uiDto({ approval_id: ap, subject: '', email_subject: '' })), {}, user(), gate);
+    ok('D empty-pair approve-send uses locked Re: last, not a later thread subject',
+      send.calls[0] && send.calls[0].status === 200
+      && sealed && sealed.subject === UI_SUBJECT
+      && sealed.subject !== 'Re: Changed after empty UI draft'
+      && pg.mirrors[0] && pg.mirrors[0].metadata.email_subject === UI_SUBJECT,
+      send.calls[0] ? `status=${send.calls[0].status} sealed=${sealed && sealed.subject}` : 'no approve');
+  }
+
+  {
+    const pg = createReplyPg({ lastSubjects: ['Re: Already prefixed'] });
+    const send = captureSend();
+    const routes = createStaffEmailInboxRoutes({
+      sendJSON: send.sendJSON,
+      withPgClient: pg.withPgClient,
+      runtimeEnv: enabledEnv(),
+    });
+    await routes.handleDraft(mockReq(legacyDto()), {}, user(), gate);
+    const ap = send.calls[0] && send.calls[0].body && send.calls[0].body.approval_id;
+    const drafted = ap && pg.durable.get(ap);
+    ok('D default does not double an existing Re: prefix',
+      !!drafted && drafted.subject === 'Re: Already prefixed'
+      && drafted.subject !== 'Re: Re: Already prefixed');
+  }
+
+  {
+    const pg = createReplyPg({ lastSubjects: [LAST_SUBJECT] });
+    const send = captureSend();
+    const routes = createStaffEmailInboxRoutes({
+      sendJSON: send.sendJSON,
+      withPgClient: pg.withPgClient,
+      runtimeEnv: enabledEnv(),
+    });
+    await routes.handleDraft(mockReq(uiDto({
+      approval_id: null, subject: OVERRIDE, email_subject: OVERRIDE,
+    })), {}, user(), gate);
+    const ap = send.calls[0] && send.calls[0].body && send.calls[0].body.approval_id;
+    ok('D explicit override persists exactly (not Re: last)',
+      ap && pg.durable.get(ap) && pg.durable.get(ap).subject === OVERRIDE);
+    pg.setLastSubjects(['Updated thread subject']);
+    send.calls.length = 0;
+    await routes.handleDraft(mockReq(uiDto({
+      approval_id: ap, subject: '', email_subject: '',
+      message_text: 'Still drafting after empty-pair update.',
+    })), {}, user(), gate);
+    const afterEmpty = ap && pg.durable.get(ap);
+    ok('D draft update with empty pair re-resolves current last while still draft',
+      send.calls[0] && send.calls[0].status === 200
+      && afterEmpty && afterEmpty.state === 'draft'
+      && afterEmpty.subject === 'Re: Updated thread subject'
+      && afterEmpty.message_text === 'Still drafting after empty-pair update.',
+      send.calls[0] ? `status=${send.calls[0].status} subject=${afterEmpty && afterEmpty.subject}` : 'no update');
+    pg.setLastSubjects(['Third subject']);
+    send.calls.length = 0;
+    await routes.handleDraft(mockReq(legacyDto({
+      approval_id: ap,
+      message_text: 'Still drafting after omitted-subject update.',
+    })), {}, user(), gate);
+    const afterOmit = ap && pg.durable.get(ap);
+    ok('D draft update with omitted subject re-resolves current last while still draft',
+      send.calls[0] && send.calls[0].status === 200
+      && afterOmit && afterOmit.state === 'draft'
+      && afterOmit.subject === 'Re: Third subject'
+      && afterOmit.message_text === 'Still drafting after omitted-subject update.',
+      send.calls[0] ? `status=${send.calls[0].status} subject=${afterOmit && afterOmit.subject}` : 'no omit update');
+  }
+
+  {
+    const pg = createReplyPg({ lastSubjects: [LAST_SUBJECT] });
+    const planted = new Error('last_subject_query_failed');
+    pg.setLastSubjectError(planted);
+    const send = captureSend();
+    const routes = createStaffEmailInboxRoutes({
+      sendJSON: send.sendJSON,
+      withPgClient: pg.withPgClient,
+      runtimeEnv: enabledEnv(),
+    });
+    await routes.handleDraft(mockReq(legacyDto()), {}, user(), gate);
+    ok('D last-subject DB error fails the draft and stores nothing',
+      send.calls[0] && send.calls[0].status === 500
+      && send.calls[0].body && send.calls[0].body.error === 'draft_failed'
+      && pg.durable.size === 0
+      && pg.queries.includes('ROLLBACK')
+      && !pg.queries.some((q) => /^INSERT INTO tenant_email_reply_approvals/.test(q)),
+      send.calls[0]
+        ? `status=${send.calls[0].status} durable=${pg.durable.size}`
+        : 'no draft response');
+  }
+
+  {
+    const pg = createReplyPg({ lastSubjects: [LAST_SUBJECT] });
+    const send = captureSend();
+    let sealed = null;
+    let recoverSealed = null;
+    const routes = createStaffEmailInboxRoutes({
+      sendJSON: send.sendJSON,
+      withPgClient: pg.withPgClient,
+      runtimeEnv: enabledEnv(),
+      outboundDispatch: async (req) => {
+        if (!sealed) {
+          sealed = req;
+          pg.noteProvider();
+          pg.markJournal(req.operation_id, { phase: 'send_dispatched', outcome: 'outcome_unknown' });
+          return Object.freeze({ ok: false, code: 'email_send_outcome_unknown' });
+        }
+        recoverSealed = req;
+        pg.markJournal(req.operation_id, { phase: 'reconciled_sent', outcome: 'committed' });
+        return Object.freeze({ ok: true, code: 'email_send_committed' });
+      },
+    });
+    await routes.handleDraft(mockReq(uiDto({ approval_id: null, subject: '', email_subject: '' })), {}, user(), gate);
+    const ap = send.calls[0] && send.calls[0].body && send.calls[0].body.approval_id;
+    pg.setLastSubjects(['Should not win after draft']);
+    send.calls.length = 0;
+    await routes.handleApproveSend(mockReq(uiDto({ approval_id: ap, subject: '', email_subject: '' })), {}, user(), gate);
+    ok('F defaulted Re: last outcome_unknown does not invent a second operation',
+      send.calls[0] && send.calls[0].status === 503
+      && send.calls[0].body.error === 'email_send_outcome_unknown'
+      && sealed && sealed.subject === UI_SUBJECT
+      && sealed.approval_id === ap
+      && pg.providerCalls === 1
+      && pg.mirrors.length === 0);
+    send.calls.length = 0;
+    await routes.handleRecoverSend(mockReq({ conversation_id: V, approval_id: ap }), {}, user(), gate);
+    ok('F defaulted Re: last recovery commits exact persisted subject without a second send',
+      send.calls[0] && send.calls[0].status === 200 && send.calls[0].body.status === 'committed'
+      && recoverSealed && recoverSealed.subject === UI_SUBJECT
+      && recoverSealed.approval_id === ap
+      && recoverSealed.operation_id === sealed.operation_id
+      && pg.providerCalls === 1
+      && pg.mirrors.length === 1
+      && pg.mirrors[0].metadata.email_subject === UI_SUBJECT,
+      send.calls[0]
+        ? `status=${send.calls[0].status} recoverSubject=${recoverSealed && recoverSealed.subject} provider=${pg.providerCalls}`
+        : 'no recover');
   }
 
   {

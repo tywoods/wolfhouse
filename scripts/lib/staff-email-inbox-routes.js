@@ -626,14 +626,49 @@ function createStaffEmailInboxRoutes(deps) {
     if (!digest) { sendJSON(res, 400, INVALID_REQUEST); return null; }
     return { actor, input: parsed.body, digest };
   }
+  function hasExplicitSubjectOverride(input) {
+    try {
+      return Object.prototype.hasOwnProperty.call(input, 'subject')
+        && typeof input.subject === 'string'
+        && input.subject.length > 0;
+    } catch {
+      return false;
+    }
+  }
+  async function loadLastPersistedSubject(pg, clientId, conversationId) {
+    const res = await pg.query(SQL_LAST_PERSISTED_SUBJECT, [clientId, conversationId]);
+    if (!res || !Array.isArray(res.rows) || res.rows.length !== 1 || !res.rows[0]) return null;
+    const s = ownData(res.rows[0], 'subject');
+    return typeof s === 'string' && s.trim() ? s : null;
+  }
+  function resolveSendSubject(input, lastSubject) {
+    const overridePresent = hasExplicitSubjectOverride(input);
+    return resolveOutboundReplySubject({
+      overridePresent,
+      override: overridePresent ? input.subject : undefined,
+      lastSubject,
+    });
+  }
+  async function resolvePersistedDraftSubject(pg, clientId, conversationId, input) {
+    const lastSubject = hasExplicitSubjectOverride(input)
+      ? null
+      : await loadLastPersistedSubject(pg, clientId, conversationId);
+    const resolved = resolveSendSubject(input, lastSubject);
+    if (!resolved || resolved.ok !== true) {
+      const err = new Error('subject_resolve_failed');
+      err.code = 'subject_invalid';
+      throw err;
+    }
+    return resolved.value;
+  }
   async function persistNewDraftThroughStaffOwner(pg, a, body, digest, expectedAuthority) {
     const auth = await resolveAuthority(pg, a, body.conversation_id);
     if (!auth) return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
     if (expectedAuthority && !authorityMatchesExpected(auth, expectedAuthority)) {
       return { status: 409, body: Object.freeze({ success: false, error: 'stale_authority' }), code: 'stale_authority' };
     }
+    const subject = await resolvePersistedDraftSubject(pg, auth.client_id, auth.conversation_id, body);
     const approvalId = mintUuid(); const operationId = mintUuid();
-    const subject = Object.prototype.hasOwnProperty.call(body, 'subject') ? body.subject : null;
     const ins = await pg.query(SQL_INSERT_DRAFT, [approvalId, operationId, auth.client_id, auth.location_id,
       auth.location_key, auth.endpoint_id, auth.conversation_id, auth.source_inbound_event_id,
       auth.provider_mailbox_id, auth.provider_source_message_id, a.staff_user_id, body.message_text, digest, subject]);
@@ -642,6 +677,18 @@ function createStaffEmailInboxRoutes(deps) {
     }
     const row = ins.rows[0];
     return { status: 200, body: successDto(row.conversation_id, row.message_text, row.approval_id), code: 'draft_created', approval_id: row.approval_id };
+  }
+  async function persistUpdatedDraftThroughStaffOwner(pg, a, body, digest) {
+    const auth = await resolveAuthority(pg, a, body.conversation_id);
+    if (!auth) return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
+    const subject = await resolvePersistedDraftSubject(pg, auth.client_id, auth.conversation_id, body);
+    const upd = await pg.query(SQL_CAS_DRAFT, [
+      body.approval_id, a.client_id, body.conversation_id, body.message_text, digest, a.staff_user_id,
+      subject,
+    ]);
+    if (!upd || !upd.rows || upd.rows.length !== 1) return { status: 404, body: NOT_FOUND, code: 'draft_cas_miss' };
+    const row = upd.rows[0];
+    return { status: 200, body: successDto(row.conversation_id, row.message_text, row.approval_id), code: 'draft_updated', approval_id: row.approval_id };
   }
   function authorityMatchesExpected(auth, expected) {
     const keys = ['client_id', 'location_id', 'location_key', 'endpoint_id', 'conversation_id',
@@ -661,19 +708,21 @@ function createStaffEmailInboxRoutes(deps) {
     const { actor, input, digest } = pre;
     try {
       const result = await withPgClient(async (pg) => {
-        if (input.approval_id == null) {
-          return persistNewDraftThroughStaffOwner(pg, actor, input, digest, null);
+        await pg.query('BEGIN');
+        try {
+          const persisted = input.approval_id == null
+            ? await persistNewDraftThroughStaffOwner(pg, actor, input, digest, null)
+            : await persistUpdatedDraftThroughStaffOwner(pg, actor, input, digest);
+          if (persisted.status !== 200) {
+            await pg.query('ROLLBACK');
+            return persisted;
+          }
+          await pg.query('COMMIT');
+          return persisted;
+        } catch (error) {
+          try { await pg.query('ROLLBACK'); } catch { /* preserve original error */ }
+          throw error;
         }
-        const auth = await resolveAuthority(pg, actor, input.conversation_id);
-        if (!auth) return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
-        const subject = Object.prototype.hasOwnProperty.call(input, 'subject') ? input.subject : null;
-        const upd = await pg.query(SQL_CAS_DRAFT, [
-          input.approval_id, actor.client_id, input.conversation_id, input.message_text, digest, actor.staff_user_id,
-          subject,
-        ]);
-        if (!upd || !upd.rows || upd.rows.length !== 1) return { status: 404, body: NOT_FOUND, code: 'draft_cas_miss' };
-        const row = upd.rows[0];
-        return { status: 200, body: successDto(row.conversation_id, row.message_text, row.approval_id), code: 'draft_updated', approval_id: row.approval_id };
       });
       auditSafe(appendAuditLog, { intent: 'api:inbox.email.draft', category: 'email_inbox_draft', success: result.status === 200,
         code: result.code, approval_id: result.approval_id, conversation_id: input.conversation_id,
@@ -683,27 +732,6 @@ function createStaffEmailInboxRoutes(deps) {
       auditSafe(appendAuditLog, { intent: 'api:inbox.email.draft', category: 'email_inbox_draft', success: false, code: 'draft_error',
         conversation_id: input.conversation_id, staff_user_id: actor.staff_user_id, elapsed_ms: Date.now() - started });
       return sendJSON(res, 500, Object.freeze({ success: false, error: 'draft_failed' }));
-    }
-  }
-  async function loadLastPersistedSubject(pg, clientId, conversationId) {
-    try {
-      const res = await pg.query(SQL_LAST_PERSISTED_SUBJECT, [clientId, conversationId]);
-      if (!res || !Array.isArray(res.rows) || res.rows.length !== 1 || !res.rows[0]) return null;
-      const s = ownData(res.rows[0], 'subject');
-      return typeof s === 'string' && s.trim() ? s : null;
-    } catch {
-      return null;
-    }
-  }
-  function resolveSendSubject(input, lastSubject) {
-    try {
-      return resolveOutboundReplySubject({
-        overridePresent: Object.prototype.hasOwnProperty.call(input, 'subject'),
-        override: Object.prototype.hasOwnProperty.call(input, 'subject') ? input.subject : undefined,
-        lastSubject,
-      });
-    } catch {
-      return Object.freeze({ ok: false, code: 'subject_invalid' });
     }
   }
   /** Best-effort: durable staff-visible outbound body after Graph commit. */
@@ -800,12 +828,9 @@ function createStaffEmailInboxRoutes(deps) {
             return { status: 409, body: BODY_MISMATCH, code: 'body_mismatch' };
           }
           const lockedSubject = (row.subject == null || row.subject === '') ? null : String(row.subject);
-          if (Object.prototype.hasOwnProperty.call(input, 'subject')) {
-            const requested = input.subject == null ? null : input.subject;
-            if (requested !== lockedSubject) {
-              if (began) await pg.query('ROLLBACK');
-              return { status: 409, body: BODY_MISMATCH, code: 'body_mismatch' };
-            }
+          if (hasExplicitSubjectOverride(input) && input.subject !== lockedSubject) {
+            if (began) await pg.query('ROLLBACK');
+            return { status: 409, body: BODY_MISMATCH, code: 'body_mismatch' };
           }
           const auth = await resolveAuthority(pg, actor, input.conversation_id);
           if (!auth) {
