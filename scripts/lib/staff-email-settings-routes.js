@@ -4,6 +4,8 @@ const registry = require('./email-tenant-channel-registry');
 
 const EMAIL_SETTINGS_PATH = '/staff/admin/email-settings';
 const SUNSET_CLIENT_SLUG = 'sunset';
+/** Independently owned disconnect gate env (matches oauth disconnect route). */
+const DISCONNECT_ENABLED_ENV = 'LUNA_EMAIL_OAUTH_DISCONNECT_ENABLED';
 /** Independently owned Phase B reauth start gate env (matches B3a2a; not imported). */
 const PHASE_B_REAUTH_START_ENABLED_ENV = 'LUNA_EMAIL_PHASE_B_REAUTH_START_ENABLED';
 
@@ -109,6 +111,18 @@ function isPhaseBReauthSettingsActionEnabled(env) {
   }
 }
 
+function isDisconnectSettingsActionEnabled(env) {
+  try {
+    if (!env || typeof env !== 'object') return false;
+    if (env.SUNSET_EMAIL_SETTINGS_UI_ENABLED !== 'true') return false;
+    if (env.LUNA_DEPLOYMENT !== 'sunset-staging') return false;
+    if (env[DISCONNECT_ENABLED_ENV] !== 'true') return false;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 /**
  * Eligible for OAuth start (existing prepare product): Microsoft delegated modes
  * + pre-verified binding + non-empty public_address. Matches start resolve SQL.
@@ -138,6 +152,30 @@ function isEligibleGmailEndpoint(row) {
 
 function isEligibleUnverifiedDelegatedEndpoint(row) {
   return isEligibleMicrosoftEndpoint(row) || isEligibleGmailEndpoint(row);
+}
+
+function isEligibleDisconnectEndpoint(row, grantFact) {
+  try {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return false;
+    if (!grantFact || typeof grantFact !== 'object' || Array.isArray(grantFact)) return false;
+    if (row.active !== true) return false;
+    if (row.location_active !== true) return false;
+    if (row.provider !== 'microsoft_graph') return false;
+    if (row.auth_mode !== 'delegated_authorization_code') return false;
+    if (row.connector_mode !== 'microsoft_delegated_oauth') return false;
+    if (row.binding_status !== 'verified' && row.binding_status !== 'reauthorization_required') return false;
+    if (typeof row.public_address !== 'string' || row.public_address.trim() === '') return false;
+    if (grantFact.grant_present !== true) return false;
+    if (grantFact.grant_status === 'revoked') return false;
+    if (grantFact.grant_status !== 'active' && grantFact.grant_status !== 'reauthorization_required') return false;
+    if (grantFact.reconcile_state !== 'clean') return false;
+    if (grantFact.has_active_lease === true) return false;
+    if (grantFact.lease_clear !== true) return false;
+    if (isEligibleUnverifiedDelegatedEndpoint(row) === true) return false;
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 /**
@@ -465,9 +503,11 @@ function publicState(endpoint, grant) {
  */
 function endpointDto(row, grant, options) {
   const reauthGateOn = options && options.reauthGateOn === true;
+  const disconnectGateOn = options && options.disconnectGateOn === true;
   const atomicRow = options && options.atomicRow ? options.atomicRow : null;
   const startEligible = isEligibleUnverifiedDelegatedEndpoint(row) === true;
   let reauthorizeEligible = false;
+  let disconnectEligible = false;
   let publicGrant = grant;
   if (atomicRow) {
     // Eligibility depends solely on the atomic immutable own-data snapshot.
@@ -477,6 +517,9 @@ function endpointDto(row, grant, options) {
     if (reauthGateOn && startEligible !== true && atomicEndpoint) {
       reauthorizeEligible = isEligiblePhaseBReauthorizeEndpoint(atomicEndpoint, grantFact) === true;
     }
+    if (disconnectGateOn && startEligible !== true && atomicEndpoint) {
+      disconnectEligible = isEligibleDisconnectEndpoint(atomicEndpoint, grantFact) === true;
+    }
   } else {
     // Pure/unit path without atomic SQL (tests of DTO projection only).
     const grantFact = options && options.grantFact
@@ -484,6 +527,9 @@ function endpointDto(row, grant, options) {
       : snapshotPhaseBReauthGrantFact(grant, null);
     if (reauthGateOn && startEligible !== true) {
       reauthorizeEligible = isEligiblePhaseBReauthorizeEndpoint(row, grantFact) === true;
+    }
+    if (disconnectGateOn && startEligible !== true) {
+      disconnectEligible = isEligibleDisconnectEndpoint(row, grantFact) === true;
     }
   }
   return Object.freeze({
@@ -500,6 +546,7 @@ function endpointDto(row, grant, options) {
     automation_enabled: false,
     start_eligible: startEligible,
     reauthorize_eligible: reauthorizeEligible === true,
+    disconnect_eligible: disconnectEligible === true,
   });
 }
 
@@ -511,15 +558,17 @@ function endpointDto(row, grant, options) {
  * Never both prepare/connect and reauthorize for the same endpoint (binding
  * status disjoint). Never auto-creates endpoints.
  */
-function providerActions(startOn, reauthOn, provider, locations, endpoints) {
+function providerActions(startOn, reauthOn, disconnectOn, provider, locations, endpoints) {
   const providerEndpoints = endpoints.filter((endpoint) => endpoint.provider === provider);
   const hasEligible = startOn && providerEndpoints.some((endpoint) => endpoint.start_eligible === true);
   const hasActiveLocationWithoutEndpoint = locations.some((location) => location.active === true
     && !providerEndpoints.some((endpoint) => endpoint.location_id === location.location_id));
   const hasReauth = provider === 'microsoft_graph' && reauthOn
     && providerEndpoints.some((endpoint) => endpoint.reauthorize_eligible === true);
+  const hasDisconnect = provider === 'microsoft_graph' && disconnectOn
+    && providerEndpoints.some((endpoint) => endpoint.disconnect_eligible === true);
   return Object.freeze({ prepare: startOn && hasActiveLocationWithoutEndpoint && !hasEligible,
-    connect: hasEligible, disconnect: false, reauthorize: hasReauth });
+    connect: hasEligible, disconnect: hasDisconnect, reauthorize: hasReauth });
 }
 
 function computeProviderEmailSettingsActions(runtimeEnv, locations, endpoints) {
@@ -527,8 +576,9 @@ function computeProviderEmailSettingsActions(runtimeEnv, locations, endpoints) {
   const locs = Array.isArray(locations) ? locations : [];
   return Object.freeze({
     microsoft_graph: providerActions(isSunsetEmailOAuthStartEnabled(runtimeEnv),
-      isPhaseBReauthSettingsActionEnabled(runtimeEnv), 'microsoft_graph', locs, eps),
-    gmail_api: providerActions(isSunsetEmailGoogleOAuthStartEnabled(runtimeEnv), false,
+      isPhaseBReauthSettingsActionEnabled(runtimeEnv),
+      isDisconnectSettingsActionEnabled(runtimeEnv), 'microsoft_graph', locs, eps),
+    gmail_api: providerActions(isSunsetEmailGoogleOAuthStartEnabled(runtimeEnv), false, false,
       'gmail_api', locs, eps),
   });
 }
@@ -561,6 +611,7 @@ function createEmailSettingsRoutes(deps) {
         ]);
         if (!locationsResult.ok || !endpointsResult.ok) throw new Error('aggregate_failed');
         const reauthGateOn = isPhaseBReauthSettingsActionEnabled(runtimeEnv);
+        const disconnectGateOn = isDisconnectSettingsActionEnabled(runtimeEnv);
         const endpointRows = Array.isArray(endpointsResult.value) ? endpointsResult.value : [];
         if (endpointRows.length > PHASE_B_REAUTH_ELIGIBILITY_MAX_ENDPOINTS) {
           throw new Error('aggregate_failed');
@@ -595,7 +646,7 @@ function createEmailSettingsRoutes(deps) {
               reconcile_state: null,
               has_active_lease: false,
             });
-          endpoints.push(endpointDto(row, publicGrant, { atomicRow, reauthGateOn }));
+          endpoints.push(endpointDto(row, publicGrant, { atomicRow, reauthGateOn, disconnectGateOn }));
         }
         const locations = locationsResult.value.map((row) => Object.freeze({
           location_id: row.location_id, display_name: row.display_name, active: row.active === true,
@@ -622,6 +673,7 @@ function createEmailSettingsRoutes(deps) {
 module.exports = {
   EMAIL_SETTINGS_PATH,
   SUNSET_CLIENT_SLUG,
+  DISCONNECT_ENABLED_ENV,
   PHASE_B_REAUTH_START_ENABLED_ENV,
   PHASE_B_REAUTH_ELIGIBILITY_MAX_ENDPOINTS,
   SQL_PHASE_B_REAUTH_ELIGIBILITY_FACTS,
@@ -630,6 +682,8 @@ module.exports = {
   isSunsetEmailOAuthStartEnabled,
   isSunsetEmailGoogleOAuthStartEnabled,
   isPhaseBReauthSettingsActionEnabled,
+  isDisconnectSettingsActionEnabled,
+  isEligibleDisconnectEndpoint,
   isEligibleUnverifiedDelegatedEndpoint,
   isEligibleMicrosoftEndpoint,
   isEligibleGmailEndpoint,

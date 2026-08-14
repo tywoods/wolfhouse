@@ -65,6 +65,10 @@ const {
   MAX_COUNT: INBOUND_CAPTURE_MAX_COUNT,
 } = require('./email-microsoft-delegated-inbound-event-store-sunset-staging-runtime-composition');
 const {
+  createSunsetStagingEmailDisconnectRuntime,
+  isDisconnectEnabled,
+} = require('./email-disconnect');
+const {
   createSunsetMicrosoftEndpointPrepare,
   INPUT_KEYS: PREPARE_DOMAIN_INPUT_KEYS,
   ERROR_CODE: PREPARE_ERROR_CODE,
@@ -84,6 +88,8 @@ const OAUTH_START_PATH = '/staff/admin/email-settings/oauth/microsoft/start';
 const OAUTH_PREPARE_PATH = '/staff/admin/email-settings/oauth/microsoft/endpoint';
 /** Admin-only delegated refresh-health (rotation proof); default-off. */
 const OAUTH_REFRESH_HEALTH_PATH = '/staff/admin/email-settings/oauth/microsoft/refresh-health';
+/** Admin-only disconnect/revoke (grant disable + endpoint off); default-off. */
+const OAUTH_DISCONNECT_PATH = '/staff/admin/email-settings/oauth/microsoft/disconnect';
 /** Admin-only delegated read-health (refresh + bounded Graph envelopes); default-off. */
 const OAUTH_READ_HEALTH_PATH = '/staff/admin/email-settings/oauth/microsoft/read-health';
 /**
@@ -118,6 +124,7 @@ const INBOUND_DIAGNOSTIC_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id'
 /** Exact ordered own-data inbound-capture body keys (location_id then endpoint_id). */
 const INBOUND_CAPTURE_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 const REAUTHORIZE_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
+const DISCONNECT_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 /** Exact ordered prepare success JSON keys (no mailbox echo). */
 const PREPARE_SUCCESS_KEYS = Object.freeze(['success', 'endpoint_id']);
 /** Exact ordered refresh-health success JSON keys (sanitized status only). */
@@ -128,6 +135,14 @@ const REFRESH_HEALTH_SUCCESS_KEYS = Object.freeze([
   'grant_status',
   'reconcile_state',
   'reauthorization_required',
+]);
+/** Exact ordered disconnect success JSON keys (sanitized status only). */
+const DISCONNECT_SUCCESS_KEYS = Object.freeze([
+  'success',
+  'status',
+  'grant_generation',
+  'grant_status',
+  'reconcile_state',
 ]);
 /** Exact ordered read-health success JSON keys (sanitized status + allowlisted stage). */
 const READ_HEALTH_SUCCESS_KEYS = Object.freeze([
@@ -183,6 +198,7 @@ const INBOUND_CAPTURE_PUBLIC_STATUS = 'durable_capture_completed';
 const READ_HEALTH_GRAPH_STAGE_SET = new Set(GRAPH_STAGES);
 const PREPARE_ERROR = 'endpoint_prepare_unavailable';
 const REFRESH_HEALTH_ERROR = 'refresh_health_unavailable';
+const DISCONNECT_ERROR = 'oauth_disconnect_unavailable';
 const READ_HEALTH_ERROR = 'read_health_unavailable';
 const INBOUND_DIAGNOSTIC_ERROR = 'inbound_diagnostic_unavailable';
 const INBOUND_CAPTURE_ERROR = 'inbound_capture_unavailable';
@@ -600,6 +616,35 @@ function buildRefreshHealthSuccessJson(result) {
   }
 }
 
+/** Exact ordered disconnect success DTO — sanitized status fields only. */
+function buildDisconnectSuccessJson(result) {
+  try {
+    if (!result || typeof result !== 'object') return null;
+    const status = result.status;
+    const grantGeneration = result.grant_generation;
+    const grantStatus = result.grant_status;
+    const reconcileState = result.reconcile_state;
+    if (typeof status !== 'string'
+        || !['disconnected', 'unavailable'].includes(status)) {
+      return null;
+    }
+    if (grantGeneration != null && (!Number.isInteger(grantGeneration) || grantGeneration < 1)) {
+      return null;
+    }
+    if (grantStatus != null && typeof grantStatus !== 'string') return null;
+    if (reconcileState != null && typeof reconcileState !== 'string') return null;
+    const dto = {};
+    dto.success = true;
+    dto.status = status;
+    dto.grant_generation = grantGeneration == null ? null : grantGeneration;
+    dto.grant_status = grantStatus == null ? null : grantStatus;
+    dto.reconcile_state = reconcileState == null ? null : reconcileState;
+    return Object.freeze(dto);
+  } catch {
+    return null;
+  }
+}
+
 /** Exact ordered read-health success DTO — no message/content fields. */
 function buildReadHealthSuccessJson(result) {
   try {
@@ -639,6 +684,10 @@ function buildReadHealthSuccessJson(result) {
 
 /** Refresh-health body shares start shape: exact ordered location_id + endpoint_id. */
 function snapshotRefreshHealthBody(body) {
+  return snapshotStartBody(body);
+}
+
+function snapshotDisconnectBody(body) {
   return snapshotStartBody(body);
 }
 
@@ -1312,6 +1361,16 @@ function buildRefreshHealthRuntime(env, pg) {
   }));
 }
 
+function buildDisconnectRuntime(env, pg) {
+  const natives = productionNativeSurfaces();
+  return createSunsetStagingEmailDisconnectRuntime(Object.freeze({
+    env,
+    pgClient: pg,
+    https: natives.https,
+    timers: natives.timers,
+  }));
+}
+
 function buildReadHealthRuntime(env, pg) {
   const natives = productionNativeSurfaces();
   return createSunsetStagingMicrosoftDelegatedReadRuntime(Object.freeze({
@@ -1565,6 +1624,68 @@ function createStaffEmailOAuthRoutes(deps) {
       });
     } catch (_) {
       return deps.sendJSON(res, 503, { success: false, error: REFRESH_HEALTH_ERROR });
+    }
+  }
+
+  /**
+   * POST disconnect — lease/open/MS revoke/local grant revoke + endpoint disable.
+   * Gate: LUNA_EMAIL_OAUTH_DISCONNECT_ENABLED + sunset-staging composition.
+   */
+  async function handleDisconnect(body, req, res, user) {
+    if (!isDisconnectEnabled(env)) {
+      return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    if (!user || user.client_slug !== 'sunset'
+        || !UUID_RE_CI.test(user.staff_user_id || '')
+        || !UUID_RE_CI.test(user.session_id || '')) {
+      return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    }
+    if (!deps.assertStaffClientAccess(user, 'sunset', res)) return;
+    const authz = deps.authorizeAuthenticatedStaffRoute({
+      clientSlug: 'sunset',
+      method: 'POST',
+      pathname: OAUTH_DISCONNECT_PATH,
+      env,
+    });
+    if (!authz.ok) {
+      return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+    }
+    const bodySnap = snapshotDisconnectBody(body);
+    if (!bodySnap) {
+      return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    }
+    try {
+      return await deps.withPgClient(async (pg) => {
+        const found = await pg.query(SQL_RESOLVE_REFRESH_HEALTH_BINDING, [
+          bodySnap.location_id,
+          bodySnap.endpoint_id,
+        ]);
+        const resolved = snapshotResolveQueryResult(found);
+        if (resolved.kind === 'empty') {
+          return deps.sendJSON(res, 404, { success: false, error: 'endpoint_not_found' });
+        }
+        if (resolved.kind !== 'one') {
+          return deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
+        }
+        const rowSnap = resolved.row;
+        if (rowSnap.endpoint_id !== bodySnap.endpoint_id) {
+          return deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
+        }
+        const service = buildDisconnectRuntime(env, pg);
+        const result = await service.runRevoke(Object.freeze({
+          clientId: rowSnap.client_id,
+          endpointId: rowSnap.endpoint_id,
+        }));
+        const json = buildDisconnectSuccessJson(result);
+        if (!json
+            || Reflect.ownKeys(json).length !== DISCONNECT_SUCCESS_KEYS.length
+            || Reflect.ownKeys(json)[0] !== DISCONNECT_SUCCESS_KEYS[0]) {
+          return deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
+        }
+        return deps.sendJSON(res, 200, json);
+      });
+    } catch (_) {
+      return deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
     }
   }
 
@@ -1971,6 +2092,7 @@ function createStaffEmailOAuthRoutes(deps) {
     handleStart,
     handlePrepare,
     handleRefreshHealth,
+    handleDisconnect,
     handleReadHealth,
     handleInboundDiagnostic,
     handleInboundCapture,
@@ -1983,6 +2105,7 @@ module.exports = {
   OAUTH_START_PATH,
   OAUTH_PREPARE_PATH,
   OAUTH_REFRESH_HEALTH_PATH,
+  OAUTH_DISCONNECT_PATH,
   OAUTH_READ_HEALTH_PATH,
   OAUTH_INBOUND_DIAGNOSTIC_PATH,
   OAUTH_INBOUND_CAPTURE_PATH,
@@ -1998,12 +2121,14 @@ module.exports = {
   START_BODY_KEYS,
   PREPARE_BODY_KEYS,
   REFRESH_HEALTH_BODY_KEYS,
+  DISCONNECT_BODY_KEYS,
   READ_HEALTH_BODY_KEYS,
   INBOUND_DIAGNOSTIC_BODY_KEYS,
   INBOUND_CAPTURE_BODY_KEYS,
   REAUTHORIZE_BODY_KEYS,
   PREPARE_SUCCESS_KEYS,
   REFRESH_HEALTH_SUCCESS_KEYS,
+  DISCONNECT_SUCCESS_KEYS,
   READ_HEALTH_SUCCESS_KEYS,
   INBOUND_DIAGNOSTIC_SUCCESS_KEYS,
   INBOUND_CAPTURE_SUCCESS_KEYS,
@@ -2011,6 +2136,7 @@ module.exports = {
   PHASE_B_REAUTH_B1_DTO_KEYS,
   PREPARE_ERROR,
   REFRESH_HEALTH_ERROR,
+  DISCONNECT_ERROR,
   READ_HEALTH_ERROR,
   INBOUND_DIAGNOSTIC_ERROR,
   INBOUND_CAPTURE_ERROR,
@@ -2030,6 +2156,7 @@ module.exports = {
   snapshotStartBody,
   snapshotPrepareBody,
   snapshotRefreshHealthBody,
+  snapshotDisconnectBody,
   snapshotReadHealthBody,
   snapshotInboundDiagnosticBody,
   snapshotInboundCaptureBody,
@@ -2047,8 +2174,10 @@ module.exports = {
   isSharedOauthCallbackRouteEnabled,
   isSharedOauthCallbackCallerIdentityValid,
   isCallbackEnabled,
+  isDisconnectEnabled,
   buildPrepareSuccessJson,
   buildRefreshHealthSuccessJson,
+  buildDisconnectSuccessJson,
   buildReadHealthSuccessJson,
   buildInboundDiagnosticSuccessJson,
   buildInboundCaptureSuccessJson,
