@@ -101,6 +101,8 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-customer-hide-pin{display:none;align-items:center;justify-content:center}',
   '#inbox-shell[data-peek="col4"] .inbox-customer-hide-arrow{display:none}',
   '#inbox-shell[data-peek="col4"] .inbox-customer-hide-pin{display:inline-flex}',
+  '#inbox-shell.inbox-guest-drawer .inbox-customer-hide-arrow{display:none}',
+  '#inbox-shell.inbox-guest-drawer .inbox-customer-hide-pin{display:inline-flex}',
   '.inbox-customer-hide:hover{color:var(--text);background:var(--surface)}',
   '.inbox-customer-edit{margin-left:auto;flex:0 0 auto;padding:0;border:none;background:none;',
   'color:var(--primary);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;',

@@ -20674,6 +20674,13 @@ body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls
   }
   body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .sidebar-expand-btn{display:none!important}
   #inbox-shell[data-peek="col4"] > .inbox-guest-restore{display:none!important}
+  #inbox-shell.inbox-guest-drawer > .inbox-guest-restore{display:none!important}
+  #inbox-shell.inbox-guest-drawer[data-col4="hidden"] .detail-sidebar{
+    display:flex!important;grid-area:auto;position:absolute;top:0;bottom:0;right:0;
+    width:var(--inbox-col4-peek-w,300px);height:auto;z-index:26;
+    opacity:1;visibility:visible;transform:none;
+    box-shadow:0 12px 34px rgba(0,0,0,.3);
+  }
 }
 .inbox-layout-preset-btn[data-inbox-preset="chat"]{display:none!important}
 @media(min-width:901px){

@@ -609,6 +609,11 @@ function inboxMockupThemeCssText(){
     'writing-mode:vertical-rl;cursor:pointer;',
     '}',
     '#inbox-shell[data-peek="col4"] > .inbox-guest-restore{display:none!important}',
+    '#inbox-shell.inbox-guest-drawer > .inbox-guest-restore{display:none!important}',
+    '#inbox-shell.inbox-guest-drawer[data-col4="hidden"] .detail-sidebar{',
+    'display:flex!important;position:absolute;top:0;bottom:0;right:0;',
+    'width:var(--inbox-col4-peek-w,300px);z-index:26;opacity:1;visibility:visible;transform:none;',
+    '}',
     '.inbox-layout-preset-btn[data-inbox-preset="chat"]{display:none!important}',
     '}',
   ].join('');
@@ -879,6 +884,28 @@ function inboxShellIsFullPreset(){
     && document.querySelector('[data-inbox-preset="all4"][aria-pressed="true"]'));
 }
 
+function inboxShellGuestDrawerShell(){
+  return inboxShellById('inbox-shell');
+}
+
+function inboxShellGuestDrawerIsOpen(){
+  var shell = inboxShellGuestDrawerShell();
+  return !!(shell && shell.classList && shell.classList.contains('inbox-guest-drawer'));
+}
+
+function inboxShellGuestDrawerOpen(){
+  var shell = inboxShellGuestDrawerShell();
+  if (!shell) return;
+  shell.classList.add('inbox-guest-drawer');
+  inboxShellSyncHideButton();
+}
+
+function inboxShellGuestDrawerClose(){
+  var shell = inboxShellGuestDrawerShell();
+  if (shell) shell.classList.remove('inbox-guest-drawer');
+  inboxShellSyncHideButton();
+}
+
 function inboxShellDefaultHideGuest(){
   var api = inboxShellGuestApi();
   if (!api || typeof api.setColumn !== 'function' || !inboxShellIsFullPreset()) return;
@@ -886,13 +913,13 @@ function inboxShellDefaultHideGuest(){
   if (rec && rec.overrides && rec.overrides.col4 === 'peek') return;
   api.setColumn('col4', 'hidden');
   if (typeof api.clearPeek === 'function') api.clearPeek();
+  inboxShellGuestDrawerClose();
 }
 
 function inboxShellSyncHideButton(){
   var btn = inboxShellById('inbox-customer-hide');
   if (!btn) return;
-  var shell = inboxShellById('inbox-shell');
-  var peeking = !!(shell && shell.getAttribute('data-peek') === 'col4');
+  var peeking = inboxShellGuestDrawerIsOpen();
   var label = peeking ? 'Pin guest card' : 'Hide guest card';
   btn.title = label;
   btn.setAttribute('aria-label', label);
@@ -907,19 +934,22 @@ function wireInboxShellGuestHide(){
     if (!target || !target.closest) return;
     var api = inboxShellGuestApi();
     if (target.closest('#inbox-guest-restore')) {
-      if (api && typeof api.peek === 'function') api.peek('col4');
-      inboxShellSyncHideButton();
+      if (ev.preventDefault) ev.preventDefault();
+      if (ev.stopPropagation) ev.stopPropagation();
+      inboxShellGuestDrawerOpen();
       return;
     }
     if (target.closest('#inbox-customer-hide')) {
+      if (ev.preventDefault) ev.preventDefault();
       if (!api || typeof api.setColumn !== 'function') return;
-      var shell = inboxShellById('inbox-shell');
-      if (shell && shell.getAttribute('data-peek') === 'col4') {
+      if (inboxShellGuestDrawerIsOpen()) {
         api.setColumn('col4', 'peek');
         if (typeof api.clearPeek === 'function') api.clearPeek();
+        inboxShellGuestDrawerClose();
       } else {
         api.setColumn('col4', 'hidden');
         if (typeof api.clearPeek === 'function') api.clearPeek();
+        inboxShellGuestDrawerClose();
       }
       inboxShellSyncHideButton();
       return;
@@ -930,9 +960,16 @@ function wireInboxShellGuestHide(){
         if (!next || typeof next.setColumn !== 'function') return;
         next.setColumn('col4', 'hidden');
         if (typeof next.clearPeek === 'function') next.clearPeek();
+        inboxShellGuestDrawerClose();
       });
     }
-  });
+  }, true);
+}
+
+function inboxShellFinishGuestHide(){
+  wireInboxShellGuestHide();
+  inboxShellDefaultHideGuest();
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(inboxShellDefaultHideGuest);
 }
 
 function mountInboxShellChrome(){
@@ -942,7 +979,7 @@ function mountInboxShellChrome(){
   inboxShellEnsureStyle();
   hideInboxDuplicateSchoolSelector();
   var toolbar = inboxShellToolbarEl();
-  if (!toolbar) return;
+  if (!toolbar) return inboxShellFinishGuestHide();
   if (!inboxShellById('inbox-shell-channel-defaults')) {
     var mount = document.createElement('div');
     mount.innerHTML = inboxShellChannelDefaultsHtml(inboxShellLoadStoredModes());
@@ -961,9 +998,7 @@ function mountInboxShellChrome(){
   inboxShellAdoptSearch();
   inboxShellAdoptLayoutControls();
   inboxShellSyncFromPauseState();
-  wireInboxShellGuestHide();
-  inboxShellDefaultHideGuest();
-  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(inboxShellDefaultHideGuest);
+  inboxShellFinishGuestHide();
 }
 
 if (typeof document !== 'undefined') {
