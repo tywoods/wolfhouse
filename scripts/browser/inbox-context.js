@@ -666,6 +666,10 @@ function inboxContextGuestCardHtml(input, opts) {
   var model = inboxContextNormalizeModel(input);
   var conv = model.conversation || {};
   var name = conv.guest_name || conv.phone || 'Guest';
+  if (typeof inboxPersonDisplayName === 'function') name = inboxPersonDisplayName(conv);
+  else if (typeof inboxIsOpaqueEmailIdentity === 'function' && inboxIsOpaqueEmailIdentity(name)) {
+    name = conv.guest_email || conv.email || 'Guest';
+  }
   var tags = (model.tags || []).map(inboxContextTagLabel).filter(Boolean);
   var stay = inboxContextStayFacts(inboxContextCurrentStay(model.bookings, opts.nowIso));
   var saved = opts.expanded || inboxContextReadExpanded();
@@ -847,12 +851,23 @@ function inboxContextIsGuestMode() {
 
 function inboxCustomerFromConv(conv) {
   conv = conv || {};
+  var email = (typeof inboxGuestEmailOf === 'function')
+    ? inboxGuestEmailOf(conv)
+    : (conv.email || conv.guest_email || '');
+  var name = (typeof inboxPersonDisplayName === 'function')
+    ? inboxPersonDisplayName(conv)
+    : (conv.guest_name || conv.display_name || '');
+  if (typeof inboxIsOpaqueEmailIdentity === 'function' && inboxIsOpaqueEmailIdentity(name)) name = email || '';
+  var phone = (typeof inboxBoundCustomerPhone === 'function')
+    ? inboxBoundCustomerPhone(conv)
+    : (conv.phone || conv.guest_phone || '');
+  if (typeof inboxIsOpaqueEmailIdentity === 'function' && inboxIsOpaqueEmailIdentity(phone)) phone = '';
   return {
     success: true,
-    phone: conv.phone || conv.guest_phone || '',
+    phone: phone,
     identity: {
-      display_name: conv.guest_name || conv.display_name || '',
-      email: conv.email || '',
+      display_name: name,
+      email: email,
       language: conv.language || '',
     },
     bookings: [],
@@ -1209,8 +1224,43 @@ function inboxCustomerFullHtml(data, opts) {
   return html;
 }
 
+function inboxCustomerUnmatchedHtml(conv) {
+  conv = conv || {};
+  var name = (typeof inboxPersonDisplayName === 'function')
+    ? inboxPersonDisplayName(conv)
+    : (conv.guest_email || conv.email || 'Guest');
+  var email = (typeof inboxGuestEmailOf === 'function')
+    ? inboxGuestEmailOf(conv)
+    : (conv.email || conv.guest_email || '');
+  var html = '<div class="inbox-customer-card" id="inbox-customer-card" data-inbox-guest="unmatched">';
+  html += '<div class="inbox-customer-head">';
+  html += '<div class="inbox-client-info-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
+  html += '<div class="inbox-client-info-id">';
+  html += '<div class="inbox-client-info-name">' + inboxContextEsc(name) + '</div>';
+  html += '</div>';
+  html += '</div>';
+  html += '<div class="customers-section-empty" data-inbox-guest-unmatched="1">No guest yet</div>';
+  if (email && email !== name) {
+    html += inboxCustomerField(inboxContextT('customers.detail.email', 'Email'), email, false);
+  }
+  html += '</div>';
+  return html;
+}
+
 function inboxCustomerPaint(sidebar, conv, composite, customer) {
   if (!sidebar) return;
+  var bound = (typeof inboxCustomerHasBoundGuest === 'function')
+    ? inboxCustomerHasBoundGuest(conv, customer || inboxContextLastCustomer)
+    : !!(customer && customer.success !== false && customer.phone);
+  if (!bound) {
+    inboxContextLastConv = conv;
+    if (typeof inboxCustomerHasBoundGuest === 'function' && !inboxCustomerHasBoundGuest(conv, inboxContextLastCustomer)) {
+      inboxContextLastCustomer = null;
+    }
+    sidebar.innerHTML = inboxCustomerUnmatchedHtml(conv);
+    inboxContextWireActions(sidebar, { conversation: conv });
+    return;
+  }
   var data = inboxCustomerMerge(inboxCustomerFromConv(conv), customer || inboxContextLastCustomer);
   inboxContextLastCustomer = data;
   inboxContextLastConv = conv;
@@ -1699,11 +1749,21 @@ function inboxClientInfoMount(sidebar, conv, composite) {
 
 function inboxCustomerLoad(sidebar, conv, composite) {
   if (!sidebar) return;
-  var phone = conv && (conv.phone || conv.guest_phone);
-  if (typeof normalizeCustomerPhoneClient === 'function') phone = normalizeCustomerPhoneClient(phone);
+  var phone = (typeof inboxBoundCustomerPhone === 'function')
+    ? inboxBoundCustomerPhone(conv, inboxContextLastCustomer)
+    : (conv && (conv.phone || conv.guest_phone));
+  if (phone && typeof normalizeCustomerPhoneClient === 'function' &&
+      (typeof inboxIsOpaqueEmailIdentity !== 'function' || !inboxIsOpaqueEmailIdentity(phone))) {
+    phone = normalizeCustomerPhoneClient(phone);
+  }
+  if (typeof inboxIsOpaqueEmailIdentity === 'function' && inboxIsOpaqueEmailIdentity(phone)) phone = '';
   if (inboxContextLastCustomer && phone && inboxContextLastCustomer.phone
       && String(inboxContextLastCustomer.phone) !== String(phone)) {
     inboxContextLastCustomer = null;
+  }
+  if (!phone && (typeof inboxCustomerHasBoundGuest !== 'function' || !inboxCustomerHasBoundGuest(conv, inboxContextLastCustomer))) {
+    inboxCustomerPaint(sidebar, conv, composite, null);
+    return;
   }
   inboxCustomerPaint(sidebar, conv, composite, inboxContextLastCustomer);
   if (!phone) return;
@@ -1850,6 +1910,8 @@ if (typeof window !== 'undefined') {
     clientInfoHasRecord: inboxClientInfoHasRecord,
     customerCondensedHtml: inboxCustomerCondensedHtml,
     customerFullHtml: inboxCustomerFullHtml,
+    customerUnmatchedHtml: inboxCustomerUnmatchedHtml,
+    customerFromConv: inboxCustomerFromConv,
     isGuestMode: inboxContextIsGuestMode,
     modelFromComposite: inboxContextModelFromComposite,
     normalizeModel: inboxContextNormalizeModel,

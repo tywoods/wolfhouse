@@ -183,6 +183,78 @@ function inboxGuestEmailOf(conv){
   return String(email || '').trim();
 }
 
+function inboxIsOpaqueEmailIdentity(value){
+  return /^(emailv1|email):/i.test(String(value == null ? '' : value).trim());
+}
+
+function inboxIsEmailcustIdentity(value){
+  return /^emailcust1:/i.test(String(value == null ? '' : value).trim());
+}
+
+function inboxIsHonestPersonLabel(value){
+  var s = String(value == null ? '' : value).trim();
+  if (!s) return false;
+  if (inboxIsOpaqueEmailIdentity(s)) return false;
+  if (inboxIsEmailcustIdentity(s)) return false;
+  return true;
+}
+
+function inboxConversationBoundGuestId(conv, customer){
+  var c = conv || {};
+  var cust = customer || {};
+  var id = cust.identity || {};
+  return String(
+    c.guest_id || c.customer_id || c.bound_guest_id || c.matched_guest_id ||
+    cust.guest_id || cust.customer_id || id.guest_id || id.customer_id || ''
+  ).trim();
+}
+
+function inboxBoundCustomerPhone(conv, customer){
+  var c = conv || {};
+  var cust = customer || {};
+  var candidates = [cust.phone, c.customer_phone, c.bound_phone, c.guest_phone, c.phone];
+  for (var i = 0; i < candidates.length; i++) {
+    var raw = String(candidates[i] == null ? '' : candidates[i]).trim();
+    if (!raw || inboxIsOpaqueEmailIdentity(raw)) continue;
+    if (inboxIsEmailcustIdentity(raw)) return raw;
+    if (typeof normalizeCustomerPhoneClient === 'function') {
+      var normalized = normalizeCustomerPhoneClient(raw);
+      if (normalized && normalized.length >= 11) return normalized;
+    } else if (/^\+[1-9]\d{9,14}$/.test(raw)) {
+      return raw;
+    }
+  }
+  return '';
+}
+
+function inboxPersonDisplayName(conv, extras){
+  extras = extras || {};
+  var customer = extras.customer || {};
+  var id = customer.identity || {};
+  var candidates = [
+    extras.display_name,
+    id.display_name,
+    conv && conv.guest_name,
+    conv && conv.display_name,
+    customer.display_name,
+    extras.email,
+    inboxGuestEmailOf(conv),
+    id.email,
+    conv && conv.guest_email,
+    conv && conv.email,
+  ];
+  for (var i = 0; i < candidates.length; i++) {
+    if (inboxIsHonestPersonLabel(candidates[i])) return String(candidates[i]).trim();
+  }
+  return 'Guest';
+}
+
+function inboxCustomerHasBoundGuest(conv, customer){
+  if (inboxConversationBoundGuestId(conv, customer)) return true;
+  if (inboxBoundCustomerPhone(conv, customer)) return true;
+  return false;
+}
+
 function inboxComposerChannelIcon(channel){
   if (typeof inboxShellChannelIconSvg === 'function') return inboxShellChannelIconSvg(channel);
   if (channel === 'email') {
@@ -912,7 +984,7 @@ function renderInboxConvCardHtml(c, profile){
     return '<div class="conv-card' + demoClass + '" data-id="' + escHtml(c.conversation_id) + '">' +
       delBtn +
       '<div class="conv-card-header-row">' +
-        '<div class="conv-card-name">' + escHtml(c.guest_name || '—') + '</div>' +
+        '<div class="conv-card-name">' + escHtml(inboxPersonDisplayName(c)) + '</div>' +
       '</div>' +
       subjectLine +
       (contactLine ? '<div class="conv-card-contact">' + escHtml(contactLine) + '</div>' : '') +
@@ -930,9 +1002,9 @@ function renderInboxConvCardHtml(c, profile){
   return '<div class="conv-card conv-card-mobile-dense' + demoClass + '" data-id="' + escHtml(c.conversation_id) + '">' +
     delBtn +
     '<div class="conv-card-header-row">' +
-      '<div class="conv-card-name">' + escHtml(c.guest_name || '—') + '</div>' +
+      '<div class="conv-card-name">' + escHtml(inboxPersonDisplayName(c)) + '</div>' +
     '</div>' +
-    (c.phone ? '<div class="conv-card-phone">' + escHtml(c.phone) + '</div>' : '') +
+    ((c.phone && !inboxIsOpaqueEmailIdentity(c.phone)) ? '<div class="conv-card-phone">' + escHtml(c.phone) + '</div>' : '') +
     '<div class="conv-card-meta-row">' +
       (c.last_activity_label ? '<div class="conv-card-time">' + escHtml(c.last_activity_label) + '</div>' : '') +
       '<div class="conv-card-pebbles">' +
@@ -1913,9 +1985,9 @@ function loadConvDetail(convId, targetEl){
     html +=     '<div class="detail-header-main">';
     html +=     '<div class="detail-header-id">';
     if (inboxIsChatPreset()) {
-      html +=     '<button type="button" class="detail-name inbox-chat-guest-name" id="inbox-chat-guest-name">' + escHtml(c.guest_name || c.phone) + '</button>';
+      html +=     '<button type="button" class="detail-name inbox-chat-guest-name" id="inbox-chat-guest-name">' + escHtml(inboxPersonDisplayName(c)) + '</button>';
     } else {
-      html +=     '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
+      html +=     '<div class="detail-name">' + escHtml(inboxPersonDisplayName(c)) + '</div>';
     }
     html +=       '<span class="inbox-needs-human-slot" id="inbox-needs-human-slot"></span>';
     html +=     '</div>';

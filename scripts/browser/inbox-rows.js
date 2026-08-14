@@ -177,7 +177,9 @@ function inboxRowsWrapConvCardHtml(html, row) {
       '</label>';
   }
   prefix += '<div class="inbox-row-avatar" aria-hidden="true">' +
-    inboxRowsEsc(inboxRowInitials(row && row.guest_name)) + '</div>';
+    inboxRowsEsc(inboxRowInitials(
+      (typeof inboxPersonDisplayName === 'function') ? inboxPersonDisplayName(row) : (row && row.guest_name)
+    )) + '</div>';
   prefix += '<div class="inbox-row-body">';
   var suffix = '</div>';
   if (unread) suffix += '<span class="inbox-row-unread-dot" aria-hidden="true"></span>';
