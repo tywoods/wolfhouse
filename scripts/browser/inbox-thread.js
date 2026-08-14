@@ -362,7 +362,7 @@ function inboxAdoptRefreshToHeader(){
   var btn = inboxRefreshBtn();
   var row = typeof document !== 'undefined' ? document.getElementById('inbox-header-luna-row') : null;
   if (!btn || !row) return;
-  if (row.firstChild !== btn) row.insertBefore(btn, row.firstChild);
+  if (btn.parentNode !== row || row.lastChild !== btn) row.appendChild(btn);
 }
 
 function inboxPaintChatChromeSlot(conv, lunaGuestPaused){

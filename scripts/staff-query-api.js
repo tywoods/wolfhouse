@@ -18590,7 +18590,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .inbox-needs-human-slot{flex:0 0 auto}
 .inbox-header-stack{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .inbox-header-stack-channel,.inbox-header-stack-luna{display:flex;align-items:center;justify-content:flex-end;gap:8px}
-.inbox-header-stack-luna #btn-refresh{order:0}
+.inbox-header-stack-luna #btn-refresh{order:2}
 .inbox-header-stack-luna .inbox-chat-chrome-slot{order:1}
 .detail-header-main .detail-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .detail-header-main .detail-meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -20574,10 +20574,13 @@ body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell[data-col4
 /* ── Top-bar layout controls: preset segmented control + per-column toggles ── */
 .inbox-layout-controls{display:flex;align-items:center;gap:8px;margin-left:8px;flex:0 0 auto}
 #tabs .inbox-layout-controls #btn-refresh{display:none!important}
-#conv-detail .detail-header-right #btn-refresh{
+#conv-detail .detail-header-right #btn-refresh,
+#inbox-shell .inbox-header-stack-luna #btn-refresh{
   display:inline-flex;align-items:center;justify-content:center;
-  margin:0;min-width:32px;height:32px;padding:0 8px;flex:0 0 auto;
-  border-radius:999px;font-size:14px;line-height:1;
+  margin:0;min-width:24px;width:24px;height:24px;padding:0;flex:0 0 auto;
+  border-radius:6px;border:1px solid var(--border)!important;
+  background:transparent!important;color:var(--text-2)!important;
+  box-shadow:none!important;font-size:13px;line-height:1;
 }
 #tabs .inbox-layout-controls{display:none;margin-left:auto;margin-right:0;align-self:center}
 body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls{display:flex}

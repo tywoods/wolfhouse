@@ -1002,7 +1002,10 @@ SELECT
   bsr.status AS service_status,
   bsr.payment_status,
   bsr.notes,
-  bsr.source
+  bsr.source,
+  bsr.booking_id::text AS booking_id,
+  bsr.metadata,
+  bsr.created_at
 FROM booking_service_records bsr
 INNER JOIN bookings b ON b.id = bsr.booking_id
 INNER JOIN clients c ON c.id = b.client_id
@@ -1052,22 +1055,77 @@ LIMIT 15
 `;
 }
 
+function parseServiceRecordMetadata(row) {
+  let meta = row && row.metadata;
+  if (typeof meta === 'string') {
+    try { meta = JSON.parse(meta); } catch (_e) { meta = {}; }
+  }
+  return meta && typeof meta === 'object' && !Array.isArray(meta) ? meta : {};
+}
+
+function lastSetupCourseLabel(row, meta) {
+  const label = String(
+    (meta && (meta.offering_label || meta.label || meta.display_name || meta.service_name)) || ''
+  ).trim();
+  if (label && !/^(addon_service|rental|surf_lesson)$/i.test(label)) return label;
+  const comp = String((meta && (meta.component || meta.staff_ui_service_type)) || '');
+  if (/private/i.test(comp)) return 'Private surf';
+  if (/group|course/i.test(comp)) return 'Group surf';
+  return 'Surf lesson';
+}
+
+function isCancelledServiceRecord(row) {
+  const st = String((row && (row.service_status || row.status)) || '').toLowerCase();
+  return st === 'cancelled' || st === 'canceled';
+}
+
 function buildLastSetupSummary(serviceRows) {
-  if (!serviceRows || !serviceRows.length) return null;
-  const parts = [];
-  const byType = {};
-  for (const row of serviceRows) {
-    const t = row.service_type || 'service';
-    byType[t] = (byType[t] || 0) + (row.quantity || 1);
+  const rows = (serviceRows || []).filter((row) => row && !isCancelledServiceRecord(row));
+  if (!rows.length) return null;
+  const latest = rows[0];
+  const latestKey = String(latest.booking_id || latest.booking_code || '');
+  const lastOrder = latestKey
+    ? rows.filter((row) => String(row.booking_id || row.booking_code || '') === latestKey)
+    : [latest];
+  const courses = {};
+  let boards = 0;
+  let wetsuits = 0;
+  let otherParts = [];
+  for (const row of lastOrder) {
+    const meta = parseServiceRecordMetadata(row);
+    const type = String(row.service_type || '');
+    const qty = Number(row.quantity) > 0 ? Number(row.quantity) : 1;
+    const offeringKey = String(meta.offering_key || '');
+    if (type === 'surfboard' || /board/i.test(offeringKey)) {
+      boards += qty;
+      continue;
+    }
+    if (type === 'wetsuit' || /wetsuit/i.test(offeringKey)) {
+      wetsuits += qty;
+      continue;
+    }
+    if (
+      type === 'surf_lesson'
+      || meta.component === 'course'
+      || meta.component === 'lesson'
+      || meta.component === 'private_lesson'
+    ) {
+      const name = lastSetupCourseLabel(row, meta);
+      courses[name] = (courses[name] || 0) + qty;
+      continue;
+    }
+    const leftover = type.replace(/_/g, ' ').trim();
+    if (leftover) otherParts.push(`${qty} ${leftover}`);
   }
-  if (byType.surfboard) parts.push(`${byType.surfboard} surfboard${byType.surfboard > 1 ? 's' : ''}`);
-  if (byType.wetsuit) parts.push(`${byType.wetsuit} wetsuit${byType.wetsuit > 1 ? 's' : ''}`);
-  if (byType.surf_lesson) parts.push(`${byType.surf_lesson} lesson${byType.surf_lesson > 1 ? 's' : ''}`);
-  for (const [k, v] of Object.entries(byType)) {
-    if (['surfboard', 'wetsuit', 'surf_lesson'].includes(k)) continue;
-    parts.push(`${v} ${k.replace(/_/g, ' ')}`);
-  }
-  return parts.length ? parts.join(', ') : null;
+  const courseParts = Object.keys(courses).map((name) => `${courses[name]}× ${name}`);
+  const gear = [];
+  if (boards) gear.push(`${boards} board${boards === 1 ? '' : 's'}`);
+  if (wetsuits) gear.push(`${wetsuits} wetsuit${wetsuits === 1 ? '' : 's'}`);
+  const bits = [];
+  if (courseParts.length) bits.push(courseParts.join(', '));
+  if (gear.length) bits.push(gear.join(' · '));
+  if (!bits.length && otherParts.length) bits.push(otherParts.join(', '));
+  return bits.length ? bits.join(' · ') : null;
 }
 
 function parseCustomerProfileUpdateBody(body) {
