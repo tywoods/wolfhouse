@@ -1351,6 +1351,7 @@ async function loadAuthSession(req) {
               su.role,
               su.status,
               su.display_name,
+              su.metadata,
               su.client_id::text AS client_id,
               c.slug             AS client_slug,
               s.id::text         AS session_id,
@@ -30299,6 +30300,10 @@ function initStaffPortalSession(){
         can_use_owner_insights: data.can_use_owner_insights === true,
       };
       staffPortalClientProfiles = data.client_profiles || {};
+      window.__staffInboxGuestPanel = data.inbox_guest_panel === 'pinned' ? 'pinned' : 'hidden';
+      if (typeof window.inboxShellApplyGuestPanelPref === 'function') {
+        window.inboxShellApplyGuestPanelPref(window.__staffInboxGuestPanel);
+      }
       populateClientSelect(data.clients);
       applyOwnerInsightsGate();
       if (typeof lunaGlobalPauseLoad === 'function') lunaGlobalPauseLoad();
@@ -43188,6 +43193,56 @@ async function handleConversationDelete(convId, query, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+function inboxGuestPanelFromMetadata(meta) {
+  const raw = meta && typeof meta === 'object' ? meta.inbox_guest_panel : null;
+  return raw === 'pinned' ? 'pinned' : 'hidden';
+}
+
+async function handleAuthPrefs(req, res) {
+  const auth = await requireAuth(req, res, 'viewer');
+  if (!auth.ok) return;
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (_e) {
+    return sendJSON(res, 400, { success: false, error: 'invalid_json' });
+  }
+  const panel = body && body.inbox_guest_panel;
+  if (panel !== 'pinned' && panel !== 'hidden') {
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'inbox_guest_panel must be pinned or hidden',
+    });
+  }
+  if (!STAFF_AUTH_REQUIRED || !auth.user || !auth.user.staff_user_id) {
+    return sendJSON(res, 200, { success: true, inbox_guest_panel: panel, persisted: false });
+  }
+  try {
+    const row = await withPgClient(async (pgClient) => {
+      const result = await pgClient.query(
+        `UPDATE staff_users
+            SET metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb
+          WHERE id = $1::uuid
+            AND client_id = $2::uuid
+            AND status = 'active'
+          RETURNING metadata`,
+        [auth.user.staff_user_id, auth.user.client_id, JSON.stringify({ inbox_guest_panel: panel })]
+      );
+      return result.rows[0] || null;
+    });
+    if (!row) {
+      return sendJSON(res, 404, { success: false, error: 'staff_user_not_found' });
+    }
+    return sendJSON(res, 200, {
+      success: true,
+      inbox_guest_panel: inboxGuestPanelFromMetadata(row.metadata),
+      persisted: true,
+    });
+  } catch (_err) {
+    return sendJSON(res, 500, { success: false, error: 'prefs_save_failed' });
+  }
+}
+
 // GET /staff/auth/session — role + accessible clients for Staff Portal UI
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -43202,6 +43257,7 @@ async function handleAuthSession(req, res) {
       clients: getAccessibleClients(null),
       client_profiles: buildClientProfilesMap(null),
       can_use_owner_insights: true,
+      inbox_guest_panel: 'hidden',
     });
   }
 
@@ -43242,6 +43298,7 @@ async function handleAuthSession(req, res) {
     clients: sessionClients,
     client_profiles: buildSessionClientProfilesMap(user),
     can_use_owner_insights: canUseOwnerInsights(user),
+    inbox_guest_panel: inboxGuestPanelFromMetadata(user.metadata),
   });
 }
 
@@ -46345,6 +46402,14 @@ async function router(req, res) {
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
     }
     return handleAuthSession(req, res);
+  }
+
+  if (pathname === '/staff/auth/prefs') {
+    if (method !== 'PATCH') {
+      res.writeHead(405, { Allow: 'PATCH' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use PATCH' }));
+    }
+    return handleAuthPrefs(req, res);
   }
 
   // ── POST /staff/handoff/:id/resolve (Stage 6.9 — write endpoint) ──────────

@@ -911,14 +911,39 @@ function inboxShellGuestDrawerClose(){
   inboxShellSyncHideButton();
 }
 
-function inboxShellDefaultHideGuest(){
+function inboxShellGuestPanelPref(){
+  return (typeof window !== 'undefined' && window.__staffInboxGuestPanel === 'pinned') ? 'pinned' : 'hidden';
+}
+
+function inboxShellRememberGuestPanel(pref){
+  var next = pref === 'pinned' ? 'pinned' : 'hidden';
+  if (typeof window !== 'undefined') window.__staffInboxGuestPanel = next;
+  try {
+    fetch('/staff/auth/prefs', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ inbox_guest_panel: next })
+    });
+  } catch (_e) { /* ignore */ }
+}
+
+function inboxShellApplyGuestPanelPref(pref){
+  if (pref === 'pinned' || pref === 'hidden') {
+    if (typeof window !== 'undefined') window.__staffInboxGuestPanel = pref;
+  }
   var api = inboxShellGuestApi();
   if (!api || typeof api.setColumn !== 'function' || !inboxShellIsFullPreset()) return;
-  var rec = api.runtime && api.runtime.record;
-  if (rec && rec.overrides && rec.overrides.col4 === 'peek') return;
-  api.setColumn('col4', 'hidden');
+  if (inboxShellGuestPanelPref() === 'pinned') {
+    api.setColumn('col4', 'peek');
+  } else {
+    api.setColumn('col4', 'hidden');
+  }
   if (typeof api.clearPeek === 'function') api.clearPeek();
   inboxShellGuestDrawerClose();
+}
+
+function inboxShellDefaultHideGuest(){
+  inboxShellApplyGuestPanelPref(inboxShellGuestPanelPref());
 }
 
 function inboxShellSyncHideButton(){
@@ -951,21 +976,19 @@ function wireInboxShellGuestHide(){
         api.setColumn('col4', 'peek');
         if (typeof api.clearPeek === 'function') api.clearPeek();
         inboxShellGuestDrawerClose();
+        inboxShellRememberGuestPanel('pinned');
       } else {
         api.setColumn('col4', 'hidden');
         if (typeof api.clearPeek === 'function') api.clearPeek();
         inboxShellGuestDrawerClose();
+        inboxShellRememberGuestPanel('hidden');
       }
       inboxShellSyncHideButton();
       return;
     }
     if (target.closest('[data-inbox-preset="all4"]')) {
       requestAnimationFrame(function(){
-        var next = inboxShellGuestApi();
-        if (!next || typeof next.setColumn !== 'function') return;
-        next.setColumn('col4', 'hidden');
-        if (typeof next.clearPeek === 'function') next.clearPeek();
-        inboxShellGuestDrawerClose();
+        inboxShellApplyGuestPanelPref(inboxShellGuestPanelPref());
       });
     }
   }, true);
@@ -1004,6 +1027,10 @@ function mountInboxShellChrome(){
   inboxShellAdoptLayoutControls();
   inboxShellSyncFromPauseState();
   inboxShellFinishGuestHide();
+}
+
+if (typeof window !== 'undefined') {
+  window.inboxShellApplyGuestPanelPref = inboxShellApplyGuestPanelPref;
 }
 
 if (typeof document !== 'undefined') {
