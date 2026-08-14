@@ -44,11 +44,41 @@ function sqlConversationChannelExpr(convAlias) {
   return `COALESCE(${conv}.metadata->>'channel', ${conv}.session_state->>'channel', 'whatsapp')`;
 }
 
+/**
+ * Current email subject from persisted inbound events + outbound staff replies.
+ * Does not invent placeholder subjects and does not copy conversation metadata.
+ */
+function sqlCurrentEmailSubjectExpr(convAlias) {
+  const conv = convAlias || 'conv';
+  return `(
+    SELECT sub.subject
+    FROM (
+      SELECT ev.subject AS subject, ev.received_at AS occurred_at, ev.id::text AS tie
+      FROM tenant_email_inbound_inbox_projections p
+      INNER JOIN tenant_email_inbound_events ev
+        ON ev.client_id = p.client_id AND ev.id = p.inbound_event_id
+      WHERE p.client_id = ${conv}.client_id AND p.conversation_id = ${conv}.id
+        AND ev.subject IS NOT NULL AND btrim(ev.subject) <> ''
+      UNION ALL
+      SELECT NULLIF(m.metadata->>'email_subject', ''), m.created_at, m.id::text
+      FROM messages m
+      WHERE m.client_id = ${conv}.client_id AND m.conversation_id = ${conv}.id
+        AND m.direction = 'outbound'
+        AND m.source = 'staff_email_reply'
+        AND m.route = 'email'
+        AND NULLIF(m.metadata->>'email_subject', '') IS NOT NULL
+    ) sub
+    WHERE sub.subject IS NOT NULL AND btrim(sub.subject) <> ''
+    ORDER BY sub.occurred_at DESC NULLS LAST, sub.tie DESC
+    LIMIT 1
+  )`;
+}
+
 function inboxChannelFieldsSql() {
   return `
   ${sqlConversationChannelExpr('conv')} AS channel,
   conv.email                                         AS guest_email,
-  conv.metadata->>'email_subject'                    AS email_subject,
+  ${sqlCurrentEmailSubjectExpr('conv')}              AS email_subject,
   ${sqlConversationLocationExpr('conv')}             AS location_id,`;
 }
 
@@ -292,7 +322,7 @@ SELECT
   conv.created_at,
   conv.updated_at,
   COALESCE(conv.metadata->>'channel', conv.session_state->>'channel', 'whatsapp') AS channel,
-  conv.metadata->>'email_subject' AS email_subject,
+  ${sqlCurrentEmailSubjectExpr('conv')} AS email_subject,
   ${sqlConversationLocationExpr('conv')} AS location_id,
   b.id::text                 AS booking_id,
   b.booking_code,
@@ -710,6 +740,7 @@ WHERE c.slug = $1
 module.exports = {
   DEFAULT_SUNSET_LOCATION_ID,
   sqlConversationChannelExpr,
+  sqlCurrentEmailSubjectExpr,
   conversationInboxChannelParamIndex,
   conversationInboxWhereSql,
   conversationInboxCursorClause,

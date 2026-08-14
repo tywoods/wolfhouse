@@ -75,6 +75,9 @@ function createFakePg(opts = {}) {
   const client = { async query(sql, params) {
     const n = String(sql).replace(/\s+/g, ' ').trim();
     if (n === 'BEGIN' || n === 'COMMIT' || n === 'ROLLBACK') return { rows: [] };
+    if (/UNION ALL/i.test(n) && /tenant_email_inbound_events/.test(n) && /staff_email_reply/.test(n)) {
+      return { rows: [] };
+    }
     if (/FROM clients cl/.test(n) || n === SQL_RESOLVE) {
       if (peMismatch || foreign || !authorityPresent || String(params[0]).toLowerCase() !== C
           || String(params[1]).toLowerCase() !== A || String(params[2]).toLowerCase() !== V) return { rows: [] };
