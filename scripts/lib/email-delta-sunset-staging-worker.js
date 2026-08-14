@@ -18,7 +18,6 @@ WHERE e.channel = 'email'
   -- canonical when outbound preparation deliberately leaves it false.
   AND g.grant_status = 'active'
   AND g.reconcile_state = 'clean'
-  AND g.revoked_at IS NULL
   AND g.grant_lease_owner IS NULL
   AND g.grant_lease_token IS NULL
   AND g.grant_lease_until IS NULL
