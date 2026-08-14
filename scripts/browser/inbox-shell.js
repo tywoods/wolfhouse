@@ -608,6 +608,8 @@ function inboxMockupThemeCssText(){
     'font:inherit;font-size:11px;font-weight:600;letter-spacing:.04em;',
     'writing-mode:vertical-rl;cursor:pointer;',
     '}',
+    '#inbox-shell[data-peek="col4"] > .inbox-guest-restore{display:none!important}',
+    '.inbox-layout-preset-btn[data-inbox-preset="chat"]{display:none!important}',
     '}',
   ].join('');
 }
@@ -868,6 +870,71 @@ function wireInboxShellChannelDefaults(){
   });
 }
 
+function inboxShellGuestApi(){
+  return (typeof window !== 'undefined' && window.__inboxColumns) ? window.__inboxColumns : null;
+}
+
+function inboxShellIsFullPreset(){
+  return !!(typeof document !== 'undefined'
+    && document.querySelector('[data-inbox-preset="all4"][aria-pressed="true"]'));
+}
+
+function inboxShellDefaultHideGuest(){
+  var api = inboxShellGuestApi();
+  if (!api || typeof api.setColumn !== 'function' || !inboxShellIsFullPreset()) return;
+  var rec = api.runtime && api.runtime.record;
+  if (rec && rec.overrides && rec.overrides.col4 === 'peek') return;
+  api.setColumn('col4', 'hidden');
+  if (typeof api.clearPeek === 'function') api.clearPeek();
+}
+
+function inboxShellSyncHideButton(){
+  var btn = inboxShellById('inbox-customer-hide');
+  if (!btn) return;
+  var shell = inboxShellById('inbox-shell');
+  var peeking = !!(shell && shell.getAttribute('data-peek') === 'col4');
+  var label = peeking ? 'Pin guest card' : 'Hide guest card';
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+}
+
+function wireInboxShellGuestHide(){
+  if (typeof document === 'undefined') return;
+  if (document.documentElement.getAttribute('data-wired-inbox-guest-hide') === '1') return;
+  document.documentElement.setAttribute('data-wired-inbox-guest-hide', '1');
+  document.addEventListener('click', function(ev){
+    var target = ev.target && ev.target.closest ? ev.target : null;
+    if (!target || !target.closest) return;
+    var api = inboxShellGuestApi();
+    if (target.closest('#inbox-guest-restore')) {
+      if (api && typeof api.peek === 'function') api.peek('col4');
+      inboxShellSyncHideButton();
+      return;
+    }
+    if (target.closest('#inbox-customer-hide')) {
+      if (!api || typeof api.setColumn !== 'function') return;
+      var shell = inboxShellById('inbox-shell');
+      if (shell && shell.getAttribute('data-peek') === 'col4') {
+        api.setColumn('col4', 'peek');
+        if (typeof api.clearPeek === 'function') api.clearPeek();
+      } else {
+        api.setColumn('col4', 'hidden');
+        if (typeof api.clearPeek === 'function') api.clearPeek();
+      }
+      inboxShellSyncHideButton();
+      return;
+    }
+    if (target.closest('[data-inbox-preset="all4"]')) {
+      requestAnimationFrame(function(){
+        var next = inboxShellGuestApi();
+        if (!next || typeof next.setColumn !== 'function') return;
+        next.setColumn('col4', 'hidden');
+        if (typeof next.clearPeek === 'function') next.clearPeek();
+      });
+    }
+  });
+}
+
 function mountInboxShellChrome(){
   /* Hide the company select even if the toolbar id is missing — that id was
      never on the markup, so a getElementById lookup used to return here and
@@ -894,6 +961,9 @@ function mountInboxShellChrome(){
   inboxShellAdoptSearch();
   inboxShellAdoptLayoutControls();
   inboxShellSyncFromPauseState();
+  wireInboxShellGuestHide();
+  inboxShellDefaultHideGuest();
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(inboxShellDefaultHideGuest);
 }
 
 if (typeof document !== 'undefined') {

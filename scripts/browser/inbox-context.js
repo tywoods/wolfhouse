@@ -98,6 +98,9 @@ var INBOX_CONTEXT_CSS = [
   'min-width:28px;min-height:28px;padding:0;border:1px solid var(--border-soft);border-radius:8px;',
   'background:var(--surface-soft);color:var(--text-2);cursor:pointer;font-size:15px;line-height:1}',
   'body:has([data-inbox-preset="all4"][aria-pressed="true"]) .inbox-customer-card:not(.is-full) .inbox-customer-hide{display:inline-flex}',
+  '.inbox-customer-hide-pin{display:none;align-items:center;justify-content:center}',
+  '#inbox-shell[data-peek="col4"] .inbox-customer-hide-arrow{display:none}',
+  '#inbox-shell[data-peek="col4"] .inbox-customer-hide-pin{display:inline-flex}',
   '.inbox-customer-hide:hover{color:var(--text);background:var(--surface)}',
   '.inbox-customer-edit{margin-left:auto;flex:0 0 auto;padding:0;border:none;background:none;',
   'color:var(--primary);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;',
@@ -891,7 +894,10 @@ function inboxCustomerCondensedHtml(data, opts) {
   html += '<div class="inbox-client-info-id">';
   html += '<div class="inbox-client-info-name">' + inboxContextEsc(name) + '</div>';
   html += '</div>';
-  html += '<button type="button" class="inbox-customer-hide" data-inbox-col-toggle="col4" title="Hide guest card" aria-label="Hide guest card">&#8594;</button>';
+  html += '<button type="button" class="inbox-customer-hide" id="inbox-customer-hide" title="Hide guest card" aria-label="Hide guest card">';
+  html += '<span class="inbox-customer-hide-arrow" aria-hidden="true">&#8594;</span>';
+  html += '<span class="inbox-customer-hide-pin" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l1 7-4 3-4-3 1-7z"/><path d="M8 10h8"/></svg></span>';
+  html += '</button>';
   html += '</div>';
   html += '<div class="customers-profile-fields">';
   html += inboxCustomerInlineFieldHtml('phone', inboxContextEsc(inboxContextT('customers.detail.phone', 'Phone')), phone, '—', false);

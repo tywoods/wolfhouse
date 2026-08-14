@@ -20672,7 +20672,9 @@ body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls
     pointer-events:none;width:22px;
   }
   body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .sidebar-expand-btn{display:none!important}
+  #inbox-shell[data-peek="col4"] > .inbox-guest-restore{display:none!important}
 }
+.inbox-layout-preset-btn[data-inbox-preset="chat"]{display:none!important}
 @media(min-width:901px){
   body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols{
     --inbox-col2-w:252px;
@@ -21393,7 +21395,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
     <div class="inbox-peek-edge inbox-peek-edge-col2" data-inbox-peek-edge="col2" aria-hidden="true"></div>
     <div class="inbox-peek-edge inbox-peek-edge-col4" data-inbox-peek-edge="col4" aria-hidden="true"></div>
-    <button type="button" class="inbox-guest-restore" id="inbox-guest-restore" data-inbox-col-toggle="col4" title="Show guest card" aria-label="Show guest card">Guest</button>
+    <button type="button" class="inbox-guest-restore" id="inbox-guest-restore" title="Show guest card" aria-label="Show guest card">Guest</button>
 
     <!-- COLUMN 1: tab switch + API-backed saved-view rail -->
     <nav class="inbox-col1" id="inbox-col1" data-i18n-aria="inbox.rail.label" aria-label="Inbox views">
