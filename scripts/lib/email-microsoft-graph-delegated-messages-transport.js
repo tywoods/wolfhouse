@@ -80,7 +80,15 @@ const SELECT_FIELDS = Object.freeze([
   'internetMessageId',
 ]);
 const ETAG_KEY = '@odata.etag';
+const ODATA_TYPE_KEY = '@odata.type';
+const MESSAGE_ODATA_TYPE = '#microsoft.graph.message';
 const ROW_FIELDS_WITH_ETAG = Object.freeze([...SELECT_FIELDS, ETAG_KEY]);
+const ROW_FIELDS_WITH_TYPE = Object.freeze([...SELECT_FIELDS, ODATA_TYPE_KEY]);
+const ROW_FIELDS_WITH_ETAG_AND_TYPE = Object.freeze([
+  ...SELECT_FIELDS,
+  ETAG_KEY,
+  ODATA_TYPE_KEY,
+]);
 const SELECT_QUERY = `$top=${TOP_MAX}&$select=${SELECT_FIELDS.join(',')}`;
 /** Count-health path only — always `/me` (token subject). Do not use for ImmutableId. */
 const PATH = `/v1.0/me/messages?${SELECT_QUERY}`;
@@ -765,6 +773,17 @@ function rowValuesValid(row) {
     // Discard immediately — never return, persist, compare, log, or use.
   }
   return true;
+}
+
+function discardValidatedOdataType(row) {
+  if (!Object.prototype.hasOwnProperty.call(row, ODATA_TYPE_KEY)) return row;
+  if (!exactPlainData(row, ROW_FIELDS_WITH_TYPE)
+      && !exactPlainData(row, ROW_FIELDS_WITH_ETAG_AND_TYPE)) return null;
+  if (ownData(row, ODATA_TYPE_KEY) !== MESSAGE_ODATA_TYPE) return null;
+  const clean = {};
+  for (const field of SELECT_FIELDS) clean[field] = ownData(row, field);
+  if (Object.prototype.hasOwnProperty.call(row, ETAG_KEY)) clean[ETAG_KEY] = ownData(row, ETAG_KEY);
+  return clean;
 }
 
 function acceptRow(row) {
@@ -1637,8 +1656,9 @@ function mapSuccessBodyToMessagesDeltaPage(bodyText, providerMailboxId) {
         continue;
       }
 
-      // Normal Mail.ReadBasic row (optional validated/discarded etag).
-      const rowStage = classifyRow(row);
+      // Normal Mail.ReadBasic row (optional validated/discarded etag and Graph type annotation).
+      const cleanRow = discardValidatedOdataType(row);
+      const rowStage = cleanRow === null ? 'row_value_invalid' : classifyRow(cleanRow);
       if (rowStage) {
         return Object.freeze({ ok: false, stage: rowStage });
       }
@@ -1650,7 +1670,7 @@ function mapSuccessBodyToMessagesDeltaPage(bodyText, providerMailboxId) {
       const mapped = mapMicrosoftGraphMailReadBasicRowToInboundEnvelope({
         provider: PROVIDER_ID,
         provider_mailbox_id: providerMailboxId,
-        row,
+        row: cleanRow,
       });
       if (!mapped || mapped.ok !== true) {
         return Object.freeze({ ok: false, stage: 'row_value_invalid' });
