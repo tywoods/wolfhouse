@@ -35,10 +35,14 @@ const DOC_PATH = path.join(ROOT, DOC_REL);
 const envc = require('./lib/email-grant-envelope-provider-contract');
 const {
   createAzureKvEmailGrantEnvelopeProvider,
+  createAzureKvEmailDeltaCursorEnvelopeProvider,
   buildVersionedKeyId,
   parseVersionedKeyId,
   PROD_WRAP_ALG,
 } = require('./lib/email-grant-envelope-azure-kv-provider');
+const {
+  buildDeltaCursorEnvelopeAadV1,
+} = require('./lib/email-inbound-delta-state-store');
 
 const HOST = 'wh-staging-kv.vault.azure.net';
 const KEK_NAME = 'luna-email-grant-kek';
@@ -346,6 +350,77 @@ async function main() {
     const indep = fake.independentOpen(sealed, aad);
     ok('independent GCM decrypt matches',
       indep.ok && indep.value.refresh_token === 'rt-prod-round-trip');
+  }
+
+  // --- dedicated delta-cursor AAD policy; grant policy remains disjoint ---
+  {
+    const fake = createRsaCryptoFake({ modulusLength: 3072 });
+    const cfg = baseConfig(fake);
+    const grantProvider = createAzureKvEmailGrantEnvelopeProvider(cfg);
+    const cursorProvider = createAzureKvEmailDeltaCursorEnvelopeProvider(cfg);
+    const op = crypto.randomUUID();
+    const cursorAad = buildDeltaCursorEnvelopeAadV1({
+      clientId: CLIENT,
+      endpointId: ENDPOINT,
+      provider: 'microsoft_graph',
+      providerTenantId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      providerMailboxId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      ingestionGeneration: 1,
+      queryVersion: 'ms_messages_delta_from_now_v2',
+      cursorKind: 'deltaLink',
+    });
+    const compatibilityAad = buildDeltaCursorEnvelopeAadV1({
+      clientId: { toString: () => CLIENT.toUpperCase() },
+      endpointId: { toString: () => ENDPOINT },
+      provider: 'microsoft_graph',
+      providerTenantId: { toString: () => 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' },
+      providerMailboxId: { toString: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' },
+      ingestionGeneration: 1n,
+      queryVersion: 'ms_messages_delta_from_now_v2',
+      cursorKind: 'deltaLink',
+    });
+    ok('extracted cursor AAD preserves bigint and String-coercible UUID semantics',
+      compatibilityAad.equals(cursorAad));
+    const sealed = await cursorProvider.sealGrantPayload({
+      refresh_token: 'opaque-delta-cursor-package',
+      aad: cursorAad,
+      operation_id: op,
+    });
+    const opened = await cursorProvider.openGrantPayload({ envelope: sealed, aad: cursorAad });
+    ok('delta cursor AAD seals and opens under dedicated provider',
+      opened.refresh_token === 'opaque-delta-cursor-package');
+    let grantRejected = false;
+    try {
+      await grantProvider.sealGrantPayload({
+        refresh_token: 'opaque-delta-cursor-package', aad: cursorAad, operation_id: op,
+      });
+    } catch (error) {
+      grantRejected = error && error.code === 'envelope_seal_failed';
+    }
+    ok('grant provider still rejects delta cursor AAD', grantRejected);
+    const grantAad = aadFor(1, op);
+    let cursorRejected = false;
+    try {
+      await cursorProvider.sealGrantPayload({
+        refresh_token: 'rt', aad: grantAad, operation_id: op,
+      });
+    } catch (error) {
+      cursorRejected = error && error.code === 'envelope_seal_failed';
+    }
+    ok('delta cursor provider rejects grant AAD', cursorRejected);
+    const hostileParserProvider = createAzureKvEmailDeltaCursorEnvelopeProvider(
+      cfg,
+      () => ({ ok: true, value: {} }),
+    );
+    let arbitraryRejected = false;
+    try {
+      await hostileParserProvider.sealGrantPayload({
+        refresh_token: 'rt', aad: Buffer.from('arbitrary-aad'), operation_id: op,
+      });
+    } catch (error) {
+      arbitraryRejected = error && error.code === 'envelope_seal_failed';
+    }
+    ok('caller cannot inject parser to broaden cursor AAD', arbitraryRejected);
   }
 
   // --- 4096-bit modulus (512B wrap) ---

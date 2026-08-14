@@ -77,6 +77,10 @@ const {
   zeroizeBuffer,
   snapshotOwnDataProps,
 } = require('./email-grant-envelope-provider-contract');
+const {
+  buildDeltaCursorEnvelopeAadV1,
+  parseDeltaCursorEnvelopeAadV1,
+} = require('./email-delta-cursor-envelope-aad');
 
 const FAILURE_CODE = 'inbound_delta_state_failed';
 const FAILURE_MESSAGE = 'Inbound email delta state operation failed.';
@@ -141,7 +145,6 @@ const MIN_TTL = 5;
 const MAX_TTL = 3600;
 const DEFAULT_TTL = 60;
 const CURSOR_PKG_PREFIX = 'EMAIL_DELTA_CURSOR_PKG_V1\n';
-const AAD_VERSION = 'v1';
 const SKIPTOKEN_KEY = '$skiptoken';
 const DELTATOKEN_KEY = '$deltatoken';
 
@@ -837,116 +840,6 @@ function validateMessagesDeltaCursorUrl(cursorUrl, binding) {
  */
 function validateGraphCursorUrlBoundary(cursorUrl, binding) {
   return validateMessagesDeltaCursorUrl(cursorUrl, binding);
-}
-
-/**
- * Canonical AAD for sealed Graph cursor capabilities.
- * Binds ciphertext to trusted state identity + cursor_kind.
- * query_version is the production-exact constant (omitted or ms_messages_delta_from_now_v2).
- */
-function buildDeltaCursorEnvelopeAadV1({
-  clientId,
-  endpointId,
-  provider,
-  providerTenantId,
-  providerMailboxId,
-  ingestionGeneration,
-  queryVersion,
-  cursorKind,
-}) {
-  if (!UUID_CANON.test(String(clientId).trim().toLowerCase())) {
-    throw new Error('aad_identity_invalid');
-  }
-  if (!UUID_CANON.test(String(endpointId).trim().toLowerCase())) {
-    throw new Error('aad_identity_invalid');
-  }
-  if (provider !== PROVIDER) throw new Error('aad_provider_invalid');
-  if (!UUID_CANON.test(String(providerTenantId).trim().toLowerCase())) {
-    throw new Error('aad_tenant_invalid');
-  }
-  if (!UUID_CANON.test(String(providerMailboxId).trim().toLowerCase())) {
-    throw new Error('aad_mailbox_invalid');
-  }
-  if (!CURSOR_KINDS.includes(cursorKind)) throw new Error('aad_cursor_kind_invalid');
-  const genParsed = parsePositiveSafeInt(ingestionGeneration, 'ingestion_generation');
-  if (!genParsed.ok) throw new Error('aad_generation_invalid');
-  const qvParsed = parseQueryVersion(queryVersion);
-  if (!qvParsed.ok) throw new Error('aad_query_version_invalid');
-  return Buffer.from([
-    AAD_VERSION,
-    'delta_cursor_aad_v1',
-    `client_id=${String(clientId).trim().toLowerCase()}`,
-    `endpoint_id=${String(endpointId).trim().toLowerCase()}`,
-    `provider=${PROVIDER}`,
-    `provider_tenant_id=${String(providerTenantId).trim().toLowerCase()}`,
-    `provider_mailbox_id=${String(providerMailboxId).trim().toLowerCase()}`,
-    `ingestion_generation=${String(genParsed.value)}`,
-    `query_version=${qvParsed.value}`,
-    `cursor_kind=${cursorKind}`,
-  ].join('\n'), 'utf8');
-}
-
-function parseDeltaCursorEnvelopeAadV1(aad) {
-  try {
-    if (!Buffer.isBuffer(aad) || aad.length < 1 || aad.length > 4096) {
-      return fail('aad_invalid');
-    }
-    const text = aad.toString('utf8');
-    if (!Buffer.from(text, 'utf8').equals(aad) || /[\r\0]/.test(text)) {
-      return fail('aad_invalid');
-    }
-    const lines = text.split('\n');
-    if (lines.length !== 10 || lines[0] !== AAD_VERSION || lines[1] !== 'delta_cursor_aad_v1') {
-      return fail('aad_invalid');
-    }
-    const field = (line, key) => {
-      const p = `${key}=`;
-      if (typeof line !== 'string' || !line.startsWith(p)) return null;
-      const v = line.slice(p.length);
-      return v.length > 0 ? v : null;
-    };
-    const clientId = field(lines[2], 'client_id');
-    const endpointId = field(lines[3], 'endpoint_id');
-    const provider = field(lines[4], 'provider');
-    const providerTenantId = field(lines[5], 'provider_tenant_id');
-    const providerMailboxId = field(lines[6], 'provider_mailbox_id');
-    const genStr = field(lines[7], 'ingestion_generation');
-    const qvStr = field(lines[8], 'query_version');
-    const cursorKind = field(lines[9], 'cursor_kind');
-    if (!clientId || !endpointId || !provider || !providerTenantId || !providerMailboxId
-        || !genStr || !qvStr || !cursorKind
-        || !UUID_CANON.test(clientId) || !UUID_CANON.test(endpointId)
-        || !UUID_CANON.test(providerTenantId) || !UUID_CANON.test(providerMailboxId)
-        || provider !== PROVIDER || !CURSOR_KINDS.includes(cursorKind)
-        || !/^[1-9][0-9]*$/.test(genStr) || qvStr !== DEFAULT_QUERY_VERSION) {
-      return fail('aad_invalid');
-    }
-    const gen = parsePositiveSafeInt(genStr, 'ingestion_generation');
-    if (!gen.ok) return fail('aad_invalid');
-    const rebuilt = buildDeltaCursorEnvelopeAadV1({
-      clientId,
-      endpointId,
-      provider,
-      providerTenantId,
-      providerMailboxId,
-      ingestionGeneration: gen.value,
-      queryVersion: qvStr,
-      cursorKind,
-    });
-    if (!rebuilt.equals(aad)) return fail('aad_invalid');
-    return ok(Object.freeze({
-      client_id: clientId,
-      endpoint_id: endpointId,
-      provider,
-      provider_tenant_id: providerTenantId,
-      provider_mailbox_id: providerMailboxId,
-      ingestion_generation: gen.value,
-      query_version: qvStr,
-      cursor_kind: cursorKind,
-    }));
-  } catch {
-    return fail('aad_invalid');
-  }
 }
 
 /**
