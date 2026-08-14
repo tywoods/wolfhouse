@@ -20291,8 +20291,10 @@ body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell[data-col4
 [data-theme="dark"] .channelModeBtn.isSelected{background:#3a4a40;color:#fff}
 [data-theme="dark"] .channelModeBtn.isSelected.isAuto{background:#31483d;color:#fff}
 .channelAutonomy #cc-luna-global-pause{margin-top:5px;min-height:34px;width:100%;justify-content:space-between}
-.inbox-global-pause-owl{width:32px;height:32px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}
-.inbox-global-pause-owl svg{width:28px;height:28px;display:block}
+.inbox-global-pause-owl{width:40px;height:40px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}
+.inbox-global-pause-owl svg{width:36px;height:36px;display:block}
+.channelModeIcon.inbox-global-pause-owl{width:40px;height:40px}
+.channelModeIcon.inbox-global-pause-owl svg{width:36px;height:36px}
 .inbox-global-pause .luna-global-pause-switch{display:none!important}
 .channelAutonomy.is-paused{background:rgba(199,74,74,.10);border-color:rgba(199,74,74,.22)}
 [data-theme="dark"] .channelAutonomy{background:var(--surface);border-color:var(--border);box-shadow:none}
