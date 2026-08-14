@@ -13,6 +13,7 @@
  *   3) authority-bound inbound operation + batch processor
  *   4) factory-fixed durable event-store consumer (one exclusive-client txn per
  *      batch via withTransactionClient; insert-or-no-op; ack only after COMMIT)
+ *   5) inbox bridge projection into Staff Inbox (067 journal + conversations/messages)
  *
  * Import-inert: zero credential/session/transport construction at require time.
  * Disabled env → factory throws before any Azure/session/network construction.
@@ -494,6 +495,9 @@ function createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(deps) {
   }
 }
 
+/** Capture composition projects persisted events through inbox bridge (Milestone 1). */
+const EMAIL_INBOUND_CAPTURE_INBOX_BRIDGE_WIRED = true;
+
 module.exports = Object.freeze({
   ERROR_CODE,
   ERROR_MESSAGE,
@@ -505,6 +509,7 @@ module.exports = Object.freeze({
   INTERNAL_STATUS_SUCCESS,
   INTERNAL_DURABLY_PROCESSED,
   MAX_COUNT,
+  EMAIL_INBOUND_CAPTURE_INBOX_BRIDGE_WIRED,
   isInboundEventStoreEnabled,
   mapInternalEventStoreResult,
   createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime,
