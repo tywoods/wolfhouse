@@ -325,6 +325,13 @@ SELECT c.id::text AS client_id,
    AND e.public_address IS NOT NULL
    AND btrim(e.public_address) <> ''`.replace(/\s+/g, ' ').trim();
 
+// Disconnect alone may consume the terminal state written by the pre-cleanup
+// implementation. Refresh/read-health remain restricted to live bindings.
+const SQL_RESOLVE_DISCONNECT_BINDING = SQL_RESOLVE_REFRESH_HEALTH_BINDING.replace(
+  "e.binding_status IN ('verified', 'reauthorization_required')",
+  "e.binding_status IN ('verified', 'reauthorization_required', 'revoked')",
+);
+
 /** Same trusted binding resolve as refresh-health (grant present). */
 const SQL_RESOLVE_READ_HEALTH_BINDING = SQL_RESOLVE_REFRESH_HEALTH_BINDING;
 
@@ -1656,7 +1663,7 @@ function createStaffEmailOAuthRoutes(deps) {
     }
     try {
       return await deps.withPgClient(async (pg) => {
-        const found = await pg.query(SQL_RESOLVE_REFRESH_HEALTH_BINDING, [
+        const found = await pg.query(SQL_RESOLVE_DISCONNECT_BINDING, [
           bodySnap.location_id,
           bodySnap.endpoint_id,
         ]);
@@ -2113,6 +2120,7 @@ module.exports = {
   OAUTH_CALLBACK_PATH,
   SQL_RESOLVE_START_BINDING,
   SQL_RESOLVE_REFRESH_HEALTH_BINDING,
+  SQL_RESOLVE_DISCONNECT_BINDING,
   SQL_RESOLVE_READ_HEALTH_BINDING,
   SQL_RESOLVE_INBOUND_DIAGNOSTIC_BINDING,
   SQL_RESOLVE_INBOUND_CAPTURE_BINDING,

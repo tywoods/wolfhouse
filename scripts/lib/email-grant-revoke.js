@@ -11,7 +11,8 @@ const crypto = require('crypto');
 const {
   tryAcquireDelegatedGrantLease,
   openDelegatedGrantUnderLease,
-  markDelegatedGrantRevoked,
+  clearDelegatedGrantAfterRevoke,
+  clearPreviouslyRevokedGrant,
   abortDelegatedGrantLease,
   getDelegatedGrantPublicStatus,
 } = require('./email-delegated-grant-custodian');
@@ -139,11 +140,16 @@ function createDelegatedGrantRevokeService(deps) {
         return publicResult({ status: STATUS_UNAVAILABLE, grantGeneration: null, grantStatus: null, reconcileState: null });
       }
       if (prior.value.grant_status === 'revoked') {
+        const cleared = await clearPreviouslyRevokedGrant({
+          clientId: ids.clientId,
+          endpointId: ids.endpointId,
+          expectedGeneration: prior.value.grant_generation,
+        }, { client });
         return publicResult({
           status: STATUS_DISCONNECTED,
-          grantGeneration: prior.value.grant_generation,
-          grantStatus: 'revoked',
-          reconcileState: prior.value.reconcile_state,
+          grantGeneration: cleared.value.grant_generation,
+          grantStatus: cleared.value.grant_status,
+          reconcileState: cleared.value.reconcile_state,
         });
       }
       const acquired = await tryAcquireDelegatedGrantLease({
@@ -184,7 +190,7 @@ function createDelegatedGrantRevokeService(deps) {
         // Best-effort provider revoke; local revoke still proceeds.
       }
       const operationId = crypto.randomUUID();
-      const revoked = await markDelegatedGrantRevoked({
+      const revoked = await clearDelegatedGrantAfterRevoke({
         clientId: ids.clientId,
         endpointId: ids.endpointId,
         leaseToken: lease.lease_token,

@@ -798,6 +798,8 @@ function futureExpires(msFromNow = 600000) {
     const goodRow = verifiedConnectedRow();
     assert.strictEqual(isEligiblePhaseBReauthorizeEndpoint(goodRow, goodFact), false);
     assert.strictEqual(isEligibleDisconnectEndpoint(goodRow, goodFact), true);
+    // A verified connected grant remains revocable while registry activation is off.
+    assert.strictEqual(isEligibleDisconnectEndpoint(verifiedConnectedRow({ active: false }), goodFact), true);
     // Hostile / boundary negatives
     assert.strictEqual(isEligiblePhaseBReauthorizeEndpoint(null, goodFact), false);
     assert.strictEqual(isEligiblePhaseBReauthorizeEndpoint(goodRow, null), false);

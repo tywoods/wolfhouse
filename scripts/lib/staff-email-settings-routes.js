@@ -158,7 +158,8 @@ function isEligibleDisconnectEndpoint(row, grantFact) {
   try {
     if (!row || typeof row !== 'object' || Array.isArray(row)) return false;
     if (!grantFact || typeof grantFact !== 'object' || Array.isArray(grantFact)) return false;
-    if (row.active !== true) return false;
+    // Registry activation is independent of grant revocability. A verified active
+    // grant must remain disconnectable even while routing is intentionally inactive.
     if (row.location_active !== true) return false;
     if (row.provider !== 'microsoft_graph') return false;
     if (row.auth_mode !== 'delegated_authorization_code') return false;
