@@ -187,6 +187,32 @@ function scheduleCockpitPad(n) {
   return String(n).padStart(2, '0');
 }
 
+/** Horario chrome/hero copy — portalT when present, EN fallback otherwise. */
+function scheduleCockpitT(key, fallback, vars) {
+  var raw = fallback;
+  try {
+    var fn = null;
+    if (typeof portalT === 'function') fn = portalT;
+    else if (typeof globalThis !== 'undefined' && typeof globalThis.portalT === 'function') fn = globalThis.portalT;
+    if (fn) {
+      var v = fn(key);
+      if (v && v !== key) raw = v;
+    }
+  } catch (_e) { /* keep fallback */ }
+  raw = String(raw == null ? '' : raw);
+  if (vars) {
+    Object.keys(vars).forEach(function (k) {
+      raw = raw.split('{' + k + '}').join(String(vars[k]));
+    });
+  }
+  return raw;
+}
+
+/** Horario-only display fix: course name must be Medio Día. */
+function scheduleCockpitDisplayName(name) {
+  return String(name == null ? '' : name).replace(/Medio Dia/g, 'Medio D\u00eda');
+}
+
 function scheduleCockpitToMin(hhmm) {
   var parts = String(hhmm || '').split(':').map(Number);
   return parts[0] * 60 + (parts[1] || 0);
@@ -404,9 +430,9 @@ function scheduleRenderDayCockpit(mount, data) {
   var dt = data.date ? new Date(data.date + 'T00:00:00') : new Date();
   var isToday = new Date().toDateString() === dt.toDateString();
   [
-    ['Previous', on.prev, false],
-    ['Today', on.today, isToday],
-    ['Next', on.next, false],
+    [scheduleCockpitT('schedule.nav.prev', 'Previous'), on.prev, false],
+    [scheduleCockpitT('schedule.nav.today', 'Today'), on.today, isToday],
+    [scheduleCockpitT('schedule.nav.next', 'Next'), on.next, false],
   ].forEach(function (row) {
     var label = row[0], fn = row[1], active = row[2];
     var b = el('button', null, label);
@@ -426,9 +452,20 @@ function scheduleRenderDayCockpit(mount, data) {
   }
   dateWrap.appendChild(el('b', null, dateLabel));
   var guests = list.reduce(function (n, s) { return n + (s.booked || 0); }, 0);
+  var sessWord = list.length === 1
+    ? scheduleCockpitT('schedule.cockpit.sessionOne', 'session')
+    : scheduleCockpitT('schedule.cockpit.sessionMany', 'sessions');
+  var guestWord = guests === 1
+    ? scheduleCockpitT('schedule.cockpit.guestOne', 'guest')
+    : scheduleCockpitT('schedule.cockpit.guestMany', 'guests');
   dateWrap.appendChild(el('span', null,
-    'Schedule for ' + (data.venue || '—') + ' · ' + list.length + ' session' + (list.length === 1 ? '' : 's') +
-    ' · ' + guests + ' guest' + (guests === 1 ? '' : 's')));
+    scheduleCockpitT('schedule.cockpit.forVenue',
+      'Schedule for {venue} · {sessions} · {guests}',
+      {
+        venue: data.venue || '—',
+        sessions: list.length + ' ' + sessWord,
+        guests: guests + ' ' + guestWord,
+      })));
   bar.appendChild(dateWrap);
 
   var legend = el('div', 'ck-legend');
@@ -440,7 +477,8 @@ function scheduleRenderDayCockpit(mount, data) {
   // Daily / Monthly only — weekly view retired. Keys stay today|next30 for nav.setView.
   var rangeKey = data.range || 'today';
   if (rangeKey === 'week') rangeKey = 'today'; // legacy week → Daily
-  [['today', 'Daily'], ['next30', 'Monthly']].forEach(function (row) {
+  [['today', scheduleCockpitT('schedule.cockpit.range.daily', 'Daily')],
+   ['next30', scheduleCockpitT('schedule.cockpit.range.monthly', 'Monthly')]].forEach(function (row) {
     var key = row[0], label = row[1];
     var b = el('button', null, label);
     b.type = 'button';
@@ -453,7 +491,8 @@ function scheduleRenderDayCockpit(mount, data) {
   // Timeline | Cards — same chrome as Daily/Monthly; place may move later.
   var layouts = el('div', 'ck-seg ck-seg--layout');
   var layoutKey = data.layout === 'cards' ? 'cards' : 'timeline';
-  [['timeline', 'Timeline'], ['cards', 'Cards']].forEach(function (row) {
+  [['timeline', scheduleCockpitT('schedule.cockpit.layout.timeline', 'Timeline')],
+   ['cards', scheduleCockpitT('schedule.cockpit.layout.cards', 'Cards')]].forEach(function (row) {
     var key = row[0], label = row[1];
     var b = el('button', null, label);
     b.type = 'button';
@@ -464,10 +503,10 @@ function scheduleRenderDayCockpit(mount, data) {
   right.appendChild(layouts);
   var refresh = el('button', 'ck-icon-btn', '\u21bb');
   refresh.type = 'button';
-  refresh.setAttribute('aria-label', 'Refresh');
+  refresh.setAttribute('aria-label', scheduleCockpitT('schedule.cockpit.refresh', 'Refresh'));
   if (on.refresh) refresh.addEventListener('click', on.refresh);
   right.appendChild(refresh);
-  var create = el('button', 'ck-cta', 'Create booking');
+  var create = el('button', 'ck-cta', scheduleCockpitT('schedule.createBooking', 'Create booking'));
   create.type = 'button';
   if (on.create) create.addEventListener('click', function () { on.create(null); });
   right.appendChild(create);
@@ -484,11 +523,12 @@ function scheduleRenderDayCockpit(mount, data) {
   var eyebrow = el('div', 'ck-eyebrow');
   eyebrow.appendChild(el('i', 'ck-pulse'));
   if (live) {
-    eyebrow.appendChild(el('span', null, 'ON NOW \u00b7 ENDS ' + live.end));
+    eyebrow.appendChild(el('span', null, scheduleCockpitT('schedule.cockpit.hero.onNow', 'ON NOW · ENDS {time}', { time: live.end })));
     heroL.appendChild(eyebrow);
-    heroL.appendChild(el('h2', null, live.name));
+    heroL.appendChild(el('h2', null, scheduleCockpitDisplayName(live.name)));
     heroL.appendChild(el('div', 'ck-now__sub',
-      live.start + ' \u2013 ' + live.end + ' \u00b7 ends in ' + scheduleCockpitFmtDur(live.e - now)));
+      live.start + ' \u2013 ' + live.end + ' \u00b7 ' +
+      scheduleCockpitT('schedule.cockpit.hero.endsIn', 'ends in {dur}', { dur: scheduleCockpitFmtDur(live.e - now) })));
     var chips = el('div', 'ck-chips');
     // Session-scoped exact add-ons only (never day-wide prep or decomposed boards/wetsuits).
     scheduleCockpitAppendExactPrepChips(chips, live.prepItems, 'out');
@@ -511,7 +551,7 @@ function scheduleRenderDayCockpit(mount, data) {
     ring.appendChild(inner);
     seats.appendChild(ring);
     var lbl = el('div', 'ck-seats__label');
-    lbl.innerHTML = 'seats<br>booked';
+    lbl.innerHTML = scheduleCockpitT('schedule.cockpit.hero.seatsBooked', 'seats<br>booked');
     seats.appendChild(lbl);
     hero.appendChild(seats);
   } else {
@@ -521,29 +561,36 @@ function scheduleRenderDayCockpit(mount, data) {
       var relLabel = scheduleCockpitRelativeDayLabelText(data.date, new Date());
       eyebrow.appendChild(el('span', null, String(relLabel || '').toUpperCase()));
       heroL.appendChild(eyebrow);
-      var sessWord = list.length === 1 ? 'session' : 'sessions';
-      var guestWord = guests === 1 ? 'guest' : 'guests';
       heroL.appendChild(el('h2', null,
         list.length + ' ' + sessWord + ' \u00b7 ' + guests + ' ' + guestWord));
       if (next) {
         heroL.appendChild(el('div', 'ck-now__sub',
-          (next.name ? next.name + ' \u00b7 ' : '') + next.start + ' \u2013 ' + next.end));
+          (next.name ? scheduleCockpitDisplayName(next.name) + ' \u00b7 ' : '') + next.start + ' \u2013 ' + next.end));
       } else if (!list.length) {
-        heroL.appendChild(el('div', 'ck-now__sub', 'No sessions scheduled'));
+        heroL.appendChild(el('div', 'ck-now__sub', scheduleCockpitT('schedule.cockpit.hero.noSessions', 'No sessions scheduled')));
       }
       hero.appendChild(heroL);
     } else {
       var done = now != null && list.length && now >= Math.max.apply(null, list.map(function (x) { return x.e; }));
-      eyebrow.appendChild(el('span', null, done ? 'DAY COMPLETE' : 'NOTHING IN THE WATER'));
+      eyebrow.appendChild(el('span', null, done
+        ? scheduleCockpitT('schedule.cockpit.hero.dayComplete', 'DAY COMPLETE')
+        : scheduleCockpitT('schedule.cockpit.hero.nothingInWater', 'NOTHING IN THE WATER')));
       heroL.appendChild(eyebrow);
       heroL.appendChild(el('h2', null, done
-        ? list.length + ' session' + (list.length === 1 ? '' : 's') + ' run \u00b7 ' + guests + ' guest' + (guests === 1 ? '' : 's')
-        : next ? 'First up: ' + next.name : 'No sessions scheduled'));
-      heroL.appendChild(el('div', 'ck-now__sub', done
-        ? 'Gear back in, day closed out.'
+        ? scheduleCockpitT('schedule.cockpit.hero.sessionsRun', '{sessions} run · {guests}', {
+          sessions: list.length + ' ' + sessWord,
+          guests: guests + ' ' + guestWord,
+        })
         : next
-          ? next.start + ' \u2013 ' + next.end + (now != null ? ' \u00b7 starts in ' + scheduleCockpitFmtDur(next.s - now) : '')
-          : 'Add a session to get going.'));
+          ? scheduleCockpitT('schedule.cockpit.hero.firstUp', 'First up: {name}', { name: scheduleCockpitDisplayName(next.name) })
+          : scheduleCockpitT('schedule.cockpit.hero.noSessions', 'No sessions scheduled')));
+      heroL.appendChild(el('div', 'ck-now__sub', done
+        ? scheduleCockpitT('schedule.cockpit.hero.closedOut', 'Gear back in, day closed out.')
+        : next
+          ? next.start + ' \u2013 ' + next.end + (now != null
+            ? ' \u00b7 ' + scheduleCockpitT('schedule.cockpit.hero.startsIn', 'starts in {dur}', { dur: scheduleCockpitFmtDur(next.s - now) })
+            : '')
+          : scheduleCockpitT('schedule.cockpit.hero.addSession', 'Add a session to get going.')));
       // Idle hero: session-scoped exact prep for classified `next` only.
       // Day complete keeps non-prep summary (eyebrow/h2/sub) — never next-course prep.
       if (!done) {
@@ -551,7 +598,8 @@ function scheduleRenderDayCockpit(mount, data) {
         if (next) {
           scheduleCockpitAppendExactPrepChips(chipsIdle, next.prepItems, 'prep');
         } else {
-          chipsIdle.appendChild(el('span', 'ck-chip ck-chip--muted', 'no gear needed'));
+          chipsIdle.appendChild(el('span', 'ck-chip ck-chip--muted',
+            scheduleCockpitT('schedule.cockpit.hero.noGear', 'no gear needed')));
         }
         heroL.appendChild(chipsIdle);
       }
@@ -570,10 +618,10 @@ function scheduleRenderDayCockpit(mount, data) {
     b.type = 'button';
     b.style.left = pct(s.s) + '%';
     b.style.width = (((s.e - s.s) / spanMin) * 100) + '%';
-    b.textContent = String(s.name || '').replace(/^Curso /, '') + ' · ' +
+    b.textContent = scheduleCockpitDisplayName(String(s.name || '')).replace(/^Curso /, '') + ' · ' +
       scheduleCockpitCapacityLabel(s.booked || 0, s.capacity) +
       (now != null && now >= s.e ? ' ✓' : '');
-    b.title = s.name + ' ' + s.start + '–' + s.end;
+    b.title = scheduleCockpitDisplayName(s.name) + ' ' + s.start + '–' + s.end;
     b.addEventListener('click', function () {
       if (s.booked) { if (on.session) on.session(s.id); }
       else if (on.create) on.create(s.id);
@@ -595,7 +643,7 @@ function scheduleRenderDayCockpit(mount, data) {
   /* prep rail — exact offering labels/qty (course add-ons first, then top others) */
   var p = data.prep || {};
   var prep = el('div', 'ck-prep');
-  prep.appendChild(el('h3', null, "TODAY'S PREP"));
+  prep.appendChild(el('h3', null, scheduleCockpitT('schedule.cockpit.prepTitle', "TODAY'S PREP")));
   var prepItems = Array.isArray(p.items) ? p.items : [];
   if (prepItems.length) {
     prepItems.forEach(function (item) {
@@ -609,13 +657,13 @@ function scheduleRenderDayCockpit(mount, data) {
   } else {
     // Empty day — keep rail height honest without inventing component stock.
     var empty = el('div', 'ck-prep__row ck-prep__row--quiet');
-    empty.appendChild(el('span', null, 'No equipment booked'));
+    empty.appendChild(el('span', null, scheduleCockpitT('schedule.cockpit.noEquipment', 'No equipment booked')));
     empty.appendChild(el('span', null, '0'));
     prep.appendChild(empty);
   }
   prep.appendChild(el('div', 'ck-prep__rule'));
   var unpaid = el('div', 'ck-prep__row ck-prep__row--alert');
-  unpaid.appendChild(el('span', null, 'Unpaid / pending'));
+  unpaid.appendChild(el('span', null, scheduleCockpitT('schedule.cockpit.unpaidPending', 'Unpaid / pending')));
   unpaid.appendChild(el('span', 'ck-badge', String(p.unpaid != null ? p.unpaid : 0)));
   if (on.unpaid) {
     unpaid.style.cursor = 'pointer';
@@ -623,9 +671,9 @@ function scheduleRenderDayCockpit(mount, data) {
   }
   prep.appendChild(unpaid);
   var reply = el('div', 'ck-prep__row ck-prep__row--quiet');
-  reply.appendChild(el('span', null, 'Need reply'));
+  reply.appendChild(el('span', null, scheduleCockpitT('schedule.cockpit.needReply', 'Need reply')));
   reply.appendChild(el('span', null, (p.needReply != null ? p.needReply : 0) === 0
-    ? '0 \u00b7 inbox clear'
+    ? scheduleCockpitT('schedule.cockpit.inboxClear', '0 · inbox clear')
     : String(p.needReply)));
   if (on.inbox) {
     reply.style.cursor = 'pointer';
@@ -1400,6 +1448,8 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     SCHEDULE_DAY_COCKPIT_CSS: SCHEDULE_DAY_COCKPIT_CSS,
     scheduleGetDayCockpitCss: scheduleGetDayCockpitCss,
+    scheduleCockpitT: scheduleCockpitT,
+    scheduleCockpitDisplayName: scheduleCockpitDisplayName,
     scheduleCockpitFmtDur: scheduleCockpitFmtDur,
     scheduleCockpitRelativeDayLabel: scheduleCockpitRelativeDayLabel,
     scheduleCockpitRelativeDayLabelText: scheduleCockpitRelativeDayLabelText,

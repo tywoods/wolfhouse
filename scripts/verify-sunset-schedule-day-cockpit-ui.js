@@ -652,5 +652,73 @@ states.forEach((s) => {
   }
 })();
 
+console.log('\n[7] LANG-003 — ES Horario chrome + Medio Día');
+(function lang003EsChrome() {
+  const i18n = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8');
+  const esSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n-es-sunset.js'), 'utf8');
+  const cockpitSrc = fs.readFileSync(MODULE_PATH, 'utf8');
+  const inboxThread = path.join(ROOT, 'scripts/browser/inbox-thread.js');
+  assert('inbox-thread.js untouched by this slice', fs.existsSync(inboxThread));
+  assert('cockpit uses portalT helper', cockpitSrc.includes('function scheduleCockpitT'));
+  assert('cockpit does not hardcode TODAY\'S PREP in render',
+    !/prep\.appendChild\(el\('h3', null, "TODAY'S PREP"\)\)/.test(cockpitSrc));
+  for (const key of [
+    'schedule.cockpit.range.daily',
+    'schedule.cockpit.range.monthly',
+    'schedule.cockpit.prepTitle',
+    'schedule.cockpit.unpaidPending',
+    'schedule.cockpit.needReply',
+    'schedule.cockpit.hero.onNow',
+    'schedule.cockpit.hero.noSessions',
+  ]) {
+    assert('i18n EN ' + key, i18n.includes("'" + key + "'"));
+    assert('i18n ES ' + key, esSrc.includes("'" + key + "'"));
+  }
+  assert('ES Diario', esSrc.includes("'schedule.cockpit.range.daily': 'Diario'"));
+  assert('ES Crear reserva already present', esSrc.includes("'schedule.createBooking': 'Crear reserva'"));
+  assert('ES Horario nav tab', esSrc.includes("'nav.tab.portalHome': 'Horario'"));
+  assert('display helper accents Medio Día',
+    cockpit.scheduleCockpitDisplayName('Curso Medio Dia') === 'Curso Medio Día');
+
+  const es = require('./lib/staff-portal-i18n-es-sunset');
+  const prev = global.portalT;
+  global.portalT = function (key) { return Object.prototype.hasOwnProperty.call(es, key) ? es[key] : key; };
+  const mount = doc.createElement('div');
+  mount.ownerDocument = doc;
+  const data = cockpit.scheduleBuildDayCockpitData({
+    venue: 'Sunset',
+    date: TODAY_ISO,
+    navMode: 'day',
+    now: 12 * 60 + 37,
+    sessions: [{
+      kind: 'course',
+      course_id: 'medio',
+      label: 'Curso Medio Dia',
+      slot_key: 'medio',
+      start: 12 * 60,
+      end: 14 * 60,
+      capacity: 24,
+      surfers: 2,
+      boardsNeeded: 0,
+      wetsuitsNeeded: 0,
+    }],
+    unpaidCount: 2,
+    needReplyCount: 0,
+  });
+  cockpit.scheduleRenderDayCockpit(mount, data);
+  const text = textOf(mount);
+  assert('ES Daily → Diario', /Diario/.test(text));
+  assert('ES Monthly → Mensual', /Mensual/.test(text));
+  assert('ES Create booking → Crear reserva', /Crear reserva/.test(text));
+  assert('ES TODAY\'S PREP → PREPARACIÓN DE HOY', /PREPARACIÓN DE HOY/.test(text));
+  assert('ES Unpaid/pending', /Sin pagar \/ pendiente/.test(text));
+  assert('ES Need reply', /Sin responder/.test(text));
+  assert('ES hero follows locale', /AHORA/.test(text));
+  assert('ES empty copy not leftover EN chrome', !/Create booking/.test(text) && !/TODAY'S PREP/.test(text));
+  assert('Medio Día accent on Horario', /Medio Día/.test(text) && !/Medio Dia/.test(text));
+  if (prev === undefined) delete global.portalT;
+  else global.portalT = prev;
+})();
+
 console.log(`\n${fail === 0 ? 'OK' : 'FAIL'}  ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);
