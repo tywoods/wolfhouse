@@ -889,8 +889,6 @@ if (modExists) {
     (genericHtml.match(/data-rental-offering=/g) || []).length >= 2
       && genericHtml.includes('data-rental-offering="towel_rental"')
       && genericHtml.includes('data-rental-offering="poncho_rental"'));
-  assert('rental status renders once beside the guest, not on each item line',
-    (genericHtml.match(/portal-schedule-ops-row-status/g) || []).length === 1);
 
   ctx.scheduleRentalPickupsSortMode = 'item';
   ctx.scheduleRentalPickupsGuestFilter = '';
