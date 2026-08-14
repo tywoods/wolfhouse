@@ -1,64 +1,53 @@
 'use strict';
-/** EMAIL-M1-020 Sunset-only active runtime composition. Import is inert. */
+/** Sunset-only active inbound delta composition. Import performs no I/O. */
 const { createEmailDeltaSunsetStagingWorker } = require('./email-delta-sunset-staging-worker');
 const { createSunsetMicrosoftOAuthClientSecretProvider } = require('./sunset-microsoft-oauth-provider');
-const { createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition } = require('./email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
+const { createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition } = require('./email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
 const { validateEmailGrantEnvelopeProvider } = require('./email-grant-envelope-provider-contract');
 const { createMicrosoftTokenHttpTransport } = require('./email-microsoft-token-http-transport');
 const { createDelegatedGrantAccessSession } = require('./email-delegated-grant-access-session');
 const { createMicrosoftGraphMessagesDeltaPageTransport } = require('./email-microsoft-graph-messages-delta-page-transport');
 const { createAuthorityBoundMessagesDeltaPageOperation } = require('./email-authority-bound-messages-delta-page-operation');
 const { createEmailInboundInboxBridge } = require('./email-inbound-inbox-bridge');
-const { QUERY_VERSION, WORKER_ID } = require('./email-delta-runtime-config');
+const config = require('./email-delta-runtime-config');
 
-const SUNSET_DEPLOYMENT='sunset-staging', SUNSET_TENANT='sunset';
-const ENV_COMPOSITION_ENABLED='LUNA_EMAIL_DELTA_RUNTIME_COMPOSITION_ENABLED';
-const ENV_WORKER_ENABLED='LUNA_EMAIL_DELTA_WORKER_ENABLED';
-const ENV_ADMIN_ENABLED='LUNA_EMAIL_DELTA_ADMIN_ENABLED';
+const { SUNSET_DEPLOYMENT,SUNSET_TENANT,WORKER_ID,QUERY_VERSION,ENV_COMPOSITION_ENABLED,ENV_WORKER_ENABLED,ENV_ADMIN_ENABLED,parseEmailDeltaRuntimeConfig }=config;
 const MIGRATION_080_ID='080_tenant_email_delta_from_now_v2';
-const REQUIRED_KEYS=Object.freeze(['env','withPgClient','https','timers','intervalMs','activationWatermark']);
-function enabled(env){return !!env&&env.LUNA_DEPLOYMENT===SUNSET_DEPLOYMENT&&env.DEFAULT_CLIENT_SLUG===SUNSET_TENANT&&env[ENV_COMPOSITION_ENABLED]==='true'&&env[ENV_WORKER_ENABLED]==='true'&&env[ENV_ADMIN_ENABLED]!=='true'&&env.LUNA_AUTO_SEND_ENABLED!=='true'&&env.LUNA_EMAIL_OAUTH_CLIENT_ID&&env.EMAIL_GRANT_ENVELOPE_AZURE_KV_COMPOSITION_ENABLED==='true';}
-function resolveEmailDeltaSunsetStagingRuntimeReadiness(env){const active=enabled(env);return Object.freeze({ok:active||!(env&&env[ENV_WORKER_ENABLED]==='true'),status:active?'ready':(env&&env[ENV_WORKER_ENABLED]==='true'?'config_invalid':'disabled'),runtime_activation:active,scheduler_present:active,worker_enabled:active,deployment_boundary:SUNSET_DEPLOYMENT,tenant_bound:active,worker_id:WORKER_ID,migration_id:MIGRATION_080_ID,query_version:QUERY_VERSION});}
+const REQUIRED_KEYS=Object.freeze(['env','withPgClient','https','timers','intervalMs']);
+const SCHEMA_VERIFY_SQL=`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='tenant_email_delta_activation_boundaries') AS boundary_table, EXISTS (SELECT 1 FROM pg_constraint WHERE conname='tenant_email_inbound_delta_states_query_version_exact' AND pg_get_constraintdef(oid) LIKE '%ms_messages_delta_from_now_v2%') AS query_constraint`;
+function resolveEmailDeltaSunsetStagingRuntimeReadiness(env){return parseEmailDeltaRuntimeConfig(env===undefined?process.env:env);}
+function fail(){const e=new Error('Email delta sunset-staging runtime composition failed.');Object.defineProperty(e,'code',{value:'EMAIL_DELTA_SUNSET_STAGING_RUNTIME_COMPOSITION_INVALID',enumerable:true});return Object.freeze(e);}
+function exactDeps(d){return d&&Object.getPrototypeOf(d)===Object.prototype&&Reflect.ownKeys(d).length===REQUIRED_KEYS.length&&REQUIRED_KEYS.every(k=>Object.prototype.hasOwnProperty.call(d,k));}
 function createEmailDeltaSunsetStagingRuntimeComposition(deps){
- if(!deps||Object.getPrototypeOf(deps)!==Object.prototype||Reflect.ownKeys(deps).length!==REQUIRED_KEYS.length||!REQUIRED_KEYS.every(k=>Object.prototype.hasOwnProperty.call(deps,k))||!enabled(deps.env)||typeof deps.withPgClient!=='function')throw new Error('email_delta_runtime_invalid');
- const watermark=deps.activationWatermark;
- if(typeof watermark!=='string'||new Date(watermark).toISOString()!==watermark)throw new Error('email_delta_activation_watermark_invalid');
- const kv=createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(deps.env), validated=kv&&validateEmailGrantEnvelopeProvider(kv.provider);
- if(!kv||kv.ok!==true||!validated||validated.ok!==true)throw new Error('email_delta_runtime_invalid');
- const secretProvider=createSunsetMicrosoftOAuthClientSecretProvider(Object.freeze({deployment:SUNSET_DEPLOYMENT,env:deps.env}));
- const tokenTransport=createMicrosoftTokenHttpTransport(Object.freeze({httpsImpl:deps.https,timers:deps.timers}));
- const graphTransport=createMicrosoftGraphMessagesDeltaPageTransport(Object.freeze({httpsImpl:deps.https,timers:deps.timers}),watermark);
- let currentClient=null;
- const worker=createEmailDeltaSunsetStagingWorker({
-  timers:deps.timers,intervalMs:deps.intervalMs,
-  query:(sql,args)=>currentClient.query(sql,args),
-  runPage:async(authority)=>{
-   const client=currentClient;
-   const withTransactionClient=async work=>work(client);
-   const createGrantSession=()=>createDelegatedGrantAccessSession(Object.freeze({deployment:SUNSET_DEPLOYMENT,applicationClientId:deps.env.LUNA_EMAIL_OAUTH_CLIENT_ID.toLowerCase(),client,envelopeProvider:validated.value,secretProvider,transport:tokenTransport,workerId:WORKER_ID}));
-   const operation=createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({db:client,createGrantSession,messagesDeltaPageTransport:graphTransport,withTransactionClient,envelopeProvider:validated.value}));
-   const result=await operation.runAuthorityBoundMessagesDeltaPage(authority);
-   if(!result||result.ok!==true)throw new Error('email_delta_page_failed');
-   return result.value;
-  },
-  projectEvent:async event=>{
-   const bridge=createEmailInboundInboxBridge({withTransactionClient:async work=>work(currentClient)});
-   return bridge.projectInboundEvent({clientId:event.clientId,locationId:event.locationId,endpointId:event.endpointId,provider:event.provider,providerMailboxId:event.providerMailboxId,providerMessageId:event.providerMessageId});
-  },
- });
- const rawTick=worker.tick;
- let tickRunning=false;
- async function tick(){
-  if(tickRunning)return Object.freeze({status:'overlap_skipped'});
-  tickRunning=true;
-  try{return await deps.withPgClient(async client=>{currentClient=client;try{return await rawTick();}finally{currentClient=null;}});}
-  finally{tickRunning=false;}
- }
- // Scheduler invokes the same exclusive-loan tick, never a naked pool/query.
- let timer=null,stopped=true,running=false;
- function arm(){if(stopped)return;timer=deps.timers.setTimeout(async()=>{if(!running){running=true;try{await tick();}finally{running=false;}}arm();},deps.intervalMs);}
- function start(){if(!stopped)return;stopped=false;arm();}
- function stop(){stopped=true;if(timer!==null){deps.timers.clearTimeout(timer);timer=null;}}
- return Object.freeze({start,stop,tick,getReadiness:()=>resolveEmailDeltaSunsetStagingRuntimeReadiness(deps.env)});
+ try{
+  if(!exactDeps(deps)||typeof deps.withPgClient!=='function'||!deps.https||!deps.timers||typeof deps.timers.setTimeout!=='function'||typeof deps.timers.clearTimeout!=='function'||!Number.isInteger(deps.intervalMs))throw fail();
+  const readiness=parseEmailDeltaRuntimeConfig(deps.env);
+  if(!readiness||readiness.runtime_activation!==true||readiness.ok!==true)throw fail();
+  const kv=createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(deps.env), validated=kv&&validateEmailGrantEnvelopeProvider(kv.provider);
+  if(!kv||kv.ok!==true||!validated||validated.ok!==true)throw fail();
+  const secretProvider=createSunsetMicrosoftOAuthClientSecretProvider(Object.freeze({deployment:SUNSET_DEPLOYMENT,env:deps.env}));
+  const tokenTransport=createMicrosoftTokenHttpTransport(Object.freeze({httpsImpl:deps.https,timers:deps.timers}));
+  let currentClient=null;
+  const worker=createEmailDeltaSunsetStagingWorker({timers:deps.timers,intervalMs:deps.intervalMs,
+   query:(sql,args)=>currentClient.query(sql,args),
+   runPage:async authority=>{
+    const client=currentClient;
+    const graphTransport=createMicrosoftGraphMessagesDeltaPageTransport(Object.freeze({httpsImpl:deps.https,timers:deps.timers}),authority.activationWatermark);
+    const createGrantSession=()=>createDelegatedGrantAccessSession(Object.freeze({deployment:SUNSET_DEPLOYMENT,applicationClientId:deps.env[config.ENV_OAUTH_CLIENT_ID].toLowerCase(),client,envelopeProvider:validated.value,secretProvider,transport:tokenTransport,workerId:WORKER_ID}));
+    const operation=createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({db:client,createGrantSession,messagesDeltaPageTransport:graphTransport,withTransactionClient:async work=>work(client),envelopeProvider:validated.value}));
+    const cleanAuthority=Object.freeze({clientId:authority.clientId,locationId:authority.locationId,endpointId:authority.endpointId});
+    const result=await operation.runAuthorityBoundMessagesDeltaPage(cleanAuthority);
+    if(!result||result.ok!==true)throw fail(); return result.value;
+   },
+   projectEvent:async event=>createEmailInboundInboxBridge({withTransactionClient:async work=>work(currentClient)}).projectInboundEvent({clientId:event.clientId,locationId:event.locationId,endpointId:event.endpointId,provider:event.provider,providerMailboxId:event.providerMailboxId,providerMessageId:event.providerMessageId}),
+  });
+  let tickPromise=null,timer=null,stopped=true,schemaVerified=false;
+  async function verifySchema(){if(schemaVerified)return;await deps.withPgClient(async client=>{const r=await client.query(SCHEMA_VERIFY_SQL,[]);if(!r||!r.rows||r.rows.length!==1||r.rows[0].boundary_table!==true||r.rows[0].query_constraint!==true)throw fail();});schemaVerified=true;}
+  async function tick(){if(tickPromise)return Object.freeze({status:'overlap_skipped'});tickPromise=(async()=>{await verifySchema();return deps.withPgClient(async client=>{currentClient=client;try{return await worker.tick();}finally{currentClient=null;}});})();try{return await tickPromise;}finally{tickPromise=null;}}
+  function arm(){if(stopped)return;timer=deps.timers.setTimeout(async()=>{try{await tick();}finally{arm();}},deps.intervalMs);}
+  async function start(){if(!stopped)return;await verifySchema();stopped=false;arm();}
+  async function stop(){stopped=true;if(timer!==null){deps.timers.clearTimeout(timer);timer=null;}if(tickPromise)await tickPromise;}
+  return Object.freeze({start,stop,tick,getReadiness:()=>readiness});
+ }catch(err){if(err&&err.code==='EMAIL_DELTA_SUNSET_STAGING_RUNTIME_COMPOSITION_INVALID')throw err;throw fail();}
 }
-module.exports=Object.freeze({SUNSET_DEPLOYMENT,SUNSET_TENANT,WORKER_ID,QUERY_VERSION,MIGRATION_080_ID,ENV_COMPOSITION_ENABLED,ENV_WORKER_ENABLED,ENV_ADMIN_ENABLED,resolveEmailDeltaSunsetStagingRuntimeReadiness,createEmailDeltaSunsetStagingRuntimeComposition});
+module.exports=Object.freeze({SUNSET_DEPLOYMENT,SUNSET_TENANT,WORKER_ID,QUERY_VERSION,MIGRATION_080_ID,ENV_COMPOSITION_ENABLED,ENV_WORKER_ENABLED,ENV_ADMIN_ENABLED,SCHEMA_VERIFY_SQL,resolveEmailDeltaSunsetStagingRuntimeReadiness,createEmailDeltaSunsetStagingRuntimeComposition});

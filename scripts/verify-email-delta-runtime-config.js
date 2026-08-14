@@ -437,7 +437,6 @@ function main() {
     ['worker only', exactEnv({ [E_WORK]: 'true' })],
     ['admin only', exactEnv({ [E_ADMIN]: 'true' })],
     ['both', exactEnv({ [E_WORK]: 'true', [E_ADMIN]: 'true' })],
-    ['composition+worker', enabledComposition({ [E_WORK]: 'true' })],
     ['composition+admin', enabledComposition({ [E_ADMIN]: 'true' })],
     ['all three', enabledComposition({ [E_WORK]: 'true', [E_ADMIN]: 'true' })],
   ]) {
@@ -632,10 +631,10 @@ function main() {
         && Array.isArray(b.nestedCallables) && b.nestedCallables.length === 0,
     },
     {
-      name: 'worker rejected: zero owner load',
+      name: 'worker incomplete activation: zero owner load',
       action: { kind: 'parse', env: enabledComposition({ [E_WORK]: 'true' }) },
       expect: (b) => b
-        && b.status === 'activation_rejected'
+        && b.status === 'config_invalid'
         && b.ok === false
         && b.worker_activation_possible === false
         && Array.isArray(b.hits) && b.hits.length === 0

@@ -1,4 +1,5 @@
 BEGIN;
+DROP TABLE IF EXISTS tenant_email_delta_activation_boundaries;
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM tenant_email_inbound_delta_states) THEN
     RAISE EXCEPTION '080 down refuses existing delta state';

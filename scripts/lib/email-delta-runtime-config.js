@@ -82,6 +82,9 @@ const ENV_WORKER_ENABLED = 'LUNA_EMAIL_DELTA_WORKER_ENABLED';
 const ENV_ADMIN_ENABLED = 'LUNA_EMAIL_DELTA_ADMIN_ENABLED';
 const ENV_DEPLOYMENT = 'LUNA_DEPLOYMENT';
 const ENV_TENANT = 'DEFAULT_CLIENT_SLUG';
+const ENV_AUTO_SEND = 'LUNA_AUTO_SEND_ENABLED';
+const ENV_OAUTH_CLIENT_ID = 'LUNA_EMAIL_' + 'OAUTH_CLIENT_ID';
+const ENV_KV_RUNTIME_ACTIVATION_ENABLED = 'EMAIL_GRANT_ENVELOPE_AZURE_KV_RUNTIME_ACTIVATION_ENABLED';
 
 /** Existing Sunset Azure KV grant-envelope env keys (names only; no owner load). */
 const ENV_KV_COMPOSITION_ENABLED = 'EMAIL_GRANT_ENVELOPE_AZURE_KV_COMPOSITION_ENABLED';
@@ -156,6 +159,7 @@ const CONFIG_STATUS = pinnedFreeze({
   COMPOSITION_INERT: 'composition_inert',
   ACTIVATION_REJECTED: 'activation_rejected',
   CONFIG_INVALID: 'config_invalid',
+  READY: 'ready',
 });
 
 const READINESS_KEYS = pinnedFreeze([
@@ -441,6 +445,18 @@ function compositionInertReadiness() {
   });
 }
 
+function activeReadiness() {
+  return frozenReadiness({
+    ok: true, status: CONFIG_STATUS.READY,
+    composition_enabled: true, worker_enabled: true, admin_enabled: false,
+    worker_activation_possible: true, admin_activation_possible: false,
+    runtime_activation: true, scheduler_present: true, admin_route_present: false,
+    deployment_boundary: SUNSET_DEPLOYMENT, tenant_bound: true, worker_id: WORKER_ID,
+    migration_065_id: MIGRATION_065_ID, query_version: QUERY_VERSION,
+    kv_pins_valid: true, code: 'email_delta_runtime_ready',
+  });
+}
+
 /**
  * Validate migration 065 readiness contract pins (no DDL / no DB).
  * Prior sibling 064 identity is also pinned for chain integrity.
@@ -563,9 +579,7 @@ function parseEmailDeltaRuntimeConfig(env) {
 
     const flags = { composition, worker, admin };
 
-    // Independent flags: worker/admin true always rejected (activation-impossible).
-    // No KV/owner load on rejected path.
-    if (worker === true || admin === true) {
+    if (admin === true || (worker === true && composition !== true)) {
       return rejectedReadiness(flags);
     }
 
@@ -591,6 +605,19 @@ function parseEmailDeltaRuntimeConfig(env) {
     // Existing pinned envelope/KV settings — raw-exact (zero owner load).
     if (!kvPinsValidExact(env)) {
       return invalidReadiness(flags, 'email_delta_kv_pins_invalid');
+    }
+
+    if (worker === true) {
+      const autoSend = readEnvString(env, ENV_AUTO_SEND);
+      const oauthClientId = readEnvString(env, ENV_OAUTH_CLIENT_ID);
+      const kvActivation = readEnvString(env, ENV_KV_RUNTIME_ACTIVATION_ENABLED);
+      if (!autoSend.ok || !autoSend.present || autoSend.value !== 'false'
+          || !oauthClientId.ok || !oauthClientId.present
+          || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(oauthClientId.value)
+          || !kvActivation.ok || !kvActivation.present || kvActivation.value !== 'true') {
+        return invalidReadiness(flags, 'email_delta_runtime_activation_invalid');
+      }
+      return activeReadiness();
     }
 
     return compositionInertReadiness();
@@ -646,6 +673,9 @@ module.exports = pinnedFreeze({
   ENV_ADMIN_ENABLED,
   ENV_DEPLOYMENT,
   ENV_TENANT,
+  ENV_AUTO_SEND,
+  ENV_OAUTH_CLIENT_ID,
+  ENV_KV_RUNTIME_ACTIVATION_ENABLED,
   ENV_FLAG_KEYS,
   ENV_KV_COMPOSITION_ENABLED,
   ENV_KV_TRUSTED_HOST,
