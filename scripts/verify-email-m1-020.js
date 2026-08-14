@@ -8,7 +8,7 @@ const root=path.join(__dirname,'..');
 const mailbox='11111111-1111-4111-8111-111111111111';
 const watermark='2026-08-14T12:00:00.000Z';
 const initial=graph.buildMessagesDeltaFromNowInitialPath(mailbox,watermark);
-assert.equal(initial,`/v1.0/users/${mailbox}/messages/delta?$top=5&$select=id,subject,from,receivedDateTime,isRead,conversationId,internetMessageId&$filter=receivedDateTime%20ge%202026-08-14T12%3A00%3A00.000Z`);
+assert.equal(initial,`/v1.0/users/${mailbox}/mailFolders/inbox/messages/delta?$top=5&$select=id,subject,from,receivedDateTime,isRead,conversationId,internetMessageId&$filter=receivedDateTime%20ge%202026-08-14T12%3A00%3A00.000Z`);
 assert.equal(graph.buildMessagesDeltaFromNowInitialPath(mailbox,'bad'),null);
 assert.equal(runtime.QUERY_VERSION,'ms_messages_delta_from_now_v2');
 const env={LUNA_DEPLOYMENT:'sunset-staging',DEFAULT_CLIENT_SLUG:'sunset',LUNA_EMAIL_DELTA_RUNTIME_COMPOSITION_ENABLED:'true',LUNA_EMAIL_DELTA_WORKER_ENABLED:'true',LUNA_EMAIL_DELTA_ADMIN_ENABLED:'false',LUNA_AUTO_SEND_ENABLED:'false',LUNA_EMAIL_OAUTH_CLIENT_ID:'11111111-1111-4111-8111-111111111111',EMAIL_GRANT_ENVELOPE_AZURE_KV_COMPOSITION_ENABLED:'true',EMAIL_GRANT_ENVELOPE_AZURE_KV_RUNTIME_ACTIVATION_ENABLED:'true',EMAIL_GRANT_ENVELOPE_AZURE_KV_TRUSTED_HOST:'luna-sunset-staging-kv.vault.azure.net',EMAIL_GRANT_ENVELOPE_AZURE_KV_VERSIONED_KEY_ID:'https://luna-sunset-staging-kv.vault.azure.net/keys/luna-email-grant-kek/fde9704bd37b45fabe1f12a6a615b032'};

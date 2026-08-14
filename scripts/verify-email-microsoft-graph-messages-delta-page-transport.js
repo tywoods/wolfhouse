@@ -128,11 +128,11 @@ function deletedRow(id = MSG_B) {
 }
 
 function nextLinkUrl(mailbox = MAILBOX_ID, token = SKIP_TOKEN) {
-  return `https://graph.microsoft.com/v1.0/users/${mailbox}/messages/delta?$skiptoken=${token}`;
+  return `https://graph.microsoft.com/v1.0/users/${mailbox}/mailFolders/inbox/messages/delta?$skiptoken=${token}`;
 }
 
 function deltaLinkUrl(mailbox = MAILBOX_ID, token = DELTA_TOKEN) {
-  return `https://graph.microsoft.com/v1.0/users/${mailbox}/messages/delta?$deltatoken=${token}`;
+  return `https://graph.microsoft.com/v1.0/users/${mailbox}/mailFolders/inbox/messages/delta?$deltatoken=${token}`;
 }
 
 function deltaBody(rows, extras = {}) {
@@ -164,7 +164,7 @@ function goodContinuation(patch = {}) {
 function expectedInitialPath() {
   const p = buildMessagesDeltaInitialPath(MAILBOX_ID);
   assert.equal(typeof p, 'string');
-  assert.match(p, /^\/v1\.0\/users\/[0-9a-f-]{36}\/messages\/delta\?/);
+  assert.match(p, /^\/v1\.0\/users\/[0-9a-f-]{36}\/mailFolders\/inbox\/messages\/delta\?/);
   assert.equal(p.includes('/me/'), false);
   assert.equal(p.includes('hasAttachments'), false);
   assert.equal(p.includes('$filter'), false);
@@ -482,7 +482,7 @@ async function main() {
     ok(
       'delta-initial-path-exact',
       buildMessagesDeltaInitialPath(MAILBOX_ID)
-        === `/v1.0/users/${MAILBOX_ID}/messages/delta?$top=5&$select=${SELECT_FIELDS.join(',')}`
+        === `/v1.0/users/${MAILBOX_ID}/mailFolders/inbox/messages/delta?$top=5&$select=${SELECT_FIELDS.join(',')}`
         && buildMessagesDeltaInitialPath(MAILBOX_ID).includes('/me/') === false
         && buildMessagesDeltaInitialPath('support@lunafrontdesk.com') === null
         && buildMessagesDeltaInitialPath('ME') === null
@@ -666,7 +666,7 @@ async function main() {
       ok(
         'initial-path-exact-delta',
         captured.path === expectedInitialPath()
-          && captured.path.includes(`/users/${MAILBOX_ID}/messages/delta`)
+          && captured.path.includes(`/users/${MAILBOX_ID}/mailFolders/inbox/messages/delta`)
           && captured.path.includes('$top=5')
           && !captured.path.includes('/me/')
           && !captured.path.includes('$filter')
@@ -897,7 +897,7 @@ async function main() {
     // ── Invalid successor link (evil host) ────────────────────────────────
     {
       const evil = deltaBody([envelopeRow()], {
-        '@odata.nextLink': `https://evil.com/v1.0/users/${MAILBOX_ID}/messages/delta?$skiptoken=x`,
+        '@odata.nextLink': `https://evil.com/v1.0/users/${MAILBOX_ID}/mailFolders/inbox/messages/delta?$skiptoken=x`,
       });
       const t = transportWith(mockHttps(200, evil, {}, null, expectedInitialPath()));
       await mustFailStage(() => t.fetchInitialPage(goodInitial()), 'top_shape_invalid');
@@ -928,7 +928,7 @@ async function main() {
       ok(
         'continuation-path-verbatim',
         pathDuringRequest === contPath
-          && pathDuringRequest === `/v1.0/users/${MAILBOX_ID}/messages/delta?$skiptoken=${SKIP_TOKEN}`
+          && pathDuringRequest === `/v1.0/users/${MAILBOX_ID}/mailFolders/inbox/messages/delta?$skiptoken=${SKIP_TOKEN}`
           && !pathDuringRequest.includes('$top=')
           && !pathDuringRequest.includes('$select=')
           && !pathDuringRequest.includes('$filter'),
@@ -1142,7 +1142,7 @@ async function main() {
     {
       const cases = [
         ['evil-host', {
-          cursor_url: `https://evil.com/v1.0/users/${MAILBOX_ID}/messages/delta?$skiptoken=x`,
+          cursor_url: `https://evil.com/v1.0/users/${MAILBOX_ID}/mailFolders/inbox/messages/delta?$skiptoken=x`,
         }],
         ['wrong-mailbox', {
           cursor_url: nextLinkUrl(OTHER_MAILBOX),
@@ -1162,13 +1162,13 @@ async function main() {
           cursor_url: `https://graph.microsoft.com/v1.0/users/${MAILBOX_ID}/messages?$skiptoken=x`,
         }],
         ['filter-extra', {
-          cursor_url: `https://graph.microsoft.com/v1.0/users/${MAILBOX_ID}/messages/delta?$skiptoken=x&$filter=y`,
+          cursor_url: `https://graph.microsoft.com/v1.0/users/${MAILBOX_ID}/mailFolders/inbox/messages/delta?$skiptoken=x&$filter=y`,
         }],
         ['encoded-skiptoken-key', {
-          cursor_url: `https://graph.microsoft.com/v1.0/users/${MAILBOX_ID}/messages/delta?%24skiptoken=x`,
+          cursor_url: `https://graph.microsoft.com/v1.0/users/${MAILBOX_ID}/mailFolders/inbox/messages/delta?%24skiptoken=x`,
         }],
         ['userinfo', {
-          cursor_url: `https://user:pass@graph.microsoft.com/v1.0/users/${MAILBOX_ID}/messages/delta?$skiptoken=x`,
+          cursor_url: `https://user:pass@graph.microsoft.com/v1.0/users/${MAILBOX_ID}/mailFolders/inbox/messages/delta?$skiptoken=x`,
         }],
         ['hash', {
           cursor_url: nextLinkUrl() + '#frag',
@@ -1703,7 +1703,7 @@ async function main() {
       ok(
         'pr408-rejects-evil',
         deltaStore.validateMessagesDeltaCursorUrl(
-          `https://evil.com/v1.0/users/${MAILBOX_ID}/messages/delta?$skiptoken=x`,
+          `https://evil.com/v1.0/users/${MAILBOX_ID}/mailFolders/inbox/messages/delta?$skiptoken=x`,
           bind,
         ).ok === false,
       );

@@ -22,7 +22,7 @@
  * transport failure and no partial envelopes.
  *
  * Messages-delta single-page path (UNWIRED factory): one-shot GET of
- * `/v1.0/users/{canonicalUuid}/messages/delta` with Prefer ImmutableId and the same
+ * `/v1.0/users/{canonicalUuid}/mailFolders/inbox/messages/delta` with Prefer ImmutableId and the same
  * $top/$select/caps. Continuation reuses PR408 `validateMessagesDeltaCursorUrl`
  * (nextLink→$skiptoken only, deltaLink→$deltatoken only; validated provider URL
  * used verbatim as request target — append nothing). Success is one frozen DTO
@@ -1340,7 +1340,7 @@ function buildMessagesDeltaInitialPath(providerMailboxId) {
   if (typeof providerMailboxId !== 'string' || !UUID_CANON.test(providerMailboxId)) {
     return null;
   }
-  return `/v1.0/users/${encodeURIComponent(providerMailboxId)}/messages/delta?${SELECT_QUERY}`;
+  return `/v1.0/users/${encodeURIComponent(providerMailboxId)}/mailFolders/inbox/messages/delta?${SELECT_QUERY}`;
 }
 
 /** v2 activation-only bootstrap. Watermark is factory-owned and query-fixed. */
@@ -1352,7 +1352,7 @@ function buildMessagesDeltaFromNowInitialPath(providerMailboxId, activationWater
     if (new Date(activationWatermark).toISOString() !== activationWatermark) return null;
   } catch { return null; }
   const filter = encodeURIComponent(`receivedDateTime ge ${activationWatermark}`);
-  return `/v1.0/users/${encodeURIComponent(providerMailboxId)}/messages/delta?${SELECT_QUERY}&$filter=${filter}`;
+  return `/v1.0/users/${encodeURIComponent(providerMailboxId)}/mailFolders/inbox/messages/delta?${SELECT_QUERY}&$filter=${filter}`;
 }
 
 /**
