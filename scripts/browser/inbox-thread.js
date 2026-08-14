@@ -981,9 +981,11 @@ function renderInbox(convs, opts){
     }
     /* Initial load may select the top row; a filter may not replace a dropped selection. */
     var pickId = null;
+    var selectionRetained = false;
     if (!selectionDropped){
       if (selectedConvId && convs.some(function(c){ return c.conversation_id === selectedConvId; })){
         pickId = selectedConvId;
+        selectionRetained = true;
       } else {
         pickId = convs[0].conversation_id;
       }
@@ -993,7 +995,7 @@ function renderInbox(convs, opts){
       if (pickCard){
         list.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
         pickCard.classList.add('selected');
-        loadConvDetail(pickId);
+        if (!selectionRetained) loadConvDetail(pickId);
       }
     }
   }
