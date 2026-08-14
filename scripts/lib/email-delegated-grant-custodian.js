@@ -711,6 +711,108 @@ async function markDelegatedGrantRevoked(input, deps) {
   });
 }
 
+/**
+ * Terminal clean disconnect under the exact held unexpired lease + generation CAS.
+ * Deletes the sealed grant row so a later initial installer INSERT cannot collide,
+ * and returns the endpoint to the unverified/offline registration state atomically.
+ */
+async function clearDelegatedGrantAfterRevoke(input, deps) {
+  const cas = requireLeaseCasInput(input, deps);
+  if (!cas.ok) return cas;
+  const operationId = typeof cas.snap.operationId === 'string' ? cas.snap.operationId : '';
+  if (!UUID_RE.test(operationId)) return fail('operation_id_invalid');
+  return withTxn(cas.client, async () => {
+    const deleted = await cas.client.query(
+      `DELETE FROM tenant_email_delegated_grants
+        WHERE client_id=$1 AND endpoint_id=$2 AND grant_generation=$3
+          AND grant_lease_token=$4::uuid AND grant_status='lease_held'
+          AND grant_lease_until > clock_timestamp()
+        RETURNING grant_generation`,
+      [cas.ids.clientId.value, cas.ids.endpointId.value, cas.expected.value, cas.leaseToken.value],
+    );
+    if (!deleted.rows || deleted.rows.length !== 1) return fail('lease_fenced');
+    const endpoint = await cas.client.query(
+      `UPDATE tenant_channel_endpoints
+          SET binding_status='unverified_offline',
+              provider_tenant_id=NULL,
+              provider_principal_oid=NULL,
+              provider_resource_id=NULL,
+              active=false,
+              inbound_enabled=false,
+              outbound_enabled=false,
+              default_automation_mode='off',
+              updated_at=NOW()
+        WHERE client_id=$1 AND id=$2
+        RETURNING id`,
+      [cas.ids.clientId.value, cas.ids.endpointId.value],
+    );
+    if (!endpoint.rows || endpoint.rows.length !== 1) return fail('endpoint_not_found');
+    return ok(Object.freeze({
+      grant_present: false,
+      grant_status: null,
+      grant_generation: Number(deleted.rows[0].grant_generation),
+      reconcile_state: null,
+    }));
+  });
+}
+
+/**
+ * Cleanup bridge for rows left terminal-revoked by the pre-clean-disconnect
+ * implementation. CASes the immutable generation and requires every lease field
+ * to be clear before deleting, so a concurrent owner can never be displaced.
+ */
+async function clearPreviouslyRevokedGrant(input, deps) {
+  const cc = requireTransactionClient(deps);
+  if (!cc.ok) return cc;
+  const ids = idsFrom(input, ['clientId', 'endpointId']);
+  if (ids.ok === false) return ids;
+  const expected = parseGen(ids.snap.expectedGeneration);
+  if (!expected.ok) return expected;
+  const clientId = ids.clientId.value;
+  const endpointId = ids.endpointId.value;
+  const expectedGeneration = expected.value;
+  const client = cc.value;
+  return withTxn(client, async () => {
+    const deleted = await client.query(
+      `DELETE FROM tenant_email_delegated_grants
+        WHERE client_id=$1 AND endpoint_id=$2 AND grant_generation=$3
+          AND grant_status='revoked'
+          AND grant_lease_token IS NULL
+          AND grant_lease_owner IS NULL
+          AND grant_lease_until IS NULL
+        RETURNING grant_generation`,
+      [clientId, endpointId, expectedGeneration],
+    );
+    if (!deleted || !Array.isArray(deleted.rows) || deleted.rows.length !== 1) {
+      throw typed('grant_generation_conflict', 'grant generation conflict');
+    }
+    const endpoint = await client.query(
+      `UPDATE tenant_channel_endpoints
+          SET binding_status='unverified_offline',
+              provider_tenant_id=NULL,
+              provider_principal_oid=NULL,
+              provider_resource_id=NULL,
+              active=false,
+              inbound_enabled=false,
+              outbound_enabled=false,
+              default_automation_mode='off',
+              updated_at=now()
+        WHERE client_id=$1 AND id=$2
+        RETURNING id::text AS id`,
+      [clientId, endpointId],
+    );
+    if (!endpoint || !Array.isArray(endpoint.rows) || endpoint.rows.length !== 1) {
+      throw typed('endpoint_not_found', 'endpoint not found');
+    }
+    return ok(Object.freeze({
+      grant_present: false,
+      grant_status: null,
+      grant_generation: expectedGeneration,
+      reconcile_state: null,
+    }));
+  });
+}
+
 /** Terminal reauth under exact held unexpired lease + generation CAS. */
 async function markDelegatedGrantReauthorizationRequired(input, deps) {
   const cas = requireLeaseCasInput(input, deps);
@@ -1501,6 +1603,8 @@ module.exports = {
   commitDelegatedGrantRotation,
   markDelegatedGrantReauthorizationRequired,
   markDelegatedGrantRevoked,
+  clearDelegatedGrantAfterRevoke,
+  clearPreviouslyRevokedGrant,
   abortDelegatedGrantLease,
   markDelegatedGrantReconciliation,
   listDelegatedGrantsNeedingReconciliation,

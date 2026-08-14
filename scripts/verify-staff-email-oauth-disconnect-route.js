@@ -7,6 +7,8 @@ const {
   OAUTH_DISCONNECT_PATH,
   DISCONNECT_SUCCESS_KEYS,
   DISCONNECT_ERROR,
+  SQL_RESOLVE_REFRESH_HEALTH_BINDING,
+  SQL_RESOLVE_DISCONNECT_BINDING,
   isDisconnectEnabled,
   buildDisconnectSuccessJson,
 } = require('./lib/staff-email-oauth-routes');
@@ -26,6 +28,8 @@ function main() {
   assert.deepEqual(Object.keys(json), DISCONNECT_SUCCESS_KEYS);
   assert.equal(json.success, true);
   assert.equal(DISCONNECT_ERROR, 'oauth_disconnect_unavailable');
+  assert.doesNotMatch(SQL_RESOLVE_REFRESH_HEALTH_BINDING, /'revoked'/);
+  assert.match(SQL_RESOLVE_DISCONNECT_BINDING, /binding_status IN \('verified', 'reauthorization_required', 'revoked'\)/);
   const routes = fs.readFileSync(path.join(__dirname, 'lib/staff-email-oauth-routes.js'), 'utf8');
   assert.match(routes, /handleDisconnect/);
   assert.match(routes, /createSunsetStagingEmailDisconnectRuntime/);

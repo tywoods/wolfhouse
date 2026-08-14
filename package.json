@@ -423,6 +423,7 @@
     "verify:staff-email-oauth-inbound-diagnostic-routes": "node scripts/verify-staff-email-oauth-inbound-diagnostic-routes.js",
     "verify:staff-email-oauth-inbound-capture-routes": "node scripts/verify-staff-email-oauth-inbound-capture-routes.js",
     "verify:email-microsoft-revoke": "node scripts/verify-email-microsoft-revoke.js",
+    "verify:email-delegated-grant-clean-disconnect": "node scripts/verify-email-delegated-grant-clean-disconnect.js",
     "verify:staff-email-oauth-disconnect-route": "node scripts/verify-staff-email-oauth-disconnect-route.js",
     "verify:email-inbound-capture-inbox-bridge-wiring": "node scripts/verify-email-inbound-capture-inbox-bridge-wiring.js",
     "verify:email-staff-reply-path-milestone1": "node scripts/verify-email-staff-reply-path-milestone1.js",
