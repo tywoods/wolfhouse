@@ -99,6 +99,7 @@ var INBOX_CONTEXT_CSS = [
   'background:var(--surface-soft);color:var(--text-2);cursor:pointer;font-size:15px;line-height:1}',
   'body:has([data-inbox-preset="all4"][aria-pressed="true"]) .inbox-customer-card:not(.is-full) .inbox-customer-hide{display:inline-flex}',
   '.inbox-customer-hide-pin{display:none;align-items:center;justify-content:center}',
+  '.inbox-customer-hide-pin svg{display:block;transform:rotate(45deg)}',
   '#inbox-shell[data-peek="col4"] .inbox-customer-hide-arrow{display:none}',
   '#inbox-shell[data-peek="col4"] .inbox-customer-hide-pin{display:inline-flex}',
   '#inbox-shell.inbox-guest-drawer .inbox-customer-hide-arrow{display:none}',
