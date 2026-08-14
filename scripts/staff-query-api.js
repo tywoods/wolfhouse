@@ -20267,6 +20267,10 @@ body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell[data-col4
   /* grid row stretches so all columns share the same height as the window */
   align-items:stretch;
 }
+/* Full view has a deliberate readable-chat ceiling: 240 + 252 + 800 + 300 + 3×14 = 1634px. */
+.inbox-two-col.inbox-shell-cols[data-col1="full"][data-col2="comfortable"][data-col4="peek"]{
+  max-width:1634px;margin-left:auto;margin-right:auto;
+}
 .inbox-views-rail{
   min-width:0;min-height:0;height:auto;align-self:stretch;
   overflow-x:hidden;overflow-y:visible;

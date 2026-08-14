@@ -56,6 +56,8 @@ const SPEC_WIDTHS = {
   col4: { wide: '460px', peek: '300px', hidden: '0px' },
 };
 const SPEC_COL3_MIN = '480px';
+const SPEC_FULL_WORKSPACE_MAX = '1634px';
+const SPEC_FULL_CHAT_MAX = '800px';
 const SPEC_PRESETS = {
   all4: { col1: 'full', col2: 'comfortable', col4: 'peek' },
   chat: { col1: 'full', col2: 'comfortable', col4: 'hidden' },
@@ -376,6 +378,22 @@ function checkRenderedCss(client, html) {
     ['--inbox-col1-w', '--inbox-col2-w', '--inbox-col4-w', '--inbox-col-gap']
       .every((prop) => !!declaration(shellBody, prop)));
 
+  const fullShell = ruleBody(html,
+    '.inbox-two-col.inbox-shell-cols[data-col1="full"][data-col2="comfortable"][data-col4="peek"]{');
+  ok(`Full view caps the complete workspace at ${SPEC_FULL_WORKSPACE_MAX}`,
+    !!fullShell && declaration(fullShell, 'max-width') === SPEC_FULL_WORKSPACE_MAX,
+    fullShell ? declaration(fullShell, 'max-width') : 'missing');
+  ok('Full view centers the capped complete workspace',
+    !!fullShell && declaration(fullShell, 'margin-left') === 'auto' && declaration(fullShell, 'margin-right') === 'auto',
+    fullShell || 'missing');
+  const fullChatWidth = Number.parseInt(SPEC_FULL_WORKSPACE_MAX, 10)
+    - Number.parseInt(SPEC_WIDTHS.col1.full, 10)
+    - Number.parseInt(SPEC_WIDTHS.col2.comfortable, 10)
+    - Number.parseInt(SPEC_WIDTHS.col4.peek, 10)
+    - (3 * Number.parseInt(declaration(shellBody, '--inbox-col-gap'), 10));
+  ok(`Full view leaves Chat exactly ${SPEC_FULL_CHAT_MAX}`,
+    fullChatWidth === Number.parseInt(SPEC_FULL_CHAT_MAX, 10), fullChatWidth);
+
   Object.keys(SPEC_WIDTHS).forEach((col) => {
     Object.keys(SPEC_WIDTHS[col]).forEach((state) => {
       const selector = `.inbox-two-col.inbox-shell-cols[data-${col}="${state}"]{`;
@@ -629,7 +647,7 @@ function checkSpec() {
   const end = spec.indexOf('\n## ', start + 1);
   const body = start >= 0 ? spec.slice(start, end < 0 ? spec.length : end) : '';
   ok('spec section "Column layout model" is present', !!body);
-  const numbers = ['240px', '56px', '252px', '196px', '480px', '460px', '300px'];
+  const numbers = ['240px', '56px', '252px', '196px', '480px', '800px', '460px', '300px', '1634px'];
   ok('spec still documents every width this gate enforces',
     numbers.every((n) => body.indexOf(n) >= 0),
     numbers.filter((n) => body.indexOf(n) < 0).join(', '));

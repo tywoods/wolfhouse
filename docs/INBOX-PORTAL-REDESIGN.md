@@ -147,7 +147,8 @@ remainder, so any combination of collapses yields a sane layout with no width ar
 
 - **1** — `full` (240px) or `icons` (56px). Never fully hidden; it is navigation and the counts matter.
 - **2** — `comfortable` (252px), `compact` (196px), or `hidden`.
-- **3** — flexible, 480px minimum.
+- **3** — flexible, 480px minimum. In the default full view it tops out at 800px: the
+  complete 1-full / 2-comfortable / 4-peek workspace is capped at 1634px and centered.
 - **4** — `wide` (460px), `peek` (300px), or `hidden`.
 
 Three presets on a top-bar segmented control. `Ctrl+1..4` is unusable because Chrome binds it to
