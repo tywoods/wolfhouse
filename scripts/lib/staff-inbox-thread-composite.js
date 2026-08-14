@@ -89,6 +89,9 @@ function createInboxThreadCompositeRoutes(deps) {
     filterActiveInboxBookings,
     buildPausedStateResponse,
     buildDefaultActivePauseResponse,
+    ensureEmailLunaDraftOnOpen,
+    applyEmailLunaOpenDraftToSection,
+    applyEmailLunaOpenDraftToDetail,
   } = deps;
 
   /**
@@ -296,6 +299,26 @@ function createInboxThreadCompositeRoutes(deps) {
     }
 
     const sections = result.sections;
+    const opened = sections.detail && sections.detail.conversation;
+    const emailNeedsReply = !!(opened && opened.channel === 'email'
+      && (opened.needs_human === true || opened.needs_attention === true));
+    if (emailNeedsReply && typeof ensureEmailLunaDraftOnOpen === 'function') {
+      try {
+        const ensured = await ensureEmailLunaDraftOnOpen({
+          actor: user,
+          conversation_id: convId,
+          client_slug: clientSlug,
+        });
+        if (ensured && typeof applyEmailLunaOpenDraftToSection === 'function') {
+          sections.draft = applyEmailLunaOpenDraftToSection(sections.draft, ensured);
+        }
+        if (ensured && typeof applyEmailLunaOpenDraftToDetail === 'function') {
+          sections.detail = applyEmailLunaOpenDraftToDetail(sections.detail, ensured);
+        }
+      } catch (_ensureErr) {
+        // Open-draft failures must not block the Inbox snapshot.
+      }
+    }
     appendAuditLog({
       ...auditBase,
       success: true,
