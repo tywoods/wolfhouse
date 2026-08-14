@@ -39,7 +39,10 @@ for (const key of ['inbox.detail.lunaMode.auto', 'inbox.detail.lunaMode.off', 'i
 }
 
 const viewsSrc = fs.readFileSync(require.resolve('./browser/inbox-views'), 'utf8');
-const viewsContext = { escHtml: String, portalT: (key) => STAFF_PORTAL_STRINGS.es[key], console };
+const viewsContext = {
+  escHtml: String, portalT: (key) => STAFF_PORTAL_STRINGS.es[key] || key, console,
+  loadInbox() {}, pollInboxConversationListLive() {}, el() { return null; },
+};
 vm.createContext(viewsContext);
 vm.runInContext(viewsSrc, viewsContext);
 const groups = [{ id: 'inbox', label: 'INBOX' }, { id: 'needs_you', label: 'NEEDS YOU' }, { id: 'people', label: 'PEOPLE' }];
@@ -58,8 +61,8 @@ assert.strictEqual(viewsContext.inboxViewsLabel({ id: 'email', label: 'Email' })
 
 const shellSrc = fs.readFileSync(require.resolve('./browser/inbox-shell'), 'utf8');
 const shellContext = {
-  window: {}, document: { getElementById() { return null; } }, localStorage: { getItem() { return null; } },
-  escHtml: String, portalT: (key) => STAFF_PORTAL_STRINGS.es[key], console,
+  window: {}, document: { readyState: 'loading', getElementById() { return null; }, addEventListener() {} }, localStorage: { getItem() { return null; } },
+  escHtml: String, t: (key) => STAFF_PORTAL_STRINGS.es[key] || key, console,
 };
 vm.createContext(shellContext);
 vm.runInContext(shellSrc, shellContext);

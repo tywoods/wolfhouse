@@ -67,9 +67,17 @@ function applyInboxViewCounts(views){
 function inboxViewsGroupLabel(groups, groupId){
   var list = groups || [];
   for (var i = 0; i < list.length; i++){
-    if (list[i] && list[i].id === groupId) return list[i].label || groupId;
+    if (list[i] && list[i].id === groupId) {
+      var translated = portalT('inbox.rail.group.' + groupId);
+      return translated && translated !== 'inbox.rail.group.' + groupId ? translated : (list[i].label || groupId);
+    }
   }
   return groupId;
+}
+
+function inboxViewsLabel(view){
+  var translated = portalT('inbox.rail.view.' + view.id);
+  return translated && translated !== 'inbox.rail.view.' + view.id ? translated : (view.label || view.id);
 }
 
 var INBOX_VIEWS_ICON_PATHS = {
@@ -161,7 +169,7 @@ function renderInboxViewsRail(data){
         (active ? ' aria-current="true"' : '') +
         '>';
       html += inboxViewsItemIconHtml(view.id);
-      html += '<span class="inbox-views-item-label">' + escHtml(view.label || view.id) + '</span>';
+      html += '<span class="inbox-views-item-label">' + escHtml(inboxViewsLabel(view)) + '</span>';
       html += countHtml;
       html += '</button>';
     }
@@ -238,7 +246,7 @@ function loadInboxFromSavedView(selectConvIdAfterLoad, opts){
   var gen = ++inboxViewsListGen;
 
   if (!silent){
-    el('inbox-state').textContent = 'Loading conversations…';
+    el('inbox-state').textContent = portalT('inbox.loading');
     el('inbox-state').classList.remove('error');
     el('inbox-state').style.display = 'block';
     if (el('conv-list')) el('conv-list').innerHTML = '';

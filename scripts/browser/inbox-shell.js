@@ -117,16 +117,16 @@ function inboxShellAdoptGlobalPause(){
   var label = pause.querySelector('.tabs-global-pause-label');
   if (label && !label.querySelector('.inbox-global-pause-owl')) {
     label.innerHTML = '<span class="channelModeIcon inbox-global-pause-owl" aria-hidden="true">' +
-      inboxShellOwlIconSvg() + '</span><span>Global Pause</span>';
+      inboxShellOwlIconSvg() + '</span><span>' + escHtml(inboxShellT('inbox.channelControl.globalPause', 'Global Pause')) + '</span>';
   }
   if (!pause.querySelector('[data-inbox-pause]')) {
     var segs = document.createElement('div');
     segs.className = 'channelModeSegmented';
     segs.setAttribute('role', 'group');
-    segs.setAttribute('aria-label', 'Global Pause');
+    segs.setAttribute('aria-label', inboxShellT('inbox.channelControl.globalPause', 'Global Pause'));
     segs.innerHTML =
       '<button type="button" class="channelModeBtn" data-inbox-pause="off" aria-pressed="true">Off</button>' +
-      '<button type="button" class="channelModeBtn" data-inbox-pause="on" aria-pressed="false">On</button>';
+      '<button type="button" class="channelModeBtn" data-inbox-pause="on" aria-pressed="false">' + escHtml(inboxShellT('inbox.channelControl.on', 'On')) + '</button>';
     pause.appendChild(segs);
     segs.addEventListener('click', function(ev){
       var btn = ev.target && ev.target.closest && ev.target.closest('[data-inbox-pause]');
@@ -226,7 +226,7 @@ function inboxShellAutonomyRowHtml(channel, selected){
   html += '<button type="button" class="channelModeBtn' + (visual === 'draft' ? ' isSelected' : '') + '"';
   html += ' data-inbox-autonomy="draft" data-inbox-autonomy-channel="' + channel + '"';
   html += ' aria-pressed="' + (visual === 'draft' ? 'true' : 'false') + '"';
-  html += ' title="Luna prepares replies for staff approval">Draft</button>';
+  html += ' title="Luna prepares replies for staff approval">' + escHtml(inboxShellT('inbox.detail.lunaMode.draft', 'Draft')) + '</button>';
   html += '<button type="button" class="channelModeBtn' + (visual === 'auto' ? ' isSelected isAuto' : '') + '"';
   html += ' data-inbox-autonomy="auto" data-inbox-autonomy-channel="' + channel + '"';
   html += ' aria-pressed="' + (visual === 'auto' ? 'true' : 'false') + '"';
@@ -240,7 +240,7 @@ function inboxShellChannelDefaultsHtml(modes){
   var wa = inboxShellNormalizeWhatsApp(modes.whatsapp);
   var em = inboxShellNormalizeEmail(modes.email);
   var html = '<div class="inbox-shell-channel-defaults channelAutonomy" id="inbox-shell-channel-defaults">';
-  html += '<div class="channelAutonomyLabel">CHANNEL AUTONOMY</div>';
+  html += '<div class="channelAutonomyLabel">' + escHtml(inboxShellT('inbox.channelControl.title', 'CHANNEL CONTROL')) + '</div>';
   html += inboxShellAutonomyRowHtml('whatsapp', wa);
   html += inboxShellAutonomyRowHtml('email', em);
   html += inboxShellChannelSelectHtml('whatsapp', wa);
