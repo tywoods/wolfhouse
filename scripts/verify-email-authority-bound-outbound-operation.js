@@ -202,7 +202,9 @@ function countingTransport(c, opts = {}) {
       return Object.freeze({ outcome:'send_accepted', immutable_draft_id:DRAFT, delivery_claimed:false, http_status:202, requires_reconcile:true });
     },
     async reconcileDraft(input) {
-      c.reconcile+=1; scrub(input);
+      c.reconcile+=1;
+      if (!input || input.accessToken !== TOKEN) throw new Error(PLANTED+'_missing_reconcile_token');
+      scrub(input);
       if (opts.stillDraft || (Number.isInteger(opts.transientDraftReads) && c.reconcile <= opts.transientDraftReads)) {
         return Object.freeze({ outcome:'outcome_unknown', immutable_draft_id:DRAFT, isDraft:true, authorize_automatic_resend:false, authorize_automatic_create_reply:false });
       }
@@ -500,6 +502,21 @@ async function main() {
     && hProd.durable.get(opP).immutable_draft_id === DRAFT && fake.calls().length === 4
     && fake.calls()[0].method === 'POST' && /createReply/.test(fake.calls()[0].path)
     && fake.calls()[2].method === 'POST' && /\/send$/.test(fake.calls()[2].path) && noLeak(prodR));
+  let transientAuthReads = 0;
+  const fakeTransient = fakeHttps([
+    () => im(201, { id: DRAFT, isDraft: true }), () => im(200, { id: DRAFT }),
+    () => im(202, null, {}),
+    (opts) => { if (opts.headers && opts.headers.Authorization === `Bearer ${TOKEN}`) transientAuthReads += 1; return im(200, { id: DRAFT, isDraft: true }); },
+    (opts) => { if (opts.headers && opts.headers.Authorization === `Bearer ${TOKEN}`) transientAuthReads += 1; return im(200, { id: DRAFT, isDraft: false }); },
+  ]);
+  const hTransient = createFakeTxnHarness(); const opTransient = uid();
+  const transientProd = await mkOp(hTransient, pickReplyDraftTransportMethods(createMicrosoftGraphReplyDraftTransport({ httpsImpl: fakeTransient.httpsImpl })))
+    .runAuthorityBoundOutbound(inp(opTransient, uid()));
+  ok('production transport transient isDraft true→false uses two authenticated GETs and one send',
+    resultShape(transientProd) && transientProd.value.status === 'committed'
+    && fakeTransient.calls().length === 5 && transientAuthReads === 2
+    && fakeTransient.count(/\/send$/) === 1 && fakeTransient.count(/createReply/) === 1
+    && hTransient.durable.get(opTransient).send_invocation_count === 1 && noLeak(transientProd));
   const fakeLoss = fakeHttps([() => im(201, { id: DRAFT, isDraft: true }), () => im(200, { id: DRAFT }), { loss: true }]);
   const hPl = createFakeTxnHarness(); const opPl = uid(); const apPl = uid();
   const lostProd = await mkOp(hPl, pickReplyDraftTransportMethods(createMicrosoftGraphReplyDraftTransport({ httpsImpl: fakeLoss.httpsImpl }))).runAuthorityBoundOutbound(inp(opPl, apPl));
