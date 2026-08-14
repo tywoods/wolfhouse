@@ -24,7 +24,8 @@
  * Messages-delta single-page path (UNWIRED factory): one-shot GET of
  * `/v1.0/users/{canonicalUuid}/mailFolders/inbox/messages/delta` with Prefer ImmutableId and the same
  * $top/$select/caps. Continuation reuses PR408 `validateMessagesDeltaCursorUrl`
- * (nextLink→$skiptoken only, deltaLink→$deltatoken only; validated provider URL
+ * (Graph-canonical `mailFolders('inbox')` continuation; nextLink→$skiptoken only,
+ * deltaLink→$deltatoken only; validated provider URL
  * used verbatim as request target — append nothing). Success is one frozen DTO
  * `{ envelopes, tombstones, successor_cursor, observed_count }`. Exact one
  * `@odata.nextLink` XOR `@odata.deltaLink` is mandatory. Deleted rows map to

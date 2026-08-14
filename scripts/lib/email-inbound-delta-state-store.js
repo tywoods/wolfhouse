@@ -23,7 +23,8 @@
  * - Seal/open reuse injected envelope provider (AES-256-GCM + wrapped DEK).
  *   Cursor package is sealed as opaque grant-package body (never plaintext in DB).
  * - Strict authority-bound messages-delta URL validation: https graph.microsoft.com
- *   default/443, no userinfo/hash, exact v1.0 users/{mailbox}/mailFolders/inbox/messages/delta path,
+ *   default/443, no userinfo/hash, exact Graph-returned
+ *   v1.0 users/{mailbox}/mailFolders('inbox')/messages/delta continuation path,
  *   exact continuation token for cursorKind (nextLink→$skiptoken, deltaLink→$deltatoken).
  * - AAD binds client+endpoint+provider+tenant+mailbox+generation+query_version+
  *   cursor_kind so rebind/generation/query-version change fails closed.
@@ -758,7 +759,8 @@ function parseDeltaQueryParamsStrict(search) {
  * - module-init-pinned node:url construct + prototype getters
  * - https; graph.microsoft.com default/443; no userinfo/hash
  * - exact API version v1.0
- * - exact path /v1.0/users/{canonicalMailboxUuid}/mailFolders/inbox/messages/delta
+ * - exact Graph-returned path
+ *   /v1.0/users/{canonicalMailboxUuid}/mailFolders('inbox')/messages/delta
  * - exact continuation query allowlist: one token of the correct form for
  *   cursorKind (nextLink→$skiptoken, deltaLink→$deltatoken)
  * - reject missing/duplicate/mixed tokens, wrong mailbox/path/resource,
@@ -796,7 +798,7 @@ function validateMessagesDeltaCursorUrl(cursorUrl, binding) {
     }
     if (parts.username || parts.password || parts.hash) return fail('cursor_url_invalid');
     if (parts.port && parts.port !== '443') return fail('cursor_url_invalid');
-    const expectedPath = `/${GRAPH_API_VERSION}/users/${mailbox}/mailFolders/inbox/messages/delta`;
+    const expectedPath = `/${GRAPH_API_VERSION}/users/${mailbox}/mailFolders('inbox')/messages/delta`;
     if (parts.pathname !== expectedPath) return fail('cursor_url_invalid');
     // Exact path must appear as contiguous substring of the raw URL.
     if (!cursorUrl.includes(expectedPath)) return fail('cursor_url_invalid');
