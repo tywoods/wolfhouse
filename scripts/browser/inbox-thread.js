@@ -345,6 +345,26 @@ function inboxChatShowGuest(){
   inboxChatPaintGuest();
 }
 
+function inboxRefreshBtn(){
+  return typeof document !== 'undefined' ? document.getElementById('btn-refresh') : null;
+}
+
+function inboxParkRefreshBtn(){
+  var btn = inboxRefreshBtn();
+  var park = typeof document !== 'undefined'
+    ? (document.querySelector('.inbox-layout-controls') || document.getElementById('tabs'))
+    : null;
+  if (!btn || !park) return;
+  if (btn.parentNode !== park) park.insertBefore(btn, park.firstChild);
+}
+
+function inboxAdoptRefreshToHeader(){
+  var btn = inboxRefreshBtn();
+  var right = typeof document !== 'undefined' ? document.querySelector('#conv-detail .detail-header-right') : null;
+  if (!btn || !right) return;
+  if (btn.parentNode !== right) right.appendChild(btn);
+}
+
 function inboxPaintChatChromeSlot(conv, lunaGuestPaused){
   var right = typeof document !== 'undefined' ? document.querySelector('#conv-detail .detail-header-right') : null;
   var slot = typeof el === 'function' ? el('inbox-chat-chrome-slot') : (typeof document !== 'undefined' ? document.getElementById('inbox-chat-chrome-slot') : null);
@@ -637,12 +657,14 @@ function clearInboxSelection(targetEl){
   targetEl = targetEl || el('detail-content');
   if (targetEl){
     targetEl.classList.remove('is-loading-detail');
+    inboxParkRefreshBtn();
     targetEl.innerHTML = inboxEmptyDetailHtml();
   }
   hideInboxMobileThread();
 }
 function beginConvDetailLoad(targetEl){
   /* Do not leave the old guest actionable while a new selection loads. */
+  inboxParkRefreshBtn();
   targetEl.innerHTML = buildConvDetailSkeleton();
   targetEl.classList.add('is-loading-detail');
 }
@@ -1865,10 +1887,11 @@ function loadConvDetail(convId, targetEl){
     } else {
       html +=     '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
     }
-    html +=       '<div class="detail-meta">' + escHtml(c.phone || '');
-    var channelLabel = (c.channel === 'email') ? 'Email' : 'WhatsApp';
-    if (c.phone || c.guest_email) html += ' · ' + escHtml(channelLabel);
-    else html += escHtml(channelLabel);
+    html +=       '<div class="detail-meta">';
+    var contactLine = composerChannel === 'email' ? guestEmail : (c.phone || '');
+    var channelLabel = composerChannel === 'email' ? 'Email' : 'WhatsApp';
+    if (contactLine) html += escHtml(contactLine) + ' · ';
+    html += escHtml(channelLabel);
     if (conversationHasOpenHandoff(c) && c.handoff_reason)     html += ' · ' + escHtml(handoffLabel(c.handoff_reason));
     else if (c.needs_human) html += ' · ' + escHtml(t('inbox.detail.meta.needsStaffReply'));
     html +=       '</div>';
@@ -1960,9 +1983,11 @@ function loadConvDetail(convId, targetEl){
     html += '<div class="detail-sidebar" id="inbox-detail-sidebar"></div>';
     html += '</div>'; /* /detail-layout */
 
+    inboxParkRefreshBtn();
     targetEl.innerHTML = html;
     inboxChatHideGuest();
     inboxPaintChatChromeSlot(c, lunaGuestPaused);
+    inboxAdoptRefreshToHeader();
     targetEl.classList.remove('is-loading-detail');
     wireInboxComposerChannelSwitch(c, targetEl);
     inboxFillComposerThread(c, msgs);
@@ -2040,6 +2065,7 @@ function loadConvDetail(convId, targetEl){
       }
     }
     targetEl.classList.remove('is-loading-detail');
+    inboxParkRefreshBtn();
     targetEl.innerHTML = '<div class="state-msg error">Error loading conversation: ' + escHtml(err.message) + '</div>';
   });
 }

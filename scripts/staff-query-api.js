@@ -20563,6 +20563,12 @@ body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell[data-col4
 }
 /* ── Top-bar layout controls: preset segmented control + per-column toggles ── */
 .inbox-layout-controls{display:flex;align-items:center;gap:8px;margin-left:8px;flex:0 0 auto}
+#tabs .inbox-layout-controls #btn-refresh{display:none!important}
+#conv-detail .detail-header-right #btn-refresh{
+  display:inline-flex;align-items:center;justify-content:center;
+  margin:0;min-width:32px;height:32px;padding:0 8px;flex:0 0 auto;
+  border-radius:999px;font-size:14px;line-height:1;
+}
 #tabs .inbox-layout-controls{display:none;margin-left:auto;margin-right:0;align-self:center}
 body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls{display:flex}
 #tab-conversations .inbox-shell-toolbar{display:none!important}

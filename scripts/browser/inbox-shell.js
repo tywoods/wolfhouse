@@ -478,6 +478,8 @@ function inboxMockupThemeCssText(){
     'background:var(--inbox-paper,var(--cream));',
     '}',
     '#tabs .inbox-layout-controls{display:none;margin-left:auto;align-self:center}',
+    '#tabs .inbox-layout-controls #btn-refresh{display:none!important}',
+    '#inbox-shell .detail-header-right #btn-refresh{display:inline-flex;margin:0;min-width:32px;height:32px;padding:0 8px;border-radius:999px}',
     'body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls{display:flex}',
     '#tab-conversations .inbox-shell-toolbar{display:none!important}',
     '#tab-conversations.active #wrap.inbox-shell-wrap{padding-top:8px!important}',
