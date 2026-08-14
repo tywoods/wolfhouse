@@ -1054,7 +1054,7 @@
       "inForwardChain": true,
       "rationale": "EMAIL-M1-020 truthful from-now Graph delta query contract; refuses relabelling existing v1 cursor state and advances the exact query-version CHECK on an empty state table. No seed, endpoint mutation, send, or live call.",
       "downFilename": "080_tenant_email_delta_from_now_v2_down.sql",
-      "sha256": "ab177d60206795c283b30f02fd527695502e703c777a8ac9baaa9b18b51683bc"
+      "sha256": "1b93604ea7b14ff8e4941ce2a2573ff0c47d6191c77f12bcb87e463b876dd053"
     },
     {
       "id": "080_tenant_email_delta_from_now_v2_down",

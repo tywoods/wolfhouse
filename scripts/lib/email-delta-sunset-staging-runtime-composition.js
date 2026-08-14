@@ -44,7 +44,7 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps){
   let tickPromise=null,timer=null,stopped=true,schemaVerified=false;
   async function verifySchema(){if(schemaVerified)return;await deps.withPgClient(async client=>{const r=await client.query(SCHEMA_VERIFY_SQL,[]);if(!r||!r.rows||r.rows.length!==1||r.rows[0].boundary_table!==true||r.rows[0].query_constraint!==true)throw fail();});schemaVerified=true;}
   async function tick(){if(tickPromise)return Object.freeze({status:'overlap_skipped'});tickPromise=(async()=>{await verifySchema();return deps.withPgClient(async client=>{currentClient=client;try{return await worker.tick();}finally{currentClient=null;}});})();try{return await tickPromise;}finally{tickPromise=null;}}
-  function arm(){if(stopped)return;timer=deps.timers.setTimeout(async()=>{try{await tick();}finally{arm();}},deps.intervalMs);}
+  function arm(){if(stopped)return;timer=deps.timers.setTimeout(async()=>{try{await tick();}catch(_err){console.error('email_delta_runtime_tick_failed');}finally{arm();}},deps.intervalMs);}
   async function start(){if(!stopped)return;await verifySchema();stopped=false;arm();}
   async function stop(){stopped=true;if(timer!==null){deps.timers.clearTimeout(timer);timer=null;}if(tickPromise)await tickPromise;}
   return Object.freeze({start,stop,tick,getReadiness:()=>readiness});

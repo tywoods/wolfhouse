@@ -15,10 +15,16 @@ COMMENT ON COLUMN tenant_email_inbound_delta_states.query_version IS
   'Exact Graph messages delta contract ms_messages_delta_from_now_v2: initial request is activation-watermark filtered; continuation preserves provider-issued query state.';
 CREATE TABLE tenant_email_delta_activation_boundaries (
   client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
-  endpoint_id UUID NOT NULL REFERENCES tenant_channel_endpoints(id) ON DELETE CASCADE,
+  endpoint_id UUID NOT NULL,
+  -- Registry location key is TEXT (057); matching its type is required for the
+  -- three-column tenant FK and prevents an endpoint from another tenant/location.
+  location_id TEXT NOT NULL,
   activation_watermark TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (client_id, endpoint_id)
+  PRIMARY KEY (client_id, endpoint_id),
+  CONSTRAINT tenant_email_delta_activation_boundaries_endpoint_tenant_fk
+    FOREIGN KEY (client_id, endpoint_id, location_id)
+    REFERENCES tenant_channel_endpoints(client_id, id, location_id) ON DELETE CASCADE
 );
 COMMENT ON TABLE tenant_email_delta_activation_boundaries IS
   'Durable DB-clock from-now boundary initialized before Graph; no cursor or message data.';

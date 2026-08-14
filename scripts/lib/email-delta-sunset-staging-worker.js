@@ -3,11 +3,13 @@
  * delta state store lease; this process-local fence only prevents timer overlap. */
 const ELIGIBLE_SQL = `
 SELECT e.client_id::text AS client_id, tl.id::text AS location_id,
-       e.id::text AS endpoint_id
+       e.id::text AS endpoint_id, e.location_id AS endpoint_location_id
 FROM tenant_channel_endpoints e
+JOIN clients c ON c.id=e.client_id
 JOIN tenant_locations tl ON tl.client_id=e.client_id AND tl.location_id=e.location_id
 JOIN tenant_email_delegated_grants g ON g.client_id=e.client_id AND g.endpoint_id=e.id
 WHERE e.channel = 'email'
+  AND c.slug = 'sunset'
   AND e.provider = 'microsoft_graph'
   AND e.binding_status = 'verified'
   AND e.inbound_enabled = true
@@ -24,8 +26,8 @@ ORDER BY e.id
 LIMIT 2`.replace(/\s+/g,' ').trim();
 const ACTIVATION_BOUNDARY_SQL = `
 WITH initialized AS (
-  INSERT INTO tenant_email_delta_activation_boundaries (client_id, endpoint_id)
-  VALUES ($1::uuid, $2::uuid)
+  INSERT INTO tenant_email_delta_activation_boundaries (client_id, endpoint_id, location_id)
+  VALUES ($1::uuid, $2::uuid, $3::text)
   ON CONFLICT (client_id, endpoint_id) DO NOTHING
   RETURNING activation_watermark
 ), durable_boundary AS (
@@ -33,7 +35,7 @@ WITH initialized AS (
   UNION ALL
   SELECT activation_watermark
   FROM tenant_email_delta_activation_boundaries
-  WHERE client_id=$1::uuid AND endpoint_id=$2::uuid
+  WHERE client_id=$1::uuid AND endpoint_id=$2::uuid AND location_id=$3::text
     AND NOT EXISTS (SELECT 1 FROM initialized)
 )
 SELECT to_char(activation_watermark AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS activation_watermark
@@ -57,7 +59,7 @@ function createEmailDeltaSunsetStagingWorker(deps){
    const found=await deps.query(ELIGIBLE_SQL,[]); const rows=found&&Array.isArray(found.rows)?found.rows:[];
    if(rows.length!==1)return Object.freeze({status:'ineligible'});
    const r=rows[0];
-   const boundary=await deps.query(ACTIVATION_BOUNDARY_SQL,[r.client_id,r.endpoint_id]);
+   const boundary=await deps.query(ACTIVATION_BOUNDARY_SQL,[r.client_id,r.endpoint_id,r.endpoint_location_id]);
    const watermark=boundary&&boundary.rows&&boundary.rows[0]&&boundary.rows[0].activation_watermark;
    if(typeof watermark!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(watermark)) throw new Error('email_delta_activation_boundary_unavailable');
    const authority=Object.freeze({clientId:r.client_id,locationId:r.location_id,endpointId:r.endpoint_id,activationWatermark:watermark});
@@ -70,7 +72,7 @@ function createEmailDeltaSunsetStagingWorker(deps){
    return Object.freeze({status:'completed'});
   }finally{running=false;}
  }
- function arm(){if(stopped)return;timer=deps.timers.setTimeout(async()=>{try{await tick();}finally{arm();}},deps.intervalMs);}
+ function arm(){if(stopped)return;timer=deps.timers.setTimeout(async()=>{try{await tick();}catch(_err){console.error('email_delta_worker_tick_failed');}finally{arm();}},deps.intervalMs);}
  function start(){if(!stopped)return;stopped=false;arm();}
  function stop(){stopped=true;if(timer!==null){deps.timers.clearTimeout(timer);timer=null;}}
  return Object.freeze({tick,start,stop});

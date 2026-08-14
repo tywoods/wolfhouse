@@ -48919,23 +48919,24 @@ if (require.main === module) {
   };
 }
 
-if (require.main === module) server.listen(PORT, STAFF_QUERY_API_BIND_HOST, async () => {
-  if (EMAIL_DELTA_RUNTIME_READINESS.runtime_activation === true) {
-    EMAIL_DELTA_RUNTIME = createEmailDeltaSunsetStagingRuntimeComposition({
-      env: process.env,
-      withPgClient: _withPgClientImpl,
-      https,
-      timers: { setTimeout, clearTimeout },
-      intervalMs: Number(process.env.LUNA_EMAIL_DELTA_POLL_INTERVAL_MS || 60000),
-    });
-    try {
+async function startStaffQueryApiCli() {
+  try {
+    if (EMAIL_DELTA_RUNTIME_READINESS.runtime_activation === true) {
+      EMAIL_DELTA_RUNTIME = createEmailDeltaSunsetStagingRuntimeComposition({
+        env: process.env,
+        withPgClient: _withPgClientImpl,
+        https,
+        timers: { setTimeout, clearTimeout },
+        intervalMs: Number(process.env.LUNA_EMAIL_DELTA_POLL_INTERVAL_MS || 60000),
+      });
+      // Runtime schema verification and scheduler readiness precede socket admission.
       await EMAIL_DELTA_RUNTIME.start();
-    } catch {
-      await new Promise((resolve) => server.close(resolve));
-      process.exitCode = 1;
-      return;
     }
+  } catch {
+    process.exitCode = 1;
+    return;
   }
+  server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);
   console.log(`  Auth: ${STAFF_AUTH_REQUIRED ? 'REQUIRED (session cookie)' : 'OPTIONAL (STAFF_AUTH_REQUIRED=false — local/dev open mode)'}`);
   console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED'}`);
@@ -49016,8 +49017,11 @@ if (require.main === module) server.listen(PORT, STAFF_QUERY_API_BIND_HOST, asyn
     console.log(`    POST http://127.0.0.1:${PORT}/staff/handoff/:id/resolve`);
     console.log(`         <- ${STAFF_AUTH_REQUIRED ? 'requires session with role operator/admin' : 'requires x-staff-operator-token header (local/dev)'}`);
   }
-  console.log('\nCtrl+C to stop.\n');
-});
+    console.log('\nCtrl+C to stop.\n');
+  });
+}
+
+if (require.main === module) void startStaffQueryApiCli();
 
 if (require.main === module) {
   server.on('error', (err) => {

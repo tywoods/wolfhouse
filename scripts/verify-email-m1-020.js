@@ -17,7 +17,12 @@ assert.equal(runtime.resolveEmailDeltaSunsetStagingRuntimeReadiness({...env,LUNA
 assert.equal(runtime.resolveEmailDeltaSunsetStagingRuntimeReadiness({...env,LUNA_DEPLOYMENT:'production'}).ok,false);
 const migration=fs.readFileSync(path.join(root,'database/migrations/080_tenant_email_delta_from_now_v2.sql'),'utf8');
 assert.match(migration,/ms_messages_delta_from_now_v2/); assert.match(migration,/refuses existing delta state/);
+assert.match(migration,/FOREIGN KEY \(client_id, endpoint_id, location_id\)[\s\S]*REFERENCES tenant_channel_endpoints\(client_id, id, location_id\)/);
 const staff=fs.readFileSync(path.join(root,'scripts/staff-query-api.js'),'utf8');
-assert.match(staff,/server\.listen[\s\S]*createEmailDeltaSunsetStagingRuntimeComposition/);
+const createAt=staff.lastIndexOf('createEmailDeltaSunsetStagingRuntimeComposition({');
+const startAt=staff.indexOf('await EMAIL_DELTA_RUNTIME.start()',createAt);
+const listenAt=staff.indexOf('server.listen(',startAt);
+assert.ok(createAt>0&&startAt>createAt&&listenAt>startAt,'runtime must create/start before listen');
+assert.match(staff,/catch \{[\s\S]{0,100}process\.exitCode = 1;[\s\S]{0,100}return;[\s\S]{0,100}server\.listen/);
 assert.match(staff,/ON_SHUTDOWN_BEGIN_HOOK[\s\S]*EMAIL_DELTA_RUNTIME\.stop/);
 console.log('PASS EMAIL-M1-020 from-now, migration, activation, lifecycle readiness');
