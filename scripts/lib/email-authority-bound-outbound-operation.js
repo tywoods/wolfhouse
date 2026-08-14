@@ -100,7 +100,8 @@ try {
 } catch { PINNED_HASH_UPDATE = null; PINNED_HASH_DIGEST = null; }
 const PINNED_READY = Boolean(PINNED_IS_PROXY && PINNED_UTIL_TYPES && PINNED_REFLECT_APPLY && PINNED_REFLECT_OWN_KEYS
   && PINNED_GOPD && PINNED_GPO && PINNED_OBJECT_FREEZE && PINNED_IS_FROZEN && PINNED_HAS_OWN
-  && PINNED_OBJECT_PROTOTYPE && PINNED_CREATE_HASH && PINNED_HASH_UPDATE && PINNED_HASH_DIGEST);
+  && PINNED_OBJECT_PROTOTYPE && PINNED_CREATE_HASH && PINNED_HASH_UPDATE && PINNED_HASH_DIGEST
+  && PINNED_PROMISE && PINNED_SET_TIMEOUT);
 if (EMAIL_OUTBOUND_SEND_JOURNAL_RUNTIME_WIRED !== false) throw new Error('authority_bound_outbound_journal_runtime_wired');
 if (EMAIL_OUTBOUND_SEND_JOURNAL_LOGGING_FORBIDDEN !== true) throw new Error('authority_bound_outbound_journal_logging_unexpected');
 if (EMAIL_DELEGATED_GRANT_ACCESS_SESSION_RUNTIME_WIRED !== false) throw new Error('authority_bound_outbound_access_session_runtime_wired');
@@ -394,20 +395,19 @@ function createAuthorityBoundOutboundOperation(deps) {
     const draftId = state.immutable_draft_id;
     if (typeof draftId !== 'string' || !draftId) return ok(toPublic(state, 'outcome_unknown'));
     const rec = await withAccessToken(async (token) => {
-      const req = { accessToken: token, provider_mailbox_id: authority.providerMailboxId, immutable_draft_id: draftId };
-      try {
-        for (let attempt = 1; attempt <= RECONCILE_MAX_ATTEMPTS; attempt += 1) {
-          const body = await transport.reconcileDraft(req);
-          const transientDraft = body && typeof body === 'object' && !isProxy(body)
-            && ownData(body, 'immutable_draft_id') === draftId
-            && ownData(body, 'outcome') === 'outcome_unknown'
-            && ownData(body, 'isDraft') === true;
-          if (!transientDraft || attempt === RECONCILE_MAX_ATTEMPTS) return body;
-          if (!PINNED_PROMISE || !PINNED_SET_TIMEOUT) return body;
-          await new PINNED_PROMISE((resolve) => PINNED_SET_TIMEOUT(resolve, RECONCILE_RETRY_DELAY_MS));
-        }
-        return null;
-      } finally { scrubTokenField(req); }
+      for (let attempt = 1; attempt <= RECONCILE_MAX_ATTEMPTS; attempt += 1) {
+        const req = { accessToken: token, provider_mailbox_id: authority.providerMailboxId, immutable_draft_id: draftId };
+        let body;
+        try { body = await transport.reconcileDraft(req); } finally { scrubTokenField(req); }
+        const transientDraft = body && typeof body === 'object' && !isProxy(body)
+          && ownData(body, 'immutable_draft_id') === draftId
+          && ownData(body, 'outcome') === 'outcome_unknown'
+          && ownData(body, 'isDraft') === true;
+        if (!transientDraft || attempt === RECONCILE_MAX_ATTEMPTS) return body;
+        if (!PINNED_PROMISE || !PINNED_SET_TIMEOUT) return body;
+        await new PINNED_PROMISE((resolve) => PINNED_SET_TIMEOUT(resolve, RECONCILE_RETRY_DELAY_MS));
+      }
+      return null;
     });
     if (!rec.ok) {
       if (ownData(rec, 'error') === 'access_session_failed') return mapAccessFail(ownData(rec, 'access_status'), state);
