@@ -41,9 +41,9 @@ const QV1 = 'ms_messages_delta_from_now_v2';
 /** Shape-valid but non-production; must be rejected by parser + migration CHECK. */
 const QV_OTHER = 'messages_delta_v2';
 const PLANTED_CURSOR =
-  `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$deltatoken=SECRET_DELTA_TOKEN_NEVER_LEAK`;
+  `https://graph.microsoft.com/v1.0/users/${MAILBOX}/mailFolders/inbox/messages/delta?$deltatoken=SECRET_DELTA_TOKEN_NEVER_LEAK`;
 const PLANTED_NEXT =
-  `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$skiptoken=SECRET_NEXT_TOKEN_NEVER_LEAK`;
+  `https://graph.microsoft.com/v1.0/users/${MAILBOX}/mailFolders/inbox/messages/delta?$skiptoken=SECRET_NEXT_TOKEN_NEVER_LEAK`;
 
 function noLeak(v) {
   const s = typeof v === 'string' ? v : (() => {
@@ -917,15 +917,15 @@ async function main() {
   assert.equal(validateMessagesDeltaCursorUrl('http://graph.microsoft.com/v1.0/x', bind).ok, false);
   assert.equal(validateMessagesDeltaCursorUrl('https://evil.com/v1.0/x', bind).ok, false);
   assert.equal(validateMessagesDeltaCursorUrl(
-    `https://user:pass@graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$deltatoken=x`,
+    `https://user:pass@graph.microsoft.com/v1.0/users/${MAILBOX}/mailFolders/inbox/messages/delta?$deltatoken=x`,
     bind,
   ).ok, false);
   assert.equal(validateMessagesDeltaCursorUrl(
-    `https://graph.microsoft.com/beta/users/${MAILBOX}/messages/delta?$deltatoken=x`,
+    `https://graph.microsoft.com/beta/users/${MAILBOX}/mailFolders/inbox/messages/delta?$deltatoken=x`,
     bind,
   ).ok, false);
   assert.equal(validateMessagesDeltaCursorUrl(
-    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$deltatoken=x#frag`,
+    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/mailFolders/inbox/messages/delta?$deltatoken=x#frag`,
     bind,
   ).ok, false);
   assert.equal(validateMessagesDeltaCursorUrl(
@@ -933,7 +933,7 @@ async function main() {
     bind,
   ).ok, false, 'reject /me resource');
   assert.equal(validateMessagesDeltaCursorUrl(
-    `https://graph.microsoft.com/v1.0/users/${OTHER_MAILBOX}/messages/delta?$deltatoken=x`,
+    `https://graph.microsoft.com/v1.0/users/${OTHER_MAILBOX}/mailFolders/inbox/messages/delta?$deltatoken=x`,
     bind,
   ).ok, false, 'wrong mailbox');
   assert.equal(validateMessagesDeltaCursorUrl(
@@ -941,19 +941,19 @@ async function main() {
     bindNext,
   ).ok, false, 'wrong path resource (not messages/delta)');
   assert.equal(validateMessagesDeltaCursorUrl(
-    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$skiptoken=x&$deltatoken=y`,
+    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/mailFolders/inbox/messages/delta?$skiptoken=x&$deltatoken=y`,
     bindNext,
   ).ok, false, 'mixed tokens');
   assert.equal(validateMessagesDeltaCursorUrl(
-    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$filter=x`,
+    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/mailFolders/inbox/messages/delta?$filter=x`,
     bindNext,
   ).ok, false, 'filter rejected');
   assert.equal(validateMessagesDeltaCursorUrl(
-    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$deltatoken=x`,
+    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/mailFolders/inbox/messages/delta?$deltatoken=x`,
     bindNext,
   ).ok, false, 'token-kind mismatch');
   assert.equal(validateMessagesDeltaCursorUrl(
-    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta`,
+    `https://graph.microsoft.com/v1.0/users/${MAILBOX}/mailFolders/inbox/messages/delta`,
     bindNext,
   ).ok, false, 'missing token');
   assert.equal(validateMessagesDeltaCursorUrl(
@@ -1332,7 +1332,7 @@ async function main() {
   const svBeforeHostile = [...harness.states.values()].find((r) => r.is_current).state_version;
 
   const otherDeltaUrl =
-    `https://graph.microsoft.com/v1.0/users/${OTHER_MAILBOX}/messages/delta?$deltatoken=SECRET_DELTA_OTHER`;
+    `https://graph.microsoft.com/v1.0/users/${OTHER_MAILBOX}/mailFolders/inbox/messages/delta?$deltatoken=SECRET_DELTA_OTHER`;
   const hostileCases = [
     {
       label: 'client',
