@@ -230,6 +230,36 @@ function inboxBoundCustomerPhone(conv, customer){
   return inboxNormalizeHonestPhone(customer.phone || '');
 }
 
+function inboxEmailSubjectOf(conv, msgs){
+  var c = conv || {};
+  var direct = String(c.email_subject || c.subject || c.last_email_subject || '').trim();
+  if (direct) return direct;
+  var list = msgs || [];
+  var i;
+  for (i = list.length - 1; i >= 0; i--) {
+    var m = list[i] || {};
+    var sub = String(m.email_subject || m.subject || '').trim();
+    if (sub) return sub;
+  }
+  for (i = list.length - 1; i >= 0; i--) {
+    var inbound = list[i] || {};
+    if (inbound.source === 'email_inbound' && inbound.message_text) {
+      return String(inbound.message_text).trim();
+    }
+  }
+  if ((c.channel === 'email') && c.last_message_preview) {
+    return String(c.last_message_preview).trim();
+  }
+  return '';
+}
+
+function inboxEmailReplySubjectDefault(subject){
+  var s = String(subject == null ? '' : subject).trim();
+  if (!s) return 'Re: ';
+  if (/^re\s*:/i.test(s)) return s;
+  return 'Re: ' + s;
+}
+
 function inboxPersonDisplayName(conv, extras){
   extras = extras || {};
   var customer = extras.customer || {};
@@ -987,8 +1017,9 @@ function renderInboxConvCardHtml(c, profile){
     var contactLine = channel === 'email'
       ? (c.guest_email || c.email || '')
       : (c.phone || '');
-    var subjectLine = channel === 'email' && c.email_subject
-      ? '<div class="conv-card-subject">' + escHtml(c.email_subject) + '</div>'
+    var subjectText = inboxEmailSubjectOf(c);
+    var subjectLine = channel === 'email' && subjectText
+      ? '<div class="conv-card-subject">' + escHtml(subjectText) + '</div>'
       : '';
     var previewLine = '';
     var timeLine = c.last_activity_label
@@ -1446,7 +1477,7 @@ function emailParseFetchJson(r){
 function emailReplyState(convId){
   var id = String(convId || '');
   if (!_emailReplyStateByConv[id]) {
-    _emailReplyStateByConv[id] = { approvalId: null, locked: false, sent: false, savedText: '', seq: 0, inFlight: false, generationUncertain: false };
+    _emailReplyStateByConv[id] = { approvalId: null, locked: false, sent: false, savedText: '', savedSubject: '', seq: 0, inFlight: false, generationUncertain: false };
   }
   return _emailReplyStateByConv[id];
 }
@@ -1462,11 +1493,13 @@ function updateEmailDraftByteCount(targetEl, text){
 function setEmailReplyControlsDisabled(targetEl, disabled, locked){
   if (!targetEl) return;
   var ta = targetEl.querySelector('#draft-textarea');
+  var subjectEl = targetEl.querySelector('#inbox-email-reply-subject');
   var saveBtn = targetEl.querySelector('#btn-email-save-draft');
   var apprBtn = targetEl.querySelector('#btn-email-approve-send');
   var lunaBtn = targetEl.querySelector('#btn-email-generate-luna-draft');
   var freeze = !!(disabled || locked);
   if (ta) ta.disabled = freeze;
+  if (subjectEl) subjectEl.disabled = freeze;
   if (saveBtn) saveBtn.disabled = freeze;
   if (apprBtn) apprBtn.disabled = freeze;
   if (lunaBtn) lunaBtn.disabled = freeze;
@@ -1508,6 +1541,8 @@ function performEmailDraftSave(convId, targetEl, thenApprove){
   var statusEl = targetEl.querySelector('#draft-send-status');
   if (!ta || st.locked || st.inFlight) return;
   var messageText = String(ta.value == null ? '' : ta.value);
+  var subjectEl = targetEl.querySelector('#inbox-email-reply-subject');
+  var subjectText = subjectEl ? String(subjectEl.value == null ? '' : subjectEl.value).trim() : '';
   var bytes = emailUtf8ByteLength(messageText);
   if (!messageText.length) {
     showDraftSendStatus(statusEl, 'error', 'Enter a reply before saving a draft.');
@@ -1529,6 +1564,8 @@ function performEmailDraftSave(convId, targetEl, thenApprove){
     body: JSON.stringify({
       conversation_id: convId,
       message_text: messageText,
+      subject: subjectText,
+      email_subject: subjectText,
       approval_id: st.approvalId == null ? null : st.approvalId,
     }),
   })
@@ -1546,6 +1583,7 @@ function performEmailDraftSave(convId, targetEl, thenApprove){
       if (accepted) {
         st.approvalId = accepted.approval_id;
         st.savedText = snapText;
+        st.savedSubject = subjectText;
         if (thenApprove) {
           setEmailReplyControlsDisabled(targetEl, false, st.locked);
           performEmailApproveSend(convId, targetEl);
@@ -1576,12 +1614,14 @@ function performEmailApproveSend(convId, targetEl){
     return;
   }
   var messageText = String(ta.value == null ? '' : ta.value);
+  var subjectEl = targetEl.querySelector('#inbox-email-reply-subject');
+  var subjectText = subjectEl ? String(subjectEl.value == null ? '' : subjectEl.value).trim() : (st.savedSubject || '');
   var bytes = emailUtf8ByteLength(messageText);
   if (!messageText.length || bytes > EMAIL_DRAFT_MAX_UTF8_BYTES) {
     showDraftSendStatus(statusEl, 'error', !messageText.length ? 'Enter a reply before approving.' : 'Message exceeds 8,000 UTF-8 bytes.');
     return;
   }
-  if (!st.approvalId || messageText !== st.savedText) {
+  if (!st.approvalId || messageText !== st.savedText || subjectText !== String(st.savedSubject || '')) {
     performEmailDraftSave(convId, targetEl, true);
     return;
   }
@@ -1598,6 +1638,8 @@ function performEmailApproveSend(convId, targetEl){
     body: JSON.stringify({
       conversation_id: convId,
       message_text: messageText,
+      subject: subjectText,
+      email_subject: subjectText,
       approval_id: snapApprovalId,
     }),
   })
@@ -2004,6 +2046,12 @@ function loadConvDetail(convId, targetEl){
     }
     html +=       '<span class="inbox-needs-human-slot" id="inbox-needs-human-slot"></span>';
     html +=     '</div>';
+    if (composerChannel === 'email') {
+      var headerSubject = inboxEmailSubjectOf(c, msgs);
+      if (headerSubject) {
+        html += '<div class="detail-email-subject" id="inbox-thread-email-subject">' + escHtml(headerSubject) + '</div>';
+      }
+    }
     html +=       '<div class="detail-meta">';
     var contactLine = composerChannel === 'email' ? guestEmail : (c.phone || '');
     var channelLabel = composerChannel === 'email' ? 'Email' : 'WhatsApp';
@@ -2060,6 +2108,14 @@ function loadConvDetail(convId, targetEl){
     if (missingEmail) {
       html += '<div class="inbox-composer-no-email" role="status">Update email address in guest profile to email.</div>';
     } else {
+    if (useEmailReplyUi) {
+      var replySubject = (emailSt && emailSt.savedSubject)
+        ? emailSt.savedSubject
+        : inboxEmailReplySubjectDefault(inboxEmailSubjectOf(c, msgs));
+      html += '<label class="inbox-email-subject-label" for="inbox-email-reply-subject">Subject</label>';
+      html += '<input type="text" id="inbox-email-reply-subject" class="inbox-email-reply-subject" maxlength="200" value="' +
+        escHtml(replySubject) + '"' + (emailSt && emailSt.locked ? ' disabled' : '') + '>';
+    }
     html += '<textarea id="draft-textarea" placeholder="' + escHtml(t('inbox.detail.reply.editPlaceholder')) + '"' +
             ((isEmailConversation && !useEmailReplyUi) || (useEmailReplyUi && emailSt && emailSt.locked) ? ' disabled' : '') + '>' +
             escHtml(draftText) + '</textarea>';

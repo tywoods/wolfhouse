@@ -41,7 +41,7 @@ ok('Approve & send still posts /staff/inbox/email/approve-send',
 ok('typed/dirty Approve auto-saves then sends',
   thread.includes('function performEmailDraftSave(convId, targetEl, thenApprove)')
   && thread.includes('performEmailDraftSave(convId, targetEl, true)')
-  && thread.includes('if (!st.approvalId || messageText !== st.savedText)'));
+  && /if \(!st\.approvalId \|\| messageText !== st\.savedText/.test(thread));
 ok('does not require a prior Save draft click',
   !thread.includes('Save a draft before approving.')
   && !thread.includes('Save the current text before approving.'));

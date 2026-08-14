@@ -18535,6 +18535,9 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .conv-card-phone{font-size:11.5px;color:var(--text-2);margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .conv-card-contact{font-size:11.5px;color:var(--text-2);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .conv-card-subject{font-size:11.5px;font-weight:600;color:var(--text);margin-bottom:4px;line-height:1.35}
+.detail-email-subject{font-size:13px;font-weight:600;color:var(--text);margin:4px 0 0;line-height:1.35;overflow:hidden;text-overflow:ellipsis}
+.inbox-email-subject-label{display:block;font-size:11px;color:var(--text-3);margin:0 0 4px}
+.inbox-email-reply-subject{display:block;width:100%;box-sizing:border-box;margin:0 0 8px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font:inherit;font-size:13px}
 .conv-card-preview{display:none!important}
 .conv-card-time{font-size:10.5px;color:var(--text-3);margin:0}
 .conv-card-header-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:4px}

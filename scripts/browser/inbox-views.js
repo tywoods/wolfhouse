@@ -28,6 +28,8 @@ function mapInboxPersonRowToConv(row){
     phone: row.phone || '',
     guest_email: row.email || row.guest_email || '',
     email: row.email || '',
+    email_subject: row.email_subject || row.subject || '',
+    subject: row.subject || row.email_subject || '',
     channel: row.channel || 'whatsapp',
     last_message_preview: row.last_message_preview || '',
     last_activity: row.last_activity || null,
