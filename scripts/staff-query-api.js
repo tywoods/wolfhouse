@@ -251,6 +251,7 @@ const {
 // operator-recovery gate below (composition alone / admin alone remain inert).
 const {
   resolveEmailDeltaSunsetStagingRuntimeReadiness,
+  createEmailDeltaSunsetStagingRuntimeComposition,
 } = require('./lib/email-delta-sunset-staging-runtime-composition');
 /** Frozen inert readiness only (default-off; never scheduler/worker run). */
 const EMAIL_DELTA_RUNTIME_READINESS =
@@ -48905,12 +48906,29 @@ const server = shouldEagerCreateStaffQueryApiServer()
   ? createStaffQueryApiHttpServer()
   : null;
 
+let EMAIL_DELTA_RUNTIME = null;
 if (require.main === module) {
-  const { attachStaffApiReadinessLifecycle } = require('./lib/staff-api-readiness-lifecycle');
+  const { attachStaffApiReadinessLifecycle, ON_SHUTDOWN_BEGIN_HOOK } = require('./lib/staff-api-readiness-lifecycle');
+  const priorShutdownBegin = server[ON_SHUTDOWN_BEGIN_HOOK];
+  server[ON_SHUTDOWN_BEGIN_HOOK] = () => {
+    if (EMAIL_DELTA_RUNTIME) EMAIL_DELTA_RUNTIME.stop();
+    if (typeof priorShutdownBegin === 'function') priorShutdownBegin();
+  };
   attachStaffApiReadinessLifecycle(server);
 }
 
 if (require.main === module) server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
+  if (EMAIL_DELTA_RUNTIME_READINESS.runtime_activation === true) {
+    EMAIL_DELTA_RUNTIME = createEmailDeltaSunsetStagingRuntimeComposition({
+      env: process.env,
+      withPgClient: _withPgClientImpl,
+      https,
+      timers: { setTimeout, clearTimeout },
+      intervalMs: Number(process.env.LUNA_EMAIL_DELTA_POLL_INTERVAL_MS || 60000),
+      activationWatermark: new Date().toISOString(),
+    });
+    EMAIL_DELTA_RUNTIME.start();
+  }
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);
   console.log(`  Auth: ${STAFF_AUTH_REQUIRED ? 'REQUIRED (session cookie)' : 'OPTIONAL (STAFF_AUTH_REQUIRED=false — local/dev open mode)'}`);
   console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED'}`);

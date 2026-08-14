@@ -1343,6 +1343,18 @@ function buildMessagesDeltaInitialPath(providerMailboxId) {
   return `/v1.0/users/${encodeURIComponent(providerMailboxId)}/messages/delta?${SELECT_QUERY}`;
 }
 
+/** v2 activation-only bootstrap. Watermark is factory-owned and query-fixed. */
+function buildMessagesDeltaFromNowInitialPath(providerMailboxId, activationWatermark) {
+  if (typeof providerMailboxId !== 'string' || !UUID_CANON.test(providerMailboxId)
+      || typeof activationWatermark !== 'string'
+      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(activationWatermark)) return null;
+  try {
+    if (new Date(activationWatermark).toISOString() !== activationWatermark) return null;
+  } catch { return null; }
+  const filter = encodeURIComponent(`receivedDateTime ge ${activationWatermark}`);
+  return `/v1.0/users/${encodeURIComponent(providerMailboxId)}/messages/delta?${SELECT_QUERY}&$filter=${filter}`;
+}
+
 /**
  * Convert a PR408-validated absolute messages-delta cursor URL into the exact
  * request path+query target. Appends nothing.
@@ -1816,7 +1828,9 @@ function runDelegatedMessagesRequest(session, input) {
         return Promise.reject(failure('request_error', brand));
       }
     } else {
-      requestPath = buildMessagesDeltaInitialPath(mailboxId);
+      requestPath = session.activationWatermark === null
+        ? buildMessagesDeltaInitialPath(mailboxId)
+        : buildMessagesDeltaFromNowInitialPath(mailboxId, session.activationWatermark);
       if (requestPath === null) {
         tokenOwner = null;
         return Promise.reject(failure('request_error', brand));
@@ -2368,7 +2382,7 @@ function finalizeCatchupDto(selected, pagesFetched, truncated) {
  * - No DB/store/lease/grant/runtime/composition; not one-shot across methods
  *   (each call is independent; exactly one HTTPS request per call).
  */
-function createMicrosoftGraphMessagesDeltaPageTransport(dependencies = {}) {
+function createMicrosoftGraphMessagesDeltaPageTransport(dependencies = {}, activationWatermark = null) {
   let resolved;
   try {
     resolved = resolveTransportDependencies(dependencies, MESSAGES_DELTA_FAILURE_BRAND);
@@ -2396,6 +2410,7 @@ function createMicrosoftGraphMessagesDeltaPageTransport(dependencies = {}) {
       mode: 'messages_delta_page',
       preferHeader: PREFER_IMMUTABLE_ID,
       cursorGoneOn410: false,
+      activationWatermark,
     }, pageInput).finally(() => {
       try { pageInput.accessToken = null; } catch { /* */ }
     });
@@ -2462,6 +2477,7 @@ module.exports = Object.freeze({
   MESSAGES_DELTA_CURSOR_KINDS,
   buildImmutableIdUserMessagesPath,
   buildMessagesDeltaInitialPath,
+  buildMessagesDeltaFromNowInitialPath,
   countBoundedMessageEnvelopes,
   classifyMessageEnvelopeBody,
   classifyParsedMessageEnvelopeList,

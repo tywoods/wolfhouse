@@ -12,16 +12,19 @@ WHERE e.channel = 'email'
   AND e.binding_status = 'verified'
   AND e.inbound_enabled = true
   AND e.outbound_enabled = false
-  AND e.active = true
+  -- active is an outbound routing switch; verified inbound authority remains
+  -- canonical when outbound preparation deliberately leaves it false.
   AND g.grant_status = 'active'
   AND g.reconcile_state = 'clean'
   AND g.revoked_at IS NULL
+  AND g.grant_lease_owner IS NULL
   AND g.grant_lease_token IS NULL
-  AND (g.grant_lease_until IS NULL OR g.grant_lease_until <= clock_timestamp())
+  AND g.grant_lease_until IS NULL
 ORDER BY e.id
 LIMIT 2`.replace(/\s+/g,' ').trim();
 const UNPROJECTED_SQL = `
-SELECT ev.id::text AS id
+SELECT ev.id::text AS id, ev.provider, ev.provider_mailbox_id,
+       ev.provider_message_id
 FROM tenant_email_inbound_events ev
 LEFT JOIN tenant_email_inbound_inbox_projections p ON p.inbound_event_id=ev.id
 WHERE ev.client_id=$1::uuid AND ev.location_id=$2::uuid AND ev.endpoint_id=$3::uuid
@@ -39,7 +42,10 @@ function createEmailDeltaSunsetStagingWorker(deps){
    const r=rows[0], authority=Object.freeze({clientId:r.client_id,locationId:r.location_id,endpointId:r.endpoint_id});
    await deps.runPage(authority); // exactly one Graph page; durable owner holds lease/state
    const pending=await deps.query(UNPROJECTED_SQL,[r.client_id,r.location_id,r.endpoint_id]);
-   for(const event of (pending.rows||[])) await deps.projectEvent(Object.freeze({...authority,inboundEventId:event.id}));
+   for(const event of (pending.rows||[])) await deps.projectEvent(Object.freeze({
+     ...authority,inboundEventId:event.id,provider:event.provider,
+     providerMailboxId:event.provider_mailbox_id,providerMessageId:event.provider_message_id,
+   }));
    return Object.freeze({status:'completed'});
   }finally{running=false;}
  }

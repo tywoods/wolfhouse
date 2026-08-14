@@ -75,7 +75,7 @@ const MIGRATION_064_ID = '064_tenant_email_inbound_delta_states';
 const MIGRATION_064_FILENAME = '064_tenant_email_inbound_delta_states.sql';
 const MIGRATION_064_TABLE = 'tenant_email_inbound_delta_states';
 /** Production-exact text pin (byte-identical to migration 064 + #410 store). */
-const QUERY_VERSION = 'ms_messages_delta_v1';
+const QUERY_VERSION = 'ms_messages_delta_from_now_v2';
 
 const ENV_COMPOSITION_ENABLED = 'LUNA_EMAIL_DELTA_RUNTIME_COMPOSITION_ENABLED';
 const ENV_WORKER_ENABLED = 'LUNA_EMAIL_DELTA_WORKER_ENABLED';
@@ -229,7 +229,7 @@ const CANONICAL_WORKER_CONFIG = pinnedFreeze({
   no_whitespace: true,
 });
 
-if (typeof QUERY_VERSION !== 'string' || QUERY_VERSION !== 'ms_messages_delta_v1') {
+if (typeof QUERY_VERSION !== 'string' || QUERY_VERSION !== 'ms_messages_delta_from_now_v2') {
   throw new Error('email_delta_runtime_config_query_version_unexpected');
 }
 if (typeof WORKER_ID !== 'string'
@@ -452,7 +452,7 @@ function migration065ContractValid() {
     if (MIGRATION_065_FILENAME !== '065_tenant_email_delta_recovery_operations.sql') return false;
     if (MIGRATION_065_TABLE !== 'tenant_email_delta_recovery_operations') return false;
     if (MIGRATION_064_ID !== '064_tenant_email_inbound_delta_states') return false;
-    if (QUERY_VERSION !== 'ms_messages_delta_v1') return false;
+    if (QUERY_VERSION !== 'ms_messages_delta_from_now_v2') return false;
     if (MIGRATION_065_READINESS_CONTRACT.applied_by_this_module !== false) return false;
     if (MIGRATION_065_READINESS_CONTRACT.ddl_allowed !== false) return false;
     if (MIGRATION_065_READINESS_CONTRACT.prior_sibling_id !== MIGRATION_064_ID) return false;

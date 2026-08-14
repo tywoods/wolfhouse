@@ -157,7 +157,7 @@ if (EMAIL_INBOUND_DELTA_STATE_PAGE_COMMIT_OWNER !== true) {
 if (EMAIL_MS_GRAPH_MESSAGES_DELTA_PAGE_TRANSPORT_RUNTIME_WIRED !== false) {
   throw new Error('authority_bound_delta_page_transport_runtime_wired');
 }
-if (typeof QUERY_VERSION !== 'string' || QUERY_VERSION !== 'ms_messages_delta_v1') {
+if (typeof QUERY_VERSION !== 'string' || QUERY_VERSION !== 'ms_messages_delta_from_now_v2') {
   throw new Error('authority_bound_delta_page_query_version_unexpected');
 }
 

@@ -312,14 +312,14 @@ function main() {
   ok('migration065 readiness + 064 sibling + query_version pins',
     MIGRATION_065_ID === '065_tenant_email_delta_recovery_operations'
     && MIGRATION_064_ID === '064_tenant_email_inbound_delta_states'
-    && QUERY_VERSION === 'ms_messages_delta_v1'
+    && QUERY_VERSION === 'ms_messages_delta_from_now_v2'
     && MIGRATION_065_READINESS_CONTRACT.applied_by_this_module === false
     && MIGRATION_065_READINESS_CONTRACT.ddl_allowed === false
     && MIGRATION_065_READINESS_CONTRACT.prior_sibling_id === MIGRATION_064_ID
     && MIGRATION_064_READINESS_CONTRACT.readiness_tip === false
     && mig.includes('tenant_email_delta_recovery_operations')
     && mig064.includes('tenant_email_inbound_delta_states')
-    && mig064.includes('ms_messages_delta_v1'));
+    && JSON.stringify(manifest).includes('080_tenant_email_delta_from_now_v2'));
   ok('manifest includes 064 and 065',
     JSON.stringify(manifest).includes('064_tenant_email_inbound_delta_states')
     && JSON.stringify(manifest).includes('065_tenant_email_delta_recovery_operations'));
