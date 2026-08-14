@@ -25,7 +25,6 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps){
   if(!readiness||readiness.runtime_activation!==true||readiness.ok!==true)throw fail();
   const kv=createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(deps.env), validated=kv&&validateEmailGrantEnvelopeProvider(kv.provider);
   if(!kv||kv.ok!==true||!validated||validated.ok!==true)throw fail();
-  const secretProvider=createSunsetMicrosoftOAuthClientSecretProvider(Object.freeze({deployment:SUNSET_DEPLOYMENT,env:deps.env}));
   const tokenTransport=createMicrosoftTokenHttpTransport(Object.freeze({httpsImpl:deps.https,timers:deps.timers}));
   let currentClient=null;
   const worker=createEmailDeltaSunsetStagingWorker({timers:deps.timers,intervalMs:deps.intervalMs,
@@ -33,7 +32,7 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps){
    runPage:async authority=>{
     const client=currentClient;
     const graphTransport=createMicrosoftGraphMessagesDeltaPageTransport(Object.freeze({httpsImpl:deps.https,timers:deps.timers}),authority.activationWatermark);
-    const createGrantSession=()=>createDelegatedGrantAccessSession(Object.freeze({deployment:SUNSET_DEPLOYMENT,applicationClientId:deps.env[config.ENV_OAUTH_CLIENT_ID].toLowerCase(),client,envelopeProvider:validated.value,secretProvider,transport:tokenTransport,workerId:WORKER_ID}));
+    const createGrantSession=()=>createDelegatedGrantAccessSession(Object.freeze({deployment:SUNSET_DEPLOYMENT,applicationClientId:deps.env[config.ENV_OAUTH_CLIENT_ID].toLowerCase(),client,envelopeProvider:validated.value,secretProvider:createSunsetMicrosoftOAuthClientSecretProvider(Object.freeze({deployment:SUNSET_DEPLOYMENT,env:deps.env})),transport:tokenTransport,workerId:WORKER_ID}));
     const operation=createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({db:client,createGrantSession,messagesDeltaPageTransport:graphTransport,withTransactionClient:async work=>work(client),envelopeProvider:validated.value}));
     const cleanAuthority=Object.freeze({clientId:authority.clientId,locationId:authority.locationId,endpointId:authority.endpointId});
     const result=await operation.runAuthorityBoundMessagesDeltaPage(cleanAuthority);
