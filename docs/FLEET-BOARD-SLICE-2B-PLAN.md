@@ -23,6 +23,18 @@ Owner sign-off pending. Nothing here is applied yet.
   stack two no-mention listeners (loop risk per the fleet plan).
 - **Cost lesson:** build 2b as ONE scoped change, reviewed once — do not re-grind the
   shelved half-finished 2b-1 branch (it re-walks the three-bounce loop that burned quota).
+- **Skipper board access — PROVEN LIVE 2026-08-14.** Skipper drives the board from its
+  OWN writable clone `/opt/data/workspace/sandbox-repos/WH-orchestrator` (NOT the
+  read-only `/opt/wolfhouse/WH` mount, which its uid 10000 cannot read). Auth is the
+  `gh` at `/opt/data/home/.local/bin/gh`, logged in as `tywoods` (`repo` scope) — the
+  gh path, not `GITHUB_TOKEN`. Verified end-to-end: `node .../WH-orchestrator/scripts/fleet/task.js list`
+  returned the board.
+- **DURABILITY (bake into Skipper's operating instructions):** Skipper's clone does NOT
+  auto-update, so it drifts (it was stale on a pre-fleet-board commit until refreshed).
+  **Before any board work each session, Skipper must run, in that clone:**
+  `git fetch github && git reset --hard github/master` — otherwise `scripts/fleet/task.js`
+  may be missing or stale. This is a required step in whatever SOUL/instruction block
+  wires Skipper to the board.
 
 ## What 2b is (and what it is NOT)
 
