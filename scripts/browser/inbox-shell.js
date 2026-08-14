@@ -498,6 +498,7 @@ function inboxMockupThemeCssText(){
     'font-size:13px;line-height:1;',
     '}',
     '#inbox-shell #btn-email-save-draft{display:none!important}',
+    '#inbox-shell #btn-email-generate-luna-draft{display:none!important}',
     '#inbox-shell .inbox-header-stack{display:flex;flex-direction:column;align-items:flex-end;gap:6px}',
     '#inbox-shell .inbox-header-stack-luna{display:flex;align-items:center;justify-content:flex-end;gap:8px}',
     '#inbox-shell .detail-header-id{display:flex;align-items:center;gap:8px;min-width:0}',

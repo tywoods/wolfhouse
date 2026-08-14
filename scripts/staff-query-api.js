@@ -18732,6 +18732,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .email-draft-byte-count.is-over{color:#8B3A3A;font-weight:600}
 .btn-email-save-draft{background:var(--ocean);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
 #btn-email-save-draft{display:none!important}
+#btn-email-generate-luna-draft{display:none!important}
 .btn-email-save-draft:hover{background:#7FA3B8}
 .btn-email-save-draft:disabled,.btn-email-approve-send:disabled{background:#C9CFC8;color:#F2F1EC;cursor:default}
 .btn-email-approve-send{background:var(--primary);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}

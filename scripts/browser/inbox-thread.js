@@ -260,6 +260,39 @@ function inboxEmailReplySubjectDefault(subject){
   return 'Re: ' + s;
 }
 
+/** Honest open-draft body from current Skipper/staff fields. Never invents copy. */
+function inboxEmailDraftBodyOf(draft, conv){
+  var d = draft || {};
+  var c = conv || {};
+  var candidates = [d.draft_text, d.body, d.message_text, d.luna_draft_body, d.luna_body, c.staff_reply_draft];
+  var i;
+  for (i = 0; i < candidates.length; i++) {
+    if (candidates[i] != null && String(candidates[i]).trim()) return String(candidates[i]);
+  }
+  return '';
+}
+
+function inboxEmailDraftNeedsReply(conv){
+  var c = conv || {};
+  return !!(c.needs_human || c.needs_attention || (typeof conversationHasOpenHandoff === 'function' && conversationHasOpenHandoff(c)));
+}
+
+function inboxEmailDraftIsPending(draft, conv, body){
+  if (String(body || '').trim()) return false;
+  if (!inboxEmailDraftNeedsReply(conv)) return false;
+  var d = draft || {};
+  var status = String(d.status || d.draft_status || '').toLowerCase();
+  if (status === 'draft_ready') return false;
+  return true;
+}
+
+function inboxEmailOpenDraftSubject(draft, conv, msgs){
+  var d = draft || {};
+  var sub = String(d.subject || d.email_subject || '').trim();
+  if (sub) return inboxEmailReplySubjectDefault(sub);
+  return inboxEmailReplySubjectDefault(inboxEmailSubjectOf(conv, msgs));
+}
+
 function inboxPersonDisplayName(conv, extras){
   extras = extras || {};
   var customer = extras.customer || {};
@@ -2095,9 +2128,10 @@ function loadConvDetail(convId, targetEl){
     html += '</div>'; /* /thread-section */
 
     /* Reply panel — WhatsApp send, gated email draft/approve, or fail-closed email read-only */
-    var draftText = (draft && draft.draft_text) ? draft.draft_text : (c.staff_reply_draft || '');
+    var draftText = inboxEmailDraftBodyOf(draft, c);
     var useEmailReplyUi = staffEmailDraftsUiEnabled() && isEmailConversation;
     var emailSt = useEmailReplyUi ? emailReplyState(convId) : null;
+    var emailDraftPending = useEmailReplyUi && inboxEmailDraftIsPending(draft, c, (emailSt && emailSt.savedText) || draftText);
     // Prefer per-conversation held draft/approval text (never shared across conversations).
     if (emailSt && emailSt.savedText) draftText = emailSt.savedText;
 
@@ -2111,7 +2145,7 @@ function loadConvDetail(convId, targetEl){
     if (useEmailReplyUi) {
       var replySubject = (emailSt && emailSt.savedSubject)
         ? emailSt.savedSubject
-        : inboxEmailReplySubjectDefault(inboxEmailSubjectOf(c, msgs));
+        : inboxEmailOpenDraftSubject(draft, c, msgs);
       html += '<label class="inbox-email-subject-label" for="inbox-email-reply-subject">Subject</label>';
       html += '<input type="text" id="inbox-email-reply-subject" class="inbox-email-reply-subject" maxlength="200" value="' +
         escHtml(replySubject) + '"' + (emailSt && emailSt.locked ? ' disabled' : '') + '>';
@@ -2123,7 +2157,7 @@ function loadConvDetail(convId, targetEl){
       html += '<div id="email-draft-byte-count" class="email-draft-byte-count" aria-live="polite">0 / 8000 bytes</div>';
       html += '<div class="draft-actions">';
       if (staffEmailLunaDraftUiEnabled() && isAuthoritativeEmailConversation(c)) {
-        html += '<button type="button" class="btn-email-save-draft" id="btn-email-generate-luna-draft"' +
+        html += '<button type="button" class="btn-email-save-draft" id="btn-email-generate-luna-draft" hidden' +
                 (emailSt && emailSt.locked ? ' disabled' : '') + '>Generate Luna draft</button>';
       }
       html +=   '<button type="button" class="btn-email-save-draft" id="btn-email-save-draft" hidden' +
@@ -2171,7 +2205,12 @@ function loadConvDetail(convId, targetEl){
     if (chatName) chatName.addEventListener('click', function(){ inboxChatShowGuest(); });
 
     if (missingEmail) { /* composer shows the update-email note */ }
-    else if (useEmailReplyUi) wireInboxEmailReply(convId, targetEl);
+    else if (useEmailReplyUi) {
+      wireInboxEmailReply(convId, targetEl);
+      if (emailDraftPending) {
+        showDraftSendStatus(targetEl.querySelector('#draft-send-status'), '', 'Luna draft pending');
+      }
+    }
     else if (!isEmailConversation) {
       wireInboxSendReply(convId, c.phone, targetEl);
       wireInboxWhatsAppDraft(convId, targetEl);
