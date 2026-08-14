@@ -293,16 +293,34 @@ function createMicrosoftGraphReplyDraftTransport(dependencies = {}) {
     });
   }
   function updateApprovedDraft(input) {
-    const parsed = readTokenMailbox(input, ['immutable_draft_id', 'body_content_type', 'body_content']);
+    let hasSubject = false;
+    try {
+      hasSubject = !!input && typeof input === 'object' && Reflect.ownKeys(input).includes('subject');
+    } catch { hasSubject = false; }
+    const parsed = readTokenMailbox(input, hasSubject
+      ? ['immutable_draft_id', 'body_content_type', 'body_content', 'subject']
+      : ['immutable_draft_id', 'body_content_type', 'body_content']);
     if (!parsed) return Promise.reject(failure('request_error'));
     const draftId = parsed.immutable_draft_id; const contentType = parsed.body_content_type; const content = parsed.body_content;
     if (typeof draftId !== 'string' || draftId.length < 1 || draftId.length > STRING_LIMIT || (contentType !== 'Text' && contentType !== 'HTML') || typeof content !== 'string' || content.length < 1 || content.length > BODY_CONTENT_LIMIT) {
       scrubToken(input); return Promise.reject(failure('request_error'));
     }
+    let subject = null;
+    if (hasSubject) {
+      subject = parsed.subject;
+      if (typeof subject !== 'string' || subject.length < 1 || subject.length > SENDMAIL_SUBJECT_MAX
+          || /[\x00-\x1f\x7f]/.test(subject) || subject !== subject.trim()) {
+        scrubToken(input); return Promise.reject(failure('request_error'));
+      }
+    }
     const path = buildMessagePath(parsed.provider_mailbox_id, draftId, 'patch');
     if (!path) { scrubToken(input); return Promise.reject(failure('request_error')); }
     let bodyText;
-    try { bodyText = JSON.stringify({ body: { contentType, content } }); }
+    try {
+      const patch = { body: { contentType, content } };
+      if (subject !== null) patch.subject = subject;
+      bodyText = JSON.stringify(patch);
+    }
     catch { scrubToken(input); return Promise.reject(failure('request_error')); }
     const token = parsed.accessToken; parsed.accessToken = null; scrubToken(input); parsed.body_content = null;
     return issueGraphRequest({

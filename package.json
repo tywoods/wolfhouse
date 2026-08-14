@@ -450,6 +450,7 @@
     "verify:email-luna-slice4-4-red": "npm run verify:email-luna-draft-author && npm run verify:email-luna-sunset-staging-runtime-composition",
     "verify:email-outbound-forced-post-send-uncertainty-seam": "node scripts/verify-email-outbound-forced-post-send-uncertainty-seam.js",
     "verify:staff-email-inbox-routes": "node scripts/verify-staff-email-inbox-routes.js",
+    "verify:email-reply-001": "node scripts/verify-email-reply-001.js",
     "verify:staff-email-luna-draft-route": "node scripts/verify-staff-email-luna-draft-route.js",
     "verify:staff-email-luna-unavailable-capability": "node scripts/verify-staff-email-luna-unavailable-capability.js",
     "verify:staff-email-luna-catch-mutation": "node scripts/verify-staff-email-luna-catch-mutation.js",

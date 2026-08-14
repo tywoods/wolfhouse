@@ -22,6 +22,9 @@ const {
   wrapReplyDraftTransportForForcedPostSendUncertainty,
 } = require('./email-outbound-forced-post-send-uncertainty-seam');
 const {
+  validateOutboundReplySubject, applySubjectToUpdateApprovedDraft,
+} = require('./email-outbound-reply-subject');
+const {
   createSunsetMicrosoftOAuthClientSecretProvider, SUNSET_DEPLOYMENT: SECRET_SUNSET,
 } = require('./sunset-microsoft-oauth-provider');
 const {
@@ -48,6 +51,11 @@ const TIMERS_KEYS = Object.freeze(['setTimeout', 'clearTimeout']);
 const REQUEST_KEYS = Object.freeze([
   'operation_id', 'approval_id', 'message_text', 'client_id', 'location_id', 'location_key',
   'endpoint_id', 'conversation_id', 'actor_staff_user_id', 'provider_mailbox_id', 'provider_source_message_id',
+]);
+const REQUEST_KEYS_WITH_SUBJECT = Object.freeze([
+  'operation_id', 'approval_id', 'message_text', 'client_id', 'location_id', 'location_key',
+  'endpoint_id', 'conversation_id', 'actor_staff_user_id', 'provider_mailbox_id', 'provider_source_message_id',
+  'subject',
 ]);
 const PUBLIC_CODES = Object.freeze([
   'email_send_committed', 'email_send_outcome_unknown', 'email_send_recovery',
@@ -126,7 +134,8 @@ function snapshotEnvReadiness(env) {
 }
 function snapshotRequest(raw) {
   try {
-    if (!exactPlainData(raw, REQUEST_KEYS)) return null;
+    const hasSubject = exactPlainData(raw, REQUEST_KEYS_WITH_SUBJECT);
+    if (!hasSubject && !exactPlainData(raw, REQUEST_KEYS)) return null;
     const operationId = parseUuid(ownData(raw, 'operation_id'));
     const approvalId = parseUuid(ownData(raw, 'approval_id'));
     const clientId = parseUuid(ownData(raw, 'client_id'));
@@ -143,10 +152,16 @@ function snapshotRequest(raw) {
     if (typeof messageText !== 'string' || messageText.length < 1 || messageText.length > 64000) return null;
     if (typeof sourceMessageId !== 'string' || sourceMessageId.length < 1 || sourceMessageId.length > 2048
         || !SRC_RE.test(sourceMessageId) || /[/?#]/.test(sourceMessageId) || sourceMessageId.indexOf('@') !== -1) return null;
-    return Object.freeze({
+    const out = {
       operationId, approvalId, messageText, clientId, locationId, locationKey, endpointId,
       conversationId, actorStaffUserId, providerMailboxId, sourceMessageId,
-    });
+    };
+    if (hasSubject) {
+      const checked = validateOutboundReplySubject(ownData(raw, 'subject'));
+      if (!checked.ok) return null;
+      out.subject = checked.value;
+    }
+    return Object.freeze(out);
   } catch { return null; }
 }
 function mapPublic(result) {
@@ -210,7 +225,10 @@ function createSunsetStagingEmailOutboundDispatch(deps) {
         // Staging-only default-off seam: after one real sendDraft acceptance, force
         // outcome_unknown before initial reconcile. Fresh wrap per dispatch so recovery
         // does not inherit a prior skip bit and never authorizes a second send.
-        const replyDraftTransport = wrapReplyDraftTransportForForcedPostSendUncertainty(baseReplyDraftTransport, readyEnv);
+        const replyDraftTransport = applySubjectToUpdateApprovedDraft(
+          wrapReplyDraftTransportForForcedPostSendUncertainty(baseReplyDraftTransport, readyEnv),
+          snap.subject,
+        );
         const operation = createAuthorityBoundOutboundOperation(Object.freeze({
           journalStore, createAccessSession, replyDraftTransport,
           authority: Object.freeze({

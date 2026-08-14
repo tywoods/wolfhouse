@@ -48,6 +48,9 @@ const {
   EMAIL_AUTHORITY_BOUND_OUTBOUND_RUNTIME_WIRED, EMAIL_AUTHORITY_BOUND_OUTBOUND_SAFE_FOR_RUNTIME_ROUTE,
   EMAIL_AUTHORITY_BOUND_OUTBOUND_PERSISTENCE_READY,
 } = require('./email-authority-bound-outbound-operation');
+const {
+  validateOutboundReplySubject, resolveOutboundReplySubject, SQL_LAST_PERSISTED_SUBJECT,
+} = require('./email-outbound-reply-subject');
 const EMAIL_DRAFT_PATH = '/staff/inbox/email/draft';
 const EMAIL_APPROVE_SEND_PATH = '/staff/inbox/email/approve-send';
 const EMAIL_RECOVER_SEND_PATH = '/staff/inbox/email/recover-send';
@@ -62,6 +65,7 @@ const SEND_PUBLIC_CODES = Object.freeze([
   'email_send_reauthorization_required', 'email_send_unavailable',
 ]);
 const BODY_KEYS = Object.freeze(['conversation_id', 'message_text', 'approval_id']);
+const BODY_KEYS_WITH_SUBJECT = Object.freeze(['conversation_id', 'message_text', 'approval_id', 'subject']);
 const RECOVERY_BODY_KEYS = Object.freeze(['conversation_id', 'approval_id']);
 const SUCCESS_DTO_KEYS = Object.freeze(['success', 'conversation_id', 'message_text', 'approval_id']);
 const RECOVERY_SUCCESS_DTO_KEYS = Object.freeze(['success', 'conversation_id', 'approval_id', 'status']);
@@ -197,10 +201,10 @@ function snapshotGateEnv(env) {
   }
   return Object.freeze(out);
 }
-function sealApprovedDispatchRequest(row, auth, actor, lockedOperationId) {
+function sealApprovedDispatchRequest(row, auth, actor, lockedOperationId, subject) {
   try {
     if (!row || !auth || !actor || typeof lockedOperationId !== 'string') return null;
-    return Object.freeze({
+    const sealed = {
       operation_id: lockedOperationId,
       approval_id: String(row.approval_id).toLowerCase(),
       message_text: String(row.message_text),
@@ -212,7 +216,9 @@ function sealApprovedDispatchRequest(row, auth, actor, lockedOperationId) {
       actor_staff_user_id: actor.staff_user_id,
       provider_mailbox_id: auth.provider_mailbox_id,
       provider_source_message_id: auth.provider_source_message_id,
-    });
+    };
+    if (typeof subject === 'string') sealed.subject = subject;
+    return Object.freeze(sealed);
   } catch { return null; }
 }
 function mapDispatchToRoute(result, conversationId, approvalId) {
@@ -255,7 +261,8 @@ function exactPlainKeys(o, keys) {
 }
 function snapshotEmailReplyBody(raw) {
   try {
-    if (!exactPlainKeys(raw, BODY_KEYS)) return null;
+    const hasSubject = exactPlainKeys(raw, BODY_KEYS_WITH_SUBJECT);
+    if (!hasSubject && !exactPlainKeys(raw, BODY_KEYS)) return null;
     const conversationId = parseUuid(ownData(raw, 'conversation_id'));
     if (!conversationId) return null;
     const messageText = ownData(raw, 'message_text');
@@ -268,7 +275,13 @@ function snapshotEmailReplyBody(raw) {
       approvalId = parseUuid(approvalRaw);
       if (!approvalId) return null;
     }
-    return Object.freeze({ conversation_id: conversationId, message_text: messageText, approval_id: approvalId });
+    const out = { conversation_id: conversationId, message_text: messageText, approval_id: approvalId };
+    if (hasSubject) {
+      const checked = validateOutboundReplySubject(ownData(raw, 'subject'));
+      if (!checked.ok) return null;
+      out.subject = checked.value;
+    }
+    return Object.freeze(out);
   } catch { return null; }
 }
 /** Authority-neutral recovery browser input: conversation_id + approval_id only. */
@@ -658,21 +671,44 @@ function createStaffEmailInboxRoutes(deps) {
       return sendJSON(res, 500, Object.freeze({ success: false, error: 'draft_failed' }));
     }
   }
+  async function loadLastPersistedSubject(pg, clientId, conversationId) {
+    try {
+      const res = await pg.query(SQL_LAST_PERSISTED_SUBJECT, [clientId, conversationId]);
+      if (!res || !Array.isArray(res.rows) || res.rows.length !== 1 || !res.rows[0]) return null;
+      const s = ownData(res.rows[0], 'subject');
+      return typeof s === 'string' && s.trim() ? s : null;
+    } catch {
+      return null;
+    }
+  }
+  function resolveSendSubject(input, lastSubject) {
+    try {
+      return resolveOutboundReplySubject({
+        overridePresent: Object.prototype.hasOwnProperty.call(input, 'subject'),
+        override: Object.prototype.hasOwnProperty.call(input, 'subject') ? input.subject : undefined,
+        lastSubject,
+      });
+    } catch {
+      return Object.freeze({ ok: false, code: 'subject_invalid' });
+    }
+  }
   /** Best-effort: durable staff-visible outbound body after Graph commit. */
-  async function mirrorCommittedOutboundThread(actor, conversationId, approvalId, messageText) {
+  async function mirrorCommittedOutboundThread(actor, conversationId, approvalId, messageText, subject) {
     try {
       if (!actor || !conversationId || !approvalId || typeof messageText !== 'string' || !messageText.length) return;
       await withPgClient(async (pg) => {
         const preview = messageText.slice(0, 500);
+        const meta = {
+          channel: 'email',
+          approval_id: String(approvalId).toLowerCase(),
+          send_kind: 'staff_email_reply',
+        };
+        if (typeof subject === 'string') meta.email_subject = subject;
         const inserted = await pg.query(SQL_INSERT_OUTBOUND_THREAD, [
           actor.client_id,
           conversationId,
           messageText,
-          JSON.stringify({
-            channel: 'email',
-            approval_id: String(approvalId).toLowerCase(),
-            send_kind: 'staff_email_reply',
-          }),
+          JSON.stringify(meta),
         ]);
         // Preview/timestamp only when this invocation won the insert (RETURNING).
         if (!inserted || !Array.isArray(inserted.rows) || inserted.rows.length !== 1) return;
@@ -711,41 +747,87 @@ function createStaffEmailInboxRoutes(deps) {
     }
     if (!pre) return;
     const { actor, input, digest } = pre;
-    if (input.approval_id == null) return sendJSON(res, 400, INVALID_REQUEST);
     try {
       const result = await withPgClient(async (pg) => {
         let began = false;
         try { await pg.query('BEGIN'); began = true; } catch { began = false; }
         try {
-          const locked = await pg.query(SQL_LOCK, [input.approval_id, actor.client_id, input.conversation_id]);
-          if (!locked || !locked.rows || locked.rows.length !== 1) {
-            if (began) await pg.query('ROLLBACK');
-            return { status: 404, body: NOT_FOUND, code: 'approval_not_found' };
-          }
-          const row = locked.rows[0];
-          if (row.state !== 'draft' && row.state !== 'approved') {
-            if (began) await pg.query('ROLLBACK');
-            return { status: 409, body: APPROVAL_CONFLICT, code: 'approval_not_dispatchable' };
-          }
-          if (row.message_text !== input.message_text || row.body_digest !== digest) {
-            if (began) await pg.query('ROLLBACK');
-            return { status: 409, body: BODY_MISMATCH, code: 'body_mismatch' };
-          }
-          const auth = await resolveAuthority(pg, actor, input.conversation_id);
-          if (!auth) {
-            if (began) await pg.query('ROLLBACK');
-            return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
-          }
-          if (!authorityMatchesApproval(auth, row)) {
-            if (began) await pg.query('ROLLBACK');
-            return { status: 409, body: APPROVAL_CONFLICT, code: 'authority_drift' };
+          let row;
+          let auth;
+          let approvalId = input.approval_id;
+          if (approvalId == null) {
+            auth = await resolveAuthority(pg, actor, input.conversation_id);
+            if (!auth) {
+              if (began) await pg.query('ROLLBACK');
+              return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
+            }
+            const mintedApprovalId = mintUuid();
+            const mintedOperationId = mintUuid();
+            const ins = await pg.query(SQL_INSERT_DRAFT, [
+              mintedApprovalId, mintedOperationId, auth.client_id, auth.location_id,
+              auth.location_key, auth.endpoint_id, auth.conversation_id, auth.source_inbound_event_id,
+              auth.provider_mailbox_id, auth.provider_source_message_id, actor.staff_user_id,
+              input.message_text, digest,
+            ]);
+            if (!ins || !ins.rows || ins.rows.length !== 1) {
+              if (began) await pg.query('ROLLBACK');
+              return { status: 500, body: Object.freeze({ success: false, error: 'approve_failed' }), code: 'draft_insert_failed' };
+            }
+            approvalId = mintedApprovalId;
+            row = {
+              approval_id: mintedApprovalId,
+              operation_id: mintedOperationId,
+              client_id: auth.client_id,
+              location_id: auth.location_id,
+              location_key: auth.location_key,
+              endpoint_id: auth.endpoint_id,
+              conversation_id: auth.conversation_id,
+              source_inbound_event_id: auth.source_inbound_event_id,
+              provider: auth.provider,
+              provider_mailbox_id: auth.provider_mailbox_id,
+              provider_source_message_id: auth.provider_source_message_id,
+              message_text: input.message_text,
+              body_digest: digest,
+              state: 'draft',
+            };
+          } else {
+            const locked = await pg.query(SQL_LOCK, [approvalId, actor.client_id, input.conversation_id]);
+            if (!locked || !locked.rows || locked.rows.length !== 1) {
+              if (began) await pg.query('ROLLBACK');
+              return { status: 404, body: NOT_FOUND, code: 'approval_not_found' };
+            }
+            row = locked.rows[0];
+            if (row.state !== 'draft' && row.state !== 'approved') {
+              if (began) await pg.query('ROLLBACK');
+              return { status: 409, body: APPROVAL_CONFLICT, code: 'approval_not_dispatchable' };
+            }
+            if (row.message_text !== input.message_text || row.body_digest !== digest) {
+              if (began) await pg.query('ROLLBACK');
+              return { status: 409, body: BODY_MISMATCH, code: 'body_mismatch' };
+            }
+            auth = await resolveAuthority(pg, actor, input.conversation_id);
+            if (!auth) {
+              if (began) await pg.query('ROLLBACK');
+              return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
+            }
+            if (!authorityMatchesApproval(auth, row)) {
+              if (began) await pg.query('ROLLBACK');
+              return { status: 409, body: APPROVAL_CONFLICT, code: 'authority_drift' };
+            }
           }
           // Kill switch: bound endpoint outbound must be true before durable approve CAS.
           if (auth.endpoint_outbound_enabled !== true) {
             if (began) await pg.query('ROLLBACK');
-            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'draft' }),
-              code: 'email_send_disabled', approval_id: input.approval_id, approved: false };
+            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'draft' }),
+              code: 'email_send_disabled', approval_id: approvalId, approved: false };
           }
+          const lastSubject = await loadLastPersistedSubject(pg, auth.client_id, auth.conversation_id);
+          const subjectRes = resolveSendSubject(input, lastSubject);
+          if (!subjectRes || subjectRes.ok !== true) {
+            if (began) await pg.query('ROLLBACK');
+            return { status: 400, body: INVALID_REQUEST, code: 'subject_invalid' };
+          }
+          const sendSubject = typeof subjectRes.value === 'string' ? subjectRes.value : null;
           const lockedOperationId = parseUuid(typeof row.operation_id === 'string' ? row.operation_id : null);
           if (!lockedOperationId) {
             if (began) await pg.query('ROLLBACK');
@@ -755,7 +837,7 @@ function createStaffEmailInboxRoutes(deps) {
             // Dispatch an approved record here only if this immutable operation
             // has never entered the journal. Any row or malformed result closes.
             const journal = await pg.query(SQL_JOURNAL_EXISTS, [
-              actor.client_id, input.approval_id, lockedOperationId, input.conversation_id,
+              actor.client_id, approvalId, lockedOperationId, input.conversation_id,
             ]);
             if (!journal || !Array.isArray(journal.rows) || journal.rows.length !== 0) {
               if (began) await pg.query('ROLLBACK');
@@ -763,13 +845,14 @@ function createStaffEmailInboxRoutes(deps) {
             }
           } else {
             const approved = await pg.query(SQL_APPROVE, [
-              input.approval_id, actor.client_id, input.conversation_id, lockedOperationId,
+              approvalId, actor.client_id, input.conversation_id, lockedOperationId,
               actor.staff_user_id, input.message_text, digest,
             ]);
             if (!approved || !approved.rows || approved.rows.length !== 1) {
               if (began) await pg.query('ROLLBACK');
               return { status: 409, body: APPROVAL_CONFLICT, code: 'approve_cas_miss' };
             }
+            row.state = 'approved';
           }
           if (began) await pg.query('COMMIT');
           // Post-COMMIT only. Global send + composition flags independently required.
@@ -777,13 +860,13 @@ function createStaffEmailInboxRoutes(deps) {
           const sendEnabled = isEmailOutboundSendEnabled(env);
           const compositionEnabled = isEmailOutboundRuntimeCompositionEnabled(env);
           if (!sendEnabled || !compositionEnabled) {
-            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'approved' }),
-              code: 'email_send_disabled', approval_id: input.approval_id, approved: true };
+            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
+              code: 'email_send_disabled', approval_id: approvalId, approved: true };
           }
-          const sealed = sealApprovedDispatchRequest(row, auth, actor, lockedOperationId);
+          const sealed = sealApprovedDispatchRequest(row, auth, actor, lockedOperationId, sendSubject);
           if (!sealed) {
-            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'approved' }),
-              code: 'email_send_unavailable', approval_id: input.approval_id, approved: true };
+            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
+              code: 'email_send_unavailable', approval_id: approvalId, approved: true };
           }
           let dispatchResult = null;
           // Full runtime env for owner pins (gateEnv is flag snapshot only).
@@ -793,22 +876,22 @@ function createStaffEmailInboxRoutes(deps) {
             try {
               const surface = createOutboundDispatch(pg, compositionEnv);
               if (!surface || typeof surface.dispatchApprovedOutbound !== 'function') {
-                return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'approved' }),
-                  code: 'email_send_unavailable', approval_id: input.approval_id, approved: true };
+                return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
+                  code: 'email_send_unavailable', approval_id: approvalId, approved: true };
               }
               dispatchResult = await surface.dispatchApprovedOutbound(sealed);
             } catch {
-              return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'approved' }),
-                code: 'email_send_unavailable', approval_id: input.approval_id, approved: true };
+              return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
+                code: 'email_send_unavailable', approval_id: approvalId, approved: true };
             }
           } else if (typeof outboundDispatch === 'function') {
             dispatchResult = await outboundDispatch(sealed);
           } else {
-            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: input.approval_id, approval_state: 'approved' }),
-              code: 'email_send_disabled_unreachable', approval_id: input.approval_id, approved: true };
+            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
+              code: 'email_send_disabled_unreachable', approval_id: approvalId, approved: true };
           }
-          const mapped = mapDispatchToRoute(dispatchResult, input.conversation_id, input.approval_id);
-          return { ...mapped, approval_id: input.approval_id };
+          const mapped = mapDispatchToRoute(dispatchResult, input.conversation_id, approvalId);
+          return { ...mapped, approval_id: approvalId, send_subject: sendSubject };
         } catch (err) {
           if (began) { try { await pg.query('ROLLBACK'); } catch { /* */ } }
           throw err;
@@ -820,7 +903,13 @@ function createStaffEmailInboxRoutes(deps) {
         && result.body
         && result.body.success === true;
       if (deliveryCommitted === true) {
-        await mirrorCommittedOutboundThread(actor, input.conversation_id, input.approval_id, input.message_text);
+        await mirrorCommittedOutboundThread(
+          actor,
+          input.conversation_id,
+          result.approval_id,
+          input.message_text,
+          result.send_subject,
+        );
       }
       auditSafe(appendAuditLog, { intent: 'api:inbox.email.approve_send', category: 'email_inbox_approve_send',
         success: deliveryCommitted === true, code: result.code, approval_id: result.approval_id || input.approval_id,
