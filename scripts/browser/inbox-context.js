@@ -1250,13 +1250,11 @@ function inboxCustomerUnmatchedHtml(conv) {
 function inboxCustomerPaint(sidebar, conv, composite, customer) {
   if (!sidebar) return;
   var bound = (typeof inboxCustomerHasBoundGuest === 'function')
-    ? inboxCustomerHasBoundGuest(conv, customer || inboxContextLastCustomer)
+    ? inboxCustomerHasBoundGuest(conv, customer)
     : !!(customer && customer.success !== false && customer.phone);
   if (!bound) {
     inboxContextLastConv = conv;
-    if (typeof inboxCustomerHasBoundGuest === 'function' && !inboxCustomerHasBoundGuest(conv, inboxContextLastCustomer)) {
-      inboxContextLastCustomer = null;
-    }
+    inboxContextLastCustomer = null;
     sidebar.innerHTML = inboxCustomerUnmatchedHtml(conv);
     inboxContextWireActions(sidebar, { conversation: conv });
     return;

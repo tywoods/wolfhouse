@@ -52,13 +52,18 @@ function loadChrome() {
     inboxCustomerUnmatchedHtml,
     inboxCustomerFromConv,
     inboxCustomerPaint,
-    renderInboxConvCardHtml: (typeof renderInboxConvCardHtml === 'function') ? renderInboxConvCardHtml : null,
   };`, sandbox);
   return sandbox.__inbox;
 }
 
 const chrome = loadChrome();
 const OPAQUE = 'emailv1:sunset-somo:32cb2f9a0123456789abcdef0123456789abcdef0123456789abcdef01234567';
+const leftover = {
+  success: true,
+  phone: '+34600111222',
+  identity: { display_name: 'Wrong Guest', email: 'wrong@sunset.test' },
+  bookings: [{ booking_code: 'SUNSET-WRONG' }],
+};
 
 assert.strictEqual(chrome.inboxIsOpaqueEmailIdentity(OPAQUE), true);
 assert.strictEqual(chrome.inboxIsOpaqueEmailIdentity('+34600111222'), false);
@@ -71,10 +76,10 @@ assert.strictEqual(
   chrome.inboxPersonDisplayName({ guest_name: 'Ada', phone: OPAQUE, email: 'ada@sunset.test' }),
   'Ada'
 );
-assert.ok(!chrome.inboxCustomerHasBoundGuest({ phone: OPAQUE, guest_email: 'ada@sunset.test' }));
+assert.ok(!chrome.inboxCustomerHasBoundGuest({ phone: OPAQUE, guest_email: 'ada@sunset.test' }, leftover));
 assert.ok(chrome.inboxCustomerHasBoundGuest({ phone: '+34600111222' }));
 assert.ok(chrome.inboxCustomerHasBoundGuest({ phone: OPAQUE, guest_id: 'guest-1' }), 'Skipper guest_id binds');
-assert.strictEqual(chrome.inboxBoundCustomerPhone({ phone: OPAQUE }), '');
+assert.strictEqual(chrome.inboxBoundCustomerPhone({ phone: OPAQUE }, leftover), '');
 
 const unmatched = chrome.inboxCustomerUnmatchedHtml({
   phone: OPAQUE,
@@ -101,10 +106,12 @@ chrome.inboxCustomerPaint(sidebar, {
   phone: OPAQUE,
   guest_name: OPAQUE,
   guest_email: 'ty@sunset.test',
-}, { bookings: [{ booking_code: 'SUNSET-FAKE', booking_status: 'confirmed' }] }, null);
+}, { bookings: [{ booking_code: 'SUNSET-FAKE', booking_status: 'confirmed' }] }, leftover);
 assert.ok(sidebar.innerHTML.includes('No guest yet'));
 assert.ok(sidebar.innerHTML.includes('ty@sunset.test'));
+assert.ok(!sidebar.innerHTML.includes('Wrong Guest'), 'does not paint leftover guest');
 assert.ok(!sidebar.innerHTML.includes('SUNSET-FAKE'), 'does not paint contradicting bookings');
+assert.ok(!sidebar.innerHTML.includes('SUNSET-WRONG'));
 assert.ok(!sidebar.innerHTML.includes(OPAQUE));
 
 const waSidebar = { innerHTML: '', querySelector() { return null; }, querySelectorAll() { return []; } };

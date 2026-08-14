@@ -176,11 +176,7 @@ function inboxComposerChannelFor(conv){
 }
 
 function inboxGuestEmailOf(conv){
-  var email = (conv && (conv.email || conv.guest_email)) || '';
-  if (!email && typeof inboxContextLastCustomer !== 'undefined' && inboxContextLastCustomer && inboxContextLastCustomer.identity) {
-    email = inboxContextLastCustomer.identity.email || '';
-  }
-  return String(email || '').trim();
+  return String((conv && (conv.email || conv.guest_email)) || '').trim();
 }
 
 function inboxIsOpaqueEmailIdentity(value){
@@ -201,57 +197,74 @@ function inboxIsHonestPersonLabel(value){
 
 function inboxConversationBoundGuestId(conv, customer){
   var c = conv || {};
-  var cust = customer || {};
-  var id = cust.identity || {};
-  return String(
-    c.guest_id || c.customer_id || c.bound_guest_id || c.matched_guest_id ||
-    cust.guest_id || cust.customer_id || id.guest_id || id.customer_id || ''
-  ).trim();
+  var own = String(c.guest_id || c.customer_id || c.bound_guest_id || c.matched_guest_id || '').trim();
+  if (own) return own;
+  if (!customer) return '';
+  var id = customer.identity || {};
+  return String(customer.guest_id || customer.customer_id || id.guest_id || id.customer_id || '').trim();
+}
+
+function inboxNormalizeHonestPhone(raw){
+  raw = String(raw == null ? '' : raw).trim();
+  if (!raw || inboxIsOpaqueEmailIdentity(raw)) return '';
+  if (inboxIsEmailcustIdentity(raw)) return raw;
+  if (typeof normalizeCustomerPhoneClient === 'function') {
+    var normalized = normalizeCustomerPhoneClient(raw);
+    if (normalized && normalized.length >= 11) return normalized;
+    return '';
+  }
+  return /^\+[1-9]\d{9,14}$/.test(raw) ? raw : '';
 }
 
 function inboxBoundCustomerPhone(conv, customer){
   var c = conv || {};
-  var cust = customer || {};
-  var candidates = [cust.phone, c.customer_phone, c.bound_phone, c.guest_phone, c.phone];
-  for (var i = 0; i < candidates.length; i++) {
-    var raw = String(candidates[i] == null ? '' : candidates[i]).trim();
-    if (!raw || inboxIsOpaqueEmailIdentity(raw)) continue;
-    if (inboxIsEmailcustIdentity(raw)) return raw;
-    if (typeof normalizeCustomerPhoneClient === 'function') {
-      var normalized = normalizeCustomerPhoneClient(raw);
-      if (normalized && normalized.length >= 11) return normalized;
-    } else if (/^\+[1-9]\d{9,14}$/.test(raw)) {
-      return raw;
-    }
-  }
-  return '';
+  var own = inboxNormalizeHonestPhone(c.phone || c.guest_phone || '');
+  if (own) return own;
+  if (!customer || customer.success === false) return '';
+  var convId = String(c.guest_id || c.customer_id || c.bound_guest_id || c.matched_guest_id || '').trim();
+  var custId = inboxConversationBoundGuestId(null, customer);
+  var convEmail = String(c.email || c.guest_email || '').trim().toLowerCase();
+  var custEmail = String(((customer.identity && customer.identity.email) || customer.email) || '').trim().toLowerCase();
+  var match = (convId && custId && convId === custId) || (convEmail && custEmail && convEmail === custEmail);
+  if (!match) return '';
+  return inboxNormalizeHonestPhone(customer.phone || '');
 }
 
 function inboxPersonDisplayName(conv, extras){
   extras = extras || {};
   var customer = extras.customer || {};
   var id = customer.identity || {};
-  var candidates = [
-    extras.display_name,
-    id.display_name,
+  var useCustomer = !!(extras.customer && inboxCustomerHasBoundGuest(conv, extras.customer));
+  var candidates = [];
+  if (useCustomer) {
+    candidates.push(id.display_name, customer.display_name, id.email, customer.email);
+  }
+  candidates.push(
     conv && conv.guest_name,
     conv && conv.display_name,
-    customer.display_name,
+    extras.display_name,
     extras.email,
-    inboxGuestEmailOf(conv),
-    id.email,
     conv && conv.guest_email,
-    conv && conv.email,
-  ];
+    conv && conv.email
+  );
   for (var i = 0; i < candidates.length; i++) {
     if (inboxIsHonestPersonLabel(candidates[i])) return String(candidates[i]).trim();
   }
-  return 'Guest';
+  var ownEmail = String((conv && (conv.email || conv.guest_email)) || '').trim();
+  return inboxIsHonestPersonLabel(ownEmail) ? ownEmail : 'Guest';
 }
 
 function inboxCustomerHasBoundGuest(conv, customer){
-  if (inboxConversationBoundGuestId(conv, customer)) return true;
-  if (inboxBoundCustomerPhone(conv, customer)) return true;
+  if (inboxConversationBoundGuestId(conv, null)) return true;
+  if (inboxBoundCustomerPhone(conv, null)) return true;
+  if (customer && customer.success !== false) {
+    var convId = inboxConversationBoundGuestId(conv, null);
+    var custId = inboxConversationBoundGuestId(null, customer);
+    if (convId && custId && String(convId) === String(custId)) return true;
+    var convEmail = String((conv && (conv.email || conv.guest_email)) || '').trim().toLowerCase();
+    var custEmail = String(((customer.identity && customer.identity.email) || customer.email) || '').trim().toLowerCase();
+    if (convEmail && custEmail && convEmail === custEmail) return true;
+  }
   return false;
 }
 
