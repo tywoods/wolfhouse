@@ -312,14 +312,14 @@ function main() {
   ok('migration065 readiness + 064 sibling + query_version pins',
     MIGRATION_065_ID === '065_tenant_email_delta_recovery_operations'
     && MIGRATION_064_ID === '064_tenant_email_inbound_delta_states'
-    && QUERY_VERSION === 'ms_messages_delta_v1'
+    && QUERY_VERSION === 'ms_messages_delta_from_now_v2'
     && MIGRATION_065_READINESS_CONTRACT.applied_by_this_module === false
     && MIGRATION_065_READINESS_CONTRACT.ddl_allowed === false
     && MIGRATION_065_READINESS_CONTRACT.prior_sibling_id === MIGRATION_064_ID
     && MIGRATION_064_READINESS_CONTRACT.readiness_tip === false
     && mig.includes('tenant_email_delta_recovery_operations')
     && mig064.includes('tenant_email_inbound_delta_states')
-    && mig064.includes('ms_messages_delta_v1'));
+    && JSON.stringify(manifest).includes('080_tenant_email_delta_from_now_v2'));
   ok('manifest includes 064 and 065',
     JSON.stringify(manifest).includes('064_tenant_email_inbound_delta_states')
     && JSON.stringify(manifest).includes('065_tenant_email_delta_recovery_operations'));
@@ -437,7 +437,6 @@ function main() {
     ['worker only', exactEnv({ [E_WORK]: 'true' })],
     ['admin only', exactEnv({ [E_ADMIN]: 'true' })],
     ['both', exactEnv({ [E_WORK]: 'true', [E_ADMIN]: 'true' })],
-    ['composition+worker', enabledComposition({ [E_WORK]: 'true' })],
     ['composition+admin', enabledComposition({ [E_ADMIN]: 'true' })],
     ['all three', enabledComposition({ [E_WORK]: 'true', [E_ADMIN]: 'true' })],
   ]) {
@@ -632,10 +631,10 @@ function main() {
         && Array.isArray(b.nestedCallables) && b.nestedCallables.length === 0,
     },
     {
-      name: 'worker rejected: zero owner load',
+      name: 'worker incomplete activation: zero owner load',
       action: { kind: 'parse', env: enabledComposition({ [E_WORK]: 'true' }) },
       expect: (b) => b
-        && b.status === 'activation_rejected'
+        && b.status === 'config_invalid'
         && b.ok === false
         && b.worker_activation_possible === false
         && Array.isArray(b.hits) && b.hits.length === 0

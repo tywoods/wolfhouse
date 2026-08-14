@@ -1,441 +1,53 @@
 'use strict';
+/** Sunset-only active inbound delta composition. Import performs no I/O. */
+const { createEmailDeltaSunsetStagingWorker } = require('./email-delta-sunset-staging-worker');
+const { createSunsetMicrosoftOAuthClientSecretProvider } = require('./sunset-microsoft-oauth-provider');
+const { createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition } = require('./email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
+const { validateEmailGrantEnvelopeProvider } = require('./email-grant-envelope-provider-contract');
+const { createMicrosoftTokenHttpTransport } = require('./email-microsoft-token-http-transport');
+const { createDelegatedGrantAccessSession } = require('./email-delegated-grant-access-session');
+const { createMicrosoftGraphMessagesDeltaPageTransport } = require('./email-microsoft-graph-messages-delta-page-transport');
+const { createAuthorityBoundMessagesDeltaPageOperation } = require('./email-authority-bound-messages-delta-page-operation');
+const { createEmailInboundInboxBridge } = require('./email-inbound-inbox-bridge');
+const config = require('./email-delta-runtime-config');
 
-/**
- * Sunset-staging Staff API email-delta runtime composition (default-off / inert).
- *
- * Structurally integrated config + readiness/lifecycle surface only.
- * Provably inert: default-off, activation-impossible for worker/admin, no
- * runnable scheduler or admin route in this PR.
- *
- * Exact independent flags (see email-delta-runtime-config):
- *   LUNA_EMAIL_DELTA_RUNTIME_COMPOSITION_ENABLED
- *   LUNA_EMAIL_DELTA_WORKER_ENABLED  — true rejected
- *   LUNA_EMAIL_DELTA_ADMIN_ENABLED   — true rejected
- *
- * Composition enabled alone (with exact deployment=sunset-staging,
- * tenant=sunset, migration065 contract, canonical worker id, pinned KV env)
- * yields frozen composition_inert readiness. No DB/KV SDK/Graph/timer/lease/
- * migration/DDL work on import, factory, readiness, or hard-fail lifecycle.
- *
- * Activation capability escape removed: public exports and returned surface
- * never expose or load #410 durable-operation owners, Graph transport, delta
- * store, grant session, KV provider/composition constructors, withPgClient,
- * or dependency bags. No generic owner-loader path. run/reconcile/restart
- * hard-fail without touching dependencies.
- *
- * Future exclusive transaction-client adapter is documented on the config
- * module; this PR never passes getPool, never closes the application pool,
- * and never takes a DB loan.
- *
- * Public surface: exact frozen readiness + lifecycle only.
- * run / reconcile / restart hard-fail without touching dependencies.
- *
- * Module-init pins include Object.freeze alongside isFrozen; all
- * errors/lifecycle/surface/constants freeze via the pinned callable.
- * Env surface hostility (symbol/nonenumerable/accessor/malformed) is
- * fail-closed by the config adapter before selected reads.
- *
- * @module email-delta-sunset-staging-runtime-composition
- */
-
-const util = require('util');
-
-const {
-  ERROR_CODE: CONFIG_ERROR_CODE,
-  SUNSET_DEPLOYMENT,
-  SUNSET_TENANT,
-  WORKER_ID,
-  MIGRATION_065_ID,
-  MIGRATION_064_ID,
-  QUERY_VERSION,
-  ENV_COMPOSITION_ENABLED,
-  ENV_WORKER_ENABLED,
-  ENV_ADMIN_ENABLED,
-  CONFIG_STATUS,
-  READINESS_KEYS,
-  MIGRATION_065_READINESS_CONTRACT,
-  MIGRATION_064_READINESS_CONTRACT,
-  CANONICAL_WORKER_CONFIG,
-  FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT,
-  parseEmailDeltaRuntimeConfig,
-  isEmailDeltaCompositionFlagEnabled,
-} = require('./email-delta-runtime-config');
-
-const ERROR_CODE = 'EMAIL_DELTA_SUNSET_STAGING_RUNTIME_COMPOSITION_INVALID';
-const ERROR_MESSAGE = 'Email delta sunset-staging runtime composition failed.';
-
-const EMAIL_DELTA_RUNTIME_COMPOSITION_RUNTIME_WIRED = false;
-const EMAIL_DELTA_RUNTIME_COMPOSITION_IMPORT_INERT = true;
-const EMAIL_DELTA_RUNTIME_COMPOSITION_SAFE_FOR_SCHEDULER = false;
-const EMAIL_DELTA_RUNTIME_COMPOSITION_SAFE_FOR_ADMIN_ROUTE = false;
-const EMAIL_DELTA_RUNTIME_COMPOSITION_ACTIVATION_POSSIBLE = false;
-
-const ACTIVATION_HARD_FAIL_CODE = 'email_delta_activation_impossible';
-const ACTIVATION_HARD_FAIL_MESSAGE = 'Email delta activation is impossible in this composition.';
-
-const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
-
-/* ── Module-init pins (security-critical intrinsics) ───────────────────────
- * Object.freeze pinned alongside isFrozen so post-require ambient freeze
- * replacement cannot leave lifecycle/surface/error results unfrozen.
- */
-const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
-const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
-  ? PINNED_UTIL_TYPES.isProxy
-  : null;
-const PINNED_OBJECT_PROTOTYPE = Object.prototype;
-const PINNED_REFLECT_APPLY = typeof Reflect.apply === 'function' ? Reflect.apply : null;
-const PINNED_REFLECT_OWN_KEYS = typeof Reflect.ownKeys === 'function' ? Reflect.ownKeys : null;
-const PINNED_GET_OWN_PROPERTY_DESCRIPTOR =
-  typeof Object.getOwnPropertyDescriptor === 'function' ? Object.getOwnPropertyDescriptor : null;
-const PINNED_GET_PROTOTYPE_OF =
-  typeof Object.getPrototypeOf === 'function' ? Object.getPrototypeOf : null;
-const PINNED_OBJECT_FREEZE =
-  typeof Object.freeze === 'function' ? Object.freeze : null;
-const PINNED_IS_FROZEN =
-  typeof Object.isFrozen === 'function' ? Object.isFrozen : null;
-const PINNED_HAS_OWN =
-  typeof Object.prototype.hasOwnProperty === 'function'
-    ? Object.prototype.hasOwnProperty
-    : null;
-
-const PINNED_INTRINSICS_READY = Boolean(
-  PINNED_IS_PROXY
-  && PINNED_UTIL_TYPES
-  && PINNED_REFLECT_APPLY
-  && PINNED_REFLECT_OWN_KEYS
-  && PINNED_GET_OWN_PROPERTY_DESCRIPTOR
-  && PINNED_GET_PROTOTYPE_OF
-  && PINNED_OBJECT_FREEZE
-  && PINNED_IS_FROZEN
-  && PINNED_HAS_OWN
-  && PINNED_OBJECT_PROTOTYPE,
-);
-
-/** Pinned freeze — never ambient Object.freeze after module init. */
-function pinnedFreeze(value) {
-  return PINNED_OBJECT_FREEZE.call(Object, value);
-}
-
-const DEPENDENCY_KEYS = pinnedFreeze(['env']);
-
-const LIFECYCLE_KEYS = pinnedFreeze([
-  'state',
-  'import_inert',
-  'startup_side_effect_free',
-  'db_touch',
-  'pool_constructed',
-  'kv_sdk_touch',
-  'crypto_unwrap',
-  'graph_touch',
-  'timer_touch',
-  'lease_touch',
-  'migration_applied',
-  'scheduler_started',
-  'admin_route_mounted',
-  'runtime_activation',
-]);
-
-/** Public surface only — no owner-loader, no #410 factory, no dependency bag. */
-const SURFACE_KEYS = pinnedFreeze([
-  'getReadiness',
-  'getLifecycle',
-  'run',
-  'reconcile',
-  'restart',
-]);
-
-// Static alignment with config pins.
-if (SUNSET_DEPLOYMENT !== 'sunset-staging') {
-  throw new Error('email_delta_runtime_composition_sunset_deployment_mismatch');
-}
-if (SUNSET_TENANT !== 'sunset') {
-  throw new Error('email_delta_runtime_composition_sunset_tenant_mismatch');
-}
-if (QUERY_VERSION !== 'ms_messages_delta_v1') {
-  throw new Error('email_delta_runtime_composition_query_version_unexpected');
-}
-if (MIGRATION_065_ID !== '065_tenant_email_delta_recovery_operations') {
-  throw new Error('email_delta_runtime_composition_migration_pin_unexpected');
-}
-if (MIGRATION_064_ID !== '064_tenant_email_inbound_delta_states') {
-  throw new Error('email_delta_runtime_composition_prior_migration_pin_unexpected');
-}
-if (EMAIL_DELTA_RUNTIME_COMPOSITION_ACTIVATION_POSSIBLE !== false) {
-  throw new Error('email_delta_runtime_composition_activation_possible_unexpected');
-}
-if (EMAIL_DELTA_RUNTIME_COMPOSITION_RUNTIME_WIRED !== false) {
-  throw new Error('email_delta_runtime_composition_runtime_wired_unexpected');
-}
-
-function failure() {
-  const error = new Error(ERROR_MESSAGE);
-  Object.defineProperty(error, 'name', {
-    value: 'EmailDeltaSunsetStagingRuntimeCompositionError',
+const { SUNSET_DEPLOYMENT,SUNSET_TENANT,WORKER_ID,QUERY_VERSION,ENV_COMPOSITION_ENABLED,ENV_WORKER_ENABLED,ENV_ADMIN_ENABLED,parseEmailDeltaRuntimeConfig }=config;
+const MIGRATION_080_ID='080_tenant_email_delta_from_now_v2';
+const REQUIRED_KEYS=Object.freeze(['env','withPgClient','https','timers','intervalMs']);
+const SCHEMA_VERIFY_SQL=`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='tenant_email_delta_activation_boundaries') AS boundary_table, EXISTS (SELECT 1 FROM pg_constraint WHERE conname='tenant_email_inbound_delta_states_query_version_exact' AND pg_get_constraintdef(oid) LIKE '%ms_messages_delta_from_now_v2%') AS query_constraint`;
+function resolveEmailDeltaSunsetStagingRuntimeReadiness(env){return parseEmailDeltaRuntimeConfig(env===undefined?process.env:env);}
+function fail(){const e=new Error('Email delta sunset-staging runtime composition failed.');Object.defineProperty(e,'code',{value:'EMAIL_DELTA_SUNSET_STAGING_RUNTIME_COMPOSITION_INVALID',enumerable:true});return Object.freeze(e);}
+function exactDeps(d){return d&&Object.getPrototypeOf(d)===Object.prototype&&Reflect.ownKeys(d).length===REQUIRED_KEYS.length&&REQUIRED_KEYS.every(k=>Object.prototype.hasOwnProperty.call(d,k));}
+function createEmailDeltaSunsetStagingRuntimeComposition(deps){
+ try{
+  if(!exactDeps(deps)||typeof deps.withPgClient!=='function'||!deps.https||!deps.timers||typeof deps.timers.setTimeout!=='function'||typeof deps.timers.clearTimeout!=='function'||!Number.isInteger(deps.intervalMs))throw fail();
+  const readiness=parseEmailDeltaRuntimeConfig(deps.env);
+  if(!readiness||readiness.runtime_activation!==true||readiness.ok!==true)throw fail();
+  const kv=createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(deps.env), validated=kv&&validateEmailGrantEnvelopeProvider(kv.provider);
+  if(!kv||kv.ok!==true||!validated||validated.ok!==true)throw fail();
+  const secretProvider=createSunsetMicrosoftOAuthClientSecretProvider(Object.freeze({deployment:SUNSET_DEPLOYMENT,env:deps.env}));
+  const tokenTransport=createMicrosoftTokenHttpTransport(Object.freeze({httpsImpl:deps.https,timers:deps.timers}));
+  let currentClient=null;
+  const worker=createEmailDeltaSunsetStagingWorker({timers:deps.timers,intervalMs:deps.intervalMs,
+   query:(sql,args)=>currentClient.query(sql,args),
+   runPage:async authority=>{
+    const client=currentClient;
+    const graphTransport=createMicrosoftGraphMessagesDeltaPageTransport(Object.freeze({httpsImpl:deps.https,timers:deps.timers}),authority.activationWatermark);
+    const createGrantSession=()=>createDelegatedGrantAccessSession(Object.freeze({deployment:SUNSET_DEPLOYMENT,applicationClientId:deps.env[config.ENV_OAUTH_CLIENT_ID].toLowerCase(),client,envelopeProvider:validated.value,secretProvider,transport:tokenTransport,workerId:WORKER_ID}));
+    const operation=createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({db:client,createGrantSession,messagesDeltaPageTransport:graphTransport,withTransactionClient:async work=>work(client),envelopeProvider:validated.value}));
+    const cleanAuthority=Object.freeze({clientId:authority.clientId,locationId:authority.locationId,endpointId:authority.endpointId});
+    const result=await operation.runAuthorityBoundMessagesDeltaPage(cleanAuthority);
+    if(!result||result.ok!==true)throw fail(); return result.value;
+   },
+   projectEvent:async event=>createEmailInboundInboxBridge({withTransactionClient:async work=>work(currentClient)}).projectInboundEvent({clientId:event.clientId,locationId:event.locationId,endpointId:event.endpointId,provider:event.provider,providerMailboxId:event.providerMailboxId,providerMessageId:event.providerMessageId}),
   });
-  Object.defineProperty(error, 'code', { value: ERROR_CODE, enumerable: true });
-  return pinnedFreeze(error);
+  let tickPromise=null,timer=null,stopped=true,schemaVerified=false;
+  async function verifySchema(){if(schemaVerified)return;await deps.withPgClient(async client=>{const r=await client.query(SCHEMA_VERIFY_SQL,[]);if(!r||!r.rows||r.rows.length!==1||r.rows[0].boundary_table!==true||r.rows[0].query_constraint!==true)throw fail();});schemaVerified=true;}
+  async function tick(){if(tickPromise)return Object.freeze({status:'overlap_skipped'});tickPromise=(async()=>{await verifySchema();return deps.withPgClient(async client=>{currentClient=client;try{return await worker.tick();}finally{currentClient=null;}});})();try{return await tickPromise;}finally{tickPromise=null;}}
+  function arm(){if(stopped)return;timer=deps.timers.setTimeout(async()=>{try{await tick();}catch(_err){console.error('email_delta_runtime_tick_failed');}finally{arm();}},deps.intervalMs);}
+  async function start(){if(!stopped)return;await verifySchema();stopped=false;arm();}
+  async function stop(){stopped=true;if(timer!==null){deps.timers.clearTimeout(timer);timer=null;}if(tickPromise)await tickPromise;}
+  return Object.freeze({start,stop,tick,getReadiness:()=>readiness});
+ }catch(err){if(err&&err.code==='EMAIL_DELTA_SUNSET_STAGING_RUNTIME_COMPOSITION_INVALID')throw err;throw fail();}
 }
-
-function activationHardFail() {
-  const error = new Error(ACTIVATION_HARD_FAIL_MESSAGE);
-  Object.defineProperty(error, 'name', {
-    value: 'EmailDeltaActivationImpossibleError',
-  });
-  Object.defineProperty(error, 'code', {
-    value: ACTIVATION_HARD_FAIL_CODE,
-    enumerable: true,
-  });
-  return pinnedFreeze(error);
-}
-
-/** Pinned Object.prototype.hasOwnProperty.call — never ambient rebinding. */
-function safeHasOwn(object, key) {
-  try {
-    if (!PINNED_HAS_OWN || object == null) return false;
-    return PINNED_HAS_OWN.call(object, key) === true;
-  } catch {
-    return false;
-  }
-}
-
-function isProxySurface(value) {
-  try {
-    if (!PINNED_INTRINSICS_READY) return true;
-    return PINNED_REFLECT_APPLY.call(Reflect, PINNED_IS_PROXY, PINNED_UTIL_TYPES, [value]) === true;
-  } catch {
-    return true;
-  }
-}
-
-function ownData(object, key) {
-  try {
-    if (object == null || !PINNED_INTRINSICS_READY || isProxySurface(object)) return undefined;
-    const descriptor = PINNED_GET_OWN_PROPERTY_DESCRIPTOR.call(Object, object, key);
-    return descriptor
-      && safeHasOwn(descriptor, 'value')
-      && !descriptor.get
-      && !descriptor.set
-      ? descriptor.value
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function exactPlainData(object, keys) {
-  try {
-    if (!object || typeof object !== 'object' || Array.isArray(object)) return false;
-    if (!PINNED_INTRINSICS_READY) return false;
-    if (isProxySurface(object)) return false;
-    if (PINNED_GET_PROTOTYPE_OF.call(Object, object) !== PINNED_OBJECT_PROTOTYPE) return false;
-    const actual = PINNED_REFLECT_OWN_KEYS.call(Reflect, object);
-    if (actual.length !== keys.length
-        || actual.some((key) => typeof key !== 'string'
-          || DANGEROUS_KEYS.has(key)
-          || !keys.includes(key))) {
-      return false;
-    }
-    return keys.every((key) => {
-      const descriptor = PINNED_GET_OWN_PROPERTY_DESCRIPTOR.call(Object, object, key);
-      return Boolean(
-        descriptor
-        && safeHasOwn(descriptor, 'value')
-        && descriptor.enumerable
-        && !descriptor.get
-        && !descriptor.set,
-      );
-    });
-  } catch {
-    return false;
-  }
-}
-
-function exactFrozenData(object, keys) {
-  try {
-    if (!object || !PINNED_INTRINSICS_READY) return false;
-    if (PINNED_IS_FROZEN.call(Object, object) !== true) return false;
-    return exactPlainData(object, keys);
-  } catch {
-    return false;
-  }
-}
-
-function assertReadinessShape(readiness) {
-  if (!exactFrozenData(readiness, READINESS_KEYS)) return false;
-  if (typeof ownData(readiness, 'ok') !== 'boolean') return false;
-  if (typeof ownData(readiness, 'status') !== 'string') return false;
-  if (ownData(readiness, 'worker_activation_possible') !== false) return false;
-  if (ownData(readiness, 'admin_activation_possible') !== false) return false;
-  if (ownData(readiness, 'runtime_activation') !== false) return false;
-  if (ownData(readiness, 'scheduler_present') !== false) return false;
-  if (ownData(readiness, 'admin_route_present') !== false) return false;
-  return true;
-}
-
-function lifecycleFromReadiness(readiness) {
-  const status = ownData(readiness, 'status');
-  let state = 'disabled';
-  if (status === CONFIG_STATUS.COMPOSITION_INERT) state = 'inert';
-  else if (status === CONFIG_STATUS.ACTIVATION_REJECTED) state = 'rejected';
-  else if (status === CONFIG_STATUS.CONFIG_INVALID) state = 'invalid';
-  else if (status === CONFIG_STATUS.DISABLED) state = 'disabled';
-
-  return pinnedFreeze({
-    state,
-    import_inert: true,
-    startup_side_effect_free: true,
-    db_touch: false,
-    pool_constructed: false,
-    kv_sdk_touch: false,
-    crypto_unwrap: false,
-    graph_touch: false,
-    timer_touch: false,
-    lease_touch: false,
-    migration_applied: false,
-    scheduler_started: false,
-    admin_route_mounted: false,
-    runtime_activation: false,
-  });
-}
-
-/**
- * Side-effect-free readiness resolve (Staff API safe).
- * Never constructs Pool / Azure SDK / Graph / timers / leases / migrations.
- * Never loads #410 / KV owner / grant / transport modules.
- *
- * @param {object} [env]
- * @returns {Readonly<object>} frozen READINESS_KEYS
- */
-function resolveEmailDeltaSunsetStagingRuntimeReadiness(env) {
-  try {
-    const readiness = parseEmailDeltaRuntimeConfig(
-      env === undefined ? process.env : env,
-    );
-    if (!assertReadinessShape(readiness)) {
-      // Fail closed sanitized if shape drifts.
-      return parseEmailDeltaRuntimeConfig({});
-    }
-    return readiness;
-  } catch {
-    return parseEmailDeltaRuntimeConfig({});
-  }
-}
-
-/**
- * Side-effect-free lifecycle resolve paired with readiness.
- * @param {object} [env]
- * @returns {Readonly<object>} frozen LIFECYCLE_KEYS
- */
-function resolveEmailDeltaSunsetStagingRuntimeLifecycle(env) {
-  const readiness = resolveEmailDeltaSunsetStagingRuntimeReadiness(env);
-  return lifecycleFromReadiness(readiness);
-}
-
-/**
- * Explicit Sunset-staging email-delta runtime composition factory.
- *
- * Accepts exact own-data `{ env }` only. Import-inert; factory does not touch
- * DB / Pool / Azure KV SDK / Graph / timers / leases / migrations.
- * Returns frozen readiness/lifecycle surface; run/reconcile/restart hard-fail.
- * No owner-loader, no #410 factory, no nested callable capability escape.
- *
- * @param {{ env: object }} deps
- * @returns {Readonly<object>}
- */
-function createEmailDeltaSunsetStagingRuntimeComposition(deps) {
-  try {
-    if (deps == null || isProxySurface(deps) || !exactPlainData(deps, DEPENDENCY_KEYS)) {
-      throw failure();
-    }
-    const env = ownData(deps, 'env');
-    if (env == null || isProxySurface(env)
-        || (typeof env !== 'object' && typeof env !== 'function')
-        || Array.isArray(env)) {
-      throw failure();
-    }
-
-    const readiness = parseEmailDeltaRuntimeConfig(env);
-    if (!assertReadinessShape(readiness)) throw failure();
-
-    function getReadiness() {
-      // Return the frozen factory-time snapshot (no re-read of ambient env).
-      return readiness;
-    }
-
-    function getLifecycle() {
-      return lifecycleFromReadiness(readiness);
-    }
-
-    /**
-     * Hard-fail activation surface. Must not touch deps / owners / network / DB.
-     */
-    function run() {
-      throw activationHardFail();
-    }
-
-    function reconcile() {
-      throw activationHardFail();
-    }
-
-    function restart() {
-      throw activationHardFail();
-    }
-
-    const surface = pinnedFreeze({
-      getReadiness,
-      getLifecycle,
-      run,
-      reconcile,
-      restart,
-    });
-
-    // Exact public key set (no extras, no owner-loader).
-    if (!exactFrozenData(surface, SURFACE_KEYS)) {
-      throw failure();
-    }
-
-    return surface;
-  } catch (err) {
-    if (err && (err.code === ERROR_CODE || err.code === ACTIVATION_HARD_FAIL_CODE
-        || err.code === CONFIG_ERROR_CODE)) {
-      throw err;
-    }
-    throw failure();
-  }
-}
-
-module.exports = pinnedFreeze({
-  ERROR_CODE,
-  ERROR_MESSAGE,
-  ACTIVATION_HARD_FAIL_CODE,
-  ACTIVATION_HARD_FAIL_MESSAGE,
-  SUNSET_DEPLOYMENT,
-  SUNSET_TENANT,
-  WORKER_ID,
-  MIGRATION_065_ID,
-  MIGRATION_064_ID,
-  QUERY_VERSION,
-  ENV_COMPOSITION_ENABLED,
-  ENV_WORKER_ENABLED,
-  ENV_ADMIN_ENABLED,
-  DEPENDENCY_KEYS,
-  LIFECYCLE_KEYS,
-  SURFACE_KEYS,
-  READINESS_KEYS,
-  CONFIG_STATUS,
-  MIGRATION_065_READINESS_CONTRACT,
-  MIGRATION_064_READINESS_CONTRACT,
-  CANONICAL_WORKER_CONFIG,
-  FUTURE_PINNED_TRANSACTION_CLIENT_ADAPTER_CONTRACT,
-  EMAIL_DELTA_RUNTIME_COMPOSITION_RUNTIME_WIRED,
-  EMAIL_DELTA_RUNTIME_COMPOSITION_IMPORT_INERT,
-  EMAIL_DELTA_RUNTIME_COMPOSITION_SAFE_FOR_SCHEDULER,
-  EMAIL_DELTA_RUNTIME_COMPOSITION_SAFE_FOR_ADMIN_ROUTE,
-  EMAIL_DELTA_RUNTIME_COMPOSITION_ACTIVATION_POSSIBLE,
-  parseEmailDeltaRuntimeConfig,
-  isEmailDeltaCompositionFlagEnabled,
-  resolveEmailDeltaSunsetStagingRuntimeReadiness,
-  resolveEmailDeltaSunsetStagingRuntimeLifecycle,
-  createEmailDeltaSunsetStagingRuntimeComposition,
-});
+module.exports=Object.freeze({SUNSET_DEPLOYMENT,SUNSET_TENANT,WORKER_ID,QUERY_VERSION,MIGRATION_080_ID,ENV_COMPOSITION_ENABLED,ENV_WORKER_ENABLED,ENV_ADMIN_ENABLED,SCHEMA_VERIFY_SQL,resolveEmailDeltaSunsetStagingRuntimeReadiness,createEmailDeltaSunsetStagingRuntimeComposition});

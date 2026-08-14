@@ -209,15 +209,15 @@ function runStaffApiReadinessShutdown(server, signal, deps = {}) {
   /** Guards against duplicate completion records if terminate throws / re-enters. */
   let completionRecordEmitted = false;
 
-  // Shutdown BEGIN: cancel admission queues / other begin hooks BEFORE
-  // server.close waits on open connections (avoids circular drain delay).
-  // Concurrent signals share shutdownPromise above — this runs exactly once.
-  invokeShutdownBeginHooks(server || boundServer, deps);
+  // Shutdown BEGIN: stop admission immediately, then drain asynchronous participants
+  // (such as the email delta tick) before any pool can close.
+  const beginDrain = invokeShutdownBeginHooks(server || boundServer, deps);
 
   shutdownPromise = (async () => {
     let poolResult = 'ok';
     let serverResult = 'ok';
     try {
+      await beginDrain;
       const poolPromise = invokePoolClose(closePool);
       if (poolPromise === null) {
         poolResult = 'throw';
@@ -268,13 +268,15 @@ function runStaffApiReadinessShutdown(server, signal, deps = {}) {
  * @param {{ onShutdownBegin?: () => void }} deps
  */
 function invokeShutdownBeginHooks(server, deps) {
+  const drains = [];
   if (deps && typeof deps.onShutdownBegin === 'function') {
-    try { deps.onShutdownBegin(); } catch { /* begin hooks are best-effort */ }
+    try { drains.push(Promise.resolve(deps.onShutdownBegin())); } catch { /* best-effort */ }
   }
   const hook = server && server[ON_SHUTDOWN_BEGIN_HOOK];
   if (typeof hook === 'function') {
-    try { hook(); } catch { /* begin hooks are best-effort */ }
+    try { drains.push(Promise.resolve(hook())); } catch { /* best-effort */ }
   }
+  return Promise.allSettled(drains);
 }
 
 /**

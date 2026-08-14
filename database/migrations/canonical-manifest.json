@@ -1045,6 +1045,26 @@
       "rationale": "Down for 078: refuse if rows present (refuse silent WhatsApp draft evidence loss); else DROP TABLE+protect. Parent conversations/staff_users uniques intact.",
       "pairsWith": "078_luna_outbound_approvals.sql",
       "sha256": "ec05d01f4984fff1c72279627d37547f311880a3f17022476382d474ce2be71b"
+    },
+    {
+      "id": "080_tenant_email_delta_from_now_v2",
+      "filename": "080_tenant_email_delta_from_now_v2.sql",
+      "order": 76,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "EMAIL-M1-020 truthful from-now Graph delta query contract; refuses relabelling existing v1 cursor state and advances the exact query-version CHECK on an empty state table. No seed, endpoint mutation, send, or live call.",
+      "downFilename": "080_tenant_email_delta_from_now_v2_down.sql",
+      "sha256": "1b93604ea7b14ff8e4941ce2a2573ff0c47d6191c77f12bcb87e463b876dd053"
+    },
+    {
+      "id": "080_tenant_email_delta_from_now_v2_down",
+      "filename": "080_tenant_email_delta_from_now_v2_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while delta state exists; empty table restores the v1 exact query-version CHECK.",
+      "pairsWith": "080_tenant_email_delta_from_now_v2.sql",
+      "sha256": "749c9b5357226fc61d2ef470bf14569121317cccb5b0f2a16db0496015c4ae6c"
     }
   ]
 }

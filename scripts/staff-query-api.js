@@ -251,6 +251,7 @@ const {
 // operator-recovery gate below (composition alone / admin alone remain inert).
 const {
   resolveEmailDeltaSunsetStagingRuntimeReadiness,
+  createEmailDeltaSunsetStagingRuntimeComposition,
 } = require('./lib/email-delta-sunset-staging-runtime-composition');
 /** Frozen inert readiness only (default-off; never scheduler/worker run). */
 const EMAIL_DELTA_RUNTIME_READINESS =
@@ -48905,12 +48906,37 @@ const server = shouldEagerCreateStaffQueryApiServer()
   ? createStaffQueryApiHttpServer()
   : null;
 
+let EMAIL_DELTA_RUNTIME = null;
 if (require.main === module) {
-  const { attachStaffApiReadinessLifecycle } = require('./lib/staff-api-readiness-lifecycle');
+  const { attachStaffApiReadinessLifecycle, ON_SHUTDOWN_BEGIN_HOOK } = require('./lib/staff-api-readiness-lifecycle');
   attachStaffApiReadinessLifecycle(server);
+  const priorShutdownBegin = server[ON_SHUTDOWN_BEGIN_HOOK];
+  server[ON_SHUTDOWN_BEGIN_HOOK] = () => {
+    const drains = [];
+    if (EMAIL_DELTA_RUNTIME) drains.push(EMAIL_DELTA_RUNTIME.stop());
+    if (typeof priorShutdownBegin === 'function') drains.push(priorShutdownBegin());
+    return Promise.allSettled(drains);
+  };
 }
 
-if (require.main === module) server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
+async function startStaffQueryApiCli() {
+  try {
+    if (EMAIL_DELTA_RUNTIME_READINESS.runtime_activation === true) {
+      EMAIL_DELTA_RUNTIME = createEmailDeltaSunsetStagingRuntimeComposition({
+        env: process.env,
+        withPgClient: _withPgClientImpl,
+        https,
+        timers: { setTimeout, clearTimeout },
+        intervalMs: Number(process.env.LUNA_EMAIL_DELTA_POLL_INTERVAL_MS || 60000),
+      });
+      // Runtime schema verification and scheduler readiness precede socket admission.
+      await EMAIL_DELTA_RUNTIME.start();
+    }
+  } catch {
+    process.exitCode = 1;
+    return;
+  }
+  server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);
   console.log(`  Auth: ${STAFF_AUTH_REQUIRED ? 'REQUIRED (session cookie)' : 'OPTIONAL (STAFF_AUTH_REQUIRED=false — local/dev open mode)'}`);
   console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED'}`);
@@ -48991,8 +49017,11 @@ if (require.main === module) server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () =
     console.log(`    POST http://127.0.0.1:${PORT}/staff/handoff/:id/resolve`);
     console.log(`         <- ${STAFF_AUTH_REQUIRED ? 'requires session with role operator/admin' : 'requires x-staff-operator-token header (local/dev)'}`);
   }
-  console.log('\nCtrl+C to stop.\n');
-});
+    console.log('\nCtrl+C to stop.\n');
+  });
+}
+
+if (require.main === module) void startStaffQueryApiCli();
 
 if (require.main === module) {
   server.on('error', (err) => {
