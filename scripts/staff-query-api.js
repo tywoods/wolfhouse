@@ -20302,10 +20302,10 @@ body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell[data-col4
 .channelAutonomy #cc-luna-global-pause .tabs-global-pause-label,
 .channelAutonomy #cc-luna-global-pause .channelModeIdentity{flex:0 1 auto;min-width:82px;gap:7px}
 .inbox-global-pause .tabs-global-pause-label{flex:0 1 auto;min-width:82px;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;letter-spacing:0;color:#31443a;white-space:nowrap}
-.inbox-global-pause-owl{width:18px;height:18px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}
-.inbox-global-pause-owl svg{width:16px;height:16px;display:block}
-.channelModeIcon.inbox-global-pause-owl{width:18px;height:18px}
-.channelModeIcon.inbox-global-pause-owl svg{width:16px;height:16px}
+.inbox-global-pause-owl{width:18px;height:18px;overflow:visible;display:grid;place-items:center;color:#75847c;flex:0 0 auto}
+.inbox-global-pause-owl svg{width:20px;height:20px;margin:-1px;display:block}
+.channelModeIcon.inbox-global-pause-owl{width:18px;height:18px;overflow:visible}
+.channelModeIcon.inbox-global-pause-owl svg{width:20px;height:20px;margin:-1px}
 .inbox-global-pause .luna-global-pause-switch{display:none!important}
 .channelAutonomy.is-paused{background:rgba(199,74,74,.10);border-color:rgba(199,74,74,.22)}
 [data-theme="dark"] .channelAutonomy{background:var(--surface);border-color:var(--border);box-shadow:none}
