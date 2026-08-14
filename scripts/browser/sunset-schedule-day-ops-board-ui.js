@@ -435,7 +435,6 @@ function scheduleRenderRentalPickupLineRow(line, opts){
     (sub ? '<span class="portal-schedule-ops-row-equip-sub">' + escHtml(sub) + '</span>' : '') +
     '</div>' +
     '<span class="portal-schedule-src-chip ' + chipCls + '"><i aria-hidden="true"></i>' + escHtml(chipLabel) + '</span>' +
-    '<span class="portal-schedule-ops-row-status">' + scheduleDayOpsRowStatusHtml(g) + '</span>' +
     '</div>';
 }
 
