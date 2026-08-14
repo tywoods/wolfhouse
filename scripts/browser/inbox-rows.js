@@ -19,13 +19,15 @@ var INBOX_ROWS_CSS = [
   '#tab-conversations.inbox-legacy-filters-hidden .inbox-left-toolbar,',
   '#inbox-shell.inbox-legacy-filters-hidden .inbox-filter-btn,',
   '#tab-conversations.inbox-legacy-filters-hidden .inbox-filter-btn{display:none!important}',
-  '.conv-card.inbox-row{display:flex;align-items:flex-start;gap:10px}',
-  '.inbox-row-select{flex:0 0 auto;display:flex;align-items:center;padding-top:8px}',
+  '.conv-card.inbox-row{display:flex;align-items:flex-start;gap:10px;min-width:0;max-width:100%;overflow:hidden;box-sizing:border-box}',
+  '.inbox-row-select{flex:0 0 auto;display:none;align-items:center;padding-top:8px}',
   '.inbox-row-avatar{flex:0 0 auto;width:32px;height:32px;border-radius:50%;',
   'display:inline-flex;align-items:center;justify-content:center;',
   'font-size:11px;font-weight:700;letter-spacing:.02em;',
   'background:var(--surface-soft);color:var(--text-2);margin-top:2px}',
-  '.inbox-row-body{flex:1 1 auto;min-width:0}',
+  '.inbox-row-body{flex:1 1 auto;min-width:0;overflow:hidden}',
+  '.inbox-row-body .conv-card-name,.inbox-row-body .conv-card-header-row{min-width:0;max-width:100%}',
+  '#conv-list{overflow-x:hidden}',
   '.inbox-row-unread-dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;',
   'background:currentColor;opacity:.7;margin-top:10px}',
   '.inbox-filter-this-view-wrap{flex-shrink:0;padding:10px 12px 8px;',
@@ -42,7 +44,9 @@ var INBOX_ROWS_CSS = [
   'border-radius:8px;background:var(--surface);padding:6px 10px;font-size:12px;',
   'font-weight:600;cursor:pointer}',
   '#inbox-shell[data-inbox-multiselect="false"] .inbox-row-select,',
-  '#tab-conversations[data-inbox-multiselect="false"] .inbox-row-select{display:none!important}',
+  '#tab-conversations[data-inbox-multiselect="false"] .inbox-row-select,',
+  '#inbox-shell .inbox-row-select,',
+  '#tab-conversations .inbox-row-select{display:none!important}',
 ].join('');
 
 var inboxRowsRuntime = { wired: false };
@@ -168,7 +172,7 @@ function inboxRowsWrapConvCardHtml(html, row) {
   }
   var prefix = '';
   if (multi) {
-    prefix += '<label class="inbox-row-select">' +
+    prefix += '<label class="inbox-row-select" hidden>' +
       '<input type="checkbox" class="inbox-row-checkbox" data-inbox-row-key="' +
       inboxRowsEsc(key) + '"' + (key && inboxRowsSelected[key] ? ' checked' : '') + '>' +
       '</label>';
@@ -273,7 +277,7 @@ function inboxRowsEnsureSelectFooter() {
     footer = document.createElement('div');
     footer.id = 'inbox-row-select-footer';
     footer.className = 'inbox-row-select-footer';
-    footer.innerHTML = '<span id="inbox-row-selected-count">0 selected</span>';
+    footer.innerHTML = '<span id="inbox-row-selected-count" hidden>0 selected</span>';
     if (typeof inboxBroadcastOpen === 'function') {
       footer.innerHTML += '<button type="button" class="inbox-row-broadcast-btn" id="inbox-row-broadcast">Email broadcast</button>';
     }
