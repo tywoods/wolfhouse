@@ -283,21 +283,21 @@ async function main() {
   }));
   const rowAfter = harness.durable.get(opId.toLowerCase());
   ok('forced path create+update+send once', c1.create === 1 && c1.update === 1 && c1.send === 1);
-  ok('forced path public outcome_unknown',
+  ok('forced path public committed after bounded post-send reconcile',
     first && first.ok === true && first.value
-    && first.value.status === 'outcome_unknown'
-    && first.value.phase === 'send_dispatched'
+    && first.value.status === 'committed'
+    && first.value.phase === 'reconciled_sent'
     && first.value.send_invocation_count === 1
-    && first.value.outcome === 'outcome_unknown'
+    && first.value.outcome === 'committed'
     && !Object.prototype.hasOwnProperty.call(first.value, 'immutable_draft_id')
     && noSecret(first));
-  ok('forced durable journal send_dispatched send=1',
-    rowAfter && rowAfter.phase === 'send_dispatched' && rowAfter.outcome === 'outcome_unknown'
+  ok('forced durable journal reconciled_sent send=1',
+    rowAfter && rowAfter.phase === 'reconciled_sent' && rowAfter.outcome === 'committed'
     && rowAfter.send_invocation_count === 1 && rowAfter.immutable_draft_id === DRAFT
     && rowAfter.body_digest === DIGEST
-    && c1.reconcile === 0);
+    && c1.reconcile === 1);
 
-  // Recovery with fresh wrap → real reconcile, zero second send
+  // Replay remains committed and performs zero provider operations.
   const c2 = {};
   const t2 = seam.wrapReplyDraftTransportForForcedPostSendUncertainty(countingTransport(c2), onEnv);
   const op2 = createAuthorityBoundOutboundOperation(Object.freeze({
@@ -315,8 +315,8 @@ async function main() {
     operationId: opId, approvalId: apId, messageText: BODY,
   }));
   const rowFinal = harness.durable.get(opId.toLowerCase());
-  ok('recovery zero second send/create/update',
-    c2.send === 0 && c2.create === 0 && c2.update === 0 && c2.reconcile === 1);
+  ok('committed replay zero second send/create/update/reconcile',
+    c2.send === 0 && c2.create === 0 && c2.update === 0 && c2.reconcile === 0);
   ok('recovery committed exact draft',
     second && second.ok === true && second.value && second.value.status === 'committed'
     && second.value.phase === 'reconciled_sent' && second.value.outcome === 'committed'

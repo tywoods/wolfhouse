@@ -2,6 +2,7 @@
 /** Gate 3 authority-bound outbound composition (UNWIRED). Journal claimCreate/claimUpdate/claimDispatch before provider. */
 const crypto = require('crypto');
 const util = require('util');
+const timers = require('timers');
 const {
   EMAIL_OUTBOUND_SEND_JOURNAL_RUNTIME_WIRED, EMAIL_OUTBOUND_SEND_JOURNAL_LOGGING_FORBIDDEN,
 } = require('./email-outbound-send-journal-store');
@@ -78,6 +79,10 @@ const PINNED_OBJECT_FREEZE = typeof Object.freeze === 'function' ? Object.freeze
 const PINNED_IS_FROZEN = typeof Object.isFrozen === 'function' ? Object.isFrozen : null;
 const PINNED_HAS_OWN = typeof Object.prototype.hasOwnProperty === 'function' ? Object.prototype.hasOwnProperty : null;
 const PINNED_CREATE_HASH = crypto && typeof crypto.createHash === 'function' ? crypto.createHash : null;
+const PINNED_PROMISE = typeof Promise === 'function' ? Promise : null;
+const PINNED_SET_TIMEOUT = timers && typeof timers.setTimeout === 'function' ? timers.setTimeout : null;
+const RECONCILE_MAX_ATTEMPTS = 3;
+const RECONCILE_RETRY_DELAY_MS = 250;
 let PINNED_HASH_UPDATE = null; let PINNED_HASH_DIGEST = null;
 try {
   if (PINNED_CREATE_HASH && PINNED_GOPD && PINNED_GPO && PINNED_HAS_OWN && PINNED_REFLECT_APPLY) {
@@ -390,7 +395,19 @@ function createAuthorityBoundOutboundOperation(deps) {
     if (typeof draftId !== 'string' || !draftId) return ok(toPublic(state, 'outcome_unknown'));
     const rec = await withAccessToken(async (token) => {
       const req = { accessToken: token, provider_mailbox_id: authority.providerMailboxId, immutable_draft_id: draftId };
-      try { return await transport.reconcileDraft(req); } finally { scrubTokenField(req); }
+      try {
+        for (let attempt = 1; attempt <= RECONCILE_MAX_ATTEMPTS; attempt += 1) {
+          const body = await transport.reconcileDraft(req);
+          const transientDraft = body && typeof body === 'object' && !isProxy(body)
+            && ownData(body, 'immutable_draft_id') === draftId
+            && ownData(body, 'outcome') === 'outcome_unknown'
+            && ownData(body, 'isDraft') === true;
+          if (!transientDraft || attempt === RECONCILE_MAX_ATTEMPTS) return body;
+          if (!PINNED_PROMISE || !PINNED_SET_TIMEOUT) return body;
+          await new PINNED_PROMISE((resolve) => PINNED_SET_TIMEOUT(resolve, RECONCILE_RETRY_DELAY_MS));
+        }
+        return null;
+      } finally { scrubTokenField(req); }
     });
     if (!rec.ok) {
       if (ownData(rec, 'error') === 'access_session_failed') return mapAccessFail(ownData(rec, 'access_status'), state);

@@ -203,7 +203,9 @@ function countingTransport(c, opts = {}) {
     },
     async reconcileDraft(input) {
       c.reconcile+=1; scrub(input);
-      if (opts.stillDraft) return Object.freeze({ outcome:'outcome_unknown', immutable_draft_id:DRAFT, isDraft:true, authorize_automatic_resend:false, authorize_automatic_create_reply:false });
+      if (opts.stillDraft || (Number.isInteger(opts.transientDraftReads) && c.reconcile <= opts.transientDraftReads)) {
+        return Object.freeze({ outcome:'outcome_unknown', immutable_draft_id:DRAFT, isDraft:true, authorize_automatic_resend:false, authorize_automatic_create_reply:false });
+      }
       if (opts.reconThrow) throw new Error(PLANTED+'_recon');
       return Object.freeze({ outcome:'sent', immutable_draft_id:DRAFT, isDraft:false, authorize_automatic_resend:false });
     },
@@ -412,6 +414,11 @@ async function main() {
   ok('recon uncertainty + replay zero second send', resultShape(lost2) && lost2.value.phase === 'send_dispatched'
     && c2a.send === 1 && c2a.reconcile === 1 && resultShape(recovered) && recovered.value.status === 'committed'
     && c2r.create === 0 && c2r.update === 0 && c2r.send === 0 && c2r.reconcile === 1);
+  const h2c = createFakeTxnHarness(); const c2c = {};
+  const transient = await compose(h2c, c2c, { transientDraftReads: 1 }).op.runAuthorityBoundOutbound(inp(uid(), uid()));
+  ok('post-send transient draft visibility reconciles to committed without a second send',
+    resultShape(transient) && transient.value.status === 'committed' && transient.value.phase === 'reconciled_sent'
+    && c2c.create === 1 && c2c.update === 1 && c2c.send === 1 && c2c.reconcile === 2);
   const h3 = createFakeTxnHarness(); const j3 = makeJournal(h3); const op3 = uid(); const ap3 = uid();
   await advanceToDraftUpdated(j3, op3, ap3);
   const d3 = await j3.claimDispatch({ operationId: op3 });
