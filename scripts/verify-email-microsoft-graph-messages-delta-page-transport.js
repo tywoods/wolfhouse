@@ -802,6 +802,43 @@ async function main() {
       );
     }
 
+    // ── Graph message type annotation: exact value accepted then discarded ─
+    {
+      const body = deltaBody(
+        [envelopeRow({ id: MSG_A, '@odata.etag': VALID_ETAG, '@odata.type': '#microsoft.graph.message' })],
+        { '@odata.deltaLink': deltaLinkUrl() },
+      );
+      const t = transportWith(mockHttps(200, body, {}, null, expectedInitialPath()));
+      const dto = await t.fetchInitialPage(goodInitial());
+      ok('odata-type-discard-ok', dto.envelopes.length === 1);
+      ok('no-odata-type-on-result', ser(dto).includes('@odata.type') === false);
+
+      const wrong = deltaBody(
+        [envelopeRow({ id: MSG_A, '@odata.type': '#microsoft.graph.event' })],
+        { '@odata.deltaLink': deltaLinkUrl() },
+      );
+      const tWrong = transportWith(mockHttps(200, wrong, {}, null, expectedInitialPath()));
+      await mustFailStage(() => tWrong.fetchInitialPage(goodInitial()), 'row_value_invalid');
+      ok('odata-type-wrong-value-rejected', true);
+
+      const extra = deltaBody(
+        [envelopeRow({ id: MSG_A, '@odata.type': '#microsoft.graph.message', unexpected: 'x' })],
+        { '@odata.deltaLink': deltaLinkUrl() },
+      );
+      const tExtra = transportWith(mockHttps(200, extra, {}, null, expectedInitialPath()));
+      await mustFailStage(() => tExtra.fetchInitialPage(goodInitial()), 'row_value_invalid');
+      ok('odata-type-extra-key-rejected', true);
+
+      const dangerousRow = envelopeRow({ id: MSG_A, '@odata.type': '#microsoft.graph.message' });
+      Object.defineProperty(dangerousRow, '__proto__', {
+        value: 'x', enumerable: true, writable: true, configurable: true,
+      });
+      const dangerous = deltaBody([dangerousRow], { '@odata.deltaLink': deltaLinkUrl() });
+      const tDangerous = transportWith(mockHttps(200, dangerous, {}, null, expectedInitialPath()));
+      await mustFailStage(() => tDangerous.fetchInitialPage(goodInitial()), 'json_invalid');
+      ok('odata-type-dangerous-key-rejected', true);
+    }
+
     // ── Reject mixed normal/deleted fields ────────────────────────────────
     {
       const mixed = {
