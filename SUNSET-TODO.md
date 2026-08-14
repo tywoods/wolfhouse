@@ -4,7 +4,7 @@ Running Sunset product TODO (formerly `UI-BACKLOG.md`): UI/UX, functional work, 
 
 **Tags:** `[UI]` layout/visual · `[BUG]` broken behavior · `[FEAT]` new capability · `[LUNA]` chatbot brain/wiring · `[I18N]` translation.
 **Size:** S / M / L. **Sketch?** = wants a concept mock before build. **@Earthling** = needs Earthling's call.
-_Started 2026-08-03. Last updated 2026-08-12 07:02 UTC by Skipper. Owner brain-dump complete; refine + resequence as we go._
+_Started 2026-08-03. Last updated 2026-08-14 00:47 UTC by Skipper. Owner brain-dump complete; refine + resequence as we go._
 
 ---
 
@@ -182,6 +182,7 @@ _Added by Captain from Luna Language / Chief of Staff audit. Sunset staging, red
 - **A3 — [FEAT][LUNA] Beaches: de-hardcode + custom + wire.** *(important)* On create/edit group course, beaches are hardcoded — delete them and add a **"+ add beach"** so admin defines their own; also **wire Luna** to pick them up (she doesn't today). First case of W1. `M`
 
 ## ✅ Recently shipped from this TODO
+- **Inbox i18n Batch A** (PR #568, master `0014fe7a`): static Sunset Inbox/admin copy translated and normalized, including `Bandeja de entrada`, `Buscar contactos`, `Requiere personal`, `CONTROL DE CANALES`, `Borrador`, `Pausa global`, `CLASES`, `SALDO PENDIENTE`, and `Abrir en Agenda`; English preserved as `CHANNEL AUTONOMY`, `Lessons`, and `Unpaid balance`. Deployed to Sunset staging revision `luna-sunset-staging-staff-api--0000593` using image `luna-sunset-staff-api:0014fe7a…` (digest `sha256:958ec19d…`), 100% traffic, health/ready 200. Tenant-only authenticated verifier found all 16 required EN/ES markers, then logged out and proved the session revoked (401). Static copy only; no booking/customer/payment/routing data mutation.
 - **Schedule guest-collapse rule** (rev 0473): cards mode shows course guests by default; timeline collapses a course's guests only when no all-day course gear AND ≥1h past end (people keep equipment). `2b25d077`.
 - **Finance fail-soft + item-name audit** (rev 0472): one stale-balance/malformed row no longer 503s the whole finance tab (flagged in `data_quality`, still renders); clickable booking codes → Schedule day + drawer; cancelled/hidden show Type; shared `item-display-name` resolver (rentals by catalog key, accommodation package name) across bookings/drawer/invoices/Luna. `820d4ec7`. Audit map `docs/BOOKINGS-FINANCE-LABEL-AUDIT-MAP.md`.
 - **Bookings tab edits + Restore** (rev 0471): Type→plain text (+ server accommodation categories), refund section hidden unless cancelled/refunded, Restore on cancelled rows (Bookings + schedule drawer), Created column sorting `created_at`, centered status chips. `7bdbcacf`.
