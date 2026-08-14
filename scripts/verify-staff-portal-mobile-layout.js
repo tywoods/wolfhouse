@@ -27,6 +27,7 @@ check('M7', src.includes('staff-portal-mobile:inbox') && src.includes('inbox-mob
 check('M8', src.includes('conv-card-mobile-dense'), 'inbox compact mobile card marker');
 check('M9', src.includes('staff-portal-mobile:staff-numbers') && src.includes('swn-mobile-card'), 'staff number mobile card marker');
 check('M10', src.includes('viewport-fit=cover'), 'viewport-fit=cover on main portal');
+check('M11', src.includes('staff-portal-mobile:main-menu') && src.includes('nav-menu-toggle'), 'mobile main-menu hamburger stays reachable');
 
 // Auth POST unchanged (no accidental route edits in this slice)
 check('A1', src.includes("pathname === '/staff/auth/login'") && src.includes('handleLogin'), 'staff login POST route still present');

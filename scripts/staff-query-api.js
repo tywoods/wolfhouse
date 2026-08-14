@@ -20164,6 +20164,41 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .luna-header-ui:not(.luna-hdr-compact).header-collapsed .luna-bamboo-divider{opacity:0}
 .luna-header-ui:not(.luna-hdr-compact).header-collapsed #tabs{box-shadow:0 3px 10px rgba(43,36,31,.13)}
 
+/* staff-portal-mobile:main-menu — hamburger stays reachable; drawer beats compact lift */
+@media(max-width:768px){
+  .luna-header-ui:not(.luna-hdr-compact).header-collapsed #banner{
+    height:auto;min-height:52px;flex-basis:auto;overflow:visible;pointer-events:auto;
+    border-bottom:1px solid rgba(74,55,37,.25);box-shadow:0 2px 12px rgba(43,36,31,.14);
+  }
+  .luna-header-ui:not(.luna-hdr-compact).header-collapsed .luna-bamboo-divider{opacity:1}
+  .luna-header-ui.luna-hdr-compact #banner .brand-logo{
+    height:40px;max-width:min(140px,calc(100vw - 200px));
+  }
+  .luna-header-ui #tabs,
+  .luna-header-ui.luna-hdr-compact #tabs{
+    display:none;
+    margin-top:0;
+    height:100vh;height:100dvh;min-height:100dvh;
+    position:fixed;top:0;right:0;left:auto;
+    width:min(320px,88vw);max-width:100vw;
+    padding:calc(12px + env(safe-area-inset-top)) 0 calc(16px + env(safe-area-inset-bottom));
+    background:var(--surface);border-bottom:none;border-left:1px solid var(--border);
+    box-shadow:var(--shadow);pointer-events:auto;z-index:8600;
+    flex-direction:column;flex-wrap:nowrap;align-items:stretch;overflow-x:hidden;overflow-y:auto;
+  }
+  body.nav-menu-open .luna-header-ui #tabs,
+  body.nav-menu-open .luna-header-ui.luna-hdr-compact #tabs{
+    display:flex;
+  }
+  .luna-header-ui #tabs .tab-btn,
+  .luna-header-ui.luna-hdr-compact #tabs .tab-btn{
+    height:auto;line-height:1.3;width:100%;margin-right:0;
+    padding:14px 18px;pointer-events:auto;white-space:normal;
+  }
+  .luna-header-ui.luna-hdr-compact #tabs .tabs-global-pause{display:none}
+  .nav-menu-toggle,.nav-quick-flip{position:relative;z-index:8700;pointer-events:auto}
+}
+
 /* ── Header style picker: read row + Edit gate ──────────────────────────── */
 .luna-header-mode-read{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .luna-header-mode-current{font-size:13px;font-weight:700;color:var(--luna-teal)}
@@ -20791,7 +20826,12 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
   var COOLDOWN=420; // ms: the page stays frozen while the banner animates
   var lockUntil=0;
   function panel(){return document.querySelector('body > .tab-panel.active');}
-  function eligible(){var b=document.body;return !!(b&&b.classList.contains('luna-header-ui')&&!b.classList.contains('luna-hdr-compact'));}
+  function eligible(){
+    var b=document.body;
+    if(!(b&&b.classList.contains('luna-header-ui')&&!b.classList.contains('luna-hdr-compact'))) return false;
+    try { if (window.matchMedia('(max-width: 768px)').matches) return false; } catch (_m) {}
+    return true;
+  }
   function collapsed(){return document.body.classList.contains('header-collapsed');}
   function setCollapsed(v){document.body.classList.toggle('header-collapsed',!!v);}
   function reset(){setCollapsed(false);}
