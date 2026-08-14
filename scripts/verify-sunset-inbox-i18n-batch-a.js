@@ -58,6 +58,8 @@ const railLabels = {
 for (const [id, label] of Object.entries(railLabels)) assert.strictEqual(viewsContext.inboxViewsLabel({ id, label: 'BASE' }), label, id);
 assert.strictEqual(viewsContext.inboxViewsLabel({ id: 'whatsapp', label: 'WhatsApp' }), 'WhatsApp');
 assert.strictEqual(viewsContext.inboxViewsLabel({ id: 'email', label: 'Email' }), 'Email');
+assert.strictEqual(STAFF_PORTAL_STRINGS.es['inbox.rail.view.whatsapp'], 'WhatsApp');
+assert.strictEqual(STAFF_PORTAL_STRINGS.es['inbox.rail.empty'], 'No hay vistas');
 
 const contextPath = process.env.INBOX_CONTEXT_SOURCE
   ? require('path').resolve(process.env.INBOX_CONTEXT_SOURCE)
@@ -91,6 +93,10 @@ for (const [, html] of renderCustomerCards('es')) {
   assert(html.includes('CLASES'), 'Spanish customer card renders CLASES');
   assert(html.includes('SALDO PENDIENTE'), 'Spanish customer card renders SALDO PENDIENTE');
 }
+const esCards = Object.fromEntries(renderCustomerCards('es'));
+assert(esCards.customerCondensedHtml.includes('NOTAS PARA LA PRÓXIMA VEZ'), 'Spanish condensed card renders notes title');
+assert(!esCards.customerCondensedHtml.includes('NOTES FOR NEXT TIME'), 'Spanish condensed card does not keep EN notes title');
+assert(!esCards.customerCondensedHtml.includes('Notes for<br>next time'), 'Spanish notes title is not the EN break fallback');
 const customerFallbackKeys = ['customers.card.classes', 'customers.card.balanceDue'];
 const expectedCallSiteFallbacks = ['Lessons', 'Unpaid balance'];
 for (const [renderer, html] of renderCustomerCards('en', customerFallbackKeys)) {
@@ -118,5 +124,14 @@ const channelEsHtml = renderChannel((key) => STAFF_PORTAL_STRINGS.es[key] || key
 for (const copy of ['CONTROL DE CANALES', 'Borrador', 'Auto']) assert(channelEsHtml.includes(copy), `Spanish channel render: ${copy}`);
 const channelFallbackHtml = renderChannel((key) => key);
 assert(channelFallbackHtml.includes('CHANNEL AUTONOMY'), 'missing channel title key uses the English call-site fallback');
+
+const apiSrc = fs.readFileSync(require.resolve('./staff-query-api'), 'utf8');
+assert(apiSrc.includes('if (typeof refreshInboxViewsRail === \'function\') refreshInboxViewsRail();'),
+  'locale change refreshes Inbox rail');
+const contextFile = fs.readFileSync(contextPath, 'utf8');
+assert(contextFile.includes('function inboxCustomerNotesLabelHtml'), 'notes title uses i18n helper');
+assert(!/inboxCustomerNotesFieldHtml[\s\S]{0,80}'Notes for<br>next time'/.test(contextFile)
+  || contextFile.includes('inboxCustomerNotesLabelHtml()'),
+  'notes field is not a hardcoded English title');
 
 console.log('PASS Sunset Inbox i18n Batch A translation and rendering contract');

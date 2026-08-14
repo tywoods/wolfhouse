@@ -39008,6 +39008,13 @@ window.staffPortalOnLocaleChange = function(){
     }
   }
   if (typeof lunaGlobalPauseLoad === 'function') lunaGlobalPauseLoad();
+  if (typeof refreshInboxViewsRail === 'function') refreshInboxViewsRail();
+  if (typeof inboxCustomerPaint === 'function') {
+    var _inboxLocaleSidebar = el('inbox-detail-sidebar');
+    if (_inboxLocaleSidebar && typeof inboxContextLastConv !== 'undefined' && inboxContextLastConv) {
+      inboxCustomerPaint(_inboxLocaleSidebar, inboxContextLastConv, inboxContextLastComposite, inboxContextLastCustomer);
+    }
+  }
   if (selectedConvId) loadConvDetail(selectedConvId);
   if (inboxConversationsCache && inboxConversationsCache.length && typeof applyInboxFilter === 'function') {
     applyInboxFilter({ preserveDetail: true, selectedId: selectedConvId });

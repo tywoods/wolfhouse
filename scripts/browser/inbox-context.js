@@ -993,10 +993,16 @@ function inboxCustomerInlineFieldHtml(key, labelHtml, value, emptyCopy, asArea) 
   return html;
 }
 
+function inboxCustomerNotesLabelHtml() {
+  var label = inboxContextT('customers.detail.notes', 'Notes for next time');
+  if (label === 'Notes for next time') return 'Notes for<br>next time';
+  return inboxContextEsc(label);
+}
+
 function inboxCustomerNotesFieldHtml(notes) {
   return inboxCustomerInlineFieldHtml(
     'notes',
-    'Notes for<br>next time',
+    inboxCustomerNotesLabelHtml(),
     notes,
     inboxContextT('customers.detail.noNotes', 'No notes yet'),
     true

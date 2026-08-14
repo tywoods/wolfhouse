@@ -130,7 +130,7 @@ function renderInboxViewsRail(data){
   var views = (data && data.views) || [];
   var groups = (data && data.groups) || [];
   if (!views.length){
-    rail.innerHTML = '<div class="inbox-views-empty">No views</div>';
+    rail.innerHTML = '<div class="inbox-views-empty">' + escHtml(portalT('inbox.rail.empty')) + '</div>';
     return;
   }
   var known = {};
@@ -211,7 +211,7 @@ function refreshInboxViewsRail(){
     })
     .catch(function(){
       if (gen !== inboxViewsRailGen) return;
-      if (!rail.innerHTML) rail.innerHTML = '<div class="inbox-views-empty">Couldn’t load views</div>';
+      if (!rail.innerHTML) rail.innerHTML = '<div class="inbox-views-empty">' + escHtml(portalT('inbox.rail.loadError')) + '</div>';
     });
 }
 
