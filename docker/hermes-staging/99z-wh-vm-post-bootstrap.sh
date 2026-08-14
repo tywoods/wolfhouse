@@ -18,13 +18,13 @@ fi
 HERMES_HOME="${HERMES_HOME:-/opt/data}"
 HERMES_ROLE="${HERMES_ROLE:-luna}"
 
-# Engineering roles (orchestrator/seadog) run git in their terminal cwd, but
-# /opt/wolfhouse/WH is bind-mounted READ-ONLY, so any git write (fetch/index/
-# commit) there throws PermissionError and takes the agent down. They must work
-# in a WRITABLE clone under HERMES_HOME (same pattern deckhand already uses).
-# Seed one if missing. Fully guarded so it can never abort cont-init (set -eu).
+# Engineering roles run git in their terminal cwd, but /opt/wolfhouse/WH is
+# bind-mounted READ-ONLY, so any git write (fetch/index/commit) there throws
+# PermissionError and takes the agent down. They must work in a WRITABLE clone
+# under HERMES_HOME. Seed one for every role, including a fresh Deckhand volume.
+# Fully guarded so it can never abort cont-init (set -eu).
 case "$HERMES_ROLE" in
-  orchestrator|seadog)
+  orchestrator|seadog|deckhand)
     _WH_CLONE="$HERMES_HOME/workspace/sandbox-repos/WH-$HERMES_ROLE"
     mkdir -p "$HERMES_HOME/workspace/sandbox-repos" 2>/dev/null || true
     if [ ! -d "$_WH_CLONE/.git" ]; then
@@ -184,6 +184,18 @@ guest-facing receptionist.
 ## Boundaries
 - Keep secrets out of chat: never paste tokens, env-file contents, or Key Vault
   values.
+
+## Fleet board — Seadog operating instructions
+- Before any board work in a session, refresh the writable clone exactly:
+  `cd /opt/data/workspace/sandbox-repos/WH-seadog`
+  `git fetch github && git reset --hard github/master`
+- On a review request, inspect the task with
+  `node scripts/fleet/task.js show <id>`.
+- Review the submitted PR at its exact reported tip SHA; do not review a moving
+  branch name or an unverified local checkout.
+- Record the verdict with
+  `node scripts/fleet/task.js gate <id> --result pass|fail --notes "<notes>"`.
+- Do not merge, deploy, or run `task done`; Skipper owns those gates.
 EOF
   chown hermes:hermes "$HERMES_HOME/SOUL.md" 2>/dev/null || true
   chmod 640 "$HERMES_HOME/SOUL.md" 2>/dev/null || true
@@ -251,6 +263,20 @@ EOF
   - Correct: `<@1519467061397684385> over to you — <summary>`
   - Wrong (ignored): `@Sea Dog over to you`
 - When Seadog or a teammate mentions you, respond normally and keep it brief.
+
+## Fleet board — Deckhand operating instructions
+- Before any board work in a session, refresh the writable clone exactly:
+  `cd /opt/data/workspace/sandbox-repos/WH-deckhand`
+  `git fetch github && git reset --hard github/master`
+- When handed a task id, inspect it, then claim it with
+  `node scripts/fleet/task.js claim <id> --as deckhand`.
+- Create a task branch from refreshed `github/master`, implement only the
+  approved scope, verify it, commit it, and push the branch to `github`.
+- Open a PR against `master` using Deckhand's own GitHub credential.
+- Move the task to review only after the remote branch and PR exist:
+  `node scripts/fleet/task.js review <id> --tip-sha <sha> --pr <n>`.
+- Report the PR URL and exact remote tip SHA to Seadog. Do not merge, deploy,
+  gate, or run `task done`; Skipper owns those gates.
 EOF
     chown hermes:hermes "$HERMES_HOME/SOUL.md" 2>/dev/null || true
     chmod 640 "$HERMES_HOME/SOUL.md" 2>/dev/null || true
