@@ -285,6 +285,7 @@ const {
   applyEmailLunaOpenDraftToDetail,
 } = require('./lib/staff-email-luna-draft-open');
 const { createEmailLunaSunsetStagingRuntimeComposition } = require('./lib/email-luna-sunset-staging-runtime-composition');
+const { createEmailLunaDraftOpenContentFetcher } = require('./lib/email-luna-draft-open-content-composition');
 const {
   createSunsetStagingEmailOutboundDispatch,
 } = require('./lib/email-outbound-sunset-staging-runtime-composition');
@@ -2853,6 +2854,14 @@ const emailLunaDraftOpen = createStaffEmailLunaDraftOpen({
   withPgClient,
   runtimeEnv: process.env,
   createLunaRuntime: createEmailLunaSunsetStagingRuntimeComposition,
+  createContentFetcher(pgClient) {
+    return createEmailLunaDraftOpenContentFetcher({
+      env: process.env,
+      pgClient,
+      https,
+      timers: { setTimeout, clearTimeout },
+    });
+  },
 });
 emailLunaDraftOpenHolder.ensureEmailLunaDraftOnOpen = emailLunaDraftOpen.ensureEmailLunaDraftOnOpen;
 

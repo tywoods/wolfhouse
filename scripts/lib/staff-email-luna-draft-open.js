@@ -6,20 +6,28 @@
  *
  * Guest email is untrusted data, never instructions. No send/booking/payment writes.
  * Generation is default-off and never blocks Inbox reads.
+ *
+ * Latest inbound body is not durable. Detail/open claims once, then JIT-fetches
+ * the exact Graph message through the authority-bound content operation and
+ * persists either a branded Luna draft or a deterministic safe acknowledgment.
  */
 
+const crypto = require('node:crypto');
 const util = require('node:util');
 const {
   isEmailLunaGenerateDraftEnabled,
   snapshotEmailLunaGenerateGateEnv,
 } = require('./staff-email-luna-draft-route');
 const { deriveReplySubject } = require('./email-outbound-reply-subject');
+const {
+  createEmailLunaDraftOpenPolicyComposition,
+  SAFE_ACKNOWLEDGMENT,
+} = require('./email-luna-draft-open-policy-composition');
 
 const EMAIL_DRAFT_OPEN_DECKHAND_FIELD = 'draft_text';
 const EMAIL_DRAFT_OPEN_STORAGE_FIELD = 'conversations.staff_reply_draft';
+const EMAIL_DRAFT_OPEN_CLAIM_TTL_MS = 60000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const INJECTION = /(?:\bsystem\s*:|\[\s*system\s*\]|\bdeveloper\s+(?:message|instruction)|ignore\s+(?:all\s+)?previous\s+instructions?|override\s+policy|switch\s+tenant|call\s+[a-z_$][\w$]*\s*\(|<\s*\/?\s*system\b|\b(?:location_id|required_facts|send_allowed|draft_ready|low_confidence)\s*=|"(?:authority|policy|low_confidence)"\s*:)/i;
-const COMMERCIAL = /\b(price|pricing|€|\$|available|availability|book(?:ing)?|beds?|payment|deposit|invoice|quote|hold|private\s+lesson|alquiler|precio|disponib|reserva|pago)\b/i;
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
@@ -35,7 +43,7 @@ SELECT cl.id::text AS client_id, cl.slug AS client_slug,
   ev.provider, ev.provider_mailbox_id AS provider_mailbox_id, ev.provider_message_id AS provider_source_message_id,
   ep.provider_resource_id AS endpoint_provider_mailbox_id, ev.location_id::text AS event_location_id,
   COALESCE(ev.subject,'') AS subject,
-  COALESCE(NULLIF(btrim(m.metadata->>'body_text'), ''), NULLIF(btrim(m.metadata->>'body'), ''), '') AS body_text,
+  ''::text AS body_text,
   ''::text AS quoted_history,
   COALESCE(ev.sender_display_name,'') AS from_display_name,
   COALESCE(ev.sender_address,'') AS from_address,
@@ -55,7 +63,6 @@ INNER JOIN tenant_email_inbound_events ev ON ev.client_id=p.client_id AND ev.id=
   AND ev.location_id=p.location_id AND ev.endpoint_id=p.endpoint_id
   AND ev.provider=p.provider AND ev.provider_mailbox_id=p.provider_mailbox_id
   AND ev.provider_message_id=p.provider_message_id
-LEFT JOIN messages m ON m.client_id=c.client_id AND m.conversation_id=c.id AND m.id=p.message_id
 INNER JOIN tenant_locations loc ON loc.client_id=ev.client_id AND loc.id=ev.location_id
 INNER JOIN tenant_channel_endpoints ep ON ep.client_id=ev.client_id AND ep.id=ev.endpoint_id
   AND ep.location_id=loc.location_id AND ep.channel='email'
@@ -69,25 +76,40 @@ WHERE cl.id=$1::uuid AND cl.slug='sunset' AND loc.location_id='sunset-somo'
   AND ev.provider='microsoft_graph'
 ORDER BY ev.received_at DESC, ev.id DESC LIMIT 1`.replace(/\s+/g, ' ').trim();
 
-const SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION = `
-SELECT c.id::text AS conversation_id
-FROM conversations c
-WHERE c.client_id=$1::uuid AND c.id=$2::uuid
-FOR UPDATE`.replace(/\s+/g, ' ').trim();
+const SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT = `
+UPDATE conversations
+   SET metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb
+ WHERE client_id=$1::uuid AND id=$2::uuid
+   AND (
+     staff_reply_draft IS NULL OR btrim(staff_reply_draft) = ''
+     OR (
+       metadata->'luna_email_open_draft'->>'origin' = 'luna'
+       AND metadata->'luna_email_open_draft'->>'source_inbound_event_id' IS DISTINCT FROM $4
+     )
+   )
+   AND (
+     metadata->'luna_email_open_draft'->>'state' IS DISTINCT FROM 'in_progress'
+     OR COALESCE((metadata->'luna_email_open_draft'->>'claimed_at')::timestamptz, '-infinity'::timestamptz)
+        < (now() - ($5::int * interval '1 millisecond'))
+   )
+ RETURNING id::text AS conversation_id`.replace(/\s+/g, ' ').trim();
 
 const SQL_CAS_EMAIL_LUNA_OPEN_DRAFT = `
 UPDATE conversations
    SET staff_reply_draft=$3,
        metadata = COALESCE(metadata, '{}'::jsonb) || $4::jsonb
  WHERE client_id=$1::uuid AND id=$2::uuid
-   AND (
-     staff_reply_draft IS NULL OR btrim(staff_reply_draft) = ''
-     OR (
-       metadata->'luna_email_open_draft'->>'origin' = 'luna'
-       AND metadata->'luna_email_open_draft'->>'source_inbound_event_id' IS DISTINCT FROM $5
-     )
-   )
+   AND metadata->'luna_email_open_draft'->>'claim_id' = $5
+   AND metadata->'luna_email_open_draft'->>'state' = 'in_progress'
  RETURNING staff_reply_draft`.replace(/\s+/g, ' ').trim();
+
+const SQL_RELEASE_EMAIL_LUNA_OPEN_CLAIM = `
+UPDATE conversations
+   SET metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb
+ WHERE client_id=$1::uuid AND id=$2::uuid
+   AND metadata->'luna_email_open_draft'->>'claim_id' = $4
+   AND metadata->'luna_email_open_draft'->>'state' = 'in_progress'
+ RETURNING id::text AS conversation_id`.replace(/\s+/g, ' ').trim();
 
 const SQL_LOAD_EXISTING_EMAIL_REPLY_APPROVAL = `
 SELECT approval_id::text AS approval_id, message_text, state,
@@ -197,36 +219,7 @@ function safeContext(row, expectedActor, conversationId) {
   }
 }
 
-function snapshotAuthored(result, authority) {
-  try {
-    if (!result || typeof result !== 'object' || isProxy(result) || isArray(result)) return null;
-    if (ownData(result, 'status') !== 'draft_ready') return null;
-    if (ownData(result, 'draft_only') !== true || ownData(result, 'requires_staff_review') !== true
-      || ownData(result, 'send_allowed') !== false || ownData(result, 'auto_send_allowed') !== false) {
-      return null;
-    }
-    if (ownData(result, 'client_id') !== authority.client_id
-      || ownData(result, 'location_id') !== authority.location_id
-      || ownData(result, 'conversation_id') !== authority.conversation_id) {
-      return null;
-    }
-    const body = ownData(result, 'body');
-    if (typeof body !== 'string' || !body.trim() || Buffer.byteLength(body, 'utf8') > 8000) return null;
-    return freeze({ body });
-  } catch {
-    return null;
-  }
-}
-
-function hasInjection(subject, body) {
-  return INJECTION.test(String(subject || '')) || INJECTION.test(String(body || ''));
-}
-
-function isCommercial(subject, body) {
-  return COMMERCIAL.test(String(subject || '')) || COMMERCIAL.test(String(body || ''));
-}
-
-function existingDraftDecision(row, approval, latestEventId) {
+function existingDraftDecision(row, approval, latestEventId, nowMs, ttlMs) {
   if (approval && typeof approval.message_text === 'string' && approval.message_text.trim()) {
     const state = String(approval.state || '');
     if (state === 'approved' || state === 'terminal' || state === 'draft') {
@@ -234,10 +227,17 @@ function existingDraftDecision(row, approval, latestEventId) {
     }
   }
   const stored = row.staff_reply_draft == null ? '' : String(row.staff_reply_draft);
-  if (!stored.trim()) return null;
   const meta = lunaMeta(row.conversation_metadata);
   const origin = meta && (ownData(meta, 'origin') || meta.origin);
   const source = meta && (ownData(meta, 'source_inbound_event_id') || meta.source_inbound_event_id);
+  const state = meta && (ownData(meta, 'state') || meta.state);
+  const claimedAt = meta && (ownData(meta, 'claimed_at') || meta.claimed_at);
+  if (state === 'in_progress') {
+    const claimedMs = typeof claimedAt === 'string' ? Date.parse(claimedAt) : NaN;
+    const expired = !Number.isFinite(claimedMs) || (nowMs - claimedMs) >= ttlMs;
+    if (!expired) return { text: stored, kind: 'in_progress' };
+  }
+  if (!stored.trim()) return null;
   if (origin === 'luna' && source && source !== latestEventId) {
     return { text: stored, kind: 'luna_stale' };
   }
@@ -265,8 +265,99 @@ function applyEmailLunaOpenDraftToDetail(section, ensured) {
   };
 }
 
+function claimPayload(eventId, claimId, claimedAt) {
+  return JSON.stringify({
+    luna_email_open_draft: {
+      state: 'in_progress',
+      origin: 'luna',
+      source_inbound_event_id: eventId,
+      claimed_at: claimedAt,
+      claim_id: claimId,
+    },
+  });
+}
+
+function persistPayload(eventId, claimId, kind) {
+  return JSON.stringify({
+    luna_email_open_draft: {
+      state: 'ready',
+      origin: 'luna',
+      source_inbound_event_id: eventId,
+      claim_id: claimId,
+      kind,
+    },
+  });
+}
+
+function releasePayload(eventId, claimId) {
+  return JSON.stringify({
+    luna_email_open_draft: {
+      state: 'failed',
+      origin: 'luna',
+      source_inbound_event_id: eventId,
+      claim_id: claimId,
+    },
+  });
+}
+
 function createStaffEmailLunaDraftOpen(deps) {
   if (!deps || typeof deps.withPgClient !== 'function') throw new Error('deps required');
+  const nowFn = typeof deps.now === 'function' ? deps.now : () => Date.now();
+  const uuidFn = typeof deps.randomUUID === 'function' ? deps.randomUUID : () => crypto.randomUUID();
+  const ttlMs = Number.isSafeInteger(deps.claimTtlMs) && deps.claimTtlMs > 0
+    ? deps.claimTtlMs
+    : EMAIL_DRAFT_OPEN_CLAIM_TTL_MS;
+  const policy = createEmailLunaDraftOpenPolicyComposition({
+    classifyIntent: deps.classifyIntent,
+    queryOwners: deps.queryOwners,
+    createLunaRuntime: deps.createLunaRuntime,
+  });
+
+  async function loadOpenContext(actor, conversationId) {
+    return deps.withPgClient(async (pg) => {
+      const loadedCtx = await pg.query(SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT, [
+        actor.client_id, actor.staff_user_id, conversationId,
+      ]);
+      const approval = await pg.query(SQL_LOAD_EXISTING_EMAIL_REPLY_APPROVAL, [
+        actor.client_id, conversationId,
+      ]);
+      return {
+        context: loadedCtx && Array.isArray(loadedCtx.rows) && loadedCtx.rows.length === 1
+          ? safeContext(loadedCtx.rows[0], actor, conversationId) : null,
+        approval: approval && Array.isArray(approval.rows) && approval.rows.length === 1
+          ? approval.rows[0] : null,
+      };
+    });
+  }
+
+  async function releaseClaim(actor, conversationId, eventId, claimId) {
+    try {
+      await deps.withPgClient(async (pg) => {
+        await pg.query(SQL_RELEASE_EMAIL_LUNA_OPEN_CLAIM, [
+          actor.client_id, conversationId, releasePayload(eventId, claimId), claimId,
+        ]);
+      });
+    } catch {
+      // Recovery TTL reclaims a stuck in-progress row.
+    }
+  }
+
+  async function fetchAuthoritativeBody(authority) {
+    const input = {
+      clientId: authority.client_id,
+      locationId: authority.location_id,
+      eventId: authority.inbound_message_id,
+    };
+    if (typeof deps.fetchCurrentMessageContent === 'function') {
+      return deps.fetchCurrentMessageContent(input);
+    }
+    if (typeof deps.createContentFetcher !== 'function') return null;
+    return deps.withPgClient(async (pg) => {
+      const fetcher = deps.createContentFetcher(pg);
+      if (!fetcher || typeof fetcher.getCurrentMessageContent !== 'function') return null;
+      return fetcher.getCurrentMessageContent(input);
+    });
+  }
 
   async function ensureEmailLunaDraftOnOpen(input) {
     const conversationId = uuid(input && input.conversation_id);
@@ -276,29 +367,13 @@ function createStaffEmailLunaDraftOpen(deps) {
       const env = snapshotEmailLunaGenerateGateEnv(input && input.gateEnv || deps.runtimeEnv || process.env);
       const replySubjectOf = (subject) => deriveReplySubject(typeof subject === 'string' ? subject : '') || undefined;
 
-      const loaded = await deps.withPgClient(async (pg) => {
-        const locked = await pg.query(SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, [actor.client_id, conversationId]);
-        if (!locked || !Array.isArray(locked.rows) || locked.rows.length !== 1) {
-          return { lock: false };
-        }
-        const loadedCtx = await pg.query(SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT, [
-          actor.client_id, actor.staff_user_id, conversationId,
-        ]);
-        const approval = await pg.query(SQL_LOAD_EXISTING_EMAIL_REPLY_APPROVAL, [
-          actor.client_id, conversationId,
-        ]);
-        return {
-          lock: true,
-          context: loadedCtx && Array.isArray(loadedCtx.rows) && loadedCtx.rows.length === 1
-            ? safeContext(loadedCtx.rows[0], actor, conversationId) : null,
-          approval: approval && Array.isArray(approval.rows) && approval.rows.length === 1
-            ? approval.rows[0] : null,
-        };
-      });
-
-      if (!loaded || !loaded.lock || !loaded.context) return pending(conversationId);
+      const loaded = await loadOpenContext(actor, conversationId);
+      if (!loaded || !loaded.context) return pending(conversationId);
       const { authority, row } = loaded.context;
-      const existing = existingDraftDecision(row, loaded.approval, authority.inbound_message_id);
+      const existing = existingDraftDecision(
+        row, loaded.approval, authority.inbound_message_id, nowFn(), ttlMs,
+      );
+      if (existing && existing.kind === 'in_progress') return pending(conversationId);
       if (existing && existing.kind !== 'luna_stale') {
         return ready(conversationId, existing.text, replySubjectOf(row.subject));
       }
@@ -306,79 +381,89 @@ function createStaffEmailLunaDraftOpen(deps) {
       if (row.needs_human !== true) return pending(conversationId);
       if (!canGenerate(actor, env)) return pending(conversationId);
 
-      const body = typeof row.body_text === 'string' ? row.body_text.trim() : '';
-      if (!body) return pending(conversationId);
-      if (hasInjection(row.subject, body)) return pending(conversationId);
-
-      const classified = typeof deps.classifyIntent === 'function'
-        ? deps.classifyIntent({ subject: row.subject, body_text: body })
-        : null;
-      if (!classified || classified.intent_support !== 'supported' || !classified.intent) {
-        if (isCommercial(row.subject, body) || hasInjection(row.subject, body)) return pending(conversationId);
+      const claimId = uuidFn();
+      const claimedAt = new Date(nowFn()).toISOString();
+      const claimed = await deps.withPgClient(async (pg) => {
+        const wrote = await pg.query(SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, [
+          actor.client_id,
+          conversationId,
+          claimPayload(authority.inbound_message_id, claimId, claimedAt),
+          authority.inbound_message_id,
+          ttlMs,
+        ]);
+        return !!(wrote && Array.isArray(wrote.rows) && wrote.rows.length === 1);
+      });
+      if (!claimed) {
+        const again = await loadOpenContext(actor, conversationId);
+        if (again && again.context) {
+          const retryExisting = existingDraftDecision(
+            again.context.row, again.approval, again.context.authority.inbound_message_id, nowFn(), ttlMs,
+          );
+          if (retryExisting && retryExisting.kind !== 'luna_stale' && retryExisting.kind !== 'in_progress'
+              && retryExisting.text && String(retryExisting.text).trim()) {
+            return ready(conversationId, retryExisting.text, replySubjectOf(again.context.row.subject));
+          }
+        }
         return pending(conversationId);
       }
 
-      const tools = typeof deps.queryGroundedTools === 'function'
-        ? deps.queryGroundedTools({ intent: classified.intent, authority })
-        : null;
-      const required = classified.intent === 'catalog_question' ? 'catalog'
-        : classified.intent === 'availability_question' ? 'availability'
-          : classified.intent === 'policy_question' ? 'policy'
-            : classified.intent === 'booking_status_question' ? 'booking'
-              : classified.intent === 'payment_status_question' ? 'payment'
-                : null;
-      const fact = required && tools && tools[required];
-      if (!required || !fact || fact.status !== 'found'
-        || fact.client_id !== authority.client_id || fact.location_id !== authority.location_id) {
-        return pending(conversationId);
-      }
-
-      if (typeof deps.createLunaRuntime !== 'function') return pending(conversationId);
-      let authored;
+      let latestText = '';
       try {
-        const runtime = deps.createLunaRuntime({
-          env,
-          authority: {
-            client_id: authority.client_id,
-            location_id: authority.location_id,
-            location_key: authority.location_key,
-          },
-          tenant_location_gate: {
-            client_id: authority.client_id,
-            location_id: authority.location_id,
-            location_key: authority.location_key,
-            draft_enabled: true,
-          },
-        });
-        if (!runtime || typeof runtime.authorDraft !== 'function') return pending(conversationId);
-        authored = await runtime.authorDraft({
-          intent: classified.intent,
-          language: classified.language || 'en',
-          grounded_facts: tools,
-          authority,
-        });
+        const content = await fetchAuthoritativeBody(authority);
+        const text = content && (ownData(content, 'latest_text') || content.latest_text);
+        if (typeof text !== 'string' || !text.trim()) {
+          await releaseClaim(actor, conversationId, authority.inbound_message_id, claimId);
+          return pending(conversationId);
+        }
+        latestText = text.trim();
       } catch {
+        await releaseClaim(actor, conversationId, authority.inbound_message_id, claimId);
         return pending(conversationId);
       }
-      const snap = snapshotAuthored(authored, authority);
-      if (!snap) return pending(conversationId);
+
+      const composed = await policy.compose({
+        authority,
+        untrusted_content: {
+          subject: typeof row.subject === 'string' ? row.subject : '',
+          body_text: latestText,
+          quoted_history: '',
+          from_display_name: typeof row.from_display_name === 'string' ? row.from_display_name : '',
+          from_address: typeof row.from_address === 'string' ? row.from_address : '',
+        },
+        env,
+        callModel: deps.callModel,
+        timeoutMs: deps.timeoutMs,
+      });
+      const body = composed && typeof composed.body === 'string' ? composed.body.trim() : '';
+      if (!body || Buffer.byteLength(body, 'utf8') > 8000) {
+        await releaseClaim(actor, conversationId, authority.inbound_message_id, claimId);
+        return pending(conversationId);
+      }
 
       const persisted = await deps.withPgClient(async (pg) => {
-        const locked = await pg.query(SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, [actor.client_id, conversationId]);
-        if (!locked || !Array.isArray(locked.rows) || locked.rows.length !== 1) return null;
-        const meta = JSON.stringify({
-          luna_email_open_draft: {
-            origin: 'luna',
-            source_inbound_event_id: authority.inbound_message_id,
-          },
-        });
         const wrote = await pg.query(SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, [
-          actor.client_id, conversationId, snap.body, meta, authority.inbound_message_id,
+          actor.client_id,
+          conversationId,
+          body,
+          persistPayload(authority.inbound_message_id, claimId, composed.kind || 'safe_acknowledgment'),
+          claimId,
         ]);
         return wrote && Array.isArray(wrote.rows) && wrote.rows.length === 1
           ? String(wrote.rows[0].staff_reply_draft) : null;
       });
-      if (!persisted) return pending(conversationId);
+      if (!persisted) {
+        const again = await loadOpenContext(actor, conversationId);
+        if (again && again.context) {
+          const retryExisting = existingDraftDecision(
+            again.context.row, again.approval, again.context.authority.inbound_message_id, nowFn(), ttlMs,
+          );
+          if (retryExisting && retryExisting.text && String(retryExisting.text).trim()
+              && retryExisting.kind !== 'in_progress' && retryExisting.kind !== 'luna_stale') {
+            return ready(conversationId, retryExisting.text, replySubjectOf(again.context.row.subject));
+          }
+        }
+        return pending(conversationId);
+      }
       return ready(conversationId, persisted, replySubjectOf(row.subject));
     } catch {
       return pending(conversationId);
@@ -392,11 +477,14 @@ module.exports = {
   createStaffEmailLunaDraftOpen,
   EMAIL_DRAFT_OPEN_DECKHAND_FIELD,
   EMAIL_DRAFT_OPEN_STORAGE_FIELD,
+  EMAIL_DRAFT_OPEN_CLAIM_TTL_MS,
   SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT,
-  SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION,
+  SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT,
   SQL_CAS_EMAIL_LUNA_OPEN_DRAFT,
+  SQL_RELEASE_EMAIL_LUNA_OPEN_CLAIM,
   SQL_LOAD_EXISTING_EMAIL_REPLY_APPROVAL,
   applyEmailLunaOpenDraftToSection,
   applyEmailLunaOpenDraftToDetail,
   isEmailLunaOpenDraftEnabled: isEmailLunaGenerateDraftEnabled,
+  SAFE_ACKNOWLEDGMENT,
 };
