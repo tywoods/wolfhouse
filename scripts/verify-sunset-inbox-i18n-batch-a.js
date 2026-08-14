@@ -59,32 +59,47 @@ for (const [id, label] of Object.entries(railLabels)) assert.strictEqual(viewsCo
 assert.strictEqual(viewsContext.inboxViewsLabel({ id: 'whatsapp', label: 'WhatsApp' }), 'WhatsApp');
 assert.strictEqual(viewsContext.inboxViewsLabel({ id: 'email', label: 'Email' }), 'Email');
 
-const contextSrc = fs.readFileSync(require.resolve('./browser/inbox-context'), 'utf8');
-function renderCustomerCards(language) {
+const contextPath = process.env.INBOX_CONTEXT_SOURCE
+  ? require('path').resolve(process.env.INBOX_CONTEXT_SOURCE)
+  : require.resolve('./browser/inbox-context');
+console.log(`Inbox context source: ${contextPath}`);
+const contextSrc = fs.readFileSync(contextPath, 'utf8');
+function renderCustomerCards(language, omittedKeys = []) {
+  const omitted = new Set(omittedKeys);
   const context = {
     window: {}, document: undefined, console,
     escHtml: String,
-    portalT: (key) => STAFF_PORTAL_STRINGS[language][key] || key,
+    portalT: (key) => omitted.has(key) ? key : (STAFF_PORTAL_STRINGS[language][key] || key),
   };
   context.window = context;
   vm.createContext(context);
   vm.runInContext(contextSrc, context);
   const data = {
-    phone: '+34000000000', identity: { display_name: 'Test Guest' },
+    phone: '+340****0000', identity: { display_name: 'Test Guest' },
     bookings: [], service_records: [], waivers: [],
   };
   return [
-    context.__inboxContext.clientInfoHtml(data, {}),
-    context.__inboxContext.customerCondensedHtml(data, {}),
+    ['clientInfoHtml', context.__inboxContext.clientInfoHtml(data, {})],
+    ['customerCondensedHtml', context.__inboxContext.customerCondensedHtml(data, {})],
   ];
 }
-for (const html of renderCustomerCards('en')) {
+for (const [, html] of renderCustomerCards('en')) {
   assert(html.includes('Lessons'), 'English customer card renders Lessons');
   assert(html.includes('Unpaid balance'), 'English customer card renders Unpaid balance');
 }
-for (const html of renderCustomerCards('es')) {
+for (const [, html] of renderCustomerCards('es')) {
   assert(html.includes('CLASES'), 'Spanish customer card renders CLASES');
   assert(html.includes('SALDO PENDIENTE'), 'Spanish customer card renders SALDO PENDIENTE');
+}
+const customerFallbackKeys = ['customers.card.classes', 'customers.card.balanceDue'];
+const expectedCallSiteFallbacks = ['Lessons', 'Unpaid balance'];
+for (const [renderer, html] of renderCustomerCards('en', customerFallbackKeys)) {
+  for (const fallback of expectedCallSiteFallbacks) {
+    assert(html.includes(fallback), `${renderer} uses exact English call-site fallback: ${fallback}`);
+  }
+  for (const key of customerFallbackKeys) {
+    assert(!html.includes(key), `${renderer} does not render missing translation key: ${key}`);
+  }
 }
 
 const shellSrc = fs.readFileSync(require.resolve('./browser/inbox-shell'), 'utf8');
