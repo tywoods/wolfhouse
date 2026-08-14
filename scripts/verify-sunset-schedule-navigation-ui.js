@@ -202,9 +202,12 @@ if (modExists) {
   assert('week next step 7', snap().forwardOffset === beforeWeek + 7);
 
   ctx.setScheduleView('next30');
-  const before30 = snap().forwardOffset;
+  const before30 = snap();
   ctx.scheduleNavigateNext();
-  assert('next30 next step 30', snap().forwardOffset === before30 + 30);
+  const after30 = snap();
+  const beforeMonth = Number(String(before30.rangeStartIso || before30.focusDateIso).slice(5, 7));
+  const afterMonth = Number(String(after30.rangeStartIso || after30.focusDateIso).slice(5, 7));
+  assert('next30 next steps one calendar month', (afterMonth === beforeMonth + 1) || (beforeMonth === 12 && afterMonth === 1));
 
   ctx.scheduleNavigateToday();
   assert('today resets offset', snap().forwardOffset === 0);

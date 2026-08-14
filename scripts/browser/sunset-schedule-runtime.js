@@ -584,8 +584,10 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
   }
 
   function fetchNext30(client, startDate) {
+    var first = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    var lastDate = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
     var days = [];
-    for (var i = 0; i < 30; i++) days.push(scheduleAddDays(startDate, i));
+    for (var i = 0; i < lastDate; i++) days.push(scheduleAddDays(first, i));
     return fetchDaysBounded(client, days, 4);
   }
 
@@ -669,11 +671,21 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     return s;
   }
 
+  function monthStart(d) {
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  }
+
+  function daysInMonth(d) {
+    return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  }
+
   function rangeStartFromOffset(forwardOffset) {
     var off = Number(forwardOffset);
     if (!isFinite(off)) off = 0;
     off = Math.trunc(off);
-    return scheduleAddDays(scheduleParseIso(scheduleTodayIso()), off);
+    var day = scheduleAddDays(scheduleParseIso(scheduleTodayIso()), off);
+    if (normalizeNavigationMode(navState.mode) === 'next30') return monthStart(day);
+    return day;
   }
 
   function rangeStartFromSnapshot(snap) {
@@ -698,7 +710,6 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
   }
 
   function navigationStep(mode) {
-    if (mode === 'next30') return 30;
     if (mode === 'week') return 7;
     return 1;
   }
@@ -712,7 +723,8 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
   function applyNavigationPresentation(snap) {
     snap = snap || getNavigationSnapshot();
     var rangeStart = rangeStartFromOffset(snap.forwardOffset);
-    var span = snap.mode === 'next30' ? 29 : (snap.mode === 'day' ? 0 : 6);
+    var span = snap.mode === 'day' ? 0 : 6;
+    if (snap.mode === 'next30') span = daysInMonth(rangeStart) - 1;
     var rangeEnd = scheduleAddDays(rangeStart, span);
     var labelNode = el('ps-range-label');
     if (labelNode) {
@@ -745,6 +757,12 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
 
   function navigatePrev() {
     var mode = normalizeNavigationMode(navState.mode);
+    if (mode === 'next30') {
+      var current = rangeStartFromOffset(navState.forwardOffset);
+      var prev = new Date(current.getFullYear(), current.getMonth() - 1, 1);
+      navState.forwardOffset = scheduleDaysFromToday(scheduleIsoDate(prev));
+      return requestPageLoad();
+    }
     var step = navigationStep(mode);
     var cur = Number(navState.forwardOffset);
     if (!isFinite(cur)) cur = 0;
@@ -754,6 +772,12 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
 
   function navigateNext() {
     var mode = normalizeNavigationMode(navState.mode);
+    if (mode === 'next30') {
+      var current = rangeStartFromOffset(navState.forwardOffset);
+      var next = new Date(current.getFullYear(), current.getMonth() + 1, 1);
+      navState.forwardOffset = scheduleDaysFromToday(scheduleIsoDate(next));
+      return requestPageLoad();
+    }
     var step = navigationStep(mode);
     navState.forwardOffset = (navState.forwardOffset || 0) + step;
     return requestPageLoad();
@@ -810,7 +834,7 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     rangeStartDate: function() { return rangeStartFromSnapshot(); },
     activeDayIso: function() {
       var snap = getNavigationSnapshot();
-      if (snap.mode === 'day') return snap.focusDateIso;
+      if (snap.mode === 'day' || snap.mode === 'next30') return snap.rangeStartIso || snap.focusDateIso;
       return snap.todayIso;
     },
     bumpLoad: bumpLoad,

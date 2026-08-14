@@ -454,13 +454,10 @@ console.log('\n[4] Behavioral — historical Day keeps real pack; Week/Next30 st
     { mode: 'next30', todayIso },
   );
   const nextIsos = (nextCtx.next30Cards || []).map((c) => c.iso);
-  assert('Next30 cards exclude past dates',
-    nextIsos.every((iso) => iso >= todayIso),
-    `isos=${nextIsos.join(',')}`);
-  assert('Next30 cards do not include historical past day', !nextIsos.includes(pastIso));
-  const nextHasPastGuest = (nextCtx.next30Cards || []).some((c) =>
-    (c._packRows || []).some((r) => r.guest_name === 'Historical Guest'));
-  assert('Next30 cards never carry past-day guest rows', !nextHasPastGuest);
+  const nextMonths = new Set(nextIsos.map((iso) => String(iso).slice(0, 7)));
+  assert('Next30 cards stay in one calendar month', nextMonths.size === 1, `isos=${nextIsos.join(',')}`);
+  assert('Next30 cards start on the first of that month', nextIsos[0] && nextIsos[0].slice(8, 10) === '01');
+  assert('Next30 month includes in-month days (past or future)', nextIsos.length >= 28);
 
   // Future filter helper itself still drops past packs (Week/Next30 pipeline).
   const filtered = vmCtx.scheduleFilterFutureWeekData(weekData);

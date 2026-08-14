@@ -19,6 +19,8 @@ var scheduleDrawerState = {
   mountGen: 0,
   refreshGen: 0,
   activeBookingKey: null,
+  prevBodyOverflow: null,
+  dismissWired: false,
 };
 
 function scheduleCloneDrawerCtx(ctx){
@@ -52,7 +54,59 @@ function scheduleDrawerIsRequestActive(openGen, bookingKey){
   return true;
 }
 
+function scheduleDrawerEnsureDocumentLayer(){
+  if (typeof document === 'undefined' || !document.body) return;
+  var drawer = el('ps-detail-drawer');
+  var backdrop = el('ps-drawer-backdrop');
+  if (backdrop && backdrop.parentNode !== document.body) document.body.appendChild(backdrop);
+  if (drawer && drawer.parentNode !== document.body) document.body.appendChild(drawer);
+}
+
+function scheduleDrawerLockPage(){
+  if (typeof document === 'undefined' || !document.body) return;
+  if (scheduleDrawerState.prevBodyOverflow == null) {
+    scheduleDrawerState.prevBodyOverflow = document.body.style.overflow || '';
+  }
+  document.body.style.overflow = 'hidden';
+  document.body.setAttribute('data-schedule-drawer-open', '1');
+}
+
+function scheduleDrawerUnlockPage(){
+  if (typeof document === 'undefined' || !document.body) return;
+  document.body.style.overflow = scheduleDrawerState.prevBodyOverflow || '';
+  scheduleDrawerState.prevBodyOverflow = null;
+  document.body.removeAttribute('data-schedule-drawer-open');
+}
+
+function scheduleDrawerOnBackdropClick(ev){
+  var backdrop = el('ps-drawer-backdrop');
+  if (!backdrop || ev.target !== backdrop) return;
+  closeScheduleDetailDrawer();
+}
+
+function scheduleDrawerOnKeydown(ev){
+  if (!ev || (ev.key !== 'Escape' && ev.key !== 'Esc')) return;
+  var drawer = el('ps-detail-drawer');
+  if (!drawer || drawer.style.display === 'none') return;
+  var create = typeof el === 'function' ? el('ps-create-modal') : null;
+  if (create && create.style && create.style.display && create.style.display !== 'none') return;
+  if (ev.preventDefault) ev.preventDefault();
+  closeScheduleDetailDrawer();
+}
+
+function scheduleDrawerWireDismiss(){
+  if (scheduleDrawerState.dismissWired) return;
+  scheduleDrawerState.dismissWired = true;
+  var backdrop = el('ps-drawer-backdrop');
+  if (backdrop && backdrop.addEventListener) backdrop.addEventListener('click', scheduleDrawerOnBackdropClick);
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('keydown', scheduleDrawerOnKeydown);
+  }
+}
+
 function scheduleDrawerShowShell(){
+  scheduleDrawerEnsureDocumentLayer();
+  scheduleDrawerWireDismiss();
   var drawer = el('ps-detail-drawer');
   var backdrop = el('ps-drawer-backdrop');
   if (drawer) {
@@ -60,8 +114,13 @@ function scheduleDrawerShowShell(){
     // height chain so only .portal-schedule-drawer-edit-body scrolls in-viewport.
     var editing = !!(drawer.querySelector && drawer.querySelector('#ps-drawer-edit-form'));
     drawer.style.display = editing ? 'flex' : 'block';
+    drawer.style.zIndex = '9800';
   }
-  if (backdrop) backdrop.style.display = 'block';
+  if (backdrop) {
+    backdrop.style.display = 'block';
+    backdrop.style.zIndex = '9700';
+  }
+  scheduleDrawerLockPage();
 }
 
 function scheduleDrawerRenderLegacyFallback(row, group){
@@ -256,6 +315,7 @@ function closeScheduleDetailDrawer(){
   var backdrop = el('ps-drawer-backdrop');
   if (drawer) drawer.style.display = 'none';
   if (backdrop) backdrop.style.display = 'none';
+  scheduleDrawerUnlockPage();
 }
 
 if (typeof window !== 'undefined') {

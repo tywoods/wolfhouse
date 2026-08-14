@@ -17442,7 +17442,7 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-schedule-filters{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
 .portal-schedule-filter-btn{font-size:11px;padding:4px 10px;border-radius:var(--radius-sm);border:1px solid var(--border-soft);background:var(--surface);cursor:pointer;font-family:inherit}
 .portal-schedule-filter-btn.active{background:var(--text);color:#fff;border-color:var(--text)}
-.portal-schedule-drawer{position:fixed;top:0;right:0;width:min(420px,92vw);height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9000;padding:16px 18px;padding-bottom:calc(28px + env(safe-area-inset-bottom));overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;box-sizing:border-box;font-size:13px;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;--sched-drawer-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
+.portal-schedule-drawer{position:fixed;top:0;right:0;width:min(420px,92vw);height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9800;padding:16px 18px;padding-bottom:calc(28px + env(safe-area-inset-bottom));overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;box-sizing:border-box;font-size:13px;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;--sched-drawer-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
 @media(max-width:640px){.portal-schedule-drawer,.portal-schedule-create-drawer{width:100vw;border-left:none}}
 .portal-schedule-drawer-section{margin-bottom:18px;padding:14px 16px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
 .portal-schedule-drawer-section-title{margin:0 0 10px;font-size:15px;font-weight:700;letter-spacing:-.02em;color:var(--text);font-family:var(--sched-drawer-serif);line-height:1.2}
@@ -17677,7 +17677,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .portal-schedule-drawer .is-bundle-line,.portal-schedule-drawer .is-bundle-line .ps-svc-name{font-weight:600}
 .portal-schedule-drawer .ps-day-amt-included{font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.03em}
 @media(max-width:360px){.portal-schedule-drawer-edit-body{padding:12px}.portal-schedule-drawer-edit-footer .portal-schedule-create-actions{flex-wrap:wrap}.portal-schedule-drawer-edit-footer .portal-schedule-create-actions .btn{flex:1 1 calc(50% - 6px)}}
-.portal-schedule-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:8999}
+.portal-schedule-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:9700}
 .portal-schedule-item-card.demo{opacity:.95;border-style:dashed}
 .portal-schedule-item-card.manual{border-style:dashed}
 .portal-schedule-item-card.source-staff{background:#ecfdf3;border-color:#86efac}
@@ -24045,9 +24045,7 @@ function scheduleFormatRangeLabel(start, end, viewMode){
       return startFull;
     }
     if (viewMode === 'next30'){
-      var a = start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      var b = end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-      return portalT('schedule.view.next30') + ' · ' + a + ' – ' + b;
+      return start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
     }
     return scheduleFormatRange(start, end);
   } catch (_) {
@@ -28990,23 +28988,27 @@ function scheduleBuildViewGridContext(profile, weekData, rangeStart, renderGen, 
   var futureWeekData = scheduleFilterFutureWeekData(rawWeekData);
   var mode = navSnapshot.mode;
   if (mode !== 'day' && mode !== 'week' && mode !== 'next30') mode = 'day';
+  if (mode === 'next30' && rangeStart && typeof rangeStart.getFullYear === 'function') {
+    rangeStart = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
+  }
   var today = navSnapshot.todayIso || scheduleTodayIso();
-  var activeIso = mode === 'day' ? scheduleIsoDate(rangeStart) : today;
+  var activeIso = (mode === 'day' || mode === 'next30') ? scheduleIsoDate(rangeStart) : today;
   var daySource = mode === 'day' ? rawWeekData : futureWeekData;
   var dayPack = daySource.find(function(x){ return x.dateIso === activeIso; }) ||
     { lessons: [], gear: [], rows: [] };
-  function buildCardContexts(count){
+  function buildCardContexts(count, includePast){
     var cards = [];
     for (var i = 0; i < count; i++){
       var d = scheduleAddDays(rangeStart, i);
       var iso = scheduleIsoDate(d);
-      if (iso < today) continue;
-      var pack = futureWeekData.find(function(x){ return x.dateIso === iso; }) ||
+      if (!includePast && iso < today) continue;
+      var pack = (includePast ? rawWeekData : futureWeekData).find(function(x){ return x.dateIso === iso; }) ||
         { lessons: [], gear: [], rows: [] };
       cards.push(scheduleBuildForecastCardPresentation(pack, iso, scheduleLessonTimesCache));
     }
     return cards;
   }
+  var monthLen = new Date(rangeStart.getFullYear(), rangeStart.getMonth() + 1, 0).getDate();
   return {
     renderGen: renderGen,
     mode: mode,
@@ -29014,8 +29016,8 @@ function scheduleBuildViewGridContext(profile, weekData, rangeStart, renderGen, 
     activeDayIso: activeIso,
     emptyDayText: portalT('schedule.emptyDay'),
     dayPack: dayPack,
-    weekCards: buildCardContexts(7),
-    next30Cards: buildCardContexts(30),
+    weekCards: buildCardContexts(7, false),
+    next30Cards: buildCardContexts(monthLen, true),
   };
 }
 

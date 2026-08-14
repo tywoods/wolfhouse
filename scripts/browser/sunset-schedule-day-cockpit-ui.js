@@ -159,9 +159,9 @@ var SCHEDULE_DAY_COCKPIT_CSS = [
   '.ck-now--idle .ck-pulse{background:none;border:1.5px solid var(--ck-ink-3);box-shadow:none;}',
   '.ck-now--idle .ck-now__sub{color:var(--ck-ink-3);}',
   '.ck-now--idle .ck-chip{background:var(--ck-chip);color:var(--ck-ink-2);}',
-  '.ck-ribbon{position:relative;height:58px;margin:0 4px;}',
-  '.ck-ribbon__track{position:absolute;inset:20px 0 14px;background:var(--ck-track);border-radius:8px;}',
-  '.ck-block{position:absolute;top:20px;bottom:14px;border-radius:8px;border:0;display:flex;align-items:center;justify-content:center;gap:6px;font:inherit;font-size:11px;font-weight:600;cursor:pointer;padding:0 6px;white-space:nowrap;overflow:hidden;}',
+  '.ck-ribbon{position:relative;min-height:58px;margin:0 4px;}',
+  '.ck-ribbon__track{position:absolute;left:0;right:0;top:20px;bottom:14px;background:var(--ck-track);border-radius:8px;}',
+  '.ck-block{position:absolute;border-radius:8px;border:0;display:flex;align-items:center;justify-content:center;gap:6px;font:inherit;font-size:11px;font-weight:600;cursor:pointer;padding:0 6px;white-space:nowrap;overflow:hidden;z-index:1;}',
   '.ck-block--live{background:var(--ck-now-bg);color:var(--ck-now-ink);font-weight:700;}',
   '.ck-block--done{background:var(--ck-done-bg);border:1px solid var(--ck-done-border);color:var(--ck-done-ink);font-weight:700;}',
   '.ck-block--empty{background:var(--ck-surface);border:1.5px dashed var(--ck-dash);color:var(--ck-ink-3);}',
@@ -334,6 +334,26 @@ function scheduleCockpitPct(min, winStartHour, spanMin) {
   return ((min - winStartHour * 60) / spanMin) * 100;
 }
 
+/** Pack overlapping ribbon sessions into vertical lanes so one block cannot steal another. */
+function scheduleCockpitAssignLanes(list) {
+  var items = (list || []).slice().sort(function (a, b) {
+    var ds = (a.s == null ? 0 : a.s) - (b.s == null ? 0 : b.s);
+    if (ds) return ds;
+    return ((b.e == null ? 0 : b.e) - (b.s == null ? 0 : b.s)) - ((a.e == null ? 0 : a.e) - (a.s == null ? 0 : a.s));
+  });
+  var laneEnds = [];
+  items.forEach(function (s) {
+    var start = s.s == null ? 0 : s.s;
+    var end = s.e == null ? start : s.e;
+    if (end <= start) end = start + 1;
+    var lane = 0;
+    while (lane < laneEnds.length && laneEnds[lane] > start) lane += 1;
+    s.lane = lane;
+    laneEnds[lane] = end;
+  });
+  return { list: items, laneCount: Math.max(1, laneEnds.length) };
+}
+
 /** Verbatim from design reference cockpit.js `classify`. */
 function scheduleCockpitClassify(data, now) {
   var list = (data.sessions || []).filter(function (s) { return !s.cancelled; })
@@ -446,9 +466,14 @@ function scheduleRenderDayCockpit(mount, data) {
   var dateWrap = el('div', 'ck-date');
   // Date only — no "Today ·" prefix (redundant with Previous/Today/Next seg).
   // Non-today keeps a short weekday so staff know which day they're on.
-  var dateLabel = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-  if (!isToday) {
-    dateLabel = dt.toLocaleDateString(undefined, { weekday: 'short' }) + ' · ' + dateLabel;
+  var dateLabel;
+  if ((data.range || '') === 'next30') {
+    dateLabel = dt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  } else {
+    dateLabel = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    if (!isToday) {
+      dateLabel = dt.toLocaleDateString(undefined, { weekday: 'short' }) + ' · ' + dateLabel;
+    }
   }
   dateWrap.appendChild(el('b', null, dateLabel));
   var guests = list.reduce(function (n, s) { return n + (s.booked || 0); }, 0);
@@ -608,16 +633,28 @@ function scheduleRenderDayCockpit(mount, data) {
   }
   main.appendChild(hero);
 
-  /* ribbon — no status/next headline (redundant with blocks + hero) */
+  /* ribbon — overlapping sessions stack into lanes so Mañana stays clickable */
+  var packed = scheduleCockpitAssignLanes(list);
+  list = packed.list;
+  var laneH = 28;
+  var laneGap = 4;
+  var topPad = 20;
+  var botPad = 14;
+  var ribbonH = topPad + botPad + packed.laneCount * laneH + Math.max(0, packed.laneCount - 1) * laneGap;
   var ribbon = el('div', 'ck-ribbon');
+  ribbon.style.height = ribbonH + 'px';
   ribbon.appendChild(el('div', 'ck-ribbon__track'));
   list.forEach(function (s) {
     var state = now != null && now >= s.e ? 'done' : live && s.id === live.id ? 'live' : s.booked ? 'done' : 'empty';
     var blockCls = 'ck-block ck-block--' + (state === 'done' && !(now != null && now >= s.e) ? 'done' : state);
     var b = el('button', blockCls);
     b.type = 'button';
+    var lane = s.lane || 0;
     b.style.left = pct(s.s) + '%';
     b.style.width = (((s.e - s.s) / spanMin) * 100) + '%';
+    b.style.top = (topPad + lane * (laneH + laneGap)) + 'px';
+    b.style.height = laneH + 'px';
+    b.style.zIndex = String(2 + lane);
     b.textContent = scheduleCockpitDisplayName(String(s.name || '')).replace(/^Curso /, '') + ' · ' +
       scheduleCockpitCapacityLabel(s.booked || 0, s.capacity) +
       (now != null && now >= s.e ? ' ✓' : '');
