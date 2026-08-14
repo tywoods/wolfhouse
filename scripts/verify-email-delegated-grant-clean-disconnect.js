@@ -1,5 +1,7 @@
 'use strict';
 const assert = require('assert/strict');
+const fs = require('fs');
+const path = require('path');
 const {
   clearDelegatedGrantAfterRevoke,
   clearPreviouslyRevokedGrant,
@@ -57,6 +59,15 @@ function fakeClient(expectedStatus) {
     assert.match(reset, /outbound_enabled=false/);
   }
   assert.equal(legacy.calls.at(-1).sql, 'COMMIT');
+
+  // Production orchestration must use the custodian's actual workerId contract.
+  // A leaseOwner lookalike fails before SQL and makes live Disconnect unavailable.
+  const revokeSource = fs.readFileSync(path.join(__dirname, 'lib/email-grant-revoke.js'), 'utf8');
+  const acquireCall = revokeSource.match(/tryAcquireDelegatedGrantLease\(\{[\s\S]*?\}, \{ client \}\)/);
+  assert.ok(acquireCall, 'production revoke must call the delegated-grant lease custodian');
+  assert.match(acquireCall[0], /workerId:\s*WORKER_ID/);
+  assert.doesNotMatch(acquireCall[0], /leaseOwner\s*:/);
+
   console.log('PASS clean disconnect removes leased and legacy-revoked rows for reinstall');
 })().catch((error) => {
   console.error(error);

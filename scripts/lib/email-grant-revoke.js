@@ -155,7 +155,7 @@ function createDelegatedGrantRevokeService(deps) {
       const acquired = await tryAcquireDelegatedGrantLease({
         clientId: ids.clientId,
         endpointId: ids.endpointId,
-        leaseOwner: WORKER_ID,
+        workerId: WORKER_ID,
         expectedGeneration: prior.value.grant_generation,
       }, { client });
       if (!acquired.ok || !acquired.value) {
