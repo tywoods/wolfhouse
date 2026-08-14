@@ -1065,6 +1065,26 @@
       "rationale": "Refuses rollback while delta state exists; empty table restores the v1 exact query-version CHECK.",
       "pairsWith": "080_tenant_email_delta_from_now_v2.sql",
       "sha256": "749c9b5357226fc61d2ef470bf14569121317cccb5b0f2a16db0496015c4ae6c"
+    },
+    {
+      "id": "081_tenant_email_reply_approvals_subject",
+      "filename": "081_tenant_email_reply_approvals_subject.sql",
+      "order": 77,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "EMAIL-REPLY-001 authoritative nullable subject on tenant_email_reply_approvals, locked with body/digest; draft-updatable, approved/terminal sealed. No seed, UI, live apply, or auto-send.",
+      "downFilename": "081_tenant_email_reply_approvals_subject_down.sql",
+      "sha256": "67900ef2170a9c2b291c39b365daee30eba513a16ac6911cdadb157b3bb1d098"
+    },
+    {
+      "id": "081_tenant_email_reply_approvals_subject_down",
+      "filename": "081_tenant_email_reply_approvals_subject_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while any non-null persisted reply subject exists; otherwise restores the 070 protect trigger and drops the subject column.",
+      "pairsWith": "081_tenant_email_reply_approvals_subject.sql",
+      "sha256": "3e33a393e5d6fb73188e750828f4e5fa2dca5a55bba3e478faa082e2a6a9b7a5"
     }
   ]
 }

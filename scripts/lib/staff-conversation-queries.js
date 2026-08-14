@@ -65,6 +65,7 @@ function sqlCurrentEmailSubjectExpr(convAlias) {
       WHERE m.client_id = ${conv}.client_id AND m.conversation_id = ${conv}.id
         AND m.direction = 'outbound'
         AND m.source = 'staff_email_reply'
+        AND m.route = 'email'
         AND NULLIF(m.metadata->>'email_subject', '') IS NOT NULL
     ) sub
     WHERE sub.subject IS NOT NULL AND btrim(sub.subject) <> ''
