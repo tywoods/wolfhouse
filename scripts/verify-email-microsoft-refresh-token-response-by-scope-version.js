@@ -4,11 +4,11 @@
  * RED/GREEN gate: phase-aware Microsoft refresh-token response classification.
  *
  * Scope policy is keyed only by trusted persisted scope_version:
- *   phase_a_v2 → existing Phase A validator (User.Read + Mail.ReadBasic)
- *   phase_b_v1 → existing Phase B validator (User.Read + Mail.ReadWrite + Mail.Send)
+ *   phase_a_v2 → single-consent validator (User.Read + Mail.ReadWrite + Mail.Send)
+ *   phase_b_v1 → legacy Phase B validator (same resource set)
  *   unknown / missing / hostile → fail-closed uncertain
  *
- * Never broadens Phase A, never accepts mixed A/B scopes, never leaks tokens/bodies.
+ * Never broadens beyond single-consent scopes; rejects legacy Mail.ReadBasic.
  */
 
 const assert = require('node:assert/strict');
@@ -34,10 +34,11 @@ const PLANTED_RT = 'rt-NEVER_LEAK_phase_aware_refresh';
 const PLANTED_AT = 'at-NEVER_LEAK_phase_aware_access';
 const PLANTED_ERR = 'error_description_NEVER_LEAK_phase_aware';
 
-const PHASE_A_SCOPE = 'openid profile offline_access User.Read Mail.ReadBasic';
-const PHASE_B_SCOPE = 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send';
+const SINGLE_CONSENT_SCOPE = 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send';
+const PHASE_A_SCOPE = SINGLE_CONSENT_SCOPE;
+const PHASE_B_SCOPE = SINGLE_CONSENT_SCOPE;
 const PHASE_B_MINIMAL = 'User.Read Mail.ReadWrite Mail.Send';
-const MIXED_SCOPE = 'openid profile User.Read Mail.ReadBasic Mail.ReadWrite Mail.Send';
+const MIXED_SCOPE = 'openid profile User.Read Mail.ReadWrite Mail.SendWrite Mail.Send';
 
 function successBody(scope, patch = {}) {
   return JSON.stringify({
@@ -91,8 +92,9 @@ async function main() {
       assert.equal(ok.selected.refreshToken, PLANTED_RT);
       assert.equal(ok.selected.refreshTokenOmitted, false);
       assert.equal(ok.selected.scope.includes('User.Read'), true);
-      assert.equal(ok.selected.scope.includes('Mail.ReadBasic'), true);
-      assert.equal(ok.selected.scope.includes('Mail.ReadWrite'), false);
+      assert.equal(ok.selected.scope.includes('Mail.ReadWrite'), true);
+      assert.equal(ok.selected.scope.includes('Mail.Send'), true);
+      assert.equal(ok.selected.scope.includes('Mail.ReadBasic'), false);
       assert.equal(Object.isFrozen(ok), true);
       assert.equal(Object.isFrozen(ok.selected), true);
 
@@ -146,16 +148,23 @@ async function main() {
       assert.equal(Object.prototype.hasOwnProperty.call(omitted.selected, 'refreshToken'), false);
     }
 
-    // ── Cross-phase mismatches → uncertain ────────────────────────────
+    // ── Legacy / incomplete scopes → uncertain ─────────────────────────
+    const LEGACY_SCOPE = 'openid profile offline_access User.Read Mail.ReadBasic';
+    const INCOMPLETE_SCOPE = 'openid profile User.Read Mail.ReadWrite';
     assertUncertain(
-      'Phase A grant + Phase B scopes',
+      'Phase A grant + legacy Mail.ReadBasic scopes',
       'phase_a_v2',
-      response(200, successBody(PHASE_B_SCOPE)),
+      response(200, successBody(LEGACY_SCOPE)),
     );
     assertUncertain(
-      'Phase B grant + Phase A scopes',
+      'Phase B grant + legacy Mail.ReadBasic scopes',
       'phase_b_v1',
-      response(200, successBody(PHASE_A_SCOPE)),
+      response(200, successBody(LEGACY_SCOPE)),
+    );
+    assertUncertain(
+      'Phase A grant + incomplete scopes (missing Mail.Send)',
+      'phase_a_v2',
+      response(200, successBody(INCOMPLETE_SCOPE)),
     );
     assertUncertain(
       'Phase A grant + mixed A/B scopes',
@@ -218,11 +227,15 @@ async function main() {
     // Executable policy must not union Phase A + Phase B resource sets.
     assert.doesNotMatch(src, /ALLOWED_TOKEN_RESPONSE_SCOPES|Mail\.ReadBasic.*Mail\.ReadWrite/);
 
-    // Legacy Phase A entry still rejects Phase B privilege (unchanged).
-    const legacyB = classifyMicrosoftRefreshTokenResponse(
-      response(200, successBody(PHASE_B_SCOPE)),
+    // Legacy Phase A entry accepts single-consent scopes; rejects legacy Mail.ReadBasic.
+    const legacyOk = classifyMicrosoftRefreshTokenResponse(
+      response(200, successBody(PHASE_A_SCOPE)),
     );
-    assert.equal(legacyB.kind, 'uncertain', 'Phase A classifier must not broaden');
+    assert.equal(legacyOk.kind, 'success', 'Phase A classifier accepts single-consent scopes');
+    const legacyBasic = classifyMicrosoftRefreshTokenResponse(
+      response(200, successBody('openid profile offline_access User.Read Mail.ReadBasic')),
+    );
+    assert.equal(legacyBasic.kind, 'uncertain', 'Phase A classifier rejects legacy Mail.ReadBasic');
 
     const pkg = JSON.parse(fs.readFileSync(PKG_PATH, 'utf8'));
     assert.equal(

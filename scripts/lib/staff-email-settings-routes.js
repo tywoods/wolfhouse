@@ -141,42 +141,11 @@ function isEligibleUnverifiedDelegatedEndpoint(row) {
 }
 
 /**
- * Pure B3a2a-parity eligibility for Phase B reauthorize control.
- * Endpoint + location + grant facts from one atomic server-owned row only; never browser facts.
- * Requires endpoint active=true, non-null canonical location_id, location_active=true.
- * Fail-closed on missing/malformed/hostile grant facts (no scope/lease proof).
- * Does not project generation/scope/lease into any return value.
+ * Phase B reauthorize eligibility — retired (single-consent connect).
+ * Kept for call-site stability; always false on live path.
  */
-function isEligiblePhaseBReauthorizeEndpoint(row, grantFact) {
-  try {
-    if (!row || typeof row !== 'object' || Array.isArray(row)) return false;
-    if (!grantFact || typeof grantFact !== 'object' || Array.isArray(grantFact)) return false;
-    // Endpoint must be active in the atomic snapshot (inactive fail-closed).
-    if (row.active !== true) return false;
-    const loc = row.location_id;
-    if (typeof loc !== 'string' || loc.trim() === '') return false;
-    // Location ownership fact from same snapshot; inactive/null fail-closed.
-    if (row.location_active !== true) return false;
-    if (row.provider !== 'microsoft_graph') return false;
-    if (row.auth_mode !== 'delegated_authorization_code') return false;
-    if (row.connector_mode !== 'microsoft_delegated_oauth') return false;
-    if (row.binding_status !== 'verified') return false;
-    const addr = row.public_address;
-    if (typeof addr !== 'string' || addr.trim() === '') return false;
-    if (grantFact.grant_present !== true) return false;
-    if (grantFact.grant_status !== 'active') return false;
-    if (grantFact.reconcile_state !== 'clean') return false;
-    if (grantFact.has_active_lease === true) return false;
-    if (grantFact.scope_version !== 'phase_a_v2') return false;
-    if (grantFact.lease_clear !== true) return false;
-    const gen = grantFact.grant_generation;
-    if (typeof gen !== 'number' || !Number.isInteger(gen) || gen < 1) return false;
-    // Mutually exclusive with Phase A start eligibility (unverified only).
-    if (isEligibleUnverifiedDelegatedEndpoint(row) === true) return false;
-    return true;
-  } catch (_) {
-    return false;
-  }
+function isEligiblePhaseBReauthorizeEndpoint(_row, _grantFact) {
+  return false;
 }
 
 /**

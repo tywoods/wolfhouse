@@ -52,7 +52,7 @@ function baseClientAuth(o) {
 function baseScopePlan(o) {
   return {
     phase: 'A', oidc: ['openid', 'profile', 'offline_access'],
-    graph_delegated: ['User.Read', 'Mail.ReadBasic'], include_email_scope: false, ...o,
+    graph_delegated: ['User.Read', 'Mail.ReadWrite', 'Mail.Send'], include_email_scope: false, ...o,
   };
 }
 function baseDeclaration(o) {
@@ -250,8 +250,9 @@ function main() {
             mod.EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES.includes(s))
           && !mod.EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES.includes('email')
           && mod.EMAIL_MS_DELEGATED_SCOPE_VERSION === 'phase_a_v2'
-          && Array.isArray(g) && g.length === 2 && g.includes('User.Read') && g.includes('Mail.ReadBasic')
-          && !g.includes('Mail.Read') && mod.EMAIL_MS_DELEGATED_ME_REQUIRED_DELEGATED_PERMISSION === 'User.Read'
+          && Array.isArray(g) && g.length === 3 && g.includes('User.Read')
+          && g.includes('Mail.ReadWrite') && g.includes('Mail.Send')
+          && !g.includes('Mail.ReadBasic') && mod.EMAIL_MS_DELEGATED_ME_REQUIRED_DELEGATED_PERMISSION === 'User.Read'
           && mod.EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES.includes('Mail.ReadWrite')
           && mod.EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES.includes('Mail.Send')
           && Array.isArray(m) && m.length === 2 && m.includes('private_key_jwt') && m.includes('client_secret_post')
@@ -335,10 +336,11 @@ function main() {
             && v.client_auth_model.pkce_alone_sufficient === false
             && v.client_auth_model.token_endpoint_client_authentication_required === true
             && v.client_auth_model.preferred_token_endpoint_client_authentication === 'private_key_jwt'
-            && v.scope_plan.phase_b_included_in_phase_a === false
+            && v.scope_plan.single_consent === true
             && v.scope_plan.scope_version === 'phase_a_v2'
             && v.scope_plan.graph_delegated.includes('User.Read')
-            && v.scope_plan.graph_delegated.includes('Mail.ReadBasic')
+            && v.scope_plan.graph_delegated.includes('Mail.ReadWrite')
+            && v.scope_plan.graph_delegated.includes('Mail.Send')
             && v.scope_plan.me_required_delegated_permission === 'User.Read'
             && v.scope_plan.canonical_address_fields_role === 'display_routing_evidence_only'
             && v.own_user_live_binding
@@ -436,31 +438,31 @@ function main() {
     ok('authority: consumers + bad host rejected',
       !mod.validateMicrosoftDelegatedAuthority(baseAuthority({ account_audience: 'consumers' })).ok
       && !mod.validateMicrosoftDelegatedAuthority(baseAuthority({ authority_host: 'evil.example' })).ok);
-    // Scopes (phase_a_v2 exact set: User.Read + Mail.ReadBasic)
+    // Scopes (phase_a_v2 exact set: User.Read + Mail.ReadWrite + Mail.Send)
     {
       const sp = mod.validateMicrosoftDelegatedScopePlan(baseScopePlan());
       ok('scope plan phase A v2 ok',
         sp.ok && sp.value.scope_version === 'phase_a_v2'
-        && sp.value.graph_delegated.length === 2
+        && sp.value.graph_delegated.length === 3
         && sp.value.graph_delegated.includes('User.Read')
-        && sp.value.graph_delegated.includes('Mail.ReadBasic')
+        && sp.value.graph_delegated.includes('Mail.ReadWrite')
+        && sp.value.graph_delegated.includes('Mail.Send')
         && sp.value.me_required_delegated_permission === 'User.Read'
         && sp.value.canonical_address_fields_role === 'display_routing_evidence_only', ser(sp));
     }
     for (const graph of [
-      ['Mail.ReadWrite'], ['Mail.Send'], ['Mail.Read'], ['Mail.Read.Shared'],
+      ['Mail.ReadWrite'], ['Mail.Send'], ['Mail.Read'], ['Mail.ReadBasic'], ['Mail.Read.Shared'],
       ['Mail.ReadWrite.Shared'], ['Mail.Send.Shared'],
       ['https://graph.microsoft.com/.default'], ['/.default'],
       ['Application Mail.ReadBasic'], ['Mail.ReadBasic', 'Mail.Send'],
-      ['Mail.ReadBasic'], // incomplete vs phase_a_v2 exact set
-      ['User.Read'], // incomplete without Mail.ReadBasic
-      ['User.Read', 'Mail.Read'], // broader Mail.Read forbidden
+      ['User.Read'], // incomplete vs phase_a_v2 exact set
+      ['User.Read', 'Mail.ReadWrite'], // incomplete without Mail.Send
       ['User.Read', 'Mail.ReadBasic', 'Mail.Send'],
     ]) {
       ok(`scope forbid: ${graph.join('+')}`,
         mod.validateMicrosoftDelegatedScopePlan(baseScopePlan({ graph_delegated: graph })).ok === false);
     }
-    ok('scope: missing profile + phase B as A rejected',
+    ok('scope: missing profile + phase B-only partial rejected',
       mod.validateMicrosoftDelegatedScopePlan(baseScopePlan({
         oidc: ['openid', 'offline_access'],
       })).ok === false

@@ -25,7 +25,7 @@ const TOKEN_LIMIT_CHARS = 8192;
 const ID_TOKEN_LIMIT_CHARS = 32768;
 const MAX_EXPIRES_IN_SECONDS = 86_400;
 // Authorize/request Phase A set (offline_access requested; may be omitted in token response).
-const PHASE_A_SCOPES = Object.freeze(['openid', 'profile', 'offline_access', 'User.Read', 'Mail.ReadBasic']);
+const PHASE_A_SCOPES = Object.freeze(['openid', 'profile', 'offline_access', 'User.Read', 'Mail.ReadWrite', 'Mail.Send']);
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const SUCCESS = Object.freeze({ status: 'custodied' });
 

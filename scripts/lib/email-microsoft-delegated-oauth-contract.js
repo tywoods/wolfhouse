@@ -28,8 +28,9 @@ const EMAIL_MS_DELEGATED_CLIENT_SECRET_POST_DECLARATION = Object.freeze({
 });
 const EMAIL_MS_DELEGATED_PHASE_A_OIDC_SCOPES = Object.freeze(['openid', 'profile', 'offline_access']);
 const EMAIL_MS_DELEGATED_PHASE_A_OPTIONAL_OIDC_SCOPES = Object.freeze(['email']);
-// phase_a_v2 Graph exact set: User.Read (/me bind) + Mail.ReadBasic.
-const EMAIL_MS_DELEGATED_PHASE_A_GRAPH_DELEGATED_SCOPES = Object.freeze(['User.Read', 'Mail.ReadBasic']);
+// phase_a_v2 Graph exact set: single Sunset connect (User.Read + Mail.ReadWrite + Mail.Send).
+// Mail.ReadWrite required for Graph createReply; Mail.Send for sendDraft/sendMail.
+const EMAIL_MS_DELEGATED_PHASE_A_GRAPH_DELEGATED_SCOPES = Object.freeze(['User.Read', 'Mail.ReadWrite', 'Mail.Send']);
 const EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES = Object.freeze(['Mail.ReadWrite', 'Mail.Send']);
 const EMAIL_MS_DELEGATED_PHASE_B_V1_GRAPH_DELEGATED_SCOPES = Object.freeze(['User.Read', 'Mail.ReadWrite', 'Mail.Send']);
 const EMAIL_MS_DELEGATED_SCOPE_VERSION = 'phase_a_v2';
@@ -305,7 +306,7 @@ function validateScopePlanImpl(raw) {
   }
   if (plan.phase === 'A') {
     for (const tok of graph.value) {
-      if (tok === 'Mail.ReadWrite' || tok === 'Mail.Send' || tok === 'Mail.Read') {
+      if (tok === 'Mail.ReadBasic' || tok === 'Mail.Read') {
         return fail('scope_plan_invalid', { reason: 'forbidden_scope' });
       }
     }
@@ -320,8 +321,8 @@ function validateScopePlanImpl(raw) {
       optional_oidc_display_only: plan.include_email_scope === true ? EMAIL_MS_DELEGATED_PHASE_A_OPTIONAL_OIDC_SCOPES.slice() : [],
       me_required_delegated_permission: EMAIL_MS_DELEGATED_ME_REQUIRED_DELEGATED_PERMISSION,
       canonical_address_fields_role: EMAIL_MS_DELEGATED_CANONICAL_ADDRESS_FIELDS_ROLE,
-      phase_b_graph_delegated_future: EMAIL_MS_DELEGATED_PHASE_B_GRAPH_DELEGATED_SCOPES.slice(),
-      phase_b_included_in_phase_a: false,
+      single_consent: true,
+      phase_b_reauthorization_deprecated: true,
     });
   }
   for (const tok of graph.value) {

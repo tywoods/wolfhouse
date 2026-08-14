@@ -5,8 +5,8 @@
  *
  * Keyed only by trusted persisted grant scope_version (never client UI, process
  * environment, or provider-body policy selection):
- *   phase_a_v2 → existing Phase A validator (User.Read + Mail.ReadBasic)
- *   phase_b_v1 → existing Phase B validator (User.Read + Mail.ReadWrite + Mail.Send)
+ *   phase_a_v2 → single-consent validator (User.Read + Mail.ReadWrite + Mail.Send)
+ *   phase_b_v1 → legacy Phase B validator (same resource set)
  *   unknown / missing / hostile → fail-closed uncertain
  *
  * Preserves Phase A semantics exactly. Never mixes A/B scopes. Never logs or

@@ -3,17 +3,18 @@
 /**
  * Microsoft v2 token-response scope validation + deterministic normalization.
  *
- * Authorize/request may still ask for openid profile offline_access + Graph
- * User.Read + Mail.ReadBasic (+ optional OIDC email). The *token response*
- * `scope` field is effective granted *access-token* scopes: offline_access is
- * evidenced by a required refresh_token and need not be echoed; optional OIDC
- * email may appear. Never synthesize missing scopes into actual custody scope.
+ * Authorize/request asks for openid profile offline_access + Graph
+ * User.Read + Mail.ReadWrite + Mail.Send (+ optional OIDC email). The *token
+ * response* `scope` field is effective granted *access-token* scopes:
+ * offline_access is evidenced by a required refresh_token and need not be echoed;
+ * optional OIDC email may appear. Never synthesize missing scopes into actual
+ * custody scope.
  *
  * Rules:
- * - Require exact resource scopes: User.Read, Mail.ReadBasic
+ * - Require exact resource scopes: User.Read, Mail.ReadWrite, Mail.Send
  * - Allow only OIDC metadata: openid, profile, offline_access, email (any order)
  * - Reject duplicates, empty tokens, unknown scopes, omitted required resource,
- *   and higher-privilege Graph scopes
+ *   and legacy Mail.ReadBasic / Mail.Read-only grants
  * - Normalize present scopes to a deterministic order for custody/replay
  *
  * @module email-microsoft-token-response-scope
@@ -21,7 +22,8 @@
 
 const TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES = Object.freeze([
   'User.Read',
-  'Mail.ReadBasic',
+  'Mail.ReadWrite',
+  'Mail.Send',
 ]);
 const TOKEN_RESPONSE_ALLOWED_OIDC_SCOPES = Object.freeze([
   'openid',
@@ -36,12 +38,14 @@ const TOKEN_RESPONSE_SCOPE_ORDER = Object.freeze([
   'offline_access',
   'email',
   'User.Read',
-  'Mail.ReadBasic',
+  'Mail.ReadWrite',
+  'Mail.Send',
 ]);
 const ALLOWED_TOKEN_RESPONSE_SCOPES = new Set([
   ...TOKEN_RESPONSE_ALLOWED_OIDC_SCOPES,
   ...TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES,
 ]);
+const FORBIDDEN_LEGACY_SCOPES = new Set(['Mail.ReadBasic', 'Mail.Read']);
 const SCOPE_MAX_CHARS = 512;
 
 /**
@@ -63,6 +67,7 @@ function validateAndNormalizeTokenResponseScope(scope) {
     if (!item || !ALLOWED_TOKEN_RESPONSE_SCOPES.has(item) || seen.has(item)) {
       return null;
     }
+    if (FORBIDDEN_LEGACY_SCOPES.has(item)) return null;
     seen.add(item);
   }
 

@@ -83,7 +83,7 @@ const ACCESS = 'ACCESS_SECRET_NEVER_LEAK_9c2b';
 const REFRESH = 'REFRESH_SECRET_NEVER_LEAK_3d4e';
 const ID_TOKEN = 'ID_TOKEN_SECRET_NEVER_LEAK.header.payload.sig';
 const LEAK = 'OAUTH-OPERATION-COMPOSITION-SECRET-DO-NOT-LEAK';
-const GOOD_SCOPE = 'openid profile offline_access User.Read Mail.ReadBasic';
+const GOOD_SCOPE = 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send';
 const NOW_EPOCH = 1_900_000_000;
 
 const tests = [];
