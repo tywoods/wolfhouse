@@ -1723,8 +1723,13 @@ function inboxContextInstallFetchHook() {
     var p = orig.apply(this, arguments);
     var href = typeof url === 'string' ? url : (url && url.url) || '';
     if (!/\/staff\/inbox\/thread\//.test(String(href))) return p;
+    var match = String(href).match(/\/staff\/inbox\/thread\/([^?\/]+)/);
+    var convId = match ? decodeURIComponent(match[1]) : null;
+    var selectionGeneration = typeof inboxSelectionGeneration !== 'undefined' ? inboxSelectionGeneration : null;
     return p.then(function(res) {
       return res.clone().json().then(function(body) {
+        if (!convId || typeof inboxSelectionIsCurrent !== 'function' ||
+            !inboxSelectionIsCurrent(convId, selectionGeneration)) return res;
         inboxContextLastComposite = body;
         return res;
       }, function() { return res; });
