@@ -16,7 +16,7 @@ const expected = {
   'inbox.layout.preset.all4': ['Full', 'Completa'],
   'admin.bookings.openInSchedule': ['Open in Schedule', 'Abrir en Agenda'],
   'inbox.detail.needsHuman.raise': ['Needs human', 'Requiere personal'],
-  'inbox.channelControl.title': ['CHANNEL CONTROL', 'CONTROL DE CANALES'],
+  'inbox.channelControl.title': ['CHANNEL AUTONOMY', 'CONTROL DE CANALES'],
   'inbox.detail.lunaMode.draft': ['Draft', 'Borrador'],
   'inbox.channelControl.globalPause': ['Global Pause', 'Pausa global'],
   'customers.filter.warmLeadsTitle': ['Contacted but never booked', 'Contactado pero nunca reservó'],
@@ -24,8 +24,8 @@ const expected = {
   'customers.filter.doNotContactTitle': ['Marked do not contact', 'Marcado como no contactar'],
   'customers.card.checkedIn': ['Checked in', 'CON CHECK-IN'],
   'customers.card.bookings': ['Bookings', 'RESERVAS'],
-  'customers.card.classes': ['Classes', 'CLASES'],
-  'customers.card.balanceDue': ['Balance due', 'SALDO PENDIENTE'],
+  'customers.card.classes': ['Lessons', 'CLASES'],
+  'customers.card.balanceDue': ['Unpaid balance', 'SALDO PENDIENTE'],
   'customers.card.waiverStatus': ['Waiver status', 'ESTADO DEL WAIVER'],
   'customers.card.lastSetup': ['Last setup', 'ÚLTIMA CONFIGURACIÓN'],
   'customers.detail.linkedBookings': ['Linked bookings', 'Reservas vinculadas'],
@@ -59,15 +59,49 @@ for (const [id, label] of Object.entries(railLabels)) assert.strictEqual(viewsCo
 assert.strictEqual(viewsContext.inboxViewsLabel({ id: 'whatsapp', label: 'WhatsApp' }), 'WhatsApp');
 assert.strictEqual(viewsContext.inboxViewsLabel({ id: 'email', label: 'Email' }), 'Email');
 
+const contextSrc = fs.readFileSync(require.resolve('./browser/inbox-context'), 'utf8');
+function renderCustomerCards(language) {
+  const context = {
+    window: {}, document: undefined, console,
+    escHtml: String,
+    portalT: (key) => STAFF_PORTAL_STRINGS[language][key] || key,
+  };
+  context.window = context;
+  vm.createContext(context);
+  vm.runInContext(contextSrc, context);
+  const data = {
+    phone: '+34000000000', identity: { display_name: 'Test Guest' },
+    bookings: [], service_records: [], waivers: [],
+  };
+  return [
+    context.__inboxContext.clientInfoHtml(data, {}),
+    context.__inboxContext.customerCondensedHtml(data, {}),
+  ];
+}
+for (const html of renderCustomerCards('en')) {
+  assert(html.includes('Lessons'), 'English customer card renders Lessons');
+  assert(html.includes('Unpaid balance'), 'English customer card renders Unpaid balance');
+}
+for (const html of renderCustomerCards('es')) {
+  assert(html.includes('CLASES'), 'Spanish customer card renders CLASES');
+  assert(html.includes('SALDO PENDIENTE'), 'Spanish customer card renders SALDO PENDIENTE');
+}
+
 const shellSrc = fs.readFileSync(require.resolve('./browser/inbox-shell'), 'utf8');
-const shellContext = {
-  window: {}, document: { readyState: 'loading', getElementById() { return null; }, addEventListener() {} }, localStorage: { getItem() { return null; } },
-  escHtml: String, t: (key) => STAFF_PORTAL_STRINGS.es[key] || key, console,
-};
-vm.createContext(shellContext);
-vm.runInContext(shellSrc, shellContext);
-const channelHtml = shellContext.inboxShellChannelDefaultsHtml({ whatsapp: 'auto', email: 'draft' });
-for (const copy of ['CONTROL DE CANALES', 'Borrador', 'Auto']) assert(channelHtml.includes(copy), `channel render: ${copy}`);
-assert(!channelHtml.includes('CHANNEL AUTONOMY'));
+function renderChannel(t) {
+  const context = {
+    window: {}, document: { readyState: 'loading', getElementById() { return null; }, addEventListener() {} }, localStorage: { getItem() { return null; } },
+    escHtml: String, t, console,
+  };
+  vm.createContext(context);
+  vm.runInContext(shellSrc, context);
+  return context.inboxShellChannelDefaultsHtml({ whatsapp: 'auto', email: 'draft' });
+}
+const channelEnHtml = renderChannel((key) => STAFF_PORTAL_STRINGS.en[key] || key);
+for (const copy of ['CHANNEL AUTONOMY', 'Draft', 'Auto']) assert(channelEnHtml.includes(copy), `English channel render: ${copy}`);
+const channelEsHtml = renderChannel((key) => STAFF_PORTAL_STRINGS.es[key] || key);
+for (const copy of ['CONTROL DE CANALES', 'Borrador', 'Auto']) assert(channelEsHtml.includes(copy), `Spanish channel render: ${copy}`);
+const channelFallbackHtml = renderChannel((key) => key);
+assert(channelFallbackHtml.includes('CHANNEL AUTONOMY'), 'missing channel title key uses the English call-site fallback');
 
 console.log('PASS Sunset Inbox i18n Batch A translation and rendering contract');
