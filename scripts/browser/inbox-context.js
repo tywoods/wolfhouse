@@ -898,7 +898,7 @@ function inboxCustomerCondensedHtml(data, opts) {
   html += '</div>';
   html += '<button type="button" class="inbox-customer-hide" id="inbox-customer-hide" title="Hide guest card" aria-label="Hide guest card">';
   html += '<span class="inbox-customer-hide-arrow" aria-hidden="true">&#8594;</span>';
-  html += '<span class="inbox-customer-hide-pin" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l1 7-4 3-4-3 1-7z"/><path d="M8 10h8"/></svg></span>';
+  html += '<span class="inbox-customer-hide-pin" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6.6" r="3.15"/><path d="M12 9.8v2.2"/><path d="M8.1 12.5h7.8"/><path d="M12 12.5v8"/></svg></span>';
   html += '</button>';
   html += '</div>';
   html += '<div class="customers-profile-fields">';

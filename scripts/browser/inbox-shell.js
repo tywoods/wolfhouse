@@ -98,14 +98,17 @@ function inboxShellStoreModes(modes){
 }
 
 function inboxShellOwlIconSvg(){
-  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
-    '<path d="M8.1 8.8 6.4 4.6c1.8.45 3.2 1.55 5.6 1.55s3.8-1.1 5.6-1.55l-1.7 4.2"/>' +
-    '<path d="M6.3 11.3c.25 5.05 2.55 8.3 5.7 8.3s5.45-3.25 5.7-8.3c0-2.35-2.15-4.55-5.7-4.55s-5.7 2.2-5.7 4.55z"/>' +
-    '<circle cx="9.45" cy="11.35" r="2.15"/>' +
-    '<circle cx="14.55" cy="11.35" r="2.15"/>' +
-    '<circle cx="9.45" cy="11.35" r=".5" fill="currentColor" stroke="none"/>' +
-    '<circle cx="14.55" cy="11.35" r=".5" fill="currentColor" stroke="none"/>' +
-    '<path d="M12 12.15 13.35 14.25h-2.7z"/>' +
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+    '<path d="M8.15 6.55 9.55 3.7 11.15 6.35"/>' +
+    '<path d="M15.85 6.55 14.45 3.7 12.85 6.35"/>' +
+    '<path d="M6.4 10.6c0-3.15 2.35-5.05 5.6-5.05s5.6 1.9 5.6 5.05c0 3.35-1.55 6.55-3.45 8.05-.7.55-1.45.85-2.15.85s-1.45-.3-2.15-.85C7.95 17.15 6.4 13.95 6.4 10.6z"/>' +
+    '<circle cx="9.55" cy="10.55" r="2.05"/>' +
+    '<circle cx="14.45" cy="10.55" r="2.05"/>' +
+    '<path d="M9.55 9.7 10.2 10.55 9.55 11.4 8.9 10.55z" fill="currentColor" stroke="none"/>' +
+    '<path d="M14.45 9.7 15.1 10.55 14.45 11.4 13.8 10.55z" fill="currentColor" stroke="none"/>' +
+    '<path d="M12 11.55 13.2 12.85 12 14.2 10.8 12.85z"/>' +
+    '<path d="M8.15 15.15c.7 1.15 1.65 1.9 2.55 2.2"/>' +
+    '<path d="M15.85 15.15c-.7 1.15-1.65 1.9-2.55 2.2"/>' +
     '</svg>';
 }
 
