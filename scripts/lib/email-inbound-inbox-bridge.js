@@ -7,15 +7,23 @@
  * conversations/messages Inbox model with channel=email and location preserved.
  *
  * - Conversation key: UNIQUE(client_id, phone) uses an **opaque** email-channel
- *   identity `emailv1:<location_text>:<sha256>` — never raw sender email in the
- *   phone namespace. Real email lives only in conversations.email (staff contact).
+ *   identity `emailv1:<match-key>` — never raw sender email in the phone
+ *   namespace. EMAIL-MATCH-001 match-key is mailbox + normalized From via the
+ *   PR #592 helper API only (`emailconv-from`). Helpers are required
+ *   intrinsically; there is no helper-absent fallback key. Real email lives
+ *   only in conversations.email (staff contact).
  * - Migration 067 updates sync_customer_from_touch to skip `emailv1:`/`email:`
  *   phones so projections never create customers.phone or merge with WhatsApp.
  * - Location sticks via conversations.metadata.location_id (text kebab from
  *   tenant_locations.location_id resolved from authority UUID).
  * - Exactly-once via tenant_email_inbound_inbox_projections journal (067).
- * - Same sender + same location → one conversation; distinct messages per event.
- * - Different locations never share a conversation.
+ * - Same sender + same Sunset mailbox → one conversation; distinct messages
+ *   per event. Different mailboxes never share a conversation. RFC 5322
+ *   In-Reply-To / References threading is deferred: Graph / envelope / 063
+ *   event rows do not persist those headers.
+ * - Exact same-tenant guests.email bind → conversations.guest_id; unknown /
+ *   ambiguous From stays null. Never INSERT guests. Existing email / display
+ *   name / guest_id are not overwritten by a later different From.
  * - PII minimization: subject only in message_text + last_message_preview (no
  *   redundant email_subject metadata copies).
  * - Import-inert / default-off: no routes, cron, send, Luna, or activation.
@@ -25,6 +33,11 @@
 
 const crypto = require('crypto');
 const util = require('util');
+const {
+  resolveInboundMatchConversationIdentity,
+  bindSunsetGuestByExactInboundEmail,
+  persistConversationGuestBind,
+} = require('./email-inbound-match-ingest');
 
 const FAILURE_CODE = 'inbound_inbox_bridge_failed';
 const FAILURE_MESSAGE = 'Inbound email inbox bridge operation failed.';
@@ -137,8 +150,8 @@ INSERT INTO conversations (
   $8, $9::jsonb, $10::jsonb
 )
 ON CONFLICT (client_id, phone) DO UPDATE SET
-  display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), conversations.display_name),
-  email = COALESCE(EXCLUDED.email, conversations.email),
+  display_name = COALESCE(NULLIF(conversations.display_name, ''), EXCLUDED.display_name),
+  email = COALESCE(conversations.email, EXCLUDED.email),
   last_message_preview = EXCLUDED.last_message_preview,
   metadata = conversations.metadata || EXCLUDED.metadata,
   session_state = conversations.session_state || EXCLUDED.session_state,
@@ -657,7 +670,11 @@ async function runProjectTransaction(client, parsed) {
     }
     const locationKebab = locationText.trim().toLowerCase();
 
-    const identityKey = buildEmailConversationIdentityKey(locationKebab, senderNorm);
+    const resolvedIdentity = resolveInboundMatchConversationIdentity({
+      providerMailboxId: event.provider_mailbox_id,
+      fromAddress: senderNorm,
+    });
+    const identityKey = resolvedIdentity && resolvedIdentity.conversation_key;
     if (!identityKey || !isEmailChannelPhoneNamespace(identityKey)) {
       await attemptRollback(client);
       return rejected('conversation_key_invalid');
@@ -718,6 +735,19 @@ async function runProjectTransaction(client, parsed) {
     if (typeof conversationId !== 'string' || !conversationId) {
       await attemptRollback(client);
       return rejected('conversation_upsert_failed');
+    }
+
+    const guestBind = await bindSunsetGuestByExactInboundEmail(client, {
+      clientId: parsed.clientId,
+      fromAddress: senderNorm,
+    });
+    if (guestBind && guestBind.status === 'matched' && guestBind.guest_id) {
+      await persistConversationGuestBind(client, {
+        clientId: parsed.clientId,
+        conversationId,
+        guestId: guestBind.guest_id,
+        fromAddress: senderNorm,
+      });
     }
 
     // 6) Insert inbound message.

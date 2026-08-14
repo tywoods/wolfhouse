@@ -43,7 +43,9 @@ const PLANTED_TOKEN = 'ya29.NEVER_LEAK_INBOX_BRIDGE_AT';
 const BRIDGE_IMPORT_ALLOWLIST = new Set([
   BRIDGE_REL,
   EVENT_STORE_COMPOSITION_REL,
+  'scripts/lib/email-delta-sunset-staging-runtime-composition.js',
   'scripts/verify-email-inbound-inbox-bridge.js',
+  'scripts/verify-email-inbound-match-ingest.js',
   PROVE_REL,
 ]);
 
@@ -255,6 +257,20 @@ function createFakeBridgeHarness(options = {}) {
           return { rows: [], rowCount: 0 };
         }
 
+        if (/FROM guests/.test(norm)) {
+          return { rows: [], rowCount: 0 };
+        }
+
+        if (/FROM tenant_email_inbound_events/.test(norm)
+            && /internet_message_id/.test(norm)
+            && /JOIN/.test(norm)) {
+          return { rows: [], rowCount: 0 };
+        }
+
+        if (/^UPDATE conversations/.test(norm) && /guest_id/.test(norm)) {
+          return { rows: [], rowCount: 0 };
+        }
+
         // Conversation upsert
         if (/^INSERT INTO conversations/.test(norm)) {
           const [
@@ -267,8 +283,8 @@ function createFakeBridgeHarness(options = {}) {
             const meta = typeof metadataJson === 'string' ? JSON.parse(metadataJson) : metadataJson;
             const next = {
               ...existing,
-              display_name: displayName || existing.display_name,
-              email: email || existing.email,
+              display_name: existing.display_name || displayName,
+              email: existing.email || email,
               last_message_preview: preview,
               metadata: { ...existing.metadata, ...meta },
               updated_at: 'now',
@@ -475,8 +491,8 @@ function assertStaticSurface() {
   assert.match(doc, /inbox-bridge|inbound-inbox-bridge|Inbox bridge/i);
   assert.match(doc, /067_tenant_email_inbound_inbox_projections|tenant_email_inbound_inbox_projections/);
   assert.match(doc, /emailv1|opaque/);
-  assert.match(plan, /email_inbound_events/);
-  assert.match(plan, /channel=.?email|channel='email'|channel=\"email\"/);
+  assert.match(plan, /email_inbound_events|Project email into existing `conversations` and `messages`/);
+  assert.match(plan, /channel=.?email|channel='email'|channel=\"email\"|Email channel badge/);
 
   console.log('ok - static surface (module, 067 composite FKs, fail-closed down, package, docs)');
 }
@@ -599,7 +615,7 @@ async function testProjectHappyPath() {
   assert.equal(conv.session_state.channel, 'email');
   // Opaque identity — no raw email in phone namespace
   assert.ok(String(conv.phone).startsWith('emailv1:'));
-  assert.ok(String(conv.phone).includes('sunset-somo'));
+  assert.ok(bridge.isEmailChannelPhoneNamespace(conv.phone));
   assert.equal(
     String(conv.phone).toLowerCase().includes(PLANTED_ADDRESS.toLowerCase()),
     false,
@@ -685,7 +701,7 @@ async function testSameSenderSameLocationThreadsTogether() {
   assert.equal(harness.conversations.size, 1);
   assert.equal(harness.messages.size, 2);
   assert.equal(harness.projections.size, 2);
-  console.log('ok - same sender+location → one conversation, two messages');
+  console.log('ok - same sender+mailbox → one conversation, two messages');
 }
 
 async function testLocationIsolation() {
@@ -722,11 +738,9 @@ async function testLocationIsolation() {
 
   assert.equal(r1.status, 'projected');
   assert.equal(r2.status, 'projected');
-  assert.notEqual(r1.conversation_id, r2.conversation_id);
-  assert.equal(harness.conversations.size, 2);
-  const metas = [...harness.conversations.values()].map((c) => c.metadata.location_id).sort();
-  assert.deepEqual(metas, ['sunset-sardinero', 'sunset-somo']);
-  console.log('ok - location isolation (Somo vs Sardinero separate threads)');
+  assert.equal(r1.conversation_id, r2.conversation_id);
+  assert.equal(harness.conversations.size, 1);
+  console.log('ok - same From+mailbox coalesces across locations');
 }
 
 async function testTenantAuthorityMismatchRejected() {
@@ -1083,6 +1097,17 @@ async function testOverlappingJournalRaceLoserRollback() {
         if (/FROM tenant_locations/.test(norm)) {
           const loc = locations.get(`${params[0]}\0${params[1]}`);
           if (loc) return { rows: [{ location_id: loc.location_id }], rowCount: 1 };
+          return { rows: [], rowCount: 0 };
+        }
+        if (/FROM guests/.test(norm)) {
+          return { rows: [], rowCount: 0 };
+        }
+        if (/FROM tenant_email_inbound_events/.test(norm)
+            && /internet_message_id/.test(norm)
+            && /JOIN/.test(norm)) {
+          return { rows: [], rowCount: 0 };
+        }
+        if (/^UPDATE conversations/.test(norm) && /guest_id/.test(norm)) {
           return { rows: [], rowCount: 0 };
         }
         if (/^INSERT INTO conversations/.test(norm)) {
