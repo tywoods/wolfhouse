@@ -106,6 +106,13 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+CREATE TABLE guests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  email TEXT,
+  full_name TEXT
+);
+
 CREATE TABLE conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
@@ -120,6 +127,7 @@ CREATE TABLE conversations (
   bot_mode bot_mode NOT NULL DEFAULT 'bot',
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   customer_id UUID,
+  guest_id UUID,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (client_id, phone)
@@ -397,9 +405,9 @@ async function proveBehavioral(pool, options = {}) {
     assert.equal(conv.rows.length, 1);
     const phone = conv.rows[0].phone;
     assert.equal(isEmailChannelPhoneNamespace(phone), true);
-    assert.ok(String(phone).startsWith('emailv1:sunset-somo:'));
+    assert.ok(String(phone).startsWith('emailv1:'));
     assert.equal(String(phone).toLowerCase().includes(PLANTED_ADDRESS), false);
-    assert.equal(
+    assert.notEqual(
       phone,
       buildEmailConversationIdentityKey('sunset-somo', PLANTED_ADDRESS),
     );
@@ -473,7 +481,7 @@ async function proveBehavioral(pool, options = {}) {
     );
     console.log('ok - replay already_projected zero mutation');
 
-    // ── Same sender different location → separate conversations ──────────
+    // ── Same sender + same mailbox, different location → one conversation ─
     const evSard = await insertInboundEvent(setup, {
       location_id: ids.locationOther,
       provider_message_id: `msg-sard-${crypto.randomBytes(3).toString('hex')}`,
@@ -488,8 +496,111 @@ async function proveBehavioral(pool, options = {}) {
       inboundEventId: evSard.id,
     }));
     assert.equal(rSard.status, 'projected');
-    assert.notEqual(rSard.conversation_id, r1.conversation_id);
-    console.log('ok - location isolation on real schema');
+    assert.equal(rSard.conversation_id, r1.conversation_id);
+    console.log('ok - same From+mailbox coalesces across locations on real schema');
+
+    const eventCols = await setup.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'tenant_email_inbound_events'`,
+    );
+    const eventColNames = eventCols.rows.map((row) => row.column_name);
+    assert.equal(eventColNames.includes('in_reply_to'), false);
+    assert.equal(eventColNames.includes('references_message_ids'), false);
+    assert.equal(eventColNames.includes('internet_message_id'), true);
+    console.log('ok - 063 event schema has no In-Reply-To/References columns');
+
+    const guestExact = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const guestAmbA = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const guestAmbB = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    await setup.query(
+      `INSERT INTO guests (id, client_id, email, full_name)
+       VALUES ($1::uuid, $2::uuid, $3, 'Elena Guest')`,
+      [guestExact, ids.client, 'PROOF-INBOX-BRIDGE@EXAMPLE.TEST'],
+    );
+    const evGuest = await insertInboundEvent(setup, {
+      provider_message_id: `msg-guest-${crypto.randomBytes(3).toString('hex')}`,
+      sender_address: PLANTED_ADDRESS,
+    });
+    const rGuest = await bridge.projectInboundEvent(Object.freeze({
+      ...authority(),
+      inboundEventId: evGuest.id,
+    }));
+    assert.equal(rGuest.status, 'projected');
+    assert.equal(rGuest.conversation_id, r1.conversation_id);
+    const bound = await setup.query(
+      `SELECT guest_id::text AS guest_id, email FROM conversations WHERE id = $1::uuid`,
+      [r1.conversation_id],
+    );
+    assert.equal(bound.rows[0].guest_id, guestExact);
+    assert.equal(String(bound.rows[0].email).toLowerCase(), PLANTED_ADDRESS);
+    const guestCount = await count(setup, `SELECT count(*)::int AS n FROM guests`);
+    assert.equal(guestCount, 1, 'projection must never INSERT guests');
+
+    const evGuest2 = await insertInboundEvent(setup, {
+      provider_message_id: `msg-guest-keep-${crypto.randomBytes(3).toString('hex')}`,
+      sender_address: PLANTED_ADDRESS,
+    });
+    const rGuest2 = await bridge.projectInboundEvent(Object.freeze({
+      ...authority(),
+      inboundEventId: evGuest2.id,
+    }));
+    assert.equal(rGuest2.status, 'projected');
+    const stillBound = await setup.query(
+      `SELECT guest_id::text AS guest_id FROM conversations WHERE id = $1::uuid`,
+      [r1.conversation_id],
+    );
+    assert.equal(stillBound.rows[0].guest_id, guestExact);
+    console.log('ok - real SQL exact guest bind; existing guest_id kept; no guest insert');
+
+    const unknownAddr = 'unknown-guest@example.test';
+    const evUnknown = await insertInboundEvent(setup, {
+      provider_message_id: `msg-unk-${crypto.randomBytes(3).toString('hex')}`,
+      sender_address: unknownAddr,
+      sender_display_name: 'Unknown',
+    });
+    const rUnknown = await bridge.projectInboundEvent(Object.freeze({
+      ...authority(),
+      inboundEventId: evUnknown.id,
+    }));
+    assert.equal(rUnknown.status, 'projected');
+    assert.notEqual(rUnknown.conversation_id, r1.conversation_id);
+    const unkConv = await setup.query(
+      `SELECT guest_id, email, display_name FROM conversations WHERE id = $1::uuid`,
+      [rUnknown.conversation_id],
+    );
+    assert.equal(unkConv.rows[0].guest_id, null);
+    assert.equal(unkConv.rows[0].email, unknownAddr);
+    const rootAfter = await setup.query(
+      `SELECT guest_id::text AS guest_id, email, display_name FROM conversations WHERE id = $1::uuid`,
+      [r1.conversation_id],
+    );
+    assert.equal(rootAfter.rows[0].guest_id, guestExact);
+    assert.equal(String(rootAfter.rows[0].email).toLowerCase(), PLANTED_ADDRESS);
+    assert.equal(rootAfter.rows[0].display_name, 'Proof Guest');
+    console.log('ok - different From does not join or overwrite root identity');
+
+    const ambMailboxSender = 'ambiguous-guest@example.test';
+    await setup.query(
+      `INSERT INTO guests (id, client_id, email)
+       VALUES ($1::uuid, $2::uuid, $3), ($4::uuid, $2::uuid, $3)`,
+      [guestAmbA, ids.client, ambMailboxSender, guestAmbB],
+    );
+    const evAmb = await insertInboundEvent(setup, {
+      provider_message_id: `msg-amb-${crypto.randomBytes(3).toString('hex')}`,
+      sender_address: ambMailboxSender,
+    });
+    const rAmb = await bridge.projectInboundEvent(Object.freeze({
+      ...authority(),
+      inboundEventId: evAmb.id,
+    }));
+    assert.equal(rAmb.status, 'projected');
+    const ambConv = await setup.query(
+      `SELECT guest_id FROM conversations WHERE id = $1::uuid`,
+      [rAmb.conversation_id],
+    );
+    assert.equal(ambConv.rows[0].guest_id, null);
+    console.log('ok - ambiguous same-tenant guest email stays unmatched on real SQL');
 
     // ── Commit not applied (uncertain, zero new rows for that event) ─────
     {

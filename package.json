@@ -431,6 +431,7 @@
     "verify:staff-email-oauth-shared-callback-route": "node scripts/verify-staff-email-oauth-shared-callback-route.js",
     "verify:email-inbound-event-store": "node scripts/verify-email-inbound-event-store.js",
     "verify:email-inbound-inbox-bridge": "node scripts/verify-email-inbound-inbox-bridge.js",
+    "verify:email-inbound-match-ingest": "node scripts/verify-email-inbound-match-ingest.js",
     "prove:email-inbound-event-store-pglite": "node scripts/prove-email-inbound-event-store-pglite.js",
     "verify:email-inbound-delta-state-store": "node scripts/verify-email-inbound-delta-state-store.js",
     "prove:email-inbound-delta-state-store-pglite": "node scripts/prove-email-inbound-delta-state-store-pglite.js",
