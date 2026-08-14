@@ -18,7 +18,7 @@ const SELECTED_KEYS = Object.freeze(['accessToken', 'refreshToken', 'tokenType',
 const GOOD = {
   token_type: 'Bearer',
   expires_in: 3600,
-  scope: 'openid profile offline_access User.Read Mail.ReadBasic',
+  scope: 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send',
   access_token: SECRET,
   refresh_token: REFRESH,
   id_token: ID_TOKEN,
@@ -121,7 +121,7 @@ async function main() {
     // token_response_received → callback_failed with no token_response_validated.
     // Microsoft v2 `scope` is effective granted *access-token* scopes; offline_access
     // is evidenced by required refresh_token and need not be echoed. Optional OIDC
-    // email may appear. Require exact resource scopes User.Read + Mail.ReadBasic;
+    // email may appear. Require exact resource scopes User.Read + Mail.ReadWrite + Mail.Send;
     // allow only OIDC metadata openid|profile|offline_access|email; never synthesize
     // missing scopes into actual normalized custody scope.
     {
@@ -129,10 +129,10 @@ async function main() {
       const msNoOffline = await succeeds({
         body: JSON.stringify({
           ...GOOD,
-          scope: 'openid profile User.Read Mail.ReadBasic',
+          scope: 'openid profile User.Read Mail.ReadWrite Mail.Send',
         }),
       });
-      assert.equal(msNoOffline.scope, 'openid profile User.Read Mail.ReadBasic');
+      assert.equal(msNoOffline.scope, 'openid profile User.Read Mail.ReadWrite Mail.Send');
       assert.equal(msNoOffline.scope.includes('offline_access'), false);
       assert.equal(msNoOffline.refreshToken, REFRESH);
       assert.equal(msNoOffline.idToken, ID_TOKEN);
@@ -141,60 +141,60 @@ async function main() {
       const msEmail = await succeeds({
         body: JSON.stringify({
           ...GOOD,
-          scope: 'openid profile email User.Read Mail.ReadBasic',
+          scope: 'openid profile email User.Read Mail.ReadWrite Mail.Send',
         }),
       });
-      assert.equal(msEmail.scope, 'openid profile email User.Read Mail.ReadBasic');
+      assert.equal(msEmail.scope, 'openid profile email User.Read Mail.ReadWrite Mail.Send');
       assert.equal(msEmail.scope.includes('offline_access'), false);
 
       // offline_access may still be echoed when present (do not strip; do not require).
       const msWithOffline = await succeeds({
         body: JSON.stringify({
           ...GOOD,
-          scope: 'openid profile offline_access User.Read Mail.ReadBasic',
+          scope: 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send',
         }),
       });
-      assert.equal(msWithOffline.scope, 'openid profile offline_access User.Read Mail.ReadBasic');
+      assert.equal(msWithOffline.scope, 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send');
 
       // Full OIDC metadata set including email + offline_access.
       const msFullOidc = await succeeds({
         body: JSON.stringify({
           ...GOOD,
-          scope: 'openid profile offline_access email User.Read Mail.ReadBasic',
+          scope: 'openid profile offline_access email User.Read Mail.ReadWrite Mail.Send',
         }),
       });
       assert.equal(
         msFullOidc.scope,
-        'openid profile offline_access email User.Read Mail.ReadBasic',
+        'openid profile offline_access email User.Read Mail.ReadWrite Mail.Send',
       );
 
       // Resource-only granted access-token scopes (no OIDC metadata echoed).
       const resourceOnly = await succeeds({
-        body: JSON.stringify({ ...GOOD, scope: 'User.Read Mail.ReadBasic' }),
+        body: JSON.stringify({ ...GOOD, scope: 'User.Read Mail.ReadWrite Mail.Send' }),
       });
-      assert.equal(resourceOnly.scope, 'User.Read Mail.ReadBasic');
+      assert.equal(resourceOnly.scope, 'User.Read Mail.ReadWrite Mail.Send');
       assert.equal(resourceOnly.scope.includes('offline_access'), false);
 
       // Any order accepted; custody persists deterministic normalized actual scope.
       const reordered = await succeeds({
         body: JSON.stringify({
           ...GOOD,
-          scope: 'Mail.ReadBasic email User.Read profile openid',
+          scope: 'Mail.Send Mail.ReadWrite email User.Read profile openid',
         }),
       });
-      assert.equal(reordered.scope, 'openid profile email User.Read Mail.ReadBasic');
+      assert.equal(reordered.scope, 'openid profile email User.Read Mail.ReadWrite Mail.Send');
       assert.equal(reordered.scope.includes('offline_access'), false);
 
       // offline_access in non-canonical position still normalizes without synthesis.
       const offlineReordered = await succeeds({
         body: JSON.stringify({
           ...GOOD,
-          scope: 'Mail.ReadBasic offline_access User.Read openid profile',
+          scope: 'Mail.Send Mail.ReadWrite offline_access User.Read openid profile',
         }),
       });
       assert.equal(
         offlineReordered.scope,
-        'openid profile offline_access User.Read Mail.ReadBasic',
+        'openid profile offline_access User.Read Mail.ReadWrite Mail.Send',
       );
     }
 
@@ -202,33 +202,34 @@ async function main() {
     for (const scope of [
       // omitted required resource scope
       'openid profile User.Read',
-      'openid profile Mail.ReadBasic',
+      'openid profile Mail.ReadWrite',
+      'openid profile Mail.Send',
       'openid profile offline_access',
       'User.Read',
-      'Mail.ReadBasic',
-      // higher-privilege / broader Graph scopes
+      'Mail.ReadWrite',
+      'Mail.Send',
+      'User.Read Mail.ReadWrite',
+      'User.Read Mail.Send',
+      // legacy / broader Graph scopes
+      'openid profile User.Read Mail.ReadBasic',
       'openid profile User.Read Mail.Read',
-      'openid profile User.Read Mail.ReadWrite',
-      'openid profile User.Read Mail.Send',
-      'User.Read Mail.ReadBasic Mail.Send',
-      'User.Read Mail.ReadBasic Mail.Read',
-      'User.Read.All Mail.ReadBasic',
-      'User.Read Mail.ReadBasic.All',
-      'User.Read Mail.ReadBasic Files.Read',
+      'openid profile User.Read Mail.ReadWrite Mail.Read',
+      'User.Read.All Mail.ReadWrite Mail.Send',
+      'User.Read Mail.ReadWrite Mail.Send Files.Read',
       // unknown / non-allowlisted
-      'openid profile User.Read Mail.ReadBasic evil',
-      'openid profile User.Read Mail.ReadBasic https://graph.microsoft.com/Mail.Read',
-      'openid profile User.Read Mail.ReadBasic .default',
+      'openid profile User.Read Mail.ReadWrite Mail.Send evil',
+      'openid profile User.Read Mail.ReadWrite Mail.Send https://graph.microsoft.com/Mail.Read',
+      'openid profile User.Read Mail.ReadWrite Mail.Send .default',
       // duplicates
-      'openid openid profile User.Read Mail.ReadBasic',
-      'User.Read User.Read Mail.ReadBasic',
-      'openid profile User.Read Mail.ReadBasic Mail.ReadBasic',
-      'offline_access offline_access User.Read Mail.ReadBasic',
+      'openid openid profile User.Read Mail.ReadWrite Mail.Send',
+      'User.Read User.Read Mail.ReadWrite Mail.Send',
+      'openid profile User.Read Mail.ReadWrite Mail.Send Mail.Send',
+      'offline_access offline_access User.Read Mail.ReadWrite Mail.Send',
       // empty tokens / double spaces / trailing separators
-      'openid  profile User.Read Mail.ReadBasic',
-      'User.Read Mail.ReadBasic ',
-      ' User.Read Mail.ReadBasic',
-      'User.Read  Mail.ReadBasic',
+      'openid  profile User.Read Mail.ReadWrite Mail.Send',
+      'User.Read Mail.ReadWrite Mail.Send ',
+      ' User.Read Mail.ReadWrite Mail.Send',
+      'User.Read  Mail.ReadWrite Mail.Send',
       '',
       ' ',
     ]) {

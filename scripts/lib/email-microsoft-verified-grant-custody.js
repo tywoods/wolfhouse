@@ -29,7 +29,8 @@ const PHASE_A_SCOPES = Object.freeze([
   'profile',
   'offline_access',
   'User.Read',
-  'Mail.ReadBasic',
+  'Mail.ReadWrite',
+  'Mail.Send',
 ]);
 const SELECTED_KEYS = Object.freeze([
   'accessToken',

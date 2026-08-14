@@ -87,7 +87,7 @@ const LOCATION_SLUG = 'sunset-somo';
 const SECRET = 'client-secret-NEVER_LOG';
 const ACCESS = 'ACCESS_SECRET_NEVER_LEAK_9c2b';
 const REFRESH = 'REFRESH_SECRET_NEVER_LEAK_3d4e';
-const GOOD_SCOPE = 'openid profile offline_access User.Read Mail.ReadBasic';
+const GOOD_SCOPE = 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send';
 const CODE = 'provider-auth-code+/%?=opaque';
 const LEAK = 'RUNTIME-WIRING-SECRET-DO-NOT-LEAK';
 const KID = 'runtime-wiring-kid-1';

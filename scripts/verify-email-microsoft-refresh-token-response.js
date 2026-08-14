@@ -21,7 +21,7 @@ function successBody(patch = {}) {
     expires_in: 3600,
     access_token: PLANTED_AT,
     refresh_token: PLANTED_RT,
-    scope: 'User.Read Mail.ReadBasic openid profile',
+    scope: 'User.Read Mail.ReadWrite Mail.Send openid profile',
   };
   return JSON.stringify({ ...base, ...patch });
 }
@@ -59,7 +59,7 @@ async function main() {
       token_type: 'Bearer',
       expires_in: 3600,
       access_token: PLANTED_AT,
-      scope: 'User.Read Mail.ReadBasic openid profile',
+      scope: 'User.Read Mail.ReadWrite Mail.Send openid profile',
     });
     const omitted = classifyMicrosoftRefreshTokenResponse(response(200, omittedBody));
     assert.equal(omitted.kind, 'success', 'absent refresh_token must be valid omission');
@@ -90,15 +90,15 @@ async function main() {
       ['empty refresh', response(200, successBody({ refresh_token: '' }))],
       ['null refresh', response(200, JSON.stringify({
         token_type: 'Bearer', expires_in: 3600, access_token: PLANTED_AT,
-        refresh_token: null, scope: 'User.Read Mail.ReadBasic',
+        refresh_token: null, scope: 'User.Read Mail.ReadWrite',
       }))],
       ['number refresh', response(200, JSON.stringify({
         token_type: 'Bearer', expires_in: 3600, access_token: PLANTED_AT,
-        refresh_token: 12345, scope: 'User.Read Mail.ReadBasic',
+        refresh_token: 12345, scope: 'User.Read Mail.ReadWrite',
       }))],
       ['object refresh', response(200, JSON.stringify({
         token_type: 'Bearer', expires_in: 3600, access_token: PLANTED_AT,
-        refresh_token: { nested: PLANTED_RT }, scope: 'User.Read Mail.ReadBasic',
+        refresh_token: { nested: PLANTED_RT }, scope: 'User.Read Mail.ReadWrite',
       }))],
       ['newline refresh', response(200, successBody({ refresh_token: 'bad\n' + PLANTED_RT }))],
       ['oversized refresh', response(200, successBody({ refresh_token: 'x'.repeat(8193) }))],
@@ -116,7 +116,7 @@ async function main() {
       ['malformed json', response(200, '{')],
       ['missing access', response(200, JSON.stringify({
         token_type: 'Bearer', expires_in: 3600, refresh_token: PLANTED_RT,
-        scope: 'User.Read Mail.ReadBasic',
+        scope: 'User.Read Mail.ReadWrite',
       }))],
       ['bad scope privilege', response(200, successBody({ scope: 'User.Read Mail.ReadWrite' }))],
       ['unknown error code', response(400, JSON.stringify({

@@ -63,7 +63,7 @@ const ACCESS = 'ACCESS_SECRET_NEVER_LEAK_9c2b';
 const REFRESH = 'REFRESH_SECRET_NEVER_LEAK_3d4e';
 const ID_TOKEN = 'ID_TOKEN_SECRET_NEVER_LEAK.header.payload.sig';
 const LEAK = 'VERIFIED-GRANT-CUSTODY-SECRET-DO-NOT-LEAK';
-const GOOD_SCOPE = 'openid profile offline_access User.Read Mail.ReadBasic';
+const GOOD_SCOPE = 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send';
 
 const tests = [];
 function test(name, run) {
@@ -283,7 +283,7 @@ test('exports frozen factory, fixed error constants, and custody-aligned bounds'
     [...TOKEN_RESPONSE_SCOPE_ORDER],
     [...CUSTODY_TOKEN_RESPONSE_SCOPE_ORDER],
   );
-  assert.deepEqual([...TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES], ['User.Read', 'Mail.ReadBasic']);
+  assert.deepEqual([...TOKEN_RESPONSE_REQUIRED_RESOURCE_SCOPES], ['User.Read', 'Mail.ReadWrite', 'Mail.Send']);
   assert.deepEqual(
     [...TOKEN_RESPONSE_ALLOWED_OIDC_SCOPES],
     ['openid', 'profile', 'offline_access', 'email'],
@@ -792,17 +792,18 @@ test('rejects unfrozen or malformed selected input with zero dependency calls', 
     goodSelected({ scope: 'openid' }),
     goodSelected({ scope: 'openid profile offline_access User.Read Mail.Send' }),
     // Hostile Microsoft token-response scope semantics (aligned with response custody).
-    goodSelected({ scope: 'openid profile User.Read' }), // missing Mail.ReadBasic
-    goodSelected({ scope: 'openid profile Mail.ReadBasic' }), // missing User.Read
-    goodSelected({ scope: 'User.Read Mail.ReadBasic Mail.Send' }),
-    goodSelected({ scope: 'User.Read Mail.ReadBasic Mail.Read' }),
-    goodSelected({ scope: 'User.Read.All Mail.ReadBasic' }),
-    goodSelected({ scope: 'User.Read Mail.ReadBasic.All' }),
-    goodSelected({ scope: 'openid profile User.Read Mail.ReadBasic evil' }),
-    goodSelected({ scope: 'openid openid User.Read Mail.ReadBasic' }),
-    goodSelected({ scope: 'User.Read User.Read Mail.ReadBasic' }),
-    goodSelected({ scope: 'openid  profile User.Read Mail.ReadBasic' }),
-    goodSelected({ scope: 'User.Read Mail.ReadBasic ' }),
+    goodSelected({ scope: 'openid profile User.Read' }), // missing Mail.ReadWrite or Mail.Send
+    goodSelected({ scope: 'openid profile Mail.ReadWrite' }), // missing User.Read
+    goodSelected({ scope: 'User.Read Mail.ReadWrite' }), // missing Mail.Send
+    goodSelected({ scope: 'User.Read Mail.Send' }), // missing Mail.ReadWrite
+    goodSelected({ scope: 'openid profile User.Read Mail.ReadBasic' }), // legacy
+    goodSelected({ scope: 'User.Read.All Mail.ReadWrite' }),
+    goodSelected({ scope: 'User.Read Mail.ReadWrite.All' }),
+    goodSelected({ scope: 'openid profile User.Read Mail.ReadWrite evil' }),
+    goodSelected({ scope: 'openid openid User.Read Mail.ReadWrite' }),
+    goodSelected({ scope: 'User.Read User.Read Mail.ReadWrite' }),
+    goodSelected({ scope: 'openid  profile User.Read Mail.ReadWrite' }),
+    goodSelected({ scope: 'User.Read Mail.ReadWrite ' }),
     goodSelected({ idToken: '' }),
     goodSelected({ idToken: 'has space' }),
     goodSelected({ idToken: 'I'.repeat(ID_TOKEN_LIMIT_CHARS + 1) }),
@@ -1538,10 +1539,10 @@ test('accepts realistic Microsoft token scopes omitting offline_access; no synth
   // offline_access evidenced by required refresh_token; must not be invented in actual scope.
   // Any order accepted; custody validates semantics (installer surface still scope-free).
   const scopes = [
-    'openid profile User.Read Mail.ReadBasic',
-    'openid profile email User.Read Mail.ReadBasic',
-    'User.Read Mail.ReadBasic',
-    'Mail.ReadBasic email User.Read profile openid',
+    'openid profile User.Read Mail.ReadWrite Mail.Send',
+    'openid profile email User.Read Mail.ReadWrite Mail.Send',
+    'User.Read Mail.ReadWrite Mail.Send',
+    'Mail.Send Mail.ReadWrite email User.Read profile openid',
   ];
   for (const selectedScope of scopes) {
     assert.equal(selectedScope.split(' ').includes('offline_access'), false);
@@ -1563,8 +1564,8 @@ test('accepts realistic Microsoft token scopes omitting offline_access; no synth
 test('accepts classic five-scope and full OIDC metadata sets including offline_access echo', async function classicAndFullOidcScopes() {
   for (const scope of [
     GOOD_SCOPE,
-    'openid profile offline_access email User.Read Mail.ReadBasic',
-    'Mail.ReadBasic offline_access User.Read openid profile',
+    'openid profile offline_access email User.Read Mail.ReadWrite Mail.Send',
+    'Mail.Send Mail.ReadWrite offline_access User.Read openid profile',
   ]) {
     const fresh = composition();
     const result = await fresh.adapter.acceptValidatedTokens(goodSelected({ scope }));
@@ -1699,16 +1700,16 @@ test('response-custody → grant custody → installer with realistic MS scopes 
   // Fixtures model Microsoft v2 token JSON: offline_access omitted; email optional.
   const fixtures = [
     {
-      scope: 'openid profile User.Read Mail.ReadBasic',
-      expectedNormalized: 'openid profile User.Read Mail.ReadBasic',
+      scope: 'openid profile User.Read Mail.ReadWrite Mail.Send',
+      expectedNormalized: 'openid profile User.Read Mail.ReadWrite Mail.Send',
     },
     {
-      scope: 'openid profile email User.Read Mail.ReadBasic',
-      expectedNormalized: 'openid profile email User.Read Mail.ReadBasic',
+      scope: 'openid profile email User.Read Mail.ReadWrite Mail.Send',
+      expectedNormalized: 'openid profile email User.Read Mail.ReadWrite Mail.Send',
     },
     {
-      scope: 'Mail.ReadBasic User.Read openid profile email',
-      expectedNormalized: 'openid profile email User.Read Mail.ReadBasic',
+      scope: 'Mail.Send Mail.ReadWrite User.Read openid profile email',
+      expectedNormalized: 'openid profile email User.Read Mail.ReadWrite Mail.Send',
     },
   ];
 

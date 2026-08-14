@@ -3,7 +3,8 @@
 const crypto = require('crypto');
 const AUTHORITY = ['https://login.microsoftonline.com', 'organizations', 'oauth2', 'v2.0', 'authorize'].join('/');
 const REDIRECT_URI = ['https://sunset-staging.lunafrontdesk.com', 'staff', 'email', 'oauth', 'microsoft', 'callback'].join('/');
-const SCOPES = 'openid profile offline_access User.Read Mail.ReadBasic';
+/** Single Sunset connect consent (phase_a_v2): read+write+send in one authorize. */
+const SCOPES = 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send';
 const TTL_SECONDS = 600;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const B64URL_32_RE = /^[A-Za-z0-9_-]{43}$/;
