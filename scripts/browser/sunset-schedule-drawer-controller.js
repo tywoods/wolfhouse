@@ -107,6 +107,11 @@ function scheduleDrawerWireDismiss(){
 function scheduleDrawerShowShell(){
   scheduleDrawerEnsureDocumentLayer();
   scheduleDrawerWireDismiss();
+  var leftoverCreate = el('ps-create-modal');
+  if (leftoverCreate && leftoverCreate.style && leftoverCreate.style.display && leftoverCreate.style.display !== 'none') {
+    leftoverCreate.style.display = 'none';
+    leftoverCreate.setAttribute('aria-hidden', 'true');
+  }
   var drawer = el('ps-detail-drawer');
   var backdrop = el('ps-drawer-backdrop');
   if (drawer) {

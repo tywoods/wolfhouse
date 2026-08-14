@@ -42,6 +42,7 @@ function scheduleNavigatePrev() { return SunsetScheduleRuntime.nav.navigatePrev(
 function scheduleNavigateNext() { return SunsetScheduleRuntime.nav.navigateNext(); }
 function scheduleNavigateToday() { return SunsetScheduleRuntime.nav.navigateToday(); }
 function scheduleOpenDayDetail(iso) { return SunsetScheduleRuntime.nav.openDayDetail(iso); }
+if (typeof window !== 'undefined') window.scheduleOpenDayDetail = scheduleOpenDayDetail;
 function scheduleWireScheduleNavigationControls() { return SunsetScheduleRuntime.nav.wireControls(); }
 function scheduleResetNavigationAfterBookingCreate() {
   return SunsetScheduleRuntime.nav.resetAfterBookingCreate();

@@ -792,7 +792,6 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     iso = validateNavigationIso(iso);
     if (!iso) return;
     var offset = scheduleDaysFromToday(iso);
-    if (offset < 0) offset = 0;
     navState.mode = 'day';
     navState.forwardOffset = offset;
     return requestPageLoad();

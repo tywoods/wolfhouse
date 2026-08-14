@@ -221,7 +221,7 @@ if (modExists) {
   assert('invalid iso noop', ctx.scheduleNavigationLoadGen() === genBefore);
 
   ctx.scheduleOpenDayDetail('2026-07-10');
-  assert('past date clamped', snap().forwardOffset === 0 && snap().mode === 'day');
+  assert('past date opens that day', snap().forwardOffset === -5 && snap().mode === 'day');
 
   ctx.scheduleApplyNavigationPresentation(snap());
   assert('range label set', dom['ps-range-label'].textContent.length > 0);

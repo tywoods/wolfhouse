@@ -35,6 +35,15 @@ var adminBookingsState = {
   refundBookingId: null,
 };
 
+/** Never expose a raw i18n key on the booking-code control. */
+function adminBookingsOpenScheduleLabel(code) {
+  var label = '';
+  try { label = String((typeof portalT === 'function' && portalT('admin.bookings.openInSchedule')) || ''); } catch (_) { label = ''; }
+  if (!label || label.indexOf('admin.bookings.') === 0) label = 'Open in Schedule';
+  var trimmed = String(code || '').trim();
+  return trimmed ? (label + ': ' + trimmed) : label;
+}
+
 /** First-click sort direction per column (server defaults). */
 var ADMIN_BOOKINGS_SORT_FIRST_DIR = {
   booking: 'desc',
@@ -527,7 +536,7 @@ function renderAdminBookingsTable() {
       'data-bookings-open-schedule="' + escHtml(id) + '" ' +
       'data-booking-code="' + escHtml(code) + '" ' +
       'data-service-date-start="' + escHtml(String(row.service_date_start || '').slice(0, 10)) + '" ' +
-      'aria-label="' + escHtml((portalT('admin.bookings.openInSchedule') || 'Open in Schedule') + ': ' + code) + '">' +
+      'aria-label="' + escHtml(adminBookingsOpenScheduleLabel(code)) + '">' +
       escHtml(code) + '</button></div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-guest" role="cell">' +
       '<button type="button" class="portal-admin-bookings-guest-link" data-bookings-guest-phone="' +
