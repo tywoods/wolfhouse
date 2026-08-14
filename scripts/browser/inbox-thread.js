@@ -360,25 +360,31 @@ function inboxParkRefreshBtn(){
 
 function inboxAdoptRefreshToHeader(){
   var btn = inboxRefreshBtn();
-  var right = typeof document !== 'undefined' ? document.querySelector('#conv-detail .detail-header-right') : null;
-  if (!btn || !right) return;
-  if (btn.parentNode !== right) right.appendChild(btn);
+  var row = typeof document !== 'undefined' ? document.getElementById('inbox-header-luna-row') : null;
+  if (!btn || !row) return;
+  if (row.firstChild !== btn) row.insertBefore(btn, row.firstChild);
 }
 
 function inboxPaintChatChromeSlot(conv, lunaGuestPaused){
-  var right = typeof document !== 'undefined' ? document.querySelector('#conv-detail .detail-header-right') : null;
+  var row = typeof document !== 'undefined' ? document.getElementById('inbox-header-luna-row') : null;
+  var right = typeof document !== 'undefined' ? document.querySelector('#inbox-shell .detail-header-right') : null;
+  var host = row || right;
   var slot = typeof el === 'function' ? el('inbox-chat-chrome-slot') : (typeof document !== 'undefined' ? document.getElementById('inbox-chat-chrome-slot') : null);
-  if (right) {
-    if (!slot || !right.contains(slot)) {
+  if (host) {
+    if (!slot || !host.contains(slot)) {
       if (slot && slot.parentNode) slot.parentNode.removeChild(slot);
       slot = document.createElement('div');
       slot.id = 'inbox-chat-chrome-slot';
       slot.className = 'inbox-chat-chrome-slot';
-      right.appendChild(slot);
+      host.appendChild(slot);
     }
   }
   if (!slot) return;
   slot.innerHTML = detailHeaderSwitchesHtml(conv, lunaGuestPaused);
+  var raise = slot.querySelector('#inbox-needs-human-raise');
+  var nh = typeof document !== 'undefined' ? document.getElementById('inbox-needs-human-slot') : null;
+  if (raise && nh && raise.parentNode !== nh) nh.appendChild(raise);
+  inboxAdoptRefreshToHeader();
 }
 
 function updateConvHeaderPillsInPlace(targetEl, needsHuman, lunaPaused){
@@ -1882,11 +1888,14 @@ function loadConvDetail(convId, targetEl){
 
     html +=   '<div class="detail-header">';
     html +=     '<div class="detail-header-main">';
+    html +=     '<div class="detail-header-id">';
     if (inboxIsChatPreset()) {
       html +=     '<button type="button" class="detail-name inbox-chat-guest-name" id="inbox-chat-guest-name">' + escHtml(c.guest_name || c.phone) + '</button>';
     } else {
       html +=     '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
     }
+    html +=       '<span class="inbox-needs-human-slot" id="inbox-needs-human-slot"></span>';
+    html +=     '</div>';
     html +=       '<div class="detail-meta">';
     var contactLine = composerChannel === 'email' ? guestEmail : (c.phone || '');
     var channelLabel = composerChannel === 'email' ? 'Email' : 'WhatsApp';
@@ -1897,7 +1906,10 @@ function loadConvDetail(convId, targetEl){
     html +=       '</div>';
     html +=     '</div>';
     html +=     '<div class="detail-header-right">';
-    html +=       inboxComposerChannelSwitchHtml(composerChannel);
+    html +=       '<div class="inbox-header-stack">';
+    html +=         '<div class="inbox-header-stack-channel">' + inboxComposerChannelSwitchHtml(composerChannel) + '</div>';
+    html +=         '<div class="inbox-header-stack-luna" id="inbox-header-luna-row"></div>';
+    html +=       '</div>';
     html +=       '<button type="button" class="sidebar-expand-btn" id="inbox-sidebar-expand" aria-controls="inbox-detail-sidebar" title="' + escHtml(t('inbox.detail.sidebar.show') || portalT('inbox.detail.sidebar.show') || 'Show bookings') + '" aria-label="' + escHtml(t('inbox.detail.sidebar.show') || 'Show bookings') + '">&#8592;</button>';
     html +=     '</div>';
     html +=   '</div>';

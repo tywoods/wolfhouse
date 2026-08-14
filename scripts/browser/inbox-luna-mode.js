@@ -51,8 +51,12 @@ function inboxLunaModeIsInherited(channel, paused){
 }
 
 function inboxLunaModeHeaderLabel(channel, paused){
-  var mode = inboxLunaModeFromPaused(channel, paused);
-  return t('inbox.detail.lunaMode.label') + ': ' + t('inbox.detail.lunaMode.' + mode);
+  return t('inbox.detail.lunaMode.label') + ':';
+}
+
+function inboxLunaModeBtnCopy(opt){
+  if (opt === 'off') return t('inbox.detail.lunaMode.off');
+  return (typeof t === 'function' && t('inbox.channelControl.on')) || 'On';
 }
 
 function inboxNeedsHumanRaiseHtml(needsHuman){
@@ -85,7 +89,7 @@ function inboxLunaModeControlHtml(opts){
     html += '<button type="button" class="inbox-luna-mode-btn' + (active ? ' is-active' : '') + '"';
     html += ' data-luna-mode="' + opt + '" role="radio" aria-checked="' + (active ? 'true' : 'false') + '"';
     html += ' title="' + escHtml(t('inbox.detail.lunaMode.' + opt + 'Help')) + '">';
-    html += escHtml(t('inbox.detail.lunaMode.' + opt));
+    html += escHtml(inboxLunaModeBtnCopy(opt));
     html += '</button>';
   }
   html += '</div></div>';
