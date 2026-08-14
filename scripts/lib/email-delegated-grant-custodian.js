@@ -671,6 +671,46 @@ async function commitDelegatedGrantRotation(input, deps) {
   });
 }
 
+/** Terminal revoke under exact held unexpired lease + generation CAS. */
+async function markDelegatedGrantRevoked(input, deps) {
+  const cas = requireLeaseCasInput(input, deps);
+  if (!cas.ok) return cas;
+  const operationId = typeof cas.snap.operationId === 'string' ? cas.snap.operationId : '';
+  if (!UUID_RE.test(operationId)) return fail('operation_id_invalid');
+  return withTxn(cas.client, async () => {
+    const upd = await cas.client.query(
+      `UPDATE tenant_email_delegated_grants
+          SET grant_status='revoked',
+              grant_lease_owner=NULL, grant_lease_token=NULL, grant_lease_until=NULL,
+              reconcile_state='needs_operator', reconcile_detail_code='revocation',
+              last_operation_id=$5, updated_at=NOW()
+        WHERE client_id=$1 AND endpoint_id=$2 AND grant_generation=$3
+          AND grant_lease_token=$4::uuid AND grant_status='lease_held'
+          AND grant_lease_until > clock_timestamp()
+        RETURNING grant_generation, grant_status, reconcile_state`,
+      [cas.ids.clientId.value, cas.ids.endpointId.value, cas.expected.value, cas.leaseToken.value, operationId],
+    );
+    if (!upd.rows || upd.rows.length !== 1) return fail('lease_fenced');
+    await cas.client.query(
+      `UPDATE tenant_channel_endpoints
+          SET binding_status='revoked',
+              active=false,
+              inbound_enabled=false,
+              outbound_enabled=false,
+              default_automation_mode='off',
+              updated_at=NOW()
+        WHERE client_id=$1 AND id=$2`,
+      [cas.ids.clientId.value, cas.ids.endpointId.value],
+    );
+    return ok(Object.freeze({
+      grant_present: true,
+      grant_status: 'revoked',
+      grant_generation: Number(upd.rows[0].grant_generation),
+      reconcile_state: upd.rows[0].reconcile_state,
+    }));
+  });
+}
+
 /** Terminal reauth under exact held unexpired lease + generation CAS. */
 async function markDelegatedGrantReauthorizationRequired(input, deps) {
   const cas = requireLeaseCasInput(input, deps);
@@ -1460,6 +1500,7 @@ module.exports = {
   openDelegatedGrantUnderLease,
   commitDelegatedGrantRotation,
   markDelegatedGrantReauthorizationRequired,
+  markDelegatedGrantRevoked,
   abortDelegatedGrantLease,
   markDelegatedGrantReconciliation,
   listDelegatedGrantsNeedingReconciliation,
