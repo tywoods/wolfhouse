@@ -476,6 +476,7 @@
     "verify:email-authority-bound-messages-delta-page-operation": "node scripts/verify-email-authority-bound-messages-delta-page-operation.js",
     "verify:email-delta-runtime-config": "node scripts/verify-email-delta-runtime-config.js",
     "verify:email-delta-sunset-staging-runtime-composition": "node scripts/verify-email-delta-sunset-staging-runtime-composition.js",
+    "verify:email-delta-sunset-staging-worker": "node scripts/verify-email-delta-sunset-staging-worker.js",
     "prove:email-delegated-grant-custody-pg": "node scripts/prove-email-delegated-grant-custody-pg.js",
     "verify:email-grant-envelope-azure-kv-provider": "node scripts/verify-email-grant-envelope-azure-kv-provider.js",
     "verify:email-grant-envelope-azure-kv-clean-checkout-portability": "node scripts/verify-email-grant-envelope-azure-kv-clean-checkout-portability.js",
