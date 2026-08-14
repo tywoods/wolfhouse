@@ -22,12 +22,12 @@ const expected = {
   'customers.filter.warmLeadsTitle': ['Contacted but never booked', 'Contactado pero nunca reservó'],
   'customers.filter.hotLeadsTitle': ['Customers who have booked before', 'Clientes que ya han reservado'],
   'customers.filter.doNotContactTitle': ['Marked do not contact', 'Marcado como no contactar'],
-  'customers.card.checkedIn': ['CHECKED IN', 'CON CHECK-IN'],
-  'customers.card.bookings': ['BOOKINGS', 'RESERVAS'],
-  'customers.card.classes': ['CLASSES', 'CLASES'],
-  'customers.card.balanceDue': ['BALANCE DUE', 'SALDO PENDIENTE'],
-  'customers.card.waiverStatus': ['WAIVER STATUS', 'ESTADO DEL WAIVER'],
-  'customers.card.lastSetup': ['LAST SETUP', 'ÚLTIMA CONFIGURACIÓN'],
+  'customers.card.checkedIn': ['Checked in', 'CON CHECK-IN'],
+  'customers.card.bookings': ['Bookings', 'RESERVAS'],
+  'customers.card.classes': ['Classes', 'CLASES'],
+  'customers.card.balanceDue': ['Balance due', 'SALDO PENDIENTE'],
+  'customers.card.waiverStatus': ['Waiver status', 'ESTADO DEL WAIVER'],
+  'customers.card.lastSetup': ['Last setup', 'ÚLTIMA CONFIGURACIÓN'],
   'customers.detail.linkedBookings': ['Linked bookings', 'Reservas vinculadas'],
 };
 for (const [key, pair] of Object.entries(expected)) {
