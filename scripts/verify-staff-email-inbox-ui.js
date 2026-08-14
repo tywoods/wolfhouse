@@ -209,6 +209,8 @@ async function main() {
   const htmlOn = buildHtmlArtifact(true, true);
   ok('gate-on flags true', htmlOn.includes('window.__EMAIL_STAFF_EMAIL_DRAFTS_ENABLED__=true') && htmlOn.includes('window.__EMAIL_STAFF_OUTBOUND_ENABLED__=true'));
   ok('gate-on helpers+paths', htmlOn.includes('function wireInboxEmailReply') && htmlOn.includes("c.channel === 'email'") && htmlOn.includes('/staff/inbox/email/draft') && htmlOn.includes('/staff/inbox/email/approve-send') && htmlOn.includes('function acceptEmailDraftSuccess') && htmlOn.includes('function acceptEmailApproveDisabled503') && htmlOn.includes('function acceptEmailApproveSuccess') && htmlOn.includes('function emailOwnData') && htmlOn.includes('min-height:44px'));
+  ok('approve-send auto-saves typed reply (no Save draft click)', htmlOn.includes('performEmailDraftSave(convId, targetEl, true)') && !htmlOn.includes('Save a draft before approving.') && !htmlOn.includes('Save the current text before approving.'));
+  ok('successful send clears reply + Email sent hides at 20s', htmlOn.includes("ta.value = ''") && htmlOn.includes("showDraftSendStatus(statusEl, 'ok', 'Email sent')") && htmlOn.includes('var INBOX_EMAIL_SENT_STATUS_MS = 20000') && htmlOn.includes('inboxEmailSentStatusMs'));
   ok('gate-on committed-send success acceptor keys', htmlOn.includes('EMAIL_APPROVE_OK_KEYS') && /success.*conversation_id.*approval_id.*approval_state/.test(htmlOn.replace(/\s+/g, ' ')));
   ok('no authority inputs in artifact', !/id="email-(recipient|sender|mailbox|thread|provider|operation|idempotency)/.test(htmlOn));
   const prodSource = readStaffPortalUiSource();
@@ -451,7 +453,7 @@ async function main() {
     await staleSelectionUncertain('malformed response');
     await staleSelectionUncertain('parsed 503 outcome unknown');
     await page.waitForSelector('#draft-textarea', { timeout: 10000 });
-    ok('email Save+Approve', await page.locator('#btn-email-save-draft').count() === 1 && await page.locator('#btn-email-approve-send').count() === 1);
+    ok('email Approve visible; Save draft hidden', await page.locator('#btn-email-approve-send').count() === 1 && await page.locator('#btn-email-save-draft').count() === 1 && !(await page.locator('#btn-email-save-draft').isVisible()));
     ok('email hides WA send', await page.locator('#btn-send-reply').count() === 0);
     ok('no forbidden authority inputs', await page.locator('input[id*="recipient"],input[id*="sender"],input[id*="mailbox"],input[id*="idempotency"],input[name*="provider"]').count() === 0);
     ok('label+aria-live', await page.locator('label[for="draft-textarea"]').count() === 1 && await page.locator('#draft-send-status[aria-live="polite"]').count() === 1);
@@ -474,24 +476,20 @@ async function main() {
       owner.insertBefore(decoy, panel);
     });
     await page.locator('.draft-panel #draft-textarea').fill('First email draft body');
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
     ok('action binds to button-owned draft panel despite duplicate ancestor target', draftPosts.length === 1 && draftPosts[0].body.message_text === 'First email draft body');
     await page.evaluate(() => document.querySelector('.gate3-duplicate-target-decoy')?.remove());
     ok('first draft null id exact keys', draftPosts.length === 1 && draftPosts[0].method === 'POST' && Object.keys(draftPosts[0].body).sort().join(',') === 'approval_id,conversation_id,message_text' && draftPosts[0].body.conversation_id === EMAIL_CONV && draftPosts[0].body.message_text === 'First email draft body' && draftPosts[0].body.approval_id === null && /application\/json/i.test(String(draftPosts[0].headers['content-type'] || '')));
     await page.fill('#draft-textarea', 'Updated email draft body');
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
     ok('second draft reuses approval id', draftPosts.length === 2 && draftPosts[1].body.approval_id === AP1 && draftPosts[1].body.message_text === 'Updated email draft body' && draftPosts[1].body.conversation_id === EMAIL_CONV);
     approvePosts.length = 0;
     await page.fill('#draft-textarea', 'Unsaved change');
     await page.click('#btn-email-approve-send');
-    await waitStatus('Save the current text before approving', 3000);
-    ok('approve blocked when dirty', approvePosts.length === 0);
-    await page.fill('#draft-textarea', 'Updated email draft body');
-    await page.click('#btn-email-approve-send');
     await waitStatus('Approved');
-    ok('approve payload exact', approvePosts.length === 1 && Object.keys(approvePosts[0].body).sort().join(',') === 'approval_id,conversation_id,message_text' && approvePosts[0].body.approval_id === AP1 && approvePosts[0].body.conversation_id === EMAIL_CONV && approvePosts[0].body.message_text === 'Updated email draft body');
+    ok('dirty approve auto-saves then sends', draftPosts.length >= 3 && draftPosts[draftPosts.length - 1].body.message_text === 'Unsaved change' && approvePosts.length === 1 && approvePosts[0].body.message_text === 'Unsaved change' && approvePosts[0].body.approval_id === AP1);
     const ac = await statusText();
     ok('approved disabled copy', /Approved/.test(ac) && /email sending is currently disabled/i.test(ac) && !/\bsent\b/i.test(ac));
     ok('locked after approval', await page.locator('#draft-textarea').isDisabled() && await page.locator('#btn-email-save-draft').isDisabled() && await page.locator('#btn-email-approve-send').isDisabled());
@@ -507,7 +505,7 @@ async function main() {
     await emailCard().click();
     await page.waitForSelector('#btn-email-save-draft', { timeout: 10000 });
     await page.fill('#draft-textarea', 'Isolation draft A');
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
     ok('isolation first save null id', draftPosts[0] && draftPosts[0].body.approval_id === null);
     draftPosts.length = 0;
@@ -526,7 +524,7 @@ async function main() {
     });
     await page.waitForFunction(() => !document.querySelector('#btn-email-save-draft')?.disabled, null, { timeout: 5000 });
     await page.fill('#draft-textarea', 'stale-src-text');
-    const c1 = page.click('#btn-email-save-draft');
+    const c1 = page.locator('#btn-email-save-draft').dispatchEvent('click');
     await page.waitForFunction(() => document.querySelector('#btn-email-save-draft')?.disabled === true, null, { timeout: 3000 });
     ok('in-flight disables textarea', await page.locator('#draft-textarea').isDisabled());
     await waCard().click();
@@ -541,7 +539,7 @@ async function main() {
     ok('stale body not applied to textarea', taStale !== 'STALE_TEXT_SHOULD_NOT_APPLY' && !/STALE_TEXT/.test(taStale));
     draftPosts.length = 0;
     await page.fill('#draft-textarea', 'after-stale');
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
     ok('post-stale save not using stale AP2', draftPosts.length === 1 && draftPosts[0].body.message_text === 'after-stale' && draftPosts[0].body.approval_id !== AP2);
     ok('stale path no pageerror', pageErrors.length === 0);
@@ -560,18 +558,18 @@ async function main() {
     await page.fill('#draft-textarea', exact);
     ok('counter at limit', /8000\s*\/\s*8000/.test(await page.locator('#email-draft-byte-count').innerText()));
     draftPosts.length = 0;
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved|exceeds');
     ok('save at exactly 8000', draftPosts.length === 1 && Buffer.byteLength(draftPosts[0].body.message_text, 'utf8') === MAX);
     await page.fill('#draft-textarea', over);
     ok('over class', await page.locator('#email-draft-byte-count.is-over').count() === 1);
     draftPosts.length = 0;
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('exceeds 8,000', 3000);
     ok('client blocks over 8000', draftPosts.length === 0);
     draftPosts.length = 0; approvePosts.length = 0;
     await page.fill('#draft-textarea', 'Approve path body');
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
     await page.unroute('**/staff/inbox/email/approve-send').catch(() => {});
     await page.route('**/staff/inbox/email/approve-send', async (route) => {
@@ -601,15 +599,23 @@ async function main() {
     await page.waitForSelector('#btn-email-save-draft', { timeout: 10000 });
     await page.fill('#draft-textarea', 'need approve without save');
     approvePosts.length = 0;
+    draftPosts.length = 0;
+    await page.unroute('**/staff/inbox/email/approve-send').catch(() => {});
+    await page.route('**/staff/inbox/email/approve-send', async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      approvePosts.push({ body: { ...body } });
+      return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ success: false, error: 'email_send_disabled', conversation_id: body.conversation_id, approval_id: body.approval_id, approval_state: 'draft' }) });
+    });
     await page.click('#btn-email-approve-send');
-    await waitStatus('Save a draft before approving', 3000);
-    ok('approve requires draft', approvePosts.length === 0);
+    await waitStatus('draft not approved');
+    ok('approve without Save draft still drafts+sends', draftPosts.length === 1 && draftPosts[0].body.message_text === 'need approve without save' && draftPosts[0].body.approval_id === null && approvePosts.length === 1 && approvePosts[0].body.message_text === 'need approve without save');
+    ok('approve without save stays unlocked', await page.locator('#draft-textarea').isEnabled());
     await page.unroute('**/staff/inbox/email/draft').catch(() => {});
     await page.route('**/staff/inbox/email/draft', async (route) => {
       draftPosts.push({ body: JSON.parse(route.request().postData() || '{}') });
       return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ success: false, error: 'draft_failed' }) });
     });
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('^Save failed$');
     ok('error recovery re-enables', await page.locator('#btn-email-save-draft').isEnabled() && await page.locator('#draft-textarea').isEnabled());
     ok('500 ignores body error field', !/draft_failed|HTTP 500/i.test(await statusText()));
@@ -619,7 +625,7 @@ async function main() {
       return route.fulfill({ status: 200, contentType: 'application/json', body: '{not-json' });
     });
     await page.fill('#draft-textarea', 'parse fail body');
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Invalid response', 4000);
     ok('JSON parse fail recovery', await page.locator('#btn-email-save-draft').isEnabled() && await page.locator('#draft-textarea').isEnabled());
     await page.unroute('**/staff/inbox/email/draft').catch(() => {});
@@ -642,7 +648,7 @@ async function main() {
       rejectMode = mode;
       draftPosts.length = 0;
       await page.fill('#draft-textarea', 'reject-' + mode);
-      await page.click('#btn-email-save-draft');
+      await page.locator('#btn-email-save-draft').dispatchEvent('click');
       await waitStatus('Save failed', 4000).catch(() => {});
       await page.waitForTimeout(80);
       const unlocked = await page.locator('#btn-email-save-draft').isEnabled();
@@ -656,7 +662,7 @@ async function main() {
     });
     draftPosts.length = 0;
     await page.fill('#draft-textarea', 'recover-after-reject');
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
     ok('after rejects still null approval_id', draftPosts[0] && draftPosts[0].body.approval_id === null);
     /* Hostile: planted body/err never enter DOM; fixed status map; no fabricated lock. */
@@ -681,21 +687,21 @@ async function main() {
       [404, PLANTED, 'Conversation unavailable'], [409, PLANTED, 'Conflict'], [503, PLANTED, 'Temporarily unavailable'],
     ]) {
       await setDraftRoute(async (route) => { draftPosts.push({ body: JSON.parse(route.request().postData() || '{}') }); return route.fulfill({ status: st, contentType: 'application/json', body: JSON.stringify({ success: false, error: err }) }); });
-      await page.fill('#draft-textarea', 'hostile-' + st); await page.click('#btn-email-save-draft');
+      await page.fill('#draft-textarea', 'hostile-' + st); await page.locator('#btn-email-save-draft').dispatchEvent('click');
       await assertSafe('hostile draft ' + st, expect);
     }
     await setDraftRoute(async (route) => { draftPosts.push({ body: JSON.parse(route.request().postData() || '{}') }); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ error: PLANTED, success: true }]) }); });
-    await page.fill('#draft-textarea', 'hostile-malformed'); await page.click('#btn-email-save-draft');
+    await page.fill('#draft-textarea', 'hostile-malformed'); await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await assertSafe('hostile malformed payload', 'Save failed');
     await setDraftRoute(async (route) => { draftPosts.push({ body: JSON.parse(route.request().postData() || '{}') }); return route.fulfill({ status: 500, contentType: 'text/plain', body: PLANTED + ' raw HTTP body SQL' }); });
-    await page.fill('#draft-textarea', 'hostile-raw'); await page.click('#btn-email-save-draft');
+    await page.fill('#draft-textarea', 'hostile-raw'); await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await assertSafe('hostile raw body', 'Invalid response');
     await setDraftRoute(async (route) => { const body = JSON.parse(route.request().postData() || '{}'); draftPosts.push({ body: { ...body } }); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(draftOk(body)) }); });
     await wrapFetch('/staff/inbox/email/draft');
-    await page.fill('#draft-textarea', 'throw-draft-body'); await page.click('#btn-email-save-draft');
+    await page.fill('#draft-textarea', 'throw-draft-body'); await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await assertSafe('thrown draft err.message ignored', '^Save failed$');
     await unwrapFetch();
-    await page.fill('#draft-textarea', 'hostile-approve-body'); await page.click('#btn-email-save-draft'); await waitStatus('Draft saved');
+    await page.fill('#draft-textarea', 'hostile-approve-body'); await page.locator('#btn-email-save-draft').dispatchEvent('click'); await waitStatus('Draft saved');
     await wrapFetch('/staff/inbox/email/approve-send');
     await page.click('#btn-email-approve-send');
     await assertSafe('thrown approve err.message ignored', '^Approve failed$');
@@ -744,7 +750,7 @@ async function main() {
       });
     });
     await page.fill('#draft-textarea', 'held-approve-snapshot');
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
     const approveClick = page.click('#btn-email-approve-send');
     await page.waitForFunction(() => document.querySelector('#btn-email-approve-send')?.disabled === true, null, { timeout: 4000 });
@@ -775,7 +781,7 @@ async function main() {
       });
     });
     await page.fill('#draft-textarea', 'switch-during-approve');
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
     const ap2 = page.click('#btn-email-approve-send');
     await page.waitForFunction(() => document.querySelector('#btn-email-approve-send')?.disabled === true, null, { timeout: 4000 });
@@ -812,29 +818,33 @@ async function main() {
         }),
       });
     });
+    await page.evaluate(() => { window.__INBOX_EMAIL_SENT_STATUS_MS = 80; });
     await page.fill('#draft-textarea', 'committed-send-body');
-    await page.click('#btn-email-save-draft');
-    await waitStatus('Draft saved');
-    approvePosts.length = 0;
     await page.click('#btn-email-approve-send');
     await waitStatus('Email sent|sent|Sent|Reply sent', 5000);
     const sentCopy = await statusText();
     ok('200 committed success copy bounded', /Email sent|Reply sent|Sent/i.test(sentCopy) && !/token=|SELECT |approval_not|email_send_committed|AAMk|@/.test(sentCopy));
-    ok('200 committed locks controls', await page.locator('#draft-textarea').isDisabled()
-      && await page.locator('#btn-email-save-draft').isDisabled()
-      && await page.locator('#btn-email-approve-send').isDisabled());
+    ok('200 committed clears reply', (await page.inputValue('#draft-textarea')) === '');
+    ok('200 committed unlocks composer', await page.locator('#draft-textarea').isEnabled()
+      && await page.locator('#btn-email-save-draft').isEnabled()
+      && await page.locator('#btn-email-approve-send').isEnabled());
     const postCountAfterSent = approvePosts.length;
     await page.click('#btn-email-approve-send').catch(() => {});
     await page.waitForTimeout(120);
-    ok('200 committed blocks re-click submit', approvePosts.length === postCountAfterSent);
-    ok('200 committed preserves draft text', (await page.inputValue('#draft-textarea')) === 'committed-send-body');
+    ok('200 committed empty re-click does not submit', approvePosts.length === postCountAfterSent);
+    await page.waitForFunction(() => {
+      const el = document.querySelector('#draft-send-status');
+      return !el || !/Email sent/i.test(el.textContent || '') || !el.classList.contains('is-visible');
+    }, null, { timeout: 2000 });
+    ok('Email sent bar hides after 20s window', !/Email sent/i.test(await statusText()));
     await waCard().click();
     await page.waitForSelector('#btn-send-reply', { timeout: 8000 });
     ok('WA send intact after email committed', await page.locator('#btn-send-reply').isEnabled());
     await emailCard().click();
     await page.waitForSelector('#btn-email-approve-send', { timeout: 8000 });
-    ok('email stays terminal after WA switch', await page.locator('#draft-textarea').isDisabled()
-      && await page.locator('#btn-email-approve-send').isDisabled());
+    ok('email composer reusable after WA switch', await page.locator('#draft-textarea').isEnabled()
+      && await page.locator('#btn-email-approve-send').isEnabled()
+      && (await page.inputValue('#draft-textarea')) === '');
 
     /* Hostile/malformed 200 must not lock. */
     await page.reload({ waitUntil: 'domcontentloaded' });
@@ -882,7 +892,7 @@ async function main() {
       });
     });
     await page.fill('#draft-textarea', 'hostile-200-body');
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
     for (const mode of ['extra', 'wrong_conv', 'wrong_appr', 'wrong_state', 'success_false', 'missing_state', 'with_message', 'array']) {
       commitMode = mode;
@@ -920,7 +930,7 @@ async function main() {
       });
     });
     await page.fill('#draft-textarea', 'stale-200-commit');
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
     const staleCommitClick = page.click('#btn-email-approve-send');
     await page.waitForFunction(() => document.querySelector('#btn-email-approve-send')?.disabled === true, null, { timeout: 4000 });
@@ -950,7 +960,7 @@ async function main() {
       });
     });
     await page.fill('#draft-textarea', 'still-503-after-b1');
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
     await page.click('#btn-email-approve-send');
     await waitStatus('Approved');
@@ -980,7 +990,7 @@ async function main() {
       });
     });
     await page.fill('#draft-textarea', 'a11y body');
-    await page.click('#btn-email-save-draft');
+    await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });

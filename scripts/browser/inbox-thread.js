@@ -1173,10 +1173,30 @@ function buildStaffReplyIdempotencyKey(clientSlug, convId, messageText){
   return 'staff-reply:' + clientSlug + ':' + convId + ':' + simpleDraftHash(messageText);
 }
 
+function inboxEmailSentStatusMs(){
+  var override = (typeof window !== 'undefined') ? window.__INBOX_EMAIL_SENT_STATUS_MS : null;
+  var n = Number(override);
+  if (n > 0 && isFinite(n)) return n;
+  return INBOX_EMAIL_SENT_STATUS_MS;
+}
+
 function showDraftSendStatus(el, kind, message){
   if (!el) return;
+  if (el._inboxStatusTimer) {
+    clearTimeout(el._inboxStatusTimer);
+    el._inboxStatusTimer = null;
+  }
   el.className = 'draft-send-status is-visible ' + (kind || '');
   el.textContent = message || '';
+  if (kind === 'ok' && message === 'Email sent') {
+    el._inboxStatusTimer = setTimeout(function(){
+      el._inboxStatusTimer = null;
+      if (el.textContent === 'Email sent') {
+        el.className = 'draft-send-status';
+        el.textContent = '';
+      }
+    }, inboxEmailSentStatusMs());
+  }
 }
 
 function performInboxSend(convId, phone, targetEl){
@@ -1238,6 +1258,7 @@ function performInboxSend(convId, phone, targetEl){
 
 /* ── Gate 3 email draft/approve UI (default-off; channel==='email' only) ── */
 var EMAIL_DRAFT_MAX_UTF8_BYTES = 8000;
+var INBOX_EMAIL_SENT_STATUS_MS = 20000;
 var EMAIL_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var EMAIL_DRAFT_OK_KEYS = ['success','conversation_id','message_text','approval_id'];
 var EMAIL_APPROVE_503_KEYS = ['success','error','conversation_id','approval_id','approval_state'];
@@ -1396,7 +1417,7 @@ function performEmailLunaDraftGenerate(convId, targetEl){
     setEmailReplyControlsDisabled(targetEl,st.generationUncertain,st.locked);
   }).catch(function(){if(mySeq!==st.seq)return;st.inFlight=false;st.approvalId=null;st.savedText='';st.generationUncertain=true;if(selectedConvId!==snapConv)return;showDraftSendStatus(statusEl,'blocked','Draft save outcome is unknown. Reload the conversation or page before generating again.');setEmailReplyControlsDisabled(targetEl,true,st.locked);});
 }
-function performEmailDraftSave(convId, targetEl){
+function performEmailDraftSave(convId, targetEl, thenApprove){
   var st = emailReplyState(convId);
   var ta = targetEl.querySelector('#draft-textarea');
   var statusEl = targetEl.querySelector('#draft-send-status');
@@ -1440,6 +1461,11 @@ function performEmailDraftSave(convId, targetEl){
       if (accepted) {
         st.approvalId = accepted.approval_id;
         st.savedText = snapText;
+        if (thenApprove) {
+          setEmailReplyControlsDisabled(targetEl, false, st.locked);
+          performEmailApproveSend(convId, targetEl);
+          return;
+        }
         showDraftSendStatus(statusEl, 'ok', 'Draft saved');
         setEmailReplyControlsDisabled(targetEl, false, st.locked);
         return;
@@ -1465,17 +1491,13 @@ function performEmailApproveSend(convId, targetEl){
     return;
   }
   var messageText = String(ta.value == null ? '' : ta.value);
-  if (!st.approvalId) {
-    showDraftSendStatus(statusEl, 'error', 'Save a draft before approving.');
-    return;
-  }
-  if (messageText !== st.savedText) {
-    showDraftSendStatus(statusEl, 'error', 'Save the current text before approving.');
-    return;
-  }
   var bytes = emailUtf8ByteLength(messageText);
   if (!messageText.length || bytes > EMAIL_DRAFT_MAX_UTF8_BYTES) {
     showDraftSendStatus(statusEl, 'error', !messageText.length ? 'Enter a reply before approving.' : 'Message exceeds 8,000 UTF-8 bytes.');
+    return;
+  }
+  if (!st.approvalId || messageText !== st.savedText) {
+    performEmailDraftSave(convId, targetEl, true);
     return;
   }
   var snapConv = String(convId);
@@ -1511,13 +1533,14 @@ function performEmailApproveSend(convId, targetEl){
       if (out.status === 200) {
         var committed = acceptEmailApproveSuccess(out.data, snapConv, snapApprovalId);
         if (committed) {
-          if (ta.value !== snapText) ta.value = snapText;
-          updateEmailDraftByteCount(targetEl, snapText);
-          st.savedText = snapText;
-          st.locked = true;
-          st.sent = true;
+          ta.value = '';
+          updateEmailDraftByteCount(targetEl, '');
+          st.savedText = '';
+          st.approvalId = null;
+          st.locked = false;
+          st.sent = false;
           showDraftSendStatus(statusEl, 'ok', 'Email sent');
-          setEmailReplyControlsDisabled(targetEl, false, true);
+          setEmailReplyControlsDisabled(targetEl, false, false);
           // Refresh thread bubbles only — do not rebuild the draft panel (status/locks).
           try {
             fetch('/staff/conversations/' + encodeURIComponent(snapConv) + '/messages' + inboxClientQuery())
@@ -1962,7 +1985,7 @@ function loadConvDetail(convId, targetEl){
         html += '<button type="button" class="btn-email-save-draft" id="btn-email-generate-luna-draft"' +
                 (emailSt && emailSt.locked ? ' disabled' : '') + '>Generate Luna draft</button>';
       }
-      html +=   '<button type="button" class="btn-email-save-draft" id="btn-email-save-draft"' +
+      html +=   '<button type="button" class="btn-email-save-draft" id="btn-email-save-draft" hidden' +
               (emailSt && emailSt.locked ? ' disabled' : '') + '>Save draft</button>';
       if (staffEmailOutboundUiEnabled()) {
         html += '<button type="button" class="btn-email-approve-send" id="btn-email-approve-send"' +

@@ -18723,6 +18723,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .email-draft-byte-count{font-size:11px;color:var(--text-3);margin-top:6px;box-sizing:border-box;max-width:100%}
 .email-draft-byte-count.is-over{color:#8B3A3A;font-weight:600}
 .btn-email-save-draft{background:var(--ocean);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+#btn-email-save-draft{display:none!important}
 .btn-email-save-draft:hover{background:#7FA3B8}
 .btn-email-save-draft:disabled,.btn-email-approve-send:disabled{background:#C9CFC8;color:#F2F1EC;cursor:default}
 .btn-email-approve-send{background:var(--primary);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
@@ -20289,19 +20290,22 @@ body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell[data-col4
 .inbox-channel-autonomy-slot{flex:0 0 auto;width:100%}
 .inbox-channel-autonomy-slot .inbox-shell-channel-defaults{width:100%;box-sizing:border-box}
 .inbox-global-pause{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;gap:8px;width:100%;max-width:100%;box-sizing:border-box;padding:0;margin:0;border:none;background:transparent;white-space:nowrap}
-.inbox-global-pause .tabs-global-pause-toggle{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;justify-content:space-between;gap:8px;width:100%;margin:0;padding:0;cursor:pointer;white-space:nowrap}
-.inbox-global-pause .tabs-global-pause-label{flex:1 1 auto;display:inline-flex;align-items:center;gap:7px;min-width:0;font-size:12px;font-weight:600;letter-spacing:0;color:#31443a;white-space:nowrap}
+.inbox-global-pause .tabs-global-pause-toggle{display:contents!important;width:auto;margin:0;padding:0;cursor:pointer;white-space:nowrap}
 [data-theme="dark"] .channelModeIdentity,
 [data-theme="dark"] .inbox-global-pause .tabs-global-pause-label{color:#fff}
 [data-theme="dark"] .channelModeBtn{color:#fff}
 [data-theme="dark"] .channelModeSegmented{background:rgba(20,20,20,.45);border-color:rgba(255,255,255,.14)}
 [data-theme="dark"] .channelModeBtn.isSelected{background:#3a4a40;color:#fff}
 [data-theme="dark"] .channelModeBtn.isSelected.isAuto{background:#31483d;color:#fff}
-.channelAutonomy #cc-luna-global-pause{margin-top:5px;min-height:34px;width:100%;justify-content:space-between}
-.inbox-global-pause-owl{width:29px;height:29px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}
-.inbox-global-pause-owl svg{width:26px;height:26px;display:block}
-.channelModeIcon.inbox-global-pause-owl{width:29px;height:29px}
-.channelModeIcon.inbox-global-pause-owl svg{width:26px;height:26px}
+.channelAutonomy #cc-luna-global-pause{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:5px;min-height:34px;width:100%}
+.channelAutonomy #cc-luna-global-pause .tabs-global-pause-toggle{display:contents!important;width:auto;padding:0;margin:0}
+.channelAutonomy #cc-luna-global-pause .tabs-global-pause-label,
+.channelAutonomy #cc-luna-global-pause .channelModeIdentity{flex:0 1 auto;min-width:82px;gap:7px}
+.inbox-global-pause .tabs-global-pause-label{flex:0 1 auto;min-width:82px;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;letter-spacing:0;color:#31443a;white-space:nowrap}
+.inbox-global-pause-owl{width:18px;height:18px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}
+.inbox-global-pause-owl svg{width:16px;height:16px;display:block}
+.channelModeIcon.inbox-global-pause-owl{width:18px;height:18px}
+.channelModeIcon.inbox-global-pause-owl svg{width:16px;height:16px}
 .inbox-global-pause .luna-global-pause-switch{display:none!important}
 .channelAutonomy.is-paused{background:rgba(199,74,74,.10);border-color:rgba(199,74,74,.22)}
 [data-theme="dark"] .channelAutonomy{background:var(--surface);border-color:var(--border);box-shadow:none}
