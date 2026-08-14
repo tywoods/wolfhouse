@@ -13,7 +13,6 @@ const {
 } = require('./sunset-microsoft-oauth-provider');
 const {
   createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition,
-  parseEmailGrantEnvelopeAzureKvSunsetStagingRuntimeConfig,
 } = require('./email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
 const { validateEmailGrantEnvelopeProvider } = require('./email-grant-envelope-provider-contract');
 const { createMicrosoftTokenHttpTransport } = require('./email-microsoft-token-http-transport');
@@ -67,17 +66,14 @@ function createSunsetStagingEmailDisconnectRuntime(deps) {
     if (!isDisconnectEnabled(env) || !pgClient || typeof pgClient.query !== 'function') throw failure();
     const appId = env.LUNA_EMAIL_OAUTH_CLIENT_ID;
     if (typeof appId !== 'string' || !UUID_RE.test(appId)) throw failure();
-    const kvConfig = parseEmailGrantEnvelopeAzureKvSunsetStagingRuntimeConfig(env);
-    const kvComposition = createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(Object.freeze({
-      env,
-      https,
-      timers,
-      config: kvConfig,
-    }));
-    const envelopeProvider = kvComposition.envelopeProvider;
+    const kvComposition = createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(env);
+    const envelopeProvider = kvComposition.provider;
     const envelopeValid = validateEmailGrantEnvelopeProvider(envelopeProvider);
     if (!envelopeValid.ok) throw failure();
-    const secretProvider = createSunsetMicrosoftOAuthClientSecretProvider({ env });
+    const secretProvider = createSunsetMicrosoftOAuthClientSecretProvider(Object.freeze({
+      deployment: SUNSET_DEPLOYMENT,
+      env,
+    }));
     const transport = createMicrosoftTokenHttpTransport(Object.freeze({ httpsImpl: https, timers }));
     return createDelegatedGrantRevokeService(Object.freeze({
       deployment: SUNSET_DEPLOYMENT,

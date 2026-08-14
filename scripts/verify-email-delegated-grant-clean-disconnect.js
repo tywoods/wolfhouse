@@ -68,6 +68,21 @@ function fakeClient(expectedStatus) {
   assert.match(acquireCall[0], /workerId:\s*WORKER_ID/);
   assert.doesNotMatch(acquireCall[0], /leaseOwner\s*:/);
 
+  // The Azure KV composition factory accepts the env object directly and
+  // exposes the validated provider as `.provider`. Lookalike composition args
+  // or `.envelopeProvider` fail before lease/open SQL and surface as HTTP 503.
+  const disconnectSource = fs.readFileSync(path.join(__dirname, 'lib/email-disconnect.js'), 'utf8');
+  assert.match(
+    disconnectSource,
+    /createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition\(env\)/,
+  );
+  assert.match(disconnectSource, /const envelopeProvider = kvComposition\.provider;/);
+  assert.doesNotMatch(disconnectSource, /kvComposition\.envelopeProvider/);
+  assert.match(
+    disconnectSource,
+    /createSunsetMicrosoftOAuthClientSecretProvider\(Object\.freeze\(\{[\s\S]*?deployment:\s*SUNSET_DEPLOYMENT,[\s\S]*?env,[\s\S]*?\}\)\)/,
+  );
+
   console.log('PASS clean disconnect removes leased and legacy-revoked rows for reinstall');
 })().catch((error) => {
   console.error(error);
