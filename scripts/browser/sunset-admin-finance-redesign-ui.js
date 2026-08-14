@@ -47,8 +47,13 @@ function financeRedesignEsc(s) {
 }
 
 function financeRedesignT(key, fallback) {
-  if (typeof portalT === 'function') {
-    var v = portalT(key);
+  var fn = null;
+  try {
+    if (typeof portalT === 'function') fn = portalT;
+    else if (typeof globalThis !== 'undefined' && typeof globalThis.portalT === 'function') fn = globalThis.portalT;
+  } catch (_e) { fn = null; }
+  if (fn) {
+    var v = fn(key);
     if (v && v !== key) return v;
   }
   return fallback || key;
@@ -107,7 +112,13 @@ function financeRedesignTrendTitle(trendMode) {
 }
 
 function financeRedesignMonthLabel(idx) {
-  return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][idx] || '';
+  try {
+    var d = new Date(2020, idx, 1);
+    var loc = typeof portalLang === 'string' ? portalLang : (typeof getStaffLocale === 'function' ? getStaffLocale() : 'en');
+    return d.toLocaleDateString(loc, { month: 'short' });
+  } catch (_e) {
+    return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][idx] || '';
+  }
 }
 
 function financeRedesignBarRow(name, cents, pct, colorClass) {

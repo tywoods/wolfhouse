@@ -22122,17 +22122,17 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   </section>
 
   <div class="card cc-section" id="cc-staff-whatsapp-numbers" style="display:none">
-    <div class="cc-section-hdr">Staff &amp; Owner Numbers</div>
-    <div class="cc-section-sub">WhatsApp numbers recognized by Luna Staff. Staff numbers get operations access; Owner numbers also get owner insights.</div>
+    <div class="cc-section-hdr" data-i18n="lunaStaff.numbers.title">Staff &amp; Owner Numbers</div>
+    <div class="cc-section-sub" data-i18n="lunaStaff.numbers.sub">WhatsApp numbers recognized by Luna Staff. Staff numbers get operations access; Owner numbers also get owner insights.</div>
     <div id="swn-error"></div>
     <div id="swn-status"></div>
     <table class="cc-table" id="swn-table" style="width:100%;border-collapse:collapse;margin:10px 0">
       <thead>
         <tr>
-          <th style="text-align:left">Name</th>
-          <th style="text-align:left">Phone</th>
-          <th style="text-align:left">Group</th>
-          <th style="text-align:left">Active</th>
+          <th style="text-align:left" data-i18n="lunaStaff.numbers.name">Name</th>
+          <th style="text-align:left" data-i18n="lunaStaff.numbers.phone">Phone</th>
+          <th style="text-align:left" data-i18n="lunaStaff.numbers.group">Group</th>
+          <th style="text-align:left" data-i18n="lunaStaff.numbers.active">Active</th>
           <th></th>
         </tr>
       </thead>
@@ -22144,75 +22144,75 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <option value="staff">Staff</option>
         <option value="owner">Owner</option>
       </select>
-      <input id="swn-add-name" type="text" placeholder="Name (optional)" autocomplete="off" spellcheck="false">
+      <input id="swn-add-name" type="text" data-i18n-placeholder="lunaStaff.numbers.nameOptional" placeholder="Name (optional)" autocomplete="off" spellcheck="false">
       <label style="display:inline-flex;align-items:center;gap:4px">
-        <input id="swn-add-active" type="checkbox" checked> Active
+        <input id="swn-add-active" type="checkbox" checked> <span data-i18n="lunaStaff.numbers.active">Active</span>
       </label>
-      <button class="btn btn-primary" id="swn-add-btn" onclick="staffWhatsappNumberAdd()">Add</button>
+      <button class="btn btn-primary" id="swn-add-btn" onclick="staffWhatsappNumberAdd()" data-i18n="lunaStaff.numbers.add">Add</button>
     </div>
   </div>
 
   <div class="card cc-section" id="cc-automated-staff-notifications" style="display:none">
-    <div class="cc-section-hdr">Automated Staff Notifications</div>
-    <div class="cc-section-sub">Schedule Luna to answer saved prompts and send them to selected staff.</div>
+    <div class="cc-section-hdr" data-i18n="lunaStaff.automations.title">Automated Staff Notifications</div>
+    <div class="cc-section-sub" data-i18n="lunaStaff.automations.sub">Schedule Luna to answer saved prompts and send them to selected staff.</div>
     <div id="asn-error"></div>
     <div id="asn-status"></div>
     <div class="asn-block">
       <div class="asn-field">
-        <label class="asn-label" for="asn-prompt-title">Prompt title</label>
+        <label class="asn-label" for="asn-prompt-title" data-i18n="lunaStaff.automations.promptTitle">Prompt title</label>
         <input id="asn-prompt-title" type="text" class="asn-input" placeholder="e.g. Morning arrivals summary" autocomplete="off" spellcheck="false">
       </div>
       <div class="asn-field">
-        <label class="asn-label" for="asn-prompt-text">Prompt</label>
+        <label class="asn-label" for="asn-prompt-text" data-i18n="lunaStaff.automations.prompt">Prompt</label>
         <textarea id="asn-prompt-text" rows="5" class="asn-textarea" placeholder="e.g. &ldquo;How many check-ins, check-outs, and surf packages do we have today?&rdquo;"></textarea>
       </div>
     </div>
     <div class="asn-block">
       <div class="asn-field">
-        <label class="asn-label">Recipients</label>
+        <label class="asn-label" data-i18n="lunaStaff.automations.recipients">Recipients</label>
         <div id="asn-recipients" class="asn-recipients"></div>
       </div>
     </div>
     <div class="asn-block">
       <div class="asn-field">
-        <label class="asn-label">Days</label>
+        <label class="asn-label" data-i18n="lunaStaff.automations.days">Days</label>
         <div class="asn-days" id="asn-days">
-          <label class="asn-day-check"><input type="checkbox" id="asn-day-mon" value="0"><span>Mon</span></label>
-          <label class="asn-day-check"><input type="checkbox" id="asn-day-tue" value="1"><span>Tue</span></label>
-          <label class="asn-day-check"><input type="checkbox" id="asn-day-wed" value="2"><span>Wed</span></label>
-          <label class="asn-day-check"><input type="checkbox" id="asn-day-thu" value="3"><span>Thu</span></label>
-          <label class="asn-day-check"><input type="checkbox" id="asn-day-fri" value="4"><span>Fri</span></label>
-          <label class="asn-day-check"><input type="checkbox" id="asn-day-sat" value="5"><span>Sat</span></label>
-          <label class="asn-day-check"><input type="checkbox" id="asn-day-sun" value="6"><span>Sun</span></label>
+          <label class="asn-day-check"><input type="checkbox" id="asn-day-mon" value="0"><span data-i18n="lunaStaff.automations.day.mon">Mon</span></label>
+          <label class="asn-day-check"><input type="checkbox" id="asn-day-tue" value="1"><span data-i18n="lunaStaff.automations.day.tue">Tue</span></label>
+          <label class="asn-day-check"><input type="checkbox" id="asn-day-wed" value="2"><span data-i18n="lunaStaff.automations.day.wed">Wed</span></label>
+          <label class="asn-day-check"><input type="checkbox" id="asn-day-thu" value="3"><span data-i18n="lunaStaff.automations.day.thu">Thu</span></label>
+          <label class="asn-day-check"><input type="checkbox" id="asn-day-fri" value="4"><span data-i18n="lunaStaff.automations.day.fri">Fri</span></label>
+          <label class="asn-day-check"><input type="checkbox" id="asn-day-sat" value="5"><span data-i18n="lunaStaff.automations.day.sat">Sat</span></label>
+          <label class="asn-day-check"><input type="checkbox" id="asn-day-sun" value="6"><span data-i18n="lunaStaff.automations.day.sun">Sun</span></label>
         </div>
       </div>
       <div class="asn-schedule-row">
         <div class="asn-field asn-time-field">
-          <label class="asn-label" for="asn-time">Time</label>
+          <label class="asn-label" for="asn-time" data-i18n="lunaStaff.automations.time">Time</label>
           <input id="asn-time" type="time" class="asn-time-input">
         </div>
         <div class="asn-field asn-enabled-field">
           <label class="asn-toggle-row" for="asn-enabled">
             <input type="checkbox" id="asn-enabled" checked>
-            <span>Enabled</span>
+            <span data-i18n="lunaStaff.automations.enabled">Enabled</span>
           </label>
         </div>
       </div>
     </div>
     <div class="sns-actions asn-actions">
-      <button class="btn btn-primary" id="asn-save-btn" type="button" onclick="automatedStaffNotificationsSave()">Save automation</button>
-      <button class="btn btn-ghost" id="asn-reset-btn" type="button" onclick="automatedStaffNotificationsResetForm()">Clear form</button>
+      <button class="btn btn-primary" id="asn-save-btn" type="button" onclick="automatedStaffNotificationsSave()" data-i18n="lunaStaff.automations.save">Save automation</button>
+      <button class="btn btn-ghost" id="asn-reset-btn" type="button" onclick="automatedStaffNotificationsResetForm()" data-i18n="lunaStaff.automations.clear">Clear form</button>
     </div>
     <div class="asn-field asn-list-field">
-      <div class="asn-list-hdr">Saved automations</div>
+      <div class="asn-list-hdr" data-i18n="lunaStaff.automations.saved">Saved automations</div>
       <div id="asn-list"></div>
     </div>
   </div>
 
   <div class="card cc-section" id="cc-staff-notification-settings" style="display:none">
     <div class="sns-card-hdr">
-      <div class="cc-section-hdr">Guest Conversation Alerts</div>
-      <div class="cc-section-sub sns-card-sub">Send WhatsApp alerts when Luna starts a guest conversation or needs human help.</div>
+      <div class="cc-section-hdr" data-i18n="lunaStaff.alerts.title">Guest Conversation Alerts</div>
+      <div class="cc-section-sub sns-card-sub" data-i18n="lunaStaff.alerts.sub">Send WhatsApp alerts when Luna starts a guest conversation or needs human help.</div>
     </div>
     <div id="sns-error"></div>
     <div id="sns-status"></div>
@@ -22222,15 +22222,15 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <div class="sns-section-title-row">
           <label class="sns-toggle-row sns-section-toggle">
             <input type="checkbox" id="sns-new-enabled" onchange="staffNotificationTypePillSync()">
-            <span class="sns-toggle-label">New conversation alerts</span>
+            <span class="sns-toggle-label" data-i18n="lunaStaff.alerts.new">New conversation alerts</span>
           </label>
           <span class="pill pill-grey sns-type-pill" id="sns-new-pill" style="display:none"></span>
         </div>
-        <div class="al-hint sns-section-hint">Notify staff when a guest starts a new Luna conversation.</div>
+        <div class="al-hint sns-section-hint" data-i18n="lunaStaff.alerts.newHint">Notify staff when a guest starts a new Luna conversation.</div>
         <div class="al-hint sns-server-disabled-note" id="sns-new-server-note" style="display:none">Configured on, but delivery is disabled by the server.</div>
       </div>
       <div class="sns-recipients" id="sns-new-recipients"></div>
-      <button type="button" class="btn btn-ghost sns-add-btn" onclick="staffNotificationRecipientAdd('new_conversation')">Add recipient</button>
+      <button type="button" class="btn btn-ghost sns-add-btn" onclick="staffNotificationRecipientAdd('new_conversation')" data-i18n="lunaStaff.alerts.addRecipient">Add recipient</button>
     </div>
 
     <div class="sns-section">
@@ -22238,31 +22238,31 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <div class="sns-section-title-row">
           <label class="sns-toggle-row sns-section-toggle">
             <input type="checkbox" id="sns-human-enabled" onchange="staffNotificationTypePillSync()">
-            <span class="sns-toggle-label">Human needed alerts</span>
+            <span class="sns-toggle-label" data-i18n="lunaStaff.alerts.human">Human needed alerts</span>
           </label>
           <span class="pill pill-grey sns-type-pill" id="sns-human-pill" style="display:none"></span>
         </div>
-        <div class="al-hint sns-section-hint">Notify staff when Luna hands a conversation to the team.</div>
+        <div class="al-hint sns-section-hint" data-i18n="lunaStaff.alerts.humanHint">Notify staff when Luna hands a conversation to the team.</div>
         <div class="al-hint sns-server-disabled-note" id="sns-human-server-note" style="display:none">Configured on, but delivery is disabled by the server.</div>
       </div>
       <div class="sns-recipients" id="sns-human-recipients"></div>
-      <button type="button" class="btn btn-ghost sns-add-btn" onclick="staffNotificationRecipientAdd('human_needed')">Add recipient</button>
+      <button type="button" class="btn btn-ghost sns-add-btn" onclick="staffNotificationRecipientAdd('human_needed')" data-i18n="lunaStaff.alerts.addRecipient">Add recipient</button>
     </div>
 
-    <div class="al-hint sns-phone-hint">Use international phone format, e.g. +34600000000.</div>
+    <div class="al-hint sns-phone-hint" data-i18n="lunaStaff.alerts.phoneHint">Use international phone format, e.g. +346****0000.</div>
     <div class="sns-actions">
-      <button class="btn btn-primary" id="sns-save-btn" onclick="staffNotificationSettingsSave()">Save notification settings</button>
+      <button class="btn btn-primary" id="sns-save-btn" onclick="staffNotificationSettingsSave()" data-i18n="lunaStaff.alerts.save">Save notification settings</button>
     </div>
   </div>
 
   <div class="card cc-section" id="cc-house-notes" style="display:none">
-    <div class="cc-section-hdr">General Notes for Luna</div>
-    <div class="cc-section-sub">Client-facing info Luna can share with guests on demand (e.g. parking, wifi, quiet hours, pet policy). Plain text &mdash; guests may see this.</div>
+    <div class="cc-section-hdr" data-i18n="lunaStaff.notes.title">General Notes for Luna</div>
+    <div class="cc-section-sub" data-i18n="lunaStaff.notes.sub">Client-facing info Luna can share with guests on demand (e.g. parking, wifi, quiet hours, pet policy). Plain text &mdash; guests may see this.</div>
     <div id="hn-error"></div>
     <div id="hn-status"></div>
     <textarea id="hn-text" rows="8" style="width:100%;box-sizing:border-box" placeholder="e.g. Parking: free street parking out front. Wifi password: WolfHouse2024. Quiet hours after 11pm. Sorry, no pets."></textarea>
     <div class="al-form-row" style="margin-top:8px">
-      <button class="btn btn-primary" id="hn-save-btn" onclick="houseNotesSave()">Save notes</button>
+      <button class="btn btn-primary" id="hn-save-btn" onclick="houseNotesSave()" data-i18n="lunaStaff.notes.save">Save notes</button>
     </div>
   </div>
 
@@ -39085,6 +39085,7 @@ window.staffPortalOnLocaleChange = function(){
   if (toBlocksCache && toBlocksCache.length && typeof toRenderBlockSelect === 'function') toRenderBlockSelect(toBlocksCache);
   if (typeof scheduleRefreshOnLocaleChange === 'function') scheduleRefreshOnLocaleChange();
   if (typeof applyCustomersPortalI18n === 'function') applyCustomersPortalI18n();
+  if (typeof adminRefreshOnLocaleChange === 'function') adminRefreshOnLocaleChange();
 };
 
 function loadBedCalendar(afterRender){

@@ -2223,6 +2223,25 @@ function renderAdminFromConfig(cfg, opts){
   if (preserve) adminRestorePricingDraftState();
 }
 
+function adminRefreshOnLocaleChange(){
+  try {
+    if (typeof getStaffLocale === 'function') portalLang = getStaffLocale();
+  } catch (_e) { /* ignore */ }
+  var adminRoot = (typeof el === 'function') ? el('tab-admin') : null;
+  if (adminRoot && typeof applyStaffPortalI18n === 'function') applyStaffPortalI18n(adminRoot);
+  var fin = (typeof el === 'function') ? el('admin-finance-body') : null;
+  if (fin && typeof financeLastSummary !== 'undefined' && financeLastSummary && typeof renderFinanceRedesignHtml === 'function') {
+    fin.innerHTML = renderFinanceRedesignHtml(financeLastSummary);
+    if (typeof wireFinanceRedesignNav === 'function') wireFinanceRedesignNav(fin);
+  }
+  if (typeof adminConfigCache !== 'undefined' && adminConfigCache && typeof renderAdminFromConfig === 'function') {
+    renderAdminFromConfig(adminConfigCache, { preserveDraft: true });
+  }
+  if (typeof loadAdminEmailSettings === 'function' && typeof adminActiveSubTab === 'string' && adminActiveSubTab === 'email') {
+    loadAdminEmailSettings();
+  }
+}
+
 function renderAdminFallback(profile){
   adminEditTarget = null;
   adminClearPricingDraftState();
