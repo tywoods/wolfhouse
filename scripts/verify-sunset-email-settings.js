@@ -16,6 +16,9 @@ const {
   endpointDto,
   computeEmailSettingsActions,
   isEligibleUnverifiedDelegatedEndpoint,
+  isEligibleDisconnectEndpoint,
+  isDisconnectSettingsActionEnabled,
+  DISCONNECT_ENABLED_ENV,
   PHASE_B_REAUTH_START_ENABLED_ENV,
   PHASE_B_REAUTH_ELIGIBILITY_MAX_ENDPOINTS,
   SQL_PHASE_B_REAUTH_ELIGIBILITY_FACTS,
@@ -46,6 +49,11 @@ const REAUTH_ENV = {
   SUNSET_EMAIL_SETTINGS_UI_ENABLED: 'true',
   LUNA_DEPLOYMENT: 'sunset-staging',
   [PHASE_B_REAUTH_START_ENABLED_ENV]: 'true',
+};
+const DISCONNECT_ENV = {
+  SUNSET_EMAIL_SETTINGS_UI_ENABLED: 'true',
+  LUNA_DEPLOYMENT: 'sunset-staging',
+  [DISCONNECT_ENABLED_ENV]: 'true',
 };
 const LOCATION = 'sunset-somo';
 const ENDPOINT_ID = '22222222-2222-4222-8222-222222222222';
@@ -785,10 +793,11 @@ function futureExpires(msFromNow = 600000) {
     assert.strictEqual(isPhaseBReauthSettingsActionEnabled(START_ENV), false);
   });
 
-  await test('DTO reauthorize eligibility boundary fail-closed', () => {
+  await test('DTO reauthorize retired; disconnect eligibility boundary fail-closed', () => {
     const goodFact = cleanPhaseAGrantFact();
     const goodRow = verifiedConnectedRow();
-    assert.strictEqual(isEligiblePhaseBReauthorizeEndpoint(goodRow, goodFact), true);
+    assert.strictEqual(isEligiblePhaseBReauthorizeEndpoint(goodRow, goodFact), false);
+    assert.strictEqual(isEligibleDisconnectEndpoint(goodRow, goodFact), true);
     // Hostile / boundary negatives
     assert.strictEqual(isEligiblePhaseBReauthorizeEndpoint(null, goodFact), false);
     assert.strictEqual(isEligiblePhaseBReauthorizeEndpoint(goodRow, null), false);
@@ -821,18 +830,22 @@ function futureExpires(msFromNow = 600000) {
     assert.strictEqual(isEligiblePhaseBReauthorizeEndpoint(goodRow, cleanPhaseAGrantFact({ grant_generation: 1.5 })), false);
     assert.strictEqual(isEligiblePhaseBReauthorizeEndpoint(goodRow, cleanPhaseAGrantFact({ grant_generation: '3' })), false);
     // Proxy-like / extra-key grant facts still ok if required fields match; missing required fails
-    assert.strictEqual(isEligiblePhaseBReauthorizeEndpoint(goodRow, { ...goodFact, secret: 'x' }), true);
+    assert.strictEqual(isEligiblePhaseBReauthorizeEndpoint(goodRow, { ...goodFact, secret: 'x' }), false);
     assert.strictEqual(isEligiblePhaseBReauthorizeEndpoint(goodRow, { grant_present: true }), false);
-    // endpointDto projection: gate off → false; gate on + fact → true; never leaks internals
+    assert.strictEqual(isEligibleDisconnectEndpoint(goodRow, { ...goodFact, secret: 'x' }), true);
+    assert.strictEqual(isEligibleDisconnectEndpoint(goodRow, { grant_present: true }), false);
+    // endpointDto projection: reauthorize always false; disconnect only when gate on
     const offDto = endpointDto(goodRow, { grant_present: true, grant_status: 'active', reconcile_state: 'clean' }, {
-      grantFact: goodFact, reauthGateOn: false,
+      grantFact: goodFact, reauthGateOn: false, disconnectGateOn: false,
     });
     assert.strictEqual(offDto.reauthorize_eligible, false);
+    assert.strictEqual(offDto.disconnect_eligible, false);
     assert.strictEqual(offDto.start_eligible, false);
     const onDto = endpointDto(goodRow, { grant_present: true, grant_status: 'active', reconcile_state: 'clean' }, {
-      grantFact: goodFact, reauthGateOn: true,
+      grantFact: goodFact, reauthGateOn: true, disconnectGateOn: true,
     });
-    assert.strictEqual(onDto.reauthorize_eligible, true);
+    assert.strictEqual(onDto.reauthorize_eligible, false);
+    assert.strictEqual(onDto.disconnect_eligible, true);
     assert.strictEqual(onDto.start_eligible, false);
     const dtoText = JSON.stringify(onDto);
     for (const forbidden of ['scope_version', 'grant_generation', 'lease_clear', 'phase_a_v2', 'has_active_lease', 'secret_ref']) {
@@ -848,7 +861,11 @@ function futureExpires(msFromNow = 600000) {
     const locs = [{ location_id: LOCATION, active: true, display_name: 'S' }];
     assert.deepStrictEqual(
       computeEmailSettingsActions(REAUTH_ENV, locs, [onDto]),
-      { prepare: false, connect: false, disconnect: false, reauthorize: true },
+      { prepare: false, connect: false, disconnect: false, reauthorize: false },
+    );
+    assert.deepStrictEqual(
+      computeEmailSettingsActions(DISCONNECT_ENV, locs, [onDto]),
+      { prepare: false, connect: false, disconnect: true, reauthorize: false },
     );
     assert.deepStrictEqual(
       computeEmailSettingsActions(START_ENV, locs, [onDto]),
@@ -864,7 +881,22 @@ function futureExpires(msFromNow = 600000) {
     assert.strictEqual(isEligiblePhaseBReauthorizeEndpoint(goodRow, noInternal), false);
   });
 
-  await test('settings GET projects reauthorize only under dual gate + atomic eligible fact', async () => {
+  await test('disconnect settings gate defaults off', () => {
+    assert.strictEqual(DISCONNECT_ENABLED_ENV, 'LUNA_EMAIL_OAUTH_DISCONNECT_ENABLED');
+    assert.strictEqual(isDisconnectSettingsActionEnabled({}), false);
+    assert.strictEqual(isDisconnectSettingsActionEnabled({
+      SUNSET_EMAIL_SETTINGS_UI_ENABLED: 'true',
+      LUNA_DEPLOYMENT: 'sunset-staging',
+    }), false);
+    assert.strictEqual(isDisconnectSettingsActionEnabled(DISCONNECT_ENV), true);
+    assert.strictEqual(isDisconnectSettingsActionEnabled({
+      SUNSET_EMAIL_SETTINGS_UI_ENABLED: 'true',
+      LUNA_DEPLOYMENT: 'production',
+      [DISCONNECT_ENABLED_ENV]: 'true',
+    }), false);
+  });
+
+  await test('settings GET never projects reauthorize; disconnect under disconnect gate', async () => {
     const res = response();
     const goodRow = {
       id: ENDPOINT_ID,
@@ -899,9 +931,10 @@ function futureExpires(msFromNow = 600000) {
     await routes.handleGet({ client: 'sunset' }, {}, res, { role: 'admin' });
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(res.body.actions, {
-      prepare: false, connect: false, disconnect: false, reauthorize: true,
+      prepare: false, connect: false, disconnect: false, reauthorize: false,
     });
-    assert.strictEqual(res.body.endpoints[0].reauthorize_eligible, true);
+    assert.strictEqual(res.body.endpoints[0].reauthorize_eligible, false);
+    assert.strictEqual(res.body.endpoints[0].disconnect_eligible, false);
     assert.strictEqual(res.body.endpoints[0].start_eligible, false);
     assert.strictEqual(res.body.endpoints[0].connection_state, 'connected_health');
     assert.strictEqual(atomicLoads, 1, 'exactly one set-based atomic eligibility load');
@@ -957,6 +990,28 @@ function futureExpires(msFromNow = 600000) {
     assert.strictEqual(res3.body.actions.reauthorize, false);
     assert.strictEqual(res3.body.endpoints[0].reauthorize_eligible, false);
     assert.strictEqual(atomicLoadsOff, 1, 'one atomic load; eligibility still false when dual gate off');
+
+    const res4 = response();
+    const routesDisconnect = createEmailSettingsRoutes({
+      runtimeEnv: DISCONNECT_ENV,
+      sendJSON,
+      assertStaffClientAccess() { return true; },
+      authorizeAuthenticatedStaffRoute() { return { ok: true }; },
+      withPgClient: (fn) => fn({ query: async () => ({ rows: [{ client_id: CLIENT_ID }] }) }),
+      listTenantLocations: async () => ({
+        ok: true,
+        value: [{ location_id: LOCATION, display_name: 'Somo', active: true }],
+      }),
+      listTenantChannelEndpoints: async () => ({ ok: true, value: [goodRow] }),
+      loadPhaseBReauthEligibilityFacts: async () => ([atomicEligibleRow()]),
+    });
+    await routesDisconnect.handleGet({ client: 'sunset' }, {}, res4, { role: 'admin' });
+    assert.strictEqual(res4.status, 200);
+    assert.deepStrictEqual(res4.body.actions, {
+      prepare: false, connect: false, disconnect: true, reauthorize: false,
+    });
+    assert.strictEqual(res4.body.endpoints[0].disconnect_eligible, true);
+    assert.strictEqual(res4.body.endpoints[0].reauthorize_eligible, false);
   });
 
   await test('atomic eligibility race/mutant: stale public active/clean cannot override terminal/dirty', async () => {
@@ -1103,6 +1158,13 @@ function futureExpires(msFromNow = 600000) {
         public_address: MAILBOX, active: true, location_active: true,
         location_id: LOCATION },
       fact,
+    ), false);
+    assert.strictEqual(isEligibleDisconnectEndpoint(
+      { provider: 'microsoft_graph', auth_mode: 'delegated_authorization_code',
+        connector_mode: 'microsoft_delegated_oauth', binding_status: 'verified',
+        public_address: MAILBOX, active: true, location_active: true,
+        location_id: LOCATION },
+      fact,
     ), true);
     // No sensitive projection from public grant helper
     const pub = publicGrantFromAtomicEligibilityRow(atomicEligibleRow());
@@ -1145,11 +1207,12 @@ function futureExpires(msFromNow = 600000) {
       return res;
     }
 
-    // Baseline eligible (active endpoint + active location ownership)
+    // Baseline connected endpoint: reauthorize retired; disconnect only when gate on
     {
       const res = await getWithAtomic([atomicEligibleRow()]);
       assert.strictEqual(res.status, 200);
-      assert.strictEqual(res.body.endpoints[0].reauthorize_eligible, true);
+      assert.strictEqual(res.body.endpoints[0].reauthorize_eligible, false);
+      assert.strictEqual(res.body.actions.reauthorize, false);
       const text = JSON.stringify(res.body);
       assert.ok(!text.includes('secret_ref'));
       assert.ok(!text.includes('kv://'));
