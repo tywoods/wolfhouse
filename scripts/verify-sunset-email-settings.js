@@ -441,6 +441,9 @@ function futureExpires(msFromNow = 600000) {
     assert.ok(src.includes("target.origin === 'https://login.microsoftonline.com'"));
     assert.ok(!src.includes("target.hostname !== 'login.microsoftonline.com'"));
     assert.ok(!/data-email-action=["']disconnect/i.test(src));
+    assert.ok(/data-email-disconnect=["']1["']/.test(src));
+    assert.ok(src.includes('/staff/admin/email-settings/oauth/microsoft/disconnect'));
+    assert.ok(src.includes('postMicrosoftOAuthDisconnect'));
     // Never create on page load — prepare only on click chain
     assert.ok(/postMicrosoftEndpointPrepare/.test(src));
     assert.ok(/postMicrosoftOAuthStart/.test(src));
@@ -640,6 +643,9 @@ function futureExpires(msFromNow = 600000) {
       'admin.email.off': 'Off',
       'admin.email.actionsUnavailable': 'Connect and disconnect are not available in this release.',
       'admin.email.connectSafetyNote': 'Connection verifies identity only; endpoint, inbound, outbound and automation remain off.',
+      'admin.email.disconnectButton': 'Disconnect Microsoft',
+      'admin.email.disconnectLabel': 'Microsoft disconnect',
+      'admin.email.disconnectSafetyNote': 'Disconnect revokes Microsoft mailbox access. Email processing stays off.',
     };
     const sandbox = {
       URL,
@@ -731,6 +737,25 @@ function futureExpires(msFromNow = 600000) {
     assert.ok(htmlConn.includes('data-email-connect-safety'));
     assert.ok(!htmlConn.includes('data-email-actions-unavailable'));
     assert.ok(!htmlConn.includes('data-email-reauthorize'));
+
+    // actions.disconnect=true → Disconnect control; hide unavailable; no auto POST
+    calls.length = 0;
+    sandbox.renderAdminEmailSettingsState('connected_health', {
+      actions: { prepare: false, connect: false, disconnect: true, reauthorize: false },
+      location_id: LOCATION,
+      endpoint_id: ENDPOINT_ID,
+      public_address: MAILBOX,
+    });
+    assert.strictEqual(calls.length, 0, 'no auto POST before disconnect click');
+    const htmlDisc = body.innerHTML;
+    assert.ok(htmlDisc.includes('data-email-disconnect="1"'));
+    assert.ok(htmlDisc.includes('data-email-disconnect-group'));
+    assert.ok(htmlDisc.includes('data-email-disconnect-safety'));
+    assert.ok(htmlDisc.includes(i18nKeys['admin.email.disconnectButton']));
+    assert.ok(htmlDisc.includes(i18nKeys['admin.email.disconnectSafetyNote']));
+    assert.ok(!htmlDisc.includes('data-email-actions-unavailable'));
+    assert.ok(!htmlDisc.includes(i18nKeys['admin.email.actionsUnavailable']));
+    assert.ok(!htmlDisc.includes('data-email-connect='));
   });
 
   await test('i18n safety note present in EN/ES/IT', () => {
@@ -755,6 +780,13 @@ function futureExpires(msFromNow = 600000) {
     assert.ok(/Microsoft permissions are being upgraded for staff-approved replies/i.test(enSrc));
     assert.ok(/Authorization itself does not send any email/i.test(enSrc));
     assert.ok(/Reauthorize Microsoft/.test(enSrc));
+    assert.ok(enSrc.includes("'admin.email.disconnectButton'"));
+    assert.ok(enSrc.includes("'admin.email.disconnectSafetyNote'"));
+    assert.ok(esSrc.includes("'admin.email.disconnectButton'"));
+    assert.ok(esSrc.includes("'admin.email.disconnectSafetyNote'"));
+    assert.ok(enSrc.split('admin.email.disconnectButton').length >= 3, 'EN and IT disconnect button');
+    assert.ok(/Disconnect Microsoft/.test(enSrc));
+    assert.ok(/Disconnect revokes Microsoft mailbox access/i.test(enSrc));
   });
 
   await test('startup sources and i18n load safely', () => {
@@ -763,8 +795,11 @@ function futureExpires(msFromNow = 600000) {
     assert.ok(source.includes('postMicrosoftEndpointPrepare') || source.includes('data-email-connect'));
     assert.ok(source.includes('/staff/admin/email-settings/oauth/microsoft/endpoint'));
     assert.ok(source.includes('/staff/admin/email-settings/oauth/microsoft/reauthorize'));
+    assert.ok(source.includes('/staff/admin/email-settings/oauth/microsoft/disconnect'));
     assert.ok(source.includes('postMicrosoftOAuthReauthorize'));
+    assert.ok(source.includes('postMicrosoftOAuthDisconnect'));
     assert.ok(source.includes('validatePhaseBReauthorizeSuccessDto'));
+    assert.ok(source.includes('validateDisconnectSuccessDto'));
     assert.ok(!source.includes('/staff/admin/email-settings/oauth/microsoft/prepare'));
     assert.ok(!source.includes('/staff/admin/email-settings/microsoft/endpoint/prepare'));
     require('./lib/staff-portal-i18n');
@@ -1838,6 +1873,212 @@ function futureExpires(msFromNow = 600000) {
     const bothHtml = body.innerHTML;
     assert.ok(bothHtml.includes('data-email-reauthorize'));
     assert.ok(!bothHtml.includes('data-email-connect='), 'reauthorize wins; connect suppressed for same endpoint');
+  });
+
+  await test('disconnect UI: button, click POST, reload, error, no auto POST', async () => {
+    const src = fs.readFileSync(require.resolve('./browser/sunset-admin-email-settings-ui.js'), 'utf8');
+    const apiSrc = fs.readFileSync(require.resolve('./staff-query-api.js'), 'utf8');
+    assert.ok(src.includes('data-email-disconnect'));
+    assert.ok(src.includes('postMicrosoftOAuthDisconnect'));
+    assert.ok(src.includes('validateDisconnectSuccessDto'));
+    assert.ok(src.includes('/staff/admin/email-settings/oauth/microsoft/disconnect'));
+    assert.ok(!/data-email-action=["']disconnect/i.test(src));
+    assert.ok(src.includes("JSON.stringify({ location_id: locationId, endpoint_id: endpointId })"));
+    assert.ok(apiSrc.includes('[data-email-disconnect]') && apiSrc.includes('min-height:44px'));
+
+    function makeEl(tag, attrs) {
+      const listeners = {};
+      const el = {
+        tagName: String(tag || 'DIV').toUpperCase(),
+        attrs: Object.assign({}, attrs || {}),
+        children: [],
+        disabled: false,
+        value: '',
+        style: {},
+        className: '',
+        _html: '',
+        getAttribute(name) { return Object.prototype.hasOwnProperty.call(this.attrs, name) ? this.attrs[name] : null; },
+        setAttribute(name, v) { this.attrs[name] = String(v); },
+        addEventListener(type, fn) {
+          if (!listeners[type]) listeners[type] = [];
+          listeners[type].push(fn);
+        },
+        click() {
+          const list = listeners.click || [];
+          for (const fn of list) fn({ type: 'click', target: el });
+        },
+        querySelector(sel) {
+          if (sel === '.portal-admin-email-settings') {
+            return this.children.find((c) => c.className && c.className.indexOf('portal-admin-email-settings') >= 0) || this._section || null;
+          }
+          if (sel === '[data-email-disconnect]') return this._findAttr('data-email-disconnect');
+          if (sel === '[data-email-reauthorize]') return this._findAttr('data-email-reauthorize');
+          if (sel === '[data-email-connect]') return this._findAttr('data-email-connect');
+          return null;
+        },
+        querySelectorAll() { return []; },
+        _findAttr(name) {
+          if (Object.prototype.hasOwnProperty.call(this.attrs, name)) return this;
+          for (const c of this.children) {
+            const f = c._findAttr && c._findAttr(name);
+            if (f) return f;
+          }
+          if (this._section) {
+            const f = this._section._findAttr && this._section._findAttr(name);
+            if (f) return f;
+          }
+          return null;
+        },
+      };
+      Object.defineProperty(el, 'innerHTML', {
+        get() { return el._html; },
+        set(v) {
+          el._html = String(v);
+          el.children = [];
+          el._section = null;
+          const section = makeEl('section', { 'data-email-state': 'connected_health' });
+          section.className = 'portal-admin-email-settings';
+          if (/data-email-disconnect/.test(String(v))) {
+            const loc = (String(v).match(/data-email-location-id="([^"]*)"/) || [])[1] || '';
+            const ep = (String(v).match(/data-email-endpoint-id="([^"]*)"/) || [])[1] || '';
+            const btn = makeEl('button', {
+              'data-email-disconnect': '1',
+              'data-email-location-id': loc,
+              'data-email-endpoint-id': ep,
+              type: 'button',
+            });
+            btn.className = 'portal-admin-email-action-btn';
+            Object.defineProperty(btn, 'disabled', {
+              get() { return btn._disabled === true; },
+              set(x) { btn._disabled = x === true; },
+              configurable: true,
+            });
+            btn._disabled = false;
+            section.children.push(btn);
+          }
+          el._section = section;
+          el.children = [section];
+        },
+        configurable: true,
+      });
+      return el;
+    }
+
+    const body = makeEl('div', { id: 'admin-email-settings-body' });
+    body.id = 'admin-email-settings-body';
+    const byId = { 'admin-email-settings-body': body };
+    const calls = [];
+    let clientSlug = 'sunset';
+    const i18nKeys = {
+      'admin.email.title': 'Email Settings',
+      'admin.email.state.connected_health': 'Mailbox connected. Email processing remains off.',
+      'admin.email.state.error': 'Email status is temporarily unavailable.',
+      'admin.email.state.unavailable': 'Email settings are unavailable.',
+      'admin.email.endpointActive': 'Endpoint active',
+      'admin.email.inbound': 'Inbound',
+      'admin.email.outbound': 'Outbound',
+      'admin.email.automation': 'Automation',
+      'admin.email.off': 'Off',
+      'admin.email.actionsUnavailable': 'Connect and disconnect are not available in this release.',
+      'admin.email.disconnectButton': 'Disconnect Microsoft',
+      'admin.email.disconnectLabel': 'Microsoft disconnect',
+      'admin.email.disconnectSafetyNote': 'Disconnect revokes Microsoft mailbox access. Email processing stays off.',
+    };
+    let fetchImpl = null;
+    const sandbox = {
+      URL, Date, Object, Array, Number, String, Promise, JSON,
+      window: { location: { assign() {} } },
+      document: { getElementById(id) { return byId[id] || null; } },
+      el(id) { return byId[id] || null; },
+      escHtml(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      },
+      portalT(key) { return i18nKeys[key] || key; },
+      getClient() { return clientSlug; },
+      fetch(url, opts) {
+        if (typeof fetchImpl === 'function') return fetchImpl(url, opts);
+        calls.push({ url: String(url), body: opts && opts.body, method: opts && opts.method });
+        return Promise.resolve({ ok: false, json: async () => ({}) });
+      },
+      console,
+    };
+    vm.runInNewContext(src, sandbox);
+
+    async function flush(n) {
+      for (let i = 0; i < n; i += 1) await Promise.resolve();
+    }
+
+    const goodDto = {
+      success: true,
+      status: 'disconnected',
+      grant_generation: 1,
+      grant_status: 'revoked',
+      reconcile_state: 'needs_operator',
+    };
+    assert.ok(sandbox.validateDisconnectSuccessDto(goodDto));
+    assert.strictEqual(sandbox.validateDisconnectSuccessDto({ success: true, status: 'disconnected' }), null);
+    assert.strictEqual(sandbox.validateDisconnectSuccessDto({ ...goodDto, extra: 1 }), null);
+    assert.strictEqual(sandbox.validateDisconnectSuccessDto({ ...goodDto, status: 'unavailable' }), null);
+    assert.strictEqual(sandbox.validateDisconnectSuccessDto({ ...goodDto, success: false }), null);
+
+    calls.length = 0;
+    sandbox.renderAdminEmailSettingsState('connected_health', {
+      actions: { prepare: false, connect: false, disconnect: true, reauthorize: false },
+      location_id: LOCATION,
+      endpoint_id: ENDPOINT_ID,
+      public_address: MAILBOX,
+    });
+    assert.strictEqual(calls.length, 0, 'no auto POST on disconnect render');
+    assert.ok(body.innerHTML.includes('data-email-disconnect="1"'));
+    assert.ok(body.innerHTML.includes('Disconnect Microsoft'));
+    assert.ok(body.innerHTML.includes('data-email-disconnect-safety'));
+    assert.ok(!body.innerHTML.includes('data-email-actions-unavailable'));
+
+    fetchImpl = (url, opts) => {
+      calls.push({ url: String(url), body: opts && opts.body, method: opts && opts.method });
+      if (String(url).includes('/oauth/microsoft/disconnect')) {
+        return Promise.resolve({ ok: true, json: async () => goodDto });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ locations: [], endpoints: [], actions: { prepare: false, connect: false, disconnect: false, reauthorize: false } }),
+      });
+    };
+    const btn = body.querySelector('[data-email-disconnect]');
+    assert.ok(btn);
+    btn.click();
+    await flush(8);
+    const disconnectPosts = calls.filter((c) => c.url === '/staff/admin/email-settings/oauth/microsoft/disconnect');
+    assert.strictEqual(disconnectPosts.length, 1);
+    assert.strictEqual(disconnectPosts[0].method, 'POST');
+    assert.strictEqual(disconnectPosts[0].body, JSON.stringify({ location_id: LOCATION, endpoint_id: ENDPOINT_ID }));
+    assert.ok(calls.some((c) => String(c.url).startsWith('/staff/admin/email-settings?')), 'success reloads settings');
+
+    calls.length = 0;
+    sandbox.renderAdminEmailSettingsState('connected_health', {
+      actions: { prepare: false, connect: false, disconnect: true, reauthorize: false },
+      location_id: LOCATION,
+      endpoint_id: ENDPOINT_ID,
+      public_address: MAILBOX,
+    });
+    fetchImpl = (url, opts) => {
+      calls.push({ url: String(url), body: opts && opts.body, method: opts && opts.method });
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    };
+    body.querySelector('[data-email-disconnect]').click();
+    await flush(8);
+    assert.ok(!calls.some((c) => String(c.url).startsWith('/staff/admin/email-settings?')), 'failed disconnect does not reload');
+    assert.ok(body.innerHTML.includes('data-email-state="error"') || body.innerHTML.includes('temporarily unavailable'));
+
+    sandbox.renderAdminEmailSettingsState('connected_health', {
+      actions: { prepare: false, connect: false, disconnect: false, reauthorize: false },
+      location_id: LOCATION,
+      endpoint_id: ENDPOINT_ID,
+    });
+    assert.ok(!body.innerHTML.includes('data-email-disconnect'));
+    assert.ok(body.innerHTML.includes('data-email-actions-unavailable'));
   });
 
   console.log(`PASS ${count} tests`);

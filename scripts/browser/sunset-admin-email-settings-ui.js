@@ -18,6 +18,8 @@ var REAUTH_UI_B64URL_32_RE = /^[A-Za-z0-9_-]{43}$/;
 var REAUTH_UI_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 var REAUTH_UI_MAX_TTL_MS = 15 * 60 * 1000;
 var REAUTH_UI_PATH = '/staff/admin/email-settings/oauth/microsoft/reauthorize';
+var DISCONNECT_UI_PATH = '/staff/admin/email-settings/oauth/microsoft/disconnect';
+var DISCONNECT_UI_SUCCESS_KEYS = ['success', 'status', 'grant_generation', 'grant_status', 'reconcile_state'];
 
 function adminEmailStateKey(state){
   var allowed = ['unavailable','loading','disconnected','registered_not_connected','connected_health','reauth_required','revoked'];
@@ -252,9 +254,11 @@ function setConnectBusy(root, busy){
   var btn = root.querySelector('[data-email-connect]');
   var input = root.querySelector('[data-email-prepare-address]');
   var reauth = root.querySelector('[data-email-reauthorize]');
+  var disconnect = root.querySelector('[data-email-disconnect]');
   if (btn) btn.disabled = busy === true;
   if (input) input.disabled = busy === true;
   if (reauth) reauth.disabled = busy === true;
+  if (disconnect) disconnect.disabled = busy === true;
 }
 function wireConnectHandlers(body, data){
   var sections = typeof body.querySelectorAll==='function' ? body.querySelectorAll('.portal-admin-email-settings') : [];
@@ -362,6 +366,78 @@ function wireReauthorizeHandlers(body, data){
   });
   })(sections[s]);
 }
+/**
+ * Validate disconnect success DTO (own keys only). Returns dto or null.
+ * Never logs mailbox/token. Reload only on status=disconnected.
+ */
+function validateDisconnectSuccessDto(dto){
+  try {
+    if (!dto || typeof dto !== 'object') return null;
+    var keys = [];
+    for (var k in dto) {
+      if (Object.prototype.hasOwnProperty.call(dto, k)) keys.push(k);
+    }
+    if (keys.length !== DISCONNECT_UI_SUCCESS_KEYS.length) return null;
+    var i;
+    for (i = 0; i < DISCONNECT_UI_SUCCESS_KEYS.length; i += 1) {
+      if (keys.indexOf(DISCONNECT_UI_SUCCESS_KEYS[i]) < 0) return null;
+    }
+    if (dto.success !== true) return null;
+    if (dto.status !== 'disconnected') return null;
+    return dto;
+  } catch (_) { return null; }
+}
+
+/**
+ * POST disconnect with exact ordered body { location_id, endpoint_id }.
+ * Browser supplies no mailbox/token/generation. Validates success DTO.
+ */
+function postMicrosoftOAuthDisconnect(locationId, endpointId){
+  return fetch(DISCONNECT_UI_PATH, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ location_id: locationId, endpoint_id: endpointId })
+  }).then(function(r){
+    if (!r || r.ok !== true) return Promise.reject(new Error('unavailable'));
+    return r.json();
+  }).then(function(dto){
+    var validated = validateDisconnectSuccessDto(dto);
+    if (!validated) throw new Error('invalid_response');
+    return validated;
+  });
+}
+
+function wireDisconnectHandlers(body){
+  var sections = typeof body.querySelectorAll==='function' ? body.querySelectorAll('.portal-admin-email-settings') : [];
+  if(!sections.length)sections=[body.querySelector('.portal-admin-email-settings')];
+  for(var s=0;s<sections.length;s+=1)(function(section){
+  if(!section)return;
+  var btn = section.querySelector('[data-email-disconnect]');
+  if (!btn) return;
+  btn.addEventListener('click', function(){
+    if (btn.disabled) return;
+    var locationId = btn.getAttribute('data-email-location-id') || '';
+    var endpointId = btn.getAttribute('data-email-endpoint-id') || '';
+    if (!locationId || !endpointId) {
+      renderAdminEmailSettingsState('error');
+      return;
+    }
+    if (typeof getClient === 'function' && getClient() !== 'sunset') {
+      renderAdminEmailSettingsState('unavailable');
+      return;
+    }
+    setConnectBusy(section, true);
+    postMicrosoftOAuthDisconnect(locationId, endpointId)
+      .then(function(){
+        loadAdminEmailSettings();
+      })
+      .catch(function(){
+        setConnectBusy(section, false);
+        renderAdminEmailSettingsState('error');
+      });
+  });
+  })(sections[s]);
+}
 function renderAdminEmailSettingsState(state, data, provider){
   var body = el('admin-email-settings-body');
   if (!body) return;
@@ -373,7 +449,14 @@ function renderAdminEmailSettingsState(state, data, provider){
   var actions = data && data.actions ? data.actions : null;
   var hasPrepare = !!(actions && actions.prepare === true && data.location_id);
   var hasConnect = !!(actions && actions.connect === true && data.location_id && data.endpoint_id);
-  var hasDisconnect = !!(actions && actions.disconnect === true);
+  var disconnectAllowed = !!(actions && actions.disconnect === true);
+  var hasDisconnect = !!(
+    disconnectAllowed
+    && provider === 'microsoft_graph'
+    && data
+    && data.location_id
+    && data.endpoint_id
+  );
   // Prefer server-authoritative per-endpoint fact; fall back to top-level action.
   var hasReauthorize = !!(
     data && data.location_id && data.endpoint_id && (
@@ -386,7 +469,7 @@ function renderAdminEmailSettingsState(state, data, provider){
     hasPrepare = false;
     hasConnect = false;
   }
-  var hasAnyAction = hasPrepare || hasConnect || hasDisconnect || hasReauthorize;
+  var hasAnyAction = hasPrepare || hasConnect || disconnectAllowed || hasReauthorize;
   var html = '<section class="portal-admin-email-settings" data-email-provider="' + escHtml(provider) + '" data-email-state="' + escHtml(key) + '">' +
     '<h2>' + escHtml(portalT('admin.email.title')) + '</h2>' +
     '<p role="status">' + escHtml(portalT('admin.email.state.' + key)) + '</p>';
@@ -413,6 +496,13 @@ function renderAdminEmailSettingsState(state, data, provider){
       '</button>' +
       '</div>';
   }
+  if (hasDisconnect) {
+    html += '<div class="portal-admin-email-disconnect-group" data-email-disconnect-group role="group" aria-label="' + escHtml(portalT('admin.email.disconnectLabel')) + '">' +
+      '<button type="button" class="portal-admin-email-action-btn" data-email-disconnect="1" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '">' +
+      escHtml(portalT('admin.email.disconnectButton')) +
+      '</button>' +
+      '</div>';
+  }
   // Safety note when prepare or connect is available (identity only; capabilities stay off).
   if (hasPrepare || hasConnect) {
     html += '<p class="portal-admin-email-connect-safety" data-email-connect-safety role="note">' +
@@ -422,6 +512,10 @@ function renderAdminEmailSettingsState(state, data, provider){
   if (hasReauthorize) {
     html += '<p class="portal-admin-email-reauth-safety" data-email-reauth-safety role="note">' +
       escHtml(portalT('admin.email.reauthorizeSafetyNote')) + '</p>';
+  }
+  if (hasDisconnect) {
+    html += '<p class="portal-admin-email-disconnect-safety" data-email-disconnect-safety role="note">' +
+      escHtml(portalT('admin.email.disconnectSafetyNote')) + '</p>';
   }
   // Off capability list always preserved.
   html += '<dl><dt>' + escHtml(portalT('admin.email.endpointActive')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
@@ -436,6 +530,7 @@ function renderAdminEmailSettingsState(state, data, provider){
   body.innerHTML = html;
   wireConnectHandlers(body, data);
   wireReauthorizeHandlers(body, data);
+  wireDisconnectHandlers(body);
 }
 function renderAdminEmailSettingsData(data){
   var body = el('admin-email-settings-body'); if (!body) return;
@@ -455,7 +550,7 @@ function renderAdminEmailSettingsData(data){
     combined+=body.innerHTML;
   }
   body.innerHTML=combined;
-  wireConnectHandlers(body,data); wireReauthorizeHandlers(body,data);
+  wireConnectHandlers(body,data); wireReauthorizeHandlers(body,data); wireDisconnectHandlers(body);
 }
 function loadAdminEmailSettings(){
   var body = el('admin-email-settings-body');

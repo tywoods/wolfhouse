@@ -17205,20 +17205,24 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 }
 .portal-admin-tabpanel{max-width:100%}
 .portal-admin-tabpanel[hidden]{display:none!important}
-/* Sunset Email Settings: minimum 44px touch targets for connect/reauthorize */
+/* Sunset Email Settings: minimum 44px touch targets for connect/reauthorize/disconnect */
 .portal-admin-email-settings .portal-admin-email-action-btn,
 .portal-admin-email-settings [data-email-connect],
-.portal-admin-email-settings [data-email-reauthorize]{
+.portal-admin-email-settings [data-email-reauthorize],
+.portal-admin-email-settings [data-email-disconnect]{
   min-height:44px;min-width:44px;padding:10px 16px;box-sizing:border-box;
   display:inline-flex;align-items:center;justify-content:center;
   font:inherit;font-weight:600;cursor:pointer;border-radius:10px
 }
 .portal-admin-email-settings .portal-admin-email-action-btn:disabled,
 .portal-admin-email-settings [data-email-connect]:disabled,
-.portal-admin-email-settings [data-email-reauthorize]:disabled{opacity:.55;cursor:not-allowed}
+.portal-admin-email-settings [data-email-reauthorize]:disabled,
+.portal-admin-email-settings [data-email-disconnect]:disabled{opacity:.55;cursor:not-allowed}
 .portal-admin-email-settings .portal-admin-email-reauth-group,
+.portal-admin-email-settings .portal-admin-email-disconnect-group,
 .portal-admin-email-settings .portal-admin-email-prepare-group{margin:12px 0}
 .portal-admin-email-settings .portal-admin-email-reauth-safety,
+.portal-admin-email-settings .portal-admin-email-disconnect-safety,
 .portal-admin-email-settings .portal-admin-email-connect-safety{margin:8px 0 12px;color:var(--text-2);font-size:13px;line-height:1.45}
 .portal-admin-finance-shell{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:18px 16px;box-shadow:var(--shadow-soft)}
 .portal-admin-finance-shell p{margin:0;font-size:14px;line-height:1.5;color:var(--text-2)}
