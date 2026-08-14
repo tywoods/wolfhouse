@@ -199,7 +199,7 @@ const ES_OVERRIDES = {
   'inbox.shell.whatsapp.offHelp': 'La automatización de WhatsApp está en pausa.',
   'inbox.shell.email.draftHelp': 'Luna prepara borradores de email para que el staff los apruebe. El email nunca se envía solo.',
   'inbox.shell.email.offHelp': 'Luna no preparará borradores de email.',
-  'inbox.detail.needsHuman.raise': 'Avisar',
+  'inbox.detail.needsHuman.raise': 'Requiere personal',
   'inbox.detail.needsHuman.clear': 'Quitar',
   'inbox.detail.bookings.title': 'Reservas',
   'inbox.detail.bookings.none': 'Sin reservas para este huésped.',

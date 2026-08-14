@@ -816,11 +816,11 @@ function inboxClientInfoHtml(data, opts) {
   html += '</div></div>';
   html += inboxClientInfoChipsHtml(data, cacheRow);
   html += '<div class="inbox-client-info-kv">';
-  html += inboxContextKv('Checked in', inboxClientInfoCheckedIn(data, cacheRow));
-  html += inboxContextKv('Bookings', String(bookingsN));
-  html += inboxContextKv('Lessons', String(lessonsN));
-  html += inboxContextKv('Unpaid balance', inboxClientInfoUnpaid(data, opts.composite));
-  html += inboxContextKv('Waiver status', inboxClientInfoWaiver(data));
+  html += inboxContextKv(inboxContextT('customers.card.checkedIn', 'Checked in'), inboxClientInfoCheckedIn(data, cacheRow));
+  html += inboxContextKv(inboxContextT('customers.card.bookings', 'Bookings'), String(bookingsN));
+  html += inboxContextKv(inboxContextT('customers.card.classes', 'Lessons'), String(lessonsN));
+  html += inboxContextKv(inboxContextT('customers.card.balanceDue', 'Unpaid balance'), inboxClientInfoUnpaid(data, opts.composite));
+  html += inboxContextKv(inboxContextT('customers.card.waiverStatus', 'Waiver status'), inboxClientInfoWaiver(data));
   html += inboxContextKv('Language', language);
   html += '</div>';
   html += '<button type="button" class="inbox-client-info-open" id="inbox-client-info-open">' +
@@ -891,21 +891,21 @@ function inboxCustomerCondensedHtml(data, opts) {
   html += inboxCustomerInlineFieldHtml('phone', inboxContextEsc(inboxContextT('customers.detail.phone', 'Phone')), phone, '—', false);
   html += inboxCustomerInlineFieldHtml('email', inboxContextEsc(inboxContextT('customers.detail.email', 'Email')), email, '—', false);
   if (school) html += inboxCustomerField(inboxContextT('customers.detail.school', 'Active school'), school, false);
-  html += inboxCustomerField(inboxContextT('customers.detail.lastSetup', 'Last setup'), lastSetup || inboxContextT('customers.detail.noServices', 'No services yet'), !lastSetup);
+  html += inboxCustomerField(inboxContextT('customers.card.lastSetup', 'Last setup'), lastSetup || inboxContextT('customers.detail.noServices', 'No services yet'), !lastSetup);
   html += inboxCustomerNotesFieldHtml(notes);
   html += '</div>';
   html += '<div class="inbox-client-info-kv inbox-customer-stats">';
-  html += inboxContextKv('Checked in', inboxClientInfoCheckedIn(data, cacheRow));
+  html += inboxContextKv(inboxContextT('customers.card.checkedIn', 'Checked in'), inboxClientInfoCheckedIn(data, cacheRow));
   var bookingsN = cacheRow && cacheRow.booking_count != null
     ? Number(cacheRow.booking_count) || 0
     : ((data && data.bookings) || []).length;
   var lessonsN = cacheRow && cacheRow.service_count != null
     ? Number(cacheRow.service_count) || 0
     : ((data && data.service_records) || []).length;
-  html += inboxContextKv('Bookings', String(bookingsN));
-  html += inboxContextKv('Lessons', String(lessonsN));
-  html += inboxContextKv('Unpaid balance', inboxClientInfoUnpaid(data, opts.composite));
-  html += inboxContextKv('Waiver status', inboxClientInfoWaiver(data));
+  html += inboxContextKv(inboxContextT('customers.card.bookings', 'Bookings'), String(bookingsN));
+  html += inboxContextKv(inboxContextT('customers.card.classes', 'Lessons'), String(lessonsN));
+  html += inboxContextKv(inboxContextT('customers.card.balanceDue', 'Unpaid balance'), inboxClientInfoUnpaid(data, opts.composite));
+  html += inboxContextKv(inboxContextT('customers.card.waiverStatus', 'Waiver status'), inboxClientInfoWaiver(data));
   html += '</div>';
   html += inboxCustomerGuestTagsHtml(data);
   html += inboxCustomerBookingsListHtml(data);
@@ -1136,7 +1136,7 @@ function inboxCustomerFullHtml(data, opts) {
   html += inboxCustomerInlineFieldHtml('email', inboxContextEsc(inboxContextT('customers.detail.email', 'Email')), email, '—', false);
   if (school) html += inboxCustomerField(inboxContextT('customers.detail.school', 'Active school'), school, false);
   html += inboxCustomerInlineFieldHtml('language', inboxContextEsc(inboxContextT('customers.detail.language', 'Language')), language, '—', false);
-  html += inboxCustomerField(inboxContextT('customers.detail.lastSetup', 'Last setup'), lastSetup || inboxContextT('customers.detail.noServices', 'No services yet'), !lastSetup);
+  html += inboxCustomerField(inboxContextT('customers.card.lastSetup', 'Last setup'), lastSetup || inboxContextT('customers.detail.noServices', 'No services yet'), !lastSetup);
   html += inboxCustomerNotesFieldHtml(notes);
   html += '</div></div>';
 
