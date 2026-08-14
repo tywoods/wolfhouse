@@ -240,7 +240,7 @@ function inboxShellChannelDefaultsHtml(modes){
   var wa = inboxShellNormalizeWhatsApp(modes.whatsapp);
   var em = inboxShellNormalizeEmail(modes.email);
   var html = '<div class="inbox-shell-channel-defaults channelAutonomy" id="inbox-shell-channel-defaults">';
-  html += '<div class="channelAutonomyLabel">' + escHtml(inboxShellT('inbox.channelControl.title', 'CHANNEL CONTROL')) + '</div>';
+  html += '<div class="channelAutonomyLabel">' + escHtml(inboxShellT('inbox.channelControl.title', 'CHANNEL AUTONOMY')) + '</div>';
   html += inboxShellAutonomyRowHtml('whatsapp', wa);
   html += inboxShellAutonomyRowHtml('email', em);
   html += inboxShellChannelSelectHtml('whatsapp', wa);

@@ -818,8 +818,8 @@ function inboxClientInfoHtml(data, opts) {
   html += '<div class="inbox-client-info-kv">';
   html += inboxContextKv(inboxContextT('customers.card.checkedIn', 'Checked in'), inboxClientInfoCheckedIn(data, cacheRow));
   html += inboxContextKv(inboxContextT('customers.card.bookings', 'Bookings'), String(bookingsN));
-  html += inboxContextKv(inboxContextT('customers.card.classes', 'Classes'), String(lessonsN));
-  html += inboxContextKv(inboxContextT('customers.card.balanceDue', 'Balance due'), inboxClientInfoUnpaid(data, opts.composite));
+  html += inboxContextKv(inboxContextT('customers.card.classes', 'Lessons'), String(lessonsN));
+  html += inboxContextKv(inboxContextT('customers.card.balanceDue', 'Unpaid balance'), inboxClientInfoUnpaid(data, opts.composite));
   html += inboxContextKv(inboxContextT('customers.card.waiverStatus', 'Waiver status'), inboxClientInfoWaiver(data));
   html += inboxContextKv('Language', language);
   html += '</div>';
@@ -903,8 +903,8 @@ function inboxCustomerCondensedHtml(data, opts) {
     ? Number(cacheRow.service_count) || 0
     : ((data && data.service_records) || []).length;
   html += inboxContextKv(inboxContextT('customers.card.bookings', 'Bookings'), String(bookingsN));
-  html += inboxContextKv(inboxContextT('customers.card.classes', 'Classes'), String(lessonsN));
-  html += inboxContextKv(inboxContextT('customers.card.balanceDue', 'Balance due'), inboxClientInfoUnpaid(data, opts.composite));
+  html += inboxContextKv(inboxContextT('customers.card.classes', 'Lessons'), String(lessonsN));
+  html += inboxContextKv(inboxContextT('customers.card.balanceDue', 'Unpaid balance'), inboxClientInfoUnpaid(data, opts.composite));
   html += inboxContextKv(inboxContextT('customers.card.waiverStatus', 'Waiver status'), inboxClientInfoWaiver(data));
   html += '</div>';
   html += inboxCustomerGuestTagsHtml(data);
