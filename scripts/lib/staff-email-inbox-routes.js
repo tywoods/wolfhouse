@@ -1,5 +1,6 @@
 'use strict';
-/** Gate 3 staff email draft/approve-send (offline). */
+/** Gate 3 staff email draft/approve-send (offline). Default-off via EMAIL_STAFF_* env flags. */
+/** Milestone 1: requires single-consent Microsoft grant (Mail.ReadWrite + Mail.Send). No Luna auto-send. */
 /*
  * Genuine freeze intrinsic for recovery ack ownership — private only.
  *
