@@ -626,22 +626,23 @@ function buildConvDetailSkeleton(){
     '<div class="detail-sidebar"><div class="sidebar-card sidebar-card-skeleton"></div></div></div>';
 }
 
-function beginConvDetailLoad(targetEl){
-  if (convDetailHasLayout(targetEl)){
-    targetEl.classList.add('is-loading-detail');
-    var slot = targetEl.querySelector('#conv-detail-load-status');
-    if (!slot){
-      slot = document.createElement('span');
-      slot.id = 'conv-detail-load-status';
-      slot.className = 'conv-detail-load-status';
-      var hdrRight = targetEl.querySelector('.detail-header > div:last-child');
-      if (hdrRight) hdrRight.appendChild(slot);
-    }
-    slot.classList.remove('error');
-    slot.textContent = 'Loading…';
-    slot.style.display = '';
-    return;
+/* A selection generation invalidates every pending detail completion for the prior row. */
+var inboxSelectionGeneration = 0;
+function inboxSelectionIsCurrent(convId, generation){
+  return selectedConvId === convId && inboxSelectionGeneration === generation;
+}
+function clearInboxSelection(targetEl){
+  selectedConvId = null;
+  inboxSelectionGeneration += 1;
+  targetEl = targetEl || el('detail-content');
+  if (targetEl){
+    targetEl.classList.remove('is-loading-detail');
+    targetEl.innerHTML = inboxEmptyDetailHtml();
   }
+  hideInboxMobileThread();
+}
+function beginConvDetailLoad(targetEl){
+  /* Do not leave the old guest actionable while a new selection loads. */
   targetEl.innerHTML = buildConvDetailSkeleton();
   targetEl.classList.add('is-loading-detail');
 }
@@ -940,6 +941,13 @@ function renderInbox(convs, opts){
   }
   el('inbox-state').style.display = 'none';
 
+  /* A filter must never leave an invisible guest selected or choose a replacement. */
+  var selectionDropped = false;
+  if (selectedConvId && !convs.some(function(c){ return c.conversation_id === selectedConvId; })){
+    clearInboxSelection();
+    selectionDropped = true;
+  }
+
   var cards = convs.map(function(c){
     return renderInboxConvCardHtml(c, profile);
   }).join('');
@@ -960,7 +968,7 @@ function renderInbox(convs, opts){
         loadConvDetail(this.dataset.id);
       });
     });
-    if (opts.preserveDetail){
+    if (opts.preserveDetail && !selectionDropped){
       var keepId = opts.selectedId || selectedConvId;
       if (keepId){
         var keepCard = list.querySelector('.conv-card[data-id="' + keepId + '"]');
@@ -971,19 +979,23 @@ function renderInbox(convs, opts){
       }
       return;
     }
-    /* Auto-select top conversation (or keep current if still in filtered list) */
+    /* Initial load may select the top row; a filter may not replace a dropped selection. */
     var pickId = null;
-    if (selectedConvId && convs.some(function(c){ return c.conversation_id === selectedConvId; })){
-      pickId = selectedConvId;
-    } else {
-      pickId = convs[0].conversation_id;
+    var selectionRetained = false;
+    if (!selectionDropped){
+      if (selectedConvId && convs.some(function(c){ return c.conversation_id === selectedConvId; })){
+        pickId = selectedConvId;
+        selectionRetained = true;
+      } else {
+        pickId = convs[0].conversation_id;
+      }
     }
     if (pickId && !isPortalMobile()){
       var pickCard = list.querySelector('.conv-card[data-id="' + pickId + '"]');
       if (pickCard){
         list.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
         pickCard.classList.add('selected');
-        loadConvDetail(pickId);
+        if (!selectionRetained) loadConvDetail(pickId);
       }
     }
   }
@@ -1794,6 +1806,7 @@ function wireInboxSidebarToggle(targetEl) {
 function loadConvDetail(convId, targetEl){
   targetEl = targetEl || el('detail-content');
   selectedConvId = convId;
+  var selectionGeneration = ++inboxSelectionGeneration;
   showInboxMobileThread();
   if (targetEl === el('detail-content')) el('conv-detail').classList.add('visible');
   if (isSurfInboxDemoThread(convId) && loadSurfInboxDemoDetail(convId, targetEl)) return;
@@ -1805,6 +1818,7 @@ function loadConvDetail(convId, targetEl){
   fetch('/staff/inbox/thread/' + encodeURIComponent(convId) + qs)
   .then(function(r){ return r.json(); })
   .then(function(composite){
+    if (!inboxSelectionIsCurrent(convId, selectionGeneration)) return;
     if (!composite.success) throw new Error(composite.error || 'detail error');
     var results = [
       composite.detail,
@@ -2015,6 +2029,7 @@ function loadConvDetail(convId, targetEl){
     inboxScrollThreadToBottom(targetEl);
   })
   .catch(function(err){
+    if (!inboxSelectionIsCurrent(convId, selectionGeneration)) return;
     if (convDetailHasLayout(targetEl)){
       targetEl.classList.remove('is-loading-detail');
       var slot = targetEl.querySelector('#conv-detail-load-status');
