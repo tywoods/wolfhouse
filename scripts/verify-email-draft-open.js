@@ -1446,7 +1446,7 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
   assert.match(lunaFrom, lockJoinOrder);
   assert.match(staffFrom, lockJoinOrder);
   assert.match(ownerMod.sqlEmailLunaOpenDraftClaimExpired('metadata', '$5'), /BETWEEN 1 AND 9999/);
-  assert.equal(ownerMod.SQL_EMAIL_LUNA_OPEN_TX_BEGIN, 'BEGIN');
+  assert.equal(ownerMod.SQL_EMAIL_LUNA_OPEN_TX_BEGIN, 'BEGIN ISOLATION LEVEL READ COMMITTED');
 
   // Cross-tenant / location / mailbox / source mismatch.
   for (const [label, row] of [

@@ -150,7 +150,7 @@ ORDER BY ev.received_at DESC, ev.id DESC
 LIMIT 1
 FOR UPDATE OF c,p,ev,ep`.replace(/\s+/g, ' ').trim();
 
-const SQL_EMAIL_LUNA_OPEN_TX_BEGIN = 'BEGIN';
+const SQL_EMAIL_LUNA_OPEN_TX_BEGIN = 'BEGIN ISOLATION LEVEL READ COMMITTED';
 const SQL_EMAIL_LUNA_OPEN_TX_COMMIT = 'COMMIT';
 const SQL_EMAIL_LUNA_OPEN_TX_ROLLBACK = 'ROLLBACK';
 const PG_CLIENT_DISCARD_REQUIRED = Symbol.for('wolfhouse.pgClient.discardRequired');
