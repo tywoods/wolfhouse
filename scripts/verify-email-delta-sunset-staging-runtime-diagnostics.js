@@ -280,6 +280,10 @@ test('real Graph transport exhaustively preserves only trusted closed row field 
     'row_branch_subject_odata_metadata',
   );
   assert.equal(
+    await classifyBody(bodyFor([{ ...baseRow, '@odata.type': '#microsoft.graph.unknownThing' }])),
+    'row_branch_subject_odata_metadata',
+  );
+  assert.equal(
     await classifyBody(bodyFor([{ ...baseRow }, { ...baseRow }])),
     'row_branch_duplicate_message_identity',
   );
@@ -290,6 +294,61 @@ test('real Graph transport exhaustively preserves only trusted closed row field 
     ])),
     'row_branch_tombstone_envelope_collision',
   );
+});
+
+test('real Graph transport exhaustively accepts and discards closed message OData metadata', async () => {
+  const mailboxId = '22222222-2222-4222-8222-2222222222ac';
+  const acceptedTypes = [
+    '#microsoft.graph.message',
+    '#microsoft.graph.eventMessage',
+    '#microsoft.graph.eventMessageRequest',
+    '#microsoft.graph.eventMessageResponse',
+  ];
+  for (const odataType of acceptedTypes) {
+    const body = JSON.stringify({
+      value: [{
+        id: 'derived-message-id',
+        subject: 'bounded subject',
+        from: { emailAddress: { address: null, name: 'bounded sender' } },
+        receivedDateTime: '2026-08-15T11:00:00.000Z',
+        isRead: false,
+        conversationId: null,
+        internetMessageId: null,
+        '@odata.type': odataType,
+      }],
+      '@odata.deltaLink': `https://graph.microsoft.com/v1.0/users/${mailboxId}/mailFolders('inbox')/messages/delta?$deltatoken=bounded-final-token`,
+    });
+    const httpsImpl = {
+      request(_options, callback) {
+        const request = new EventEmitter();
+        request.destroyed = false;
+        request.end = () => queueMicrotask(() => {
+          const response = new EventEmitter();
+          response.statusCode = 200;
+          response.headers = { 'content-type': 'application/json' };
+          response.rawHeaders = ['content-type', 'application/json'];
+          response.complete = true;
+          response.destroyed = false;
+          response.destroy = () => { response.destroyed = true; };
+          callback(response);
+          response.emit('data', Buffer.from(body));
+          response.emit('end');
+        });
+        request.destroy = () => { request.destroyed = true; };
+        return request;
+      },
+    };
+    const transport = createMicrosoftGraphMessagesDeltaPageTransport({
+      httpsImpl,
+      timers: { setTimeout, clearTimeout },
+    });
+    const dto = await transport.fetchInitialPage({
+      accessToken: 'atok-bounded-derived-type-token-abcdefghijklmnopqrstuvwxyz',
+      provider_mailbox_id: mailboxId,
+    });
+    assert.equal(dto.envelopes.length, 1);
+    assert.equal(Object.prototype.hasOwnProperty.call(dto.envelopes[0], '@odata.type'), false);
+  }
 });
 
 test('forged grant/http/transport values cannot classify or leak', () => {
