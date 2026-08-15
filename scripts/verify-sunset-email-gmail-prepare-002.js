@@ -12,8 +12,10 @@
  * This verifier drives production dispatch with a genuine installed
  * IncomingMessage for both endpoint and start exact JSON bodies, keeps
  * wrong content-type / key order / extra keys at 400, and rejects
- * proxy / subclass / custom-prototype / accessor fakes. The module-init
- * pin must still serve genuine IncomingMessage after ambient rebinds.
+ * proxy / subclass / custom-prototype / accessor fakes. Own constructor
+ * accessor or data overrides on an exact-prototype native are unread
+ * and rejected before body/DB/start. The module-init pin must still
+ * serve genuine IncomingMessage after ambient rebinds.
  * No network, real OAuth, or secrets.
  */
 
@@ -225,6 +227,21 @@ function assertParserRejected(result) {
   assert.equal(result.effects.includes('start'), false);
 }
 
+function assertRejectedBeforeBody(result, getterCount) {
+  if (arguments.length > 1) {
+    assert.equal(getterCount, 0, 'must not invoke own constructor accessor');
+  }
+  assert.equal(result.replies.length, 1);
+  assert.equal(result.replies[0].status, 400);
+  assert.deepEqual(result.replies[0].body, { success: false, error: 'invalid_request' });
+  assert.ok(result.effects.includes('admin'));
+  assert.equal(result.effects.includes('body'), false);
+  assert.equal(result.effects.includes('prepare'), false);
+  assert.equal(result.effects.includes('routes'), false);
+  assert.equal(result.effects.includes('pg'), false);
+  assert.equal(result.effects.includes('start'), false);
+}
+
 (async () => {
   for (const kind of ['endpoint', 'start']) {
     const body = kind === 'start' ? START_BODY : ENDPOINT_BODY;
@@ -300,6 +317,51 @@ function assertParserRejected(result) {
   }
 
   {
+    const req = nativeIncomingMessage({
+      url: owner.GOOGLE_ENDPOINT_PATH,
+      headers: { 'content-type': 'application/json' },
+    });
+    let constructorGets = 0;
+    Object.defineProperty(req, 'constructor', {
+      configurable: true,
+      enumerable: false,
+      get() {
+        constructorGets += 1;
+        return http.IncomingMessage;
+      },
+    });
+    assert.equal(Object.getPrototypeOf(req), http.IncomingMessage.prototype);
+    assert.equal(Object.prototype.hasOwnProperty.call(req, 'constructor'), true);
+    assert.equal(Object.getOwnPropertyDescriptor(req, 'headers'), undefined);
+    try {
+      assertRejectedBeforeBody(await dispatch('endpoint', req, ENDPOINT_BODY), constructorGets);
+    } finally {
+      req.destroy();
+    }
+  }
+
+  {
+    const req = nativeIncomingMessage({
+      url: owner.GOOGLE_ENDPOINT_PATH,
+      headers: { 'content-type': 'application/json' },
+    });
+    Object.defineProperty(req, 'constructor', {
+      configurable: true,
+      enumerable: false,
+      writable: true,
+      value: http.IncomingMessage,
+    });
+    assert.equal(Object.getPrototypeOf(req), http.IncomingMessage.prototype);
+    assert.equal(Object.getOwnPropertyDescriptor(req, 'constructor').value, http.IncomingMessage);
+    assert.equal(Object.getOwnPropertyDescriptor(req, 'headers'), undefined);
+    try {
+      assertRejectedBeforeBody(await dispatch('endpoint', req, ENDPOINT_BODY));
+    } finally {
+      req.destroy();
+    }
+  }
+
+  {
     const originalIM = http.IncomingMessage;
     let redefineThrew = false;
     try {
@@ -335,6 +397,8 @@ function assertParserRejected(result) {
   assert.match(integrationSrc, /IncomingMessage/);
   assert.match(integrationSrc, /PINNED_/);
   assert.match(integrationSrc, /reflectApply|Reflect\.apply/);
+  assert.match(integrationSrc, /objectGetOwnPropertyDescriptor\([^)]*constructor/);
+  assert.doesNotMatch(integrationSrc, /req\.constructor/);
   assert.doesNotMatch(integrationSrc, /own\(\s*own\(\s*req\s*,\s*['"]headers['"]\s*\)/);
   assert.doesNotMatch(integrationSrc, /LUNA_AUTO_SEND_ENABLED\s*=\s*['"]true['"]/);
   assert.doesNotMatch(integrationSrc, /inbox-thread/);
