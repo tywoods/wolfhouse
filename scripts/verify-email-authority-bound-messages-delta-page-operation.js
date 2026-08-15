@@ -63,11 +63,11 @@ const PLANTED_SUBJECT = 'SUBJECT_PII_MUST_NOT_APPEAR_DELTA_PAGE_OP';
 const PLANTED_ADDRESS = 'pii-delta-page-op-must-not-escape@example.com';
 const PLANTED_MSG = 'AAMkAGI2-DELTA-PAGE-PII-MSG';
 const PLANTED_NEXT =
-  `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$skiptoken=SECRET_NEXT_TOKEN_NEVER_LEAK`;
+  `https://graph.microsoft.com/v1.0/users/${MAILBOX}/mailFolders('inbox')/messages/delta?$skiptoken=SECRET_NEXT_TOKEN_NEVER_LEAK`;
 const PLANTED_DELTA =
-  `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$deltatoken=SECRET_DELTA_TOKEN_NEVER_LEAK`;
+  `https://graph.microsoft.com/v1.0/users/${MAILBOX}/mailFolders('inbox')/messages/delta?$deltatoken=SECRET_DELTA_TOKEN_NEVER_LEAK`;
 const PLANTED_NEXT_2 =
-  `https://graph.microsoft.com/v1.0/users/${MAILBOX}/messages/delta?$skiptoken=SECRET_NEXT_TOKEN_NEVER_LEAK_2`;
+  `https://graph.microsoft.com/v1.0/users/${MAILBOX}/mailFolders('inbox')/messages/delta?$skiptoken=SECRET_NEXT_TOKEN_NEVER_LEAK_2`;
 
 let pass = 0;
 let fail = 0;
@@ -1188,6 +1188,7 @@ async function buildSpiedOperation(opts = {}) {
       withTransactionClient: harness.withTransactionClient,
       envelopeProvider: envProvider,
     }));
+    const liveMod = spy.loadOp();
     return {
       op,
       auth,
@@ -1196,6 +1197,7 @@ async function buildSpiedOperation(opts = {}) {
       transportBag,
       envProvider,
       spy,
+      mod: liveMod,
       run: (input) => op.runAuthorityBoundMessagesDeltaPage(input || baseInput()),
       restore: () => spy.restore(),
     };
@@ -2961,6 +2963,277 @@ async function main() {
     } finally {
       spy.restore();
     }
+  }
+
+  // ── Closed-enum internal stage diagnostics (fail-site branding) ────────
+  {
+    const INTERNAL = Object.freeze([
+      'authority', 'status', 'lease', 'grant', 'transport', 'seal', 'store', 'release',
+    ]);
+    const liveOpMod = require('./lib/email-authority-bound-messages-delta-page-operation');
+    ok(
+      'internal-stages-export-exact',
+      Array.isArray(liveOpMod.AUTHORITY_BOUND_PAGE_INTERNAL_STAGES)
+        && liveOpMod.AUTHORITY_BOUND_PAGE_INTERNAL_STAGES.join(',') === INTERNAL.join(','),
+    );
+    ok(
+      'internal-stage-reader-export',
+      typeof liveOpMod.readTrustedAuthorityBoundPageInternalStage === 'function',
+    );
+    ok(
+      'internal-stage-bind-export',
+      typeof liveOpMod.bindTrustedAuthorityBoundPageInternalStageObserver === 'function',
+    );
+
+    function assertPublicFail(name, res) {
+      ok(
+        `${name}-public-fail-byte-schema`,
+        res
+          && res.ok === false
+          && res.error === liveOpMod.FAILURE_CODE
+          && res.error === 'authority_bound_messages_delta_page_failed'
+          && Reflect.ownKeys(res).join(',') === 'ok,error'
+          && Object.isFrozen(res)
+          && noLeak(res),
+        ser(res),
+      );
+    }
+
+    function currentOpMod() {
+      return require('./lib/email-authority-bound-messages-delta-page-operation');
+    }
+
+    function assertTrustedStage(name, target, stage, mod) {
+      const reader = mod || currentOpMod();
+      const note = reader.readTrustedAuthorityBoundPageInternalStage(target);
+      ok(
+        `${name}-trusted-stage`,
+        note
+          && note.stage === stage
+          && note.code === stage
+          && Reflect.ownKeys(note).join(',') === 'stage,code'
+          && Object.isFrozen(note)
+          && noLeak(note),
+        ser(note),
+      );
+    }
+
+    const forgedFail = Object.freeze({
+      ok: false,
+      error: liveOpMod.FAILURE_CODE,
+      stage: 'authority',
+      code: 'authority',
+      message: PLANTED_SUBJECT,
+      cursor: PLANTED_NEXT,
+      token: PLANTED_TOKEN,
+    });
+    ok(
+      'forged-fail-cannot-classify',
+      liveOpMod.readTrustedAuthorityBoundPageInternalStage(forgedFail) == null,
+    );
+    ok(
+      'forged-bind-rejected',
+      liveOpMod.bindTrustedAuthorityBoundPageInternalStageObserver(forgedFail, () => {}) === false,
+    );
+
+    // authority resolution
+    {
+      const ctx = await buildOperation({ authority: { rows: [] } });
+      const notes = [];
+      ok(
+        'authority-bind-observer',
+        currentOpMod().bindTrustedAuthorityBoundPageInternalStageObserver(ctx.op, (note) => {
+          notes.push(note);
+        }) === true,
+      );
+      const res = await ctx.run();
+      assertPublicFail('authority', res);
+      assertTrustedStage('authority', res, 'authority');
+      ok(
+        'authority-observer-closed',
+        notes.length === 1
+          && notes[0].stage === 'authority'
+          && notes[0].code === 'authority'
+          && noLeak(notes),
+        ser(notes),
+      );
+      ok('authority-zero-transport', ctx.transportBag.getInitialCount() === 0);
+    }
+
+    // state status
+    {
+      const ctx = await buildSpiedOperation({
+        handlers: {
+          async getPublicStatus() {
+            return Object.freeze({ ok: false, error: 'status_unavailable', detail: PLANTED_SUBJECT });
+          },
+        },
+      });
+      try {
+        const notes = [];
+        ctx.mod.bindTrustedAuthorityBoundPageInternalStageObserver(ctx.op, (note) => notes.push(note));
+        const res = await ctx.run();
+        assertPublicFail('status', res);
+        assertTrustedStage('status', res, 'status', ctx.mod);
+        ok('status-observer-closed', notes.length === 1 && notes[0].stage === 'status' && noLeak(notes));
+        ok('status-zero-lease', ctx.spy.count('acquireLease') === 0);
+      } finally {
+        ctx.restore();
+      }
+    }
+
+    // open cursor shares the status seam
+    {
+      const ctx = await buildSpiedOperation({
+        handlers: {
+          async openCursor() {
+            return Object.freeze({ ok: false, error: 'cursor_open_failed', url: PLANTED_NEXT });
+          },
+        },
+      });
+      try {
+        const res = await ctx.run();
+        assertPublicFail('open-cursor', res);
+        assertTrustedStage('open-cursor', res, 'status', ctx.mod);
+        ok('open-cursor-zero-grant', ctx.grant.getSessionCreates() === 0);
+      } finally {
+        ctx.restore();
+      }
+    }
+
+    // lease
+    {
+      const ctx = await buildSpiedOperation({
+        handlers: {
+          async acquireLease() {
+            return Object.freeze({ ok: false, error: 'lease_conflict', leaseToken: PLANTED_TOKEN });
+          },
+        },
+      });
+      try {
+        const res = await ctx.run();
+        assertPublicFail('lease', res);
+        assertTrustedStage('lease', res, 'lease', ctx.mod);
+        ok('lease-zero-open', ctx.spy.count('openCursor') === 0);
+      } finally {
+        ctx.restore();
+      }
+    }
+
+    // token / grant
+    {
+      const ctx = await buildOperation({ grant: { sessionFail: true } });
+      const res = await ctx.run();
+      assertPublicFail('grant', res);
+      assertTrustedStage('grant', res, 'grant');
+      ok('grant-zero-transport', ctx.transportBag.getInitialCount() === 0);
+    }
+
+    // Graph fetch
+    {
+      const ctx = await buildOperation({
+        transport: {
+          initialThrow: Object.assign(new Error(PLANTED_SUBJECT), {
+            code: 'microsoft_graph_messages_delta_page_failed',
+            body: PLANTED_NEXT,
+          }),
+        },
+      });
+      const res = await ctx.run();
+      assertPublicFail('transport', res);
+      assertTrustedStage('transport', res, 'transport');
+      ok('transport-one-initial', ctx.transportBag.getInitialCount() === 1);
+    }
+
+    // seal
+    {
+      const ctx = await buildSpiedOperation({
+        handlers: {
+          async sealDeltaCursor() {
+            return Object.freeze({ ok: false, error: 'cursor_seal_failed', cursor: PLANTED_DELTA });
+          },
+        },
+      });
+      try {
+        const res = await ctx.run();
+        assertPublicFail('seal', res);
+        assertTrustedStage('seal', res, 'seal', ctx.mod);
+        ok('seal-zero-commit', ctx.spy.count('commitPageEvents') === 0);
+      } finally {
+        ctx.restore();
+      }
+    }
+
+    // commit / store
+    {
+      const ctx = await buildSpiedOperation({
+        handlers: {
+          async commitPageEvents() {
+            return Object.freeze({
+              ok: false,
+              error: 'commit_cas_conflict',
+              envelopes: [PLANTED_SUBJECT],
+            });
+          },
+        },
+      });
+      try {
+        const res = await ctx.run();
+        assertPublicFail('store', res);
+        assertTrustedStage('store', res, 'store', ctx.mod);
+        ok('store-commit-once', ctx.spy.count('commitPageEvents') === 1);
+      } finally {
+        ctx.restore();
+      }
+    }
+
+    // release (ok:true uncertain still exposes trusted release note)
+    {
+      let sawCommitOk = false;
+      const ctx = await buildSpiedOperation({
+        handlers: {
+          async commitPageEvents(input, store) {
+            const real = await store.commitPageEvents(input);
+            sawCommitOk = Boolean(real && real.ok === true);
+            return real;
+          },
+          async releaseLease() {
+            return Object.freeze({
+              ok: false,
+              error: 'inbound_delta_state_commit_outcome_unknown',
+              detail: PLANTED_TOKEN,
+            });
+          },
+        },
+      });
+      try {
+        const notes = [];
+        ctx.mod.bindTrustedAuthorityBoundPageInternalStageObserver(ctx.op, (note) => notes.push(note));
+        const res = await ctx.run();
+        ok(
+          'release-public-ok-uncertain',
+          res.ok === true
+            && res.value
+            && res.value.status === 'committed_but_lease_release_uncertain'
+            && Reflect.ownKeys(res.value).join(',') === liveOpMod.RESULT_KEYS.join(',')
+            && noLeak(res)
+            && sawCommitOk === true,
+          ser(res),
+        );
+        assertTrustedStage('release', res, 'release', ctx.mod);
+        ok(
+          'release-observer-closed',
+          notes.some((note) => note && note.stage === 'release' && note.code === 'release')
+            && noLeak(notes),
+          ser(notes),
+        );
+      } finally {
+        ctx.restore();
+      }
+    }
+
+    const distinct = new Set(INTERNAL);
+    ok('internal-stages-are-eight-distinct', distinct.size === 8);
   }
 
   // ── Network never hit ──────────────────────────────────────────────────

@@ -7,7 +7,10 @@ const{validateEmailGrantEnvelopeProvider}=require('./email-grant-envelope-provid
 const { createMicrosoftTokenHttpTransport } = require('./email-microsoft-token-http-transport');
 const { createDelegatedGrantAccessSession } = require('./email-delegated-grant-access-session');
 const { createMicrosoftGraphMessagesDeltaPageTransport } = require('./email-microsoft-graph-messages-delta-page-transport');
-const { createAuthorityBoundMessagesDeltaPageOperation } = require('./email-authority-bound-messages-delta-page-operation');
+const {
+  createAuthorityBoundMessagesDeltaPageOperation,
+  readTrustedAuthorityBoundPageInternalStage,
+} = require('./email-authority-bound-messages-delta-page-operation');
 const { createEmailInboundInboxBridge } = require('./email-inbound-inbox-bridge');
 const {
   createDeltaRuntimeDiagnosticSink,
@@ -65,7 +68,7 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps){
     const operation=createAuthorityBoundMessagesDeltaPageOperation(Object.freeze({db:client,createGrantSession,messagesDeltaPageTransport:graphTransport,withTransactionClient:async work=>work(client),envelopeProvider:validatedCursor.value}));
     const cleanAuthority=Object.freeze({clientId:authority.clientId,locationId:authority.locationId,endpointId:authority.endpointId});
     const result=await operation.runAuthorityBoundMessagesDeltaPage(cleanAuthority);
-    if(!result||result.ok!==true){sink.recordFromPageFailure();throw fail();} return result.value;
+    if(!result||result.ok!==true){sink.recordFromTrustedPageResult(result,readTrustedAuthorityBoundPageInternalStage);throw fail();} return result.value;
    },
    projectEvent:async event=>createEmailInboundInboxBridge({withTransactionClient:async work=>work(currentClient)}).projectInboundEvent({clientId:event.clientId,locationId:event.locationId,endpointId:event.endpointId,provider:event.provider,providerMailboxId:event.providerMailboxId,providerMessageId:event.providerMessageId}),
   });
