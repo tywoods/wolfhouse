@@ -460,6 +460,8 @@ const STAFF_PORTAL_STRINGS = {
     'lunaStaff.numbers.active': 'Active',
     'lunaStaff.numbers.add': 'Add',
     'lunaStaff.numbers.nameOptional': 'Name (optional)',
+    'lunaStaff.numbers.empty': 'No numbers yet.',
+    'lunaStaff.numbers.loading': 'Loading numbers…',
     'lunaStaff.automations.title': 'Automated Staff Notifications',
     'lunaStaff.automations.sub': 'Schedule Luna to answer saved prompts and send them to selected staff.',
     'lunaStaff.automations.promptTitle': 'Prompt title',

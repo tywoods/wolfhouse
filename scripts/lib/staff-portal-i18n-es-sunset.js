@@ -1086,6 +1086,8 @@ module.exports = {
   'lunaStaff.numbers.active': 'Activo',
   'lunaStaff.numbers.add': 'Añadir',
   'lunaStaff.numbers.nameOptional': 'Nombre (opcional)',
+  'lunaStaff.numbers.empty': 'Aún no hay números.',
+  'lunaStaff.numbers.loading': 'Cargando números…',
   'lunaStaff.automations.title': 'Avisos automáticos al personal',
   'lunaStaff.automations.sub': 'Programa a Luna para responder avisos guardados y enviarlos al personal elegido.',
   'lunaStaff.automations.promptTitle': 'Título del aviso',
