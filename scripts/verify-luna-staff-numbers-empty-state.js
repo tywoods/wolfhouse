@@ -30,8 +30,11 @@ assert.ok(api.includes('staffWhatsappNumbersLoadSeq'), 'numbers load seq guard')
 assert.ok(api.includes('staffNotificationSettingsLoadSeq'), 'settings load seq guard');
 assert.ok(!/if \(staffNotificationSettingsFetchInFlight\) return;/.test(api),
   'settings load must not drop overlapping school-switch fetches');
-assert.ok(api.includes('isLunaStaffTabActive()') && /setSunsetLocation[\s\S]*wireLunaStaffTabCards/.test(api),
-  'Sunset school switch reloads Luna Staff cards');
+assert.ok(
+  /function setSunsetLocation[\s\S]*?wireLunaStaffTabCards\(\);\n    \}\n  \}\n\}/.test(api)
+    || /school switches so "No numbers yet" cannot stick/.test(api),
+  'Sunset school switch reloads Luna Staff cards',
+);
 assert.ok(api.includes("portalT('lunaStaff.numbers.empty')"), 'empty label uses i18n');
 assert.ok(api.includes("portalT('lunaStaff.numbers.loading')"), 'loading label uses i18n');
 assert.ok(i18nEn.includes("'lunaStaff.numbers.empty': 'No numbers yet.'"));
