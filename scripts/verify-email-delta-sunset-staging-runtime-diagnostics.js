@@ -125,6 +125,8 @@ test('package script and exports are exact/frozen', () => {
     'row_value_invalid',
     'row_value_id', 'row_value_from', 'row_value_received_time', 'row_value_read_state',
     'row_value_conversation', 'row_value_internet_message_id', 'row_value_etag',
+    'row_branch_subject_odata_metadata', 'row_branch_duplicate_message_identity',
+    'row_branch_tombstone_envelope_collision', 'row_branch_invariant_mapper_shape',
   ]));
   assert.deepEqual(AUTHORITY_BOUND_PAGE_INTERNAL_STAGES, INTERNAL_STAGES);
   assert.deepEqual(DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES, Object.freeze([
@@ -268,10 +270,26 @@ test('real Graph transport exhaustively preserves only trusted closed row field 
     await classifyBody(bodyFor([{ ...baseRow, '@odata.etag': 7 }]), true),
     'row_value_etag',
   );
-  // Fields outside the approved list and identity collisions must remain generic.
-  assert.equal(await classifyBody(bodyFor([{ ...baseRow, subject: 7 }])), 'row_value_invalid');
-  assert.equal(await classifyBody(bodyFor([{ ...baseRow, '@odata.type': 7 }])), 'row_value_invalid');
-  assert.equal(await classifyBody(bodyFor([{ ...baseRow }, { ...baseRow }])), 'row_value_invalid');
+  // Remaining approved generic branches are now closed and value-free.
+  assert.equal(
+    await classifyBody(bodyFor([{ ...baseRow, subject: 7 }])),
+    'row_branch_subject_odata_metadata',
+  );
+  assert.equal(
+    await classifyBody(bodyFor([{ ...baseRow, '@odata.type': 7 }])),
+    'row_branch_subject_odata_metadata',
+  );
+  assert.equal(
+    await classifyBody(bodyFor([{ ...baseRow }, { ...baseRow }])),
+    'row_branch_duplicate_message_identity',
+  );
+  assert.equal(
+    await classifyBody(bodyFor([
+      { ...baseRow },
+      { id: baseRow.id, '@removed': { reason: 'deleted' } },
+    ])),
+    'row_branch_tombstone_envelope_collision',
+  );
 });
 
 test('forged grant/http/transport values cannot classify or leak', () => {
