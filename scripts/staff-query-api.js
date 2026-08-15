@@ -21146,7 +21146,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div id="ps-create-msg" class="state-msg error" style="display:none;margin-bottom:12px"></div>
       <section class="portal-schedule-create-section" data-create-section="guest" aria-label="Guest">
         <div class="portal-schedule-create-field"><label for="ps-create-guest" data-i18n="schedule.create.guestName">Guest name</label><input id="ps-create-guest" type="text" autocomplete="off"></div>
-        <div class="portal-schedule-create-field"><label for="ps-create-phone" data-i18n="schedule.create.phone">Phone number</label><input id="ps-create-phone" type="tel" autocomplete="tel" inputmode="tel"></div>
+        <div class="portal-schedule-create-field"><label for="ps-create-phone" data-i18n="schedule.create.phone">Phone number</label><input id="ps-create-phone" type="tel" autocomplete="tel" inputmode="tel" pattern="[0-9+\\s().\\-]*" title="Digits and + ( ) . - only"></div>
         <div id="ps-create-date-range" class="portal-schedule-create-date-range-field">
           <span id="ps-create-date-range-label" class="portal-schedule-create-label" data-i18n="schedule.create.dateRange">Dates</span>
           <button type="button" id="ps-create-date-range-trigger" class="portal-schedule-create-date-range-trigger" aria-haspopup="dialog" aria-expanded="false" aria-controls="ps-create-date-range-popover">
@@ -21174,9 +21174,9 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         </div>
         <!-- Legacy qty owners stay in DOM for create payload / verifiers; synced from #ps-create-surfers. -->
         <div id="ps-create-private-lesson-fields" style="display:none" hidden aria-hidden="true">
-          <div class="portal-schedule-create-field" hidden aria-hidden="true"><label for="ps-create-private-lesson-surfers" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-private-lesson-surfers" type="number" min="1" max="99" value="1" tabindex="-1"></div>
+          <div class="portal-schedule-create-field" hidden aria-hidden="true"><label for="ps-create-private-lesson-surfers" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-private-lesson-surfers" type="number" min="1" max="24" value="1" tabindex="-1"></div>
         </div>
-        <div class="portal-schedule-create-field" id="ps-create-course-qty-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-course-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-course-qty" type="number" min="1" max="99" value="1" tabindex="-1"></div>
+        <div class="portal-schedule-create-field" id="ps-create-course-qty-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-course-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-course-qty" type="number" min="1" max="24" value="1" tabindex="-1"></div>
       </section>
       <section class="portal-schedule-create-section" data-create-section="what" aria-label="What">
         <div class="portal-schedule-create-field" id="ps-create-main-activity-field">
@@ -24879,7 +24879,9 @@ function scheduleReadCreateSurferCount(){
   if (raw === '' || raw == null) return null;
   var n = parseInt(String(raw), 10);
   if (!Number.isInteger(n) || n < 1) return null;
-  var cap = typeof scheduleCreateCourseGuestCap === 'function' ? scheduleCreateCourseGuestCap() : 99;
+  var cap = typeof scheduleCreateCourseGuestCap === 'function'
+    ? scheduleCreateCourseGuestCap()
+    : (typeof SCHEDULE_CREATE_GUEST_MAX === 'number' ? SCHEDULE_CREATE_GUEST_MAX : 24);
   if (n > cap) n = cap;
   return n;
 }
@@ -24903,7 +24905,9 @@ function scheduleSetCreateSurferCount(raw, opts){
     if (!opts.forceDefault) return null;
     n = 1;
   }
-  var capSet = typeof scheduleCreateCourseGuestCap === 'function' ? scheduleCreateCourseGuestCap() : 99;
+  var capSet = typeof scheduleCreateCourseGuestCap === 'function'
+    ? scheduleCreateCourseGuestCap()
+    : (typeof SCHEDULE_CREATE_GUEST_MAX === 'number' ? SCHEDULE_CREATE_GUEST_MAX : 24);
   if (n > capSet) n = capSet;
   if (s) s.value = String(n);
   scheduleSyncCreateSurferMirrors();
@@ -24916,7 +24920,9 @@ function scheduleNormalizeCreateSurferCountOnBlur(){
   if (raw === '' || raw == null) return null; // leave blank; quote/create fail closed
   var n = parseInt(String(raw), 10);
   if (!Number.isInteger(n) || n < 1) return null;
-  var capBlur = typeof scheduleCreateCourseGuestCap === 'function' ? scheduleCreateCourseGuestCap() : 99;
+  var capBlur = typeof scheduleCreateCourseGuestCap === 'function'
+    ? scheduleCreateCourseGuestCap()
+    : (typeof SCHEDULE_CREATE_GUEST_MAX === 'number' ? SCHEDULE_CREATE_GUEST_MAX : 24);
   if (n > capBlur) n = capBlur;
   s.value = String(n);
   scheduleSyncCreateSurferMirrors();

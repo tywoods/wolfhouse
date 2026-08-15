@@ -61,6 +61,9 @@ const NO_LESSON_EQUIPMENT_SURFER_REQUIRED = 'surfer_count_required_for_no_lesson
  */
 const NO_LESSON_EQUIPMENT_QTY_INCONSISTENT = 'inconsistent_equipment_quantities_for_no_lesson';
 
+/** Staff Create guest/surfer ceiling (matches #ps-create-surfers max="24"). Equipment qty stays 1–99. */
+const STAFF_CREATE_GUEST_MAX = 24;
+
 /**
  * Locale-safe money → integer cents. Accepts "12.50", "12,50", "1.234,56",
  * "-5", "0", "+0". Max 2 fraction digits. Rejects NaN/overflow/>2 decimals.
@@ -321,6 +324,13 @@ function parseQuantity(raw, fallback) {
   const quantity = parseInt(String(raw == null ? fallback : raw), 10);
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) return null;
   return quantity;
+}
+
+function parseGuestSurferCount(raw) {
+  if (raw == null || raw === '') return null;
+  const n = parseInt(String(raw), 10);
+  if (!Number.isInteger(n) || n < 1 || n > STAFF_CREATE_GUEST_MAX) return null;
+  return n;
 }
 
 function normalizeRentalDuration(raw) {
@@ -1405,9 +1415,9 @@ function normalizePrivateLessonPart(part) {
   if (!quantity) {
     return { ok: false, error: `components.private_lesson.quantity must be 1–${PRIVATE_LESSON_MAX_SESSIONS}` };
   }
-  const surfer_count = parseQuantity(part.surfer_count, 1);
+  const surfer_count = parseGuestSurferCount(part.surfer_count != null ? part.surfer_count : 1);
   if (!surfer_count) {
-    return { ok: false, error: 'components.private_lesson.surfer_count must be 1–99' };
+    return { ok: false, error: `components.private_lesson.surfer_count must be 1–${STAFF_CREATE_GUEST_MAX}` };
   }
   const sessions = normalizePrivateLessonSessions(part.sessions, quantity);
   if (!sessions.ok) return sessions;
@@ -1520,9 +1530,22 @@ function normalizeComponents(body, allowEmpty) {
           return { ok: false, error: `components.${key}.${mk} must not be supplied by the client` };
         }
       }
-      // Top-level request money fields are also rejected below.
-      const qty = parseQuantity(part.quantity != null ? part.quantity : part.count, 1);
-      if (!qty) return { ok: false, error: `components.${key}.quantity must be 1–99` };
+      // Guest/surfer counts for course (people) cap at STAFF_CREATE_GUEST_MAX.
+      // Equipment component quantities (board/wetsuit/…) stay 1–99.
+      const qty = key === 'course'
+        ? parseGuestSurferCount(
+          part.quantity != null ? part.quantity
+            : (part.count != null ? part.count : 1),
+        )
+        : parseQuantity(part.quantity != null ? part.quantity : part.count, 1);
+      if (!qty) {
+        return {
+          ok: false,
+          error: key === 'course'
+            ? `components.${key}.quantity must be 1–${STAFF_CREATE_GUEST_MAX}`
+            : `components.${key}.quantity must be 1–99`,
+        };
+      }
       const entry = { quantity: qty };
       if (key === 'lesson') {
         const slot = String(part.slot_time || part.time_local || b.time_local || b.slot_time || '').trim();
@@ -1715,7 +1738,7 @@ function normalizeServiceDates(body, components) {
 
 /**
  * Staff Create phone: nonblank, max 40, at least 6 digits (international ok).
- * Quote path never requires phone.
+ * Quote path never requires phone. Letters and other junk are rejected.
  */
 function isValidStaffCreateGuestPhone(raw) {
   const phone = raw != null ? String(raw).trim().slice(0, 40) : '';
@@ -1754,9 +1777,7 @@ function parseAuthoritativeSurferCount(body) {
   const raw = b.surfer_count != null ? b.surfer_count
     : (b.guest_count != null ? b.guest_count : null);
   if (raw == null || raw === '') return null;
-  const n = parseInt(String(raw), 10);
-  if (!Number.isInteger(n) || n < 1 || n > 99) return null;
-  return n;
+  return parseGuestSurferCount(raw);
 }
 
 function parseEquipmentQuantitySignal(raw) {
@@ -5222,6 +5243,8 @@ module.exports = {
   buildAccommodationQuoteLine,
   formatAccommodationBookingCard,
   isValidStaffCreateGuestPhone,
+  STAFF_CREATE_GUEST_MAX,
+  parseGuestSurferCount,
   isNoLessonComponents,
   hasNoLessonEquipment,
   parseAuthoritativeSurferCount,
