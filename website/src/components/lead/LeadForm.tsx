@@ -13,7 +13,7 @@ import { buildMailtoLink } from './mailto';
 // Types
 // ---------------------------------------------------------------------------
 
-type SubmitState = 'idle' | 'local';
+type SubmitState = 'idle' | 'ready' | 'reached';
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -96,15 +96,18 @@ export default function LeadForm() {
     if (submissionEnabled) {
       // Unreachable while LEAD_SUBMISSION_ENABLED is false; kept as a
       // hard deny so accidental enablement cannot invent a POST path here.
-      setSubmitState('local');
+      setSubmitState('ready');
       return;
     }
 
-    setSubmitState('local');
+    // Validated, but nothing has reached us yet — only offer the email link.
+    // The confirmation is withheld until the guest actually opens that email.
+    setSubmitState('ready');
   }
 
   const mailtoHref = buildMailtoLink(values);
-  const showLocalNotice = submitState === 'local';
+  const showEmailCta = submitState === 'ready' || submitState === 'reached';
+  const showReachedNotice = submitState === 'reached';
 
   return (
     <form
@@ -120,7 +123,7 @@ export default function LeadForm() {
         </p>
       )}
 
-      {showLocalNotice && (
+      {showEmailCta && !showReachedNotice && (
         <div
           class="lf-local-outcome"
           role="status"
@@ -128,18 +131,33 @@ export default function LeadForm() {
           data-testid="lead-local-outcome"
         >
           <p>
-            Nothing was sent or saved. Your answers are still in the form below.
-            To reach us, use the email link:
+            Almost there — nothing has reached us yet. Open the email below to
+            send Ty your details:
           </p>
           <p>
             <a
               class="lf-outcome__mailto"
               href={mailtoHref}
               data-testid="lead-mailto"
+              onClick={() => setSubmitState('reached')}
             >
               Open an email with your details
             </a>{' '}
             to hello@lunafrontdesk.com.
+          </p>
+        </div>
+      )}
+
+      {showReachedNotice && (
+        <div
+          class="lf-local-outcome"
+          role="status"
+          aria-live="polite"
+          data-testid="lead-reached-notice"
+        >
+          <p>
+            Thanks — your email is on its way to Ty. He'll get back to you about
+            whether Luna fits. Your answers are still in the form below.
           </p>
         </div>
       )}

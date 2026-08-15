@@ -14,41 +14,22 @@ import LeadFormIsland from '../lead/LeadForm';
       <h2 class="lf-section__heading">
         Show me Luna for my&nbsp;business
       </h2>
-      <p class="lead">
-        Tell us a little about your operation and we'll reach out with a personalised
-        look at how Luna would work for you — with your availability, prices, rules
-        and tone.
-      </p>
     </div>
 
     <div class="lf-section__body" data-animate>
+      <div class="lf-note">
+        <p>I'm Ty. I built Luna so you can paddle out with your guests.</p>
+        <p>Someone still has to take the questions and the bookings. Let Luna take over.</p>
+        <p>She answers them on WhatsApp and email, with your prices and your calendar.</p>
+        <p>She takes the deposit, never invents a rate, never promises a room she cannot verify. Luna brings you in.</p>
+        <p>Soon this is just how a house answers. Get her running now, while the others are still on the phone.</p>
+        <p>If you'd rather stay in the water, write me. I'll tell you if Luna fits.</p>
+        <p class="lf-note__sign">— Ty</p>
+      </div>
+
       <div class="card lf-card">
         <LeadFormIsland client:visible />
       </div>
-
-      <aside class="lf-aside stack">
-        <div class="lf-aside__item">
-          <span class="lf-aside__icon" aria-hidden="true">◷</span>
-          <div>
-            <strong>Set up in days, not months</strong>
-            <p>We configure Luna around your business — your prices, packages, availability and tone.</p>
-          </div>
-        </div>
-        <div class="lf-aside__item">
-          <span class="lf-aside__icon" aria-hidden="true">✓</span>
-          <div>
-            <strong>Your team stays in control</strong>
-            <p>Luna handles the repetitive questions; your staff see every conversation and step in when it matters.</p>
-          </div>
-        </div>
-        <div class="lf-aside__item">
-          <span class="lf-aside__icon" aria-hidden="true">🔒</span>
-          <div>
-            <strong>No scripts, no wrong answers</strong>
-            <p>Luna only answers from what you tell it — it won't invent prices or availability.</p>
-          </div>
-        </div>
-      </aside>
     </div>
 
   </div>
@@ -74,8 +55,30 @@ import LeadFormIsland from '../lead/LeadForm';
 
   @media (min-width: 860px) {
     .lf-section__body {
-      grid-template-columns: 1fr 360px;
+      grid-template-columns: 1fr 1fr;
     }
+  }
+
+  /* ---- Left-column note (Ty's early-access letter) ---- */
+  .lf-note {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-s);
+  }
+
+  .lf-note p {
+    font-size: var(--step-0);
+    line-height: 1.6;
+    color: var(--text);
+    margin: 0;
+    max-width: 46ch;
+  }
+
+  .lf-note__sign {
+    font-family: var(--font-display);
+    font-weight: 600;
+    color: var(--ink-900);
+    margin-top: var(--space-2xs);
   }
 
   /* ---- Card wrapper ---- */

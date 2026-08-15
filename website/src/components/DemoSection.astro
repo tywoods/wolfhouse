@@ -10,6 +10,9 @@ import DemoStudio from './demo/DemoStudio.tsx';
         On the left, a guest WhatsApp thread. On the right, a simulated operations summary.
         Pick a scenario and advance with reply chips — a guided demo in this browser only.
       </p>
+      <p class="demo-section__caption">
+        Marea Surf Hostel is a sample walkthrough, not a real customer — it's here to show how Luna handles an enquiry end to end.
+      </p>
     </div>
     <div class="demo-section__studio" data-animate>
       <DemoStudio client:visible />
@@ -21,4 +24,5 @@ import DemoStudio from './demo/DemoStudio.tsx';
   .demo-section { padding-block: var(--space-2xl); }
   .demo-section__head { max-width: 60ch; margin-bottom: var(--space-l); }
   .demo-section__head .lead { margin-top: var(--space-s); }
+  .demo-section__caption { margin-top: var(--space-s); font-size: var(--step--1); color: var(--night-muted); }
 </style>
