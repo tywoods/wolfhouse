@@ -39,14 +39,26 @@ assert.ok(navSrc.includes('window.scheduleOpenDayDetail = scheduleOpenDayDetail'
 const labelStart = bookingsSrc.indexOf('function adminBookingsOpenScheduleLabel');
 const labelEnd = bookingsSrc.indexOf('var ADMIN_BOOKINGS_SORT_FIRST_DIR');
 assert.ok(labelStart > 0 && labelEnd > labelStart);
-const labelBox = { portalT(key) { return key; } };
-vm.createContext(labelBox);
-vm.runInContext(bookingsSrc.slice(labelStart, labelEnd) + '\nthis.adminBookingsOpenScheduleLabel = adminBookingsOpenScheduleLabel;', labelBox);
-const aria = labelBox.adminBookingsOpenScheduleLabel('SUNSET-20260811-EA783E');
-assert.ok(!/admin\.bookings\./.test(aria), aria);
-assert.ok(aria.indexOf('SUNSET-20260811-EA783E') >= 0);
-assert.ok(/Schedule|schedule|Abrir|Agenda/i.test(aria), aria);
+
+function runLabel(sandbox) {
+  const box = Object.assign({}, sandbox);
+  vm.createContext(box);
+  vm.runInContext(bookingsSrc.slice(labelStart, labelEnd) + '\nthis.adminBookingsOpenScheduleLabel = adminBookingsOpenScheduleLabel;', box);
+  return box.adminBookingsOpenScheduleLabel('SUNSET-20260811-EA783E');
+}
+
+const ariaRaw = runLabel({ portalT(key) { return key; }, getStaffLocale() { return 'en'; } });
+assert.ok(!/admin\.bookings\./.test(ariaRaw), ariaRaw);
+assert.ok(ariaRaw.indexOf('SUNSET-20260811-EA783E') >= 0);
+assert.strictEqual(ariaRaw, 'Open in Schedule: SUNSET-20260811-EA783E');
+
+const ariaEs = runLabel({ portalT(key) { return key; }, getStaffLocale() { return 'es'; } });
+assert.ok(!/admin\.bookings\./.test(ariaEs), ariaEs);
+assert.strictEqual(ariaEs, 'Abrir en Agenda: SUNSET-20260811-EA783E');
+
 assert.ok(bookingsSrc.includes('adminBookingsOpenScheduleLabel(code)'));
+assert.ok(bookingsSrc.includes("title=\"' + escHtml(openScheduleLabel) + '\""));
+assert.ok(bookingsSrc.includes("aria-label=\"' + escHtml(openScheduleLabel) + '\""));
 
 assert.ok(drawerSrc.includes('scheduleDrawerEnsureDocumentLayer'));
 assert.ok(drawerSrc.includes("drawer.style.zIndex = '9800'"));

@@ -7,7 +7,7 @@
  */
 /* global el, portalT, escHtml, getClient, getSunsetLocation,
    openBookingInSchedule, switchToTab, scheduleOpenDayDetail, openScheduleDetailDrawer,
-   adminBookingsState, fetch */
+   adminBookingsState, fetch, getStaffLocale, portalLang */
 
 var adminBookingsState = {
   loading: false,
@@ -39,11 +39,36 @@ var adminBookingsState = {
   guestPeekGen: 0,
 };
 
-/** Never expose a raw i18n key on the booking-code control. */
+/** Resolve Open-in-Schedule chrome; never expose a raw i18n key (EN + ES). */
 function adminBookingsOpenScheduleLabel(code) {
+  var KEY = 'admin.bookings.openInSchedule';
+  var loc = 'en';
+  try {
+    if (typeof getStaffLocale === 'function') loc = String(getStaffLocale() || 'en');
+    else if (typeof portalLang === 'string' && portalLang) loc = String(portalLang);
+  } catch (_l) { loc = 'en'; }
+  loc = String(loc || 'en').toLowerCase();
+  var fallback = loc.indexOf('es') === 0 ? 'Abrir en Agenda' : 'Open in Schedule';
+  function isRawKey(s) {
+    var text = String(s || '').trim();
+    if (!text) return true;
+    if (text === KEY || text.indexOf(KEY) === 0) return true;
+    // portalT / window.t miss → return the key path (no spaces).
+    if (text.indexOf('admin.bookings.') === 0 && text.indexOf(' ') < 0) return true;
+    return false;
+  }
   var label = '';
-  try { label = String((typeof portalT === 'function' && portalT('admin.bookings.openInSchedule')) || ''); } catch (_) { label = ''; }
-  if (!label || label.indexOf('admin.bookings.') === 0) label = 'Open in Schedule';
+  try {
+    if (typeof portalT === 'function') label = String(portalT(KEY) || '');
+  } catch (_p) { label = ''; }
+  if (isRawKey(label)) {
+    try {
+      if (typeof window !== 'undefined' && typeof window.t === 'function') {
+        label = String(window.t(KEY) || '');
+      }
+    } catch (_t) { label = ''; }
+  }
+  if (isRawKey(label)) label = fallback;
   var trimmed = String(code || '').trim();
   return trimmed ? (label + ': ' + trimmed) : label;
 }
@@ -781,12 +806,14 @@ function renderAdminBookingsTable() {
     html += '<div class="portal-admin-bookings-tr' + (archived ? ' is-archived' : '') +
       (expanded ? ' is-expanded' : '') + '" role="row" data-bookings-row-id="' + escHtml(id) +
       '" tabindex="0" aria-expanded="' + (expanded ? 'true' : 'false') + '">';
+    var openScheduleLabel = adminBookingsOpenScheduleLabel(code);
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-code" role="cell">' +
       '<button type="button" class="portal-admin-bookings-code portal-admin-bookings-code-link" ' +
       'data-bookings-open-schedule="' + escHtml(id) + '" ' +
       'data-booking-code="' + escHtml(code) + '" ' +
       'data-service-date-start="' + escHtml(String(row.service_date_start || '').slice(0, 10)) + '" ' +
-      'aria-label="' + escHtml(adminBookingsOpenScheduleLabel(code)) + '">' +
+      'title="' + escHtml(openScheduleLabel) + '" ' +
+      'aria-label="' + escHtml(openScheduleLabel) + '">' +
       escHtml(code) + '</button></div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-guest" role="cell">' +
       '<button type="button" class="portal-admin-bookings-guest-link" data-bookings-guest-phone="' +

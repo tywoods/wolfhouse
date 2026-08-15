@@ -1133,7 +1133,13 @@ async function testGeneratedUi() {
     ok('booking code is keyboard-accessible button control',
       await page.locator('button.portal-admin-bookings-code-link[data-bookings-open-schedule]').count() >= 1);
     const codeAria = await page.locator('button.portal-admin-bookings-code-link').first().getAttribute('aria-label');
-    ok('booking code has ARIA label', !!(codeAria && /schedule|Schedule|abrir|Abrir/i.test(codeAria)), codeAria);
+    ok('booking code has ARIA label (localized, not raw i18n key)',
+      !!(codeAria && /^(Open in Schedule|Abrir en Agenda):/.test(codeAria) && !/admin\.bookings\./.test(codeAria)),
+      codeAria);
+    const codeTitle = await page.locator('button.portal-admin-bookings-code-link').first().getAttribute('title');
+    ok('booking code title matches localized open-in-schedule label',
+      !!(codeTitle && codeTitle === codeAria && !/admin\.bookings\./.test(codeTitle)),
+      codeTitle);
     const guestHtml = await page.locator('.portal-admin-bookings-guest-link').first().innerHTML();
     ok('adversarial guest name escaped (entities, no raw HTML tag)',
       guestHtml.includes('&lt;') && !/<img\b/i.test(guestHtml) && !/<script\b/i.test(guestHtml),
