@@ -1,6 +1,10 @@
 'use strict';
 /** EMAIL-M1-020 bounded scheduler. Durable page concurrency remains owned by the
- * delta state store lease; this process-local fence only prevents timer overlap. */
+ * delta state store lease; this process-local fence only prevents timer overlap.
+ * outbound_enabled is an independent send switch: verified Microsoft inbound
+ * remains eligible whether outbound is enabled or disabled. Endpoint `active`
+ * is an outbound routing switch and is intentionally not required here.
+ * Keep comments out of ELIGIBLE_SQL; the string is flattened to one line. */
 const ELIGIBLE_SQL = `
 SELECT e.client_id::text AS client_id, tl.id::text AS location_id,
        e.id::text AS endpoint_id, e.location_id AS endpoint_location_id
@@ -13,9 +17,6 @@ WHERE e.channel = 'email'
   AND e.provider = 'microsoft_graph'
   AND e.binding_status = 'verified'
   AND e.inbound_enabled = true
-  AND e.outbound_enabled = false
-  -- active is an outbound routing switch; verified inbound authority remains
-  -- canonical when outbound preparation deliberately leaves it false.
   AND g.grant_status = 'active'
   AND g.reconcile_state = 'clean'
   AND g.grant_lease_owner IS NULL
