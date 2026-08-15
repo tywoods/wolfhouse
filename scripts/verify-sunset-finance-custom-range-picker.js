@@ -43,6 +43,34 @@ function equal(label, actual, expected) {
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/** Visible Custom chrome must be locale-formatted, not raw ISO (hidden inputs stay ISO). */
+function looksLocalizedCustomRange(text, startIso, endIso) {
+  const s = String(text || '');
+  if (!s || /\d{4}-\d{2}-\d{2}/.test(s)) return false;
+  const d1 = String(Number(String(startIso).slice(8, 10)));
+  const d2 = String(Number(String(endIso).slice(8, 10)));
+  const y = String(startIso).slice(0, 4);
+  if (!s.includes(d1) || !s.includes(d2) || !s.includes(y)) return false;
+  return true;
+}
+
+async function ensureCalendarYm(page, ym) {
+  for (let i = 0; i < 24; i += 1) {
+    const curYm = await page.evaluate(() => {
+      const btn = document.querySelector('#pfb-custom-grid button[data-pfb-day]:not(.is-outside)');
+      return btn ? String(btn.getAttribute('data-pfb-day') || '').slice(0, 7) : '';
+    });
+    if (curYm === ym) return true;
+    if (!curYm || curYm < ym) {
+      await page.locator('#pfb-custom-range-pop [data-pfb-cal="next"]').click();
+    } else {
+      await page.locator('#pfb-custom-range-pop [data-pfb-cal="prev"]').click();
+    }
+    await sleep(20);
+  }
+  return false;
+}
 function listen(server) {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -443,18 +471,7 @@ async function main() {
       ok('calendar prev month navigates back', headBack === headBefore, `${headNext} → ${headBack}`);
 
       // Ensure Aug 2026 for deterministic day buttons (navigate if needed)
-      async function ensureYm(ym) {
-        for (let i = 0; i < 24; i += 1) {
-          const cur = await page.locator('#pfb-custom-range-pop .pfb-cal-head span').innerText();
-          if (cur.trim() === ym) return true;
-          // compare YYYY-MM
-          if (cur.trim() < ym) await page.locator('#pfb-custom-range-pop [data-pfb-cal="next"]').click();
-          else await page.locator('#pfb-custom-range-pop [data-pfb-cal="prev"]').click();
-          await sleep(20);
-        }
-        return false;
-      }
-      ok('navigate calendar to 2026-08', await ensureYm('2026-08'));
+      ok('navigate calendar to 2026-08', await ensureCalendarYm(page, '2026-08'));
 
       // ── Reverse first/second date reset ──
       const reqBeforeReverse = requests.length;
@@ -504,14 +521,14 @@ async function main() {
       ok('custom remains selected after complete range', customSelected > 0);
       const rangeLabel = await page.locator('#admin-finance-body [data-finance-range-label]').innerText();
       ok(
-        'range label shows custom start – end',
-        /2026-08-10/.test(rangeLabel) && /2026-08-18/.test(rangeLabel),
+        'range label shows localized custom start – end',
+        looksLocalizedCustomRange(rangeLabel, '2026-08-10', '2026-08-18'),
         rangeLabel
       );
       const triggerText = await page.locator('#pfb-custom-range-trigger').innerText().catch(() => '');
       ok(
-        'custom trigger label matches range',
-        /2026-08-10/.test(triggerText) && /2026-08-18/.test(triggerText),
+        'custom trigger label matches localized range',
+        looksLocalizedCustomRange(triggerText, '2026-08-10', '2026-08-18'),
         triggerText
       );
       ok(
@@ -536,7 +553,7 @@ async function main() {
       // ── Clear semantics: open, pick one day, Clear — picker stays, draft cleared, zero request ──
       await page.locator('#pfb-custom-range-trigger, #admin-finance-body [data-finance-nav="open-custom-range"]').first().click();
       ok('calendar reopens for Clear test', (await waitCalendar(page, 2000)).ok);
-      ok('ensure 2026-08 for Clear', await ensureYm('2026-08'));
+      ok('ensure 2026-08 for Clear', await ensureCalendarYm(page, '2026-08'));
       const reqBeforeClear = requests.length;
       await clickDay(page, '2026-08-12');
       await sleep(40);
@@ -608,7 +625,7 @@ async function main() {
       // Custom → Month → Custom
       await clickCustom(page);
       ok('Custom → Month → Custom reopens calendar', (await waitCalendar(page, 2500)).ok);
-      ok('ensure 2026-08 for single-day', await ensureYm('2026-08'));
+      ok('ensure 2026-08 for single-day', await ensureCalendarYm(page, '2026-08'));
       const reqBeforeSame = requests.length;
       await clickDay(page, '2026-08-20');
       await sleep(40);
@@ -627,7 +644,11 @@ async function main() {
         sameReqs.map((r) => r.url).join(' | ')
       );
       const sameLabel = await page.locator('#admin-finance-body [data-finance-range-label]').innerText().catch(() => '');
-      ok('single-day range label includes 2026-08-20', /2026-08-20/.test(sameLabel), sameLabel);
+      ok(
+        'single-day range label is localized (no raw ISO)',
+        looksLocalizedCustomRange(sameLabel, '2026-08-20', '2026-08-20'),
+        sameLabel
+      );
 
       // ── Listener survival across repeated finance rerenders (real body identity) ──
       const bodyAfterRange = await page.evaluate(() => {
@@ -827,14 +848,7 @@ async function main() {
       ok('fallback Custom opens real calendar', !!(fbCal && fbCal.ok), fbCal ? JSON.stringify(fbCal) : '');
 
       async function fbEnsureYm(ym) {
-        for (let i = 0; i < 24; i += 1) {
-          const cur = await fbPage.locator('#pfb-custom-range-pop .pfb-cal-head span').innerText();
-          if (cur.trim() === ym) return true;
-          if (cur.trim() < ym) await fbPage.locator('#pfb-custom-range-pop [data-pfb-cal="next"]').click();
-          else await fbPage.locator('#pfb-custom-range-pop [data-pfb-cal="prev"]').click();
-          await sleep(20);
-        }
-        return false;
+        return ensureCalendarYm(fbPage, ym);
       }
 
       if (fbCal && fbCal.ok) {

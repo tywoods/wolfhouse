@@ -73,6 +73,41 @@ function financeRedesignDeltaChip(pct) {
   return '<span class="pfb-delta ' + cls + '">' + arrow + ' ' + financeRedesignEsc(label) + '</span>';
 }
 
+function financeRedesignLocaleTag() {
+  var loc = 'en';
+  try {
+    if (typeof portalLang === 'string' && portalLang) loc = portalLang;
+    else if (typeof getStaffLocale === 'function') loc = String(getStaffLocale() || 'en');
+  } catch (_e) { loc = 'en'; }
+  loc = String(loc || 'en').toLowerCase();
+  if (loc.indexOf('es') === 0) return 'es-ES';
+  if (loc.indexOf('it') === 0) return 'it-IT';
+  return 'en-GB';
+}
+
+/** Locale-aware short date for Custom range chrome (never raw ISO). */
+function financeRedesignFormatIsoDate(iso) {
+  var s = String(iso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  try {
+    var parts = s.split('-').map(Number);
+    var d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0));
+    return d.toLocaleDateString(financeRedesignLocaleTag(), {
+      day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+    });
+  } catch (_e) {
+    return s;
+  }
+}
+
+function financeRedesignFormatIsoRange(start, end) {
+  var a = financeRedesignFormatIsoDate(start);
+  var b = financeRedesignFormatIsoDate(end);
+  if (!a) return b || '';
+  if (!b || String(start).slice(0, 10) === String(end).slice(0, 10)) return a;
+  return a + ' – ' + b;
+}
+
 function financeRedesignTitle(view) {
   if (!view || !view.range) return '';
   var g = view.granularity || 'month';
@@ -81,18 +116,20 @@ function financeRedesignTitle(view) {
   try {
     if (g === 'day') {
       var d = new Date(start + 'T12:00:00');
-      return d.toLocaleDateString(typeof portalLang === 'string' ? portalLang : 'en', {
+      return d.toLocaleDateString(financeRedesignLocaleTag(), {
         weekday: 'short', day: 'numeric', month: 'long', year: 'numeric',
       });
     }
     if (g === 'year') return String(start).slice(0, 4);
-    if (g === 'custom') return start + ' – ' + end;
+    if (g === 'custom') return financeRedesignFormatIsoRange(start, end);
     var m = new Date(start + 'T12:00:00');
-    return m.toLocaleDateString(typeof portalLang === 'string' ? portalLang : 'en', {
+    return m.toLocaleDateString(financeRedesignLocaleTag(), {
       month: 'long', year: 'numeric',
     });
   } catch (_e) {
-    return start + (end && end !== start ? ' – ' + end : '');
+    return start && end && end !== start
+      ? financeRedesignFormatIsoRange(start, end)
+      : financeRedesignFormatIsoDate(start);
   }
 }
 
@@ -102,7 +139,7 @@ function financeRedesignCustomDisplay(view) {
   if (!(view && view.granularity === 'custom' && start && end)) {
     return financeRedesignT('admin.finance.gran.custom', 'Custom');
   }
-  return start === end ? start : (start + ' – ' + end);
+  return financeRedesignFormatIsoRange(start, end);
 }
 
 function financeRedesignTrendTitle(trendMode) {
@@ -223,9 +260,11 @@ function renderFinanceRedesignHtml(summary) {
   html += '<div class="pfb-nav">';
   html += '<div class="pfb-nav-left">';
   html += '<div class="pfb-range" role="group" aria-label="Period">';
-  html += '<button type="button" class="pfb-arw" data-finance-nav="prev" aria-label="Previous">‹</button>';
+  html += '<button type="button" class="pfb-arw" data-finance-nav="prev" aria-label="' +
+    financeRedesignEsc(financeRedesignT('schedule.nav.prev', 'Previous')) + '">‹</button>';
   html += '<span class="pfb-range-label" data-finance-range-label="1">' + financeRedesignEsc(title) + '</span>';
-  html += '<button type="button" class="pfb-arw" data-finance-nav="next" aria-label="Next">›</button>';
+  html += '<button type="button" class="pfb-arw" data-finance-nav="next" aria-label="' +
+    financeRedesignEsc(financeRedesignT('schedule.nav.next', 'Next')) + '">›</button>';
   html += '</div></div>';
   html += '<div class="pfb-gran" role="tablist" aria-label="Granularity">';
   [['day', 'Day'], ['month', 'Month'], ['year', 'Year']].forEach(function (row) {
@@ -242,9 +281,11 @@ function renderFinanceRedesignHtml(summary) {
     financeRedesignEsc(financeRedesignCustomDisplay(view)) + '</span></button>';
   html += '<div id="pfb-custom-range-pop" class="portal-schedule-create-date-range-popover pfb-custom-popover" role="dialog" aria-modal="false" aria-labelledby="pfb-custom-month-label" hidden style="display:none">';
   html += '<div class="pfb-custom-head pfb-cal-head">';
-  html += '<button type="button" id="pfb-custom-prev" data-pfb-cal="prev" aria-label="Previous month">&#8249;</button>';
+  html += '<button type="button" id="pfb-custom-prev" data-pfb-cal="prev" aria-label="' +
+    financeRedesignEsc(financeRedesignT('schedule.create.dateRange.prevMonth', 'Previous month')) + '">&#8249;</button>';
   html += '<span id="pfb-custom-month-label" class="portal-schedule-create-date-range-month" aria-live="polite"></span>';
-  html += '<button type="button" id="pfb-custom-next" data-pfb-cal="next" aria-label="Next month">&#8250;</button>';
+  html += '<button type="button" id="pfb-custom-next" data-pfb-cal="next" aria-label="' +
+    financeRedesignEsc(financeRedesignT('schedule.create.dateRange.nextMonth', 'Next month')) + '">&#8250;</button>';
   html += '</div>';
   html += '<div id="pfb-custom-grid" class="portal-schedule-create-date-range-grid pfb-cal-grid" role="group" aria-labelledby="pfb-custom-month-label"></div>';
   html += '<div class="portal-schedule-create-date-range-actions">';
@@ -445,5 +486,8 @@ if (typeof module !== 'undefined' && module.exports) {
     renderFinanceRedesignHtml: renderFinanceRedesignHtml,
     financeRedesignFmtEur: financeRedesignFmtEur,
     financeRedesignTitle: financeRedesignTitle,
+    financeRedesignCustomDisplay: financeRedesignCustomDisplay,
+    financeRedesignFormatIsoDate: financeRedesignFormatIsoDate,
+    financeRedesignFormatIsoRange: financeRedesignFormatIsoRange,
   };
 }

@@ -2370,7 +2370,26 @@ function financeCustomDisplayText(start, end){
   start = financeDateIsValidIso(start) ? String(start).slice(0, 10) : '';
   end = financeDateIsValidIso(end) ? String(end).slice(0, 10) : '';
   if (!start || !end) return fallback;
-  return start === end ? start : (start + ' – ' + end);
+  // Prefer redesign formatter (injected first) so Custom never shows raw ISO.
+  if (typeof financeRedesignFormatIsoRange === 'function') {
+    return financeRedesignFormatIsoRange(start, end);
+  }
+  try {
+    var loc = 'en-GB';
+    if (typeof financeCustomLocaleTag === 'function') {
+      var tag = financeCustomLocaleTag();
+      loc = tag === 'es' ? 'es-ES' : (tag === 'it' ? 'it-IT' : 'en-GB');
+    }
+    var fmt = function (iso) {
+      var p = iso.split('-').map(Number);
+      return new Date(Date.UTC(p[0], p[1] - 1, p[2], 12, 0, 0)).toLocaleDateString(loc, {
+        day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+      });
+    };
+    return start === end ? fmt(start) : (fmt(start) + ' – ' + fmt(end));
+  } catch (_e) {
+    return start === end ? start : (start + ' – ' + end);
+  }
 }
 
 function financeDateAddDays(iso, days){
@@ -2594,10 +2613,19 @@ function financeRenderCustomCalendar(){
   var dEnd = financeDateIsValidIso(draft.end) ? draft.end : null;
   var rangeLo = dStart && dEnd ? dStart : null;
   var rangeHi = dStart && dEnd ? dEnd : null;
-  var dayLabels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  var dayKeys = [
+    'calendar.day.sun', 'calendar.day.mon', 'calendar.day.tue', 'calendar.day.wed',
+    'calendar.day.thu', 'calendar.day.fri', 'calendar.day.sat',
+  ];
+  var dayFallback = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
   var html = '';
   for (var di = 0; di < 7; di += 1) {
-    html += '<span class="portal-schedule-create-date-range-dow" aria-hidden="true">' + escHtml(dayLabels[di]) + '</span>';
+    var dowLab = dayFallback[di];
+    if (typeof portalT === 'function') {
+      var dowT = portalT(dayKeys[di]);
+      if (dowT && dowT !== dayKeys[di]) dowLab = dowT;
+    }
+    html += '<span class="portal-schedule-create-date-range-dow" aria-hidden="true">' + escHtml(dowLab) + '</span>';
   }
   var cells = [];
   for (var i = 0; i < startDow; i += 1) {
