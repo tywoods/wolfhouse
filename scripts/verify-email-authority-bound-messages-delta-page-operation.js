@@ -2971,6 +2971,7 @@ async function main() {
   {
     const INTERNAL = Object.freeze([
       'authority', 'status', 'lease', 'grant', 'transport', 'seal', 'store',
+      'store_exception',
       'store_page_batch_invalid', 'store_page_tombstones_invalid',
       'store_successor_cursor_rejected', 'store_authority_not_verified', 'release',
     ]);
@@ -3191,6 +3192,41 @@ async function main() {
       }
     }
 
+    // thrown commit / store_exception
+    {
+      const ctx = await buildSpiedOperation({
+        handlers: {
+          async commitPageEvents() {
+            throw Object.assign(new Error(PLANTED_SUBJECT), {
+              stack: `NEVER_LOG ${PLANTED_TOKEN}`,
+              payload: Object.freeze({ cursor: PLANTED_NEXT }),
+            });
+          },
+        },
+      });
+      try {
+        const notes = [];
+        ctx.mod.bindTrustedAuthorityBoundPageInternalStageObserver(ctx.op, (note) => notes.push(note));
+        const res = await ctx.run();
+        assertPublicFail('store-exception', res);
+        assertTrustedStage('store-exception', res, 'store_exception', ctx.mod);
+        ok(
+          'store-exception-observer-closed',
+          notes.length === 1
+            && Reflect.ownKeys(notes[0]).join(',') === 'stage,code'
+            && notes[0].stage === 'store_exception'
+            && notes[0].code === 'store_exception'
+            && noLeak(notes),
+          ser(notes),
+        );
+        ok('store-exception-commit-once', ctx.spy.count('commitPageEvents') === 1);
+        ok('store-exception-release-once', ctx.spy.count('releaseLease') === 1);
+        ok('store-exception-public-no-leak', noLeak(res), ser(res));
+      } finally {
+        ctx.restore();
+      }
+    }
+
     // release (ok:true uncertain still exposes trusted release note)
     {
       let sawCommitOk = false;
@@ -3237,7 +3273,7 @@ async function main() {
     }
 
     const distinct = new Set(INTERNAL);
-    ok('internal-stages-are-twelve-distinct', distinct.size === 12);
+    ok('internal-stages-are-thirteen-distinct', distinct.size === 13);
   }
 
   // ── Network never hit ──────────────────────────────────────────────────

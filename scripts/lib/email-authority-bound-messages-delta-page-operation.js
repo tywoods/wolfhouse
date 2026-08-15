@@ -190,6 +190,7 @@ const AUTHORITY_BOUND_PAGE_INTERNAL_STAGES = Object.freeze([
   'transport',
   'seal',
   'store',
+  'store_exception',
   'store_page_batch_invalid',
   'store_page_tombstones_invalid',
   'store_successor_cursor_rejected',
@@ -1182,7 +1183,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
       }));
     } catch {
       await bestEffortRelease(ids, leaseHandle);
-      return failAt('store');
+      return failAt('store_exception');
     }
 
     // ── 14) Commit-outcome-unknown: exact sanitized uncertain ────────────
