@@ -26,6 +26,10 @@ const CORE_DEPS_KEYS = Object.freeze([
   'secretProvider',
   'transport',
 ]);
+const REFRESH_TOKEN_REQUEST_INTERNAL_STAGES = Object.freeze(['secret', 'token', 'response']);
+const REFRESH_STAGE_SET = new Set(REFRESH_TOKEN_REQUEST_INTERNAL_STAGES);
+const REFRESH_STAGE_NOTE_KEYS = Object.freeze(['stage', 'code']);
+const REFRESH_STAGE_BRAND = new WeakMap();
 
 function failure() {
   const error = new Error(FAILURE_CODE);
@@ -70,6 +74,41 @@ function printable(value, limit) {
     && /^[\x21-\x7e]+$/.test(value);
 }
 
+function freezeRefreshStageNote(stage) {
+  try {
+    if (typeof stage !== 'string' || !REFRESH_STAGE_SET.has(stage)) return null;
+    const note = { stage, code: stage };
+    if (!exactPlainData(note, REFRESH_STAGE_NOTE_KEYS)) return null;
+    return Object.freeze(note);
+  } catch {
+    return null;
+  }
+}
+
+function brandTrustedMicrosoftRefreshTokenRequestStage(target, stage) {
+  try {
+    if (target == null || (typeof target !== 'object' && typeof target !== 'function')) {
+      return target;
+    }
+    if (typeof stage !== 'string' || !REFRESH_STAGE_SET.has(stage)) return target;
+    REFRESH_STAGE_BRAND.set(target, stage);
+    return target;
+  } catch {
+    return target;
+  }
+}
+
+function readTrustedMicrosoftRefreshTokenRequestStage(target) {
+  try {
+    if (target == null || (typeof target !== 'object' && typeof target !== 'function')) {
+      return null;
+    }
+    return freezeRefreshStageNote(REFRESH_STAGE_BRAND.get(target));
+  } catch {
+    return null;
+  }
+}
+
 function snapshotInput(input) {
   // Exact own-data keys only: refreshToken + trusted scopeVersion from custody.
   // Browser/env/provider body must never choose scope policy.
@@ -109,11 +148,14 @@ function createMicrosoftRefreshTokenRequestService(deps) {
   async function exchangeRefreshToken(input) {
     if (used) throw failure();
     used = true;
+    let stage = 'token';
     try {
       const inputSnapshot = snapshotInput(input);
       if (!inputSnapshot) throw failure();
+      stage = 'secret';
       const clientSecret = await Reflect.apply(getClientSecret, secretProvider, []);
       if (!printable(clientSecret, CLIENT_SECRET_LIMIT_CHARS)) throw failure();
+      stage = 'token';
       const body = new URLSearchParams([
         ['client_id', applicationClientId],
         ['client_secret', clientSecret],
@@ -124,6 +166,7 @@ function createMicrosoftRefreshTokenRequestService(deps) {
       const rawResponse = await Reflect.apply(postTokenForm, transport, [
         Object.freeze({ body }),
       ]);
+      stage = 'response';
       const classified = classifyMicrosoftRefreshTokenResponseForScopeVersion(
         inputSnapshot.scopeVersion,
         rawResponse,
@@ -133,8 +176,9 @@ function createMicrosoftRefreshTokenRequestService(deps) {
       }
       return classified;
     } catch (err) {
-      if (err && err.code === FAILURE_CODE) throw err;
-      throw failure();
+      const branded = err && err.code === FAILURE_CODE ? err : failure();
+      brandTrustedMicrosoftRefreshTokenRequestStage(branded, stage);
+      throw branded;
     }
   }
 
@@ -148,5 +192,7 @@ module.exports = Object.freeze({
   CLIENT_SECRET_LIMIT_CHARS,
   SCOPE_VERSION_LIMIT_CHARS,
   EXCHANGE_INPUT_KEYS,
+  REFRESH_TOKEN_REQUEST_INTERNAL_STAGES,
   createMicrosoftRefreshTokenRequestService,
+  readTrustedMicrosoftRefreshTokenRequestStage,
 });

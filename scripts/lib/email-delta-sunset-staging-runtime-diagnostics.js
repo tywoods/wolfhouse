@@ -52,6 +52,12 @@ const CODES = Object.freeze([
   'grant',
   'seal',
   'release',
+  'open',
+  'secret',
+  'token',
+  'response',
+  'reseal',
+  'commit',
 ]);
 
 const EVENT_KEYS = Object.freeze(['event', 'stage', 'code']);
@@ -70,15 +76,35 @@ const PRIORITY = Object.freeze({
   cursor: 70,
   query: 60,
   authority: 50,
-  status: 50,
-  lease: 50,
+  status: 55,
+  lease: 55,
   grant: 50,
   seal: 50,
   store: 50,
-  release: 50,
+  release: 55,
+  open: 55,
+  secret: 55,
+  token: 55,
+  response: 55,
+  reseal: 55,
+  commit: 55,
   transport: 40,
   unknown: 0,
 });
+
+const GRANT_SESSION_INTERNAL_STAGES = Object.freeze([
+  'status',
+  'lease',
+  'open',
+  'secret',
+  'token',
+  'response',
+  'dead_grant',
+  'reseal',
+  'commit',
+  'release',
+]);
+const GRANT_SESSION_INTERNAL_STAGE_SET = new Set(GRANT_SESSION_INTERNAL_STAGES);
 
 const PAGE_INTERNAL_STAGES = Object.freeze([
   'authority',
@@ -187,6 +213,17 @@ function classifyDeltaRuntimePageInternalStage(stage) {
     if (typeof stage !== 'string' || !INTERNAL_PAGE_STAGE_SET.has(stage)) return null;
     if (!STAGE_SET.has(stage) || !CODE_SET.has(stage)) return null;
     return freezeNote(stage, stage);
+  } catch {
+    return null;
+  }
+}
+
+function classifyDeltaRuntimeGrantSessionInternalStage(stage) {
+  try {
+    if (typeof stage !== 'string' || !GRANT_SESSION_INTERNAL_STAGE_SET.has(stage)) return null;
+    if (stage === 'dead_grant') return freezeNote('grant', 'dead_grant');
+    if (!CODE_SET.has(stage)) return null;
+    return freezeNote('grant', stage);
   } catch {
     return null;
   }
@@ -347,6 +384,20 @@ function createDeltaRuntimeDiagnosticSink(deps) {
     recordFromPageInternalStage(stage) {
       record(classifyDeltaRuntimePageInternalStage(stage));
     },
+    recordFromGrantSessionInternalStage(stage) {
+      record(classifyDeltaRuntimeGrantSessionInternalStage(stage));
+    },
+    recordFromTrustedGrantSessionResult(result, readTrusted) {
+      try {
+        const reader = typeof readTrusted === 'function' ? readTrusted : null;
+        const internal = reader ? reader(result) : null;
+        if (internal && typeof internal.stage === 'string') {
+          record(classifyDeltaRuntimeGrantSessionInternalStage(internal.stage));
+        }
+      } catch {
+        // ignore
+      }
+    },
     recordFromTrustedPageResult(result, readTrusted) {
       try {
         const reader = typeof readTrusted === 'function'
@@ -395,6 +446,7 @@ module.exports = Object.freeze({
   classifyDeltaRuntimeQueryFailure,
   classifyDeltaRuntimePageFailure,
   classifyDeltaRuntimePageInternalStage,
+  classifyDeltaRuntimeGrantSessionInternalStage,
   classifyDeltaRuntimeUnknown,
   buildDeltaRuntimeTickFailedEvent,
   assertSafeDeltaRuntimeTickFailedEvent,

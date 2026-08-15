@@ -48,6 +48,7 @@ const {
   classifyDeltaRuntimeQueryFailure,
   classifyDeltaRuntimePageFailure,
   classifyDeltaRuntimePageInternalStage,
+  classifyDeltaRuntimeGrantSessionInternalStage,
   classifyDeltaRuntimeUnknown,
   buildDeltaRuntimeTickFailedEvent,
   assertSafeDeltaRuntimeTickFailedEvent,
@@ -64,6 +65,11 @@ const {
   readTrustedAuthorityBoundPageInternalStage,
   bindTrustedAuthorityBoundPageInternalStageObserver,
 } = require('./lib/email-authority-bound-messages-delta-page-operation');
+
+const {
+  DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES,
+  readTrustedDelegatedGrantAccessSessionInternalStage,
+} = require('./lib/email-delegated-grant-access-session');
 
 const INTERNAL_STAGES = Object.freeze([
   'authority',
@@ -106,11 +112,18 @@ test('package script and exports are exact/frozen', () => {
   assert.deepEqual(CODES, Object.freeze([
     'dead_grant', 'unauthorized', 'cursor', 'query', 'transport', 'store', 'unknown',
     'authority', 'status', 'lease', 'grant', 'seal', 'release',
+    'open', 'secret', 'token', 'response', 'reseal', 'commit',
   ]));
   assert.deepEqual(AUTHORITY_BOUND_PAGE_INTERNAL_STAGES, INTERNAL_STAGES);
+  assert.deepEqual(DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES, Object.freeze([
+    'status', 'lease', 'open', 'secret', 'token', 'response',
+    'dead_grant', 'reseal', 'commit', 'release',
+  ]));
   assert.equal(typeof classifyDeltaRuntimePageInternalStage, 'function');
+  assert.equal(typeof classifyDeltaRuntimeGrantSessionInternalStage, 'function');
   assert.equal(typeof readTrustedAuthorityBoundPageInternalStage, 'function');
   assert.equal(typeof bindTrustedAuthorityBoundPageInternalStageObserver, 'function');
+  assert.equal(typeof readTrustedDelegatedGrantAccessSessionInternalStage, 'function');
 });
 
 test('known grant / 401 / cursor / query / transport / store classifications', () => {
@@ -367,6 +380,123 @@ test('forged page results and observer payloads cannot classify or leak', () => 
   noLeak(logs);
 });
 
+test('closed-enum grant-session stages map onto grant + specific code', () => {
+  const expected = Object.freeze({
+    status: 'status',
+    lease: 'lease',
+    open: 'open',
+    secret: 'secret',
+    token: 'token',
+    response: 'response',
+    dead_grant: 'dead_grant',
+    reseal: 'reseal',
+    commit: 'commit',
+    release: 'release',
+  });
+  for (const stage of DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES) {
+    const classified = classifyDeltaRuntimeGrantSessionInternalStage(stage);
+    assert.deepEqual(classified, Object.freeze({
+      stage: 'grant',
+      code: expected[stage],
+    }));
+    assert.equal(STAGES.includes(classified.stage), true, stage);
+    assert.equal(CODES.includes(classified.code), true, stage);
+    noLeak(classified);
+  }
+  assert.equal(classifyDeltaRuntimeGrantSessionInternalStage(PLANTED), null);
+  assert.equal(classifyDeltaRuntimeGrantSessionInternalStage('grant'), null);
+  assert.equal(classifyDeltaRuntimeGrantSessionInternalStage({ stage: 'open' }), null);
+  assert.equal(classifyDeltaRuntimeGrantSessionInternalStage('unauthorized'), null);
+});
+
+test('trusted grant-session result mapping distinguishes fail sites without leaking', () => {
+  for (const stage of DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES) {
+    const logs = [];
+    const sink = createDeltaRuntimeDiagnosticSink({
+      logger(record) { logs.push(record); },
+    });
+    const planted = Object.freeze({
+      ok: false,
+      status: 'unavailable',
+      grant_generation: 1,
+      message: PLANTED,
+      refresh_token: PLANTED,
+    });
+    assert.equal(readTrustedDelegatedGrantAccessSessionInternalStage(planted), null);
+    sink.recordFromTrustedGrantSessionResult(
+      planted,
+      () => Object.freeze({ stage, code: stage }),
+    );
+    sink.emitFailure();
+    assert.equal(logs.length, 1);
+    assert.deepEqual(logs[0], {
+      event: 'email_delta_runtime_tick_failed',
+      stage: 'grant',
+      code: stage === 'dead_grant' ? 'dead_grant' : stage,
+    });
+    assert.deepEqual(Reflect.ownKeys(logs[0]), ['event', 'stage', 'code']);
+    noLeak(logs);
+  }
+});
+
+test('grant-session specific codes beat generic grant/unknown and lose to dead_grant', () => {
+  const logs = [];
+  const openSink = createDeltaRuntimeDiagnosticSink({
+    logger(record) { logs.push(record); },
+  });
+  openSink.recordFromGrantStatus('unavailable');
+  openSink.recordFromPageInternalStage('grant');
+  openSink.recordFromGrantSessionInternalStage('open');
+  openSink.emitFailure();
+  assert.deepEqual(logs[0], {
+    event: 'email_delta_runtime_tick_failed',
+    stage: 'grant',
+    code: 'open',
+  });
+
+  const deadSink = createDeltaRuntimeDiagnosticSink({
+    logger(record) { logs.push(record); },
+  });
+  deadSink.recordFromGrantSessionInternalStage('token');
+  deadSink.recordFromGrantStatus('reauthorization_required');
+  deadSink.recordFromPageInternalStage('grant');
+  deadSink.emitFailure();
+  assert.deepEqual(logs[1], {
+    event: 'email_delta_runtime_tick_failed',
+    stage: 'grant',
+    code: 'dead_grant',
+  });
+  noLeak(logs);
+});
+
+test('forged grant-session payloads cannot classify or leak', () => {
+  const logs = [];
+  const sink = createDeltaRuntimeDiagnosticSink({
+    logger(record) { logs.push(record); },
+  });
+  const forged = Object.freeze({
+    ok: false,
+    status: 'unavailable',
+    stage: 'secret',
+    code: 'secret',
+    message: PLANTED,
+  });
+  assert.equal(readTrustedDelegatedGrantAccessSessionInternalStage(forged), null);
+  sink.recordFromTrustedGrantSessionResult(
+    forged,
+    readTrustedDelegatedGrantAccessSessionInternalStage,
+  );
+  sink.recordFromGrantSessionInternalStage(PLANTED);
+  sink.recordFromGrantSessionInternalStage({ stage: PLANTED, code: PLANTED });
+  sink.emitFailure();
+  assert.deepEqual(logs[0], {
+    event: 'email_delta_runtime_tick_failed',
+    stage: 'tick',
+    code: 'unknown',
+  });
+  noLeak(logs);
+});
+
 test('dead_grant still beats later internal page stages', () => {
   const logs = [];
   const sink = createDeltaRuntimeDiagnosticSink({
@@ -418,6 +548,8 @@ test('runtime composition catch logs only closed stage+code and does not leak', 
   assert.match(compositionSrc, /createDeltaRuntimeDiagnosticSink/);
   assert.match(compositionSrc, /recordFromTrustedPageResult/);
   assert.match(compositionSrc, /readTrustedAuthorityBoundPageInternalStage/);
+  assert.match(compositionSrc, /recordFromTrustedGrantSessionResult/);
+  assert.match(compositionSrc, /readTrustedDelegatedGrantAccessSessionInternalStage/);
   assert.doesNotMatch(compositionSrc, /console\.error\('email_delta_runtime_tick_failed'\)/);
   const workerSrc = fs.readFileSync(path.join(ROOT, WORKER_REL), 'utf8');
   assert.doesNotMatch(workerSrc, /gmail|imap/i);

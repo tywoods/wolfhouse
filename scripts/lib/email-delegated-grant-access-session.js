@@ -40,6 +40,7 @@ const {
 const {
   createMicrosoftRefreshTokenRequestService,
   SUNSET_DEPLOYMENT: REQUEST_SUNSET,
+  readTrustedMicrosoftRefreshTokenRequestStage,
 } = require('./email-microsoft-refresh-token-request');
 
 const FAILURE_CODE = 'delegated_grant_access_session_failed';
@@ -61,6 +62,25 @@ const DEPENDENCY_KEYS = Object.freeze([
 const SERVICE_KEYS = Object.freeze(['runWithAccessTokenOnce']);
 const INPUT_KEYS = Object.freeze(['clientId', 'endpointId']);
 const LOAN_KEYS = Object.freeze(['accessToken']);
+
+/** Closed-enum internal observation stages. Never includes IDs, tokens, or errors. */
+const DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES = Object.freeze([
+  'status',
+  'lease',
+  'open',
+  'secret',
+  'token',
+  'response',
+  'dead_grant',
+  'reseal',
+  'commit',
+  'release',
+]);
+const INTERNAL_STAGE_SET = new Set(DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES);
+const INTERNAL_STAGE_NOTE_KEYS = Object.freeze(['stage', 'code']);
+const INTERNAL_STAGE_BRAND = new WeakMap();
+const CREATED_SESSIONS = new WeakSet();
+const SESSION_OBSERVERS = new WeakMap();
 
 const STATUS_REAUTH = 'reauthorization_required';
 const STATUS_UNCERTAIN = 'uncertain';
@@ -128,6 +148,64 @@ function parseWorkerId(raw) {
   const v = raw.trim();
   if (v.length < 1 || v.length > 128 || /\s/.test(v) || v !== raw) return null;
   return v;
+}
+
+function freezeInternalStageNote(stage) {
+  try {
+    if (typeof stage !== 'string' || !INTERNAL_STAGE_SET.has(stage)) return null;
+    const note = { stage, code: stage };
+    if (!exactPlainData(note, INTERNAL_STAGE_NOTE_KEYS)) return null;
+    return Object.freeze(note);
+  } catch {
+    return null;
+  }
+}
+
+function brandTrustedDelegatedGrantAccessSessionInternalStage(target, stage) {
+  try {
+    if (target == null || (typeof target !== 'object' && typeof target !== 'function')) {
+      return target;
+    }
+    if (typeof stage !== 'string' || !INTERNAL_STAGE_SET.has(stage)) return target;
+    INTERNAL_STAGE_BRAND.set(target, stage);
+    return target;
+  } catch {
+    return target;
+  }
+}
+
+function readTrustedDelegatedGrantAccessSessionInternalStage(target) {
+  try {
+    if (target == null || (typeof target !== 'object' && typeof target !== 'function')) {
+      return null;
+    }
+    return freezeInternalStageNote(INTERNAL_STAGE_BRAND.get(target));
+  } catch {
+    return null;
+  }
+}
+
+function bindTrustedDelegatedGrantAccessSessionInternalStageObserver(session, observer) {
+  try {
+    if (!session || !CREATED_SESSIONS.has(session)) return false;
+    if (typeof observer !== 'function') return false;
+    SESSION_OBSERVERS.set(session, observer);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function notifyInternalStageObserver(session, stage) {
+  try {
+    const observer = SESSION_OBSERVERS.get(session);
+    if (typeof observer !== 'function') return;
+    const note = freezeInternalStageNote(stage);
+    if (!note) return;
+    observer(note);
+  } catch {
+    // Observer failure must never alter session control flow.
+  }
 }
 
 function sessionFail(status, grantGeneration) {
@@ -198,6 +276,21 @@ function createDelegatedGrantAccessSession(deps) {
   } catch (_) { throw failure(); }
 
   let used = false;
+  let service = null;
+
+  function failAt(stage) {
+    const error = failure();
+    brandTrustedDelegatedGrantAccessSessionInternalStage(error, stage);
+    notifyInternalStageObserver(service, stage);
+    return error;
+  }
+
+  function sessionFailAt(status, grantGeneration, stage) {
+    const result = sessionFail(status, grantGeneration);
+    brandTrustedDelegatedGrantAccessSessionInternalStage(result, stage);
+    notifyInternalStageObserver(service, stage);
+    return result;
+  }
 
   /**
    * Callback-scoped one-shot access session.
@@ -232,14 +325,14 @@ function createDelegatedGrantAccessSession(deps) {
         clientId: ids.clientId,
         endpointId: ids.endpointId,
       }, { client });
-      if (!prior.ok) throw failure();
+      if (!prior.ok) throw failAt('status');
       const priorDto = prior.value;
       if (!priorDto.grant_present) {
-        return sessionFail(STATUS_UNAVAILABLE, null);
+        return sessionFailAt(STATUS_UNAVAILABLE, null, 'status');
       }
       if (priorDto.grant_status === 'reauthorization_required'
           || priorDto.grant_status === 'revoked') {
-        return sessionFail(STATUS_REAUTH, priorDto.grant_generation);
+        return sessionFailAt(STATUS_REAUTH, priorDto.grant_generation, 'dead_grant');
       }
 
       const acquired = await tryAcquireDelegatedGrantLease({
@@ -248,7 +341,7 @@ function createDelegatedGrantAccessSession(deps) {
         workerId,
       }, { client });
       if (!acquired.ok) {
-        return sessionFail(STATUS_UNAVAILABLE, priorDto.grant_generation);
+        return sessionFailAt(STATUS_UNAVAILABLE, priorDto.grant_generation, 'lease');
       }
       lease = acquired.value;
 
@@ -261,7 +354,7 @@ function createDelegatedGrantAccessSession(deps) {
           || typeof openedOwner.value.refresh_token !== 'string') {
         await safeAbort(client, ids, lease);
         lease = null;
-        return sessionFail(STATUS_UNAVAILABLE, priorDto.grant_generation);
+        return sessionFailAt(STATUS_UNAVAILABLE, priorDto.grant_generation, 'open');
       }
       // Extract only the needed refresh string, then drop opened result owner.
       refreshToken = openedOwner.value.refresh_token;
@@ -282,7 +375,9 @@ function createDelegatedGrantAccessSession(deps) {
           refreshToken,
           scopeVersion,
         }));
-      } catch (_) {
+      } catch (exchangeErr) {
+        const refreshNote = readTrustedMicrosoftRefreshTokenRequestStage(exchangeErr);
+        const exchangeStage = refreshNote && refreshNote.stage ? refreshNote.stage : 'token';
         const gen = lease.grant_generation;
         await markDelegatedGrantReconciliation({
           clientId: ids.clientId,
@@ -294,7 +389,7 @@ function createDelegatedGrantAccessSession(deps) {
         }, { client });
         await safeAbort(client, ids, lease);
         lease = null;
-        return sessionFail(STATUS_UNCERTAIN, gen);
+        return sessionFailAt(STATUS_UNCERTAIN, gen, exchangeStage);
       }
 
       if (classified.kind === 'invalid_grant') {
@@ -307,9 +402,9 @@ function createDelegatedGrantAccessSession(deps) {
         }, { client });
         lease = null;
         if (!reauth.ok) {
-          return sessionFail(STATUS_UNCERTAIN, priorDto.grant_generation);
+          return sessionFailAt(STATUS_UNCERTAIN, priorDto.grant_generation, 'dead_grant');
         }
-        return sessionFail(STATUS_REAUTH, reauth.value.grant_generation);
+        return sessionFailAt(STATUS_REAUTH, reauth.value.grant_generation, 'dead_grant');
       }
 
       if (classified.kind !== 'success' || !classified.selected) {
@@ -325,7 +420,7 @@ function createDelegatedGrantAccessSession(deps) {
         const gen = lease.grant_generation;
         await safeAbort(client, ids, lease);
         lease = null;
-        return sessionFail(STATUS_UNCERTAIN, gen);
+        return sessionFailAt(STATUS_UNCERTAIN, gen, 'response');
       }
 
       // Narrow token owners: extract minimum locals, then drop classified/selected.
@@ -351,7 +446,7 @@ function createDelegatedGrantAccessSession(deps) {
           const gen = lease.grant_generation;
           await safeAbort(client, ids, lease);
           lease = null;
-          return sessionFail(STATUS_UNCERTAIN, gen);
+          return sessionFailAt(STATUS_UNCERTAIN, gen, 'response');
         }
         // Transfer custody to accessTokenOwner; drop candidate alias immediately.
         accessTokenOwner = accessCandidate;
@@ -371,7 +466,7 @@ function createDelegatedGrantAccessSession(deps) {
             const gen = lease.grant_generation;
             await safeAbort(client, ids, lease);
             lease = null;
-            return sessionFail(STATUS_UNCERTAIN, gen);
+            return sessionFailAt(STATUS_UNCERTAIN, gen, 'response');
           }
           refreshToSeal = refreshToken;
         } else if (selectedOwner.refreshTokenOmitted === false
@@ -391,7 +486,7 @@ function createDelegatedGrantAccessSession(deps) {
           const gen = lease.grant_generation;
           await safeAbort(client, ids, lease);
           lease = null;
-          return sessionFail(STATUS_UNCERTAIN, gen);
+          return sessionFailAt(STATUS_UNCERTAIN, gen, 'response');
         }
       } finally {
         classified = null;
@@ -416,7 +511,7 @@ function createDelegatedGrantAccessSession(deps) {
         refreshToSeal = null;
         await safeAbort(client, ids, lease);
         lease = null;
-        throw failure();
+        throw failAt('reseal');
       }
 
       try {
@@ -438,7 +533,7 @@ function createDelegatedGrantAccessSession(deps) {
         const gen = lease.grant_generation;
         await safeAbort(client, ids, lease);
         lease = null;
-        return sessionFail(STATUS_UNCERTAIN, gen);
+        return sessionFailAt(STATUS_UNCERTAIN, gen, 'reseal');
       } finally {
         refreshToSeal = null;
       }
@@ -459,7 +554,7 @@ function createDelegatedGrantAccessSession(deps) {
         const gen = lease.grant_generation;
         await safeAbort(client, ids, lease);
         lease = null;
-        return sessionFail(STATUS_UNCERTAIN, gen);
+        return sessionFailAt(STATUS_UNCERTAIN, gen, 'reseal');
       }
 
       const committed = await commitDelegatedGrantRotation({
@@ -474,7 +569,7 @@ function createDelegatedGrantAccessSession(deps) {
       if (!committed.ok) {
         accessTokenOwner = null;
         // CAS conflict / zero row / commit_outcome_unknown → zero callback.
-        return sessionFail(STATUS_UNCERTAIN, priorDto.grant_generation);
+        return sessionFailAt(STATUS_UNCERTAIN, priorDto.grant_generation, 'commit');
       }
 
       const grantGeneration = committed.value.grant_generation;
@@ -497,7 +592,7 @@ function createDelegatedGrantAccessSession(deps) {
       await safeAbort(client, ids, lease);
       lease = null;
       if (err && err.code === FAILURE_CODE) throw err;
-      throw failure();
+      throw failAt('release');
     } finally {
       // Release every local token-owner reference regardless of path.
       // Reference nulling only.
@@ -516,7 +611,9 @@ function createDelegatedGrantAccessSession(deps) {
     }
   }
 
-  return Object.freeze({ runWithAccessTokenOnce });
+  service = Object.freeze({ runWithAccessTokenOnce });
+  CREATED_SESSIONS.add(service);
+  return service;
 }
 
 module.exports = Object.freeze({
@@ -530,5 +627,8 @@ module.exports = Object.freeze({
   STATUS_UNCERTAIN,
   STATUS_UNAVAILABLE,
   EMAIL_DELEGATED_GRANT_ACCESS_SESSION_RUNTIME_WIRED,
+  DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES,
   createDelegatedGrantAccessSession,
+  readTrustedDelegatedGrantAccessSessionInternalStage,
+  bindTrustedDelegatedGrantAccessSessionInternalStageObserver,
 });
