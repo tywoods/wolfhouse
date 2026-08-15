@@ -170,11 +170,17 @@ function financeRedesignBarRow(name, cents, pct, colorClass) {
 
 function financeRedesignUtilRow(name, pct, detail, colorClass) {
   var known = pct != null && Number.isFinite(Number(pct));
-  var w = known ? Math.max(0, Math.min(100, Number(pct))) : 0;
-  var val = known ? (String(Math.round(w)) + '%') : financeRedesignEsc(detail || '—');
-  return '<div class="pfb-util-row">' +
+  var rawPct = known ? Number(pct) : null;
+  // Visual fill clamps at 100%; label stays truthful when over capacity.
+  var w = rawPct != null ? Math.max(0, Math.min(100, rawPct)) : 0;
+  var over = rawPct != null && rawPct > 100;
+  var val = rawPct != null
+    ? financeRedesignEsc(String(Math.round(rawPct)) + '%')
+    : financeRedesignEsc(detail || '—');
+  var fillCls = (colorClass || '') + (over ? ' is-over' : '');
+  return '<div class="pfb-util-row' + (over ? ' is-over' : '') + '">' +
     '<span class="pfb-util-name">' + financeRedesignEsc(name) + '</span>' +
-    '<span class="pfb-util-track"><span class="pfb-util-fill ' + colorClass + '" style="width:' + (known ? w : 0) + '%"></span></span>' +
+    '<span class="pfb-util-track"><span class="pfb-util-fill ' + fillCls + '" style="width:' + (known ? w : 0) + '%"></span></span>' +
     '<span class="pfb-util-val">' + val + '</span>' +
     '</div>';
 }
@@ -405,13 +411,19 @@ function renderFinanceRedesignHtml(summary) {
   html += '<div class="pfb-sec">' + financeRedesignEsc(financeRedesignT('admin.finance.capacityUsed', 'Capacity used')) + '</div>';
   html += '<div class="pfb-cap-top">';
   var seatsPct = cap.seats_pct;
-  var ringPct = seatsPct != null && Number.isFinite(Number(seatsPct))
-    ? Math.max(0, Math.min(100, Math.round(Number(seatsPct))))
+  var seatsPctKnown = seatsPct != null && Number.isFinite(Number(seatsPct));
+  var seatsPctNum = seatsPctKnown ? Number(seatsPct) : null;
+  // Ring fill clamps at 100% so overflow never paints a clipped/broken conic arc.
+  var ringPct = seatsPctNum != null
+    ? Math.max(0, Math.min(100, Math.round(seatsPctNum)))
     : 0;
-  html += '<div class="pfb-ring" data-finance-cap-ring="1" style="--pfb-ring:' + ringPct + '%" aria-hidden="true">' +
+  var ringOver = seatsPctNum != null && seatsPctNum > 100;
+  html += '<div class="pfb-ring' + (ringOver ? ' is-over' : '') + '" data-finance-cap-ring="1"' +
+    (ringOver ? ' data-capacity-over="1"' : '') +
+    ' style="--pfb-ring:' + ringPct + '%" aria-hidden="true">' +
     '<div class="pfb-ring-in"><b>' +
-    (seatsPct != null && Number.isFinite(Number(seatsPct))
-      ? financeRedesignEsc(String(Math.round(Number(seatsPct))) + '%')
+    (seatsPctNum != null
+      ? financeRedesignEsc(String(Math.round(seatsPctNum)) + '%')
       : '\u2014') +
     '</b><span>' + financeRedesignEsc(financeRedesignT('admin.finance.lessonSeats', 'lesson seats')) + '</span></div></div>';
   html += '<div class="pfb-bars pfb-bars--compact pfb-bars--capacity">';
@@ -429,15 +441,19 @@ function renderFinanceRedesignHtml(summary) {
     if (/staff\s*accommodation/i.test(lab)) lab = financeRedesignT('admin.finance.product.accommodation', 'Accommodation');
     var pct = row.pct;
     var rawPct = (pct != null && Number.isFinite(Number(pct))) ? Number(pct) : null;
+    // Track fill clamps at 100%; label/detail stay truthful (e.g. 132/100 · 132%).
     var w = rawPct != null ? Math.max(0, Math.min(100, rawPct)) : 0;
+    var over = rawPct != null && rawPct > 100;
     var detail = row.detail != null ? String(row.detail) : '\u2014';
     if ((!detail || detail === '\u2014') && row.used != null) {
       detail = String(row.used);
     }
     var pctLabel = rawPct != null ? (String(Math.round(rawPct)) + '%') : '';
-    html += '<div class="pfb-bar-row pfb-bar-row--util">';
+    var fillCls = cls + (over ? ' is-over' : '');
+    html += '<div class="pfb-bar-row pfb-bar-row--util' + (over ? ' is-over' : '') + '"' +
+      (over ? ' data-capacity-over="1"' : '') + '>';
     html += '<span class="pfb-bar-name">' + financeRedesignEsc(lab) + '</span>';
-    html += '<span class="pfb-bar-track"><span class="pfb-bar-fill ' + cls + '" style="width:' + w + '%"></span></span>';
+    html += '<span class="pfb-bar-track"><span class="pfb-bar-fill ' + fillCls + '" style="width:' + w + '%"></span></span>';
     html += '<span class="pfb-bar-amt">' + financeRedesignEsc(detail) + '</span>';
     html += '<span class="pfb-bar-pct">' + financeRedesignEsc(pctLabel) + '</span>';
     html += '</div>';

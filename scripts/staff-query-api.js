@@ -17365,18 +17365,23 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 @media(min-width:900px){.pfb-two{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .pfb-sec{font-size:15px;font-weight:700;color:var(--text)}
 .pfb-sub{font-size:12px;color:var(--text-2);margin:2px 0 12px}
-.pfb-bar-row,.pfb-util-row{display:grid;grid-template-columns:9rem minmax(0,1fr) 4.75rem 3.25rem;gap:8px 10px;align-items:center;margin:0;min-height:26px}
+.pfb-bar-row,.pfb-util-row{display:grid;grid-template-columns:9rem minmax(0,1fr) minmax(4.75rem,max-content) minmax(3.25rem,max-content);gap:8px 10px;align-items:center;margin:0;min-height:26px}
 
 /* Finance redesign — compact 4-row bars + trend toggle + custom cal */
 .pfb-bars--compact{display:flex;flex-direction:column;gap:6px}
 .pfb-bars--compact .pfb-bar-row{min-height:24px;align-items:center}
 .pfb-bars--compact .pfb-bar-track{height:8px;min-width:0}
 .pfb-bar-name,.pfb-util-name{width:9rem;max-width:9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--text)}
-.pfb-bar-amt,.pfb-bar-pct,.pfb-util-val{font-variant-numeric:tabular-nums;text-align:right;font-size:12px;color:var(--text-2)}
+.pfb-bar-amt,.pfb-bar-pct,.pfb-util-val{font-variant-numeric:tabular-nums;text-align:right;font-size:12px;color:var(--text-2);overflow:visible}
 .pfb-bar-pct{min-width:3rem}
 .pfb-cap-top{display:flex;align-items:flex-start;gap:14px;margin-top:4px}
 .pfb-bars--capacity{flex:1 1 auto;min-width:0}
 .pfb-card--capacity .pfb-ring{margin-top:2px}
+/* Over-capacity: keep fill clamped at 100%, but paint amber so it is not a fake “full” green bar. */
+.pfb-bar-row.is-over .pfb-bar-amt,.pfb-bar-row.is-over .pfb-bar-pct,.pfb-util-row.is-over .pfb-util-val{color:#8a6a1a}
+.pfb-bar-fill.is-over,.pfb-util-fill.is-over{background:#c4922a}
+.pfb-ring.is-over{background:conic-gradient(#c4922a 0 var(--pfb-ring,100%), var(--surface) 0)}
+.pfb-ring.is-over .pfb-ring-in b{color:#8a6a1a}
 .pfb-sub--foot{margin-top:12px;margin-bottom:0}
 .pfb-sec-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .pfb-trend-toggle{display:inline-flex;border:1px solid var(--border-soft);border-radius:999px;overflow:hidden}
@@ -17423,7 +17428,7 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .pfb-trend--monthly .pfb-trend-prev,.pfb-trend--monthly .pfb-trend-cur{width:42%}
 .pfb-trend--monthly .pfb-trend-d{font-size:12px}
 @media(max-width:640px){
-  .pfb-bar-row,.pfb-util-row{grid-template-columns:minmax(0,7rem) minmax(0,1fr) 4rem 2.75rem;gap:8px}
+  .pfb-bar-row,.pfb-util-row{grid-template-columns:minmax(0,7rem) minmax(0,1fr) minmax(4.5rem,max-content) minmax(3rem,max-content);gap:8px}
   .pfb-bar-name,.pfb-util-name{width:7rem;max-width:7rem}
   .pfb-trend--monthly{gap:6px}
   .pfb-trend--monthly .pfb-trend-d{font-size:11px}

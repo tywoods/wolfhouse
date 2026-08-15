@@ -59,7 +59,16 @@ const html = box.renderFinanceRedesignHtml({
 assert.ok(html.includes('132/100'), 'over-capacity count stays visible');
 assert.ok(html.includes('132%'), 'percent matches 132/100');
 assert.ok(!/132\/100[\s\S]{0,80}100%/.test(html), 'does not paint 100% next to 132/100');
+assert.ok(/pfb-bar-row--util is-over|data-capacity-over="1"/.test(html), 'marks over-capacity row');
+assert.ok(/pfb-bar-fill[^>]*is-over[^>]*style="width:100%"/.test(html)
+  || /style="width:100%"[^>]*is-over/.test(html)
+  || /pfb-bar-fill[^"]*is-over[^"]*"[^>]*width:100%/.test(html), 'fill clamps at 100% with over style');
+assert.ok(/pfb-ring is-over|data-finance-cap-ring="1"[^>]*data-capacity-over="1"/.test(html), 'ring marks over-capacity');
+assert.ok(/--pfb-ring:100%/.test(html), 'ring visual clamps at 100%');
 assert.ok(html.includes('Alojamiento') || html.includes('Accommodation'));
 assert.ok(!/out 2/.test(html), 'no English out-N leftover');
+
+assert.ok(api.includes('.pfb-bar-fill.is-over') && api.includes('.pfb-ring.is-over'), 'over-capacity CSS present');
+assert.ok(/minmax\(4\.75rem,\s*max-content\)/.test(api), 'capacity amt column can grow for 132/100');
 
 console.log('PASS BUG-009 alert recipients + disabled toggles + matching capacity %');
