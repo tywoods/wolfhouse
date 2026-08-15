@@ -116,10 +116,12 @@ function scheduleFormatComponentsView(comps){
   return parts.length ? parts.join(' · ') : '—';
 }
 
-function scheduleRenderDrawerOpenCustomerBtnHtml(ctx){
+function scheduleRenderDrawerOpenCustomerBtnHtml(ctx, row){
   var profile = getPortalProfile(getClient());
   if (!portalHasCustomersCrm(profile)) return '';
-  var phone = ctx && ctx.phone;
+  var phone = (typeof scheduleResolveGuestPhone === 'function')
+    ? scheduleResolveGuestPhone(ctx, row)
+    : (ctx && ctx.phone);
   if (!phone) return '';
   return '<button type="button" class="btn btn-ghost" id="ps-drawer-open-customer" data-customer-phone="' + escHtml(String(phone)) + '">' +
     escHtml(portalT('schedule.drawer.openCustomer')) + '</button>';
@@ -190,14 +192,17 @@ function scheduleRenderDrawerBookedItemsRow(comps){
 }
 
 function scheduleRenderDrawerViewBookingDetailsHtml(ctx, row){
+  var phone = (typeof scheduleResolveGuestPhone === 'function')
+    ? scheduleResolveGuestPhone(ctx, row)
+    : ((ctx && ctx.phone) || '');
   if (!isSunsetSurfActive()) {
     return '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.guestName')) + ':</strong> ' + escHtml(ctx.guest_name || '—') + '</p>' +
-      '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(ctx.phone || '—') + '</p>' +
+      '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(phone || '—') + '</p>' +
       '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.source')) + ':</strong> ' + escHtml(scheduleRowSourceDrawerLabel(row)) + '</p>' +
       '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.dateFrom')) + ':</strong> ' + escHtml(ctx.date_from || '—') + '</p>' +
       '<p class="portal-schedule-drawer-kv" style="margin:0"><strong>' + escHtml(portalT('schedule.create.dateTo')) + ':</strong> ' + escHtml(ctx.date_to || ctx.date_from || '—') + '</p>';
   }
-  return '<p class="portal-schedule-drawer-kv portal-schedule-drawer-summary-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(ctx.phone || '—') + '</p>' +
+  return '<p class="portal-schedule-drawer-kv portal-schedule-drawer-summary-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(phone || '—') + '</p>' +
     scheduleRenderDrawerViewDateRow(ctx) +
     scheduleRenderDrawerBookedItemsRow((ctx && ctx.components) || {});
 }
@@ -1127,7 +1132,7 @@ function scheduleRenderSunsetViewDrawerHtml(row, ctx, canEdit){
   html += '<div class="portal-schedule-drawer-actions">';
   if (canEdit) html += '<button type="button" class="btn btn-primary" id="ps-drawer-edit">' + escHtml(portalT('schedule.drawer.edit')) + '</button>';
   html += '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>';
-  html += scheduleRenderDrawerOpenCustomerBtnHtml(ctx);
+  html += scheduleRenderDrawerOpenCustomerBtnHtml(ctx, row);
   html += '</div>';
   html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
   html += scheduleRenderDeleteBookingRowHtml(ctx, row);
@@ -1149,7 +1154,7 @@ function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
   html += '<p id="ps-drawer-stripe-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
   html += '<div class="portal-schedule-drawer-actions">';
   if (canEdit) html += '<button type="button" class="btn btn-primary" id="ps-drawer-edit">' + escHtml(portalT('schedule.drawer.edit')) + '</button>';
-  html += scheduleRenderDrawerOpenCustomerBtnHtml(ctx);
+  html += scheduleRenderDrawerOpenCustomerBtnHtml(ctx, row);
 
   html += '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>';
   html += '</div>';

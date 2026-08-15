@@ -21,8 +21,13 @@ assert.ok(runtimeSrc.includes('pageLoading: true'));
 assert.ok(runtimeSrc.includes('isPageLoading:'));
 assert.ok(cockpitSrc.includes('loadingHero'));
 assert.ok(cockpitSrc.includes("scheduleCockpitT('daySchedule.loading'"));
-assert.ok(drawerCtrl.includes('scheduleGroupHasPhone(ctx)'));
-assert.ok(apiSrc.includes('group.phone || group.guest_phone || group.booking_phone'));
+assert.ok(drawerCtrl.includes('scheduleResolveGuestPhone(ctx, group, row)')
+  || drawerCtrl.includes('scheduleGroupHasPhone(ctx)'));
+assert.ok(apiSrc.includes('scheduleResolveGuestPhone')
+  || apiSrc.includes('group.phone || group.guest_phone || group.booking_phone'));
+assert.ok(apiSrc.includes('src.phone || src.guest_phone || src.booking_phone')
+  || apiSrc.includes('r.phone || r.guest_phone || r.booking_phone'));
+assert.ok(apiSrc.includes('scheduleResolveGuestPhone') || apiSrc.includes('scheduleGroupHasPhone'));
 assert.ok(!bookingsUi.includes("from: 'admin-bookings'"));
 assert.ok(bookingsUi.includes('adminBookingsState.expandedId = adminBookingsState.expandedId === guestId'));
 assert.ok(!cockpitSrc.includes('inbox-thread'));

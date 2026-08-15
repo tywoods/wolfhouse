@@ -20,8 +20,11 @@ assert.ok(bookingsUi.includes('renderAdminBookingsShell({ skipLoad: true })'));
 assert.ok(bookingsUi.includes('adminBookingsRestoreFiltersToDom'));
 assert.ok(adminUi.includes('adminBookingsRefreshOnLocaleChange()'));
 assert.ok(apiSrc.includes('SunsetScheduleRuntime.nav.requestPageLoad'));
-assert.ok(apiSrc.includes('group.phone || group.guest_phone || group.booking_phone'));
-assert.ok(drawerCtrl.includes('group.guest_phone || group.booking_phone'));
+assert.ok(apiSrc.includes('scheduleResolveGuestPhone')
+  || apiSrc.includes('group.phone || group.guest_phone || group.booking_phone')
+  || apiSrc.includes('r.phone || r.guest_phone || r.booking_phone'));
+assert.ok(drawerCtrl.includes('group.guest_phone || group.booking_phone')
+  || drawerCtrl.includes('scheduleResolveGuestPhone'));
 assert.ok(bookingsUi.includes('adminBookingsState.expandedId = adminBookingsState.expandedId === guestId'));
 assert.ok(!bookingsUi.includes("from: 'admin-bookings'"));
 assert.ok(!bookingsUi.includes('inbox-thread.js'));

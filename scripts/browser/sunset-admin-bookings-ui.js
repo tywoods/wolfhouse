@@ -705,6 +705,8 @@ function adminBookingsOpenInSchedule(bookingId) {
       booking_id: row.booking_id,
       booking_code: row.booking_code,
       guest_name: row.guest_name,
+      phone: row.phone || null,
+      guest_phone: row.phone || null,
       service_date_start: row.service_date_start,
       service_date: row.service_date_start || (row.items && row.items[0] && row.items[0].service_date) || null,
       check_in: row.check_in || null,
@@ -721,6 +723,8 @@ function adminBookingsOpenInSchedule(bookingId) {
         booking_id: row.booking_id || id,
         booking_code: row.booking_code || null,
         guest_name: row.guest_name || '',
+        phone: row.phone || null,
+        guest_phone: row.phone || null,
         service_date: start || null,
         _drawerFromCustomer: true,
       });
