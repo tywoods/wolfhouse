@@ -119,6 +119,9 @@ function declareView(view) {
     source: view.source || null,
     crmFilter: view.crmFilter || null,
     channel: view.channel || null,
+    needsHuman: !!view.needsHuman,
+    /** When false, the view stays queryable for CRM gates but is omitted from the rail. */
+    rail: view.rail !== false,
     requires: Object.freeze(view.requires ? view.requires.slice() : []),
     description: view.description || '',
   });
@@ -171,10 +174,20 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     id: 'needs_human',
     label: 'Needs human',
     group: 'needs_you',
+    defaultSort: INBOX_VIEW_SORTS.ATTENTION_THEN_RECENT,
+    source: INBOX_VIEW_SOURCES.CONVERSATIONS,
+    needsHuman: true,
+    description: 'Open conversations with conversations.needs_human = TRUE.',
+  }),
+  declareView({
+    id: 'needs_attention',
+    label: 'Needs attention',
+    group: 'people',
     defaultSort: INBOX_VIEW_SORTS.BOOKED_THEN_RECENT,
     source: INBOX_VIEW_SOURCES.CUSTOMERS,
     crmFilter: 'needs_attention',
-    description: 'Conversation flagged needs_human or carrying an open staff handoff.',
+    rail: false,
+    description: 'CRM people filter (needs_human or open handoff). Hidden from the rail; kept for customer-list gates.',
   }),
   declareView({
     id: 'unassigned',
@@ -370,7 +383,7 @@ function listInboxSavedViewDeclarations(opts) {
 
 /** Only the views that can run against the schema described by `capabilities`. */
 function listInboxSavedViews(opts) {
-  return listInboxSavedViewDeclarations(opts).filter((view) => view.available);
+  return listInboxSavedViewDeclarations(opts).filter((view) => view.available && view.rail !== false);
 }
 
 function getInboxSavedViewDeclaration(viewId, opts) {
@@ -427,6 +440,7 @@ function conversationPageParamIndexes(locationScoped, channelScoped) {
 function buildConversationSourceQuery(view, clientSlug, query, page) {
   const scope = resolveInboxConversationLocationScope(clientSlug, query);
   const channelScoped = !!view.channel;
+  const needsHumanScoped = !!view.needsHuman;
   const params = [clientSlug];
   if (scope.scoped) params.push(scope.locationId);
   if (channelScoped) params.push(view.channel);
@@ -452,13 +466,14 @@ function buildConversationSourceQuery(view, clientSlug, query, page) {
   return {
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
     sql: getConversationInboxQuery(keyset
-      ? { locationScoped: scope.scoped, channelScoped, keyset }
-      : { locationScoped: scope.scoped, channelScoped }),
+      ? { locationScoped: scope.scoped, channelScoped, needsHumanScoped, keyset }
+      : { locationScoped: scope.scoped, channelScoped, needsHumanScoped }),
     params,
     crmFilter: null,
     filterSql: '',
     channel: view.channel,
     channelParamIndex: channelScoped ? conversationInboxChannelParamIndex(scope.scoped) : null,
+    needsHuman: needsHumanScoped,
     locationScoped: scope.scoped,
     locationId: scope.locationId,
     hasSearch: false,
@@ -563,7 +578,11 @@ function buildInboxViewCountsPlan(input) {
 
   if (conversationViews.length) {
     const scope = resolveInboxConversationLocationScope(clientSlug, query);
-    const columns = conversationViews.map((v) => ({ key: v.id, channel: v.channel }));
+    const columns = conversationViews.map((v) => ({
+      key: v.id,
+      channel: v.channel,
+      needsHuman: !!v.needsHuman,
+    }));
     const params = [clientSlug];
     if (scope.scoped) params.push(scope.locationId);
     for (const column of columns) {
