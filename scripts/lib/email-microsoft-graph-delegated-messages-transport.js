@@ -802,6 +802,32 @@ function classifyRowValueField(row) {
   return null;
 }
 
+function classifyMappedEnvelopeField(mapped) {
+  try {
+    if (!mapped || mapped.ok !== false) return null;
+    const mappedError = ownData(mapped, 'error');
+    if (mappedError === 'inbound_envelope_timestamp_invalid') return 'received_time';
+    if (mappedError !== 'inbound_envelope_field_invalid') return null;
+    const details = ownData(mapped, 'details');
+    const field = details && typeof details === 'object' ? ownData(details, 'field') : null;
+    const classes = Object.freeze({
+      provider_message_id: 'id',
+      received_at: 'received_time',
+      sender_display_name: 'from',
+      sender_address: 'from',
+      is_read: 'read_state',
+      conversation_id: 'conversation',
+      internet_message_id: 'internet_message_id',
+    });
+    const fieldClass = ownData(classes, field);
+    return typeof fieldClass === 'string' && ROW_VALUE_FIELD_CLASS_SET.has(fieldClass)
+      ? fieldClass
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function rowValuesValid(row) {
   if (!requiredBoundedString(ownData(row, 'id'))) return false;
   if (!optionalBoundedString(ownData(row, 'subject'))) return false;
@@ -1722,7 +1748,10 @@ function mapSuccessBodyToMessagesDeltaPage(bodyText, providerMailboxId) {
         row: cleanRow,
       });
       if (!mapped || mapped.ok !== true) {
-        return Object.freeze({ ok: false, stage: 'row_value_invalid' });
+        const mappedFieldClass = classifyMappedEnvelopeField(mapped);
+        const result = { ok: false, stage: 'row_value_invalid' };
+        if (mappedFieldClass !== null) result.rowValueFieldClass = mappedFieldClass;
+        return Object.freeze(result);
       }
       if (mapped.value.provider !== PROVIDER_ID
           || mapped.value.provider_mailbox_id !== providerMailboxId
