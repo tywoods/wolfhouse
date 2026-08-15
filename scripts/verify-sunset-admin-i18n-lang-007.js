@@ -39,6 +39,8 @@ const pairs = {
   'admin.finance.trend.yearMonths': ['12 months', '12 meses'],
   'admin.finance.avg': ['avg', 'prom.'],
   'admin.email.endpointActive': ['Mailbox connection', 'Conexión del buzón'],
+  'admin.email.lastSync': ['Last sync', 'Última sincronización'],
+  'admin.email.lastSyncStale': ['Stale — not receiving new email.', 'Desactualizado — no está llegando correo nuevo.'],
   'admin.tabs.lunaStaff': ['Luna Staff', 'Personal Luna'],
   'lunaStaff.numbers.title': ['Staff & Owner Numbers', 'Números de personal y propietario'],
   'lunaStaff.alerts.title': ['Guest Conversation Alerts', 'Alertas de conversación'],

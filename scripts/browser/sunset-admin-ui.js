@@ -2240,8 +2240,8 @@ function adminRefreshOnLocaleChange(){
   if (typeof adminBookingsRefreshOnLocaleChange === 'function') {
     adminBookingsRefreshOnLocaleChange();
   }
-  if (typeof loadAdminEmailSettings === 'function' && typeof adminActiveSubTab === 'string' && adminActiveSubTab === 'email') {
-    loadAdminEmailSettings();
+  if (typeof adminEmailRefreshOnLocaleChange === 'function') {
+    adminEmailRefreshOnLocaleChange();
   }
 }
 

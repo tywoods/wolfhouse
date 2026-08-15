@@ -3,6 +3,8 @@ var adminEmailSettingsLoadSeq = 0;
 var adminEmailReauthSeq = 0;
 var adminEmailReauthAbortController = null;
 var adminEmailReauthOrigin = null;
+var adminEmailSettingsLastData = null;
+var adminEmailSettingsView = '';
 
 /* Independently owned browser contract for Phase B reauth success validation.
  * Deliberately not imported from route/B1 producers (no self-fulfilling checks). */
@@ -441,10 +443,19 @@ function wireDisconnectHandlers(body){
 function emailUiT(key, en, es){
   var raw = '';
   try { raw = String((typeof portalT === 'function' && portalT(key)) || ''); } catch (_) { raw = ''; }
-  if (raw && raw !== key && raw.indexOf('admin.email.') !== 0) return raw;
   var lang = '';
-  try { lang = String((typeof portalLang === 'string' && portalLang) || ''); } catch (_) { lang = ''; }
-  return lang.toLowerCase().indexOf('es') === 0 ? es : en;
+  try {
+    lang = String((typeof portalLang === 'string' && portalLang) || '');
+    if (!lang && typeof getStaffLocale === 'function') lang = String(getStaffLocale() || '');
+  } catch (_) { lang = ''; }
+  var isEs = lang.toLowerCase().indexOf('es') === 0;
+  if (raw && raw !== key && raw.indexOf('admin.email.') !== 0) {
+    // portalT falls back to EN when an ES pack row is missing — keep the local ES string.
+    if (isEs && raw === en) return es;
+    if (!isEs && raw === es) return en;
+    return raw;
+  }
+  return isEs ? es : en;
 }
 function adminEmailStatusPill(kind, label){
   var cls = kind === 'on' ? 'is-on' : (kind === 'soon' ? 'is-soon' : 'is-off');
@@ -576,11 +587,12 @@ function renderAdminEmailSettingsState(state, data, provider){
   var syncStale = adminEmailLastSyncStale(syncRaw, adminEmailMailboxConnected(key));
   if (syncLabel) {
     html += '<p class="portal-admin-email-last-sync' + (syncStale ? ' is-stale' : '') + '" data-email-last-sync' +
-      (syncStale ? ' data-email-last-sync-stale="1"' : '') + '>' +
-      '<span class="portal-admin-email-fact-label">' + escHtml(emailUiT('admin.email.lastSync', 'Last sync', 'Última sincronización')) + '</span> ' +
+      (syncStale ? ' data-email-last-sync-stale="1"' : '') +
+      ' data-email-last-sync-iso="' + escHtml(syncRaw) + '">' +
+      '<span class="portal-admin-email-fact-label" data-i18n="admin.email.lastSync">' + escHtml(emailUiT('admin.email.lastSync', 'Last sync', 'Última sincronización')) + '</span> ' +
       '<span data-email-last-sync-when>' + escHtml(syncLabel) + '</span>';
     if (syncStale) {
-      html += '<span class="portal-admin-email-last-sync-warn" data-email-last-sync-warn role="status">' +
+      html += '<span class="portal-admin-email-last-sync-warn" data-email-last-sync-warn data-i18n="admin.email.lastSyncStale" role="status">' +
         escHtml(emailUiT('admin.email.lastSyncStale', 'Stale — not receiving new email.', 'Desactualizado — no está llegando correo nuevo.')) +
         '</span>';
     }
@@ -663,6 +675,8 @@ function adminEmailComingCardsHtml(){
 }
 function renderAdminEmailSettingsData(data){
   var body = el('admin-email-settings-body'); if (!body) return;
+  adminEmailSettingsLastData = data;
+  adminEmailSettingsView = 'data';
   var locations = data && Array.isArray(data.locations) ? data.locations : [];
   var endpoints = data && Array.isArray(data.endpoints) ? data.endpoints : [];
   var active = '', i;
@@ -680,6 +694,7 @@ function renderAdminEmailSettingsData(data){
 function renderAdminEmailLoadFail(){
   var body = el('admin-email-settings-body');
   if (!body) return;
+  adminEmailSettingsView = 'fail';
   cancelAdminEmailReauthorization();
   var fail = '<section class="portal-admin-email-settings portal-admin-email-card" data-email-state="error">' +
     '<h2 class="portal-admin-email-card-title">' + escHtml(emailUiT('admin.email.loadFailTitle', 'Couldn’t load mailboxes', 'No se pudieron cargar los buzones')) + '</h2>' +
@@ -710,10 +725,22 @@ function loadAdminEmailSettings(){
     })
     .catch(function(){ if (seq === adminEmailSettingsLoadSeq) renderAdminEmailLoadFail(); });
 }
+function adminEmailRefreshOnLocaleChange(){
+  try {
+    if (typeof getStaffLocale === 'function') portalLang = getStaffLocale();
+  } catch (_e) { /* ignore */ }
+  // Re-paint from the last honest payload. Do not refetch or invent last_sync.
+  if (adminEmailSettingsView === 'data' && adminEmailSettingsLastData) {
+    renderAdminEmailSettingsData(adminEmailSettingsLastData);
+    return;
+  }
+  if (adminEmailSettingsView === 'fail') renderAdminEmailLoadFail();
+}
 
 /* Narrow production exposure: tab/client navigation outside nested scopes + verifiers. */
 try {
   if (typeof window !== 'undefined') {
     window.cancelAdminEmailReauthorization = cancelAdminEmailReauthorization;
+    window.adminEmailRefreshOnLocaleChange = adminEmailRefreshOnLocaleChange;
   }
 } catch (_expose) { /* ignore */ }

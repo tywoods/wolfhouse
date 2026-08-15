@@ -121,6 +121,6 @@ html = render({ last_sync: staleIso });
 assert.match(html, /Última sincronización/);
 assert.match(html, /hace 14 horas/);
 assert.match(html, /no está llegando|no llegan/i);
-assert.doesNotMatch(html, /admin\.email\.(lastSync|lastSyncStale)/);
+assert.doesNotMatch(html.replace(/\sdata-i18n="admin\.email\.[^"]+"/g, ''), /admin\.email\.(lastSync|lastSyncStale)/);
 
 console.log('PASS EMAIL-CONNECT-UI-003 honest stale last-sync chrome');
