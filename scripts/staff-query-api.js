@@ -17739,6 +17739,10 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .portal-schedule-drawer .ps-day-amt-included{font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.03em}
 @media(max-width:360px){.portal-schedule-drawer-edit-body{padding:12px}.portal-schedule-drawer-edit-footer .portal-schedule-create-actions{flex-wrap:wrap}.portal-schedule-drawer-edit-footer .portal-schedule-create-actions .btn{flex:1 1 calc(50% - 6px)}}
 .portal-schedule-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:9700}
+/* Overlays are moved to document.body (column flex). Keep them out of the flex flow so
+   closing the Horario drawer cannot collapse #tab-portal-home into blank cream. */
+body > .portal-schedule-drawer-backdrop,
+body > .portal-schedule-drawer{flex:none;align-self:auto}
 .portal-schedule-item-card.demo{opacity:.95;border-style:dashed}
 .portal-schedule-item-card.manual{border-style:dashed}
 .portal-schedule-item-card.source-staff{background:#ecfdf3;border-color:#86efac}
