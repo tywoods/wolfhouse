@@ -20,6 +20,10 @@ const apiSrc = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'u
 
 assert.ok(apiSrc.includes('.pfb-bar-fill.is-over'), 'bar over-capacity fill CSS');
 assert.ok(apiSrc.includes('.pfb-ring.is-over'), 'ring over-capacity CSS');
+assert.ok(
+  apiSrc.indexOf('.pfb-bar-fill.is-over') > apiSrc.indexOf('.pfb-bar-fill.is-green'),
+  'is-over fill CSS must follow is-green so amber wins'
+);
 assert.ok(/minmax\(4\.75rem,\s*max-content\)/.test(apiSrc), 'amt column grows for wide ratios');
 assert.ok(/minmax\(3\.25rem,\s*max-content\)/.test(apiSrc), 'pct column grows for 132%');
 assert.ok(!/inbox-thread\.js/.test(redesignSrc), 'capacity fix stays off inbox-thread');
