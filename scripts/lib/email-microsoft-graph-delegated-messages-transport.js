@@ -350,7 +350,8 @@ const ROW_VALUE_FIELD_CLASSES = Object.freeze([
 const ROW_VALUE_FIELD_CLASS_SET = new Set(ROW_VALUE_FIELD_CLASSES);
 const ROW_VALUE_BRANCH_CLASSES = Object.freeze([
   'subject_metadata',
-  'odata_metadata',
+  'odata_unrecognized_type',
+  'odata_invalid_metadata',
   'duplicate_message_identity',
   'tombstone_envelope_collision',
   'invariant_mapper_shape',
@@ -877,6 +878,20 @@ function rowValuesValid(row) {
     // Discard immediately — never return, persist, compare, log, or use.
   }
   return true;
+}
+
+function classifyRejectedOdataType(row) {
+  if (!exactPlainData(row, ROW_FIELDS_WITH_TYPE)
+      && !exactPlainData(row, ROW_FIELDS_WITH_ETAG_AND_TYPE)) {
+    return 'odata_invalid_metadata';
+  }
+  const typeValue = ownData(row, ODATA_TYPE_KEY);
+  return typeof typeValue === 'string'
+      && typeValue.length > 0
+      && typeValue.length <= 256
+      && /^#microsoft\.graph\.[A-Za-z][A-Za-z0-9]*$/.test(typeValue)
+    ? 'odata_unrecognized_type'
+    : 'odata_invalid_metadata';
 }
 
 function discardValidatedOdataType(row) {
@@ -1782,7 +1797,7 @@ function mapSuccessBodyToMessagesDeltaPage(bodyText, providerMailboxId) {
           result.rowValueFieldClass = rowValueFieldClass;
         } else if (rowStage === 'row_value_invalid') {
           result.rowValueBranchClass = cleanRow === null
-            ? 'odata_metadata'
+            ? classifyRejectedOdataType(row)
             : 'subject_metadata';
         }
         return Object.freeze(result);
