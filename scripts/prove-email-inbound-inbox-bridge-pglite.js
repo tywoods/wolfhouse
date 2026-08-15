@@ -14,6 +14,8 @@
  *   - happy path / replay / location isolation
  *   - opaque emailv1 identity (no raw email in phone)
  *   - customer sync skip (no customers row for email projections)
+ *   - microsoft_graph attach sets conversations.needs_human=true (new + existing)
+ *   - non-Microsoft providers preserve false / existing needs_human
  *   - conversation delete CASCADE clears journal (retention contract)
  *   - down migration fail-closed when projection rows exist
  *   - two-connection concurrent same-event projection (exactly one message+journal)
@@ -122,6 +124,7 @@ CREATE TABLE conversations (
   language TEXT DEFAULT 'en',
   session_state JSONB NOT NULL DEFAULT '{}'::jsonb,
   last_message_preview TEXT,
+  needs_human BOOLEAN NOT NULL DEFAULT FALSE,
   status conversation_status NOT NULL DEFAULT 'open',
   conversation_stage TEXT,
   bot_mode bot_mode NOT NULL DEFAULT 'bot',
@@ -218,6 +221,10 @@ INSERT INTO tenant_channel_endpoints (id, client_id, location_id) VALUES
 function assertStaticContract() {
   const up = fs.readFileSync(UP_067, 'utf8');
   const down = fs.readFileSync(DOWN_067, 'utf8');
+  const proveSrc = fs.readFileSync(__filename, 'utf8');
+  const {
+    SQL_UPSERT_CONVERSATION,
+  } = require('./lib/email-inbound-inbox-bridge');
   assert.match(up, /CREATE TABLE tenant_email_inbound_inbox_projections/);
   assert.match(up, /FOREIGN KEY \(client_id, inbound_event_id\)/);
   assert.match(up, /FOREIGN KEY \(client_id, conversation_id, message_id\)/);
@@ -225,6 +232,12 @@ function assertStaticContract() {
   assert.match(up, /emailv1\|email/);
   assert.match(down, /067_down_refused/);
   assert.match(down, /projection rows present/);
+  // Production upsert writes conversations.needs_human ($11). The disposable
+  // conversations shell must expose that 001_init column or the real engine
+  // raises 42703 and the bridge fail-closes as uncertain.
+  assert.match(proveSrc, /needs_human BOOLEAN NOT NULL DEFAULT FALSE/);
+  assert.match(SQL_UPSERT_CONVERSATION, /\bneeds_human\b/);
+  assert.match(SQL_UPSERT_CONVERSATION, /\$11::boolean/);
   console.log('ok - static 067 integration contract');
 }
 
@@ -369,6 +382,26 @@ async function count(client, sql, params = []) {
   return Number(r.rows[0].n);
 }
 
+function conversationIdentity(fromAddress, mailbox) {
+  const {
+    resolveInboundMatchConversationIdentity,
+  } = require('./lib/email-inbound-match-ingest');
+  const resolved = resolveInboundMatchConversationIdentity({
+    providerMailboxId: mailbox || ids.mailbox,
+    fromAddress,
+  });
+  if (!resolved || typeof resolved.conversation_key !== 'string') {
+    throw new Error('canonical conversation identity required');
+  }
+  return resolved.conversation_key;
+}
+
+function assertPgBool(actual, expected, label) {
+  const truthy = actual === true || actual === 't';
+  const falsey = actual === false || actual === 'f';
+  assert.equal(expected ? truthy : falsey, true, label || `needs_human expected ${expected}, got ${String(actual)}`);
+}
+
 async function proveBehavioral(pool, options = {}) {
   const {
     createEmailInboundInboxBridge,
@@ -398,11 +431,12 @@ async function proveBehavioral(pool, options = {}) {
     assert.equal(r1.created_conversation, true);
 
     const conv = await setup.query(
-      `SELECT phone, email, metadata, session_state, last_message_preview, customer_id
+      `SELECT phone, email, metadata, session_state, last_message_preview, customer_id, needs_human
          FROM conversations WHERE id = $1::uuid`,
       [r1.conversation_id],
     );
     assert.equal(conv.rows.length, 1);
+    assertPgBool(conv.rows[0].needs_human, true, 'new microsoft_graph conversation needs_human=true');
     const phone = conv.rows[0].phone;
     assert.equal(isEmailChannelPhoneNamespace(phone), true);
     assert.ok(String(phone).startsWith('emailv1:'));
@@ -480,6 +514,131 @@ async function proveBehavioral(pool, options = {}) {
       1,
     );
     console.log('ok - replay already_projected zero mutation');
+
+    // ── needs_human: existing Microsoft attach converges; other providers keep state ─
+    {
+      const existingAddr = 'existing-converge@example.test';
+      const existingPhone = conversationIdentity(existingAddr, ids.mailbox);
+      const plantedConv = await setup.query(
+        `INSERT INTO conversations (
+           client_id, phone, display_name, email, status, bot_mode, needs_human,
+           metadata, session_state
+         ) VALUES (
+           $1::uuid, $2, 'Existing Guest', $3, 'open', 'bot', false,
+           '{"channel":"email"}'::jsonb, '{"channel":"email"}'::jsonb
+         ) RETURNING id::text AS conversation_id`,
+        [ids.client, existingPhone, existingAddr],
+      );
+      const plantedId = plantedConv.rows[0].conversation_id;
+      const evExist = await insertInboundEvent(setup, {
+        provider_message_id: `msg-exist-${crypto.randomBytes(3).toString('hex')}`,
+        sender_address: existingAddr,
+        sender_display_name: 'Existing Guest',
+      });
+      const rExist = await bridge.projectInboundEvent(Object.freeze({
+        ...authority(),
+        inboundEventId: evExist.id,
+      }));
+      assert.equal(rExist.status, 'projected');
+      assert.equal(rExist.conversation_id, plantedId);
+      assert.equal(rExist.created_conversation, false);
+      const existRead = await setup.query(
+        `SELECT needs_human FROM conversations WHERE id = $1::uuid`,
+        [plantedId],
+      );
+      assertPgBool(existRead.rows[0].needs_human, true, 'existing conversation converges needs_human=true');
+
+      const otherPhone = existingPhone;
+      await setup.query(
+        `INSERT INTO conversations (
+           client_id, phone, display_name, email, status, bot_mode, needs_human,
+           metadata, session_state
+         ) VALUES (
+           $1::uuid, $2, 'Other Tenant', $3, 'open', 'bot', false,
+           '{"channel":"email"}'::jsonb, '{"channel":"email"}'::jsonb
+         )`,
+        [ids.clientB, otherPhone, existingAddr],
+      );
+      const otherRead = await setup.query(
+        `SELECT needs_human FROM conversations WHERE client_id = $1::uuid AND phone = $2`,
+        [ids.clientB, otherPhone],
+      );
+      assert.equal(otherRead.rows.length, 1);
+      assertPgBool(otherRead.rows[0].needs_human, false, 'other tenant needs_human stays false');
+
+      const gmailAddr = 'gmail-preserve@example.test';
+      const evGmailNew = await insertInboundEvent(setup, {
+        provider: 'gmail_api',
+        provider_message_id: `msg-gmail-new-${crypto.randomBytes(3).toString('hex')}`,
+        sender_address: gmailAddr,
+        sender_display_name: 'Gmail Guest',
+      });
+      const rGmailNew = await bridge.projectInboundEvent(Object.freeze({
+        ...authority(),
+        inboundEventId: evGmailNew.id,
+      }));
+      assert.equal(rGmailNew.status, 'projected');
+      const gmailNewRead = await setup.query(
+        `SELECT needs_human FROM conversations WHERE id = $1::uuid`,
+        [rGmailNew.conversation_id],
+      );
+      assertPgBool(gmailNewRead.rows[0].needs_human, false, 'new gmail_api conversation stays needs_human=false');
+
+      const evImapKeepFalse = await insertInboundEvent(setup, {
+        provider: 'imap_smtp',
+        provider_message_id: `msg-imap-keep-false-${crypto.randomBytes(3).toString('hex')}`,
+        sender_address: gmailAddr,
+        sender_display_name: 'Gmail Guest',
+      });
+      const rImapKeepFalse = await bridge.projectInboundEvent(Object.freeze({
+        ...authority(),
+        inboundEventId: evImapKeepFalse.id,
+      }));
+      assert.equal(rImapKeepFalse.status, 'projected');
+      assert.equal(rImapKeepFalse.conversation_id, rGmailNew.conversation_id);
+      const imapFalseRead = await setup.query(
+        `SELECT needs_human FROM conversations WHERE id = $1::uuid`,
+        [rGmailNew.conversation_id],
+      );
+      assertPgBool(imapFalseRead.rows[0].needs_human, false, 'imap_smtp attach preserves existing false');
+
+      const keepTrueAddr = 'keep-true@example.test';
+      const keepTruePhone = conversationIdentity(keepTrueAddr, ids.mailbox);
+      const keepTrue = await setup.query(
+        `INSERT INTO conversations (
+           client_id, phone, display_name, email, status, bot_mode, needs_human,
+           metadata, session_state
+         ) VALUES (
+           $1::uuid, $2, 'Keep True', $3, 'open', 'bot', true,
+           '{"channel":"email"}'::jsonb, '{"channel":"email"}'::jsonb
+         ) RETURNING id::text AS conversation_id`,
+        [ids.client, keepTruePhone, keepTrueAddr],
+      );
+      const evGmailKeepTrue = await insertInboundEvent(setup, {
+        provider: 'gmail_api',
+        provider_message_id: `msg-gmail-keep-true-${crypto.randomBytes(3).toString('hex')}`,
+        sender_address: keepTrueAddr,
+        sender_display_name: 'Keep True',
+      });
+      const rGmailKeepTrue = await bridge.projectInboundEvent(Object.freeze({
+        ...authority(),
+        inboundEventId: evGmailKeepTrue.id,
+      }));
+      assert.equal(rGmailKeepTrue.status, 'projected');
+      assert.equal(rGmailKeepTrue.conversation_id, keepTrue.rows[0].conversation_id);
+      const keepTrueRead = await setup.query(
+        `SELECT needs_human FROM conversations WHERE id = $1::uuid`,
+        [keepTrue.rows[0].conversation_id],
+      );
+      assertPgBool(keepTrueRead.rows[0].needs_human, true, 'gmail_api attach preserves existing true');
+
+      const happyAfter = await setup.query(
+        `SELECT needs_human FROM conversations WHERE id = $1::uuid`,
+        [r1.conversation_id],
+      );
+      assertPgBool(happyAfter.rows[0].needs_human, true, 'original microsoft conversation stays true');
+      console.log('ok - needs_human microsoft true / existing converges / non-Microsoft preserve (real SQL)');
+    }
 
     // ── Same sender + same mailbox, different location → one conversation ─
     const evSard = await insertInboundEvent(setup, {

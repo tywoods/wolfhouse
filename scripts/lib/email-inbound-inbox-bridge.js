@@ -144,10 +144,10 @@ LIMIT 1
 const SQL_UPSERT_CONVERSATION = `
 INSERT INTO conversations (
   client_id, phone, display_name, email, status, bot_mode, conversation_stage,
-  last_message_preview, metadata, session_state
+  last_message_preview, metadata, session_state, needs_human
 ) VALUES (
   $1::uuid, $2, $3, $4, $5::conversation_status, $6::bot_mode, $7,
-  $8, $9::jsonb, $10::jsonb
+  $8, $9::jsonb, $10::jsonb, $11::boolean
 )
 ON CONFLICT (client_id, phone) DO UPDATE SET
   display_name = COALESCE(NULLIF(conversations.display_name, ''), EXCLUDED.display_name),
@@ -156,6 +156,7 @@ ON CONFLICT (client_id, phone) DO UPDATE SET
   metadata = conversations.metadata || EXCLUDED.metadata,
   session_state = conversations.session_state || EXCLUDED.session_state,
   conversation_stage = COALESCE(conversations.conversation_stage, EXCLUDED.conversation_stage),
+  needs_human = CASE WHEN EXCLUDED.needs_human THEN TRUE ELSE conversations.needs_human END,
   updated_at = NOW()
 RETURNING id::text AS conversation_id,
   (xmax = 0) AS created
@@ -711,6 +712,8 @@ async function runProjectTransaction(client, parsed) {
     // 5) Upsert conversation (opaque email-channel identity key in phone column).
     // conversations.email holds the real address for staff; phone is never a
     // WhatsApp destination. 067 customer sync skips emailv1:/email: phones.
+    // Microsoft inbound only: set needs_human so generate-on-open can persist
+    // the safe no-claims draft. Other providers leave the existing flag.
     const convResult = await client.query(SQL_UPSERT_CONVERSATION, [
       parsed.clientId,
       identityKey,
@@ -722,6 +725,7 @@ async function runProjectTransaction(client, parsed) {
       preview,
       JSON.stringify(convMetadata),
       JSON.stringify(sessionState),
+      event.provider === 'microsoft_graph',
     ]);
     const convRows = convResult && Array.isArray(convResult.rows) ? convResult.rows : [];
     if (!convRows.length) {
