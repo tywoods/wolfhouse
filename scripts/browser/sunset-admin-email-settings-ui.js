@@ -499,6 +499,15 @@ function adminEmailSyncAgeMs(raw){
 function emailUiTFill(key, en, es, n){
   return String(emailUiT(key, en, es)).replace(/\{n\}/g, String(n));
 }
+function adminEmailStateCopy(key){
+  if (key === 'disconnected') {
+    return emailUiT('admin.email.state.disconnected', 'No email mailbox is registered.', 'No hay ningún buzón registrado.');
+  }
+  if (key === 'revoked') {
+    return emailUiT('admin.email.state.revoked', 'Authorization revoked.', 'Autorización revocada.');
+  }
+  return portalT('admin.email.state.' + key);
+}
 function adminEmailFormatSyncRelative(raw){
   var age = adminEmailSyncAgeMs(raw);
   if (!Number.isFinite(age)) return '';
@@ -575,16 +584,17 @@ function renderAdminEmailSettingsState(state, data, provider){
     '<p class="portal-admin-email-card-kicker">' + escHtml(emailUiT('admin.email.mailboxKind', 'Mailbox', 'Buzón')) + '</p>' +
     '<h2 class="portal-admin-email-card-title">' + escHtml(emailUiT('admin.email.provider.microsoft_graph', 'Microsoft 365', 'Microsoft 365')) + '</h2>' +
     adminEmailStatusPill(pillKind, pillLabel) +
-    '<p role="status">' + escHtml(portalT('admin.email.state.' + key)) + '</p>';
+    '<p role="status">' + escHtml(adminEmailStateCopy(key)) + '</p>';
   var connectedAs = adminEmailLooksLikeAddress(data && data.public_address);
   if (connectedAs) {
     html += '<p class="portal-admin-email-address" data-email-connected-as>' +
       '<span class="portal-admin-email-fact-label">' + escHtml(emailUiT('admin.email.connectedAs', 'Connected as', 'Conectado como')) + '</span> ' +
       escHtml(connectedAs) + '</p>';
   }
-  var syncRaw = adminEmailLastSyncRaw(data);
+  var connected = adminEmailMailboxConnected(key);
+  var syncRaw = connected ? adminEmailLastSyncRaw(data) : '';
   var syncLabel = adminEmailFormatSyncRelative(syncRaw);
-  var syncStale = adminEmailLastSyncStale(syncRaw, adminEmailMailboxConnected(key));
+  var syncStale = adminEmailLastSyncStale(syncRaw, connected);
   if (syncLabel) {
     html += '<p class="portal-admin-email-last-sync' + (syncStale ? ' is-stale' : '') + '" data-email-last-sync' +
       (syncStale ? ' data-email-last-sync-stale="1"' : '') +
@@ -621,9 +631,9 @@ function renderAdminEmailSettingsState(state, data, provider){
       '</div>';
   }
   if (hasDisconnect) {
-    html += '<div class="portal-admin-email-disconnect-group" data-email-disconnect-group role="group" aria-label="' + escHtml(portalT('admin.email.disconnectLabel')) + '">' +
-      '<button type="button" class="portal-admin-email-action-btn" data-email-disconnect="1" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '">' +
-      escHtml(portalT('admin.email.disconnectButton')) +
+    html += '<div class="portal-admin-email-disconnect-group" data-email-disconnect-group role="group" aria-label="' + escHtml(emailUiT('admin.email.disconnectLabel', 'Microsoft disconnect', 'Desconexión de Microsoft')) + '">' +
+      '<button type="button" class="portal-admin-email-action-btn" data-email-disconnect="1" data-i18n="admin.email.disconnectButton" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '">' +
+      escHtml(emailUiT('admin.email.disconnectButton', 'Disconnect Microsoft', 'Desconectar Microsoft')) +
       '</button>' +
       '</div>';
   }
@@ -638,8 +648,8 @@ function renderAdminEmailSettingsState(state, data, provider){
       escHtml(portalT('admin.email.reauthorizeSafetyNote')) + '</p>';
   }
   if (hasDisconnect) {
-    html += '<p class="portal-admin-email-disconnect-safety" data-email-disconnect-safety role="note">' +
-      escHtml(portalT('admin.email.disconnectSafetyNote')) + '</p>';
+    html += '<p class="portal-admin-email-disconnect-safety" data-email-disconnect-safety data-i18n="admin.email.disconnectSafetyNote" role="note">' +
+      escHtml(emailUiT('admin.email.disconnectSafetyNote', 'Disconnect revokes Microsoft mailbox access. Email processing stays off.', 'La desconexión revoca el acceso al buzón de Microsoft. El procesamiento de email sigue desactivado.')) + '</p>';
   }
   // Off capability list always preserved.
   html += '<dl><dt>' + escHtml(portalT('admin.email.endpointActive')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +

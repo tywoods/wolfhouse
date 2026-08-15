@@ -108,8 +108,9 @@ assert.doesNotMatch(html, /not receiving/i);
 html = render({ last_sync: staleIso, connection_state: 'disconnected' }, {
   prepare: true, connect: false, disconnect: false, reauthorize: false,
 });
-assert.match(html, /Last sync/);
-assert.match(html, /14 hours ago/);
+assert.doesNotMatch(html, /Last sync/);
+assert.doesNotMatch(html, /14 hours ago/);
+assert.doesNotMatch(html, /data-email-last-sync/);
 assert.doesNotMatch(html, /not receiving/i);
 
 html = render({});
