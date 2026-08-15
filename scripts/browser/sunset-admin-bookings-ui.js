@@ -166,6 +166,8 @@ function renderAdminBookingsShell(opts) {
   opts = opts || {};
   var body = el('admin-bookings-body');
   if (!body) return;
+  // Remount replaces toolbar nodes; allow wireAdminBookingsPanel to rebind.
+  if (body.dataset) delete body.dataset.bookingsWired;
   body.innerHTML =
     '<div class="portal-admin-bookings" data-admin-bookings="1">' +
       '<div id="admin-bookings-summary" class="portal-admin-bookings-summary" aria-live="polite"></div>' +
@@ -233,8 +235,10 @@ function renderAdminBookingsShell(opts) {
       '<div id="admin-bookings-msg" class="state-msg" style="display:none" role="status"></div>' +
     '</div>';
   wireAdminBookingsPanel();
+  // Shell markup resets hidden date inputs to "". Always re-hydrate from state so
+  // a later search cannot read empty inputs and drop the active date range.
+  adminBookingsRestoreFiltersToDom();
   if (opts && opts.skipLoad && adminBookingsState.data) {
-    adminBookingsRestoreFiltersToDom();
     renderAdminBookingsSummary();
     renderAdminBookingsTable();
     return;
@@ -250,11 +254,56 @@ function adminBookingsRestoreFiltersToDom() {
   var st = el('admin-bookings-status');
   var ty = el('admin-bookings-type');
   if (q) q.value = f.q || '';
-  if (df) df.value = f.date_from || '';
-  if (dt) dt.value = f.date_to || '';
+  if (df) {
+    df.value = f.date_from || '';
+    if (f.date_from) df.removeAttribute('data-range-cleared');
+  }
+  if (dt) {
+    dt.value = f.date_to || '';
+    if (f.date_to) dt.removeAttribute('data-range-cleared');
+  }
   if (st) st.value = f.status || '';
   if (ty) ty.value = f.type || '';
   if (typeof adminBookingsSyncDateRangeDisplay === 'function') adminBookingsSyncDateRangeDisplay();
+}
+
+/**
+ * Sync toolbar controls → adminBookingsState.filters.
+ * Contract: text search must intersect the active date range. Empty hidden
+ * date inputs (e.g. after a shell remount) must NOT clear an already-applied
+ * range — only an explicit Clear (data-range-cleared) may widen to all dates.
+ */
+function adminBookingsReadFiltersFromDom() {
+  var q = el('admin-bookings-q');
+  var df = el('admin-bookings-date-from');
+  var dt = el('admin-bookings-date-to');
+  var st = el('admin-bookings-status');
+  var ty = el('admin-bookings-type');
+  var f = adminBookingsState.filters;
+  f.q = q ? String(q.value || '').trim() : '';
+  var fromVal = df ? String(df.value || '').trim() : '';
+  var toVal = dt ? String(dt.value || '').trim() : '';
+  var clearedFrom = !!(df && df.getAttribute && df.getAttribute('data-range-cleared') === '1');
+  var clearedTo = !!(dt && dt.getAttribute && dt.getAttribute('data-range-cleared') === '1');
+  if (fromVal) {
+    f.date_from = fromVal;
+  } else if (clearedFrom) {
+    f.date_from = '';
+  }
+  // else: keep f.date_from (search ∩ active range)
+  if (toVal) {
+    f.date_to = toVal;
+  } else if (clearedTo) {
+    f.date_to = '';
+  } else if (!f.date_to && fromVal) {
+    f.date_to = fromVal;
+  }
+  // else: keep f.date_to
+  f.status = st ? String(st.value || '') : '';
+  f.type = ty ? String(ty.value || '') : '';
+  // Archived checkbox removed — hidden filter uses show_hidden only.
+  f.include_archived = false;
+  f.offset = 0;
 }
 
 function adminBookingsRefreshOnLocaleChange() {
@@ -274,31 +323,8 @@ function wireAdminBookingsPanel() {
   if (!root || root.dataset.bookingsWired === '1') return;
   root.dataset.bookingsWired = '1';
 
-  function readFiltersFromDom() {
-    var q = el('admin-bookings-q');
-    var df = el('admin-bookings-date-from');
-    var dt = el('admin-bookings-date-to');
-    var st = el('admin-bookings-status');
-    var ty = el('admin-bookings-type');
-    adminBookingsState.filters.q = q ? String(q.value || '').trim() : '';
-    var fromVal = df ? String(df.value || '').trim() : '';
-    var toVal = dt ? String(dt.value || '').trim() : '';
-    // Search must keep an already-applied date range (empty inputs must not widen the list).
-    if (fromVal) adminBookingsState.filters.date_from = fromVal;
-    else if (df && df.getAttribute && df.getAttribute('data-range-cleared') === '1') adminBookingsState.filters.date_from = '';
-    else if (!adminBookingsState.filters.date_from) adminBookingsState.filters.date_from = '';
-    if (toVal) adminBookingsState.filters.date_to = toVal;
-    else if (dt && dt.getAttribute && dt.getAttribute('data-range-cleared') === '1') adminBookingsState.filters.date_to = '';
-    else if (!adminBookingsState.filters.date_to) adminBookingsState.filters.date_to = fromVal || adminBookingsState.filters.date_to || '';
-    adminBookingsState.filters.status = st ? String(st.value || '') : '';
-    adminBookingsState.filters.type = ty ? String(ty.value || '') : '';
-    // Archived checkbox removed — hidden filter uses show_hidden only.
-    adminBookingsState.filters.include_archived = false;
-    adminBookingsState.filters.offset = 0;
-  }
-
   function applyLiveFilters() {
-    readFiltersFromDom();
+    adminBookingsReadFiltersFromDom();
     loadAdminBookings();
   }
 
@@ -325,7 +351,7 @@ function wireAdminBookingsPanel() {
   var exportBtn = el('admin-bookings-export');
   if (exportBtn) {
     exportBtn.addEventListener('click', function () {
-      readFiltersFromDom();
+      adminBookingsReadFiltersFromDom();
       var url = '/staff/admin/bookings/export.csv?' + adminBookingsBuildQuery();
       window.open(url, '_blank', 'noopener');
     });
@@ -1001,6 +1027,9 @@ function openAdminBookingsRefundForm(bookingId) {
 // Expose production owners for adminSelectSubTab / loadAdminTab / generated-UI gates.
 if (typeof window !== 'undefined') {
   window.renderAdminBookingsShell = renderAdminBookingsShell;
+  window.adminBookingsReadFiltersFromDom = adminBookingsReadFiltersFromDom;
+  window.adminBookingsRestoreFiltersToDom = adminBookingsRestoreFiltersToDom;
+  window.adminBookingsBuildQuery = adminBookingsBuildQuery;
   window.loadAdminBookings = loadAdminBookings;
   window.renderAdminBookingsTable = renderAdminBookingsTable;
   window.renderAdminBookingsSummary = renderAdminBookingsSummary;
