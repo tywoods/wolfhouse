@@ -185,22 +185,30 @@ function financeRedesignUtilRow(name, pct, detail, colorClass) {
     '</div>';
 }
 
-function financeRedesignTrendHtml(trend, mode) {
+function financeRedesignTrendHtml(trend, mode, opts) {
   var rows = Array.isArray(trend) ? trend : [];
   if (!rows.length) {
     return '<div class="pfb-trend-empty" data-finance-trend-empty="1">' + financeRedesignEsc(financeRedesignT('admin.finance.empty', 'No activity in this period.')) + '</div>';
   }
+  // Year period + 12-month chart: paint Staff API BSR dues so bars reconcile to Booked.
+  var useBooked = !!(opts && opts.useBooked);
   var max = 1;
   rows.forEach(function (r) {
-    max = Math.max(max, Number(r.collected_gross_cents) || 0, Number(r.ly_collected_gross_cents) || 0);
+    if (useBooked) {
+      max = Math.max(max, Number(r.booked_cents) || 0, Number(r.ly_booked_cents) || 0);
+    } else {
+      max = Math.max(max, Number(r.collected_gross_cents) || 0, Number(r.ly_collected_gross_cents) || 0);
+    }
   });
   var isYear = mode === 'year' || mode === 'months' || mode === '12m';
   if (isYear) {
-    var htmlMonthly = '<div class="pfb-trend pfb-trend--monthly" data-finance-trend-mode="year" role="img" aria-label="' +
+    var htmlMonthly = '<div class="pfb-trend pfb-trend--monthly" data-finance-trend-mode="year"' +
+      (useBooked ? ' data-finance-trend-basis="booked"' : ' data-finance-trend-basis="collected"') +
+      ' role="img" aria-label="' +
       financeRedesignEsc(financeRedesignTrendTitle('year')) + '">';
     rows.forEach(function (r, idx) {
-      var cur = Math.max(0, Number(r.collected_gross_cents) || 0);
-      var ly = Math.max(0, Number(r.ly_collected_gross_cents) || 0);
+      var cur = Math.max(0, Number(useBooked ? r.booked_cents : r.collected_gross_cents) || 0);
+      var ly = Math.max(0, Number(useBooked ? r.ly_booked_cents : r.ly_collected_gross_cents) || 0);
       var hCur = Math.round((100 * cur) / max);
       var hLy = Math.round((100 * ly) / max);
       var monthNum = Number(r.month);
@@ -260,7 +268,10 @@ function renderFinanceRedesignHtml(summary) {
 
   var title = financeRedesignTitle(view);
   var html = '';
-  html += '<div class="portal-admin-finance portal-admin-finance--b" data-finance-redesign="1">';
+  html += '<div class="portal-admin-finance portal-admin-finance--b" data-finance-redesign="1"' +
+    ' data-finance-view-gran="' + financeRedesignEsc(g) + '"' +
+    ' data-finance-range-start="' + financeRedesignEsc(view.range && view.range.start ? view.range.start : '') + '"' +
+    ' data-finance-range-end="' + financeRedesignEsc(view.range && view.range.end ? view.range.end : '') + '">';
 
   // Navigator
   html += '<div class="pfb-nav">';
@@ -471,8 +482,8 @@ function renderFinanceRedesignHtml(summary) {
   }
   html += '</div></div>'; // two
 
-  // Gross trend — F3 toggle: month-days vs 12-month year
-  // F3: chart mode is independent of top Day/Month/Year period selector.
+  // Gross trend — Days vs 12-month. Live wire: 12-month adopts Year period + refetch
+  // so KPIs match the year window (P2). Renderer still accepts any period + chart mode.
   var rawTrend = (typeof window !== 'undefined' && window.__financeTrendMode) ? String(window.__financeTrendMode) : '';
   if (!rawTrend && g === 'year') rawTrend = 'year';
   if (!rawTrend) rawTrend = 'days';
@@ -489,7 +500,7 @@ function renderFinanceRedesignHtml(summary) {
   html += '<button type="button" class="pfb-trend-btn' + (trendMode === 'year' ? ' is-on' : '') + '" data-finance-trend="year" role="tab" aria-selected="' + (trendMode === 'year' ? 'true' : 'false') + '">' +
     financeRedesignEsc(financeRedesignT('admin.finance.trend.yearMonths', '12 months')) + '</button>';
   html += '</div></div>';
-  html += financeRedesignTrendHtml(trendRows, trendMode);
+  html += financeRedesignTrendHtml(trendRows, trendMode, { useBooked: g === 'year' && trendMode === 'year' });
   html += '</div>';
 
   html += '</div>'; // root

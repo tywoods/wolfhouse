@@ -2,7 +2,7 @@
 
 /**
  * verify:sunset-finance-ui-revisions
- * F3 independent trend toggle, Custom opens picker, bar grid, Capacity ring.
+ * Trend toggle (12-month adopts Year period), Custom opens picker, bar grid, Capacity ring.
  */
 
 const fs = require('fs');
@@ -26,11 +26,12 @@ const { renderFinanceRedesignHtml } = require(path.join(ROOT, 'scripts/browser/s
 // F3 — click target includes data-finance-trend
 ok('wire closest includes data-finance-trend',
   /closest\([^\)]*data-finance-trend/.test(adminUi));
-ok('trend handled independently from granularity selection',
+ok('12-month trend adopts year period and refetches KPIs',
   /window\.__financeTrendMode/.test(adminUi)
-  && /renderFinanceRedesignHtml\(financeLastSummary\)/.test(adminUi)
-  && /chart mode is independent|data-finance-trend/.test(adminUi));
-ok('trend re-renders from financeLastSummary (no period refetch required)',
+  && /mode === 'year'/.test(adminUi)
+  && /financeViewState\.granularity = 'year'/.test(adminUi)
+  && /loadAdminFinanceSummary\(\)/.test(adminUi));
+ok('days trend can re-render from financeLastSummary',
   /financeLastSummary/.test(adminUi)
   && /renderFinanceRedesignHtml\(financeLastSummary\)/.test(adminUi));
 ok('trend buttons use days|year',
@@ -76,8 +77,39 @@ ok('year mode paints monthly series', /data-finance-trend-mode=\"year\"/.test(ht
 ok('year toggle is-on', /data-finance-trend=\"year\"[^>]*is-on|class=\"pfb-trend-btn is-on\"[^>]*data-finance-trend=\"year\"/.test(htmlYear));
 ok('year mode uses exact monthly trend label', /Monthly gross vs last year/.test(htmlYear));
 ok('year mode paints Jan-Dec axis', /Jan/.test(htmlYear) && /Dec/.test(htmlYear));
-// Switching mode must not change KPI period labels from summary view (month still)
-ok('period still month while chart is year', /data-finance-gran=\"month\"[^>]*is-on|aria-selected=\"true\"[^>]*>Month|class=\"pfb-gran-btn is-on\"[^>]*data-finance-gran=\"month\"/.test(htmlYear));
+// Renderer still accepts month period + year chart (offline); live wire adopts year period on 12m click.
+ok('renderer can paint year chart while summary period is month',
+  /data-finance-gran=\"month\"[^>]*is-on|aria-selected=\"true\"[^>]*>Month|class=\"pfb-gran-btn is-on\"[^>]*data-finance-gran=\"month\"/.test(htmlYear));
+ok('month summary year-chart uses collected basis', /data-finance-trend-basis=\"collected\"/.test(htmlYear));
+
+const yearSummary = computeSunsetFinanceSummary({
+  now: new Date('2026-08-15T12:00:00Z'),
+  timeZone: 'Europe/Madrid',
+  view: { granularity: 'year', anchor: '2026-08-15' },
+  bsr: [
+    { booking_id: 'B1', service_date: '2026-08-05', service_type: 'surf_lesson', amount_due_cents: 5000, quantity: 2, metadata: { component: 'course', course_id: 'c1' } },
+    { booking_id: 'B1', service_date: '2026-07-05', service_type: 'surf_lesson', amount_due_cents: 3000, quantity: 1, metadata: { component: 'course', course_id: 'c1' } },
+  ],
+  payments: [
+    { booking_id: 'B1', amount_paid_cents: 5000, paid_at: '2026-08-05T10:00:00Z', status: 'paid' },
+    { booking_id: 'B1', amount_paid_cents: 3000, paid_at: '2026-07-05T10:00:00Z', status: 'paid' },
+  ],
+  bookings: [{ booking_id: 'B1', total_amount_cents: 8000 }],
+  surf_packs: [{ pack_id: 'p1', group_size: 8, config: { group_size: 8 } }],
+  rental_stock: [],
+});
+global.window.__financeTrendMode = 'year';
+const htmlYearPeriod = renderFinanceRedesignHtml(yearSummary);
+ok('year period root attrs', /data-finance-view-gran=\"year\"/.test(htmlYearPeriod)
+  && /data-finance-range-start=\"2026-01-01\"/.test(htmlYearPeriod)
+  && /data-finance-range-end=\"2026-12-31\"/.test(htmlYearPeriod));
+ok('year period chart paints booked dues', /data-finance-trend-basis=\"booked\"/.test(htmlYearPeriod));
+ok('monthly trend carries booked_cents',
+  Array.isArray(yearSummary.redesign.monthly_gross_trend)
+  && yearSummary.redesign.monthly_gross_trend.every((r) => typeof r.booked_cents === 'number'));
+ok('year booked equals sum of monthly booked',
+  yearSummary.redesign.pipeline.booked_cents
+    === yearSummary.redesign.monthly_gross_trend.reduce((a, r) => a + r.booked_cents, 0));
 
 // Custom picker — anchored floating overlay; no incomplete custom summary reload
 ok('Custom gran opens anchored picker without openCustomPicker reload',

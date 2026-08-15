@@ -449,9 +449,23 @@ function sumCollectedGrossForRange(datedPayments, range) {
   return collected;
 }
 
-function monthlyCollectedGrossTrend(datedPayments, year) {
+function sumBookedDuesForRange(datedBsr, range) {
+  let booked = 0;
+  for (const r of datedBsr) {
+    if (inRange(r.service_date, range)) booked = checkedAdd(booked, r.due);
+  }
+  return booked;
+}
+
+/**
+ * Fixed Jan→Dec monthly series for the selected calendar year.
+ * Includes Staff API BSR dues (booked) and gross collected so Year KPIs can be
+ * reconciled to the chart without inventing prices.
+ */
+function monthlyCollectedGrossTrend(datedPayments, year, datedBsr) {
   const y = Number(year);
   if (!Number.isFinite(y)) return [];
+  const bsrRows = Array.isArray(datedBsr) ? datedBsr : [];
   const rows = [];
   for (let month = 1; month <= 12; month += 1) {
     const range = monthRangeForYearMonth(y, month);
@@ -461,6 +475,8 @@ function monthlyCollectedGrossTrend(datedPayments, year) {
       month,
       start: range.start,
       end: range.end,
+      booked_cents: sumBookedDuesForRange(bsrRows, range),
+      ly_booked_cents: sumBookedDuesForRange(bsrRows, lyRange),
       collected_gross_cents: sumCollectedGrossForRange(datedPayments, range),
       ly_collected_gross_cents: sumCollectedGrossForRange(datedPayments, lyRange),
     });
@@ -1182,7 +1198,7 @@ function computeSunsetFinanceSummary(args) {
   });
 
   const chartYear = Number(String(primaryRange.start || today).slice(0, 4));
-  const monthly_gross_trend = monthlyCollectedGrossTrend(datedPayments, chartYear);
+  const monthly_gross_trend = monthlyCollectedGrossTrend(datedPayments, chartYear, datedBsr);
 
   const avg_booking_cents = primaryStats.bookings_count > 0
     ? Math.round(primaryStats.booked_cents / primaryStats.bookings_count)
@@ -1489,11 +1505,14 @@ module.exports = {
   periodRanges,
   resolvePrimaryRange,
   next30RangeForPeriod,
+  yearRange,
   productBucket,
   buildRevenueByProductRows,
   buildRevenueByProductFiveRows: buildRevenueByProductRows, // alias
   courseIncludableOfferingKeys,
   shiftRangeYears,
+  monthlyCollectedGrossTrend,
+  sumBookedDuesForRange,
   stockTotals,
   isStaffCustomLine,
   capPeriodOutstandingToBooked,
