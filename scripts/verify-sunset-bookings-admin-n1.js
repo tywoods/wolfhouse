@@ -1421,13 +1421,14 @@ async function testGeneratedUi() {
     });
     const bookingsUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-bookings-ui.js'), 'utf8');
     ok('keyboard handler ignores nested guest for expansion (source)',
-      /data-bookings-guest-phone[\s\S]{0,500}openCustKey|openCustomerCardForPhone[\s\S]{0,80}return/.test(bookingsUi)
+      /data-bookings-guest-phone[\s\S]{0,400}guestRowKey|data-bookings-guest-phone[\s\S]{0,400}guestRow/.test(bookingsUi)
+      && !/openCustomerCardForPhone[\s\S]{0,80}from: 'admin-bookings'/.test(bookingsUi)
       && /nestedInteractive[\s\S]{0,200}return/.test(bookingsUi));
-    ok('guest click opens Customers path',
-      guestCalled && Array.isArray(guestCalled.afterClick) && guestCalled.afterClick[0] === '+34600111222',
+    ok('guest click stays on Reservas (no Customers jump)',
+      guestCalled && Array.isArray(guestCalled.afterClick) && guestCalled.afterClick.length === 0,
       JSON.stringify(guestCalled));
-    ok('guest keyboard Enter opens Customers (not row expand)',
-      guestCalled && Array.isArray(guestCalled.afterKey) && guestCalled.afterKey[0] === '+34600111222',
+    ok('guest keyboard Enter stays on Reservas (not Customers)',
+      guestCalled && Array.isArray(guestCalled.afterKey) && guestCalled.afterKey.length === 0,
       JSON.stringify(guestCalled));
 
     // ── Viewer refund gating via production session + production re-render ──

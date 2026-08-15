@@ -142,7 +142,7 @@ function scheduleDrawerRenderLegacyFallback(row, group){
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.date')) + ':</strong> ' + escHtml(String(row.service_date || '—').slice(0, 10)) + '</p>' +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.payment')) + ':</strong> ' + scheduleRenderStatusBadgeHtml(group, { detail: true }) + '</p>' +
     (notes ? '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.notes')) + ':</strong> ' + escHtml(notes) + '</p>' : '') +
-    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(group.phone || row.phone || '—') + '</p>' +
+    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(group.phone || row.phone || row.guest_phone || '—') + '</p>' +
     '<div class="portal-schedule-drawer-actions">' +
     '<button type="button" class="btn btn-ghost" disabled title="' + escHtml(portalT('schedule.drawer.stripeSoon')) + '">' + escHtml(portalT('schedule.drawer.stripeLink')) + '</button>' +
     '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>' +
@@ -150,7 +150,7 @@ function scheduleDrawerRenderLegacyFallback(row, group){
     '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>' +
     '';
   scheduleDrawerShowShell();
-  scheduleWireDrawerConversation(row, group);
+  scheduleWireDrawerConversation(row, group, row);
 }
 
 function scheduleWireDrawerHeaderActions(){
@@ -165,9 +165,12 @@ function scheduleWireDrawerHeaderActions(){
   };
 }
 
-function scheduleWireDrawerConversation(row, group){
+function scheduleWireDrawerConversation(row, group, ctx){
   var linkedConv = scheduleFindLinkedConversation(group || row);
-  var hasPhone = scheduleGroupHasPhone(group || row) || !!(el('ps-drawer-phone') && el('ps-drawer-phone').value.trim());
+  var hasPhone = scheduleGroupHasPhone(group || row)
+    || scheduleGroupHasPhone(ctx)
+    || scheduleGroupHasPhone(row)
+    || !!(el('ps-drawer-phone') && el('ps-drawer-phone').value.trim());
   var convBtn = el('ps-drawer-conversation-btn');
   var convHint = el('ps-drawer-conversation-hint');
   if (!convBtn) return;
@@ -205,7 +208,7 @@ function scheduleWireViewDrawer(row, ctx){
   var group = scheduleFindGroupForRow(row) || row;
   scheduleWireDrawerHeaderActions();
   scheduleWireDrawerStripeCopyOpen(ctx);
-  scheduleWireDrawerConversation(row, group);
+  scheduleWireDrawerConversation(row, group, ctx);
   scheduleWireDrawerOpenCustomer();
   scheduleWireDrawerManualPayment(row);
   scheduleLoadDrawerWaiver(ctx);

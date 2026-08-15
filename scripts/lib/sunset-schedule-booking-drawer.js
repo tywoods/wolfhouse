@@ -894,7 +894,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
       booking_status: bundle.booking.status || null,
       payments_paid_cents: Number(bundle.payments_paid_cents || 0),
       guest_name: bundle.booking.guest_name,
-      phone: bundle.booking.phone || meta.guest_phone || null,
+      phone: bundle.booking.phone || bundle.booking.guest_phone || meta.guest_phone || meta.phone || null,
       notes: bundle.services[0] && bundle.services[0].notes ? bundle.services[0].notes : null,
       payment_status: payment.payment_status,
       payment_method: payment.payment_status === 'paid' ? (normalizePaymentMethod(meta.sunset_payment_method) || null) : null,

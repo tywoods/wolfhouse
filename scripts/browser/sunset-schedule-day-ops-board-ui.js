@@ -1240,7 +1240,18 @@ function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
   if (gearGroups.length){
     html += scheduleRenderRentalPickupsSection(gearGroups);
   }
-  if (!html) html = '<div class="portal-schedule-ops-empty">' + escHtml(portalT('schedule.emptyDay')) + '</div>';
+  if (!html) {
+    var loadingBoard = false;
+    try {
+      if (typeof SunsetScheduleRuntime !== 'undefined'
+        && SunsetScheduleRuntime.nav
+        && typeof SunsetScheduleRuntime.nav.isPageLoading === 'function') {
+        loadingBoard = SunsetScheduleRuntime.nav.isPageLoading() === true;
+      }
+    } catch (_eLoad) { loadingBoard = false; }
+    html = '<div class="portal-schedule-ops-empty">' +
+      escHtml(loadingBoard ? portalT('daySchedule.loading') : portalT('schedule.emptyDay')) + '</div>';
+  }
   return html;
 }
 

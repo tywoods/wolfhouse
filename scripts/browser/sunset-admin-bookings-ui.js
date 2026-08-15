@@ -300,11 +300,12 @@ function wireAdminBookingsPanel() {
       if (guestBtn) {
         ev.preventDefault();
         ev.stopPropagation();
-        var phone = guestBtn.getAttribute('data-bookings-guest-phone') || '';
-        var openCust = (typeof window !== 'undefined' && typeof window.openCustomerCardForPhone === 'function')
-          ? window.openCustomerCardForPhone
-          : (typeof openCustomerCardForPhone === 'function' ? openCustomerCardForPhone : null);
-        if (phone && openCust) openCust(phone, { from: 'admin-bookings' });
+        var guestRow = guestBtn.closest ? guestBtn.closest('[data-bookings-row-id]') : null;
+        if (guestRow) {
+          var guestId = guestRow.getAttribute('data-bookings-row-id');
+          adminBookingsState.expandedId = adminBookingsState.expandedId === guestId ? null : guestId;
+          renderAdminBookingsTable();
+        }
         return;
       }
       var refundBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-record-refund]') : null;
@@ -366,11 +367,12 @@ function wireAdminBookingsPanel() {
       if (guestBtn) {
         ev.preventDefault();
         ev.stopPropagation();
-        var phoneKey = guestBtn.getAttribute('data-bookings-guest-phone') || '';
-        var openCustKey = (typeof window !== 'undefined' && typeof window.openCustomerCardForPhone === 'function')
-          ? window.openCustomerCardForPhone
-          : (typeof openCustomerCardForPhone === 'function' ? openCustomerCardForPhone : null);
-        if (phoneKey && openCustKey) openCustKey(phoneKey, { from: 'admin-bookings' });
+        var guestRowKey = guestBtn.closest ? guestBtn.closest('[data-bookings-row-id]') : null;
+        if (guestRowKey) {
+          var guestIdKey = guestRowKey.getAttribute('data-bookings-row-id');
+          adminBookingsState.expandedId = adminBookingsState.expandedId === guestIdKey ? null : guestIdKey;
+          renderAdminBookingsTable();
+        }
         return;
       }
       var codeKeyBtn = target.closest ? target.closest('[data-bookings-open-schedule]') : null;

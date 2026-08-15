@@ -24120,7 +24120,7 @@ function scheduleNormalizePhoneDigits(phone){
 }
 
 function scheduleGroupHasPhone(group){
-  var p = String(group && group.phone || '').trim();
+  var p = String((group && (group.phone || group.guest_phone || group.booking_phone)) || '').trim();
   return p.length > 0 && p.indexOf('staff:') !== 0;
 }
 
@@ -24462,7 +24462,7 @@ function scheduleBuildDisplayGroups(rows){
         })(),
         booking_amount_paid_cents: Number(r.booking_amount_paid_cents || 0),
         booking_payment_status: r.booking_payment_status || null,
-        phone: r.phone || null,
+        phone: r.phone || r.guest_phone || r.booking_phone || null,
         _isDemo: !!r._isDemo,
         _isDbManual: !!r._isDbManual,
         _isLuna: !!r._isLuna,

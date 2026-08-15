@@ -16,6 +16,7 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     forwardOffset: 0,
     navigationGen: 0,
     loadGen: 0,
+    pageLoading: true,
   };
 
   var loaderState = {
@@ -627,9 +628,11 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
       );
       scheduleRenderLoadedViewModel(viewModel, loadGen, snap);
       loaderHideState(stateNode);
+      navState.pageLoading = false;
     }).catch(function(e){
       if (!isLoadActive(loadGen)) return;
       loaderShowError(stateNode, e);
+      navState.pageLoading = false;
     });
   }
 
@@ -717,6 +720,7 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
   function bumpLoad() {
     navState.navigationGen += 1;
     navState.loadGen += 1;
+    navState.pageLoading = true;
     return navState.loadGen;
   }
 
@@ -830,6 +834,7 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     getSnapshot: getNavigationSnapshot,
     currentViewMode: function() { return getNavigationSnapshot().mode; },
     loadGen: function() { return navState.loadGen; },
+    isPageLoading: function() { return navState.pageLoading === true; },
     rangeStartDate: function() { return rangeStartFromSnapshot(); },
     activeDayIso: function() {
       var snap = getNavigationSnapshot();
