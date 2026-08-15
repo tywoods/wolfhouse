@@ -17197,6 +17197,17 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-bookings-sort-arrow{font-size:10px;opacity:.85;min-width:0.9em}
 .portal-admin-bookings-guest-link{appearance:none;border:0;background:none;padding:0;margin:0;color:var(--primary,#2e8b57);font:inherit;font-weight:600;cursor:pointer;text-align:left;text-decoration:underline}
 .portal-admin-bookings-guest-link:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px}
+.portal-admin-bookings-guest-peek{position:fixed;inset:0;z-index:9700;pointer-events:none}
+.portal-admin-bookings-guest-peek-backdrop{position:absolute;inset:0;background:rgba(20,24,22,.28);pointer-events:auto;cursor:pointer}
+.portal-admin-bookings-guest-peek-panel{position:absolute;top:0;right:0;width:min(380px,92vw);height:100%;max-height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);padding:16px 18px;overflow-y:auto;overflow-x:hidden;box-sizing:border-box;pointer-events:auto}
+.portal-admin-bookings-guest-peek-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.portal-admin-bookings-guest-peek-title{margin:0;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2)}
+.portal-admin-bookings-guest-peek-name{font-size:20px;font-weight:700;color:var(--text);line-height:1.25;margin:0 0 14px;word-break:break-word}
+.portal-admin-bookings-guest-peek-kv{margin-bottom:14px}
+.portal-admin-bookings-guest-peek-status{margin:0 0 10px;font-size:12px;color:var(--text-2)}
+.portal-admin-bookings-guest-peek-status.is-error{color:#9C5742}
+.portal-admin-bookings-guest-peek-hint{margin:12px 0 0}
+@media(max-width:640px){.portal-admin-bookings-guest-peek-panel{width:100vw;border-left:none}}
 .portal-admin-bookings-td-status{display:flex;justify-content:center;align-items:center}
 .portal-admin-bookings-td-created{font-variant-numeric:tabular-nums;white-space:nowrap;font-size:12px}
 .portal-admin-bookings-type-text{font-size:12px;font-weight:600;color:var(--text);line-height:1.35}

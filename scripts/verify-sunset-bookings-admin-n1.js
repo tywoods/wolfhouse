@@ -1402,9 +1402,15 @@ async function testGeneratedUi() {
 
     const guestCalled = await page.evaluate(() => {
       const calls = [];
+      const tabCalls = [];
       const stub = function (p) { calls.push(String(p || '')); return Promise.resolve(); };
       window.openCustomerCardForPhone = stub;
       try { openCustomerCardForPhone = stub; } catch (_e) { /* non-writable binding */ }
+      const realSwitch = window.switchToTab;
+      window.switchToTab = function () {
+        tabCalls.push([].slice.call(arguments));
+        if (typeof realSwitch === 'function') return realSwitch.apply(this, arguments);
+      };
       // Prefer paid Ada row phone (stable under default created_at order).
       const btn = document.querySelector('[data-bookings-guest-phone="+346****1222"]')
         || document.querySelector('[data-bookings-guest-phone]');
@@ -1413,23 +1419,47 @@ async function testGeneratedUi() {
       // Direct production click path via bubbling to wrap listener
       btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       const afterClick = calls.slice();
+      const tabsAfterClick = tabCalls.slice();
+      const peekOpen = !!document.querySelector('[data-bookings-guest-peek="1"]');
+      const bookingsActive = !!(document.getElementById('tab-bookings')
+        && document.getElementById('tab-bookings').classList.contains('active'));
       calls.length = 0;
+      tabCalls.length = 0;
       const keyEv = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
       // re-target: dispatch from button so closest() works
       btn.dispatchEvent(keyEv);
-      return { afterClick, afterKey: calls.slice(), expanded: !!document.querySelector('[data-bookings-expand]') };
+      return {
+        afterClick,
+        afterKey: calls.slice(),
+        tabsAfterClick,
+        tabsAfterKey: tabCalls.slice(),
+        peekOpen,
+        bookingsActive,
+        expanded: !!document.querySelector('[data-bookings-expand]'),
+      };
     });
     const bookingsUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-bookings-ui.js'), 'utf8');
-    ok('keyboard handler ignores nested guest for expansion (source)',
-      /data-bookings-guest-phone[\s\S]{0,400}guestRowKey|data-bookings-guest-phone[\s\S]{0,400}guestRow/.test(bookingsUi)
+    ok('keyboard handler opens guest peek (source)',
+      /data-bookings-guest-phone[\s\S]{0,400}adminBookingsOpenGuestPeek/.test(bookingsUi)
       && !/openCustomerCardForPhone[\s\S]{0,80}from: 'admin-bookings'/.test(bookingsUi)
       && /nestedInteractive[\s\S]{0,200}return/.test(bookingsUi));
     ok('guest click stays on Reservas (no Customers jump)',
-      guestCalled && Array.isArray(guestCalled.afterClick) && guestCalled.afterClick.length === 0,
+      guestCalled && Array.isArray(guestCalled.afterClick) && guestCalled.afterClick.length === 0
+      && Array.isArray(guestCalled.tabsAfterClick) && guestCalled.tabsAfterClick.length === 0,
+      JSON.stringify(guestCalled));
+    ok('guest click opens in-place peek on Bookings',
+      guestCalled && guestCalled.peekOpen === true && guestCalled.bookingsActive === true,
       JSON.stringify(guestCalled));
     ok('guest keyboard Enter stays on Reservas (not Customers)',
-      guestCalled && Array.isArray(guestCalled.afterKey) && guestCalled.afterKey.length === 0,
+      guestCalled && Array.isArray(guestCalled.afterKey) && guestCalled.afterKey.length === 0
+      && Array.isArray(guestCalled.tabsAfterKey) && guestCalled.tabsAfterKey.length === 0,
       JSON.stringify(guestCalled));
+
+    // Dismiss peek so later refund/table interactions are not blocked by the modal layer.
+    await page.evaluate(() => {
+      if (typeof window.adminBookingsCloseGuestPeek === 'function') window.adminBookingsCloseGuestPeek();
+    });
+    await page.waitForTimeout(50);
 
     // ── Viewer refund gating via production session + production re-render ──
     await page.selectOption('#admin-bookings-status', '').catch(() => {});

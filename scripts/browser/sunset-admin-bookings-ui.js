@@ -1,10 +1,11 @@
 /**
  * Sunset Admin Bookings tab (N1) — list, filters, expansion, manual refund UI.
  * Injected with sunset-admin-ui.js. Uses portal globals: el, portalT, escHtml,
- * getClient, getSunsetLocation, fetch, openCustomerCardForPhone, switchToTab.
+ * getClient, getSunsetLocation, fetch, switchToTab.
  * Money display only — all arithmetic is server-authoritative.
+ * Guest name opens an in-place peek on Reservas — never switchToTab/Customers/Inbox.
  */
-/* global el, portalT, escHtml, getClient, getSunsetLocation, openCustomerCardForPhone,
+/* global el, portalT, escHtml, getClient, getSunsetLocation,
    openBookingInSchedule, switchToTab, scheduleOpenDayDetail, openScheduleDetailDrawer,
    adminBookingsState, fetch */
 
@@ -33,6 +34,9 @@ var adminBookingsState = {
   refundInFlight: false,
   refundIdempotencyKey: null,
   refundBookingId: null,
+  /** In-place guest peek on Reservas (never navigates to Inbox/Customers). */
+  guestPeek: null,
+  guestPeekGen: 0,
 };
 
 /** Never expose a raw i18n key on the booking-code control. */
@@ -316,6 +320,182 @@ function adminBookingsRefreshOnLocaleChange() {
   if (!body || !body.querySelector || !body.querySelector('[data-admin-bookings="1"]')) return;
   if (body.dataset) delete body.dataset.bookingsWired;
   renderAdminBookingsShell({ skipLoad: true });
+  if (adminBookingsState.guestPeek) adminBookingsRenderGuestPeek();
+}
+
+function adminBookingsGuestPeekT(key, fallback) {
+  var label = '';
+  try { label = String((typeof portalT === 'function' && portalT(key)) || ''); } catch (_e) { label = ''; }
+  if (!label || label.indexOf('admin.bookings.') === 0 || label.indexOf('customers.') === 0) {
+    return fallback || key;
+  }
+  return label;
+}
+
+function adminBookingsFindRowById(bookingId) {
+  var id = String(bookingId || '');
+  var rows = (adminBookingsState.data && adminBookingsState.data.rows) || [];
+  for (var i = 0; i < rows.length; i += 1) {
+    if (String(rows[i].booking_id || '') === id) return rows[i];
+  }
+  return null;
+}
+
+function adminBookingsCloseGuestPeek() {
+  adminBookingsState.guestPeek = null;
+  adminBookingsState.guestPeekGen = (adminBookingsState.guestPeekGen || 0) + 1;
+  var existing = document.querySelector('[data-bookings-guest-peek="1"]');
+  if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+}
+
+/**
+ * Open guest facts in a Reservas-local side panel.
+ * Never calls openCustomerCardForPhone / switchToTab — stays on Bookings.
+ */
+function adminBookingsOpenGuestPeek(phone, bookingId) {
+  var row = adminBookingsFindRowById(bookingId);
+  var phoneNorm = String(phone || (row && row.phone) || '').trim();
+  adminBookingsState.guestPeek = {
+    phone: phoneNorm,
+    bookingId: String(bookingId || (row && row.booking_id) || ''),
+    row: row,
+    context: null,
+    loading: !!phoneNorm,
+    error: null,
+  };
+  adminBookingsRenderGuestPeek();
+  if (!phoneNorm) {
+    adminBookingsState.guestPeek.loading = false;
+    adminBookingsRenderGuestPeek();
+    return;
+  }
+  var gen = (adminBookingsState.guestPeekGen = (adminBookingsState.guestPeekGen || 0) + 1);
+  var url = '/staff/customers/' + encodeURIComponent(phoneNorm) + '/context?client=' +
+    encodeURIComponent(getClient() || 'sunset') +
+    (getClient() === 'sunset' ? ('&location=' + encodeURIComponent(getSunsetLocation() || 'sunset-somo')) : '');
+  fetch(url, { credentials: 'same-origin' })
+    .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+    .then(function (data) {
+      if (gen !== adminBookingsState.guestPeekGen || !adminBookingsState.guestPeek) return;
+      adminBookingsState.guestPeek.context = data;
+      adminBookingsState.guestPeek.loading = false;
+      adminBookingsState.guestPeek.error = null;
+      adminBookingsRenderGuestPeek();
+    })
+    .catch(function () {
+      if (gen !== adminBookingsState.guestPeekGen || !adminBookingsState.guestPeek) return;
+      adminBookingsState.guestPeek.loading = false;
+      adminBookingsState.guestPeek.error = adminBookingsGuestPeekT(
+        'admin.bookings.guestPeek.error',
+        'Could not load guest profile. Showing booking details only.'
+      );
+      adminBookingsRenderGuestPeek();
+    });
+}
+
+function adminBookingsGuestPeekHost() {
+  var body = el('admin-bookings-body') || el('tab-bookings');
+  return body || document.body;
+}
+
+function adminBookingsRenderGuestPeek() {
+  var peek = adminBookingsState.guestPeek;
+  var host = adminBookingsGuestPeekHost();
+  if (!host) return;
+  var existing = host.querySelector
+    ? host.querySelector('[data-bookings-guest-peek="1"]')
+    : document.querySelector('[data-bookings-guest-peek="1"]');
+  if (!peek) {
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    return;
+  }
+  var row = peek.row || adminBookingsFindRowById(peek.bookingId) || {};
+  var identity = (peek.context && peek.context.identity) || {};
+  var name = identity.display_name || (row.guest && row.guest.name) || row.guest_name || '—';
+  var phone = identity.phone || peek.phone || row.phone || (row.guest && row.guest.phone) || '—';
+  var email = identity.email || (row.guest && row.guest.email) || row.email || '';
+  var waiver = row.waiver;
+  var waiverText = waiver && waiver.status
+    ? String(waiver.status) + (waiver.request_mode ? ' (' + waiver.request_mode + ')' : '')
+    : adminBookingsGuestPeekT('admin.bookings.waiverUnknown', 'Unknown / not linked');
+  var code = row.booking_code || '—';
+  var title = adminBookingsGuestPeekT('admin.bookings.guestPeek.title', 'Guest');
+  var closeLabel = adminBookingsGuestPeekT('admin.bookings.guestPeek.close', 'Close');
+  var bookingLabel = adminBookingsGuestPeekT('admin.bookings.guestPeek.thisBooking', 'This booking');
+  var emailLabel = adminBookingsGuestPeekT('customers.detail.email', 'Email');
+  var loadingLabel = adminBookingsGuestPeekT('admin.bookings.guestPeek.loading', 'Loading guest…');
+
+  var statusHtml = '';
+  if (peek.loading) {
+    statusHtml = '<p class="portal-admin-bookings-guest-peek-status" data-bookings-guest-peek-loading="1">' +
+      escHtml(loadingLabel) + '</p>';
+  } else if (peek.error) {
+    statusHtml = '<p class="portal-admin-bookings-guest-peek-status is-error" data-bookings-guest-peek-error="1">' +
+      escHtml(peek.error) + '</p>';
+  }
+
+  // Identity + this booking only — no invented prices/availability; money stays on the row expand.
+  var html =
+    '<div class="portal-admin-bookings-guest-peek-backdrop" data-bookings-guest-peek-close="1" tabindex="-1"></div>' +
+    '<aside class="portal-admin-bookings-guest-peek-panel" role="dialog" aria-modal="true" ' +
+      'aria-label="' + escHtml(title) + '" data-bookings-guest-peek-panel="1">' +
+      '<div class="portal-admin-bookings-guest-peek-top">' +
+        '<h3 class="portal-admin-bookings-guest-peek-title">' + escHtml(title) + '</h3>' +
+        '<button type="button" class="btn btn-ghost btn-compact portal-admin-bookings-guest-peek-close" ' +
+          'data-bookings-guest-peek-close="1" aria-label="' + escHtml(closeLabel) + '">' +
+          escHtml(closeLabel) + '</button>' +
+      '</div>' +
+      statusHtml +
+      '<div class="portal-admin-bookings-guest-peek-name">' + escHtml(name) + '</div>' +
+      '<ul class="portal-admin-bookings-kv portal-admin-bookings-guest-peek-kv">' +
+        '<li><span>' + escHtml(adminBookingsGuestPeekT('admin.bookings.phone', 'Phone')) +
+          '</span><span data-bookings-guest-peek-phone="1">' + escHtml(phone) + '</span></li>' +
+        (email
+          ? ('<li><span>' + escHtml(emailLabel) + '</span><span data-bookings-guest-peek-email="1">' +
+            escHtml(email) + '</span></li>')
+          : '') +
+        '<li><span>' + escHtml(adminBookingsGuestPeekT('admin.bookings.waiver', 'Waiver')) +
+          '</span><span>' + escHtml(waiverText) + '</span></li>' +
+        '<li><span>' + escHtml(bookingLabel) + '</span><span data-bookings-guest-peek-code="1">' +
+          escHtml(code) + '</span></li>' +
+      '</ul>' +
+      '<p class="portal-admin-bookings-muted portal-admin-bookings-guest-peek-hint">' +
+        escHtml(adminBookingsGuestPeekT(
+          'admin.bookings.guestPeek.stayHint',
+          'Staying on Bookings — guest opened here, not in Inbox.'
+        )) +
+      '</p>' +
+    '</aside>';
+
+  if (!existing) {
+    existing = document.createElement('div');
+    existing.className = 'portal-admin-bookings-guest-peek';
+    existing.setAttribute('data-bookings-guest-peek', '1');
+    host.appendChild(existing);
+  }
+  existing.innerHTML = html;
+
+  if (!existing.dataset.wired) {
+    existing.dataset.wired = '1';
+    existing.addEventListener('click', function (ev) {
+      var closer = ev.target && ev.target.closest
+        ? ev.target.closest('[data-bookings-guest-peek-close]')
+        : null;
+      if (!closer) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      adminBookingsCloseGuestPeek();
+    });
+  }
+  if (!document.body.dataset.bookingsGuestPeekEscWired) {
+    document.body.dataset.bookingsGuestPeekEscWired = '1';
+    document.addEventListener('keydown', function (ev) {
+      if (!ev || (ev.key !== 'Escape' && ev.key !== 'Esc')) return;
+      if (!adminBookingsState.guestPeek) return;
+      if (ev.preventDefault) ev.preventDefault();
+      adminBookingsCloseGuestPeek();
+    });
+  }
 }
 
 function wireAdminBookingsPanel() {
@@ -365,14 +545,12 @@ function wireAdminBookingsPanel() {
         ev.preventDefault();
         ev.stopPropagation();
         var guestRow = guestBtn.closest ? guestBtn.closest('[data-bookings-row-id]') : null;
-        if (guestRow) {
-          var guestId = guestRow.getAttribute('data-bookings-row-id');
-          adminBookingsState.expandedId = adminBookingsState.expandedId === guestId ? null : guestId;
-          renderAdminBookingsTable();
-        }
+        var guestId = guestRow ? guestRow.getAttribute('data-bookings-row-id') : '';
+        var phone = guestBtn.getAttribute('data-bookings-guest-phone') || '';
+        adminBookingsOpenGuestPeek(phone, guestId);
         return;
       }
-      var refundBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-record-refund]') : null;
+            var refundBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-record-refund]') : null;
             if (refundBtn) {
               ev.preventDefault();
               ev.stopPropagation();
@@ -384,6 +562,7 @@ function wireAdminBookingsPanel() {
             if (hideBtn) {
               ev.preventDefault();
               ev.stopPropagation();
+              adminBookingsCloseGuestPeek();
               adminBookingsHideBooking(hideBtn.getAttribute('data-bookings-hide'));
               return;
             }
@@ -391,6 +570,7 @@ function wireAdminBookingsPanel() {
             if (unhideBtn) {
               ev.preventDefault();
               ev.stopPropagation();
+              adminBookingsCloseGuestPeek();
               adminBookingsUnhideBooking(unhideBtn.getAttribute('data-bookings-unhide'));
               return;
             }
@@ -398,6 +578,7 @@ function wireAdminBookingsPanel() {
             if (restoreBtn) {
               ev.preventDefault();
               ev.stopPropagation();
+              adminBookingsCloseGuestPeek();
               adminBookingsRestoreBooking(restoreBtn.getAttribute('data-bookings-restore'));
               return;
             }
@@ -405,6 +586,7 @@ function wireAdminBookingsPanel() {
             if (codeBtn) {
               ev.preventDefault();
               ev.stopPropagation();
+              adminBookingsCloseGuestPeek();
               adminBookingsOpenInSchedule(codeBtn.getAttribute('data-bookings-open-schedule'));
               return;
             }
@@ -418,6 +600,7 @@ function wireAdminBookingsPanel() {
       }
       if (rowBtn) {
         var id = rowBtn.getAttribute('data-bookings-row-id');
+        adminBookingsCloseGuestPeek();
         adminBookingsState.expandedId = adminBookingsState.expandedId === id ? null : id;
         renderAdminBookingsTable();
       }
@@ -432,11 +615,9 @@ function wireAdminBookingsPanel() {
         ev.preventDefault();
         ev.stopPropagation();
         var guestRowKey = guestBtn.closest ? guestBtn.closest('[data-bookings-row-id]') : null;
-        if (guestRowKey) {
-          var guestIdKey = guestRowKey.getAttribute('data-bookings-row-id');
-          adminBookingsState.expandedId = adminBookingsState.expandedId === guestIdKey ? null : guestIdKey;
-          renderAdminBookingsTable();
-        }
+        var guestIdKey = guestRowKey ? guestRowKey.getAttribute('data-bookings-row-id') : '';
+        var phoneKey = guestBtn.getAttribute('data-bookings-guest-phone') || '';
+        adminBookingsOpenGuestPeek(phoneKey, guestIdKey);
         return;
       }
       var codeKeyBtn = target.closest ? target.closest('[data-bookings-open-schedule]') : null;
@@ -916,6 +1097,7 @@ function renderAdminBookingsExpansion(row) {
 }
 
 function openAdminBookingsRefundForm(bookingId) {
+  adminBookingsCloseGuestPeek();
   var host = el('admin-bookings-refund-action-' + bookingId);
   if (!host) return;
   if (!adminBookingsCanWriteRefund()) {
@@ -1037,6 +1219,8 @@ if (typeof window !== 'undefined') {
   window.adminBookingsCanWriteRefund = adminBookingsCanWriteRefund;
   window.adminBookingsState = adminBookingsState;
   window.openAdminBookingsRefundForm = openAdminBookingsRefundForm;
+  window.adminBookingsOpenGuestPeek = adminBookingsOpenGuestPeek;
+  window.adminBookingsCloseGuestPeek = adminBookingsCloseGuestPeek;
 }
 
 
