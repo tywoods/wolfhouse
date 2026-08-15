@@ -73,6 +73,7 @@ console.log('\n[2] Module owns navigation symbols');
   'scheduleNavigateNext',
   'scheduleNavigateToday',
   'scheduleOpenDayDetail',
+  'schedulePrimeOpenDay',
   'scheduleWireScheduleNavigationControls',
   'scheduleApplyNavigationPresentation',
 ].forEach((name) => {
@@ -222,6 +223,13 @@ if (modExists) {
 
   ctx.scheduleOpenDayDetail('2026-07-10');
   assert('past date opens that day', snap().forwardOffset === -5 && snap().mode === 'day');
+
+  ctx.scheduleNavigateToday();
+  assert('today resets before prime', snap().forwardOffset === 0);
+  const primed = ctx.schedulePrimeOpenDay('2026-07-10');
+  assert('primeOpenDay returns iso', primed === '2026-07-10');
+  assert('primeOpenDay sets past offset without requiring load', snap().forwardOffset === -5 && snap().mode === 'day');
+  assert('primeOpenDay invalid iso noop', ctx.schedulePrimeOpenDay('nope') == null && snap().forwardOffset === -5);
 
   ctx.scheduleApplyNavigationPresentation(snap());
   assert('range label set', dom['ps-range-label'].textContent.length > 0);

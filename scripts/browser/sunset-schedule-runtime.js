@@ -821,12 +821,25 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     return requestPageLoad();
   }
 
-  function openDayDetail(iso) {
+  /**
+   * Seed day-mode navigation to an exact ISO date without loading.
+   * Used when another owner (e.g. Reservas → portal-home) will call
+   * loadPortalHome/requestPageLoad next — so that load lands on the
+   * booking service day instead of whatever forwardOffset was left at
+   * (usually today).
+   */
+  function primeOpenDay(iso) {
     iso = validateNavigationIso(iso);
-    if (!iso) return;
+    if (!iso) return null;
     var offset = scheduleDaysFromToday(iso);
     navState.mode = 'day';
     navState.forwardOffset = offset;
+    return iso;
+  }
+
+  function openDayDetail(iso) {
+    iso = primeOpenDay(iso);
+    if (!iso) return;
     return requestPageLoad();
   }
 
@@ -877,6 +890,7 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     navigatePrev: navigatePrev,
     navigateNext: navigateNext,
     navigateToday: navigateToday,
+    primeOpenDay: primeOpenDay,
     openDayDetail: openDayDetail,
     wireControls: wireNavigationControls,
     resetAfterBookingCreate: resetAfterBookingCreate,
