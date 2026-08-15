@@ -84,6 +84,7 @@ const INTERNAL_STAGES = Object.freeze([
   'transport',
   'seal',
   'store',
+  'store_exception',
   'store_page_batch_invalid',
   'store_page_tombstones_invalid',
   'store_successor_cursor_rejected',
@@ -115,14 +116,14 @@ test('package script and exports are exact/frozen', () => {
   assert.equal(EVENT_NAME, 'email_delta_runtime_tick_failed');
   assert.deepEqual(EVENT_KEYS, Object.freeze(['event', 'stage', 'code']));
   assert.deepEqual(STAGES, Object.freeze([
-    'schema', 'query', 'grant', 'cursor', 'transport', 'store',
+    'schema', 'query', 'grant', 'cursor', 'transport', 'store', 'store_exception',
     'store_page_batch_invalid', 'store_page_tombstones_invalid',
     'store_successor_cursor_rejected', 'store_authority_not_verified',
     'page', 'project', 'tick',
     'authority', 'status', 'lease', 'seal', 'release',
   ]));
   assert.deepEqual(CODES, Object.freeze([
-    'dead_grant', 'unauthorized', 'cursor', 'query', 'transport', 'store',
+    'dead_grant', 'unauthorized', 'cursor', 'query', 'transport', 'store', 'store_exception',
     'store_page_batch_invalid', 'store_page_tombstones_invalid',
     'store_successor_cursor_rejected', 'store_authority_not_verified', 'unknown',
     'authority', 'status', 'lease', 'grant', 'seal', 'release',
