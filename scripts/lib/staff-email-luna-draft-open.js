@@ -110,12 +110,50 @@ function sqlEmailLunaOpenDraftClaimExpired(metadataSql, ttlSql) {
   const frac = `COALESCE(('0' || SUBSTRING(${isoText} FROM '\\.[0-9]{1,6}'))::numeric, 0)`;
   const leap = `((${y} % 400 = 0) OR (${y} % 4 = 0 AND ${y} % 100 <> 0))`;
   const dim = `(CASE ${mo} WHEN 1 THEN 31 WHEN 2 THEN CASE WHEN ${leap} THEN 29 ELSE 28 END WHEN 3 THEN 31 WHEN 4 THEN 30 WHEN 5 THEN 31 WHEN 6 THEN 30 WHEN 7 THEN 31 WHEN 8 THEN 31 WHEN 9 THEN 30 WHEN 10 THEN 31 WHEN 11 THEN 30 WHEN 12 THEN 31 ELSE 0 END)`;
-  const calendarOk = `(${mo} BETWEEN 1 AND 12 AND ${d} BETWEEN 1 AND ${dim} AND ${h} BETWEEN 0 AND 23 AND ${mi} BETWEEN 0 AND 59 AND ${sec} BETWEEN 0 AND 59)`;
+  // Year 0000 matches the 4-digit ISO regex but make_timestamptz(0, ...) throws.
+  // Reject it in the calendar predicate so the expired branch never casts.
+  const calendarOk = `(${y} BETWEEN 1 AND 9999 AND ${mo} BETWEEN 1 AND 12 AND ${d} BETWEEN 1 AND ${dim} AND ${h} BETWEEN 0 AND 23 AND ${mi} BETWEEN 0 AND 59 AND ${sec} BETWEEN 0 AND 59)`;
   const isoMs = `(EXTRACT(EPOCH FROM make_timestamptz(${y}, ${mo}, ${d}, ${h}, ${mi}, (${sec}::numeric + ${frac}), 'UTC')) * 1000)`;
   return `(CASE WHEN ${msText} ~ '^[0-9]{1,16}$' THEN CASE WHEN ${msText}::numeric >= 0 AND ${msText}::numeric <= ${EMAIL_LUNA_OPEN_CLAIM_AT_MS_MAX} THEN ${msText}::numeric <= (${nowMs} - ${ttl}) ELSE TRUE END WHEN ${isoText} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$' THEN CASE WHEN ${calendarOk} THEN ${isoMs} <= (${nowMs} - ${ttl}) ELSE TRUE END ELSE TRUE END)`;
 }
 
 const SQL_EMAIL_LUNA_OPEN_DRAFT_CLAIM_EXPIRED = sqlEmailLunaOpenDraftClaimExpired('metadata', '$5');
+
+// Shared serialization with staff save (staff-email-inbox-routes SQL_RESOLVE):
+// same join order, FOR UPDATE OF c,p,ev,ep. Short READ COMMITTED tx only —
+// never hold this lock across Graph or the model. The following claim/CAS
+// UPDATE is a separate statement so its snapshot is taken after the lock.
+const SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION = `
+SELECT c.id::text AS conversation_id,
+  p.inbound_event_id::text AS inbound_event_id,
+  ev.provider AS provider,
+  ev.location_id::text AS event_location_id,
+  loc.location_id AS location_key,
+  ev.provider_mailbox_id AS provider_mailbox_id,
+  ep.provider_resource_id AS endpoint_provider_mailbox_id
+FROM clients cl
+INNER JOIN staff_users su ON su.client_id=cl.id AND su.id=$2::uuid AND su.status='active'
+  AND su.role IN ('operator','admin','owner')
+INNER JOIN conversations c ON c.client_id=cl.id AND c.id=$3::uuid
+  AND c.phone ~ '^(emailv1|email):'
+INNER JOIN tenant_email_inbound_inbox_projections p ON p.client_id=cl.id AND p.conversation_id=c.id
+INNER JOIN tenant_email_inbound_events ev ON ev.client_id=p.client_id AND ev.id=p.inbound_event_id
+  AND ev.location_id=p.location_id AND ev.endpoint_id=p.endpoint_id
+  AND ev.provider=p.provider AND ev.provider_mailbox_id=p.provider_mailbox_id
+  AND ev.provider_message_id=p.provider_message_id
+INNER JOIN tenant_locations loc ON loc.client_id=ev.client_id AND loc.id=ev.location_id
+INNER JOIN tenant_channel_endpoints ep ON ep.client_id=ev.client_id AND ep.id=ev.endpoint_id
+  AND ep.location_id=loc.location_id AND ep.channel='email'
+  AND ep.provider='microsoft_graph'
+WHERE cl.id=$1::uuid AND loc.location_id='sunset-somo' AND ev.provider='microsoft_graph'
+ORDER BY ev.received_at DESC, ev.id DESC
+LIMIT 1
+FOR UPDATE OF c,p,ev,ep`.replace(/\s+/g, ' ').trim();
+
+const SQL_EMAIL_LUNA_OPEN_TX_BEGIN = 'BEGIN';
+const SQL_EMAIL_LUNA_OPEN_TX_COMMIT = 'COMMIT';
+const SQL_EMAIL_LUNA_OPEN_TX_ROLLBACK = 'ROLLBACK';
+const PG_CLIENT_DISCARD_REQUIRED = Symbol.for('wolfhouse.pgClient.discardRequired');
 
 const SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT = `
 UPDATE conversations
@@ -211,7 +249,7 @@ function parseIsoClaimedAtMs(text) {
     || !Number.isInteger(hour) || !Number.isInteger(minute) || !Number.isInteger(second)) {
     return NaN;
   }
-  if (month < 1 || month > 12 || day < 1 || day > daysInClaimMonth(year, month)
+  if (year < 1 || year > 9999 || month < 1 || month > 12 || day < 1 || day > daysInClaimMonth(year, month)
     || hour > 23 || minute > 59 || second > 59) {
     return NaN;
   }
@@ -464,6 +502,66 @@ function createStaffEmailLunaDraftOpen(deps) {
     createLunaRuntime: deps.createLunaRuntime,
   });
 
+  function markDiscard(client) {
+    if (typeof deps.markPgClientDiscardRequired === 'function') {
+      deps.markPgClientDiscardRequired(client);
+      return;
+    }
+    if (client && typeof client === 'object') {
+      client[PG_CLIENT_DISCARD_REQUIRED] = true;
+    }
+  }
+
+  async function rollbackOrDiscard(pg) {
+    try {
+      await pg.query(SQL_EMAIL_LUNA_OPEN_TX_ROLLBACK);
+    } catch {
+      markDiscard(pg);
+      const err = new Error('transaction_cleanup_failed');
+      err.code = 'transaction_cleanup_failed';
+      throw err;
+    }
+  }
+
+  // BEGIN → SELECT conversation FOR UPDATE → separate claim/CAS UPDATE → COMMIT.
+  // Snapshot of the UPDATE is acquired after the lock under READ COMMITTED.
+  async function lockThenWrite(actor, conversationId, expectedEventId, writeFn) {
+    return deps.withPgClient(async (pg) => {
+      let began = false;
+      let settled = false;
+      try {
+        await pg.query(SQL_EMAIL_LUNA_OPEN_TX_BEGIN);
+        began = true;
+        const locked = await pg.query(SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, [
+          actor.client_id, actor.staff_user_id, conversationId,
+        ]);
+        const row = locked && Array.isArray(locked.rows) && locked.rows.length === 1
+          ? locked.rows[0] : null;
+        const lockedEvent = row ? uuid(row.inbound_event_id) : null;
+        if (!row || lockedEvent !== expectedEventId
+          || row.provider !== 'microsoft_graph'
+          || row.location_key !== 'sunset-somo') {
+          await rollbackOrDiscard(pg);
+          settled = true;
+          return null;
+        }
+        const wrote = await writeFn(pg);
+        await pg.query(SQL_EMAIL_LUNA_OPEN_TX_COMMIT);
+        settled = true;
+        return wrote;
+      } catch (error) {
+        if (began && !settled) {
+          try {
+            await pg.query(SQL_EMAIL_LUNA_OPEN_TX_ROLLBACK);
+          } catch {
+            markDiscard(pg);
+          }
+        }
+        throw error;
+      }
+    });
+  }
+
   async function loadOpenContext(actor, conversationId) {
     return deps.withPgClient(async (pg) => {
       const loadedCtx = await pg.query(SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT, [
@@ -544,18 +642,20 @@ function createStaffEmailLunaDraftOpen(deps) {
         : expectedStoredDraft(row.staff_reply_draft);
       const expectedDigest = existing && existing.kind === 'luna_stale' && existing.digest
         ? String(existing.digest) : '';
-      const claimed = await deps.withPgClient(async (pg) => {
-        const wrote = await pg.query(SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, [
-          actor.client_id,
-          conversationId,
-          claimPayload(authority.inbound_message_id, claimId, claimedAt, claimedAtMs),
-          authority.inbound_message_id,
-          ttlMs,
-          expectedDigest,
-          expectedOldText,
-        ]);
-        return !!(wrote && Array.isArray(wrote.rows) && wrote.rows.length === 1);
-      });
+      const claimed = await lockThenWrite(
+        actor, conversationId, authority.inbound_message_id, async (pg) => {
+          const wrote = await pg.query(SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, [
+            actor.client_id,
+            conversationId,
+            claimPayload(authority.inbound_message_id, claimId, claimedAt, claimedAtMs),
+            authority.inbound_message_id,
+            ttlMs,
+            expectedDigest,
+            expectedOldText,
+          ]);
+          return !!(wrote && Array.isArray(wrote.rows) && wrote.rows.length === 1);
+        },
+      );
       if (!claimed) {
         const again = await loadOpenContext(actor, conversationId);
         if (again && again.context) {
@@ -605,24 +705,26 @@ function createStaffEmailLunaDraftOpen(deps) {
       }
 
       const generatedDigest = digestGeneratedEmailLunaDraftBody(body);
-      const persisted = await deps.withPgClient(async (pg) => {
-        const wrote = await pg.query(SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, [
-          actor.client_id,
-          conversationId,
-          body,
-          persistPayload(
-            authority.inbound_message_id,
+      const persisted = await lockThenWrite(
+        actor, conversationId, authority.inbound_message_id, async (pg) => {
+          const wrote = await pg.query(SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, [
+            actor.client_id,
+            conversationId,
+            body,
+            persistPayload(
+              authority.inbound_message_id,
+              claimId,
+              composed.kind || 'safe_acknowledgment',
+              generatedDigest,
+            ),
             claimId,
-            composed.kind || 'safe_acknowledgment',
-            generatedDigest,
-          ),
-          claimId,
-          authority.inbound_message_id,
-          expectedOldText,
-        ]);
-        return wrote && Array.isArray(wrote.rows) && wrote.rows.length === 1
-          ? String(wrote.rows[0].staff_reply_draft) : null;
-      });
+            authority.inbound_message_id,
+            expectedOldText,
+          ]);
+          return wrote && Array.isArray(wrote.rows) && wrote.rows.length === 1
+            ? String(wrote.rows[0].staff_reply_draft) : null;
+        },
+      );
       if (!persisted) {
         await releaseClaim(actor, conversationId, authority.inbound_message_id, claimId);
         const again = await loadOpenContext(actor, conversationId);
@@ -654,6 +756,10 @@ module.exports = {
   EMAIL_DRAFT_OPEN_CLAIM_TTL_MS,
   EMAIL_LUNA_OPEN_CLAIM_AT_MS_MAX,
   SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT,
+  SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION,
+  SQL_EMAIL_LUNA_OPEN_TX_BEGIN,
+  SQL_EMAIL_LUNA_OPEN_TX_COMMIT,
+  SQL_EMAIL_LUNA_OPEN_TX_ROLLBACK,
   SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT,
   SQL_CAS_EMAIL_LUNA_OPEN_DRAFT,
   SQL_RELEASE_EMAIL_LUNA_OPEN_CLAIM,

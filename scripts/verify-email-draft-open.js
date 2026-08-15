@@ -269,22 +269,48 @@ function makeOwner(options = {}) {
     approval: approvalRowFrom(rows[0] || {}),
     pgActive: 0,
     lockHeld: false,
+    txOpen: false,
+    queryTexts: [],
   };
   if (!Object.hasOwn(store, 'approval')) store.approval = approvalRowFrom(rows[0] || {});
+  if (!Object.hasOwn(store, 'txOpen')) store.txOpen = false;
+  if (!Object.hasOwn(store, 'queryTexts')) store.queryTexts = [];
+
+  function assertNoOpenTx(label) {
+    assert.equal(store.txOpen, false, `${label}: transaction must be closed`);
+    assert.equal(store.lockHeld, false, `${label}: conversation lock must be released`);
+  }
+
+  const userCallModel = options.callModel || (() => catalogPlan());
+  const userRuntime = options.createLunaRuntime || (options.classifyIntent && options.queryOwners
+    ? wrapRuntime(modelCalls)
+    : undefined);
 
   const route = ownerMod.createStaffEmailLunaDraftOpen({
     runtimeEnv: options.env || gateOn(),
     now: nowMs,
     randomUUID: options.randomUUID || (() => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'),
     claimTtlMs: options.claimTtlMs || ownerMod.EMAIL_DRAFT_OPEN_CLAIM_TTL_MS,
-    callModel: options.callModel || (() => catalogPlan()),
+    callModel: async (...args) => {
+      assertNoOpenTx('model');
+      return userCallModel(...args);
+    },
     classifyIntent: options.classifyIntent,
     queryOwners: options.queryOwners,
-    createLunaRuntime: options.createLunaRuntime || (options.classifyIntent && options.queryOwners
-      ? wrapRuntime(modelCalls)
-      : undefined),
+    createLunaRuntime: userRuntime
+      ? (config) => {
+        const runtime = userRuntime(config);
+        return {
+          async authorDraft(input) {
+            assertNoOpenTx('runtime.authorDraft');
+            return runtime.authorDraft(input);
+          },
+        };
+      }
+      : undefined,
     fetchCurrentMessageContent: options.fetchCurrentMessageContent || (async (input) => {
       contentCalls.push(input);
+      assert.equal(store.txOpen, false, 'must not hold a transaction across Graph');
       assert.equal(store.lockHeld, false, 'must not hold a conversation lock across Graph');
       if (store.currentInboundEventId && input.eventId !== store.currentInboundEventId) {
         const err = new Error('authority_bound_current_message_content_failed');
@@ -312,8 +338,25 @@ function makeOwner(options = {}) {
       const pg = {
         async query(sql, params) {
           const text = String(sql).replace(/\s+/g, ' ').trim();
+          store.queryTexts.push(text);
           if (options.queryError && options.queryError.test && options.queryError.test(text)) {
             throw new Error('db_failed');
+          }
+          if (text === ownerMod.SQL_EMAIL_LUNA_OPEN_TX_BEGIN || /^BEGIN\b/i.test(text)) {
+            store.txOpen = true;
+            return { rows: [] };
+          }
+          if (text === ownerMod.SQL_EMAIL_LUNA_OPEN_TX_COMMIT || /^COMMIT\b/i.test(text)) {
+            if (options.commitError) throw new Error('commit_failed');
+            store.txOpen = false;
+            store.lockHeld = false;
+            return { rows: [] };
+          }
+          if (text === ownerMod.SQL_EMAIL_LUNA_OPEN_TX_ROLLBACK || /^ROLLBACK\b/i.test(text)) {
+            if (options.rollbackError) throw new Error('rollback_failed');
+            store.txOpen = false;
+            store.lockHeld = false;
+            return { rows: [] };
           }
           if (text === ownerMod.SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT) {
             assert.equal(params[0], options.expectedClientId || C);
@@ -328,11 +371,31 @@ function makeOwner(options = {}) {
             live.conversation_metadata = { ...(live.conversation_metadata || {}), ...store.meta };
             return { rows: [live] };
           }
-          if (text.includes('FOR UPDATE')) {
+          if (text === ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION) {
+            assert.equal(store.txOpen, true, 'lock requires an open READ COMMITTED transaction');
             store.lockHeld = true;
-            throw new Error('conversation FOR UPDATE is forbidden across Graph/model');
+            if (typeof options.onBeforeLock === 'function') await options.onBeforeLock(store);
+            const eventId = store.currentInboundEventId
+              || (rows[0] && rows[0].inbound_message_id)
+              || M;
+            return {
+              rows: [{
+                conversation_id: options.expectedConversationId || V,
+                inbound_event_id: eventId,
+                provider: 'microsoft_graph',
+                event_location_id: L,
+                location_key: 'sunset-somo',
+                provider_mailbox_id: MAILBOX,
+                endpoint_provider_mailbox_id: MAILBOX,
+              }],
+            };
+          }
+          if (text.includes('FOR UPDATE')) {
+            throw new Error('unexpected FOR UPDATE outside the conversation lock statement');
           }
           if (text === ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT) {
+            assert.equal(store.txOpen, true, 'claim UPDATE is a separate statement inside the lock tx');
+            assert.equal(store.lockHeld, true, 'claim UPDATE runs after FOR UPDATE');
             if (typeof options.onBeforeClaim === 'function') await options.onBeforeClaim(store);
             const nextMeta = typeof params[2] === 'string' ? JSON.parse(params[2]) : params[2];
             const sourceEvent = params[3];
@@ -372,6 +435,8 @@ function makeOwner(options = {}) {
             return { rows: [{ conversation_id: V }] };
           }
           if (text === ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT) {
+            assert.equal(store.txOpen, true, 'CAS UPDATE is a separate statement inside the lock tx');
+            assert.equal(store.lockHeld, true, 'CAS UPDATE runs after FOR UPDATE');
             if (typeof options.onBeforeCas === 'function') await options.onBeforeCas(store);
             if (options.saveError) throw new Error('save failed');
             const claimId = params[4];
@@ -419,11 +484,12 @@ function makeOwner(options = {}) {
           return { rows: [] };
         },
       };
+      store.lastPg = pg;
       try {
         return await fn(pg);
       } finally {
         store.pgActive -= 1;
-        store.lockHeld = false;
+        if (!store.txOpen) store.lockHeld = false;
       }
     }),
     saveDraftThroughStaffOwner: options.saveDraftThroughStaffOwner || (async () => {
@@ -547,7 +613,8 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
   assert.equal(ownerMod.EMAIL_DRAFT_OPEN_DECKHAND_FIELD, 'draft_text');
   assert.equal(ownerMod.EMAIL_DRAFT_OPEN_STORAGE_FIELD, 'conversations.staff_reply_draft');
   assert.equal(ownerMod.EMAIL_DRAFT_OPEN_CLAIM_TTL_MS, 60000);
-  assert.doesNotMatch(ownerSrc, /FOR UPDATE/);
+  assert.match(ownerSrc, /SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION/);
+  assert.match(ownerSrc, /FOR UPDATE OF c,p,ev,ep/);
   assert.match(ownerSrc, /SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT/);
   assert.match(ownerSrc, /in_progress/);
   assert.match(ownerSrc, /createEmailLunaDraftOpenPolicyComposition/);
@@ -727,6 +794,20 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
   );
   assert.ok(!out.subject || /^Re: /.test(out.subject));
 
+  function assertLockThenSeparateWrite(texts, writeSql, label) {
+    const writeI = texts.indexOf(writeSql);
+    assert.ok(writeI >= 0, `${label} write present`);
+    const beginI = texts.lastIndexOf(ownerMod.SQL_EMAIL_LUNA_OPEN_TX_BEGIN, writeI);
+    const lockI = texts.lastIndexOf(ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, writeI);
+    const commitI = texts.indexOf(ownerMod.SQL_EMAIL_LUNA_OPEN_TX_COMMIT, writeI);
+    assert.ok(beginI >= 0 && lockI > beginI && writeI > lockI && commitI > writeI, label);
+  }
+  assertLockThenSeparateWrite(h.store.queryTexts, ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, 'claim sequence');
+  assertLockThenSeparateWrite(h.store.queryTexts, ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, 'CAS sequence');
+  const firstCommit = h.store.queryTexts.indexOf(ownerMod.SQL_EMAIL_LUNA_OPEN_TX_COMMIT);
+  const secondBegin = h.store.queryTexts.indexOf(ownerMod.SQL_EMAIL_LUNA_OPEN_TX_BEGIN, firstCommit + 1);
+  assert.ok(firstCommit >= 0 && secondBegin > firstCommit, 'Graph/model sit between claim COMMIT and CAS BEGIN');
+
   // Repeat open does not fetch or write again.
   h.contentCalls.length = 0;
   const again = await open(h);
@@ -804,7 +885,26 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
       const pg = {
         async query(sql, params) {
           const text = String(sql).replace(/\s+/g, ' ').trim();
-          assert.doesNotMatch(text, /FOR UPDATE/);
+          if (text === ownerSql.SQL_EMAIL_LUNA_OPEN_TX_BEGIN || /^BEGIN\b/i.test(text)) {
+            return { rows: [] };
+          }
+          if (text === ownerSql.SQL_EMAIL_LUNA_OPEN_TX_COMMIT || /^COMMIT\b/i.test(text)
+            || text === ownerSql.SQL_EMAIL_LUNA_OPEN_TX_ROLLBACK || /^ROLLBACK\b/i.test(text)) {
+            return { rows: [] };
+          }
+          if (text === ownerSql.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION) {
+            return {
+              rows: [{
+                conversation_id: V,
+                inbound_event_id: M,
+                provider: 'microsoft_graph',
+                event_location_id: L,
+                location_key: 'sunset-somo',
+                provider_mailbox_id: MAILBOX,
+                endpoint_provider_mailbox_id: MAILBOX,
+              }],
+            };
+          }
           if (text === ownerSql.SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT) {
             return {
               rows: [authorityRow({
@@ -1015,6 +1115,7 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
     fetchCurrentMessageContent: async (input) => {
       h.store.currentInboundEventId = M2;
       h.contentCalls.push(input);
+      assert.equal(h.store.txOpen, false, 'must not hold a transaction across Graph');
       assert.equal(h.store.lockHeld, false, 'must not hold a conversation lock across Graph');
       return Object.freeze({ latest_text: BODY });
     },
@@ -1144,6 +1245,7 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
       fetchCurrentMessageContent: async (input) => {
         h.store.approval = staffApproval(state, staffText);
         h.contentCalls.push(input);
+        assert.equal(h.store.txOpen, false, 'must not hold a transaction across Graph');
         assert.equal(h.store.lockHeld, false, 'must not hold a conversation lock across Graph');
         return Object.freeze({ latest_text: BODY });
       },
@@ -1179,6 +1281,8 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
     queryOwners: productionQueryOwners(),
     fetchCurrentMessageContent: async (input) => {
       h.contentCalls.push(input);
+      assert.equal(h.store.txOpen, false, 'must not hold a transaction across Graph');
+      assert.equal(h.store.lockHeld, false, 'must not hold a conversation lock across Graph');
       h.store.approval = staffApproval('draft', 'Staff just saved.');
       return Object.freeze({ latest_text: BODY });
     },
@@ -1195,6 +1299,8 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
     queryOwners: productionQueryOwners(),
     fetchCurrentMessageContent: async (input) => {
       h.contentCalls.push(input);
+      assert.equal(h.store.txOpen, false, 'must not hold a transaction across Graph');
+      assert.equal(h.store.lockHeld, false, 'must not hold a conversation lock across Graph');
       h.store.approval = staffApproval('draft', 'Staff just saved.');
       h.store.approval = staffApproval('approved', 'Staff just saved.');
       return Object.freeze({ latest_text: BODY });
@@ -1254,6 +1360,7 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
     ['null claimed_at', inProgressMeta(null)],
     ['empty claimed_at', inProgressMeta('')],
     ['garbage claimed_at_ms', inProgressMeta('not-a-date', { claimed_at_ms: 'not-a-number' })],
+    ['year 0000', inProgressMeta('0000-01-01T00:00:00Z')],
   ]) {
     h = makeOwner({
       sharedStore: { draft: '', meta, pgActive: 0, lockHeld: false, approval: null },
@@ -1323,7 +1430,23 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
   assert.match(ownerSrc, /claimed_at_ms/);
   assert.doesNotMatch(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /FOR UPDATE/);
   assert.doesNotMatch(ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, /FOR UPDATE/);
-  assert.doesNotMatch(ownerSrc, /FOR UPDATE/);
+  assert.match(ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, /FOR UPDATE OF c,p,ev,ep/);
+  assert.match(ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, /FROM clients cl/);
+  assert.match(ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, /INNER JOIN conversations c/);
+  assert.match(ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, /INNER JOIN tenant_email_inbound_inbox_projections p/);
+  assert.match(ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, /INNER JOIN tenant_email_inbound_events ev/);
+  assert.match(ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, /INNER JOIN tenant_channel_endpoints ep/);
+  assert.match(ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, /sunset-somo/);
+  assert.match(ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, /microsoft_graph/);
+  const inboxRoutes = require('./lib/staff-email-inbox-routes');
+  assert.match(inboxRoutes.SQL_RESOLVE, /FOR UPDATE OF c,p,ev,ep/);
+  const lunaFrom = ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION;
+  const staffFrom = inboxRoutes.SQL_RESOLVE;
+  const lockJoinOrder = /clients cl.*staff_users su.*conversations c.*tenant_email_inbound_inbox_projections p.*tenant_email_inbound_events ev.*tenant_locations loc.*tenant_channel_endpoints ep.*FOR UPDATE OF c,p,ev,ep/;
+  assert.match(lunaFrom, lockJoinOrder);
+  assert.match(staffFrom, lockJoinOrder);
+  assert.match(ownerMod.sqlEmailLunaOpenDraftClaimExpired('metadata', '$5'), /BETWEEN 1 AND 9999/);
+  assert.equal(ownerMod.SQL_EMAIL_LUNA_OPEN_TX_BEGIN, 'BEGIN');
 
   // Cross-tenant / location / mailbox / source mismatch.
   for (const [label, row] of [
@@ -1358,6 +1481,20 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
   h = makeOwner({ queryError: /SQL_LOAD|SELECT/i });
   out = await open(h);
   assertPending(out);
+
+  h = makeOwner({
+    queryError: /FOR UPDATE OF c,p,ev,ep/,
+    rollbackError: true,
+  });
+  out = await open(h);
+  assertPending(out);
+  assert.equal(h.contentCalls.length, 0);
+  assert.equal(h.writes.length, 0);
+  assert.equal(
+    h.store.lastPg && h.store.lastPg[Symbol.for('wolfhouse.pgClient.discardRequired')],
+    true,
+    'aborted client is discarded when ROLLBACK fails',
+  );
 
   assert.match(ownerSrc, /staff_reply_draft/);
   assert.match(queriesSrc, /conv\.staff_reply_draft\s+AS draft_text/);
@@ -1428,22 +1565,28 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
   }
   assert.doesNotMatch(ownerSrc, /scripts\/browser\//);
 
-  function tryLoadPglite() {
-    const roots = [
-      ROOT,
-      '/opt/data/email-slice-1b',
-      '/opt/data/wolfhouse-pr366',
-      '/opt/data/wolfhouse-agent',
-      '/opt/wolfhouse/WH',
-    ];
-    for (const base of roots) {
+  const MODULE_ROOTS = [
+    ROOT,
+    '/opt/data/email-slice-1b',
+    '/opt/data/wolfhouse-pr366',
+    '/opt/data/wolfhouse-agent',
+    '/opt/wolfhouse/WH',
+  ];
+
+  function tryResolve(specifier) {
+    for (const base of MODULE_ROOTS) {
       try {
-        return require(require.resolve('@electric-sql/pglite', { paths: [base] })).PGlite;
+        return require(require.resolve(specifier, { paths: [base] }));
       } catch {
         /* next root */
       }
     }
     return null;
+  }
+
+  function tryLoadPglite() {
+    const mod = tryResolve('@electric-sql/pglite');
+    return mod && mod.PGlite ? mod.PGlite : null;
   }
 
   async function proveClaimSqlOnPglite() {
@@ -1574,11 +1717,57 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
       claimed_at: new Date(now - 120000).toISOString(),
     }), true);
 
+    let yearZeroThrew = false;
+    let yearZeroExpired;
+    try {
+      yearZeroExpired = await expiredOf({
+        state: 'in_progress',
+        claimed_at: '0000-01-01T00:00:00Z',
+      });
+    } catch (err) {
+      yearZeroThrew = true;
+      yearZeroExpired = err;
+    }
+    assert.equal(yearZeroThrew, false, 'year 0000 predicate must not throw');
+    assert.equal(yearZeroExpired, true, 'year 0000 is expired before make_timestamptz');
+    await assert.rejects(
+      () => db.query("SELECT make_timestamptz(0, 1, 1, 0, 0, 0, 'UTC')"),
+      /out of range|invalid/i,
+    );
+
+    let year1Ok = false;
+    let year9999Ok = false;
+    try {
+      assert.equal(await expiredOf({
+        state: 'in_progress',
+        claimed_at: '0001-01-01T00:00:00Z',
+      }), true);
+      year1Ok = true;
+    } catch (err) {
+      console.log(`PGLITE_YEAR_0001 unsupported: ${String(err.message || err).slice(0, 120)}`);
+    }
+    try {
+      assert.equal(await expiredOf({
+        state: 'in_progress',
+        claimed_at: '9999-12-31T23:59:59Z',
+      }), false);
+      year9999Ok = true;
+    } catch (err) {
+      console.log(`PGLITE_YEAR_9999 unsupported: ${String(err.message || err).slice(0, 120)}`);
+    }
+    if (year1Ok) console.log('PGLITE_YEAR_0001 valid-and-expired');
+    if (year9999Ok) console.log('PGLITE_YEAR_9999 valid-and-unexpired');
+
+    assert.ok(Number.isNaN(ownerMod.parseEmailLunaOpenDraftClaimedAtMs({
+      claimed_at: '0000-01-01T00:00:00Z',
+    })));
+
     for (const claimedAt of [
       'not-a-date',
       '2026-02-30T00:00:00.000Z',
       '2026-04-31T00:00:00.000Z',
       '2025-02-29T00:00:00.000Z',
+      '0000-01-01T00:00:00Z',
       '',
       null,
     ]) {
@@ -1699,7 +1888,197 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
     console.log(`PGLITE_CLAIM_SQL backend=pglite pg=${version.rows[0].server_version}`);
   }
 
+  async function proveTwoConnectionSerialization() {
+    const PGlite = tryLoadPglite();
+    const socketMod = tryResolve('@electric-sql/pglite-socket');
+    const pgMod = tryResolve('pg');
+    const net = require('node:net');
+    assert.ok(PGlite && socketMod && socketMod.PGLiteSocketServer && pgMod && pgMod.Client,
+      'PGlite socket + pg Client required for two-connection lock proof');
+
+    const db = new PGlite();
+    await db.waitReady;
+    const port = await new Promise((resolve, reject) => {
+      const probe = net.createServer();
+      probe.once('error', reject);
+      probe.listen(0, '127.0.0.1', () => {
+        const addr = probe.address();
+        const p = addr && typeof addr === 'object' ? addr.port : 0;
+        probe.close((err) => (err ? reject(err) : resolve(p)));
+      });
+    });
+    const server = new socketMod.PGLiteSocketServer({
+      db, host: '127.0.0.1', port, maxConnections: 8,
+    });
+    await server.start();
+    const staff = new pgMod.Client({ host: '127.0.0.1', port, user: 'postgres', database: 'postgres' });
+    const luna = new pgMod.Client({ host: '127.0.0.1', port, user: 'postgres', database: 'postgres' });
+    await staff.connect();
+    await luna.connect();
+
+    const lockSql = ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION;
+    const claimSql = ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT;
+    const casSql = ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT;
+    const ttl = ownerMod.EMAIL_DRAFT_OPEN_CLAIM_TTL_MS;
+    const claimId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const claimMeta = JSON.stringify({
+      luna_email_open_draft: {
+        state: 'in_progress', origin: 'luna', source_inbound_event_id: M,
+        claimed_at: new Date().toISOString(), claimed_at_ms: String(Date.now()),
+        claim_id: claimId,
+      },
+    });
+    const persistMeta = JSON.stringify({
+      luna_email_open_draft: {
+        state: 'ready', origin: 'luna', source_inbound_event_id: M,
+        claim_id: claimId, kind: 'safe_acknowledgment',
+        generated_body_sha256: bodyDigest(SAFE_ACKNOWLEDGMENT.en),
+      },
+    });
+
+    async function seed() {
+      await staff.query('DROP TABLE IF EXISTS tenant_email_reply_approvals');
+      await staff.query('DROP TABLE IF EXISTS tenant_email_inbound_inbox_projections');
+      await staff.query('DROP TABLE IF EXISTS tenant_email_inbound_events');
+      await staff.query('DROP TABLE IF EXISTS tenant_channel_endpoints');
+      await staff.query('DROP TABLE IF EXISTS tenant_locations');
+      await staff.query('DROP TABLE IF EXISTS conversations');
+      await staff.query('DROP TABLE IF EXISTS staff_users');
+      await staff.query('DROP TABLE IF EXISTS clients');
+      await staff.query(`
+        CREATE TABLE clients (id uuid PRIMARY KEY, slug text NOT NULL);
+        CREATE TABLE staff_users (
+          id uuid NOT NULL, client_id uuid NOT NULL, status text NOT NULL, role text NOT NULL
+        );
+        CREATE TABLE conversations (
+          client_id uuid NOT NULL, id uuid NOT NULL, staff_reply_draft text, metadata jsonb,
+          phone text NOT NULL, PRIMARY KEY (client_id, id)
+        );
+        CREATE TABLE tenant_locations (
+          client_id uuid NOT NULL, id uuid NOT NULL, location_id text NOT NULL
+        );
+        CREATE TABLE tenant_channel_endpoints (
+          client_id uuid NOT NULL, id uuid NOT NULL, location_id text NOT NULL,
+          channel text NOT NULL, provider text NOT NULL, provider_resource_id text
+        );
+        CREATE TABLE tenant_email_inbound_events (
+          client_id uuid NOT NULL, id uuid NOT NULL, received_at timestamptz NOT NULL DEFAULT now(),
+          location_id uuid NOT NULL, endpoint_id uuid NOT NULL, provider text NOT NULL,
+          provider_mailbox_id text NOT NULL, provider_message_id text NOT NULL,
+          PRIMARY KEY (client_id, id)
+        );
+        CREATE TABLE tenant_email_inbound_inbox_projections (
+          client_id uuid NOT NULL, conversation_id uuid NOT NULL, inbound_event_id uuid NOT NULL,
+          location_id uuid NOT NULL, endpoint_id uuid NOT NULL, provider text NOT NULL,
+          provider_mailbox_id text NOT NULL, provider_message_id text NOT NULL
+        );
+        CREATE TABLE tenant_email_reply_approvals (
+          client_id uuid NOT NULL, conversation_id uuid NOT NULL,
+          source_inbound_event_id uuid NOT NULL, state text NOT NULL
+        );
+      `);
+      await staff.query('INSERT INTO clients (id, slug) VALUES ($1, $2)', [C, 'sunset']);
+      await staff.query(
+        'INSERT INTO staff_users (id, client_id, status, role) VALUES ($1,$2,$3,$4)',
+        [A, C, 'active', 'operator'],
+      );
+      await staff.query(
+        'INSERT INTO conversations (client_id, id, staff_reply_draft, metadata, phone) VALUES ($1,$2,$3,$4,$5)',
+        [C, V, null, {}, 'emailv1:ana@example.test'],
+      );
+      await staff.query(
+        'INSERT INTO tenant_locations (client_id, id, location_id) VALUES ($1,$2,$3)',
+        [C, L, 'sunset-somo'],
+      );
+      await staff.query(
+        'INSERT INTO tenant_channel_endpoints (client_id, id, location_id, channel, provider, provider_resource_id) VALUES ($1,$2,$3,$4,$5,$6)',
+        [C, E, 'sunset-somo', 'email', 'microsoft_graph', MAILBOX],
+      );
+      await staff.query(
+        `INSERT INTO tenant_email_inbound_events
+          (client_id, id, received_at, location_id, endpoint_id, provider, provider_mailbox_id, provider_message_id)
+         VALUES ($1,$2, now(), $3,$4,$5,$6,$7)`,
+        [C, M, L, E, 'microsoft_graph', MAILBOX, GRAPH_ID],
+      );
+      await staff.query(
+        `INSERT INTO tenant_email_inbound_inbox_projections
+          (client_id, conversation_id, inbound_event_id, location_id, endpoint_id, provider,
+           provider_mailbox_id, provider_message_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [C, V, M, L, E, 'microsoft_graph', MAILBOX, GRAPH_ID],
+      );
+    }
+
+    function sleep(ms) { return new Promise((resolve) => { setTimeout(resolve, ms); }); }
+
+    async function runRace(kind) {
+      await seed();
+      if (kind === 'cas') {
+        await staff.query(
+          'UPDATE conversations SET metadata = $1::jsonb WHERE client_id=$2 AND id=$3',
+          [{
+            luna_email_open_draft: {
+              state: 'in_progress', origin: 'luna', source_inbound_event_id: M,
+              claimed_at: new Date().toISOString(), claimed_at_ms: String(Date.now()),
+              claim_id: claimId,
+            },
+          }, C, V],
+        );
+      }
+
+      await staff.query('BEGIN');
+      const staffLocked = await staff.query(lockSql, [C, A, V]);
+      assert.equal(staffLocked.rows.length, 1, `${kind} staff acquired conversation lock`);
+      await staff.query(
+        'INSERT INTO tenant_email_reply_approvals (client_id, conversation_id, source_inbound_event_id, state) VALUES ($1,$2,$3,$4)',
+        [C, V, M, 'draft'],
+      );
+
+      let lunaLockDone = false;
+      const lunaP = (async () => {
+        await luna.query('BEGIN');
+        const locked = await luna.query(lockSql, [C, A, V]);
+        lunaLockDone = true;
+        assert.equal(locked.rows.length, 1, `${kind} Luna acquired lock after staff commit`);
+        assert.equal(String(locked.rows[0].inbound_event_id).toLowerCase(), M);
+        const wrote = kind === 'claim'
+          ? await luna.query(claimSql, [C, V, claimMeta, M, ttl, '', null])
+          : await luna.query(casSql, [C, V, SAFE_ACKNOWLEDGMENT.en, persistMeta, claimId, M, null]);
+        await luna.query('COMMIT');
+        return wrote.rows.length;
+      })();
+
+      await sleep(350);
+      assert.equal(lunaLockDone, false, `${kind} Luna blocked while staff holds uncommitted approval`);
+      await staff.query('COMMIT');
+      const wrote = await Promise.race([
+        lunaP,
+        sleep(4000).then(() => { throw new Error(`${kind} Luna lock/CAS timed out`); }),
+      ]);
+      assert.equal(lunaLockDone, true, `${kind} Luna lock acquired after staff commit`);
+      assert.equal(wrote, 0, `${kind} separate statement saw approval and wrote zero`);
+      const stored = await staff.query('SELECT staff_reply_draft FROM conversations WHERE id=$1', [V]);
+      assert.equal(stored.rows[0].staff_reply_draft, null, `${kind} generated body not persisted`);
+    }
+
+    try {
+      await runRace('claim');
+      await runRace('cas');
+      console.log(
+        'CONCURRENCY_BACKEND=pglite-socket concurrent_row_locks=true'
+        + ' pg_read_committed_stale_snapshot_after_wait=not_reproduced_on_pglite'
+        + ' proof=lock_blocks_then_separate_statement_sees_committed_approval',
+      );
+    } finally {
+      try { await staff.end(); } catch { /* */ }
+      try { await luna.end(); } catch { /* */ }
+      try { server.stop(); } catch { /* */ }
+      try { await db.close(); } catch { /* */ }
+    }
+  }
+
   await proveClaimSqlOnPglite();
+  await proveTwoConnectionSerialization();
 
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   assert.equal(pkg.scripts['verify:email-draft-open'], 'node scripts/verify-email-draft-open.js');
