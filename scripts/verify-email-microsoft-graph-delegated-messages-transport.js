@@ -361,6 +361,9 @@ async function main() {
       envelopeRow({ '@odata.type': '#microsoft.graph.message' }),
     ])).stage, 'row_keyset_invalid');
     assert.equal(classifyMessageEnvelopeBody('{').stage, 'json_invalid');
+    assert.equal(classifyMessageEnvelopeBody(listBody([
+      envelopeRow({ body: { contentType: 'text', content: 'x'.repeat(4096) } }),
+    ])).stage, 'success', 'valid Graph bodies over the metadata string limit parse successfully');
     assert.equal(classifyMessageEnvelopeBody(`\ufffd`).stage, 'utf8_invalid');
     assert.equal(classifyMessageEnvelopeBody(Buffer.alloc(600_000, 0x61).toString('utf8')).stage,
       'response_too_large');
