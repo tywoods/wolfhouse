@@ -1027,6 +1027,25 @@
       "sha256": "00537a12ea3dca1d76fe3aed3454ddc264046ba64f1a9dbefaa881941ad02647"
     },
     {
+      "id": "076_wolfhouse_pricing_admin",
+      "filename": "076_wolfhouse_pricing_admin.sql",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Wolfhouse-only pricing schema is intentionally outside the canonical Sunset/email migration chain; runtime ownership remains isolated in wolfhouse-pricing-store.",
+      "sha256": "56ca6999a721701e4cf16bea674f2f85eae4bff9aac9f06862e92288fc0e9794"
+    },
+    {
+      "id": "076_wolfhouse_pricing_admin_down",
+      "filename": "076_wolfhouse_pricing_admin_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit rollback for the isolated Wolfhouse pricing schema; not part of the canonical Sunset/email forward chain.",
+      "pairsWith": "076_wolfhouse_pricing_admin.sql",
+      "sha256": "c0b4ce4adc66a85a4f0f14234fe52031bfbee794c45164ce3342356acb5731df"
+    },
+    {
       "id": "078_luna_outbound_approvals",
       "filename": "078_luna_outbound_approvals.sql",
       "order": 75,
@@ -1045,6 +1064,25 @@
       "rationale": "Down for 078: refuse if rows present (refuse silent WhatsApp draft evidence loss); else DROP TABLE+protect. Parent conversations/staff_users uniques intact.",
       "pairsWith": "078_luna_outbound_approvals.sql",
       "sha256": "ec05d01f4984fff1c72279627d37547f311880a3f17022476382d474ce2be71b"
+    },
+    {
+      "id": "079_broadcasts",
+      "filename": "079_broadcasts.sql",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Schema-only Inbox broadcast proposal explicitly marked not for live database application; bulk send remains unimplemented.",
+      "sha256": "2c7515860d4cac7086334148d86da9aca0f370b8b04a626f9aa7da63201d4088"
+    },
+    {
+      "id": "079_broadcasts_down",
+      "filename": "079_broadcasts_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit rollback for the non-executable 079 broadcasts schema proposal.",
+      "pairsWith": "079_broadcasts.sql",
+      "sha256": "4b891ade27a68fd7747af1e0b8c43ce166eab8bc00ec0237264e136ff2d3d4fe"
     },
     {
       "id": "080_tenant_email_delta_from_now_v2",

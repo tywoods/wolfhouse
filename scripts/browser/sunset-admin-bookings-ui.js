@@ -660,7 +660,7 @@ function wireAdminBookingsPanel() {
         return;
       }
       var nestedInteractive = target.closest
-        ? target.closest('button, a, input, select, textarea, label')
+        ? target.closest('button, a, input, select, textarea, label, form')
         : null;
       var rowBtn = target.closest ? target.closest('[data-bookings-row-id]') : null;
       if (!rowBtn) return;
