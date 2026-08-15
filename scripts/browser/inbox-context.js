@@ -175,6 +175,18 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-guest-tags-toggle.is-auto{cursor:default;opacity:.75}',
   '.inbox-guest-tags-save{align-self:flex-start;padding:9px 16px;font-size:12px;font-weight:600}',
   '.inbox-customer-card.is-editing{max-width:60%;width:60%;box-sizing:border-box}',
+  '.inbox-guest-link{margin-top:12px;display:flex;flex-direction:column;gap:8px}',
+  '.inbox-guest-link-search{width:100%;box-sizing:border-box;height:34px;padding:0 10px;',
+  'border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px}',
+  '.inbox-guest-link-results{display:flex;flex-direction:column;gap:4px;max-height:180px;overflow:auto}',
+  '.inbox-guest-link-hit{display:block;width:100%;text-align:left;padding:8px 10px;border:1px solid var(--border-soft);',
+  'border-radius:8px;background:var(--surface);color:var(--text);cursor:pointer;font-size:13px}',
+  '.inbox-guest-link-hit:hover{border-color:var(--primary);background:var(--surface-soft)}',
+  '.inbox-guest-link-hit-name{font-weight:600;display:block}',
+  '.inbox-guest-link-hit-meta{font-size:12px;color:var(--text-3);display:block;margin-top:2px}',
+  '.inbox-guest-link-empty,.inbox-guest-link-msg{font-size:12px;color:var(--text-3)}',
+  '.inbox-guest-link-msg.is-error{color:var(--danger, #b42318)}',
+  '.inbox-guest-link-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}',
 ].join('');
 
 var inboxContextLastComposite = null;
@@ -858,13 +870,11 @@ function inboxCustomerFromConv(conv) {
     ? inboxPersonDisplayName(conv)
     : (conv.guest_name || conv.display_name || '');
   if (typeof inboxIsOpaqueEmailIdentity === 'function' && inboxIsOpaqueEmailIdentity(name)) name = email || '';
-  var phone = (typeof inboxBoundCustomerPhone === 'function')
-    ? inboxBoundCustomerPhone(conv)
-    : (conv.phone || conv.guest_phone || '');
-  if (typeof inboxIsOpaqueEmailIdentity === 'function' && inboxIsOpaqueEmailIdentity(phone)) phone = '';
+  var phone = inboxCustomerResolvePhone(conv, null);
   return {
     success: true,
     phone: phone,
+    customer_id: conv.customer_id || null,
     identity: {
       display_name: name,
       email: email,
@@ -1232,17 +1242,35 @@ function inboxCustomerUnmatchedHtml(conv) {
   var email = (typeof inboxGuestEmailOf === 'function')
     ? inboxGuestEmailOf(conv)
     : (conv.email || conv.guest_email || '');
-  var html = '<div class="inbox-customer-card" id="inbox-customer-card" data-inbox-guest="unmatched">';
+  var html = '<div class="inbox-customer-card" id="inbox-customer-card" data-inbox-guest="unmatched"';
+  if (conv.conversation_id) html += ' data-conversation-id="' + inboxContextEsc(conv.conversation_id) + '"';
+  if (email) html += ' data-guest-email="' + inboxContextEsc(email) + '"';
+  if (name) html += ' data-guest-name="' + inboxContextEsc(name) + '"';
+  html += '>';
   html += '<div class="inbox-customer-head">';
   html += '<div class="inbox-client-info-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
   html += '<div class="inbox-client-info-id">';
   html += '<div class="inbox-client-info-name">' + inboxContextEsc(name) + '</div>';
   html += '</div>';
   html += '</div>';
-  html += '<div class="customers-section-empty" data-inbox-guest-unmatched="1">No guest yet</div>';
+  html += '<div class="customers-section-empty" data-inbox-guest-unmatched="1">' +
+    inboxContextEsc(inboxContextT('inbox.guest.noGuestYet', 'No guest yet')) + '</div>';
   if (email && email !== name) {
     html += inboxCustomerField(inboxContextT('customers.detail.email', 'Email'), email, false);
   }
+  html += '<div class="inbox-guest-link" data-inbox-guest-link="1">';
+  html += '<label class="customers-edit-field" for="inbox-guest-link-search"><span>' +
+    inboxContextEsc(inboxContextT('inbox.guest.linkSearch', 'Find an existing guest')) + '</span></label>';
+  html += '<input id="inbox-guest-link-search" class="inbox-guest-link-search" type="search" autocomplete="off" placeholder="' +
+    inboxContextEsc(inboxContextT('customers.searchPlaceholder', 'Search by name, email, or phone')) + '">';
+  html += '<div id="inbox-guest-link-results" class="inbox-guest-link-results" hidden></div>';
+  html += '<div class="inbox-guest-link-actions">';
+  html += '<button type="button" class="btn btn-primary" id="inbox-guest-link-create"' +
+    (email ? '' : ' disabled') + '>' +
+    inboxContextEsc(inboxContextT('inbox.guest.createFromEmail', 'Create guest from this email')) + '</button>';
+  html += '</div>';
+  html += '<p id="inbox-guest-link-msg" class="inbox-guest-link-msg" hidden></p>';
+  html += '</div>';
   html += '</div>';
   return html;
 }
@@ -1745,22 +1773,57 @@ function inboxClientInfoMount(sidebar, conv, composite) {
   inboxCustomerLoad(sidebar, conv, composite);
 }
 
-function inboxCustomerLoad(sidebar, conv, composite) {
-  if (!sidebar) return;
+function inboxCustomerResolvePhone(conv, customer) {
+  conv = conv || {};
+  var linked = String(conv.customer_phone || '').trim();
+  if (linked && typeof inboxIsOpaqueEmailIdentity === 'function' && inboxIsOpaqueEmailIdentity(linked)) {
+    linked = '';
+  }
+  if (linked && typeof inboxIsEmailcustIdentity === 'function' && inboxIsEmailcustIdentity(linked)) {
+    return linked;
+  }
+  if (linked && typeof normalizeCustomerPhoneClient === 'function') {
+    var normalizedLinked = normalizeCustomerPhoneClient(linked);
+    if (normalizedLinked) return normalizedLinked;
+    if (typeof inboxIsEmailcustIdentity === 'function' && inboxIsEmailcustIdentity(linked)) return linked;
+  } else if (linked) {
+    return linked;
+  }
   var phone = (typeof inboxBoundCustomerPhone === 'function')
-    ? inboxBoundCustomerPhone(conv, inboxContextLastCustomer)
-    : (conv && (conv.phone || conv.guest_phone));
+    ? inboxBoundCustomerPhone(conv, customer)
+    : (conv.phone || conv.guest_phone || '');
   if (phone && typeof normalizeCustomerPhoneClient === 'function' &&
-      (typeof inboxIsOpaqueEmailIdentity !== 'function' || !inboxIsOpaqueEmailIdentity(phone))) {
+      (typeof inboxIsOpaqueEmailIdentity !== 'function' || !inboxIsOpaqueEmailIdentity(phone)) &&
+      (typeof inboxIsEmailcustIdentity !== 'function' || !inboxIsEmailcustIdentity(phone))) {
     phone = normalizeCustomerPhoneClient(phone);
   }
   if (typeof inboxIsOpaqueEmailIdentity === 'function' && inboxIsOpaqueEmailIdentity(phone)) phone = '';
+  return phone || '';
+}
+
+function inboxCustomerLoad(sidebar, conv, composite) {
+  if (!sidebar) return;
+  var phone = inboxCustomerResolvePhone(conv, inboxContextLastCustomer);
   if (inboxContextLastCustomer && phone && inboxContextLastCustomer.phone
       && String(inboxContextLastCustomer.phone) !== String(phone)) {
     inboxContextLastCustomer = null;
   }
   if (!phone && (typeof inboxCustomerHasBoundGuest !== 'function' || !inboxCustomerHasBoundGuest(conv, inboxContextLastCustomer))) {
     inboxCustomerPaint(sidebar, conv, composite, null);
+    return;
+  }
+  if (!phone && conv && conv.customer_id) {
+    // Bound by customer_id but phone not yet on the row — keep unmatched false via paint.
+    inboxCustomerPaint(sidebar, conv, composite, inboxContextLastCustomer || {
+      success: true,
+      customer_id: conv.customer_id,
+      phone: '',
+      identity: {
+        display_name: (typeof inboxPersonDisplayName === 'function') ? inboxPersonDisplayName(conv) : (conv.guest_name || ''),
+        email: conv.email || conv.guest_email || '',
+        language: conv.language || '',
+      },
+    });
     return;
   }
   inboxCustomerPaint(sidebar, conv, composite, inboxContextLastCustomer);
@@ -1779,6 +1842,7 @@ function inboxCustomerLoad(sidebar, conv, composite) {
       if (gen !== inboxClientInfoFetchGen) return;
       if (!data || data.success === false) return;
       if (!data.phone) data.phone = phone;
+      if (conv && conv.customer_id && !data.customer_id) data.customer_id = conv.customer_id;
       inboxContextLastCustomer = data;
       inboxCustomerPaint(sidebar, conv, composite, data);
     })
@@ -1835,6 +1899,216 @@ function inboxContextFill(targetEl) {
   return true;
 }
 
+function inboxGuestLinkClientQuery() {
+  var q = '?client=' + encodeURIComponent(typeof getClient === 'function' ? getClient() : '');
+  try {
+    if (typeof getClient === 'function' && getClient() === 'sunset' && typeof getSunsetLocation === 'function') {
+      q += '&location=' + encodeURIComponent(getSunsetLocation());
+    }
+  } catch (_e) { /* ignore */ }
+  return q;
+}
+
+function inboxGuestLinkSetMsg(root, text, isError) {
+  var msg = root && root.querySelector('#inbox-guest-link-msg');
+  if (!msg) return;
+  if (!text) {
+    msg.hidden = true;
+    msg.textContent = '';
+    msg.classList.remove('is-error');
+    return;
+  }
+  msg.hidden = false;
+  msg.textContent = text;
+  if (isError) msg.classList.add('is-error');
+  else msg.classList.remove('is-error');
+}
+
+function inboxGuestLinkApplyResult(conv, body) {
+  var nextConv = Object.assign({}, conv || {});
+  if (body && body.customer_id) nextConv.customer_id = body.customer_id;
+  if (body && body.phone) nextConv.customer_phone = body.phone;
+  if (body && body.display_name && !nextConv.guest_name) nextConv.guest_name = body.display_name;
+  if (body && body.email && !(nextConv.email || nextConv.guest_email)) {
+    nextConv.email = body.email;
+    nextConv.guest_email = body.email;
+  }
+  inboxContextLastConv = nextConv;
+  if (inboxContextLastComposite && inboxContextLastComposite.detail) {
+    inboxContextLastComposite.detail.conversation = Object.assign(
+      {},
+      inboxContextLastComposite.detail.conversation || {},
+      {
+        customer_id: nextConv.customer_id || null,
+        customer_phone: nextConv.customer_phone || null,
+      }
+    );
+  }
+  var customer = {
+    success: true,
+    customer_id: body && body.customer_id,
+    phone: body && body.phone,
+    identity: {
+      display_name: (body && body.display_name) || nextConv.guest_name || '',
+      email: (body && body.email) || nextConv.email || nextConv.guest_email || '',
+      language: nextConv.language || '',
+    },
+    bookings: [],
+    service_records: [],
+    messages: [],
+    waivers: [],
+  };
+  inboxContextLastCustomer = customer;
+  var sidebar = inboxContextSidebarEl();
+  if (sidebar) inboxCustomerLoad(sidebar, nextConv, inboxContextLastComposite);
+}
+
+function inboxGuestLinkPostCustomer(payload) {
+  return fetch('/staff/customers' + inboxGuestLinkClientQuery(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(payload || {}),
+  }).then(function(r) {
+    return r.json().then(function(body) {
+      return { status: r.status, ok: r.ok, body: body || {} };
+    }).catch(function() {
+      return { status: r.status, ok: r.ok, body: {} };
+    });
+  });
+}
+
+function inboxGuestLinkRenderHits(root, customers, conv) {
+  var box = root && root.querySelector('#inbox-guest-link-results');
+  if (!box) return;
+  box.innerHTML = '';
+  var rows = Array.isArray(customers) ? customers : [];
+  if (!rows.length) {
+    box.hidden = false;
+    box.innerHTML = '<div class="inbox-guest-link-empty">' +
+      inboxContextEsc(inboxContextT('inbox.guest.linkNoMatches', 'No matching guests. Create one from this email.')) +
+      '</div>';
+    return;
+  }
+  box.hidden = false;
+  for (var i = 0; i < rows.length; i++) {
+    (function(row) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'inbox-guest-link-hit';
+      btn.setAttribute('data-inbox-guest-link-phone', String(row.phone || ''));
+      var name = row.display_name || row.phone || row.email || 'Guest';
+      var meta = [];
+      if (row.email) meta.push(row.email);
+      if (row.phone && !(typeof inboxIsEmailcustIdentity === 'function' && inboxIsEmailcustIdentity(row.phone))) {
+        meta.push(row.phone);
+      }
+      btn.innerHTML = '<span class="inbox-guest-link-hit-name">' + inboxContextEsc(name) + '</span>' +
+        (meta.length ? '<span class="inbox-guest-link-hit-meta">' + inboxContextEsc(meta.join(' · ')) + '</span>' : '');
+      btn.addEventListener('click', function() {
+        inboxGuestLinkSetMsg(root, inboxContextT('inbox.guest.linking', 'Linking…'), false);
+        inboxGuestLinkPostCustomer({
+          phone: row.phone,
+          display_name: row.display_name || name,
+          email: row.email || null,
+          conversation_id: conv && conv.conversation_id,
+        }).then(function(res) {
+          if (!res.ok || !res.body || res.body.success === false) {
+            var err = (res.body && res.body.error) || inboxContextT('inbox.guest.linkFailed', 'Could not link guest.');
+            if (res.status === 409) err = inboxContextT('inbox.guest.alreadyLinked', 'This conversation is already linked.');
+            inboxGuestLinkSetMsg(root, err, true);
+            return;
+          }
+          inboxGuestLinkApplyResult(conv, res.body);
+        }).catch(function() {
+          inboxGuestLinkSetMsg(root, inboxContextT('inbox.guest.linkFailed', 'Could not link guest.'), true);
+        });
+      });
+      box.appendChild(btn);
+    })(rows[i]);
+  }
+}
+
+var inboxGuestLinkSearchTimer = null;
+var inboxGuestLinkSearchGen = 0;
+
+function inboxGuestLinkSearch(root, conv, query) {
+  var q = String(query || '').trim();
+  var box = root && root.querySelector('#inbox-guest-link-results');
+  if (!q) {
+    if (box) { box.hidden = true; box.innerHTML = ''; }
+    inboxGuestLinkSetMsg(root, '', false);
+    return;
+  }
+  var gen = ++inboxGuestLinkSearchGen;
+  inboxGuestLinkSetMsg(root, inboxContextT('inbox.guest.searching', 'Searching…'), false);
+  var url = '/staff/customers' + inboxGuestLinkClientQuery() +
+    '&filter=all&limit=8&q=' + encodeURIComponent(q);
+  fetch(url, { headers: { Accept: 'application/json' } })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(data) {
+      if (gen !== inboxGuestLinkSearchGen) return;
+      if (!data || data.success === false) {
+        inboxGuestLinkSetMsg(root, inboxContextT('inbox.guest.searchFailed', 'Could not search guests.'), true);
+        return;
+      }
+      inboxGuestLinkSetMsg(root, '', false);
+      inboxGuestLinkRenderHits(root, data.customers || [], conv);
+    })
+    .catch(function() {
+      if (gen !== inboxGuestLinkSearchGen) return;
+      inboxGuestLinkSetMsg(root, inboxContextT('inbox.guest.searchFailed', 'Could not search guests.'), true);
+    });
+}
+
+function inboxGuestLinkWire(sidebar, conv) {
+  var root = sidebar && sidebar.querySelector('[data-inbox-guest-link="1"]');
+  if (!root || root.dataset.inboxGuestLinkWired === '1') return;
+  root.dataset.inboxGuestLinkWired = '1';
+  var search = root.querySelector('#inbox-guest-link-search');
+  var createBtn = root.querySelector('#inbox-guest-link-create');
+  if (search) {
+    search.addEventListener('input', function() {
+      var value = search.value;
+      if (inboxGuestLinkSearchTimer) clearTimeout(inboxGuestLinkSearchTimer);
+      inboxGuestLinkSearchTimer = setTimeout(function() {
+        inboxGuestLinkSearch(root, conv, value);
+      }, 220);
+    });
+  }
+  if (createBtn) {
+    createBtn.addEventListener('click', function() {
+      var email = (conv && (conv.email || conv.guest_email)) || root.getAttribute('data-guest-email') || '';
+      var name = (typeof inboxPersonDisplayName === 'function')
+        ? inboxPersonDisplayName(conv)
+        : ((conv && (conv.guest_name || conv.display_name)) || email || 'Guest');
+      if (!email) {
+        inboxGuestLinkSetMsg(root, inboxContextT('inbox.guest.emailRequired', 'This thread has no email to create a guest from.'), true);
+        return;
+      }
+      if (typeof inboxIsOpaqueEmailIdentity === 'function' && inboxIsOpaqueEmailIdentity(name)) name = email;
+      createBtn.disabled = true;
+      inboxGuestLinkSetMsg(root, inboxContextT('inbox.guest.creating', 'Creating guest…'), false);
+      inboxGuestLinkPostCustomer({
+        email: email,
+        display_name: name,
+        conversation_id: conv && conv.conversation_id,
+      }).then(function(res) {
+        createBtn.disabled = false;
+        if (!res.ok || !res.body || res.body.success === false) {
+          var err = (res.body && res.body.error) || inboxContextT('inbox.guest.createFailed', 'Could not create guest.');
+          if (res.status === 409) err = inboxContextT('inbox.guest.alreadyLinked', 'This conversation is already linked.');
+          inboxGuestLinkSetMsg(root, err, true);
+          return;
+        }
+        inboxGuestLinkApplyResult(conv, res.body);
+      }).catch(function() {
+        createBtn.disabled = false;
+        inboxGuestLinkSetMsg(root, inboxContextT('inbox.guest.createFailed', 'Could not create guest.'), true);
+      });
+    });
+  }
+}
+
 function inboxContextWireActions(sidebar, model) {
   var conv = (model && model.conversation) || {};
   var createBtn = sidebar.querySelector('#inbox-create-booking-for-guest');
@@ -1852,6 +2126,7 @@ function inboxContextWireActions(sidebar, model) {
       }
     });
   }
+  inboxGuestLinkWire(sidebar, conv);
 }
 
 function inboxContextWireSectionMemory(sidebar) {
@@ -1910,6 +2185,8 @@ if (typeof window !== 'undefined') {
     customerFullHtml: inboxCustomerFullHtml,
     customerUnmatchedHtml: inboxCustomerUnmatchedHtml,
     customerFromConv: inboxCustomerFromConv,
+    customerResolvePhone: inboxCustomerResolvePhone,
+    guestLinkPostCustomer: inboxGuestLinkPostCustomer,
     isGuestMode: inboxContextIsGuestMode,
     modelFromComposite: inboxContextModelFromComposite,
     normalizeModel: inboxContextNormalizeModel,

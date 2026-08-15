@@ -196,6 +196,8 @@ function customerProfileNotes(data) {
 function normalizeCustomerPhoneClient(phone) {
   var raw = String(phone || '').trim();
   if (!raw) return '';
+  if (/^emailcust1:/i.test(raw)) return raw.slice(0, 96);
+  if (/^(emailv1|email):/i.test(raw)) return raw.slice(0, 200);
   if (raw.charAt(0) === '+') return raw.slice(0, 40);
   var digits = raw.replace(/[^\d]/g, '');
   return digits ? ('+' + digits).slice(0, 40) : '';

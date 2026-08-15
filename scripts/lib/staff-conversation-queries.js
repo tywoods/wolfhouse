@@ -79,7 +79,16 @@ function inboxChannelFieldsSql() {
   ${sqlConversationChannelExpr('conv')} AS channel,
   conv.email                                         AS guest_email,
   ${sqlCurrentEmailSubjectExpr('conv')}              AS email_subject,
-  ${sqlConversationLocationExpr('conv')}             AS location_id,`;
+  ${sqlConversationLocationExpr('conv')}             AS location_id,
+  conv.customer_id::text                             AS customer_id,
+  cust_link.phone                                    AS customer_phone,`;
+}
+
+function inboxCustomerLinkJoinSql() {
+  return `
+LEFT JOIN customers cust_link
+  ON cust_link.id = conv.customer_id
+ AND cust_link.client_id = conv.client_id`;
 }
 
 function inboxLocationWhereClause(scoped, paramIndex = 2) {
@@ -237,6 +246,7 @@ LEFT JOIN LATERAL (
   ORDER BY bk.created_at DESC
   LIMIT 1
 ) bphone ON TRUE
+${inboxCustomerLinkJoinSql()}
 ${conversationInboxWhereSql(scoped, channelScoped)}${cursorClause}
 ${pageSql}
 `;
@@ -324,6 +334,8 @@ SELECT
   COALESCE(conv.metadata->>'channel', conv.session_state->>'channel', 'whatsapp') AS channel,
   ${sqlCurrentEmailSubjectExpr('conv')} AS email_subject,
   ${sqlConversationLocationExpr('conv')} AS location_id,
+  conv.customer_id::text     AS customer_id,
+  cust_link.phone            AS customer_phone,
   b.id::text                 AS booking_id,
   b.booking_code,
   b.status::text             AS booking_status,
@@ -357,6 +369,7 @@ LEFT JOIN LATERAL (
   ORDER BY opened_at DESC
   LIMIT 1
 ) h ON TRUE
+${inboxCustomerLinkJoinSql()}
 WHERE c.slug = $1
   AND conv.id = $2::uuid${detailLocationWhereClause(scoped)}
 `;
