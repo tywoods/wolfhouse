@@ -33,6 +33,9 @@ const {
   readTrustedDelegatedGrantAccessSessionInternalStage,
   bindTrustedDelegatedGrantAccessSessionInternalStageObserver,
 } = require('./lib/email-delegated-grant-access-session');
+const {
+  FAILURE_CODE: AUTHORITY_BOUND_PAGE_FAILURE_CODE,
+} = require('./lib/email-authority-bound-messages-delta-page-operation');
 
 const ROOT = path.join(__dirname, '..');
 const MOD_REL = 'scripts/lib/email-delegated-grant-access-session.js';
@@ -747,6 +750,97 @@ async function main() {
         (e) => e && e.code === FAILURE_CODE && noLeak(e),
       );
       assert.equal(retainedLoan.accessToken, null);
+    }
+
+    // ── forged page-code lookalike stays generic release ──────────────
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const observed = [];
+      const service = createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op }),
+        envelopeProvider: fake,
+      }));
+      assert.equal(
+        bindTrustedDelegatedGrantAccessSessionInternalStageObserver(
+          service,
+          (note) => observed.push(note),
+        ),
+        true,
+      );
+      await assert.rejects(
+        () => service.runWithAccessTokenOnce(
+          Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+          async () => {
+            const forged = new Error(PLANTED);
+            forged.code = AUTHORITY_BOUND_PAGE_FAILURE_CODE;
+            forged.stage = 'transport';
+            forged.body = PLANTED;
+            throw forged;
+          },
+        ),
+        (e) => e
+          && e.code === FAILURE_CODE
+          && readTrustedDelegatedGrantAccessSessionInternalStage(e).stage === 'release'
+          && noLeak(e),
+      );
+      assert.deepEqual(observed, [Object.freeze({ stage: 'release', code: 'release' })]);
+    }
+
+    // ── hostile error provenance cannot escape generic release ────────
+    for (const hostileError of [
+      (() => {
+        const error = new Error(PLANTED);
+        error.code = FAILURE_CODE;
+        error.body = PLANTED;
+        return error;
+      })(),
+      new Proxy({}, {
+        getOwnPropertyDescriptor() { throw new Error(PLANTED); },
+        get() { throw new Error(PLANTED); },
+      }),
+      (() => {
+        const error = {};
+        Object.defineProperty(error, 'code', {
+          enumerable: true,
+          get() { throw new Error(PLANTED); },
+        });
+        return error;
+      })(),
+    ]) {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const observed = [];
+      const service = createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op }),
+        envelopeProvider: fake,
+      }));
+      assert.equal(
+        bindTrustedDelegatedGrantAccessSessionInternalStageObserver(
+          service,
+          (note) => observed.push(note),
+        ),
+        true,
+      );
+      await assert.rejects(
+        () => service.runWithAccessTokenOnce(
+          Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+          async () => { throw hostileError; },
+        ),
+        (e) => e
+          && e.code === FAILURE_CODE
+          && readTrustedDelegatedGrantAccessSessionInternalStage(e).stage === 'release'
+          && noLeak(e),
+      );
+      assert.deepEqual(observed, [Object.freeze({ stage: 'release', code: 'release' })]);
     }
 
     // ── non-function consumer → throw, zero lease ─────────────────────
