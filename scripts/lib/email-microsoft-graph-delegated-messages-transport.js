@@ -179,6 +179,11 @@ const FROM_KEYS = Object.freeze(['emailAddress']);
 const EMAIL_ADDRESS_KEYS = Object.freeze(['address', 'name']);
 const BODY_KEYS = Object.freeze(['contentType', 'content']);
 const BODY_CONTENT_MAX = 262_144;
+// The strict parser must admit a body up to the contract limit before the
+// field-aware validators apply their narrower limits to IDs, links, and metadata.
+// Using STRING_LIMIT here made every valid Graph body over 2 KiB fail as
+// json_invalid before acceptBody could validate it.
+const JSON_STRING_LIMIT = BODY_CONTENT_MAX;
 const NEXT_LINK_KEY = '@odata.nextLink';
 const DELTA_LINK_KEY = '@odata.deltaLink';
 const MESSAGES_PATH_ME = /^\/v1\.0\/me\/messages$/;
@@ -742,7 +747,7 @@ function parseStrictJson(text) {
         at += 1;
         let result;
         try { result = JSON.parse(text.slice(start, at)); } catch { fail(); }
-        if (result.length > STRING_LIMIT || hasUnpairedSurrogate(result)) fail();
+        if (result.length > JSON_STRING_LIMIT || hasUnpairedSurrogate(result)) fail();
         return result;
       }
       if (!escaped && code < 0x20) fail();
