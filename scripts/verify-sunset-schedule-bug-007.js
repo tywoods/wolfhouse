@@ -39,9 +39,14 @@ vm.runInContext(profile.slice(start, end) + '\nthis.customerPaymentStatusLabel =
 assert.strictEqual(box.customerPaymentStatusLabel('paid'), 'Paid');
 assert.strictEqual(box.customerPaymentStatusLabel('deposit_paid'), 'Partial');
 assert.strictEqual(box.customerPaymentStatusLabel('waiting_payment'), 'Unpaid');
+assert.strictEqual(box.customerPaymentStatusLabel('paid_in_full'), 'Paid');
+assert.strictEqual(box.customerPaymentStatusLabel('pending_deposit'), 'Unpaid');
 assert.notStrictEqual(box.customerPaymentStatusLabel('paid'), 'paid');
+assert.ok(!/_/.test(box.customerPaymentStatusLabel('paid_in_full')));
 box.portalLang = 'es';
 assert.strictEqual(box.customerPaymentStatusLabel('paid'), 'Pagado');
+assert.strictEqual(box.customerPaymentStatusLabel('pending_deposit'), 'Sin pagar');
+assert.strictEqual(box.customerPaymentStatusLabel('paid_in_full'), 'Pagado');
 
 const aStart = admin.indexOf('function financeAddDaysIso');
 const aEnd = admin.indexOf('function financeShiftAnchor');
