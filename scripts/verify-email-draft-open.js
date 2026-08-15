@@ -266,12 +266,14 @@ function makeOwner(options = {}) {
   let store = options.sharedStore || {
     draft: rows[0] && rows[0].staff_reply_draft != null ? String(rows[0].staff_reply_draft) : '',
     meta: rows[0] && rows[0].conversation_metadata ? { ...rows[0].conversation_metadata } : {},
+    needsHuman: rows[0] ? rows[0].needs_human : undefined,
     approval: approvalRowFrom(rows[0] || {}),
     pgActive: 0,
     lockHeld: false,
     txOpen: false,
     queryTexts: [],
   };
+  if (!Object.hasOwn(store, 'needsHuman')) store.needsHuman = rows[0] ? rows[0].needs_human : undefined;
   if (!Object.hasOwn(store, 'approval')) store.approval = approvalRowFrom(rows[0] || {});
   if (!Object.hasOwn(store, 'txOpen')) store.txOpen = false;
   if (!Object.hasOwn(store, 'queryTexts')) store.queryTexts = [];
@@ -369,12 +371,14 @@ function makeOwner(options = {}) {
             }
             live.staff_reply_draft = store.draft || null;
             live.conversation_metadata = { ...(live.conversation_metadata || {}), ...store.meta };
+            if (Object.hasOwn(store, 'needsHuman')) live.needs_human = store.needsHuman;
             return { rows: [live] };
           }
           if (text === ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION) {
             assert.equal(store.txOpen, true, 'lock requires an open READ COMMITTED transaction');
             store.lockHeld = true;
             if (typeof options.onBeforeLock === 'function') await options.onBeforeLock(store);
+            if (store.needsHuman !== true) return { rows: [] };
             const eventId = store.currentInboundEventId
               || (rows[0] && rows[0].inbound_message_id)
               || M;
@@ -397,6 +401,7 @@ function makeOwner(options = {}) {
             assert.equal(store.txOpen, true, 'claim UPDATE is a separate statement inside the lock tx');
             assert.equal(store.lockHeld, true, 'claim UPDATE runs after FOR UPDATE');
             if (typeof options.onBeforeClaim === 'function') await options.onBeforeClaim(store);
+            if (store.needsHuman !== true) return { rows: [] };
             const nextMeta = typeof params[2] === 'string' ? JSON.parse(params[2]) : params[2];
             const sourceEvent = params[3];
             const expectedDigest = params[5];
@@ -438,6 +443,7 @@ function makeOwner(options = {}) {
             assert.equal(store.txOpen, true, 'CAS UPDATE is a separate statement inside the lock tx');
             assert.equal(store.lockHeld, true, 'CAS UPDATE runs after FOR UPDATE');
             if (typeof options.onBeforeCas === 'function') await options.onBeforeCas(store);
+            if (store.needsHuman !== true) return { rows: [] };
             if (options.saveError) throw new Error('save failed');
             const claimId = params[4];
             const expectedEvent = params[5];
@@ -1438,6 +1444,10 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
   assert.match(ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, /INNER JOIN tenant_channel_endpoints ep/);
   assert.match(ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, /sunset-somo/);
   assert.match(ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, /microsoft_graph/);
+  assert.match(ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION, /c\.needs_human IS TRUE/);
+  assert.match(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /needs_human IS TRUE/);
+  assert.match(ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, /needs_human IS TRUE/);
+  assert.match(loadSql, /c\.needs_human AS needs_human/);
   const inboxRoutes = require('./lib/staff-email-inbox-routes');
   assert.match(inboxRoutes.SQL_RESOLVE, /FOR UPDATE OF c,p,ev,ep/);
   const lunaFrom = ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION;
@@ -1472,6 +1482,9 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
     out = await open(h);
     assertPending(out);
     assert.equal(h.contentCalls.length, 0, label);
+    assert.equal(h.writes.length, 0, label);
+    assert.equal(h.claims.length, 0, label);
+    assert.equal(h.modelCalls.length, 0, label);
   }
 
   h = makeOwner({ saveError: true });
@@ -1606,6 +1619,7 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
         id uuid NOT NULL,
         staff_reply_draft text,
         metadata jsonb,
+        needs_human BOOLEAN NOT NULL DEFAULT FALSE,
         PRIMARY KEY (client_id, id)
       );
       CREATE TABLE tenant_email_inbound_inbox_projections (
@@ -1627,8 +1641,8 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
       );
     `);
     await db.query(
-      'INSERT INTO conversations (client_id, id, staff_reply_draft, metadata) VALUES ($1,$2,$3,$4)',
-      [C, V, null, {}],
+      'INSERT INTO conversations (client_id, id, staff_reply_draft, metadata, needs_human) VALUES ($1,$2,$3,$4,$5)',
+      [C, V, null, {}, true],
     );
     await db.query(
       'INSERT INTO tenant_email_inbound_events (client_id, id, received_at) VALUES ($1,$2, now())',
@@ -1952,7 +1966,8 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
         );
         CREATE TABLE conversations (
           client_id uuid NOT NULL, id uuid NOT NULL, staff_reply_draft text, metadata jsonb,
-          phone text NOT NULL, PRIMARY KEY (client_id, id)
+          phone text NOT NULL, needs_human BOOLEAN NOT NULL DEFAULT FALSE,
+          PRIMARY KEY (client_id, id)
         );
         CREATE TABLE tenant_locations (
           client_id uuid NOT NULL, id uuid NOT NULL, location_id text NOT NULL
@@ -1983,8 +1998,8 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
         [A, C, 'active', 'operator'],
       );
       await staff.query(
-        'INSERT INTO conversations (client_id, id, staff_reply_draft, metadata, phone) VALUES ($1,$2,$3,$4,$5)',
-        [C, V, null, {}, 'emailv1:ana@example.test'],
+        'INSERT INTO conversations (client_id, id, staff_reply_draft, metadata, phone, needs_human) VALUES ($1,$2,$3,$4,$5,$6)',
+        [C, V, null, {}, 'emailv1:ana@example.test', true],
       );
       await staff.query(
         'INSERT INTO tenant_locations (client_id, id, location_id) VALUES ($1,$2,$3)',
