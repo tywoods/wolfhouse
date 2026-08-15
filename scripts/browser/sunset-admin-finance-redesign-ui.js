@@ -339,6 +339,11 @@ function renderFinanceRedesignHtml(summary) {
   var colorCycle = ['is-green', 'is-blue', 'is-violet', 'is-amber'];
   var colorMap = { lessons: 'is-green', course_included: 'is-blue', boards: 'is-blue', wetsuits: 'is-violet', other: 'is-amber' };
   products.forEach(function (p, idx) {
+    var cents = Number(p && p.cents);
+    if (!Number.isFinite(cents)) cents = 0;
+    var rawLab = p && p.label != null ? String(p.label) : '';
+    var isPlaceholder = !rawLab || rawLab === '\u2014' || rawLab === '—' || p.key === 'item_1' || p.key === 'item_2';
+    if (cents === 0 && isPlaceholder) return;
     var cls = colorMap[p.key] || colorMap[p.slot] || colorCycle[idx % colorCycle.length] || 'is-green';
     var lab = p.label || '\u2014';
     if (/staff\s*accommodation/i.test(lab)) lab = financeRedesignT('admin.finance.product.accommodation', 'Accommodation');

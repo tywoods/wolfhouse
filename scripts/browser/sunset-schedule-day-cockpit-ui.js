@@ -218,6 +218,15 @@ function scheduleCockpitT(key, fallback, vars) {
   return raw;
 }
 
+function scheduleCockpitPrepTitle(isToday) {
+  if (isToday) return scheduleCockpitT('schedule.cockpit.prepTitle', "TODAY'S PREP");
+  var other = scheduleCockpitT('schedule.cockpit.prepTitleOther', '');
+  if (other && other !== 'schedule.cockpit.prepTitleOther') return other;
+  var es = false;
+  try { es = String((typeof portalLang === 'string' && portalLang) || '') === 'es'; } catch (_e) { es = false; }
+  return es ? 'PREPARACIÓN' : 'PREP';
+}
+
 /** Horario-only display fix: course name must be Medio Día. */
 function scheduleCockpitDisplayName(name) {
   return String(name == null ? '' : name).replace(/Medio Dia/g, 'Medio D\u00eda');
@@ -491,10 +500,7 @@ function scheduleRenderDayCockpit(mount, data) {
     var monthDt = monthIso ? new Date(String(monthIso).slice(0, 10) + 'T00:00:00') : dt;
     dateLabel = monthDt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   } else {
-    dateLabel = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-    if (!isToday) {
-      dateLabel = dt.toLocaleDateString(undefined, { weekday: 'short' }) + ' · ' + dateLabel;
-    }
+    dateLabel = dt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   }
   dateWrap.appendChild(el('b', null, dateLabel));
   var guests = list.reduce(function (n, s) { return n + (s.booked || 0); }, 0);
@@ -515,7 +521,9 @@ function scheduleRenderDayCockpit(mount, data) {
   bar.appendChild(dateWrap);
 
   var legend = el('div', 'ck-legend');
-  legend.innerHTML = '<span><i class="ck-dot ck-dot--luna"></i>Luna</span><span><i class="ck-dot ck-dot--staff"></i>Staff</span>';
+  legend.innerHTML = '<span><i class="ck-dot ck-dot--luna"></i>' +
+    scheduleCockpitT('schedule.cockpit.luna', 'Luna') + '</span><span><i class="ck-dot ck-dot--staff"></i>' +
+    scheduleCockpitT('schedule.cockpit.staff', 'Staff') + '</span>';
   bar.appendChild(legend);
 
   var right = el('div', 'ck-bar__right');
@@ -712,7 +720,7 @@ function scheduleRenderDayCockpit(mount, data) {
   /* prep rail — exact offering labels/qty (course add-ons first, then top others) */
   var p = data.prep || {};
   var prep = el('div', 'ck-prep');
-  prep.appendChild(el('h3', null, scheduleCockpitT('schedule.cockpit.prepTitle', "TODAY'S PREP")));
+  prep.appendChild(el('h3', null, scheduleCockpitPrepTitle(isToday)));
   var prepItems = Array.isArray(p.items) ? p.items : [];
   if (prepItems.length) {
     prepItems.forEach(function (item) {
