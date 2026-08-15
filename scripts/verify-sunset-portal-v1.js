@@ -667,6 +667,25 @@ if (apiSrc) {
   assert('create lesson slot select removed', !apiSrc.includes('id="ps-create-time-slot"'));
   assert('no hardcoded-only slot times', !apiSrc.includes("slot_time: '10:00'") || apiSrc.includes('scheduleNormalizeSlotTime'));
   assert('submit no longer sends needs_reply from UI', !apiSrc.includes('ps-create-needs-reply'));
+  assert(
+    'startup does not call loadDaySchedule (live invent)',
+    !apiSrc.includes("if (profile.is_surf_vertical && tab !== 'portal-home') loadDaySchedule"),
+  );
+  assert(
+    'client-select does not call loadDaySchedule (live invent)',
+    !apiSrc.includes('if (getPortalProfile(getClient()).is_surf_vertical) loadDaySchedule'),
+  );
+  const fetchLessonTimesFn = apiSrc.match(
+    /function scheduleFetchLessonTimesConfig\([^)]*\)\{[\s\S]*?\nfunction scheduleUniqueConfiguredSlots/,
+  );
+  assert('scheduleFetchLessonTimesConfig block extractable', !!fetchLessonTimesFn);
+  if (fetchLessonTimesFn) {
+    assert(
+      'scheduleFetchLessonTimesConfig fail-closed (no lesson_slots_demo)',
+      !fetchLessonTimesFn[0].includes('(profile.lesson_slots_demo || []).slice()')
+        && !/\.lesson_slots_demo\s*\|\|/.test(fetchLessonTimesFn[0]),
+    );
+  }
 }
 
 if (i18nSrc) {

@@ -82,7 +82,9 @@ if (fs.existsSync(sunsetPath)) {
     assert('demo slot has slot_time', !!ss.lesson_slots_demo[0].slot_time);
     assert('demo slot has capacity', ss.lesson_slots_demo[0].capacity != null);
   }
-  assert('sunset demo_mode is true', ss.demo_mode === true);
+  // Staging baseline keeps seed slots in config but demo_mode is off — live paths
+  // must not invent availability from them (see section 4b contract gates).
+  assert('sunset demo_mode is false', ss.demo_mode === false);
 }
 
 // ── 3. Surf vertical set ─────────────────────────────────────────────────────
@@ -107,6 +109,40 @@ if (fs.existsSync(STAFF_API_PATH)) {
   assert('no unconditional bed-calendar hide', !apiSrc.includes("hidden_tabs: ['bed-calendar'"));
   assert('portal-no-dev-tabs CSS present', apiSrc.includes('portal-no-dev-tabs'));
   assert('STAFF_PORTAL_DEV_TABS bootstrap present', apiSrc.includes('__STAFF_PORTAL_DEV_TABS__'));
+
+  // ── 4b. Live path must not invent Day Schedule demo seats ─────────────────
+  console.log('\n[4b] Day Schedule / lesson-times contract — no live demo invent');
+  assert(
+    'portalStartupAfterSession does not call loadDaySchedule',
+    !apiSrc.includes("if (profile.is_surf_vertical && tab !== 'portal-home') loadDaySchedule"),
+  );
+  assert(
+    'client-select change does not call loadDaySchedule',
+    !apiSrc.includes('if (getPortalProfile(getClient()).is_surf_vertical) loadDaySchedule'),
+  );
+  assert(
+    'day-schedule tab markup retained',
+    apiSrc.includes('id="tab-day-schedule"') && apiSrc.includes('id="ds-slots"'),
+  );
+  const fetchLessonTimesFn = apiSrc.match(
+    /function scheduleFetchLessonTimesConfig\([^)]*\)\{[\s\S]*?\nfunction scheduleUniqueConfiguredSlots/,
+  );
+  assert(
+    'scheduleFetchLessonTimesConfig block found',
+    !!fetchLessonTimesFn,
+  );
+  if (fetchLessonTimesFn) {
+    assert(
+      'scheduleFetchLessonTimesConfig does not copy lesson_slots_demo',
+      !fetchLessonTimesFn[0].includes('(profile.lesson_slots_demo || []).slice()')
+        && !/\.lesson_slots_demo\s*\|\|/.test(fetchLessonTimesFn[0]),
+    );
+    assert(
+      'scheduleFetchLessonTimesConfig fails closed with empty cache',
+      fetchLessonTimesFn[0].includes('scheduleLessonTimesCache = []')
+        && fetchLessonTimesFn[0].includes('scheduleLessonTimesFallback = true'),
+    );
+  }
 } else {
   assert('staff-query-api.js exists', false, STAFF_API_PATH);
 }
