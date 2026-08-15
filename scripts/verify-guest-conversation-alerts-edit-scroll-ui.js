@@ -186,6 +186,8 @@ console.log('\n── runtime: serialize + round-trip + pebbles ──');
   installRecipientDom('new_conversation', sandbox.getCache().new_conversation.recipients);
   installRecipientDom('human_needed', sandbox.getCache().human_needed.recipients);
   sandbox.staffNotificationSettingsApplyToForm();
+  ok('server-off toggles are disabled', el('sns-new-enabled').disabled === true && el('sns-human-enabled').disabled === true);
+  ok('server-off toggles do not look checked', el('sns-new-enabled').checked === false && el('sns-human-enabled').checked === false);
   // applyToForm re-renders hosts via innerHTML string — reinstall collect-friendly DOM.
   installRecipientDom('new_conversation', [
     { name: el('sns-new-r-0-name') ? el('sns-new-r-0-name').value : 'Ana', phone: '+34611111111' },

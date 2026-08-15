@@ -1038,7 +1038,7 @@ function computeSunsetFinanceSummary(args) {
       used,
       stock: stockKnown ? stockSum : null,
       pct: stockKnown && stockSum > 0 ? pctInt(used, stockSum) : null,
-      detail: stockKnown ? `${used}/${stockSum}` : (used ? `out ${used}` : '—'),
+      detail: stockKnown ? `${used}/${stockSum}` : (used ? String(used) : '—'),
       offering_keys: keys,
     };
   });

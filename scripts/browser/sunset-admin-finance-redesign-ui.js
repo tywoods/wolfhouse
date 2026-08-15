@@ -382,13 +382,18 @@ function renderFinanceRedesignHtml(summary) {
     if (row.slot === 'lessons') lab = financeRedesignT('admin.finance.product.lessons', 'Lessons');
     if (/staff\s*accommodation/i.test(lab)) lab = financeRedesignT('admin.finance.product.accommodation', 'Accommodation');
     var pct = row.pct;
-    var w = pct != null && Number.isFinite(Number(pct)) ? Math.max(0, Math.min(100, Number(pct))) : 0;
+    var rawPct = (pct != null && Number.isFinite(Number(pct))) ? Number(pct) : null;
+    var w = rawPct != null ? Math.max(0, Math.min(100, rawPct)) : 0;
     var detail = row.detail != null ? String(row.detail) : '\u2014';
+    if ((!detail || detail === '\u2014') && row.used != null) {
+      detail = String(row.used);
+    }
+    var pctLabel = rawPct != null ? (String(Math.round(rawPct)) + '%') : '';
     html += '<div class="pfb-bar-row pfb-bar-row--util">';
     html += '<span class="pfb-bar-name">' + financeRedesignEsc(lab) + '</span>';
     html += '<span class="pfb-bar-track"><span class="pfb-bar-fill ' + cls + '" style="width:' + w + '%"></span></span>';
     html += '<span class="pfb-bar-amt">' + financeRedesignEsc(detail) + '</span>';
-    html += '<span class="pfb-bar-pct">' + financeRedesignEsc(pct != null ? (String(Math.round(w)) + '%') : '\u2014') + '</span>';
+    html += '<span class="pfb-bar-pct">' + financeRedesignEsc(pctLabel) + '</span>';
     html += '</div>';
   });
   html += '</div></div>'; // bars + cap-top

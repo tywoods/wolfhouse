@@ -30046,23 +30046,78 @@ function wireAutomatedStaffNotificationsList(){
 }
 wireAutomatedStaffNotificationsList();
 
+function staffNotificationAllRecipients(){
+  var out = [];
+  var seen = {};
+  function add(list){
+    (Array.isArray(list) ? list : []).forEach(function(r){
+      var phone = String((r && r.phone) || '').trim();
+      if (!phone || seen[phone]) return;
+      seen[phone] = true;
+      out.push({
+        display_name: String((r && r.name) || '').trim(),
+        phone: phone,
+        permission_group: 'staff',
+        active: true,
+        from_alerts: true,
+      });
+    });
+  }
+  var c = staffNotificationSettingsCache || {};
+  add(c.new_conversation && c.new_conversation.recipients);
+  add(c.human_needed && c.human_needed.recipients);
+  return out;
+}
+
+function staffNotificationServerIsOn(){
+  return !!(staffNotificationServerMeta && staffNotificationServerMeta.server_notifications_enabled);
+}
+
+function staffWhatsappNumbersEmptyLabel(){
+  try {
+    if (typeof portalT === 'function') {
+      var t = String(portalT('lunaStaff.numbers.empty') || '');
+      if (t && t !== 'lunaStaff.numbers.empty') return t;
+    }
+  } catch (_e) { /* ignore */ }
+  var es = false;
+  try { es = String((typeof portalLang === 'string' && portalLang) || '') === 'es'; } catch (_l) { es = false; }
+  return es ? 'Aún no hay números.' : 'No numbers yet.';
+}
+
 function staffWhatsappNumbersRender(numbers){
   var tbody = el('swn-tbody');
   if (!tbody) return;
-  if (!numbers || !numbers.length){
-    tbody.innerHTML = '<tr><td colspan="5" style="opacity:.7">No numbers yet.</td></tr>';
+  var rows = Array.isArray(numbers) ? numbers.slice() : [];
+  if (!rows.length) rows = staffNotificationAllRecipients();
+  if (!rows.length){
+    tbody.innerHTML = '<tr><td colspan="5" style="opacity:.7">' + escHtml(staffWhatsappNumbersEmptyLabel()) + '</td></tr>';
   } else {
-  tbody.innerHTML = numbers.map(function(n){
-    var grp = n.permission_group === 'owner' ? 'Owner' : 'Staff';
+  tbody.innerHTML = rows.map(function(n){
+    var grp = n.from_alerts
+      ? (function(){
+          try {
+            if (typeof portalT === 'function') {
+              var lab = String(portalT('lunaStaff.alerts.title') || '');
+              if (lab && lab !== 'lunaStaff.alerts.title') return lab;
+            }
+          } catch (_e) { /* ignore */ }
+          var es = false;
+          try { es = String((typeof portalLang === 'string' && portalLang) || '') === 'es'; } catch (_l) { es = false; }
+          return es ? 'Alertas de conversación' : 'Guest alerts';
+        })()
+      : (n.permission_group === 'owner' ? 'Owner' : 'Staff');
+    var remove = n.from_alerts || !n.id
+      ? ''
+      : '<button type="button" class="btn swn-remove-btn" data-swn-id="' + escHtml(n.id) + '">Remove</button>';
     return '<tr class="swn-mobile-card">'
       + '<td data-label="Name">' + escHtml(n.display_name || '') + '</td>'
       + '<td data-label="Phone">' + escHtml(n.phone) + '</td>'
       + '<td data-label="Group">' + escHtml(grp) + '</td>'
       + '<td data-label="Active">' + (n.active ? 'Yes' : 'No') + '</td>'
-      + '<td data-label=""><button type="button" class="btn swn-remove-btn" data-swn-id="' + escHtml(n.id) + '">Remove</button></td>'
+      + '<td data-label="">' + remove + '</td>'
       + '</tr>';
   }).join('');
-  // Delegated handler (avoids inline onclick quote-escaping inside the served script).
   tbody.querySelectorAll('.swn-remove-btn').forEach(function(b){
     b.addEventListener('click', function(){ staffWhatsappNumberRemove(b.getAttribute('data-swn-id')); });
   });
@@ -30152,6 +30207,10 @@ var staffNotificationSettingsCache = { new_conversation: { enabled: false, recip
 var staffNotificationServerMeta = { server_notifications_enabled: false, server_notifications_dry_run: true };
 var staffNotificationSettingsFetchInFlight = false;
 
+function staffNotificationServerIsOn(){
+  return !!(staffNotificationServerMeta && staffNotificationServerMeta.server_notifications_enabled);
+}
+
 function isLunaStaffTabActive(){
   var panel = el('tab-ask-luna');
   return !!(panel && panel.classList.contains('active'));
@@ -30226,8 +30285,12 @@ function staffNotificationTypePillApplyOne(type){
   var note = el(isHuman ? 'sns-human-server-note' : 'sns-new-server-note');
   var check = el(isHuman ? 'sns-human-enabled' : 'sns-new-enabled');
   if (!pill) return;
-  var configuredOn = !!(check && check.checked);
-  var serverOn = !!(staffNotificationServerMeta && staffNotificationServerMeta.server_notifications_enabled);
+  var configuredOn = staffNotificationServerIsOn()
+    ? !!(check && check.checked)
+    : !!(staffNotificationSettingsCache
+      && staffNotificationSettingsCache[type]
+      && staffNotificationSettingsCache[type].enabled);
+  var serverOn = staffNotificationServerIsOn();
   if (!serverOn){
     pill.textContent = 'Disabled on server';
     pill.className = 'pill pill-grey sns-type-pill';
@@ -30262,17 +30325,29 @@ function staffNotificationServerPillApply(meta){
 function staffNotificationSettingsApplyToForm(){
   var nc = staffNotificationSettingsCache.new_conversation || { enabled: false, recipients: [] };
   var hn = staffNotificationSettingsCache.human_needed || { enabled: false, recipients: [] };
-  if (el('sns-new-enabled')) el('sns-new-enabled').checked = !!nc.enabled;
-  if (el('sns-human-enabled')) el('sns-human-enabled').checked = !!hn.enabled;
+  var serverOn = staffNotificationServerIsOn();
+  if (el('sns-new-enabled')) {
+    el('sns-new-enabled').disabled = !serverOn;
+    el('sns-new-enabled').checked = serverOn && !!nc.enabled;
+  }
+  if (el('sns-human-enabled')) {
+    el('sns-human-enabled').disabled = !serverOn;
+    el('sns-human-enabled').checked = serverOn && !!hn.enabled;
+  }
   staffNotificationRecipientRender('new_conversation');
   staffNotificationRecipientRender('human_needed');
   staffNotificationTypePillSync();
+  if (typeof staffWhatsappNumbersRender === 'function') {
+    try { staffWhatsappNumbersRender(staffWhatsappNumbersCache); } catch (_r) { /* ignore */ }
+  }
 }
 
 function staffNotificationSettingsCollectFromForm(){
   // Type checkboxes are the sole enabled authority. Listed recipients are active.
   function collectType(type, enabledElId){
-    var enabled = !!(el(enabledElId) && el(enabledElId).checked);
+    var enabled = staffNotificationServerIsOn()
+      ? !!(el(enabledElId) && el(enabledElId).checked)
+      : !!(staffNotificationSettingsCache[type] && staffNotificationSettingsCache[type].enabled);
     var hostId = type === 'human_needed' ? 'sns-human-recipients' : 'sns-new-recipients';
     var host = el(hostId);
     var recipients = [];
