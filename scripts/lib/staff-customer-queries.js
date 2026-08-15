@@ -9,6 +9,7 @@
 
 'use strict';
 
+const crypto = require('crypto');
 const {
   DEFAULT_SUNSET_LOCATION_ID,
   SUNSET_CLIENT_SLUG,
@@ -17,6 +18,11 @@ const {
   sqlLocationMatch,
 } = require('./sunset-school-locations');
 const { loadClientPortalProfile } = require('./staff-portal-clients');
+
+/** Email-only CRM identity — never a fake +dddd WhatsApp phone. */
+const EMAILCUST_IDENTITY_PREFIX = 'emailcust1:';
+const EMAILCUST_IDENTITY_RE = /^emailcust1:/i;
+const OPAQUE_EMAIL_PHONE_RE = /^(emailcust1|emailv1|email):/i;
 
 const CRM_TAG_KEYS = [
   'lead',
@@ -249,13 +255,46 @@ async function updateCustomerCrmTags(pg, clientSlug, phone, tags) {
   };
 }
 
+function isEmailcustIdentity(phone) {
+  return EMAILCUST_IDENTITY_RE.test(String(phone || '').trim());
+}
+
+function isOpaqueEmailPhoneIdentity(phone) {
+  return OPAQUE_EMAIL_PHONE_RE.test(String(phone || '').trim());
+}
+
 /**
- * Canonical E.164-style phone key for customer dedupe per tenant.
- * Matches Hermes WhatsApp mirror normalization.
+ * Normalize inbound email for emailcust1 seeding (lowercase, trim).
+ * @returns {string|null}
+ */
+function normalizeCustomerEmailAddress(raw) {
+  if (raw == null) return null;
+  const trimmed = String(raw).trim().toLowerCase();
+  if (!trimmed || !trimmed.includes('@') || trimmed.length > 320) return null;
+  return trimmed;
+}
+
+/**
+ * Stable email-only customer identity key: emailcust1:<sha256(email)>.
+ * Never invents a +dddd phone for email threads.
+ */
+function buildEmailcustIdentityKey(email) {
+  const normalized = normalizeCustomerEmailAddress(email);
+  if (!normalized) return '';
+  const digest = crypto.createHash('sha256').update(normalized, 'utf8').digest('hex');
+  return `${EMAILCUST_IDENTITY_PREFIX}${digest}`;
+}
+
+/**
+ * Canonical identity key for customer dedupe per tenant.
+ * E.164-style phones for WhatsApp; preserves emailcust1: / emailv1: / email: keys.
+ * Matches Hermes WhatsApp mirror normalization for real phones.
  */
 function normalizeCustomerPhone(phone) {
   const raw = String(phone || '').trim();
   if (!raw) return '';
+  if (EMAILCUST_IDENTITY_RE.test(raw)) return raw.slice(0, 96);
+  if (/^(emailv1|email):/i.test(raw)) return raw.slice(0, 200);
   if (raw.startsWith('+')) return raw.slice(0, 40);
   const digits = raw.replace(/[^\d]/g, '');
   return digits ? `+${digits}`.slice(0, 40) : '';
@@ -263,11 +302,25 @@ function normalizeCustomerPhone(phone) {
 
 /** Digits-only phone key for tolerant tenant-scoped matching (+prefix optional). */
 function customerPhoneDigits(phone) {
+  if (isOpaqueEmailPhoneIdentity(phone)) return '';
   return String(phone || '').replace(/[^\d]/g, '');
 }
 
+/**
+ * Match customers/conversations by identity key.
+ * Opaque email namespaces use exact match only — digits-only would invent collisions.
+ */
 function sqlCustomerPhoneMatch(column, paramRef) {
-  return `regexp_replace(COALESCE(${column}, ''), '[^0-9]', '', 'g') = regexp_replace(COALESCE(${paramRef}::text, ''), '[^0-9]', '', 'g')`;
+  return `(
+    ${column} = ${paramRef}::text
+    OR (
+      ${column} !~* '^(emailcust1|emailv1|email):'
+      AND ${paramRef}::text !~* '^(emailcust1|emailv1|email):'
+      AND regexp_replace(COALESCE(${column}, ''), '[^0-9]', '', 'g')
+        = regexp_replace(COALESCE(${paramRef}::text, ''), '[^0-9]', '', 'g')
+      AND regexp_replace(COALESCE(${paramRef}::text, ''), '[^0-9]', '', 'g') <> ''
+    )
+  )`;
 }
 
 /** Digits-only SQL expression for grouping/joining customer phones. */
@@ -394,22 +447,172 @@ async function upsertCustomerFromInboundTouch(pg, input) {
 }
 
 /**
- * Parse POST /staff/customers body (manual add).
- * @returns {{ ok: true, value: { display_name: string, phone: string, notes: string|null } } | { ok: false, error: string }}
+ * Parse POST /staff/customers body (manual add / inbox link-guest).
+ * Phone-anchored create stays the default. Email-only create (no phone) seeds
+ * an emailcust1: identity from the inbound email — never a fake +dddd phone.
+ * @returns {{ ok: true, value: {
+ *   display_name: string,
+ *   phone: string,
+ *   email: string|null,
+ *   notes: string|null,
+ *   conversation_id: string|null,
+ *   email_only: boolean,
+ * } } | { ok: false, error: string }}
  */
 function parseManualCustomerCreateBody(body) {
   const b = body && typeof body === 'object' ? body : {};
   const displayName = trimInboundText(b.display_name || b.name || b.full_name, 120);
-  const phone = normalizeCustomerPhone(b.phone);
   const notes = trimInboundText(b.notes, 4000);
-  if (!displayName) return { ok: false, error: 'name is required' };
-  if (!phone) return { ok: false, error: 'phone is required' };
-  return { ok: true, value: { display_name: displayName, phone, notes } };
+  const email = normalizeCustomerEmailAddress(b.email);
+  const conversationId = trimInboundText(b.conversation_id, 64);
+  const rawPhone = String(b.phone || '').trim();
+  let phone = normalizeCustomerPhone(rawPhone);
+  let emailOnly = false;
+
+  if (!phone && email) {
+    phone = buildEmailcustIdentityKey(email);
+    emailOnly = true;
+  }
+
+  if (!displayName && !email) return { ok: false, error: 'name is required' };
+  if (!phone) return { ok: false, error: emailOnly ? 'email is required' : 'phone is required' };
+  if (isOpaqueEmailPhoneIdentity(rawPhone) && !isEmailcustIdentity(rawPhone)) {
+    return { ok: false, error: 'invalid phone' };
+  }
+
+  const resolvedName = displayName
+    || (email ? email.split('@')[0] : '')
+    || 'Guest';
+
+  return {
+    ok: true,
+    value: {
+      display_name: resolvedName,
+      phone,
+      email: email || null,
+      notes,
+      conversation_id: conversationId || null,
+      email_only: emailOnly || isEmailcustIdentity(phone),
+    },
+  };
 }
 
 /**
- * Manual staff create — tenant-scoped, deduped by normalized phone.
- * On duplicate: returns existing row; fills missing name/notes only.
+ * Link conversations.customer_id only when still unlinked.
+ * Same customer already linked → ok (idempotent). Different customer → 409.
+ *
+ * @param {import('pg').Client|import('pg').PoolClient} pg
+ * @param {string} clientSlug
+ * @param {{ conversation_id: string, customer_id: string }} input
+ * @returns {Promise<{ ok: boolean, status: number, body: object }>}
+ */
+async function linkConversationCustomer(pg, clientSlug, input) {
+  const src = input || {};
+  const conversationId = trimInboundText(src.conversation_id, 64);
+  const customerId = trimInboundText(src.customer_id, 64);
+  const slug = String(clientSlug || '').trim();
+  if (!slug || !conversationId || !customerId) {
+    return { ok: false, status: 400, body: { success: false, error: 'conversation_id and customer_id are required' } };
+  }
+
+  const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [slug]);
+  if (!clientRes.rows.length) {
+    return { ok: false, status: 404, body: { success: false, error: 'client not found' } };
+  }
+  const clientId = clientRes.rows[0].id;
+
+  const cust = await pg.query(
+    `SELECT id::text AS customer_id, phone, full_name, email
+       FROM customers
+      WHERE client_id = $1::uuid AND id = $2::uuid
+      LIMIT 1`,
+    [clientId, customerId],
+  );
+  if (!cust.rows.length) {
+    return { ok: false, status: 404, body: { success: false, error: 'customer not found' } };
+  }
+
+  const conv = await pg.query(
+    `SELECT id::text AS conversation_id, customer_id::text AS customer_id
+       FROM conversations
+      WHERE client_id = $1::uuid AND id = $2::uuid
+      LIMIT 1`,
+    [clientId, conversationId],
+  );
+  if (!conv.rows.length) {
+    return { ok: false, status: 404, body: { success: false, error: 'conversation not found' } };
+  }
+
+  const existing = conv.rows[0].customer_id || null;
+  if (existing && existing !== customerId) {
+    return {
+      ok: false,
+      status: 409,
+      body: {
+        success: false,
+        error: 'conversation already linked',
+        conversation_id: conversationId,
+        customer_id: existing,
+      },
+    };
+  }
+
+  if (!existing) {
+    const upd = await pg.query(
+      `UPDATE conversations
+          SET customer_id = $3::uuid,
+              updated_at = NOW()
+        WHERE id = $2::uuid
+          AND client_id = $1::uuid
+          AND customer_id IS NULL
+        RETURNING id::text AS conversation_id, customer_id::text AS customer_id`,
+      [clientId, conversationId, customerId],
+    );
+    if (!upd.rows.length) {
+      // Race: another writer linked between SELECT and UPDATE.
+      const again = await pg.query(
+        `SELECT customer_id::text AS customer_id
+           FROM conversations
+          WHERE client_id = $1::uuid AND id = $2::uuid
+          LIMIT 1`,
+        [clientId, conversationId],
+      );
+      const raced = again.rows[0] && again.rows[0].customer_id;
+      if (raced && raced !== customerId) {
+        return {
+          ok: false,
+          status: 409,
+          body: {
+            success: false,
+            error: 'conversation already linked',
+            conversation_id: conversationId,
+            customer_id: raced,
+          },
+        };
+      }
+    }
+  }
+
+  const row = cust.rows[0];
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      success: true,
+      linked: true,
+      conversation_id: conversationId,
+      customer_id: row.customer_id,
+      phone: row.phone,
+      display_name: row.full_name || null,
+      email: row.email || null,
+    },
+  };
+}
+
+/**
+ * Manual staff create — tenant-scoped, deduped by normalized phone / emailcust1.
+ * On duplicate: returns existing row; fills missing name/notes/email only.
+ * Optional conversation_id links the thread (409 if already linked to another guest).
  *
  * @param {import('pg').Client|import('pg').PoolClient} pg
  * @param {string} clientSlug
@@ -427,11 +630,11 @@ async function createOrMergeManualCustomer(pg, clientSlug, body, opts = {}) {
     return { ok: false, status: 404, body: { success: false, error: 'client not found' } };
   }
   const clientId = clientRes.rows[0].id;
-  const { display_name, phone, notes } = parsed.value;
+  const { display_name, phone, email, notes, conversation_id, email_only: emailOnly } = parsed.value;
   const locationId = trimInboundText(opts.location_id, 64);
 
   const existing = await pg.query(
-    `SELECT id::text AS customer_id, full_name, notes
+    `SELECT id::text AS customer_id, full_name, notes, email
        FROM customers
       WHERE client_id = $1::uuid AND phone = $2
       LIMIT 1`,
@@ -440,34 +643,63 @@ async function createOrMergeManualCustomer(pg, clientSlug, body, opts = {}) {
   const hadRow = existing.rows.length > 0;
 
   const ins = await pg.query(
-    `INSERT INTO customers (client_id, phone, full_name, notes, location_id, first_seen, last_seen)
-     VALUES ($1::uuid, $2, $3, $4, $5, NOW(), NOW())
+    `INSERT INTO customers (client_id, phone, full_name, email, notes, location_id, first_seen, last_seen)
+     VALUES ($1::uuid, $2, $3, $4, $5, $6, NOW(), NOW())
      ON CONFLICT (client_id, phone) DO UPDATE SET
        full_name   = COALESCE(customers.full_name, EXCLUDED.full_name),
+       email       = COALESCE(customers.email, EXCLUDED.email),
        notes       = COALESCE(customers.notes, EXCLUDED.notes),
        location_id = COALESCE(EXCLUDED.location_id, customers.location_id),
        last_seen   = NOW(),
        updated_at  = NOW()
-     RETURNING id::text AS customer_id, full_name, phone, notes`,
-    [clientId, phone, display_name, notes, locationId],
+     RETURNING id::text AS customer_id, full_name, phone, email, notes`,
+    [clientId, phone, display_name, email, notes, locationId],
   );
   const row = ins.rows[0];
   if (!row) {
     return { ok: false, status: 500, body: { success: false, error: 'customer create failed' } };
   }
 
+  const bodyOut = {
+    success: true,
+    customer_id: row.customer_id,
+    phone: row.phone,
+    display_name: row.full_name || display_name,
+    email: row.email || email || null,
+    notes: row.notes || notes || null,
+    created: !hadRow,
+    duplicate: hadRow,
+    email_only: !!emailOnly,
+  };
+
+  if (conversation_id) {
+    const linked = await linkConversationCustomer(pg, clientSlug, {
+      conversation_id,
+      customer_id: row.customer_id,
+    });
+    if (!linked.ok) {
+      return {
+        ok: false,
+        status: linked.status,
+        body: {
+          ...linked.body,
+          customer_id: row.customer_id,
+          phone: row.phone,
+          display_name: bodyOut.display_name,
+          email: bodyOut.email,
+          created: !hadRow,
+          duplicate: hadRow,
+        },
+      };
+    }
+    bodyOut.linked = true;
+    bodyOut.conversation_id = conversation_id;
+  }
+
   return {
     ok: true,
     status: hadRow ? 200 : 201,
-    body: {
-      success: true,
-      customer_id: row.customer_id,
-      phone: row.phone,
-      display_name: row.full_name || display_name,
-      notes: row.notes || notes || null,
-      created: !hadRow,
-      duplicate: hadRow,
-    },
+    body: bodyOut,
   };
 }
 
@@ -1464,6 +1696,11 @@ module.exports = {
   normalizeCustomerPhone,
   customerPhoneDigits,
   sqlCustomerPhoneMatch,
+  isEmailcustIdentity,
+  isOpaqueEmailPhoneIdentity,
+  normalizeCustomerEmailAddress,
+  buildEmailcustIdentityKey,
+  linkConversationCustomer,
   upsertCustomerFromInboundTouch,
   parseManualCustomerCreateBody,
   createOrMergeManualCustomer,

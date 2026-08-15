@@ -768,6 +768,7 @@
     "verify:inbox-saved-views": "node scripts/verify-inbox-saved-views.js",
     "verify:inbox-views-ui": "node scripts/verify-inbox-views-ui.js",
     "verify:inbox-context": "node scripts/verify-inbox-context.js",
+    "verify:inbox-link-guest": "node scripts/verify-inbox-link-guest.js",
     "verify:inbox-rows": "node scripts/verify-inbox-rows.js",
     "verify:inbox-thread-mockup": "node scripts/verify-inbox-thread-mockup.js",
     "verify:inbox-view-routes": "node scripts/verify-inbox-view-routes.js",
