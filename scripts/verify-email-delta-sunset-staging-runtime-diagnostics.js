@@ -125,7 +125,8 @@ test('package script and exports are exact/frozen', () => {
     'row_value_invalid',
     'row_value_id', 'row_value_from', 'row_value_received_time', 'row_value_read_state',
     'row_value_conversation', 'row_value_internet_message_id', 'row_value_etag',
-    'row_branch_subject_metadata', 'row_branch_odata_metadata',
+    'row_branch_subject_metadata', 'row_branch_odata_unrecognized_type',
+    'row_branch_odata_invalid_metadata',
     'row_branch_duplicate_message_identity',
     'row_branch_tombstone_envelope_collision', 'row_branch_invariant_mapper_shape',
   ]));
@@ -278,11 +279,31 @@ test('real Graph transport exhaustively preserves only trusted closed row field 
   );
   assert.equal(
     await classifyBody(bodyFor([{ ...baseRow, '@odata.type': 7 }])),
-    'row_branch_odata_metadata',
+    'row_branch_odata_invalid_metadata',
   );
   assert.equal(
     await classifyBody(bodyFor([{ ...baseRow, '@odata.type': '#microsoft.graph.unknownThing' }])),
-    'row_branch_odata_metadata',
+    'row_branch_odata_unrecognized_type',
+  );
+  assert.equal(
+    await classifyBody(bodyFor([{ ...baseRow, '@odata.type': '#other.invalid' }])),
+    'row_branch_odata_invalid_metadata',
+  );
+  assert.equal(
+    await classifyBody(bodyFor([{
+      ...baseRow,
+      '@odata.type': '#microsoft.graph.unknownThing',
+      unexpected_metadata: true,
+    }])),
+    'row_branch_odata_invalid_metadata',
+  );
+  assert.equal(
+    await classifyBody(bodyFor([{ ...baseRow, '@odata.type': `#microsoft.graph.A${'x'.repeat(238)}` }])),
+    'row_branch_odata_unrecognized_type',
+  );
+  assert.equal(
+    await classifyBody(bodyFor([{ ...baseRow, '@odata.type': `#microsoft.graph.A${'x'.repeat(239)}` }])),
+    'row_branch_odata_invalid_metadata',
   );
   assert.equal(
     await classifyBody(bodyFor([{ ...baseRow }, { ...baseRow }])),
