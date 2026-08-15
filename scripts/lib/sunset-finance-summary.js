@@ -887,18 +887,20 @@ function computeSunsetFinanceSummary(args) {
   // Retired cancellation proxy — always 0 in Slice 2 redesign Net.
   const pending_refund_cents = 0;
 
-  // Pipeline
   const next30Range = { start: today, end: addDays(today, 29) };
-  let next_30_days_cents = 0;
-  for (const r of datedBsr) {
-    if (inRange(r.service_date, next30Range)) next_30_days_cents = checkedAdd(next_30_days_cents, r.due);
-  }
-
-  // Latest service_date per booking (for aging + delivered-unpaid)
   const lastServiceByBooking = new Map();
   for (const r of datedBsr) {
     const prev = lastServiceByBooking.get(r.booking_id);
     if (!prev || r.service_date > prev) lastServiceByBooking.set(r.booking_id, r.service_date);
+  }
+  const qualifyingPrimary = new Set();
+  for (const r of datedBsr) if (inRange(r.service_date, primaryRange)) qualifyingPrimary.add(r.booking_id);
+
+  // Delivered unpaid + next 30: same bookings as the selected period (not a global ops window).
+  let next_30_days_cents = 0;
+  for (const r of datedBsr) {
+    if (!qualifyingPrimary.has(r.booking_id)) continue;
+    if (inRange(r.service_date, next30Range)) next_30_days_cents = checkedAdd(next_30_days_cents, r.due);
   }
 
   let delivered_unpaid_cents = 0;
@@ -906,29 +908,29 @@ function computeSunsetFinanceSummary(args) {
   let due_soon_cents = 0;
   let overdue_cents = 0;
   let outstanding_bookings = 0;
-  // Outstanding aging over bookings that appear in the primary range (same set as outstanding).
-  const qualifyingPrimary = new Set();
-  for (const r of datedBsr) if (inRange(r.service_date, primaryRange)) qualifyingPrimary.add(r.booking_id);
+  const periodDueByBooking = new Map();
+  for (const r of datedBsr) {
+    if (inRange(r.service_date, primaryRange)) {
+      periodDueByBooking.set(r.booking_id, checkedAdd(periodDueByBooking.get(r.booking_id) || 0, r.due));
+    }
+  }
+  let period_outstanding_cents = 0;
   for (const bookingId of qualifyingPrimary) {
     const bal = bookingBalance(bookingId);
     if (bal <= 0) continue;
     outstanding_bookings += 1;
+    const periodDue = periodDueByBooking.get(bookingId) || 0;
+    period_outstanding_cents = checkedAdd(period_outstanding_cents, Math.min(bal, Math.max(0, periodDue)));
     const last = lastServiceByBooking.get(bookingId);
     if (!last) {
       due_soon_cents = checkedAdd(due_soon_cents, bal);
       continue;
     }
-    // days_past = today - last (positive when last is in the past)
     const daysPast = Math.round((Date.parse(today + 'T00:00:00Z') - Date.parse(last + 'T00:00:00Z')) / 86400000);
     if (daysPast > 7) overdue_cents = checkedAdd(overdue_cents, bal);
     else due_soon_cents = checkedAdd(due_soon_cents, bal);
-  }
-  // Delivered unpaid: any booking with balance and last service before today (global ops view).
-  for (const [bookingId, last] of lastServiceByBooking.entries()) {
-    const bal = bookingBalance(bookingId);
-    if (bal <= 0) continue;
     if (last < today) {
-      delivered_unpaid_cents = checkedAdd(delivered_unpaid_cents, bal);
+      delivered_unpaid_cents = checkedAdd(delivered_unpaid_cents, Math.min(bal, Math.max(0, periodDue)));
       delivered_unpaid_bookings += 1;
     }
   }
@@ -1102,7 +1104,7 @@ function computeSunsetFinanceSummary(args) {
       vs_yoy_pct: deltaPct(primaryStats.booked_cents, yoyStats.booked_cents),
     },
     outstanding: {
-      outstanding_cents: primaryStats.outstanding_cents,
+      outstanding_cents: period_outstanding_cents,
       bookings_count: outstanding_bookings,
       due_soon_cents,
       overdue_cents,

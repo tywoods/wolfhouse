@@ -24358,6 +24358,9 @@ function scheduleRenderStatusBadgeHtml(group, opts){
     html = '<span class="portal-schedule-status is-cancelled">' + escHtml(portalT('schedule.status.cancelled')) + '</span>';
   } else {
     var ps = String(group.payment_status || '').toLowerCase();
+    var paidRaw = group.booking_amount_paid_cents;
+    if (paidRaw == null) paidRaw = group.amount_paid_cents;
+    if (ps === 'paid' && paidRaw != null && !(Number(paidRaw) > 0)) ps = 'unpaid';
     if (ps === 'paid'){
       html = '<span class="portal-schedule-status is-paid">' + escHtml(portalT('schedule.status.paid')) + '</span>';
     } else if (ps === 'pending' || ps === 'waiting_payment' || ps === 'not_requested' || ps){
@@ -24436,10 +24439,10 @@ function scheduleBuildDisplayGroups(rows){
         quantity: 0,
         payment_status: (function(){
           if (scheduleRowEffectivePaid(r)) return 'paid';
-          var p = String(r.payment_status || '').toLowerCase();
-          if (p === 'pending' || p === 'waiting_payment' || p === 'not_requested') return 'unpaid';
-          return r.payment_status;
+          return 'unpaid';
         })(),
+        booking_amount_paid_cents: Number(r.booking_amount_paid_cents || 0),
+        booking_payment_status: r.booking_payment_status || null,
         phone: r.phone || null,
         _isDemo: !!r._isDemo,
         _isDbManual: !!r._isDbManual,

@@ -153,7 +153,7 @@ const prodCents = s.redesign.revenue_by_product.reduce((a, r) => a + r.cents, 0)
 ok('product total includes gear lines', prodCents >= 4000 + 3000 + 2000 - 1);
 
 ok('next 30 includes B1 July rows', s.redesign.pipeline.next_30_days_cents >= 7000);
-eq('delivered unpaid = B2+B_PAST', s.redesign.pipeline.delivered_unpaid_cents, 13000);
+eq('delivered unpaid stays inside selected period', s.redesign.pipeline.delivered_unpaid_cents, 2000);
 eq('due soon ≤7d includes near/future unpaid', s.redesign.outstanding.due_soon_cents, 11000);
 eq('overdue in primary July may be 0 (B_PAST outside period)', s.redesign.outstanding.overdue_cents, 0);
 

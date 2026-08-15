@@ -467,7 +467,8 @@ function scheduleRenderDayCockpit(mount, data) {
   // Date only — no "Today ·" prefix (redundant with Previous/Today/Next seg).
   // Non-today keeps a short weekday so staff know which day they're on.
   var dateLabel;
-  if ((data.range || '') === 'next30') {
+  var rangeKey = data.range || scheduleCockpitRangeFromNavMode(data.navMode || data.mode);
+  if (rangeKey === 'next30') {
     dateLabel = dt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   } else {
     dateLabel = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -1420,6 +1421,7 @@ function scheduleCollectDayCockpitSource() {
     venue: venue,
     date: activeIso,
     navMode: navMode,
+    range: scheduleCockpitRangeFromNavMode(navMode),
     layout: typeof scheduleGetDayOpsLayoutMode === 'function' ? scheduleGetDayOpsLayoutMode() : 'timeline',
     sessions: sessions,
     equip: equip,

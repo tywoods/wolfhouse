@@ -247,8 +247,11 @@ function wireAdminBookingsPanel() {
     var st = el('admin-bookings-status');
     var ty = el('admin-bookings-type');
     adminBookingsState.filters.q = q ? String(q.value || '').trim() : '';
-    adminBookingsState.filters.date_from = df ? String(df.value || '') : '';
-    adminBookingsState.filters.date_to = dt ? String(dt.value || '') : '';
+    var fromVal = df ? String(df.value || '').trim() : '';
+    var toVal = dt ? String(dt.value || '').trim() : '';
+    // Search must keep an already-applied date range (empty inputs must not widen the list).
+    adminBookingsState.filters.date_from = fromVal || adminBookingsState.filters.date_from || '';
+    adminBookingsState.filters.date_to = toVal || adminBookingsState.filters.date_to || '';
     adminBookingsState.filters.status = st ? String(st.value || '') : '';
     adminBookingsState.filters.type = ty ? String(ty.value || '') : '';
     // Archived checkbox removed — hidden filter uses show_hidden only.
@@ -1138,6 +1141,8 @@ function adminBookingsDateRangeCommit(onApply) {
   var dt = el('admin-bookings-date-to');
   if (df) df.value = start || '';
   if (dt) dt.value = end || '';
+  adminBookingsState.filters.date_from = start || '';
+  adminBookingsState.filters.date_to = end || '';
   adminBookingsSyncDateRangeDisplay();
   adminBookingsDateRangeClose({});
   if (typeof onApply === 'function') onApply();
@@ -1192,6 +1197,8 @@ function wireAdminBookingsDateRange(onApply) {
       var dt = el('admin-bookings-date-to');
       if (df) df.value = '';
       if (dt) dt.value = '';
+      adminBookingsState.filters.date_from = '';
+      adminBookingsState.filters.date_to = '';
       adminBookingsSyncDateRangeDisplay();
       adminBookingsDateRangeClose({});
       if (typeof onApply === 'function') onApply();
