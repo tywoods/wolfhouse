@@ -624,7 +624,13 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     var loadGen = navSnapshot.loadGen != null ? navSnapshot.loadGen : navState.loadGen;
     var snap = Object.assign({}, navSnapshot, { mode: mode, forwardOffset: forwardOffset, loadGen: loadGen });
     var stateNode = el('ps-state');
+    // Always mark loading here too — some callers pass a snapshot without bumpLoad().
+    navState.pageLoading = true;
     loaderShowLoading(stateNode);
+    // Swap stale empty-day copy for loading before fetch; keeps booked boards intact.
+    if (typeof scheduleAnnounceSchedulePageLoading === 'function') {
+      try { scheduleAnnounceSchedulePageLoading(); } catch (_announceErr) { /* non-fatal */ }
+    }
     // Prefer snapshot rangeStartIso (month-aligned in next30) so grid + header share one cursor.
     var rangeStart = null;
     if (snap.rangeStartIso && /^\d{4}-\d{2}-\d{2}$/.test(String(snap.rangeStartIso))) {
@@ -648,13 +654,14 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
         viewModel.presentationOnlyRows || [],
         snap
       );
+      // Clear loading BEFORE paint so a truly empty day renders emptyDay, not Loading….
+      navState.pageLoading = false;
       scheduleRenderLoadedViewModel(viewModel, loadGen, snap);
       loaderHideState(stateNode);
-      navState.pageLoading = false;
     }).catch(function(e){
       if (!isLoadActive(loadGen)) return;
-      loaderShowError(stateNode, e);
       navState.pageLoading = false;
+      loaderShowError(stateNode, e);
     });
   }
 
