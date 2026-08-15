@@ -479,7 +479,17 @@ function scheduleRenderDayCockpit(mount, data) {
   var dateLabel;
   var rangeKey = data.range || scheduleCockpitRangeFromNavMode(data.navMode || data.mode);
   if (rangeKey === 'next30') {
-    dateLabel = dt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    var monthIso = data.date || '';
+    try {
+      if (typeof scheduleGetNavigationSnapshot === 'function') {
+        var navSnap = scheduleGetNavigationSnapshot();
+        if (navSnap && (navSnap.rangeStartIso || navSnap.focusDateIso)) {
+          monthIso = navSnap.rangeStartIso || navSnap.focusDateIso;
+        }
+      }
+    } catch (_hdr) { /* keep data.date */ }
+    var monthDt = monthIso ? new Date(String(monthIso).slice(0, 10) + 'T00:00:00') : dt;
+    dateLabel = monthDt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   } else {
     dateLabel = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     if (!isToday) {

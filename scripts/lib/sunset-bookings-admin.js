@@ -333,21 +333,25 @@ function bookingMatchesDateRange(row, dateFrom, dateTo) {
   const from = dateFrom ? parseIsoDate(dateFrom) : null;
   const to = dateTo ? parseIsoDate(dateTo) : null;
   if (!from && !to) return true;
-  const dates = Array.isArray(row.service_dates) && row.service_dates.length
-    ? row.service_dates.map(String)
-    : [];
-  if (!dates.length) {
-    const fallback = parseIsoDate(row.service_date_start)
-      || parseIsoDate(String(row.created_at || '').slice(0, 10))
-      || parseIsoDate(row.check_in);
-    if (!fallback) return false;
-    dates.push(fallback);
+  const primary = parseIsoDate(row.service_date_start)
+    || parseIsoDate(row.service_date)
+    || parseIsoDate(row.check_in)
+    || parseIsoDate(String(row.created_at || '').slice(0, 10));
+  const dates = [];
+  if (primary) dates.push(primary);
+  if (Array.isArray(row.service_dates)) {
+    row.service_dates.forEach((d) => {
+      const iso = parseIsoDate(d);
+      if (iso && dates.indexOf(iso) === -1) dates.push(iso);
+    });
   }
-  return dates.some((d) => {
-    if (from && d < from) return false;
-    if (to && d > to) return false;
-    return true;
-  });
+  if (!dates.length) return false;
+  // A booking is in-range when its shown start date is in range.
+  // Fall back to any service date only when start is missing.
+  const shown = primary || dates[0];
+  if (from && shown < from) return false;
+  if (to && shown > to) return false;
+  return true;
 }
 
 function bookingMatchesStatus(row, statusFilter) {

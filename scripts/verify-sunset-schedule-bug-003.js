@@ -19,14 +19,13 @@ const financeSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-finance-s
 assert.ok(/if \(scheduleRowEffectivePaid\(r\)\) return 'paid';\s*return 'unpaid';/.test(apiSrc),
   'guest chip does not treat SR payment_status=paid as cash');
 assert.ok(apiSrc.includes('booking_amount_paid_cents'));
-assert.ok(apiSrc.includes('if (ps === \'paid\' && paidRaw != null && !(Number(paidRaw) > 0)) ps = \'unpaid\''));
-
+assert.ok(apiSrc.includes("if (!scheduleRowEffectivePaid(group)) ps = 'unpaid'"));
 assert.ok(cockpitSrc.includes('range: scheduleCockpitRangeFromNavMode(navMode)'));
 assert.ok(cockpitSrc.includes("rangeKey === 'next30'"));
 assert.ok(cockpitSrc.includes("month: 'long', year: 'numeric'"));
-
-assert.ok(bookingsUiSrc.includes('fromVal || adminBookingsState.filters.date_from'));
-assert.ok(bookingsUiSrc.includes('adminBookingsState.filters.date_from = start || \'\''));
+assert.ok(cockpitSrc.includes('navSnap.rangeStartIso || navSnap.focusDateIso'));
+assert.ok(bookingsUiSrc.includes('fromVal || adminBookingsState.filters.date_from') || bookingsUiSrc.includes('data-range-cleared'));
+assert.ok(bookingsUiSrc.includes("adminBookingsState.filters.date_from = start || ''"));
 
 const { filterBookingRows } = require(path.join(ROOT, 'scripts/lib/sunset-bookings-admin.js'));
 const rows = [

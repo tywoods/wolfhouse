@@ -82,10 +82,11 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
 
   function rowEffectivePaid(r) {
     if (!r) return false;
-    if (String(r.booking_payment_status || '').toLowerCase() === 'paid') return true;
-    var paid = Number(r.booking_amount_paid_cents || 0);
+    var paid = Number(r.booking_amount_paid_cents || r.amount_paid_cents || 0);
+    if (!(paid > 0)) return false;
     var bal = r.booking_balance_due_cents;
-    return paid > 0 && bal != null && Number(bal) <= 0;
+    if (bal != null && Number(bal) > 0) return false;
+    return true;
   }
 
   function deriveStableRowId(row, meta) {

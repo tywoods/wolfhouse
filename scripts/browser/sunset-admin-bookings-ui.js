@@ -250,8 +250,12 @@ function wireAdminBookingsPanel() {
     var fromVal = df ? String(df.value || '').trim() : '';
     var toVal = dt ? String(dt.value || '').trim() : '';
     // Search must keep an already-applied date range (empty inputs must not widen the list).
-    adminBookingsState.filters.date_from = fromVal || adminBookingsState.filters.date_from || '';
-    adminBookingsState.filters.date_to = toVal || adminBookingsState.filters.date_to || '';
+    if (fromVal) adminBookingsState.filters.date_from = fromVal;
+    else if (df && df.getAttribute && df.getAttribute('data-range-cleared') === '1') adminBookingsState.filters.date_from = '';
+    else if (!adminBookingsState.filters.date_from) adminBookingsState.filters.date_from = '';
+    if (toVal) adminBookingsState.filters.date_to = toVal;
+    else if (dt && dt.getAttribute && dt.getAttribute('data-range-cleared') === '1') adminBookingsState.filters.date_to = '';
+    else if (!adminBookingsState.filters.date_to) adminBookingsState.filters.date_to = fromVal || adminBookingsState.filters.date_to || '';
     adminBookingsState.filters.status = st ? String(st.value || '') : '';
     adminBookingsState.filters.type = ty ? String(ty.value || '') : '';
     // Archived checkbox removed — hidden filter uses show_hidden only.
@@ -1145,8 +1149,8 @@ function adminBookingsDateRangeCommit(onApply) {
   }
   var df = el('admin-bookings-date-from');
   var dt = el('admin-bookings-date-to');
-  if (df) df.value = start || '';
-  if (dt) dt.value = end || '';
+  if (df) { df.value = start || ''; df.removeAttribute('data-range-cleared'); }
+  if (dt) { dt.value = end || ''; dt.removeAttribute('data-range-cleared'); }
   adminBookingsState.filters.date_from = start || '';
   adminBookingsState.filters.date_to = end || '';
   adminBookingsSyncDateRangeDisplay();
@@ -1201,8 +1205,8 @@ function wireAdminBookingsDateRange(onApply) {
       adminBookingsDateRangeDraft = { start: null, end: null };
       var df = el('admin-bookings-date-from');
       var dt = el('admin-bookings-date-to');
-      if (df) df.value = '';
-      if (dt) dt.value = '';
+      if (df) { df.value = ''; df.setAttribute('data-range-cleared', '1'); }
+      if (dt) { dt.value = ''; dt.setAttribute('data-range-cleared', '1'); }
       adminBookingsState.filters.date_from = '';
       adminBookingsState.filters.date_to = '';
       adminBookingsSyncDateRangeDisplay();

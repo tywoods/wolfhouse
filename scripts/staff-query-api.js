@@ -24379,7 +24379,11 @@ function scheduleRenderStatusBadgeHtml(group, opts){
     var ps = String(group.payment_status || '').toLowerCase();
     var paidRaw = group.booking_amount_paid_cents;
     if (paidRaw == null) paidRaw = group.amount_paid_cents;
-    if (ps === 'paid' && paidRaw != null && !(Number(paidRaw) > 0)) ps = 'unpaid';
+    if (typeof scheduleRowEffectivePaid === 'function' && group) {
+      if (!scheduleRowEffectivePaid(group)) ps = 'unpaid';
+    } else if (!(Number(paidRaw) > 0)) {
+      ps = 'unpaid';
+    }
     if (ps === 'paid'){
       html = '<span class="portal-schedule-status is-paid">' + escHtml(portalT('schedule.status.paid')) + '</span>';
     } else if (ps === 'pending' || ps === 'waiting_payment' || ps === 'not_requested' || ps){

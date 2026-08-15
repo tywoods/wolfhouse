@@ -246,8 +246,16 @@ if (modExists) {
   const paidDerived = ctx.scheduleNormalizeApiRow(Object.assign({}, lunaRaw, {
     payment_status: 'pending',
     booking_payment_status: 'paid',
+    booking_amount_paid_cents: 0,
   }), normCtx);
-  assert('20 payment display from server fields', paidDerived.payment_status === 'paid');
+  assert('20 payment display ignores paid status when cash is €0', paidDerived.payment_status === 'unpaid');
+  const paidCash = ctx.scheduleNormalizeApiRow(Object.assign({}, lunaRaw, {
+    payment_status: 'pending',
+    booking_payment_status: 'paid',
+    booking_amount_paid_cents: 4500,
+    booking_balance_due_cents: 0,
+  }), normCtx);
+  assert('20b payment display follows cash cents', paidCash.payment_status === 'paid');
   assert('21 no balance fallback calc in module', !modSrc.includes('subtotal') && !modSrc.includes('balance_due') || modSrc.includes('booking_balance_due_cents'));
   assert('22 no price calculation in module', !modSrc.includes('total_cents') && !modSrc.includes('quote'));
   assert('23 needs reply from trusted input', luna._needsReply === true);
