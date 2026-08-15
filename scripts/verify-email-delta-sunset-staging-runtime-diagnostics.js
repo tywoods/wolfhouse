@@ -254,6 +254,7 @@ test('real Graph transport exhaustively preserves only trusted closed row field 
     [{ id: null }, 'row_value_id'],
     [{ from: { emailAddress: { address: 7, name: 'bounded sender' } } }, 'row_value_from'],
     [{ receivedDateTime: null }, 'row_value_received_time'],
+    [{ receivedDateTime: 'not-a-date' }, 'row_value_received_time'],
     [{ isRead: 'false' }, 'row_value_read_state'],
     [{ conversationId: 7 }, 'row_value_conversation'],
     [{ internetMessageId: 7 }, 'row_value_internet_message_id'],
