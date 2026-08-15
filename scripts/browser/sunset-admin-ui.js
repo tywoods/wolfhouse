@@ -2303,6 +2303,28 @@ function financeViewQuery(){
   return q;
 }
 
+function financeAddDaysIso(iso, days){
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  var parts = iso.split('-').map(Number);
+  var dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+  dt.setUTCDate(dt.getUTCDate() + Number(days || 0));
+  var yy = dt.getUTCFullYear();
+  var mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  var dd = String(dt.getUTCDate()).padStart(2, '0');
+  return yy + '-' + mm + '-' + dd;
+}
+
+function financeInclusiveDayCount(start, end){
+  if (!financeDateIsValidIso(start)) return 1;
+  var e = financeDateIsValidIso(end) ? end : start;
+  var a = start.split('-').map(Number);
+  var b = e.split('-').map(Number);
+  var da = Date.UTC(a[0], a[1] - 1, a[2]);
+  var db = Date.UTC(b[0], b[1] - 1, b[2]);
+  var diff = Math.round((db - da) / 86400000);
+  return Math.max(1, Math.abs(diff) + 1);
+}
+
 function financeShiftAnchor(iso, gran, dir){
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
   var parts = iso.split('-').map(Number);
@@ -2501,6 +2523,22 @@ function financeCustomFocusInto(){
   }
 }
 
+function financeCustomMonthTitle(ym){
+  var parts = String(ym || '').split('-');
+  var y = Number(parts[0]);
+  var m = Number(parts[1]);
+  if (!y || !m) return String(ym || '');
+  var dt = new Date(Date.UTC(y, m - 1, 1));
+  var lang = '';
+  try { lang = String((typeof portalLang === 'string' && portalLang) || ''); } catch (_l) { lang = ''; }
+  var locale = lang === 'es' ? 'es-ES' : (lang === 'it' ? 'it-IT' : 'en-GB');
+  try {
+    return new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(dt);
+  } catch (_e) {
+    return String(ym || '');
+  }
+}
+
 function financeCustomLocaleTag(){
   var loc = 'en';
   try {
@@ -2543,7 +2581,7 @@ function financeRenderCustomCalendar(){
   if (month < 1) { month = 12; year -= 1; }
   if (month > 12) { month = 1; year += 1; }
   financeCustomViewYm = year + '-' + String(month).padStart(2, '0');
-  if (monthLabel) monthLabel.textContent = financeCustomViewYm;
+  if (monthLabel) monthLabel.textContent = financeCustomMonthTitle(financeCustomViewYm);
   var first = new Date(Date.UTC(year, month - 1, 1));
   var startDow = first.getUTCDay();
   var daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -2779,8 +2817,30 @@ function wireFinanceRedesignNav(body){
   body.addEventListener('click', function(ev){
     var t = ev.target;
     if (!t || !t.closest) return;
-    var btn = t.closest('[data-finance-nav], [data-finance-gran], [data-finance-trend]');
+    var btn = t.closest('[data-finance-nav], [data-finance-gran], [data-finance-trend], [data-pfb-cal]');
     if (!btn || !body.contains(btn)) return;
+
+    var calNav = btn.getAttribute('data-pfb-cal');
+    if (calNav === 'prev' || calNav === 'next') {
+      if (ev && ev.preventDefault) ev.preventDefault();
+      var ym = (financeCustomViewYm || financeTodayIso().slice(0, 7)).split('-');
+      var y = Number(ym[0]); var m = Number(ym[1]);
+      if (calNav === 'prev') { m -= 1; if (m < 1) { m = 12; y -= 1; } }
+      else { m += 1; if (m > 12) { m = 1; y += 1; } }
+      financeCustomViewYm = y + '-' + String(m).padStart(2, '0');
+      if (typeof financeRenderCustomCalendar === 'function') financeRenderCustomCalendar();
+      return;
+    }
+    if (calNav === 'clear') {
+      financeCustomDraft = { start: null, end: null };
+      financeCustomFocusIso = null;
+      if (typeof financeRenderCustomCalendar === 'function') financeRenderCustomCalendar();
+      return;
+    }
+    if (calNav === 'close') {
+      financeCustomClosePopover({ restoreFocus: true, discard: false });
+      return;
+    }
 
     var trend = btn.getAttribute('data-finance-trend');
     if (trend === 'days' || trend === 'month' || trend === 'year' || trend === '12m' || trend === 'months') {
@@ -2817,7 +2877,17 @@ function wireFinanceRedesignNav(body){
     if (nav === 'prev' || nav === 'next'){
       var dir = nav === 'prev' ? -1 : 1;
       var g = financeViewState.granularity || 'month';
-      if (g === 'custom') return;
+      if (g === 'custom') {
+        var cStart = financeViewState.start;
+        var cEnd = financeViewState.end || cStart;
+        if (!cStart || !financeDateIsValidIso(cStart)) return;
+        var span = financeInclusiveDayCount(cStart, cEnd);
+        financeViewState.start = financeAddDaysIso(cStart, dir * span);
+        financeViewState.end = financeAddDaysIso(cEnd || cStart, dir * span);
+        financeViewState.anchor = financeViewState.start;
+        loadAdminFinanceSummary();
+        return;
+      }
       var anchor = financeViewState.anchor || financeTodayIso();
       financeViewState.anchor = financeShiftAnchor(anchor, g, dir);
       loadAdminFinanceSummary();

@@ -18307,7 +18307,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .customers-toolbar-main{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .customers-search{flex:1 1 220px;min-width:0;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface);box-shadow:inset 0 1px 2px rgba(0,0,0,.03)}
 .customers-search:focus{outline:none;border-color:var(--tan);box-shadow:0 0 0 2px rgba(180,160,130,.18)}
-.customers-filters-wrap{position:relative;flex:0 0 auto}
+.customers-filters-wrap{position:relative;flex:0 0 auto;overflow:visible}
 .customers-filters-trigger{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;font-size:12px;font-weight:600;white-space:nowrap}
 .customers-filters-trigger.has-active{border-color:var(--tan);color:var(--text)}
 .customers-filters-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:200;width:min(360px,calc(100vw - 24px));max-width:none;max-height:min(70dvh,420px);box-sizing:border-box;overflow-x:hidden;overflow-y:auto;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:10px;display:none}

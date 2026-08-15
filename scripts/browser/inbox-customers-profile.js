@@ -209,6 +209,26 @@ function customerResolveConversationId(data) {
   return cs && cs.conversation_id ? cs.conversation_id : null;
 }
 
+function customerPaymentStatusLabel(raw) {
+  var s = String(raw == null ? '' : raw).trim().toLowerCase().replace(/\s+/g, '_');
+  if (!s || s === '—' || s === '-') return '—';
+  if (s === 'canceled') s = 'cancelled';
+  if (s === 'fully_paid' || s === 'paid_in_full') s = 'paid';
+  if (s === 'waiting_payment' || s === 'pending' || s === 'not_requested' || s === 'unpaid') s = 'unpaid';
+  if (s === 'deposit_paid' || s === 'partially_paid') s = 'partial';
+  var key = 'admin.bookings.status.' + s;
+  var t = '';
+  try { t = String((typeof portalT === 'function' && portalT(key)) || ''); } catch (_e) { t = ''; }
+  if (t && t !== key && t.indexOf('admin.bookings.') !== 0) return t;
+  var es = false;
+  try { es = String((typeof portalLang === 'string' && portalLang) || '') === 'es'; } catch (_l) { es = false; }
+  var en = { paid: 'Paid', unpaid: 'Unpaid', partial: 'Partial', refunded: 'Refunded', cancelled: 'Cancelled' };
+  var esMap = { paid: 'Pagado', unpaid: 'Sin pagar', partial: 'Parcial', refunded: 'Reembolsado', cancelled: 'Cancelado' };
+  if (es && esMap[s]) return esMap[s];
+  if (en[s]) return en[s];
+  return s.replace(/_/g, ' ');
+}
+
 function customerBookingDateLabel(val) {
   if (!val) return '';
   var s = String(val).trim();
@@ -237,7 +257,7 @@ function renderCustomerLinkedBookingsSection(data) {
       } else {
         dates = '—';
       }
-      var payStatus = b.payment_status || b.payment_payment_status || '—';
+      var payStatus = customerPaymentStatusLabel(b.payment_status || b.payment_payment_status);
       var openTitle = escHtml(portalT('customers.detail.openBookingTitle'));
       var openLabel = escHtml(portalT('customers.detail.openBooking'));
       html += '<tr><td>' + escHtml(String(b.booking_code || '—')) + '</td>' +
@@ -692,6 +712,12 @@ function wireCustomersFiltersUI() {
       if (!customersFiltersMenuOpen) return;
       var wrap = ev.target && ev.target.closest ? ev.target.closest('.customers-filters-wrap') : null;
       if (!wrap) closeCustomersFiltersMenu();
+    });
+    document.addEventListener('keydown', function(ev) {
+      if (!ev || (ev.key !== 'Escape' && ev.key !== 'Esc')) return;
+      if (!customersFiltersMenuOpen) return;
+      if (ev.preventDefault) ev.preventDefault();
+      closeCustomersFiltersMenu();
     });
   }
 }

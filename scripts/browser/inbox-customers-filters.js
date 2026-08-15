@@ -92,8 +92,33 @@ function closeCustomersFiltersMenu() {
   customersFiltersMenuOpen = false;
   var menu = el('cust-filters-menu');
   var btn = el('cust-filters-btn');
-  if (menu) { menu.classList.remove('open'); menu.setAttribute('aria-hidden', 'true'); }
+  if (menu) {
+    menu.classList.remove('open');
+    menu.setAttribute('aria-hidden', 'true');
+    menu.style.left = '';
+    menu.style.right = '';
+    menu.style.maxHeight = '';
+  }
   if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function positionCustomersFiltersMenu() {
+  var menu = el('cust-filters-menu');
+  if (!menu || !customersFiltersMenuOpen) return;
+  menu.style.left = '0';
+  menu.style.right = 'auto';
+  menu.style.maxHeight = '';
+  var r = null;
+  try { r = menu.getBoundingClientRect(); } catch (_r) { r = null; }
+  if (!r) return;
+  if (r.right > (window.innerWidth || r.right) - 8) {
+    menu.style.left = 'auto';
+    menu.style.right = '0';
+  }
+  var bottomRoom = (window.innerHeight || 800) - r.top - 12;
+  if (bottomRoom < r.height) {
+    menu.style.maxHeight = Math.max(160, bottomRoom) + 'px';
+  }
 }
 
 function toggleCustomersFiltersMenu(forceOpen) {
@@ -105,7 +130,14 @@ function toggleCustomersFiltersMenu(forceOpen) {
   menu.setAttribute('aria-hidden', open ? 'false' : 'true');
   var btn = el('cust-filters-btn');
   if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-  if (open) renderCustomersFiltersMenu();
+  if (open) {
+    renderCustomersFiltersMenu();
+    positionCustomersFiltersMenu();
+  } else {
+    menu.style.left = '';
+    menu.style.right = '';
+    menu.style.maxHeight = '';
+  }
 }
 
 function renderCustomersFiltersMenu() {
