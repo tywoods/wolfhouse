@@ -348,7 +348,8 @@ const ROW_VALUE_FIELD_CLASSES = Object.freeze([
 ]);
 const ROW_VALUE_FIELD_CLASS_SET = new Set(ROW_VALUE_FIELD_CLASSES);
 const ROW_VALUE_BRANCH_CLASSES = Object.freeze([
-  'subject_odata_metadata',
+  'subject_metadata',
+  'odata_metadata',
   'duplicate_message_identity',
   'tombstone_envelope_collision',
   'invariant_mapper_shape',
@@ -1779,7 +1780,9 @@ function mapSuccessBodyToMessagesDeltaPage(bodyText, providerMailboxId) {
         if (rowStage === 'row_value_invalid' && rowValueFieldClass !== null) {
           result.rowValueFieldClass = rowValueFieldClass;
         } else if (rowStage === 'row_value_invalid') {
-          result.rowValueBranchClass = 'subject_odata_metadata';
+          result.rowValueBranchClass = cleanRow === null
+            ? 'odata_metadata'
+            : 'subject_metadata';
         }
         return Object.freeze(result);
       }

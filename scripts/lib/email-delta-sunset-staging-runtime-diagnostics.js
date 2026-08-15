@@ -85,7 +85,8 @@ const CODES = Object.freeze([
   'row_value_conversation',
   'row_value_internet_message_id',
   'row_value_etag',
-  'row_branch_subject_odata_metadata',
+  'row_branch_subject_metadata',
+  'row_branch_odata_metadata',
   'row_branch_duplicate_message_identity',
   'row_branch_tombstone_envelope_collision',
   'row_branch_invariant_mapper_shape',
@@ -123,7 +124,8 @@ const GRAPH_ROW_VALUE_FIELD_CODES = Object.freeze({
 });
 
 const GRAPH_ROW_VALUE_BRANCH_CODES = Object.freeze({
-  subject_odata_metadata: 'row_branch_subject_odata_metadata',
+  subject_metadata: 'row_branch_subject_metadata',
+  odata_metadata: 'row_branch_odata_metadata',
   duplicate_message_identity: 'row_branch_duplicate_message_identity',
   tombstone_envelope_collision: 'row_branch_tombstone_envelope_collision',
   invariant_mapper_shape: 'row_branch_invariant_mapper_shape',
@@ -162,7 +164,8 @@ const PRIORITY = Object.freeze({
   row_value_conversation: 66,
   row_value_internet_message_id: 66,
   row_value_etag: 66,
-  row_branch_subject_odata_metadata: 66,
+  row_branch_subject_metadata: 66,
+  row_branch_odata_metadata: 66,
   row_branch_duplicate_message_identity: 66,
   row_branch_tombstone_envelope_collision: 66,
   row_branch_invariant_mapper_shape: 66,
