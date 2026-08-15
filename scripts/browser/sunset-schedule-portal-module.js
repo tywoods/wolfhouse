@@ -1717,21 +1717,42 @@ function schedulePortalShowQuoteChecking() {
   box.style.display = 'block';
 }
 
+/** Soft-gate keys that must clear € total and keep Create disabled. */
+function schedulePortalIsCreateSoftBlockKey(errorKey) {
+  var key = String(errorKey || '');
+  return key === 'schedule.create.courseOrTurnOff'
+    || key === 'schedule.create.courseRequired'
+    || key === 'calendar.state.invalidDateRange'
+    || key === 'schedule.create.privateLesson.sessionDatePast';
+}
+
 function schedulePortalRenderCreateQuotePreview(result) {
   var box = el('ps-create-quote-preview'); if (!box) return;
   if (result && (result.superseded || result.aborted)) return;
   try { box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite'); } catch (_e) { /* ignore */ }
   if (result && (result.idle || result.softInvalid)) {
     schedulePortalQuoteState = null;
-    // Course gate is a hard Create block but still a clear soft message (D4).
+    // Course gate + past/invalid service dates: hard Create block with a clear soft message.
     var gateKey = result.errorKey || '';
-    if (!result.idle && (gateKey === 'schedule.create.courseOrTurnOff' || gateKey === 'schedule.create.courseRequired'
-      || result.courseSelectionRequired)) {
+    var dateGate = gateKey === 'calendar.state.invalidDateRange'
+      || gateKey === 'schedule.create.privateLesson.sessionDatePast';
+    var courseGate = gateKey === 'schedule.create.courseOrTurnOff'
+      || gateKey === 'schedule.create.courseRequired'
+      || !!result.courseSelectionRequired;
+    if (!result.idle && (dateGate || courseGate || schedulePortalIsCreateSoftBlockKey(gateKey))) {
       schedulePortalQuotePriceBlocked = true;
-      var gateMsg = portalT('schedule.create.courseOrTurnOff')
-        || portalT('schedule.create.courseRequired')
-        || 'Select a course or turn off Group Course';
-      box.innerHTML = '<p class="portal-schedule-drawer-hint portal-schedule-quote-course-gate" style="margin:0;color:var(--danger,#b33)" data-quote-status="course-required">'
+      var gateMsg = dateGate
+        ? (portalT(gateKey) || portalT('calendar.state.invalidDateRange') || 'Enter valid dates as DD/MM/YYYY.')
+        : (portalT(gateKey)
+          || portalT('schedule.create.courseOrTurnOff')
+          || portalT('schedule.create.courseRequired')
+          || 'Select a course or turn off Group Course');
+      var statusAttr = dateGate ? 'invalid-date' : 'course-required';
+      var cls = dateGate
+        ? 'portal-schedule-drawer-hint portal-schedule-quote-invalid-date'
+        : 'portal-schedule-drawer-hint portal-schedule-quote-course-gate';
+      box.innerHTML = '<p class="' + cls + '" style="margin:0;color:var(--danger,#b33)" data-quote-status="'
+        + statusAttr + '">'
         + escHtml(String(gateMsg)) + '</p>';
       box.style.display = 'block';
     } else {
@@ -2016,7 +2037,7 @@ function schedulePortalRenderCreateIntentSummary(payload) {
   box.innerHTML = html;
 }
 
-/** Disable Create until guest name nonblank, phone valid, and (if Group) a course is selected. Quote may still run while guest blank. Unpriced/failed quotes keep Create disabled. */
+/** Disable Create until guest name nonblank, phone valid, and (if Group) a course is selected. Quote may still run while guest blank. Unpriced/failed quotes and past/invalid service dates keep Create disabled. */
 function schedulePortalSyncCreateSubmitEnabled() {
   var btn = el('ps-create-submit');
   if (!btn) return;
@@ -2037,7 +2058,24 @@ function schedulePortalSyncCreateSubmitEnabled() {
     var capN = typeof scheduleCreateCourseGuestCap === 'function' ? scheduleCreateCourseGuestCap() : 24;
     if (guestN != null && guestN > capN) overCap = true;
   }
-  var blocked = !!schedulePortalQuotePriceBlocked || overCap;
+  // Live date inputs: past / inverted / non-canonical ranges block Create even before soft quote paint.
+  var dateBlocked = false;
+  var dfNode = el('ps-create-date-from');
+  var dtNode = el('ps-create-date-to');
+  var dfRaw = dfNode && dfNode.value != null ? String(dfNode.value).trim() : '';
+  if (dfRaw) {
+    var dfIso = typeof schedulePortalCanonicalDateIso === 'function'
+      ? schedulePortalCanonicalDateIso(dfRaw) : null;
+    var dtRaw = dtNode && dtNode.value != null ? String(dtNode.value).trim() : '';
+    var dtIso = typeof schedulePortalCanonicalDateIso === 'function'
+      ? schedulePortalCanonicalDateIso(dtRaw || dfRaw) : null;
+    var todayIso = typeof schedulePortalMadridTodayIso === 'function'
+      ? schedulePortalMadridTodayIso() : null;
+    if (!dfIso || !dtIso || !todayIso || dfIso < todayIso || dtIso < todayIso || dfIso > dtIso) {
+      dateBlocked = true;
+    }
+  }
+  var blocked = !!schedulePortalQuotePriceBlocked || overCap || dateBlocked;
   btn.disabled = !guestOk || !courseOk || blocked;
   if (blocked) {
     if (typeof btn.setAttribute === 'function') btn.setAttribute('data-other-blocked', '1');
