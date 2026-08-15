@@ -810,6 +810,15 @@ function adminEmailRefreshOnLocaleChange(){
   try {
     if (typeof getStaffLocale === 'function') portalLang = getStaffLocale();
   } catch (_e) { /* ignore */ }
+  var body = el('admin-email-settings-body');
+  var busyRoot = (body && typeof body.querySelector === 'function')
+    ? body.querySelector('[data-email-connect-busy]')
+    : null;
+  if (busyRoot) {
+    // Keep Connecting chrome; only flip the EN/ES label. Do not refetch or re-paint the card.
+    setConnectBusy(busyRoot, true);
+    return;
+  }
   // Re-paint from the last honest payload. Do not refetch or invent last_sync.
   if ((adminEmailSettingsView === 'data' || adminEmailSettingsView === 'connect_failed') && adminEmailSettingsLastData) {
     renderAdminEmailSettingsData(adminEmailSettingsLastData);
