@@ -20,6 +20,14 @@
  *                  The persisted booking total wins when present; legacy null totals
  *                  fall back to every qualifying effective BSR commercial row once.
  *                  NON-ADDITIVE across days (never sum daily to get the month).
+ *  - Redesign Pendiente (period outstanding / Day·Month·Year·Custom hero):
+ *                  For each unpaid booking with dated BSR in the selected period:
+ *                    period_bal = min(booking_balance, max(0, Σ effective dues in period))
+ *                  Then Pendiente = min(Σ period_bal, max(0, Booked)).
+ *                  Aging (due soon / overdue) and delivered-unpaid use the same
+ *                  period_bal basis and inherit the Booked cap (never invent money).
+ *                  Needed because negative custom-line dues shrink Booked while
+ *                  max(0, period_due) still attributes full positive dues as unpaid.
  *  - Count       = number of distinct qualifying bookings.
  *  - Undated BSR rows never enter a dated period.
  *
@@ -204,6 +212,78 @@ function isStaffCustomLine(metadata) {
     || md.staff_custom_line === true
     || md.component === 'staff_custom_line'
     || CUSTOM_LINE_MARKERS.includes(md.kind);
+}
+
+/**
+ * Enforce redesign invariant: period Pendiente (and its aging pills) ≤ Booked.
+ * Scales due-soon / overdue / delivered-unpaid by the same ratio when the cap binds
+ * so pills stay consistent with the hero total. Does not invent prices — only caps
+ * derived unpaid attribution to the period's net booked cents from Staff API rows.
+ *
+ * @param {{
+ *   period_outstanding_cents: number,
+ *   due_soon_cents: number,
+ *   overdue_cents: number,
+ *   delivered_unpaid_cents: number,
+ *   booked_cents: number,
+ * }} parts
+ * @returns {{
+ *   period_outstanding_cents: number,
+ *   due_soon_cents: number,
+ *   overdue_cents: number,
+ *   delivered_unpaid_cents: number,
+ * }}
+ */
+function capPeriodOutstandingToBooked(parts) {
+  const bookedCap = Math.max(0, Number(parts.booked_cents) || 0);
+  let outstanding = Math.max(0, Number(parts.period_outstanding_cents) || 0);
+  let dueSoon = Math.max(0, Number(parts.due_soon_cents) || 0);
+  let overdue = Math.max(0, Number(parts.overdue_cents) || 0);
+  let delivered = Math.max(0, Number(parts.delivered_unpaid_cents) || 0);
+  if (outstanding <= bookedCap) {
+    return {
+      period_outstanding_cents: outstanding,
+      due_soon_cents: dueSoon,
+      overdue_cents: overdue,
+      delivered_unpaid_cents: Math.min(delivered, bookedCap),
+    };
+  }
+  if (outstanding <= 0) {
+    return {
+      period_outstanding_cents: bookedCap,
+      due_soon_cents: 0,
+      overdue_cents: 0,
+      delivered_unpaid_cents: 0,
+    };
+  }
+  // Integer-safe proportional scale; fix rounding on the larger aging bucket.
+  const scaleNum = bookedCap;
+  const scaleDen = outstanding;
+  dueSoon = Math.floor((dueSoon * scaleNum) / scaleDen);
+  overdue = Math.floor((overdue * scaleNum) / scaleDen);
+  delivered = Math.floor((delivered * scaleNum) / scaleDen);
+  let aging = dueSoon + overdue;
+  if (aging !== bookedCap) {
+    const delta = bookedCap - aging;
+    if (dueSoon >= overdue) dueSoon += delta;
+    else overdue += delta;
+    if (dueSoon < 0) {
+      overdue += dueSoon;
+      dueSoon = 0;
+    }
+    if (overdue < 0) {
+      dueSoon += overdue;
+      overdue = 0;
+    }
+  }
+  outstanding = bookedCap;
+  delivered = Math.min(Math.max(0, delivered), bookedCap);
+  return {
+    period_outstanding_cents: outstanding,
+    due_soon_cents: Math.max(0, dueSoon),
+    overdue_cents: Math.max(0, overdue),
+    delivered_unpaid_cents: delivered,
+  };
 }
 
 /**
@@ -938,9 +1018,12 @@ function computeSunsetFinanceSummary(args) {
   for (const bookingId of qualifyingPrimary) {
     const bal = bookingBalance(bookingId);
     if (bal <= 0) continue;
-    outstanding_bookings += 1;
     const periodDue = periodDueByBooking.get(bookingId) || 0;
+    // Cap each booking at its positive period dues so multi-day remainders
+    // cannot inflate Day/Month Pendiente above that period's line items.
     const periodBal = Math.min(bal, Math.max(0, periodDue));
+    if (periodBal <= 0) continue;
+    outstanding_bookings += 1;
     period_outstanding_cents = checkedAdd(period_outstanding_cents, periodBal);
     const last = lastServiceByBooking.get(bookingId);
     if (!last) {
@@ -955,9 +1038,20 @@ function computeSunsetFinanceSummary(args) {
       delivered_unpaid_bookings += 1;
     }
   }
-  if (period_outstanding_cents > primaryStats.booked_cents) {
-    period_outstanding_cents = primaryStats.booked_cents;
-  }
+  // Negative custom-line dues shrink Booked while per-booking max(0, period_due)
+  // still attributes positive dues in full — enforce Pendiente ≤ Booked and keep
+  // aging pills on the same capped basis (Staff API cents only; no invented prices).
+  const cappedOutstanding = capPeriodOutstandingToBooked({
+    period_outstanding_cents,
+    due_soon_cents,
+    overdue_cents,
+    delivered_unpaid_cents,
+    booked_cents: primaryStats.booked_cents,
+  });
+  period_outstanding_cents = cappedOutstanding.period_outstanding_cents;
+  due_soon_cents = cappedOutstanding.due_soon_cents;
+  overdue_cents = cappedOutstanding.overdue_cents;
+  delivered_unpaid_cents = cappedOutstanding.delivered_unpaid_cents;
 
   // Product revenue (BSR recognition by service_date in primary range) — F2 five-row shape
   const revenue_by_product = buildRevenueByProductRows(datedBsr, primaryRange, surfPacks);
@@ -1402,6 +1496,7 @@ module.exports = {
   shiftRangeYears,
   stockTotals,
   isStaffCustomLine,
+  capPeriodOutstandingToBooked,
   reconcileBookingBalances,
   FinanceDataQualityError,
   parseCanonicalIntCents,
